@@ -32,7 +32,7 @@ test('every inline GZCOORD example in MESSAGE-FORMAT.md validates', () => {
   }
 });
 
-for (const name of ['hello','observation','observation-diagnosis','reply','review']) {
+for (const name of ['observation','observation-diagnosis','reply','review']) {
   test(`${name} example is valid`, () => {
     const text = fs.readFileSync(new URL(`../protocol/examples/${name}.txt`, import.meta.url), 'utf8');
     // Under the deployment's catalogue: the examples are what sessions copy.
@@ -43,7 +43,7 @@ for (const name of ['hello','observation','observation-diagnosis','reply','revie
 }
 
 test('runtime model must not leak into protocol', () => {
-  const text = `[GZCOORD/1] HELLO\nFROM: develop-gzapp/gzapp\nROLE: Application Architect\nPROJECT: gzapp\nMESSAGE-ID: test-0001\nMODEL: secret-model\n`;
+  const text = `[GZCOORD/1] INFO\nFROM: develop-gzapp/gzapp\nROLE: Application Architect\nPROJECT: gzapp\nMESSAGE-ID: test-0001\nBROADCAST: true\nMODEL: secret-model\n`;
   assert.equal(validate(text).ok, false);
 });
 
@@ -53,8 +53,8 @@ test('normal messages require a routing target or broadcast', () => {
 });
 
 test('address is logical host/instance', () => {
-  const text = `[GZCOORD/1] HELLO\nFROM: /srv/gzapp/mobile\nROLE: Mobile Engineer\nPROJECT: gzapp\nMESSAGE-ID: test-0001\n`;
-  assert.equal(validate(text).ok, false);
+  const text = `[GZCOORD/1] INFO\nFROM: /srv/gzapp/mobile\nROLE: Mobile Engineer\nPROJECT: gzapp\nMESSAGE-ID: test-0001\nBROADCAST: true\n`;
+  assert.deepEqual(validate(text).errors, ['FROM must be <host>/<instance>']);
 });
 
 // One entry per runtime/transport term SPEC.md §14-§15 keeps off the wire,
@@ -64,7 +64,7 @@ test('transport-native identifiers are forbidden core metadata', () => {
   for (const field of ['TELEGRAM-CHAT-ID','SLACK-CHANNEL-ID','DISCORD-GUILD-ID',
                        'TOKEN-BUDGET','REASONING-BUDGET',
                        'MODEL','PROVIDER','WORKING-DIRECTORY','SUBAGENT-DEPTH']) {
-    const text = `[GZCOORD/1] HELLO\nFROM: develop-gzapp/gzapp\nROLE: Application Architect\nPROJECT: gzapp\nMESSAGE-ID: test-0001\n${field}: leaked\n`;
+    const text = `[GZCOORD/1] INFO\nFROM: develop-gzapp/gzapp\nROLE: Application Architect\nPROJECT: gzapp\nMESSAGE-ID: test-0001\nBROADCAST: true\n${field}: leaked\n`;
     assert.equal(validate(text).ok, false, `${field} must be rejected`);
   }
 });
@@ -73,7 +73,7 @@ test('a malformed metadata line is reported, not silently dropped', () => {
   // `_` is not a metadata key character, so this never became metadata and the
   // forbidden-field check could not see it — the message validated clean while
   // carrying runtime config the sender believed it had sent.
-  const text = `[GZCOORD/1] HELLO\nFROM: develop-gzapp/gzapp\nROLE: Application Architect\nPROJECT: gzapp\nMESSAGE-ID: test-0001\nTOKEN_BUDGET: leaked\n`;
+  const text = `[GZCOORD/1] INFO\nFROM: develop-gzapp/gzapp\nROLE: Application Architect\nPROJECT: gzapp\nMESSAGE-ID: test-0001\nBROADCAST: true\nTOKEN_BUDGET: leaked\n`;
   const result = validate(text);
   assert.equal(result.ok, false);
   assert.ok(result.errors.some(e => e.includes('TOKEN_BUDGET')));
@@ -88,19 +88,6 @@ test('body lines after a section marker are never malformed metadata', () => {
 test('TO must be a logical address when present', () => {
   const text = `[GZCOORD/1] INFO\nFROM: develop-gzapp/gzapp\nROLE: Application Architect\nPROJECT: gzapp\nMESSAGE-ID: test-0001\nTO: @telegram_username\n`;
   assert.equal(validate(text).ok, false);
-});
-
-test('hello refuses to emit a message its own validate would reject', () => {
-  const bad = gzmsg('hello', '--no-taxonomy', '--from', '/srv/project', '--role', 'Tester', '--project', 'gzapp');
-  assert.equal(bad.status, 1);
-  assert.match(bad.stderr, /FROM must be/);
-  assert.equal(bad.stdout, '');
-});
-
-test('hello emits a valid message for a well-formed address', () => {
-  const ok = gzmsg('hello', '--no-taxonomy', '--from', 'develop-gzapp/gzapp', '--role', 'Tester', '--project', 'gzapp');
-  assert.equal(ok.status, 0, ok.stderr);
-  assert.deepEqual(validate(ok.stdout).errors, []);
 });
 
 test('a repeated section marker resumes the section instead of replacing it', () => {
@@ -131,16 +118,6 @@ test('REPLY-EXPECTED is ordinary optional metadata', () => {
   const result = validate(text);
   assert.deepEqual(result.errors, []);
   assert.equal(result.message.metadata['REPLY-EXPECTED'], 'no');
-});
-
-// The relay transport numbers every message, HELLO included, and points at
-// this command to emit it — so the command must be able to carry the id.
-test('hello carries --message-id when given', () => {
-  const ok = gzmsg('hello','--no-taxonomy','--from','develop-gzapp/gzapp','--role','Application Architect',
-                   '--project','gzapp','--message-id','gzapp-0001');
-  assert.equal(ok.status, 0);
-  assert.match(ok.stdout, /^MESSAGE-ID: gzapp-0001$/m);
-  assert.deepEqual(validate(ok.stdout).errors, []);
 });
 
 // SPEC §7.4 gives REPLY-EXPECTED a closed grammar, and the relay procedure
@@ -200,7 +177,7 @@ test('an indented marker-shaped body line warns instead of silently merging', ()
 // exception — a stack trace on the CLI, and a caller that could not tell a
 // bad header from a crashed validator.
 test('a bad first line is a validation error, not an exception', () => {
-  for (const first of ['GZCOORD/1 HELLO', '[GZCOORD/2] HELLO', '[GZCOORD/1] HELLO ', '[GZCOORD/1] hello']) {
+  for (const first of ['GZCOORD/1 INFO', '[GZCOORD/2] INFO', '[GZCOORD/1] INFO ', '[GZCOORD/1] info']) {
     const result = validate(`${first}\nFROM: develop-gzapp/gzapp\nROLE: Application Architect\nPROJECT: gzapp\n`);
     assert.equal(result.ok, false, `${JSON.stringify(first)} must be rejected`);
     assert.ok(result.errors.some(e => e.includes('first line')));
@@ -209,13 +186,13 @@ test('a bad first line is a validation error, not an exception', () => {
 });
 
 test('a leading byte-order mark does not invalidate the header', () => {
-  const text = `\uFEFF[GZCOORD/1] HELLO\nFROM: develop-gzapp/gzapp\nROLE: Application Architect\nPROJECT: gzapp\nMESSAGE-ID: test-0001\n`;
+  const text = `\uFEFF[GZCOORD/1] INFO\nFROM: develop-gzapp/gzapp\nROLE: Application Architect\nPROJECT: gzapp\nMESSAGE-ID: test-0001\nBROADCAST: true\n`;
   assert.deepEqual(validate(text).errors, []);
 });
 
 test('validate CLI reports a bad first line on one line and exits 1', () => {
   const file = new URL('./bad-first-line.tmp.txt', import.meta.url);
-  fs.writeFileSync(file, 'GZCOORD/1 HELLO\nFROM: develop-gzapp/gzapp\nROLE: Tester\nPROJECT: gzapp\nMESSAGE-ID: test-0001\n');
+  fs.writeFileSync(file, 'GZCOORD/1 INFO\nFROM: develop-gzapp/gzapp\nROLE: Tester\nPROJECT: gzapp\nMESSAGE-ID: test-0001\nBROADCAST: true\n');
   try {
     const bad = gzmsg('validate', fileURLToPath(file));
     assert.equal(bad.status, 1);
@@ -276,25 +253,28 @@ test('an empty-valued metadata key warns, and the CLI prints the warning beside 
 // metadata. Nothing enforced it; three of the five examples broke it.
 test('a line over 72 characters warns, naming the line, and stays valid', () => {
   const long = 'x'.repeat(73);
-  const text = `[GZCOORD/1] HELLO\nFROM: develop-gzapp/gzapp\nROLE: Application Architect\nPROJECT: gzapp\nMESSAGE-ID: test-0001\nSPECIALTIES: ${long}\n\nABOUT:\n${long}\n`;
+  const text = `[GZCOORD/1] INFO\nFROM: develop-gzapp/gzapp\nROLE: Application Architect\nPROJECT: gzapp\nMESSAGE-ID: test-0001\nBROADCAST: true\nSPECIALTIES: ${long}\n\nABOUT:\n${long}\n`;
   const result = validate(text);
   assert.equal(result.ok, true);
   const lines = result.warnings.filter(w => w.includes('re-breaks it'));
   assert.equal(lines.length, 2);
-  assert.match(lines[0], /^line 6 is 86 columns wide; over 72 a terminal copy re-breaks it/);
-  assert.match(lines[1], /^line 9 is 73 columns wide/);
+  assert.match(lines[0], /^line 7 is 86 columns wide; over 72 a terminal copy re-breaks it/);
+  assert.match(lines[1], /^line 10 is 73 columns wide/);
   // Off (the bridge path): no width warning at any length.
   assert.deepEqual(validate(text, { maxColumns: 0 }).warnings.filter(w => w.includes('columns wide')), []);
   // Exactly 72 is inside the limit.
   assert.deepEqual(validate(`[GZCOORD/1] INFO\nFROM: develop-gzapp/gzapp\nROLE: Application Architect\nPROJECT: gzapp\nMESSAGE-ID: test-0001\nBROADCAST: true\n\nNOTES:\n${'y'.repeat(72)}\n`).warnings, []);
 });
 
-test('hello prints the line-length warning on stderr and still emits the message', () => {
-  const ok = gzmsg('hello','--no-taxonomy','--from','develop-gzapp/gzapp','--role','Tester','--project','gzapp',
-                   '--specialties', 'z'.repeat(80));
-  assert.equal(ok.status, 0);
-  assert.match(ok.stderr, /^warning: line 6 is 93 columns wide/m);
-  assert.match(ok.stdout, /^\[GZCOORD\/1\] HELLO\n/);
+test('validate prints the line-length warning on stderr and still passes the message', () => {
+  const file = new URL('./long-line.tmp.txt', import.meta.url);
+  fs.writeFileSync(file, `[GZCOORD/1] INFO\nFROM: develop-gzapp/gzapp\nROLE: Tester\nPROJECT: gzapp\nMESSAGE-ID: test-0001\nBROADCAST: true\nSPECIALTIES: ${'z'.repeat(80)}\n`);
+  try {
+    const ok = gzmsg('validate', '--no-taxonomy', fileURLToPath(file));
+    assert.equal(ok.status, 0, ok.stderr);
+    assert.match(ok.stderr, /^warning: line 7 is 93 columns wide/m);
+    assert.equal(ok.stdout, 'valid GZCOORD/1 message\n');
+  } finally { fs.unlinkSync(file); }
 });
 
 // SPEC §6: the well-formed separator is one space; a tab or nothing is not
@@ -303,10 +283,10 @@ test('hello prints the line-length warning on stderr and still emits the message
 // parser must). Nothing pinned any of it: a regex that dropped the space
 // requirement altogether left every test green.
 test('reference parser: separator is one space, tolerates a run, rejects tab and nothing', () => {
-  const base = 'ROLE: Application Architect\nPROJECT: gzapp\nMESSAGE-ID: test-0001\n';
+  const base = 'ROLE: Application Architect\nPROJECT: gzapp\nMESSAGE-ID: test-0001\nBROADCAST: true\n';
   for (const [line, ok] of [['FROM: develop-gzapp/gzapp', true], ['FROM:   develop-gzapp/gzapp   ', true],
                             ['FROM:develop-gzapp/gzapp', false], ['FROM:\tdevelop-gzapp/gzapp', false]]) {
-    const result = validate(`[GZCOORD/1] HELLO\n${line}\n${base}`);
+    const result = validate(`[GZCOORD/1] INFO\n${line}\n${base}`);
     assert.equal(result.ok, ok, JSON.stringify(line));
     if (ok) assert.equal(result.message.metadata.FROM, 'develop-gzapp/gzapp');
     else assert.ok(result.errors.some(e => e.startsWith('unparsable line in the metadata block: FROM')), JSON.stringify(line));
@@ -403,20 +383,20 @@ test('normalize undoes paste indentation without reclassifying body text', () =>
   const oddFirstMarker = normalize(' [GZCOORD/1] INFO\n  FROM: develop-gzapp/gzapp\n  ROLE: R\n  PROJECT: gzapp\nMESSAGE-ID: test-0001\n  BROADCAST: true\n  \n   NOTES:\n  first\n  \n  REFERENCES:\n  - adr: ADR-001\n');
   assert.ok(validate(oddFirstMarker).message.sections.REFERENCES.includes('- adr: ADR-001'));
   // Already-clean input is unchanged, and a message with no body is handled.
-  for (const name of ['hello','observation','observation-diagnosis','reply','review']) {
+  for (const name of ['observation','observation-diagnosis','reply','review']) {
     const clean = fs.readFileSync(new URL(`../protocol/examples/${name}.txt`, import.meta.url), 'utf8');
     assert.equal(normalize(clean), clean, name);
   }
-  assert.equal(normalize('  [GZCOORD/1] HELLO\n  FROM: a/b\n  ROLE: R\n  PROJECT: p\n'), '[GZCOORD/1] HELLO\nFROM: a/b\nROLE: R\nPROJECT: p\n');
+  assert.equal(normalize('  [GZCOORD/1] INFO\n  FROM: a/b\n  ROLE: R\n  PROJECT: p\n'), '[GZCOORD/1] INFO\nFROM: a/b\nROLE: R\nPROJECT: p\n');
 });
 
 test('normalize CLI prints the normalised message for validate to read', () => {
   const file = new URL('./pasted.tmp.txt', import.meta.url);
-  fs.writeFileSync(file, '  [GZCOORD/1] HELLO\n  FROM: develop-gzapp/gzapp\n  ROLE: Tester\n  PROJECT: gzapp\nMESSAGE-ID: test-0001\n');
+  fs.writeFileSync(file, '  [GZCOORD/1] INFO\n  FROM: develop-gzapp/gzapp\n  ROLE: Tester\n  PROJECT: gzapp\nMESSAGE-ID: test-0001\n  BROADCAST: true\n');
   try {
     const run = gzmsg('normalize', fileURLToPath(file));
     assert.equal(run.status, 0);
-    assert.equal(run.stdout, '[GZCOORD/1] HELLO\nFROM: develop-gzapp/gzapp\nROLE: Tester\nPROJECT: gzapp\nMESSAGE-ID: test-0001\n');
+    assert.equal(run.stdout, '[GZCOORD/1] INFO\nFROM: develop-gzapp/gzapp\nROLE: Tester\nPROJECT: gzapp\nMESSAGE-ID: test-0001\nBROADCAST: true\n');
     assert.deepEqual(validate(run.stdout).errors, []);
   } finally { fs.unlinkSync(file); }
 });
@@ -445,9 +425,8 @@ test('an assignment TO-ROLE is refused; the same TO an instance, and a non-assig
 // SPEC §7.1: one addressing field, the delivery scope. Live traffic
 // carried TO beside a TO-ROLE that matched no recorded role, and nothing
 // noticed, because the address had already routed the message; a
-// transport filtering by addressee could not obey two. HELLO and GOODBYE
-// are broadcasts by definition.
-test('exactly one of TO, TO-ROLE, BROADCAST; none on HELLO or GOODBYE', () => {
+// transport filtering by addressee could not obey two.
+test('exactly one of TO, TO-ROLE, BROADCAST', () => {
   const head = '[GZCOORD/1] INFO\nFROM: develop-gzapp/gzapp\nROLE: Application Architect\nPROJECT: gzapp\nMESSAGE-ID: test-0001\n';
   for (const pair of ['TO: develop-gzapp/web\nTO-ROLE: Web Engineer\n', 'TO: develop-gzapp/web\nBROADCAST: true\n', 'BROADCAST: true\nTO-ROLE: Web Engineer\n']) {
     const r = validate(`${head}${pair}`);
@@ -456,11 +435,31 @@ test('exactly one of TO, TO-ROLE, BROADCAST; none on HELLO or GOODBYE', () => {
   }
   for (const one of ['TO: develop-gzapp/web\n', 'TO-ROLE: Web Engineer\n', 'BROADCAST: true\n'])
     assert.deepEqual(validate(`${head}${one}`).errors, [], one);
+  assert.ok(validate(head).errors.includes('missing TO, TO-ROLE or BROADCAST: true'), 'none at all');
+});
+
+// SPEC §8, §18: HELLO and GOODBYE are retired, and a parser rejects one
+// naming the type as retired — with or without an addressing field, which
+// the old special case forbade — while every other core type still passes.
+test('HELLO and GOODBYE are rejected as retired; every other core type passes', () => {
+  const head = type => `[GZCOORD/1] ${type}\nFROM: develop-gzapp/gzapp\nROLE: Application Architect\nPROJECT: gzapp\nMESSAGE-ID: test-0001\n`;
   for (const type of ['HELLO', 'GOODBYE']) {
-    const r = validate(`[GZCOORD/1] ${type}\nFROM: develop-gzapp/gzapp\nROLE: Application Architect\nPROJECT: gzapp\nMESSAGE-ID: test-0001\nTO: develop-gzapp/web\n`);
-    assert.ok(r.errors.some(e => e.startsWith(`${type} is a broadcast by definition`)), r.errors);
-    assert.deepEqual(validate(`[GZCOORD/1] ${type}\nFROM: develop-gzapp/gzapp\nROLE: Application Architect\nPROJECT: gzapp\nMESSAGE-ID: test-0001\n`).errors, []);
+    for (const addressing of ['', 'BROADCAST: true\n', 'TO: develop-gzapp/web\n']) {
+      const r = validate(`${head(type)}${addressing}`);
+      assert.equal(r.ok, false, `${type} ${JSON.stringify(addressing)}`);
+      assert.ok(r.errors.includes(`${type} is retired (SPEC §8): whether an instance is running is presence, not an announcement`), r.errors);
+      assert.ok(!r.errors.some(e => e.startsWith('unknown type')), r.errors);
+    }
   }
+  const file = new URL('./retired.tmp.txt', import.meta.url);
+  fs.writeFileSync(file, `${head('HELLO')}BROADCAST: true\n`);
+  try {
+    const cli = gzmsg('validate', '--no-taxonomy', fileURLToPath(file));
+    assert.equal(cli.status, 1);
+    assert.match(cli.stderr, /^HELLO is retired \(SPEC §8\)/m);
+  } finally { fs.unlinkSync(file); }
+  for (const type of ['INFO', 'OBSERVATION', 'QUESTION', 'REQUEST', 'REVIEW', 'DECISION', 'HANDOFF', 'REPLY'])
+    assert.deepEqual(validate(`${head(type)}TO: develop-gzapp/web\n`).errors, [], type);
 });
 
 // SPEC §4 deployment catalogue: ROLE and TO-ROLE are taxonomy slugs,
@@ -478,11 +477,11 @@ test('with a taxonomy, ROLE and TO-ROLE are slugs; the address is not bound to t
     assert.ok(r.errors.some(e => e.startsWith(`ROLE "${role}" is not a role slug`)), `${role}: ${r.errors}`);
   }
   // A role change without a rename: valid, with a warning naming the disagreement.
-  const switched = validate('[GZCOORD/1] HELLO\nFROM: develop-qzapp/architect-cto-01\nROLE: backend-dev\nPROJECT: gzapp\nMESSAGE-ID: test-0001\n', { taxonomy });
+  const switched = validate('[GZCOORD/1] INFO\nFROM: develop-qzapp/architect-cto-01\nROLE: backend-dev\nPROJECT: gzapp\nMESSAGE-ID: test-0001\nBROADCAST: true\n', { taxonomy });
   assert.deepEqual(switched.errors, []);
   assert.ok(switched.warnings.some(w => w.startsWith('FROM names architect-cto but ROLE is backend-dev')), switched.warnings);
   // A clone named for no role is a session like any other, as sender and as addressee.
-  assert.deepEqual(validate('[GZCOORD/1] HELLO\nFROM: develop-qzapp/gzapp-claude2\nROLE: backend-dev\nPROJECT: gzapp\nMESSAGE-ID: test-0001\n', { taxonomy }).errors, []);
+  assert.deepEqual(validate('[GZCOORD/1] INFO\nFROM: develop-qzapp/gzapp-claude2\nROLE: backend-dev\nPROJECT: gzapp\nMESSAGE-ID: test-0001\nBROADCAST: true\n', { taxonomy }).errors, []);
   assert.deepEqual(validate('[GZCOORD/1] INFO\nFROM: develop-qzapp/db-admin\nROLE: db-admin\nPROJECT: gzapp\nMESSAGE-ID: test-0001\nTO: develop-qzapp/gzapp-claude2\n', { taxonomy }).errors, []);
   for (const bad of ['Architect / CTO', 'Application Architect']) {
     const r = validate(`[GZCOORD/1] INFO\nFROM: develop-qzapp/db-admin\nROLE: db-admin\nPROJECT: gzapp\nMESSAGE-ID: test-0001\nTO-ROLE: ${bad}\n`, { taxonomy });
@@ -541,75 +540,54 @@ test('whoami: the agent is the effective login, never the directory', () => {
   assert.notEqual(me.agent, path.basename(process.cwd()) === login ? 'x' : path.basename(process.cwd()));
 });
 
-test('hello derives the slug from the address when no role is recorded, and refuses a title as ROLE', () => withFixture(undefined, (root, tax) => {
-  const derived = gzmsg('hello', '--taxonomy', tax, '--from', 'develop-qzapp/architect-cto-01', '--project', 'gzapp');
-  assert.equal(derived.status, 0, derived.stderr);
-  assert.match(derived.stdout, /^ROLE: architect-cto$/m);
-  const title = gzmsg('hello', '--taxonomy', tax, '--from', 'develop-qzapp/architect-cto-01', '--role', 'Architect / CTO', '--project', 'gzapp');
-  assert.equal(title.status, 1);
-  assert.match(title.stderr, /ROLE "Architect \/ CTO" is not a role slug/);
-  // Outside a deployment the old contract holds.
-  const generic = gzmsg('hello', '--no-taxonomy', '--from', 'develop-gzapp/anything', '--role', 'Tester', '--project', 'gzapp');
-  assert.equal(generic.status, 0, generic.stderr);
+// The derivation a session's identity runs on (inbox.mjs identity(), which
+// the control plane's presence also reads), against a real binding file
+// read through the real resolver: whoami() runs in-process under the
+// fixture's AGENT_FABRIC_STATE_DIR. The login is overridden AFTER the
+// binding is read, so a slug-carrying account name can be exercised from
+// whatever login runs the suite.
+const asLogin = (agent, me = whoami()) => ({ ...me, agent });
+test('identity derives the slug from the login when no role is recorded', () => withFixture(undefined, (root, tax) => {
+  const me = identity(asLogin('architect-cto-01'), loadTaxonomy(tax));
+  assert.equal(me.slug, 'architect-cto');
+  assert.equal(me.address, `${whoami().host}/architect-cto-01`);
+  assert.equal(identity(asLogin('gzapp-claude2'), loadTaxonomy(tax)).slug, undefined, 'a login naming no role derives none');
 }));
 
-// The record wins over the address; a record the catalogue does not know
-// is an error naming the file and the value, never a silent guess from
-// the directory name; a malformed record warns and falls back; an
-// explicit --role wins and is warned about when it disagrees.
-test('hello prefers the recorded role, and refuses a recorded role outside the catalogue', () => {
+// The record wins over the login; a record the catalogue does not know
+// is an error naming the file and the value; a malformed record warns,
+// and the login's slug is what identity() is left with.
+test('the recorded role wins over the login, and a recorded role outside the catalogue is an error', () => {
   withFixture(bound('backend-dev'), (root, tax) => {
-    const r = gzmsg('hello', '--taxonomy', tax, '--from', 'develop-qzapp/architect-cto-01', '--project', 'gzapp');
-    assert.equal(r.status, 0, r.stderr);
-    assert.match(r.stdout, /^ROLE: backend-dev$/m);
-    assert.match(r.stderr, /^warning: FROM names architect-cto but ROLE is backend-dev/m);
-    const explicit = gzmsg('hello', '--taxonomy', tax, '--from', 'develop-qzapp/backend-dev-02', '--role', 'db-admin', '--project', 'gzapp');
-    assert.equal(explicit.status, 0, explicit.stderr);
-    assert.match(explicit.stdout, /^ROLE: db-admin$/m);
-    assert.match(explicit.stderr, /^warning: --role db-admin disagrees with .*binding\.json, which records backend-dev/m);
+    assert.equal(identity(asLogin('architect-cto-01'), loadTaxonomy(tax)).slug, 'backend-dev');
     assert.equal(recordedRole(loadTaxonomy(tax)).role, 'backend-dev');
+    assert.match(recordedRole(loadTaxonomy(tax)).file, /binding\.json$/);
   });
   withFixture(bound('security-engineer'), (root, tax) => {
-    const r = gzmsg('hello', '--taxonomy', tax, '--from', 'develop-qzapp/architect-cto-01', '--project', 'gzapp');
-    assert.equal(r.status, 1);
-    assert.match(r.stderr, /binding\.json records role "security-engineer", which is not in .*catalog\.json; pass --role explicitly/);
-    assert.equal(r.stdout, '');
     const rec = recordedRole(loadTaxonomy(tax));
-    assert.equal(rec.role, undefined); assert.match(rec.error, /security-engineer/);
+    assert.equal(rec.role, undefined);
+    assert.match(rec.error, /binding\.json records role "security-engineer", which is not in .*catalog\.json; pass --role explicitly/);
   });
-  // A record present but saying nothing usable warns, and the warning
-  // names the consequence the caller actually took — never the address
-  // when the address was not what was used.
   for (const state of ['not json', JSON.stringify({ agent: login, host: 'h', updated_at: 'x' })]) {
     withFixture(state, (root, tax) => {
       const cause = state === 'not json' ? /could not be read/ : /records no role/;
-      const r = gzmsg('hello', '--taxonomy', tax, '--from', 'develop-qzapp/architect-cto-01', '--project', 'gzapp');
-      assert.equal(r.status, 0, r.stderr);
-      assert.match(r.stdout, /^ROLE: architect-cto$/m);
-      assert.match(r.stderr, cause);
-      assert.match(r.stderr, /deriving architect-cto from the address instead$/m);
       assert.equal(recordedRole(loadTaxonomy(tax)).role, undefined);
       assert.match(recordedRole(loadTaxonomy(tax)).warning, cause);
-      const flag = gzmsg('hello', '--taxonomy', tax, '--from', 'develop-qzapp/architect-cto-01', '--role', 'db-admin', '--project', 'gzapp');
-      assert.equal(flag.status, 0, flag.stderr);
-      assert.match(flag.stderr, /using --role db-admin$/m);
-      const neither = gzmsg('hello', '--taxonomy', tax, '--from', 'develop-qzapp/gzapp-claude2', '--project', 'gzapp');
-      assert.notEqual(neither.status, 0);
-      assert.match(neither.stderr, /and the address names no role either$/m);
+      assert.equal(identity(asLogin('architect-cto-01'), loadTaxonomy(tax)).slug, 'architect-cto');
+      assert.equal(identity(asLogin('gzapp-claude2'), loadTaxonomy(tax)).slug, undefined);
     });
   }
   assert.throws(() => withFixture(undefined, async () => {}), /synchronous callback/);
-  // With a binding, hello needs neither --from nor --project: both come
-  // from the agent (login + host) and what it is bound to.
+  // With a binding, the address and the role both come from the agent
+  // (login + host) and what it is bound to.
   withFixture(JSON.stringify({ agent: login, host: 'h', role: 'web-dev', project: 'gzapp', updated_at: 'x' }), (root, tax) => {
-    const r = gzmsg('hello', '--taxonomy', tax);
-    assert.equal(r.status, 0, r.stderr);
-    assert.match(r.stdout, new RegExp(`^FROM: ${os.hostname().split('.')[0]}/${login}$`, 'm'));
-    assert.match(r.stdout, /^ROLE: web-dev$/m);
+    const me = identity(whoami(), loadTaxonomy(tax));
+    assert.equal(me.address, `${os.hostname().split('.')[0]}/${login}`);
+    assert.equal(me.slug, 'web-dev');
     // The project is the WORKING COPY's when the suite runs inside a
     // registered one (agent-fabric is a managed project itself); the
     // binding's project applies only outside any.
-    assert.match(r.stdout, new RegExp(`^PROJECT: ${whoami().project ?? 'gzapp'}$`, 'm'));
+    assert.equal(me.project, whoami().project ?? 'gzapp');
   });
 });
 
@@ -722,11 +700,11 @@ test('CLI: an unknown flag is refused before any side effect', () => {
     assert.equal(peek.status, 2, 'the counter-era flag is unknown on new-id');
     assert.match(peek.stderr, /unknown flag --peek/);
     assert.equal(peek.stdout, '');
-    const hello = gzmsg('hello', '--no-taxonomy', '--from', 'develop-gzapp/web', '--role', 'R', '--project', 'p', '--bogus');
-    assert.equal(hello.status, 2);
-    assert.match(hello.stderr, /unknown flag --bogus/);
-    assert.equal(hello.stdout, '');
-    const file = path.join(dir, 'm.txt'); fs.writeFileSync(file, '[GZCOORD/1] HELLO\nFROM: a/b\nROLE: R\nPROJECT: p\nMESSAGE-ID: b-0001\n');
+    const retired = gzmsg('hello', '--no-taxonomy', '--from', 'develop-gzapp/web', '--role', 'R', '--project', 'p');
+    assert.equal(retired.status, 2, 'hello is no longer a command');
+    assert.match(retired.stderr, /^usage: gzmsg\.mjs validate/);
+    assert.equal(retired.stdout, '');
+    const file = path.join(dir, 'm.txt'); fs.writeFileSync(file, '[GZCOORD/1] INFO\nFROM: a/b\nROLE: R\nPROJECT: p\nMESSAGE-ID: b-0001\nBROADCAST: true\n');
     const v = gzmsg('validate', file, '--nope');
     assert.equal(v.status, 2);
     assert.match(v.stderr, /unknown flag --nope/);
@@ -748,8 +726,7 @@ test('inbox forMe: exactly the messages SPEC §7.1 addresses to this session', (
   assert.equal(forMe(mk('INFO', 'TO-ROLE: db-admin\n'), me), true, 'TO-ROLE is my slug');
   assert.equal(forMe(mk('INFO', 'TO-ROLE: backend-dev\n'), me), false, 'TO-ROLE is another slug');
   assert.equal(forMe(mk('INFO', 'BROADCAST: true\n'), me), true, 'broadcast reaches everyone');
-  assert.equal(forMe(mk('HELLO', ''), me), true, 'HELLO is a broadcast by definition');
-  assert.equal(forMe(mk('GOODBYE', ''), me), true, 'GOODBYE too');
+  assert.equal(forMe(mk('HELLO', ''), me), false, 'a retired HELLO carries no addressing field: addressed to nobody');
   assert.equal(forMe(mk('INFO', ''), me), false, 'no addressing field at all: not for anyone');
   // A session with no resolvable role never matches a TO-ROLE.
   assert.equal(forMe(mk('INFO', 'TO-ROLE: db-admin\n'), { ...me, slug: undefined }), false);
@@ -806,8 +783,8 @@ test('waitLoop exits only on an addressed message; others pass acknowledged', as
     ack: async () => {}, waitTotal: 0, forMeFn: msg => forMe(msg, me) });
   assert.equal(r3.delivered, false, 'drain does not exit early — it lists');
   assert.equal(r3.classified.length, 1);
-  // HELLO and GOODBYE are acknowledged and never delivered, not even listed:
-  // presence is the control plane's (docs/adr/ADR-030-presence-replaces-hello-and-goodbye.md).
+  // A retired HELLO or GOODBYE an old session still sends is acknowledged
+  // and never delivered, not even listed: presence is the control plane's (docs/adr/ADR-030-presence-replaces-hello-and-goodbye.md).
   const acked4 = [];
   const r4 = await waitLoop({
     fetchPage: async () => ({ messages: [rec('h', 'HELLO', ''), rec('g', 'GOODBYE', 'NOTES:\nsession ended\n')] }),

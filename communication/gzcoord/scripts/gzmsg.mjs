@@ -25,7 +25,11 @@ import { defaultDictionaryOrEmpty, dictionary, printer } from './i18n.mjs';
 let EN;
 const en = () => (EN ??= printer(defaultDictionaryOrEmpty()));
 
-const CORE_TYPES = new Set(['HELLO','GOODBYE','INFO','OBSERVATION','QUESTION','REQUEST','REVIEW','DECISION','HANDOFF','REPLY']);
+// SPEC §8: self-announcements, retired — whether an instance is running is
+// presence, the deployment's to answer. A parser rejects them (§18); the
+// inbox acknowledges one an old session still sends and delivers nothing.
+export const RETIRED_TYPES = ['HELLO', 'GOODBYE'];
+const CORE_TYPES = new Set(['INFO','OBSERVATION','QUESTION','REQUEST','REVIEW','DECISION','HANDOFF','REPLY']);
 const FORBIDDEN = new Set([
   'MODEL','PROVIDER','WORKING-DIRECTORY','WORKING_DIRECTORY',
   'TOKEN-BUDGET','TOKEN_BUDGET','REASONING-BUDGET','REASONING_BUDGET',
@@ -254,7 +258,8 @@ export function findTaxonomy(_from = process.cwd()) {
 // tokens. Under the login model the instance IS the login, and provisioned
 // accounts are named for the role they were stood up as (`architect-cto-01`,
 // `backend-dev-02`) while a generic account (`user`) names none. A
-// convenience for a default ROLE in `hello` and a disagreement warning —
+// convenience for a session's TO-ROLE match when no binding records a role
+// (inbox.mjs identity()) and for a disagreement warning —
 // never a source of identity, never a reason to reject.
 export function slugOf(instance, taxonomy) {
   const tokens = instance.split('-');
@@ -277,7 +282,11 @@ export function validate(text, { taxonomy, maxColumns = RELAY_MAX_COLUMNS, t = e
   // line instead of a stack trace and callers see a uniform result shape.
   try { msg = parse(text, t); }
   catch (e) { return { ok: false, errors: [e.message], warnings, message: null }; }
-  if (!CORE_TYPES.has(msg.type) && !msg.type.startsWith('X-')) errors.push(t('validate.unknown-type', { type: msg.type }));
+  // SPEC §8, §18: a retired type is named as retired, not as unknown — a
+  // session not yet relaunched may still send one, and "unknown type"
+  // would send it looking for a typo.
+  if (RETIRED_TYPES.includes(msg.type)) errors.push(t('validate.retired-type', { type: msg.type }));
+  else if (!CORE_TYPES.has(msg.type) && !msg.type.startsWith('X-')) errors.push(t('validate.unknown-type', { type: msg.type }));
   // MESSAGE-ID joined the required set (§7.1) once a real transport made
   // its absence expensive: without one a message cannot be deduplicated by
   // an at-least-once carrier, answered by IN-REPLY-TO, or named in a
@@ -295,12 +304,9 @@ export function validate(text, { taxonomy, maxColumns = RELAY_MAX_COLUMNS, t = e
   // SPEC §7.1: the addressing field is the delivery scope, and there is
   // exactly one — a second answers "who receives" twice, and a transport
   // filtering by addressee cannot obey both. Live traffic carried TO beside
-  // an unmatched TO-ROLE and nothing noticed. HELLO and GOODBYE are
-  // broadcasts by definition and carry none.
+  // an unmatched TO-ROLE and nothing noticed.
   const addressing = ['TO', 'TO-ROLE', 'BROADCAST'].filter(k => msg.metadata[k] !== undefined);
-  if (['HELLO','GOODBYE'].includes(msg.type)) {
-    if (addressing.length) errors.push(t('validate.type-carries-addressing', { type: msg.type, fields: addressing.join(', ') }));
-  } else if (addressing.length === 0) errors.push(t('validate.no-addressing'));
+  if (addressing.length === 0) errors.push(t('validate.no-addressing'));
   else if (addressing.length > 1) errors.push(t('validate.addressing-exclusive', { fields: addressing.join(' and ') }));
   // SPEC §13: an assignment — a REQUEST, or anything carrying a REQUEST:,
   // ACCEPTANCE: or DELIVER-TO: section — goes TO one instance. A role may
@@ -463,7 +469,6 @@ export function mintId() {
 const FLAGS = {
   validate:  { valued: ['taxonomy'], boolean: ['no-taxonomy'], positional: 1 },
   normalize: { valued: [], boolean: [], positional: 1 },
-  hello:     { valued: ['from', 'role', 'project', 'message-id', 'specialties', 'capabilities', 'state-dir', 'taxonomy'], boolean: ['no-taxonomy'], positional: 0 },
   'new-id':  { valued: [], boolean: [], positional: 0 },
 };
 export function parseArgs(argv, spec) {
@@ -518,50 +523,6 @@ if (invokedAsMain(import.meta.url)) {
     for (const w of result.warnings) console.error(`warning: ${w}`);
     if (!result.ok) { console.error(result.errors.join('\n')); process.exit(1); }
     console.log('valid GZCOORD/1 message');
-  } else if (cmd === 'hello') {
-    // FROM defaults to this agent's address: <host>/<login>, from the one
-    // canonical resolver. PROJECT defaults to the project bound to the
-    // agent (from the working copy it activated in), when known.
-    const me = whoami();
-    const from = arg('from') ?? `${me.host}/${me.agent}`;
-    const project = arg('project') ?? me.project ?? undefined;
-    // With a catalogue the role can be derived: first from the agent's
-    // runtime binding (written by tools/fabric/role.py), then from the slug
-    // the address carries. The binding is authoritative where it exists;
-    // the address is a last resort, since an account is named once and a
-    // role can change. A binding the catalogue does not know is an error,
-    // never a silent fallback.
-    const recorded = recordedRole(taxonomy, me);
-    if (recorded.error && !arg('role')) { console.error(recorded.error); process.exit(1); }
-    const derived = taxonomy && (recorded.role || (from && addressRe.test(from) && slugOf(from.split('/')[1], taxonomy)));
-    const role = arg('role') ?? derived;
-    // The consequence is named by whoever took it, not by recordedRole:
-    // an explicit --role may have won, or nothing may have been derived
-    // at all, and the warning used to claim the address either way.
-    if (recorded.warning)
-      console.error(`warning: ${recorded.warning}; ` + (arg('role') ? `using --role ${arg('role')}` : derived ? `deriving ${derived} from the address instead` : 'and the address names no role either'));
-    if (arg('role') && recorded.role && arg('role') !== recorded.role)
-      console.error(`warning: --role ${arg('role')} disagrees with ${recorded.file}, which records ${recorded.role}`);
-    if (!from || !role || !project) throw new Error('hello requires --project unless the agent is bound to one, and --role unless the agent binding records a role or the address names one');
-    // MESSAGE-ID is required (§7.1), so hello mints one rather than
-    // emitting a message its own validate would reject. A minted id is
-    // unique by construction — no counter, no seed, nothing to collide.
-    const id = arg('message-id') ?? mintId();
-    const lines = [`[GZCOORD/1] HELLO`,`FROM: ${from}`,`ROLE: ${role}`,`PROJECT: ${project}`];
-    if (id) lines.push(`MESSAGE-ID: ${id}`);
-    if (arg('specialties')) lines.push(`SPECIALTIES: ${arg('specialties')}`);
-    if (arg('capabilities')) lines.push(`CAPABILITIES: ${arg('capabilities')}`);
-    // Validated like any message before it is printed: a HELLO this tool
-    // would reject names an address nobody could route to. HELLO itself
-    // is deprecated (SPEC §5) — no launcher or session sends one, presence
-    // is the control plane's — and the subcommand stays because it builds
-    // a valid GZCOORD/1 message the validator's address and role checks
-    // are exercised on, and a parser still accepts one.
-    const text = lines.join('\n');
-    const result = validate(text, { taxonomy, t: printer(dictionary(me)) });
-    for (const w of result.warnings) console.error(`warning: ${w}`);
-    if (!result.ok) { console.error(result.errors.join('\n')); process.exit(1); }
-    console.log(text);
   } else if (cmd === 'normalize') {
     const file = ARGS.positional[0];
     if (!file) throw new Error('usage: gzmsg.mjs normalize <file>');
@@ -573,7 +534,7 @@ if (invokedAsMain(import.meta.url)) {
     // alias until 2026-09-16 and is now an unknown command.)
     console.log(mintId());
   } else {
-    console.error('usage: gzmsg.mjs validate <file> | normalize <file> | hello --from ... --project ... [--role ...] [--message-id ...] (deprecated, SPEC §5) | new-id   (--taxonomy <path> | --no-taxonomy)');
+    console.error('usage: gzmsg.mjs validate <file> | normalize <file> | new-id   (--taxonomy <path> | --no-taxonomy)');
     process.exit(2);
   }
 }

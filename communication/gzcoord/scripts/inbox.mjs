@@ -83,7 +83,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync, spawn } from 'node:child_process';
-import { parse, validate, normalize, loadTaxonomy, findTaxonomy, slugOf, recordedRole, whoami, FABRIC_ROOT, invokedAsMain } from './gzmsg.mjs';
+import { parse, validate, normalize, loadTaxonomy, findTaxonomy, slugOf, recordedRole, whoami, FABRIC_ROOT, invokedAsMain, RETIRED_TYPES } from './gzmsg.mjs';
 import { defaultDictionaryOrEmpty, dictionary, localeReminder, printer } from './i18n.mjs';
 
 // Every line below is printed through `t`, the catalogue of the login
@@ -192,8 +192,7 @@ export function token(root, cfg = integrationConfig()) {
   return undefined;
 }
 
-// Who this session is, by the same derivation hello uses: the instance
-// half of the address is the AGENT — the Linux login, from
+// Who this session is: the instance half of the address is the AGENT — the Linux login, from
 // runtime/identity.py via whoami() — never the working copy's basename;
 // the host is the short hostname; the role comes from the agent's runtime
 // binding, else from a slug the login happens to carry. The working copy
@@ -206,11 +205,9 @@ export function identity(me = whoami(), taxonomy) {
   return { address: `${host}/${instance}`, instance, slug, project: me.project };
 }
 
-// SPEC §7.1 addressing, SPEC §17 reading rule. HELLO and GOODBYE are
-// broadcasts by definition and carry no field.
+// SPEC §7.1 addressing, SPEC §17 reading rule.
 export function forMe(msg, me) {
   const m = msg.metadata;
-  if (['HELLO', 'GOODBYE'].includes(msg.type)) return true;
   if (m.BROADCAST === 'true') return true;
   if (m.TO !== undefined) return m.TO === me.address;
   if (m['TO-ROLE'] !== undefined) return me.slug !== undefined && m['TO-ROLE'] === me.slug;
@@ -445,13 +442,16 @@ export const HOLD_POLL_MS = 1000;
 // the loop then waits, polling nothing, until the hold clears. `onHold`
 // is told once per transition, for the stderr line. The guard's own
 // sleep is cut when the slice ends, so a delivery waits for no tick.
-// HELLO and GOODBYE are acknowledged and never delivered, not even as a
-// line among the others: presence is the control plane's to answer
-// (`fabric-ctl <login|all> presence`, docs/adr/ADR-030-presence-replaces-hello-and-goodbye.md), and the
-// announcements a session not yet relaunched still sends were, on a busy
-// day, most of what every watch printed (the owner, 2026-09-25). A
-// replay by seq still shows one — that is asked for.
-export const ANNOUNCEMENT_TYPES = ['HELLO', 'GOODBYE'];
+// HELLO and GOODBYE are retired (SPEC §8) and a validator rejects them,
+// but a session not yet relaunched may still send one, and the relay does
+// not validate. Such a message is acknowledged and never delivered, not
+// even as a line among the others: presence is the control plane's to
+// answer (`fabric-ctl <login|all> presence`,
+// docs/adr/ADR-030-presence-replaces-hello-and-goodbye.md), and on a busy
+// day the announcements were most of what every watch printed (the owner,
+// 2026-09-25). Tolerated rather than refused: the cursor must move past
+// it. A replay by seq still shows one, by its metadata line: it carries no
+// addressing field, so it is addressed to nobody (forMe).
 
 export async function waitLoop({ fetchPage, ack, waitTotal, forMeFn = forMe, keywords = [], ownAddress,
                                  held = () => false, onHold = () => {}, holdPollMs = HOLD_POLL_MS, sleep = ms => new Promise(r => setTimeout(r, ms)) }) {
@@ -480,7 +480,7 @@ export async function waitLoop({ fetchPage, ack, waitTotal, forMeFn = forMe, key
     for (const rec of page.messages ?? []) {
       let msg = null;
       try { msg = parse(rec.content); } catch { /* not GZCOORD/1: never addressed */ }
-      if (msg && ANNOUNCEMENT_TYPES.includes(msg.type)) { try { await ack(rec.id); } catch { /* re-read next arm */ } continue; }
+      if (msg && RETIRED_TYPES.includes(msg.type)) { try { await ack(rec.id); } catch { /* re-read next arm */ } continue; }
       const isMine = msg ? forMeFn(msg) : false;
       classified.push({ rec, msg, isMine });
       if (isMine) delivered = true;
