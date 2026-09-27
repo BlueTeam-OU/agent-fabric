@@ -181,8 +181,7 @@ headings.
   `test_a_correction_naming_another_topic_s_section_replaces_it_there`,
   `test_an_unresolved_merge_target_is_reported_on_every_drain`,
   `test_a_claim_body_s_own_headings_never_open_a_section`.
-- Commits 2383b44 (the stop), 5ffd21f (the retitle), 04f4b1c (the
-  owner's same-agent rule), e995f18 and 3845255 (newer text only),
+- Commits 2383b44 (the stop), 5ffd21f (the retitle), 04f4b1c (the same-agent rule), e995f18 and 3845255 (newer text only),
   14f85cd and 94461ce (the topic's own files; the same-heading supersede
   in a flat file), 3571e91, b6dcc66 and 9e172af (corrections), cac5a04
   (body headings).

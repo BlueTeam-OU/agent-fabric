@@ -102,7 +102,7 @@ def adr_dir(root: str) -> str:
 # (the owner's rule for records, agent-fabric ADR-001 §5 rule 10). A
 # parenthesis that opens on the owner or the CEO is that attribution, across
 # a line break too.
-ATTRIBUTION_RE = re.compile(r"\((?:the owner|the CEO)\b[^()]*\)")
+ATTRIBUTION_RE = re.compile(r"\((?:the\s+owner|the\s+CEO)\b[^()]*\)", re.I)
 
 
 # A record reads current: when a rule began is the header's, the Amendments
@@ -112,13 +112,21 @@ ATTRIBUTION_RE = re.compile(r"\((?:the owner|the CEO)\b[^()]*\)")
 # Its own name: DATE_RE above is the anchored header pattern real_date()
 # and amend rely on (review thread on #53).
 BODY_DATE_RE = re.compile(r"\b\d{4}-\d\d-\d\d\b")
-UNDATED_SPANS = re.compile(r"`[^`]*`|\]\([^)]*\)|\((?:A|Amendment) \d{4}-\d\d-\d\d\)|[\w./-]*\d{4}-\d\d-\d\d[\w./-]*\.md")
+# A path is a token with a slash, or a bare dated file name with an
+# extension; either carries its date as a name, not as a statement.
+UNDATED_SPANS = re.compile(r"`[^`]*`|\]\([^)]*\)|\((?:A|Amendment) \d{4}-\d\d-\d\d\)"
+                           r"|[\w.-]*/[\w./-]*\d{4}-\d\d-\d\d[\w./-]*|[\w.-]*\d{4}-\d\d-\d\d[\w.-]*\.[a-z]{2,4}\b")
 
 
 def dated_sections(text: str) -> list[tuple[str, str]]:
     """(section number, date) for each date §2–§8 carries."""
-    out, cur = [], None
+    out, cur, fenced = [], None, False
     for ln in text.split("\n"):
+        if ln.lstrip().startswith("```"):
+            fenced = not fenced
+            continue
+        if fenced:
+            continue
         if ln.startswith("## "):
             m = re.match(r"## (\d)\.", ln)
             cur = m.group(1) if m and m.group(1) != "1" else None
@@ -322,6 +330,8 @@ def check(root: str = ROOT) -> list[str]:
         for dt, title in notes:
             if dt == "?":
                 findings.append(f"{ADR_DIR}/history/ADR-{a['number']}-amendments.md: {title!r} is not '### Amendment YYYY-MM-DD — Title'")
+            elif not real_date(dt):
+                findings.append(f"{ADR_DIR}/history/ADR-{a['number']}-amendments.md: amendment {title!r} is dated {dt}, which is not a date")
         good = collections.Counter(n for n in notes if n[0] != "?")
         rows = collections.Counter(a["rows"])
         if good != rows:
@@ -566,8 +576,8 @@ def main(argv: list[str] | None = None) -> int:
     if a.cmd == "new":
         print(cmd_new(a.root, a.slug, a.title)); return 0
     if a.cmd == "amend":
-        if not DATE_RE.match(a.date):
-            raise SystemExit("adr: --date YYYY-MM-DD")
+        if not real_date(a.date):
+            raise SystemExit("adr: --date YYYY-MM-DD, a real calendar date")
         cmd_amend(a.root, a.number, a.title, a.date); return 0
     if a.cmd == "lookup":
         hits = cmd_lookup(a.root, a.words)
