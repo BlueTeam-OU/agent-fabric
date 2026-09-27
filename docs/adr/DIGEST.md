@@ -15,6 +15,7 @@ searches it.
 | how hard a class thinks; effort levels; CLAUDE_CODE_EFFORT_LEVEL | ADR-006 |
 | a safeguard flag; model fallback; "Switched to" | ADR-007 |
 | Claude Code settings on every account; attribution; auto-update; the harness prompt | ADR-008 |
+| upgrading the fleet; distributing after a merge; fabric commands without approval | ADR-009 |
 
 ### ADR-000 — The enduring organization (Accepted)
 
@@ -150,3 +151,18 @@ searches it.
   new build (§5 rule 5).
 - Keywords: Claude Code, harness, settings.json, attribution, Co-Authored-By,
   auto-update, DISABLE_AUTOUPDATER, verbose, auto mode, system prompt, build.
+
+### ADR-009 — Fleet operations are signed control-plane actions (Accepted)
+
+- An operation on accounts is a signed action each account's daemon
+  verifies, performs and answers; never a hostexec/sudo loop per login
+  (§2, §5 rules 1–2).
+- `upgrade claude`: the pinned version, installs queued on a host lease
+  before any stop, SIGTERM only, the session resumed (§5 rules 3–4).
+- `upgrade fabric`: origin/main's sha, fast-forward or nothing, bootstrap
+  every time, no session stopped; run by the coordinator after every
+  merge (§5 rules 5–6). Any failed row exits 1 (§5 rule 7).
+- Fabric commands run by name from `commands.json`, linked into
+  `~/.local/bin` with narrow allow rules; wrappers still ask (§5 rules 8–9).
+- Keywords: fabric-ctl, upgrade, distribution, signed, control plane,
+  agentd, hostexec, harness.json, commands.json, approval, allow rule.

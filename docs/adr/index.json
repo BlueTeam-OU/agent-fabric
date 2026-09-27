@@ -81,6 +81,15 @@
       "date": "2026-09-17",
       "pillar": "P1",
       "amendments": 0
+    },
+    {
+      "number": "009",
+      "file": "ADR-009-fleet-operations-are-signed-control-plane-actions.md",
+      "title": "Fleet operations are signed control-plane actions",
+      "status": "Accepted",
+      "date": "2026-09-24",
+      "pillar": "P1",
+      "amendments": 0
     }
   ]
 }
