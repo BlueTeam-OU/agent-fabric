@@ -107,9 +107,7 @@ A role is a classification, never an identity. The role and the instance holding
 
 ## 5. Discovery and presence
 
-**`HELLO` and `GOODBYE` are deprecated.** An instance SHOULD NOT send either. Whether an instance is running — as what role, since when — is presence, and presence is the deployment's to answer from a source authoritative about it, never from announcements an instance makes about itself. An announcement is a claim: an instance that crashes, or never finishes starting, leaves a `HELLO` with no `GOODBYE` and reads as present. agent-fabric answers presence on its control plane, from each account's process table (`docs/adr/ADR-030-presence-replaces-hello-and-goodbye.md`).
-
-Both stay valid GZCOORD/1 messages. A conforming parser still accepts them — an older sender, or a session not yet updated, may still send them — and their grammar is unchanged (§7.1). A receiver MUST NOT rely on either arriving, and MAY acknowledge either without delivering it.
+**`HELLO` and `GOODBYE` are retired (§8).** Whether an instance is running — as what role, since when — is presence, and presence is the deployment's to answer from a source authoritative about it, never from announcements an instance makes about itself. An announcement is a claim: an instance that crashes, or never finishes starting, leaves a `HELLO` with no `GOODBYE` and reads as present. agent-fabric answers presence on its control plane, from each account's process table (`docs/adr/ADR-030-presence-replaces-hello-and-goodbye.md`).
 
 Any message from an address — an `OBSERVATION`, a `REPLY`, anything — establishes that the address is live at the moment it wrote: a peer MAY keep an ephemeral directory from what messages carry (the address, and `ROLE` / `PROJECT`, which are required on every message) and interact with it at once. That directory is a cache, not authoritative state; presence is.
 
@@ -173,8 +171,6 @@ BROADCAST: true        every instance
 
 One field, never two: an addressee is who receives, and a message with two of these answers that question twice. When the answers disagree the disagreement is invisible — a role string beside an address rides along unchecked, because the address already routed — and a transport that filters delivery by addressee cannot obey both. Who is asked to *act* is not an addressing matter: a message to an instance or a role is by itself the ask, and the body says what is asked. Keeping other instances informed is not one either: the recipient's acknowledgement by reference and the pull request do that through the authoritative channel (§2). A validator MUST reject a message carrying more than one addressing field (§18).
 
-`HELLO` and `GOODBYE` are broadcasts by definition and carry no addressing field; a validator MUST reject one that does.
-
 A direct `TO` is preferred when the peer address is known.
 
 `BROADCAST` takes the single value `true`. A message that does not broadcast omits the field; `BROADCAST: false` has no defined meaning, and a validator MUST reject a value other than `true` (§18) rather than read it as either absent or present.
@@ -216,31 +212,9 @@ REPLY-EXPECTED: yes | no
 
 Optional. Each message type carries a default expectation (SEMANTICS.md, "When a reply is expected"); this field overrides it for one message — an `OBSERVATION` that is purely for information, an `INFO` that asks to be corrected. `no` means the sender will not wait for a reply and does not want one; the recipient may still act, and says so through the authoritative artifact. Like the correlation fields, it MUST NOT create workflow state: it is a courtesy to whoever carries the message, not a constraint on the recipient.
 
-## 8. HELLO (deprecated, §5)
+## 8. HELLO and GOODBYE (retired)
 
-Kept so an older sender's `HELLO` parses and reads as it always did; no instance should send one.
-
-Required:
-
-```text
-[GZCOORD/1] HELLO
-FROM: <address>
-ROLE: <role>
-PROJECT: <project>
-```
-
-Recommended:
-
-```text
-SPECIALTIES: comma-separated human terms
-CAPABILITIES: comma-separated semantic capability names
-```
-
-Optional `ABOUT` section gives a concise self-description.
-
-A HELLO MUST NOT advertise model/provider as protocol identity.
-
-A HELLO SHOULD NOT publish secrets, local filesystem paths, tokens or private runtime configuration.
+`HELLO` and `GOODBYE` were self-announcements: an instance said it had started, and that it was leaving. They were deprecated when presence became the deployment's to answer (§5), and are retired: no instance sends them, and a conforming parser rejects a message of either type, naming the type as retired (§18). This narrows the accepted set as §18 allows — a reader of an earlier GZCOORD/1 text still accepts every message a sender of this one emits. The section number is kept so that every citation of §9 onwards keeps its target.
 
 ## 9. Capabilities
 
@@ -260,12 +234,6 @@ ci-inspection
 Capabilities are semantic labels, not MCP/tool implementation names. Receiving agents MUST NOT assume that a capability grants permission to perform an action; repository rules and tool authorization remain controlling.
 
 ## 10. Message types
-
-### HELLO
-Self-description and discovery. Deprecated (§5): presence is the deployment's.
-
-### GOODBYE
-Best-effort graceful departure notification. Deprecated (§5): presence is the deployment's.
 
 ### INFO
 Information with no requested action.
@@ -291,6 +259,8 @@ Transfer of context/responsibility by agreement. It transfers neither Git owners
 ### REPLY
 Generic response when a more specific type is unnecessary.
 
+`HELLO` and `GOODBYE` are retired (§8).
+
 Extensions SHOULD use names prefixed with `X-` until standardized.
 
 ## 11. Suggested body sections
@@ -298,7 +268,6 @@ Extensions SHOULD use names prefixed with `X-` until standardized.
 Messages MAY use any section names. The following have common meaning:
 
 - `SUBJECT` - may also be metadata for a one-line summary;
-- `ABOUT` - self-description in HELLO;
 - `CONTEXT` - background needed to understand the message;
 - `OBSERVATION` - what was noticed;
 - `VERIFIED` - how it was established, and the control that shows the measurement was live;
@@ -379,7 +348,7 @@ A transport adapter is responsible for:
 
 - connecting to a channel;
 - observing transport-native sender identity;
-- associating observed `HELLO` addresses with native identities;
+- associating the `FROM` address of observed messages with native identities;
 - delivering direct, role and broadcast messages;
 - preserving reply/thread metadata when possible;
 - applying authentication and allowlists appropriate to the transport.
@@ -468,7 +437,8 @@ A GZCOORD/1 parser:
 - MUST reject a `REPLY-EXPECTED` value other than `yes` or `no` (§7.4);
 - MUST reject a metadata key that appears more than once in the metadata block (§6);
 - MUST reject a `BROADCAST` value other than `true` (§7.1);
-- MUST reject a message carrying more than one of `TO`, `TO-ROLE` and `BROADCAST`, and a `HELLO` or `GOODBYE` carrying any (§7.1);
+- MUST reject a message carrying more than one of `TO`, `TO-ROLE` and `BROADCAST` (§7.1);
+- MUST reject a message of type `HELLO` or `GOODBYE`, naming the type as retired (§8);
 - MUST reject a `REQUEST` addressed `TO-ROLE`, and any message addressed `TO-ROLE` that carries a `REQUEST:`, `ACCEPTANCE:` or `DELIVER-TO:` section — an assignment goes to one instance (§13);
 - MUST reject a message with no `MESSAGE-ID` (§7.1), transport-generated diagnostics excepted;
 - SHOULD warn about missing recommended fields;
