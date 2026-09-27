@@ -52,6 +52,8 @@ searches it.
   (§5 rule 4); from outside, cite "agent-fabric ADR-NNN" (§5 rule 6).
 - Live checks are immutable evidence (§5 rule 8); `sources/` keeps the
   verbatim texts a record paraphrases, never edited (§5 rule 9).
+- A 2026-09-27 — a source's edit, rename or removal is refused whatever
+  the commit's trailers (§5 rule 9).
 - Keywords: ADR, amendment, supersede, ratify, index, digest, rationale.
 
 ### ADR-002 — Role, login and model are kept apart (Accepted)

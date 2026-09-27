@@ -111,7 +111,8 @@ check, and nothing making ratification visible.
 9. `docs/adr/sources/` keeps, verbatim, the texts a record paraphrases
    (the owner's statement behind ADR-000). A source is never edited: a
    change of mind is an amendment of the record; `adr.py range-check`
-   refuses an edit to a source without an `ADR-Editorial:` trailer.
+   refuses any edit, rename or removal of a source, whatever the
+   commit's trailers (A 2026-09-27).
 
 ## 6. Consequences
 
@@ -142,3 +143,11 @@ Accepted: the owner armed the pull request that introduces it (agent-fabric
 - gzapp's ADR-075 (documentation history model) and its
   `tools/validate_adr_index/`, the engine this one follows.
 - ADR-000, the pillars every record names.
+
+## Amendments
+
+The body above reads current; each change's full note is in [history/ADR-001-amendments.md](history/ADR-001-amendments.md).
+
+| Date | Amendment | Effect |
+|---|---|---|
+| 2026-09-27 | A source is refused whatever the trailer | §5 rule 9: an `ADR-Editorial:` trailer no longer lets a source edit through; it excuses a record's body edit only |

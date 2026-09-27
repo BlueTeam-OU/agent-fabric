@@ -46,9 +46,10 @@ Node, which writes `restart.json` for a fleet upgrade
 `actions-seen.json` (`runtime/control/agentd.mjs`) — writes in the same
 shape, a temporary beside the target, then a rename; it takes no
 `agent_lock`, and what serializes it is that one control agent runs per
-account. The launcher is the other party to `restart.json`: it reads and
-removes the marker once its session has stopped, after the control
-agent wrote it while that session ran.
+account. The launcher is the other party to `restart.json`: after its
+session stopped it polls the marker until the control agent records the
+upgrade's outcome, then removes it. Both sides replace the whole file or
+remove it, never edit it in place.
 
 A binding is per (agent, host). A working-copy rename merges history,
 never overwrites it.
