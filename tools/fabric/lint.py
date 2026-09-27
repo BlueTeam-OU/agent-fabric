@@ -49,6 +49,7 @@ import importlib.util
 import json
 import os
 import re
+import subprocess
 import sys
 from collections import defaultdict
 from typing import Any
@@ -143,6 +144,59 @@ def prompt_template_findings() -> list[str]:
 # role's; absent in a fixture fabric, present in this one.
 HARNESS_SOURCE = os.path.join("runtime", "claude-code", "harness", "en.md")
 HARNESS_PLACEHOLDER = "{memory_dir}"
+
+
+def adr_findings(root: str | None = None) -> list[str]:
+    """docs/adr/: tools/fabric/adr.py's check, as lint findings (agent-fabric
+    ADR-001). Absent in a fixture fabric that has no records, which is fine."""
+    root = root or layout.FABRIC_ROOT
+    if not os.path.isdir(os.path.join(root, "docs", "adr")):
+        return []
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import adr  # noqa: E402 — a sibling module, loaded only when there are records
+    return [f"adr: {f}" for f in adr.check(root)]
+
+
+# A path to one of the fabric's own documents, cited from any tracked text
+# file, must resolve — from the repository root or from the citing file's
+# own directory: a moved relay-setup note left a dangling pointer in
+# inbox.mjs for weeks, and nothing looked. Warnings while
+# the documents move into decision records (agent-fabric ADR-001 §7); the
+# evidence (live checks), the amendment history, knowledge slices (they
+# cite what was true when written) and test fixtures are exempt.
+DOC_PATH_RE = re.compile(r"(?<![\w/.-])((?:docs|policies|communication/gzcoord/(?:protocol|docs))/[A-Za-z0-9_./-]*?\.md)(?![\w-])")
+FABRIC_ADR_RE = re.compile(r"agent-fabric ADR-(\d{3})(?!\d)")
+DOC_PATH_EXEMPT = ("docs/live-checks/", "docs/adr/history/", "memory/", ".agent-fabric/memory/", "tests/", "communication/gzcoord/history/")
+
+
+def doc_path_findings(root: str | None = None) -> list[str]:
+    root = root or layout.FABRIC_ROOT
+    try:
+        files = subprocess.run(["git", "-C", root, "ls-files"], capture_output=True, text=True, check=True).stdout.split()
+    except (OSError, subprocess.CalledProcessError):
+        return []
+    adr_dir = os.path.join(root, "docs", "adr")
+    numbers = {f[4:7] for f in os.listdir(adr_dir) if f.startswith("ADR-") and f[4:7].isdigit()} if os.path.isdir(adr_dir) else set()
+    out: list[str] = []
+    for rel in files:
+        if rel.startswith(DOC_PATH_EXEMPT) or "/test_" in f"/{rel}" or "/tests/" in f"/{rel}":
+            continue
+        if not rel.endswith((".md", ".py", ".sh", ".mjs", ".js", ".json", ".service")) and "/" in rel and not rel.startswith("bin/"):
+            continue
+        try:
+            with open(os.path.join(root, rel), encoding="utf-8") as fh:
+                text = fh.read()
+        except (OSError, UnicodeDecodeError):
+            continue
+        here = os.path.dirname(os.path.join(root, rel))
+        for m in DOC_PATH_RE.finditer(text):
+            target = m.group(1)
+            if not (os.path.exists(os.path.join(root, target)) or os.path.exists(os.path.join(here, target))):
+                out.append(f"{rel}: cites {target}, which does not exist")
+        for m in FABRIC_ADR_RE.finditer(text):
+            if m.group(1) not in numbers:
+                out.append(f"{rel}: cites agent-fabric ADR-{m.group(1)}, which does not exist")
+    return sorted(set(out))
 
 
 def harness_source_findings(root: str | None = None) -> list[str]:
@@ -1697,6 +1751,10 @@ def main() -> int:
     # --- launch prompt sections --------------------------------------------
     findings += prompt_template_findings()
     findings += harness_source_findings()
+
+    # --- decision records and the paths that cite documents ----------------
+    findings += adr_findings()
+    WARNINGS.extend(doc_path_findings())
 
     for warning in WARNINGS:
         print(f"  warning: {warning}", file=sys.stderr)
