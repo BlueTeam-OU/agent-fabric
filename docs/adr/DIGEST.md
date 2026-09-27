@@ -29,6 +29,7 @@ searches it.
 | the blind review; code-review dispatch; post-review; what counts as coverage | ADR-020 |
 | scratch a suite leaves; TMPDIR; containers after a test; cleaning caches | ADR-021 |
 | the inbox watch at start; auto mode; plan mode holds the inbox; planning in presence | ADR-022 |
+| TO-ROLE; who gets a REQUEST; two holders of one role; claiming an assignment | ADR-023 |
 
 ### ADR-000 — The enduring organization (Accepted)
 
@@ -414,3 +415,18 @@ searches it.
 - Keywords: session, lifecycle, inbox watch, Monitor, gzcoord-inbox,
   --follow, opening prompt, resume, auto mode, defaultMode, plan mode,
   hold, planning, presence.
+
+### ADR-023 — An assignment goes to one login (Accepted)
+
+- A `REQUEST`, or any message with a `REQUEST:`, `ACCEPTANCE:` or
+  `DELIVER-TO:` section, is addressed `TO` one login; `TO-ROLE` is for
+  `INFO`, `DECISION`, `QUESTION` (the owner, 2026-09-19) (§2, §5 rules
+  1, 3).
+- The validator refuses the role-addressed shape and `send.mjs` does not
+  post it (§5 rule 2).
+- Not knowing the holder: the one on the path, else one running now,
+  else the lowest-numbered — and say which rule chose (§5 rule 4).
+- One that reached a role anyway is claimed by the first `REPLY`; the
+  others stand down silently (§5 rule 5).
+- Keywords: assignment, REQUEST, TO-ROLE, TO, holder, role address,
+  duplicate work, claim, REPLY, SPEC §13.

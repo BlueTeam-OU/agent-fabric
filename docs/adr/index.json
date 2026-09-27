@@ -207,6 +207,15 @@
       "date": "2026-09-13",
       "pillar": "P3",
       "amendments": 0
+    },
+    {
+      "number": "023",
+      "file": "ADR-023-an-assignment-goes-to-one-login.md",
+      "title": "An assignment goes to one login",
+      "status": "Accepted",
+      "date": "2026-09-19",
+      "pillar": "P3",
+      "amendments": 0
     }
   ]
 }
