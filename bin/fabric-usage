@@ -24,7 +24,7 @@
 # `fabric-ctl <observer> accounts` has those windows (docs/claude-accounts.md).
 #
 # Superseded for everyday use by `bin/fabric-ctl all usage`, which asks
-# each account's control agent over the relay (docs/control-plane.md):
+# each account's control agent over the relay (docs/adr/ADR-029-the-control-plane-a-control-agent-per-account.md):
 # no sudo, no per-host loop, a second instead of a minute. This stays as
 # the fallback for a host whose daemons are down.
 set -uo pipefail

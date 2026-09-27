@@ -261,6 +261,15 @@
       "date": "2026-09-21",
       "pillar": "P4",
       "amendments": 0
+    },
+    {
+      "number": "029",
+      "file": "ADR-029-the-control-plane-a-control-agent-per-account.md",
+      "title": "The control plane: a control agent per account answers signed actions over the relay",
+      "status": "Accepted",
+      "date": "2026-09-17",
+      "pillar": "P5",
+      "amendments": 0
     }
   ]
 }

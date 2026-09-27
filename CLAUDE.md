@@ -44,7 +44,7 @@ fabric-model list                       # every model choice per provider, with 
                                         # `set --provider <p> <target> <model>` writes your own layer
 fabric-ctl all status                   # (coordinator) the fleet in real time: each account's control
                                         # agent answers over the relay — Claude account, usage windows,
-                                        # key fingerprints, fabric head, session (docs/control-plane.md)
+                                        # key fingerprints, fabric head, session (docs/adr/ADR-029-the-control-plane-a-control-agent-per-account.md)
 fabric-ctl all upgrade claude           # (coordinator) every account to the pinned Claude Code,
                                         # a running session stopped gracefully and resumed on it (docs/fleet-upgrade.md)
 fabric-ctl all upgrade fabric           # (coordinator) distribution after a merge: every account's fabric

@@ -6,7 +6,7 @@
 #   fabric-ctl <login|all> host                   the machine, one row per host: load, memory and the Xen
 #                                                 balloon, disks, the leases held, the largest processes
 #   fabric-ctl <login|all> tokens [--days N]     each login's spend from its own session records,
-#                                              grouped by Claude account with its share (docs/control-plane.md)
+#                                              grouped by Claude account with its share (docs/adr/ADR-029-the-control-plane-a-control-agent-per-account.md)
 #   fabric-ctl <login|all> memory --out <dir>     the drain: each account's bundles, <dir>/<login>/<wc>.tar
 #   fabric-ctl <login|all> accounts               each observed Claude account's windows: session, weekly,
 #                                                 per-model weekly (bin/fabric-accounts; docs/claude-accounts.md)

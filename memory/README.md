@@ -190,7 +190,7 @@ Across accounts the drain is a **bundle**: one tar with a manifest naming
 who harvested and the digest of every file, written by the agent on its
 own account and verified by the coordinator before anything is read —
 only the agent reads its memory; the coordinator receives the result.
-It travels over the control plane (`docs/control-plane.md`): each
+It travels over the control plane (`docs/adr/ADR-029-the-control-plane-a-control-agent-per-account.md`): each
 account's own daemon answers `memory` by running the harvester on every
 memory directory the harness keeps for it, and `fabric-ctl` reassembles
 and verifies what came back — no sudo, no read of another home.

@@ -144,7 +144,7 @@ Accepted and in force: `upgrade claude` since PR #34/#35/#36,
 
 - `bin/fabric-ctl`, `runtime/control/agentd.mjs`, `runtime/control/upgrade.mjs`,
   `bin/fabric-lease`, `bin/fabric-accounts`, `runtime/claude-code/harness.json`.
-- `docs/control-plane.md` ("The fence"), `docs/claude-accounts.md`.
+- ADR-029 (the control agent and its fence), `docs/claude-accounts.md`.
 - `runtime/claude-code/commands.json`, `runtime/claude-code/bootstrap.sh`,
   `runtime/claude-code/user-settings.py`, `tests/test_session_commands.py`.
 - The live checks in Evidence. ADR-008 (the harness pin and user settings).

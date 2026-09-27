@@ -8,7 +8,7 @@
 #   fabric-host <host> rename <login> <old> <new> [--dry-run]   rename-working-copy.sh, run there
 #   fabric-host <host> persist                        every placement survives the host's reboot (linger; the record snapshot on Qubes)
 #   fabric-host <host> drain <login> [harvest flags...] > drain.tar   the account's memory as a bundle (stdout) — the sudo
-#                                                                    fallback; the drain is fabric-ctl <login> memory (docs/control-plane.md)
+#                                                                    fallback; the drain is fabric-ctl <login> memory (docs/adr/ADR-029-the-control-plane-a-control-agent-per-account.md)
 #
 # Every subcommand is the same operation on every host: the local one is
 # reached directly (today's sudo and filesystem access, unchanged), any

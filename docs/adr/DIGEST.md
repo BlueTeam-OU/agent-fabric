@@ -35,6 +35,7 @@ searches it.
 | measuring progress; supervision; verified result (proposed) | ADR-026 |
 | the language-culture role; the locale worker; the prompt in the locale; locale search | ADR-027 |
 | dictionaries; the i18n standard; the inbox in the reader's language; GZCOORD_DEFAULT_LOCALE_ONLY | ADR-028 |
+| the control agent; fabric-ctl; the control channel; what an account reports; the drain over the relay | ADR-029 |
 
 ### ADR-000 — The enduring organization (Accepted)
 
@@ -538,3 +539,24 @@ searches it.
 - Keywords: i18n, dictionary, locale, BCP-47, en-US, ru-RU, ka-GE,
   translation, inbox, validator, fallback, i18n.mjs, house standard,
   GZCOORD_DEFAULT_LOCALE_ONLY, reminder.
+
+### ADR-029 — The control plane: a control agent per account answers signed actions over the relay (Accepted)
+
+- Every account runs `agentd.mjs` under a lingering user unit, alive with
+  or without a session; it answers on the relay's `fabric:control`
+  channel, which the GZCoord tools refuse (§2, §5 rules 1–2).
+- No cursor, no ack: a daemon primes from the newest record, so a restart
+  replays nothing and a request made while it was down is lost (§2).
+- A closed op set, no request field reaches a shell; reads answered for a
+  host operator's address, `presence` for any placed account (§5 rules
+  3–4).
+- Actions need the operator's Ed25519 signature, live ≤ 600 s, never more
+  than a minute ahead, strictly newer than the last (§5 rule 5; ADR-009).
+- Every reply arrives, gaps named, no secret; `fabric-ctl` exits 1 on
+  silence, a refused bundle or a failed action; the drain files only
+  verified bundles (§5 rules 6–9).
+- Reads are fenced, not proved: a relay-token holder can forge a row until
+  replies are signed (§6, §7).
+- Keywords: control plane, agentd, fabric-ctl, control channel,
+  fabric:control, relay, ops, status, ping, keys, usage, recall, tokens,
+  drain, memory, signed, operator_key, keygen, linger, persist.

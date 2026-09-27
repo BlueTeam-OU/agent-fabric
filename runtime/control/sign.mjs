@@ -2,8 +2,8 @@
 //
 // The relay verifies no sender: any holder of the shared relay token can
 // post a record whose `from` is the operator's address. That was a fence
-// worth having while every op only reported (docs/control-plane.md,
-// "The fence, v1"); an op that stops a session and installs software
+// worth having while every op only reported (docs/adr/ADR-029-the-control-plane-a-control-agent-per-account.md
+// §5 rule 4); an op that stops a session and installs software
 // needs a proof. So an ACTION op is answered only when the request
 // carries `sig`, an Ed25519 signature over its canonical form made with a
 // key only the operator's Doppler config holds
