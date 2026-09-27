@@ -34,7 +34,13 @@ for c in 'python3 tests/test_adr.py | tail -1 && git commit -q -m x' \
          'set -o pipefail; python3 t.py | tail -1 && git commit -m x' \
          'echo set -o pipefail; false | tail -1 && git commit -m x' \
          $'# set -o pipefail\nfalse | tail -1 && git commit -m x' \
-         '( set -o pipefail ); false | tail -1 && git commit -m x'; do
+         '( set -o pipefail ); false | tail -1 && git commit -m x' \
+         'check | tail -3 2>&1 && git commit -m x' \
+         'check |& tail -3 && git commit -m x' \
+         'check | grep -q ok >/dev/null 2>&1 && git push' \
+         'check | tail -1 &> log && git commit' \
+         'check | tail -1 && git --no-pager commit -m x' \
+         'check 2>&1 | tail -1 && git -c core.hooksPath=x commit -m x'; do
   expect "refused: $c" deny "$c"
 done
 

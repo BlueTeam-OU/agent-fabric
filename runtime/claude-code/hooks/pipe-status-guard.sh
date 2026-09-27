@@ -19,12 +19,17 @@ cmd="$(jq -r '.tool_input.command // empty' 2>/dev/null)" || exit 0
 [[ -n "$cmd" ]] || exit 0
 # One line: a continuation or a newline must not hide the chain.
 flat="$(printf '%s' "$cmd" | tr '\n' ' ' | sed 's/\\ / /g')"
+# Redirections carry an `&` the chain match must not stop at (`2>&1`,
+# `&>log`), and `|&` is a pipe: normalise them away first (review of #54).
+flat="$(sed -E 's/[0-9]*>&[0-9-]+/ /g; s/&>>?/>/g; s/\|&/|/g' <<<"$flat")"
 # No exemption for pipefail: telling a `set -o pipefail` the shell runs from
 # one in an echo, a comment or a subshell is a shell parser this hook is
 # not, and each attempt left a bypass (review of #54). The way through is
 # the one the message names: run the check, capture its status, commit on 0.
 filter='(tail|head|grep|sed|cut|wc|awk|sort|uniq|tee)'
-write='(git([[:space:]]+-C[[:space:]]+[^[:space:]]+|[[:space:]]+-c[[:space:]]+[^[:space:]]+)*[[:space:]]+(commit|push)|gh[[:space:]]+pr[[:space:]]+(merge|create))'
+# Any global options between git and the subcommand (-C dir, -c k=v,
+# --no-pager, --git-dir=…).
+write='(git([[:space:]]+-[^[:space:]]+([[:space:]]+[^-[:space:]][^[:space:]]*)?)*[[:space:]]+(commit|push)|gh[[:space:]]+pr[[:space:]]+(merge|create))'
 if grep -qE "\|[[:space:]]*${filter}\b[^;&]*&&.*\b${write}\b" <<<"$flat"; then
   jq -nc '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",
     permissionDecisionReason:"A check piped into a filter and chained with && into a commit, push or merge tests the filter'"'"'s exit status, not the check'"'"'s: a failed check would still commit. Run the check to a log, capture rc=$?, and commit only on 0."}}'
