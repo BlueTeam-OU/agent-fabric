@@ -28,6 +28,7 @@ searches it.
 | opening, counting and arming a PR; pr-gate; Co-authored-by; GitHub settings | ADR-019 |
 | the blind review; code-review dispatch; post-review; what counts as coverage | ADR-020 |
 | scratch a suite leaves; TMPDIR; containers after a test; cleaning caches | ADR-021 |
+| the inbox watch at start; auto mode; plan mode holds the inbox; planning in presence | ADR-022 |
 
 ### ADR-000 — The enduring organization (Accepted)
 
@@ -394,3 +395,22 @@ searches it.
   measure first and say what was removed (§5 rule 5).
 - Keywords: test, suite, leak, scratch, TMPDIR, temporary directory,
   container, volume, cache, clean up, disk.
+
+### ADR-022 — The session lifecycle: auto mode, the watch armed at launch, the inbox held while planning and visible to senders (Accepted)
+
+- Every session watches its inbox from first turn to last, one watch per
+  session; the launcher's opening prompt arms it, and the start hook says
+  `NO INBOX WATCH` on start, resume or compaction without one (§2, §5
+  rules 1–3).
+- Every login's user settings start sessions in auto mode (§5 rule 4).
+- While a session plans, `plan-hold.sh` marks the account held and the
+  watch polls nothing; the planning span arrives together after
+  approval; sending, the start drain and `--wait` are not held (§5 rules
+  5–7).
+- Presence reports `planning`; `fabric-ctl presence` shows it;
+  `gzcoord-send` tells the sender, without refusing (§5 rule 8).
+- A clone-started session is held only if its project wires the hooks
+  (§5 rule 9, §7).
+- Keywords: session, lifecycle, inbox watch, Monitor, gzcoord-inbox,
+  --follow, opening prompt, resume, auto mode, defaultMode, plan mode,
+  hold, planning, presence.

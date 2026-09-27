@@ -198,6 +198,15 @@
       "date": "2026-09-19",
       "pillar": "P3",
       "amendments": 0
+    },
+    {
+      "number": "022",
+      "file": "ADR-022-the-session-lifecycle.md",
+      "title": "The session lifecycle: auto mode, the watch armed at launch, the inbox held while planning and visible to senders",
+      "status": "Accepted",
+      "date": "2026-09-13",
+      "pillar": "P3",
+      "amendments": 0
     }
   ]
 }

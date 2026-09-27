@@ -18,7 +18,7 @@ running (not the daemon's own children), how many, since when (the
 earliest start, from `/proc`), the role and project — the role
 derived exactly as the inbox's delivery derives it, so a `TO-ROLE` the
 relay would deliver is never refused — and whether it is planning (its
-inbox held until the plan is approved, `docs/inbox-hold-while-planning.md`;
+inbox held until the plan is approved, `docs/adr/ADR-022-the-session-lifecycle.md`;
 a boolean, nothing more). A `pgrep` that cannot run is
 `status: failed`, which every reader treats as unknown, never as offline.
 

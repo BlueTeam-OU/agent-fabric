@@ -241,7 +241,7 @@ export function presence({ uid = process.getuid(), exec = execFileSync, proc = '
   let role = null;
   try { const tp = findTaxonomy(); role = gzIdentity(me, tp ? loadTaxonomy(tp) : undefined).slug ?? null; } catch { /* no catalogue: no role */ }
   // Planning: the account's inbox is held until the plan is approved
-  // (docs/inbox-hold-while-planning.md), so a message sent now is read
+  // (docs/adr/ADR-022-the-session-lifecycle.md), so a message sent now is read
   // then, and a sender should not wait on an answer before.
   let planning = false;
   try { planning = live.length > 0 && hold().held === true; } catch { /* no hold directory: not planning */ }
