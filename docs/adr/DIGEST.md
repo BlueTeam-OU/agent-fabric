@@ -20,6 +20,7 @@ searches it.
 | fabric-ref; a project's CI red from a fabric push; landing a drain | ADR-011 |
 | secrets, keys, tokens; Doppler; reporting a leaked secret | ADR-012 |
 | where knowledge lives; memory classes; the drain; INDEX.md; hygiene | ADR-013 |
+| a drain stopped by a collision; supersede, keep-both, drop; merge_target | ADR-014 |
 
 ### ADR-000 — The enduring organization (Accepted)
 
@@ -247,3 +248,23 @@ searches it.
 - Keywords: memory, knowledge, slice, drain, harvest, assemble, roles_class,
   domain, solution, rationale, workflow, threads, INDEX, provenance,
   watermark, bundle, hygiene, redacted, tier.
+
+### ADR-014 — The memory assembler's rules: contested claims, same-agent retitle, corrections (Accepted)
+
+- A claim that disagrees with the corpus stops the drain: nothing
+  written, exit 1, every pair named with both texts and dates; sections
+  compared undated (§2, §5 rule 1).
+- A pair is a different text under a held heading, two claims of one
+  drain under one heading, or a retitle in a topic whose own files one
+  agent wrote — never inferred from the flat or carried file (§5 rule 2).
+- The owner decides `supersede`, `keep-both` or `drop` per heading or
+  per claim, recorded in the drain report (§5 rule 3).
+- An agent's newer text replaces its own older text without a question —
+  never older text, a contested heading, or two agents' texts (the owner,
+  2026-09-26) (§5 rules 4–6).
+- `merge_target` replaces the named section wherever it lives in the
+  class; ambiguous refuses the run, unresolved is reported every drain;
+  the correction keeps its own heading (§5 rules 7–8).
+- Keywords: collision, SUPERSEDING, supersede, keep-both, drop,
+  --collision-decisions, same-agent, retitle, merge_target, correction,
+  observed, idempotent, budget part.

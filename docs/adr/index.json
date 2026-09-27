@@ -126,6 +126,15 @@
       "date": "2026-09-13",
       "pillar": "P2",
       "amendments": 0
+    },
+    {
+      "number": "014",
+      "file": "ADR-014-the-memory-assemblers-rules.md",
+      "title": "The memory assembler's rules: contested claims, same-agent retitle, corrections",
+      "status": "Accepted",
+      "date": "2026-09-20",
+      "pillar": "P2",
+      "amendments": 0
     }
   ]
 }
