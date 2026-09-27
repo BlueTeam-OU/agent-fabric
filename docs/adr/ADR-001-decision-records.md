@@ -2,7 +2,7 @@
 
 **Date:** 2026-09-27
 **Status:** Accepted
-**Ratified:** owner, 2026-09-27, by arming agent-fabric #50 (ratification by merge, the owner's rule of 2026-09-27)
+**Ratified:** owner, 2026-09-27, "merge 50" — the owner's word to the fabric-coordinator session, arming agent-fabric #50
 **Decision Makers:** the owner; drafted by fabric-coordinator
 **Scope:** docs/adr/ — how agent-fabric records, amends and supersedes its decisions; tools/fabric/adr.py; who writes and who accepts
 **Pillar:** P2
@@ -81,8 +81,11 @@ check, and nothing making ratification visible.
 2. Only the owner accepts. A record is `Accepted` only with a `**Ratified:**
    owner, YYYY-MM-DD, <source>` line naming where the owner's word is — a
    commit, a relay message, a pull request. Merging a pull request ratifies
-   the already-practised records in it (the owner, 2026-09-27); a new
-   direction stays Proposed until the owner accepts it individually.
+   what its description says arming ratifies (the owner, 2026-09-27): the
+   already-practised records in it, and a new record only when the
+   description names it — as agent-fabric #50 named ADR-000 and ADR-001.
+   Any other new direction stays Proposed until the owner accepts it
+   individually.
 3. A decision is made or changed by a record: the coordinator writes a new
    ADR, amends one, or supersedes one — never a free-standing note.
 4. An amendment is the triple of §2, in one commit series, with the
@@ -124,7 +127,8 @@ has not been superseded, are candidates once the corpus is in.
 
 ## 8. Decision Status
 
-Accepted when the owner arms the pull request that introduces it.
+Accepted: the owner armed the pull request that introduces it (agent-fabric
+#50, "merge 50", 2026-09-27).
 
 ## References
 

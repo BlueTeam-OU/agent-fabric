@@ -2,7 +2,7 @@
 
 **Date:** 2026-09-27
 **Status:** Accepted
-**Ratified:** owner, 2026-09-27, by arming agent-fabric #50 (ratification by merge, the owner's rule of 2026-09-27)
+**Ratified:** owner, 2026-09-27, "merge 50" — the owner's word to the fabric-coordinator session, arming agent-fabric #50
 **Decision Makers:** the owner (the vision); drafted by fabric-coordinator, whose proposals are marked as such
 **Scope:** what agent-fabric is for, the principle every other decision serves, and the pillars the decision records are grouped under
 **Pillar:** all
@@ -18,8 +18,9 @@ decisions that lived in commits, JSON descriptions and the coordinator's
 memory.
 
 The owner stated the purpose on 2026-09-27. This record is the
-coordinator's paraphrase of that statement, which the owner ratifies; the
-owner's own text is the source (References). Every other decision record
+coordinator's paraphrase of that statement, which the owner ratified by
+arming it; the owner's own text is kept verbatim beside it, in
+`sources/ADR-000-the-owners-statement.md`. Every other decision record
 in this directory serves the purpose stated here and is grouped under one
 of its pillars.
 
@@ -61,8 +62,9 @@ expertise and coordination each time something changes.
 
 ## 4. Rationale
 
-The separation between agent, role, project, working copy, host, session
-and model was drawn early and has held under pressure: a role moved
+The separations — the six things `CLAUDE.md` keeps apart (agent, role,
+project, working copy, host, session), and the model beside them — were
+drawn early and have held under pressure: a role moved
 between accounts, a model family replaced under running work, a host
 crash, a provider change. Each time what survived was exactly what had
 been kept apart from the thing that changed. Naming that principle — and
@@ -86,8 +88,9 @@ what must endure depend on what will change?*
    | P6 | Federation | Organizations collaborate without becoming one installation or sharing what is confidential |
    | P7 | Sustainable operation | The organization lives within finite means and spends them cooperatively |
 
-2. Each pillar below is stated as **Today** — what exists, with the record
-   that holds it — and **Direction** — what does not exist yet. A
+2. Each pillar below is stated as **Today** — what exists, citing the
+   record that holds it once that record is written — and **Direction** —
+   what does not exist yet. A
    direction is never presented as an accomplished result.
 3. A decision that makes something that must endure depend on something
    that will change needs an explicit justification in its §4.
@@ -250,18 +253,19 @@ sustainable operation.
 
 ## 8. Decision Status
 
-Accepted when the owner arms the pull request that introduces it, under
-the owner's rule of 2026-09-27 that merging ratifies. The vision's text is
-the owner's; its paraphrase here, the pillar P7 and the marked proposals
-are the coordinator's, ratified with it.
+Accepted: the owner armed the pull request that introduces it (agent-fabric
+#50, "merge 50", 2026-09-27) after being told that arming ratifies this
+record, its marked proposals included. What is the owner's and what is the
+coordinator's: the purpose, the principle and pillars P1–P6 with their
+directions are the owner's statement, paraphrased; pillar P7, the six
+paragraphs marked *Coordinator proposal*, the alternatives of §3 and the
+structural rules 2–4 of §5 are the coordinator's. Any of the coordinator's
+parts can be struck by an amendment without touching the rest.
 
 ## References
 
-- The owner's statement of the vision, 2026-09-27, given to the
-  fabric-coordinator session that drafted this record ("I would broaden it
-  by shifting the focus: not merely persistent teams of agents, but
-  organizations capable of accumulating experience, exercising judgment,
-  and maintaining autonomy over time …").
+- `sources/ADR-000-the-owners-statement.md` — the owner's statement of
+  the vision, 2026-09-27, verbatim.
 - ADR-001, the decision records themselves.
 - `CLAUDE.md` §"Six things that are kept apart" and `README.md` — the
   separations this principle names.
