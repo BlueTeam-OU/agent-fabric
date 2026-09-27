@@ -5,7 +5,7 @@ topic: "check-exit-status-not-pipe"
 description: "Never `check | tail -1 && git commit`: the pipe's status is tail's, so a failed lint/static/suite still commits — run the check, capture rc=$?, commit only on 0"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-09-26"
+distilled_at: "2026-09-27"
 origin:
   - agent: user
     host: "develop-qzapp"
@@ -18,6 +18,7 @@ origin:
 derived_from:
   - 1fa68092e771d363
   - 770bfec8bc900afd
+  - aeae47e1bf226620
 ---
 
 ## Never `check | tail -1 && git commit`: the pipe's status is tail's, so a failed lint/static/suite still commits — run the check, capture rc=$?, commit only on 0
@@ -46,6 +47,16 @@ Caught before push, and re-amended gated on `rc`. Put the commit under
 `if [ $rc -eq 0 ]` on the one check that matters, never behind a list
 of `;`-joined checks.
 
-*References: cross-repo-lint-window*
+Fifth occurrence, 2026-09-26, and not a commit: arming. On #49 I ran
+`pr-gate.sh 49 | tail -1; gh pr comment …; gh pr merge 49 --auto` in one
+command. The gate printed "BLOCKED: 1 unresolved thread" and the merge
+went ahead anyway (a codex P2 on the pre-fix head, already fixed by the
+merged commit — luck, not the gate). **The same rule for the arm:** read
+the gate's verdict line and arm only on "MERGEABLE", in a separate step
+after reading it; never chain `gh pr merge` after the gate in one command.
+
+Sixth occurrence, 2026-09-27 on #51: `python3 tests/test_adr.py | tail -1 && git add … && git commit … && git push` committed and PUSHED 4480b2a with 31/32. Prose has not held six times: the fix is a guard, queued in [[next-fabric-branch-queue]] — a PreToolUse Bash hook that refuses a command where a pipe into tail/head/grep precedes `&& git commit` or `&& git push`.
+
+*References: cross-repo-lint-window, next-fabric-branch-queue*
 
 *Observed 2026-09-25 (fabric-coordinator)*

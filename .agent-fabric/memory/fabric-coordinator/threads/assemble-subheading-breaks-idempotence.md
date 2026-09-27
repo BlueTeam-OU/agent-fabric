@@ -2,22 +2,32 @@
 role: "fabric-coordinator"
 class: threads
 topic: "assemble-subheading-breaks-idempotence"
-description: "A claim whose body has its own `## ` headings is split at them on re-read: the first part loses its Observed date and the same memory collides with itself on the next drain"
+description: "FIXED 2026-09-25 (cac5a04): a claim body's own `## ` headings are demoted at render time and old split slices are absorbed; test_a_claim_body_s_own_headings_never_open_a_section"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-09-26"
+distilled_at: "2026-09-27"
 origin:
+  - agent: user
+    host: "develop-qzapp"
+    project: "agent-fabric"
+    working_copy: "agent-fabric"
   - agent: user
     host: "develop-qzapp"
     project: "agent-fabric"
     working_copy: "fabric-na"
 derived_from:
+  - c83381f8ea5b41b3
   - f528b0b9346eb0b8
 ---
 
-## A claim whose body has its own `## ` headings is split at them on re-read: the first part loses its Observed date and the same memory collides with itself on the next drain
+## FIXED 2026-09-25 (cac5a04): a claim body's own `## ` headings are demoted at render time and old split slices are absorbed; test_a_claim_body_s_own_headings_never_open_a_section
 
-OPEN (found 2026-09-25, drain of that day). `tools/fabric/assemble.py`
+FIXED 2026-09-25 by cac5a04 (`demote_headings`, `absorbed` in assemble.py; test in
+tests/test_assemble.py). This note stayed OPEN after the fix and misled
+ADR-004 on #51 (re-review N1) — re-check a thread against the tree before
+citing it.
+
+Found 2026-09-25, drain of that day. `tools/fabric/assemble.py`
 renders a claim as one `## <heading>` section, and the body keeps any
 `## ` lines the memory itself carried. `existing_sections()` then splits
 the slice at every `## `, so the claim's first part has no

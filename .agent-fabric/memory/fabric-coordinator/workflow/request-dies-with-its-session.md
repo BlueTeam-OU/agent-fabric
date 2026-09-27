@@ -5,7 +5,7 @@ topic: "request-dies-with-its-session"
 description: A GZCoord REQUEST that was acknowledged and deferred is lost when that session ends — the cursor has moved past it and no later session of the same login will ever see it
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-09-26"
+distilled_at: "2026-09-27"
 origin:
   - agent: user
     host: "develop-qzapp"
@@ -16,6 +16,7 @@ origin:
     project: "agent-fabric"
     working_copy: "fabric-na"
 derived_from:
+  - 8aad1b76c4e462ab
   - 8f78b04d9a4d1b10
 ---
 
@@ -43,7 +44,7 @@ artifact exists, not until it is acknowledged. Check whether the addressee
 has a session running (`fabric-ctl <login> presence`; `send.mjs` checks it
 too and refuses without `--force`) and re-send when one is, so it lands in
 that session's live watch. HELLO no longer marks a new session: it was
-retired 2026-09-25 (docs/presence.md). Re-send with what CHANGED rather than the same text — in
+retired 2026-09-25 (agent-fabric ADR-030 (docs/adr/ADR-030-presence-replaces-hello-and-goodbye.md)). Re-send with what CHANGED rather than the same text — in
 this case the key count had gone from 53 to 106 and the source had
 merged to main, so the original was also materially wrong. A re-send
 carrying new facts is information; a re-send carrying the same text is
@@ -51,4 +52,4 @@ nagging. See [[blind-review-loop]].
 
 *References: blind-review-loop*
 
-*Observed 2026-09-25 (fabric-coordinator)*
+*Observed 2026-09-27 (fabric-coordinator)*

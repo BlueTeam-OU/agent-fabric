@@ -5,7 +5,7 @@ topic: "a-wrong-why-outlives-the-code"
 description: When deferring work, record the cost you measured — never a blocker you inferred from your own failed attempt
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-09-26"
+distilled_at: "2026-09-27"
 origin:
   - agent: user
     host: "develop-qzapp"
@@ -16,6 +16,7 @@ origin:
     project: "agent-fabric"
     working_copy: "fabric-na"
 derived_from:
+  - 5a27d4e1b545f303
   - ec23554e4b3bf3d9
 ---
 
@@ -32,7 +33,7 @@ The real fix was fifteen lines.
 **Why:** a deferral's comment is the one thing a later session will not
 re-derive — it reads "this was considered and is hard" and moves on. A
 blocker invented from a botched attempt makes the work look impossible
-forever. `policies/code-as-memory.md` asks a comment for the *why*
+forever. `agent-fabric ADR-015 (docs/adr/ADR-015-code-is-memory.md)` asks a comment for the *why*
 precisely because the why is unrecoverable from the code.
 
 **How to apply:** when deferring, state the cost you actually measured
