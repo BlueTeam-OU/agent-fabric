@@ -161,9 +161,12 @@ proof.
 12. An action runs beside the control agent's read loop, so a request
     that arrives meanwhile is still answered; one action of a kind runs
     per account at a time, and a second upgrade or `secrets-sync` sent
-    while one runs is answered `busy`. `fabric-ctl` waits 20 s for an
-    answer by default (5 s for `ping`, 120 s for a drain), or `--timeout`
-    (A 2026-09-27).
+    while one runs is answered `busy`, as is an upgrade sent while a
+    `secrets-sync` is restarting the session. `fabric-ctl` waits for an
+    answer as long as the operation's own budget (`runtime/control/ctl.mjs`):
+    20 s by default, 5 s for `ping`, 60 s for `tokens`, 120 s for a drain,
+    240 s for `secrets-sync`, 300 s for `accounts`, and an upgrade's
+    computed budget; `--timeout` overrides it (A 2026-09-27).
 
 ## 6. Consequences
 
@@ -223,3 +226,4 @@ The body above reads current; each change's full note is in [history/ADR-029-ame
 | Date | Amendment | Effect |
 |---|---|---|
 | 2026-09-27 | Actions run beside the read loop | §5 rule 12 added: actions run beside the read loop, one of a kind per account, a second answered busy; fabric-ctl's answer timeouts |
+| 2026-09-27 | Rule 12 as the code has it | §5 rule 12: every operation's answer budget, and an upgrade refused while a secrets-sync restarts the session |

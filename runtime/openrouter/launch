@@ -761,7 +761,8 @@ fi
 # THE SESSION IS A CHILD, NOT AN EXEC (owner, 2026-09-16). This shell
 # outlives the session, which is what lets it bring the session back
 # after an upgrade or an account move (the restart marker, below). It
-# once also sent the GOODBYE; presence is the control plane's now.
+# once also sent a GOODBYE, a type now retired; presence is the control
+# plane's.
 # Signals: Ctrl-C is the session's (one interrupts a turn, two end it),
 # so this shell ignores SIGINT while the child runs; SIGTERM and SIGHUP
 # — the terminal closing — are forwarded so the child can end. The
@@ -804,7 +805,7 @@ if [[ "$ROLE" == language-culture && -f "$LOCALE_SEARCH" ]]; then CMD+=(--disall
 # cannot tell what follows it). AGENT_FABRIC_NO_OPENING is for a caller
 # that drives the session itself, a probe or a script, and wants its own
 # first turn.
-OPENING="Session start: arm your GZCoord inbox watch now, with Monitor(command: 'gzcoord-inbox --follow', description: 'gzcoord inbox watch', persistent: true, timeout_ms: 1800000); re-arm it at each expiry notice. Then wait for instructions."
+OPENING="Session start: arm your GZCoord inbox watch now, with Monitor(command: 'gzcoord-inbox --follow', description: 'gzcoord inbox watch', timeout_ms: 1800000); re-arm it at each expiry notice. Then wait for instructions."
 opening=1; expect_value=0
 for a in "$@"; do
     if (( expect_value )); then expect_value=0; [[ "$a" == -* ]] || continue; fi

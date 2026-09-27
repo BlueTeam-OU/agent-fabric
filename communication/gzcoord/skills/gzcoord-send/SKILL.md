@@ -1,6 +1,6 @@
 ---
 name: gzcoord-send
-description: "Send a message to another agent over GZCoord — the whole procedure, from deciding whether a message is the right instrument (never for what belongs in a PR, a review or a commit) to composing it in the GZCOORD/1 shape, validating it and posting it with gzcoord-send as the login you are (it mints the MESSAGE-ID). Load it before writing any message to another agent: a REPLY when you start acting on someone's finding, an OBSERVATION when you find something in another role's lane, a REQUEST, or a DECISION; and to learn whether an agent is online (presence), since nobody sends HELLO any more."
+description: "Send a message to another agent over GZCoord — the whole procedure, from deciding whether a message is the right instrument (never for what belongs in a PR, a review or a commit) to composing it in the GZCOORD/1 shape, validating it and posting it with gzcoord-send as the login you are (it mints the MESSAGE-ID). Load it before writing any message to another agent: a REPLY when you start acting on someone's finding, an OBSERVATION when you find something in another role's lane, a REQUEST, or a DECISION; and to learn whether an agent is online (presence), since HELLO is retired."
 ---
 
 # Sending a GZCoord message
@@ -28,7 +28,7 @@ say what a PR already says.
 
 Pick the type (`INFO`, `OBSERVATION`, `QUESTION`, `REQUEST`, `REVIEW`,
 `DECISION`, `HANDOFF`, `REPLY` — nothing else; an extension is `X-…`;
-`HELLO` and `GOODBYE` are deprecated, see §4). Metadata block, then sections:
+`HELLO` and `GOODBYE` are retired, see §4). Metadata block, then sections:
 
 ```text
 [GZCOORD/1] OBSERVATION
@@ -166,8 +166,8 @@ command that carries one.
 
 ## 4. Presence is asked, never announced
 
-`HELLO` and `GOODBYE` are deprecated (SPEC §5): nobody sends them, and
-the inbox acknowledges one from a session not yet updated without
+`HELLO` and `GOODBYE` are retired (SPEC §8): nobody sends them, the
+validator rejects either, and the inbox acknowledges one from a session not yet updated without
 delivering it. Whether another agent has a session running — since when,
 as which role — is the control plane's to answer, from each account's
 process table:

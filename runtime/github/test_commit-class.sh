@@ -67,5 +67,41 @@ got="$(printf 'Revert the thing by hand\n\nno trailer here\n' | revert_targets)"
 expect work "aaa" "Revert the thing by hand"
 expect work "aaa" 'Revert "feat: the used-by guard"'
 
+echo "commit-class: a commit answering ANOTHER pull request's review is work on this one"
+expect_pr() {  # expect_pr <class> <pr> <subject> [<answers>]
+    local got; got="$(commit_class "aaa" "$3" "${4:-}" "$2")"
+    if [[ "$got" == "$1" ]]; then pass "$1 on #$2: $3${4:+ [Answers: $4]}"; else fail "expected $1 on #$2, got $got: $3${4:+ [Answers: $4]}"; fi
+}
+expect_pr work 54 "review of #53 (deferred P3s): the date rules hold at their edges"
+expect_pr work 948 "db: the guard re-applies" "#947 F2"
+expect_pr fix  54 "review of #54 (P2 thread): the pipe guard exempts only a real pipefail"
+expect_pr fix  861 "supplier: the copy for the new keys (#861 F6)"
+expect_pr fix  54 "re-review F1: the chain match"
+# A bare #N (an issue, an earlier PR named for context) is no foreign
+# review: only a review-answer shape is (review of #53, #947 F2).
+expect_pr fix  130 "review fixes: the race first reported in issue #120"
+expect_pr fix  54 "re-review F1: the guard #53 added" "F1"
+expect_pr work 54 "re-review of #53: the classifier" ""
+# PR numbers are per repository: another repository's #53 is not this one.
+expect_repo() {  # expect_repo <class> <pr> <owner/repo> <subject> [<answers>]
+    local got; got="$(commit_class "aaa" "$4" "${5:-}" "$2" "$3")"
+    if [[ "$got" == "$1" ]]; then pass "$1 on $3#$2: $4${5:+ [Answers: $5]}"; else fail "expected $1 on $3#$2, got $got: $4${5:+ [Answers: $5]}"; fi
+}
+expect_repo work 53 gzapi-org/agent-fabric "review of gzapp #53: the carried fix"
+expect_repo work 53 gzapi-org/agent-fabric "db: the guard" "gzapi-org/gzapp#53 F2"
+expect_repo fix  53 gzapi-org/agent-fabric "review of agent-fabric #53: the fix"
+expect_repo fix  53 gzapi-org/agent-fabric "review of #53: the fix"
+expect_repo fix  861 gzapi-org/gzapp "supplier: the copy (#861 F6)"
+expect_pr   work 54 "supplier: the carried copy (#53 F3)"
+# Only a form that names a repository does; "PR #N", "thread #N" and
+# "the copy #N" are this repository's numbers (re-review of #55, F1-F2).
+expect_repo fix  918 gzapi-org/gzapp "review F1-F4 + PE1: the guards" "PR #918 review F1-F4 and PE1"
+expect_repo fix  53 gzapi-org/agent-fabric "review of PR #53: the fix"
+expect_repo fix  53 gzapi-org/agent-fabric "supplier: the copy #53 F6"
+expect_repo fix  53 gzapi-org/agent-fabric "review F1: the guard" "thread #53"
+expect_repo work 53 gzapi-org/agent-fabric "review of other/agent-fabric#53: the fix"
+expect_repo fix  53 gzapi-org/agent-fabric "review of gzapi-org/agent-fabric#53: the fix"
+expect fix "aaa" "review of #53 (deferred P3s): no PR given, the old reading stands"
+
 echo
 if [[ $failures -eq 0 ]]; then echo "test_commit-class: OK — all assertions passed."; else echo "test_commit-class: FAILED — $failures assertion(s)." >&2; exit 1; fi

@@ -5,7 +5,7 @@ topic: "system-prompt-replacement-mechanics"
 description: "What --system-prompt-file replaces and what the harness still injects (read back live 2026-09-17), and the identifier rule a translated prompt must keep"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-09-26"
+distilled_at: "2026-09-27"
 origin:
   - agent: user
     host: "develop-qzapp"
@@ -17,6 +17,7 @@ origin:
     working_copy: "fabric-na"
 derived_from:
   - 92bebfae3d511438
+  - c7c5469d544cd6a8
 ---
 
 ## What --system-prompt-file replaces and what the harness still injects (read back live 2026-09-17), and the identifier rule a translated prompt must keep
@@ -38,7 +39,7 @@ build and no flag prints it: its capture is a live-check duty
 
 **Why:** the CEO wanted the ge holder launched with the whole prompt in
 Georgian, charter first; the plan of 2026-09-17 built the machinery on
-these facts (`docs/language-culture-bridge.md`, "The prompt in the
+these facts (`agent-fabric ADR-027 (docs/adr/ADR-027-language-and-culture-shape-the-work-the-bridge.md)`, "The prompt in the
 locale").
 
 Measured 2026-09-18 as the ge holder, one-turn calls, total input:

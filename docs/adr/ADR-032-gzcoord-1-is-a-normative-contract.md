@@ -158,3 +158,11 @@ record on.
 - `communication/gzcoord/README.md`.
 - ADR-018 (authority), ADR-023 and ADR-030 (tightenings made under these
   rules), ADR-024 (a message is advisory).
+
+## Amendments
+
+The body above reads current; each change's full note is in [history/ADR-032-amendments.md](history/ADR-032-amendments.md).
+
+| Date | Amendment | Effect |
+|---|---|---|
+| 2026-09-27 | HELLO and GOODBYE retired | SPEC §5, §8, §10, §11, §14, §18 and the companion texts: the two types are retired, a narrowing under rule 4 with the evidence of rule 6 |

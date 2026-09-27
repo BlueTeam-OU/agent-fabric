@@ -5,7 +5,7 @@ topic: "control-plane-daemon"
 description: "Fleet facts in real time come from bin/fabric-ctl (a daemon per account on the relay's fabric:control channel), not from sudo loops; what to know when one account stays silent"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-09-26"
+distilled_at: "2026-09-27"
 origin:
   - agent: user
     host: "develop-qzapp"
@@ -17,6 +17,7 @@ origin:
     working_copy: "fabric-na"
 derived_from:
   - 2b89e2828548489c
+  - d0f75075ca6d9001
 ---
 
 ## Fleet facts in real time come from bin/fabric-ctl (a daemon per account on the relay's fabric:control channel), not from sudo loops; what to know when one account stays silent
@@ -24,7 +25,7 @@ derived_from:
 Since 2026-09-17 every placed account runs `agent-fabric-agentd` as a
 systemd user unit (`runtime/control/`, installed by `bootstrap.sh` at
 moveto entry); `bin/fabric-ctl all status` asks them all over the relay
-and answers in about a second (`docs/control-plane.md`,
+and answers in about a second (`agent-fabric ADR-029 (docs/adr/ADR-029-the-control-plane-a-control-agent-per-account.md)`,
 `docs/live-checks/2026-09-17-control-plane.md`). `bin/fabric-usage` is
 the sudo fallback.
 

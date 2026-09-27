@@ -44,7 +44,8 @@ The address is logical, but it is not arbitrary: `host` is the machine's short h
 Every message carries its sender's `ROLE`, so any message says who holds
 what. Whether an agent is online is presence, and presence is the
 deployment's to answer, never an announcement (`protocol/SPEC.md` §5):
-`HELLO` and `GOODBYE` are deprecated. In agent-fabric the control plane
+`HELLO` and `GOODBYE` are retired (`protocol/SPEC.md` §8), and a
+validator rejects either. In agent-fabric the control plane
 answers it from each account's process table —
 `bin/fabric-ctl <login|all> presence` — and `scripts/send.mjs` asks it
 before a `TO` or `TO-ROLE` message leaves (`docs/adr/ADR-030-presence-replaces-hello-and-goodbye.md`).

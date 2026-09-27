@@ -43,8 +43,10 @@ and a bare number there means the project's.
 ## Asking for a change
 
 The records, and everything under agent-fabric and every project's
-`.agent-fabric/`, are fabric-coordinator's to write. You never edit
-them. To change a decision:
+`.agent-fabric/`, are fabric-coordinator's to write, with one exception:
+a locale's translations (`identities/roles/<role>/locale/<suffix>/`)
+are committed by that locale's holder (agent-fabric ADR-018). Otherwise
+you never edit them. To change a decision:
 
 - Send a GZCoord `REQUEST` to the login holding fabric-coordinator
   (`gzcoord-send`), or open a pull request on agent-fabric that you do

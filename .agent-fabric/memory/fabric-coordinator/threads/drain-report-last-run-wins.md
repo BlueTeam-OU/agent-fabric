@@ -2,20 +2,27 @@
 role: "fabric-coordinator"
 class: threads
 topic: "drain-report-last-run-wins"
-description: "A multi-bundle drain writes last-drain-report.json once per assemble run — the last run wins: earlier runs' collision_decisions are lost and an index-only run empties the watermarks"
+description: "FIXED (135b02b, ed5ca52): the drain report gathers every bundle of one drain and keeps each harvest; was — per-bundle runs overwrote last-drain-report.json"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-09-26"
+distilled_at: "2026-09-27"
 origin:
+  - agent: user
+    host: "develop-qzapp"
+    project: "agent-fabric"
+    working_copy: "agent-fabric"
   - agent: user
     host: "develop-qzapp"
     project: "agent-fabric"
     working_copy: "fabric-na"
 derived_from:
   - 706c2df1196b7349
+  - bfbf0c727ce475c7
 ---
 
-## A multi-bundle drain writes last-drain-report.json once per assemble run — the last run wins: earlier runs' collision_decisions are lost and an index-only run empties the watermarks
+## FIXED (135b02b, ed5ca52): the drain report gathers every bundle of one drain and keeps each harvest; was — per-bundle runs overwrote last-drain-report.json
+
+FIXED by 135b02b and ed5ca52 (on main by 2026-09-27); this note stayed OPEN after the fix — see [[assemble-subheading-breaks-idempotence]].
 
 OPEN (found 2026-09-25). A drain across accounts is one
 `assemble.py --bundle` per account into the same working copy, and each

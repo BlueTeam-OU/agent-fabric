@@ -355,7 +355,6 @@ def test_a_role_change_announces_nothing(f: Fixture, tmp: str) -> None:
     stub = r"""#!/usr/bin/env bash
 case "$*" in
   *gzmsg.mjs\ new-id) echo 01a09fc1-0000-7000-8000-000000000009 ;;
-  *gzmsg.mjs\ hello*) printf '[GZCOORD/1] HELLO\nROLE: %s\n' "$4" ;;
   *send.mjs\ -) body=$(cat); printf 'SEND %s\n' "$(printf '%s' "$body" | head -3 | tr '\n' ' ')" >> "$LOG"; echo 'sent seq 1' ;;
 esac
 """

@@ -618,7 +618,7 @@ ALOG="$SANDBOX/announce.log"; rm -f "$ALOG"
 runa() { (cd "$SANDBOX/repo" && env -u CLAUDE_CONFIG_DIR HOME="$HOME" PATH="$PATH_EXPORT" AGENT_FABRIC_ROOT="$FABRIC" AGENT_FABRIC_STATE_DIR="$STATE" ANNOUNCE_LOG="$ALOG" bash "$LAUNCHER" "$@"); }
 out="$(runa --version 2>&1)"; rc=$?
 [[ $rc -eq 0 ]] && ok "the launcher's exit status is the session's (0)" || bad "rc=$rc" "$out"
-[[ ! -s "$ALOG" ]] && ok "no HELLO before the session, no GOODBYE after it" || bad "the launcher announced" "$(cat "$ALOG")"
+[[ ! -s "$ALOG" ]] && ok "nothing announced before the session or after it (HELLO and GOODBYE are retired)" || bad "the launcher announced" "$(cat "$ALOG")"
 # A plain-claude launch refused for want of a long-lived sign-in announces
 # nothing. Its own fake claude: the one above is gone, and a runner has no
 # real harness on PATH for the launcher's earlier checks to find (CI, #37).

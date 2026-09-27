@@ -50,7 +50,9 @@ By default:
 
 - `QUESTION`, `REQUEST`, `REVIEW`, `HANDOFF` — a reply is expected: an answer, an acknowledgement by reference, a decline, an acceptance.
 - `OBSERVATION` — a reply is expected only if the recipient acts on it, and then only to say where (MESSAGE-FORMAT.md, "Acknowledging by reference"). Its purpose is to prevent duplicate work, not to say thanks.
-- `HELLO`, `GOODBYE`, `INFO`, `DECISION`, `REPLY` — no reply is expected.
+- `INFO`, `DECISION`, `REPLY` — no reply is expected.
+
+`HELLO` and `GOODBYE` are retired (SPEC.md §8): nobody sends them, and a parser rejects either. Whether an instance is running is presence, which the deployment answers (SPEC.md §5).
 
 `REPLY-EXPECTED: yes | no` (SPEC.md §7.4) overrides the default for one message. Neither the default nor the override obliges anyone: "expected" describes what the sender is waiting for, and "no" tells the carrier not to come back for one.
 

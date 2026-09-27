@@ -566,6 +566,8 @@ searches it.
   replies are signed (§6, §7).
 - A 2026-09-27 — actions run beside the read loop, one of a kind per account; a
   second is answered `busy` (§5 rule 12).
+- A 2026-09-27 — rule 12 lists each operation's answer budget and the
+  cross-kind `busy` (§5 rule 12).
 - Keywords: control plane, agentd, fabric-ctl, control channel,
   fabric:control, relay, ops, status, ping, keys, usage, recall, tokens,
   drain, memory, signed, operator_key, keygen, linger, persist.
@@ -580,10 +582,12 @@ searches it.
   or an unplaced address exits 4 unless `--force`; a role passes when any
   holder runs; planning is a note, never a refusal (§5 rules 3–4).
 - The launcher and `fabric-role` announce nothing; the inbox acknowledges
-  an old HELLO/GOODBYE and never delivers it; GZCOORD/1 deprecates both
-  and still parses them (§5 rules 5–7).
+  an old HELLO/GOODBYE and never delivers it; GZCOORD/1 has retired both
+  and a parser rejects them (§5 rules 5–7).
 - A request whose addressee's session ended is re-sent, with what
   changed, when presence shows a session (§5 rule 8).
+- A 2026-09-27 — HELLO and GOODBYE are retired from GZCOORD/1; a parser rejects
+  them (§5 rule 7).
 - Keywords: presence, online, HELLO, GOODBYE, announcement, process table,
   send, --force, exit 4, fabric-ctl presence, planning, re-send.
 
@@ -623,6 +627,7 @@ searches it.
   failure, the smallest fix (§5 rule 6).
 - Every change to the four files lands with an amendment of ADR-032 in the
   same PR; examples and validator move with the text (§5 rules 7–8).
+- A 2026-09-27 — HELLO and GOODBYE retired: a narrowing under rule 4.
 - Keywords: GZCoord, GZCOORD/1, GZCOORD/2, protocol, SPEC, grammar,
   freeze, frozen, compatibility, narrowing, conformance, validator,
   extension, X-, protocol change.
