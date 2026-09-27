@@ -412,6 +412,14 @@ def case_a_source_is_never_removed(tmp: str) -> None:
     git(root, "commit", "-qa", msg="touch the source\n\nADR-Editorial: typo")
     f = adr.range_check(root, base)
     assert len(f) == 1 and "never edited" in f[0], f
+    # A rename out of sources/ is an edit of the source, trailer or not.
+    for n, msg in enumerate(("move the source", "move the source\n\nADR-Editorial: tidy")):
+        root = fixture(os.path.join(tmp, f"d{n}"))
+        base = commit_base(root)
+        git(root, "mv", "docs/adr/sources/ADR-000-the-owners-statement.md", "docs/adr/ADR-000-statement.txt")
+        git(root, "commit", "-q", msg=msg)
+        f = adr.range_check(root, base)
+        assert len(f) == 1 and "never edited" in f[0], f
 
 
 def main() -> int:

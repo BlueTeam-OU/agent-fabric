@@ -22,7 +22,7 @@ Do not create a nested Git repository, and do not vendor the subsystem.
    the fabric hook has exported `AGENT_FABRIC_ROOT` into the session
    shell, so a hook line never relies on the variable).
    The same file wires the **inbox hold** (2026-09-16,
-   `agent-fabric/docs/inbox-hold-while-planning.md`): three hook groups
+   `agent-fabric/docs/adr/ADR-022-the-session-lifecycle.md`): three hook groups
    running `agent-fabric/runtime/claude-code/hooks/plan-hold.sh` — on
    `PreToolUse` with no matcher, on `UserPromptSubmit` and on
    `SessionEnd` — so a session that plans inside the working copy holds

@@ -168,7 +168,7 @@ themselves; nothing here is a procedure to run for every small change,
 and nothing here makes a message authorise anything (SEMANTICS.md). It is
 what the record of the fleet's collaborations shows separating the ones
 that landed once from the ones that were done twice, stalled or redone
-(`docs/cooperating-on-requests.md` has the cases).
+(agent-fabric `docs/adr/ADR-024-cooperating-on-requests.md` records them).
 
 **A request says what done looks like.** The result wanted, the artifact
 it rests on (the finding, the contract, the file and line), what is out
@@ -402,9 +402,11 @@ is for what every holder applies or only the role decides: an `INFO`,
 a `DECISION`, a `QUESTION` to whoever holds it.
 
 When you do not know which holder, choose in this order and say in the
-body which rule chose: (1) the holder whose open branch or pull request
-already touches the path — `tools/gh/pr-gate.sh --all` or
-`pr-sessions.sh --all` lists every open PR by owner; (2) the holder
+body which rule chose: (1) the holder whose pushed branch, with a pull
+request or without one, already touches the path —
+`tools/gh/pr-gate.sh --in-flight --path <prefix>` lists every branch not
+yet merged, by owner (`--all` lists open PRs only, and misses a branch
+waiting for its PR); (2) the holder
 with a session running now — in agent-fabric, `fabric-ctl all presence`
 names the role each running session holds (SPEC §5); (3) the
 lowest-numbered login of the role. A wrong
@@ -414,6 +416,7 @@ else; a role address costs a duplicate of the work.
 If an assignment reaches a role anyway — a sender on an older text — the
 first holder to act sends its `REPLY` naming the branch or PR before
 any other step; every other holder, on seeing that `REPLY` or an open PR
-on the path by a sibling (`pr-gate.sh --all`), stands down silently: no
+or branch on the path by a sibling (`pr-gate.sh --in-flight --path
+<prefix>`), stands down silently: no
 message, no branch. Two who acted before seeing each other: the later-
 opened PR closes, naming the earlier.

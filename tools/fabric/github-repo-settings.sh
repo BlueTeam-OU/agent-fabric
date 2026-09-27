@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # tools/fabric/github-repo-settings.sh — reapply this repository's GitHub-side
-# settings (docs/repository-settings.md) to a repository, with `gh`.
+# settings (docs/adr/ADR-019-work-arrives-as-pull-requests.md §6) to a
+# repository, with `gh`. It covers the repository, Actions and workflow
+# permissions; code scanning and secret scanning are set on GitHub by hand.
 #
 #   tools/fabric/github-repo-settings.sh [owner/repo]     # default: gzapi-org/agent-fabric
 #   tools/fabric/github-repo-settings.sh --show [owner/repo]
@@ -17,7 +19,7 @@ if (( show )); then
     exit 0
 fi
 gh api -X PATCH "repos/$REPO" \
-    -f description='Control plane for the agents working on sibling repositories: identities, roles, memory, model routing, GZCoord' \
+    -f description='Control plane for the agents working on sibling repositories: identities, roles, memory, model routing, messaging.' \
     -f default_branch=main \
     -F has_issues=true -F has_projects=true -F has_wiki=true -F has_discussions=false \
     -F allow_merge_commit=true -F allow_squash_merge=true -F allow_rebase_merge=true \
@@ -27,4 +29,4 @@ gh api -X PATCH "repos/$REPO" \
     -F web_commit_signoff_required=false >/dev/null
 gh api -X PUT "repos/$REPO/actions/permissions" -F enabled=true -f allowed_actions=all >/dev/null
 gh api -X PUT "repos/$REPO/actions/permissions/workflow" -f default_workflow_permissions=read -F can_approve_pull_request_reviews=false >/dev/null
-echo "github-repo-settings: applied to $REPO (docs/repository-settings.md)"
+echo "github-repo-settings: applied to $REPO (docs/adr/ADR-019-work-arrives-as-pull-requests.md)"

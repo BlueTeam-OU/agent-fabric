@@ -1,5 +1,7 @@
 # Authority
 
+Decisions: agent-fabric ADR-018 (docs/adr/)
+
 Who may change what in agent-fabric, and why that is not the same
 question as who is currently doing what.
 

@@ -1,5 +1,7 @@
 # Memory
 
+Decisions: agent-fabric ADR-013, ADR-014 (docs/adr/)
+
 Durable knowledge agents can retrieve, filed by **scope** and by **kind of
 truth**, with provenance that says who learned it, where, and when.
 
@@ -108,8 +110,9 @@ The index is the mechanism. Each slice's frontmatter carries a one-line
 description written as a retrieval cue, and the index is **generated** from
 those lines — never hand-maintained, because a hand-written index drifts
 from the files it points at and then quietly lies. Its paths are relative
-to the agent-fabric root, because a role's knowledge lives in three places
-(its identity, its domain, the project). A session reads the index,
+to the working copy — a fabric-side slice through `../agent-fabric/` —
+because a role's knowledge lives in three places (its identity, its
+domain, the project). A session reads the index,
 recognises that knowledge exists, and opens the one slice that matches.
 `tools/fabric/lint.py` fails when an index and its slices disagree.
 
@@ -217,8 +220,10 @@ stamp merges into it — roles and shared topics unioned, decisions (one
 per key, the later), moves, files and findings appended without
 repeats, telemetry kept per agent@host so a re-run bundle replaces its
 counts — and a report of another stamp is replaced. Watermarks carry
-across both: each host keeps the higher mark, and a run that read
-nothing never lowers or empties one. Every path in the report is
+across both: a run replaces the mark of each store (agent@host) it
+harvested with that harvest's own — lower too, when the harvester held
+it below a memory awaiting its rendering — and a run that harvested
+nothing changes none. Every path in the report is
 relative to the working copy, or to the fabric root for a fabric file.
 
 `harvest_memory.py` stamps the agent from `runtime/identity.py`, the
@@ -299,9 +304,10 @@ Only the topic's own file answers that — `<class>/<topic>.md` and its
 budget parts, or the shared `<class>-<topic>.md` and its parts: the
 flat `<class>.md` holds every memory of its class until the class
 splits, and a carried file every memory it moved with, so a claim
-landing there is never a retitle and never falls under the rule below
-(a drain's blind review, 2026-09-26: one agent's second memory in a
-flat file deleted its first).
+landing there is never a retitle (a drain's blind review, 2026-09-26:
+one agent's second memory in a flat file deleted its first); a new
+text under a heading one agent wrote there still falls under the rule
+below, which replaces that one section and touches no other memory.
 **An agent's newer text replaces its own older text without a
 question** (the owner, 2026-09-26, after 34 such pairs asked and all 34
 superseded): a retitle, or a new text under a heading of that agent's

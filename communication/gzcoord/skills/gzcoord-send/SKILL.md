@@ -81,8 +81,8 @@ Rules that are not style:
   `ACCEPTANCE:` or `DELIVER-TO:` section — names a login, because the
   runtime delivers a role address to every holder and each executes the
   job unaware of the others: two PRs on the same hunk. `send.mjs` refuses it. When you do not
-  know which holder: the one whose open PR touches the path
-  (`pr-gate.sh --all`), else one holding it with a session running now
+  know which holder: the one whose pushed branch — PR or not — touches
+  the path (`pr-gate.sh --in-flight --path <prefix>`), else one holding it with a session running now
   (`fabric-ctl all presence`), else the lowest-numbered login — and say which rule chose
   (`MESSAGE-FORMAT.md` §Direct versus role addressing). `TO-ROLE` stays
   for an `INFO`, a `DECISION`, a `QUESTION` to whoever holds the role.
