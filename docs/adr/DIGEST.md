@@ -76,7 +76,8 @@ searches it.
 
 - Every write under `agents/<login>/` goes through `runtime/identity.py`:
   `atomic_write`, `update_binding`, `append_history`; no caller opens a
-  state file for writing (§5 rule 1).
+  state file for writing. The Node control agent, which cannot import it,
+  writes by temporary and rename (§5 rule 1).
 - Every read-modify-write holds `agent_lock`, a re-entrant flock (§5 rule 2).
 - A binding is per (agent, host); another host's is refused (§5 rule 3).
 - A working-copy rename merges history, never overwrites (§5 rule 4); the

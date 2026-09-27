@@ -29,8 +29,8 @@ under a rename's new key was overwritten file by file (review,
 
 ## 2. Decision
 
-Every write to `agents/<login>/` goes through `runtime/identity.py`, and
-only through it:
+Every write to `agents/<login>/` from Python goes through
+`runtime/identity.py`, and only through it:
 
 - `atomic_write(path, data)` — a temporary beside the target, fsync,
   `os.replace`; the previous file is whole at every instant, and a
@@ -39,6 +39,11 @@ only through it:
   held by every read-modify-write of per-agent state, across processes;
 - `update_binding(mutate, agent)` and `append_history(record, agent)` —
   the two operations callers need, built on both.
+
+The one writer that cannot import it — the account's control agent, in
+Node, which writes `restart.json` for a fleet upgrade
+(`runtime/control/upgrade.mjs`) — writes in the same shape: a temporary
+beside the target, then a rename.
 
 A binding is per (agent, host). A working-copy rename merges history,
 never overwrites it.
@@ -65,7 +70,9 @@ state file an obvious place to get its writer.
 1. No caller opens a file under `agents/<login>/` for writing; it imports
    `identity` and calls `atomic_write`, `update_binding` or
    `append_history`. A new state file gets its writer added to
-   `runtime/identity.py`, not a rewrite in place elsewhere.
+   `runtime/identity.py`, not a rewrite in place elsewhere. The Node
+   control agent is the named exception, and writes only by temporary
+   and rename.
 2. Every read-modify-write of per-agent state holds `agent_lock`.
 3. `read_binding` refuses a record that names another agent or whose
    `host` is not this machine's, with the same wording, and says how to
