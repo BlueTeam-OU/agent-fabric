@@ -109,8 +109,10 @@ ATTRIBUTION_RE = re.compile(r"\((?:the owner|the CEO)\b[^()]*\)")
 # table's and the history's (ADR-001 §5 rule 11). §1 may date an incident;
 # §2–§8 carry no date outside a path or code span, an "(A YYYY-MM-DD)" rule
 # marker or an "(Amendment YYYY-MM-DD)" tombstone — the engine's own marks.
-DATE_RE = re.compile(r"\b20\d\d-\d\d-\d\d\b")
-UNDATED_SPANS = re.compile(r"`[^`]*`|\]\([^)]*\)|\((?:A|Amendment) 20\d\d-\d\d-\d\d\)|[\w./-]*20\d\d-\d\d-\d\d[\w./-]*\.md")
+# Its own name: DATE_RE above is the anchored header pattern real_date()
+# and amend rely on (review thread on #53).
+BODY_DATE_RE = re.compile(r"\b\d{4}-\d\d-\d\d\b")
+UNDATED_SPANS = re.compile(r"`[^`]*`|\]\([^)]*\)|\((?:A|Amendment) \d{4}-\d\d-\d\d\)|[\w./-]*\d{4}-\d\d-\d\d[\w./-]*\.md")
 
 
 def dated_sections(text: str) -> list[tuple[str, str]]:
@@ -122,7 +124,7 @@ def dated_sections(text: str) -> list[tuple[str, str]]:
             cur = m.group(1) if m and m.group(1) != "1" else None
             continue
         if cur:
-            for d in DATE_RE.findall(UNDATED_SPANS.sub("", ln)):
+            for d in BODY_DATE_RE.findall(UNDATED_SPANS.sub("", ln)):
                 out.append((cur, d))
     return out
 

@@ -240,6 +240,17 @@ def case_range_check_refuses_an_unrecorded_body_edit(tmp: str) -> None:
     assert adr.range_check(root2, base2) == [], "a header-only change (ratification) is not a body edit"
 
 
+def case_header_dates_keep_their_own_pattern(tmp: str) -> None:
+    # The body's date scan must not replace the header's anchored pattern
+    # (review thread on #53): any real calendar date is a valid header date,
+    # and nothing may trail it.
+    assert adr.real_date("2100-01-01") and adr.real_date("1999-12-31")
+    assert not adr.real_date("2026-09-27-x") and not adr.real_date("2026-09-27 ")
+    root = fixture(tmp)
+    edit(root, ONE, "## 6. Consequences", "## 6. Consequences\n\nSince 2100-01-01, every record says so.\n")
+    only(root, "§6 dates something (2100-01-01)")
+
+
 def case_impossible_dates_and_escaping_evidence(tmp: str) -> None:
     root = fixture(tmp)
     edit(root, ONE, "**Date:** 2026-09-27", "**Date:** 2026-13-45")
