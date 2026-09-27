@@ -117,6 +117,15 @@
       "date": "2026-09-14",
       "pillar": "P1",
       "amendments": 0
+    },
+    {
+      "number": "013",
+      "file": "ADR-013-the-memory-model.md",
+      "title": "The memory model: scopes, kinds of truth, tiers, the drain",
+      "status": "Accepted",
+      "date": "2026-09-13",
+      "pillar": "P2",
+      "amendments": 0
     }
   ]
 }

@@ -112,8 +112,9 @@ directory, the repository, the branch or the session.
   to write; you read it. Durable new knowledge goes to your own Claude
   memory with a `roles_class`; a drain (`memory/README.md`), run by a
   fabric-coordinator holder, distils it into the corpus with your name on
-  it. A slice you believe is wrong is raised to fabric-coordinator, never
-  edited in place.
+  it. A slice you believe is wrong is corrected by a memory of the same
+  class naming it, which the next drain merges — never edited in place
+  (`docs/adr/ADR-013-the-memory-model.md`).
 - **Subagents** name a capability class in `subagent_type` — the five
   are `code-low`, `code-medium`, `code-high`, `code-plan` and the review
   class `code-review` — and the harness tier alias that class rides in

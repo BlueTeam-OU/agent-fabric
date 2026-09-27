@@ -1,5 +1,7 @@
 # Memory
 
+Decisions: agent-fabric ADR-013 (docs/adr/)
+
 Durable knowledge agents can retrieve, filed by **scope** and by **kind of
 truth**, with provenance that says who learned it, where, and when.
 

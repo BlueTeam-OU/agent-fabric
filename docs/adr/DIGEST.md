@@ -19,6 +19,7 @@ searches it.
 | hosts and placement; hostexec; provisioning an account; fabric-lease and host memory | ADR-010 |
 | fabric-ref; a project's CI red from a fabric push; landing a drain | ADR-011 |
 | secrets, keys, tokens; Doppler; reporting a leaked secret | ADR-012 |
+| where knowledge lives; memory classes; the drain; INDEX.md; hygiene | ADR-013 |
 
 ### ADR-000 — The enduring organization (Accepted)
 
@@ -225,3 +226,24 @@ searches it.
   secret itself; credentials are tested by shape (§5 rules 6–7).
 - Keywords: credentials, secrets, Doppler, token, API key, fabric-secrets,
   enroll, rotation, leak, shape, locator, base URL.
+
+### ADR-013 — The memory model: scopes, kinds of truth, tiers, the drain (Accepted)
+
+- Knowledge is filed by scope (domain here, project in the project's own
+  `.agent-fabric/memory/<role>/`, agent, shared) and by one of six kinds
+  of truth; `layout.py` alone says where (§2, §5 rule 1). A `solution`
+  slice loses to the tree, a `rationale` slice to a record (§2).
+- A memory drains only with a `roles_class`; charter, brief, recall and
+  index are refused; a bad class or a credential refuses the account's
+  whole drain; each agent drains only its own memory, bundles verified
+  (§5 rules 2–5).
+- Every slice carries provenance and every section its *Observed* date;
+  `INDEX.md` is generated and lint fails drift (§5 rules 6–8).
+- Hygiene substitutes names and secrets and names each hit; domain-only
+  evidence supports only `domain` (§5 rules 9–10). Merge mode, per-store
+  watermarks, a wrong slice corrected by a memory (§5 rules 11–13).
+- Open gap: `workflow` slices are budgeted as tier 1 and the index banner
+  says the hook loads them; it does not (§7).
+- Keywords: memory, knowledge, slice, drain, harvest, assemble, roles_class,
+  domain, solution, rationale, workflow, threads, INDEX, provenance,
+  watermark, bundle, hygiene, redacted, tier.
