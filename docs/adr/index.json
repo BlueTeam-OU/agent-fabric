@@ -72,6 +72,15 @@
       "date": "2026-09-16",
       "pillar": "P1",
       "amendments": 0
+    },
+    {
+      "number": "008",
+      "file": "ADR-008-harness-behaviour-is-pinned-by-measurement.md",
+      "title": "Harness behaviour is pinned by measurement",
+      "status": "Accepted",
+      "date": "2026-09-17",
+      "pillar": "P1",
+      "amendments": 0
     }
   ]
 }

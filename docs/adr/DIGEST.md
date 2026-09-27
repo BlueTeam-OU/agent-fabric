@@ -14,6 +14,7 @@ searches it.
 | which model a class runs on; review-grade; shims; fabric-model | ADR-005 |
 | how hard a class thinks; effort levels; CLAUDE_CODE_EFFORT_LEVEL | ADR-006 |
 | a safeguard flag; model fallback; "Switched to" | ADR-007 |
+| Claude Code settings on every account; attribution; auto-update; the harness prompt | ADR-008 |
 
 ### ADR-000 — The enduring organization (Accepted)
 
@@ -135,3 +136,17 @@ searches it.
 - Each project's `.claude/settings.json` wires the hook (§5 rule 5).
 - Keywords: safeguards, flagged, fallback, contagion, PostModelSwitch,
   classifier, locator, broadcast.
+
+### ADR-008 — Harness behaviour is pinned by measurement (Accepted)
+
+- A harness behaviour the fabric relies on is read back live or out of the
+  binary, with build and date, in a live check (§2, §5 rule 1).
+- The fabric's keys go into user scope via `user-settings.py`:
+  attribution off, `DISABLE_AUTOUPDATER`, thinking summaries and verbose,
+  fabric-command allow rules, `defaultMode` auto (§2, §5 rule 2).
+- Attribution off plus the commit-msg guard (§5 rule 3); the version moves
+  only through `harness.json` and `upgrade claude` (§5 rule 4).
+- `harness/en.md` is the captured harness prompt, verbatim, refreshed on a
+  new build (§5 rule 5).
+- Keywords: Claude Code, harness, settings.json, attribution, Co-Authored-By,
+  auto-update, DISABLE_AUTOUPDATER, verbose, auto mode, system prompt, build.
