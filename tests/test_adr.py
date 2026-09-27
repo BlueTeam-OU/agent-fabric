@@ -381,9 +381,12 @@ def case_range_check_pairs_a_delete_and_add_of_one_record(tmp: str) -> None:
     # reports a delete and an add, never a rename.
     sections = "".join(f"## {name}\n\nRewritten {i}: " + "fresh wording " * 30 + "\n\n" for i, name in enumerate(adr.SECTIONS))
     open(os.path.join(root, "docs/adr/ADR-001-rewritten.md"), "w", encoding="utf-8").write(head + sections)
+    # A source added in the same commit carries the record's number; it is
+    # not the record's other half (review of #51).
+    open(os.path.join(root, "docs/adr/sources/ADR-001-a-new-source.md"), "w", encoding="utf-8").write("new\n")
     git(root, "add", "-A"); git(root, "commit", "-q", msg="rename and rewrite in one go")
     f = adr.range_check(root, base)
-    assert len(f) == 1 and "ADR-001-rewritten.md" in f[0], f
+    assert len(f) == 1 and "ADR-001-rewritten.md" in f[0] and "source" not in f[0], f
 
 
 def case_a_source_is_never_removed(tmp: str) -> None:

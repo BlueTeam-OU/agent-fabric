@@ -459,7 +459,7 @@ def range_check(root: str, base: str, head: str = "HEAD") -> list[str]:
                 old, new_path = parts[1], parts[1]
             elif kind == "R" and len(parts) == 3:
                 old, new_path = parts[1], parts[2]
-            elif kind == "A" and len(parts) == 2 and (m := FILE_RE.match(os.path.basename(parts[1]))) and m.group(1) in deleted:
+            elif kind == "A" and len(parts) == 2 and os.path.dirname(parts[1]) == ADR_DIR and (m := FILE_RE.match(os.path.basename(parts[1]))) and m.group(1) in deleted:
                 old, new_path = deleted[m.group(1)], parts[1]
             elif kind == "D" and len(parts) == 2 and parts[1].startswith(f"{ADR_DIR}/sources/"):
                 findings.append(f"{sha[:8]}: deletes {parts[1]}, a verbatim source, which is never removed")
