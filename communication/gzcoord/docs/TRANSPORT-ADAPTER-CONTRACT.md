@@ -1,5 +1,7 @@
 # Transport Adapter Contract
 
+Decisions: agent-fabric ADR-033 (`docs/adr/ADR-033-gzcoord-transports-the-relay-is-central-today.md`).
+
 This is an architectural interface, not a network API.
 
 A transport implementation should provide these operations to the local runtime:

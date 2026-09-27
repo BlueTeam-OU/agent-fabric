@@ -1,6 +1,6 @@
 # GZCoord
 
-Decisions: agent-fabric ADR-032 (`docs/adr/ADR-032-gzcoord-1-is-a-normative-contract.md`).
+Decisions: agent-fabric ADR-032 (`docs/adr/ADR-032-gzcoord-1-is-a-normative-contract.md`), ADR-033 (`docs/adr/ADR-033-gzcoord-transports-the-relay-is-central-today.md`).
 
 GZCoord is a small, transport-agnostic, human-readable messaging protocol for autonomous software-development agents collaborating on the same Git/GitHub-governed project.
 

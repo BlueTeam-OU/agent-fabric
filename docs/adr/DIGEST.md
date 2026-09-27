@@ -39,6 +39,7 @@ searches it.
 | is an agent online; HELLO and GOODBYE; send exits 4; --force | ADR-030 |
 | which Claude account a login runs on; moving logins; setup-token; usage windows | ADR-031 |
 | changing the GZCoord protocol; the grammar freeze; GZCOORD/2 | ADR-032 |
+| the relay; the human relay; transports; Telegram; the adapter contract | ADR-033 |
 
 ### ADR-000 — The enduring organization (Accepted)
 
@@ -618,3 +619,23 @@ searches it.
 - Keywords: GZCoord, GZCOORD/1, GZCOORD/2, protocol, SPEC, grammar,
   freeze, frozen, compatibility, narrowing, conformance, validator,
   extension, X-, protocol change.
+
+### ADR-033 — GZCoord's transports: the human relay, the adapter contract, Telegram retired; the relay is central today (Accepted)
+
+- A transport carries GZCOORD/1 unchanged, satisfies the adapter contract,
+  and never makes a native field a protocol field (§2, §5 rules 1–2).
+- No transport gives an agent a human-style identity — why Telegram's
+  workaround was refused; a candidate is validated with two instances
+  (§5 rules 3–4).
+- The transport is the Claude-Bridge relay: one user unit on the
+  operator's account, loopback, one database, one channel for every
+  project, the control plane beside it; the token from Doppler (§2, §5
+  rules 5–6).
+- The human relay is the fallback: validate, fenced block, 72 columns,
+  minted id; normalise and check the addressee before the body (§5 rules
+  7–8).
+- The relay is a single point of failure, authenticates no sender and
+  filters nothing — the inbox does (§6).
+- Keywords: transport, relay, Claude-Bridge, claude-bridge,
+  gzcoord-relay, human relay, fallback, Telegram, adapter contract,
+  channel, gzapp:gzcoord, bridge token, central, single point of failure.
