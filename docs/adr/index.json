@@ -108,6 +108,15 @@
       "date": "2026-09-18",
       "pillar": "P1",
       "amendments": 0
+    },
+    {
+      "number": "012",
+      "file": "ADR-012-credentials.md",
+      "title": "Credentials",
+      "status": "Accepted",
+      "date": "2026-09-14",
+      "pillar": "P1",
+      "amendments": 0
     }
   ]
 }

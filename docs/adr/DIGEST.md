@@ -18,6 +18,7 @@ searches it.
 | upgrading the fleet; distributing after a merge; fabric commands without approval | ADR-009 |
 | hosts and placement; hostexec; provisioning an account; fabric-lease and host memory | ADR-010 |
 | fabric-ref; a project's CI red from a fabric push; landing a drain | ADR-011 |
+| secrets, keys, tokens; Doppler; reporting a leaked secret | ADR-012 |
 
 ### ADR-000 — The enduring organization (Accepted)
 
@@ -198,3 +199,19 @@ searches it.
   waits for an empty queue and goes out with the index PR (§5 rule 5).
 - Keywords: fabric-ref, pin, cross-repo, lint window, drain, merge queue,
   CI, project checkout.
+
+### ADR-012 — Credentials (Accepted)
+
+- An identity's secrets live in Doppler, project `agent-fabric`, one
+  config per login; the account holds one read-only token and
+  `fabric-secrets sync` applies the rest; nothing is committed (§2, §5
+  rules 1–2).
+- No tool prints a value; enrolment never passes one through a terminal
+  or argv; `fill-from` never copies identity or coordinator credentials
+  (§5 rules 3–4).
+- A secret is described by shape and locator, never reproduced (SPEC §17)
+  (§5 rule 5).
+- A destination and its credential move together, with a check on the
+  secret itself; credentials are tested by shape (§5 rules 6–7).
+- Keywords: credentials, secrets, Doppler, token, API key, fabric-secrets,
+  enroll, rotation, leak, shape, locator, base URL.
