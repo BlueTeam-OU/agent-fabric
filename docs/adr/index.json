@@ -63,6 +63,15 @@
       "date": "2026-09-23",
       "pillar": "P1",
       "amendments": 0
+    },
+    {
+      "number": "007",
+      "file": "ADR-007-a-flagged-request-is-contagious.md",
+      "title": "A flagged request is contagious",
+      "status": "Accepted",
+      "date": "2026-09-16",
+      "pillar": "P1",
+      "amendments": 0
     }
   ]
 }

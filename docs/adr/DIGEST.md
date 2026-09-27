@@ -13,6 +13,7 @@ searches it.
 | adding a role or a project; the order of the commits | ADR-004 |
 | which model a class runs on; review-grade; shims; fabric-model | ADR-005 |
 | how hard a class thinks; effort levels; CLAUDE_CODE_EFFORT_LEVEL | ADR-006 |
+| a safeguard flag; model fallback; "Switched to" | ADR-007 |
 
 ### ADR-000 — The enduring organization (Accepted)
 
@@ -120,3 +121,17 @@ searches it.
   broker `code-low` is committed at `low` (§2).
 - Keywords: effort, reasoning, thinking, level, clamp, medium, high,
   --effort, agent file, CLAUDE_EFFORT, Opus 5.5 default.
+
+### ADR-007 — A flagged request is contagious (Accepted)
+
+- A session whose request a model's safeguards flagged holds text that
+  flags every session it reaches; the fabric tells it at the switch (§2).
+- `model-fallback-note.sh` on `PostModelSwitch` (`source: "auto"`) names
+  the models, the category and the stickiness; a per-pid marker makes
+  `send.mjs` repeat the reminder; `fabric-status` shows it as drift (§5
+  rules 1–3).
+- After a flag a finding travels by locator and class, never content;
+  a delivery that flags you is answered by locator (§5 rule 4).
+- Each project's `.claude/settings.json` wires the hook (§5 rule 5).
+- Keywords: safeguards, flagged, fallback, contagion, PostModelSwitch,
+  classifier, locator, broadcast.
