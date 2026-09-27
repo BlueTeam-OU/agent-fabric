@@ -11,7 +11,7 @@
 #   fabric-ctl <login|all> accounts               each observed Claude account's windows: session, weekly,
 #                                                 per-model weekly (bin/fabric-accounts; docs/adr/ADR-031-claude-accounts-assigned-applied-and-proved-by-signed-action.md)
 #   fabric-ctl <login|all> upgrade claude [--version V]          an ACTION, signed: the pinned harness,
-#                                                 a running session resumed on it (docs/fleet-upgrade.md)
+#                                                 a running session resumed on it (ADR-009)
 #   fabric-ctl <login|all> secrets-sync [--expect FP] [--restart]   an ACTION, signed: the login's Doppler
 #                                                 config re-applied, proved, a session resumed (docs/adr/ADR-031-claude-accounts-assigned-applied-and-proved-by-signed-action.md)
 #

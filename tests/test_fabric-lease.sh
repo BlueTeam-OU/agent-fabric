@@ -130,7 +130,7 @@ kill -HUP "$HOLDER"; wait "$HOLDER" 2>/dev/null; HOLDER=""
 grep -q child-got-hup "$SANDBOX/holder.out" && ok "HUP to the wrapper reaches the command" || bad "HUP not forwarded" "$(cat "$SANDBOX/holder.out")"
 
 echo "fabric-lease: every refusal ends with one stable reason line; --label names the job"
-# The contract callers match (docs/resources.md): the LAST stderr line, whatever the prose above it says.
+# The contract callers match (ADR-010): the LAST stderr line, whatever the prose above it says.
 last() { tail -1 <<<"$1"; }
 out="$(AGENT_FABRIC_LEASES="$SANDBOX/absent" bash "$ROOT/bin/fabric-lease" x -- true 2>&1)"
 [[ "$(last "$out")" == "fabric-lease: reason=nodir" ]] && ok "no lease directory: reason=nodir, last" || bad "nodir reason" "$out"

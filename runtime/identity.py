@@ -25,7 +25,7 @@ harvesters, the GZCoord runtime, the Claude Code hooks — defers to this
 module (or to `bin/fabric-whoami`, which execs it). None of them derives
 the agent name on its own.
 
-The state layer (2026-09-16, docs/state-layer.md). Every file under
+The state layer (ADR-003). Every file under
 `agents/<login>/` is written by this module and by nothing else:
 `atomic_write` (a temporary beside the target, fsync, os.replace — the old
 file stays whole through a crash or a full disk), `agent_lock` (a

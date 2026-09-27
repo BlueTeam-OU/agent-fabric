@@ -25,7 +25,7 @@
 # snapshot directory is root's alone.
 #
 # Also on every platform: the host-wide lease directory the accounts
-# share, /run/lock/agent-fabric (bin/fabric-lease, docs/resources.md) —
+# share, /run/lock/agent-fabric (bin/fabric-lease, ADR-010) —
 # made now, 1777, and made to come back after a reboot: by the boot
 # script above on a Qubes AppVM, by a tmpfiles.d entry
 # (platform/agent-fabric.tmpfiles.conf -> /etc/tmpfiles.d/) where /etc

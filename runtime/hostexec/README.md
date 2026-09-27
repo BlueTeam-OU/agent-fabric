@@ -30,5 +30,5 @@ in argv), stdout, stderr, the exit status; `--tty` asks for a terminal
 account is placed there.
 
 Tests: `test_hostexec.sh` (a fixture registry, a fake `ssh` that runs
-the remote line locally, a fake `sudo`). Concept: `docs/host-execution.md`.
+the remote line locally, a fake `sudo`). Concept: ADR-010.
 Environment for tests: `AGENT_FABRIC_HOSTS_REGISTRY`, `SSH`, `SUDO`.

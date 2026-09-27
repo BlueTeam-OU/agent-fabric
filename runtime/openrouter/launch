@@ -201,7 +201,7 @@ fi
 # Its CLAUDE.md and rules are binding the moment the session loads them,
 # and a clone left on a week-old main gave a session instructions its
 # project had already replaced (a retired review flow, followed live on
-# a gzapp PR). The same fetch as above, but this checkout is the
+# a managed project's PR). The same fetch as above, but this checkout is the
 # session's own work, never the launcher's to refuse: on the default
 # branch with nothing uncommitted it is fast-forwarded; on any other
 # branch, or with changes, it is left alone and the gap is said, here
@@ -845,7 +845,7 @@ trap - INT TERM HUP
 # terminal, so it is the one that can bring the session back: it waits
 # while the upgrade runs, then re-executes itself — through the same pull
 # and checks as any launch — resuming the session it was running
-# (docs/fleet-upgrade.md). A marker older than this launch belongs to
+# (ADR-009). A marker older than this launch belongs to
 # another session and is removed, never obeyed; an upgrade that failed
 # still restarts, on what is installed, and says so.
 RESTART_MARKER="$STATE_DIR/restart.json"

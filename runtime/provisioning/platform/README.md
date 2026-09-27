@@ -40,7 +40,7 @@ ever done in the TemplateVM**:
 |---|---|---|
 | the TemplateVM | packages only: the host contract above (`node`, `git`, `gh`, `jq`, `python3`, `gpg`, …) | a person, once (`PKG_INSTALL_HINT`); the worker's host audit names a missing one |
 | `/rw/config/agent-fabric/accounts/` | the account records — one line per login from `passwd shadow group gshadow subuid subgid`, and `members` (the login's supplementary groups); root, 0600 | `persist-accounts.sh`, run by the worker at every account's creation and by `bin/fabric-host <host> persist` for all placements |
-| `/rw/config/rc.local.d/` | `agent-fabric-accounts.rc` (re-adds the records at boot, restores the memberships, enables linger, makes the lease directory `/run/lock/agent-fabric` — `docs/resources.md`) and `tmp-size.rc` (`/tmp` size) | `persist-accounts.sh` installs and refreshes the first; the second is the operator's |
+| `/rw/config/rc.local.d/` | `agent-fabric-accounts.rc` (re-adds the records at boot, restores the memberships, enables linger, makes the lease directory `/run/lock/agent-fabric` — ADR-010) and `tmp-size.rc` (`/tmp` size) | `persist-accounts.sh` installs and refreshes the first; the second is the operator's |
 | `/etc/tmpfiles.d/agent-fabric.conf` (persistent platforms only) | the lease directory `/run/lock/agent-fabric` for the next boot — on a Qubes AppVM the boot script above makes it instead | `persist-accounts.sh` installs it from `platform/agent-fabric.tmpfiles.conf` |
 | `/home/<login>` | everything else: the account's tools (`~/.local`), its checkouts, its unit (`~/.config/systemd/user/`), its secrets | the worker, `bootstrap.sh`, `fabric-secrets sync` |
 

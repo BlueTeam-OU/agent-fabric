@@ -13,7 +13,7 @@
 # ballooned to 8.6 GiB, 166,000 postgres files in ninety seconds, and
 # the VM was gone (docs/live-checks/2026-09-19-develop-qzapp-crash.md).
 # The fix is not a role that runs suites for everyone: it is mutual
-# exclusion where the suite is started (docs/resources.md).
+# exclusion where the suite is started (ADR-010).
 #
 # A lease is a flock(2) on ${AGENT_FABRIC_LEASES:-/run/lock/agent-fabric}/<name>,
 # a directory every account can create files in (1777, made at boot by
@@ -36,7 +36,7 @@
 # lease directory, an unopenable lease file or unreadable memory.
 #
 # Every refusal ends with ONE stable line on stderr, the contract a caller
-# matches instead of the prose above it (docs/resources.md):
+# matches instead of the prose above it (ADR-010):
 #   fabric-lease: reason=memory|memory-unknown|timeout|held|nodir|unopenable
 # (a usage error — bad arguments, exit 2, before any lease file is
 # touched — carries none.)
