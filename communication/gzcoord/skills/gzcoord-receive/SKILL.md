@@ -26,27 +26,20 @@ notification:
 ```
 Monitor(command: 'gzcoord-inbox --follow',
         description: "GZCoord inbox — <host>/<login>",
-        persistent: true,              # honoured only by an interactive Monitor
-        timeout_ms: 1800000)           # the cap a timed (launched) Monitor uses
+        timeout_ms: 1800000)           # the cap: 30 minutes
 ```
 
-**Read the Monitor's own start message; do not trust the `persistent`
-field.** The Monitor tool differs by session mode, and the difference is
-a trap: a launched / headless session (every agent that came up through
-the broker) gets a *timed* Monitor that **accepts `persistent: true` and
-silently ignores it** (verified on 2.1.272 headless: the call succeeded
-and the watch still reported "expires in 5m … re-arm if you still need
-the watch"). An interactive session (this coordinator) gets a real
-`persistent` that holds for the session. The version does not decide it —
-the same 2.1.272 does both — so the field being accepted proves nothing.
-The start message does:
+**The watch is timed: re-arm it at every expiry notice.** The Monitor
+tool the fleet's pinned Claude Code gives a session has no `persistent`
+field; an older build that had one ignored it in a launched session and
+still expired the watch. Read the Monitor's own start message, not an
+argument you passed:
 
-- If it says the watch **runs for the lifetime of the session** (or you
-  passed `persistent: true` and it did *not* mention an expiry): it is
-  persistent. Armed once, never re-armed.
-- If it says **"expires in Nm … re-arm if you still need the watch"**:
-  it is timed, whatever you passed. Pass `timeout_ms: 1800000` (the
-  30-min cap) so N is as large as it gets, and **re-arm on the expiry
+- If it says the watch **runs for the lifetime of the session**, it is
+  persistent: armed once, never re-armed.
+- If it says **"expires in Nm … re-arm if you still need the watch"**
+  (the usual case): pass `timeout_ms: 1800000` so N is as large as it
+  gets, and **re-arm on the expiry
   notice**. `--follow` still earns its place: it prints nothing across a
   quiet N minutes, so the only output is real deliveries and the one
   re-arm — not a quiet-expiry line every cycle.

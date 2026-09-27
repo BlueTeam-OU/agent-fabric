@@ -132,7 +132,7 @@ def trailing(working_copy: str | None) -> list[str]:
 # runtime/claude-code/commands.json).
 WATCH_MISSING = ("agent-fabric: NO INBOX WATCH is running for this session ({source}) — arm it now, "
                  "as your first action: Monitor(command: 'gzcoord-inbox --follow', "
-                 "description: 'gzcoord inbox watch', persistent: true, timeout_ms: 1800000), and re-arm it at each expiry notice "
+                 "description: 'gzcoord inbox watch', timeout_ms: 1800000), and re-arm it at each expiry notice "
                  "(gzcoord-receive §1). One watch per session: never a second.")
 
 

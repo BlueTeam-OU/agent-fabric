@@ -130,9 +130,9 @@ the same command asks on one account and not on another.
 ## 6. Consequences
 
 - A resumed session is told it has no watch; a relaunched one arms it on
-  its first turn. A launched (headless-style) session gets a timed
-  Monitor that ignores `persistent`, so re-arming at the expiry notice
-  stays the session's job (`gzcoord-receive` §1).
+  its first turn. The Monitor tool is timed (the pinned Claude Code has
+  no `persistent` field), so re-arming at the expiry notice stays the
+  session's job (`gzcoord-receive` §1).
 - After a plan is approved the planning span's deliveries arrive
   together, and the session reads them before acting: the tree may have
   moved.
