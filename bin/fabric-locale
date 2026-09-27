@@ -9,7 +9,7 @@
 #
 # A translation is authored by the locale's holder and checked by lint;
 # this prints the two things lint will hold it to, so the holder checks
-# itself before opening the PR (docs/language-culture-bridge.md).
+# itself before opening the PR (docs/adr/ADR-027-language-and-culture-shape-the-work-the-bridge.md).
 set -euo pipefail
 ROOT="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
 case "${1:-}" in

@@ -51,7 +51,7 @@ The role is bound **from a login shell, never inside a session**
 (`identities/roles/language-culture/locale/<suffix>/harness.md`) gets the
 fabric's text followed by that translation, passed as
 `--system-prompt-file`, which replaces the harness's English
-(`docs/language-culture-bridge.md`). The project layer — the
+(ADR-027). The project layer — the
 role's remit in that project and the pointer to its `INDEX.md` — follows
 the working copy and arrives from the SessionStart hook.
 

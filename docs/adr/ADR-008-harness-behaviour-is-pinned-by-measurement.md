@@ -121,7 +121,7 @@ the auto-updater, the allow rules and auto mode.
 - `runtime/claude-code/user-settings.py` (docstring: each key and why),
   `runtime/claude-code/bootstrap.sh`, `runtime/claude-code/harness.json`.
 - `runtime/claude-code/harness/README.md`, `runtime/claude-code/harness/en.md`,
-  `docs/language-culture-bridge.md`.
+  ADR-027 (the prompt in the locale).
 - `policies/ban_generated_by_attribution.sh`.
 - The live checks in Evidence. ADR-002 (the launch prompt the harness text
   precedes).

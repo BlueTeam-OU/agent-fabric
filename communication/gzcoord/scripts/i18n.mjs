@@ -4,7 +4,7 @@
 //
 // A language-culture holder reasons in the locale it is named for, and
 // the fabric removes every English it controls from that session
-// (docs/language-culture-bridge.md). The inbox was the last piece named
+// (docs/adr/ADR-027-language-and-culture-shape-the-work-the-bridge.md). The inbox was the last piece named
 // as residue there — "the inbox drain (the wire is English)" — and it is
 // two things, not one: the MESSAGE is the wire and stays as its sender
 // wrote it, while everything the inbox says AROUND it (the head line,

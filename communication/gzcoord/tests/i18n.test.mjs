@@ -1,5 +1,5 @@
 // The lines the inbox prints, in the language of the login that reads
-// them (scripts/i18n.mjs, i18n/README.md, docs/language-culture-bridge.md).
+// them (scripts/i18n.mjs, i18n/README.md, docs/adr/ADR-027-language-and-culture-shape-the-work-the-bridge.md).
 //
 // The load-bearing case is the last one: a default-locale login's output
 // is byte-identical to what it was before a dictionary existed.

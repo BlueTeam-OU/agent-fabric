@@ -569,7 +569,7 @@ PROMPT_DIGEST="$(python3 "$FABRIC_ROOT/tools/fabric/launch_prompt.py" --out "$PR
 # is launched with the WHOLE prompt replaced — the fabric's part in the
 # locale, then the harness text in the locale, in that order, rendered by
 # launch_prompt.py — instead of the fabric's part appended after the
-# harness's English (the CEO, 2026-09-17; docs/language-culture-bridge.md).
+# harness's English (the CEO, 2026-09-17; docs/adr/ADR-027-language-and-culture-shape-the-work-the-bridge.md).
 # The harness still sends the function-calling grammar, every tool
 # schema, the listings and CLAUDE.md outside the replaceable text, so
 # nothing about how tools are called changes. The absence of that file

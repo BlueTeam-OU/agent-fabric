@@ -33,6 +33,7 @@ searches it.
 | a message is advisory; working on a request together; OWNER-WORD | ADR-024 |
 | branches with no PR; what shares my paths; do two branches combine | ADR-025 |
 | measuring progress; supervision; verified result (proposed) | ADR-026 |
+| the language-culture role; the locale worker; the prompt in the locale; locale search | ADR-027 |
 
 ### ADR-000 — The enduring organization (Accepted)
 
@@ -487,3 +488,30 @@ searches it.
   exists (§6). Waits on the owner's acceptance (§8).
 - Keywords: progress, supervision, verified result, measure, metric,
   owner, OWNER-WORD, autonomy, mandate, proposed.
+
+### ADR-027 — Language-and-culture specialists shape the work, not only translate it; the bridge (Accepted)
+
+- The role owns the words and what a market's culture changes, stated so
+  the surface's owner decides; it says when a language cannot carry a
+  meaning; findings in another's surface are `OBSERVATION`s with the
+  correction (§2, §5 rule 2).
+- One holder per locale, `language-culture-<suffix>`; the tag is
+  `locale.json`'s, never inferred (`ge` is `ka-GE`) (§5 rule 1).
+- Two-pass review, target first, every finding naming its pass; requests
+  translated in, answers composed once in the locale and rendered; the
+  fleet gets English (§5 rules 3–4). Notes in the locale, counted by
+  `fabric-ctl <login> script`, counts only (§5 rule 5).
+- The bridge: `locale-worker`, one inert tool (`TaskStop`), installed only
+  on a holder's login; the guard wants a model and no isolation; a Latin
+  paragraph in its input is a leak (§5 rules 6–8).
+- The prompt in the locale: per-piece translations with a source digest;
+  `harness.md` present replaces the whole prompt, absent is the kill
+  switch; lint keeps the identifiers; a lag warns and is served; only the
+  holder translates (§5 rules 9–11).
+- Memory rendered under `## English` by its holder, else
+  `needs_rendering`; locale search through `websearch-locale`, SerpAPI
+  then Brave, the harness's `WebSearch` removed (§5 rules 12–13).
+- Keywords: language-culture, locale, translation, culture, bridge,
+  locale-worker, worker, Georgian, Russian, ka-GE, ru-RU, harness.md,
+  system-prompt-file, notes, script, needs_rendering, web search, SerpAPI,
+  Brave, carve-out.

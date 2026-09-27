@@ -243,6 +243,15 @@
       "date": "2026-09-27",
       "pillar": "P3",
       "amendments": 0
+    },
+    {
+      "number": "027",
+      "file": "ADR-027-language-and-culture-shape-the-work-the-bridge.md",
+      "title": "Language-and-culture specialists shape the work, not only translate it; the bridge",
+      "status": "Accepted",
+      "date": "2026-09-17",
+      "pillar": "P4",
+      "amendments": 0
     }
   ]
 }

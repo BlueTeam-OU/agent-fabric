@@ -127,7 +127,7 @@ directory, the repository, the branch or the session.
   it rides; the review class shares `fable` with `code-plan` and so is
   never an export: its model reaches its agent file, on both paths.
   One more type exists on one role's logins only: `locale-worker`, the
-  language-culture bridge's subagent (`docs/language-culture-bridge.md`)
+  language-culture bridge's subagent (`docs/adr/ADR-027-language-and-culture-shape-the-work-the-bridge.md`)
   — a model required, no isolation, no ask.
   **The class decides the alias**
   (`runtime/claude-code/aliases.json`): the dispatch guard
