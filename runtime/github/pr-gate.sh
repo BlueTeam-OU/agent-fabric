@@ -171,7 +171,7 @@ while IFS=$'\t' read -r num title head base hbranch draft; do
         shas=()
         while IFS=$'\t' read -r sha parents subject answers; do
             [[ -n "$sha" ]] || continue
-            shas+=("$sha"); cls["$sha"]="$(commit_class "$parents" "$subject" "$answers")"; subj["$sha"]="$subject"
+            shas+=("$sha"); cls["$sha"]="$(commit_class "$parents" "$subject" "$answers" "$num")"; subj["$sha"]="$subject"
         done < <(git log --format='%H%x09%P%x09%s%x09%(trailers:key=Answers,valueonly,unfold,separator=%x20)' "origin/$base..$head" 2>/dev/null)
         # A COMMIT NETS ONCE. git log lists newest first, so a chain
         # "feat A; revert A; reapply A" is walked reapply → revert: the

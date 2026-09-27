@@ -67,5 +67,17 @@ got="$(printf 'Revert the thing by hand\n\nno trailer here\n' | revert_targets)"
 expect work "aaa" "Revert the thing by hand"
 expect work "aaa" 'Revert "feat: the used-by guard"'
 
+echo "commit-class: a commit answering ANOTHER pull request's review is work on this one"
+expect_pr() {  # expect_pr <class> <pr> <subject> [<answers>]
+    local got; got="$(commit_class "aaa" "$3" "${4:-}" "$2")"
+    if [[ "$got" == "$1" ]]; then pass "$1 on #$2: $3${4:+ [Answers: $4]}"; else fail "expected $1 on #$2, got $got: $3${4:+ [Answers: $4]}"; fi
+}
+expect_pr work 54 "review of #53 (deferred P3s): the date rules hold at their edges"
+expect_pr work 948 "db: the guard re-applies" "#947 F2"
+expect_pr fix  54 "review of #54 (P2 thread): the pipe guard exempts only a real pipefail"
+expect_pr fix  861 "supplier: the copy for the new keys (#861 F6)"
+expect_pr fix  54 "re-review F1: the chain match"
+expect fix "aaa" "review of #53 (deferred P3s): no PR given, the old reading stands"
+
 echo
 if [[ $failures -eq 0 ]]; then echo "test_commit-class: OK — all assertions passed."; else echo "test_commit-class: FAILED — $failures assertion(s)." >&2; exit 1; fi

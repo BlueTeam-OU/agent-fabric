@@ -22,7 +22,7 @@
 # "…: address the blind review of …", "review fixes: …", "…the
 # re-review findings on 8c4ae884".
 #
-#   commit_class <parents> <subject> [<answers>]   → prints merge | fix | work
+#   commit_class <parents> <subject> [<answers>] [<pr>]   → prints merge | fix | work
 #
 # <parents> is the space-separated parent list (git log %P): two or
 # more parents is a merge, whatever the subject says. <answers> is the
@@ -55,8 +55,18 @@
 # Case-sensitive on purpose: "v2", "utf8", "sha1" are not labels; a
 # three-letter run (ADR-071, OTP) is not either.
 commit_class() {
-    local parents="$1" subject="$2" answers="${3:-}"
+    local parents="$1" subject="$2" answers="${3:-}" pr="${4:-}"
     if [[ "$parents" == *" "* ]]; then echo merge; return 0; fi
+    # With the PR being counted: a commit whose subject or Answers: names
+    # pull requests, none of them this one, answers ANOTHER PR's review —
+    # a follow-up's own work, which the band counts. Read as a fix it
+    # moved gzapp #947 from 7 work to 3 and a coordinator follow-up of
+    # agent-fabric #53 the same way. Without the number the old reading
+    # stands (a project forwarder that passes three arguments).
+    if [[ -n "$pr" ]]; then
+        local refs; refs="$(grep -oE '#[0-9]+' <<<"$subject $answers" | tr -d '#' | sort -u)"
+        if [[ -n "$refs" ]] && ! grep -qx "$pr" <<<"$refs"; then echo work; return 0; fi
+    fi
     if [[ -n "${answers//[[:space:]]/}" ]]; then echo fix; return 0; fi
     # A subject that OPENS with the review word AS THE SCOPE — "review:
     # …", "re-review: …" — is an answer to one with nothing else to say
