@@ -225,6 +225,15 @@
       "date": "2026-09-13",
       "pillar": "P3",
       "amendments": 0
+    },
+    {
+      "number": "025",
+      "file": "ADR-025-the-in-flight-view-and-the-trial-merge.md",
+      "title": "The in-flight view and the trial merge",
+      "status": "Accepted",
+      "date": "2026-09-26",
+      "pillar": "P3",
+      "amendments": 0
     }
   ]
 }

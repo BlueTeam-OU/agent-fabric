@@ -31,6 +31,7 @@ searches it.
 | the inbox watch at start; auto mode; plan mode holds the inbox; planning in presence | ADR-022 |
 | TO-ROLE; who gets a REQUEST; two holders of one role; claiming an assignment | ADR-023 |
 | a message is advisory; working on a request together; OWNER-WORD | ADR-024 |
+| branches with no PR; what shares my paths; do two branches combine | ADR-025 |
 
 ### ADR-000 — The enduring organization (Accepted)
 
@@ -447,3 +448,19 @@ searches it.
 - The owner's word travels verbatim under `OWNER-WORD:` (§5 rule 9).
 - Keywords: GZCoord, advisory, request, undertake, dependency,
   renegotiate, delivery, agreement, HANDOFF, OWNER-WORD, artifact.
+
+### ADR-025 — The in-flight view and the trial merge (Accepted)
+
+- `pr-gate.sh --in-flight` lists every branch on origin not merged, PR or
+  not, owner from the branch prefix, with the paths it changes;
+  `--overlap` and `--path` narrow it; it reserves nothing (§2, §5 rules
+  1–3).
+- `trial-merge.sh` merges named refs onto the base in a throwaway
+  worktree: combines, conflicts or could not merge, for the shas printed;
+  the caller's clone is untouched (§5 rules 4–5).
+- `--check` runs the project's declared check (`trial.json`); a verdict
+  line wins over the exit code; unavailable is never a pass (§5 rule 6).
+- Exit 0 combines/passed, 1 conflicts/failed, 2 could not try or
+  unavailable (§5 rule 7).
+- Keywords: in flight, branch, no PR, overlap, shared paths, trial merge,
+  combine, conflict, worktree, trial-check, dependency.
