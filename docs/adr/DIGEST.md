@@ -42,6 +42,7 @@ searches it.
 | the relay; the human relay; transports; Telegram; the adapter contract | ADR-033 |
 | what a failure may take; single points; degraded modes (proposed) | ADR-034 |
 | working with another organization; portable trust; what may be shared (proposed) | ADR-035 |
+| cost per verified result; spend; shared resources (proposed) | ADR-036 |
 
 ### ADR-000 — The enduring organization (Accepted)
 
@@ -677,3 +678,22 @@ searches it.
   on the owner's acceptance (§8).
 - Keywords: federation, organization, portable trust, identity,
   signature, provenance, confidential, licence, expertise, P6, proposed.
+
+### ADR-036 — Sustainable operation: shared resources, and cost per verified result beside supervision per verified result (Proposed)
+
+- Proposed, not binding: cost per verified result — spend attributable to
+  a period's verified results over their number, ADR-026's denominator —
+  read as a trend beside supervision per verified result, never a target
+  or per agent (§2, §5 rules 1–2, 4).
+- Direct-path spend in input-token equivalents from the logins' own
+  records, broker spend from the provider per key, never converted into
+  each other (§5 rule 3).
+- Growth is argued by its effect on cost per verified result; a shared
+  resource is taken for a stated job and released (§5 rules 5–6).
+- Today's pieces are cited, not restated: leases, clean test runs, prompt
+  budgets, usage windows, `tokens` (§1). Nothing links spend to a result
+  yet (§6).
+- First step: a report of input-token equivalents per merged PR (§7).
+  Waits on the owner's acceptance (§8).
+- Keywords: sustainable, cost, spend, tokens, usage windows, budget,
+  lease, verified result, capability per spend, P7, proposed.
