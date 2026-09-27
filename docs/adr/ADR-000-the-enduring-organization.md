@@ -108,9 +108,13 @@ brief and distilled knowledge belong to the role, so assigning it to
 another agent transfers the professional knowledge without confusing the
 individual with the function.
 
-**Direction.** Moving an agent to another host keeps its history as a
-routine operation, not a procedure; a new model family is adopted by a
-routing change and a measured read-back, and nothing else.
+**Direction.** Changing models upgrades the capabilities available to the
+team instead of rebuilding it; moving an agent to another host does not
+erase its history; assigning a role to another agent transfers the
+professional knowledge without confusing the individual with the function.
+*Coordinator proposal:* moving a host becomes a routine operation, not a
+procedure, and a new model family is adopted by a routing change and a
+measured read-back, and nothing else.
 
 ### P2 — Learns, not merely remembers
 
@@ -130,9 +134,9 @@ evidence it rests on (live checks). A belief with neither
 evidence nor an owner is a liability, not an asset.
 
 **Direction.** Every project leaves a precaution, a method or a corrected
-belief behind it, found where the next project will look. A decision whose
-evidence has gone stale is flagged for review, not kept on inertia.
-Learning resides in curated knowledge and practice; it does not require
+belief behind it, found where the next project will look. *Coordinator
+proposal:* a decision whose evidence has gone stale is flagged for review,
+not kept on inertia. Learning resides in curated knowledge and practice; it does not require
 changing any model's weights.
 
 ### P3 — Autonomy with verifiable commitments
@@ -158,9 +162,9 @@ ratification of records, the authority guard, the carried owner's word.
 
 **Direction.** Progress is measured by how much less supervision a
 correct, verified and maintainable result needs, not by how many
-messages the agents exchange. The mandate is stated as a whole, so that
-"ask the owner" is a rule and not a reflex, and supervision falls without
-any loss of control.
+messages the agents exchange. *Coordinator proposal:* the mandate is
+stated as a whole, so that "ask the owner" is a rule and not a reflex, and
+supervision falls without any loss of control.
 
 ### P4 — Diversity of expertise
 
@@ -194,8 +198,8 @@ answering when a model does not.
 resilience, not complexity for its own sake. The criterion: a
 failure or a change of provider may reduce the team's capacity for a
 while; it must not take its identity, its knowledge or its ability to go
-on working. Every operation the organization depends on has a documented
-degraded mode. Dependence on one person is not replaced by dependence on
+on working. *Coordinator proposal:* every operation the organization
+depends on has a documented degraded mode. Dependence on one person is not replaced by dependence on
 one central service.
 
 ### P6 — Federation
@@ -257,9 +261,10 @@ Accepted: the owner armed the pull request that introduces it (agent-fabric
 #50, "merge 50", 2026-09-27) after being told that arming ratifies this
 record, its marked proposals included. What is the owner's and what is the
 coordinator's: the purpose, the principle and pillars P1–P6 with their
-directions are the owner's statement, paraphrased; pillar P7, the six
-paragraphs marked *Coordinator proposal*, the alternatives of §3 and the
-structural rules 2–4 of §5 are the coordinator's. Any of the coordinator's
+directions are the owner's statement, paraphrased; pillar P7, everything
+marked *Coordinator proposal* (six paragraphs and four sentences within the
+directions), the alternatives of §3 and the structural rules 2–4 of §5 are
+the coordinator's. Any of the coordinator's
 parts can be struck by an amendment without touching the rest.
 
 ## References

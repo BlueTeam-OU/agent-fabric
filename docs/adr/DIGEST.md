@@ -33,8 +33,10 @@ searches it.
   the index is generated (§2).
 - fabric-coordinator writes; the owner accepts, and `Accepted` needs a
   `Ratified:` line naming where the owner's word is; merging ratifies
-  already-practised records (§5 rules 1–2).
+  already-practised records, and a new record only when the PR says arming
+  ratifies it and the owner arms it so (§5 rules 1–2).
 - An ADR body edit needs an Amendments row or an `ADR-Editorial:` trailer
   (§5 rule 4); from outside, cite "agent-fabric ADR-NNN" (§5 rule 6).
-- Live checks are immutable evidence (§5 rule 8).
+- Live checks are immutable evidence (§5 rule 8); `sources/` keeps the
+  verbatim texts a record paraphrases, never edited (§5 rule 9).
 - Keywords: ADR, amendment, supersede, ratify, index, digest, rationale.
