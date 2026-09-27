@@ -58,7 +58,7 @@
 #                      subagent whose system prompt and every input are
 #                      the locale's language, so its reasoning cannot
 #                      start from English it never saw (the CEO,
-#                      2026-09-17; docs/language-culture-bridge.md).
+#                      2026-09-17; docs/adr/ADR-027-language-and-culture-shape-the-work-the-bridge.md).
 #                      Model required; isolation must be ABSENT (it
 #                      writes nothing, a worktree protects nothing);
 #                      any alias allowed and never asked — language
@@ -182,9 +182,9 @@ jq -c --argjson aliases "$ALIAS_JSON" --argjson pinned "$PINNED_JSON" --arg file
       # is the job of the worker itself, and its description is in the locale;
       # a description that begins with review names no reviewer class here.
       if ($model | length) == 0 then
-        deny("locale-worker dispatch has no model set. The worker reads nothing, but its tier is still a choice, and unset means the session model by accident. Set model explicitly (opus is the design: language judgement is premium work). See docs/language-culture-bridge.md.")
+        deny("locale-worker dispatch has no model set. The worker reads nothing, but its tier is still a choice, and unset means the session model by accident. Set model explicitly (opus is the design: language judgement is premium work). See docs/adr/ADR-027-language-and-culture-shape-the-work-the-bridge.md.")
       elif $iso != "" then
-        deny("locale-worker dispatch sets isolation. The worker writes nothing anywhere — its one tool reads and writes no file — so isolation protects nothing; omit it. See docs/language-culture-bridge.md.")
+        deny("locale-worker dispatch sets isolation. The worker writes nothing anywhere — its one tool reads and writes no file — so isolation protects nothing; omit it. See docs/adr/ADR-027-language-and-culture-shape-the-work-the-bridge.md.")
       else empty end
     elif $review_desc then
       deny("Description begins with review but subagent_type is \"" + $type + "\". A code review is the code-review class (fable, no isolation, no session context) -- not a general agent on a cheaper tier. If this is not a code review, re-word the description (Audit ..., Check ..., Inspect ...). See the subagent-dispatch skill (agent-fabric policies/subagent-dispatch/SKILL.md).")

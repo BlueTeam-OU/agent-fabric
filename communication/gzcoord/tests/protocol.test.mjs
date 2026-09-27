@@ -807,7 +807,7 @@ test('waitLoop exits only on an addressed message; others pass acknowledged', as
   assert.equal(r3.delivered, false, 'drain does not exit early — it lists');
   assert.equal(r3.classified.length, 1);
   // HELLO and GOODBYE are acknowledged and never delivered, not even listed:
-  // presence is the control plane's (docs/presence.md).
+  // presence is the control plane's (docs/adr/ADR-030-presence-replaces-hello-and-goodbye.md).
   const acked4 = [];
   const r4 = await waitLoop({
     fetchPage: async () => ({ messages: [rec('h', 'HELLO', ''), rec('g', 'GOODBYE', 'NOTES:\nsession ended\n')] }),

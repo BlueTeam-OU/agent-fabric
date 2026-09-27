@@ -1,5 +1,7 @@
 # GZCoord
 
+Decisions: agent-fabric ADR-032 (`docs/adr/ADR-032-gzcoord-1-is-a-normative-contract.md`), ADR-033 (`docs/adr/ADR-033-gzcoord-transports-the-relay-is-central-today.md`).
+
 GZCoord is a small, transport-agnostic, human-readable messaging protocol for autonomous software-development agents collaborating on the same Git/GitHub-governed project.
 
 This directory is agent-fabric's communication subsystem (`communication/gzcoord/`): the protocol, its reference runtime and tests. It is not a source of authority for any project's state. Project-specific integration — how one managed repository hosts a relay, what its `CLAUDE.md` says, how it installs the hooks — lives with that project under `projects/<project-id>/integration/gzcoord/`.
@@ -45,7 +47,7 @@ deployment's to answer, never an announcement (`protocol/SPEC.md` §5):
 `HELLO` and `GOODBYE` are deprecated. In agent-fabric the control plane
 answers it from each account's process table —
 `bin/fabric-ctl <login|all> presence` — and `scripts/send.mjs` asks it
-before a `TO` or `TO-ROLE` message leaves (`docs/presence.md`).
+before a `TO` or `TO-ROLE` message leaves (`docs/adr/ADR-030-presence-replaces-hello-and-goodbye.md`).
 
 ## Normal message
 

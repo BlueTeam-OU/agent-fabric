@@ -65,7 +65,7 @@
 # can say what this session was launched as and see a rebind under it.
 # The launcher announces nothing: whether a session is running is the
 # control plane's to answer, from the process table (runtime/control/
-# presence.mjs, docs/presence.md) — HELLO/GOODBYE are retired.
+# presence.mjs, docs/adr/ADR-030-presence-replaces-hello-and-goodbye.md) — HELLO/GOODBYE are retired.
 #
 # The merged REVIEW model MUST be in routing/policies/review-grade.json:
 # a review's failure mode is a green PR that merges, so the reviewer's
@@ -569,7 +569,7 @@ PROMPT_DIGEST="$(python3 "$FABRIC_ROOT/tools/fabric/launch_prompt.py" --out "$PR
 # is launched with the WHOLE prompt replaced — the fabric's part in the
 # locale, then the harness text in the locale, in that order, rendered by
 # launch_prompt.py — instead of the fabric's part appended after the
-# harness's English (the CEO, 2026-09-17; docs/language-culture-bridge.md).
+# harness's English (the CEO, 2026-09-17; docs/adr/ADR-027-language-and-culture-shape-the-work-the-bridge.md).
 # The harness still sends the function-calling grammar, every tool
 # schema, the listings and CLAUDE.md outside the replaceable text, so
 # nothing about how tools are called changes. The absence of that file
@@ -688,7 +688,7 @@ bash "$FABRIC_ROOT/runtime/claude-code/install-agent-files.sh" --provider "$PROV
     die "could not install the capability-class agent files for $PROVIDER (runtime/claude-code/install-agent-files.sh)."
 
 # A plain-claude session runs only on a long-lived sign-in: a template's
-# setup-token, valid a year (docs/claude-accounts.md). A login's own /login
+# setup-token, valid a year (docs/adr/ADR-031-claude-accounts-assigned-applied-and-proved-by-signed-action.md). A login's own /login
 # is an 8-hour token with one refresh holder, and a fleet that silently fell
 # back to it ran on whichever account last signed in on that login — the
 # owner, 2026-09-25: no long-lived token, no session. Checked here, after

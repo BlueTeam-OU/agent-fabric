@@ -28,15 +28,15 @@ rule against it in two different shapes.
 ## 2. Decision
 
 **Work arrives as pull requests.** Every change reaches `main` through a
-pull request; on agent-fabric the last direct commit to `main` was on
-2026-09-18, and every change since has been a merged PR (#11 onward).
+pull request; on agent-fabric every change from #11 onward has been a
+merged PR.
 
-**One open pull request per agent** (the owner, 2026-09-19). While an
+**One open pull request per agent**. While an
 agent has a PR open, its next piece of work is another commit on it, if
 the branch is still addable; otherwise it is built locally and waits for
 the merge. Concerns are commit boundaries, not PR boundaries.
 
-**A PR is armed by its work-commit count** (the owner, 2026-09-18): the
+**A PR is armed by its work-commit count**: the
 commits of work as opened, review fixes excluded. Eight to sixteen arm
 once the gate is met; fewer ask the owner, who arms; more than sixteen is
 split before the PR opens.
@@ -55,14 +55,15 @@ part it covers.
 
 ## 3. Alternatives Considered
 
-- **Direct commits to `main` by the coordinator** (until 2026-09-18).
+- **Direct commits to `main` by the coordinator** (the earlier practice,
+  §1).
   Rejected in practice: no review before landing, no CI before landing,
   and a fabric change reached every project's check unreviewed.
 - **A PR per topic, or "small, reviewable pull requests"** (the
-  coordinator's charter wording before 2026-09-19). Rejected by the
+  coordinator's earlier charter wording). Rejected by the
   owner: each costs a review, a CI run and an arming; topics are commits.
-- **No exceptions to one-open-PR.** Tried and withdrawn the same day
-  (2026-09-19): a finding on the queued PR itself and an urgent fix are
+- **No exceptions to one-open-PR.** Tried and withdrawn within a
+  day: a finding on the queued PR itself and an urgent fix are
   real exceptions.
 - **Counting all commits.** Rejected: review fixes would push a PR over
   the band for being reviewed; they are excluded by an `Answers:` trailer
@@ -102,7 +103,7 @@ not on a pipe's exit status.
 4. Eight to sixteen work commits: arm once the gate is met. Under eight:
    ask the owner, who arms. Over sixteen: split before the PR opens; a PR
    already open over sixteen is armed on its basis, and the count is
-   advice for the next batch (the owner, 2026-09-19).
+   advice for the next batch.
 5. The gate is `runtime/github/pr-gate.sh`'s verdict for the PR, read
    before arming: `MERGEABLE` needs checks green, a review on the current
    head (`pr-review-status.sh`), no unresolved thread, no conflict, no
@@ -127,7 +128,7 @@ not on a pipe's exit status.
 
 ## 6. Consequences
 
-- **agent-fabric on GitHub, read 2026-09-27** (`gh api`):
+- **agent-fabric on GitHub, as read with `gh api`:**
 
   | setting | value |
   |---|---|
@@ -140,8 +141,9 @@ not on a pipe's exit status.
   | rulesets, branch protection, merge queue | none |
   | Actions | enabled, all actions allowed, SHA pinning not required; default workflow permissions read, may not approve pull requests |
   | secrets, variables, environments, self-hosted runners | none |
-  | code scanning | CodeQL default setup (actions, JavaScript/TypeScript, Python), weekly and on every PR, since 2026-09-21 |
-  | secret scanning | on, with push protection and validity checks |
+  | code scanning | CodeQL default setup (actions, JavaScript/TypeScript, Python), weekly and on every PR |
+  | secret scanning | on, with push protection, validity checks and non-provider patterns; AI detection off |
+  | Dependabot security updates | off |
   | access | one collaborator, the owner; no teams, no webhooks |
 
   Everything the fabric's own CI runs is in the tree (`.github/workflows/ci.yml`,
@@ -160,7 +162,7 @@ not on a pipe's exit status.
 
 - The note this record replaces said agent-fabric's commits go to `main`
   directly and gave the description ending "GZCoord" and a required-check
-  context `ci / guards-and-suites`; the first stopped on 2026-09-18, the
+  context `ci / guards-and-suites`; the first no longer holds (§1), the
   second was changed on GitHub, the third is not a name GitHub reports.
   `github-repo-settings.sh` now writes the live description.
 - A ruleset requiring the CI checks and a pull request on `main` would
@@ -168,9 +170,8 @@ not on a pipe's exit status.
 
 ## 8. Decision Status
 
-Accepted: the attribution ban since 2026-09-13, pull requests only since
-2026-09-18, the band since 2026-09-18, one open PR per agent since
-2026-09-19. The settings note is now a stub pointing here.
+Accepted and in force: the attribution ban, pull requests only, the
+band, one open PR per agent. The settings note is now a stub pointing here.
 
 ## References
 

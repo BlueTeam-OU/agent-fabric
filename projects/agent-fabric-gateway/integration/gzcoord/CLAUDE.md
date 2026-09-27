@@ -7,7 +7,7 @@ integration with it, and the state is the first thing to know.
 ## GZCoord is ACTIVE — over the relay the coordinator hosts
 
 The gateway's one role, fabric-coordinator — the whole repository is
-its (the owner, 2026-09-24; the gateway is the fabric's own data plane)
+its (the gateway is the fabric's own data plane)
 — is on the fleet's coordination channel: the same relay and channel as
 gzapp, the site, InterWeave and the fabric itself (`config.json` beside
 this file), hosted on the coordinator's workspace

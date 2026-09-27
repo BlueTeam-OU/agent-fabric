@@ -7,7 +7,7 @@
 #
 #   agent-fabric/bin/fabric-role bind <role> [--project ID] [--workspace DIR] [--force]
 #   agent-fabric/bin/fabric-role status         what is this agent right now?
-#   agent-fabric/bin/fabric-role unbind         drop the role (GOODBYE)
+#   agent-fabric/bin/fabric-role unbind         drop the role
 #   agent-fabric/bin/fabric-role list           the roles available
 #
 # bind and unbind refuse inside a harness session (the environment a Claude Code

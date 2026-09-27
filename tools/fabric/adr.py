@@ -97,6 +97,42 @@ def adr_dir(root: str) -> str:
     return os.path.join(root, ADR_DIR)
 
 
+# Who decided and when are the header's (Date, Decision Makers, Ratified)
+# and the history's; a record's body and its DIGEST entry state the decision
+# (the owner's rule for records, agent-fabric ADR-001 §5 rule 10). A
+# parenthesis that opens on the owner or the CEO is that attribution, across
+# a line break too.
+ATTRIBUTION_RE = re.compile(r"\((?:the owner|the CEO)\b[^()]*\)")
+
+
+# A record reads current: when a rule began is the header's, the Amendments
+# table's and the history's (ADR-001 §5 rule 11). §1 may date an incident;
+# §2–§8 carry no date outside a path or code span, an "(A YYYY-MM-DD)" rule
+# marker or an "(Amendment YYYY-MM-DD)" tombstone — the engine's own marks.
+# Its own name: DATE_RE above is the anchored header pattern real_date()
+# and amend rely on (review thread on #53).
+BODY_DATE_RE = re.compile(r"\b\d{4}-\d\d-\d\d\b")
+UNDATED_SPANS = re.compile(r"`[^`]*`|\]\([^)]*\)|\((?:A|Amendment) \d{4}-\d\d-\d\d\)|[\w./-]*\d{4}-\d\d-\d\d[\w./-]*\.md")
+
+
+def dated_sections(text: str) -> list[tuple[str, str]]:
+    """(section number, date) for each date §2–§8 carries."""
+    out, cur = [], None
+    for ln in text.split("\n"):
+        if ln.startswith("## "):
+            m = re.match(r"## (\d)\.", ln)
+            cur = m.group(1) if m and m.group(1) != "1" else None
+            continue
+        if cur:
+            for d in BODY_DATE_RE.findall(UNDATED_SPANS.sub("", ln)):
+                out.append((cur, d))
+    return out
+
+
+def attributions(text: str) -> list[str]:
+    return [" ".join(m.group(0).split()) for m in ATTRIBUTION_RE.finditer(text)]
+
+
 def read(path: str) -> str:
     with open(path, encoding="utf-8") as fh:
         return fh.read()
@@ -297,6 +333,12 @@ def check(root: str = ROOT) -> list[str]:
                 findings.append(f"{rel(a)}: table row(s) with no history note: {only_r}")
         if good and "Amendments" not in a["sections"]:
             findings.append(f"{rel(a)}: amended, but no '## Amendments' section")
+        body = a["text"].split("\n## ", 1)[1] if "\n## " in a["text"] else ""
+        body = body.split("\n## Amendments", 1)[0]
+        for sec, dated in dated_sections(a["text"]):
+            findings.append(f"{rel(a)}: §{sec} dates something ({dated}) — a record reads current; when is the header's and the history's, §1 may date an incident")
+        for att in attributions(body):
+            findings.append(f"{rel(a)}: an inline attribution {att!r} — who decided and when belong in the header and the history")
         for m in CITE_RE.finditer(a["text"]):
             if m.group(1) and m.group(1).lower() in foreign:
                 continue
@@ -331,6 +373,8 @@ def check(root: str = ROOT) -> list[str]:
     if not os.path.exists(dp):
         findings.append(f"{ADR_DIR}/DIGEST.md: missing")
     else:
+        for att in attributions(read(dp)):
+            findings.append(f"{ADR_DIR}/DIGEST.md: an inline attribution {att!r} — who decided and when belong in the record's header and history")
         entries: dict[str, dict] = {}
         cur = None
         for ln in read(dp).split("\n"):

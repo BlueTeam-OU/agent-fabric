@@ -9,7 +9,7 @@
 # the restart budget.
 [Unit]
 Description=agent-fabric control agent: answers fabric-ctl over the relay
-Documentation=file:%h/projects/agent-fabric/docs/control-plane.md
+Documentation=file:%h/projects/agent-fabric/docs/adr/ADR-029-the-control-plane-a-control-agent-per-account.md
 StartLimitIntervalSec=0
 
 [Service]

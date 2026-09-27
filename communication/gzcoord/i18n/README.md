@@ -1,5 +1,7 @@
 # The GZCoord tools' dictionaries
 
+Decisions: agent-fabric ADR-028 (`docs/adr/ADR-028-house-i18n-standard-gzcoord-speaks-the-readers-language.md`).
+
 Every line the inbox prints **around** a message, in the language of the
 login that reads it. The message itself is the wire and is never
 translated.
@@ -35,7 +37,7 @@ lives with the rest of that locale's translations:
 
 ```text
 identities/roles/<role>/locale/<suffix>/<tag>.json
-identities/roles/language-culture/locale/ge/ka-GE.json
+identities/roles/language-culture/locale/ru/ru-RU.json
 ```
 
 That is not a departure taken for taste. A translation is authored by
@@ -61,6 +63,14 @@ directory's `locale.json` names the tag:
 `ge` is Georgian, not German; the tag is data for exactly that reason.
 No role bound, no locale directory, no `tag`, no `<tag>.json`: the
 default locale, and the session starts either way.
+
+**One departure from the standard.** A key an active dictionary lacks
+prints its `en-US` line, and an unreadable dictionary leaves `en-US`
+standing whole. Nothing is invented, but the first is a key-level
+fallback, which gzapp's ADR-024 does not allow its clients. The tools
+run at every session start and a session start never fails on a
+translation; the standard's guarantee is kept before the file lands
+instead — lint refuses an active dictionary that is not complete.
 
 ## Running the tools in the default locale
 

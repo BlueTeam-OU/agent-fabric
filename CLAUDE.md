@@ -44,14 +44,14 @@ fabric-model list                       # every model choice per provider, with 
                                         # `set --provider <p> <target> <model>` writes your own layer
 fabric-ctl all status                   # (coordinator) the fleet in real time: each account's control
                                         # agent answers over the relay — Claude account, usage windows,
-                                        # key fingerprints, fabric head, session (docs/control-plane.md)
+                                        # key fingerprints, fabric head, session (docs/adr/ADR-029-the-control-plane-a-control-agent-per-account.md)
 fabric-ctl all upgrade claude           # (coordinator) every account to the pinned Claude Code,
                                         # a running session stopped gracefully and resumed on it (docs/fleet-upgrade.md)
 fabric-ctl all upgrade fabric           # (coordinator) distribution after a merge: every account's fabric
                                         # fast-forwarded to origin/main and bootstrapped (docs/fleet-upgrade.md)
 fabric-accounts assign <login…> <account>  # (coordinator) which Claude account those
                                         # logins run on; each applies, proves and resumes on it by signed
-                                        # message (docs/claude-accounts.md)
+                                        # message (docs/adr/ADR-031-claude-accounts-assigned-applied-and-proved-by-signed-action.md)
 fabric-usage                            # (coordinator) the usage windows through the host executor —
                                         # the sudo fallback when a host's control agents are down
 fabric-lease <name> -- <cmd>            # one holder per host resource across every account on
@@ -94,7 +94,7 @@ directory, the repository, the branch or the session.
   `fabric-status`) says what you are. Holding a role never entitles
   you to change its charter or brief, or anything else here (above).
 - **Code is memory for the session that comes after yours**
-  (`docs/adr/ADR-015-code-is-memory.md`, the owner, 2026-09-19). Self-documenting
+  (`docs/adr/ADR-015-code-is-memory.md`). Self-documenting
   code first; a comment says *why*, never what the code visibly does —
   the invariant, the assumption, the rejected alternative, the oddity a
   refactoring would otherwise "fix"; a stronger executable form (a type,
@@ -127,7 +127,7 @@ directory, the repository, the branch or the session.
   it rides; the review class shares `fable` with `code-plan` and so is
   never an export: its model reaches its agent file, on both paths.
   One more type exists on one role's logins only: `locale-worker`, the
-  language-culture bridge's subagent (`docs/language-culture-bridge.md`)
+  language-culture bridge's subagent (`docs/adr/ADR-027-language-and-culture-shape-the-work-the-bridge.md`)
   — a model required, no isolation, no ask.
   **The class decides the alias**
   (`runtime/claude-code/aliases.json`): the dispatch guard

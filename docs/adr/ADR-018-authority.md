@@ -33,7 +33,7 @@ gives the agent that role's remit for its work and nothing over the
 role's definition.
 
 **agent-fabric is read-only for every role but `fabric-coordinator`**,
-and so is `.agent-fabric/` in every managed repository (2026-09-13).
+and so is `.agent-fabric/` in every managed repository.
 Other roles read; what they need changed they propose — a pull request
 they do not merge, or a message. The owning role per surface, for review
 and consent, is `policies/AUTHORITY.md`'s table; who may *commit* is one
@@ -50,17 +50,17 @@ a branch adds — here on every commit, in a project under
 `.agent-fabric/**` — a tripwire: it stops the accident and makes a
 deliberate bypass visible.
 
-**Every commit carries the trailer** (since 2026-09-16), guarded or not:
+**Every commit carries the trailer**, guarded or not:
 it is what names the lane a commit came from, since the author line
 cannot.
 
-**One carve-out** (2026-09-17/18): a locale's translations,
+**One carve-out**: a locale's translations,
 `identities/roles/<role>/locale/<suffix>/`, are committed by the holder
 of `<role>` whose login is named for `<suffix>`, alone in their commit,
 and merged by `fabric-coordinator`.
 
 **A guard is three things or it is not a guard** (the coordinator's
-brief, 2026-09-15): a check at commit time where the fact is readable, a
+brief): a check at commit time where the fact is readable, a
 check in CI over every commit a branch adds, and a case in the suite
 that plants the violation.
 
@@ -127,7 +127,7 @@ record says so rather than claim otherwise.
 
 ## 6. Consequences
 
-- Where the three parts stand on 2026-09-27:
+- Where the three parts stand:
 
   | guard | commit time | CI on the branch | suite |
   |---|---|---|---|
@@ -162,10 +162,9 @@ would turn the trailer from a declaration into a proof; not planned.
 
 ## 8. Decision Status
 
-Accepted: the read-only repository and the `.agent-fabric/` fence since
-2026-09-13, the merge fold since 2026-09-14, the trailer on every commit
-since 2026-09-16, the locale carve-out since 2026-09-17/18, the
-decision-record check at commit time since 2026-09-27.
+Accepted and in force: the read-only repository and the `.agent-fabric/`
+fence, the merge fold, the trailer on every commit, the locale
+carve-out, the decision-record check at commit time.
 `policies/AUTHORITY.md` stays the manual.
 
 ## References

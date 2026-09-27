@@ -40,12 +40,12 @@ made the sweep, 43ef828, carries the passage each came from):
   embedded-repository gitlink and parallel worktree creation (2026-08-07);
   the review status tool moved into the fabric (`runtime/github/`,
   2026-09-19).
-- **Receive:** the watch from the first turn (the owner, 2026-09-13);
-  reply only to add something useful (the owner, 2026-09-15); the
+- **Receive:** the watch from the first turn;
+  reply only to add something useful; the
   notification cut inside a REQUEST or VERIFIED (four deliveries,
   2026-09-16); an assignment to a role claimed by the first REPLY (two
   holders of one role, 2026-09-19).
-- **Send:** an assignment goes to one login (the owner, 2026-09-19).
+- **Send:** an assignment goes to one login.
 - **Client capture:** written from one login's Linux desktop build
   (2026-09-16).
 - **pg-probe:** the "ship it commented out" pattern, folded into a
@@ -104,8 +104,8 @@ is its evidence, which belongs where evidence is kept and reviewed
   `communication/gzcoord/skills/`, among other generic directories. It
   does not scan `policies/subagent-dispatch/SKILL.md`, and nothing checks
   dates, PR numbers or logins in a skill: rules 1, 2 and 5 are held by
-  the author and by review. On 2026-09-27 no shipped skill carries a date
-  or a PR number.
+  the author and by review. No shipped skill carries a date or a PR
+  number.
 - A skill's history is read with `git log` on the skill.
 
 ## 7. Future Evolution
@@ -123,8 +123,8 @@ is its evidence, which belongs where evidence is kept and reviewed
 
 ## 8. Decision Status
 
-Accepted: the owner's rule of 2026-09-19, applied to every skill by the
-sweep of that day (commit 43ef828). The note that recorded the sweep is
+Accepted: the owner's rule, applied to every skill by one sweep
+(commit 43ef828). The note that recorded the sweep is
 now a stub pointing here.
 
 ## References

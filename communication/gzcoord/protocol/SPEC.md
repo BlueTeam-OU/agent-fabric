@@ -107,7 +107,7 @@ A role is a classification, never an identity. The role and the instance holding
 
 ## 5. Discovery and presence
 
-**`HELLO` and `GOODBYE` are deprecated.** An instance SHOULD NOT send either. Whether an instance is running — as what role, since when — is presence, and presence is the deployment's to answer from a source authoritative about it, never from announcements an instance makes about itself. An announcement is a claim: an instance that crashes, or never finishes starting, leaves a `HELLO` with no `GOODBYE` and reads as present. agent-fabric answers presence on its control plane, from each account's process table (`docs/presence.md`).
+**`HELLO` and `GOODBYE` are deprecated.** An instance SHOULD NOT send either. Whether an instance is running — as what role, since when — is presence, and presence is the deployment's to answer from a source authoritative about it, never from announcements an instance makes about itself. An announcement is a claim: an instance that crashes, or never finishes starting, leaves a `HELLO` with no `GOODBYE` and reads as present. agent-fabric answers presence on its control plane, from each account's process table (`docs/adr/ADR-030-presence-replaces-hello-and-goodbye.md`).
 
 Both stay valid GZCOORD/1 messages. A conforming parser still accepts them — an older sender, or a session not yet updated, may still send them — and their grammar is unchanged (§7.1). A receiver MUST NOT rely on either arriving, and MAY acknowledge either without delivering it.
 

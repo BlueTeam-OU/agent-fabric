@@ -81,10 +81,9 @@ check, and nothing making ratification visible.
 2. Only the owner accepts. A record is `Accepted` only with a `**Ratified:**
    owner, YYYY-MM-DD, <source>` line naming where the owner's word is — a
    commit, a relay message, a pull request. Merging a pull request ratifies
-   the already-practised records in it (the owner, 2026-09-27), and a new
+   the already-practised records in it, and a new
    record only when the description says arming ratifies it and the owner
-   arms it on that basis — as agent-fabric #50 did for ADR-000 and ADR-001
-   (the owner's "merge 50", 2026-09-27).
+   arms it on that basis — as agent-fabric #50 did for ADR-000 and ADR-001.
    Any other new direction stays Proposed until the owner accepts it
    individually.
 3. A decision is made or changed by a record: the coordinator writes a new
@@ -109,10 +108,20 @@ check, and nothing making ratification visible.
    an ADR cites in its Evidence field. A practice a later decision
    replaced is marked with a one-line banner; the measurement stands.
 9. `docs/adr/sources/` keeps, verbatim, the texts a record paraphrases
-   (the owner's statement behind ADR-000). A source is never edited: a
+   (the statement ADR-000 paraphrases). A source is never edited: a
    change of mind is an amendment of the record; `adr.py range-check`
    refuses any edit, rename or removal of a source, whatever the
    commit's trailers (A 2026-09-27).
+10. A record's body and its DIGEST entry state the decision, not who made
+    it: no attribution in parentheses naming the owner and a date.
+    Who decided and when are the header's (`Date`, `Decision Makers`,
+    `Ratified`) and the history's. `adr.py check` refuses a parenthesis
+    that opens on the owner or the CEO (A 2026-09-27).
+11. A record reads current: §2 to §8 carry no date. When a rule began is
+    the header's, the Amendments table's and the history's; §1 may date
+    an incident, best by citing its commit or live check. A date inside a
+    path or code span and the engine's `(A …)` and `(Amendment …)` marks
+    stay. `adr.py check` refuses any other date in §2 to §8 (A 2026-09-27).
 
 ## 6. Consequences
 
@@ -133,8 +142,8 @@ has not been superseded, are candidates once the corpus is in.
 
 ## 8. Decision Status
 
-Accepted: the owner armed the pull request that introduces it (agent-fabric
-#50, "merge 50", 2026-09-27).
+Accepted: the owner armed the pull request that introduces it
+(agent-fabric #50).
 
 ## References
 
@@ -151,3 +160,5 @@ The body above reads current; each change's full note is in [history/ADR-001-ame
 | Date | Amendment | Effect |
 |---|---|---|
 | 2026-09-27 | A source is refused whatever the trailer | §5 rule 9: an `ADR-Editorial:` trailer no longer lets a source edit through; it excuses a record's body edit only |
+| 2026-09-27 | No inline attributions | §5 rule 10 added: no parenthetical attribution in a record's body or DIGEST entry; `adr.py check` refuses one |
+| 2026-09-27 | A record reads current | §5 rule 11 added: no date in §2–§8, §1 may date an incident; rule 10 loses its dated example; §8 undated |

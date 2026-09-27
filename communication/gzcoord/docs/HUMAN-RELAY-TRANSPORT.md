@@ -1,5 +1,7 @@
 # Human-relay transport
 
+Decisions: agent-fabric ADR-033 (`docs/adr/ADR-033-gzcoord-transports-the-relay-is-central-today.md`).
+
 **Status:** the fallback transport. It was the only transport from
 2026-09-08 until the Claude-Bridge relay was selected (the evaluation is
 in `../history/claude-bridge-selection/`); today the relay carries
@@ -166,8 +168,9 @@ on every message.
 
 - Latency and throughput are the person's. Every pasted message costs the
   recipient context; keep messages short and diagnoses complete.
-- Lossy, with no delivery receipt. Sequence numbers make loss visible,
-  not impossible.
+- Lossy, with no delivery receipt, and nothing makes a loss visible:
+  ids are minted, not sequential, so a suspected loss is asked of the
+  sender (Receiving, above).
 - No presence. A session that is not running receives nothing; the
   person queues it or drops it.
 - The person can misroute. `TO` names the intended recipient so a
@@ -187,6 +190,7 @@ before delivery is the same rule enforced where it costs nobody's
 context. The filter needs nothing beyond string equality: `TO` against
 the recipient's own address, `TO-ROLE` against its catalogue slug,
 `BROADCAST` for everyone — the address carries no claim about the role
-and the filter must not read one into it.
-Until then this document describes how GZCoord runs, and the three activity
-claims `../CLAUDE.md` names change together when that changes.
+and the filter must not read one into it. The relay itself does not
+filter: it delivers every record on the channel, and the inbox applies
+the check before it prints a body (`../scripts/inbox.mjs`, `forMe`).
+This document describes what a person does while the relay is down.

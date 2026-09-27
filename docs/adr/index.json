@@ -17,7 +17,7 @@
       "status": "Accepted",
       "date": "2026-09-27",
       "pillar": "P2",
-      "amendments": 1
+      "amendments": 3
     },
     {
       "number": "002",
@@ -215,7 +215,7 @@
       "status": "Accepted",
       "date": "2026-09-19",
       "pillar": "P3",
-      "amendments": 0
+      "amendments": 1
     },
     {
       "number": "024",
@@ -242,6 +242,96 @@
       "status": "Proposed",
       "date": "2026-09-27",
       "pillar": "P3",
+      "amendments": 0
+    },
+    {
+      "number": "027",
+      "file": "ADR-027-language-and-culture-shape-the-work-the-bridge.md",
+      "title": "Language-and-culture specialists shape the work, not only translate it; the bridge",
+      "status": "Accepted",
+      "date": "2026-09-17",
+      "pillar": "P4",
+      "amendments": 0
+    },
+    {
+      "number": "028",
+      "file": "ADR-028-house-i18n-standard-gzcoord-speaks-the-readers-language.md",
+      "title": "The house i18n standard; GZCoord speaks the reader's language",
+      "status": "Accepted",
+      "date": "2026-09-21",
+      "pillar": "P4",
+      "amendments": 0
+    },
+    {
+      "number": "029",
+      "file": "ADR-029-the-control-plane-a-control-agent-per-account.md",
+      "title": "The control plane: a control agent per account answers signed actions over the relay",
+      "status": "Accepted",
+      "date": "2026-09-17",
+      "pillar": "P5",
+      "amendments": 0
+    },
+    {
+      "number": "030",
+      "file": "ADR-030-presence-replaces-hello-and-goodbye.md",
+      "title": "Presence replaces HELLO and GOODBYE",
+      "status": "Accepted",
+      "date": "2026-09-25",
+      "pillar": "P5",
+      "amendments": 0
+    },
+    {
+      "number": "031",
+      "file": "ADR-031-claude-accounts-assigned-applied-and-proved-by-signed-action.md",
+      "title": "Claude accounts: which account a login runs on is assigned, applied and proved by signed action",
+      "status": "Accepted",
+      "date": "2026-09-24",
+      "pillar": "P5",
+      "amendments": 0
+    },
+    {
+      "number": "032",
+      "file": "ADR-032-gzcoord-1-is-a-normative-contract.md",
+      "title": "GZCOORD/1 is a normative contract: the grammar frozen until a transport exercises it, GZCOORD/2 for a breaking change, adoption by observation",
+      "status": "Accepted",
+      "date": "2026-09-13",
+      "pillar": "P5",
+      "amendments": 0
+    },
+    {
+      "number": "033",
+      "file": "ADR-033-gzcoord-transports-the-relay-is-central-today.md",
+      "title": "GZCoord's transports: the human relay, the adapter contract, Telegram retired; the relay is central today",
+      "status": "Accepted",
+      "date": "2026-08-13",
+      "pillar": "P5",
+      "amendments": 0
+    },
+    {
+      "number": "034",
+      "file": "ADR-034-decentralization-as-a-direction.md",
+      "title": "Decentralization as a direction: a failure may reduce capacity, never take identity, knowledge or continuity",
+      "status": "Proposed",
+      "date": "2026-09-27",
+      "pillar": "P5",
+      "amendments": 0
+    },
+    {
+      "number": "035",
+      "file": "ADR-035-federation-between-organizations.md",
+      "title": "Federation between organizations: expertise transfers, confidential information does not; portable trust first",
+      "status": "Proposed",
+      "date": "2026-09-27",
+      "pillar": "P6",
+      "amendments": 0
+    },
+    {
+      "number": "036",
+      "file": "ADR-036-sustainable-operation-cost-per-verified-result.md",
+      "title": "Sustainable operation: shared resources, and cost per verified result beside supervision per verified result",
+      "status": "Proposed",
+      "date": "2026-09-27",
+      "pillar": "P7",
       "amendments": 0
     }
   ]

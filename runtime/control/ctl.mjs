@@ -10,7 +10,7 @@
 //   fabric-ctl <login|all> upgrade fabric             an ACTION: fast-forward each account's fabric to this checkout's
 //                                                   origin/main and bootstrap it; no session stopped (docs/fleet-upgrade.md)
 //   fabric-ctl <login|all> secrets-sync [--expect SHA12] [--restart]   an ACTION: re-apply the login's Doppler config,
-//                                                   check its setup-token, restart a running session on it (docs/claude-accounts.md)
+//                                                   check its setup-token, restart a running session on it (docs/adr/ADR-031-claude-accounts-assigned-applied-and-proved-by-signed-action.md)
 //   fabric-ctl <login|all> presence                 whether each has a session, since when, as what — any
 //                                                   placed account may ask this one (ops.mjs PUBLIC_OPS)
 //   fabric-ctl keygen [--force]                     the operator's signing key: private half into Doppler, public into the registry
@@ -197,7 +197,7 @@ export function table(op, rs) {
       }
     }
     // "Nothing observed" is a finding only when a daemon said so; silence is not.
-    if (!n && answered) lines.push('no Claude account is observed — bin/fabric-accounts login <account> on the coordinator\'s login (docs/claude-accounts.md)');
+    if (!n && answered) lines.push('no Claude account is observed — bin/fabric-accounts login <account> on the coordinator\'s login (docs/adr/ADR-031-claude-accounts-assigned-applied-and-proved-by-signed-action.md)');
     return lines.join('\n');
   }
   if (op === 'ping') {

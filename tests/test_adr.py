@@ -240,6 +240,17 @@ def case_range_check_refuses_an_unrecorded_body_edit(tmp: str) -> None:
     assert adr.range_check(root2, base2) == [], "a header-only change (ratification) is not a body edit"
 
 
+def case_header_dates_keep_their_own_pattern(tmp: str) -> None:
+    # The body's date scan must not replace the header's anchored pattern
+    # (review thread on #53): any real calendar date is a valid header date,
+    # and nothing may trail it.
+    assert adr.real_date("2100-01-01") and adr.real_date("1999-12-31")
+    assert not adr.real_date("2026-09-27-x") and not adr.real_date("2026-09-27 ")
+    root = fixture(tmp)
+    edit(root, ONE, "## 6. Consequences", "## 6. Consequences\n\nSince 2100-01-01, every record says so.\n")
+    only(root, "§6 dates something (2100-01-01)")
+
+
 def case_impossible_dates_and_escaping_evidence(tmp: str) -> None:
     root = fixture(tmp)
     edit(root, ONE, "**Date:** 2026-09-27", "**Date:** 2026-13-45")
@@ -281,6 +292,32 @@ def case_superseded_needs_an_arrow(tmp: str) -> None:
     root = fixture(tmp)
     edit(root, ONE, "**Status:** Accepted", "**Status:** Superseded")
     only(root, "Superseded without '(→ ADR-NNN)'")
+
+
+def case_no_inline_attribution(tmp: str) -> None:
+    # Who decided and when are the header's and the history's; the body
+    # states the decision (the owner's rule for records).
+    root = fixture(tmp)
+    edit(root, ONE, "## 6. Consequences", "## 6. Consequences\n\nKept apart (the owner,\n2026-09-13) on purpose.\n")
+    only(root, "an inline attribution '(the owner,")
+    root = fixture(os.path.join(tmp, "b"))
+    edit(root, "docs/adr/DIGEST.md", "### ADR-001 —", "- Stray (the CEO) bullet.\n\n### ADR-001 —")
+    only(root, "DIGEST.md: an inline attribution '(the CEO)")
+
+
+def case_dates_only_in_the_context(tmp: str) -> None:
+    # A record reads current: a date may date an incident in §1, and the
+    # engine's markers and dated paths stay; the rules carry none.
+    root = fixture(tmp)
+    edit(root, ONE, "## 6. Consequences", "## 6. Consequences\n\nSince 2026-09-25, every record says so.\n")
+    only(root, "§6 dates something (2026-09-25)")
+    root = fixture(os.path.join(tmp, "b"))
+    edit(root, ONE, "## 6. Consequences", "## 6. Consequences\n\nSee `docs/live-checks/2026-09-25-x.md` and\n[the note](../2026-09-20-y.md); rule 3 (A 2026-09-26).\n")
+    edit(root, ONE, "## 2. Decision", "## 2. Decision\n\n**§5 rule 9 — withdrawn** (Amendment 2026-09-26).\n")
+    assert adr.check(root) == [], adr.check(root)
+    root = fixture(os.path.join(tmp, "c"))
+    edit(root, ONE, "## 1. Context and Problem", "## 1. Context and Problem\n\nOn 2026-09-19 the disk filled.\n")
+    assert adr.check(root) == [], adr.check(root)
 
 
 def case_digest_orphan_and_readme_markers(tmp: str) -> None:

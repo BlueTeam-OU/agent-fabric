@@ -26,6 +26,12 @@ speak the harness's wire protocol, and some members of a family fail it
 outright: DeepSeek V4 Flash invented user turns at ~25k context on three
 runs, V4 Pro held on a six-step check (2026-09-14).
 
+The mapping has moved since without an agent being rebuilt: on the
+broker the session and the upper classes went from GLM to DeepSeek V4
+Pro (2026-09-19); on plain claude every class went from the top model of
+its own tier (Haiku 4.5, Sonnet 5, Opus 5.5, Fable 5.1) to Opus 5.5
+(2026-09-25).
+
 ## 2. Decision
 
 **A task names a capability class; routing decides the model.** Five
@@ -44,37 +50,30 @@ model through its agent file; that model is gated by
 is a separate dimension, and the composite `model@preset/slug` exists only
 in the child's environment.
 
-The model history, each the owner's word unless named:
+The current mapping:
 
-- **2026-09-13** — the classes, the alias binding and the review class on
-  `fable`; architect-cto admits `z-ai/glm-5.3` to review-grade and makes it
-  the broker review model; Opus 5 stays admitted.
-- **2026-09-15** — `code-plan` added on `fable`, the top reasoning tier;
-  the review model moves to the agent-file route; plain claude's review
-  pin `claude-opus-5[1m]` (architect-cto); the plain-claude session on
-  Opus 5.
-- **2026-09-19** — on the broker, the session, `code-high`, `code-plan`
-  and the review class move to `deepseek/deepseek-v4-pro-0813`;
-  `code-low` and `code-medium` stay GLM. The reason for the review class is
-  the tier, not the family: the owner runs adversarial local review and
-  wants the reviewer on the strongest admissible broker model, so its
-  independence is the blind brief and a fresh context. V4 Pro is admitted
-  to review-grade; V4 Flash stays refused. architect-cto informed.
-- **2026-09-24** — on plain claude, `code-high` and the default session
-  move to `claude-opus-5-5`; `architect-cto-01`'s session to
-  `claude-fable-5-1` (an agent layer).
-- **2026-09-25** — **every class on plain claude, the review class
-  included, is `claude-opus-5-5`**; until then each class had the top
-  model of its own tier (Haiku 4.5, Sonnet 5, Opus 5.5, Fable 5.1).
-  `anthropic/claude-opus-5-5` is admitted to review-grade and the `[1m]`
-  marker dropped (Opus 5.5's context is natively 1M). The aliases stay:
-  they are how the harness spells a class, and each now binds to the same
+- **Plain claude.** **Every class, the review class included, is
+  `claude-opus-5-5`**, and so is the default session;
+  `architect-cto-01`'s session is `claude-fable-5-1` (an agent layer).
+  `anthropic/claude-opus-5-5` is admitted to review-grade without the
+  `[1m]` marker (Opus 5.5's context is natively 1M). The aliases stay:
+  they are how the harness spells a class, and each binds to the same
   model.
+- **The broker.** The session, `code-high`, `code-plan` and the review
+  class are `deepseek/deepseek-v4-pro-0813`; `code-low` and `code-medium`
+  are GLM. The reason for the review class is the tier, not the family:
+  the owner runs adversarial local review and wants the reviewer on the
+  strongest admissible broker model, so its independence is the blind
+  brief and a fresh context.
+- **Review-grade** admits `z-ai/glm-5.3`, Opus 5, V4 Pro and Opus 5.5;
+  V4 Flash stays refused.
+- `code-plan` rides `fable`, the top reasoning tier, beside the review
+  class; the review model reaches the reviewer by the agent-file route.
 
 ## 3. Alternatives Considered
 
-- **A full model id in each agent file, named at dispatch.** Tried first
-  (2026-09-13): the Agent tool rejects it, the guard denied the unset
+- **A full model id in each agent file, named at dispatch.** Tried first:
+  the Agent tool rejects it, the guard denied the unset
   model, the session fell back to `opus` and the reviewer ran on GLM.
 - **The review model as the `fable` export.** Rejected once `code-plan`
   rode `fable`: through one export the reviewer would follow `code-plan`,
@@ -82,8 +81,8 @@ The model history, each the owner's word unless named:
 - **Leaving plain claude to the harness's aliases.** Rejected: the fabric
   would not decide the model on that path; the anthropic column exists so
   it does.
-- **A different family for the reviewer as its independence.** Not taken
-  (2026-09-19, 2026-09-25): the reviewer's independence is the blind brief
+- **A different family for the reviewer as its independence.** Not taken:
+  the reviewer's independence is the blind brief
   and a fresh context.
 
 ## 4. Rationale
@@ -104,8 +103,7 @@ profile layer or a local override.
    refuses a class dispatch whose `model` is not its alias, unset
    included; a review on anything but `fable`; and a writing dispatch
    without worktree isolation. `code-high` and `code-plan` ask. A guard
-   that infers the alias instead of checking it is not this design
-   (2026-09-13).
+   that infers the alias instead of checking it is not this design.
 3. The read-only harness types (`Explore`, `Plan`, `claude-code-guide`)
    name a model and no isolation.
 4. Every profile layer is per provider; a choice for one provider never
@@ -157,8 +155,7 @@ P1's direction).
 
 ## 8. Decision Status
 
-Accepted; the current mapping is the one of 2026-09-25 on plain claude and
-2026-09-19 on the broker.
+Accepted; the current mapping is the one §2 states, on both paths.
 
 ## References
 

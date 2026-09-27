@@ -28,25 +28,25 @@ running one and waited on an answer that could not come.
 
 ## 2. Decision
 
-**Every session watches its inbox from its first turn to its last** (the
-owner, 2026-09-13), with one watch per session: `gzcoord-inbox --follow`
-under a Monitor. Since 2026-09-26 (the owner) the launcher opens every
+**Every session watches its inbox from its first turn to its last**,
+with one watch per session: `gzcoord-inbox --follow`
+under a Monitor. The launcher opens every
 interactive session it starts without a prompt of its own with one that
 arms the watch, and the session-start hook says so, on start, resume and
 after a compaction, whenever no watch runs for the session.
 
-**Every session starts in auto mode** (the owner, 2026-09-26):
+**Every session starts in auto mode**:
 `user-settings.py` writes `permissions.defaultMode: "auto"` into each
 login's user settings, beside the narrow allow rules for the fabric's
 commands (ADR-008, ADR-009), which assume it.
 
-**While a session plans, its inbox is held** (the owner, 2026-09-16):
+**While a session plans, its inbox is held**:
 nothing new lands in a plan. A hook marks the account held while the
 session's permission mode is `plan`; the watch polls nothing while a
 marker names a live harness of the login; the first poll after the plan
 is approved delivers the whole planning span at once.
 
-**The hold is visible to senders** (the owner, 2026-09-26): presence
+**The hold is visible to senders**: presence
 reports `planning`, `fabric-ctl presence` shows it in place of
 `running`, and `gzcoord-send` tells the sender — without refusing — that
 the message waits in the relay and no answer comes before the plan is
@@ -143,8 +143,8 @@ the same command asks on one account and not on another.
   in an interactive session, a session started inside a clone, and the
   cut of a long-poll slice in flight. `SessionEnd` was measured as a
   reliable release.
-- Rule 9 is each project's to meet. Of the checkouts on this host on
-  2026-09-27, gzapp, gzapi.ge and gzapi.brand wire the hold and the
+- Rule 9 is each project's to meet. Of the checkouts on this host at the
+  last count, gzapp, gzapi.ge and gzapi.brand wire the hold and the
   start drain in their `.claude/settings.json`; interweave and
   gzapp.decks do not, so a session started inside those is neither held
   nor drained at start.
@@ -154,9 +154,9 @@ the same command asks on one account and not on another.
 
 ## 8. Decision Status
 
-Accepted: the watch from the first turn since 2026-09-13; the hold since
-2026-09-16; the opening prompt, auto mode and the sender's view since
-2026-09-26. The note that recorded the hold is now a stub pointing here.
+Accepted and in force: the watch from the first turn; the hold; the
+opening prompt, auto mode and the sender's view. The note that recorded
+the hold is now a stub pointing here.
 
 ## References
 
@@ -169,7 +169,7 @@ Accepted: the watch from the first turn since 2026-09-13; the hold since
 - `communication/gzcoord/scripts/inbox.mjs` (`holdStatus`),
   `communication/gzcoord/scripts/send.mjs`, `communication/gzcoord/tests/`.
 - `runtime/control/ops.mjs` (`presence`), `runtime/control/presence.mjs`,
-  `runtime/control/ctl.mjs`; `docs/presence.md`.
+  `runtime/control/ctl.mjs`; ADR-030.
 - `runtime/claude-code/user-settings.py`.
 - `communication/gzcoord/skills/gzcoord-receive/SKILL.md` §1.
 - ADR-008 (user settings), ADR-009 (commands by name), ADR-000 (P3).

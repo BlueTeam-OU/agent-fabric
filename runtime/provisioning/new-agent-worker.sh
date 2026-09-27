@@ -280,7 +280,7 @@ done
 # the coordinator from here on: one ping, from this checkout, as the operator.
 "$ROOT/bin/fabric-ctl" "$LOGIN" ping 2>&1 | tail -n +2 | sed 's/^/   control plane: /' >&2 || true
 # A Claude account for plain claude: a template reference synced into the
-# login's secrets.env (docs/claude-accounts.md) — the launcher starts no
+# login's secrets.env (docs/adr/ADR-031-claude-accounts-assigned-applied-and-proved-by-signed-action.md) — the launcher starts no
 # plain-claude session without one. Never a copy of another login's
 # .credentials.json: a refresh token has one holder, and the first renewal
 # by either signs the other out.
@@ -293,7 +293,7 @@ new-agent: done. Left for a person, in a terminal (nothing here can do them):
    $( case "$creds" in
         template) echo "- Claude account: a template token (plain-claude path ready)" ;;
         *) echo "- Claude account: no template token — the launcher refuses a plain-claude session (--provider anthropic) without one, its own /login included; the broker path does not need one.
-       As the coordinator: bin/fabric-accounts assign $LOGIN <account> (docs/claude-accounts.md). Never copy another login's .credentials.json." ;;
+       As the coordinator: bin/fabric-accounts assign $LOGIN <account> (docs/adr/ADR-031-claude-accounts-assigned-applied-and-proved-by-signed-action.md). Never copy another login's .credentials.json." ;;
       esac )
    - first launch is interactive, to accept the workspace-trust dialog:
        moveto $LOGIN${first:+ $first}   then   runtime/openrouter/launch

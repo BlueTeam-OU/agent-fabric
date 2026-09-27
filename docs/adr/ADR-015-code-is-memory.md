@@ -116,7 +116,7 @@ reason into one the build defends.
   13 000 bytes for it, paid on every review dispatch.
 - A deferral's reason is a *why* too: it states the cost measured or the
   scope decided, never a blocker inferred from a failed attempt — the
-  coordinator's own lesson of 2026-09-23, kept as a workflow slice.
+  coordinator's own lesson, kept as a workflow slice.
 
 ## 7. Future Evolution
 
@@ -126,8 +126,8 @@ judgement.
 
 ## 8. Decision Status
 
-Accepted: the owner's policy of 2026-09-19 (commit ca810dc), in force in
-`CLAUDE.md` and the review class since that day. The policy note that
+Accepted: the owner's policy (commit ca810dc), in force in `CLAUDE.md`
+and the review class. The policy note that
 held it is now a stub pointing here.
 
 ## References

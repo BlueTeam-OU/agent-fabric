@@ -26,8 +26,8 @@ protocol's own examples offered exactly that shape to copy. The owner:
 
 ## 2. Decision
 
-**An assignment is addressed `TO` one login, never `TO-ROLE`** (the
-owner, 2026-09-19). An assignment is a `REQUEST`, or any message
+**An assignment is addressed `TO` one login, never `TO-ROLE`**. An
+assignment is a `REQUEST`, or any message
 carrying a `REQUEST:`, `ACCEPTANCE:` or `DELIVER-TO:` section — a
 finding to fix, a supply, a decision to record. `TO-ROLE` stays for what
 is not an assignment: an `INFO` or a `DECISION` every holder applies, a
@@ -79,11 +79,13 @@ remember.
    lowest-numbered login of the role — and says in the body which rule
    chose.
 5. A holder that receives an assignment addressed to its role first
-   checks for a sibling's `REPLY` to that `MESSAGE-ID` or an open PR on the
-   path by another login of the role; if one exists it stands down with
+   checks for a sibling's `REPLY` to that `MESSAGE-ID` or a pushed branch,
+   with a pull request or without one, on the path by another login of the
+   role (`pr-gate.sh --in-flight --path <prefix>`); if one exists it
+   stands down with
    no message and no branch; otherwise its `REPLY` naming the branch is
    the claim, sent before the work. Two who acted before seeing each other
-   close the later-opened PR, naming the earlier.
+   close the later-opened PR, naming the earlier. (A 2026-09-27)
 6. The protocol's examples of an assignment name a login.
 
 ## 6. Consequences
@@ -100,13 +102,12 @@ remember.
 
 ## 7. Future Evolution
 
-None stated. `pr-gate.sh --in-flight` now also lists pushed branches
-with no PR, which rule 4's first step can read.
+None stated.
 
 ## 8. Decision Status
 
-Accepted: the owner's word of 2026-09-19, in SPEC §13, the validator and
-both skills since that day. The note that recorded the change is now a
+Accepted and in force: the owner's word, in SPEC §13, the validator and
+both skills. The note that recorded the change is now a
 stub pointing here.
 
 ## References
@@ -122,3 +123,11 @@ stub pointing here.
 - `communication/gzcoord/skills/gzcoord-send/SKILL.md`,
   `communication/gzcoord/skills/gzcoord-receive/SKILL.md` (step 6).
 - ADR-000 (P3).
+
+## Amendments
+
+The body above reads current; each change's full note is in [history/ADR-023-amendments.md](history/ADR-023-amendments.md).
+
+| Date | Amendment | Effect |
+|---|---|---|
+| 2026-09-27 | A receiver stands down on a pushed branch too | §5 rule 5: the receiver's check reads the in-flight query, as the sender's rule 4 does; §7's forward note dropped |

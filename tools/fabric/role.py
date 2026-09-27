@@ -274,7 +274,7 @@ def append_history(state_dir: str, record: dict) -> None:
 # A role change announces nothing on the channel. It once sent a GOODBYE as
 # the role being left; who holds which role, and whether a session runs, is
 # now the control plane's to answer, from each account's binding and
-# process table (runtime/control/presence.mjs, docs/presence.md).
+# process table (runtime/control/presence.mjs, docs/adr/ADR-030-presence-replaces-hello-and-goodbye.md).
 
 
 def cmd_list() -> int:

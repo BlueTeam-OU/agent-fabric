@@ -123,7 +123,7 @@ for f in code-low.md code-medium.md code-high.md code-plan.md code-review.md; do
     put "$CLAUDE_HOME/agents/$f" "$src"
 done
 # The locale worker: the language-culture role's subagent, one inert tool, whose
-# system prompt is the locale's language (docs/language-culture-bridge.md).
+# system prompt is the locale's language (docs/adr/ADR-027-language-and-culture-shape-the-work-the-bridge.md).
 # Installed as ~/.claude/agents/locale-worker.md on a login of that role
 # whose name ends in a locale the fabric authored
 # (identities/roles/language-culture/locale/<suffix>/worker.md); removed —
@@ -154,7 +154,7 @@ fi
 # configuration (~/.claude.json, or $CLAUDE_CONFIG_DIR/.claude.json) on a
 # language-culture login whose locale has a locale.json; removed — by the
 # server path in its args — from any other. The key it needs is synced,
-# never written here (docs/language-culture-bridge.md, "Search in the locale").
+# never written here (docs/adr/ADR-027-language-and-culture-shape-the-work-the-bridge.md §5 rule 13).
 LOCALE_FILE="$FABRIC_ROOT/identities/roles/language-culture/locale/$LOCALE_SUFFIX/locale.json"
 CLAUDE_JSON="${CLAUDE_CONFIG_DIR:-$HOME}/.claude.json"
 MCP_INSTALL="$FABRIC_ROOT/runtime/mcp/websearch-locale/install.py"

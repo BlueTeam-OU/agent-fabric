@@ -11,7 +11,7 @@ It exists so a locale can translate it: a language-culture login whose
 locale carries `locale/<suffix>/harness.md` is launched with
 `--system-prompt-file` — the fabric's prompt, in the locale, then this
 text in the locale — in place of the harness's English
-(`docs/language-culture-bridge.md`, "The prompt in the locale"). What a
+(`docs/adr/ADR-027-language-and-culture-shape-the-work-the-bridge.md` §5 rule 9). What a
 replacement does NOT touch, because the harness sends it outside the
 replaceable text: the function-calling grammar, every tool schema, the
 agent and skill listings, the MCP instructions, CLAUDE.md, the

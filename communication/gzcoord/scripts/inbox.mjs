@@ -447,7 +447,7 @@ export const HOLD_POLL_MS = 1000;
 // sleep is cut when the slice ends, so a delivery waits for no tick.
 // HELLO and GOODBYE are acknowledged and never delivered, not even as a
 // line among the others: presence is the control plane's to answer
-// (`fabric-ctl <login|all> presence`, docs/presence.md), and the
+// (`fabric-ctl <login|all> presence`, docs/adr/ADR-030-presence-replaces-hello-and-goodbye.md), and the
 // announcements a session not yet relaunched still sends were, on a busy
 // day, most of what every watch printed (the owner, 2026-09-25). A
 // replay by seq still shows one — that is asked for.

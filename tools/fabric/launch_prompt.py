@@ -189,7 +189,7 @@ def build(agent: str, host: str, role: str) -> str:
 # the CEO's order is the charter before it (2026-09-17). The harness
 # still sends, outside the replaceable text, the function-calling
 # grammar, every tool schema, the listings and CLAUDE.md, so a
-# replacement changes no mechanics (docs/language-culture-bridge.md).
+# replacement changes no mechanics (docs/adr/ADR-027-language-and-culture-shape-the-work-the-bridge.md).
 # The one login-specific span, the memory directory, is the placeholder
 # {memory_dir}, filled with the directory the harness itself uses for
 # the launch directory (layout.default_memory_dir) — the one

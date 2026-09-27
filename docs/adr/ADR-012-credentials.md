@@ -55,7 +55,7 @@ Around that record:
 - **Quoting a secret as evidence of a finding.** Refused by the protocol
   (§17): a finding described by shape and location is fully actionable.
 - **Clearing only the base URL** when a request is redirected. Refused by
-  the incident of 2026-09-23.
+  the incident of §1 (the review of #31).
 
 ## 4. Rationale
 
@@ -114,8 +114,8 @@ None stated.
 
 ## 8. Decision Status
 
-Accepted; the Doppler layout since 2026-09-14, the launcher's credential
-rules since the reviews of #31 (2026-09-23) and #33.
+Accepted and in force: the Doppler layout, and the launcher's credential
+rules from the reviews of #31 and #33.
 
 ## References
 

@@ -51,14 +51,14 @@ into every AppVM built from it, and become a second source of truth for
 what `persist-accounts.sh` owns. Why bind-dirs is not used either: a
 bound `/etc/passwd` is a mountpoint, and shadow-utils' `rename(2)` over
 it fails with EBUSY, breaking every later `useradd`
-(`docs/control-plane.md`).
+(`docs/adr/ADR-029-the-control-plane-a-control-agent-per-account.md`).
 
 After a reboot of the AppVM, from the coordinator's checkout:
 
 ```sh
 getent passwd | grep -c agent-fabric        # every placed account is back
 loginctl show-user <login> -p Linger        # Linger=yes: its user manager, and the control agent, run without a login
-bin/fabric-ctl all ping                     # every account answers within seconds (docs/control-plane.md)
+bin/fabric-ctl all ping                     # every account answers within seconds (docs/adr/ADR-029-the-control-plane-a-control-agent-per-account.md)
 ```
 
 The first reboot on `develop-qzapp` is recorded, when it happens, in

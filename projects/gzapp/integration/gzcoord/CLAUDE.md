@@ -38,7 +38,7 @@ block and the person copies it into the receiving session's prompt
   `SessionStart` hook and shows what is addressed to you, bodies
   included, and only the metadata line of what is not. That drain is a
   snapshot; **every session watches its inbox from its first turn to
-  its last** (owner rule, 2026-09-13): make the first action of the
+  its last**: make the first action of the
   session a watch: `Monitor` running
   `gzcoord-inbox --follow`,
   which blocks for the life of the session and turns each delivery into a

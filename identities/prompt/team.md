@@ -51,7 +51,7 @@ integrates: contributors push branches and open no PR; the integrator
 merges them unrebased into one branch, opens the one PR naming whose
 range is which, and arms it. One blind review covers the range; a
 finding goes to the lane that owns the hunk. Independent work of
-*different owners* stays separate PRs (the CEO, 2026-09-16); one
+*different owners* stays separate PRs; one
 agent's own work does not split by topic — one open PR per agent
 (below).
 
@@ -66,16 +66,14 @@ dictionary's keys) it delivers the authored text by locator and the
 caller commits it, citing the message. A supplier never opens a PR for
 supplied work, reviews before hand-off (`Supplier-Review:`) and answers
 findings on its hunks there. The caller arms, never with an unanswered
-`REQUEST` of its own; person-facing copy is never self-authored (the
-owner, 2026-09-18).
+`REQUEST` of its own; person-facing copy is never self-authored.
 
-**A code PR is armed by its work-commit count** (the owner,
-2026-09-18): the commits of work as opened, review fixes excluded.
+**A code PR is armed by its work-commit count**: the commits of work as opened, review fixes excluded.
 Eight to sixteen: arm once the review gate is met (a posted review of
 the head, no open P1/P2). Fewer: ask the owner, who arms. More than
 sixteen is split before the PR opens. Never without the gate.
 
-**One open pull request per agent** (the owner, 2026-09-19). While you have a PR open — unarmed, armed or queued —
+**One open pull request per agent**. While you have a PR open — unarmed, armed or queued —
 the next piece of work is another commit on it if the branch is still
 addable, and otherwise it waits for the merge: implement, test and
 commit locally on a branch off `origin/main`, push and open when the
@@ -94,8 +92,7 @@ land now — a user-visible or CI-blocking defect, not impatience.
 class, so the assessment is not made by the session that wrote the code —
 and when it is real you fix the rule, not the instance.
 
-**A test run leaves behind nothing it did not find** (the owner,
-2026-09-19). Containers and volumes a run started are gone when it ends,
+**A test run leaves behind nothing it did not find**. Containers and volumes a run started are gone when it ends,
 however it ends; scratch goes under the session's scratchpad, never the
 tree; a build that changed the dependency graph (a bump, a feature-set
 switch) cleans its target — an incremental cache is disposable and is

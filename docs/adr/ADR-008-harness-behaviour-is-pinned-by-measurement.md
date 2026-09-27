@@ -38,16 +38,16 @@ directory it starts in. The keys, and why:
 - `attribution` `{commit: "", pr: "", sessionUrl: false}` — the harness
   sends no attribution request (2.1.276 sent the "do not add" form, 2.1.277
   no reminder at all); `sessionUrl` false drops the `Claude-Session:`
-  trailer (the owner, 2026-09-18).
+  trailer.
 - `env.DISABLE_AUTOUPDATER` `"1"` — checked first, unconditionally; it
   stops background updates only, so `claude install <v>` still works. The
   fleet's version is the one `runtime/claude-code/harness.json` pins,
   moved by `fabric-ctl … upgrade claude` and nothing else.
-- `showThinkingSummaries` true and `verbose` true (the owner, 2026-09-20)
+- `showThinkingSummaries` true and `verbose` true
   — an agent's session is read by the person operating the fleet; a
   stalled or misdirected session must be visible from its terminal.
 - `permissions.allow` `Bash(<name> *)` for each fabric command, and
-  `permissions.defaultMode` `"auto"` (the owner, 2026-09-26) — the command
+  `permissions.defaultMode` `"auto"` — the command
   rule is the fleet-operations record's, which follows; auto mode because eight hand-provisioned
   accounts had no mode and asked for what the classifier would allow.
 
@@ -57,8 +57,7 @@ The harness's system prompt is kept verbatim as
 ## 3. Alternatives Considered
 
 - **The workspace `.claude/settings.json`.** Rejected: a session starts
-  inside its clone and the workspace settings never reach it (learned
-  2026-09-16).
+  inside its clone and the workspace settings never reach it.
 - **Carry the keys through the launcher's `--settings`.** Rejected:
   `--settings` is the broker's provider fence.
 - **`autoUpdates: false`.** Not the switch on a protected native install
@@ -114,15 +113,15 @@ should expect either attribution outcome of 2.1.276/2.1.277.
 
 ## 8. Decision Status
 
-Accepted; keys added 2026-09-18 (attribution), 2026-09-20 (thinking,
-verbose), 2026-09-24 (auto-updater), 2026-09-26 (allow rules, auto mode).
+Accepted and in force for every key: attribution, thinking, verbose,
+the auto-updater, the allow rules and auto mode.
 
 ## References
 
 - `runtime/claude-code/user-settings.py` (docstring: each key and why),
   `runtime/claude-code/bootstrap.sh`, `runtime/claude-code/harness.json`.
 - `runtime/claude-code/harness/README.md`, `runtime/claude-code/harness/en.md`,
-  `docs/language-culture-bridge.md`.
+  ADR-027 (the prompt in the locale).
 - `policies/ban_generated_by_attribution.sh`.
 - The live checks in Evidence. ADR-002 (the launch prompt the harness text
   precedes).

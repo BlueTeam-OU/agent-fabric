@@ -261,7 +261,7 @@ agent definition.
 ### The locale worker (language-culture logins only)
 
 `locale-worker` is not a class: it is the language-culture bridge's
-subagent (`docs/language-culture-bridge.md`), whose agent file exists
+subagent (`docs/adr/ADR-027-language-and-culture-shape-the-work-the-bridge.md`), whose agent file exists
 only on a login of that role (`install-agent-files.sh` writes and
 removes it). The guard's branch for it sits before the review-
 description branch — reviewing a text in the locale is its job — and

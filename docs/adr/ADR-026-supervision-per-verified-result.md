@@ -46,7 +46,7 @@ as a target.
      floor, or one ratifying a new direction (ADR-019 §5 rule 4, ADR-001
      §5 rule 2);
   3. a correction by the owner recorded in a commit or PR — the fabric's
-     habit of writing "(the owner, YYYY-MM-DD)" into a subject or a
+     habit of naming the owner and a date in a commit subject or a
      record's Decision Makers;
   4. a collision the owner had to decide in a drain (ADR-014 §5 rule 3).
   What is not supervision: the owner setting direction (a new pillar, a
@@ -129,7 +129,7 @@ rule that says what the owner need not see turns an ask into a check.
 
 ## 8. Decision Status
 
-Proposed, 2026-09-27. It waits on the owner's acceptance of the measure
+Proposed. It waits on the owner's acceptance of the measure
 and its two definitions, individually (ADR-001 §5 rule 2: arming the
 pull request that carries it does not ratify a new direction unless the
 description says so and the owner arms it on that basis). Until then it
@@ -138,8 +138,8 @@ binds nothing and nothing is built for it.
 ## References
 
 - ADR-000 §5, P3 (Today, Direction) and P7 (Direction).
-- ADR-001 (§5 rule 2), ADR-014 (the owner's collision decisions), ADR-019 (the band and the gate), ADR-020
-  (the review), ADR-024 (the owner's word).
+- ADR-001 (§5 rule 2), ADR-014 (contested claims), ADR-019 (the band and the gate), ADR-020
+  (the review), ADR-024 (carrying the owner's word).
 - `runtime/github/commit-class.sh`, `runtime/github/pr-review-status.sh`,
   `runtime/github/pr-gate.sh`; `memory/RUBRIC.md` ("Telemetry, not
   quotas").

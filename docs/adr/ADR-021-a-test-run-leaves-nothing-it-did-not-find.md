@@ -23,8 +23,7 @@ it and costs only the next session, or the host.
 
 ## 2. Decision
 
-**A test run leaves behind nothing it did not find** (the owner,
-2026-09-19). Containers and volumes a run started are gone when it ends,
+**A test run leaves behind nothing it did not find**. Containers and volumes a run started are gone when it ends,
 however it ends; scratch goes under the session's scratchpad, never into
 the tree; a build that changed the dependency graph cleans its target,
 and an incremental cache is disposable and removed when it is large —
@@ -83,7 +82,7 @@ branch that caused it, where it is cheapest to fix.
   editor writing into the account's temporary directory at the same
   time is never counted as a leak. The earlier advice never to run the
   suite twice at once (the two shared scratch) predates that change
-  (8898a5d, 2026-09-20); whether any suite still shares other state
+  (8898a5d); whether any suite still shares other state
   between concurrent runs is not established.
 - Rules 1 and 5 in a managed project are that project's suites to keep;
   the fabric supplies the host lease that serialises memory-heavy runs
@@ -96,8 +95,8 @@ shape of `tests/run.sh` and `tests/leak-check.sh`.
 
 ## 8. Decision Status
 
-Accepted: the owner's rule of 2026-09-19 in `team.md`; the fabric's leak
-check since 2026-09-20 (agent-fabric #26).
+Accepted and in force: the owner's rule in `team.md`; the fabric's leak
+check (agent-fabric #26).
 
 ## References
 

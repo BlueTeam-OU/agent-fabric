@@ -21,10 +21,10 @@
 # on a Claude-account template (CLAUDE_CODE_OAUTH_TOKEN in its synced
 # secrets.env) is `setup-token`: its own sign-in, if any, is another
 # account's, and the setup-token cannot read usage — the observer's
-# `fabric-ctl <observer> accounts` has those windows (docs/claude-accounts.md).
+# `fabric-ctl <observer> accounts` has those windows (docs/adr/ADR-031-claude-accounts-assigned-applied-and-proved-by-signed-action.md).
 #
 # Superseded for everyday use by `bin/fabric-ctl all usage`, which asks
-# each account's control agent over the relay (docs/control-plane.md):
+# each account's control agent over the relay (docs/adr/ADR-029-the-control-plane-a-control-agent-per-account.md):
 # no sudo, no per-host loop, a second instead of a minute. This stays as
 # the fallback for a host whose daemons are down.
 set -uo pipefail

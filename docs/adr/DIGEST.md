@@ -33,6 +33,16 @@ searches it.
 | a message is advisory; working on a request together; OWNER-WORD | ADR-024 |
 | branches with no PR; what shares my paths; do two branches combine | ADR-025 |
 | measuring progress; supervision; verified result (proposed) | ADR-026 |
+| the language-culture role; the locale worker; the prompt in the locale; locale search | ADR-027 |
+| dictionaries; the i18n standard; the inbox in the reader's language; GZCOORD_DEFAULT_LOCALE_ONLY | ADR-028 |
+| the control agent; fabric-ctl; the control channel; what an account reports; the drain over the relay | ADR-029 |
+| is an agent online; HELLO and GOODBYE; send exits 4; --force | ADR-030 |
+| which Claude account a login runs on; moving logins; setup-token; usage windows | ADR-031 |
+| changing the GZCoord protocol; the grammar freeze; GZCOORD/2 | ADR-032 |
+| the relay; the human relay; transports; Telegram; the adapter contract | ADR-033 |
+| what a failure may take; single points; degraded modes (proposed) | ADR-034 |
+| working with another organization; portable trust; what may be shared (proposed) | ADR-035 |
+| cost per verified result; spend; shared resources (proposed) | ADR-036 |
 
 ### ADR-000 — The enduring organization (Accepted)
 
@@ -68,6 +78,10 @@ searches it.
   verbatim texts a record paraphrases, never edited (§5 rule 9).
 - A 2026-09-27 — a source's edit, rename or removal is refused whatever
   the commit's trailers (§5 rule 9).
+- A 2026-09-27 — no inline attribution: who decided and when are the
+  header's and the history's (§5 rule 10).
+- A 2026-09-27 — a record reads current: no date in §2 to §8; §1 may date an
+  incident (§5 rule 11).
 - Keywords: ADR, amendment, supersede, ratify, index, digest, rationale.
 
 ### ADR-002 — Role, login and model are kept apart (Accepted)
@@ -128,9 +142,9 @@ searches it.
   is gated by `routing/policies/review-grade.json` (§5 rules 5–6).
 - No settings scope pins a model; shims are live-tested per family; a
   model enters routing only after a read-back (§5 rules 7–10).
-- Today: every class on plain claude is Opus 5.5 (the owner, 2026-09-25);
+- Today: every class on plain claude is Opus 5.5;
   on the broker, DeepSeek V4 Pro for session, high, plan and review, GLM
-  for low and medium (the owner, 2026-09-19) (§2).
+  for low and medium (§2).
 - Keywords: model, routing, capability class, alias, provider, OpenRouter,
   broker, review-grade, shim, preset, Opus 5.5, DeepSeek, GLM, profile.
 
@@ -146,7 +160,7 @@ searches it.
   line; the session's via `--effort`, stamped (§5 rules 4–5).
 - `CLAUDE_CODE_EFFORT_LEVEL` is refused in any value; committed settings
   carry no effort keys; never set per dispatch (§5 rules 6–7).
-- Today every class and session asks `medium` (the owner, 2026-09-25);
+- Today every class and session asks `medium`;
   broker `code-low` is committed at `low` (§2).
 - Keywords: effort, reasoning, thinking, level, clamp, medium, high,
   --effort, agent file, CLAUDE_EFFORT, Opus 5.5 default.
@@ -272,8 +286,7 @@ searches it.
 - The owner decides `supersede`, `keep-both` or `drop` per heading or
   per claim, recorded in the drain report (§5 rule 3).
 - An agent's newer text replaces its own older text without a question —
-  never older text, a contested heading, or two agents' texts (the owner,
-  2026-09-26) (§5 rules 4–6).
+  never older text, a contested heading, or two agents' texts (§5 rules 4–6).
 - `merge_target` replaces the named section wherever it lives in the
   class; ambiguous refuses the run, unresolved is reported every drain;
   the correction keeps its own heading (§5 rules 7–8).
@@ -371,7 +384,7 @@ searches it.
 
 - The review class's blind review is the review of every PR: on every
   head, to judge a finding, to re-review a fix range; no automated
-  reviewer is assumed (the owner, 2026-09-20) (§2, §5 rule 1).
+  reviewer is assumed (§2, §5 rule 1).
 - Dispatch: `code-review`, `model: fable`, description "review…" or
   "re-review…", no isolation; the guard drops the alias so the agent
   file's routed model decides, within `review-grade.json` (§5 rules 2–3).
@@ -388,7 +401,7 @@ searches it.
 ### ADR-021 — A test run leaves nothing it did not find (Accepted)
 
 - A test run removes, however it ends, the containers, volumes and
-  scratch it made; nothing goes into the tree (the owner, 2026-09-19)
+  scratch it made; nothing goes into the tree
   (§2, §5 rule 1).
 - `tests/run.sh` owns a fresh `TMPDIR` per run and fails naming every
   entry left in it (§5 rule 2).
@@ -423,7 +436,7 @@ searches it.
 
 - A `REQUEST`, or any message with a `REQUEST:`, `ACCEPTANCE:` or
   `DELIVER-TO:` section, is addressed `TO` one login; `TO-ROLE` is for
-  `INFO`, `DECISION`, `QUESTION` (the owner, 2026-09-19) (§2, §5 rules
+  `INFO`, `DECISION`, `QUESTION` (§2, §5 rules
   1, 3).
 - The validator refuses the role-addressed shape and `send.mjs` does not
   post it (§5 rule 2).
@@ -431,6 +444,8 @@ searches it.
   else the lowest-numbered — and say which rule chose (§5 rule 4).
 - One that reached a role anyway is claimed by the first `REPLY`; the
   others stand down silently (§5 rule 5).
+- A 2026-09-27 — a receiver stands down on a sibling's pushed branch, PR or
+  not, found by the in-flight query (§5 rule 5).
 - Keywords: assignment, REQUEST, TO-ROLE, TO, holder, role address,
   duplicate work, claim, REPLY, SPEC §13.
 
@@ -482,3 +497,203 @@ searches it.
   exists (§6). Waits on the owner's acceptance (§8).
 - Keywords: progress, supervision, verified result, measure, metric,
   owner, OWNER-WORD, autonomy, mandate, proposed.
+
+### ADR-027 — Language-and-culture specialists shape the work, not only translate it; the bridge (Accepted)
+
+- The role owns the words and what a market's culture changes, stated so
+  the surface's owner decides; it says when a language cannot carry a
+  meaning; findings in another's surface are `OBSERVATION`s with the
+  correction (§2, §5 rule 2).
+- One holder per locale, `language-culture-<suffix>`; the tag is
+  `locale.json`'s, never inferred (`ge` is `ka-GE`) (§5 rule 1).
+- Two-pass review, target first, every finding naming its pass; requests
+  translated in, answers composed once in the locale and rendered; the
+  fleet gets English (§5 rules 3–4). Notes in the locale, counted by
+  `fabric-ctl <login> script`, counts only (§5 rule 5).
+- The bridge: `locale-worker`, one inert tool (`TaskStop`), installed only
+  on a holder's login; the guard wants a model and no isolation; a Latin
+  paragraph in its input is a leak (§5 rules 6–8).
+- The prompt in the locale: per-piece translations with a source digest;
+  `harness.md` present replaces the whole prompt, absent is the kill
+  switch; lint keeps the identifiers; a lag warns and is served; only the
+  holder translates (§5 rules 9–11).
+- Memory rendered under `## English` by its holder, else
+  `needs_rendering`; locale search through `websearch-locale`, SerpAPI
+  then Brave, the harness's `WebSearch` removed (§5 rules 12–13).
+- Keywords: language-culture, locale, translation, culture, bridge,
+  locale-worker, worker, Georgian, Russian, ka-GE, ru-RU, harness.md,
+  system-prompt-file, notes, script, needs_rendering, web search, SerpAPI,
+  Brave, carve-out.
+
+### ADR-028 — The house i18n standard; GZCoord speaks the reader's language (Accepted)
+
+- A fabric dictionary is the house standard: one flat JSON per locale
+  named by its BCP-47 tag, dotted-slug keys, non-empty values, `{name}`,
+  `en-US` mandatory; the managed projects are read before any new format
+  (§2, §5 rule 1).
+- An active locale's dictionary lives in its locale directory, where its
+  holder commits it; lint refuses one that is incomplete, loses an
+  identifier, or is not in the locale (§5 rules 2–3).
+- Every line the GZCoord tools print around a message — the validator's
+  diagnostics included — is in the reader's language; the message, its
+  metadata keys and type names never are (§5 rule 4).
+- The login's suffix and bound role find the dictionary, `locale.json`
+  its tag; a missing key or unreadable file falls back to `en-US` — a
+  key-level fallback the house standard forbids its clients, kept for the
+  session start and named (§4, §5 rule 5).
+- `GZCOORD_DEFAULT_LOCALE_ONLY=1` pins English for suites; a new key
+  reaches every active locale in the same change (§5 rules 7–8).
+- Keywords: i18n, dictionary, locale, BCP-47, en-US, ru-RU, ka-GE,
+  translation, inbox, validator, fallback, i18n.mjs, house standard,
+  GZCOORD_DEFAULT_LOCALE_ONLY, reminder.
+
+### ADR-029 — The control plane: a control agent per account answers signed actions over the relay (Accepted)
+
+- Every account runs `agentd.mjs` under a lingering user unit, alive with
+  or without a session; it answers on the relay's `fabric:control`
+  channel, which the GZCoord tools refuse (§2, §5 rules 1–2).
+- No cursor, no ack: a daemon primes from the newest record, so a restart
+  replays nothing and a request made while it was down is lost (§2).
+- A closed op set, no request field reaches a shell; reads answered for a
+  host operator's address, `presence` for any placed account (§5 rules
+  3–4).
+- Actions need the operator's Ed25519 signature, live ≤ 600 s, never more
+  than a minute ahead, strictly newer than the last (§5 rule 5; ADR-009).
+- Every reply arrives, gaps named, no secret; `fabric-ctl` exits 1 on
+  silence, a refused bundle or a failed action; the drain files only
+  verified bundles (§5 rules 6–9).
+- Reads are fenced, not proved: a relay-token holder can forge a row until
+  replies are signed (§6, §7).
+- Keywords: control plane, agentd, fabric-ctl, control channel,
+  fabric:control, relay, ops, status, ping, keys, usage, recall, tokens,
+  drain, memory, signed, operator_key, keygen, linger, persist.
+
+### ADR-030 — Presence replaces HELLO and GOODBYE (Accepted)
+
+- Whether a session runs is the control agent's answer from its process
+  table and binding — since when, role, project, planning; unreadable is
+  unknown, never offline (§2, §5 rule 1). `presence` is the one public op
+  (§5 rule 2).
+- `send.mjs` asks before a `TO` or `TO-ROLE` leaves: no session, silence
+  or an unplaced address exits 4 unless `--force`; a role passes when any
+  holder runs; planning is a note, never a refusal (§5 rules 3–4).
+- The launcher and `fabric-role` announce nothing; the inbox acknowledges
+  an old HELLO/GOODBYE and never delivers it; GZCOORD/1 deprecates both
+  and still parses them (§5 rules 5–7).
+- A request whose addressee's session ended is re-sent, with what
+  changed, when presence shows a session (§5 rule 8).
+- Keywords: presence, online, HELLO, GOODBYE, announcement, process table,
+  send, --force, exit 4, fabric-ctl presence, planning, re-send.
+
+### ADR-031 — Claude accounts: which account a login runs on is assigned, applied and proved by signed action (Accepted)
+
+- Working sessions run on a template's setup-token: one Doppler config per
+  Claude account, and one reference line in each login's config; the
+  launcher refuses a plain-claude session without one (§2, §5 rules 1–3).
+- `fabric-accounts assign` writes and reads back the reference, then the
+  signed `secrets-sync` action has each account sync, prove the
+  template's fingerprint, and resume its session on it; any row not
+  `synced` exits 1 (§5 rules 4–5).
+- Sign-ins are named by fingerprint everywhere; `fabric-accounts
+  templates` maps them (§5 rule 6).
+- An observer on the coordinator's login keeps one `/login` per account,
+  read every four hours by the harness's own `/usage` — never a
+  hand-made refresh (§5 rule 7, §3).
+- Keywords: Claude account, subscription, setup-token, /login, template,
+  claude-accounts, CLAUDE_CODE_OAUTH_TOKEN, fabric-accounts, assign,
+  secrets-sync, fingerprint, usage windows, observer, /usage.
+
+### ADR-032 — GZCOORD/1 is a normative contract: the grammar frozen until a transport exercises it, GZCOORD/2 for a breaking change, adoption by observation (Accepted)
+
+- SPEC, MESSAGE-FORMAT, SEMANTICS and CONFORMANCE are GZCOORD/1's
+  normative text; `gzmsg.mjs` is the reference validator and every example
+  validates (§2, §5 rule 1). Only fabric-coordinator changes them (§5
+  rule 2).
+- The grammar (SPEC §6) is frozen until an automated transport exercises
+  it; prose, conventions, tightened MUSTs and optional fields stay in
+  scope; a new type waits (§5 rule 3).
+- Within /1 the accepted set only narrows; a disagreement between old and
+  new readers, or a widened §6, is `GZCOORD/2` — a narrowing never is
+  (§5 rules 4–5).
+- A change is adopted by observation: recurring, a real interoperability
+  failure, the smallest fix (§5 rule 6).
+- Every change to the four files lands with an amendment of ADR-032 in the
+  same PR; examples and validator move with the text (§5 rules 7–8).
+- Keywords: GZCoord, GZCOORD/1, GZCOORD/2, protocol, SPEC, grammar,
+  freeze, frozen, compatibility, narrowing, conformance, validator,
+  extension, X-, protocol change.
+
+### ADR-033 — GZCoord's transports: the human relay, the adapter contract, Telegram retired; the relay is central today (Accepted)
+
+- A transport carries GZCOORD/1 unchanged, satisfies the adapter contract,
+  and never makes a native field a protocol field (§2, §5 rules 1–2).
+- No transport gives an agent a human-style identity — why Telegram's
+  workaround was refused; a candidate is validated with two instances
+  (§5 rules 3–4).
+- The transport is the Claude-Bridge relay: one user unit on the
+  operator's account, loopback, one database, one channel for every
+  project, the control plane beside it; the token from Doppler (§2, §5
+  rules 5–6).
+- The human relay is the fallback: validate, fenced block, 72 columns,
+  minted id; normalise and check the addressee before the body (§5 rules
+  7–8).
+- The relay is a single point of failure, authenticates no sender and
+  filters nothing — the inbox does (§6).
+- Keywords: transport, relay, Claude-Bridge, claude-bridge,
+  gzcoord-relay, human relay, fallback, Telegram, adapter contract,
+  channel, gzapp:gzcoord, bridge token, central, single point of failure.
+
+### ADR-034 — Decentralization as a direction: a failure may reduce capacity, never take identity, knowledge or continuity (Proposed)
+
+- Proposed, not binding: decentralize only where a failure would take
+  identity, knowledge or the ability to go on working; reduced capacity
+  is acceptable (§2).
+- §1 inventories what depends on one thing today — one host, one relay
+  and its database, one signing key, Doppler, one observer, two
+  providers, undrained memory, the owner — with each degraded mode or
+  "none" (§1, §5 rule 1).
+- Data that exists nowhere else gets a copy first; a degraded mode counts
+  only with a live check; identity never depends on a central service
+  (§5 rules 2–4).
+- First step: a copy of the relay's database and a restore read back
+  (§7). Waits on the owner's acceptance (§8).
+- Keywords: decentralization, resilience, single point of failure,
+  degraded mode, relay, host, crash, backup, autonomy, P5, proposed.
+
+### ADR-035 — Federation between organizations: expertise transfers, confidential information does not; portable trust first (Proposed)
+
+- Proposed, not binding: what crosses between organizations is expertise
+  and results; a project's code and knowledge, private memory,
+  credentials and channel traffic never do (§2, §5 rules 1–2).
+- No shared credential; no exchange before identity, action and
+  provenance are verifiable by the other side from a published record
+  (§5 rules 3–4).
+- A request between organizations is advisory; no organization's key
+  orders the other's accounts (§5 rule 5).
+- Today every trust mechanism — addresses, signed actions, the role
+  trailer, slice provenance — is checkable only inside one installation
+  (§1).
+- First step: a published organization record of operator keys, and a
+  second installation verifying a signed action against it (§7). Waits
+  on the owner's acceptance (§8).
+- Keywords: federation, organization, portable trust, identity,
+  signature, provenance, confidential, licence, expertise, P6, proposed.
+
+### ADR-036 — Sustainable operation: shared resources, and cost per verified result beside supervision per verified result (Proposed)
+
+- Proposed, not binding: cost per verified result — spend attributable to
+  a period's verified results over their number, ADR-026's denominator —
+  read as a trend beside supervision per verified result, never a target
+  or per agent (§2, §5 rules 1–2, 4).
+- Direct-path spend in input-token equivalents from the logins' own
+  records, broker spend from the provider per key, never converted into
+  each other (§5 rule 3).
+- Growth is argued by its effect on cost per verified result; a shared
+  resource is taken for a stated job and released (§5 rules 5–6).
+- Today's pieces are cited, not restated: leases, clean test runs, prompt
+  budgets, usage windows, `tokens` (§1). Nothing links spend to a result
+  yet (§6).
+- First step: a report of input-token equivalents per merged PR (§7).
+  Waits on the owner's acceptance (§8).
+- Keywords: sustainable, cost, spend, tokens, usage windows, budget,
+  lease, verified result, capability per spend, P7, proposed.
