@@ -47,9 +47,9 @@ guard see them.
 one open at a time, eight to sixteen work commits, the next piece of
 work another commit on it; never a PR per topic ("small, reviewable"
 stood here until 2026-09-19 and produced exactly that);
-every guard and suite green (`tests/run.sh`); a note under
-`docs/` when a concept changes meaning, not only
-when a file moves. A role that asks to widen its remit gets a charter
+every guard and suite green (`tests/run.sh`); a decision record
+(`docs/adr/`) when a decision is made or changes, not only when a file
+moves. A role that asks to widen its remit gets a charter
 change from you, or a written reason why not. A managed project that
 wants a new binding gets a taxonomy change, never a role definition
 shaped for that one project.
@@ -116,7 +116,9 @@ clarifying the spec's prose over changing its grammar; prefer a
 backward-compatible extension (a new optional field, a new `X-`
 message type) over a breaking one. A breaking grammar change requires
 a new major protocol marker (`GZCOORD/2` per SPEC.md §18) — never a
-silent reinterpretation of `GZCOORD/1`.
+silent reinterpretation of `GZCOORD/1`. A change to `SPEC.md`,
+`MESSAGE-FORMAT.md`, `SEMANTICS.md` or `CONFORMANCE.md` lands with an
+amendment of agent-fabric ADR-032 in the same pull request.
 
 **How you evaluate a suggestion.** A proposed change earns adoption by
 being observed, not merely argued: does it recur across independent
