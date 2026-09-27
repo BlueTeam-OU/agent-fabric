@@ -41,6 +41,7 @@ searches it.
 | changing the GZCoord protocol; the grammar freeze; GZCOORD/2 | ADR-032 |
 | the relay; the human relay; transports; Telegram; the adapter contract | ADR-033 |
 | what a failure may take; single points; degraded modes (proposed) | ADR-034 |
+| working with another organization; portable trust; what may be shared (proposed) | ADR-035 |
 
 ### ADR-000 — The enduring organization (Accepted)
 
@@ -657,3 +658,22 @@ searches it.
   (§7). Waits on the owner's acceptance (§8).
 - Keywords: decentralization, resilience, single point of failure,
   degraded mode, relay, host, crash, backup, autonomy, P5, proposed.
+
+### ADR-035 — Federation between organizations: expertise transfers, confidential information does not; portable trust first (Proposed)
+
+- Proposed, not binding: what crosses between organizations is expertise
+  and results; a project's code and knowledge, private memory,
+  credentials and channel traffic never do (§2, §5 rules 1–2).
+- No shared credential; no exchange before identity, action and
+  provenance are verifiable by the other side from a published record
+  (§5 rules 3–4).
+- A request between organizations is advisory; no organization's key
+  orders the other's accounts (§5 rule 5).
+- Today every trust mechanism — addresses, signed actions, the role
+  trailer, slice provenance — is checkable only inside one installation
+  (§1).
+- First step: a published organization record of operator keys, and a
+  second installation verifying a signed action against it (§7). Waits
+  on the owner's acceptance (§8).
+- Keywords: federation, organization, portable trust, identity,
+  signature, provenance, confidential, licence, expertise, P6, proposed.
