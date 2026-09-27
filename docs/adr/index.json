@@ -270,6 +270,15 @@
       "date": "2026-09-17",
       "pillar": "P5",
       "amendments": 0
+    },
+    {
+      "number": "030",
+      "file": "ADR-030-presence-replaces-hello-and-goodbye.md",
+      "title": "Presence replaces HELLO and GOODBYE",
+      "status": "Accepted",
+      "date": "2026-09-25",
+      "pillar": "P5",
+      "amendments": 0
     }
   ]
 }

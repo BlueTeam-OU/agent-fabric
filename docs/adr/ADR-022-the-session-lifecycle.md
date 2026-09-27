@@ -169,7 +169,7 @@ the hold is now a stub pointing here.
 - `communication/gzcoord/scripts/inbox.mjs` (`holdStatus`),
   `communication/gzcoord/scripts/send.mjs`, `communication/gzcoord/tests/`.
 - `runtime/control/ops.mjs` (`presence`), `runtime/control/presence.mjs`,
-  `runtime/control/ctl.mjs`; `docs/presence.md`.
+  `runtime/control/ctl.mjs`; ADR-030.
 - `runtime/claude-code/user-settings.py`.
 - `communication/gzcoord/skills/gzcoord-receive/SKILL.md` §1.
 - ADR-008 (user settings), ADR-009 (commands by name), ADR-000 (P3).

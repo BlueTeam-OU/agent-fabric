@@ -58,7 +58,7 @@ sudo are in the loop.
 | `keys` | each synced key's name, presence and a twelve-hex-digit sha256 prefix — never a value |
 | `fabric` | head, branch, distance behind `origin/main`, dirty |
 | `session` | Claude processes as the login; whether one is planning |
-| `presence` | whether a session is running — the one public op |
+| `presence` | whether a session is running — the one public op (ADR-030) |
 | `host` | load, memory and swap, block devices, held leases, the largest processes — the same numbers from every daemon on a host, collapsed by host (ADR-010) |
 | `script` | the letters of the notes, the visible text, stored thinking and the locale worker's transcripts, by script and language, counts only (ADR-027) |
 | `recall` | which corpus paths the account's sessions read over 24 h — index, slice, charter — paths and counts only |

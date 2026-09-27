@@ -150,7 +150,7 @@ shell by `bin/fabric-role`), renders it into the session's system prompt
 (`tools/fabric/launch_prompt.py`, passed as `--append-system-prompt-file`;
 a caller's own `--system-prompt*` is refused) and stamps it
 (`AGENT_FABRIC_LAUNCH_ROLE`, `_PROMPT_DIGEST`). It announces nothing:
-presence is the control plane's (`docs/presence.md`). The session is a
+presence is the control plane's (`docs/adr/ADR-030-presence-replaces-hello-and-goodbye.md`). The session is a
 child the launcher waits on, not an exec, so it can bring the session
 back after an upgrade or an account move. The launch
 directory decides which settings scopes are fenced and which working copy

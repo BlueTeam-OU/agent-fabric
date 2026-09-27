@@ -36,6 +36,7 @@ searches it.
 | the language-culture role; the locale worker; the prompt in the locale; locale search | ADR-027 |
 | dictionaries; the i18n standard; the inbox in the reader's language; GZCOORD_DEFAULT_LOCALE_ONLY | ADR-028 |
 | the control agent; fabric-ctl; the control channel; what an account reports; the drain over the relay | ADR-029 |
+| is an agent online; HELLO and GOODBYE; send exits 4; --force | ADR-030 |
 
 ### ADR-000 — The enduring organization (Accepted)
 
@@ -560,3 +561,20 @@ searches it.
 - Keywords: control plane, agentd, fabric-ctl, control channel,
   fabric:control, relay, ops, status, ping, keys, usage, recall, tokens,
   drain, memory, signed, operator_key, keygen, linger, persist.
+
+### ADR-030 — Presence replaces HELLO and GOODBYE (Accepted)
+
+- Whether a session runs is the control agent's answer from its process
+  table and binding — since when, role, project, planning; unreadable is
+  unknown, never offline (§2, §5 rule 1). `presence` is the one public op
+  (§5 rule 2).
+- `send.mjs` asks before a `TO` or `TO-ROLE` leaves: no session, silence
+  or an unplaced address exits 4 unless `--force`; a role passes when any
+  holder runs; planning is a note, never a refusal (§5 rules 3–4).
+- The launcher and `fabric-role` announce nothing; the inbox acknowledges
+  an old HELLO/GOODBYE and never delivers it; GZCOORD/1 deprecates both
+  and still parses them (§5 rules 5–7).
+- A request whose addressee's session ended is re-sent, with what
+  changed, when presence shows a session (§5 rule 8).
+- Keywords: presence, online, HELLO, GOODBYE, announcement, process table,
+  send, --force, exit 4, fabric-ctl presence, planning, re-send.

@@ -45,7 +45,7 @@ deployment's to answer, never an announcement (`protocol/SPEC.md` §5):
 `HELLO` and `GOODBYE` are deprecated. In agent-fabric the control plane
 answers it from each account's process table —
 `bin/fabric-ctl <login|all> presence` — and `scripts/send.mjs` asks it
-before a `TO` or `TO-ROLE` message leaves (`docs/presence.md`).
+before a `TO` or `TO-ROLE` message leaves (`docs/adr/ADR-030-presence-replaces-hello-and-goodbye.md`).
 
 ## Normal message
 

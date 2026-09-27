@@ -65,7 +65,7 @@
 # can say what this session was launched as and see a rebind under it.
 # The launcher announces nothing: whether a session is running is the
 # control plane's to answer, from the process table (runtime/control/
-# presence.mjs, docs/presence.md) — HELLO/GOODBYE are retired.
+# presence.mjs, docs/adr/ADR-030-presence-replaces-hello-and-goodbye.md) — HELLO/GOODBYE are retired.
 #
 # The merged REVIEW model MUST be in routing/policies/review-grade.json:
 # a review's failure mode is a green PR that merges, so the reviewer's

@@ -147,7 +147,9 @@ addressee has a session running** — the control plane answers from each
 account's process table (`fabric-ctl <login|all> presence` shows the
 same). An addressee with no session, a control agent that did not answer
 or could not tell, an address no host places, or presence that could not
-be asked at all is named, nothing is sent, and it exits 4.
+be asked at all is named, nothing is sent, and it exits 4. A relay that
+refuses the token is the exception: the check is skipped with a line
+saying so, and the post reports the refusal.
 A `TO-ROLE` passes when any holder of the role is running; a broadcast is
 not checked. An addressee that is planning is sent to, and you are told:
 its inbox is held until its plan is approved, so no answer comes before

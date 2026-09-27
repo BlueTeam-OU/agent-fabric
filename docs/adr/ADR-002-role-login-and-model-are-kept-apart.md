@@ -166,7 +166,7 @@ per-host bindings.
   `runtime/claude-code/hooks/session-start.sh`.
 - `identities/roles/catalog.json`, `identities/prompt/`,
   `identities/agents/README.md`, `identities/schemas/binding.schema.json`.
-- `docs/live-checks/2026-09-15-append-system-prompt.md`; `docs/presence.md`
+- `docs/live-checks/2026-09-15-append-system-prompt.md`; ADR-030
   (whether a session exists is the control plane's `presence`, not an
   announcement from the launcher).
 - ADR-000 (P1); ADR-001 (how this record changes). The state layer, adding

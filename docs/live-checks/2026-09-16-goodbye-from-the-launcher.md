@@ -1,5 +1,7 @@
 # Live check 2026-09-16 — GOODBYE is the launcher's, after the session returns
 
+> The launcher's HELLO and GOODBYE were retired on 2026-09-25: presence is asked of the control plane (`docs/adr/ADR-030-presence-replaces-hello-and-goodbye.md`); the measurement stands.
+
 Host `develop-qzapp`, agent `user`, role `fabric-coordinator`, Claude Code
 `2.1.272`, `runtime/openrouter/launch --provider anthropic`. Read back on
 the relay through this session's own inbox watch (`inbox.mjs --follow`),
