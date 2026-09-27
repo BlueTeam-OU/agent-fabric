@@ -100,10 +100,10 @@ what must endure depend on what will change?*
 ### P1 — Outlives its tools
 
 **Today.** The Linux login is the agent; the filesystem is context; the
-role is bound, not inferred. Models are chosen by capability
+role is bound, not inferred (ADR-002). Models are chosen by capability
 class, never by a vendor name in an agent's instructions, and every class
-moved to a new model family without a single agent being rebuilt. A host crash and a fleet-wide upgrade left every
-agent's identity and memory in place. A role's charter,
+moved to a new model family without a single agent being rebuilt (ADR-005). A host crash and a fleet-wide upgrade left every
+agent's identity and memory in place (ADR-009, ADR-010). A role's charter,
 brief and distilled knowledge belong to the role, so assigning it to
 another agent transfers the professional knowledge without confusing the
 individual with the function.
@@ -185,7 +185,7 @@ value lies not in always agreeing but in being able to correct itself.
 
 **Today.** Each account has an operational presence that needs no model
 session: a control agent answering over the relay, signed actions for
-fleet operations. Presence is read from each account's
+fleet operations (ADR-009). Presence is read from each account's
 process table, not from what a session announced. The GZCoord
 relay is, today, **central**: one process on one host.
 
@@ -227,7 +227,7 @@ confidential information.
 
 **Today.** The organization runs on finite means: model budgets and usage
 windows, prompt and context budgets, a host's disk and memory, and the
-owner's attention. Shared host resources are leased; a test run
+owner's attention. Shared host resources are leased (ADR-010); a test run
 leaves nothing behind; launch prompts have a ceiling and prompt
 templates a token budget; the disk incidents of 2026-09-19 and 2026-09-25
 are why.
