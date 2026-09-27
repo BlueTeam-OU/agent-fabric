@@ -54,6 +54,31 @@
 # the floor exists to catch (backend-dev-02, 2026-09-18, seq 2736).
 # Case-sensitive on purpose: "v2", "utf8", "sha1" are not labels; a
 # three-letter run (ADR-071, OTP) is not either.
+# The repository names the fabric registers (projects/registry.json): each
+# project id and the name of each of its remotes, lower-cased.
+_commit_class_known_repos() {
+    local reg; reg="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)/projects/registry.json"
+    jq -r '(.projects // .) | to_entries[] | .key, (.value.remotes // [])[]' "$reg" 2>/dev/null \
+        | sed -E 's#\.git$##; s#.*[/:]##' | tr '[:upper:]' '[:lower:]' | sort -u
+}
+
+# One reference → the PR number it names, or "x" when it names another
+# repository than <owner/repo>. Without a repository only the number counts.
+_commit_class_ref() {
+    local ref="$1" here="${2,,}" n="${1##*#}" pre="${1%#*}" word
+    [[ -n "$here" ]] || { echo "$n"; return; }
+    if [[ "$pre" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]; then
+        [[ "${pre,,}" == "$here" ]] && echo "$n" || echo x
+    elif [[ "$pre" =~ ^[A-Za-z0-9_.-]+$ ]]; then
+        [[ "${pre,,}" == "${here##*/}" ]] && echo "$n" || echo x
+    elif [[ "$pre" =~ ^([A-Za-z0-9_.-]+)[[:space:]]+$ ]]; then
+        word="${BASH_REMATCH[1],,}"
+        if [[ "$word" != "${here##*/}" ]] && grep -qxF -- "$word" <<<"$(_commit_class_known_repos)"; then echo x; else echo "$n"; fi
+    else
+        echo "$n"
+    fi
+}
+
 commit_class() {
     local parents="$1" subject="$2" answers="${3:-}" pr="${4:-}" repo="${5:-}"
     if [[ "$parents" == *" "* ]]; then echo merge; return 0; fi
@@ -66,22 +91,21 @@ commit_class() {
     # Only a review-answer shape names the PR answered — "review of #53",
     # "#947 F2", or a #N in the Answers: trailer; a bare #N in a subject is
     # an issue or a PR named for context, and says nothing (review of #55).
-    # PR numbers are per repository: a review reference that names another
-    # repository ("review of other-repo #53", "owner/repo#53") is foreign
-    # whatever its number, so it reads as "x", never as this PR (review
-    # thread on #55).
+    # PR numbers are per repository. A reference names another repository
+    # only in a form that names one: owner/repo#N (compared with the owner),
+    # repo#N, or "repo #N" where repo is a project the fabric registers —
+    # never "PR #918", "thread #53" or "the copy #53" (review of #55). A
+    # reference to another repository reads as "x", never as this PR.
     if [[ -n "$pr" ]]; then
-        local here="${repo##*/}" ref r n refs=""
+        local ref refs="" form='([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+#|[A-Za-z0-9_.-]+#|[A-Za-z0-9_.-]+[[:space:]]+#|#)[0-9]+'
         while IFS= read -r ref; do
-            [[ -n "$ref" ]] || continue
-            n="${ref##*#}"; r="${ref%#*}"; r="${r%"${r##*[![:space:]]}"}"; r="${r##*[[:space:]]}"; r="${r##*/}"
-            if [[ -n "$r" && ! "$r" =~ ^(of|on|for)$ && -n "$here" && "${r,,}" != "${here,,}" ]]; then refs+=$'x\n'; else refs+="$n"$'\n'; fi
-        done < <( { grep -oiE '(re-)?reviews?[[:space:]]+(of|on|for)[[:space:]]+([A-Za-z0-9_.-]+/)?([A-Za-z0-9_.-]+[[:space:]]*)?#[0-9]+' <<<"$subject" \
+            [[ -n "$ref" ]] && refs+="$(_commit_class_ref "$ref" "$repo")"$'\n'
+        done < <( { grep -oiE "(re-)?reviews?[[:space:]]+(of|on|for)[[:space:]]+$form" <<<"$subject" \
                       | sed -E 's/^(re-)?reviews?[[:space:]]+(of|on|for)[[:space:]]+//I'
-                    grep -oE '([A-Za-z0-9_.-]+/)?([A-Za-z0-9_.-]+[[:space:]]*)?#[0-9]+[[:space:]]+[A-Z]{1,2}-?[0-9]+' <<<"$subject" \
+                    grep -oE "${form}[[:space:]]+[A-Z]{1,2}-?[0-9]+" <<<"$subject" \
                       | sed -E 's/[[:space:]]+[A-Z]{1,2}-?[0-9]+$//'
-                    grep -oE '([A-Za-z0-9_.-]+/)?([A-Za-z0-9_.-]+[[:space:]]*)?#[0-9]+' <<<"$answers"; } )
-        refs="$(sort -u <<<"$refs" | sed '/^$/d')"
+                    grep -oE "$form" <<<"$answers"; } )
+        refs="$(sed '/^$/d' <<<"$refs" | sort -u)"
         if [[ -n "$refs" ]] && ! grep -qx "$pr" <<<"$refs"; then echo work; return 0; fi
     fi
     if [[ -n "${answers//[[:space:]]/}" ]]; then echo fix; return 0; fi

@@ -93,6 +93,14 @@ expect_repo fix  53 gzapi-org/agent-fabric "review of agent-fabric #53: the fix"
 expect_repo fix  53 gzapi-org/agent-fabric "review of #53: the fix"
 expect_repo fix  861 gzapi-org/gzapp "supplier: the copy (#861 F6)"
 expect_pr   work 54 "supplier: the carried copy (#53 F3)"
+# Only a form that names a repository does; "PR #N", "thread #N" and
+# "the copy #N" are this repository's numbers (re-review of #55, F1-F2).
+expect_repo fix  918 gzapi-org/gzapp "review F1-F4 + PE1: the guards" "PR #918 review F1-F4 and PE1"
+expect_repo fix  53 gzapi-org/agent-fabric "review of PR #53: the fix"
+expect_repo fix  53 gzapi-org/agent-fabric "supplier: the copy #53 F6"
+expect_repo fix  53 gzapi-org/agent-fabric "review F1: the guard" "thread #53"
+expect_repo work 53 gzapi-org/agent-fabric "review of other/agent-fabric#53: the fix"
+expect_repo fix  53 gzapi-org/agent-fabric "review of gzapi-org/agent-fabric#53: the fix"
 expect fix "aaa" "review of #53 (deferred P3s): no PR given, the old reading stands"
 
 echo
