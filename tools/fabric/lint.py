@@ -164,9 +164,12 @@ def adr_findings(root: str | None = None) -> list[str]:
 # the documents move into decision records (agent-fabric ADR-001 §7); the
 # evidence (live checks), the amendment history, knowledge slices (they
 # cite what was true when written) and test fixtures are exempt.
-DOC_PATH_RE = re.compile(r"(?<![\w/.-])((?:docs|policies|communication/gzcoord/(?:protocol|docs))/[A-Za-z0-9_./-]*?\.md)(?![\w-])")
+# Where the fabric keeps documents: a note at docs/<name>.md, the decision
+# records and the live checks, the policies, the protocol and its transports.
+# A deeper docs/ path (docs/scratchpad/…) is a project's, named in an example.
+DOC_PATH_RE = re.compile(r"(?<![\w/.-])((?:docs/(?:adr/(?:history/)?|live-checks/)?|policies/(?:[\w-]+/)?|communication/gzcoord/(?:protocol|docs)/)[A-Za-z0-9_.-]+\.md)(?![\w/-])")
 FABRIC_ADR_RE = re.compile(r"agent-fabric ADR-(\d{3})(?!\d)")
-DOC_PATH_EXEMPT = ("docs/live-checks/", "docs/adr/history/", "memory/", ".agent-fabric/memory/", "tests/", "communication/gzcoord/history/")
+DOC_PATH_EXEMPT = ("docs/live-checks/", "docs/adr/history/", "docs/adr/ADR-TEMPLATE.md", "memory/", ".agent-fabric/memory/", "tests/", "communication/gzcoord/history/")
 
 
 def doc_path_findings(root: str | None = None) -> list[str]:
