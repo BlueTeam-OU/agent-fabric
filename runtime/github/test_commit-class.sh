@@ -77,6 +77,11 @@ expect_pr work 948 "db: the guard re-applies" "#947 F2"
 expect_pr fix  54 "review of #54 (P2 thread): the pipe guard exempts only a real pipefail"
 expect_pr fix  861 "supplier: the copy for the new keys (#861 F6)"
 expect_pr fix  54 "re-review F1: the chain match"
+# A bare #N (an issue, an earlier PR named for context) is no foreign
+# review: only a review-answer shape is (review of #53, #947 F2).
+expect_pr fix  130 "review fixes: the race first reported in issue #120"
+expect_pr fix  54 "re-review F1: the guard #53 added" "F1"
+expect_pr work 54 "re-review of #53: the classifier" ""
 expect fix "aaa" "review of #53 (deferred P3s): no PR given, the old reading stands"
 
 echo

@@ -63,8 +63,13 @@ commit_class() {
     # moved a managed project's PR from 7 work to 3, and a coordinator
     # follow-up of agent-fabric #53 the same way. Without the number the old reading
     # stands (a project forwarder that passes three arguments).
+    # Only a review-answer shape names the PR answered — "review of #53",
+    # "#947 F2", or a #N in the Answers: trailer; a bare #N in a subject is
+    # an issue or a PR named for context, and says nothing (review of #55).
     if [[ -n "$pr" ]]; then
-        local refs; refs="$(grep -oE '#[0-9]+' <<<"$subject $answers" | tr -d '#' | sort -u)"
+        local refs; refs="$( { grep -oiE '(re-)?reviews?[[:space:]]+(of|on|for)[[:space:]]+#[0-9]+' <<<"$subject"
+                               grep -oE '#[0-9]+[[:space:]]+[A-Z]{1,2}-?[0-9]+' <<<"$subject"
+                               grep -oE '#[0-9]+' <<<"$answers"; } | grep -oE '#[0-9]+' | tr -d '#' | sort -u)"
         if [[ -n "$refs" ]] && ! grep -qx "$pr" <<<"$refs"; then echo work; return 0; fi
     fi
     if [[ -n "${answers//[[:space:]]/}" ]]; then echo fix; return 0; fi
