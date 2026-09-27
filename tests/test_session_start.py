@@ -111,6 +111,27 @@ def test_hook_says_when_the_binding_drifted_from_the_launch(tmp: str) -> None:
     assert "DRIFT" not in proc.stdout, "an unlaunched session has nothing to drift from"
 
 
+def test_hook_says_when_the_working_copy_trails_its_origin(tmp: str) -> None:
+    """A working copy behind its origin's default branch (as of its last
+    fetch) is said to the session, which would otherwise take an older
+    CLAUDE.md for the project's; a current one says nothing."""
+    state = os.path.join(tmp, "state"); os.makedirs(os.path.join(state, "agents", id_un()))
+    env = {**os.environ, "AGENT_FABRIC_ROOT": ROOT, "AGENT_FABRIC_STATE_DIR": state}
+    g = lambda cwd, *a: subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false", *a],
+                                      cwd=cwd, check=True, capture_output=True)
+    origin = os.path.join(tmp, "origin.git"); g(tmp, "init", "-q", "--bare", "-b", "main", origin)
+    wc = os.path.join(tmp, "gzapp"); g(tmp, "clone", "-q", origin, wc)
+    g(wc, "commit", "-q", "--allow-empty", "-m", "base"); g(wc, "push", "-q", "origin", "HEAD:main")
+    g(wc, "remote", "set-url", "--push", "origin", origin)
+    ctx = context_of(run_hook({"cwd": wc}, env))
+    assert "lacks" not in ctx, ctx
+    other = os.path.join(tmp, "other"); g(tmp, "clone", "-q", origin, other)
+    g(other, "commit", "-q", "--allow-empty", "-m", "newer"); g(other, "push", "-q", "origin", "HEAD:main")
+    g(wc, "fetch", "-q", "origin")
+    ctx = context_of(run_hook({"cwd": wc}, env))
+    assert "this working copy (main) lacks 1 commit(s) of origin/main" in ctx, ctx
+
+
 def test_hook_from_the_parent_directory_has_no_project(tmp: str) -> None:
     state = os.path.join(tmp, "state")
     parent = os.path.join(tmp, "projects")
@@ -351,6 +372,7 @@ def main() -> int:
     cases = [test_hook_records_context_not_identity, test_hook_gives_the_project_layer_from_the_working_copy,
              test_hook_says_when_the_binding_drifted_from_the_launch,
              test_hook_from_the_parent_directory_has_no_project,
+             test_hook_says_when_the_working_copy_trails_its_origin,
              test_hook_reports_a_bad_marker_and_still_starts,
              test_hook_never_blocks, test_hook_exports_the_control_plane_into_the_session_shell,
              test_hook_says_when_the_session_has_no_inbox_watch,

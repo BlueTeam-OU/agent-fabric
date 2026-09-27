@@ -722,6 +722,25 @@ G remote set-url origin /nonexistent/origin.git
 out="$(run --print 2>&1)"; rc=$?
 [[ $rc -eq 0 ]] && grep -q "could not fetch origin/main" <<<"$out" && ok "origin unreachable: launches on what is checked out, and says so" || bad "offline refused" "$out"
 
+echo "launch: the working copy the session starts in is brought up to date, or its gap is said"
+mkfabric
+R() { git -C "$SANDBOX/repo" -c user.name=t -c user.email=t@t -c commit.gpgsign=false "$@"; }
+R symbolic-ref HEAD refs/heads/main; R commit -q --allow-empty -m base
+rm -rf "$SANDBOX/wc-origin.git" "$SANDBOX/wc-other"; git init -q --bare -b main "$SANDBOX/wc-origin.git"
+R remote add origin "$SANDBOX/wc-origin.git"; R push -q origin main 2>/dev/null
+git clone -q "$SANDBOX/wc-origin.git" "$SANDBOX/wc-other"
+wc_ahead() { git -C "$SANDBOX/wc-other" -c user.name=t -c user.email=t@t -c commit.gpgsign=false commit -q --allow-empty -m "$1"; git -C "$SANDBOX/wc-other" push -q origin main; }
+wc_ahead newer
+out="$(run --print 2>&1)"; rc=$?
+[[ $rc -eq 0 ]] && grep -q "was 1 commit(s) behind origin/main; fast-forwarded to" <<<"$out" && [[ "$(R rev-parse HEAD)" == "$(git -C "$SANDBOX/wc-other" rev-parse HEAD)" ]] && ok "on a clean main: fast-forwarded before the session loads its CLAUDE.md" || bad "working copy not brought up to date" "$out"
+wc_ahead newer2; R checkout -q -b feature
+out="$(run --print 2>&1)"; rc=$?
+[[ $rc -eq 0 ]] && grep -q "(feature) lacks 1 commit(s) of origin/main" <<<"$out" && [[ "$(R rev-parse HEAD)" != "$(git -C "$SANDBOX/wc-other" rev-parse HEAD)" ]] && ok "on another branch: the gap is said and nothing moves" || bad "a feature branch was touched or not reported" "$out"
+R checkout -q main; echo change > "$SANDBOX/repo/tracked"; R add tracked
+out="$(run --print 2>&1)"; rc=$?
+[[ $rc -eq 0 ]] && grep -q "(main) lacks 1 commit(s) of origin/main" <<<"$out" && ! R diff --cached --quiet -- tracked && ok "on a main with staged changes: the gap is said and nothing moves" || bad "a dirty main was moved or not reported" "$out"
+R reset -q --hard; R remote remove origin; rm -rf "$SANDBOX/wc-origin.git" "$SANDBOX/wc-other"
+
 echo "launch: the role rides in the system prompt file"
 mkfabric
 out="$(run --version 2>&1)"; rc=$?

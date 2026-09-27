@@ -197,6 +197,37 @@ if git -C "$FABRIC_ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1 \
     fi
 fi
 
+# ── the working copy the session starts in ──────────────────────────
+# Its CLAUDE.md and rules are binding the moment the session loads them,
+# and a clone left on a week-old main gave a session instructions its
+# project had already replaced (a retired review flow, followed live on
+# a gzapp PR). The same fetch as above, but this checkout is the
+# session's own work, never the launcher's to refuse: on the default
+# branch with nothing uncommitted it is fast-forwarded; on any other
+# branch, or with changes, it is left alone and the gap is said, here
+# and again to the session by the SessionStart hook.
+WC="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+if [[ -n "$WC" && "$(readlink -f "$WC")" != "$(readlink -f "$FABRIC_ROOT")" ]] \
+   && git -C "$WC" remote get-url origin >/dev/null 2>&1; then
+    WC_DEFAULT="$(git -C "$WC" symbolic-ref -q --short refs/remotes/origin/HEAD 2>/dev/null || echo origin/main)"
+    WC_DEFAULT="${WC_DEFAULT#origin/}"
+    if timeout 20 git -C "$WC" fetch -q origin "$WC_DEFAULT" 2>/dev/null; then
+        WC_BEHIND="$(git -C "$WC" rev-list --count "HEAD..origin/$WC_DEFAULT" 2>/dev/null || echo 0)"
+        if (( WC_BEHIND > 0 )); then
+            WC_BRANCH="$(git -C "$WC" symbolic-ref -q --short HEAD 2>/dev/null || echo '(detached)')"
+            if [[ "$WC_BRANCH" == "$WC_DEFAULT" ]] && git -C "$WC" diff --quiet 2>/dev/null \
+               && git -C "$WC" diff --cached --quiet 2>/dev/null \
+               && git -C "$WC" merge -q --ff-only "origin/$WC_DEFAULT" 2>/dev/null; then
+                echo "launch: $WC was $WC_BEHIND commit(s) behind origin/$WC_DEFAULT; fast-forwarded to $(git -C "$WC" rev-parse --short HEAD)." >&2
+            else
+                echo "launch: WARNING — $WC ($WC_BRANCH) lacks $WC_BEHIND commit(s) of origin/$WC_DEFAULT; its CLAUDE.md and rules may be older than the project's. Nothing was changed." >&2
+            fi
+        fi
+    else
+        echo "launch: could not fetch origin/$WC_DEFAULT for $WC (offline?); its CLAUDE.md is what is checked out." >&2
+    fi
+fi
+
 # ── who is launching ────────────────────────────────────────────────
 [[ -f "$IDENTITY" ]] || die "$IDENTITY is missing — is AGENT_FABRIC_ROOT right?"
 CONTEXT="$(python3 "$IDENTITY" --json --cwd "$PWD")" || die "could not resolve the agent identity."

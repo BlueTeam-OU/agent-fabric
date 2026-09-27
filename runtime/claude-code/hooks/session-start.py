@@ -34,6 +34,7 @@ import importlib.util
 import json
 import os
 import re
+import subprocess
 import sys
 
 FABRIC_ROOT = os.environ.get("AGENT_FABRIC_ROOT") or os.path.dirname(
@@ -75,6 +76,10 @@ def main() -> int:
             lines.append(f"agent-fabric: DRIFT {drift}")
         lines += project_layer(role, ctx["project"], ctx["working_copy"])
         try:
+            lines += trailing(ctx["working_copy"])
+        except Exception:  # noqa: BLE001 — a git oddity must not cost the session its project layer
+            pass
+        try:
             missing = watch_running() is False
         except Exception:  # noqa: BLE001 — a /proc oddity must not cost the session its project layer
             missing = False
@@ -90,6 +95,29 @@ def main() -> int:
         print(json.dumps({"hookSpecificOutput": {"hookEventName": "SessionStart",
                                                  "additionalContext": f"agent-fabric: session-start could not resolve this session's binding — {msg}"}}))
     return 0
+
+
+def trailing(working_copy: str | None) -> list[str]:
+    """One line when the working copy lacks commits of its origin's
+    default branch, as of its last fetch. A project's CLAUDE.md is binding
+    the moment the session loads it, and a clone left on an old main gave
+    a session rules its project had already replaced; the launcher fetches
+    and fast-forwards a clean default branch, and says the gap otherwise —
+    this says it to the session. No fetch here: a hook runs on every
+    resume and must not wait on the network."""
+    if not working_copy:
+        return []
+    git = lambda *a: subprocess.run(["git", "-C", working_copy, *a], capture_output=True, text=True, timeout=5)
+    try:
+        ref = git("symbolic-ref", "-q", "--short", "refs/remotes/origin/HEAD").stdout.strip() or "origin/main"
+        n = git("rev-list", "--count", f"HEAD..{ref}")
+        if n.returncode != 0 or not n.stdout.strip().isdigit() or int(n.stdout) == 0:
+            return []
+        branch = git("symbolic-ref", "-q", "--short", "HEAD").stdout.strip() or "(detached)"
+    except (OSError, subprocess.SubprocessError):
+        return []
+    return [f"agent-fabric: this working copy ({branch}) lacks {int(n.stdout)} commit(s) of {ref} as of its last "
+            f"fetch; its CLAUDE.md and rules may be older than the project's — bring it up to date before relying on them."]
 
 
 # The inbox watch is a Monitor the session itself arms (gzcoord-receive
