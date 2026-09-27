@@ -71,7 +71,8 @@ the talking.
    say where by reference (`../protocol/MESSAGE-FORMAT.md`, "Acknowledging
    by reference").
 
-Send no `HELLO` and no `GOODBYE`: both are deprecated (SPEC §5). Every
+Send no `HELLO` and no `GOODBYE`: both are retired (SPEC §8), and the
+validator rejects either. Every
 message you send carries your `ROLE`, which is what the person routing
 `TO-ROLE` reads; whether a session is running is presence, which the
 deployment answers — in agent-fabric, `bin/fabric-ctl <login|all>

@@ -16,7 +16,8 @@ A conforming parser:
 - rejects a `REPLY-EXPECTED` value other than `yes` or `no`;
 - rejects a metadata key that appears more than once;
 - rejects a `BROADCAST` value other than `true`;
-- rejects more than one of `TO`, `TO-ROLE` and `BROADCAST`, and any of them on `HELLO` or `GOODBYE`;
+- rejects more than one of `TO`, `TO-ROLE` and `BROADCAST`;
+- rejects a message of type `HELLO` or `GOODBYE`, naming the type as retired (§8);
 - rejects a message with no `MESSAGE-ID`;
 - MAY warn when `MESSAGE-ID` or `IN-REPLY-TO` does not have the shape the deployment mints (§7.2 keeps the identifier opaque, so this is never a rejection);
 - does not infer project authority from messages.
@@ -34,7 +35,7 @@ A conforming sender:
 A conforming runtime:
 
 - has one logical `host/instance` identity;
-- sends no HELLO or GOODBYE (deprecated, SPEC §5), and reads presence from its deployment;
+- sends no HELLO or GOODBYE (retired, SPEC §8), and reads presence — who is running — from its deployment (§5);
 - treats peer discovery as reconstructable cache;
 - keeps model and subagent policy local;
 - follows repository-local instructions before acting;
@@ -44,7 +45,7 @@ A conforming runtime:
 
 A conforming adapter:
 
-- can associate the address in a valid message's `FROM` with native sender identities (SPEC §5; HELLO is deprecated);
+- can associate the address in a valid message's `FROM` with native sender identities (SPEC §5; HELLO is retired, §8);
 - keeps native identifiers outside the core payload;
 - authenticates/allowlists through transport-native mechanisms;
 - can deliver broadcast and directed messages, or documents a bootstrap mechanism;

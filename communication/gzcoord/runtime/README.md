@@ -54,6 +54,6 @@ or without a `role`) as a warning, and one naming a role the catalogue
 does not have as an error, naming the file, because an agent
 asserting a role the deployment does not know is a state to fix;
 `identity()` takes only a role the catalogue has, and otherwise the
-login's slug, if any. (`gzmsg.mjs hello`, which announced that identity, is gone
-with the `HELLO` type it built: the type is retired, and presence
-answers who is running.)
+login's slug, if any. (The `hello` subcommand, which announced that
+identity, is gone with the `HELLO` type it built: the type is retired,
+and presence answers who is running.)

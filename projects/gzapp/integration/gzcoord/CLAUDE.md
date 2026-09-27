@@ -24,8 +24,9 @@ block and the person copies it into the receiving session's prompt
   Put the role's **slug** in `ROLE` (`identities/roles/catalog.json` —
   `backend-dev`, never `.NET backend developer`): `TO-ROLE` matches by
   equality, and one addressing field per message is the whole routing
-  rule. Send no `HELLO` or `GOODBYE` (deprecated, SPEC §5): whether an
-  agent is online is `fabric-ctl <login|all> presence`.
+  rule. Send no `HELLO` or `GOODBYE` (retired, SPEC §8; the validator
+  rejects either): whether an agent is online is presence,
+  `fabric-ctl <login|all> presence`.
 - **Do** activate what you own at session start. The relay is a
   systemd user unit on the hosting account — the fabric-coordinator's —
   up with that account's user manager; where no manager answers it is a
@@ -80,8 +81,8 @@ The protocol is the contract; the relay is only how it travels:
 
 - `communication/gzcoord/protocol/SPEC.md`, `MESSAGE-FORMAT.md`,
   `SEMANTICS.md` and `CONFORMANCE.md` are the wire contract.
-- `communication/gzcoord/scripts/gzmsg.mjs` — parser, validator, `hello`
-  generator, paste `normalize` and the `new-id` UUIDv7 minter — is
+- `communication/gzcoord/scripts/gzmsg.mjs` — parser, validator, paste
+  `normalize` and the `new-id` UUIDv7 minter — is
   tested (`node --test communication/gzcoord/tests/*.test.mjs`). What the
   validator rejects and what it merely warns about is the protocol's
   business: `protocol/SPEC.md` §18 and `CONFORMANCE.md` carry the list.

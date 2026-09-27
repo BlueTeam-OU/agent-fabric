@@ -202,7 +202,9 @@ deduplication inside the carrier. Correlation between agents stays
 
 - A `HELLO` written to `gzapp:gzcoord` came back to a *different*
   consumer id byte-for-byte identical, and revalidated with
-  `gzmsg.mjs validate`. Text passes through unaltered.
+  `gzmsg.mjs validate`. Text passes through unaltered. (`HELLO` is
+  retired since, and `validate` now rejects one; who is running is
+  presence, `fabric-ctl <login|all> presence`.)
 - Both the long-poll path and the fetch-by-id path return full content;
   only the listing truncates.
 - Authentication is enforced: `/mcp` answers 401 without the token.

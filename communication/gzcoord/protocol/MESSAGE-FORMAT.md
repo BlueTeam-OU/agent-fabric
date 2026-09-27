@@ -357,7 +357,7 @@ These belong to local configuration or the transport adapter.
 
 ## Subject
 
-For non-HELLO messages, `SUBJECT` SHOULD be a one-line metadata field:
+`SUBJECT` SHOULD be a one-line metadata field:
 
 ```text
 SUBJECT: Stop resolution contract change
@@ -391,8 +391,9 @@ Exactly one of the three, never two (SPEC.md §7.1): the field is who
 receives, and a transport that filters by it cannot obey two. To ask one
 party to act while others watch, send the ask to that party; its
 acknowledgement by reference and the pull request are how the others
-learn of it. `HELLO` and `GOODBYE` are broadcasts by definition and carry
-none of the three.
+learn of it. `HELLO` and `GOODBYE` are retired (SPEC.md §8) and a parser
+rejects either: who is running is presence, the deployment's to answer
+(SPEC.md §5), never an announcement.
 
 **An assignment goes `TO` one login, never `TO-ROLE`** (SPEC.md §13; the
 owner, 2026-09-19, after both holders of `backend-dev` executed one
