@@ -90,6 +90,16 @@ git -C "$TMP/repo" add -A
 [[ $rc -eq 0 ]] && pass "…and commits once the index is staged with it" || fail "the complete commit was refused" "$(cat "$TMP/err")"
 sed -i 's|^\*\*Pillar:\*\* P2$|**Pillar:** P2\n**Evidence:** src/a.txt|' "$TMP/repo/docs/adr/ADR-001-decision-records.md"
 [[ "$(try_commit docs/adr/DIGEST.md 'a record whose evidence lives elsewhere in the tree')" == 0 ]] && pass "Evidence anywhere in the staged tree resolves in the hook as in CI" || fail "the hook refused Evidence outside docs/adr" "$(cat "$TMP/err")"
+# A staged tree that cannot be written out stops the commit: checking what
+# did get written would pass a tree the commit does not contain. A path
+# longer than a file name may be makes checkout-index fail for real.
+# Staged by hand: try_commit's add -A would unstage a path with no file.
+printf 'more\n' >> "$TMP/repo/docs/adr/DIGEST.md"; git -C "$TMP/repo" add docs/adr/DIGEST.md
+long_blob="$(printf 'x\n' | git -C "$TMP/repo" hash-object -w --stdin)"
+git -C "$TMP/repo" update-index --add --cacheinfo "100644,$long_blob,src/$(printf 'n%.0s' {1..300})"
+( cd "$TMP/repo" && AGENT_FABRIC_STATE_DIR="$TMP/state" git commit -q -m "a staged tree that cannot be materialized" >/dev/null 2>"$TMP/err" ); rc=$?
+[[ $rc -eq 1 ]] && grep -q "cannot materialize the staged tree" "$TMP/err" && pass "a staged tree that cannot be written out stops the commit" || fail "the hook checked a partial tree" "$(cat "$TMP/err")"
+git -C "$TMP/repo" reset -q --hard
 
 
 echo "the one carve-out: a locale's translations, by the holder of the role named for the suffix"
