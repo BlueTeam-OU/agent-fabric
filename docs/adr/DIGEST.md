@@ -12,6 +12,7 @@ searches it.
 | writing per-agent state; binding.json; rename a working copy | ADR-003 |
 | adding a role or a project; the order of the commits | ADR-004 |
 | which model a class runs on; review-grade; shims; fabric-model | ADR-005 |
+| how hard a class thinks; effort levels; CLAUDE_CODE_EFFORT_LEVEL | ADR-006 |
 
 ### ADR-000 — The enduring organization (Accepted)
 
@@ -103,3 +104,19 @@ searches it.
   for low and medium (the owner, 2026-09-19) (§2).
 - Keywords: model, routing, capability class, alias, provider, OpenRouter,
   broker, review-grade, shim, preset, Opus 5.5, DeepSeek, GLM, profile.
+
+### ADR-006 — Effort is routed (Accepted)
+
+- Each class's reasoning effort is routed beside its model, in
+  `routing/effort.json`, one seven-level ordinal vocabulary (§2, §5 rule 1).
+- The fabric clamps a level to what the model admits before the request
+  leaves; a lost level is a committed override with a note, or
+  `routing.py check` fails (§5 rules 2–3).
+- A class's level reaches its subagent via the agent file's `effort:`
+  line; the session's via `--effort`, stamped (§5 rules 4–5).
+- `CLAUDE_CODE_EFFORT_LEVEL` is refused in any value; committed settings
+  carry no effort keys; never set per dispatch (§5 rules 6–7).
+- Today every class and session asks `medium` (the owner, 2026-09-25);
+  broker `code-low` is committed at `low` (§2).
+- Keywords: effort, reasoning, thinking, level, clamp, medium, high,
+  --effort, agent file, CLAUDE_EFFORT, Opus 5.5 default.
