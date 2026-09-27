@@ -70,6 +70,14 @@ bind fabric-coordinator
 [[ "$(try_commit src/a.txt 'code')" == 0 ]] && pass "fabric-coordinator bound: allowed" || fail "coordinator refused in fabric" "$(cat "$TMP/err")"
 git -C "$TMP/repo" log -1 --format=%B | grep -q '^Fabric-Role: fabric-coordinator$' && pass "…and every fabric commit declares the role" || fail "no trailer on a fabric commit"
 
+echo "in agent-fabric itself, a commit touching docs/adr/ leaves the decision records consistent"
+mkdir -p "$TMP/repo/tools/fabric" "$TMP/repo/docs" "$TMP/repo/projects"
+cp "$HOOKS/../../tools/fabric/adr.py" "$TMP/repo/tools/fabric/"; cp -r "$HOOKS/../../docs/adr" "$TMP/repo/docs/"; cp "$HOOKS/../../projects/registry.json" "$TMP/repo/projects/"
+git -C "$TMP/repo" add -A; git -C "$TMP/repo" -c core.hooksPath=/dev/null commit -qm "records in place"
+[[ "$(try_commit docs/adr/DIGEST.md 'a note in the digest')" == 0 ]] && pass "a consistent change to docs/adr/ commits" || fail "a consistent records change was refused" "$(cat "$TMP/err")"
+[[ "$(try_commit docs/adr/index.json 'hand-edit the generated index')" == 1 ]] && grep -q "index.json: stale" "$TMP/err" && pass "a hand-edited generated index: refused, naming it" || fail "an inconsistent index was committed" "$(cat "$TMP/err")"
+git -C "$TMP/repo" reset -q --hard
+
 echo "the one carve-out: a locale's translations, by the holder of the role named for the suffix"
 SUFFIX="${LOGIN##*-}"; LOC="identities/roles/language-culture/locale/$SUFFIX"
 bind language-culture; mkdir -p "$TMP/repo/$LOC" "$TMP/repo/identities/roles/language-culture/locale/zz"

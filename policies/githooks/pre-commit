@@ -19,6 +19,19 @@
 set -uo pipefail
 FABRIC_ROOT="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../.." && pwd)"
 
+# The decision records keep their own books (agent-fabric ADR-001): in
+# agent-fabric itself, a commit that stages anything under docs/adr/ must
+# leave them consistent — the index generated, amendments reconciled, the
+# DIGEST in step. This hook also runs in every managed project, whose own
+# docs/adr/ (if any) is that project's and is not checked here.
+if [[ "$(git rev-parse --show-toplevel 2>/dev/null)" == "$FABRIC_ROOT" ]] \
+   && git diff --cached --name-only | grep -q '^docs/adr/'; then
+    if ! adr_out="$(python3 "$FABRIC_ROOT/tools/fabric/adr.py" --root "$FABRIC_ROOT" check 2>&1)"; then
+        printf 'pre-commit: the decision records are not consistent — not committed:\n%s\n' "$adr_out" >&2
+        exit 1
+    fi
+fi
+
 # In agent-fabric ITSELF every commit is the coordinator's: the repository
 # is read-only for every other role (CLAUDE.md, policies/AUTHORITY.md). In
 # a managed project only .agent-fabric/ is. A merge that only folds a
