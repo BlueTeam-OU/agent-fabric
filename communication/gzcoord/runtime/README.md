@@ -43,13 +43,17 @@ through `whoami()`; `role.name`/`specialties`/`capabilities` in local
 config follow the same source and are never authored independently of
 it. `scripts/gzmsg.mjs` loads the catalogue from agent-fabric (or a
 legacy `.roles/taxonomy.json` found by walking up from the working
-directory) and enforces both slug rules; `hello` derives `--from`,
-`--project` and `--role` when they are omitted — the address from the
-login and host, the project from the binding, the role from the binding,
-else from a slug the login carries — so the one spelling a peer can
-match is the default, and it warns when an address names a role other
-than the one announced. A binding that says nothing usable (unreadable,
-or without a `role`) warns and falls back; a binding naming a role the
-catalogue does not have is refused outright, naming the file and asking
-for an explicit `--role`, because an agent asserting a role the
-deployment does not know is a state to fix, not to guess past.
+directory) and enforces both slug rules, warning when an address names
+a role other than the message's `ROLE`. A session's own identity
+(`scripts/inbox.mjs` `identity()`, which the control plane's presence
+also reads) derives the address from the login and host, the project
+from the binding, and the role from the binding, else from a slug the
+login carries — so the one spelling a peer can match is the default.
+`recordedRole()` reports a binding that says nothing usable (unreadable,
+or without a `role`) as a warning, and one naming a role the catalogue
+does not have as an error, naming the file, because an agent
+asserting a role the deployment does not know is a state to fix;
+`identity()` takes only a role the catalogue has, and otherwise the
+login's slug, if any. (`gzmsg.mjs hello`, which announced that identity, is gone
+with the `HELLO` type it built: the type is retired, and presence
+answers who is running.)

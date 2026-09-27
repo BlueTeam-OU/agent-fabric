@@ -24,7 +24,8 @@ export const OPS = ['ping', 'identity', 'usage', 'keys', 'fabric', 'session', 's
 // Answered for any placed account, not only an operator: whether a session
 // is running is what every sender needs before it writes to one, and it
 // names nothing a relay reader could not already infer (the owner,
-// 2026-09-25: presence moves from HELLO/GOODBYE to the control plane).
+// 2026-09-25: presence moves from HELLO/GOODBYE, now retired, to the
+// control plane).
 export const PUBLIC_OPS = ['presence'];
 export const KEY_NAMES = ['OPENROUTER_API_KEY', 'OPENAI_API_KEY', 'GH_TOKEN', 'CLAUDE_BRIDGE_AUTH_TOKEN', 'SERPAPI_API_KEY', 'BRAVE_SEARCH_API_KEY', 'CLAUDE_CODE_OAUTH_TOKEN'];
 export const USAGE_URL = 'https://api.anthropic.com/api/oauth/usage';
@@ -220,7 +221,8 @@ export function session(uid = process.getuid(), exec = execFileSync) {
 
 // Presence: whether this account has a session, from the process table,
 // so a crash or a launch that never reached the harness is never
-// "present" — the two cases a HELLO/GOODBYE pair got wrong on 2026-09-25.
+// "present" — the two cases the retired HELLO/GOODBYE pair got wrong on
+// 2026-09-25.
 // The daemon's own children (the observer's /usage runs) are not a
 // session. The role is derived exactly as the inbox's delivery derives it
 // (inbox.mjs identity(): the binding's role, else the slug the login

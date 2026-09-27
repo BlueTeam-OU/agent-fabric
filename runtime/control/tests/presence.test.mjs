@@ -28,7 +28,7 @@ test('TO-ROLE: reached when any holder runs; otherwise its holders, and the sile
   assert.deepEqual([nobody.kind, nobody.holders], ['no-holder', []], 'a role no account holds');
 });
 
-test('a broadcast, or a message with no addressing field (HELLO, GOODBYE), is not checked', async () => {
+test('a broadcast, or a message with no addressing field, is not checked', async () => {
   const ask = () => assert.fail('nothing to ask');
   assert.deepEqual(await checkAddressees({ BROADCAST: 'true' }, { from: 'h/user', token: 't', placed, ask }), { checked: false });
   assert.deepEqual(await checkAddressees({}, { from: 'h/user', token: 't', placed, ask }), { checked: false });

@@ -7,7 +7,7 @@
 //
 // The answer is the process table, not a claim a session made about
 // itself: a crash, or a launch that never reached the harness, is never
-// "present" — what the HELLO/GOODBYE pair got wrong.
+// "present" — what the HELLO/GOODBYE pair, now retired, got wrong.
 
 import { api } from '../../communication/gzcoord/scripts/inbox.mjs';
 import { controlConfig, newId } from './agentd.mjs';
@@ -46,8 +46,8 @@ export async function askPresence({ from, to, expect, token, waitMs = PRESENCE_W
 // Who a message is for, and which of them has no session now. TO: that
 // one address. TO-ROLE: every placed account whose binding holds the role
 // — reached if ANY of them is running, since the role is addressed, not
-// an instance. BROADCAST (and HELLO/GOODBYE): no check; everyone is not
-// a set that can be offline.
+// an instance. BROADCAST, or no addressing field at all: no check;
+// everyone is not a set that can be offline.
 // `placed` is every <host>/<login> placement, the only accounts that hold
 // roles; `operators` may be addressed by TO as well (a second host's
 // operator need not be placed), and a TO-ROLE never waits on them.
