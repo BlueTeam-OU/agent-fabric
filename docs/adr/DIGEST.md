@@ -34,6 +34,7 @@ searches it.
 | branches with no PR; what shares my paths; do two branches combine | ADR-025 |
 | measuring progress; supervision; verified result (proposed) | ADR-026 |
 | the language-culture role; the locale worker; the prompt in the locale; locale search | ADR-027 |
+| dictionaries; the i18n standard; the inbox in the reader's language; GZCOORD_DEFAULT_LOCALE_ONLY | ADR-028 |
 
 ### ADR-000 — The enduring organization (Accepted)
 
@@ -515,3 +516,25 @@ searches it.
   locale-worker, worker, Georgian, Russian, ka-GE, ru-RU, harness.md,
   system-prompt-file, notes, script, needs_rendering, web search, SerpAPI,
   Brave, carve-out.
+
+### ADR-028 — The house i18n standard; GZCoord speaks the reader's language (Accepted)
+
+- A fabric dictionary is the house standard: one flat JSON per locale
+  named by its BCP-47 tag, dotted-slug keys, non-empty values, `{name}`,
+  `en-US` mandatory; the managed projects are read before any new format
+  (§2, §5 rule 1).
+- An active locale's dictionary lives in its locale directory, where its
+  holder commits it; lint refuses one that is incomplete, loses an
+  identifier, or is not in the locale (§5 rules 2–3).
+- Every line the GZCoord tools print around a message — the validator's
+  diagnostics included — is in the reader's language; the message, its
+  metadata keys and type names never are (§5 rule 4).
+- The login's suffix and bound role find the dictionary, `locale.json`
+  its tag; a missing key or unreadable file falls back to `en-US` — a
+  key-level fallback the house standard forbids its clients, kept for the
+  session start and named (§4, §5 rule 5).
+- `GZCOORD_DEFAULT_LOCALE_ONLY=1` pins English for suites; a new key
+  reaches every active locale in the same change (§5 rules 7–8).
+- Keywords: i18n, dictionary, locale, BCP-47, en-US, ru-RU, ka-GE,
+  translation, inbox, validator, fallback, i18n.mjs, house standard,
+  GZCOORD_DEFAULT_LOCALE_ONLY, reminder.

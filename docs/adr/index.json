@@ -252,6 +252,15 @@
       "date": "2026-09-17",
       "pillar": "P4",
       "amendments": 0
+    },
+    {
+      "number": "028",
+      "file": "ADR-028-house-i18n-standard-gzcoord-speaks-the-readers-language.md",
+      "title": "The house i18n standard; GZCoord speaks the reader's language",
+      "status": "Accepted",
+      "date": "2026-09-21",
+      "pillar": "P4",
+      "amendments": 0
     }
   ]
 }

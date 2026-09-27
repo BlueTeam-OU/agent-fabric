@@ -77,7 +77,7 @@ fabric installs it, measures it and drains through it:
 What reaches the fleet — a message, a commit, a slice, a report — is the
 English rendering. What the GZCoord tools print *around* a message on a
 holder's login is in the holder's language; that decision, and the shape
-of the dictionaries, is its own record.
+of the dictionaries, is ADR-028.
 
 ## 3. Alternatives Considered
 

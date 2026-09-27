@@ -32,7 +32,11 @@
 // prompt — by the LOGIN's suffix (language-culture-ge -> ge) under the
 // role the session is bound to — and the suffix names its tag in that
 // locale's locale.json. Absent, unreadable or incomplete: the default
-// locale, which is ADR-024's own last fallback step, never invented text.
+// locale, never invented text. For a missing key that is a key-level
+// fallback, which gzapp's ADR-024 does not allow its clients; the fabric
+// keeps it because a session start never fails on a translation, and
+// lint keeps an incomplete dictionary from landing (agent-fabric
+// docs/adr/ADR-028-house-i18n-standard-gzcoord-speaks-the-readers-language.md §4).
 //
 // What is NOT in the dictionary, deliberately: the message body, the
 // metadata keys (FROM, TO, TO-ROLE, MESSAGE-ID), the type names and
@@ -170,7 +174,8 @@ export function dictionaryPath(me, root = FABRIC_ROOT, env = process.env) {
  *  locale's own values over it. Completeness is enforced where it can be
  *  fixed — tools/fabric/lint.py, before the file lands — so a key missing
  *  HERE falls back rather than failing a session start; nothing is ever
- *  invented (ADR-024 §2.5: a client MUST NOT fabricate fallback text). */
+ *  invented (gzapp's ADR-024 §2.5: a client MUST NOT fabricate fallback
+ *  text). */
 export function dictionary(me, { root = FABRIC_ROOT, file = DEFAULT_PATH, env = process.env } = {}) {
   const base = defaultDictionaryOrEmpty(file);
   const p = dictionaryPath(me, root, env);
