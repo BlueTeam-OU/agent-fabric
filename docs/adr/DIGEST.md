@@ -32,6 +32,7 @@ searches it.
 | TO-ROLE; who gets a REQUEST; two holders of one role; claiming an assignment | ADR-023 |
 | a message is advisory; working on a request together; OWNER-WORD | ADR-024 |
 | branches with no PR; what shares my paths; do two branches combine | ADR-025 |
+| measuring progress; supervision; verified result (proposed) | ADR-026 |
 
 ### ADR-000 — The enduring organization (Accepted)
 
@@ -464,3 +465,20 @@ searches it.
   unavailable (§5 rule 7).
 - Keywords: in flight, branch, no PR, overlap, shared paths, trial merge,
   combine, conflict, worktree, trial-check, dependency.
+
+### ADR-026 — Progress is measured as supervision per verified result (Proposed)
+
+- Proposed, not binding: P3's progress read as owner supervision events
+  per verified result, as a trend beside the verified-result rate, never
+  a target (§2, §5 rules 1, 4).
+- A verified result: a merged PR, reviewed and green at its head, not
+  reverted or fixed within a window (fourteen days proposed) (§2).
+- A supervision event: an `OWNER-WORD`, an arming only the owner could
+  make, an owner's correction recorded in a commit or PR, a drain
+  collision the owner decided; direction-setting and machine checks are
+  not (§2).
+- Read only from artifacts — never message bodies beyond the
+  `OWNER-WORD` marker, transcripts or memory (§5 rule 3). No counter
+  exists (§6). Waits on the owner's acceptance (§8).
+- Keywords: progress, supervision, verified result, measure, metric,
+  owner, OWNER-WORD, autonomy, mandate, proposed.

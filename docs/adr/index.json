@@ -234,6 +234,15 @@
       "date": "2026-09-26",
       "pillar": "P3",
       "amendments": 0
+    },
+    {
+      "number": "026",
+      "file": "ADR-026-supervision-per-verified-result.md",
+      "title": "Progress is measured as supervision per verified result",
+      "status": "Proposed",
+      "date": "2026-09-27",
+      "pillar": "P3",
+      "amendments": 0
     }
   ]
 }
