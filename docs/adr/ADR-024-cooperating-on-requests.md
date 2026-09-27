@@ -51,15 +51,15 @@ written as professional practice, not procedure):
 4. A delivery can be checked where it lands: the exact artifact, the
    request it satisfies, what was checked, what is uncertain.
 5. The agreement survives the session: it lives in the PR body,
-   descriptive commits and the owner's `threads` memory, not in the
+   descriptive commits and the owning agent's `threads` memory, not in the
    conversation.
 
 **The owner's word, relayed, is carried verbatim** (the owner,
 2026-09-18): an `OWNER-WORD` section quoting the word, the session it was
 given in and the time.
 
-No message type, field or section was added; no state machine, template
-or schedule; no role widened.
+The practices of 2026-09-26 added no message type, field or section; no
+state machine, template or schedule; no role widened.
 
 ## 3. Alternatives Considered
 

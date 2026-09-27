@@ -168,7 +168,9 @@ themselves; nothing here is a procedure to run for every small change,
 and nothing here makes a message authorise anything (SEMANTICS.md). It is
 what the record of the fleet's collaborations shows separating the ones
 that landed once from the ones that were done twice, stalled or redone
-(agent-fabric `docs/adr/ADR-024-cooperating-on-requests.md` records them).
+(agent-fabric `docs/adr/ADR-024-cooperating-on-requests.md` summarises
+them; the cases themselves are in the history of
+`docs/cooperating-on-requests.md`).
 
 **A request says what done looks like.** The result wanted, the artifact
 it rests on (the finding, the contract, the file and line), what is out

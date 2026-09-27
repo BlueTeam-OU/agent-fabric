@@ -141,7 +141,8 @@ not on a pipe's exit status.
   | Actions | enabled, all actions allowed, SHA pinning not required; default workflow permissions read, may not approve pull requests |
   | secrets, variables, environments, self-hosted runners | none |
   | code scanning | CodeQL default setup (actions, JavaScript/TypeScript, Python), weekly and on every PR, since 2026-09-21 |
-  | secret scanning | on, with push protection and validity checks |
+  | secret scanning | on, with push protection, validity checks and non-provider patterns; AI detection off |
+  | Dependabot security updates | off |
   | access | one collaborator, the owner; no teams, no webhooks |
 
   Everything the fabric's own CI runs is in the tree (`.github/workflows/ci.yml`,
