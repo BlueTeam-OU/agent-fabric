@@ -114,8 +114,8 @@ something asked once, when it matters.
 - Presence is only as available as the control plane: with the relay or
   the control agents down, a send says "unknown" and refuses without
   `--force`.
-- The watches are quieter: on 2026-09-25 the announcements were most of
-  what every watch printed.
+- The watches are quieter: the announcements had been most of what every
+  watch printed.
 
 ## 7. Future Evolution
 
@@ -125,8 +125,8 @@ accepts them at no cost.
 
 ## 8. Decision Status
 
-Accepted since 2026-09-25: the launcher, `fabric-role`, the inbox,
-`send.mjs` and SPEC §5 carry it.
+Accepted: the launcher, `fabric-role`, the inbox, `send.mjs` and SPEC §5
+carry it.
 
 ## References
 

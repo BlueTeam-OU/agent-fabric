@@ -189,8 +189,8 @@ proof.
 
 ## 8. Decision Status
 
-Accepted. The control agent, the channel and the read ops since
-2026-09-17; signed actions since 2026-09-24.
+Accepted. The control agent, the channel, the read ops and the signed
+actions are in use on every placed account.
 
 ## References
 

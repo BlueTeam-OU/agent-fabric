@@ -170,9 +170,8 @@ need a digest per value, as the prompt translations carry per file.
 
 ## 8. Decision Status
 
-Accepted. The standard for the fabric's dictionaries and the GZCoord
-tools' lines in the reader's language since 2026-09-21, when `ru`
-became the first active locale.
+Accepted. The fabric's dictionaries follow the standard, and the GZCoord
+tools print the reader's language; `ru` is the one active locale.
 
 ## References
 

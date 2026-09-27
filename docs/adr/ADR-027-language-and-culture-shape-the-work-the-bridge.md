@@ -91,16 +91,17 @@ of the dictionaries, is ADR-028.
 - **A role per country.** Rejected: the culture knowledge is the role's,
   in one domain slice per culture that every holder reads; a request
   names the locale it is about.
-- **A worker with no tools.** Not possible on this harness: read back on
-  2026-09-17, an empty `tools:` line inherits every tool, and a list that
+- **A worker with no tools.** Not possible on this harness: read back
+  (`docs/live-checks/2026-09-17-language-culture-bridge.md`), an empty
+  `tools:` line inherits every tool, and a list that
   resolves to none is refused at spawn. One inert tool (`TaskStop`) is
   the nearest to none.
 - **Prepending the charter to the harness's English.** The harness has no
   prepend; `--system-prompt-file` replaces the default text, so "the
   charter before the harness text" is one file the fabric assembles in
   that order.
-- **Google's own search API for the locale.** Closed to new customers
-  (read 2026-09-17), and a plain fetch of Google's results page answers an
+- **Google's own search API for the locale.** Closed to new customers,
+  and a plain fetch of Google's results page answers an
   empty JavaScript shell. A results proxy (SerpAPI) reaches Google's
   index; Brave is kept as a second index. Brave alone has no Georgian
   locale (each parameter refused with HTTP 422), so for `ge` it runs as a
@@ -208,7 +209,7 @@ re-captured, and a holder who writes every answer twice.
 
 - **What stays English, named.** In the worker: the harness's base
   prompt and its hand-back reminder. In the holder's session under the
-  replaced prompt (read back 2026-09-18): the project layer from the
+  replaced prompt, as its first session read it back: the project layer from the
   session-start hook (the remit `.agent-fabric/roles/<role>.md` and the
   `INDEX.md` pointer), the `CLAUDE.md` files, the harness's Environment
   block and attribution reminder, the tool, agent and skill listings and
@@ -216,10 +217,11 @@ re-captured, and a holder who writes every answer twice.
   descriptions are in the locale — and the messages the inbox carries,
   which are the wire. Of these only the remit is the role's own prompt
   layer with no locale copy.
-- **Tokens, measured.** One-turn calls on 2026-09-18 as the `ge` holder:
+- **Tokens, measured.** One-turn calls as the `ge` holder
+  (`docs/live-checks/2026-09-18-language-culture-prompt-replacement.md`):
   the default English prompt 26 180 input tokens; the older flow (English
   harness text, Georgian charter appended) 38 438; the whole prompt
-  replaced in Georgian 31 935. The per-body estimate of 2026-09-17 (a
+  replaced in Georgian 31 935. The earlier per-body estimate (a
   Georgian body 2.9× its English tokens) overstated the total, because
   the harness's own additions dominate both flows.
 - **The harness text is a moving source.** It changes with the CLI build;
@@ -246,12 +248,12 @@ re-captured, and a holder who writes every answer twice.
   before a surface is built, and how that is recorded, is open.
 - A live read-back of an interactive relaunch under the replaced prompt
   — the worker dispatched, a skill invoked, the `script` op after it —
-  was asked of the holder on 2026-09-18 and is not recorded.
+  was asked of the holder and is not recorded.
 
 ## 8. Decision Status
 
-Accepted. The widened role, the bridge, the worker and the locale search
-since 2026-09-17; the whole prompt in the locale since 2026-09-18.
+Accepted. The widened role, the bridge, the worker, the locale search and
+the whole prompt in the locale are in use.
 
 ## References
 
