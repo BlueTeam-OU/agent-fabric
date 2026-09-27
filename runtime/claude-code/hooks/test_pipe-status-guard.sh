@@ -40,7 +40,13 @@ for c in 'python3 tests/test_adr.py | tail -1 && git commit -q -m x' \
          'check | grep -q ok >/dev/null 2>&1 && git push' \
          'check | tail -1 &> log && git commit' \
          'check | tail -1 && git --no-pager commit -m x' \
-         'check 2>&1 | tail -1 && git -c core.hooksPath=x commit -m x'; do
+         'check 2>&1 | tail -1 && git -c core.hooksPath=x commit -m x' \
+         'check | tail -1 >& log && git commit -m x' \
+         'check | tail -1 >&log && git commit -m x' \
+         'check | tail -1 2>& 1 && git push' \
+         'check | tail -1 <&0 && git commit -m x' \
+         'echo "note: set -o pipefail"; false | tail -1 && git commit -m x' \
+         'check | tail -1 && git -C "my dir" commit -m x'; do
   expect "refused: $c" deny "$c"
 done
 
