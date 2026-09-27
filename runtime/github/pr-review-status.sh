@@ -208,7 +208,7 @@ REVIEW_MARKER='<!-- agent-fabric-review v1 -->'
 # AGENT_FABRIC_LEGACY_REVIEW_MARKERS, one per line. The project's name
 # never appears here — the fabric's lint refuses it in a generic file.
 # The built-in one goes when no open PR anywhere carries a review posted
-# before 2026-09-20 (docs/2026-09-20-the-review-class-is-the-review.md).
+# before 2026-09-20 (docs/adr/ADR-020-the-review-class-is-the-review.md §5 rule 8).
 LEGACY_MARKERS="$(printf '%s\n%s' '<!-- agent-fabric-substitute-review v1 -->' "${AGENT_FABRIC_LEGACY_REVIEW_MARKERS:-}")"
 
 # AN AUTOMATED REVIEWER, if a project runs one — none by default.

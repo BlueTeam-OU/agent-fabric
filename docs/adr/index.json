@@ -180,6 +180,15 @@
       "date": "2026-09-18",
       "pillar": "P3",
       "amendments": 0
+    },
+    {
+      "number": "020",
+      "file": "ADR-020-the-review-class-is-the-review.md",
+      "title": "The review class is the review",
+      "status": "Accepted",
+      "date": "2026-09-20",
+      "pillar": "P3",
+      "amendments": 0
     }
   ]
 }

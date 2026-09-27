@@ -26,6 +26,7 @@ searches it.
 | live checks; read-back; evidence; a prompt change before pushing | ADR-017 |
 | who may commit here; Fabric-Role; the hooks; the locale carve-out; what a guard is | ADR-018 |
 | opening, counting and arming a PR; pr-gate; Co-authored-by; GitHub settings | ADR-019 |
+| the blind review; code-review dispatch; post-review; what counts as coverage | ADR-020 |
 
 ### ADR-000 — The enduring organization (Accepted)
 
@@ -359,3 +360,21 @@ searches it.
 - Keywords: pull request, PR, arm, merge, band, work commits, Answers,
   pr-gate, MERGEABLE, one open PR, attribution, Co-authored-by, CodeQL,
   repository settings, auto-merge.
+
+### ADR-020 — The review class is the review (Accepted)
+
+- The review class's blind review is the review of every PR: on every
+  head, to judge a finding, to re-review a fix range; no automated
+  reviewer is assumed (the owner, 2026-09-20) (§2, §5 rule 1).
+- Dispatch: `code-review`, `model: fable`, description "review…" or
+  "re-review…", no isolation; the guard drops the alias so the agent
+  file's routed model decides, within `review-grade.json` (§5 rules 2–3).
+- The reviewer writes nothing (`review-bash-guard.sh`); its brief is
+  facts from `fabric-review brief`, never conclusions (§5 rules 4–5).
+- Posted by `post-review.sh` with the marker; counted only when marked
+  and posted by the PR's account or a named poster, or unmarked from a
+  trusted account (§5 rules 6–7). Legacy markers until the sunset (§5
+  rule 8).
+- Keywords: review, blind review, code-review, re-review, brief,
+  fabric-review, post-review, pr-review-status, marker, coverage,
+  review-grade, substitute.
