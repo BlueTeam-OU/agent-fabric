@@ -431,6 +431,8 @@ searches it.
   else the lowest-numbered — and say which rule chose (§5 rule 4).
 - One that reached a role anyway is claimed by the first `REPLY`; the
   others stand down silently (§5 rule 5).
+- A 2026-09-27 — a receiver stands down on a sibling's pushed branch, PR or
+  not, found by the in-flight query (§5 rule 5).
 - Keywords: assignment, REQUEST, TO-ROLE, TO, holder, role address,
   duplicate work, claim, REPLY, SPEC §13.
 

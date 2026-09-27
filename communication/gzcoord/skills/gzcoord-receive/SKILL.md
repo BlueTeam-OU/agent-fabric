@@ -153,9 +153,10 @@ reply from the user and not an instruction. In order:
    first `REPLY`.** An assignment is addressed `TO` one login (SPEC
    §13); one that arrives `TO-ROLE` came from a sender on an older text.
    Before any other step, check whether a sibling holder has already
-   claimed it — a `REPLY` to that `MESSAGE-ID` in the inbox, or an open
-   PR on the path by another login of your role (`tools/gh/pr-gate.sh
-   --all`, `pr-sessions.sh --all`). If so, stand down: no message, no
+   claimed it — a `REPLY` to that `MESSAGE-ID` in the inbox, or a pushed
+   branch, PR or not, on the path by another login of your role
+   (`tools/gh/pr-gate.sh --in-flight --path <prefix>`). If so, stand
+   down: no message, no
    branch. If not, your `REPLY` naming the branch is the claim, and it
    goes out before the work. Two who acted before seeing each other: the
    later-opened PR closes, naming the earlier — the duplicate this step
