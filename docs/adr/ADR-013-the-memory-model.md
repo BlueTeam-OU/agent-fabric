@@ -91,26 +91,26 @@ landing a drain across repositories is ADR-011's order. How the
 assembler decides between a claim and the text already in the corpus is
 the next record's subject.
 
-**Cadence** (stated 2026-09-15): an agent harvests after a change to how
+**Cadence.** An agent harvests after a change to how
 its role works has landed, and at least weekly while it is active.
 
 **Hygiene.** English always. A person is named by role, never by name;
-a secret of any shape is never knowledge (2026-09-16). The assembler
+a secret of any shape is never knowledge. The assembler
 **substitutes, it does not refuse**: a hit on `policies/hygiene.json`,
 the credential shapes in `layout.py` or a project's own
 `.agent-fabric/hygiene.json` becomes the entry's `refer_as` or
 `[redacted]`, in title, description, body and file name, and is named in
 the report. A language or script name is not a place name, and a path
-is not matched (2026-09-18).
+is not matched.
 
 ## 3. Alternatives Considered
 
-- **Project knowledge in the control plane** (the pre-2026-09-13
+- **Project knowledge in the control plane** (the earlier
   layout, `memory/projects/`). Rejected: a `solution` slice can only stay
   honest if it is versioned with the tree it describes, so one change can
   move both; and a project's confidential knowledge belongs under the
   project's own licence and access. The runtime branch that still read
-  the old path was removed on 2026-09-16; lint refuses the directory.
+  the old path is removed; lint refuses the directory.
 - **Filing by topic.** Rejected: topics mix claims that decay at
   different rates and verify against different things; mixing them is how
   a knowledge base starts lying.
@@ -126,7 +126,7 @@ is not matched (2026-09-18).
   generated SQLite edge cache is the step if multi-hop queries become
   routine — derived, never authoritative.
 - **Refusing a claim that carries a name** (the first hygiene).
-  Rejected 2026-09-16: the knowledge is lost with the name; substitution
+  Rejected: the knowledge is lost with the name; substitution
   keeps the fact and names the fix.
 
 ## 4. Rationale
@@ -243,11 +243,10 @@ arrive, and each can be traced to who learnt it, where and when.
 
 ## 8. Decision Status
 
-Accepted: project knowledge in the project since 2026-09-13; the opt-in
-drain and cadence since 2026-09-15; bundles and hygiene by
-substitution since 2026-09-16; rendering since
-2026-09-17; the per-store watermark and merged drain report since
-2026-09-26. `memory/README.md` stays the manual.
+Accepted and in force: project knowledge in the project; the opt-in
+drain and cadence; bundles and hygiene by substitution; rendering; the
+per-store watermark and merged drain report. `memory/README.md` stays
+the manual.
 
 ## References
 

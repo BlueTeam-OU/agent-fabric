@@ -110,7 +110,7 @@ None stated. A new per-agent file is the case that exercises rule 1.
 
 ## 8. Decision Status
 
-Accepted and in force since 2026-09-16.
+Accepted and in force.
 
 ## References
 

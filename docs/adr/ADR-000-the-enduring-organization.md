@@ -227,8 +227,9 @@ confidential information.
 windows, prompt and context budgets, a host's disk and memory, and the
 owner's attention. Shared host resources are leased (ADR-010); a test run
 leaves nothing behind; launch prompts have a ceiling and prompt
-templates a token budget; the disk incidents of 2026-09-19 and 2026-09-25
-are why.
+templates a token budget; the disk incidents
+(`docs/live-checks/2026-09-19-develop-qzapp-crash.md`,
+`docs/live-checks/2026-09-25-develop-qzapp-crash.md`) are why.
 
 **Direction.** A cost per verified result is measured beside the
 supervision per verified result. Growth is judged by capability
@@ -256,7 +257,7 @@ sustainable operation.
 ## 8. Decision Status
 
 Accepted: the owner armed the pull request that introduces it (agent-fabric
-#50, "merge 50", 2026-09-27) after being told that arming ratifies this
+#50, "merge 50") after being told that arming ratifies this
 record, its then-marked proposals included.
 
 Whose words these are. The purpose, the principle, and pillars P1–P6
@@ -264,7 +265,7 @@ with their directions are the owner's statement, paraphrased (the source
 is kept verbatim, References). Pillar P7, five paragraphs and four
 sentences that began as the coordinator's proposals, the alternatives of
 §3 and the structural rules 2–4 of §5 were drafted by the coordinator;
-the owner adopted the proposals into the vision on 2026-09-27
+the owner adopted the proposals into the vision
 (Amendments), so the body no longer marks them. The **Today** paragraphs
 are the coordinator's account of what the tree holds, checkable against
 it.

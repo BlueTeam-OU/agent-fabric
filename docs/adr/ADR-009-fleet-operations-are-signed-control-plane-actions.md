@@ -42,7 +42,7 @@ needs no per-host loop and answers in real time.
   account to the Claude Code version pinned in
   `runtime/claude-code/harness.json`, stopping a running session
   gracefully and resuming it on the new version.
-- `fabric-ctl <login|all> upgrade fabric` (PR #47, 2026-09-26) is
+- `fabric-ctl <login|all> upgrade fabric` (PR #47) is
   **distribution after every merge, and the coordinator's duty**: every
   account's `~/projects/agent-fabric` fast-forwarded to `origin/main` and
   bootstrapped.
@@ -62,7 +62,7 @@ needs no per-host loop and answers in real time.
 - **Unsigned actions over the relay.** Rejected: the relay verifies no
   sender, so any relay-token holder could claim the operator's address —
   tolerable for reports, not for an op that stops a session and installs.
-- **A broadcast and the launcher's own pull.** Rejected (2026-09-23): the
+- **A broadcast and the launcher's own pull.** Rejected: the
   launcher pulls but never bootstraps, and a branch checkout refuses.
 - **A broad allow rule, or a path through `$AGENT_FABRIC_ROOT`.** Rejected:
   a shell expansion always asks, and in auto mode a broad rule is set aside
@@ -86,7 +86,8 @@ revertable one-line change.
 3. `upgrade claude`: the version is the coordinator's (its pin or
    `--version`) in the signed request; at that version nothing moves.
    Installs queue on the host lease `claude-install` **before** anything is
-   stopped (thirteen at once failed nine times, 2026-09-25); a session is
+   stopped (thirteen at once failed nine times,
+   `docs/live-checks/2026-09-25-first-fleet-upgrade.md`); a session is
    stopped by SIGTERM only, never SIGKILL — one not stopped in 90 s is a
    failure; the install is `claude install <v>` within 5 minutes, verified
    by `claude --version`, a failure reported by the installer's last line.
@@ -127,7 +128,7 @@ revertable one-line change.
 
 ## 7. Future Evolution
 
-Not yet: other pieces (`ori` left for later, the owner, 2026-09-24 — a
+Not yet: other pieces (`ori` left for later — a
 piece is an entry in `upgrade.mjs` `PIECES`, not a new op); signed replies
 (a forged reply can still show a false row); a restart read back live —
 the first upgrade that meets a running session should confirm the
@@ -136,8 +137,8 @@ launcher's wait returned after the SIGTERM to `claude`.
 
 ## 8. Decision Status
 
-Accepted; `upgrade claude` since PR #34/#35/#36 (2026-09-25),
-`upgrade fabric` since PR #47 (2026-09-26).
+Accepted and in force: `upgrade claude` since PR #34/#35/#36,
+`upgrade fabric` since PR #47.
 
 ## References
 

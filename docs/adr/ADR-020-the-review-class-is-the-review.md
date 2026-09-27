@@ -26,8 +26,8 @@ repository anyone can post a review that carries it (found 2026-09-25).
 
 ## 2. Decision
 
-**The review class's blind review is the review of a pull request** (the
-owner, 2026-09-20): dispatched on every head, used to judge a finding
+**The review class's blind review is the review of a pull request**:
+dispatched on every head, used to judge a finding
 before it is answered, used to re-review a fix range, and counted by the
 arming gate. Nothing in the fabric calls it a substitute, because there
 is nothing it substitutes for.
@@ -35,7 +35,8 @@ is nothing it substitutes for.
 - It is **blind**: the reviewer gets a repository path, a `base..head`
   range and a brief of facts rendered by `fabric-review brief` — never
   the author's reasoning. The harness starts a `code-review` subagent
-  without the dispatching conversation (read back 2026-09-16), so
+  without the dispatching conversation (read back,
+  `docs/live-checks/2026-09-16-review-context-boundary.md`), so
   blindness is exactly what the brief withholds.
 - It is **posted** by `runtime/github/post-review.sh` as a review object
   at the head whose first line is `<!-- agent-fabric-review v1 -->`.
@@ -60,11 +61,11 @@ how the review was made, not what it is worth.
 - **Count a review by account.** Impossible here: every session and the
   owner's own reviews share one account; the reader classifies by marker,
   then by poster and association.
-- **The marker alone as proof of coverage** (until 2026-09-25). Rejected:
+- **The marker alone as proof of coverage** (the earlier reading). Rejected:
   the marker is public; a stranger could cover a head by posting it, and
   binding only marked reviews would have let one cover a head by leaving
   the marker out — so unmarked reviews count only from trusted accounts.
-- **The reviewer on a coding tier's export.** Rejected (2026-09-13): the
+- **The reviewer on a coding tier's export.** Rejected: the
   reviewer on `opus` followed `code-high`'s export; the class's model
   reaches its agent file instead (ADR-005).
 
@@ -111,12 +112,13 @@ outage procedure.
    marked review is listed with its login and is not coverage; the
    author's own thread replies are not coverage. A configured value that
    cannot be applied stops the reader (exit 2), never reads as "none".
-8. Reviews posted before 2026-09-20 under `<!-- agent-fabric-substitute-review v1 -->`,
+8. Reviews posted before the deactivation of §1 under
+   `<!-- agent-fabric-substitute-review v1 -->`,
    or under a project's own earlier marker named in
    `AGENT_FABRIC_LEGACY_REVIEW_MARKERS`, keep counting. The built-in
    legacy marker is removed when no open pull request in any managed
-   repository carries a review posted before 2026-09-20; a project drops
-   its own on the same test for its repository.
+   repository carries a review posted before that deactivation; a
+   project drops its own on the same test for its repository.
 
 ## 6. Consequences
 
@@ -126,9 +128,9 @@ outage procedure.
 - The loop costs a dispatch per head and per fix range; the context
   boundary check found fourteen defects in a 400-line tool its own tests
   passed, in two rounds.
-- The legacy sunset is not yet evaluated: on 2026-09-27 two managed
-  repositories still have open pull requests opened before 2026-09-20
-  (four in all), whose reviews were not checked.
+- The legacy sunset is not yet evaluated: at the last count two managed
+  repositories still had open pull requests opened before the
+  deactivation of §1 (four in all), whose reviews were not checked.
 
 ## 7. Future Evolution
 
@@ -142,9 +144,8 @@ outage procedure.
 
 ## 8. Decision Status
 
-Accepted: the owner's decision of 2026-09-20, applied the same day; the
-poster rule since 2026-09-25. The note that recorded it is now a stub
-pointing here.
+Accepted and in force: the owner's decision, and the poster rule. The
+note that recorded it is now a stub pointing here.
 
 ## References
 

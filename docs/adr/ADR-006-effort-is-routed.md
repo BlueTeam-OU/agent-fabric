@@ -51,7 +51,7 @@ The level reaches a subagent through its agent file's `effort:` line,
 written by `install-agent-files.sh`, and the session through `--effort`,
 stamped as `AGENT_FABRIC_LAUNCH_EFFORT`.
 
-**Since 2026-09-25:** every class and every session asks
+**Today** every class and every session asks
 `medium`. On plain claude every class is Opus 5.5 at medium, its own
 default; on the broker `code-low` is committed at `low` (GLM-5.3-Flash has
 no medium), and the other classes are served `high` by their models'
@@ -120,7 +120,7 @@ move: Opus 5.5 at `high` because routing asked for it.
   only.
 - On the broker, `code-high`, `code-plan` and `code-review` today differ
   in neither model nor effort — true of the current column, not of the
-  design. Tests of the machinery run on the column of 2026-09-24
+  design. Tests of the machinery run on an earlier column
   (`tests/fixtures/routing-distinct/`), where the classes still differ.
 - Another harness fits by its channel: Codex CLI has no `--effort` and no
   per-agent file, so its adapter would be `effort_channel = "session"`
@@ -138,8 +138,7 @@ move: Opus 5.5 at `high` because routing asked for it.
 
 ## 8. Decision Status
 
-Accepted; in force since 2026-09-23, with the all-medium setting of
-2026-09-25.
+Accepted and in force, with every class at `medium` (§2).
 
 ## References
 

@@ -57,7 +57,7 @@ procedure:
 **The owner's word, relayed, is carried verbatim**: an `OWNER-WORD` section quoting the word, the session it was
 given in and the time.
 
-The practices of 2026-09-26 added no message type, field or section; no
+These practices added no message type, field or section; no
 state machine, template or schedule; no role widened.
 
 ## 3. Alternatives Considered
@@ -69,8 +69,8 @@ state machine, template or schedule; no role widened.
   until a transport needs it; every practice here is expressible in the
   existing `REPLY`, `HANDOFF` and sections.
 - **A commit trailer naming the request a commit answers.** The
-  candidate for linking deliveries to requests; the owner declined it
-  (2026-09-26): the delivery `REPLY` naming the artifact, and the PR body
+  candidate for linking deliveries to requests; the owner declined it:
+  the delivery `REPLY` naming the artifact, and the PR body
   naming the request, stay the link.
 - **A skill edit.** Deferred: `gzcoord-receive` step 7 already says to
   answer with where the work is; the launch prompt points every session
@@ -128,10 +128,11 @@ a stale request.
 
 - **How to tell whether it helped**, measured from the committed record
   and message metadata (type, `IN-REPLY-TO`, timestamps), never from
-  bodies, before and two weeks after 2026-09-26: duplicate PRs and
-  branches withdrawn within an hour; review-fix commits per merged PR and
-  PRs replaced by another; `REPLY-EXPECTED: yes` messages with no `REPLY`
-  and the time to the first; re-asks inside an open request; threads
+  bodies, before and two weeks after the owner's request of §1:
+  duplicate PRs and branches withdrawn within an hour; review-fix
+  commits per merged PR and PRs replaced by another;
+  `REPLY-EXPECTED: yes` messages with no `REPLY` and the time to the
+  first; re-asks inside an open request; threads
   slices recording work "owed by nobody"; blind-review findings that a
   "verified" or "folded" was false. No counter for any of these exists
   yet.
@@ -139,7 +140,7 @@ a stale request.
   every `REPLY` to it; `inbox.mjs` has `--replay` by one message only);
   a list of owed requests across sessions (the `REPLY-EXPECTED: yes`
   requests to a login that no `REPLY` answered). The in-flight view and
-  the trial merge were built the same day (the next record's subject).
+  the trial merge were built alongside them (the next record's subject).
 - Left as it was on purpose: `HANDOFF` (SPEC §10), the
   `REPLY-EXPECTED` defaults, the supply sections (`DELIVER-TO`,
   `ACCEPTANCE`, `FACT`, `BY`, `FOLD-BY`) as the long form of a request,
@@ -153,10 +154,10 @@ the mandate stated as a whole.
 
 ## 8. Decision Status
 
-Accepted: the advisory authority model since 2026-09-13; the owner's word
-carried verbatim since 2026-09-18; the practices of working on a request
-together since 2026-09-26. The note that recorded the evidence is now a
-stub pointing here; its per-case citations remain in its history.
+Accepted and in force: the advisory authority model; the owner's word
+carried verbatim; the practices of working on a request together. The
+note that recorded the evidence is now a stub pointing here; its
+per-case citations remain in its history.
 
 ## References
 

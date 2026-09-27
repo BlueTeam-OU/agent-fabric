@@ -28,7 +28,7 @@ worktree behind.
 
 ## 2. Decision
 
-Two read-only tools, built on the owner's acceptance of 2026-09-26, that
+Two read-only tools, built on the owner's acceptance, that
 report and decide nothing:
 
 - **The in-flight view** — `pr-gate.sh --in-flight` lists every branch
@@ -116,13 +116,13 @@ decision with the agents while giving them the facts they lacked.
 ## 7. Future Evolution
 
 The live check's positive control — a run with gzapp's check available,
-expected FAIL on a known pair — was due after gzapp #943 merged
-(2026-09-26); no later read-back is recorded. A thread view and a list of
+expected FAIL on a known pair — was due after gzapp #943 merged;
+no later read-back is recorded. A thread view and a list of
 owed requests remain unbuilt (ADR-024 §6).
 
 ## 8. Decision Status
 
-Accepted: both tools since 2026-09-26 (d1a136a, cd33e0c, d9eef83).
+Accepted and in force: both tools (d1a136a, cd33e0c, d9eef83).
 
 ## References
 

@@ -37,7 +37,7 @@ queue and goes out with the index pull request in the same minute.
 ## 3. Alternatives Considered
 
 - **Sequencing alone** — push the fabric, open and arm the project PRs
-  in the same breath. Tried on 2026-09-18; a queue run landed inside the
+  in the same breath. Tried; a queue run landed inside the
   window anyway. It stays as the landing order, not as the protection.
 - **Reverse the order** (project first). Not possible: the project's
   index would list slices not yet on fabric `main`, the same finding.
@@ -84,7 +84,7 @@ adopts the pin in its own repository.
 
 ## 8. Decision Status
 
-Accepted; in force since 2026-09-18.
+Accepted and in force.
 
 ## References
 

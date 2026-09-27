@@ -26,8 +26,8 @@ protocol's own examples offered exactly that shape to copy. The owner:
 
 ## 2. Decision
 
-**An assignment is addressed `TO` one login, never `TO-ROLE`** (the
-owner, 2026-09-19). An assignment is a `REQUEST`, or any message
+**An assignment is addressed `TO` one login, never `TO-ROLE`**. An
+assignment is a `REQUEST`, or any message
 carrying a `REQUEST:`, `ACCEPTANCE:` or `DELIVER-TO:` section — a
 finding to fix, a supply, a decision to record. `TO-ROLE` stays for what
 is not an assignment: an `INFO` or a `DECISION` every holder applies, a
@@ -106,8 +106,8 @@ None stated.
 
 ## 8. Decision Status
 
-Accepted: the owner's word of 2026-09-19, in SPEC §13, the validator and
-both skills since that day. The note that recorded the change is now a
+Accepted and in force: the owner's word, in SPEC §13, the validator and
+both skills. The note that recorded the change is now a
 stub pointing here.
 
 ## References

@@ -104,8 +104,8 @@ is its evidence, which belongs where evidence is kept and reviewed
   `communication/gzcoord/skills/`, among other generic directories. It
   does not scan `policies/subagent-dispatch/SKILL.md`, and nothing checks
   dates, PR numbers or logins in a skill: rules 1, 2 and 5 are held by
-  the author and by review. On 2026-09-27 no shipped skill carries a date
-  or a PR number.
+  the author and by review. No shipped skill carries a date or a PR
+  number.
 - A skill's history is read with `git log` on the skill.
 
 ## 7. Future Evolution
@@ -123,8 +123,8 @@ is its evidence, which belongs where evidence is kept and reviewed
 
 ## 8. Decision Status
 
-Accepted: the owner's rule of 2026-09-19, applied to every skill by the
-sweep of that day (commit 43ef828). The note that recorded the sweep is
+Accepted: the owner's rule, applied to every skill by one sweep
+(commit 43ef828). The note that recorded the sweep is
 now a stub pointing here.
 
 ## References

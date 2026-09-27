@@ -68,7 +68,7 @@ which are subsystems, not facets of who an agent is.
 - **An environment variable or a registry of agents.** Rejected: the
   operating system is the registry; `identities/agents/` deliberately
   assigns nothing, and `current_agent()` has no environment override.
-- **Binding the role inside the session (`/role`).** Rejected 2026-09-15
+- **Binding the role inside the session (`/role`).** Rejected
   for the three failures in §1; the command is deleted and `bootstrap.sh`
   removes the copy it once installed.
 - **The project remit in the launch prompt.** Rejected: a session changes
@@ -117,7 +117,7 @@ prefix cacheable, so a changed digest means changed content.
    SessionStart hook prints the role drift on each of its runs. A rebind
    is never silent.
 7. A binding is per (agent, host): `read_binding` refuses one naming
-   another agent or written on another host (review, 2026-09-16). A move
+   another agent or written on another host (review; commit 31537fa). A move
    between hosts is a rebind there.
 8. The **brief** (`identities/roles/<role>/brief.md`) is written without
    identifiers — no PR, record, migration or message number, no repository
@@ -143,20 +143,19 @@ prefix cacheable, so a changed digest means changed content.
 
 ## 7. Future Evolution
 
-Not read back on 2026-09-15: whether the appended text survives `/compact`
+Not read back: whether the appended text survives `/compact`
 in place (it is part of the system prompt, re-sent every request).
 `--system-prompt-snapshot on` may ride along; nothing depends on it.
 Briefs were written from the roles' own accounts (broadcast
-`01a0a594-3719-76b1-97d6-fb8c67e520fd`, 2026-09-15); a role that did not
+`01a0a594-3719-76b1-97d6-fb8c67e520fd`); a role that did not
 reply has none until one is written under the same rule, and the wishes
 that went to neither brief nor remit are a backlog for the roles owning
 those surfaces.
 
 ## 8. Decision Status
 
-Accepted and in force: the login model since 2026-09-13, the role at
-launch since 2026-09-15, per-host
-bindings since 2026-09-16.
+Accepted and in force: the login model, the role bound at launch,
+per-host bindings.
 
 ## References
 

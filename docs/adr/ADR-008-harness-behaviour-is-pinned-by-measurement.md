@@ -57,8 +57,7 @@ The harness's system prompt is kept verbatim as
 ## 3. Alternatives Considered
 
 - **The workspace `.claude/settings.json`.** Rejected: a session starts
-  inside its clone and the workspace settings never reach it (learned
-  2026-09-16).
+  inside its clone and the workspace settings never reach it.
 - **Carry the keys through the launcher's `--settings`.** Rejected:
   `--settings` is the broker's provider fence.
 - **`autoUpdates: false`.** Not the switch on a protected native install
@@ -114,8 +113,8 @@ should expect either attribution outcome of 2.1.276/2.1.277.
 
 ## 8. Decision Status
 
-Accepted; keys added 2026-09-18 (attribution), 2026-09-20 (thinking,
-verbose), 2026-09-24 (auto-updater), 2026-09-26 (allow rules, auto mode).
+Accepted and in force for every key: attribution, thinking, verbose,
+the auto-updater, the allow rules and auto mode.
 
 ## References
 

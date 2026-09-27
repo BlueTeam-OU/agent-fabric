@@ -129,7 +129,7 @@ rule that says what the owner need not see turns an ask into a check.
 
 ## 8. Decision Status
 
-Proposed, 2026-09-27. It waits on the owner's acceptance of the measure
+Proposed. It waits on the owner's acceptance of the measure
 and its two definitions, individually (ADR-001 §5 rule 2: arming the
 pull request that carries it does not ratify a new direction unless the
 description says so and the owner arms it on that basis). Until then it

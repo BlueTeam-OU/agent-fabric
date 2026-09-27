@@ -90,7 +90,7 @@ should say what it saw.
 
 ## 8. Decision Status
 
-Accepted and in force since 2026-09-16; the live read-back is pending the
+Accepted and in force; the live read-back is pending the
 first real fallback.
 
 ## References

@@ -29,7 +29,7 @@ against a 23k ceiling that only the launcher checked.
 ## 2. Decision
 
 **A design decided from documentation is a guess until a live read-back
-confirms it** (the coordinator's brief, 2026-09-15). What the fabric
+confirms it** (the coordinator's brief). What the fabric
 relies on is measured where it runs — live, or read out of the installed
 binary — and the measurement is kept as a **live check** under
 `docs/live-checks/`: evidence that decision records cite, never rewritten
@@ -104,10 +104,11 @@ role to the author of the change.
 
 ## 6. Consequences
 
-- Twenty-three live checks exist on 2026-09-27. Most end with what they
-  decide; three older ones (routing of 2026-09-13, the locale prompt
-  replacement of 2026-09-18, the first `upgrade fabric` of 2026-09-26)
-  leave that to their prose and to the record that cites them.
+- Twenty-three live checks exist. Most end with what they decide; three
+  older ones (`2026-09-13-openrouter-routing.md`,
+  `2026-09-18-language-culture-prompt-replacement.md`,
+  `2026-09-26-first-upgrade-fabric.md`) leave that to their prose and
+  to the record that cites them.
 - Rules 1, 2, 5, 6 and 7 are practice, held by the author and the review
   class; nothing mechanical checks that a read-back happened. Rule 4 is
   not mechanised either: `adr.py range-check` refuses edits to
@@ -115,7 +116,7 @@ role to the author of the change.
   exempts live checks from its citation check because they cite what was
   true when written.
 - The ceiling that broke a launch is now tested for every role
-  (`MAX_CHARS` 28 000 since 2026-09-20); the launch read-back stays,
+  (`MAX_CHARS` 28 000); the launch read-back stays,
   because the launcher does what the suite does not.
 
 ## 7. Future Evolution
@@ -128,8 +129,8 @@ role to the author of the change.
 
 ## 8. Decision Status
 
-Accepted: the brief's rule since 2026-09-15, live checks since
-2026-09-13, the prompt read-back since 2026-09-20.
+Accepted and in force: the brief's rule, live checks, the prompt
+read-back.
 
 ## References
 

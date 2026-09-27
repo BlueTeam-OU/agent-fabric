@@ -58,18 +58,18 @@ correcting memory's own heading.
 
 ## 3. Alternatives Considered
 
-- **Append and report** (before 2026-09-20). Rejected: the report went
+- **Append and report** (the earlier behaviour). Rejected: the report went
   unread, the index showed both cues, and a reader could not tell which
   was current.
 - **Newest wins, always.** Rejected: a newer memory can be the wrong
   one, and a replayed or delayed bundle carries old text with a new
   arrival; which of two agents is right is not the assembler's call.
-- **Ask the owner about every pair, same agent included** (2026-09-25
-  to 2026-09-26). Rejected by the owner after 34 of 34 same-agent pairs
+- **Ask the owner about every pair, same agent included.**
+  Rejected by the owner after 34 of 34 same-agent pairs
   were answered `supersede`: asking had become a formality that cost the
   owner's attention and taught nothing.
-- **Infer a retitle from any file one agent wrote.** Rejected
-  (2026-09-26): the flat class file holds every memory of its class until
+- **Infer a retitle from any file one agent wrote.** Rejected:
+  the flat class file holds every memory of its class until
   the class splits, so one agent's second memory there read as a retitle
   of its first, and the rule deleted the first.
 
@@ -155,8 +155,8 @@ case where it could be — two authors, a contested heading, an older text.
 
 - `memory/README.md` said a claim in the flat class file "never falls
   under" the same-agent rule. That holds for the retitle only; the
-  same-heading supersede applies in a flat file (rule 4(b), since the
-  re-review of 2026-09-26). The manual is corrected in the same commit as
+  same-heading supersede applies in a flat file (rule 4(b), since its
+  re-review). The manual is corrected in the same commit as
   this record.
 - A decision file the coordinator writes by hand is the one manual step
   left; a generated skeleton from the refused run's output is a
@@ -164,9 +164,9 @@ case where it could be — two authors, a contested heading, an older text.
 
 ## 8. Decision Status
 
-Accepted: the stop and the dated sections since 2026-09-20; the retitle
-as a collision since 2026-09-25; the same-agent rule, bounded to newer
-text and to uncontested headings, since 2026-09-26.
+Accepted and in force: the stop and the dated sections; the retitle as a
+collision; the same-agent rule, bounded to newer text and to uncontested
+headings.
 
 ## References
 

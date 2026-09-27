@@ -51,7 +51,8 @@ A role is added in this order, and each step lands before the next begins:
 ## 3. Alternatives Considered
 
 - **Rely on the lint guard alone** and add the pieces in any order.
-  Rejected: the guard closes the shape of 2026-09-17 only; a dangling
+  Rejected: the guard closes the shape of the merge-queue failure
+  of §1 only; a dangling
   index link or an uncatalogued remit fails a project's CI all the same.
 - **Loosen the lint** when an intermediate state fails. Rejected: in every
   failure mode the fix is to land the missing half.
@@ -90,9 +91,9 @@ slice not yet on `main` here — that project's CI fails on a dangling
 link; a project remit naming a role not in the catalogue — that project's
 lint finding.
 
-The assembler is idempotent since 2026-09-20: the same drain twice is the
-same tree (a claim body's own headings are demoted at render time since
-2026-09-25, so they never open a section on the re-read), and re-running
+The assembler is idempotent: the same drain twice is the
+same tree (a claim body's own headings are demoted at render time,
+so they never open a section on the re-read), and re-running
 step 3 to pick up a brief added after the first run is safe.
 
 ## 7. Future Evolution
@@ -102,7 +103,7 @@ order.
 
 ## 8. Decision Status
 
-Accepted and in force since 2026-09-17.
+Accepted and in force.
 
 ## References
 

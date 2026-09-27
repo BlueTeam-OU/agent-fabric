@@ -56,7 +56,7 @@ observed need. Each is built when an incident gives it a shape.
 
 - **Make a remote home look local.** Rejected: the host-local facts above
   cannot be faked; the worker runs on the target.
-- **A dedicated test-runner role** (2026-09-19). Declined: it changes who
+- **A dedicated test-runner role.** Declined: it changes who
   runs the suite, not how many run at once, and adds a handoff to every run.
 - **A fleet-wide lease for host resources.** Rejected: memory, cores and a
   rootless postgres are the host's; two hosts each running the suite is the
@@ -130,26 +130,27 @@ that killed the host without privilege and without anything going stale.
 - The lease serialises two accounts and does nothing about one; the quota
   layer is what would.
 - Every account on a host must have pulled a new worker before it reaches
-  that account (seen live 2026-09-16).
+  that account (seen live,
+  `docs/live-checks/2026-09-16-hostexec-local-backend.md`).
 
 ## 7. Future Evolution
 
 - The ssh backend on a real second host is not read back; the first real
   host gets its own live check.
-- The account quota layer is the next piece worth doing. The 2026-09-25
-  crash leaves two shapes to the project: a lighter stack profile, or the
-  stack brought up under a lease with a memory floor. Whether it was
+- The account quota layer is the next piece worth doing. The later crash
+  (`docs/live-checks/2026-09-25-develop-qzapp-crash.md`) leaves two
+  shapes to the project: a lighter stack profile, or the stack brought
+  up under a lease with a memory floor. Whether it was
   memory is settled only in dom0, not yet read.
 - **A shared Android SDK and Gradle cache** for Flutter logins is planned
-  and **deferred by the owner (2026-09-26)** until a second Flutter login
+  and **deferred by the owner** until a second Flutter login
   needs it: the SDK under `/usr/local/share/android-sdk`, a read-only
   shared Gradle dependency cache with a small writable `~/.gradle` per
   login, the SDK licence accepted by the owner, never an agent.
 
 ## 8. Decision Status
 
-Accepted; host execution since 2026-09-16, the host lease since
-2026-09-19.
+Accepted and in force: host execution and the host lease.
 
 ## References
 
