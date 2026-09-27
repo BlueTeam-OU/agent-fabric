@@ -79,7 +79,8 @@ searches it.
   state file for writing. The Node control agent, which cannot import it,
   writes by temporary and rename (§5 rule 1).
 - Every read-modify-write holds `agent_lock`, a re-entrant flock, except
-  the Node control agent's own files, which only it writes (§5 rule 2).
+  the Node control agent's own files, which only it writes and the
+  launcher only consumes (§5 rule 2).
 - A binding is per (agent, host); another host's is refused (§5 rule 3).
 - A working-copy rename merges history, never overwrites (§5 rule 4); the
   session-start hook stays non-blocking (§5 rule 5).

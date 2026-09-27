@@ -46,7 +46,9 @@ Node, which writes `restart.json` for a fleet upgrade
 `actions-seen.json` (`runtime/control/agentd.mjs`) — writes in the same
 shape, a temporary beside the target, then a rename; it takes no
 `agent_lock`, and what serializes it is that one control agent runs per
-account.
+account. The launcher is the other party to `restart.json`: it reads and
+removes the marker once its session has stopped, after the control
+agent wrote it while that session ran.
 
 A binding is per (agent, host). A working-copy rename merges history,
 never overwrites it.
@@ -77,7 +79,8 @@ state file an obvious place to get its writer.
    control agent is the named exception (§2), and writes only by
    temporary and rename.
 2. Every read-modify-write of per-agent state holds `agent_lock`, except
-   the Node control agent's own files (§2), which only it writes.
+   the Node control agent's own files (§2), which only it writes and the
+   launcher only consumes.
 3. `read_binding` refuses a record that names another agent or whose
    `host` is not this machine's, with the same wording, and says how to
    bind here. A move between hosts is a rebind there.
