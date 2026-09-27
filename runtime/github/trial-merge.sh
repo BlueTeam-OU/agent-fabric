@@ -170,7 +170,16 @@ cpid=""
 cleanup() { [[ -n "$cpid" ]] && kill -TERM -- "-$cpid" 2>/dev/null; end_worktree_procs; git -C "$top" worktree remove --force "$wt" >/dev/null 2>&1; rm -rf "$wt" "$wt.pid" "$wt.out"; git -C "$top" worktree prune 2>/dev/null; }
 trap cleanup EXIT
 trap 'exit 130' INT; trap 'exit 143' TERM; trap 'exit 129' HUP
-git worktree add -q --detach "$wt" "$base_sha" 2>/dev/null || { echo "trial-merge: git worktree add failed; nothing tried" >&2; exit 2; }
+# Two runs at once in one repository can make an add fail for a moment
+# (another run's prune, git's config lock): one add lost that race in CI.
+# A few tries, each clearing only its own half-made entry, then git's own
+# last line if it still fails.
+add_err=""
+for pause in 0.2 0.5 1 2; do
+    add_err="$(git worktree add -q --detach "$wt" "$base_sha" 2>&1)" && { add_err=""; break; }
+    git worktree remove --force "$wt" >/dev/null 2>&1; mkdir -p "$wt"; sleep "$pause"
+done
+[[ -z "$add_err" ]] || { echo "trial-merge: git worktree add failed (${add_err##*$'\n'}); nothing tried" >&2; exit 2; }
 
 result="combines"; failed_ref=""; conflicted=(); tree=""; merge_err=""
 start=$SECONDS
