@@ -135,6 +135,15 @@
       "date": "2026-09-20",
       "pillar": "P2",
       "amendments": 0
+    },
+    {
+      "number": "015",
+      "file": "ADR-015-code-is-memory.md",
+      "title": "Code is memory",
+      "status": "Accepted",
+      "date": "2026-09-19",
+      "pillar": "P2",
+      "amendments": 0
     }
   ]
 }

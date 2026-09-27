@@ -21,6 +21,7 @@ searches it.
 | secrets, keys, tokens; Doppler; reporting a leaked secret | ADR-012 |
 | where knowledge lives; memory classes; the drain; INDEX.md; hygiene | ADR-013 |
 | a drain stopped by a collision; supersede, keep-both, drop; merge_target | ADR-014 |
+| what a comment is for; stale comments; the stronger executable form | ADR-015 |
 
 ### ADR-000 — The enduring organization (Accepted)
 
@@ -268,3 +269,19 @@ searches it.
 - Keywords: collision, SUPERSEDING, supersede, keep-both, drop,
   --collision-decisions, same-agent, retitle, merge_target, correction,
   observed, idempotent, budget part.
+
+### ADR-015 — Code is memory (Accepted)
+
+- Code is memory for the session that comes after yours: a comment keeps
+  the *why* a fresh session cannot reconstruct, never narrates the *what*
+  (§2, §5 rules 1–2).
+- A useful comment is never trimmed to save tokens; a type, assertion or
+  test beats a comment, and a cross-module decision goes in a record (§5
+  rules 3–4).
+- A comment whose assumption a change made false is fixed in that change;
+  an intentional oddity says why beside it (§5 rules 5–6).
+- The review class grades narration, a missing reason, an unenforced
+  invariant and a stale comment (§5 rule 7). Reaches sessions through the
+  workspace `CLAUDE.md`, not a project's own (§2).
+- Keywords: comment, why, code as memory, self-documenting, stale comment,
+  invariant, refactoring, oddity, review, fresh session.

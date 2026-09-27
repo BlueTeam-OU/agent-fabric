@@ -94,7 +94,7 @@ directory, the repository, the branch or the session.
   `fabric-status`) says what you are. Holding a role never entitles
   you to change its charter or brief, or anything else here (above).
 - **Code is memory for the session that comes after yours**
-  (`policies/code-as-memory.md`, the owner, 2026-09-19). Self-documenting
+  (`docs/adr/ADR-015-code-is-memory.md`, the owner, 2026-09-19). Self-documenting
   code first; a comment says *why*, never what the code visibly does —
   the invariant, the assumption, the rejected alternative, the oddity a
   refactoring would otherwise "fix"; a stronger executable form (a type,

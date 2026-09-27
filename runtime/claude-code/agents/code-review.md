@@ -159,7 +159,7 @@ in which defects have actually shipped; still worth the first look:
 
 ## Comments are engineering memory
 
-`policies/code-as-memory.md` (the owner, 2026-09-19): a comment keeps
+agent-fabric ADR-015 (the owner, 2026-09-19): a comment keeps
 the *why* a later session cannot reconstruct. Of every range ask: a
 comment that only narrates the code (P3); a non-obvious decision — an
 ordering, a defensive check, a workaround — with its reason nowhere,
