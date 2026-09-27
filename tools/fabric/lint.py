@@ -160,10 +160,11 @@ def adr_findings(root: str | None = None) -> list[str]:
 # A path to one of the fabric's own documents, cited from any tracked text
 # file, must resolve — from the repository root or from the citing file's
 # own directory: a moved relay-setup note left a dangling pointer in
-# inbox.mjs for weeks, and nothing looked. Warnings while
-# the documents move into decision records (agent-fabric ADR-001 §7); the
-# evidence (live checks), the amendment history, knowledge slices (they
-# cite what was true when written) and test fixtures are exempt.
+# inbox.mjs for weeks, and nothing looked. A finding: the notes have moved
+# into decision records and every citation in the tree resolves, so a new
+# dangling one is a defect. The evidence (live checks), the amendment
+# history, knowledge slices (they cite what was true when written) and test
+# fixtures are exempt.
 # Where the fabric keeps documents: a note at docs/<name>.md, the decision
 # records and the live checks, the policies, the protocol and its transports.
 # A deeper docs/ path (docs/scratchpad/…) is a project's, named in an example.
@@ -1757,7 +1758,7 @@ def main() -> int:
 
     # --- decision records and the paths that cite documents ----------------
     findings += adr_findings()
-    WARNINGS.extend(doc_path_findings())
+    findings += doc_path_findings()
 
     for warning in WARNINGS:
         print(f"  warning: {warning}", file=sys.stderr)

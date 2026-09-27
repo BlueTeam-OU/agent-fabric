@@ -564,6 +564,8 @@ searches it.
   verified bundles (§5 rules 6–9).
 - Reads are fenced, not proved: a relay-token holder can forge a row until
   replies are signed (§6, §7).
+- A 2026-09-27 — actions run beside the read loop, one of a kind per account; a
+  second is answered `busy` (§5 rule 12).
 - Keywords: control plane, agentd, fabric-ctl, control channel,
   fabric:control, relay, ops, status, ping, keys, usage, recall, tokens,
   drain, memory, signed, operator_key, keygen, linger, persist.
@@ -599,6 +601,8 @@ searches it.
 - An observer on the coordinator's login keeps one `/login` per account,
   read every four hours by the harness's own `/usage` — never a
   hand-made refresh (§5 rule 7, §3).
+- A 2026-09-27 — `--no-sync` sends no action; the login applies the move at its
+  next sync (§5 rule 4).
 - Keywords: Claude account, subscription, setup-token, /login, template,
   claude-accounts, CLAUDE_CODE_OAUTH_TOKEN, fabric-accounts, assign,
   secrets-sync, fingerprint, usage windows, observer, /usage.

@@ -111,6 +111,24 @@ kill -INT "$victim" 2>/dev/null; wait "$victim" 2>/dev/null; sleep 0.5
 clean && ! pgrep -u "$(id -u)" -fx "sleep 37.25" >/dev/null && pass "…and interrupted (INT): the same — the caller's uncommitted edit and worktree list as they were" \
   || { fail "leftovers after INT" "$(git worktree list; ls -A "$SCRATCH")"; pkill -u "$(id -u)" -fx "sleep 37.25"; }
 
+# A worktree add that loses a race once (another run's prune, a config
+# lock) is retried, not reported as a failed trial: a git that fails the
+# first add and then behaves (CI, #52, "concurrent runs disagreed").
+mkdir -p "$SANDBOX/flakybin"; rm -f "$SANDBOX/flaky.count"
+real_git="$(command -v git)"
+cat > "$SANDBOX/flakybin/git" <<SHIM
+#!/usr/bin/env bash
+if [[ "\$*" == *"worktree add"* && ! -f "$SANDBOX/flaky.count" ]]; then
+    : > "$SANDBOX/flaky.count"; echo "fatal: could not lock config file .git/config: File exists" >&2; exit 128
+fi
+exec "$real_git" "\$@"
+SHIM
+chmod +x "$SANDBOX/flakybin/git"
+out="$(cd "$SANDBOX/repo" && PATH="$SANDBOX/flakybin:$PATH" TMPDIR="$SCRATCH" AGENT_FABRIC_TRIAL_MIN_FREE_KB=0 bash "$UNDER_TEST" h/a/one h/b/two --json 2>&1)"; rc=$?
+[[ $rc -eq 0 && -f "$SANDBOX/flaky.count" ]] && [[ "$(jq -r .result <<<"$out" 2>/dev/null)" == combines ]] \
+  && pass "a worktree add that fails once is retried, and the trial runs" || fail "a transient worktree add failure ended the trial" "$out"
+clean && pass "…and the retry left nothing" || fail "leftovers after a retried add" "$(git worktree list; ls -A "$SCRATCH")"
+
 ( run h/a/one h/b/two --json > "$SANDBOX/r1" ) & ( run h/a/one h/b/two --json > "$SANDBOX/r2" ) & wait
 [[ "$(jq -r .tree "$SANDBOX/r1")" == "$(jq -r .tree "$SANDBOX/r2")" && "$(jq -r .result "$SANDBOX/r1")" == combines ]] \
   && pass "two runs at once on the same refs: each its own worktree, the same result" || fail "concurrent runs disagreed" "$(cat "$SANDBOX/r1" "$SANDBOX/r2")"

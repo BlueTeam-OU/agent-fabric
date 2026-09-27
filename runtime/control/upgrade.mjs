@@ -3,7 +3,7 @@
 // have a running session come back on it. Only `claude` (the harness) for
 // now (the owner, 2026-09-24); a piece is an entry here, not a new op.
 //
-// The sequence, for one account (docs/fleet-upgrade.md):
+// The sequence, for one account (ADR-009):
 //   1. already at the pin: nothing happens, and nothing restarts;
 //   2. wait for the host's install lease (one account at a time, below);
 //      no turn, or no queue, is a failure with nothing stopped;
@@ -42,7 +42,7 @@ export const VERSION_TIMEOUT_MS = 30000;
 // One install per HOST at a time, across its accounts: `fabric-ctl all
 // upgrade claude` makes every daemon install at once, and on 2026-09-25
 // nine of thirteen concurrent installs on develop-qzapp failed where each
-// alone succeeded. The host lease (bin/fabric-lease, docs/resources.md)
+// alone succeeded. The host lease (bin/fabric-lease, ADR-010)
 // queues them, and it is taken BEFORE the session is stopped and held until
 // the new version is read back: a session is stopped only when its install
 // can start, so the queue costs the operator's wait and never an account's
@@ -94,7 +94,7 @@ export function holdLease(root, { spawnFn = spawn, waitS = LEASE_WAIT_S } = {}) 
     });
     child.on('error', e => { if (!settled) { settled = true; reject({ code: -1, line: String(e.message) }); } });
     // fabric-lease ends a refusal with a stable `reason=` line
-    // (docs/resources.md); the reason is kept as data and the line a
+    // (ADR-010); the reason is kept as data and the line a
     // person reads is the prose above it.
     child.on('close', code => {
       if (settled) return; settled = true;

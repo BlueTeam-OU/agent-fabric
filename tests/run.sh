@@ -79,6 +79,7 @@ if [[ "$what" == all || "$what" == bash ]]; then
     run "dispatch guard" bash runtime/claude-code/hooks/test_agent-dispatch-guard.sh
     run "review bash guard" bash runtime/claude-code/hooks/test_review-bash-guard.sh
     run "subagent clone guard" bash runtime/claude-code/hooks/test_subagent-clone-guard.sh
+    run "pipe status guard" bash runtime/claude-code/hooks/test_pipe-status-guard.sh
     run "model-switch guard" bash runtime/claude-code/hooks/test_model-switch-guard.sh
     run "plan hold" bash runtime/claude-code/hooks/test_plan-hold.sh
     run "model fallback note" bash runtime/claude-code/hooks/test_model-fallback-note.sh

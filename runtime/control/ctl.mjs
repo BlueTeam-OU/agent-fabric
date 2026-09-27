@@ -6,9 +6,9 @@
 //   fabric-ctl <login|all> host                     the machine, one row per host: load, memory, balloon, disks, leases, largest processes
 //   fabric-ctl <login|all> memory --out <dir>       each account's drain bundles, <dir>/<login>/<working copy>.tar
 //   fabric-ctl <login|all> upgrade claude [--version V]   an ACTION, signed with the operator's key: bring the harness
-//                                                   to the pinned version, restarting a running session (docs/fleet-upgrade.md)
+//                                                   to the pinned version, restarting a running session (ADR-009)
 //   fabric-ctl <login|all> upgrade fabric             an ACTION: fast-forward each account's fabric to this checkout's
-//                                                   origin/main and bootstrap it; no session stopped (docs/fleet-upgrade.md)
+//                                                   origin/main and bootstrap it; no session stopped (ADR-009)
 //   fabric-ctl <login|all> secrets-sync [--expect SHA12] [--restart]   an ACTION: re-apply the login's Doppler config,
 //                                                   check its setup-token, restart a running session on it (docs/adr/ADR-031-claude-accounts-assigned-applied-and-proved-by-signed-action.md)
 //   fabric-ctl <login|all> presence                 whether each has a session, since when, as what — any

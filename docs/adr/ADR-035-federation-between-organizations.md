@@ -39,7 +39,7 @@ boundary of one installation:
   a claim of the installation that assembled it.
 - **The confidentiality boundary**: a project's knowledge lives in the
   project's own repository, under its own licence
-  (`projects/registry.json` records each licence; one is proprietary),
+  (`projects/registry.json` records each licence; five are proprietary),
   never in the fabric's corpus (ADR-013). The fabric's field knowledge
   (`memory/domains/`, `memory/shared/`), charters and skills are
   Apache-2.0. The lint that refuses a managed project's name in a generic

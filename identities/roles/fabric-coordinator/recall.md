@@ -13,8 +13,9 @@ distilled_at: 2026-09-13
 - `tools/fabric/lint.py` and `tools/fabric/routing.py check` — is the
   committed control plane consistent.
 - `tests/run.sh` — every suite.
-- `docs/live-checks/` and the commit history — why the repository is shaped
-  as it is: the extraction from the legacy repository, the identity
-  migration, what was verified live.
-- `.agent-fabric/memory/fabric-coordinator/INDEX.md` — what this
-  role has learned about the control plane; the knowledge this role drained under its earlier name, in the legacy repository.
+- `docs/adr/DIGEST.md`, then the record — what the fabric has decided and
+  why; `tools/fabric/adr.py lookup <words>` finds the entry.
+- `docs/live-checks/` and the commit history — what was verified live, and
+  when each piece changed.
+- `.agent-fabric/memory/fabric-coordinator/INDEX.md` — what this role has
+  learned about the control plane.

@@ -6,7 +6,8 @@ qualified.
 
 A fact is not agent-scoped because that agent discovered it. Technical
 knowledge about a field goes to `memory/domains/`; knowledge about a
-system goes to `memory/projects/<project>/`; knowledge two roles share
+system goes to that project's own repository
+(`<working copy>/.agent-fabric/memory/<role>/`); knowledge two roles share
 goes to `memory/shared/`. What belongs here is the residue — how this
 particular agent's environment differs, a standing constraint on this
 account, a preference an operator gave this agent and no other.

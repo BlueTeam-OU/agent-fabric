@@ -227,7 +227,7 @@ confidential information.
 windows, prompt and context budgets, a host's disk and memory, and the
 owner's attention. Shared host resources are leased (ADR-010); a test run
 leaves nothing behind; launch prompts have a ceiling and prompt
-templates a token budget; the disk incidents
+templates a token budget; the host crashes under test load
 (`docs/live-checks/2026-09-19-develop-qzapp-crash.md`,
 `docs/live-checks/2026-09-25-develop-qzapp-crash.md`) are why.
 

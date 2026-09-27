@@ -139,8 +139,9 @@ a stale request.
 - **Missing tools, reported and not built:** a thread view (a request and
   every `REPLY` to it; `inbox.mjs` has `--replay` by one message only);
   a list of owed requests across sessions (the `REPLY-EXPECTED: yes`
-  requests to a login that no `REPLY` answered). The in-flight view and
-  the trial merge were built alongside them (the next record's subject).
+  requests to a login that no `REPLY` answered); neither is built. The
+  in-flight view and the trial merge, reported with them, were built (the
+  next record's subject).
 - Left as it was on purpose: `HANDOFF` (SPEC §10), the
   `REPLY-EXPECTED` defaults, the supply sections (`DELIVER-TO`,
   `ACCEPTANCE`, `FACT`, `BY`, `FOLD-BY`) as the long form of a request,

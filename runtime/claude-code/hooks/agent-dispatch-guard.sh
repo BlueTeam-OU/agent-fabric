@@ -2,9 +2,10 @@
 # Claude Code PreToolUse hook for the Agent tool: the dispatch guard.
 #
 # Reads the tool call on stdin, prints a hookSpecificOutput JSON object
-# to deny or ask, or prints nothing to allow. The rules it enforces are
-# CLAUDE.md "Subagent dispatch"; the incidents behind each one are in
-# the subagent-dispatch skill. This file exists so the program can be
+# to deny or ask, or prints nothing to allow. The rules it enforces, and
+# the incidents behind each one, are in the subagent-dispatch skill
+# (policies/subagent-dispatch/SKILL.md); agent-fabric ADR-005 and ADR-020
+# are the decisions. This file exists so the program can be
 # READ and TESTED (.claude/test_agent-dispatch-guard.sh) -- it used to
 # be a one-line jq string inside settings.json, which nothing exercised.
 #
@@ -199,7 +200,7 @@ jq -c --argjson aliases "$ALIAS_JSON" --argjson pinned "$PINNED_JSON" --arg file
         elif ($file_effort | has($type)) and ($routed_effort[$type] // "") != $file_effort[$type] then
           deny("Dispatch of \"" + $type + "\" under a fabric launch, but its agent file says effort \"" + $file_effort[$type] + "\" while this launch resolves " + $type + " to \"" + ($routed_effort[$type] // "none") + "\". Either another launch of this account (the other provider) has rewritten ~/.claude/agents/" + $type + ".md since this session started, or the fabric checkout moved under this session and now routes " + $type + " differently; either way the agent would think at a level nothing chose for this session. Re-run agent-fabric/bin/fabric-model apply from this session, or relaunch. See the subagent-dispatch skill (agent-fabric policies/subagent-dispatch/SKILL.md).")
         elif $type == "code-high" or $type == "code-plan" then
-          ask("Agent dispatch names " + $type + ", a premium class (" + $alias + "). Per CLAUDE.md, the premium tier is for a subagent only when you explicitly asked for it -- the task looking hard is not authorisation. Approve only if you did.")
+          ask("Agent dispatch names " + $type + ", a premium class (" + $alias + "). Per the subagent-dispatch skill, the premium tier is for a subagent only when you explicitly asked for it -- the task looking hard is not authorisation. Approve only if you did.")
         else empty end
     elif ($type | test("^(Explore|Plan|claude-code-guide)$")) then
       if ($model | length) == 0 then
@@ -207,13 +208,13 @@ jq -c --argjson aliases "$ALIAS_JSON" --argjson pinned "$PINNED_JSON" --arg file
       elif $iso == "worktree" then
         deny("Read-only dispatch (" + $type + ") sets isolation worktree. That type has no writing tool and its Bash is fenced in the clone (subagent-clone-guard.sh); a worktree protects nothing and hides the uncommitted work it is asked about (worktree.baseRef is head). Omit isolation. See the subagent-dispatch skill (agent-fabric policies/subagent-dispatch/SKILL.md).")
       elif ($model | test("opus|fable")) then
-        ask("Agent dispatch requests the premium model \"" + ($t.model // "") + "\" for a read-only " + $type + ". Per CLAUDE.md, opus/fable are forbidden for subagents unless you explicitly asked for that tier. Approve only if you did.")
+        ask("Agent dispatch requests the premium model \"" + ($t.model // "") + "\" for a read-only " + $type + ". Per the subagent-dispatch skill, opus/fable are forbidden for subagents unless you explicitly asked for that tier. Approve only if you did.")
       else empty end
     elif ($model | length) == 0 then
       deny("Agent dispatch has no model set. Omitting it is not a neutral default - the subagent INHERITS the session model, so a premium session silently spawns premium agents. Set model explicitly: haiku for mechanical work (extraction, pattern-following edits, structured search), sonnet for judgement work (multi-file reasoning, convention-holding prose). See the subagent-dispatch skill (agent-fabric policies/subagent-dispatch/SKILL.md).")
     elif $iso != "worktree" then
       deny("Agent dispatch does not set isolation to worktree. Every writing subagent works in its own worktree, never the session clone: the dispatcher opens and closes it, the agent stays in the path it is given, runs no git, and never commits. A premium-model authorisation grants a model tier, not an isolation exemption. Forks and the review class are the only carve-outs. See the subagent-dispatch skill (agent-fabric policies/subagent-dispatch/SKILL.md).")
     elif ($model | test("opus|fable")) then
-      ask("Agent dispatch requests the premium model \"" + ($t.model // "") + "\". Per CLAUDE.md, opus/fable are forbidden for subagents unless you explicitly asked for that tier. Approve only if you did.")
+      ask("Agent dispatch requests the premium model \"" + ($t.model // "") + "\". Per the subagent-dispatch skill, opus/fable are forbidden for subagents unless you explicitly asked for that tier. Approve only if you did.")
     else empty end
 '

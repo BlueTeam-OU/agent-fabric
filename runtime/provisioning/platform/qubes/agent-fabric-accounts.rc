@@ -25,7 +25,7 @@
 # cache group the worker grants), in /etc/group and /etc/gshadow.
 #
 # One more thing the volatile root loses: the host-wide lease directory,
-# /run/lock/agent-fabric (bin/fabric-lease, docs/resources.md), where
+# /run/lock/agent-fabric (bin/fabric-lease, ADR-010), where
 # the accounts take one flock per shared host resource — the backend
 # suite's postgres, for one. 1777 like /tmp: every login creates its own
 # lease files, none removes another's. On a persistent platform tmpfiles.d

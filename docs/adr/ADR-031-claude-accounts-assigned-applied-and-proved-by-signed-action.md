@@ -113,7 +113,9 @@ verdict comes back, and a session survives the move.
    empty one, and a login no host places. Past the Doppler write, a move
    is messages only: every named login, changed or not, gets the signed
    `secrets-sync` action with `--expect <the template's fingerprint>`, and
-   `--restart` unless `--no-restart`.
+   `--restart` unless `--no-restart`. With `--no-sync` no action is sent:
+   each changed login applies the move at its next `fabric-secrets sync`
+   (A 2026-09-27).
 5. `secrets-sync` runs the account's own `fabric-secrets sync`; a synced
    token whose fingerprint is not the expected one is a failure, said by
    the account. With `restart`, a running session not already on the
@@ -170,3 +172,11 @@ action is how every account change is made.
 - ADR-009 (signed actions, the restart marker), ADR-012 (credentials),
   ADR-029 (the control agent).
 - The live check in Evidence.
+
+## Amendments
+
+The body above reads current; each change's full note is in [history/ADR-031-amendments.md](history/ADR-031-amendments.md).
+
+| Date | Amendment | Effect |
+|---|---|---|
+| 2026-09-27 | A move without its sync | §5 rule 4 names `--no-sync`: no action is sent, and each changed login applies the move at its next sync |

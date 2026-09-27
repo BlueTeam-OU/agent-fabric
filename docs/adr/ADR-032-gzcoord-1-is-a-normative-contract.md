@@ -71,9 +71,9 @@ may change.
   bumping it for a narrowing makes readers reject messages they would
   have read correctly.
 - **Unfreeze the grammar now.** Rejected: nothing automated exercises it
-  yet. The one automated transport attempted before the relay was
-  retired (`communication/gzcoord/history/telegram-transport/`), and the relay moves text without depending on the
-  grammar's edge cases.
+  yet. The one automated transport attempted before the relay, Telegram,
+  was retired (`communication/gzcoord/history/telegram-transport/`); the
+  relay moves text without depending on the grammar's edge cases.
 - **Record the protocol's decisions only in the spec and the charter.**
   The state before this record. Rejected: the reasons for a tightening
   lived in commit messages, and the charter is not where a reader of the

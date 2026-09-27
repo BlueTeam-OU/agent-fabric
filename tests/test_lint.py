@@ -1284,7 +1284,7 @@ def case_decision_records_are_lint_findings() -> None:
 
 def case_a_cited_fabric_document_must_resolve() -> None:
     """A fabric document path or 'agent-fabric ADR-NNN' cited in a tracked
-    file that resolves nowhere is a warning — from the root or the citing
+    file that resolves nowhere is a finding — from the root or the citing
     file's directory; evidence, history, memory and tests are exempt; a
     deeper docs/ path is a project's example and not a fabric document."""
     with tempfile.TemporaryDirectory() as root:
@@ -1304,7 +1304,7 @@ def case_a_cited_fabric_document_must_resolve() -> None:
         assert "docs/here.md, which" not in out and "scratchpad" not in out, "a resolving path or a project's example was flagged"
         assert "RELAY.md" not in out, "a path relative to the citing file's own directory resolves"
         assert "also-gone" not in out, "a live check is evidence and exempt"
-        assert code == 0, "warnings, not findings, while the notes move"
+        assert code == 1, "a dangling citation is a finding"
 
 
 def main() -> int:

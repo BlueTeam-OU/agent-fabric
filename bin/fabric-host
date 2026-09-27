@@ -17,7 +17,7 @@
 # to itself (Doppler, the API keys) never goes through here; what is
 # host-local (accounts, homes, installers, a shell, a rename, a drain)
 # always does. A path given as @fabric/<rel> is under the fabric checkout
-# on the TARGET host, wherever its operator keeps it. docs/host-execution.md.
+# on the TARGET host, wherever its operator keeps it. ADR-010.
 set -uo pipefail
 ROOT="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
 REGISTRY="${AGENT_FABRIC_HOSTS_REGISTRY:-$ROOT/runtime/hosts/registry.json}"

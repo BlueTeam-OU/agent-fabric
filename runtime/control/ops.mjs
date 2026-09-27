@@ -251,7 +251,7 @@ export function presence({ uid = process.getuid(), exec = execFileSync, proc = '
 // The MACHINE this account shares — what develop-qzapp's crash of
 // 2026-09-19 was diagnosed from by hand, after the fact, with free, df,
 // xenstore-read and find (docs/live-checks/2026-09-19-develop-qzapp-crash.md;
-// the layers: docs/resources.md). Load and cpus; memory and swap from
+// the layers: ADR-010). Load and cpus; memory and swap from
 // /proc/meminfo; the Xen balloon where there is one (current and target
 // from sysfs, static-max — the ceiling this boot — from xenstore, null on
 // a host that is not a Xen guest); every mounted block device once, by

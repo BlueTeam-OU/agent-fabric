@@ -251,6 +251,35 @@ def case_header_dates_keep_their_own_pattern(tmp: str) -> None:
     only(root, "§6 dates something (2100-01-01)")
 
 
+def case_the_date_rules_hold_at_their_edges(tmp: str) -> None:
+    # Review of #53: the anchor is the pattern's, not only fromisoformat's;
+    # an amendment's date is a calendar date; an attribution may break
+    # between "the" and "owner"; a dated path of any kind, bare or in a
+    # fenced block, is not a dated sentence.
+    assert adr.DATE_RE.match("2026-09-27-x") is None
+    root = fixture(tmp)
+    try:
+        adr.main(["--root", root, "amend", "--date", "2026-02-30", "1", "x"])
+        raise AssertionError("amend took an impossible date")
+    except SystemExit as e:
+        assert "YYYY-MM-DD" in str(e), e
+    root = fixture(os.path.join(tmp, "b"))
+    amend(root)
+    h = os.path.join(root, "docs/adr/history/ADR-001-amendments.md")
+    s = open(h, encoding="utf-8").read()
+    open(h, "w", encoding="utf-8").write(s.replace("### Amendment ", "### Amendment 2026-02-30 — ghost\n\n### Amendment ", 1))
+    assert any("2026-02-30" in f and "not a date" in f for f in adr.check(root)), adr.check(root)
+    root = fixture(os.path.join(tmp, "c"))
+    edit(root, ONE, "## 6. Consequences", "## 6. Consequences\n\nKept as commit 04f4b1c (the\n  owner's rule).\n")
+    only(root, "an inline attribution")
+    root = fixture(os.path.join(tmp, "d"))
+    edit(root, ONE, "## 6. Consequences", "## 6. Consequences\n\nKept (The owner, 2026-09-13).\n")
+    assert any("inline attribution" in f for f in adr.check(root)), adr.check(root)
+    root = fixture(os.path.join(tmp, "e"))
+    edit(root, ONE, "## 6. Consequences", "## 6. Consequences\n\nSee docs/live-checks/2026-09-25-x.md and\nruntime/state/2026-09-25-y.json.\n\n```text\nat 2026-09-25 the log said so\n```\n")
+    assert adr.check(root) == [], adr.check(root)
+
+
 def case_impossible_dates_and_escaping_evidence(tmp: str) -> None:
     root = fixture(tmp)
     edit(root, ONE, "**Date:** 2026-09-27", "**Date:** 2026-13-45")
