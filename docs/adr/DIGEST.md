@@ -38,6 +38,7 @@ searches it.
 | the control agent; fabric-ctl; the control channel; what an account reports; the drain over the relay | ADR-029 |
 | is an agent online; HELLO and GOODBYE; send exits 4; --force | ADR-030 |
 | which Claude account a login runs on; moving logins; setup-token; usage windows | ADR-031 |
+| changing the GZCoord protocol; the grammar freeze; GZCOORD/2 | ADR-032 |
 
 ### ADR-000 — The enduring organization (Accepted)
 
@@ -597,3 +598,23 @@ searches it.
 - Keywords: Claude account, subscription, setup-token, /login, template,
   claude-accounts, CLAUDE_CODE_OAUTH_TOKEN, fabric-accounts, assign,
   secrets-sync, fingerprint, usage windows, observer, /usage.
+
+### ADR-032 — GZCOORD/1 is a normative contract: the grammar frozen until a transport exercises it, GZCOORD/2 for a breaking change, adoption by observation (Accepted)
+
+- SPEC, MESSAGE-FORMAT, SEMANTICS and CONFORMANCE are GZCOORD/1's
+  normative text; `gzmsg.mjs` is the reference validator and every example
+  validates (§2, §5 rule 1). Only fabric-coordinator changes them (§5
+  rule 2).
+- The grammar (SPEC §6) is frozen until an automated transport exercises
+  it; prose, conventions, tightened MUSTs and optional fields stay in
+  scope; a new type waits (§5 rule 3).
+- Within /1 the accepted set only narrows; a disagreement between old and
+  new readers, or a widened §6, is `GZCOORD/2` — a narrowing never is
+  (§5 rules 4–5).
+- A change is adopted by observation: recurring, a real interoperability
+  failure, the smallest fix (§5 rule 6).
+- Every change to the four files lands with an amendment of ADR-032 in the
+  same PR; examples and validator move with the text (§5 rules 7–8).
+- Keywords: GZCoord, GZCOORD/1, GZCOORD/2, protocol, SPEC, grammar,
+  freeze, frozen, compatibility, narrowing, conformance, validator,
+  extension, X-, protocol change.

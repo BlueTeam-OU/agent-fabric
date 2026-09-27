@@ -288,6 +288,15 @@
       "date": "2026-09-24",
       "pillar": "P5",
       "amendments": 0
+    },
+    {
+      "number": "032",
+      "file": "ADR-032-gzcoord-1-is-a-normative-contract.md",
+      "title": "GZCOORD/1 is a normative contract: the grammar frozen until a transport exercises it, GZCOORD/2 for a breaking change, adoption by observation",
+      "status": "Accepted",
+      "date": "2026-09-13",
+      "pillar": "P5",
+      "amendments": 0
     }
   ]
 }

@@ -1,5 +1,7 @@
 # GZCoord
 
+Decisions: agent-fabric ADR-032 (`docs/adr/ADR-032-gzcoord-1-is-a-normative-contract.md`).
+
 GZCoord is a small, transport-agnostic, human-readable messaging protocol for autonomous software-development agents collaborating on the same Git/GitHub-governed project.
 
 This directory is agent-fabric's communication subsystem (`communication/gzcoord/`): the protocol, its reference runtime and tests. It is not a source of authority for any project's state. Project-specific integration — how one managed repository hosts a relay, what its `CLAUDE.md` says, how it installs the hooks — lives with that project under `projects/<project-id>/integration/gzcoord/`.
