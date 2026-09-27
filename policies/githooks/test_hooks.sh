@@ -88,6 +88,8 @@ git -C "$TMP/repo" add docs/adr/ADR-001-decision-records.md docs/adr/DIGEST.md
 git -C "$TMP/repo" add -A
 ( cd "$TMP/repo" && AGENT_FABRIC_STATE_DIR="$TMP/state" git commit -q -m "retitle with its index" >/dev/null 2>"$TMP/err" ); rc=$?
 [[ $rc -eq 0 ]] && pass "…and commits once the index is staged with it" || fail "the complete commit was refused" "$(cat "$TMP/err")"
+sed -i 's|^\*\*Pillar:\*\* P2$|**Pillar:** P2\n**Evidence:** src/a.txt|' "$TMP/repo/docs/adr/ADR-001-decision-records.md"
+[[ "$(try_commit docs/adr/DIGEST.md 'a record whose evidence lives elsewhere in the tree')" == 0 ]] && pass "Evidence anywhere in the staged tree resolves in the hook as in CI" || fail "the hook refused Evidence outside docs/adr" "$(cat "$TMP/err")"
 
 
 echo "the one carve-out: a locale's translations, by the holder of the role named for the suffix"

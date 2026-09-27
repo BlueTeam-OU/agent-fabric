@@ -331,6 +331,39 @@ def case_a_record_the_branch_adds_is_a_draft_until_merged(tmp: str) -> None:
     assert adr.range_check(root, base) == [], "revising a record the branch adds is not an amendment"
 
 
+def case_range_check_judges_a_renamed_record_by_its_number(tmp: str) -> None:
+    root = fixture(tmp)
+    base = commit_base(root)
+    git(root, "mv", ONE, "docs/adr/ADR-001-renamed.md")
+    git(root, "commit", "-q", msg="rename only")
+    edit(root, "docs/adr/ADR-001-renamed.md", "Cheaper, but it keeps", "Cheaper, yet it keeps")
+    git(root, "commit", "-qa", msg="then edit the body")
+    assert len(adr.range_check(root, base)) == 1, "a body edit after a rename escaped as a new record"
+
+
+def case_a_source_is_never_edited(tmp: str) -> None:
+    root = fixture(tmp)
+    base = commit_base(root)
+    edit(root, "docs/adr/sources/ADR-000-the-owners-statement.md", "I would broaden it", "I would widen it")
+    git(root, "commit", "-qa", msg="touch the source")
+    f = adr.range_check(root, base)
+    assert len(f) == 1 and "a verbatim source, which is never edited" in f[0], f
+
+
+def case_range_check_on_a_base_without_records(tmp: str) -> None:
+    root = os.path.join(tmp, "fresh")
+    os.makedirs(root)
+    git(root, "init", "-q", "-b", "main"); git(root, "config", "core.hooksPath", "/dev/null")
+    open(os.path.join(root, "README"), "w").write("x\n")
+    git(root, "add", "-A"); git(root, "commit", "-q", msg="before any record")
+    base = subprocess.run(["git", "-C", root, "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
+    shutil.copytree(os.path.join(ROOT, "docs", "adr"), os.path.join(root, "docs", "adr"))
+    git(root, "add", "-A"); git(root, "commit", "-q", msg="the records arrive")
+    edit(root, ONE, "Cheaper, but it keeps", "Cheaper, yet it keeps")
+    git(root, "commit", "-qa", msg="revise one before the merge")
+    assert adr.range_check(root, base) == [], "a base with no docs/adr: every record is the branch's own"
+
+
 def main() -> int:
     cases = [v for k, v in globals().items() if k.startswith("case_")]
     failures = 0

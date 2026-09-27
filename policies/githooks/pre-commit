@@ -28,8 +28,9 @@ FABRIC_ROOT="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../.." && pwd
 # every managed project, whose own docs/adr/ is that project's.
 if [[ "$(readlink -f "$(git rev-parse --show-toplevel 2>/dev/null)")" == "$(readlink -f "$FABRIC_ROOT")" ]] \
    && ! git diff --cached --quiet --no-renames -- docs/adr/; then
-    adr_tree="$(mktemp -d)"
-    git ls-files -z -- docs/adr docs/live-checks projects/registry.json | git checkout-index -z --stdin --prefix="$adr_tree/"
+    adr_tree="$(mktemp -d)" || { echo "pre-commit: cannot make a scratch directory to check the decision records" >&2; exit 1; }
+    # The whole staged tree: a record's Evidence may cite any path in it.
+    git checkout-index -a --prefix="$adr_tree/"
     if ! adr_out="$(python3 "$FABRIC_ROOT/tools/fabric/adr.py" --root "$adr_tree" check 2>&1)"; then
         rm -rf "$adr_tree"
         printf 'pre-commit: the decision records in this commit are not consistent — not committed:\n%s\n' "$adr_out" >&2

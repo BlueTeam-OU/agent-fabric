@@ -436,6 +436,13 @@ def cmd_lookup(root: str, words: list[str]) -> list[str]:
 def range_check(root: str, base: str, head: str = "HEAD") -> list[str]:
     git = lambda *a: subprocess.run(["git", "-C", root, *a], capture_output=True, text=True, check=True).stdout  # noqa: E731
     findings = []
+    # A record is the branch's own draft when its NUMBER is absent from the
+    # base — by number, not path, so a rename in one commit and a body edit
+    # in the next is still judged (re-review of #50, finding 4).
+    # A base with no docs/adr/ at all (the branch that introduces the
+    # records) has no records: every one in the branch is new.
+    listed = subprocess.run(["git", "-C", root, "ls-tree", "--name-only", f"{base}:{ADR_DIR}"], capture_output=True, text=True)
+    at_base = {m.group(1) for f in listed.stdout.split() if (m := FILE_RE.match(f))} if listed.returncode == 0 else set()
     for sha in git("rev-list", "--reverse", "--no-merges", f"{base}..{head}").split():
         body = git("log", "-1", "--format=%B", sha)
         if re.search(r"^ADR-Editorial:\s*\S", body, re.M):
@@ -449,9 +456,13 @@ def range_check(root: str, base: str, head: str = "HEAD") -> list[str]:
                 old, new_path = parts[1], parts[2]
             else:
                 continue
-            if os.path.dirname(new_path) != ADR_DIR or not FILE_RE.match(os.path.basename(new_path)):
+            # A source is kept verbatim: any change to one is a finding
+            # (agent-fabric ADR-001 §5 rule 9).
+            if new_path.startswith(f"{ADR_DIR}/sources/") or old.startswith(f"{ADR_DIR}/sources/"):
+                findings.append(f"{sha[:8]}: edits {old}, a verbatim source, which is never edited")
                 continue
-            if subprocess.run(["git", "-C", root, "cat-file", "-e", f"{base}:{old}"], capture_output=True).returncode != 0:
+            m = FILE_RE.match(os.path.basename(new_path))
+            if os.path.dirname(new_path) != ADR_DIR or not m or m.group(1) not in at_base:
                 continue
             before = git("show", f"{sha}^:{old}")
             after = git("show", f"{sha}:{new_path}")
