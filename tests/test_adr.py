@@ -396,6 +396,20 @@ def case_a_source_is_never_removed(tmp: str) -> None:
     git(root, "commit", "-q", msg="drop the source")
     f = adr.range_check(root, base)
     assert len(f) == 1 and "never removed" in f[0], f
+    # An editorial trailer excuses a record's body edit, never a source's
+    # removal or edit (review of #51).
+    root = fixture(os.path.join(tmp, "b"))
+    base = commit_base(root)
+    git(root, "rm", "-q", "docs/adr/sources/ADR-000-the-owners-statement.md")
+    git(root, "commit", "-q", msg="drop the source\n\nADR-Editorial: tidy")
+    f = adr.range_check(root, base)
+    assert len(f) == 1 and "never removed" in f[0], f
+    root = fixture(os.path.join(tmp, "c"))
+    base = commit_base(root)
+    edit(root, "docs/adr/sources/ADR-000-the-owners-statement.md", "I would broaden it", "I would widen it")
+    git(root, "commit", "-qa", msg="touch the source\n\nADR-Editorial: typo")
+    f = adr.range_check(root, base)
+    assert len(f) == 1 and "never edited" in f[0], f
 
 
 def main() -> int:

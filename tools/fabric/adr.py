@@ -444,9 +444,9 @@ def range_check(root: str, base: str, head: str = "HEAD") -> list[str]:
     listed = subprocess.run(["git", "-C", root, "ls-tree", "--name-only", f"{base}:{ADR_DIR}"], capture_output=True, text=True)
     at_base = {m.group(1) for f in listed.stdout.split() if (m := FILE_RE.match(f))} if listed.returncode == 0 else set()
     for sha in git("rev-list", "--reverse", "--no-merges", f"{base}..{head}").split():
-        body = git("log", "-1", "--format=%B", sha)
-        if re.search(r"^ADR-Editorial:\s*\S", body, re.M):
-            continue
+        # The trailer excuses a record's body edit only; a source is checked
+        # whatever the message says (review of #51).
+        editorial = bool(re.search(r"^ADR-Editorial:\s*\S", git("log", "-1", "--format=%B", sha), re.M))
         entries = [ln.split("\t") for ln in git("diff-tree", "--no-commit-id", "--name-status", "-r", "-M", sha).splitlines()]
         # A rename below -M's similarity threshold arrives as a delete and an
         # add of the same record number: pair them, and judge the pair like
@@ -482,7 +482,7 @@ def range_check(root: str, base: str, head: str = "HEAD") -> list[str]:
             body_changed = b_lines[b_first:] != a_lines[a_first:]
             rows_before = set(amendment_rows(before))
             row_added = bool(set(amendment_rows(after)) - rows_before)
-            if body_changed and not row_added:
+            if body_changed and not row_added and not editorial:
                 findings.append(f"{sha[:8]}: edits the body of {new_path} with no new Amendments row and no 'ADR-Editorial:' trailer")
     return findings
 
