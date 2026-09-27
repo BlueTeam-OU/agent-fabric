@@ -67,6 +67,16 @@
         ]
       },
       {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "f=\"$AGENT_FABRIC_ROOT/runtime/claude-code/hooks/pipe-status-guard.sh\"; [ -f \"$f\" ] && bash \"$f\"; true",
+            "timeout": 5
+          }
+        ]
+      },
+      {
         "hooks": [
           {
             "type": "command",
