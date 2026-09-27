@@ -127,7 +127,7 @@ def case_out_writes_the_file_and_prints_its_digest() -> None:
         assert printed.startswith("sha256:"), r.stdout
         with open(out, "rb") as fh:
             assert printed == "sha256:" + hashlib.sha256(fh.read()).hexdigest(), "digest is not of the file's bytes"
-        assert not [n for n in os.listdir(os.path.dirname(out)) if n.startswith(".launch-prompt-")], \
+        assert not [n for n in os.listdir(os.path.dirname(out)) if n.startswith(".tmp-")], \
             "a temporary file was left beside the prompt"
 
 

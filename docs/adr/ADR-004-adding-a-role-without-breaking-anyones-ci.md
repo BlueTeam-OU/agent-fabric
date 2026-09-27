@@ -90,12 +90,10 @@ slice not yet on `main` here — that project's CI fails on a dangling
 link; a project remit naming a role not in the catalogue — that project's
 lint finding.
 
-The assembler is idempotent since 2026-09-20 (the same drain twice is the
-same tree), so re-running step 3 to pick up a brief added after the first
-run is safe — with one known exception, open since 2026-09-25: a memory
-whose body carries its own `## ` heading is split at it on the re-read,
-and the second run refuses it as a collision with itself. Check the
-drain's input for such a body before re-running.
+The assembler is idempotent since 2026-09-20: the same drain twice is the
+same tree (a claim body's own headings are demoted at render time since
+2026-09-25, so they never open a section on the re-read), and re-running
+step 3 to pick up a brief added after the first run is safe.
 
 ## 7. Future Evolution
 

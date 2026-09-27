@@ -92,7 +92,9 @@ move: Opus 5.5 at `high` because routing asked for it.
    `routing.py check()` fail until the served value is written into
    `providers.<p>.classes.<class>` with a note saying why; a model that
    expresses no effort at all needs an explicit `null` there, with its
-   note. A downgrade or an upgrade is a commit, never a computation.
+   note. A downgrade, or a raise to the floor, is a commit, never a
+   computation; a vendor's own documented mapping is applied as
+   documented.
 4. A class's level reaches its subagent only through its agent file's
    `effort:` line, written by `install-agent-files.sh`; a hand-written
    `effort:` in a committed source is a lint finding. A model with no
