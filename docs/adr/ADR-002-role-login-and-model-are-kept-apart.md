@@ -46,7 +46,12 @@ The role is bound **from a login shell, never inside a session**
 (`bin/fabric-role bind <role>`), and **rides in the system prompt**:
 `runtime/openrouter/launch` renders `launch-prompt.md` for the bound role
 (`tools/fabric/launch_prompt.py`) and passes it as
-`--append-system-prompt-file` on both launch paths. The project layer — the
+`--append-system-prompt-file` on both launch paths. One exception: a
+`language-culture` login whose locale carries a harness translation
+(`identities/roles/language-culture/locale/<suffix>/harness.md`) gets the
+fabric's text followed by that translation, passed as
+`--system-prompt-file`, which replaces the harness's English
+(`docs/language-culture-bridge.md`). The project layer — the
 role's remit in that project and the pointer to its `INDEX.md` — follows
 the working copy and arrives from the SessionStart hook.
 
@@ -91,12 +96,16 @@ prefix cacheable, so a changed digest means changed content.
 3. A role is bound only from a login shell: `bin/fabric-role bind`, and
    `tools/fabric/role.py` beneath it, refuse when `CLAUDECODE`,
    `CLAUDE_ENV_FILE` or `AGENT_FABRIC_LAUNCH_PROFILE` says a session is
-   running. A different role is a rebind and a relaunch.
+   running. Binding also installs the role's skills into the workspace.
+   A different role is a rebind and a relaunch.
 4. The launch prompt carries, in order: the identity header, the role's
    charter, its brief, `identities/prompt/team.md` and
    `identities/prompt/memory.md`. It carries no project, no timestamp, no
    session id and no cwd, and renders the same bytes for the same (agent,
-   host, role).
+   host, role). The one exception is the locale harness translation of
+   the §2 exception: it comes last, and its `{memory_dir}` is filled from
+   the launch directory — the one deliberate way the text varies with the
+   cwd.
 5. Agent, host and role are never parameters of the render: they come
    from the OS and the binding. The launcher refuses a caller's own
    `--system-prompt*` / `--append-system-prompt*`, as it refuses
@@ -104,16 +113,22 @@ prefix cacheable, so a changed digest means changed content.
 6. The launcher stamps `AGENT_FABRIC_LAUNCH_ROLE` and
    `AGENT_FABRIC_LAUNCH_PROMPT_DIGEST`; `bin/fabric-status` prints
    `launched as <role>` and a `DRIFT` line when the binding, the session
-   default or the prompt file moved under the session. A rebind is never
-   silent.
+   default or the prompt file moved under the session, and the
+   SessionStart hook prints the role drift on each of its runs. A rebind
+   is never silent.
 7. A binding is per (agent, host): `read_binding` refuses one naming
    another agent or written on another host (review, 2026-09-16). A move
    between hosts is a rebind there.
 8. The **brief** (`identities/roles/<role>/brief.md`) is written without
    identifiers — no PR, record, migration or message number, no repository
    path; the **remit** (`.agent-fabric/roles/<role>.md` in the project)
-   carries the anchored version. A role with no brief launches with the
-   placeholder `identities/prompt/brief-missing.md`.
+   carries the anchored version. The brief is class `brief`, tier 1, like
+   the charter: it lives only under `identities/roles/`, is exempt from
+   `derived_from`, is refused as a drain target
+   (`HAND_AUTHORED_CLASSES` in `tools/fabric/harvest_memory.py`), is listed
+   by the assembler in every project index, and is fabric-coordinator's to
+   write under the charter-authority guard. A role with no brief launches
+   with the placeholder `identities/prompt/brief-missing.md`.
 9. A role's charter, brief and distilled knowledge belong to the role, not
    the login; holding a role never entitles a session to change them.
 

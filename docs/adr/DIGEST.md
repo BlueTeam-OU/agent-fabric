@@ -63,7 +63,9 @@ searches it.
 - A role is bound from a login shell only (`fabric-role bind`), refused
   inside a session; a different role is a relaunch (§5 rule 3).
 - The role rides in the system prompt (`--append-system-prompt-file`):
-  header, charter, brief, team, memory — byte-stable, no project; the
+  header, charter, brief, team, memory — byte-stable, no project; a
+  language-culture login with a locale harness translation replaces the
+  prompt instead (`--system-prompt-file`, the translation last). The
   project remit arrives from the SessionStart hook (§5 rules 4–5).
 - Drift is printed by `fabric-status`; a binding is per (agent, host)
   (§5 rules 6–7). Brief is identifier-free, the remit anchored (§5 rule 8).
