@@ -586,6 +586,8 @@ searches it.
   and still parses them (§5 rules 5–7).
 - A request whose addressee's session ended is re-sent, with what
   changed, when presence shows a session (§5 rule 8).
+- A 2026-09-27 — HELLO and GOODBYE are retired from GZCOORD/1; a parser rejects
+  them (§5 rule 7).
 - Keywords: presence, online, HELLO, GOODBYE, announcement, process table,
   send, --force, exit 4, fabric-ctl presence, planning, re-send.
 
@@ -625,6 +627,7 @@ searches it.
   failure, the smallest fix (§5 rule 6).
 - Every change to the four files lands with an amendment of ADR-032 in the
   same PR; examples and validator move with the text (§5 rules 7–8).
+- A 2026-09-27 — HELLO and GOODBYE retired: a narrowing under rule 4.
 - Keywords: GZCoord, GZCOORD/1, GZCOORD/2, protocol, SPEC, grammar,
   freeze, frozen, compatibility, narrowing, conformance, validator,
   extension, X-, protocol change.

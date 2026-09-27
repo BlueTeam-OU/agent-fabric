@@ -55,8 +55,9 @@ delivers it. GZCOORD/1 deprecates both types without removing them.
   sender.
 - **Remove HELLO and GOODBYE from the protocol (GZCOORD/2).** Rejected:
   no message changes meaning, and every sender still on an older text
-  would stop parsing. Deprecation inside /1 retires the practice and
-  keeps the grammar.
+  would stop parsing. Deprecation inside /1 retired the practice first;
+  once nothing sent either type, retiring them inside /1 narrowed the
+  accepted set without a new major version (rule 7).
 
 ## 4. Rationale
 
@@ -96,10 +97,11 @@ something asked once, when it matters.
    bring it back (ADR-009).
 6. The inbox acknowledges a `HELLO` or `GOODBYE` and never delivers or
    lists it; a replay by seq still shows one.
-7. In GZCOORD/1, `HELLO` and `GOODBYE` are deprecated: an instance SHOULD
-   NOT send them, presence is the deployment's to answer from an
-   authoritative source, a receiver MUST NOT rely on either arriving, and
-   a conforming parser still accepts both (SPEC §5).
+7. In GZCOORD/1, `HELLO` and `GOODBYE` are retired: no instance sends
+   them, presence is the deployment's to answer from an authoritative
+   source, and a conforming parser rejects a message of either type,
+   naming it as retired (SPEC §5, §8, §18). The inbox still acknowledges
+   one from an old session without delivering it (rule 6) (A 2026-09-27).
 8. A request whose addressee's session ended before acting on it is
    re-sent when presence shows a session running, saying what changed —
    never assumed to carry over.
@@ -144,3 +146,11 @@ carry it.
   holder-choice rule that reads presence), ADR-029 (the control agent).
 - The live check in Evidence: the `GOODBYE` from the launcher, measured
   on 2026-09-16 and retired by this record.
+
+## Amendments
+
+The body above reads current; each change's full note is in [history/ADR-030-amendments.md](history/ADR-030-amendments.md).
+
+| Date | Amendment | Effect |
+|---|---|---|
+| 2026-09-27 | HELLO and GOODBYE retired | §5 rule 7: the types are retired from GZCOORD/1 and a parser rejects them; §3's rejected alternative says why a new major version was not needed |
