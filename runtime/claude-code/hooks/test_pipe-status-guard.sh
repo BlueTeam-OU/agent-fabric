@@ -25,13 +25,18 @@ for c in 'python3 tests/test_adr.py | tail -1 && git commit -q -m x' \
          'lint | grep -q clean && git push -q origin HEAD' \
          'python3 t.py | head -5 && git -C /repo commit -m z' \
          'check | tail -1 && gh pr merge 53 --merge' \
-         $'python3 t.py \\\n  | tail -1 \\\n  && git commit -m multi'; do
+         $'python3 t.py \\\n  | tail -1 \\\n  && git commit -m multi' \
+         'set +o pipefail; false | tail -1 && git commit -m bad' \
+         'echo pipefail; check | tail -1 && git commit -m bad' \
+         'check | tail -1 && git commit -m "pipefail"' \
+         'set -o pipefail; set +o pipefail; x | tail -1 && git push'; do
   expect "refused: $c" deny "$c"
 done
 
 echo "the status captured, pipefail, or no commit after the pipe: allowed"
 for c in 'python3 t.py > log 2>&1; rc=$?; [ $rc -eq 0 ] && git commit -m x' \
          'set -o pipefail; python3 t.py | tail -1 && git commit -m x' \
+         'set -euo pipefail; python3 t.py | tail -1 && git commit -m x' \
          'git log --oneline | head -3' \
          'grep -q x file && git commit -m y' \
          'python3 t.py | tail -1; echo done' \
