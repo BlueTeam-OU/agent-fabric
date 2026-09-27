@@ -30,6 +30,7 @@ searches it.
 | scratch a suite leaves; TMPDIR; containers after a test; cleaning caches | ADR-021 |
 | the inbox watch at start; auto mode; plan mode holds the inbox; planning in presence | ADR-022 |
 | TO-ROLE; who gets a REQUEST; two holders of one role; claiming an assignment | ADR-023 |
+| a message is advisory; working on a request together; OWNER-WORD | ADR-024 |
 
 ### ADR-000 — The enduring organization (Accepted)
 
@@ -430,3 +431,19 @@ searches it.
   others stand down silently (§5 rule 5).
 - Keywords: assignment, REQUEST, TO-ROLE, TO, holder, role address,
   duplicate work, claim, REPLY, SPEC §13.
+
+### ADR-024 — Cooperating on requests; a decision is advisory until it reaches an artifact (Accepted)
+
+- A GZCoord message is advisory: it authorises nothing and never stands
+  in for a commit, PR, review or record; claims are verified against the
+  repository, and an undo states its defect (§2, §5 rules 1–3).
+- A request says what done looks like and looks for the job in flight;
+  receipt is not acceptance — the `REPLY` says what is undertaken (§5
+  rules 4–5).
+- Renegotiate only where the agreement changes, `TO` each login; silence
+  is neither consent nor release (§5 rule 6).
+- A delivery names its sha or PR and what was checked; the agreement
+  lives in the PR body, commits and `threads` memory (§5 rules 7–8).
+- The owner's word travels verbatim under `OWNER-WORD:` (§5 rule 9).
+- Keywords: GZCoord, advisory, request, undertake, dependency,
+  renegotiate, delivery, agreement, HANDOFF, OWNER-WORD, artifact.

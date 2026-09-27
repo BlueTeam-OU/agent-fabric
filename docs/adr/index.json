@@ -216,6 +216,15 @@
       "date": "2026-09-19",
       "pillar": "P3",
       "amendments": 0
+    },
+    {
+      "number": "024",
+      "file": "ADR-024-cooperating-on-requests.md",
+      "title": "Cooperating on requests; a decision is advisory until it reaches an artifact",
+      "status": "Accepted",
+      "date": "2026-09-13",
+      "pillar": "P3",
+      "amendments": 0
     }
   ]
 }
