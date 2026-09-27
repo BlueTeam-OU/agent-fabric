@@ -99,6 +99,15 @@
       "date": "2026-09-16",
       "pillar": "P1",
       "amendments": 0
+    },
+    {
+      "number": "011",
+      "file": "ADR-011-managed-projects-consume-the-fabric-at-a-pinned-ref.md",
+      "title": "Managed projects consume the fabric at a pinned ref",
+      "status": "Accepted",
+      "date": "2026-09-18",
+      "pillar": "P1",
+      "amendments": 0
     }
   ]
 }

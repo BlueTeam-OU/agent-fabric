@@ -17,6 +17,7 @@ searches it.
 | Claude Code settings on every account; attribution; auto-update; the harness prompt | ADR-008 |
 | upgrading the fleet; distributing after a merge; fabric commands without approval | ADR-009 |
 | hosts and placement; hostexec; provisioning an account; fabric-lease and host memory | ADR-010 |
+| fabric-ref; a project's CI red from a fabric push; landing a drain | ADR-011 |
 
 ### ADR-000 — The enduring organization (Accepted)
 
@@ -184,3 +185,16 @@ searches it.
   until a second Flutter login needs it (§7).
 - Keywords: host, placement, hostexec, fabric-host, ssh, provisioning,
   new-agent, Qubes, persist-accounts, moveto, lease, heavy, memory, crash, OOM.
+
+### ADR-011 — Managed projects consume the fabric at a pinned ref (Accepted)
+
+- A managed project's `.agent-fabric/fabric-ref` names the fabric commit
+  its indexes match; its CI checks that commit out, never the fabric's
+  default branch (§2, §5 rules 1–2).
+- A drain lands fabric first, then `fabric-ref` written and the project
+  PRs armed at once; the ref moves only with matching indexes (§5 rules
+  3–4).
+- Until a project's pin is live, a fabric push that changes its index
+  waits for an empty queue and goes out with the index PR (§5 rule 5).
+- Keywords: fabric-ref, pin, cross-repo, lint window, drain, merge queue,
+  CI, project checkout.
