@@ -566,6 +566,8 @@ searches it.
   replies are signed (§6, §7).
 - A 2026-09-27 — actions run beside the read loop, one of a kind per account; a
   second is answered `busy` (§5 rule 12).
+- A 2026-09-27 — rule 12 lists each operation's answer budget and the
+  cross-kind `busy` (§5 rule 12).
 - Keywords: control plane, agentd, fabric-ctl, control channel,
   fabric:control, relay, ops, status, ping, keys, usage, recall, tokens,
   drain, memory, signed, operator_key, keygen, linger, persist.

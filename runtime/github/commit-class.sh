@@ -2,7 +2,7 @@
 # runtime/github/commit-class.sh (lifted from the first managed project's tools/gh/ on 2026-09-19 — the commit names it; general to every managed project, whose own tools/gh/ copy is a forwarder through projects/<id>/integration/gh/) — sourced, not run.
 #
 # ONE classifier for "is this commit a review fix" — the count rule
-# (root CLAUDE.md §When to open a NEW PR: 8–16 WORK commits arm at the
+# (agent-fabric ADR-019, the arming band: 8–16 WORK commits arm at the
 # review gate, under 8 ask the owner or state a class, over 16 is
 # advice for the next batch; review fixes never count) is applied by
 # pr-gate.sh on open PRs and by whatever measures merged ones after
