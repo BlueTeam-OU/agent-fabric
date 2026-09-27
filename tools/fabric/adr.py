@@ -447,13 +447,23 @@ def range_check(root: str, base: str, head: str = "HEAD") -> list[str]:
         body = git("log", "-1", "--format=%B", sha)
         if re.search(r"^ADR-Editorial:\s*\S", body, re.M):
             continue
-        for line in git("diff-tree", "--no-commit-id", "--name-status", "-r", "-M", sha).splitlines():
-            parts = line.split("\t")
+        entries = [ln.split("\t") for ln in git("diff-tree", "--no-commit-id", "--name-status", "-r", "-M", sha).splitlines()]
+        # A rename below -M's similarity threshold arrives as a delete and an
+        # add of the same record number: pair them, and judge the pair like
+        # a rename (re-review of #50).
+        deleted = {m.group(1): e[1] for e in entries if e[0][:1] == "D" and len(e) == 2
+                   and os.path.dirname(e[1]) == ADR_DIR and (m := FILE_RE.match(os.path.basename(e[1])))}
+        for parts in entries:
             kind = parts[0][:1]
             if kind == "M" and len(parts) == 2:
                 old, new_path = parts[1], parts[1]
             elif kind == "R" and len(parts) == 3:
                 old, new_path = parts[1], parts[2]
+            elif kind == "A" and len(parts) == 2 and (m := FILE_RE.match(os.path.basename(parts[1]))) and m.group(1) in deleted:
+                old, new_path = deleted[m.group(1)], parts[1]
+            elif kind == "D" and len(parts) == 2 and parts[1].startswith(f"{ADR_DIR}/sources/"):
+                findings.append(f"{sha[:8]}: deletes {parts[1]}, a verbatim source, which is never removed")
+                continue
             else:
                 continue
             # A source is kept verbatim: any change to one is a finding

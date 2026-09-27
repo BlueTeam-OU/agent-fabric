@@ -364,6 +364,30 @@ def case_range_check_on_a_base_without_records(tmp: str) -> None:
     assert adr.range_check(root, base) == [], "a base with no docs/adr: every record is the branch's own"
 
 
+def case_range_check_pairs_a_delete_and_add_of_one_record(tmp: str) -> None:
+    root = fixture(tmp)
+    base = commit_base(root)
+    body = open(os.path.join(root, ONE), encoding="utf-8").read()
+    os.remove(os.path.join(root, ONE))
+    head = body.split("## 1. Context and Problem", 1)[0]
+    # Every section rewritten: far below -M's similarity threshold, so git
+    # reports a delete and an add, never a rename.
+    sections = "".join(f"## {name}\n\nRewritten {i}: " + "fresh wording " * 30 + "\n\n" for i, name in enumerate(adr.SECTIONS))
+    open(os.path.join(root, "docs/adr/ADR-001-rewritten.md"), "w", encoding="utf-8").write(head + sections)
+    git(root, "add", "-A"); git(root, "commit", "-q", msg="rename and rewrite in one go")
+    f = adr.range_check(root, base)
+    assert len(f) == 1 and "ADR-001-rewritten.md" in f[0], f
+
+
+def case_a_source_is_never_removed(tmp: str) -> None:
+    root = fixture(tmp)
+    base = commit_base(root)
+    git(root, "rm", "-q", "docs/adr/sources/ADR-000-the-owners-statement.md")
+    git(root, "commit", "-q", msg="drop the source")
+    f = adr.range_check(root, base)
+    assert len(f) == 1 and "never removed" in f[0], f
+
+
 def main() -> int:
     cases = [v for k, v in globals().items() if k.startswith("case_")]
     failures = 0
