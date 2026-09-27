@@ -20,7 +20,7 @@ memory.
 The owner stated the purpose on 2026-09-27. This record is the
 coordinator's paraphrase of that statement, which the owner ratified by
 arming it; the owner's own text is kept verbatim beside it, in
-`sources/ADR-000-the-owners-statement.md`. Every other decision record
+`docs/adr/sources/ADR-000-the-owners-statement.md`. Every other decision record
 in this directory serves the purpose stated here and is grouped under one
 of its pillars.
 
@@ -134,10 +134,10 @@ evidence it rests on (live checks). A belief with neither
 evidence nor an owner is a liability, not an asset.
 
 **Direction.** Every project leaves a precaution, a method or a corrected
-belief behind it, found where the next project will look. *Coordinator
-proposal:* a decision whose evidence has gone stale is flagged for review,
-not kept on inertia. Learning resides in curated knowledge and practice; it does not require
-changing any model's weights.
+belief behind it, found where the next project will look. Learning
+resides in curated knowledge and practice; it does not require changing
+any model's weights. *Coordinator proposal:* a decision whose evidence has
+gone stale is flagged for review, not kept on inertia.
 
 ### P3 — Autonomy with verifiable commitments
 
@@ -198,9 +198,9 @@ answering when a model does not.
 resilience, not complexity for its own sake. The criterion: a
 failure or a change of provider may reduce the team's capacity for a
 while; it must not take its identity, its knowledge or its ability to go
-on working. *Coordinator proposal:* every operation the organization
-depends on has a documented degraded mode. Dependence on one person is not replaced by dependence on
-one central service.
+on working. Dependence on one person is not replaced by dependence on one
+central service. *Coordinator proposal:* every operation the organization
+depends on has a documented degraded mode.
 
 ### P6 — Federation
 
@@ -259,17 +259,21 @@ sustainable operation.
 
 Accepted: the owner armed the pull request that introduces it (agent-fabric
 #50, "merge 50", 2026-09-27) after being told that arming ratifies this
-record, its marked proposals included. What is the owner's and what is the
-coordinator's: the purpose, the principle and pillars P1–P6 with their
-directions are the owner's statement, paraphrased; pillar P7, everything
-marked *Coordinator proposal* (six paragraphs and four sentences within the
-directions), the alternatives of §3 and the structural rules 2–4 of §5 are
-the coordinator's. Any of the coordinator's
+record, its marked proposals included.
+
+What is the owner's and what is the coordinator's. The purpose, the
+principle, and pillars P1–P6 with their directions are the owner's
+statement, paraphrased (the source is kept verbatim, References). Pillar
+P7, everything marked *Coordinator proposal* — five paragraphs and four
+sentences within the directions, each at the end of its paragraph — the
+alternatives of §3 and the structural rules 2–4 of §5 are the
+coordinator's. So are the **Today** paragraphs: the coordinator's account
+of what the tree holds, checkable against it. Any of the coordinator's
 parts can be struck by an amendment without touching the rest.
 
 ## References
 
-- `sources/ADR-000-the-owners-statement.md` — the owner's statement of
+- `docs/adr/sources/ADR-000-the-owners-statement.md` — the owner's statement of
   the vision, 2026-09-27, verbatim.
 - ADR-001, the decision records themselves.
 - `CLAUDE.md` §"Six things that are kept apart" and `README.md` — the
