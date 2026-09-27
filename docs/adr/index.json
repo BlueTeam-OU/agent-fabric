@@ -153,6 +153,15 @@
       "date": "2026-09-19",
       "pillar": "P2",
       "amendments": 0
+    },
+    {
+      "number": "017",
+      "file": "ADR-017-measurement-before-belief.md",
+      "title": "Measurement before belief: live checks are evidence, prompt changes are read back",
+      "status": "Accepted",
+      "date": "2026-09-15",
+      "pillar": "P2",
+      "amendments": 0
     }
   ]
 }

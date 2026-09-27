@@ -23,6 +23,7 @@ searches it.
 | a drain stopped by a collision; supersede, keep-both, drop; merge_target | ADR-014 |
 | what a comment is for; stale comments; the stronger executable form | ADR-015 |
 | writing a SKILL.md; dates and PR numbers in skills; skill-creator | ADR-016 |
+| live checks; read-back; evidence; a prompt change before pushing | ADR-017 |
 
 ### ADR-000 — The enduring organization (Accepted)
 
@@ -301,3 +302,21 @@ searches it.
   records are open (§7).
 - Keywords: skill, SKILL.md, skill-creator, history, incident, date, PR
   number, evidence, provenance.
+
+### ADR-017 — Measurement before belief: live checks are evidence, prompt changes are read back (Accepted)
+
+- A design decided from documentation is a guess until read back live,
+  with a control where a silent failure would look like success (§2, §5
+  rule 1).
+- The read-back is a dated live check — what was run, where, on which
+  build, what it measured and decides; records cite it as Evidence (§5
+  rules 2–3).
+- A live check is never rewritten: later read-backs are appended, a
+  replaced practice gets a banner (§5 rule 4).
+- A charter, brief, template or locale change is read back with
+  `launch --print` as each affected holder before pushing; the suite
+  renders every role under `MAX_CHARS` (§5 rule 5).
+- A guard is proved on the shapes its fix removed; a finding says how it
+  was verified (§5 rules 6–7). Mostly practice, not mechanised (§6).
+- Keywords: live check, read-back, measurement, evidence, control,
+  launch --print, MAX_CHARS, prompt ceiling, verify, guard.
