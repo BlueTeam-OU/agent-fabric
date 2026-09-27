@@ -150,10 +150,11 @@ def place(local: dict[str, Any], provider: str, target: str, model: str | None) 
 
 
 def write_local(path: str, local: dict[str, Any]) -> None:
+    # Per-agent state: all-or-nothing, like every write under agents/<login>/
+    # (agent-fabric ADR-003). The callers hold agent_lock across the read
+    # and this write, so two `fabric-model set` never lose one another.
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "w", encoding="utf-8") as fh:
-        json.dump(local, fh, indent=2, ensure_ascii=False)
-        fh.write("\n")
+    identity.atomic_write(path, json.dumps(local, indent=2, ensure_ascii=False) + "\n")
 
 
 # ── resolution, for the reader ───────────────────────────────────────
@@ -247,14 +248,15 @@ def cmd_list(args: argparse.Namespace, ctx: dict[str, Any], path: str) -> int:
 def _change(ctx: dict[str, Any], path: str, provider: str, target: str, model: str | None) -> int:
     if target not in TARGETS[provider]:
         raise Refusal(f"{target!r} is not a target on {provider}; one of: {', '.join(TARGETS[provider])}")
-    local, notes = migrate(read_local(path))
-    new = place(local, provider, target, model)
-    try:
-        routing.normalize_layer(new, "local")
-    except ValueError as exc:
-        raise Refusal(f"{exc}. Nothing was written.") from exc
-    check_review_gate(provider, ctx["role"], ctx["agent"], new)
-    write_local(path, new)
+    with identity.agent_lock(ctx["agent"]):
+        local, notes = migrate(read_local(path))
+        new = place(local, provider, target, model)
+        try:
+            routing.normalize_layer(new, "local")
+        except ValueError as exc:
+            raise Refusal(f"{exc}. Nothing was written.") from exc
+        check_review_gate(provider, ctx["role"], ctx["agent"], new)
+        write_local(path, new)
     for note in notes:
         print(f"  moved: {note}")
     verb = "unset" if model is None else f"set to {model}"
@@ -291,43 +293,44 @@ def cmd_unset(args: argparse.Namespace, ctx: dict[str, Any], path: str) -> int:
 
 def cmd_seed(args: argparse.Namespace, ctx: dict[str, Any], path: str) -> int:
     """The merged result, written in as explicit choices."""
-    local, notes = migrate(read_local(path))
-    providers = [args.provider] if args.provider else list(routing.PROVIDERS)
-    new = local
-    written: list[str] = []
-    for provider in providers:
-        rows = resolved(provider, ctx["role"], ctx["agent"], local)
-        for target, row in rows.items():
-            if not row.get("model") or row.get("source") in ("local", "harness"):
-                continue  # a harness default has nothing to seed; a local choice is already one
-            model = row["model"]
-            if target.endswith(EFFORT_SUFFIX):
-                # The INTENT, never the served level. A level is a function
-                # of (intent, model): freezing what today's model happens
-                # to admit records a choice the fabric never made, and it
-                # keeps applying after the model moves under it — seeding
-                # openrouter's code-medium wrote `high` where effort.json
-                # says `medium` (review of 2026-09-23, F2).
-                e = row.get("effort") or {}
-                # …and for an ACKNOWLEDGED class the intent IS the
-                # acknowledgement, which compensates for one (provider,
-                # model) pair and is not this agent's choice. Seeding it
-                # copies a compensation into a layer that now outranks the
-                # acknowledgement it came from, so it survives the model
-                # change the acknowledgement existed for (re-review, N1).
-                if str(e.get("source") or "").startswith("effort.json:providers."):
-                    continue
-                model = e.get("intent")
-                if not model:
-                    continue
-            if target == "session" and row.get("capability"):
-                model = row["capability"]  # a class-named session is seeded as the class
-            if provider == "openrouter":
-                model = model.split("@", 1)[0]  # the shim is derived, never configured
-            new = place(new, provider, target, model)
-            written.append(f"{provider}.{target} = {model}  (was from {row['source']})")
-    routing.normalize_layer(new, "local")
-    write_local(path, new)
+    with identity.agent_lock(ctx["agent"]):
+        local, notes = migrate(read_local(path))
+        providers = [args.provider] if args.provider else list(routing.PROVIDERS)
+        new = local
+        written: list[str] = []
+        for provider in providers:
+            rows = resolved(provider, ctx["role"], ctx["agent"], local)
+            for target, row in rows.items():
+                if not row.get("model") or row.get("source") in ("local", "harness"):
+                    continue  # a harness default has nothing to seed; a local choice is already one
+                model = row["model"]
+                if target.endswith(EFFORT_SUFFIX):
+                    # The INTENT, never the served level. A level is a function
+                    # of (intent, model): freezing what today's model happens
+                    # to admit records a choice the fabric never made, and it
+                    # keeps applying after the model moves under it — seeding
+                    # openrouter's code-medium wrote `high` where effort.json
+                    # says `medium` (review of 2026-09-23, F2).
+                    e = row.get("effort") or {}
+                    # …and for an ACKNOWLEDGED class the intent IS the
+                    # acknowledgement, which compensates for one (provider,
+                    # model) pair and is not this agent's choice. Seeding it
+                    # copies a compensation into a layer that now outranks the
+                    # acknowledgement it came from, so it survives the model
+                    # change the acknowledgement existed for (re-review, N1).
+                    if str(e.get("source") or "").startswith("effort.json:providers."):
+                        continue
+                    model = e.get("intent")
+                    if not model:
+                        continue
+                if target == "session" and row.get("capability"):
+                    model = row["capability"]  # a class-named session is seeded as the class
+                if provider == "openrouter":
+                    model = model.split("@", 1)[0]  # the shim is derived, never configured
+                new = place(new, provider, target, model)
+                written.append(f"{provider}.{target} = {model}  (was from {row['source']})")
+        routing.normalize_layer(new, "local")
+        write_local(path, new)
     for note in notes:
         print(f"  moved: {note}")
     for line in written:

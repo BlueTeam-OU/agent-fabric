@@ -16,6 +16,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
@@ -231,11 +232,34 @@ def test_effort_is_a_target_that_layers_like_a_model(f: Fixture) -> None:
     assert p.returncode != 0, "a value outside the vocabulary was accepted"
 
 
+def test_a_write_waits_for_the_agent_lock(f: Fixture) -> None:
+    # Per-agent state is written under agent_lock (agent-fabric ADR-003):
+    # while another process holds agents/<login>/.lock, a set writes nothing.
+    import fcntl
+    lock_dir = os.path.dirname(f.local)
+    os.makedirs(lock_dir, exist_ok=True)
+    fd = os.open(os.path.join(lock_dir, ".lock"), os.O_RDWR | os.O_CREAT, 0o600)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        proc = subprocess.Popen([sys.executable, TOOL, "set", "--provider", "anthropic", "code-high", "claude-opus-5[1m]"],
+                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=f.env)
+        time.sleep(1.5)
+        assert proc.poll() is None and not os.path.exists(f.local), "set wrote while another process held the lock"
+        fcntl.flock(fd, fcntl.LOCK_UN)
+        out, err = proc.communicate(timeout=60)
+    finally:
+        os.close(fd)
+    assert proc.returncode == 0, err
+    assert f.read() == {"providers": {"anthropic": {"capabilities": {"code-high": "claude-opus-5[1m]"}}}}, f.read()
+    assert [n for n in os.listdir(lock_dir) if n.startswith(".tmp-")] == [], "a temporary was left beside the file"
+
+
 def main() -> int:
     cases = [
         test_list_shows_both_providers_with_sources,
         test_set_writes_under_the_provider_and_nothing_else,
         test_unset_removes_and_prunes,
+        test_a_write_waits_for_the_agent_lock,
         test_vocabulary_is_the_class_and_the_providers_model,
         test_review_is_gated_on_both_providers_and_reaches_the_file,
         test_a_flat_local_file_is_migrated_on_first_write,
