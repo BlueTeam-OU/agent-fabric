@@ -22,6 +22,7 @@ searches it.
 | where knowledge lives; memory classes; the drain; INDEX.md; hygiene | ADR-013 |
 | a drain stopped by a collision; supersede, keep-both, drop; merge_target | ADR-014 |
 | what a comment is for; stale comments; the stronger executable form | ADR-015 |
+| writing a SKILL.md; dates and PR numbers in skills; skill-creator | ADR-016 |
 
 ### ADR-000 — The enduring organization (Accepted)
 
@@ -285,3 +286,18 @@ searches it.
   workspace `CLAUDE.md`, not a project's own (§2).
 - Keywords: comment, why, code as memory, self-documenting, stale comment,
   invariant, refactoring, oddity, review, fresh session.
+
+### ADR-016 — Skills carry rules, not history (Accepted)
+
+- A skill states the rule and its reason, generally; never the date, PR
+  number, project or login that taught it (§2, §5 rules 1–2).
+- Evidence lives in the commit, a live check or the record the skill
+  applies; a pointer to a rule's home may stay, named by repository from
+  outside it (§5 rules 3–4).
+- Load the skill-creator skill before writing or changing a `SKILL.md`
+  (§5 rule 5).
+- Lint refuses only a managed project's name, and not in the dispatch
+  skill; the rest is review (§6). pg-probe's bare pointers to a project's
+  records are open (§7).
+- Keywords: skill, SKILL.md, skill-creator, history, incident, date, PR
+  number, evidence, provenance.

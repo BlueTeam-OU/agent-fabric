@@ -144,6 +144,15 @@
       "date": "2026-09-19",
       "pillar": "P2",
       "amendments": 0
+    },
+    {
+      "number": "016",
+      "file": "ADR-016-skills-carry-rules-not-history.md",
+      "title": "Skills carry rules, not history",
+      "status": "Accepted",
+      "date": "2026-09-19",
+      "pillar": "P2",
+      "amendments": 0
     }
   ]
 }
