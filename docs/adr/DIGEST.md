@@ -25,6 +25,7 @@ searches it.
 | writing a SKILL.md; dates and PR numbers in skills; skill-creator | ADR-016 |
 | live checks; read-back; evidence; a prompt change before pushing | ADR-017 |
 | who may commit here; Fabric-Role; the hooks; the locale carve-out; what a guard is | ADR-018 |
+| opening, counting and arming a PR; pr-gate; Co-authored-by; GitHub settings | ADR-019 |
 
 ### ADR-000 — The enduring organization (Accepted)
 
@@ -340,3 +341,21 @@ searches it.
   holds charters today (§6).
 - Keywords: authority, read-only, fence, tripwire, Fabric-Role, trailer,
   pre-commit, commit-msg, hooksPath, charter, locale carve-out, guard.
+
+### ADR-019 — Work arrives as pull requests: one open PR per agent, 8–16 work commits to arm, the gate read before arming, no machine attribution, repository settings (Accepted)
+
+- Every change reaches `main` through a PR; on agent-fabric since
+  2026-09-18, by practice — no ruleset, protection or queue there (§2,
+  §5 rule 1, §6).
+- One open PR per agent; the next work is another commit while the
+  branch is addable; two stated exceptions (§5 rule 2).
+- Work commits exclude review fixes (`Answers:` trailer, else the
+  subject; `commit-class.sh`): 8–16 arm at the gate, under 8 ask the
+  owner, over 16 split before opening (§5 rules 3–4).
+- Arm only on `pr-gate.sh`'s `MERGEABLE`, read first, with no open P1/P2;
+  on agent-fabric arming is the merge (§5 rules 5–6).
+- No `Co-authored-by:`/`Claude-Session:` trailer, footer or session URL
+  in commits or PR descriptions (§5 rule 7). GitHub settings: §6.
+- Keywords: pull request, PR, arm, merge, band, work commits, Answers,
+  pr-gate, MERGEABLE, one open PR, attribution, Co-authored-by, CodeQL,
+  repository settings, auto-merge.
