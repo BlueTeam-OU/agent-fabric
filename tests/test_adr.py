@@ -23,6 +23,12 @@ ONE = "docs/adr/ADR-001-decision-records.md"
 def fixture(tmp: str) -> str:
     root = os.path.join(tmp, "fabric")
     shutil.copytree(os.path.join(ROOT, "docs", "adr"), os.path.join(root, "docs", "adr"))
+    # A record's Evidence paths must exist (adr.check), so the copy carries them.
+    adrs, _ = adr.load(ROOT)
+    for ev in {e.strip() for a in adrs for e in a["fields"].get("Evidence", "").split(",") if e.strip()}:
+        src, dst = os.path.join(ROOT, ev), os.path.join(root, ev)
+        os.makedirs(os.path.dirname(dst), exist_ok=True)
+        (shutil.copytree if os.path.isdir(src) else shutil.copy)(src, dst)
     os.makedirs(os.path.join(root, "projects"))
     shutil.copy(os.path.join(ROOT, "projects", "registry.json"), os.path.join(root, "projects", "registry.json"))
     return root
@@ -159,8 +165,8 @@ def case_no_amendment_note_inside_the_record(tmp: str) -> None:
 def case_orphan_history_files(tmp: str) -> None:
     root = fixture(tmp)
     os.makedirs(os.path.join(root, "docs/adr/history"), exist_ok=True)
-    open(os.path.join(root, "docs/adr/history/ADR-009-amendments.md"), "w").write("# x\n\n### Amendment 2026-09-28 — y\n")
-    only(root, "history/ADR-009-amendments.md: belongs to no ADR")
+    open(os.path.join(root, "docs/adr/history/ADR-999-amendments.md"), "w").write("# x\n\n### Amendment 2026-09-28 — y\n")
+    only(root, "history/ADR-999-amendments.md: belongs to no ADR")
 
 
 def case_superseded_needs_a_point_map_to_a_real_record(tmp: str) -> None:
@@ -191,9 +197,10 @@ def case_the_digest_follows_the_records(tmp: str) -> None:
 
 def case_new_takes_the_next_number(tmp: str) -> None:
     root = fixture(tmp)
+    nxt = f"ADR-{len(adr.load(root)[0]):03d}"
     path = adr.cmd_new(root, "a-new-thing", "A new thing")
-    assert path.endswith("ADR-002-a-new-thing.md"), path
-    assert open(path, encoding="utf-8").read().startswith("# ADR-002 — A new thing")
+    assert path.endswith(f"{nxt}-a-new-thing.md"), path
+    assert open(path, encoding="utf-8").read().startswith(f"# {nxt} — A new thing")
 
 
 def case_lookup_reads_the_digest(tmp: str) -> None:
@@ -263,7 +270,7 @@ def case_amendments_bookkeeping_edges(tmp: str) -> None:
     open(os.path.join(root, ONE), "w", encoding="utf-8").write(s)
     only(root, "'## Amendments' must be the last section")
     root = fixture(os.path.join(tmp, "c"))
-    os.makedirs(os.path.join(root, "docs/adr/history"))
+    os.makedirs(os.path.join(root, "docs/adr/history"), exist_ok=True)
     open(os.path.join(root, "docs/adr/history/ADR-001-amendments.md"), "w").write("# ADR-001 — amendments\n")
     only(root, "no amendment in it — remove it")
 
@@ -276,8 +283,8 @@ def case_superseded_needs_an_arrow(tmp: str) -> None:
 
 def case_digest_orphan_and_readme_markers(tmp: str) -> None:
     root = fixture(tmp)
-    edit(root, "docs/adr/DIGEST.md", "### ADR-001 —", "### ADR-009 — Ghost (Accepted)\n\n### ADR-001 —")
-    only(root, "an entry for ADR-009, which does not exist")
+    edit(root, "docs/adr/DIGEST.md", "### ADR-001 —", "### ADR-999 — Ghost (Accepted)\n\n### ADR-001 —")
+    only(root, "an entry for ADR-999, which does not exist")
     root = fixture(os.path.join(tmp, "b"))
     edit(root, "docs/adr/README.md", adr.INDEX_START, "")
     only(root, "no <!-- adr-index:start -->")
@@ -324,9 +331,9 @@ def case_range_check_follows_renames_and_passes_header_only(tmp: str) -> None:
 def case_a_record_the_branch_adds_is_a_draft_until_merged(tmp: str) -> None:
     root = fixture(tmp)
     base = commit_base(root)
-    adr.cmd_new(root, "a-draft", "A draft")
+    draft = os.path.relpath(adr.cmd_new(root, "a-draft", "A draft"), root)
     git(root, "add", "-A"); git(root, "commit", "-q", msg="add a draft record")
-    edit(root, "docs/adr/ADR-002-a-draft.md", "## 6. Consequences", "## 6. Consequences\n\nRevised before the merge.\n")
+    edit(root, draft, "## 6. Consequences", "## 6. Consequences\n\nRevised before the merge.\n")
     git(root, "commit", "-qa", msg="revise the draft")
     assert adr.range_check(root, base) == [], "revising a record the branch adds is not an amendment"
 
