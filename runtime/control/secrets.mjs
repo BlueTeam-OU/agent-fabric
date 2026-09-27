@@ -1,7 +1,7 @@
 // runtime/control/secrets.mjs — the control agent's second ACTION: re-sync
 // this account's secrets from Doppler (bin/fabric-secrets sync), so a change
 // the coordinator made to the login's config — which Claude account it runs
-// on (`fabric-accounts assign`, docs/claude-accounts.md) — reaches the
+// on (`fabric-accounts assign`, docs/adr/ADR-031-claude-accounts-assigned-applied-and-proved-by-signed-action.md) — reaches the
 // account without anyone logging in to it.
 //
 // An action, signed, for the same reason `upgrade` is: it changes what the

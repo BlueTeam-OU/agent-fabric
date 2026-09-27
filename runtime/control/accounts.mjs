@@ -1,5 +1,5 @@
 // runtime/control/accounts.mjs — the Claude accounts this login observes
-// (ops.mjs `accounts`; docs/claude-accounts.md). Run as the observing login,
+// (ops.mjs `accounts`; docs/adr/ADR-031-claude-accounts-assigned-applied-and-proved-by-signed-action.md). Run as the observing login,
 // in practice the coordinator's.
 //
 //   fabric-accounts login <account>   sign one Claude account in, once: opens the harness
@@ -76,7 +76,7 @@ export function templates({ exec = execFileSync, project = 'agent-fabric' } = {}
 }
 
 // Which Claude account a login runs on is one line in its own Doppler
-// config: a reference to a template (docs/claude-accounts.md). With none
+// config: a reference to a template (docs/adr/ADR-031-claude-accounts-assigned-applied-and-proved-by-signed-action.md). With none
 // it is 'none', and the launcher refuses its plain-claude sessions. Written with the coordinator's Doppler token — a
 // login's own is read-only — and read back raw, so the account is named
 // by its template, not by a token.

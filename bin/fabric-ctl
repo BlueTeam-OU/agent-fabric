@@ -9,11 +9,11 @@
 #                                              grouped by Claude account with its share (docs/adr/ADR-029-the-control-plane-a-control-agent-per-account.md)
 #   fabric-ctl <login|all> memory --out <dir>     the drain: each account's bundles, <dir>/<login>/<wc>.tar
 #   fabric-ctl <login|all> accounts               each observed Claude account's windows: session, weekly,
-#                                                 per-model weekly (bin/fabric-accounts; docs/claude-accounts.md)
+#                                                 per-model weekly (bin/fabric-accounts; docs/adr/ADR-031-claude-accounts-assigned-applied-and-proved-by-signed-action.md)
 #   fabric-ctl <login|all> upgrade claude [--version V]          an ACTION, signed: the pinned harness,
 #                                                 a running session resumed on it (docs/fleet-upgrade.md)
 #   fabric-ctl <login|all> secrets-sync [--expect FP] [--restart]   an ACTION, signed: the login's Doppler
-#                                                 config re-applied, proved, a session resumed (docs/claude-accounts.md)
+#                                                 config re-applied, proved, a session resumed (docs/adr/ADR-031-claude-accounts-assigned-applied-and-proved-by-signed-action.md)
 #
 # One request on the control channel, the replies read back and printed
 # one row per expected account: the Claude account it is signed into, its

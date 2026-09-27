@@ -37,6 +37,7 @@ searches it.
 | dictionaries; the i18n standard; the inbox in the reader's language; GZCOORD_DEFAULT_LOCALE_ONLY | ADR-028 |
 | the control agent; fabric-ctl; the control channel; what an account reports; the drain over the relay | ADR-029 |
 | is an agent online; HELLO and GOODBYE; send exits 4; --force | ADR-030 |
+| which Claude account a login runs on; moving logins; setup-token; usage windows | ADR-031 |
 
 ### ADR-000 — The enduring organization (Accepted)
 
@@ -578,3 +579,21 @@ searches it.
   changed, when presence shows a session (§5 rule 8).
 - Keywords: presence, online, HELLO, GOODBYE, announcement, process table,
   send, --force, exit 4, fabric-ctl presence, planning, re-send.
+
+### ADR-031 — Claude accounts: which account a login runs on is assigned, applied and proved by signed action (Accepted)
+
+- Working sessions run on a template's setup-token: one Doppler config per
+  Claude account, and one reference line in each login's config; the
+  launcher refuses a plain-claude session without one (§2, §5 rules 1–3).
+- `fabric-accounts assign` writes and reads back the reference, then the
+  signed `secrets-sync` action has each account sync, prove the
+  template's fingerprint, and resume its session on it; any row not
+  `synced` exits 1 (§5 rules 4–5).
+- Sign-ins are named by fingerprint everywhere; `fabric-accounts
+  templates` maps them (§5 rule 6).
+- An observer on the coordinator's login keeps one `/login` per account,
+  read every four hours by the harness's own `/usage` — never a
+  hand-made refresh (§5 rule 7, §3).
+- Keywords: Claude account, subscription, setup-token, /login, template,
+  claude-accounts, CLAUDE_CODE_OAUTH_TOKEN, fabric-accounts, assign,
+  secrets-sync, fingerprint, usage windows, observer, /usage.

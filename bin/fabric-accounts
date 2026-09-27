@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # bin/fabric-accounts — the Claude accounts this login observes for their
-# usage windows (docs/claude-accounts.md). Run on the coordinator's login.
+# usage windows (docs/adr/ADR-031-claude-accounts-assigned-applied-and-proved-by-signed-action.md). Run on the coordinator's login.
 #
 #   fabric-accounts login <account>   sign one Claude account in, once — a real terminal
 #   fabric-accounts list              signed in, email, sign-in expiry; never a token

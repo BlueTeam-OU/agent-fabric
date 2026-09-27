@@ -51,7 +51,7 @@ fabric-ctl all upgrade fabric           # (coordinator) distribution after a mer
                                         # fast-forwarded to origin/main and bootstrapped (docs/fleet-upgrade.md)
 fabric-accounts assign <login…> <account>  # (coordinator) which Claude account those
                                         # logins run on; each applies, proves and resumes on it by signed
-                                        # message (docs/claude-accounts.md)
+                                        # message (docs/adr/ADR-031-claude-accounts-assigned-applied-and-proved-by-signed-action.md)
 fabric-usage                            # (coordinator) the usage windows through the host executor —
                                         # the sudo fallback when a host's control agents are down
 fabric-lease <name> -- <cmd>            # one holder per host resource across every account on

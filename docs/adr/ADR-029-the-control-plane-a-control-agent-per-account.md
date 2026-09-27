@@ -64,7 +64,7 @@ sudo are in the loop.
 | `recall` | which corpus paths the account's sessions read over 24 h — index, slice, charter — paths and counts only |
 | `tokens` | the login's own spend per model over a window, direct-path and broker models summed apart; the only place a login's share of a Claude account can be read |
 | `memory` | the drain: the account's own harvest, in bundles (rule 9) |
-| `accounts` | the Claude accounts this login observes and their usage windows |
+| `accounts` | the Claude accounts this login observes and their usage windows (ADR-031) |
 | `status` | identity, usage, keys, fabric and session together |
 
 - **The coordinator's side** is `bin/fabric-ctl <login|all> <op>`: one

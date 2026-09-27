@@ -688,7 +688,7 @@ bash "$FABRIC_ROOT/runtime/claude-code/install-agent-files.sh" --provider "$PROV
     die "could not install the capability-class agent files for $PROVIDER (runtime/claude-code/install-agent-files.sh)."
 
 # A plain-claude session runs only on a long-lived sign-in: a template's
-# setup-token, valid a year (docs/claude-accounts.md). A login's own /login
+# setup-token, valid a year (docs/adr/ADR-031-claude-accounts-assigned-applied-and-proved-by-signed-action.md). A login's own /login
 # is an 8-hour token with one refresh holder, and a fleet that silently fell
 # back to it ran on whichever account last signed in on that login — the
 # owner, 2026-09-25: no long-lived token, no session. Checked here, after

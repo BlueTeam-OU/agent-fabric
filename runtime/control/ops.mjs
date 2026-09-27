@@ -80,7 +80,7 @@ export async function usage(home = os.homedir(), fetchFn = globalThis.fetch, url
 // holder, or the first refresh signs the others out. The fleet's working
 // sessions run on each account's one-year setup-token, which is
 // `user:inference` only and so cannot read these windows
-// (docs/claude-accounts.md).
+// (docs/adr/ADR-031-claude-accounts-assigned-applied-and-proved-by-signed-action.md).
 //
 // The read is the harness's own `/usage`, run headless: no model call
 // (0 turns, $0), and it renews an expired 8-hour sign-in the official way

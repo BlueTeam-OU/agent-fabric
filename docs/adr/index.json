@@ -279,6 +279,15 @@
       "date": "2026-09-25",
       "pillar": "P5",
       "amendments": 0
+    },
+    {
+      "number": "031",
+      "file": "ADR-031-claude-accounts-assigned-applied-and-proved-by-signed-action.md",
+      "title": "Claude accounts: which account a login runs on is assigned, applied and proved by signed action",
+      "status": "Accepted",
+      "date": "2026-09-24",
+      "pillar": "P5",
+      "amendments": 0
     }
   ]
 }
