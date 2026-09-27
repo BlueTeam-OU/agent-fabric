@@ -158,6 +158,12 @@ proof.
     `/rw/config/agent-fabric/accounts/`, re-added at boot by
     `agent-fabric-accounts.rc` — and linger is enabled in the same step.
     `/rw/bind-dirs` is never used for the account files.
+12. An action runs beside the control agent's read loop, so a request
+    that arrives meanwhile is still answered; one action of a kind runs
+    per account at a time, and a second upgrade or `secrets-sync` sent
+    while one runs is answered `busy`. `fabric-ctl` waits 20 s for an
+    answer by default (5 s for `ping`, 120 s for a drain), or `--timeout`
+    (A 2026-09-27).
 
 ## 6. Consequences
 
@@ -209,3 +215,11 @@ actions are in use on every placed account.
 - ADR-009 (the actions and fleet operations), ADR-010 (hosts and the
   host executor), ADR-013 (the drain), ADR-027 (the `script` measure).
 - The live check in Evidence.
+
+## Amendments
+
+The body above reads current; each change's full note is in [history/ADR-029-amendments.md](history/ADR-029-amendments.md).
+
+| Date | Amendment | Effect |
+|---|---|---|
+| 2026-09-27 | Actions run beside the read loop | §5 rule 12 added: actions run beside the read loop, one of a kind per account, a second answered busy; fabric-ctl's answer timeouts |
