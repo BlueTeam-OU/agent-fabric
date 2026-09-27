@@ -1,5 +1,7 @@
 # 2026-09-19 — DeepSeek V4 Pro on the broker's top tier, read back
 
+> The decision recorded here is agent-fabric ADR-005; this file keeps the measurement.
+
 The owner's decision, in the coordinator's session: the broker path's
 session model, `code-high`, `code-plan` and the review class move to
 `deepseek/deepseek-v4-pro-0813`; `code-low` and `code-medium` stay GLM.

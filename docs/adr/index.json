@@ -45,6 +45,15 @@
       "date": "2026-09-17",
       "pillar": "P1",
       "amendments": 0
+    },
+    {
+      "number": "005",
+      "file": "ADR-005-models-are-routed-by-capability-class.md",
+      "title": "Models are routed by capability class",
+      "status": "Accepted",
+      "date": "2026-09-13",
+      "pillar": "P1",
+      "amendments": 0
     }
   ]
 }

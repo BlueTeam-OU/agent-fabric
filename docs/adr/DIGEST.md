@@ -11,6 +11,7 @@ searches it.
 | who an agent is; role binding; the launch prompt | ADR-002 |
 | writing per-agent state; binding.json; rename a working copy | ADR-003 |
 | adding a role or a project; the order of the commits | ADR-004 |
+| which model a class runs on; review-grade; shims; fabric-model | ADR-005 |
 
 ### ADR-000 — The enduring organization (Accepted)
 
@@ -85,3 +86,20 @@ searches it.
   never by loosening the lint (§5 rule 6).
 - Keywords: new role, onboarding, catalog, taxonomy, remit, INDEX, drain,
   new-agent, merge queue, CI.
+
+### ADR-005 — Models are routed by capability class (Accepted)
+
+- A task names one of five classes (`code-low`, `code-medium`,
+  `code-high`, `code-plan`, `code-review`); `routing/capabilities.json`
+  and the per-provider profile layers decide the model (§2, §5 rules 1, 4).
+- A dispatch's `model` is its class's tier alias, checked by the dispatch
+  guard; writing classes run in a worktree (§5 rules 1–3).
+- The review class's model reaches its agent file, never an export, and
+  is gated by `routing/policies/review-grade.json` (§5 rules 5–6).
+- No settings scope pins a model; shims are live-tested per family; a
+  model enters routing only after a read-back (§5 rules 7–10).
+- Today: every class on plain claude is Opus 5.5 (the owner, 2026-09-25);
+  on the broker, DeepSeek V4 Pro for session, high, plan and review, GLM
+  for low and medium (the owner, 2026-09-19) (§2).
+- Keywords: model, routing, capability class, alias, provider, OpenRouter,
+  broker, review-grade, shim, preset, Opus 5.5, DeepSeek, GLM, profile.
