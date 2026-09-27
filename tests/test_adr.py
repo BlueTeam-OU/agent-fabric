@@ -190,9 +190,11 @@ def case_the_digest_follows_the_records(tmp: str) -> None:
     open(os.path.join(root, "docs/adr/DIGEST.md"), "w", encoding="utf-8").write(s.split("### ADR-001")[0])
     only(root, "no entry '### ADR-001")
     root = fixture(os.path.join(tmp, "c"))
-    adr.cmd_amend(root, "1", "a rule moved", "2026-09-28")
+    # A date no real amendment will carry, so the case follows the corpus:
+    # the history gains it, the DIGEST bullets do not.
+    adr.cmd_amend(root, "1", "a rule moved", "2099-01-02")
     adr.write_index(root)
-    only(root, "amendment bullets [] are not its history ['2026-09-28']")
+    only(root, "'2099-01-02']")
 
 
 def case_new_takes_the_next_number(tmp: str) -> None:
