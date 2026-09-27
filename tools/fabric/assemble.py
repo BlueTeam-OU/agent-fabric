@@ -134,7 +134,7 @@ def normalize_artifact(kind: str, value: str) -> str:
     TWO THINGS THIS DELIBERATELY DOES NOT DO, each found by review:
 
     A `scratchpad/` segment is ephemeral only UNDER a session-temp
-    root. `docs/scratchpad/decision.md` is a tracked file someone can
+    root. `<project>/docs/scratchpad/decision.md` is a tracked file someone can
     open, and rewriting it to `scratch:decision.md` would delete a
     valid repository path from the citation graph — the opposite of
     what this exists for. The temp root is checked FIRST, and a path

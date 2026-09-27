@@ -58,7 +58,7 @@
 // a message whose TO is not this address, whose TO-ROLE is not this role,
 // and which is not a broadcast is listed by its metadata line and its body
 // is not printed. That is the filter the evaluation said a transport should
-// do, enforced where it costs nobody's context (docs/BRIDGE-RELAY-SETUP.md).
+// do, enforced where it costs nobody's context (the relay host project's projects/<id>/integration/gzcoord/BRIDGE-RELAY-SETUP.md).
 //
 // Never blocks a session start: relay down, no token, no catalogue — each
 // is one line on stderr and exit 0.
