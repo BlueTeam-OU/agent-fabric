@@ -72,8 +72,9 @@ remember.
 3. `TO-ROLE` is used only for what every holder applies or only the role
    decides: an `INFO`, a `DECISION`, a `QUESTION`.
 4. A sender that does not know which holder chooses, in order: the holder
-   whose open branch or pull request already touches the path
-   (`pr-gate.sh --all`, `pr-sessions.sh --all`); else a holder with a
+   whose pushed branch, with a pull request or without one, already
+   touches the path (`pr-gate.sh --in-flight --path <prefix>`, ADR-025;
+   `pr-gate.sh --all` lists open pull requests only); else a holder with a
    session running now (`fabric-ctl all presence`); else the
    lowest-numbered login of the role — and says in the body which rule
    chose.
