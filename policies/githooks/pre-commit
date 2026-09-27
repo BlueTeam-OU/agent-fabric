@@ -20,16 +20,22 @@ set -uo pipefail
 FABRIC_ROOT="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../.." && pwd)"
 
 # The decision records keep their own books (agent-fabric ADR-001): in
-# agent-fabric itself, a commit that stages anything under docs/adr/ must
-# leave them consistent — the index generated, amendments reconciled, the
-# DIGEST in step. This hook also runs in every managed project, whose own
-# docs/adr/ (if any) is that project's and is not checked here.
-if [[ "$(git rev-parse --show-toplevel 2>/dev/null)" == "$FABRIC_ROOT" ]] \
-   && git diff --cached --name-only | grep -q '^docs/adr/'; then
-    if ! adr_out="$(python3 "$FABRIC_ROOT/tools/fabric/adr.py" --root "$FABRIC_ROOT" check 2>&1)"; then
-        printf 'pre-commit: the decision records are not consistent — not committed:\n%s\n' "$adr_out" >&2
+# agent-fabric itself, a commit that stages anything under docs/adr/ —
+# renames out of it included — leaves them consistent in what it COMMITS:
+# the staged tree is checked, not the working tree, which may hold what the
+# commit leaves out. No pipe into grep -q (under pipefail a large staged
+# list could end in SIGPIPE and skip the check). This hook also runs in
+# every managed project, whose own docs/adr/ is that project's.
+if [[ "$(readlink -f "$(git rev-parse --show-toplevel 2>/dev/null)")" == "$(readlink -f "$FABRIC_ROOT")" ]] \
+   && ! git diff --cached --quiet --no-renames -- docs/adr/; then
+    adr_tree="$(mktemp -d)"
+    git ls-files -z -- docs/adr docs/live-checks projects/registry.json | git checkout-index -z --stdin --prefix="$adr_tree/"
+    if ! adr_out="$(python3 "$FABRIC_ROOT/tools/fabric/adr.py" --root "$adr_tree" check 2>&1)"; then
+        rm -rf "$adr_tree"
+        printf 'pre-commit: the decision records in this commit are not consistent — not committed:\n%s\n' "$adr_out" >&2
         exit 1
     fi
+    rm -rf "$adr_tree"
 fi
 
 # In agent-fabric ITSELF every commit is the coordinator's: the repository

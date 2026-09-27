@@ -77,6 +77,18 @@ git -C "$TMP/repo" add -A; git -C "$TMP/repo" -c core.hooksPath=/dev/null commit
 [[ "$(try_commit docs/adr/DIGEST.md 'a note in the digest')" == 0 ]] && pass "a consistent change to docs/adr/ commits" || fail "a consistent records change was refused" "$(cat "$TMP/err")"
 [[ "$(try_commit docs/adr/index.json 'hand-edit the generated index')" == 1 ]] && grep -q "index.json: stale" "$TMP/err" && pass "a hand-edited generated index: refused, naming it" || fail "an inconsistent index was committed" "$(cat "$TMP/err")"
 git -C "$TMP/repo" reset -q --hard
+# The staged tree is what is checked: a consistent working tree does not
+# cover a commit that leaves the regenerated index out of it.
+sed -i 's/^# ADR-001 — Decision records$/# ADR-001 — Decision record rules/' "$TMP/repo/docs/adr/ADR-001-decision-records.md"
+sed -i 's/^### ADR-001 — Decision records (Accepted)$/### ADR-001 — Decision record rules (Accepted)/' "$TMP/repo/docs/adr/DIGEST.md"
+python3 "$TMP/repo/tools/fabric/adr.py" --root "$TMP/repo" index --write >/dev/null
+git -C "$TMP/repo" add docs/adr/ADR-001-decision-records.md docs/adr/DIGEST.md
+( cd "$TMP/repo" && AGENT_FABRIC_STATE_DIR="$TMP/state" git commit -q -m "retitle, index left unstaged" >/dev/null 2>"$TMP/err" ); rc=$?
+[[ $rc -eq 1 ]] && grep -q "index.json: stale" "$TMP/err" && pass "the staged tree is checked: an index left out of the commit is refused" || fail "a commit leaving the index behind was admitted (rc=$rc)" "$(cat "$TMP/err")"
+git -C "$TMP/repo" add -A
+( cd "$TMP/repo" && AGENT_FABRIC_STATE_DIR="$TMP/state" git commit -q -m "retitle with its index" >/dev/null 2>"$TMP/err" ); rc=$?
+[[ $rc -eq 0 ]] && pass "…and commits once the index is staged with it" || fail "the complete commit was refused" "$(cat "$TMP/err")"
+
 
 echo "the one carve-out: a locale's translations, by the holder of the role named for the suffix"
 SUFFIX="${LOGIN##*-}"; LOC="identities/roles/language-culture/locale/$SUFFIX"
@@ -138,5 +150,10 @@ bind fabric-coordinator; new_repo
 [[ "$(try_commit src/a.txt $'x\n\nCo-authored-by: Someone <s@e>')" == 1 ]] && pass "Co-authored-by is still refused" || fail "ban lost"
 
 echo
+echo "in a managed project, its own docs/adr/ is its own"
+bind fabric-coordinator; new_repo
+mkdir -p "$TMP/repo/docs/adr"; printf 'not ours\n' > "$TMP/repo/docs/adr/index.json"
+[[ "$(try_commit docs/adr/index.json 'a project record')" == 0 ]] && pass "a managed project's docs/adr/ is not checked by the fabric's hook" || fail "the fabric's hook judged a project's records" "$(cat "$TMP/err")"
+
 if (( failures )); then echo "test_hooks: $failures assertion(s) FAILED"; exit 1; fi
 echo "all assertions passed"
