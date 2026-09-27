@@ -66,6 +66,7 @@ if [[ "$what" == all || "$what" == bash ]]; then
     run "no-model-pins guard" bash policies/run_suite.sh policies/test_check_repo_settings_carry_no_model_pins.sh
     run "attribution guard" bash policies/run_suite.sh policies/test_ban_generated_by_attribution.sh
     run "attribution (this branch)" env AGENT_FABRIC_ATTRIBUTION_BASE=origin/main bash policies/ban_generated_by_attribution.sh
+    run "decision-record amendments (this branch)" env AGENT_FABRIC_ADR_BASE=origin/main bash policies/check_adr_amendment.sh
     run "fabric-status" bash policies/run_suite.sh tests/test_fabric-status.sh
     run "fabric-usage" bash policies/run_suite.sh tests/test_fabric-usage.sh
     run "fabric-lease (one holder per host resource)" bash tests/test_fabric-lease.sh

@@ -70,6 +70,28 @@ bind fabric-coordinator
 [[ "$(try_commit src/a.txt 'code')" == 0 ]] && pass "fabric-coordinator bound: allowed" || fail "coordinator refused in fabric" "$(cat "$TMP/err")"
 git -C "$TMP/repo" log -1 --format=%B | grep -q '^Fabric-Role: fabric-coordinator$' && pass "…and every fabric commit declares the role" || fail "no trailer on a fabric commit"
 
+echo "in agent-fabric itself, a commit touching docs/adr/ leaves the decision records consistent"
+mkdir -p "$TMP/repo/tools/fabric" "$TMP/repo/docs" "$TMP/repo/projects"
+cp "$HOOKS/../../tools/fabric/adr.py" "$TMP/repo/tools/fabric/"; cp -r "$HOOKS/../../docs/adr" "$TMP/repo/docs/"; cp "$HOOKS/../../projects/registry.json" "$TMP/repo/projects/"
+git -C "$TMP/repo" add -A; git -C "$TMP/repo" -c core.hooksPath=/dev/null commit -qm "records in place"
+[[ "$(try_commit docs/adr/DIGEST.md 'a note in the digest')" == 0 ]] && pass "a consistent change to docs/adr/ commits" || fail "a consistent records change was refused" "$(cat "$TMP/err")"
+[[ "$(try_commit docs/adr/index.json 'hand-edit the generated index')" == 1 ]] && grep -q "index.json: stale" "$TMP/err" && pass "a hand-edited generated index: refused, naming it" || fail "an inconsistent index was committed" "$(cat "$TMP/err")"
+git -C "$TMP/repo" reset -q --hard
+# The staged tree is what is checked: a consistent working tree does not
+# cover a commit that leaves the regenerated index out of it.
+sed -i 's/^# ADR-001 — Decision records$/# ADR-001 — Decision record rules/' "$TMP/repo/docs/adr/ADR-001-decision-records.md"
+sed -i 's/^### ADR-001 — Decision records (Accepted)$/### ADR-001 — Decision record rules (Accepted)/' "$TMP/repo/docs/adr/DIGEST.md"
+python3 "$TMP/repo/tools/fabric/adr.py" --root "$TMP/repo" index --write >/dev/null
+git -C "$TMP/repo" add docs/adr/ADR-001-decision-records.md docs/adr/DIGEST.md
+( cd "$TMP/repo" && AGENT_FABRIC_STATE_DIR="$TMP/state" git commit -q -m "retitle, index left unstaged" >/dev/null 2>"$TMP/err" ); rc=$?
+[[ $rc -eq 1 ]] && grep -q "index.json: stale" "$TMP/err" && pass "the staged tree is checked: an index left out of the commit is refused" || fail "a commit leaving the index behind was admitted (rc=$rc)" "$(cat "$TMP/err")"
+git -C "$TMP/repo" add -A
+( cd "$TMP/repo" && AGENT_FABRIC_STATE_DIR="$TMP/state" git commit -q -m "retitle with its index" >/dev/null 2>"$TMP/err" ); rc=$?
+[[ $rc -eq 0 ]] && pass "…and commits once the index is staged with it" || fail "the complete commit was refused" "$(cat "$TMP/err")"
+sed -i 's|^\*\*Pillar:\*\* P2$|**Pillar:** P2\n**Evidence:** src/a.txt|' "$TMP/repo/docs/adr/ADR-001-decision-records.md"
+[[ "$(try_commit docs/adr/DIGEST.md 'a record whose evidence lives elsewhere in the tree')" == 0 ]] && pass "Evidence anywhere in the staged tree resolves in the hook as in CI" || fail "the hook refused Evidence outside docs/adr" "$(cat "$TMP/err")"
+
+
 echo "the one carve-out: a locale's translations, by the holder of the role named for the suffix"
 SUFFIX="${LOGIN##*-}"; LOC="identities/roles/language-culture/locale/$SUFFIX"
 bind language-culture; mkdir -p "$TMP/repo/$LOC" "$TMP/repo/identities/roles/language-culture/locale/zz"
@@ -130,5 +152,10 @@ bind fabric-coordinator; new_repo
 [[ "$(try_commit src/a.txt $'x\n\nCo-authored-by: Someone <s@e>')" == 1 ]] && pass "Co-authored-by is still refused" || fail "ban lost"
 
 echo
+echo "in a managed project, its own docs/adr/ is its own"
+bind fabric-coordinator; new_repo
+mkdir -p "$TMP/repo/docs/adr"; printf 'not ours\n' > "$TMP/repo/docs/adr/index.json"
+[[ "$(try_commit docs/adr/index.json 'a project record')" == 0 ]] && pass "a managed project's docs/adr/ is not checked by the fabric's hook" || fail "the fabric's hook judged a project's records" "$(cat "$TMP/err")"
+
 if (( failures )); then echo "test_hooks: $failures assertion(s) FAILED"; exit 1; fi
 echo "all assertions passed"

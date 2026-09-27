@@ -367,7 +367,7 @@ export function validate(text, { taxonomy, maxColumns = RELAY_MAX_COLUMNS, t = e
       warnings.push(t('validate.empty-value', { key }));
   // Not a grammar rule — SPEC §14 keeps carrier limits off the wire — but
   // a terminal copy re-breaks a long line, and a re-broken metadata line
-  // stops being metadata (docs/HUMAN-RELAY-TRANSPORT.md, "Sending"). The
+  // stops being metadata (communication/gzcoord/docs/HUMAN-RELAY-TRANSPORT.md, "Sending"). The
   // width is the carrier's: the bridge relay carries a line as written
   // (a 93-column line arrived whole, 2026-09-16), so send.mjs passes
   // maxColumns: 0 and the check is off on that path; the CLI keeps it for
@@ -383,7 +383,7 @@ export function validate(text, { taxonomy, maxColumns = RELAY_MAX_COLUMNS, t = e
 }
 
 // Undo what a terminal copy does to a message, and nothing more
-// (docs/HUMAN-RELAY-TRANSPORT.md, "Receiving"). The metadata block — every
+// (communication/gzcoord/docs/HUMAN-RELAY-TRANSPORT.md, "Receiving"). The metadata block — every
 // line up to and including the first section marker — is stripped of
 // leading whitespace unconditionally: the grammar admits no indented
 // content there, so the strip is never ambiguous. That same fact makes

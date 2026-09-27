@@ -1266,9 +1266,52 @@ def case_a_committed_agent_source_may_not_pin_effort() -> None:
             f"the locale worker is outside the one-writer rule:\n{out}"
 
 
+def case_decision_records_are_lint_findings() -> None:
+    """docs/adr/ in a fabric is checked by tools/fabric/adr.py and each of its
+    findings is a lint finding (agent-fabric ADR-001); a fabric with no
+    records is not asked for any."""
+    with tempfile.TemporaryDirectory() as root:
+        fabric = make_base(root)
+        code, out = run_lint(fabric)
+        assert code == 0 and "adr:" not in out, out
+        shutil.copytree(os.path.join(ROOT, "docs", "adr"), os.path.join(fabric, "docs", "adr"))
+        idx = os.path.join(fabric, "docs", "adr", "index.json")
+        with open(idx, "a", encoding="utf-8") as fh:
+            fh.write(" ")
+        code, out = run_lint(fabric)
+        assert code == 1 and "adr: docs/adr/index.json: stale" in out, out
+
+
+def case_a_cited_fabric_document_must_resolve() -> None:
+    """A fabric document path or 'agent-fabric ADR-NNN' cited in a tracked
+    file that resolves nowhere is a warning — from the root or the citing
+    file's directory; evidence, history, memory and tests are exempt; a
+    deeper docs/ path is a project's example and not a fabric document."""
+    with tempfile.TemporaryDirectory() as root:
+        fabric = make_base(root)
+        write(os.path.join(fabric, "docs", "here.md"), "# here\n")
+        write(os.path.join(fabric, "communication", "gzcoord", "docs", "RELAY.md"), "# relay\n")
+        write(os.path.join(fabric, "tools", "fabric", "cites.py"),
+              "# see docs/here.md and docs/gone.md and agent-fabric ADR-042\n"
+              "# a project's docs/scratchpad/decision.md is an example\n")
+        write(os.path.join(fabric, "communication", "gzcoord", "README.md"), "see docs/RELAY.md beside me\n")
+        write(os.path.join(fabric, "docs", "live-checks", "2026-09-17-x.md"), "cites docs/also-gone.md\n")
+        subprocess.run(["git", "-C", fabric, "init", "-q"], check=True)
+        subprocess.run(["git", "-C", fabric, "add", "-A"], check=True)
+        code, out = run_lint(fabric)
+        assert "tools/fabric/cites.py: cites docs/gone.md, which does not exist" in out, out
+        assert "tools/fabric/cites.py: cites agent-fabric ADR-042, which does not exist" in out, out
+        assert "docs/here.md, which" not in out and "scratchpad" not in out, "a resolving path or a project's example was flagged"
+        assert "RELAY.md" not in out, "a path relative to the citing file's own directory resolves"
+        assert "also-gone" not in out, "a live check is evidence and exempt"
+        assert code == 0, "warnings, not findings, while the notes move"
+
+
 def main() -> int:
     cases = [
         case_clean_base_passes,
+        case_decision_records_are_lint_findings,
+        case_a_cited_fabric_document_must_resolve,
         case_a_committed_agent_source_may_not_pin_effort,
         case_index_description_drift_is_caught,
         case_a_sibling_working_copy_is_linted_unasked,
