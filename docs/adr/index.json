@@ -189,6 +189,15 @@
       "date": "2026-09-20",
       "pillar": "P3",
       "amendments": 0
+    },
+    {
+      "number": "021",
+      "file": "ADR-021-a-test-run-leaves-nothing-it-did-not-find.md",
+      "title": "A test run leaves nothing it did not find",
+      "status": "Accepted",
+      "date": "2026-09-19",
+      "pillar": "P3",
+      "amendments": 0
     }
   ]
 }

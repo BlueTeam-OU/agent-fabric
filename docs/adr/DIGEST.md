@@ -27,6 +27,7 @@ searches it.
 | who may commit here; Fabric-Role; the hooks; the locale carve-out; what a guard is | ADR-018 |
 | opening, counting and arming a PR; pr-gate; Co-authored-by; GitHub settings | ADR-019 |
 | the blind review; code-review dispatch; post-review; what counts as coverage | ADR-020 |
+| scratch a suite leaves; TMPDIR; containers after a test; cleaning caches | ADR-021 |
 
 ### ADR-000 — The enduring organization (Accepted)
 
@@ -378,3 +379,18 @@ searches it.
 - Keywords: review, blind review, code-review, re-review, brief,
   fabric-review, post-review, pr-review-status, marker, coverage,
   review-grade, substitute.
+
+### ADR-021 — A test run leaves nothing it did not find (Accepted)
+
+- A test run removes, however it ends, the containers, volumes and
+  scratch it made; nothing goes into the tree (the owner, 2026-09-19)
+  (§2, §5 rule 1).
+- `tests/run.sh` owns a fresh `TMPDIR` per run and fails naming every
+  entry left in it (§5 rule 2).
+- Node suites use `scratch()` (`tests/scratch.mjs`); `static.sh` refuses
+  inline `mkdtempSync`; a leftover is fixed in the suite that made it
+  (§5 rules 3–4).
+- A dependency-graph change cleans its build target; large caches go;
+  measure first and say what was removed (§5 rule 5).
+- Keywords: test, suite, leak, scratch, TMPDIR, temporary directory,
+  container, volume, cache, clean up, disk.
