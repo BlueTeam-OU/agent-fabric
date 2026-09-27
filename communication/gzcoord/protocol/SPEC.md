@@ -471,10 +471,10 @@ A GZCOORD/1 parser:
 - MUST reject a message carrying more than one of `TO`, `TO-ROLE` and `BROADCAST`, and a `HELLO` or `GOODBYE` carrying any (§7.1);
 - MUST reject a `REQUEST` addressed `TO-ROLE`, and any message addressed `TO-ROLE` that carries a `REQUEST:`, `ACCEPTANCE:` or `DELIVER-TO:` section — an assignment goes to one instance (§13);
 - MUST reject a message with no `MESSAGE-ID` (§7.1), transport-generated diagnostics excepted;
-
-A sender: MUST validate every message before sending (§1), and MUST NOT send one that fails.
 - SHOULD warn about missing recommended fields;
 - MUST NOT reject a message merely because its role, specialty or capability is unknown — absent a deployment role catalogue (§4), which binds `ROLE` and `TO-ROLE` inside that deployment.
+
+A sender: MUST validate every message before sending (§1), and MUST NOT send one that fails.
 
 Every message valid under the **core** rules of this text — the grammar and the field rules above, with no deployment catalogue — was valid under every earlier GZCOORD/1 text: the core accepted set only ever narrows. A tightened MUST on an existing field retires a shape rather than redefining one, and a sender that emits a retired shape is told which field is at fault rather than silently misrouted. "Grammar" here means §6 — the header line, the `KEY: value` form, the section markers — and a tightening leaves it byte for byte. A deployment profile (§4) is outside this guarantee: it is the deployment's own convention, it may tighten or relax between revisions — the reference deployment's has moved from titles to slugs, has stopped binding the address, and has moved the address derivation from the working-copy directory to the login (§3.1) — and peers inside a deployment are expected to run the same revision of it, which the repository they share makes the normal case.
 
