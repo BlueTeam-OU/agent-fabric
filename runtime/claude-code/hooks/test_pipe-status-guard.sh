@@ -2,8 +2,9 @@
 # Behavioural tests for runtime/claude-code/hooks/pipe-status-guard.sh:
 # a check piped into a filter and then chained into a commit, a push or a
 # merge is refused, because the chain tests the filter's exit status, not
-# the check's; the same command with the status captured, or under
-# pipefail, and a pipe that no commit follows, are allowed.
+# the check's; the same command with the status captured, and a pipe that no
+# commit follows, are allowed; pipefail is no exemption, since a hook cannot
+# tell one the shell runs from one in an echo or a comment.
 #
 # Exit codes: 0 all assertions passed; 1 one or more failed.
 set -uo pipefail
@@ -29,14 +30,16 @@ for c in 'python3 tests/test_adr.py | tail -1 && git commit -q -m x' \
          'set +o pipefail; false | tail -1 && git commit -m bad' \
          'echo pipefail; check | tail -1 && git commit -m bad' \
          'check | tail -1 && git commit -m "pipefail"' \
-         'set -o pipefail; set +o pipefail; x | tail -1 && git push'; do
+         'set -o pipefail; set +o pipefail; x | tail -1 && git push' \
+         'set -o pipefail; python3 t.py | tail -1 && git commit -m x' \
+         'echo set -o pipefail; false | tail -1 && git commit -m x' \
+         $'# set -o pipefail\nfalse | tail -1 && git commit -m x' \
+         '( set -o pipefail ); false | tail -1 && git commit -m x'; do
   expect "refused: $c" deny "$c"
 done
 
-echo "the status captured, pipefail, or no commit after the pipe: allowed"
+echo "the status captured, or no commit after the pipe: allowed"
 for c in 'python3 t.py > log 2>&1; rc=$?; [ $rc -eq 0 ] && git commit -m x' \
-         'set -o pipefail; python3 t.py | tail -1 && git commit -m x' \
-         'set -euo pipefail; python3 t.py | tail -1 && git commit -m x' \
          'git log --oneline | head -3' \
          'grep -q x file && git commit -m y' \
          'python3 t.py | tail -1; echo done' \
