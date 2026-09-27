@@ -60,8 +60,8 @@ commit_class() {
     # With the PR being counted: a commit whose subject or Answers: names
     # pull requests, none of them this one, answers ANOTHER PR's review —
     # a follow-up's own work, which the band counts. Read as a fix it
-    # moved gzapp #947 from 7 work to 3 and a coordinator follow-up of
-    # agent-fabric #53 the same way. Without the number the old reading
+    # moved a managed project's PR from 7 work to 3, and a coordinator
+    # follow-up of agent-fabric #53 the same way. Without the number the old reading
     # stands (a project forwarder that passes three arguments).
     if [[ -n "$pr" ]]; then
         local refs; refs="$(grep -oE '#[0-9]+' <<<"$subject $answers" | tr -d '#' | sort -u)"
