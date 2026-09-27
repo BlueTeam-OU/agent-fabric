@@ -105,6 +105,28 @@ def adr_dir(root: str) -> str:
 ATTRIBUTION_RE = re.compile(r"\((?:the owner|the CEO)\b[^()]*\)")
 
 
+# A record reads current: when a rule began is the header's, the Amendments
+# table's and the history's (ADR-001 §5 rule 11). §1 may date an incident;
+# §2–§8 carry no date outside a path or code span, an "(A YYYY-MM-DD)" rule
+# marker or an "(Amendment YYYY-MM-DD)" tombstone — the engine's own marks.
+DATE_RE = re.compile(r"\b20\d\d-\d\d-\d\d\b")
+UNDATED_SPANS = re.compile(r"`[^`]*`|\]\([^)]*\)|\((?:A|Amendment) 20\d\d-\d\d-\d\d\)|[\w./-]*20\d\d-\d\d-\d\d[\w./-]*\.md")
+
+
+def dated_sections(text: str) -> list[tuple[str, str]]:
+    """(section number, date) for each date §2–§8 carries."""
+    out, cur = [], None
+    for ln in text.split("\n"):
+        if ln.startswith("## "):
+            m = re.match(r"## (\d)\.", ln)
+            cur = m.group(1) if m and m.group(1) != "1" else None
+            continue
+        if cur:
+            for d in DATE_RE.findall(UNDATED_SPANS.sub("", ln)):
+                out.append((cur, d))
+    return out
+
+
 def attributions(text: str) -> list[str]:
     return [" ".join(m.group(0).split()) for m in ATTRIBUTION_RE.finditer(text)]
 
@@ -311,6 +333,8 @@ def check(root: str = ROOT) -> list[str]:
             findings.append(f"{rel(a)}: amended, but no '## Amendments' section")
         body = a["text"].split("\n## ", 1)[1] if "\n## " in a["text"] else ""
         body = body.split("\n## Amendments", 1)[0]
+        for sec, dated in dated_sections(a["text"]):
+            findings.append(f"{rel(a)}: §{sec} dates something ({dated}) — a record reads current; when is the header's and the history's, §1 may date an incident")
         for att in attributions(body):
             findings.append(f"{rel(a)}: an inline attribution {att!r} — who decided and when belong in the header and the history")
         for m in CITE_RE.finditer(a["text"]):

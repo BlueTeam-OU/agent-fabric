@@ -115,9 +115,13 @@ check, and nothing making ratification visible.
 10. A record's body and its DIGEST entry state the decision, not who made
     it: no attribution in parentheses naming the owner and a date.
     Who decided and when are the header's (`Date`, `Decision Makers`,
-    `Ratified`) and the history's; a date that belongs to the content is
-    said in the sentence ("since 2026-09-25, …"). `adr.py check` refuses a
-    parenthesis that opens on the owner or the CEO (A 2026-09-27).
+    `Ratified`) and the history's. `adr.py check` refuses a parenthesis
+    that opens on the owner or the CEO (A 2026-09-27).
+11. A record reads current: §2 to §8 carry no date. When a rule began is
+    the header's, the Amendments table's and the history's; §1 may date
+    an incident, best by citing its commit or live check. A date inside a
+    path or code span and the engine's `(A …)` and `(Amendment …)` marks
+    stay. `adr.py check` refuses any other date in §2 to §8 (A 2026-09-27).
 
 ## 6. Consequences
 
@@ -138,8 +142,8 @@ has not been superseded, are candidates once the corpus is in.
 
 ## 8. Decision Status
 
-Accepted: the owner armed the pull request that introduces it (agent-fabric
-#50, "merge 50", 2026-09-27).
+Accepted: the owner armed the pull request that introduces it
+(agent-fabric #50).
 
 ## References
 
@@ -157,3 +161,4 @@ The body above reads current; each change's full note is in [history/ADR-001-ame
 |---|---|---|
 | 2026-09-27 | A source is refused whatever the trailer | §5 rule 9: an `ADR-Editorial:` trailer no longer lets a source edit through; it excuses a record's body edit only |
 | 2026-09-27 | No inline attributions | §5 rule 10 added: no parenthetical attribution in a record's body or DIGEST entry; `adr.py check` refuses one |
+| 2026-09-27 | A record reads current | §5 rule 11 added: no date in §2–§8, §1 may date an incident; rule 10 loses its dated example; §8 undated |

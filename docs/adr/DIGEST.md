@@ -70,6 +70,8 @@ searches it.
   the commit's trailers (§5 rule 9).
 - A 2026-09-27 — no inline attribution: who decided and when are the
   header's and the history's (§5 rule 10).
+- A 2026-09-27 — a record reads current: no date in §2 to §8; §1 may date an
+  incident (§5 rule 11).
 - Keywords: ADR, amendment, supersede, ratify, index, digest, rationale.
 
 ### ADR-002 — Role, login and model are kept apart (Accepted)

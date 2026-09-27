@@ -294,6 +294,21 @@ def case_no_inline_attribution(tmp: str) -> None:
     only(root, "DIGEST.md: an inline attribution '(the CEO)")
 
 
+def case_dates_only_in_the_context(tmp: str) -> None:
+    # A record reads current: a date may date an incident in §1, and the
+    # engine's markers and dated paths stay; the rules carry none.
+    root = fixture(tmp)
+    edit(root, ONE, "## 6. Consequences", "## 6. Consequences\n\nSince 2026-09-25, every record says so.\n")
+    only(root, "§6 dates something (2026-09-25)")
+    root = fixture(os.path.join(tmp, "b"))
+    edit(root, ONE, "## 6. Consequences", "## 6. Consequences\n\nSee `docs/live-checks/2026-09-25-x.md` and\n[the note](../2026-09-20-y.md); rule 3 (A 2026-09-26).\n")
+    edit(root, ONE, "## 2. Decision", "## 2. Decision\n\n**§5 rule 9 — withdrawn** (Amendment 2026-09-26).\n")
+    assert adr.check(root) == [], adr.check(root)
+    root = fixture(os.path.join(tmp, "c"))
+    edit(root, ONE, "## 1. Context and Problem", "## 1. Context and Problem\n\nOn 2026-09-19 the disk filled.\n")
+    assert adr.check(root) == [], adr.check(root)
+
+
 def case_digest_orphan_and_readme_markers(tmp: str) -> None:
     root = fixture(tmp)
     edit(root, "docs/adr/DIGEST.md", "### ADR-001 —", "### ADR-999 — Ghost (Accepted)\n\n### ADR-001 —")

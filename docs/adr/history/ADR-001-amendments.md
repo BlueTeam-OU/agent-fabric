@@ -29,3 +29,19 @@ refuses a parenthesis in a record's body (between the header and the
 Amendments table) or in the DIGEST that opens on "the owner" or "the
 CEO", across a line break too. The header, the history notes and
 `sources/` keep their provenance: that is where it belongs.
+
+### Amendment 2026-09-27 — A record reads current
+
+The owner, 2026-09-27, to the fabric-coordinator session, on the rule
+added the same day that a date belonging to the content stays in the
+sentence: "not sure also this is necessary"; asked how far dates should
+go, the owner chose to keep them only in §1.
+
+The records carried 140 dates in §2 to §8: "since …" before a rule,
+"Accepted since …" in §8 repeating the header, "rejected on …" in §3.
+They are removed; each sentence is rewritten to say the same thing
+without its date, a date that named an incident now cites its live
+check or commit, and one history sentence moved to ADR-005 §1. Rule 11
+states the rule and `adr.py check` refuses a date in §2 to §8 outside a
+path, a code span or the engine's own marks. Rule 10's example, which
+put a date in the sentence, is removed.
