@@ -4,7 +4,7 @@
 **Status:** Accepted
 **Ratified:** owner, 2026-09-27, by arming agent-fabric #53 (ratification by merge, the owner's rule of 2026-09-27)
 **Decision Makers:** the owner; drafted by fabric-coordinator
-**Scope:** the control agent's `presence` op (runtime/control/ops.mjs, runtime/control/presence.mjs); `fabric-ctl <login|all> presence`; the sender's check in communication/gzcoord/scripts/send.mjs; the inbox's handling of HELLO and GOODBYE (communication/gzcoord/scripts/inbox.mjs); what runtime/openrouter/launch and bin/fabric-role no longer send; communication/gzcoord/skills/gzcoord-send and gzcoord-receive
+**Scope:** the control agent's `presence` op (runtime/control/ops.mjs, runtime/control/presence.mjs); `fabric-ctl <login|all> presence`; the sender's check in communication/gzcoord/scripts/send.mjs; the inbox's handling of HELLO and GOODBYE (communication/gzcoord/scripts/inbox.mjs) and their retirement in the validator (communication/gzcoord/scripts/gzmsg.mjs); what runtime/openrouter/launch and bin/fabric-role no longer send; communication/gzcoord/skills/gzcoord-send and gzcoord-receive
 **Pillar:** P5
 **Evidence:** docs/live-checks/2026-09-16-goodbye-from-the-launcher.md
 
@@ -32,7 +32,8 @@ process table and binding: whether a `claude` session is running, how
 many, since when, the role and project, and whether it is planning. The
 launcher sends no `HELLO` and no `GOODBYE`; a role change sends nothing;
 the inbox acknowledges an announcement from an older sender and never
-delivers it. GZCOORD/1 deprecates both types without removing them.
+delivers it. GZCOORD/1 has retired both types: a conforming parser
+rejects them (SPEC §8, §18).
 
 - **Anyone asks it.** `presence` is the one public op of the control
   plane: any placed account may run `fabric-ctl <login|all> presence`.
@@ -57,7 +58,7 @@ delivers it. GZCOORD/1 deprecates both types without removing them.
   no message changes meaning, and every sender still on an older text
   would stop parsing. Deprecation inside /1 retired the practice first;
   once nothing sent either type, retiring them inside /1 narrowed the
-  accepted set without a new major version (rule 7).
+  accepted set without a new major version (ADR-032 rule 4; rule 7 here).
 
 ## 4. Rationale
 
@@ -96,7 +97,8 @@ something asked once, when it matters.
    launcher's child, which is what lets an upgrade or an account move
    bring it back (ADR-009).
 6. The inbox acknowledges a `HELLO` or `GOODBYE` and never delivers or
-   lists it; a replay by seq still shows one.
+   lists it; a replay by seq shows its metadata line only, as for any
+   message not addressed to the reader.
 7. In GZCOORD/1, `HELLO` and `GOODBYE` are retired: no instance sends
    them, presence is the deployment's to answer from an authoritative
    source, and a conforming parser rejects a message of either type,
@@ -121,9 +123,9 @@ something asked once, when it matters.
 
 ## 7. Future Evolution
 
-None stated. Removing the two types from the grammar would be a
-GZCOORD/2 question, and nothing asks for it while a conforming parser
-accepts them at no cost.
+None stated. The two types are retired inside GZCOORD/1 (rule 7); the
+section that defined them (SPEC §8) stays as a tombstone so that no
+section number moves.
 
 ## 8. Decision Status
 
@@ -136,9 +138,10 @@ carry it.
   `runtime/control/presence.mjs` (`askPresence`, `checkAddressees`),
   `runtime/control/ctl.mjs`, `runtime/control/tests/presence.test.mjs`.
 - `communication/gzcoord/scripts/send.mjs`,
-  `communication/gzcoord/scripts/inbox.mjs` (`ANNOUNCEMENT_TYPES`),
+  `communication/gzcoord/scripts/inbox.mjs`,
+  `communication/gzcoord/scripts/gzmsg.mjs` (`RETIRED_TYPES`),
   `communication/gzcoord/tests/protocol.test.mjs`.
-- `communication/gzcoord/protocol/SPEC.md` §5, §18.
+- `communication/gzcoord/protocol/SPEC.md` §5, §8, §18.
 - `runtime/openrouter/launch` (the session as a child), `tools/fabric/role.py`.
 - `communication/gzcoord/skills/gzcoord-send/SKILL.md` §3–4,
   `communication/gzcoord/skills/gzcoord-receive/SKILL.md`.

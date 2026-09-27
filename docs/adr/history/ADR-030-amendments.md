@@ -15,4 +15,6 @@ inside GZCOORD/1 (agent-fabric ADR-032, amended the same day): a parser
 rejects a message of either type and names it as retired. This narrows
 the accepted set, which GZCOORD/1 allows (ADR-032 rule 4); an earlier
 reader still accepts every message a current sender emits. The inbox
-keeps acknowledging one from an old session without delivering it.
+keeps acknowledging one from an old session without delivering it. Rule 6 follows the inbox: a replay by seq of a retired type shows its
+metadata line only, since the type carries no addressing field. §2, §7,
+the Scope, the References and the DIGEST say the types are retired.

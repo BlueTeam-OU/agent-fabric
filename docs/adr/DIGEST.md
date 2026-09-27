@@ -582,8 +582,8 @@ searches it.
   or an unplaced address exits 4 unless `--force`; a role passes when any
   holder runs; planning is a note, never a refusal (§5 rules 3–4).
 - The launcher and `fabric-role` announce nothing; the inbox acknowledges
-  an old HELLO/GOODBYE and never delivers it; GZCOORD/1 deprecates both
-  and still parses them (§5 rules 5–7).
+  an old HELLO/GOODBYE and never delivers it; GZCOORD/1 has retired both
+  and a parser rejects them (§5 rules 5–7).
 - A request whose addressee's session ended is re-sent, with what
   changed, when presence shows a session (§5 rule 8).
 - A 2026-09-27 — HELLO and GOODBYE are retired from GZCOORD/1; a parser rejects
