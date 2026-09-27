@@ -8,6 +8,7 @@ searches it.
 |---|---|
 | what the fabric is for, the pillars | ADR-000 |
 | how a decision is recorded, amended, accepted | ADR-001 |
+| who an agent is; role binding; the launch prompt | ADR-002 |
 
 ### ADR-000 — The enduring organization (Accepted)
 
@@ -40,3 +41,19 @@ searches it.
 - Live checks are immutable evidence (§5 rule 8); `sources/` keeps the
   verbatim texts a record paraphrases, never edited (§5 rule 9).
 - Keywords: ADR, amendment, supersede, ratify, index, digest, rationale.
+
+### ADR-002 — Role, login and model are kept apart (Accepted)
+
+- The Linux login is the agent; directory, repository, branch, project and
+  session are context. Agent, role, project, working copy, host, session
+  and capability/model are kept apart — the canonical table is §2 (§5
+  rules 1–2).
+- A role is bound from a login shell only (`fabric-role bind`), refused
+  inside a session; a different role is a relaunch (§5 rule 3).
+- The role rides in the system prompt (`--append-system-prompt-file`):
+  header, charter, brief, team, memory — byte-stable, no project; the
+  project remit arrives from the SessionStart hook (§5 rules 4–5).
+- Drift is printed by `fabric-status`; a binding is per (agent, host)
+  (§5 rules 6–7). Brief is identifier-free, the remit anchored (§5 rule 8).
+- Keywords: identity, login, whoami, role, bind, launch prompt, charter,
+  brief, remit, drift, binding, dimensions.
