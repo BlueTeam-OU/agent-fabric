@@ -22,7 +22,7 @@
 # "…: address the blind review of …", "review fixes: …", "…the
 # re-review findings on 8c4ae884".
 #
-#   commit_class <parents> <subject> [<answers>] [<pr>]   → prints merge | fix | work
+#   commit_class <parents> <subject> [<answers>] [<pr>] [<owner/repo>]   → prints merge | fix | work
 #
 # <parents> is the space-separated parent list (git log %P): two or
 # more parents is a merge, whatever the subject says. <answers> is the
@@ -55,7 +55,7 @@
 # Case-sensitive on purpose: "v2", "utf8", "sha1" are not labels; a
 # three-letter run (ADR-071, OTP) is not either.
 commit_class() {
-    local parents="$1" subject="$2" answers="${3:-}" pr="${4:-}"
+    local parents="$1" subject="$2" answers="${3:-}" pr="${4:-}" repo="${5:-}"
     if [[ "$parents" == *" "* ]]; then echo merge; return 0; fi
     # With the PR being counted: a commit whose subject or Answers: names
     # pull requests, none of them this one, answers ANOTHER PR's review —
@@ -66,10 +66,22 @@ commit_class() {
     # Only a review-answer shape names the PR answered — "review of #53",
     # "#947 F2", or a #N in the Answers: trailer; a bare #N in a subject is
     # an issue or a PR named for context, and says nothing (review of #55).
+    # PR numbers are per repository: a review reference that names another
+    # repository ("review of other-repo #53", "owner/repo#53") is foreign
+    # whatever its number, so it reads as "x", never as this PR (review
+    # thread on #55).
     if [[ -n "$pr" ]]; then
-        local refs; refs="$( { grep -oiE '(re-)?reviews?[[:space:]]+(of|on|for)[[:space:]]+#[0-9]+' <<<"$subject"
-                               grep -oE '#[0-9]+[[:space:]]+[A-Z]{1,2}-?[0-9]+' <<<"$subject"
-                               grep -oE '#[0-9]+' <<<"$answers"; } | grep -oE '#[0-9]+' | tr -d '#' | sort -u)"
+        local here="${repo##*/}" ref r n refs=""
+        while IFS= read -r ref; do
+            [[ -n "$ref" ]] || continue
+            n="${ref##*#}"; r="${ref%#*}"; r="${r%"${r##*[![:space:]]}"}"; r="${r##*[[:space:]]}"; r="${r##*/}"
+            if [[ -n "$r" && ! "$r" =~ ^(of|on|for)$ && -n "$here" && "${r,,}" != "${here,,}" ]]; then refs+=$'x\n'; else refs+="$n"$'\n'; fi
+        done < <( { grep -oiE '(re-)?reviews?[[:space:]]+(of|on|for)[[:space:]]+([A-Za-z0-9_.-]+/)?([A-Za-z0-9_.-]+[[:space:]]*)?#[0-9]+' <<<"$subject" \
+                      | sed -E 's/^(re-)?reviews?[[:space:]]+(of|on|for)[[:space:]]+//I'
+                    grep -oE '([A-Za-z0-9_.-]+/)?([A-Za-z0-9_.-]+[[:space:]]*)?#[0-9]+[[:space:]]+[A-Z]{1,2}-?[0-9]+' <<<"$subject" \
+                      | sed -E 's/[[:space:]]+[A-Z]{1,2}-?[0-9]+$//'
+                    grep -oE '([A-Za-z0-9_.-]+/)?([A-Za-z0-9_.-]+[[:space:]]*)?#[0-9]+' <<<"$answers"; } )
+        refs="$(sort -u <<<"$refs" | sed '/^$/d')"
         if [[ -n "$refs" ]] && ! grep -qx "$pr" <<<"$refs"; then echo work; return 0; fi
     fi
     if [[ -n "${answers//[[:space:]]/}" ]]; then echo fix; return 0; fi

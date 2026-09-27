@@ -82,6 +82,17 @@ expect_pr fix  54 "re-review F1: the chain match"
 expect_pr fix  130 "review fixes: the race first reported in issue #120"
 expect_pr fix  54 "re-review F1: the guard #53 added" "F1"
 expect_pr work 54 "re-review of #53: the classifier" ""
+# PR numbers are per repository: another repository's #53 is not this one.
+expect_repo() {  # expect_repo <class> <pr> <owner/repo> <subject> [<answers>]
+    local got; got="$(commit_class "aaa" "$4" "${5:-}" "$2" "$3")"
+    if [[ "$got" == "$1" ]]; then pass "$1 on $3#$2: $4${5:+ [Answers: $5]}"; else fail "expected $1 on $3#$2, got $got: $4${5:+ [Answers: $5]}"; fi
+}
+expect_repo work 53 gzapi-org/agent-fabric "review of gzapp #53: the carried fix"
+expect_repo work 53 gzapi-org/agent-fabric "db: the guard" "gzapi-org/gzapp#53 F2"
+expect_repo fix  53 gzapi-org/agent-fabric "review of agent-fabric #53: the fix"
+expect_repo fix  53 gzapi-org/agent-fabric "review of #53: the fix"
+expect_repo fix  861 gzapi-org/gzapp "supplier: the copy (#861 F6)"
+expect_pr   work 54 "supplier: the carried copy (#53 F3)"
 expect fix "aaa" "review of #53 (deferred P3s): no PR given, the old reading stands"
 
 echo
