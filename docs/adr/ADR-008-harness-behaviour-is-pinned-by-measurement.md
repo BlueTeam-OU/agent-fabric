@@ -6,7 +6,7 @@
 **Decision Makers:** the owner (attribution off, 2026-09-18; thinking summaries and verbose, 2026-09-20; fabric commands without approval and auto mode, 2026-09-26); fabric-coordinator (the captures and read-backs)
 **Scope:** runtime/claude-code/user-settings.py and the keys it writes into every login's `~/.claude/settings.json`; runtime/claude-code/harness.json (the pinned version); runtime/claude-code/harness/ (the captured harness prompt); how a harness behaviour becomes a fabric rule
 **Pillar:** P1
-**Evidence:** docs/live-checks/2026-09-17-claude-code-harness-prompt.md, docs/live-checks/2026-09-18-attribution-reminder-off.md, runtime/claude-code/harness/README.md
+**Evidence:** docs/live-checks/2026-09-17-claude-code-harness-prompt.md, docs/live-checks/2026-09-18-attribution-reminder-off.md
 
 ## 1. Context and Problem
 

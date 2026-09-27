@@ -90,6 +90,15 @@
       "date": "2026-09-24",
       "pillar": "P1",
       "amendments": 0
+    },
+    {
+      "number": "010",
+      "file": "ADR-010-hosts-provisioning-host-execution-and-resources.md",
+      "title": "Hosts, provisioning, host execution and resources",
+      "status": "Accepted",
+      "date": "2026-09-16",
+      "pillar": "P1",
+      "amendments": 0
     }
   ]
 }

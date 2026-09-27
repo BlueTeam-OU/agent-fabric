@@ -16,6 +16,7 @@ searches it.
 | a safeguard flag; model fallback; "Switched to" | ADR-007 |
 | Claude Code settings on every account; attribution; auto-update; the harness prompt | ADR-008 |
 | upgrading the fleet; distributing after a merge; fabric commands without approval | ADR-009 |
+| hosts and placement; hostexec; provisioning an account; fabric-lease and host memory | ADR-010 |
 
 ### ADR-000 — The enduring organization (Accepted)
 
@@ -166,3 +167,20 @@ searches it.
   `~/.local/bin` with narrow allow rules; wrappers still ask (§5 rules 8–9).
 - Keywords: fabric-ctl, upgrade, distribution, signed, control plane,
   agentd, hostexec, harness.json, commands.json, approval, allow rule.
+
+### ADR-010 — Hosts, provisioning, host execution and resources (Accepted)
+
+- `runtime/hosts/registry.json` holds hosts and placements; `hostexec`
+  runs one command on a host — local or over ssh, the same worker (§2).
+- Nothing touches an account's host but through `hostexec`; placement is
+  not identity; the host reports itself; secrets on stdin (§5 rules 1–5).
+- `new-agent.sh` provisions idempotently; GitHub host keys from the
+  published set; nothing about accounts in the Qubes TemplateVM (§5 rules
+  6–8).
+- Every memory-heavy job takes the host lease `heavy` (`fabric-lease`,
+  `--need-mem`); refusals end with a `reason=` line; call sites are the
+  project's (§5 rules 9–11). Quota and fleet lease are not built (§2).
+- Deferred by the owner (2026-09-26): a shared Android SDK/Gradle cache,
+  until a second Flutter login needs it (§7).
+- Keywords: host, placement, hostexec, fabric-host, ssh, provisioning,
+  new-agent, Qubes, persist-accounts, moveto, lease, heavy, memory, crash, OOM.
