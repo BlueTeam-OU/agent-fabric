@@ -42,7 +42,6 @@ import importlib.util
 import os
 import re
 import sys
-import tempfile
 
 HERE = os.path.dirname(os.path.realpath(__file__))
 
@@ -223,25 +222,14 @@ def digest(text: str) -> str:
 
 def render(out: str, agent: str, host: str, role: str) -> str:
     """Write the prompt for (agent, host, role) to `out` atomically and
-    return its digest. The same idiom as identity.write_binding: a
-    temporary file beside the target, then os.replace, so a launch that
-    dies mid-write leaves the previous prompt intact rather than a torn
-    one."""
+    return its digest: identity.atomic_write, like every write under
+    agents/<login>/ (agent-fabric ADR-003), so a launch that dies
+    mid-write leaves the previous prompt intact rather than a torn one."""
     text, replace = build_launch(agent, host, role)
     print(f"replace: {'yes' if replace else 'no'}", file=sys.stderr)
     directory = os.path.dirname(os.path.abspath(out)) or "."
     os.makedirs(directory, exist_ok=True)
-    fd, tmp = tempfile.mkstemp(prefix=".launch-prompt-", dir=directory)
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as fh:
-            fh.write(text)
-        os.replace(tmp, out)
-    except BaseException:
-        try:
-            os.unlink(tmp)
-        except FileNotFoundError:
-            pass
-        raise
+    identity.atomic_write(out, text)
     return digest(text)
 
 

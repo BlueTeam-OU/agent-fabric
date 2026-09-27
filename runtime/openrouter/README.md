@@ -92,7 +92,7 @@ and out through a different channel. EVERY class's agent file carries an
 no per-dispatch effort, so the file is the only per-class channel there
 is. A class whose model admits no effort gets no line, which is not the
 same as a default. The session's level rides `--effort` and is stamped as
-`AGENT_FABRIC_LAUNCH_EFFORT`; `docs/effort-is-routed.md` is the concept.
+`AGENT_FABRIC_LAUNCH_EFFORT`; agent-fabric ADR-006 is the decision (`docs/adr/ADR-006-effort-is-routed.md`).
 
 ```text
 code-low     low    -> ~/.claude/agents/code-low.md      (asked medium; GLM 5.3 Flash has no medium, so low — the committed acknowledgement)
@@ -162,7 +162,7 @@ The prompt file carries the ROLE layer only — the identity header, the
 charter, the brief, the shared team and memory sections
 (`identities/prompt/`). The project layer (the remit, the INDEX pointer)
 follows the working copy and reaches the session from the SessionStart
-hook, not from this file; `docs/role-binding-and-launch-prompt.md` has
+hook, not from this file; `docs/adr/ADR-002-role-login-and-model-are-kept-apart.md` has
 the whole account, and `docs/live-checks/2026-09-15-append-system-prompt.md`
 the read-backs. A session's role is fixed at exec: a rebind from the shell
 under it is reported as DRIFT by `bin/fabric-status`, never applied.
@@ -202,9 +202,10 @@ read-back on the 2026-09-13 binding
 (a `model: fable` reviewer from a GLM 5.3 session served as
 `anthropic/claude-opus-5` on every generation) proved the export is the
 reviewer's own; architect-cto then admitted `z-ai/glm-5.3` to
-review-grade and made it the broker review model (2026-09-13), so today
-the reviewer is GLM 5.3 with the family shim, and Opus 5 remains an
-admitted choice for a profile that wants it. The separation still
+review-grade and made it the broker review model (2026-09-13); on
+2026-09-19 the broker's review model moved to DeepSeek V4 Pro with its
+shim (the owner; agent-fabric ADR-005), and GLM 5.3 and Opus 5 remain
+admitted choices for a profile that wants them. The separation still
 matters: review and code-high can be given different models, and the
 review model can be raised without touching the coding classes.
 

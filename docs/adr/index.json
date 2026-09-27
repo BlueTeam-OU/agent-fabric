@@ -8,7 +8,7 @@
       "status": "Accepted",
       "date": "2026-09-27",
       "pillar": "all",
-      "amendments": 0
+      "amendments": 1
     },
     {
       "number": "001",
@@ -17,6 +17,105 @@
       "status": "Accepted",
       "date": "2026-09-27",
       "pillar": "P2",
+      "amendments": 1
+    },
+    {
+      "number": "002",
+      "file": "ADR-002-role-login-and-model-are-kept-apart.md",
+      "title": "Role, login and model are kept apart",
+      "status": "Accepted",
+      "date": "2026-09-13",
+      "pillar": "P1",
+      "amendments": 0
+    },
+    {
+      "number": "003",
+      "file": "ADR-003-per-agent-state-is-one-layer.md",
+      "title": "Per-agent state is one layer",
+      "status": "Accepted",
+      "date": "2026-09-16",
+      "pillar": "P1",
+      "amendments": 0
+    },
+    {
+      "number": "004",
+      "file": "ADR-004-adding-a-role-without-breaking-anyones-ci.md",
+      "title": "Adding a role without breaking anyone's CI",
+      "status": "Accepted",
+      "date": "2026-09-17",
+      "pillar": "P1",
+      "amendments": 0
+    },
+    {
+      "number": "005",
+      "file": "ADR-005-models-are-routed-by-capability-class.md",
+      "title": "Models are routed by capability class",
+      "status": "Accepted",
+      "date": "2026-09-13",
+      "pillar": "P1",
+      "amendments": 0
+    },
+    {
+      "number": "006",
+      "file": "ADR-006-effort-is-routed.md",
+      "title": "Effort is routed",
+      "status": "Accepted",
+      "date": "2026-09-23",
+      "pillar": "P1",
+      "amendments": 0
+    },
+    {
+      "number": "007",
+      "file": "ADR-007-a-flagged-request-is-contagious.md",
+      "title": "A flagged request is contagious",
+      "status": "Accepted",
+      "date": "2026-09-16",
+      "pillar": "P1",
+      "amendments": 0
+    },
+    {
+      "number": "008",
+      "file": "ADR-008-harness-behaviour-is-pinned-by-measurement.md",
+      "title": "Harness behaviour is pinned by measurement",
+      "status": "Accepted",
+      "date": "2026-09-17",
+      "pillar": "P1",
+      "amendments": 0
+    },
+    {
+      "number": "009",
+      "file": "ADR-009-fleet-operations-are-signed-control-plane-actions.md",
+      "title": "Fleet operations are signed control-plane actions",
+      "status": "Accepted",
+      "date": "2026-09-24",
+      "pillar": "P1",
+      "amendments": 0
+    },
+    {
+      "number": "010",
+      "file": "ADR-010-hosts-provisioning-host-execution-and-resources.md",
+      "title": "Hosts, provisioning, host execution and resources",
+      "status": "Accepted",
+      "date": "2026-09-16",
+      "pillar": "P1",
+      "amendments": 0
+    },
+    {
+      "number": "011",
+      "file": "ADR-011-managed-projects-consume-the-fabric-at-a-pinned-ref.md",
+      "title": "Managed projects consume the fabric at a pinned ref",
+      "status": "Accepted",
+      "date": "2026-09-18",
+      "pillar": "P1",
+      "amendments": 0
+    },
+    {
+      "number": "012",
+      "file": "ADR-012-credentials.md",
+      "title": "Credentials",
+      "status": "Accepted",
+      "date": "2026-09-14",
+      "pillar": "P1",
       "amendments": 0
     }
   ]

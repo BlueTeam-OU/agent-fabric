@@ -1,5 +1,7 @@
 # 2026-09-25 — the first signed fleet upgrade, read back
 
+> GOODBYE from the launcher was retired later the same day (presence replaced HELLO and GOODBYE); the measurement stands.
+
 `fabric-ctl … upgrade claude` (PR #34) with the operator key registered
 (PR #35), on develop-qzapp, sixteen accounts, the pin at 2.1.282.
 
