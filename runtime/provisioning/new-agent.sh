@@ -48,9 +48,11 @@
 #   2. ~/.ssh ~/.claude ~/.config/gh ~/.local/{bin,share}, owned by the
 #      account; claude and ori installed AS THE ACCOUNT the way their
 #      vendors say — `curl -fsSL https://claude.ai/install.sh | bash -s --
-#      latest` — every account, the coordinator included, runs the
-#      vendor's latest and the fabric is fixed where latest breaks it
-#      (owner, 2026-09-16); --claude pins a version or stable — and `curl -fsSL
+#      <version>` — at the version the fleet pins in
+#      runtime/claude-code/harness.json (what `fabric-ctl … upgrade
+#      claude` brings every account to), the vendor's latest only when no
+#      pin is readable; --claude overrides it with a version, stable or
+#      latest — and `curl -fsSL
 #      https://openrouter.ai/labs/ori/install.sh | bash` (stable channel;
 #      it has no version pin) — both land in ~/.local/bin. An installer
 #      that fails fails the script: nothing is copied from another

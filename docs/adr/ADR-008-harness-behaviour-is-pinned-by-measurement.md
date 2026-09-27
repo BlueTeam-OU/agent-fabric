@@ -104,7 +104,7 @@ behaviour a property of the account, not of where a session was started.
   per-machine Memory section only; tool schemas, listings, CLAUDE.md and
   the reminders stay — which is why the Memory section is in `en.md`.
 - Every account's behaviour depends on its last bootstrap; distribution
-  after a merge is therefore a duty (`docs/fleet-upgrade.md`).
+  after a merge is therefore a duty (ADR-009).
 
 ## 7. Future Evolution
 
