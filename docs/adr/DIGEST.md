@@ -9,6 +9,7 @@ searches it.
 | what the fabric is for, the pillars | ADR-000 |
 | how a decision is recorded, amended, accepted | ADR-001 |
 | who an agent is; role binding; the launch prompt | ADR-002 |
+| writing per-agent state; binding.json; rename a working copy | ADR-003 |
 
 ### ADR-000 — The enduring organization (Accepted)
 
@@ -57,3 +58,15 @@ searches it.
   (§5 rules 6–7). Brief is identifier-free, the remit anchored (§5 rule 8).
 - Keywords: identity, login, whoami, role, bind, launch prompt, charter,
   brief, remit, drift, binding, dimensions.
+
+### ADR-003 — Per-agent state is one layer (Accepted)
+
+- Every write under `agents/<login>/` goes through `runtime/identity.py`:
+  `atomic_write`, `update_binding`, `append_history`; no caller opens a
+  state file for writing (§5 rule 1).
+- Every read-modify-write holds `agent_lock`, a re-entrant flock (§5 rule 2).
+- A binding is per (agent, host); another host's is refused (§5 rule 3).
+- A working-copy rename merges history, never overwrites (§5 rule 4); the
+  session-start hook stays non-blocking (§5 rule 5).
+- Keywords: state, binding, atomic write, lock, flock, rename, history,
+  host, XDG_STATE_HOME.

@@ -27,6 +27,15 @@
       "date": "2026-09-13",
       "pillar": "P1",
       "amendments": 0
+    },
+    {
+      "number": "003",
+      "file": "ADR-003-per-agent-state-is-one-layer.md",
+      "title": "Per-agent state is one layer",
+      "status": "Accepted",
+      "date": "2026-09-16",
+      "pillar": "P1",
+      "amendments": 0
     }
   ]
 }
