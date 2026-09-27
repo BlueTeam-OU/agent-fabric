@@ -120,9 +120,10 @@ searches it.
 
 - Each class's reasoning effort is routed beside its model, in
   `routing/effort.json`, one seven-level ordinal vocabulary (§2, §5 rule 1).
-- The fabric clamps a level to what the model admits before the request
-  leaves; a lost level is a committed override with a note, or
-  `routing.py check` fails (§5 rules 2–3).
+- The fabric fits a level to what the model admits before the request
+  leaves — the vendor's mapping, else down, and up to the model's floor;
+  a lost, raised or inexpressible level is a committed override with a
+  note, or `routing.py check` fails (§5 rules 2–3).
 - A class's level reaches its subagent via the agent file's `effort:`
   line; the session's via `--effort`, stamped (§5 rules 4–5).
 - `CLAUDE_CODE_EFFORT_LEVEL` is refused in any value; committed settings

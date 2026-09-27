@@ -38,11 +38,14 @@ none < minimal < low < medium < high < xhigh < max
 
 — the union of the vendors' scales, an ordinal, never a quantity. What a
 class asks for is clamped **by the fabric, before the request leaves**, to
-the nearest level its model admits, by the provider's adapter in
-`tools/fabric/routing.py`, per (provider, model). The clamp may go upward
-where a vendor documents that (GLM-5.2 serves `medium` as `high`). A lost
-level is never applied silently: it must be written down as a committed
-override with a note.
+what its model admits, by the provider's adapter in
+`tools/fabric/routing.py` (`effort_for`), per (provider, model): the
+vendor's own documented mapping where there is one, in either direction
+(GLM-5.2 serves `medium` as `high`); else down to the nearest level below;
+and a request below the model's floor is **raised** to that floor, since
+sending nothing would hand the vendor its default. A level lost, raised
+or inexpressible is never applied silently: it must be written down as a
+committed override with a note.
 
 The level reaches a subagent through its agent file's `effort:` line,
 written by `install-agent-files.sh`, and the session through `--effort`,
@@ -85,9 +88,11 @@ move: Opus 5.5 at `high` because routing asked for it.
    the seven-level vocabulary; no other file decides it.
 2. A provider's adapter declares, per model, the levels it admits; the
    clamp is computed by the fabric before the request leaves.
-3. A clamp that loses a level makes `routing.py check()` fail until the
-   clamped value is written into `providers.<p>.classes.<class>` with a
-   note saying why. A downgrade is a commit, never a computation.
+3. A clamp that loses a level, or raises one to the model's floor, makes
+   `routing.py check()` fail until the served value is written into
+   `providers.<p>.classes.<class>` with a note saying why; a model that
+   expresses no effort at all needs an explicit `null` there, with its
+   note. A downgrade or an upgrade is a commit, never a computation.
 4. A class's level reaches its subagent only through its agent file's
    `effort:` line, written by `install-agent-files.sh`; a hand-written
    `effort:` in a committed source is a lint finding. A model with no

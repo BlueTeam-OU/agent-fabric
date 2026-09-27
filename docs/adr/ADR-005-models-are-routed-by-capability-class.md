@@ -141,9 +141,10 @@ profile layer or a local override.
 
 - `fabric-model list` shows every choice with its layer; `fabric-status`
   the resolution a session launched with.
-- On plain claude every class is one model today, so the classes differ
-  there by effort and isolation, not by model; the review's independence
-  is its brief and context.
+- On plain claude every class is one model at one level today, so the
+  classes differ there by alias, isolation and whether a dispatch asks,
+  not by model or effort (ADR-006); the review's independence is its
+  brief and context.
 - Nothing validates a model id against a catalogue: a typo is caught by
   the adapter's shape check and the launch read-back, not by routing.
 
