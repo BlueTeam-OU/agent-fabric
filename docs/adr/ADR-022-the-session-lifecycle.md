@@ -30,23 +30,23 @@ running one and waited on an answer that could not come.
 
 **Every session watches its inbox from its first turn to its last** (the
 owner, 2026-09-13), with one watch per session: `gzcoord-inbox --follow`
-under a Monitor. Since 2026-09-26 (the owner) the launcher opens every
+under a Monitor. Since 2026-09-26 the launcher opens every
 interactive session it starts without a prompt of its own with one that
 arms the watch, and the session-start hook says so, on start, resume and
 after a compaction, whenever no watch runs for the session.
 
-**Every session starts in auto mode** (the owner, 2026-09-26):
+**Every session starts in auto mode**:
 `user-settings.py` writes `permissions.defaultMode: "auto"` into each
 login's user settings, beside the narrow allow rules for the fabric's
 commands (ADR-008, ADR-009), which assume it.
 
-**While a session plans, its inbox is held** (the owner, 2026-09-16):
+**While a session plans, its inbox is held**:
 nothing new lands in a plan. A hook marks the account held while the
 session's permission mode is `plan`; the watch polls nothing while a
 marker names a live harness of the login; the first poll after the plan
 is approved delivers the whole planning span at once.
 
-**The hold is visible to senders** (the owner, 2026-09-26): presence
+**The hold is visible to senders**: presence
 reports `planning`, `fabric-ctl presence` shows it in place of
 `running`, and `gzcoord-send` tells the sender — without refusing — that
 the message waits in the relay and no answer comes before the plan is

@@ -49,7 +49,7 @@ needs no per-host loop and answers in real time.
 - `fabric-accounts assign` moves logins between Claude accounts by the same
   kind of signed message.
 - Every session-facing fabric command **runs by name, with no approval
-  prompt** (the owner, 2026-09-26): `runtime/claude-code/commands.json` is
+  prompt**: `runtime/claude-code/commands.json` is
   the one list.
 
 ## 3. Alternatives Considered

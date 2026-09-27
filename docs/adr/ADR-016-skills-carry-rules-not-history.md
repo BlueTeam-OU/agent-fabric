@@ -40,12 +40,12 @@ made the sweep, 43ef828, carries the passage each came from):
   embedded-repository gitlink and parallel worktree creation (2026-08-07);
   the review status tool moved into the fabric (`runtime/github/`,
   2026-09-19).
-- **Receive:** the watch from the first turn (the owner, 2026-09-13);
-  reply only to add something useful (the owner, 2026-09-15); the
+- **Receive:** the watch from the first turn;
+  reply only to add something useful; the
   notification cut inside a REQUEST or VERIFIED (four deliveries,
   2026-09-16); an assignment to a role claimed by the first REPLY (two
   holders of one role, 2026-09-19).
-- **Send:** an assignment goes to one login (the owner, 2026-09-19).
+- **Send:** an assignment goes to one login.
 - **Client capture:** written from one login's Linux desktop build
   (2026-09-16).
 - **pg-probe:** the "ship it commented out" pattern, folded into a

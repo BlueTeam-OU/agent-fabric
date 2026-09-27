@@ -155,7 +155,7 @@ those surfaces.
 ## 8. Decision Status
 
 Accepted and in force: the login model since 2026-09-13, the role at
-launch since 2026-09-15 (the owner's decision of that day), per-host
+launch since 2026-09-15, per-host
 bindings since 2026-09-16.
 
 ## References

@@ -97,6 +97,18 @@ def adr_dir(root: str) -> str:
     return os.path.join(root, ADR_DIR)
 
 
+# Who decided and when are the header's (Date, Decision Makers, Ratified)
+# and the history's; a record's body and its DIGEST entry state the decision
+# (the owner's rule for records, agent-fabric ADR-001 §5 rule 10). A
+# parenthesis that opens on the owner or the CEO is that attribution, across
+# a line break too.
+ATTRIBUTION_RE = re.compile(r"\((?:the owner|the CEO)\b[^()]*\)")
+
+
+def attributions(text: str) -> list[str]:
+    return [" ".join(m.group(0).split()) for m in ATTRIBUTION_RE.finditer(text)]
+
+
 def read(path: str) -> str:
     with open(path, encoding="utf-8") as fh:
         return fh.read()
@@ -297,6 +309,10 @@ def check(root: str = ROOT) -> list[str]:
                 findings.append(f"{rel(a)}: table row(s) with no history note: {only_r}")
         if good and "Amendments" not in a["sections"]:
             findings.append(f"{rel(a)}: amended, but no '## Amendments' section")
+        body = a["text"].split("\n## ", 1)[1] if "\n## " in a["text"] else ""
+        body = body.split("\n## Amendments", 1)[0]
+        for att in attributions(body):
+            findings.append(f"{rel(a)}: an inline attribution {att!r} — who decided and when belong in the header and the history")
         for m in CITE_RE.finditer(a["text"]):
             if m.group(1) and m.group(1).lower() in foreign:
                 continue
@@ -331,6 +347,8 @@ def check(root: str = ROOT) -> list[str]:
     if not os.path.exists(dp):
         findings.append(f"{ADR_DIR}/DIGEST.md: missing")
     else:
+        for att in attributions(read(dp)):
+            findings.append(f"{ADR_DIR}/DIGEST.md: an inline attribution {att!r} — who decided and when belong in the record's header and history")
         entries: dict[str, dict] = {}
         cur = None
         for ln in read(dp).split("\n"):

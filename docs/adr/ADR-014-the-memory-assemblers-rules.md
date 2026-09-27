@@ -25,12 +25,11 @@ cues in the index. A correction memory naming the stale section in
 `merge_target` is a memory of its own, with its own file name, so it
 landed as a new slice beside the one it corrected. And once the owner
 was asked about every same-agent pair, 34 of 34 were the author's later
-version, all superseded (the owner, 2026-09-26).
+version, all superseded.
 
 ## 2. Decision
 
-**A claim that disagrees with the corpus stops the drain** (the owner,
-2026-09-20). Before anything is written, a pre-pass finds every such
+**A claim that disagrees with the corpus stops the drain**. Before anything is written, a pre-pass finds every such
 pair; if any stands undecided, the run writes nothing, exits 1 and names
 each: the section in the corpus with its date, the incoming one with its
 agent and date, both texts. The coordinator brings the pairs to the
@@ -42,8 +41,7 @@ recorded in the drain report under `collision_decisions`. Every section
 is dated (*Observed YYYY-MM-DD (role)*), so a kept pair reads in time
 order.
 
-**An agent's newer text replaces its own older text without a question**
-(the owner, 2026-09-26). Where every section the claim would replace
+**An agent's newer text replaces its own older text without a question**. Where every section the claim would replace
 came from the claim's own agent, the assembler supersedes, prints
 `SUPERSEDED, same agent`, and records the decision with `"rule":
 "same-agent"`. The rule covers the retitle — a new heading in a topic
@@ -168,8 +166,7 @@ case where it could be — two authors, a contested heading, an older text.
 
 Accepted: the stop and the dated sections since 2026-09-20; the retitle
 as a collision since 2026-09-25; the same-agent rule, bounded to newer
-text and to uncontested headings, since 2026-09-26 (the owner's word,
-recorded in the commit that applied it).
+text and to uncontested headings, since 2026-09-26.
 
 ## References
 

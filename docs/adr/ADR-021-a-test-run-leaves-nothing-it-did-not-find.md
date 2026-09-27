@@ -23,8 +23,7 @@ it and costs only the next session, or the host.
 
 ## 2. Decision
 
-**A test run leaves behind nothing it did not find** (the owner,
-2026-09-19). Containers and volumes a run started are gone when it ends,
+**A test run leaves behind nothing it did not find**. Containers and volumes a run started are gone when it ends,
 however it ends; scratch goes under the session's scratchpad, never into
 the tree; a build that changed the dependency graph cleans its target,
 and an incremental cache is disposable and removed when it is large —

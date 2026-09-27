@@ -10,7 +10,9 @@
 <!-- Status: Proposed | Accepted | Superseded (→ ADR-NNN) | Deprecated.
      Accepted needs, on its own line:
      **Ratified:** owner, YYYY-MM-DD, <commit | relay seq | PR — where the owner's word is>
-     Evidence is optional; every path in it must exist. Delete this comment. -->
+     Evidence is optional; every path in it must exist. The body states the
+     decision: no "(the owner, date)" attributions (ADR-001 §5 rule 10).
+     Delete this comment. -->
 
 ## 1. Context and Problem
 

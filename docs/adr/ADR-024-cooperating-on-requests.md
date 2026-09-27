@@ -38,8 +38,8 @@ contract, a commit, a review or a decision record does. A `DECISION`
 that a project must keep is materialised in the repository or its
 designated system.
 
-**Working on a request together** (the owner's request of 2026-09-26,
-written as professional practice, not procedure):
+**Working on a request together**, written as professional practice, not
+procedure:
 
 1. A request says what done looks like; receipt is not acceptance — the
    recipient says what it undertakes, or what is missing and whose it is.
@@ -54,8 +54,7 @@ written as professional practice, not procedure):
    descriptive commits and the owning agent's `threads` memory, not in the
    conversation.
 
-**The owner's word, relayed, is carried verbatim** (the owner,
-2026-09-18): an `OWNER-WORD` section quoting the word, the session it was
+**The owner's word, relayed, is carried verbatim**: an `OWNER-WORD` section quoting the word, the session it was
 given in and the time.
 
 The practices of 2026-09-26 added no message type, field or section; no

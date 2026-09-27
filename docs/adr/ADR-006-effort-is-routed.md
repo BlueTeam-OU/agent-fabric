@@ -51,7 +51,7 @@ The level reaches a subagent through its agent file's `effort:` line,
 written by `install-agent-files.sh`, and the session through `--effort`,
 stamped as `AGENT_FABRIC_LAUNCH_EFFORT`.
 
-**Since 2026-09-25 (the owner):** every class and every session asks
+**Since 2026-09-25:** every class and every session asks
 `medium`. On plain claude every class is Opus 5.5 at medium, its own
 default; on the broker `code-low` is committed at `low` (GLM-5.3-Flash has
 no medium), and the other classes are served `high` by their models'

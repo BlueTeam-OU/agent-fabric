@@ -38,16 +38,16 @@ directory it starts in. The keys, and why:
 - `attribution` `{commit: "", pr: "", sessionUrl: false}` — the harness
   sends no attribution request (2.1.276 sent the "do not add" form, 2.1.277
   no reminder at all); `sessionUrl` false drops the `Claude-Session:`
-  trailer (the owner, 2026-09-18).
+  trailer.
 - `env.DISABLE_AUTOUPDATER` `"1"` — checked first, unconditionally; it
   stops background updates only, so `claude install <v>` still works. The
   fleet's version is the one `runtime/claude-code/harness.json` pins,
   moved by `fabric-ctl … upgrade claude` and nothing else.
-- `showThinkingSummaries` true and `verbose` true (the owner, 2026-09-20)
+- `showThinkingSummaries` true and `verbose` true
   — an agent's session is read by the person operating the fleet; a
   stalled or misdirected session must be visible from its terminal.
 - `permissions.allow` `Bash(<name> *)` for each fabric command, and
-  `permissions.defaultMode` `"auto"` (the owner, 2026-09-26) — the command
+  `permissions.defaultMode` `"auto"` — the command
   rule is the fleet-operations record's, which follows; auto mode because eight hand-provisioned
   accounts had no mode and asked for what the classifier would allow.
 

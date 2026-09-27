@@ -31,12 +31,12 @@ rule against it in two different shapes.
 pull request; on agent-fabric the last direct commit to `main` was on
 2026-09-18, and every change since has been a merged PR (#11 onward).
 
-**One open pull request per agent** (the owner, 2026-09-19). While an
+**One open pull request per agent**. While an
 agent has a PR open, its next piece of work is another commit on it, if
 the branch is still addable; otherwise it is built locally and waits for
 the merge. Concerns are commit boundaries, not PR boundaries.
 
-**A PR is armed by its work-commit count** (the owner, 2026-09-18): the
+**A PR is armed by its work-commit count**: the
 commits of work as opened, review fixes excluded. Eight to sixteen arm
 once the gate is met; fewer ask the owner, who arms; more than sixteen is
 split before the PR opens.
@@ -102,7 +102,7 @@ not on a pipe's exit status.
 4. Eight to sixteen work commits: arm once the gate is met. Under eight:
    ask the owner, who arms. Over sixteen: split before the PR opens; a PR
    already open over sixteen is armed on its basis, and the count is
-   advice for the next batch (the owner, 2026-09-19).
+   advice for the next batch.
 5. The gate is `runtime/github/pr-gate.sh`'s verdict for the PR, read
    before arming: `MERGEABLE` needs checks green, a review on the current
    head (`pr-review-status.sh`), no unresolved thread, no conflict, no

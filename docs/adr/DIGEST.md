@@ -68,6 +68,8 @@ searches it.
   verbatim texts a record paraphrases, never edited (§5 rule 9).
 - A 2026-09-27 — a source's edit, rename or removal is refused whatever
   the commit's trailers (§5 rule 9).
+- A 2026-09-27 — no inline attribution: who decided and when are the
+  header's and the history's (§5 rule 10).
 - Keywords: ADR, amendment, supersede, ratify, index, digest, rationale.
 
 ### ADR-002 — Role, login and model are kept apart (Accepted)
@@ -128,9 +130,9 @@ searches it.
   is gated by `routing/policies/review-grade.json` (§5 rules 5–6).
 - No settings scope pins a model; shims are live-tested per family; a
   model enters routing only after a read-back (§5 rules 7–10).
-- Today: every class on plain claude is Opus 5.5 (the owner, 2026-09-25);
+- Today: every class on plain claude is Opus 5.5;
   on the broker, DeepSeek V4 Pro for session, high, plan and review, GLM
-  for low and medium (the owner, 2026-09-19) (§2).
+  for low and medium (§2).
 - Keywords: model, routing, capability class, alias, provider, OpenRouter,
   broker, review-grade, shim, preset, Opus 5.5, DeepSeek, GLM, profile.
 
@@ -146,7 +148,7 @@ searches it.
   line; the session's via `--effort`, stamped (§5 rules 4–5).
 - `CLAUDE_CODE_EFFORT_LEVEL` is refused in any value; committed settings
   carry no effort keys; never set per dispatch (§5 rules 6–7).
-- Today every class and session asks `medium` (the owner, 2026-09-25);
+- Today every class and session asks `medium`;
   broker `code-low` is committed at `low` (§2).
 - Keywords: effort, reasoning, thinking, level, clamp, medium, high,
   --effort, agent file, CLAUDE_EFFORT, Opus 5.5 default.
@@ -272,8 +274,7 @@ searches it.
 - The owner decides `supersede`, `keep-both` or `drop` per heading or
   per claim, recorded in the drain report (§5 rule 3).
 - An agent's newer text replaces its own older text without a question —
-  never older text, a contested heading, or two agents' texts (the owner,
-  2026-09-26) (§5 rules 4–6).
+  never older text, a contested heading, or two agents' texts (§5 rules 4–6).
 - `merge_target` replaces the named section wherever it lives in the
   class; ambiguous refuses the run, unresolved is reported every drain;
   the correction keeps its own heading (§5 rules 7–8).
@@ -371,7 +372,7 @@ searches it.
 
 - The review class's blind review is the review of every PR: on every
   head, to judge a finding, to re-review a fix range; no automated
-  reviewer is assumed (the owner, 2026-09-20) (§2, §5 rule 1).
+  reviewer is assumed (§2, §5 rule 1).
 - Dispatch: `code-review`, `model: fable`, description "review…" or
   "re-review…", no isolation; the guard drops the alias so the agent
   file's routed model decides, within `review-grade.json` (§5 rules 2–3).
@@ -388,7 +389,7 @@ searches it.
 ### ADR-021 — A test run leaves nothing it did not find (Accepted)
 
 - A test run removes, however it ends, the containers, volumes and
-  scratch it made; nothing goes into the tree (the owner, 2026-09-19)
+  scratch it made; nothing goes into the tree
   (§2, §5 rule 1).
 - `tests/run.sh` owns a fresh `TMPDIR` per run and fails naming every
   entry left in it (§5 rule 2).
@@ -423,7 +424,7 @@ searches it.
 
 - A `REQUEST`, or any message with a `REQUEST:`, `ACCEPTANCE:` or
   `DELIVER-TO:` section, is addressed `TO` one login; `TO-ROLE` is for
-  `INFO`, `DECISION`, `QUESTION` (the owner, 2026-09-19) (§2, §5 rules
+  `INFO`, `DECISION`, `QUESTION` (§2, §5 rules
   1, 3).
 - The validator refuses the role-addressed shape and `send.mjs` does not
   post it (§5 rule 2).

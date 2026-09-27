@@ -283,6 +283,17 @@ def case_superseded_needs_an_arrow(tmp: str) -> None:
     only(root, "Superseded without '(→ ADR-NNN)'")
 
 
+def case_no_inline_attribution(tmp: str) -> None:
+    # Who decided and when are the header's and the history's; the body
+    # states the decision (the owner's rule for records).
+    root = fixture(tmp)
+    edit(root, ONE, "## 6. Consequences", "## 6. Consequences\n\nKept apart (the owner,\n2026-09-13) on purpose.\n")
+    only(root, "an inline attribution '(the owner,")
+    root = fixture(os.path.join(tmp, "b"))
+    edit(root, "docs/adr/DIGEST.md", "### ADR-001 —", "- Stray (the CEO) bullet.\n\n### ADR-001 —")
+    only(root, "DIGEST.md: an inline attribution '(the CEO)")
+
+
 def case_digest_orphan_and_readme_markers(tmp: str) -> None:
     root = fixture(tmp)
     edit(root, "docs/adr/DIGEST.md", "### ADR-001 —", "### ADR-999 — Ghost (Accepted)\n\n### ADR-001 —")
