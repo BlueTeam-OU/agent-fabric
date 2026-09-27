@@ -3,7 +3,7 @@
 **Date:** 2026-09-27
 **Status:** Accepted
 **Ratified:** owner, 2026-09-27, "merge 50" — the owner's word to the fabric-coordinator session, arming agent-fabric #50
-**Decision Makers:** the owner (the vision); drafted by fabric-coordinator, whose proposals are marked as such
+**Decision Makers:** the owner (the vision, and the coordinator's proposals adopted into it); drafted by fabric-coordinator
 **Scope:** what agent-fabric is for, the principle every other decision serves, and the pillars the decision records are grouped under
 **Pillar:** all
 
@@ -112,7 +112,7 @@ individual with the function.
 team instead of rebuilding it; moving an agent to another host does not
 erase its history; assigning a role to another agent transfers the
 professional knowledge without confusing the individual with the function.
-*Coordinator proposal:* moving a host becomes a routine operation, not a
+Moving a host becomes a routine operation, not a
 procedure, and a new model family is adopted by a routing change and a
 measured read-back, and nothing else.
 
@@ -127,7 +127,7 @@ formalized decision outranks reasoning left in memory. A costly mistake
 becomes a guard that checks for it; a working method becomes a
 practice every role reads.
 
-*Coordinator proposal — enduring is not unchanging.* An organization
+**Enduring is not unchanging.** An organization
 endures because it can retire what it believed. Every standing decision
 carries its revision path (amendment, supersession — ADR-001) and the
 evidence it rests on (live checks). A belief with neither
@@ -136,7 +136,7 @@ evidence nor an owner is a liability, not an asset.
 **Direction.** Every project leaves a precaution, a method or a corrected
 belief behind it, found where the next project will look. Learning
 resides in curated knowledge and practice; it does not require changing
-any model's weights. *Coordinator proposal:* a decision whose evidence has
+any model's weights. A decision whose evidence has
 gone stale is flagged for review, not kept on inertia.
 
 ### P3 — Autonomy with verifiable commitments
@@ -148,13 +148,13 @@ separate from the power to redefine it. A conversation is not a
 decision until it reaches an artifact — a pull request, a contract, a
 decision record.
 
-*Coordinator proposal — verification over assertion.* Trust is earned by
+**Verification over assertion.** Trust is earned by
 what can be checked, not by who said it: the repository outranks the
 message, a claim cites its artifact, review is blind so the author does
 not grade their own work, and a measurement comes before a
 belief.
 
-*Coordinator proposal — an explicit mandate, not implicit supervision.*
+**An explicit mandate, not implicit supervision.**
 Autonomy is bounded by a mandate the humans set and the agents can read:
 what an agent decides alone, what needs the role's owner, what needs the
 owner's word. Today that mandate is scattered — the arming band, the
@@ -162,7 +162,7 @@ ratification of records, the authority guard, the carried owner's word.
 
 **Direction.** Progress is measured by how much less supervision a
 correct, verified and maintainable result needs, not by how many
-messages the agents exchange. *Coordinator proposal:* the mandate is
+messages the agents exchange. The mandate is
 stated as a whole, so that "ask the owner" is a rule and not a reflex, and
 supervision falls without any loss of control.
 
@@ -189,7 +189,7 @@ fleet operations (ADR-009). Presence is read from each account's
 process table, not from what a session announced. The GZCoord
 relay is, today, **central**: one process on one host.
 
-*Coordinator proposal — failure is expected and survivable.* Sessions end,
+**Failure is expected and survivable.** Sessions end,
 relays drop, hosts crash, providers change. Work and agreements are
 resumable by whoever comes next from artifacts, not from conversation; a retry keeps its message id; the control plane keeps
 answering when a model does not.
@@ -199,7 +199,7 @@ resilience, not complexity for its own sake. The criterion: a
 failure or a change of provider may reduce the team's capacity for a
 while; it must not take its identity, its knowledge or its ability to go
 on working. Dependence on one person is not replaced by dependence on one
-central service. *Coordinator proposal:* every operation the organization
+central service. Every operation the organization
 depends on has a documented degraded mode.
 
 ### P6 — Federation
@@ -209,7 +209,7 @@ shared infrastructure is kept apart from each project's knowledge, which
 stays in the project's own repository within its own access and licence
 boundaries.
 
-*Coordinator proposal — federation needs portable trust.* Before two
+**Federation needs portable trust.** Before two
 organizations can collaborate, identity, signed actions and provenance
 must be verifiable across the boundary without sharing credentials or
 private memory. The signed control-plane actions and the rule that a
@@ -222,8 +222,6 @@ intelligence. Transferring expertise never means transferring
 confidential information.
 
 ### P7 — Sustainable operation
-
-*This pillar is a coordinator proposal.*
 
 **Today.** The organization runs on finite means: model budgets and usage
 windows, prompt and context budgets, a host's disk and memory, and the
@@ -248,9 +246,9 @@ resource is a cooperative act, like any other commitment.
 
 ## 7. Future Evolution
 
-The owner amends this record when the purpose moves. The coordinator's
-proposals (marked above) stand or fall individually: the owner can strike
-any one of them by amendment without touching the rest. The first
+The owner amends this record when the purpose moves; any part of it,
+whoever first proposed it, is changed or struck by amendment without
+touching the rest. The first
 directions expected to become records of their own are the supervision
 measure, decentralization, federation and
 sustainable operation.
@@ -259,17 +257,17 @@ sustainable operation.
 
 Accepted: the owner armed the pull request that introduces it (agent-fabric
 #50, "merge 50", 2026-09-27) after being told that arming ratifies this
-record, its marked proposals included.
+record, its then-marked proposals included.
 
-What is the owner's and what is the coordinator's. The purpose, the
-principle, and pillars P1–P6 with their directions are the owner's
-statement, paraphrased (the source is kept verbatim, References). Pillar
-P7, everything marked *Coordinator proposal* — five paragraphs and four
-sentences within the directions, each at the end of its paragraph — the
-alternatives of §3 and the structural rules 2–4 of §5 are the
-coordinator's. So are the **Today** paragraphs: the coordinator's account
-of what the tree holds, checkable against it. Any of the coordinator's
-parts can be struck by an amendment without touching the rest.
+Whose words these are. The purpose, the principle, and pillars P1–P6
+with their directions are the owner's statement, paraphrased (the source
+is kept verbatim, References). Pillar P7, five paragraphs and four
+sentences that began as the coordinator's proposals, the alternatives of
+§3 and the structural rules 2–4 of §5 were drafted by the coordinator;
+the owner adopted the proposals into the vision on 2026-09-27
+(Amendments), so the body no longer marks them. The **Today** paragraphs
+are the coordinator's account of what the tree holds, checkable against
+it.
 
 ## References
 
@@ -278,3 +276,11 @@ parts can be struck by an amendment without touching the rest.
 - ADR-001, the decision records themselves.
 - `CLAUDE.md` §"Six things that are kept apart" and `README.md` — the
   separations this principle names.
+
+## Amendments
+
+The body above reads current; each change's full note is in [history/ADR-000-amendments.md](history/ADR-000-amendments.md).
+
+| Date | Amendment | Effect |
+|---|---|---|
+| 2026-09-27 | The coordinator's proposals adopted | §5 P1–P7: the proposal markers removed, P7 a pillar like the others; §7, §8 and the header say so |

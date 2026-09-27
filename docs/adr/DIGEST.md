@@ -35,6 +35,8 @@ searches it.
 - A decision that ties what must endure to what will change must justify
   it (§5 rule 3). The record changes only by the owner's amendment (§5
   rule 4).
+- A 2026-09-27 — the coordinator's proposals, P7 among them, adopted
+  by the owner; the body no longer marks them.
 - Keywords: vision, purpose, pillars, principle, endure, direction.
 
 ### ADR-001 — Decision records (Accepted)
