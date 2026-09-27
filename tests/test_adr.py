@@ -76,7 +76,7 @@ def case_header_fields_and_statuses(tmp: str) -> None:
     only(root, "not one of Proposed")
     root = fixture(os.path.join(tmp, "c"))
     edit(root, ONE, "**Date:** 2026-09-27", "**Date:** 27 September")
-    only(root, "is not YYYY-MM-DD")
+    only(root, "is not a YYYY-MM-DD date")
 
 
 def case_accepted_needs_the_owners_word(tmp: str) -> None:
@@ -215,7 +215,7 @@ def case_range_check_refuses_an_unrecorded_body_edit(tmp: str) -> None:
     edit(root, ONE, "Cheaper, but it keeps", "Cheaper, yet it keeps")
     git(root, "commit", "-qa", msg="reword")
     f = adr.range_check(root, base)
-    assert len(f) == 1 and "no Amendments row" in f[0], f
+    assert len(f) == 1 and "no new Amendments row" in f[0], f
     git(root, "commit", "-q", "--amend", msg="reword\n\nADR-Editorial: a word, nothing decided")
     assert adr.range_check(root, base) == [], "the trailer records an editorial edit"
     root2 = fixture(os.path.join(tmp, "b"))
@@ -229,6 +229,106 @@ def case_range_check_refuses_an_unrecorded_body_edit(tmp: str) -> None:
     edit(root2, ONE, "**Ratified:** owner, 2026-09-27", "**Ratified:** owner, 2026-09-28")
     git(root2, "commit", "-qa", msg="ratified")
     assert adr.range_check(root2, base2) == [], "a header-only change (ratification) is not a body edit"
+
+
+def case_impossible_dates_and_escaping_evidence(tmp: str) -> None:
+    root = fixture(tmp)
+    edit(root, ONE, "**Date:** 2026-09-27", "**Date:** 2026-13-45")
+    only(root, "'2026-13-45' is not a YYYY-MM-DD date")
+    root = fixture(os.path.join(tmp, "b"))
+    edit(root, ONE, "**Pillar:** P2", "**Pillar:** P2\n**Evidence:** /etc/passwd, ../../outside.md")
+    only(root, "/etc/passwd is not a path inside the repository")
+    only(root, "../../outside.md is not a path inside the repository")
+
+
+def case_duplicate_numbers(tmp: str) -> None:
+    root = fixture(tmp)
+    shutil.copy(os.path.join(root, ONE), os.path.join(root, "docs/adr/ADR-001-a-twin.md"))
+    only(root, "number(s) used twice: ADR-001")
+
+
+def case_amendments_bookkeeping_edges(tmp: str) -> None:
+    root = fixture(tmp)
+    amend(root)
+    s = open(os.path.join(root, ONE), encoding="utf-8").read()
+    s = s.replace("\n## Amendments\n", "\n## Amendments-moved\n", 1)
+    open(os.path.join(root, ONE), "w", encoding="utf-8").write(s)
+    only(root, "amended, but no '## Amendments' section")
+    root = fixture(os.path.join(tmp, "b"))
+    amend(root)
+    s = open(os.path.join(root, ONE), encoding="utf-8").read()
+    head, amendments = s.split("\n## Amendments\n", 1)
+    refs = head.index("\n## References")
+    s = head[:refs] + "\n## Amendments\n" + amendments.rstrip("\n") + "\n" + head[refs:] + "\n"
+    open(os.path.join(root, ONE), "w", encoding="utf-8").write(s)
+    only(root, "'## Amendments' must be the last section")
+    root = fixture(os.path.join(tmp, "c"))
+    os.makedirs(os.path.join(root, "docs/adr/history"))
+    open(os.path.join(root, "docs/adr/history/ADR-001-amendments.md"), "w").write("# ADR-001 — amendments\n")
+    only(root, "no amendment in it — remove it")
+
+
+def case_superseded_needs_an_arrow(tmp: str) -> None:
+    root = fixture(tmp)
+    edit(root, ONE, "**Status:** Accepted", "**Status:** Superseded")
+    only(root, "Superseded without '(→ ADR-NNN)'")
+
+
+def case_digest_orphan_and_readme_markers(tmp: str) -> None:
+    root = fixture(tmp)
+    edit(root, "docs/adr/DIGEST.md", "### ADR-001 —", "### ADR-009 — Ghost (Accepted)\n\n### ADR-001 —")
+    only(root, "an entry for ADR-009, which does not exist")
+    root = fixture(os.path.join(tmp, "b"))
+    edit(root, "docs/adr/README.md", adr.INDEX_START, "")
+    only(root, "no <!-- adr-index:start -->")
+
+
+def commit_base(root: str) -> str:
+    git(root, "init", "-q", "-b", "main"); git(root, "config", "core.hooksPath", "/dev/null")
+    git(root, "add", "-A"); git(root, "commit", "-q", msg="base")
+    return subprocess.run(["git", "-C", root, "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
+
+
+def case_range_check_counts_only_new_amendment_rows(tmp: str) -> None:
+    root = fixture(tmp)
+    base = commit_base(root)
+    edit(root, ONE, "Cheaper, but it keeps", "Cheaper, yet it keeps")
+    edit(root, ONE, "## 6. Consequences", "| 2026-09-19 | disk full | lease added |\n\n## 6. Consequences")
+    git(root, "commit", "-qa", msg="a dated row inside the body is not an amendment")
+    assert len(adr.range_check(root, base)) == 1, "a dated table row outside ## Amendments hid a body edit"
+    root = fixture(os.path.join(tmp, "b"))
+    amend(root)
+    base = commit_base(root)
+    edit(root, ONE, "Cheaper, but it keeps", "Cheaper, yet it keeps")
+    edit(root, ONE, "| (say which § and rule) |", "| §3 |")
+    git(root, "commit", "-qa", msg="an edited Effect cell is not a new row")
+    assert len(adr.range_check(root, base)) == 1, "an edited existing row counted as an amendment"
+
+
+def case_range_check_follows_renames_and_passes_header_only(tmp: str) -> None:
+    root = fixture(tmp)
+    base = commit_base(root)
+    git(root, "mv", ONE, "docs/adr/ADR-001-decision-records-renamed.md")
+    edit(root, "docs/adr/ADR-001-decision-records-renamed.md", "Cheaper, but it keeps", "Cheaper, yet it keeps")
+    git(root, "commit", "-qa", msg="rename and rewrite")
+    assert len(adr.range_check(root, base)) == 1, "a rename carrying a body edit escaped"
+    root = fixture(os.path.join(tmp, "b"))
+    base = commit_base(root)
+    s = open(os.path.join(root, ONE), encoding="utf-8").read()
+    s = s.replace("**Pillar:** P2\n\n## 1.", "**Pillar:** P2\n \n## 1.", 1)
+    open(os.path.join(root, ONE), "w", encoding="utf-8").write(s)
+    git(root, "commit", "-qa", msg="whitespace on the header's last line")
+    assert adr.range_check(root, base) == [], "a header-only change was reported as a body edit"
+
+
+def case_a_record_the_branch_adds_is_a_draft_until_merged(tmp: str) -> None:
+    root = fixture(tmp)
+    base = commit_base(root)
+    adr.cmd_new(root, "a-draft", "A draft")
+    git(root, "add", "-A"); git(root, "commit", "-q", msg="add a draft record")
+    edit(root, "docs/adr/ADR-002-a-draft.md", "## 6. Consequences", "## 6. Consequences\n\nRevised before the merge.\n")
+    git(root, "commit", "-qa", msg="revise the draft")
+    assert adr.range_check(root, base) == [], "revising a record the branch adds is not an amendment"
 
 
 def main() -> int:

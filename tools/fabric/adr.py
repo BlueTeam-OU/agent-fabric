@@ -4,7 +4,7 @@
     adr.py check [--root R]            every rule below; exit 1 on a finding
     adr.py index --write [--root R]    regenerate index.json and the README table
     adr.py new <slug> "<title>"        the next number, from ADR-TEMPLATE.md
-    adr.py amend <NNN> "<title>"       the history note stub, the table row, the DIGEST bullet
+    adr.py amend <NNN> "<title>"       the history note stub and the table row (the DIGEST bullet is yours)
     adr.py lookup <word>...            DIGEST entries mentioning every word
     adr.py range-check <base> [<head>] each commit that edits an ADR's body records it
 
@@ -30,6 +30,7 @@ commit hook, with nothing installed.
 from __future__ import annotations
 
 import argparse
+import datetime
 import collections
 import json
 import os
@@ -71,6 +72,25 @@ def foreign_projects(root: str) -> set[str]:
     except (OSError, ValueError):
         ids = set()
     return {i.lower() for i in ids} - {"agent-fabric"}
+
+
+def real_date(value: str) -> bool:
+    """YYYY-MM-DD and a day that exists (2026-13-45 is not one)."""
+    if not DATE_RE.match(value):
+        return False
+    try:
+        datetime.date.fromisoformat(value)
+        return True
+    except ValueError:
+        return False
+
+
+def within(root: str, rel: str) -> bool:
+    """A relative path that stays inside root: no absolute path, no escape."""
+    if os.path.isabs(rel):
+        return False
+    real_root = os.path.realpath(root)
+    return os.path.realpath(os.path.join(root, rel)).startswith(real_root + os.sep)
 
 
 def adr_dir(root: str) -> str:
@@ -224,14 +244,17 @@ def check(root: str = ROOT) -> list[str]:
         for field in REQUIRED_FIELDS:
             if not f.get(field):
                 findings.append(f"{rel(a)}: header field **{field}:** missing")
-        if f.get("Date") and not DATE_RE.match(f["Date"]):
-            findings.append(f"{rel(a)}: **Date:** {f['Date']!r} is not YYYY-MM-DD")
+        if f.get("Date") and not real_date(f["Date"]):
+            findings.append(f"{rel(a)}: **Date:** {f['Date']!r} is not a YYYY-MM-DD date")
         sw = status_word(f.get("Status", ""))
         if f.get("Status") and sw not in STATUSES:
             findings.append(f"{rel(a)}: **Status:** begins with {sw!r}, not one of {', '.join(STATUSES)}")
         if sw == "Accepted":
             rat = f.get("Ratified", "")
-            if not RATIFIED_RE.match(rat):
+            m = RATIFIED_RE.match(rat)
+            if m and not real_date(m.group(1)):
+                findings.append(f"{rel(a)}: **Ratified:** {m.group(1)!r} is not a date")
+            if not m:
                 findings.append(f"{rel(a)}: Accepted without '**Ratified:** owner, YYYY-MM-DD, <source>' — nothing is binding until the owner's word reaches an artifact")
         if sw == "Superseded":
             target = re.search(r"→\s*ADR-(\d{3})", f.get("Status", ""))
@@ -247,7 +270,9 @@ def check(root: str = ROOT) -> list[str]:
                 if p != "all" and p not in pill:
                     findings.append(f"{rel(a)}: **Pillar:** {p} is not in ADR-000 §5 ({', '.join(pill)})")
         for ev in [x.strip() for x in f.get("Evidence", "").split(",") if x.strip()]:
-            if not os.path.exists(os.path.join(root, ev)):
+            if not within(root, ev):
+                findings.append(f"{rel(a)}: **Evidence:** {ev} is not a path inside the repository")
+            elif not os.path.exists(os.path.join(root, ev)):
                 findings.append(f"{rel(a)}: **Evidence:** {ev} does not exist")
         secs = [s for s in a["sections"] if s != "Amendments"]
         if secs != list(SECTIONS):
@@ -398,9 +423,16 @@ def cmd_lookup(root: str, words: list[str]) -> list[str]:
 
 
 # A commit that changes an existing ADR's body — anything past its header —
-# records it: an Amendments row in the same commit, or an `ADR-Editorial:`
-# trailer saying why none is due (a typo, a renumbered citation). Header
-# lines (Status, Ratified) are the ratification's, not an amendment's.
+# records it: a NEW row in its Amendments table in the same commit, or an
+# `ADR-Editorial:` trailer saying why none is due (a typo, a renumbered
+# citation). Header lines (Status, Ratified) are the ratification's, not an
+# amendment's. A dated row elsewhere (a table inside §5) or an edited Effect
+# cell is not an amendment row (review of #50, P2-1). Renames are followed
+# (-M), so a rename carrying a rewrite is judged too. Plumbing, not porcelain:
+# a user's color.diff or diff.external never reaches the parse. A record
+# the branch itself adds is still a draft until the merge ratifies it:
+# fixing it before then is not an amendment, so only records that exist at
+# the base are judged.
 def range_check(root: str, base: str, head: str = "HEAD") -> list[str]:
     git = lambda *a: subprocess.run(["git", "-C", root, *a], capture_output=True, text=True, check=True).stdout  # noqa: E731
     findings = []
@@ -408,25 +440,43 @@ def range_check(root: str, base: str, head: str = "HEAD") -> list[str]:
         body = git("log", "-1", "--format=%B", sha)
         if re.search(r"^ADR-Editorial:\s*\S", body, re.M):
             continue
-        for path in git("diff-tree", "--no-commit-id", "--name-status", "-r", sha).splitlines():
-            parts = path.split("\t")
-            if len(parts) != 2 or parts[0] != "M" or not FILE_RE.match(os.path.basename(parts[1])) or os.path.dirname(parts[1]) != ADR_DIR:
+        for line in git("diff-tree", "--no-commit-id", "--name-status", "-r", "-M", sha).splitlines():
+            parts = line.split("\t")
+            kind = parts[0][:1]
+            if kind == "M" and len(parts) == 2:
+                old, new_path = parts[1], parts[1]
+            elif kind == "R" and len(parts) == 3:
+                old, new_path = parts[1], parts[2]
+            else:
                 continue
-            diff = git("show", "--format=", "-U0", sha, "--", parts[1])
-            changed, header, row_added = False, True, False
-            before = git("show", f"{sha}^:{parts[1]}").split("\n")
-            first_section = next((i for i, ln in enumerate(before) if ln.startswith("## ")), len(before))
-            for hunk in re.finditer(r"^@@ -(\d+)(?:,(\d+))? \+\d+(?:,\d+)? @@.*\n((?:[-+].*\n?)*)", diff, re.M):
-                start = int(hunk.group(1))
-                lines = hunk.group(3).split("\n")
-                if any(ROW_RE.match(ln[1:]) for ln in lines if ln.startswith("+")):
-                    row_added = True
-                if start >= first_section or any(ln.startswith("+## ") for ln in lines):
-                    header = False
-                changed = True
-            if changed and not header and not row_added:
-                findings.append(f"{sha[:8]}: edits the body of {parts[1]} with no Amendments row and no 'ADR-Editorial:' trailer")
+            if os.path.dirname(new_path) != ADR_DIR or not FILE_RE.match(os.path.basename(new_path)):
+                continue
+            if subprocess.run(["git", "-C", root, "cat-file", "-e", f"{base}:{old}"], capture_output=True).returncode != 0:
+                continue
+            before = git("show", f"{sha}^:{old}")
+            after = git("show", f"{sha}:{new_path}")
+            b_lines, a_lines = before.split("\n"), after.split("\n")
+            b_first = next((i for i, ln in enumerate(b_lines) if ln.startswith("## ")), len(b_lines))
+            a_first = next((i for i, ln in enumerate(a_lines) if ln.startswith("## ")), len(a_lines))
+            body_changed = b_lines[b_first:] != a_lines[a_first:]
+            rows_before = set(amendment_rows(before))
+            row_added = bool(set(amendment_rows(after)) - rows_before)
+            if body_changed and not row_added:
+                findings.append(f"{sha[:8]}: edits the body of {new_path} with no new Amendments row and no 'ADR-Editorial:' trailer")
     return findings
+
+
+def amendment_rows(text: str) -> list[tuple[str, str]]:
+    """The (date, title) rows of the `## Amendments` table only."""
+    rows, inside = [], False
+    for ln in text.split("\n"):
+        if ln.startswith("## "):
+            inside = ln[3:].strip() == "Amendments"
+            continue
+        m = ROW_RE.match(ln) if inside else None
+        if m:
+            rows.append((m.group(1), m.group(2)))
+    return rows
 
 
 def main(argv: list[str] | None = None) -> int:
