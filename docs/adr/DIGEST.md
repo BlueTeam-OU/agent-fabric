@@ -10,6 +10,7 @@ searches it.
 | how a decision is recorded, amended, accepted | ADR-001 |
 | who an agent is; role binding; the launch prompt | ADR-002 |
 | writing per-agent state; binding.json; rename a working copy | ADR-003 |
+| adding a role or a project; the order of the commits | ADR-004 |
 
 ### ADR-000 — The enduring organization (Accepted)
 
@@ -70,3 +71,17 @@ searches it.
   session-start hook stays non-blocking (§5 rule 5).
 - Keywords: state, binding, atomic write, lock, flock, rename, history,
   host, XDG_STATE_HOME.
+
+### ADR-004 — Adding a role without breaking anyone's CI (Accepted)
+
+- A role is added in four steps, in order: the role here; the binding PR
+  in the project; the drain, both sides; the account (`new-agent.sh`)
+  (§2, §5 rule 1).
+- No generic file names the project; the remit does (§5 rule 2).
+- In the drain the project side is committed first and the fabric commit
+  pushed before the project's checks run (§5 rule 4); a colliding claim
+  waits for the owner (§5 rule 5).
+- A failing intermediate state is fixed by landing the missing half,
+  never by loosening the lint (§5 rule 6).
+- Keywords: new role, onboarding, catalog, taxonomy, remit, INDEX, drain,
+  new-agent, merge queue, CI.

@@ -36,6 +36,15 @@
       "date": "2026-09-16",
       "pillar": "P1",
       "amendments": 0
+    },
+    {
+      "number": "004",
+      "file": "ADR-004-adding-a-role-without-breaking-anyones-ci.md",
+      "title": "Adding a role without breaking anyone's CI",
+      "status": "Accepted",
+      "date": "2026-09-17",
+      "pillar": "P1",
+      "amendments": 0
     }
   ]
 }
