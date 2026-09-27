@@ -40,6 +40,7 @@ searches it.
 | which Claude account a login runs on; moving logins; setup-token; usage windows | ADR-031 |
 | changing the GZCoord protocol; the grammar freeze; GZCOORD/2 | ADR-032 |
 | the relay; the human relay; transports; Telegram; the adapter contract | ADR-033 |
+| what a failure may take; single points; degraded modes (proposed) | ADR-034 |
 
 ### ADR-000 — The enduring organization (Accepted)
 
@@ -639,3 +640,20 @@ searches it.
 - Keywords: transport, relay, Claude-Bridge, claude-bridge,
   gzcoord-relay, human relay, fallback, Telegram, adapter contract,
   channel, gzapp:gzcoord, bridge token, central, single point of failure.
+
+### ADR-034 — Decentralization as a direction: a failure may reduce capacity, never take identity, knowledge or continuity (Proposed)
+
+- Proposed, not binding: decentralize only where a failure would take
+  identity, knowledge or the ability to go on working; reduced capacity
+  is acceptable (§2).
+- §1 inventories what depends on one thing today — one host, one relay
+  and its database, one signing key, Doppler, one observer, two
+  providers, undrained memory, the owner — with each degraded mode or
+  "none" (§1, §5 rule 1).
+- Data that exists nowhere else gets a copy first; a degraded mode counts
+  only with a live check; identity never depends on a central service
+  (§5 rules 2–4).
+- First step: a copy of the relay's database and a restore read back
+  (§7). Waits on the owner's acceptance (§8).
+- Keywords: decentralization, resilience, single point of failure,
+  degraded mode, relay, host, crash, backup, autonomy, P5, proposed.
