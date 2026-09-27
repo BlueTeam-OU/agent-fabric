@@ -10,7 +10,7 @@
     "xhigh",
     "max"
   ],
-  "levels_note": "Ordered, least to most. The union of the vendors' scales, not any one vendor's: Anthropic admits low..max, OpenAI all seven, xAI none..xhigh, DeepSeek low/high/max, GLM-5.3-Flash low/high/max. A level is an ORDINAL, never a magnitude — no vendor asserts that its `high` means another's, and neither does this file. What a class asks for is clamped DOWN to the nearest level its model admits, by the fabric, before the request leaves: the vendors disagree on the failure mode (OpenAI returns 400, xAI and Claude Code clamp silently, GLM-5.3-Flash errors, DeepSeek remaps), and a routing decision must not mean two different things depending on who serves it.",
+  "levels_note": "Ordered, least to most. The union of the vendors' scales, not any one vendor's: Anthropic admits low..max, OpenAI all seven, xAI none..xhigh, DeepSeek low/high/max, GLM-5.3-Flash low/high/max. A level is an ORDINAL, never a magnitude — no vendor asserts that its `high` means another's, and neither does this file. What a class asks for is fitted to what its model admits, by the fabric, before the request leaves: the vendor's own documented mapping where there is one (in either direction); else clamped DOWN to the nearest level below; and a request below the model's floor is raised UP to that floor, since sending nothing would hand the vendor its default (tools/fabric/routing.py effort_for): the vendors disagree on the failure mode (OpenAI returns 400, xAI and Claude Code clamp silently, GLM-5.3-Flash errors, DeepSeek remaps), and a routing decision must not mean two different things depending on who serves it.",
   "classes": {
     "code-low": "medium",
     "code-medium": "medium",

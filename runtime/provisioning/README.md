@@ -55,9 +55,10 @@ an account that came out short is completed. In order: the Linux account
 linger, and on Qubes the record snapshot under `/rw`,
 `persist-accounts.sh`); the home skeleton, then `claude` and `ori`
 installed as the account the way their vendors say (`claude.ai/install.sh`
-on the vendor's latest — every account runs latest, the coordinator
-included, and the fabric is fixed where latest breaks it; `--claude`
-pins — and `openrouter.ai/labs/ori/install.sh`; an installer that fails
+at the version the fleet pins in `runtime/claude-code/harness.json`, so a
+new account starts where the others are (agent-fabric ADR-009); `--claude`
+overrides it with a version, `stable` or `latest`, and with no pin
+readable it is the vendor's latest — and `openrouter.ai/labs/ori/install.sh`; an installer that fails
 fails the script, nothing is copied from another account); GitHub's host key in
 `known_hosts`; `~/projects/agent-fabric` over https (the fabric is
 public; the account has no key yet); Doppler enrolment — `enroll.sh

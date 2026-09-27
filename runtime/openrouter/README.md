@@ -202,9 +202,10 @@ read-back on the 2026-09-13 binding
 (a `model: fable` reviewer from a GLM 5.3 session served as
 `anthropic/claude-opus-5` on every generation) proved the export is the
 reviewer's own; architect-cto then admitted `z-ai/glm-5.3` to
-review-grade and made it the broker review model (2026-09-13), so today
-the reviewer is GLM 5.3 with the family shim, and Opus 5 remains an
-admitted choice for a profile that wants it. The separation still
+review-grade and made it the broker review model (2026-09-13); on
+2026-09-19 the broker's review model moved to DeepSeek V4 Pro with its
+shim (the owner; agent-fabric ADR-005), and GLM 5.3 and Opus 5 remain
+admitted choices for a profile that wants them. The separation still
 matters: review and code-high can be given different models, and the
 review model can be raised without touching the coding classes.
 
