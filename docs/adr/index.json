@@ -162,6 +162,15 @@
       "date": "2026-09-15",
       "pillar": "P2",
       "amendments": 0
+    },
+    {
+      "number": "018",
+      "file": "ADR-018-authority.md",
+      "title": "Authority: one writer role per surface; a guard is hook + CI + suite; the read-only fence",
+      "status": "Accepted",
+      "date": "2026-09-13",
+      "pillar": "P3",
+      "amendments": 0
     }
   ]
 }

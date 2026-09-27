@@ -24,6 +24,7 @@ searches it.
 | what a comment is for; stale comments; the stronger executable form | ADR-015 |
 | writing a SKILL.md; dates and PR numbers in skills; skill-creator | ADR-016 |
 | live checks; read-back; evidence; a prompt change before pushing | ADR-017 |
+| who may commit here; Fabric-Role; the hooks; the locale carve-out; what a guard is | ADR-018 |
 
 ### ADR-000 — The enduring organization (Accepted)
 
@@ -320,3 +321,22 @@ searches it.
   was verified (§5 rules 6–7). Mostly practice, not mechanised (§6).
 - Keywords: live check, read-back, measurement, evidence, control,
   launch --print, MAX_CHARS, prompt ceiling, verify, guard.
+
+### ADR-018 — Authority: one writer role per surface; a guard is hook + CI + suite; the read-only fence (Accepted)
+
+- Authority attaches to roles and policy files, never to logins or
+  directories; holding a role gives nothing over its definition (§2).
+- agent-fabric, and `.agent-fabric/` in every project, is committed only
+  by a session bound to `fabric-coordinator`: `pre-commit` and
+  `commit-msg` fence it, `check_agent_fabric_dir_authority.sh` reads the
+  `Fabric-Role:` trailer in CI (§5 rules 1–4).
+- Every commit carries its account's role as a trailer; a fold-only merge
+  passes (§5 rules 2–3). A locale's translations are its holder's to
+  commit, alone, and the coordinator's to merge (§5 rule 5).
+- A guard is a commit-time check, a CI check on every added commit and a
+  planted suite case (§5 rule 6); a proposal is a PR left for the owning
+  role (§5 rule 7).
+- Open gap: `check_charter_authority.sh` has no CI call site; the fence
+  holds charters today (§6).
+- Keywords: authority, read-only, fence, tripwire, Fabric-Role, trailer,
+  pre-commit, commit-msg, hooksPath, charter, locale carve-out, guard.
