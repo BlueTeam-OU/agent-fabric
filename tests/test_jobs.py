@@ -94,6 +94,9 @@ def main() -> int:
 
         p = run("add", "red\x1b[31m title")
         check("a control character in a title is refused", p.returncode == 1 and "control character" in p.stderr, p.stderr)
+        p = run("add", "two\tlines\nof title")
+        check("tab and newline collapse, as before", p.returncode == 0 and "two lines of title" in p.stdout, p.stdout + p.stderr)
+        run("drop", p.stdout.split()[1] if p.returncode == 0 else "j0", "a test")
         p = run("list")
         check("list hides closed jobs", p.stdout.strip() == "no open jobs", p.stdout)
         p = run("list", "--all")

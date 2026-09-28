@@ -135,8 +135,10 @@ def working_copy_of(project: str) -> str | None:
 
 def new_job(doc: dict, title: str, *, topic=None, project=None, working_copy=None, source=None) -> dict:
     # Control characters (C0, DEL, C1) would reach every terminal that
-    # lists the job and the opening prompt of a fresh session.
-    if any(ord(c) < 32 or 127 <= ord(c) < 160 for c in title + (topic or "")):
+    # lists the job and the opening prompt of a fresh session. Tab, newline
+    # and carriage return are whitespace, collapsed below as they always were
+    # (a title from a file, a subject with a tab).
+    if any((ord(c) < 32 and c not in "\t\n\r") or 127 <= ord(c) < 160 for c in title + (topic or "")):
         raise Refused("a title or topic carries a control character")
     title = " ".join(title.split())
     if not title:
