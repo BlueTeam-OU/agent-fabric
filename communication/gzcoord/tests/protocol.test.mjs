@@ -1727,7 +1727,8 @@ test('ensureRelay: a client hosts nothing; with the unit installed the relay is 
 test('send: the automatic job intake is off unless switched on, and then takes only a REPLY', async () => {
   const { autoIntake } = await import('../scripts/send.mjs');
   const calls = [];
-  const run = (cmd, args) => { calls.push([cmd, ...args]); return { status: 0, stdout: 'added j1\n', stderr: '' }; };
+  const opts = [];
+  const run = (cmd, args, o) => { calls.push([cmd, ...args]); opts.push(o); return { status: 0, stdout: 'added j1\n', stderr: '' }; };
   const reply = { type: 'REPLY', metadata: { 'IN-REPLY-TO': '01a09fc1-0000-7000-8000-00000000000a' } };
   assert.equal(autoIntake(reply, {}, run), null, 'off by default');
   assert.equal(autoIntake(reply, { AGENT_FABRIC_JOBS_AUTO_INTAKE: '0' }, run), null, 'off unless exactly 1');
@@ -1739,6 +1740,7 @@ test('send: the automatic job intake is off unless switched on, and then takes o
   assert.deepEqual(calls[0].slice(0, 1).concat(calls[0].slice(2)),
     ['python3', 'add', '--request', '01a09fc1-0000-7000-8000-00000000000a', '--auto']);
   assert.match(calls[0][1], /tools\/fabric\/jobs\.py$/);
+  assert.ok(opts[0].timeout > 0 && opts[0].timeout <= 30000, 'bounded: a hung relay must not hold a send that succeeded');
   // The launcher never sets the switch.
   const launch = fs.readFileSync(new URL('../../../runtime/openrouter/launch', import.meta.url), 'utf8');
   assert.doesNotMatch(launch, /AGENT_FABRIC_JOBS_AUTO_INTAKE/);

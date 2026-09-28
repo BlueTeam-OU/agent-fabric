@@ -276,7 +276,13 @@ export async function main(argv = process.argv.slice(2)) {
   console.log(t('send.sent', { seq: res.seq, type: msg.type, id, deduplicated: res.deduplicated ? t('send.deduplicated') : '' }));
   // fabric-jobs speaks for itself, on stderr: stdout stays the one sent line.
   const intake = autoIntake(msg);
-  if (intake) process.stderr.write(`${intake.stdout ?? ''}${intake.stderr ?? ''}`);
+  if (intake) {
+    process.stderr.write(`${intake.stdout ?? ''}${intake.stderr ?? ''}`);
+    // A failed intake is said, never a quiet empty line (fabric-jobs's own
+    // text, like its other lines here: no dictionary key for a switch
+    // that is off).
+    if (intake.status !== 0) process.stderr.write(`fabric-jobs: the job intake of ${msg.metadata['IN-REPLY-TO']} did not complete (${intake.signal ? `stopped by ${intake.signal} after 20 s` : `exit ${intake.status}`}); add it with fabric-jobs add --request\n`);
+  }
   return 0;
 }
 

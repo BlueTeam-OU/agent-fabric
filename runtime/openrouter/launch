@@ -952,12 +952,28 @@ PY
                     elif [[ -n "$(git -C "$wc" status --porcelain 2>/dev/null)" ]]; then
                         echo "launch: job $job's working copy $wc has uncommitted changes; starting in $PWD." >&2
                     elif [[ "$wc" != "$PWD" ]]; then
-                        # An argument naming a path relative to here would
-                        # name nothing there: made absolute first. A launch
-                        # that relaunches fresh carried no prompt of its own,
-                        # so what is left is options and their values.
+                        # A path relative to here would name nothing there:
+                        # the values of the options that take paths are made
+                        # absolute first, spaced or `=`, existing or not —
+                        # and nothing else, since a model or provider name can
+                        # match a file here too. One value each, as the
+                        # opening scan above reads them: a second word is the
+                        # caller's prompt, and such a launch is never
+                        # relaunched fresh. A --settings value that is JSON is
+                        # not a path.
+                        takes=0
                         for i in "${!NEXT[@]}"; do
-                            [[ "${NEXT[$i]}" != /* && "${NEXT[$i]}" != -* && -e "${NEXT[$i]}" ]] && NEXT[i]="$PWD/${NEXT[$i]}"
+                            a="${NEXT[$i]}"
+                            case "$a" in
+                                --add-dir|--mcp-config|--settings) takes=1; continue ;;
+                                --add-dir=*|--mcp-config=*|--settings=*)
+                                    v="${a#*=}"; [[ -n "$v" && "$v" != /* && "$v" != \{* ]] && NEXT[i]="${a%%=*}=$PWD/$v"
+                                    takes=0; continue ;;
+                                -*) takes=0; continue ;;
+                            esac
+                            (( takes )) || continue
+                            [[ "$a" != /* && "$a" != \{* ]] && NEXT[i]="$PWD/$a"
+                            takes=0
                         done
                         cd "$wc" && echo "launch: starting job $job in $wc." >&2
                     fi
