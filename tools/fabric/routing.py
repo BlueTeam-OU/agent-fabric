@@ -798,8 +798,17 @@ def check(root: str | None = None) -> list[str]:
         # The session is judged like a class: the level it asks for (its
         # own, or the class it names), on the model the session resolves
         # to for this provider. Its acknowledgement is
-        # providers.<provider>.session, with notes.session beside it.
-        sess_want = base.get(sess, sess) if sess else None
+        # providers.<provider>.session, with notes.session beside it. A
+        # session naming a class asks what that class asks on this provider
+        # — its intent after the class's own acknowledgement, as
+        # session_effort() reads it — so a downgrade already written for
+        # the class is not demanded a second time.
+        sess_want = sess
+        if sess in base:
+            try:
+                sess_want = ((resolve(sess, provider, root=root) or {}).get("effort") or {}).get("intent")
+            except KeyError:
+                sess_want = None
         if sess_want in scale:
             try:
                 model = resolve_session(root=root, provider=provider).get("model")
@@ -824,7 +833,7 @@ def check(root: str | None = None) -> list[str]:
                 elif lost:
                     findings.append(
                         f"routing/effort.json: the session asks for {sess_want!r}; {model} on {provider} gives "
-                        f"{served!r}. Write providers.{provider}.session: {served!r} with a note in "
+                        f"{served!r}. Write providers.{provider}.session: {'null' if served is None else repr(served)} with a note in "
                         f"providers.{provider}.notes, or change the session's level or model.")
     return findings
 

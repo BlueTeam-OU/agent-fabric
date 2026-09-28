@@ -262,6 +262,26 @@ def test_the_session_level_is_judged_like_a_class(tmp: str) -> None:
     json.dump(doc, open(path, "w", encoding="utf-8"))
     assert any("providers.openrouter.session is 'high'" in f for f in routing.check(root)), routing.check(root)
 
+    # Raised to the model's floor is refused too: "none" on Opus 5.5 is given "low".
+    del doc["providers"]["openrouter"]["session"]
+    doc["session"] = "none"
+    json.dump(doc, open(path, "w", encoding="utf-8"))
+    assert any("the session asks for 'none'" in f and "anthropic" in f and "'low'" in f
+               for f in routing.check(root)), routing.check(root)
+
+    # A session naming a class asks what the class asks after its own
+    # acknowledgement: nothing is demanded twice (#57 blind review F4).
+    # The broker session rides code-low's model, which serves low where the
+    # class asks medium; code-low's acknowledgement already says so.
+    doc["session"] = "code-low"
+    json.dump(doc, open(path, "w", encoding="utf-8"))
+    prof = os.path.join(root, "routing", "profiles.json")
+    p = json.load(open(prof, encoding="utf-8"))
+    p["defaults"]["providers"]["openrouter"]["session"] = "code-low"
+    json.dump(p, open(prof, "w", encoding="utf-8"))
+    assert routing.session_effort("openrouter", root=root) == "low"
+    assert not [f for f in routing.check(root) if "the session asks" in f], routing.check(root)
+
 
 def test_an_agent_layer_outranks_a_committed_acknowledgement(tmp: str) -> None:
     """The acknowledgement is the committed INTENT for a column, so it sits
