@@ -94,7 +94,9 @@ move: Opus 5.5 at `high` because routing asked for it.
    expresses no effort at all needs an explicit `null` there, with its
    note. A downgrade, or a raise to the floor, is a commit, never a
    computation; a vendor's own documented mapping is applied as
-   documented.
+   documented. The session's level is judged the same way on the
+   session's model, acknowledged at `providers.<p>.session` with its
+   note in `providers.<p>.notes.session` (A 2026-09-28).
 4. A class's level reaches its subagent only through its agent file's
    `effort:` line, written by `install-agent-files.sh`; a hand-written
    `effort:` in a committed source is a lint finding. A model with no
@@ -150,3 +152,11 @@ Accepted and in force, with every class at `medium` (§2).
   the read-back after e59d0ba), `docs/live-checks/2026-09-23-effort-registry.md`
   (the precedence chain, the registry, the transcript field, Codex, GLM-5.2).
 - ADR-005 (the model half of the same class decision).
+
+## Amendments
+
+The body above reads current; each change's full note is in [history/ADR-006-amendments.md](history/ADR-006-amendments.md).
+
+| Date | Amendment | Effect |
+|---|---|---|
+| 2026-09-28 | The session's level is judged like a class's | §5 rule 3: `check()` judges the session on its own model; `providers.<p>.session` |

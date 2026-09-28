@@ -164,6 +164,8 @@ searches it.
   carry no effort keys; never set per dispatch (§5 rules 6–7).
 - Today every class and session asks `medium`;
   broker `code-low` is committed at `low` (§2).
+- A 2026-09-28 — the session's level is judged on its model like a class's;
+  `providers.<p>.session` acknowledges a downgrade.
 - Keywords: effort, reasoning, thinking, level, clamp, medium, high,
   --effort, agent file, CLAUDE_EFFORT, Opus 5.5 default.
 

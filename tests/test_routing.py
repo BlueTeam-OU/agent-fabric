@@ -241,6 +241,28 @@ def test_a_downgrade_is_refused_until_it_is_written_down(tmp: str) -> None:
     assert any("written for a different model" in f for f in routing.check(root)), routing.check(root)
 
 
+def test_the_session_level_is_judged_like_a_class(tmp: str) -> None:
+    """The session asks for a level on its own model: one the model lowers
+    is refused until written down with a note, and an acknowledgement is
+    re-judged when the model changes (PE1 of the #40 review)."""
+    root = scratch_root(tmp)
+    path = os.path.join(root, "routing", "effort.json")
+    doc = json.load(open(path, encoding="utf-8"))
+    doc["session"] = "xhigh"                  # the broker's session model gives high
+    json.dump(doc, open(path, "w", encoding="utf-8"))
+    lost = [f for f in routing.check(root) if "the session asks for 'xhigh'" in f]
+    assert len(lost) == 1 and "openrouter" in lost[0] and "'high'" in lost[0], routing.check(root)
+    doc["providers"].setdefault("openrouter", {})["session"] = "high"
+    json.dump(doc, open(path, "w", encoding="utf-8"))
+    assert any("providers.openrouter.session has no matching entry" in f for f in routing.check(root)), routing.check(root)
+    doc["providers"]["openrouter"].setdefault("notes", {})["session"] = "why, in one committed sentence"
+    json.dump(doc, open(path, "w", encoding="utf-8"))
+    assert not [f for f in routing.check(root) if "session" in f], routing.check(root)
+    doc["session"] = "max"                     # the acknowledgement now describes another request
+    json.dump(doc, open(path, "w", encoding="utf-8"))
+    assert any("providers.openrouter.session is 'high'" in f for f in routing.check(root)), routing.check(root)
+
+
 def test_an_agent_layer_outranks_a_committed_acknowledgement(tmp: str) -> None:
     """The acknowledgement is the committed INTENT for a column, so it sits
     UNDER the profile and agent layers exactly as a model id does. It sat
@@ -469,6 +491,7 @@ def main() -> int:
         test_effort_is_one_vocabulary_resolved_per_class,
         test_a_vendor_that_remaps_upward_is_not_clamped_down,
         test_a_downgrade_is_refused_until_it_is_written_down,
+        test_the_session_level_is_judged_like_a_class,
         test_an_agent_layer_outranks_a_committed_acknowledgement,
         test_a_level_below_the_models_floor_is_raised_not_dropped,
         test_no_model_pinned_is_not_a_claim_about_a_model,
