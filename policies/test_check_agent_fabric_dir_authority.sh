@@ -57,6 +57,7 @@ out="$(run_guard)"
 grep -q "do not declare Fabric-Role: fabric-coordinator" <<<"$out" && pass "the refusal names the missing trailer" || fail "refusal wording" "$out"
 grep -q "\[Fabric-Role: none\]" <<<"$out" && pass "…and lists the commit with what it declared" || fail "commit not listed" "$out"
 grep -q "irrelevant" <<<"$out" && pass "…and says the login is not the question" || fail "no role/login sentence" "$out"
+grep -q "merge_target" <<<"$out" && ! grep -qi "raise it" <<<"$out" && pass "…and gives the slice correction, not a raise" || fail "slice wording" "$out"
 new_repo; commit_change .agent-fabric/memory/backend-dev/workflow.md $'drain\n\nFabric-Role: backend-dev'
 [[ "$(rc_of)" == 1 ]] && pass "a trailer naming another role: refused" || fail "wrong role admitted"
 new_repo; commit_change .agent-fabric/memory/backend-dev/workflow.md "$DECLARED"

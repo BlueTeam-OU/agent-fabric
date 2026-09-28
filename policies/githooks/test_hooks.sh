@@ -46,6 +46,9 @@ echo "a commit under .agent-fabric/ needs the role bound"
 bind backend-dev; new_repo
 [[ "$(try_commit .agent-fabric/memory/backend-dev/workflow.md 'hand edit')" == 1 ]] && pass "backend-dev bound: refused" || fail "hand edit committed"
 grep -q "this agent's binding holds: backend-dev" "$TMP/err" && pass "the refusal says what is bound" || fail "wording" "$(cat "$TMP/err")"
+# A wrong slice is corrected at its source memory or with merge_target
+# (agent-fabric ADR-014), never raised: the refusal a holder reads says so.
+grep -q "merge_target" "$TMP/err" && ! grep -qi "raise" "$TMP/err" && pass "…and gives the slice correction, not a raise" || fail "slice wording" "$(cat "$TMP/err")"
 bind ""; new_repo
 [[ "$(try_commit .agent-fabric/memory/backend-dev/workflow.md 'hand edit')" == 1 ]] && pass "no role bound: refused" || fail "unbound commit admitted"
 bind fabric-coordinator; new_repo
