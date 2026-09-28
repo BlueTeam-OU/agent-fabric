@@ -105,8 +105,19 @@ def with_memory_check(hooks: dict) -> dict:
     """`hooks` with exactly one memory-check entry, the current one; every
     other entry kept as it was."""
     hooks = dict(hooks) if isinstance(hooks, dict) else {}
-    post = [e for e in (hooks.get("PostToolUse") or []) if isinstance(e, dict)
-            and not any(MEMORY_CHECK in str(h.get("command", "")) for h in (e.get("hooks") or []) if isinstance(h, dict))]
+    post = []
+    for e in hooks.get("PostToolUse") or []:
+        if not isinstance(e, dict) or not isinstance(e.get("hooks"), list):
+            post.append(e)                  # not ours to judge: kept as it is
+            continue
+        # Only the check itself is taken out of an entry: a hook of the
+        # account's own that shares the entry stays; an entry left with
+        # nothing is dropped.
+        kept = [h for h in e["hooks"] if not (isinstance(h, dict) and MEMORY_CHECK in str(h.get("command", "")))]
+        if len(kept) == len(e["hooks"]):
+            post.append(e)
+        elif kept:
+            post.append({**e, "hooks": kept})
     hooks["PostToolUse"] = post + [memory_check_hook()]
     return hooks
 

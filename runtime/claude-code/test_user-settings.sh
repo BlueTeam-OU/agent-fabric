@@ -55,6 +55,12 @@ out="$(run "$S")"
 msg="$(check "p=d['hooks']['PostToolUse']; mc=[e for e in p if 'memory-write-check.py' in e['hooks'][0]['command']]; assert len(mc)==1 and mc[0]['matcher']=='Write|Edit' and '$FABRIC/runtime/claude-code/hooks/memory-write-check.py' in mc[0]['hooks'][0]['command'], p; assert any(e['hooks'][0]['command']=='mine.sh' for e in p) and d['hooks']['Stop'][0]['hooks'][0]['command']=='stop.sh', d")" \
   && ok "one entry, at this checkout's path (an old path replaced); the account's own hooks kept" || bad "memory check hook" "$out ${msg:-} $(cat "$S")"
 out="$(run "$S")"; [[ "$out" == "  =  $S fabric user settings" ]] && ok "…and a second run changes nothing" || bad "hook idempotence" "$out"
+# A hand-merged entry holding the check beside a hook of the account's own:
+# only the check is replaced; the neighbour stays.
+printf '{"hooks": {"PostToolUse": [{"matcher": "Write|Edit", "hooks": [{"type": "command", "command": "python3 \\"/old/runtime/claude-code/hooks/memory-write-check.py\\""}, {"type": "command", "command": "neighbour.sh"}]}]}}\n' > "$S"
+out="$(run "$S")"
+msg="$(check "p=d['hooks']['PostToolUse']; cmds=[h['command'] for e in p for h in e['hooks']]; assert 'neighbour.sh' in cmds, p; assert sum('memory-write-check.py' in c for c in cmds)==1 and not any('/old/' in c for c in cmds), p")" \
+  && ok "a hook sharing the check's entry is kept" || bad "neighbour hook" "$out ${msg:-} $(cat "$S")"
 
 echo "bootstrap runs it"
 grep -q 'user-settings.py" "\$CLAUDE_HOME/settings.json"' "$HERE/bootstrap.sh" && ok "bootstrap.sh calls it on the login's user settings" || bad "bootstrap wiring"
