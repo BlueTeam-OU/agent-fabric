@@ -33,5 +33,7 @@ session:
     tools/fabric/query.sh obs <content-hash>  # the slice(s) a derived_from hash feeds
     tools/fabric/query.sh roles               # what roles exist, per project, and how big
 
-A slice that disagrees with the tree is wrong, not the tree; raise it with
-fabric-coordinator, which writes the corpus through a drain.
+A slice that disagrees with the tree is wrong, not the tree; write the
+correction at its source memory, or as a memory of the same class
+carrying `merge_target` with the stale section's heading; the next drain
+puts it in place.
