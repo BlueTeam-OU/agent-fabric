@@ -109,6 +109,19 @@ def main() -> int:
               [e["state"] for e in jobs()[1]["log"]] == ["queued", "active", "delivered", "delivered", "done"],
               repr(jobs()[1]["log"]))
 
+        # --project finds this login's checkout of the project beside the
+        # working copy it runs in — never the current one for another project.
+        gz = os.path.join(tmp, "gzapp-copy")
+        subprocess.run(["git", "init", "-q", gz], check=True)
+        subprocess.run(["git", "-C", gz, "remote", "add", "origin", "git@github.com:gzapi-org/gzapp.git"], check=True)
+        env["AGENT_FABRIC_STATE_DIR"] = os.path.join(tmp, "state-project")
+        p = run("add", "a gzapp job", "--project", "gzapp")
+        check("--project finds the project's checkout beside this one",
+              p.returncode == 0 and jobs()[0]["working_copy"] == gz and jobs()[0]["project"] == "gzapp", p.stderr + repr(jobs()))
+        p = run("add", "a job nowhere", "--project", "kutaisi-shop-transit")
+        check("no checkout of it: no working copy, and said", p.returncode == 0 and jobs()[1]["working_copy"] is None
+              and "no working copy of kutaisi-shop-transit" in p.stderr, p.stderr + repr(jobs()[1]))
+
         # next: the restart rule, one branch per case.
         env["AGENT_FABRIC_STATE_DIR"] = os.path.join(tmp, "state-next")
         p = run("next")

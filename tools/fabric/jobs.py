@@ -102,21 +102,26 @@ def transition(doc: dict, job: dict, state: str, **fields) -> None:
 
 def working_copy_of(project: str) -> str | None:
     """This login's working copy of `project`: the directory it runs in
-    when that is one, else the first checkout beside the fabric that
-    resolves to it. A job added from elsewhere — the owner's, through the
-    control agent — still lands where the work is done."""
+    when that is one, else the first checkout that resolves to it beside
+    the current working copy, then beside the fabric — the workspace
+    either way in a normal layout, and the first still right when the
+    fabric in use is a worktree elsewhere. A job added from another
+    project, or by the owner through the control agent, lands where the
+    work is done; None when no checkout is found."""
     here = identity.resolve_context()
     if here.get("project") == project and here.get("working_copy"):
         return here["working_copy"]
-    workspace = os.path.dirname(os.path.realpath(FABRIC_ROOT))
-    try:
-        names = sorted(os.listdir(workspace))
-    except OSError:
-        return None
-    for name in names:
-        path = os.path.join(workspace, name)
-        if os.path.isdir(os.path.join(path, ".git")) and identity.resolve_context(cwd=path).get("project") == project:
-            return path
+    workspaces = [os.path.dirname(here["working_copy"])] if here.get("working_copy") else []
+    workspaces.append(os.path.dirname(os.path.realpath(FABRIC_ROOT)))
+    for workspace in dict.fromkeys(workspaces):
+        try:
+            names = sorted(os.listdir(workspace))
+        except OSError:
+            continue
+        for name in names:
+            path = os.path.join(workspace, name)
+            if os.path.isdir(os.path.join(path, ".git")) and identity.resolve_context(cwd=path).get("project") == project:
+                return path
     return None
 
 
@@ -136,7 +141,8 @@ def new_job(doc: dict, title: str, *, topic=None, project=None, working_copy=Non
         "title": title,
         "topic": " ".join(topic.split()) if topic else None,
         "project": project or ctx.get("project"),
-        "working_copy": working_copy or ctx.get("working_copy"),
+        # Never the current directory's checkout for another project's job.
+        "working_copy": working_copy or (ctx.get("working_copy") if not project or ctx.get("project") == project else None),
         "state": "queued",
         "source": source or {"kind": "self"},
         "artifacts": [],
@@ -176,9 +182,10 @@ def request_job(doc: dict, msg: dict, *, topic=None, project=None, working_copy=
     wanted = project or meta.get("PROJECT")
     here = identity.resolve_context(cwd=os.path.abspath(os.path.expanduser(working_copy)) if working_copy else None)
     if wanted and not working_copy and here.get("project") != wanted:
-        raise Refused(f"the message is for project {wanted}, this directory is "
-                      f"{here.get('project') or 'in no registered project'}; run from its working copy "
-                      "or pass --working-copy")
+        working_copy = working_copy_of(wanted)
+        if not working_copy:
+            raise Refused(f"the message is for project {wanted}, and no working copy of it is here or beside "
+                          "this one; run from its working copy or pass --working-copy")
     source = {"kind": "request" if msg.get("type") == "REQUEST" else (msg.get("type") or "message").lower(),
               "message_id": mid, "from": meta.get("FROM") or msg.get("sender"), "seq": msg.get("seq")}
     return new_job(doc, meta.get("SUBJECT") or f"message {mid}", topic=topic, project=wanted,
@@ -312,6 +319,10 @@ def main(argv: list[str] | None = None) -> int:
             job = mutate(lambda doc: new_job(doc, args.title, topic=args.topic, project=args.project,
                                              working_copy=args.working_copy, source=source))
             print(f"added {line(job)}")
+            if not job.get("working_copy"):
+                print(f"  no working copy of {job.get('project') or 'its project'} found beside this one: "
+                      f"fabric-jobs next compares it by project only; re-add it with --working-copy to fix",
+                      file=sys.stderr)
         elif args.cmd == "list":
             doc = identity.read_jobs()
             jobs = [j for j in doc["jobs"] if args.all or j["state"] in OPEN]
