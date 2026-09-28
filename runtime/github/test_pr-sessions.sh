@@ -294,7 +294,7 @@ assert_contains "names the conflict" "conflict"
 echo "pr-sessions: grouped output"
 run /all --by-session
 assert_rc       "exits 0" 0
-assert_contains "groups under this clone" "$ME"
+assert_contains "groups under this session" "$ME"
 assert_contains "marks this session"      "this session"
 
 echo "pr-sessions: empty result is a clean exit, not an error"
@@ -703,7 +703,7 @@ echo "pr-sessions: /unattributed does not claim any row is this session's"
 # Every row here failed to parse as a session, so the "*" legend cannot
 # apply and "leave other sessions alone" is the wrong instruction — it
 # is the reading that left these unanswered.
-assert_not_contains "drops the ownership legend" "* = this clone"
+assert_not_contains "drops the ownership legend" "* = "
 assert_contains     "says the findings are unowned" "no session"
 
 echo "pr-sessions: the NOTE points at the flag that can actually list them"
@@ -734,7 +734,7 @@ run --session unconventional
 assert_rc           "exits 0" 0
 assert_contains     "lists the unscopable PR" "#60"
 assert_not_contains "no self-contradicting disclosure" "cannot be scoped to a"
-assert_not_contains "drops the ownership legend"       "* = this clone"
+assert_not_contains "drops the ownership legend"       "* = "
 default_pr_list; default_graphql
 
 echo "pr-sessions: /unattributed narrows BEFORE the thread lookup"
