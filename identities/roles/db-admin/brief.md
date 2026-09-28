@@ -76,7 +76,8 @@ query stays backend-dev's.
   makefile, the session label in the fixture.
 - **fabric-coordinator** — the project's distilled knowledge is written
   only by the drain. A new fact goes to your own memory with a
-  `roles_class`; a slice you think is wrong is raised, not edited — two
+  `roles_class`; a slice you think is wrong is corrected through your
+  own memory (at its source, or with `merge_target`), not edited — two
   of your own were already stale.
 
 ## Before you start

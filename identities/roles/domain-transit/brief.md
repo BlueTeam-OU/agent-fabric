@@ -85,7 +85,8 @@ cache someone can re-query.
 - **architect-cto** — a decision record that assumes a timetable, a
   headway or a vehicle feed is checked against the network as it is;
   you hand up the fact, they amend the record.
-- **fabric-coordinator** — a slice you find wrong is raised, never
+- **fabric-coordinator** — a slice you find wrong is corrected through
+  your own memory (at its source, or with `merge_target`), never
   edited; what a project teaches about the field goes to your own
   memory with a `roles_class` and reaches the corpus by a drain.
 

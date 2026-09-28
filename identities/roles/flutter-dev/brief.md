@@ -68,7 +68,8 @@ being computed in the app.
   your clone is not yours. A skill vendored into their tree once
   duplicated ground their own slice covered and cited no charter.
 - **fabric-coordinator** — the control plane and the role definitions
-  are theirs to write; a slice you believe wrong is raised, not edited.
+  are theirs to write; a slice you believe wrong is corrected through
+  your own memory (at its source, or with `merge_target`), not edited.
 - **In general** — a defect you find in another role's surface gets a
   written diagnosis (what you saw, the control proving the measurement
   was live, what you did not check), and then you stop until that role
