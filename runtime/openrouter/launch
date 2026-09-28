@@ -112,6 +112,11 @@
 # "Secrets") — never in the repo.
 set -uo pipefail
 
+# This file by absolute path: every re-exec below runs it again, and the
+# fresh relaunch of a job changes directory first (ADR-022 rule 12), where
+# a relative $0 — `agent-fabric/runtime/openrouter/launch` from projects/,
+# as the README runs it — names nothing.
+SELF="$(readlink -f "${BASH_SOURCE[0]}")"
 FABRIC_ROOT="${AGENT_FABRIC_ROOT:-$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../.." && pwd)}"
 IDENTITY="$FABRIC_ROOT/runtime/identity.py"
 ROUTING="$FABRIC_ROOT/tools/fabric/routing.py"
@@ -183,7 +188,7 @@ if git -C "$FABRIC_ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1 \
   Look at the checkout: git -C \"$FABRIC_ROOT\" status"
             elif git -C "$FABRIC_ROOT" pull -q --ff-only origin main 2>/dev/null; then
                 echo "launch: agent-fabric was $BEHIND commit(s) behind origin/main; pulled to $(git -C "$FABRIC_ROOT" rev-parse --short HEAD) and relaunching on it." >&2
-                AGENT_FABRIC_PULLED=1 exec bash "$0" "${ORIG_ARGS[@]+"${ORIG_ARGS[@]}"}"
+                AGENT_FABRIC_PULLED=1 exec bash "$SELF" "${ORIG_ARGS[@]+"${ORIG_ARGS[@]}"}"
             else
                 die "agent-fabric at $FABRIC_ROOT is $BEHIND commit(s) behind origin/main and cannot fast-forward
   (local commits or changes on this checkout). A session runs on the launcher,
@@ -947,16 +952,23 @@ PY
                     elif [[ -n "$(git -C "$wc" status --porcelain 2>/dev/null)" ]]; then
                         echo "launch: job $job's working copy $wc has uncommitted changes; starting in $PWD." >&2
                     elif [[ "$wc" != "$PWD" ]]; then
+                        # An argument naming a path relative to here would
+                        # name nothing there: made absolute first. A launch
+                        # that relaunches fresh carried no prompt of its own,
+                        # so what is left is options and their values.
+                        for i in "${!NEXT[@]}"; do
+                            [[ "${NEXT[$i]}" != /* && "${NEXT[$i]}" != -* && -e "${NEXT[$i]}" ]] && NEXT[i]="$PWD/${NEXT[$i]}"
+                        done
                         cd "$wc" && echo "launch: starting job $job in $wc." >&2
                     fi
                 else
                     echo "launch: job $job names no working copy; starting in $PWD." >&2
                 fi
             fi
-            exec env -u AGENT_FABRIC_PULLED "${FRESH[@]}" bash "$0" "${NEXT[@]}"
+            exec env -u AGENT_FABRIC_PULLED "${FRESH[@]}" bash "$SELF" "${NEXT[@]+"${NEXT[@]}"}"
         fi
         if [[ -n "$RESUME" ]]; then NEXT+=(--resume "$RESUME"); else NEXT+=(--continue); fi
-        exec env -u AGENT_FABRIC_PULLED bash "$0" "${NEXT[@]}"
+        exec env -u AGENT_FABRIC_PULLED bash "$SELF" "${NEXT[@]}"
     fi
     rm -f "$RESTART_MARKER"
 fi

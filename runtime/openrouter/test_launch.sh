@@ -745,6 +745,16 @@ out="$(runa 2>&1)"; rc=$?
 grep -q "^RUN2:.*It is for your job j1, ship the other thing ([^)]*topic routing): read it in full with fabric-jobs show j1" <<<"$out" \
   && ! grep -q "^RUN2:.*Then wait for instructions" <<<"$out" \
   && ok "…and the opening prompt carries the job in place of waiting for instructions" || bad "no job in the opening" "$(grep RUN2 <<<"$out")"
+# Started by a relative path, as the README runs it from projects/: the
+# relaunch changes directory first, and must still find itself — and a
+# relative path argument must still name its file.
+REL="$(python3 -c 'import os,sys; print(os.path.relpath(sys.argv[1], sys.argv[2]))' "$LAUNCHER" "$SANDBOX/repo")"
+mkdir -p "$SANDBOX/repo/extra"
+fresh_job_session j1
+out="$( (cd "$SANDBOX/repo" && env -u CLAUDE_CONFIG_DIR HOME="$HOME" PATH="$PATH_EXPORT" AGENT_FABRIC_ROOT="$FABRIC" AGENT_FABRIC_STATE_DIR="$STATE" ANNOUNCE_LOG="$ALOG" bash "$REL" --add-dir extra) 2>&1)"; rc=$?
+[[ $rc -eq 0 ]] && grep -q "^RUN2:pwd=$SANDBOX/other:" <<<"$out" && grep -q "^RUN2:.*--add-dir $SANDBOX/repo/extra" <<<"$out" \
+  && ok "…started by a relative path: it finds itself after the move, and a relative path argument is made absolute" || bad "relative launcher (rc=$rc)" "$out"
+rmdir "$SANDBOX/repo/extra"
 echo dirty > "$SANDBOX/other/f"
 fresh_job_session j1
 out="$(runa 2>&1)"; rc=$?
