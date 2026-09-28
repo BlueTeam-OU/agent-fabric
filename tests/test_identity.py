@@ -266,11 +266,38 @@ def test_a_binding_from_another_host_is_refused(tmp: str) -> None:
         del os.environ["AGENT_FABRIC_STATE_DIR"]
 
 
+def test_the_job_list_is_the_logins_and_serialized(tmp: str) -> None:
+    """jobs.json: empty until written, stamped by the OS, refused when it
+    names another agent or host, and read-modify-write under the lock."""
+    os.environ["AGENT_FABRIC_STATE_DIR"] = tmp
+    try:
+        assert identity.read_jobs() == {"agent": identity.current_agent(), "host": identity.current_host(),
+                                        "seq": 0, "jobs": []}
+        def add(doc):
+            doc["seq"] += 1
+            doc["jobs"].append({"id": f"j-{doc['seq']}", "title": "t", "agent": "forged"})
+        identity.update_jobs(add)
+        doc = identity.read_jobs()
+        assert doc["seq"] == 1 and doc["jobs"][0]["id"] == "j-1" and doc["agent"] == identity.current_agent(), doc
+        path = identity.jobs_path()
+        raw = json.load(open(path))
+        raw["agent"] = "someone-else"
+        json.dump(raw, open(path, "w"))
+        try:
+            identity.read_jobs()
+            raise AssertionError("another agent's list was read")
+        except SystemExit as exc:
+            assert "someone-else" in str(exc), exc
+    finally:
+        del os.environ["AGENT_FABRIC_STATE_DIR"]
+
+
 def main() -> int:
     cases = [
         test_atomic_write_leaves_the_old_file_whole_on_failure,
         test_agent_state_mutations_serialize_across_processes,
         test_a_binding_from_another_host_is_refused,
+        test_the_job_list_is_the_logins_and_serialized,
         test_launch_role_drift_is_one_sentence_or_none,
         test_agent_is_the_effective_login,
         test_agent_is_computed_from_the_uid_not_from_names,

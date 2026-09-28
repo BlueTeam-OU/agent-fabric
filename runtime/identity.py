@@ -237,6 +237,53 @@ def append_history(record: dict, agent: str | None = None) -> str:
     return path
 
 
+def jobs_path(agent: str | None = None) -> str:
+    return os.path.join(agent_state_dir(agent), "jobs.json")
+
+
+def read_jobs(agent: str | None = None) -> dict:
+    """The agent's job list (agent-fabric ADR-037): {"agent", "host",
+    "seq", "jobs": [...]}, or an empty list when none has been written.
+    Refused like a binding when it names another agent or was written on
+    another host: the list is one runtime instance's, never a copy's."""
+    agent = agent or current_agent()
+    path = jobs_path(agent)
+    try:
+        with open(path, encoding="utf-8") as fh:
+            data = json.load(fh)
+    except FileNotFoundError:
+        return {"agent": agent, "host": current_host(), "seq": 0, "jobs": []}
+    except ValueError as exc:
+        raise SystemExit(f"identity: {path} is not valid JSON ({exc})")
+    if not isinstance(data, dict) or not isinstance(data.get("jobs"), list):
+        raise SystemExit(f"identity: {path} is not a job list")
+    if data.get("agent") not in (None, agent):
+        raise SystemExit(f"identity: {path} names agent {data.get('agent')!r}, but this is {agent!r}'s state directory")
+    if data.get("host") not in (None, current_host()):
+        raise SystemExit(f"identity: {path} was written on host {data.get('host')!r}, but this is "
+                         f"{current_host()!r}: the state directory is shared between hosts")
+    data.setdefault("seq", 0)
+    return data
+
+
+def update_jobs(mutate, agent: str | None = None) -> dict:
+    """Read-modify-write of the job list under the agent lock, as
+    update_binding: two sessions of one login, or the control agent adding
+    the owner's job, serialize here. `mutate(doc)` edits the document in
+    place or returns a new one; agent and host are stamped from the OS."""
+    agent = agent or current_agent()
+    with agent_lock(agent):
+        doc = read_jobs(agent)
+        new = mutate(doc)
+        if new is None:
+            new = doc
+        new["agent"], new["host"], new["updated_at"] = agent, current_host(), now_iso()
+        path = jobs_path(agent)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        atomic_write(path, json.dumps(new, ensure_ascii=False, indent=2, sort_keys=True) + "\n")
+        return new
+
+
 def launch_role_drift(binding: dict, environ: dict | None = None) -> str | None:
     """A session was launched with one role in its system prompt
     (AGENT_FABRIC_LAUNCH_ROLE, stamped by runtime/openrouter/launch); the
