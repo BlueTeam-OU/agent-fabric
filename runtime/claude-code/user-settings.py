@@ -101,15 +101,25 @@ def memory_check_hook() -> dict:
         "timeout": 10}]}
 
 
+def hooks_problem(hooks) -> str | None:
+    """What makes an account's `hooks` value one this writer refuses, or
+    None. One test for both callers: main() refuses on it before anything
+    else, with_memory_check() raises on it, and the two cannot drift."""
+    # A PostToolUse that is not a list is a mistake in the account's own
+    # file: iterating it wrote its keys or characters back as entries.
+    # Refused, the file left untouched, like an unreadable one.
+    if isinstance(hooks, dict) and "PostToolUse" in hooks and not isinstance(hooks["PostToolUse"], list):
+        return "hooks.PostToolUse is not a list"
+    return None
+
+
 def with_memory_check(hooks: dict) -> dict:
     """`hooks` with exactly one memory-check entry, the current one; every
     other entry kept as it was."""
     hooks = dict(hooks) if isinstance(hooks, dict) else {}
-    # A PostToolUse that is not a list is a mistake in the account's own
-    # file: iterating it wrote its keys or characters back as entries.
-    # Refused, the file left untouched, like an unreadable one.
-    if "PostToolUse" in hooks and not isinstance(hooks["PostToolUse"], list):
-        raise Unreadable("hooks.PostToolUse is not a list")
+    problem = hooks_problem(hooks)
+    if problem:
+        raise Unreadable(problem)
     post = []
     for e in hooks.get("PostToolUse") or []:
         if not isinstance(e, dict) or not isinstance(e.get("hooks"), list):
@@ -222,9 +232,9 @@ def main(argv: list[str]) -> int:
     # Checked here, once, before settled() and the dry run: a malformed
     # hooks value must refuse the same way whatever else is unsettled,
     # and a dry run must report what the real run would do.
-    hooks = doc.get("hooks")
-    if isinstance(hooks, dict) and "PostToolUse" in hooks and not isinstance(hooks["PostToolUse"], list):
-        print(f"  !  {path}: hooks.PostToolUse is not a list — fabric user settings NOT written", file=sys.stderr)
+    problem = hooks_problem(doc.get("hooks"))
+    if problem:
+        print(f"  !  {path}: {problem} — fabric user settings NOT written", file=sys.stderr)
         return 1
     if settled(doc):
         print(f"  =  {path} fabric user settings")
