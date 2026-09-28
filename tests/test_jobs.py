@@ -79,6 +79,47 @@ def main() -> int:
               [e["state"] for e in jobs()[1]["log"]] == ["queued", "active", "delivered", "delivered", "done"],
               repr(jobs()[1]["log"]))
 
+        # next: the restart rule, one branch per case.
+        env["AGENT_FABRIC_STATE_DIR"] = os.path.join(tmp, "state-next")
+        p = run("next")
+        check("next with nothing queued is refused", p.returncode == 1 and "no queued job" in p.stderr, p.stderr)
+        run("add", "a", "--topic", "drain")
+        run("add", "b", "--topic", "drain")
+        run("add", "c", "--topic", "routing")
+        run("add", "d", "--topic", "routing", "--working-copy", repo_b)
+        run("add", "e")
+        run("add", "f")
+        p = run("next")
+        check("the first job is compared with the directory: continue", p.returncode == 0
+              and "j1" in p.stdout and "continue here" in p.stdout and "repository only" in p.stdout, p.stdout)
+        p = run("next")
+        check("next refuses while a job is active", p.returncode == 1 and "still active" in p.stderr, p.stderr)
+        run("deliver", "j1", "x#1")
+        p = run("next")
+        check("same repository and topic: continue here", "j2" in p.stdout and "continue here" in p.stdout
+              and "fabric-fresh" not in p.stdout and "repository only" not in p.stdout, p.stdout)
+        run("done", "j2")
+        p = run("next")
+        check("another topic: a fresh session", "fresh session" in p.stdout and "topic 'routing'" in p.stdout
+              and "fabric-fresh --job j3" in p.stdout, p.stdout)
+        check("next makes the job it names active", jobs()[2]["state"] == "active", repr(jobs()[2]))
+        run("block", "j3", "a reply")
+        p = run("next")
+        check("another working copy: a fresh session", "fresh session" in p.stdout and repo_b in p.stdout
+              and "fabric-fresh --job j4" in p.stdout, p.stdout)
+        run("done", "j4")
+        p = run("next", "j3")
+        check("a named blocked job can be next", p.returncode == 0 and "j3" in p.stdout
+              and "fabric-fresh --job j3" in p.stdout, p.stdout)
+        run("done", "j3")
+        p = run("next", "--json")
+        verdict = json.loads(p.stdout or "{}")
+        check("no topic on the next job: repository only, said", verdict.get("job") == "j5"
+              and verdict.get("fresh") is False and "no topic on j5" in (verdict.get("caveat") or ""), p.stdout)
+        run("done", "j5")
+        p = run("next", "j3")
+        check("next refuses a closed job", p.returncode == 1 and "next takes a queued" in p.stderr, p.stderr)
+
         state = os.path.join(tmp, "state", "agents")
         login = os.listdir(state)[0]
         with open(os.path.join(state, login, "jobs.json"), encoding="utf-8") as fh:

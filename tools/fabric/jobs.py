@@ -10,6 +10,7 @@ behind bin/fabric-jobs.
     fabric-jobs done <id>
     fabric-jobs drop <id> "<why>"
     fabric-jobs show <id> [--json]
+    fabric-jobs next [<id>] [--json]
 
 The list is agents/<login>/jobs.json, read and written only through
 runtime/identity.py, under the agent lock. A job's project and working
@@ -17,6 +18,15 @@ copy are the ones the directory it was added in resolves to, unless given;
 its topic is a label the agent sets, compared by `next` and never guessed.
 At most one job is active: `start` refuses a second, because "what am I
 doing" has one answer.
+
+`next` is the restart rule (ADR-022 rule 12). It compares the next job —
+the one named, or the oldest queued — with the job that last left
+`active`, or, when none has, with the directory it runs in:
+the same project, working copy and topic continue in this session; any
+difference is a fresh session, and `next` prints the one command that
+starts it (`fabric-fresh --job <id>`). The agent confirms by running it.
+A topic missing on either side leaves only the repository to compare,
+and `next` says so rather than guessing whether the subjects differ.
 """
 from __future__ import annotations
 
@@ -105,6 +115,28 @@ def new_job(doc: dict, title: str, *, topic=None, project=None, working_copy=Non
     return job
 
 
+def decide(doc: dict, nxt: dict, here: dict) -> dict:
+    """Whether `nxt` continues in this session or needs a fresh one."""
+    prev = next((j for j in doc["jobs"] if j["id"] == doc.get("last")), None)
+    base = prev or {"project": here.get("project"), "working_copy": here.get("working_copy"), "topic": None}
+    against = f"{prev['id']}" if prev else "this directory"
+    differs = []
+    if (base.get("working_copy") or None) != (nxt.get("working_copy") or None):
+        differs.append(f"working copy {nxt.get('working_copy') or '-'}, not {base.get('working_copy') or '-'}")
+    elif (base.get("project") or None) != (nxt.get("project") or None):
+        differs.append(f"project {nxt.get('project') or '-'}, not {base.get('project') or '-'}")
+    caveat = None
+    if base.get("topic") and nxt.get("topic"):
+        if base["topic"].casefold() != nxt["topic"].casefold():
+            differs.append(f"topic {nxt['topic']!r}, not {base['topic']!r}")
+    else:
+        missing = [j for j in (prev, nxt) if j and not j.get("topic")]
+        caveat = (f"no topic on {' and '.join(j['id'] for j in missing)}: compared by repository only — "
+                  "if the subject differs, it is a fresh session all the same") if missing else \
+                 "compared with this directory by repository only"
+    return {"job": nxt["id"], "against": against, "fresh": bool(differs), "differs": differs, "caveat": caveat}
+
+
 def line(job: dict) -> str:
     where = job.get("project") or os.path.basename(job.get("working_copy") or "") or "(no project)"
     topic = f" [{job['topic']}]" if job.get("topic") else ""
@@ -170,6 +202,9 @@ def main(argv: list[str] | None = None) -> int:
     s = sub.add_parser("show")
     s.add_argument("id")
     s.add_argument("--json", action="store_true")
+    n = sub.add_parser("next", help="start the next job and say whether it needs a fresh session")
+    n.add_argument("id", nargs="?")
+    n.add_argument("--json", action="store_true")
     args = ap.parse_args(argv)
 
     try:
@@ -189,6 +224,38 @@ def main(argv: list[str] | None = None) -> int:
         elif args.cmd == "show":
             job = find(identity.read_jobs(), args.id)
             print(json.dumps(job, ensure_ascii=False, indent=2) if args.json else show(job))
+        elif args.cmd == "next":
+            here = identity.resolve_context()
+
+            def pick(doc):
+                current = active(doc)
+                if current:
+                    raise Refused(f"{current['id']} is still active ({current['title']}); deliver, block, "
+                                  "finish or drop it first, then ask for the next")
+                if args.id:
+                    nxt = find(doc, args.id)
+                    if nxt["state"] not in ("queued", "blocked"):
+                        raise Refused(f"{nxt['id']} is {nxt['state']}; next takes a queued or blocked job")
+                else:
+                    nxt = next((j for j in doc["jobs"] if j["state"] == "queued"), None)
+                    if nxt is None:
+                        raise Refused("no queued job; add one with fabric-jobs add")
+                verdict = decide(doc, nxt, here)
+                transition(doc, nxt, "active")
+                return verdict, dict(nxt)
+            verdict, job = mutate(pick)
+            if args.json:
+                print(json.dumps(verdict, ensure_ascii=False, indent=2))
+            else:
+                print(line(job))
+                if verdict["fresh"]:
+                    print(f"fresh session: against {verdict['against']}, {'; '.join(verdict['differs'])}.")
+                    print(f"  run: fabric-fresh --job {job['id']}")
+                else:
+                    print(f"continue here: the same repository{'' if verdict['caveat'] else ' and topic'} "
+                          f"as {verdict['against']}.")
+                if verdict["caveat"]:
+                    print(f"  ({verdict['caveat']})")
         else:
             def change(doc):
                 job = find(doc, args.id)

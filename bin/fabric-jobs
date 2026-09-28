@@ -7,6 +7,7 @@
 #   fabric-jobs start|done <id>;  block <id> "<on what>";  drop <id> "<why>"
 #   fabric-jobs deliver <id> <artifact>...
 #   fabric-jobs show <id>
+#   fabric-jobs next [<id>]     # start the next job: continue here, or run fabric-fresh --job
 #
 # The full account is in tools/fabric/jobs.py.
 set -uo pipefail
