@@ -42,7 +42,7 @@ def main() -> int:
             ("private: no roles_class", memory(mem, "p", "a note", "", "body"), None),
             ("clean: the drain takes it", memory(mem, "g", "a fact", "  roles_class: solution\n", "body"), None),
             ("an unknown class, and the whole harvest stops", memory(mem, "b", "x", "  roles_class: notaclass\n", "body"),
-             "whole harvest"),
+             ("is not a claim class", "whole harvest")),
             ("a hand-authored class", memory(mem, "h", "x", "  roles_class: charter\n", "body"), "hand-authored"),
             ("shared_with naming no role", memory(mem, "s", "x", "  roles_class: solution\n  shared_with: Web Dev!\n", "body"),
              "not role slugs"),
@@ -60,7 +60,8 @@ def main() -> int:
         ]
         for label, path, expect in cases:
             rc, out = run(path)
-            good = rc == 0 and ((not out) if expect is None else (expect in out))
+            wants = (expect,) if isinstance(expect, str) else (expect or ())
+            good = rc == 0 and ((not out) if expect is None else all(w in out for w in wants))
             if expect and "ghp_" in out:
                 good = False                     # never the credential itself
             print(f"  {'ok  ' if good else 'FAIL'} {label}" + ("" if good else f": {out!r}"))
