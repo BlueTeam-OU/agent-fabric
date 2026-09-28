@@ -16,6 +16,8 @@
 # uncommitted changes, unless --force: a job that is not done has not
 # reached its artifact. The stop is SIGTERM, the harness's graceful one.
 # Exit 0 means the stop was sent; this process ends with the session.
+# Refused too (exit 2) when the launch carried its own prompt or -p: the
+# relaunch would replay it instead of starting anew.
 set -uo pipefail
 
 note="" force=0
@@ -24,7 +26,7 @@ while (( $# )); do
         --note) note="${2:-}"; shift 2 || { echo "fabric-fresh: --note needs a value" >&2; exit 2; } ;;
         --note=*) note="${1#--note=}"; shift ;;
         --force) force=1; shift ;;
-        -h|--help) sed -n '2,19p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        -h|--help) sed -n '2,21p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
         *) echo "fabric-fresh: unknown argument '$1' (--note \"…\", --force)" >&2; exit 2 ;;
     esac
 done
@@ -33,8 +35,14 @@ if [[ -z "${AGENT_FABRIC_LAUNCH_PROFILE:-}" ]]; then
     echo "fabric-fresh: this session was not started by the launcher, so nothing would start a fresh one; use /clear" >&2
     exit 2
 fi
+if [[ "${AGENT_FABRIC_LAUNCH_OPENING:-}" != 1 ]]; then
+    echo "fabric-fresh: this session was launched with its own prompt (or -p); a fresh launch would replay it, not start anew — end it with /exit" >&2
+    exit 2
+fi
+# Untracked files count: a new file never added is work not yet at its
+# artifact, as much as an edit is (fabric-branches counts them too).
 if (( ! force )) && git rev-parse --is-inside-work-tree >/dev/null 2>&1 \
-   && [[ -n "$(git status --porcelain --untracked-files=no 2>/dev/null)" ]]; then
+   && [[ -n "$(git status --porcelain 2>/dev/null)" ]]; then
     echo "fabric-fresh: $(git rev-parse --show-toplevel) has uncommitted changes; commit or stash them, or pass --force" >&2
     exit 3
 fi
@@ -69,4 +77,10 @@ with os.fdopen(fd, "w", encoding="utf-8") as fh:
 os.replace(tmp, path)
 PY
 echo "fabric-fresh: ending this session; the launcher starts a fresh one${note:+ with: $note}" >&2
-exec "${AGENT_FABRIC_FRESH_KILL:-kill}" -TERM "$target"
+# A marker whose stop failed would turn the session's next plain exit
+# into a fresh relaunch: take it back.
+if ! "${AGENT_FABRIC_FRESH_KILL:-kill}" -TERM "$target"; then
+    rm -f "$state/restart.json"
+    echo "fabric-fresh: could not stop process $target; nothing changed" >&2
+    exit 1
+fi

@@ -825,6 +825,11 @@ for a in "$@"; do
 done
 [[ -n "${AGENT_FABRIC_NO_OPENING:-}" ]] && opening=0
 (( opening )) && CMD+=(-- "$OPENING")
+# Said to the session, for bin/fabric-fresh: a fresh session gets the
+# launcher's opening prompt with the note. A launch that carried its own
+# prompt (or -p) would be relaunched with that prompt again and no note,
+# so fabric-fresh refuses it rather than replay a finished job.
+export AGENT_FABRIC_LAUNCH_OPENING="$opening"
 
 CHILD=""
 forward() {  # forward <signal>: end the child the way we were asked to
@@ -912,6 +917,12 @@ PY
             esac
             NEXT+=("$a")
         done
+        if [[ "$RESUME" == fresh:* ]] && (( ! opening )); then
+            # A marker not written by fabric-fresh's own check: never
+            # relaunch a caller's prompt as if it were a new job.
+            echo "launch: a fresh session was asked for, but this launch carried its own prompt; not relaunching." >&2
+            exit "$STATUS"
+        fi
         if [[ "$RESUME" == fresh:* ]]; then
             exec env -u AGENT_FABRIC_PULLED AGENT_FABRIC_FRESH_NOTE="${RESUME#fresh:}" bash "$0" "${NEXT[@]}"
         fi

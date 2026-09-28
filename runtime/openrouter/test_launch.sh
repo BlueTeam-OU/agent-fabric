@@ -697,16 +697,24 @@ if [[ "\${1:-}" == auth ]]; then echo '{"ok":true,"data":{"authenticated":true,"
 n="\$(cat "$SANDBOX/runs" 2>/dev/null || echo 0)"; echo \$((n+1)) > "$SANDBOX/runs"
 if [[ "\$n" == 0 ]]; then
   printf '{"requested_at":"%s","piece":"a fresh session","status":"done","fresh":true,"note":"PR 981 merged"}\\n' "\$(date -u -d '+2 seconds' +%Y-%m-%dT%H:%M:%SZ)" > "$STATE/agents/$LOGIN/restart.json"
-  echo "RUN1:\$*"; exit 143
+  echo "RUN1:opening=\${AGENT_FABRIC_LAUNCH_OPENING:-unset}:\$*"; exit 143
 fi
 echo "RUN2:\$*"; exit 0
 FAKE
 chmod +x "$SANDBOX/bin/ori"; rm -f "$SANDBOX/runs"
 out="$(runa --resume old-id 2>&1)"; rc=$?
+grep -q "^RUN1:opening=1:" <<<"$out" && ok "the session is told the launcher wrote its opening (fabric-fresh reads it)" || bad "no opening flag" "$(grep RUN1 <<<"$out")"
 [[ $rc -eq 0 ]] && grep -q "the session finished its job: PR 981 merged; starting a fresh one" <<<"$out" && ok "a fresh marker is said, and the launcher brings a session back" || bad "no fresh restart (rc=$rc)" "$out"
 grep -q "^RUN2:" <<<"$out" && ! grep -q "^RUN2:.*--resume" <<<"$out" && ! grep -q "^RUN2:.*--continue" <<<"$out" && ok "…with no --resume and no --continue: a new conversation" || bad "fresh relaunch resumed" "$(grep RUN2 <<<"$out")"
 grep -q "^RUN2:.*finished its job and started this one fresh: PR 981 merged" <<<"$out" && ok "…and the opening prompt carries the note" || bad "no note in the opening" "$(grep RUN2 <<<"$out")"
 [[ ! -e "$STATE/agents/$LOGIN/restart.json" ]] && ok "…and the marker is consumed" || bad "fresh marker left behind"
+# A launch with its own prompt would be relaunched with that prompt and
+# no note: the finished job again. Not relaunched, and said.
+rm -f "$SANDBOX/runs"
+out="$(runa "do the job" 2>&1)"; rc=$?
+grep -q "^RUN1:opening=0:" <<<"$out" && ok "a launch with its own prompt tells the session so" || bad "opening flag with a prompt" "$(grep RUN1 <<<"$out")"
+[[ $rc -eq 143 ]] && ! grep -q "^RUN2:" <<<"$out" && grep -q "carried its own prompt; not relaunching" <<<"$out" && [[ ! -e "$STATE/agents/$LOGIN/restart.json" ]] \
+    && ok "…and a fresh marker under it is not a relaunch of that prompt" || bad "prompt replayed (rc=$rc)" "$out"
 write_fake_ori
 
 echo "launch: a fabric checkout behind origin/main is pulled and the launcher re-executes on it"

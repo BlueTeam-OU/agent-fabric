@@ -28,13 +28,21 @@ EOF
 chmod +x "$T/bin/record-kill" "$T/bin/claude"
 git -C "$T/wc" init -q; echo a > "$T/wc/f"; git -C "$T/wc" add f
 git -C "$T/wc" -c user.name=t -c user.email=t@t -c commit.gpgsign=false commit -q -m a
-envs=(AGENT_FABRIC_STATE_DIR="$T/state" AGENT_FABRIC_FRESH_KILL="$T/bin/record-kill" AGENT_FABRIC_FRESH_COMM=claude-fake)
+envs=(AGENT_FABRIC_STATE_DIR="$T/state" AGENT_FABRIC_FRESH_KILL="$T/bin/record-kill" AGENT_FABRIC_FRESH_COMM=claude-fake AGENT_FABRIC_LAUNCH_OPENING=1)
 
 echo "fabric-fresh: refused where nothing would bring a session back"
 out="$(env -u AGENT_FABRIC_LAUNCH_PROFILE "${envs[@]}" "$T/bin/claude" 2>&1)"; rc=$?
 [[ $rc -eq 2 ]] && grep -q "not started by the launcher" <<<"$out" && [[ ! -e "$T/killed" ]] && ok "not launched: exit 2, nothing stopped" || bad "unlaunched (rc=$rc)" "$out"
 
+echo "fabric-fresh: refused where the launch carried its own prompt"
+out="$(env AGENT_FABRIC_LAUNCH_PROFILE=p "${envs[@]}" AGENT_FABRIC_LAUNCH_OPENING=0 "$T/bin/claude" 2>&1)"; rc=$?
+[[ $rc -eq 2 ]] && grep -q "launched with its own prompt" <<<"$out" && [[ ! -e "$T/killed" ]] && ok "own prompt: exit 2, nothing stopped" || bad "own prompt (rc=$rc)" "$out"
+
 echo "fabric-fresh: a job with uncommitted changes is not done"
+echo new > "$T/wc/untracked"
+out="$(env AGENT_FABRIC_LAUNCH_PROFILE=p "${envs[@]}" "$T/bin/claude" 2>&1)"; rc=$?
+[[ $rc -eq 3 && ! -e "$T/killed" ]] && ok "an untracked file counts: exit 3" || bad "untracked (rc=$rc)" "$out"
+rm "$T/wc/untracked"
 echo b >> "$T/wc/f"
 out="$(env AGENT_FABRIC_LAUNCH_PROFILE=p "${envs[@]}" "$T/bin/claude" 2>&1)"; rc=$?
 [[ $rc -eq 3 ]] && grep -q "uncommitted changes" <<<"$out" && [[ ! -e "$T/killed" && ! -e "$T/state/agents/$(id -un)/restart.json" ]] && ok "dirty tree: exit 3, no marker, nothing stopped" || bad "dirty tree (rc=$rc)" "$out"
@@ -53,6 +61,11 @@ assert m["fresh"] is True and m["status"] == "done" and m["note"] == "PR 981 mer
 datetime.datetime.fromisoformat(m["requested_at"].replace("Z", "+00:00"))
 PY
 [[ "$(cat "$T/killed" 2>/dev/null)" == "-TERM $(cat "$T/claude.pid")" ]] && ok "…and SIGTERM goes to the claude process above it" || bad "wrong target" "killed: $(cat "$T/killed" 2>/dev/null) claude: $(cat "$T/claude.pid")"
+
+echo "fabric-fresh: a stop that fails takes its marker back"
+rm -f "$m"
+out="$(env AGENT_FABRIC_LAUNCH_PROFILE=p "${envs[@]}" AGENT_FABRIC_FRESH_KILL=false "$T/bin/claude" 2>&1)"; rc=$?
+[[ $rc -eq 1 && ! -e "$m" ]] && grep -q "could not stop" <<<"$out" && ok "exit 1, no marker left for the next plain exit" || bad "failed stop (rc=$rc)" "$out"
 
 echo "fabric-fresh: no claude above it"
 out="$(cd "$T/wc" && env AGENT_FABRIC_LAUNCH_PROFILE=p "${envs[@]}" "$CMD" 2>&1)"; rc=$?
