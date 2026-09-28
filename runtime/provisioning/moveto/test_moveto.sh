@@ -240,6 +240,14 @@ check "and narrow on the prefix" "gamma" "$out"
 check_absent "dropping the rest" "alpha" "$out"
 rm -rf "$COMP_ROOT"
 
+echo "enter: a fabric that cannot be fast-forwarded is said with git's own reason"
+EH="$SANDBOX/enterhome"; mkdir -p "$EH/projects"
+git init -q "$EH/projects/agent-fabric"
+git -C "$EH/projects/agent-fabric" remote add origin "$SANDBOX/no-such-origin.git"
+err="$(HOME="$EH" XDG_CONFIG_HOME="$EH/.config" bash "$SCRIPT_DIR/enter" "$EH/projects" "t" </dev/null 2>&1 >/dev/null)"
+check "the reason is git's first error line" "does not appear to be a git repository" "$err"
+check_absent "…never the old guess" "offline, or the clone is not on main" "$err"
+
 echo
 if [[ $failures -eq 0 ]]; then echo "test_moveto: all assertions passed"; exit 0; fi
 echo "test_moveto: $failures assertion(s) failed"

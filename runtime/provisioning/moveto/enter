@@ -22,8 +22,12 @@ export MOVETO_TITLE="$2"
 #      ~/.config/agent-fabric/secrets.env, before the shell sources it.
 fabric="$HOME/projects/agent-fabric"
 if [ "$(git -C "$fabric" rev-parse --is-inside-work-tree 2>/dev/null)" = true ]; then
-    if ! timeout 30 git -C "$fabric" pull -q --ff-only origin main 2>/dev/null; then
-        echo "moveto: agent-fabric not fast-forwarded (offline, or the clone is not on main); using it as is" >&2
+    # git's first error line names the cause ("ssh: Could not resolve
+    # hostname", "fatal: Not possible to fast-forward"); its last is often
+    # boilerplate. The message used to guess between offline and a branch.
+    if ! pull_err="$(timeout 30 git -C "$fabric" pull -q --ff-only origin main 2>&1)"; then
+        reason="$(grep -m 1 -E '^(fatal|error|ssh):' <<<"$pull_err")"
+        echo "moveto: agent-fabric not fast-forwarded (${reason:-${pull_err##*$'\n'}}); using it as is" >&2
     fi
     timeout 30 bash "$fabric/runtime/claude-code/bootstrap.sh" >/dev/null 2>&1         || echo "moveto: bootstrap did not complete; run it by hand" >&2
 fi
