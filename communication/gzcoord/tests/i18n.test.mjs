@@ -337,6 +337,17 @@ test('the tools run as a login that HAS a dictionary, and print it', () => {
   assert.equal(lastLine(r.stderr), USAGE_KA);
 });
 
+test('a locale dictionary that cannot be read falls back to English, and says so', () => {
+  const { root, me, env } = liveLocale({});
+  const file = path.join(root, 'identities', 'roles', me.role, 'locale', suffix(me.agent), 'xx-XX.json');
+  fs.writeFileSync(file, '{ not json');
+  const r = spawnSync(process.execPath, [path.join(SCRIPTS, 'inbox.mjs'), '--replay'],
+                      { env: { ...env, GZCOORD_DEFAULT_LOCALE_ONLY: '' }, encoding: 'utf8' });
+  assert.equal(r.status, 1, r.stderr);
+  assert.equal(lastLine(r.stderr), defaultDictionary()['replay.usage']);
+  assert.match(r.stderr, /xx-XX\.json could not be read .*; printing the default locale/);
+});
+
 test('and the same run pinned to the default locale prints English, whoever runs it', () => {
   const { env } = liveLocale({ 'replay.usage': USAGE_KA });
   const r = spawnSync(process.execPath, [path.join(SCRIPTS, 'inbox.mjs'), '--replay'],
