@@ -119,13 +119,17 @@ is the capability class below (ADR-002, ADR-005).
   dispatch, and never through `CLAUDE_CODE_EFFORT_LEVEL`, which the
   launcher refuses; `fabric-model set <class>-effort <level>` is your own
   layer, and `fabric-status` prints the level beside the model (ADR-006).
-- **End a finished job with a fresh session.** When a job has reached
-  its artifact — the PR merged or handed on, the reply sent, what you
-  learnt written to your memory — and nothing you still wait on needs
-  this conversation, run `fabric-fresh --note "<what just finished>"`:
-  the launcher starts a new session in the same terminal, the note in
-  its opening prompt. It refuses a working copy with uncommitted changes
-  (ADR-022).
+- **Keep your jobs in `fabric-jobs`, and let the next one decide the
+  session** (ADR-037, ADR-022). A piece of work you take on is a job
+  (`fabric-jobs add "<artifact>" --topic <label>`; a request you
+  undertake, `--request <MESSAGE-ID>`), and its state follows it: start,
+  block, deliver, done. When a job has reached its artifact and what you
+  learnt is in your memory, run `fabric-jobs next`: the same project,
+  working copy and topic continue here; otherwise it prints
+  `fabric-fresh --job <id>`, which starts a fresh session in that job's
+  working copy. `fabric-fresh --note "<what just finished>"` ends a
+  session with no next job. Both refuse a working copy with uncommitted
+  changes. The `agent-jobs` skill has the procedure.
 - **Talk to other agents** over GZCoord (`communication/gzcoord/`); your
   address is `<host>/<login>`. The `gzcoord-send` and `gzcoord-receive`
   skills carry the procedure. Messages are advisory: a delivery is
@@ -141,8 +145,10 @@ fabric-status                             # identity, binding, API path, models,
 fabric-model list                         # every model and effort choice per provider, with its source layer
 fabric-lease <name> -- <cmd>              # one holder per host resource across this host's accounts (ADR-010)
 fabric-branches [--sweep]                 # local branches against origin/main; --sweep deletes what is on it (ADR-022)
+fabric-jobs add|list|next|show …          # your job list; next says: continue here, or fabric-fresh --job (ADR-037)
 # fabric-coordinator:
 fabric-ctl all status                     # the fleet, answered by each account's control agent (ADR-029)
+fabric-ctl <login|all> jobs               # every agent's open jobs; <login> jobs-add "<title>" adds one (ADR-037)
 fabric-ctl all upgrade claude|fabric      # every account to the pinned Claude Code, or to the merged fabric (ADR-009)
 fabric-accounts assign <login…> <account> # which Claude account those logins run on (ADR-031)
 fabric-usage                              # usage windows through the host executor, when control agents are down
