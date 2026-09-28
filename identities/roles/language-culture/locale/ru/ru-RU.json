@@ -121,5 +121,8 @@
   "validate.swallowed-marker": "похоже, маркер секции попал внутрь {name} и не распознан: {line}",
   "validate.empty-value": "{key} с пустым значением: маркер секции с пробелом на конце читается как поле метаданных",
   "validate.wide-line": "строка {n}: ширина {width}; всё, что шире {max}, терминал переносит по-своему",
-  "wait.nothing": "gzcoord inbox: за {waited} с на {channel} вам ничего (для других прошло {others_passed})"
+  "wait.nothing": "gzcoord inbox: за {waited} с на {channel} вам ничего (для других прошло {others_passed})",
+  "history.head": "gzcoord history для {address}: вам — {n} из последних {window} на {channel} (начиная с seq {first}; курсор не сдвигается)",
+  "history.replay-hint": "сообщение целиком: {cmd} <seq>",
+  "history.usage": "вызов: inbox.mjs --history [<seq>]"
 }
