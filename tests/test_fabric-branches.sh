@@ -14,7 +14,7 @@ bad() { echo "  ✗ $1" >&2; [[ -n "${2:-}" ]] && printf '      %s\n' "$2" >&2; 
 # The gh records the head it was asked about, and knows one pull request.
 mkdir -p "$T/bin"
 cat > "$T/bin/gh" <<EOF
-#!/bin/sh
+#!/usr/bin/env bash
 while [ \$# -gt 0 ]; do [ "\$1" = --head ] && { echo "\$2" >> "$T/gh-heads"; [ "\$2" = "$(hostname -s)/$(id -un)/owed-remote" ] && echo "#7 OPEN"; }; shift; done
 exit 0
 EOF
