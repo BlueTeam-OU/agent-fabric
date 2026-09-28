@@ -13,3 +13,11 @@ load `identity.py`: `fabric-fresh` writes the marker with
 per working copy, as a read-modify-write under `agent_lock`, so two
 sweeps of one login no longer lose a date. §2 and rule 2 name the
 second `restart.json` writer.
+
+### Amendment 2026-09-28 — The job list is per-agent state
+
+ADR-037 gives each login a job list, `agents/<login>/jobs.json`. It is
+per-agent state like the binding: `runtime/identity.py` gains its reader
+and its writer (`read_jobs`, `update_jobs`), the writer holds
+`agent_lock`, and the reader refuses a list naming another agent or
+written on another host, as `read_binding` does.

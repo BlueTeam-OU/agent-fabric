@@ -79,8 +79,9 @@ state file an obvious place to get its writer.
 ## 5. Binding Rules
 
 1. No caller opens a file under `agents/<login>/` for writing; it imports
-   `identity` and calls `atomic_write`, `update_binding` or
-   `append_history`. A new state file gets its writer added to
+   `identity` and calls `atomic_write`, `update_binding`,
+   `append_history` or `update_jobs`, the job list's writer (ADR-037)
+   (A 2026-09-28). A new state file gets its writer added to
    `runtime/identity.py`, not a rewrite in place elsewhere. The Node
    control agent is the named exception (§2), and writes only by
    temporary and rename.
@@ -134,3 +135,4 @@ The body above reads current; each change's full note is in [history/ADR-003-ame
 | Date | Amendment | Effect |
 |---|---|---|
 | 2026-09-28 | An agent's own session writes its restart marker and its sweep record | §2, §5 rule 2: `fabric-fresh` a second `restart.json` writer; `fabric-branches` writes `branch-sweep.json` under `agent_lock` |
+| 2026-09-28 | The job list is per-agent state | §5 rule 1: `jobs.json` and its writer `update_jobs` |

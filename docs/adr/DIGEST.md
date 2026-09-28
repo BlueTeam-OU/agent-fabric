@@ -116,6 +116,8 @@ searches it.
   session-start hook stays non-blocking (§5 rule 5).
 - A 2026-09-28 — `fabric-fresh` is a second `restart.json` writer, through
   `identity.py`; `fabric-branches` records its sweeps under `agent_lock`.
+- A 2026-09-28 — the job list, `jobs.json`, is per-agent state written by
+  `update_jobs` (§5 rule 1).
 - Keywords: state, binding, atomic write, lock, flock, rename, history,
   host, XDG_STATE_HOME.
 
@@ -448,6 +450,8 @@ searches it.
   session, not a resumed one (§5 rule 10).
 - A 2026-09-28 — local branches are swept weekly: `fabric-branches --sweep` deletes
   what is on origin/main and reports the rest (§5 rule 11).
+- A 2026-09-28 — the next job decides whether the session continues: `fabric-jobs
+  next`, then `fabric-fresh --job` into the job's working copy (§5 rule 12).
 - Keywords: session, lifecycle, inbox watch, Monitor, gzcoord-inbox,
   --follow, opening prompt, resume, auto mode, defaultMode, plan mode,
   hold, planning, presence.
@@ -588,6 +592,8 @@ searches it.
   second is answered `busy` (§5 rule 12).
 - A 2026-09-27 — rule 12 lists each operation's answer budget and the
   cross-kind `busy` (§5 rule 12).
+- A 2026-09-28 — `jobs` (an operator's read) and `jobs-add` (a signed
+  action, one login) carry the job list (§5 rule 13).
 - Keywords: control plane, agentd, fabric-ctl, control channel,
   fabric:control, relay, ops, status, ping, keys, usage, recall, tokens,
   drain, memory, signed, operator_key, keygen, linger, persist.

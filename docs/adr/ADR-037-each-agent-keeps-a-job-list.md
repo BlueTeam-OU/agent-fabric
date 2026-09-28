@@ -3,7 +3,7 @@
 **Date:** 2026-09-28
 **Status:** Proposed
 **Decision Makers:** the owner; drafted by fabric-coordinator
-**Scope:** runtime/identity.py (`jobs.json`); bin/fabric-jobs; bin/fabric-fresh (`--job`); runtime/openrouter/launch (the fresh relaunch); runtime/claude-code/hooks/session-start.py; bin/fabric-status; runtime/control/ops.mjs (`jobs`, `jobs-add`); communication/gzcoord/scripts/send.mjs (the inactive intake)
+**Scope:** runtime/identity.py (`jobs.json`); bin/fabric-jobs, tools/fabric/jobs.py; bin/fabric-fresh (`--job`); runtime/openrouter/launch (the fresh relaunch); runtime/claude-code/hooks/session-start.py; bin/fabric-status; runtime/control/jobs.mjs, ops.mjs, agentd.mjs, ctl.mjs (`jobs`, `jobs-add`); communication/gzcoord/scripts/send.mjs (the inactive intake), inbox.mjs (`--replay --json`); policies/agent-jobs/SKILL.md
 **Pillar:** P3
 
 ## 1. Context and Problem
@@ -42,7 +42,8 @@ repository or topic differs. The agent confirms it with
 that job's working copy, with the job in its opening prompt.
 
 **The fleet view.** The owner reads every agent's list, and adds a job to
-one, through the control plane.
+one, through the control plane. A session sees its own list at start,
+and a warning when its active job belongs in another working copy.
 
 **Requests between agents.** A GZCoord request becomes a job only when its
 receiver adds it. The automatic intake is built but not activated.
@@ -89,12 +90,19 @@ Why these choices:
    - any difference is a fresh session, `fabric-fresh --job <id>`, which
      starts in the job's working copy with the job in its opening prompt.
 4. Jobs come from the agent itself (`fabric-jobs add`), and from the owner
-   (`fabric-ctl <login> jobs-add`, a signed action). A GZCoord request
-   becomes a job only when its receiver adds it (`fabric-jobs add
-   --request <MESSAGE-ID>` fills it from the message).
+   (`fabric-ctl <login> jobs-add`, a signed action, ADR-029 rule 13),
+   which lands in that login's checkout of the job's project. A GZCoord
+   request becomes a job only when its receiver adds it (`fabric-jobs add
+   --request <MESSAGE-ID>` fills it from the message, read as
+   `gzcoord-inbox --replay` reads it: addressed to this login, or
+   refused).
 5. The automatic request intake is built and inactive: it runs only under
-   `AGENT_FABRIC_JOBS_AUTO_INTAKE=1`, which nothing sets. Turning it on is
-   an amendment of this record.
+   `AGENT_FABRIC_JOBS_AUTO_INTAKE=1`, which nothing sets. With it on, a
+   REPLY sent through `send.mjs` adds the message it answers when that is
+   a REQUEST addressed to this login and not yet listed. A REPLY says
+   whether it undertakes the request in prose, so the intake cannot tell
+   an undertaking from a decline: that, with the owner's choice, keeps it
+   off. Turning it on is an amendment of this record.
 6. The owner reads every agent's open jobs with
    `fabric-ctl <login|all> jobs`, an operator's op. Peers see each other's
    presence, not each other's lists.

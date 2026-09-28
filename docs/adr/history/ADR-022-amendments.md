@@ -41,3 +41,16 @@ that record and says when it is over seven days old, in keeping with a
 pull-based fabric. A merged pull request whose commits still count
 above 0 (squashed, or history rewritten) is reported, never deleted:
 the count cannot prove it merged.
+
+### Amendment 2026-09-28 — The next job decides whether the session continues
+
+Rule 10 left the moment of a fresh session to the agent's judgement, and
+its relaunch always reopened the launcher's own directory. The owner
+asked for a restart when the next job is in another repository, or on a
+subject that is basically different, and chose that the command decides
+and the agent confirms. Rule 12 is that rule: `fabric-jobs next` compares
+project, working copy and topic (a label the agent sets) and prints
+`fabric-fresh --job <id>` on any difference; the launcher starts the new
+session in the job's working copy, with the job in its opening prompt,
+and refuses a working copy that is gone or dirty by starting where it
+was. The job list itself is ADR-037.

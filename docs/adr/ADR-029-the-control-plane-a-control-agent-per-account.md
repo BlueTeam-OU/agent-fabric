@@ -119,7 +119,8 @@ proof.
 3. The op set is closed (`ops.mjs` `OPS`). No field of a request ever
    reaches a shell. A read op takes no argument but `tokens`'s `days`, a
    number capped at 90; an action takes only its own closed set of
-   arguments (`upgrade.mjs` `checkArgs`).
+   arguments (`upgrade.mjs`, `secrets.mjs` and `jobs.mjs` `checkArgs`,
+   `checkJobArgs`).
 4. A daemon answers a request only when its `from` is a host operator's
    address as `runtime/hosts/registry.json` places it — re-read for every
    record — or, for a public op (`PUBLIC_OPS`, `presence` alone), any
@@ -167,6 +168,12 @@ proof.
     20 s by default, 5 s for `ping`, 60 s for `tokens`, 120 s for a drain,
     240 s for `secrets-sync`, 300 s for `accounts`, and an upgrade's
     computed budget; `--timeout` overrides it (A 2026-09-27).
+13. `jobs` is an operator's read of an account's open jobs, and
+    `jobs-add` an action that puts the owner's job on one login's list
+    with source `owner` (ADR-037 rules 4 and 6). Neither is public: a
+    peer sees whether a session runs, never another agent's list.
+    `jobs-add` names one login, never `all`, and takes a one-line title,
+    topic and project id (A 2026-09-28).
 
 ## 6. Consequences
 
@@ -227,3 +234,4 @@ The body above reads current; each change's full note is in [history/ADR-029-ame
 |---|---|---|
 | 2026-09-27 | Actions run beside the read loop | §5 rule 12 added: actions run beside the read loop, one of a kind per account, a second answered busy; fabric-ctl's answer timeouts |
 | 2026-09-27 | Rule 12 as the code has it | §5 rule 12: every operation's answer budget, and an upgrade refused while a secrets-sync restarts the session |
+| 2026-09-28 | The owner reads and adds jobs through the control plane | §5 rule 3: `jobs.mjs` arguments; rule 13: `jobs`, `jobs-add` |

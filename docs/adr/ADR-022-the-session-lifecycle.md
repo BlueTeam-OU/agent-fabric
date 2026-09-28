@@ -132,9 +132,10 @@ the same command asks on one account and not on another.
     the note in the new opening prompt. It is refused outside a launched
     session, where the launch carried its own prompt (the relaunch would
     replay it), and on a working copy with uncommitted changes, untracked
-    files included, unless `--force`. When to use it is the agent's judgement: a job that has
-    reached its artifact, with nothing it still waits on needing the
-    conversation (A 2026-09-28).
+    files included, unless `--force`. It is used when a job has reached
+    its artifact and nothing it still waits on needs the conversation;
+    whether the next job belongs in this session is rule 12's
+    (A 2026-09-28). `--job <id>` names the job the fresh session is for.
 11. Each working copy's local branches are swept weekly with
     `fabric-branches --sweep`, after a plain fetch: the agent deletes on
     its own what is wholly on `origin/main`, and worktrees at 0 with no
@@ -143,6 +144,16 @@ the same command asks on one account and not on another.
     person. Local only: no remote branch is deleted or pushed. The
     session-start hook says when a working copy's last sweep is older
     than seven days; nothing runs on a timer (A 2026-09-28).
+12. The next job decides whether the session continues (ADR-037). At a
+    job's end, `fabric-jobs next` compares the next job with the one that
+    ended. The same project, working copy and topic continue in this
+    session. Any difference is a fresh session: the agent runs
+    `fabric-fresh --job <id>`, and the launcher relaunches in that job's
+    working copy with the job in its opening prompt. A working copy
+    that is gone or has uncommitted changes is refused by the launcher,
+    which starts in the old directory and says why. The command decides
+    and the agent confirms; nothing restarts a session on its own
+    (A 2026-09-28).
 
 ## 6. Consequences
 
@@ -199,3 +210,4 @@ The body above reads current; each change's full note is in [history/ADR-022-ame
 |---|---|---|
 | 2026-09-28 | An agent ends its own job with a fresh session | §5 rule 10: `fabric-fresh` and the launcher's fresh relaunch |
 | 2026-09-28 | Local branches are swept weekly | §5 rule 11: `fabric-branches --sweep`, the weekly nudge at session start |
+| 2026-09-28 | The next job decides whether the session continues | §5 rule 12: `fabric-jobs next` and `fabric-fresh --job`; rule 10 points to it |
