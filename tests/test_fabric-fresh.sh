@@ -30,6 +30,13 @@ git -C "$T/wc" init -q; echo a > "$T/wc/f"; git -C "$T/wc" add f
 git -C "$T/wc" -c user.name=t -c user.email=t@t -c commit.gpgsign=false commit -q -m a
 envs=(AGENT_FABRIC_STATE_DIR="$T/state" AGENT_FABRIC_FRESH_KILL="$T/bin/record-kill" AGENT_FABRIC_FRESH_COMM=claude-fake AGENT_FABRIC_LAUNCH_OPENING=1)
 
+echo "fabric-fresh: --help names every refusal and prints no code"
+out="$("$CMD" --help 2>&1)"; rc=$?
+[[ $rc -eq 0 ]] && grep -q "not started by the launcher" <<<"$out" && grep -q "uncommitted changes" <<<"$out" \
+  && grep -q "its own prompt or -p" <<<"$out" && grep -q "predates fabric-fresh" <<<"$out" \
+  && grep -q "no claude process" <<<"$out" && ! grep -qE "set -uo|^note=" <<<"$out" \
+  && ok "the five refusals, and the header ends before the code" || bad "help (rc=$rc)" "$out"
+
 echo "fabric-fresh: refused where nothing would bring a session back"
 out="$(env -u AGENT_FABRIC_LAUNCH_PROFILE "${envs[@]}" "$T/bin/claude" 2>&1)"; rc=$?
 [[ $rc -eq 2 ]] && grep -q "not started by the launcher" <<<"$out" && [[ ! -e "$T/killed" ]] && ok "not launched: exit 2, nothing stopped" || bad "unlaunched (rc=$rc)" "$out"
