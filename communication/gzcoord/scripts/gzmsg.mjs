@@ -246,7 +246,7 @@ export function recordedRole(taxonomy, me = whoami()) {
     catch (e) { return { role: undefined, warning: `${file} could not be read (${e.message})` }; }
     return { role: undefined, warning: `${file} records no role` };
   }
-  if (!taxonomy.roles.has(me.role)) return { role: undefined, error: `${file} records role "${me.role}", which is not in ${taxonomy.path}; pass --role explicitly` };
+  if (!taxonomy.roles.has(me.role)) return { role: undefined, error: `${file} records role "${me.role}", which is not in ${taxonomy.path}; the login's role is used instead` };
   return { role: me.role, file };
 }
 // The catalogue: agent-fabric's identities/roles/catalog.json.

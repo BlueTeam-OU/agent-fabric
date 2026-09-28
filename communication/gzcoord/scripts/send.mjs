@@ -147,6 +147,7 @@ export async function main(argv = process.argv.slice(2)) {
   const taxPath = findTaxonomy(root);
   const taxonomy = taxPath ? loadTaxonomy(taxPath) : undefined;
   const me = identity(who, taxonomy);
+  if (me.roleError) console.error(t('send.warning', { detail: me.roleError }));
 
   // Validate as the last step before sending; the validator's own words go
   // to stderr. The line-width check is off: the bridge carries a line as

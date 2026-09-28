@@ -560,13 +560,16 @@ test('identity derives the slug from the login when no role is recorded', () => 
 test('the recorded role wins over the login, and a recorded role outside the catalogue is an error', () => {
   withFixture(bound('backend-dev'), (root, tax) => {
     assert.equal(identity(asLogin('architect-cto-01'), loadTaxonomy(tax)).slug, 'backend-dev');
+    assert.equal(identity(asLogin('architect-cto-01'), loadTaxonomy(tax)).roleError, undefined);
     assert.equal(recordedRole(loadTaxonomy(tax)).role, 'backend-dev');
     assert.match(recordedRole(loadTaxonomy(tax)).file, /binding\.json$/);
   });
   withFixture(bound('security-engineer'), (root, tax) => {
     const rec = recordedRole(loadTaxonomy(tax));
     assert.equal(rec.role, undefined);
-    assert.match(rec.error, /binding\.json records role "security-engineer", which is not in .*catalog\.json; pass --role explicitly/);
+    assert.match(rec.error, /binding\.json records role "security-engineer", which is not in .*catalog\.json; the login's role is used instead/);
+    // The fallback is said: the error travels with the identity every caller prints.
+    assert.match(identity(asLogin('architect-cto-01'), loadTaxonomy(tax)).roleError, /records role "security-engineer"/);
   });
   for (const state of ['not json', JSON.stringify({ agent: login, host: 'h', updated_at: 'x' })]) {
     withFixture(state, (root, tax) => {
