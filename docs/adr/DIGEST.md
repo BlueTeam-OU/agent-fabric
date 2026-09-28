@@ -728,3 +728,20 @@ searches it.
   Waits on the owner's acceptance (§8).
 - Keywords: sustainable, cost, spend, tokens, usage windows, budget,
   lease, verified result, capability per spend, P7, proposed.
+
+### ADR-037 — Each agent keeps a job list (Proposed)
+
+- One list per login, `agents/<login>/jobs.json`, written only through
+  `runtime/identity.py`; states queued, active (one at a time), blocked,
+  delivered, done, dropped (§5 rules 1–2).
+- At a job's end `fabric-jobs next` compares the next job's project,
+  working copy and topic: the same continues here, a difference is
+  `fabric-fresh --job <id>`, a fresh session in the job's working copy
+  with the job in its opening prompt (§5 rule 3).
+- Jobs come from the agent and from the owner (`fabric-ctl <login>
+  jobs-add`); a GZCoord request becomes a job only when its receiver adds
+  it — the automatic intake is built and inactive (§5 rules 4–5).
+- The owner reads every list with `fabric-ctl <login|all> jobs` (§5
+  rule 6). Waits on the owner's acceptance (§8).
+- Keywords: job, to-do, jobs.json, fabric-jobs, next, topic, fresh
+  session, restart, fabric-fresh --job, working copy, intake, P3, proposed.
