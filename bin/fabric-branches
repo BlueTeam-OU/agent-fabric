@@ -108,9 +108,14 @@ done < <(git for-each-ref --format='%(refname:short)' refs/heads/)
 for b in "${kept[@]}"; do
     echo
     # A pull request's head is the remote branch, which a local branch
-    # may track under another name.
-    head="$(git rev-parse --abbrev-ref "$b@{u}" 2>/dev/null)"
-    [[ "$head" == origin/* ]] && head="${head#origin/}" || head="$b"
+    # may track under another name. Read from the branch's configuration,
+    # which outlives a pruned remote branch (a merged PR's, deleted by
+    # GitHub); @{u} fails once the remote-tracking ref is gone.
+    head="$b"
+    if [[ "$(git config "branch.$b.remote")" == origin ]]; then
+        merge="$(git config "branch.$b.merge")"
+        [[ "$merge" == refs/heads/* ]] && head="${merge#refs/heads/}"
+    fi
     pr="$(gh pr list --head "$head" --state all --json number,state --jq 'map("#\(.number) \(.state)") | join(", ")' 2>/dev/null || echo "?")"
     echo "  $b — pull request: ${pr:-none}"
     # A merged PR whose commits are not on main was squashed, or its
@@ -134,9 +139,14 @@ for p in "${wt_remove[@]}"; do
     fi
 done
 git worktree prune
+# A branch checked out in a worktree that stays cannot be deleted; it is
+# kept with the reason rather than handed to git to refuse.
+checked_out="$(git worktree list --porcelain | sed -n 's|^branch refs/heads/||p')"
 for b in "${zero[@]}"; do
     sha="$(git rev-parse --short "$b")"
-    if [[ "$(ahead "$b")" == 0 ]] && git branch -q -D "$b"; then
+    if grep -qxF -- "$b" <<<"$checked_out"; then
+        echo "KEPT $b — checked out in a worktree that stays"
+    elif [[ "$(ahead "$b")" == 0 ]] && git branch -q -D "$b"; then
         echo "deleted $b ($sha)"
     else
         echo "KEPT $b"

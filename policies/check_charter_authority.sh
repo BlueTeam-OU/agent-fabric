@@ -99,8 +99,13 @@ BASE="$(resolve_base)" || {
 BRANCH="${AGENT_FABRIC_CHARTER_BRANCH:-${GITHUB_HEAD_REF:-}}"
 [[ -n "$BRANCH" ]] || BRANCH="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")"
 
+# :(glob) so `*` stays inside one directory: git's default pathspec `*`
+# crosses `/`, and matched identities/roles/<role>/locale/<suffix>/charter.md
+# — a translation the locale's holder commits under the carve-out
+# (policies/AUTHORITY.md), which the .agent-fabric/ tripwire and the hooks
+# judge. Judged here too, every locale PR failed CI (#57 blind review F1).
 mapfile -t changed < <(git diff --name-only "$BASE"...HEAD -- \
-    'identities/roles/*/charter.md' 'identities/roles/*/brief.md' 'identities/roles/catalog.json' \
+    ':(glob)identities/roles/*/charter.md' ':(glob)identities/roles/*/brief.md' 'identities/roles/catalog.json' \
     '.agent-fabric/taxonomy.json' 'projects/*/taxonomy.json' 'routing/policies/*' 'policies/authority.json' 2>/dev/null)
 
 if (( ${#changed[@]} == 0 )); then

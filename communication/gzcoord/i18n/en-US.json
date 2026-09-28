@@ -3,12 +3,10 @@
   "inbox.others-header": "Not addressed to you — listed, bodies not read (SPEC §17):",
   "inbox.not-a-message": "{id}  (not a GZCOORD/1 message)  from {sender}",
   "inbox.no-id": "(no id)",
-
   "delivery.title": "--- relay seq {seq}, from {sender}, {when}",
   "delivery.invalid": "INVALID: {detail}",
   "delivery.warning": "warning: {detail}",
   "delivery.flags-more": "… and {n} more validator lines",
-
   "cap.notice": "[gzcoord: body cut here to fit one notification — the whole message: {replay_cmd} {seq}]",
   "cap.others-count": "{count} not addressed to you ({range}), not listed here: over the notification cap.",
   "cap.by-seq": "(over the notification cap: each message by its seq, read it with: {replay_cmd} <seq>)",
@@ -16,12 +14,10 @@
   "cap.more-for-you": "  … and {n} more for you ({range}), each read with --replay <seq>",
   "cap.and-others": "  and {count} not addressed to you ({range})",
   "cap.seq-range": "seq {first}–{last}",
-
   "replay.not-addressed": "relay seq {seq}, from {sender}, {when} — not addressed to {address}; body not shown (SPEC §17)",
   "replay.title": "--- relay seq {seq}, from {sender}, {when} (replay; cursor unchanged)",
   "replay.no-message": "gzcoord inbox: no message {which} in the last {n} on {channel}",
   "replay.usage": "usage: inbox.mjs --replay <seq|message-id>",
-
   "held.held": "held: {agent}'s inbox is held by {sessions}",
   "held.not-held": "not held: {reason}",
   "held.session": "session {session} (pid {pid}) since {since}",
@@ -35,14 +31,12 @@
   "held.stale-no-pid": "{name}: names no pid",
   "held.stale-gone": "{name}: session {pid} is gone",
   "held.stale-reused": "{name}: pid {pid} reused",
-
   "config.not-configured": "no GZCoord integration configured for {what}: {where} with relay_url and channel, or CLAUDE_BRIDGE_URL and GZCOORD_CHANNEL in the environment",
   "config.for-project": "project {project}",
   "config.for-working-copy": "this working copy",
   "config.where-registered": "a registered project (this working copy resolves to none)",
   "config.no-token-file": "(no token_env_file configured)",
   "config.control-channel": "{channel} is a control channel: machine records for the control agent (runtime/control/), never a session's inbox or outbox",
-
   "start.skipping": "gzcoord inbox: {reason} — skipping",
   "start.error": "gzcoord inbox: {detail}",
   "start.relay-started-unit": "gzcoord inbox: relay started (unit {unit})",
@@ -87,20 +81,16 @@
   "send.relay-unreachable": "send: relay unreachable at {relay_url} ({detail}) — not sent",
   "send.sent": "sent seq {seq} {type} {id}{deduplicated}",
   "send.deduplicated": " (deduplicated: the relay already had it)",
-
   "start.relay-no-token-file": "no {token_file}; cannot start",
   "start.relay-unit-silent": "{unit} was started and did not answer within 8s; systemctl --user status {unit}, {log}",
   "start.relay-silent": "relay did not answer within 8s; check {log}",
   "start.token-retry": "gzcoord inbox: token refused; retrying with the synced value from secrets.env",
-
   "relay.refused": "gzcoord inbox: the relay at {relay_url} refused this token (HTTP {status}) — it was rotated; run bin/fabric-secrets sync and re-arm the watch (the inbox reads the synced file itself)",
   "relay.unreachable": "gzcoord inbox: relay unreachable at {relay_url} ({detail}) — skipping",
-
   "watch.held": "gzcoord watch: inbox held — the session is planning; nothing is polled until the plan is approved",
   "watch.hold-released": "gzcoord watch: hold released; polling again",
   "watch.relay-down": "gzcoord watch: relay unreachable at {relay_url} — waiting for it (this line prints once)",
   "watch.relay-back": "gzcoord watch: relay is back; watching again",
-
   "keyword.too-short": "keyword {keyword} is shorter than {min} characters — a short token fires on nearly everything",
   "keyword.too-many": "at most {max} keywords per arm",
   "keyword.hit": "gzcoord inbox: keyword watch on {channel} — a message matching one of [{keywords}] landed (not addressed to you, metadata only):",
@@ -131,6 +121,9 @@
   "validate.swallowed-marker": "possible swallowed section marker inside {name}: {line}",
   "validate.empty-value": "{key} has an empty value — a section marker with trailing whitespace reads as metadata",
   "validate.wide-line": "line {n} is {width} columns wide; over {max} a terminal copy re-breaks it",
-
-  "wait.nothing": "gzcoord inbox: nothing for you on {channel} in {waited}s ({others_passed} passed for others)"
+  "wait.nothing": "gzcoord inbox: nothing for you on {channel} in {waited}s ({others_passed} passed for others)",
+  "history.head": "gzcoord history for {address}: {n} addressed to you in the relay's last {window} on {channel} (from seq {first}; the cursor does not move)",
+  "history.replay-hint": "the whole message: {cmd} <seq>",
+  "history.usage": "usage: inbox.mjs --history [<seq>]",
+  "delivery.retransmission": "retransmission: the same FROM and MESSAGE-ID arrived before as relay seq {seq} (SPEC §7.2) — one message, not two; act on it once"
 }

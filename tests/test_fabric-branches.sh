@@ -51,8 +51,15 @@ grep -qE "^  0 +$me/merged " <<<"$out" && grep -qE "^  1 +$me/owed " <<<"$out" &
 grep -q "theirs  upstream=origin/other-host/other-login/fix  (tracks another agent's branch" <<<"$out" && ok "…names a copy of another agent's branch" || bad "other agent" "$out"
 grep -q "      [0-9a-f]* owed" <<<"$out" && ok "…lists the commits off main" || bad "commits" "$out"
 grep -q "$me/owed — pull request: #7 OPEN" <<<"$out" && ok "…and the pull request of the remote branch it tracks, under another name" || bad "PR by upstream" "$out"
+grep -qxF "$me/owed-remote" "$T/gh-heads" && ! grep -qxF "$me/owed" "$T/gh-heads" && ok "…asked by the remote name, never the local one" || bad "gh heads" "$(cat "$T/gh-heads")"
 grep -q "wt-dirty  1 uncommitted change(s)" <<<"$out" && ok "…and a worktree's changes" || bad "worktree status" "$out"
 [[ -n "$(g "$T/wc" branch --list "$me/merged")" && -d "$T/wt-clean" ]] && ok "…and deletes nothing" || bad "report deleted something"
+
+# The remote branch is deleted (a merged PR) and pruned: the configured
+# upstream still names it.
+git -C "$T/origin.git" branch -q -D "$me/owed-remote"; g "$T/wc" fetch -q --prune origin; : > "$T/gh-heads"
+out="$(cd "$T/wc" && "$CMD" 2>&1)"
+grep -qxF "$me/owed-remote" "$T/gh-heads" && ok "…even after its remote branch was deleted and pruned" || bad "pruned upstream" "$(cat "$T/gh-heads")"
 
 echo "fabric-branches: refusals"
 echo dirt > "$T/wc/dirt"
@@ -72,6 +79,7 @@ out="$(cd "$T/wt-here" && "$CMD" --sweep 2>&1)"; rc=$?
 [[ -d "$T/wc/.git" ]] && ok "…and the main one" || bad "main worktree gone"
 [[ -d "$T/wt-locked" && -d "$T/wt-ignored" && -f "$T/wt-ignored/.env" ]] && ok "…and a locked one, and one holding an ignored file" || bad "locked/ignored removed" "$out"
 grep -q "wt-ignored  1 ignored path(s)" <<<"$out" && grep -q "wt-locked  locked" <<<"$out" && ok "…each with its reason" || bad "reasons" "$out"
+grep -q "KEPT wt-dirty — checked out in a worktree that stays" <<<"$out" && ! grep -q "cannot delete branch" <<<"$out" && ok "…and their branches are kept with the reason, not refused by git" || bad "checked-out branch" "$out"
 g "$T/wc" branch -q -D "$me/merged" 2>/dev/null; g "$T/wc" branch -q "$me/merged" "origin/$me/merged"
 [[ -d "$T/wt-clean" ]] || g "$T/wc" worktree add -q "$T/wt-clean" -b wt-clean2 main 2>/dev/null
 

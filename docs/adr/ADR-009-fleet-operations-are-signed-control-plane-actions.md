@@ -95,7 +95,9 @@ revertable one-line change.
 4. The launcher resumes the stopped session (`--resume <id>`) from the
    restart marker; a failed upgrade still brings it back; a marker older
    than the launch is removed, never obeyed. A marker with `fresh` true,
-   the session's own (ADR-022 rule 10), starts a new session instead
+   the session's own (ADR-022 rule 10), starts a new session instead,
+   unless the launch carried its own prompt: then the marker is removed
+   and nothing is relaunched, so a finished job is never replayed
    (A 2026-09-28).
 5. `upgrade fabric` sends `origin/main`'s sha, never HEAD; an account whose
    fetch lacks it refuses. Fast-forward or nothing: a checkout on a branch

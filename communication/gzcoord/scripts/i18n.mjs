@@ -184,7 +184,12 @@ export function dictionary(me, { root = FABRIC_ROOT, file = DEFAULT_PATH, env = 
     const loc = JSON.parse(fs.readFileSync(p, 'utf8'));
     for (const [k, v] of Object.entries(loc))
       if (typeof v === 'string' && v !== '' && Object.hasOwn(base, k)) base[k] = v;
-  } catch { /* unreadable or not JSON: the default locale, silently — this is a session start */ }
+  } catch (e) {
+    // The default locale still prints — this is a session start — but not
+    // silently: a holder served English with nothing said cannot tell a
+    // broken dictionary from a missing one (the rule stated above).
+    console.error(`gzcoord: ${p} could not be read (${e.message}); printing the default locale`);
+  }
   return base;
 }
 

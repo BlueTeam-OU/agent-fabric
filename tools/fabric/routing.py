@@ -795,6 +795,46 @@ def check(root: str | None = None) -> list[str]:
                     f"gives {e['level']!r}. Write providers.{provider}.classes.{klass}: {e['level']!r} with a "
                     "note, or lower the class — a level lost with no commit and nothing to review is exactly "
                     "what this dimension exists to stop.")
+        # The session is judged like a class: the level it asks for (its
+        # own, or the class it names), on the model the session resolves
+        # to for this provider. Its acknowledgement is
+        # providers.<provider>.session, with notes.session beside it. A
+        # session naming a class asks what that class asks on this provider
+        # — its intent after the class's own acknowledgement, as
+        # session_effort() reads it — so a downgrade already written for
+        # the class is not demanded a second time.
+        sess_want = sess
+        if sess in base:
+            try:
+                sess_want = ((resolve(sess, provider, root=root) or {}).get("effort") or {}).get("intent")
+            except KeyError:
+                sess_want = None
+        if sess_want in scale:
+            try:
+                model = resolve_session(root=root, provider=provider).get("model")
+            except (KeyError, ValueError):
+                model = None
+            if model:
+                served, outcome = adapter(provider).effort_for(model, sess_want, scale)
+                acked = ((effort.get("providers") or {}).get(provider, {}) or {})
+                # Raised is the same defect upside down, as for a class.
+                lost = outcome in ("unexpressible", "raised") or (outcome == "approximated" and served and
+                                                                  scale.index(served) < scale.index(sess_want))
+                if "session" in acked:
+                    if "session" not in notes:
+                        findings.append(
+                            f"routing/effort.json: providers.{provider}.session has no matching entry in "
+                            f"providers.{provider}.notes — an acknowledged downgrade without its reason.")
+                    elif acked["session"] != served:
+                        findings.append(
+                            f"routing/effort.json: providers.{provider}.session is {acked['session']!r}, but the "
+                            f"session asks for {sess_want!r} and {model} now yields {served!r}; re-decide it or "
+                            "delete it.")
+                elif lost:
+                    findings.append(
+                        f"routing/effort.json: the session asks for {sess_want!r}; {model} on {provider} gives "
+                        f"{served!r}. Write providers.{provider}.session: {'null' if served is None else repr(served)} with a note in "
+                        f"providers.{provider}.notes, or change the session's level or model.")
     return findings
 
 

@@ -720,7 +720,7 @@ test('CLI: an unknown flag is refused before any side effect', () => {
 // inbox.mjs applies SPEC §7.1 addressing and the §17 reading rule at
 // delivery: the body of a message not addressed to this session is never
 // printed. forMe() is that decision, kept pure so it can be pinned.
-import { ensureRelay, forMe, identity, waitLoop, checkKeywords, keywordHit, inboxRoot, relayRuntimeDir, WORKSPACE, integrationConfig, holdDir, holdStatus, pidStart, pidAlive, render, splitMessage, NOTIFICATION_CAP, REPLAY_CMD, assertNotControlChannel } from '../scripts/inbox.mjs';
+import { ensureRelay, forMe, identity, waitLoop, checkKeywords, keywordHit, inboxRoot, relayRuntimeDir, WORKSPACE, integrationConfig, holdDir, holdStatus, pidStart, pidAlive, render, splitMessage, NOTIFICATION_CAP, REPLAY_CMD, assertNotControlChannel, markRetransmissions } from '../scripts/inbox.mjs';
 test('inbox forMe: exactly the messages SPEC §7.1 addresses to this session', () => {
   const me = { address: 'develop-qzapp/db-admin', instance: 'db-admin', slug: 'db-admin' };
   const mk = (type, extra) => parse(`[GZCOORD/1] ${type}\nFROM: develop-qzapp/x\nROLE: architect-cto\nPROJECT: gzapp\nMESSAGE-ID: x-0001\n${extra}`);
@@ -1270,6 +1270,62 @@ test('inbox --replay shows a broadcast, withholds a body not for me, moves no cu
   // /status is ensureRelay's liveness probe; nothing names a consumer and nothing acks.
   assert.ok(hits.every(u => u === '/status' || (u.startsWith('/api/messages?') && !u.includes('consumer_id'))), hits);
   assert.ok(!hits.some(u => u.includes('/api/ack') || u.includes('/api/wait')), hits);
+});
+
+// --history lists what is addressed to me in one call, from a seq on,
+// withholding what is not, reading no body into the listing and moving no cursor.
+test('inbox --history lists the messages addressed to me, from a seq, and moves no cursor', async () => {
+  const msg = (n, to, subject) => `[GZCOORD/1] INFO\nFROM: x/y\nROLE: backend-dev\nPROJECT: fixture\n${to}\nMESSAGE-ID: 01a09fc1-0000-7000-8000-00000000000${n}\nSUBJECT: ${subject}\n\nNOTES:\nBODY-${n}\n`;
+  const hits = [];
+  const server = http.createServer((req, res) => {
+    hits.push(req.url); res.setHeader('content-type', 'application/json'); res.setHeader('connection', 'close');
+    res.end(JSON.stringify({ channel: 'fixture:chan', messages: [
+      { seq: 5, id: 'r5', ts: 'T5', sender: 'x/y', content: msg(5, 'BROADCAST: true', 'early') },
+      { seq: 7, id: 'r7', ts: 'T7', sender: 'x/y', content: msg(7, 'BROADCAST: true', 'for all') },
+      { seq: 8, id: 'r8', ts: 'T8', sender: 'x/y', content: msg(8, 'TO: other-host/someone', 'private') }] }));
+  });
+  await new Promise(r => server.listen(0, '127.0.0.1', r));
+  const INBOX = fileURLToPath(new URL('../scripts/inbox.mjs', import.meta.url));
+  const env = { ...process.env, HOME: scratch('home-'), CLAUDE_BRIDGE_URL: `http://127.0.0.1:${server.address().port}`, CLAUDE_BRIDGE_AUTH_TOKEN: 'tok', GZCOORD_CHANNEL: 'fixture:chan' };
+  const run = args => new Promise(resolve => execFile('node', [INBOX, ...args], { env, encoding: 'utf8' }, (e, out, err) => resolve({ code: e ? e.code : 0, out: String(out), err: String(err) })));
+  const all = await run(['--history']);
+  const from = await run(['--history', '6']);
+  const bad = await run(['--history', 'x']);
+  server.closeAllConnections(); server.close();
+  assert.equal(all.code, 0, all.err);
+  assert.match(all.out, /2 addressed to you in the relay's last 3/); assert.match(all.out, / 5 .*early/); assert.match(all.out, / 7 .*for all/);
+  assert.doesNotMatch(all.out, /private|BODY-/); assert.match(all.out, /gzcoord-inbox --replay <seq>/);
+  assert.equal(from.code, 0, from.err); assert.match(from.out, /1 addressed to you/); assert.doesNotMatch(from.out, /early/);
+  assert.equal(bad.code, 1); assert.match(bad.err, /usage: inbox\.mjs --history/);
+  assert.ok(hits.every(u => u === '/status' || (u.startsWith('/api/messages?') && !u.includes('consumer_id'))), hits);
+  assert.ok(!hits.some(u => u.includes('/api/ack') || u.includes('/api/wait')), hits);
+});
+
+// SPEC §7.2: a retransmission keeps its MESSAGE-ID. The watch shows the
+// copy — the first may never have been read — marked with the earlier seq.
+test('a retransmitted delivery is marked with the seq of the earlier copy; a first copy is not', async () => {
+  const text = (id, from = 'x/y') => `[GZCOORD/1] INFO\nFROM: ${from}\nROLE: backend-dev\nPROJECT: fixture\nBROADCAST: true\nMESSAGE-ID: ${id}\nSUBJECT: s\n\nNOTES:\nn\n`;
+  const rec = (seq, id, from) => ({ seq, id: `r${seq}`, sender: from ?? 'x/y', timestamp: `T${seq}`, content: text(id, from) });
+  const A = '01a09fc1-0000-7000-8000-0000000000a1', B = '01a09fc1-0000-7000-8000-0000000000b1';
+  const recent = { messages: [rec(4, A), rec(6, B, 'other/z'), rec(9, A), rec(10, B)] };
+  const classify = r => ({ rec: r, msg: parse(r.content), isMine: true });
+  const got = [classify(rec(9, A)), classify(rec(10, B))];
+  await markRetransmissions(got, async () => recent);
+  assert.equal(got[0].retransmitOf, 4);
+  assert.equal(got[1].retransmitOf, undefined, 'the same id from another FROM is another message');
+  const out = render({ classified: got }, { address: 'h/me' }, 'fixture:chan', undefined, {});
+  assert.match(out, /retransmission: the same FROM and MESSAGE-ID arrived before as relay seq 4/);
+  assert.equal((out.match(/retransmission:/g) ?? []).length, 1);
+  const failed = [classify(rec(9, A))];
+  await markRetransmissions(failed, async () => { throw new Error('relay down'); });
+  assert.equal(failed[0].retransmitOf, undefined);
+  await markRetransmissions(failed, async () => ({}));
+  assert.equal(failed[0].retransmitOf, undefined, 'an answer that is not a list marks nothing');
+  // A relay that never answers: the lookup gives up at its bound, marking nothing.
+  const t0 = Date.now();
+  await markRetransmissions(failed, () => new Promise(() => {}), 200);
+  assert.ok(Date.now() - t0 < 1500, `the lookup waited ${Date.now() - t0} ms`);
+  assert.equal(failed[0].retransmitOf, undefined);
 });
 
 // The environment is a snapshot; the synced file is current. A refused

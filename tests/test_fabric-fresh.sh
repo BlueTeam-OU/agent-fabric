@@ -38,6 +38,9 @@ echo "fabric-fresh: refused where the launch carried its own prompt"
 out="$(env AGENT_FABRIC_LAUNCH_PROFILE=p "${envs[@]}" AGENT_FABRIC_LAUNCH_OPENING=0 "$T/bin/claude" 2>&1)"; rc=$?
 [[ $rc -eq 2 ]] && grep -q "launched with its own prompt" <<<"$out" && [[ ! -e "$T/killed" ]] && ok "own prompt: exit 2, nothing stopped" || bad "own prompt (rc=$rc)" "$out"
 
+out="$(env -u AGENT_FABRIC_LAUNCH_OPENING AGENT_FABRIC_LAUNCH_PROFILE=p AGENT_FABRIC_STATE_DIR="$T/state" AGENT_FABRIC_FRESH_KILL="$T/bin/record-kill" AGENT_FABRIC_FRESH_COMM=claude-fake "$T/bin/claude" 2>&1)"; rc=$?
+[[ $rc -eq 2 ]] && grep -q "launcher predates fabric-fresh" <<<"$out" && [[ ! -e "$T/killed" ]] && ok "a launcher older than fabric-fresh: exit 2, said as such" || bad "old launcher (rc=$rc)" "$out"
+
 echo "fabric-fresh: a job with uncommitted changes is not done"
 echo new > "$T/wc/untracked"
 out="$(env AGENT_FABRIC_LAUNCH_PROFILE=p "${envs[@]}" "$T/bin/claude" 2>&1)"; rc=$?
@@ -66,6 +69,16 @@ echo "fabric-fresh: a stop that fails takes its marker back"
 rm -f "$m"
 out="$(env AGENT_FABRIC_LAUNCH_PROFILE=p "${envs[@]}" AGENT_FABRIC_FRESH_KILL=false "$T/bin/claude" 2>&1)"; rc=$?
 [[ $rc -eq 1 && ! -e "$m" ]] && grep -q "could not stop" <<<"$out" && ok "exit 1, no marker left for the next plain exit" || bad "failed stop (rc=$rc)" "$out"
+# An upgrade's marker written between ours and the failed stop is not ours to remove.
+cat > "$T/bin/kill-then-upgrade" <<EOF
+#!/usr/bin/env bash
+echo '{"requested_at":"2099-01-01T00:00:00Z","piece":"fabric","status":"pending"}' > "$m"
+exit 1
+EOF
+chmod +x "$T/bin/kill-then-upgrade"
+out="$(env AGENT_FABRIC_LAUNCH_PROFILE=p "${envs[@]}" AGENT_FABRIC_FRESH_KILL="$T/bin/kill-then-upgrade" "$T/bin/claude" 2>&1)"; rc=$?
+[[ $rc -eq 1 ]] && grep -q '"piece":"fabric"' "$m" 2>/dev/null && ok "…and an upgrade marker written since is left alone" || bad "removed another writer's marker (rc=$rc)" "$(cat "$m" 2>/dev/null)"
+rm -f "$m"
 
 echo "fabric-fresh: no claude above it"
 out="$(cd "$T/wc" && env AGENT_FABRIC_LAUNCH_PROFILE=p "${envs[@]}" "$CMD" 2>&1)"; rc=$?

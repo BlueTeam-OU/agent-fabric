@@ -190,6 +190,18 @@ moves), shows the body only if the message is addressed to you, and
 otherwise prints its metadata line — SPEC §17 applies to a replay too.
 Never pipe the watch or a drain through anything that truncates.
 
+To catch up on what was addressed to you — after a restart, or to find
+a message whose seq you do not have — list it in one call rather than
+replaying seq by seq:
+
+```sh
+gzcoord-inbox --history [<relay seq>]
+```
+
+One line per message addressed to you in the relay's recent history
+(from that seq on): seq, time, sender, type, addressee and subject, no
+body. Replay the ones you need.
+
 **A delivery whose body ends in the watch's own cut notice — naming the
 replay command and the relay seq, in your locale — is not the whole
 message.** The harness shows about 3,000 characters of one
