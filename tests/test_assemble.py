@@ -181,19 +181,21 @@ def test_index_lists_every_slice(tmp: str) -> None:
 
 
 def test_index_banner_names_which_sections_load_when(tmp: str) -> None:
-    # The banner sits above a section list whose FIRST entry (charter) and
-    # `workflow` entry are both tier 1. A blanket "everything below loads on
-    # demand" was therefore false, and false in the direction that matters:
-    # a session that believes workflow is cued does not read it until
-    # something has already gone wrong.
+    # The banner says what a session is given — the charter and brief, the
+    # remit and this index's pointer — and that a workflow slice is read
+    # before the work it governs. It once claimed the hook gave every
+    # workflow slice, which no hook did.
     drain, claims_dir, out = build(tmp, {"alpha": claims("alpha", [
         {"class": "workflow", "topic": "how", "title": "T", "body": "b", "evidence": ["h1"]},
     ])})
     run_assemble(drain, claims_dir, out)
     index = read(proj(out, "alpha", "INDEX.md"))
-    assert "Tier 1" in index, index
     assert "is given" in index and "launch prompt" in index and "session-start hook" in index, index
     assert "Everything below loads on demand" not in index, index
+    # And it never again claims the hook gives the workflow slices, which
+    # no hook does (ADR-013 §7): they are cued, read before the work.
+    assert "every `workflow` slice (from the session-start hook)" not in index, index
+    assert "nothing below" in index and "before that work" in index, index
 
 
 def test_committed_indexes_carry_the_banner_the_assembler_emits(tmp: str) -> None:

@@ -2023,16 +2023,18 @@ def main() -> int:
             "",
             f"# {role} — knowledge index",
             "",
-            # The banner has to name WHICH sections load when, because two of
-            # the sections below are tier 1. Saying "everything below loads on
-            # demand" over a list that opens with `charter` was wrong from the
-            # start and became load-bearing once `workflow` joined it: a
-            # session that believes workflow is cued will not read it until
-            # something has already gone wrong.
-            "Tier 1 — the charter and brief (in the launch prompt), this index",
-            "and every `workflow` slice (from the session-start hook) — is given",
-            "to a session at start. Every other section waits for a cue: open a",
-            "slice when its description matches what you are working on.",
+            # The banner says what a session is actually given, and no more:
+            # it once said the session-start hook gave every `workflow` slice,
+            # which no hook did (ADR-013). Loading them was measured and
+            # rejected — 45–140 KB of workflow slices per role, on every
+            # session of every login — so a workflow slice is cued like the
+            # rest, and the banner tells the reader to read the matching ones
+            # BEFORE the work they govern, not after it has gone wrong.
+            "A session is given the charter and brief (in the launch prompt),",
+            "and the project's remit with a pointer to this index (from the",
+            "session-start hook) — nothing below. Open a slice when its cue",
+            "matches what you are doing; a `workflow` slice says how a kind of",
+            "work is done here, so read the matching ones before that work.",
             "Paths are relative to this working copy; `../agent-fabric/` is the",
             "control plane checked out beside it.",
             "",
