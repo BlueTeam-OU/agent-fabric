@@ -12,10 +12,9 @@ gzapp (`.agent-fabric/memory/`), never here.
   and the snippet its root `CLAUDE.md` carries (`CLAUDE.snippet.md`).
 - `gh/` — forwarders to the pull-request tooling, which is general and
   lives in `runtime/github/`: the repository comes from the working copy
-  it runs in, the session from the login, and a project's record of the
-  directory-bound clones it once had — used to tell an heir from an
-  orphan on older branch prefixes — from `legacy_clone_bindings` in
-  `projects/registry.json`. `pr-reply.sh` and `pr-sessions.sh` (2026-09-14)
+  it runs in and the session from the login; no record of retired
+  clones is kept, and an older working-copy prefix is this session's
+  only when it names this working copy and not the repository itself. `pr-reply.sh` and `pr-sessions.sh` (2026-09-14)
   forward and nothing more. `pr-gate.sh`, `pr-review-status.sh`,
   `post-review.sh` and `commit-class.sh` (2026-09-19) are
   where this project's OWN names for the tools live — the marker its

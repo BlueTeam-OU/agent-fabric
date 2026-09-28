@@ -10,17 +10,19 @@
 # what. The session identity lives in the BRANCH NAME instead — the
 # repo-root CLAUDE.md mandates
 #
-#     <hostname -s>/<clone-dir-basename>/<type>/<short-desc>
+#     <hostname -s>/<login>/<type>/<short-desc>
 #
-# so the first two segments are the session, and everything after is the
-# work. This script reads that, and marks the rows belonging to THIS
-# clone so "mine vs theirs" is visible at a glance — which is what the
+# so the first two segments are the session — the login on this host —
+# and everything after is the work (an older branch carries a
+# working-copy name there instead; see ME_LEGACY). This script reads
+# that, and marks the rows belonging to THIS session so "mine vs theirs"
+# is visible at a glance — which is what the
 # stay-in-your-own-lane rules turn on: never push to, rebase, delete or
 # answer reviews on another session's branch.
 #
-# DEFAULT SCOPE: run inside a clone, and it shows THAT clone's PRs.
+# DEFAULT SCOPE: run inside a clone, and it shows THIS session's PRs.
 # Asking "which PRs are mine" from inside a working tree is the common
-# case, and the clone you are standing in already answers it — so that
+# case, and the login you run as already answers it — so that
 # is the default rather than something to remember a flag for. Pass
 # /all to see every session.
 #
