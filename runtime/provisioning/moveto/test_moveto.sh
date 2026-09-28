@@ -247,6 +247,12 @@ git -C "$EH/projects/agent-fabric" remote add origin "$SANDBOX/no-such-origin.gi
 err="$(HOME="$EH" XDG_CONFIG_HOME="$EH/.config" bash "$SCRIPT_DIR/enter" "$EH/projects" "t" </dev/null 2>&1 >/dev/null)"
 check "the reason is git's first error line" "does not appear to be a git repository" "$err"
 check_absent "…never the old guess" "offline, or the clone is not on main" "$err"
+# A hung network: git is killed by the timeout before it writes a word.
+mkdir -p "$SANDBOX/hungbin"
+printf '#!/bin/sh\ncase " $* " in *" pull "*) exit 124 ;; esac\nexec %s "$@"\n' "$(command -v git)" > "$SANDBOX/hungbin/git"
+chmod +x "$SANDBOX/hungbin/git"
+err="$(PATH="$SANDBOX/hungbin:$PATH" HOME="$EH" XDG_CONFIG_HOME="$EH/.config" bash "$SCRIPT_DIR/enter" "$EH/projects" "t" </dev/null 2>&1 >/dev/null)"
+check "a silent timeout is said as one" "not fast-forwarded (git pull timed out after 30 s)" "$err"
 
 echo
 if [[ $failures -eq 0 ]]; then echo "test_moveto: all assertions passed"; exit 0; fi

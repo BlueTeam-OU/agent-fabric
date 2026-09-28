@@ -25,9 +25,15 @@ if [ "$(git -C "$fabric" rev-parse --is-inside-work-tree 2>/dev/null)" = true ];
     # git's first error line names the cause ("ssh: Could not resolve
     # hostname", "fatal: Not possible to fast-forward"); its last is often
     # boilerplate. The message used to guess between offline and a branch.
-    if ! pull_err="$(timeout 30 git -C "$fabric" pull -q --ff-only origin main 2>&1)"; then
+    # A hung network writes nothing before the timeout: then the status says it.
+    pull_err="$(timeout 30 git -C "$fabric" pull -q --ff-only origin main 2>&1)"; rc=$?
+    if [ "$rc" -ne 0 ]; then
         reason="$(grep -m 1 -E '^(fatal|error|ssh):' <<<"$pull_err")"
-        echo "moveto: agent-fabric not fast-forwarded (${reason:-${pull_err##*$'\n'}}); using it as is" >&2
+        [ -n "$reason" ] || reason="${pull_err##*$'\n'}"
+        if [ -z "$reason" ]; then
+            if [ "$rc" = 124 ]; then reason="git pull timed out after 30 s"; else reason="git pull exit $rc"; fi
+        fi
+        echo "moveto: agent-fabric not fast-forwarded ($reason); using it as is" >&2
     fi
     timeout 30 bash "$fabric/runtime/claude-code/bootstrap.sh" >/dev/null 2>&1         || echo "moveto: bootstrap did not complete; run it by hand" >&2
 fi
