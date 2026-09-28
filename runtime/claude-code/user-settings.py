@@ -105,6 +105,11 @@ def with_memory_check(hooks: dict) -> dict:
     """`hooks` with exactly one memory-check entry, the current one; every
     other entry kept as it was."""
     hooks = dict(hooks) if isinstance(hooks, dict) else {}
+    # A PostToolUse that is not a list is a mistake in the account's own
+    # file: iterating it wrote its keys or characters back as entries.
+    # Refused, the file left untouched, like an unreadable one.
+    if "PostToolUse" in hooks and not isinstance(hooks["PostToolUse"], list):
+        raise Unreadable("hooks.PostToolUse is not a list")
     post = []
     for e in hooks.get("PostToolUse") or []:
         if not isinstance(e, dict) or not isinstance(e.get("hooks"), list):
@@ -214,7 +219,12 @@ def main(argv: list[str]) -> int:
         # "unchanged" — a traceback did exactly that.
         print(f"  !  {exc} — fabric user settings NOT written", file=sys.stderr)
         return 1
-    if settled(doc):
+    try:
+        done = settled(doc)
+    except Unreadable as exc:
+        print(f"  !  {path}: {exc} — fabric user settings NOT written", file=sys.stderr)
+        return 1
+    if done:
         print(f"  =  {path} fabric user settings")
         return 0
     if dry:

@@ -61,6 +61,20 @@ printf '{"hooks": {"PostToolUse": [{"matcher": "Write|Edit", "hooks": [{"type": 
 out="$(run "$S")"
 msg="$(check "p=d['hooks']['PostToolUse']; cmds=[h['command'] for e in p for h in e['hooks']]; assert 'neighbour.sh' in cmds, p; assert sum('memory-write-check.py' in c for c in cmds)==1 and not any('/old/' in c for c in cmds), p")" \
   && ok "a hook sharing the check's entry is kept" || bad "neighbour hook" "$out ${msg:-} $(cat "$S")"
+# PostToolUse that is not a list is the account's own mistake: left exactly
+# as it is and said, never iterated into junk entries; not reported settled.
+for bad_shape in '{"matcher": "x", "hooks": []}' '"ab"'; do
+    printf '{"hooks": {"PostToolUse": %s}}\n' "$bad_shape" > "$S"
+    out="$(run "$S" 2>&1)"; rc=$?
+    msg="$(python3 -c "import json,sys; d=json.load(open('$S')); assert d['hooks']['PostToolUse']==json.loads(sys.argv[1]), d" "$bad_shape" 2>&1)" \
+      && [[ $rc -eq 1 && "$out" == *"PostToolUse is not a list"* ]] \
+      && ok "a PostToolUse of shape $bad_shape is left untouched and refused" || bad "malformed PostToolUse $bad_shape" "rc=$rc $out ${msg:-} $(cat "$S")"
+done
+# An entry that is not an object inside a well-formed list is kept as it is.
+printf '{"hooks": {"PostToolUse": ["odd", {"matcher": "Bash", "hooks": [{"type": "command", "command": "mine.sh"}]}]}}\n' > "$S"
+out="$(run "$S")"
+msg="$(check "p=d['hooks']['PostToolUse']; assert p[0]=='odd' and any(e!='odd' and e['hooks'][0]['command']=='mine.sh' for e in p) and sum(1 for e in p if isinstance(e,dict) and 'memory-write-check.py' in e['hooks'][0]['command'])==1, p")" \
+  && ok "an unparseable entry in the list is kept as it is" || bad "odd entry" "$out ${msg:-} $(cat "$S")"
 
 echo "bootstrap runs it"
 grep -q 'user-settings.py" "\$CLAUDE_HOME/settings.json"' "$HERE/bootstrap.sh" && ok "bootstrap.sh calls it on the login's user settings" || bad "bootstrap wiring"
