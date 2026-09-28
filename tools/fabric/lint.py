@@ -1193,7 +1193,9 @@ FABRIC_SELF = ("gzapi-org/agent-fabric",)
 # a login that is also a role slug or a word ("user", "db-admin") cannot be
 # told from the role or the word, and is left to review.
 SKILL_DATE_RE = re.compile(r"\b20\d\d-\d\d-\d\d\b")
-SKILL_PR_RE = re.compile(r"(?<![\w/&])#\d{2,}\b|\bPR \d+\b|\bpull request #?\d+\b", re.I)
+# "#57", "PR 57", "pull request 57", and a number glued to a word
+# ("PR#57", "repo#12") — the last escaped the first pattern's lookbehind.
+SKILL_PR_RE = re.compile(r"(?<![\w/&])#\d{2,}\b|\b[A-Za-z][\w.-]*#\d+\b|\bPR \d+\b|\bpull request #?\d+\b", re.I)
 SKILL_CUE_RE = re.compile(r"\b(when|before|whenever)\b", re.I)
 
 
@@ -1221,7 +1223,9 @@ def skill_findings(root: str) -> list[str]:
             if not SKILL_CUE_RE.search(desc):
                 findings.append(f"{rel}: the description names no occasion to load the skill "
                                 "(\"when …\", \"before …\") — it is all a session sees before loading it")
-            body = re.sub(r"\A---\n.*?\n---\n", "", text, count=1, flags=re.DOTALL)
+            # The description is scanned too: it is the one part of a skill
+            # every session sees, and an occasion there is the likeliest.
+            body = desc + "\n" + re.sub(r"\A---\n.*?\n---\n", "", text, count=1, flags=re.DOTALL)
             for label, rx in (("a date", SKILL_DATE_RE), ("a pull-request number", SKILL_PR_RE)):
                 m = rx.search(body)
                 if m:

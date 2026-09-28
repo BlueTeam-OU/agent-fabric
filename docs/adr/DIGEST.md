@@ -196,6 +196,7 @@ searches it.
   new build (§5 rule 5).
 - A 2026-09-28 — `tui` "default" is pinned, so a session's terminal keeps its
   scrollback.
+- A 2026-09-28 — the settings writer adds the memory-write check hook (ADR-013 rule 14).
 - Keywords: Claude Code, harness, settings.json, attribution, Co-Authored-By,
   auto-update, DISABLE_AUTOUPDATER, verbose, auto mode, system prompt, build.
 
@@ -277,10 +278,12 @@ searches it.
 - Hygiene substitutes names and secrets and names each hit; domain-only
   evidence supports only `domain` (§5 rules 9–10). Merge mode, per-store
   watermarks, a wrong slice corrected by a memory (§5 rules 11–13).
-- Open gap: `workflow` slices are budgeted as tier 1 and the index banner
-  says the hook loads them; it does not (§7).
 - A 2026-09-28 — a session is given the charter, brief, remit and index pointer;
   workflow slices are cued, read before the work they govern (§7).
+- A 2026-09-28 — a wrong slice is corrected at its source memory or with
+  `merge_target` (rule 12, ADR-014 rule 7).
+- A 2026-09-28 — a drain-bound memory is judged when written: a user-scope hook
+  says what the drain would refuse or hold (rule 14).
 - Keywords: memory, knowledge, slice, drain, harvest, assemble, roles_class,
   domain, solution, rationale, workflow, threads, INDEX, provenance,
   watermark, bundle, hygiene, redacted, tier.
@@ -329,9 +332,11 @@ searches it.
   outside it (§5 rules 3–4).
 - Load the skill-creator skill before writing or changing a `SKILL.md`
   (§5 rule 5).
-- Lint refuses only a managed project's name, and not in the dispatch
-  skill; the rest is review (§6). pg-probe's bare pointers to a project's
-  records are open (§7).
+- A description names when to load the skill (§5 rule 6). Lint checks
+  rules 1 and 6 — dates, PR numbers, numbered logins, the occasion; the
+  rest is review (§6). pg-probe's bare pointers to a project's records
+  are open (§7).
+- A 2026-09-28 — lint checks a skill's occasion and description (rule 6).
 - Keywords: skill, SKILL.md, skill-creator, history, incident, date, PR
   number, evidence, provenance.
 

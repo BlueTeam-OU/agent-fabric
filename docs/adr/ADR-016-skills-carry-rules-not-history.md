@@ -96,16 +96,20 @@ is its evidence, which belongs where evidence is kept and reviewed
    it names that repository (ADR-001 §5 rule 6).
 5. Whoever writes or changes a `SKILL.md` loads the skill-creator skill
    first and follows it.
+6. A skill's description names the occasion to load it ("when …",
+   "before …"): it is all a session sees before loading the skill
+   (A 2026-09-28).
 
 ## 6. Consequences
 
-- Lint enforces part of rule 1 only: `project_name_findings` refuses a
-  managed project's id in `identities/roles/` (role skills included) and
-  `communication/gzcoord/skills/`, among other generic directories. It
-  does not scan `policies/subagent-dispatch/SKILL.md`, and nothing checks
-  dates, PR numbers or logins in a skill: rules 1, 2 and 5 are held by
-  the author and by review. No shipped skill carries a date or a PR
-  number.
+- Lint enforces rule 1 and rule 6 (`skill_findings`): in
+  every `SKILL.md` under `policies/`, `communication/` and `identities/`
+  (a locale's copy excepted), the description and body carry no date, no
+  `#NN`, `word#NN` or "PR N", and no numbered login from the host
+  registry, and the description names an occasion. A login that is also
+  a word or a role slug cannot be told from them and is left to review;
+  `project_name_findings` refuses a managed project's id in the generic
+  directories. Rules 2 and 5 are held by the author and by review.
 - A skill's history is read with `git log` on the skill.
 
 ## 7. Future Evolution
@@ -118,8 +122,6 @@ is its evidence, which belongs where evidence is kept and reviewed
   role skill under `identities/roles/`; and, now that agent-fabric
   numbers records of its own, that a bare number there reads as this
   repository's to a reader here (rule 4 asks for the repository's name).
-- A lint for dates and numbers in skills is a candidate if the pattern
-  returns.
 
 ## 8. Decision Status
 
@@ -134,3 +136,11 @@ now a stub pointing here.
 - `.agent-fabric/memory/fabric-coordinator/workflow/skills-no-prs-no-dates.md`
   (the coordinator's own lesson).
 - ADR-001 (§5 rules 3 and 6), ADR-000 (P2).
+
+## Amendments
+
+The body above reads current; each change's full note is in [history/ADR-016-amendments.md](history/ADR-016-amendments.md).
+
+| Date | Amendment | Effect |
+|---|---|---|
+| 2026-09-28 | Lint checks the occasion and the description | §5 rule 6 (the description's occasion); §6: `skill_findings` enforces rules 1 and 6 |

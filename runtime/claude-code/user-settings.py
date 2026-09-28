@@ -86,6 +86,30 @@ COMMANDS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "commands.js
 
 FABRIC_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+# The memory-write check (hooks/memory-write-check.py) at user scope, so
+# it runs for every session of the account wherever it was started — a
+# memory is the account's, not a project's — without asking each managed
+# project to mirror a hook. Identified by its script name, so a moved
+# checkout rewrites the path rather than adding a second entry.
+MEMORY_CHECK = "memory-write-check.py"
+
+
+def memory_check_hook() -> dict:
+    return {"matcher": "Write|Edit", "hooks": [{
+        "type": "command",
+        "command": f'python3 "{os.path.join(FABRIC_ROOT, "runtime", "claude-code", "hooks", MEMORY_CHECK)}"',
+        "timeout": 10}]}
+
+
+def with_memory_check(hooks: dict) -> dict:
+    """`hooks` with exactly one memory-check entry, the current one; every
+    other entry kept as it was."""
+    hooks = dict(hooks) if isinstance(hooks, dict) else {}
+    post = [e for e in (hooks.get("PostToolUse") or []) if isinstance(e, dict)
+            and not any(MEMORY_CHECK in str(h.get("command", "")) for h in (e.get("hooks") or []) if isinstance(h, dict))]
+    hooks["PostToolUse"] = post + [memory_check_hook()]
+    return hooks
+
 
 def local_bin() -> str:
     return os.environ.get("AGENT_FABRIC_LOCAL_BIN") or os.path.join(os.path.expanduser("~"), ".local", "bin")
@@ -152,6 +176,7 @@ def settled(doc: dict) -> bool:
             and not any(r in allowed(doc) for r in rules()[1])
             and "includeCoAuthoredBy" not in doc
             and all(doc.get(k) == v for k, v in TOP_LEVEL.items())
+            and doc.get("hooks") == with_memory_check(doc.get("hooks"))
             and isinstance(doc.get("env"), dict) and all(doc["env"].get(k) == v for k, v in ENV.items()))
 
 
@@ -195,6 +220,7 @@ def main(argv: list[str]) -> int:
     perms["allow"] = [r for r in allowed(doc) if r not in withheld] + [r for r in granted if r not in allowed(doc)]
     perms["defaultMode"] = "auto"
     doc["permissions"] = perms
+    doc["hooks"] = with_memory_check(doc.get("hooks"))
     save(path, doc)
     print(f"  +  {path} fabric user settings")
     return 0

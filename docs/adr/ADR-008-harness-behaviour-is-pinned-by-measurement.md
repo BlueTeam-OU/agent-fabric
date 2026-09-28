@@ -52,6 +52,11 @@ directory it starts in. The keys, and why:
   `permissions.defaultMode` `"auto"` — the command
   rule is the fleet-operations record's, which follows; auto mode because eight hand-provisioned
   accounts had no mode and asked for what the classifier would allow.
+- one `hooks.PostToolUse` entry, `Write|Edit`, running
+  `runtime/claude-code/hooks/memory-write-check.py` at this checkout's
+  path — the memory model's write-time check (ADR-013 rule 14), at user
+  scope because a memory is the account's; the account's own hooks are
+  kept (A 2026-09-28).
 
 The harness's system prompt is kept verbatim as
 `runtime/claude-code/harness/en.md`, the source a locale translates.
@@ -135,3 +140,4 @@ The body above reads current; each change's full note is in [history/ADR-008-ame
 | Date | Amendment | Effect |
 |---|---|---|
 | 2026-09-28 | The terminal keeps its scrollback | §2: `tui` "default" joins the display keys the settings writer pins |
+| 2026-09-28 | The settings writer adds the memory-write check | §2: a user-scope PostToolUse hook for ADR-013 rule 14 |

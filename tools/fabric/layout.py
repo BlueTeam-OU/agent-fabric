@@ -422,8 +422,13 @@ def slices_of(base: str, name: str) -> list[str]:
 
 
 def tier1_paths(role: str, project: str | None) -> list[str]:
-    """Absolute paths to load at activation, in order. A role with nothing
-    of a class, or no project context, simply yields fewer paths."""
+    """The absolute paths a role's tier-1 classes resolve to, in order.
+    No hook loads them: loading workflow slices at session start was
+    measured and rejected (ADR-013 §7), and a session is given the
+    charter, brief, remit and the index pointer instead. Kept because
+    its tests pin where a role's charter, remit and project memory live.
+    A role with nothing of a class, or no project context, simply yields
+    fewer paths."""
     found = [os.path.join(role_dir(role), p) for p in slices_of(role_dir(role), "charter.md")]
     if project:
         remit = project_remit_path(project, role)

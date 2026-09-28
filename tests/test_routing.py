@@ -294,6 +294,12 @@ def test_the_session_level_is_judged_like_a_class(tmp: str) -> None:
     doc["providers"]["anthropic"].setdefault("notes", {})["code-low"] = "a model with no effort"
     json.dump(doc, open(path, "w", encoding="utf-8"))
     assert not [f for f in routing.check(root) if "the session asks" in f], routing.check(root)
+    # A session acknowledgement beside the class's is read by nothing: said.
+    doc["providers"]["anthropic"]["session"] = None
+    json.dump(doc, open(path, "w", encoding="utf-8"))
+    assert any("providers.anthropic.session is redundant" in f for f in routing.check(root)), routing.check(root)
+    del doc["providers"]["anthropic"]["session"]
+    json.dump(doc, open(path, "w", encoding="utf-8"))
     # And with no acknowledgement at all, the unexpressible session is told
     # to write null (the class is refused too, which is its own finding).
     doc["providers"]["anthropic"]["classes"].pop("code-low")

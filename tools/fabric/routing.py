@@ -815,6 +815,14 @@ def check(root: str | None = None) -> list[str]:
                 if sess in ack and res_cls.get("model") and \
                         res_cls.get("model") == resolve_session(root=root, provider=provider).get("model"):
                     sess_want = None
+                    # A session acknowledgement written beside the class's
+                    # is then read by nothing: said, not passed in silence
+                    # (#58 review F5).
+                    if "session" in ((effort.get("providers") or {}).get(provider, {}) or {}):
+                        findings.append(
+                            f"routing/effort.json: providers.{provider}.session is redundant: the session rides "
+                            f"{sess}'s model on {provider}, and providers.{provider}.classes.{sess} decides; "
+                            "delete it (and its note).")
             except (KeyError, ValueError):
                 sess_want = None
         if sess_want in scale:

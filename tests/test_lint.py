@@ -1174,6 +1174,16 @@ def case_a_skill_carries_rules_not_occasions() -> None:
         assert any("names no occasion" in f for f in got), got
         assert any("a date" in f for f in got) and any("pull-request number" in f for f in got), got
         assert any("'web-dev-01'" in f for f in got) and not any("'user'" in f for f in got), got
+        os.remove(bad)
+        # The description is scanned too, and a number glued to a word counts.
+        write(bad, '---\nname: bad\ndescription: "Load it when X; since 2026-09-28, web-dev-01 found it (PR#57)."\n---\n# Bad\nBody.\n')
+        got = L.skill_findings(root)
+        assert any("a date" in f for f in got) and any("'web-dev-01'" in f for f in got), got
+        assert any("pull-request number" in f and "PR#57" in f for f in got), got
+        os.remove(bad)
+        write(bad, '---\nname: bad\ndescription: "Load it when X."\n---\n# Bad\nSee gzapp#12.\n')
+        assert any("gzapp#12" in f for f in L.skill_findings(root)), L.skill_findings(root)
+        os.remove(bad)
         loc = os.path.join(root, "identities", "roles", "r", "locale", "ru", "skills", "x", "SKILL.md")
         write(loc, '---\nname: x\ndescription: "x"\n---\n2026-01-01\n')
         assert not any("locale" in f for f in L.skill_findings(root)), "a locale's copy is its holder's"

@@ -122,10 +122,9 @@ class Fixture:
 
 
 def _tier1(f: "Fixture", role: str, project: str | None) -> list[str]:
-    """layout.tier1_paths as the session-start hook will consult it, run in
-    the fixture root. The activator no longer prints a "load now" list —
-    the launcher and the hook deliver these — so the layout is asked
-    directly, from the binding the activator wrote."""
+    """layout.tier1_paths, run in the fixture root, from the binding the
+    activator wrote. No hook loads these paths (ADR-013 §7); the cases
+    below pin where a role's charter, remit and project memory resolve."""
     code = (
         "import importlib.util, json, os, sys\n"
         "spec = importlib.util.spec_from_file_location('l', os.path.join(os.environ['AGENT_FABRIC_ROOT'], 'tools/fabric/layout.py'))\n"

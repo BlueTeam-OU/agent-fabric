@@ -91,8 +91,9 @@ nothing blocks on them, and answering them is a task.
   with it; completeness is gated, not negotiated.
 - **A sibling holding this role** — scan main for their work before a
   backend task, and message them before picking up a thread they hold.
-- **fabric-coordinator** — a wrong slice or instruction line is raised,
-  never edited in place.
+- **fabric-coordinator** — a wrong instruction line is raised; a wrong
+  slice is corrected through your own memory (at its source, or with
+  `merge_target`); neither is edited in place.
 
 ## Before you start
 
