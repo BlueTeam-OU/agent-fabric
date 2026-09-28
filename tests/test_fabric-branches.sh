@@ -30,6 +30,12 @@ g "$T/wc" push -q origin "main:other-host/other-login/fix" 2>/dev/null
 g "$T/wc" fetch -q origin; g "$T/wc" branch -q theirs "origin/other-host/other-login/fix"
 g "$T/wc" worktree add -q "$T/wt-clean" -b wt-clean main 2>/dev/null
 g "$T/wc" worktree add -q "$T/wt-dirty" -b wt-dirty main 2>/dev/null; echo x > "$T/wt-dirty/new"
+# Clean and at 0, each kept for its own reason: locked (in use), holding
+# an ignored file (removal would delete it), and the one a sweep runs in.
+g "$T/wc" worktree add -q "$T/wt-locked" -b wt-locked main 2>/dev/null; g "$T/wc" worktree lock "$T/wt-locked"
+g "$T/wc" worktree add -q "$T/wt-ignored" -b wt-ignored main 2>/dev/null
+echo .env >> "$T/wc/.git/info/exclude"; echo secret > "$T/wt-ignored/.env"
+g "$T/wc" worktree add -q "$T/wt-here" -b wt-here main 2>/dev/null
 
 echo "fabric-branches: the report"
 out="$(cd "$T/wc" && "$CMD" 2>&1)"; rc=$?
@@ -51,6 +57,15 @@ out="$(cd "$T/wc" && "$CMD" --sweep 2>&1)"; rc=$?
 g "$T/wc" remote set-url origin "$T/origin.git"
 out="$(cd "$T" && "$CMD" 2>&1)"; rc=$?
 [[ $rc -eq 2 ]] && ok "outside a working copy: exit 2" || bad "no repo (rc=$rc)" "$out"
+
+echo "fabric-branches: a sweep from a linked worktree"
+out="$(cd "$T/wt-here" && "$CMD" --sweep 2>&1)"; rc=$?
+[[ $rc -eq 0 && -d "$T/wt-here" && -n "$(g "$T/wc" branch --list wt-here)" ]] && ok "keeps the worktree it runs in" || bad "removed its own worktree (rc=$rc)" "$out"
+[[ -d "$T/wc/.git" ]] && ok "…and the main one" || bad "main worktree gone"
+[[ -d "$T/wt-locked" && -d "$T/wt-ignored" && -f "$T/wt-ignored/.env" ]] && ok "…and a locked one, and one holding an ignored file" || bad "locked/ignored removed" "$out"
+grep -q "wt-ignored  1 ignored path(s)" <<<"$out" && grep -q "wt-locked  locked" <<<"$out" && ok "…each with its reason" || bad "reasons" "$out"
+g "$T/wc" branch -q -D "$me/merged" 2>/dev/null; g "$T/wc" branch -q "$me/merged" "origin/$me/merged"
+[[ -d "$T/wt-clean" ]] || g "$T/wc" worktree add -q "$T/wt-clean" -b wt-clean2 main 2>/dev/null
 
 echo "fabric-branches: the sweep"
 out="$(cd "$T/wc" && "$CMD" --sweep 2>&1)"; rc=$?

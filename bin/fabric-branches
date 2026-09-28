@@ -11,9 +11,10 @@
 # move origin/main, and a stale one makes merged work look unmerged. 0
 # means everything on the branch is already on main, so deleting it
 # loses nothing. --sweep deletes exactly those, re-counted at deletion,
-# and removes a worktree only when it has no changes and its commit is
-# on main. Anything with commits off main is reported with its commits
-# and its pull request, and kept: it is work still owed, or the person's
+# and removes a worktree only when it has no changes, no ignored files
+# and no lock, its commit is on main, and it is not the one this runs
+# in. Anything with commits off main is reported with its commits and
+# its pull request, and kept: it is work still owed, or the person's
 # decision. The current branch and main are never touched.
 #
 # Local only: no remote branch is deleted or pushed; the merge queue owns
@@ -30,7 +31,7 @@ sweep=0
 case "${1:-}" in
     "") ;;
     --sweep) sweep=1 ;;
-    -h|--help) sed -n '2,26p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,27p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "fabric-branches: unknown argument '$1' (--sweep)" >&2; exit 2 ;;
 esac
 
@@ -62,19 +63,27 @@ echo "worktrees:"
 declare -a wt_remove=()
 wt_count=0
 main_wt="$(git worktree list --porcelain | sed -n '1s/^worktree //p')"
-while IFS=$'\t' read -r path head branch; do
+# Kept whatever its count: the worktree this runs in (run from a linked
+# one, it is the session's own cwd), a locked one (someone is using it),
+# and one holding ignored files (a .env, a build) that removal deletes.
+while IFS=$'\t' read -r path head branch locked; do
     [[ "$path" == "$main_wt" ]] && continue
     wt_count=$((wt_count + 1))
     changes="$(git -C "$path" status --porcelain 2>/dev/null | wc -l)"
+    ignored="$(git -C "$path" status --porcelain --ignored 2>/dev/null | grep -c '^!!')"
     n="$(ahead "$head")"
-    printf '  %-3s %s  %s  %s\n' "$n" "$path" "${branch:-(detached)}" \
-        "$( (( changes )) && echo "$changes uncommitted change(s)" || echo clean)"
-    [[ "$n" == 0 ]] && (( changes == 0 )) && wt_remove+=("$path")
+    why=""
+    (( changes )) && why="$changes uncommitted change(s)"
+    (( ignored )) && why="${why:+$why, }$ignored ignored path(s)"
+    [[ -n "$locked" ]] && why="${why:+$why, }locked"
+    [[ "$path" == "$top" ]] && why="${why:+$why, }this one"
+    printf '  %-3s %s  %s  %s\n' "$n" "$path" "${branch:-(detached)}" "${why:-clean}"
+    [[ "$n" == 0 && -z "$why" ]] && wt_remove+=("$path")
 done < <(git worktree list --porcelain | awk '
-    /^worktree /{ if (p) print p "\t" h "\t" b; p = substr($0, 10); h = ""; b = "" }
-    /^HEAD /{ h = $2 } /^branch /{ b = substr($2, 12) }
-    END { if (p) print p "\t" h "\t" b }')
-(( wt_count )) || echo "  (none besides this one)"
+    /^worktree /{ if (p) print p "\t" h "\t" b "\t" l; p = substr($0, 10); h = ""; b = ""; l = "" }
+    /^HEAD /{ h = $2 } /^branch /{ b = substr($2, 12) } /^locked/{ l = "locked" }
+    END { if (p) print p "\t" h "\t" b "\t" l }')
+(( wt_count )) || echo "  (none besides the main one)"
 
 echo
 echo "branches (commits not on origin/main):"
@@ -114,7 +123,7 @@ fi
 
 echo
 for p in "${wt_remove[@]}"; do
-    if [[ -z "$(git -C "$p" status --porcelain 2>/dev/null)" ]] && git worktree remove "$p"; then
+    if [[ -z "$(git -C "$p" status --porcelain --ignored 2>/dev/null)" ]] && git worktree remove "$p"; then
         echo "removed worktree $p"
     else
         echo "KEPT worktree $p"
