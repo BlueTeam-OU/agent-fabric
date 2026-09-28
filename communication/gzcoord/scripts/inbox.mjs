@@ -369,14 +369,27 @@ export const HISTORY_WINDOW = 500;
 // or scrolled past — and marks it with the seq of the earlier one, so the
 // reader can tell a second copy from a second request. The earlier copy
 // is looked up in the relay's recent history (same FROM, same MESSAGE-ID,
-// a lower seq); a lookup that fails marks nothing.
-export async function markRetransmissions(classified, fetchRecent) {
+// a lower seq); a lookup that fails marks nothing. The records are
+// already acknowledged when this runs, so it is bounded: a relay that
+// hangs must not hold back — or, if the session ends meanwhile, lose — a
+// delivery the cursor has passed (#57 blind review F2).
+export const RETRANSMISSION_LOOKUP_MS = 2000;
+export async function markRetransmissions(classified, fetchRecent, timeoutMs = RETRANSMISSION_LOOKUP_MS) {
   const mine = classified.filter(c => c.isMine && c.msg?.metadata?.['MESSAGE-ID']);
   if (!mine.length) return;
   let list;
   // Best effort: an answer that is not a list marks nothing, and never
   // stands between the session and its delivery.
-  try { const page = await fetchRecent(); list = Array.isArray(page?.messages) ? page.messages : Array.isArray(page) ? page : []; } catch { return; }
+  // The timer is cleared the moment the lookup settles: a drain must not
+  // wait out the bound before it exits.
+  let timer;
+  try {
+    const page = await Promise.race([
+      fetchRecent(AbortSignal.timeout(timeoutMs)),
+      new Promise((_, no) => { timer = setTimeout(() => no(new Error('lookup timed out')), timeoutMs); }),
+    ]);
+    list = Array.isArray(page?.messages) ? page.messages : Array.isArray(page) ? page : [];
+  } catch { return; } finally { clearTimeout(timer); }
   const first = new Map();
   for (const rec of list) {
     let m; try { m = parse(normalize(rec.content)); } catch { continue; }
@@ -746,7 +759,7 @@ export async function main(argv = process.argv.slice(2)) {
   // the source for them, and a key built in an expression is a key the
   // dead-and-missing guard cannot see.
   const onHold = h => console.error(h ? t('watch.held') : t('watch.hold-released'));
-  const fetchRecent = () => api(tok, `/api/messages?${new URLSearchParams({ channel: CHANNEL, limit: String(HISTORY_WINDOW), full: '1' })}`, { relayUrl });
+  const fetchRecent = signal => api(tok, `/api/messages?${new URLSearchParams({ channel: CHANNEL, limit: String(HISTORY_WINDOW), full: '1' })}`, { relayUrl, signal });
 
   if (follow) {
     // The watch. Each arm waits an hour of slices; a delivery is printed

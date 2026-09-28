@@ -1321,6 +1321,11 @@ test('a retransmitted delivery is marked with the seq of the earlier copy; a fir
   assert.equal(failed[0].retransmitOf, undefined);
   await markRetransmissions(failed, async () => ({}));
   assert.equal(failed[0].retransmitOf, undefined, 'an answer that is not a list marks nothing');
+  // A relay that never answers: the lookup gives up at its bound, marking nothing.
+  const t0 = Date.now();
+  await markRetransmissions(failed, () => new Promise(() => {}), 200);
+  assert.ok(Date.now() - t0 < 1500, `the lookup waited ${Date.now() - t0} ms`);
+  assert.equal(failed[0].retransmitOf, undefined);
 });
 
 // The environment is a snapshot; the synced file is current. A refused
