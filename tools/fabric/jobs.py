@@ -176,7 +176,10 @@ INBOX = os.path.join(FABRIC_ROOT, "communication", "gzcoord", "scripts", "inbox.
 def fetch_message(which: str) -> dict:
     """The message, read the way `gzcoord-inbox --replay` reads it: the
     relay's recent history, the body only when addressed to this login."""
-    p = subprocess.run(["node", INBOX, "--replay", which, "--json"], capture_output=True, text=True)
+    try:
+        p = subprocess.run(["node", INBOX, "--replay", which, "--json"], capture_output=True, text=True, timeout=15)
+    except subprocess.TimeoutExpired:
+        raise Refused(f"cannot read message {which}: the relay did not answer within 15 s")
     # Exit 2 is also inbox's refusal of a control channel: only its own
     # {"addressed": false} answer means "not for this login".
     if p.returncode == 2:
@@ -218,7 +221,7 @@ def request_job(doc: dict, msg: dict, *, topic=None, project=None, working_copy=
 def decide(doc: dict, nxt: dict, here: dict) -> dict:
     """Whether `nxt` continues in this session or needs a fresh one."""
     prev = next((j for j in doc["jobs"] if j["id"] == doc.get("last")), None)
-    base = prev or {"project": here.get("project"), "working_copy": here.get("working_copy"), "topic": None}
+    base = prev or {"project": own_project(here), "working_copy": here.get("working_copy"), "topic": None}
     against = f"{prev['id']}" if prev else "this directory"
     differs = []
     if (base.get("working_copy") or None) != (nxt.get("working_copy") or None):

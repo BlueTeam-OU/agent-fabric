@@ -140,6 +140,10 @@ def main() -> int:
         p = run("add", "a job here", cwd=unreg)
         check("a job in an unregistered checkout is not the bound project's", jobs()[1]["project"] is None
               and jobs()[1]["working_copy"] == unreg, repr(jobs()[1]))
+        p = run("next", "j2", cwd=unreg)
+        check("next in an unregistered checkout, for a job added there: continue here", p.returncode == 0
+              and "continue here" in p.stdout and "fabric-fresh" not in p.stdout, p.stdout + p.stderr)
+        run("drop", "j2", "a test")
         os.makedirs(os.path.join(repo_a, "sub"), exist_ok=True)
         p = run("add", "from a subdirectory", "--working-copy", os.path.join(repo_a, "sub"))
         check("--working-copy is stored as its checkout's toplevel", jobs()[2]["working_copy"] == repo_a, repr(jobs()[2]))
