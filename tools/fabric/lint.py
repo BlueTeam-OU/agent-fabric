@@ -81,6 +81,9 @@ WARNINGS: list[str] = []   # named, not failing: a translation lagging its sourc
 WORKER_TOOL = "TaskStop"
 LOCALE_BUDGET_FACTOR = 3
 TIER1_BUDGET_TOKENS = 3000
+# How far over its budget a slice may run before lint refuses it; the
+# memory-write check applies the same factor to one memory's section.
+BUDGET_TOLERANCE = 1.35
 # identities/roles/<role>/locale/<suffix>/: a locale's translation of the
 # charter and the locale's worker prompt — authored files with their own
 # rules (locale_translation_findings, locale_worker_findings), skipped by
@@ -1466,7 +1469,7 @@ def lint_slices(base: str, where_prefix: str, template_schema: dict[str, Any] | 
             body = FRONTMATTER_RE.sub("", text)
             budget = TIER1_BUDGET_TOKENS if meta.get("tier") == 1 else BUDGET_TOKENS
             approx = len(body) // CHARS_PER_TOKEN
-            if approx > budget * 1.35:
+            if approx > budget * BUDGET_TOLERANCE:
                 findings.append(f"{rel}: ~{approx} tokens exceeds the {budget} budget; split the slice")
             findings += hygiene_findings(rel, body)
             # The cue is English like the body: an index line and a heading
