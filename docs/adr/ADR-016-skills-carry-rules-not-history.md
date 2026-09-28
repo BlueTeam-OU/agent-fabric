@@ -109,7 +109,7 @@ is its evidence, which belongs where evidence is kept and reviewed
   registry, and the description names an occasion. A login that is also
   a word or a role slug cannot be told from them and is left to review;
   `project_name_findings` refuses a managed project's id in the generic
-  directories. Rules 2 and 5 are held by the author and by review.
+  directories and the shared skills under `policies/`. Rules 2 and 5 are held by the author and by review.
 - A skill's history is read with `git log` on the skill.
 
 ## 7. Future Evolution

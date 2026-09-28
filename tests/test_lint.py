@@ -1246,6 +1246,16 @@ def case_a_managed_projects_name_stays_out_of_generic_files() -> None:
         write(os.path.join(fabric, "runtime", "provisioning", "x.sh"), "echo acme.shop\n")
         code, out = run_lint(fabric)
         assert code == 1 and "runtime/provisioning/x.sh:1" in out, f"provisioning naming a project passed:\n{out}"
+        os.remove(os.path.join(fabric, "runtime", "provisioning", "x.sh"))
+        # A shared skill under policies/ is generic (ADR-016 rule 1); the rest
+        # of policies/ describes the fabric's history with its projects.
+        write(os.path.join(fabric, "policies", "AUTHORITY.md"), "acme.shop's CI runs its own copy.\n")
+        code, out = run_lint(fabric)
+        assert code == 0, f"policies/ prose was linted as generic:\n{out}"
+        write(os.path.join(fabric, "policies", "shared-thing", "SKILL.md"), SKILL + "\nThe acme.shop checkout first.\n")
+        code, out = run_lint(fabric)
+        assert code == 1 and "policies/shared-thing/SKILL.md" in out and "'acme.shop'" in out, \
+            f"a project's id in a policy skill passed:\n{out}"
 
 
 def case_review_lenses_are_named_described_and_bounded() -> None:

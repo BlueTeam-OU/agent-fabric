@@ -44,6 +44,7 @@ from __future__ import annotations
 
 import argparse
 import collections
+import glob
 import hashlib
 import importlib.util
 import json
@@ -1183,6 +1184,10 @@ GENERIC_DIRS = ("identities/roles", "runtime/provisioning", "runtime/claude-code
                 "runtime/openrouter", "runtime/github", "tools/fabric", "bin", "communication/gzcoord/scripts",
                 "communication/gzcoord/skills")
 GENERIC_SKIP = ("history/", "/test_", "/tests/", "README.md")
+# The shared skills under policies/ are generic too (ADR-016 rule 1). The
+# rest of policies/ is not walked: its authority texts and guards describe
+# the fabric's own history with the projects it serves.
+GENERIC_FILES = ("policies/*/SKILL.md",)
 # The fabric's own remote is not a managed project's name.
 FABRIC_SELF = ("gzapi-org/agent-fabric",)
 
@@ -1259,31 +1264,37 @@ def project_name_findings(root: str) -> list[str]:
     for pid in ids:
         pats.append(re.compile(r"(?<![A-Za-z0-9])" + re.escape(pid) + r"(?![A-Za-z0-9.])", re.I))
         pats.append(re.compile(r"\b" + re.escape(re.sub(r"[^A-Za-z0-9]", "_", pid).upper()) + r"_"))
-    for rel in GENERIC_DIRS:
-        base = os.path.join(root, rel)
-        if not os.path.isdir(base):
+    def walked():
+        for rel in GENERIC_DIRS:
+            base = os.path.join(root, rel)
+            if not os.path.isdir(base):
+                continue
+            for dirpath, dirnames, filenames in os.walk(base):
+                dirnames[:] = sorted(d for d in dirnames if d not in ("node_modules", "__pycache__", ".git"))
+                for name in sorted(filenames):
+                    yield dirpath, name
+        for pattern in GENERIC_FILES:
+            for full in sorted(glob.glob(os.path.join(root, pattern))):
+                yield os.path.dirname(full), os.path.basename(full)
+    for dirpath, name in walked():
+        full = os.path.join(dirpath, name)
+        relpath = os.path.relpath(full, root)
+        if any(x in relpath + ("/" if os.path.isdir(full) else "") for x in GENERIC_SKIP) or name.startswith("test_") or name.endswith((".png", ".jpg", ".txt", ".lock")):
             continue
-        for dirpath, dirnames, filenames in os.walk(base):
-            dirnames[:] = sorted(d for d in dirnames if d not in ("node_modules", "__pycache__", ".git"))
-            for name in sorted(filenames):
-                full = os.path.join(dirpath, name)
-                relpath = os.path.relpath(full, root)
-                if any(x in relpath + ("/" if os.path.isdir(full) else "") for x in GENERIC_SKIP) or name.startswith("test_") or name.endswith((".png", ".jpg", ".txt", ".lock")):
-                    continue
-                try:
-                    with open(full, encoding="utf-8") as fh:
-                        for n, line in enumerate(fh, 1):
-                            probe = line
-                            for exempt in FABRIC_SELF:
-                                probe = probe.replace(exempt, "")
-                            for pat in pats:
-                                m = pat.search(probe)
-                                if m:
-                                    findings.append(f"{relpath}:{n}: names a managed project ({m.group(0)!r}) in a generic file; "
-                                                    "project truth goes in projects/<id>/ or the project's .agent-fabric/ remit")
-                                    break
-                except (OSError, UnicodeDecodeError):
-                    continue
+        try:
+            with open(full, encoding="utf-8") as fh:
+                for n, line in enumerate(fh, 1):
+                    probe = line
+                    for exempt in FABRIC_SELF:
+                        probe = probe.replace(exempt, "")
+                    for pat in pats:
+                        m = pat.search(probe)
+                        if m:
+                            findings.append(f"{relpath}:{n}: names a managed project ({m.group(0)!r}) in a generic file; "
+                                            "project truth goes in projects/<id>/ or the project's .agent-fabric/ remit")
+                            break
+        except (OSError, UnicodeDecodeError):
+            continue
     return findings
 
 
