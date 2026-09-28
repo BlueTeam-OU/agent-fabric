@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# bin/fabric-jobs — this agent's job list: what it has undertaken, is
+# doing, waits on and has delivered (agent-fabric ADR-037).
+#
+#   fabric-jobs add "<title>" [--topic T] [--project P] [--working-copy W]
+#   fabric-jobs list [--all]
+#   fabric-jobs start|done <id>;  block <id> "<on what>";  drop <id> "<why>"
+#   fabric-jobs deliver <id> <artifact>...
+#   fabric-jobs show <id>
+#
+# The full account is in tools/fabric/jobs.py.
+set -uo pipefail
+ROOT="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
+export AGENT_FABRIC_ROOT="${AGENT_FABRIC_ROOT:-$ROOT}"
+exec python3 "$ROOT/tools/fabric/jobs.py" "$@"
