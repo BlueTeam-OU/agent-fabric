@@ -64,11 +64,15 @@ msg="$(check "p=d['hooks']['PostToolUse']; cmds=[h['command'] for e in p for h i
 # PostToolUse that is not a list is the account's own mistake: left exactly
 # as it is and said, never iterated into junk entries; not reported settled.
 for bad_shape in '{"matcher": "x", "hooks": []}' '"ab"'; do
+    # Every other key unset too, so settled() is false before it reaches
+    # the hooks: the refusal must come from the check itself, not by luck.
     printf '{"hooks": {"PostToolUse": %s}}\n' "$bad_shape" > "$S"
-    out="$(run "$S" 2>&1)"; rc=$?
-    msg="$(python3 -c "import json,sys; d=json.load(open('$S')); assert d['hooks']['PostToolUse']==json.loads(sys.argv[1]), d" "$bad_shape" 2>&1)" \
-      && [[ $rc -eq 1 && "$out" == *"PostToolUse is not a list"* ]] \
-      && ok "a PostToolUse of shape $bad_shape is left untouched and refused" || bad "malformed PostToolUse $bad_shape" "rc=$rc $out ${msg:-} $(cat "$S")"
+    for mode in "" --dry-run; do
+        out="$(run "$S" $mode 2>&1)"; rc=$?
+        msg="$(python3 -c "import json,sys; d=json.load(open('$S')); assert d['hooks']['PostToolUse']==json.loads(sys.argv[1]), d" "$bad_shape" 2>&1)" \
+          && [[ $rc -eq 1 && "$out" == "  !  "*"PostToolUse is not a list"*"NOT written" && "$(printf '%s\n' "$out" | wc -l)" -eq 1 && "$out" != *Traceback* ]] \
+          && ok "a PostToolUse of shape $bad_shape is refused in one line, untouched${mode:+ ($mode)}" || bad "malformed PostToolUse $bad_shape ${mode}" "rc=$rc $out ${msg:-} $(cat "$S")"
+    done
 done
 # An entry that is not an object inside a well-formed list is kept as it is.
 printf '{"hooks": {"PostToolUse": ["odd", {"matcher": "Bash", "hooks": [{"type": "command", "command": "mine.sh"}]}]}}\n' > "$S"

@@ -219,12 +219,14 @@ def main(argv: list[str]) -> int:
         # "unchanged" — a traceback did exactly that.
         print(f"  !  {exc} — fabric user settings NOT written", file=sys.stderr)
         return 1
-    try:
-        done = settled(doc)
-    except Unreadable as exc:
-        print(f"  !  {path}: {exc} — fabric user settings NOT written", file=sys.stderr)
+    # Checked here, once, before settled() and the dry run: a malformed
+    # hooks value must refuse the same way whatever else is unsettled,
+    # and a dry run must report what the real run would do.
+    hooks = doc.get("hooks")
+    if isinstance(hooks, dict) and "PostToolUse" in hooks and not isinstance(hooks["PostToolUse"], list):
+        print(f"  !  {path}: hooks.PostToolUse is not a list — fabric user settings NOT written", file=sys.stderr)
         return 1
-    if done:
+    if settled(doc):
         print(f"  =  {path} fabric user settings")
         return 0
     if dry:
