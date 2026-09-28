@@ -1247,7 +1247,7 @@ test('inbox reports a refused token as a rotation, exit 4', async () => {
 
 // --replay re-reads one message without a consumer id (the cursor does
 // not move) and shows a body only when the message is addressed to me.
-test('inbox --replay shows a broadcast, withholds a body not for me, moves no cursor', async () => {
+test('inbox --replay shows a broadcast, withholds a body not for me, moves no cursor, and says so in --json', async () => {
   const mine = `[GZCOORD/1] INFO\nFROM: x/y\nROLE: backend-dev\nPROJECT: fixture\nBROADCAST: true\nMESSAGE-ID: 01a09fc1-0000-7000-8000-00000000000a\nSUBJECT: for all\n\nNOTES:\nBODY-FOR-ALL\n`;
   const theirs = `[GZCOORD/1] REPLY\nFROM: x/y\nROLE: backend-dev\nPROJECT: fixture\nTO: other-host/someone\nMESSAGE-ID: 01a09fc1-0000-7000-8000-00000000000b\nSUBJECT: private\n\nNOTES:\nBODY-PRIVATE\n`;
   const hits = [];
@@ -1263,7 +1263,15 @@ test('inbox --replay shows a broadcast, withholds a body not for me, moves no cu
   const a = await run(['--replay', '7']);
   const b = await run(['--replay', '01a09fc1-0000-7000-8000-00000000000b']);
   const c = await run(['--replay', '99']);
+  const aj = await run(['--replay', '7', '--json']);
+  const bj = await run(['--replay', '8', '--json']);
   server.closeAllConnections(); server.close();
+  // --json, for fabric-jobs add --request: the same read, the same withholding.
+  assert.equal(aj.code, 0, aj.err);
+  const aDoc = JSON.parse(aj.out);
+  assert.deepEqual([aDoc.addressed, aDoc.seq, aDoc.type, aDoc.metadata.SUBJECT], [true, 7, 'INFO', 'for all']);
+  assert.match(aDoc.text, /BODY-FOR-ALL/);
+  assert.equal(bj.code, 2); assert.deepEqual(JSON.parse(bj.out), { addressed: false, seq: 8 });
   assert.equal(a.code, 0, a.err); assert.match(a.out, /BODY-FOR-ALL/); assert.match(a.out, /cursor unchanged/);
   assert.equal(b.code, 2); assert.doesNotMatch(b.out, /BODY-PRIVATE/); assert.match(b.out, /not addressed to/);
   assert.equal(c.code, 1); assert.match(c.err, /no message 99/);
@@ -1711,4 +1719,27 @@ test('ensureRelay: a client hosts nothing; with the unit installed the relay is 
     assert.equal(s3.unit, 'gzcoord-relay', `the unit path must be taken with no XDG_RUNTIME_DIR in the shell: ${JSON.stringify(s3)}`);
     assert.match(fs.readFileSync(path.join(runtime, 'systemctl.log'), 'utf8'), /^XDG=\/run\/user\/\d+$/m, 'systemctl received the resolved runtime dir');
   } finally { for (const [k, v] of Object.entries(saved)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; } }
+});
+
+// agent-fabric ADR-037 rule 5: the automatic request intake is built and
+// off. Nothing runs without AGENT_FABRIC_JOBS_AUTO_INTAKE=1; with it, only
+// a REPLY naming the message it answers reaches fabric-jobs.
+test('send: the automatic job intake is off unless switched on, and then takes only a REPLY', async () => {
+  const { autoIntake } = await import('../scripts/send.mjs');
+  const calls = [];
+  const run = (cmd, args) => { calls.push([cmd, ...args]); return { status: 0, stdout: 'added j1\n', stderr: '' }; };
+  const reply = { type: 'REPLY', metadata: { 'IN-REPLY-TO': '01a09fc1-0000-7000-8000-00000000000a' } };
+  assert.equal(autoIntake(reply, {}, run), null, 'off by default');
+  assert.equal(autoIntake(reply, { AGENT_FABRIC_JOBS_AUTO_INTAKE: '0' }, run), null, 'off unless exactly 1');
+  assert.equal(autoIntake({ type: 'REQUEST', metadata: {} }, { AGENT_FABRIC_JOBS_AUTO_INTAKE: '1' }, run), null);
+  assert.equal(autoIntake({ type: 'REPLY', metadata: {} }, { AGENT_FABRIC_JOBS_AUTO_INTAKE: '1' }, run), null);
+  assert.equal(calls.length, 0);
+  assert.equal(autoIntake(reply, { AGENT_FABRIC_JOBS_AUTO_INTAKE: '1' }, run).stdout, 'added j1\n');
+  assert.equal(calls.length, 1);
+  assert.deepEqual(calls[0].slice(0, 1).concat(calls[0].slice(2)),
+    ['python3', 'add', '--request', '01a09fc1-0000-7000-8000-00000000000a', '--auto']);
+  assert.match(calls[0][1], /tools\/fabric\/jobs\.py$/);
+  // The launcher never sets the switch.
+  const launch = fs.readFileSync(new URL('../../../runtime/openrouter/launch', import.meta.url), 'utf8');
+  assert.doesNotMatch(launch, /AGENT_FABRIC_JOBS_AUTO_INTAKE/);
 });

@@ -50,6 +50,7 @@ import crypto from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { spawnSync } from 'node:child_process';
 import { parse, validate, normalize, loadTaxonomy, findTaxonomy, whoami, idComplaint, invokedAsMain, mintId } from './gzmsg.mjs';
 import { identity, inboxRoot, integrationConfig, token, api, syncedToken, assertNotControlChannel } from './inbox.mjs';
 import { dictionary, printer } from './i18n.mjs';
@@ -101,6 +102,23 @@ export function recordSent(ledger, entry, keep = 5000) {
   fs.appendFileSync(ledger, JSON.stringify(entry) + '\n');
   const lines = fs.readFileSync(ledger, 'utf8').split('\n').filter(Boolean);
   if (lines.length > keep + 1000) fs.writeFileSync(ledger, lines.slice(-keep).join('\n') + '\n');
+}
+
+// The automatic request intake (agent-fabric ADR-037 rule 5): built and
+// tested, and off. Agents ask as they always have and the receiver adds
+// what it takes on with `fabric-jobs add --request`; only under
+// AGENT_FABRIC_JOBS_AUTO_INTAKE=1, which nothing sets, does a REPLY sent
+// here add the message it answers, when that is a REQUEST addressed to
+// this login and not already listed. It cannot tell an undertaking from
+// a decline — the protocol carries that in prose — which is one reason
+// it stays off. The send has already succeeded: nothing here fails it.
+const JOBS = fileURLToPath(new URL('../../../tools/fabric/jobs.py', import.meta.url));
+export function autoIntake(msg, env = process.env, run = spawnSync) {
+  if (env.AGENT_FABRIC_JOBS_AUTO_INTAKE !== '1') return null;
+  const answered = msg?.metadata?.['IN-REPLY-TO'];
+  if (msg?.type !== 'REPLY' || !answered) return null;
+  try { return run('python3', [JOBS, 'add', '--request', answered, '--auto'], { encoding: 'utf8', env }); }
+  catch (e) { return { status: 1, stdout: '', stderr: String(e?.message ?? e) }; }
 }
 
 export async function main(argv = process.argv.slice(2)) {
@@ -254,6 +272,9 @@ export async function main(argv = process.argv.slice(2)) {
   try { recordSent(ledger, { id, sha256: sha, seq: res.seq ?? null, at: new Date().toISOString() }); }
   catch (e) { console.error(t('send.ledger-not-written', { detail: e.message })); }
   console.log(t('send.sent', { seq: res.seq, type: msg.type, id, deduplicated: res.deduplicated ? t('send.deduplicated') : '' }));
+  // fabric-jobs speaks for itself, on stderr: stdout stays the one sent line.
+  const intake = autoIntake(msg);
+  if (intake) process.stderr.write(`${intake.stdout ?? ''}${intake.stderr ?? ''}`);
   return 0;
 }
 

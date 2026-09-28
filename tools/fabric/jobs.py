@@ -3,6 +3,7 @@
 behind bin/fabric-jobs.
 
     fabric-jobs add "<title>" [--topic T] [--project P] [--working-copy W]
+    fabric-jobs add --request <MESSAGE-ID|seq> [--topic T] [--working-copy W]
     fabric-jobs list [--all] [--json]
     fabric-jobs start <id>
     fabric-jobs block <id> "<on what>"
@@ -19,6 +20,15 @@ its topic is a label the agent sets, compared by `next` and never guessed.
 At most one job is active: `start` refuses a second, because "what am I
 doing" has one answer.
 
+`add --request` is how a receiver puts a GZCoord request it takes on its
+list: the title, sender and project are read from the message through the
+inbox's own replay (addressed to this login, or refused, SPEC §17), and
+a message already on the list is refused by name. Only the receiver runs
+it (ADR-037 rule 4). The automatic intake in send.mjs calls it with
+--auto, which skips quietly what is not a REQUEST or is already listed;
+that path runs only under AGENT_FABRIC_JOBS_AUTO_INTAKE=1, which nothing
+sets (rule 5).
+
 `next` is the restart rule (ADR-022 rule 12). It compares the next job —
 the one named, or the oldest queued — with the job that last left
 `active`, or, when none has, with the directory it runs in:
@@ -34,6 +44,7 @@ import argparse
 import importlib.util
 import json
 import os
+import subprocess
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -115,6 +126,43 @@ def new_job(doc: dict, title: str, *, topic=None, project=None, working_copy=Non
     return job
 
 
+INBOX = os.path.join(FABRIC_ROOT, "communication", "gzcoord", "scripts", "inbox.mjs")
+
+
+def fetch_message(which: str) -> dict:
+    """The message, read the way `gzcoord-inbox --replay` reads it: the
+    relay's recent history, the body only when addressed to this login."""
+    p = subprocess.run(["node", INBOX, "--replay", which, "--json"], capture_output=True, text=True)
+    if p.returncode == 2:
+        raise Refused(f"message {which} is not addressed to this login; only its receiver adds it")
+    if p.returncode != 0 or not p.stdout.strip():
+        why = (p.stderr.strip().splitlines() or ["no answer from the inbox"])[-1]
+        raise Refused(f"cannot read message {which}: {why}")
+    return json.loads(p.stdout)
+
+
+def request_job(doc: dict, msg: dict, *, topic=None, project=None, working_copy=None, auto=False) -> dict | None:
+    meta = msg.get("metadata") or {}
+    mid = meta.get("MESSAGE-ID") or str(msg.get("seq"))
+    if auto and msg.get("type") != "REQUEST":
+        return None
+    listed = next((j for j in doc["jobs"] if (j.get("source") or {}).get("message_id") == mid), None)
+    if listed:
+        if auto:
+            return None
+        raise Refused(f"message {mid} is already {listed['id']} ({listed['state']})")
+    wanted = project or meta.get("PROJECT")
+    here = identity.resolve_context(cwd=os.path.abspath(os.path.expanduser(working_copy)) if working_copy else None)
+    if wanted and not working_copy and here.get("project") != wanted:
+        raise Refused(f"the message is for project {wanted}, this directory is "
+                      f"{here.get('project') or 'in no registered project'}; run from its working copy "
+                      "or pass --working-copy")
+    source = {"kind": "request" if msg.get("type") == "REQUEST" else (msg.get("type") or "message").lower(),
+              "message_id": mid, "from": meta.get("FROM") or msg.get("sender"), "seq": msg.get("seq")}
+    return new_job(doc, meta.get("SUBJECT") or f"message {mid}", topic=topic, project=wanted,
+                   working_copy=working_copy, source=source)
+
+
 def decide(doc: dict, nxt: dict, here: dict) -> dict:
     """Whether `nxt` continues in this session or needs a fresh one."""
     prev = next((j for j in doc["jobs"] if j["id"] == doc.get("last")), None)
@@ -181,7 +229,9 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="fabric-jobs", description="this agent's job list (agent-fabric ADR-037)")
     sub = ap.add_subparsers(dest="cmd", required=True)
     a = sub.add_parser("add", help="add a queued job")
-    a.add_argument("title")
+    a.add_argument("title", nargs="?")
+    a.add_argument("--request", metavar="MESSAGE-ID", help="a GZCoord message addressed to this login")
+    a.add_argument("--auto", action="store_true", help=argparse.SUPPRESS)
     a.add_argument("--topic")
     a.add_argument("--project")
     a.add_argument("--working-copy")
@@ -208,7 +258,19 @@ def main(argv: list[str] | None = None) -> int:
     args = ap.parse_args(argv)
 
     try:
-        if args.cmd == "add":
+        if args.cmd == "add" and args.request:
+            if args.title:
+                raise Refused("--request takes its title from the message; give one or the other")
+            msg = fetch_message(args.request)
+            job = mutate(lambda doc: request_job(doc, msg, topic=args.topic, project=args.project,
+                                                 working_copy=args.working_copy, auto=args.auto))
+            if job:
+                print(f"added {line(job)}")
+            elif args.auto:
+                return 0
+        elif args.cmd == "add":
+            if not args.title:
+                raise Refused("add needs a title, or --request <MESSAGE-ID>")
             job = mutate(lambda doc: new_job(doc, args.title, topic=args.topic, project=args.project,
                                              working_copy=args.working_copy))
             print(f"added {line(job)}")

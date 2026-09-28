@@ -3,14 +3,39 @@
 command and a scratch state directory — never the login's own list."""
 from __future__ import annotations
 
+import http.server
 import json
 import os
+import socket
 import subprocess
 import sys
 import tempfile
+import threading
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 JOBS = os.path.join(ROOT, "bin", "fabric-jobs")
+
+
+def message(kind: str, to: str, mid: str, subject: str, project: str = "fixture") -> str:
+    return (f"[GZCOORD/1] {kind}\nFROM: other-host/sender\nROLE: backend-dev\nPROJECT: {project}\n{to}\n"
+            f"MESSAGE-ID: 01a09fc1-0000-7000-8000-00000000000{mid}\nSUBJECT: {subject}\n\nREQUEST:\nplease\n")
+
+
+def fake_relay(records: list[dict]) -> http.server.HTTPServer:
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            body = json.dumps({"messages": records} if self.path.startswith("/api/messages") else {"ok": True}).encode()
+            self.send_response(200)
+            self.send_header("content-type", "application/json")
+            self.send_header("content-length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *a):
+            pass
+    server = http.server.HTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    return server
 
 
 def main() -> int:
@@ -119,6 +144,51 @@ def main() -> int:
         run("done", "j5")
         p = run("next", "j3")
         check("next refuses a closed job", p.returncode == 1 and "next takes a queued" in p.stderr, p.stderr)
+
+        # add --request: the message read through the inbox's own replay,
+        # against a fake relay; only what is addressed to this login.
+        env["AGENT_FABRIC_STATE_DIR"] = os.path.join(tmp, "state-request")
+        me = f"TO: {socket.gethostname().split('.')[0]}/{subprocess.run(['id', '-un'], capture_output=True, text=True).stdout.strip()}"
+        relay = fake_relay([
+            {"seq": 11, "id": "r11", "ts": "T", "sender": "other-host/sender", "content": message("REQUEST", me, "a", "build the thing")},
+            {"seq": 12, "id": "r12", "ts": "T", "sender": "other-host/sender", "content": message("REQUEST", "TO: h/someone-else", "b", "not mine")},
+            {"seq": 13, "id": "r13", "ts": "T", "sender": "other-host/sender", "content": message("INFO", me, "c", "just news")},
+            {"seq": 14, "id": "r14", "ts": "T", "sender": "other-host/sender", "content": message("REQUEST", me, "d", "elsewhere", "another")},
+        ])
+        home = os.path.join(tmp, "home")
+        os.makedirs(home)
+        env.update({"HOME": home, "CLAUDE_BRIDGE_URL": f"http://127.0.0.1:{relay.server_address[1]}",
+                    "CLAUDE_BRIDGE_AUTH_TOKEN": "tok", "GZCOORD_CHANNEL": "fixture:chan"})
+        try:
+            p = run("add", "--request", "01a09fc1-0000-7000-8000-00000000000a", "--topic", "thing")
+            check("a request outside its project's working copy asks for one", p.returncode == 1
+                  and "for project fixture" in p.stderr and not jobs(), p.stderr)
+            p = run("add", "--request", "01a09fc1-0000-7000-8000-00000000000a", "--topic", "thing",
+                    "--working-copy", repo_a)
+            got = jobs()
+            check("--request fills the job from the message", p.returncode == 0 and len(got) == 1
+                  and got[0]["working_copy"] == repo_a
+                  and got[0]["title"] == "build the thing" and got[0]["project"] == "fixture"
+                  and got[0]["source"] == {"kind": "request", "message_id": "01a09fc1-0000-7000-8000-00000000000a",
+                                           "from": "other-host/sender", "seq": 11}, p.stdout + p.stderr + repr(got))
+            p = run("add", "--request", "11")
+            check("the same message twice is refused by name", p.returncode == 1 and "already j1" in p.stderr, p.stderr)
+            p = run("add", "--request", "12")
+            check("a message not addressed to this login is refused", p.returncode == 1
+                  and "not addressed to this login" in p.stderr and len(jobs()) == 1, p.stderr)
+            p = run("add", "--request", "14")
+            check("a request for another project asks for its working copy", p.returncode == 1
+                  and "for project another" in p.stderr, p.stderr)
+            p = run("add", "--request", "14", "--working-copy", repo_b)
+            check("--working-copy settles it", p.returncode == 0 and jobs()[-1]["project"] == "another", p.stderr)
+            p = run("add", "--request", "13", "--auto", "--working-copy", repo_a)
+            check("the automatic intake skips what is not a REQUEST", p.returncode == 0 and len(jobs()) == 2, p.stderr)
+            p = run("add", "--request", "11", "--auto")
+            check("the automatic intake skips a listed request quietly", p.returncode == 0
+                  and not p.stderr and len(jobs()) == 2, p.stderr)
+        finally:
+            relay.shutdown()
+            relay.server_close()
 
         state = os.path.join(tmp, "state", "agents")
         login = os.listdir(state)[0]
