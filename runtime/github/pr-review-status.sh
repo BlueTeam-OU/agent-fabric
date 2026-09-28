@@ -846,6 +846,24 @@ render_json() {
     }'
 }
 
+# " — <what covers the head>", or nothing when it is not reviewed. The
+# blind review says that it is the review class under the shared account,
+# so "independent reviews : 0" above it is not read as no review at all.
+head_evidence() {
+    [[ "$head_reviewed" == yes ]] || return 0
+    local row
+    row="$(jq -r --arg h "$head" '[.[] | select(.commit_id == $h)] | sort_by(.submitted_at) | last
+          | select(. != null) | "\(.commit_id[0:8]), \(.submitted_at)"' <<<"$blind")"
+    if [[ -n "$row" ]]; then
+        printf ' — the review class'"'"'s blind review of %s (posted under the account every session pushes as)' "$row"
+        return 0
+    fi
+    row="$(jq -r --arg h "$head" '[.[] | select(.commit_id == $h)] | sort_by(.submitted_at) | last
+          | select(. != null) | "\(.user.login), \(.commit_id[0:8]), \(.submitted_at)"' <<<"$independent")"
+    if [[ -n "$row" ]]; then printf ' — an independent review (%s)' "$row"; return 0; fi
+    printf ' — a verdict comment on this head'
+}
+
 render_text() {
     printf 'PR #%s  state=%s  mergeState=%s  head=%s\n' \
         "$PR" "$state" "$mergest" "${head:0:8}"
@@ -897,7 +915,13 @@ render_text() {
                   || echo "   (superseded by later coverage)" )"
         [[ -z "$refusal_reason" ]] || printf '  decline reason      : %s\n' "$refusal_reason"
     fi
-    printf '  head reviewed?      : %s\n' "$head_reviewed"
+    # The line names what covers the head, because it is the one a
+    # reader keeps: agents trim this report with `tail`, and a verdict
+    # whose evidence sits at the top reads, trimmed, as "NOT coverage"
+    # twice and a bare yes. That is what a permission check saw before
+    # refusing an owner-approved arm as a merge without review (a managed
+    # project's PR). The parsers read only the first word after the colon.
+    printf '  head reviewed?      : %s%s\n' "$head_reviewed" "$(head_evidence)"
     if [[ "$head_reviewed" == "no" && "$qual_count" -gt 0 ]]; then
         printf '                        ^ reviewed, but an EARLIER commit. Nothing reviews a\n'
         printf '                          push by itself — dispatch a re-review of the new range.\n'
