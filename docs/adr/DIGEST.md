@@ -190,6 +190,8 @@ searches it.
   only through `harness.json` and `upgrade claude` (§5 rule 4).
 - `harness/en.md` is the captured harness prompt, verbatim, refreshed on a
   new build (§5 rule 5).
+- A 2026-09-28 — `tui` "default" is pinned, so a session's terminal keeps its
+  scrollback.
 - Keywords: Claude Code, harness, settings.json, attribution, Co-Authored-By,
   auto-update, DISABLE_AUTOUPDATER, verbose, auto mode, system prompt, build.
 

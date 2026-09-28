@@ -43,9 +43,11 @@ directory it starts in. The keys, and why:
   stops background updates only, so `claude install <v>` still works. The
   fleet's version is the one `runtime/claude-code/harness.json` pins,
   moved by `fabric-ctl … upgrade claude` and nothing else.
-- `showThinkingSummaries` true and `verbose` true
+- `showThinkingSummaries` true, `verbose` true and `tui` `"default"`
   — an agent's session is read by the person operating the fleet; a
-  stalled or misdirected session must be visible from its terminal.
+  stalled or misdirected session must be visible from its terminal, and
+  the normal-screen renderer keeps the terminal's scrollback, which the
+  full-screen one does not (A 2026-09-28).
 - `permissions.allow` `Bash(<name> *)` for each fabric command, and
   `permissions.defaultMode` `"auto"` — the command
   rule is the fleet-operations record's, which follows; auto mode because eight hand-provisioned
@@ -125,3 +127,11 @@ the auto-updater, the allow rules and auto mode.
 - `policies/ban_generated_by_attribution.sh`.
 - The live checks in Evidence. ADR-002 (the launch prompt the harness text
   precedes).
+
+## Amendments
+
+The body above reads current; each change's full note is in [history/ADR-008-amendments.md](history/ADR-008-amendments.md).
+
+| Date | Amendment | Effect |
+|---|---|---|
+| 2026-09-28 | The terminal keeps its scrollback | §2: `tui` "default" joins the display keys the settings writer pins |
