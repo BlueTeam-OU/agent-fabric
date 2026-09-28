@@ -233,7 +233,15 @@ FABRIC_ROOT="${AGENT_FABRIC_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." &&
 if root="$(git rev-parse --show-toplevel 2>/dev/null)"; then
     AGENT="$(python3 "$FABRIC_ROOT/runtime/identity.py" 2>/dev/null || id -un)"
     ME="$(hostname -s)/$AGENT"
-    ME_LEGACY="$(hostname -s)/$(basename "$root")"
+    # A working copy named after its repository (~/projects/<repo>) is
+    # every login's default clone since the per-login clones were
+    # renamed, so its name is no session's: taken for one, it made the
+    # pre-rename clone's branches "mine" in every session (a managed
+    # project's review). Only a clone with a name of its own carries a
+    # legacy prefix.
+    repo_name="$(git -C "$root" remote get-url origin 2>/dev/null | sed -E 's#\.git$##; s#.*[/:]##')"
+    wc_name="$(basename "$root")"
+    [[ -n "$repo_name" && "${wc_name,,}" == "${repo_name,,}" ]] || ME_LEGACY="$(hostname -s)/$wc_name"
     # The ROLE this session holds (its runtime binding), because some
     # rows are owned by a role rather than by a session: a Dependabot
     # pull request is devex-tooling's, whichever login holds that role
@@ -470,8 +478,7 @@ unattributed_note() {
     echo "  NOTE: $UNATTRIBUTED PR(s) name no live session — the branch does not" >&2
     echo "  parse as <host>/<agent>/<type>/<short-desc> (a Dependabot branch" >&2
     echo "  is not among them: those rows are role:devex-tooling's)" >&2
-    echo "  with no recorded successor, or one with SEVERAL possible" >&2
-    echo "  successors — so they cannot be scoped to a" >&2
+    echo "  — so they cannot be scoped to a" >&2
     echo "  session and are not listed. Pass /unattributed to list exactly" >&2
     echo "  those, or /all to stop filtering." >&2
 }

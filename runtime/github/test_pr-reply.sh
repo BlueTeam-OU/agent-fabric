@@ -314,6 +314,16 @@ assert_rc       "exits 0" 0
 assert_contains "says it is this agent's under the older convention" "named for this working copy"
 [[ "$(calls)" == *REPLY* ]] && pass "replied on the legacy-named branch" || fail "did not reply on the legacy-named branch" "$(calls)"
 
+echo "pr-reply: a clone named after its repository names no session"
+# ~/projects/<repo> is every login's default clone: its name taken for a
+# session made an older branch under it "mine" in every session.
+git -C "$SANDBOX/$CLONE_NAME" remote add origin "git@example.com:org/$CLONE_NAME.git"
+thread_fixture "$HOST/$CLONE_NAME/fix/mine-under-the-old-name" false
+invoke "Verified against main; obsolete." "$THREAD_ID"
+assert_rc "refused: the repository's own name is no session's" 2
+[[ "$(calls)" != *REPLY* ]] && pass "nothing posted on the old branch" || fail "posted on a branch named for the repository" "$(calls)"
+git -C "$SANDBOX/$CLONE_NAME" remote remove origin
+
 echo "pr-reply: an older branch named for another working copy is another session's"
 thread_fixture "$HOST/legacy-old/fix/theirs" false
 invoke "Verified against main; obsolete." "$THREAD_ID"

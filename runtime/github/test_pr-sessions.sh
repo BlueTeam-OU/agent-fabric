@@ -394,6 +394,15 @@ run /unattributed --no-threads
 assert_not_contains "nor is it unattributed: it names a session" "#732"
 run /all --no-threads
 assert_contains "it is listed under /all, as that session's" "#732"
+# A clone named after its repository is every login's default clone: its
+# name is no session's, and an older branch under it is not "mine".
+git -C "$SANDBOX/$CLONE_NAME" remote add origin "git@example.com:org/$CLONE_NAME.git"
+write_pr_list "$(jq -n --arg old "$HOST/$CLONE_NAME" --arg t "$(ago '1 hour')" '[
+  {number: 733, state: "OPEN", isDraft: false, headRefName: ($old + "/fix/under-the-repo-name"), updatedAt: $t}
+]')"
+run --no-threads
+assert_not_contains "a branch named for the repository is no session's" "#733"
+git -C "$SANDBOX/$CLONE_NAME" remote remove origin
 default_pr_list
 
 echo "pr-sessions: pool filters"
