@@ -57,8 +57,9 @@ procedure:
 **The owner's word, relayed, is carried verbatim**: an `OWNER-WORD` section quoting the word, the session it was
 given in and the time.
 
-These practices added no message type, field or section; no
-state machine, template or schedule; no role widened.
+These practices added no message type or field, and one section,
+`OWNER-WORD`, above; no state machine, template or schedule; no role
+widened.
 
 ## 3. Alternatives Considered
 
