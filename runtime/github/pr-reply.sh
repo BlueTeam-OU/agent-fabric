@@ -180,11 +180,20 @@ root="$(git rev-parse --show-toplevel 2>/dev/null)" \
 # The session is the AGENT — the Linux login, as agent-fabric resolves it —
 # on this host. Branches are named <host>/<agent>/<type>/<desc>; older
 # branches carry the working-copy name in the second segment, so that is
-# accepted as the session too while they last (see AGENT_FABRIC_BRANCH_ALIASES).
+# accepted as the session too while they last (ME_LEGACY, below).
 FABRIC_ROOT="${AGENT_FABRIC_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
 AGENT="$(python3 "$FABRIC_ROOT/runtime/identity.py" 2>/dev/null || id -un)"
 ME="$(hostname -s)/$AGENT"
-ME_LEGACY="$(hostname -s)/$(basename "$root")"
+# A working copy named after its repository (~/projects/<repo>) is
+# every login's default clone since the per-login clones were
+# renamed, so its name is no session's: taken for one, it made the
+# pre-rename clone's branches "mine" in every session (a managed
+# project's review). Only a clone with a name of its own carries a
+# legacy prefix.
+ME_LEGACY=""
+repo_name="$(git -C "$root" remote get-url origin 2>/dev/null | sed -E 's#\.git$##; s#.*[/:]##')"
+wc_name="$(basename "$root")"
+[[ -n "$repo_name" && "${wc_name,,}" == "${repo_name,,}" ]] || ME_LEGACY="$(hostname -s)/$wc_name"
 # The ROLE this session holds: some PRs are a role's, not a session's
 # (below, bot_owner_role), and only the session holding that role may
 # answer on them. No binding, no role.

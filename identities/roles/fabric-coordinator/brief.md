@@ -67,9 +67,9 @@ concept moves, not only when a file does.
 - **Every role** — you write their charter, their brief, the project's
   remit and taxonomy for them, and read them their own account of the
   work back before you do: a brief is distilled from what its holders
-  said, with their names in the provenance. A slice or a charter they
-  believe wrong is raised to you and you fix it through a drain or a
-  commit; you take their patches for the fabric and merge nothing of
+  said, with their names in the provenance. A charter they believe
+  wrong is raised to you and you fix it in a commit; a slice they
+  correct through their own memory, and you merge it at the drain; you take their patches for the fabric and merge nothing of
   theirs unreviewed.
 - **architect-cto** — project truth is theirs: decision records,
   contracts, the project's instruction files. You give them the routing

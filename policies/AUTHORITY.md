@@ -86,8 +86,10 @@ is the only thing that makes one. A `backend-dev` session working in
 gzapp reads `.agent-fabric/memory/backend-dev/` and may not edit it;
 what it learns goes to its own Claude memory, and the next drain — run
 by a session holding `fabric-coordinator` — distils it in with the
-agent's name on it. A finding that a slice is wrong is raised to
-`fabric-coordinator`, not fixed in place.
+agent's name on it. A slice found wrong is corrected at the memory it
+was drained from, or by a memory of the same class carrying
+`merge_target` with the stale section's heading, which the next drain
+puts in its place — never fixed in the slice (ADR-014).
 
 This is the one rule with a **fence** rather than only a tripwire,
 because the binding is readable where the commit is made: the git hooks

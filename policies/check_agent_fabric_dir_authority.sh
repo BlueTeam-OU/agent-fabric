@@ -135,8 +135,10 @@ from a login shell, then a relaunch) and the
 agent-fabric git hooks installed (bootstrap.sh sets core.hooksPath): the
 pre-commit hook checks the binding, the commit-msg hook records it as
 the Fabric-Role trailer this check reads. The login that committed is
-irrelevant. If a slice is wrong, raise it with $owner_role — a
-correction enters through a drain with provenance, never as a hand edit.
+irrelevant. A wrong slice is corrected at the memory it was drained
+from, or by a memory of the same class carrying merge_target with the
+stale section's heading; the next drain puts it in place — never a hand
+edit.
 See agent-fabric policies/AUTHORITY.md.
 MSG
 exit 1

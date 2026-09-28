@@ -10,17 +10,19 @@
 # what. The session identity lives in the BRANCH NAME instead — the
 # repo-root CLAUDE.md mandates
 #
-#     <hostname -s>/<clone-dir-basename>/<type>/<short-desc>
+#     <hostname -s>/<login>/<type>/<short-desc>
 #
-# so the first two segments are the session, and everything after is the
-# work. This script reads that, and marks the rows belonging to THIS
-# clone so "mine vs theirs" is visible at a glance — which is what the
+# so the first two segments are the session — the login on this host —
+# and everything after is the work (an older branch carries a
+# working-copy name there instead; see ME_LEGACY). This script reads
+# that, and marks the rows belonging to THIS session so "mine vs theirs"
+# is visible at a glance — which is what the
 # stay-in-your-own-lane rules turn on: never push to, rebase, delete or
 # answer reviews on another session's branch.
 #
-# DEFAULT SCOPE: run inside a clone, and it shows THAT clone's PRs.
+# DEFAULT SCOPE: run inside a clone, and it shows THIS session's PRs.
 # Asking "which PRs are mine" from inside a working tree is the common
-# case, and the clone you are standing in already answers it — so that
+# case, and the login you run as already answers it — so that
 # is the default rather than something to remember a flag for. Pass
 # /all to see every session.
 #
@@ -46,7 +48,7 @@
 # and lose, being by definition the older ones.
 #
 # Usage:
-#   runtime/github/pr-sessions.sh                 # THIS clone's PRs (default)
+#   runtime/github/pr-sessions.sh                 # THIS session's PRs (default)
 #   runtime/github/pr-sessions.sh /all            # every session
 #   runtime/github/pr-sessions.sh /unattributed   # only PRs no session owns
 #   runtime/github/pr-sessions.sh -n 50           # last 50 rows
@@ -233,7 +235,15 @@ FABRIC_ROOT="${AGENT_FABRIC_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." &&
 if root="$(git rev-parse --show-toplevel 2>/dev/null)"; then
     AGENT="$(python3 "$FABRIC_ROOT/runtime/identity.py" 2>/dev/null || id -un)"
     ME="$(hostname -s)/$AGENT"
-    ME_LEGACY="$(hostname -s)/$(basename "$root")"
+    # A working copy named after its repository (~/projects/<repo>) is
+    # every login's default clone since the per-login clones were
+    # renamed, so its name is no session's: taken for one, it made the
+    # pre-rename clone's branches "mine" in every session (a managed
+    # project's review). Only a clone with a name of its own carries a
+    # legacy prefix.
+    repo_name="$(git -C "$root" remote get-url origin 2>/dev/null | sed -E 's#\.git$##; s#.*[/:]##')"
+    wc_name="$(basename "$root")"
+    [[ -n "$repo_name" && "${wc_name,,}" == "${repo_name,,}" ]] || ME_LEGACY="$(hostname -s)/$wc_name"
     # The ROLE this session holds (its runtime binding), because some
     # rows are owned by a role rather than by a session: a Dependabot
     # pull request is devex-tooling's, whichever login holds that role
@@ -241,7 +251,7 @@ if root="$(git rev-parse --show-toplevel 2>/dev/null)"; then
     ROLE="$(python3 "$FABRIC_ROOT/runtime/identity.py" --role 2>/dev/null || true)"
 fi
 
-# Inside a clone with no explicit scope: show that clone's PRs. If ME
+# Inside a clone with no explicit scope: show this session's PRs. If ME
 # cannot be resolved there is nothing to infer, so fall through to
 # everything — unreachable today (gh needs a repo and fails earlier),
 # kept so the default cannot silently become "someone else's session"
@@ -377,7 +387,7 @@ envelope="$(printf '%s' "$rows" | jq --arg me "$ME" --arg melegacy "$ME_LEGACY" 
   # conventional-commit words, so any branch typed outside that set —
   # `spike-3/`, `hotfix/`, `stage-4/` — was classified unconventional,
   # given the session "(unconventional)", and then SILENTLY DROPPED by
-  # the default clone scope. That is the command whose whole job is
+  # the default session scope. That is the command whose whole job is
   # surfacing outstanding work quietly answering "none".
   #
   # A branch is conventional if it has the right SHAPE. Anything that
@@ -470,21 +480,20 @@ unattributed_note() {
     echo "  NOTE: $UNATTRIBUTED PR(s) name no live session — the branch does not" >&2
     echo "  parse as <host>/<agent>/<type>/<short-desc> (a Dependabot branch" >&2
     echo "  is not among them: those rows are role:devex-tooling's)" >&2
-    echo "  with no recorded successor, or one with SEVERAL possible" >&2
-    echo "  successors — so they cannot be scoped to a" >&2
+    echo "  — so they cannot be scoped to a" >&2
     echo "  session and are not listed. Pass /unattributed to list exactly" >&2
     echo "  those, or /all to stop filtering." >&2
 }
 
 if [[ "$(printf '%s' "$selected" | jq 'length')" -eq 0 ]]; then
     what="PRs"
-    [[ "$FILTER" == "__MINE__" ]] && what="PRs for this clone ($ME)"
+    [[ "$FILTER" == "__MINE__" ]] && what="PRs for this session ($ME)"
     [[ "$FILTER" == "__UNATTRIBUTED__" ]] && what="PRs without a parsable session branch"
     [[ -n "$FILTER" && "$FILTER" != "__MINE__" && "$FILTER" != "__UNATTRIBUTED__" ]] && \
         what="PRs for a session matching '$FILTER'"
     echo "pr-sessions: no $what in the last $FETCH ${STATE} PR(s)."
     [[ "$DEFAULTED_TO_MINE" -eq 1 ]] && \
-        echo "  (scoped to this clone by default — pass /all to see every session)"
+        echo "  (scoped to this session by default — pass /all to see every session)"
     unattributed_note
     exit 0
 fi
@@ -599,7 +608,7 @@ out="$(printf '%s' "$selected" | jq -r --arg me "$ME" --arg melegacy "$ME_LEGACY
       | map(
           # OWNER decides the marker; the heading is the session name
           # exactly where it is least obvious.
-          "\n\(.[0]._s)\(if (.[0]._o | mine) then "   <- this clone" else "" end)"
+          "\n\(.[0]._s)\(if (.[0]._o | mine) then "   <- this session" else "" end)"
           , ( sort_by(-.number)[]
               | "  #\(.number)  \(st | pad(6))  \(threads | lpad(3))  \(.updatedAt[0:10])  \(._w)" )
         ) | flatten | .[] )
@@ -614,7 +623,7 @@ if [[ "$GROUPED" -eq 0 ]]; then
         PR STATE THR UPDATED SESSION WORK
 fi
 if [[ -z "${out//[$' \t\n']/}" ]]; then
-    scope="this clone ($ME)"
+    scope="this session ($ME)"
     [[ "$FILTER" == "" ]] && scope="any session"
     [[ "$FILTER" == "__UNATTRIBUTED__" ]] && scope="branches no session owns"
     [[ -n "$FILTER" && "$FILTER" != "__MINE__" && "$FILTER" != "__UNATTRIBUTED__" ]] && \
@@ -642,10 +651,10 @@ unattributed_note
 
 echo
 if [[ "$DEFAULTED_TO_MINE" -eq 1 ]]; then
-    echo "  Scoped to this clone ($ME) — pass /all for every session."
+    echo "  Scoped to this session ($ME) — pass /all for every session."
 elif [[ "$FILTER" == "__UNATTRIBUTED__" ]]; then
     # The "*" legend would be a lie here: no row under this scope can be
-    # this clone's, because every one of them failed to parse as any
+    # this session's, because every one of them failed to parse as any
     # session at all. Saying who these belong to instead is the useful
     # sentence, since "leave other sessions' PRs alone" is precisely the
     # rule that does NOT apply and has kept these unanswered.
@@ -653,6 +662,6 @@ elif [[ "$FILTER" == "__UNATTRIBUTED__" ]]; then
     echo "  has no owner to point at — findings here are unowned, not somebody"
     echo "  else's. Check with the surface's role before acting on the code."
 elif [[ "$GROUPED" -eq 0 ]]; then
-    echo "  * = this clone ($ME).  Others belong to parallel sessions:"
+    echo "  * = this session ($ME).  Others belong to parallel sessions:"
     echo "  do not push to, rebase, delete, or answer reviews on their branches."
 fi

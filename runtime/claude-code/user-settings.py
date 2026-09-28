@@ -105,8 +105,24 @@ def with_memory_check(hooks: dict) -> dict:
     """`hooks` with exactly one memory-check entry, the current one; every
     other entry kept as it was."""
     hooks = dict(hooks) if isinstance(hooks, dict) else {}
-    post = [e for e in (hooks.get("PostToolUse") or []) if isinstance(e, dict)
-            and not any(MEMORY_CHECK in str(h.get("command", "")) for h in (e.get("hooks") or []) if isinstance(h, dict))]
+    # A PostToolUse that is not a list is a mistake in the account's own
+    # file: iterating it wrote its keys or characters back as entries.
+    # Refused, the file left untouched, like an unreadable one.
+    if "PostToolUse" in hooks and not isinstance(hooks["PostToolUse"], list):
+        raise Unreadable("hooks.PostToolUse is not a list")
+    post = []
+    for e in hooks.get("PostToolUse") or []:
+        if not isinstance(e, dict) or not isinstance(e.get("hooks"), list):
+            post.append(e)                  # not ours to judge: kept as it is
+            continue
+        # Only the check itself is taken out of an entry: a hook of the
+        # account's own that shares the entry stays; an entry left with
+        # nothing is dropped.
+        kept = [h for h in e["hooks"] if not (isinstance(h, dict) and MEMORY_CHECK in str(h.get("command", "")))]
+        if len(kept) == len(e["hooks"]):
+            post.append(e)
+        elif kept:
+            post.append({**e, "hooks": kept})
     hooks["PostToolUse"] = post + [memory_check_hook()]
     return hooks
 
@@ -202,6 +218,13 @@ def main(argv: list[str]) -> int:
         # account as NOT settled instead of reading an empty stdout as
         # "unchanged" — a traceback did exactly that.
         print(f"  !  {exc} — fabric user settings NOT written", file=sys.stderr)
+        return 1
+    # Checked here, once, before settled() and the dry run: a malformed
+    # hooks value must refuse the same way whatever else is unsettled,
+    # and a dry run must report what the real run would do.
+    hooks = doc.get("hooks")
+    if isinstance(hooks, dict) and "PostToolUse" in hooks and not isinstance(hooks["PostToolUse"], list):
+        print(f"  !  {path}: hooks.PostToolUse is not a list — fabric user settings NOT written", file=sys.stderr)
         return 1
     if settled(doc):
         print(f"  =  {path} fabric user settings")

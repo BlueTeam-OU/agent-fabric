@@ -55,6 +55,30 @@ out="$(run "$S")"
 msg="$(check "p=d['hooks']['PostToolUse']; mc=[e for e in p if 'memory-write-check.py' in e['hooks'][0]['command']]; assert len(mc)==1 and mc[0]['matcher']=='Write|Edit' and '$FABRIC/runtime/claude-code/hooks/memory-write-check.py' in mc[0]['hooks'][0]['command'], p; assert any(e['hooks'][0]['command']=='mine.sh' for e in p) and d['hooks']['Stop'][0]['hooks'][0]['command']=='stop.sh', d")" \
   && ok "one entry, at this checkout's path (an old path replaced); the account's own hooks kept" || bad "memory check hook" "$out ${msg:-} $(cat "$S")"
 out="$(run "$S")"; [[ "$out" == "  =  $S fabric user settings" ]] && ok "…and a second run changes nothing" || bad "hook idempotence" "$out"
+# A hand-merged entry holding the check beside a hook of the account's own:
+# only the check is replaced; the neighbour stays.
+printf '{"hooks": {"PostToolUse": [{"matcher": "Write|Edit", "hooks": [{"type": "command", "command": "python3 \\"/old/runtime/claude-code/hooks/memory-write-check.py\\""}, {"type": "command", "command": "neighbour.sh"}]}]}}\n' > "$S"
+out="$(run "$S")"
+msg="$(check "p=d['hooks']['PostToolUse']; cmds=[h['command'] for e in p for h in e['hooks']]; assert 'neighbour.sh' in cmds, p; assert sum('memory-write-check.py' in c for c in cmds)==1 and not any('/old/' in c for c in cmds), p")" \
+  && ok "a hook sharing the check's entry is kept" || bad "neighbour hook" "$out ${msg:-} $(cat "$S")"
+# PostToolUse that is not a list is the account's own mistake: left exactly
+# as it is and said, never iterated into junk entries; not reported settled.
+for bad_shape in '{"matcher": "x", "hooks": []}' '"ab"'; do
+    # Every other key unset too, so settled() is false before it reaches
+    # the hooks: the refusal must come from the check itself, not by luck.
+    printf '{"hooks": {"PostToolUse": %s}}\n' "$bad_shape" > "$S"
+    for mode in "" --dry-run; do
+        out="$(run "$S" $mode 2>&1)"; rc=$?
+        msg="$(python3 -c "import json,sys; d=json.load(open('$S')); assert d['hooks']['PostToolUse']==json.loads(sys.argv[1]), d" "$bad_shape" 2>&1)" \
+          && [[ $rc -eq 1 && "$out" == "  !  "*"PostToolUse is not a list"*"NOT written" && "$(printf '%s\n' "$out" | wc -l)" -eq 1 && "$out" != *Traceback* ]] \
+          && ok "a PostToolUse of shape $bad_shape is refused in one line, untouched${mode:+ ($mode)}" || bad "malformed PostToolUse $bad_shape ${mode}" "rc=$rc $out ${msg:-} $(cat "$S")"
+    done
+done
+# An entry that is not an object inside a well-formed list is kept as it is.
+printf '{"hooks": {"PostToolUse": ["odd", {"matcher": "Bash", "hooks": [{"type": "command", "command": "mine.sh"}]}]}}\n' > "$S"
+out="$(run "$S")"
+msg="$(check "p=d['hooks']['PostToolUse']; assert p[0]=='odd' and any(e!='odd' and e['hooks'][0]['command']=='mine.sh' for e in p) and sum(1 for e in p if isinstance(e,dict) and 'memory-write-check.py' in e['hooks'][0]['command'])==1, p")" \
+  && ok "an unparseable entry in the list is kept as it is" || bad "odd entry" "$out ${msg:-} $(cat "$S")"
 
 echo "bootstrap runs it"
 grep -q 'user-settings.py" "\$CLAUDE_HOME/settings.json"' "$HERE/bootstrap.sh" && ok "bootstrap.sh calls it on the login's user settings" || bad "bootstrap wiring"
