@@ -20,7 +20,8 @@
 // request goes out once; the replies are read from the relay's history
 // after the request's own id (since_id, no cursor, nothing left behind)
 // every half second until every expected address has answered or the
-// timeout is spent (20 s; 5 s for ping). An address that stayed silent is
+// timeout is spent (the operation's own budget, below: 20 s by default,
+// 5 s for ping). An address that stayed silent is
 // a row that says so, and the exit code is 1 — a table is never short.
 // Stateless: a run leaves one request record and the agents' replies on
 // the channel, and nothing else anywhere.

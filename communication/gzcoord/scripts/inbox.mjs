@@ -33,14 +33,15 @@
 // addressed to this session or when the budget expires quiet, and the
 // harness wakes the session with the return. It is one-shot by design —
 // a process that never exits never notifies — and the procedure around
-// it is --follow: one process for the life of the session, armed once at
-// its first turn under a persistent Monitor and forgotten (owner rule,
-// 2026-09-13; skills/gzcoord-receive). It prints a delivery when one
+// it is --follow: one process under a Monitor, armed at the session's
+// first turn and re-armed at each expiry notice, since the Monitor is
+// timed (skills/gzcoord-receive). It prints a delivery when one
 // lands and nothing on a quiet spell — no budget, no expiry line, no
 // shell loop around it, no restart every half hour. It says once when
 // the relay stops answering and once when it is back, and exits 4 on a
 // refused token (a rotation: sync, then arm again). The session re-arms
-// nothing except after a resume, which the harness does not restore. The
+// it at each expiry, and after a resume, which the harness does not
+// restore. The
 // earlier shapes — a hand-re-armed --wait, then a shell loop around
 // --wait 1800 — are retired: the first went deaf when a session forgot,
 // the second produced a quiet-expiry line to filter every thirty minutes.
