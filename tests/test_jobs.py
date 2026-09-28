@@ -122,6 +122,26 @@ def main() -> int:
         check("no checkout of it: no working copy, and said", p.returncode == 0 and jobs()[1]["working_copy"] is None
               and "no working copy of kutaisi-shop-transit" in p.stderr, p.stderr + repr(jobs()[1]))
 
+        # A binding names a project; an unregistered checkout falls back to
+        # it in resolve_context, and must still never pass for that project.
+        env["AGENT_FABRIC_STATE_DIR"] = os.path.join(tmp, "state-bound")
+        login = subprocess.run(["id", "-un"], capture_output=True, text=True).stdout.strip()
+        host = socket.gethostname().split(".")[0]
+        os.makedirs(os.path.join(tmp, "state-bound", "agents", login))
+        with open(os.path.join(tmp, "state-bound", "agents", login, "binding.json"), "w", encoding="utf-8") as fh:
+            json.dump({"agent": login, "host": host, "role": "backend-dev", "project": "gzapp"}, fh)
+        unreg = os.path.join(tmp, "aaa-unregistered")   # sorts before gzapp-copy
+        subprocess.run(["git", "init", "-q", unreg], check=True)
+        p = run("add", "a gzapp job", "--project", "gzapp", cwd=unreg)
+        check("the bound project's job skips an unregistered checkout, the current one included",
+              p.returncode == 0 and jobs()[0]["working_copy"] == gz, p.stderr + repr(jobs()))
+        p = run("add", "a job here", cwd=unreg)
+        check("a job in an unregistered checkout is not the bound project's", jobs()[1]["project"] is None
+              and jobs()[1]["working_copy"] == unreg, repr(jobs()[1]))
+        os.makedirs(os.path.join(repo_a, "sub"), exist_ok=True)
+        p = run("add", "from a subdirectory", "--working-copy", os.path.join(repo_a, "sub"))
+        check("--working-copy is stored as its checkout's toplevel", jobs()[2]["working_copy"] == repo_a, repr(jobs()[2]))
+
         # next: the restart rule, one branch per case.
         env["AGENT_FABRIC_STATE_DIR"] = os.path.join(tmp, "state-next")
         p = run("next")

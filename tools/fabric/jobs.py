@@ -100,6 +100,14 @@ def transition(doc: dict, job: dict, state: str, **fields) -> None:
             job[key] = value
 
 
+def own_project(ctx: dict) -> str | None:
+    """The project a checkout IS, from its remote or marker — never the
+    binding's, which resolve_context falls back to for an unregistered
+    directory: that fallback made every unregistered checkout "be" the
+    bound project, and a job for it land in the wrong tree."""
+    return ctx.get("project") if ctx.get("project_source") == "working-copy" else None
+
+
 def working_copy_of(project: str) -> str | None:
     """This login's working copy of `project`: the directory it runs in
     when that is one, else the first checkout that resolves to it beside
@@ -109,7 +117,7 @@ def working_copy_of(project: str) -> str | None:
     project, or by the owner through the control agent, lands where the
     work is done; None when no checkout is found."""
     here = identity.resolve_context()
-    if here.get("project") == project and here.get("working_copy"):
+    if own_project(here) == project and here.get("working_copy"):
         return here["working_copy"]
     workspaces = [os.path.dirname(here["working_copy"])] if here.get("working_copy") else []
     workspaces.append(os.path.dirname(os.path.realpath(FABRIC_ROOT)))
@@ -120,7 +128,7 @@ def working_copy_of(project: str) -> str | None:
             continue
         for name in names:
             path = os.path.join(workspace, name)
-            if os.path.isdir(os.path.join(path, ".git")) and identity.resolve_context(cwd=path).get("project") == project:
+            if os.path.isdir(os.path.join(path, ".git")) and own_project(identity.resolve_context(cwd=path)) == project:
                 return path
     return None
 
@@ -130,7 +138,11 @@ def new_job(doc: dict, title: str, *, topic=None, project=None, working_copy=Non
     if not title:
         raise Refused("a job needs a title")
     if working_copy:
-        working_copy = os.path.abspath(os.path.expanduser(working_copy))
+        # Stored as its checkout's toplevel, as a job added from inside it
+        # is: a subdirectory or a symlinked path would compare as another
+        # working copy in `next` and the session-start warning.
+        given = os.path.realpath(os.path.expanduser(working_copy))
+        working_copy = identity.resolve_context(cwd=given).get("working_copy") or given
     elif project:
         working_copy = working_copy_of(project)
     ctx = identity.resolve_context(cwd=working_copy or os.getcwd())
@@ -140,9 +152,9 @@ def new_job(doc: dict, title: str, *, topic=None, project=None, working_copy=Non
         "id": f"j{doc['seq']}",
         "title": title,
         "topic": " ".join(topic.split()) if topic else None,
-        "project": project or ctx.get("project"),
+        "project": project or own_project(ctx),
         # Never the current directory's checkout for another project's job.
-        "working_copy": working_copy or (ctx.get("working_copy") if not project or ctx.get("project") == project else None),
+        "working_copy": working_copy or (ctx.get("working_copy") if not project or own_project(ctx) == project else None),
         "state": "queued",
         "source": source or {"kind": "self"},
         "artifacts": [],
@@ -181,7 +193,7 @@ def request_job(doc: dict, msg: dict, *, topic=None, project=None, working_copy=
         raise Refused(f"message {mid} is already {listed['id']} ({listed['state']})")
     wanted = project or meta.get("PROJECT")
     here = identity.resolve_context(cwd=os.path.abspath(os.path.expanduser(working_copy)) if working_copy else None)
-    if wanted and not working_copy and here.get("project") != wanted:
+    if wanted and not working_copy and own_project(here) != wanted:
         working_copy = working_copy_of(wanted)
         if not working_copy:
             raise Refused(f"the message is for project {wanted}, and no working copy of it is here or beside "
