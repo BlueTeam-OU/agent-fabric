@@ -630,6 +630,8 @@ searches it.
 - Every change to the four files lands with an amendment of ADR-032 in the
   same PR; examples and validator move with the text (§5 rules 7–8).
 - A 2026-09-27 — HELLO and GOODBYE retired: a narrowing under rule 4.
+- A 2026-09-28 — SPEC is Normative and names this record; CAPABILITIES and
+  SPECIALTIES are optional metadata on any message.
 - Keywords: GZCoord, GZCOORD/1, GZCOORD/2, protocol, SPEC, grammar,
   freeze, frozen, compatibility, narrowing, conformance, validator,
   extension, X-, protocol change.

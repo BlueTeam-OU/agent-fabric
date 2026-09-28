@@ -10,7 +10,7 @@ It may contain:
 - local transport selection;
 - process launch configuration.
 
-The protocol may announce semantic `CAPABILITIES`, but it MUST NOT expose the concrete model/provider, local working directory, credentials, token budgets or subagent implementation details.
+A message may carry semantic `CAPABILITIES`, but it MUST NOT expose the concrete model/provider, local working directory, credentials, token budgets or subagent implementation details.
 
 The stable logical identity is `host/instance`. A local filesystem path is never an address.
 
