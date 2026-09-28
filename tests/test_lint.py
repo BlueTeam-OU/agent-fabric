@@ -57,7 +57,7 @@ PROJECT = "demo"
 
 SKILL = """---
 name: webapp-testing
-description: Drive a running web app with Playwright.
+description: Drive a running web app with Playwright when a rendered page must be checked.
 license: Apache-2.0
 ---
 
@@ -1156,6 +1156,29 @@ def case_a_bound_and_held_role_is_not_a_candidate() -> None:
         assert code == 0, f"the flag dropped, still a finding:\n{out}"
 
 
+def case_a_skill_carries_rules_not_occasions() -> None:
+    """ADR-016: a skill's description says when to load it; its body names
+    no date, no pull-request number and no numbered login."""
+    import sys as _s
+    _s.path.insert(0, os.path.join(ROOT, "tools", "fabric"))
+    import lint as L
+    with tempfile.TemporaryDirectory() as root:
+        write(os.path.join(root, "runtime", "hosts", "registry.json"),
+              json.dumps({"version": 1, "hosts": {}, "placement": {"web-dev-01": "h", "user": "h"}}))
+        good = os.path.join(root, "policies", "good", "SKILL.md")
+        write(good, '---\nname: good\ndescription: "Load it when a thing happens."\n---\n# Good\nThe user runs it.\n')
+        assert L.skill_findings(root) == [], L.skill_findings(root)
+        bad = os.path.join(root, "policies", "bad", "SKILL.md")
+        write(bad, '---\nname: bad\ndescription: "A thing."\n---\n# Bad\nSince 2026-09-28 (#57), web-dev-01 does it.\n')
+        got = L.skill_findings(root)
+        assert any("names no occasion" in f for f in got), got
+        assert any("a date" in f for f in got) and any("pull-request number" in f for f in got), got
+        assert any("'web-dev-01'" in f for f in got) and not any("'user'" in f for f in got), got
+        loc = os.path.join(root, "identities", "roles", "r", "locale", "ru", "skills", "x", "SKILL.md")
+        write(loc, '---\nname: x\ndescription: "x"\n---\n2026-01-01\n')
+        assert not any("locale" in f for f in L.skill_findings(root)), "a locale's copy is its holder's"
+
+
 def case_the_host_registry_is_one_host_per_id_and_placements_are_known() -> None:
     def registry(hosts, placement):
         return json.dumps({"version": 1, "hosts": hosts, "placement": placement})
@@ -1352,6 +1375,7 @@ def main() -> int:
         case_model_profiles_schema_is_enforced,
         case_the_repository_is_one_license,
         case_the_class_list_a_reader_sees_is_the_real_one,
+        case_a_skill_carries_rules_not_occasions,
         case_the_host_registry_is_one_host_per_id_and_placements_are_known,
         case_a_bound_and_held_role_is_not_a_candidate,
         case_a_managed_projects_name_stays_out_of_generic_files,
