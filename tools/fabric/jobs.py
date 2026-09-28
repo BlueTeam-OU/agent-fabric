@@ -213,6 +213,18 @@ def show(job: dict) -> str:
     return "\n".join(f"{k + ':':<14}{v}" for k, v in rows if v)
 
 
+def summary(job: dict) -> str:
+    """One line for a fresh session's opening prompt: what the job is, where
+    it came from, what it has delivered — the rest is `show`."""
+    src = job.get("source") or {}
+    bits = [f"project {job['project']}" if job.get("project") else "",
+            f"topic {job['topic']}" if job.get("topic") else "",
+            " ".join(x for x in (f"from a {src.get('kind')}", src.get("message_id"), f"by {src['from']}") if x)
+            if src.get("from") else "",
+            f"artifacts {', '.join(job['artifacts'])}" if job.get("artifacts") else ""]
+    return f"{job['id']}, {job['title'][:200]} ({'; '.join(b for b in bits if b) or 'no project'})"
+
+
 def mutate(fn):
     """Run fn(doc) under the lock and return what it returns; a Refused
     leaves the file as it was."""
@@ -252,6 +264,8 @@ def main(argv: list[str] | None = None) -> int:
     s = sub.add_parser("show")
     s.add_argument("id")
     s.add_argument("--json", action="store_true")
+    s.add_argument("--line", action="store_true", help="one line, for an opening prompt")
+    s.add_argument("--field", help="one field's value, for the launcher")
     n = sub.add_parser("next", help="start the next job and say whether it needs a fresh session")
     n.add_argument("id", nargs="?")
     n.add_argument("--json", action="store_true")
@@ -285,7 +299,10 @@ def main(argv: list[str] | None = None) -> int:
                 print("\n".join(line(j) for j in jobs))
         elif args.cmd == "show":
             job = find(identity.read_jobs(), args.id)
-            print(json.dumps(job, ensure_ascii=False, indent=2) if args.json else show(job))
+            if args.field:
+                print(job.get(args.field) or "")
+            else:
+                print(json.dumps(job, ensure_ascii=False, indent=2) if args.json else summary(job) if args.line else show(job))
         elif args.cmd == "next":
             here = identity.resolve_context()
 

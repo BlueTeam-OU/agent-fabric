@@ -812,6 +812,15 @@ if [[ -n "${AGENT_FABRIC_FRESH_NOTE+x}" ]]; then
     OPENING="${OPENING% Then wait for instructions.} The previous session of this agent finished its job and started this one fresh${AGENT_FABRIC_FRESH_NOTE:+: ${AGENT_FABRIC_FRESH_NOTE}}. Then wait for instructions."
     unset AGENT_FABRIC_FRESH_NOTE
 fi
+# fabric-fresh --job: the fresh session is for that job (ADR-037), and
+# the job, as the list holds it, replaces the wait for instructions.
+if [[ -n "${AGENT_FABRIC_FRESH_JOB:-}" ]]; then
+    JOB_LINE="$(AGENT_FABRIC_ROOT="$FABRIC_ROOT" python3 "$FABRIC_ROOT/tools/fabric/jobs.py" show "$AGENT_FABRIC_FRESH_JOB" --line 2>/dev/null)"
+    if [[ -n "$JOB_LINE" ]]; then
+        OPENING="${OPENING% Then wait for instructions.} It is for your job $JOB_LINE: read it in full with fabric-jobs show $AGENT_FABRIC_FRESH_JOB, and start on it."
+    fi
+    unset AGENT_FABRIC_FRESH_JOB JOB_LINE
+fi
 opening=1; expect_value=0
 for a in "$@"; do
     if (( expect_value )); then expect_value=0; [[ "$a" == -* ]] || continue; fi
@@ -881,8 +890,10 @@ if m.get("fresh"):
     # The session ended its own job (bin/fabric-fresh): nothing to wait
     # for, nothing to resume. The note travels to the next opening prompt.
     note = " ".join(str(m.get("note") or "").split())[:300]
-    print(f"launch: the session finished its job{': ' + note if note else ''}; starting a fresh one.", file=sys.stderr)
-    print("fresh:" + note)
+    job = str(m.get("job") or "").replace(":", "")
+    print(f"launch: the session finished its job{': ' + note if note else ''}; starting a fresh one"
+          f"{' for job ' + job if job else ''}.", file=sys.stderr)
+    print(f"fresh:{job}:{note}")
     sys.exit(0)
 deadline = time.time() + wait_s
 if m.get("status") == "pending":
@@ -924,7 +935,25 @@ PY
             exit "$STATUS"
         fi
         if [[ "$RESUME" == fresh:* ]]; then
-            exec env -u AGENT_FABRIC_PULLED AGENT_FABRIC_FRESH_NOTE="${RESUME#fresh:}" bash "$0" "${NEXT[@]}"
+            rest="${RESUME#fresh:}"; job="${rest%%:*}"; FRESH=(AGENT_FABRIC_FRESH_NOTE="${rest#*:}")
+            if [[ -n "$job" ]]; then
+                FRESH+=(AGENT_FABRIC_FRESH_JOB="$job")
+                # The job's working copy, when it is there and clean: the
+                # rule a finished job's own tree met before fabric-fresh
+                # let it go. Otherwise the old directory, and why.
+                if wc="$(AGENT_FABRIC_ROOT="$FABRIC_ROOT" python3 "$FABRIC_ROOT/tools/fabric/jobs.py" show "$job" --field working_copy 2>/dev/null)" && [[ -n "$wc" ]]; then
+                    if [[ ! -d "$wc" ]]; then
+                        echo "launch: job $job's working copy $wc is not there; starting in $PWD." >&2
+                    elif [[ -n "$(git -C "$wc" status --porcelain 2>/dev/null)" ]]; then
+                        echo "launch: job $job's working copy $wc has uncommitted changes; starting in $PWD." >&2
+                    elif [[ "$wc" != "$PWD" ]]; then
+                        cd "$wc" && echo "launch: starting job $job in $wc." >&2
+                    fi
+                else
+                    echo "launch: job $job names no working copy; starting in $PWD." >&2
+                fi
+            fi
+            exec env -u AGENT_FABRIC_PULLED "${FRESH[@]}" bash "$0" "${NEXT[@]}"
         fi
         if [[ -n "$RESUME" ]]; then NEXT+=(--resume "$RESUME"); else NEXT+=(--continue); fi
         exec env -u AGENT_FABRIC_PULLED bash "$0" "${NEXT[@]}"

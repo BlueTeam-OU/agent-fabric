@@ -98,6 +98,11 @@ def main() -> int:
         check("list --all shows them", "j1" in p.stdout and "j2" in p.stdout, p.stdout)
         p = run("show", "j2")
         check("show gives the job in full", "artifacts:" in p.stdout and "org/repo#13" in p.stdout, p.stdout)
+        p = run("show", "j2", "--line")
+        check("show --line is one line for an opening prompt", p.stdout.count("\n") == 1
+              and p.stdout.startswith("j2, second (") and "artifacts org/repo#12, abc1234, org/repo#13" in p.stdout, p.stdout)
+        p = run("show", "j2", "--field", "working_copy")
+        check("show --field gives one value", p.stdout.strip() == repo_b, p.stdout)
         p = run("show", "j9")
         check("an unknown id is refused by name", p.returncode == 1 and "no job j9" in p.stderr, p.stderr)
         check("the log keeps every state change",
