@@ -1,0 +1,151 @@
+#!/usr/bin/env bash
+# bin/fabric-branches — local branch hygiene: what is left over in this
+# working copy, and the deletion of what is provably merged (agent-fabric
+# ADR-022).
+#
+#   fabric-branches            report every local branch and worktree
+#   fabric-branches --sweep    report, then delete what shows 0
+#
+# The number beside a branch is how many of its commits are NOT on
+# origin/main, after a plain `git fetch origin`: a refspec fetch does not
+# move origin/main, and a stale one makes merged work look unmerged. 0
+# means everything on the branch is already on main, so deleting it
+# loses nothing. --sweep deletes exactly those, re-counted at deletion,
+# and removes a worktree only when it has no changes and its commit is
+# on main. Anything with commits off main is reported with its commits
+# and its pull request, and kept: it is work still owed, or the person's
+# decision. The current branch and main are never touched.
+#
+# Local only: no remote branch is deleted or pushed; the merge queue owns
+# those. A branch tracking another agent's remote branch is only a local
+# copy, deleted like any other when it shows 0.
+#
+# Refused (exit 2) outside a git working copy, when the fetch fails, and
+# for --sweep on a working copy with uncommitted changes. A sweep that
+# completes is recorded, per working copy, in the agent's state; the
+# session-start hook says when this working copy's last one is old.
+set -uo pipefail
+
+sweep=0
+case "${1:-}" in
+    "") ;;
+    --sweep) sweep=1 ;;
+    -h|--help) sed -n '2,26p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    *) echo "fabric-branches: unknown argument '$1' (--sweep)" >&2; exit 2 ;;
+esac
+
+top="$(git rev-parse --show-toplevel 2>/dev/null)" || { echo "fabric-branches: not in a git working copy" >&2; exit 2; }
+cd "$top" || exit 2
+current="$(git symbolic-ref -q --short HEAD || echo '(detached)')"
+dirty="$(git status --porcelain | wc -l)"
+
+echo "working copy: $top"
+echo "on: $current$( (( dirty )) && echo "  — $dirty uncommitted change(s)")"
+if (( sweep && dirty )); then
+    echo "fabric-branches: uncommitted changes here; commit or stash them first — nothing deleted" >&2
+    exit 2
+fi
+
+if ! err="$(git fetch -q origin 2>&1)"; then
+    echo "fabric-branches: git fetch origin failed (${err%%$'\n'*}); counting against a stale origin/main would call merged work unmerged — nothing done" >&2
+    exit 2
+fi
+git rev-parse -q --verify origin/main >/dev/null || { echo "fabric-branches: no origin/main here" >&2; exit 2; }
+
+mine="$(hostname -s)/$(id -un)/"
+ahead() { git rev-list --count "origin/main..$1" 2>/dev/null || echo "?"; }
+
+# Worktrees first: a branch checked out in one cannot be deleted until
+# the worktree is gone.
+echo
+echo "worktrees:"
+declare -a wt_remove=()
+wt_count=0
+main_wt="$(git worktree list --porcelain | sed -n '1s/^worktree //p')"
+while IFS=$'\t' read -r path head branch; do
+    [[ "$path" == "$main_wt" ]] && continue
+    wt_count=$((wt_count + 1))
+    changes="$(git -C "$path" status --porcelain 2>/dev/null | wc -l)"
+    n="$(ahead "$head")"
+    printf '  %-3s %s  %s  %s\n' "$n" "$path" "${branch:-(detached)}" \
+        "$( (( changes )) && echo "$changes uncommitted change(s)" || echo clean)"
+    [[ "$n" == 0 ]] && (( changes == 0 )) && wt_remove+=("$path")
+done < <(git worktree list --porcelain | awk '
+    /^worktree /{ if (p) print p "\t" h "\t" b; p = substr($0, 10); h = ""; b = "" }
+    /^HEAD /{ h = $2 } /^branch /{ b = substr($2, 12) }
+    END { if (p) print p "\t" h "\t" b }')
+(( wt_count )) || echo "  (none besides this one)"
+
+echo
+echo "branches (commits not on origin/main):"
+declare -a zero=() kept=()
+while read -r b; do
+    [[ "$b" == main ]] && continue
+    n="$(ahead "$b")"
+    up="$(git rev-parse --abbrev-ref "$b@{u}" 2>/dev/null || echo -)"
+    owner=""
+    if [[ "$up" == origin/* && "${up#origin/}" != "$mine"* && "${up#origin/}" == */*/* ]]; then
+        owner="  (tracks another agent's branch: never delete or push to the remote)"
+    fi
+    [[ "$b" == "$current" ]] && owner+="  (current)"
+    printf '  %-3s %s  upstream=%s%s\n' "$n" "$b" "$up" "$owner"
+    if [[ "$n" == 0 && "$b" != "$current" ]]; then
+        zero+=("$b")
+    elif [[ "$n" != 0 ]]; then
+        kept+=("$b")
+    fi
+done < <(git for-each-ref --format='%(refname:short)' refs/heads/)
+
+for b in "${kept[@]}"; do
+    echo
+    pr="$(gh pr list --head "$b" --state all --json number,state --jq 'map("#\(.number) \(.state)") | join(", ")' 2>/dev/null || echo "?")"
+    echo "  $b — pull request: ${pr:-none}"
+    # A merged PR whose commits are not on main was squashed, or its
+    # history rewritten: the count cannot prove it merged, the person can.
+    [[ "$pr" == *MERGED* ]] && echo "      (merged, but these commits are not on main: squashed or rewritten — the person's decision)"
+    git log --oneline "origin/main..$b" | sed 's/^/      /'
+done
+
+if (( ! sweep )); then
+    echo
+    echo "safe to delete (0): ${zero[*]:-none}; worktrees: ${wt_remove[*]:-none}. fabric-branches --sweep deletes exactly those."
+    exit 0
+fi
+
+echo
+for p in "${wt_remove[@]}"; do
+    if [[ -z "$(git -C "$p" status --porcelain 2>/dev/null)" ]] && git worktree remove "$p"; then
+        echo "removed worktree $p"
+    else
+        echo "KEPT worktree $p"
+    fi
+done
+git worktree prune
+for b in "${zero[@]}"; do
+    sha="$(git rev-parse --short "$b")"
+    if [[ "$(ahead "$b")" == 0 ]] && git branch -q -D "$b"; then
+        echo "deleted $b ($sha)"
+    else
+        echo "KEPT $b"
+    fi
+done
+(( ${#kept[@]} )) && echo "kept, with commits off main: ${kept[*]} — work still owed, or the person's decision"
+
+state="${AGENT_FABRIC_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/agent-fabric}/agents/$(id -un)"
+mkdir -p "$state" && python3 - "$state/branch-sweep.json" "$top" <<'PY'
+import datetime, json, os, sys, tempfile
+path, top = sys.argv[1], sys.argv[2]
+try:
+    doc = json.load(open(path, encoding="utf-8"))
+    doc = doc if isinstance(doc, dict) else {}
+except (OSError, ValueError):
+    doc = {}
+doc[top] = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+fd, tmp = tempfile.mkstemp(prefix=".tmp-", dir=os.path.dirname(path))
+with os.fdopen(fd, "w", encoding="utf-8") as fh:
+    json.dump(doc, fh, indent=2, sort_keys=True)
+    fh.write("\n")
+os.replace(tmp, path)
+PY
+echo
+git branch

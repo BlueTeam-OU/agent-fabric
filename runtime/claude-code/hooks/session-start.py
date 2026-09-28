@@ -30,12 +30,14 @@ Never blocks a session start: any failure is one line on stderr and exit 0.
 """
 from __future__ import annotations
 
+import datetime
 import importlib.util
 import json
 import os
 import re
 import subprocess
 import sys
+import time
 
 FABRIC_ROOT = os.environ.get("AGENT_FABRIC_ROOT") or os.path.dirname(
     os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__)))))
@@ -80,6 +82,10 @@ def main() -> int:
         except Exception:  # noqa: BLE001 — a git oddity must not cost the session its project layer
             pass
         try:
+            lines += sweep_due(ctx["working_copy"], identity.agent_state_dir(ctx["agent"]))
+        except Exception:  # noqa: BLE001 — a state oddity must not cost the session its project layer
+            pass
+        try:
             missing = watch_running() is False
         except Exception:  # noqa: BLE001 — a /proc oddity must not cost the session its project layer
             missing = False
@@ -118,6 +124,34 @@ def trailing(working_copy: str | None) -> list[str]:
         return []
     return [f"agent-fabric: this working copy ({branch}) lacks {int(n.stdout)} commit(s) of {ref} as of its last "
             f"fetch; its CLAUDE.md and rules may be older than the project's — bring it up to date before relying on them."]
+
+
+SWEEP_EVERY_DAYS = 7
+
+
+def sweep_due(working_copy: str | None, state_dir: str, now: float | None = None) -> list[str]:
+    """One line when this working copy's last branch sweep (bin/fabric-branches
+    --sweep, which records it) is older than a week, or never ran. A nudge
+    at the session's start, not a timer: the fabric is pull-based, and the
+    owner chose a weekly reminder over a step at the end of every job."""
+    if not working_copy:
+        return []
+    try:
+        with open(os.path.join(state_dir, "branch-sweep.json"), encoding="utf-8") as fh:
+            last = json.load(fh).get(working_copy)
+    except (OSError, ValueError, AttributeError):
+        last = None
+    if isinstance(last, str):
+        try:
+            at = datetime.datetime.fromisoformat(last.replace("Z", "+00:00")).timestamp()
+        except ValueError:
+            at = 0.0
+        if (now if now is not None else time.time()) - at < SWEEP_EVERY_DAYS * 86400:
+            return []
+    since = f"last {last[:10]}" if isinstance(last, str) else "never swept"
+    return [f"agent-fabric: branch sweep due in this working copy ({since}) — when nothing is running on the tree, "
+            f"run `fabric-branches --sweep`: it deletes the local branches and worktrees wholly on origin/main and "
+            f"reports the rest, which you bring to the person (the branch-hygiene skill)."]
 
 
 # The inbox watch is a Monitor the session itself arms (gzcoord-receive

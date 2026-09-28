@@ -138,6 +138,7 @@ fabric-whoami [--json]                    # who this session is
 fabric-status                             # identity, binding, API path, models, effort, routing health
 fabric-model list                         # every model and effort choice per provider, with its source layer
 fabric-lease <name> -- <cmd>              # one holder per host resource across this host's accounts (ADR-010)
+fabric-branches [--sweep]                 # local branches against origin/main; --sweep deletes what is on it (ADR-022)
 # fabric-coordinator:
 fabric-ctl all status                     # the fleet, answered by each account's control agent (ADR-029)
 fabric-ctl all upgrade claude|fabric      # every account to the pinned Claude Code, or to the merged fabric (ADR-009)

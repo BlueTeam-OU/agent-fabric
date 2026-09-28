@@ -4,7 +4,7 @@
 **Status:** Accepted
 **Ratified:** owner, 2026-09-27, by arming agent-fabric #52 (ratification by merge, the owner's rule of 2026-09-27)
 **Decision Makers:** the owner; drafted by fabric-coordinator
-**Scope:** runtime/claude-code/user-settings.py (`permissions.defaultMode`); runtime/openrouter/launch (the opening prompt, the restart marker); bin/fabric-fresh; runtime/claude-code/workspace/settings.json and each managed project's `.claude/settings.json` (the hook wiring); runtime/claude-code/hooks/session-start.py (the watch check), runtime/claude-code/hooks/plan-hold.sh; communication/gzcoord/scripts/inbox.mjs and send.mjs; runtime/control/ops.mjs, runtime/control/presence.mjs, runtime/control/ctl.mjs (presence); communication/gzcoord/skills/gzcoord-receive/SKILL.md
+**Scope:** runtime/claude-code/user-settings.py (`permissions.defaultMode`); runtime/openrouter/launch (the opening prompt, the restart marker); bin/fabric-fresh; bin/fabric-branches and policies/branch-hygiene/SKILL.md; runtime/claude-code/workspace/settings.json and each managed project's `.claude/settings.json` (the hook wiring); runtime/claude-code/hooks/session-start.py (the watch check), runtime/claude-code/hooks/plan-hold.sh; communication/gzcoord/scripts/inbox.mjs and send.mjs; runtime/control/ops.mjs, runtime/control/presence.mjs, runtime/control/ctl.mjs (presence); communication/gzcoord/skills/gzcoord-receive/SKILL.md
 **Pillar:** P3
 **Evidence:** docs/live-checks/2026-09-16-inbox-hold-while-planning.md
 
@@ -134,6 +134,13 @@ the same command asks on one account and not on another.
     `--force`. When to use it is the agent's judgement: a job that has
     reached its artifact, with nothing it still waits on needing the
     conversation (A 2026-09-28).
+11. Each working copy's local branches are swept weekly with
+    `fabric-branches --sweep`, after a plain fetch: the agent deletes on
+    its own what is wholly on `origin/main`, and worktrees at 0 with no
+    changes; a branch with commits off main is kept and brought to the
+    person. Local only: no remote branch is deleted or pushed. The
+    session-start hook says when a working copy's last sweep is older
+    than seven days; nothing runs on a timer (A 2026-09-28).
 
 ## 6. Consequences
 
@@ -189,3 +196,4 @@ The body above reads current; each change's full note is in [history/ADR-022-ame
 | Date | Amendment | Effect |
 |---|---|---|
 | 2026-09-28 | An agent ends its own job with a fresh session | §5 rule 10: `fabric-fresh` and the launcher's fresh relaunch |
+| 2026-09-28 | Local branches are swept weekly | §5 rule 11: `fabric-branches --sweep`, the weekly nudge at session start |

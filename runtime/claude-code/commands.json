@@ -16,7 +16,8 @@
     "fabric-status": "bin/fabric-status",
     "fabric-usage": "bin/fabric-usage",
     "fabric-whoami": "bin/fabric-whoami",
-    "fabric-fresh": "bin/fabric-fresh"
+    "fabric-fresh": "bin/fabric-fresh",
+    "fabric-branches": "bin/fabric-branches"
   },
   "not_allowed": {
     "fabric-lease": "runs whatever command follows `--`: an allow rule for it would allow every command, so it asks as any command does",

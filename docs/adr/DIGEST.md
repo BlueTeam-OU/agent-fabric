@@ -432,6 +432,8 @@ searches it.
   (§5 rule 9, §7).
 - A 2026-09-28 — an agent ends its own finished job with `fabric-fresh`: a new
   session, not a resumed one (§5 rule 10).
+- A 2026-09-28 — local branches are swept weekly: `fabric-branches --sweep` deletes
+  what is on origin/main and reports the rest (§5 rule 11).
 - Keywords: session, lifecycle, inbox watch, Monitor, gzcoord-inbox,
   --follow, opening prompt, resume, auto mode, defaultMode, plan mode,
   hold, planning, presence.
