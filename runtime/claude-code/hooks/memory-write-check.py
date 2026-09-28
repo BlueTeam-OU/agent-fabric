@@ -47,7 +47,8 @@ def problems(path: str) -> list[str]:
         return []
     judged = hm.judge_memory(parsed)
     if judged["verdict"] == "refused":
-        return [f"{judged['reason']}: the drain refuses it"]
+        # A refusal stops the account's whole harvest, not only this memory.
+        return [f"{judged['reason']}: the drain refuses this account's whole harvest until it is fixed"]
     if judged["verdict"] == "held":
         return [f"{judged['reason']}: the drain holds it until rendered"]
     lint = _load("fabric_lint", "tools/fabric/lint.py")

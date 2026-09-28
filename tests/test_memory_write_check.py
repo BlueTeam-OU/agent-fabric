@@ -41,7 +41,8 @@ def main() -> int:
         cases = [
             ("private: no roles_class", memory(mem, "p", "a note", "", "body"), None),
             ("clean: the drain takes it", memory(mem, "g", "a fact", "  roles_class: solution\n", "body"), None),
-            ("an unknown class", memory(mem, "b", "x", "  roles_class: notaclass\n", "body"), "is not a claim class"),
+            ("an unknown class, and the whole harvest stops", memory(mem, "b", "x", "  roles_class: notaclass\n", "body"),
+             "whole harvest"),
             ("a hand-authored class", memory(mem, "h", "x", "  roles_class: charter\n", "body"), "hand-authored"),
             ("shared_with naming no role", memory(mem, "s", "x", "  roles_class: solution\n  shared_with: Web Dev!\n", "body"),
              "not role slugs"),
