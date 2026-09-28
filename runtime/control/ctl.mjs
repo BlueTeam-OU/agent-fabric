@@ -13,6 +13,9 @@
 //                                                   check its setup-token, restart a running session on it (docs/adr/ADR-031-claude-accounts-assigned-applied-and-proved-by-signed-action.md)
 //   fabric-ctl <login|all> presence                 whether each has a session, since when, as what — any
 //                                                   placed account may ask this one (ops.mjs PUBLIC_OPS)
+//   fabric-ctl <login|all> jobs                     each account's open jobs (bin/fabric-jobs; ADR-037)
+//   fabric-ctl <login> jobs-add "<title>" [--topic T] [--project P]   an ACTION: the owner's job on that
+//                                                   login's list, source `owner` (ADR-037 rule 4)
 //   fabric-ctl keygen [--force]                     the operator's signing key: private half into Doppler, public into the registry
 //
 // A login becomes an address through the registry's placement
@@ -38,6 +41,7 @@ import zlib from 'node:zlib';
 import crypto from 'node:crypto';
 import { OPS, PUBLIC_OPS } from './ops.mjs';
 import { controlConfig, newId, operatorAddresses, accountAddresses } from './agentd.mjs';
+import { checkJobArgs } from './jobs.mjs';
 
 // The commit `upgrade fabric` moves every account to: this checkout's
 // origin/main after a fetch, never its HEAD — a coordinator on a branch
@@ -53,8 +57,10 @@ export function placements(registry = process.env.AGENT_FABRIC_HOSTS_REGISTRY ??
   return Object.entries(d.placement ?? {}).map(([login, host]) => ({ login, host, address: `${host}/${login}` }));
 }
 
+const jobArgs = a => ({ title: a.title ?? undefined, ...(a.topic !== null ? { topic: a.topic } : {}), ...(a.project !== null ? { project: a.project } : {}) });
+
 export function parseArgs(argv) {
-  const out = { targets: [], op: 'status', json: false, timeout: null, out: null, days: null, piece: null, version: null, force: false, expect: null, restart: false };
+  const out = { targets: [], op: 'status', json: false, timeout: null, out: null, days: null, piece: null, version: null, force: false, expect: null, restart: false, title: null, topic: null, project: null };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--json') out.json = true;
@@ -70,10 +76,15 @@ export function parseArgs(argv) {
     else if (a === '--expect') out.expect = argv[++i];
     else if (a.startsWith('--expect=')) out.expect = a.slice(9);
     else if (a === '--restart') out.restart = true;
+    else if (a === '--topic') out.topic = argv[++i];
+    else if (a.startsWith('--topic=')) out.topic = a.slice(8);
+    else if (a === '--project') out.project = argv[++i];
+    else if (a.startsWith('--project=')) out.project = a.slice(10);
     else if (a === '-h' || a === '--help') out.help = true;
     else if (a.startsWith('--')) throw new Error(`unknown option ${a}`);
     else if (a === 'keygen' && !out.targets.length) out.op = 'keygen';
     else if (out.op === 'upgrade' && out.piece === null) out.piece = a;   // the word after `upgrade` is the piece, never a login
+    else if (out.op === 'jobs-add' && out.title === null) out.title = a;  // the word after `jobs-add` is the title, never a login
     else if (OPS.includes(a) && out.targets.length) out.op = a;
     else out.targets.push(a);
   }
@@ -84,6 +95,12 @@ export function parseArgs(argv) {
   if ((out.expect !== null || out.restart) && out.op !== 'secrets-sync') throw new Error('--expect and --restart go with secrets-sync only');
   if (out.expect !== null && !/^[0-9a-f]{12}$/.test(out.expect)) throw new Error('--expect takes a 12-hex setup-token fingerprint (fabric-accounts templates)');
   if (out.days !== null && (out.op !== 'tokens' || !Number.isFinite(out.days) || out.days <= 0)) throw new Error('--days takes a positive number of days, with tokens only');
+  if ((out.topic !== null || out.project !== null) && out.op !== 'jobs-add') throw new Error('--topic and --project go with jobs-add only');
+  if (out.op === 'jobs-add') {
+    const bad = checkJobArgs(jobArgs(out));
+    if (bad) throw new Error(`jobs-add: ${bad}`);
+    if (out.targets.length !== 1 || out.targets[0] === 'all') throw new Error('jobs-add names one login: a job is one agent\'s, never the fleet\'s');
+  }
   if (out.op === 'memory' && !out.out) throw new Error('memory takes --out <dir>: where the drain bundles are written');
   if (!Number.isFinite(out.timeout) || out.timeout <= 0) throw new Error('--timeout takes seconds, a positive number');
   return out;
@@ -137,14 +154,14 @@ export function rows(expected, replies) {
     return { account: e.login, host: e.host, status: 'ok', op: r.op, latency_ms: r.latency_ms ?? null,
              email: d.identity?.claude_account?.email ?? (d.identity?.claude_account?.via === 'setup-token' ? `setup-token ${d.identity.claude_account.token_sha256_12}` : null), role: d.identity?.role ?? null,
              five_hour: d.usage?.five_hour ?? null, seven_day: d.usage?.seven_day ?? null, usage_status: d.usage?.status ?? null,
-             keys: d.keys ?? null, fabric: d.fabric ?? null, session: d.session ?? null, script: d.script ?? null, recall: d.recall ?? null, tokens: d.tokens ?? null, memory: d.memory ?? null, machine: d.host ?? null, accounts: d.accounts ?? null, upgrade: d.upgrade ?? null, secretsSync: d['secrets-sync'] ?? null, presence: d.presence ?? null, agentd: d.agentd ?? null };
+             keys: d.keys ?? null, fabric: d.fabric ?? null, session: d.session ?? null, script: d.script ?? null, recall: d.recall ?? null, tokens: d.tokens ?? null, memory: d.memory ?? null, machine: d.host ?? null, accounts: d.accounts ?? null, upgrade: d.upgrade ?? null, secretsSync: d['secrets-sync'] ?? null, presence: d.presence ?? null, jobs: d.jobs ?? null, jobsAdd: d['jobs-add'] ?? null, agentd: d.agentd ?? null };
   });
 }
 
 const pct = w => (w && w.utilization != null) ? `${Number(w.utilization).toFixed(0).padStart(3)}%` : '   -';
 const at = w => (w && w.resets_at) ? String(w.resets_at).slice(0, 16) : '-';
 // What counts as success for each action; anything else fails the run.
-export const ACTION_OK = { upgrade: ['current', 'upgraded'], 'secrets-sync': ['synced'] };
+export const ACTION_OK = { upgrade: ['current', 'upgraded'], 'secrets-sync': ['synced'], 'jobs-add': ['added'] };
 
 export function table(op, rs) {
   const lines = [];
@@ -155,6 +172,23 @@ export function table(op, rs) {
       if (r.status !== 'ok' || !u) { lines.push(`${r.account.padEnd(22)} ${r.status}`); continue; }
       const si = u.claude_sign_in?.via === 'setup-token' ? `setup-token ${u.claude_sign_in.token_sha256_12}` : (u.claude_sign_in?.via ?? '-');
       lines.push(`${r.account.padEnd(22)} ${String(u.status ?? 'no status').padEnd(10)} ${si.padEnd(34)} ${String(u.session ?? '-').padEnd(28)} ${u.reason ?? u.note ?? (u.missing ? `missing in Doppler: ${u.missing.join(', ')}` : '')}`.trimEnd());
+    }
+    return lines.join('\n');
+  }
+  if (op === 'jobs') {
+    for (const r of rs) {
+      if (r.status !== 'ok' || !r.jobs) { lines.push(`${r.account.padEnd(22)} ${r.status}`); continue; }
+      if (r.jobs.status !== 'ok') { lines.push(`${r.account.padEnd(22)} jobs ${r.jobs.status}${r.jobs.error ? `: ${r.jobs.error}` : ''}`); continue; }
+      if (!r.jobs.jobs.length) { lines.push(`${r.account.padEnd(22)} no open jobs`); continue; }
+      r.jobs.jobs.forEach((j, i) => lines.push(`${(i ? '' : r.account).padEnd(22)} ${j.id.padEnd(5)} ${j.state.padEnd(9)} ${String(j.project ?? '-').padEnd(14)} ${j.title}`
+        + `${j.topic ? ` [${j.topic}]` : ''}${j.source !== 'self' ? ` (${j.source})` : ''}${j.blocked_on ? ` — on ${j.blocked_on}` : ''}`));
+    }
+    return lines.join('\n');
+  }
+  if (op === 'jobs-add') {
+    for (const r of rs) {
+      const u = r.jobsAdd;
+      lines.push(`${r.account.padEnd(22)} ${r.status !== 'ok' || !u ? r.status : `${u.status}  ${u.job ?? u.reason ?? ''}`}`.trimEnd());
     }
     return lines.join('\n');
   }
@@ -325,7 +359,7 @@ export function table(op, rs) {
 export async function main(argv = process.argv.slice(2), { registry, fetchImpl } = {}) {
   let args;
   try { args = parseArgs(argv); } catch (e) { console.error(`fabric-ctl: ${e.message}`); return 2; }
-  if (args.help || (!args.targets.length && args.op !== 'keygen')) { console.error('usage: fabric-ctl <login|all> [status|usage|identity|keys|fabric|session|script|recall|host|accounts|ping] [--json] [--timeout S]\n       fabric-ctl <login|all> tokens [--days N]\n       fabric-ctl <login|all> memory --out <dir>\n       fabric-ctl <login|all> upgrade claude [--version V]\n       fabric-ctl <login|all> upgrade fabric   (every account to this checkout\'s origin/main, then bootstrap)\n       fabric-ctl <login|all> secrets-sync [--expect SHA12] [--restart]\n       fabric-ctl <login|all> presence   (any placed account may ask)\n       fabric-ctl keygen [--force]'); return args.help ? 0 : 2; }
+  if (args.help || (!args.targets.length && args.op !== 'keygen')) { console.error('usage: fabric-ctl <login|all> [status|usage|identity|keys|fabric|session|script|recall|host|accounts|ping] [--json] [--timeout S]\n       fabric-ctl <login|all> tokens [--days N]\n       fabric-ctl <login|all> memory --out <dir>\n       fabric-ctl <login|all> upgrade claude [--version V]\n       fabric-ctl <login|all> upgrade fabric   (every account to this checkout\'s origin/main, then bootstrap)\n       fabric-ctl <login|all> secrets-sync [--expect SHA12] [--restart]\n       fabric-ctl <login|all> presence   (any placed account may ask)\n       fabric-ctl <login|all> jobs\n       fabric-ctl <login> jobs-add "<title>" [--topic T] [--project P]\n       fabric-ctl keygen [--force]'); return args.help ? 0 : 2; }
   if (args.op === 'keygen') return keygen(args, { registry });
   const all = placements(registry);
   let expected;
@@ -356,6 +390,7 @@ export async function main(argv = process.argv.slice(2), { registry, fetchImpl }
   // long after every account accepted.
   let request = { v: 1, kind: 'request', id, from: me.address, to: expected === all ? '*' : expected.map(e => e.address), op: args.op, ts: new Date().toISOString(), ttl_s: Math.min(ACTION_OPS.includes(args.op) ? ACTION_TTL_MAX_S : Infinity, Math.max(cfg.ttl_s, Math.ceil(args.timeout))), ...(args.days ? { days: args.days } : {}),
                   ...(args.op === 'upgrade' ? { args: args.piece === 'fabric' ? { piece: 'fabric', commit: originMain() } : { piece: args.piece, version: args.version ?? pinnedVersion(FABRIC_ROOT) } } : {}),
+                  ...(args.op === 'jobs-add' ? { args: jobArgs(args) } : {}),
                   ...(args.op === 'secrets-sync' && (args.expect || args.restart) ? { args: { ...(args.expect ? { expect: args.expect } : {}), ...(args.restart ? { restart: true } : {}) } } : {}) };
   // One command, one version: the coordinator's pin travels in the signed
   // request. Left to each account, an account that had not pulled the pin

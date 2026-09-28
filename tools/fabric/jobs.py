@@ -100,12 +100,34 @@ def transition(doc: dict, job: dict, state: str, **fields) -> None:
             job[key] = value
 
 
+def working_copy_of(project: str) -> str | None:
+    """This login's working copy of `project`: the directory it runs in
+    when that is one, else the first checkout beside the fabric that
+    resolves to it. A job added from elsewhere — the owner's, through the
+    control agent — still lands where the work is done."""
+    here = identity.resolve_context()
+    if here.get("project") == project and here.get("working_copy"):
+        return here["working_copy"]
+    workspace = os.path.dirname(os.path.realpath(FABRIC_ROOT))
+    try:
+        names = sorted(os.listdir(workspace))
+    except OSError:
+        return None
+    for name in names:
+        path = os.path.join(workspace, name)
+        if os.path.isdir(os.path.join(path, ".git")) and identity.resolve_context(cwd=path).get("project") == project:
+            return path
+    return None
+
+
 def new_job(doc: dict, title: str, *, topic=None, project=None, working_copy=None, source=None) -> dict:
     title = " ".join(title.split())
     if not title:
         raise Refused("a job needs a title")
     if working_copy:
         working_copy = os.path.abspath(os.path.expanduser(working_copy))
+    elif project:
+        working_copy = working_copy_of(project)
     ctx = identity.resolve_context(cwd=working_copy or os.getcwd())
     doc["seq"] = int(doc.get("seq", 0)) + 1
     now = identity.now_iso()
@@ -244,6 +266,7 @@ def main(argv: list[str] | None = None) -> int:
     a.add_argument("title", nargs="?")
     a.add_argument("--request", metavar="MESSAGE-ID", help="a GZCoord message addressed to this login")
     a.add_argument("--auto", action="store_true", help=argparse.SUPPRESS)
+    a.add_argument("--owner", metavar="ADDRESS", help=argparse.SUPPRESS)   # the control agent's jobs-add
     a.add_argument("--topic")
     a.add_argument("--project")
     a.add_argument("--working-copy")
@@ -285,8 +308,9 @@ def main(argv: list[str] | None = None) -> int:
         elif args.cmd == "add":
             if not args.title:
                 raise Refused("add needs a title, or --request <MESSAGE-ID>")
+            source = {"kind": "owner", "from": args.owner} if args.owner else None
             job = mutate(lambda doc: new_job(doc, args.title, topic=args.topic, project=args.project,
-                                             working_copy=args.working_copy))
+                                             working_copy=args.working_copy, source=source))
             print(f"added {line(job)}")
         elif args.cmd == "list":
             doc = identity.read_jobs()
