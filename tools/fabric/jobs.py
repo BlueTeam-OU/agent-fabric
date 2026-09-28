@@ -134,6 +134,10 @@ def working_copy_of(project: str) -> str | None:
 
 
 def new_job(doc: dict, title: str, *, topic=None, project=None, working_copy=None, source=None) -> dict:
+    # Control characters (C0, DEL, C1) would reach every terminal that
+    # lists the job and the opening prompt of a fresh session.
+    if any(ord(c) < 32 or 127 <= ord(c) < 160 for c in title + (topic or "")):
+        raise Refused("a title or topic carries a control character")
     title = " ".join(title.split())
     if not title:
         raise Refused("a job needs a title")
@@ -173,8 +177,15 @@ def fetch_message(which: str) -> dict:
     """The message, read the way `gzcoord-inbox --replay` reads it: the
     relay's recent history, the body only when addressed to this login."""
     p = subprocess.run(["node", INBOX, "--replay", which, "--json"], capture_output=True, text=True)
+    # Exit 2 is also inbox's refusal of a control channel: only its own
+    # {"addressed": false} answer means "not for this login".
     if p.returncode == 2:
-        raise Refused(f"message {which} is not addressed to this login; only its receiver adds it")
+        try:
+            said = json.loads(p.stdout)
+        except ValueError:
+            said = None
+        if isinstance(said, dict) and said.get("addressed") is False:
+            raise Refused(f"message {which} is not addressed to this login; only its receiver adds it")
     if p.returncode != 0 or not p.stdout.strip():
         why = (p.stderr.strip().splitlines() or ["no answer from the inbox"])[-1]
         raise Refused(f"cannot read message {which}: {why}")

@@ -24,8 +24,9 @@ export const TOPIC_MAX = 60;
 const jobsPy = root => path.join(root, 'tools', 'fabric', 'jobs.py');
 const defaultRoot = home => process.env.AGENT_FABRIC_ROOT ?? path.join(home, 'projects', 'agent-fabric');
 // A control character in a title would reach the list, the prompt of a
-// fresh session and every operator's terminal.
-const plain = s => typeof s === 'string' && !/[\u0000-\u001f\u007f]/.test(s);
+// fresh session and every operator's terminal: C0, DEL and C1 (U+009B is
+// a terminal's CSI as surely as ESC [ is).
+const plain = s => typeof s === 'string' && !/[\u0000-\u001f\u007f-\u009f]/.test(s);
 
 export async function jobs({ home = os.homedir(), root = defaultRoot(home), exec = execFileP } = {}) {
   const r = await exec('python3', [jobsPy(root), 'list', '--json'], { encoding: 'utf8', timeout: JOBS_TIMEOUT_MS, env: { ...process.env, AGENT_FABRIC_ROOT: root } });
@@ -46,6 +47,10 @@ export function checkJobArgs(args) {
 }
 
 export async function jobsAdd(request, { home = os.homedir(), root = defaultRoot(home), exec = execFileP } = {}) {
+  // One login's, never the fleet's: fabric-ctl refuses `all`, and a signed
+  // request that names more than this account is refused here too.
+  const to = Array.isArray(request.to) ? request.to : [request.to];
+  if (to.length !== 1 || to[0] === '*') return { status: 'refused', reason: 'jobs-add names one login, never all' };
   const bad = checkJobArgs(request.args);
   if (bad) return { status: 'refused', reason: bad };
   const { title, topic, project } = request.args;
@@ -54,7 +59,10 @@ export async function jobsAdd(request, { home = os.homedir(), root = defaultRoot
   try {
     const r = await exec('python3', argv, { encoding: 'utf8', timeout: JOBS_TIMEOUT_MS, cwd: home, env: { ...process.env, AGENT_FABRIC_ROOT: root } });
     const out = String(typeof r === 'string' ? r : r.stdout).trim();
-    return { status: 'added', job: out.replace(/^added\s+/, '') };
+    // What fabric-jobs says on stderr of a job it added (no working copy
+    // of the project found) is the owner's to read, not dropped.
+    const warning = String(typeof r === 'string' ? '' : r.stderr ?? '').trim().replace(/\s+/g, ' ');
+    return { status: 'added', job: out.replace(/^added\s+/, ''), ...(warning ? { warning: warning.slice(0, 300) } : {}) };
   } catch (e) {
     const why = String(e?.stderr ?? e?.message ?? e).trim().split('\n').pop().replace(/^fabric-jobs:\s*/, '');
     return { status: 'refused', reason: why.slice(0, 200) };

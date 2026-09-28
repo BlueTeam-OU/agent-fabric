@@ -416,6 +416,12 @@ def test_hook_says_the_job_list(tmp: str) -> None:
     ctx = context_of(run_hook({"cwd": here}, env))
     assert f"active j2: the job there; 1 blocked" in ctx and f"Your active job is in {there}, and this session is in {here}" in ctx \
         and "fabric-fresh --job j2" in ctx, ctx
+    # A list the hook cannot read never costs the session its start.
+    with open(os.path.join(state, "agents", id_un(), "jobs.json"), "w", encoding="utf-8") as fh:
+        fh.write("{ not json")
+    proc = run_hook({"cwd": here}, env)
+    ctx = context_of(proc)
+    assert proc.returncode == 0 and "agent=" in ctx and "jobs —" not in ctx, proc.stdout + proc.stderr
 
 
 def main() -> int:

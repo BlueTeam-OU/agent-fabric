@@ -45,7 +45,7 @@ test('jobs-add takes a closed set of plain arguments', () => {
 test('jobs-add puts the owner\'s job on the list; jobs reads it back without its log', async () => {
   const a = account();
   try {
-    const r = await jobsAdd({ from: 'develop-qzapp/user', args: { title: '-a title with a leading dash', topic: 'routing' } }, { home: a.home, root: ROOT });
+    const r = await jobsAdd({ from: 'develop-qzapp/user', to: ['develop-qzapp/user'], args: { title: '-a title with a leading dash', topic: 'routing' } }, { home: a.home, root: ROOT });
     assert.equal(r.status, 'added', JSON.stringify(r));
     assert.match(r.job, /^j1 +queued/);
     const got = await jobs({ home: a.home, root: ROOT });
@@ -62,10 +62,10 @@ test('jobs-add puts the owner\'s job on the list; jobs reads it back without its
 
 test('a refused jobs-add runs nothing and says why', async () => {
   let ran = false;
-  const r = await jobsAdd({ from: 'h/op', args: { title: 'x', extra: 1 } }, { exec: async () => { ran = true; return ''; } });
+  const r = await jobsAdd({ from: 'h/op', to: ['h/a'], args: { title: 'x', extra: 1 } }, { exec: async () => { ran = true; return ''; } });
   assert.equal(r.status, 'refused');
   assert.equal(ran, false);
-  const failed = await jobsAdd({ from: 'h/op', args: { title: 'x' } }, { exec: async () => { const e = new Error('exit 1'); e.stderr = 'fabric-jobs: identity: jobs.json is not a job list\n'; throw e; } });
+  const failed = await jobsAdd({ from: 'h/op', to: ['h/a'], args: { title: 'x' } }, { exec: async () => { const e = new Error('exit 1'); e.stderr = 'fabric-jobs: identity: jobs.json is not a job list\n'; throw e; } });
   assert.deepEqual(failed, { status: 'refused', reason: 'identity: jobs.json is not a job list' });
 });
 
@@ -93,4 +93,38 @@ test('fabric-ctl: the jobs table, one row per job, the account named once', () =
 
 test('the jobs tool the ops run exists where they look for it', () => {
   execFileSync('python3', [path.join(ROOT, 'tools', 'fabric', 'jobs.py'), '--help'], { stdio: 'ignore' });
+});
+
+// Review of #61: a dash-leading title after `--`; one login, checked by
+// the daemon too; C1 controls refused; the no-working-copy warning kept;
+// an inbox exit 2 that is not {"addressed": false} is not "not addressed".
+test('fabric-ctl: a title that starts with a dash follows --, and options may come first', () => {
+  const a = parseArgs(['backend-dev-01', 'jobs-add', '--topic', 'drain', '--', '--not an option']);
+  assert.deepEqual([a.title, a.topic], ['--not an option', 'drain']);
+  assert.throws(() => parseArgs(['backend-dev-01', 'jobs-add', '--not an option']), /unknown option/);
+});
+
+test('the daemon refuses a jobs-add addressed to more than this account', async () => {
+  let ran = false;
+  const exec = async () => { ran = true; return { stdout: 'added j1 queued', stderr: '' }; };
+  for (const to of ['*', ['h/a', 'h/b'], ['*']]) {
+    const r = await jobsAdd({ from: 'h/op', to, args: { title: 't' } }, { exec });
+    assert.deepEqual(r, { status: 'refused', reason: 'jobs-add names one login, never all' });
+  }
+  assert.equal(ran, false);
+  assert.equal((await jobsAdd({ from: 'h/op', to: ['h/a'], args: { title: 't' } }, { exec })).status, 'added');
+});
+
+test('a C1 control character is refused like a C0 one', () => {
+  assert.match(checkJobArgs({ title: 'a\u009b31mred' }), /title is one line/);
+  assert.match(checkJobArgs({ title: 't', topic: 'x\u0085y' }), /topic is one line/);
+});
+
+test('jobs-add carries fabric-jobs\'s warning to the owner, and the table prints it', async () => {
+  const exec = async () => ({ stdout: 'added j3    queued    x: t\n', stderr: '  no working copy of x found beside this one: re-add it\n' });
+  const r = await jobsAdd({ from: 'h/op', to: ['h/a'], args: { title: 't', project: 'x' } }, { exec });
+  assert.equal(r.warning, 'no working copy of x found beside this one: re-add it');
+  const out = table('jobs-add', [{ account: 'a', status: 'ok', jobsAdd: r }]);
+  assert.match(out, /^a +added +j3/);
+  assert.match(out.split('\n')[1], /^ +no working copy of x/);
 });

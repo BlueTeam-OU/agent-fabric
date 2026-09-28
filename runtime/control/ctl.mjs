@@ -14,7 +14,7 @@
 //   fabric-ctl <login|all> presence                 whether each has a session, since when, as what — any
 //                                                   placed account may ask this one (ops.mjs PUBLIC_OPS)
 //   fabric-ctl <login|all> jobs                     each account's open jobs (bin/fabric-jobs; ADR-037)
-//   fabric-ctl <login> jobs-add "<title>" [--topic T] [--project P]   an ACTION: the owner's job on that
+//   fabric-ctl <login> jobs-add [--topic T] [--project P] [--] "<title>"   an ACTION: the owner's job on that
 //                                                   login's list, source `owner` (ADR-037 rule 4)
 //   fabric-ctl keygen [--force]                     the operator's signing key: private half into Doppler, public into the registry
 //
@@ -63,6 +63,9 @@ export function parseArgs(argv) {
   const out = { targets: [], op: 'status', json: false, timeout: null, out: null, days: null, piece: null, version: null, force: false, expect: null, restart: false, title: null, topic: null, project: null };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
+    // A jobs-add title that starts with a dash follows `--`, as for
+    // fabric-jobs itself: after it the next word is the title, never an option.
+    if (out.op === 'jobs-add' && out.title === null && a === '--') { out.title = argv[++i] ?? null; continue; }
     if (a === '--json') out.json = true;
     else if (a === '--timeout') out.timeout = Number(argv[++i]);
     else if (a.startsWith('--timeout=')) out.timeout = Number(a.slice(10));
@@ -189,6 +192,7 @@ export function table(op, rs) {
     for (const r of rs) {
       const u = r.jobsAdd;
       lines.push(`${r.account.padEnd(22)} ${r.status !== 'ok' || !u ? r.status : `${u.status}  ${u.job ?? u.reason ?? ''}`}`.trimEnd());
+      if (u?.warning) lines.push(`${''.padEnd(22)} ${u.warning}`);
     }
     return lines.join('\n');
   }

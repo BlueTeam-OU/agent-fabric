@@ -92,6 +92,8 @@ def main() -> int:
         check("drop keeps its reason", jobs()[0]["state"] == "dropped"
               and jobs()[0]["reason"] == "superseded by another job")
 
+        p = run("add", "red\x1b[31m title")
+        check("a control character in a title is refused", p.returncode == 1 and "control character" in p.stderr, p.stderr)
         p = run("list")
         check("list hides closed jobs", p.stdout.strip() == "no open jobs", p.stdout)
         p = run("list", "--all")
@@ -224,6 +226,12 @@ def main() -> int:
             p = run("add", "--request", "11", "--auto")
             check("the automatic intake skips a listed request quietly", p.returncode == 0
                   and not p.stderr and len(jobs()) == 2, p.stderr)
+            # inbox exits 2 for a control channel too; only its own
+            # {"addressed": false} answer means "not for this login".
+            p = subprocess.run([JOBS, "add", "--request", "11", "--working-copy", repo_a], cwd=repo_a,
+                               env={**env, "GZCOORD_CHANNEL": "fixture:control"}, capture_output=True, text=True)
+            check("an inbox refusal is said as itself, not as 'not addressed'", p.returncode == 1
+                  and "cannot read message 11" in p.stderr and "not addressed" not in p.stderr, p.stderr)
         finally:
             relay.shutdown()
             relay.server_close()

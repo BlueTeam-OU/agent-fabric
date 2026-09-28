@@ -262,14 +262,17 @@ except (OSError, ValueError):
 
 # The job list (ADR-037): open jobs by state, and the active one.
 try:
-    _jobs = [j for j in identity.read_jobs(ctx["agent"])["jobs"] if j.get("state") in ("queued", "active", "blocked", "delivered")]
+    _jobs = [j for j in identity.read_jobs(ctx["agent"])["jobs"]
+             if isinstance(j, dict) and j.get("state") in ("queued", "active", "blocked", "delivered")]
 except SystemExit as exc:
     _jobs = str(exc.code)
+except OSError as exc:
+    _jobs = f"{exc.strerror or exc}"
 if isinstance(_jobs, str):
     jobs = {"error": _jobs}
 else:
     _active = next((j for j in _jobs if j["state"] == "active"), None)
-    jobs = {"active": {"id": _active["id"], "title": _active["title"], "working_copy": _active.get("working_copy")} if _active else None,
+    jobs = {"active": {"id": _active.get("id"), "title": _active.get("title") or "", "working_copy": _active.get("working_copy")} if _active else None,
             **{st: sum(1 for j in _jobs if j["state"] == st) for st in ("queued", "blocked", "delivered")}}
 
 report = {

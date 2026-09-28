@@ -117,7 +117,9 @@ export function autoIntake(msg, env = process.env, run = spawnSync) {
   if (env.AGENT_FABRIC_JOBS_AUTO_INTAKE !== '1') return null;
   const answered = msg?.metadata?.['IN-REPLY-TO'];
   if (msg?.type !== 'REPLY' || !answered) return null;
-  try { return run('python3', [JOBS, 'add', '--request', answered, '--auto'], { encoding: 'utf8', env }); }
+  // Bounded: it reads the relay, and a hung relay must not hold a send
+  // that has already succeeded.
+  try { return run('python3', [JOBS, 'add', '--request', answered, '--auto'], { encoding: 'utf8', env, timeout: 20000 }); }
   catch (e) { return { status: 1, stdout: '', stderr: String(e?.message ?? e) }; }
 }
 
