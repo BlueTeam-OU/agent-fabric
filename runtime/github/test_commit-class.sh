@@ -101,6 +101,12 @@ expect_repo fix  53 gzapi-org/agent-fabric "supplier: the copy #53 F6"
 expect_repo fix  53 gzapi-org/agent-fabric "review F1: the guard" "thread #53"
 expect_repo work 53 gzapi-org/agent-fabric "review of other/agent-fabric#53: the fix"
 expect_repo fix  53 gzapi-org/agent-fabric "review of gzapi-org/agent-fabric#53: the fix"
+# The glued form names a repository only when the word is a registered one,
+# like the spaced form: "PR#53" is this repository's number.
+expect_repo work 53 gzapi-org/agent-fabric "review of gzapp#53: the fix"
+expect_repo fix  53 gzapi-org/agent-fabric "review of agent-fabric#53: the fix"
+expect_repo fix  53 gzapi-org/agent-fabric "review F1: the guard" "PR#53 F1"
+expect_repo fix  53 gzapi-org/agent-fabric "review F1: the guard" "PR-#53 F1"
 expect fix "aaa" "review of #53 (deferred P3s): no PR given, the old reading stands"
 
 echo
