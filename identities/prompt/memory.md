@@ -44,10 +44,11 @@ role, never by name** — the CEO, the owner, an agent by its login: a
 slice travels into every repository, and the drain substitutes what it
 finds (`policies/hygiene.json`). Never a secret of any shape.
 
-**When a slice is wrong**, write the correction as a memory of the same
-class, naming the slice and the fact that contradicts it: the next drain
-merges it, and the corpus does not wait for someone to raise it by hand.
-Never edit the slice.
+**When a slice is wrong**, correct the memory it was drained from, if
+it is yours; otherwise write a memory of the same class with
+`merge_target: "<the stale section's heading>"` in its `metadata:` —
+without it the drain files the correction beside the stale text, not in
+its place. Never edit the slice.
 
 **Before you assert anything about the repository to anyone** — a finding,
 a status, "already landed" — fetch and read the remote ref, not your
