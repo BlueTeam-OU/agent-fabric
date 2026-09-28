@@ -5,7 +5,7 @@ topic: "gh-pr-merge-strategy-flag-on-a-queued-repo"
 description: "`gh pr merge --auto --merge` on gzapp prints what looks like a refusal, leaves autoMergeRequest null, yet DOES enqueue the PR."
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-09-26"
+distilled_at: "2026-09-28"
 origin:
   - agent: "devex-tooling"
     host: "develop-qzapp"

@@ -96,8 +96,10 @@ is the capability class below (ADR-002, ADR-005).
   with the tree, the tree is the fact. Durable new knowledge goes to your
   own Claude memory with a `roles_class`; a drain (`memory/README.md`),
   run by fabric-coordinator, distils it into the corpus with your name on
-  it. A slice you believe wrong is corrected by a memory of the same
-  class naming it, which the next drain merges — never edited (ADR-013).
+  it. A slice you believe wrong is corrected at its source memory, or by
+  a memory of the same class carrying `merge_target` with the stale
+  section's heading, which the next drain puts in its place — never
+  edited (ADR-013, ADR-014).
 - **Subagents** name a capability class in `subagent_type` — the five
   are `code-low`, `code-medium`, `code-high`, `code-plan` and the review
   class `code-review` — and in `model` the harness tier alias that class

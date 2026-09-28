@@ -8,10 +8,11 @@ distilled_at: "2026-09-27"
 
 # fabric-coordinator — knowledge index
 
-Tier 1 — the charter and brief (in the launch prompt), this index
-and every `workflow` slice (from the session-start hook) — is given
-to a session at start. Every other section waits for a cue: open a
-slice when its description matches what you are working on.
+A session is given the charter and brief (in the launch prompt),
+and the project's remit with a pointer to this index (from the
+session-start hook) — nothing below. Open a slice when its cue
+matches what you are doing; a `workflow` slice says how a kind of
+work is done here, so read the matching ones before that work.
 Paths are relative to this working copy; `../agent-fabric/` is the
 control plane checked out beside it.
 

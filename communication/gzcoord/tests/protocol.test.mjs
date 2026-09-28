@@ -1326,6 +1326,16 @@ test('a retransmitted delivery is marked with the seq of the earlier copy; a fir
   await markRetransmissions(failed, () => new Promise(() => {}), 200);
   assert.ok(Date.now() - t0 < 1500, `the lookup waited ${Date.now() - t0} ms`);
   assert.equal(failed[0].retransmitOf, undefined);
+  // A lookup that settles at once leaves nothing behind: a process that ran
+  // it with a ten-second bound exits at once, not when the bound expires
+  // (the timer is cleared on settle; #57 re-review N2).
+  const INBOX = fileURLToPath(new URL('../scripts/inbox.mjs', import.meta.url));
+  const t1 = Date.now();
+  const child = spawnSync(process.execPath, ['--input-type=module', '-e',
+    `import { markRetransmissions } from ${JSON.stringify(INBOX)}; await markRetransmissions([], async () => ({ messages: [] }), 10000); await markRetransmissions([{ isMine: true, rec: { seq: 2 }, msg: { metadata: { FROM: 'a', 'MESSAGE-ID': 'x' } } }], async () => ({ messages: [] }), 10000);`],
+    { encoding: 'utf8', timeout: 9000 });
+  assert.equal(child.status, 0, child.stderr);
+  assert.ok(Date.now() - t1 < 5000, `the process lingered ${Date.now() - t1} ms after the lookup settled`);
 });
 
 // The environment is a snapshot; the synced file is current. A refused

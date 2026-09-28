@@ -230,14 +230,12 @@ arrive, and each can be traced to who learnt it, where and when.
 
 ## 7. Future Evolution
 
-- **Known gap — what tier 1 holds.** The assembler marks `workflow`
-  slices `tier: 1` (budgeted at 3000 tokens instead of 1800), and the
-  banner it writes into every `INDEX.md` says the session-start hook gives
-  every `workflow` slice at start. The hook gives the remit and the index
-  pointer only; `layout.tier1_paths`, which lists workflow slices, is
-  called by no hook, only by `tests/test_role.py`. Either the hook loads
-  them or the banner and the budget stop saying so; until then this
-  record states what the hook does.
+- What tier 1 holds was a known gap, closed by the banner (A 2026-09-28):
+  a session is given the charter and brief, the remit and the index
+  pointer; `workflow` slices are cued like every other section, read
+  before the work they govern. Their `tier: 1` mark keeps only the larger
+  budget (3000 tokens), for procedures. Loading them at start stays
+  possible only with a measured budget — they were 45–140 KB per role.
 - A domain split or rename is a `layout.py` change.
 - A generated edge cache if the citation graph outgrows `jq`.
 
@@ -263,3 +261,11 @@ the manual.
   `bin/fabric-status`.
 - ADR-000 (P2), ADR-001 (promotion of a rationale slice), ADR-002 (the
   role's authored files), ADR-011 (landing a drain).
+
+## Amendments
+
+The body above reads current; each change's full note is in [history/ADR-013-amendments.md](history/ADR-013-amendments.md).
+
+| Date | Amendment | Effect |
+|---|---|---|
+| 2026-09-28 | What a session is given at start | §7: the known gap closed — the INDEX banner no longer claims the hook gives workflow slices |

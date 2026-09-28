@@ -37,4 +37,5 @@ tools/fabric/query.sh obs <hash>        # one observation, forward and back
 ```
 
 A slice that disagrees with the tree is wrong, not the tree; write the
-correction as a memory of the same class and the next drain merges it.
+correction at its source memory, or as a memory of the same class
+carrying `merge_target` with the stale section's heading.

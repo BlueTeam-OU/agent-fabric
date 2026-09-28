@@ -19,7 +19,8 @@
 # Refused too (exit 2) when the launch carried its own prompt or -p: the
 # relaunch would replay it instead of starting anew; and when the
 # session's launcher predates fabric-fresh: it would resume, not start
-# anew — relaunch once.
+# anew — relaunch once; and when no claude process is above this one:
+# there is no session to stop.
 set -uo pipefail
 
 note="" force=0
@@ -28,7 +29,7 @@ while (( $# )); do
         --note) note="${2:-}"; shift 2 || { echo "fabric-fresh: --note needs a value" >&2; exit 2; } ;;
         --note=*) note="${1#--note=}"; shift ;;
         --force) force=1; shift ;;
-        -h|--help) sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        -h|--help) sed -n '2,/^[^#]/{/^#/p}' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
         *) echo "fabric-fresh: unknown argument '$1' (--note \"…\", --force)" >&2; exit 2 ;;
     esac
 done

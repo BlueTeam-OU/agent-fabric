@@ -1184,6 +1184,55 @@ GENERIC_SKIP = ("history/", "/test_", "/tests/", "README.md")
 FABRIC_SELF = ("gzapi-org/agent-fabric",)
 
 
+# A skill carries rules, not the occasion that produced them (ADR-016 §5):
+# no dates, no pull-request numbers, no one account's login — the reader
+# cannot check them and they read as stale the week after. Its description
+# is the only thing a session sees before loading it, so it must say WHEN
+# to load it. Held by review until now (ADR-016 §6); these are the
+# mechanical halves. A numbered login (backend-dev-01) names one account;
+# a login that is also a role slug or a word ("user", "db-admin") cannot be
+# told from the role or the word, and is left to review.
+SKILL_DATE_RE = re.compile(r"\b20\d\d-\d\d-\d\d\b")
+SKILL_PR_RE = re.compile(r"(?<![\w/&])#\d{2,}\b|\bPR \d+\b|\bpull request #?\d+\b", re.I)
+SKILL_CUE_RE = re.compile(r"\b(when|before|whenever)\b", re.I)
+
+
+def skill_findings(root: str) -> list[str]:
+    findings: list[str] = []
+    try:
+        placement = (json.load(open(os.path.join(root, "runtime", "hosts", "registry.json"),
+                                    encoding="utf-8")).get("placement") or {})
+    except (OSError, ValueError):
+        placement = {}
+    logins = sorted(lg for lg in placement if re.search(r"-\d+$", lg))
+    for top in ("policies", "communication", "identities"):
+        for dirpath, dirnames, filenames in os.walk(os.path.join(root, top)):
+            dirnames[:] = [d for d in dirnames if d not in (".git", "node_modules", "locale")]
+            if "SKILL.md" not in filenames:
+                continue
+            path = os.path.join(dirpath, "SKILL.md")
+            rel = os.path.relpath(path, root)
+            try:
+                text = open(path, encoding="utf-8").read()
+            except OSError:
+                continue
+            fm = parse_frontmatter(text) or {}
+            desc = str(fm.get("description") or "")
+            if not SKILL_CUE_RE.search(desc):
+                findings.append(f"{rel}: the description names no occasion to load the skill "
+                                "(\"when …\", \"before …\") — it is all a session sees before loading it")
+            body = re.sub(r"\A---\n.*?\n---\n", "", text, count=1, flags=re.DOTALL)
+            for label, rx in (("a date", SKILL_DATE_RE), ("a pull-request number", SKILL_PR_RE)):
+                m = rx.search(body)
+                if m:
+                    findings.append(f"{rel}: carries {label} ({m.group(0)!r}) — a skill carries the rule, "
+                                    "the occasion goes in the commit or a record (ADR-016)")
+            for lg in logins:
+                if re.search(rf"(?<![\w/-]){re.escape(lg)}(?![\w-])", body):
+                    findings.append(f"{rel}: names the account {lg!r} — a skill is for whoever holds the role (ADR-016)")
+    return findings
+
+
 def project_name_findings(root: str) -> list[str]:
     """A managed project's id (projects/registry.json) must not appear in
     a generic file: a role's skills, the provisioning, the harness
@@ -1571,6 +1620,7 @@ def main() -> int:
     # --- the class list a reader sees --------------------------------------
     findings += class_doc_findings(root)
     findings += agent_source_findings(root)
+    findings += skill_findings(root)
 
     # --- the hosts and where each account lives -----------------------------
     findings += host_registry_findings(root)

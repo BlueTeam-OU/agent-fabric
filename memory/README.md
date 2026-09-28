@@ -249,10 +249,13 @@ how its role works has landed — a merged pull request that changed a
 workflow, or a `solution` fact that cost a day — and at least weekly
 while it is active; a fabric-coordinator holder assembles and commits
 what arrived, with the agent's name in each slice's `origin`. A slice an
-agent finds wrong is not raised by hand: the agent writes the correction
-as a memory of the same class naming the slice and the contradicting
-fact, and the next drain merges it (`identities/prompt/memory.md` tells
-every session so). `bin/fabric-status` counts what an agent has written
+agent finds wrong is not raised by hand: the agent corrects the memory
+the slice was drained from, or writes the correction as a memory of the
+same class carrying `merge_target: "<the stale section's heading>"`, and
+the next drain puts it in the stale section's place
+(`identities/prompt/memory.md` tells every session so). A correction
+without `merge_target` is filed as a topic of its own beside the stale
+text, which stays. `bin/fabric-status` counts what an agent has written
 and not yet drained.
 
 **Landing a drain, in this order** (2026-09-18, after three gzapp

@@ -5,7 +5,7 @@ topic: "make-shell-arguments-cannot-hold-unbalanced-parens"
 description: "A `case … *)` (or any unbalanced `)`) inside a Makefile $(shell …) ends the call early and the rest of the text becomes the value; and a value substituted into a $(shell bash -c '…') string is shell text at parse time on every make."
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-09-26"
+distilled_at: "2026-09-28"
 origin:
   - agent: "devex-tooling"
     host: "develop-qzapp"
