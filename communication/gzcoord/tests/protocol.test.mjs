@@ -720,7 +720,7 @@ test('CLI: an unknown flag is refused before any side effect', () => {
 // inbox.mjs applies SPEC §7.1 addressing and the §17 reading rule at
 // delivery: the body of a message not addressed to this session is never
 // printed. forMe() is that decision, kept pure so it can be pinned.
-import { ensureRelay, forMe, identity, waitLoop, checkKeywords, keywordHit, inboxRoot, relayRuntimeDir, WORKSPACE, integrationConfig, holdDir, holdStatus, pidStart, pidAlive, render, splitMessage, NOTIFICATION_CAP, REPLAY_CMD, assertNotControlChannel } from '../scripts/inbox.mjs';
+import { ensureRelay, forMe, identity, waitLoop, checkKeywords, keywordHit, inboxRoot, relayRuntimeDir, WORKSPACE, integrationConfig, holdDir, holdStatus, pidStart, pidAlive, render, splitMessage, NOTIFICATION_CAP, REPLAY_CMD, assertNotControlChannel, markRetransmissions } from '../scripts/inbox.mjs';
 test('inbox forMe: exactly the messages SPEC §7.1 addresses to this session', () => {
   const me = { address: 'develop-qzapp/db-admin', instance: 'db-admin', slug: 'db-admin' };
   const mk = (type, extra) => parse(`[GZCOORD/1] ${type}\nFROM: develop-qzapp/x\nROLE: architect-cto\nPROJECT: gzapp\nMESSAGE-ID: x-0001\n${extra}`);
@@ -1299,6 +1299,28 @@ test('inbox --history lists the messages addressed to me, from a seq, and moves 
   assert.equal(bad.code, 1); assert.match(bad.err, /usage: inbox\.mjs --history/);
   assert.ok(hits.every(u => u === '/status' || (u.startsWith('/api/messages?') && !u.includes('consumer_id'))), hits);
   assert.ok(!hits.some(u => u.includes('/api/ack') || u.includes('/api/wait')), hits);
+});
+
+// SPEC §7.2: a retransmission keeps its MESSAGE-ID. The watch shows the
+// copy — the first may never have been read — marked with the earlier seq.
+test('a retransmitted delivery is marked with the seq of the earlier copy; a first copy is not', async () => {
+  const text = (id, from = 'x/y') => `[GZCOORD/1] INFO\nFROM: ${from}\nROLE: backend-dev\nPROJECT: fixture\nBROADCAST: true\nMESSAGE-ID: ${id}\nSUBJECT: s\n\nNOTES:\nn\n`;
+  const rec = (seq, id, from) => ({ seq, id: `r${seq}`, sender: from ?? 'x/y', timestamp: `T${seq}`, content: text(id, from) });
+  const A = '01a09fc1-0000-7000-8000-0000000000a1', B = '01a09fc1-0000-7000-8000-0000000000b1';
+  const recent = { messages: [rec(4, A), rec(6, B, 'other/z'), rec(9, A), rec(10, B)] };
+  const classify = r => ({ rec: r, msg: parse(r.content), isMine: true });
+  const got = [classify(rec(9, A)), classify(rec(10, B))];
+  await markRetransmissions(got, async () => recent);
+  assert.equal(got[0].retransmitOf, 4);
+  assert.equal(got[1].retransmitOf, undefined, 'the same id from another FROM is another message');
+  const out = render({ classified: got }, { address: 'h/me' }, 'fixture:chan', undefined, {});
+  assert.match(out, /retransmission: the same FROM and MESSAGE-ID arrived before as relay seq 4/);
+  assert.equal((out.match(/retransmission:/g) ?? []).length, 1);
+  const failed = [classify(rec(9, A))];
+  await markRetransmissions(failed, async () => { throw new Error('relay down'); });
+  assert.equal(failed[0].retransmitOf, undefined);
+  await markRetransmissions(failed, async () => ({}));
+  assert.equal(failed[0].retransmitOf, undefined, 'an answer that is not a list marks nothing');
 });
 
 // The environment is a snapshot; the synced file is current. A refused

@@ -124,5 +124,6 @@
   "wait.nothing": "gzcoord inbox: nothing for you on {channel} in {waited}s ({others_passed} passed for others)",
   "history.head": "gzcoord history for {address}: {n} addressed to you in the relay's last {window} on {channel} (from seq {first}; the cursor does not move)",
   "history.replay-hint": "the whole message: {cmd} <seq>",
-  "history.usage": "usage: inbox.mjs --history [<seq>]"
+  "history.usage": "usage: inbox.mjs --history [<seq>]",
+  "delivery.retransmission": "retransmission: the same FROM and MESSAGE-ID arrived before as relay seq {seq} (SPEC §7.2) — one message, not two; act on it once"
 }

@@ -362,6 +362,32 @@ async function replay(tok, relayUrl, channel, which, me, t = en()) {
 // --replay reads. One line per message addressed to this session; an agent
 // catching up used to replay them one by one, hundreds of calls.
 export const HISTORY_WINDOW = 500;
+
+// SPEC §7.2: a retransmission keeps its MESSAGE-ID, and a recipient
+// holding both copies discards one. The watch cannot know what this
+// session read, so it still shows the copy — the first may have been cut
+// or scrolled past — and marks it with the seq of the earlier one, so the
+// reader can tell a second copy from a second request. The earlier copy
+// is looked up in the relay's recent history (same FROM, same MESSAGE-ID,
+// a lower seq); a lookup that fails marks nothing.
+export async function markRetransmissions(classified, fetchRecent) {
+  const mine = classified.filter(c => c.isMine && c.msg?.metadata?.['MESSAGE-ID']);
+  if (!mine.length) return;
+  let list;
+  // Best effort: an answer that is not a list marks nothing, and never
+  // stands between the session and its delivery.
+  try { const page = await fetchRecent(); list = Array.isArray(page?.messages) ? page.messages : Array.isArray(page) ? page : []; } catch { return; }
+  const first = new Map();
+  for (const rec of list) {
+    let m; try { m = parse(normalize(rec.content)); } catch { continue; }
+    const key = `${m.metadata?.FROM}|${m.metadata?.['MESSAGE-ID']}`;
+    if (!first.has(key) || Number(rec.seq) < Number(first.get(key))) first.set(key, rec.seq);
+  }
+  for (const c of mine) {
+    const seq = first.get(`${c.msg.metadata.FROM}|${c.msg.metadata['MESSAGE-ID']}`);
+    if (seq !== undefined && Number(seq) < Number(c.rec.seq)) c.retransmitOf = seq;
+  }
+}
 async function history(tok, relayUrl, channel, fromSeq, me, t = en()) {
   const page = await api(tok, `/api/messages?${new URLSearchParams({ channel, limit: String(HISTORY_WINDOW), full: '1' })}`, { relayUrl });
   const list = page.messages ?? page;
@@ -572,21 +598,22 @@ export function splitMessage(text) {
 const MAX_FLAG_LINES = 4;
 export function render(res, me, channel, taxonomy, { cap = Infinity, t = en(), reminder = '' } = {}) {
   const mine = [], others = [];
-  for (const { rec, msg, isMine } of res.classified) {
+  for (const { rec, msg, isMine, retransmitOf } of res.classified) {
     if (!msg) { others.push({ rec, line: t('inbox.not-a-message', { id: rec.id, sender: rec.sender }) }); continue; }
-    (isMine ? mine : others).push({ rec, msg });
+    (isMine ? mine : others).push({ rec, msg, retransmitOf });
   }
   // The reminder rides the head line and nothing else: it is the one
   // line read on every drain and every delivery, and the cap arithmetic
   // below measures the head as it will actually print.
   const head = t('inbox.head', { who: `${me.address}${me.slug ? ` (${me.slug})` : ''}`,
                                  mine: mine.length, others: others.length, channel }) + reminder;
-  const parts = mine.map(({ rec }) => {
+  const parts = mine.map(({ rec, retransmitOf }) => {
     // The message has arrived: the terminal-copy width warning does not apply.
     const v = validate(rec.content, { taxonomy, maxColumns: 0, t });
     let flags = [...(v.errors.map(e => t('delivery.invalid', { detail: e }))), ...v.warnings.map(w => t('delivery.warning', { detail: w }))];
     // Only under a cap: the drain shows every validator line.
     if (Number.isFinite(cap) && flags.length > MAX_FLAG_LINES) flags = [...flags.slice(0, MAX_FLAG_LINES), t('delivery.flags-more', { n: flags.length - MAX_FLAG_LINES })];
+    if (retransmitOf !== undefined) flags = [t('delivery.retransmission', { seq: retransmitOf }), ...flags];
     const title = `${t('delivery.title', { seq: rec.seq, sender: rec.sender, when: rec.timestamp })}${flags.length ? `\n    ${flags.join('\n    ')}` : ''}`;
     const text = rec.content.replace(/\n$/, '');
     return { rec, title, text, ...splitMessage(text) };
@@ -719,6 +746,7 @@ export async function main(argv = process.argv.slice(2)) {
   // the source for them, and a key built in an expression is a key the
   // dead-and-missing guard cannot see.
   const onHold = h => console.error(h ? t('watch.held') : t('watch.hold-released'));
+  const fetchRecent = () => api(tok, `/api/messages?${new URLSearchParams({ channel: CHANNEL, limit: String(HISTORY_WINDOW), full: '1' })}`, { relayUrl });
 
   if (follow) {
     // The watch. Each arm waits an hour of slices; a delivery is printed
@@ -738,7 +766,7 @@ export async function main(argv = process.argv.slice(2)) {
         continue;
       }
       if (down) { console.log(t('watch.relay-back')); down = false; }
-      if (r.delivered) console.log(render(r, me, CHANNEL, taxonomy, { cap: NOTIFICATION_CAP, t, reminder }));
+      if (r.delivered) { await markRetransmissions(r.classified, fetchRecent); console.log(render(r, me, CHANNEL, taxonomy, { cap: NOTIFICATION_CAP, t, reminder })); }
     }
   }
 
@@ -757,6 +785,7 @@ export async function main(argv = process.argv.slice(2)) {
   if (!res.delivered && waitIdx >= 0)
     console.log(t('wait.nothing', { channel: CHANNEL, waited: res.waited, others_passed: res.othersPassed }));
   if (!res.delivered) return 0;
+  await markRetransmissions(res.classified, fetchRecent);
   console.log(render(res, me, CHANNEL, taxonomy, { t, reminder }));
   // The cursor is already advanced past everything shown — waitLoop
   // acknowledges every slice it sees, delivered or passed.
