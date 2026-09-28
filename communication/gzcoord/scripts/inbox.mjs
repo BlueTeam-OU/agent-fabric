@@ -12,6 +12,11 @@
 //                                        re-read ONE message already past the cursor
 //                                        (the cursor does not move; a body not
 //                                        addressed to this session is not shown)
+//   node communication/gzcoord/scripts/inbox.mjs --history [<seq>]
+//                                        one line for each message addressed
+//                                        to this session in the relay's recent
+//                                        history (from <seq> on); bodies stay
+//                                        with --replay; the cursor does not move
 //   node communication/gzcoord/scripts/inbox.mjs --held   is this account's inbox
 //                                        held (the session is planning)? exit 0
 //                                        held, 1 not; one line either way
@@ -352,6 +357,27 @@ async function replay(tok, relayUrl, channel, which, me, t = en()) {
   return 0;
 }
 
+// The relay pages forward from a message it holds (since_id) and never
+// backward, so what can be listed is its newest page — the same window
+// --replay reads. One line per message addressed to this session; an agent
+// catching up used to replay them one by one, hundreds of calls.
+export const HISTORY_WINDOW = 500;
+async function history(tok, relayUrl, channel, fromSeq, me, t = en()) {
+  const page = await api(tok, `/api/messages?${new URLSearchParams({ channel, limit: String(HISTORY_WINDOW), full: '1' })}`, { relayUrl });
+  const list = page.messages ?? page;
+  const lines = [];
+  for (const rec of list) {
+    if (fromSeq !== null && Number(rec.seq) < fromSeq) continue;
+    let msg = null; try { msg = parse(normalize(rec.content)); } catch { continue; }
+    if (!forMe(msg, me)) continue;
+    lines.push(`  ${rec.seq}  ${rec.timestamp ?? rec.ts ?? ''}  ${rec.sender}  ${oneLine(msg, t)}`);
+  }
+  console.log(t('history.head', { n: lines.length, window: list.length, first: list[0]?.seq ?? '-', channel, address: me.address }));
+  for (const l of lines) console.log(l);
+  if (lines.length) console.log(t('history.replay-hint', { cmd: REPLAY_CMD }));
+  return 0;
+}
+
 // The addressing half is the WIRE's vocabulary, not this tool's: TO,
 // TO-ROLE, broadcast and the type are matched by name across locales and
 // are never translated (i18n.mjs). Only the missing-id placeholder is.
@@ -610,6 +636,9 @@ export async function main(argv = process.argv.slice(2)) {
   const follow = argv.includes('--follow');
   const replayIdx = argv.indexOf('--replay');
   const replayWhich = replayIdx >= 0 ? argv[replayIdx + 1] : null;
+  const historyIdx = argv.indexOf('--history');
+  const historyArg = historyIdx >= 0 ? argv[historyIdx + 1] : undefined;
+  const historyFrom = historyArg !== undefined && !historyArg.startsWith('--') ? Number(historyArg) : null;
   const waitTotal = waitIdx >= 0 ? (Number(argv[waitIdx + 1]) || 1800) : 0;
   // Who this session is (the login) and which project it is working in
   // (from the working copy's remote, or the binding) — the second selects
@@ -631,6 +660,7 @@ export async function main(argv = process.argv.slice(2)) {
   const keywords = checkKeywords(argv.flatMap((a, i) => a === '--keyword' ? [argv[i + 1]] : []), t);
   // Also after `t`: a usage line is one of this login's lines (re-review §3).
   if (replayIdx >= 0 && !replayWhich) { console.error(t('replay.usage')); return 1; }
+  if (historyIdx >= 0 && historyFrom !== null && !Number.isInteger(historyFrom)) { console.error(t('history.usage')); return 1; }
   if (argv.includes('--held')) {
     const h = holdStatus(undefined, { t });
     const unknown = t('held.unknown');
@@ -669,6 +699,10 @@ export async function main(argv = process.argv.slice(2)) {
       throw e;
     }
   };
+  if (historyIdx >= 0) {
+    try { return await withFreshToken(tok => history(tok, relayUrl, channel, historyFrom, me, t)); }
+    catch (e) { const x = explainRelayError(e, relayUrl, t); console.error(x.line); return x.code || 1; }
+  }
   if (replayWhich) {
     try { return await withFreshToken(tok => replay(tok, relayUrl, channel, replayWhich, me, t)); }
     catch (e) { const x = explainRelayError(e, relayUrl, t); console.error(x.line); return x.code || 1; }

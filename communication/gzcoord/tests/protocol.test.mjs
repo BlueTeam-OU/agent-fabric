@@ -1272,6 +1272,35 @@ test('inbox --replay shows a broadcast, withholds a body not for me, moves no cu
   assert.ok(!hits.some(u => u.includes('/api/ack') || u.includes('/api/wait')), hits);
 });
 
+// --history lists what is addressed to me in one call, from a seq on,
+// withholding what is not, reading no body into the listing and moving no cursor.
+test('inbox --history lists the messages addressed to me, from a seq, and moves no cursor', async () => {
+  const msg = (n, to, subject) => `[GZCOORD/1] INFO\nFROM: x/y\nROLE: backend-dev\nPROJECT: fixture\n${to}\nMESSAGE-ID: 01a09fc1-0000-7000-8000-00000000000${n}\nSUBJECT: ${subject}\n\nNOTES:\nBODY-${n}\n`;
+  const hits = [];
+  const server = http.createServer((req, res) => {
+    hits.push(req.url); res.setHeader('content-type', 'application/json'); res.setHeader('connection', 'close');
+    res.end(JSON.stringify({ channel: 'fixture:chan', messages: [
+      { seq: 5, id: 'r5', ts: 'T5', sender: 'x/y', content: msg(5, 'BROADCAST: true', 'early') },
+      { seq: 7, id: 'r7', ts: 'T7', sender: 'x/y', content: msg(7, 'BROADCAST: true', 'for all') },
+      { seq: 8, id: 'r8', ts: 'T8', sender: 'x/y', content: msg(8, 'TO: other-host/someone', 'private') }] }));
+  });
+  await new Promise(r => server.listen(0, '127.0.0.1', r));
+  const INBOX = fileURLToPath(new URL('../scripts/inbox.mjs', import.meta.url));
+  const env = { ...process.env, HOME: scratch('home-'), CLAUDE_BRIDGE_URL: `http://127.0.0.1:${server.address().port}`, CLAUDE_BRIDGE_AUTH_TOKEN: 'tok', GZCOORD_CHANNEL: 'fixture:chan' };
+  const run = args => new Promise(resolve => execFile('node', [INBOX, ...args], { env, encoding: 'utf8' }, (e, out, err) => resolve({ code: e ? e.code : 0, out: String(out), err: String(err) })));
+  const all = await run(['--history']);
+  const from = await run(['--history', '6']);
+  const bad = await run(['--history', 'x']);
+  server.closeAllConnections(); server.close();
+  assert.equal(all.code, 0, all.err);
+  assert.match(all.out, /2 addressed to you in the relay's last 3/); assert.match(all.out, / 5 .*early/); assert.match(all.out, / 7 .*for all/);
+  assert.doesNotMatch(all.out, /private|BODY-/); assert.match(all.out, /gzcoord-inbox --replay <seq>/);
+  assert.equal(from.code, 0, from.err); assert.match(from.out, /1 addressed to you/); assert.doesNotMatch(from.out, /early/);
+  assert.equal(bad.code, 1); assert.match(bad.err, /usage: inbox\.mjs --history/);
+  assert.ok(hits.every(u => u === '/status' || (u.startsWith('/api/messages?') && !u.includes('consumer_id'))), hits);
+  assert.ok(!hits.some(u => u.includes('/api/ack') || u.includes('/api/wait')), hits);
+});
+
 // The environment is a snapshot; the synced file is current. A refused
 // token is retried once with the file's value, and that is what recovers
 // a watch re-armed from a pre-rotation shell.
