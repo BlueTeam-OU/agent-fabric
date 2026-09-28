@@ -48,7 +48,7 @@
 # and lose, being by definition the older ones.
 #
 # Usage:
-#   runtime/github/pr-sessions.sh                 # THIS clone's PRs (default)
+#   runtime/github/pr-sessions.sh                 # THIS session's PRs (default)
 #   runtime/github/pr-sessions.sh /all            # every session
 #   runtime/github/pr-sessions.sh /unattributed   # only PRs no session owns
 #   runtime/github/pr-sessions.sh -n 50           # last 50 rows
@@ -251,7 +251,7 @@ if root="$(git rev-parse --show-toplevel 2>/dev/null)"; then
     ROLE="$(python3 "$FABRIC_ROOT/runtime/identity.py" --role 2>/dev/null || true)"
 fi
 
-# Inside a clone with no explicit scope: show that clone's PRs. If ME
+# Inside a clone with no explicit scope: show this session's PRs. If ME
 # cannot be resolved there is nothing to infer, so fall through to
 # everything — unreachable today (gh needs a repo and fails earlier),
 # kept so the default cannot silently become "someone else's session"
