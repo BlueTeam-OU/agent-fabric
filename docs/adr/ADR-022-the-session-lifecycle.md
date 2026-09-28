@@ -130,14 +130,16 @@ the same command asks on one account and not on another.
     restart marker with `fresh` true and a one-line note, and stops its
     own session gracefully; the launcher relaunches with no `--resume`,
     the note in the new opening prompt. It is refused outside a launched
-    session and on a working copy with uncommitted changes unless
-    `--force`. When to use it is the agent's judgement: a job that has
+    session, where the launch carried its own prompt (the relaunch would
+    replay it), and on a working copy with uncommitted changes, untracked
+    files included, unless `--force`. When to use it is the agent's judgement: a job that has
     reached its artifact, with nothing it still waits on needing the
     conversation (A 2026-09-28).
 11. Each working copy's local branches are swept weekly with
     `fabric-branches --sweep`, after a plain fetch: the agent deletes on
     its own what is wholly on `origin/main`, and worktrees at 0 with no
-    changes; a branch with commits off main is kept and brought to the
+    changes, no ignored files and no lock, never the one it runs in; a
+    branch with commits off main is kept and brought to the
     person. Local only: no remote branch is deleted or pushed. The
     session-start hook says when a working copy's last sweep is older
     than seven days; nothing runs on a timer (A 2026-09-28).

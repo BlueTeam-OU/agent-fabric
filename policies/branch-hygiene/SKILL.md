@@ -35,9 +35,11 @@ The number beside each branch and worktree is how many of its commits
 are **not** on `origin/main`:
 
 - **0**: everything on it is on main. `--sweep` deletes it, re-counting
-  at deletion. A worktree at 0 with no changes, untracked files
-  included, is removed. You do this without asking; losing nothing is
-  provable.
+  at deletion. A worktree at 0 is removed only when it has no changes
+  (untracked files included), no ignored files (a `.env`, a build that
+  removal would delete) and no lock, and is not the one you run in; the
+  others are listed with the reason they stay. You do this without
+  asking; losing nothing is provable.
 - **More than 0**: kept, and listed with its commits and its pull
   request. This is either work you still owe or a decision for the
   person. Never delete it in a sweep.

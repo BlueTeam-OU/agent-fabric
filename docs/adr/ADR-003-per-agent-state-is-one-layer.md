@@ -51,7 +51,10 @@ session stopped it polls the marker until the control agent records the
 upgrade's outcome, or until `AGENT_FABRIC_RESTART_WAIT_S` (600 s by
 default) passes, then removes it; a marker the control agent writes
 after that is older than the next launch, which discards it. Both sides replace the whole file or
-remove it, never edit it in place.
+remove it, never edit it in place. The session writes the marker
+too when it ends its own finished job (`bin/fabric-fresh`, ADR-022),
+through `identity.atomic_write`; the launcher reads a fresh marker at
+once and waits on nothing.
 
 A binding is per (agent, host). A working-copy rename merges history,
 never overwrites it.
@@ -83,7 +86,9 @@ state file an obvious place to get its writer.
    temporary and rename.
 2. Every read-modify-write of per-agent state holds `agent_lock`, except
    the Node control agent's own files (§2), which only it writes and the
-   launcher only consumes.
+   launcher only consumes; `restart.json` has a second writer,
+   `bin/fabric-fresh`, which replaces it whole through `atomic_write`
+   (A 2026-09-28).
 3. `read_binding` refuses a record that names another agent or whose
    `host` is not this machine's, with the same wording, and says how to
    bind here. A move between hosts is a rebind there.
@@ -121,3 +126,11 @@ Accepted and in force.
   `runtime/provisioning/rename-working-copy.sh`.
 - `tests/test_identity.py`, `tests/test_rename_history.py`.
 - ADR-002 (the dimensions this state belongs to).
+
+## Amendments
+
+The body above reads current; each change's full note is in [history/ADR-003-amendments.md](history/ADR-003-amendments.md).
+
+| Date | Amendment | Effect |
+|---|---|---|
+| 2026-09-28 | An agent's own session writes its restart marker and its sweep record | §2, §5 rule 2: `fabric-fresh` a second `restart.json` writer; `fabric-branches` writes `branch-sweep.json` under `agent_lock` |

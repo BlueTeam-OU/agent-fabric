@@ -140,21 +140,25 @@ for b in "${zero[@]}"; do
 done
 (( ${#kept[@]} )) && echo "kept, with commits off main: ${kept[*]} — work still owed, or the person's decision"
 
-state="${AGENT_FABRIC_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/agent-fabric}/agents/$(id -un)"
-mkdir -p "$state" && python3 - "$state/branch-sweep.json" "$top" <<'PY'
-import datetime, json, os, sys, tempfile
-path, top = sys.argv[1], sys.argv[2]
-try:
-    doc = json.load(open(path, encoding="utf-8"))
-    doc = doc if isinstance(doc, dict) else {}
-except (OSError, ValueError):
-    doc = {}
-doc[top] = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-fd, tmp = tempfile.mkstemp(prefix=".tmp-", dir=os.path.dirname(path))
-with os.fdopen(fd, "w", encoding="utf-8") as fh:
-    json.dump(doc, fh, indent=2, sort_keys=True)
-    fh.write("\n")
-os.replace(tmp, path)
+# Per-agent state is written through runtime/identity.py (ADR-003): the
+# record is a read-modify-write, and two sweeps of one login would
+# otherwise lose one working copy's date.
+python3 - "$(cd -- "$(dirname -- "$(readlink -f -- "$0")")/.." && pwd)" "$top" <<'PY'
+import importlib.util, os, sys
+spec = importlib.util.spec_from_file_location("fabric_identity", os.path.join(sys.argv[1], "runtime", "identity.py"))
+identity = importlib.util.module_from_spec(spec); spec.loader.exec_module(identity)
+import json
+top = sys.argv[2]
+with identity.agent_lock():
+    path = os.path.join(identity.agent_state_dir(), "branch-sweep.json")
+    try:
+        with open(path, encoding="utf-8") as fh:
+            doc = json.load(fh)
+        doc = doc if isinstance(doc, dict) else {}
+    except (OSError, ValueError):
+        doc = {}
+    doc[top] = identity.now_iso()
+    identity.atomic_write(path, json.dumps(doc, indent=2, sort_keys=True) + "\n")
 PY
 echo
 git branch

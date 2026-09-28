@@ -114,6 +114,8 @@ searches it.
 - A binding is per (agent, host); another host's is refused (§5 rule 3).
 - A working-copy rename merges history, never overwrites (§5 rule 4); the
   session-start hook stays non-blocking (§5 rule 5).
+- A 2026-09-28 — `fabric-fresh` is a second `restart.json` writer, through
+  `identity.py`; `fabric-branches` records its sweeps under `agent_lock`.
 - Keywords: state, binding, atomic write, lock, flock, rename, history,
   host, XDG_STATE_HOME.
 
@@ -207,6 +209,8 @@ searches it.
   merge (§5 rules 5–6). Any failed row exits 1 (§5 rule 7).
 - Fabric commands run by name from `commands.json`, linked into
   `~/.local/bin` with narrow allow rules; wrappers still ask (§5 rules 8–9).
+- A 2026-09-28 — a `fresh` restart marker starts a new session, not a resume
+  (rule 4, ADR-022 rule 10).
 - Keywords: fabric-ctl, upgrade, distribution, signed, control plane,
   agentd, hostexec, harness.json, commands.json, approval, allow rule.
 

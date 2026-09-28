@@ -66,15 +66,16 @@ state="${AGENT_FABRIC_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/agent-fab
 mkdir -p "$state" || exit 1
 # requested_at a second ahead: the launcher obeys only a marker newer than
 # its own start, and a job can end within the second the session began.
-python3 - "$state/restart.json" "$note" <<'PY' || exit 1
-import datetime, json, os, sys, tempfile
-path, note = sys.argv[1], " ".join(sys.argv[2].split())[:300]
+# Written through runtime/identity.py, like all per-agent state (ADR-003).
+python3 - "$(cd -- "$(dirname -- "$(readlink -f -- "$0")")/.." && pwd)" "$state/restart.json" "$note" <<'PY' || exit 1
+import importlib.util, os, sys
+spec = importlib.util.spec_from_file_location("fabric_identity", os.path.join(sys.argv[1], "runtime", "identity.py"))
+identity = importlib.util.module_from_spec(spec); spec.loader.exec_module(identity)
+import datetime, json
+path, note = sys.argv[2], " ".join(sys.argv[3].split())[:300]
 at = (datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(seconds=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
-fd, tmp = tempfile.mkstemp(prefix=".tmp-", dir=os.path.dirname(path))
-with os.fdopen(fd, "w", encoding="utf-8") as fh:
-    json.dump({"requested_at": at, "piece": "a fresh session", "status": "done", "fresh": True, "note": note}, fh)
-    fh.write("\n")
-os.replace(tmp, path)
+identity.atomic_write(path, json.dumps({"requested_at": at, "piece": "a fresh session", "status": "done",
+                                        "fresh": True, "note": note}) + "\n")
 PY
 echo "fabric-fresh: ending this session; the launcher starts a fresh one${note:+ with: $note}" >&2
 # A marker whose stop failed would turn the session's next plain exit
