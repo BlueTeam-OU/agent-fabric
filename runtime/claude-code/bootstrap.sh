@@ -20,7 +20,8 @@
 #   ~/.claude/settings.json            the fabric's user-scope keys (runtime/claude-code/user-settings.py):
 #                                      attribution commit "", pr "", sessionUrl false — the harness's
 #                                      Co-Authored-By/Generated-with reminder off at its source —
-#                                      showThinkingSummaries and verbose on; every other key kept
+#                                      showThinkingSummaries and verbose on, tui default, the
+#                                      memory-write check hook (PostToolUse); every other key kept
 #   ~/.claude/skills/subagent-dispatch/SKILL.md
 #   ~/.claude/skills/fabric-decisions/SKILL.md
 #   ~/.claude/skills/branch-hygiene/SKILL.md

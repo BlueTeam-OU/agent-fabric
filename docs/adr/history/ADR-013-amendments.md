@@ -29,3 +29,19 @@ wording would have landed as five new slices in a gzapp drain, two stale
 citations kept; the authors corrected their source memories instead, and
 agent-fabric #58 corrected the prompt, CLAUDE.md and memory/README.md.
 #58's review found this rule still teaching the old flow.
+
+### Amendment 2026-09-28 — A memory is judged when it is written
+
+The owner chose the external skill-layer plugin comparison's idea 3 for
+the fabric: tell an agent about a memory the drain will reject when it
+writes it, not weeks later at the drain. The same day's gzapp drain showed
+the cost of finding out late: a 16.8 KB thread memory over the slice
+budget, and correction memories that would have landed beside their
+targets. A PostToolUse hook was read back first
+(`docs/live-checks/2026-09-28-posttooluse-memory-feedback.md`): it gets
+the written path, and the model reads its `additionalContext`. It runs at
+user scope, from the settings writer, because a memory belongs to the
+account wherever its session started; a workspace-template hook would ask
+every managed project to mirror it. The rules are imported from the
+harvester and lint, not copied. A usage measurement of slices and skills,
+the comparison's idea 1, is kept for later.

@@ -4,7 +4,7 @@
 **Status:** Accepted
 **Ratified:** owner, 2026-09-27, by arming agent-fabric #52 (ratification by merge, the owner's rule of 2026-09-27)
 **Decision Makers:** the owner; drafted by fabric-coordinator
-**Scope:** memory/ (README.md, RUBRIC.md, domains/, shared/, agents/); every managed project's .agent-fabric/memory/; tools/fabric/layout.py, tools/fabric/harvest_memory.py, tools/fabric/assemble.py, tools/fabric/lint.py, tools/fabric/query.sh; identities/schemas/claims.schema.json; identities/prompt/memory.md; policies/hygiene.json; runtime/control/ctl.mjs (the `memory` op); bin/fabric-status (the undrained count)
+**Scope:** memory/ (README.md, RUBRIC.md, domains/, shared/, agents/); every managed project's .agent-fabric/memory/; tools/fabric/layout.py, tools/fabric/harvest_memory.py, tools/fabric/assemble.py, runtime/claude-code/hooks/memory-write-check.py, tools/fabric/lint.py, tools/fabric/query.sh; identities/schemas/claims.schema.json; identities/prompt/memory.md; policies/hygiene.json; runtime/control/ctl.mjs (the `memory` op); bin/fabric-status (the undrained count)
 **Pillar:** P2
 
 ## 1. Context and Problem
@@ -211,6 +211,12 @@ arrive, and each can be traced to who learnt it, where and when.
     folds new claims into them; regenerating from scratch is never done
     implicitly, an empty delta is a correct outcome, and the same claims
     twice give a byte-identical tree.
+14. A memory that opts into the drain is judged when it is written: a
+    user-scope PostToolUse hook (`runtime/claude-code/hooks/memory-write-check.py`,
+    written by the settings writer) runs the harvester's and lint's own
+    rules on that one file and tells the session, one line per problem,
+    what the drain would refuse or hold; it is silent otherwise, never
+    blocks, and names a credential by its kind only (A 2026-09-28).
 
 ## 6. Consequences
 
@@ -272,3 +278,4 @@ The body above reads current; each change's full note is in [history/ADR-013-ame
 |---|---|---|
 | 2026-09-28 | What a session is given at start | §7: the known gap closed — the INDEX banner no longer claims the hook gives workflow slices |
 | 2026-09-28 | A correction replaces a section only at its source or with merge_target | §5 rule 12: the two ways, per ADR-014 rule 7 |
+| 2026-09-28 | A memory is judged when it is written | §5 rule 14: the write-time check, at user scope |

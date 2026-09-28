@@ -196,6 +196,7 @@ searches it.
   new build (§5 rule 5).
 - A 2026-09-28 — `tui` "default" is pinned, so a session's terminal keeps its
   scrollback.
+- A 2026-09-28 — the settings writer adds the memory-write check hook (ADR-013 rule 14).
 - Keywords: Claude Code, harness, settings.json, attribution, Co-Authored-By,
   auto-update, DISABLE_AUTOUPDATER, verbose, auto mode, system prompt, build.
 
@@ -281,6 +282,8 @@ searches it.
   workflow slices are cued, read before the work they govern (§7).
 - A 2026-09-28 — a wrong slice is corrected at its source memory or with
   `merge_target` (rule 12, ADR-014 rule 7).
+- A 2026-09-28 — a drain-bound memory is judged when written: a user-scope hook
+  says what the drain would refuse or hold (rule 14).
 - Keywords: memory, knowledge, slice, drain, harvest, assemble, roles_class,
   domain, solution, rationale, workflow, threads, INDEX, provenance,
   watermark, bundle, hygiene, redacted, tier.

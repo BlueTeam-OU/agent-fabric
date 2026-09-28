@@ -49,6 +49,13 @@ printf '[1]\n' > "$S"; out="$(run "$S" 2>&1)"; rc=$?
 [[ $rc -eq 1 && "$(cat "$S")" == "[1]" ]] && ok "a JSON file that is not an object is refused too" || bad "non-object" "$out"
 out="$(run 2>&1)"; [[ $? -eq 2 ]] && ok "no path: usage, exit 2" || bad "usage" "$out"
 
+echo "the memory-write check at user scope"
+printf '{"hooks": {"PostToolUse": [{"matcher": "Bash", "hooks": [{"type": "command", "command": "mine.sh"}]}, {"matcher": "Write|Edit", "hooks": [{"type": "command", "command": "python3 \\"/old/place/runtime/claude-code/hooks/memory-write-check.py\\""}]}], "Stop": [{"hooks": [{"type": "command", "command": "stop.sh"}]}]}}\n' > "$S"
+out="$(run "$S")"
+msg="$(check "p=d['hooks']['PostToolUse']; mc=[e for e in p if 'memory-write-check.py' in e['hooks'][0]['command']]; assert len(mc)==1 and mc[0]['matcher']=='Write|Edit' and '$FABRIC/runtime/claude-code/hooks/memory-write-check.py' in mc[0]['hooks'][0]['command'], p; assert any(e['hooks'][0]['command']=='mine.sh' for e in p) and d['hooks']['Stop'][0]['hooks'][0]['command']=='stop.sh', d")" \
+  && ok "one entry, at this checkout's path (an old path replaced); the account's own hooks kept" || bad "memory check hook" "$out ${msg:-} $(cat "$S")"
+out="$(run "$S")"; [[ "$out" == "  =  $S fabric user settings" ]] && ok "…and a second run changes nothing" || bad "hook idempotence" "$out"
+
 echo "bootstrap runs it"
 grep -q 'user-settings.py" "\$CLAUDE_HOME/settings.json"' "$HERE/bootstrap.sh" && ok "bootstrap.sh calls it on the login's user settings" || bad "bootstrap wiring"
 grep -q 'attribution-off' "$HERE/bootstrap.sh" && bad "bootstrap.sh still names the retired writer" || ok "the retired name is gone from bootstrap.sh"
