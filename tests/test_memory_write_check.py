@@ -21,9 +21,11 @@ def memory(dirpath: str, name: str, description: str, meta: str, body: str) -> s
     return path
 
 
-def run(path: str, raw: str | None = None) -> tuple[int, str]:
+def run(path: str, raw: str | None = None, env: dict | None = None) -> tuple[int, str]:
     data = raw if raw is not None else json.dumps({"tool_name": "Write", "tool_input": {"file_path": path}})
-    p = subprocess.run([sys.executable, HOOK], input=data, capture_output=True, text=True)
+    p = subprocess.run([sys.executable, HOOK], input=data, capture_output=True, text=True, env=env)
+    if env is not None and p.stderr.strip():
+        return 1, "stderr: " + p.stderr.strip()
     if not p.stdout.strip():
         return p.returncode, ""
     doc = json.loads(p.stdout)
@@ -66,6 +68,26 @@ def main() -> int:
             good = rc == 0 and not out
             print(f"  {'ok  ' if good else 'FAIL'} {label}" + ("" if good else f": rc={rc} {out!r}"))
             fails += not good
+        # A fabric tree the harvester cannot load (its schema missing:
+        # mid-checkout, a stale root) exits it at import with SystemExit;
+        # the hook still says nothing and exits 0.
+        # The whole committed tree but for the claims schema, so the import
+        # reaches the harvester's own sys.exit and nothing earlier.
+        broken = os.path.join(tmp, "broken-fabric")
+        os.makedirs(broken)
+        archive = subprocess.run(["git", "-C", ROOT, "archive", "HEAD"], capture_output=True, check=True).stdout
+        subprocess.run(["tar", "-x", "-C", broken], input=archive, check=True)
+        os.remove(os.path.join(broken, "identities", "schemas", "claims.schema.json"))
+        for f in ("runtime/claude-code/hooks/memory-write-check.py",):
+            with open(os.path.join(ROOT, f), encoding="utf-8") as src, \
+                 open(os.path.join(broken, f), "w", encoding="utf-8") as dst:
+                dst.write(src.read())
+        rc, out = run(memory(mem, "late", "x", "  roles_class: solution\n", "body"),
+                      env={**os.environ, "AGENT_FABRIC_ROOT": broken})
+        good = rc == 0 and not out
+        print(f"  {'ok  ' if good else 'FAIL'} a fabric the harvester cannot load: silent, exit 0"
+              + ("" if good else f": rc={rc} {out!r}"))
+        fails += not good
     print(f"\n{'FAILED' if fails else 'all passed'}")
     return 1 if fails else 0
 

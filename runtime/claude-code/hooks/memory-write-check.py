@@ -89,7 +89,10 @@ def main() -> int:
         if not MEMORY_PATH_RE.search(path) or not os.path.isfile(path):
             return 0
         found = problems(path)
-    except Exception:  # noqa: BLE001 — a check must never cost the session its write
+    # SystemExit too: the harvester exits at import when its schema is
+    # unreadable (a checkout mid-update, a stale root), and a hook that
+    # promised silence would otherwise print its message and exit 1.
+    except (Exception, SystemExit):  # noqa: BLE001 — a check must never cost the session its write
         return 0
     if found:
         name = os.path.basename(path)
