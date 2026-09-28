@@ -114,6 +114,8 @@ searches it.
 - A binding is per (agent, host); another host's is refused (§5 rule 3).
 - A working-copy rename merges history, never overwrites (§5 rule 4); the
   session-start hook stays non-blocking (§5 rule 5).
+- A 2026-09-28 — `fabric-fresh` is a second `restart.json` writer, through
+  `identity.py`; `fabric-branches` records its sweeps under `agent_lock`.
 - Keywords: state, binding, atomic write, lock, flock, rename, history,
   host, XDG_STATE_HOME.
 
@@ -190,6 +192,8 @@ searches it.
   only through `harness.json` and `upgrade claude` (§5 rule 4).
 - `harness/en.md` is the captured harness prompt, verbatim, refreshed on a
   new build (§5 rule 5).
+- A 2026-09-28 — `tui` "default" is pinned, so a session's terminal keeps its
+  scrollback.
 - Keywords: Claude Code, harness, settings.json, attribution, Co-Authored-By,
   auto-update, DISABLE_AUTOUPDATER, verbose, auto mode, system prompt, build.
 
@@ -205,6 +209,8 @@ searches it.
   merge (§5 rules 5–6). Any failed row exits 1 (§5 rule 7).
 - Fabric commands run by name from `commands.json`, linked into
   `~/.local/bin` with narrow allow rules; wrappers still ask (§5 rules 8–9).
+- A 2026-09-28 — a `fresh` restart marker starts a new session, not a resume
+  (rule 4, ADR-022 rule 10).
 - Keywords: fabric-ctl, upgrade, distribution, signed, control plane,
   agentd, hostexec, harness.json, commands.json, approval, allow rule.
 
@@ -428,6 +434,10 @@ searches it.
   `gzcoord-send` tells the sender, without refusing (§5 rule 8).
 - A clone-started session is held only if its project wires the hooks
   (§5 rule 9, §7).
+- A 2026-09-28 — an agent ends its own finished job with `fabric-fresh`: a new
+  session, not a resumed one (§5 rule 10).
+- A 2026-09-28 — local branches are swept weekly: `fabric-branches --sweep` deletes
+  what is on origin/main and reports the rest (§5 rule 11).
 - Keywords: session, lifecycle, inbox watch, Monitor, gzcoord-inbox,
   --follow, opening prompt, resume, auto mode, defaultMode, plan mode,
   hold, planning, presence.
@@ -628,6 +638,8 @@ searches it.
 - Every change to the four files lands with an amendment of ADR-032 in the
   same PR; examples and validator move with the text (§5 rules 7–8).
 - A 2026-09-27 — HELLO and GOODBYE retired: a narrowing under rule 4.
+- A 2026-09-28 — SPEC is Normative and names this record; CAPABILITIES and
+  SPECIALTIES are optional metadata on any message.
 - Keywords: GZCoord, GZCOORD/1, GZCOORD/2, protocol, SPEC, grammar,
   freeze, frozen, compatibility, narrowing, conformance, validator,
   extension, X-, protocol change.

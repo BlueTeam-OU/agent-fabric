@@ -33,14 +33,15 @@
 // addressed to this session or when the budget expires quiet, and the
 // harness wakes the session with the return. It is one-shot by design —
 // a process that never exits never notifies — and the procedure around
-// it is --follow: one process for the life of the session, armed once at
-// its first turn under a persistent Monitor and forgotten (owner rule,
-// 2026-09-13; skills/gzcoord-receive). It prints a delivery when one
+// it is --follow: one process under a Monitor, armed at the session's
+// first turn and re-armed at each expiry notice, since the Monitor is
+// timed (skills/gzcoord-receive). It prints a delivery when one
 // lands and nothing on a quiet spell — no budget, no expiry line, no
 // shell loop around it, no restart every half hour. It says once when
 // the relay stops answering and once when it is back, and exits 4 on a
 // refused token (a rotation: sync, then arm again). The session re-arms
-// nothing except after a resume, which the harness does not restore. The
+// it at each expiry, and after a resume, which the harness does not
+// restore. The
 // earlier shapes — a hand-re-armed --wait, then a shell loop around
 // --wait 1800 — are retired: the first went deaf when a session forgot,
 // the second produced a quiet-expiry line to filter every thirty minutes.
@@ -202,7 +203,10 @@ export function identity(me = whoami(), taxonomy) {
   const host = me.host ?? os.hostname().split('.')[0];
   const recorded = taxonomy ? recordedRole(taxonomy, me) : { role: undefined };
   const slug = recorded.role ?? (taxonomy ? slugOf(instance, taxonomy) : undefined);
-  return { address: `${host}/${instance}`, instance, slug, project: me.project };
+  // A binding naming a role the catalogue lacks falls back to the login's
+  // role; the error travels with the identity so each caller says it,
+  // rather than the fallback happening in silence (review of #55).
+  return { address: `${host}/${instance}`, instance, slug, project: me.project, ...(recorded.error ? { roleError: recorded.error } : {}) };
 }
 
 // SPEC §7.1 addressing, SPEC §17 reading rule.
@@ -654,6 +658,7 @@ export async function main(argv = process.argv.slice(2)) {
   const taxPath = findTaxonomy(root);
   const taxonomy = taxPath ? loadTaxonomy(taxPath) : undefined;
   const me = identity(who, taxonomy);
+  if (me.roleError) console.error(t('start.error', { detail: me.roleError }));
   // Once: a refused token is retried with the synced file's value when
   // that differs from what the environment carried.
   const withFreshToken = async fn => {

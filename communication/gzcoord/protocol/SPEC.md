@@ -1,6 +1,6 @@
 # GZCoord Protocol Specification 1.0
 
-Status: Draft
+Status: Normative — agent-fabric ADR-032 records how this text changes.
 
 ## 1. Purpose
 
@@ -9,7 +9,6 @@ GZCoord defines a transport-independent message protocol for autonomous software
 The protocol standardizes:
 
 - logical agent identity;
-- self-description and discovery;
 - direct and role-oriented addressing;
 - human-readable message types;
 - references to authoritative development artifacts;
@@ -103,7 +102,7 @@ A deployment MAY publish a role catalogue and require every `ROLE` and `TO-ROLE`
 
 A role expresses organizational function, not source-code ownership or repository permission.
 
-A role is a classification, never an identity. The role and the instance holding it are distinct: several instances MAY hold and announce the same role concurrently, and an instance MAY change its role over time without changing its address. The address `host/instance` is the only peer identity; `ROLE` MUST NOT be used as a unique peer identifier, and role routing (§13) is one-to-many by nature. Who holds a role now is presence, and presence is the deployment's to answer (§5).
+A role is a classification, never an identity. The role and the instance holding it are distinct: several instances MAY hold the same role concurrently, and an instance MAY change its role over time without changing its address. The address `host/instance` is the only peer identity; `ROLE` MUST NOT be used as a unique peer identifier, and role routing (§13) is one-to-many by nature. Who holds a role now is presence, and presence is the deployment's to answer (§5).
 
 ## 5. Discovery and presence
 
@@ -218,7 +217,7 @@ Optional. Each message type carries a default expectation (SEMANTICS.md, "When a
 
 ## 9. Capabilities
 
-`CAPABILITIES` are informational declarations of what the instance can generally do.
+`CAPABILITIES` and `SPECIALTIES` are optional metadata any message MAY carry: informational declarations of what the sending instance can generally do, and in which fields. No message type requires them (their first carrier, `HELLO`, is retired, §8), so a receiver cannot count on them being present.
 
 Examples:
 

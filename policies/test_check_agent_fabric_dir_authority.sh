@@ -28,6 +28,9 @@ new_repo() {
   printf 'code\n' > "$SANDBOX/src/a.txt"
   git -C "$SANDBOX" init -q
   git -C "$SANDBOX" config user.email t@e; git -C "$SANDBOX" config user.name t
+  # The account's signing (a gpg key, a timestamp that needs the network)
+  # is not what this suite tests; a signer that fails made a case vacuous.
+  git -C "$SANDBOX" config commit.gpgsign false
   git -C "$SANDBOX" add -A; git -C "$SANDBOX" commit -qm base
   git -C "$SANDBOX" branch -q base-ref
   git -C "$SANDBOX" branch -q -M sandbox-head

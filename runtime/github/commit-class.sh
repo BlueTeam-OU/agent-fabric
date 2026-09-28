@@ -69,9 +69,11 @@ _commit_class_ref() {
     [[ -n "$here" ]] || { echo "$n"; return; }
     if [[ "$pre" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]; then
         [[ "${pre,,}" == "$here" ]] && echo "$n" || echo x
-    elif [[ "$pre" =~ ^[A-Za-z0-9_.-]+$ ]]; then
-        [[ "${pre,,}" == "${here##*/}" ]] && echo "$n" || echo x
-    elif [[ "$pre" =~ ^([A-Za-z0-9_.-]+)[[:space:]]+$ ]]; then
+    elif [[ "$pre" =~ ^([A-Za-z0-9_.-]+)[[:space:]]*$ ]]; then
+        # "repo#N" or "repo #N": a repository only when the fabric registers
+        # the word ("PR#53" is this repository's #53). An unreadable
+        # registry names none, so the number is compared — a miscount at
+        # worst, never a refusal.
         word="${BASH_REMATCH[1],,}"
         if [[ "$word" != "${here##*/}" ]] && grep -qxF -- "$word" <<<"$(_commit_class_known_repos)"; then echo x; else echo "$n"; fi
     else
@@ -93,7 +95,7 @@ commit_class() {
     # an issue or a PR named for context, and says nothing (review of #55).
     # PR numbers are per repository. A reference names another repository
     # only in a form that names one: owner/repo#N (compared with the owner),
-    # repo#N, or "repo #N" where repo is a project the fabric registers —
+    # or repo#N / "repo #N" where repo is a project the fabric registers —
     # never "PR #918", "thread #53" or "the copy #53" (review of #55). A
     # reference to another repository reads as "x", never as this PR.
     if [[ -n "$pr" ]]; then

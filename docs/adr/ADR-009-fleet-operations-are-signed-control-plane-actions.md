@@ -94,7 +94,9 @@ revertable one-line change.
    The requester's own session is never stopped.
 4. The launcher resumes the stopped session (`--resume <id>`) from the
    restart marker; a failed upgrade still brings it back; a marker older
-   than the launch is removed, never obeyed.
+   than the launch is removed, never obeyed. A marker with `fresh` true,
+   the session's own (ADR-022 rule 10), starts a new session instead
+   (A 2026-09-28).
 5. `upgrade fabric` sends `origin/main`'s sha, never HEAD; an account whose
    fetch lacks it refuses. Fast-forward or nothing: a checkout on a branch
    is refused by name, a `main` that cannot fast-forward fails; neither is
@@ -148,3 +150,11 @@ Accepted and in force: `upgrade claude` since PR #34/#35/#36,
 - `runtime/claude-code/commands.json`, `runtime/claude-code/bootstrap.sh`,
   `runtime/claude-code/user-settings.py`, `tests/test_session_commands.py`.
 - The live checks in Evidence. ADR-008 (the harness pin and user settings).
+
+## Amendments
+
+The body above reads current; each change's full note is in [history/ADR-009-amendments.md](history/ADR-009-amendments.md).
+
+| Date | Amendment | Effect |
+|---|---|---|
+| 2026-09-28 | A fresh marker is not a resume | §5 rule 4: a `fresh` marker starts a new session (ADR-022 rule 10) |

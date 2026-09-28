@@ -128,9 +128,8 @@ of the fabric has.
 
 - A protocol change costs a record amendment beside the text: the price
   of a trail, paid once by the writer.
-- SPEC.md's own header still reads `Status: Draft`, and nothing in the
-  four files names this record; the protocol is normative by this
-  decision, and the header's wording changes with the first amendment.
+- SPEC.md's header reads `Status: Normative` and names this record, so a
+  reader of the protocol finds how it changes (A 2026-09-28).
 - The freeze holds until an automated transport exists; with the relay
   as the only transport, the grammar stays as it is.
 
@@ -166,3 +165,4 @@ The body above reads current; each change's full note is in [history/ADR-032-ame
 | Date | Amendment | Effect |
 |---|---|---|
 | 2026-09-27 | HELLO and GOODBYE retired | SPEC §5, §8, §10, §11, §14, §18 and the companion texts: the two types are retired, a narrowing under rule 4 with the evidence of rule 6 |
+| 2026-09-28 | The retirement's loose ends | §6: SPEC's header is Normative and names this record; SPEC §1, §4 and §9 and two READMEs no longer describe self-announcement |

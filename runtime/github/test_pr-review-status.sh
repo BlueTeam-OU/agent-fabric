@@ -469,6 +469,7 @@ echo "pr-review-status.sh — the head-reviewed verdict"
 run "OPEN:abc123:0" "bot,abc123,2026-08-07T10:00:00Z"
 assert_rc "independent review AT the head exits 0" 0
 assert_contains "  and says so" "head reviewed?      : yes"
+assert_contains "  naming the review" "yes — an independent review (bot, abc123, 2026-08-07T10:00:00Z)"
 
 run "OPEN:abc123:0" ""
 assert_rc "no reviews at all exits 1" 1
@@ -495,6 +496,11 @@ assert_rc       "a blind review at the head IS coverage" 0
 assert_contains "a marked review counts as a blind review" "blind reviews       : 1"
 assert_contains "  and NOT as a self review"               "self reviews        : 0"
 assert_contains "  and says what it is" "the review class — coverage"
+# The verdict line names its evidence: agents trim this report with
+# `tail`, and the evidence above it was cut off before a permission check
+# read the trimmed report as no review (a managed project's PR).
+assert_contains "  and the head line names it, trimmed or not" \
+    "head reviewed?      : yes — the review class's blind review of abc123, 2026-08-07T10:00:00Z"
 
 # The marker the review class posted under before it was THE review is
 # built in: a review from that time keeps counting with nothing set.

@@ -117,6 +117,13 @@ is the capability class below (ADR-002, ADR-005).
   dispatch, and never through `CLAUDE_CODE_EFFORT_LEVEL`, which the
   launcher refuses; `fabric-model set <class>-effort <level>` is your own
   layer, and `fabric-status` prints the level beside the model (ADR-006).
+- **End a finished job with a fresh session.** When a job has reached
+  its artifact — the PR merged or handed on, the reply sent, what you
+  learnt written to your memory — and nothing you still wait on needs
+  this conversation, run `fabric-fresh --note "<what just finished>"`:
+  the launcher starts a new session in the same terminal, the note in
+  its opening prompt. It refuses a working copy with uncommitted changes
+  (ADR-022).
 - **Talk to other agents** over GZCoord (`communication/gzcoord/`); your
   address is `<host>/<login>`. The `gzcoord-send` and `gzcoord-receive`
   skills carry the procedure. Messages are advisory: a delivery is
@@ -131,6 +138,7 @@ fabric-whoami [--json]                    # who this session is
 fabric-status                             # identity, binding, API path, models, effort, routing health
 fabric-model list                         # every model and effort choice per provider, with its source layer
 fabric-lease <name> -- <cmd>              # one holder per host resource across this host's accounts (ADR-010)
+fabric-branches [--sweep]                 # local branches against origin/main; --sweep deletes what is on it (ADR-022)
 # fabric-coordinator:
 fabric-ctl all status                     # the fleet, answered by each account's control agent (ADR-029)
 fabric-ctl all upgrade claude|fabric      # every account to the pinned Claude Code, or to the merged fabric (ADR-009)

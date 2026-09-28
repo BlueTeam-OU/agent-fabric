@@ -47,6 +47,14 @@ by the agent — the thinking summaries and the full tool output are what
 lets a stalled or misdirected session be seen for what it is from its
 terminal, rather than reconstructed afterwards from a transcript.
 
+`tui` "default": the session draws in the terminal's normal screen, so
+the terminal keeps its scrollback and its scrollbar works. Without the
+key the harness uses its full-screen renderer on the alternate screen,
+which leaves nothing to scroll back through: the coordinator's account,
+set by hand with `/tui default`, scrolled; every other account did not.
+The person operating the fleet reads a session's history in its
+terminal, for the same reason as the two keys above.
+
 `permissions.allow`: `Bash(<name> *)` for every command in
 runtime/claude-code/commands.json — the fabric's own commands, which
 bootstrap links into ~/.local/bin (the owner, 2026-09-26: no approval
@@ -71,7 +79,7 @@ import sys
 # python3 -OO strips docstrings; the usage must survive it.
 USAGE = (__doc__ or "user-settings.py <settings.json> [--dry-run]").strip()
 ATTRIBUTION = {"commit": "", "pr": "", "sessionUrl": False}
-TOP_LEVEL = {"showThinkingSummaries": True, "verbose": True}
+TOP_LEVEL = {"showThinkingSummaries": True, "verbose": True, "tui": "default"}
 ENV = {"DISABLE_AUTOUPDATER": "1"}
 COMMANDS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "commands.json")
 

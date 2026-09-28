@@ -34,6 +34,12 @@ export TMPDIR="$SCRATCH_DIR"
 # default locale; the cases that exercise a locale build their own
 # dictionary and pass it explicitly (communication/gzcoord/scripts/i18n.mjs).
 export GZCOORD_DEFAULT_LOCALE_ONLY=1
+# Likewise the account's commit signing: a gpg key with a timestamp that
+# needs the network made five suites' fixture commits fail offline, green
+# in CI and red on the account that signs. Git's environment config
+# outranks every file, so the run's sandboxes never sign.
+export GIT_CONFIG_COUNT=2 GIT_CONFIG_KEY_0=commit.gpgsign GIT_CONFIG_VALUE_0=false \
+       GIT_CONFIG_KEY_1=tag.gpgsign GIT_CONFIG_VALUE_1=false
 # EXIT removes; a signal EXITS. Naming INT/TERM/HUP on the removal trap
 # itself made bash run the removal and then CONTINUE the script — every
 # remaining suite ran against a deleted TMPDIR and was reported failed,
@@ -70,6 +76,8 @@ if [[ "$what" == all || "$what" == bash ]]; then
     run "fabric-status" bash policies/run_suite.sh tests/test_fabric-status.sh
     run "fabric-usage" bash policies/run_suite.sh tests/test_fabric-usage.sh
     run "fabric-lease (one holder per host resource)" bash tests/test_fabric-lease.sh
+    run "fabric-fresh (an agent ends its own session)" bash tests/test_fabric-fresh.sh
+    run "fabric-branches (local branch hygiene)" bash tests/test_fabric-branches.sh
     run "leak check (what a run left behind)" bash tests/test_leak-check.sh
     run "status line" bash runtime/claude-code/hooks/test_statusline.sh
     run "new-agent (the sequence, its refusals, a failure at each step)" bash runtime/provisioning/test_new-agent.sh

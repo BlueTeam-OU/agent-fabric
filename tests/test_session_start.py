@@ -132,6 +132,34 @@ def test_hook_says_when_the_working_copy_trails_its_origin(tmp: str) -> None:
     assert "this working copy (main) lacks 1 commit(s) of origin/main" in ctx, ctx
 
 
+def test_hook_says_when_the_branch_sweep_is_due(tmp: str) -> None:
+    """A working copy never swept, or last swept over a week ago, is said
+    to the session; a sweep by bin/fabric-branches records the working copy
+    under the same name the hook reads, and silences it."""
+    state = os.path.join(tmp, "state"); os.makedirs(os.path.join(state, "agents", id_un()))
+    env = {**os.environ, "AGENT_FABRIC_ROOT": ROOT, "AGENT_FABRIC_STATE_DIR": state}
+    g = lambda cwd, *a: subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false", *a],
+                                      cwd=cwd, check=True, capture_output=True)
+    origin = os.path.join(tmp, "origin.git"); g(tmp, "init", "-q", "--bare", "-b", "main", origin)
+    wc = os.path.join(tmp, "gzapp"); g(tmp, "clone", "-q", origin, wc)
+    g(wc, "commit", "-q", "--allow-empty", "-m", "base"); g(wc, "push", "-q", "origin", "HEAD:main")
+    ctx = context_of(run_hook({"cwd": wc}, env))
+    assert "branch sweep due in this working copy (never swept)" in ctx, ctx
+    sweep = subprocess.run([os.path.join(ROOT, "bin", "fabric-branches"), "--sweep"], cwd=wc,
+                           capture_output=True, text=True, env={**env, "GH_TOKEN": ""})
+    assert sweep.returncode == 0, sweep.stdout + sweep.stderr
+    ctx = context_of(run_hook({"cwd": wc}, env))
+    assert "branch sweep due" not in ctx, ctx
+    record = os.path.join(state, "agents", id_un(), "branch-sweep.json")
+    with open(record, encoding="utf-8") as fh:
+        doc = json.load(fh)
+    doc = {k: "2026-01-01T00:00:00Z" for k in doc}
+    with open(record, "w", encoding="utf-8") as fh:
+        json.dump(doc, fh)
+    ctx = context_of(run_hook({"cwd": wc}, env))
+    assert "branch sweep due in this working copy (last 2026-01-01)" in ctx, ctx
+
+
 def test_hook_from_the_parent_directory_has_no_project(tmp: str) -> None:
     state = os.path.join(tmp, "state")
     parent = os.path.join(tmp, "projects")
@@ -376,6 +404,7 @@ def main() -> int:
              test_hook_reports_a_bad_marker_and_still_starts,
              test_hook_never_blocks, test_hook_exports_the_control_plane_into_the_session_shell,
              test_hook_says_when_the_session_has_no_inbox_watch,
+             test_hook_says_when_the_branch_sweep_is_due,
              test_bootstrap_restarts_the_control_agent_unless_its_caller_is_the_control_agent,
              test_bootstrap_writes_only_the_workspace_and_home_files]
     failures = 0

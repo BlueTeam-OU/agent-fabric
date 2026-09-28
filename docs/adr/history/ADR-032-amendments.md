@@ -25,3 +25,22 @@ the launcher stopped sending them, and the only generator
 (`gzmsg.mjs hello`) had no caller outside its own tests; the inbox had
 already stopped delivering either type. An old session that still sends
 one is acknowledged without delivery.
+
+### Amendment 2026-09-28 — The retirement's loose ends
+
+What the retirement of `HELLO` and `GOODBYE` left behind (review of
+agent-fabric #55, carried to the next pull request on the owner's rule
+that a P3 may wait).
+
+SPEC.md's header read `Status: Draft`; §6 of this record said it would
+change with the first amendment, and the first amendment did not change
+it. It now reads `Status: Normative` and names this record. §1 no
+longer lists "self-description and discovery" among what the protocol
+standardizes, and §4 no longer says instances "announce" a role. §9
+defined `CAPABILITIES` for a message type that no longer exists; it and
+`SPECIALTIES` are optional metadata any message may carry, which the
+validator already knew as common keys and a parser preserves (§6). The
+gzcoord README and the runtime README say the same.
+
+Under which rule: rule 4 — nothing a sender emits becomes invalid; the
+two fields were already preserved as unknown metadata by every reader.
