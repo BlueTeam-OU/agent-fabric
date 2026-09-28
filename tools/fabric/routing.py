@@ -802,12 +802,20 @@ def check(root: str | None = None) -> list[str]:
         # session naming a class asks what that class asks on this provider
         # — its intent after the class's own acknowledgement, as
         # session_effort() reads it — so a downgrade already written for
-        # the class is not demanded a second time.
+        # the class is not demanded a second time. A `null` acknowledgement
+        # (a model with no effort at all) leaves the intent at the class's
+        # base level, so it is honoured here directly: when the session
+        # rides that class's own model, the class's decision is the
+        # session's too (#57 re-review N1).
         sess_want = sess
         if sess in base:
             try:
-                sess_want = ((resolve(sess, provider, root=root) or {}).get("effort") or {}).get("intent")
-            except KeyError:
+                res_cls = resolve(sess, provider, root=root) or {}
+                sess_want = (res_cls.get("effort") or {}).get("intent")
+                if sess in ack and res_cls.get("model") and \
+                        res_cls.get("model") == resolve_session(root=root, provider=provider).get("model"):
+                    sess_want = None
+            except (KeyError, ValueError):
                 sess_want = None
         if sess_want in scale:
             try:

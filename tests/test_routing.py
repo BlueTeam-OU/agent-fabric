@@ -282,6 +282,25 @@ def test_the_session_level_is_judged_like_a_class(tmp: str) -> None:
     assert routing.session_effort("openrouter", root=root) == "low"
     assert not [f for f in routing.check(root) if "the session asks" in f], routing.check(root)
 
+    # A class acknowledged as `null` (its model takes no effort) settles a
+    # session riding that class's model too (#57 re-review N1): on plain
+    # claude, code-low on a Haiku model with providers.anthropic.classes
+    # code-low null and its note.
+    p["defaults"]["providers"]["anthropic"]["session"] = "code-low"
+    json.dump(p, open(prof, "w", encoding="utf-8"))
+    set_model(root, "anthropic", "code-low", "claude-haiku-4-5-20251001")
+    assert routing.resolve_session(root=root, provider="anthropic")["model"] == "claude-haiku-4-5-20251001"
+    doc.setdefault("providers", {}).setdefault("anthropic", {}).setdefault("classes", {})["code-low"] = None
+    doc["providers"]["anthropic"].setdefault("notes", {})["code-low"] = "a model with no effort"
+    json.dump(doc, open(path, "w", encoding="utf-8"))
+    assert not [f for f in routing.check(root) if "the session asks" in f], routing.check(root)
+    # And with no acknowledgement at all, the unexpressible session is told
+    # to write null (the class is refused too, which is its own finding).
+    doc["providers"]["anthropic"]["classes"].pop("code-low")
+    doc["providers"]["anthropic"]["notes"].pop("code-low")
+    json.dump(doc, open(path, "w", encoding="utf-8"))
+    assert any("providers.anthropic.session: null" in f for f in routing.check(root)), routing.check(root)
+
 
 def test_an_agent_layer_outranks_a_committed_acknowledgement(tmp: str) -> None:
     """The acknowledgement is the committed INTENT for a column, so it sits
