@@ -329,9 +329,11 @@ searches it.
   outside it (§5 rules 3–4).
 - Load the skill-creator skill before writing or changing a `SKILL.md`
   (§5 rule 5).
-- Lint refuses only a managed project's name, and not in the dispatch
-  skill; the rest is review (§6). pg-probe's bare pointers to a project's
-  records are open (§7).
+- A description names when to load the skill (§5 rule 6). Lint checks
+  rules 1 and 6 — dates, PR numbers, numbered logins, the occasion; the
+  rest is review (§6). pg-probe's bare pointers to a project's records
+  are open (§7).
+- A 2026-09-28 — lint checks a skill's occasion and description (rule 6).
 - Keywords: skill, SKILL.md, skill-creator, history, incident, date, PR
   number, evidence, provenance.
 
