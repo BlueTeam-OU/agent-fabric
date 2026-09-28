@@ -217,7 +217,7 @@ Optional. Each message type carries a default expectation (SEMANTICS.md, "When a
 
 ## 9. Capabilities
 
-`CAPABILITIES` and `SPECIALTIES` are optional metadata any message MAY carry: informational declarations of what the sending instance can generally do, and in which fields. No message type requires them (their first carrier, `HELLO`, is retired, §8), and a receiver MUST NOT rely on them being present.
+`CAPABILITIES` and `SPECIALTIES` are optional metadata any message MAY carry: informational declarations of what the sending instance can generally do, and in which fields. No message type requires them (their first carrier, `HELLO`, is retired, §8), so a receiver cannot count on them being present.
 
 Examples:
 
