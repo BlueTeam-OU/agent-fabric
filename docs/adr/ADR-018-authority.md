@@ -134,19 +134,14 @@ record says so rather than claim otherwise.
   | no machine attribution | `commit-msg` | `ban_generated_by_attribution.sh` (a CI step, and `tests/run.sh`) | `test_ban_generated_by_attribution.sh`, `githooks/test_hooks.sh` |
   | read-only fence, `.agent-fabric/` | `pre-commit`, `commit-msg` | `check_agent_fabric_dir_authority.sh` | `test_check_agent_fabric_dir_authority.sh`, `githooks/test_hooks.sh` |
   | decision records | `pre-commit` (`adr.py check` on the staged tree) | `check_adr_amendment.sh`, and `adr.py check` in lint | `tests/test_adr.py` |
-  | charter authority by branch name | none | **not called** | `test_check_charter_authority.sh` |
+  | charter authority by branch name | none | `tests/run.sh` against `origin/main` (A 2026-09-28) | `test_check_charter_authority.sh` |
   | no model pins in committed settings | none (the launcher refuses the same keys at launch) | not called here; gzapp's CI runs its own copy (`tools/checks/`) | `test_check_repo_settings_carry_no_model_pins.sh` |
 
-- **Known gap — the branch-name tripwire has no call site.**
-  `check_charter_authority.sh` is tested but nothing in this
-  repository's CI runs it on a branch, though its header says the
-  `pull_request` run is where it bites; the repository-wide fence (rules
-  1–4) is what holds charters, briefs, the catalogue, the routing policy
-  and `authority.json` today. Its one property the fence lacks — reading
-  `authority.json` from the base of the diff, so a branch cannot appoint
-  itself — is therefore not in force: the hooks read the checkout's own
-  copy. Wiring it into `tests/run.sh`, or retiring it and its table rows
-  in `policies/AUTHORITY.md`, is the open choice.
+- The branch-name tripwire runs in CI: `tests/run.sh` calls
+  `check_charter_authority.sh` against `origin/main` on every branch, so
+  its one property the fence lacks — reading `authority.json` from the
+  base of the diff, so a branch cannot appoint itself — is in force
+  beside the hooks, which read the checkout's own copy (A 2026-09-28).
 - The fence depends on every account's last bootstrap; an account whose
   hooks are unset commits unguarded until the next, and the CI tripwire
   then refuses the branch.
@@ -181,3 +176,11 @@ carve-out, the decision-record check at commit time.
   `tests/run.sh`.
 - ADR-000 (P3), ADR-002 (role and login), ADR-003 (the binding),
   ADR-012 (the Doppler project is this role's).
+
+## Amendments
+
+The body above reads current; each change's full note is in [history/ADR-018-amendments.md](history/ADR-018-amendments.md).
+
+| Date | Amendment | Effect |
+|---|---|---|
+| 2026-09-28 | The charter tripwire runs on every branch | §6: `check_charter_authority.sh` called from `tests/run.sh`; the known gap closed |

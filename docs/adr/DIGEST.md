@@ -363,8 +363,9 @@ searches it.
 - A guard is a commit-time check, a CI check on every added commit and a
   planted suite case (§5 rule 6); a proposal is a PR left for the owning
   role (§5 rule 7).
-- Open gap: `check_charter_authority.sh` has no CI call site; the fence
-  holds charters today (§6).
+- `check_charter_authority.sh` runs from `tests/run.sh` on every branch,
+  reading `authority.json` from the base of the diff (§6).
+- A 2026-09-28 — the charter tripwire's CI call site: the known gap closed.
 - Keywords: authority, read-only, fence, tripwire, Fabric-Role, trailer,
   pre-commit, commit-msg, hooksPath, charter, locale carve-out, guard.
 
