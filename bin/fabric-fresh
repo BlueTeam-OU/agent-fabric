@@ -35,10 +35,17 @@ if [[ -z "${AGENT_FABRIC_LAUNCH_PROFILE:-}" ]]; then
     echo "fabric-fresh: this session was not started by the launcher, so nothing would start a fresh one; use /clear" >&2
     exit 2
 fi
-if [[ "${AGENT_FABRIC_LAUNCH_OPENING:-}" != 1 ]]; then
-    echo "fabric-fresh: this session was launched with its own prompt (or -p); a fresh launch would replay it, not start anew — end it with /exit" >&2
-    exit 2
-fi
+# Unset is a launcher older than fabric-fresh (an upgrade moves the
+# checkout, never a running launcher): it cannot read a fresh marker.
+case "${AGENT_FABRIC_LAUNCH_OPENING-unset}" in
+    1) ;;
+    unset)
+        echo "fabric-fresh: this session's launcher predates fabric-fresh and would resume it, not start anew; relaunch once, or end it with /exit" >&2
+        exit 2 ;;
+    *)
+        echo "fabric-fresh: this session was launched with its own prompt (or -p); a fresh launch would replay it, not start anew — end it with /exit" >&2
+        exit 2 ;;
+esac
 # Untracked files count: a new file never added is work not yet at its
 # artifact, as much as an edit is (fabric-branches counts them too).
 if (( ! force )) && git rev-parse --is-inside-work-tree >/dev/null 2>&1 \
@@ -67,21 +74,26 @@ mkdir -p "$state" || exit 1
 # requested_at a second ahead: the launcher obeys only a marker newer than
 # its own start, and a job can end within the second the session began.
 # Written through runtime/identity.py, like all per-agent state (ADR-003).
-python3 - "$(cd -- "$(dirname -- "$(readlink -f -- "$0")")/.." && pwd)" "$state/restart.json" "$note" <<'PY' || exit 1
+# The marker as written, kept to take it back only if it is still ours.
+written="$(python3 - "$(cd -- "$(dirname -- "$(readlink -f -- "$0")")/.." && pwd)" "$state/restart.json" "$note" <<'PY'
+
 import importlib.util, os, sys
 spec = importlib.util.spec_from_file_location("fabric_identity", os.path.join(sys.argv[1], "runtime", "identity.py"))
 identity = importlib.util.module_from_spec(spec); spec.loader.exec_module(identity)
 import datetime, json
 path, note = sys.argv[2], " ".join(sys.argv[3].split())[:300]
 at = (datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(seconds=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
-identity.atomic_write(path, json.dumps({"requested_at": at, "piece": "a fresh session", "status": "done",
-                                        "fresh": True, "note": note}) + "\n")
+body = json.dumps({"requested_at": at, "piece": "a fresh session", "status": "done", "fresh": True, "note": note})
+identity.atomic_write(path, body + "\n")
+print(body)
 PY
+)" || exit 1
 echo "fabric-fresh: ending this session; the launcher starts a fresh one${note:+ with: $note}" >&2
 # A marker whose stop failed would turn the session's next plain exit
 # into a fresh relaunch: take it back.
 if ! "${AGENT_FABRIC_FRESH_KILL:-kill}" -TERM "$target"; then
-    rm -f "$state/restart.json"
+    # Only our own marker: an upgrade may have written its own since.
+    [[ "$(cat "$state/restart.json" 2>/dev/null)" == "$written" ]] && rm -f "$state/restart.json"
     echo "fabric-fresh: could not stop process $target; nothing changed" >&2
     exit 1
 fi
