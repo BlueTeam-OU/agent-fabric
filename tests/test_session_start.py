@@ -396,6 +396,28 @@ def test_bootstrap_writes_only_the_workspace_and_home_files(tmp: str) -> None:
     assert sum("session-start.sh" in g for g in starts) == 1, starts
 
 
+def test_hook_says_the_job_list(tmp: str) -> None:
+    """Silent with no open job; the active job and the queue when there is
+    one; a warning when the active job's working copy is not this session's."""
+    state = os.path.join(tmp, "state"); os.makedirs(os.path.join(state, "agents", id_un()))
+    env = {**os.environ, "AGENT_FABRIC_ROOT": ROOT, "AGENT_FABRIC_STATE_DIR": state}
+    here, there = os.path.join(tmp, "here"), os.path.join(tmp, "there")
+    git_repo(here, "https://example.invalid/here.git"); git_repo(there, "https://example.invalid/there.git")
+    jobs = lambda *a: subprocess.run([os.path.join(ROOT, "bin", "fabric-jobs"), *a], cwd=here, env=env,
+                                     capture_output=True, text=True, check=True)
+    assert "jobs —" not in context_of(run_hook({"cwd": here}, env))
+    jobs("add", "the job here"); jobs("add", "the job there", "--working-copy", there)
+    ctx = context_of(run_hook({"cwd": here}, env))
+    assert "jobs — none active; 2 queued. `fabric-jobs next`" in ctx, ctx
+    jobs("start", "j1")
+    ctx = context_of(run_hook({"cwd": here}, env))
+    assert "jobs — active j1: the job here; 1 queued" in ctx and "Your active job is in" not in ctx, ctx
+    jobs("block", "j1", "a reply"); jobs("start", "j2")
+    ctx = context_of(run_hook({"cwd": here}, env))
+    assert f"active j2: the job there; 1 blocked" in ctx and f"Your active job is in {there}, and this session is in {here}" in ctx \
+        and "fabric-fresh --job j2" in ctx, ctx
+
+
 def main() -> int:
     cases = [test_hook_records_context_not_identity, test_hook_gives_the_project_layer_from_the_working_copy,
              test_hook_says_when_the_binding_drifted_from_the_launch,
@@ -405,6 +427,7 @@ def main() -> int:
              test_hook_never_blocks, test_hook_exports_the_control_plane_into_the_session_shell,
              test_hook_says_when_the_session_has_no_inbox_watch,
              test_hook_says_when_the_branch_sweep_is_due,
+             test_hook_says_the_job_list,
              test_bootstrap_restarts_the_control_agent_unless_its_caller_is_the_control_agent,
              test_bootstrap_writes_only_the_workspace_and_home_files]
     failures = 0
