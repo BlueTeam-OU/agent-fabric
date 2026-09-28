@@ -107,7 +107,11 @@ done < <(git for-each-ref --format='%(refname:short)' refs/heads/)
 
 for b in "${kept[@]}"; do
     echo
-    pr="$(gh pr list --head "$b" --state all --json number,state --jq 'map("#\(.number) \(.state)") | join(", ")' 2>/dev/null || echo "?")"
+    # A pull request's head is the remote branch, which a local branch
+    # may track under another name.
+    head="$(git rev-parse --abbrev-ref "$b@{u}" 2>/dev/null)"
+    [[ "$head" == origin/* ]] && head="${head#origin/}" || head="$b"
+    pr="$(gh pr list --head "$head" --state all --json number,state --jq 'map("#\(.number) \(.state)") | join(", ")' 2>/dev/null || echo "?")"
     echo "  $b — pull request: ${pr:-none}"
     # A merged PR whose commits are not on main was squashed, or its
     # history rewritten: the count cannot prove it merged, the person can.
