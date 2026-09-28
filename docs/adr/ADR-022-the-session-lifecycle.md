@@ -4,7 +4,7 @@
 **Status:** Accepted
 **Ratified:** owner, 2026-09-27, by arming agent-fabric #52 (ratification by merge, the owner's rule of 2026-09-27)
 **Decision Makers:** the owner; drafted by fabric-coordinator
-**Scope:** runtime/claude-code/user-settings.py (`permissions.defaultMode`); runtime/openrouter/launch (the opening prompt); runtime/claude-code/workspace/settings.json and each managed project's `.claude/settings.json` (the hook wiring); runtime/claude-code/hooks/session-start.py (the watch check), runtime/claude-code/hooks/plan-hold.sh; communication/gzcoord/scripts/inbox.mjs and send.mjs; runtime/control/ops.mjs, runtime/control/presence.mjs, runtime/control/ctl.mjs (presence); communication/gzcoord/skills/gzcoord-receive/SKILL.md
+**Scope:** runtime/claude-code/user-settings.py (`permissions.defaultMode`); runtime/openrouter/launch (the opening prompt, the restart marker); bin/fabric-fresh; runtime/claude-code/workspace/settings.json and each managed project's `.claude/settings.json` (the hook wiring); runtime/claude-code/hooks/session-start.py (the watch check), runtime/claude-code/hooks/plan-hold.sh; communication/gzcoord/scripts/inbox.mjs and send.mjs; runtime/control/ops.mjs, runtime/control/presence.mjs, runtime/control/ctl.mjs (presence); communication/gzcoord/skills/gzcoord-receive/SKILL.md
 **Pillar:** P3
 **Evidence:** docs/live-checks/2026-09-16-inbox-hold-while-planning.md
 
@@ -126,6 +126,14 @@ the same command asks on one account and not on another.
 9. A session started inside a managed project's working copy is held, and
    gets the start drain, only if that project's `.claude/settings.json`
    wires the same hooks as the workspace template.
+10. An agent ends its own finished job with `fabric-fresh`: it writes a
+    restart marker with `fresh` true and a one-line note, and stops its
+    own session gracefully; the launcher relaunches with no `--resume`,
+    the note in the new opening prompt. It is refused outside a launched
+    session and on a working copy with uncommitted changes unless
+    `--force`. When to use it is the agent's judgement: a job that has
+    reached its artifact, with nothing it still waits on needing the
+    conversation (A 2026-09-28).
 
 ## 6. Consequences
 
@@ -173,3 +181,11 @@ the hold is now a stub pointing here.
 - `runtime/claude-code/user-settings.py`.
 - `communication/gzcoord/skills/gzcoord-receive/SKILL.md` §1.
 - ADR-008 (user settings), ADR-009 (commands by name), ADR-000 (P3).
+
+## Amendments
+
+The body above reads current; each change's full note is in [history/ADR-022-amendments.md](history/ADR-022-amendments.md).
+
+| Date | Amendment | Effect |
+|---|---|---|
+| 2026-09-28 | An agent ends its own job with a fresh session | §5 rule 10: `fabric-fresh` and the launcher's fresh relaunch |

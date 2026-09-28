@@ -1,0 +1,62 @@
+#!/usr/bin/env bash
+# tests/test_fabric-fresh.sh — bin/fabric-fresh: an agent ends its own
+# session at the end of a job; the launcher starts a fresh one.
+#
+# A fake parent named `claude` (a script's process name is its file name)
+# runs the command, and AGENT_FABRIC_FRESH_KILL records the stop instead
+# of sending it, so the suite checks the target without stopping anything.
+set -uo pipefail
+ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+CMD="$ROOT/bin/fabric-fresh"
+T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
+fails=0
+ok() { echo "  ✓ $1"; }
+bad() { echo "  ✗ $1" >&2; [[ -n "${2:-}" ]] && printf '      %s\n' "$2" >&2; fails=$((fails + 1)); }
+
+mkdir -p "$T/bin" "$T/state" "$T/wc"
+cat > "$T/bin/record-kill" <<EOF
+#!/usr/bin/env bash
+echo "\$*" > "$T/killed"
+EOF
+# A real process named claude-fake (a copied bash: a script's process name
+# is its interpreter's), never "claude": this suite runs inside a session.
+cp "$(command -v bash)" "$T/bin/claude-fake"
+cat > "$T/bin/claude" <<EOF
+#!/usr/bin/env bash
+exec "$T/bin/claude-fake" -c 'echo \$\$ > "$T/claude.pid"; cd "$T/wc" && "$CMD" "\$@"' claude-fake "\$@"
+EOF
+chmod +x "$T/bin/record-kill" "$T/bin/claude"
+git -C "$T/wc" init -q; echo a > "$T/wc/f"; git -C "$T/wc" add f
+git -C "$T/wc" -c user.name=t -c user.email=t@t -c commit.gpgsign=false commit -q -m a
+envs=(AGENT_FABRIC_STATE_DIR="$T/state" AGENT_FABRIC_FRESH_KILL="$T/bin/record-kill" AGENT_FABRIC_FRESH_COMM=claude-fake)
+
+echo "fabric-fresh: refused where nothing would bring a session back"
+out="$(env -u AGENT_FABRIC_LAUNCH_PROFILE "${envs[@]}" "$T/bin/claude" 2>&1)"; rc=$?
+[[ $rc -eq 2 ]] && grep -q "not started by the launcher" <<<"$out" && [[ ! -e "$T/killed" ]] && ok "not launched: exit 2, nothing stopped" || bad "unlaunched (rc=$rc)" "$out"
+
+echo "fabric-fresh: a job with uncommitted changes is not done"
+echo b >> "$T/wc/f"
+out="$(env AGENT_FABRIC_LAUNCH_PROFILE=p "${envs[@]}" "$T/bin/claude" 2>&1)"; rc=$?
+[[ $rc -eq 3 ]] && grep -q "uncommitted changes" <<<"$out" && [[ ! -e "$T/killed" && ! -e "$T/state/agents/$(id -un)/restart.json" ]] && ok "dirty tree: exit 3, no marker, nothing stopped" || bad "dirty tree (rc=$rc)" "$out"
+out="$(env AGENT_FABRIC_LAUNCH_PROFILE=p "${envs[@]}" "$T/bin/claude" --force 2>&1)"; rc=$?
+[[ $rc -eq 0 && -e "$T/killed" ]] && ok "…--force goes ahead" || bad "--force (rc=$rc)" "$out"
+git -C "$T/wc" checkout -q -- f; rm -f "$T/killed" "$T/state/agents/$(id -un)/restart.json"
+
+echo "fabric-fresh: the marker the launcher reads, and the stop of the session above"
+out="$(env AGENT_FABRIC_LAUNCH_PROFILE=p "${envs[@]}" "$T/bin/claude" --note "PR  981 merged" 2>&1)"; rc=$?
+m="$T/state/agents/$(id -un)/restart.json"
+[[ $rc -eq 0 && -f "$m" ]] && ok "clean tree: exit 0, marker written" || bad "no marker (rc=$rc)" "$out"
+python3 - "$m" <<'PY' && ok "…fresh, done, the note on one line, requested_at a date" || bad "marker content" "$(cat "$m" 2>/dev/null)"
+import datetime, json, sys
+m = json.load(open(sys.argv[1]))
+assert m["fresh"] is True and m["status"] == "done" and m["note"] == "PR 981 merged", m
+datetime.datetime.fromisoformat(m["requested_at"].replace("Z", "+00:00"))
+PY
+[[ "$(cat "$T/killed" 2>/dev/null)" == "-TERM $(cat "$T/claude.pid")" ]] && ok "…and SIGTERM goes to the claude process above it" || bad "wrong target" "killed: $(cat "$T/killed" 2>/dev/null) claude: $(cat "$T/claude.pid")"
+
+echo "fabric-fresh: no claude above it"
+out="$(cd "$T/wc" && env AGENT_FABRIC_LAUNCH_PROFILE=p "${envs[@]}" "$CMD" 2>&1)"; rc=$?
+[[ $rc -eq 2 ]] && grep -q "no claude-fake process" <<<"$out" && ok "exit 2, nothing stopped" || bad "no claude (rc=$rc)" "$out"
+
+if (( fails )); then echo "test_fabric-fresh: $fails FAILED"; exit 1; fi
+echo "test_fabric-fresh: all assertions passed"

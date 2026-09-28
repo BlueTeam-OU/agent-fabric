@@ -430,6 +430,8 @@ searches it.
   `gzcoord-send` tells the sender, without refusing (§5 rule 8).
 - A clone-started session is held only if its project wires the hooks
   (§5 rule 9, §7).
+- A 2026-09-28 — an agent ends its own finished job with `fabric-fresh`: a new
+  session, not a resumed one (§5 rule 10).
 - Keywords: session, lifecycle, inbox watch, Monitor, gzcoord-inbox,
   --follow, opening prompt, resume, auto mode, defaultMode, plan mode,
   hold, planning, presence.

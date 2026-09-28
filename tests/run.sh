@@ -70,6 +70,7 @@ if [[ "$what" == all || "$what" == bash ]]; then
     run "fabric-status" bash policies/run_suite.sh tests/test_fabric-status.sh
     run "fabric-usage" bash policies/run_suite.sh tests/test_fabric-usage.sh
     run "fabric-lease (one holder per host resource)" bash tests/test_fabric-lease.sh
+    run "fabric-fresh (an agent ends its own session)" bash tests/test_fabric-fresh.sh
     run "leak check (what a run left behind)" bash tests/test_leak-check.sh
     run "status line" bash runtime/claude-code/hooks/test_statusline.sh
     run "new-agent (the sequence, its refusals, a failure at each step)" bash runtime/provisioning/test_new-agent.sh

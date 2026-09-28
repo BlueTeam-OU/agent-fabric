@@ -1,0 +1,72 @@
+#!/usr/bin/env bash
+# bin/fabric-fresh — end this session at the end of a job and let the
+# launcher start a fresh one: the agent's own /clear (agent-fabric ADR-022).
+#
+#   fabric-fresh [--note "<one line for the next session>"] [--force]
+#
+# A slash command is the person's, never the model's, so an agent cannot
+# /clear itself. It can end its own session: the session is the launcher's
+# child (runtime/openrouter/launch), which waits on it, reads the restart
+# marker this writes, and relaunches with no --resume — a new conversation
+# in the same terminal, with the note in its opening prompt. The finished
+# conversation stays on disk; `claude --resume` can still open it.
+#
+# Refused (exit 2) when the session was not started by the launcher —
+# nothing would bring it back — and (exit 3) when the working copy has
+# uncommitted changes, unless --force: a job that is not done has not
+# reached its artifact. The stop is SIGTERM, the harness's graceful one.
+# Exit 0 means the stop was sent; this process ends with the session.
+set -uo pipefail
+
+note="" force=0
+while (( $# )); do
+    case "$1" in
+        --note) note="${2:-}"; shift 2 || { echo "fabric-fresh: --note needs a value" >&2; exit 2; } ;;
+        --note=*) note="${1#--note=}"; shift ;;
+        --force) force=1; shift ;;
+        -h|--help) sed -n '2,19p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        *) echo "fabric-fresh: unknown argument '$1' (--note \"…\", --force)" >&2; exit 2 ;;
+    esac
+done
+
+if [[ -z "${AGENT_FABRIC_LAUNCH_PROFILE:-}" ]]; then
+    echo "fabric-fresh: this session was not started by the launcher, so nothing would start a fresh one; use /clear" >&2
+    exit 2
+fi
+if (( ! force )) && git rev-parse --is-inside-work-tree >/dev/null 2>&1 \
+   && [[ -n "$(git status --porcelain --untracked-files=no 2>/dev/null)" ]]; then
+    echo "fabric-fresh: $(git rev-parse --show-toplevel) has uncommitted changes; commit or stash them, or pass --force" >&2
+    exit 3
+fi
+
+# The session is the nearest `claude` up this process's parent chain: the
+# Bash tool runs as its descendant. AGENT_FABRIC_FRESH_COMM and _KILL exist
+# for the suite, which runs inside a real session: it looks for a fake
+# name and records the stop, so a test can never stop the session above it.
+comm="${AGENT_FABRIC_FRESH_COMM:-claude}"
+pid=$$ target=""
+while [[ "$pid" =~ ^[0-9]+$ ]] && (( pid > 1 )); do
+    if [[ "$(cat "/proc/$pid/comm" 2>/dev/null)" == "$comm" ]]; then target="$pid"; break; fi
+    pid="$(ps -o ppid= -p "$pid" 2>/dev/null | tr -d ' ')"
+done
+if [[ -z "$target" ]]; then
+    echo "fabric-fresh: no $comm process above this one; nothing to stop" >&2
+    exit 2
+fi
+
+state="${AGENT_FABRIC_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/agent-fabric}/agents/$(id -un)"
+mkdir -p "$state" || exit 1
+# requested_at a second ahead: the launcher obeys only a marker newer than
+# its own start, and a job can end within the second the session began.
+python3 - "$state/restart.json" "$note" <<'PY' || exit 1
+import datetime, json, os, sys, tempfile
+path, note = sys.argv[1], " ".join(sys.argv[2].split())[:300]
+at = (datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(seconds=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
+fd, tmp = tempfile.mkstemp(prefix=".tmp-", dir=os.path.dirname(path))
+with os.fdopen(fd, "w", encoding="utf-8") as fh:
+    json.dump({"requested_at": at, "piece": "a fresh session", "status": "done", "fresh": True, "note": note}, fh)
+    fh.write("\n")
+os.replace(tmp, path)
+PY
+echo "fabric-fresh: ending this session; the launcher starts a fresh one${note:+ with: $note}" >&2
+exec "${AGENT_FABRIC_FRESH_KILL:-kill}" -TERM "$target"

@@ -806,6 +806,12 @@ if [[ "$ROLE" == language-culture && -f "$LOCALE_SEARCH" ]]; then CMD+=(--disall
 # that drives the session itself, a probe or a script, and wants its own
 # first turn.
 OPENING="Session start: arm your GZCoord inbox watch now, with Monitor(command: 'gzcoord-inbox --follow', description: 'gzcoord inbox watch', timeout_ms: 1800000); re-arm it at each expiry notice. Then wait for instructions."
+# A session that ended its own job (bin/fabric-fresh) left a note for this
+# one: said in the opening prompt, then dropped from the environment.
+if [[ -n "${AGENT_FABRIC_FRESH_NOTE+x}" ]]; then
+    OPENING="${OPENING% Then wait for instructions.} The previous session of this agent finished its job and started this one fresh${AGENT_FABRIC_FRESH_NOTE:+: ${AGENT_FABRIC_FRESH_NOTE}}. Then wait for instructions."
+    unset AGENT_FABRIC_FRESH_NOTE
+fi
 opening=1; expect_value=0
 for a in "$@"; do
     if (( expect_value )); then expect_value=0; [[ "$a" == -* ]] || continue; fi
@@ -866,6 +872,13 @@ except ValueError:
     at = 0
 if at < started:
     sys.exit(1)
+if m.get("fresh"):
+    # The session ended its own job (bin/fabric-fresh): nothing to wait
+    # for, nothing to resume. The note travels to the next opening prompt.
+    note = " ".join(str(m.get("note") or "").split())[:300]
+    print(f"launch: the session finished its job{': ' + note if note else ''}; starting a fresh one.", file=sys.stderr)
+    print("fresh:" + note)
+    sys.exit(0)
 deadline = time.time() + wait_s
 if m.get("status") == "pending":
     print(f"launch: the session was stopped for an upgrade of {m.get('piece')} to {m.get('to')}; waiting for it…", file=sys.stderr)
@@ -899,6 +912,9 @@ PY
             esac
             NEXT+=("$a")
         done
+        if [[ "$RESUME" == fresh:* ]]; then
+            exec env -u AGENT_FABRIC_PULLED AGENT_FABRIC_FRESH_NOTE="${RESUME#fresh:}" bash "$0" "${NEXT[@]}"
+        fi
         if [[ -n "$RESUME" ]]; then NEXT+=(--resume "$RESUME"); else NEXT+=(--continue); fi
         exec env -u AGENT_FABRIC_PULLED bash "$0" "${NEXT[@]}"
     fi

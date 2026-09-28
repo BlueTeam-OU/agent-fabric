@@ -688,6 +688,27 @@ out="$(runa 2>&1)"; rc=$?
 [[ $rc -eq 143 ]] && ! grep -q "^RUN2:" <<<"$out" && [[ ! -e "$STATE/agents/$LOGIN/restart.json" ]] && ok "a marker older than the launch is another session's: removed, not obeyed" || bad "stale marker obeyed (rc=$rc)" "$out"
 write_fake_ori
 
+echo "launch: a session that ends its own job comes back fresh, not resumed"
+# The fake session plays bin/fabric-fresh: a marker with fresh true and a
+# note, then the stop; the relaunch must name no session and say the note.
+cat > "$SANDBOX/bin/ori" <<FAKE
+#!/usr/bin/env bash
+if [[ "\${1:-}" == auth ]]; then echo '{"ok":true,"data":{"authenticated":true,"source":{"kind":"environment","location":"OPENROUTER_API_KEY"}}}'; exit 0; fi
+n="\$(cat "$SANDBOX/runs" 2>/dev/null || echo 0)"; echo \$((n+1)) > "$SANDBOX/runs"
+if [[ "\$n" == 0 ]]; then
+  printf '{"requested_at":"%s","piece":"a fresh session","status":"done","fresh":true,"note":"PR 981 merged"}\\n' "\$(date -u -d '+2 seconds' +%Y-%m-%dT%H:%M:%SZ)" > "$STATE/agents/$LOGIN/restart.json"
+  echo "RUN1:\$*"; exit 143
+fi
+echo "RUN2:\$*"; exit 0
+FAKE
+chmod +x "$SANDBOX/bin/ori"; rm -f "$SANDBOX/runs"
+out="$(runa --resume old-id 2>&1)"; rc=$?
+[[ $rc -eq 0 ]] && grep -q "the session finished its job: PR 981 merged; starting a fresh one" <<<"$out" && ok "a fresh marker is said, and the launcher brings a session back" || bad "no fresh restart (rc=$rc)" "$out"
+grep -q "^RUN2:" <<<"$out" && ! grep -q "^RUN2:.*--resume" <<<"$out" && ! grep -q "^RUN2:.*--continue" <<<"$out" && ok "…with no --resume and no --continue: a new conversation" || bad "fresh relaunch resumed" "$(grep RUN2 <<<"$out")"
+grep -q "^RUN2:.*finished its job and started this one fresh: PR 981 merged" <<<"$out" && ok "…and the opening prompt carries the note" || bad "no note in the opening" "$(grep RUN2 <<<"$out")"
+[[ ! -e "$STATE/agents/$LOGIN/restart.json" ]] && ok "…and the marker is consumed" || bad "fresh marker left behind"
+write_fake_ori
+
 echo "launch: a fabric checkout behind origin/main is pulled and the launcher re-executes on it"
 # The fixture fabric becomes a git checkout with a bare origin one commit ahead.
 mkfabric
