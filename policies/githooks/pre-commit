@@ -90,9 +90,10 @@ pre-commit: this commit changes $what, which only the $owner_role role writes.
 
 agent-fabric is read-only for every role but $owner_role; in a managed
 project, .agent-fabric/ is. A change you need there is proposed to
-$owner_role (a pull request, or a message), and a wrong slice is raised
-with it — a correction enters through a drain with provenance, never as a
-hand edit. If you hold the role, bind it from a login shell first —
+$owner_role (a pull request, or a message). A wrong slice is corrected
+at the memory it was drained from, or by a memory of the same class
+carrying merge_target with the stale section's heading; the next drain
+puts it in place — never a hand edit. If you hold the role, bind it from a login shell first —
 bin/fabric-role bind $owner_role — and relaunch.
 See agent-fabric policies/AUTHORITY.md.
 MSG

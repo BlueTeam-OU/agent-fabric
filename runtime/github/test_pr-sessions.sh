@@ -219,7 +219,7 @@ ago() { date -u -d "$1 ago" +%Y-%m-%dT%H:%M:%SZ; }
 write_pr_list() { printf '%s\n' "$1" > "$SANDBOX/fixtures/pr-list.json"; }
 write_graphql() { printf '%s\n' "$1" > "$SANDBOX/fixtures/graphql.json"; }
 
-# Three PRs: two this clone's, one another session's.
+# Three PRs: two this session's, one another session's.
 default_pr_list() {
     write_pr_list "$(jq -n --arg me "$ME" --arg other "$OTHER" \
       --arg t30 "$(ago '1 hour')" --arg t29 "$(ago '2 hours')" \
@@ -265,16 +265,16 @@ echo "pr-sessions: default scope"
 default_pr_list; default_graphql
 run
 assert_rc        "exits 0" 0
-assert_contains  "shows this clone's PR"          "#30"
-assert_contains  "shows this clone's other PR"    "#28"
+assert_contains  "shows this session's PR"          "#30"
+assert_contains  "shows this session's other PR"    "#28"
 assert_not_contains "hides another session's PR"  "#29"
-assert_contains  "says it defaulted to this clone" "Scoped to this clone"
+assert_contains  "says it defaulted to this session" "Scoped to this session"
 
 echo "pr-sessions: /all"
 run /all
 assert_rc       "exits 0" 0
 assert_contains "includes the other session's PR" "#29"
-assert_contains "still includes this clone's"     "#30"
+assert_contains "still includes this session's"     "#30"
 
 echo "pr-sessions: explicit session filter"
 run --session legacy-otherclone
@@ -295,7 +295,7 @@ echo "pr-sessions: grouped output"
 run /all --by-session
 assert_rc       "exits 0" 0
 assert_contains "groups under this clone" "$ME"
-assert_contains "marks this clone"        "this clone"
+assert_contains "marks this session"      "this session"
 
 echo "pr-sessions: empty result is a clean exit, not an error"
 write_pr_list '[]'
@@ -609,7 +609,7 @@ write_graphql "$(jq -n '{data: {repository: {
 # scope filter, so a run that scopes to nothing proves nothing.
 run
 assert_rc       "exits 0" 0
-assert_contains "an unlisted <type> is still this clone's work" "#50"
+assert_contains "an unlisted <type> is still this session's work" "#50"
 assert_contains "  and so is another one"                       "#51"
 assert_contains "a conventional type is unaffected"             "#52"
 assert_not_contains "none of them read as unattributed" "(unconventional)"
@@ -672,7 +672,7 @@ write_pr_list "$(jq -n --arg t1 "$(ago '1 hour')" '[
 write_graphql "$(jq -n '{data: {repository: {}}}')"
 run
 assert_rc       "exits 0" 0
-assert_contains "says there are no PRs for this clone" "no PRs for this clone"
+assert_contains "says there are no PRs for this session" "no PRs for this session"
 assert_contains "  and still discloses the omission"   "cannot be scoped to a"
 
 echo "pr-sessions: the disclosure survives the /unresolved-empty early exit"
@@ -699,7 +699,7 @@ echo "pr-sessions: /unattributed does not warn about omitting what it just liste
 # directly above the one row it names — a footer contradicting its page.
 assert_not_contains "no self-contradicting disclosure" "cannot be scoped to a"
 
-echo "pr-sessions: /unattributed does not claim any row is this clone's"
+echo "pr-sessions: /unattributed does not claim any row is this session's"
 # Every row here failed to parse as a session, so the "*" legend cannot
 # apply and "leave other sessions alone" is the wrong instruction — it
 # is the reading that left these unanswered.
@@ -771,7 +771,7 @@ default_pr_list; default_graphql
 run /unattributed
 assert_rc           "exits 0" 0
 assert_contains     "names this scope, not another" "without a parsable session branch"
-assert_not_contains "does not claim it scoped to the clone" "PRs for this clone"
+assert_not_contains "does not claim it scoped to the session" "PRs for this session"
 
 echo "pr-sessions: /unattributed and /unresolved with nothing to show names the scope"
 # Reaching the /unresolved-empty exit needs a row that EXISTS under this
@@ -791,7 +791,7 @@ write_graphql "$(jq -n '{data: {repository: {
 run /unattributed /unresolved
 assert_rc           "exits 0" 0
 assert_contains     "names the unowned scope" "branches no session owns"
-assert_not_contains "not the clone scope"     "for this clone"
+assert_not_contains "not the session scope"   "for this session"
 default_pr_list; default_graphql
 
 echo "pr-sessions: the count describes the NARROWED pool, not everything fetched"

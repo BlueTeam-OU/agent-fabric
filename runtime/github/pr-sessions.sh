@@ -387,7 +387,7 @@ envelope="$(printf '%s' "$rows" | jq --arg me "$ME" --arg melegacy "$ME_LEGACY" 
   # conventional-commit words, so any branch typed outside that set —
   # `spike-3/`, `hotfix/`, `stage-4/` — was classified unconventional,
   # given the session "(unconventional)", and then SILENTLY DROPPED by
-  # the default clone scope. That is the command whose whole job is
+  # the default session scope. That is the command whose whole job is
   # surfacing outstanding work quietly answering "none".
   #
   # A branch is conventional if it has the right SHAPE. Anything that
@@ -487,13 +487,13 @@ unattributed_note() {
 
 if [[ "$(printf '%s' "$selected" | jq 'length')" -eq 0 ]]; then
     what="PRs"
-    [[ "$FILTER" == "__MINE__" ]] && what="PRs for this clone ($ME)"
+    [[ "$FILTER" == "__MINE__" ]] && what="PRs for this session ($ME)"
     [[ "$FILTER" == "__UNATTRIBUTED__" ]] && what="PRs without a parsable session branch"
     [[ -n "$FILTER" && "$FILTER" != "__MINE__" && "$FILTER" != "__UNATTRIBUTED__" ]] && \
         what="PRs for a session matching '$FILTER'"
     echo "pr-sessions: no $what in the last $FETCH ${STATE} PR(s)."
     [[ "$DEFAULTED_TO_MINE" -eq 1 ]] && \
-        echo "  (scoped to this clone by default — pass /all to see every session)"
+        echo "  (scoped to this session by default — pass /all to see every session)"
     unattributed_note
     exit 0
 fi
@@ -608,7 +608,7 @@ out="$(printf '%s' "$selected" | jq -r --arg me "$ME" --arg melegacy "$ME_LEGACY
       | map(
           # OWNER decides the marker; the heading is the session name
           # exactly where it is least obvious.
-          "\n\(.[0]._s)\(if (.[0]._o | mine) then "   <- this clone" else "" end)"
+          "\n\(.[0]._s)\(if (.[0]._o | mine) then "   <- this session" else "" end)"
           , ( sort_by(-.number)[]
               | "  #\(.number)  \(st | pad(6))  \(threads | lpad(3))  \(.updatedAt[0:10])  \(._w)" )
         ) | flatten | .[] )
@@ -623,7 +623,7 @@ if [[ "$GROUPED" -eq 0 ]]; then
         PR STATE THR UPDATED SESSION WORK
 fi
 if [[ -z "${out//[$' \t\n']/}" ]]; then
-    scope="this clone ($ME)"
+    scope="this session ($ME)"
     [[ "$FILTER" == "" ]] && scope="any session"
     [[ "$FILTER" == "__UNATTRIBUTED__" ]] && scope="branches no session owns"
     [[ -n "$FILTER" && "$FILTER" != "__MINE__" && "$FILTER" != "__UNATTRIBUTED__" ]] && \
@@ -651,10 +651,10 @@ unattributed_note
 
 echo
 if [[ "$DEFAULTED_TO_MINE" -eq 1 ]]; then
-    echo "  Scoped to this clone ($ME) — pass /all for every session."
+    echo "  Scoped to this session ($ME) — pass /all for every session."
 elif [[ "$FILTER" == "__UNATTRIBUTED__" ]]; then
     # The "*" legend would be a lie here: no row under this scope can be
-    # this clone's, because every one of them failed to parse as any
+    # this session's, because every one of them failed to parse as any
     # session at all. Saying who these belong to instead is the useful
     # sentence, since "leave other sessions' PRs alone" is precisely the
     # rule that does NOT apply and has kept these unanswered.
@@ -662,6 +662,6 @@ elif [[ "$FILTER" == "__UNATTRIBUTED__" ]]; then
     echo "  has no owner to point at — findings here are unowned, not somebody"
     echo "  else's. Check with the surface's role before acting on the code."
 elif [[ "$GROUPED" -eq 0 ]]; then
-    echo "  * = this clone ($ME).  Others belong to parallel sessions:"
+    echo "  * = this session ($ME).  Others belong to parallel sessions:"
     echo "  do not push to, rebase, delete, or answer reviews on their branches."
 fi
