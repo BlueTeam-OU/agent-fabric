@@ -102,8 +102,10 @@ commit_class() {
         local ref refs="" form='([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+#|[A-Za-z0-9_.-]+#|[A-Za-z0-9_.-]+[[:space:]]+#|#)[0-9]+'
         while IFS= read -r ref; do
             [[ -n "$ref" ]] && refs+="$(_commit_class_ref "$ref" "$repo")"$'\n'
-        done < <( { grep -oiE "(re-)?reviews?[[:space:]]+(of|on|for)[[:space:]]+$form" <<<"$subject" \
-                      | sed -E 's/^(re-)?reviews?[[:space:]]+(of|on|for)[[:space:]]+//I'
+        # "reviews on #53 and #54", "review of #53, #54": every PR in the list.
+        done < <( { grep -oiE "(re-)?reviews?[[:space:]]+(of|on|for)[[:space:]]+$form(([[:space:]]*,[[:space:]]*|[[:space:]]+and[[:space:]]+)$form)*" <<<"$subject" \
+                      | sed -E 's/^(re-)?reviews?[[:space:]]+(of|on|for)[[:space:]]+//I' \
+                      | sed -E 's/([[:space:]]*,[[:space:]]*|[[:space:]]+and[[:space:]]+)/\n/g'
                     grep -oE "${form}[[:space:]]+[A-Z]{1,2}-?[0-9]+" <<<"$subject" \
                       | sed -E 's/[[:space:]]+[A-Z]{1,2}-?[0-9]+$//'
                     grep -oE "$form" <<<"$answers"; } )

@@ -93,6 +93,13 @@ expect_repo fix  53 gzapi-org/agent-fabric "review of agent-fabric #53: the fix"
 expect_repo fix  53 gzapi-org/agent-fabric "review of #53: the fix"
 expect_repo fix  861 gzapi-org/gzapp "supplier: the copy (#861 F6)"
 expect_pr   work 54 "supplier: the carried copy (#53 F3)"
+# Every PR a list of reviews names, not only the first.
+expect_pr   fix  54 "reviews on #53 and #54: the date rules"
+expect_pr   fix  54 "review of #53, #54: the date rules"
+expect_pr   work 55 "reviews on #53 and #54: the date rules"
+# A severity after the number is a review answer to that PR, like a label.
+expect_pr   fix  53 "the guard (#53 P2)"
+expect_pr   work 54 "the guard (#53 P2)"
 # Only a form that names a repository does; "PR #N", "thread #N" and
 # "the copy #N" are this repository's numbers (re-review of #55, F1-F2).
 expect_repo fix  918 gzapi-org/gzapp "review F1-F4 + PE1: the guards" "PR #918 review F1-F4 and PE1"
