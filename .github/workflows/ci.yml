@@ -12,11 +12,22 @@ on:
 permissions:
   contents: read
 
+# A new push to a pull request cancels the run it supersedes: nobody reads
+# a verdict on a head that is no longer the PR's. Only pull requests: a
+# push to main and a queue run are each the last word on their commit, so
+# each gets a group of its own (its run id) — a shared group, even without
+# cancel-in-progress, keeps one pending run and cancels the one before it.
+concurrency:
+  group: ci-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   static:
     # Every bash script parses, shellcheck at error severity, ruff on the
     # rule set in ruff.toml — before any suite, on one interpreter.
     runs-on: ubuntu-latest
+    # Measured ~30 s. A job without a cap runs to GitHub's six hours.
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -39,6 +50,8 @@ jobs:
         include:
           - python: '3.12'
             node: '20'
+    # Measured 7-9.5 min (tests/run.sh, 2026-09-29); the cap is for a hang.
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -83,6 +96,8 @@ jobs:
             install: apt-get install -y --no-install-recommends
             extra: shellcheck python3-pip ca-certificates hostname
     container: ${{ matrix.image }}
+    # Measured 7-8.5 min (2026-09-29); the cap is for a hang.
+    timeout-minutes: 25
     defaults:
       run:
         shell: bash   # a container's default `sh` is dash on Debian; the profiles are bash
