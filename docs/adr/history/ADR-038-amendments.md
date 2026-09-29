@@ -27,11 +27,12 @@ public half and never hold a Proton session, the parent carries the
 ciphertext, and only the owner, with the passphrase, can open a copy.
 The coordinator's earlier plain copy is replaced, then deleted.
 
-### Amendment 2026-09-29 — Each agent has an id beneath its name
+### Amendment 2026-09-29 — Keys and stores are named by the agent id
 
 The owner decided that each agent has an id: a UUIDv7 minted from its
-birth (ADR-039). Names stay logins wherever a person reads them, and the
-id is recorded beneath them. The repository is renamed from
-`secrets-<login>` to `agent-fabric-secrets-<login>`. The committed key's
-certification is checked on the user id addressed to the agent's id, so a
-renamed login keeps its key, and a reused name cannot inherit it.
+birth (ADR-039). The committed key, the lineage entry and the secrets
+repository are now named by that id rather than by the login, so a
+renamed login keeps them, and a reused name cannot inherit them. The
+coordinator's repository `secrets-user` was renamed on GitHub to
+`agent-fabric-secrets-019bbe31-2fff-7a2f-9849-96bdf286e011`, and its key
+gained a user id addressed to that id.

@@ -216,7 +216,7 @@ if [[ "$BACKEND" == local ]]; then
   printf '#!/usr/bin/env bash\necho "store-enroll $*" >> "%s"\n' "$CALLS" > "$FAB/runtime/provisioning/secrets/store-enroll.sh"
   chmod +x "$FAB/runtime/provisioning/secrets/store-enroll.sh"
   reset_seq; out5b="$(seq_run seq-login backend-dev --project demo)"; rc5b=$?
-  grep -qx "store-enroll seq-login --host $LOCAL" "$CALLS" && grep -q "5b. its key made and certified" <<<"$out5b" \
+  grep -qx "store-enroll seq-login --host $LOCAL --born-now" "$CALLS" && grep -q "5b. its key made and certified" <<<"$out5b" \
     && ok "5b with a parent store: store-enroll.sh for the account on its host" || bad "5b enrol (rc=$rc5b)" "$(cat "$CALLS" 2>/dev/null) $out5b"
   rm -f "$FAB/tools/fabric/secret_store.py" "$FAB/runtime/provisioning/secrets/store-enroll.sh"
   reset_seq; out="$(seq_run seq-login backend-dev --project demo)"; rc=$?   # back to the plain run the next checks read

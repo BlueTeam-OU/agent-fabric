@@ -4,7 +4,7 @@
 **Status:** Accepted
 **Ratified:** owner, 2026-09-29, by the merge of agent-fabric #63 (e00f750)
 **Decision Makers:** the owner (the move off Doppler, a repository per agent, a key per agent, paper recovery, the parent's role, no assumed co-location); drafted by fabric-coordinator
-**Scope:** every agent's credentials and the key that guards them: `tools/fabric/secret_store.py` behind `bin/fabric-secrets`; each agent's repository `gzapi-org/agent-fabric-secrets-<login>` (ADR-039); `identities/keys/`; `~/.config/agent-fabric/secrets.env` and its consumers; the migration from Doppler (ADR-012); the Claude-account templates (ADR-031); provisioning (`runtime/provisioning/new-agent.sh`)
+**Scope:** every agent's credentials and the key that guards them: `tools/fabric/secret_store.py` behind `bin/fabric-secrets`; each agent's repository `gzapi-org/agent-fabric-secrets-<id>` (ADR-039); `identities/keys/`; `~/.config/agent-fabric/secrets.env` and its consumers; the migration from Doppler (ADR-012); the Claude-account templates (ADR-031); provisioning (`runtime/provisioning/new-agent.sh`)
 **Pillar:** P1
 
 ## 1. Context and Problem
@@ -45,8 +45,8 @@ of identity is extended to keys.
   on different hosts, and nothing here depends on their sharing one.
 - **Authority stays apart from identity.**
 
-The store is a private repository per agent, `gzapi-org/agent-fabric-secrets-<login>`
-(ADR-039),
+The store is a private repository per agent, `gzapi-org/agent-fabric-secrets-<id>`
+(the agent id, ADR-039),
 in the layout pass(1) uses:
 - a `.gpg-id` naming the key;
 - one `env/<NAME>.gpg` per secret, the value on the first line.
@@ -99,10 +99,11 @@ sharing a machine.
    included. A key held anywhere else is a stolen credential and is
    revoked (A 2026-09-29).
 2. A key is an agent's only when both hold:
-   - its public half is committed at `identities/keys/<login>.asc`;
+   - its public half is committed at `identities/keys/<id>.asc`, the
+     agent's id (ADR-039);
    - the committed key carries a certification by the key of the parent
-     recorded for that login in `identities/keys/lineage.json`, on the
-     user id addressed to the agent's id (ADR-039) (A 2026-09-29).
+     recorded for that id in `identities/keys/lineage.json`
+     (A 2026-09-29).
    The coordinator's own key is the root of the chain, committed the
    same way and recorded with no parent. Lint refuses a committed key
    without its parent's certification.
@@ -193,4 +194,4 @@ The body above reads current; each change's full note is in [history/ADR-038-ame
 |---|---|---|
 | 2026-09-29 | The recovery copy and the backup go to Proton Drive | §5 rules 1 and 6, §6: Proton instead of paper; the backup |
 | 2026-09-29 | Recovery copies are encrypted to the owner's recovery key | §5 rules 1 and 6, §6: option B, the passphrase-protected recovery key |
-| 2026-09-29 | Each agent has an id beneath its name | §2, §5 rule 2, Scope: the repository `agent-fabric-secrets-<login>`; the certification on the id's user id (ADR-039) |
+| 2026-09-29 | Keys and stores are named by the agent id | §2, §5 rule 2, Scope: `<id>.asc`, `agent-fabric-secrets-<id>` (ADR-039) |

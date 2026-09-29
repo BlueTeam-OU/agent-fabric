@@ -100,38 +100,50 @@ The coordinator's id was minted from its home's creation time,
 `2026-01-14 21:27:33.247294044 +0100`:
 `019bbe31-2fff-7a2f-9849-96bdf286e011`, born `2026-01-14T20:27:33.247Z`.
 
-**First design: the id everywhere.** The first version named everything
-by the id: the repository, the key file, the lineage key and the Proton
-files. The owner read it and asked for names wherever a person reads
-them, with the id underneath. The coordinator was moved twice. The final
-state, read back:
+**How the naming settled.** The owner read three versions in turn:
+1. Ids everywhere.
+2. Logins everywhere.
+3. What is stored is named by the id; what a person types and reads is
+   the login; each repository's description gives both.
 
-- **Repository:** `gzapi-org/agent-fabric-secrets-user`, private, its
-  description naming the agent id. It was renamed from `secrets-user`,
-  through the id-named form and back.
-- **Lineage:** `lineage.json` has one entry, `user`, with `agent_id`,
-  `born`, `fingerprint` and a null parent. The key file is
-  `identities/keys/user.asc`, and `verify` is clean.
+The third is what landed. The coordinator's repository was renamed each
+time, and it ended at
+`gzapi-org/agent-fabric-secrets-019bbe31-2fff-7a2f-9849-96bdf286e011`,
+private. Its description reads "agent-fabric secrets. Linux login: user.
+Agent id: 019bbe31-…". The final state, read back:
+
+- **Lineage:** `lineage.json` has one entry, keyed by the id, with
+  `login: user`, `born`, `fingerprint` and a null parent. The key file
+  is `identities/keys/019bbe31-….asc`, `verify` is clean, and
+  `store id-of user` answers the id.
 - **Key:** the same key, `F15AA499…2015`. It gained the user id
   `user <019bbe31-…@agents.agent-fabric>`. The account still has 4
   private-key files.
-- **Store:** it holds `.agent-id` and `recovery/user.key.gpg`, and is
-  level with its remote.
-- **Proton:** `secrets/agent-fabric-secrets-user.bundle` (`--verify`
-  matches), `keys/user.key.gpg` and `keys/recovery-key.asc`. Every other
-  file there was trashed and then deleted.
+- **Store:** it holds `.agent-id` and `recovery/019bbe31-….key.gpg`
+  (1,890 bytes), and is level with its remote.
+- **Proton:**
+  - `secrets/agent-fabric-secrets-019bbe31-….bundle`, with the manifest;
+    `--verify` matches, run from a directory that is no repository;
+  - `keys/019bbe31-….key.gpg`;
+  - `keys/recovery-key-19A371CA986E3820.asc`, the owner's recovery key,
+    renamed to carry its fingerprint.
 
-**Two defects, found on the way, both fixed with the test that catches
-them:**
+  Every superseded file was trashed and then deleted.
 
+**Defects found on the way, each fixed with the test that catches it:**
 1. `store-enroll.sh` read `lineage.json` from its own checkout, not from
-   the fabric root the store tool certifies into. On the enrolment
-   test's second run it minted a fresh id, and `init` refused it. The
-   lookup is now the store tool's `id-of`.
-2. A rewrite of the recovery sheet turned its last line into a plain
-   string. The copy then carried `{sheet}` and `{revocation}` literally:
-   412 bytes instead of 1,909. The test had checked for "REVOCATION",
-   which the literal matched once uppercased. It now checks for
-   paperkey's header and the armored revocation block. With only that
-   bug put back, the test fails. The copy was re-made at 1,909 bytes.
-   The earlier complete copies stay in the store's history.
+   the fabric root the store tool certifies into. A re-run minted a
+   fresh id, which `init` refused. The lookup is now the store tool's
+   `id-of`.
+2. During the login-names version, a rewrite of the recovery sheet
+   turned its last line into a plain string. The copy carried `{sheet}`
+   and `{revocation}` literally: 412 bytes instead of about 1,900. The
+   test had checked for "REVOCATION", which the literal matched once
+   uppercased. It now checks for paperkey's header and the armored
+   revocation block, and fails with only that bug put back.
+3. `backup --verify` ran `git bundle verify` in the caller's working
+   directory. From a directory that is no repository, it failed every
+   good bundle: "need a repository to verify a bundle". It passed before
+   only because it was run inside a checkout. It now verifies inside an
+   empty repository of its own, and the suite runs the tool from a
+   non-repository directory. The test fails without the fix.

@@ -16,8 +16,9 @@ Filesystem location identifies context, never identity.
 A key is a login's credential, never its identity: each login's key is
 made in its own account and attested by its parent's certification, and
 where a login runs is placement, not identity (ADR-038). The login is the
-agent's current name, and names stay logins; beneath it, its agent id, a
-UUIDv7 minted at its birth, is what a rename keeps (ADR-039).
+agent's current name, and what commands take; its agent id, a UUIDv7
+minted at its birth, is what it is stored as and what a rename keeps
+(ADR-039).
 
 ## Decisions
 
@@ -192,7 +193,7 @@ Runtime state is never in this repository: your binding, role history,
 model choices and rendered launch prompt live under
 `${XDG_STATE_HOME:-~/.local/state}/agent-fabric/agents/<login>/`.
 Credentials never enter a committed file or a message: an identity's
-secrets are in its own encrypted store (`<org>/agent-fabric-secrets-<login>`, a pass
+secrets are in its own encrypted store (`<org>/agent-fabric-secrets-<id>`, a pass
 repository only that login can read, ADR-038), or in Doppler until the
 account has migrated (ADR-012), and `fabric-secrets sync` puts them where
 the tools read them, the same file from either.
