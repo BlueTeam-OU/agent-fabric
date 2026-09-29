@@ -36,3 +36,19 @@ renamed login keeps them, and a reused name cannot inherit them. The
 coordinator's repository `secrets-user` was renamed on GitHub to
 `agent-fabric-secrets-019bbe31-2fff-7a2f-9849-96bdf286e011`, and its key
 gained a user id addressed to that id.
+
+### Amendment 2026-09-29 — One identity key per agent, a key per use beneath it
+
+The owner's view: different uses are better served by different keys.
+The one key did everything: its primary certified and signed, and its
+single subkey opened the store. Now:
+- **New keys:** the primary only certifies, and the key carries one
+  subkey per use: encryption, signing and authentication.
+- **Existing keys** gain the subkeys they lack and keep their
+  fingerprints. The coordinator's key gained a signing and an
+  authentication subkey. Its primary keeps the signing capability it
+  was made with, and gpg signs with the newer subkey.
+- **`verify` and lint** refuse a committed key that lacks a use's subkey,
+  or whose primary encrypts or authenticates.
+- **Formats other than OpenPGP** stay separate keys: the control-plane
+  Ed25519 key, and a Radicle node key if one comes.

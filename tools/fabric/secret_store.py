@@ -188,6 +188,39 @@ def key_of_store(store: str | None = None) -> str:
 
 
 # ── the agent, in its own account ─────────────────────────────────────
+# One key per use (ADR-038 rule 1): the primary certifies only, and each
+# use is its own subkey, so a leaked signing key never opens the store and
+# each can be rotated alone. The authentication subkey is the one an SSH
+# client can use through gpg-agent.
+KEY_USES = (("e", "cv25519", "encr", "encryption"), ("s", "ed25519", "sign", "signing"),
+            ("a", "ed25519", "auth", "authentication"))
+
+
+def _key_caps(colons: str) -> tuple[str, set[str]]:
+    """From `gpg --with-colons` output for one key: the primary's own
+    capabilities and those of its valid subkeys (revoked or expired ones
+    excluded)."""
+    primary, subs = "", set()
+    for l in colons.splitlines():
+        f = l.split(":")
+        if f[0] == "pub":
+            primary = "".join(c for c in f[11] if c.islower())
+        elif f[0] == "sub" and f[1] not in ("r", "e", "i"):
+            subs |= {c for c in f[11] if c.islower()}
+    return primary, subs
+
+
+def _ensure_use_subkeys(fpr: str) -> list[str]:
+    """Adds the subkey of each use the key lacks; returns the uses added."""
+    _, subs = _key_caps(gpg("--with-colons", "--list-keys", fpr).stdout.decode())
+    added = []
+    for cap, algo, usage, name in KEY_USES:
+        if cap not in subs:
+            gpg("--quick-add-key", fpr, algo, usage, "never")
+            added.append(name)
+    return added
+
+
 def uid_of(agent_id: str, name: str) -> str:
     # The address is the id, which a rename keeps; the name part is the
     # login at birth, a label only.
@@ -211,12 +244,14 @@ def init(remote: str | None = None, agent_id: str | None = None) -> dict:
     fpr = key_of_store(store) if os.path.exists(gpg_id) else next(iter(fingerprints(secret=True, query=f"<{aid}@{UID_DOMAIN}>")), None)
     made = False
     if not fpr:
-        gpg("--quick-gen-key", uid, "ed25519", "cert,sign", "never")
+        gpg("--quick-gen-key", uid, "ed25519", "cert", "never")
         fpr = fingerprints(secret=True, query=f"={uid}")[0]
-        gpg("--quick-add-key", fpr, "cv25519", "encr", "never")
         made = True
     elif fpr not in fingerprints(secret=True, query=f"<{aid}@{UID_DOMAIN}>"):
         gpg("--quick-add-uid", fpr, uid)
+    # A key made before the split gains the subkeys it lacks, and keeps its
+    # fingerprint: its parent re-exports it at the next certification.
+    added = _ensure_use_subkeys(fpr)
     os.makedirs(os.path.join(store, "env"), mode=0o700, exist_ok=True)
     if not os.path.isdir(os.path.join(store, ".git")):
         git(store, "init", "-q", "-b", "main")
@@ -232,7 +267,7 @@ def init(remote: str | None = None, agent_id: str | None = None) -> dict:
             git(store, "remote", "set-url", "origin", remote)
         else:
             git(store, "remote", "add", "origin", remote)
-    return {"login": me, "agent_id": aid, "fingerprint": fpr, "key_made": made, "store": store}
+    return {"login": me, "agent_id": aid, "fingerprint": fpr, "key_made": made, "store": store, "subkeys_added": added}
 
 
 def export_key(fpr: str | None = None, homedir: str | None = None) -> str:
@@ -635,6 +670,14 @@ def verify(fabric: str | None = None) -> list[str]:
                     findings.append(f"identities/keys/{who}.asc: holds {len(held)} key(s), "
                                     f"{'not the recorded ' + fpr if fpr not in held else 'not only the recorded one'}")
                     return
+                primary, subs = _key_caps(gpg("--with-colons", "--list-keys", fpr, homedir=tmp).stdout.decode())
+                lacking = [name for cap, _, _, name in KEY_USES if cap not in subs]
+                if lacking:
+                    findings.append(f"identities/keys/{who}.asc: no {', '.join(lacking)} subkey; "
+                                    "each use has its own key (ADR-038 rule 1)")
+                if set(primary) & {"e", "a"}:
+                    findings.append(f"identities/keys/{who}.asc: the primary key itself encrypts or authenticates; "
+                                    "it certifies, and each use is a subkey (ADR-038 rule 1)")
                 addr = f"<{who}@{UID_DOMAIN}>"
                 if parent is not None:
                     pfpr = (doc.get(parent) or {}).get("fingerprint")
@@ -1101,7 +1144,8 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.cmd == "init":
             r = init(args.remote, args.agent_id)
-            print(f"store: {r['store']}  agent: {r['agent_id']}  key: {r['fingerprint']}{' (made)' if r['key_made'] else ''}")
+            print(f"store: {r['store']}  agent: {r['agent_id']}  key: {r['fingerprint']}{' (made)' if r['key_made'] else ''}"
+                  + (f"  subkeys added: {', '.join(r['subkeys_added'])}" if r['subkeys_added'] and not r['key_made'] else ""))
         elif args.cmd == "mint-id":
             print(mint_agent_id(born_ms_of(args.born)))
         elif args.cmd == "id":

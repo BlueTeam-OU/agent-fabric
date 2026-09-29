@@ -80,6 +80,10 @@ def main() -> int:
             # The parent's own key is the root of the chain.
             p = run(parent, "init", "--agent-id", PID)
             check("init makes a key and a store", p.returncode == 0 and "(made)" in p.stdout, p.stderr)
+            caps = secret_store._key_caps(subprocess.run(["gpg", "--with-colons", "--list-keys"], env=parent,
+                                                         capture_output=True, text=True).stdout)
+            check("…its primary only certifies, and each use is its own subkey (ADR-038 rule 1)",
+                  caps == ("c", {"e", "s", "a"}), repr(caps))
             p2 = run(parent, "init")
             check("init again keeps the key", p2.returncode == 0 and "(made)" not in p2.stdout, p2.stderr)
             p = run(parent, "certify", "--root")
@@ -377,6 +381,14 @@ def main() -> int:
             check("a lineage entry that is not an object is a finding, not a traceback",
                   r.returncode == 1 and f"{KID} is not an object" in r.stdout and "Traceback" not in r.stderr, r.stdout + r.stderr)
             restore()
+            # A committed key whose authentication subkey is dropped: one use
+            # missing is a finding, whatever else holds.
+            noauth = subprocess.run(["gpg", "--armor", "--export", "--export-filter", "drop-subkey=usage =~ a", child_fpr],
+                                    env=parent, capture_output=True, text=True).stdout
+            open(os.path.join(kd, f"{KID}.asc"), "w").write(noauth)
+            check("ADR-038 rule 1: a committed key without its authentication subkey is refused",
+                  verify_says("no authentication subkey"), run(parent, "verify").stdout)
+            restore()
 
             # ADR-039: a rename moves one field; the id, key and store stay.
             p = run(parent, "rename", "kid", "kiddo")
@@ -407,6 +419,8 @@ def main() -> int:
             check("a pre-id key keeps its fingerprint and gains the id's user id", p.returncode == 0 and "(made)" not in p.stdout
                   and f"<{LID}@agents.agent-fabric>" in uids and open(os.path.join(legacy["AGENT_FABRIC_SECRET_STORE"], ".gpg-id")).read().strip() == lfpr,
                   p.stdout + p.stderr)
+            check("…and the subkey of each use it lacked, said as such", secret_store._key_caps(uids)[1] == {"e", "s", "a"}
+                  and "subkeys added: encryption, signing, authentication" in p.stdout, p.stdout + repr(secret_store._key_caps(uids)))
             subprocess.run(["gpgconf", "--homedir", legacy["GNUPGHOME"], "--kill", "all"], capture_output=True)
             p = run(parent, "mint-id", "2026-08-13 21:56:22.653442123 +0200")
             check("mint-id: a UUIDv7 of that birth", p.returncode == 0 and secret_store.AGENT_ID_RE.match(p.stdout.strip())

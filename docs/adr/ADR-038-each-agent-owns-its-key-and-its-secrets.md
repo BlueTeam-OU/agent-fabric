@@ -89,7 +89,12 @@ sharing a machine.
 
 ## 5. Binding Rules
 
-1. Each login has exactly one agent key, generated inside that account.
+1. Each login has exactly one agent key, generated inside that account:
+   a primary that only certifies, the agent's identity, and beneath it
+   one subkey per use, encryption (the store), signing and
+   authentication, so each use can be rotated alone and a leaked one
+   opens nothing else. A key made before the split keeps its
+   fingerprint and gains the subkeys it lacks (A 2026-09-29).
    Its private half leaves the account only as that agent's recovery copy:
    the paperkey text and revocation certificate, encrypted by the account
    to the owner's recovery key (`identities/recovery.asc`) and carried to
@@ -167,8 +172,13 @@ sharing a machine.
 
 ## 7. Future Evolution
 
-- **Per-agent git signing** with the certified key, replacing the shared
-  coordinator key; its own record, since it changes the fleet's commits.
+- **Per-agent git signing** with the agent's signing subkey, replacing
+  the shared coordinator key; its own record, since it changes the
+  fleet's commits. **The authentication subkey as each agent's SSH key**
+  through gpg-agent, replacing the shared one, likewise.
+- **The identity key off the host:** only its subkeys kept online, the
+  primary only in the recovery copy, once certifying no longer needs it
+  there (the coordinator certifies children with its own).
 - **Removal of Doppler:** the reader, the enrolment and the binary, once
   every account's source is `store` (ADR-012 is superseded then).
 - **Hardware-held keys,** if an agent's host offers one.
@@ -195,3 +205,4 @@ The body above reads current; each change's full note is in [history/ADR-038-ame
 | 2026-09-29 | The recovery copy and the backup go to Proton Drive | §5 rules 1 and 6, §6: Proton instead of paper; the backup |
 | 2026-09-29 | Recovery copies are encrypted to the owner's recovery key | §5 rules 1 and 6, §6: option B, the passphrase-protected recovery key |
 | 2026-09-29 | Keys and stores are named by the agent id | §2, §5 rule 2, Scope: `<id>.asc`, `agent-fabric-secrets-<id>` (ADR-039) |
+| 2026-09-29 | One identity key per agent, a key per use beneath it | §5 rule 1, §7: a certify-only primary with encryption, signing and authentication subkeys |
