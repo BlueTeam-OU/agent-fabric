@@ -168,6 +168,78 @@ def main() -> int:
             p = run(parent, "assign", "no-such", "kid")
             check("an unknown template is refused", p.returncode == 1 and "not a template" in p.stderr, p.stderr)
 
+            # provision (the Doppler enrolment's replacement): the parent
+            # fills the child's store with put, reads nothing back, prints
+            # no value. Shared names are an allowlist.
+            PROV = os.path.join(ROOT, "tools", "fabric", "store_provision.py")
+            prov = lambda *a: subprocess.run([sys.executable, PROV, *a], env=parent, cwd=tmp, capture_output=True, text=True)
+            rows_of = lambda p: {(r.get("name"), r["status"]) for r in json.loads(p.stdout or "[]")}
+            for k, v in (("GH_TOKEN", "parent-gh-token"), ("GIT_USER_NAME", "Fleet Person"), ("SSH_PUBLIC_KEY", "ssh-ed25519 AAAAshared"),
+                         ("OPENROUTER_PROVISIONING_KEY", "prov-" + SECRET)):
+                run(parent, "set", k, stdin=v)
+            p = prov("share", "kid")
+            got = rows_of(p)
+            check("provision share: the parent's shared names the child lacks are written; one it holds is present",
+                  p.returncode == 0 and ("GIT_USER_NAME", "written") in got and ("SSH_PUBLIC_KEY", "written") in got
+                  and ("GH_TOKEN", "present") in got and ("SSH_PRIVATE_KEY", "skipped") in got, p.stdout + p.stderr)
+            check("…and never a name off the allowlist, nor a value",
+                  not os.path.exists(os.path.join(mirror, "env", "OPENROUTER_PROVISIONING_KEY.gpg"))
+                  and SECRET not in p.stdout + p.stderr and "Fleet Person" not in p.stdout, p.stdout)
+            p = prov("share", "kid")
+            check("provision share again: present, nothing written", p.returncode == 0
+                  and not any(st == "written" for _, st in rows_of(p)), p.stdout)
+            p = prov("share", "kid", "--name", "OPENROUTER_PROVISIONING_KEY")
+            check("provision share refuses the parent's own credentials even when named", p.returncode == 1
+                  and "never shared" in p.stderr and not os.path.exists(os.path.join(mirror, "env", "OPENROUTER_PROVISIONING_KEY.gpg")),
+                  p.stdout + p.stderr)
+            p = prov("identity", "kid", "--host", "h1")
+            check("provision identity writes AGENT_LOGIN and AGENT_HOST", p.returncode == 0
+                  and rows_of(p) == {("AGENT_LOGIN", "written"), ("AGENT_HOST", "written")}, p.stdout + p.stderr)
+            p = prov("identity", "kid", "--host", "h1")
+            check("…and leaves them alone once present", rows_of(p) == {("AGENT_LOGIN", "present"), ("AGENT_HOST", "present")}, p.stdout)
+
+            # issue-key against a local stand-in for OpenRouter: the
+            # provisioning key goes in the header, the minted key into the
+            # child's store, and a put that fails after the mint deletes it.
+            import http.server, threading
+            seen = []
+            class Keys(http.server.BaseHTTPRequestHandler):
+                def log_message(self, *a): pass
+                def do_POST(self):
+                    seen.append(("POST", self.path, self.headers.get("Authorization")))
+                    if os.path.exists(os.path.join(tmp, "break-put")):
+                        os.rename(remote, remote + ".away")
+                    body = json.dumps({"key": "sk-or-minted-" + SECRET, "data": {"hash": "h4sh"}}).encode()
+                    self.send_response(201); self.end_headers(); self.wfile.write(body)
+                def do_DELETE(self):
+                    seen.append(("DELETE", self.path, self.headers.get("Authorization")))
+                    self.send_response(200); self.end_headers(); self.wfile.write(b"{}")
+            srv = http.server.HTTPServer(("127.0.0.1", 0), Keys)
+            threading.Thread(target=srv.serve_forever, daemon=True).start()
+            try:
+                base = f"http://127.0.0.1:{srv.server_port}/api/v1"
+                ik = lambda *a: subprocess.run([sys.executable, PROV, "issue-key", "openrouter", *a], cwd=tmp, capture_output=True,
+                                               text=True, env={**parent, "OPENROUTER_API_BASE": base})
+                p = ik("kid")
+                check("issue-key: minted with the parent's provisioning key, named after the login, put in the child's store",
+                      p.returncode == 0 and rows_of(p) == {("OPENROUTER_API_KEY", "written")}
+                      and seen[:1] == [("POST", "/api/v1/keys", "Bearer prov-" + SECRET)]
+                      and os.path.exists(os.path.join(mirror, "env", "OPENROUTER_API_KEY.gpg")), p.stdout + p.stderr + repr(seen))
+                check("…and prints no value", SECRET not in p.stdout + p.stderr and "sk-or-minted" not in p.stdout)
+                p = ik("kid")
+                check("issue-key again: present, not minted again", rows_of(p) == {("OPENROUTER_API_KEY", "present")}
+                      and len(seen) == 1, p.stdout + repr(seen))
+                open(os.path.join(tmp, "break-put"), "w").close()
+                p = ik("kid", "--replace")
+                os.rename(remote + ".away", remote)
+                os.remove(os.path.join(tmp, "break-put"))
+                check("issue-key: a put that fails after the mint deletes the key it minted, and says so",
+                      p.returncode == 1 and ("DELETE", "/api/v1/keys/h4sh", "Bearer prov-" + SECRET) in seen
+                      and "deleted again" in p.stdout, p.stdout + p.stderr + repr(seen))
+            finally:
+                srv.shutdown()
+                srv.server_close()
+
             # The child reads it after a pull, and only in-process.
             subprocess.run(["git", "-C", child_store, "pull", "-q", "origin", "main"], check=True, env=child)
             sys.path.insert(0, os.path.dirname(TOOL))
@@ -177,7 +249,7 @@ def main() -> int:
             lens = json.loads(got.stdout or "{}")
             check("the child reads it (values() in-process)", lens.get("GH_TOKEN") == len(SECRET)
                   and lens.get("CLAUDE_CODE_OAUTH_TOKEN") == len(TOKEN), got.stderr)
-            p = run(child, "set", "AGENT_LOGIN", stdin="kid\n")
+            p = run(child, "set", "OWN_NOTE", stdin="kid\n")
             check("the agent sets its own entry", p.returncode == 0 and "set" in p.stdout, p.stderr)
             p = run(child, "names")
             check("names lists names, never values", "AGENT_LOGIN" in p.stdout and "GH_TOKEN" in p.stdout
