@@ -1,4 +1,4 @@
-# Decision digest — read first
+# Decision digest — looked up, never read whole
 
 What is true now, one entry per record. Non-normative: where an entry and
 its record disagree, the record wins. Look it up, never read it whole:
@@ -452,12 +452,11 @@ its record disagree, the record wins. Look it up, never read it whole:
   `gzcoord-send` tells the sender, without refusing (§5 rule 8).
 - A clone-started session is held only if its project wires the hooks
   (§5 rule 9, §7).
-- A 2026-09-28 — an agent ends its own finished job with `fabric-fresh`: a new
-  session, not a resumed one (§5 rule 10).
-- A 2026-09-28 — local branches are swept weekly: `fabric-branches --sweep` deletes
-  what is on origin/main and reports the rest (§5 rule 11).
+- A 2026-09-28 — a finished job ends its session with `fabric-fresh` (§5 rule 10).
+- A 2026-09-28 — `fabric-branches --sweep` weekly (§5 rule 11).
 - A 2026-09-28 — the next job decides whether the session continues: `fabric-jobs
   next`, then `fabric-fresh --job` into the job's working copy (§5 rule 12).
+- A 2026-09-30 — the opening prompt names no command (§5 rule 1).
 - Keywords: session, lifecycle, inbox watch, Monitor, gzcoord-inbox,
   --follow, opening prompt, resume, auto mode, defaultMode, plan mode,
   hold, planning, presence.

@@ -4,7 +4,7 @@
 **Status:** Accepted
 **Ratified:** owner, 2026-09-29, "Accept", answering fabric-coordinator's question closing the Proposed records; carried by the pull request that marks them Accepted
 **Decision Makers:** the owner; drafted by fabric-coordinator
-**Scope:** how the fabric would treat its finite means — host resources, model spend and usage windows, prompt and context budgets — as one account, and how it would measure cost per verified result; no tool, file or practice is changed by this record
+**Scope:** how the fabric treats its finite means — host resources, model spend and usage windows, prompt and context budgets — as one account, and how it would measure cost per verified result; `tools/fabric/results.py` (`fabric-results`) measures the cost side
 **Pillar:** P7
 
 ## 1. Context and Problem
@@ -112,8 +112,10 @@ sources do not have.
 
 ## 6. Consequences
 
-- A reader is owed: nothing attributes a login's spend to
-  the pull request it produced. The session records carry the spend; the
+- `fabric-results` reads the spend (`fabric-ctl all tokens`) over the
+  period its results were merged in, and divides it by verified results
+  only across every registered project (`--all`), because nothing yet
+  attributes a login's spend to the pull request it produced. The session records carry the spend; the
   link from a session to a result would come from the branch and the
   commits, and is not built.
 - Broker spend needs a reader of the provider's per-key report, which the

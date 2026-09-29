@@ -4,7 +4,7 @@
 **Status:** Accepted
 **Ratified:** owner, 2026-09-29, "Accept", answering fabric-coordinator's question closing the Proposed records; carried by the pull request that marks them Accepted
 **Decision Makers:** the owner; drafted by fabric-coordinator
-**Scope:** how the fabric would measure its progress under pillar P3: the definitions of a verified result and of a supervision event, the artifacts they are read from, and how the number may and may not be used; no tool, file or practice is changed by this record
+**Scope:** how the fabric measures its progress under pillar P3: the definitions of a verified result and of a supervision event, the artifacts they are read from, and how the number may and may not be used; `tools/fabric/results.py` (`fabric-results`) measures it
 **Pillar:** P3
 
 ## 1. Context and Problem
@@ -106,12 +106,12 @@ agents' private context.
 
 ## 6. Consequences
 
-- A counter is owed: nothing reads these artifacts today.
-  `runtime/github/commit-class.sh` already separates review fixes from
-  work; `pr-review-status.sh` already says whether a head was reviewed;
-  drain reports already record `collision_decisions`. The relay's
-  `OWNER-WORD` count needs a reader over message metadata and section
-  markers, which does not exist.
+- The counter is `fabric-results` (`tools/fabric/results.py`). It reads
+  the review marker on each head, the checks, reverts, and fixes named
+  by `runtime/github/commit-class.sh`, the band's floor, and owner
+  corrections in commit subjects. Not yet read: the relay's `OWNER-WORD`
+  sections (a reader over message metadata and section markers) and the
+  drain reports' `collision_decisions`.
 - Attribution is the hard part: every merge and comment on GitHub comes
   from one account, so an owner's arming can be told from a session's
   only by what the artifacts say (an arming basis comment, the owner's

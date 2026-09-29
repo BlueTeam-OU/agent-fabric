@@ -4,7 +4,7 @@
 **Status:** Accepted
 **Ratified:** owner, 2026-09-29, "Accept", answering fabric-coordinator's question closing the Proposed records; carried by the pull request that marks them Accepted
 **Decision Makers:** the owner; drafted by fabric-coordinator
-**Scope:** how agent-fabric would let one organization work with another: what may cross the boundary, what never does, and the trust that must exist first; no tool, file or practice is changed by this record
+**Scope:** how agent-fabric lets one organization work with another: what may cross the boundary, what never does, and the trust that must exist first; the boundary any federation is built within
 **Pillar:** P6
 
 ## 1. Context and Problem

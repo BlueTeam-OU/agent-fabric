@@ -57,8 +57,8 @@ approved.
 - **Leave arming to the start hook's instruction.** The first shape; a
   hook cannot start a Monitor, and its instruction waited for whatever
   prompt came first. The opening prompt makes the watch the session's
-  first turn; the hook's line stays for a resume or compaction that lost
-  it.
+  first turn; the hook's line gives the exact call, at start and for a
+  resume or compaction that lost the watch.
 - **A shell loop, or `--wait` with a budget, as the watch.** Replaced by
   `--follow`: one process that prints only deliveries, re-armed only on
   a timed Monitor's expiry.
@@ -87,9 +87,13 @@ the same command asks on one account and not on another.
 1. An interactive launch through `runtime/openrouter/launch` that the
    caller gave no prompt of its own — no `-p`, no `--version`/`--help`,
    no positional word, no caller-written `--`, and no
-   `AGENT_FABRIC_NO_OPENING` — ends its command line with `--` and the
-   opening prompt that arms `gzcoord-inbox --follow` under a Monitor
-   (`timeout_ms` 1800000) and says to re-arm at each expiry notice.
+   `AGENT_FABRIC_NO_OPENING` — ends its command line with `--` and an
+   opening prompt that tells the session to arm its inbox watch exactly
+   as the start hook's `NO INBOX WATCH` line gives it (the gzcoord-receive
+   skill, where the context has none) and to re-arm at each expiry
+   notice. The prompt names no command: it stays in the process's argv,
+   where a kill by a pattern built from that command matched the session
+   itself (A 2026-09-30).
 2. The session-start hook, on start, resume and after a compaction,
    prints a `NO INBOX WATCH` line naming the Monitor call whenever no
    `gzcoord-inbox --follow` (or `inbox.mjs --follow`) runs under the
@@ -211,3 +215,4 @@ The body above reads current; each change's full note is in [history/ADR-022-ame
 | 2026-09-28 | An agent ends its own job with a fresh session | §5 rule 10: `fabric-fresh` and the launcher's fresh relaunch |
 | 2026-09-28 | Local branches are swept weekly | §5 rule 11: `fabric-branches --sweep`, the weekly nudge at session start |
 | 2026-09-28 | The next job decides whether the session continues | §5 rule 12: `fabric-jobs next` and `fabric-fresh --job`; rule 10 points to it |
+| 2026-09-30 | The opening prompt names no command | §5 rule 1, §3: the prompt defers the exact Monitor call to the hook's line |
