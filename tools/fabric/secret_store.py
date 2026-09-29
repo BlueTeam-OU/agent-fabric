@@ -675,37 +675,82 @@ def recovery_pub(fabric: str | None = None) -> str:
     return os.path.join(fabric or FABRIC_ROOT, "identities", "recovery.asc")
 
 
+RECOVERY_MIN_PASSPHRASE = 12
+
+
+def _read_recovery_passphrase() -> str:
+    """Asked here, on the owner's terminal, never through gpg's pinentry:
+    the first run left the prompt to the desktop's pinentry, the owner saw
+    none, and the key was made with no private half kept anywhere."""
+    import getpass
+    first = getpass.getpass("recovery passphrase (only you keep it): ")
+    if len(first) < RECOVERY_MIN_PASSPHRASE:
+        raise StoreError(f"a recovery passphrase has at least {RECOVERY_MIN_PASSPHRASE} characters; nothing was made")
+    if getpass.getpass("the same again: ") != first:
+        raise StoreError("the two passphrases differ; nothing was made")
+    return first
+
+
+def _make_recovery_key(homedir: str, passphrase: str) -> tuple[str, str, str]:
+    """The recovery key in homedir, every secret part protected by the
+    passphrase (checked, not assumed); returns its fingerprint, its public
+    half and its protected private half, both armoured."""
+    base = ["gpg", "--homedir", homedir, "--batch", "--pinentry-mode", "loopback", "--passphrase-fd", "0"]
+    def run(*a: str) -> bytes:
+        return subprocess.run([*base, *a], input=passphrase.encode(), capture_output=True, check=True,
+                              env={**os.environ, "GNUPGHOME": homedir}).stdout
+    run("--quick-gen-key", RECOVERY_UID, "ed25519", "cert", "never")
+    fpr = fingerprints(homedir=homedir, secret=True)[0]
+    run("--quick-add-key", fpr, "cv25519", "encr", "never")
+    info = subprocess.run(["gpg-connect-agent", "--homedir", homedir, "KEYINFO --list", "/bye"],
+                          capture_output=True, text=True, check=True).stdout.split("\n")
+    # KEYINFO: S KEYINFO <grip> <type> <serial> <idstr> <cached> <protection> …; P is protected.
+    marks = [l.split()[7] for l in info if l.startswith("S KEYINFO")]
+    if len(marks) != 2 or set(marks) != {"P"}:
+        raise StoreError("the recovery key is not protected by the passphrase; nothing was published")
+    public = gpg("--armor", "--export", fpr, homedir=homedir).stdout.decode()
+    private = run("--armor", "--export-secret-keys", fpr).decode()
+    if "BEGIN PGP PRIVATE KEY BLOCK" not in private:
+        raise StoreError("the recovery key's private half did not export; nothing was published")
+    return fpr, public, private
+
+
 def recovery_key_init(force: bool = False) -> dict:
     """The owner's recovery key (ADR-038 §5 rule 1): made in a throwaway
-    keyring, protected by a passphrase gpg asks the owner for; its public
-    half written to identities/recovery.asc for every agent to encrypt
-    its recovery copy to; its protected private half uploaded to Proton
-    (/my-files/agent-fabric/keys/recovery-key.asc) and never kept on the
-    host. Refused inside a model session: the passphrase is the owner's."""
+    keyring, protected by a passphrase the owner types here; its protected
+    private half uploaded to Proton (/my-files/agent-fabric/keys/
+    recovery-key.asc) and never kept on the host, and only then its public
+    half written to identities/recovery.asc, so no agent can encrypt to a
+    key whose private half is kept nowhere. Refused inside a model session:
+    the passphrase is the owner's."""
     if os.environ.get("CLAUDECODE"):
         raise StoreError("refused inside a model session: the owner runs this in a terminal and types the passphrase")
     if not sys.stdin.isatty():
-        raise StoreError("stdin is not a terminal: gpg must ask the owner for the passphrase")
+        raise StoreError("stdin is not a terminal: the owner types the passphrase")
     pub = recovery_pub()
     if os.path.exists(pub) and not force:
         raise StoreError(f"{pub} exists; a new recovery key is a rotation (--force), and every copy is then re-made")
+    passphrase = _read_recovery_passphrase()
+    remote = f"{PROTON_ROOT}/keys/recovery-key.asc"
     with tempfile.TemporaryDirectory() as tmp:
         os.chmod(tmp, 0o700)
-        env = {**os.environ, "GNUPGHOME": tmp, "GPG_TTY": os.ttyname(sys.stdin.fileno())}
-        run = lambda *a, **k: subprocess.run(["gpg", "--homedir", tmp, *a], env=env, check=True, **k)
         try:
-            print("gpg now asks for the RECOVERY passphrase, twice: only the owner keeps it.", file=sys.stderr)
-            run("--quick-gen-key", RECOVERY_UID, "ed25519", "cert", "never")
-            fpr = fingerprints(homedir=tmp, secret=True)[0]
-            run("--quick-add-key", fpr, "cv25519", "encr", "never")
-            with open(pub, "w", encoding="utf-8") as fh:
-                fh.write(gpg("--armor", "--export", fpr, homedir=tmp).stdout.decode())
+            fpr, public, private = _make_recovery_key(tmp, passphrase)
             protected = os.path.join(tmp, "recovery-key.asc")
-            run("--armor", "--output", protected, "--export-secret-keys", fpr)
-            _upload(protected, _proton_folder(f"{PROTON_ROOT}/keys"))
+            with open(protected, "w", encoding="utf-8") as fh:
+                fh.write(private)
+            folder = _proton_folder(f"{PROTON_ROOT}/keys")
+            # Replaced outright, never a new revision: an older revision
+            # would keep the key being rotated away readable in Proton.
+            if _proton("filesystem", "info", remote, check=False).returncode == 0:
+                _proton("filesystem", "trash", remote)
+                _proton("filesystem", "delete", "/trash/recovery-key.asc")
+            _upload(protected, folder)
         finally:
             _run(["gpgconf", "--homedir", tmp, "--kill", "all"], check=False)
-    return {"fingerprint": fpr, "public": pub, "private": f"{PROTON_ROOT}/keys/recovery-key.asc"}
+    with open(pub, "w", encoding="utf-8") as fh:
+        fh.write(public)
+    return {"fingerprint": fpr, "public": pub, "private": remote}
 
 
 def recovery_copy(force: bool = False) -> dict:
@@ -716,7 +761,7 @@ def recovery_copy(force: bool = False) -> dict:
     it back: only the owner, with the recovery passphrase."""
     pub = recovery_pub()
     if not os.path.exists(pub):
-        raise StoreError("no recovery key yet (identities/recovery.asc): the owner runs `fabric-secrets recovery-key init`")
+        raise StoreError("no recovery key yet (identities/recovery.asc): the owner runs `fabric-secrets store recovery-key init`")
     rfpr = _key_file_fingerprint(pub)
     store = store_dir()
     key_of_store(store)

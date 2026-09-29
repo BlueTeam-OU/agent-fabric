@@ -455,6 +455,29 @@ else:
             check("recovery-key init refuses without a terminal for the passphrase", p.returncode == 1
                   and "not a terminal" in p.stderr, p.stderr)
             subprocess.run(["gpgconf", "--homedir", rhome, "--kill", "all"], capture_output=True)
+            # What init makes, without its terminal: the key the owner's
+            # passphrase protects, checked by the agent's own KEYINFO.
+            mk = os.path.join(tmp, "recovery-made")
+            os.makedirs(mk, mode=0o700)
+            made = subprocess.run([sys.executable, "-c", (
+                "import json, sys; sys.path.insert(0, sys.argv[1]); import secret_store as s; "
+                "f, pub, priv = s._make_recovery_key(sys.argv[2], sys.argv[3]); "
+                "print(json.dumps({'fpr': f, 'pub': 'BEGIN PGP PUBLIC KEY BLOCK' in pub, 'priv': 'BEGIN PGP PRIVATE KEY BLOCK' in priv}))"),
+                os.path.join(ROOT, "tools", "fabric"), mk, RPASS], capture_output=True, text=True, env=parent)
+            out = json.loads(made.stdout or "{}")
+            check("recovery key: both halves made, every secret part protected", made.returncode == 0
+                  and out.get("pub") and out.get("priv") and len(out.get("fpr", "")) == 40, made.stderr[-300:])
+            if made.returncode == 0:
+                sealed = subprocess.run(["gpg", "--homedir", mk, "--batch", "--trust-model", "always", "--armor",
+                                         "--encrypt", "-r", out["fpr"]], input="probe", capture_output=True, text=True).stdout
+                subprocess.run(["gpgconf", "--homedir", mk, "--kill", "all"], capture_output=True)
+                wrong = subprocess.run(["gpg", "--homedir", mk, "--batch", "--pinentry-mode", "loopback", "--passphrase",
+                                        "not the passphrase", "--decrypt"], input=sealed, capture_output=True, text=True)
+                right = subprocess.run(["gpg", "--homedir", mk, "--batch", "--pinentry-mode", "loopback", "--passphrase",
+                                        RPASS, "--decrypt"], input=sealed, capture_output=True, text=True)
+                check("…it opens with the passphrase and not without it",
+                      wrong.returncode != 0 and right.returncode == 0 and right.stdout == "probe", wrong.stderr[-200:])
+            subprocess.run(["gpgconf", "--homedir", mk, "--kill", "all"], capture_output=True)
 
             everything = "".join(open(os.path.join(dp, f), errors="ignore").read()
                                  for dp, _, fs in os.walk(os.path.join(child_store, ".git")) for f in fs
