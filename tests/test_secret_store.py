@@ -382,10 +382,13 @@ if cmd == ["filesystem", "list"]:
 elif cmd == ["filesystem", "create-folder"]:
     os.makedirs(os.path.join(loc(rest[0]), rest[1]))
 elif cmd == ["filesystem", "upload"]:
+    # The real CLI's strategies; an unknown one is refused, as it refuses it.
+    if "-f" in rest and rest[rest.index("-f") + 1] not in ("create-new-revision", "rename", "replace", "skip"): sys.exit(3)
     rest = [x for x in rest if x not in ("-f", "create-new-revision")]
     shutil.copy(rest[0], os.path.join(loc(rest[1]), os.path.basename(rest[0])))
 elif cmd == ["filesystem", "download"]:
-    rest = [x for x in rest if x not in ("-f", "replace")]
+    if "-f" in rest and rest[rest.index("-f") + 1] not in ("rename", "remove", "skip"): sys.exit(3)
+    rest = [x for x in rest if x not in ("-f", "remove")]
     shutil.copy(loc(rest[0]), os.path.join(rest[1], os.path.basename(rest[0])))
 else:
     sys.exit(9)

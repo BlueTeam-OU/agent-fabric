@@ -631,8 +631,12 @@ def _proton(*args: str, check: bool = True) -> subprocess.CompletedProcess:
     if check and r.returncode != 0:
         lines = [l for l in (r.stderr or r.stdout).decode(errors="replace").splitlines() if l.strip()]
         why = (lines or [f"exit {r.returncode}"])[-1]
-        raise StoreError(f"proton-drive {args[0]} {args[1] if len(args) > 1 else ''}: {why} "
-                         "(an expired session: the owner runs `proton-drive auth login` with this store's env)")
+        # The sign-in hint only when the CLI's own words are about signing
+        # in: on any other error it would send the owner the wrong way.
+        hint = (" (the session has lapsed: the owner runs `proton-drive auth login` with PASSWORD_STORE_DIR "
+                "set to this store and PROTON_DRIVE_CREDENTIALS_STORE=pass)"
+                if re.search(r"auth|session|log ?in|401|unauthori", why, re.I) else "")
+        raise StoreError(f"proton-drive {args[0]} {args[1] if len(args) > 1 else ''}: {why}{hint}")
     return r
 
 
@@ -730,10 +734,10 @@ def verify_backup() -> list[str]:
     folder = f"{PROTON_ROOT}/secrets"
     findings = []
     with tempfile.TemporaryDirectory() as tmp:
-        _proton("filesystem", "download", "-f", "replace", f"{folder}/manifest.json", tmp)
+        _proton("filesystem", "download", "-f", "remove", f"{folder}/manifest.json", tmp)
         manifest = json.load(open(os.path.join(tmp, "manifest.json"), encoding="utf-8"))
         for who, rec in sorted(manifest.get("stores", {}).items()):
-            _proton("filesystem", "download", "-f", "replace", f"{folder}/{rec['bundle']}", tmp)
+            _proton("filesystem", "download", "-f", "remove", f"{folder}/{rec['bundle']}", tmp)
             local = os.path.join(tmp, rec["bundle"])
             if _sha256_file(local) != rec["sha256"]:
                 findings.append(f"{rec['bundle']}: its sha256 is not the manifest's")
