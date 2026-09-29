@@ -1,0 +1,18 @@
+#!/usr/bin/env python3
+"""fabric-adr — the fabric's decision records, from any directory.
+
+    fabric-adr lookup <topic>...   the DIGEST entries that mention every word
+    fabric-adr lookup              the table of which record answers what
+
+A thin entry point to tools/fabric/adr.py, run by its real path so its root
+is this checkout's, whichever working copy the session stands in. A lookup
+costs a few hundred tokens; the whole DIGEST, read first, cost ~12,000
+(ADR-001 §5).
+"""
+import os
+import runpy
+import sys
+
+ADR = os.path.join(os.path.dirname(os.path.realpath(__file__)), "..", "tools", "fabric", "adr.py")
+sys.argv[0] = ADR
+runpy.run_path(ADR, run_name="__main__")

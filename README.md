@@ -92,8 +92,9 @@ is [ADR-035](docs/adr/ADR-035-federation-between-organizations.md)
 What the fabric has decided, why, and what would reopen it lives in
 [`docs/adr/`](docs/adr/README.md): numbered decision records, amended in
 place with their history kept, checked by `tools/fabric/adr.py` in the
-commit hook, in CI and in the suite. Read
-[`docs/adr/DIGEST.md`](docs/adr/DIGEST.md) first, then the record.
+commit hook, in CI and in the suite. Look a subject up in
+[`docs/adr/DIGEST.md`](docs/adr/DIGEST.md) with `fabric-adr lookup <topic>`,
+then read the record.
 
 - fabric-coordinator writes the records; only the owner accepts one, and
   an `Accepted` record names where the owner's word is.

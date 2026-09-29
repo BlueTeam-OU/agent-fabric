@@ -22,8 +22,10 @@ minted at its birth, is what it is stored as and what a rename keeps
 
 ## Decisions
 
-What the fabric has decided, and why, is in `docs/adr/`: read
-`docs/adr/DIGEST.md` first, then the record. From another repository a
+What the fabric has decided, and why, is in `docs/adr/`. Look it up,
+never read the whole DIGEST: `fabric-adr lookup <topic>` answers the
+matching entries, `fabric-adr lookup` alone the table of which record
+answers what; then read the record. From another repository a
 record is cited as "agent-fabric ADR-NNN", and every ADR number in this
 file is agent-fabric's, also inside a project that numbers its own.
 fabric-coordinator writes the records and only the owner accepts one; a
@@ -148,6 +150,7 @@ is the capability class below (ADR-002, ADR-005).
 
 ```sh
 fabric-whoami [--json]                    # who this session is
+fabric-adr lookup [<topic>…]              # the decision records' entries on a topic; alone, which record answers what
 fabric-status                             # identity, binding, API path, models, effort, routing health
 fabric-model list                         # every model and effort choice per provider, with its source layer
 fabric-lease <name> -- <cmd>              # one holder per host resource across this host's accounts (ADR-010)

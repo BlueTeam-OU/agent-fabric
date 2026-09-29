@@ -5,6 +5,7 @@
     "gzcoord-send": "communication/gzcoord/scripts/send.mjs",
     "gzmsg": "communication/gzcoord/scripts/gzmsg.mjs",
     "fabric-accounts": "bin/fabric-accounts",
+    "fabric-adr": "bin/fabric-adr",
     "fabric-ctl": "bin/fabric-ctl",
     "fabric-host": "bin/fabric-host",
     "fabric-lease": "bin/fabric-lease",
