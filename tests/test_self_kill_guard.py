@@ -1,0 +1,74 @@
+#!/usr/bin/env python3
+"""Tests for runtime/claude-code/hooks/self-kill-guard.py: which commands
+would kill the session's own claude process, judged against a planted
+command line; and the hook's protocol end to end."""
+from __future__ import annotations
+
+import json
+import os
+import subprocess
+import sys
+
+HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+HOOK = os.path.join(HERE, "runtime", "claude-code", "hooks", "self-kill-guard.py")
+sys.path.insert(0, os.path.dirname(HOOK))
+import importlib.util  # noqa: E402
+
+spec = importlib.util.spec_from_file_location("self_kill_guard", HOOK)
+g = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(g)
+
+# The command line that bit, as the launcher wrote it before the fix.
+CLAUDE = ("claude --model claude-fable-5-1 --effort medium --append-system-prompt-file /x/launch-prompt.md -- "
+          "Session start: arm your GZCoord inbox watch now, with Monitor(command: 'gzcoord-inbox --follow', "
+          "description: 'gzcoord inbox watch', timeout_ms: 1800000); re-arm it at each expiry notice.")
+
+
+def main() -> int:
+    fails = 0
+
+    def check(label: str, good: bool, detail: object = "") -> None:
+        nonlocal fails
+        print(f"  {'ok  ' if good else 'FAIL'} {label}" + ("" if good else f": {detail}"))
+        fails += not good
+
+    refused = [
+        ("the command that killed architect-cto-01",
+         "pgrep -u \"$(id -un)\" -f 'gzcoord-inbox --follow' | xargs -r kill 2>/dev/null; pgrep -u \"$(id -un)\" -f 'gzcoord-inbox --follow' | wc -l"),
+        ("pkill -f with a matching pattern", "pkill -f 'gzcoord-inbox --follow'"),
+        ("combined short flags (-af)", "pgrep -af gzcoord-inbox | awk '{print $1}' | xargs kill"),
+        ("kill $(pgrep -f …)", "kill $(pgrep -f 'inbox --follow')"),
+        ("a pattern matching the model argument", "pkill -f 'claude-fable'"),
+        ("killall -r", "killall -r 'claude'"),
+    ]
+    for label, cmd in refused:
+        check(f"refused: {label}", g.verdict(cmd, CLAUDE) is not None, g.kill_patterns(cmd))
+    allowed = [
+        ("listing only, no kill", "pgrep -u \"$(id -un)\" -af 'gzcoord-inbox --follow'"),
+        ("a kill by a pattern the session does not match", "pkill -f 'node .*websearch-locale'"),
+        ("pgrep -x by exact name, then kill", "pgrep -x node | xargs kill"),
+        ("a kill by pid", "kill 12345"),
+        ("an unrelated command", "git status"),
+        # The fabric's own way to end a session: fabric-fresh signals its
+        # session's claude by pid (SIGTERM), a command the guard must pass.
+        ("fabric-fresh ending the session for its next job", "fabric-fresh --job j3"),
+        ("fabric-fresh with a note that mentions a kill", 'fabric-fresh --note "stopped: pkill -f gzcoord-inbox killed the last one"'),
+    ]
+    for label, cmd in allowed:
+        check(f"allowed: {label}", g.verdict(cmd, CLAUDE) is None, g.kill_patterns(cmd))
+    fixed = CLAUDE.split(" -- ")[0] + " -- Session start: arm your GZCoord inbox watch now, as the session-start context's NO INBOX WATCH line gives it."
+    check("the launcher's new prompt: the old kill no longer matches the session",
+          g.verdict("pgrep -f 'gzcoord-inbox --follow' | xargs kill", fixed) is None)
+    check("no claude ancestor (outside a session): nothing refused", g.verdict("pkill -f claude", None) is None)
+
+    r = subprocess.run([sys.executable, HOOK], input=json.dumps({"tool_input": {"command": "git status"}}),
+                       capture_output=True, text=True)
+    check("the hook: a harmless command prints nothing and exits 0", r.returncode == 0 and not r.stdout.strip(), r.stdout)
+    r = subprocess.run([sys.executable, HOOK], input="not json", capture_output=True, text=True)
+    check("the hook: unreadable input is passed, never blocked", r.returncode == 0 and not r.stdout.strip(), r.stdout)
+    print(f"\n{'FAILED' if fails else 'all passed'}")
+    return 1 if fails else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
