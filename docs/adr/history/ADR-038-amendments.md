@@ -52,3 +52,23 @@ single subkey opened the store. Now:
   or whose primary encrypts or authenticates.
 - **Formats other than OpenPGP** stay separate keys: the control-plane
   Ed25519 key, and a Radicle node key if one comes.
+
+### Amendment 2026-09-30 — Doppler is removed: every account reads its own store, and a parent fills a child's with provision
+
+Every one of the 16 accounts reads its own store with nothing missing
+(docs/live-checks/2026-09-29-fleet-secrets-enrolment.md), and both
+Claude-account templates are in the coordinator's store, so the Doppler
+code goes, as §7 said it would: `fabric-secrets`' reader and its
+`digest --source`, `store import-doppler`, the `secrets-migrate` action,
+`enroll.sh` with its worker, the Doppler templates and dual write of
+`fabric-accounts`, and `fabric-ctl keygen`'s Doppler branch.
+`fabric-secrets sync` moved from a bash heredoc into
+`tools/fabric/secrets_sync.py`, since it needed a substantial change and
+new tooling is Python.
+
+What `enroll.sh` did for a new account — identity, the shared names,
+a key of its own on OpenRouter and OpenAI — is `fabric-secrets
+provision`, the parent's `put` into the child's store; `new-agent.sh`
+runs it after `store-enroll.sh`, and stops when the parent has no store.
+The shared names are an allowlist. Removing the binary and the tokens
+from the hosts, and closing the Doppler project, are left in §7.
