@@ -190,17 +190,9 @@ def main() -> int:
                     "CLAUDE_CODE_OAUTH_TOKEN": TOKEN}   # as the assignment above wrote it
             for k, v in vals.items():
                 run(child, "set", k, stdin=v)
-            stub = os.path.join(tmp, "stubbin")
-            os.makedirs(stub)
-            with open(os.path.join(stub, "doppler"), "w") as fh:
-                fh.write("#!/bin/sh\ncase \"$*\" in *download*) cat " + os.path.join(tmp, "dp.json")
-                         + ";; *only-names*) echo '{}';; *) exit 0;; esac\n")
-            os.chmod(os.path.join(stub, "doppler"), 0o755)
-            json.dump(vals, open(os.path.join(tmp, "dp.json"), "w"))
             fsync = os.path.join(ROOT, "runtime", "provisioning", "secrets", "fabric-secrets")
             envf = os.path.join(child["HOME"], ".config", "agent-fabric", "secrets.env")
             body = lambda: "".join(l for l in open(envf) if not l.startswith("#"))
-            dop = {**child, "PATH": stub + os.pathsep + child["PATH"]}
             r2 = subprocess.run([fsync, "sync", "--json"], env=child, capture_output=True, text=True)
             from_store = body() if os.path.exists(envf) else ""
             check("sync applies the store's values to secrets.env", r2.returncode in (0, 2)
@@ -208,25 +200,6 @@ def main() -> int:
                   f"rc {r2.returncode} {r2.stderr[-200:]}")
             check("sync never prints a value", SECRET not in r2.stdout + r2.stderr)
             check("the report names the store as its source", '"source": "store"' in r2.stdout, r2.stdout[:200])
-            hang = os.path.join(tmp, "hangbin")
-            os.makedirs(hang)
-            with open(os.path.join(hang, "doppler"), "w") as fh:
-                fh.write("#!/bin/sh\ncase \"$*\" in *enclave.config*) sleep 30;; esac\nexit 0\n")
-            os.chmod(os.path.join(hang, "doppler"), 0o755)
-            p = subprocess.run([sys.executable, TOOL, "import-doppler"], capture_output=True, text=True, timeout=60, cwd=tmp,
-                               env={**child, "PATH": hang + os.pathsep + child["PATH"], "AGENT_FABRIC_DOPPLER_TIMEOUT_S": "1"})
-            check("import-doppler: a hung config lookup is an error within its bound, said as a timeout",
-                  p.returncode == 1 and "doppler configure: timed out after 1 s" in p.stderr, p.stderr[-300:])
-
-            # import-doppler: the login's own Doppler config into its store,
-            # one commit, nothing printed but names.
-            json.dump({**vals, "NEW_NAME": "fresh-x", "DOPPLER_PROJECT": "agent-fabric"}, open(os.path.join(tmp, "dp.json"), "w"))
-            p = run({**dop, "AGENT_FABRIC_SECRETS_CONFIG": "agents_kid"}, "import-doppler")
-            check("import-doppler copies the config's names, not Doppler's own", p.returncode == 0
-                  and "NEW_NAME" in p.stdout and "DOPPLER_PROJECT" not in p.stdout and SECRET not in p.stdout,
-                  p.stdout + p.stderr)
-            p = run(child, "names")
-            check("…and they are entries now", "NEW_NAME" in p.stdout, p.stdout)
             run(child, "set", "AGENT_LOGIN", stdin="someone-else")
             r3 = subprocess.run([fsync, "sync"], env=child, capture_output=True, text=True)
             check("a store naming another login is refused, nothing applied", r3.returncode == 3
@@ -326,12 +299,6 @@ def main() -> int:
                   and len(json.loads(sy.stdout)["values_sha256"]) == 64
                   and json.loads(sy.stdout)["values_sha256"] == json.loads(sy2.stdout)["values_sha256"], sy.stdout[-300:])
             check("…and the report prints no value", SECRET not in sy.stdout and TOKEN not in sy.stdout)
-
-            # F8: import-doppler names what it did not import.
-            json.dump({"GOOD_NAME": "v", "lower_case": "v", "NOT_A_STRING": 5}, open(os.path.join(tmp, "dp.json"), "w"))
-            p = run({**dop, "AGENT_FABRIC_SECRETS_CONFIG": "agents_kid"}, "import-doppler")
-            check("F8: import-doppler names what it skipped", p.returncode == 0 and "lower_case" in p.stderr
-                  and "NOT_A_STRING" in p.stderr, p.stdout + p.stderr)
 
             # F2, F3: each key on its own, one root, no cycle.
             kd = os.path.join(fabric, "identities", "keys")

@@ -23,8 +23,6 @@
                                                  its private half only in Proton)
     fabric-secrets store recovery-copy           this login's recovery copy, encrypted to the recovery key
     fabric-secrets store backup [--verify]       every store held, as git bundles, into Proton Drive
-    fabric-secrets store import-doppler          this login's Doppler config into its store
-                                                 (the migration, ADR-038 §5 rule 8)
     fabric-secrets store template-set SLUG       a Claude account's setup-token into this
                                                  (the coordinator's) store (value on stdin)
     fabric-secrets store templates [--json]      the templates, by fingerprint
@@ -159,11 +157,6 @@ def _run(cmd: list[str], *, stdin: bytes | None = None, cwd: str | None = None,
         why = (lines or [f"exit {r.returncode}"])[-1]
         raise StoreError(f"{what}: {why}")
     return r
-
-
-# A Doppler call waits on the desktop keyring when the token is kept there;
-# locked, it waits forever. Every call is bounded, as fabric-secrets' are.
-DOPPLER_TIMEOUT_S = float(os.environ.get("AGENT_FABRIC_DOPPLER_TIMEOUT_S") or 30)
 
 
 # gpg's commands, as opposed to its options: what an error names.
@@ -327,8 +320,7 @@ def _one_line_off(value: bytes) -> bytes:
 
 def _write_entry(store: str, name: str, value: bytes, recipient_args: list[str]) -> str:
     """The value EXACTLY as given, multi-line and empty included: sync
-    must apply from the store what it applied from Doppler (a PEM key is
-    many lines). A single-line value is pass's shape as it is: the
+    must apply every value as it was set (a PEM key is many lines). A single-line value is pass's shape as it is: the
     secret on the first line. --no-encrypt-to: a gpg.conf naming an extra
     recipient never adds one."""
     _check_name(name)
@@ -433,43 +425,6 @@ def values(store: str | None = None) -> dict[str, str]:
         r = gpg("--decrypt", os.path.join(store, "env", f"{name}.gpg"))
         out[name] = r.stdout.decode()   # exactly as written: many lines, or none
     return out
-
-
-def import_doppler() -> dict:
-    """Every name of this login's own Doppler config into its store, in
-    one commit, for the migration. The config is found exactly as
-    fabric-secrets finds it (AGENT_FABRIC_SECRETS_CONFIG, else the one
-    recorded at scope /). Values stay in this process."""
-    store = store_dir()
-    fpr = key_of_store(store)
-    project = os.environ.get("AGENT_FABRIC_SECRETS_PROJECT", "agent-fabric")
-    config = os.environ.get("AGENT_FABRIC_SECRETS_CONFIG")
-    if not config:
-        r = _run(["doppler", "configure", "get", "enclave.config", "--plain", "--scope", "/"], check=False,
-                 timeout=DOPPLER_TIMEOUT_S)
-        config = r.stdout.decode().strip() if r.returncode == 0 else ""
-    if not config:
-        raise StoreError("no Doppler config recorded for this login; nothing to import")
-    r = _run(["doppler", "secrets", "download", "--no-file", "--format", "json",
-              "--project", project, "--config", config], timeout=DOPPLER_TIMEOUT_S)
-    try:
-        data = json.loads(r.stdout)
-    except ValueError:
-        raise StoreError("doppler returned no JSON")
-    _before_write(store)
-    imported, skipped = [], []
-    for name, value in sorted(data.items()):
-        if name.startswith("DOPPLER_"):
-            continue   # Doppler's own, never the login's
-        if not isinstance(value, str) or not NAME_RE.match(name):
-            skipped.append(name)   # said, never dropped silently
-            continue
-        _write_entry(store, name, value.encode(), ["--recipient", fpr])
-        imported.append(name)
-    if git(store, "diff", "--cached", "--quiet", check=False).returncode:
-        _commit(store, f"agent {login()}: imported {len(imported)} name(s) from Doppler {project}/{config}")
-    _after_commit(store)
-    return {"imported": imported, "skipped": skipped, "config": config}
 
 
 # ── the parent ────────────────────────────────────────────────────────
@@ -1168,7 +1123,6 @@ def main(argv: list[str] | None = None) -> int:
     rk.add_argument("--force", action="store_true", help="rotate: a new recovery key; every copy is then re-made")
     bk = sub.add_parser("backup")
     bk.add_argument("--verify", action="store_true", help="download the backup and check it against its manifest")
-    sub.add_parser("import-doppler")
     ts = sub.add_parser("template-set")
     ts.add_argument("slug")
     tl = sub.add_parser("templates")
@@ -1261,11 +1215,6 @@ def main(argv: list[str] | None = None) -> int:
                 for r in rows:
                     print(f"{r['login']:<22} {r['from']:<30} -> {r.get('to', '-'):<30} {r['status']}{('  ' + r['reason']) if r.get('reason') else ''}")
             return 0 if all(r["status"] != "failed" for r in rows) else 1
-        elif args.cmd == "import-doppler":
-            r = import_doppler()
-            print(f"imported {len(r['imported'])} name(s) from {r['config']}: {', '.join(r['imported'])}")
-            if r["skipped"]:
-                print(f"skipped (not a secret name, or not a string): {', '.join(r['skipped'])}", file=sys.stderr)
     except StoreError as e:
         print(f"fabric-secrets store: {e}", file=sys.stderr)
         return 1
