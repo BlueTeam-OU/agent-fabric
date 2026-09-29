@@ -122,9 +122,10 @@ outage procedure.
 
 ## 6. Consequences
 
-- On plain claude every class, the reviewer included, is Opus 5.5 at
-  the same effort (ADR-005, ADR-006): the review's independence there is
-  the blind brief and a fresh context, not a different model.
+- On plain claude the reviewer is Opus 5.5, the model of code-high and
+  code-plan, at the effort every class asks (ADR-005, ADR-006): the
+  review's independence there is the blind brief and a fresh context,
+  not a different model.
 - The loop costs a dispatch per head and per fix range; the context
   boundary check found fourteen defects in a 400-line tool its own tests
   passed, in two rounds.

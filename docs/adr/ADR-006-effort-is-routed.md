@@ -53,11 +53,13 @@ stamped as `AGENT_FABRIC_LAUNCH_EFFORT`.
 
 **Today** every class and every session asks
 `medium`. On plain claude the upper classes are Opus 5.5 at medium, its
-own default, and the lower two are Sonnet 5.5 at medium, which it admits; on the broker `code-low` is committed at `low` (GLM-5.3-Flash has
+own default, and the lower two are Sonnet 5.5 at medium, which it
+admits; on the broker `code-low` is committed at `low` (GLM-5.3-Flash has
 no medium), and the other classes are served `high` by their models'
 documented mapping — one level above what they ask, so no override. On
-plain claude a class therefore no longer picks a model or a level; it
-still picks the alias, the worktree rule and whether a dispatch asks. The
+plain claude a class therefore no longer picks a level; it picks the
+model only between the lower two and the upper three, and still picks
+the alias, the worktree rule and whether a dispatch asks. The
 machinery stays whole, so a later split is one edit per file.
 
 ## 3. Alternatives Considered
