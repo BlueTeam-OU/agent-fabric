@@ -197,6 +197,8 @@ def main() -> int:
             # never written into: re-keying is a rotation.
             with open(os.path.join(mirror, ".gpg-id"), "w") as fh:
                 fh.write("0" * 40 + "\n")
+            subprocess.run(["git", "-C", mirror, "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false",
+                            "commit", "-qam", "a store re-keyed elsewhere"], check=True, env=parent)
             p = run(parent, "put", "kid", "OTHER_NAME", stdin=SECRET)
             check("a store whose key disagrees with the committed one is refused", p.returncode == 1
                   and "another key" in p.stderr, p.stderr)
@@ -208,6 +210,88 @@ def main() -> int:
             p = run(child, "paper")
             check("paper refuses a non-terminal stdout without --out", p.returncode == 1
                   and ("not a terminal" in p.stderr or "paperkey is not installed" in p.stderr), p.stderr)
+
+            # ── review of #63 ────────────────────────────────────────────
+            # F1: a multi-line value (a PEM key) comes back exactly; setting
+            # it again is unchanged; an empty value is a value.
+            pem = "-----BEGIN OPENSSH PRIVATE KEY-----\nAAAA" + "b" * 60 + "\nCCCC\n-----END OPENSSH PRIVATE KEY-----\n"
+            run(child, "set", "SSH_PRIVATE_KEY", stdin=pem + "\n")   # stdin's own newline is dropped, the PEM's kept
+            got = subprocess.run([sys.executable, "-c", "import secret_store as s, json, hashlib; v=s.values();"
+                                  "print(json.dumps({k: hashlib.sha256(x.encode()).hexdigest() for k, x in v.items()}))"],
+                                 cwd=os.path.dirname(TOOL), env=child, capture_output=True, text=True)
+            import hashlib
+            hashes = json.loads(got.stdout or "{}")
+            check("F1: a multi-line value comes back exactly", hashes.get("SSH_PRIVATE_KEY") == hashlib.sha256(pem.encode()).hexdigest(),
+                  got.stderr)
+            p = run(child, "set", "SSH_PRIVATE_KEY", stdin=pem + "\n")
+            check("F1: setting the same multi-line value again is unchanged", "unchanged" in p.stdout, p.stdout + p.stderr)
+            p = run(child, "set", "EMPTY_ONE", stdin="")
+            check("F1: an empty value is stored", p.returncode == 0 and "EMPTY_ONE" in run(child, "names").stdout, p.stderr)
+
+            # F4: the agent's own write reaches the remote, and a parent's put
+            # afterwards merges with it; the child then reads both.
+            remote_names = lambda: subprocess.run(["git", "--git-dir", remote, "ls-tree", "-r", "--name-only", "main"],
+                                                  capture_output=True, text=True).stdout
+            check("F4: the agent's own set is pushed", "env/EMPTY_ONE.gpg" in remote_names(), remote_names())
+            with open(os.path.join(mirror, ".gpg-id"), "w") as fh:   # undo the re-key case above
+                fh.write(child_fpr + "\n")
+            subprocess.run(["git", "-C", mirror, "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false",
+                            "commit", "-qam", "back to the committed key"], check=True, env=parent)
+            p = run(parent, "put", "kid", "PARENT_WROTE", stdin="x")
+            check("F4: a parent's put after the agent's own write merges and pushes", p.returncode == 0
+                  and "env/PARENT_WROTE.gpg" in remote_names() and "env/EMPTY_ONE.gpg" in remote_names(), p.stderr)
+            p = run(child, "set", "AFTER_PARENT", stdin="y")
+            check("F4: the agent's next write takes the parent's first", p.returncode == 0
+                  and "PARENT_WROTE" in run(child, "names").stdout, p.stderr)
+            # A remote that cannot be reached is a failed sync, not a stale one.
+            os.rename(remote, remote + ".away")
+            r4 = subprocess.run([fsync, "sync", "--json"], env=dop, capture_output=True, text=True)
+            os.rename(remote + ".away", remote)
+            check("F4: a store that cannot be brought up to its remote fails the sync", r4.returncode == 1
+                  and "store:" in r4.stdout, r4.stdout[-300:])
+
+            # The digest: the same hash from the store as sync reports.
+            run(child, "set", "AGENT_LOGIN", stdin=me)
+            dg = subprocess.run([fsync, "digest", "--source", "store"], env=dop, capture_output=True, text=True)
+            sy = subprocess.run([fsync, "sync", "--json"], env=dop, capture_output=True, text=True)
+            check("digest --source store is the hash sync applies", dg.returncode == 0
+                  and json.loads(dg.stdout)["values_sha256"] == json.loads(sy.stdout)["values_sha256"], dg.stdout + dg.stderr)
+            check("…and neither prints a value", SECRET not in dg.stdout + sy.stdout and TOKEN not in dg.stdout + sy.stdout)
+
+            # F8: import-doppler names what it did not import.
+            json.dump({"GOOD_NAME": "v", "lower_case": "v", "NOT_A_STRING": 5}, open(os.path.join(tmp, "dp.json"), "w"))
+            p = run({**dop, "AGENT_FABRIC_SECRETS_CONFIG": "agents_kid"}, "import-doppler")
+            check("F8: import-doppler names what it skipped", p.returncode == 0 and "lower_case" in p.stderr
+                  and "NOT_A_STRING" in p.stderr, p.stdout + p.stderr)
+
+            # F2, F3: each key on its own, one root, no cycle.
+            kd = os.path.join(fabric, "identities", "keys")
+            root_login = [w for w, r in json.load(open(os.path.join(kd, "lineage.json"))).items() if r["parent"] is None][0]
+            saved = {f: open(os.path.join(kd, f)).read() for f in os.listdir(kd)}
+            def restore():
+                for f, t in saved.items():
+                    open(os.path.join(kd, f), "w").write(t)
+            def verify_says(what: str) -> bool:
+                r = run(parent, "verify")
+                return r.returncode == 1 and what in r.stdout
+            open(os.path.join(kd, "kid.asc"), "w").write(saved[f"{root_login}.asc"])
+            open(os.path.join(kd, f"{root_login}.asc"), "w").write(saved["kid.asc"])
+            check("F2: swapped key files are refused", verify_says("not the recorded"))
+            restore()
+            open(os.path.join(kd, "kid.asc"), "w").write(saved["kid.asc"] + saved[f"{root_login}.asc"])
+            check("F2: a key file holding a second key is refused", verify_says("not only the recorded one"))
+            restore()
+            lin = json.loads(saved["lineage.json"])
+            for label, mutate, what in (
+                    ("F3: two roots", lambda d: d["kid"].update(parent=None), "2 roots"),
+                    ("F3: a login as its own parent", lambda d: d["kid"].update(parent="kid"), "is its own parent"),
+                    ("F3: a cycle", lambda d: (d["kid"].update(parent=root_login), d[root_login].update(parent="kid")), "loops")):
+                d = json.loads(json.dumps(lin))
+                mutate(d)
+                json.dump(d, open(os.path.join(kd, "lineage.json"), "w"))
+                check(label + " is refused", verify_says(what), run(parent, "verify").stdout)
+                restore()
+            check("…and the untouched keys verify clean again", run(parent, "verify").returncode == 0)
 
             everything = "".join(open(os.path.join(dp, f), errors="ignore").read()
                                  for dp, _, fs in os.walk(os.path.join(child_store, ".git")) for f in fs

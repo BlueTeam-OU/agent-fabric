@@ -85,8 +85,10 @@ def _run(cmd: list[str], *, stdin: bytes | None = None, cwd: str | None = None,
          env: dict | None = None, check: bool = True) -> subprocess.CompletedProcess:
     r = subprocess.run(cmd, input=stdin, capture_output=True, cwd=cwd, env=env)
     if check and r.returncode != 0:
-        # The last line of stderr, which gpg and git keep free of values.
-        why = (r.stderr.decode(errors="replace").strip().splitlines() or [f"exit {r.returncode}"])[-1]
+        # The last line of stderr that is not git's advice ("hint:"), which
+        # gpg and git keep free of values; the error, not the suggestion.
+        lines = [l for l in r.stderr.decode(errors="replace").strip().splitlines() if not l.startswith("hint:")]
+        why = (lines or [f"exit {r.returncode}"])[-1]
         raise StoreError(f"{os.path.basename(cmd[0])} {cmd[1] if len(cmd) > 1 else ''}: {why}")
     return r
 
@@ -162,13 +164,19 @@ def export_key(fpr: str | None = None, homedir: str | None = None) -> str:
     return gpg("--armor", "--export", fpr or key_of_store(), homedir=homedir).stdout.decode()
 
 
+def _git_env() -> dict:
+    """The store's own identity for every commit it makes, a rebase's
+    included: the writing login, whatever the account's git config says
+    (a new account may have none yet)."""
+    return {**os.environ, "GIT_AUTHOR_NAME": login(), "GIT_AUTHOR_EMAIL": f"{login()}@{UID_DOMAIN}",
+            "GIT_COMMITTER_NAME": login(), "GIT_COMMITTER_EMAIL": f"{login()}@{UID_DOMAIN}"}
+
+
 def _commit(store: str, message: str) -> None:
     # The store's commits are its own history, attributed by message:
     # the writer ("agent <login>" or "parent <login>") and what changed,
     # never a value.
-    env = {**os.environ, "GIT_AUTHOR_NAME": login(), "GIT_AUTHOR_EMAIL": f"{login()}@{UID_DOMAIN}",
-           "GIT_COMMITTER_NAME": login(), "GIT_COMMITTER_EMAIL": f"{login()}@{UID_DOMAIN}"}
-    _run(["git", "-C", store, "-c", "commit.gpgsign=false", "commit", "-q", "-m", message], env=env)
+    _run(["git", "-C", store, "-c", "commit.gpgsign=false", "commit", "-q", "-m", message], env=_git_env())
 
 
 def _check_name(name: str) -> None:
@@ -176,15 +184,23 @@ def _check_name(name: str) -> None:
         raise StoreError(f"{name!r} is not a secret name (UPPER_SNAKE, as an environment variable)")
 
 
+def _one_line_off(value: bytes) -> bytes:
+    """A value typed or piped on stdin: one trailing newline is the
+    terminal's, not the secret's."""
+    return value[:-1] if value.endswith(b"\n") else value
+
+
 def _write_entry(store: str, name: str, value: bytes, recipient_args: list[str]) -> str:
+    """The value EXACTLY as given, multi-line and empty included: sync
+    must apply from the store what it applied from Doppler (a PEM key is
+    many lines). A single-line value is pass's shape as it is: the
+    secret on the first line. --no-encrypt-to: a gpg.conf naming an extra
+    recipient never adds one."""
     _check_name(name)
-    if not value.strip():
-        raise StoreError(f"{name}: an empty value is not stored")
     path = os.path.join(store, "env", f"{name}.gpg")
     os.makedirs(os.path.dirname(path), mode=0o700, exist_ok=True)
-    # pass's shape: the value on the first line.
-    gpg("--trust-model", "always", "--encrypt", *recipient_args, "--output", path + ".tmp",
-        stdin=value.rstrip(b"\n") + b"\n")
+    gpg("--trust-model", "always", "--no-encrypt-to", "--encrypt", *recipient_args, "--output", path + ".tmp",
+        stdin=value)
     os.replace(path + ".tmp", path)
     git(store, "add", os.path.relpath(path, store))
     return path
@@ -192,22 +208,56 @@ def _write_entry(store: str, name: str, value: bytes, recipient_args: list[str])
 
 def _decrypt(path: str) -> str | None:
     r = gpg("--decrypt", path, check=False)
-    return r.stdout.decode().split("\n", 1)[0] if r.returncode == 0 else None
+    return r.stdout.decode() if r.returncode == 0 else None
 
 
-def set_entry(name: str, value: bytes) -> dict:
+def _remote(store: str) -> bool:
+    return bool(git(store, "remote", check=False).stdout.strip())
+
+
+def _branch(store: str) -> str:
+    return git(store, "rev-parse", "--abbrev-ref", "HEAD", check=False).stdout.decode().strip() or "main"
+
+
+def _before_write(store: str) -> None:
+    """The store is brought up to its remote before anything is written:
+    the agent and its parent both write, and a write on a stale copy is a
+    divergence. One file per entry, so a rebase never conflicts on two
+    different names. A failure stops the write, loudly."""
+    if not _remote(store):
+        return
+    r = _run(["git", "-C", store, "-c", "commit.gpgsign=false", "pull", "-q", "--rebase", "origin", _branch(store)],
+             env=_git_env(), check=False)
+    if r.returncode != 0:
+        lines = [l for l in r.stderr.decode(errors="replace").splitlines() if l.strip() and not l.startswith("hint:")]
+        raise StoreError("the store could not be brought up to its remote; nothing written: " + (lines or ["?"])[-1])
+
+
+def _after_commit(store: str) -> None:
+    """Every commit reaches the remote: it is the backup and the channel
+    between the agent and its parent."""
+    if _remote(store):
+        git(store, "push", "-q", "origin", f"HEAD:{_branch(store)}")
+
+
+def set_entry(name: str, value: bytes, *, exact: bool = False) -> dict:
+    """The agent writes its own entry. From stdin one trailing newline is
+    dropped (exact=False); an in-process caller passes the value as it
+    is. GPG encryption is randomised, so "unchanged" is decided on the
+    decrypted value, which the agent can read (a parent cannot: see assign)."""
     store = store_dir()
     fpr = key_of_store(store)
-    # GPG encryption is randomised: the same value re-encrypted is a new
-    # file, so "unchanged" is decided on the decrypted value, which the
-    # agent can read. (A parent cannot: see assign.)
+    _check_name(name)
+    value = value if exact else _one_line_off(value)
+    _before_write(store)
     path = os.path.join(store, "env", f"{name}.gpg")
-    if os.path.exists(path) and _decrypt(path) == value.decode(errors="replace").rstrip("\n"):
+    if os.path.exists(path) and _decrypt(path) == value.decode(errors="replace"):
         return {"name": name, "changed": False}
     _write_entry(store, name, value, ["--recipient", fpr])
     changed = git(store, "diff", "--cached", "--quiet", check=False).returncode != 0
     if changed:
         _commit(store, f"agent {login()}: set {name}")
+        _after_commit(store)
     return {"name": name, "changed": changed}
 
 
@@ -219,15 +269,11 @@ def names(store: str | None = None) -> list[str]:
         return []
 
 
-def pull(store: str | None = None) -> str | None:
-    """Fast-forward the store from its remote, when it has one. The note
-    when that failed (the local copy is still read), else None."""
-    store = store or store_dir()
-    if not git(store, "remote", check=False).stdout.strip():
-        return None
-    branch = git(store, "rev-parse", "--abbrev-ref", "HEAD", check=False).stdout.decode().strip() or "main"
-    r = git(store, "pull", "-q", "--ff-only", "origin", branch, check=False)
-    return None if r.returncode == 0 else "not pulled: " + (r.stderr.decode().strip().splitlines() or ["?"])[-1]
+def pull(store: str | None = None) -> None:
+    """The store brought up to its remote, when it has one; a failure is
+    an error (StoreError), never a note: a sync that read a stale copy
+    would apply less than the store holds and still say applied."""
+    _before_write(store or store_dir())
 
 
 def values(store: str | None = None) -> dict[str, str]:
@@ -238,7 +284,7 @@ def values(store: str | None = None) -> dict[str, str]:
     out = {}
     for name in names(store):
         r = gpg("--decrypt", os.path.join(store, "env", f"{name}.gpg"))
-        out[name] = r.stdout.decode().split("\n", 1)[0]
+        out[name] = r.stdout.decode()   # exactly as written: many lines, or none
     return out
 
 
@@ -262,17 +308,20 @@ def import_doppler() -> dict:
         data = json.loads(r.stdout)
     except ValueError:
         raise StoreError("doppler returned no JSON")
-    imported = []
+    _before_write(store)
+    imported, skipped = [], []
     for name, value in sorted(data.items()):
-        if name.startswith("DOPPLER_") or not isinstance(value, str) or not NAME_RE.match(name) or not value.strip():
+        if name.startswith("DOPPLER_"):
+            continue   # Doppler's own, never the login's
+        if not isinstance(value, str) or not NAME_RE.match(name):
+            skipped.append(name)   # said, never dropped silently
             continue
         _write_entry(store, name, value.encode(), ["--recipient", fpr])
         imported.append(name)
     if git(store, "diff", "--cached", "--quiet", check=False).returncode:
         _commit(store, f"agent {login()}: imported {len(imported)} name(s) from Doppler {project}/{config}")
-    if git(store, "remote", check=False).stdout.strip():
-        git(store, "push", "-q", "origin", "HEAD")
-    return {"imported": imported, "config": config}
+    _after_commit(store)
+    return {"imported": imported, "skipped": skipped, "config": config}
 
 
 # ── the parent ────────────────────────────────────────────────────────
@@ -307,7 +356,8 @@ def _key_file_fingerprint(path: str) -> str:
     return fprs[0]
 
 
-def put(child: str, name: str, value: bytes, store: str | None = None, fabric: str | None = None) -> dict:
+def put(child: str, name: str, value: bytes, store: str | None = None, fabric: str | None = None,
+        *, exact: bool = False) -> dict:
     """The parent writes an entry into a child's store: encrypted to the
     child's COMMITTED key (never imported), which must be the key the
     store says it is encrypted to. The parent cannot read what it wrote."""
@@ -317,18 +367,20 @@ def put(child: str, name: str, value: bytes, store: str | None = None, fabric: s
     if not os.path.exists(key_file):
         raise StoreError(f"no committed key for {child} ({key_file})")
     store = store or os.path.join(children_dir(), child)
+    _check_name(name)
+    # Brought up to date FIRST: a mirror still naming the old key must not
+    # pass the check and then receive a re-keyed .gpg-id with the pull.
+    _before_write(store)
     committed = _key_file_fingerprint(key_file)
     if key_of_store(store) != committed:
         raise StoreError(f"{child}'s store is encrypted to another key than the committed one; "
                          "a store and its key must agree before anything is written")
-    note = pull(store)
-    _write_entry(store, name, value, ["--recipient-file", key_file])
+    _write_entry(store, name, value if exact else _one_line_off(value), ["--recipient-file", key_file])
     changed = git(store, "diff", "--cached", "--quiet", check=False).returncode != 0
     if changed:
         _commit(store, f"parent {login()}: put {name}")
-        if git(store, "remote", check=False).stdout.strip():
-            git(store, "push", "-q", "origin", "HEAD")
-    return {"child": child, "name": name, "changed": changed, **({"note": note} if note else {})}
+        _after_commit(store)
+    return {"child": child, "name": name, "changed": changed}
 
 
 def certify(child: str | None, key_file: str | None, fabric: str | None = None) -> dict:
@@ -348,6 +400,11 @@ def certify(child: str | None, key_file: str | None, fabric: str | None = None) 
     if not LOGIN_RE.match(child) or child == me:
         raise StoreError(f"{child!r} is not another login")
     fpr = _key_file_fingerprint(key_file)
+    # The key's user id is not checked against the login: what makes the
+    # key the login's is this certification and the committed file under
+    # its name (ADR-038 §5 rule 2), and a test cannot make a second Unix
+    # user to name one — a hook that set the login would be the very thing
+    # the identity invariant forbids.
     gpg("--import", key_file)
     gpg("--default-key", my_fpr, "--quick-sign-key", fpr)
     with open(os.path.join(kd, f"{child}.asc"), "w", encoding="utf-8") as fh:
@@ -358,43 +415,73 @@ def certify(child: str | None, key_file: str | None, fabric: str | None = None) 
 
 
 def verify(fabric: str | None = None) -> list[str]:
-    """Every committed key against lineage.json: the file holds exactly
-    the recorded key, and a child's key carries a valid certification by
-    its parent's recorded key. Findings, one line each; [] is clean."""
+    """Every committed key against lineage.json, each on its own:
+    - lineage: exactly one root (parent null), nobody its own parent,
+      and every chain reaching that root without a cycle;
+    - `<login>.asc` holds exactly one primary key, the recorded one;
+    - a child's key carries a valid certification by its PARENT's
+      recorded key, read in a keyring holding only the child's file and
+      the parent's, so a certification found in another file, or a
+      swapped or doubled file, never passes.
+    Findings, one line each; [] is clean."""
     doc, kd, findings = lineage(fabric), keys_dir(fabric), []
     if not os.path.isdir(kd):
         return []
     files = {f[:-4] for f in os.listdir(kd) if f.endswith(".asc")}
     for extra in sorted(files - set(doc)):
         findings.append(f"identities/keys/{extra}.asc: no lineage.json entry")
-    with tempfile.TemporaryDirectory() as tmp:
-        os.chmod(tmp, 0o700)
-        try:
-            for who in sorted(doc):
-                if who not in files:
-                    findings.append(f"identities/keys/lineage.json: {who} has no committed key")
-                    continue
+    roots = sorted(w for w, r in doc.items() if (r or {}).get("parent") is None)
+    if doc and len(roots) != 1:
+        findings.append(f"identities/keys/lineage.json: {len(roots)} roots ({', '.join(roots) or 'none'}); "
+                        "the chain has exactly one, the coordinator's key")
+    for who, rec in sorted(doc.items()):
+        parent = (rec or {}).get("parent")
+        if parent == who:
+            findings.append(f"identities/keys/lineage.json: {who} is its own parent")
+            continue
+        seen, at = {who}, parent
+        while at is not None:
+            if at in seen or at not in doc:
+                findings.append(f"identities/keys/lineage.json: {who}'s chain "
+                                + ("loops" if at in seen else f"names {at}, who has no entry") + "; it must reach the root")
+                break
+            seen.add(at)
+            at = (doc.get(at) or {}).get("parent")
+
+    def keyring_check(who: str, fpr: str, parent: str | None) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            os.chmod(tmp, 0o700)
+            try:
                 gpg("--import", os.path.join(kd, f"{who}.asc"), homedir=tmp, check=False)
-            for who, rec in sorted(doc.items()):
-                if who not in files:
-                    continue
-                fpr, parent = rec.get("fingerprint"), rec.get("parent")
-                if fpr not in fingerprints(homedir=tmp):
-                    findings.append(f"identities/keys/{who}.asc: does not hold the recorded key {fpr}")
-                    continue
+                held = fingerprints(homedir=tmp)
+                if held != [fpr]:
+                    findings.append(f"identities/keys/{who}.asc: holds {len(held)} key(s), "
+                                    f"{'not the recorded ' + fpr if fpr not in held else 'not only the recorded one'}")
+                    return
                 if parent is None:
-                    continue
+                    return
                 pfpr = (doc.get(parent) or {}).get("fingerprint")
-                if not pfpr:
-                    findings.append(f"identities/keys/{who}.asc: parent {parent} has no recorded key")
-                    continue
+                if not pfpr or parent not in files:
+                    findings.append(f"identities/keys/{who}.asc: parent {parent} has no recorded, committed key")
+                    return
+                gpg("--import", os.path.join(kd, f"{parent}.asc"), homedir=tmp, check=False)
+                if pfpr not in fingerprints(homedir=tmp):
+                    findings.append(f"identities/keys/{parent}.asc: does not hold its recorded key")
+                    return
                 r = gpg("--with-colons", "--check-sigs", fpr, homedir=tmp, check=False)
-                good = any(l.startswith("sig:!:") and l.split(":")[4] == pfpr[-16:]
-                           for l in r.stdout.decode().splitlines())
+                good = any(l.startswith("sig:!:") and l.split(":")[4] == pfpr[-16:] for l in r.stdout.decode().splitlines())
                 if not good:
                     findings.append(f"identities/keys/{who}.asc: not certified by its parent {parent}'s key")
-        finally:
-            _run(["gpgconf", "--homedir", tmp, "--kill", "all"], check=False)
+            finally:
+                _run(["gpgconf", "--homedir", tmp, "--kill", "all"], check=False)
+
+    for who, rec in sorted(doc.items()):
+        if who not in files:
+            findings.append(f"identities/keys/lineage.json: {who} has no committed key")
+            continue
+        if (rec or {}).get("parent") == who:
+            continue
+        keyring_check(who, (rec or {}).get("fingerprint"), (rec or {}).get("parent"))
     return findings
 
 
@@ -433,7 +520,7 @@ def templates() -> list[dict]:
             for n, v in sorted(vals.items()) if n.startswith(TEMPLATE_PREFIX)]
 
 
-def assign(slug: str, logins: list[str]) -> list[dict]:
+def assign(slug: str, logins: list[str], *, force: bool = False) -> list[dict]:
     """The template's token into each login's store, as its
     CLAUDE_CODE_OAUTH_TOKEN, written by the parent (which cannot read it
     back); the assignment is recorded in the parent's own store, since
@@ -450,12 +537,12 @@ def assign(slug: str, logins: list[str]) -> list[dict]:
         # read the child's entry, so whether the child already holds this
         # token is decided here, by what the parent last wrote.
         was, _, was_fp = (vals.get(rec) or "none").partition(" ")
-        if was == slug and was_fp == fp:
+        if was == slug and was_fp == fp and not force:
             rows.append({"login": who, "from": was, "to": slug, "status": "unchanged", "token_sha256_12": fp})
             continue
         try:
-            put(who, "CLAUDE_CODE_OAUTH_TOKEN", vals[name].encode())
-            set_entry(rec, f"{slug} {fp}".encode())
+            put(who, "CLAUDE_CODE_OAUTH_TOKEN", vals[name].encode(), exact=True)
+            set_entry(rec, f"{slug} {fp}".encode(), exact=True)
             rows.append({"login": who, "from": was, "to": slug, "status": "written", "token_sha256_12": fp})
         except StoreError as e:
             rows.append({"login": who, "from": was, "status": "failed", "reason": str(e)[:160]})
@@ -486,7 +573,10 @@ def paper(out: str | None = None) -> None:
             "Restore: paperkey --pubring <the committed identities/keys/"
             f"{login()}.asc> --secrets <this sheet> | gpg --import\n\n{sheet}\n{revocation}")
     if out:
-        fd = os.open(out, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        # O_NOFOLLOW: never through a symlink; fchmod: an existing file's
+        # old mode never carries the key.
+        fd = os.open(out, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600)
+        os.fchmod(fd, 0o600)
         with os.fdopen(fd, "w") as fh:
             fh.write(text)
     else:
@@ -524,6 +614,7 @@ def main(argv: list[str] | None = None) -> int:
     asg.add_argument("slug")
     asg.add_argument("logins", nargs="+")
     asg.add_argument("--json", action="store_true")
+    asg.add_argument("--force", action="store_true", help="write even when this store's record says unchanged")
     args = ap.parse_args(argv)
     try:
         if args.cmd == "init":
@@ -537,7 +628,7 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps(ns) if args.json else "\n".join(ns) or "(no entries)")
         elif args.cmd == "put":
             r = put(args.login, args.name, sys.stdin.buffer.read(), store=args.store)
-            print(f"{args.login} {args.name}: {'written' if r['changed'] else 'unchanged'}" + (f" ({r['note']})" if r.get("note") else ""))
+            print(f"{args.login} {args.name}: {'written' if r['changed'] else 'unchanged'}")
         elif args.cmd == "certify":
             if args.root == bool(args.login):
                 raise StoreError("certify takes LOGIN KEYFILE, or --root for this login's own key")
@@ -570,7 +661,7 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 print("\n".join(f"{x['account']:<34} setup-token {x['token_sha256_12']}" for x in t) or "(no templates)")
         elif args.cmd == "assign":
-            rows = assign(args.slug, args.logins)
+            rows = assign(args.slug, args.logins, force=args.force)
             if args.json:
                 print(json.dumps(rows))
             else:
@@ -580,6 +671,8 @@ def main(argv: list[str] | None = None) -> int:
         elif args.cmd == "import-doppler":
             r = import_doppler()
             print(f"imported {len(r['imported'])} name(s) from {r['config']}: {', '.join(r['imported'])}")
+            if r["skipped"]:
+                print(f"skipped (not a secret name, or not a string): {', '.join(r['skipped'])}", file=sys.stderr)
     except StoreError as e:
         print(f"fabric-secrets store: {e}", file=sys.stderr)
         return 1

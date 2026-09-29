@@ -56,7 +56,7 @@ ME="$(id -un)"
 
 # The base is the org on GitHub; AGENT_FABRIC_SECRETS_REMOTE_BASE replaces it
 # (the test's bare repositories).
-repo_url() { echo "${AGENT_FABRIC_SECRETS_REMOTE_BASE:-git@github.com:$ORG}/secrets-$1.git"; }
+repo_url() { echo "${AGENT_FABRIC_SECRETS_REMOTE_BASE:-https://github.com/$ORG}/secrets-$1.git"; }
 ensure_repo() {  # the private repository, made by the parent when absent
   local name="$ORG/secrets-$1"
   "$GH" repo view "$name" >/dev/null 2>&1 && return 0
