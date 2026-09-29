@@ -71,7 +71,8 @@ findings on its hunks there. The caller arms, never with an unanswered
 **A code PR is armed by its work-commit count**: the commits of work as opened, review fixes excluded.
 Eight to sixteen: arm once the review gate is met (a posted review of
 the head, no open P1/P2). Fewer: ask the owner, who arms. More than
-sixteen is split before the PR opens. Never without the gate.
+sixteen is split before the PR opens. Never without the gate. Calling a
+PR ready, armed or merged, give its count ("1 work, 1 fix").
 
 **One open pull request per agent**. While you have a PR open — unarmed, armed or queued —
 the next piece of work is another commit on it if the branch is still
