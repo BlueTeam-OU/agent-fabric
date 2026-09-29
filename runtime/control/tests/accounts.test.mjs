@@ -211,3 +211,26 @@ test('assign on the store also writes the Doppler config of a login that still h
   assert.ok(out.some(l => /^kid .* written \(doppler: written\)/.test(l)), out.join('\n'));
   assert.ok(out.some(l => /^moved .* written \(doppler: no-config\)/.test(l)), out.join('\n'));
 });
+
+test('assign --no-sync on the store: Doppler unavailable fails the run (nothing else would prove the move)', async () => {
+  const home = scratch('accounts-nosync-');
+  fs.mkdirSync(path.join(home, '.config', 'agent-fabric'), { recursive: true });
+  fs.writeFileSync(path.join(home, '.config', 'agent-fabric', 'secrets-source'), 'store\n');
+  const reg = path.join(home, 'hosts.json');
+  fs.writeFileSync(reg, JSON.stringify({ hosts: { h: {} }, placement: { kid: 'h' } }));
+  const exec = (bin, args) => {
+    if (path.basename(bin) === 'fabric-secrets') {
+      if (args[1] === 'templates') return JSON.stringify([{ account: 'work', token_sha256_12: 'abcdef012345' }]);
+      return JSON.stringify([{ login: 'kid', from: 'none', to: 'work', status: 'written' }]);
+    }
+    throw new Error('doppler: the keyring is locked');
+  };
+  const out = []; const log = console.log, err = console.error;
+  console.log = (...a) => out.push(a.join(' ')); console.error = (...a) => out.push(a.join(' '));
+  let rc;
+  try { rc = await main(['assign', 'kid', 'work', '--no-sync'], { home, exec, registry: reg }); }
+  finally { console.log = log; console.error = err; }
+  assert.equal(rc, 1, out.join('\n'));
+  assert.ok(out.some(l => /doppler: unavailable/.test(l)), out.join('\n'));
+  assert.ok(out.some(l => /Doppler could not be written for kid/.test(l)), out.join('\n'));
+});

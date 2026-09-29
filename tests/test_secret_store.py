@@ -293,6 +293,22 @@ def main() -> int:
             check("N3: an unknown --source is refused", bogus.returncode == 2 and "usage" in bogus.stderr, bogus.stderr)
             open(src_file, "w").write("store\n")
 
+            # F7: put pulls BEFORE it compares keys. Another clone pushes a
+            # re-key; the parent's mirror has not pulled it yet.
+            other = os.path.join(tmp, "other-clone")
+            subprocess.run(["git", "clone", "-q", remote, other], check=True, env=parent)
+            open(os.path.join(other, ".gpg-id"), "w").write("0" * 40 + "\n")
+            g = ["git", "-C", other, "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"]
+            subprocess.run(g + ["commit", "-qam", "re-keyed elsewhere"], check=True, env=parent)
+            subprocess.run(g + ["push", "-q", "origin", "HEAD:main"], check=True, env=parent)
+            p = run(parent, "put", "kid", "AFTER_REKEY", stdin="z")
+            check("F7: a re-key pushed elsewhere is seen before the key check, and the put is refused",
+                  p.returncode == 1 and "another key" in p.stderr, p.stdout + p.stderr)
+            open(os.path.join(other, ".gpg-id"), "w").write(child_fpr + "\n")
+            subprocess.run(g + ["commit", "-qam", "back"], check=True, env=parent)
+            subprocess.run(g + ["push", "-q", "origin", "HEAD:main"], check=True, env=parent)
+            subprocess.run(["git", "-C", mirror, "pull", "-q", "--rebase", "origin", "main"], env=parent, capture_output=True)
+
             # The digest: the same hash from the store as sync reports.
             run(child, "set", "AGENT_LOGIN", stdin=me)
             dg = subprocess.run([fsync, "digest", "--source", "store"], env=dop, capture_output=True, text=True)

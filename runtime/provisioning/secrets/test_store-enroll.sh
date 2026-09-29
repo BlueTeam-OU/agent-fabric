@@ -65,6 +65,18 @@ echo "top secret" | P python3 "$ROOT/tools/fabric/secret_store.py" put kid GH_TO
 out="$(P "$E" nobody 2>&1)"; rc=$?
 [[ $rc -eq 1 ]] && grep -q "nobody: not placed" <<<"$out" && ok "an unplaced login is refused by name" || bad "unplaced (rc=$rc)" "$out"
 
+# A retried assign pushes the parent's own record that an earlier failed
+# push left behind (the parent's remote rejects one push).
+PR="$T/remotes/secrets-$(id -un).git"
+echo "sk-ant-oat01-tttttttttttttttttttt" | P python3 "$ROOT/tools/fabric/secret_store.py" template-set work >/dev/null 2>&1
+printf '#!/bin/sh\nexit 1\n' > "$PR/hooks/pre-receive"; chmod +x "$PR/hooks/pre-receive"
+out="$(P python3 "$ROOT/tools/fabric/secret_store.py" assign work kid 2>&1)"; rc=$?
+rm -f "$PR/hooks/pre-receive"
+out2="$(P python3 "$ROOT/tools/fabric/secret_store.py" assign work kid 2>&1)"; rc2=$?
+git --git-dir "$PR" ls-tree -r --name-only main 2>/dev/null | grep -q "env/CLAUDE_ASSIGNED_KID.gpg" && [[ $rc -eq 1 && $rc2 -eq 0 ]] \
+  && ok "a retried assign pushes the record a failed push left behind" || bad "assign catch-up (rc=$rc/$rc2)" "$out
+$out2"
+
 # The default remote is SSH: accounts reach GitHub with their own key, and
 # none has an HTTPS credential helper for a private repository.
 out="$(env -u AGENT_FABRIC_SECRETS_REMOTE_BASE HOME="$T/parent" GNUPGHOME="$T/parent-gnupg" AGENT_FABRIC_ROOT="$FAB" \

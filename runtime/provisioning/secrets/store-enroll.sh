@@ -54,10 +54,11 @@ say() { printf 'store-enroll: %s\n' "$*" >&2; }
 die() { printf 'store-enroll: %s\n' "$*" >&2; exit 1; }
 ME="$(id -un)"
 
-# The base is the org on GitHub over SSH: every account already reaches
-# GitHub with its own SSH key (its checkouts are git@github.com), and no
-# account has an HTTPS credential helper — an https remote to a private
-# repository could not push. AGENT_FABRIC_SECRETS_REMOTE_BASE replaces
+# The base is the org on GitHub over SSH: the accounts' project
+# checkouts are git@github.com (the fabric's own is https, being public),
+# and no account has an HTTPS credential helper — an https remote to a
+# private repository could not push. Read back on the coordinator's own
+# enrolment: the push over SSH to its new private repository worked. AGENT_FABRIC_SECRETS_REMOTE_BASE replaces
 # the base (the test's bare repositories).
 repo_url() { echo "${AGENT_FABRIC_SECRETS_REMOTE_BASE:-git@github.com:$ORG}/secrets-$1.git"; }
 ensure_repo() {  # the private repository, made by the parent when absent
@@ -104,7 +105,8 @@ for login in "${LOGINS[@]}"; do
   python3 "$STORE" certify "$login" "$pub" >&2 || { rm -f "$pub"; say "$login: certification failed"; fail=1; continue; }
   rm -f "$pub"
   mirror="$HOME/.local/share/agent-fabric/children/$login"
-  if [[ -d "$mirror/.git" ]]; then git -C "$mirror" pull -q --ff-only origin main >&2 || say "$login: mirror not updated"
+  if [[ -d "$mirror/.git" ]]; then
+    if ! git -C "$mirror" pull -q --ff-only origin main >&2; then say "$login: its mirror could not be brought up to date"; fail=1; continue; fi
   else
     mkdir -p "$(dirname "$mirror")"
     if ! git clone -q "$(repo_url "$login")" "$mirror" >&2; then say "$login: mirror clone failed"; fail=1; continue; fi

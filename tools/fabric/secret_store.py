@@ -234,6 +234,16 @@ def _before_write(store: str) -> None:
 
 
 
+def _push_if_ahead(store: str) -> None:
+    """A commit an earlier, failed push left behind is pushed now, so a
+    retry that finds nothing to change still leaves the remote (the
+    backup) whole. Only a store's own writer calls this — the agent in its
+    store, the parent in its own — never a parent on a child's mirror."""
+    ahead = git(store, "rev-list", "--count", f"origin/{_branch(store)}..HEAD", check=False)
+    if _remote(store) and ahead.returncode == 0 and ahead.stdout.decode().strip() not in ("", "0"):
+        _after_commit(store)
+
+
 def _after_commit(store: str) -> None:
     """Every commit reaches the remote: it is the backup and the channel
     between the agent and its parent."""
@@ -253,13 +263,7 @@ def set_entry(name: str, value: bytes, *, exact: bool = False) -> dict:
     _before_write(store)
     path = os.path.join(store, "env", f"{name}.gpg")
     if os.path.exists(path) and _decrypt(path) == value.decode(errors="replace"):
-        # Unchanged — but a commit an earlier, failed push left behind is
-        # pushed now, so a retry leaves the remote (the backup) whole. Only
-        # the agent's own store does this: a parent's mirror never pushes
-        # what it did not just write (its put always commits afresh).
-        ahead = git(store, "rev-list", "--count", f"origin/{_branch(store)}..HEAD", check=False)
-        if _remote(store) and ahead.returncode == 0 and ahead.stdout.decode().strip() not in ("", "0"):
-            _after_commit(store)
+        _push_if_ahead(store)   # unchanged, but an earlier failed push is caught up
         return {"name": name, "changed": False}
     _write_entry(store, name, value, ["--recipient", fpr])
     changed = git(store, "diff", "--cached", "--quiet", check=False).returncode != 0
@@ -538,6 +542,9 @@ def assign(slug: str, logins: list[str], *, force: bool = False) -> list[dict]:
     CLAUDE_CODE_OAUTH_TOKEN, written by the parent (which cannot read it
     back); the assignment is recorded in the parent's own store, since
     the parent cannot read the child's."""
+    own = store_dir()
+    _before_write(own)
+    _push_if_ahead(own)   # a record an earlier failed push left behind
     vals = values()
     name = _slug_name(slug)
     if not vals.get(name):
