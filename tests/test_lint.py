@@ -1325,6 +1325,27 @@ def case_decision_records_are_lint_findings() -> None:
         assert code == 1 and "adr: docs/adr/index.json: stale" in out, out
 
 
+def case_a_committed_agent_key_needs_its_lineage() -> None:
+    """ADR-038 §5 rule 2: lineage.json naming a login whose key is not
+    committed, or a committed key with no lineage entry, is a finding;
+    no identities/keys/ at all is clean."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("fabric_lint_under_test", LINT)
+    lint = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(lint)
+    with tempfile.TemporaryDirectory() as root:
+        assert lint.key_lineage_findings(root) == [], "no keys committed yet is clean"
+        keys = os.path.join(root, "identities", "keys")
+        os.makedirs(keys)
+        with open(os.path.join(keys, "lineage.json"), "w", encoding="utf-8") as fh:
+            json.dump({"someone": {"fingerprint": "0" * 40, "parent": None}}, fh)
+        with open(os.path.join(keys, "stray.asc"), "w", encoding="utf-8") as fh:
+            fh.write("")
+        got = lint.key_lineage_findings(root)
+        assert any("someone has no committed key" in f for f in got), got
+        assert any("stray.asc: no lineage.json entry" in f for f in got), got
+
+
 def case_a_cited_fabric_document_must_resolve() -> None:
     """A fabric document path or 'agent-fabric ADR-NNN' cited in a tracked
     file that resolves nowhere is a finding — from the root or the citing
@@ -1355,6 +1376,7 @@ def main() -> int:
         case_clean_base_passes,
         case_decision_records_are_lint_findings,
         case_a_cited_fabric_document_must_resolve,
+        case_a_committed_agent_key_needs_its_lineage,
         case_a_committed_agent_source_may_not_pin_effort,
         case_index_description_drift_is_caught,
         case_a_sibling_working_copy_is_linted_unasked,

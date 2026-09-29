@@ -50,6 +50,7 @@ import importlib.util
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 from collections import defaultdict
@@ -1342,6 +1343,22 @@ def review_lens_findings(root: str) -> list[str]:
     return findings
 
 
+def key_lineage_findings(root: str) -> list[str]:
+    """ADR-038 §5 rule 2: every committed agent key is the one its
+    lineage records and carries its parent's certification. Read by
+    tools/fabric/secret_store.py in a throwaway keyring. No keys committed
+    yet is clean; a host without gpg is said, not passed silently."""
+    if not os.path.isdir(os.path.join(root, "identities", "keys")):
+        return []
+    if not shutil.which("gpg"):
+        return ["identities/keys/: gpg is not installed here, so no key's lineage could be checked"]
+    spec = importlib.util.spec_from_file_location("fabric_secret_store",
+                                                  os.path.join(os.path.dirname(os.path.abspath(__file__)), "secret_store.py"))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod.verify(root)
+
+
 def host_registry_findings(root: str) -> list[str]:
     """runtime/hosts/registry.json: a host id is its short hostname, so ids
     are unique by construction and an ssh destination reaches one host;
@@ -1642,6 +1659,7 @@ def main() -> int:
 
     # --- the hosts and where each account lives -----------------------------
     findings += host_registry_findings(root)
+    findings += key_lineage_findings(root)
 
     # --- no project's name in a generic file --------------------------------
     findings += project_name_findings(root)
