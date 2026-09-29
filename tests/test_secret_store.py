@@ -188,10 +188,11 @@ def main() -> int:
             p = prov("share", "kid")
             check("provision share again: present, nothing written", p.returncode == 0
                   and not any(st == "written" for _, st in rows_of(p)), p.stdout)
-            p = prov("share", "kid", "--name", "OPENROUTER_PROVISIONING_KEY")
-            check("provision share refuses the parent's own credentials even when named", p.returncode == 1
-                  and "never shared" in p.stderr and not os.path.exists(os.path.join(mirror, "env", "OPENROUTER_PROVISIONING_KEY.gpg")),
-                  p.stdout + p.stderr)
+            for named in ("OPENROUTER_PROVISIONING_KEY", "OPENROUTER_API_KEY"):
+                p = prov("share", "kid", "--name", named)
+                check(f"provision share --name {named}: refused, off the allowlist (review of #69, F2)", p.returncode == 1
+                      and "not a shared name" in p.stderr and not os.path.exists(os.path.join(mirror, "env", f"{named}.gpg")),
+                      p.stdout + p.stderr)
             p = prov("identity", "kid", "--host", "h1")
             check("provision identity writes AGENT_LOGIN and AGENT_HOST", p.returncode == 0
                   and rows_of(p) == {("AGENT_LOGIN", "written"), ("AGENT_HOST", "written")}, p.stdout + p.stderr)
@@ -209,7 +210,12 @@ def main() -> int:
                     seen.append(("POST", self.path, self.headers.get("Authorization")))
                     if os.path.exists(os.path.join(tmp, "break-put")):
                         os.rename(remote, remote + ".away")
-                    body = json.dumps({"key": "sk-or-minted-" + SECRET, "data": {"hash": "h4sh"}}).encode()
+                    if os.path.exists(os.path.join(tmp, "refuse-push")):
+                        hook = os.path.join(remote, "hooks", "pre-receive")
+                        open(hook, "w").write("#!/bin/sh\nexit 1\n")
+                        os.chmod(hook, 0o755)
+                    data = {} if os.path.exists(os.path.join(tmp, "no-hash")) else {"hash": "h4sh"}
+                    body = json.dumps({"key": "sk-or-minted-" + SECRET, "data": data}).encode()
                     self.send_response(201); self.end_headers(); self.wfile.write(body)
                 def do_DELETE(self):
                     seen.append(("DELETE", self.path, self.headers.get("Authorization")))
@@ -236,6 +242,36 @@ def main() -> int:
                 check("issue-key: a put that fails after the mint deletes the key it minted, and says so",
                       p.returncode == 1 and ("DELETE", "/api/v1/keys/h4sh", "Bearer prov-" + SECRET) in seen
                       and "deleted again" in p.stdout, p.stdout + p.stderr + repr(seen))
+                # F1: the pull succeeds and the PUSH is refused, after the
+                # commit: the mirror must not keep it, or the re-run reads
+                # the key as present and the store never gets one.
+                subprocess.run(["git", "-C", mirror, "rm", "-q", "env/OPENROUTER_API_KEY.gpg"], env=parent, check=True)
+                subprocess.run(["git", "-C", mirror, "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false",
+                                "commit", "-qm", "drop the key for the push case"], env=parent, check=True)
+                subprocess.run(["git", "-C", mirror, "push", "-q", "origin", "HEAD:main"], env=parent, check=True)
+                open(os.path.join(tmp, "refuse-push"), "w").close()
+                n0 = len(seen)
+                p = ik("kid")
+                os.remove(os.path.join(tmp, "refuse-push"))
+                os.remove(os.path.join(remote, "hooks", "pre-receive"))
+                ahead = subprocess.run(["git", "-C", mirror, "rev-list", "--count", "origin/main..HEAD"], env=parent,
+                                       capture_output=True, text=True).stdout.strip()
+                check("F1: a refused push is undone in the mirror as well as at OpenRouter",
+                      p.returncode == 1 and "deleted again" in p.stdout and ahead == "0"
+                      and not os.path.exists(os.path.join(mirror, "env", "OPENROUTER_API_KEY.gpg"))
+                      and ("DELETE", "/api/v1/keys/h4sh", "Bearer prov-" + SECRET) in seen[n0:], p.stdout + f" ahead={ahead}")
+                p = ik("kid")
+                check("F1: …so the re-run mints and writes, never 'present'", p.returncode == 0
+                      and rows_of(p) == {("OPENROUTER_API_KEY", "written")}, p.stdout + p.stderr)
+                # F4: a key with no handle cannot be deleted, and the row says so.
+                open(os.path.join(tmp, "no-hash"), "w").close()
+                open(os.path.join(tmp, "break-put"), "w").close()
+                p = ik("kid", "--replace")
+                os.rename(remote + ".away", remote)
+                for f in ("no-hash", "break-put"):
+                    os.remove(os.path.join(tmp, f))
+                check("F4: an undo that deleted nothing says NOT deleted, never 'deleted again'",
+                      p.returncode == 1 and "NOT deleted" in p.stdout and "deleted again" not in p.stdout, p.stdout)
             finally:
                 srv.shutdown()
                 srv.server_close()

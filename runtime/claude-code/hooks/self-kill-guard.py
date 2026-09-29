@@ -27,6 +27,9 @@ import sys
 
 PREFIXES = {"timeout", "sudo", "env", "nohup", "nice", "xargs", "exec", "command", "setsid", "stdbuf"}
 KILL_TOOLS = {"pgrep", "pkill", "killall", "kill"}
+# The prefixes' options whose next word is a value, never a command.
+VALUE_OPTIONS = {"-s", "--signal", "-k", "--kill-after", "-u", "--user", "-g", "--group", "-U", "-C", "-h", "-p",
+                 "-r", "-t", "-D", "-I", "-i", "-n", "-P", "-L", "-E", "-d", "-a", "-S", "--unset", "--chdir"}
 KILLS = re.compile(r"\b(kill|pkill|killall|xargs\s+(?:-\S+\s+)*kill)\b")
 
 
@@ -82,9 +85,12 @@ def kill_patterns(command: str) -> list[str]:
         # `timeout 5 pkill -f P`, sudo, env, nohup, nice, xargs, exec. A
         # prefix's options may take a separate argument (`sudo -u root`,
         # `timeout -s KILL 5`, `xargs -I {}`), which no rule for skipping
-        # options can know: the kill is the first killing tool after it.
+        # options can know: the kill is the first killing tool after it
+        # that is not an option's value — `timeout -s kill 5 pkill -f P`
+        # names the signal `kill` before the tool (review of #69, F3).
         if os.path.basename(words[0]) in PREFIXES:
-            at = next((i for i, w in enumerate(words) if os.path.basename(w) in KILL_TOOLS), None)
+            at = next((i for i, w in enumerate(words)
+                       if os.path.basename(w) in KILL_TOOLS and not (i and words[i - 1] in VALUE_OPTIONS)), None)
             if at is None:
                 continue
             words = words[at:]

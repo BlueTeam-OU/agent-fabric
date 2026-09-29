@@ -24,8 +24,10 @@ skipped or failed — never a value. Exit 1 when a row failed.
 SHARED NAMES are an allowlist. enroll.sh fill-from copied every name the
 source held except a denylist, and handed a fresh account the power to
 mint keys for every other when the coordinator's provisioning key was
-not on the list (brand-comms-01, 2026-09-15). A name not listed here is
-shared only by naming it (--name), which says the parent means it.
+not on the list (brand-comms-01, 2026-09-15). --name selects among the
+listed names and nothing else: a refusal list is the shape that failed,
+and a login's own key named by mistake would put the parent's in every
+child (review of #69, F2). A new shared name is a change to this list.
 """
 from __future__ import annotations
 
@@ -43,18 +45,8 @@ import secret_store as ss  # noqa: E402
 SHARED_NAMES = ["GH_TOKEN", "CLAUDE_BRIDGE_AUTH_TOKEN",
                 "GIT_USER_NAME", "GIT_USER_EMAIL", "GIT_SIGNING_KEY", "GIT_GPG_PROGRAM",
                 "SSH_PRIVATE_KEY", "SSH_PUBLIC_KEY"]
-# Never shared, even when named: the child's identity is its own, and these
-# are what make the parent the parent.
-NEVER_SHARED = {"AGENT_LOGIN", "AGENT_HOST", "CLAUDE_CODE_OAUTH_TOKEN", "FABRIC_CONTROL_SIGNING_KEY",
-                "OPENROUTER_PROVISIONING_KEY", "OPENAI_ADMIN_KEY", "AGENT_FABRIC_READ_TOKEN"}
-NEVER_SHARED_PREFIXES = ("CLAUDE_ACCOUNT_", "CLAUDE_ASSIGNED_", "PROTON_")
 KEY_NAMES = {"openrouter": "OPENROUTER_API_KEY", "openai": "OPENAI_API_KEY"}
 TIMEOUT_S = 30
-
-
-def never_shared(name: str) -> bool:
-    return (name in NEVER_SHARED or name.startswith(NEVER_SHARED_PREFIXES)
-            or name.endswith(("_ADMIN_KEY", "_PROVISIONING_KEY")))
 
 
 def placed_logins() -> list[str]:
@@ -90,9 +82,10 @@ def identity(who: str, host: str, *, replace: bool = False) -> list[dict]:
 
 def share(logins: list[str], names: list[str] | None = None, *, replace: bool = False) -> list[dict]:
     names = names or SHARED_NAMES
-    bad = [n for n in names if never_shared(n)]
+    bad = [n for n in names if n not in SHARED_NAMES]
     if bad:
-        raise ss.StoreError(f"never shared: {', '.join(bad)} (a child's identity, or what makes the parent the parent)")
+        raise ss.StoreError(f"not a shared name: {', '.join(bad)} (store_provision.SHARED_NAMES; a login's own "
+                            "value is put with `fabric-secrets store put`)")
     ss.pull()
     own = ss.values()
     rows = []
@@ -129,7 +122,7 @@ def _http(method: str, url: str, token: str, body: dict | None = None) -> dict:
     return json.loads(raw) if raw.strip() else {}
 
 
-def _mint_openrouter(login: str, own: dict[str, str]) -> tuple[str, callable]:
+def _mint_openrouter(login: str, own: dict[str, str]):
     """A key named after the login, as the fleet's keys are; with the
     handle that deletes it again if the put fails, so a key never exists
     under a login's name that nothing records (review, 2026-09-16)."""
@@ -142,10 +135,16 @@ def _mint_openrouter(login: str, own: dict[str, str]) -> tuple[str, callable]:
     if not key:
         raise ss.StoreError("OpenRouter returned no key")
     h = (body.get("data") or {}).get("hash") or ""
-    return key, (lambda: _http("DELETE", f"{base}/keys/{h}", prov) if h else None)
+
+    def undo() -> bool:
+        if not h:
+            return False
+        _http("DELETE", f"{base}/keys/{h}", prov)
+        return True
+    return key, undo
 
 
-def _mint_openai(login: str, own: dict[str, str]) -> tuple[str, callable]:
+def _mint_openai(login: str, own: dict[str, str]):
     """A service account agent-fabric-<login> in the organisation's project:
     the only way to mint a project key programmatically, and the key is
     returned once — so one already there under this name (or the bare
@@ -169,7 +168,13 @@ def _mint_openai(login: str, own: dict[str, str]) -> tuple[str, callable]:
     key = (sa.get("api_key") or {}).get("value")
     if not key:
         raise ss.StoreError("OpenAI returned no key with the service account")
-    return key, (lambda: None)   # the next run replaces the account by name
+
+    def undo() -> bool:
+        if not sa.get("id"):
+            return False
+        _http("DELETE", f"{base}/organization/projects/{pid}/service_accounts/{sa['id']}", adm)
+        return True
+    return key, undo
 
 
 def issue_key(service: str, logins: list[str], *, replace: bool = False) -> list[dict]:
@@ -195,12 +200,12 @@ def issue_key(service: str, logins: list[str], *, replace: bool = False) -> list
         try:
             ss.put(aid, entry, key.encode(), exact=True)
             rows.append({"login": login, "name": entry, "status": "written"})
-        except ss.StoreError as e:
+        except Exception as e:  # noqa: BLE001 — whatever stopped the put, the minted key must not outlive it unrecorded
             try:
-                undo()
-                why = "the key just minted was deleted again; re-run"
-            except ss.StoreError:
-                why = f"AND the minted key could not be deleted: one named {login} exists that nothing records — delete it in the dashboard"
+                why = ("the key just minted was deleted again; re-run" if undo()
+                       else f"the key just minted was NOT deleted (no handle for it): one for {login} exists that nothing records — delete it in the dashboard")
+            except Exception:  # noqa: BLE001
+                why = f"AND the minted key could not be deleted: one for {login} exists that nothing records — delete it in the dashboard"
             rows.append({"login": login, "name": entry, "status": "failed", "reason": f"{str(e)[:120]}; {why}"})
     return rows
 
@@ -225,10 +230,10 @@ def main(argv: list[str] | None = None) -> int:
         if args.cmd == "identity":
             rows = identity(args.login, args.host, replace=args.replace)
         else:
-            logins = placed_logins() if args.logins == ["all"] else args.logins
+            # `all` is every child: the parent holds its own store, not a mirror of it.
+            logins = [l for l in placed_logins() if l != ss.login()] if args.logins == ["all"] else args.logins
             if args.cmd == "share":
-                me = ss.login()
-                rows = share([l for l in logins if l != me], args.names, replace=args.replace)
+                rows = share(logins, args.names, replace=args.replace)
             else:
                 rows = issue_key(args.service, logins, replace=args.replace)
     except ss.StoreError as e:

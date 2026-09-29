@@ -506,7 +506,18 @@ def put(child: str, name: str, value: bytes, store: str | None = None, fabric: s
     changed = git(store, "diff", "--cached", "--quiet", check=False).returncode != 0
     if changed:
         _commit(store, f"parent {login()}: put {name}")
-        _after_commit(store)
+        try:
+            _after_commit(store)
+        except StoreError:
+            # The mirror is the parent's view of the child's store, never a
+            # record of its own: a put that did not reach the remote is
+            # undone here, or the next look at the mirror reads the entry
+            # as held and the next put pushes it (review of #69, F1). The
+            # agent's own store keeps an unpushed commit instead, and
+            # _push_if_ahead retries it — that store IS the record.
+            if _remote(store):
+                git(store, "reset", "-q", "--hard", f"origin/{_branch(store)}", check=False)
+            raise
     return {"child": rec.get("login"), "agent_id": aid, "name": name, "changed": changed}
 
 

@@ -86,7 +86,9 @@ BARE="$SEQ/fabric.git"; git init -q --bare -b main "$BARE"
 SRC="$SEQ/fabric-src"; mkdir -p "$SRC/runtime/claude-code" "$SRC/bin"
 printf '#!/usr/bin/env bash\necho "bootstrap: ok"\n' > "$SRC/runtime/claude-code/bootstrap.sh"
 printf '#!/usr/bin/env bash\ncase "$1" in status) echo "role      (none active)";; bind) echo "bound. role $2";; esac\n' > "$SRC/bin/fabric-role"
-printf '#!/usr/bin/env bash\necho "fabric-secrets: OK"\n' > "$SRC/bin/fabric-secrets"
+# The account's own fabric-secrets: its sync answers 3 (a store naming
+# another login) when the fault file says account-sync.
+printf '#!/usr/bin/env bash\ngrep -qsxF account-sync "%s" && { echo "fabric-secrets: the store names another login" >&2; exit 3; }\necho "fabric-secrets: OK"\n' "$SEQ/fault" > "$SRC/bin/fabric-secrets"
 mkdir -p "$SRC/runtime/openrouter"; printf '#!/usr/bin/env bash\necho "launch: resolved profile x"\n' > "$SRC/runtime/openrouter/launch"
 chmod +x "$SRC/runtime/claude-code/bootstrap.sh" "$SRC/bin/"* "$SRC/runtime/openrouter/launch"
 git -C "$SRC" init -q -b main && git -C "$SRC" add -A && git -C "$SRC" -c user.name=t -c user.email=t@t -c commit.gpgsign=false commit -q -m init && git -C "$SRC" push -q "$BARE" HEAD:main
@@ -251,7 +253,7 @@ out="$(seq_run seq-login backend-dev --project demo)"
 grep -q "1. account seq-login exists" <<<"$out" && grep -q "2. claude $PIN present" <<<"$out" && grep -q "OpenRouter key: 1 present" <<<"$out" && ! grep -q "^useradd" "$CALLS" && ! grep -q "^usermod --add-subuids" "$CALLS" && grep -q "subuid/subgid: 524288:65536" <<<"$out" \
   && ok "a second run skips every step already true" || bad "not idempotent" "$out"
 
-for fault in useradd "git" "store-enroll" "provision share" curl; do
+for fault in useradd "git" "store-enroll" "provision share" "provision issue-key" account-sync curl; do
   reset_seq
   case "$fault" in
     git) printf 'git\n' > "$FAULT" ;;              # the fake git fails a clone
@@ -266,6 +268,8 @@ for fault in useradd "git" "store-enroll" "provision share" curl; do
     curl) ! grep -q "^store-enroll\|^ssh-keyscan" "$CALLS" && ok "…and nothing after the installer ran" || bad "steps ran after the failed installer" "$(cat "$CALLS")" ;;
     store-enroll) ! grep -q "^secrets provision" "$CALLS" && [[ ! -d "$H/projects/demo" ]] && ok "…and no clone, nothing provisioned after a failed enrolment" || bad "steps ran after the failed enrolment" "$(cat "$CALLS")" ;;
     "provision share") ! grep -q "^secrets provision issue-key" "$CALLS" && [[ ! -d "$H/projects/demo" ]] && ok "…and no key minted, no clone after a failed share" || bad "steps ran after the failed share" "$(cat "$CALLS")" ;;
+    "provision issue-key") [[ ! -d "$H/projects/demo" ]] && ok "…and no clone after a failed key" || bad "steps ran after the failed key" "$(cat "$CALLS")" ;;
+    account-sync) grep -q "fabric-secrets sync as seq-login (exit 3)" <<<"$out" && [[ ! -d "$H/projects/demo" ]] && ok "…and a sync that exits 3 is named with its code, no clone after it" || bad "account sync exit 3" "$out" ;;
   esac
   rm -f "$FAULT"; out="$(seq_run seq-login backend-dev --project demo)"; rc=$?
   [[ $rc -eq 0 ]] && [[ -d "$H/projects/demo/node_modules" ]] && ok "…and the re-run after '$fault' converges" || bad "re-run after '$fault' did not converge (rc=$rc)" "$out

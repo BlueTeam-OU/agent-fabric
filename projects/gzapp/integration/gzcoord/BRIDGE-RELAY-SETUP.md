@@ -251,4 +251,4 @@ Still open:
 - ~~The token has to reach the other clones~~ — closed 2026-09-14: it
   reaches every account as `CLAUDE_BRIDGE_AUTH_TOKEN` in the environment,
   from the account's own store (`bin/fabric-secrets sync`); the
-  coordinator sets it once per config (`runtime/provisioning/secrets/enroll.sh`).
+  coordinator puts it in each store (`fabric-secrets provision share`).

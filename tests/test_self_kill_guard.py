@@ -47,6 +47,8 @@ def main() -> int:
         ("xargs pkill", "echo x | xargs pkill -f 'gzcoord-inbox'"),
         ("a prefix option with its own argument (sudo -u)", "sudo -u root pkill -f 'gzcoord-inbox'"),
         ("timeout -s KILL 5", "timeout -s KILL 5 pkill -f 'claude-fable'"),
+        ("timeout -s kill 5: a lowercase signal is a value, not the tool", "timeout -s kill 5 pkill -f 'claude-fable'"),
+        ("sudo -u kill: a user named like a tool", "sudo -u kill pkill -f 'gzcoord-inbox'"),
         ("env -u X", "env -u HOME pkill -f 'gzcoord-inbox'"),
         ("xargs -I {}", "pgrep -f 'inbox --follow' | xargs -I {} kill {}"),
     ]
