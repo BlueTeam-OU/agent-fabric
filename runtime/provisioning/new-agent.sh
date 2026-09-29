@@ -108,6 +108,10 @@ ENROLL="$ROOT/runtime/provisioning/secrets/enroll.sh"
 STORE_ENROLL="$ROOT/runtime/provisioning/secrets/store-enroll.sh"
 HOSTS="${AGENT_FABRIC_HOSTS_REGISTRY:-$ROOT/runtime/hosts/registry.json}"
 HX="$ROOT/runtime/hostexec/hostexec"
+# Every Doppler call is bounded: a token kept in a locked desktop keyring
+# makes doppler wait forever (fabric-secrets bounds its own the same way).
+DOPPLER_TIMEOUT_S="${AGENT_FABRIC_DOPPLER_TIMEOUT_S:-30}"
+doppler() { timeout "$DOPPLER_TIMEOUT_S" doppler "$@"; }   # timeout execs the binary on PATH, not this function
 DRY=0; LOGIN=""; ROLE=""; PROJECTS=(); CLAUDE_TARGET=""; HOST=""
 while (( $# )); do
     case "$1" in
@@ -185,7 +189,7 @@ worker prepare "$LOGIN" "$ROLE" ${CLAUDE_TARGET:+--claude "$CLAUDE_TARGET"} "${d
 config_has() {  # config_has <name> — true when the account's config carries it
     # Asked THROUGH the account on its host: the recorded config name is
     # in its ~/.doppler; only the names are read, never a value.
-    local cfg; cfg="$("$HX" "$HOST" --as "$LOGIN" -- doppler configure get enclave.config --plain --scope / 2>/dev/null || true)"
+    local cfg; cfg="$("$HX" "$HOST" --as "$LOGIN" -- timeout "$DOPPLER_TIMEOUT_S" doppler configure get enclave.config --plain --scope / 2>/dev/null || true)"
     [[ -n "$cfg" ]] || return 1
     doppler secrets --only-names --json --project agent-fabric --config "$cfg" 2>/dev/null | python3 -c 'import json,sys; sys.exit(0 if sys.argv[1] in json.load(sys.stdin) else 1)' "$1"
 }

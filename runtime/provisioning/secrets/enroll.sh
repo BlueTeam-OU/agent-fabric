@@ -99,6 +99,10 @@ ROOT="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../../.." && pwd)"
 PROJECT="${AGENT_FABRIC_SECRETS_PROJECT:-agent-fabric}"
 HOSTS="${AGENT_FABRIC_HOSTS_REGISTRY:-$ROOT/runtime/hosts/registry.json}"
 HX="$ROOT/runtime/hostexec/hostexec"
+# Every Doppler call is bounded: a token kept in a locked desktop keyring
+# makes doppler wait forever (fabric-secrets bounds its own the same way).
+DOPPLER_TIMEOUT_S="${AGENT_FABRIC_DOPPLER_TIMEOUT_S:-30}"
+doppler() { timeout "$DOPPLER_TIMEOUT_S" doppler "$@"; }   # timeout execs the binary on PATH, not this function
 ENVIRONMENT="${AGENT_FABRIC_SECRETS_ENVIRONMENT:-agents}"
 DOPPLER_BIN="${DOPPLER_BIN:-/usr/local/bin/doppler}"
 TEMPLATE="${AGENT_FABRIC_SECRETS_TEMPLATE:-$HOME/.config/agent-fabric/identity-template.env}"
@@ -271,7 +275,7 @@ issue_token() {
 import json, sys
 try: sys.exit(0 if any(t.get("name") == sys.argv[1] for t in (json.load(sys.stdin) or [])) else 1)
 except ValueError: sys.exit(1)' "$name"; then
-    if [[ -n "$(as_login "$login" doppler configure get token --plain --scope / 2>/dev/null)" ]]; then
+    if [[ -n "$(as_login "$login" timeout "$DOPPLER_TIMEOUT_S" doppler configure get token --plain --scope / 2>/dev/null)" ]]; then
       say "$login: service token $name already issued; keeping the account's copy"
       return 0
     fi

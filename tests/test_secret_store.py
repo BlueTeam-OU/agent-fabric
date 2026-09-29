@@ -228,6 +228,10 @@ def main() -> int:
                                 env={**child, "PATH": hang + os.pathsep + child["PATH"], "AGENT_FABRIC_DOPPLER_TIMEOUT_S": "1"})
             tok = (json.loads(st.stdout or "{}").get("local") or json.loads(st.stdout or "{}")).get("doppler_token_configured")
             check("status reports a hung token lookup as timed out, not as no token", tok == "timed out after 1 s", st.stdout[-300:])
+            p = subprocess.run([sys.executable, TOOL, "import-doppler"], capture_output=True, text=True, timeout=60, cwd=tmp,
+                               env={**child, "PATH": hang + os.pathsep + child["PATH"], "AGENT_FABRIC_DOPPLER_TIMEOUT_S": "1"})
+            check("import-doppler: a hung config lookup is an error within its bound, said as a timeout",
+                  p.returncode == 1 and "doppler configure: timed out after 1 s" in p.stderr, p.stderr[-300:])
             open(os.path.join(child["HOME"], ".config", "agent-fabric", "secrets-source"), "w").write("store\n")
 
             # import-doppler: the login's own Doppler config into its store,

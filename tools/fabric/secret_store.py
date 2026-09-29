@@ -142,15 +142,26 @@ def keys_dir(fabric: str | None = None) -> str:
 
 
 def _run(cmd: list[str], *, stdin: bytes | None = None, cwd: str | None = None,
-         env: dict | None = None, check: bool = True) -> subprocess.CompletedProcess:
-    r = subprocess.run(cmd, input=stdin, capture_output=True, cwd=cwd, env=env)
+         env: dict | None = None, check: bool = True, timeout: float | None = None) -> subprocess.CompletedProcess:
+    # The command's name and its first word that is not a flag: gpg's
+    # errors read "gpg --batch: …" when the first argument was named.
+    what = " ".join([os.path.basename(cmd[0])] + [a for a in cmd[1:] if not a.startswith("-")][:1])
+    try:
+        r = subprocess.run(cmd, input=stdin, capture_output=True, cwd=cwd, env=env, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        raise StoreError(f"{what}: timed out after {timeout:g} s") from None
     if check and r.returncode != 0:
         # The last line of stderr that is not git's advice ("hint:"), which
         # gpg and git keep free of values; the error, not the suggestion.
         lines = [l for l in r.stderr.decode(errors="replace").strip().splitlines() if not l.startswith("hint:")]
         why = (lines or [f"exit {r.returncode}"])[-1]
-        raise StoreError(f"{os.path.basename(cmd[0])} {cmd[1] if len(cmd) > 1 else ''}: {why}")
+        raise StoreError(f"{what}: {why}")
     return r
+
+
+# A Doppler call waits on the desktop keyring when the token is kept there;
+# locked, it waits forever. Every call is bounded, as fabric-secrets' are.
+DOPPLER_TIMEOUT_S = float(os.environ.get("AGENT_FABRIC_DOPPLER_TIMEOUT_S") or 30)
 
 
 def gpg(*args: str, stdin: bytes | None = None, homedir: str | None = None, check: bool = True):
@@ -425,12 +436,13 @@ def import_doppler() -> dict:
     project = os.environ.get("AGENT_FABRIC_SECRETS_PROJECT", "agent-fabric")
     config = os.environ.get("AGENT_FABRIC_SECRETS_CONFIG")
     if not config:
-        r = _run(["doppler", "configure", "get", "enclave.config", "--plain", "--scope", "/"], check=False)
+        r = _run(["doppler", "configure", "get", "enclave.config", "--plain", "--scope", "/"], check=False,
+                 timeout=DOPPLER_TIMEOUT_S)
         config = r.stdout.decode().strip() if r.returncode == 0 else ""
     if not config:
         raise StoreError("no Doppler config recorded for this login; nothing to import")
     r = _run(["doppler", "secrets", "download", "--no-file", "--format", "json",
-              "--project", project, "--config", config])
+              "--project", project, "--config", config], timeout=DOPPLER_TIMEOUT_S)
     try:
         data = json.loads(r.stdout)
     except ValueError:
