@@ -18,7 +18,9 @@ the worker names one:
 **The fabric's host contract** — the commands its hooks, scripts and
 provisioning call, whatever the platform:
 `bash sudo ssh getent pgrep timeout flock stat sha256sum cmp useradd
-usermod shred install curl python3 node npm git gh jq gpg` (`usermod
+usermod shred install curl python3 node npm git gh jq gpg paperkey`
+(`paperkey` prints an agent's key for the owner's paper backup, ADR-038)
+(`usermod
 --add-subuids` needs shadow-utils 4.9 or later: Fedora 35+, Debian 12+) (`cmp` is
 what bootstrap's idempotence rests on; a Fedora container without
 diffutils rewrote every file on every run — the smoke job's first find). `pkg_for` maps each
