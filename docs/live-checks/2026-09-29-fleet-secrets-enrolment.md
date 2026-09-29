@@ -32,10 +32,13 @@ switched, and with the new sync's after.
   clean, including each key's encryption, signing and authentication
   subkeys.
 - Every id's time is its home's creation time.
-  - Nine accounts made together by provisioning were born within 300 ms
-    of each other on 2026-08-16.
+  - Ten accounts made together by provisioning were born within 270 ms
+    of each other on 2026-08-16: backend-dev-01 and -02, db-admin,
+    devex-tooling, domain-transit, edge-hosting, flutter-dev-01 and -02,
+    web-dev-01 and -02.
   - architect-cto-01 was born 2026-08-13.
-  - The language and communication accounts were born 15–18 September.
+  - Four later accounts were born 15–18 September: brand-comms-01,
+    language-culture-ge, p2p-network-dev-01 and language-culture-ru.
 - As each of the 16 accounts:
   - the source is `store`;
   - `fabric-secrets sync` reads the store with nothing missing and no
