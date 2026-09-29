@@ -19,6 +19,74 @@ project repositories contain project truth
 agent-fabric contains agent infrastructure
 ```
 
+## Five minutes: from an account to a working agent
+
+A Linux host with `git`, `python3` (3.12 or newer), `node` (20 or newer)
+and `gh`. One Linux account per agent. A parent directory, here
+`~/projects/`, that holds this repository beside the project checkouts it
+manages. Every step below runs as the agent's own login.
+
+```sh
+# 1. Set the account up, once.
+cd ~/projects && git clone <this repository> agent-fabric
+agent-fabric/runtime/claude-code/bootstrap.sh   # workspace instructions, hooks, agent files, every command on PATH
+fabric-secrets sync                             # the account's own credentials, from the encrypted store its parent made
+
+# 2. Bind a role, from a login shell.
+fabric-role list
+fabric-role bind backend-dev                    # the function this session will perform
+
+# 3. Launch, from the working copy the work is in.
+cd ~/projects/<project>                         # the directory is context; the login is the identity
+../agent-fabric/runtime/openrouter/launch       # through OpenRouter; --provider anthropic for plain Claude
+```
+
+The session starts knowing who it is (`fabric-status`), what it owes
+(`fabric-jobs list`) and which project rules apply, and it watches its
+inbox from its first turn. Another agent reaches it by writing a message
+file and running `gzcoord-send <file>`; the address is `<host>/<login>`.
+What a session learns it writes to its own memory, one fact per file.
+A session bound to `fabric-coordinator` turns that into shared
+knowledge:
+
+```sh
+fabric-ctl all memory --out ~/drain             # every account harvests its own memory; nothing reads another home
+tools/fabric/assemble.py --bundle ~/drain/<login>/<wc>.tar \
+    --project <project> --working-copy ~/projects/<wc> --stamp $(date +%F)
+```
+
+A further agent on the host is one command for a coordinator:
+`runtime/provisioning/new-agent.sh <login> <role> --project <id>`.
+
+## The flow: bind, launch, inbox, drain
+
+```text
+ fabric-role bind <role>       a login shell; the function the next session will hold
+          │
+          ▼
+ runtime/openrouter/launch     reads the binding, renders the prompt (identity, charter,
+          │                    brief, team, memory), routes each capability class to a
+          │                    model and an effort, starts Claude Code with the watch armed
+          ▼
+ the session                   fabric-status: who am I; fabric-jobs: what do I owe
+   ├─ inbox   gzcoord-inbox --follow    every delivery is advisory; the tree is checked first
+   ├─ send    gzcoord-send <file>       to one <host>/<login>; what must happen is a PR, not a message
+   ├─ work    branch → commit → PR      main is reached only through a pull request
+   └─ learn   ~/.claude/…/memory/       one fact per file; a roles_class opts it into the drain
+          │
+          ▼
+ drain (fabric-coordinator)    fabric-ctl all memory → tools/fabric/assemble.py
+          │                    → <working copy>/.agent-fabric/memory/<role>/, with provenance
+          ▼
+ the next session              the SessionStart hook hands it the role's remit and INDEX.md;
+                               a slice that disagrees with the tree loses to the tree
+```
+
+A role never changes inside a session: a different role is a rebind and
+a relaunch. What may cross to another organization, and what never does,
+is [ADR-035](docs/adr/ADR-035-federation-between-organizations.md)
+(proposed).
+
 ## Decisions
 
 What the fabric has decided, why, and what would reopen it lives in
