@@ -6,7 +6,7 @@
 // §5 rule 4); an op that stops a session and installs software
 // needs a proof. So an ACTION op is answered only when the request
 // carries `sig`, an Ed25519 signature over its canonical form made with a
-// key only the operator's Doppler config holds
+// key only the operator's own store holds
 // (FABRIC_CONTROL_SIGNING_KEY, synced into that login's secrets.env), and
 // verified against the public key its host commits in
 // runtime/hosts/registry.json (`operator_key`). Read-only ops stay
@@ -21,7 +21,7 @@
 
 import crypto from 'node:crypto';
 
-export const ACTION_OPS = ['upgrade', 'secrets-sync', 'jobs-add', 'secrets-migrate'];
+export const ACTION_OPS = ['upgrade', 'secrets-sync', 'jobs-add'];
 export const ACTION_TTL_MAX_S = 600;
 export const KEY_PREFIX = 'ed25519:';
 export const PRIVATE_PREFIX = 'ed25519-pkcs8:';   // one line: secrets.env is read a line at a time
@@ -64,8 +64,8 @@ export function verifyRequest(request, publicKey) {
   catch { return false; }
 }
 
-// A new operator key pair: the private half for the operator's Doppler
-// config, the public half for runtime/hosts/registry.json.
+// A new operator key pair: the private half for the operator's own
+// store, the public half for runtime/hosts/registry.json.
 export function generateOperatorKey() {
   const { privateKey, publicKey } = crypto.generateKeyPairSync('ed25519');
   return {

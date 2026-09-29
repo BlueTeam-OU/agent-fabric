@@ -21,7 +21,7 @@ import { whoami, findTaxonomy, loadTaxonomy } from '../../communication/gzcoord/
 import { syncedVar, holdStatus, identity as gzIdentity } from '../../communication/gzcoord/scripts/inbox.mjs';
 import { jobs } from './jobs.mjs';
 
-export const OPS = ['ping', 'identity', 'usage', 'keys', 'fabric', 'session', 'script', 'recall', 'tokens', 'memory', 'host', 'accounts', 'upgrade', 'secrets-sync', 'status', 'presence', 'jobs', 'jobs-add', 'secrets-migrate'];
+export const OPS = ['ping', 'identity', 'usage', 'keys', 'fabric', 'session', 'script', 'recall', 'tokens', 'memory', 'host', 'accounts', 'upgrade', 'secrets-sync', 'status', 'presence', 'jobs', 'jobs-add'];
 // Answered for any placed account, not only an operator: whether a session
 // is running is what every sender needs before it writes to one, and it
 // names nothing a relay reader could not already infer (the owner,
@@ -38,8 +38,8 @@ function readJson(file) {
 const sha12 = v => crypto.createHash('sha256').update(v).digest('hex').slice(0, 12);
 
 // Who this account is, and which Claude account its sessions run on. A
-// template's setup-token (CLAUDE_CODE_OAUTH_TOKEN, synced from a Doppler
-// reference) outranks the login's own /login, whose ~/.claude.json keeps
+// template's setup-token (CLAUDE_CODE_OAUTH_TOKEN, synced from the
+// login's store) outranks the login's own /login, whose ~/.claude.json keeps
 // naming its old account — so a switched login is reported by the
 // token's fingerprint (`fabric-accounts templates` maps it to an account),
 // and its own sign-in separately, never as the account in use.
