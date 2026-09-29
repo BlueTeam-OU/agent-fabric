@@ -43,9 +43,11 @@ only a rule: the git hooks `bootstrap.sh` installs refuse a commit here
 unless the session's binding holds the role, and stamp every commit an
 account makes with a `Fabric-Role:` trailer that CI checks on every
 commit a branch adds (ADR-018, `policies/AUTHORITY.md`). Every account
-commits under one git author, so the trailer is what names the lane. One
-carve-out: a locale's translations, `identities/roles/<role>/locale/<suffix>/`,
-are committed by that locale's holder and merged by fabric-coordinator.
+commits under one git author, so the trailer is what names the lane. Two
+carve-outs: a locale's translations, `identities/roles/<role>/locale/<suffix>/`,
+are committed by that locale's holder and merged by fabric-coordinator;
+Dependabot's commits that change only `.github/workflows/` (action-pin
+bumps) need no trailer, and fabric-coordinator merges them too.
 A session becomes `fabric-coordinator` only by being launched with it
 bound; the login it runs as is irrelevant.
 
