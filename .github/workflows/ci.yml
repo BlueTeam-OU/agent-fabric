@@ -37,27 +37,34 @@ jobs:
       - run: bash tests/static.sh
 
   guards-and-suites:
-    # The suites on every interpreter an agent host runs: the oldest
-    # Python the tools promise (3.12) up to the one the hosts have, and
-    # the Node the GZCoord runtime is developed on beside the oldest it
-    # must still start on.
+    # Each suite on the interpreters it depends on, and no more: the Python
+    # suites on every Python an agent host runs (the oldest the tools
+    # promise, 3.12, up to the hosts'), the Node suites (GZCoord, the
+    # control plane, the locale MCP server) on the Node they are developed
+    # on and the oldest they must start on, and the bash suites and the
+    # guards once. Every leg of the old matrix ran all 78 suites, ~49
+    # runner-minutes a push; split, ~20, the same coverage (devex-tooling's
+    # measurement, 2026-09-29). Static checks are their own job above.
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        python: ['3.12', '3.13', '3.14']
-        node: ['22']
         include:
-          - python: '3.12'
-            node: '20'
-    # Measured 7-9.5 min (tests/run.sh, 2026-09-29); the cap is for a hang.
+          - { section: python, python: '3.12', node: '22' }
+          - { section: python, python: '3.13', node: '22' }
+          - { section: python, python: '3.14', node: '22' }
+          - { section: gzcoord, python: '3.12', node: '20' }
+          - { section: gzcoord, python: '3.12', node: '22' }
+          - { section: bash, python: '3.14', node: '22' }
+    # The whole run measured 7-9.5 min (2026-09-29); a section is less. The cap is for a hang.
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          # Full history: the attribution guard enumerates the commits a
-          # branch adds over its base and refuses to guess a range.
+          # Full history: the attribution and authority guards enumerate
+          # the commits a branch adds over its base and refuse to guess a range.
           fetch-depth: 0
+      # Node in every leg: some Python suites drive the .mjs tools.
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: ${{ matrix.node }}
@@ -72,9 +79,10 @@ jobs:
       - name: paperkey, for the recovery copy the store's suite makes
         run: sudo apt-get install -y --no-install-recommends paperkey
       - name: no machine attribution in commits or the PR description
+        if: matrix.section == 'bash'
         run: bash policies/ban_generated_by_attribution.sh
-      - name: every suite, every guard
-        run: bash tests/run.sh
+      - name: the ${{ matrix.section }} suites
+        run: bash tests/run.sh ${{ matrix.section }}
 
   platform-smoke:
     # The platform profiles are proven by being used: each container
