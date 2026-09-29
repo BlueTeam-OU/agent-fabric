@@ -250,5 +250,5 @@ Still open:
   account's user manager at boot, restarted on failure.
 - ~~The token has to reach the other clones~~ — closed 2026-09-14: it
   reaches every account as `CLAUDE_BRIDGE_AUTH_TOKEN` in the environment,
-  from the account's own Doppler config (`bin/fabric-secrets sync`); the
+  from the account's own store (`bin/fabric-secrets sync`); the
   coordinator sets it once per config (`runtime/provisioning/secrets/enroll.sh`).

@@ -20,5 +20,5 @@ first: this status, the section in the gateway's root `CLAUDE.md`
 gateway carries no `.claude/settings.json` of its own: its sessions are
 the coordinator's, launched from the workspace, whose settings run the
 drain and the watch for every working copy beneath it. The token
-arrives with `fabric-secrets sync` from the account's own Doppler
-config; the repository carries no env file for it.
+arrives with `fabric-secrets sync` from the account's own
+store; the repository carries no env file for it.

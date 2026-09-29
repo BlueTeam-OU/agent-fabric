@@ -100,7 +100,7 @@ cat > "$BIN/sudo" <<STUB
 #!/usr/bin/env bash
 [[ "\$1" == -n ]] && shift; [[ "\$1" == true ]] && exit 0
 [[ "\$1" == -u ]] && shift 2; [[ "\$1" == -H ]] && shift
-# The fakes first, and never /usr/local/bin: a real claude or doppler there must not be what the fixture account runs.
+# The fakes first, and never /usr/local/bin: a real claude there must not be what the fixture account runs.
 args=(); for a in "\$@"; do
   [[ "\$a" == PATH=* ]] && a="PATH=$BIN:\${a#PATH=}" && a="\${a//\/usr\/local\/bin:/}"
   [[ "\$a" == AGENT_FABRIC_PATH=* ]] && a="AGENT_FABRIC_PATH=$BIN:\${a#AGENT_FABRIC_PATH=}" && a="\${a//\/usr\/local\/bin:/}"

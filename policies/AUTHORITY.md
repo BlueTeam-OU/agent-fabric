@@ -182,18 +182,12 @@ the `fabric-coordinator` login that provisioned it, may add an entry
 (`fabric-secrets store put`) and certifies its key, and reads nothing.
 Making a key and store (`store-enroll.sh`), certifying keys
 (`identities/keys/`), and the Claude-account templates in the
-coordinator's store are `fabric-coordinator`'s. Until an account has
-migrated, its secrets are in Doppler, as follows.
-
-The Doppler project `agent-fabric` — one config per Linux login
-(`<env>_<login>` under `agents`, `agents2`, …), holding
-that login's credentials — is `fabric-coordinator`'s: creating a config,
-migrating or rotating a value, issuing or revoking a service token
-(`runtime/provisioning/secrets/enroll.sh`). An account holds a read-only
-token for its own config and can see nothing else; `fabric-secrets sync`
-refuses a config whose `AGENT_LOGIN` is not the login running it. No
-value from that project ever enters this tree or a managed repository;
-the guards that keep credentials out of commits apply unchanged.
+coordinator's store are `fabric-coordinator`'s, and so is filling a
+child's store (`fabric-secrets provision`: identity, the shared names,
+a key of its own on each API). `fabric-secrets sync` refuses a store
+whose `AGENT_LOGIN` is not the login running it. No value from any store
+ever enters this tree or a managed repository; the guards that keep
+credentials out of commits apply unchanged.
 
 ## Proposing a change
 
