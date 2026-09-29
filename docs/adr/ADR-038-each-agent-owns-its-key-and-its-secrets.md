@@ -120,9 +120,14 @@ sharing a machine.
    - 2: applied, with required names missing;
    - 3: the store names another login, and nothing is applied.
 8. The source is `doppler` until an account has been migrated, and
-   `store` from then on. Migration compares the old and new `secrets.env`
-   by sha256, never by value, and returns the account to `doppler` on a
-   mismatch.
+   `store` from then on. Migration compares the sha256 of every value
+   sync applies (`values_sha256`: the SSH key and the git strings
+   included), never a value:
+   - Doppler's against the store's, before the source switches;
+   - the new sync's against Doppler's, after.
+
+   A difference at either point leaves the account on, or returns it
+   to, `doppler`.
 
 ## 6. Consequences
 

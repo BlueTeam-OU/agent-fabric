@@ -250,6 +250,32 @@ def main() -> int:
             check("F4: a store that cannot be brought up to its remote fails the sync", r4.returncode == 1
                   and "store:" in r4.stdout, r4.stdout[-300:])
 
+            # N2: a set retried after a rejected push leaves the remote whole.
+            hook = os.path.join(remote, "hooks", "pre-receive")
+            with open(hook, "w") as fh:
+                fh.write("#!/bin/sh\nexit 1\n")
+            os.chmod(hook, 0o755)
+            p = run(child, "set", "RETRIED", stdin="r1")
+            check("N2: a rejected push is an error", p.returncode == 1, p.stdout + p.stderr)
+            os.remove(hook)
+            p = run(child, "set", "RETRIED", stdin="r1")
+            check("N2: the retry pushes what the failed push left behind", p.returncode == 0
+                  and "env/RETRIED.gpg" in remote_names(), p.stdout + p.stderr)
+
+            # N3: digest --source reads THAT source, whatever the account's is,
+            # and an unknown one is refused.
+            src_file = os.path.join(child["HOME"], ".config", "agent-fabric", "secrets-source")
+            open(src_file, "w").write("doppler\n")
+            json.dump({"AGENT_LOGIN": me, "GH_TOKEN": "a-doppler-only-value"}, open(os.path.join(tmp, "dp.json"), "w"))
+            ds = subprocess.run([fsync, "digest", "--source", "store"], env=dop, capture_output=True, text=True)
+            dd = subprocess.run([fsync, "digest", "--source", "doppler"], env=dop, capture_output=True, text=True)
+            check("N3: digest --source store reads the store while the account is on doppler",
+                  json.loads(ds.stdout)["source"] == "store" and json.loads(dd.stdout)["source"] == "doppler"
+                  and json.loads(ds.stdout)["values_sha256"] != json.loads(dd.stdout)["values_sha256"], ds.stdout + dd.stdout)
+            bogus = subprocess.run([fsync, "digest", "--source", "elsewhere"], env=dop, capture_output=True, text=True)
+            check("N3: an unknown --source is refused", bogus.returncode == 2 and "usage" in bogus.stderr, bogus.stderr)
+            open(src_file, "w").write("store\n")
+
             # The digest: the same hash from the store as sync reports.
             run(child, "set", "AGENT_LOGIN", stdin=me)
             dg = subprocess.run([fsync, "digest", "--source", "store"], env=dop, capture_output=True, text=True)
@@ -292,6 +318,13 @@ def main() -> int:
                 check(label + " is refused", verify_says(what), run(parent, "verify").stdout)
                 restore()
             check("…and the untouched keys verify clean again", run(parent, "verify").returncode == 0)
+            d = json.loads(saved["lineage.json"])
+            d["kid"] = "not an object"
+            json.dump(d, open(os.path.join(kd, "lineage.json"), "w"))
+            r = run(parent, "verify")
+            check("a lineage entry that is not an object is a finding, not a traceback",
+                  r.returncode == 1 and "kid is not an object" in r.stdout and "Traceback" not in r.stderr, r.stdout + r.stderr)
+            restore()
 
             everything = "".join(open(os.path.join(dp, f), errors="ignore").read()
                                  for dp, _, fs in os.walk(os.path.join(child_store, ".git")) for f in fs

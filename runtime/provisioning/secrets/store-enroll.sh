@@ -54,9 +54,12 @@ say() { printf 'store-enroll: %s\n' "$*" >&2; }
 die() { printf 'store-enroll: %s\n' "$*" >&2; exit 1; }
 ME="$(id -un)"
 
-# The base is the org on GitHub; AGENT_FABRIC_SECRETS_REMOTE_BASE replaces it
-# (the test's bare repositories).
-repo_url() { echo "${AGENT_FABRIC_SECRETS_REMOTE_BASE:-https://github.com/$ORG}/secrets-$1.git"; }
+# The base is the org on GitHub over SSH: every account already reaches
+# GitHub with its own SSH key (its checkouts are git@github.com), and no
+# account has an HTTPS credential helper — an https remote to a private
+# repository could not push. AGENT_FABRIC_SECRETS_REMOTE_BASE replaces
+# the base (the test's bare repositories).
+repo_url() { echo "${AGENT_FABRIC_SECRETS_REMOTE_BASE:-git@github.com:$ORG}/secrets-$1.git"; }
 ensure_repo() {  # the private repository, made by the parent when absent
   local name="$ORG/secrets-$1"
   "$GH" repo view "$name" >/dev/null 2>&1 && return 0

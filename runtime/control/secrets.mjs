@@ -75,7 +75,9 @@ const APPLIED = new Set([0, 2]);
 // A store must exist first (fabric-secrets store init, at provisioning or
 // store-enroll.sh): the key is made and certified deliberately, never as
 // a side effect of a migration.
-export const MIGRATE_TIMEOUT_MS = 120000;
+// Five calls at most (baseline, import, digest, sync, the fallback sync)
+// must fit fabric-ctl's 420 s for secrets-migrate.
+export const MIGRATE_TIMEOUT_MS = 80000;
 export function checkMigrateArgs(args) {
   return args === undefined ? null : 'secrets-migrate takes no arguments';
 }

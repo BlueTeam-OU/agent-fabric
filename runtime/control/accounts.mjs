@@ -7,12 +7,15 @@
 //                                     browser AS THAT ACCOUNT, then /exit. A real terminal.
 //   fabric-accounts list              each observed account: signed in, email, sign-in expiry
 //   fabric-accounts read              read every account's windows now (the harness's /usage)
-//   fabric-accounts assign <login…|all> <account> [--no-restart] [--no-sync]
-//                                     which Claude account those logins run on: the reference in each
-//                                     login's Doppler config, then `fabric-ctl <logins> secrets-sync
+//   fabric-accounts assign <login…|all> <account> [--no-restart] [--no-sync] [--force]
+//                                     which Claude account those logins run on: on the coordinator's
+//                                     store (ADR-038), the token written into each login's store and,
+//                                     while it has one, the reference in its Doppler config; before
+//                                     that, the Doppler reference alone; then `fabric-ctl <logins> secrets-sync
 //                                     --expect <template's fingerprint> --restart` — every account
 //                                     applies it, proves it, and resumes a running session on it
-//   fabric-accounts templates         each Doppler template's token fingerprint, to name the account
+//   fabric-accounts templates         each template's token fingerprint (the coordinator's store, or
+//                                     Doppler before it moved), to name the account
 //                                     behind a login's `setup-token <sha>` (fabric-ctl, fabric-status)
 //
 // Prints no token: a sign-in is described by its email, its expiry and
@@ -30,7 +33,8 @@ import { FABRIC_ROOT } from '../../communication/gzcoord/scripts/gzmsg.mjs';
 
 const USAGE = `usage: fabric-accounts login <account> | list | read | templates | assign <login…|all> <account> [--no-restart] [--no-sync] [--force]
   <account>: lowercase letters, digits and hyphens — the account's email with @ and . as -,
-             e.g. claude-pzhuy-8alias-com (the Doppler template's name without its prefix)`;
+             e.g. claude-pzhuy-8alias-com (the template's name: CLAUDE_ACCOUNT_<ACCOUNT> in the
+             coordinator's store, or the Doppler config without its prefix)`;
 
 function readJson(file) { try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return null; } }
 
@@ -122,7 +126,7 @@ export const onStore = (home = os.homedir()) => {
   catch { return false; }
 };
 const store = (args, exec) => JSON.parse(String(exec(path.join(FABRIC_ROOT, 'bin', 'fabric-secrets'), ['store', ...args, '--json'],
-  { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 120000 })));
+  { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 900000 })));   // assign: four git round trips a login
 export function storeTemplates({ exec = execFileSync } = {}) {
   return store(['templates'], exec).map(t => ({ ...t, config: 'store' }));
 }
@@ -167,9 +171,12 @@ export async function main(argv = process.argv.slice(2), { home = os.homedir(), 
       rows = rows.map(r => {
         const d = dop.get(r.login) ?? { status: 'no-config' };
         // no-config: the login has no Doppler config (migrated or new) — nothing to keep in step.
-        const dopBad = !['written', 'unchanged', 'no-config'].includes(d.status);
+        // unavailable: Doppler could not be asked; said on the row, never a
+        // failure of a store write that succeeded (the signed sync with
+        // --expect is what proves the login took it).
+        const dopBad = !['written', 'unchanged', 'no-config', 'unavailable'].includes(d.status);
         const st = r.status === 'failed' || dopBad ? 'failed' : (r.status === 'written' || d.status === 'written') ? 'written' : 'unchanged';
-        return { ...r, status: st, reason: r.reason ?? (dopBad ? `doppler: ${d.status}${d.reason ? ` ${d.reason}` : ''}` : undefined), doppler: d.status };
+        return { ...r, status: st, reason: r.reason ?? (dopBad || d.status === 'unavailable' ? `doppler: ${d.status}${d.reason ? ` ${d.reason}` : ''}` : undefined), doppler: d.status };
       });
     } else rows = assign(logins, account, { exec });
     for (const r of rows) console.log(`${r.login.padEnd(22)} ${String(r.from ?? '-').padEnd(30)} → ${String(r.to ?? '-').padEnd(30)} ${r.status}${r.doppler ? ` (doppler: ${r.doppler})` : ''}${r.reason ? `  ${r.reason}` : ''}`);

@@ -65,6 +65,12 @@ echo "top secret" | P python3 "$ROOT/tools/fabric/secret_store.py" put kid GH_TO
 out="$(P "$E" nobody 2>&1)"; rc=$?
 [[ $rc -eq 1 ]] && grep -q "nobody: not placed" <<<"$out" && ok "an unplaced login is refused by name" || bad "unplaced (rc=$rc)" "$out"
 
+# The default remote is SSH: accounts reach GitHub with their own key, and
+# none has an HTTPS credential helper for a private repository.
+out="$(env -u AGENT_FABRIC_SECRETS_REMOTE_BASE HOME="$T/parent" GNUPGHOME="$T/parent-gnupg" AGENT_FABRIC_ROOT="$FAB" \
+      AGENT_FABRIC_HOSTS_REGISTRY="$T/hosts.json" AGENT_FABRIC_HOSTEXEC="$T/bin/hostexec" GH="$T/bin/gh" "$E" kid --dry-run 2>&1)"
+grep -q "store init --remote git@github.com:gzapi-org/secrets-kid.git" <<<"$out" && ok "the default remote is SSH, the scheme every account can push with" || bad "default remote" "$out"
+
 after="$(ls "$REAL_KEYS" 2>/dev/null | sort)"
 [[ "$before" == "$after" ]] && ok "the account's own keyring is left as it was found" || bad "real keyring changed"
 if (( FAIL )); then echo "test_store-enroll: $FAIL FAILED"; exit 1; fi

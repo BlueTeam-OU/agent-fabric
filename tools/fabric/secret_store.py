@@ -233,6 +233,7 @@ def _before_write(store: str) -> None:
         raise StoreError("the store could not be brought up to its remote; nothing written: " + (lines or ["?"])[-1])
 
 
+
 def _after_commit(store: str) -> None:
     """Every commit reaches the remote: it is the backup and the channel
     between the agent and its parent."""
@@ -252,6 +253,13 @@ def set_entry(name: str, value: bytes, *, exact: bool = False) -> dict:
     _before_write(store)
     path = os.path.join(store, "env", f"{name}.gpg")
     if os.path.exists(path) and _decrypt(path) == value.decode(errors="replace"):
+        # Unchanged — but a commit an earlier, failed push left behind is
+        # pushed now, so a retry leaves the remote (the backup) whole. Only
+        # the agent's own store does this: a parent's mirror never pushes
+        # what it did not just write (its put always commits afresh).
+        ahead = git(store, "rev-list", "--count", f"origin/{_branch(store)}..HEAD", check=False)
+        if _remote(store) and ahead.returncode == 0 and ahead.stdout.decode().strip() not in ("", "0"):
+            _after_commit(store)
         return {"name": name, "changed": False}
     _write_entry(store, name, value, ["--recipient", fpr])
     changed = git(store, "diff", "--cached", "--quiet", check=False).returncode != 0
@@ -427,6 +435,11 @@ def verify(fabric: str | None = None) -> list[str]:
     doc, kd, findings = lineage(fabric), keys_dir(fabric), []
     if not os.path.isdir(kd):
         return []
+    if not isinstance(doc, dict):
+        return ["identities/keys/lineage.json: not an object of login -> {fingerprint, parent}"]
+    for who in [w for w, r in doc.items() if not isinstance(r, dict)]:
+        findings.append(f"identities/keys/lineage.json: the entry for {who} is not an object")
+        del doc[who]
     files = {f[:-4] for f in os.listdir(kd) if f.endswith(".asc")}
     for extra in sorted(files - set(doc)):
         findings.append(f"identities/keys/{extra}.asc: no lineage.json entry")
