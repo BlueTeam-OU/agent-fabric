@@ -4,5 +4,95 @@
     "fingerprint": "F15AA499C738645876F73030E6BDB76C59372015",
     "login": "user",
     "parent": null
+  },
+  "019ffcb2-78fd-7670-93fc-a3577216395f": {
+    "born": "2026-08-13T19:56:22.653Z",
+    "fingerprint": "B5DB30688B7471C89A1F4A6FC028A359BDFE0801",
+    "login": "architect-cto-01",
+    "parent": "019bbe31-2fff-7a2f-9849-96bdf286e011"
+  },
+  "01a00bc1-4716-7e1f-bc43-931dc632f798": {
+    "born": "2026-08-16T18:06:51.158Z",
+    "fingerprint": "B7CB2F433E9786E667683150959699874EFBEA8B",
+    "login": "backend-dev-01",
+    "parent": "019bbe31-2fff-7a2f-9849-96bdf286e011"
+  },
+  "01a00bc1-473a-7be3-bfe2-4b1814f37e09": {
+    "born": "2026-08-16T18:06:51.194Z",
+    "fingerprint": "4A9C7BCB74631EF51511A5DE33175F176188B526",
+    "login": "backend-dev-02",
+    "parent": "019bbe31-2fff-7a2f-9849-96bdf286e011"
+  },
+  "01a00bc1-475f-791e-a72f-4ce38715e628": {
+    "born": "2026-08-16T18:06:51.231Z",
+    "fingerprint": "AA5CE64CCDD6E5C6FE6F7170BB1A4CBF2F214A60",
+    "login": "db-admin",
+    "parent": "019bbe31-2fff-7a2f-9849-96bdf286e011"
+  },
+  "01a00bc1-4782-7de9-88a5-8f6ee3849c46": {
+    "born": "2026-08-16T18:06:51.266Z",
+    "fingerprint": "5C819C578F01991B01998DB98B125AA0C67F478B",
+    "login": "web-dev-01",
+    "parent": "019bbe31-2fff-7a2f-9849-96bdf286e011"
+  },
+  "01a00bc1-4796-745d-ae76-02c0cf34501c": {
+    "born": "2026-08-16T18:06:51.286Z",
+    "fingerprint": "A4F25E4BB357061331CA3E785C2928C9F8617242",
+    "login": "web-dev-02",
+    "parent": "019bbe31-2fff-7a2f-9849-96bdf286e011"
+  },
+  "01a00bc1-47ae-77e3-82cd-263b23004b9a": {
+    "born": "2026-08-16T18:06:51.310Z",
+    "fingerprint": "DE84CD50929BF34DF0328CFCC61E4630B898637E",
+    "login": "flutter-dev-01",
+    "parent": "019bbe31-2fff-7a2f-9849-96bdf286e011"
+  },
+  "01a00bc1-47ca-7fea-a066-68decae2c621": {
+    "born": "2026-08-16T18:06:51.338Z",
+    "fingerprint": "658BF84EC5D5325F8821E5C2292405E7623FFE34",
+    "login": "flutter-dev-02",
+    "parent": "019bbe31-2fff-7a2f-9849-96bdf286e011"
+  },
+  "01a00bc1-47e7-7bc8-9a0d-2e436f5740de": {
+    "born": "2026-08-16T18:06:51.367Z",
+    "fingerprint": "F168EFB764965C33ED66A25954101393CCFF73C5",
+    "login": "devex-tooling",
+    "parent": "019bbe31-2fff-7a2f-9849-96bdf286e011"
+  },
+  "01a00bc1-4805-7e5b-ab38-2fe6e65b2eed": {
+    "born": "2026-08-16T18:06:51.397Z",
+    "fingerprint": "0BA7CE64745E37A404824E101FD5B5E541FFF4C4",
+    "login": "edge-hosting",
+    "parent": "019bbe31-2fff-7a2f-9849-96bdf286e011"
+  },
+  "01a00bc1-4824-7ace-a01e-6e46a11f9acc": {
+    "born": "2026-08-16T18:06:51.428Z",
+    "fingerprint": "B21B6A38D8794054951FC11A5C52E36726CBDA06",
+    "login": "domain-transit",
+    "parent": "019bbe31-2fff-7a2f-9849-96bdf286e011"
+  },
+  "01a0a6a1-bfd6-7967-af5c-34ea643640a3": {
+    "born": "2026-09-15T19:53:33.398Z",
+    "fingerprint": "B37C73EAB2652C602EABC072DD2B039335480777",
+    "login": "brand-comms-01",
+    "parent": "019bbe31-2fff-7a2f-9849-96bdf286e011"
+  },
+  "01a0add8-5248-73ec-a60d-34cff7e5e3e7": {
+    "born": "2026-09-17T05:30:30.344Z",
+    "fingerprint": "E795E511EC030FF5B56D4B7E7DA1485EC6819169",
+    "login": "language-culture-ge",
+    "parent": "019bbe31-2fff-7a2f-9849-96bdf286e011"
+  },
+  "01a0af8f-16e9-7ea7-87fb-de56cec54f8b": {
+    "born": "2026-09-17T13:29:45.449Z",
+    "fingerprint": "0A1021575F98A32F9ED188E7FADD825B181F81D9",
+    "login": "p2p-network-dev-01",
+    "parent": "019bbe31-2fff-7a2f-9849-96bdf286e011"
+  },
+  "01a0b312-4031-7730-b5fd-321848a63a84": {
+    "born": "2026-09-18T05:51:52.881Z",
+    "fingerprint": "921B18CF1209F58B6BCC5E8286844B1D9079FBC5",
+    "login": "language-culture-ru",
+    "parent": "019bbe31-2fff-7a2f-9849-96bdf286e011"
   }
 }
