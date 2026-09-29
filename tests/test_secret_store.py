@@ -404,6 +404,43 @@ def main() -> int:
             check("ADR-038 rule 1: a committed key without its authentication subkey is refused",
                   verify_says("no authentication subkey"), run(parent, "verify").stdout)
             restore()
+            # Review of #64, P3-8: the certification must be on the user id
+            # addressed to the agent's id. A key the parent signed before it
+            # carried that id holds a parent signature on another user id
+            # only, which is not enough.
+            late = role("late")
+            lg2 = ["gpg", "--batch", "--pinentry-mode", "loopback", "--passphrase", ""]
+            subprocess.run(lg2 + ["--quick-gen-key", "late <late@agents.agent-fabric>", "ed25519", "cert", "never"],
+                           env=late, check=True, capture_output=True)
+            lfp = [l.split(":")[9] for l in subprocess.run(["gpg", "--with-colons", "--list-keys"], env=late,
+                   capture_output=True, text=True).stdout.splitlines() if l.startswith("fpr:")][0]
+            for use in (("cv25519", "encr"), ("ed25519", "sign"), ("ed25519", "auth")):
+                subprocess.run(lg2 + ["--quick-add-key", lfp, *use, "never"], env=late, check=True, capture_output=True)
+            before = subprocess.run(["gpg", "--armor", "--export", lfp], env=late, capture_output=True).stdout
+            subprocess.run(["gpg", "--batch", "--import"], input=before, env=parent, capture_output=True)
+            pfp = open(os.path.join(parent["AGENT_FABRIC_SECRET_STORE"], ".gpg-id")).read().split()[0]
+            subprocess.run(lg2 + ["--default-key", pfp, "--quick-sign-key", lfp], env=parent, check=True, capture_output=True)
+            LATE = secret_store.mint_agent_id(secret_store.born_ms_of("now"))
+            subprocess.run(lg2 + ["--quick-add-uid", lfp, f"late <{LATE}@agents.agent-fabric>"], env=late, check=True, capture_output=True)
+            after = subprocess.run(["gpg", "--armor", "--export", lfp], env=late, capture_output=True).stdout
+            subprocess.run(["gpg", "--batch", "--import"], input=after, env=parent, capture_output=True)
+            open(os.path.join(kd, f"{LATE}.asc"), "wb").write(
+                subprocess.run(["gpg", "--armor", "--export", lfp], env=parent, capture_output=True).stdout)
+            d = json.loads(saved["lineage.json"])
+            d[LATE] = {"login": "late", "born": secret_store.born_of(LATE), "fingerprint": lfp, "parent": PID}
+            json.dump(d, open(os.path.join(kd, "lineage.json"), "w"))
+            check("P3-8: a parent signature on another user id is not a certification of the agent id",
+                  verify_says(f"{LATE}.asc: not certified by its parent"), run(parent, "verify").stdout)
+            # An entry whose key carries a different id: no user id addressed to it.
+            OTHER = secret_store.mint_agent_id(secret_store.born_ms_of("now"))
+            os.rename(os.path.join(kd, f"{LATE}.asc"), os.path.join(kd, f"{OTHER}.asc"))
+            d[OTHER] = {**d.pop(LATE), "born": secret_store.born_of(OTHER)}
+            json.dump(d, open(os.path.join(kd, "lineage.json"), "w"))
+            check("P3-8: a key that carries no user id addressed to its entry's id is refused",
+                  verify_says(f"{OTHER}.asc: no valid user id addressed to {OTHER}"), run(parent, "verify").stdout)
+            os.remove(os.path.join(kd, f"{OTHER}.asc"))
+            subprocess.run(["gpgconf", "--homedir", late["GNUPGHOME"], "--kill", "all"], capture_output=True)
+            restore()
 
             # ADR-039: a rename moves one field; the id, key and store stay.
             p = run(parent, "rename", "kid", "kiddo")
@@ -591,6 +628,16 @@ else:
                 "print(json.dumps({'fpr': f, 'pub': 'BEGIN PGP PUBLIC KEY BLOCK' in pub, 'priv': 'BEGIN PGP PRIVATE KEY BLOCK' in priv}))"),
                 os.path.join(ROOT, "tools", "fabric"), mk, RPASS], capture_output=True, text=True, env=parent)
             out = json.loads(made.stdout or "{}")
+            mk0 = os.path.join(tmp, "recovery-unprotected")
+            os.makedirs(mk0, mode=0o700)
+            bare = subprocess.run([sys.executable, "-c", (
+                "import sys; sys.path.insert(0, sys.argv[1]); import secret_store as s\n"
+                "try:\n    s._make_recovery_key(sys.argv[2], ''); print('made')\n"
+                "except s.StoreError as e:\n    print('refused:', e)\n"),
+                os.path.join(ROOT, "tools", "fabric"), mk0], capture_output=True, text=True, env=parent)
+            subprocess.run(["gpgconf", "--homedir", mk0, "--kill", "all"], capture_output=True)
+            check("P3-8: a recovery key with no passphrase is refused before anything is published",
+                  bare.stdout.startswith("refused:") and "not protected" in bare.stdout, bare.stdout + bare.stderr[-200:])
             check("recovery key: both halves made, every secret part protected", made.returncode == 0
                   and out.get("pub") and out.get("priv") and len(out.get("fpr", "")) == 40, made.stderr[-300:])
             if made.returncode == 0:
