@@ -653,7 +653,11 @@ def case_each_translation_names_its_source_and_lags_when_it_moves() -> None:
             write(ident(fabric, "locale", "ge", f"{name}.md"), _translation_of(f"identities/prompt/{name}.md", "prompt-translation", _digest_of_body(src), ka, role=None))
         code, out = run_lint(fabric)
         assert code == 0, out
-        write(os.path.join(prompt, "team.md"), open(os.path.join(prompt, "team.md"), encoding="utf-8").read() + "\nOne more English sentence about {role}.\n")
+        # The source moves without growing: the test is about lag, and the
+        # real prompt sits near its token budget, which an appended sentence
+        # once crossed, failing the case for the wrong reason.
+        team = open(os.path.join(prompt, "team.md"), encoding="utf-8").read()
+        write(os.path.join(prompt, "team.md"), team.replace(" the ", " THE ", 1))
         code, out = run_lint(fabric)
         assert code == 0 and "warning: identities/roles/web-dev/locale/ge/team.md: translates identities/prompt/team.md at sha256:" in out \
             and "the translation lags" in out, f"a lag is named as a warning and does not fail (the source lands first):\n{out}"
