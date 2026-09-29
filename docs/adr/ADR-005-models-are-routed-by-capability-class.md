@@ -3,10 +3,10 @@
 **Date:** 2026-09-13
 **Status:** Accepted
 **Ratified:** owner, 2026-09-27, by arming agent-fabric #51 (ratification by merge, the owner's rule of 2026-09-27)
-**Decision Makers:** the owner (the routing moves of 2026-09-13, 2026-09-19, 2026-09-24 and 2026-09-25); architect-cto (the review model, 2026-09-13 and 2026-09-15); landed by fabric-coordinator
+**Decision Makers:** the owner (the routing moves of 2026-09-13, 2026-09-19, 2026-09-24, 2026-09-25 and 2026-09-29); architect-cto (the review model, 2026-09-13 and 2026-09-15); landed by fabric-coordinator
 **Scope:** routing/capabilities.json, routing/profiles.json, routing/shims.json and routing/shims/, routing/policies/review-grade.json, runtime/claude-code/aliases.json, runtime/openrouter/launch, runtime/claude-code/install-agent-files.sh, runtime/claude-code/hooks/agent-dispatch-guard.sh and model-switch-guard.sh, bin/fabric-model, tools/fabric/routing.py, tools/fabric/shim.py
 **Pillar:** P1
-**Evidence:** docs/live-checks/2026-09-13-openrouter-routing.md, docs/live-checks/2026-09-14-deepseek.md, docs/live-checks/2026-09-16-openrouter-presets.md, docs/live-checks/2026-09-19-deepseek-top-tier.md, docs/live-checks/2026-09-23-opus-5-5.md
+**Evidence:** docs/live-checks/2026-09-13-openrouter-routing.md, docs/live-checks/2026-09-14-deepseek.md, docs/live-checks/2026-09-16-openrouter-presets.md, docs/live-checks/2026-09-19-deepseek-top-tier.md, docs/live-checks/2026-09-23-opus-5-5.md, docs/live-checks/2026-09-29-sonnet-5-5.md
 
 ## 1. Context and Problem
 
@@ -52,13 +52,14 @@ in the child's environment.
 
 The current mapping:
 
-- **Plain claude.** **Every class, the review class included, is
-  `claude-opus-5-5`**, and so is the default session;
+- **Plain claude.** `code-low` and `code-medium` are
+  `claude-sonnet-5-5`; `code-high`, `code-plan` and the review class are
+  `claude-opus-5-5`, and so is the default session (A 2026-09-29);
   `architect-cto-01`'s session is `claude-fable-5-1` (an agent layer).
   `anthropic/claude-opus-5-5` is admitted to review-grade without the
   `[1m]` marker (Opus 5.5's context is natively 1M). The aliases stay:
-  they are how the harness spells a class, and each binds to the same
-  model.
+  they are how the harness spells a class; `haiku` and `sonnet` bind to
+  Sonnet 5.5, `opus` and `fable` to Opus 5.5.
 - **The broker.** The session, `code-high`, `code-plan` and the review
   class are `deepseek/deepseek-v4-pro-0813`; `code-low` and `code-medium`
   are GLM. The reason for the review class is the tier, not the family:
@@ -139,10 +140,11 @@ profile layer or a local override.
 
 - `fabric-model list` shows every choice with its layer; `fabric-status`
   the resolution a session launched with.
-- On plain claude every class is one model at one level today, so the
-  classes differ there by alias, isolation and whether a dispatch asks,
-  not by model or effort (ADR-006); the review's independence is its
-  brief and context.
+- On plain claude every class asks one level today, and the two lower
+  classes differ from the upper by model (Sonnet 5.5 against Opus 5.5);
+  otherwise the classes differ by alias, isolation and whether a
+  dispatch asks (ADR-006). The review shares code-high's model there, so
+  its independence is its brief and context.
 - Nothing validates a model id against a catalogue: a typo is caught by
   the adapter's shape check and the launch read-back, not by routing.
 
@@ -168,4 +170,12 @@ Accepted; the current mapping is the one §2 states, on both paths.
   `runtime/claude-code/hooks/model-switch-guard.sh`,
   `runtime/claude-code/install-agent-files.sh`,
   `policies/subagent-dispatch/SKILL.md`.
-- The five live checks in Evidence. ADR-002 (the dimensions).
+- The six live checks in Evidence. ADR-002 (the dimensions).
+
+## Amendments
+
+The body above reads current; each change's full note is in [history/ADR-005-amendments.md](history/ADR-005-amendments.md).
+
+| Date | Amendment | Effect |
+|---|---|---|
+| 2026-09-29 | code-low and code-medium are Sonnet 5.5 on plain claude | §2 the current mapping: the two lower classes on `claude-sonnet-5-5` |

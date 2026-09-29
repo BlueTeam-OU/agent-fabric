@@ -146,11 +146,14 @@ searches it.
   is gated by `routing/policies/review-grade.json` (§5 rules 5–6).
 - No settings scope pins a model; shims are live-tested per family; a
   model enters routing only after a read-back (§5 rules 7–10).
-- Today: every class on plain claude is Opus 5.5;
+- Today: on plain claude, Sonnet 5.5 for low and medium and Opus 5.5
+  for the rest;
   on the broker, DeepSeek V4 Pro for session, high, plan and review, GLM
   for low and medium (§2).
+- A 2026-09-29 — `code-low` and `code-medium` on plain claude are
+  `claude-sonnet-5-5`, read back live before the change (§2).
 - Keywords: model, routing, capability class, alias, provider, OpenRouter,
-  broker, review-grade, shim, preset, Opus 5.5, DeepSeek, GLM, profile.
+  broker, review-grade, shim, preset, Opus 5.5, Sonnet 5.5, DeepSeek, GLM, profile.
 
 ### ADR-006 — Effort is routed (Accepted)
 

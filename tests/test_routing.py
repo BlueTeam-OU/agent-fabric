@@ -65,15 +65,16 @@ def test_current_broker_policy() -> None:
         assert (res["model"], res["shim"], res["composite"]) == (model, shim, comp), res
 
 
-def test_native_path_pins_opus_5_5_on_every_class() -> None:
-    """On plain claude every class, the review class included, is Opus 5.5
+def test_native_path_pins_sonnet_5_5_low_and_opus_5_5_above() -> None:
+    """On plain claude code-low and code-medium are Sonnet 5.5 (the owner,
+    2026-09-29) and the upper classes, the review class included, Opus 5.5
     (the owner, 2026-09-25; the top model of each class's own tier from
     2026-09-15 until then); a coding class's pin is the export of the
     alias it rides, the review class's reaches its agent file. No shim.
     A class the column leaves null is the harness's own tier."""
     got = {k: routing.resolve(k, "anthropic") for k in routing.load_capabilities()["classes"]}
     assert {k: v["composite"] for k, v in got.items()} == {
-        "code-low": "claude-opus-5-5", "code-medium": "claude-opus-5-5", "code-high": "claude-opus-5-5",
+        "code-low": "claude-sonnet-5-5", "code-medium": "claude-sonnet-5-5", "code-high": "claude-opus-5-5",
         "code-plan": "claude-opus-5-5", "code-review": "claude-opus-5-5"}, got
     assert {k: v["via"] for k, v in got.items()} == {
         "code-low": "export", "code-medium": "export", "code-high": "export", "code-plan": "export", "code-review": "file"}, got
@@ -91,7 +92,7 @@ def test_native_path_pins_opus_5_5_on_every_class() -> None:
     assert not routing.review_grade_ok("claude-haiku-4-5")
     ex = routing.exports("anthropic")
     assert {k: v["model"] for k, v in ex.items()} == {
-        "ANTHROPIC_DEFAULT_HAIKU_MODEL": "claude-opus-5-5", "ANTHROPIC_DEFAULT_SONNET_MODEL": "claude-opus-5-5",
+        "ANTHROPIC_DEFAULT_HAIKU_MODEL": "claude-sonnet-5-5", "ANTHROPIC_DEFAULT_SONNET_MODEL": "claude-sonnet-5-5",
         "ANTHROPIC_DEFAULT_OPUS_MODEL": "claude-opus-5-5", "ANTHROPIC_DEFAULT_FABLE_MODEL": "claude-opus-5-5"}, ex
     assert "code-review" not in {v["class"] for v in ex.values()}, "the review class is never an export"
     s = routing.resolve_session(provider="anthropic")
@@ -531,7 +532,7 @@ def test_real_files_are_clean() -> None:
 def main() -> int:
     cases = [
         test_current_broker_policy,
-        test_native_path_pins_opus_5_5_on_every_class,
+        test_native_path_pins_sonnet_5_5_low_and_opus_5_5_above,
         test_a_null_in_the_harness_column_is_the_harness_tier,
         test_effort_is_one_vocabulary_resolved_per_class,
         test_a_vendor_that_remaps_upward_is_not_clamped_down,

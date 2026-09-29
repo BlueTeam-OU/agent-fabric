@@ -147,7 +147,7 @@ FABRIC_ROOT="$(cd "$(dirname "$UNDER_TEST")/../../.." && pwd)"
 # The guard resolves through routing.py, which reads AGENT_FABRIC_ROOT: a
 # root on the frozen column of 2026-09-24, where the five classes differ
 # in model and level, so a guard that compared the wrong class's value
-# would be caught. The committed column is one model at one level.
+# would be caught. The committed column is two models at one level.
 cp -r "$FABRIC_ROOT/routing" "$FIXTURE_ROOT/routing"
 cp "$FABRIC_ROOT/tests/fixtures/routing-distinct/capabilities.json" "$FABRIC_ROOT/tests/fixtures/routing-distinct/effort.json" "$FIXTURE_ROOT/routing/"
 mkdir -p "$FIXTURE_ROOT/runtime/claude-code"; cp "$FABRIC_ROOT/runtime/claude-code/aliases.json" "$FIXTURE_ROOT/runtime/claude-code/"

@@ -24,7 +24,7 @@
     "anthropic": {
       "classes": {},
       "notes": {
-        "all": "No override: every class is Opus 5.5 at medium (the owner, 2026-09-25), which Opus 5.5 admits and is its own default — so on plain claude the level is now the vendor's default as well as the fabric's decision. Before, code-low rode Haiku 4.5, which takes no effort (null here), and code-medium asked Sonnet 5 for less than its default high."
+        "all": "No override: every class asks medium. code-high, code-plan and code-review are Opus 5.5, whose own default medium is; code-low and code-medium are Sonnet 5.5 (the owner, 2026-09-29), which admits medium and served it when read back (docs/live-checks/2026-09-29-sonnet-5-5.md). Before, code-low rode Haiku 4.5, which takes no effort, and code-medium asked Sonnet 5 for less than its default high."
       }
     },
     "openrouter": {
