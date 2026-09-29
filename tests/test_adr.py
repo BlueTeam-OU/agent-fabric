@@ -380,6 +380,8 @@ def case_range_check_takes_a_git_range_and_refuses_a_bad_one(tmp: str) -> None:
     assert r.returncode == 2 and "could not read" in r.stderr and "Traceback" not in r.stderr, r.stderr
     r = cli(f"{base}..HEAD", "HEAD")
     assert r.returncode == 2 and "not both" in r.stderr, r.stderr
+    r = cli("..HEAD")
+    assert r.returncode == 2 and "no base" in r.stderr, r.stderr
 
 
 def case_range_check_counts_only_new_amendment_rows(tmp: str) -> None:

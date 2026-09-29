@@ -86,6 +86,10 @@ def main() -> int:
                   caps == ("c", {"e", "s", "a"}), repr(caps))
             p2 = run(parent, "init")
             check("init again keeps the key", p2.returncode == 0 and "(made)" not in p2.stdout, p2.stderr)
+            subs = [l for l in subprocess.run(["gpg", "--with-colons", "--list-keys"], env=parent,
+                                              capture_output=True, text=True).stdout.splitlines() if l.startswith("sub:")]
+            check("…and adds nothing to a complete key: still exactly one subkey per use",
+                  "subkeys added" not in p2.stdout and len(subs) == 3, p2.stdout + f" {len(subs)} subkeys")
             p = run(parent, "certify", "--root")
             check("the root records its own key, no parent", p.returncode == 0 and "(root)" in p.stdout, p.stderr)
 
@@ -443,6 +447,22 @@ def main() -> int:
             check("P3-8: a key that carries no user id addressed to its entry's id is refused",
                   verify_says(f"{OTHER}.asc: no valid user id addressed to {OTHER}"), run(parent, "verify").stdout)
             os.remove(os.path.join(kd, f"{OTHER}.asc"))
+            # A primary that also authenticates: its use belongs on a subkey.
+            PRIM = secret_store.mint_agent_id(secret_store.born_ms_of("now"))
+            subprocess.run(lg2 + ["--quick-gen-key", f"prim <{PRIM}@agents.agent-fabric>", "ed25519", "cert,auth", "never"],
+                           env=late, check=True, capture_output=True)
+            pr = [l.split(":")[9] for l in subprocess.run(["gpg", "--with-colons", "--list-keys", f"<{PRIM}@agents.agent-fabric>"],
+                  env=late, capture_output=True, text=True).stdout.splitlines() if l.startswith("fpr:")][0]
+            for use in (("cv25519", "encr"), ("ed25519", "sign"), ("ed25519", "auth")):
+                subprocess.run(lg2 + ["--quick-add-key", pr, *use, "never"], env=late, check=True, capture_output=True)
+            open(os.path.join(kd, f"{PRIM}.asc"), "wb").write(
+                subprocess.run(["gpg", "--armor", "--export", pr], env=late, capture_output=True).stdout)
+            d = json.loads(saved["lineage.json"])
+            d[PRIM] = {"login": "prim", "born": secret_store.born_of(PRIM), "fingerprint": pr, "parent": PID}
+            json.dump(d, open(os.path.join(kd, "lineage.json"), "w"))
+            check("ADR-038 rule 1: a primary that also authenticates is refused",
+                  verify_says(f"{PRIM}.asc: the primary key itself encrypts or authenticates"), run(parent, "verify").stdout)
+            os.remove(os.path.join(kd, f"{PRIM}.asc"))
             subprocess.run(["gpgconf", "--homedir", late["GNUPGHOME"], "--kill", "all"], capture_output=True)
             restore()
 
@@ -613,6 +633,10 @@ else:
                 p = run(penv, "backup", "--verify")
                 check("…a copy in keys/ that is not the manifest's is a finding", p.returncode == 1
                       and f"keys/{PID}.key.gpg: its sha256 is not the manifest's" in p.stdout, p.stdout + p.stderr)
+                os.remove(os.path.join(kf, f"{PID}.key.gpg"))
+                p = run(penv, "backup", "--verify")
+                check("…a copy missing from keys/ is a finding", p.returncode == 1
+                      and f"keys/{PID}.key.gpg: could not be downloaded" in p.stdout, p.stdout + p.stderr)
                 p = run(penv, "backup")   # the copy put back whole for what follows
             else:
                 check("paperkey is installed where this suite runs", False, "paperkey missing")

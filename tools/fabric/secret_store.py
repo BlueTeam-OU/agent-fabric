@@ -142,10 +142,12 @@ def keys_dir(fabric: str | None = None) -> str:
 
 
 def _run(cmd: list[str], *, stdin: bytes | None = None, cwd: str | None = None,
-         env: dict | None = None, check: bool = True, timeout: float | None = None) -> subprocess.CompletedProcess:
-    # The command's name and its first word that is not a flag: gpg's
-    # errors read "gpg --batch: …" when the first argument was named.
-    what = " ".join([os.path.basename(cmd[0])] + [a for a in cmd[1:] if not a.startswith("-")][:1])
+         env: dict | None = None, check: bool = True, timeout: float | None = None,
+         label: str | None = None) -> subprocess.CompletedProcess:
+    # What an error names: the caller's label (gpg() and git() pass the
+    # operation, which follows their fixed flags), else the command and its
+    # first argument.
+    what = label or " ".join([os.path.basename(cmd[0])] + cmd[1:2])
     try:
         r = subprocess.run(cmd, input=stdin, capture_output=True, cwd=cwd, env=env, timeout=timeout)
     except subprocess.TimeoutExpired:
@@ -164,15 +166,22 @@ def _run(cmd: list[str], *, stdin: bytes | None = None, cwd: str | None = None,
 DOPPLER_TIMEOUT_S = float(os.environ.get("AGENT_FABRIC_DOPPLER_TIMEOUT_S") or 30)
 
 
+# gpg's commands, as opposed to its options: what an error names.
+GPG_COMMANDS = {"--import", "--export", "--export-secret-keys", "--list-keys", "--list-secret-keys",
+                "--check-sigs", "--show-keys", "--encrypt", "--decrypt", "--quick-gen-key", "--quick-add-key",
+                "--quick-add-uid", "--quick-sign-key", "--gen-revoke", "--list-packets"}
+
+
 def gpg(*args: str, stdin: bytes | None = None, homedir: str | None = None, check: bool = True):
     cmd = ["gpg", "--batch", "--yes", "--no-tty", "--pinentry-mode", "loopback", "--passphrase", ""]
     if homedir:
         cmd += ["--homedir", homedir]
-    return _run(cmd + list(args), stdin=stdin, check=check)
+    op = next((a for a in args if a in GPG_COMMANDS), args[0] if args else "")
+    return _run(cmd + list(args), stdin=stdin, check=check, label=f"gpg {op}")
 
 
 def git(store: str, *args: str, check: bool = True):
-    return _run(["git", "-C", store, *args], check=check)
+    return _run(["git", "-C", store, *args], check=check, label=f"git {args[0] if args else ''}")
 
 
 def fingerprints(homedir: str | None = None, *, secret: bool = False, query: str | None = None) -> list[str]:

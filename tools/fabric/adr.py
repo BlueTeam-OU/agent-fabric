@@ -591,6 +591,11 @@ def main(argv: list[str] | None = None) -> int:
                 print("adr range-check: give either BASE..HEAD or BASE HEAD, not both", file=sys.stderr)
                 return 2
             a.base, _, a.head = a.base.partition("..")
+        if not a.base:
+            # git reads "..X" as HEAD..X, and an empty base lists no records,
+            # so every record would count as the branch's own draft.
+            print("adr range-check: the range has no base (BASE..HEAD)", file=sys.stderr)
+            return 2
         a.head = a.head or "HEAD"
         try:
             f = range_check(a.root, a.base, a.head)

@@ -103,7 +103,10 @@ fi
 
 if (( SELF )); then
   (( ${#LOGINS[@]} == 0 )) || die "--self takes no login"
-  aid="$(python3 "$STORE" id 2>/dev/null || true)"; [[ -n "$aid" ]] || aid="$(id_of "$ME")"
+  # As for a child: only "no id yet" (exit 3) may lead to minting.
+  aid="$(python3 "$STORE" id 2>/dev/null)"; idrc=$?
+  (( idrc == 0 || idrc == 3 )) || die "this store's agent id could not be read (exit $idrc); nothing made"
+  [[ -n "$aid" ]] || aid="$(id_of "$ME")"
   if [[ -z "$aid" ]]; then
     if (( BORN_NOW )); then born=now; else born="$(stat -c %w "$HOME")"; fi
     aid="$(mint "$born")" || die "no birth for $ME: its home's creation time is unknown here ($born)"
