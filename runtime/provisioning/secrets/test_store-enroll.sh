@@ -28,6 +28,8 @@ echo "hostexec \$*" >> "$T/calls"
 [[ "\$1" == far-host && "\$2" == --as && "\$3" == kid && "\$4" == -- ]] || { echo "unexpected: \$*" >&2; exit 9; }
 shift 4
 [[ -e "$T/fail-push" && "\$*" == *"store push"* ]] && { echo "push rejected" >&2; exit 1; }
+[[ -e "$T/fail-id" && "\$*" == *"store id"* ]] && { echo "cannot read" >&2; exit 1; }
+[[ -e "$T/bad-id" && "\$*" == *"store id"* ]] && { printf 'a banner\nnot-an-id\n'; exit 0; }
 cd "$T/kid" && env -u CLAUDECODE HOME="$T/kid" GNUPGHOME="$T/kid-gnupg" AGENT_FABRIC_ROOT="$FAB" GIT_CONFIG_GLOBAL="$T/kid/.gc" "\$@"
 S
 # gh: "repo view" fails until "repo create" makes the bare repository.
@@ -62,6 +64,15 @@ PID="$(lid "$(id -un)" 2>/dev/null)"
 [[ "$(id_ms "$PID")" == "$(born_ms "$T/parent")" ]] && ok "…its id's time is its home's creation time" || bad "parent birth" "$PID vs $(stat -c %w "$T/parent")"
 
 echo "store-enroll: an account on another host"
+# A store whose id cannot be read, or answers something that is not one:
+# the enrolment stops before any repository is made for it.
+for f in fail-id bad-id; do
+  touch "$T/$f"; : > "$T/calls"
+  out="$(P "$E" kid 2>&1)"; rc=$?
+  rm -f "$T/$f"
+  [[ $rc -eq 1 ]] && ! grep -q "repo create" "$T/calls" \
+    && grep -qE "could not be read|is not one" <<<"$out" && ok "$f: the enrolment stops, and no repository is made" || bad "$f (rc=$rc)" "$out"
+done
 # Review of #64, P2: a first run that stops after init (its push rejected)
 # leaves the id in the account's store; the re-run takes it, never a new one.
 touch "$T/fail-push"

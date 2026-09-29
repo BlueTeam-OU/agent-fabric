@@ -5,7 +5,7 @@
     fabric-secrets store init --agent-id ID [--remote URL]
                                                  in the account: its key and its store
     fabric-secrets store mint-id BORN            a new agent id, a UUIDv7 of that birth (ADR-039)
-    fabric-secrets store id                      this store's agent id
+    fabric-secrets store id                      this store's agent id (exit 3: none yet)
     fabric-secrets store id-of LOGIN             the agent id lineage.json records for a login
     fabric-secrets store rename OLD NEW          a login renamed; its id, key and store stay
     fabric-secrets store set NAME                the agent writes an entry (value on stdin)
@@ -1149,9 +1149,12 @@ def main(argv: list[str] | None = None) -> int:
         elif args.cmd == "mint-id":
             print(mint_agent_id(born_ms_of(args.born)))
         elif args.cmd == "id":
+            # 3 is "no id yet", the one answer that lets a parent mint; any
+            # other failure (no store read, a malformed .agent-id) is 1.
             aid = own_agent_id()
             if not aid:
-                raise StoreError("this store has no agent id yet")
+                print("fabric-secrets store: this store has no agent id yet", file=sys.stderr)
+                return 3
             print(aid)
         elif args.cmd == "id-of":
             print(resolve(args.login)[0])

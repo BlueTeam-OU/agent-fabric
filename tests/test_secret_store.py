@@ -422,6 +422,22 @@ def main() -> int:
             check("…and the subkey of each use it lacked, said as such", secret_store._key_caps(uids)[1] == {"e", "s", "a"}
                   and "subkeys added: encryption, signing, authentication" in p.stdout, p.stdout + repr(secret_store._key_caps(uids)))
             subprocess.run(["gpgconf", "--homedir", legacy["GNUPGHOME"], "--kill", "all"], capture_output=True)
+            # A store with a key and no agent id: the sheet names the key file
+            # by the id, so it is refused rather than name one never written.
+            noid = role("noid")
+            subprocess.run(lg + ["--quick-gen-key", "noid <noid@agents.agent-fabric>", "ed25519", "cert,sign", "never"],
+                           env=noid, check=True, capture_output=True)
+            nfpr = [l.split(":")[9] for l in subprocess.run(["gpg", "--with-colons", "--list-secret-keys"], env=noid,
+                    capture_output=True, text=True).stdout.splitlines() if l.startswith("fpr:")][0]
+            os.makedirs(noid["AGENT_FABRIC_SECRET_STORE"])
+            open(os.path.join(noid["AGENT_FABRIC_SECRET_STORE"], ".gpg-id"), "w").write(nfpr + "\n")
+            if shutil.which("paperkey"):
+                p = run(noid, "paper", "--out", os.path.join(tmp, "noid-sheet.txt"))
+                check("the recovery sheet is refused without an agent id", p.returncode == 1
+                      and "no agent id yet" in p.stderr and not os.path.exists(os.path.join(tmp, "noid-sheet.txt")), p.stderr)
+            p = run(noid, "id")
+            check("store id: exit 3 when the store has no agent id yet", p.returncode == 3 and not p.stdout, p.stdout + p.stderr)
+            subprocess.run(["gpgconf", "--homedir", noid["GNUPGHOME"], "--kill", "all"], capture_output=True)
             p = run(parent, "mint-id", "2026-08-13 21:56:22.653442123 +0200")
             check("mint-id: a UUIDv7 of that birth", p.returncode == 0 and secret_store.AGENT_ID_RE.match(p.stdout.strip())
                   and secret_store.born_of(p.stdout.strip()) == "2026-08-13T19:56:22.653Z", p.stdout + p.stderr)

@@ -133,7 +133,14 @@ for login in "${LOGINS[@]}"; do
   aid="$(id_of "$login")"
   # A run that stopped after init and before certification left the id in
   # the account's store: minting again would be refused there forever.
-  [[ -n "$aid" ]] || aid="$(as_login "$login" "$ACCOUNT_SECRETS" store id 2>/dev/null || true)"
+  if [[ -z "$aid" ]]; then
+    # Only "no id yet" (exit 3) lets the parent mint: any other failure to
+    # read the account's store would mint an id its store then refuses,
+    # after a repository had been made for it.
+    aid="$(as_login "$login" "$ACCOUNT_SECRETS" store id 2>/dev/null)"; idrc=$?
+    if (( idrc != 0 && idrc != 3 )); then say "$login: its store's agent id could not be read on $host (exit $idrc); nothing made"; fail=1; continue; fi
+    (( idrc == 3 )) && aid=""
+  fi
   # Read back from another host: only an id, or it names a repository.
   if [[ -n "$aid" && ! "$aid" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$ ]]; then
     say "$login: its store answered an agent id that is not one: ${aid:0:60}"; fail=1; continue
