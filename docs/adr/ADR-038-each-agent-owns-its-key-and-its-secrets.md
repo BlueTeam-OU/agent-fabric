@@ -178,8 +178,10 @@ sharing a machine.
 - **The identity key off the host:** only its subkeys kept online, the
   primary only in the recovery copy, once certifying no longer needs it
   there (the coordinator certifies children with its own).
-- **Doppler off the hosts:** the binary, each account's `~/.doppler` and
-  its token, and the project itself, the owner's to close.
+- **Doppler off the hosts:** each account's `~/.doppler` goes with the
+  upgrade that distributes its removal (`bootstrap.sh`); the binary under
+  `/usr/local` is each host operator's to remove, and the project, which
+  revokes every token, the owner's to close.
 - **Hardware-held keys,** if an agent's host offers one.
 
 ## 8. Decision Status
