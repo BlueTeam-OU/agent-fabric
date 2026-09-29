@@ -183,8 +183,7 @@ def main() -> int:
             check("names lists names, never values", "AGENT_LOGIN" in p.stdout and "GH_TOKEN" in p.stdout
                   and SECRET not in p.stdout, p.stdout)
 
-            # fabric-secrets sync writes the SAME secrets.env from the store
-            # as from Doppler, for the same values (ADR-038 §5 rule 7).
+            # fabric-secrets sync applies what the store holds (ADR-038 §5 rule 7).
             me = subprocess.run(["id", "-un"], capture_output=True, text=True).stdout.strip()
             vals = {"AGENT_LOGIN": me, "AGENT_HOST": "somewhere", "OPENROUTER_API_KEY": "or-x",
                     "GH_TOKEN": SECRET, "CLAUDE_BRIDGE_AUTH_TOKEN": "bridge-x",
@@ -202,41 +201,22 @@ def main() -> int:
             envf = os.path.join(child["HOME"], ".config", "agent-fabric", "secrets.env")
             body = lambda: "".join(l for l in open(envf) if not l.startswith("#"))
             dop = {**child, "PATH": stub + os.pathsep + child["PATH"]}
-            r1 = subprocess.run([fsync, "sync", "--json"], env=dop, capture_output=True, text=True)
-            from_doppler = body() if os.path.exists(envf) else None
-            os.makedirs(os.path.dirname(envf), exist_ok=True)
-            open(os.path.join(os.path.dirname(envf), "secrets-source"), "w").write("store\n")
-            r2 = subprocess.run([fsync, "sync", "--json"], env=dop, capture_output=True, text=True)
-            from_store = body()
-            check("sync from the store writes what sync from Doppler wrote", r1.returncode in (0, 2)
-                  and r2.returncode in (0, 2) and from_doppler == from_store and SECRET in from_store,
-                  f"rc {r1.returncode}/{r2.returncode} {r2.stderr[-200:]}")
-            check("sync never prints a value", SECRET not in r1.stdout + r2.stdout + r1.stderr + r2.stderr)
-            check("the report names the store as its source", '"project": "store"' in r2.stdout, r2.stdout[:200])
-            # A Doppler config lookup that hangs (a token in a locked keyring)
-            # is an error within the bound, never a fall back to agents_<login>.
+            r2 = subprocess.run([fsync, "sync", "--json"], env=child, capture_output=True, text=True)
+            from_store = body() if os.path.exists(envf) else ""
+            check("sync applies the store's values to secrets.env", r2.returncode in (0, 2)
+                  and SECRET in from_store and "export OPENROUTER_API_KEY=or-x" in from_store,
+                  f"rc {r2.returncode} {r2.stderr[-200:]}")
+            check("sync never prints a value", SECRET not in r2.stdout + r2.stderr)
+            check("the report names the store as its source", '"source": "store"' in r2.stdout, r2.stdout[:200])
             hang = os.path.join(tmp, "hangbin")
             os.makedirs(hang)
             with open(os.path.join(hang, "doppler"), "w") as fh:
-                fh.write("#!/bin/sh\necho \"doppler $*\" >> " + os.path.join(tmp, "hang.calls")
-                         + "\ncase \"$*\" in *enclave.config*|*'get token'*) sleep 30;; esac\nexit 0\n")
+                fh.write("#!/bin/sh\ncase \"$*\" in *enclave.config*) sleep 30;; esac\nexit 0\n")
             os.chmod(os.path.join(hang, "doppler"), 0o755)
-            open(os.path.join(child["HOME"], ".config", "agent-fabric", "secrets-source"), "w").write("doppler\n")
-            hung = subprocess.run([fsync, "sync", "--json"], capture_output=True, text=True, timeout=60,
-                                  env={**child, "PATH": hang + os.pathsep + child["PATH"], "AGENT_FABRIC_DOPPLER_TIMEOUT_S": "1"})
-            calls = open(os.path.join(tmp, "hang.calls")).read() if os.path.exists(os.path.join(tmp, "hang.calls")) else ""
-            check("a hung Doppler config lookup is an error within its bound, and no other config is read",
-                  hung.returncode == 1 and "could not be read within 1 s" in hung.stdout and "download" not in calls,
-                  hung.stdout[-300:] + " calls: " + calls)
-            st = subprocess.run([fsync, "status", "--json"], capture_output=True, text=True, timeout=60,
-                                env={**child, "PATH": hang + os.pathsep + child["PATH"], "AGENT_FABRIC_DOPPLER_TIMEOUT_S": "1"})
-            tok = (json.loads(st.stdout or "{}").get("local") or json.loads(st.stdout or "{}")).get("doppler_token_configured")
-            check("status reports a hung token lookup as timed out, not as no token", tok == "timed out after 1 s", st.stdout[-300:])
             p = subprocess.run([sys.executable, TOOL, "import-doppler"], capture_output=True, text=True, timeout=60, cwd=tmp,
                                env={**child, "PATH": hang + os.pathsep + child["PATH"], "AGENT_FABRIC_DOPPLER_TIMEOUT_S": "1"})
             check("import-doppler: a hung config lookup is an error within its bound, said as a timeout",
                   p.returncode == 1 and "doppler configure: timed out after 1 s" in p.stderr, p.stderr[-300:])
-            open(os.path.join(child["HOME"], ".config", "agent-fabric", "secrets-source"), "w").write("store\n")
 
             # import-doppler: the login's own Doppler config into its store,
             # one commit, nothing printed but names.
@@ -248,7 +228,7 @@ def main() -> int:
             p = run(child, "names")
             check("…and they are entries now", "NEW_NAME" in p.stdout, p.stdout)
             run(child, "set", "AGENT_LOGIN", stdin="someone-else")
-            r3 = subprocess.run([fsync, "sync"], env=dop, capture_output=True, text=True)
+            r3 = subprocess.run([fsync, "sync"], env=child, capture_output=True, text=True)
             check("a store naming another login is refused, nothing applied", r3.returncode == 3
                   and body() == from_store, r3.stdout[-200:])
 
@@ -304,7 +284,7 @@ def main() -> int:
                   and "PARENT_WROTE" in run(child, "names").stdout, p.stderr)
             # A remote that cannot be reached is a failed sync, not a stale one.
             os.rename(remote, remote + ".away")
-            r4 = subprocess.run([fsync, "sync", "--json"], env=dop, capture_output=True, text=True)
+            r4 = subprocess.run([fsync, "sync", "--json"], env=child, capture_output=True, text=True)
             os.rename(remote + ".away", remote)
             check("F4: a store that cannot be brought up to its remote fails the sync", r4.returncode == 1
                   and "store:" in r4.stdout, r4.stdout[-300:])
@@ -320,20 +300,6 @@ def main() -> int:
             p = run(child, "set", "RETRIED", stdin="r1")
             check("N2: the retry pushes what the failed push left behind", p.returncode == 0
                   and "env/RETRIED.gpg" in remote_names(), p.stdout + p.stderr)
-
-            # N3: digest --source reads THAT source, whatever the account's is,
-            # and an unknown one is refused.
-            src_file = os.path.join(child["HOME"], ".config", "agent-fabric", "secrets-source")
-            open(src_file, "w").write("doppler\n")
-            json.dump({"AGENT_LOGIN": me, "GH_TOKEN": "a-doppler-only-value"}, open(os.path.join(tmp, "dp.json"), "w"))
-            ds = subprocess.run([fsync, "digest", "--source", "store"], env=dop, capture_output=True, text=True)
-            dd = subprocess.run([fsync, "digest", "--source", "doppler"], env=dop, capture_output=True, text=True)
-            check("N3: digest --source store reads the store while the account is on doppler",
-                  json.loads(ds.stdout)["source"] == "store" and json.loads(dd.stdout)["source"] == "doppler"
-                  and json.loads(ds.stdout)["values_sha256"] != json.loads(dd.stdout)["values_sha256"], ds.stdout + dd.stdout)
-            bogus = subprocess.run([fsync, "digest", "--source", "elsewhere"], env=dop, capture_output=True, text=True)
-            check("N3: an unknown --source is refused", bogus.returncode == 2 and "usage" in bogus.stderr, bogus.stderr)
-            open(src_file, "w").write("store\n")
 
             # F7: put pulls BEFORE it compares keys. Another clone pushes a
             # re-key; the parent's mirror has not pulled it yet.
@@ -351,13 +317,15 @@ def main() -> int:
             subprocess.run(g + ["push", "-q", "origin", "HEAD:main"], check=True, env=parent)
             subprocess.run(["git", "-C", mirror, "pull", "-q", "--rebase", "origin", "main"], env=parent, capture_output=True)
 
-            # The digest: the same hash from the store as sync reports.
+            # The report's values_sha256: the same hash for the same store,
+            # and never a value beside it.
             run(child, "set", "AGENT_LOGIN", stdin=me)
-            dg = subprocess.run([fsync, "digest", "--source", "store"], env=dop, capture_output=True, text=True)
-            sy = subprocess.run([fsync, "sync", "--json"], env=dop, capture_output=True, text=True)
-            check("digest --source store is the hash sync applies", dg.returncode == 0
-                  and json.loads(dg.stdout)["values_sha256"] == json.loads(sy.stdout)["values_sha256"], dg.stdout + dg.stderr)
-            check("…and neither prints a value", SECRET not in dg.stdout + sy.stdout and TOKEN not in dg.stdout + sy.stdout)
+            sy = subprocess.run([fsync, "sync", "--json"], env=child, capture_output=True, text=True)
+            sy2 = subprocess.run([fsync, "sync", "--json"], env=child, capture_output=True, text=True)
+            check("two syncs of one store report one values_sha256", sy.returncode in (0, 2)
+                  and len(json.loads(sy.stdout)["values_sha256"]) == 64
+                  and json.loads(sy.stdout)["values_sha256"] == json.loads(sy2.stdout)["values_sha256"], sy.stdout[-300:])
+            check("…and the report prints no value", SECRET not in sy.stdout and TOKEN not in sy.stdout)
 
             # F8: import-doppler names what it did not import.
             json.dump({"GOOD_NAME": "v", "lower_case": "v", "NOT_A_STRING": 5}, open(os.path.join(tmp, "dp.json"), "w"))
