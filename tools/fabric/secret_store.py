@@ -2,18 +2,27 @@
 """tools/fabric/secret_store.py — an agent's own encrypted secrets
 (agent-fabric ADR-038), behind `fabric-secrets store …`.
 
-    fabric-secrets store init [--remote URL]     in the account: its key and its store
+    fabric-secrets store init --agent-id ID [--remote URL]
+                                                 in the account: its key and its store
+    fabric-secrets store mint-id BORN            a new agent id, a UUIDv7 of that birth (ADR-039)
+    fabric-secrets store id                      this store's agent id
+    fabric-secrets store id-of LOGIN             the agent id lineage.json records for a login
+    fabric-secrets store rename OLD NEW          a login renamed; its id, key and store stay
     fabric-secrets store set NAME                the agent writes an entry (value on stdin)
     fabric-secrets store export-key              the agent's PUBLIC key, armored (for its parent)
     fabric-secrets store push                    the store to its remote
     fabric-secrets store names [--json]          the entries, by name
-    fabric-secrets store put LOGIN NAME [--store DIR]
+    fabric-secrets store put LOGIN|ID NAME [--store DIR]
                                                  the parent writes into a child's store
                                                  (value on stdin; the child's committed key)
     fabric-secrets store certify LOGIN KEYFILE | --root
                                                  the parent attests a child's key
     fabric-secrets store verify                  every committed key against its lineage
     fabric-secrets store paper [--out FILE]      the key and its revocation, for the owner
+    fabric-secrets store recovery-key init       the OWNER, in a terminal: the recovery key (passphrase-protected,
+                                                 its private half only in Proton)
+    fabric-secrets store recovery-copy           this login's recovery copy, encrypted to the recovery key
+    fabric-secrets store backup [--verify]       every store held, as git bundles, into Proton Drive
     fabric-secrets store import-doppler          this login's Doppler config into its store
                                                  (the migration, ADR-038 §5 rule 8)
     fabric-secrets store template-set SLUG       a Claude account's setup-token into this
@@ -29,8 +38,9 @@ agent's key alone. Anyone holding the committed public key can add an
 entry, and only the agent can read one: the parent writes and never reads.
 
 A key is an agent's when its public half is committed at
-`identities/keys/<login>.asc` with its parent's certification, and
-`identities/keys/lineage.json` records that parent. Placement is not
+`identities/keys/<agent id>.asc` with its parent's certification on the
+user id addressed to that id, and `identities/keys/lineage.json` records
+that parent (ADR-039: stored under the id, typed as the login). Placement is not
 part of it: no host is named anywhere, and nothing here needs the
 parent and the child on one machine. They meet only through git.
 
@@ -63,6 +73,56 @@ class StoreError(Exception):
 
 def login() -> str:
     return pwd.getpwuid(os.getuid()).pw_name
+
+
+# ── the agent id (ADR-039): a UUIDv7 whose timestamp is the birth ─────
+AGENT_ID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")
+REPO_PREFIX = "agent-fabric-secrets-"
+
+
+def mint_agent_id(born_ms: int) -> str:
+    """Minted once and recorded, never recomputed: 74 of its bits are
+    random, so the same birth never gives the same id twice — a login
+    reused after its agent retired is a new agent (ADR-038 rule 6)."""
+    if not 0 <= born_ms < 1 << 48:
+        raise StoreError(f"{born_ms} is not a birth in milliseconds since 1970")
+    r = int.from_bytes(os.urandom(10), "big")
+    v = (born_ms << 80) | (0x7 << 76) | ((r >> 62) & 0xFFF) << 64 | (0b10 << 62) | (r & ((1 << 62) - 1))
+    h = f"{v:032x}"
+    return f"{h[:8]}-{h[8:12]}-{h[12:16]}-{h[16:20]}-{h[20:]}"
+
+
+def born_of(agent_id: str) -> str:
+    import datetime
+    ms = int(agent_id.replace("-", "")[:12], 16)
+    return datetime.datetime.fromtimestamp(ms / 1000, datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+
+
+def born_ms_of(stamp: str) -> int:
+    """A birth as `stat -c %w` prints it ("2026-01-14 21:27:33.247294044
+    +0100"), or ISO 8601, or "now"."""
+    import datetime
+    if stamp == "now":
+        return int(datetime.datetime.now(datetime.timezone.utc).timestamp() * 1000)
+    m = re.match(r"^(\d{4}-\d\d-\d\d)[ T](\d\d:\d\d:\d\d)(?:\.(\d+))?\s*(Z|[+-]\d\d:?\d\d)?$", stamp.strip())
+    if not m:
+        raise StoreError(f"{stamp!r} is not a birth time (the home's creation time is unknown here: name one)")
+    frac = (m.group(3) or "0")[:6].ljust(6, "0")
+    tz = (m.group(4) or "Z").replace("Z", "+00:00")
+    tz = tz if ":" in tz else tz[:3] + ":" + tz[3:]
+    t = datetime.datetime.fromisoformat(f"{m.group(1)}T{m.group(2)}.{frac}{tz}")
+    return int(t.timestamp() * 1000)
+
+
+def own_agent_id(store: str | None = None) -> str | None:
+    try:
+        with open(os.path.join(store or store_dir(), ".agent-id"), encoding="utf-8") as fh:
+            aid = fh.read().strip()
+    except FileNotFoundError:
+        return None
+    if not AGENT_ID_RE.match(aid):
+        raise StoreError(f"the store's .agent-id is not an agent id: {aid[:40]!r}")
+    return aid
 
 
 def home() -> str:
@@ -128,36 +188,51 @@ def key_of_store(store: str | None = None) -> str:
 
 
 # ── the agent, in its own account ─────────────────────────────────────
-def init(remote: str | None = None) -> dict:
+def uid_of(agent_id: str, name: str) -> str:
+    # The address is the id, which a rename keeps; the name part is the
+    # login at birth, a label only.
+    return f"{name} <{agent_id}@{UID_DOMAIN}>"
+
+
+def init(remote: str | None = None, agent_id: str | None = None) -> dict:
     """The agent's key (made here, with no passphrase: agents decrypt
-    unattended) and its store. Idempotent: an existing key or store is
-    kept, never replaced."""
+    unattended) and its store, under the agent id its parent minted.
+    Idempotent: an existing key, store or id is kept, never replaced; a
+    key made before ids existed gains the id's user id."""
     me, store = login(), store_dir()
-    uid = f"{me} <{me}@{UID_DOMAIN}>"
-    fpr = next(iter(fingerprints(secret=True, query=f"={uid}")), None)
+    held = own_agent_id(store) if os.path.isdir(store) else None
+    if held and agent_id and held != agent_id:
+        raise StoreError(f"this store is agent {held}; an agent id is never replaced")
+    aid = held or agent_id
+    if not aid or not AGENT_ID_RE.match(aid):
+        raise StoreError("no agent id: the parent mints it at enrolment (store-enroll.sh), and init takes --agent-id")
+    uid = uid_of(aid, me)
+    gpg_id = os.path.join(store, ".gpg-id")
+    fpr = key_of_store(store) if os.path.exists(gpg_id) else next(iter(fingerprints(secret=True, query=f"<{aid}@{UID_DOMAIN}>")), None)
     made = False
     if not fpr:
         gpg("--quick-gen-key", uid, "ed25519", "cert,sign", "never")
         fpr = fingerprints(secret=True, query=f"={uid}")[0]
         gpg("--quick-add-key", fpr, "cv25519", "encr", "never")
         made = True
+    elif fpr not in fingerprints(secret=True, query=f"<{aid}@{UID_DOMAIN}>"):
+        gpg("--quick-add-uid", fpr, uid)
     os.makedirs(os.path.join(store, "env"), mode=0o700, exist_ok=True)
     if not os.path.isdir(os.path.join(store, ".git")):
         git(store, "init", "-q", "-b", "main")
-    gpg_id = os.path.join(store, ".gpg-id")
-    if os.path.exists(gpg_id) and key_of_store(store) != fpr:
-        raise StoreError(f"{gpg_id} names another key; re-keying is a rotation, not an init")
     with open(gpg_id, "w", encoding="utf-8") as fh:
         fh.write(fpr + "\n")
-    git(store, "add", ".gpg-id")
+    with open(os.path.join(store, ".agent-id"), "w", encoding="utf-8") as fh:
+        fh.write(aid + "\n")
+    git(store, "add", ".gpg-id", ".agent-id")
     if git(store, "diff", "--cached", "--quiet", check=False).returncode:
-        _commit(store, f"agent {me}: the store is encrypted to {fpr}")
+        _commit(store, f"agent {me} ({aid}): the store is encrypted to {fpr}")
     if remote:
         if git(store, "remote", check=False).stdout.strip():
             git(store, "remote", "set-url", "origin", remote)
         else:
             git(store, "remote", "add", "origin", remote)
-    return {"login": me, "fingerprint": fpr, "key_made": made, "store": store}
+    return {"login": me, "agent_id": aid, "fingerprint": fpr, "key_made": made, "store": store}
 
 
 def export_key(fpr: str | None = None, homedir: str | None = None) -> str:
@@ -167,9 +242,14 @@ def export_key(fpr: str | None = None, homedir: str | None = None) -> str:
 def _git_env() -> dict:
     """The store's own identity for every commit it makes, a rebase's
     included: the writing login, whatever the account's git config says
-    (a new account may have none yet)."""
-    return {**os.environ, "GIT_AUTHOR_NAME": login(), "GIT_AUTHOR_EMAIL": f"{login()}@{UID_DOMAIN}",
-            "GIT_COMMITTER_NAME": login(), "GIT_COMMITTER_EMAIL": f"{login()}@{UID_DOMAIN}"}
+    (a new account may have none yet), addressed by its agent id once
+    it has one, as its key is."""
+    try:
+        addr = f"{own_agent_id() or login()}@{UID_DOMAIN}"
+    except StoreError:
+        addr = f"{login()}@{UID_DOMAIN}"
+    return {**os.environ, "GIT_AUTHOR_NAME": login(), "GIT_AUTHOR_EMAIL": addr,
+            "GIT_COMMITTER_NAME": login(), "GIT_COMMITTER_EMAIL": addr}
 
 
 def _commit(store: str, message: str) -> None:
@@ -234,6 +314,16 @@ def _before_write(store: str) -> None:
 
 
 
+def _push_if_ahead(store: str) -> None:
+    """A commit an earlier, failed push left behind is pushed now, so a
+    retry that finds nothing to change still leaves the remote (the
+    backup) whole. Only a store's own writer calls this — the agent in its
+    store, the parent in its own — never a parent on a child's mirror."""
+    ahead = git(store, "rev-list", "--count", f"origin/{_branch(store)}..HEAD", check=False)
+    if _remote(store) and ahead.returncode == 0 and ahead.stdout.decode().strip() not in ("", "0"):
+        _after_commit(store)
+
+
 def _after_commit(store: str) -> None:
     """Every commit reaches the remote: it is the backup and the channel
     between the agent and its parent."""
@@ -253,13 +343,7 @@ def set_entry(name: str, value: bytes, *, exact: bool = False) -> dict:
     _before_write(store)
     path = os.path.join(store, "env", f"{name}.gpg")
     if os.path.exists(path) and _decrypt(path) == value.decode(errors="replace"):
-        # Unchanged — but a commit an earlier, failed push left behind is
-        # pushed now, so a retry leaves the remote (the backup) whole. Only
-        # the agent's own store does this: a parent's mirror never pushes
-        # what it did not just write (its put always commits afresh).
-        ahead = git(store, "rev-list", "--count", f"origin/{_branch(store)}..HEAD", check=False)
-        if _remote(store) and ahead.returncode == 0 and ahead.stdout.decode().strip() not in ("", "0"):
-            _after_commit(store)
+        _push_if_ahead(store)   # unchanged, but an earlier failed push is caught up
         return {"name": name, "changed": False}
     _write_entry(store, name, value, ["--recipient", fpr])
     changed = git(store, "diff", "--cached", "--quiet", check=False).returncode != 0
@@ -364,98 +448,178 @@ def _key_file_fingerprint(path: str) -> str:
     return fprs[0]
 
 
+def resolve(who: str, doc: dict | None = None, fabric: str | None = None) -> tuple[str, dict]:
+    """An agent named by its id or by its current login -> (id, record)."""
+    doc = lineage(fabric) if doc is None else doc
+    if AGENT_ID_RE.match(who):
+        if who not in doc:
+            raise StoreError(f"agent {who} is not in identities/keys/lineage.json")
+        return who, doc[who]
+    if not LOGIN_RE.match(who):
+        raise StoreError(f"{who!r} is neither a login nor an agent id")
+    hits = [(a, r) for a, r in doc.items() if isinstance(r, dict) and r.get("login") == who]
+    if len(hits) != 1:
+        raise StoreError(f"{who}: {'no agent' if not hits else f'{len(hits)} agents'} with that login in identities/keys/lineage.json")
+    return hits[0]
+
+
 def put(child: str, name: str, value: bytes, store: str | None = None, fabric: str | None = None,
         *, exact: bool = False) -> dict:
     """The parent writes an entry into a child's store: encrypted to the
     child's COMMITTED key (never imported), which must be the key the
     store says it is encrypted to. The parent cannot read what it wrote."""
-    if not LOGIN_RE.match(child):
-        raise StoreError(f"{child!r} is not a login")
-    key_file = os.path.join(keys_dir(fabric), f"{child}.asc")
+    aid, rec = resolve(child, fabric=fabric)
+    key_file = os.path.join(keys_dir(fabric), f"{aid}.asc")
     if not os.path.exists(key_file):
-        raise StoreError(f"no committed key for {child} ({key_file})")
-    store = store or os.path.join(children_dir(), child)
+        raise StoreError(f"no committed key for {rec.get('login')} ({key_file})")
+    store = store or os.path.join(children_dir(), aid)
     _check_name(name)
     # Brought up to date FIRST: a mirror still naming the old key must not
     # pass the check and then receive a re-keyed .gpg-id with the pull.
     _before_write(store)
     committed = _key_file_fingerprint(key_file)
     if key_of_store(store) != committed:
-        raise StoreError(f"{child}'s store is encrypted to another key than the committed one; "
+        raise StoreError(f"{rec.get('login')}'s store is encrypted to another key than the committed one; "
                          "a store and its key must agree before anything is written")
     _write_entry(store, name, value if exact else _one_line_off(value), ["--recipient-file", key_file])
     changed = git(store, "diff", "--cached", "--quiet", check=False).returncode != 0
     if changed:
         _commit(store, f"parent {login()}: put {name}")
         _after_commit(store)
-    return {"child": child, "name": name, "changed": changed}
+    return {"child": rec.get("login"), "agent_id": aid, "name": name, "changed": changed}
+
+
+def _key_agent_ids(key_file: str) -> list[str]:
+    """The agent ids a key file's valid user ids carry, read in a
+    throwaway keyring."""
+    with tempfile.TemporaryDirectory() as tmp:
+        os.chmod(tmp, 0o700)
+        try:
+            gpg("--import", key_file, homedir=tmp)
+            out = gpg("--with-colons", "--list-keys", homedir=tmp).stdout.decode()
+        finally:
+            _run(["gpgconf", "--homedir", tmp, "--kill", "all"], check=False)
+    ids = []
+    for l in out.splitlines():
+        f = l.split(":")
+        if f[0] == "uid" and f[1] not in ("r", "e", "i"):
+            m = re.search(r"<([0-9a-f-]{36})@" + re.escape(UID_DOMAIN) + ">", f[9])
+            if m and AGENT_ID_RE.match(m.group(1)):
+                ids.append(m.group(1))
+    return ids
 
 
 def certify(child: str | None, key_file: str | None, fabric: str | None = None) -> dict:
     """The parent attests a child's key with its own (the birth
-    certificate), and commits the certified public half and the lineage.
-    --root: the coordinator records its own key, with no parent."""
+    certificate), and commits the certified public half and the lineage,
+    keyed by the agent id the key carries. --root: the coordinator
+    records its own key, with no parent."""
     me, doc = login(), lineage(fabric)
-    my_fpr = key_of_store()
+    my_fpr, my_id = key_of_store(), own_agent_id()
+    if not my_id:
+        raise StoreError("this store has no agent id yet: store-enroll.sh --self")
     kd = keys_dir(fabric)
     os.makedirs(kd, exist_ok=True)
-    if child is None:
-        with open(os.path.join(kd, f"{me}.asc"), "w", encoding="utf-8") as fh:
-            fh.write(export_key(my_fpr))
-        doc[me] = {"fingerprint": my_fpr, "parent": None}
+
+    def record(aid: str, name: str, fpr: str, parent: str | None) -> None:
+        for other, r in doc.items():
+            if other != aid and isinstance(r, dict) and r.get("login") == name:
+                raise StoreError(f"the login {name} is already agent {other}; a login reused is a new agent "
+                                 "only after the old one is retired")
+        if aid in doc and doc[aid].get("login") != name:
+            raise StoreError(f"agent {aid} is {doc[aid].get('login')}, not {name}: a rename is `store rename`")
+        doc[aid] = {"login": name, "born": born_of(aid), "fingerprint": fpr, "parent": parent}
         _write_lineage(doc, fabric)
-        return {"login": me, "fingerprint": my_fpr, "parent": None}
+
+    if child is None:
+        record(my_id, me, my_fpr, None)
+        with open(os.path.join(kd, f"{my_id}.asc"), "w", encoding="utf-8") as fh:
+            fh.write(export_key(my_fpr))
+        return {"login": me, "agent_id": my_id, "fingerprint": my_fpr, "parent": None}
     if not LOGIN_RE.match(child) or child == me:
         raise StoreError(f"{child!r} is not another login")
     fpr = _key_file_fingerprint(key_file)
-    # The key's user id is not checked against the login: what makes the
-    # key the login's is this certification and the committed file under
-    # its name (ADR-038 §5 rule 2), and a test cannot make a second Unix
-    # user to name one — a hook that set the login would be the very thing
-    # the identity invariant forbids.
+    ids = _key_agent_ids(key_file)
+    if len(ids) != 1:
+        raise StoreError(f"the child's key carries {len(ids)} agent ids, not one: it was not made by `store init --agent-id`")
+    aid = ids[0]
+    # The key's name part is not checked against the login: what makes the
+    # key the agent's is this certification and the id it carries (ADR-038
+    # §5 rule 2, ADR-039), and a test cannot make a second Unix user to
+    # name one.
     gpg("--import", key_file)
     gpg("--default-key", my_fpr, "--quick-sign-key", fpr)
-    with open(os.path.join(kd, f"{child}.asc"), "w", encoding="utf-8") as fh:
+    record(aid, child, fpr, my_id)
+    with open(os.path.join(kd, f"{aid}.asc"), "w", encoding="utf-8") as fh:
         fh.write(export_key(fpr))
-    doc[child] = {"fingerprint": fpr, "parent": me}
+    return {"login": child, "agent_id": aid, "fingerprint": fpr, "parent": my_id}
+
+
+def rename(old: str, new: str, fabric: str | None = None) -> dict:
+    """A login renamed: its one lineage field. The id, the key, the store
+    and its repository keep their names (ADR-039)."""
+    doc = lineage(fabric)
+    aid, rec = resolve(old, doc)
+    if not LOGIN_RE.match(new):
+        raise StoreError(f"{new!r} is not a login")
+    if any(isinstance(r, dict) and r.get("login") == new for r in doc.values()):
+        raise StoreError(f"the login {new} is already an agent's")
+    rec["login"] = new
     _write_lineage(doc, fabric)
-    return {"login": child, "fingerprint": fpr, "parent": me}
+    return {"agent_id": aid, "from": old if not AGENT_ID_RE.match(old) else None, "login": new}
 
 
 def verify(fabric: str | None = None) -> list[str]:
     """Every committed key against lineage.json, each on its own:
-    - lineage: exactly one root (parent null), nobody its own parent,
-      and every chain reaching that root without a cycle;
-    - `<login>.asc` holds exactly one primary key, the recorded one;
-    - a child's key carries a valid certification by its PARENT's
-      recorded key, read in a keyring holding only the child's file and
-      the parent's, so a certification found in another file, or a
-      swapped or doubled file, never passes.
+    - lineage: keyed by agent id (a UUIDv7), each naming a login no other
+      agent has, a birth equal to its id's, exactly one root (parent
+      null), nobody its own parent, every chain reaching that root;
+    - `<id>.asc` holds exactly one primary key, the recorded one, with a
+      valid user id addressed to that agent id;
+    - a child's key carries a valid certification of that user id by its
+      PARENT's recorded key, read in a keyring holding only the child's
+      file and the parent's, so a certification found in another file, or
+      a swapped or doubled file, never passes.
     Findings, one line each; [] is clean."""
     doc, kd, findings = lineage(fabric), keys_dir(fabric), []
+    where = "identities/keys/lineage.json"
     if not os.path.isdir(kd):
         return []
     if not isinstance(doc, dict):
-        return ["identities/keys/lineage.json: not an object of login -> {fingerprint, parent}"]
+        return [f"{where}: not an object of agent id -> {{login, born, fingerprint, parent}}"]
     for who in [w for w, r in doc.items() if not isinstance(r, dict)]:
-        findings.append(f"identities/keys/lineage.json: the entry for {who} is not an object")
+        findings.append(f"{where}: the entry for {who} is not an object")
         del doc[who]
+    for who in [w for w in doc if not AGENT_ID_RE.match(w)]:
+        findings.append(f"{where}: {who} is not an agent id (a UUIDv7, ADR-039)")
+        del doc[who]
+    logins: dict[str, str] = {}
+    for who, rec in sorted(doc.items()):
+        name = rec.get("login")
+        if not isinstance(name, str) or not LOGIN_RE.match(name):
+            findings.append(f"{where}: {who} has no login")
+        elif name in logins:
+            findings.append(f"{where}: {who} and {logins[name]} both have the login {name}")
+        else:
+            logins[name] = who
+        if rec.get("born") != born_of(who):
+            findings.append(f"{where}: {who}'s born is not its id's time ({born_of(who)})")
     files = {f[:-4] for f in os.listdir(kd) if f.endswith(".asc")}
     for extra in sorted(files - set(doc)):
         findings.append(f"identities/keys/{extra}.asc: no lineage.json entry")
-    roots = sorted(w for w, r in doc.items() if (r or {}).get("parent") is None)
+    roots = sorted(w for w, r in doc.items() if r.get("parent") is None)
     if doc and len(roots) != 1:
-        findings.append(f"identities/keys/lineage.json: {len(roots)} roots ({', '.join(roots) or 'none'}); "
+        findings.append(f"{where}: {len(roots)} roots ({', '.join(roots) or 'none'}); "
                         "the chain has exactly one, the coordinator's key")
     for who, rec in sorted(doc.items()):
-        parent = (rec or {}).get("parent")
+        parent = rec.get("parent")
         if parent == who:
-            findings.append(f"identities/keys/lineage.json: {who} is its own parent")
+            findings.append(f"{where}: {who} is its own parent")
             continue
         seen, at = {who}, parent
         while at is not None:
             if at in seen or at not in doc:
-                findings.append(f"identities/keys/lineage.json: {who}'s chain "
+                findings.append(f"{where}: {who}'s chain "
                                 + ("loops" if at in seen else f"names {at}, who has no entry") + "; it must reach the root")
                 break
             seen.add(at)
@@ -471,30 +635,42 @@ def verify(fabric: str | None = None) -> list[str]:
                     findings.append(f"identities/keys/{who}.asc: holds {len(held)} key(s), "
                                     f"{'not the recorded ' + fpr if fpr not in held else 'not only the recorded one'}")
                     return
-                if parent is None:
-                    return
-                pfpr = (doc.get(parent) or {}).get("fingerprint")
-                if not pfpr or parent not in files:
-                    findings.append(f"identities/keys/{who}.asc: parent {parent} has no recorded, committed key")
-                    return
-                gpg("--import", os.path.join(kd, f"{parent}.asc"), homedir=tmp, check=False)
-                if pfpr not in fingerprints(homedir=tmp):
-                    findings.append(f"identities/keys/{parent}.asc: does not hold its recorded key")
-                    return
+                addr = f"<{who}@{UID_DOMAIN}>"
+                if parent is not None:
+                    pfpr = (doc.get(parent) or {}).get("fingerprint")
+                    if not pfpr or parent not in files:
+                        findings.append(f"identities/keys/{who}.asc: parent {parent} has no recorded, committed key")
+                        return
+                    gpg("--import", os.path.join(kd, f"{parent}.asc"), homedir=tmp, check=False)
+                    if pfpr not in fingerprints(homedir=tmp):
+                        findings.append(f"identities/keys/{parent}.asc: does not hold its recorded key")
+                        return
+                # Per user id: its validity, and the signatures made on it.
                 r = gpg("--with-colons", "--check-sigs", fpr, homedir=tmp, check=False)
-                good = any(l.startswith("sig:!:") and l.split(":")[4] == pfpr[-16:] for l in r.stdout.decode().splitlines())
-                if not good:
+                on_id, has_id, certified = False, False, False
+                for l in r.stdout.decode().splitlines():
+                    f = l.split(":")
+                    if f[0] == "uid":
+                        on_id = f[1] not in ("r", "e", "i") and addr in f[9]
+                        has_id |= on_id
+                    elif f[0] in ("sub", "pub"):
+                        on_id = False
+                    elif f[0] == "sig" and on_id and parent is not None and f[1] == "!" and f[4] == pfpr[-16:]:
+                        certified = True
+                if not has_id:
+                    findings.append(f"identities/keys/{who}.asc: no valid user id addressed to {who}")
+                elif parent is not None and not certified:
                     findings.append(f"identities/keys/{who}.asc: not certified by its parent {parent}'s key")
             finally:
                 _run(["gpgconf", "--homedir", tmp, "--kill", "all"], check=False)
 
     for who, rec in sorted(doc.items()):
         if who not in files:
-            findings.append(f"identities/keys/lineage.json: {who} has no committed key")
+            findings.append(f"{where}: {who} has no committed key")
             continue
-        if (rec or {}).get("parent") == who:
+        if rec.get("parent") == who:
             continue
-        keyring_check(who, (rec or {}).get("fingerprint"), (rec or {}).get("parent"))
+        keyring_check(who, rec.get("fingerprint"), rec.get("parent"))
     return findings
 
 
@@ -538,6 +714,9 @@ def assign(slug: str, logins: list[str], *, force: bool = False) -> list[dict]:
     CLAUDE_CODE_OAUTH_TOKEN, written by the parent (which cannot read it
     back); the assignment is recorded in the parent's own store, since
     the parent cannot read the child's."""
+    own = store_dir()
+    _before_write(own)
+    _push_if_ahead(own)   # a record an earlier failed push left behind
     vals = values()
     name = _slug_name(slug)
     if not vals.get(name):
@@ -563,14 +742,10 @@ def assign(slug: str, logins: list[str], *, force: bool = False) -> list[dict]:
 
 
 # ── the owner's sheet ─────────────────────────────────────────────────
-def paper(out: str | None = None) -> None:
-    """The agent's secret key as paperkey text, and its revocation
-    certificate, for the owner to print once. Refused inside a model
-    session: a secret is never shown to a model."""
-    if os.environ.get("CLAUDECODE"):
-        raise StoreError("refused inside a model session (CLAUDECODE is set): the owner runs this in a terminal")
-    if out is None and not sys.stdout.isatty():
-        raise StoreError("stdout is not a terminal: pass --out FILE (written 0600) to print it from there")
+def _sheet_text() -> str:
+    """The agent's secret key as paperkey text, with its revocation
+    certificate and how to restore it: the recovery copy, whichever way
+    it leaves the account."""
     if not shutil.which("paperkey"):
         raise StoreError("paperkey is not installed (runtime/provisioning/platform installs it)")
     fpr = key_of_store()
@@ -582,9 +757,25 @@ def paper(out: str | None = None) -> None:
             revocation = fh.read()
     except OSError:
         revocation = "(no revocation certificate found; make one: gpg --gen-revoke " + fpr + ")\n"
-    text = (f"agent-fabric — the key of {login()}\nfingerprint {fpr}\n\n"
+    aid = own_agent_id()
+    if not aid:
+        # The restore line names identities/keys/<id>.asc; without an id it
+        # would name a file that is never written.
+        raise StoreError("this store has no agent id yet (store-enroll.sh): the sheet names the key by it")
+    return (f"agent-fabric — the key of agent {aid} (login {login()} when written)\nfingerprint {fpr}\n\n"
             "Restore: paperkey --pubring <the committed identities/keys/"
-            f"{login()}.asc> --secrets <this sheet> | gpg --import\n\n{sheet}\n{revocation}")
+            f"{aid}.asc> --secrets <this sheet> | gpg --import\n\n{sheet}\n{revocation}")
+
+
+def paper(out: str | None = None) -> None:
+    """The recovery copy to a terminal or a file, for the owner. Refused
+    inside a model session: a secret is never shown to a model."""
+    if os.environ.get("CLAUDECODE"):
+        raise StoreError("refused inside a model session (CLAUDECODE is set): the owner runs this in a terminal; "
+                         "recovery-copy writes the copy encrypted to the recovery key and prints only a path")
+    if out is None and not sys.stdout.isatty():
+        raise StoreError("stdout is not a terminal: pass --out FILE (written 0600) to print it from there")
+    text = _sheet_text()
     if out:
         # O_NOFOLLOW: never through a symlink; fchmod: an existing file's
         # old mode never carries the key.
@@ -596,11 +787,274 @@ def paper(out: str | None = None) -> None:
         sys.stdout.write(text)
 
 
+# ── Proton Drive: the stores' backup and the keys' recovery copies ─────
+# The owner's decision (ADR-038 §7): a dedicated Proton account holds, in
+# /my-files/agent-fabric/, every store as a git bundle (ciphertext only)
+# with a manifest, and each key's recovery copy. The CLI's session is an
+# entry of the running login's own store (PROTON_DRIVE_CREDENTIALS_STORE=
+# pass over this store), so it is readable by this login alone; `auth
+# login` is the owner's, in a terminal. Nothing here prints a value.
+PROTON_ROOT = "/my-files/agent-fabric"
+
+
+def _proton(*args: str, check: bool = True) -> subprocess.CompletedProcess:
+    env = {**os.environ, "PASSWORD_STORE_DIR": store_dir(), "PROTON_DRIVE_CREDENTIALS_STORE": "pass"}
+    exe = os.environ.get("PROTON_DRIVE_BIN") or shutil.which("proton-drive")
+    if not exe:
+        raise StoreError("the Proton Drive CLI is not installed (proton-drive in ~/.local/bin)")
+    r = subprocess.run([exe, *args], capture_output=True, env=env, timeout=600)
+    if check and r.returncode != 0:
+        lines = [l for l in (r.stderr or r.stdout).decode(errors="replace").splitlines() if l.strip()]
+        why = (lines or [f"exit {r.returncode}"])[-1]
+        # The sign-in hint only when the CLI's own words are about signing
+        # in: on any other error it would send the owner the wrong way.
+        hint = (" (the session has lapsed: the owner runs `proton-drive auth login` with PASSWORD_STORE_DIR "
+                "set to this store and PROTON_DRIVE_CREDENTIALS_STORE=pass)"
+                if re.search(r"auth|session|log ?in|401|unauthori", why, re.I) else "")
+        raise StoreError(f"proton-drive {args[0]} {args[1] if len(args) > 1 else ''}: {why}{hint}")
+    return r
+
+
+def _proton_folder(path: str) -> str:
+    """The folder at path, made (with its parents) when absent. Asked with
+    `info`, whose exit status says whether the node exists: `list` prints
+    a decorated table, not paths, and reading it as paths made every run
+    after the first try to create a folder that was there."""
+    if path in ("", "/my-files"):
+        # The drive's root always exists: failing on it is the session or
+        # the network, said in the CLI's own words (and _proton's sign-in
+        # hint), never a recursion past the root.
+        _proton("filesystem", "info", "/my-files")
+        return "/my-files"
+    if _proton("filesystem", "info", path, check=False).returncode == 0:
+        return path
+    parent, name = path.rsplit("/", 1)
+    _proton_folder(parent)
+    _proton("filesystem", "create-folder", parent, name)
+    return path
+
+
+def _upload(local: str, folder: str) -> None:
+    # A new revision, never a replacement: Proton keeps what was there.
+    _proton("filesystem", "upload", "-f", "create-new-revision", "-t", local, folder)
+
+
+def _sha256_file(path: str) -> str:
+    import hashlib
+    h = hashlib.sha256()
+    with open(path, "rb") as fh:
+        for chunk in iter(lambda: fh.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+RECOVERY_UID = f"agent-fabric recovery <recovery@{UID_DOMAIN}>"
+
+
+def recovery_pub(fabric: str | None = None) -> str:
+    return os.path.join(fabric or FABRIC_ROOT, "identities", "recovery.asc")
+
+
+RECOVERY_MIN_PASSPHRASE = 12
+
+
+def _read_recovery_passphrase() -> str:
+    """Asked here, on the owner's terminal, never through gpg's pinentry:
+    the first run left the prompt to the desktop's pinentry, the owner saw
+    none, and the key was made with no private half kept anywhere."""
+    import getpass
+    first = getpass.getpass("recovery passphrase (only you keep it): ")
+    if len(first) < RECOVERY_MIN_PASSPHRASE:
+        raise StoreError(f"a recovery passphrase has at least {RECOVERY_MIN_PASSPHRASE} characters; nothing was made")
+    if getpass.getpass("the same again: ") != first:
+        raise StoreError("the two passphrases differ; nothing was made")
+    return first
+
+
+def _make_recovery_key(homedir: str, passphrase: str) -> tuple[str, str, str]:
+    """The recovery key in homedir, every secret part protected by the
+    passphrase (checked, not assumed); returns its fingerprint, its public
+    half and its protected private half, both armoured."""
+    base = ["gpg", "--homedir", homedir, "--batch", "--pinentry-mode", "loopback", "--passphrase-fd", "0"]
+    def run(*a: str) -> bytes:
+        return subprocess.run([*base, *a], input=passphrase.encode(), capture_output=True, check=True,
+                              env={**os.environ, "GNUPGHOME": homedir}).stdout
+    run("--quick-gen-key", RECOVERY_UID, "ed25519", "cert", "never")
+    fpr = fingerprints(homedir=homedir, secret=True)[0]
+    run("--quick-add-key", fpr, "cv25519", "encr", "never")
+    info = subprocess.run(["gpg-connect-agent", "--homedir", homedir, "KEYINFO --list", "/bye"],
+                          capture_output=True, text=True, check=True).stdout.split("\n")
+    # KEYINFO: S KEYINFO <grip> <type> <serial> <idstr> <cached> <protection> …; P is protected.
+    marks = [l.split()[7] for l in info if l.startswith("S KEYINFO")]
+    if len(marks) != 2 or set(marks) != {"P"}:
+        raise StoreError("the recovery key is not protected by the passphrase; nothing was published")
+    public = gpg("--armor", "--export", fpr, homedir=homedir).stdout.decode()
+    private = run("--armor", "--export-secret-keys", fpr).decode()
+    if "BEGIN PGP PRIVATE KEY BLOCK" not in private:
+        raise StoreError("the recovery key's private half did not export; nothing was published")
+    return fpr, public, private
+
+
+def recovery_key_init(force: bool = False) -> dict:
+    """The owner's recovery key (ADR-038 §5 rule 1): made in a throwaway
+    keyring, protected by a passphrase the owner types here; its protected
+    private half uploaded to Proton (/my-files/agent-fabric/keys/
+    recovery-key-<fpr16>.asc) and never kept on the host, and only then its public
+    half written to identities/recovery.asc, so no agent can encrypt to a
+    key whose private half is kept nowhere. Refused inside a model session:
+    the passphrase is the owner's."""
+    if os.environ.get("CLAUDECODE"):
+        raise StoreError("refused inside a model session: the owner runs this in a terminal and types the passphrase")
+    if not sys.stdin.isatty():
+        raise StoreError("stdin is not a terminal: the owner types the passphrase")
+    pub = recovery_pub()
+    if os.path.exists(pub) and not force:
+        raise StoreError(f"{pub} exists; a new recovery key is a rotation (--force), and every copy is then re-made")
+    passphrase = _read_recovery_passphrase()
+    old = _key_file_fingerprint(pub) if os.path.exists(pub) else None
+    with tempfile.TemporaryDirectory() as tmp:
+        os.chmod(tmp, 0o700)
+        try:
+            fpr, public, private = _make_recovery_key(tmp, passphrase)
+            # Named by its fingerprint, so the new key goes up beside the
+            # old one: every step below that fails leaves recovery.asc
+            # naming a key whose private half is in Proton. Deleting first
+            # once risked the fleet's only recovery key on a failed upload.
+            protected = os.path.join(tmp, _recovery_key_name(fpr))
+            with open(protected, "w", encoding="utf-8") as fh:
+                fh.write(private)
+            _upload(protected, _proton_folder(f"{PROTON_ROOT}/keys"))
+        finally:
+            _run(["gpgconf", "--homedir", tmp, "--kill", "all"], check=False)
+    with open(pub, "w", encoding="utf-8") as fh:
+        fh.write(public)
+    # The key rotated away is deleted, never kept as a revision; copies
+    # still encrypted to it are unreadable from here until each agent's
+    # recovery-copy re-makes its own (it sees the new recipient).
+    if old and old != fpr:
+        name = _recovery_key_name(old)
+        if _proton("filesystem", "info", f"{PROTON_ROOT}/keys/{name}", check=False).returncode == 0:
+            _proton("filesystem", "trash", f"{PROTON_ROOT}/keys/{name}")
+            _proton("filesystem", "delete", f"/trash/{name}")
+    return {"fingerprint": fpr, "public": pub, "private": f"{PROTON_ROOT}/keys/{_recovery_key_name(fpr)}"}
+
+
+def _recovery_key_name(fpr: str) -> str:
+    return f"recovery-key-{fpr[-16:]}.asc"
+
+
+def recovery_copy(force: bool = False) -> dict:
+    """This login's key recovery copy, encrypted to the owner's recovery
+    key, committed into its own store as recovery/<agent id>.key.gpg and
+    pushed; the parent's backup carries it to Proton. Nothing is printed
+    but a path and a hash, and once written not even this login can read
+    it back: only the owner, with the recovery passphrase."""
+    pub = recovery_pub()
+    if not os.path.exists(pub):
+        raise StoreError("no recovery key yet (identities/recovery.asc): the owner runs `fabric-secrets store recovery-key init`")
+    rfpr = _key_file_fingerprint(pub)
+    store = store_dir()
+    key_of_store(store)
+    _before_write(store)
+    aid = own_agent_id(store)
+    if not aid:
+        raise StoreError("this store has no agent id yet (store-enroll.sh)")
+    path = os.path.join(store, "recovery", f"{aid}.key.gpg")
+    note = os.path.join(store, "recovery", f"{aid}.recipient")
+    if os.path.exists(path) and not force and open(note, encoding="utf-8").read().strip() == rfpr:
+        _push_if_ahead(store)
+        return {"path": path, "changed": False, "recipient": rfpr}
+    os.makedirs(os.path.dirname(path), mode=0o700, exist_ok=True)
+    gpg("--trust-model", "always", "--no-encrypt-to", "--encrypt", "--recipient-file", pub,
+        "--output", path + ".tmp", stdin=_sheet_text().encode())
+    os.replace(path + ".tmp", path)
+    with open(note, "w", encoding="utf-8") as fh:
+        fh.write(rfpr + "\n")
+    git(store, "add", os.path.relpath(path, store), os.path.relpath(note, store))
+    _commit(store, f"agent {login()}: recovery copy, encrypted to the recovery key {rfpr[-16:]}")
+    _after_commit(store)
+    return {"path": path, "changed": True, "recipient": rfpr}
+
+
+def _stores() -> dict[str, str]:
+    """This agent's own store and every child mirror it holds: agent id -> dir."""
+    mine = own_agent_id()
+    if not mine:
+        raise StoreError("this store has no agent id yet (store-enroll.sh --self)")
+    out = {mine: store_dir()}
+    try:
+        for child in sorted(os.listdir(children_dir())):
+            d = os.path.join(children_dir(), child)
+            if os.path.isdir(os.path.join(d, ".git")) and AGENT_ID_RE.match(child):
+                out[child] = d
+    except FileNotFoundError:
+        pass
+    return out
+
+
+def backup() -> dict:
+    """Every store this login holds — its own and its children's mirrors,
+    each brought up to its remote first — as a git bundle (the whole
+    history, ciphertext only), with a manifest of each bundle's sha256
+    and head, uploaded to Proton Drive as new revisions."""
+    folder = _proton_folder(f"{PROTON_ROOT}/secrets")
+    import datetime
+    manifest = {"written_by": login(), "stores": {}}
+    manifest["at"] = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    with tempfile.TemporaryDirectory() as tmp:
+        for who, d in _stores().items():
+            _before_write(d)
+            bundle = os.path.join(tmp, f"{REPO_PREFIX}{who}.bundle")
+            git(d, "bundle", "create", bundle, "--all")
+            name = ((lineage().get(who) or {}).get("login")) or (login() if d == store_dir() else None)
+            manifest["stores"][who] = {"bundle": os.path.basename(bundle), "sha256": _sha256_file(bundle), "login": name,
+                                       "head": git(d, "rev-parse", "HEAD").stdout.decode().strip()}
+            # Each store's recovery copy, already encrypted to the owner's
+            # recovery key, also stands alone in keys/ for a restore.
+            rdir = os.path.join(d, "recovery")
+            for f in sorted(os.listdir(rdir)) if os.path.isdir(rdir) else []:
+                if f.endswith(".key.gpg"):
+                    manifest.setdefault("recovery_copies", {})[f] = _sha256_file(os.path.join(rdir, f))
+                    _upload(os.path.join(rdir, f), _proton_folder(f"{PROTON_ROOT}/keys"))
+        mpath = os.path.join(tmp, "manifest.json")
+        with open(mpath, "w", encoding="utf-8") as fh:
+            fh.write(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
+        for name in sorted(os.listdir(tmp)):
+            _upload(os.path.join(tmp, name), folder)
+    return manifest
+
+
+def verify_backup() -> list[str]:
+    """Download the manifest and every bundle it names, and check each
+    against its sha256 and `git bundle verify`. Findings; [] is clean."""
+    folder = f"{PROTON_ROOT}/secrets"
+    findings = []
+    with tempfile.TemporaryDirectory() as tmp:
+        # `git bundle verify` needs a repository around it: run from one
+        # that is not, it failed every good bundle. An empty one of its own,
+        # never the caller's cwd, which could be any repository or none.
+        empty = os.path.join(tmp, ".verify-repo")
+        os.makedirs(empty)
+        git(empty, "init", "-q")
+        _proton("filesystem", "download", "-f", "remove", f"{folder}/manifest.json", tmp)
+        manifest = json.load(open(os.path.join(tmp, "manifest.json"), encoding="utf-8"))
+        for who, rec in sorted(manifest.get("stores", {}).items()):
+            _proton("filesystem", "download", "-f", "remove", f"{folder}/{rec['bundle']}", tmp)
+            local = os.path.join(tmp, rec["bundle"])
+            if _sha256_file(local) != rec["sha256"]:
+                findings.append(f"{rec['bundle']}: its sha256 is not the manifest's")
+                continue
+            if _run(["git", "bundle", "verify", local], cwd=empty, check=False).returncode != 0:
+                findings.append(f"{rec['bundle']}: git bundle verify fails")
+    return findings
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="fabric-secrets store", description="this agent's encrypted secrets (ADR-038)")
     sub = ap.add_subparsers(dest="cmd", required=True)
     i = sub.add_parser("init")
     i.add_argument("--remote")
+    i.add_argument("--agent-id", help="the id the parent minted at enrolment (store-enroll.sh)")
     s = sub.add_parser("set")
     s.add_argument("name")
     n = sub.add_parser("names")
@@ -609,6 +1063,14 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("login")
     p.add_argument("name")
     p.add_argument("--store")
+    mi = sub.add_parser("mint-id", help="a new agent id whose time is the birth given")
+    mi.add_argument("born", help='the birth: "now", ISO 8601, or as `stat -c %%w` prints it')
+    sub.add_parser("id", help="this store's agent id")
+    io = sub.add_parser("id-of", help="the agent id lineage.json records for a login")
+    io.add_argument("login")
+    rn = sub.add_parser("rename", help="a login renamed: its lineage entry, nothing else")
+    rn.add_argument("old")
+    rn.add_argument("new")
     c = sub.add_parser("certify")
     c.add_argument("login", nargs="?")
     c.add_argument("key_file", nargs="?")
@@ -618,6 +1080,13 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("push")
     pa = sub.add_parser("paper")
     pa.add_argument("--out")
+    rc = sub.add_parser("recovery-copy")
+    rc.add_argument("--force", action="store_true", help="re-make it even when it is encrypted to the current recovery key")
+    rk = sub.add_parser("recovery-key")
+    rk.add_argument("action", choices=["init"])
+    rk.add_argument("--force", action="store_true", help="rotate: a new recovery key; every copy is then re-made")
+    bk = sub.add_parser("backup")
+    bk.add_argument("--verify", action="store_true", help="download the backup and check it against its manifest")
     sub.add_parser("import-doppler")
     ts = sub.add_parser("template-set")
     ts.add_argument("slug")
@@ -631,8 +1100,20 @@ def main(argv: list[str] | None = None) -> int:
     args = ap.parse_args(argv)
     try:
         if args.cmd == "init":
-            r = init(args.remote)
-            print(f"store: {r['store']}  key: {r['fingerprint']}{' (made)' if r['key_made'] else ''}")
+            r = init(args.remote, args.agent_id)
+            print(f"store: {r['store']}  agent: {r['agent_id']}  key: {r['fingerprint']}{' (made)' if r['key_made'] else ''}")
+        elif args.cmd == "mint-id":
+            print(mint_agent_id(born_ms_of(args.born)))
+        elif args.cmd == "id":
+            aid = own_agent_id()
+            if not aid:
+                raise StoreError("this store has no agent id yet")
+            print(aid)
+        elif args.cmd == "id-of":
+            print(resolve(args.login)[0])
+        elif args.cmd == "rename":
+            r = rename(args.old, args.new)
+            print(f"agent {r['agent_id']}: now {r['login']}")
         elif args.cmd == "set":
             r = set_entry(args.name, sys.stdin.buffer.read())
             print(f"{args.name}: {'set' if r['changed'] else 'unchanged'}")
@@ -648,7 +1129,7 @@ def main(argv: list[str] | None = None) -> int:
             if args.login and not args.key_file:
                 raise StoreError("certify LOGIN needs the child's exported public key file")
             r = certify(None if args.root else args.login, args.key_file)
-            print(f"{r['login']}: {r['fingerprint']}, parent {r['parent'] or '(root)'}")
+            print(f"{r['login']} ({r['agent_id']}): {r['fingerprint']}, parent {r['parent'] or '(root)'}")
         elif args.cmd == "export-key":
             sys.stdout.write(export_key())
         elif args.cmd == "push":
@@ -664,6 +1145,20 @@ def main(argv: list[str] | None = None) -> int:
             return 1 if f else 0
         elif args.cmd == "paper":
             paper(args.out)
+        elif args.cmd == "recovery-copy":
+            r = recovery_copy(args.force)
+            print(f"{r['path']}: {'written' if r['changed'] else 'unchanged'}, encrypted to the recovery key {r['recipient'][-16:]}")
+        elif args.cmd == "recovery-key":
+            r = recovery_key_init(args.force)
+            print(f"recovery key {r['fingerprint']}: public half {r['public']} (commit it), protected private half {r['private']}")
+        elif args.cmd == "backup":
+            if args.verify:
+                f = verify_backup()
+                print("\n".join(f) if f else "backup: every bundle matches its manifest")
+                return 1 if f else 0
+            m = backup()
+            for who, rec in sorted(m["stores"].items()):
+                print(f"{PROTON_ROOT}/secrets/{rec['bundle']}  sha256 {rec['sha256'][:16]}…  head {rec['head'][:12]}")
         elif args.cmd == "template-set":
             r = template_set(args.slug, sys.stdin.buffer.read())
             print(f"template {args.slug}: {'set' if r['changed'] else 'unchanged'}")

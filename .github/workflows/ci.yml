@@ -53,6 +53,11 @@ jobs:
           python-version: ${{ matrix.python }}
       - name: the schema validator lint prefers (its structural fallback covers a clean machine)
         run: python3 -m pip install --quiet --disable-pip-version-check jsonschema
+      # A host tool the fabric requires (platform/detect.sh FABRIC_HOST_TOOLS):
+      # the store's suite makes a real recovery copy with it, and fails
+      # where it is missing rather than skip the case.
+      - name: paperkey, for the recovery copy the store's suite makes
+        run: sudo apt-get install -y --no-install-recommends paperkey
       - name: no machine attribution in commits or the PR description
         run: bash policies/ban_generated_by_attribution.sh
       - name: every suite, every guard

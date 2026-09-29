@@ -183,7 +183,12 @@ export async function main(argv = process.argv.slice(2), { home = os.homedir(), 
     const bad = rows.some(r => !['written', 'unchanged'].includes(r.status));
     const changed = rows.filter(r => r.status === 'written').map(r => r.login);
     const reached = rows.filter(r => ['written', 'unchanged'].includes(r.status)).map(r => r.login);
-    if (noSync || !reached.length) { if (changed.length) console.error('fabric-accounts: --no-sync — each changed login applies it at its next fabric-secrets sync'); return bad ? 1 : 0; }
+    // With --no-sync nothing proves the move; a login whose Doppler write
+    // could not be made may still read Doppler, so its row is a failure
+    // here (with a sync, --expect is the proof and says it loudly).
+    const unproven = noSync ? rows.filter(r => r.doppler === 'unavailable').map(r => r.login) : [];
+    if (unproven.length) console.error(`fabric-accounts: --no-sync, and Doppler could not be written for ${unproven.join(', ')}: a login still on Doppler would keep its old account`);
+    if (noSync || !reached.length) { if (changed.length) console.error('fabric-accounts: --no-sync — each changed login applies it at its next fabric-secrets sync'); return bad || unproven.length ? 1 : 0; }
     // Every named login applies it now through its own daemon (a signed
     // action) — the unchanged ones too, since a Doppler reference says
     // nothing of what the account last synced — and proves it against the

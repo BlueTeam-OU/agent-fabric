@@ -163,8 +163,8 @@ plane's (`test_check_charter_authority.sh`).
 
 ## An identity's secrets
 
-Each login's secrets are its own store, `<org>/secrets-<login>`, encrypted
-to its key alone (ADR-038): the login writes and reads it; its parent,
+Each agent's secrets are its own store, `<org>/agent-fabric-secrets-<id>`
+(its agent id, ADR-039), encrypted to its key alone (ADR-038): the login writes and reads it; its parent,
 the `fabric-coordinator` login that provisioned it, may add an entry
 (`fabric-secrets store put`) and certifies its key, and reads nothing.
 Making a key and store (`store-enroll.sh`), certifying keys

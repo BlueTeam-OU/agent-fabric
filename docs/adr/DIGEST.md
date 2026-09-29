@@ -759,22 +759,47 @@ searches it.
 - Keywords: job, to-do, jobs.json, fabric-jobs, next, topic, fresh
   session, restart, fabric-fresh --job, working copy, intake, P3, proposed.
 
-### ADR-038 — Each agent owns its key and its secrets (Proposed)
+### ADR-038 — Each agent owns its key and its secrets (Accepted)
 
 - The login is the principal and the key its credential: one key per
   login, made in the account, whose private half leaves only as the
   agent's paper sheet (§2, §5 rules 1, 6).
 - A key is an agent's when its public half is committed at
-  `identities/keys/<login>.asc` and certified by its parent recorded in
+  `identities/keys/<id>.asc` and certified by its parent recorded in
   `lineage.json`; lint refuses one without (§5 rule 2).
 - Each agent's secrets are a private pass(1)-format repository,
-  `gzapi-org/secrets-<login>`, encrypted to that key alone: the parent
+  `gzapi-org/agent-fabric-secrets-<id>`, encrypted to that key alone: the parent
   writes (`fabric-secrets put`) and never reads (§5 rule 3).
 - No step relies on a shared host; a key names no host and moves with its
   login's home (§5 rules 4–5).
 - `sync` writes the same `secrets.env` from either source; migration from
   Doppler compares by sha256 and falls back on a mismatch (§5 rules 7–8).
-  Waits on the owner's acceptance (§8).
-- Keywords: secrets, key, GPG, pass, QtPass, browserpass, paperkey,
+- A 2026-09-29 — each key's recovery copy and every store's backup go to a
+  Proton Drive account dedicated to the fleet, not to paper (§5 rules 1, 6; §6).
+- A 2026-09-29 — the recovery copies are encrypted to the owner's recovery key,
+  whose passphrase only the owner holds; no agent can read one (§5 rules 1, 6; §6).
+- A 2026-09-29 — keys, lineage and repositories are named by the agent id
+  (ADR-039), not the login (§2, §5 rule 2).
+- Keywords: secrets, key, GPG, pass, QtPass, browserpass, paperkey, Proton Drive, backup,
   identity, lineage, parent, custody, recovery, Doppler, migration,
-  placement, P1, proposed.
+  placement, P1.
+
+### ADR-039 — The agent id is a UUIDv7 minted at birth (Proposed)
+
+- Each agent has an id, a UUIDv7 whose time is its birth: an existing
+  account's home creation time, a new one's enrolment. It is minted once
+  by the parent and never replaced (§5 rule 1).
+- The id identifies the agent across renames; the login is its current
+  name. What is stored is named by the id; commands take a login (or an
+  id) and resolve it first; a repository's description gives both
+  (§2, §5 rule 5).
+- A rename changes the entry's `login` and the description, and nothing
+  stored moves (§5 rule 6).
+- `lineage.json` is keyed by id (`login`, `born`, `fingerprint`, parent id);
+  keys are `identities/keys/<id>.asc`, their user id `<id>@agents.agent-fabric`,
+  certified there by the parent (§5 rules 2–3).
+- Secrets repositories are `agent-fabric-secrets-<id>`, and so are mirrors,
+  bundles and recovery copies (§5 rule 4).
+- A reused login is a new agent with a new id (§5 rule 7).
+- Keywords: agent id, UUIDv7, birth, rename, identity, lineage, key,
+  secrets repository, P1.
