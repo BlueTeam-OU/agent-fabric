@@ -14,7 +14,7 @@
 # reached directly (today's sudo and filesystem access, unchanged), any
 # other over ssh, with the same worker on the far side — the backend is
 # the registry's choice, never the caller's. What the coordinator keeps
-# to itself (Doppler, the API keys) never goes through here; what is
+# to itself (its own store, the API keys) never goes through here; what is
 # host-local (accounts, homes, installers, a shell, a rename, a drain)
 # always does. A path given as @fabric/<rel> is under the fabric checkout
 # on the TARGET host, wherever its operator keeps it. ADR-010.

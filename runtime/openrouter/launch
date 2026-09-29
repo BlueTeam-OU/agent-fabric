@@ -108,8 +108,8 @@
 # CREDENTIAL: an OpenRouter API key per agent account, as
 # OPENROUTER_API_KEY in that account's environment — exported by
 # ~/.config/agent-fabric/secrets.env, which `fabric-secrets sync` writes
-# from the account's own Doppler config (runtime/provisioning/README.md,
-# "Secrets") — never in the repo.
+# from the account's own store (runtime/provisioning/README.md,
+# "Secrets"; ADR-038) — never in the repo.
 set -uo pipefail
 
 # This file by absolute path: every re-exec below runs it again, and the

@@ -19,7 +19,7 @@ fabric checkout is fast-forwarded (`git -C ~/projects/agent-fabric pull
 --ff-only origin main` — it is read-only for the account, so it can only be
 behind), `bootstrap.sh` re-runs from it (hooks, agent files, skills, workspace
 settings; idempotent), and `fabric-secrets sync --quiet` pulls the account's
-Doppler config into `~/.config/agent-fabric/secrets.env` so a rotated value
+own store into `~/.config/agent-fabric/secrets.env` so a rotated value
 arrives too. Each step is capped (30/30/20 s); offline, what is there stands
 and only a problem prints a line.
 
