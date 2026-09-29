@@ -2,10 +2,11 @@
 # runtime/provisioning/test_new-agent.sh — new-agent.sh refuses what the
 # fabric does not know, its dry run names every step without touching the
 # host, and the REAL sequence — against fakes for sudo, useradd, getent,
-# id, curl (the vendor installers), ssh-keyscan, git clone, doppler and
-# enroll.sh, in a sandbox — stops where a step fails, names it, runs
-# nothing after it, and converges on the re-run (review, 2026-09-16).
-# Root, Doppler and the network are what the fakes stand in for.
+# id, curl (the vendor installers), ssh-keyscan, git clone, store-enroll.sh
+# and fabric-secrets provision, in a sandbox — stops where a step fails,
+# names it, runs nothing after it, and converges on the re-run (review,
+# 2026-09-16). Root, the stores and the network are what the fakes stand
+# in for.
 set -uo pipefail
 HERE="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"; ROOT="$(cd "$HERE/../.." && pwd)"
 UNDER_TEST="$HERE/new-agent.sh"
@@ -42,11 +43,10 @@ out="$(run some-login backend-dev --host nowhere --dry-run)"; [[ $? -eq 1 ]] && 
 echo "new-agent: the dry run names every step and touches nothing"
 out="$(run zz-fixture-login backend-dev --project gzapp --project agent-fabric --dry-run)"; rc=$?
 [[ $rc -eq 0 ]] && ok "exits 0" || bad "rc=$rc" "$out"
-for step in "useradd" "chmod 700" "mkdir -p" "curl -fsSL https://claude.ai/install.sh | bash -s -- " "curl -fsSL https://openrouter.ai/labs/ori/install.sh | bash" "append GitHub's published host keys" "git clone -q 'https://github.com/gzapi-org/agent-fabric.git'" "enroll.sh zz-fixture-login; fill-from" "issue-openrouter-keys and issue-openai-keys" "git clone -q 'git@github.com:gzapi-org/gzapp.git'" "bootstrap.sh" "fabric-role bind 'backend-dev'"; do
+for step in "useradd" "chmod 700" "mkdir -p" "curl -fsSL https://claude.ai/install.sh | bash -s -- " "curl -fsSL https://openrouter.ai/labs/ori/install.sh | bash" "append GitHub's published host keys" "git clone -q 'https://github.com/gzapi-org/agent-fabric.git'" "store-enroll.sh zz-fixture-login --host" "provision identity, share, issue-key openrouter and openai" "git clone -q 'git@github.com:gzapi-org/gzapp.git'" "bootstrap.sh" "fabric-role bind 'backend-dev'"; do
     grep -qF "$step" <<<"$out" && ok "plans: $step" || bad "missing step: $step" "$out"
 done
 grep -q "dry run: nothing verified" <<<"$out" && ok "…and verifies nothing" || bad "verified in dry run" "$out"
-grep -q "would: store-enroll.sh zz-fixture-login --host" <<<"$out" && ok "…and names step 5b, the account's key and store (ADR-038)" || bad "5b not in the dry run" "$out"
 ! getent passwd zz-fixture-login >/dev/null && ok "no account was created" || bad "an account was created by a dry run"
 grep -q "git@github.com" <<<"$out" && ok "a project clone uses the registry's SSH remote" || bad "remote" "$out"
 ! grep -qi "copied\|copy from" <<<"$out" && ok "no binary is ever copied from another account" || bad "a copy fallback is planned" "$out"
@@ -76,8 +76,9 @@ cp "$ROOT/runtime/claude-code/harness.json" "$FAB/runtime/claude-code/"
 # sandbox home; getent answers for it; curl "installs" claude/ori from a
 # fixture; ssh-keyscan answers a fixture key; git clones from a local bare
 # repo (AGENT_FABRIC_CLONE_URL and a registry pointing at it); a fake
-# enroll.sh records its calls and a fake doppler answers config_has. A
-# fault file names one command the fakes must fail.
+# store-enroll.sh and a fake fabric-secrets record their calls, and the
+# fake provision keeps the names a store holds in $SEQ/enrolled. A fault
+# file names one command the fakes must fail.
 echo "new-agent: the real sequence, then a failure at each step"
 SEQ="$SANDBOX/seq"; BIN="$SEQ/bin"; HOMES="$SEQ/home"; FAULT="$SEQ/fault"; CALLS="$SEQ/calls"; mkdir -p "$BIN" "$HOMES"
 export PATH="$BIN:/usr/bin:/bin"
@@ -154,25 +155,32 @@ cat > "$BIN/ssh-keyscan" <<STUB
 #!/usr/bin/env bash
 echo "ssh-keyscan \$*" >> "$CALLS"; echo "fake: ssh-keyscan must never be called (the host keys are committed)" >&2; exit 99
 STUB
-cat > "$BIN/doppler" <<STUB
+mkdir -p "$SEQ/secrets" "$SEQ/tools"
+cat > "$SEQ/secrets/store-enroll.sh" <<STUB
 #!/usr/bin/env bash
-case "\$*" in
-  "configure get enclave.config --plain --scope /") [[ -f "$SEQ/enrolled" ]] && printf 'agents_x' || exit 1 ;;
-  "secrets --only-names --json "*) [[ -f "$SEQ/enrolled" ]] && cat "$SEQ/enrolled" || echo '{}' ;;
-  *) exit 9 ;;
-esac
+echo "store-enroll \$*" >> "$CALLS"
+grep -qsxF "store-enroll" "$FAULT" && { echo "store-enroll: injected failure" >&2; exit 1; }
+[[ -f "$SEQ/enrolled" ]] || echo '[]' > "$SEQ/enrolled"
 STUB
-cat > "$SEQ/enroll.sh" <<STUB
+# provision answers rows as the real one does: a name the store holds is
+# present, any other is written and remembered.
+cat > "$SEQ/secrets/fabric-secrets" <<STUB
 #!/usr/bin/env bash
-echo "enroll \$*" >> "$CALLS"
-grep -qsxF "enroll \$1" "$FAULT" && { echo "enroll: injected failure" >&2; exit 1; }
-case "\$1" in
-  fill-from) exit 0 ;;
-  issue-openrouter-keys) python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); d["OPENROUTER_API_KEY"]={}; json.dump(d,open(sys.argv[1],"w"))' "$SEQ/enrolled" ;;
-  issue-openai-keys) python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); d["OPENAI_API_KEY"]={}; json.dump(d,open(sys.argv[1],"w"))' "$SEQ/enrolled" ;;
-  *) [[ -f "$SEQ/enrolled" ]] || echo '{"AGENT_LOGIN": {}}' > "$SEQ/enrolled"; echo "enroll: verification OK" ;;
-esac
+echo "secrets \$*" >> "$CALLS"
+[[ "\$1" == provision ]] || exit 9
+grep -qsxF "provision \$2" "$FAULT" && { echo "provision: injected failure" >&2; exit 1; }
+case "\$2" in identity) names="AGENT_LOGIN AGENT_HOST" ;; share) names="GH_TOKEN SSH_PRIVATE_KEY" ;;
+  issue-key) [[ "\$3" == openrouter ]] && names=OPENROUTER_API_KEY || names=OPENAI_API_KEY ;; esac
+python3 - "$SEQ/enrolled" \$names <<'PY'
+import json, sys
+f, names = sys.argv[1], sys.argv[2:]
+have = json.load(open(f))
+rows = [{"login": "x", "name": n, "status": "present" if n in have else "written"} for n in names]
+json.dump(sorted(set(have) | set(names)), open(f, "w"))
+print(json.dumps(rows))
+PY
 STUB
+printf '#!/usr/bin/env python3\nimport sys\nsys.exit(0 if sys.argv[1:] == ["export-key"] else 9)\n' > "$SEQ/tools/secret_store.py"
 printf '#!/usr/bin/env bash\necho "gh auth: Logged in to github.com"\n' > "$BIN/gh"
 cat > "$BIN/git" <<STUB
 #!/usr/bin/env bash
@@ -181,7 +189,7 @@ exec /usr/bin/git "\$@"
 STUB
 printf '#!/usr/bin/env bash\n[[ "$1" == ci ]] && mkdir -p node_modules; exit 0\n' > "$BIN/npm"
 printf '#!/usr/bin/env bash\nexit 0\n' > "$BIN/gpg"
-chmod +x "$BIN"/* "$SEQ/enroll.sh"
+chmod +x "$BIN"/* "$SEQ/secrets/"*
 SSHLOG="$SEQ/ssh.log"
 # The far host is this machine behind a fake ssh, so it must answer as
 # itself: a fake hostname, first on the remote PATH, says far-host.
@@ -197,7 +205,8 @@ seq_run() { rm -f "$CALLS"; local h=(); [[ "$BACKEND" == ssh ]] && h=(--host far
   AGENT_FABRIC_ACCOUNTS_SNAPSHOT="$SANDBOX/persist/snap" AGENT_FABRIC_RC_LOCAL_D="$SANDBOX/persist/rcd" AGENT_FABRIC_ETC="$SANDBOX/persist/etc" AGENT_FABRIC_LOGINCTL="$BIN/loginctl" \
   AGENT_FABRIC_LEASES="$SANDBOX/persist/leases" AGENT_FABRIC_TMPFILES_D="$SANDBOX/persist/tmpfiles.d" \
   bash "$FAB/runtime/provisioning/new-agent.sh" "$@" "${h[@]}" 2>&1; }
-cp "$SEQ/enroll.sh" "$FAB/runtime/provisioning/secrets/enroll.sh"
+cp "$SEQ/secrets/store-enroll.sh" "$SEQ/secrets/fabric-secrets" "$FAB/runtime/provisioning/secrets/"
+mkdir -p "$FAB/tools/fabric"; cp "$SEQ/tools/secret_store.py" "$FAB/tools/fabric/"
 reset_seq() { rm -rf "$HOMES" "$SEQ/passwd" "$SEQ/enrolled" "$FAULT" "$SANDBOX/persist/etc/subuid" "$SANDBOX/persist/etc/subgid"; mkdir -p "$HOMES"; }
 
 for BACKEND in local ssh; do
@@ -205,26 +214,24 @@ echo "new-agent: the real sequence on the $BACKEND backend"
 : > "$SSHLOG"
 reset_seq; out="$(seq_run seq-login backend-dev --project demo)"; rc=$?
 [[ $rc -eq 0 ]] && ok "the whole sequence exits 0" || bad "rc=$rc" "$out"
-# 5b: the fixture fabric has no store for this login (no tools/fabric/
-# secret_store.py answers export-key), so the step is said and skipped,
-# never a stop; with a parent store it calls store-enroll.sh for the
-# account on its placed host.
-grep -q "5b. skipped: this login has no store of its own yet" <<<"$out" && ok "5b without a parent store: said and skipped, the sequence goes on" || bad "5b skip" "$out"
+grep -qx "store-enroll seq-login --host $( [[ "$BACKEND" == ssh ]] && echo far-host || echo "$LOCAL" ) --born-now" "$CALLS" \
+  && grep -q "^secrets provision identity seq-login --host" "$CALLS" && grep -q "^secrets provision share seq-login" "$CALLS" \
+  && grep -q "5. its key made and certified, its store filled and synced" <<<"$out" \
+  && ok "5: the account keyed on its host, its store filled by the parent, and synced" || bad "step 5" "$(cat "$CALLS") $out"
 if [[ "$BACKEND" == local ]]; then
-  mkdir -p "$FAB/tools/fabric"
-  printf '#!/usr/bin/env python3\nimport sys\nsys.exit(0 if sys.argv[1:] == ["export-key"] else 9)\n' > "$FAB/tools/fabric/secret_store.py"
-  printf '#!/usr/bin/env bash\necho "store-enroll $*" >> "%s"\n' "$CALLS" > "$FAB/runtime/provisioning/secrets/store-enroll.sh"
-  chmod +x "$FAB/runtime/provisioning/secrets/store-enroll.sh"
-  reset_seq; out5b="$(seq_run seq-login backend-dev --project demo)"; rc5b=$?
-  grep -qx "store-enroll seq-login --host $LOCAL --born-now" "$CALLS" && grep -q "5b. its key made and certified" <<<"$out5b" \
-    && ok "5b with a parent store: store-enroll.sh for the account on its host" || bad "5b enrol (rc=$rc5b)" "$(cat "$CALLS" 2>/dev/null) $out5b"
-  rm -f "$FAB/tools/fabric/secret_store.py" "$FAB/runtime/provisioning/secrets/store-enroll.sh"
+  # A parent without a store of its own cannot key a child: a stop, named,
+  # before any clone.
+  rm "$FAB/tools/fabric/secret_store.py"
+  reset_seq; outns="$(seq_run seq-login backend-dev --project demo)"; rcns=$?
+  [[ $rcns -eq 1 ]] && grep -q "store-enroll.sh --self first" <<<"$outns" && ! grep -q "^store-enroll" "$CALLS" && [[ ! -d "$HOMES/seq-login/projects/demo" ]] \
+    && ok "no parent store: stopped at step 5, named, nothing after it" || bad "no parent store (rc=$rcns)" "$outns"
+  cp "$SEQ/tools/secret_store.py" "$FAB/tools/fabric/"
   reset_seq; out="$(seq_run seq-login backend-dev --project demo)"; rc=$?   # back to the plain run the next checks read
 fi
 grep -q "persist-accounts.sh seq-login" "$CALLS" && grep -q "^loginctl enable-linger seq-login" "$CALLS" && ok "the account is persisted: persist-accounts.sh through sudo, linger enabled" || bad "persist step missing" "$(grep -i "persist\|linger" "$CALLS")"
 H="$HOMES/seq-login"
 [[ -x "$H/.local/bin/claude" && -x "$H/.local/bin/ori" && -d "$H/projects/agent-fabric/.git" && -d "$H/projects/demo/.git" && -d "$H/projects/demo/node_modules" ]] \
-  && [[ "$(grep -c "^github.com " "$H/.ssh/known_hosts")" == "$(grep -c . "$ROOT/runtime/provisioning/github-host-keys")" ]] && ! grep -q "^ssh-keyscan" "$CALLS" && grep -q "^enroll fill-from" "$CALLS" && grep -q "^enroll issue-openrouter-keys" "$CALLS" \
+  && [[ "$(grep -c "^github.com " "$H/.ssh/known_hosts")" == "$(grep -c . "$ROOT/runtime/provisioning/github-host-keys")" ]] && ! grep -q "^ssh-keyscan" "$CALLS" && grep -q "^secrets provision issue-key openrouter seq-login" "$CALLS" && grep -q "^secrets provision issue-key openai seq-login" "$CALLS" \
   && ok "account, binaries, the published host keys (no keyscan), fabric and project clones, enrolment, toolchain all there" || bad "sequence incomplete" "$out
 $(cat "$CALLS")"
 [[ "$(ssh-keygen -lf "$H/.ssh/known_hosts" | awk '{print $2, $4}' | tr -d '()' | sort)" == "$(sort "$ROOT/runtime/provisioning/github-host-keys.fingerprints")" ]] \
@@ -236,15 +243,15 @@ if [[ "$BACKEND" == ssh ]]; then
   grep -q "new-agent-worker.sh host-check seq-login" "$SSHLOG" && grep -q "new-agent-worker.sh prepare seq-login backend-dev" "$SSHLOG" && grep -q "new-agent-worker.sh finish seq-login backend-dev --clone demo=" "$SSHLOG" \
     && ok "ssh: host-check, prepare and finish each went to the far host's worker" || bad "ssh phases" "$(cat "$SSHLOG")"
   grep -q "^new-agent: host far-host (over ssh)" <<<"$out" && ok "…and the run says so" || bad "no ssh host line" "$out"
-  ! grep -q "enroll" "$SSHLOG" && ok "…while enrolment stayed on the coordinator" || bad "enroll went over ssh" "$(cat "$SSHLOG")"
+  ! grep -q "store-enroll\|fabric-secrets provision" "$SSHLOG" && grep -q "fabric-secrets sync" "$SSHLOG" && ok "…while the store was filled on the coordinator, and only the sync ran on the host" || bad "secrets over ssh" "$(cat "$SSHLOG")"
 else
   [[ ! -s "$SSHLOG" ]] && ok "local: ssh never called" || bad "ssh called on the local backend" "$(cat "$SSHLOG")"
 fi
 out="$(seq_run seq-login backend-dev --project demo)"
-grep -q "1. account seq-login exists" <<<"$out" && grep -q "2. claude $PIN present" <<<"$out" && grep -q "OpenRouter key: present" <<<"$out" && ! grep -q "^useradd" "$CALLS" && ! grep -q "^usermod --add-subuids" "$CALLS" && grep -q "subuid/subgid: 524288:65536" <<<"$out" \
+grep -q "1. account seq-login exists" <<<"$out" && grep -q "2. claude $PIN present" <<<"$out" && grep -q "OpenRouter key: 1 present" <<<"$out" && ! grep -q "^useradd" "$CALLS" && ! grep -q "^usermod --add-subuids" "$CALLS" && grep -q "subuid/subgid: 524288:65536" <<<"$out" \
   && ok "a second run skips every step already true" || bad "not idempotent" "$out"
 
-for fault in useradd "git" "enroll seq-login" "enroll fill-from" curl; do
+for fault in useradd "git" "store-enroll" "provision share" curl; do
   reset_seq
   case "$fault" in
     git) printf 'git\n' > "$FAULT" ;;              # the fake git fails a clone
@@ -255,9 +262,10 @@ for fault in useradd "git" "enroll seq-login" "enroll fill-from" curl; do
     ok "a failed '$fault' stops the script, named, before the closing list"
   else bad "a failed '$fault' did not stop the script (rc=$rc)" "$out"; fi
   case "$fault" in
-    useradd) [[ ! -d "$H" ]] && ! grep -q "^curl\|^enroll" "$CALLS" && ok "…and nothing after useradd ran" || bad "steps ran after the failed useradd" "$(cat "$CALLS")" ;;
-    curl) ! grep -q "^enroll\|^ssh-keyscan" "$CALLS" && ok "…and nothing after the installer ran" || bad "steps ran after the failed installer" "$(cat "$CALLS")" ;;
-    "enroll seq-login") ! grep -q "^enroll fill-from" "$CALLS" && [[ ! -d "$H/projects/demo" ]] && ok "…and no clone, no fill-from after a failed enrolment" || bad "steps ran after the failed enrolment" "$(cat "$CALLS")" ;;
+    useradd) [[ ! -d "$H" ]] && ! grep -q "^curl\|^store-enroll" "$CALLS" && ok "…and nothing after useradd ran" || bad "steps ran after the failed useradd" "$(cat "$CALLS")" ;;
+    curl) ! grep -q "^store-enroll\|^ssh-keyscan" "$CALLS" && ok "…and nothing after the installer ran" || bad "steps ran after the failed installer" "$(cat "$CALLS")" ;;
+    store-enroll) ! grep -q "^secrets provision" "$CALLS" && [[ ! -d "$H/projects/demo" ]] && ok "…and no clone, nothing provisioned after a failed enrolment" || bad "steps ran after the failed enrolment" "$(cat "$CALLS")" ;;
+    "provision share") ! grep -q "^secrets provision issue-key" "$CALLS" && [[ ! -d "$H/projects/demo" ]] && ok "…and no key minted, no clone after a failed share" || bad "steps ran after the failed share" "$(cat "$CALLS")" ;;
   esac
   rm -f "$FAULT"; out="$(seq_run seq-login backend-dev --project demo)"; rc=$?
   [[ $rc -eq 0 ]] && [[ -d "$H/projects/demo/node_modules" ]] && ok "…and the re-run after '$fault' converges" || bad "re-run after '$fault' did not converge (rc=$rc)" "$out

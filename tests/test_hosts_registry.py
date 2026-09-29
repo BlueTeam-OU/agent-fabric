@@ -72,7 +72,7 @@ def test_the_committed_key_parses_as_a_daemon_reads_it() -> None:
 def test_keygen_writes_a_registry_the_schema_admits() -> None:
     """keygen's own output, not a hand-made fixture: the first real key
     failed lint because nothing had put the writer's output through the
-    schema. Doppler is faked; the registry keygen writes is then linted."""
+    schema. The store is faked; the registry keygen writes is then linted."""
     with tempfile.TemporaryDirectory() as tmp:
         root = os.path.join(tmp, "fabric")
         shutil.copytree(os.path.join(ROOT, "runtime", "hosts", "schema"), os.path.join(root, "runtime", "hosts", "schema"))
@@ -82,7 +82,7 @@ def test_keygen_writes_a_registry_the_schema_admits() -> None:
                        "hosts": {"h": {"platform": "fedora", "ssh": None, "operator": "user", "fabric": "~/projects/agent-fabric"}}}, fh)
         js = ("import('./runtime/control/ctl.mjs').then(m => { console.log = () => {}; "
               "process.exit(m.keygen({ force: false }, { registry: process.env.REG, who: { host: 'h', agent: 'user' }, "
-              "exec: (bin, args) => (args[0] === 'configure' ? 'agents_user' : '') })); })")
+              "exec: () => '' })); })")
         run = subprocess.run(["node", "-e", js], cwd=ROOT, capture_output=True, text=True, env={**os.environ, "REG": reg_path})
         assert run.returncode == 0, run.stderr[-600:]
         assert json.load(open(reg_path, encoding="utf-8"))["hosts"]["h"].get("operator_key", "").startswith("ed25519:")

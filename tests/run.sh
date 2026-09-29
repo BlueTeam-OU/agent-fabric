@@ -101,7 +101,6 @@ if [[ "$what" == all || "$what" == bash ]]; then
     run "the fabric's user settings (attribution off, thinking summaries, verbose)" bash runtime/claude-code/test_user-settings.sh
     run "moveto" bash runtime/provisioning/moveto/test_moveto.sh
     run "hostexec (local and ssh backends)" bash runtime/hostexec/test_hostexec.sh
-    run "enroll (fault injection)" bash runtime/provisioning/secrets/test_enroll.sh
     run "store-enroll (a parent keys an account on another host)" bash runtime/provisioning/secrets/test_store-enroll.sh
     run "github pr-reply" bash runtime/github/test_pr-reply.sh
     run "github pr-sessions" bash runtime/github/test_pr-sessions.sh
