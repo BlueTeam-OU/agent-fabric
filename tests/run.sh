@@ -10,6 +10,9 @@ set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT" || exit 1
 what="${1:-all}"
+# CI runs one section a leg: a misspelt one ran nothing and said "all
+# suites passed" (review of #68). An unknown section is an invocation error.
+case "$what" in all|static|python|gzcoord|bash) ;; *) echo "tests/run.sh: no section '$what' (all, static, python, gzcoord, bash)" >&2; exit 2 ;; esac
 fail=0
 run() { echo; echo "== $1"; shift; "$@" || fail=$((fail+1)); }
 

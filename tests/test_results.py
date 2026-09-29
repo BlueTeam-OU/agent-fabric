@@ -24,7 +24,9 @@ def pr(**kw) -> dict:
     return base
 
 
-def cls(subject: str, body: str, n: int, repo: str) -> str:
+def cls(subject: str, body: str, n: int, repo: str, parents: int = 1) -> str:
+    if parents > 1:
+        return "merge"
     return "fix" if subject.startswith("review fix") else "work"
 
 
@@ -62,6 +64,12 @@ def main() -> int:
                       {"oid": HEAD, "messageHeadline": "review fix (#7): x", "messageBody": ""}])
     r = results.judge(few, [], NOW, 14, cls)
     check("supervision: under the band's floor (the owner arms) plus one owner correction", r["supervision"] == 2 and (r["work"], r["fix"]) == (1, 1), r)
+    merged_in = pr(commits=[{"oid": HEAD, "messageHeadline": f"work {i}", "messageBody": ""} for i in range(7)]
+                   + [{"oid": HEAD, "messageHeadline": "Merge a contributor branch", "messageBody": "", "parents": 2}])
+    r = results.judge(merged_in, [], NOW, 14, cls)
+    check("a merge folded into the branch is not work: 7 work, so the owner armed it", (r["work"], r["supervision"]) == (7, 1), r)
+    r = results.judge(merged_in, [], NOW, 14)   # the real classifier, through commit-class.sh
+    check("…and the real classifier reads the merge by its parents", r["work"] == 7, r)
     print(f"\n{'FAILED' if fails else 'all passed'}")
     return 1 if fails else 0
 

@@ -45,12 +45,14 @@ GREEN = {"SUCCESS", "SKIPPED", "NEUTRAL"}
 OWNER_CORRECTION = re.compile(r"\(owner\b", re.I)
 
 
-def classify(subject: str, body: str, pr: int, repo: str) -> str:
-    """The one classifier (runtime/github/commit-class.sh): work, fix or merge."""
+def classify(subject: str, body: str, pr: int, repo: str, parents: int = 1) -> str:
+    """The one classifier (runtime/github/commit-class.sh): work, fix or merge.
+    A merge is told by its parents, as pr-gate tells it, never by its words."""
     answers = "\n".join(m.group(1) for m in re.finditer(r"^Answers:\s*(.*)$", body, re.M))
     r = subprocess.run(["bash", "-c", 'source "$0"; commit_class "$1" "$2" "$3" "$4" "$5"',
                         os.path.join(ROOT, "runtime", "github", "commit-class.sh"),
-                        "p", subject, answers, str(pr), repo.split("/")[-1]], capture_output=True, text=True)
+                        " ".join(["p"] * max(parents, 1)), subject, answers, str(pr), repo.split("/")[-1]],
+                       capture_output=True, text=True)
     return r.stdout.strip() or "work"
 
 
@@ -68,7 +70,7 @@ def judge(pr: dict, later: list[dict], now: dt.datetime, window_days: int, cls=c
                        for sha in own if sha) for c in later)
     naming = re.compile(rf"#{n}\b")
     fixed = [c["sha"][:7] for c in later if naming.search(c["subject"]) and cls(c["subject"], c["body"], n, repo) == "fix"]
-    classes = [cls(c["messageHeadline"], c.get("messageBody") or "", n, repo) for c in pr.get("commits") or []]
+    classes = [cls(c["messageHeadline"], c.get("messageBody") or "", n, repo, c.get("parents", 1)) for c in pr.get("commits") or []]
     work, fix = classes.count("work"), classes.count("fix")
     pending = now < merged + dt.timedelta(days=window_days)
     ok = reviewed and green and not reverted and not fixed
@@ -94,7 +96,18 @@ def merged_prs(repo: str, since: dt.date) -> list[dict]:
     numbers = json.loads(_gh("pr", "list", "--repo", repo, "--state", "merged", "--limit", "1000",
                              "--search", f"merged:>={since.isoformat()}", "--json", "number"))
     fields = "number,title,mergedAt,headRefOid,mergeCommit,commits,reviews,statusCheckRollup"
-    return [json.loads(_gh("pr", "view", str(p["number"]), "--repo", repo, "--json", fields)) for p in numbers]
+    prs = []
+    for p in numbers:
+        pr = json.loads(_gh("pr", "view", str(p["number"]), "--repo", repo, "--json", fields))
+        # gh's commit list has no parents; the REST list has them, so a
+        # merge folded into the branch is not counted as work (review of #68).
+        parents = {c["sha"]: c["n"] for c in map(json.loads, _gh(
+            "api", "--paginate", f"repos/{repo}/pulls/{p['number']}/commits?per_page=100",
+            "--jq", ".[] | {sha, n: (.parents | length)}").splitlines())}
+        for c in pr.get("commits") or []:
+            c["parents"] = parents.get(c["oid"], 1)
+        prs.append(pr)
+    return prs
 
 
 def main_commits(repo: str, since: dt.datetime) -> list[dict]:
@@ -150,7 +163,8 @@ def spend(days: int) -> dict | None:
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    ap.add_argument("--days", type=int, default=14, help="the period: PRs merged in the last N days")
+    ap.add_argument("--days", type=int, default=14,
+                    help="the period's length: PRs merged between DAYS+WINDOW and WINDOW days ago, whose windows have closed")
     ap.add_argument("--window", type=int, default=14, help="days after a merge in which a revert or a fix unverifies it")
     ap.add_argument("--repo", action="append", help="owner/name; may repeat (default gzapi-org/agent-fabric)")
     ap.add_argument("--all", action="store_true", help="every registered project, and the spend divided by their results")
@@ -158,7 +172,12 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--no-tokens", action="store_true", help="skip the control plane's token read")
     a = ap.parse_args(argv)
     now = dt.datetime.now(dt.timezone.utc)
-    since = now - dt.timedelta(days=a.days)
+    # The period is the one whose windows have closed: a PR merged less than
+    # WINDOW days ago cannot be verified yet (ADR-026 §2), so counting it made
+    # every default run read "verified 0" (review of #68). Those are listed
+    # apart as pending and never enter a ratio.
+    end = now - dt.timedelta(days=a.window)
+    since = end - dt.timedelta(days=a.days)
     repos = registered_repos() if a.all else (a.repo or ["gzapi-org/agent-fabric"])
     rows = []
     for repo in repos:
@@ -166,33 +185,44 @@ def main(argv: list[str] | None = None) -> int:
         for pr in sorted(merged_prs(repo, since.date()), key=lambda p: p["number"]):
             merged = dt.datetime.fromisoformat(pr["mergedAt"].replace("Z", "+00:00"))
             inside = [c for c in later if merged < c["when"] <= merged + dt.timedelta(days=a.window)]
-            rows.append({"repo": repo, **judge(pr, inside, now, a.window, repo=repo)})
-    verified = [r for r in rows if r["status"] == "verified"]
-    pending = [r for r in rows if r["status"] == "pending"]
-    sup = sum(r["supervision"] for r in rows if r["status"] in ("verified", "pending"))
-    cost = None if a.no_tokens else spend(a.days)
-    summary = {"period_days": a.days, "window_days": a.window, "repos": repos, "merged": len(rows),
-               "verified": len(verified), "pending": len(pending),
-               "verified_rate": round(len(verified) / len(rows), 2) if rows else None,
-               "supervision_events": sup, "supervision_per_result": round(sup / (len(verified) + len(pending)), 2) if verified or pending else None,
+            row = {"repo": repo, **judge(pr, inside, now, a.window, repo=repo)}
+            row["in_period"] = merged <= end
+            rows.append(row)
+    period = [r for r in rows if r["in_period"]]
+    verified = [r for r in period if r["status"] == "verified"]
+    pending = [r for r in rows if not r["in_period"]]
+    sup = sum(r["supervision"] for r in verified)
+    cost = None
+    if not a.no_tokens:
+        # The span the period's merges lie in: tokens over DAYS+WINDOW days
+        # less tokens over the last WINDOW days, both from every login's records.
+        whole, recent = spend(a.days + a.window), spend(a.window)
+        if whole and recent:
+            cost = {"by_path": {p: v - recent["by_path"].get(p, 0) for p, v in whole["by_path"].items()},
+                    "accounts": min(whole["accounts"], recent["accounts"])}
+    summary = {"period": f"{since.date()}..{end.date()}", "window_days": a.window, "repos": repos,
+               "merged_in_period": len(period), "verified": len(verified), "pending_after_period": len(pending),
+               "verified_rate": round(len(verified) / len(period), 2) if period else None,
+               "supervision_events": sup, "supervision_per_result": round(sup / len(verified), 2) if verified else None,
                "spend": cost, "unread_inputs": ["OWNER-WORD in relay DECISIONs", "drain collisions"]}
-    if cost and a.all and (verified or pending):
-        summary["spend_per_result"] = {p: v // (len(verified) + len(pending)) for p, v in cost["by_path"].items()}
+    if cost and a.all and verified:
+        summary["spend_per_result"] = {p: v // len(verified) for p, v in cost["by_path"].items()}
     if a.json:
         print(json.dumps({"summary": summary, "prs": rows}, indent=2))
         return 0
-    for r in rows:
+    for r in period:
         why = f"  ({'; '.join(r['reasons'])})" if r["reasons"] else ""
         print(f"{r['repo'].split('/')[-1]}#{r['number']:<5} {r['merged']}  {r['status']:<12} {r['work']} work, {r['fix']} fix  supervision {r['supervision']}{why}")
-    print(f"\n{', '.join(repos)}: PRs merged in the last {a.days} days: {len(rows)}; verified {len(verified)}, "
-          f"pending (inside the {a.window}-day window) {len(pending)}; verified rate {summary['verified_rate']}")
-    print(f"supervision events on verified and pending results: {sup} ({summary['supervision_per_result']} per result); "
+    print(f"\n{', '.join(repos)}: PRs merged {summary['period']} (their {a.window}-day windows closed): {len(period)}; "
+          f"verified {len(verified)}; verified rate {summary['verified_rate']}")
+    print(f"after the period, still inside their windows, not counted: {len(pending)}")
+    print(f"supervision events on the verified results: {sup} ({summary['supervision_per_result']} per result); "
           f"not yet read: {', '.join(summary['unread_inputs'])}")
     if cost:
         paths = ", ".join(f"{p}: {v / 1e6:.1f}M" for p, v in sorted(cost["by_path"].items()))
         per = ", ".join(f"{p}: {v / 1e6:.1f}M" for p, v in sorted(summary.get("spend_per_result", {}).items()))
-        print(f"spend over the period, the whole fleet ({cost['accounts']} accounts answered): {paths} input-token equivalents; "
-              + (f"per result: {per}" if per else "per result only with --all (the spend is every repository's)"))
+        print(f"spend over {summary['period']}, the whole fleet ({cost['accounts']} accounts answered): {paths} input-token equivalents; "
+              + (f"per verified result: {per}" if per else "per result only with --all (the spend is every repository's)"))
     else:
         print("spend: not read (--no-tokens, or the control plane did not answer)")
     return 0

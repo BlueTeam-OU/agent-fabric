@@ -50,6 +50,10 @@ ME = "check_actions_pinned_by_sha"
 # precede a key, never to the line's start: that anchoring once let every
 # one of those shapes pass unread.
 USES_RE = re.compile(r"""(?:^|[\s{,\-])(?:"uses"|'uses'|uses)\s*:\s*("[^"]*"|'[^']*'|[^\s,}]+)""")
+# A block key with nothing after it: its value is the next, more indented
+# line, a plain scalar GitHub reads the same (review of #68: `- uses:` over
+# `actions/checkout@v7` passed unread).
+EMPTY_USES_RE = re.compile(r"""(?:^|[\s\-])(?:"uses"|'uses'|uses)\s*:\s*$""")
 SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 DIGEST_RE = re.compile(r"^[0-9a-f]{64}$")
 VERSION_RE = re.compile(r"^v?[0-9]+(?:\.[0-9]+)*(?:[-+][0-9A-Za-z.-]+)?$")
@@ -102,20 +106,28 @@ def check(root: str) -> tuple[list[str], int]:
     for path in workflow_files(root):
         rel = os.path.relpath(path, root)
         with open(path, encoding="utf-8") as fh:
-            for num, line in enumerate(fh, 1):
-                code, comment = split_comment(line.rstrip("\n"))
-                for m in USES_RE.finditer(code):
-                    ref = m.group(1).strip().strip("'\"")
-                    if ref.startswith("./"):
-                        continue
-                    why = judge(ref, comment.strip())
-                    if why:
-                        # A reason that is a sentence of its own ("a docker action is…")
-                        # follows a dash; one that continues the ref ("is pinned to…") does not.
-                        sep = " — " if why.startswith("a ") else " "
-                        findings.append(f"FAIL: {rel}:{num} '{ref}'{sep}{why}")
-                    else:
-                        pinned += 1
+            lines = fh.read().split("\n")
+        for num, line in enumerate(lines, 1):
+            code, comment = split_comment(line)
+            refs = [(m.group(1), comment) for m in USES_RE.finditer(code)]
+            if EMPTY_USES_RE.search(code):
+                # The value on the next non-blank line; the version comment
+                # is read from that line, where the pin is.
+                nxt = next((ln for ln in lines[num:] if ln.strip()), "")
+                ncode, ncomment = split_comment(nxt)
+                refs.append((ncode.strip() or "(nothing)", ncomment))
+            for ref, comment in refs:
+                ref = ref.strip().strip("'\"")
+                if ref.startswith("./"):
+                    continue
+                why = judge(ref, comment.strip())
+                if why:
+                    # A reason that is a sentence of its own ("a docker action is…")
+                    # follows a dash; one that continues the ref ("is pinned to…") does not.
+                    sep = " — " if why.startswith("a ") else " "
+                    findings.append(f"FAIL: {rel}:{num} '{ref}'{sep}{why}")
+                else:
+                    pinned += 1
     return findings, pinned
 
 

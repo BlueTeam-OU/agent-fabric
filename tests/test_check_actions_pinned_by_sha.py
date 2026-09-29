@@ -57,6 +57,10 @@ CASES = [
     (1, "a tag pin that is not the flow mapping's first key is read and rejected", step("      - {name: co, uses: actions/checkout@v7}"), None),
     (0, "a SHA pin in a flow mapping, with its version, passes", step(f"      - {{name: co, uses: actions/checkout@{SHA}}} # v7.0.1"), None),
     (1, "a docker digest that is not 64 hex characters is rejected", step(f"      - uses: docker://docker.io/library/alpine@sha256:{'a' * 63}"), None),
+    # A value on the key's next line is a plain scalar GitHub reads (review of #68).
+    (1, "a tag pin on the line after its uses: key is read and rejected", step("      - uses:\n          actions/checkout@v7"), None),
+    (0, "a SHA pin on the line after its uses: key, with its version, passes", step(f"      - uses:\n          actions/checkout@{SHA} # v7.0.1"), None),
+    (1, "a uses: key with nothing after it at all is rejected", step("      - uses:\n"), None),
     (1, "one bad use among good ones fails the file", step(f"      - uses: actions/checkout@{SHA} # v7.0.1\n      - uses: actions/setup-node@v7"), None),
 ]
 

@@ -42,19 +42,26 @@ jobs:
     # promise, 3.12, up to the hosts'), the Node suites (GZCoord, the
     # control plane, the locale MCP server) on the Node they are developed
     # on and the oldest they must start on, and the bash suites and the
-    # guards once. Every leg of the old matrix ran all 78 suites, ~49
-    # runner-minutes a push; split, ~20, the same coverage (devex-tooling's
-    # measurement, 2026-09-29). Static checks are their own job above.
+    # guards on the oldest and newest interpreters. Every leg of the old
+    # matrix ran all 78 suites, ~49 runner-minutes a push; split, less, with
+    # each section still on every interpreter pairing it needs (devex-
+    # tooling's measurement, 2026-09-29). Static checks are their own job.
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         include:
+          - { section: python, python: '3.12', node: '20' }
           - { section: python, python: '3.12', node: '22' }
           - { section: python, python: '3.13', node: '22' }
           - { section: python, python: '3.14', node: '22' }
           - { section: gzcoord, python: '3.12', node: '20' }
           - { section: gzcoord, python: '3.12', node: '22' }
+          # The bash suites drive Python in heredocs (fabric-status, the
+          # launcher) that nothing compiles on its own: they run on the
+          # oldest interpreters the hosts promise and on the newest (review
+          # of #68: 3.14 alone lost 3.12 and Node 20).
+          - { section: bash, python: '3.12', node: '20' }
           - { section: bash, python: '3.14', node: '22' }
     # The whole run measured 7-9.5 min (2026-09-29); a section is less. The cap is for a hang.
     timeout-minutes: 25
