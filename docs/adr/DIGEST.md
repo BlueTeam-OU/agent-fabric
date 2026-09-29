@@ -759,7 +759,7 @@ searches it.
 - Keywords: job, to-do, jobs.json, fabric-jobs, next, topic, fresh
   session, restart, fabric-fresh --job, working copy, intake, P3, proposed.
 
-### ADR-038 — Each agent owns its key and its secrets (Proposed)
+### ADR-038 — Each agent owns its key and its secrets (Accepted)
 
 - The login is the principal and the key its credential: one key per
   login, made in the account, whose private half leaves only as the
@@ -774,7 +774,8 @@ searches it.
   login's home (§5 rules 4–5).
 - `sync` writes the same `secrets.env` from either source; migration from
   Doppler compares by sha256 and falls back on a mismatch (§5 rules 7–8).
-  Waits on the owner's acceptance (§8).
-- Keywords: secrets, key, GPG, pass, QtPass, browserpass, paperkey,
+- A 2026-09-29 — each key's recovery copy and every store's backup go to a
+  Proton Drive account dedicated to the fleet, not to paper (§5 rules 1, 6; §6).
+- Keywords: secrets, key, GPG, pass, QtPass, browserpass, paperkey, Proton Drive, backup,
   identity, lineage, parent, custody, recovery, Doppler, migration,
-  placement, P1, proposed.
+  placement, P1.

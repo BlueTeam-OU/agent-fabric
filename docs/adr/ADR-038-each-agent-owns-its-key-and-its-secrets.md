@@ -1,7 +1,8 @@
 # ADR-038 — Each agent owns its key and its secrets
 
 **Date:** 2026-09-29
-**Status:** Proposed
+**Status:** Accepted
+**Ratified:** owner, 2026-09-29, by the merge of agent-fabric #63 (e00f750)
 **Decision Makers:** the owner (the move off Doppler, a repository per agent, a key per agent, paper recovery, the parent's role, no assumed co-location); drafted by fabric-coordinator
 **Scope:** every agent's credentials and the key that guards them: `tools/fabric/secret_store.py` behind `bin/fabric-secrets`; each agent's repository `gzapi-org/secrets-<login>`; `identities/keys/`; `~/.config/agent-fabric/secrets.env` and its consumers; the migration from Doppler (ADR-012); the Claude-account templates (ADR-031); provisioning (`runtime/provisioning/new-agent.sh`)
 **Pillar:** P1
@@ -87,9 +88,11 @@ sharing a machine.
 ## 5. Binding Rules
 
 1. Each login has exactly one agent key, generated inside that account.
-   Its private half leaves the account only as that agent's paper sheet,
-   printed for the owner. A key held outside its login is a stolen
-   credential and is revoked.
+   Its private half leaves the account only as that agent's recovery copy:
+   the paperkey text and revocation certificate, uploaded by the account
+   itself to the fleet's Proton Drive account (`/my-files/agent-fabric/keys/`).
+   A key held anywhere else is a stolen credential and is revoked
+   (A 2026-09-29).
 2. A key is an agent's only when both hold:
    - its public half is committed at `identities/keys/<login>.asc`;
    - the committed key carries a certification by the key of the parent
@@ -109,10 +112,13 @@ sharing a machine.
    - certification travels through the agent-fabric repository;
    - `put` is a push to the child's repository;
    - migration and sync are signed control actions (ADR-029).
-6. Each key is printed once at birth, with its revocation certificate
-   (`fabric-secrets paper`). The command refuses to run inside a model
-   session (`CLAUDECODE` set). No secret value is ever shown to a model,
-   put in a message, or written to a log.
+6. Each key's recovery copy goes up once at birth
+   (`fabric-secrets store paper --to-proton`): through a 0600 temporary
+   file overwritten before removal, printing only a path and a hash, so
+   it may run inside a model session. The paths that print the copy
+   (`paper`, `paper --out`) refuse inside one (`CLAUDECODE` set). No
+   secret value is ever shown to a model, put in a message, or written
+   to a log (A 2026-09-29).
 7. `fabric-secrets sync` writes the same `secrets.env` whichever source
    it reads. Its exit codes stay:
    - 0: applied;
@@ -131,8 +137,16 @@ sharing a machine.
 
 ## 6. Consequences
 
-- **What the owner keeps:** one paper sheet per agent. Opening any
-  store needs that sheet and a GPG tool: `pass`, QtPass or browserpass.
+- **What the owner keeps:** a dedicated Proton account for the fleet,
+  with 2FA and its recovery phrase. It holds every agent's recovery copy
+  and every store's backup (`fabric-secrets store backup`, bundles with a
+  sha256 manifest, checked by `--verify`), and it is the fleet's single
+  recovery point: whoever holds it can read every store. The owner's own
+  Proton account is never signed in on the agents' host. Opening a store
+  needs its recovery copy and a GPG tool: `pass`, QtPass or browserpass.
+- **The Proton session** is an entry of the backing-up login's own
+  store (`PROTON_DRIVE_CREDENTIALS_STORE=pass`), readable by that login
+  alone; `proton-drive auth login` is the owner's, in a browser.
 - **What leaks:** entry names are visible to whoever can read the
   private repository. Values are not.
 - **Key storage:** an agent's key has no passphrase, because agents
@@ -151,8 +165,9 @@ sharing a machine.
 
 ## 8. Decision Status
 
-Proposed. It is accepted by the owner at the merge of the pull request
-that builds it.
+Accepted and in force. The coordinator reads its own store; the other
+accounts read Doppler until each is enrolled (`store-enroll.sh`) and
+migrated (`secrets-migrate`), after which Doppler is removed (§7).
 
 ## References
 
@@ -160,3 +175,11 @@ that builds it.
 - ADR-031 — the Claude-account templates, which move to the coordinator's store.
 - ADR-029 — the signed control actions that carry migration and sync.
 - ADR-003 — per-agent state, which a moved login carries.
+
+## Amendments
+
+The body above reads current; each change's full note is in [history/ADR-038-amendments.md](history/ADR-038-amendments.md).
+
+| Date | Amendment | Effect |
+|---|---|---|
+| 2026-09-29 | The recovery copy and the backup go to Proton Drive | §5 rules 1 and 6, §6: Proton instead of paper; the backup |

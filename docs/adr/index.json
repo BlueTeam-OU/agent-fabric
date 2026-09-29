@@ -347,10 +347,10 @@
       "number": "038",
       "file": "ADR-038-each-agent-owns-its-key-and-its-secrets.md",
       "title": "Each agent owns its key and its secrets",
-      "status": "Proposed",
+      "status": "Accepted",
       "date": "2026-09-29",
       "pillar": "P1",
-      "amendments": 0
+      "amendments": 1
     }
   ]
 }
