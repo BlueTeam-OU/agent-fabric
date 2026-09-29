@@ -28,7 +28,7 @@ import { accountsDir, accountSlugs, accounts, claudeBin, ACCOUNT_SLUG, takeReadL
 import { placements } from './ctl.mjs';
 import { FABRIC_ROOT } from '../../communication/gzcoord/scripts/gzmsg.mjs';
 
-const USAGE = `usage: fabric-accounts login <account> | list | read | templates | assign <login…|all> <account> [--no-restart] [--no-sync]
+const USAGE = `usage: fabric-accounts login <account> | list | read | templates | assign <login…|all> <account> [--no-restart] [--no-sync] [--force]
   <account>: lowercase letters, digits and hyphens — the account's email with @ and . as -,
              e.g. claude-pzhuy-8alias-com (the Doppler template's name without its prefix)`;
 
@@ -126,8 +126,8 @@ const store = (args, exec) => JSON.parse(String(exec(path.join(FABRIC_ROOT, 'bin
 export function storeTemplates({ exec = execFileSync } = {}) {
   return store(['templates'], exec).map(t => ({ ...t, config: 'store' }));
 }
-export function storeAssign(logins, account, { exec = execFileSync } = {}) {
-  try { return store(['assign', account, ...logins], exec); }
+export function storeAssign(logins, account, { exec = execFileSync, force = false } = {}) {
+  try { return store(['assign', account, ...logins, ...(force ? ['--force'] : [])], exec); }
   catch (e) {
     // assign exits 1 when a row failed and still prints every row.
     try { return JSON.parse(String(e.stdout)); } catch { return logins.map(login => ({ login, status: 'failed', reason: String(e.stderr ?? e.message).trim().split('\n').pop().slice(0, 160) })); }
@@ -139,8 +139,8 @@ export async function main(argv = process.argv.slice(2), { home = os.homedir(), 
   const dir = accountsDir(home, env);
   if (cmd === 'list' && argv.length === 1) { console.log(listLines(dir).join('\n')); return 0; }
   if (cmd === 'assign') {
-    const noSync = argv.includes('--no-sync'), noRestart = argv.includes('--no-restart');
-    const rest = argv.slice(1).filter(a => a !== '--no-sync' && a !== '--no-restart');
+    const noSync = argv.includes('--no-sync'), noRestart = argv.includes('--no-restart'), force = argv.includes('--force');
+    const rest = argv.slice(1).filter(a => !['--no-sync', '--no-restart', '--force'].includes(a));
     if (rest.length < 2) { console.error(USAGE); return 2; }
     const account = rest.at(-1); const who = rest.slice(0, -1);
     const placed = placements(registry).map(p => p.login);
@@ -151,10 +151,28 @@ export async function main(argv = process.argv.slice(2), { home = os.homedir(), 
     // without a template's long-lived token (runtime/openrouter/launch).
     const viaStore = onStore(home);
     const t = (viaStore ? storeTemplates({ exec }) : templates({ exec })).find(x => x.account === account);
-    if (!t) { console.error(`fabric-accounts: ${JSON.stringify(account)} is not a template in Doppler environment ${TEMPLATE_ENV} (fabric-accounts templates)${account === 'own' || account === 'none' ? ' — a login runs only on a template\'s token; assign it another account' : ''}`); return 2; }
+    if (!t) { console.error(`fabric-accounts: ${JSON.stringify(account)} is not a template ${viaStore ? 'in this store' : `in Doppler environment ${TEMPLATE_ENV}`} (fabric-accounts templates)${account === 'own' || account === 'none' ? ' — a login runs only on a template\'s token; assign it another account' : ''}`); return 2; }
     if (!t.token_sha256_12) { console.error(`fabric-accounts: template ${account} holds no CLAUDE_CODE_OAUTH_TOKEN yet; nothing written`); return 2; }
-    const rows = viaStore ? storeAssign(logins, account, { exec }) : assign(logins, account, { exec });
-    for (const r of rows) console.log(`${r.login.padEnd(22)} ${String(r.from ?? '-').padEnd(30)} → ${String(r.to ?? '-').padEnd(30)} ${r.status}${r.reason ? `  ${r.reason}` : ''}`);
+    // During the migration a login may still read Doppler while the
+    // coordinator reads its store (ADR-038 §5 rule 8): on the store, the
+    // assignment is written to BOTH — the login's store, and its Doppler
+    // config while it has one — so it lands whichever source the login
+    // reads, and a later import-doppler brings in the same token.
+    let rows;
+    if (viaStore) {
+      rows = storeAssign(logins, account, { exec, force });
+      let dop = new Map();
+      try { dop = new Map(assign(logins, account, { exec }).map(r => [r.login, r])); }
+      catch (e) { for (const l of logins) dop.set(l, { login: l, status: 'unavailable', reason: String(e.message).split('\n').pop().slice(0, 120) }); }
+      rows = rows.map(r => {
+        const d = dop.get(r.login) ?? { status: 'no-config' };
+        // no-config: the login has no Doppler config (migrated or new) — nothing to keep in step.
+        const dopBad = !['written', 'unchanged', 'no-config'].includes(d.status);
+        const st = r.status === 'failed' || dopBad ? 'failed' : (r.status === 'written' || d.status === 'written') ? 'written' : 'unchanged';
+        return { ...r, status: st, reason: r.reason ?? (dopBad ? `doppler: ${d.status}${d.reason ? ` ${d.reason}` : ''}` : undefined), doppler: d.status };
+      });
+    } else rows = assign(logins, account, { exec });
+    for (const r of rows) console.log(`${r.login.padEnd(22)} ${String(r.from ?? '-').padEnd(30)} → ${String(r.to ?? '-').padEnd(30)} ${r.status}${r.doppler ? ` (doppler: ${r.doppler})` : ''}${r.reason ? `  ${r.reason}` : ''}`);
     const bad = rows.some(r => !['written', 'unchanged'].includes(r.status));
     const changed = rows.filter(r => r.status === 'written').map(r => r.login);
     const reached = rows.filter(r => ['written', 'unchanged'].includes(r.status)).map(r => r.login);
