@@ -1,0 +1,157 @@
+# ADR-038 — Each agent owns its key and its secrets
+
+**Date:** 2026-09-29
+**Status:** Proposed
+**Decision Makers:** the owner (the move off Doppler, a repository per agent, a key per agent, paper recovery, the parent's role, no assumed co-location); drafted by fabric-coordinator
+**Scope:** every agent's credentials and the key that guards them: `tools/fabric/secret_store.py` behind `bin/fabric-secrets`; each agent's repository `gzapi-org/secrets-<login>`; `identities/keys/`; `~/.config/agent-fabric/secrets.env` and its consumers; the migration from Doppler (ADR-012); the Claude-account templates (ADR-031); provisioning (`runtime/provisioning/new-agent.sh`)
+**Pillar:** P1
+
+## 1. Context and Problem
+
+An agent's secrets live in a third-party service: one Doppler config
+per login, read with a service token that the account holds in plain.
+The record of who holds what is the service's. Its backup is the
+service's too. Moving the fleet to a host without the vendor's CLI means
+moving the vendor.
+
+The owner keeps personal secrets in a portable form instead: a git
+repository of GPG-encrypted entries, opened with QtPass and browserpass.
+With that form, the only thing left to back up is a key.
+
+The fabric's invariant says who an agent is: its Linux login. Nothing
+says what a key is to that identity. The gap is already visible. Every
+account signs its git commits with the same key, the coordinator's,
+imported by hand at provisioning. Cryptographically, the fleet is one
+signer.
+
+## 2. Decision
+
+Each agent owns one key and one encrypted store, and the fabric's theory
+of identity is extended to keys.
+
+- **The login is the principal, and the key is its credential.** Never
+  the reverse.
+- **A key is an agent's when it is attested by lineage.** Its public half
+  is committed under the agent's login, and it is certified by its
+  parent, the coordinator that provisioned it.
+- **An agent's secrets are readable by that login alone.** Anyone
+  holding the committed public key can write into the store, so the
+  parent supplies secrets without being able to read them.
+- **Recovery is the owner's, on paper, one sheet per agent.**
+- **Rotation keeps the identity.** Retirement leaves no heir.
+- **Placement is neither identity nor an assumption.** Agents may live
+  on different hosts, and nothing here depends on their sharing one.
+- **Authority stays apart from identity.**
+
+The store is a private repository per agent, `gzapi-org/secrets-<login>`,
+in the layout pass(1) uses:
+- a `.gpg-id` naming the key;
+- one `env/<NAME>.gpg` per secret, the value on the first line.
+
+`fabric-secrets sync` reads it and writes the same
+`~/.config/agent-fabric/secrets.env` as before. So every consumer is
+unchanged, and only the source moves.
+
+## 3. Alternatives Considered
+
+- **Keep Doppler.** The owner decided to leave it: a vendor holds the
+  record and its backup, and the fleet's portability is the vendor's.
+- **One repository for every agent, a folder each.** Every agent would
+  clone every other agent's ciphertext and its history, and one agent's
+  mistake would sit in the others' log.
+- **A human master key as a recipient on every store.** One key would
+  read the whole fleet, so losing it would expose everything. The owner
+  chose a key per agent, each the sole reader of its own store.
+- **Shares of a key held by other agents.** Accounts that share a host
+  fail together: one compromise, or one lost disk, takes every share.
+  Paper fails independently of any host.
+- **age or sops instead of GPG.** Neither opens in QtPass or browserpass.
+  GPG is already a required host tool for signing.
+
+## 4. Rationale
+
+The design reuses a standard format the owner already uses, so any
+agent's store opens with the owner's own tools once its paper key is
+imported. It changes one seam: `secrets.env` stays the interface, so the
+launcher, the inbox, the control agent, the MCP server and the shell
+read what they read today.
+
+It also makes custody follow the lane rule. An agent reads only its
+own secrets. The parent writes, and is never able to read. The owner
+recovers from paper, one agent at a time.
+
+It survives the loss of a host. The ciphertext lives on GitHub and at
+the parent, and the key lives on paper. Nothing depends on the agents'
+sharing a machine.
+
+## 5. Binding Rules
+
+1. Each login has exactly one agent key, generated inside that account.
+   Its private half leaves the account only as that agent's paper sheet,
+   printed for the owner. A key held outside its login is a stolen
+   credential and is revoked.
+2. A key is an agent's only when both hold:
+   - its public half is committed at `identities/keys/<login>.asc`;
+   - the committed key carries a certification by the key of the parent
+     recorded for that login in `identities/keys/lineage.json`.
+   The coordinator's own key is the root of the chain, committed the
+   same way and recorded with no parent. Lint refuses a committed key
+   without its parent's certification.
+3. An agent's store is encrypted to that agent's key alone (`.gpg-id`).
+   Any holder of the committed public key may add an entry (`fabric-secrets
+   put`). Only the agent decrypts. No store is encrypted to another
+   agent's key.
+4. A key names no host. A login moved with its home keeps its key. A
+   login rebuilt without its home is re-keyed: its new key is certified
+   by its parent, and the old key is revoked.
+5. No step between agents relies on a shared host or on crossing
+   accounts:
+   - certification travels through the agent-fabric repository;
+   - `put` is a push to the child's repository;
+   - migration and sync are signed control actions (ADR-029).
+6. Each key is printed once at birth, with its revocation certificate
+   (`fabric-secrets paper`). The command refuses to run inside a model
+   session (`CLAUDECODE` set). No secret value is ever shown to a model,
+   put in a message, or written to a log.
+7. `fabric-secrets sync` writes the same `secrets.env` whichever source
+   it reads. Its exit codes stay:
+   - 0: applied;
+   - 1: unreadable;
+   - 2: applied, with required names missing;
+   - 3: the store names another login, and nothing is applied.
+8. The source is `doppler` until an account has been migrated, and
+   `store` from then on. Migration compares the old and new `secrets.env`
+   by sha256, never by value, and returns the account to `doppler` on a
+   mismatch.
+
+## 6. Consequences
+
+- **What the owner keeps:** one paper sheet per agent. Opening any
+  store needs that sheet and a GPG tool: `pass`, QtPass or browserpass.
+- **What leaks:** entry names are visible to whoever can read the
+  private repository. Values are not.
+- **Key storage:** an agent's key has no passphrase, because agents
+  decrypt unattended. The account's file permissions guard it, the same
+  protection `secrets.env` has.
+- **Commits:** the shared signing key stays until per-agent signing
+  lands. Rule 1 says it must go.
+
+## 7. Future Evolution
+
+- **Per-agent git signing** with the certified key, replacing the shared
+  coordinator key; its own record, since it changes the fleet's commits.
+- **Removal of Doppler:** the reader, the enrolment and the binary, once
+  every account's source is `store` (ADR-012 is superseded then).
+- **Hardware-held keys,** if an agent's host offers one.
+
+## 8. Decision Status
+
+Proposed. It is accepted by the owner at the merge of the pull request
+that builds it.
+
+## References
+
+- ADR-012 — credentials; the Doppler layout this replaces.
+- ADR-031 — the Claude-account templates, which move to the coordinator's store.
+- ADR-029 — the signed control actions that carry migration and sync.
+- ADR-003 — per-agent state, which a moved login carries.

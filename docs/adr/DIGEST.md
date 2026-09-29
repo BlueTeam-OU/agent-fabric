@@ -754,3 +754,23 @@ searches it.
   rule 6). Waits on the owner's acceptance (§8).
 - Keywords: job, to-do, jobs.json, fabric-jobs, next, topic, fresh
   session, restart, fabric-fresh --job, working copy, intake, P3, proposed.
+
+### ADR-038 — Each agent owns its key and its secrets (Proposed)
+
+- The login is the principal and the key its credential: one key per
+  login, made in the account, whose private half leaves only as the
+  agent's paper sheet (§2, §5 rules 1, 6).
+- A key is an agent's when its public half is committed at
+  `identities/keys/<login>.asc` and certified by its parent recorded in
+  `lineage.json`; lint refuses one without (§5 rule 2).
+- Each agent's secrets are a private pass(1)-format repository,
+  `gzapi-org/secrets-<login>`, encrypted to that key alone: the parent
+  writes (`fabric-secrets put`) and never reads (§5 rule 3).
+- No step relies on a shared host; a key names no host and moves with its
+  login's home (§5 rules 4–5).
+- `sync` writes the same `secrets.env` from either source; migration from
+  Doppler compares by sha256 and falls back on a mismatch (§5 rules 7–8).
+  Waits on the owner's acceptance (§8).
+- Keywords: secrets, key, GPG, pass, QtPass, browserpass, paperkey,
+  identity, lineage, parent, custody, recovery, Doppler, migration,
+  placement, P1, proposed.
