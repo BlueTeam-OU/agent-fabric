@@ -350,7 +350,16 @@
       "status": "Accepted",
       "date": "2026-09-29",
       "pillar": "P1",
-      "amendments": 2
+      "amendments": 3
+    },
+    {
+      "number": "039",
+      "file": "ADR-039-agent-id-is-a-uuidv7-minted-at-birth.md",
+      "title": "The agent id is a UUIDv7 minted at birth",
+      "status": "Proposed",
+      "date": "2026-09-29",
+      "pillar": "P1",
+      "amendments": 0
     }
   ]
 }

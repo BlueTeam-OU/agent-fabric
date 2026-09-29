@@ -768,7 +768,7 @@ searches it.
   `identities/keys/<login>.asc` and certified by its parent recorded in
   `lineage.json`; lint refuses one without (§5 rule 2).
 - Each agent's secrets are a private pass(1)-format repository,
-  `gzapi-org/secrets-<login>`, encrypted to that key alone: the parent
+  `gzapi-org/agent-fabric-secrets-<login>`, encrypted to that key alone: the parent
   writes (`fabric-secrets put`) and never reads (§5 rule 3).
 - No step relies on a shared host; a key names no host and moves with its
   login's home (§5 rules 4–5).
@@ -778,6 +778,25 @@ searches it.
   Proton Drive account dedicated to the fleet, not to paper (§5 rules 1, 6; §6).
 - A 2026-09-29 — the recovery copies are encrypted to the owner's recovery key,
   whose passphrase only the owner holds; no agent can read one (§5 rules 1, 6; §6).
+- A 2026-09-29 — each agent has an id beneath its name (ADR-039); the key is
+  certified on the user id addressed to it (§2, §5 rule 2).
 - Keywords: secrets, key, GPG, pass, QtPass, browserpass, paperkey, Proton Drive, backup,
   identity, lineage, parent, custody, recovery, Doppler, migration,
   placement, P1.
+
+### ADR-039 — The agent id is a UUIDv7 minted at birth (Proposed)
+
+- Each agent has an id, a UUIDv7 whose time is its birth: an existing
+  account's home creation time, a new one's enrolment. It is minted once
+  by the parent and never replaced (§5 rule 1).
+- The id identifies the agent across renames; the login is its current
+  name, and names stay logins wherever a person reads them (§2).
+- `lineage.json` is keyed by login and records `agent_id`, `born`,
+  `fingerprint` and the parent's id; the key's user id is
+  `<id>@agents.agent-fabric`, certified there by the parent (§5 rules 2–3).
+- Repositories are `agent-fabric-secrets-<login>`, and so are mirrors,
+  bundles and recovery copies; `store-enroll.sh --rename` moves them all
+  and keeps the id (§5 rules 4–5).
+- A reused login is a new agent with a new id (§5 rule 6).
+- Keywords: agent id, UUIDv7, birth, rename, identity, lineage, key,
+  secrets repository, P1.

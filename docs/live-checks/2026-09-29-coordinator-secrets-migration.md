@@ -93,3 +93,45 @@ The third run made `40A7633D78102CB8FA3F1CAB19A371CA986E3820`. Read back:
 - **The coordinator's store** is level with its remote.
 - **The plain `user.key.txt`** was trashed and then deleted. `keys/` and
   the trash no longer list it.
+
+## The agent id (ADR-039)
+
+The coordinator's id was minted from its home's creation time,
+`2026-01-14 21:27:33.247294044 +0100`:
+`019bbe31-2fff-7a2f-9849-96bdf286e011`, born `2026-01-14T20:27:33.247Z`.
+
+**First design: the id everywhere.** The first version named everything
+by the id: the repository, the key file, the lineage key and the Proton
+files. The owner read it and asked for names wherever a person reads
+them, with the id underneath. The coordinator was moved twice. The final
+state, read back:
+
+- **Repository:** `gzapi-org/agent-fabric-secrets-user`, private, its
+  description naming the agent id. It was renamed from `secrets-user`,
+  through the id-named form and back.
+- **Lineage:** `lineage.json` has one entry, `user`, with `agent_id`,
+  `born`, `fingerprint` and a null parent. The key file is
+  `identities/keys/user.asc`, and `verify` is clean.
+- **Key:** the same key, `F15AA499…2015`. It gained the user id
+  `user <019bbe31-…@agents.agent-fabric>`. The account still has 4
+  private-key files.
+- **Store:** it holds `.agent-id` and `recovery/user.key.gpg`, and is
+  level with its remote.
+- **Proton:** `secrets/agent-fabric-secrets-user.bundle` (`--verify`
+  matches), `keys/user.key.gpg` and `keys/recovery-key.asc`. Every other
+  file there was trashed and then deleted.
+
+**Two defects, found on the way, both fixed with the test that catches
+them:**
+
+1. `store-enroll.sh` read `lineage.json` from its own checkout, not from
+   the fabric root the store tool certifies into. On the enrolment
+   test's second run it minted a fresh id, and `init` refused it. The
+   lookup is now the store tool's `id-of`.
+2. A rewrite of the recovery sheet turned its last line into a plain
+   string. The copy then carried `{sheet}` and `{revocation}` literally:
+   412 bytes instead of 1,909. The test had checked for "REVOCATION",
+   which the literal matched once uppercased. It now checks for
+   paperkey's header and the armored revocation block. With only that
+   bug put back, the test fails. The copy was re-made at 1,909 bytes.
+   The earlier complete copies stay in the store's history.
