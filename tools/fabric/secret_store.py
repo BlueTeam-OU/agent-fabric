@@ -4,6 +4,8 @@
 
     fabric-secrets store init [--remote URL]     in the account: its key and its store
     fabric-secrets store set NAME                the agent writes an entry (value on stdin)
+    fabric-secrets store export-key              the agent's PUBLIC key, armored (for its parent)
+    fabric-secrets store push                    the store to its remote
     fabric-secrets store names [--json]          the entries, by name
     fabric-secrets store put LOGIN NAME [--store DIR]
                                                  the parent writes into a child's store
@@ -509,6 +511,8 @@ def main(argv: list[str] | None = None) -> int:
     c.add_argument("key_file", nargs="?")
     c.add_argument("--root", action="store_true")
     sub.add_parser("verify")
+    sub.add_parser("export-key")
+    sub.add_parser("push")
     pa = sub.add_parser("paper")
     pa.add_argument("--out")
     sub.add_parser("import-doppler")
@@ -541,6 +545,15 @@ def main(argv: list[str] | None = None) -> int:
                 raise StoreError("certify LOGIN needs the child's exported public key file")
             r = certify(None if args.root else args.login, args.key_file)
             print(f"{r['login']}: {r['fingerprint']}, parent {r['parent'] or '(root)'}")
+        elif args.cmd == "export-key":
+            sys.stdout.write(export_key())
+        elif args.cmd == "push":
+            store = store_dir()
+            key_of_store(store)
+            if not git(store, "remote", check=False).stdout.strip():
+                raise StoreError("the store has no remote (fabric-secrets store init --remote URL)")
+            git(store, "push", "-q", "-u", "origin", "HEAD:main")
+            print("pushed")
         elif args.cmd == "verify":
             f = verify()
             print("\n".join(f) if f else "keys: clean")

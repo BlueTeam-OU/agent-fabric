@@ -99,6 +99,7 @@ if [[ "$what" == all || "$what" == bash ]]; then
     run "hostexec (local and ssh backends)" bash runtime/hostexec/test_hostexec.sh
     run "fabric-secrets" bash policies/run_suite.sh runtime/provisioning/secrets/test_fabric-secrets.sh
     run "enroll (fault injection)" bash runtime/provisioning/secrets/test_enroll.sh
+    run "store-enroll (a parent keys an account on another host)" bash runtime/provisioning/secrets/test_store-enroll.sh
     run "github pr-reply" bash runtime/github/test_pr-reply.sh
     run "github pr-sessions" bash runtime/github/test_pr-sessions.sh
     run "github commit-class (work, review fix, merge)" bash runtime/github/test_commit-class.sh
