@@ -52,8 +52,8 @@ written by `install-agent-files.sh`, and the session through `--effort`,
 stamped as `AGENT_FABRIC_LAUNCH_EFFORT`.
 
 **Today** every class and every session asks
-`medium`. On plain claude every class is Opus 5.5 at medium, its own
-default; on the broker `code-low` is committed at `low` (GLM-5.3-Flash has
+`medium`. On plain claude the upper classes are Opus 5.5 at medium, its
+own default, and the lower two are Sonnet 5.5 at medium, which it admits; on the broker `code-low` is committed at `low` (GLM-5.3-Flash has
 no medium), and the other classes are served `high` by their models'
 documented mapping — one level above what they ask, so no override. On
 plain claude a class therefore no longer picks a model or a level; it

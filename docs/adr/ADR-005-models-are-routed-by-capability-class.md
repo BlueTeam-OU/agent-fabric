@@ -52,13 +52,14 @@ in the child's environment.
 
 The current mapping:
 
-- **Plain claude.** **Every class, the review class included, is
-  `claude-opus-5-5`**, and so is the default session;
+- **Plain claude.** `code-low` and `code-medium` are
+  `claude-sonnet-5-5`; `code-high`, `code-plan` and the review class are
+  `claude-opus-5-5`, and so is the default session (A 2026-09-29);
   `architect-cto-01`'s session is `claude-fable-5-1` (an agent layer).
   `anthropic/claude-opus-5-5` is admitted to review-grade without the
   `[1m]` marker (Opus 5.5's context is natively 1M). The aliases stay:
-  they are how the harness spells a class, and each binds to the same
-  model.
+  they are how the harness spells a class; `haiku` and `sonnet` bind to
+  Sonnet 5.5, `opus` and `fable` to Opus 5.5.
 - **The broker.** The session, `code-high`, `code-plan` and the review
   class are `deepseek/deepseek-v4-pro-0813`; `code-low` and `code-medium`
   are GLM. The reason for the review class is the tier, not the family:
@@ -169,3 +170,11 @@ Accepted; the current mapping is the one §2 states, on both paths.
   `runtime/claude-code/install-agent-files.sh`,
   `policies/subagent-dispatch/SKILL.md`.
 - The five live checks in Evidence. ADR-002 (the dimensions).
+
+## Amendments
+
+The body above reads current; each change's full note is in [history/ADR-005-amendments.md](history/ADR-005-amendments.md).
+
+| Date | Amendment | Effect |
+|---|---|---|
+| 2026-09-29 | code-low and code-medium are Sonnet 5.5 on plain claude | §2 the current mapping: the two lower classes on `claude-sonnet-5-5` |
