@@ -89,10 +89,13 @@ sharing a machine.
 
 1. Each login has exactly one agent key, generated inside that account.
    Its private half leaves the account only as that agent's recovery copy:
-   the paperkey text and revocation certificate, uploaded by the account
-   itself to the fleet's Proton Drive account (`/my-files/agent-fabric/keys/`).
-   A key held anywhere else is a stolen credential and is revoked
-   (A 2026-09-29).
+   the paperkey text and revocation certificate, encrypted by the account
+   to the owner's recovery key (`identities/recovery.asc`) and carried to
+   the fleet's Proton Drive by the parent's backup. The recovery key's
+   private half is protected by a passphrase only the owner knows and is
+   kept only in Proton; no agent can read any recovery copy, its own
+   included. A key held anywhere else is a stolen credential and is
+   revoked (A 2026-09-29).
 2. A key is an agent's only when both hold:
    - its public half is committed at `identities/keys/<login>.asc`;
    - the committed key carries a certification by the key of the parent
@@ -112,13 +115,14 @@ sharing a machine.
    - certification travels through the agent-fabric repository;
    - `put` is a push to the child's repository;
    - migration and sync are signed control actions (ADR-029).
-6. Each key's recovery copy goes up once at birth
-   (`fabric-secrets store paper --to-proton`): through a 0600 temporary
-   file overwritten before removal, printing only a path and a hash, so
-   it may run inside a model session. The paths that print the copy
-   (`paper`, `paper --out`) refuse inside one (`CLAUDECODE` set). No
-   secret value is ever shown to a model, put in a message, or written
-   to a log (A 2026-09-29).
+6. Each key's recovery copy is written once at birth
+   (`fabric-secrets store recovery-copy`), encrypted before it leaves the
+   process and printing only a path, so it may run inside a model
+   session. The recovery key is made by the owner in a terminal
+   (`recovery-key init`, which asks for the passphrase). The paths that
+   print a copy in the clear (`paper`, `paper --out`) refuse inside a
+   model session (`CLAUDECODE` set). No secret value is ever shown to a
+   model, put in a message, or written to a log (A 2026-09-29).
 7. `fabric-secrets sync` writes the same `secrets.env` whichever source
    it reads. Its exit codes stay:
    - 0: applied;
@@ -137,11 +141,13 @@ sharing a machine.
 
 ## 6. Consequences
 
-- **What the owner keeps:** a dedicated Proton account for the fleet,
-  with 2FA and its recovery phrase. It holds every agent's recovery copy
-  and every store's backup (`fabric-secrets store backup`, bundles with a
-  sha256 manifest, checked by `--verify`), and it is the fleet's single
-  recovery point: whoever holds it can read every store. The owner's own
+- **What the owner keeps:** the recovery passphrase, and a dedicated
+  Proton account for the fleet, with 2FA and its recovery phrase. The
+  account holds every store's backup (`fabric-secrets store backup`,
+  bundles with a sha256 manifest, checked by `--verify`), every agent's
+  recovery copy and the protected recovery key; it is shared read-only
+  with the owner's own account. Reading a recovery copy needs both the
+  account and the passphrase, so neither alone opens the fleet. The owner's own
   Proton account is never signed in on the agents' host. Opening a store
   needs its recovery copy and a GPG tool: `pass`, QtPass or browserpass.
 - **The Proton session** is an entry of the backing-up login's own
@@ -183,3 +189,4 @@ The body above reads current; each change's full note is in [history/ADR-038-ame
 | Date | Amendment | Effect |
 |---|---|---|
 | 2026-09-29 | The recovery copy and the backup go to Proton Drive | §5 rules 1 and 6, §6: Proton instead of paper; the backup |
+| 2026-09-29 | Recovery copies are encrypted to the owner's recovery key | §5 rules 1 and 6, §6: option B, the passphrase-protected recovery key |

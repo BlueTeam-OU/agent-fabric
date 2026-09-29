@@ -776,6 +776,8 @@ searches it.
   Doppler compares by sha256 and falls back on a mismatch (§5 rules 7–8).
 - A 2026-09-29 — each key's recovery copy and every store's backup go to a
   Proton Drive account dedicated to the fleet, not to paper (§5 rules 1, 6; §6).
+- A 2026-09-29 — the recovery copies are encrypted to the owner's recovery key,
+  whose passphrase only the owner holds; no agent can read one (§5 rules 1, 6; §6).
 - Keywords: secrets, key, GPG, pass, QtPass, browserpass, paperkey, Proton Drive, backup,
   identity, lineage, parent, custody, recovery, Doppler, migration,
   placement, P1.

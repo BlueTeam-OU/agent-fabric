@@ -13,3 +13,16 @@ named before it was taken: that account becomes the single recovery
 point for every agent, so its 2FA and recovery phrase are what the owner
 keeps. It was read back live on the coordinator: a backup, a
 `--verify` of that backup against its manifest, and its recovery copy.
+
+### Amendment 2026-09-29 — Recovery copies are encrypted to the owner's recovery key
+
+A Proton session gives full access to the whole account, and an agent's
+key can only be exported by that agent. So the plain copy the previous
+amendment put in Proton would have made every agent able to read every
+other agent's key, once each held a session. The owner chose option B
+over the alternatives: every agent holding the fleet's session, or the
+owner uploading each copy by hand. Under B, one recovery key protected
+by the owner's passphrase receives every copy. Agents encrypt to its
+public half and never hold a Proton session, the parent carries the
+ciphertext, and only the owner, with the passphrase, can open a copy.
+The coordinator's earlier plain copy is replaced, then deleted.
