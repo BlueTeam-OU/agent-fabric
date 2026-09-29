@@ -96,7 +96,7 @@ if (( RENAME )); then
   (( DRY )) && { say "would: agent $aid: login $old -> $new in lineage.json and its repository's description"; exit 0; }
   python3 "$STORE" rename "$old" "$new" >&2 || die "rename failed"
   "$GH" repo edit "$ORG/agent-fabric-secrets-$aid" --description "$(describe "$new" "$aid")" >/dev/null \
-    || say "agent $aid: the lineage says $new; its repository's description still names $old"
+    || die "agent $aid: the lineage says $new; its repository's description still names $old (re-run gh repo edit, nothing else)"
   say "agent $aid is now $new; nothing stored moves. Commit identities/keys/; the Linux account, its runtime state and its relay address are renamed on its host."
   exit 0
 fi
@@ -134,6 +134,10 @@ for login in "${LOGINS[@]}"; do
   # A run that stopped after init and before certification left the id in
   # the account's store: minting again would be refused there forever.
   [[ -n "$aid" ]] || aid="$(as_login "$login" "$ACCOUNT_SECRETS" store id 2>/dev/null || true)"
+  # Read back from another host: only an id, or it names a repository.
+  if [[ -n "$aid" && ! "$aid" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$ ]]; then
+    say "$login: its store answered an agent id that is not one: ${aid:0:60}"; fail=1; continue
+  fi
   if [[ -z "$aid" ]]; then
     if (( BORN_NOW )); then born=now; else born="$(as_login "$login" sh -c 'stat -c %w "$HOME"')"; fi
     aid="$(mint "$born")" || { say "$login: no birth: its home's creation time is unknown on $host ($born)"; fail=1; continue; }

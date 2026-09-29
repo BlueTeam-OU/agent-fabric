@@ -38,7 +38,7 @@ name="\${3##*/}"
 case "\$1 \$2" in
   "repo view") [[ -d "$T/remotes/\$name.git" ]] ;;
   "repo create") git init -q --bare -b main "$T/remotes/\$name.git" ;;
-  "repo edit") exit 0 ;;
+  "repo edit") [[ ! -e "$T/fail-edit" ]] ;;
   *) exit 9 ;;
 esac
 S
@@ -112,6 +112,10 @@ out="$(P "$E" --rename kid kiddo 2>&1)"; rc=$?
   && ok "--rename changes the login and the description; the id, key, repository and mirror stay" || bad "rename (rc=$rc)" "$out"
 echo "x" | P python3 "$ROOT/tools/fabric/secret_store.py" put kiddo AFTER_RENAME >/dev/null 2>&1 && AGENT_FABRIC_ROOT="$FAB" python3 "$ROOT/tools/fabric/secret_store.py" verify >/dev/null 2>&1 \
   && ok "…the renamed agent is written to by its new login, and verifies" || bad "after rename"
+touch "$T/fail-edit"
+out="$(P "$E" --rename kiddo kid3 2>&1)"; rc=$?
+rm -f "$T/fail-edit"
+[[ $rc -eq 1 ]] && grep -q "description still names kiddo" <<<"$out" && ok "…a rename whose description edit fails exits 1 and says what is left" || bad "rename edit failure (rc=$rc)" "$out"
 
 after="$(ls "$REAL_KEYS" 2>/dev/null | sort)"
 [[ "$before" == "$after" ]] && ok "the account's own keyring is left as it was found" || bad "real keyring changed"

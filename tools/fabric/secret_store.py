@@ -38,8 +38,9 @@ agent's key alone. Anyone holding the committed public key can add an
 entry, and only the agent can read one: the parent writes and never reads.
 
 A key is an agent's when its public half is committed at
-`identities/keys/<login>.asc` with its parent's certification, and
-`identities/keys/lineage.json` records that parent. Placement is not
+`identities/keys/<agent id>.asc` with its parent's certification on the
+user id addressed to that id, and `identities/keys/lineage.json` records
+that parent (ADR-039: stored under the id, typed as the login). Placement is not
 part of it: no host is named anywhere, and nothing here needs the
 parent and the child on one machine. They meet only through git.
 
@@ -756,7 +757,11 @@ def _sheet_text() -> str:
             revocation = fh.read()
     except OSError:
         revocation = "(no revocation certificate found; make one: gpg --gen-revoke " + fpr + ")\n"
-    aid = own_agent_id() or login()
+    aid = own_agent_id()
+    if not aid:
+        # The restore line names identities/keys/<id>.asc; without an id it
+        # would name a file that is never written.
+        raise StoreError("this store has no agent id yet (store-enroll.sh): the sheet names the key by it")
     return (f"agent-fabric — the key of agent {aid} (login {login()} when written)\nfingerprint {fpr}\n\n"
             "Restore: paperkey --pubring <the committed identities/keys/"
             f"{aid}.asc> --secrets <this sheet> | gpg --import\n\n{sheet}\n{revocation}")

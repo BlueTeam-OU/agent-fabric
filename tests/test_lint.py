@@ -1326,23 +1326,27 @@ def case_decision_records_are_lint_findings() -> None:
 
 
 def case_a_committed_agent_key_needs_its_lineage() -> None:
-    """ADR-038 §5 rule 2: lineage.json naming a login whose key is not
-    committed, or a committed key with no lineage entry, is a finding;
-    no identities/keys/ at all is clean."""
+    """ADR-038 §5 rule 2, ADR-039: lineage.json naming an agent whose key
+    is not committed, an entry keyed by anything but an agent id, or a
+    committed key with no lineage entry, is a finding; no identities/keys/
+    at all is clean."""
     import importlib.util
     spec = importlib.util.spec_from_file_location("fabric_lint_under_test", LINT)
     lint = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(lint)
+    AID = "019bbe31-2fff-7a2f-9849-96bdf286e011"   # a UUIDv7 born 2026-01-14T20:27:33.247Z
     with tempfile.TemporaryDirectory() as root:
         assert lint.key_lineage_findings(root) == [], "no keys committed yet is clean"
         keys = os.path.join(root, "identities", "keys")
         os.makedirs(keys)
         with open(os.path.join(keys, "lineage.json"), "w", encoding="utf-8") as fh:
-            json.dump({"someone": {"fingerprint": "0" * 40, "parent": None}}, fh)
+            json.dump({AID: {"login": "someone", "born": "2026-01-14T20:27:33.247Z", "fingerprint": "0" * 40, "parent": None},
+                       "someone-else": {"fingerprint": "1" * 40, "parent": None}}, fh)
         with open(os.path.join(keys, "stray.asc"), "w", encoding="utf-8") as fh:
             fh.write("")
         got = lint.key_lineage_findings(root)
-        assert any("someone has no committed key" in f for f in got), got
+        assert any(f"{AID} has no committed key" in f for f in got), got
+        assert any("someone-else is not an agent id" in f for f in got), got
         assert any("stray.asc: no lineage.json entry" in f for f in got), got
 
 
