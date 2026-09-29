@@ -45,6 +45,10 @@ def main() -> int:
         ("a kill behind timeout", "timeout 5 pkill -f 'gzcoord-inbox --follow'"),
         ("a kill behind sudo and env", "sudo env A=1 pkill -f 'claude-fable'"),
         ("xargs pkill", "echo x | xargs pkill -f 'gzcoord-inbox'"),
+        ("a prefix option with its own argument (sudo -u)", "sudo -u root pkill -f 'gzcoord-inbox'"),
+        ("timeout -s KILL 5", "timeout -s KILL 5 pkill -f 'claude-fable'"),
+        ("env -u X", "env -u HOME pkill -f 'gzcoord-inbox'"),
+        ("xargs -I {}", "pgrep -f 'inbox --follow' | xargs -I {} kill {}"),
     ]
     for label, cmd in refused:
         check(f"refused: {label}", g.verdict(cmd, CLAUDE) is not None, g.kill_patterns(cmd))

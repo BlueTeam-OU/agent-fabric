@@ -26,6 +26,7 @@ import shlex
 import sys
 
 PREFIXES = {"timeout", "sudo", "env", "nohup", "nice", "xargs", "exec", "command", "setsid", "stdbuf"}
+KILL_TOOLS = {"pgrep", "pkill", "killall", "kill"}
 KILLS = re.compile(r"\b(kill|pkill|killall|xargs\s+(?:-\S+\s+)*kill)\b")
 
 
@@ -78,13 +79,15 @@ def kill_patterns(command: str) -> list[str]:
         if not words:
             continue
         # A kill behind a prefix is still the kill (review of #68):
-        # `timeout 5 pkill -f P`, sudo, env, nohup, nice, xargs, exec.
-        while words and os.path.basename(words[0]) in PREFIXES:
-            words = words[1:]
-            while words and (words[0].startswith("-") or re.fullmatch(r"\d+[smhd]?|\w+=\S*", words[0])):
-                words = words[1:]
-        if not words:
-            continue
+        # `timeout 5 pkill -f P`, sudo, env, nohup, nice, xargs, exec. A
+        # prefix's options may take a separate argument (`sudo -u root`,
+        # `timeout -s KILL 5`, `xargs -I {}`), which no rule for skipping
+        # options can know: the kill is the first killing tool after it.
+        if os.path.basename(words[0]) in PREFIXES:
+            at = next((i for i, w in enumerate(words) if os.path.basename(w) in KILL_TOOLS), None)
+            if at is None:
+                continue
+            words = words[at:]
         tool = os.path.basename(words[0])
         if tool in ("pgrep", "pkill"):
             full = any(w in ("-f", "--full") or (w.startswith("-") and not w.startswith("--") and "f" in w[1:]) for w in words[1:])
