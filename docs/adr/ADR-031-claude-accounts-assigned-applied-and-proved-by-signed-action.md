@@ -100,11 +100,19 @@ verdict comes back, and a session survives the move.
    `CLAUDE_CODE_OAUTH_TOKEN`. The token is made once per account with
    `claude setup-token` in a real terminal, approved in a browser signed
    in as that account — the browser decides the account — and stored with
-   `doppler secrets set`, never pasted elsewhere.
+   `doppler secrets set`, never pasted elsewhere. Once the coordinator's
+   secrets are on its own store (ADR-038), a template is instead the
+   entry `CLAUDE_ACCOUNT_<ACCOUNT>` of that store, set with
+   `fabric-secrets store template-set <account>` from stdin
+   (A 2026-09-29).
 2. A login's account is the reference
    `${agent-fabric.claude-accounts_<account>.CLAUDE_CODE_OAUTH_TOKEN}` in
    its own Doppler config, written only with the coordinator's Doppler
-   token and read back raw after writing.
+   token and read back raw after writing. On the coordinator's store, the
+   coordinator writes the template's token into the login's own store as
+   its `CLAUDE_CODE_OAUTH_TOKEN`, a write it cannot read back, and records
+   `<account> <fingerprint>` in its own store, which is how an unchanged
+   assignment is known (A 2026-09-29).
 3. The launcher refuses a plain-claude session whose login's synced
    record holds no `CLAUDE_CODE_OAUTH_TOKEN` of a setup-token's shape,
    before anything starts; it takes the token from the synced record, not
@@ -180,3 +188,4 @@ The body above reads current; each change's full note is in [history/ADR-031-ame
 | Date | Amendment | Effect |
 |---|---|---|
 | 2026-09-27 | A move without its sync | §5 rule 4 names `--no-sync`: no action is sent, and each changed login applies the move at its next sync |
+| 2026-09-29 | Templates and assignments on the coordinator's store | §5 rules 1–2: a template in the coordinator's store; assign writes into the login's store |

@@ -597,6 +597,8 @@ searches it.
   cross-kind `busy` (§5 rule 12).
 - A 2026-09-28 — `jobs` (an operator's read) and `jobs-add` (a signed
   action, one login) carry the job list (§5 rule 13).
+- A 2026-09-29 — `secrets-migrate` (a signed action) moves an account from
+  Doppler to its own store, verified by sha256 of `secrets.env` (§5 rule 14).
 - Keywords: control plane, agentd, fabric-ctl, control channel,
   fabric:control, relay, ops, status, ping, keys, usage, recall, tokens,
   drain, memory, signed, operator_key, keygen, linger, persist.
@@ -636,6 +638,8 @@ searches it.
   hand-made refresh (§5 rule 7, §3).
 - A 2026-09-27 — `--no-sync` sends no action; the login applies the move at its
   next sync (§5 rule 4).
+- A 2026-09-29 — on the coordinator's store, a template is its entry and an
+  assignment writes the token into the login's store (§5 rules 1–2).
 - Keywords: Claude account, subscription, setup-token, /login, template,
   claude-accounts, CLAUDE_CODE_OAUTH_TOKEN, fabric-accounts, assign,
   secrets-sync, fingerprint, usage windows, observer, /usage.
