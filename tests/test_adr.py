@@ -364,6 +364,26 @@ def commit_base(root: str) -> str:
     return subprocess.run(["git", "-C", root, "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
 
 
+def case_range_check_takes_a_git_range_and_refuses_a_bad_one(tmp: str) -> None:
+    """`range-check A..B` is how git spells a range: it once crashed git
+    rev-list as "A..B..HEAD". Taken as base and head; a range git cannot
+    read, or a range with a second head, is refused without a traceback."""
+    root = fixture(tmp)
+    git(root, "init", "-q", "-b", "main"); git(root, "config", "core.hooksPath", "/dev/null")
+    git(root, "add", "-A"); git(root, "commit", "-q", msg="base")
+    base = subprocess.run(["git", "-C", root, "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
+    tool = os.path.join(ROOT, "tools", "fabric", "adr.py")
+    cli = lambda *a: subprocess.run([sys.executable, tool, "--root", root, "range-check", *a], capture_output=True, text=True)  # noqa: E731
+    r = cli(f"{base}..HEAD")
+    assert r.returncode == 0 and "clean" in r.stdout and "Traceback" not in r.stderr, r.stdout + r.stderr
+    r = cli("nosuchref..HEAD")
+    assert r.returncode == 2 and "could not read" in r.stderr and "Traceback" not in r.stderr, r.stderr
+    r = cli(f"{base}..HEAD", "HEAD")
+    assert r.returncode == 2 and "not both" in r.stderr, r.stderr
+    r = cli("..HEAD")
+    assert r.returncode == 2 and "no base" in r.stderr, r.stderr
+
+
 def case_range_check_counts_only_new_amendment_rows(tmp: str) -> None:
     root = fixture(tmp)
     base = commit_base(root)

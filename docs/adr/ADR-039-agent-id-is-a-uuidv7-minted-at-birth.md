@@ -121,11 +121,12 @@ whole when the parent is renamed.
 - **What still keys by login:**
   - the GZCoord address `<host>/<login>`, because the protocol's grammar
     is frozen;
-  - the runtime state directories;
-  - the parent's `CLAUDE_ASSIGNED_<LOGIN>` records.
+  - the runtime state directories.
 
   A rename leaves these to follow, and they are listed for the procedure
-  that renames an account.
+  that renames an account. The parent's record of an assigned Claude
+  account is keyed by the id (`CLAUDE_ASSIGNED_<ID>`), like everything
+  stored, and does not.
 - **The coordinator** was migrated in place: same key, a new user id, and
   its repository renamed on GitHub.
 

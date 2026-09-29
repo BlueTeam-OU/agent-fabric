@@ -80,8 +80,16 @@ def main() -> int:
             # The parent's own key is the root of the chain.
             p = run(parent, "init", "--agent-id", PID)
             check("init makes a key and a store", p.returncode == 0 and "(made)" in p.stdout, p.stderr)
+            caps = secret_store._key_caps(subprocess.run(["gpg", "--with-colons", "--list-keys"], env=parent,
+                                                         capture_output=True, text=True).stdout)
+            check("…its primary only certifies, and each use is its own subkey (ADR-038 rule 1)",
+                  caps == ("c", {"e", "s", "a"}), repr(caps))
             p2 = run(parent, "init")
             check("init again keeps the key", p2.returncode == 0 and "(made)" not in p2.stdout, p2.stderr)
+            subs = [l for l in subprocess.run(["gpg", "--with-colons", "--list-keys"], env=parent,
+                                              capture_output=True, text=True).stdout.splitlines() if l.startswith("sub:")]
+            check("…and adds nothing to a complete key: still exactly one subkey per use",
+                  "subkeys added" not in p2.stdout and len(subs) == 3, p2.stdout + f" {len(subs)} subkeys")
             p = run(parent, "certify", "--root")
             check("the root records its own key, no parent", p.returncode == 0 and "(root)" in p.stdout, p.stderr)
 
@@ -146,6 +154,17 @@ def main() -> int:
             p = run(parent, "assign", "work-account", "kid", "--json")
             check("assigning again is unchanged, and remembers the account", json.loads(p.stdout)[0]["status"] == "unchanged"
                   and json.loads(p.stdout)[0]["from"] == "work-account", p.stdout)
+            p = run(parent, "assign", "work-account", KID, "--json")
+            byid = json.loads(p.stdout or "[]")
+            check("assign by agent id is the same agent: unchanged, and named by its login",
+                  p.returncode == 0 and byid and byid[0]["status"] == "unchanged" and byid[0]["login"] == "kid", p.stdout + p.stderr)
+            own_env = os.path.join(parent["AGENT_FABRIC_SECRET_STORE"], "env")
+            check("…the parent's record is keyed by the agent id, not the login",
+                  os.path.exists(os.path.join(own_env, f"CLAUDE_ASSIGNED_{KID.replace('-', '').upper()}.gpg"))
+                  and not os.path.exists(os.path.join(own_env, "CLAUDE_ASSIGNED_KID.gpg")), repr(sorted(os.listdir(own_env))))
+            p = run(parent, "assign", "work-account", "nobody-here", "--json")
+            check("an agent lineage does not know is a failed row, not a traceback",
+                  p.returncode == 1 and json.loads(p.stdout)[0]["status"] == "failed", p.stdout + p.stderr)
             p = run(parent, "assign", "no-such", "kid")
             check("an unknown template is refused", p.returncode == 1 and "not a template" in p.stderr, p.stderr)
 
@@ -200,7 +219,7 @@ def main() -> int:
             os.makedirs(hang)
             with open(os.path.join(hang, "doppler"), "w") as fh:
                 fh.write("#!/bin/sh\necho \"doppler $*\" >> " + os.path.join(tmp, "hang.calls")
-                         + "\ncase \"$*\" in *enclave.config*) sleep 30;; esac\nexit 0\n")
+                         + "\ncase \"$*\" in *enclave.config*|*'get token'*) sleep 30;; esac\nexit 0\n")
             os.chmod(os.path.join(hang, "doppler"), 0o755)
             open(os.path.join(child["HOME"], ".config", "agent-fabric", "secrets-source"), "w").write("doppler\n")
             hung = subprocess.run([fsync, "sync", "--json"], capture_output=True, text=True, timeout=60,
@@ -209,6 +228,14 @@ def main() -> int:
             check("a hung Doppler config lookup is an error within its bound, and no other config is read",
                   hung.returncode == 1 and "could not be read within 1 s" in hung.stdout and "download" not in calls,
                   hung.stdout[-300:] + " calls: " + calls)
+            st = subprocess.run([fsync, "status", "--json"], capture_output=True, text=True, timeout=60,
+                                env={**child, "PATH": hang + os.pathsep + child["PATH"], "AGENT_FABRIC_DOPPLER_TIMEOUT_S": "1"})
+            tok = (json.loads(st.stdout or "{}").get("local") or json.loads(st.stdout or "{}")).get("doppler_token_configured")
+            check("status reports a hung token lookup as timed out, not as no token", tok == "timed out after 1 s", st.stdout[-300:])
+            p = subprocess.run([sys.executable, TOOL, "import-doppler"], capture_output=True, text=True, timeout=60, cwd=tmp,
+                               env={**child, "PATH": hang + os.pathsep + child["PATH"], "AGENT_FABRIC_DOPPLER_TIMEOUT_S": "1"})
+            check("import-doppler: a hung config lookup is an error within its bound, said as a timeout",
+                  p.returncode == 1 and "doppler configure: timed out after 1 s" in p.stderr, p.stderr[-300:])
             open(os.path.join(child["HOME"], ".config", "agent-fabric", "secrets-source"), "w").write("store\n")
 
             # import-doppler: the login's own Doppler config into its store,
@@ -377,6 +404,67 @@ def main() -> int:
             check("a lineage entry that is not an object is a finding, not a traceback",
                   r.returncode == 1 and f"{KID} is not an object" in r.stdout and "Traceback" not in r.stderr, r.stdout + r.stderr)
             restore()
+            # A committed key whose authentication subkey is dropped: one use
+            # missing is a finding, whatever else holds.
+            noauth = subprocess.run(["gpg", "--armor", "--export", "--export-filter", "drop-subkey=usage =~ a", child_fpr],
+                                    env=parent, capture_output=True, text=True).stdout
+            open(os.path.join(kd, f"{KID}.asc"), "w").write(noauth)
+            check("ADR-038 rule 1: a committed key without its authentication subkey is refused",
+                  verify_says("no authentication subkey"), run(parent, "verify").stdout)
+            restore()
+            # Review of #64, P3-8: the certification must be on the user id
+            # addressed to the agent's id. A key the parent signed before it
+            # carried that id holds a parent signature on another user id
+            # only, which is not enough.
+            late = role("late")
+            lg2 = ["gpg", "--batch", "--pinentry-mode", "loopback", "--passphrase", ""]
+            subprocess.run(lg2 + ["--quick-gen-key", "late <late@agents.agent-fabric>", "ed25519", "cert", "never"],
+                           env=late, check=True, capture_output=True)
+            lfp = [l.split(":")[9] for l in subprocess.run(["gpg", "--with-colons", "--list-keys"], env=late,
+                   capture_output=True, text=True).stdout.splitlines() if l.startswith("fpr:")][0]
+            for use in (("cv25519", "encr"), ("ed25519", "sign"), ("ed25519", "auth")):
+                subprocess.run(lg2 + ["--quick-add-key", lfp, *use, "never"], env=late, check=True, capture_output=True)
+            before = subprocess.run(["gpg", "--armor", "--export", lfp], env=late, capture_output=True).stdout
+            subprocess.run(["gpg", "--batch", "--import"], input=before, env=parent, capture_output=True)
+            pfp = open(os.path.join(parent["AGENT_FABRIC_SECRET_STORE"], ".gpg-id")).read().split()[0]
+            subprocess.run(lg2 + ["--default-key", pfp, "--quick-sign-key", lfp], env=parent, check=True, capture_output=True)
+            LATE = secret_store.mint_agent_id(secret_store.born_ms_of("now"))
+            subprocess.run(lg2 + ["--quick-add-uid", lfp, f"late <{LATE}@agents.agent-fabric>"], env=late, check=True, capture_output=True)
+            after = subprocess.run(["gpg", "--armor", "--export", lfp], env=late, capture_output=True).stdout
+            subprocess.run(["gpg", "--batch", "--import"], input=after, env=parent, capture_output=True)
+            open(os.path.join(kd, f"{LATE}.asc"), "wb").write(
+                subprocess.run(["gpg", "--armor", "--export", lfp], env=parent, capture_output=True).stdout)
+            d = json.loads(saved["lineage.json"])
+            d[LATE] = {"login": "late", "born": secret_store.born_of(LATE), "fingerprint": lfp, "parent": PID}
+            json.dump(d, open(os.path.join(kd, "lineage.json"), "w"))
+            check("P3-8: a parent signature on another user id is not a certification of the agent id",
+                  verify_says(f"{LATE}.asc: not certified by its parent"), run(parent, "verify").stdout)
+            # An entry whose key carries a different id: no user id addressed to it.
+            OTHER = secret_store.mint_agent_id(secret_store.born_ms_of("now"))
+            os.rename(os.path.join(kd, f"{LATE}.asc"), os.path.join(kd, f"{OTHER}.asc"))
+            d[OTHER] = {**d.pop(LATE), "born": secret_store.born_of(OTHER)}
+            json.dump(d, open(os.path.join(kd, "lineage.json"), "w"))
+            check("P3-8: a key that carries no user id addressed to its entry's id is refused",
+                  verify_says(f"{OTHER}.asc: no valid user id addressed to {OTHER}"), run(parent, "verify").stdout)
+            os.remove(os.path.join(kd, f"{OTHER}.asc"))
+            # A primary that also authenticates: its use belongs on a subkey.
+            PRIM = secret_store.mint_agent_id(secret_store.born_ms_of("now"))
+            subprocess.run(lg2 + ["--quick-gen-key", f"prim <{PRIM}@agents.agent-fabric>", "ed25519", "cert,auth", "never"],
+                           env=late, check=True, capture_output=True)
+            pr = [l.split(":")[9] for l in subprocess.run(["gpg", "--with-colons", "--list-keys", f"<{PRIM}@agents.agent-fabric>"],
+                  env=late, capture_output=True, text=True).stdout.splitlines() if l.startswith("fpr:")][0]
+            for use in (("cv25519", "encr"), ("ed25519", "sign"), ("ed25519", "auth")):
+                subprocess.run(lg2 + ["--quick-add-key", pr, *use, "never"], env=late, check=True, capture_output=True)
+            open(os.path.join(kd, f"{PRIM}.asc"), "wb").write(
+                subprocess.run(["gpg", "--armor", "--export", pr], env=late, capture_output=True).stdout)
+            d = json.loads(saved["lineage.json"])
+            d[PRIM] = {"login": "prim", "born": secret_store.born_of(PRIM), "fingerprint": pr, "parent": PID}
+            json.dump(d, open(os.path.join(kd, "lineage.json"), "w"))
+            check("ADR-038 rule 1: a primary that also authenticates is refused",
+                  verify_says(f"{PRIM}.asc: the primary key itself encrypts or authenticates"), run(parent, "verify").stdout)
+            os.remove(os.path.join(kd, f"{PRIM}.asc"))
+            subprocess.run(["gpgconf", "--homedir", late["GNUPGHOME"], "--kill", "all"], capture_output=True)
+            restore()
 
             # ADR-039: a rename moves one field; the id, key and store stay.
             p = run(parent, "rename", "kid", "kiddo")
@@ -407,7 +495,25 @@ def main() -> int:
             check("a pre-id key keeps its fingerprint and gains the id's user id", p.returncode == 0 and "(made)" not in p.stdout
                   and f"<{LID}@agents.agent-fabric>" in uids and open(os.path.join(legacy["AGENT_FABRIC_SECRET_STORE"], ".gpg-id")).read().strip() == lfpr,
                   p.stdout + p.stderr)
+            check("…and the subkey of each use it lacked, said as such", secret_store._key_caps(uids)[1] == {"e", "s", "a"}
+                  and "subkeys added: encryption, signing, authentication" in p.stdout, p.stdout + repr(secret_store._key_caps(uids)))
             subprocess.run(["gpgconf", "--homedir", legacy["GNUPGHOME"], "--kill", "all"], capture_output=True)
+            # A store with a key and no agent id: the sheet names the key file
+            # by the id, so it is refused rather than name one never written.
+            noid = role("noid")
+            subprocess.run(lg + ["--quick-gen-key", "noid <noid@agents.agent-fabric>", "ed25519", "cert,sign", "never"],
+                           env=noid, check=True, capture_output=True)
+            nfpr = [l.split(":")[9] for l in subprocess.run(["gpg", "--with-colons", "--list-secret-keys"], env=noid,
+                    capture_output=True, text=True).stdout.splitlines() if l.startswith("fpr:")][0]
+            os.makedirs(noid["AGENT_FABRIC_SECRET_STORE"])
+            open(os.path.join(noid["AGENT_FABRIC_SECRET_STORE"], ".gpg-id"), "w").write(nfpr + "\n")
+            if shutil.which("paperkey"):
+                p = run(noid, "paper", "--out", os.path.join(tmp, "noid-sheet.txt"))
+                check("the recovery sheet is refused without an agent id", p.returncode == 1
+                      and "no agent id yet" in p.stderr and not os.path.exists(os.path.join(tmp, "noid-sheet.txt")), p.stderr)
+            p = run(noid, "id")
+            check("store id: exit 3 when the store has no agent id yet", p.returncode == 3 and not p.stdout, p.stdout + p.stderr)
+            subprocess.run(["gpgconf", "--homedir", noid["GNUPGHOME"], "--kill", "all"], capture_output=True)
             p = run(parent, "mint-id", "2026-08-13 21:56:22.653442123 +0200")
             check("mint-id: a UUIDv7 of that birth", p.returncode == 0 and secret_store.AGENT_ID_RE.match(p.stdout.strip())
                   and secret_store.born_of(p.stdout.strip()) == "2026-08-13T19:56:22.653Z", p.stdout + p.stderr)
@@ -520,6 +626,18 @@ else:
                 kf = os.path.join(drive, "my-files", "agent-fabric", "keys")
                 check("backup carries each store's encrypted copy to keys/", p.returncode == 0
                       and f"{PID}.key.gpg" in (os.listdir(kf) if os.path.isdir(kf) else []), p.stdout + p.stderr)
+                p = run(penv, "backup", "--verify")
+                check("…and --verify checks each copy there against the manifest", p.returncode == 0, p.stdout + p.stderr)
+                with open(os.path.join(kf, f"{PID}.key.gpg"), "ab") as fh:
+                    fh.write(b"truncated or replaced")
+                p = run(penv, "backup", "--verify")
+                check("…a copy in keys/ that is not the manifest's is a finding", p.returncode == 1
+                      and f"keys/{PID}.key.gpg: its sha256 is not the manifest's" in p.stdout, p.stdout + p.stderr)
+                os.remove(os.path.join(kf, f"{PID}.key.gpg"))
+                p = run(penv, "backup", "--verify")
+                check("…a copy missing from keys/ is a finding", p.returncode == 1
+                      and f"keys/{PID}.key.gpg: could not be downloaded" in p.stdout, p.stdout + p.stderr)
+                p = run(penv, "backup")   # the copy put back whole for what follows
             else:
                 check("paperkey is installed where this suite runs", False, "paperkey missing")
             p = run({**penv, "CLAUDECODE": "1"}, "recovery-key", "init")
@@ -538,6 +656,16 @@ else:
                 "print(json.dumps({'fpr': f, 'pub': 'BEGIN PGP PUBLIC KEY BLOCK' in pub, 'priv': 'BEGIN PGP PRIVATE KEY BLOCK' in priv}))"),
                 os.path.join(ROOT, "tools", "fabric"), mk, RPASS], capture_output=True, text=True, env=parent)
             out = json.loads(made.stdout or "{}")
+            mk0 = os.path.join(tmp, "recovery-unprotected")
+            os.makedirs(mk0, mode=0o700)
+            bare = subprocess.run([sys.executable, "-c", (
+                "import sys; sys.path.insert(0, sys.argv[1]); import secret_store as s\n"
+                "try:\n    s._make_recovery_key(sys.argv[2], ''); print('made')\n"
+                "except s.StoreError as e:\n    print('refused:', e)\n"),
+                os.path.join(ROOT, "tools", "fabric"), mk0], capture_output=True, text=True, env=parent)
+            subprocess.run(["gpgconf", "--homedir", mk0, "--kill", "all"], capture_output=True)
+            check("P3-8: a recovery key with no passphrase is refused before anything is published",
+                  bare.stdout.startswith("refused:") and "not protected" in bare.stdout, bare.stdout + bare.stderr[-200:])
             check("recovery key: both halves made, every secret part protected", made.returncode == 0
                   and out.get("pub") and out.get("priv") and len(out.get("fpr", "")) == 40, made.stderr[-300:])
             if made.returncode == 0:

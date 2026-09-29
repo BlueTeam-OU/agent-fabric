@@ -271,6 +271,9 @@ issue_token() {
 import json, sys
 try: sys.exit(0 if any(t.get("name") == sys.argv[1] for t in (json.load(sys.stdin) or [])) else 1)
 except ValueError: sys.exit(1)' "$name"; then
+    # Unbounded on purpose: a lookup cut short would read as "the account
+    # holds none" and create a second service token. A hang makes nothing;
+    # this step retires with Doppler (ADR-038 §7).
     if [[ -n "$(as_login "$login" doppler configure get token --plain --scope / 2>/dev/null)" ]]; then
       say "$login: service token $name already issued; keeping the account's copy"
       return 0

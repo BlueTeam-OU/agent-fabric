@@ -5,7 +5,7 @@
     fabric-secrets store init --agent-id ID [--remote URL]
                                                  in the account: its key and its store
     fabric-secrets store mint-id BORN            a new agent id, a UUIDv7 of that birth (ADR-039)
-    fabric-secrets store id                      this store's agent id
+    fabric-secrets store id                      this store's agent id (exit 3: none yet)
     fabric-secrets store id-of LOGIN             the agent id lineage.json records for a login
     fabric-secrets store rename OLD NEW          a login renamed; its id, key and store stay
     fabric-secrets store set NAME                the agent writes an entry (value on stdin)
@@ -28,7 +28,7 @@
     fabric-secrets store template-set SLUG       a Claude account's setup-token into this
                                                  (the coordinator's) store (value on stdin)
     fabric-secrets store templates [--json]      the templates, by fingerprint
-    fabric-secrets store assign SLUG LOGIN...    each login's store gets the template's token
+    fabric-secrets store assign SLUG LOGIN|ID... each agent's store gets the template's token
                                                  (ADR-031, through its parent)
 
 The store is a git repository in the layout pass(1) reads, so QtPass and
@@ -142,26 +142,46 @@ def keys_dir(fabric: str | None = None) -> str:
 
 
 def _run(cmd: list[str], *, stdin: bytes | None = None, cwd: str | None = None,
-         env: dict | None = None, check: bool = True) -> subprocess.CompletedProcess:
-    r = subprocess.run(cmd, input=stdin, capture_output=True, cwd=cwd, env=env)
+         env: dict | None = None, check: bool = True, timeout: float | None = None,
+         label: str | None = None) -> subprocess.CompletedProcess:
+    # What an error names: the caller's label (gpg() and git() pass the
+    # operation, which follows their fixed flags), else the command and its
+    # first argument.
+    what = label or " ".join([os.path.basename(cmd[0])] + cmd[1:2])
+    try:
+        r = subprocess.run(cmd, input=stdin, capture_output=True, cwd=cwd, env=env, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        raise StoreError(f"{what}: timed out after {timeout:g} s") from None
     if check and r.returncode != 0:
         # The last line of stderr that is not git's advice ("hint:"), which
         # gpg and git keep free of values; the error, not the suggestion.
         lines = [l for l in r.stderr.decode(errors="replace").strip().splitlines() if not l.startswith("hint:")]
         why = (lines or [f"exit {r.returncode}"])[-1]
-        raise StoreError(f"{os.path.basename(cmd[0])} {cmd[1] if len(cmd) > 1 else ''}: {why}")
+        raise StoreError(f"{what}: {why}")
     return r
+
+
+# A Doppler call waits on the desktop keyring when the token is kept there;
+# locked, it waits forever. Every call is bounded, as fabric-secrets' are.
+DOPPLER_TIMEOUT_S = float(os.environ.get("AGENT_FABRIC_DOPPLER_TIMEOUT_S") or 30)
+
+
+# gpg's commands, as opposed to its options: what an error names.
+GPG_COMMANDS = {"--import", "--export", "--export-secret-keys", "--list-keys", "--list-secret-keys",
+                "--check-sigs", "--show-keys", "--encrypt", "--decrypt", "--quick-gen-key", "--quick-add-key",
+                "--quick-add-uid", "--quick-sign-key", "--gen-revoke", "--list-packets"}
 
 
 def gpg(*args: str, stdin: bytes | None = None, homedir: str | None = None, check: bool = True):
     cmd = ["gpg", "--batch", "--yes", "--no-tty", "--pinentry-mode", "loopback", "--passphrase", ""]
     if homedir:
         cmd += ["--homedir", homedir]
-    return _run(cmd + list(args), stdin=stdin, check=check)
+    op = next((a for a in args if a in GPG_COMMANDS), args[0] if args else "")
+    return _run(cmd + list(args), stdin=stdin, check=check, label=f"gpg {op}")
 
 
 def git(store: str, *args: str, check: bool = True):
-    return _run(["git", "-C", store, *args], check=check)
+    return _run(["git", "-C", store, *args], check=check, label=f"git {args[0] if args else ''}")
 
 
 def fingerprints(homedir: str | None = None, *, secret: bool = False, query: str | None = None) -> list[str]:
@@ -188,6 +208,39 @@ def key_of_store(store: str | None = None) -> str:
 
 
 # ── the agent, in its own account ─────────────────────────────────────
+# One key per use (ADR-038 rule 1): the primary certifies only, and each
+# use is its own subkey, so a leaked signing key never opens the store and
+# each can be rotated alone. The authentication subkey is the one an SSH
+# client can use through gpg-agent.
+KEY_USES = (("e", "cv25519", "encr", "encryption"), ("s", "ed25519", "sign", "signing"),
+            ("a", "ed25519", "auth", "authentication"))
+
+
+def _key_caps(colons: str) -> tuple[str, set[str]]:
+    """From `gpg --with-colons` output for one key: the primary's own
+    capabilities and those of its valid subkeys (revoked or expired ones
+    excluded)."""
+    primary, subs = "", set()
+    for l in colons.splitlines():
+        f = l.split(":")
+        if f[0] == "pub":
+            primary = "".join(c for c in f[11] if c.islower())
+        elif f[0] == "sub" and f[1] not in ("r", "e", "i"):
+            subs |= {c for c in f[11] if c.islower()}
+    return primary, subs
+
+
+def _ensure_use_subkeys(fpr: str) -> list[str]:
+    """Adds the subkey of each use the key lacks; returns the uses added."""
+    _, subs = _key_caps(gpg("--with-colons", "--list-keys", fpr).stdout.decode())
+    added = []
+    for cap, algo, usage, name in KEY_USES:
+        if cap not in subs:
+            gpg("--quick-add-key", fpr, algo, usage, "never")
+            added.append(name)
+    return added
+
+
 def uid_of(agent_id: str, name: str) -> str:
     # The address is the id, which a rename keeps; the name part is the
     # login at birth, a label only.
@@ -211,12 +264,14 @@ def init(remote: str | None = None, agent_id: str | None = None) -> dict:
     fpr = key_of_store(store) if os.path.exists(gpg_id) else next(iter(fingerprints(secret=True, query=f"<{aid}@{UID_DOMAIN}>")), None)
     made = False
     if not fpr:
-        gpg("--quick-gen-key", uid, "ed25519", "cert,sign", "never")
+        gpg("--quick-gen-key", uid, "ed25519", "cert", "never")
         fpr = fingerprints(secret=True, query=f"={uid}")[0]
-        gpg("--quick-add-key", fpr, "cv25519", "encr", "never")
         made = True
     elif fpr not in fingerprints(secret=True, query=f"<{aid}@{UID_DOMAIN}>"):
         gpg("--quick-add-uid", fpr, uid)
+    # A key made before the split gains the subkeys it lacks, and keeps its
+    # fingerprint: its parent re-exports it at the next certification.
+    added = _ensure_use_subkeys(fpr)
     os.makedirs(os.path.join(store, "env"), mode=0o700, exist_ok=True)
     if not os.path.isdir(os.path.join(store, ".git")):
         git(store, "init", "-q", "-b", "main")
@@ -232,7 +287,7 @@ def init(remote: str | None = None, agent_id: str | None = None) -> dict:
             git(store, "remote", "set-url", "origin", remote)
         else:
             git(store, "remote", "add", "origin", remote)
-    return {"login": me, "agent_id": aid, "fingerprint": fpr, "key_made": made, "store": store}
+    return {"login": me, "agent_id": aid, "fingerprint": fpr, "key_made": made, "store": store, "subkeys_added": added}
 
 
 def export_key(fpr: str | None = None, homedir: str | None = None) -> str:
@@ -390,12 +445,13 @@ def import_doppler() -> dict:
     project = os.environ.get("AGENT_FABRIC_SECRETS_PROJECT", "agent-fabric")
     config = os.environ.get("AGENT_FABRIC_SECRETS_CONFIG")
     if not config:
-        r = _run(["doppler", "configure", "get", "enclave.config", "--plain", "--scope", "/"], check=False)
+        r = _run(["doppler", "configure", "get", "enclave.config", "--plain", "--scope", "/"], check=False,
+                 timeout=DOPPLER_TIMEOUT_S)
         config = r.stdout.decode().strip() if r.returncode == 0 else ""
     if not config:
         raise StoreError("no Doppler config recorded for this login; nothing to import")
     r = _run(["doppler", "secrets", "download", "--no-file", "--format", "json",
-              "--project", project, "--config", config])
+              "--project", project, "--config", config], timeout=DOPPLER_TIMEOUT_S)
     try:
         data = json.loads(r.stdout)
     except ValueError:
@@ -635,6 +691,14 @@ def verify(fabric: str | None = None) -> list[str]:
                     findings.append(f"identities/keys/{who}.asc: holds {len(held)} key(s), "
                                     f"{'not the recorded ' + fpr if fpr not in held else 'not only the recorded one'}")
                     return
+                primary, subs = _key_caps(gpg("--with-colons", "--list-keys", fpr, homedir=tmp).stdout.decode())
+                lacking = [name for cap, _, _, name in KEY_USES if cap not in subs]
+                if lacking:
+                    findings.append(f"identities/keys/{who}.asc: no {', '.join(lacking)} subkey; "
+                                    "each use has its own key (ADR-038 rule 1)")
+                if set(primary) & {"e", "a"}:
+                    findings.append(f"identities/keys/{who}.asc: the primary key itself encrypts or authenticates; "
+                                    "it certifies, and each use is a subkey (ADR-038 rule 1)")
                 addr = f"<{who}@{UID_DOMAIN}>"
                 if parent is not None:
                     pfpr = (doc.get(parent) or {}).get("fingerprint")
@@ -686,10 +750,10 @@ def _slug_name(slug: str) -> str:
     return TEMPLATE_PREFIX + slug.upper().replace("-", "_")
 
 
-def _login_name(who: str) -> str:
-    if not LOGIN_RE.match(who) or "_" in who:
-        raise StoreError(f"{who!r} is not a login this store can record (no underscores)")
-    return ASSIGNED_PREFIX + who.upper().replace("-", "_")
+def _assigned_name(agent_id: str) -> str:
+    # Keyed by the agent id, as everything stored is (ADR-039): a rename
+    # leaves the record the parent keeps for the agent where it was.
+    return ASSIGNED_PREFIX + agent_id.replace("-", "").upper()
 
 
 def _sha12(v: str) -> str:
@@ -724,7 +788,14 @@ def assign(slug: str, logins: list[str], *, force: bool = False) -> list[dict]:
     rows = []
     fp = _sha12(vals[name])
     for who in logins:
-        rec = _login_name(who)
+        # A login or an agent id, resolved first (ADR-039 rule 5); rows
+        # name the agent by its login, the record keys it by its id.
+        try:
+            aid, lin = resolve(who)
+        except StoreError as e:
+            rows.append({"login": who, "from": "none", "status": "failed", "reason": str(e)[:160]})
+            continue
+        who, rec = lin.get("login") or who, _assigned_name(aid)
         # The parent's record is "<slug> <fingerprint>": the parent cannot
         # read the child's entry, so whether the child already holds this
         # token is decided here, by what the parent last wrote.
@@ -733,7 +804,7 @@ def assign(slug: str, logins: list[str], *, force: bool = False) -> list[dict]:
             rows.append({"login": who, "from": was, "to": slug, "status": "unchanged", "token_sha256_12": fp})
             continue
         try:
-            put(who, "CLAUDE_CODE_OAUTH_TOKEN", vals[name].encode(), exact=True)
+            put(aid, "CLAUDE_CODE_OAUTH_TOKEN", vals[name].encode(), exact=True)
             set_entry(rec, f"{slug} {fp}".encode(), exact=True)
             rows.append({"login": who, "from": was, "to": slug, "status": "written", "token_sha256_12": fp})
         except StoreError as e:
@@ -1025,8 +1096,9 @@ def backup() -> dict:
 
 
 def verify_backup() -> list[str]:
-    """Download the manifest and every bundle it names, and check each
-    against its sha256 and `git bundle verify`. Findings; [] is clean."""
+    """Download the manifest, every bundle and every recovery copy it
+    names, and check each against its sha256 (and a bundle with `git
+    bundle verify`). Findings; [] is clean."""
     folder = f"{PROTON_ROOT}/secrets"
     findings = []
     with tempfile.TemporaryDirectory() as tmp:
@@ -1046,6 +1118,15 @@ def verify_backup() -> list[str]:
                 continue
             if _run(["git", "bundle", "verify", local], cwd=empty, check=False).returncode != 0:
                 findings.append(f"{rec['bundle']}: git bundle verify fails")
+        # The recovery copies stand alone in keys/ for a restore: each is
+        # checked against the hash the manifest took when it went up.
+        for f, sha in sorted((manifest.get("recovery_copies") or {}).items()):
+            got = _proton("filesystem", "download", "-f", "remove", f"{PROTON_ROOT}/keys/{f}", tmp, check=False)
+            local = os.path.join(tmp, f)
+            if got.returncode != 0 or not os.path.exists(local):
+                findings.append(f"keys/{f}: could not be downloaded")
+            elif _sha256_file(local) != sha:
+                findings.append(f"keys/{f}: its sha256 is not the manifest's")
     return findings
 
 
@@ -1101,13 +1182,17 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.cmd == "init":
             r = init(args.remote, args.agent_id)
-            print(f"store: {r['store']}  agent: {r['agent_id']}  key: {r['fingerprint']}{' (made)' if r['key_made'] else ''}")
+            print(f"store: {r['store']}  agent: {r['agent_id']}  key: {r['fingerprint']}{' (made)' if r['key_made'] else ''}"
+                  + (f"  subkeys added: {', '.join(r['subkeys_added'])}" if r['subkeys_added'] and not r['key_made'] else ""))
         elif args.cmd == "mint-id":
             print(mint_agent_id(born_ms_of(args.born)))
         elif args.cmd == "id":
+            # 3 is "no id yet", the one answer that lets a parent mint; any
+            # other failure (no store read, a malformed .agent-id) is 1.
             aid = own_agent_id()
             if not aid:
-                raise StoreError("this store has no agent id yet")
+                print("fabric-secrets store: this store has no agent id yet", file=sys.stderr)
+                return 3
             print(aid)
         elif args.cmd == "id-of":
             print(resolve(args.login)[0])
@@ -1154,7 +1239,7 @@ def main(argv: list[str] | None = None) -> int:
         elif args.cmd == "backup":
             if args.verify:
                 f = verify_backup()
-                print("\n".join(f) if f else "backup: every bundle matches its manifest")
+                print("\n".join(f) if f else "backup: every bundle and recovery copy matches its manifest")
                 return 1 if f else 0
             m = backup()
             for who, rec in sorted(m["stores"].items()):

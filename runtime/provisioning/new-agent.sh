@@ -184,7 +184,10 @@ worker prepare "$LOGIN" "$ROLE" ${CLAUDE_TARGET:+--claude "$CLAUDE_TARGET"} "${d
 # account's config is the check (names only; no value is read).
 config_has() {  # config_has <name> — true when the account's config carries it
     # Asked THROUGH the account on its host: the recorded config name is
-    # in its ~/.doppler; only the names are read, never a value.
+    # in its ~/.doppler; only the names are read, never a value. Not
+    # bounded by a timeout on purpose: a lookup cut short reads as
+    # "absent", and a re-run would mint a second key. A hang makes
+    # nothing; these Doppler steps retire with Doppler (ADR-038 §7).
     local cfg; cfg="$("$HX" "$HOST" --as "$LOGIN" -- doppler configure get enclave.config --plain --scope / 2>/dev/null || true)"
     [[ -n "$cfg" ]] || return 1
     doppler secrets --only-names --json --project agent-fabric --config "$cfg" 2>/dev/null | python3 -c 'import json,sys; sys.exit(0 if sys.argv[1] in json.load(sys.stdin) else 1)' "$1"

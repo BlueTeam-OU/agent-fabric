@@ -780,6 +780,8 @@ searches it.
   whose passphrase only the owner holds; no agent can read one (§5 rules 1, 6; §6).
 - A 2026-09-29 — keys, lineage and repositories are named by the agent id
   (ADR-039), not the login (§2, §5 rule 2).
+- A 2026-09-29 — one identity key per agent: a certify-only primary with an
+  encryption, a signing and an authentication subkey (§5 rule 1, §7).
 - Keywords: secrets, key, GPG, pass, QtPass, browserpass, paperkey, Proton Drive, backup,
   identity, lineage, parent, custody, recovery, Doppler, migration,
   placement, P1.
