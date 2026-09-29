@@ -73,3 +73,23 @@ One condition from this run applies to the coordinator only: while it
 still reads Doppler, the keyring holding its token must be unlocked.
 The other accounts hold read-only service tokens in their own config
 files and do not depend on it.
+
+## The recovery key (option B)
+
+The owner's first `store recovery-key init` wrote a public half, but no
+private half reached Proton. gpg's pinentry had asked for the passphrase
+out of the owner's sight, and the private half went with the throwaway
+keyring. The second run failed at Proton, because `list` output was read
+as paths. Both were fixed (6acfe27, 6ccbb00): the passphrase is now asked
+on the terminal, protection is checked through KEYINFO, and the public
+half is written only after the upload.
+
+The third run made `40A7633D78102CB8FA3F1CAB19A371CA986E3820`. Read back:
+
+- **Proton `keys/`** holds `recovery-key.asc` (898 B) and
+  `user.key.gpg`. The coordinator's copy has a single pubkey-encrypted
+  packet, to the recovery subkey `82C53CF305BAC51D`.
+- **`backup --verify`** reports that every bundle matches its manifest.
+- **The coordinator's store** is level with its remote.
+- **The plain `user.key.txt`** was trashed and then deleted. `keys/` and
+  the trash no longer list it.
