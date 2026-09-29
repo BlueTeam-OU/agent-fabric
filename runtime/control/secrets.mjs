@@ -56,6 +56,64 @@ export function checkArgs(args) {
 // 3 the config names another login. Only the first two changed anything.
 const APPLIED = new Set([0, 2]);
 
+// The migration off Doppler (agent-fabric ADR-038 §5 rule 8), a third
+// ACTION, run by the account's own daemon so no value leaves the account:
+// a fresh sync from Doppler is the baseline; the login's Doppler config
+// is imported into its store (fabric-secrets store import-doppler); the
+// source switches to `store` and syncs again; the two secrets.env are
+// compared by sha256 of their export lines (the marker comment carries a
+// time), never by value. A difference switches the source back to
+// `doppler`, syncs, and fails: an account is on its store only when the
+// store reproduces exactly what Doppler gave it. A store must exist
+// (fabric-secrets store init, at provisioning) — the key is made and
+// certified deliberately, never as a side effect of a migration.
+export const MIGRATE_TIMEOUT_MS = 180000;
+export function checkMigrateArgs(args) {
+  return args === undefined ? null : 'secrets-migrate takes no arguments';
+}
+const sourceFile = home => path.join(home, '.config', 'agent-fabric', 'secrets-source');
+const envFile = home => path.join(home, '.config', 'agent-fabric', 'secrets.env');
+export const envDigest = text => sha12(String(text).split('\n').filter(l => l && !l.startsWith('#')).join('\n'));
+
+export function secretsMigrate(request, opts = {}) {
+  if (syncing) return Promise.resolve({ status: 'busy', note: 'a secrets-sync or migration is already running on this account' });
+  syncing = secretsMigrateOnce(request, opts).finally(() => { syncing = null; });
+  return syncing;
+}
+
+export async function secretsMigrateOnce(request, {
+  home = os.homedir(), root = process.env.AGENT_FABRIC_ROOT ?? path.join(home, 'projects', 'agent-fabric'), exec = execFileP,
+} = {}) {
+  const bad = checkMigrateArgs(request.args);
+  if (bad) return { status: 'refused', reason: bad };
+  const read = f => { try { return fs.readFileSync(f, 'utf8'); } catch { return null; } };
+  if ((read(sourceFile(home)) ?? '').trim() === 'store') return { status: 'current', note: 'this account already reads its store' };
+  if (read(path.join(process.env.AGENT_FABRIC_SECRET_STORE ?? path.join(home, '.local', 'share', 'agent-fabric', 'secrets'), '.gpg-id')) === null)
+    return { status: 'refused', reason: 'no store yet: fabric-secrets store init, and the parent\'s certification, come first' };
+  const bin = path.join(root, 'bin', 'fabric-secrets');
+  const run = async args => {
+    try { const r = await exec(bin, args, { encoding: 'utf8', timeout: MIGRATE_TIMEOUT_MS }); return { code: 0, out: typeof r === 'string' ? r : r.stdout, err: '' }; }
+    catch (e) { return { code: typeof e?.code === 'number' ? e.code : -1, out: e?.stdout ?? '', err: String(e?.stderr ?? e?.message ?? e) }; }
+  };
+  const last = r => (String(r.err || r.out).trim().split('\n').pop() ?? '').slice(0, 200);
+  const setSource = v => { fs.mkdirSync(path.dirname(sourceFile(home)), { recursive: true }); fs.writeFileSync(sourceFile(home), `${v}\n`); };
+  const base = await run(['sync', '--json']);
+  if (!APPLIED.has(base.code)) return { status: 'failed', reason: `the baseline sync from Doppler failed: ${last(base)}` };
+  const before = envDigest(read(envFile(home)) ?? '');
+  const imp = await run(['store', 'import-doppler']);
+  if (imp.code !== 0) return { status: 'failed', reason: `import: ${last(imp)}` };
+  setSource('store');
+  const moved = await run(['sync', '--json']);
+  const after = APPLIED.has(moved.code) ? envDigest(read(envFile(home)) ?? '') : null;
+  if (after !== before) {
+    setSource('doppler');
+    await run(['sync', '--json']);
+    return { status: 'failed', reason: after ? `the store's secrets.env differs from Doppler's (${before} vs ${after}); back on doppler`
+      : `the sync from the store failed (${last(moved)}); back on doppler`, sha_before: before, sha_after: after };
+  }
+  return { status: 'migrated', sha: before, imported: (imp.out.match(/imported (\d+)/) ?? [])[1] ?? null };
+}
+
 // A running session's own environment says what it runs on: the token
 // (the launcher exports it before the harness execs) and the provider the
 // launcher stamped, both readable by this daemon — same uid. The session,

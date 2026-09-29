@@ -171,3 +171,65 @@ test('an upgrade asked for while a secrets-sync restarts the session is busy, an
   release(); assert.equal((await sync).session, 'restarting');
   assert.equal((await upgrade({ id: 'u2', from: 'h/user', op: 'upgrade', args: { piece: 'claude', version: 'x' } }, {})).status, 'refused', 'the interlock is released afterwards');
 });
+
+// secrets-migrate (ADR-038 §5 rule 8): Doppler is the baseline, the store
+// must reproduce its secrets.env exactly, and anything else goes back to
+// doppler. A fake fabric-secrets writes secrets.env by the current source.
+import { secretsMigrateOnce, checkMigrateArgs, envDigest } from '../secrets.mjs';
+function migrateFixture({ storeBody = "export GH_TOKEN='a'\n", importFails = false, withStore = true, source = null } = {}) {
+  const home = scratch('migrate-home-');
+  const cfg = path.join(home, '.config', 'agent-fabric');
+  fs.mkdirSync(cfg, { recursive: true });
+  if (source) fs.writeFileSync(path.join(cfg, 'secrets-source'), `${source}\n`);
+  const store = path.join(home, '.local', 'share', 'agent-fabric', 'secrets');
+  if (withStore) { fs.mkdirSync(store, { recursive: true }); fs.writeFileSync(path.join(store, '.gpg-id'), 'F'.repeat(40) + '\n'); }
+  const calls = [];
+  const exec = async (bin, args) => {
+    calls.push(args.join(' '));
+    if (args[0] === 'store') {
+      if (importFails) { const e = new Error('x'); e.code = 1; e.stderr = 'fabric-secrets store: doppler: unreadable'; throw e; }
+      return { stdout: 'imported 5 name(s) from agents_x: A, B\n' };
+    }
+    const src = (() => { try { return fs.readFileSync(path.join(cfg, 'secrets-source'), 'utf8').trim(); } catch { return 'doppler'; } })();
+    const body = src === 'store' ? storeBody : "export GH_TOKEN='a'\n";
+    fs.writeFileSync(path.join(cfg, 'secrets.env'), `# agent-fabric secrets: ${Date.now()}\n${body}`);
+    return { stdout: '{}' };
+  };
+  return { home, cfg, exec, calls, read: () => fs.readFileSync(path.join(cfg, 'secrets-source'), 'utf8').trim() };
+}
+
+test('secrets-migrate: the store reproduces Doppler, and the account moves to it', async () => {
+  const f = migrateFixture();
+  const r = await secretsMigrateOnce({ args: undefined }, { home: f.home, root: '/fabric', exec: f.exec });
+  assert.equal(r.status, 'migrated', JSON.stringify(r));
+  assert.equal(r.sha, envDigest("export GH_TOKEN='a'"));
+  assert.equal(f.read(), 'store');
+  assert.deepEqual(f.calls, ['sync --json', 'store import-doppler', 'sync --json']);
+});
+
+test('secrets-migrate: a store that writes anything else sends the account back to doppler', async () => {
+  const f = migrateFixture({ storeBody: "export GH_TOKEN='b'\n" });
+  const r = await secretsMigrateOnce({}, { home: f.home, root: '/fabric', exec: f.exec });
+  assert.equal(r.status, 'failed');
+  assert.match(r.reason, /differs from Doppler's .*back on doppler/);
+  assert.equal(f.read(), 'doppler');
+  assert.ok(!JSON.stringify(r).includes("'b'") && !JSON.stringify(r).includes("'a'"), 'never a value');
+  assert.equal(f.calls.at(-1), 'sync --json', 'and Doppler\'s file is written back');
+});
+
+test('secrets-migrate: a failed import leaves the account on doppler', async () => {
+  const f = migrateFixture({ importFails: true });
+  const r = await secretsMigrateOnce({}, { home: f.home, root: '/fabric', exec: f.exec });
+  assert.deepEqual([r.status, /import: .*unreadable/.test(r.reason)], ['failed', true]);
+  assert.ok(!fs.existsSync(path.join(f.cfg, 'secrets-source')) || f.read() === 'doppler');
+});
+
+test('secrets-migrate: no store yet is refused; a migrated account is current; it takes no arguments', async () => {
+  const none = migrateFixture({ withStore: false });
+  const r = await secretsMigrateOnce({}, { home: none.home, root: '/fabric', exec: none.exec });
+  assert.deepEqual([r.status, /no store yet/.test(r.reason), none.calls.length], ['refused', true, 0]);
+  const done = migrateFixture({ source: 'store' });
+  assert.equal((await secretsMigrateOnce({}, { home: done.home, root: '/fabric', exec: done.exec })).status, 'current');
+  assert.match(checkMigrateArgs({ restart: true }), /no arguments/);
+  assert.equal(checkMigrateArgs(undefined), null);
+});

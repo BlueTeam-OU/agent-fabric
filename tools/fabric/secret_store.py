@@ -12,6 +12,8 @@
                                                  the parent attests a child's key
     fabric-secrets store verify                  every committed key against its lineage
     fabric-secrets store paper [--out FILE]      the key and its revocation, for the owner
+    fabric-secrets store import-doppler          this login's Doppler config into its store
+                                                 (the migration, ADR-038 §5 rule 8)
 
 The store is a git repository in the layout pass(1) reads, so QtPass and
 browserpass open it: `.gpg-id` names the key, and each secret is
@@ -221,6 +223,39 @@ def values(store: str | None = None) -> dict[str, str]:
     return out
 
 
+def import_doppler() -> dict:
+    """Every name of this login's own Doppler config into its store, in
+    one commit, for the migration. The config is found exactly as
+    fabric-secrets finds it (AGENT_FABRIC_SECRETS_CONFIG, else the one
+    recorded at scope /). Values stay in this process."""
+    store = store_dir()
+    fpr = key_of_store(store)
+    project = os.environ.get("AGENT_FABRIC_SECRETS_PROJECT", "agent-fabric")
+    config = os.environ.get("AGENT_FABRIC_SECRETS_CONFIG")
+    if not config:
+        r = _run(["doppler", "configure", "get", "enclave.config", "--plain", "--scope", "/"], check=False)
+        config = r.stdout.decode().strip() if r.returncode == 0 else ""
+    if not config:
+        raise StoreError("no Doppler config recorded for this login; nothing to import")
+    r = _run(["doppler", "secrets", "download", "--no-file", "--format", "json",
+              "--project", project, "--config", config])
+    try:
+        data = json.loads(r.stdout)
+    except ValueError:
+        raise StoreError("doppler returned no JSON")
+    imported = []
+    for name, value in sorted(data.items()):
+        if name.startswith("DOPPLER_") or not isinstance(value, str) or not NAME_RE.match(name) or not value.strip():
+            continue
+        _write_entry(store, name, value.encode(), ["--recipient", fpr])
+        imported.append(name)
+    if git(store, "diff", "--cached", "--quiet", check=False).returncode:
+        _commit(store, f"agent {login()}: imported {len(imported)} name(s) from Doppler {project}/{config}")
+    if git(store, "remote", check=False).stdout.strip():
+        git(store, "push", "-q", "origin", "HEAD")
+    return {"imported": imported, "config": config}
+
+
 # ── the parent ────────────────────────────────────────────────────────
 def lineage(fabric: str | None = None) -> dict:
     try:
@@ -395,6 +430,7 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("verify")
     pa = sub.add_parser("paper")
     pa.add_argument("--out")
+    sub.add_parser("import-doppler")
     args = ap.parse_args(argv)
     try:
         if args.cmd == "init":
@@ -422,6 +458,9 @@ def main(argv: list[str] | None = None) -> int:
             return 1 if f else 0
         elif args.cmd == "paper":
             paper(args.out)
+        elif args.cmd == "import-doppler":
+            r = import_doppler()
+            print(f"imported {len(r['imported'])} name(s) from {r['config']}: {', '.join(r['imported'])}")
     except StoreError as e:
         print(f"fabric-secrets store: {e}", file=sys.stderr)
         return 1

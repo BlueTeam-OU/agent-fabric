@@ -157,6 +157,15 @@ def main() -> int:
                   f"rc {r1.returncode}/{r2.returncode} {r2.stderr[-200:]}")
             check("sync never prints a value", SECRET not in r1.stdout + r2.stdout + r1.stderr + r2.stderr)
             check("the report names the store as its source", '"project": "store"' in r2.stdout, r2.stdout[:200])
+            # import-doppler: the login's own Doppler config into its store,
+            # one commit, nothing printed but names.
+            json.dump({**vals, "NEW_NAME": "fresh-x", "DOPPLER_PROJECT": "agent-fabric"}, open(os.path.join(tmp, "dp.json"), "w"))
+            p = run({**dop, "AGENT_FABRIC_SECRETS_CONFIG": "agents_kid"}, "import-doppler")
+            check("import-doppler copies the config's names, not Doppler's own", p.returncode == 0
+                  and "NEW_NAME" in p.stdout and "DOPPLER_PROJECT" not in p.stdout and SECRET not in p.stdout,
+                  p.stdout + p.stderr)
+            p = run(child, "names")
+            check("…and they are entries now", "NEW_NAME" in p.stdout, p.stdout)
             run(child, "set", "AGENT_LOGIN", stdin="someone-else")
             r3 = subprocess.run([fsync, "sync"], env=dop, capture_output=True, text=True)
             check("a store naming another login is refused, nothing applied", r3.returncode == 3

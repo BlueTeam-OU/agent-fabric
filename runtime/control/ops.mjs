@@ -21,7 +21,7 @@ import { whoami, findTaxonomy, loadTaxonomy } from '../../communication/gzcoord/
 import { syncedVar, holdStatus, identity as gzIdentity } from '../../communication/gzcoord/scripts/inbox.mjs';
 import { jobs } from './jobs.mjs';
 
-export const OPS = ['ping', 'identity', 'usage', 'keys', 'fabric', 'session', 'script', 'recall', 'tokens', 'memory', 'host', 'accounts', 'upgrade', 'secrets-sync', 'status', 'presence', 'jobs', 'jobs-add'];
+export const OPS = ['ping', 'identity', 'usage', 'keys', 'fabric', 'session', 'script', 'recall', 'tokens', 'memory', 'host', 'accounts', 'upgrade', 'secrets-sync', 'status', 'presence', 'jobs', 'jobs-add', 'secrets-migrate'];
 // Answered for any placed account, not only an operator: whether a session
 // is running is what every sender needs before it writes to one, and it
 // names nothing a relay reader could not already infer (the owner,
