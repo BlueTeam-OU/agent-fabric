@@ -10,6 +10,9 @@ set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT" || exit 1
 what="${1:-all}"
+# CI runs one section a leg: a misspelt one ran nothing and said "all
+# suites passed" (review of #68). An unknown section is an invocation error.
+case "$what" in all|static|python|gzcoord|bash) ;; *) echo "tests/run.sh: no section '$what' (all, static, python, gzcoord, bash)" >&2; exit 2 ;; esac
 fail=0
 run() { echo; echo "== $1"; shift; "$@" || fail=$((fail+1)); }
 
@@ -71,6 +74,7 @@ if [[ "$what" == all || "$what" == bash ]]; then
     run ".agent-fabric/ authority (this branch)" env AGENT_FABRIC_CHARTER_BASE=origin/main bash policies/check_agent_fabric_dir_authority.sh
     run "charter authority (this branch)" env AGENT_FABRIC_CHARTER_BASE=origin/main bash policies/check_charter_authority.sh
     run "no-model-pins guard" bash policies/run_suite.sh policies/test_check_repo_settings_carry_no_model_pins.sh
+    run "actions pinned by SHA (this tree)" python3 policies/check_actions_pinned_by_sha.py
     run "attribution guard" bash policies/run_suite.sh policies/test_ban_generated_by_attribution.sh
     run "attribution (this branch)" env AGENT_FABRIC_ATTRIBUTION_BASE=origin/main bash policies/ban_generated_by_attribution.sh
     run "decision-record amendments (this branch)" env AGENT_FABRIC_ADR_BASE=origin/main bash policies/check_adr_amendment.sh

@@ -810,7 +810,14 @@ if [[ "$ROLE" == language-culture && -f "$LOCALE_SEARCH" ]]; then CMD+=(--disall
 # cannot tell what follows it). AGENT_FABRIC_NO_OPENING is for a caller
 # that drives the session itself, a probe or a script, and wants its own
 # first turn.
-OPENING="Session start: arm your GZCoord inbox watch now, with Monitor(command: 'gzcoord-inbox --follow', description: 'gzcoord inbox watch', timeout_ms: 1800000); re-arm it at each expiry notice. Then wait for instructions."
+# The prompt names no command. It stays in claude's argv for the whole
+# session, and a process pattern built from the watch's command
+# (`pgrep -f 'gzcoord-inbox --follow' | xargs kill`, clearing a "stale"
+# watcher) matched the session itself and killed it: architect-cto-01,
+# twice, 2026-09-29. The exact Monitor call is the session-start hook's
+# NO INBOX WATCH line, which is context, never argv, and which it gives
+# exactly when no watch runs; hooks/self-kill-guard.py refuses the kill.
+OPENING="Session start: arm your GZCoord inbox watch now, exactly as the session-start context's NO INBOX WATCH line gives it (with no such line, as the gzcoord-receive skill says); re-arm it at each expiry notice. Then wait for instructions."
 # A session that ended its own job (bin/fabric-fresh) left a note for this
 # one: said in the opening prompt, then dropped from the environment.
 if [[ -n "${AGENT_FABRIC_FRESH_NOTE+x}" ]]; then

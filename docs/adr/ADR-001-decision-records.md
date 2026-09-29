@@ -46,8 +46,11 @@ checkable by `tools/fabric/adr.py`:
   names the successor and it carries a point map of where each rule now
   lives.
 - `index.json` and the README's index table are **generated** from the
-  headers; `DIGEST.md` is written by hand, read first, and loses to the
-  ADR when they disagree.
+  headers; `DIGEST.md` is written by hand, looked up (`fabric-adr
+  lookup <topic>`, or the table alone with no topic) and never read
+  whole, and loses to the ADR when they disagree. An entry is at most
+  250 words, which `adr.py check` enforces, so a lookup stays a few
+  hundred tokens (A 2026-09-29).
 
 ## 3. Alternatives Considered
 
@@ -162,3 +165,4 @@ The body above reads current; each change's full note is in [history/ADR-001-ame
 | 2026-09-27 | A source is refused whatever the trailer | §5 rule 9: an `ADR-Editorial:` trailer no longer lets a source edit through; it excuses a record's body edit only |
 | 2026-09-27 | No inline attributions | §5 rule 10 added: no parenthetical attribution in a record's body or DIGEST entry; `adr.py check` refuses one |
 | 2026-09-27 | A record reads current | §5 rule 11 added: no date in §2–§8, §1 may date an incident; rule 10 loses its dated example; §8 undated |
+| 2026-09-29 | The DIGEST is looked up, never read whole, and each entry has a word budget | §2: `fabric-adr lookup`; a 250-word entry budget in `adr.py check` |

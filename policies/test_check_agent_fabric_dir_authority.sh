@@ -103,6 +103,24 @@ git -C "$SANDBOX" add -A; git -C "$SANDBOX" commit -q -m $'locale and code\n\nFa
 commit_change identities/roles/language-culture/charter.md $'charter\n\nFabric-Role: language-culture'
 [[ "$(rc_of)" == 1 ]] && pass "the English charter is not the locale: refused" || fail "charter admitted"
 
+echo "the second carve-out: Dependabot's commit changing only .github/workflows/ needs no trailer"
+new_repo; mkdir -p "$SANDBOX/policies" "$SANDBOX/.github/workflows"; printf '{"role_definitions":{"role":"fabric-coordinator","holders":[]}}\n' > "$SANDBOX/policies/authority.json"
+printf 'on: push\n' > "$SANDBOX/.github/workflows/ci.yml"
+git -C "$SANDBOX" add -A; git -C "$SANDBOX" commit -qm 'authority'; git -C "$SANDBOX" branch -f base-ref
+printf '# bump\n' >> "$SANDBOX/.github/workflows/ci.yml"
+git -C "$SANDBOX" add -A; git -C "$SANDBOX" -c user.name='dependabot[bot]' -c user.email='49699333+dependabot[bot]@users.noreply.github.com' commit -qm 'Bump actions/checkout'
+[[ "$(rc_of)" == 0 ]] && grep -q "the action-pin carve-out" <<<"$(run_guard)" && pass "Dependabot bumping a workflow pin: admitted, and said" || fail "Dependabot's pin bump refused" "$(run_guard)"
+printf 'y\n' >> "$SANDBOX/src/a.txt" 2>/dev/null || { mkdir -p "$SANDBOX/src"; printf 'y\n' > "$SANDBOX/src/a.txt"; }
+printf '# more\n' >> "$SANDBOX/.github/workflows/ci.yml"
+git -C "$SANDBOX" add -A; git -C "$SANDBOX" -c user.name='dependabot[bot]' -c user.email='49699333+dependabot[bot]@users.noreply.github.com' commit -qm 'Bump and more'
+[[ "$(rc_of)" == 1 ]] && pass "Dependabot touching anything beyond .github/workflows/: refused" || fail "Dependabot's wider commit admitted"
+new_repo; mkdir -p "$SANDBOX/policies" "$SANDBOX/.github/workflows"; printf '{"role_definitions":{"role":"fabric-coordinator","holders":[]}}\n' > "$SANDBOX/policies/authority.json"
+printf 'on: push\n' > "$SANDBOX/.github/workflows/ci.yml"
+git -C "$SANDBOX" add -A; git -C "$SANDBOX" commit -qm 'authority'; git -C "$SANDBOX" branch -f base-ref
+printf '# edit\n' >> "$SANDBOX/.github/workflows/ci.yml"
+git -C "$SANDBOX" add -A; git -C "$SANDBOX" commit -qm 'a workflow edit, no trailer'
+[[ "$(rc_of)" == 1 ]] && pass "a workflow-only commit by anyone else, without the trailer: refused" || fail "non-Dependabot workflow commit admitted"
+
 echo "unresolvable base: not enforced, not a failure"
 new_repo; commit_change .agent-fabric/memory/backend-dev/workflow.md
 rc="$( ( cd "$SANDBOX" && AGENT_FABRIC_CHARTER_BASE=no-such-ref GITHUB_BASE_REF= bash "$UNDER_TEST" >/dev/null 2>&1 ); echo $? )"

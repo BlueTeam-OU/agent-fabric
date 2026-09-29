@@ -1,6 +1,6 @@
 ---
 name: fabric-decisions
-description: "How to find out why agent-fabric works the way it does, and how to ask for it to change: the decision records in agent-fabric's docs/adr/, read DIGEST first, a record's binding rules, citing \"agent-fabric ADR-NNN\" from another repository, and proposing a change to fabric-coordinator instead of editing. Load it when a rule of the fabric looks wrong or in your way, when a CLAUDE.md, remit, skill or message cites agent-fabric ADR-NNN, before you argue that the fabric should do something differently, or when two fabric texts disagree."
+description: "How to find out why agent-fabric works the way it does, and how to ask for it to change: the decision records in agent-fabric's docs/adr/, looked up with fabric-adr lookup rather than read whole, a record's binding rules, citing \"agent-fabric ADR-NNN\" from another repository, and proposing a change to fabric-coordinator instead of editing. Load it when a rule of the fabric looks wrong or in your way, when a CLAUDE.md, remit, skill or message cites agent-fabric ADR-NNN, before you argue that the fabric should do something differently, or when two fabric texts disagree."
 ---
 
 # The fabric's decisions
@@ -14,11 +14,14 @@ how to act on them.
 
 ## Reading
 
-1. **Start at `docs/adr/DIGEST.md`.** One entry per record: its status,
-   the rules in a few lines, keywords. To find the entry for a subject:
+1. **Look the subject up in the DIGEST; never read it whole.** One entry
+   per record: its status, the rules in a few lines, keywords. A lookup
+   answers only the entries that mention every word; with no word, the
+   table of which record answers what:
 
    ```sh
-   python3 ../agent-fabric/tools/fabric/adr.py lookup <word> [<word>…]
+   fabric-adr lookup <word> [<word>…]
+   fabric-adr lookup
    ```
 
 2. **Then the record.** §2 is the decision, §5 its binding rules —

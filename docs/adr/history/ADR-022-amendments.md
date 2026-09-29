@@ -54,3 +54,17 @@ project, working copy and topic (a label the agent sets) and prints
 session in the job's working copy, with the job in its opening prompt,
 and refuses a working copy that is gone or dirty by starting where it
 was. The job list itself is ADR-037.
+
+### Amendment 2026-09-30 — The opening prompt names no command
+
+The opening prompt stays in the claude process's argv for the whole
+session, and it named `gzcoord-inbox --follow`. A session tidying
+"stale" watchers with `pgrep -f 'gzcoord-inbox --follow' | xargs kill`
+matched its own claude process and killed itself: architect-cto-01,
+twice on 2026-09-29, which the owner first took for a failed restart.
+The prompt now tells the session to arm the watch as the start hook's
+NO INBOX WATCH line gives it (context, never argv), or as the
+gzcoord-receive skill says where the context has none, and names no
+command. `runtime/claude-code/hooks/self-kill-guard.py` refuses a kill
+whose pattern matches the session's own command line; `fabric-fresh`,
+which signals by pid, is unaffected.

@@ -112,6 +112,16 @@ for c in "${commits[@]}"; do
             echo "check_agent_fabric_dir_authority: $(git log -1 --format='%h' "$c") changes only identities/roles/$locale_role/locale/$locale_suffix/, declaring Fabric-Role: $locale_role — the locale carve-out."
             continue
         fi
+        # The second carve-out: Dependabot bumps the SHA-pinned actions
+        # (.github/dependabot.yml) and can carry no trailer. Its commit may
+        # change nothing but .github/workflows/; fabric-coordinator reviews
+        # and merges the PR. The author name is text, so like the trailer
+        # this is a tripwire, not a proof.
+        if [[ "$(git log -1 --format=%an "$c")" == "dependabot[bot]" && ${#touched[@]} -gt 0 ]] \
+           && ! printf '%s\n' "${touched[@]}" | grep -qv '^\.github/workflows/'; then
+            echo "check_agent_fabric_dir_authority: $(git log -1 --format='%h' "$c") is Dependabot's and changes only .github/workflows/ — the action-pin carve-out."
+            continue
+        fi
         bad+=("$(git log -1 --format='%h %s' "$c")  [Fabric-Role: ${declared:-none}]")
     fi
 done

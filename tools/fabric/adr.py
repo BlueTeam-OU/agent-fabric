@@ -5,7 +5,8 @@
     adr.py index --write [--root R]    regenerate index.json and the README table
     adr.py new <slug> "<title>"        the next number, from ADR-TEMPLATE.md
     adr.py amend <NNN> "<title>"       the history note stub and the table row (the DIGEST bullet is yours)
-    adr.py lookup <word>...            DIGEST entries mentioning every word
+    adr.py lookup [<word>...]          DIGEST entries mentioning every word; none: the table
+                                       of which record answers what (fabric-adr lookup)
     adr.py range-check <base> [<head>] | <base>..<head>
                                        each commit that edits an ADR's body records it
 
@@ -59,6 +60,11 @@ RATIFIED_RE = re.compile(r"^owner, (\d{4}-\d{2}-\d{2}), (\S.*)$")
 PILLAR_ROW_RE = re.compile(r"^\s*\|\s*(P\d+)\s*\|")
 DIGEST_RE = re.compile(r"^### ADR-(\d{3}) — (.+) \((Proposed|Accepted|Superseded|Deprecated)\)\s*$")
 DIGEST_AMEND_RE = re.compile(r"^- A (\d{4}-\d{2}-\d{2})\b")
+# A DIGEST entry is looked up, one or two at a time, never read as a whole
+# file (ADR-001 §5): what keeps a lookup cheap is each entry staying short.
+# At 250 words the longest entry costs ~350 tokens; the whole DIGEST once
+# read first cost ~12,000, twice the launch prompt.
+DIGEST_ENTRY_WORDS = 250
 INDEX_START, INDEX_END = "<!-- adr-index:start -->", "<!-- adr-index:end -->"
 # A bare ADR-NNN inside docs/adr is this repository's; another project's is
 # named with it ("<project>'s ADR-075", "<project> ADR-059") and is not checked here.
@@ -392,11 +398,12 @@ def check(root: str = ROOT) -> list[str]:
             m = DIGEST_RE.match(ln)
             if m:
                 cur = m.group(1)
-                entries[cur] = {"title": m.group(2), "status": m.group(3), "dates": []}
+                entries[cur] = {"title": m.group(2), "status": m.group(3), "dates": [], "words": len(ln.split())}
                 continue
             if ln.startswith("### "):
                 cur = None
             if cur:
+                entries[cur]["words"] += len(ln.split())
                 am = DIGEST_AMEND_RE.match(ln)
                 if am:
                     entries[cur]["dates"].append(am.group(1))
@@ -406,6 +413,9 @@ def check(root: str = ROOT) -> list[str]:
             if not e:
                 findings.append(f"{ADR_DIR}/DIGEST.md: no entry '### ADR-{num} — {r['title']} ({r['status']})'")
                 continue
+            if e["words"] > DIGEST_ENTRY_WORDS:
+                findings.append(f"{ADR_DIR}/DIGEST.md: ADR-{num}'s entry is {e['words']} words, over {DIGEST_ENTRY_WORDS}: "
+                                "an entry is looked up, so it states the rules and points to the sections, no more")
             if e["title"] != r["title"] or e["status"] != r["status"]:
                 findings.append(f"{ADR_DIR}/DIGEST.md: ADR-{num} reads {e['title']!r} ({e['status']}), the ADR {r['title']!r} ({r['status']})")
             hist = os.path.join(d, "history", f"ADR-{num}-amendments.md")
@@ -470,6 +480,12 @@ def cmd_amend(root: str, num: str, title: str, date: str) -> None:
 
 def cmd_lookup(root: str, words: list[str]) -> list[str]:
     text = read(os.path.join(adr_dir(root), "DIGEST.md"))
+    if not words:
+        # The table of which record answers what: the part of the DIGEST a
+        # session reads to find a record, without every entry below it.
+        head = re.split(r"\n(?=### ADR-)", text)[0]
+        table = [ln for ln in head.split("\n") if ln.startswith("|")]
+        return ["\n".join(table)] if table else []
     out = []
     for block in re.split(r"\n(?=### ADR-)", text):
         if block.startswith("### ADR-") and all(w.lower() in block.lower() for w in words):
@@ -563,7 +579,7 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("index"); p.add_argument("--write", action="store_true", required=True)
     p = sub.add_parser("new"); p.add_argument("slug"); p.add_argument("title")
     p = sub.add_parser("amend"); p.add_argument("number"); p.add_argument("title"); p.add_argument("--date", required=True)
-    p = sub.add_parser("lookup"); p.add_argument("words", nargs="+")
+    p = sub.add_parser("lookup"); p.add_argument("words", nargs="*")
     p = sub.add_parser("range-check"); p.add_argument("base"); p.add_argument("head", nargs="?")
     a = ap.parse_args(argv)
     if a.cmd == "check":

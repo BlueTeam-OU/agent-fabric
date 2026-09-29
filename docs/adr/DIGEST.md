@@ -1,8 +1,9 @@
-# Decision digest — read first
+# Decision digest — looked up, never read whole
 
 What is true now, one entry per record. Non-normative: where an entry and
-its record disagree, the record wins. `tools/fabric/adr.py lookup <word>`
-searches it.
+its record disagree, the record wins. Look it up, never read it whole:
+`fabric-adr lookup <word>…` answers the entries that mention every word,
+`fabric-adr lookup` alone this table.
 
 | Looking for | Record |
 |---|---|
@@ -82,6 +83,8 @@ searches it.
   header's and the history's (§5 rule 10).
 - A 2026-09-27 — a record reads current: no date in §2 to §8; §1 may date an
   incident (§5 rule 11).
+- A 2026-09-29 — the DIGEST is looked up (`fabric-adr lookup`), never read whole;
+  each entry is at most 250 words (§2).
 - Keywords: ADR, amendment, supersede, ratify, index, digest, rationale.
 
 ### ADR-002 — Role, login and model are kept apart (Accepted)
@@ -449,12 +452,11 @@ searches it.
   `gzcoord-send` tells the sender, without refusing (§5 rule 8).
 - A clone-started session is held only if its project wires the hooks
   (§5 rule 9, §7).
-- A 2026-09-28 — an agent ends its own finished job with `fabric-fresh`: a new
-  session, not a resumed one (§5 rule 10).
-- A 2026-09-28 — local branches are swept weekly: `fabric-branches --sweep` deletes
-  what is on origin/main and reports the rest (§5 rule 11).
+- A 2026-09-28 — a finished job ends its session with `fabric-fresh` (§5 rule 10).
+- A 2026-09-28 — `fabric-branches --sweep` weekly (§5 rule 11).
 - A 2026-09-28 — the next job decides whether the session continues: `fabric-jobs
   next`, then `fabric-fresh --job` into the job's working copy (§5 rule 12).
+- A 2026-09-30 — the opening prompt names no command (§5 rule 1).
 - Keywords: session, lifecycle, inbox watch, Monitor, gzcoord-inbox,
   --follow, opening prompt, resume, auto mode, defaultMode, plan mode,
   hold, planning, presence.
@@ -508,9 +510,9 @@ searches it.
 - Keywords: in flight, branch, no PR, overlap, shared paths, trial merge,
   combine, conflict, worktree, trial-check, dependency.
 
-### ADR-026 — Progress is measured as supervision per verified result (Proposed)
+### ADR-026 — Progress is measured as supervision per verified result (Accepted)
 
-- Proposed, not binding: P3's progress read as owner supervision events
+- P3's progress read as owner supervision events
   per verified result, as a trend beside the verified-result rate, never
   a target (§2, §5 rules 1, 4).
 - A verified result: a merged PR, reviewed and green at its head, not
@@ -576,33 +578,24 @@ searches it.
 
 ### ADR-029 — The control plane: a control agent per account answers signed actions over the relay (Accepted)
 
-- Every account runs `agentd.mjs` under a lingering user unit, alive with
-  or without a session; it answers on the relay's `fabric:control`
-  channel, which the GZCoord tools refuse (§2, §5 rules 1–2).
-- No cursor, no ack: a daemon primes from the newest record, so a restart
-  replays nothing and a request made while it was down is lost (§2).
-- A closed op set, no request field reaches a shell; reads answered for a
-  host operator's address, `presence` for any placed account (§5 rules
-  3–4).
-- Actions need the operator's Ed25519 signature, live ≤ 600 s, never more
-  than a minute ahead, strictly newer than the last (§5 rule 5; ADR-009).
+- Every account runs `agentd.mjs` under a lingering user unit, session or
+  not, answering on the relay's `fabric:control` channel; no cursor, so a
+  request made while it is down is lost (§2, §5 rules 1–2).
+- A closed op set, no request field reaches a shell; actions need the
+  operator's Ed25519 signature, fresh and strictly newer than the last
+  (§5 rules 3–5).
 - Every reply arrives, gaps named, no secret; `fabric-ctl` exits 1 on
-  silence, a refused bundle or a failed action; the drain files only
-  verified bundles (§5 rules 6–9).
-- Reads are fenced, not proved: a relay-token holder can forge a row until
-  replies are signed (§6, §7).
-- A 2026-09-27 — actions run beside the read loop, one of a kind per account; a
-  second is answered `busy` (§5 rule 12).
-- A 2026-09-27 — rule 12 lists each operation's answer budget and the
-  cross-kind `busy` (§5 rule 12).
-- A 2026-09-28 — `jobs` (an operator's read) and `jobs-add` (a signed
-  action, one login) carry the job list (§5 rule 13).
-- A 2026-09-29 — `secrets-migrate` (a signed action) moves an account from
-  Doppler to its own store, verified by sha256 of `secrets.env` (§5 rule 14).
+  silence or a failed action; the drain files only verified bundles
+  (§5 rules 6–9). Reads are fenced, not proved, until replies are signed (§6).
+- A 2026-09-27 — actions run beside the read loop, one of a kind per
+  account; a second is `busy` (§5 rule 12).
+- A 2026-09-27 — each operation's answer budget (§5 rule 12).
+- A 2026-09-28 — `jobs` and `jobs-add` carry the job list (§5 rule 13).
+- A 2026-09-29 — `secrets-migrate` moves an account from Doppler to its
+  store, verified by sha256 (§5 rule 14).
 - Keywords: control plane, agentd, fabric-ctl, control channel,
   fabric:control, relay, ops, status, ping, keys, usage, recall, tokens,
   drain, memory, signed, operator_key, keygen, linger, persist.
-
 ### ADR-030 — Presence replaces HELLO and GOODBYE (Accepted)
 
 - Whether a session runs is the control agent's answer from its process
@@ -687,9 +680,9 @@ searches it.
   gzcoord-relay, human relay, fallback, Telegram, adapter contract,
   channel, gzapp:gzcoord, bridge token, central, single point of failure.
 
-### ADR-034 — Decentralization as a direction: a failure may reduce capacity, never take identity, knowledge or continuity (Proposed)
+### ADR-034 — Decentralization as a direction: a failure may reduce capacity, never take identity, knowledge or continuity (Accepted)
 
-- Proposed, not binding: decentralize only where a failure would take
+- Decentralize only where a failure would take
   identity, knowledge or the ability to go on working; reduced capacity
   is acceptable (§2).
 - §1 inventories what depends on one thing today — one host, one relay
@@ -704,9 +697,9 @@ searches it.
 - Keywords: decentralization, resilience, single point of failure,
   degraded mode, relay, host, crash, backup, autonomy, P5, proposed.
 
-### ADR-035 — Federation between organizations: expertise transfers, confidential information does not; portable trust first (Proposed)
+### ADR-035 — Federation between organizations: expertise transfers, confidential information does not; portable trust first (Accepted)
 
-- Proposed, not binding: what crosses between organizations is expertise
+- What crosses between organizations is expertise
   and results; a project's code and knowledge, private memory,
   credentials and channel traffic never do (§2, §5 rules 1–2).
 - No shared credential; no exchange before identity, action and
@@ -723,9 +716,9 @@ searches it.
 - Keywords: federation, organization, portable trust, identity,
   signature, provenance, confidential, licence, expertise, P6, proposed.
 
-### ADR-036 — Sustainable operation: shared resources, and cost per verified result beside supervision per verified result (Proposed)
+### ADR-036 — Sustainable operation: shared resources, and cost per verified result beside supervision per verified result (Accepted)
 
-- Proposed, not binding: cost per verified result — spend attributable to
+- Cost per verified result — spend attributable to
   a period's verified results over their number, ADR-026's denominator —
   read as a trend beside supervision per verified result, never a target
   or per agent (§2, §5 rules 1–2, 4).
@@ -742,7 +735,7 @@ searches it.
 - Keywords: sustainable, cost, spend, tokens, usage windows, budget,
   lease, verified result, capability per spend, P7, proposed.
 
-### ADR-037 — Each agent keeps a job list (Proposed)
+### ADR-037 — Each agent keeps a job list (Accepted)
 
 - One list per login, `agents/<login>/jobs.json`, written only through
   `runtime/identity.py`; states queued, active (one at a time), blocked,
@@ -761,32 +754,26 @@ searches it.
 
 ### ADR-038 — Each agent owns its key and its secrets (Accepted)
 
-- The login is the principal and the key its credential: one key per
-  login, made in the account, whose private half leaves only as the
-  agent's paper sheet (§2, §5 rules 1, 6).
-- A key is an agent's when its public half is committed at
-  `identities/keys/<id>.asc` and certified by its parent recorded in
-  `lineage.json`; lint refuses one without (§5 rule 2).
+- One key per login, made in the account: a certify-only identity key with
+  encryption, signing and authentication subkeys. Its private half leaves
+  only as a recovery copy encrypted to the owner's recovery key, backed up
+  to the fleet's Proton Drive (§5 rules 1, 6; §6).
+- A key is an agent's when committed at `identities/keys/<id>.asc` and
+  certified by its parent recorded in `lineage.json`; lint refuses one
+  without (§5 rule 2).
 - Each agent's secrets are a private pass(1)-format repository,
-  `gzapi-org/agent-fabric-secrets-<id>`, encrypted to that key alone: the parent
+  `agent-fabric-secrets-<id>`, encrypted to that key alone: the parent
   writes (`fabric-secrets put`) and never reads (§5 rule 3).
-- No step relies on a shared host; a key names no host and moves with its
-  login's home (§5 rules 4–5).
-- `sync` writes the same `secrets.env` from either source; migration from
-  Doppler compares by sha256 and falls back on a mismatch (§5 rules 7–8).
-- A 2026-09-29 — each key's recovery copy and every store's backup go to a
-  Proton Drive account dedicated to the fleet, not to paper (§5 rules 1, 6; §6).
-- A 2026-09-29 — the recovery copies are encrypted to the owner's recovery key,
-  whose passphrase only the owner holds; no agent can read one (§5 rules 1, 6; §6).
-- A 2026-09-29 — keys, lineage and repositories are named by the agent id
-  (ADR-039), not the login (§2, §5 rule 2).
-- A 2026-09-29 — one identity key per agent: a certify-only primary with an
-  encryption, a signing and an authentication subkey (§5 rule 1, §7).
+- No step relies on a shared host (§5 rules 4–5). `sync` writes the same
+  `secrets.env` from either source; migration compares by sha256 (§5 rules 7–8).
+- A 2026-09-29 — recovery copies and backups go to Proton Drive, not paper.
+- A 2026-09-29 — recovery copies are encrypted to the owner's recovery key.
+- A 2026-09-29 — keys, lineage and repositories are named by the agent id (ADR-039).
+- A 2026-09-29 — one identity key with a subkey per use (§5 rule 1, §7).
 - Keywords: secrets, key, GPG, pass, QtPass, browserpass, paperkey, Proton Drive, backup,
   identity, lineage, parent, custody, recovery, Doppler, migration,
   placement, P1.
-
-### ADR-039 — The agent id is a UUIDv7 minted at birth (Proposed)
+### ADR-039 — The agent id is a UUIDv7 minted at birth (Accepted)
 
 - Each agent has an id, a UUIDv7 whose time is its birth: an existing
   account's home creation time, a new one's enrolment. It is minted once

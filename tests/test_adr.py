@@ -205,6 +205,20 @@ def case_new_takes_the_next_number(tmp: str) -> None:
     assert open(path, encoding="utf-8").read().startswith(f"# {nxt} — A new thing")
 
 
+def case_lookup_with_no_word_is_the_table_and_an_entry_has_a_budget(tmp: str) -> None:
+    """ADR-001: a session looks the DIGEST up, never reads it whole. With no
+    word, lookup answers only the table of which record answers what; an
+    entry over the word budget is a finding, so a lookup stays cheap."""
+    table = adr.cmd_lookup(ROOT, [])
+    assert len(table) == 1 and table[0].startswith("| Looking for") and "### ADR-" not in table[0], table[:1]
+    assert len(table[0].split()) < len(open(os.path.join(ROOT, "docs/adr/DIGEST.md"), encoding="utf-8").read().split()) / 5, \
+        "the table is a small part of the DIGEST"
+    root = fixture(tmp)
+    assert adr.check(root) == [], adr.check(root)
+    edit(root, "docs/adr/DIGEST.md", "- Keywords: ADR, amendment,", "- " + "padding " * adr.DIGEST_ENTRY_WORDS + "\n- Keywords: ADR, amendment,")
+    only(root, f"DIGEST.md: ADR-001's entry is")
+
+
 def case_lookup_reads_the_digest(tmp: str) -> None:
     hits = adr.cmd_lookup(ROOT, ["ratify"])
     assert hits and hits[0].startswith("### ADR-001"), hits

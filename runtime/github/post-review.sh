@@ -146,10 +146,28 @@ if ! branch_names_a_session "$PR_BRANCH"; then
     echo "post-review: #$PR is on '$PR_BRANCH', which names no session." >&2
     echo "  No session owns it, so there is nobody to defer to — posting." >&2
 elif [[ "$OWNER" != "$ME" && "$OWNER" != "$ME_LEGACY" ]]; then
-    echo "post-review: #$PR belongs to '$OWNER', and this session is '$ME'." >&2
-    echo "  Not posting. That session is mid-flight on work you cannot see," >&2
-    echo "  and a review cannot be unsent. Raise it in the PR instead." >&2
-    exit 2
+    # The one exception: a locale's translations are committed by that
+    # locale's holder and merged by fabric-coordinator (agent-fabric's
+    # CLAUDE.md, the locale carve-out), so the merger must post the review
+    # its gate counts. Only a PR that touches nothing but
+    # identities/roles/<role>/locale/<suffix>/, and only from a session
+    # bound to fabric-coordinator. FAILS CLOSED: an unreadable role or file
+    # list, or gh's 100-file cap reached, is another session's PR.
+    ROLE="$(python3 "$FABRIC_ROOT/runtime/identity.py" --role 2>/dev/null || true)"
+    FILES_JSON="$(gh pr view "$PR" --json files 2>/dev/null || true)"
+    NFILES="$(jq -r '(.files // null) | if type == "array" then length else -1 end' <<<"$FILES_JSON" 2>/dev/null || echo -1)"
+    OUTSIDE="$(jq -r '.files[]?.path // empty' <<<"$FILES_JSON" 2>/dev/null \
+        | grep -Evc '^identities/roles/[^/]+/locale/[^/]+/[^/]+$' || true)"
+    if [[ "$ROLE" == "fabric-coordinator" && "$NFILES" -ge 1 && "$NFILES" -lt 100 && "$OUTSIDE" == 0 ]]; then
+        echo "post-review: #$PR belongs to '$OWNER' and touches only locale translations;" >&2
+        echo "  posting as the locale carve-out's merger (fabric-coordinator)." >&2
+        CARVE_OUT=1
+    else
+        echo "post-review: #$PR belongs to '$OWNER', and this session is '$ME'." >&2
+        echo "  Not posting. That session is mid-flight on work you cannot see," >&2
+        echo "  and a review cannot be unsent. Raise it in the PR instead." >&2
+        exit 2
+    fi
 fi
 
 # ── assemble ────────────────────────────────────────────────────────
@@ -158,6 +176,7 @@ fi
 # and so `head -1` identifies the review without fetching the whole body.
 header="$REVIEW_MARKER"
 [[ -n "$MODEL" ]] && header+=$'\n'"<!-- model: $MODEL -->"
+[[ "${CARVE_OUT:-0}" -eq 1 ]] && header+=$'\n'"<!-- posted by the locale carve-out's merger -->"
 
 FULL_BODY="$header
 **Blind review** — the review class, dispatched against this head with a

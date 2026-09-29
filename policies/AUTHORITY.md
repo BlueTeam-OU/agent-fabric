@@ -50,7 +50,9 @@ apply to this whole repository.
 | `.agent-fabric/` in a managed repository — the project's distilled knowledge (`memory/<role>/`) | the `fabric-coordinator` ROLE, whoever holds it: the drain writes it, every other role reads it | a fence at the keyboard — `policies/githooks/pre-commit` refuses the commit unless the binding holds the role, `commit-msg` records it as `Fabric-Role:` — and a tripwire in CI, `policies/check_agent_fabric_dir_authority.sh`, which reads that trailer; `lint.py` demands provenance |
 | `recall.md` for a role | the role itself | authored, exempt from provenance; must stay under `identities/roles/` |
 
-## The one carve-out: a locale's translations
+## Two carve-outs
+
+### A locale's translations
 
 `identities/roles/<role>/locale/<suffix>/` — a locale's rendering of
 the role's charter, of the shared prompt sections and of the harness's
@@ -71,6 +73,17 @@ branch could never take `main` in once `main` had moved). Lint holds the
 translation to its source (`tools/fabric/lint.py`, the digest, the
 budget, every protected identifier), so what the carve-out admits is
 prose in the locale, never a change to what a role is.
+
+### Dependabot's action-pin bumps
+
+The workflows pin every third-party action by commit SHA
+(`policies/check_actions_pinned_by_sha.py`), and Dependabot keeps those
+pins current (`.github/dependabot.yml`). Its commits carry no
+`Fabric-Role:` trailer. CI admits a commit authored by
+`dependabot[bot]` that changes nothing but `.github/workflows/`; anything
+beside it is refused as before. The pull request is reviewed and merged
+by fabric-coordinator. The author name is text, so this is a tripwire
+like the trailer, not a proof.
 
 ## `.agent-fabric/` in a managed repository
 
