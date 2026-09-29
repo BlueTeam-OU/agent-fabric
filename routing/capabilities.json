@@ -28,8 +28,8 @@
       "resolution": "harness",
       "description": "Plain `claude`, Anthropic by construction. A value is a native Claude id (claude-…) that pins the class — the launcher (`runtime/openrouter/launch --provider anthropic`) exports it for the tier the class rides, so the fabric decides the model rather than the harness's week — or null: the harness's own current model of that tier. Every class, the review class included, is Opus 5.5 (the owner, 2026-09-25): until then each class had the top model of its own tier — Haiku 4.5, Sonnet 5, Opus 5.5, Fable 5.1 — and the review class claude-opus-5[1m] (architect-cto, 2026-09-15). The tier aliases stay as they are: they are how this harness spells a class, and each now binds to the same model. The review pin reaches the reviewer's agent file rather than the fable export and is gated by routing/policies/review-grade.json like every other review model. No shim applies to a native Claude model.",
       "models": {
-        "code-low": "claude-opus-5-5",
-        "code-medium": "claude-opus-5-5",
+        "code-low": "claude-sonnet-5-5",
+        "code-medium": "claude-sonnet-5-5",
         "code-high": "claude-opus-5-5",
         "code-plan": "claude-opus-5-5",
         "code-review": "claude-opus-5-5"
