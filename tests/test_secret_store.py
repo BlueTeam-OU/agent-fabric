@@ -128,6 +128,40 @@ def main() -> int:
             check("names lists names, never values", "AGENT_LOGIN" in p.stdout and "GH_TOKEN" in p.stdout
                   and SECRET not in p.stdout, p.stdout)
 
+            # fabric-secrets sync writes the SAME secrets.env from the store
+            # as from Doppler, for the same values (ADR-038 §5 rule 7).
+            me = subprocess.run(["id", "-un"], capture_output=True, text=True).stdout.strip()
+            vals = {"AGENT_LOGIN": me, "AGENT_HOST": "somewhere", "OPENROUTER_API_KEY": "or-x",
+                    "GH_TOKEN": SECRET, "CLAUDE_BRIDGE_AUTH_TOKEN": "bridge-x"}
+            for k, v in vals.items():
+                run(child, "set", k, stdin=v)
+            stub = os.path.join(tmp, "stubbin")
+            os.makedirs(stub)
+            with open(os.path.join(stub, "doppler"), "w") as fh:
+                fh.write("#!/bin/sh\ncase \"$*\" in *download*) cat " + os.path.join(tmp, "dp.json")
+                         + ";; *only-names*) echo '{}';; *) exit 0;; esac\n")
+            os.chmod(os.path.join(stub, "doppler"), 0o755)
+            json.dump(vals, open(os.path.join(tmp, "dp.json"), "w"))
+            fsync = os.path.join(ROOT, "runtime", "provisioning", "secrets", "fabric-secrets")
+            envf = os.path.join(child["HOME"], ".config", "agent-fabric", "secrets.env")
+            body = lambda: "".join(l for l in open(envf) if not l.startswith("#"))
+            dop = {**child, "PATH": stub + os.pathsep + child["PATH"]}
+            r1 = subprocess.run([fsync, "sync", "--json"], env=dop, capture_output=True, text=True)
+            from_doppler = body() if os.path.exists(envf) else None
+            os.makedirs(os.path.dirname(envf), exist_ok=True)
+            open(os.path.join(os.path.dirname(envf), "secrets-source"), "w").write("store\n")
+            r2 = subprocess.run([fsync, "sync", "--json"], env=dop, capture_output=True, text=True)
+            from_store = body()
+            check("sync from the store writes what sync from Doppler wrote", r1.returncode in (0, 2)
+                  and r2.returncode in (0, 2) and from_doppler == from_store and SECRET in from_store,
+                  f"rc {r1.returncode}/{r2.returncode} {r2.stderr[-200:]}")
+            check("sync never prints a value", SECRET not in r1.stdout + r2.stdout + r1.stderr + r2.stderr)
+            check("the report names the store as its source", '"project": "store"' in r2.stdout, r2.stdout[:200])
+            run(child, "set", "AGENT_LOGIN", stdin="someone-else")
+            r3 = subprocess.run([fsync, "sync"], env=dop, capture_output=True, text=True)
+            check("a store naming another login is refused, nothing applied", r3.returncode == 3
+                  and body() == from_store, r3.stdout[-200:])
+
             # A store encrypted to another key than the committed one is
             # never written into: re-keying is a rotation.
             with open(os.path.join(mirror, ".gpg-id"), "w") as fh:
