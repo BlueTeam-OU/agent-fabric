@@ -105,6 +105,7 @@ set -uo pipefail
 ROOT="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../.." && pwd)"
 REGISTRY="$ROOT/projects/registry.json"
 ENROLL="$ROOT/runtime/provisioning/secrets/enroll.sh"
+STORE_ENROLL="$ROOT/runtime/provisioning/secrets/store-enroll.sh"
 HOSTS="${AGENT_FABRIC_HOSTS_REGISTRY:-$ROOT/runtime/hosts/registry.json}"
 HX="$ROOT/runtime/hostexec/hostexec"
 DRY=0; LOGIN=""; ROLE=""; PROJECTS=(); CLAUDE_TARGET=""; HOST=""
@@ -207,6 +208,22 @@ else
     "$ENROLL" "$LOGIN" 2>&1 | grep -E "authenticated|signing key|verification|OK$|NOT OK" | sed 's/^/   /' >&2
     (( PIPESTATUS[0] == 0 )) || die "step failed: enroll.sh $LOGIN (sync and verify); nothing after it ran"
     say "5. enrolled; secrets synced"
+fi
+
+# ---- 5b. the account's own key and store (ADR-038) ---------------------------
+# Its parent is this login: the key is made in the account on its host,
+# certified here, and its store mirrored here. A parent without a store of
+# its own cannot certify (store-enroll.sh --self first): then this step is
+# said and skipped, never a stop, and the account is keyed later with
+# store-enroll.sh <login>, as the rest of the fleet is.
+if (( DRY )); then say "would: store-enroll.sh $LOGIN --host $HOST (its key, its private store, this login's certification)"
+elif ! python3 "$ROOT/tools/fabric/secret_store.py" export-key >/dev/null 2>&1; then
+    say "5b. skipped: this login has no store of its own yet (store-enroll.sh --self); key $LOGIN later with store-enroll.sh $LOGIN"
+else
+    "$STORE_ENROLL" "$LOGIN" --host "$HOST" 2>&1 | sed 's/^/   /' >&2
+    (( PIPESTATUS[0] == 0 )) || die "step failed: store-enroll.sh $LOGIN; nothing after it ran"
+    say "5b. its key made and certified, its store mirrored; commit identities/keys/, and the owner prints its sheet once:"
+    say "     bin/fabric-host $HOST run --as $LOGIN --tty -- projects/agent-fabric/bin/fabric-secrets store paper"
 fi
 
 
