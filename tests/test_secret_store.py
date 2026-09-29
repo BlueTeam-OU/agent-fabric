@@ -179,6 +179,23 @@ def main() -> int:
                   f"rc {r1.returncode}/{r2.returncode} {r2.stderr[-200:]}")
             check("sync never prints a value", SECRET not in r1.stdout + r2.stdout + r1.stderr + r2.stderr)
             check("the report names the store as its source", '"project": "store"' in r2.stdout, r2.stdout[:200])
+            # A Doppler config lookup that hangs (a token in a locked keyring)
+            # is an error within the bound, never a fall back to agents_<login>.
+            hang = os.path.join(tmp, "hangbin")
+            os.makedirs(hang)
+            with open(os.path.join(hang, "doppler"), "w") as fh:
+                fh.write("#!/bin/sh\necho \"doppler $*\" >> " + os.path.join(tmp, "hang.calls")
+                         + "\ncase \"$*\" in *enclave.config*) sleep 30;; esac\nexit 0\n")
+            os.chmod(os.path.join(hang, "doppler"), 0o755)
+            open(os.path.join(child["HOME"], ".config", "agent-fabric", "secrets-source"), "w").write("doppler\n")
+            hung = subprocess.run([fsync, "sync", "--json"], capture_output=True, text=True, timeout=60,
+                                  env={**child, "PATH": hang + os.pathsep + child["PATH"], "AGENT_FABRIC_DOPPLER_TIMEOUT_S": "1"})
+            calls = open(os.path.join(tmp, "hang.calls")).read() if os.path.exists(os.path.join(tmp, "hang.calls")) else ""
+            check("a hung Doppler config lookup is an error within its bound, and no other config is read",
+                  hung.returncode == 1 and "could not be read within 1 s" in hung.stdout and "download" not in calls,
+                  hung.stdout[-300:] + " calls: " + calls)
+            open(os.path.join(child["HOME"], ".config", "agent-fabric", "secrets-source"), "w").write("store\n")
+
             # import-doppler: the login's own Doppler config into its store,
             # one commit, nothing printed but names.
             json.dump({**vals, "NEW_NAME": "fresh-x", "DOPPLER_PROJECT": "agent-fabric"}, open(os.path.join(tmp, "dp.json"), "w"))

@@ -244,3 +244,12 @@ test('secrets-migrate: no store yet is refused; a migrated account is current; i
   assert.match(checkMigrateArgs({ restart: true }), /no arguments/);
   assert.equal(checkMigrateArgs(undefined), null);
 });
+
+test('secrets-migrate: a call killed by its timeout says so, never an empty reason', async () => {
+  const f = migrateFixture();
+  const exec = async () => { const e = new Error('killed'); e.killed = true; e.signal = 'SIGTERM'; e.stdout = ''; e.stderr = ''; throw e; };
+  const r = await secretsMigrateOnce({}, { home: f.home, root: '/fabric', exec });
+  assert.equal(r.status, 'failed');
+  assert.match(r.reason, /baseline sync from Doppler failed: timed out after \d+ s/);
+  assert.equal(f.read(), 'doppler');
+});

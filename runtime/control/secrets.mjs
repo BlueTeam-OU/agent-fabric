@@ -103,10 +103,17 @@ export async function secretsMigrateOnce(request, {
   const bin = path.join(root, 'bin', 'fabric-secrets');
   const run = async args => {
     try { const r = await exec(bin, args, { encoding: 'utf8', timeout: MIGRATE_TIMEOUT_MS }); return { code: 0, out: typeof r === 'string' ? r : r.stdout, err: '' }; }
-    catch (e) { return { code: typeof e?.code === 'number' ? e.code : -1, out: e?.stdout ?? '', err: String(e?.stderr ?? e?.message ?? e) }; }
+    catch (e) {
+      // A call killed by its timeout has no error text of its own: said as
+      // what it was, never an empty reason (a Doppler call waiting on a
+      // locked keyring once read as "failed: " and nothing).
+      const timedOut = e?.killed === true || e?.signal === 'SIGTERM' || e?.code === 'ETIMEDOUT';
+      return { code: typeof e?.code === 'number' ? e.code : -1, out: e?.stdout ?? '',
+               err: timedOut ? `timed out after ${MIGRATE_TIMEOUT_MS / 1000} s` : String(e?.stderr ?? e?.message ?? e) };
+    }
   };
   const json = r => { try { return JSON.parse(r.out); } catch { return {}; } };
-  const last = r => (json(r).error ?? String(r.err || r.out).trim().split('\n').filter(l => !l.startsWith('hint:')).pop() ?? '').slice(0, 200);
+  const last = r => (json(r).error ?? (String(r.err || r.out).trim().split('\n').filter(l => !l.startsWith('hint:')).pop() || 'no reason given')).slice(0, 200);
   const setSource = v => { fs.mkdirSync(path.dirname(sourceFile(home)), { recursive: true }); fs.writeFileSync(sourceFile(home), `${v}\n`); };
   const short = h => (h ? String(h).slice(0, 12) : null);
   const base = await run(['sync', '--json']);
