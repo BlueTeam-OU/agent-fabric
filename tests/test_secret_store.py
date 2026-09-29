@@ -561,6 +561,14 @@ else:
                 kf = os.path.join(drive, "my-files", "agent-fabric", "keys")
                 check("backup carries each store's encrypted copy to keys/", p.returncode == 0
                       and f"{PID}.key.gpg" in (os.listdir(kf) if os.path.isdir(kf) else []), p.stdout + p.stderr)
+                p = run(penv, "backup", "--verify")
+                check("…and --verify checks each copy there against the manifest", p.returncode == 0, p.stdout + p.stderr)
+                with open(os.path.join(kf, f"{PID}.key.gpg"), "ab") as fh:
+                    fh.write(b"truncated or replaced")
+                p = run(penv, "backup", "--verify")
+                check("…a copy in keys/ that is not the manifest's is a finding", p.returncode == 1
+                      and f"keys/{PID}.key.gpg: its sha256 is not the manifest's" in p.stdout, p.stdout + p.stderr)
+                p = run(penv, "backup")   # the copy put back whole for what follows
             else:
                 check("paperkey is installed where this suite runs", False, "paperkey missing")
             p = run({**penv, "CLAUDECODE": "1"}, "recovery-key", "init")

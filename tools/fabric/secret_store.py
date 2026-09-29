@@ -1075,8 +1075,9 @@ def backup() -> dict:
 
 
 def verify_backup() -> list[str]:
-    """Download the manifest and every bundle it names, and check each
-    against its sha256 and `git bundle verify`. Findings; [] is clean."""
+    """Download the manifest, every bundle and every recovery copy it
+    names, and check each against its sha256 (and a bundle with `git
+    bundle verify`). Findings; [] is clean."""
     folder = f"{PROTON_ROOT}/secrets"
     findings = []
     with tempfile.TemporaryDirectory() as tmp:
@@ -1096,6 +1097,15 @@ def verify_backup() -> list[str]:
                 continue
             if _run(["git", "bundle", "verify", local], cwd=empty, check=False).returncode != 0:
                 findings.append(f"{rec['bundle']}: git bundle verify fails")
+        # The recovery copies stand alone in keys/ for a restore: each is
+        # checked against the hash the manifest took when it went up.
+        for f, sha in sorted((manifest.get("recovery_copies") or {}).items()):
+            got = _proton("filesystem", "download", "-f", "remove", f"{PROTON_ROOT}/keys/{f}", tmp, check=False)
+            local = os.path.join(tmp, f)
+            if got.returncode != 0 or not os.path.exists(local):
+                findings.append(f"keys/{f}: could not be downloaded")
+            elif _sha256_file(local) != sha:
+                findings.append(f"keys/{f}: its sha256 is not the manifest's")
     return findings
 
 
@@ -1208,7 +1218,7 @@ def main(argv: list[str] | None = None) -> int:
         elif args.cmd == "backup":
             if args.verify:
                 f = verify_backup()
-                print("\n".join(f) if f else "backup: every bundle matches its manifest")
+                print("\n".join(f) if f else "backup: every bundle and recovery copy matches its manifest")
                 return 1 if f else 0
             m = backup()
             for who, rec in sorted(m["stores"].items()):
