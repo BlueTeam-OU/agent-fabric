@@ -375,10 +375,21 @@ cmd = a[:2]; rest = a[2:]
 loc = lambda p: os.path.join(D, p.lstrip("/"))
 open(os.path.join(D, "..", "proton.env"), "a").write(os.environ.get("PROTON_DRIVE_CREDENTIALS_STORE", "") + "\\n")
 if cmd == ["filesystem", "list"]:
-    rest = [x for x in rest if x != "folder"]
+    # The real CLI's table, never bare paths: code that parsed paths from
+    # it passed against a fake that printed them, and failed live.
+    rest = [x for x in rest if x not in ("-t", "folder")]
     if not os.path.isdir(loc(rest[0])): sys.exit(1)
     for n in sorted(os.listdir(loc(rest[0]))):
-        if os.path.isdir(os.path.join(loc(rest[0]), n)): print(rest[0].rstrip("/") + "/" + n)
+        print(("\U0001f5c2\ufe0f " if os.path.isdir(os.path.join(loc(rest[0]), n)) else "\U0001f4c4 ")
+              + " \U0001f451 agent-fabric@proton.me Sep 29 2026 14:37 - " + n)
+elif cmd == ["filesystem", "info"]:
+    sys.exit(0 if os.path.exists(loc(rest[0])) else 1)
+elif cmd == ["filesystem", "trash"]:
+    os.makedirs(os.path.join(D, "trash"), exist_ok=True)
+    shutil.move(loc(rest[0]), os.path.join(D, "trash", os.path.basename(rest[0])))
+elif cmd == ["filesystem", "delete"]:
+    if not rest[0].startswith("/trash/"): sys.exit(4)
+    os.remove(loc(rest[0]))
 elif cmd == ["filesystem", "create-folder"]:
     os.makedirs(os.path.join(loc(rest[0]), rest[1]))
 elif cmd == ["filesystem", "upload"]:
@@ -406,6 +417,8 @@ else:
                   and all(len(r["sha256"]) == 64 and len(r["head"]) == 40 for r in man.get("stores", {}).values()), repr(man)[:300])
             check("…with the CLI's session read from pass over this store",
                   set(open(os.path.join(tmp, "proton.env")).read().split()) == {"pass"})
+            p = run(penv, "backup")
+            check("a second backup, into folders that exist, succeeds", p.returncode == 0, p.stdout + p.stderr)
             p = run(penv, "backup", "--verify")
             check("backup --verify: every bundle matches its manifest", p.returncode == 0 and "matches" in p.stdout, p.stdout + p.stderr)
             with open(os.path.join(up, "secrets-kid.bundle"), "ab") as fh:

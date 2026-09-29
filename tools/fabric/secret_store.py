@@ -643,14 +643,15 @@ def _proton(*args: str, check: bool = True) -> subprocess.CompletedProcess:
 
 
 def _proton_folder(path: str) -> str:
-    """The folder at path, made (with its parents) when absent."""
+    """The folder at path, made (with its parents) when absent. Asked with
+    `info`, whose exit status says whether the node exists: `list` prints
+    a decorated table, not paths, and reading it as paths made every run
+    after the first try to create a folder that was there."""
+    if _proton("filesystem", "info", path, check=False).returncode == 0:
+        return path
     parent, name = path.rsplit("/", 1)
-    listed = _proton("filesystem", "list", "-t", "folder", parent, check=False)
-    if listed.returncode != 0:
-        _proton_folder(parent)
-        listed = _proton("filesystem", "list", "-t", "folder", parent)
-    if f"{parent}/{name}" not in listed.stdout.decode().split():
-        _proton("filesystem", "create-folder", parent, name)
+    _proton_folder(parent)
+    _proton("filesystem", "create-folder", parent, name)
     return path
 
 
