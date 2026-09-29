@@ -222,8 +222,9 @@ elif ! python3 "$ROOT/tools/fabric/secret_store.py" export-key >/dev/null 2>&1; 
 else
     "$STORE_ENROLL" "$LOGIN" --host "$HOST" 2>&1 | sed 's/^/   /' >&2
     (( PIPESTATUS[0] == 0 )) || die "step failed: store-enroll.sh $LOGIN; nothing after it ran"
-    say "5b. its key made and certified, its store mirrored; commit identities/keys/, and the owner prints its sheet once:"
-    say "     bin/fabric-host $HOST run --as $LOGIN --tty -- projects/agent-fabric/bin/fabric-secrets store paper"
+    say "5b. its key made and certified, its store mirrored; commit identities/keys/, then write its recovery copy and back up:"
+    say "     bin/fabric-host $HOST run --as $LOGIN -- projects/agent-fabric/bin/fabric-secrets store recovery-copy"
+    say "     bin/fabric-secrets store backup"
 fi
 
 

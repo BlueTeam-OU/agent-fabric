@@ -38,7 +38,8 @@ of identity is extended to keys.
 - **An agent's secrets are readable by that login alone.** Anyone
   holding the committed public key can write into the store, so the
   parent supplies secrets without being able to read them.
-- **Recovery is the owner's, on paper, one sheet per agent.**
+- **Recovery is the owner's, one encrypted copy per agent,** opened only
+  with the owner's recovery passphrase.
 - **Rotation keeps the identity.** Retirement leaves no heir.
 - **Placement is neither identity nor an assumption.** Agents may live
   on different hosts, and nothing here depends on their sharing one.
@@ -72,17 +73,17 @@ unchanged, and only the source moves.
 ## 4. Rationale
 
 The design reuses a standard format the owner already uses, so any
-agent's store opens with the owner's own tools once its paper key is
+agent's store opens with the owner's own tools once its recovered key is
 imported. It changes one seam: `secrets.env` stays the interface, so the
 launcher, the inbox, the control agent, the MCP server and the shell
 read what they read today.
 
 It also makes custody follow the lane rule. An agent reads only its
 own secrets. The parent writes, and is never able to read. The owner
-recovers from paper, one agent at a time.
+recovers with the recovery passphrase, one agent at a time.
 
 It survives the loss of a host. The ciphertext lives on GitHub and at
-the parent, and the key lives on paper. Nothing depends on the agents'
+the parent, and the key's copy lives in Proton, encrypted to the owner's recovery key. Nothing depends on the agents'
 sharing a machine.
 
 ## 5. Binding Rules

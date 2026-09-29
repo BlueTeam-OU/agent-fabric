@@ -19,10 +19,11 @@
 #      identities/keys/<login>.asc and lineage.json in this checkout;
 #   4. the parent clones the child's store as its mirror
 #      (~/.local/share/agent-fabric/children/<login>), to write into it.
-# Then: commit identities/keys/, and the owner prints the account's sheet
-# once, in a terminal of their own:
-#   bin/fabric-host <host> run --as <login> --tty -- \
-#     projects/agent-fabric/bin/fabric-secrets store paper
+# Then: commit identities/keys/, and write the account's recovery copy,
+# encrypted to the owner's recovery key (identities/recovery.asc):
+#   bin/fabric-host <host> run --as <login> -- \
+#     projects/agent-fabric/bin/fabric-secrets store recovery-copy
+# and the parent's `fabric-secrets store backup` carries it to Proton.
 #
 # No step needs the parent and the child on one host, and no value
 # crosses between them: only a public key and ciphertext do.
@@ -76,7 +77,7 @@ if (( SELF )); then
   python3 "$STORE" init --remote "$(repo_url "$ME")" >&2 || die "init failed"
   python3 "$STORE" push >&2 || die "push failed"
   python3 "$STORE" certify --root >&2 || die "certify --root failed"
-  say "$ME: the root of the chain is recorded; commit identities/keys/, then print this account's sheet in a terminal of your own"
+  say "$ME: the root of the chain is recorded; commit identities/keys/, then fabric-secrets store recovery-copy and store backup"
   exit 0
 fi
 (( ${#LOGINS[@]} )) || { sed -n '2,30p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 2; }
@@ -111,7 +112,7 @@ for login in "${LOGINS[@]}"; do
     mkdir -p "$(dirname "$mirror")"
     if ! git clone -q "$(repo_url "$login")" "$mirror" >&2; then say "$login: mirror clone failed"; fail=1; continue; fi
   fi
-  say "$login: key certified, store at $(repo_url "$login"), mirrored; the owner prints its sheet: bin/fabric-host $host run --as $login --tty -- $ACCOUNT_SECRETS store paper"
+  say "$login: key certified, store at $(repo_url "$login"), mirrored; its recovery copy: bin/fabric-host $host run --as $login -- $ACCOUNT_SECRETS store recovery-copy"
 done
 (( DRY )) || say "commit identities/keys/ (the certified keys and lineage.json)"
 exit "$fail"
