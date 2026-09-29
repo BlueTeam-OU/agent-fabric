@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Tests for policies/check_actions_pinned_by_sha.py, through the real script
 on a planted .github/: the same nineteen cases as devex-tooling's shell
-suite it replaces."""
+suite it replaces, and the shapes its review found missing."""
 from __future__ import annotations
 
 import os
@@ -49,6 +49,14 @@ CASES = [
     (0, "a commented-out tag pin is not a use", step(f"      # - uses: actions/checkout@v4\n      - uses: actions/checkout@{SHA} # v7.0.1"), None),
     (1, "a composite action under .github/actions is checked too",
      "runs:\n  using: composite\n  steps:\n    - uses: actions/setup-node@v7\n", "actions/setup/action.yml"),
+    # Shapes GitHub reads that an anchored pattern missed (devex-tooling's
+    # review of the shell guard this ports).
+    (1, "a tag pin under a quoted key is read and rejected", step('      - "uses": actions/checkout@v7'), None),
+    (1, "a tag pin with a space before the colon is read and rejected", step("      - uses : actions/checkout@v7"), None),
+    (1, "a tag pin in a flow mapping is read and rejected", step("      - {uses: actions/checkout@v7}"), None),
+    (1, "a tag pin that is not the flow mapping's first key is read and rejected", step("      - {name: co, uses: actions/checkout@v7}"), None),
+    (0, "a SHA pin in a flow mapping, with its version, passes", step(f"      - {{name: co, uses: actions/checkout@{SHA}}} # v7.0.1"), None),
+    (1, "a docker digest that is not 64 hex characters is rejected", step(f"      - uses: docker://docker.io/library/alpine@sha256:{'a' * 63}"), None),
     (1, "one bad use among good ones fails the file", step(f"      - uses: actions/checkout@{SHA} # v7.0.1\n      - uses: actions/setup-node@v7"), None),
 ]
 
