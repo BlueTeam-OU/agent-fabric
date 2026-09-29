@@ -1,0 +1,11 @@
+#!/usr/bin/env python3
+"""fabric-results — verified results, supervision and cost per verified
+result (ADR-026, ADR-036), from any directory. A thin entry point to
+tools/fabric/results.py, run by its real path."""
+import os
+import runpy
+import sys
+
+TOOL = os.path.join(os.path.dirname(os.path.realpath(__file__)), "..", "tools", "fabric", "results.py")
+sys.argv[0] = TOOL
+runpy.run_path(TOOL, run_name="__main__")

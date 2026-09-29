@@ -11,6 +11,7 @@
     "fabric-lease": "bin/fabric-lease",
     "fabric-locale": "bin/fabric-locale",
     "fabric-model": "bin/fabric-model",
+    "fabric-results": "bin/fabric-results",
     "fabric-review": "bin/fabric-review",
     "fabric-role": "bin/fabric-role",
     "fabric-secrets": "bin/fabric-secrets",
