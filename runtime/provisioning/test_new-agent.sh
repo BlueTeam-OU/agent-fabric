@@ -46,6 +46,7 @@ for step in "useradd" "chmod 700" "mkdir -p" "curl -fsSL https://claude.ai/insta
     grep -qF "$step" <<<"$out" && ok "plans: $step" || bad "missing step: $step" "$out"
 done
 grep -q "dry run: nothing verified" <<<"$out" && ok "…and verifies nothing" || bad "verified in dry run" "$out"
+grep -q "would: store-enroll.sh zz-fixture-login --host" <<<"$out" && ok "…and names step 5b, the account's key and store (ADR-038)" || bad "5b not in the dry run" "$out"
 ! getent passwd zz-fixture-login >/dev/null && ok "no account was created" || bad "an account was created by a dry run"
 grep -q "git@github.com" <<<"$out" && ok "a project clone uses the registry's SSH remote" || bad "remote" "$out"
 ! grep -qi "copied\|copy from" <<<"$out" && ok "no binary is ever copied from another account" || bad "a copy fallback is planned" "$out"
@@ -204,6 +205,22 @@ echo "new-agent: the real sequence on the $BACKEND backend"
 : > "$SSHLOG"
 reset_seq; out="$(seq_run seq-login backend-dev --project demo)"; rc=$?
 [[ $rc -eq 0 ]] && ok "the whole sequence exits 0" || bad "rc=$rc" "$out"
+# 5b: the fixture fabric has no store for this login (no tools/fabric/
+# secret_store.py answers export-key), so the step is said and skipped,
+# never a stop; with a parent store it calls store-enroll.sh for the
+# account on its placed host.
+grep -q "5b. skipped: this login has no store of its own yet" <<<"$out" && ok "5b without a parent store: said and skipped, the sequence goes on" || bad "5b skip" "$out"
+if [[ "$BACKEND" == local ]]; then
+  mkdir -p "$FAB/tools/fabric"
+  printf '#!/usr/bin/env python3\nimport sys\nsys.exit(0 if sys.argv[1:] == ["export-key"] else 9)\n' > "$FAB/tools/fabric/secret_store.py"
+  printf '#!/usr/bin/env bash\necho "store-enroll $*" >> "%s"\n' "$CALLS" > "$FAB/runtime/provisioning/secrets/store-enroll.sh"
+  chmod +x "$FAB/runtime/provisioning/secrets/store-enroll.sh"
+  reset_seq; out5b="$(seq_run seq-login backend-dev --project demo)"; rc5b=$?
+  grep -qx "store-enroll seq-login --host $LOCAL" "$CALLS" && grep -q "5b. its key made and certified" <<<"$out5b" \
+    && ok "5b with a parent store: store-enroll.sh for the account on its host" || bad "5b enrol (rc=$rc5b)" "$(cat "$CALLS" 2>/dev/null) $out5b"
+  rm -f "$FAB/tools/fabric/secret_store.py" "$FAB/runtime/provisioning/secrets/store-enroll.sh"
+  reset_seq; out="$(seq_run seq-login backend-dev --project demo)"; rc=$?   # back to the plain run the next checks read
+fi
 grep -q "persist-accounts.sh seq-login" "$CALLS" && grep -q "^loginctl enable-linger seq-login" "$CALLS" && ok "the account is persisted: persist-accounts.sh through sudo, linger enabled" || bad "persist step missing" "$(grep -i "persist\|linger" "$CALLS")"
 H="$HOMES/seq-login"
 [[ -x "$H/.local/bin/claude" && -x "$H/.local/bin/ori" && -d "$H/projects/agent-fabric/.git" && -d "$H/projects/demo/.git" && -d "$H/projects/demo/node_modules" ]] \

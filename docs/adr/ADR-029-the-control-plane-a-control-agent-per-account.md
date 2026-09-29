@@ -174,6 +174,13 @@ proof.
     peer sees whether a session runs, never another agent's list.
     `jobs-add` names one login, never `all`, and takes a one-line title,
     topic and project id (A 2026-09-28).
+14. `secrets-migrate` is an action run by the account's own daemon, with
+    no arguments. A fresh sync from Doppler is its baseline. It imports
+    the login's Doppler config into its store, switches the source to
+    `store`, syncs, and compares the two `secrets.env` by sha256 of their
+    export lines. A difference, or a failed sync, switches back to
+    `doppler` and fails. It runs one at a time with `secrets-sync`, and
+    no value leaves the account (ADR-038 §5 rule 8) (A 2026-09-29).
 
 ## 6. Consequences
 
@@ -235,3 +242,4 @@ The body above reads current; each change's full note is in [history/ADR-029-ame
 | 2026-09-27 | Actions run beside the read loop | §5 rule 12 added: actions run beside the read loop, one of a kind per account, a second answered busy; fabric-ctl's answer timeouts |
 | 2026-09-27 | Rule 12 as the code has it | §5 rule 12: every operation's answer budget, and an upgrade refused while a secrets-sync restarts the session |
 | 2026-09-28 | The owner reads and adds jobs through the control plane | §5 rule 3: `jobs.mjs` arguments; rule 13: `jobs`, `jobs-add` |
+| 2026-09-29 | secrets-migrate moves an account to its own store | §5 rule 14: the migration action |

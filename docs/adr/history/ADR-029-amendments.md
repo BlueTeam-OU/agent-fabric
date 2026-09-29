@@ -31,3 +31,12 @@ a job to one agent outside any session (ADR-037). The view is a read op,
 plain one-line values run by argv through `tools/fabric/jobs.py`. It
 names one login: a job is one agent's, and a fleet-wide job would be the
 same work started many times.
+
+### Amendment 2026-09-29 — secrets-migrate moves an account to its own store
+
+ADR-038 moves each account's secrets from Doppler to its own store. The
+move must happen inside the account, because only the account can read
+its Doppler config and write its store. It must also be verifiable
+without anyone seeing a value. So it is a signed action like
+`secrets-sync`, with an exact test: the store has to reproduce the
+`secrets.env` that Doppler gave, or the account stays on Doppler.

@@ -163,6 +163,15 @@ plane's (`test_check_charter_authority.sh`).
 
 ## An identity's secrets
 
+Each login's secrets are its own store, `<org>/secrets-<login>`, encrypted
+to its key alone (ADR-038): the login writes and reads it; its parent,
+the `fabric-coordinator` login that provisioned it, may add an entry
+(`fabric-secrets store put`) and certifies its key, and reads nothing.
+Making a key and store (`store-enroll.sh`), certifying keys
+(`identities/keys/`), and the Claude-account templates in the
+coordinator's store are `fabric-coordinator`'s. Until an account has
+migrated, its secrets are in Doppler, as follows.
+
 The Doppler project `agent-fabric` — one config per Linux login
 (`<env>_<login>` under `agents`, `agents2`, …), holding
 that login's credentials — is `fabric-coordinator`'s: creating a config,

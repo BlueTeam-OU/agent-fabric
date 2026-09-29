@@ -13,6 +13,10 @@ Linux login identifies the agent.
 Filesystem location identifies context, never identity.
 ```
 
+A key is a login's credential, never its identity: each login's key is
+made in its own account and attested by its parent's certification, and
+where a login runs is placement, not identity (ADR-038).
+
 ## Decisions
 
 What the fabric has decided, and why, is in `docs/adr/`: read
@@ -186,5 +190,7 @@ Runtime state is never in this repository: your binding, role history,
 model choices and rendered launch prompt live under
 `${XDG_STATE_HOME:-~/.local/state}/agent-fabric/agents/<login>/`.
 Credentials never enter a committed file or a message: an identity's
-secrets are in Doppler (project `agent-fabric`, one config per login),
-and `fabric-secrets sync` puts them where the tools read them (ADR-012).
+secrets are in its own encrypted store (`<org>/secrets-<login>`, a pass
+repository only that login can read, ADR-038), or in Doppler until the
+account has migrated (ADR-012), and `fabric-secrets sync` puts them where
+the tools read them, the same file from either.

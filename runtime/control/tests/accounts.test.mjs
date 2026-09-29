@@ -155,3 +155,59 @@ test('assign: no way back to a login\'s own /login; an unknown login, an unknown
   }
   assert.equal(d.writes.length, n, 'a refusal writes nothing');
 });
+
+// On the coordinator's store (ADR-038): the templates and an assignment
+// go through fabric-secrets store, which keeps every value in its own
+// process; a failed row still comes back as a row.
+test('accounts on the store: onStore reads the source; templates and assign go through fabric-secrets store', async () => {
+  const { onStore, storeTemplates, storeAssign } = await import('../accounts.mjs');
+  const home = scratch('accounts-store-');
+  assert.equal(onStore(home), false, 'no source file is doppler');
+  fs.mkdirSync(path.join(home, '.config', 'agent-fabric'), { recursive: true });
+  fs.writeFileSync(path.join(home, '.config', 'agent-fabric', 'secrets-source'), 'store\n');
+  assert.equal(onStore(home), true);
+  const calls = [];
+  const exec = (bin, args) => {
+    calls.push(args.join(' '));
+    if (args[1] === 'templates') return JSON.stringify([{ account: 'work', token_sha256_12: 'abcdef012345' }]);
+    const e = new Error('exit 1'); e.stdout = JSON.stringify([{ login: 'a', status: 'written' }, { login: 'b', status: 'failed', reason: 'no committed key for b' }]); throw e;
+  };
+  assert.deepEqual(storeTemplates({ exec }), [{ account: 'work', token_sha256_12: 'abcdef012345', config: 'store' }]);
+  const rows = storeAssign(['a', 'b'], 'work', { exec });
+  assert.deepEqual(rows.map(r => r.status), ['written', 'failed']);
+  assert.deepEqual(calls, ['store templates --json', 'store assign work a b --json']);
+});
+
+// Review of #63 (F5): during the migration a login may still read
+// Doppler; on the coordinator's store the assignment goes to both, so it
+// lands whichever source the login reads.
+test('assign on the store also writes the Doppler config of a login that still has one', async () => {
+  const home = scratch('accounts-dual-');
+  fs.mkdirSync(path.join(home, '.config', 'agent-fabric'), { recursive: true });
+  fs.writeFileSync(path.join(home, '.config', 'agent-fabric', 'secrets-source'), 'store\n');
+  const reg = path.join(home, 'hosts.json');
+  fs.writeFileSync(reg, JSON.stringify({ hosts: { h: {} }, placement: { kid: 'h', moved: 'h' } }));
+  const calls = [];
+  const dopplerRef = new Map([['agents_kid', 'none']]);
+  const exec = (bin, args, opts) => {
+    calls.push(`${path.basename(bin)} ${args.join(' ')}`);
+    if (path.basename(bin) === 'fabric-secrets') {
+      if (args[1] === 'templates') return JSON.stringify([{ account: 'work', token_sha256_12: 'abcdef012345' }]);
+      return JSON.stringify(args.slice(3).filter(a => a !== '--json' && a !== '--force').map(l => ({ login: l, from: 'none', to: 'work', status: 'written' })));
+    }
+    if (args[0] === 'configs') return JSON.stringify([{ name: 'agents_kid' }]);   // `moved` has no Doppler config any more
+    if (args[0] === 'secrets' && args[1] === 'get') return dopplerRef.get('agents_kid') === 'none' ? '' : dopplerRef.get('agents_kid');
+    if (args[0] === 'secrets' && args[1] === 'set') { dopplerRef.set('agents_kid', args[2].split('=')[1]); return ''; }
+    return '';
+  };
+  const out = []; const log = console.log, err = console.error;
+  console.log = (...a) => out.push(a.join(' ')); console.error = (...a) => out.push(a.join(' '));
+  let rc;
+  try { rc = await main(['assign', 'kid', 'moved', 'work', '--no-sync', '--force'], { home, exec, registry: reg }); }
+  finally { console.log = log; console.error = err; }
+  assert.equal(rc, 0, out.join('\n'));
+  assert.ok(calls.some(c => c === 'fabric-secrets store assign work kid moved --force --json'), calls.join('\n'));
+  assert.ok(calls.some(c => c.startsWith('doppler secrets set CLAUDE_CODE_OAUTH_TOKEN=${agent-fabric.claude-accounts_work')), 'kid still reads Doppler: written there too');
+  assert.ok(out.some(l => /^kid .* written \(doppler: written\)/.test(l)), out.join('\n'));
+  assert.ok(out.some(l => /^moved .* written \(doppler: no-config\)/.test(l)), out.join('\n'));
+});

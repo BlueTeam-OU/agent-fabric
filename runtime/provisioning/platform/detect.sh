@@ -28,4 +28,4 @@ else
     pkg_for() { echo "$1"; }
 fi
 # The fabric's host contract: what its hooks, scripts and provisioning call.
-FABRIC_HOST_TOOLS=(bash sudo ssh getent pgrep timeout flock stat sha256sum cmp useradd usermod shred install curl python3 node npm git gh jq gpg)
+FABRIC_HOST_TOOLS=(bash sudo ssh getent pgrep timeout flock stat sha256sum cmp useradd usermod shred install curl python3 node npm git gh jq gpg paperkey)

@@ -350,8 +350,8 @@ test('keygen: the private half goes to Doppler on stdin and nowhere else; the pu
   const out = []; const log = console.log, err = console.error;
   console.log = (...a) => out.push(a.join(' ')); console.error = (...a) => out.push(a.join(' '));
   try {
-    assert.equal(keygen({ force: false }, { registry: reg, exec, who: { host: 'h', agent: 'web-dev-01' } }), 2, 'only the host operator makes the key');
-    assert.equal(keygen({ force: false }, { registry: reg, exec, who: { host: 'h', agent: 'user' } }), 0);
+    assert.equal(keygen({ force: false }, { registry: reg, exec, who: { host: 'h', agent: 'web-dev-01' }, home: dir }), 2, 'only the host operator makes the key');
+    assert.equal(keygen({ force: false }, { registry: reg, exec, who: { host: 'h', agent: 'user' }, home: dir }), 0);
   } finally { console.log = log; console.error = err; }
   const set = calls.find(c => c.args[0] === 'secrets');
   assert.deepEqual(set.args, ['secrets', 'set', 'FABRIC_CONTROL_SIGNING_KEY', '--project', 'agent-fabric', '--config', 'agents2_user', '--silent']);
@@ -361,7 +361,7 @@ test('keygen: the private half goes to Doppler on stdin and nowhere else; the pu
   const saved = JSON.parse(fs.readFileSync(reg, 'utf8')).hosts.h.operator_key;
   assert.ok(publicKeyFrom(saved), 'the public half is in the registry');
   console.error = () => {};
-  try { assert.equal(keygen({ force: false }, { registry: reg, exec, who: { host: 'h', agent: 'user' } }), 2, 'a registered key is kept'); }
+  try { assert.equal(keygen({ force: false }, { registry: reg, exec, who: { host: 'h', agent: 'user' }, home: dir }), 2, 'a registered key is kept'); }
   finally { console.error = err; }
   assert.equal(JSON.parse(fs.readFileSync(reg, 'utf8')).hosts.h.operator_key, saved);
 });
@@ -462,4 +462,23 @@ test('a placed non-operator may ask presence, and nothing else; an unplaced one 
     assert.equal(stranger.status, 2, 'neither operator nor placed: no daemon would answer, nothing sent');
     assert.equal(r.rows.length, n);
   } finally { r.close(); }
+});
+
+test('keygen on a login whose secrets are on its store: the private half goes into the store on stdin, never to Doppler', () => {
+  const dir = scratch('ctl-keygen-store-');
+  const reg = path.join(dir, 'registry.json');
+  fs.writeFileSync(reg, JSON.stringify({ hosts: { h: { operator: 'user' } }, placement: {} }));
+  fs.mkdirSync(path.join(dir, '.config', 'agent-fabric'), { recursive: true });
+  fs.writeFileSync(path.join(dir, '.config', 'agent-fabric', 'secrets-source'), 'store\n');
+  const calls = [];
+  const exec = (bin, args, opts) => { calls.push({ bin, args, input: opts?.input }); return ''; };
+  const log = console.log; console.log = () => {};
+  try { assert.equal(keygen({ force: false }, { registry: reg, exec, who: { host: 'h', agent: 'user' }, home: dir }), 0); }
+  finally { console.log = log; }
+  assert.ok(!calls.some(c => c.bin === 'doppler'), 'Doppler is not called');
+  const set = calls.find(c => c.args[0] === 'store');
+  assert.deepEqual(set.args, ['store', 'set', 'FABRIC_CONTROL_SIGNING_KEY']);
+  assert.match(set.bin, /bin\/fabric-secrets$/);
+  assert.ok(privateKeyFrom(set.input), 'a usable private key on stdin');
+  assert.ok(publicKeyFrom(JSON.parse(fs.readFileSync(reg, 'utf8')).hosts.h.operator_key));
 });

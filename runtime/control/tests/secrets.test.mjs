@@ -171,3 +171,76 @@ test('an upgrade asked for while a secrets-sync restarts the session is busy, an
   release(); assert.equal((await sync).session, 'restarting');
   assert.equal((await upgrade({ id: 'u2', from: 'h/user', op: 'upgrade', args: { piece: 'claude', version: 'x' } }, {})).status, 'refused', 'the interlock is released afterwards');
 });
+
+// secrets-migrate (ADR-038 §5 rule 8): Doppler's values_sha256 is the
+// baseline; the store must hold the same BEFORE the source switches, and
+// the sync from it must apply the same after, or the account is on doppler.
+// A fake fabric-secrets reports hashes, never values.
+import { secretsMigrateOnce, checkMigrateArgs, envDigest } from '../secrets.mjs';
+function migrateFixture({ storeHash = 'h-same', importFails = false, withStore = true, source = null, storeSyncFails = false } = {}) {
+  const home = scratch('migrate-home-');
+  const cfg = path.join(home, '.config', 'agent-fabric');
+  fs.mkdirSync(cfg, { recursive: true });
+  if (source) fs.writeFileSync(path.join(cfg, 'secrets-source'), `${source}\n`);
+  const store = path.join(home, '.local', 'share', 'agent-fabric', 'secrets');
+  if (withStore) { fs.mkdirSync(store, { recursive: true }); fs.writeFileSync(path.join(store, '.gpg-id'), 'F'.repeat(40) + '\n'); }
+  const calls = [];
+  const src = () => { try { return fs.readFileSync(path.join(cfg, 'secrets-source'), 'utf8').trim(); } catch { return 'doppler'; } };
+  const exec = async (bin, args) => {
+    calls.push(args.join(' '));
+    if (args[0] === 'store') {
+      if (importFails) { const e = new Error('x'); e.code = 1; e.stderr = 'fabric-secrets store: doppler: unreadable'; throw e; }
+      return { stdout: 'imported 5 name(s) from agents_x: A, B\n' };
+    }
+    if (args[0] === 'digest') return { stdout: JSON.stringify({ source: 'store', values_sha256: storeHash }) };
+    if (src() === 'store' && storeSyncFails) { const e = new Error('x'); e.code = 1; e.stdout = JSON.stringify({ error: 'store: not reachable' }); throw e; }
+    fs.writeFileSync(path.join(cfg, 'secrets.env'), `# agent-fabric secrets: ${Date.now()}\nexport GH_TOKEN='a'\n`);
+    return { stdout: JSON.stringify({ values_sha256: src() === 'store' ? storeHash : 'h-same' }) };
+  };
+  return { home, cfg, exec, calls, read: src };
+}
+
+test('secrets-migrate: the store holds what Doppler holds, before and after the switch', async () => {
+  const f = migrateFixture();
+  const r = await secretsMigrateOnce({ args: undefined }, { home: f.home, root: '/fabric', exec: f.exec });
+  assert.equal(r.status, 'migrated', JSON.stringify(r));
+  assert.equal(f.read(), 'store');
+  assert.deepEqual(f.calls, ['sync --json', 'store import-doppler', 'digest --source store', 'sync --json']);
+  assert.equal(r.env_sha, envDigest("export GH_TOKEN='a'"));
+});
+
+test('secrets-migrate: other values in the store stop it BEFORE the switch; the account never leaves doppler', async () => {
+  const f = migrateFixture({ storeHash: 'h-other' });
+  const r = await secretsMigrateOnce({}, { home: f.home, root: '/fabric', exec: f.exec });
+  assert.equal(r.status, 'failed');
+  assert.match(r.reason, /other values than Doppler .*still on doppler/);
+  assert.equal(f.read(), 'doppler');
+  assert.ok(!f.calls.includes('sync --json') || f.calls.filter(c => c === 'sync --json').length === 1, 'no sync after the stop');
+  assert.ok(!fs.existsSync(path.join(f.cfg, 'secrets-source')), 'the source was never written');
+});
+
+test('secrets-migrate: a sync from the store that fails after the switch goes back to doppler', async () => {
+  const f = migrateFixture({ storeSyncFails: true });
+  const r = await secretsMigrateOnce({}, { home: f.home, root: '/fabric', exec: f.exec });
+  assert.equal(r.status, 'failed', JSON.stringify(r));
+  assert.match(r.reason, /sync from the store failed \(store: not reachable\); back on doppler/);
+  assert.equal(f.read(), 'doppler');
+  assert.equal(f.calls.at(-1), 'sync --json', 'and Doppler\'s files are written back');
+});
+
+test('secrets-migrate: a failed import leaves the account on doppler', async () => {
+  const f = migrateFixture({ importFails: true });
+  const r = await secretsMigrateOnce({}, { home: f.home, root: '/fabric', exec: f.exec });
+  assert.deepEqual([r.status, /import: .*unreadable/.test(r.reason)], ['failed', true]);
+  assert.equal(f.read(), 'doppler');
+});
+
+test('secrets-migrate: no store yet is refused; a migrated account is current; it takes no arguments', async () => {
+  const none = migrateFixture({ withStore: false });
+  const r = await secretsMigrateOnce({}, { home: none.home, root: '/fabric', exec: none.exec });
+  assert.deepEqual([r.status, /no store yet/.test(r.reason), none.calls.length], ['refused', true, 0]);
+  const done = migrateFixture({ source: 'store' });
+  assert.equal((await secretsMigrateOnce({}, { home: done.home, root: '/fabric', exec: done.exec })).status, 'current');
+  assert.match(checkMigrateArgs({ restart: true }), /no arguments/);
+  assert.equal(checkMigrateArgs(undefined), null);
+});

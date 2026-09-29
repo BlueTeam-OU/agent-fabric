@@ -269,7 +269,7 @@
       "status": "Accepted",
       "date": "2026-09-17",
       "pillar": "P5",
-      "amendments": 3
+      "amendments": 4
     },
     {
       "number": "030",
@@ -287,7 +287,7 @@
       "status": "Accepted",
       "date": "2026-09-24",
       "pillar": "P5",
-      "amendments": 1
+      "amendments": 2
     },
     {
       "number": "032",
@@ -341,6 +341,15 @@
       "status": "Proposed",
       "date": "2026-09-28",
       "pillar": "P3",
+      "amendments": 0
+    },
+    {
+      "number": "038",
+      "file": "ADR-038-each-agent-owns-its-key-and-its-secrets.md",
+      "title": "Each agent owns its key and its secrets",
+      "status": "Proposed",
+      "date": "2026-09-29",
+      "pillar": "P1",
       "amendments": 0
     }
   ]
