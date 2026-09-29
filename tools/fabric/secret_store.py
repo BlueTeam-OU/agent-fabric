@@ -14,7 +14,9 @@
                                                  the parent attests a child's key
     fabric-secrets store verify                  every committed key against its lineage
     fabric-secrets store paper [--out FILE]      the key and its revocation, for the owner
-    fabric-secrets store paper --to-proton       the same, into Proton Drive (a path and a hash printed)
+    fabric-secrets store recovery-key init       the OWNER, in a terminal: the recovery key (passphrase-protected,
+                                                 its private half only in Proton)
+    fabric-secrets store recovery-copy           this login's recovery copy, encrypted to the recovery key
     fabric-secrets store backup [--verify]       every store held, as git bundles, into Proton Drive
     fabric-secrets store import-doppler          this login's Doppler config into its store
                                                  (the migration, ADR-038 §5 rule 8)
@@ -596,8 +598,8 @@ def paper(out: str | None = None) -> None:
     """The recovery copy to a terminal or a file, for the owner. Refused
     inside a model session: a secret is never shown to a model."""
     if os.environ.get("CLAUDECODE"):
-        raise StoreError("refused inside a model session (CLAUDECODE is set): the owner runs this in a terminal, "
-                         "or uses --to-proton, which prints nothing but a path and a hash")
+        raise StoreError("refused inside a model session (CLAUDECODE is set): the owner runs this in a terminal; "
+                         "recovery-copy writes the copy encrypted to the recovery key and prints only a path")
     if out is None and not sys.stdout.isatty():
         raise StoreError("stdout is not a terminal: pass --out FILE (written 0600) to print it from there")
     text = _sheet_text()
@@ -666,29 +668,74 @@ def _sha256_file(path: str) -> str:
     return h.hexdigest()
 
 
-def paper_to_proton() -> dict:
-    """This login's key recovery copy into Proton Drive, through a 0600
-    temporary file that is overwritten and removed afterwards. Allowed
-    inside a model session: only the path and a hash are printed."""
-    text = _sheet_text().encode()
-    import hashlib
-    digest = hashlib.sha256(text).hexdigest()
-    folder = _proton_folder(f"{PROTON_ROOT}/keys")
+RECOVERY_UID = f"agent-fabric recovery <recovery@{UID_DOMAIN}>"
+
+
+def recovery_pub(fabric: str | None = None) -> str:
+    return os.path.join(fabric or FABRIC_ROOT, "identities", "recovery.asc")
+
+
+def recovery_key_init(force: bool = False) -> dict:
+    """The owner's recovery key (ADR-038 §5 rule 1): made in a throwaway
+    keyring, protected by a passphrase gpg asks the owner for; its public
+    half written to identities/recovery.asc for every agent to encrypt
+    its recovery copy to; its protected private half uploaded to Proton
+    (/my-files/agent-fabric/keys/recovery-key.asc) and never kept on the
+    host. Refused inside a model session: the passphrase is the owner's."""
+    if os.environ.get("CLAUDECODE"):
+        raise StoreError("refused inside a model session: the owner runs this in a terminal and types the passphrase")
+    if not sys.stdin.isatty():
+        raise StoreError("stdin is not a terminal: gpg must ask the owner for the passphrase")
+    pub = recovery_pub()
+    if os.path.exists(pub) and not force:
+        raise StoreError(f"{pub} exists; a new recovery key is a rotation (--force), and every copy is then re-made")
     with tempfile.TemporaryDirectory() as tmp:
         os.chmod(tmp, 0o700)
-        path = os.path.join(tmp, f"{login()}.key.txt")
-        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-        with os.fdopen(fd, "wb") as fh:
-            fh.write(text)
+        env = {**os.environ, "GNUPGHOME": tmp, "GPG_TTY": os.ttyname(sys.stdin.fileno())}
+        run = lambda *a, **k: subprocess.run(["gpg", "--homedir", tmp, *a], env=env, check=True, **k)
         try:
-            _upload(path, folder)
+            print("gpg now asks for the RECOVERY passphrase, twice: only the owner keeps it.", file=sys.stderr)
+            run("--quick-gen-key", RECOVERY_UID, "ed25519", "cert", "never")
+            fpr = fingerprints(homedir=tmp, secret=True)[0]
+            run("--quick-add-key", fpr, "cv25519", "encr", "never")
+            with open(pub, "w", encoding="utf-8") as fh:
+                fh.write(gpg("--armor", "--export", fpr, homedir=tmp).stdout.decode())
+            protected = os.path.join(tmp, "recovery-key.asc")
+            run("--armor", "--output", protected, "--export-secret-keys", fpr)
+            _upload(protected, _proton_folder(f"{PROTON_ROOT}/keys"))
         finally:
-            with open(path, "r+b") as fh:          # overwritten before it goes
-                fh.write(b"\0" * len(text))
-                fh.flush()
-                os.fsync(fh.fileno())
-            os.remove(path)
-    return {"path": f"{folder}/{login()}.key.txt", "sha256": digest}
+            _run(["gpgconf", "--homedir", tmp, "--kill", "all"], check=False)
+    return {"fingerprint": fpr, "public": pub, "private": f"{PROTON_ROOT}/keys/recovery-key.asc"}
+
+
+def recovery_copy(force: bool = False) -> dict:
+    """This login's key recovery copy, encrypted to the owner's recovery
+    key, committed into its own store as recovery/<login>.key.gpg and
+    pushed; the parent's backup carries it to Proton. Nothing is printed
+    but a path and a hash, and once written not even this login can read
+    it back: only the owner, with the recovery passphrase."""
+    pub = recovery_pub()
+    if not os.path.exists(pub):
+        raise StoreError("no recovery key yet (identities/recovery.asc): the owner runs `fabric-secrets recovery-key init`")
+    rfpr = _key_file_fingerprint(pub)
+    store = store_dir()
+    key_of_store(store)
+    _before_write(store)
+    path = os.path.join(store, "recovery", f"{login()}.key.gpg")
+    note = os.path.join(store, "recovery", f"{login()}.recipient")
+    if os.path.exists(path) and not force and open(note, encoding="utf-8").read().strip() == rfpr:
+        _push_if_ahead(store)
+        return {"path": path, "changed": False, "recipient": rfpr}
+    os.makedirs(os.path.dirname(path), mode=0o700, exist_ok=True)
+    gpg("--trust-model", "always", "--no-encrypt-to", "--encrypt", "--recipient-file", pub,
+        "--output", path + ".tmp", stdin=_sheet_text().encode())
+    os.replace(path + ".tmp", path)
+    with open(note, "w", encoding="utf-8") as fh:
+        fh.write(rfpr + "\n")
+    git(store, "add", os.path.relpath(path, store), os.path.relpath(note, store))
+    _commit(store, f"agent {login()}: recovery copy, encrypted to the recovery key {rfpr[-16:]}")
+    _after_commit(store)
+    return {"path": path, "changed": True, "recipient": rfpr}
 
 
 def _stores() -> dict[str, str]:
@@ -720,6 +767,13 @@ def backup() -> dict:
             git(d, "bundle", "create", bundle, "--all")
             manifest["stores"][who] = {"bundle": os.path.basename(bundle), "sha256": _sha256_file(bundle),
                                        "head": git(d, "rev-parse", "HEAD").stdout.decode().strip()}
+            # Each store's recovery copy, already encrypted to the owner's
+            # recovery key, also stands alone in keys/ for a restore.
+            rdir = os.path.join(d, "recovery")
+            for f in sorted(os.listdir(rdir)) if os.path.isdir(rdir) else []:
+                if f.endswith(".key.gpg"):
+                    manifest.setdefault("recovery_copies", {})[f] = _sha256_file(os.path.join(rdir, f))
+                    _upload(os.path.join(rdir, f), _proton_folder(f"{PROTON_ROOT}/keys"))
         mpath = os.path.join(tmp, "manifest.json")
         with open(mpath, "w", encoding="utf-8") as fh:
             fh.write(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
@@ -769,7 +823,11 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("push")
     pa = sub.add_parser("paper")
     pa.add_argument("--out")
-    pa.add_argument("--to-proton", action="store_true", help="the recovery copy into Proton Drive; prints a path and a hash")
+    rc = sub.add_parser("recovery-copy")
+    rc.add_argument("--force", action="store_true", help="re-make it even when it is encrypted to the current recovery key")
+    rk = sub.add_parser("recovery-key")
+    rk.add_argument("action", choices=["init"])
+    rk.add_argument("--force", action="store_true", help="rotate: a new recovery key; every copy is then re-made")
     bk = sub.add_parser("backup")
     bk.add_argument("--verify", action="store_true", help="download the backup and check it against its manifest")
     sub.add_parser("import-doppler")
@@ -817,11 +875,13 @@ def main(argv: list[str] | None = None) -> int:
             print("\n".join(f) if f else "keys: clean")
             return 1 if f else 0
         elif args.cmd == "paper":
-            if args.to_proton:
-                r = paper_to_proton()
-                print(f"{r['path']}  sha256 {r['sha256'][:16]}…")
-            else:
-                paper(args.out)
+            paper(args.out)
+        elif args.cmd == "recovery-copy":
+            r = recovery_copy(args.force)
+            print(f"{r['path']}: {'written' if r['changed'] else 'unchanged'}, encrypted to the recovery key {r['recipient'][-16:]}")
+        elif args.cmd == "recovery-key":
+            r = recovery_key_init(args.force)
+            print(f"recovery key {r['fingerprint']}: public half {r['public']} (commit it), protected private half {r['private']}")
         elif args.cmd == "backup":
             if args.verify:
                 f = verify_backup()

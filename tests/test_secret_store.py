@@ -413,19 +413,48 @@ else:
             p = run(penv, "backup", "--verify")
             check("backup --verify catches a bundle that is not the manifest's", p.returncode == 1
                   and "secrets-kid.bundle: its sha256 is not the manifest's" in p.stdout, p.stdout + p.stderr)
+            # Option B: the owner's recovery key. Made here without a
+            # prompt (a passphrase on the command line, test only); in use
+            # it is `recovery-key init`, in the owner's terminal.
+            rhome = os.path.join(tmp, "recovery-gnupg")
+            os.makedirs(rhome, mode=0o700)
+            RPASS = "correct horse battery staple"
+            rg = ["gpg", "--homedir", rhome, "--batch", "--pinentry-mode", "loopback", "--passphrase", RPASS]
+            subprocess.run(rg + ["--quick-gen-key", "agent-fabric recovery <recovery@agents.agent-fabric>", "ed25519", "cert", "never"],
+                           check=True, capture_output=True)
+            rfpr = [l.split(":")[9] for l in subprocess.run(["gpg", "--homedir", rhome, "--with-colons", "--list-keys"],
+                    capture_output=True, text=True).stdout.splitlines() if l.startswith("fpr:")][0]
+            subprocess.run(rg + ["--quick-add-key", rfpr, "cv25519", "encr", "never"], check=True, capture_output=True)
+            with open(os.path.join(fabric, "identities", "recovery.asc"), "w") as fh:
+                fh.write(subprocess.run(["gpg", "--homedir", rhome, "--armor", "--export", rfpr], capture_output=True, text=True).stdout)
             if shutil.which("paperkey"):
-                p = run({**penv, "CLAUDECODE": "1"}, "paper", "--to-proton")
+                p = run({**penv, "CLAUDECODE": "1"}, "recovery-copy")
+                own = parent["AGENT_FABRIC_SECRET_STORE"]
+                me_login = subprocess.run(["id", "-un"], capture_output=True, text=True).stdout.strip()
+                copy = os.path.join(own, "recovery", f"{me_login}.key.gpg")
+                check("recovery-copy writes the copy into the store, inside a model session, printing a path only",
+                      p.returncode == 0 and os.path.exists(copy) and "written" in p.stdout and "BEGIN" not in p.stdout
+                      and len(p.stdout) < 250, p.stdout + p.stderr)
+                opened = subprocess.run(rg + ["--decrypt", copy], capture_output=True, text=True)
+                check("…only the recovery key opens it, and it is the key and its revocation",
+                      opened.returncode == 0 and "fingerprint" in opened.stdout and "REVOCATION" in opened.stdout.upper(),
+                      opened.stderr[-200:])
+                mine = subprocess.run(["gpg", "--batch", "--decrypt", copy], env=parent, capture_output=True, text=True)
+                check("…and not even the agent that wrote it can read it back", mine.returncode != 0 and "fingerprint" not in mine.stdout)
+                p = run(penv, "recovery-copy")
+                check("recovery-copy again is unchanged", p.returncode == 0 and "unchanged" in p.stdout, p.stdout + p.stderr)
+                p = run(penv, "backup")
                 kf = os.path.join(drive, "my-files", "agent-fabric", "keys")
-                up_keys = os.listdir(kf) if os.path.isdir(kf) else []
-                check("paper --to-proton works inside a model session and prints only a path and a hash",
-                      p.returncode == 0 and len(up_keys) == 1 and up_keys[0].endswith(".key.txt")
-                      and "/my-files/agent-fabric/keys/" in p.stdout and "sha256" in p.stdout
-                      and "fingerprint" not in p.stdout and len(p.stdout) < 200, p.stdout + p.stderr)
-                sheet = open(os.path.join(kf, up_keys[0])).read() if up_keys else ""
-                check("…and what went up is the recovery copy, key and revocation", "fingerprint" in sheet
-                      and "REVOCATION" in sheet.upper(), sheet[:120])
+                check("backup carries each store's encrypted copy to keys/", p.returncode == 0
+                      and f"{me_login}.key.gpg" in (os.listdir(kf) if os.path.isdir(kf) else []), p.stdout + p.stderr)
             else:
                 check("paperkey is installed where this suite runs", False, "paperkey missing")
+            p = run({**penv, "CLAUDECODE": "1"}, "recovery-key", "init")
+            check("recovery-key init refuses inside a model session", p.returncode == 1 and "model session" in p.stderr, p.stderr)
+            p = run(penv, "recovery-key", "init")
+            check("recovery-key init refuses without a terminal for the passphrase", p.returncode == 1
+                  and "not a terminal" in p.stderr, p.stderr)
+            subprocess.run(["gpgconf", "--homedir", rhome, "--kill", "all"], capture_output=True)
 
             everything = "".join(open(os.path.join(dp, f), errors="ignore").read()
                                  for dp, _, fs in os.walk(os.path.join(child_store, ".git")) for f in fs
