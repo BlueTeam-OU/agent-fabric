@@ -37,6 +37,8 @@ name="\${3##*/}"
 case "\$1 \$2" in
   "repo view") [[ -d "$T/remotes/\$name.git" ]] ;;
   "repo create") git init -q --bare -b main "$T/remotes/\$name.git" ;;
+  "repo rename") o="\${5##*/}"; mv "$T/remotes/\$o.git" "$T/remotes/\$3.git" ;;
+  "repo edit") exit 0 ;;
   *) exit 9 ;;
 esac
 S
@@ -50,24 +52,34 @@ echo "store-enroll: the parent first"
 out="$(P "$E" kid 2>&1)"; rc=$?
 [[ $rc -eq 1 ]] && grep -q "no store yet" <<<"$out" && ok "a parent without its own store is refused" || bad "no parent store (rc=$rc)" "$out"
 out="$(P "$E" --self 2>&1)"; rc=$?
-[[ $rc -eq 0 && -d "$T/remotes/secrets-$(id -un).git" ]] && python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); assert list(d.values())[0]["parent"] is None' "$FAB/identities/keys/lineage.json" \
-  && ok "--self: the parent's repository, store and root key" || bad "--self (rc=$rc)" "$out"
+# An id's time is its birth; here, the home's creation time to the millisecond.
+born_ms() { date -d "$(stat -c %w "$1")" +%s%3N; }
+id_ms() { printf '%d' "0x$(tr -d - <<<"$1" | cut -c1-12)"; }
+lid() { python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))[sys.argv[2]]["agent_id"])' "$FAB/identities/keys/lineage.json" "$1"; }
+PID="$(lid "$(id -un)" 2>/dev/null)"
+[[ $rc -eq 0 && -n "$PID" && -d "$T/remotes/agent-fabric-secrets-$(id -un).git" ]] && python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); assert list(d.values())[0]["parent"] is None' "$FAB/identities/keys/lineage.json" \
+  && ok "--self: the parent's repository, named by its login, its store and root key, with its agent id" || bad "--self (rc=$rc)" "$out"
+[[ "$(id_ms "$PID")" == "$(born_ms "$T/parent")" ]] && ok "…its id's time is its home's creation time" || bad "parent birth" "$PID vs $(stat -c %w "$T/parent")"
 
 echo "store-enroll: an account on another host"
 out="$(P "$E" kid 2>&1)"; rc=$?
-[[ $rc -eq 0 ]] && grep -q "kid: key certified" <<<"$out" && ok "the child gets its key and store, and is certified" || bad "enrol (rc=$rc)" "$out"
+[[ $rc -eq 0 ]] && grep -qE "kid: agent [0-9a-f-]{36}, key certified" <<<"$out" && ok "the child gets its key and store, and is certified" || bad "enrol (rc=$rc)" "$out"
 grep -q "hostexec far-host --as kid" "$T/calls" && ok "…every account step went through the host executor to its placed host" || bad "no hostexec" "$(cat "$T/calls")"
+KID="$(lid kid 2>/dev/null)"
+[[ -n "$KID" && -d "$T/remotes/agent-fabric-secrets-kid.git" ]] && ok "…its repository is named by its login, and lineage records its agent id" || bad "child repo" "$(ls "$T/remotes")"
+[[ -n "$KID" && "$(id_ms "$KID")" == "$(born_ms "$T/kid")" ]] && ok "…its id's time is ITS home's creation time, read on its host" || bad "child birth" "$KID"
 [[ -d "$T/parent/.local/share/agent-fabric/children/kid/.git" ]] && ok "…and the parent holds a mirror of the child's store" || bad "no mirror"
 AGENT_FABRIC_ROOT="$FAB" python3 "$ROOT/tools/fabric/secret_store.py" verify >/dev/null 2>&1 && ok "…and lineage verifies" || bad "verify" "$(AGENT_FABRIC_ROOT="$FAB" python3 "$ROOT/tools/fabric/secret_store.py" verify 2>&1)"
 out="$(P "$E" kid 2>&1)"; rc=$?
-[[ $rc -eq 0 ]] && [[ "$(gpg --homedir "$T/kid-gnupg" --list-secret-keys --with-colons 2>/dev/null | grep -c '^sec')" == 1 ]] && ok "a second run keeps the child's one key" || bad "re-run (rc=$rc)" "$out"
+[[ $rc -eq 0 ]] && [[ "$(gpg --homedir "$T/kid-gnupg" --list-secret-keys --with-colons 2>/dev/null | grep -c '^sec')" == 1 ]] && [[ "$(lid kid)" == "$KID" ]] \
+  && ok "a second run keeps the child's one key and its id" || bad "re-run (rc=$rc)" "$out"
 echo "top secret" | P python3 "$ROOT/tools/fabric/secret_store.py" put kid GH_TOKEN >/dev/null 2>&1 && ok "the parent can now write into the child's store" || bad "put after enrol"
 out="$(P "$E" nobody 2>&1)"; rc=$?
 [[ $rc -eq 1 ]] && grep -q "nobody: not placed" <<<"$out" && ok "an unplaced login is refused by name" || bad "unplaced (rc=$rc)" "$out"
 
 # A retried assign pushes the parent's own record that an earlier failed
 # push left behind (the parent's remote rejects one push).
-PR="$T/remotes/secrets-$(id -un).git"
+PR="$T/remotes/agent-fabric-secrets-$(id -un).git"
 echo "sk-ant-oat01-tttttttttttttttttttt" | P python3 "$ROOT/tools/fabric/secret_store.py" template-set work >/dev/null 2>&1
 printf '#!/bin/sh\nexit 1\n' > "$PR/hooks/pre-receive"; chmod +x "$PR/hooks/pre-receive"
 out="$(P python3 "$ROOT/tools/fabric/secret_store.py" assign work kid 2>&1)"; rc=$?
@@ -81,7 +93,16 @@ $out2"
 # none has an HTTPS credential helper for a private repository.
 out="$(env -u AGENT_FABRIC_SECRETS_REMOTE_BASE HOME="$T/parent" GNUPGHOME="$T/parent-gnupg" AGENT_FABRIC_ROOT="$FAB" \
       AGENT_FABRIC_HOSTS_REGISTRY="$T/hosts.json" AGENT_FABRIC_HOSTEXEC="$T/bin/hostexec" GH="$T/bin/gh" "$E" kid --dry-run 2>&1)"
-grep -q "store init --remote git@github.com:gzapi-org/secrets-kid.git" <<<"$out" && ok "the default remote is SSH, the scheme every account can push with" || bad "default remote" "$out"
+grep -q "store init --agent-id $KID --remote git@github.com:gzapi-org/agent-fabric-secrets-kid.git" <<<"$out" && ok "the default remote is SSH, the scheme every account can push with" || bad "default remote" "$out"
+
+# A rename: the lineage entry, key file, repository and mirror move; the id stays.
+out="$(P "$E" --rename kid kiddo 2>&1)"; rc=$?
+[[ $rc -eq 0 && "$(lid kiddo 2>/dev/null)" == "$KID" && -f "$FAB/identities/keys/kiddo.asc" && ! -e "$FAB/identities/keys/kid.asc" \
+   && -d "$T/remotes/agent-fabric-secrets-kiddo.git" && -d "$T/parent/.local/share/agent-fabric/children/kiddo/.git" ]] \
+  && [[ "$(git -C "$T/parent/.local/share/agent-fabric/children/kiddo" remote get-url origin)" == "$T/remotes/agent-fabric-secrets-kiddo.git" ]] \
+  && ok "--rename moves the entry, key file, repository and mirror, and keeps the agent id" || bad "rename (rc=$rc)" "$out"
+echo "x" | P python3 "$ROOT/tools/fabric/secret_store.py" put kiddo AFTER_RENAME >/dev/null 2>&1 && AGENT_FABRIC_ROOT="$FAB" python3 "$ROOT/tools/fabric/secret_store.py" verify >/dev/null 2>&1 \
+  && ok "…the renamed agent is written to and verifies" || bad "after rename"
 
 after="$(ls "$REAL_KEYS" 2>/dev/null | sort)"
 [[ "$before" == "$after" ]] && ok "the account's own keyring is left as it was found" || bad "real keyring changed"

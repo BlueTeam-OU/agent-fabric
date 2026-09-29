@@ -2,12 +2,18 @@
 """tools/fabric/secret_store.py — an agent's own encrypted secrets
 (agent-fabric ADR-038), behind `fabric-secrets store …`.
 
-    fabric-secrets store init [--remote URL]     in the account: its key and its store
+    fabric-secrets store init --agent-id ID [--remote URL]
+                                                 in the account: its key and its store
+    fabric-secrets store mint-id BORN            a new agent id, a UUIDv7 of that birth (ADR-039)
+    fabric-secrets store id                      this store's agent id
+    fabric-secrets store id-of LOGIN             the agent id lineage.json records for a login
+    fabric-secrets store rename OLD NEW          a login renamed: its lineage entry and key file;
+                                                 its id and key stay
     fabric-secrets store set NAME                the agent writes an entry (value on stdin)
     fabric-secrets store export-key              the agent's PUBLIC key, armored (for its parent)
     fabric-secrets store push                    the store to its remote
     fabric-secrets store names [--json]          the entries, by name
-    fabric-secrets store put LOGIN NAME [--store DIR]
+    fabric-secrets store put LOGIN|ID NAME [--store DIR]
                                                  the parent writes into a child's store
                                                  (value on stdin; the child's committed key)
     fabric-secrets store certify LOGIN KEYFILE | --root
@@ -67,6 +73,56 @@ class StoreError(Exception):
 
 def login() -> str:
     return pwd.getpwuid(os.getuid()).pw_name
+
+
+# ── the agent id (ADR-039): a UUIDv7 whose timestamp is the birth ─────
+AGENT_ID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")
+REPO_PREFIX = "agent-fabric-secrets-"
+
+
+def mint_agent_id(born_ms: int) -> str:
+    """Minted once and recorded, never recomputed: 74 of its bits are
+    random, so the same birth never gives the same id twice — a login
+    reused after its agent retired is a new agent (ADR-038 rule 6)."""
+    if not 0 <= born_ms < 1 << 48:
+        raise StoreError(f"{born_ms} is not a birth in milliseconds since 1970")
+    r = int.from_bytes(os.urandom(10), "big")
+    v = (born_ms << 80) | (0x7 << 76) | ((r >> 62) & 0xFFF) << 64 | (0b10 << 62) | (r & ((1 << 62) - 1))
+    h = f"{v:032x}"
+    return f"{h[:8]}-{h[8:12]}-{h[12:16]}-{h[16:20]}-{h[20:]}"
+
+
+def born_of(agent_id: str) -> str:
+    import datetime
+    ms = int(agent_id.replace("-", "")[:12], 16)
+    return datetime.datetime.fromtimestamp(ms / 1000, datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+
+
+def born_ms_of(stamp: str) -> int:
+    """A birth as `stat -c %w` prints it ("2026-01-14 21:27:33.247294044
+    +0100"), or ISO 8601, or "now"."""
+    import datetime
+    if stamp == "now":
+        return int(datetime.datetime.now(datetime.timezone.utc).timestamp() * 1000)
+    m = re.match(r"^(\d{4}-\d\d-\d\d)[ T](\d\d:\d\d:\d\d)(?:\.(\d+))?\s*(Z|[+-]\d\d:?\d\d)?$", stamp.strip())
+    if not m:
+        raise StoreError(f"{stamp!r} is not a birth time (the home's creation time is unknown here: name one)")
+    frac = (m.group(3) or "0")[:6].ljust(6, "0")
+    tz = (m.group(4) or "Z").replace("Z", "+00:00")
+    tz = tz if ":" in tz else tz[:3] + ":" + tz[3:]
+    t = datetime.datetime.fromisoformat(f"{m.group(1)}T{m.group(2)}.{frac}{tz}")
+    return int(t.timestamp() * 1000)
+
+
+def own_agent_id(store: str | None = None) -> str | None:
+    try:
+        with open(os.path.join(store or store_dir(), ".agent-id"), encoding="utf-8") as fh:
+            aid = fh.read().strip()
+    except FileNotFoundError:
+        return None
+    if not AGENT_ID_RE.match(aid):
+        raise StoreError(f"the store's .agent-id is not an agent id: {aid[:40]!r}")
+    return aid
 
 
 def home() -> str:
@@ -132,36 +188,51 @@ def key_of_store(store: str | None = None) -> str:
 
 
 # ── the agent, in its own account ─────────────────────────────────────
-def init(remote: str | None = None) -> dict:
+def uid_of(agent_id: str, name: str) -> str:
+    # The address is the id, which a rename keeps; the name part is the
+    # login at birth, a label only.
+    return f"{name} <{agent_id}@{UID_DOMAIN}>"
+
+
+def init(remote: str | None = None, agent_id: str | None = None) -> dict:
     """The agent's key (made here, with no passphrase: agents decrypt
-    unattended) and its store. Idempotent: an existing key or store is
-    kept, never replaced."""
+    unattended) and its store, under the agent id its parent minted.
+    Idempotent: an existing key, store or id is kept, never replaced; a
+    key made before ids existed gains the id's user id."""
     me, store = login(), store_dir()
-    uid = f"{me} <{me}@{UID_DOMAIN}>"
-    fpr = next(iter(fingerprints(secret=True, query=f"={uid}")), None)
+    held = own_agent_id(store) if os.path.isdir(store) else None
+    if held and agent_id and held != agent_id:
+        raise StoreError(f"this store is agent {held}; an agent id is never replaced")
+    aid = held or agent_id
+    if not aid or not AGENT_ID_RE.match(aid):
+        raise StoreError("no agent id: the parent mints it at enrolment (store-enroll.sh), and init takes --agent-id")
+    uid = uid_of(aid, me)
+    gpg_id = os.path.join(store, ".gpg-id")
+    fpr = key_of_store(store) if os.path.exists(gpg_id) else next(iter(fingerprints(secret=True, query=f"<{aid}@{UID_DOMAIN}>")), None)
     made = False
     if not fpr:
         gpg("--quick-gen-key", uid, "ed25519", "cert,sign", "never")
         fpr = fingerprints(secret=True, query=f"={uid}")[0]
         gpg("--quick-add-key", fpr, "cv25519", "encr", "never")
         made = True
+    elif fpr not in fingerprints(secret=True, query=f"<{aid}@{UID_DOMAIN}>"):
+        gpg("--quick-add-uid", fpr, uid)
     os.makedirs(os.path.join(store, "env"), mode=0o700, exist_ok=True)
     if not os.path.isdir(os.path.join(store, ".git")):
         git(store, "init", "-q", "-b", "main")
-    gpg_id = os.path.join(store, ".gpg-id")
-    if os.path.exists(gpg_id) and key_of_store(store) != fpr:
-        raise StoreError(f"{gpg_id} names another key; re-keying is a rotation, not an init")
     with open(gpg_id, "w", encoding="utf-8") as fh:
         fh.write(fpr + "\n")
-    git(store, "add", ".gpg-id")
+    with open(os.path.join(store, ".agent-id"), "w", encoding="utf-8") as fh:
+        fh.write(aid + "\n")
+    git(store, "add", ".gpg-id", ".agent-id")
     if git(store, "diff", "--cached", "--quiet", check=False).returncode:
-        _commit(store, f"agent {me}: the store is encrypted to {fpr}")
+        _commit(store, f"agent {me} ({aid}): the store is encrypted to {fpr}")
     if remote:
         if git(store, "remote", check=False).stdout.strip():
             git(store, "remote", "set-url", "origin", remote)
         else:
             git(store, "remote", "add", "origin", remote)
-    return {"login": me, "fingerprint": fpr, "key_made": made, "store": store}
+    return {"login": me, "agent_id": aid, "fingerprint": fpr, "key_made": made, "store": store}
 
 
 def export_key(fpr: str | None = None, homedir: str | None = None) -> str:
@@ -171,9 +242,14 @@ def export_key(fpr: str | None = None, homedir: str | None = None) -> str:
 def _git_env() -> dict:
     """The store's own identity for every commit it makes, a rebase's
     included: the writing login, whatever the account's git config says
-    (a new account may have none yet)."""
-    return {**os.environ, "GIT_AUTHOR_NAME": login(), "GIT_AUTHOR_EMAIL": f"{login()}@{UID_DOMAIN}",
-            "GIT_COMMITTER_NAME": login(), "GIT_COMMITTER_EMAIL": f"{login()}@{UID_DOMAIN}"}
+    (a new account may have none yet), addressed by its agent id once
+    it has one, as its key is."""
+    try:
+        addr = f"{own_agent_id() or login()}@{UID_DOMAIN}"
+    except StoreError:
+        addr = f"{login()}@{UID_DOMAIN}"
+    return {**os.environ, "GIT_AUTHOR_NAME": login(), "GIT_AUTHOR_EMAIL": addr,
+            "GIT_COMMITTER_NAME": login(), "GIT_COMMITTER_EMAIL": addr}
 
 
 def _commit(store: str, message: str) -> None:
@@ -372,13 +448,25 @@ def _key_file_fingerprint(path: str) -> str:
     return fprs[0]
 
 
+def resolve(who: str, doc: dict | None = None, fabric: str | None = None) -> tuple[str, dict]:
+    """An agent named by its login or by its agent id -> (login, record)."""
+    doc = lineage(fabric) if doc is None else doc
+    if AGENT_ID_RE.match(who):
+        hits = [(n, r) for n, r in doc.items() if isinstance(r, dict) and r.get("agent_id") == who]
+        if len(hits) != 1:
+            raise StoreError(f"agent {who} is not in identities/keys/lineage.json")
+        return hits[0]
+    if not LOGIN_RE.match(who) or not isinstance(doc.get(who), dict):
+        raise StoreError(f"{who!r}: no such agent in identities/keys/lineage.json")
+    return who, doc[who]
+
+
 def put(child: str, name: str, value: bytes, store: str | None = None, fabric: str | None = None,
         *, exact: bool = False) -> dict:
     """The parent writes an entry into a child's store: encrypted to the
     child's COMMITTED key (never imported), which must be the key the
     store says it is encrypted to. The parent cannot read what it wrote."""
-    if not LOGIN_RE.match(child):
-        raise StoreError(f"{child!r} is not a login")
+    child, rec = resolve(child, fabric=fabric)
     key_file = os.path.join(keys_dir(fabric), f"{child}.asc")
     if not os.path.exists(key_file):
         raise StoreError(f"no committed key for {child} ({key_file})")
@@ -396,80 +484,160 @@ def put(child: str, name: str, value: bytes, store: str | None = None, fabric: s
     if changed:
         _commit(store, f"parent {login()}: put {name}")
         _after_commit(store)
-    return {"child": child, "name": name, "changed": changed}
+    return {"child": child, "agent_id": rec.get("agent_id"), "name": name, "changed": changed}
+
+
+def _key_agent_ids(key_file: str) -> list[str]:
+    """The agent ids a key file's valid user ids are addressed to, read in
+    a throwaway keyring."""
+    with tempfile.TemporaryDirectory() as tmp:
+        os.chmod(tmp, 0o700)
+        try:
+            gpg("--import", key_file, homedir=tmp)
+            out = gpg("--with-colons", "--list-keys", homedir=tmp).stdout.decode()
+        finally:
+            _run(["gpgconf", "--homedir", tmp, "--kill", "all"], check=False)
+    ids = []
+    for l in out.splitlines():
+        f = l.split(":")
+        if f[0] == "uid" and f[1] not in ("r", "e", "i"):
+            m = re.search(r"<([0-9a-f-]{36})@" + re.escape(UID_DOMAIN) + ">", f[9])
+            if m and AGENT_ID_RE.match(m.group(1)):
+                ids.append(m.group(1))
+    return ids
 
 
 def certify(child: str | None, key_file: str | None, fabric: str | None = None) -> dict:
     """The parent attests a child's key with its own (the birth
-    certificate), and commits the certified public half and the lineage.
+    certificate), and commits the certified public half and the lineage
+    entry under the child's login, with the agent id its key carries.
     --root: the coordinator records its own key, with no parent."""
     me, doc = login(), lineage(fabric)
-    my_fpr = key_of_store()
+    my_fpr, my_id = key_of_store(), own_agent_id()
+    if not my_id:
+        raise StoreError("this store has no agent id yet: store-enroll.sh --self")
     kd = keys_dir(fabric)
     os.makedirs(kd, exist_ok=True)
+
+    def record(name: str, aid: str, fpr: str, parent: str | None) -> None:
+        for other, r in doc.items():
+            if other != name and isinstance(r, dict) and r.get("agent_id") == aid:
+                raise StoreError(f"agent {aid} is recorded as {other}: a rename is `store rename`")
+        held = doc.get(name)
+        if isinstance(held, dict) and held.get("agent_id") not in (None, aid):
+            raise StoreError(f"the login {name} is agent {held['agent_id']}; a login reused is a new agent "
+                             "only after the old one is retired")
+        doc[name] = {"agent_id": aid, "born": born_of(aid), "fingerprint": fpr, "parent": parent}
+        _write_lineage(doc, fabric)
+
     if child is None:
+        record(me, my_id, my_fpr, None)
         with open(os.path.join(kd, f"{me}.asc"), "w", encoding="utf-8") as fh:
             fh.write(export_key(my_fpr))
-        doc[me] = {"fingerprint": my_fpr, "parent": None}
-        _write_lineage(doc, fabric)
-        return {"login": me, "fingerprint": my_fpr, "parent": None}
+        return {"login": me, "agent_id": my_id, "fingerprint": my_fpr, "parent": None}
     if not LOGIN_RE.match(child) or child == me:
         raise StoreError(f"{child!r} is not another login")
     fpr = _key_file_fingerprint(key_file)
-    # The key's user id is not checked against the login: what makes the
-    # key the login's is this certification and the committed file under
-    # its name (ADR-038 §5 rule 2), and a test cannot make a second Unix
-    # user to name one — a hook that set the login would be the very thing
-    # the identity invariant forbids.
+    ids = _key_agent_ids(key_file)
+    if len(ids) != 1:
+        raise StoreError(f"the child's key carries {len(ids)} agent ids, not one: it was not made by `store init --agent-id`")
+    aid = ids[0]
+    # The key's name part is not checked against the login: what makes the
+    # key the agent's is this certification and the id it carries (ADR-038
+    # §5 rule 2, ADR-039), and a test cannot make a second Unix user to
+    # name one.
     gpg("--import", key_file)
     gpg("--default-key", my_fpr, "--quick-sign-key", fpr)
+    record(child, aid, fpr, my_id)
     with open(os.path.join(kd, f"{child}.asc"), "w", encoding="utf-8") as fh:
         fh.write(export_key(fpr))
-    doc[child] = {"fingerprint": fpr, "parent": me}
+    return {"login": child, "agent_id": aid, "fingerprint": fpr, "parent": my_id}
+
+
+def rename(old: str, new: str, fabric: str | None = None) -> dict:
+    """A login renamed, as the fabric records it: the lineage entry and
+    the committed key file move to the new name; the id and the key stay
+    (ADR-039). The repository and the parent's mirror are renamed by
+    store-enroll.sh --rename, which holds the GitHub side."""
+    doc = lineage(fabric)
+    old, rec = resolve(old, doc)
+    if not LOGIN_RE.match(new):
+        raise StoreError(f"{new!r} is not a login")
+    if new in doc:
+        raise StoreError(f"the login {new} is already an agent's")
+    doc[new] = doc.pop(old)
+    kd = keys_dir(fabric)
+    os.replace(os.path.join(kd, f"{old}.asc"), os.path.join(kd, f"{new}.asc"))
     _write_lineage(doc, fabric)
-    return {"login": child, "fingerprint": fpr, "parent": me}
+    return {"agent_id": rec.get("agent_id"), "from": old, "login": new}
 
 
 def verify(fabric: str | None = None) -> list[str]:
     """Every committed key against lineage.json, each on its own:
-    - lineage: exactly one root (parent null), nobody its own parent,
-      and every chain reaching that root without a cycle;
-    - `<login>.asc` holds exactly one primary key, the recorded one;
-    - a child's key carries a valid certification by its PARENT's
-      recorded key, read in a keyring holding only the child's file and
-      the parent's, so a certification found in another file, or a
-      swapped or doubled file, never passes.
+    - lineage: keyed by login, each entry with an agent id (a UUIDv7) no
+      other entry has, a birth equal to its id's, and a parent named by
+      agent id; exactly one root (parent null), nobody its own parent,
+      every chain reaching that root;
+    - `<login>.asc` holds exactly one primary key, the recorded one, with
+      a valid user id addressed to the agent's id;
+    - a child's key carries a valid certification of that user id by its
+      PARENT's recorded key, read in a keyring holding only the child's
+      file and the parent's, so a certification found in another file, or
+      a swapped or doubled file, never passes.
     Findings, one line each; [] is clean."""
     doc, kd, findings = lineage(fabric), keys_dir(fabric), []
+    where = "identities/keys/lineage.json"
     if not os.path.isdir(kd):
         return []
     if not isinstance(doc, dict):
-        return ["identities/keys/lineage.json: not an object of login -> {fingerprint, parent}"]
+        return [f"{where}: not an object of login -> {{agent_id, born, fingerprint, parent}}"]
     for who in [w for w, r in doc.items() if not isinstance(r, dict)]:
-        findings.append(f"identities/keys/lineage.json: the entry for {who} is not an object")
+        findings.append(f"{where}: the entry for {who} is not an object")
         del doc[who]
+    for who in [w for w in doc if not LOGIN_RE.match(w)]:
+        findings.append(f"{where}: {who} is not a login")
+        del doc[who]
+    by_id: dict[str, str] = {}
+    for who, rec in sorted(doc.items()):
+        aid = rec.get("agent_id")
+        if not isinstance(aid, str) or not AGENT_ID_RE.match(aid):
+            findings.append(f"{where}: {who} has no agent id (a UUIDv7, ADR-039)")
+            continue
+        if aid in by_id:
+            findings.append(f"{where}: {who} and {by_id[aid]} both have the agent id {aid}")
+        by_id.setdefault(aid, who)
+        if rec.get("born") not in (None, born_of(aid)):
+            findings.append(f"{where}: {who}'s born is not its id's time ({born_of(aid)})")
     files = {f[:-4] for f in os.listdir(kd) if f.endswith(".asc")}
     for extra in sorted(files - set(doc)):
         findings.append(f"identities/keys/{extra}.asc: no lineage.json entry")
-    roots = sorted(w for w, r in doc.items() if (r or {}).get("parent") is None)
+    roots = sorted(w for w, r in doc.items() if r.get("parent") is None)
     if doc and len(roots) != 1:
-        findings.append(f"identities/keys/lineage.json: {len(roots)} roots ({', '.join(roots) or 'none'}); "
+        findings.append(f"{where}: {len(roots)} roots ({', '.join(roots) or 'none'}); "
                         "the chain has exactly one, the coordinator's key")
+    parent_of = lambda w: by_id.get((doc.get(w) or {}).get("parent") or "")
     for who, rec in sorted(doc.items()):
-        parent = (rec or {}).get("parent")
-        if parent == who:
-            findings.append(f"identities/keys/lineage.json: {who} is its own parent")
+        pid = rec.get("parent")
+        if pid is None:
             continue
-        seen, at = {who}, parent
+        if pid not in by_id:
+            findings.append(f"{where}: {who}'s parent {pid} is no recorded agent; the chain must reach the root")
+            continue
+        if by_id[pid] == who:
+            findings.append(f"{where}: {who} is its own parent")
+            continue
+        seen, at = {who}, by_id[pid]
         while at is not None:
-            if at in seen or at not in doc:
-                findings.append(f"identities/keys/lineage.json: {who}'s chain "
-                                + ("loops" if at in seen else f"names {at}, who has no entry") + "; it must reach the root")
+            if at in seen:
+                findings.append(f"{where}: {who}'s chain loops; it must reach the root")
                 break
             seen.add(at)
-            at = (doc.get(at) or {}).get("parent")
+            nxt = (doc.get(at) or {}).get("parent")
+            if nxt is not None and nxt not in by_id:
+                break   # said above, for the entry that names it
+            at = parent_of(at)
 
-    def keyring_check(who: str, fpr: str, parent: str | None) -> None:
+    def keyring_check(who: str, fpr: str, aid: str | None, parent: str | None) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             os.chmod(tmp, 0o700)
             try:
@@ -479,30 +647,47 @@ def verify(fabric: str | None = None) -> list[str]:
                     findings.append(f"identities/keys/{who}.asc: holds {len(held)} key(s), "
                                     f"{'not the recorded ' + fpr if fpr not in held else 'not only the recorded one'}")
                     return
-                if parent is None:
+                pfpr = None
+                if parent is not None:
+                    pfpr = (doc.get(parent) or {}).get("fingerprint")
+                    if not pfpr or parent not in files:
+                        findings.append(f"identities/keys/{who}.asc: parent {parent} has no recorded, committed key")
+                        return
+                    gpg("--import", os.path.join(kd, f"{parent}.asc"), homedir=tmp, check=False)
+                    if pfpr not in fingerprints(homedir=tmp):
+                        findings.append(f"identities/keys/{parent}.asc: does not hold its recorded key")
+                        return
+                if not aid:
                     return
-                pfpr = (doc.get(parent) or {}).get("fingerprint")
-                if not pfpr or parent not in files:
-                    findings.append(f"identities/keys/{who}.asc: parent {parent} has no recorded, committed key")
-                    return
-                gpg("--import", os.path.join(kd, f"{parent}.asc"), homedir=tmp, check=False)
-                if pfpr not in fingerprints(homedir=tmp):
-                    findings.append(f"identities/keys/{parent}.asc: does not hold its recorded key")
-                    return
+                addr = f"<{aid}@{UID_DOMAIN}>"
+                # Per user id: its validity, and the signatures made on it.
                 r = gpg("--with-colons", "--check-sigs", fpr, homedir=tmp, check=False)
-                good = any(l.startswith("sig:!:") and l.split(":")[4] == pfpr[-16:] for l in r.stdout.decode().splitlines())
-                if not good:
+                on_id, has_id, certified = False, False, False
+                for l in r.stdout.decode().splitlines():
+                    f = l.split(":")
+                    if f[0] == "uid":
+                        on_id = f[1] not in ("r", "e", "i") and addr in f[9]
+                        has_id |= on_id
+                    elif f[0] in ("sub", "pub"):
+                        on_id = False
+                    elif f[0] == "sig" and on_id and pfpr and f[1] == "!" and f[4] == pfpr[-16:]:
+                        certified = True
+                if not has_id:
+                    findings.append(f"identities/keys/{who}.asc: no valid user id addressed to its agent id {aid}")
+                elif parent is not None and not certified:
                     findings.append(f"identities/keys/{who}.asc: not certified by its parent {parent}'s key")
             finally:
                 _run(["gpgconf", "--homedir", tmp, "--kill", "all"], check=False)
 
     for who, rec in sorted(doc.items()):
         if who not in files:
-            findings.append(f"identities/keys/lineage.json: {who} has no committed key")
+            findings.append(f"{where}: {who} has no committed key")
             continue
-        if (rec or {}).get("parent") == who:
+        parent = parent_of(who)
+        if parent == who:
             continue
-        keyring_check(who, (rec or {}).get("fingerprint"), (rec or {}).get("parent"))
+        aid = rec.get("agent_id") if AGENT_ID_RE.match(str(rec.get("agent_id"))) else None
+        keyring_check(who, rec.get("fingerprint"), aid, parent)
     return findings
 
 
@@ -589,9 +774,9 @@ def _sheet_text() -> str:
             revocation = fh.read()
     except OSError:
         revocation = "(no revocation certificate found; make one: gpg --gen-revoke " + fpr + ")\n"
-    return (f"agent-fabric — the key of {login()}\nfingerprint {fpr}\n\n"
-            "Restore: paperkey --pubring <the committed identities/keys/"
-            f"{login()}.asc> --secrets <this sheet> | gpg --import\n\n{sheet}\n{revocation}")
+    return (f"agent-fabric — the key of {login()}, agent {own_agent_id() or '(no id yet)'}\nfingerprint {fpr}\n\n"
+            "Restore: paperkey --pubring <the committed identities/keys/<login>.asc, the login lineage.json "
+            f"records for this agent id now> --secrets <this sheet> | gpg --import\n\n{sheet}\n{revocation}")
 
 
 def paper(out: str | None = None) -> None:
@@ -767,6 +952,9 @@ def recovery_copy(force: bool = False) -> dict:
     store = store_dir()
     key_of_store(store)
     _before_write(store)
+    aid = own_agent_id(store)
+    if not aid:
+        raise StoreError("this store has no agent id yet (store-enroll.sh)")
     path = os.path.join(store, "recovery", f"{login()}.key.gpg")
     note = os.path.join(store, "recovery", f"{login()}.recipient")
     if os.path.exists(path) and not force and open(note, encoding="utf-8").read().strip() == rfpr:
@@ -809,9 +997,10 @@ def backup() -> dict:
     with tempfile.TemporaryDirectory() as tmp:
         for who, d in _stores().items():
             _before_write(d)
-            bundle = os.path.join(tmp, f"secrets-{who}.bundle")
+            bundle = os.path.join(tmp, f"{REPO_PREFIX}{who}.bundle")
             git(d, "bundle", "create", bundle, "--all")
             manifest["stores"][who] = {"bundle": os.path.basename(bundle), "sha256": _sha256_file(bundle),
+                                       "agent_id": own_agent_id(d),
                                        "head": git(d, "rev-parse", "HEAD").stdout.decode().strip()}
             # Each store's recovery copy, already encrypted to the owner's
             # recovery key, also stands alone in keys/ for a restore.
@@ -852,6 +1041,7 @@ def main(argv: list[str] | None = None) -> int:
     sub = ap.add_subparsers(dest="cmd", required=True)
     i = sub.add_parser("init")
     i.add_argument("--remote")
+    i.add_argument("--agent-id", help="the id the parent minted at enrolment (store-enroll.sh)")
     s = sub.add_parser("set")
     s.add_argument("name")
     n = sub.add_parser("names")
@@ -860,6 +1050,14 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("login")
     p.add_argument("name")
     p.add_argument("--store")
+    mi = sub.add_parser("mint-id", help="a new agent id whose time is the birth given")
+    mi.add_argument("born", help='the birth: "now", ISO 8601, or as `stat -c %%w` prints it')
+    sub.add_parser("id", help="this store's agent id")
+    io = sub.add_parser("id-of", help="the agent id lineage.json records for a login")
+    io.add_argument("login")
+    rn = sub.add_parser("rename", help="a login renamed: its lineage entry and key file; the id and key stay")
+    rn.add_argument("old")
+    rn.add_argument("new")
     c = sub.add_parser("certify")
     c.add_argument("login", nargs="?")
     c.add_argument("key_file", nargs="?")
@@ -889,8 +1087,20 @@ def main(argv: list[str] | None = None) -> int:
     args = ap.parse_args(argv)
     try:
         if args.cmd == "init":
-            r = init(args.remote)
-            print(f"store: {r['store']}  key: {r['fingerprint']}{' (made)' if r['key_made'] else ''}")
+            r = init(args.remote, args.agent_id)
+            print(f"store: {r['store']}  agent: {r['agent_id']}  key: {r['fingerprint']}{' (made)' if r['key_made'] else ''}")
+        elif args.cmd == "mint-id":
+            print(mint_agent_id(born_ms_of(args.born)))
+        elif args.cmd == "id":
+            aid = own_agent_id()
+            if not aid:
+                raise StoreError("this store has no agent id yet")
+            print(aid)
+        elif args.cmd == "id-of":
+            print(resolve(args.login)[1].get("agent_id") or "")
+        elif args.cmd == "rename":
+            r = rename(args.old, args.new)
+            print(f"agent {r['agent_id']}: now {r['login']}")
         elif args.cmd == "set":
             r = set_entry(args.name, sys.stdin.buffer.read())
             print(f"{args.name}: {'set' if r['changed'] else 'unchanged'}")
@@ -906,7 +1116,7 @@ def main(argv: list[str] | None = None) -> int:
             if args.login and not args.key_file:
                 raise StoreError("certify LOGIN needs the child's exported public key file")
             r = certify(None if args.root else args.login, args.key_file)
-            print(f"{r['login']}: {r['fingerprint']}, parent {r['parent'] or '(root)'}")
+            print(f"{r['login']} ({r['agent_id']}): {r['fingerprint']}, parent {r['parent'] or '(root)'}")
         elif args.cmd == "export-key":
             sys.stdout.write(export_key())
         elif args.cmd == "push":
