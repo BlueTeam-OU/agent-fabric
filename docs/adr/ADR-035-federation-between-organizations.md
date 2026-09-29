@@ -1,7 +1,8 @@
 # ADR-035 — Federation between organizations: expertise transfers, confidential information does not; portable trust first
 
 **Date:** 2026-09-27
-**Status:** Proposed
+**Status:** Accepted
+**Ratified:** owner, 2026-09-29, "Accept", answering fabric-coordinator's question closing the Proposed records; carried by the pull request that marks them Accepted
 **Decision Makers:** the owner; drafted by fabric-coordinator
 **Scope:** how agent-fabric would let one organization work with another: what may cross the boundary, what never does, and the trust that must exist first; no tool, file or practice is changed by this record
 **Pillar:** P6
@@ -48,7 +49,7 @@ boundary of one installation:
 
 ## 2. Decision
 
-Proposed: **federation is built trust-first, and expertise is what
+**Federation is built trust-first, and expertise is what
 crosses.**
 
 - **What crosses the boundary** is expertise and results: field
@@ -99,8 +100,6 @@ down to add them.
 
 ## 5. Binding Rules
 
-Proposed — none binds until the owner accepts this record.
-
 1. Nothing a managed project keeps — code, `.agent-fabric/`, issues,
    channel traffic — leaves that project's access and licence through a
    federation mechanism. An agent's private memory and any credential
@@ -145,11 +144,7 @@ then an exchange of expertise or results with a real second organization.
 
 ## 8. Decision Status
 
-Proposed. It waits on the owner's acceptance of the boundary (§5 rules
-1–3) and the trust-first order (§5 rule 4), individually (ADR-001 §5
-rule 2: arming the pull request that carries it does not ratify a new
-direction unless the description says so and the owner arms it on that
-basis). Until then it binds nothing and nothing is built for it.
+Accepted and in force.
 
 ## References
 

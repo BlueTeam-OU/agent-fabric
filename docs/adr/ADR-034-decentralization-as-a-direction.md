@@ -1,7 +1,8 @@
 # ADR-034 — Decentralization as a direction: a failure may reduce capacity, never take identity, knowledge or continuity
 
 **Date:** 2026-09-27
-**Status:** Proposed
+**Status:** Accepted
+**Ratified:** owner, 2026-09-29, "Accept", answering fabric-coordinator's question closing the Proposed records; carried by the pull request that marks them Accepted
 **Decision Makers:** the owner; drafted by fabric-coordinator
 **Scope:** the criterion by which the fabric decides what to decentralize, and the inventory of what depends on one host, one relay, one key or one service today; no tool, file or practice is changed by this record
 **Pillar:** P5
@@ -41,7 +42,7 @@ What depends on one thing today, read from the tree:
 
 ## 2. Decision
 
-Proposed: **decentralize only where a failure would otherwise take
+**Decentralize only where a failure would otherwise take
 identity, knowledge or the ability to go on working — and measure every
 piece against that criterion, not against a topology.** Reduced capacity
 is acceptable; loss is not. A component that is central but whose
@@ -83,8 +84,6 @@ record would make the channel less durable, not more.
 
 ## 5. Binding Rules
 
-Proposed — none binds until the owner accepts this record.
-
 1. The §1 inventory is kept current: a change that adds, removes or moves
    a dependency an operation relies on amends this record's table in the
    same pull request.
@@ -108,7 +107,7 @@ Proposed — none binds until the owner accepts this record.
 - Two rows lose data today on a loss of the host: the relay's database
   and every agent's undrained memory. Nothing backs up the first; the
   second is copied only when a coordinator runs a drain.
-- If accepted, the degraded modes listed today are unverified by this
+- The degraded modes listed today are unverified by this
   rule until each has its live check; the human relay's was exercised in
   practice before the relay existed, not as a drill.
 
@@ -130,11 +129,7 @@ ADR-029 §7 and ADR-033 §7.
 
 ## 8. Decision Status
 
-Proposed. It waits on the owner's acceptance of the criterion and the
-inventory rule, individually (ADR-001 §5 rule 2: arming the pull request
-that carries it does not ratify a new direction unless the description
-says so and the owner arms it on that basis). Until then it binds nothing
-and nothing is built for it.
+Accepted and in force.
 
 ## References
 

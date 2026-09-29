@@ -1,7 +1,8 @@
 # ADR-026 — Progress is measured as supervision per verified result
 
 **Date:** 2026-09-27
-**Status:** Proposed
+**Status:** Accepted
+**Ratified:** owner, 2026-09-29, "Accept", answering fabric-coordinator's question closing the Proposed records; carried by the pull request that marks them Accepted
 **Decision Makers:** the owner; drafted by fabric-coordinator
 **Scope:** how the fabric would measure its progress under pillar P3: the definitions of a verified result and of a supervision event, the artifacts they are read from, and how the number may and may not be used; no tool, file or practice is changed by this record
 **Pillar:** P3
@@ -27,7 +28,7 @@ existing.
 
 ## 2. Decision
 
-Proposed: the fabric's progress under P3 is read as **supervision per
+The fabric's progress under P3 is read as **supervision per
 verified result** — the number of supervision events attributable to a
 period's verified results, divided by the number of those results —
 tracked as a trend over time, per repository and in total, and never set
@@ -84,8 +85,6 @@ agents' private context.
 
 ## 5. Binding Rules
 
-Proposed — none binds until the owner accepts this record.
-
 1. The measure is supervision events per verified result, per period (a
    week proposed), per repository and in total, published with its
    numerator, its denominator and the verified-result rate (verified
@@ -107,7 +106,7 @@ Proposed — none binds until the owner accepts this record.
 
 ## 6. Consequences
 
-- If accepted, a counter is owed: nothing reads these artifacts today.
+- A counter is owed: nothing reads these artifacts today.
   `runtime/github/commit-class.sh` already separates review fixes from
   work; `pr-review-status.sh` already says whether a head was reviewed;
   drain reports already record `collision_decisions`. The relay's
@@ -129,11 +128,7 @@ rule that says what the owner need not see turns an ask into a check.
 
 ## 8. Decision Status
 
-Proposed. It waits on the owner's acceptance of the measure
-and its two definitions, individually (ADR-001 §5 rule 2: arming the
-pull request that carries it does not ratify a new direction unless the
-description says so and the owner arms it on that basis). Until then it
-binds nothing and nothing is built for it.
+Accepted and in force.
 
 ## References
 

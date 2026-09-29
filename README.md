@@ -84,8 +84,7 @@ A further agent on the host is one command for a coordinator:
 
 A role never changes inside a session: a different role is a rebind and
 a relaunch. What may cross to another organization, and what never does,
-is [ADR-035](docs/adr/ADR-035-federation-between-organizations.md)
-(proposed).
+is [ADR-035](docs/adr/ADR-035-federation-between-organizations.md).
 
 ## Decisions
 

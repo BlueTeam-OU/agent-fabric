@@ -511,9 +511,9 @@ its record disagree, the record wins. Look it up, never read it whole:
 - Keywords: in flight, branch, no PR, overlap, shared paths, trial merge,
   combine, conflict, worktree, trial-check, dependency.
 
-### ADR-026 — Progress is measured as supervision per verified result (Proposed)
+### ADR-026 — Progress is measured as supervision per verified result (Accepted)
 
-- Proposed, not binding: P3's progress read as owner supervision events
+- P3's progress read as owner supervision events
   per verified result, as a trend beside the verified-result rate, never
   a target (§2, §5 rules 1, 4).
 - A verified result: a merged PR, reviewed and green at its head, not
@@ -681,9 +681,9 @@ its record disagree, the record wins. Look it up, never read it whole:
   gzcoord-relay, human relay, fallback, Telegram, adapter contract,
   channel, gzapp:gzcoord, bridge token, central, single point of failure.
 
-### ADR-034 — Decentralization as a direction: a failure may reduce capacity, never take identity, knowledge or continuity (Proposed)
+### ADR-034 — Decentralization as a direction: a failure may reduce capacity, never take identity, knowledge or continuity (Accepted)
 
-- Proposed, not binding: decentralize only where a failure would take
+- Decentralize only where a failure would take
   identity, knowledge or the ability to go on working; reduced capacity
   is acceptable (§2).
 - §1 inventories what depends on one thing today — one host, one relay
@@ -698,9 +698,9 @@ its record disagree, the record wins. Look it up, never read it whole:
 - Keywords: decentralization, resilience, single point of failure,
   degraded mode, relay, host, crash, backup, autonomy, P5, proposed.
 
-### ADR-035 — Federation between organizations: expertise transfers, confidential information does not; portable trust first (Proposed)
+### ADR-035 — Federation between organizations: expertise transfers, confidential information does not; portable trust first (Accepted)
 
-- Proposed, not binding: what crosses between organizations is expertise
+- What crosses between organizations is expertise
   and results; a project's code and knowledge, private memory,
   credentials and channel traffic never do (§2, §5 rules 1–2).
 - No shared credential; no exchange before identity, action and
@@ -717,9 +717,9 @@ its record disagree, the record wins. Look it up, never read it whole:
 - Keywords: federation, organization, portable trust, identity,
   signature, provenance, confidential, licence, expertise, P6, proposed.
 
-### ADR-036 — Sustainable operation: shared resources, and cost per verified result beside supervision per verified result (Proposed)
+### ADR-036 — Sustainable operation: shared resources, and cost per verified result beside supervision per verified result (Accepted)
 
-- Proposed, not binding: cost per verified result — spend attributable to
+- Cost per verified result — spend attributable to
   a period's verified results over their number, ADR-026's denominator —
   read as a trend beside supervision per verified result, never a target
   or per agent (§2, §5 rules 1–2, 4).
@@ -736,7 +736,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - Keywords: sustainable, cost, spend, tokens, usage windows, budget,
   lease, verified result, capability per spend, P7, proposed.
 
-### ADR-037 — Each agent keeps a job list (Proposed)
+### ADR-037 — Each agent keeps a job list (Accepted)
 
 - One list per login, `agents/<login>/jobs.json`, written only through
   `runtime/identity.py`; states queued, active (one at a time), blocked,
@@ -774,7 +774,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - Keywords: secrets, key, GPG, pass, QtPass, browserpass, paperkey, Proton Drive, backup,
   identity, lineage, parent, custody, recovery, Doppler, migration,
   placement, P1.
-### ADR-039 — The agent id is a UUIDv7 minted at birth (Proposed)
+### ADR-039 — The agent id is a UUIDv7 minted at birth (Accepted)
 
 - Each agent has an id, a UUIDv7 whose time is its birth: an existing
   account's home creation time, a new one's enrolment. It is minted once

@@ -239,7 +239,7 @@
       "number": "026",
       "file": "ADR-026-supervision-per-verified-result.md",
       "title": "Progress is measured as supervision per verified result",
-      "status": "Proposed",
+      "status": "Accepted",
       "date": "2026-09-27",
       "pillar": "P3",
       "amendments": 0
@@ -311,7 +311,7 @@
       "number": "034",
       "file": "ADR-034-decentralization-as-a-direction.md",
       "title": "Decentralization as a direction: a failure may reduce capacity, never take identity, knowledge or continuity",
-      "status": "Proposed",
+      "status": "Accepted",
       "date": "2026-09-27",
       "pillar": "P5",
       "amendments": 0
@@ -320,7 +320,7 @@
       "number": "035",
       "file": "ADR-035-federation-between-organizations.md",
       "title": "Federation between organizations: expertise transfers, confidential information does not; portable trust first",
-      "status": "Proposed",
+      "status": "Accepted",
       "date": "2026-09-27",
       "pillar": "P6",
       "amendments": 0
@@ -329,7 +329,7 @@
       "number": "036",
       "file": "ADR-036-sustainable-operation-cost-per-verified-result.md",
       "title": "Sustainable operation: shared resources, and cost per verified result beside supervision per verified result",
-      "status": "Proposed",
+      "status": "Accepted",
       "date": "2026-09-27",
       "pillar": "P7",
       "amendments": 0
@@ -338,7 +338,7 @@
       "number": "037",
       "file": "ADR-037-each-agent-keeps-a-job-list.md",
       "title": "Each agent keeps a job list",
-      "status": "Proposed",
+      "status": "Accepted",
       "date": "2026-09-28",
       "pillar": "P3",
       "amendments": 0
@@ -356,7 +356,7 @@
       "number": "039",
       "file": "ADR-039-agent-id-is-a-uuidv7-minted-at-birth.md",
       "title": "The agent id is a UUIDv7 minted at birth",
-      "status": "Proposed",
+      "status": "Accepted",
       "date": "2026-09-29",
       "pillar": "P1",
       "amendments": 0
