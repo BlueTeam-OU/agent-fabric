@@ -817,7 +817,7 @@ if [[ "$ROLE" == language-culture && -f "$LOCALE_SEARCH" ]]; then CMD+=(--disall
 # twice, 2026-09-29. The exact Monitor call is the session-start hook's
 # NO INBOX WATCH line, which is context, never argv, and which it gives
 # exactly when no watch runs; hooks/self-kill-guard.py refuses the kill.
-OPENING="Session start: arm your GZCoord inbox watch now, exactly as the session-start context's NO INBOX WATCH line gives it; re-arm it at each expiry notice. Then wait for instructions."
+OPENING="Session start: arm your GZCoord inbox watch now, exactly as the session-start context's NO INBOX WATCH line gives it (with no such line, as the gzcoord-receive skill says); re-arm it at each expiry notice. Then wait for instructions."
 # A session that ended its own job (bin/fabric-fresh) left a note for this
 # one: said in the opening prompt, then dropped from the environment.
 if [[ -n "${AGENT_FABRIC_FRESH_NOTE+x}" ]]; then

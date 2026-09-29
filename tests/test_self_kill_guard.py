@@ -6,7 +6,9 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
+import tempfile
 import sys
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -40,6 +42,9 @@ def main() -> int:
         ("kill $(pgrep -f …)", "kill $(pgrep -f 'inbox --follow')"),
         ("a pattern matching the model argument", "pkill -f 'claude-fable'"),
         ("killall -r", "killall -r 'claude'"),
+        ("a kill behind timeout", "timeout 5 pkill -f 'gzcoord-inbox --follow'"),
+        ("a kill behind sudo and env", "sudo env A=1 pkill -f 'claude-fable'"),
+        ("xargs pkill", "echo x | xargs pkill -f 'gzcoord-inbox'"),
     ]
     for label, cmd in refused:
         check(f"refused: {label}", g.verdict(cmd, CLAUDE) is not None, g.kill_patterns(cmd))
@@ -56,11 +61,23 @@ def main() -> int:
     ]
     for label, cmd in allowed:
         check(f"allowed: {label}", g.verdict(cmd, CLAUDE) is None, g.kill_patterns(cmd))
-    fixed = CLAUDE.split(" -- ")[0] + " -- Session start: arm your GZCoord inbox watch now, as the session-start context's NO INBOX WATCH line gives it."
+    launch = open(os.path.join(HERE, "runtime", "openrouter", "launch"), encoding="utf-8").read()
+    opening = re.search(r'^OPENING="([^"]*)"', launch, re.M).group(1)
+    fixed = CLAUDE.split(" -- ")[0] + " -- " + opening   # the launcher's own text, not a copy
     check("the launcher's new prompt: the old kill no longer matches the session",
           g.verdict("pgrep -f 'gzcoord-inbox --follow' | xargs kill", fixed) is None)
     check("no claude ancestor (outside a session): nothing refused", g.verdict("pkill -f claude", None) is None)
 
+    # The ancestor walk, on a planted /proc: hook (30) -> bash (20) -> claude (10).
+    with tempfile.TemporaryDirectory() as proc:
+        for pid, comm, ppid, cmd in ((30, "python3", 20, "python3 hook"), (20, "bash", 10, "bash -c x"), (10, "claude", 5, CLAUDE)):
+            os.makedirs(os.path.join(proc, str(pid)))
+            open(os.path.join(proc, str(pid), "stat"), "w").write(f"{pid} ({comm}) S {ppid} 0 0\n")
+            open(os.path.join(proc, str(pid), "cmdline"), "wb").write(cmd.replace(" ", "\0").encode())
+        found = g.own_claude_cmdline(proc=proc, pid=30)
+        check("the walk finds the nearest claude ancestor's command line", found == CLAUDE, found)
+        open(os.path.join(proc, "10", "stat"), "w").write("10 (node) S 5 0 0\n")
+        check("…and none when no ancestor is claude", g.own_claude_cmdline(proc=proc, pid=30) is None)
     r = subprocess.run([sys.executable, HOOK], input=json.dumps({"tool_input": {"command": "git status"}}),
                        capture_output=True, text=True)
     check("the hook: a harmless command prints nothing and exits 0", r.returncode == 0 and not r.stdout.strip(), r.stdout)

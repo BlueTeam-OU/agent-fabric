@@ -199,6 +199,9 @@ set_pr "$OTHER/i18n/ge-team" "identities/roles/language-culture/locale/ge/sub/x.
 [[ "$RUN_RC" -eq 2 ]] && ! posted && pass "a path nested below a locale directory refuses" || fail "posted on a nested path" "rc=$RUN_RC"
 set_pr "$OTHER/i18n/ge-team"; invoke "no" 552
 [[ "$RUN_RC" -eq 2 ]] && ! posted && pass "an unreadable file list refuses" || fail "posted with no file list" "rc=$RUN_RC"
+many=(); for i in $(seq 1 100); do many+=("identities/roles/language-culture/locale/ge/f$i.md"); done
+set_pr "$OTHER/i18n/ge-team" "${many[@]}"; invoke "no" 552
+[[ "$RUN_RC" -eq 2 ]] && ! posted && pass "gh's 100-file cap reached: the list may be cut, so it refuses" || fail "posted on a PR at gh's file cap" "rc=$RUN_RC"
 FAKE_ROLE=devex-tooling
 set_pr "$OTHER/i18n/ge-team" "$LOC"; invoke "no" 552
 [[ "$RUN_RC" -eq 2 ]] && ! posted && pass "another role refuses, even on a locale-only PR" || fail "a non-coordinator posted" "rc=$RUN_RC"
