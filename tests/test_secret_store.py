@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -358,6 +359,70 @@ def main() -> int:
             check("a lineage entry that is not an object is a finding, not a traceback",
                   r.returncode == 1 and "kid is not an object" in r.stdout and "Traceback" not in r.stderr, r.stdout + r.stderr)
             restore()
+
+            # Proton Drive (ADR-038 §7): the stores as bundles with a
+            # manifest, the key's recovery copy; a fake CLI keeps uploads in
+            # a scratch tree mirroring the Drive paths.
+            drive = os.path.join(tmp, "drive")
+            os.makedirs(os.path.join(drive, "my-files"))
+            fake = os.path.join(tmp, "fake-proton-drive")
+            with open(fake, "w") as fh:
+                fh.write("""#!/usr/bin/env python3
+import os, shutil, sys
+D = %r
+a = [x for x in sys.argv[1:] if x not in ("-t",)]
+cmd = a[:2]; rest = a[2:]
+loc = lambda p: os.path.join(D, p.lstrip("/"))
+open(os.path.join(D, "..", "proton.env"), "a").write(os.environ.get("PROTON_DRIVE_CREDENTIALS_STORE", "") + "\\n")
+if cmd == ["filesystem", "list"]:
+    rest = [x for x in rest if x != "folder"]
+    if not os.path.isdir(loc(rest[0])): sys.exit(1)
+    for n in sorted(os.listdir(loc(rest[0]))):
+        if os.path.isdir(os.path.join(loc(rest[0]), n)): print(rest[0].rstrip("/") + "/" + n)
+elif cmd == ["filesystem", "create-folder"]:
+    os.makedirs(os.path.join(loc(rest[0]), rest[1]))
+elif cmd == ["filesystem", "upload"]:
+    rest = [x for x in rest if x not in ("-f", "create-new-revision")]
+    shutil.copy(rest[0], os.path.join(loc(rest[1]), os.path.basename(rest[0])))
+elif cmd == ["filesystem", "download"]:
+    rest = [x for x in rest if x not in ("-f", "replace")]
+    shutil.copy(loc(rest[0]), os.path.join(rest[1], os.path.basename(rest[0])))
+else:
+    sys.exit(9)
+""" % drive)
+            os.chmod(fake, 0o755)
+            penv = {**parent, "PROTON_DRIVE_BIN": fake}
+            p = run(penv, "backup")
+            up = os.path.join(drive, "my-files", "agent-fabric", "secrets")
+            files = sorted(os.listdir(up)) if os.path.isdir(up) else []
+            check("backup uploads a bundle of its own store and of each child mirror, and a manifest",
+                  p.returncode == 0 and "manifest.json" in files and "secrets-kid.bundle" in files
+                  and len([f for f in files if f.endswith(".bundle")]) == 2, p.stdout + p.stderr + repr(files))
+            man = json.load(open(os.path.join(up, "manifest.json"))) if "manifest.json" in files else {}
+            check("…the manifest names each bundle's sha256 and head", set(man.get("stores", {})) >= {"kid"}
+                  and all(len(r["sha256"]) == 64 and len(r["head"]) == 40 for r in man.get("stores", {}).values()), repr(man)[:300])
+            check("…with the CLI's session read from pass over this store",
+                  set(open(os.path.join(tmp, "proton.env")).read().split()) == {"pass"})
+            p = run(penv, "backup", "--verify")
+            check("backup --verify: every bundle matches its manifest", p.returncode == 0 and "matches" in p.stdout, p.stdout + p.stderr)
+            with open(os.path.join(up, "secrets-kid.bundle"), "ab") as fh:
+                fh.write(b"tampered")
+            p = run(penv, "backup", "--verify")
+            check("backup --verify catches a bundle that is not the manifest's", p.returncode == 1
+                  and "secrets-kid.bundle: its sha256 is not the manifest's" in p.stdout, p.stdout + p.stderr)
+            if shutil.which("paperkey"):
+                p = run({**penv, "CLAUDECODE": "1"}, "paper", "--to-proton")
+                kf = os.path.join(drive, "my-files", "agent-fabric", "keys")
+                up_keys = os.listdir(kf) if os.path.isdir(kf) else []
+                check("paper --to-proton works inside a model session and prints only a path and a hash",
+                      p.returncode == 0 and len(up_keys) == 1 and up_keys[0].endswith(".key.txt")
+                      and "/my-files/agent-fabric/keys/" in p.stdout and "sha256" in p.stdout
+                      and "fingerprint" not in p.stdout and len(p.stdout) < 200, p.stdout + p.stderr)
+                sheet = open(os.path.join(kf, up_keys[0])).read() if up_keys else ""
+                check("…and what went up is the recovery copy, key and revocation", "fingerprint" in sheet
+                      and "REVOCATION" in sheet.upper(), sheet[:120])
+            else:
+                check("paperkey is installed where this suite runs", False, "paperkey missing")
 
             everything = "".join(open(os.path.join(dp, f), errors="ignore").read()
                                  for dp, _, fs in os.walk(os.path.join(child_store, ".git")) for f in fs

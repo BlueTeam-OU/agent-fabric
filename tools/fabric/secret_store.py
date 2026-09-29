@@ -14,6 +14,8 @@
                                                  the parent attests a child's key
     fabric-secrets store verify                  every committed key against its lineage
     fabric-secrets store paper [--out FILE]      the key and its revocation, for the owner
+    fabric-secrets store paper --to-proton       the same, into Proton Drive (a path and a hash printed)
+    fabric-secrets store backup [--verify]       every store held, as git bundles, into Proton Drive
     fabric-secrets store import-doppler          this login's Doppler config into its store
                                                  (the migration, ADR-038 §5 rule 8)
     fabric-secrets store template-set SLUG       a Claude account's setup-token into this
@@ -570,14 +572,10 @@ def assign(slug: str, logins: list[str], *, force: bool = False) -> list[dict]:
 
 
 # ── the owner's sheet ─────────────────────────────────────────────────
-def paper(out: str | None = None) -> None:
-    """The agent's secret key as paperkey text, and its revocation
-    certificate, for the owner to print once. Refused inside a model
-    session: a secret is never shown to a model."""
-    if os.environ.get("CLAUDECODE"):
-        raise StoreError("refused inside a model session (CLAUDECODE is set): the owner runs this in a terminal")
-    if out is None and not sys.stdout.isatty():
-        raise StoreError("stdout is not a terminal: pass --out FILE (written 0600) to print it from there")
+def _sheet_text() -> str:
+    """The agent's secret key as paperkey text, with its revocation
+    certificate and how to restore it: the recovery copy, whichever way
+    it leaves the account."""
     if not shutil.which("paperkey"):
         raise StoreError("paperkey is not installed (runtime/provisioning/platform installs it)")
     fpr = key_of_store()
@@ -589,9 +587,20 @@ def paper(out: str | None = None) -> None:
             revocation = fh.read()
     except OSError:
         revocation = "(no revocation certificate found; make one: gpg --gen-revoke " + fpr + ")\n"
-    text = (f"agent-fabric — the key of {login()}\nfingerprint {fpr}\n\n"
+    return (f"agent-fabric — the key of {login()}\nfingerprint {fpr}\n\n"
             "Restore: paperkey --pubring <the committed identities/keys/"
             f"{login()}.asc> --secrets <this sheet> | gpg --import\n\n{sheet}\n{revocation}")
+
+
+def paper(out: str | None = None) -> None:
+    """The recovery copy to a terminal or a file, for the owner. Refused
+    inside a model session: a secret is never shown to a model."""
+    if os.environ.get("CLAUDECODE"):
+        raise StoreError("refused inside a model session (CLAUDECODE is set): the owner runs this in a terminal, "
+                         "or uses --to-proton, which prints nothing but a path and a hash")
+    if out is None and not sys.stdout.isatty():
+        raise StoreError("stdout is not a terminal: pass --out FILE (written 0600) to print it from there")
+    text = _sheet_text()
     if out:
         # O_NOFOLLOW: never through a symlink; fchmod: an existing file's
         # old mode never carries the key.
@@ -601,6 +610,137 @@ def paper(out: str | None = None) -> None:
             fh.write(text)
     else:
         sys.stdout.write(text)
+
+
+# ── Proton Drive: the stores' backup and the keys' recovery copies ─────
+# The owner's decision (ADR-038 §7): a dedicated Proton account holds, in
+# /my-files/agent-fabric/, every store as a git bundle (ciphertext only)
+# with a manifest, and each key's recovery copy. The CLI's session is an
+# entry of the running login's own store (PROTON_DRIVE_CREDENTIALS_STORE=
+# pass over this store), so it is readable by this login alone; `auth
+# login` is the owner's, in a terminal. Nothing here prints a value.
+PROTON_ROOT = "/my-files/agent-fabric"
+
+
+def _proton(*args: str, check: bool = True) -> subprocess.CompletedProcess:
+    env = {**os.environ, "PASSWORD_STORE_DIR": store_dir(), "PROTON_DRIVE_CREDENTIALS_STORE": "pass"}
+    exe = os.environ.get("PROTON_DRIVE_BIN") or shutil.which("proton-drive")
+    if not exe:
+        raise StoreError("the Proton Drive CLI is not installed (proton-drive in ~/.local/bin)")
+    r = subprocess.run([exe, *args], capture_output=True, env=env, timeout=600)
+    if check and r.returncode != 0:
+        lines = [l for l in (r.stderr or r.stdout).decode(errors="replace").splitlines() if l.strip()]
+        why = (lines or [f"exit {r.returncode}"])[-1]
+        raise StoreError(f"proton-drive {args[0]} {args[1] if len(args) > 1 else ''}: {why} "
+                         "(an expired session: the owner runs `proton-drive auth login` with this store's env)")
+    return r
+
+
+def _proton_folder(path: str) -> str:
+    """The folder at path, made (with its parents) when absent."""
+    parent, name = path.rsplit("/", 1)
+    listed = _proton("filesystem", "list", "-t", "folder", parent, check=False)
+    if listed.returncode != 0:
+        _proton_folder(parent)
+        listed = _proton("filesystem", "list", "-t", "folder", parent)
+    if f"{parent}/{name}" not in listed.stdout.decode().split():
+        _proton("filesystem", "create-folder", parent, name)
+    return path
+
+
+def _upload(local: str, folder: str) -> None:
+    # A new revision, never a replacement: Proton keeps what was there.
+    _proton("filesystem", "upload", "-f", "create-new-revision", "-t", local, folder)
+
+
+def _sha256_file(path: str) -> str:
+    import hashlib
+    h = hashlib.sha256()
+    with open(path, "rb") as fh:
+        for chunk in iter(lambda: fh.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def paper_to_proton() -> dict:
+    """This login's key recovery copy into Proton Drive, through a 0600
+    temporary file that is overwritten and removed afterwards. Allowed
+    inside a model session: only the path and a hash are printed."""
+    text = _sheet_text().encode()
+    import hashlib
+    digest = hashlib.sha256(text).hexdigest()
+    folder = _proton_folder(f"{PROTON_ROOT}/keys")
+    with tempfile.TemporaryDirectory() as tmp:
+        os.chmod(tmp, 0o700)
+        path = os.path.join(tmp, f"{login()}.key.txt")
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, "wb") as fh:
+            fh.write(text)
+        try:
+            _upload(path, folder)
+        finally:
+            with open(path, "r+b") as fh:          # overwritten before it goes
+                fh.write(b"\0" * len(text))
+                fh.flush()
+                os.fsync(fh.fileno())
+            os.remove(path)
+    return {"path": f"{folder}/{login()}.key.txt", "sha256": digest}
+
+
+def _stores() -> dict[str, str]:
+    """This login's own store and every child mirror it holds: login -> dir."""
+    out = {login(): store_dir()}
+    try:
+        for child in sorted(os.listdir(children_dir())):
+            d = os.path.join(children_dir(), child)
+            if os.path.isdir(os.path.join(d, ".git")) and LOGIN_RE.match(child):
+                out[child] = d
+    except FileNotFoundError:
+        pass
+    return out
+
+
+def backup() -> dict:
+    """Every store this login holds — its own and its children's mirrors,
+    each brought up to its remote first — as a git bundle (the whole
+    history, ciphertext only), with a manifest of each bundle's sha256
+    and head, uploaded to Proton Drive as new revisions."""
+    folder = _proton_folder(f"{PROTON_ROOT}/secrets")
+    import datetime
+    manifest = {"written_by": login(), "stores": {}}
+    manifest["at"] = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    with tempfile.TemporaryDirectory() as tmp:
+        for who, d in _stores().items():
+            _before_write(d)
+            bundle = os.path.join(tmp, f"secrets-{who}.bundle")
+            git(d, "bundle", "create", bundle, "--all")
+            manifest["stores"][who] = {"bundle": os.path.basename(bundle), "sha256": _sha256_file(bundle),
+                                       "head": git(d, "rev-parse", "HEAD").stdout.decode().strip()}
+        mpath = os.path.join(tmp, "manifest.json")
+        with open(mpath, "w", encoding="utf-8") as fh:
+            fh.write(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
+        for name in sorted(os.listdir(tmp)):
+            _upload(os.path.join(tmp, name), folder)
+    return manifest
+
+
+def verify_backup() -> list[str]:
+    """Download the manifest and every bundle it names, and check each
+    against its sha256 and `git bundle verify`. Findings; [] is clean."""
+    folder = f"{PROTON_ROOT}/secrets"
+    findings = []
+    with tempfile.TemporaryDirectory() as tmp:
+        _proton("filesystem", "download", "-f", "replace", f"{folder}/manifest.json", tmp)
+        manifest = json.load(open(os.path.join(tmp, "manifest.json"), encoding="utf-8"))
+        for who, rec in sorted(manifest.get("stores", {}).items()):
+            _proton("filesystem", "download", "-f", "replace", f"{folder}/{rec['bundle']}", tmp)
+            local = os.path.join(tmp, rec["bundle"])
+            if _sha256_file(local) != rec["sha256"]:
+                findings.append(f"{rec['bundle']}: its sha256 is not the manifest's")
+                continue
+            if _run(["git", "bundle", "verify", local], check=False).returncode != 0:
+                findings.append(f"{rec['bundle']}: git bundle verify fails")
+    return findings
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -625,6 +765,9 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("push")
     pa = sub.add_parser("paper")
     pa.add_argument("--out")
+    pa.add_argument("--to-proton", action="store_true", help="the recovery copy into Proton Drive; prints a path and a hash")
+    bk = sub.add_parser("backup")
+    bk.add_argument("--verify", action="store_true", help="download the backup and check it against its manifest")
     sub.add_parser("import-doppler")
     ts = sub.add_parser("template-set")
     ts.add_argument("slug")
@@ -670,7 +813,19 @@ def main(argv: list[str] | None = None) -> int:
             print("\n".join(f) if f else "keys: clean")
             return 1 if f else 0
         elif args.cmd == "paper":
-            paper(args.out)
+            if args.to_proton:
+                r = paper_to_proton()
+                print(f"{r['path']}  sha256 {r['sha256'][:16]}…")
+            else:
+                paper(args.out)
+        elif args.cmd == "backup":
+            if args.verify:
+                f = verify_backup()
+                print("\n".join(f) if f else "backup: every bundle matches its manifest")
+                return 1 if f else 0
+            m = backup()
+            for who, rec in sorted(m["stores"].items()):
+                print(f"{PROTON_ROOT}/secrets/{rec['bundle']}  sha256 {rec['sha256'][:16]}…  head {rec['head'][:12]}")
         elif args.cmd == "template-set":
             r = template_set(args.slug, sys.stdin.buffer.read())
             print(f"template {args.slug}: {'set' if r['changed'] else 'unchanged'}")
