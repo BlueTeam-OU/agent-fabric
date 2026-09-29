@@ -30,7 +30,8 @@ The mapping has moved since without an agent being rebuilt: on the
 broker the session (from Sonnet 5) and the upper classes (from GLM) went
 to DeepSeek V4 Pro (2026-09-19); on plain claude every class went from the top model of
 its own tier (Haiku 4.5, Sonnet 5, Opus 5.5, Fable 5.1) to Opus 5.5
-(2026-09-25).
+(2026-09-25), and the two lower classes on from Opus 5.5 to Sonnet 5.5
+(2026-09-29).
 
 ## 2. Decision
 

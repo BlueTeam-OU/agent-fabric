@@ -6,7 +6,8 @@
     adr.py new <slug> "<title>"        the next number, from ADR-TEMPLATE.md
     adr.py amend <NNN> "<title>"       the history note stub and the table row (the DIGEST bullet is yours)
     adr.py lookup <word>...            DIGEST entries mentioning every word
-    adr.py range-check <base> [<head>] each commit that edits an ADR's body records it
+    adr.py range-check <base> [<head>] | <base>..<head>
+                                       each commit that edits an ADR's body records it
 
 The engine is the first managed project's (its documentation history
 model, recorded in its own ADRs), with what
@@ -563,7 +564,7 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("new"); p.add_argument("slug"); p.add_argument("title")
     p = sub.add_parser("amend"); p.add_argument("number"); p.add_argument("title"); p.add_argument("--date", required=True)
     p = sub.add_parser("lookup"); p.add_argument("words", nargs="+")
-    p = sub.add_parser("range-check"); p.add_argument("base"); p.add_argument("head", nargs="?", default="HEAD")
+    p = sub.add_parser("range-check"); p.add_argument("base"); p.add_argument("head", nargs="?")
     a = ap.parse_args(argv)
     if a.cmd == "check":
         f = check(a.root)
@@ -583,7 +584,19 @@ def main(argv: list[str] | None = None) -> int:
         hits = cmd_lookup(a.root, a.words)
         print("\n\n".join(hits) if hits else "adr: no DIGEST entry mentions all of that"); return 0 if hits else 1
     if a.cmd == "range-check":
-        f = range_check(a.root, a.base, a.head)
+        # "A..B" is how git spells a range, and how people type one: taken
+        # as base and head. It crashed git rev-list as "A..B..HEAD".
+        if ".." in a.base:
+            if a.head is not None:
+                print("adr range-check: give either BASE..HEAD or BASE HEAD, not both", file=sys.stderr)
+                return 2
+            a.base, _, a.head = a.base.partition("..")
+        a.head = a.head or "HEAD"
+        try:
+            f = range_check(a.root, a.base, a.head)
+        except subprocess.CalledProcessError as e:
+            print(f"adr range-check: git could not read {a.base}..{a.head}: {(e.stderr or '').strip()[-200:]}", file=sys.stderr)
+            return 2
         for x in f:
             print(f"  {x}")
         print(f"adr range-check: {'clean' if not f else f'{len(f)} commit(s) edit an ADR body unrecorded'}")
