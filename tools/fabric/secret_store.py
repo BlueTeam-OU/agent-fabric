@@ -7,6 +7,7 @@
     fabric-secrets store mint-id BORN            a new agent id, a UUIDv7 of that birth (ADR-039)
     fabric-secrets store id                      this store's agent id (exit 3: none yet)
     fabric-secrets store id-of LOGIN             the agent id lineage.json records for a login
+                                                 (exit 3: no agent with that login)
     fabric-secrets store rename OLD NEW          a login renamed; its id, key and store stay
     fabric-secrets store set NAME                the agent writes an entry (value on stdin)
     fabric-secrets store export-key              the agent's PUBLIC key, armored (for its parent)
@@ -67,6 +68,11 @@ UID_DOMAIN = "agents.agent-fabric"
 
 class StoreError(Exception):
     """A refusal or a failure; the message is the whole answer and never a value."""
+
+
+class NotInLineage(StoreError):
+    """No agent with that login or id: the one answer that lets a parent
+    mint an id (store-enroll.sh). An unreadable lineage is not this."""
 
 
 def login() -> str:
@@ -304,7 +310,7 @@ def _commit(store: str, message: str) -> None:
     # The store's commits are its own history, attributed by message:
     # the writer ("agent <login>" or "parent <login>") and what changed,
     # never a value.
-    _run(["git", "-C", store, "-c", "commit.gpgsign=false", "commit", "-q", "-m", message], env=_git_env())
+    _run(["git", "-C", store, "-c", "commit.gpgsign=false", "commit", "-q", "-m", message], env=_git_env(), label="git commit")
 
 
 def _check_name(name: str) -> None:
@@ -434,6 +440,8 @@ def lineage(fabric: str | None = None) -> dict:
             return json.load(fh)
     except FileNotFoundError:
         return {}
+    except ValueError as e:
+        raise StoreError(f"identities/keys/lineage.json is not JSON: {e}") from None
 
 
 def _write_lineage(doc: dict, fabric: str | None = None) -> None:
@@ -464,13 +472,15 @@ def resolve(who: str, doc: dict | None = None, fabric: str | None = None) -> tup
     doc = lineage(fabric) if doc is None else doc
     if AGENT_ID_RE.match(who):
         if who not in doc:
-            raise StoreError(f"agent {who} is not in identities/keys/lineage.json")
+            raise NotInLineage(f"agent {who} is not in identities/keys/lineage.json")
         return who, doc[who]
     if not LOGIN_RE.match(who):
         raise StoreError(f"{who!r} is neither a login nor an agent id")
     hits = [(a, r) for a, r in doc.items() if isinstance(r, dict) and r.get("login") == who]
-    if len(hits) != 1:
-        raise StoreError(f"{who}: {'no agent' if not hits else f'{len(hits)} agents'} with that login in identities/keys/lineage.json")
+    if not hits:
+        raise NotInLineage(f"{who}: no agent with that login in identities/keys/lineage.json")
+    if len(hits) > 1:
+        raise StoreError(f"{who}: {len(hits)} agents with that login in identities/keys/lineage.json")
     return hits[0]
 
 
@@ -1149,7 +1159,13 @@ def main(argv: list[str] | None = None) -> int:
                 return 3
             print(aid)
         elif args.cmd == "id-of":
-            print(resolve(args.login)[0])
+            # 3, as `id` answers "no id yet": no agent with that login. A
+            # lineage that cannot be read is 1, never a reason to mint.
+            try:
+                print(resolve(args.login)[0])
+            except NotInLineage as e:
+                print(f"fabric-secrets store: {e}", file=sys.stderr)
+                return 3
         elif args.cmd == "rename":
             r = rename(args.old, args.new)
             print(f"agent {r['agent_id']}: now {r['login']}")

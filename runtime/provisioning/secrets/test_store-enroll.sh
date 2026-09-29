@@ -63,6 +63,21 @@ PID="$(lid "$(id -un)" 2>/dev/null)"
   && ok "--self: the parent's repository, named by its agent id, its store and root key" || bad "--self (rc=$rc)" "$out"
 [[ "$(id_ms "$PID")" == "$(born_ms "$T/parent")" ]] && ok "…its id's time is its home's creation time" || bad "parent birth" "$PID vs $(stat -c %w "$T/parent")"
 
+# #65 carried: --self with a malformed .agent-id in its store stops,
+# and mints nothing; a lineage that is not JSON stops a child's enrolment
+# rather than reading as "no agent" and minting a second id.
+AID_FILE="$T/parent/.local/share/agent-fabric/secrets/.agent-id"; cp "$AID_FILE" "$T/aid.keep"
+echo "not-an-id" > "$AID_FILE"; : > "$T/calls"
+out="$(P "$E" --self 2>&1)"; rc=$?
+cp "$T/aid.keep" "$AID_FILE"
+[[ $rc -eq 1 ]] && grep -q "agent id could not be read" <<<"$out" && ! grep -q "repo create" "$T/calls" \
+  && ok "--self with a malformed .agent-id: exit 1, nothing made" || bad "--self malformed id (rc=$rc)" "$out"
+LIN="$FAB/identities/keys/lineage.json"; cp "$LIN" "$T/lin.keep"; echo "{ not json" > "$LIN"; : > "$T/calls"
+out="$(P "$E" kid 2>&1)"; rc=$?
+cp "$T/lin.keep" "$LIN"
+[[ $rc -eq 1 ]] && grep -q "lineage.json could not be read" <<<"$out" && ! grep -q "repo create\|hostexec" "$T/calls" \
+  && ok "a lineage that cannot be read stops the enrolment before anything is asked or made" || bad "unreadable lineage (rc=$rc)" "$out"
+
 echo "store-enroll: an account on another host"
 # A store whose id cannot be read, or answers something that is not one:
 # the enrolment stops before any repository is made for it.
