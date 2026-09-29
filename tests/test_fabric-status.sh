@@ -136,6 +136,17 @@ grep -q "written since ever (no drain report)" <<<"$out" && ok "no report: count
 out="$(cd "$SANDBOX" && status 2>&1)"
 ! grep -q "^memory " <<<"$out" && ok "outside a working copy: no memory line" || bad "memory line without a working copy" "$out"
 
+echo "fabric-status: the job list"
+out="$(cd "$SANDBOX" && status 2>&1)"
+grep -q "^jobs         none active; 0 queued, 0 blocked, 0 delivered" <<<"$out" && ok "an empty list: none active, zero counts" || bad "empty jobs line" "$(grep '^jobs' <<<"$out")"
+(cd "$WC" && AGENT_FABRIC_ROOT="$ROOT" AGENT_FABRIC_STATE_DIR="$STATE" "$ROOT/bin/fabric-jobs" add "first" >/dev/null \
+  && AGENT_FABRIC_ROOT="$ROOT" AGENT_FABRIC_STATE_DIR="$STATE" "$ROOT/bin/fabric-jobs" add "second" >/dev/null \
+  && AGENT_FABRIC_ROOT="$ROOT" AGENT_FABRIC_STATE_DIR="$STATE" "$ROOT/bin/fabric-jobs" start j2 >/dev/null)
+out="$(cd "$SANDBOX" && status 2>&1)"
+grep -q "^jobs         active j2 (second); 1 queued, 0 blocked, 0 delivered" <<<"$out" && ok "the active job and the counts" || bad "jobs line" "$(grep '^jobs' <<<"$out")"
+MODE=(--json); out="$(cd "$SANDBOX" && status 2>&1)"; MODE=()
+python3 -c 'import json,sys; j=json.loads(sys.stdin.read())["jobs"]; assert j["active"]["id"]=="j2" and j["queued"]==1, j' <<<"$out" && ok "…and in --json" || bad "jobs json" "$out"
+
 echo "fabric-status: which Claude sign-in plain claude uses"
 H="$SANDBOX/signin-home"; mkdir -p "$H"
 printf '{"oauthAccount":{"emailAddress":"someone@example.org"}}\n' > "$H/.claude.json"

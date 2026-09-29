@@ -25,6 +25,7 @@
 #   ~/.claude/skills/subagent-dispatch/SKILL.md
 #   ~/.claude/skills/fabric-decisions/SKILL.md
 #   ~/.claude/skills/branch-hygiene/SKILL.md
+#   ~/.claude/skills/agent-jobs/SKILL.md
 #   ~/.claude/skills/gzcoord-send/SKILL.md, gzcoord-receive/SKILL.md
 #                                      the dispatch policy as a loadable skill, from policies/
 #   ~/.local/bin/<name>                every command a session runs, by name
@@ -202,6 +203,7 @@ fi
 put "$CLAUDE_HOME/skills/subagent-dispatch/SKILL.md" "$FABRIC_ROOT/policies/subagent-dispatch/SKILL.md"
 put "$CLAUDE_HOME/skills/fabric-decisions/SKILL.md" "$FABRIC_ROOT/policies/fabric-decisions/SKILL.md"
 put "$CLAUDE_HOME/skills/branch-hygiene/SKILL.md" "$FABRIC_ROOT/policies/branch-hygiene/SKILL.md"
+put "$CLAUDE_HOME/skills/agent-jobs/SKILL.md" "$FABRIC_ROOT/policies/agent-jobs/SKILL.md"
 # Talking to other agents is two procedures, each a skill: composing and
 # sending a message, and receiving one (the watch, and what a delivery is).
 put "$CLAUDE_HOME/skills/gzcoord-send/SKILL.md" "$FABRIC_ROOT/communication/gzcoord/skills/gzcoord-send/SKILL.md"

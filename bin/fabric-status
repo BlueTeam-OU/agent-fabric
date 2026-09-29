@@ -260,6 +260,21 @@ try:
 except (OSError, ValueError):
     pass
 
+# The job list (ADR-037): open jobs by state, and the active one.
+try:
+    _jobs = [j for j in identity.read_jobs(ctx["agent"])["jobs"]
+             if isinstance(j, dict) and j.get("state") in ("queued", "active", "blocked", "delivered")]
+except SystemExit as exc:
+    _jobs = str(exc.code)
+except OSError as exc:
+    _jobs = f"{exc.strerror or exc}"
+if isinstance(_jobs, str):
+    jobs = {"error": _jobs}
+else:
+    _active = next((j for j in _jobs if j["state"] == "active"), None)
+    jobs = {"active": {"id": _active.get("id"), "title": _active.get("title") or "", "working_copy": _active.get("working_copy")} if _active else None,
+            **{st: sum(1 for j in _jobs if j["state"] == st) for st in ("queued", "blocked", "delivered")}}
+
 report = {
     "agent": ctx["agent"], "host": ctx["host"], "placement": placement,
     "role": binding.get("role"), "project": ctx["project"], "working_copy": ctx["working_copy"],
@@ -269,6 +284,7 @@ report = {
     "drift": [d for d in (role_drift, model_drift, effort_drift, prompt_drift, placement_drift, fallback_drift, signin_drift) if d] or None,
     "session_effort": session_effort,
     "undrained_memories": undrained,
+    "jobs": jobs,
     "api": {"provider": provider, "path": path, "base_url_host": host or None,
             "session_model": stamp or "harness default (not visible from the environment; /status shows it)",
             "launch_profile": os.environ.get("AGENT_FABRIC_LAUNCH_PROFILE"),
@@ -291,6 +307,12 @@ for d in report["drift"] or []:
     print(f"DRIFT        {d}")
 print(f"project      {report['project'] or '(none)'}    working copy  {report['working_copy'] or '(none)'}")
 print(f"session      {report['session'] or '(unknown)'}    binding updated {report['binding_updated'] or '-'}")
+if "error" in jobs:
+    print(f"jobs         unreadable: {jobs['error']}")
+else:
+    _a = jobs["active"]
+    print("jobs         " + (f"active {_a['id']} ({_a['title'][:60]})" if _a else "none active") + "; "
+          + ", ".join(f"{jobs[st]} {st}" for st in ("queued", "blocked", "delivered")) + "  (fabric-jobs list)")
 print()
 print(f"api          {path}")
 print(f"session model {report['api']['session_model']}")

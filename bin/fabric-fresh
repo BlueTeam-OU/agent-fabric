@@ -2,7 +2,7 @@
 # bin/fabric-fresh — end this session at the end of a job and let the
 # launcher start a fresh one: the agent's own /clear (agent-fabric ADR-022).
 #
-#   fabric-fresh [--note "<one line for the next session>"] [--force]
+#   fabric-fresh [--note "<one line for the next session>"] [--job <id>] [--force]
 #
 # A slash command is the person's, never the model's, so an agent cannot
 # /clear itself. It can end its own session: the session is the launcher's
@@ -10,6 +10,12 @@
 # marker this writes, and relaunches with no --resume — a new conversation
 # in the same terminal, with the note in its opening prompt. The finished
 # conversation stays on disk; `claude --resume` can still open it.
+#
+# --job <id> names the job the next session is for (`fabric-jobs next`
+# prints it, ADR-022 rule 12): the launcher starts it in that job's working
+# copy, with the job in its opening prompt. An unknown job is refused
+# (exit 2); a working copy that is gone or has uncommitted changes is the
+# launcher's to refuse, and it says so and starts in the old directory.
 #
 # Refused (exit 2) when the session was not started by the launcher —
 # nothing would bring it back — and (exit 3) when the working copy has
@@ -23,14 +29,16 @@
 # there is no session to stop.
 set -uo pipefail
 
-note="" force=0
+note="" job="" force=0
 while (( $# )); do
     case "$1" in
         --note) note="${2:-}"; shift 2 || { echo "fabric-fresh: --note needs a value" >&2; exit 2; } ;;
         --note=*) note="${1#--note=}"; shift ;;
+        --job) job="${2:-}"; shift 2 || { echo "fabric-fresh: --job needs a job id" >&2; exit 2; } ;;
+        --job=*) job="${1#--job=}"; shift ;;
         --force) force=1; shift ;;
         -h|--help) sed -n '2,/^[^#]/{/^#/p}' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
-        *) echo "fabric-fresh: unknown argument '$1' (--note \"…\", --force)" >&2; exit 2 ;;
+        *) echo "fabric-fresh: unknown argument '$1' (--note \"…\", --job <id>, --force)" >&2; exit 2 ;;
     esac
 done
 
@@ -49,6 +57,10 @@ case "${AGENT_FABRIC_LAUNCH_OPENING-unset}" in
         echo "fabric-fresh: this session was launched with its own prompt (or -p); a fresh launch would replay it, not start anew — end it with /exit" >&2
         exit 2 ;;
 esac
+FABRIC="$(cd -- "$(dirname -- "$(readlink -f -- "$0")")/.." && pwd)"
+if [[ -n "$job" ]] && ! AGENT_FABRIC_ROOT="$FABRIC" python3 "$FABRIC/tools/fabric/jobs.py" show "$job" >/dev/null; then
+    exit 2
+fi
 # Untracked files count: a new file never added is work not yet at its
 # artifact, as much as an edit is (fabric-branches counts them too).
 if (( ! force )) && git rev-parse --is-inside-work-tree >/dev/null 2>&1 \
@@ -78,7 +90,7 @@ mkdir -p "$state" || exit 1
 # its own start, and a job can end within the second the session began.
 # Written through runtime/identity.py, like all per-agent state (ADR-003).
 # The marker as written, kept to take it back only if it is still ours.
-written="$(python3 - "$(cd -- "$(dirname -- "$(readlink -f -- "$0")")/.." && pwd)" "$state/restart.json" "$note" <<'PY'
+written="$(python3 - "$FABRIC" "$state/restart.json" "$note" "$job" <<'PY'
 
 import importlib.util, os, sys
 spec = importlib.util.spec_from_file_location("fabric_identity", os.path.join(sys.argv[1], "runtime", "identity.py"))
@@ -86,12 +98,15 @@ identity = importlib.util.module_from_spec(spec); spec.loader.exec_module(identi
 import datetime, json
 path, note = sys.argv[2], " ".join(sys.argv[3].split())[:300]
 at = (datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(seconds=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
-body = json.dumps({"requested_at": at, "piece": "a fresh session", "status": "done", "fresh": True, "note": note})
+marker = {"requested_at": at, "piece": "a fresh session", "status": "done", "fresh": True, "note": note}
+if sys.argv[4]:
+    marker["job"] = sys.argv[4]
+body = json.dumps(marker)
 identity.atomic_write(path, body + "\n")
 print(body)
 PY
 )" || exit 1
-echo "fabric-fresh: ending this session; the launcher starts a fresh one${note:+ with: $note}" >&2
+echo "fabric-fresh: ending this session; the launcher starts a fresh one${job:+ for job $job}${note:+ with: $note}" >&2
 # A marker whose stop failed would turn the session's next plain exit
 # into a fresh relaunch: take it back.
 if ! "${AGENT_FABRIC_FRESH_KILL:-kill}" -TERM "$target"; then

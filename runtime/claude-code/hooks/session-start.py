@@ -86,6 +86,10 @@ def main() -> int:
         except Exception:  # noqa: BLE001 — a state oddity must not cost the session its project layer
             pass
         try:
+            lines += jobs_line(identity.read_jobs(ctx["agent"]), ctx["working_copy"])
+        except (Exception, SystemExit):  # noqa: BLE001 — a job list it cannot read must not cost the session its start
+            pass
+        try:
             missing = watch_running() is False
         except Exception:  # noqa: BLE001 — a /proc oddity must not cost the session its project layer
             missing = False
@@ -152,6 +156,29 @@ def sweep_due(working_copy: str | None, state_dir: str, now: float | None = None
     return [f"agent-fabric: branch sweep due in this working copy ({since}) — when nothing is running on the tree, "
             f"run `fabric-branches --sweep`: it deletes the local branches and worktrees wholly on origin/main and "
             f"reports the rest, which you bring to the person (the branch-hygiene skill)."]
+
+
+def jobs_line(doc: dict, working_copy: str | None) -> list[str]:
+    """The agent's job list in one line (ADR-037): the active job and how
+    many wait behind it, and a warning when the active job's working copy
+    is not this session's — the restart rule broken, or a job left active
+    by a session that ended. Nothing when the list has no open job."""
+    jobs = doc.get("jobs") or []
+    active = next((j for j in jobs if j.get("state") == "active"), None)
+    queued = sum(1 for j in jobs if j.get("state") == "queued")
+    blocked = sum(1 for j in jobs if j.get("state") == "blocked")
+    if not active and not queued and not blocked:
+        return []
+    waiting = ", ".join(f"{n} {what}" for n, what in ((queued, "queued"), (blocked, "blocked")) if n) or "nothing waiting"
+    if not active:
+        return [f"agent-fabric: jobs — none active; {waiting}. `fabric-jobs next` starts the next one "
+                f"and says whether it needs a fresh session."]
+    line = f"agent-fabric: jobs — active {active['id']}: {active.get('title', '')[:120]}; {waiting} (`fabric-jobs list`)."
+    wc = active.get("working_copy")
+    if wc and working_copy != wc:
+        line += (f" Your active job is in {wc}, and this session is in {working_copy or 'no working copy'}: "
+                 f"continue it there (`fabric-fresh --job {active['id']}`), or block or deliver it before other work.")
+    return [line]
 
 
 # The inbox watch is a Monitor the session itself arms (gzcoord-receive

@@ -21,7 +21,7 @@
 
 import crypto from 'node:crypto';
 
-export const ACTION_OPS = ['upgrade', 'secrets-sync'];
+export const ACTION_OPS = ['upgrade', 'secrets-sync', 'jobs-add'];
 export const ACTION_TTL_MAX_S = 600;
 export const KEY_PREFIX = 'ed25519:';
 export const PRIVATE_PREFIX = 'ed25519-pkcs8:';   // one line: secrets.env is read a line at a time

@@ -19,8 +19,9 @@ import { promisify } from 'node:util';
 import zlib from 'node:zlib';
 import { whoami, findTaxonomy, loadTaxonomy } from '../../communication/gzcoord/scripts/gzmsg.mjs';
 import { syncedVar, holdStatus, identity as gzIdentity } from '../../communication/gzcoord/scripts/inbox.mjs';
+import { jobs } from './jobs.mjs';
 
-export const OPS = ['ping', 'identity', 'usage', 'keys', 'fabric', 'session', 'script', 'recall', 'tokens', 'memory', 'host', 'accounts', 'upgrade', 'secrets-sync', 'status', 'presence'];
+export const OPS = ['ping', 'identity', 'usage', 'keys', 'fabric', 'session', 'script', 'recall', 'tokens', 'memory', 'host', 'accounts', 'upgrade', 'secrets-sync', 'status', 'presence', 'jobs', 'jobs-add'];
 // Answered for any placed account, not only an operator: whether a session
 // is running is what every sender needs before it writes to one, and it
 // names nothing a relay reader could not already infer (the owner,
@@ -810,6 +811,7 @@ export async function collect(op, ctx = {}) {
     if (name === 'tokens') return guard(name, () => tokens(ctx.home, ctx.days ? { days: ctx.days } : {}));
     if (name === 'memory') return guard(name, () => memory(ctx.home, { exec: ctx.exec, all: true }));
     if (name === 'host') return guard(name, () => host(ctx.hostOpts));
+    if (name === 'jobs') return guard(name, () => jobs({ home: ctx.home, root: ctx.root, ...(ctx.jobsOpts ?? {}) }));
     if (name === 'accounts') return guard(name, () => ctx.accountsCached ? ctx.accountsCached() : accounts(ctx.home, ctx.accountsOpts));
     return Promise.resolve();
   }));

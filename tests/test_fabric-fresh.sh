@@ -34,7 +34,7 @@ echo "fabric-fresh: --help names every refusal and prints no code"
 out="$("$CMD" --help 2>&1)"; rc=$?
 [[ $rc -eq 0 ]] && grep -q "not started by the launcher" <<<"$out" && grep -q "uncommitted changes" <<<"$out" \
   && grep -q "its own prompt or -p" <<<"$out" && grep -q "predates fabric-fresh" <<<"$out" \
-  && grep -q "no claude process" <<<"$out" && ! grep -qE "set -uo|^note=" <<<"$out" \
+  && grep -q "no claude process" <<<"$out" && grep -q -- "--job <id>" <<<"$out" && ! grep -qE "set -uo|^note=" <<<"$out" \
   && ok "the five refusals, and the header ends before the code" || bad "help (rc=$rc)" "$out"
 
 echo "fabric-fresh: refused where nothing would bring a session back"
@@ -86,6 +86,16 @@ chmod +x "$T/bin/kill-then-upgrade"
 out="$(env AGENT_FABRIC_LAUNCH_PROFILE=p "${envs[@]}" AGENT_FABRIC_FRESH_KILL="$T/bin/kill-then-upgrade" "$T/bin/claude" 2>&1)"; rc=$?
 [[ $rc -eq 1 ]] && grep -q '"piece":"fabric"' "$m" 2>/dev/null && ok "…and an upgrade marker written since is left alone" || bad "removed another writer's marker (rc=$rc)" "$(cat "$m" 2>/dev/null)"
 rm -f "$m"
+
+echo "fabric-fresh: --job names the job the next session is for"
+rm -f "$T/killed"
+out="$(env AGENT_FABRIC_LAUNCH_PROFILE=p "${envs[@]}" "$T/bin/claude" --job j9 2>&1)"; rc=$?
+[[ $rc -eq 2 && ! -e "$m" && ! -e "$T/killed" ]] && grep -q "no job j9" <<<"$out" && ok "an unknown job: exit 2, no marker, nothing stopped" || bad "unknown job (rc=$rc)" "$out"
+(cd "$T/wc" && AGENT_FABRIC_ROOT="$ROOT" AGENT_FABRIC_STATE_DIR="$T/state" "$ROOT/bin/fabric-jobs" add "the next one" >/dev/null)
+out="$(env AGENT_FABRIC_LAUNCH_PROFILE=p "${envs[@]}" "$T/bin/claude" --job j1 2>&1)"; rc=$?
+[[ $rc -eq 0 ]] && python3 -c 'import json,sys; m=json.load(open(sys.argv[1])); assert m["fresh"] is True and m["job"] == "j1", m' "$m" \
+  && grep -q "starts a fresh one for job j1" <<<"$out" && ok "a listed job: its id in the marker, and said" || bad "job marker (rc=$rc)" "$out $(cat "$m" 2>/dev/null)"
+rm -f "$m" "$T/killed"
 
 echo "fabric-fresh: no claude above it"
 out="$(cd "$T/wc" && env AGENT_FABRIC_LAUNCH_PROFILE=p "${envs[@]}" "$CMD" 2>&1)"; rc=$?

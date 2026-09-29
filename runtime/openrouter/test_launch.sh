@@ -73,7 +73,7 @@ PY
     cp -r "$REAL_ROOT/runtime/claude-code/agents" "$FABRIC/runtime/claude-code/agents"
     mkdir -p "$FABRIC/runtime/mcp"; cp -r "$REAL_ROOT/runtime/mcp/websearch-locale" "$FABRIC/runtime/mcp/"   # the installer's MCP step reads its helper from the fabric
     cp "$REAL_ROOT/runtime/identity.py" "$FABRIC/runtime/"
-    cp "$REAL_ROOT/tools/fabric/routing.py" "$REAL_ROOT/tools/fabric/workingcopy.py" "$FABRIC/tools/fabric/"
+    cp "$REAL_ROOT/tools/fabric/routing.py" "$REAL_ROOT/tools/fabric/workingcopy.py" "$REAL_ROOT/tools/fabric/jobs.py" "$FABRIC/tools/fabric/"
     # The role's system prompt: the assembler, the shared sections, and a
     # fixture charter for the bound role (no brief — the placeholder path).
     cp "$REAL_ROOT/tools/fabric/layout.py" "$REAL_ROOT/tools/fabric/launch_prompt.py" "$FABRIC/tools/fabric/"
@@ -715,6 +715,57 @@ out="$(runa "do the job" 2>&1)"; rc=$?
 grep -q "^RUN1:opening=0:" <<<"$out" && ok "a launch with its own prompt tells the session so" || bad "opening flag with a prompt" "$(grep RUN1 <<<"$out")"
 [[ $rc -eq 143 ]] && ! grep -q "^RUN2:" <<<"$out" && grep -q "carried its own prompt; not relaunching" <<<"$out" && [[ ! -e "$STATE/agents/$LOGIN/restart.json" ]] \
     && ok "…and a fresh marker under it is not a relaunch of that prompt" || bad "prompt replayed (rc=$rc)" "$out"
+write_fake_ori
+
+echo "launch: a fresh session for a job starts in that job's working copy, with the job in its opening"
+# fabric-fresh --job writes the job's id into the marker; the relaunch
+# moves to the job's working copy when it is there and clean, and says
+# the job in the opening prompt. Anything else starts where it was, and why.
+fresh_job_session() {  # fresh_job_session <job id>
+cat > "$SANDBOX/bin/ori" <<FAKE
+#!/usr/bin/env bash
+if [[ "\${1:-}" == auth ]]; then echo '{"ok":true,"data":{"authenticated":true,"source":{"kind":"environment","location":"OPENROUTER_API_KEY"}}}'; exit 0; fi
+n="\$(cat "$SANDBOX/runs" 2>/dev/null || echo 0)"; echo \$((n+1)) > "$SANDBOX/runs"
+if [[ "\$n" == 0 ]]; then
+  printf '{"requested_at":"%s","piece":"a fresh session","status":"done","fresh":true,"note":"","job":"$1"}\\n' "\$(date -u -d '+2 seconds' +%Y-%m-%dT%H:%M:%SZ)" > "$STATE/agents/$LOGIN/restart.json"
+  exit 143
+fi
+echo "RUN2:pwd=\$PWD:\$*"; exit 0
+FAKE
+chmod +x "$SANDBOX/bin/ori"; rm -f "$SANDBOX/runs"
+}
+jobs_cmd() { AGENT_FABRIC_ROOT="$FABRIC" AGENT_FABRIC_STATE_DIR="$STATE" python3 "$FABRIC/tools/fabric/jobs.py" "$@"; }
+rm -rf "$SANDBOX/other"; mkdir -p "$SANDBOX/other"; git init -q "$SANDBOX/other"
+jobs_cmd add "ship the other thing" --working-copy "$SANDBOX/other" --topic routing >/dev/null
+jobs_cmd add "a job whose copy is gone" --working-copy "$SANDBOX/gone" >/dev/null
+fresh_job_session j1
+out="$(runa 2>&1)"; rc=$?
+[[ $rc -eq 0 ]] && grep -q "^RUN2:pwd=$SANDBOX/other:" <<<"$out" && grep -q "starting job j1 in $SANDBOX/other" <<<"$out" \
+  && ok "the relaunch starts in the job's working copy, and says so" || bad "not in the job's copy (rc=$rc)" "$out"
+grep -q "^RUN2:.*It is for your job j1, ship the other thing ([^)]*topic routing): read it in full with fabric-jobs show j1" <<<"$out" \
+  && ! grep -q "^RUN2:.*Then wait for instructions" <<<"$out" \
+  && ok "…and the opening prompt carries the job in place of waiting for instructions" || bad "no job in the opening" "$(grep RUN2 <<<"$out")"
+# Started by a relative path, as the README runs it from projects/: the
+# relaunch changes directory first, and must still find itself — and a
+# relative path argument must still name its file.
+REL="$(python3 -c 'import os,sys; print(os.path.relpath(sys.argv[1], sys.argv[2]))' "$LAUNCHER" "$SANDBOX/repo")"
+mkdir -p "$SANDBOX/repo/extra"
+fresh_job_session j1
+out="$( (cd "$SANDBOX/repo" && env -u CLAUDE_CONFIG_DIR HOME="$HOME" PATH="$PATH_EXPORT" AGENT_FABRIC_ROOT="$FABRIC" AGENT_FABRIC_STATE_DIR="$STATE" ANNOUNCE_LOG="$ALOG" bash "$REL" --add-dir extra --mcp-config=m.json --model extra) 2>&1)"; rc=$?
+[[ $rc -eq 0 ]] && grep -q "^RUN2:pwd=$SANDBOX/other:" <<<"$out" && grep -q "^RUN2:.*--add-dir $SANDBOX/repo/extra --mcp-config=$SANDBOX/repo/m.json" <<<"$out" \
+  && grep -q "^RUN2:.* --model extra" <<<"$out" \
+  && ok "…started by a relative path: it finds itself after the move, and only path options' values are made absolute (both forms, existing or not; a model named like a file is left alone)" || bad "relative launcher (rc=$rc)" "$out"
+rmdir "$SANDBOX/repo/extra"
+echo dirty > "$SANDBOX/other/f"
+fresh_job_session j1
+out="$(runa 2>&1)"; rc=$?
+grep -q "^RUN2:pwd=$SANDBOX/repo:" <<<"$out" && grep -q "job j1's working copy $SANDBOX/other has uncommitted changes; starting in $SANDBOX/repo" <<<"$out" \
+  && ok "a job's copy with uncommitted changes: the old directory, and why" || bad "dirty copy entered" "$out"
+fresh_job_session j2
+out="$(runa 2>&1)"; rc=$?
+grep -q "^RUN2:pwd=$SANDBOX/repo:" <<<"$out" && grep -q "job j2's working copy $SANDBOX/gone is not there" <<<"$out" \
+  && grep -q "^RUN2:.*It is for your job j2" <<<"$out" \
+  && ok "a job's copy that is gone: the old directory, and why — the job is still said" || bad "missing copy" "$out"
 write_fake_ori
 
 echo "launch: a fabric checkout behind origin/main is pulled and the launcher re-executes on it"

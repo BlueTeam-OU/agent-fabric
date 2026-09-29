@@ -112,6 +112,11 @@
 # "Secrets") — never in the repo.
 set -uo pipefail
 
+# This file by absolute path: every re-exec below runs it again, and the
+# fresh relaunch of a job changes directory first (ADR-022 rule 12), where
+# a relative $0 — `agent-fabric/runtime/openrouter/launch` from projects/,
+# as the README runs it — names nothing.
+SELF="$(readlink -f "${BASH_SOURCE[0]}")"
 FABRIC_ROOT="${AGENT_FABRIC_ROOT:-$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../.." && pwd)}"
 IDENTITY="$FABRIC_ROOT/runtime/identity.py"
 ROUTING="$FABRIC_ROOT/tools/fabric/routing.py"
@@ -183,7 +188,7 @@ if git -C "$FABRIC_ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1 \
   Look at the checkout: git -C \"$FABRIC_ROOT\" status"
             elif git -C "$FABRIC_ROOT" pull -q --ff-only origin main 2>/dev/null; then
                 echo "launch: agent-fabric was $BEHIND commit(s) behind origin/main; pulled to $(git -C "$FABRIC_ROOT" rev-parse --short HEAD) and relaunching on it." >&2
-                AGENT_FABRIC_PULLED=1 exec bash "$0" "${ORIG_ARGS[@]+"${ORIG_ARGS[@]}"}"
+                AGENT_FABRIC_PULLED=1 exec bash "$SELF" "${ORIG_ARGS[@]+"${ORIG_ARGS[@]}"}"
             else
                 die "agent-fabric at $FABRIC_ROOT is $BEHIND commit(s) behind origin/main and cannot fast-forward
   (local commits or changes on this checkout). A session runs on the launcher,
@@ -812,6 +817,15 @@ if [[ -n "${AGENT_FABRIC_FRESH_NOTE+x}" ]]; then
     OPENING="${OPENING% Then wait for instructions.} The previous session of this agent finished its job and started this one fresh${AGENT_FABRIC_FRESH_NOTE:+: ${AGENT_FABRIC_FRESH_NOTE}}. Then wait for instructions."
     unset AGENT_FABRIC_FRESH_NOTE
 fi
+# fabric-fresh --job: the fresh session is for that job (ADR-037), and
+# the job, as the list holds it, replaces the wait for instructions.
+if [[ -n "${AGENT_FABRIC_FRESH_JOB:-}" ]]; then
+    JOB_LINE="$(AGENT_FABRIC_ROOT="$FABRIC_ROOT" python3 "$FABRIC_ROOT/tools/fabric/jobs.py" show "$AGENT_FABRIC_FRESH_JOB" --line 2>/dev/null)"
+    if [[ -n "$JOB_LINE" ]]; then
+        OPENING="${OPENING% Then wait for instructions.} It is for your job $JOB_LINE: read it in full with fabric-jobs show $AGENT_FABRIC_FRESH_JOB, and start on it."
+    fi
+    unset AGENT_FABRIC_FRESH_JOB JOB_LINE
+fi
 opening=1; expect_value=0
 for a in "$@"; do
     if (( expect_value )); then expect_value=0; [[ "$a" == -* ]] || continue; fi
@@ -881,8 +895,10 @@ if m.get("fresh"):
     # The session ended its own job (bin/fabric-fresh): nothing to wait
     # for, nothing to resume. The note travels to the next opening prompt.
     note = " ".join(str(m.get("note") or "").split())[:300]
-    print(f"launch: the session finished its job{': ' + note if note else ''}; starting a fresh one.", file=sys.stderr)
-    print("fresh:" + note)
+    job = str(m.get("job") or "").replace(":", "")
+    print(f"launch: the session finished its job{': ' + note if note else ''}; starting a fresh one"
+          f"{' for job ' + job if job else ''}.", file=sys.stderr)
+    print(f"fresh:{job}:{note}")
     sys.exit(0)
 deadline = time.time() + wait_s
 if m.get("status") == "pending":
@@ -924,10 +940,51 @@ PY
             exit "$STATUS"
         fi
         if [[ "$RESUME" == fresh:* ]]; then
-            exec env -u AGENT_FABRIC_PULLED AGENT_FABRIC_FRESH_NOTE="${RESUME#fresh:}" bash "$0" "${NEXT[@]}"
+            rest="${RESUME#fresh:}"; job="${rest%%:*}"; FRESH=(AGENT_FABRIC_FRESH_NOTE="${rest#*:}")
+            if [[ -n "$job" ]]; then
+                FRESH+=(AGENT_FABRIC_FRESH_JOB="$job")
+                # The job's working copy, when it is there and clean: the
+                # rule a finished job's own tree met before fabric-fresh
+                # let it go. Otherwise the old directory, and why.
+                if wc="$(AGENT_FABRIC_ROOT="$FABRIC_ROOT" python3 "$FABRIC_ROOT/tools/fabric/jobs.py" show "$job" --field working_copy 2>/dev/null)" && [[ -n "$wc" ]]; then
+                    if [[ ! -d "$wc" ]]; then
+                        echo "launch: job $job's working copy $wc is not there; starting in $PWD." >&2
+                    elif [[ -n "$(git -C "$wc" status --porcelain 2>/dev/null)" ]]; then
+                        echo "launch: job $job's working copy $wc has uncommitted changes; starting in $PWD." >&2
+                    elif [[ "$wc" != "$PWD" ]]; then
+                        # A path relative to here would name nothing there:
+                        # the values of the options that take paths are made
+                        # absolute first, spaced or `=`, existing or not —
+                        # and nothing else, since a model or provider name can
+                        # match a file here too. One value each, as the
+                        # opening scan above reads them: a second word is the
+                        # caller's prompt, and such a launch is never
+                        # relaunched fresh. A --settings value that is JSON is
+                        # not a path.
+                        takes=0
+                        for i in "${!NEXT[@]}"; do
+                            a="${NEXT[$i]}"
+                            case "$a" in
+                                --add-dir|--mcp-config|--settings) takes=1; continue ;;
+                                --add-dir=*|--mcp-config=*|--settings=*)
+                                    v="${a#*=}"; [[ -n "$v" && "$v" != /* && "$v" != \{* ]] && NEXT[i]="${a%%=*}=$PWD/$v"
+                                    takes=0; continue ;;
+                                -*) takes=0; continue ;;
+                            esac
+                            (( takes )) || continue
+                            [[ "$a" != /* && "$a" != \{* ]] && NEXT[i]="$PWD/$a"
+                            takes=0
+                        done
+                        cd "$wc" && echo "launch: starting job $job in $wc." >&2
+                    fi
+                else
+                    echo "launch: job $job names no working copy; starting in $PWD." >&2
+                fi
+            fi
+            exec env -u AGENT_FABRIC_PULLED "${FRESH[@]}" bash "$SELF" "${NEXT[@]+"${NEXT[@]}"}"
         fi
         if [[ -n "$RESUME" ]]; then NEXT+=(--resume "$RESUME"); else NEXT+=(--continue); fi
-        exec env -u AGENT_FABRIC_PULLED bash "$0" "${NEXT[@]}"
+        exec env -u AGENT_FABRIC_PULLED bash "$SELF" "${NEXT[@]}"
     fi
     rm -f "$RESTART_MARKER"
 fi

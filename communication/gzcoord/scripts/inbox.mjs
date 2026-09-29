@@ -12,6 +12,11 @@
 //                                        re-read ONE message already past the cursor
 //                                        (the cursor does not move; a body not
 //                                        addressed to this session is not shown)
+//   node communication/gzcoord/scripts/inbox.mjs --replay <seq|message-id> --json
+//                                        the same read as one JSON object (seq,
+//                                        sender, type, metadata, text) for a tool:
+//                                        fabric-jobs add --request; exit 2 and
+//                                        {"addressed": false} when not for me
 //   node communication/gzcoord/scripts/inbox.mjs --history [<seq>]
 //                                        one line for each message addressed
 //                                        to this session in the relay's recent
@@ -336,7 +341,7 @@ function explainRelayError(e, relayUrl, t = en()) {
 // Reads the channel's recent history (no consumer id, so no cursor moves),
 // and shows the body only when the message is addressed to this session:
 // SPEC §17 does not stop applying because the read is a replay.
-async function replay(tok, relayUrl, channel, which, me, t = en()) {
+async function replay(tok, relayUrl, channel, which, me, t = en(), asJson = false) {
   const page = await api(tok, `/api/messages?${new URLSearchParams({ channel, limit: '500', full: '1' })}`, { relayUrl });
   const list = page.messages ?? page;
   // By relay seq, or by the GZCoord MESSAGE-ID inside the body (the
@@ -347,6 +352,13 @@ async function replay(tok, relayUrl, channel, which, me, t = en()) {
   const text = normalize(rec.content);
   const when = rec.timestamp ?? rec.ts ?? '';
   let msg = null; try { msg = parse(text); } catch { /* shown as metadata only */ }
+  if (asJson) {
+    const addressed = Boolean(msg && forMe(msg, me));
+    console.log(JSON.stringify(addressed
+      ? { addressed, seq: rec.seq, sender: rec.sender, when, type: msg.type, metadata: msg.metadata, text }
+      : { addressed, seq: rec.seq }));
+    return addressed ? 0 : 2;
+  }
   if (!msg || !forMe(msg, me)) {
     console.log(t('replay.not-addressed', { seq: rec.seq, sender: rec.sender, when, address: me.address }));
     if (msg) console.log(`  ${oneLine(msg, t)}`);
@@ -744,7 +756,7 @@ export async function main(argv = process.argv.slice(2)) {
     catch (e) { const x = explainRelayError(e, relayUrl, t); console.error(x.line); return x.code || 1; }
   }
   if (replayWhich) {
-    try { return await withFreshToken(tok => replay(tok, relayUrl, channel, replayWhich, me, t)); }
+    try { return await withFreshToken(tok => replay(tok, relayUrl, channel, replayWhich, me, t, argv.includes('--json'))); }
     catch (e) { const x = explainRelayError(e, relayUrl, t); console.error(x.line); return x.code || 1; }
   }
 

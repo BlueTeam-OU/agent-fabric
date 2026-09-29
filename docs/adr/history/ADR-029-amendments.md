@@ -21,3 +21,13 @@ own budget, and the two actions the rule names wait far longer. It also
 left out that `upgrade.mjs` answers `busy` to an upgrade while a
 `secrets-sync` is restarting the session (review of agent-fabric #54).
 The rule now lists the budgets and the cross-kind refusal.
+
+### Amendment 2026-09-28 — The owner reads and adds jobs through the control plane
+
+The owner chose a fleet view of every agent's job list, and a way to add
+a job to one agent outside any session (ADR-037). The view is a read op,
+`jobs`, answered for an operator only; the intake is an action,
+`jobs-add`, signed like the others, whose arguments are a closed set of
+plain one-line values run by argv through `tools/fabric/jobs.py`. It
+names one login: a job is one agent's, and a fleet-wide job would be the
+same work started many times.
