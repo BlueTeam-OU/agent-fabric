@@ -105,7 +105,7 @@ printf '#!/bin/sh\nexit 1\n' > "$PR/hooks/pre-receive"; chmod +x "$PR/hooks/pre-
 out="$(P python3 "$ROOT/tools/fabric/secret_store.py" assign work kid 2>&1)"; rc=$?
 rm -f "$PR/hooks/pre-receive"
 out2="$(P python3 "$ROOT/tools/fabric/secret_store.py" assign work kid 2>&1)"; rc2=$?
-git --git-dir "$PR" ls-tree -r --name-only main 2>/dev/null | grep -q "env/CLAUDE_ASSIGNED_KID.gpg" && [[ $rc -eq 1 && $rc2 -eq 0 ]] \
+git --git-dir "$PR" ls-tree -r --name-only main 2>/dev/null | grep -q "env/CLAUDE_ASSIGNED_$(tr -d - <<<"$KID" | tr a-f A-F).gpg" && [[ $rc -eq 1 && $rc2 -eq 0 ]] \
   && ok "a retried assign pushes the record a failed push left behind" || bad "assign catch-up (rc=$rc/$rc2)" "$out
 $out2"
 

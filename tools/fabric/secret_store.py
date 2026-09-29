@@ -28,7 +28,7 @@
     fabric-secrets store template-set SLUG       a Claude account's setup-token into this
                                                  (the coordinator's) store (value on stdin)
     fabric-secrets store templates [--json]      the templates, by fingerprint
-    fabric-secrets store assign SLUG LOGIN...    each login's store gets the template's token
+    fabric-secrets store assign SLUG LOGIN|ID... each agent's store gets the template's token
                                                  (ADR-031, through its parent)
 
 The store is a git repository in the layout pass(1) reads, so QtPass and
@@ -729,10 +729,10 @@ def _slug_name(slug: str) -> str:
     return TEMPLATE_PREFIX + slug.upper().replace("-", "_")
 
 
-def _login_name(who: str) -> str:
-    if not LOGIN_RE.match(who) or "_" in who:
-        raise StoreError(f"{who!r} is not a login this store can record (no underscores)")
-    return ASSIGNED_PREFIX + who.upper().replace("-", "_")
+def _assigned_name(agent_id: str) -> str:
+    # Keyed by the agent id, as everything stored is (ADR-039): a rename
+    # leaves the record the parent keeps for the agent where it was.
+    return ASSIGNED_PREFIX + agent_id.replace("-", "").upper()
 
 
 def _sha12(v: str) -> str:
@@ -767,7 +767,14 @@ def assign(slug: str, logins: list[str], *, force: bool = False) -> list[dict]:
     rows = []
     fp = _sha12(vals[name])
     for who in logins:
-        rec = _login_name(who)
+        # A login or an agent id, resolved first (ADR-039 rule 5); rows
+        # name the agent by its login, the record keys it by its id.
+        try:
+            aid, lin = resolve(who)
+        except StoreError as e:
+            rows.append({"login": who, "from": "none", "status": "failed", "reason": str(e)[:160]})
+            continue
+        who, rec = lin.get("login") or who, _assigned_name(aid)
         # The parent's record is "<slug> <fingerprint>": the parent cannot
         # read the child's entry, so whether the child already holds this
         # token is decided here, by what the parent last wrote.
@@ -776,7 +783,7 @@ def assign(slug: str, logins: list[str], *, force: bool = False) -> list[dict]:
             rows.append({"login": who, "from": was, "to": slug, "status": "unchanged", "token_sha256_12": fp})
             continue
         try:
-            put(who, "CLAUDE_CODE_OAUTH_TOKEN", vals[name].encode(), exact=True)
+            put(aid, "CLAUDE_CODE_OAUTH_TOKEN", vals[name].encode(), exact=True)
             set_entry(rec, f"{slug} {fp}".encode(), exact=True)
             rows.append({"login": who, "from": was, "to": slug, "status": "written", "token_sha256_12": fp})
         except StoreError as e:

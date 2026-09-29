@@ -150,6 +150,17 @@ def main() -> int:
             p = run(parent, "assign", "work-account", "kid", "--json")
             check("assigning again is unchanged, and remembers the account", json.loads(p.stdout)[0]["status"] == "unchanged"
                   and json.loads(p.stdout)[0]["from"] == "work-account", p.stdout)
+            p = run(parent, "assign", "work-account", KID, "--json")
+            byid = json.loads(p.stdout or "[]")
+            check("assign by agent id is the same agent: unchanged, and named by its login",
+                  p.returncode == 0 and byid and byid[0]["status"] == "unchanged" and byid[0]["login"] == "kid", p.stdout + p.stderr)
+            own_env = os.path.join(parent["AGENT_FABRIC_SECRET_STORE"], "env")
+            check("…the parent's record is keyed by the agent id, not the login",
+                  os.path.exists(os.path.join(own_env, f"CLAUDE_ASSIGNED_{KID.replace('-', '').upper()}.gpg"))
+                  and not os.path.exists(os.path.join(own_env, "CLAUDE_ASSIGNED_KID.gpg")), repr(sorted(os.listdir(own_env))))
+            p = run(parent, "assign", "work-account", "nobody-here", "--json")
+            check("an agent lineage does not know is a failed row, not a traceback",
+                  p.returncode == 1 and json.loads(p.stdout)[0]["status"] == "failed", p.stdout + p.stderr)
             p = run(parent, "assign", "no-such", "kid")
             check("an unknown template is refused", p.returncode == 1 and "not a template" in p.stderr, p.stderr)
 
