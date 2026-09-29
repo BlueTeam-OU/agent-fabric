@@ -83,15 +83,21 @@ MOCK
     chmod +x "$SANDBOX/bin/gh"
 }
 
-set_pr() {  # $1 = branch
-    jq -n --arg b "$1" '{number:552,state:"OPEN",headRefName:$b,headRefOid:"abcdef1234567890"}' \
-      > "$SANDBOX/state/pr.json"
+set_pr() {  # $1 = branch, $2.. = the files it changes (none: no files field)
+    local b="$1"; shift
+    if [[ $# -gt 0 ]]; then
+      jq -n --arg b "$b" '{number:552,state:"OPEN",headRefName:$b,headRefOid:"abcdef1234567890",
+                           files:($ARGS.positional | map({path:.}))}' --args "$@" > "$SANDBOX/state/pr.json"
+    else
+      jq -n --arg b "$b" '{number:552,state:"OPEN",headRefName:$b,headRefOid:"abcdef1234567890"}' \
+        > "$SANDBOX/state/pr.json"
+    fi
     : > "$SANDBOX/state/calls"; rm -f "$SANDBOX/state/payload.json"
 }
 invoke() {
     local body="$1"; shift
     RUN_OUT="$(cd "$SANDBOX/$CLONE_NAME" && printf '%s' "$body" | \
-        PATH="$SANDBOX/bin:$PATH" GH_STATE="$SANDBOX/state" AGENT_FABRIC_ROOT="$SANDBOX/no-fabric" \
+        PATH="$SANDBOX/bin:$PATH" GH_STATE="$SANDBOX/state" AGENT_FABRIC_ROOT="${FAKE_FABRIC:-$SANDBOX/no-fabric}" \
         timeout 20 bash "$UNDER_TEST" "$@" 2>&1)"
     RUN_RC=$?
 }
@@ -172,6 +178,31 @@ invoke "I should not be able to post this." 552
 assert_rc       "exits 2" 2
 assert_contains "names the owning session" "$OTHER"
 if ! posted; then pass "nothing was sent"; else fail "posted to another session's PR" "$(cat "$SANDBOX/state/calls")"; fi
+
+echo "post-review: the locale carve-out's merger may post on another session's locale-only PR"
+# A fabric whose identity.py answers the role the case plants: the merger
+# of a locale PR is fabric-coordinator (agent-fabric CLAUDE.md, carve-out).
+FAKE_FABRIC="$SANDBOX/fake-fabric"; mkdir -p "$FAKE_FABRIC/runtime"
+printf '%s\n' 'import os, sys' 'print(os.environ.get("FAKE_ROLE", "") if "--role" in sys.argv else "someone")' \
+  > "$FAKE_FABRIC/runtime/identity.py"
+LOC="identities/roles/language-culture/locale/ge/team.md"
+FAKE_ROLE=fabric-coordinator; export FAKE_ROLE FAKE_FABRIC
+set_pr "$OTHER/i18n/ge-team" "$LOC"; invoke "findings" 552
+assert_rc "the merger posts on a locale-only PR" 0
+posted && pass "…it was sent" || fail "the merger's review was not sent"
+MARKER="$(sed -n "s/^REVIEW_MARKER='\(.*\)'\$/\1/p" "$UNDER_TEST")"
+[[ -n "$MARKER" && "$(body_of | head -1)" == "$MARKER" ]] && pass "…the marker is still its first line" || fail "the marker moved" "want '$MARKER'; $(body_of | head -3)"
+[[ "$(body_of)" == *"posted by the locale carve-out's merger"* ]] && pass "…and it says it was posted by the carve-out's merger" || fail "no carve-out note" "$(body_of | head -3)"
+set_pr "$OTHER/i18n/ge-team" "$LOC" "tools/fabric/lint.py"; invoke "no" 552
+[[ "$RUN_RC" -eq 2 ]] && ! posted && pass "one file outside a locale refuses" || fail "posted on a PR touching code" "rc=$RUN_RC"
+set_pr "$OTHER/i18n/ge-team" "identities/roles/language-culture/locale/ge/sub/x.md"; invoke "no" 552
+[[ "$RUN_RC" -eq 2 ]] && ! posted && pass "a path nested below a locale directory refuses" || fail "posted on a nested path" "rc=$RUN_RC"
+set_pr "$OTHER/i18n/ge-team"; invoke "no" 552
+[[ "$RUN_RC" -eq 2 ]] && ! posted && pass "an unreadable file list refuses" || fail "posted with no file list" "rc=$RUN_RC"
+FAKE_ROLE=devex-tooling
+set_pr "$OTHER/i18n/ge-team" "$LOC"; invoke "no" 552
+[[ "$RUN_RC" -eq 2 ]] && ! posted && pass "another role refuses, even on a locale-only PR" || fail "a non-coordinator posted" "rc=$RUN_RC"
+unset FAKE_ROLE FAKE_FABRIC
 
 echo "post-review: a branch naming no session is allowed, with a warning"
 for b in "agent/global-event-identity" "dependabot/pub/apps/x/y" "add-claude-github-actions-178"; do
