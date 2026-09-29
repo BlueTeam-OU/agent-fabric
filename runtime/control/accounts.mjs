@@ -111,6 +111,29 @@ export function assign(logins, account, { exec = execFileSync, project = 'agent-
   return rows;
 }
 
+// Once the coordinator's own secrets are on its store (ADR-038), the
+// templates live there too, as CLAUDE_ACCOUNT_<SLUG> entries, and an
+// assignment is the coordinator writing the token into each login's
+// store (it cannot read it back): fabric-secrets store templates and
+// assign, which keep every value inside that process. Doppler is read
+// until then, exactly as before.
+export const onStore = (home = os.homedir()) => {
+  try { return fs.readFileSync(path.join(home, '.config', 'agent-fabric', 'secrets-source'), 'utf8').trim() === 'store'; }
+  catch { return false; }
+};
+const store = (args, exec) => JSON.parse(String(exec(path.join(FABRIC_ROOT, 'bin', 'fabric-secrets'), ['store', ...args, '--json'],
+  { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 120000 })));
+export function storeTemplates({ exec = execFileSync } = {}) {
+  return store(['templates'], exec).map(t => ({ ...t, config: 'store' }));
+}
+export function storeAssign(logins, account, { exec = execFileSync } = {}) {
+  try { return store(['assign', account, ...logins], exec); }
+  catch (e) {
+    // assign exits 1 when a row failed and still prints every row.
+    try { return JSON.parse(String(e.stdout)); } catch { return logins.map(login => ({ login, status: 'failed', reason: String(e.stderr ?? e.message).trim().split('\n').pop().slice(0, 160) })); }
+  }
+}
+
 export async function main(argv = process.argv.slice(2), { home = os.homedir(), env = process.env, stdinTTY = process.stdin.isTTY, spawn = spawnSync, read = accounts, exec = execFileSync, registry } = {}) {
   const [cmd, arg] = argv;
   const dir = accountsDir(home, env);
@@ -126,10 +149,11 @@ export async function main(argv = process.argv.slice(2), { home = os.homedir(), 
     if (unknown.length) { console.error(`fabric-accounts: not a placed account (runtime/hosts/registry.json): ${unknown.join(', ')}`); return 2; }
     // No way back to a login's own /login: the launcher refuses a session
     // without a template's long-lived token (runtime/openrouter/launch).
-    const t = templates({ exec }).find(x => x.account === account);
+    const viaStore = onStore(home);
+    const t = (viaStore ? storeTemplates({ exec }) : templates({ exec })).find(x => x.account === account);
     if (!t) { console.error(`fabric-accounts: ${JSON.stringify(account)} is not a template in Doppler environment ${TEMPLATE_ENV} (fabric-accounts templates)${account === 'own' || account === 'none' ? ' — a login runs only on a template\'s token; assign it another account' : ''}`); return 2; }
     if (!t.token_sha256_12) { console.error(`fabric-accounts: template ${account} holds no CLAUDE_CODE_OAUTH_TOKEN yet; nothing written`); return 2; }
-    const rows = assign(logins, account, { exec });
+    const rows = viaStore ? storeAssign(logins, account, { exec }) : assign(logins, account, { exec });
     for (const r of rows) console.log(`${r.login.padEnd(22)} ${String(r.from ?? '-').padEnd(30)} → ${String(r.to ?? '-').padEnd(30)} ${r.status}${r.reason ? `  ${r.reason}` : ''}`);
     const bad = rows.some(r => !['written', 'unchanged'].includes(r.status));
     const changed = rows.filter(r => r.status === 'written').map(r => r.login);
@@ -143,8 +167,8 @@ export async function main(argv = process.argv.slice(2), { home = os.homedir(), 
     return bad || r.status !== 0 ? 1 : 0;
   }
   if (cmd === 'templates' && argv.length === 1) {
-    const t = templates({ exec });
-    if (!t.length) { console.log(`no template in Doppler environment ${TEMPLATE_ENV}`); return 1; }
+    const t = onStore(home) ? storeTemplates({ exec }) : templates({ exec });
+    if (!t.length) { console.log(onStore(home) ? 'no template in this store (fabric-secrets store template-set <slug>)' : `no template in Doppler environment ${TEMPLATE_ENV}`); return 1; }
     for (const x of t) console.log(`${x.account.padEnd(34)} ${x.token_sha256_12 ? `setup-token ${x.token_sha256_12}` : 'no CLAUDE_CODE_OAUTH_TOKEN'}  (${x.config})`);
     return t.every(x => x.token_sha256_12) ? 0 : 1;
   }

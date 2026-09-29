@@ -155,3 +155,25 @@ test('assign: no way back to a login\'s own /login; an unknown login, an unknown
   }
   assert.equal(d.writes.length, n, 'a refusal writes nothing');
 });
+
+// On the coordinator's store (ADR-038): the templates and an assignment
+// go through fabric-secrets store, which keeps every value in its own
+// process; a failed row still comes back as a row.
+test('accounts on the store: onStore reads the source; templates and assign go through fabric-secrets store', async () => {
+  const { onStore, storeTemplates, storeAssign } = await import('../accounts.mjs');
+  const home = scratch('accounts-store-');
+  assert.equal(onStore(home), false, 'no source file is doppler');
+  fs.mkdirSync(path.join(home, '.config', 'agent-fabric'), { recursive: true });
+  fs.writeFileSync(path.join(home, '.config', 'agent-fabric', 'secrets-source'), 'store\n');
+  assert.equal(onStore(home), true);
+  const calls = [];
+  const exec = (bin, args) => {
+    calls.push(args.join(' '));
+    if (args[1] === 'templates') return JSON.stringify([{ account: 'work', token_sha256_12: 'abcdef012345' }]);
+    const e = new Error('exit 1'); e.stdout = JSON.stringify([{ login: 'a', status: 'written' }, { login: 'b', status: 'failed', reason: 'no committed key for b' }]); throw e;
+  };
+  assert.deepEqual(storeTemplates({ exec }), [{ account: 'work', token_sha256_12: 'abcdef012345', config: 'store' }]);
+  const rows = storeAssign(['a', 'b'], 'work', { exec });
+  assert.deepEqual(rows.map(r => r.status), ['written', 'failed']);
+  assert.deepEqual(calls, ['store templates --json', 'store assign work a b --json']);
+});

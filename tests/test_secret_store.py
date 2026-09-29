@@ -114,6 +114,26 @@ def main() -> int:
             p = run(parent, "put", "kid", "not-a-name", stdin=SECRET)
             check("a name that is not UPPER_SNAKE is refused", p.returncode == 1 and "not a secret name" in p.stderr)
 
+            # A Claude account's template lives in the parent's own store;
+            # assigning puts its token into the child's store (ADR-031).
+            TOKEN = "sk-ant-oat01-" + "t" * 20
+            p = run(parent, "template-set", "work-account", stdin=TOKEN)
+            check("the parent keeps a template in its own store", p.returncode == 0, p.stderr)
+            p = run(parent, "templates", "--json")
+            tl = json.loads(p.stdout or "[]")
+            check("templates names the account by fingerprint only", [t["account"] for t in tl] == ["work-account"]
+                  and TOKEN not in p.stdout and len(tl[0]["token_sha256_12"]) == 12, p.stdout + p.stderr)
+            p = run(parent, "assign", "work-account", "kid", "--json")
+            rows = json.loads(p.stdout or "[]")
+            check("assign writes the token into the child's store", p.returncode == 0
+                  and rows and rows[0]["status"] == "written" and rows[0]["from"] == "none" and TOKEN not in p.stdout,
+                  p.stdout + p.stderr)
+            p = run(parent, "assign", "work-account", "kid", "--json")
+            check("assigning again is unchanged, and remembers the account", json.loads(p.stdout)[0]["status"] == "unchanged"
+                  and json.loads(p.stdout)[0]["from"] == "work-account", p.stdout)
+            p = run(parent, "assign", "no-such", "kid")
+            check("an unknown template is refused", p.returncode == 1 and "not a template" in p.stderr, p.stderr)
+
             # The child reads it after a pull, and only in-process.
             subprocess.run(["git", "-C", child_store, "pull", "-q", "origin", "main"], check=True, env=child)
             sys.path.insert(0, os.path.dirname(TOOL))
@@ -121,7 +141,8 @@ def main() -> int:
                                   "import secret_store as s, json; v=s.values(); print(json.dumps({k: len(x) for k, x in v.items()}))"],
                                  cwd=os.path.dirname(TOOL), env=child, capture_output=True, text=True)
             lens = json.loads(got.stdout or "{}")
-            check("the child reads it (values() in-process)", lens.get("GH_TOKEN") == len(SECRET), got.stderr)
+            check("the child reads it (values() in-process)", lens.get("GH_TOKEN") == len(SECRET)
+                  and lens.get("CLAUDE_CODE_OAUTH_TOKEN") == len(TOKEN), got.stderr)
             p = run(child, "set", "AGENT_LOGIN", stdin="kid\n")
             check("the agent sets its own entry", p.returncode == 0 and "set" in p.stdout, p.stderr)
             p = run(child, "names")
@@ -132,7 +153,8 @@ def main() -> int:
             # as from Doppler, for the same values (ADR-038 §5 rule 7).
             me = subprocess.run(["id", "-un"], capture_output=True, text=True).stdout.strip()
             vals = {"AGENT_LOGIN": me, "AGENT_HOST": "somewhere", "OPENROUTER_API_KEY": "or-x",
-                    "GH_TOKEN": SECRET, "CLAUDE_BRIDGE_AUTH_TOKEN": "bridge-x"}
+                    "GH_TOKEN": SECRET, "CLAUDE_BRIDGE_AUTH_TOKEN": "bridge-x",
+                    "CLAUDE_CODE_OAUTH_TOKEN": TOKEN}   # as the assignment above wrote it
             for k, v in vals.items():
                 run(child, "set", k, stdin=v)
             stub = os.path.join(tmp, "stubbin")

@@ -14,6 +14,11 @@
     fabric-secrets store paper [--out FILE]      the key and its revocation, for the owner
     fabric-secrets store import-doppler          this login's Doppler config into its store
                                                  (the migration, ADR-038 §5 rule 8)
+    fabric-secrets store template-set SLUG       a Claude account's setup-token into this
+                                                 (the coordinator's) store (value on stdin)
+    fabric-secrets store templates [--json]      the templates, by fingerprint
+    fabric-secrets store assign SLUG LOGIN...    each login's store gets the template's token
+                                                 (ADR-031, through its parent)
 
 The store is a git repository in the layout pass(1) reads, so QtPass and
 browserpass open it: `.gpg-id` names the key, and each secret is
@@ -183,9 +188,20 @@ def _write_entry(store: str, name: str, value: bytes, recipient_args: list[str])
     return path
 
 
+def _decrypt(path: str) -> str | None:
+    r = gpg("--decrypt", path, check=False)
+    return r.stdout.decode().split("\n", 1)[0] if r.returncode == 0 else None
+
+
 def set_entry(name: str, value: bytes) -> dict:
     store = store_dir()
     fpr = key_of_store(store)
+    # GPG encryption is randomised: the same value re-encrypted is a new
+    # file, so "unchanged" is decided on the decrypted value, which the
+    # agent can read. (A parent cannot: see assign.)
+    path = os.path.join(store, "env", f"{name}.gpg")
+    if os.path.exists(path) and _decrypt(path) == value.decode(errors="replace").rstrip("\n"):
+        return {"name": name, "changed": False}
     _write_entry(store, name, value, ["--recipient", fpr])
     changed = git(store, "diff", "--cached", "--quiet", check=False).returncode != 0
     if changed:
@@ -207,7 +223,8 @@ def pull(store: str | None = None) -> str | None:
     store = store or store_dir()
     if not git(store, "remote", check=False).stdout.strip():
         return None
-    r = git(store, "pull", "-q", "--ff-only", check=False)
+    branch = git(store, "rev-parse", "--abbrev-ref", "HEAD", check=False).stdout.decode().strip() or "main"
+    r = git(store, "pull", "-q", "--ff-only", "origin", branch, check=False)
     return None if r.returncode == 0 else "not pulled: " + (r.stderr.decode().strip().splitlines() or ["?"])[-1]
 
 
@@ -379,6 +396,70 @@ def verify(fabric: str | None = None) -> list[str]:
     return findings
 
 
+# ── the Claude-account templates (ADR-031), in the coordinator's store ─
+TEMPLATE_PREFIX = "CLAUDE_ACCOUNT_"
+ASSIGNED_PREFIX = "CLAUDE_ASSIGNED_"
+SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,62}$")
+
+
+def _slug_name(slug: str) -> str:
+    if not SLUG_RE.match(slug):
+        raise StoreError(f"{slug!r} is not an account slug (lowercase, digits, dashes)")
+    return TEMPLATE_PREFIX + slug.upper().replace("-", "_")
+
+
+def _login_name(who: str) -> str:
+    if not LOGIN_RE.match(who) or "_" in who:
+        raise StoreError(f"{who!r} is not a login this store can record (no underscores)")
+    return ASSIGNED_PREFIX + who.upper().replace("-", "_")
+
+
+def _sha12(v: str) -> str:
+    import hashlib
+    return hashlib.sha256(v.encode()).hexdigest()[:12]
+
+
+def template_set(slug: str, value: bytes) -> dict:
+    return set_entry(_slug_name(slug), value)
+
+
+def templates() -> list[dict]:
+    """Each template by its account and its token's fingerprint: the
+    value goes into a hash and nowhere else."""
+    vals = values()
+    return [{"account": n[len(TEMPLATE_PREFIX):].lower().replace("_", "-"), "token_sha256_12": _sha12(v) if v else None}
+            for n, v in sorted(vals.items()) if n.startswith(TEMPLATE_PREFIX)]
+
+
+def assign(slug: str, logins: list[str]) -> list[dict]:
+    """The template's token into each login's store, as its
+    CLAUDE_CODE_OAUTH_TOKEN, written by the parent (which cannot read it
+    back); the assignment is recorded in the parent's own store, since
+    the parent cannot read the child's."""
+    vals = values()
+    name = _slug_name(slug)
+    if not vals.get(name):
+        raise StoreError(f"{slug} is not a template in this store (fabric-secrets store templates)")
+    rows = []
+    fp = _sha12(vals[name])
+    for who in logins:
+        rec = _login_name(who)
+        # The parent's record is "<slug> <fingerprint>": the parent cannot
+        # read the child's entry, so whether the child already holds this
+        # token is decided here, by what the parent last wrote.
+        was, _, was_fp = (vals.get(rec) or "none").partition(" ")
+        if was == slug and was_fp == fp:
+            rows.append({"login": who, "from": was, "to": slug, "status": "unchanged", "token_sha256_12": fp})
+            continue
+        try:
+            put(who, "CLAUDE_CODE_OAUTH_TOKEN", vals[name].encode())
+            set_entry(rec, f"{slug} {fp}".encode())
+            rows.append({"login": who, "from": was, "to": slug, "status": "written", "token_sha256_12": fp})
+        except StoreError as e:
+            rows.append({"login": who, "from": was, "status": "failed", "reason": str(e)[:160]})
+    return rows
+
+
 # ── the owner's sheet ─────────────────────────────────────────────────
 def paper(out: str | None = None) -> None:
     """The agent's secret key as paperkey text, and its revocation
@@ -431,6 +512,14 @@ def main(argv: list[str] | None = None) -> int:
     pa = sub.add_parser("paper")
     pa.add_argument("--out")
     sub.add_parser("import-doppler")
+    ts = sub.add_parser("template-set")
+    ts.add_argument("slug")
+    tl = sub.add_parser("templates")
+    tl.add_argument("--json", action="store_true")
+    asg = sub.add_parser("assign")
+    asg.add_argument("slug")
+    asg.add_argument("logins", nargs="+")
+    asg.add_argument("--json", action="store_true")
     args = ap.parse_args(argv)
     try:
         if args.cmd == "init":
@@ -458,6 +547,23 @@ def main(argv: list[str] | None = None) -> int:
             return 1 if f else 0
         elif args.cmd == "paper":
             paper(args.out)
+        elif args.cmd == "template-set":
+            r = template_set(args.slug, sys.stdin.buffer.read())
+            print(f"template {args.slug}: {'set' if r['changed'] else 'unchanged'}")
+        elif args.cmd == "templates":
+            t = templates()
+            if args.json:
+                print(json.dumps(t))
+            else:
+                print("\n".join(f"{x['account']:<34} setup-token {x['token_sha256_12']}" for x in t) or "(no templates)")
+        elif args.cmd == "assign":
+            rows = assign(args.slug, args.logins)
+            if args.json:
+                print(json.dumps(rows))
+            else:
+                for r in rows:
+                    print(f"{r['login']:<22} {r['from']:<30} -> {r.get('to', '-'):<30} {r['status']}{('  ' + r['reason']) if r.get('reason') else ''}")
+            return 0 if all(r["status"] != "failed" for r in rows) else 1
         elif args.cmd == "import-doppler":
             r = import_doppler()
             print(f"imported {len(r['imported'])} name(s) from {r['config']}: {', '.join(r['imported'])}")

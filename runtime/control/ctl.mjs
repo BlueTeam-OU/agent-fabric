@@ -18,7 +18,8 @@
 //   fabric-ctl <login|all> jobs                     each account's open jobs (bin/fabric-jobs; ADR-037)
 //   fabric-ctl <login> jobs-add [--topic T] [--project P] [--] "<title>"   an ACTION: the owner's job on that
 //                                                   login's list, source `owner` (ADR-037 rule 4)
-//   fabric-ctl keygen [--force]                     the operator's signing key: private half into Doppler, public into the registry
+//   fabric-ctl keygen [--force]                     the operator's signing key: private half into this login's store
+//                                                   (or Doppler before it moved), public into the registry
 //
 // A login becomes an address through the registry's placement
 // (<host>/<login>); `all` is every placement, addressed as "*". The
@@ -466,18 +467,28 @@ export async function main(argv = process.argv.slice(2), { registry, fetchImpl }
 // `operator_key` in the registry, to commit like any other change. A key
 // already registered is kept unless --force: a rotation invalidates every
 // daemon's trust until the registry change is pulled.
-export function keygen(args, { registry = process.env.AGENT_FABRIC_HOSTS_REGISTRY ?? path.join(FABRIC_ROOT, 'runtime', 'hosts', 'registry.json'), exec = execFileSync, who = whoami() } = {}) {
+export function keygen(args, { registry = process.env.AGENT_FABRIC_HOSTS_REGISTRY ?? path.join(FABRIC_ROOT, 'runtime', 'hosts', 'registry.json'), exec = execFileSync, who = whoami(), home = process.env.HOME } = {}) {
   const reg = JSON.parse(fs.readFileSync(registry, 'utf8'));
   const host = reg.hosts?.[who.host];
   if (!host || (host.operator ?? 'user') !== who.agent) { console.error(`fabric-ctl: ${who.host}/${who.agent} is not this host's operator in the registry; no key made`); return 2; }
   if (publicKeyFrom(host.operator_key) && !args.force) { console.error('fabric-ctl: this host already has an operator_key; --force to rotate it'); return 2; }
-  const cfg = String(exec('doppler', ['configure', 'get', 'enclave.config', '--plain', '--scope', '/'], { encoding: 'utf8' })).trim();
-  if (!cfg) { console.error('fabric-ctl: no Doppler config recorded for this login (enclave.config at scope /)'); return 3; }
+  // The private half goes where this login's secrets are: its own store
+  // once it has moved there (ADR-038), else its Doppler config.
+  const viaStore = (() => { try { return fs.readFileSync(path.join(home ?? '', '.config', 'agent-fabric', 'secrets-source'), 'utf8').trim() === 'store'; } catch { return false; } })();
+  let where;
   const k = generateOperatorKey();
-  exec('doppler', ['secrets', 'set', 'FABRIC_CONTROL_SIGNING_KEY', '--project', 'agent-fabric', '--config', cfg, '--silent'], { input: k.privateKeySpec, encoding: 'utf8', stdio: ['pipe', 'ignore', 'inherit'] });
+  if (viaStore) {
+    exec(path.join(FABRIC_ROOT, 'bin', 'fabric-secrets'), ['store', 'set', 'FABRIC_CONTROL_SIGNING_KEY'], { input: k.privateKeySpec, encoding: 'utf8', stdio: ['pipe', 'ignore', 'inherit'] });
+    where = 'this login\'s store';
+  } else {
+    const cfg = String(exec('doppler', ['configure', 'get', 'enclave.config', '--plain', '--scope', '/'], { encoding: 'utf8' })).trim();
+    if (!cfg) { console.error('fabric-ctl: no Doppler config recorded for this login (enclave.config at scope /)'); return 3; }
+    exec('doppler', ['secrets', 'set', 'FABRIC_CONTROL_SIGNING_KEY', '--project', 'agent-fabric', '--config', cfg, '--silent'], { input: k.privateKeySpec, encoding: 'utf8', stdio: ['pipe', 'ignore', 'inherit'] });
+    where = `Doppler ${cfg}`;
+  }
   host.operator_key = k.publicKeySpec;
   fs.writeFileSync(registry, JSON.stringify(reg, null, 2) + '\n');
-  console.log(`fabric-ctl: signing key made — private half in Doppler ${cfg} (FABRIC_CONTROL_SIGNING_KEY), public half in ${path.relative(FABRIC_ROOT, registry)} (operator_key of ${who.host}).`);
+  console.log(`fabric-ctl: signing key made — private half in ${where} (FABRIC_CONTROL_SIGNING_KEY), public half in ${path.relative(FABRIC_ROOT, registry)} (operator_key of ${who.host}).`);
   console.log('  next: bin/fabric-secrets sync; commit the registry change; the fleet trusts it once it has pulled that commit.');
   return 0;
 }
