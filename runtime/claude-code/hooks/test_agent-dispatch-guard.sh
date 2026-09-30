@@ -103,9 +103,11 @@ expect "a class without worktree isolation is denied" deny '{"subagent_type":"co
 r="$(reason '{"subagent_type":"code-low","model":"sonnet","isolation":"worktree","description":"Extract the table"}')"
 if grep -q "rides the haiku alias" <<<"$r"; then pass "the mismatch denial names the class's alias"; else fail "the mismatch denial names the class's alias" "$r"; fi
 # aliases.json unreadable: the class branch denies and says why, never loosens.
-# A copy of the guard placed where no ../aliases.json exists beside it.
-ORPHAN="$(mktemp -d)"; mkdir -p "$ORPHAN/hooks"; cp "$UNDER_TEST" "$ORPHAN/hooks/guard.sh"
-out="$(printf '{"tool_input":{"subagent_type":"code-low","model":"haiku","isolation":"worktree","description":"x"}}' | bash "$ORPHAN/hooks/guard.sh" 2>/dev/null)"; rm -rf "$ORPHAN"
+# A copy of the guard placed where no aliases.json exists around it. The
+# guard is the module now (ADR-040 §5 rule 5): the copy is of the module,
+# which finds the aliases from where it stands, as the bash script did.
+ORPHAN="$(mktemp -d)"; mkdir -p "$ORPHAN/hooks"; cp "$SCRIPT_DIR/../../../tools/fabric/guards/dispatch_guard.py" "$ORPHAN/hooks/guard.py"
+out="$(printf '{"tool_input":{"subagent_type":"code-low","model":"haiku","isolation":"worktree","description":"x"}}' | python3 "$ORPHAN/hooks/guard.py" 2>/dev/null)"; rm -rf "$ORPHAN"
 if grep -q '"deny"' <<<"$out" && grep -q "binds no alias" <<<"$out"; then pass "an unreadable aliases.json denies a class dispatch rather than allowing it"; else fail "an unreadable aliases.json denies a class dispatch rather than allowing it" "$out"; fi
 
 echo "the locale worker: model required, isolation refused, any alias allowed without an ask"

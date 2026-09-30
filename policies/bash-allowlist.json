@@ -11,7 +11,6 @@
     "policies/test_ban_generated_by_attribution.sh": 6,
     "policies/test_check_charter_authority.sh": 6,
     "runtime/claude-code/bootstrap.sh": 5,
-    "runtime/claude-code/hooks/agent-dispatch-guard.sh": 2,
     "runtime/claude-code/hooks/test_agent-dispatch-guard.sh": 6,
     "runtime/claude-code/hooks/test_tab-title.sh": 6,
     "runtime/claude-code/install-agent-files.sh": 5,
