@@ -200,9 +200,15 @@ jq -n --arg b "$FULL_BODY" --arg c "$PR_HEAD" \
    '{body: $b, event: "COMMENT", commit_id: $c}' > "$payload" \
     || die "could not build the request payload."
 
+# GitHub's own reason, not a bare "rejected": the first transient failure
+# on #69 said nothing, and a hand-made retry to learn why posted an
+# unmarked review. No automatic retry: a timeout may have posted it, and a
+# second post is a duplicate review on the PR.
+errf="$(mktemp)" || die "could not create a temporary file."
+trap 'rm -f "$payload" "$errf"' EXIT INT TERM
 url="$(gh api "repos/$REPO/pulls/$PR/reviews" --input "$payload" \
-        --jq '.html_url' 2>/dev/null)" \
-    || die "the review was rejected by GitHub (PR #$PR)."
+        --jq '.html_url' 2>"$errf")" \
+    || die "the review was rejected by GitHub (PR #$PR): $(grep -v '^\s*$' "$errf" | tail -1). Look at the PR before re-running — a timeout may have posted it; never post it by hand, unmarked."
 
 [[ -n "$url" ]] || die "GitHub accepted the request but returned no review URL — treat as NOT posted."
 echo "posted review: $url"

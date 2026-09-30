@@ -73,7 +73,7 @@ case "$1" in
       prev="$a"
     done
     echo "POST $2" >> "$S/calls"
-    [ -f "$S/api_fail" ] && exit 1
+    [ -f "$S/api_fail" ] && { echo "gh: Validation Failed (HTTP 422)" >&2; exit 1; }
     [ -f "$S/api_empty" ] && { echo ""; exit 0; }
     echo "https://github.com/gzapi-org/gzapp/pull/1#pullrequestreview-1"
     exit 0 ;;
@@ -262,6 +262,8 @@ set_pr "$ME/feat/thing"; touch "$SANDBOX/state/api_fail"
 invoke "findings" 552
 assert_rc       "exits 2" 2
 assert_contains "says GitHub rejected it" "rejected"
+assert_contains "  with GitHub's own reason" "Validation Failed (HTTP 422)"
+assert_contains "  and says to look before re-running, never to post by hand" "never post it by hand"
 rm -f "$SANDBOX/state/api_fail"
 
 set_pr "$ME/feat/thing"; touch "$SANDBOX/state/api_empty"
