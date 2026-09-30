@@ -507,11 +507,16 @@ def put(child: str, name: str, value: bytes, store: str | None = None, fabric: s
     if changed:
         try:
             _commit(store, f"parent {login()}: put {name}")
-        except StoreError:
+        except StoreError as failed:
             # The entry is staged and uncommitted: left there, the next
             # pull refuses the dirty mirror. The mirror goes back to what
-            # it held, as after a refused push (review of #69).
-            git(store, "reset", "-q", "--hard", "HEAD", check=False)
+            # it held, as after a refused push (review of #69), and a
+            # reset that fails says so, as the push path's does (#70).
+            r = git(store, "reset", "-q", "--hard", "HEAD", check=False)
+            if r.returncode != 0:
+                why = ([l for l in r.stderr.decode(errors="replace").splitlines() if l.strip()] or [f"exit {r.returncode}"])[-1]
+                raise StoreError(f"{rec.get('login')}: {failed}; and the mirror could not be reset ({store}: {why}) "
+                                 "— reset it before the next put") from failed
             raise
         try:
             _after_commit(store)

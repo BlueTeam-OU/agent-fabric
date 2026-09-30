@@ -1363,8 +1363,17 @@ BASH_LINE_LIMIT = 150
 BASH_SHEBANG = re.compile(r"^#!.*\b(bash|sh)\b")
 
 
+def _git():
+    """tools/fabric/git.py (ADR-040 §5 rule 6), loaded by path: lint runs
+    as a script and as a module the tests load under another name."""
+    spec = importlib.util.spec_from_file_location("fabric_git", os.path.join(os.path.dirname(os.path.abspath(__file__)), "git.py"))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
 def _tracked(root: str) -> list[str]:
-    r = subprocess.run(["git", "-C", root, "ls-files", "-z"], capture_output=True, text=True)
+    r = _git().run(root, "ls-files", "-z", check=False, timeout=60)
     return [f for f in r.stdout.split("\0") if f] if r.returncode == 0 else []
 
 
@@ -1410,7 +1419,7 @@ def bash_size_findings(root: str, base_ref: str = "origin/main") -> list[str]:
     for rel in sorted(listed):
         if rel not in over:
             findings.append(f"policies/bash-allowlist.json: {rel} is gone or {BASH_LINE_LIMIT} lines or fewer — remove its entry")
-    base = subprocess.run(["git", "-C", root, "show", f"{base_ref}:policies/bash-allowlist.json"], capture_output=True, text=True)
+    base = _git().run(root, "show", f"{base_ref}:policies/bash-allowlist.json", check=False, timeout=60)
     if base.returncode == 0:
         try:
             before = set((json.loads(base.stdout).get("scripts") or {}))

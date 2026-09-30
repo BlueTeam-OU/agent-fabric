@@ -31,6 +31,8 @@ if mode == "hang":
     time.sleep(5)
 if mode == "gqlerr":
     print(json.dumps({"errors": [{"message": "Field 'x' doesn't exist"}]})); sys.exit(0)
+if mode == "gqlrate":
+    print(json.dumps({"errors": [{"type": "RATE_LIMITED", "message": "API rate limit exceeded"}]})); sys.exit(0)
 if "--slurp" in sys.argv:
     print(json.dumps([[{"n": 1}, {"n": 2}], [{"n": 3}]])); sys.exit(0)
 if sys.argv[1:3] == ["api", "graphql"]:
@@ -73,6 +75,12 @@ def main() -> int:
                 check("a GraphQL error answered with 200 is raised", False)
             except gh.GhError as e:
                 check("a GraphQL error answered with 200 is raised", "doesn't exist" in str(e), e)
+            os.environ["FAKE_GH_MODE"] = "gqlrate"
+            try:
+                gh.graphql("{x}")
+                check("a GraphQL rate limit answered with 200 raises", False)
+            except gh.GhError as e:
+                check("a GraphQL rate limit answered with 200 is transient", e.transient, (e, e.transient))
             os.environ["FAKE_GH_MODE"] = "404"
             try:
                 gh.api("repos/o/r/pulls/999")

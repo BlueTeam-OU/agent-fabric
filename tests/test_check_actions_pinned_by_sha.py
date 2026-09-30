@@ -87,6 +87,12 @@ def main() -> int:
     ok = "FAIL: .github/workflows/ci.yml:4 'actions/checkout@v7' is pinned to 'v7'" in out
     fails += not ok
     print(f"  {'ok  ' if ok else 'FAIL'} a finding names the file, the line and why" + ("" if ok else f"\n        {out[-300:]}"))
+    # The sibling key is never read as the value: the finding is about
+    # the empty key, "(nothing)", not a ref called `with:` (review of #70).
+    got, out = run({"workflows/ci.yml": step("      - uses:\n        with:\n          fetch-depth: 0")})
+    ok = "'(nothing)'" in out and "'with:'" not in out
+    fails += not ok
+    print(f"  {'ok  ' if ok else 'FAIL'} an empty list-item key reads (nothing), never its sibling" + ("" if ok else f"\n        {out[-300:]}"))
     print(f"\n{'FAILED' if fails else 'all passed'}")
     return 1 if fails else 0
 

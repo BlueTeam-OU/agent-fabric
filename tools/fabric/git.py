@@ -28,8 +28,9 @@ def run(repo: str, *args: str, check: bool = True, input: str | None = None, env
         timeout: float = TIMEOUT_S, what: str | None = None) -> subprocess.CompletedProcess:
     what = what or "git " + (args[0] if args else "")
     try:
-        r = subprocess.run(["git", "-C", repo, *args], input=input, capture_output=True, text=True,
-                           env=env, timeout=timeout)
+        stdin = {"input": input} if input is not None else {"stdin": subprocess.DEVNULL}
+        r = subprocess.run(["git", "-C", repo, *args], capture_output=True, text=True,
+                           env=env, timeout=timeout, **stdin)
     except FileNotFoundError:
         raise GitError(what, "git is not installed") from None
     except subprocess.TimeoutExpired:

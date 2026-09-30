@@ -116,7 +116,9 @@ def check(root: str) -> tuple[list[str], int]:
                 # version comment is read from that line, where the pin is.
                 # A next line at the key's indent or less (the next key, a
                 # new list item) means the key has no value (review of #68).
-                indent = len(line) - len(line.lstrip())
+                # The KEY's column: a list item's `- uses:` indents its
+                # siblings to the key, past the dash (review of #70).
+                indent = len(line) - len(re.sub(r"^\s*-\s+", "", line) if re.match(r"^\s*-\s", line) else line.lstrip())
                 nxt = next((ln for ln in lines[num:] if ln.strip() and not ln.lstrip().startswith("#")), "")
                 deeper = nxt and (len(nxt) - len(nxt.lstrip())) > indent and not nxt.lstrip().startswith("- ")
                 ncode, ncomment = split_comment(nxt) if deeper else ("", "")

@@ -290,6 +290,16 @@ def main() -> int:
                 check("a commit that fails inside put: an error, and the mirror left clean",
                       p2.returncode == 1 and staged == "" and not os.path.exists(os.path.join(mirror, "env", "COMMIT_CASE.gpg")),
                       p2.stderr[-200:] + " status=" + staged)
+                # …and when the reset after it fails too, both are said (#70).
+                open(hook, "w").write(f"#!/bin/sh\ntouch '{mirror}/.git/index.lock'\nexit 1\n")
+                os.chmod(hook, 0o755)
+                p3 = run(parent, "put", "kid", "COMMIT_CASE", stdin="v")
+                os.remove(hook)
+                os.remove(os.path.join(mirror, ".git", "index.lock"))
+                subprocess.run(["git", "-C", mirror, "reset", "-q", "--hard", "HEAD"], env=parent, check=True)
+                check("a failed commit whose reset fails too: both said, and what to do",
+                      p3.returncode == 1 and "could not be reset" in p3.stderr and "reset it before the next put" in p3.stderr,
+                      p3.stderr[-300:])
                 check("M2: a reset that fails too is said, with the push's reason and the reset's",
                       p.returncode == 1 and "git push" in p.stderr
                       # git's own wording of the lock differs by version (Fedora's last

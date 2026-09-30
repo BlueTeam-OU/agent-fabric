@@ -220,8 +220,13 @@ def main(argv: list[str] | None = None) -> int:
             rows.append(row)
     # The span the period's merges lie in: tokens over DAYS+WINDOW days less
     # tokens over the last WINDOW days, both from every login's records.
-    cost = None if a.no_tokens else period_cost(spend(a.days + a.window), spend(a.window))
+    whole, recent = (None, None) if a.no_tokens else (spend(a.days + a.window), spend(a.window))
+    cost = period_cost(whole, recent)
     summary = summarize(rows, since=since, end=end, window=a.window, repos=repos, cost=cost, every_repo=a.all)
+    # Both reads answered, for different logins: said as that, not as "not
+    # read" (review of #70).
+    if whole and recent and not cost:
+        summary["spend_unmatched"] = sorted(set(whole["by_account"]) ^ set(recent["by_account"]))
     period = [r for r in rows if r["in_period"]]
     sup, pending = summary["supervision_events"], summary["pending_after_period"]
     if a.json:
@@ -240,6 +245,9 @@ def main(argv: list[str] | None = None) -> int:
         per = ", ".join(f"{p}: {v / 1e6:.1f}M" for p, v in sorted(summary.get("spend_per_result", {}).items()))
         print(f"spend over {summary['period']}, the whole fleet ({cost['accounts']} accounts answered): {paths} input-token equivalents; "
               + (f"per verified result: {per}" if per else "per result only with --all (the spend is every repository's)"))
+    elif summary.get("spend_unmatched"):
+        print(f"spend: no figure — the two token reads answered for different accounts "
+              f"({', '.join(summary['spend_unmatched'])}); run it again when the fleet answers whole")
     else:
         print("spend: not read (--no-tokens, or the control plane did not answer)")
     return 0

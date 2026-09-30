@@ -50,7 +50,10 @@ def run(args: list[str], *, input: str | None = None, timeout: float = TIMEOUT_S
     default the first two words of the call)."""
     what = what or "gh " + " ".join(args[:2])
     try:
-        r = subprocess.run(["gh", *args], input=input, capture_output=True, text=True, timeout=timeout)
+        # No input is an empty stdin, never the caller's: a gh that reads
+        # stdin would otherwise wait on it for the whole bound.
+        stdin = {"input": input} if input is not None else {"stdin": subprocess.DEVNULL}
+        r = subprocess.run(["gh", *args], capture_output=True, text=True, timeout=timeout, **stdin)
     except FileNotFoundError:
         raise GhError(what, "gh is not installed") from None
     except subprocess.TimeoutExpired:
@@ -98,7 +101,11 @@ def graphql(query: str, *, timeout: float = TIMEOUT_S, **variables) -> dict:
               timeout=timeout, what="gh api graphql")
     doc = json.loads(out)
     if doc.get("errors"):
-        raise GhError("gh api graphql", "; ".join(e.get("message", "?") for e in doc["errors"])[:300])
+        # A rate limit can come back as an error answered with 200: waiting
+        # helps it as it helps a 429 (review of #70).
+        why = "; ".join(e.get("message", "?") for e in doc["errors"])[:300]
+        limited = any(e.get("type") == "RATE_LIMITED" or "rate limit" in str(e.get("message", "")).lower() for e in doc["errors"])
+        raise GhError("gh api graphql", why, transient=limited)
     return doc.get("data") or {}
 
 
