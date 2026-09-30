@@ -15,7 +15,6 @@
     "runtime/claude-code/hooks/test_agent-dispatch-guard.sh": 6,
     "runtime/claude-code/hooks/test_tab-title.sh": 6,
     "runtime/claude-code/install-agent-files.sh": 5,
-    "runtime/github/commit-class.sh": 1,
     "runtime/github/post-review.sh": 1,
     "runtime/github/pr-gate.sh": 1,
     "runtime/github/pr-reply.sh": 1,
