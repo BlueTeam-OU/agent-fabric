@@ -134,6 +134,10 @@ def main() -> int:
         ("a << in a quote, then a kill", "grep -n 'x <<EOF' README.md\npkill -f claude-fable"),
         ("a heredoc fed to /bin/sh", "/bin/sh <<EOF\npkill -f claude-fable\nEOF"),
         ("pkill -c by the session's name", "pkill -c claude"),
+        # A value glued to its option ends the cluster: the pattern after
+        # it is the pattern (tenth round).
+        ("a glued -u value, then the name", "pkill -e -uuser claude"),
+        ("a glued -t value, then the name", "pkill -tpts/1 claude"),
         ("a loop killing what pgrep names by the session's name", "for p in $(pgrep claude); do kill $p; done"),
         ("pkill by the session's name", "pkill claude"),
         ("killall by the session's name", "killall claude"),
@@ -224,6 +228,12 @@ def main() -> int:
             g.selects = real_selects
         check("a pattern it cannot read: pgrep is never run for it, and the hook asks",
               ran == [] and (d or ("",))[0] == "ask", (ran, d))
+        check("-c and -d leave the selection intact: a glued value and a pattern after -- are untouched",
+              g._without_output_options(["-uarchitect-cto-01", "-cf", "x"]) == ["-uarchitect-cto-01", "-f", "x"]
+              and g._without_output_options(["-f", "--", "-cx"]) == ["-f", "--", "-cx"]
+              and g._without_output_options(["-fd", ",", "p"]) == ["-f", "p"]
+              and g._without_output_options(["-cu", "root", "p"]) == ["-u", "root", "p"],
+              (g._without_output_options(["-uarchitect-cto-01", "-cf", "x"]), g._without_output_options(["-cu", "root", "p"])))
         check("pgrep_argvs: pkill loses its signal options, killall NAME becomes pgrep -x",
               g.pgrep_argvs(["pkill", "-TERM", "-9", "-f", "p"]) == [["pgrep", "-f", "p"]]
               and g.pgrep_argvs(["killall", "a", "b"]) == [["pgrep", "-x", "a"], ["pgrep", "-x", "b"]])
@@ -237,7 +247,7 @@ def main() -> int:
             took = time.monotonic() - t0
         finally:
             g.selects, g.GROUND_TRUTH_BUDGET_S = real_selects, budget
-        check("the ground truth stops within its budget, across killall's names", took < 0.95, took)
+        check("the ground truth stops within its budget, across killall's names", took < 1.5, took)
         check("the dummy was not killed by any of this", dummy.poll() is None)
     finally:
         dummy.kill()

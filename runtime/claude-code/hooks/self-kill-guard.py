@@ -51,10 +51,10 @@ NAME_PREFIX = "__NAME__:"
 # killall -g: it kills the whole process group of what it names, which no
 # pattern reading can see.
 GROUP_MARK = "__GROUP__"
-SESSION_NAME = "claude"
+SESSION_NAME = "claude"   # own_claude() finds the ancestor by exactly this name
 # The ground truth's whole budget: under the hook's 5 s timeout, so the ask
 # after it is still reached (ninth round).
-GROUND_TRUTH_BUDGET_S = 3.0   # own_claude() finds the ancestor by exactly this name
+GROUND_TRUTH_BUDGET_S = 3.0
 # Each prefix's own options that take a separate value. Per prefix, never
 # merged: a flag that takes a value in one program is boolean in another
 # (xargs -r, env -i, sudo -E), and a merged set read the kill after such a
@@ -292,6 +292,20 @@ _VALUE_LONG = ("--delimiter", "--pgroup", "--group", "--older", "--parent", "--s
                "--euid", "--uid", "--pidfile", "--runstates", "--cgroup", "--ns", "--nslist", "--queue")
 
 
+def _cluster(w: str) -> tuple[str, str | None, bool]:
+    """A short-option cluster read as getopt reads it: (the letters that
+    take no value, the value-taking letter or None, whether its value is
+    the NEXT word). The first value-taking letter ends the cluster; what
+    follows it in the word is its glued value (`-uuser`: u, value "user").
+    Judging a cluster by its last letter swallowed the pattern after
+    `-uuser` (tenth round)."""
+    letters = w[1:]
+    for k, ch in enumerate(letters):
+        if ch in _VALUE_SHORT:
+            return letters[:k], ch, k == len(letters) - 1
+    return letters, None, False
+
+
 def _name_candidates(args: list[str]) -> list[str]:
     out, it = [], iter(args)
     for w in it:
@@ -301,7 +315,7 @@ def _name_candidates(args: list[str]) -> list[str]:
             if "=" not in w and _long(w, *_VALUE_LONG):
                 next(it, None)
         elif w.startswith("-") and w != "-":
-            if not _is_signal_option(w) and w[-1] in _VALUE_SHORT:
+            if not _is_signal_option(w) and _cluster(w)[2]:
                 next(it, None)
         else:
             out.append(w)
@@ -411,9 +425,6 @@ def _long(w: str, *names: str) -> bool:
     return len(name) > 2 and any(n.startswith(name) for n in names)
 
 
-# pkill/pgrep letters and long options that change what pgrep PRINTS (a
-# count; a joined list), so its answer is not a list of pids to read.
-_OUTPUT_SHORT, _OUTPUT_LONG = set("cd"), ("--count", "--delimiter")
 # killall's options the translation understands; any other — a cluster, a
 # process group (-g), a user or an age — and it steps aside.
 _KILLALL_KNOWN = {"-r", "--regexp", "-I", "--ignore-case", "-q", "--quiet", "-v", "--verbose", "-e", "--exact",
@@ -427,7 +438,9 @@ def _without_output_options(args: list[str]) -> list[str]:
     round: stepping aside on them lost a denial)."""
     out, it = [], iter(args)
     for w in it:
-        if w.startswith("--") and len(w) > 2:
+        if w == "--":
+            out += [w, *it]      # after it, every word is a pattern, untouched
+        elif w.startswith("--") and len(w) > 2:
             if _long(w, "--count"):
                 continue
             if _long(w, "--delimiter"):
@@ -435,17 +448,18 @@ def _without_output_options(args: list[str]) -> list[str]:
                     next(it, None)
                 continue
             out.append(w)
-        elif w.startswith("-") and w not in ("-", "--") and not _is_signal_option(w):
-            letters, kept = w[1:], ""
-            for k, ch in enumerate(letters):
-                if ch == "d":
-                    if k == len(letters) - 1:
-                        next(it, None)       # its value is the next word
-                    break                    # else the rest is its glued value
-                if ch != "c":
-                    kept += ch
+        elif w.startswith("-") and w != "-" and not _is_signal_option(w):
+            plain, opt, next_is_value = _cluster(w)
+            kept = plain.replace("c", "")
+            if opt == "d":
+                if next_is_value:
+                    next(it, None)   # -d's value is the next word, dropped with it
+            elif opt:
+                kept += w[1 + len(plain):]   # the value option and its glued value, intact
             if kept:
                 out.append("-" + kept)
+            if opt and opt != "d" and next_is_value:
+                out.append(next(it, ""))     # its value, intact
         else:
             out.append(w)
     return out
