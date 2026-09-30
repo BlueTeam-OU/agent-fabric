@@ -516,7 +516,10 @@ def put(child: str, name: str, value: bytes, store: str | None = None, fabric: s
             # agent's own store keeps an unpushed commit instead, and
             # _push_if_ahead retries it — that store IS the record.
             if _remote(store):
-                git(store, "reset", "-q", "--hard", f"origin/{_branch(store)}", check=False)
+                r = git(store, "reset", "-q", "--hard", f"origin/{_branch(store)}", check=False)
+                if r.returncode != 0:
+                    raise StoreError(f"{rec.get('login')}: the put did not reach the remote, and the mirror could not be "
+                                     f"reset to it ({store}); reset it before the next put") from None
             raise
     return {"child": rec.get("login"), "agent_id": aid, "name": name, "changed": changed}
 

@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
 """runtime/claude-code/retire-doppler.py [--dry-run] — what Doppler left in
-this account, removed: its CLI config and token (~/.doppler), a copy of
-the CLI in ~/.local/bin, and the source file the migration wrote, which
-nothing reads (ADR-038). bootstrap.sh runs it, so the upgrade that brings
+this account, removed: its CLI config (~/.doppler, with the token when it
+is kept there), a copy of the CLI in ~/.local/bin, and the source file
+the migration wrote, which nothing reads (ADR-038). bootstrap.sh runs it, so the upgrade that brings
 the fabric without Doppler also takes it off each account.
 
 The binary under /usr/local is the host's, removed there by its operator.
-Removing a file here revokes no token at Doppler: closing the project
-does, for all of them.
+A token kept in the desktop keyring stays there: ~/.doppler holds only a
+pointer to it. Removing a file here revokes no token at Doppler; closing
+the project does, for all of them. No `doppler logout` here: that is a
+write to Doppler, and the project is the owner's to close.
 
 Prints one line naming what it removed, or nothing; exit 1 when a path
 could not be removed.

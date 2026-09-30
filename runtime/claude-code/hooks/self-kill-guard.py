@@ -27,9 +27,20 @@ import sys
 
 PREFIXES = {"timeout", "sudo", "env", "nohup", "nice", "xargs", "exec", "command", "setsid", "stdbuf"}
 KILL_TOOLS = {"pgrep", "pkill", "killall", "kill"}
-# The prefixes' options whose next word is a value, never a command.
-VALUE_OPTIONS = {"-s", "--signal", "-k", "--kill-after", "-u", "--user", "-g", "--group", "-U", "-C", "-h", "-p",
-                 "-r", "-t", "-D", "-I", "-i", "-n", "-P", "-L", "-E", "-d", "-a", "-S", "--unset", "--chdir"}
+# Each prefix's own options that take a separate value. Per prefix, never
+# merged: a flag that takes a value in one program is boolean in another
+# (xargs -r, env -i, sudo -E), and a merged set read the kill after such a
+# flag as its value and passed it (re-review of #69, N1).
+VALUE_OPTIONS = {
+    "timeout": {"-s", "--signal", "-k", "--kill-after"},
+    "sudo": {"-u", "--user", "-g", "--group", "-h", "--host", "-p", "--prompt", "-C", "--close-from",
+             "-D", "--chdir", "-U", "--other-user", "-r", "--role", "-t", "--type", "-T", "--command-timeout"},
+    "env": {"-u", "--unset", "-C", "--chdir", "-S", "--split-string"},
+    "xargs": {"-I", "-L", "-n", "--max-args", "-P", "--max-procs", "-s", "--max-chars", "-d", "--delimiter",
+              "-E", "-a", "--arg-file"},
+    "nice": {"-n", "--adjustment"},
+    "stdbuf": {"-i", "-o", "-e"},
+}
 KILLS = re.compile(r"\b(kill|pkill|killall|xargs\s+(?:-\S+\s+)*kill)\b")
 
 
@@ -89,8 +100,9 @@ def kill_patterns(command: str) -> list[str]:
         # that is not an option's value — `timeout -s kill 5 pkill -f P`
         # names the signal `kill` before the tool (review of #69, F3).
         if os.path.basename(words[0]) in PREFIXES:
+            takes = VALUE_OPTIONS.get(os.path.basename(words[0]), set())
             at = next((i for i, w in enumerate(words)
-                       if os.path.basename(w) in KILL_TOOLS and not (i and words[i - 1] in VALUE_OPTIONS)), None)
+                       if os.path.basename(w) in KILL_TOOLS and not (i and words[i - 1] in takes)), None)
             if at is None:
                 continue
             words = words[at:]

@@ -49,6 +49,15 @@ def main() -> int:
         ("timeout -s KILL 5", "timeout -s KILL 5 pkill -f 'claude-fable'"),
         ("timeout -s kill 5: a lowercase signal is a value, not the tool", "timeout -s kill 5 pkill -f 'claude-fable'"),
         ("sudo -u kill: a user named like a tool", "sudo -u kill pkill -f 'gzcoord-inbox'"),
+        # A prefix's boolean flag is no value (re-review of #69, N1).
+        ("sudo -E", "sudo -E pkill -f 'claude-fable'"),
+        ("env -i", "env -i pkill -f 'claude-fable'"),
+        ("sudo -n", "sudo -n pkill -f 'claude-fable'"),
+        ("xargs -r", "echo x | xargs -r pkill -f 'claude-fable'"),
+        ("xargs -t", "echo x | xargs -t pkill -f 'claude-fable'"),
+        ("sudo -i", "sudo -i pkill -f 'claude-fable'"),
+        ("sudo -S", "sudo -S pkill -f 'claude-fable'"),
+        ("nice -n 5", "nice -n 5 pkill -f 'claude-fable'"),
         ("env -u X", "env -u HOME pkill -f 'gzcoord-inbox'"),
         ("xargs -I {}", "pgrep -f 'inbox --follow' | xargs -I {} kill {}"),
     ]
