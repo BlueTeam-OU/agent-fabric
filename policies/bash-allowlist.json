@@ -18,7 +18,6 @@
     "runtime/github/post-review.sh": 1,
     "runtime/github/pr-gate.sh": 1,
     "runtime/github/pr-review-status.sh": 1,
-    "runtime/github/pr-sessions.sh": 1,
     "runtime/github/test_post-review.sh": 6,
     "runtime/github/test_pr-gate.sh": 6,
     "runtime/github/test_pr-reply.sh": 6,
