@@ -1249,14 +1249,12 @@ echo "pr-review-status.sh — no gh api call invents a flag gh does not have"
 # backslash continuations — folding those joined nothing, so a flag on a
 # later line was not seen as part of the call. Verified by putting the
 # defect back: it fails this case.
-offenders="$(awk '
-  /gh api/            { inside = 1 }
-  inside && /--(argjson|slurp|null-input|raw-input)/ {
-      match($0, /--(argjson|slurp|null-input|raw-input)/)
-      print substr($0, RSTART, RLENGTH)
-  }
-  inside && /\)"/     { inside = 0 }
-' "$UNDER_TEST" | sort -u | tr '\n' ' ')"
+# The implementation is Python now (ADR-040), and it calls no jq at all:
+# every argument list goes to gh, so a jq-only flag ANYWHERE in the module
+# is one handed to gh. `--slurp` left the list: gh api has had it since
+# 2.48, and gh.py pages with it.
+offenders="$(grep -oE -- '--(argjson|null-input|raw-input)' "$SCRIPT_DIR/../../tools/fabric/github/pr_review_status.py" \
+             | sort -u | tr '\n' ' ')"
 if [[ -z "${offenders// /}" ]]; then
     pass "gh api is never handed a jq-only flag"
 else
