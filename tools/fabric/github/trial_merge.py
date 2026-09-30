@@ -395,11 +395,15 @@ def cleanup(top: str, wt: str, cpid: int | None) -> None:
         terminate(cpid, group=True)
     for pid in worktree_procs(wt, cpid):
         terminate(pid)
-    git.run(top, "worktree", "remove", "--force", wt, check=False)
-    remove_tree(wt)
-    remove_file(wt + ".pid")
-    remove_file(wt + ".out")
-    git.run(top, "worktree", "prune", check=False)
+    # Each step on its own: a git that times out (git.py's bound) must not
+    # keep the scratch tree and the pid file from going (review of #71).
+    for step in (lambda: git.run(top, "worktree", "remove", "--force", wt, check=False),
+                 lambda: remove_tree(wt), lambda: remove_file(wt + ".pid"), lambda: remove_file(wt + ".out"),
+                 lambda: git.run(top, "worktree", "prune", check=False)):
+        try:
+            step()
+        except (git.GitError, OSError):
+            pass
 
 
 def add_worktree(top: str, wt: str, base_sha: str) -> None:
@@ -606,8 +610,10 @@ def run(argv: list[str]) -> int:
 
 
 def main() -> int:
-    # A closed pipe ends the run as it ended the bash: quietly.
-    signal.signal(signal.SIGPIPE, signal.SIG_DFL)
+    # SIGPIPE stays ignored, as Python leaves it: a closed stdout raises
+    # BrokenPipeError through run()'s finally, so the worktree, its pid
+    # file and the check's processes are cleaned up before the run ends —
+    # the default action killed it first and left them all (review of #71).
     # Bytes git or a check printed that are not UTF-8 go out as they came in.
     sys.stdout.reconfigure(errors="surrogateescape")
     sys.stderr.reconfigure(errors="surrogateescape")
@@ -619,6 +625,12 @@ def main() -> int:
     except git.GitError as e:
         say(str(e))
         return 2
+    except BrokenPipeError:
+        # The reader is gone and cleanup has run; end as a pipe-killed run
+        # ends, quietly and 141, with stdout on /dev/null so the exit's own
+        # flush does not raise again.
+        os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
+        return 141
 
 
 if __name__ == "__main__":

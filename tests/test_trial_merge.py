@@ -256,6 +256,32 @@ def main() -> int:
 
         print("the help is the bash's header, nothing else")
         check("first and last line", tm.HELP.startswith("Do these branches combine?") and tm.HELP.endswith("(default 1 GiB)"))
+
+        print("a reader that is gone: the run still cleans up (review of #71)")
+        origin, clone, room2 = (os.path.join(scratch, n) for n in ("pipe-origin.git", "pipe-clone", "pipe-room"))
+        os.makedirs(room2)
+        sh(scratch, "init", "-q", "--bare", origin)
+        sh(scratch, "init", "-q", "-b", "main", clone)
+        sh(clone, "remote", "add", "origin", origin)
+        open(os.path.join(clone, "f"), "w").write("a\n")
+        sh(clone, "add", "-A")
+        sh(clone, "commit", "-q", "-m", "base")
+        sh(clone, "push", "-q", "origin", "main")
+        sh(clone, "checkout", "-q", "-b", "h/l/feat/x")
+        open(os.path.join(clone, "g"), "w").write("b\n")
+        sh(clone, "add", "-A")
+        sh(clone, "commit", "-q", "-m", "x")
+        sh(clone, "push", "-q", "origin", "h/l/feat/x")
+        r_end, w_end = os.pipe()
+        os.close(r_end)
+        env = {**os.environ, "TMPDIR": room2, "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_SYSTEM": os.devnull}
+        shim = os.path.join(HERE, "runtime", "github", "trial-merge.sh")
+        rc = subprocess.run(["bash", shim, "h/l/feat/x"], cwd=clone, env=env, stdout=w_end,
+                            stderr=subprocess.DEVNULL, timeout=120).returncode
+        os.close(w_end)
+        check("it ends 141, as a pipe-killed run does", rc == 141)
+        check("no scratch tree or pid file left", [n for n in os.listdir(room2) if n.startswith("trial-merge.")] == [])
+        check("no worktree left registered", sh(clone, "worktree", "list").count("\n") == 1)
     finally:
         shutil.rmtree(scratch, ignore_errors=True)
 
