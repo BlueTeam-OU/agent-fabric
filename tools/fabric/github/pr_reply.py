@@ -282,7 +282,13 @@ def run(argv: list[str], stdin) -> int:
     try:
         url = (((gh.graphql(REPLY, id=thread, body=body).get("addPullRequestReviewThreadReply") or {})
                 .get("comment") or {}).get("url") or "")
-    except gh.GhError:
+    except gh.GhError as e:
+        # A reply cannot be unsent: a call that timed out or was throttled
+        # may have landed, and a re-run then posts it twice. Only a refusal
+        # GitHub gave is "rejected" (review of #71).
+        if e.transient:
+            die(f"no answer from GitHub for the reply (thread {thread} on #{number}: {e.reason}) — it may have "
+                "posted. Look at the thread before re-running; a second run posts it twice.")
         die(f"the reply was rejected (thread {thread} on #{number}).")
     if not url:
         die("the reply returned no URL — assume it did not post.")

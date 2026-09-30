@@ -28,6 +28,28 @@ def main() -> int:
     check("an automation vendor names none", not names("dependabot/pub/apps/x"))
     check("an empty segment names none", not names("/l/feat/x"))
     check("dependabot's branches are the devex-tooling role's", pr_reply.BOT_OWNER_ROLE["dependabot"] == "devex-tooling")
+    print("a reply GitHub gave no answer to is never called rejected (review of #71)")
+    import gh
+    real = (gh.graphql, gh.run, pr_reply.local.toplevel, pr_reply.local.probe, pr_reply.local.remote_url)
+    node = {"node": {"isResolved": False, "path": "a", "line": 1, "pullRequest": {
+        "number": 7, "headRefName": "h/me/feat/x", "state": "OPEN", "repository": {"nameWithOwner": "o/r"}}}}
+
+    def graphql(query, **kw):
+        if "addPullRequestReviewThreadReply" in query:
+            raise gh.GhError("gh api graphql", "no answer within 60 s", transient=True)
+        return node
+    gh.graphql, gh.run = graphql, (lambda args, **kw: "o/r\n")
+    pr_reply.local.toplevel = lambda: "/x/wc"
+    pr_reply.local.remote_url = lambda root: ""
+    pr_reply.local.probe = lambda cmd, **kw: (0, "h\n" if cmd[0] == "hostname" else "me\n")
+    try:
+        pr_reply.run(["PRRT_abc"], "body")
+        check("refused", False)
+    except pr_reply.Refused as e:
+        check("says it may have posted, and to look first", "may have posted" in str(e) and "rejected" not in str(e))
+    finally:
+        gh.graphql, gh.run, pr_reply.local.toplevel, pr_reply.local.probe, pr_reply.local.remote_url = real
+
     print("--help and a usage error never wait on an open stdin (review of #71)")
     shim = os.path.join(HERE, "runtime", "github", "pr-reply.sh")
     for args, want in ((["--help"], 0), (["--bogus"], 2)):
