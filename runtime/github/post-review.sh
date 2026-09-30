@@ -154,9 +154,16 @@ elif [[ "$OWNER" != "$ME" && "$OWNER" != "$ME_LEGACY" ]]; then
     # bound to fabric-coordinator. FAILS CLOSED: an unreadable role or file
     # list, or gh's 100-file cap reached, is another session's PR.
     ROLE="$(python3 "$FABRIC_ROOT/runtime/identity.py" --role 2>/dev/null || true)"
-    FILES_JSON="$(gh pr view "$PR" --json files 2>/dev/null || true)"
-    NFILES="$(jq -r '(.files // null) | if type == "array" then length else -1 end' <<<"$FILES_JSON" 2>/dev/null || echo -1)"
-    OUTSIDE="$(jq -r '.files[]?.path // empty' <<<"$FILES_JSON" 2>/dev/null \
+    # The role this session was LAUNCHED with is the one in its prompt; a
+    # binding changed under it since does not make it fabric-coordinator
+    # (review of #68). A disagreement is no role.
+    [[ -z "${AGENT_FABRIC_LAUNCH_ROLE:-}" || "$AGENT_FABRIC_LAUNCH_ROLE" == "$ROLE" ]] || ROLE=""
+    # From REST, which gives a renamed file's old path too: gh's `files`
+    # lists only the new one, so a code file moved INTO locale/ read as a
+    # translation (review of #68). Every path, old and new, must be inside.
+    FILES_JSON="$(gh api --paginate --slurp "repos/$REPO/pulls/$PR/files?per_page=100" 2>/dev/null || true)"
+    NFILES="$(jq -r 'if type == "array" then (add // []) | length else -1 end' <<<"$FILES_JSON" 2>/dev/null || echo -1)"
+    OUTSIDE="$(jq -r '(add // [])[] | .filename, (.previous_filename // empty)' <<<"$FILES_JSON" 2>/dev/null \
         | grep -Evc '^identities/roles/[^/]+/locale/[^/]+/[^/]+$' || true)"
     if [[ "$ROLE" == "fabric-coordinator" && "$NFILES" -ge 1 && "$NFILES" -lt 100 && "$OUTSIDE" == 0 ]]; then
         echo "post-review: #$PR belongs to '$OWNER' and touches only locale translations;" >&2

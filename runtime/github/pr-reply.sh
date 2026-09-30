@@ -198,6 +198,10 @@ wc_name="$(basename "$root")"
 # (below, bot_owner_role), and only the session holding that role may
 # answer on them. No binding, no role.
 ROLE="$(python3 "$FABRIC_ROOT/runtime/identity.py" --role 2>/dev/null || true)"
+# The role this session was LAUNCHED with is the one in its prompt; a
+# binding changed under it since does not hand it another role's PRs
+# (review of #68). A disagreement is no role.
+[[ -z "${AGENT_FABRIC_LAUNCH_ROLE:-}" || "$AGENT_FABRIC_LAUNCH_ROLE" == "$ROLE" ]] || ROLE=""
 OWNER="$(printf '%s' "$PR_BRANCH" | cut -d/ -f1,2)"
 
 # Does the branch name a SESSION at all? Same structural test

@@ -189,7 +189,7 @@ invoke() {
     local body="$1"; shift
     [[ -n "$ROLE_STATE_DIR" ]] || with_role -
     RUN_OUT="$(cd "$SANDBOX/$CLONE_NAME" && printf '%s' "$body" | \
-        env PATH="$SANDBOX/bin:$PATH" GH_MOCK_STATE="$SANDBOX/state" \
+        env -u AGENT_FABRIC_LAUNCH_ROLE PATH="$SANDBOX/bin:$PATH" GH_MOCK_STATE="$SANDBOX/state" \
         AGENT_FABRIC_STATE_DIR="$ROLE_STATE_DIR" \
         "${MOCK_ENV[@]}" bash "$UNDER_TEST" "$@" 2>&1)"
     RUN_RC=$?
@@ -369,6 +369,15 @@ invoke "Let me answer this one." "$THREAD_ID"
 assert_rc       "backend-dev: refused" 2
 assert_contains "backend-dev: names the owning role" "devex-tooling role owns"
 [[ "$(calls)" != *REPLY* ]] && pass "backend-dev: nothing posted" || fail "backend-dev: posted on a role-owned PR" "$(calls)"
+# Bound devex-tooling, but launched as another role: the launched role
+# is the session's (review of #68), so it is not the owner.
+thread_fixture "dependabot/nuget/apps/backend_dotnet/dotnet-minor-patch-04e2" false
+with_role devex-tooling
+MOCK_ENV=(env AGENT_FABRIC_LAUNCH_ROLE=backend-dev)
+invoke "Answering as the binding says." "$THREAD_ID"
+MOCK_ENV=(env)
+assert_rc       "bound devex-tooling, launched backend-dev: refused" 2
+[[ "$(calls)" != *REPLY* ]] && pass "…nothing posted" || fail "posted with a drifted role" "$(calls)"
 thread_fixture "dependabot/nuget/apps/backend_dotnet/dotnet-minor-patch-04e2" false
 with_role -
 invoke "No role here." "$THREAD_ID"
