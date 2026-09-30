@@ -8,7 +8,8 @@
 Every call is bounded, runs as `git -C <repo>`, and fails as a GitError
 naming the operation and git's last line of stderr that is not advice
 ("hint:") — the shape secret_store._run found for its own calls, now in
-one place. `ok` is for git's question-commands, whose exit 1 is an
+one place. `errors` is the decoding policy for text that may not be UTF-8
+(a commit message: "replace" keeps the call from failing on it). `ok` is for git's question-commands, whose exit 1 is an
 answer, not a failure; anything else from them still raises.
 """
 from __future__ import annotations
@@ -25,12 +26,13 @@ class GitError(Exception):
 
 
 def run(repo: str, *args: str, check: bool = True, input: str | None = None, env: dict | None = None,
-        timeout: float = TIMEOUT_S, what: str | None = None) -> subprocess.CompletedProcess:
+        timeout: float = TIMEOUT_S, what: str | None = None,
+        errors: str | None = None) -> subprocess.CompletedProcess:
     what = what or "git " + (args[0] if args else "")
     try:
         stdin = {"input": input} if input is not None else {"stdin": subprocess.DEVNULL}
         r = subprocess.run(["git", "-C", repo, *args], capture_output=True, text=True,
-                           env=env, timeout=timeout, **stdin)
+                           env=env, timeout=timeout, errors=errors, **stdin)
     except FileNotFoundError:
         raise GitError(what, "git is not installed") from None
     except subprocess.TimeoutExpired:
