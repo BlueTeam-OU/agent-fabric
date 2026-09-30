@@ -70,6 +70,9 @@ case "$1" in
     # and, for a rename, its previous_filename.
     if [ "$2" = "--paginate" ]; then
       [ -f "$S/files.json" ] && { cat "$S/files.json"; exit 0; }
+      # As real gh does under --slurp: the error BODY on stdout, wrapped,
+      # and a failing status (review of #70: stderr alone hid the case).
+      echo '[{"message":"Not Found","documentation_url":"https://docs.github.com","status":"404"}]'
       echo "gh: Not Found (HTTP 404)" >&2; exit 1
     fi
     # Record the request body so a case can assert on what was SENT,
@@ -193,6 +196,7 @@ printf '%s\n' 'import os, sys' 'print(os.environ.get("FAKE_ROLE", "") if "--role
   > "$FAKE_FABRIC/runtime/identity.py"
 LOC="identities/roles/language-culture/locale/ge/team.md"
 FAKE_ROLE=fabric-coordinator; export FAKE_ROLE FAKE_FABRIC
+AGENT_FABRIC_LAUNCH_ROLE_CASE=fabric-coordinator   # launched as the merger, as well as bound
 set_pr "$OTHER/i18n/ge-team" "$LOC"; invoke "findings" 552
 assert_rc "the merger posts on a locale-only PR" 0
 posted && pass "…it was sent" || fail "the merger's review was not sent"
@@ -207,17 +211,20 @@ set_pr "$OTHER/i18n/ge-team"; invoke "no" 552
 [[ "$RUN_RC" -eq 2 ]] && ! posted && pass "an unreadable file list refuses" || fail "posted with no file list" "rc=$RUN_RC"
 many=(); for i in $(seq 1 100); do many+=("identities/roles/language-culture/locale/ge/f$i.md"); done
 set_pr "$OTHER/i18n/ge-team" "${many[@]}"; invoke "no" 552
-[[ "$RUN_RC" -eq 2 ]] && ! posted && pass "a PR of 100 files or more refuses" || fail "posted on a PR of 100 files" "rc=$RUN_RC"
+[[ "$RUN_RC" -eq 0 ]] && posted && pass "a locale PR of 100 files posts: REST pages, there is no cap to fear" || fail "refused a large locale PR" "rc=$RUN_RC"
 set_pr "$OTHER/i18n/ge-team" "tools/fabric/lint.py=>$LOC"; invoke "no" 552
 [[ "$RUN_RC" -eq 2 ]] && ! posted && pass "a code file renamed INTO a locale directory refuses: its old path counts" || fail "posted on a rename into locale/" "rc=$RUN_RC"
 AGENT_FABRIC_LAUNCH_ROLE_CASE=devex-tooling
 set_pr "$OTHER/i18n/ge-team" "$LOC"; invoke "no" 552
 unset AGENT_FABRIC_LAUNCH_ROLE_CASE
 [[ "$RUN_RC" -eq 2 ]] && ! posted && pass "bound fabric-coordinator but launched as another role: refused" || fail "posted with a drifted role" "rc=$RUN_RC"
+set_pr "$OTHER/i18n/ge-team" "$LOC"; invoke "no" 552
+[[ "$RUN_RC" -eq 2 ]] && ! posted && pass "bound fabric-coordinator, not started by the launcher (no stamp): refused" || fail "posted without a launch stamp" "rc=$RUN_RC"
+AGENT_FABRIC_LAUNCH_ROLE_CASE=fabric-coordinator
 FAKE_ROLE=devex-tooling
 set_pr "$OTHER/i18n/ge-team" "$LOC"; invoke "no" 552
 [[ "$RUN_RC" -eq 2 ]] && ! posted && pass "another role refuses, even on a locale-only PR" || fail "a non-coordinator posted" "rc=$RUN_RC"
-unset FAKE_ROLE FAKE_FABRIC
+unset FAKE_ROLE FAKE_FABRIC AGENT_FABRIC_LAUNCH_ROLE_CASE
 
 echo "post-review: a branch naming no session is allowed, with a warning"
 for b in "agent/global-event-identity" "dependabot/pub/apps/x/y" "add-claude-github-actions-178"; do

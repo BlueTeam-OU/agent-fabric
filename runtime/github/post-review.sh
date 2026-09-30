@@ -151,21 +151,32 @@ elif [[ "$OWNER" != "$ME" && "$OWNER" != "$ME_LEGACY" ]]; then
     # CLAUDE.md, the locale carve-out), so the merger must post the review
     # its gate counts. Only a PR that touches nothing but
     # identities/roles/<role>/locale/<suffix>/, and only from a session
-    # bound to fabric-coordinator. FAILS CLOSED: an unreadable role or file
-    # list, or gh's 100-file cap reached, is another session's PR.
+    # launched and bound as fabric-coordinator. FAILS CLOSED: an unreadable
+    # role or file list is another session's PR.
     ROLE="$(python3 "$FABRIC_ROOT/runtime/identity.py" --role 2>/dev/null || true)"
     # The role this session was LAUNCHED with is the one in its prompt; a
     # binding changed under it since does not make it fabric-coordinator
-    # (review of #68). A disagreement is no role.
-    [[ -z "${AGENT_FABRIC_LAUNCH_ROLE:-}" || "$AGENT_FABRIC_LAUNCH_ROLE" == "$ROLE" ]] || ROLE=""
+    # (review of #68), and a session the launcher did not start holds no
+    # role at all — CLAUDE.md: a session becomes fabric-coordinator only
+    # by being launched with it bound (review of #70). No stamp, or a
+    # stamp that disagrees, is no role.
+    [[ "${AGENT_FABRIC_LAUNCH_ROLE:-}" == "$ROLE" ]] || ROLE=""
     # From REST, which gives a renamed file's old path too: gh's `files`
     # lists only the new one, so a code file moved INTO locale/ read as a
     # translation (review of #68). Every path, old and new, must be inside.
-    FILES_JSON="$(gh api --paginate --slurp "repos/$REPO/pulls/$PR/files?per_page=100" 2>/dev/null || true)"
-    NFILES="$(jq -r 'if type == "array" then (add // []) | length else -1 end' <<<"$FILES_JSON" 2>/dev/null || echo -1)"
-    OUTSIDE="$(jq -r '(add // [])[] | .filename, (.previous_filename // empty)' <<<"$FILES_JSON" 2>/dev/null \
-        | grep -Evc '^identities/roles/[^/]+/locale/[^/]+/[^/]+$' || true)"
-    if [[ "$ROLE" == "fabric-coordinator" && "$NFILES" -ge 1 && "$NFILES" -lt 100 && "$OUTSIDE" == 0 ]]; then
+    # On an HTTP error gh prints the error body on STDOUT, and --slurp wraps
+    # it as [{"message": …}]: read without its exit status, that counted
+    # the error's three keys as three files and OUTSIDE as 0, and the
+    # carve-out posted without having read the list (review of #70). The
+    # status decides first; then only an array of pages is a list.
+    NFILES=-1; OUTSIDE=-1
+    if FILES_JSON="$(gh api --paginate --slurp "repos/$REPO/pulls/$PR/files?per_page=100" 2>/dev/null)" \
+       && jq -e 'type == "array" and all(.[]; type == "array")' >/dev/null 2>&1 <<<"$FILES_JSON"; then
+        NFILES="$(jq -r 'add // [] | length' <<<"$FILES_JSON")"
+        OUTSIDE="$(jq -r '(add // [])[] | .filename, (.previous_filename // empty)' <<<"$FILES_JSON" \
+            | grep -Evc '^identities/roles/[^/]+/locale/[^/]+/[^/]+$' || true)"
+    fi
+    if [[ "$ROLE" == "fabric-coordinator" && "$NFILES" -ge 1 && "$OUTSIDE" == 0 ]]; then
         echo "post-review: #$PR belongs to '$OWNER' and touches only locale translations;" >&2
         echo "  posting as the locale carve-out's merger (fabric-coordinator)." >&2
         CARVE_OUT=1

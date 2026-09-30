@@ -358,7 +358,9 @@ echo "pr-reply: a Dependabot PR is the devex-tooling role's — that role answer
 # still somebody's, so refused too.
 thread_fixture "dependabot/nuget/apps/backend_dotnet/dotnet-minor-patch-04e2" false
 with_role devex-tooling
+MOCK_ENV=(env AGENT_FABRIC_LAUNCH_ROLE=devex-tooling)   # launched with the role, as well as bound
 invoke "Superseded by #694; rebased there." "$THREAD_ID"
+MOCK_ENV=(env)
 assert_rc       "devex-tooling: exits 0" 0
 assert_contains "devex-tooling: says the role owns it" "owned by the devex-tooling role"
 [[ "$(calls)" == *REPLY* ]] && pass "devex-tooling: replied" || fail "devex-tooling: did not reply" "$(calls)"
@@ -378,6 +380,13 @@ invoke "Answering as the binding says." "$THREAD_ID"
 MOCK_ENV=(env)
 assert_rc       "bound devex-tooling, launched backend-dev: refused" 2
 [[ "$(calls)" != *REPLY* ]] && pass "…nothing posted" || fail "posted with a drifted role" "$(calls)"
+# Bound devex-tooling, but not started by the launcher: no stamp, no role
+# (review of #70).
+thread_fixture "dependabot/nuget/apps/backend_dotnet/dotnet-minor-patch-04e2" false
+with_role devex-tooling
+invoke "Answering without a launch." "$THREAD_ID"
+assert_rc       "bound devex-tooling, no launch stamp: refused" 2
+[[ "$(calls)" != *REPLY* ]] && pass "…nothing posted" || fail "posted without a launch stamp" "$(calls)"
 thread_fixture "dependabot/nuget/apps/backend_dotnet/dotnet-minor-patch-04e2" false
 with_role -
 invoke "No role here." "$THREAD_ID"
