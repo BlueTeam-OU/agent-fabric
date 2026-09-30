@@ -88,6 +88,27 @@ def kill_after_prefixes(words: list[str]) -> list[str]:
     return []
 
 
+def segments(piece: str) -> list[list[str]]:
+    """The simple commands of a command line, each as its words. Split on
+    |, ; and & only OUTSIDE quotes: splitting the raw text first cut a
+    quoted argument that merely mentions a kill (python3 -c '... pkill -f
+    P ...') into a command of its own, and denied it (re-review of #69)."""
+    lex = shlex.shlex(piece, posix=True, punctuation_chars=True)
+    lex.whitespace_split = True
+    out, cur = [], []
+    try:
+        for tok in lex:
+            if tok and set(tok) <= set("|;&"):
+                out.append(cur)
+                cur = []
+            else:
+                cur.append(tok)
+    except ValueError:   # an unbalanced quote: the plain words, as before
+        return [seg.split() for seg in re.split(r"[|;&]+", piece)]
+    out.append(cur)
+    return out
+
+
 def kill_patterns(command: str) -> list[str]:
     """Every pattern the command selects processes by for a kill: the
     argument of -f/--full's pgrep or pkill, and killall -r's regex, in a
@@ -106,11 +127,7 @@ def kill_patterns(command: str) -> list[str]:
         rest = rest[:m.start()] + "SUBST" + rest[m.end():]
     pieces.append(rest)
     out = []
-    for segment in (seg for piece in pieces for seg in re.split(r"[|;&]+", piece)):
-        try:
-            words = shlex.split(segment)
-        except ValueError:
-            words = segment.split()
+    for words in (seg for piece in pieces for seg in segments(piece)):
         if not words:
             continue
         # A kill behind a prefix is still the kill (review of #68):
@@ -158,17 +175,36 @@ def verdict(command: str, cmdline: str | None) -> str | None:
     return None
 
 
+UNEXPANDED = re.compile(r"\$(\{|[A-Za-z_])")
+
+
+def decision(command: str, cmdline: str | None) -> tuple[str, str] | None:
+    """deny when a pattern matches the session's own command line; ask when
+    a pattern is a variable the hook cannot read (`pkill -f "$P"`), since
+    its value decides; otherwise nothing."""
+    why = verdict(command, cmdline)
+    if why:
+        return "deny", why
+    if cmdline:
+        held = [p for p in kill_patterns(command) if UNEXPANDED.search(p)]
+        if held:
+            return "ask", (f"This command kills by a pattern held in a variable ({held[0]}), whose value this hook "
+                           "cannot see; if it matches this session's own claude command line, the session dies. "
+                           "Kill by pid or pgrep -x instead, or allow it knowing the value.")
+    return None
+
+
 def main() -> int:
     try:
         payload = json.load(sys.stdin)
         command = (payload.get("tool_input") or {}).get("command") or ""
     except (ValueError, AttributeError):
         return 0
-    why = verdict(command, own_claude_cmdline())
-    if why:
+    d = decision(command, own_claude_cmdline())
+    if d:
         print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse",
-                                                 "permissionDecision": "deny",
-                                                 "permissionDecisionReason": why}}))
+                                                 "permissionDecision": d[0],
+                                                 "permissionDecisionReason": d[1]}}))
     return 0
 
 

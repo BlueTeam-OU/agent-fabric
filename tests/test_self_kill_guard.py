@@ -80,9 +80,18 @@ def main() -> int:
         # session's claude by pid (SIGTERM), a command the guard must pass.
         ("fabric-fresh ending the session for its next job", "fabric-fresh --job j3"),
         ("fabric-fresh with a note that mentions a kill", 'fabric-fresh --note "stopped: pkill -f gzcoord-inbox killed the last one"'),
+        # A kill phrase inside a quoted argument is text, not a command.
+        ("a quoted python -c string that mentions a kill", "python3 -c 'print(\"pkill -f claude-fable\")'"),
+        ("a commit message that quotes the command", "git commit -m 'fix: pgrep -f gzcoord-inbox | xargs kill no longer runs'"),
     ]
     for label, cmd in allowed:
         check(f"allowed: {label}", g.verdict(cmd, CLAUDE) is None, g.kill_patterns(cmd))
+    for cmd in ('pkill -f "$P"', "pgrep -f ${PAT} | xargs kill"):
+        check(f"a variable pattern asks: {cmd}", (g.decision(cmd, CLAUDE) or ("",))[0] == "ask", g.decision(cmd, CLAUDE))
+    check("a matching pattern still denies through decision()", g.decision("pkill -f claude-fable", CLAUDE)[0] == "deny")
+    check("a harmless command: no decision", g.decision("git status", CLAUDE) is None)
+    check("still split outside quotes: a real pipe after a quoted word",
+          g.verdict("echo 'x y' | xargs pkill -f 'claude-fable'", CLAUDE) is not None)
     launch = open(os.path.join(HERE, "runtime", "openrouter", "launch"), encoding="utf-8").read()
     opening = re.search(r'^OPENING="([^"]*)"', launch, re.M).group(1)
     fixed = CLAUDE.split(" -- ")[0] + " -- " + opening   # the launcher's own text, not a copy
