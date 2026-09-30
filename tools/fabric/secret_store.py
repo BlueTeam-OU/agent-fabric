@@ -508,7 +508,7 @@ def put(child: str, name: str, value: bytes, store: str | None = None, fabric: s
         _commit(store, f"parent {login()}: put {name}")
         try:
             _after_commit(store)
-        except StoreError:
+        except StoreError as pushed:
             # The mirror is the parent's view of the child's store, never a
             # record of its own: a put that did not reach the remote is
             # undone here, or the next look at the mirror reads the entry
@@ -518,8 +518,9 @@ def put(child: str, name: str, value: bytes, store: str | None = None, fabric: s
             if _remote(store):
                 r = git(store, "reset", "-q", "--hard", f"origin/{_branch(store)}", check=False)
                 if r.returncode != 0:
-                    raise StoreError(f"{rec.get('login')}: the put did not reach the remote, and the mirror could not be "
-                                     f"reset to it ({store}); reset it before the next put") from None
+                    why = ([l for l in r.stderr.decode(errors="replace").splitlines() if l.strip()] or [f"exit {r.returncode}"])[-1]
+                    raise StoreError(f"{rec.get('login')}: {pushed}; and the mirror could not be reset to its remote "
+                                     f"({store}: {why}) — reset it before the next put") from pushed
             raise
     return {"child": rec.get("login"), "agent_id": aid, "name": name, "changed": changed}
 

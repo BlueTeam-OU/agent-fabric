@@ -58,6 +58,13 @@ def main() -> int:
         ("sudo -i", "sudo -i pkill -f 'claude-fable'"),
         ("sudo -S", "sudo -S pkill -f 'claude-fable'"),
         ("nice -n 5", "nice -n 5 pkill -f 'claude-fable'"),
+        # Nested prefixes: each one's own options (re-review of #69, M1).
+        ("sudo timeout -s kill 5", "sudo timeout -s kill 5 pkill -f 'claude-fable'"),
+        ("sudo -u root timeout -s kill 5", "sudo -u root timeout -s kill 5 pkill -f 'claude-fable'"),
+        ("env -i timeout -s kill 5", "env -i timeout -s kill 5 pkill -f 'claude-fable'"),
+        ("nohup timeout -k kill 5", "nohup timeout -k kill 5 pkill -f 'claude-fable'"),
+        ("timeout 5 sudo -u kill", "timeout 5 sudo -u kill pkill -f 'claude-fable'"),
+        ("exec -a kill", "exec -a kill pkill -f 'claude-fable'"),
         ("env -u X", "env -u HOME pkill -f 'gzcoord-inbox'"),
         ("xargs -I {}", "pgrep -f 'inbox --follow' | xargs -I {} kill {}"),
     ]

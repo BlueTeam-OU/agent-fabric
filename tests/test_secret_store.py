@@ -260,6 +260,18 @@ def main() -> int:
                       p.returncode == 1 and "deleted again" in p.stdout and ahead == "0"
                       and not os.path.exists(os.path.join(mirror, "env", "OPENROUTER_API_KEY.gpg"))
                       and ("DELETE", "/api/v1/keys/h4sh", "Bearer prov-" + SECRET) in seen[n0:], p.stdout + f" ahead={ahead}")
+                # M2: the reset after the refused push fails as well (the
+                # hook locks the mirror's index): both reasons are said.
+                hook = os.path.join(remote, "hooks", "pre-receive")
+                open(hook, "w").write(f"#!/bin/sh\ntouch '{mirror}/.git/index.lock'\nexit 1\n")
+                os.chmod(hook, 0o755)
+                p = run(parent, "put", "kid", "RESET_CASE", stdin="v")
+                os.remove(hook)
+                os.remove(os.path.join(mirror, ".git", "index.lock"))
+                subprocess.run(["git", "-C", mirror, "reset", "-q", "--hard", "origin/main"], env=parent, check=True)
+                check("M2: a reset that fails too is said, with the push's reason and the reset's",
+                      p.returncode == 1 and "could not be reset" in p.stderr and "git push" in p.stderr
+                      and "Another git process" in p.stderr, p.stderr[-400:])
                 p = ik("kid")
                 check("F1: …so the re-run mints and writes, never 'present'", p.returncode == 0
                       and rows_of(p) == {("OPENROUTER_API_KEY", "written")}, p.stdout + p.stderr)
