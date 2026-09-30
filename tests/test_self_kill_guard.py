@@ -128,6 +128,17 @@ def main() -> int:
         ("a heredoc fed to bash", "bash <<'EOF'\npkill -f claude-fable\nEOF"),
         ("a heredoc piped to sh", "cat <<EOF | sh\npkill -f claude-fable\nEOF"),
         ("a kill after a heredoc ends", "git commit -F - <<'EOF'\nmsg\nEOF\npkill -f claude-fable"),
+        # Eighth round: a `<<` that is no here-document drops nothing; a
+        # shell by its path reads a heredoc; a pattern without -f is a NAME.
+        ("a << in arithmetic, then a kill", "echo $((1<<n))\npkill -f claude-fable"),
+        ("a << in a quote, then a kill", "grep -n 'x <<EOF' README.md\npkill -f claude-fable"),
+        ("a heredoc fed to /bin/sh", "/bin/sh <<EOF\npkill -f claude-fable\nEOF"),
+        ("pkill -c by the session's name", "pkill -c claude"),
+        ("a loop killing what pgrep names by the session's name", "for p in $(pgrep claude); do kill $p; done"),
+        ("pkill by the session's name", "pkill claude"),
+        ("killall by the session's name", "killall claude"),
+        ("killall -qr, a cluster with -r", "killall -qr claud"),
+        ("killall by a path to the session's binary", "killall /home/user/.local/share/claude/versions/9.9.9/claude"),
         ("env -u X", "env -u HOME pkill -f 'gzcoord-inbox'"),
         ("xargs -I {}", "pgrep -f 'inbox --follow' | xargs -I {} kill {}"),
     ]
@@ -154,9 +165,12 @@ def main() -> int:
         ("a commit message in a heredoc quoting a kill",
          "git commit -q -F - <<'EOF'\nfix: `pgrep -d -- -f claude-fable` and pkill -f claude-fable\nEOF"),
         ("a <<- heredoc with a tab-indented delimiter", "cat <<-EOF > f\n\tpkill -f claude-fable\n\tEOF"),
+        ("a listing pgrep by the session's name, no kill anywhere",
+         "for c in $(pgrep -x claude); do ls -l /proc/$c/exe; done"),
     ]
     for label, cmd in allowed:
         check(f"allowed: {label}", g.verdict(cmd, CLAUDE) is None, g.kill_patterns(cmd))
+    check("killall -g asks: the group it kills is not in the command", (g.decision("killall -g bash", CLAUDE) or ("",))[0] == "ask")
     for cmd in ('pkill -f "$P"', "pgrep -f ${PAT} | xargs kill", 'pkill -f "$(cat pattern.txt)"',
                 'pkill -f "claude-$(id -un)"', "pkill -f claude-`whoami`"):
         check(f"a variable pattern asks: {cmd}", (g.decision(cmd, CLAUDE) or ("",))[0] == "ask", g.decision(cmd, CLAUDE))
@@ -183,7 +197,9 @@ def main() -> int:
             ("pkill -f claude-zzqk", True),
             ("pkill claude-zzqk -f", True),                 # getopt permutes; procps decides
             ("pkill -TSTP -f claude-zzqk", True),            # the signal dropped for pgrep
-            ("pgrep -d -- -f claude-zzqk | xargs kill", True),
+            # -d joins pgrep's output: the ground truth steps aside and the
+            # first layer judges it (its refused case, with the real cmdline).
+            ("pgrep -d -- -f claude-zzqk | xargs kill", False),
             ("pkill -f 'claude-zz.k'", True),                # a regex, matched by procps
             ("killall -r slee", True),                       # by process name
             ("killall sleep", True),
@@ -193,8 +209,14 @@ def main() -> int:
         for cmd, want in truth:
             d = g.decision(cmd, other, pid)
             check(f"ground truth: {cmd} -> {'deny' if want else 'allowed'}", (d is not None and d[0] == "deny") == want, d)
-        check("ground truth never runs for a pattern it cannot read (asks instead)",
-              (g.decision('pkill -f "$P"', other, pid) or ("",))[0] == "ask")
+        real_selects, ran = g.selects, []
+        g.selects = lambda argv, p: ran.append(argv) or False
+        try:
+            d = g.decision('pkill -f "$P"', other, pid)
+        finally:
+            g.selects = real_selects
+        check("a pattern it cannot read: pgrep is never run for it, and the hook asks",
+              ran == [] and (d or ("",))[0] == "ask", (ran, d))
         check("pgrep_argvs: pkill loses its signal options, killall NAME becomes pgrep -x",
               g.pgrep_argvs(["pkill", "-TERM", "-9", "-f", "p"]) == [["pgrep", "-f", "p"]]
               and g.pgrep_argvs(["killall", "a", "b"]) == [["pgrep", "-x", "a"], ["pgrep", "-x", "b"]])

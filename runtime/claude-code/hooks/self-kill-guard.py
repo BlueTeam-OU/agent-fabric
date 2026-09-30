@@ -35,6 +35,7 @@ import re
 import shlex
 import signal
 import subprocess
+import time
 import sys
 
 PREFIXES = {"timeout", "sudo", "env", "nohup", "nice", "xargs", "exec", "command", "setsid", "stdbuf"}
@@ -44,6 +45,12 @@ COMPOUND = {"{", "}", "!", "if", "then", "elif", "else", "while", "until", "do",
 # What a lifted $( … ), ` … ` or <( … ) leaves in its place: no real pattern
 # contains it, so a pattern that does was built from a substitution.
 SUBST = "__SELF_KILL_GUARD_SUBST__"
+# A candidate judged against the process NAME rather than the command line.
+NAME_PREFIX = "__NAME__:"
+# killall -g: it kills the whole process group of what it names, which no
+# pattern reading can see.
+GROUP_MARK = "__GROUP__"
+SESSION_NAME = "claude"   # own_claude() finds the ancestor by exactly this name
 # Each prefix's own options that take a separate value. Per prefix, never
 # merged: a flag that takes a value in one program is boolean in another
 # (xargs -r, env -i, sudo -E), and a merged set read the kill after such a
@@ -110,7 +117,7 @@ def kill_after_prefixes(words: list[str]) -> list[str]:
     return []
 
 
-SHELLS = re.compile(r"(?:^|[\s|;&(])(?:bash|sh|zsh|dash|ksh|eval|source|\.)(?=$|[\s;&|)])")
+SHELLS = re.compile(r"(?:^|[\s|;&(/])(?:bash|sh|zsh|dash|ksh|eval|source|\.)(?=$|[\s;&|)])")
 
 
 def drop_heredoc_bodies(text: str) -> str:
@@ -130,9 +137,13 @@ def drop_heredoc_bodies(text: str) -> str:
         if not delims or SHELLS.search(line):
             continue
         for strip_tabs, delim in delims:
-            while i < len(lines) and (lines[i].lstrip("\t") if strip_tabs else lines[i]) != delim:
-                i += 1
-            i += 1   # the delimiter line itself
+            # Dropped only up to a delimiter line that is there: a `<<` that
+            # is no here-document (in $((1<<n)), a quote, a comment) finds
+            # none, and then nothing is dropped (review of #70, eighth round).
+            end = next((j for j in range(i, len(lines))
+                        if (lines[j].lstrip("\t") if strip_tabs else lines[j]) == delim), None)
+            if end is not None:
+                i = end + 1
     return "\n".join(out)
 
 
@@ -294,6 +305,7 @@ def kill_patterns(command: str) -> list[str]:
                 # -f counts even after a `--`: getopt may have taken that
                 # `--` as an option's value (`pgrep -d -- -f P`), and a
                 # candidate too many is the safe side (seventh round).
+                # getopt_long takes a unique prefix: --fu, --ful are --full.
                 if w.startswith("-") and w not in ("-", "--"):
                     name = w.split("=", 1)[0]
                     if name.startswith("--"):
@@ -304,17 +316,26 @@ def kill_patterns(command: str) -> list[str]:
                     cands.append(w)
                 elif w == "--":
                     rest_args = True
-                elif w.startswith("--"):
-                    # getopt_long takes a unique prefix: --fu, --ful are --full.
-                    name = w.split("=", 1)[0]
-                    full = full or (len(name) > 2 and "--full".startswith(name))
-                else:
-                    full = full or "f" in w[1:]
             if full:
                 out += cands
-        elif tool == "killall" and ("-r" in words or "--regexp" in words):
-            args = [w for w in words[1:] if not w.startswith("-")]
-            out += args
+            else:
+                # Without -f the pattern is matched against the process
+                # NAME — the session's is `claude` — so `pkill -c claude`
+                # kills it (eighth round). Marked so verdict() judges it
+                # against the name, not the command line.
+                out += [NAME_PREFIX + c for c in cands]
+        elif tool == "killall":
+            opts = [w for w in words[1:] if w.startswith("-") and w != "-"]
+            regex = any(w == "--regexp" or _long(w, "--regexp") or (not w.startswith("--") and "r" in w[1:])
+                        for w in opts if not _is_signal_option(w))
+            names = [w for w in words[1:] if not w.startswith("-")]
+            # killall matches the process name: exactly, or as a regex with
+            # -r (in any cluster, or a prefix of --regexp); a path is its
+            # file's basename, near enough to judge.
+            out += [NAME_PREFIX + (n if regex else "^" + re.escape(os.path.basename(n)) + "$") for n in names]
+            if any(w == "--process-group" or _long(w, "--process-group") or (not w.startswith("--") and "g" in w[1:])
+                   for w in opts if not _is_signal_option(w)):
+                out.append(GROUP_MARK)
     return out
 
 
@@ -322,10 +343,15 @@ def verdict(command: str, cmdline: str | None) -> str | None:
     if not cmdline:
         return None
     for pat in kill_patterns(command):
+        if pat == GROUP_MARK:
+            continue
+        target = cmdline
+        if pat.startswith(NAME_PREFIX):
+            pat, target = pat[len(NAME_PREFIX):], SESSION_NAME
         try:
-            hit = re.search(pat, cmdline)
+            hit = re.search(pat, target)
         except re.error:
-            hit = pat in cmdline
+            hit = pat in target
         if hit:
             return (f"The pattern {pat!r} matches this session's own claude process (its command line carries the "
                     "opening prompt), so this command would kill the session running it. Select by exact name "
@@ -346,22 +372,56 @@ def _is_signal_option(w: str) -> bool:
     return m.group(1).isdigit() or name in SIGNAL_NAMES or name.startswith("RTMIN") or name.startswith("RTMAX")
 
 
+def _long(w: str, *names: str) -> bool:
+    """`w` is one of these long options, or a unique prefix getopt takes."""
+    name = w.split("=", 1)[0]
+    return len(name) > 2 and any(n.startswith(name) for n in names)
+
+
+# pkill/pgrep letters and long options that change what pgrep PRINTS (a
+# count; a joined list), so its answer is not a list of pids to read.
+_OUTPUT_SHORT, _OUTPUT_LONG = set("cd"), ("--count", "--delimiter")
+# killall's options the translation understands; any other — a cluster, a
+# process group (-g), a user or an age — and it steps aside.
+_KILLALL_KNOWN = {"-r", "--regexp", "-I", "--ignore-case", "-q", "--quiet", "-v", "--verbose", "-e", "--exact",
+                  "-w", "--wait"}
+
+
 def pgrep_argvs(words: list[str]) -> list[list[str]] | None:
     """The list-only pgrep calls that select what this kill command would:
     pgrep as it is; pkill without its signal options; `killall NAME` as
-    `pgrep -x NAME` per name, `killall -r RE` as `pgrep RE`. None when a
-    word is not literal (a variable, a substitution): its value decides,
-    and the hook cannot know it."""
+    `pgrep -x NAME` per name, `killall -r RE` as `pgrep RE`. None — the
+    first layer stands — when a word is not literal, when an option
+    changes what pgrep prints (-c, -d), or when killall's spelling is not
+    one the translation is sure of (a cluster, -g, a path as a name): an
+    answer that does not mean "these pids" must not read as "not
+    selected" (review of #70, eighth round)."""
     tool, args = os.path.basename(words[0]), words[1:]
     if any("$" in w or "`" in w or SUBST in w for w in args):
         return None
-    if tool == "pgrep":
-        return [["pgrep", *args]]
-    if tool == "pkill":
-        return [["pgrep", *[w for w in args if not _is_signal_option(w)]]]
-    regex = any(w in ("-r", "--regexp") for w in args)
-    icase = any(w in ("-I", "--ignore-case") for w in args)
-    names = [w for w in args if not w.startswith("-")]
+    if tool in ("pgrep", "pkill"):
+        for w in args:
+            if w.startswith("--") and _long(w, *_OUTPUT_LONG):
+                return None
+            if w.startswith("-") and not w.startswith("--") and not _is_signal_option(w) and set(w[1:]) & _OUTPUT_SHORT:
+                return None
+        return [["pgrep", *(args if tool == "pgrep" else [w for w in args if not _is_signal_option(w)])]]
+    names, it = [], iter(args)
+    regex = icase = False
+    for w in it:
+        if w in ("-s", "--signal"):
+            next(it, None)
+        elif w.startswith("--signal=") or _is_signal_option(w):
+            continue
+        elif w.startswith("-") and w != "-":
+            if w not in _KILLALL_KNOWN:
+                return None
+            regex = regex or w in ("-r", "--regexp")
+            icase = icase or w in ("-I", "--ignore-case")
+        elif "/" in w:
+            return None
+        else:
+            names.append(w)
     return [["pgrep", *(["-i"] if icase else []), *([] if regex else ["-x"]), n] for n in names] or None
 
 
@@ -390,8 +450,17 @@ def ground_truth(command: str, pid: int | None) -> bool | None:
     pgrep ever runs here, never the kill."""
     if not pid:
         return None
+    # A pgrep that only lists is not a kill: it is judged when its output
+    # reaches one (`| xargs … kill`, `kill $(pgrep …)`), as pkill and
+    # killall always are.
+    feeds_kill = bool(re.search(r"\|\s*(?:\S+\s+)*?xargs\b[^|;&\n]*\bkill\b|\bkill\b[^|;&\n]*(?:\$\(|`)", command))
+    deadline = time.monotonic() + 3   # under the hook's 5 s: the ask after this must still be reached
     answer: bool | None = False
     for words in kill_commands(command):
+        if os.path.basename(words[0]) == "pgrep" and not feeds_kill:
+            continue
+        if time.monotonic() > deadline:
+            return None
         argvs = pgrep_argvs(words)
         if argvs is None:
             answer = None
@@ -423,7 +492,12 @@ def decision(command: str, cmdline: str | None, pid: int | None = None) -> tuple
                         "process, so the command would kill the session running it. Select by pid, or by a "
                         "pattern pgrep does not match against this session.")
     if cmdline:
-        held = [p for p in kill_patterns(command) if UNEXPANDED.search(p) or SUBST in p]
+        pats = kill_patterns(command)
+        if GROUP_MARK in pats:
+            return "ask", ("killall -g kills the whole process group of what it names, and which group this "
+                           "session is in is not something this hook can read from the command; allow it "
+                           "knowing that, or name processes by pid.")
+        held = [p for p in pats if UNEXPANDED.search(p) or SUBST in p]
         if held:
             return "ask", (f"This command kills by a pattern held in a variable or a command substitution "
                            f"({held[0].replace(SUBST, '$(…)')}), whose value this hook "
