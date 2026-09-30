@@ -122,6 +122,11 @@ def main() -> int:
         ("-d -- -f", "pgrep -d -- -f claude-fable | xargs kill"),
         ("--delimiter -- -f", "pgrep --delimiter -- -f claude-fable | xargs kill"),
         ("a comment after a subshell, a quote in it", "(true)# it's here\npkill -f claude-fable\necho x # '"),
+        # A here-document read by a shell is code (a heredoc's body is
+        # otherwise data, below).
+        ("a heredoc fed to bash", "bash <<'EOF'\npkill -f claude-fable\nEOF"),
+        ("a heredoc piped to sh", "cat <<EOF | sh\npkill -f claude-fable\nEOF"),
+        ("a kill after a heredoc ends", "git commit -F - <<'EOF'\nmsg\nEOF\npkill -f claude-fable"),
         ("env -u X", "env -u HOME pkill -f 'gzcoord-inbox'"),
         ("xargs -I {}", "pgrep -f 'inbox --follow' | xargs -I {} kill {}"),
     ]
@@ -145,6 +150,9 @@ def main() -> int:
         ("killall -r with >|", "killall -r zzqx >| /dev/null"),
         ("pkill -f of another pattern, 2>/dev/null", "pkill -f zzqx 2>/dev/null"),
         ("a real comment naming the kill", "git status # pkill -f claude-fable"),
+        ("a commit message in a heredoc quoting a kill",
+         "git commit -q -F - <<'EOF'\nfix: `pgrep -d -- -f claude-fable` and pkill -f claude-fable\nEOF"),
+        ("a <<- heredoc with a tab-indented delimiter", "cat <<-EOF > f\n\tpkill -f claude-fable\n\tEOF"),
     ]
     for label, cmd in allowed:
         check(f"allowed: {label}", g.verdict(cmd, CLAUDE) is None, g.kill_patterns(cmd))

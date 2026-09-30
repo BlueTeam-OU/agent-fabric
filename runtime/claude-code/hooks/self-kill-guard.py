@@ -94,6 +94,32 @@ def kill_after_prefixes(words: list[str]) -> list[str]:
     return []
 
 
+SHELLS = re.compile(r"(?:^|[\s|;&(])(?:bash|sh|zsh|dash|ksh|eval|source|\.)(?=$|[\s;&|)])")
+
+
+def drop_heredoc_bodies(text: str) -> str:
+    """A here-document's body is data for the command that reads it — a
+    commit message quoting a kill is not a kill — so it is dropped, up to
+    its delimiter line. Unless a shell reads it (`bash <<EOF`, `cat <<EOF |
+    sh`, eval): then the body is code, and is kept to be judged. The
+    delimiter may be quoted; <<- strips leading tabs. <<< is a here-string,
+    not a here-document."""
+    lines, out, i = text.split("\n"), [], 0
+    while i < len(lines):
+        line = lines[i]
+        out.append(line)
+        i += 1
+        delims = [(m.group(1) == "-", m.group(2) or m.group(3) or m.group(4))
+                  for m in re.finditer(r"(?<!<)<<(-?)\s*(?:'([^']+)'|\"([^\"]+)\"|\\?([A-Za-z_][A-Za-z0-9_]*))", line)]
+        if not delims or SHELLS.search(line):
+            continue
+        for strip_tabs, delim in delims:
+            while i < len(lines) and (lines[i].lstrip("\t") if strip_tabs else lines[i]) != delim:
+                i += 1
+            i += 1   # the delimiter line itself
+    return "\n".join(out)
+
+
 def strip_non_arguments(text: str) -> str:
     """What bash does not pass to a command, removed outside quotes before
     the words are split: a comment (an unquoted '#' that starts a word, to
@@ -192,7 +218,8 @@ def kill_patterns(command: str) -> list[str]:
     # Each $( … ) (and `…`) is a command of its own: lifted out innermost
     # first, a placeholder word left behind, so `pgrep -u "$(id -un)" -f P`
     # keeps its pattern and `kill $(pgrep -f P)` yields the pgrep.
-    pieces, rest = [], command
+    # Here-document bodies first: a substitution inside one is data too.
+    pieces, rest = [], drop_heredoc_bodies(command)
     while True:
         m = re.search(r"[$<>]\(([^()]*)\)|`([^`]*)`", rest)
         if not m:
