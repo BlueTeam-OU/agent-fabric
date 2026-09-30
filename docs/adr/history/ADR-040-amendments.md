@@ -22,6 +22,9 @@ reader's, and pr-review-status's scan for jq-only flags handed to
 passed on nothing. They read the modules now; a flag planted in the
 module fails the scan.
 
-Neither change touches what an assertion asks, and the extended mock's
+One assertion did change with them: the scan's list of flags gh does
+not have lost `--slurp`, which gh api has had since 2.48 and gh.py
+pages with; kept, the scan would have refused the transport the port
+uses. Every other assertion asks what it asked, and the extended mock's
 pass on the original bash is what keeps "parity" meaning the same
 behaviour.
