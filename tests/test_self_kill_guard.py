@@ -74,6 +74,19 @@ def main() -> int:
         ("a kill with >/dev/null 2>&1", "pkill -f 'claude-fable' >/dev/null 2>&1"),
         ("a kill in a subshell", "( pkill -f 'claude-fable' )"),
         ("a kill on the next line", "git status\npkill -f 'claude-fable'"),
+        # The pattern is the FIRST argument: what trails it does not
+        # displace it (re-review of #70, R1, R5).
+        ("a trailing comment", "pkill -f claude-fable # zzqx yyqx"),
+        ("a bare trailing #", "pkill -f claude-fable #"),
+        ("a comment after two spaces", "pkill -f claude-fable  # zzqx"),
+        ("a redirection glued to a subshell", "(pkill -f claude-fable)>out"),
+        ("a clobbering redirection", "pkill -f claude-fable >| out"),
+        ("-- before the pattern", "pkill -f -- claude-fable"),
+        # Compound commands and process substitution (pre-existing).
+        ("a brace group", "{ pkill -f claude-fable; }"),
+        ("an if's then", "if true; then pkill -f claude-fable; fi"),
+        ("a leading assignment", "x=1 pkill -f claude-fable"),
+        ("process substitution", "diff <(pgrep -f claude-fable) /dev/null | xargs kill"),
         ("env -u X", "env -u HOME pkill -f 'gzcoord-inbox'"),
         ("xargs -I {}", "pgrep -f 'inbox --follow' | xargs -I {} kill {}"),
     ]
@@ -95,7 +108,8 @@ def main() -> int:
     ]
     for label, cmd in allowed:
         check(f"allowed: {label}", g.verdict(cmd, CLAUDE) is None, g.kill_patterns(cmd))
-    for cmd in ('pkill -f "$P"', "pgrep -f ${PAT} | xargs kill", 'pkill -f "$(cat pattern.txt)"'):
+    for cmd in ('pkill -f "$P"', "pgrep -f ${PAT} | xargs kill", 'pkill -f "$(cat pattern.txt)"',
+                'pkill -f "claude-$(id -un)"', "pkill -f claude-`whoami`"):
         check(f"a variable pattern asks: {cmd}", (g.decision(cmd, CLAUDE) or ("",))[0] == "ask", g.decision(cmd, CLAUDE))
     check("a matching pattern still denies through decision()", g.decision("pkill -f claude-fable", CLAUDE)[0] == "deny")
     check("a harmless command: no decision", g.decision("git status", CLAUDE) is None)

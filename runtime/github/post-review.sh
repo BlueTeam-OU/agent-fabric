@@ -172,11 +172,17 @@ elif [[ "$OWNER" != "$ME" && "$OWNER" != "$ME_LEGACY" ]]; then
     NFILES=-1; OUTSIDE=-1
     if FILES_JSON="$(gh api --paginate --slurp "repos/$REPO/pulls/$PR/files?per_page=100" 2>/dev/null)" \
        && jq -e 'type == "array" and all(.[]; type == "array")' >/dev/null 2>&1 <<<"$FILES_JSON"; then
-        NFILES="$(jq -r 'add // [] | length' <<<"$FILES_JSON")"
-        OUTSIDE="$(jq -r '(add // [])[] | .filename, (.previous_filename // empty)' <<<"$FILES_JSON" \
-            | grep -Evc '^identities/roles/[^/]+/locale/[^/]+/[^/]+$' || true)"
+        # The paths in their own step: a jq failure inside the grep
+        # pipeline read as "0 outside" (re-review of #70).
+        if PATHS="$(jq -r '(add // [])[] | .filename, (.previous_filename // empty)' <<<"$FILES_JSON" 2>/dev/null)"; then
+            NFILES="$(jq -r 'add // [] | length' <<<"$FILES_JSON")"
+            OUTSIDE="$(grep -Evc '^identities/roles/[^/]+/locale/[^/]+/[^/]+$' <<<"$PATHS" || true)"
+        fi
     fi
-    if [[ "$ROLE" == "fabric-coordinator" && "$NFILES" -ge 1 && "$OUTSIDE" == 0 ]]; then
+    # GitHub lists at most 3000 files of a pull request and stops there
+    # without an error: a list that long may be cut, so it is not read as
+    # whole (re-review of #70).
+    if [[ "$ROLE" == "fabric-coordinator" && "$NFILES" -ge 1 && "$NFILES" -lt 3000 && "$OUTSIDE" == 0 ]]; then
         echo "post-review: #$PR belongs to '$OWNER' and touches only locale translations;" >&2
         echo "  posting as the locale carve-out's merger (fabric-coordinator)." >&2
         CARVE_OUT=1

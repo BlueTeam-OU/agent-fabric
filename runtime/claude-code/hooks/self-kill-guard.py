@@ -28,6 +28,14 @@ import sys
 
 PREFIXES = {"timeout", "sudo", "env", "nohup", "nice", "xargs", "exec", "command", "setsid", "stdbuf"}
 KILL_TOOLS = {"pgrep", "pkill", "killall", "kill"}
+# Words that open or continue a compound command before the command itself.
+COMPOUND = {"{", "}", "!", "if", "then", "elif", "else", "while", "until", "do", "time", "coproc"}
+# pgrep's and pkill's options that take a separate value.
+PGREP_VALUE_OPTIONS = {"-u", "-U", "-g", "-G", "-P", "-s", "-t", "-F", "--euid", "--uid", "--pgroup", "--group",
+                       "--parent", "--session", "--terminal", "--pidfile", "--signal", "--ns", "--nslist"}
+# What a lifted $( … ), ` … ` or <( … ) leaves in its place: no real pattern
+# contains it, so a pattern that does was built from a substitution.
+SUBST = "__SELF_KILL_GUARD_SUBST__"
 # Each prefix's own options that take a separate value. Per prefix, never
 # merged: a flag that takes a value in one program is boolean in another
 # (xargs -r, env -i, sudo -E), and a merged set read the kill after such a
@@ -117,10 +125,8 @@ def segments(piece: str) -> list[list[str]]:
             cur = []
         elif tok and set(tok) <= set("<>&"):
             # A redirection: `2>`, `>`, `&>`, `>&` … — never & or && (the
-            # separators above). The fd before it and the one word after
-            # it (a file, or `1` of 2>&1) are not arguments.
-            if cur and cur[-1].isdigit():
-                cur.pop()
+            # separators above). The word after it (a file, or `1` of
+            # 2>&1) is not an argument.
             skip = True
         else:
             cur.append(tok)
@@ -139,11 +145,11 @@ def kill_patterns(command: str) -> list[str]:
     # keeps its pattern and `kill $(pgrep -f P)` yields the pgrep.
     pieces, rest = [], command
     while True:
-        m = re.search(r"\$\(([^()]*)\)|`([^`]*)`", rest)
+        m = re.search(r"[$<>]\(([^()]*)\)|`([^`]*)`", rest)
         if not m:
             break
         pieces.append(m.group(1) if m.group(1) is not None else m.group(2))
-        rest = rest[:m.start()] + "SUBST" + rest[m.end():]
+        rest = rest[:m.start()] + SUBST + rest[m.end():]
     pieces.append(rest)
     out = []
     for words in (seg for piece in pieces for seg in segments(piece)):
@@ -157,22 +163,39 @@ def kill_patterns(command: str) -> list[str]:
         # finds pkill. Choosing the option set once, from the outer prefix
         # or merged across all, let a kill through three times (reviews
         # of #69: F3, N1, M1).
+        # A compound command's keywords and a leading assignment are not the
+        # command: `{ pkill …; }`, `then pkill …`, `x=1 pkill …` (re-review
+        # of #70, pre-existing).
+        while words and (words[0] in COMPOUND or re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", words[0])):
+            words = words[1:]
+        if not words:
+            continue
         if os.path.basename(words[0]) in PREFIXES:
             words = kill_after_prefixes(words)
             if not words:
                 continue
         tool = os.path.basename(words[0])
         if tool in ("pgrep", "pkill"):
-            full = any(w in ("-f", "--full") or (w.startswith("-") and not w.startswith("--") and "f" in w[1:]) for w in words[1:])
-            args = [w for w in words[1:] if not w.startswith("-")]
-            # -u/-g/-P take a value: drop the word after each.
-            vals = set()
-            for i, w in enumerate(words[1:], 1):
-                if w in ("-u", "-U", "-g", "-G", "-P", "-s", "-t", "--euid", "--uid", "--pgroup", "--group", "--parent", "--session", "--terminal") and i + 1 < len(words):
-                    vals.add(i + 1)
-            args = [w for i, w in enumerate(words[1:], 1) if not w.startswith("-") and i not in vals]
-            if full and args:
-                out.append(args[-1])
+            # pgrep and pkill take ONE pattern: the first word that is not an
+            # option or an option's value. Taken from the END, whatever
+            # trailed it — a comment, a redirection, an fd — displaced it,
+            # and four review rounds on #69 and #70 patched one spelling at
+            # a time (re-review of #70, R1).
+            full, pattern, it = False, None, iter(words[1:])
+            for w in it:
+                if w == "--":
+                    pattern = next(it, None)
+                    break
+                if w.startswith("-") and len(w) > 1:
+                    if w in ("-f", "--full") or (not w.startswith("--") and "f" in w[1:]):
+                        full = True
+                    if w in PGREP_VALUE_OPTIONS:
+                        next(it, None)
+                    continue
+                pattern = w
+                break
+            if full and pattern is not None:
+                out.append(pattern)
         elif tool == "killall" and ("-r" in words or "--regexp" in words):
             args = [w for w in words[1:] if not w.startswith("-")]
             out += args
@@ -199,16 +222,17 @@ UNEXPANDED = re.compile(r"\$(\{|[A-Za-z_])")
 
 def decision(command: str, cmdline: str | None) -> tuple[str, str] | None:
     """deny when a pattern matches the session's own command line; ask when
-    a pattern is a variable the hook cannot read (`pkill -f "$P"`), since
-    its value decides; otherwise nothing."""
+    a pattern holds a variable or a command substitution the hook cannot
+    read (`pkill -f "$P"`, `pkill -f "claude-$(id -un)"`), since its value
+    decides; otherwise nothing."""
     why = verdict(command, cmdline)
     if why:
         return "deny", why
     if cmdline:
-        held = [p for p in kill_patterns(command) if UNEXPANDED.search(p) or p == "SUBST"]
+        held = [p for p in kill_patterns(command) if UNEXPANDED.search(p) or SUBST in p]
         if held:
             return "ask", (f"This command kills by a pattern held in a variable or a command substitution "
-                           f"({held[0] if held[0] != 'SUBST' else '$(…)'}), whose value this hook "
+                           f"({held[0].replace(SUBST, '$(…)')}), whose value this hook "
                            "cannot see; if it matches this session's own claude command line, the session dies. "
                            "Kill by pid or pgrep -x instead, or allow it knowing the value.")
     return None

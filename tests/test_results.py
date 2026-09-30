@@ -126,6 +126,28 @@ else:
     check("summarize: spend is not divided unless the results cover every repository", "spend_per_result" not in sm, sm)
     sm = results.summarize(rows, since=since, end=end, window=14, repos=["o/r"], cost=cost, every_repo=True)
     check("summarize: with every repository, spend per verified result", sm.get("spend_per_result") == {"direct": 90}, sm)
+    # main(): two token reads that answered for different accounts are said
+    # as that, in the JSON and in the text (re-review of #70, R4).
+    import contextlib, io, json
+    saved = (results.main_commits, results.merged_prs, results.spend)
+    reads = iter([{"by_account": {"a": {"direct": 5}, "b": {"direct": 5}}}, {"by_account": {"a": {"direct": 1}}}] * 2)
+    results.main_commits, results.merged_prs = (lambda repo, since: []), (lambda repo, since: [])
+    results.spend = lambda days: next(reads)
+    try:
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            results.main(["--json"])
+        js = json.loads(out.getvalue())
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            results.main([])
+        text = out.getvalue()
+    finally:
+        results.main_commits, results.merged_prs, results.spend = saved
+    check("main --json: the unmatched accounts are named, and there is no figure",
+          js["summary"].get("spend_unmatched") == ["b"] and js["summary"]["spend"] is None, js["summary"])
+    check("main: the text says the reads disagreed, not that nothing was read",
+          "answered for different accounts (b)" in text and "not read" not in text, text[-300:])
     print(f"\n{'FAILED' if fails else 'all passed'}")
     return 1 if fails else 0
 

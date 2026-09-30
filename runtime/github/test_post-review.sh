@@ -211,7 +211,12 @@ set_pr "$OTHER/i18n/ge-team"; invoke "no" 552
 [[ "$RUN_RC" -eq 2 ]] && ! posted && pass "an unreadable file list refuses" || fail "posted with no file list" "rc=$RUN_RC"
 many=(); for i in $(seq 1 100); do many+=("identities/roles/language-culture/locale/ge/f$i.md"); done
 set_pr "$OTHER/i18n/ge-team" "${many[@]}"; invoke "no" 552
-[[ "$RUN_RC" -eq 0 ]] && posted && pass "a locale PR of 100 files posts: REST pages, there is no cap to fear" || fail "refused a large locale PR" "rc=$RUN_RC"
+[[ "$RUN_RC" -eq 0 ]] && posted && pass "a locale PR of 100 files posts" || fail "refused a large locale PR" "rc=$RUN_RC"
+many=(); for i in $(seq 1 3000); do many+=("identities/roles/language-culture/locale/ge/f$i.md"); done
+set_pr "$OTHER/i18n/ge-team" "${many[@]}"; invoke "no" 552
+[[ "$RUN_RC" -eq 2 ]] && ! posted && pass "3000 files, GitHub's list cap: it may be cut, so it refuses" || fail "posted on a list that may be cut" "rc=$RUN_RC"
+set_pr "$OTHER/i18n/ge-team" "$LOC"; echo '[["not an object"]]' > "$SANDBOX/state/files.json"; invoke "no" 552
+[[ "$RUN_RC" -eq 2 ]] && ! posted && pass "pages whose items are not files refuse, never read as 0 outside" || fail "posted on a malformed list" "rc=$RUN_RC"
 set_pr "$OTHER/i18n/ge-team" "tools/fabric/lint.py=>$LOC"; invoke "no" 552
 [[ "$RUN_RC" -eq 2 ]] && ! posted && pass "a code file renamed INTO a locale directory refuses: its old path counts" || fail "posted on a rename into locale/" "rc=$RUN_RC"
 AGENT_FABRIC_LAUNCH_ROLE_CASE=devex-tooling
