@@ -36,6 +36,7 @@ import shlex
 import signal
 import subprocess
 import time
+import warnings
 import sys
 
 PREFIXES = {"timeout", "sudo", "env", "nohup", "nice", "xargs", "exec", "command", "setsid", "stdbuf"}
@@ -50,7 +51,10 @@ NAME_PREFIX = "__NAME__:"
 # killall -g: it kills the whole process group of what it names, which no
 # pattern reading can see.
 GROUP_MARK = "__GROUP__"
-SESSION_NAME = "claude"   # own_claude() finds the ancestor by exactly this name
+SESSION_NAME = "claude"
+# The ground truth's whole budget: under the hook's 5 s timeout, so the ask
+# after it is still reached (ninth round).
+GROUND_TRUTH_BUDGET_S = 3.0   # own_claude() finds the ancestor by exactly this name
 # Each prefix's own options that take a separate value. Per prefix, never
 # merged: a flag that takes a value in one program is boolean in another
 # (xargs -r, env -i, sudo -E), and a merged set read the kill after such a
@@ -283,6 +287,27 @@ def kill_commands(command: str) -> list[list[str]]:
     return out
 
 
+_VALUE_SHORT = set("dgGOPstuUFrq")
+_VALUE_LONG = ("--delimiter", "--pgroup", "--group", "--older", "--parent", "--session", "--signal", "--terminal",
+               "--euid", "--uid", "--pidfile", "--runstates", "--cgroup", "--ns", "--nslist", "--queue")
+
+
+def _name_candidates(args: list[str]) -> list[str]:
+    out, it = [], iter(args)
+    for w in it:
+        if w == "--":
+            out += list(it)
+        elif w.startswith("--") and len(w) > 2:
+            if "=" not in w and _long(w, *_VALUE_LONG):
+                next(it, None)
+        elif w.startswith("-") and w != "-":
+            if not _is_signal_option(w) and w[-1] in _VALUE_SHORT:
+                next(it, None)
+        else:
+            out.append(w)
+    return out
+
+
 def kill_patterns(command: str) -> list[str]:
     """Every candidate pattern the command selects processes by for a kill:
     each argument of -f/--full's pgrep or pkill, and killall -r's regexes,
@@ -319,6 +344,10 @@ def kill_patterns(command: str) -> list[str]:
             if full:
                 out += cands
             else:
+                # A value of a known value-taking option is no name pattern:
+                # against the short name "claude", `-u a` matched (ninth
+                # round). The command-line reading above keeps every word.
+                cands = _name_candidates(words[1:])
                 # Without -f the pattern is matched against the process
                 # NAME — the session's is `claude` — so `pkill -c claude`
                 # kills it (eighth round). Marked so verdict() judges it
@@ -349,7 +378,11 @@ def verdict(command: str, cmdline: str | None) -> str | None:
         if pat.startswith(NAME_PREFIX):
             pat, target = pat[len(NAME_PREFIX):], SESSION_NAME
         try:
-            hit = re.search(pat, target)
+            with warnings.catch_warnings():
+                # procps's ERE ([[:digit:]]) makes Python warn of a nested
+                # set; a hook's stderr reaches every session.
+                warnings.simplefilter("ignore")
+                hit = re.search(pat, target)
         except re.error:
             hit = pat in target
         if hit:
@@ -387,25 +420,51 @@ _KILLALL_KNOWN = {"-r", "--regexp", "-I", "--ignore-case", "-q", "--quiet", "-v"
                   "-w", "--wait"}
 
 
+def _without_output_options(args: list[str]) -> list[str]:
+    """The arguments without -c/--count and -d/--delimiter (and -d's value,
+    apart or glued): they change what pgrep PRINTS, never what it selects,
+    so the list-only question drops them and reads plain pids (ninth
+    round: stepping aside on them lost a denial)."""
+    out, it = [], iter(args)
+    for w in it:
+        if w.startswith("--") and len(w) > 2:
+            if _long(w, "--count"):
+                continue
+            if _long(w, "--delimiter"):
+                if "=" not in w:
+                    next(it, None)
+                continue
+            out.append(w)
+        elif w.startswith("-") and w not in ("-", "--") and not _is_signal_option(w):
+            letters, kept = w[1:], ""
+            for k, ch in enumerate(letters):
+                if ch == "d":
+                    if k == len(letters) - 1:
+                        next(it, None)       # its value is the next word
+                    break                    # else the rest is its glued value
+                if ch != "c":
+                    kept += ch
+            if kept:
+                out.append("-" + kept)
+        else:
+            out.append(w)
+    return out
+
+
 def pgrep_argvs(words: list[str]) -> list[list[str]] | None:
     """The list-only pgrep calls that select what this kill command would:
     pgrep as it is; pkill without its signal options; `killall NAME` as
-    `pgrep -x NAME` per name, `killall -r RE` as `pgrep RE`. None — the
-    first layer stands — when a word is not literal, when an option
-    changes what pgrep prints (-c, -d), or when killall's spelling is not
-    one the translation is sure of (a cluster, -g, a path as a name): an
-    answer that does not mean "these pids" must not read as "not
-    selected" (review of #70, eighth round)."""
+    `pgrep -x NAME` per name, `killall -r RE` as `pgrep RE`; -c and -d,
+    which change only what pgrep prints, are removed. None — the first
+    layer stands — when a word is not literal, or when killall's spelling
+    is not one the translation is sure of (a cluster, -g, a path as a
+    name): an answer that does not mean "these pids" must not read as "not
+    selected" (review of #70, eighth and ninth rounds)."""
     tool, args = os.path.basename(words[0]), words[1:]
     if any("$" in w or "`" in w or SUBST in w for w in args):
         return None
     if tool in ("pgrep", "pkill"):
-        for w in args:
-            if w.startswith("--") and _long(w, *_OUTPUT_LONG):
-                return None
-            if w.startswith("-") and not w.startswith("--") and not _is_signal_option(w) and set(w[1:]) & _OUTPUT_SHORT:
-                return None
-        return [["pgrep", *(args if tool == "pgrep" else [w for w in args if not _is_signal_option(w)])]]
+        return [["pgrep", *_without_output_options([w for w in args if tool == "pgrep" or not _is_signal_option(w)])]]
     names, it = [], iter(args)
     regex = icase = False
     for w in it:
@@ -425,12 +484,12 @@ def pgrep_argvs(words: list[str]) -> list[list[str]] | None:
     return [["pgrep", *(["-i"] if icase else []), *([] if regex else ["-x"]), n] for n in names] or None
 
 
-def selects(argv: list[str], pid: int) -> bool | None:
+def selects(argv: list[str], pid: int, timeout: float = 2.0) -> bool | None:
     """Whether procps itself, asked this list-only question, names `pid`.
     None when it could not answer (an option pgrep refuses, no pgrep, a
     timeout): then the checks above are what stands."""
     try:
-        r = subprocess.run(argv, capture_output=True, text=True, timeout=2, stdin=subprocess.DEVNULL)
+        r = subprocess.run(argv, capture_output=True, text=True, timeout=timeout, stdin=subprocess.DEVNULL)
     except (OSError, subprocess.TimeoutExpired):
         return None
     if r.returncode == 1:
@@ -450,23 +509,22 @@ def ground_truth(command: str, pid: int | None) -> bool | None:
     pgrep ever runs here, never the kill."""
     if not pid:
         return None
-    # A pgrep that only lists is not a kill: it is judged when its output
-    # reaches one (`| xargs … kill`, `kill $(pgrep …)`), as pkill and
-    # killall always are.
-    feeds_kill = bool(re.search(r"\|\s*(?:\S+\s+)*?xargs\b[^|;&\n]*\bkill\b|\bkill\b[^|;&\n]*(?:\$\(|`)", command))
-    deadline = time.monotonic() + 3   # under the hook's 5 s: the ask after this must still be reached
+    # Every pgrep in a command that kills at all: recognising which pgrep's
+    # output a kill reads (`| xargs kill`, `kill $(…)`) missed a loop and a
+    # variable (ninth round); a listing pgrep beside a kill word is a false
+    # deny, the safe side.
+    deadline = time.monotonic() + GROUND_TRUTH_BUDGET_S
     answer: bool | None = False
     for words in kill_commands(command):
-        if os.path.basename(words[0]) == "pgrep" and not feeds_kill:
-            continue
-        if time.monotonic() > deadline:
-            return None
         argvs = pgrep_argvs(words)
         if argvs is None:
             answer = None
             continue
         for argv in argvs:
-            got = selects(argv, pid)
+            left = deadline - time.monotonic()
+            if left <= 0:
+                return None if not answer else answer
+            got = selects(argv, pid, min(2.0, left))
             if got:
                 return True
             if got is None:

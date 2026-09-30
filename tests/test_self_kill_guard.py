@@ -165,6 +165,7 @@ def main() -> int:
         ("a commit message in a heredoc quoting a kill",
          "git commit -q -F - <<'EOF'\nfix: `pgrep -d -- -f claude-fable` and pkill -f claude-fable\nEOF"),
         ("a <<- heredoc with a tab-indented delimiter", "cat <<-EOF > f\n\tpkill -f claude-fable\n\tEOF"),
+        ("pkill by name with a short option value that is in 'claude'", "pkill -u a sleep"),
         ("a listing pgrep by the session's name, no kill anywhere",
          "for c in $(pgrep -x claude); do ls -l /proc/$c/exe; done"),
     ]
@@ -197,9 +198,15 @@ def main() -> int:
             ("pkill -f claude-zzqk", True),
             ("pkill claude-zzqk -f", True),                 # getopt permutes; procps decides
             ("pkill -TSTP -f claude-zzqk", True),            # the signal dropped for pgrep
-            # -d joins pgrep's output: the ground truth steps aside and the
-            # first layer judges it (its refused case, with the real cmdline).
-            ("pgrep -d -- -f claude-zzqk | xargs kill", False),
+            # -c and -d change what pgrep prints, not what it selects: the
+            # hook drops them and reads plain pids (ninth round).
+            ("pgrep -d -- -f claude-zzqk | xargs kill", True),
+            ("pkill -c -f claude-zzqk", True),
+            # POSIX classes: procps's ERE, which Python's re misreads; a kill
+            # reading pgrep's output through a loop or a variable (ninth).
+            ("for p in $(pgrep -f 'claude-zzqk [[:digit:]]+'); do kill $p; done", True),
+            ("pids=$(pgrep -f 'claude-zzqk [[:digit:]]+'); kill $pids", True),
+            ("pgrep -f 'claude-zzqk [[:digit:]]+' | while read p; do kill $p; done", True),
             ("pkill -f 'claude-zz.k'", True),                # a regex, matched by procps
             ("killall -r slee", True),                       # by process name
             ("killall sleep", True),
@@ -220,6 +227,17 @@ def main() -> int:
         check("pgrep_argvs: pkill loses its signal options, killall NAME becomes pgrep -x",
               g.pgrep_argvs(["pkill", "-TERM", "-9", "-f", "p"]) == [["pgrep", "-f", "p"]]
               and g.pgrep_argvs(["killall", "a", "b"]) == [["pgrep", "-x", "a"], ["pgrep", "-x", "b"]])
+        # The budget holds across every pgrep, killall's names included.
+        real_selects, budget = g.selects, g.GROUND_TRUTH_BUDGET_S
+        g.selects = lambda argv, p, timeout=2.0: time.sleep(min(timeout, 0.4)) or False
+        g.GROUND_TRUTH_BUDGET_S = 0.5
+        try:
+            t0 = time.monotonic()
+            g.ground_truth("killall a b c d e f", pid)
+            took = time.monotonic() - t0
+        finally:
+            g.selects, g.GROUND_TRUTH_BUDGET_S = real_selects, budget
+        check("the ground truth stops within its budget, across killall's names", took < 0.95, took)
         check("the dummy was not killed by any of this", dummy.poll() is None)
     finally:
         dummy.kill()
