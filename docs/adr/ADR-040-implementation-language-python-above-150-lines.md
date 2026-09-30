@@ -1,7 +1,8 @@
 # ADR-040 — Implementation language: Python above 150 lines
 
 **Date:** 2026-09-30
-**Status:** Proposed
+**Status:** Accepted
+**Ratified:** owner, 2026-09-30, by the merge of agent-fabric #70 (f15baa2), which carried it, as §8 provided
 **Decision Makers:** the owner (new fabric tooling in Python; a shell script ported when it next needs a substantial change; the wave plan); drafted by fabric-coordinator
 **Scope:** every executable the fabric tracks — `bin/`, `runtime/`, `policies/`, `tools/`, `tests/`: the language a new one is written in, the size a bash one may reach, and how an existing one moves; `policies/bash-allowlist.json` and the lint rule that reads it; `tools/fabric/gh.py` and `tools/fabric/git.py`
 **Pillar:** P1
@@ -103,8 +104,8 @@ production script.
 
 ## 8. Decision Status
 
-Proposed with the pull request that adds the allowlist, the lint rule,
-`gh.py` and `git.py`; accepted by the owner's merge of it.
+Accepted and in force. Wave 1, the GitHub toolkit, follows; the
+allowlist holds the rest, each entry with its wave.
 
 ## References
 

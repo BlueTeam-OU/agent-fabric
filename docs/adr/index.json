@@ -365,7 +365,7 @@
       "number": "040",
       "file": "ADR-040-implementation-language-python-above-150-lines.md",
       "title": "Implementation language: Python above 150 lines",
-      "status": "Proposed",
+      "status": "Accepted",
       "date": "2026-09-30",
       "pillar": "P1",
       "amendments": 0

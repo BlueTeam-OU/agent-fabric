@@ -807,7 +807,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - Keywords: agent id, UUIDv7, birth, rename, identity, lineage, key,
   secrets repository, P1.
 
-### ADR-040 — Implementation language: Python above 150 lines (Proposed)
+### ADR-040 — Implementation language: Python above 150 lines (Accepted)
 
 - New fabric tooling is Python 3.12+, standard library only; bash stays
   for shims, forwarders, hook entry points, the suite runners and
