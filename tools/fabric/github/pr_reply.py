@@ -40,12 +40,12 @@ from __future__ import annotations
 import os
 import re
 import shutil
-import subprocess
 import sys
 
 HERE = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
 import gh  # noqa: E402
+from github import local  # noqa: E402
 
 HELP = """Reply to ONE review thread and resolve it, in a single call.
 
@@ -219,27 +219,24 @@ def run(argv: list[str], stdin) -> int:
     location = f"{node.get('path')}:{node.get('line') if node.get('line') is not None else '?'}"
 
     # FAILS CLOSED: not knowing whose PR this is has to mean stop.
-    r = subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True, stdin=subprocess.DEVNULL)
-    if r.returncode != 0:
+    root = local.toplevel()
+    if not root:
         die("not inside a git worktree, so the session's working-copy identity is unknown — refusing to reply "
             "(run it from the working copy that owns the PR).")
-    root = r.stdout.strip()
     fabric = os.environ.get("AGENT_FABRIC_ROOT") or os.path.dirname(os.path.dirname(os.path.dirname(HERE)))
     ident = os.path.join(fabric, "runtime", "identity.py")
-    host = subprocess.run(["hostname", "-s"], capture_output=True, text=True).stdout.strip()
-    agent = subprocess.run([sys.executable, ident], capture_output=True, text=True).stdout.strip() \
-        if os.path.exists(ident) else ""
-    agent = agent or subprocess.run(["id", "-un"], capture_output=True, text=True).stdout.strip()
+    host = local.probe(["hostname", "-s"])[1].strip()
+    agent = local.probe([sys.executable, ident])[1].strip() if os.path.exists(ident) else ""
+    agent = agent or local.probe(["id", "-un"])[1].strip()
     me = f"{host}/{agent}"
     # A working copy named after its repository is every login's default
     # clone, so its name is no session's; only a clone with a name of its
     # own carries a legacy prefix.
-    remote = subprocess.run(["git", "-C", root, "remote", "get-url", "origin"], capture_output=True, text=True).stdout.strip()
+    remote = local.remote_url(root)
     repo_name = re.sub(r"\.git$", "", remote).rsplit("/", 1)[-1].rsplit(":", 1)[-1]
     wc_name = os.path.basename(root)
     me_legacy = "" if repo_name and wc_name.lower() == repo_name.lower() else f"{host}/{wc_name}"
-    role = subprocess.run([sys.executable, ident, "--role"], capture_output=True, text=True).stdout.strip() \
-        if os.path.exists(ident) else ""
+    role = local.probe([sys.executable, ident, "--role"])[1].strip() if os.path.exists(ident) else ""
     # The role this session was LAUNCHED with is the one in its prompt; a
     # session the launcher did not start holds no role at all (reviews of
     # #68 and #70). No stamp, or one that disagrees, is no role.

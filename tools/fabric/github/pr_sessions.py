@@ -88,13 +88,13 @@ from __future__ import annotations
 import os
 import re
 import shutil
-import subprocess
 import sys
 from datetime import datetime, timedelta, timezone
 
 HERE = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
 import gh  # noqa: E402
+from github import local  # noqa: E402
 from github.pr_reply import BOT_OWNER_ROLE, branch_names_a_session  # noqa: E402
 
 HELP = """Which SESSION owns which PR, newest first.
@@ -484,11 +484,7 @@ def parse(argv: list[str]) -> Opts | None:
 def _sh(cmd: list[str]) -> tuple[int, str]:
     """(exit status, stdout) of a command; 127 and nothing when it is not
     there, as a shell says."""
-    try:
-        r = subprocess.run(cmd, capture_output=True, text=True, stdin=subprocess.DEVNULL)
-    except OSError:
-        return 127, ""
-    return r.returncode, r.stdout
+    return local.probe(cmd)
 
 
 def who_am_i() -> tuple[str, str, str]:
@@ -497,10 +493,9 @@ def who_am_i() -> tuple[str, str, str]:
     prefixes carry — or ("", "", "") outside a clone. Older branches carry
     the working-copy name in the second segment; me_legacy lets the default
     "mine" filter still find them while they last."""
-    rc, top = _sh(["git", "rev-parse", "--show-toplevel"])
-    if rc != 0:
+    root = local.toplevel()
+    if not root:
         return "", "", ""
-    root = top.rstrip("\n")
     fabric = os.environ.get("AGENT_FABRIC_ROOT") or os.path.dirname(os.path.dirname(os.path.dirname(HERE)))
     ident = os.path.join(fabric, "runtime", "identity.py")
     rc, agent = _sh([sys.executable, ident])
@@ -513,7 +508,7 @@ def who_am_i() -> tuple[str, str, str]:
     # name is no session's: taken for one, it made the pre-rename clone's
     # branches "mine" in every session (a managed project's review). Only a
     # clone with a name of its own carries a legacy prefix.
-    remote = _sh(["git", "-C", root, "remote", "get-url", "origin"])[1].rstrip("\n")
+    remote = local.remote_url(root)
     repo_name = re.sub(r".*[/:]", "", re.sub(r"\.git$", "", remote))
     wc_name = os.path.basename(root)
     legacy = "" if repo_name and wc_name.lower() == repo_name.lower() else f"{host}/{wc_name}"

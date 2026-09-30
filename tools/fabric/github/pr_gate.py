@@ -38,7 +38,7 @@ HERE = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
 import gh  # noqa: E402
 import git  # noqa: E402
-from github import commit_class  # noqa: E402
+from github import commit_class, local  # noqa: E402
 
 FABRIC = os.path.dirname(os.path.dirname(os.path.dirname(HERE)))
 
@@ -187,8 +187,8 @@ def session_prefix() -> str:
         except (OSError, ValueError, AttributeError, subprocess.TimeoutExpired):
             session = ""
     if not session or session == "null/null":
-        host = subprocess.run(["hostname", "-s"], capture_output=True, text=True).stdout.strip()
-        user = subprocess.run(["id", "-un"], capture_output=True, text=True).stdout.strip()
+        host = local.probe(["hostname", "-s"])[1].strip()
+        user = local.probe(["id", "-un"])[1].strip()
         session = f"{host}/{user}"
     return session
 

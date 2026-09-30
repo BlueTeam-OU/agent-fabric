@@ -27,13 +27,13 @@ import json
 import os
 import re
 import shutil
-import subprocess
 import sys
 import tempfile
 
 HERE = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
 import gh  # noqa: E402
+from github import local  # noqa: E402
 
 REVIEW_MARKER = "<!-- agent-fabric-review v1 -->"
 
@@ -140,8 +140,8 @@ def identity(fabric: str, *args: str) -> str:
     ident = os.path.join(fabric, "runtime", "identity.py")
     if not os.path.exists(ident):
         return ""
-    r = subprocess.run([sys.executable, ident, *args], capture_output=True, text=True, stdin=subprocess.DEVNULL)
-    return r.stdout.strip() if r.returncode == 0 else ""
+    rc, out = local.probe([sys.executable, ident, *args])
+    return out.strip() if rc == 0 else ""
 
 
 def run(argv: list[str], stdin) -> int:
@@ -207,17 +207,15 @@ def run(argv: list[str], stdin) -> int:
     # ── lane guard ──────────────────────────────────────────────────
     # Same rule as pr-reply, and the same reason: a review cannot be
     # unsent, and another session is mid-flight on work you cannot see.
-    r = subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True,
-                       stdin=subprocess.DEVNULL)
-    if r.returncode != 0:
+    root = local.toplevel()
+    if not root:
         die("not inside a git worktree, so the session's working-copy identity is unknown — refusing.")
-    root = r.stdout.strip()
     # The session is the AGENT — the Linux login — on this host. Older
     # branches carry the working-copy name in the second segment, so that
     # is accepted as this session too while they last.
     fabric = os.environ.get("AGENT_FABRIC_ROOT") or os.path.join(root, "..", "agent-fabric")
-    host = subprocess.run(["hostname", "-s"], capture_output=True, text=True).stdout.strip()
-    agent = identity(fabric) or subprocess.run(["id", "-un"], capture_output=True, text=True).stdout.strip()
+    host = local.probe(["hostname", "-s"])[1].strip()
+    agent = identity(fabric) or local.probe(["id", "-un"])[1].strip()
     me, me_legacy = f"{host}/{agent}", f"{host}/{os.path.basename(root)}"
     owner = "/".join(branch.split("/")[:2])
     carve_out = False
