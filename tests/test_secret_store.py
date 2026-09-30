@@ -17,6 +17,7 @@ it was found."""
 from __future__ import annotations
 
 import json
+import re
 import os
 import shutil
 import subprocess
@@ -270,8 +271,12 @@ def main() -> int:
                 os.remove(os.path.join(mirror, ".git", "index.lock"))
                 subprocess.run(["git", "-C", mirror, "reset", "-q", "--hard", "origin/main"], env=parent, check=True)
                 check("M2: a reset that fails too is said, with the push's reason and the reset's",
-                      p.returncode == 1 and "could not be reset" in p.stderr and "git push" in p.stderr
-                      and "Another git process" in p.stderr, p.stderr[-400:])
+                      p.returncode == 1 and "git push" in p.stderr
+                      # git's own wording of the lock differs by version (Fedora's last
+                      # line names another process, Debian's says to remove the file):
+                      # the reset's reason is whatever follows the mirror's path.
+                      and re.search(r"could not be reset to its remote \([^()]*children/[^:]+: \S[^)]*\)", p.stderr),
+                      p.stderr[-400:])
                 p = ik("kid")
                 check("F1: …so the re-run mints and writes, never 'present'", p.returncode == 0
                       and rows_of(p) == {("OPENROUTER_API_KEY", "written")}, p.stdout + p.stderr)
