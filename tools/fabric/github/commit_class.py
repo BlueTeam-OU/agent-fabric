@@ -130,8 +130,10 @@ def classify(parents: str, subject: str, answers: str = "", pr: str = "", repo: 
     # hyphenated one a finding label follows — "code-review F3: …" names
     # the review class's finding, and read as work it moved the band
     # (review of #71).
-    if re.search(rf"(?:^|[^A-Za-z])(?:re-review|(?<![A-Za-z]-)review'?s?|findings?|nits?)(?:[^A-Za-z]|$)"
-                 rf"|[A-Za-z]-reviews?'?s?\s+{LABEL}(?:[^A-Za-z0-9]|$)", subject, re.I) and (
+    # The label stays case-sensitive there, as everywhere: "post-review v2"
+    # is a version, not a finding (re-review of #71).
+    if (re.search(r"(?:^|[^A-Za-z])(?:re-review|(?<![A-Za-z]-)review'?s?|findings?|nits?)(?:[^A-Za-z]|$)", subject, re.I)
+            or re.search(rf"[A-Za-z]-(?i:reviews?'?s?)\s+{LABEL}(?:[^A-Za-z0-9]|$)", subject)) and (
             re.search(r"(?:^|[^A-Za-z])(?:fix(?:es|ed)?|address(?:es|ed|ing)?|answer(?:s|ed)?|round|re-review|nits?|findings?)(?:[^A-Za-z0-9]|$)|#[0-9]+",
                       subject, re.I)
             or re.search(rf"(?:^|[^A-Za-z0-9]){LABEL}(?:-[0-9]+)?(?:[^A-Za-z0-9]|$)", subject)):
