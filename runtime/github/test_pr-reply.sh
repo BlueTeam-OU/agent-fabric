@@ -117,7 +117,7 @@ if [[ "${1:-}" == "repo" && "${2:-}" == "view" ]]; then
   exit 0
 fi
 
-query=""; id=""; body=""
+query=""; id=""; body=""; json=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
     -f) case "$2" in
@@ -126,14 +126,27 @@ while [[ $# -gt 0 ]]; do
           body=*)  body="${2#body=}" ;;
         esac
         shift 2 ;;
+    # The same call with its query and variables as JSON on stdin (tools/
+    # fabric/gh.py, ADR-040 §5 rule 6: a body never in argv); answered in
+    # GraphQL's own shape, where the -f form was answered through --jq.
+    --input) json=1; shift 2 ;;
     *) shift ;;
   esac
 done
+if [[ "$json" == 1 ]]; then
+  req="$(cat)"
+  query="$(jq -r '.query' <<<"$req")"
+  id="$(jq -r '.variables.id // ""' <<<"$req")"
+  body="$(jq -r '.variables.body // empty' <<<"$req"; printf x)"; body="${body%x}"; body="${body%$'\n'}"
+fi
+wrap() {  # wrap <jq path> : put stdin at that path of a {"data": …} answer, as GitHub does
+  if [[ "$json" == 1 ]]; then jq -c --slurpfile v /dev/stdin -n "{data: {}} | $1 = \$v[0]"; else cat; fi
+}
 
 if [[ "$query" == *"PullRequestReviewThread"* && "$query" != *mutation* ]]; then
   echo "READ $id" >> "$GH_MOCK_STATE/calls"
   [[ -n "${GH_MOCK_READ_FAIL:-}" ]] && exit 1
-  cat "$GH_MOCK_STATE/thread.json"
+  wrap '.data.node' < "$GH_MOCK_STATE/thread.json"
   exit 0
 fi
 
@@ -141,15 +154,16 @@ if [[ "$query" == *addPullRequestReviewThreadReply* ]]; then
   echo "REPLY $id" >> "$GH_MOCK_STATE/calls"
   printf '%s' "$body" > "$GH_MOCK_STATE/body.txt"
   [[ -n "${GH_MOCK_REPLY_FAIL:-}" ]] && exit 1
-  [[ -n "${GH_MOCK_REPLY_EMPTY:-}" ]] && { echo ""; exit 0; }
-  echo "https://github.com/o/r/pull/1#discussion_r1"
+  [[ -n "${GH_MOCK_REPLY_EMPTY:-}" ]] && { if [[ "$json" == 1 ]]; then echo '""' | wrap '.data.addPullRequestReviewThreadReply.comment.url'; else echo ""; fi; exit 0; }
+  if [[ "$json" == 1 ]]; then echo '"https://github.com/o/r/pull/1#discussion_r1"' | wrap '.data.addPullRequestReviewThreadReply.comment.url'
+  else echo "https://github.com/o/r/pull/1#discussion_r1"; fi
   exit 0
 fi
 
 if [[ "$query" == *resolveReviewThread* ]]; then
   echo "RESOLVE $id" >> "$GH_MOCK_STATE/calls"
   [[ -n "${GH_MOCK_RESOLVE_FAIL:-}" ]] && exit 1
-  echo "true"
+  if [[ "$json" == 1 ]]; then echo 'true' | wrap '.data.resolveReviewThread.thread.isResolved'; else echo "true"; fi
   exit 0
 fi
 
