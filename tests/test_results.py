@@ -95,7 +95,7 @@ else:
         old = os.environ["PATH"]
         os.environ["PATH"] = tmp + os.pathsep + old
         try:
-            prs = results.merged_prs("o/r", dt.date(2026, 9, 1))
+            prs = results.merged_prs("o/r", dt.datetime(2026, 9, 1, tzinfo=dt.timezone.utc))
             commits = results.main_commits("o/r", dt.datetime(2026, 9, 1, tzinfo=dt.timezone.utc))
         finally:
             os.environ["PATH"] = old
@@ -104,6 +104,28 @@ else:
     check("main_commits: subject, body and time from the REST list",
           commits == [{"sha": "s1", "subject": "fix x", "body": "body",
                        "when": dt.datetime(2026, 10, 2, tzinfo=dt.timezone.utc)}], commits)
+    # The period's spend, account by account (review of #68).
+    whole = {"by_account": {"a": {"direct": 100, "broker": 10}, "b": {"direct": 50}}}
+    recent = {"by_account": {"a": {"direct": 30}, "b": {"direct": 20}}}
+    check("period_cost subtracts account by account", results.period_cost(whole, recent)
+          == {"by_path": {"direct": 100, "broker": 10}, "accounts": 2}, results.period_cost(whole, recent))
+    check("period_cost: reads that answered for different accounts give no figure",
+          results.period_cost(whole, {"by_account": {"a": {"direct": 30}}}) is None)
+    check("period_cost: a missing read gives no figure", results.period_cost(None, recent) is None)
+    # The summary: only closed windows count; ratios divide by verified.
+    rows = [{"in_period": True, "status": "verified", "supervision": 1},
+            {"in_period": True, "status": "not verified", "supervision": 5},
+            {"in_period": False, "status": "pending", "supervision": 9}]
+    since, end = dt.datetime(2026, 9, 1, tzinfo=dt.timezone.utc), dt.datetime(2026, 9, 15, tzinfo=dt.timezone.utc)
+    cost = {"by_path": {"direct": 90}, "accounts": 2}
+    sm = results.summarize(rows, since=since, end=end, window=14, repos=["o/r"], cost=cost, every_repo=False)
+    check("summarize: the period holds only closed windows; the pending one is apart",
+          (sm["merged_in_period"], sm["verified"], sm["pending_after_period"], sm["verified_rate"]) == (2, 1, 1, 0.5), sm)
+    check("summarize: supervision counts verified results only, per verified result",
+          (sm["supervision_events"], sm["supervision_per_result"]) == (1, 1.0), sm)
+    check("summarize: spend is not divided unless the results cover every repository", "spend_per_result" not in sm, sm)
+    sm = results.summarize(rows, since=since, end=end, window=14, repos=["o/r"], cost=cost, every_repo=True)
+    check("summarize: with every repository, spend per verified result", sm.get("spend_per_result") == {"direct": 90}, sm)
     print(f"\n{'FAILED' if fails else 'all passed'}")
     return 1 if fails else 0
 
