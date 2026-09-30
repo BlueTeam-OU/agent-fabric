@@ -4,7 +4,7 @@
 **Status:** Accepted
 **Ratified:** owner, 2026-09-27, by arming agent-fabric #53 (ratification by merge, the owner's rule of 2026-09-27)
 **Decision Makers:** the owner; drafted by fabric-coordinator
-**Scope:** the Claude-account templates (Doppler environment `claude-accounts`) and each login's `CLAUDE_CODE_OAUTH_TOKEN` reference (projects/registry.json `agent_env`); bin/fabric-accounts and runtime/control/accounts.mjs; the control agent's `secrets-sync` action (runtime/control/secrets.mjs) and `accounts` op (runtime/control/ops.mjs, runtime/control/agentd.mjs); the launcher's sign-in check (runtime/openrouter/launch); bin/fabric-status's sign-in line
+**Scope:** the Claude-account templates (entries `CLAUDE_ACCOUNT_<ACCOUNT>` of the coordinator's store, ADR-038) and each login's `CLAUDE_CODE_OAUTH_TOKEN` (projects/registry.json `agent_env`); bin/fabric-accounts and runtime/control/accounts.mjs; the control agent's `secrets-sync` action (runtime/control/secrets.mjs) and `accounts` op (runtime/control/ops.mjs, runtime/control/agentd.mjs); the launcher's sign-in check (runtime/openrouter/launch); bin/fabric-status's sign-in line
 **Pillar:** P5
 **Evidence:** docs/live-checks/2026-09-24-claude-accounts.md
 
@@ -39,16 +39,15 @@ control plane, by message: no hostexec, no sudo, nobody on the account.
 mechanisms, because the two tokens can do different things.**
 
 - **Working sessions run on a template's setup-token.** Each Claude
-  account has a template: a config in the Doppler environment
-  `claude-accounts`, named after the account, holding that account's
-  setup-token as `CLAUDE_CODE_OAUTH_TOKEN`. A login chooses an account by
-  one line in its own Doppler config, a reference into a template. Its
-  read-only token resolves the reference, `fabric-secrets sync` exports
-  it, and set, it outranks the login's own `/login`. A plain-claude
-  session without it does not start.
+  account has a template: an entry of the coordinator's store, named
+  after the account, holding that account's setup-token. A login runs on
+  an account when the coordinator has put that template's token into the
+  login's own store as `CLAUDE_CODE_OAUTH_TOKEN`; `fabric-secrets sync`
+  exports it, and set, it outranks the login's own `/login`. A
+  plain-claude session without it does not start (A 2026-09-30).
 - **A move is assigned, applied and proved by signed action.**
-  `fabric-accounts assign <login…|all> <account>` writes the reference
-  and reads it back, then sends every named login the signed
+  `fabric-accounts assign <login…|all> <account>` writes the token into
+  each login's store, then sends every named login the signed
   `secrets-sync` action with the template's fingerprint: each account
   syncs its own secrets, proves the synced token is the template's, and
   resumes a running session on it.
@@ -57,9 +56,9 @@ mechanisms, because the two tokens can do different things.**
   nothing else; its control agent reads each with the harness's own
   headless `/usage`, which renews the sign-in and makes no model call.
 
-The credentials themselves — Doppler, one config per login, read-only
-tokens, values never printed — are ADR-012's; the signed action is
-ADR-009's and ADR-029's.
+The credentials themselves — each login's own store, values never
+printed — are ADR-012's and ADR-038's; the signed action is ADR-009's
+and ADR-029's.
 
 ## 3. Alternatives Considered
 
@@ -85,8 +84,8 @@ ADR-009's and ADR-029's.
 ## 4. Rationale
 
 A setup-token is exactly what a working session needs — inference, for a
-year, shareable — and nothing more, so a login's account is one Doppler
-line, and a move is a reviewed, fingerprinted change rather than a
+year, shareable — and nothing more, so a login's account is one entry
+of its store, and a move is a reviewed, fingerprinted change rather than a
 browser session per login. The observer keeps the one thing a
 setup-token cannot do — reading usage — on sign-ins nothing else uses,
 renewed by the harness the official way. The account applying and
@@ -95,30 +94,24 @@ verdict comes back, and a session survives the move.
 
 ## 5. Binding Rules
 
-1. A template is a config `claude-accounts_<account>` in the Doppler
-   environment `claude-accounts`, holding that account's setup-token as
-   `CLAUDE_CODE_OAUTH_TOKEN`. The token is made once per account with
-   `claude setup-token` in a real terminal, approved in a browser signed
-   in as that account — the browser decides the account — and stored with
-   `doppler secrets set`, never pasted elsewhere. Once the coordinator's
-   secrets are on its own store (ADR-038), a template is instead the
-   entry `CLAUDE_ACCOUNT_<ACCOUNT>` of that store, set with
-   `fabric-secrets store template-set <account>` from stdin
-   (A 2026-09-29).
-2. A login's account is the reference
-   `${agent-fabric.claude-accounts_<account>.CLAUDE_CODE_OAUTH_TOKEN}` in
-   its own Doppler config, written only with the coordinator's Doppler
-   token and read back raw after writing. On the coordinator's store, the
-   coordinator writes the template's token into the login's own store as
-   its `CLAUDE_CODE_OAUTH_TOKEN`, a write it cannot read back, and records
-   `<account> <fingerprint>` in its own store, which is how an unchanged
-   assignment is known (A 2026-09-29).
+1. A template is the entry `CLAUDE_ACCOUNT_<ACCOUNT>` of the
+   coordinator's store (ADR-038), holding that account's setup-token. The
+   token is made once per account with `claude setup-token` in a real
+   terminal, approved in a browser signed in as that account — the
+   browser decides the account — and stored with `fabric-secrets store
+   template-set <account>` from stdin, never pasted elsewhere
+   (A 2026-09-30).
+2. A login's account is the template's token, written by the coordinator
+   into the login's own store as its `CLAUDE_CODE_OAUTH_TOKEN` — a write
+   it cannot read back — and recorded as `<account> <fingerprint>` in the
+   coordinator's own store, which is how an unchanged assignment is known
+   (A 2026-09-30).
 3. The launcher refuses a plain-claude session whose login's synced
    record holds no `CLAUDE_CODE_OAUTH_TOKEN` of a setup-token's shape,
    before anything starts; it takes the token from the synced record, not
    the shell. The broker path does not use it (ADR-012 §5 rule 6).
 4. `fabric-accounts assign` refuses an account with no template or an
-   empty one, and a login no host places. Past the Doppler write, a move
+   empty one, and a login no host places. Past the store write, a move
    is messages only: every named login, changed or not, gets the signed
    `secrets-sync` action with `--expect <the template's fingerprint>`, and
    `--restart` unless `--no-restart`. With `--no-sync` no action is sent:
@@ -189,3 +182,4 @@ The body above reads current; each change's full note is in [history/ADR-031-ame
 |---|---|---|
 | 2026-09-27 | A move without its sync | §5 rule 4 names `--no-sync`: no action is sent, and each changed login applies the move at its next sync |
 | 2026-09-29 | Templates and assignments on the coordinator's store | §5 rules 1–2: a template in the coordinator's store; assign writes into the login's store |
+| 2026-09-30 | Doppler is retired: the store holds what Doppler held | Scope, §2, §4, §5 rules 1, 2, 4 |

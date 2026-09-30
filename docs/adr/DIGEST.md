@@ -597,6 +597,8 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-09-28 — `jobs` and `jobs-add` carry the job list (§5 rule 13).
 - A 2026-09-29 — `secrets-migrate` moves an account from Doppler to its
   store, verified by sha256 (§5 rule 14).
+- A 2026-09-30 — rule 14 withdrawn with Doppler; the signing key is in the
+  operator's store (§5 rules 5, 14).
 - Keywords: control plane, agentd, fabric-ctl, control channel,
   fabric:control, relay, ops, status, ping, keys, usage, recall, tokens,
   drain, memory, signed, operator_key, keygen, linger, persist.
@@ -621,10 +623,11 @@ its record disagree, the record wins. Look it up, never read it whole:
 
 ### ADR-031 — Claude accounts: which account a login runs on is assigned, applied and proved by signed action (Accepted)
 
-- Working sessions run on a template's setup-token: one Doppler config per
-  Claude account, and one reference line in each login's config; the
-  launcher refuses a plain-claude session without one (§2, §5 rules 1–3).
-- `fabric-accounts assign` writes and reads back the reference, then the
+- Working sessions run on a template's setup-token: an entry of the
+  coordinator's store per Claude account, its token put into each
+  login's store; the launcher refuses a plain-claude session without one
+  (§2, §5 rules 1–3).
+- `fabric-accounts assign` writes the token into each login's store, then the
   signed `secrets-sync` action has each account sync, prove the
   template's fingerprint, and resume its session on it; any row not
   `synced` exits 1 (§5 rules 4–5).
@@ -637,6 +640,7 @@ its record disagree, the record wins. Look it up, never read it whole:
   next sync (§5 rule 4).
 - A 2026-09-29 — on the coordinator's store, a template is its entry and an
   assignment writes the token into the login's store (§5 rules 1–2).
+- A 2026-09-30 — Doppler retired: the store entry and the store write are the only ones (§5 rules 1, 2, 4).
 - Keywords: Claude account, subscription, setup-token, /login, template,
   claude-accounts, CLAUDE_CODE_OAUTH_TOKEN, fabric-accounts, assign,
   secrets-sync, fingerprint, usage windows, observer, /usage.
@@ -673,13 +677,14 @@ its record disagree, the record wins. Look it up, never read it whole:
   (§5 rules 3–4).
 - The transport is the Claude-Bridge relay: one user unit on the
   operator's account, loopback, one database, one channel for every
-  project, the control plane beside it; the token from Doppler (§2, §5
-  rules 5–6).
+  project, the control plane beside it; the token from the account's own
+  store (§2, §5 rules 5–6).
 - The human relay is the fallback: validate, fenced block, 72 columns,
   minted id; normalise and check the addressee before the body (§5 rules
   7–8).
 - The relay is a single point of failure, authenticates no sender and
   filters nothing — the inbox does (§6).
+- A 2026-09-30 — the relay token comes from the account's own store (§5 rule 6).
 - Keywords: transport, relay, Claude-Bridge, claude-bridge,
   gzcoord-relay, human relay, fallback, Telegram, adapter contract,
   channel, gzapp:gzcoord, bridge token, central, single point of failure.
