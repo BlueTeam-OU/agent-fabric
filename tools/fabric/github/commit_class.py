@@ -123,7 +123,11 @@ def classify(parents: str, subject: str, answers: str = "", pr: str = "", repo: 
     # through to the general rule, which still needs an answer word.
     if re.match(r"(?:re-)?review:", subject, re.I):
         return "fix"
-    if re.search(r"(?:^|[^A-Za-z])(?:re-review|review'?s?|findings?|nits?)(?:[^A-Za-z]|$)", subject, re.I) and (
+    # The review word inside a hyphenated tool name — post-review,
+    # pr-review-status — names the tool, not a review: "post-review,
+    # pr-reply: the launched role … (#68 carried)" read as a fix on #70.
+    # "re-review" is the one hyphenated form that is a review.
+    if re.search(r"(?:^|[^A-Za-z])(?:re-review|(?<![A-Za-z]-)review'?s?|findings?|nits?)(?:[^A-Za-z]|$)", subject, re.I) and (
             re.search(r"(?:^|[^A-Za-z])(?:fix(?:es|ed)?|address(?:es|ed|ing)?|answer(?:s|ed)?|round|re-review|nits?|findings?)(?:[^A-Za-z0-9]|$)|#[0-9]+",
                       subject, re.I)
             or re.search(rf"(?:^|[^A-Za-z0-9]){LABEL}(?:-[0-9]+)?(?:[^A-Za-z0-9]|$)", subject)):
