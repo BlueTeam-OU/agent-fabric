@@ -42,7 +42,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 import gh  # noqa: E402
 from github import commit_class  # noqa: E402
-REVIEW_MARKER = "<!-- agent-fabric-review v1 -->"   # runtime/github/post-review.sh
+from github.post_review import REVIEW_MARKER  # noqa: E402
 BAND_FLOOR = 8                                       # ADR-019: fewer work commits, the owner arms
 GREEN = {"SUCCESS", "SKIPPED", "NEUTRAL"}
 OWNER_CORRECTION = re.compile(r"\(owner\b", re.I)
