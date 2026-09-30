@@ -77,10 +77,15 @@ serve as the parity oracle for each port, unchanged.
 4. A ported script keeps its path as a shim, running `/usr/bin/python3`,
    until every forwarder and caller is repointed; a sourced script's shim
    defines the same shell functions, each calling Python.
-5. The script's existing bash test runs unchanged against the shim, as
-   the parity oracle, in the port's pull request; the same pull request
-   deletes the bash implementation, adds Python tests for the internals
-   and removes the entry from the allowlist.
+5. The script's existing bash test runs against the shim, as the parity
+   oracle, in the port's pull request, its assertions unchanged. Two
+   things in it may follow the port: its mock of `gh` may learn the
+   transport `gh.py` uses beside the one it served, and the extended mock
+   still passes the bash original; and a case that reads the
+   implementation's source, a constant or a scan, reads the module
+   (A 2026-10-01). The same pull request deletes the bash implementation,
+   adds Python tests for the internals and removes the entry from the
+   allowlist.
 6. GitHub and git are called through `tools/fabric/gh.py` and
    `tools/fabric/git.py`: a body is passed on stdin or in a file, never
    interpolated; every call is bounded and names its operation in its
@@ -114,3 +119,11 @@ allowlist holds the rest, each entry with its wave.
 - `tools/fabric/secrets_sync.py`: the first port, its contract frozen in
   its header, `runtime/provisioning/secrets/fabric-secrets` its shim.
 - ADR-001 (the records), ADR-015 (code as memory), ADR-018 (the guards).
+
+## Amendments
+
+The body above reads current; each change's full note is in [history/ADR-040-amendments.md](history/ADR-040-amendments.md).
+
+| Date | Amendment | Effect |
+|---|---|---|
+| 2026-10-01 | The oracle's mock and its source reads may follow the port | §5 rule 5: the oracle's mock may learn gh.py's transport, and a case reading the source reads the module |
