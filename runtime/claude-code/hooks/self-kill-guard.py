@@ -30,13 +30,6 @@ PREFIXES = {"timeout", "sudo", "env", "nohup", "nice", "xargs", "exec", "command
 KILL_TOOLS = {"pgrep", "pkill", "killall", "kill"}
 # Words that open or continue a compound command before the command itself.
 COMPOUND = {"{", "}", "!", "if", "then", "elif", "else", "while", "until", "do", "time", "coproc"}
-# pgrep's and pkill's options that take a separate value.
-# pgrep's and pkill's options that take a separate value (procps-ng's
-# --help: pgrep, and pkill's -q/--queue). A cluster ending in one of the
-# short letters takes the next word too (`-fu root`).
-PGREP_VALUE_SHORT = set("dgGOPstuUFrq")
-PGREP_VALUE_LONG = {"--delimiter", "--pgroup", "--group", "--older", "--parent", "--session", "--signal", "--terminal",
-                    "--euid", "--uid", "--pidfile", "--runstates", "--cgroup", "--ns", "--nslist", "--queue"}
 # What a lifted $( … ), ` … ` or <( … ) leaves in its place: no real pattern
 # contains it, so a pattern that does was built from a substitution.
 SUBST = "__SELF_KILL_GUARD_SUBST__"
@@ -126,7 +119,9 @@ def strip_non_arguments(text: str) -> str:
             c = text[i]
         elif c in "'\"":
             quote = c
-        elif c == "#" and (i == 0 or text[i - 1] in " \t\n;&|()"):
+        # Not after ')': `$((1+1))#` keeps the '#' in its word (re-review
+        # of #70), and an unlifted substitution's ')' is such a word's end.
+        elif c == "#" and (i == 0 or text[i - 1] in " \t\n;&|("):
             while i < n and text[i] != "\n":
                 i += 1
             continue
@@ -217,32 +212,27 @@ def kill_patterns(command: str) -> list[str]:
                 continue
         tool = os.path.basename(words[0])
         if tool in ("pgrep", "pkill"):
-            # EVERY argument that is not an option or a known option's value
-            # is a candidate, wherever it stands: procps's getopt takes
-            # options after the pattern (`pkill claude-fable -f`), so no
-            # position is the pattern's. Five review rounds on #69 and #70
-            # each found a spelling that an exact reading of the pattern's
-            # place let through; a candidate too many is a false deny, the
-            # safe side (re-review of #70). -f may stand anywhere too.
-            full, cands, skip_next, rest_args = False, [], False, False
+            # EVERY word that is not an option is a candidate, wherever it
+            # stands — an option's value included. procps's getopt takes
+            # options after the pattern (`pkill claude-fable -f`), and
+            # every exact reading of options tried — the pattern's place,
+            # then which options take a value — let a spelling through
+            # (`-TSTP -f`: a signal whose last letter looked like a value
+            # option swallowed the -f). Six review rounds on #69 and #70.
+            # A value that matches the session is a false deny, the safe
+            # side. -f counts wherever it stands, alone or in a cluster.
+            full, cands, rest_args = False, [], False
             for w in words[1:]:
-                if skip_next:
-                    skip_next = False
-                elif rest_args or not w.startswith("-") or w == "-":
+                if rest_args or not w.startswith("-") or w == "-":
                     cands.append(w)
                 elif w == "--":
                     rest_args = True
                 elif w.startswith("--"):
+                    # getopt_long takes a unique prefix: --fu, --ful are --full.
                     name = w.split("=", 1)[0]
-                    full = full or name == "--full"
-                    skip_next = name in PGREP_VALUE_LONG and "=" not in w
+                    full = full or (len(name) > 2 and "--full".startswith(name))
                 else:
-                    letters = w[1:]
-                    full = full or ("f" in letters and not letters.isdigit())
-                    for k, ch in enumerate(letters):
-                        if ch in PGREP_VALUE_SHORT:
-                            skip_next = k == len(letters) - 1   # else the value is glued: -d, or -u0
-                            break
+                    full = full or "f" in w[1:]
             if full:
                 out += cands
         elif tool == "killall" and ("-r" in words or "--regexp" in words):

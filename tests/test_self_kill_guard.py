@@ -105,6 +105,18 @@ def main() -> int:
         ("--logpidfile takes no value", "pkill -f --logpidfile claude-fable"),
         ("a redirection before the pattern", "pkill 2>/dev/null -f claude-fable"),
         ("a redirection between -f and the pattern", "pkill -f 2>/dev/null claude-fable"),
+        # A signal option is not a value option, whatever its letters
+        # (re-review of #70, the sixth round).
+        ("-TSTP before -f", "pkill -TSTP -f claude-fable"),
+        ("-TRAP before -f", "pkill -TRAP -f claude-fable"),
+        ("-int before -f", "pkill -int -f claude-fable"),
+        ("-cont before -f", "pkill -cont -f claude-fable"),
+        ("a signal and -f after the pattern", "pkill claude-fable -TSTP -f"),
+        # A '#' after $((…))'s ')' is literal: the kill after it runs.
+        ("$((…))# before the kill", "echo $((1+1))#; pkill -f claude-fable"),
+        ("n=$((n+1))#x before the kill", "n=$((n+1))#x; pkill -f claude-fable"),
+        ("a value that is the pattern, -d", "pgrep -f -d claude-fable | xargs kill"),
+        ("--fu, a prefix of --full", "pkill --fu claude-fable"),
         ("env -u X", "env -u HOME pkill -f 'gzcoord-inbox'"),
         ("xargs -I {}", "pgrep -f 'inbox --follow' | xargs -I {} kill {}"),
     ]
