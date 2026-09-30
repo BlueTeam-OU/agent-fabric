@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 import sys
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -77,6 +78,20 @@ def main() -> int:
     finally:
         gh.pr_view, gh.run = real_view, real_run
 
+    print("--help and a usage error never wait on an open stdin (review of #71)")
+    shim = os.path.join(HERE, "runtime", "github", "post-review.sh")
+    for args, want in ((["--help"], 0), (["--bogus"], 2)):
+        held = subprocess.Popen(["bash", shim, *args], stdin=subprocess.PIPE, stdout=subprocess.DEVNULL,
+                                stderr=subprocess.DEVNULL)
+        try:
+            rc = held.wait(timeout=20)
+        except subprocess.TimeoutExpired:
+            held.kill()
+            held.wait()
+            rc = None
+        finally:
+            held.stdin.close()
+        check(f"{' '.join(args)} exits {want} with stdin still open", rc == want)
     print(f"\n{'FAILED' if fails else 'all passed'}")
     return 1 if fails else 0
 

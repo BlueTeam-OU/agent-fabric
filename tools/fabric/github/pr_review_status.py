@@ -242,9 +242,11 @@ Exit codes:
      owed — or a configured automated reviewer declined (the `decline
      reason` line says which phrase). Never returned for a merged pr."""
 
-# The marker post-review.sh writes as the first line of every review the
-# review class posts. Must stay byte-identical to the constant in that
-# script; both self-tests pin it, so a one-sided change is caught.
+# The marker post-review writes as the first line of every review the
+# review class posts. Must stay byte-identical to post_review.REVIEW_MARKER:
+# test_post-review.sh compares this line with that one, and
+# tests/test_post_review.py the two constants, so a one-sided change is
+# caught. A literal, not an import, so the comparison has two sides.
 REVIEW_MARKER = "<!-- agent-fabric-review v1 -->"
 # Reviews posted under earlier markers keep counting: the fabric's own
 # previous marker is built in, and a project's integration forwarder

@@ -15,6 +15,9 @@ CONTRACT, frozen from the bash (ADR-040 §5 rule 3):
   exit      0 replied (and resolved unless --no-resolve); 2 any refusal —
             bad id, empty body, not your PR, gh failure
 
+HELP is the bash's byte for byte but for the one sentence that named
+the bash's own mechanism (`gh -f`), which now names gh.py's.
+
 WHY (carried from the bash): replies quote code, and a body pasted into a
 double-quoted `gh api -f body="..."` gets backticks command-substituted
 and $vars expanded by the shell before gh sees it — a reply once posted
@@ -46,27 +49,38 @@ import gh  # noqa: E402
 
 HELP = """Reply to ONE review thread and resolve it, in a single call.
 
-The body arrives on STDIN and is never interpolated into a command line.
-That is the point of this script, not a detail: replies quote code, and a
-body pasted into a double-quoted `gh api -f body="..."` gets `backticks`
-command-substituted and `$vars` expanded by the shell before gh ever sees
-it. That has already happened here — a reply posted with the name of the
-guard it was describing silently removed, because the shell ran it.
-Reading stdin closes the whole class.
+The body arrives on STDIN and is never interpolated into a command
+line. That is the point of this script, not a detail: replies quote
+code, and a body pasted into a double-quoted `gh api -f body="..."`
+gets `backticks` command-substituted and `$vars` expanded by the shell
+before gh ever sees it. That has already happened here — a reply
+posted with the name of the guard it was describing silently removed,
+because the shell ran it. Reading stdin and sending it to GitHub as
+JSON on gh's own stdin closes the whole class.
 
 It also enforces the two rules that are easy to break by hand:
 
-  * ANOTHER SESSION'S PR IS REFUSED. Ownership is the branch prefix, not
-    the PR author (every session pushes as the same GitHub user). Never
-    answer reviews on another session's branch. A wrong reply cannot be
-    unsent, and that session is mid-flight on a fix you cannot see.
+  * ANOTHER SESSION'S PR IS REFUSED. Ownership is the branch prefix,
+    not the PR author (every session pushes as the same GitHub user).
+    The repo-root CLAUDE.md is explicit: never answer reviews on
+    another session's branch. A wrong reply cannot be unsent, and that
+    session is mid-flight on a fix you cannot see.
 
-    A BRANCH THAT NAMES NO SESSION IS NOT "ANOTHER SESSION'S": an unowned
-    PR is allowed with a warning — the reply still needs the owning
-    SURFACE's role to have verified the claim, which is what the warning
-    says.
+    A BRANCH THAT NAMES NO SESSION IS NOT "ANOTHER SESSION'S". The
+    guard used to take the first two segments of anything and compare
+    — so dependabot's `dependabot/pub`, a pre-convention `feat/x`, and
+    `add-claude-github-actions-178…` each read as a rival session, and
+    the refusal told you it was "mid-flight on a fix you cannot see"
+    about a session that does not exist. Nobody could answer those
+    threads through this script, and nobody owned them either: four
+    such PRs held seven unresolved P1/P2 findings for a month. The
+    shape is checked now, and an unowned PR is allowed with a warning
+    — the reply still needs the owning SURFACE's role to have verified
+    the claim, which is what the warning says.
   * RESOLVING IS A CLAIM. --no-resolve exists for the case where the
     reply is a question, or the finding is real and not yet fixed.
+    Resolution stopped gating merges on 2026-08-06, so a resolve now
+    signals only "handled" and nothing downstream catches a false one.
 
 Usage:
   runtime/github/pr-reply.sh <thread-id> [options]   # body on stdin
@@ -75,16 +89,23 @@ Usage:
   Fixed in #123 — the guard now anchors the filter.
   EOF
 
+  runtime/github/pr-reply.sh PRRT_xxx --no-resolve <<'EOF'
+  Real, but the fix needs the contract change first — leaving open.
+  EOF
+
 Options:
   --no-resolve   post the reply, leave the thread open
   --resolve      resolve even on a branch that names no session, where
-                 the default is to leave it open
+                 the default is to leave it open (see below)
   --dry-run      show what would be posted, touch nothing
   -h, --help     this text
 
-Thread ids look like PRRT_kwDOS6OPLs6XAV3d. A quoted heredoc (<<'EOF') is
-the recommended way to pass the body: unquoted, the SHELL expands it
-before this script is reached.
+Thread ids come from the queue: `/comments`, or the GraphQL in the
+pr-review-backlog skill. They look like PRRT_kwDOS6OPLs6XAV3d.
+
+A quoted heredoc (<<'EOF') is the recommended way to pass the body:
+unquoted, the SHELL expands it before this script is reached, and no
+amount of care in here can undo that.
 
 Exit codes:
   0  replied (and resolved, unless --no-resolve)
@@ -135,7 +156,7 @@ def branch_names_a_session(branch: str) -> bool:
     return len(p) >= 4 and bool(p[0]) and bool(p[1]) and p[0] not in AUTOMATION
 
 
-def run(argv: list[str], stdin: str) -> int:
+def run(argv: list[str], stdin) -> int:
     thread, resolve, resolve_explicit, dry = "", True, False, False
     for a in argv:
         if a == "--no-resolve":
@@ -166,6 +187,8 @@ def run(argv: list[str], stdin: str) -> int:
     for binary in ("gh", "git", "hostname"):
         if not shutil.which(binary):
             die(f"{binary} is required but not installed.")
+    if callable(stdin):
+        stdin = stdin()
     if stdin is None:
         die("the reply body is read from stdin — pipe it, or use <<'EOF' … EOF")
     body = stdin
@@ -283,11 +306,17 @@ def run(argv: list[str], stdin: str) -> int:
     return 0
 
 
+def read_body() -> str | None:
+    """The body, read only once the arguments are known to need it: read
+    first, `--help` or a usage error with an open stdin waited on it (the
+    bash read it after parsing). Bytes, decoded here: invalid UTF-8 becomes
+    U+FFFD, never a lone surrogate that JSON cannot carry to GitHub."""
+    return None if sys.stdin.isatty() else sys.stdin.buffer.read().decode("utf-8", "replace")
+
+
 def main() -> int:
-    # The body byte for byte: a heredoc's trailing blank line included.
-    stdin = None if sys.stdin.isatty() else sys.stdin.read()
     try:
-        return run(sys.argv[1:], stdin)
+        return run(sys.argv[1:], read_body)
     except Refused as e:
         say(f"pr-reply: {e}")
         return 2

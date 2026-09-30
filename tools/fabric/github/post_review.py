@@ -17,9 +17,9 @@ CONTRACT, frozen from the bash (ADR-040 §5 rule 3):
 
 REVIEW_MARKER is the contract with every reader (pr-review-status, the
 gate, results.py): the first line of the body, versioned because a later
-field must not silently reclassify older reviews. The shim repeats it on
-a line of its own, which the bash oracle compares with the reader's;
-tests/test_post_review.py holds the shim and this constant together.
+field must not silently reclassify older reviews. test_post-review.sh
+compares this module's line with pr_review_status's, and
+tests/test_post_review.py the two constants and results.py's import.
 """
 from __future__ import annotations
 
@@ -144,7 +144,7 @@ def identity(fabric: str, *args: str) -> str:
     return r.stdout.strip() if r.returncode == 0 else ""
 
 
-def run(argv: list[str], stdin: str | None) -> int:
+def run(argv: list[str], stdin) -> int:
     pr, model, dry = "", "", False
     i = 0
     while i < len(argv):
@@ -176,6 +176,8 @@ def run(argv: list[str], stdin: str | None) -> int:
             die(f"{binary} is required but not installed.")
 
     # STDIN, never an argument. See the help.
+    if callable(stdin):
+        stdin = stdin()
     if stdin is None:
         die("the review body is read from stdin — pipe it, or use <<'EOF' … EOF")
     body = stdin
@@ -289,11 +291,17 @@ are judged before they are answered; the judgement follows in the PR.
     return 0
 
 
+def read_body() -> str | None:
+    """The body, read only once the arguments are known to need it: read
+    first, `--help` or a usage error with an open stdin waited on it (the
+    bash read it after parsing). Bytes, decoded here: invalid UTF-8 becomes
+    U+FFFD, never a lone surrogate that JSON cannot carry to GitHub."""
+    return None if sys.stdin.isatty() else sys.stdin.buffer.read().decode("utf-8", "replace")
+
+
 def main() -> int:
-    # Bytes, decoded here: text mode would turn a body's \r\n into \n.
-    stdin = None if sys.stdin.isatty() else sys.stdin.buffer.read().decode("utf-8", "replace")
     try:
-        return run(sys.argv[1:], stdin)
+        return run(sys.argv[1:], read_body)
     except Refused as e:
         say(f"post-review: {e}")
         return 2
