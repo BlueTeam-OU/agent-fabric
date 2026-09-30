@@ -65,6 +65,15 @@ def main() -> int:
         ("nohup timeout -k kill 5", "nohup timeout -k kill 5 pkill -f 'claude-fable'"),
         ("timeout 5 sudo -u kill", "timeout 5 sudo -u kill pkill -f 'claude-fable'"),
         ("exec -a kill", "exec -a kill pkill -f 'claude-fable'"),
+        # A '#' inside a word is literal in bash (review of #70, F2).
+        ("${#…} before the kill", "n=${#PIDS[@]}; pkill -f 'claude-fable'"),
+        ("a#b before the kill", "echo a#b; pkill -f 'claude-fable'"),
+        # A redirection's target is not the pattern; subshells and newlines
+        # separate commands (review of #70, pre-existing).
+        ("a kill with 2>/dev/null", "pkill -f 'claude-fable' 2>/dev/null"),
+        ("a kill with >/dev/null 2>&1", "pkill -f 'claude-fable' >/dev/null 2>&1"),
+        ("a kill in a subshell", "( pkill -f 'claude-fable' )"),
+        ("a kill on the next line", "git status\npkill -f 'claude-fable'"),
         ("env -u X", "env -u HOME pkill -f 'gzcoord-inbox'"),
         ("xargs -I {}", "pgrep -f 'inbox --follow' | xargs -I {} kill {}"),
     ]
@@ -86,7 +95,7 @@ def main() -> int:
     ]
     for label, cmd in allowed:
         check(f"allowed: {label}", g.verdict(cmd, CLAUDE) is None, g.kill_patterns(cmd))
-    for cmd in ('pkill -f "$P"', "pgrep -f ${PAT} | xargs kill"):
+    for cmd in ('pkill -f "$P"', "pgrep -f ${PAT} | xargs kill", 'pkill -f "$(cat pattern.txt)"'):
         check(f"a variable pattern asks: {cmd}", (g.decision(cmd, CLAUDE) or ("",))[0] == "ask", g.decision(cmd, CLAUDE))
     check("a matching pattern still denies through decision()", g.decision("pkill -f claude-fable", CLAUDE)[0] == "deny")
     check("a harmless command: no decision", g.decision("git status", CLAUDE) is None)

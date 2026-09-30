@@ -14,8 +14,9 @@ earlier with a `pkill -f` pattern. Advice did not stop it; this does. The
 launcher's prompt no longer names the command, and this guard covers every
 other pattern that happens to match.
 
-Output: a deny decision on stdout, or nothing. Exit 0 always: input it
-cannot read is passed, never blocked.
+Output: a decision on stdout — deny when a pattern matches, ask when a
+pattern is a variable or a command substitution the hook cannot read — or
+nothing. Exit 0 always: input it cannot read is passed, never blocked.
 """
 from __future__ import annotations
 
@@ -93,18 +94,36 @@ def segments(piece: str) -> list[list[str]]:
     |, ; and & only OUTSIDE quotes: splitting the raw text first cut a
     quoted argument that merely mentions a kill (python3 -c '... pkill -f
     P ...') into a command of its own, and denied it (re-review of #69)."""
-    lex = shlex.shlex(piece, posix=True, punctuation_chars=True)
+    # No comment characters: a bare shlex.shlex keeps '#', so `${#A[@]};
+    # pkill -f P` and `echo a#b; pkill -f P` lost the kill (review of #70);
+    # in bash a '#' inside a word is literal. A newline and a subshell's
+    # parentheses end a command as ; does. A redirection and its target are
+    # not arguments: `pkill -f P 2>/dev/null` read /dev/null as the pattern.
+    lex = shlex.shlex(piece, posix=True, punctuation_chars="();<>|&\n")
+    lex.commenters = ""
+    lex.whitespace = " \t\r"
     lex.whitespace_split = True
     out, cur = [], []
     try:
-        for tok in lex:
-            if tok and set(tok) <= set("|;&"):
-                out.append(cur)
-                cur = []
-            else:
-                cur.append(tok)
+        toks = list(lex)
     except ValueError:   # an unbalanced quote: the plain words, as before
-        return [seg.split() for seg in re.split(r"[|;&]+", piece)]
+        return [seg.split() for seg in re.split(r"[|;&\n]+", piece)]
+    skip = False
+    for tok in toks:
+        if skip:
+            skip = False
+        elif tok and set(tok) <= set("|;&\n()"):
+            out.append(cur)
+            cur = []
+        elif tok and set(tok) <= set("<>&"):
+            # A redirection: `2>`, `>`, `&>`, `>&` … — never & or && (the
+            # separators above). The fd before it and the one word after
+            # it (a file, or `1` of 2>&1) are not arguments.
+            if cur and cur[-1].isdigit():
+                cur.pop()
+            skip = True
+        else:
+            cur.append(tok)
     out.append(cur)
     return out
 
@@ -186,9 +205,10 @@ def decision(command: str, cmdline: str | None) -> tuple[str, str] | None:
     if why:
         return "deny", why
     if cmdline:
-        held = [p for p in kill_patterns(command) if UNEXPANDED.search(p)]
+        held = [p for p in kill_patterns(command) if UNEXPANDED.search(p) or p == "SUBST"]
         if held:
-            return "ask", (f"This command kills by a pattern held in a variable ({held[0]}), whose value this hook "
+            return "ask", (f"This command kills by a pattern held in a variable or a command substitution "
+                           f"({held[0] if held[0] != 'SUBST' else '$(…)'}), whose value this hook "
                            "cannot see; if it matches this session's own claude command line, the session dies. "
                            "Kill by pid or pgrep -x instead, or allow it knowing the value.")
     return None
