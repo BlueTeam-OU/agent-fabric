@@ -175,7 +175,8 @@ carve-out, the decision-record check at commit time.
 - `runtime/claude-code/bootstrap.sh` (steps 4–5), `.github/workflows/ci.yml`,
   `tests/run.sh`.
 - ADR-000 (P3), ADR-002 (role and login), ADR-003 (the binding),
-  ADR-012 (the Doppler project is this role's).
+  ADR-012 (credentials are this role's), ADR-038 (each login's store,
+  and the coordinator as every child's parent).
 
 ## Amendments
 
@@ -184,3 +185,4 @@ The body above reads current; each change's full note is in [history/ADR-018-ame
 | Date | Amendment | Effect |
 |---|---|---|
 | 2026-09-28 | The charter tripwire runs on every branch | §6: `check_charter_authority.sh` called from `tests/run.sh`; the known gap closed |
+| 2026-09-30 | Doppler is retired: the stores replace it | References |

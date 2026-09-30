@@ -19,3 +19,12 @@ the account resolves: the coordinator puts the token itself into the
 login's store. The coordinator cannot read that entry back, so it keeps
 its own record of which account and which fingerprint it wrote. The
 signed `secrets-sync` with `--expect` is unchanged, and stays the proof.
+
+### Amendment 2026-09-30 — Doppler is retired: the store holds what Doppler held
+
+Doppler is removed from the fabric (ADR-038, agent-fabric #69): every
+account reads its own store, and the coordinator's templates and
+signing key live in the coordinator's store. The template is only the store entry
+and an assignment only the token put into the login's store; the
+Doppler reference and its dual write are gone from §2, §4 and rules 1,
+2 and 4.

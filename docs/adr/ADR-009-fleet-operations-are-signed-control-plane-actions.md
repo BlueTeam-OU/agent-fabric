@@ -125,7 +125,7 @@ revertable one-line change.
 - One session per login is assumed: the marker and the binding's session
   id are per login.
 - The signing key lives in the operator's login (`fabric-ctl keygen`,
-  Doppler, `fabric-secrets sync`); it protects the fleet from the relay
+  its own store, `fabric-secrets sync`) (A 2026-09-30); it protects the fleet from the relay
   token's other holders, not from the operator's own sessions.
 - Hooks are unaffected by the command list: the harness runs them without
   a permission check.
@@ -160,3 +160,4 @@ The body above reads current; each change's full note is in [history/ADR-009-ame
 | Date | Amendment | Effect |
 |---|---|---|
 | 2026-09-28 | A fresh marker is not a resume | §5 rule 4: a `fresh` marker starts a new session (ADR-022 rule 10) |
+| 2026-09-30 | Doppler is retired: the stores replace it | §6 (the signing key's home) |

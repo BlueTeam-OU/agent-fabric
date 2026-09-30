@@ -66,6 +66,15 @@ case "$1" in
   repo) echo "gzapi-org/gzapp"; exit 0 ;;
   pr)   cat "$S/pr.json"; exit 0 ;;
   api)
+    # The PR's files, as REST pages (--paginate --slurp): each a filename
+    # and, for a rename, its previous_filename.
+    if [ "$2" = "--paginate" ]; then
+      [ -f "$S/files.json" ] && { cat "$S/files.json"; exit 0; }
+      # As real gh does under --slurp: the error BODY on stdout, wrapped,
+      # and a failing status (review of #70: stderr alone hid the case).
+      echo '[{"message":"Not Found","documentation_url":"https://docs.github.com","status":"404"}]'
+      echo "gh: Not Found (HTTP 404)" >&2; exit 1
+    fi
     # Record the request body so a case can assert on what was SENT,
     # not on what the script said it would send.
     for a in "$@"; do
@@ -73,7 +82,7 @@ case "$1" in
       prev="$a"
     done
     echo "POST $2" >> "$S/calls"
-    [ -f "$S/api_fail" ] && exit 1
+    [ -f "$S/api_fail" ] && { echo "gh: Validation Failed (HTTP 422)" >&2; exit 1; }
     [ -f "$S/api_empty" ] && { echo ""; exit 0; }
     echo "https://github.com/gzapi-org/gzapp/pull/1#pullrequestreview-1"
     exit 0 ;;
@@ -83,21 +92,21 @@ MOCK
     chmod +x "$SANDBOX/bin/gh"
 }
 
-set_pr() {  # $1 = branch, $2.. = the files it changes (none: no files field)
+set_pr() {  # $1 = branch, $2.. = the files it changes, "old=>new" for a rename (none: the list cannot be read)
     local b="$1"; shift
+    jq -n --arg b "$b" '{number:552,state:"OPEN",headRefName:$b,headRefOid:"abcdef1234567890"}' \
+      > "$SANDBOX/state/pr.json"
+    rm -f "$SANDBOX/state/files.json"
     if [[ $# -gt 0 ]]; then
-      jq -n --arg b "$b" '{number:552,state:"OPEN",headRefName:$b,headRefOid:"abcdef1234567890",
-                           files:($ARGS.positional | map({path:.}))}' --args "$@" > "$SANDBOX/state/pr.json"
-    else
-      jq -n --arg b "$b" '{number:552,state:"OPEN",headRefName:$b,headRefOid:"abcdef1234567890"}' \
-        > "$SANDBOX/state/pr.json"
+      jq -n '[$ARGS.positional | map(if test("=>") then (split("=>") | {previous_filename: .[0], filename: .[1]})
+                                     else {filename: .} end)]' --args "$@" > "$SANDBOX/state/files.json"
     fi
     : > "$SANDBOX/state/calls"; rm -f "$SANDBOX/state/payload.json"
 }
 invoke() {
     local body="$1"; shift
     RUN_OUT="$(cd "$SANDBOX/$CLONE_NAME" && printf '%s' "$body" | \
-        PATH="$SANDBOX/bin:$PATH" GH_STATE="$SANDBOX/state" AGENT_FABRIC_ROOT="${FAKE_FABRIC:-$SANDBOX/no-fabric}" \
+        env -u AGENT_FABRIC_LAUNCH_ROLE ${AGENT_FABRIC_LAUNCH_ROLE_CASE:+AGENT_FABRIC_LAUNCH_ROLE=$AGENT_FABRIC_LAUNCH_ROLE_CASE} PATH="$SANDBOX/bin:$PATH" GH_STATE="$SANDBOX/state" AGENT_FABRIC_ROOT="${FAKE_FABRIC:-$SANDBOX/no-fabric}" \
         timeout 20 bash "$UNDER_TEST" "$@" 2>&1)"
     RUN_RC=$?
 }
@@ -187,6 +196,7 @@ printf '%s\n' 'import os, sys' 'print(os.environ.get("FAKE_ROLE", "") if "--role
   > "$FAKE_FABRIC/runtime/identity.py"
 LOC="identities/roles/language-culture/locale/ge/team.md"
 FAKE_ROLE=fabric-coordinator; export FAKE_ROLE FAKE_FABRIC
+AGENT_FABRIC_LAUNCH_ROLE_CASE=fabric-coordinator   # launched as the merger, as well as bound
 set_pr "$OTHER/i18n/ge-team" "$LOC"; invoke "findings" 552
 assert_rc "the merger posts on a locale-only PR" 0
 posted && pass "…it was sent" || fail "the merger's review was not sent"
@@ -201,11 +211,25 @@ set_pr "$OTHER/i18n/ge-team"; invoke "no" 552
 [[ "$RUN_RC" -eq 2 ]] && ! posted && pass "an unreadable file list refuses" || fail "posted with no file list" "rc=$RUN_RC"
 many=(); for i in $(seq 1 100); do many+=("identities/roles/language-culture/locale/ge/f$i.md"); done
 set_pr "$OTHER/i18n/ge-team" "${many[@]}"; invoke "no" 552
-[[ "$RUN_RC" -eq 2 ]] && ! posted && pass "gh's 100-file cap reached: the list may be cut, so it refuses" || fail "posted on a PR at gh's file cap" "rc=$RUN_RC"
+[[ "$RUN_RC" -eq 0 ]] && posted && pass "a locale PR of 100 files posts" || fail "refused a large locale PR" "rc=$RUN_RC"
+many=(); for i in $(seq 1 3000); do many+=("identities/roles/language-culture/locale/ge/f$i.md"); done
+set_pr "$OTHER/i18n/ge-team" "${many[@]}"; invoke "no" 552
+[[ "$RUN_RC" -eq 2 ]] && ! posted && pass "3000 files, GitHub's list cap: it may be cut, so it refuses" || fail "posted on a list that may be cut" "rc=$RUN_RC"
+set_pr "$OTHER/i18n/ge-team" "$LOC"; echo '[["not an object"]]' > "$SANDBOX/state/files.json"; invoke "no" 552
+[[ "$RUN_RC" -eq 2 ]] && ! posted && pass "pages whose items are not files refuse, never read as 0 outside" || fail "posted on a malformed list" "rc=$RUN_RC"
+set_pr "$OTHER/i18n/ge-team" "tools/fabric/lint.py=>$LOC"; invoke "no" 552
+[[ "$RUN_RC" -eq 2 ]] && ! posted && pass "a code file renamed INTO a locale directory refuses: its old path counts" || fail "posted on a rename into locale/" "rc=$RUN_RC"
+AGENT_FABRIC_LAUNCH_ROLE_CASE=devex-tooling
+set_pr "$OTHER/i18n/ge-team" "$LOC"; invoke "no" 552
+unset AGENT_FABRIC_LAUNCH_ROLE_CASE
+[[ "$RUN_RC" -eq 2 ]] && ! posted && pass "bound fabric-coordinator but launched as another role: refused" || fail "posted with a drifted role" "rc=$RUN_RC"
+set_pr "$OTHER/i18n/ge-team" "$LOC"; invoke "no" 552
+[[ "$RUN_RC" -eq 2 ]] && ! posted && pass "bound fabric-coordinator, not started by the launcher (no stamp): refused" || fail "posted without a launch stamp" "rc=$RUN_RC"
+AGENT_FABRIC_LAUNCH_ROLE_CASE=fabric-coordinator
 FAKE_ROLE=devex-tooling
 set_pr "$OTHER/i18n/ge-team" "$LOC"; invoke "no" 552
 [[ "$RUN_RC" -eq 2 ]] && ! posted && pass "another role refuses, even on a locale-only PR" || fail "a non-coordinator posted" "rc=$RUN_RC"
-unset FAKE_ROLE FAKE_FABRIC
+unset FAKE_ROLE FAKE_FABRIC AGENT_FABRIC_LAUNCH_ROLE_CASE
 
 echo "post-review: a branch naming no session is allowed, with a warning"
 for b in "agent/global-event-identity" "dependabot/pub/apps/x/y" "add-claude-github-actions-178"; do
@@ -262,6 +286,8 @@ set_pr "$ME/feat/thing"; touch "$SANDBOX/state/api_fail"
 invoke "findings" 552
 assert_rc       "exits 2" 2
 assert_contains "says GitHub rejected it" "rejected"
+assert_contains "  with GitHub's own reason" "Validation Failed (HTTP 422)"
+assert_contains "  and says to look before re-running, never to post by hand" "never post it by hand"
 rm -f "$SANDBOX/state/api_fail"
 
 set_pr "$ME/feat/thing"; touch "$SANDBOX/state/api_empty"

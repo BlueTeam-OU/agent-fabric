@@ -61,6 +61,10 @@ CASES = [
     (1, "a tag pin on the line after its uses: key is read and rejected", step("      - uses:\n          actions/checkout@v7"), None),
     (0, "a SHA pin on the line after its uses: key, with its version, passes", step(f"      - uses:\n          actions/checkout@{SHA} # v7.0.1"), None),
     (1, "a uses: key with nothing after it at all is rejected", step("      - uses:\n"), None),
+    (0, "a comment line between the key and its value is skipped, and the SHA pin passes",
+     step(f"      - uses:\n          # the checkout\n          actions/checkout@{SHA} # v7.0.1"), None),
+    (1, "an empty key followed by a sibling key has no value, never the sibling",
+     step("      - uses:\n        with:\n          fetch-depth: 0"), None),
     (1, "one bad use among good ones fails the file", step(f"      - uses: actions/checkout@{SHA} # v7.0.1\n      - uses: actions/setup-node@v7"), None),
 ]
 
@@ -83,6 +87,12 @@ def main() -> int:
     ok = "FAIL: .github/workflows/ci.yml:4 'actions/checkout@v7' is pinned to 'v7'" in out
     fails += not ok
     print(f"  {'ok  ' if ok else 'FAIL'} a finding names the file, the line and why" + ("" if ok else f"\n        {out[-300:]}"))
+    # The sibling key is never read as the value: the finding is about
+    # the empty key, "(nothing)", not a ref called `with:` (review of #70).
+    got, out = run({"workflows/ci.yml": step("      - uses:\n        with:\n          fetch-depth: 0")})
+    ok = "'(nothing)'" in out and "'with:'" not in out
+    fails += not ok
+    print(f"  {'ok  ' if ok else 'FAIL'} an empty list-item key reads (nothing), never its sibling" + ("" if ok else f"\n        {out[-300:]}"))
     print(f"\n{'FAILED' if fails else 'all passed'}")
     return 1 if fails else 0
 

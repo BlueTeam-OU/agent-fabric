@@ -9,6 +9,7 @@ import os
 import re
 import subprocess
 import tempfile
+import time
 import sys
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -65,6 +66,83 @@ def main() -> int:
         ("nohup timeout -k kill 5", "nohup timeout -k kill 5 pkill -f 'claude-fable'"),
         ("timeout 5 sudo -u kill", "timeout 5 sudo -u kill pkill -f 'claude-fable'"),
         ("exec -a kill", "exec -a kill pkill -f 'claude-fable'"),
+        # A '#' inside a word is literal in bash (review of #70, F2).
+        ("${#…} before the kill", "n=${#PIDS[@]}; pkill -f 'claude-fable'"),
+        ("a#b before the kill", "echo a#b; pkill -f 'claude-fable'"),
+        # A redirection's target is not the pattern; subshells and newlines
+        # separate commands (review of #70, pre-existing).
+        ("a kill with 2>/dev/null", "pkill -f 'claude-fable' 2>/dev/null"),
+        ("a kill with >/dev/null 2>&1", "pkill -f 'claude-fable' >/dev/null 2>&1"),
+        ("a kill in a subshell", "( pkill -f 'claude-fable' )"),
+        ("a kill on the next line", "git status\npkill -f 'claude-fable'"),
+        # The pattern is the FIRST argument: what trails it does not
+        # displace it (re-review of #70, R1, R5).
+        ("a trailing comment", "pkill -f claude-fable # zzqx yyqx"),
+        ("a bare trailing #", "pkill -f claude-fable #"),
+        ("a comment after two spaces", "pkill -f claude-fable  # zzqx"),
+        ("a redirection glued to a subshell", "(pkill -f claude-fable)>out"),
+        ("a clobbering redirection", "pkill -f claude-fable >| out"),
+        ("-- before the pattern", "pkill -f -- claude-fable"),
+        # Compound commands and process substitution (pre-existing).
+        ("a brace group", "{ pkill -f claude-fable; }"),
+        ("an if's then", "if true; then pkill -f claude-fable; fi"),
+        ("a leading assignment", "x=1 pkill -f claude-fable"),
+        ("process substitution", "diff <(pgrep -f claude-fable) /dev/null | xargs kill"),
+        # getopt takes options after the pattern, and procps has options
+        # the list lacked (re-review of #70, the fifth round).
+        ("-f after the pattern", "pkill claude-fable -f"),
+        ("--full after the pattern", "pkill claude-fable --full"),
+        ("pgrep with -f after the pattern", "pgrep claude-fable -f | xargs kill"),
+        ("a second word after the first", "pkill -f zzqx claude-fable"),
+        ("a cluster ending in a value option", "pkill -fu root claude-fable"),
+        ("-fd ,", "pkill -fd , claude-fable"),
+        ("-d , apart", "pgrep -f -d , claude-fable | xargs kill"),
+        ("--delimiter", "pgrep -f --delimiter , claude-fable | xargs kill"),
+        ("-q 5", "pkill -f -q 5 claude-fable"),
+        ("-r S", "pkill -f -r S claude-fable"),
+        ("-O 5", "pkill -f -O 5 claude-fable"),
+        ("--older 5", "pkill -f --older 5 claude-fable"),
+        ("--cgroup g", "pkill -f --cgroup g claude-fable"),
+        ("--logpidfile takes no value", "pkill -f --logpidfile claude-fable"),
+        ("a redirection before the pattern", "pkill 2>/dev/null -f claude-fable"),
+        ("a redirection between -f and the pattern", "pkill -f 2>/dev/null claude-fable"),
+        # A signal option is not a value option, whatever its letters
+        # (re-review of #70, the sixth round).
+        ("-TSTP before -f", "pkill -TSTP -f claude-fable"),
+        ("-TRAP before -f", "pkill -TRAP -f claude-fable"),
+        ("-int before -f", "pkill -int -f claude-fable"),
+        ("-cont before -f", "pkill -cont -f claude-fable"),
+        ("a signal and -f after the pattern", "pkill claude-fable -TSTP -f"),
+        # A '#' after $((…))'s ')' is literal: the kill after it runs.
+        ("$((…))# before the kill", "echo $((1+1))#; pkill -f claude-fable"),
+        ("n=$((n+1))#x before the kill", "n=$((n+1))#x; pkill -f claude-fable"),
+        ("a value that is the pattern, -d", "pgrep -f -d claude-fable | xargs kill"),
+        ("--fu, a prefix of --full", "pkill --fu claude-fable"),
+        # Seventh round: `--` as an option's value; a comment after a
+        # subshell's ')' holding a quote.
+        ("-d -- -f", "pgrep -d -- -f claude-fable | xargs kill"),
+        ("--delimiter -- -f", "pgrep --delimiter -- -f claude-fable | xargs kill"),
+        ("a comment after a subshell, a quote in it", "(true)# it's here\npkill -f claude-fable\necho x # '"),
+        # A here-document read by a shell is code (a heredoc's body is
+        # otherwise data, below).
+        ("a heredoc fed to bash", "bash <<'EOF'\npkill -f claude-fable\nEOF"),
+        ("a heredoc piped to sh", "cat <<EOF | sh\npkill -f claude-fable\nEOF"),
+        ("a kill after a heredoc ends", "git commit -F - <<'EOF'\nmsg\nEOF\npkill -f claude-fable"),
+        # Eighth round: a `<<` that is no here-document drops nothing; a
+        # shell by its path reads a heredoc; a pattern without -f is a NAME.
+        ("a << in arithmetic, then a kill", "echo $((1<<n))\npkill -f claude-fable"),
+        ("a << in a quote, then a kill", "grep -n 'x <<EOF' README.md\npkill -f claude-fable"),
+        ("a heredoc fed to /bin/sh", "/bin/sh <<EOF\npkill -f claude-fable\nEOF"),
+        ("pkill -c by the session's name", "pkill -c claude"),
+        # A value glued to its option ends the cluster: the pattern after
+        # it is the pattern (tenth round).
+        ("a glued -u value, then the name", "pkill -e -uuser claude"),
+        ("a glued -t value, then the name", "pkill -tpts/1 claude"),
+        ("a loop killing what pgrep names by the session's name", "for p in $(pgrep claude); do kill $p; done"),
+        ("pkill by the session's name", "pkill claude"),
+        ("killall by the session's name", "killall claude"),
+        ("killall -qr, a cluster with -r", "killall -qr claud"),
+        ("killall by a path to the session's binary", "killall /home/user/.local/share/claude/versions/9.9.9/claude"),
         ("env -u X", "env -u HOME pkill -f 'gzcoord-inbox'"),
         ("xargs -I {}", "pgrep -f 'inbox --follow' | xargs -I {} kill {}"),
     ]
@@ -80,15 +158,100 @@ def main() -> int:
         # session's claude by pid (SIGTERM), a command the guard must pass.
         ("fabric-fresh ending the session for its next job", "fabric-fresh --job j3"),
         ("fabric-fresh with a note that mentions a kill", 'fabric-fresh --note "stopped: pkill -f gzcoord-inbox killed the last one"'),
+        # A kill phrase inside a quoted argument is text, not a command.
+        ("a quoted python -c string that mentions a kill", "python3 -c 'print(\"pkill -f claude-fable\")'"),
+        ("a commit message that quotes the command", "git commit -m 'fix: pgrep -f gzcoord-inbox | xargs kill no longer runs'"),
+        # What a redirection brings is not a pattern: a fd, a target, `>|`.
+        ("killall -r with 2>/dev/null", "killall -r zzqx 2>/dev/null"),
+        ("killall -r with >|", "killall -r zzqx >| /dev/null"),
+        ("pkill -f of another pattern, 2>/dev/null", "pkill -f zzqx 2>/dev/null"),
+        ("a real comment naming the kill", "git status # pkill -f claude-fable"),
+        ("a commit message in a heredoc quoting a kill",
+         "git commit -q -F - <<'EOF'\nfix: `pgrep -d -- -f claude-fable` and pkill -f claude-fable\nEOF"),
+        ("a <<- heredoc with a tab-indented delimiter", "cat <<-EOF > f\n\tpkill -f claude-fable\n\tEOF"),
+        ("pkill by name with a short option value that is in 'claude'", "pkill -u a sleep"),
+        ("a listing pgrep by the session's name, no kill anywhere",
+         "for c in $(pgrep -x claude); do ls -l /proc/$c/exe; done"),
     ]
     for label, cmd in allowed:
         check(f"allowed: {label}", g.verdict(cmd, CLAUDE) is None, g.kill_patterns(cmd))
+    check("killall -g asks: the group it kills is not in the command", (g.decision("killall -g bash", CLAUDE) or ("",))[0] == "ask")
+    for cmd in ('pkill -f "$P"', "pgrep -f ${PAT} | xargs kill", 'pkill -f "$(cat pattern.txt)"',
+                'pkill -f "claude-$(id -un)"', "pkill -f claude-`whoami`"):
+        check(f"a variable pattern asks: {cmd}", (g.decision(cmd, CLAUDE) or ("",))[0] == "ask", g.decision(cmd, CLAUDE))
+    check("a matching pattern still denies through decision()", g.decision("pkill -f claude-fable", CLAUDE)[0] == "deny")
+    check("a harmless command: no decision", g.decision("git status", CLAUDE) is None)
+    check("still split outside quotes: a real pipe after a quoted word",
+          g.verdict("echo 'x y' | xargs pkill -f 'claude-fable'", CLAUDE) is not None)
     launch = open(os.path.join(HERE, "runtime", "openrouter", "launch"), encoding="utf-8").read()
     opening = re.search(r'^OPENING="([^"]*)"', launch, re.M).group(1)
     fixed = CLAUDE.split(" -- ")[0] + " -- " + opening   # the launcher's own text, not a copy
     check("the launcher's new prompt: the old kill no longer matches the session",
           g.verdict("pgrep -f 'gzcoord-inbox --follow' | xargs kill", fixed) is None)
     check("no claude ancestor (outside a session): nothing refused", g.verdict("pkill -f claude", None) is None)
+
+    # Ground truth: pgrep itself is asked, against a real process standing
+    # in for the session (argv0 claude-zzqk, name "sleep"). The reading
+    # above gets a command line WITHOUT the token, so every deny here is
+    # procps's answer (the owner's choice after seven rounds, 2026-09-30).
+    dummy = subprocess.Popen(["bash", "-c", "exec -a claude-zzqk sleep 60"])
+    try:
+        time.sleep(0.3)
+        pid, other = dummy.pid, "claude --model x unrelated"
+        truth = [
+            ("pkill -f claude-zzqk", True),
+            ("pkill claude-zzqk -f", True),                 # getopt permutes; procps decides
+            ("pkill -TSTP -f claude-zzqk", True),            # the signal dropped for pgrep
+            # -c and -d change what pgrep prints, not what it selects: the
+            # hook drops them and reads plain pids (ninth round).
+            ("pgrep -d -- -f claude-zzqk | xargs kill", True),
+            ("pkill -c -f claude-zzqk", True),
+            # POSIX classes: procps's ERE, which Python's re misreads; a kill
+            # reading pgrep's output through a loop or a variable (ninth).
+            ("for p in $(pgrep -f 'claude-zzqk [[:digit:]]+'); do kill $p; done", True),
+            ("pids=$(pgrep -f 'claude-zzqk [[:digit:]]+'); kill $pids", True),
+            ("pgrep -f 'claude-zzqk [[:digit:]]+' | while read p; do kill $p; done", True),
+            ("pkill -f 'claude-zz.k'", True),                # a regex, matched by procps
+            ("killall -r slee", True),                       # by process name
+            ("killall sleep", True),
+            ("pkill -f zzqk-matches-nothing-here", False),
+            ("pgrep -x node | xargs kill", False),
+        ]
+        for cmd, want in truth:
+            d = g.decision(cmd, other, pid)
+            check(f"ground truth: {cmd} -> {'deny' if want else 'allowed'}", (d is not None and d[0] == "deny") == want, d)
+        real_selects, ran = g.selects, []
+        g.selects = lambda argv, p: ran.append(argv) or False
+        try:
+            d = g.decision('pkill -f "$P"', other, pid)
+        finally:
+            g.selects = real_selects
+        check("a pattern it cannot read: pgrep is never run for it, and the hook asks",
+              ran == [] and (d or ("",))[0] == "ask", (ran, d))
+        check("-c and -d leave the selection intact: a glued value and a pattern after -- are untouched",
+              g._without_output_options(["-uarchitect-cto-01", "-cf", "x"]) == ["-uarchitect-cto-01", "-f", "x"]
+              and g._without_output_options(["-f", "--", "-cx"]) == ["-f", "--", "-cx"]
+              and g._without_output_options(["-fd", ",", "p"]) == ["-f", "p"]
+              and g._without_output_options(["-cu", "root", "p"]) == ["-u", "root", "p"],
+              (g._without_output_options(["-uarchitect-cto-01", "-cf", "x"]), g._without_output_options(["-cu", "root", "p"])))
+        check("pgrep_argvs: pkill loses its signal options, killall NAME becomes pgrep -x",
+              g.pgrep_argvs(["pkill", "-TERM", "-9", "-f", "p"]) == [["pgrep", "-f", "p"]]
+              and g.pgrep_argvs(["killall", "a", "b"]) == [["pgrep", "-x", "a"], ["pgrep", "-x", "b"]])
+        # The budget holds across every pgrep, killall's names included.
+        real_selects, budget = g.selects, g.GROUND_TRUTH_BUDGET_S
+        g.selects = lambda argv, p, timeout=2.0: time.sleep(min(timeout, 0.4)) or False
+        g.GROUND_TRUTH_BUDGET_S = 0.5
+        try:
+            t0 = time.monotonic()
+            g.ground_truth("killall a b c d e f", pid)
+            took = time.monotonic() - t0
+        finally:
+            g.selects, g.GROUND_TRUTH_BUDGET_S = real_selects, budget
+        check("the ground truth stops within its budget, across killall's names", took < 1.5, took)
+        check("the dummy was not killed by any of this", dummy.poll() is None)
+    finally:
+        dummy.kill()
+        dummy.wait()
 
     # The ancestor walk, on a planted /proc: hook (30) -> bash (20) -> claude (10).
     with tempfile.TemporaryDirectory() as proc:

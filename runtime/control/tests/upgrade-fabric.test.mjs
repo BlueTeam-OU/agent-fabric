@@ -75,6 +75,21 @@ test('a checkout on a branch is someone\'s work: refused, not moved, not bootstr
   assert.equal(f.head(), before); assert.deepEqual(f.runs(), []);
 });
 
+test('a branch with nothing uncommitted and nothing unpushed: still refused, but the reason says a switch loses nothing', async () => {
+  const f = fixture();
+  git(f.root, 'switch', '-q', '-c', 'h/someone/locale');
+  git(f.root, 'push', '-q', '-u', 'origin', 'h/someone/locale');
+  const target = f.advance('two');
+  const before = f.head();
+  const r = await upgradeFabric(req(target), opts(f));
+  assert.equal(r.status, 'refused');
+  assert.match(r.reason, /clean and pushed, so nothing is lost by `git switch main`/);
+  assert.equal(f.head(), before, 'not moved: a session on the branch would lose its hooks'); assert.deepEqual(f.runs(), []);
+  fs.writeFileSync(path.join(f.root, 'unpushed.txt'), 'x'); git(f.root, 'add', '-A'); git(f.root, 'commit', '-q', '-m', 'local');
+  const r2 = await upgradeFabric(req(target), opts(f));
+  assert.match(r2.reason, /find whose work it is/, 'an unpushed commit: not known safe');
+});
+
 test('a main that cannot fast-forward (a local commit): failed, never forced, not bootstrapped', async () => {
   const f = fixture();
   fs.writeFileSync(path.join(f.root, 'local.txt'), 'x'); git(f.root, 'add', '-A');

@@ -70,6 +70,84 @@ def main() -> int:
     check("a merge folded into the branch is not work: 7 work, so the owner armed it", (r["work"], r["supervision"]) == (7, 1), r)
     r = results.judge(merged_in, [], NOW, 14)   # the real classifier, through commit-class.sh
     check("…and the real classifier reads the merge by its parents", r["work"] == 7, r)
+
+    # The reads, through gh.py against a fake gh: the PR numbers, each PR
+    # alone, its commits' parents from REST, main's commits from REST.
+    import tempfile
+    fake = r"""#!/usr/bin/env python3
+import json, sys
+a = sys.argv[1:]
+if a[:2] == ["pr", "list"]:
+    print(json.dumps([{"number": 7}]))
+elif a[:2] == ["pr", "view"]:
+    print(json.dumps({"number": 7, "mergedAt": "2026-10-01T10:00:00Z",
+                      "commits": [{"oid": "c1"}, {"oid": "c2"}]}))
+elif "pulls/7/commits" in a[1]:
+    print(json.dumps([[{"sha": "c1", "parents": [{}]}, {"sha": "c2", "parents": [{}, {}]}]]))
+elif "/commits?since=" in a[1]:
+    print(json.dumps([[{"sha": "s1", "commit": {"message": "fix x\n\nbody", "committer": {"date": "2026-10-02T00:00:00Z"}}}]]))
+else:
+    sys.exit(9)
+"""
+    with tempfile.TemporaryDirectory() as tmp:
+        open(os.path.join(tmp, "gh"), "w").write(fake)
+        os.chmod(os.path.join(tmp, "gh"), 0o755)
+        old = os.environ["PATH"]
+        os.environ["PATH"] = tmp + os.pathsep + old
+        try:
+            prs = results.merged_prs("o/r", dt.datetime(2026, 9, 1, tzinfo=dt.timezone.utc))
+            commits = results.main_commits("o/r", dt.datetime(2026, 9, 1, tzinfo=dt.timezone.utc))
+        finally:
+            os.environ["PATH"] = old
+    check("merged_prs: each PR read alone, its commits' parents counted from REST",
+          [c["parents"] for c in prs[0]["commits"]] == [1, 2], prs)
+    check("main_commits: subject, body and time from the REST list",
+          commits == [{"sha": "s1", "subject": "fix x", "body": "body",
+                       "when": dt.datetime(2026, 10, 2, tzinfo=dt.timezone.utc)}], commits)
+    # The period's spend, account by account (review of #68).
+    whole = {"by_account": {"a": {"direct": 100, "broker": 10}, "b": {"direct": 50}}}
+    recent = {"by_account": {"a": {"direct": 30}, "b": {"direct": 20}}}
+    check("period_cost subtracts account by account", results.period_cost(whole, recent)
+          == {"by_path": {"direct": 100, "broker": 10}, "accounts": 2}, results.period_cost(whole, recent))
+    check("period_cost: reads that answered for different accounts give no figure",
+          results.period_cost(whole, {"by_account": {"a": {"direct": 30}}}) is None)
+    check("period_cost: a missing read gives no figure", results.period_cost(None, recent) is None)
+    # The summary: only closed windows count; ratios divide by verified.
+    rows = [{"in_period": True, "status": "verified", "supervision": 1},
+            {"in_period": True, "status": "not verified", "supervision": 5},
+            {"in_period": False, "status": "pending", "supervision": 9}]
+    since, end = dt.datetime(2026, 9, 1, tzinfo=dt.timezone.utc), dt.datetime(2026, 9, 15, tzinfo=dt.timezone.utc)
+    cost = {"by_path": {"direct": 90}, "accounts": 2}
+    sm = results.summarize(rows, since=since, end=end, window=14, repos=["o/r"], cost=cost, every_repo=False)
+    check("summarize: the period holds only closed windows; the pending one is apart",
+          (sm["merged_in_period"], sm["verified"], sm["pending_after_period"], sm["verified_rate"]) == (2, 1, 1, 0.5), sm)
+    check("summarize: supervision counts verified results only, per verified result",
+          (sm["supervision_events"], sm["supervision_per_result"]) == (1, 1.0), sm)
+    check("summarize: spend is not divided unless the results cover every repository", "spend_per_result" not in sm, sm)
+    sm = results.summarize(rows, since=since, end=end, window=14, repos=["o/r"], cost=cost, every_repo=True)
+    check("summarize: with every repository, spend per verified result", sm.get("spend_per_result") == {"direct": 90}, sm)
+    # main(): two token reads that answered for different accounts are said
+    # as that, in the JSON and in the text (re-review of #70, R4).
+    import contextlib, io, json
+    saved = (results.main_commits, results.merged_prs, results.spend)
+    reads = iter([{"by_account": {"a": {"direct": 5}, "b": {"direct": 5}}}, {"by_account": {"a": {"direct": 1}}}] * 2)
+    results.main_commits, results.merged_prs = (lambda repo, since: []), (lambda repo, since: [])
+    results.spend = lambda days: next(reads)
+    try:
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            results.main(["--json"])
+        js = json.loads(out.getvalue())
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            results.main([])
+        text = out.getvalue()
+    finally:
+        results.main_commits, results.merged_prs, results.spend = saved
+    check("main --json: the unmatched accounts are named, and there is no figure",
+          js["summary"].get("spend_unmatched") == ["b"] and js["summary"]["spend"] is None, js["summary"])
+    check("main: the text says the reads disagreed, not that nothing was read",
+          "answered for different accounts (b)" in text and "not read" not in text, text[-300:])
     print(f"\n{'FAILED' if fails else 'all passed'}")
     return 1 if fails else 0
 

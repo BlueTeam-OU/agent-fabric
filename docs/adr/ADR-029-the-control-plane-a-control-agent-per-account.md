@@ -134,8 +134,8 @@ proof.
    when dated more than a minute ahead of the account's clock, and must
    be strictly newer than the last action accepted from its sender
    (ADR-009 §5 rule 2). The private key is only in the operator's
-   Doppler config (`FABRIC_CONTROL_SIGNING_KEY`), made by `fabric-ctl
-   keygen`.
+   own store (`FABRIC_CONTROL_SIGNING_KEY`, ADR-038), made by `fabric-ctl
+   keygen` (A 2026-09-30).
 6. Every request gets a reply; a section that cannot be read says so
    inline (`{"status": …}`). Replies carry no secret: keys by presence and
    a twelve-hex-digit fingerprint only, text measures as counts only, a
@@ -174,13 +174,9 @@ proof.
     peer sees whether a session runs, never another agent's list.
     `jobs-add` names one login, never `all`, and takes a one-line title,
     topic and project id (A 2026-09-28).
-14. `secrets-migrate` is an action run by the account's own daemon, with
-    no arguments. A fresh sync from Doppler is its baseline. It imports
-    the login's Doppler config into its store, switches the source to
-    `store`, syncs, and compares the two `secrets.env` by sha256 of their
-    export lines. A difference, or a failed sync, switches back to
-    `doppler` and fails. It runs one at a time with `secrets-sync`, and
-    no value leaves the account (ADR-038 §5 rule 8) (A 2026-09-29).
+**§5 rule 14 — withdrawn** (Amendment 2026-09-30): the `secrets-migrate`
+action moved every account from Doppler to its own store and retired
+with Doppler (ADR-038 §5 rule 8).
 
 ## 6. Consequences
 
@@ -243,3 +239,4 @@ The body above reads current; each change's full note is in [history/ADR-029-ame
 | 2026-09-27 | Rule 12 as the code has it | §5 rule 12: every operation's answer budget, and an upgrade refused while a secrets-sync restarts the session |
 | 2026-09-28 | The owner reads and adds jobs through the control plane | §5 rule 3: `jobs.mjs` arguments; rule 13: `jobs`, `jobs-add` |
 | 2026-09-29 | secrets-migrate moves an account to its own store | §5 rule 14: the migration action |
+| 2026-09-30 | Doppler is retired: the store holds what Doppler held | §5 rule 5 (the signing key's home), rule 14 withdrawn |

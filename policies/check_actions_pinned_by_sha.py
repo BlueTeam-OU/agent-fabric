@@ -111,10 +111,17 @@ def check(root: str) -> tuple[list[str], int]:
             code, comment = split_comment(line)
             refs = [(m.group(1), comment) for m in USES_RE.finditer(code)]
             if EMPTY_USES_RE.search(code):
-                # The value on the next non-blank line; the version comment
-                # is read from that line, where the pin is.
-                nxt = next((ln for ln in lines[num:] if ln.strip()), "")
-                ncode, ncomment = split_comment(nxt)
+                # The value is a plain scalar on a following line indented
+                # deeper than the key, comment-only lines skipped; its
+                # version comment is read from that line, where the pin is.
+                # A next line at the key's indent or less (the next key, a
+                # new list item) means the key has no value (review of #68).
+                # The KEY's column: a list item's `- uses:` indents its
+                # siblings to the key, past the dash (review of #70).
+                indent = len(line) - len(re.sub(r"^\s*-\s+", "", line) if re.match(r"^\s*-\s", line) else line.lstrip())
+                nxt = next((ln for ln in lines[num:] if ln.strip() and not ln.lstrip().startswith("#")), "")
+                deeper = nxt and (len(nxt) - len(nxt.lstrip())) > indent and not nxt.lstrip().startswith("- ")
+                ncode, ncomment = split_comment(nxt) if deeper else ("", "")
                 refs.append((ncode.strip() or "(nothing)", ncomment))
             for ref, comment in refs:
                 ref = ref.strip().strip("'\"")

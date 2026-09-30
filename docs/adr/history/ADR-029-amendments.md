@@ -40,3 +40,11 @@ its Doppler config and write its store. It must also be verifiable
 without anyone seeing a value. So it is a signed action like
 `secrets-sync`, with an exact test: the store has to reproduce the
 `secrets.env` that Doppler gave, or the account stays on Doppler.
+
+### Amendment 2026-09-30 — Doppler is retired: the store holds what Doppler held
+
+Doppler is removed from the fabric (ADR-038, agent-fabric #69): every
+account reads its own store, and the coordinator's templates and
+signing key live in the coordinator's store. Rule 5 names the signing key's
+home; rule 14, the `secrets-migrate` action, is withdrawn with the
+migration it ran.

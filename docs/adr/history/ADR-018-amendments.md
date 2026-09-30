@@ -13,3 +13,7 @@ briefs and the catalogue. §6 left the choice open between wiring it
 into `tests/run.sh` and retiring it. An audit of the coordinator's
 queue on 2026-09-28 found it still open; it is wired, beside the
 `.agent-fabric/` tripwire, with the same base.
+
+### Amendment 2026-09-30 — Doppler is retired: the stores replace it
+
+Doppler is removed (ADR-038, agent-fabric #69): the reference names credentials and the stores as this role's, not the Doppler project.

@@ -1359,6 +1359,78 @@ def key_lineage_findings(root: str) -> list[str]:
     return mod.verify(root)
 
 
+BASH_LINE_LIMIT = 150
+BASH_SHEBANG = re.compile(r"^#!.*\b(bash|sh)\b")
+
+
+def _git():
+    """tools/fabric/git.py (ADR-040 §5 rule 6), loaded by path: lint runs
+    as a script and as a module the tests load under another name."""
+    spec = importlib.util.spec_from_file_location("fabric_git", os.path.join(os.path.dirname(os.path.abspath(__file__)), "git.py"))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def _tracked(root: str) -> list[str]:
+    r = _git().run(root, "ls-files", "-z", check=False, timeout=60)
+    return [f for f in r.stdout.split("\0") if f] if r.returncode == 0 else []
+
+
+def _is_bash(path: str) -> bool:
+    if path.endswith(".sh"):
+        return True
+    try:
+        with open(path, "rb") as fh:
+            first = fh.readline(200).decode("utf-8", "replace")
+    except OSError:
+        return False
+    return bool(BASH_SHEBANG.match(first))
+
+
+def bash_size_findings(root: str, base_ref: str = "origin/main") -> list[str]:
+    """ADR-040 §5 rule 2: a tracked bash script over 150 lines must be on
+    policies/bash-allowlist.json; an entry whose script is gone or back
+    under the limit is stale; an entry the base branch's list does not
+    have is an addition, and the list only shrinks. Without a readable
+    base (a fresh clone, the commit that adds the list) additions are not
+    judged."""
+    listed_path = os.path.join(root, "policies", "bash-allowlist.json")
+    try:
+        listed = (json.load(open(listed_path, encoding="utf-8")).get("scripts") or {})
+    except FileNotFoundError:
+        listed = {}
+    except ValueError as e:
+        return [f"policies/bash-allowlist.json: not JSON ({e})"]
+    findings = []
+    over = {}
+    for rel in _tracked(root):
+        full = os.path.join(root, rel)
+        if not os.path.isfile(full) or os.path.islink(full) or not _is_bash(full):
+            continue
+        with open(full, "rb") as fh:
+            n = sum(1 for _ in fh)
+        if n > BASH_LINE_LIMIT:
+            over[rel] = n
+    for rel, n in sorted(over.items()):
+        if rel not in listed:
+            findings.append(f"{rel}: {n} lines of bash, over {BASH_LINE_LIMIT} and not on policies/bash-allowlist.json — "
+                            "write it in Python (ADR-040)")
+    for rel in sorted(listed):
+        if rel not in over:
+            findings.append(f"policies/bash-allowlist.json: {rel} is gone or {BASH_LINE_LIMIT} lines or fewer — remove its entry")
+    base = _git().run(root, "show", f"{base_ref}:policies/bash-allowlist.json", check=False, timeout=60)
+    if base.returncode == 0:
+        try:
+            before = set((json.loads(base.stdout).get("scripts") or {}))
+        except ValueError:
+            before = None
+        if before is not None:
+            for rel in sorted(set(listed) - before):
+                findings.append(f"policies/bash-allowlist.json: {rel} is added; the list only shrinks (ADR-040 §5 rule 2)")
+    return findings
+
+
 def host_registry_findings(root: str) -> list[str]:
     """runtime/hosts/registry.json: a host id is its short hostname, so ids
     are unique by construction and an ssh destination reaches one host;
@@ -1663,6 +1735,9 @@ def main() -> int:
 
     # --- no project's name in a generic file --------------------------------
     findings += project_name_findings(root)
+
+    # --- bash over 150 lines only where the allowlist says (ADR-040) ---------
+    findings += bash_size_findings(root)
 
     # --- the review lenses ---------------------------------------------------
     findings += review_lens_findings(root)

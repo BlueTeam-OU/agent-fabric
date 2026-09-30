@@ -4,7 +4,7 @@
 **Status:** Accepted
 **Ratified:** owner, 2026-09-29, "Accept", answering fabric-coordinator's question closing the Proposed records; carried by the pull request that marks them Accepted
 **Decision Makers:** the owner; drafted by fabric-coordinator
-**Scope:** how the fabric treats its finite means — host resources, model spend and usage windows, prompt and context budgets — as one account, and how it would measure cost per verified result; `tools/fabric/results.py` (`fabric-results`) measures the cost side
+**Scope:** how the fabric treats its finite means — host resources, model spend and usage windows, prompt and context budgets — as one account, and how it measures cost per verified result (`tools/fabric/results.py`, `fabric-results`)
 **Pillar:** P7
 
 ## 1. Context and Problem

@@ -151,14 +151,38 @@ elif [[ "$OWNER" != "$ME" && "$OWNER" != "$ME_LEGACY" ]]; then
     # CLAUDE.md, the locale carve-out), so the merger must post the review
     # its gate counts. Only a PR that touches nothing but
     # identities/roles/<role>/locale/<suffix>/, and only from a session
-    # bound to fabric-coordinator. FAILS CLOSED: an unreadable role or file
-    # list, or gh's 100-file cap reached, is another session's PR.
+    # launched and bound as fabric-coordinator. FAILS CLOSED: an unreadable
+    # role or file list is another session's PR.
     ROLE="$(python3 "$FABRIC_ROOT/runtime/identity.py" --role 2>/dev/null || true)"
-    FILES_JSON="$(gh pr view "$PR" --json files 2>/dev/null || true)"
-    NFILES="$(jq -r '(.files // null) | if type == "array" then length else -1 end' <<<"$FILES_JSON" 2>/dev/null || echo -1)"
-    OUTSIDE="$(jq -r '.files[]?.path // empty' <<<"$FILES_JSON" 2>/dev/null \
-        | grep -Evc '^identities/roles/[^/]+/locale/[^/]+/[^/]+$' || true)"
-    if [[ "$ROLE" == "fabric-coordinator" && "$NFILES" -ge 1 && "$NFILES" -lt 100 && "$OUTSIDE" == 0 ]]; then
+    # The role this session was LAUNCHED with is the one in its prompt; a
+    # binding changed under it since does not make it fabric-coordinator
+    # (review of #68), and a session the launcher did not start holds no
+    # role at all — CLAUDE.md: a session becomes fabric-coordinator only
+    # by being launched with it bound (review of #70). No stamp, or a
+    # stamp that disagrees, is no role.
+    [[ "${AGENT_FABRIC_LAUNCH_ROLE:-}" == "$ROLE" ]] || ROLE=""
+    # From REST, which gives a renamed file's old path too: gh's `files`
+    # lists only the new one, so a code file moved INTO locale/ read as a
+    # translation (review of #68). Every path, old and new, must be inside.
+    # On an HTTP error gh prints the error body on STDOUT, and --slurp wraps
+    # it as [{"message": …}]: read without its exit status, that counted
+    # the error's three keys as three files and OUTSIDE as 0, and the
+    # carve-out posted without having read the list (review of #70). The
+    # status decides first; then only an array of pages is a list.
+    NFILES=-1; OUTSIDE=-1
+    if FILES_JSON="$(gh api --paginate --slurp "repos/$REPO/pulls/$PR/files?per_page=100" 2>/dev/null)" \
+       && jq -e 'type == "array" and all(.[]; type == "array")' >/dev/null 2>&1 <<<"$FILES_JSON"; then
+        # The paths in their own step: a jq failure inside the grep
+        # pipeline read as "0 outside" (re-review of #70).
+        if PATHS="$(jq -r '(add // [])[] | .filename, (.previous_filename // empty)' <<<"$FILES_JSON" 2>/dev/null)"; then
+            NFILES="$(jq -r 'add // [] | length' <<<"$FILES_JSON")"
+            OUTSIDE="$(grep -Evc '^identities/roles/[^/]+/locale/[^/]+/[^/]+$' <<<"$PATHS" || true)"
+        fi
+    fi
+    # GitHub lists at most 3000 files of a pull request and stops there
+    # without an error: a list that long may be cut, so it is not read as
+    # whole (re-review of #70).
+    if [[ "$ROLE" == "fabric-coordinator" && "$NFILES" -ge 1 && "$NFILES" -lt 3000 && "$OUTSIDE" == 0 ]]; then
         echo "post-review: #$PR belongs to '$OWNER' and touches only locale translations;" >&2
         echo "  posting as the locale carve-out's merger (fabric-coordinator)." >&2
         CARVE_OUT=1
@@ -200,9 +224,15 @@ jq -n --arg b "$FULL_BODY" --arg c "$PR_HEAD" \
    '{body: $b, event: "COMMENT", commit_id: $c}' > "$payload" \
     || die "could not build the request payload."
 
+# GitHub's own reason, not a bare "rejected": the first transient failure
+# on #69 said nothing, and a hand-made retry to learn why posted an
+# unmarked review. No automatic retry: a timeout may have posted it, and a
+# second post is a duplicate review on the PR.
+errf="$(mktemp)" || die "could not create a temporary file."
+trap 'rm -f "$payload" "$errf"' EXIT INT TERM
 url="$(gh api "repos/$REPO/pulls/$PR/reviews" --input "$payload" \
-        --jq '.html_url' 2>/dev/null)" \
-    || die "the review was rejected by GitHub (PR #$PR)."
+        --jq '.html_url' 2>"$errf")" \
+    || die "the review was rejected by GitHub (PR #$PR): $(grep -v '^\s*$' "$errf" | tail -1). Look at the PR before re-running — a timeout may have posted it; never post it by hand, unmarked."
 
 [[ -n "$url" ]] || die "GitHub accepted the request but returned no review URL — treat as NOT posted."
 echo "posted review: $url"

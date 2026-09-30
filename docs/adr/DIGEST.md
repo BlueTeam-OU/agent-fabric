@@ -41,9 +41,13 @@ its record disagree, the record wins. Look it up, never read it whole:
 | which Claude account a login runs on; moving logins; setup-token; usage windows | ADR-031 |
 | changing the GZCoord protocol; the grammar freeze; GZCOORD/2 | ADR-032 |
 | the relay; the human relay; transports; Telegram; the adapter contract | ADR-033 |
-| what a failure may take; single points; degraded modes (proposed) | ADR-034 |
-| working with another organization; portable trust; what may be shared (proposed) | ADR-035 |
-| cost per verified result; spend; shared resources (proposed) | ADR-036 |
+| what a failure may take; single points; degraded modes | ADR-034 |
+| working with another organization; portable trust; what may be shared | ADR-035 |
+| cost per verified result; spend; shared resources | ADR-036 |
+| your job list; fabric-jobs; the next job and a fresh session | ADR-037 |
+| an agent's key and secrets; the store; provision; recovery; backup | ADR-038 |
+| the agent id; UUIDv7; renaming a login | ADR-039 |
+| which language a tool is written in; the bash size limit and allowlist; porting a script; gh.py, git.py | ADR-040 |
 
 ### ADR-000 — The enduring organization (Accepted)
 
@@ -222,6 +226,7 @@ its record disagree, the record wins. Look it up, never read it whole:
   `~/.local/bin` with narrow allow rules; wrappers still ask (§5 rules 8–9).
 - A 2026-09-28 — a `fresh` restart marker starts a new session, not a resume
   (rule 4, ADR-022 rule 10).
+- A 2026-09-30 — the signing key is in the operator's own store (§6).
 - Keywords: fabric-ctl, upgrade, distribution, signed, control plane,
   agentd, hostexec, harness.json, commands.json, approval, allow rule.
 
@@ -239,6 +244,7 @@ its record disagree, the record wins. Look it up, never read it whole:
   project's (§5 rules 9–11). Quota and fleet lease are not built (§2).
 - Deferred by the owner (2026-09-26): a shared Android SDK/Gradle cache,
   until a second Flutter login needs it (§7).
+- A 2026-09-30 — the coordinator keeps its own store and fills each child's, not Doppler (§2, §5 rule 1).
 - Keywords: host, placement, hostexec, fabric-host, ssh, provisioning,
   new-agent, Qubes, persist-accounts, moveto, lease, heavy, memory, crash, OOM.
 
@@ -383,6 +389,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - `check_charter_authority.sh` runs from `tests/run.sh` on every branch,
   reading `authority.json` from the base of the diff (§6).
 - A 2026-09-28 — the charter tripwire's CI call site: the known gap closed.
+- A 2026-09-30 — credentials and the stores are this role's; the Doppler project is gone (References).
 - Keywords: authority, read-only, fence, tripwire, Fabric-Role, trailer,
   pre-commit, commit-msg, hooksPath, charter, locale carve-out, guard.
 
@@ -593,6 +600,8 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-09-28 — `jobs` and `jobs-add` carry the job list (§5 rule 13).
 - A 2026-09-29 — `secrets-migrate` moves an account from Doppler to its
   store, verified by sha256 (§5 rule 14).
+- A 2026-09-30 — rule 14 withdrawn with Doppler; the signing key is in the
+  operator's store (§5 rules 5, 14).
 - Keywords: control plane, agentd, fabric-ctl, control channel,
   fabric:control, relay, ops, status, ping, keys, usage, recall, tokens,
   drain, memory, signed, operator_key, keygen, linger, persist.
@@ -617,10 +626,11 @@ its record disagree, the record wins. Look it up, never read it whole:
 
 ### ADR-031 — Claude accounts: which account a login runs on is assigned, applied and proved by signed action (Accepted)
 
-- Working sessions run on a template's setup-token: one Doppler config per
-  Claude account, and one reference line in each login's config; the
-  launcher refuses a plain-claude session without one (§2, §5 rules 1–3).
-- `fabric-accounts assign` writes and reads back the reference, then the
+- Working sessions run on a template's setup-token: an entry of the
+  coordinator's store per Claude account, its token put into each
+  login's store; the launcher refuses a plain-claude session without one
+  (§2, §5 rules 1–3).
+- `fabric-accounts assign` writes the token into each login's store, then the
   signed `secrets-sync` action has each account sync, prove the
   template's fingerprint, and resume its session on it; any row not
   `synced` exits 1 (§5 rules 4–5).
@@ -633,6 +643,7 @@ its record disagree, the record wins. Look it up, never read it whole:
   next sync (§5 rule 4).
 - A 2026-09-29 — on the coordinator's store, a template is its entry and an
   assignment writes the token into the login's store (§5 rules 1–2).
+- A 2026-09-30 — Doppler retired: the store entry and the store write are the only ones (§5 rules 1, 2, 4).
 - Keywords: Claude account, subscription, setup-token, /login, template,
   claude-accounts, CLAUDE_CODE_OAUTH_TOKEN, fabric-accounts, assign,
   secrets-sync, fingerprint, usage windows, observer, /usage.
@@ -669,13 +680,14 @@ its record disagree, the record wins. Look it up, never read it whole:
   (§5 rules 3–4).
 - The transport is the Claude-Bridge relay: one user unit on the
   operator's account, loopback, one database, one channel for every
-  project, the control plane beside it; the token from Doppler (§2, §5
-  rules 5–6).
+  project, the control plane beside it; the token from the account's own
+  store (§2, §5 rules 5–6).
 - The human relay is the fallback: validate, fenced block, 72 columns,
   minted id; normalise and check the addressee before the body (§5 rules
   7–8).
 - The relay is a single point of failure, authenticates no sender and
   filters nothing — the inbox does (§6).
+- A 2026-09-30 — the relay token comes from the account's own store (§5 rule 6).
 - Keywords: transport, relay, Claude-Bridge, claude-bridge,
   gzcoord-relay, human relay, fallback, Telegram, adapter contract,
   channel, gzapp:gzcoord, bridge token, central, single point of failure.
@@ -686,7 +698,7 @@ its record disagree, the record wins. Look it up, never read it whole:
   identity, knowledge or the ability to go on working; reduced capacity
   is acceptable (§2).
 - §1 inventories what depends on one thing today — one host, one relay
-  and its database, one signing key, Doppler, one observer, two
+  and its database, one signing key, one observer, two
   providers, undrained memory, the owner — with each degraded mode or
   "none" (§1, §5 rule 1).
 - Data that exists nowhere else gets a copy first; a degraded mode counts
@@ -694,6 +706,7 @@ its record disagree, the record wins. Look it up, never read it whole:
   (§5 rules 2–4).
 - First step: a copy of the relay's database and a restore read back
   (§7). Waits on the owner's acceptance (§8).
+- A 2026-09-30 — the inventory's key and secrets rows name the stores; Doppler is gone (§1, §5 rule 4).
 - Keywords: decentralization, resilience, single point of failure,
   degraded mode, relay, host, crash, backup, autonomy, P5, proposed.
 
@@ -793,3 +806,20 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A reused login is a new agent with a new id (§5 rule 7).
 - Keywords: agent id, UUIDv7, birth, rename, identity, lineage, key,
   secrets repository, P1.
+
+### ADR-040 — Implementation language: Python above 150 lines (Proposed)
+
+- New fabric tooling is Python 3.12+, standard library only; bash stays
+  for shims, forwarders, hook entry points, the suite runners and
+  sudo/ssh/installer step-runners (§5 rule 1).
+- Lint refuses a tracked bash script over 150 lines not named in
+  `policies/bash-allowlist.json`; each entry names its wave, and the
+  list only shrinks (§5 rule 2).
+- A port freezes the contract (argv, environment, stdout/stderr, exit
+  codes, help) in the module's header, keeps the path as a shim, runs the
+  old bash test unchanged as the oracle, and removes the entry (§5 rules
+  3–5).
+- GitHub and git go through `gh.py` and `git.py`: bodies on stdin or a
+  file, bounded calls named in their errors, JSON in Python (§5 rule 6).
+- Keywords: Python, bash, shell, port, allowlist, lint, shim, wave, gh,
+  git, 150 lines, P1.

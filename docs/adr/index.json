@@ -89,7 +89,7 @@
       "status": "Accepted",
       "date": "2026-09-24",
       "pillar": "P1",
-      "amendments": 1
+      "amendments": 2
     },
     {
       "number": "010",
@@ -98,7 +98,7 @@
       "status": "Accepted",
       "date": "2026-09-16",
       "pillar": "P1",
-      "amendments": 0
+      "amendments": 1
     },
     {
       "number": "011",
@@ -170,7 +170,7 @@
       "status": "Accepted",
       "date": "2026-09-13",
       "pillar": "P3",
-      "amendments": 1
+      "amendments": 2
     },
     {
       "number": "019",
@@ -269,7 +269,7 @@
       "status": "Accepted",
       "date": "2026-09-17",
       "pillar": "P5",
-      "amendments": 4
+      "amendments": 5
     },
     {
       "number": "030",
@@ -287,7 +287,7 @@
       "status": "Accepted",
       "date": "2026-09-24",
       "pillar": "P5",
-      "amendments": 2
+      "amendments": 3
     },
     {
       "number": "032",
@@ -305,7 +305,7 @@
       "status": "Accepted",
       "date": "2026-08-13",
       "pillar": "P5",
-      "amendments": 0
+      "amendments": 1
     },
     {
       "number": "034",
@@ -314,7 +314,7 @@
       "status": "Accepted",
       "date": "2026-09-27",
       "pillar": "P5",
-      "amendments": 0
+      "amendments": 1
     },
     {
       "number": "035",
@@ -358,6 +358,15 @@
       "title": "The agent id is a UUIDv7 minted at birth",
       "status": "Accepted",
       "date": "2026-09-29",
+      "pillar": "P1",
+      "amendments": 0
+    },
+    {
+      "number": "040",
+      "file": "ADR-040-implementation-language-python-above-150-lines.md",
+      "title": "Implementation language: Python above 150 lines",
+      "status": "Proposed",
+      "date": "2026-09-30",
       "pillar": "P1",
       "amendments": 0
     }

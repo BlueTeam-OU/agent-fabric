@@ -281,7 +281,21 @@ export async function upgradeFabric(request, {
   let from, branch;
   try { from = await git('rev-parse', '--short', 'HEAD'); branch = await git('rev-parse', '--abbrev-ref', 'HEAD'); }
   catch (e) { return { status: 'failed', piece: 'fabric', reason: `${root} is not a readable checkout: ${lastLine(e).slice(0, 160)}` }; }
-  if (branch !== 'main') return { status: 'refused', piece: 'fabric', from, reason: `the checkout is on ${branch}, not main; not moved — find whose work it is before moving it` };
+  if (branch !== 'main') {
+    // Not moved either way: a session running on that branch would lose its
+    // hooks mid-session. But a branch with nothing uncommitted and nothing
+    // unpushed loses nothing by a switch, and saying so is what the person
+    // needs — a locale branch left checked out kept an account a release
+    // behind, and its next launch ran the stale fabric (2026-09-30).
+    let safe = false;
+    try {
+      const upstream = await git('rev-parse', '--abbrev-ref', '@{u}');
+      safe = !(await git('status', '--porcelain')) && (await git('rev-list', '--count', `${upstream}..HEAD`)) === '0';
+    } catch { /* no upstream, or unreadable: not known safe */ }
+    return { status: 'refused', piece: 'fabric', from, reason: safe
+      ? `the checkout is on ${branch}, not main; not moved — it is clean and pushed, so nothing is lost by \`git switch main\` on the account, then upgrade again`
+      : `the checkout is on ${branch}, not main; not moved — find whose work it is before moving it` };
+  }
   try { await git('fetch', '-q', 'origin', 'main'); }
   catch (e) { return { status: 'failed', piece: 'fabric', from, reason: `git fetch: ${e?.killed ? 'timed out' : lastLine(e).slice(0, 160)}; not moved` }; }
   // After the fetch, a commit this checkout does not have is not on its

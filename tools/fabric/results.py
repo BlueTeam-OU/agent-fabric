@@ -39,6 +39,8 @@ import subprocess
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import gh  # noqa: E402
 REVIEW_MARKER = "<!-- agent-fabric-review v1 -->"   # runtime/github/post-review.sh
 BAND_FLOOR = 8                                       # ADR-019: fewer work commits, the owner arms
 GREEN = {"SUCCESS", "SKIPPED", "NEUTRAL"}
@@ -82,45 +84,35 @@ def judge(pr: dict, later: list[dict], now: dt.datetime, window_days: int, cls=c
             "work": work, "fix": fix, "supervision": supervision}
 
 
-def _gh(*args: str) -> str:
-    r = subprocess.run(["gh", *args], capture_output=True, text=True)
-    if r.returncode != 0:
-        raise SystemExit(f"fabric-results: gh {args[0]} {args[1]}: {(r.stderr.strip().splitlines() or ['failed'])[-1]}")
-    return r.stdout
-
-
-def merged_prs(repo: str, since: dt.date) -> list[dict]:
+def merged_prs(repo: str, since: dt.datetime) -> list[dict]:
     # The numbers first, then each PR alone: GitHub refuses one query over
     # 500,000 possible nodes, which fifty PRs with their commits, reviews
-    # and checks already exceed.
-    numbers = json.loads(_gh("pr", "list", "--repo", repo, "--state", "merged", "--limit", "1000",
-                             "--search", f"merged:>={since.isoformat()}", "--json", "number"))
-    fields = "number,title,mergedAt,headRefOid,mergeCommit,commits,reviews,statusCheckRollup"
+    # and checks already exceed. GitHub's search takes a date; the exact
+    # bound is applied here, as main_commits applies it (review of #68).
+    numbers = gh.pr_list(["number"], repo=repo, state="merged", search=f"merged:>={since.date().isoformat()}")
+    fields = ["number", "title", "mergedAt", "headRefOid", "mergeCommit", "commits", "reviews", "statusCheckRollup"]
     prs = []
     for p in numbers:
-        pr = json.loads(_gh("pr", "view", str(p["number"]), "--repo", repo, "--json", fields))
+        pr = gh.pr_view(p["number"], fields, repo=repo)
         # gh's commit list has no parents; the REST list has them, so a
         # merge folded into the branch is not counted as work (review of #68).
-        parents = {c["sha"]: c["n"] for c in map(json.loads, _gh(
-            "api", "--paginate", f"repos/{repo}/pulls/{p['number']}/commits?per_page=100",
-            "--jq", ".[] | {sha, n: (.parents | length)}").splitlines())}
+        parents = {c["sha"]: len(c.get("parents") or [])
+                   for c in gh.api(f"repos/{repo}/pulls/{p['number']}/commits?per_page=100", paginate=True)}
         for c in pr.get("commits") or []:
             c["parents"] = parents.get(c["oid"], 1)
-        prs.append(pr)
+        if dt.datetime.fromisoformat(pr["mergedAt"].replace("Z", "+00:00")) >= since:
+            prs.append(pr)
     return prs
 
 
 def main_commits(repo: str, since: dt.datetime) -> list[dict]:
     """The default branch's commits since `since`, from GitHub: any
     registered repository, not only a local clone."""
-    out = _gh("api", "--paginate", f"repos/{repo}/commits?since={since.strftime('%Y-%m-%dT%H:%M:%SZ')}&per_page=100",
-              "--jq", ".[] | {sha, message: .commit.message, when: .commit.committer.date}")
     rows = []
-    for line in out.splitlines():
-        c = json.loads(line)
-        subject, _, body = c["message"].partition("\n")
+    for c in gh.api(f"repos/{repo}/commits?since={since.strftime('%Y-%m-%dT%H:%M:%SZ')}&per_page=100", paginate=True):
+        subject, _, body = c["commit"]["message"].partition("\n")
         rows.append({"sha": c["sha"], "subject": subject, "body": body.strip("\n"),
-                     "when": dt.datetime.fromisoformat(c["when"].replace("Z", "+00:00"))})
+                     "when": dt.datetime.fromisoformat(c["commit"]["committer"]["date"].replace("Z", "+00:00"))})
     return rows
 
 
@@ -146,7 +138,7 @@ def spend(days: int) -> dict | None:
                              capture_output=True, text=True, timeout=180).stdout
     except (OSError, subprocess.TimeoutExpired):
         return None
-    total, answered = {}, 0
+    by_account = {}
     for line in out.splitlines():
         try:
             rec = json.loads(line)
@@ -155,10 +147,44 @@ def spend(days: int) -> dict | None:
         t = rec.get("tokens") or {}
         if t.get("status") != "ok":
             continue
-        answered += 1
+        acct = by_account.setdefault(rec.get("account") or f"?{len(by_account)}", {})
         for m in (t.get("models") or {}).values():
-            total[m.get("path", "?")] = total.get(m.get("path", "?"), 0) + int(m.get("equiv") or 0)
-    return {"by_path": total, "accounts": answered} if answered else None
+            acct[m.get("path", "?")] = acct.get(m.get("path", "?"), 0) + int(m.get("equiv") or 0)
+    return {"by_account": by_account} if by_account else None
+
+
+def period_cost(whole: dict | None, recent: dict | None) -> dict | None:
+    """The period's spend: tokens over DAYS+WINDOW days less tokens over the
+    last WINDOW days, subtracted account by account. The two reads are two
+    fan-outs over the fleet; when they did not answer for the same
+    accounts, a difference of totals would count an account's whole spend
+    as the period's, or none of it — so there is no figure (review of #68)."""
+    if not whole or not recent or set(whole["by_account"]) != set(recent["by_account"]):
+        return None
+    by_path = {}
+    for acct, paths in whole["by_account"].items():
+        for p, v in paths.items():
+            by_path[p] = by_path.get(p, 0) + v - recent["by_account"][acct].get(p, 0)
+    return {"by_path": by_path, "accounts": len(whole["by_account"])}
+
+
+def summarize(rows: list[dict], *, since: dt.datetime, end: dt.datetime, window: int, repos: list[str],
+              cost: dict | None, every_repo: bool) -> dict:
+    """The period's figures from the judged rows: only merges whose windows
+    have closed count; every ratio divides by verified results; spend is
+    divided only when the results cover every registered repository."""
+    period = [r for r in rows if r["in_period"]]
+    verified = [r for r in period if r["status"] == "verified"]
+    sup = sum(r["supervision"] for r in verified)
+    summary = {"period": f"{since.date()}..{end.date()}", "window_days": window, "repos": repos,
+               "merged_in_period": len(period), "verified": len(verified),
+               "pending_after_period": len(rows) - len(period),
+               "verified_rate": round(len(verified) / len(period), 2) if period else None,
+               "supervision_events": sup, "supervision_per_result": round(sup / len(verified), 2) if verified else None,
+               "spend": cost, "unread_inputs": ["OWNER-WORD in relay DECISIONs", "drain collisions"]}
+    if cost and every_repo and verified:
+        summary["spend_per_result"] = {p: v // len(verified) for p, v in cost["by_path"].items()}
+    return summary
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -180,33 +206,29 @@ def main(argv: list[str] | None = None) -> int:
     since = end - dt.timedelta(days=a.days)
     repos = registered_repos() if a.all else (a.repo or ["gzapi-org/agent-fabric"])
     rows = []
-    for repo in repos:
-        later = main_commits(repo, since)
-        for pr in sorted(merged_prs(repo, since.date()), key=lambda p: p["number"]):
+    try:
+        read = {repo: (main_commits(repo, since), merged_prs(repo, since)) for repo in repos}
+    except gh.GhError as e:
+        print(f"fabric-results: {e}", file=sys.stderr)
+        return 1
+    for repo, (later, prs) in read.items():
+        for pr in sorted(prs, key=lambda p: p["number"]):
             merged = dt.datetime.fromisoformat(pr["mergedAt"].replace("Z", "+00:00"))
             inside = [c for c in later if merged < c["when"] <= merged + dt.timedelta(days=a.window)]
             row = {"repo": repo, **judge(pr, inside, now, a.window, repo=repo)}
             row["in_period"] = merged <= end
             rows.append(row)
+    # The span the period's merges lie in: tokens over DAYS+WINDOW days less
+    # tokens over the last WINDOW days, both from every login's records.
+    whole, recent = (None, None) if a.no_tokens else (spend(a.days + a.window), spend(a.window))
+    cost = period_cost(whole, recent)
+    summary = summarize(rows, since=since, end=end, window=a.window, repos=repos, cost=cost, every_repo=a.all)
+    # Both reads answered, for different logins: said as that, not as "not
+    # read" (review of #70).
+    if whole and recent and not cost:
+        summary["spend_unmatched"] = sorted(set(whole["by_account"]) ^ set(recent["by_account"]))
     period = [r for r in rows if r["in_period"]]
-    verified = [r for r in period if r["status"] == "verified"]
-    pending = [r for r in rows if not r["in_period"]]
-    sup = sum(r["supervision"] for r in verified)
-    cost = None
-    if not a.no_tokens:
-        # The span the period's merges lie in: tokens over DAYS+WINDOW days
-        # less tokens over the last WINDOW days, both from every login's records.
-        whole, recent = spend(a.days + a.window), spend(a.window)
-        if whole and recent:
-            cost = {"by_path": {p: v - recent["by_path"].get(p, 0) for p, v in whole["by_path"].items()},
-                    "accounts": min(whole["accounts"], recent["accounts"])}
-    summary = {"period": f"{since.date()}..{end.date()}", "window_days": a.window, "repos": repos,
-               "merged_in_period": len(period), "verified": len(verified), "pending_after_period": len(pending),
-               "verified_rate": round(len(verified) / len(period), 2) if period else None,
-               "supervision_events": sup, "supervision_per_result": round(sup / len(verified), 2) if verified else None,
-               "spend": cost, "unread_inputs": ["OWNER-WORD in relay DECISIONs", "drain collisions"]}
-    if cost and a.all and verified:
-        summary["spend_per_result"] = {p: v // len(verified) for p, v in cost["by_path"].items()}
+    sup, pending = summary["supervision_events"], summary["pending_after_period"]
     if a.json:
         print(json.dumps({"summary": summary, "prs": rows}, indent=2))
         return 0
@@ -214,8 +236,8 @@ def main(argv: list[str] | None = None) -> int:
         why = f"  ({'; '.join(r['reasons'])})" if r["reasons"] else ""
         print(f"{r['repo'].split('/')[-1]}#{r['number']:<5} {r['merged']}  {r['status']:<12} {r['work']} work, {r['fix']} fix  supervision {r['supervision']}{why}")
     print(f"\n{', '.join(repos)}: PRs merged {summary['period']} (their {a.window}-day windows closed): {len(period)}; "
-          f"verified {len(verified)}; verified rate {summary['verified_rate']}")
-    print(f"after the period, still inside their windows, not counted: {len(pending)}")
+          f"verified {summary['verified']}; verified rate {summary['verified_rate']}")
+    print(f"after the period, still inside their windows, not counted: {pending}")
     print(f"supervision events on the verified results: {sup} ({summary['supervision_per_result']} per result); "
           f"not yet read: {', '.join(summary['unread_inputs'])}")
     if cost:
@@ -223,6 +245,9 @@ def main(argv: list[str] | None = None) -> int:
         per = ", ".join(f"{p}: {v / 1e6:.1f}M" for p, v in sorted(summary.get("spend_per_result", {}).items()))
         print(f"spend over {summary['period']}, the whole fleet ({cost['accounts']} accounts answered): {paths} input-token equivalents; "
               + (f"per verified result: {per}" if per else "per result only with --all (the spend is every repository's)"))
+    elif summary.get("spend_unmatched"):
+        print(f"spend: no figure — the two token reads answered for different accounts "
+              f"({', '.join(summary['spend_unmatched'])}); run it again when the fleet answers whole")
     else:
         print("spend: not read (--no-tokens, or the control plane did not answer)")
     return 0
