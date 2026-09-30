@@ -31,8 +31,12 @@ KILL_TOOLS = {"pgrep", "pkill", "killall", "kill"}
 # Words that open or continue a compound command before the command itself.
 COMPOUND = {"{", "}", "!", "if", "then", "elif", "else", "while", "until", "do", "time", "coproc"}
 # pgrep's and pkill's options that take a separate value.
-PGREP_VALUE_OPTIONS = {"-u", "-U", "-g", "-G", "-P", "-s", "-t", "-F", "--euid", "--uid", "--pgroup", "--group",
-                       "--parent", "--session", "--terminal", "--pidfile", "--signal", "--ns", "--nslist"}
+# pgrep's and pkill's options that take a separate value (procps-ng's
+# --help: pgrep, and pkill's -q/--queue). A cluster ending in one of the
+# short letters takes the next word too (`-fu root`).
+PGREP_VALUE_SHORT = set("dgGOPstuUFrq")
+PGREP_VALUE_LONG = {"--delimiter", "--pgroup", "--group", "--older", "--parent", "--session", "--signal", "--terminal",
+                    "--euid", "--uid", "--pidfile", "--runstates", "--cgroup", "--ns", "--nslist", "--queue"}
 # What a lifted $( … ), ` … ` or <( … ) leaves in its place: no real pattern
 # contains it, so a pattern that does was built from a substitution.
 SUBST = "__SELF_KILL_GUARD_SUBST__"
@@ -97,17 +101,54 @@ def kill_after_prefixes(words: list[str]) -> list[str]:
     return []
 
 
+def strip_non_arguments(text: str) -> str:
+    """What bash does not pass to a command, removed outside quotes before
+    the words are split: a comment (an unquoted '#' that starts a word, to
+    the end of the line; a '#' inside a word is literal), and the fd number
+    written against a redirection (`2>`, `1>&`). Quotes are tracked the way
+    the shell does: nothing is special inside '…', and only a backslash is
+    inside "…"."""
+    out, i, n, quote = [], 0, len(text), None
+    while i < n:
+        c = text[i]
+        if quote == "'":
+            quote = None if c == "'" else quote
+        elif quote == '"':
+            if c == "\\" and i + 1 < n:
+                out.append(c)
+                i += 1
+                c = text[i]
+            elif c == '"':
+                quote = None
+        elif c == "\\" and i + 1 < n:
+            out.append(c)
+            i += 1
+            c = text[i]
+        elif c in "'\"":
+            quote = c
+        elif c == "#" and (i == 0 or text[i - 1] in " \t\n;&|()"):
+            while i < n and text[i] != "\n":
+                i += 1
+            continue
+        elif c.isdigit() and (i == 0 or text[i - 1] in " \t\n;&|()"):
+            j = i
+            while j < n and text[j].isdigit():
+                j += 1
+            if j < n and text[j] in "<>":
+                i = j          # the fd: the redirection follows, and goes below
+                continue
+        out.append(c)
+        i += 1
+    return "".join(out)
+
+
 def segments(piece: str) -> list[list[str]]:
-    """The simple commands of a command line, each as its words. Split on
-    |, ; and & only OUTSIDE quotes: splitting the raw text first cut a
-    quoted argument that merely mentions a kill (python3 -c '... pkill -f
-    P ...') into a command of its own, and denied it (re-review of #69)."""
-    # No comment characters: a bare shlex.shlex keeps '#', so `${#A[@]};
-    # pkill -f P` and `echo a#b; pkill -f P` lost the kill (review of #70);
-    # in bash a '#' inside a word is literal. A newline and a subshell's
-    # parentheses end a command as ; does. A redirection and its target are
-    # not arguments: `pkill -f P 2>/dev/null` read /dev/null as the pattern.
-    lex = shlex.shlex(piece, posix=True, punctuation_chars="();<>|&\n")
+    """The simple commands of a command line, each as its words, split on
+    |, ;, &, newlines and a subshell's parentheses OUTSIDE quotes (splitting
+    the raw text first made a quoted argument that mentions a kill a
+    command of its own). A redirection — any operator holding < or >, `>|`
+    and `)>` included — and the word after it are not arguments."""
+    lex = shlex.shlex(strip_non_arguments(piece), posix=True, punctuation_chars="();<>|&\n")
     lex.commenters = ""
     lex.whitespace = " \t\r"
     lex.whitespace_split = True
@@ -120,24 +161,24 @@ def segments(piece: str) -> list[list[str]]:
     for tok in toks:
         if skip:
             skip = False
-        elif tok and set(tok) <= set("|;&\n()"):
-            out.append(cur)
-            cur = []
-        elif tok and set(tok) <= set("<>&"):
-            # A redirection: `2>`, `>`, `&>`, `>&` … — never & or && (the
-            # separators above). The word after it (a file, or `1` of
-            # 2>&1) is not an argument.
-            skip = True
-        else:
-            cur.append(tok)
+            continue
+        if tok and set(tok) <= set("|;&\n()<>"):
+            if any(ch in tok for ch in "|;\n()") and not (set(tok) <= set("<>&|") and ("<" in tok or ">" in tok)) \
+                    or tok in ("&", "&&"):
+                out.append(cur)
+                cur = []
+            if "<" in tok or ">" in tok:
+                skip = True    # the redirection's target: a file, or the fd of >&1
+            continue
+        cur.append(tok)
     out.append(cur)
     return out
 
 
 def kill_patterns(command: str) -> list[str]:
-    """Every pattern the command selects processes by for a kill: the
-    argument of -f/--full's pgrep or pkill, and killall -r's regex, in a
-    command that kills at all."""
+    """Every candidate pattern the command selects processes by for a kill:
+    each argument of -f/--full's pgrep or pkill, and killall -r's regexes,
+    in a command that kills at all."""
     if not KILLS.search(command):
         return []
     # Each $( … ) (and `…`) is a command of its own: lifted out innermost
@@ -176,26 +217,34 @@ def kill_patterns(command: str) -> list[str]:
                 continue
         tool = os.path.basename(words[0])
         if tool in ("pgrep", "pkill"):
-            # pgrep and pkill take ONE pattern: the first word that is not an
-            # option or an option's value. Taken from the END, whatever
-            # trailed it — a comment, a redirection, an fd — displaced it,
-            # and four review rounds on #69 and #70 patched one spelling at
-            # a time (re-review of #70, R1).
-            full, pattern, it = False, None, iter(words[1:])
-            for w in it:
-                if w == "--":
-                    pattern = next(it, None)
-                    break
-                if w.startswith("-") and len(w) > 1:
-                    if w in ("-f", "--full") or (not w.startswith("--") and "f" in w[1:]):
-                        full = True
-                    if w in PGREP_VALUE_OPTIONS:
-                        next(it, None)
-                    continue
-                pattern = w
-                break
-            if full and pattern is not None:
-                out.append(pattern)
+            # EVERY argument that is not an option or a known option's value
+            # is a candidate, wherever it stands: procps's getopt takes
+            # options after the pattern (`pkill claude-fable -f`), so no
+            # position is the pattern's. Five review rounds on #69 and #70
+            # each found a spelling that an exact reading of the pattern's
+            # place let through; a candidate too many is a false deny, the
+            # safe side (re-review of #70). -f may stand anywhere too.
+            full, cands, skip_next, rest_args = False, [], False, False
+            for w in words[1:]:
+                if skip_next:
+                    skip_next = False
+                elif rest_args or not w.startswith("-") or w == "-":
+                    cands.append(w)
+                elif w == "--":
+                    rest_args = True
+                elif w.startswith("--"):
+                    name = w.split("=", 1)[0]
+                    full = full or name == "--full"
+                    skip_next = name in PGREP_VALUE_LONG and "=" not in w
+                else:
+                    letters = w[1:]
+                    full = full or ("f" in letters and not letters.isdigit())
+                    for k, ch in enumerate(letters):
+                        if ch in PGREP_VALUE_SHORT:
+                            skip_next = k == len(letters) - 1   # else the value is glued: -d, or -u0
+                            break
+            if full:
+                out += cands
         elif tool == "killall" and ("-r" in words or "--regexp" in words):
             args = [w for w in words[1:] if not w.startswith("-")]
             out += args

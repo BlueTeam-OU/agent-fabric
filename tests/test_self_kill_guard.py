@@ -87,6 +87,24 @@ def main() -> int:
         ("an if's then", "if true; then pkill -f claude-fable; fi"),
         ("a leading assignment", "x=1 pkill -f claude-fable"),
         ("process substitution", "diff <(pgrep -f claude-fable) /dev/null | xargs kill"),
+        # getopt takes options after the pattern, and procps has options
+        # the list lacked (re-review of #70, the fifth round).
+        ("-f after the pattern", "pkill claude-fable -f"),
+        ("--full after the pattern", "pkill claude-fable --full"),
+        ("pgrep with -f after the pattern", "pgrep claude-fable -f | xargs kill"),
+        ("a second word after the first", "pkill -f zzqx claude-fable"),
+        ("a cluster ending in a value option", "pkill -fu root claude-fable"),
+        ("-fd ,", "pkill -fd , claude-fable"),
+        ("-d , apart", "pgrep -f -d , claude-fable | xargs kill"),
+        ("--delimiter", "pgrep -f --delimiter , claude-fable | xargs kill"),
+        ("-q 5", "pkill -f -q 5 claude-fable"),
+        ("-r S", "pkill -f -r S claude-fable"),
+        ("-O 5", "pkill -f -O 5 claude-fable"),
+        ("--older 5", "pkill -f --older 5 claude-fable"),
+        ("--cgroup g", "pkill -f --cgroup g claude-fable"),
+        ("--logpidfile takes no value", "pkill -f --logpidfile claude-fable"),
+        ("a redirection before the pattern", "pkill 2>/dev/null -f claude-fable"),
+        ("a redirection between -f and the pattern", "pkill -f 2>/dev/null claude-fable"),
         ("env -u X", "env -u HOME pkill -f 'gzcoord-inbox'"),
         ("xargs -I {}", "pgrep -f 'inbox --follow' | xargs -I {} kill {}"),
     ]
@@ -105,6 +123,11 @@ def main() -> int:
         # A kill phrase inside a quoted argument is text, not a command.
         ("a quoted python -c string that mentions a kill", "python3 -c 'print(\"pkill -f claude-fable\")'"),
         ("a commit message that quotes the command", "git commit -m 'fix: pgrep -f gzcoord-inbox | xargs kill no longer runs'"),
+        # What a redirection brings is not a pattern: a fd, a target, `>|`.
+        ("killall -r with 2>/dev/null", "killall -r zzqx 2>/dev/null"),
+        ("killall -r with >|", "killall -r zzqx >| /dev/null"),
+        ("pkill -f of another pattern, 2>/dev/null", "pkill -f zzqx 2>/dev/null"),
+        ("a real comment naming the kill", "git status # pkill -f claude-fable"),
     ]
     for label, cmd in allowed:
         check(f"allowed: {label}", g.verdict(cmd, CLAUDE) is None, g.kill_patterns(cmd))
