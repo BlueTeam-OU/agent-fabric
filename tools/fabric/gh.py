@@ -87,7 +87,10 @@ def api(path: str, *, method: str = "GET", body: dict | list | None = None, pagi
     try:
         data = json.loads(out) if out.strip() else None
     except ValueError:
-        raise GhError(f"gh api {method} {path.split('?')[0]}", "the answer is not JSON") from None
+        # gh exited 0: the request was accepted and its answer is unread, so
+        # the outcome is unknown — transient, like a timeout: a read may be
+        # retried, and a write may have landed (re-review of #71).
+        raise GhError(f"gh api {method} {path.split('?')[0]}", "the answer is not JSON", transient=True) from None
     if paginate and isinstance(data, list):
         # --slurp wraps the pages in a list; a page is a list of items, or
         # an object whose one list field holds them (search, check runs).
@@ -112,9 +115,9 @@ def graphql(query: str, *, timeout: float = TIMEOUT_S, **variables) -> dict:
     try:
         doc = json.loads(out)
     except ValueError:
-        raise GhError("gh api graphql", "the answer is not JSON") from None
+        raise GhError("gh api graphql", "the answer is not JSON", transient=True) from None
     if not isinstance(doc, dict):
-        raise GhError("gh api graphql", "the answer is not a JSON object")
+        raise GhError("gh api graphql", "the answer is not a JSON object", transient=True)
     if doc.get("errors"):
         # A rate limit can come back as an error answered with 200: waiting
         # helps it as it helps a 429 (review of #70).

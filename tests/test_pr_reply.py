@@ -50,6 +50,31 @@ def main() -> int:
     finally:
         gh.graphql, gh.run, pr_reply.local.toplevel, pr_reply.local.probe, pr_reply.local.remote_url = real
 
+    print("an answer to the reply that cannot be read is an unknown outcome too (re-review of #71)")
+    real_run = gh.run
+    gh.graphql = real[0]
+
+    def answering(args, **kw):
+        if args[:2] == ["api", "graphql"]:
+            q = kw.get("input") or ""
+            if "addPullRequestReviewThreadReply" in q:
+                return "<html>truncated"
+            import json as _json
+            return _json.dumps({"data": node})
+        return "o/r\n"
+    gh.run = answering
+    pr_reply.local.toplevel = lambda: "/x/wc"
+    pr_reply.local.remote_url = lambda root: ""
+    pr_reply.local.probe = lambda cmd, **kw: (0, "h\n" if cmd[0] == "hostname" else "me\n")
+    try:
+        pr_reply.run(["PRRT_abc"], "body")
+        check("refused", False)
+    except pr_reply.Refused as e:
+        check("says it may have posted", "may have posted" in str(e))
+    finally:
+        gh.graphql, gh.run, pr_reply.local.toplevel, pr_reply.local.probe, pr_reply.local.remote_url = \
+            real[0], real_run, real[2], real[3], real[4]
+
     print("--help and a usage error never wait on an open stdin (review of #71)")
     shim = os.path.join(HERE, "runtime", "github", "pr-reply.sh")
     for args, want in ((["--help"], 0), (["--bogus"], 2)):

@@ -33,7 +33,8 @@ def toplevel() -> str | None:
     """The working copy this process stands in, or None."""
     try:
         return git.toplevel(os.getcwd())
-    except git.GitError:
+    except (git.GitError, OSError):
+        # OSError: a working directory deleted under the process.
         return None
 
 
