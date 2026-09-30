@@ -505,7 +505,14 @@ def put(child: str, name: str, value: bytes, store: str | None = None, fabric: s
     _write_entry(store, name, value if exact else _one_line_off(value), ["--recipient-file", key_file])
     changed = git(store, "diff", "--cached", "--quiet", check=False).returncode != 0
     if changed:
-        _commit(store, f"parent {login()}: put {name}")
+        try:
+            _commit(store, f"parent {login()}: put {name}")
+        except StoreError:
+            # The entry is staged and uncommitted: left there, the next
+            # pull refuses the dirty mirror. The mirror goes back to what
+            # it held, as after a refused push (review of #69).
+            git(store, "reset", "-q", "--hard", "HEAD", check=False)
+            raise
         try:
             _after_commit(store)
         except StoreError as pushed:

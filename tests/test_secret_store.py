@@ -207,6 +207,13 @@ def main() -> int:
             seen = []
             class Keys(http.server.BaseHTTPRequestHandler):
                 def log_message(self, *a): pass
+                def do_GET(self):
+                    seen.append(("GET", self.path, self.headers.get("Authorization")))
+                    if self.path.startswith("/v1/organization/projects?"):
+                        body = {"data": [{"id": "proj_1", "status": "active"}]}
+                    else:   # the project's service accounts: an earlier one under this name
+                        body = {"data": [{"id": "sa_old", "name": "agent-fabric-kid"}]}
+                    self.send_response(200); self.end_headers(); self.wfile.write(json.dumps(body).encode())
                 def do_POST(self):
                     seen.append(("POST", self.path, self.headers.get("Authorization")))
                     if os.path.exists(os.path.join(tmp, "break-put")):
@@ -217,6 +224,8 @@ def main() -> int:
                         os.chmod(hook, 0o755)
                     data = {} if os.path.exists(os.path.join(tmp, "no-hash")) else {"hash": "h4sh"}
                     body = json.dumps({"key": "sk-or-minted-" + SECRET, "data": data}).encode()
+                    if self.path.startswith("/v1/organization/"):
+                        body = json.dumps({"id": "sa_new", "api_key": {"id": "key_1", "value": "sk-proj-" + SECRET}}).encode()
                     self.send_response(201); self.end_headers(); self.wfile.write(body)
                 def do_DELETE(self):
                     seen.append(("DELETE", self.path, self.headers.get("Authorization")))
@@ -270,6 +279,17 @@ def main() -> int:
                 os.remove(hook)
                 os.remove(os.path.join(mirror, ".git", "index.lock"))
                 subprocess.run(["git", "-C", mirror, "reset", "-q", "--hard", "origin/main"], env=parent, check=True)
+                # A commit that fails inside put leaves nothing staged.
+                hook = os.path.join(mirror, ".git", "hooks", "pre-commit")
+                open(hook, "w").write("#!/bin/sh\nexit 1\n")
+                os.chmod(hook, 0o755)
+                p2 = run(parent, "put", "kid", "COMMIT_CASE", stdin="v")
+                os.remove(hook)
+                staged = subprocess.run(["git", "-C", mirror, "status", "--porcelain"], env=parent,
+                                        capture_output=True, text=True).stdout
+                check("a commit that fails inside put: an error, and the mirror left clean",
+                      p2.returncode == 1 and staged == "" and not os.path.exists(os.path.join(mirror, "env", "COMMIT_CASE.gpg")),
+                      p2.stderr[-200:] + " status=" + staged)
                 check("M2: a reset that fails too is said, with the push's reason and the reset's",
                       p.returncode == 1 and "git push" in p.stderr
                       # git's own wording of the lock differs by version (Fedora's last
@@ -289,6 +309,30 @@ def main() -> int:
                     os.remove(os.path.join(tmp, f))
                 check("F4: an undo that deleted nothing says NOT deleted, never 'deleted again'",
                       p.returncode == 1 and "NOT deleted" in p.stdout and "deleted again" not in p.stdout, p.stdout)
+                # OpenAI: a service account per login, the earlier one of the
+                # same name replaced; a put that fails deletes the one just
+                # made, by its id (#69 re-review, carried).
+                run(parent, "set", "OPENAI_ADMIN_KEY", stdin="adm-" + SECRET)
+                oa = lambda *a: subprocess.run([sys.executable, PROV, "issue-key", "openai", *a], cwd=tmp, capture_output=True,
+                                               text=True, env={**parent, "OPENAI_API_BASE": f"http://127.0.0.1:{srv.server_port}/v1"})
+                n0 = len(seen)
+                p = oa("kid")
+                calls = seen[n0:]
+                check("openai: the earlier account deleted, a new one made with the admin key, its key in the child's store",
+                      p.returncode == 0 and rows_of(p) == {("OPENAI_API_KEY", "written")}
+                      and ("DELETE", "/v1/organization/projects/proj_1/service_accounts/sa_old", "Bearer adm-" + SECRET) in calls
+                      and ("POST", "/v1/organization/projects/proj_1/service_accounts", "Bearer adm-" + SECRET) in calls
+                      and os.path.exists(os.path.join(mirror, "env", "OPENAI_API_KEY.gpg"))
+                      and SECRET not in p.stdout + p.stderr, p.stdout + p.stderr + repr(calls))
+                open(os.path.join(tmp, "break-put"), "w").close()
+                n0 = len(seen)
+                p = oa("kid", "--replace")
+                os.rename(remote + ".away", remote)
+                os.remove(os.path.join(tmp, "break-put"))
+                check("openai: a put that fails deletes the service account it just made, by its id",
+                      p.returncode == 1 and "deleted again" in p.stdout
+                      and ("DELETE", "/v1/organization/projects/proj_1/service_accounts/sa_new", "Bearer adm-" + SECRET) in seen[n0:],
+                      p.stdout + repr(seen[n0:]))
             finally:
                 srv.shutdown()
                 srv.server_close()
