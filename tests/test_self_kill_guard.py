@@ -117,6 +117,11 @@ def main() -> int:
         ("n=$((n+1))#x before the kill", "n=$((n+1))#x; pkill -f claude-fable"),
         ("a value that is the pattern, -d", "pgrep -f -d claude-fable | xargs kill"),
         ("--fu, a prefix of --full", "pkill --fu claude-fable"),
+        # Seventh round: `--` as an option's value; a comment after a
+        # subshell's ')' holding a quote.
+        ("-d -- -f", "pgrep -d -- -f claude-fable | xargs kill"),
+        ("--delimiter -- -f", "pgrep --delimiter -- -f claude-fable | xargs kill"),
+        ("a comment after a subshell, a quote in it", "(true)# it's here\npkill -f claude-fable\necho x # '"),
         ("env -u X", "env -u HOME pkill -f 'gzcoord-inbox'"),
         ("xargs -I {}", "pgrep -f 'inbox --follow' | xargs -I {} kill {}"),
     ]

@@ -102,6 +102,11 @@ def strip_non_arguments(text: str) -> str:
     the shell does: nothing is special inside '…', and only a backslash is
     inside "…"."""
     out, i, n, quote = [], 0, len(text), None
+    # A ')' that closes a $( … ) or $(( … )) ends a word, and a '#' after it
+    # is literal (`$((1+1))#`); a ')' that closes a subshell is an operator,
+    # and a '#' after it starts a comment (review of #70, the seventh
+    # round). The depth of open substitutions tells the two apart.
+    subst_depth, closed_subst = 0, False
     while i < n:
         c = text[i]
         if quote == "'":
@@ -119,9 +124,17 @@ def strip_non_arguments(text: str) -> str:
             c = text[i]
         elif c in "'\"":
             quote = c
-        # Not after ')': `$((1+1))#` keeps the '#' in its word (re-review
-        # of #70), and an unlifted substitution's ')' is such a word's end.
-        elif c == "#" and (i == 0 or text[i - 1] in " \t\n;&|("):
+        elif c == "$" and i + 1 < n and text[i + 1] == "(":
+            subst_depth += 1
+            out.append("$(")
+            i += 2
+            continue
+        elif c == "(" and subst_depth:
+            subst_depth += 1
+        elif c == ")":
+            closed_subst = subst_depth > 0
+            subst_depth = max(0, subst_depth - 1)
+        elif c == "#" and (i == 0 or text[i - 1] in " \t\n;&|(" or (text[i - 1] == ")" and not closed_subst)):
             while i < n and text[i] != "\n":
                 i += 1
             continue
@@ -223,6 +236,15 @@ def kill_patterns(command: str) -> list[str]:
             # side. -f counts wherever it stands, alone or in a cluster.
             full, cands, rest_args = False, [], False
             for w in words[1:]:
+                # -f counts even after a `--`: getopt may have taken that
+                # `--` as an option's value (`pgrep -d -- -f P`), and a
+                # candidate too many is the safe side (seventh round).
+                if w.startswith("-") and w not in ("-", "--"):
+                    name = w.split("=", 1)[0]
+                    if name.startswith("--"):
+                        full = full or (len(name) > 2 and "--full".startswith(name))
+                    else:
+                        full = full or "f" in w[1:]
                 if rest_args or not w.startswith("-") or w == "-":
                     cands.append(w)
                 elif w == "--":
