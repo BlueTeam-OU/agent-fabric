@@ -87,14 +87,20 @@ case "${1:-}" in
   api)
     [[ -n "${GH_MOCK_GRAPHQL_FAIL:-}" ]] && exit 1
     # Apply the caller's --jq filter to the fixture, exactly as gh does.
-    filter=""; query=""
+    filter=""; query=""; json=0
     while [[ $# -gt 0 ]]; do
       case "$1" in
         --jq) filter="$2"; shift 2 ;;
         -f) [[ "$2" == query=* ]] && query="${2#query=}"; shift 2 ;;
+        # The same call with its query and variables as JSON on stdin
+        # (tools/fabric/gh.py, ADR-040 §5 rule 6); answered in GraphQL's
+        # own shape — the fixture as it stands, `data` and all — where the
+        # -f form is answered through the caller's --jq.
+        --input) json=1; shift 2 ;;
         *) shift ;;
       esac
     done
+    [[ "$json" == 1 ]] && query="$(jq -r '.query' < /dev/stdin)"
     # GRAPHQL RETURNS ONLY WHAT THE QUERY ASKED FOR, and the mock has to
     # honour that or it hides missing selections. A fixture that
     # volunteers pageInfo the query never requested lets the script pass

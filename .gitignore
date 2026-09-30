@@ -15,3 +15,6 @@ runtime/state/
 .idea/
 *.swp
 .DS_Store
+
+# Worktrees the harness makes for isolated subagents: never content.
+.claude/worktrees/

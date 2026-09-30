@@ -41,21 +41,18 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 import gh  # noqa: E402
-REVIEW_MARKER = "<!-- agent-fabric-review v1 -->"   # runtime/github/post-review.sh
+from github import commit_class  # noqa: E402
+from github.post_review import REVIEW_MARKER  # noqa: E402
 BAND_FLOOR = 8                                       # ADR-019: fewer work commits, the owner arms
 GREEN = {"SUCCESS", "SKIPPED", "NEUTRAL"}
 OWNER_CORRECTION = re.compile(r"\(owner\b", re.I)
 
 
 def classify(subject: str, body: str, pr: int, repo: str, parents: int = 1) -> str:
-    """The one classifier (runtime/github/commit-class.sh): work, fix or merge.
+    """The one classifier (tools/fabric/github/commit_class.py): work, fix or merge.
     A merge is told by its parents, as pr-gate tells it, never by its words."""
     answers = "\n".join(m.group(1) for m in re.finditer(r"^Answers:\s*(.*)$", body, re.M))
-    r = subprocess.run(["bash", "-c", 'source "$0"; commit_class "$1" "$2" "$3" "$4" "$5"',
-                        os.path.join(ROOT, "runtime", "github", "commit-class.sh"),
-                        " ".join(["p"] * max(parents, 1)), subject, answers, str(pr), repo.split("/")[-1]],
-                       capture_output=True, text=True)
-    return r.stdout.strip() or "work"
+    return commit_class.classify(" ".join(["p"] * max(parents, 1)), subject, answers, str(pr), repo)
 
 
 def judge(pr: dict, later: list[dict], now: dt.datetime, window_days: int, cls=classify, repo: str = "") -> dict:

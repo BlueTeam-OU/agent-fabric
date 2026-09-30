@@ -807,7 +807,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - Keywords: agent id, UUIDv7, birth, rename, identity, lineage, key,
   secrets repository, P1.
 
-### ADR-040 — Implementation language: Python above 150 lines (Proposed)
+### ADR-040 — Implementation language: Python above 150 lines (Accepted)
 
 - New fabric tooling is Python 3.12+, standard library only; bash stays
   for shims, forwarders, hook entry points, the suite runners and
@@ -821,5 +821,8 @@ its record disagree, the record wins. Look it up, never read it whole:
   3–5).
 - GitHub and git go through `gh.py` and `git.py`: bodies on stdin or a
   file, bounded calls named in their errors, JSON in Python (§5 rule 6).
+- A 2026-10-01 — the oracle's assertions stay; its gh mock may learn
+  gh.py's transport (still passing the bash original), and a case
+  reading the source reads the module.
 - Keywords: Python, bash, shell, port, allowlist, lint, shim, wave, gh,
   git, 150 lines, P1.

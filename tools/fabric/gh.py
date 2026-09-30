@@ -38,11 +38,16 @@ _STATUS = re.compile(r"\(HTTP (\d{3})\)")
 
 class GhError(Exception):
     """A gh call that failed: `what` it was, GitHub's `reason`, the HTTP
-    `status` when gh reported one, and whether a retry could help."""
+    `status` when gh reported one, and whether a retry could help. `stdout`
+    is what gh printed before it failed: `gh pr checks` exits 8 while a
+    check is pending and 1 while one fails, and prints its table either
+    way."""
 
-    def __init__(self, what: str, reason: str, status: int | None = None, transient: bool = False):
+    def __init__(self, what: str, reason: str, status: int | None = None, transient: bool = False,
+                 stdout: str = ""):
         super().__init__(f"{what}: {reason}")
         self.what, self.reason, self.status, self.transient = what, reason, status, transient
+        self.stdout = stdout
 
 
 def run(args: list[str], *, input: str | None = None, timeout: float = TIMEOUT_S, what: str | None = None) -> str:
@@ -64,7 +69,7 @@ def run(args: list[str], *, input: str | None = None, timeout: float = TIMEOUT_S
         status = int(m.group(1)) if m else None
         transient = status is not None and (status >= 500 or status == 429) \
             or "rate limit" in r.stderr.lower() or "timeout" in r.stderr.lower()
-        raise GhError(what, lines[-1], status, transient)
+        raise GhError(what, lines[-1], status, transient, r.stdout)
     return r.stdout
 
 
@@ -79,7 +84,13 @@ def api(path: str, *, method: str = "GET", body: dict | list | None = None, pagi
         args += ["--input", "-"]
     out = run(args, input=json.dumps(body) if body is not None else None, timeout=timeout,
               what=f"gh api {method} {path.split('?')[0]}")
-    data = json.loads(out) if out.strip() else None
+    try:
+        data = json.loads(out) if out.strip() else None
+    except ValueError:
+        # gh exited 0: the request was accepted and its answer is unread, so
+        # the outcome is unknown — transient, like a timeout: a read may be
+        # retried, and a write may have landed (re-review of #71).
+        raise GhError(f"gh api {method} {path.split('?')[0]}", "the answer is not JSON", transient=True) from None
     if paginate and isinstance(data, list):
         # --slurp wraps the pages in a list; a page is a list of items, or
         # an object whose one list field holds them (search, check runs).
@@ -99,7 +110,14 @@ def graphql(query: str, *, timeout: float = TIMEOUT_S, **variables) -> dict:
     GraphQL answers errors with HTTP 200: they are raised here too."""
     out = run(["api", "graphql", "--input", "-"], input=json.dumps({"query": query, "variables": variables}),
               timeout=timeout, what="gh api graphql")
-    doc = json.loads(out)
+    # An answer that is not a JSON object is a failed call, never a
+    # traceback past a caller that catches GhError (review of #71).
+    try:
+        doc = json.loads(out)
+    except ValueError:
+        raise GhError("gh api graphql", "the answer is not JSON", transient=True) from None
+    if not isinstance(doc, dict):
+        raise GhError("gh api graphql", "the answer is not a JSON object", transient=True)
     if doc.get("errors"):
         # A rate limit can come back as an error answered with 200: waiting
         # helps it as it helps a 429 (review of #70).

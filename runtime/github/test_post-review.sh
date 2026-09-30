@@ -20,7 +20,11 @@ set -uo pipefail
 
 SCRIPT_DIR="$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" && pwd )"
 UNDER_TEST="$SCRIPT_DIR/post-review.sh"
-READER="$SCRIPT_DIR/pr-review-status.sh"
+# Both ends of the marker contract are Python modules now; the scripts
+# above are their shims, run as the paths every caller uses.
+EMITTER="$SCRIPT_DIR/../../tools/fabric/github/post_review.py"
+READER="$SCRIPT_DIR/../../tools/fabric/github/pr_review_status.py"
+marker_of() { grep -m1 "^REVIEW_MARKER = " "$1" | cut -d= -f2- | sed 's/^ //' | tr -d "'\""; }
 
 [[ -f "$UNDER_TEST" ]] || { echo "test: not found: $UNDER_TEST" >&2; exit 1; }
 command -v jq >/dev/null 2>&1 || { echo "test: jq required" >&2; exit 1; }
@@ -200,7 +204,7 @@ AGENT_FABRIC_LAUNCH_ROLE_CASE=fabric-coordinator   # launched as the merger, as 
 set_pr "$OTHER/i18n/ge-team" "$LOC"; invoke "findings" 552
 assert_rc "the merger posts on a locale-only PR" 0
 posted && pass "…it was sent" || fail "the merger's review was not sent"
-MARKER="$(sed -n "s/^REVIEW_MARKER='\(.*\)'\$/\1/p" "$UNDER_TEST")"
+MARKER="$(marker_of "$EMITTER")"
 [[ -n "$MARKER" && "$(body_of | head -1)" == "$MARKER" ]] && pass "…the marker is still its first line" || fail "the marker moved" "want '$MARKER'; $(body_of | head -3)"
 [[ "$(body_of)" == *"posted by the locale carve-out's merger"* ]] && pass "…and it says it was posted by the carve-out's merger" || fail "no carve-out note" "$(body_of | head -3)"
 set_pr "$OTHER/i18n/ge-team" "$LOC" "tools/fabric/lint.py"; invoke "no" 552
@@ -299,8 +303,8 @@ rm -f "$SANDBOX/state/api_empty"
 echo "post-review: the marker matches the READER's, byte for byte"
 # THE CROSS-FILE CONTRACT. Two constants in two scripts; a one-sided
 # edit turns real coverage back into "0 reviews" with nothing failing.
-emit="$(grep -m1 "^REVIEW_MARKER=" "$UNDER_TEST" | cut -d= -f2-)"
-read_="$(grep -m1 "^REVIEW_MARKER=" "$READER"    | cut -d= -f2-)"
+emit="$(marker_of "$EMITTER")"
+read_="$(marker_of "$READER")"
 if [[ -n "$emit" && "$emit" == "$read_" ]]; then
     pass "emitter and pr-review-status.sh agree on the marker"
 else
