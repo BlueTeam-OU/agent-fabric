@@ -39,6 +39,8 @@ import subprocess
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import gh  # noqa: E402
 REVIEW_MARKER = "<!-- agent-fabric-review v1 -->"   # runtime/github/post-review.sh
 BAND_FLOOR = 8                                       # ADR-019: fewer work commits, the owner arms
 GREEN = {"SUCCESS", "SKIPPED", "NEUTRAL"}
@@ -82,28 +84,19 @@ def judge(pr: dict, later: list[dict], now: dt.datetime, window_days: int, cls=c
             "work": work, "fix": fix, "supervision": supervision}
 
 
-def _gh(*args: str) -> str:
-    r = subprocess.run(["gh", *args], capture_output=True, text=True)
-    if r.returncode != 0:
-        raise SystemExit(f"fabric-results: gh {args[0]} {args[1]}: {(r.stderr.strip().splitlines() or ['failed'])[-1]}")
-    return r.stdout
-
-
 def merged_prs(repo: str, since: dt.date) -> list[dict]:
     # The numbers first, then each PR alone: GitHub refuses one query over
     # 500,000 possible nodes, which fifty PRs with their commits, reviews
     # and checks already exceed.
-    numbers = json.loads(_gh("pr", "list", "--repo", repo, "--state", "merged", "--limit", "1000",
-                             "--search", f"merged:>={since.isoformat()}", "--json", "number"))
-    fields = "number,title,mergedAt,headRefOid,mergeCommit,commits,reviews,statusCheckRollup"
+    numbers = gh.pr_list(["number"], repo=repo, state="merged", search=f"merged:>={since.isoformat()}")
+    fields = ["number", "title", "mergedAt", "headRefOid", "mergeCommit", "commits", "reviews", "statusCheckRollup"]
     prs = []
     for p in numbers:
-        pr = json.loads(_gh("pr", "view", str(p["number"]), "--repo", repo, "--json", fields))
+        pr = gh.pr_view(p["number"], fields, repo=repo)
         # gh's commit list has no parents; the REST list has them, so a
         # merge folded into the branch is not counted as work (review of #68).
-        parents = {c["sha"]: c["n"] for c in map(json.loads, _gh(
-            "api", "--paginate", f"repos/{repo}/pulls/{p['number']}/commits?per_page=100",
-            "--jq", ".[] | {sha, n: (.parents | length)}").splitlines())}
+        parents = {c["sha"]: len(c.get("parents") or [])
+                   for c in gh.api(f"repos/{repo}/pulls/{p['number']}/commits?per_page=100", paginate=True)}
         for c in pr.get("commits") or []:
             c["parents"] = parents.get(c["oid"], 1)
         prs.append(pr)
@@ -113,14 +106,11 @@ def merged_prs(repo: str, since: dt.date) -> list[dict]:
 def main_commits(repo: str, since: dt.datetime) -> list[dict]:
     """The default branch's commits since `since`, from GitHub: any
     registered repository, not only a local clone."""
-    out = _gh("api", "--paginate", f"repos/{repo}/commits?since={since.strftime('%Y-%m-%dT%H:%M:%SZ')}&per_page=100",
-              "--jq", ".[] | {sha, message: .commit.message, when: .commit.committer.date}")
     rows = []
-    for line in out.splitlines():
-        c = json.loads(line)
-        subject, _, body = c["message"].partition("\n")
+    for c in gh.api(f"repos/{repo}/commits?since={since.strftime('%Y-%m-%dT%H:%M:%SZ')}&per_page=100", paginate=True):
+        subject, _, body = c["commit"]["message"].partition("\n")
         rows.append({"sha": c["sha"], "subject": subject, "body": body.strip("\n"),
-                     "when": dt.datetime.fromisoformat(c["when"].replace("Z", "+00:00"))})
+                     "when": dt.datetime.fromisoformat(c["commit"]["committer"]["date"].replace("Z", "+00:00"))})
     return rows
 
 
@@ -180,9 +170,13 @@ def main(argv: list[str] | None = None) -> int:
     since = end - dt.timedelta(days=a.days)
     repos = registered_repos() if a.all else (a.repo or ["gzapi-org/agent-fabric"])
     rows = []
-    for repo in repos:
-        later = main_commits(repo, since)
-        for pr in sorted(merged_prs(repo, since.date()), key=lambda p: p["number"]):
+    try:
+        read = {repo: (main_commits(repo, since), merged_prs(repo, since.date())) for repo in repos}
+    except gh.GhError as e:
+        print(f"fabric-results: {e}", file=sys.stderr)
+        return 1
+    for repo, (later, prs) in read.items():
+        for pr in sorted(prs, key=lambda p: p["number"]):
             merged = dt.datetime.fromisoformat(pr["mergedAt"].replace("Z", "+00:00"))
             inside = [c for c in later if merged < c["when"] <= merged + dt.timedelta(days=a.window)]
             row = {"repo": repo, **judge(pr, inside, now, a.window, repo=repo)}

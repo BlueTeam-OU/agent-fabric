@@ -70,6 +70,40 @@ def main() -> int:
     check("a merge folded into the branch is not work: 7 work, so the owner armed it", (r["work"], r["supervision"]) == (7, 1), r)
     r = results.judge(merged_in, [], NOW, 14)   # the real classifier, through commit-class.sh
     check("…and the real classifier reads the merge by its parents", r["work"] == 7, r)
+
+    # The reads, through gh.py against a fake gh: the PR numbers, each PR
+    # alone, its commits' parents from REST, main's commits from REST.
+    import tempfile
+    fake = r"""#!/usr/bin/env python3
+import json, sys
+a = sys.argv[1:]
+if a[:2] == ["pr", "list"]:
+    print(json.dumps([{"number": 7}]))
+elif a[:2] == ["pr", "view"]:
+    print(json.dumps({"number": 7, "mergedAt": "2026-10-01T10:00:00Z",
+                      "commits": [{"oid": "c1"}, {"oid": "c2"}]}))
+elif "pulls/7/commits" in a[1]:
+    print(json.dumps([[{"sha": "c1", "parents": [{}]}, {"sha": "c2", "parents": [{}, {}]}]]))
+elif "/commits?since=" in a[1]:
+    print(json.dumps([[{"sha": "s1", "commit": {"message": "fix x\n\nbody", "committer": {"date": "2026-10-02T00:00:00Z"}}}]]))
+else:
+    sys.exit(9)
+"""
+    with tempfile.TemporaryDirectory() as tmp:
+        open(os.path.join(tmp, "gh"), "w").write(fake)
+        os.chmod(os.path.join(tmp, "gh"), 0o755)
+        old = os.environ["PATH"]
+        os.environ["PATH"] = tmp + os.pathsep + old
+        try:
+            prs = results.merged_prs("o/r", dt.date(2026, 9, 1))
+            commits = results.main_commits("o/r", dt.datetime(2026, 9, 1, tzinfo=dt.timezone.utc))
+        finally:
+            os.environ["PATH"] = old
+    check("merged_prs: each PR read alone, its commits' parents counted from REST",
+          [c["parents"] for c in prs[0]["commits"]] == [1, 2], prs)
+    check("main_commits: subject, body and time from the REST list",
+          commits == [{"sha": "s1", "subject": "fix x", "body": "body",
+                       "when": dt.datetime(2026, 10, 2, tzinfo=dt.timezone.utc)}], commits)
     print(f"\n{'FAILED' if fails else 'all passed'}")
     return 1 if fails else 0
 
