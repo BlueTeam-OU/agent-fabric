@@ -226,6 +226,7 @@ its record disagree, the record wins. Look it up, never read it whole:
   `~/.local/bin` with narrow allow rules; wrappers still ask (§5 rules 8–9).
 - A 2026-09-28 — a `fresh` restart marker starts a new session, not a resume
   (rule 4, ADR-022 rule 10).
+- A 2026-09-30 — the signing key is in the operator's own store (§6).
 - Keywords: fabric-ctl, upgrade, distribution, signed, control plane,
   agentd, hostexec, harness.json, commands.json, approval, allow rule.
 
@@ -243,6 +244,7 @@ its record disagree, the record wins. Look it up, never read it whole:
   project's (§5 rules 9–11). Quota and fleet lease are not built (§2).
 - Deferred by the owner (2026-09-26): a shared Android SDK/Gradle cache,
   until a second Flutter login needs it (§7).
+- A 2026-09-30 — the coordinator keeps its own store and fills each child's, not Doppler (§2, §5 rule 1).
 - Keywords: host, placement, hostexec, fabric-host, ssh, provisioning,
   new-agent, Qubes, persist-accounts, moveto, lease, heavy, memory, crash, OOM.
 
@@ -387,6 +389,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - `check_charter_authority.sh` runs from `tests/run.sh` on every branch,
   reading `authority.json` from the base of the diff (§6).
 - A 2026-09-28 — the charter tripwire's CI call site: the known gap closed.
+- A 2026-09-30 — credentials and the stores are this role's; the Doppler project is gone (References).
 - Keywords: authority, read-only, fence, tripwire, Fabric-Role, trailer,
   pre-commit, commit-msg, hooksPath, charter, locale carve-out, guard.
 
@@ -695,7 +698,7 @@ its record disagree, the record wins. Look it up, never read it whole:
   identity, knowledge or the ability to go on working; reduced capacity
   is acceptable (§2).
 - §1 inventories what depends on one thing today — one host, one relay
-  and its database, one signing key, Doppler, one observer, two
+  and its database, one signing key, one observer, two
   providers, undrained memory, the owner — with each degraded mode or
   "none" (§1, §5 rule 1).
 - Data that exists nowhere else gets a copy first; a degraded mode counts
@@ -703,6 +706,7 @@ its record disagree, the record wins. Look it up, never read it whole:
   (§5 rules 2–4).
 - First step: a copy of the relay's database and a restore read back
   (§7). Waits on the owner's acceptance (§8).
+- A 2026-09-30 — the inventory's key and secrets rows name the stores; Doppler is gone (§1, §5 rule 4).
 - Keywords: decentralization, resilience, single point of failure,
   degraded mode, relay, host, crash, backup, autonomy, P5, proposed.
 

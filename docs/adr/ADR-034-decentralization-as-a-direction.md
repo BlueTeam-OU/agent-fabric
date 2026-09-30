@@ -32,8 +32,8 @@ What depends on one thing today, read from the tree:
 | every account | one host: `runtime/hosts/registry.json` names one host, `develop-qzapp`, and places all sixteen logins on it | every session and control agent stops; `/home` persists, so identity, bindings and unpushed work survive a reboot of that host, not its loss | none documented beyond the reboot (the Qubes account snapshot, ADR-029 §5 rule 11) |
 | messages between sessions | one relay process on the operator's account, loopback only, one SQLite database (ADR-033) | no session receives anything; the channel's past is only in that database | the human relay (ADR-033 §5 rule 7) |
 | the control plane | the same relay, channel `fabric:control` (ADR-029) | no account answers; with the relay up and the control agents down, presence reads as unknown and `send.mjs` refuses without `--force` (ADR-030) | sudo fallbacks: `bin/fabric-usage`, `bin/fabric-host <host> drain` (ADR-029) |
-| signed actions | one key, in the operator's Doppler config (`FABRIC_CONTROL_SIGNING_KEY`) | no upgrade, distribution or account move can be ordered | `fabric-ctl keygen --force` makes a new key; the registry commit carries the public half |
-| secrets | Doppler, one config per login (ADR-012) | no sync, no rotation, no account move; the tools read the file the last sync wrote, which a failed read does not change | none needed while nothing must change |
+| signed actions | one key, in the operator's own store (`FABRIC_CONTROL_SIGNING_KEY`) (A 2026-09-30) | no upgrade, distribution or account move can be ordered | `fabric-ctl keygen --force` makes a new key; the registry commit carries the public half |
+| secrets | each login's own store, a private GitHub repository (ADR-038) (A 2026-09-30) | no sync, no rotation, no account move; the tools read the file the last sync wrote, which a failed read does not change | none needed while nothing must change |
 | the usage windows | one observer login's sign-ins (ADR-031) | the windows are unread | none |
 | model inference | two providers, `anthropic` and `openrouter` (`routing/capabilities.json`); on the plain path, the Claude accounts the templates name (ADR-031) | one path lost reduces capacity; a login is moved to another account by `fabric-accounts assign` or launched on the other provider | routing by capability class (ADR-005) |
 | knowledge | git: the fabric's corpus and each project's `.agent-fabric/` on GitHub and in every clone (ADR-013) | an unreachable GitHub stops pushes and merges, not reading | every clone is a full copy |
@@ -94,7 +94,7 @@ record would make the channel less durable, not more.
    until then the row says "none documented".
 4. Identity stays derivable without any central service: the login and
    the host (ADR-002). No design makes an agent's identity depend on the
-   relay, Doppler or GitHub being reachable.
+   relay or GitHub being reachable (A 2026-09-30).
 5. A proposal to decentralize a component states which row it changes and
    what failure it stops from taking identity, knowledge or continuity;
    one that changes only capacity says so and competes with other
@@ -143,3 +143,11 @@ Accepted and in force.
   `routing/capabilities.json`.
 - `docs/live-checks/2026-09-19-develop-qzapp-crash.md`,
   `docs/live-checks/2026-09-25-develop-qzapp-crash.md`.
+
+## Amendments
+
+The body above reads current; each change's full note is in [history/ADR-034-amendments.md](history/ADR-034-amendments.md).
+
+| Date | Amendment | Effect |
+|---|---|---|
+| 2026-09-30 | Doppler is retired: the stores replace it | §1 table (signed actions, secrets), §5 rule 4 |
