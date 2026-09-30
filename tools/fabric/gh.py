@@ -38,11 +38,16 @@ _STATUS = re.compile(r"\(HTTP (\d{3})\)")
 
 class GhError(Exception):
     """A gh call that failed: `what` it was, GitHub's `reason`, the HTTP
-    `status` when gh reported one, and whether a retry could help."""
+    `status` when gh reported one, and whether a retry could help. `stdout`
+    is what gh printed before it failed: `gh pr checks` exits 8 while a
+    check is pending and 1 while one fails, and prints its table either
+    way."""
 
-    def __init__(self, what: str, reason: str, status: int | None = None, transient: bool = False):
+    def __init__(self, what: str, reason: str, status: int | None = None, transient: bool = False,
+                 stdout: str = ""):
         super().__init__(f"{what}: {reason}")
         self.what, self.reason, self.status, self.transient = what, reason, status, transient
+        self.stdout = stdout
 
 
 def run(args: list[str], *, input: str | None = None, timeout: float = TIMEOUT_S, what: str | None = None) -> str:
@@ -64,7 +69,7 @@ def run(args: list[str], *, input: str | None = None, timeout: float = TIMEOUT_S
         status = int(m.group(1)) if m else None
         transient = status is not None and (status >= 500 or status == 429) \
             or "rate limit" in r.stderr.lower() or "timeout" in r.stderr.lower()
-        raise GhError(what, lines[-1], status, transient)
+        raise GhError(what, lines[-1], status, transient, r.stdout)
     return r.stdout
 
 

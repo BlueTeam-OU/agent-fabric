@@ -20,7 +20,7 @@ set -uo pipefail
 
 SCRIPT_DIR="$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" && pwd )"
 UNDER_TEST="$SCRIPT_DIR/post-review.sh"
-READER="$SCRIPT_DIR/pr-review-status.sh"
+READER="$SCRIPT_DIR/../../tools/fabric/github/pr_review_status.py"
 
 [[ -f "$UNDER_TEST" ]] || { echo "test: not found: $UNDER_TEST" >&2; exit 1; }
 command -v jq >/dev/null 2>&1 || { echo "test: jq required" >&2; exit 1; }
@@ -299,8 +299,11 @@ rm -f "$SANDBOX/state/api_empty"
 echo "post-review: the marker matches the READER's, byte for byte"
 # THE CROSS-FILE CONTRACT. Two constants in two scripts; a one-sided
 # edit turns real coverage back into "0 reviews" with nothing failing.
-emit="$(grep -m1 "^REVIEW_MARKER=" "$UNDER_TEST" | cut -d= -f2-)"
-read_="$(grep -m1 "^REVIEW_MARKER=" "$READER"    | cut -d= -f2-)"
+# The reader is Python now (`REVIEW_MARKER = "..."`), the emitter bash
+# (`REVIEW_MARKER='...'`): the quotes are the languages', the marker is
+# what is between them.
+emit="$(grep -m1 "^REVIEW_MARKER=" "$UNDER_TEST" | cut -d= -f2- | tr -d "'\"")"
+read_="$(grep -m1 "^REVIEW_MARKER = " "$READER"  | cut -d= -f2- | sed 's/^ //' | tr -d "'\"")"
 if [[ -n "$emit" && "$emit" == "$read_" ]]; then
     pass "emitter and pr-review-status.sh agree on the marker"
 else
