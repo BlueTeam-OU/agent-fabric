@@ -9,6 +9,7 @@ import os
 import re
 import subprocess
 import tempfile
+import time
 import sys
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -169,6 +170,38 @@ def main() -> int:
     check("the launcher's new prompt: the old kill no longer matches the session",
           g.verdict("pgrep -f 'gzcoord-inbox --follow' | xargs kill", fixed) is None)
     check("no claude ancestor (outside a session): nothing refused", g.verdict("pkill -f claude", None) is None)
+
+    # Ground truth: pgrep itself is asked, against a real process standing
+    # in for the session (argv0 claude-zzqk, name "sleep"). The reading
+    # above gets a command line WITHOUT the token, so every deny here is
+    # procps's answer (the owner's choice after seven rounds, 2026-09-30).
+    dummy = subprocess.Popen(["bash", "-c", "exec -a claude-zzqk sleep 60"])
+    try:
+        time.sleep(0.3)
+        pid, other = dummy.pid, "claude --model x unrelated"
+        truth = [
+            ("pkill -f claude-zzqk", True),
+            ("pkill claude-zzqk -f", True),                 # getopt permutes; procps decides
+            ("pkill -TSTP -f claude-zzqk", True),            # the signal dropped for pgrep
+            ("pgrep -d -- -f claude-zzqk | xargs kill", True),
+            ("pkill -f 'claude-zz.k'", True),                # a regex, matched by procps
+            ("killall -r slee", True),                       # by process name
+            ("killall sleep", True),
+            ("pkill -f zzqk-matches-nothing-here", False),
+            ("pgrep -x node | xargs kill", False),
+        ]
+        for cmd, want in truth:
+            d = g.decision(cmd, other, pid)
+            check(f"ground truth: {cmd} -> {'deny' if want else 'allowed'}", (d is not None and d[0] == "deny") == want, d)
+        check("ground truth never runs for a pattern it cannot read (asks instead)",
+              (g.decision('pkill -f "$P"', other, pid) or ("",))[0] == "ask")
+        check("pgrep_argvs: pkill loses its signal options, killall NAME becomes pgrep -x",
+              g.pgrep_argvs(["pkill", "-TERM", "-9", "-f", "p"]) == [["pgrep", "-f", "p"]]
+              and g.pgrep_argvs(["killall", "a", "b"]) == [["pgrep", "-x", "a"], ["pgrep", "-x", "b"]])
+        check("the dummy was not killed by any of this", dummy.poll() is None)
+    finally:
+        dummy.kill()
+        dummy.wait()
 
     # The ancestor walk, on a planted /proc: hook (30) -> bash (20) -> claude (10).
     with tempfile.TemporaryDirectory() as proc:

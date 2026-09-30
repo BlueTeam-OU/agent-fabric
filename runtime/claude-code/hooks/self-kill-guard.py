@@ -14,9 +14,18 @@ earlier with a `pkill -f` pattern. Advice did not stop it; this does. The
 launcher's prompt no longer names the command, and this guard covers every
 other pattern that happens to match.
 
-Output: a decision on stdout — deny when a pattern matches, ask when a
-pattern is a variable or a command substitution the hook cannot read — or
-nothing. Exit 0 always: input it cannot read is passed, never blocked.
+TWO LAYERS. First a reading of the command: every argument of a pgrep or
+pkill with -f, and killall -r's regexes, is matched against the session's
+command line — generous on purpose, since a false deny costs a rephrase.
+Then the ground truth: the same question put to pgrep itself, list-only
+(pkill without its signals, killall as pgrep -x), and a deny when it names
+the session's own pid. Seven review rounds on #69 and #70 each found a
+spelling a re-implementation of procps's rules misread; procps does not
+misread itself. The second layer only adds denials.
+
+Output: a decision on stdout — deny when either layer says the session is
+selected, ask when a pattern is a variable or a command substitution the
+hook cannot read — or nothing. Exit 0 always: input it cannot read is passed, never blocked.
 """
 from __future__ import annotations
 
@@ -24,6 +33,8 @@ import json
 import os
 import re
 import shlex
+import signal
+import subprocess
 import sys
 
 PREFIXES = {"timeout", "sudo", "env", "nohup", "nice", "xargs", "exec", "command", "setsid", "stdbuf"}
@@ -54,6 +65,11 @@ KILLS = re.compile(r"\b(kill|pkill|killall|xargs\s+(?:-\S+\s+)*kill)\b")
 
 def own_claude_cmdline(proc: str = "/proc", pid: int | None = None) -> str | None:
     """The command line of the nearest ancestor whose command is `claude`."""
+    return own_claude(proc, pid)[1]
+
+
+def own_claude(proc: str = "/proc", pid: int | None = None) -> tuple[int | None, str | None]:
+    """(pid, command line) of the nearest ancestor whose command is `claude`."""
     p = pid or os.getpid()
     for _ in range(64):
         try:
@@ -62,17 +78,17 @@ def own_claude_cmdline(proc: str = "/proc", pid: int | None = None) -> str | Non
             comm = raw[raw.index("(") + 1:raw.rindex(")")]
             ppid = int(raw[raw.rindex(")") + 2:].split()[1])
         except (OSError, ValueError, IndexError):
-            return None
+            return None, None
         if comm == "claude":
             try:
                 with open(f"{proc}/{p}/cmdline", "rb") as fh:
-                    return fh.read().replace(b"\0", b" ").decode("utf-8", "replace").strip()
+                    return p, fh.read().replace(b"\0", b" ").decode("utf-8", "replace").strip()
             except OSError:
-                return None
+                return p, None
         if ppid <= 1:
-            return None
+            return None, None
         p = ppid
-    return None
+    return None, None
 
 
 def kill_after_prefixes(words: list[str]) -> list[str]:
@@ -209,10 +225,11 @@ def segments(piece: str) -> list[list[str]]:
     return out
 
 
-def kill_patterns(command: str) -> list[str]:
-    """Every candidate pattern the command selects processes by for a kill:
-    each argument of -f/--full's pgrep or pkill, and killall -r's regexes,
-    in a command that kills at all."""
+def kill_commands(command: str) -> list[list[str]]:
+    """Each pgrep, pkill or killall in a command that kills at all, as its
+    words from the tool on: substitutions lifted, here-document bodies
+    dropped, segments split, compound keywords, assignments and prefixes
+    walked past."""
     if not KILLS.search(command):
         return []
     # Each $( … ) (and `…`) is a command of its own: lifted out innermost
@@ -250,6 +267,17 @@ def kill_patterns(command: str) -> list[str]:
             words = kill_after_prefixes(words)
             if not words:
                 continue
+        if os.path.basename(words[0]) in ("pgrep", "pkill", "killall"):
+            out.append(words)
+    return out
+
+
+def kill_patterns(command: str) -> list[str]:
+    """Every candidate pattern the command selects processes by for a kill:
+    each argument of -f/--full's pgrep or pkill, and killall -r's regexes,
+    in a command that kills at all."""
+    out = []
+    for words in kill_commands(command):
         tool = os.path.basename(words[0])
         if tool in ("pgrep", "pkill"):
             # EVERY word that is not an option is a candidate, wherever it
@@ -305,10 +333,82 @@ def verdict(command: str, cmdline: str | None) -> str | None:
     return None
 
 
+SIGNAL_NAMES = {sig.name[3:] for sig in signal.Signals} | {"IOT", "CLD", "POLL"}
+
+
+def _is_signal_option(w: str) -> bool:
+    """pkill's `-<sig>`: a number or a signal name, any case, SIG optional
+    (procps's signal_option). pgrep has no such option."""
+    m = re.fullmatch(r"-(\d+|(?:SIG)?([A-Za-z]+[0-9+-]*))", w, re.I)
+    if not m:
+        return False
+    name = (m.group(2) or "").upper()
+    return m.group(1).isdigit() or name in SIGNAL_NAMES or name.startswith("RTMIN") or name.startswith("RTMAX")
+
+
+def pgrep_argvs(words: list[str]) -> list[list[str]] | None:
+    """The list-only pgrep calls that select what this kill command would:
+    pgrep as it is; pkill without its signal options; `killall NAME` as
+    `pgrep -x NAME` per name, `killall -r RE` as `pgrep RE`. None when a
+    word is not literal (a variable, a substitution): its value decides,
+    and the hook cannot know it."""
+    tool, args = os.path.basename(words[0]), words[1:]
+    if any("$" in w or "`" in w or SUBST in w for w in args):
+        return None
+    if tool == "pgrep":
+        return [["pgrep", *args]]
+    if tool == "pkill":
+        return [["pgrep", *[w for w in args if not _is_signal_option(w)]]]
+    regex = any(w in ("-r", "--regexp") for w in args)
+    icase = any(w in ("-I", "--ignore-case") for w in args)
+    names = [w for w in args if not w.startswith("-")]
+    return [["pgrep", *(["-i"] if icase else []), *([] if regex else ["-x"]), n] for n in names] or None
+
+
+def selects(argv: list[str], pid: int) -> bool | None:
+    """Whether procps itself, asked this list-only question, names `pid`.
+    None when it could not answer (an option pgrep refuses, no pgrep, a
+    timeout): then the checks above are what stands."""
+    try:
+        r = subprocess.run(argv, capture_output=True, text=True, timeout=2, stdin=subprocess.DEVNULL)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if r.returncode == 1:
+        return False
+    if r.returncode != 0:
+        return None
+    return str(pid) in r.stdout.split()
+
+
+def ground_truth(command: str, pid: int | None) -> bool | None:
+    """True when a kill in the command would select the session's own
+    claude process, as procps answers it; False when every kill was asked
+    and none would; None when one could not be asked. Seven review rounds
+    on #69 and #70 each found a spelling that a re-implementation of
+    procps's option and pattern rules misread (the owner chose this,
+    2026-09-30): the tool that will do the matching is asked instead. Only
+    pgrep ever runs here, never the kill."""
+    if not pid:
+        return None
+    answer: bool | None = False
+    for words in kill_commands(command):
+        argvs = pgrep_argvs(words)
+        if argvs is None:
+            answer = None
+            continue
+        for argv in argvs:
+            got = selects(argv, pid)
+            if got:
+                return True
+            if got is None:
+                answer = None
+    return answer
+
+
 UNEXPANDED = re.compile(r"\$(\{|[A-Za-z_])")
 
 
-def decision(command: str, cmdline: str | None) -> tuple[str, str] | None:
+def decision(command: str, cmdline: str | None, pid: int | None = None) -> tuple[str, str] | None:
     """deny when a pattern matches the session's own command line; ask when
     a pattern holds a variable or a command substitution the hook cannot
     read (`pkill -f "$P"`, `pkill -f "claude-$(id -un)"`), since its value
@@ -316,6 +416,12 @@ def decision(command: str, cmdline: str | None) -> tuple[str, str] | None:
     why = verdict(command, cmdline)
     if why:
         return "deny", why
+    # procps's own answer, when it can be asked: it adds denials, never
+    # removes one — the reading above stays as the floor.
+    if KILLS.search(command) and ground_truth(command, pid):
+        return "deny", ("pgrep, asked the same question this command asks, names this session's own claude "
+                        "process, so the command would kill the session running it. Select by pid, or by a "
+                        "pattern pgrep does not match against this session.")
     if cmdline:
         held = [p for p in kill_patterns(command) if UNEXPANDED.search(p) or SUBST in p]
         if held:
@@ -332,7 +438,8 @@ def main() -> int:
         command = (payload.get("tool_input") or {}).get("command") or ""
     except (ValueError, AttributeError):
         return 0
-    d = decision(command, own_claude_cmdline())
+    pid, cmdline = own_claude()
+    d = decision(command, cmdline, pid)
     if d:
         print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse",
                                                  "permissionDecision": d[0],
