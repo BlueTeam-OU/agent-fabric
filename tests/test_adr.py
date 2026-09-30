@@ -177,8 +177,8 @@ def case_superseded_needs_a_point_map_to_a_real_record(tmp: str) -> None:
     only(root, "Superseded without a point map")
     edit(root, ONE, "## 1. Context and Problem", "Point map: §5 rule 1 → ADR-000 §5 rule 4.\n\n## 1. Context and Problem")
     assert not any("point map" in x for x in adr.check(root)), adr.check(root)
-    edit(root, ONE, "(→ ADR-000)", "(→ ADR-040)")
-    only(root, "superseded by ADR-040, which does not exist")
+    edit(root, ONE, "(→ ADR-000)", "(→ ADR-999)")
+    only(root, "superseded by ADR-999, which does not exist")
 
 
 def case_the_digest_follows_the_records(tmp: str) -> None:

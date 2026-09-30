@@ -41,9 +41,13 @@ its record disagree, the record wins. Look it up, never read it whole:
 | which Claude account a login runs on; moving logins; setup-token; usage windows | ADR-031 |
 | changing the GZCoord protocol; the grammar freeze; GZCOORD/2 | ADR-032 |
 | the relay; the human relay; transports; Telegram; the adapter contract | ADR-033 |
-| what a failure may take; single points; degraded modes (proposed) | ADR-034 |
-| working with another organization; portable trust; what may be shared (proposed) | ADR-035 |
-| cost per verified result; spend; shared resources (proposed) | ADR-036 |
+| what a failure may take; single points; degraded modes | ADR-034 |
+| working with another organization; portable trust; what may be shared | ADR-035 |
+| cost per verified result; spend; shared resources | ADR-036 |
+| your job list; fabric-jobs; the next job and a fresh session | ADR-037 |
+| an agent's key and secrets; the store; provision; recovery; backup | ADR-038 |
+| the agent id; UUIDv7; renaming a login | ADR-039 |
+| which language a tool is written in; the bash size limit and allowlist; porting a script; gh.py, git.py | ADR-040 |
 
 ### ADR-000 — The enduring organization (Accepted)
 
@@ -793,3 +797,20 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A reused login is a new agent with a new id (§5 rule 7).
 - Keywords: agent id, UUIDv7, birth, rename, identity, lineage, key,
   secrets repository, P1.
+
+### ADR-040 — Implementation language: Python above 150 lines (Proposed)
+
+- New fabric tooling is Python 3.12+, standard library only; bash stays
+  for shims, forwarders, hook entry points, the suite runners and
+  sudo/ssh/installer step-runners (§5 rule 1).
+- Lint refuses a tracked bash script over 150 lines not named in
+  `policies/bash-allowlist.json`; each entry names its wave, and the
+  list only shrinks (§5 rule 2).
+- A port freezes the contract (argv, environment, stdout/stderr, exit
+  codes, help) in the module's header, keeps the path as a shim, runs the
+  old bash test unchanged as the oracle, and removes the entry (§5 rules
+  3–5).
+- GitHub and git go through `gh.py` and `git.py`: bodies on stdin or a
+  file, bounded calls named in their errors, JSON in Python (§5 rule 6).
+- Keywords: Python, bash, shell, port, allowlist, lint, shim, wave, gh,
+  git, 150 lines, P1.
