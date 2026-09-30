@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { scratch } from '../../../tests/scratch.mjs';
-import { main, describe, listLines, templates, templateRef } from '../accounts.mjs';
+import { main, describe, listLines, storeTemplates, storeAssign } from '../accounts.mjs';
 import crypto from 'node:crypto';
 import { accountsDir } from '../ops.mjs';
 
@@ -85,40 +85,28 @@ test('read: one line per account from the op; any account not ok is exit 1; none
   assert.equal((await capture(() => main(['bogus'], { home: h, env: {} }))).code, 2);
 });
 
-test('templates: each Doppler template by fingerprint, read with the observer\'s token; the value goes into a hash and nowhere else', async () => {
-  const TOK = { 'claude-accounts_claude-a': 'sk-ant-oat01-AAAA', 'claude-accounts_claude-b': '' };
+// The coordinator's store, faked at the command fabric-accounts runs:
+// `fabric-secrets store templates|assign … --json`. It keeps the value in
+// its own process, so only fingerprints and rows come back.
+const fp = v => crypto.createHash('sha256').update(v).digest('hex').slice(0, 12);
+function fakeStore() {
+  const tpl = { 'claude-a': 'sk-ant-oat01-A', 'claude-b': 'sk-ant-oat01-B', 'claude-empty': '' };
+  const on = { 'flutter-dev-01': 'none', 'db-admin': 'none', 'web-dev-01': 'claude-a' };
   const calls = [];
   const exec = (bin, args) => {
-    calls.push([bin, ...args]);
-    if (args[0] === 'configs') return JSON.stringify([{ name: 'claude-accounts' }, { name: 'claude-accounts_claude-b' }, { name: 'claude-accounts_claude-a' }]);
-    const cfg = args[args.indexOf('--config') + 1];
-    if (!TOK[cfg]) throw new Error('Doppler Error: Could not find requested secret');
-    return TOK[cfg] + '\n';   // doppler --plain ends with a newline; the fingerprint must not include it
+    assert.equal(path.basename(bin), 'fabric-secrets', 'nothing but the store is asked');
+    calls.push(args.join(' '));
+    if (args[1] === 'templates') return JSON.stringify(Object.entries(tpl).map(([account, v]) => ({ account, token_sha256_12: v ? fp(v) : null })));
+    const [, , account, ...rest] = args;
+    const logins = rest.filter(a => a !== '--json' && a !== '--force');
+    return JSON.stringify(logins.map(login => {
+      const from = on[login];
+      if (from === account) return { login, from, to: account, status: 'unchanged' };
+      on[login] = account;
+      return { login, from, to: account, status: 'written' };
+    }));
   };
-  const t = templates({ exec });
-  const fp = crypto.createHash('sha256').update('sk-ant-oat01-AAAA').digest('hex').slice(0, 12);
-  assert.deepEqual(t, [{ account: 'claude-a', config: 'claude-accounts_claude-a', token_sha256_12: fp }, { account: 'claude-b', config: 'claude-accounts_claude-b', token_sha256_12: null }]);
-  assert.ok(calls.every(c => c.includes('--project') && c.includes('agent-fabric')), 'every doppler call names the project');
-  const r = await capture(() => main(['templates'], { home: scratch('accounts-tpl-'), env: {}, exec }));
-  assert.equal(r.code, 1, 'a template without a token is not a clean answer');
-  assert.match(r.out, new RegExp(`claude-a\\s+setup-token ${fp}`));
-  assert.match(r.out, /claude-b\s+no CLAUDE_CODE_OAUTH_TOKEN/);
-  assert.ok(!r.out.includes('sk-ant-oat01-AAAA'));
-});
-
-// A Doppler with state: configs, secrets per config, the two templates.
-function fakeDoppler(initial = {}) {
-  const store = { 'agents_flutter-dev-01': {}, 'agents_db-admin': {}, 'agents2_web-dev-01': { CLAUDE_CODE_OAUTH_TOKEN: templateRef('claude-a') }, 'claude-accounts_claude-a': { CLAUDE_CODE_OAUTH_TOKEN: 'sk-ant-oat01-A' }, 'claude-accounts_claude-b': { CLAUDE_CODE_OAUTH_TOKEN: 'sk-ant-oat01-B' }, 'claude-accounts_claude-empty': {}, ...initial };
-  const writes = [];
-  const exec = (bin, args) => {
-    const cfg = args[args.indexOf('--config') + 1];
-    if (args[0] === 'configs') return JSON.stringify(['agents', 'agents2', 'claude-accounts', ...Object.keys(store)].map(name => ({ name })));
-    if (args[0] === 'secrets' && args[1] === 'get') { const v = store[cfg]?.[args[2]]; if (v === undefined) throw new Error('Doppler Error: Could not find requested secret'); return v + '\n'; }
-    if (args[0] === 'secrets' && args[1] === 'set') { writes.push(['set', cfg, args[2]]); const [k, ...v] = args[2].split('='); store[cfg][k] = v.join('='); return ''; }
-    if (args[0] === 'secrets' && args[1] === 'delete') { writes.push(['delete', cfg, args[2]]); delete store[cfg][args[2]]; return ''; }
-    throw new Error('unexpected doppler ' + args.join(' '));
-  };
-  return { store, writes, exec };
+  return { on, calls, exec };
 }
 function placedRegistry() {
   const f = path.join(scratch('assign-reg-'), 'registry.json');
@@ -126,111 +114,57 @@ function placedRegistry() {
   return f;
 }
 
-test('assign: the reference is written and read back, a login already there is left alone in Doppler, and every named login syncs, proves the template\'s fingerprint and restarts', async () => {
-  const d = fakeDoppler(); const registry = placedRegistry();
+test('templates: each template in the store by fingerprint; one without a token is not a clean answer; no value is printed', async () => {
+  const d = fakeStore();
+  const r = await capture(() => main(['templates'], { home: scratch('accounts-tpl-'), env: {}, exec: d.exec }));
+  assert.equal(r.code, 1, 'a template without a token is not a clean answer');
+  assert.match(r.out, new RegExp(`claude-a\\s+setup-token ${fp('sk-ant-oat01-A')}`));
+  assert.match(r.out, /claude-empty\s+no CLAUDE_CODE_OAUTH_TOKEN/);
+  assert.ok(!r.out.includes('sk-ant-oat01'));
+  assert.deepEqual(d.calls, ['store templates --json']);
+});
+
+test('assign: the token is written into each login\'s store, a login already there is left alone, and every named login syncs, proves the template\'s fingerprint and restarts', async () => {
+  const d = fakeStore(); const registry = placedRegistry();
   let synced;
   const r = await capture(() => main(['assign', 'flutter-dev-01', 'web-dev-01', 'claude-b'], { home: scratch('assign-home-'), env: {}, exec: d.exec, registry, spawn: (bin, args) => { synced = [path.basename(bin), ...args]; return { status: 0 }; } }));
   assert.equal(r.code, 0, r.err + r.out);
-  assert.equal(d.store['agents_flutter-dev-01'].CLAUDE_CODE_OAUTH_TOKEN, templateRef('claude-b'));
-  assert.equal(d.store['agents2_web-dev-01'].CLAUDE_CODE_OAUTH_TOKEN, templateRef('claude-b'));
+  assert.deepEqual([d.on['flutter-dev-01'], d.on['web-dev-01']], ['claude-b', 'claude-b']);
   assert.match(r.out, /flutter-dev-01\s+none\s+→ claude-b\s+written/);
   assert.match(r.out, /web-dev-01\s+claude-a\s+→ claude-b\s+written/);
-  const fpB = crypto.createHash('sha256').update('sk-ant-oat01-B').digest('hex').slice(0, 12);
-  assert.deepEqual(synced, ['fabric-ctl', 'flutter-dev-01', 'web-dev-01', 'secrets-sync', '--expect', fpB, '--restart']);
+  assert.deepEqual(synced, ['fabric-ctl', 'flutter-dev-01', 'web-dev-01', 'secrets-sync', '--expect', fp('sk-ant-oat01-B'), '--restart']);
   assert.ok(!r.out.includes('sk-ant-oat01'), 'no template token in the output');
   synced = null;
   const again = await capture(() => main(['assign', 'flutter-dev-01', 'claude-b', '--no-restart'], { home: scratch('assign-home-'), env: {}, exec: d.exec, registry, spawn: (bin, args) => { synced = args; return { status: 0 }; } }));
   assert.equal(again.code, 0); assert.match(again.out, /flutter-dev-01\s+claude-b\s+→ claude-b\s+unchanged/);
-  assert.deepEqual(synced, ['flutter-dev-01', 'secrets-sync', '--expect', fpB], 'unchanged in Doppler, still proved on the account; --no-restart leaves its session alone');
+  assert.deepEqual(synced, ['flutter-dev-01', 'secrets-sync', '--expect', fp('sk-ant-oat01-B')], 'unchanged in the store, still proved on the account; --no-restart leaves its session alone');
   const failed = await capture(() => main(['assign', 'flutter-dev-01', 'claude-b'], { home: scratch('assign-home-'), env: {}, exec: d.exec, registry, spawn: () => ({ status: 1 }) }));
   assert.equal(failed.code, 1, 'an account that did not prove the move fails the command');
 });
 
 test('assign: no way back to a login\'s own /login; an unknown login, an unknown template and an empty template are refused before anything is written', async () => {
-  const d = fakeDoppler(); const registry = placedRegistry();
-  const n = d.writes.length;
+  const d = fakeStore(); const registry = placedRegistry();
   for (const [args, re] of [[['assign', 'web-dev-01', 'own'], /runs only on a template's token/], [['assign', 'nobody', 'claude-b'], /not a placed account/], [['assign', 'db-admin', 'claude-zzz'], /not a template/], [['assign', 'db-admin', 'claude-empty'], /holds no CLAUDE_CODE_OAUTH_TOKEN/]]) {
     const r = await capture(() => main(args, { home: scratch('assign-home-'), env: {}, exec: d.exec, registry, spawn: () => assert.fail('no sync') }));
     assert.equal(r.code, 2, args.join(' ')); assert.match(r.err, re);
   }
-  assert.equal(d.writes.length, n, 'a refusal writes nothing');
+  assert.ok(!d.calls.some(c => c.startsWith('store assign')), 'a refusal writes nothing');
 });
 
-// On the coordinator's store (ADR-038): the templates and an assignment
-// go through fabric-secrets store, which keeps every value in its own
-// process; a failed row still comes back as a row.
-test('accounts on the store: onStore reads the source; templates and assign go through fabric-secrets store', async () => {
-  const { onStore, storeTemplates, storeAssign } = await import('../accounts.mjs');
-  const home = scratch('accounts-store-');
-  assert.equal(onStore(home), false, 'no source file is doppler');
-  fs.mkdirSync(path.join(home, '.config', 'agent-fabric'), { recursive: true });
-  fs.writeFileSync(path.join(home, '.config', 'agent-fabric', 'secrets-source'), 'store\n');
-  assert.equal(onStore(home), true);
+test('assign: a failed row still comes back as a row and fails the run; --no-sync proves nothing and syncs nothing', async () => {
   const calls = [];
   const exec = (bin, args) => {
     calls.push(args.join(' '));
     if (args[1] === 'templates') return JSON.stringify([{ account: 'work', token_sha256_12: 'abcdef012345' }]);
     const e = new Error('exit 1'); e.stdout = JSON.stringify([{ login: 'a', status: 'written' }, { login: 'b', status: 'failed', reason: 'no committed key for b' }]); throw e;
   };
-  assert.deepEqual(storeTemplates({ exec }), [{ account: 'work', token_sha256_12: 'abcdef012345', config: 'store' }]);
-  const rows = storeAssign(['a', 'b'], 'work', { exec });
-  assert.deepEqual(rows.map(r => r.status), ['written', 'failed']);
-  assert.deepEqual(calls, ['store templates --json', 'store assign work a b --json']);
-});
-
-// Review of #63 (F5): during the migration a login may still read
-// Doppler; on the coordinator's store the assignment goes to both, so it
-// lands whichever source the login reads.
-test('assign on the store also writes the Doppler config of a login that still has one', async () => {
-  const home = scratch('accounts-dual-');
-  fs.mkdirSync(path.join(home, '.config', 'agent-fabric'), { recursive: true });
-  fs.writeFileSync(path.join(home, '.config', 'agent-fabric', 'secrets-source'), 'store\n');
-  const reg = path.join(home, 'hosts.json');
-  fs.writeFileSync(reg, JSON.stringify({ hosts: { h: {} }, placement: { kid: 'h', moved: 'h' } }));
-  const calls = [];
-  const dopplerRef = new Map([['agents_kid', 'none']]);
-  const exec = (bin, args, opts) => {
-    calls.push(`${path.basename(bin)} ${args.join(' ')}`);
-    if (path.basename(bin) === 'fabric-secrets') {
-      if (args[1] === 'templates') return JSON.stringify([{ account: 'work', token_sha256_12: 'abcdef012345' }]);
-      return JSON.stringify(args.slice(3).filter(a => a !== '--json' && a !== '--force').map(l => ({ login: l, from: 'none', to: 'work', status: 'written' })));
-    }
-    if (args[0] === 'configs') return JSON.stringify([{ name: 'agents_kid' }]);   // `moved` has no Doppler config any more
-    if (args[0] === 'secrets' && args[1] === 'get') return dopplerRef.get('agents_kid') === 'none' ? '' : dopplerRef.get('agents_kid');
-    if (args[0] === 'secrets' && args[1] === 'set') { dopplerRef.set('agents_kid', args[2].split('=')[1]); return ''; }
-    return '';
-  };
-  const out = []; const log = console.log, err = console.error;
-  console.log = (...a) => out.push(a.join(' ')); console.error = (...a) => out.push(a.join(' '));
-  let rc;
-  try { rc = await main(['assign', 'kid', 'moved', 'work', '--no-sync', '--force'], { home, exec, registry: reg }); }
-  finally { console.log = log; console.error = err; }
-  assert.equal(rc, 0, out.join('\n'));
-  assert.ok(calls.some(c => c === 'fabric-secrets store assign work kid moved --force --json'), calls.join('\n'));
-  assert.ok(calls.some(c => c.startsWith('doppler secrets set CLAUDE_CODE_OAUTH_TOKEN=${agent-fabric.claude-accounts_work')), 'kid still reads Doppler: written there too');
-  assert.ok(out.some(l => /^kid .* written \(doppler: written\)/.test(l)), out.join('\n'));
-  assert.ok(out.some(l => /^moved .* written \(doppler: no-config\)/.test(l)), out.join('\n'));
-});
-
-test('assign --no-sync on the store: Doppler unavailable fails the run (nothing else would prove the move)', async () => {
-  const home = scratch('accounts-nosync-');
-  fs.mkdirSync(path.join(home, '.config', 'agent-fabric'), { recursive: true });
-  fs.writeFileSync(path.join(home, '.config', 'agent-fabric', 'secrets-source'), 'store\n');
-  const reg = path.join(home, 'hosts.json');
-  fs.writeFileSync(reg, JSON.stringify({ hosts: { h: {} }, placement: { kid: 'h' } }));
-  const exec = (bin, args) => {
-    if (path.basename(bin) === 'fabric-secrets') {
-      if (args[1] === 'templates') return JSON.stringify([{ account: 'work', token_sha256_12: 'abcdef012345' }]);
-      return JSON.stringify([{ login: 'kid', from: 'none', to: 'work', status: 'written' }]);
-    }
-    throw new Error('doppler: the keyring is locked');
-  };
-  const out = []; const log = console.log, err = console.error;
-  console.log = (...a) => out.push(a.join(' ')); console.error = (...a) => out.push(a.join(' '));
-  let rc;
-  try { rc = await main(['assign', 'kid', 'work', '--no-sync'], { home, exec, registry: reg }); }
-  finally { console.log = log; console.error = err; }
-  assert.equal(rc, 1, out.join('\n'));
-  assert.ok(out.some(l => /doppler: unavailable/.test(l)), out.join('\n'));
-  assert.ok(out.some(l => /Doppler could not be written for kid/.test(l)), out.join('\n'));
+  assert.deepEqual(storeTemplates({ exec }), [{ account: 'work', token_sha256_12: 'abcdef012345' }]);
+  assert.deepEqual(storeAssign(['a', 'b'], 'work', { exec, force: true }).map(r => r.status), ['written', 'failed']);
+  assert.deepEqual(calls, ['store templates --json', 'store assign work a b --force --json']);
+  const reg = path.join(scratch('accounts-nosync-'), 'hosts.json');
+  fs.writeFileSync(reg, JSON.stringify({ hosts: { h: {} }, placement: { a: 'h', b: 'h' } }));
+  const r = await capture(() => main(['assign', 'a', 'b', 'work', '--no-sync'], { home: scratch('assign-home-'), env: {}, exec, registry: reg, spawn: () => assert.fail('no sync') }));
+  assert.equal(r.code, 1, r.out + r.err);
+  assert.match(r.out, /b .* failed  no committed key for b/);
+  assert.match(r.err, /--no-sync — each changed login applies it at its next fabric-secrets sync/);
 });

@@ -45,6 +45,28 @@ def main() -> int:
         ("a kill behind timeout", "timeout 5 pkill -f 'gzcoord-inbox --follow'"),
         ("a kill behind sudo and env", "sudo env A=1 pkill -f 'claude-fable'"),
         ("xargs pkill", "echo x | xargs pkill -f 'gzcoord-inbox'"),
+        ("a prefix option with its own argument (sudo -u)", "sudo -u root pkill -f 'gzcoord-inbox'"),
+        ("timeout -s KILL 5", "timeout -s KILL 5 pkill -f 'claude-fable'"),
+        ("timeout -s kill 5: a lowercase signal is a value, not the tool", "timeout -s kill 5 pkill -f 'claude-fable'"),
+        ("sudo -u kill: a user named like a tool", "sudo -u kill pkill -f 'gzcoord-inbox'"),
+        # A prefix's boolean flag is no value (re-review of #69, N1).
+        ("sudo -E", "sudo -E pkill -f 'claude-fable'"),
+        ("env -i", "env -i pkill -f 'claude-fable'"),
+        ("sudo -n", "sudo -n pkill -f 'claude-fable'"),
+        ("xargs -r", "echo x | xargs -r pkill -f 'claude-fable'"),
+        ("xargs -t", "echo x | xargs -t pkill -f 'claude-fable'"),
+        ("sudo -i", "sudo -i pkill -f 'claude-fable'"),
+        ("sudo -S", "sudo -S pkill -f 'claude-fable'"),
+        ("nice -n 5", "nice -n 5 pkill -f 'claude-fable'"),
+        # Nested prefixes: each one's own options (re-review of #69, M1).
+        ("sudo timeout -s kill 5", "sudo timeout -s kill 5 pkill -f 'claude-fable'"),
+        ("sudo -u root timeout -s kill 5", "sudo -u root timeout -s kill 5 pkill -f 'claude-fable'"),
+        ("env -i timeout -s kill 5", "env -i timeout -s kill 5 pkill -f 'claude-fable'"),
+        ("nohup timeout -k kill 5", "nohup timeout -k kill 5 pkill -f 'claude-fable'"),
+        ("timeout 5 sudo -u kill", "timeout 5 sudo -u kill pkill -f 'claude-fable'"),
+        ("exec -a kill", "exec -a kill pkill -f 'claude-fable'"),
+        ("env -u X", "env -u HOME pkill -f 'gzcoord-inbox'"),
+        ("xargs -I {}", "pgrep -f 'inbox --follow' | xargs -I {} kill {}"),
     ]
     for label, cmd in refused:
         check(f"refused: {label}", g.verdict(cmd, CLAUDE) is not None, g.kill_patterns(cmd))

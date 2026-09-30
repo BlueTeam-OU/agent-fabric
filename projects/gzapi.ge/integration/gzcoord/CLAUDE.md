@@ -19,5 +19,5 @@ first: this status, the section in gzapi.ge's root `CLAUDE.md`
 (`CLAUDE.snippet.md`, included there), and the hooks in gzapi.ge's
 `.claude/settings.json` (the session-start drain among them, wired
 2026-09-16 in the site's PR #3). The token arrives with
-`fabric-secrets sync` from the account's own Doppler config; the site's
+`fabric-secrets sync` from the account's own store; the site's
 tree carries no env file for it.

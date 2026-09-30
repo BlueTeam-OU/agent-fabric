@@ -83,16 +83,24 @@ ensure_repo() {  # the private repository, made by the parent when absent: <id> 
     || die "could not create $name (the parent's gh must be able to create a private repository in $ORG)"
 }
 
-# The id lineage.json records for a login, or nothing; read by the store
-# tool, so from the same fabric checkout it certifies into.
-id_of() { python3 "$STORE" id-of "$1" 2>/dev/null || true; }
+# The id lineage.json records for a login, or nothing when it records no
+# agent with that login (exit 3); read by the store tool, so from the same
+# fabric checkout it certifies into. Any other failure — a lineage that
+# cannot be read — fails the call: an empty answer would mint a second id.
+# A caller in $( ) checks it: `aid="$(id_of X)" || exit 1`.
+id_of() {
+  local out rc; out="$(python3 "$STORE" id-of "$1" 2>&1)"; rc=$?
+  (( rc == 0 )) && { printf '%s\n' "$out"; return 0; }
+  (( rc == 3 )) && return 0
+  say "$1: identities/keys/lineage.json could not be read (exit $rc): ${out##*$'\n'}; nothing made"; return 1
+}
 describe() { echo "agent-fabric secrets. Linux login: $1. Agent id: $2. (ADR-038, ADR-039)"; }
 mint() { python3 "$STORE" mint-id "$1"; }
 
 if (( RENAME )); then
   (( ${#LOGINS[@]} == 2 )) || die "--rename takes <old> <new>"
   old="${LOGINS[0]}"; new="${LOGINS[1]}"
-  aid="$(id_of "$old")"; [[ -n "$aid" ]] || die "$old: no agent with that login in identities/keys/lineage.json"
+  aid="$(id_of "$old")" || exit 1; [[ -n "$aid" ]] || die "$old: no agent with that login in identities/keys/lineage.json"
   (( DRY )) && { say "would: agent $aid: login $old -> $new in lineage.json and its repository's description"; exit 0; }
   python3 "$STORE" rename "$old" "$new" >&2 || die "rename failed"
   "$GH" repo edit "$ORG/agent-fabric-secrets-$aid" --description "$(describe "$new" "$aid")" >/dev/null \
@@ -106,7 +114,7 @@ if (( SELF )); then
   # As for a child: only "no id yet" (exit 3) may lead to minting.
   aid="$(python3 "$STORE" id 2>/dev/null)"; idrc=$?
   (( idrc == 0 || idrc == 3 )) || die "this store's agent id could not be read (exit $idrc); nothing made"
-  [[ -n "$aid" ]] || aid="$(id_of "$ME")"
+  [[ -n "$aid" ]] || { aid="$(id_of "$ME")" || exit 1; }
   if [[ -z "$aid" ]]; then
     if (( BORN_NOW )); then born=now; else born="$(stat -c %w "$HOME")"; fi
     aid="$(mint "$born")" || die "no birth for $ME: its home's creation time is unknown here ($born)"
@@ -133,7 +141,7 @@ for login in "${LOGINS[@]}"; do
   [[ "$login" == "$ME" ]] && { say "$login: that is this login; use --self"; fail=1; continue; }
   host="$(host_of "$login")"
   [[ -n "$host" ]] || { say "$login: not placed in runtime/hosts/registry.json (or name --host)"; fail=1; continue; }
-  aid="$(id_of "$login")"
+  aid="$(id_of "$login")" || { fail=1; continue; }
   # A run that stopped after init and before certification left the id in
   # the account's store: minting again would be refused there forever.
   if [[ -z "$aid" ]]; then

@@ -131,7 +131,7 @@ two agents; a role is held by any number of agents at once.
 | **harness adapter** | the launcher, hooks, agent files and settings that turn all of the above into a Claude Code session, on plain Claude or through OpenRouter | `runtime/openrouter/launch`, `runtime/claude-code/` | ADR-008, ADR-022 |
 | **project binding** | which roles, domains and path rules apply to each managed repository, and each role's remit there | `<working copy>/.agent-fabric/` in the project (`taxonomy.json`, `roles/`); the fabric's own under `.agent-fabric/` here | ADR-004, ADR-011 |
 | **policy and guards** | who may change what, enforced by a commit hook, a CI check and a suite case | `policies/` | ADR-018, ADR-019, ADR-020 |
-| **credentials** | per-login secrets in Doppler, put where the tools read them; never in a file here or in a message | `bin/fabric-secrets` | ADR-012 |
+| **credentials** | each login's secrets in its own encrypted store, put where the tools read them; never in a file here or in a message | `bin/fabric-secrets` | ADR-038, ADR-039 |
 | **hosts and resources** | provisioning an account, running a command on its host, one holder per shared host resource | `runtime/provisioning/`, `runtime/hostexec/`, `bin/fabric-lease` | ADR-010 |
 
 ## How a session starts
@@ -163,8 +163,8 @@ Never in this repository. Per agent, under
 `role-history.jsonl`, `model-profile.local.json` (the agent's own model
 choices; `bin/fabric-model`) and the rendered `launch-prompt.md`, every
 one written through `runtime/identity.py`. An identity's secrets are in
-Doppler, one config per login, and `bin/fabric-secrets sync` puts them
-where the tools read them.
+its own encrypted store (ADR-038), and `bin/fabric-secrets sync` puts
+them where the tools read them.
 
 ## Commands
 

@@ -199,6 +199,5 @@ model choices and rendered launch prompt live under
 `${XDG_STATE_HOME:-~/.local/state}/agent-fabric/agents/<login>/`.
 Credentials never enter a committed file or a message: an identity's
 secrets are in its own encrypted store (`<org>/agent-fabric-secrets-<id>`, a pass
-repository only that login can read, ADR-038), or in Doppler until the
-account has migrated (ADR-012), and `fabric-secrets sync` puts them where
-the tools read them, the same file from either.
+repository only that login can read, ADR-038), and `fabric-secrets sync`
+puts them where the tools read them.

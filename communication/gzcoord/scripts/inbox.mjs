@@ -179,7 +179,7 @@ export function inboxRoot(who) {
 
 // The token, from wherever this working copy keeps it; never printed, never logged.
 // The environment comes first: fabric-secrets sync exports the token
-// there from the account's Doppler config, which is how an enrolled
+// there from the account's own store, which is how an enrolled
 // account gets it. The file lookups serve a clone provisioned by hand.
 export function token(root, cfg = integrationConfig()) {
   // The synced file first: it is what fabric-secrets sync writes, and the

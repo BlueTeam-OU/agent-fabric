@@ -4,7 +4,7 @@
 **Status:** Accepted
 **Ratified:** owner, 2026-09-27, by arming agent-fabric #51 (ratification by merge, the owner's rule of 2026-09-27)
 **Decision Makers:** fabric-coordinator (the Doppler layout, 2026-09-14; the credential rules of the launcher, review of #31 and #33); the GZCoord protocol's §17 (a secret by shape and locator)
-**Scope:** every credential an agent account uses: Doppler project `agent-fabric`, runtime/provisioning/secrets/ (enroll.sh, enroll-worker.sh, fabric-secrets), ~/.config/agent-fabric/secrets.env, runtime/openrouter/launch's credential handling, and how a secret may appear in a message, a commit, a log or a test
+**Scope:** every credential an agent account uses: where it is recorded (each login's own store, ADR-038, which replaced the Doppler project `agent-fabric`), runtime/provisioning/secrets/fabric-secrets, ~/.config/agent-fabric/secrets.env, runtime/openrouter/launch's credential handling, and how a secret may appear in a message, a commit, a log or a test
 **Pillar:** P1
 
 ## 1. Context and Problem
@@ -26,12 +26,10 @@ the account's **OpenRouter** key: the child would have sent that key to
 
 ## 2. Decision
 
-An identity's secrets are recorded in **Doppler**, project `agent-fabric`,
-**one config per Linux login** (the branch config `<env>_<login>` under
-`agents`, `agents2`, … — the login is the branch, never the environment).
-Each account holds exactly one bootstrap secret, a read-only service token
-for its own config; `bin/fabric-secrets sync`, run as the account, puts
-everything else where the tools read it (`~/.config/agent-fabric/secrets.env`
+An identity's secrets are recorded **per Linux login**, in the login's own
+encrypted store (ADR-038; the Doppler project, one config per login, that
+this record first chose is retired (A 2026-09-30)). `bin/fabric-secrets
+sync`, run as the account, puts them where the tools read them (`~/.config/agent-fabric/secrets.env`
 0600, `~/.gitconfig`, `~/.ssh/`). **Credentials never enter a committed
 file.**
 
@@ -59,28 +57,26 @@ Around that record:
 
 ## 4. Rationale
 
-One config per login makes a credential an attribute of the agent, like its
-role: revoking an agent is revoking one token, and spend is reported per
-key, i.e. per agent. Refusing a config whose `AGENT_LOGIN` is not the login
-running it enforces the identity invariant at the secret boundary (ADR-002).
+A record per login makes a credential an attribute of the agent, like its
+role: spend is reported per key, i.e. per agent. Refusing a record whose
+`AGENT_LOGIN` is not the login running it enforces the identity invariant
+at the secret boundary (ADR-002).
 
 ## 5. Binding Rules
 
 1. No credential is committed to this repository or a managed project's
-   `.agent-fabric/`; an identity's secrets live only in its Doppler config.
-2. Each account holds one read-only service token for its own config.
-   `fabric-secrets sync` refuses a config whose `AGENT_LOGIN` is not the
-   login running it; the config is the one `enroll.sh` recorded at scope
-   `/`, never a directory scope.
+   `.agent-fabric/`; an identity's secrets live only in its own store
+   (ADR-038) (A 2026-09-30).
+2. `fabric-secrets sync` refuses a store whose `AGENT_LOGIN` is not the
+   login running it (A 2026-09-30).
 3. `fabric-secrets sync` and `status` print names, presence, modes and ages
-   — never a value. Enrolment moves values inside `doppler` calls or API →
-   Doppler, never through a terminal or argv.
-4. `fill-from` never copies the identity names, the coordinator's own
-   credentials (`*_ADMIN_KEY`, `*_PROVISIONING_KEY`,
-   `AGENT_FABRIC_READ_TOKEN`), or a per-login `agent_env` name; a login gets
-   its own OpenRouter and OpenAI keys (`issue-openrouter-keys`,
-   `issue-openai-keys`). The coordinator's Doppler admin token lives in the
-   coordinator's home and nowhere in this tree.
+   — never a value. Provisioning moves values inside the process that puts
+   them, or API → store, never through a terminal or argv (A 2026-09-30).
+4. `fabric-secrets provision share` copies only an allowlist of shared
+   names and refuses the identity names and the coordinator's own
+   credentials (`*_ADMIN_KEY`, `*_PROVISIONING_KEY`, the Claude-account
+   templates, the control signing key) even when named; a login gets its
+   own OpenRouter and OpenAI keys (`provision issue-key`) (A 2026-09-30).
 5. A message, review, commit or report that concerns a secret describes it
    by shape (pattern, length) and locator (file and line, variable name,
    message id and section, …) and never reproduces it — in whole, in part,
@@ -95,18 +91,18 @@ running it enforces the identity invariant at the secret boundary (ADR-002).
    `CLAUDE_CODE_OAUTH_TOKEN`, naming what it dropped, never the value.
 7. Tests check credentials by shape (unset, empty, `sk-or-`, `sk-ant-`),
    never by a real value, and assert that output lacks the fixture secret.
-8. Rotation is a change in the Doppler dashboard followed by
-   `enroll.sh sync-all`.
+8. Rotation is a change in the coordinator's own store, then `fabric-secrets
+   provision share all --name NAME --replace` and `fabric-ctl all
+   secrets-sync` (A 2026-09-30).
 
 ## 6. Consequences
 
 - An account's credentials follow the account; `moveto` runs
   `fabric-secrets sync`, so a rotated value arrives on the next entry.
 - Spend is reported per key, so per agent, on OpenRouter and OpenAI; a
-  value copied by `fill-from` is shared, and its spend follows the source's
-  key until the target gets its own.
-- The signing key for control-plane actions lives in the operator's
-  Doppler config; anything that can run as the operator can sign.
+  shared value's spend follows the coordinator's key.
+- The signing key for control-plane actions lives in the operator's own
+  store; anything that can run as the operator can sign.
 
 ## 7. Future Evolution
 
@@ -114,18 +110,27 @@ None stated.
 
 ## 8. Decision Status
 
-Accepted and in force: the Doppler layout, and the launcher's credential
-rules from the reviews of #31 and #33.
+Accepted and in force: the credential rules — a record per login,
+nothing committed, a secret by shape and locator, a destination and its
+credential together, tests by shape. Where the record lives is ADR-038's.
 
 ## References
 
 - `CLAUDE.md` §"Licence, runtime state and credentials";
   `runtime/provisioning/README.md` §Secrets.
-- `runtime/provisioning/secrets/` (`enroll.sh`, `enroll-worker.sh`,
-  `fabric-secrets`, `test_enroll.sh`, `test_fabric-secrets.sh`),
-  `bin/fabric-secrets`.
+- `runtime/provisioning/secrets/fabric-secrets`, `tools/fabric/secrets_sync.py`,
+  `tools/fabric/store_provision.py`, `bin/fabric-secrets`.
 - `communication/gzcoord/protocol/SPEC.md` §17;
   `communication/gzcoord/skills/gzcoord-send/SKILL.md`.
 - `runtime/openrouter/launch` (the broker environment and the key check).
 - ADR-002 (the login is the identity), ADR-009 (the operator's signing key),
-  ADR-010 (enrolment through the host executor).
+  ADR-010 (enrolment through the host executor), ADR-038 (each login's own
+  store).
+
+## Amendments
+
+The body above reads current; each change's full note is in [history/ADR-012-amendments.md](history/ADR-012-amendments.md).
+
+| Date | Amendment | Effect |
+|---|---|---|
+| 2026-09-30 | The Doppler layout is replaced by each login's own store (ADR-038); rules 1-4 and 8 restated, 5-7 stand | §2, §4, §5 rules 1–4 and 8, §6, §8, Scope |

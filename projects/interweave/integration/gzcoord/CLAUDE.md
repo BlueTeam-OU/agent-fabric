@@ -19,5 +19,5 @@ Three claims move together and this file is the authority for the
 first: this status, the section in InterWeave's root `CLAUDE.md`
 (`CLAUDE.snippet.md`, included there), and the hooks in InterWeave's
 `.claude/settings.json` (the session-start drain among them). The token
-arrives with `fabric-secrets sync` from the account's own Doppler
-config; the repository carries no env file for it.
+arrives with `fabric-secrets sync` from the account's own
+store; the repository carries no env file for it.

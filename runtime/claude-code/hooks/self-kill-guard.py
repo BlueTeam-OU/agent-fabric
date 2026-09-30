@@ -26,6 +26,23 @@ import shlex
 import sys
 
 PREFIXES = {"timeout", "sudo", "env", "nohup", "nice", "xargs", "exec", "command", "setsid", "stdbuf"}
+KILL_TOOLS = {"pgrep", "pkill", "killall", "kill"}
+# Each prefix's own options that take a separate value. Per prefix, never
+# merged: a flag that takes a value in one program is boolean in another
+# (xargs -r, env -i, sudo -E), and a merged set read the kill after such a
+# flag as its value and passed it (re-review of #69, N1).
+VALUE_OPTIONS = {
+    "timeout": {"-s", "--signal", "-k", "--kill-after"},
+    "sudo": {"-u", "--user", "-g", "--group", "-h", "--host", "-p", "--prompt", "-C", "--close-from",
+             "-D", "--chdir", "-U", "--other-user", "-r", "--role", "-t", "--type", "-T", "--command-timeout",
+             "-R", "--chroot"},
+    "env": {"-u", "--unset", "-C", "--chdir", "-S", "--split-string", "-a", "--argv0"},
+    "exec": {"-a"},
+    "xargs": {"-I", "-L", "-n", "--max-args", "-P", "--max-procs", "-s", "--max-chars", "-d", "--delimiter",
+              "-E", "-a", "--arg-file"},
+    "nice": {"-n", "--adjustment"},
+    "stdbuf": {"-i", "-o", "-e"},
+}
 KILLS = re.compile(r"\b(kill|pkill|killall|xargs\s+(?:-\S+\s+)*kill)\b")
 
 
@@ -50,6 +67,25 @@ def own_claude_cmdline(proc: str = "/proc", pid: int | None = None) -> str | Non
             return None
         p = ppid
     return None
+
+
+def kill_after_prefixes(words: list[str]) -> list[str]:
+    """The words from the first killing tool behind a chain of prefixes,
+    or [] when there is none: a value of the current prefix's option is
+    skipped, a prefix switches the option set, anything else is passed."""
+    takes: set[str] = set()
+    skip = False
+    for i, w in enumerate(words):
+        name = os.path.basename(w)
+        if skip:
+            skip = False
+        elif name in PREFIXES:
+            takes = VALUE_OPTIONS.get(name, set())
+        elif w in takes:
+            skip = True
+        elif name in KILL_TOOLS:
+            return words[i:]
+    return []
 
 
 def kill_patterns(command: str) -> list[str]:
@@ -78,13 +114,17 @@ def kill_patterns(command: str) -> list[str]:
         if not words:
             continue
         # A kill behind a prefix is still the kill (review of #68):
-        # `timeout 5 pkill -f P`, sudo, env, nohup, nice, xargs, exec.
-        while words and os.path.basename(words[0]) in PREFIXES:
-            words = words[1:]
-            while words and (words[0].startswith("-") or re.fullmatch(r"\d+[smhd]?|\w+=\S*", words[0])):
-                words = words[1:]
-        if not words:
-            continue
+        # `timeout 5 pkill -f P`, sudo, env, nohup, nice, xargs, exec, and
+        # prefixes nested in each other. Walked a word at a time: each
+        # prefix met makes ITS options the ones whose next word is a value,
+        # so `sudo timeout -s kill 5 pkill -f P` skips timeout's signal and
+        # finds pkill. Choosing the option set once, from the outer prefix
+        # or merged across all, let a kill through three times (reviews
+        # of #69: F3, N1, M1).
+        if os.path.basename(words[0]) in PREFIXES:
+            words = kill_after_prefixes(words)
+            if not words:
+                continue
         tool = os.path.basename(words[0])
         if tool in ("pgrep", "pkill"):
             full = any(w in ("-f", "--full") or (w.startswith("-") and not w.startswith("--") and "f" in w[1:]) for w in words[1:])

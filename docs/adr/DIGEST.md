@@ -257,19 +257,19 @@ its record disagree, the record wins. Look it up, never read it whole:
 
 ### ADR-012 — Credentials (Accepted)
 
-- An identity's secrets live in Doppler, project `agent-fabric`, one
-  config per login; the account holds one read-only token and
-  `fabric-secrets sync` applies the rest; nothing is committed (§2, §5
-  rules 1–2).
-- No tool prints a value; enrolment never passes one through a terminal
-  or argv; `fill-from` never copies identity or coordinator credentials
-  (§5 rules 3–4).
+- An identity's secrets live per login, in its own store (ADR-038);
+  `fabric-secrets sync` applies them and refuses another login's;
+  nothing is committed (§2, §5 rules 1–2).
+- No tool prints a value; provisioning never passes one through a
+  terminal or argv; `provision share` shares an allowlist and refuses
+  the identity and the coordinator's credentials (§5 rules 3–4).
 - A secret is described by shape and locator, never reproduced (SPEC §17)
   (§5 rule 5).
 - A destination and its credential move together, with a check on the
   secret itself; credentials are tested by shape (§5 rules 6–7).
+- A 2026-09-30 — the Doppler layout is replaced by each login's own store (§2, §5 rules 1–4, 8).
 - Keywords: credentials, secrets, Doppler, token, API key, fabric-secrets,
-  enroll, rotation, leak, shape, locator, base URL.
+  provision, enroll, rotation, leak, shape, locator, base URL.
 
 ### ADR-013 — The memory model: scopes, kinds of truth, tiers, the drain (Accepted)
 
@@ -764,15 +764,16 @@ its record disagree, the record wins. Look it up, never read it whole:
 - Each agent's secrets are a private pass(1)-format repository,
   `agent-fabric-secrets-<id>`, encrypted to that key alone: the parent
   writes (`fabric-secrets put`) and never reads (§5 rule 3).
-- No step relies on a shared host (§5 rules 4–5). `sync` writes the same
-  `secrets.env` from either source; migration compares by sha256 (§5 rules 7–8).
+- No step relies on a shared host (§5 rules 4–5). `sync` reads the store
+  alone; a parent fills a new store with `provision` (§5 rules 3, 7–8).
 - A 2026-09-29 — recovery copies and backups go to Proton Drive, not paper.
 - A 2026-09-29 — recovery copies are encrypted to the owner's recovery key.
 - A 2026-09-29 — keys, lineage and repositories are named by the agent id (ADR-039).
 - A 2026-09-29 — one identity key with a subkey per use (§5 rule 1, §7).
+- A 2026-09-30 — Doppler removed from the code; `provision` fills a child's store (§5 rules 3, 7–8; §7).
 - Keywords: secrets, key, GPG, pass, QtPass, browserpass, paperkey, Proton Drive, backup,
   identity, lineage, parent, custody, recovery, Doppler, migration,
-  placement, P1.
+  provision, placement, P1.
 ### ADR-039 — The agent id is a UUIDv7 minted at birth (Accepted)
 
 - Each agent has an id, a UUIDv7 whose time is its birth: an existing

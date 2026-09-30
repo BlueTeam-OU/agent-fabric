@@ -7,6 +7,7 @@
     fabric-secrets store mint-id BORN            a new agent id, a UUIDv7 of that birth (ADR-039)
     fabric-secrets store id                      this store's agent id (exit 3: none yet)
     fabric-secrets store id-of LOGIN             the agent id lineage.json records for a login
+                                                 (exit 3: no agent with that login)
     fabric-secrets store rename OLD NEW          a login renamed; its id, key and store stay
     fabric-secrets store set NAME                the agent writes an entry (value on stdin)
     fabric-secrets store export-key              the agent's PUBLIC key, armored (for its parent)
@@ -23,8 +24,6 @@
                                                  its private half only in Proton)
     fabric-secrets store recovery-copy           this login's recovery copy, encrypted to the recovery key
     fabric-secrets store backup [--verify]       every store held, as git bundles, into Proton Drive
-    fabric-secrets store import-doppler          this login's Doppler config into its store
-                                                 (the migration, ADR-038 §5 rule 8)
     fabric-secrets store template-set SLUG       a Claude account's setup-token into this
                                                  (the coordinator's) store (value on stdin)
     fabric-secrets store templates [--json]      the templates, by fingerprint
@@ -69,6 +68,11 @@ UID_DOMAIN = "agents.agent-fabric"
 
 class StoreError(Exception):
     """A refusal or a failure; the message is the whole answer and never a value."""
+
+
+class NotInLineage(StoreError):
+    """No agent with that login or id: the one answer that lets a parent
+    mint an id (store-enroll.sh). An unreadable lineage is not this."""
 
 
 def login() -> str:
@@ -159,11 +163,6 @@ def _run(cmd: list[str], *, stdin: bytes | None = None, cwd: str | None = None,
         why = (lines or [f"exit {r.returncode}"])[-1]
         raise StoreError(f"{what}: {why}")
     return r
-
-
-# A Doppler call waits on the desktop keyring when the token is kept there;
-# locked, it waits forever. Every call is bounded, as fabric-secrets' are.
-DOPPLER_TIMEOUT_S = float(os.environ.get("AGENT_FABRIC_DOPPLER_TIMEOUT_S") or 30)
 
 
 # gpg's commands, as opposed to its options: what an error names.
@@ -311,7 +310,7 @@ def _commit(store: str, message: str) -> None:
     # The store's commits are its own history, attributed by message:
     # the writer ("agent <login>" or "parent <login>") and what changed,
     # never a value.
-    _run(["git", "-C", store, "-c", "commit.gpgsign=false", "commit", "-q", "-m", message], env=_git_env())
+    _run(["git", "-C", store, "-c", "commit.gpgsign=false", "commit", "-q", "-m", message], env=_git_env(), label="git commit")
 
 
 def _check_name(name: str) -> None:
@@ -327,8 +326,7 @@ def _one_line_off(value: bytes) -> bytes:
 
 def _write_entry(store: str, name: str, value: bytes, recipient_args: list[str]) -> str:
     """The value EXACTLY as given, multi-line and empty included: sync
-    must apply from the store what it applied from Doppler (a PEM key is
-    many lines). A single-line value is pass's shape as it is: the
+    must apply every value as it was set (a PEM key is many lines). A single-line value is pass's shape as it is: the
     secret on the first line. --no-encrypt-to: a gpg.conf naming an extra
     recipient never adds one."""
     _check_name(name)
@@ -435,43 +433,6 @@ def values(store: str | None = None) -> dict[str, str]:
     return out
 
 
-def import_doppler() -> dict:
-    """Every name of this login's own Doppler config into its store, in
-    one commit, for the migration. The config is found exactly as
-    fabric-secrets finds it (AGENT_FABRIC_SECRETS_CONFIG, else the one
-    recorded at scope /). Values stay in this process."""
-    store = store_dir()
-    fpr = key_of_store(store)
-    project = os.environ.get("AGENT_FABRIC_SECRETS_PROJECT", "agent-fabric")
-    config = os.environ.get("AGENT_FABRIC_SECRETS_CONFIG")
-    if not config:
-        r = _run(["doppler", "configure", "get", "enclave.config", "--plain", "--scope", "/"], check=False,
-                 timeout=DOPPLER_TIMEOUT_S)
-        config = r.stdout.decode().strip() if r.returncode == 0 else ""
-    if not config:
-        raise StoreError("no Doppler config recorded for this login; nothing to import")
-    r = _run(["doppler", "secrets", "download", "--no-file", "--format", "json",
-              "--project", project, "--config", config], timeout=DOPPLER_TIMEOUT_S)
-    try:
-        data = json.loads(r.stdout)
-    except ValueError:
-        raise StoreError("doppler returned no JSON")
-    _before_write(store)
-    imported, skipped = [], []
-    for name, value in sorted(data.items()):
-        if name.startswith("DOPPLER_"):
-            continue   # Doppler's own, never the login's
-        if not isinstance(value, str) or not NAME_RE.match(name):
-            skipped.append(name)   # said, never dropped silently
-            continue
-        _write_entry(store, name, value.encode(), ["--recipient", fpr])
-        imported.append(name)
-    if git(store, "diff", "--cached", "--quiet", check=False).returncode:
-        _commit(store, f"agent {login()}: imported {len(imported)} name(s) from Doppler {project}/{config}")
-    _after_commit(store)
-    return {"imported": imported, "skipped": skipped, "config": config}
-
-
 # ── the parent ────────────────────────────────────────────────────────
 def lineage(fabric: str | None = None) -> dict:
     try:
@@ -479,6 +440,8 @@ def lineage(fabric: str | None = None) -> dict:
             return json.load(fh)
     except FileNotFoundError:
         return {}
+    except ValueError as e:
+        raise StoreError(f"identities/keys/lineage.json is not JSON: {e}") from None
 
 
 def _write_lineage(doc: dict, fabric: str | None = None) -> None:
@@ -509,13 +472,15 @@ def resolve(who: str, doc: dict | None = None, fabric: str | None = None) -> tup
     doc = lineage(fabric) if doc is None else doc
     if AGENT_ID_RE.match(who):
         if who not in doc:
-            raise StoreError(f"agent {who} is not in identities/keys/lineage.json")
+            raise NotInLineage(f"agent {who} is not in identities/keys/lineage.json")
         return who, doc[who]
     if not LOGIN_RE.match(who):
         raise StoreError(f"{who!r} is neither a login nor an agent id")
     hits = [(a, r) for a, r in doc.items() if isinstance(r, dict) and r.get("login") == who]
-    if len(hits) != 1:
-        raise StoreError(f"{who}: {'no agent' if not hits else f'{len(hits)} agents'} with that login in identities/keys/lineage.json")
+    if not hits:
+        raise NotInLineage(f"{who}: no agent with that login in identities/keys/lineage.json")
+    if len(hits) > 1:
+        raise StoreError(f"{who}: {len(hits)} agents with that login in identities/keys/lineage.json")
     return hits[0]
 
 
@@ -541,7 +506,22 @@ def put(child: str, name: str, value: bytes, store: str | None = None, fabric: s
     changed = git(store, "diff", "--cached", "--quiet", check=False).returncode != 0
     if changed:
         _commit(store, f"parent {login()}: put {name}")
-        _after_commit(store)
+        try:
+            _after_commit(store)
+        except StoreError as pushed:
+            # The mirror is the parent's view of the child's store, never a
+            # record of its own: a put that did not reach the remote is
+            # undone here, or the next look at the mirror reads the entry
+            # as held and the next put pushes it (review of #69, F1). The
+            # agent's own store keeps an unpushed commit instead, and
+            # _push_if_ahead retries it — that store IS the record.
+            if _remote(store):
+                r = git(store, "reset", "-q", "--hard", f"origin/{_branch(store)}", check=False)
+                if r.returncode != 0:
+                    why = ([l for l in r.stderr.decode(errors="replace").splitlines() if l.strip()] or [f"exit {r.returncode}"])[-1]
+                    raise StoreError(f"{rec.get('login')}: {pushed}; and the mirror could not be reset to its remote "
+                                     f"({store}: {why}) — reset it before the next put") from pushed
+            raise
     return {"child": rec.get("login"), "agent_id": aid, "name": name, "changed": changed}
 
 
@@ -1168,7 +1148,6 @@ def main(argv: list[str] | None = None) -> int:
     rk.add_argument("--force", action="store_true", help="rotate: a new recovery key; every copy is then re-made")
     bk = sub.add_parser("backup")
     bk.add_argument("--verify", action="store_true", help="download the backup and check it against its manifest")
-    sub.add_parser("import-doppler")
     ts = sub.add_parser("template-set")
     ts.add_argument("slug")
     tl = sub.add_parser("templates")
@@ -1195,7 +1174,13 @@ def main(argv: list[str] | None = None) -> int:
                 return 3
             print(aid)
         elif args.cmd == "id-of":
-            print(resolve(args.login)[0])
+            # 3, as `id` answers "no id yet": no agent with that login. A
+            # lineage that cannot be read is 1, never a reason to mint.
+            try:
+                print(resolve(args.login)[0])
+            except NotInLineage as e:
+                print(f"fabric-secrets store: {e}", file=sys.stderr)
+                return 3
         elif args.cmd == "rename":
             r = rename(args.old, args.new)
             print(f"agent {r['agent_id']}: now {r['login']}")
@@ -1261,11 +1246,6 @@ def main(argv: list[str] | None = None) -> int:
                 for r in rows:
                     print(f"{r['login']:<22} {r['from']:<30} -> {r.get('to', '-'):<30} {r['status']}{('  ' + r['reason']) if r.get('reason') else ''}")
             return 0 if all(r["status"] != "failed" for r in rows) else 1
-        elif args.cmd == "import-doppler":
-            r = import_doppler()
-            print(f"imported {len(r['imported'])} name(s) from {r['config']}: {', '.join(r['imported'])}")
-            if r["skipped"]:
-                print(f"skipped (not a secret name, or not a string): {', '.join(r['skipped'])}", file=sys.stderr)
     except StoreError as e:
         print(f"fabric-secrets store: {e}", file=sys.stderr)
         return 1
