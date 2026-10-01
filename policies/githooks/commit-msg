@@ -68,6 +68,17 @@ except Exception: print("fabric-coordinator")' "$FABRIC_ROOT/policies/authority.
             exit 1
         fi
     fi
+    # A guarded commit declares the binding the fence just checked, never a
+    # role typed into the message: CI reads the trailer, so a contributor's
+    # commit typed `Fabric-Role: <owner>` would pass there as the owner's, and
+    # an amend keeps the rewritten commit's trailer (review of #75). Read as
+    # CI reads it — the last trailer, up to the next colon.
+    typed="$(git interpret-trailers --parse "$msg" 2>/dev/null \
+             | awk -F': *' 'tolower($1) == "fabric-role" { v = $2 } END { print v }')"
+    if [[ -n "$typed" && "$typed" != "$role" ]]; then
+        echo "commit-msg: the message declares Fabric-Role: $typed, but this agent's binding holds '${role:-no role}' — remove the line; the hook writes the binding." >&2
+        exit 1
+    fi
 fi
 # EVERY commit declares the role the account held when it was made — not
 # only a guarded one. Every account commits under one git author, so the
@@ -76,8 +87,10 @@ fi
 # rebase, cherry-pick and am, so an integration PR's history still says
 # which lane each commit came from (architect-cto's finding on gzapp
 # #785, 2026-09-16: no code commit carried one). A guarded change was
-# checked above and its role is the owner's; any other commit records the
-# binding as it is, and a session with no binding records nothing — the
+# checked above — the owner's, a contributor's within its entry, or a
+# locale holder's — and any typed trailer on it matches the binding; any
+# other commit records the binding as it is, and a session with no
+# binding records nothing — the
 # trailer states a fact about the account, never a claim it cannot make.
 if ! grep -qiE '^[[:space:]]*Fabric-Role:' "$msg"; then
     role="${role:-$(python3 "$FABRIC_ROOT/runtime/identity.py" --role 2>/dev/null || echo "")}"

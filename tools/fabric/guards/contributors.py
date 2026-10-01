@@ -9,10 +9,10 @@ merges it.
 One decision, three callers. The pre-commit and commit-msg hooks ask it
 through `hook` with the staged paths and the live binding; the CI tripwire
 (agent_fabric_dir_authority.py) imports `admitted` and asks it per commit
-with the declared trailer. The hooks read the checkout's authority.json —
-a contributor cannot stage that file, so it cannot widen its own entry
-there — and CI reads the base's, so a branch that edits the file is judged
-by what main says.
+with the declared trailer. The hooks read authority.json as HEAD has it —
+never the working tree or the index, where an uncommitted edit would widen
+the entry for the commit it rides with — and CI reads the base's, so a
+branch that edits the file is judged by what main says.
 
   contributors.py hook <fabric-root> <held-role>
     exit 0  every staged path is the held role's, on its contributor branch
@@ -31,7 +31,6 @@ holds the login to its suffix there and not in CI.
 from __future__ import annotations
 
 import json
-import os
 import subprocess
 import sys
 
@@ -107,12 +106,21 @@ def staged_paths() -> list[str]:
     return [p for p in r.stdout.splitlines() if p]
 
 
+def committed_authority() -> str:
+    """policies/authority.json as HEAD has it, "" when HEAD has none. Never
+    the working tree or the index: an unstaged edit widening the entry would
+    admit the very commit it rides along with (review of #75). HEAD's copy
+    changed only through a commit this fence judged, and CI reads the base's
+    whatever HEAD says."""
+    r = _git("show", "HEAD:policies/authority.json")
+    return r.stdout if r.returncode == 0 else ""
+
+
 def hook(fabric_root: str, held: str) -> int:
-    try:
-        with open(os.path.join(fabric_root, "policies", "authority.json"), encoding="utf-8") as f:
-            entry = contributors_of(f.read()).get(held)
-    except OSError:
-        entry = None
+    # fabric_root is where the hooks live; the entry is the repository's own
+    # committed one, which in agent-fabric itself is the same file.
+    del fabric_root
+    entry = contributors_of(committed_authority()).get(held)
     if not held or entry is None:
         return 3
     login = subprocess.run(["id", "-un"], capture_output=True, text=True, timeout=10).stdout.strip()

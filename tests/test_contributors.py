@@ -148,6 +148,38 @@ def main() -> int:
         check("an excluded path (the guard itself): refused", r.returncode != 0, r.stderr)
         r = attempt("policies/authority.json")
         check("its own entry: refused", r.returncode != 0, r.stderr)
+
+        # Review of #75, finding 1: an unstaged edit widening the entry, then
+        # a typed owner trailer — each on its own, and together.
+        def widened_unstaged(msg: str) -> subprocess.CompletedProcess:
+            with open(os.path.join(fab, "policies", "authority.json"), "w") as f:
+                json.dump({**AUTHORITY, "contributors": [{**ENTRY, "paths": ENTRY["paths"] + ["src/"]}]}, f)
+            with open(os.path.join(fab, "src", "a.py"), "a") as f:
+                f.write("more\n")
+            sh(fab, "add", "src/a.py")
+            r = sh(fab, "commit", "-q", "-m", msg, env={**GIT_ENV, "AGENT_FABRIC_STATE_DIR": state}, check=False)
+            if r.returncode == 0:
+                sh(fab, "reset", "-q", "--hard", "HEAD~1")
+            sh(fab, "reset", "-q", "--hard", "HEAD")
+            return r
+        r = widened_unstaged("widen in the working tree")
+        check("an unstaged widening of its entry admits nothing", r.returncode != 0, r.stderr)
+        r = widened_unstaged("widen\n\nFabric-Role: fabric-coordinator")
+        check("…nor with the owner's trailer typed", r.returncode != 0, r.stderr)
+        r = attempt("tools/a.py", msg="typed\n\nFabric-Role: fabric-coordinator")
+        check("an admitted path under a typed owner trailer: refused",
+              r.returncode != 0 and "binding holds 'python-dev'" in r.stderr, r.stderr)
+        bind("fabric-coordinator")
+        r = attempt("tools/a.py", msg="the owner's commit")
+        check("(the owner commits on the contributor branch)", r.returncode == 0, r.stderr)
+        bind("python-dev")
+        with open(os.path.join(fab, "tools", "a.py"), "a") as f:
+            f.write("amended\n")
+        sh(fab, "add", "tools/a.py")
+        r = sh(fab, "commit", "-q", "--amend", "--no-edit", env={**GIT_ENV, "AGENT_FABRIC_STATE_DIR": state},
+               check=False)
+        check("amending the owner's commit keeps its trailer: refused", r.returncode != 0, r.stderr)
+        sh(fab, "reset", "-q", "--hard", "HEAD")
         sh(fab, "mv", "tools/fabric/guards/contributors.py", "tools/moved.py")
         r = sh(fab, "commit", "-q", "-m", "move", env={**GIT_ENV, "AGENT_FABRIC_STATE_DIR": state}, check=False)
         check("a move out of an excluded path shows its source: refused", r.returncode != 0, r.stderr)
@@ -210,25 +242,36 @@ def main() -> int:
         rc, o, e = ci()
         check("a branch's own widening is not read: main's entry decides", rc == 1, o + e)
 
-        print("a managed project's .agent-fabric/ admits no contributor")
+        print("a managed project's .agent-fabric/ admits no contributor, even one whose entry lists it")
+        # A fabric whose entry DOES list .agent-fabric/ (review of #75, finding
+        # 4): only the scoping can refuse here, so a guard that read the
+        # fabric's entry for a project would fail these.
+        fab2 = os.path.join(tmp, "fab2")
+        shutil.copytree(fab, fab2, ignore=shutil.ignore_patterns(".git"))
+        with open(os.path.join(fab2, "policies", "authority.json"), "w") as f:
+            json.dump({**AUTHORITY, "contributors": [{**ENTRY, "paths": ENTRY["paths"] + [".agent-fabric/"]}]}, f)
         proj = os.path.join(tmp, "proj")
         os.makedirs(os.path.join(proj, ".agent-fabric", "memory"))
         sh(proj, "init", "-q", "-b", "main")
         sh(proj, "commit", "-q", "--allow-empty", "-m", "base")
-        sh(proj, "checkout", "-q", "-b", "w")
+        sh(proj, "checkout", "-q", "-b", f"h/{LOGIN}/for/user/slice")
+        sh(proj, "config", "core.hooksPath", os.path.join(fab2, "policies", "githooks"))
         with open(os.path.join(proj, ".agent-fabric", "memory", "s.md"), "w") as f:
             f.write("x\n")
         sh(proj, "add", "-A")
-        sh(proj, "commit", "-qm", "slice\n\nFabric-Role: python-dev")
+        bind("python-dev")
+        r = sh(proj, "commit", "-q", "-m", "slice", env={**GIT_ENV, "AGENT_FABRIC_STATE_DIR": state}, check=False)
+        check("the hooks refuse it in the project", r.returncode != 0, r.stderr)
+        sh(proj, "-c", "core.hooksPath=/dev/null", "commit", "-qm", "slice\n\nFabric-Role: python-dev")
         out, er = io.StringIO(), io.StringIO()
         cwd = os.getcwd()
         os.chdir(proj)
         try:
             with redirect_stdout(out), redirect_stderr(er):
-                rc = da.run({**GIT_ENV, "AGENT_FABRIC_ROOT": fab})
+                rc = da.run({**GIT_ENV, "AGENT_FABRIC_ROOT": fab2})
         finally:
             os.chdir(cwd)
-        check("refused in a project, whatever the fabric's entry", rc == 1, out.getvalue() + er.getvalue())
+        check("CI refuses it in the project", rc == 1, out.getvalue() + er.getvalue())
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 
