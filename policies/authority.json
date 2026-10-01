@@ -43,7 +43,8 @@
         "bin/fabric-review",
         "tools/fabric/python_pin.py",
         "tools/fabric/fabric_settings.py",
-        "tools/fabric/workspace_trust.py"
+        "tools/fabric/workspace_trust.py",
+        "tools/fabric/episodic.py"
       ]
     }
   ]
