@@ -426,7 +426,14 @@ def main() -> int:
             p = run(child, "set", "SSH_PRIVATE_KEY", stdin=pem + "\n")
             check("F1: setting the same multi-line value again is unchanged", "unchanged" in p.stdout, p.stdout + p.stderr)
             p = run(child, "set", "EMPTY_ONE", stdin="")
-            check("F1: an empty value is stored", p.returncode == 0 and "EMPTY_ONE" in run(child, "names").stdout, p.stderr)
+            check("an empty value is refused, nothing written (a failed pipe stores no token)",
+                  p.returncode != 0 and "nothing written" in p.stderr and "EMPTY_ONE" not in run(child, "names").stdout,
+                  p.stdout + p.stderr)
+            p = run(child, "set", "EMPTY_ONE", stdin="\n")
+            check("…a lone newline is no value either", p.returncode != 0, p.stdout + p.stderr)
+            p = run(child, "set", "EMPTY_ONE", "--empty", stdin="")
+            check("F1: an empty value is stored when asked for with --empty",
+                  p.returncode == 0 and "EMPTY_ONE" in run(child, "names").stdout, p.stderr)
 
             # F4: the agent's own write reaches the remote, and a parent's put
             # afterwards merges with it; the child then reads both.
