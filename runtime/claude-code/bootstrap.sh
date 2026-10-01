@@ -230,6 +230,7 @@ fi
 #    the commit records the role). A repo config per working copy, never
 #    committed; a directory that is not a registered project is left alone.
 HOOKS_ABS="$FABRIC_ROOT/policies/githooks"
+trusted=("$PROJECTS" "$FABRIC_ROOT")
 for wc in "$PROJECTS"/*/; do
     wc="${wc%/}"
     # git's own answer, not a test for a .git DIRECTORY: a linked worktree
@@ -240,6 +241,7 @@ for wc in "$PROJECTS"/*/; do
 try: print(json.load(sys.stdin).get("project") or "")
 except Exception: print("")')"
     [[ -n "$pid" ]] || continue
+    trusted+=("$wc")
     if [[ "$(git -C "$wc" config --get core.hooksPath 2>/dev/null)" != "$HOOKS_ABS" ]]; then
         (( DRY_RUN )) || git -C "$wc" config core.hooksPath "$HOOKS_ABS"
         echo "  +  $wc ($pid): core.hooksPath = $HOOKS_ABS"; changed=$((changed+1))
@@ -247,6 +249,12 @@ except Exception: print("")')"
         echo "  =  $wc ($pid): core.hooksPath"; same=$((same+1))
     fi
 done
+# 5b. Those same folders trusted in Claude Code — the workspace, this
+#     checkout and each registered working copy, which the fabric cloned
+#     from the registry's remotes — so a new account's first session asks
+#     no trust question (tools/fabric/workspace_trust.py says why).
+python3 "$FABRIC_ROOT/tools/fabric/workspace_trust.py" $( (( DRY_RUN )) && echo --dry-run ) "${trusted[@]}" \
+    || echo "  !  workspace trust not recorded (above); a first session asks for it"
 
 # 6. The control agent: a systemd user unit that answers the coordinator's
 #    fabric-ctl over the relay (runtime/control/). Enabled and started in

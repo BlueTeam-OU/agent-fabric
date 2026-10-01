@@ -81,7 +81,8 @@
 #      person: the GPG secret key (a passphrase prompt; the runbook §4),
 #      ~/.claude/.credentials.json for the plain-claude path (a
 #      credential copy a classifier refuses an agent; §5), and the
-#      workspace-trust dialog at the first interactive launch. [worker: finish, 6-10]
+#      first launch — its folders already trusted by bootstrap (step 7),
+#      so it asks no trust question. [worker: finish, 6-10]
 #
 # NEVER: a secret value on the terminal (provision keeps them inside its
 # process, and the parent cannot read what it put); a copy of the
