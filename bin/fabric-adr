@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/local/bin/fabric-python
 """fabric-adr — the fabric's decision records, from any directory.
 
     fabric-adr lookup <topic>...   the DIGEST entries that mention every word

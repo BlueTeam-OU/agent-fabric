@@ -89,7 +89,12 @@ serve as the parity oracle for each port, unchanged.
    refusing with the install command when it is absent), until every
    forwarder and caller is repointed; a sourced script's shim defines the
    same shell functions, each calling Python, and fails the call, never
-   its caller (A 2026-10-01).
+   its caller. Every entry point the fabric installs (`bin/`, the
+   `policies/` checks, `fabric-secrets`) runs it. Two kinds keep the
+   host's `python3`: the bash step-runners not yet ported (the launcher,
+   bootstrap, account creation, the git hooks), whose port moves them; and
+   the suite runners, which run the interpreter CI's matrix sets, to prove
+   3.12 and newer (A 2026-10-01).
 5. The script's existing bash test runs against the shim, as the parity
    oracle, in the port's pull request, its assertions unchanged. Two
    things in it may follow the port: its mock of `gh` may learn the

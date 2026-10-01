@@ -34,10 +34,14 @@ refuse_inside_session() {  # bind and unbind only; status and list change nothin
 }
 
 cmd="${1:-status}"; shift || true
+# The fleet's pinned Python (runtime/python.json, ADR-040), one per host;
+# AGENT_FABRIC_PYTHON points elsewhere for a test or a host without it.
+py="${AGENT_FABRIC_PYTHON:-/usr/local/bin/fabric-python}"
+[[ -x "$py" ]] || { echo "fabric-role: the fleet's pinned Python is not installed at $py; as root: /usr/bin/python3 <agent-fabric>/tools/fabric/python_pin.py install" >&2; exit 127; }
 case "$cmd" in
-    bind)   refuse_inside_session; exec python3 "$ROOT/tools/fabric/role.py" activate "$@" ;;
-    unbind) refuse_inside_session; exec python3 "$ROOT/tools/fabric/role.py" deactivate "$@" ;;
-    status|list) exec python3 "$ROOT/tools/fabric/role.py" "$cmd" "$@" ;;
+    bind)   refuse_inside_session; exec "$py" "$ROOT/tools/fabric/role.py" activate "$@" ;;
+    unbind) refuse_inside_session; exec "$py" "$ROOT/tools/fabric/role.py" deactivate "$@" ;;
+    status|list) exec "$py" "$ROOT/tools/fabric/role.py" "$cmd" "$@" ;;
     -h|--help|help) sed -n '2,20p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "fabric-role: unknown command '$cmd' (bind <role> | status | unbind | list)" >&2; exit 2 ;;
 esac

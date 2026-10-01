@@ -12,8 +12,12 @@
 # itself before opening the PR (docs/adr/ADR-027-language-and-culture-shape-the-work-the-bridge.md).
 set -euo pipefail
 ROOT="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
+# The fleet's pinned Python (runtime/python.json, ADR-040), one per host;
+# AGENT_FABRIC_PYTHON points elsewhere for a test or a host without it.
+py="${AGENT_FABRIC_PYTHON:-/usr/local/bin/fabric-python}"
+[[ -x "$py" ]] || { echo "fabric-locale: the fleet's pinned Python is not installed at $py; as root: /usr/bin/python3 <agent-fabric>/tools/fabric/python_pin.py install" >&2; exit 127; }
 case "${1:-}" in
-    tokens) [[ $# -eq 2 ]] || { echo "usage: fabric-locale tokens <source.md>" >&2; exit 2; }; exec python3 "$ROOT/tools/fabric/lint.py" --tokens "$2" ;;
-    digest) [[ $# -eq 2 ]] || { echo "usage: fabric-locale digest <source.md>" >&2; exit 2; }; exec python3 "$ROOT/tools/fabric/lint.py" --digest "$2" ;;
+    tokens) [[ $# -eq 2 ]] || { echo "usage: fabric-locale tokens <source.md>" >&2; exit 2; }; exec "$py" "$ROOT/tools/fabric/lint.py" --tokens "$2" ;;
+    digest) [[ $# -eq 2 ]] || { echo "usage: fabric-locale digest <source.md>" >&2; exit 2; }; exec "$py" "$ROOT/tools/fabric/lint.py" --digest "$2" ;;
     *) echo "usage: fabric-locale tokens|digest <source.md>" >&2; exit 2 ;;
 esac
