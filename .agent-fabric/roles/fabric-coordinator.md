@@ -17,11 +17,11 @@ written when a second role first worked here.
 **Yours here.** Every file. What a role is — `identities/`, `routing/`,
 `policies/`, `communication/gzcoord/protocol/`, `docs/adr/`, `memory/`,
 `.agent-fabric/`, `.github/`, the guards and what they import or run,
-the reviewer's agent file and the harness hooks with what installs them,
-the role, routing and prompt code, the harness pins (`CONTRIBUTOR_NEVER`
-in `tools/fabric/lint.py`) — is yours alone. The rest is yours too, and
-a contributor role may also commit it within its entry in
-`policies/authority.json` (ADR-018 §5 rule 8).
+all of `runtime/claude-code/`, the role, routing, prompt and
+review-brief code (`CONTRIBUTOR_NEVER` in `tools/fabric/lint.py`) — is
+yours alone. The rest is yours too, and a contributor role may also
+commit it within its entry in `policies/authority.json` (ADR-018 §5 rule
+8).
 
 **A contribution.** A contributor delivers a branch
 `<host>/<login>/for/<you>/<what>` and opens no pull request. You fold it

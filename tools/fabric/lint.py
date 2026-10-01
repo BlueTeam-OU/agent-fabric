@@ -1439,18 +1439,19 @@ def bash_size_findings(root: str, base_ref: str = "origin/main") -> list[str]:
 
 # What a role IS, never a contributor's to commit (ADR-018 §5 rule 8): a rule
 # ending in "/" is a directory, any other one file, as in an entry. The
-# guards and what they import (git.py) or run in CI (the suite runners); the
-# definitions; the reviewer's agent file, the harness hooks, and the code that
-# installs them or writes a role's model and prompt (review of #75).
+# guards and what they import (git.py) or run in CI (the suite runners and
+# the helper they source); the definitions; runtime/claude-code/ whole — the
+# reviewer's agent file, the harness hooks and the settings that register
+# them, the workspace prompt, and what installs them; the role, routing,
+# prompt and review-brief code (review and re-review of #75).
 CONTRIBUTOR_NEVER = (
     "identities/", "routing/", "policies/", "communication/gzcoord/protocol/", "docs/adr/", "memory/",
     ".agent-fabric/", ".github/", "CLAUDE.md",
     "tools/fabric/guards/", "tools/fabric/git.py", "tools/fabric/lint.py", "tests/run.sh", "tests/static.sh",
     "tests/test_contributors.py", "tests/test_agent_fabric_dir_authority.py", "tests/test_charter_authority.py",
-    "runtime/identity.py", "runtime/claude-code/agents/", "runtime/claude-code/hooks/",
-    "runtime/claude-code/bootstrap.sh", "runtime/claude-code/install-agent-files.sh",
-    "runtime/claude-code/harness.json", "runtime/claude-code/aliases.json",
+    "tests/leak-check.sh", "runtime/identity.py", "runtime/claude-code/",
     "bin/fabric-role", "tools/fabric/role.py", "tools/fabric/routing.py", "tools/fabric/launch_prompt.py",
+    "bin/fabric-review", "tools/fabric/review_brief.py",
 )
 # The one path under a never-prefix an entry may name: the list the port
 # shrinks, which lint itself holds to shrinking (ADR-040 §5 rule 2).

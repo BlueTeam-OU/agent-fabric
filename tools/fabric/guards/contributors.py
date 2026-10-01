@@ -110,8 +110,8 @@ def committed_authority() -> str:
     """policies/authority.json as HEAD has it, "" when HEAD has none. Never
     the working tree or the index: an unstaged edit widening the entry would
     admit the very commit it rides along with (review of #75). HEAD's copy
-    changed only through a commit this fence judged, and CI reads the base's
-    whatever HEAD says."""
+    can still differ from main's — a fold-only merge of a wider ref is not
+    judged here — so this is the keyboard's fence; CI reads the base's."""
     r = _git("show", "HEAD:policies/authority.json")
     return r.stdout if r.returncode == 0 else ""
 

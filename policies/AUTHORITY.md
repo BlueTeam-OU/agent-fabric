@@ -94,13 +94,18 @@ rule ending in `/` is a directory and everything under it; any other
 rule is one file; there are no globs. Each entry keeps out what a role
 *is* and what enforces the fence: identities, routing, policies (but the
 bash allowlist the port shrinks), the protocol, the decision records,
-the guards and the `git.py` they import, the lint and the suite runners,
-the reviewer's agent file, the harness hooks and the code that installs
-them, and the role, routing and prompt code. Lint holds every entry to
-that list (`CONTRIBUTOR_NEVER` in `tools/fabric/lint.py`), comparing
-rules as prefixes. The owner chose this for a Python developer sharing
-the port of the fabric's bash (ADR-040), over sending patches
-(agent-fabric ADR-018 §5 rule 8).
+the guards and the `git.py` they import, the lint, the suite runners and
+the helper they source, all of `runtime/claude-code/` (the reviewer's
+agent file, the harness hooks and the settings that register them, the
+workspace prompt, and what installs them), and the role, routing, prompt
+and review-brief code. CI judges a branch with main's copy of the
+guards, run isolated before any of the branch's code
+(`docs/live-checks/2026-10-01-guard-shadowing.md`), since a module
+beside the guards can shadow one they import whatever an entry excludes.
+Lint holds every entry to that list (`CONTRIBUTOR_NEVER` in
+`tools/fabric/lint.py`), comparing rules as prefixes. The owner chose
+this for a Python developer sharing the port of the fabric's bash
+(ADR-040), over sending patches (agent-fabric ADR-018 §5 rule 8).
 
 - **At the keyboard**, `pre-commit` and `commit-msg` admit a commit from
   a session bound to that role, on a branch

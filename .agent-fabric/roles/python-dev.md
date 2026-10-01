@@ -48,9 +48,10 @@ checked return code; a body goes on stdin, never into argv.
 `policies/` (but the allowlist), `communication/gzcoord/protocol/`,
 `docs/adr/`, `memory/`, `.agent-fabric/`, `.github/`, the guards under
 `tools/fabric/guards/` and the `tools/fabric/git.py` they import, the
-lint, `tests/run.sh` and `tests/static.sh`, the reviewer's agent file
-and the harness hooks under `runtime/claude-code/`, `bootstrap.sh` and
-`install-agent-files.sh`, the role, routing and prompt code, and the
-harness pins — `policies/authority.json` lists each. A rule you find
-wrong while porting it is a finding to fabric-coordinator, with the case
-that shows it; the port keeps the old behaviour until the rule changes.
+lint, `tests/run.sh`, `tests/static.sh` and `tests/leak-check.sh`, all
+of `runtime/claude-code/` (its `bootstrap.sh` too, though a Wave 5
+script: the coordinator ports it), the role, routing, prompt and
+review-brief code — `policies/authority.json` lists each. A rule you
+find wrong while porting it is a finding to fabric-coordinator, with the
+case that shows it; the port keeps the old behaviour until the rule
+changes.

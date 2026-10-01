@@ -1457,7 +1457,11 @@ def case_a_contributor_entry_never_reaches_a_definition() -> None:
         # definition or a guard.
         for narrow in ("identities/roles/python-dev/", "identities/roles/python-dev/charter.md",
                        "policies/githooks/commit-msg", "tools/fabric/guards/common.py",
-                       "identities/roles/catalog.json", "routing/effort.json"):
+                       "identities/roles/catalog.json", "routing/effort.json",
+                       # Re-review of #75: what registers the hooks, the
+                       # workspace prompt, the helper the runner sources.
+                       "runtime/claude-code/workspace/settings.json", "runtime/claude-code/workspace/CLAUDE.md",
+                       "runtime/claude-code/", "tests/leak-check.sh", "tools/fabric/review_brief.py"):
             got = findings({**good, "paths": [narrow]})
             assert any(f"rule {narrow!r} reaches" in f for f in got), (narrow, got)
         got = findings({**good, "excluding": excl + ["tools/fabric/guards/x.py"],
