@@ -277,6 +277,10 @@ def count_md(top: str) -> int:
     ! -name INDEX.md` counted them: a symlinked slice is a slice, and so is a
     directory named so; links are not followed into (review of #73). The
     evidence search, walk_md, keeps to real files."""
+    # find does not follow its starting point either (no -H): a domain
+    # directory that is a link counts nothing (re-review of #73).
+    if os.path.islink(top):
+        return 0
     n = 0
     for _dp, dns, fns in os.walk(top):
         n += sum(1 for name in dns + fns if name.endswith(".md") and name != "INDEX.md")

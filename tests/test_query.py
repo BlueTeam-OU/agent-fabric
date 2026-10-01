@@ -122,6 +122,8 @@ def main() -> int:
         os.symlink(os.path.join(tmp2, "elsewhere", "x.md"), os.path.join(role, "linked.md"))
         os.symlink(os.path.join(tmp2, "elsewhere"), os.path.join(role, "linkdir"))
         check("a.md, sub/b.md and the symlinked slice; not INDEX.md, not into a linked dir", q.count_md(role) == 3)
+        os.symlink(role, os.path.join(tmp2, "linkedrole"))
+        check("a top directory that is a link counts nothing, as find did", q.count_md(os.path.join(tmp2, "linkedrole")) == 0)
     finally:
         shutil.rmtree(tmp2, ignore_errors=True)
 
