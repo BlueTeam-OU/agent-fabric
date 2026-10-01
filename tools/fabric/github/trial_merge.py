@@ -421,10 +421,13 @@ def add_worktree(top: str, wt: str, base_sha: str) -> None:
 
 def merge_all(wt: str, shas: list[str], names: list[str]) -> tuple[str, str, list[str], str, str]:
     """(result, failed_ref, conflicted, tree, merge_err). The clone's hooks
-    are not run: this merge is never committed anywhere."""
+    are not run: this merge is never committed anywhere. --no-verify skips
+    only pre-merge-commit and commit-msg; post-merge ran in the trial
+    worktree (review of #71), so the hooks path is emptied for the merge."""
     for name, sha in zip(names, shas):
         r = git.run(wt, "-c", "user.name=trial-merge", "-c", "user.email=trial-merge@invalid",
-                    "-c", "commit.gpgsign=false", "merge", "-q", "--no-ff", "--no-edit", "--no-verify", sha,
+                    "-c", "commit.gpgsign=false", "-c", "core.hooksPath=/dev/null",
+                    "merge", "-q", "--no-ff", "--no-edit", "--no-verify", sha,
                     check=False, timeout=WORKTREE_TIMEOUT_S)
         if r.returncode != 0:
             d = git.run(wt, "diff", "--name-only", "--diff-filter=U", check=False).stdout

@@ -216,8 +216,22 @@ def main() -> int:
         check("unrelated histories: could not merge, the second ref, git's line",
               (result, failed, conflicted, tree) == ("could not merge", "alien", [], "") and "unrelated histories" in err)
         check("...and the worktree is left clean (merge aborted)", sh(wt, "status", "--porcelain") == "")
+        # A post-merge hook in the clone: --no-verify does not skip it, and
+        # the trial is never a merge anyone made (review of #71).
+        hooks = os.path.join(scratch, "hooks")
+        os.makedirs(hooks, exist_ok=True)
+        marker = os.path.join(scratch, "post-merge-ran")
+        with open(os.path.join(hooks, "post-merge"), "w") as f:
+            f.write(f"#!/bin/sh\ntouch {marker}\n")
+        os.chmod(os.path.join(hooks, "post-merge"), 0o755)
+        sh(repo, "config", "core.hooksPath", hooks)
+        # Back to main first: the case above merged this ref already, and an
+        # "already up to date" merge runs no hook at all.
+        sh(wt, "reset", "-q", "--hard", "main")
         result, _failed, _conflicted, tree, _err = tm.merge_all(wt, [sha], ["h/a/feat"])
+        sh(repo, "config", "--unset", "core.hooksPath")
         check("a clean merge yields a tree", result == "combines" and len(tree) == 40)
+        check("…and no hook of the clone ran, post-merge included", not os.path.exists(marker))
         sh(repo, "worktree", "remove", "--force", wt)
 
         print("worktree_procs finds a process by its cwd and by its session")
