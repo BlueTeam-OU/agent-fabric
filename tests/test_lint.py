@@ -1412,6 +1412,20 @@ def case_bash_over_150_lines_needs_the_allowlist() -> None:
         assert not any(f.startswith("bin/long-tool: 152") for f in got), "listed now, so not unlisted"
         assert lint.bash_size_findings(root, base_ref="no-such-ref") == [], \
             "without a base, additions are not judged and nothing else is wrong"
+        # A branch behind its base: the base has since dropped an entry the
+        # branch still carries. Not an addition — the branch forked with it.
+        g("checkout", "-q", "-b", "behind")
+        write(os.path.join(root, "policies", "bash-allowlist.json"),
+              json.dumps({"scripts": {"runtime/long.sh": 1}}))
+        g("checkout", "-q", "base")
+        write(os.path.join(root, "policies", "bash-allowlist.json"), json.dumps({"scripts": {}}))
+        g("add", "-A")
+        g("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "base ports runtime/long.sh away")
+        g("checkout", "-q", "behind")
+        write(os.path.join(root, "policies", "bash-allowlist.json"),
+              json.dumps({"scripts": {"runtime/long.sh": 1}}))
+        got = lint.bash_size_findings(root, base_ref="base")
+        assert not any("is added" in f for f in got), f"an entry the fork point had is not an addition: {got}"
 
 
 def main() -> int:
