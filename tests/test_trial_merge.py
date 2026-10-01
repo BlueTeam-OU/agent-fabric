@@ -234,6 +234,35 @@ def main() -> int:
         check("…and no hook of the clone ran, post-merge included", not os.path.exists(marker))
         sh(repo, "worktree", "remove", "--force", wt)
 
+        print("no hook of the clone on the add, a conflict's abort, or the removal (review of #73)")
+        sh(repo, "checkout", "-q", "main")
+        for name in ("c1", "c2"):
+            sh(repo, "checkout", "-q", "-b", name, "main")
+            with open(os.path.join(repo, "clash.txt"), "w") as f:
+                f.write(name + "\n")
+            sh(repo, "add", "-A")
+            sh(repo, "commit", "-q", "-m", name)
+        sh(repo, "checkout", "-q", "main")
+        c1, c2 = (sh(repo, "rev-parse", n).strip() for n in ("c1", "c2"))
+        markers = {}
+        for hook in ("post-checkout", "post-merge", "reference-transaction"):
+            markers[hook] = os.path.join(scratch, f"{hook}-ran")
+            with open(os.path.join(hooks, hook), "w") as f:
+                f.write(f"#!/bin/sh\ntouch {markers[hook]}\n")
+            os.chmod(os.path.join(hooks, hook), 0o755)
+        sh(repo, "config", "core.hooksPath", hooks)
+        try:
+            wt2 = os.path.join(scratch, "wt2")
+            tm.add_worktree(repo, wt2, sh(repo, "rev-parse", "main").strip())
+            result, failed, _c, _t, _e = tm.merge_all(wt2, [c1, c2], ["c1", "c2"])
+            tm.cleanup(repo, wt2, None)
+        finally:
+            sh(repo, "config", "--unset", "core.hooksPath")
+        check("the second ref conflicts, and the merge is aborted", (result, failed) == ("conflicts", "c2"))
+        ran = [h for h, m in markers.items() if os.path.exists(m)]
+        check(f"…and not one hook of the clone ran on any of it (ran: {ran or 'none'})", ran == [])
+        check("…and the trial worktree is gone", not os.path.exists(wt2))
+
         print("worktree_procs finds a process by its cwd and by its session")
         sleeper = subprocess.Popen(["sleep", "30"], cwd=room, start_new_session=True)
         try:

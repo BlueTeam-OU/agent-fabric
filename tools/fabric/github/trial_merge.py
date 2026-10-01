@@ -123,6 +123,12 @@ DEFAULT_CHECK_TIMEOUT = "1800"
 FETCH_TIMEOUT_S = 600
 # A fresh worktree of a large base is a checkout; a merge rewrites files.
 WORKTREE_TIMEOUT_S = 600
+# No hook of the clone runs on anything the trial does to its worktree:
+# --no-verify skips only pre-merge-commit and commit-msg, and post-merge,
+# post-checkout and reference-transaction ran (git-lfs and husky install
+# them) on the add, the merge, the abort and the removal (reviews of #71
+# and #73).
+NO_HOOKS = ("-c", "core.hooksPath=/dev/null")
 # Two runs at once in one repository can make an add fail for a moment
 # (another run's prune, git's config lock): one add lost that race in CI.
 # A few tries, each clearing only its own half-made entry, then git's own
@@ -311,7 +317,7 @@ def sweep(top: str, scratch: str) -> None:
                     continue
             except OSError:
                 continue
-        git.run(top, "worktree", "remove", "--force", d, check=False)
+        git.run(top, *NO_HOOKS, "worktree", "remove", "--force", d, check=False)
         remove_tree(d)
         for suffix in (".pid", ".pid.tmp", ".out"):
             remove_file(d + suffix)
@@ -397,7 +403,7 @@ def cleanup(top: str, wt: str, cpid: int | None) -> None:
         terminate(pid)
     # Each step on its own: a git that times out (git.py's bound) must not
     # keep the scratch tree and the pid file from going (review of #71).
-    for step in (lambda: git.run(top, "worktree", "remove", "--force", wt, check=False),
+    for step in (lambda: git.run(top, *NO_HOOKS, "worktree", "remove", "--force", wt, check=False),
                  lambda: remove_tree(wt), lambda: remove_file(wt + ".pid"), lambda: remove_file(wt + ".out"),
                  lambda: git.run(top, "worktree", "prune", check=False)):
         try:
@@ -409,11 +415,11 @@ def cleanup(top: str, wt: str, cpid: int | None) -> None:
 def add_worktree(top: str, wt: str, base_sha: str) -> None:
     err = ""
     for pause in ADD_PAUSES:
-        r = git.run(top, "worktree", "add", "-q", "--detach", wt, base_sha, check=False, timeout=WORKTREE_TIMEOUT_S)
+        r = git.run(top, *NO_HOOKS, "worktree", "add", "-q", "--detach", wt, base_sha, check=False, timeout=WORKTREE_TIMEOUT_S)
         if r.returncode == 0:
             return
         err = (r.stderr or r.stdout).strip()
-        git.run(top, "worktree", "remove", "--force", wt, check=False)
+        git.run(top, *NO_HOOKS, "worktree", "remove", "--force", wt, check=False)
         os.makedirs(wt, exist_ok=True)
         time.sleep(pause)
     raise Refused(f"git worktree add failed ({err.split(chr(10))[-1]}); nothing tried")
@@ -421,18 +427,16 @@ def add_worktree(top: str, wt: str, base_sha: str) -> None:
 
 def merge_all(wt: str, shas: list[str], names: list[str]) -> tuple[str, str, list[str], str, str]:
     """(result, failed_ref, conflicted, tree, merge_err). The clone's hooks
-    are not run: this merge is never committed anywhere. --no-verify skips
-    only pre-merge-commit and commit-msg; post-merge ran in the trial
-    worktree (review of #71), so the hooks path is emptied for the merge."""
+    are not run: this merge is never committed anywhere (NO_HOOKS)."""
     for name, sha in zip(names, shas):
         r = git.run(wt, "-c", "user.name=trial-merge", "-c", "user.email=trial-merge@invalid",
-                    "-c", "commit.gpgsign=false", "-c", "core.hooksPath=/dev/null",
+                    "-c", "commit.gpgsign=false", *NO_HOOKS,
                     "merge", "-q", "--no-ff", "--no-edit", "--no-verify", sha,
                     check=False, timeout=WORKTREE_TIMEOUT_S)
         if r.returncode != 0:
             d = git.run(wt, "diff", "--name-only", "--diff-filter=U", check=False).stdout
             conflicted = [p for p in d.split("\n") if p]
-            git.run(wt, "merge", "--abort", check=False)
+            git.run(wt, *NO_HOOKS, "merge", "--abort", check=False)
             return ("conflicts" if conflicted else "could not merge"), name, conflicted, "", r.stderr.rstrip("\n")
     return "combines", "", [], git.run(wt, "rev-parse", "HEAD^{tree}", check=False).stdout.strip(), ""
 
