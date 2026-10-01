@@ -18,7 +18,11 @@ sys.path.insert(0, os.path.join(HERE, "tools", "fabric"))
 from guards import agent_fabric_dir_authority as da  # noqa: E402
 from guards import common  # noqa: E402
 
-GIT_ENV = {**os.environ, "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_SYSTEM": "/dev/null",
+# Nothing of the runner's or the session's own: CI sets GITHUB_HEAD_REF and
+# GITHUB_BASE_REF on a pull request, and a launched session sets
+# AGENT_FABRIC_ROOT; inherited, either decides a case for its own reasons.
+CLEAN = {k: v for k, v in os.environ.items() if not k.startswith(("GITHUB_", "AGENT_FABRIC_"))}
+GIT_ENV = {**CLEAN, "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_SYSTEM": "/dev/null",
            "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t",
            "GIT_COMMITTER_EMAIL": "t@t"}
 
@@ -138,7 +142,9 @@ def main() -> int:
             os.chdir(rr)
             try:
                 with redirect_stdout(out), redirect_stderr(er):
-                    rc = da.run({**GIT_ENV, **(env or {})})
+                    # A fabric with no authority.json: the default role, not
+                    # whatever a sibling checkout beside the scratch says.
+                    rc = da.run({**GIT_ENV, "AGENT_FABRIC_ROOT": os.path.join(tmp, "no-fabric"), **(env or {})})
             finally:
                 os.chdir(cwd)
             return rc, out.getvalue(), er.getvalue()

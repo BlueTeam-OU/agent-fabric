@@ -19,7 +19,11 @@ from guards import charter_authority as ca  # noqa: E402
 from guards import common  # noqa: E402
 
 # Commits made here must not read the caller's config (signing, hooks).
-GIT_ENV = {**os.environ, "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_SYSTEM": "/dev/null",
+# Nothing of the runner's or the session's own: CI sets GITHUB_HEAD_REF and
+# GITHUB_BASE_REF on a pull request, and a launched session sets
+# AGENT_FABRIC_ROOT; inherited, either decides a case for its own reasons.
+CLEAN = {k: v for k, v in os.environ.items() if not k.startswith(("GITHUB_", "AGENT_FABRIC_"))}
+GIT_ENV = {**CLEAN, "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_SYSTEM": "/dev/null",
            "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t",
            "GIT_COMMITTER_EMAIL": "t@t"}
 
