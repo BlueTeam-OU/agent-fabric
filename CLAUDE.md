@@ -35,21 +35,25 @@ records say why.
 
 ## Read-only, unless you are fabric-coordinator
 
-**This repository is read-only for every role except `fabric-coordinator`**,
-and so is `.agent-fabric/` inside every managed project. Every other role
-reads it and proposes what it needs changed to `fabric-coordinator` — a
-pull request it does not merge, or a GZCoord message. It is a fence, not
-only a rule: the git hooks `bootstrap.sh` installs refuse a commit here
-unless the session's binding holds the role, and stamp every commit an
-account makes with a `Fabric-Role:` trailer that CI checks on every
-commit a branch adds (ADR-018, `policies/AUTHORITY.md`). Every account
-commits under one git author, so the trailer is what names the lane. Two
-carve-outs: a locale's translations, `identities/roles/<role>/locale/<suffix>/`,
-are committed by that locale's holder and merged by fabric-coordinator;
-Dependabot's commits that change only `.github/workflows/` (action-pin
-bumps) need no trailer, and fabric-coordinator merges them too.
-A session becomes `fabric-coordinator` only by being launched with it
-bound; the login it runs as is irrelevant.
+**This repository is read-only for every role except
+`fabric-coordinator`**, and so is `.agent-fabric/` inside every managed
+project. Every other role reads it and proposes what it needs changed to
+`fabric-coordinator` in a GZCoord message. It is a fence, not only a
+rule: the git hooks `bootstrap.sh` installs refuse a commit here unless
+the session's binding holds the role, and stamp every commit an account
+makes with a `Fabric-Role:` trailer that CI checks on every commit a
+branch adds (ADR-018, `policies/AUTHORITY.md`). Every account commits
+under one git author, so the trailer is what names the lane. Three
+carve-outs: a contributor role (`policies/authority.json`
+`contributors`) commits its entry's paths on its own
+`<host>/<login>/for/<caller>/<what>` branch, which fabric-coordinator
+folds into its own PR and merges; a locale's translations,
+`identities/roles/<role>/locale/<suffix>/`, are committed by that
+locale's holder and merged by fabric-coordinator; Dependabot's commits
+that change only `.github/workflows/` (action-pin bumps) need no
+trailer, and fabric-coordinator merges them too. A session becomes
+`fabric-coordinator` only by being launched with it bound; the login it
+runs as is irrelevant.
 
 ## Who you are
 

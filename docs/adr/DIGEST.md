@@ -386,15 +386,20 @@ its record disagree, the record wins. Look it up, never read it whole:
 - Every commit carries its account's role as a trailer; a fold-only merge
   passes (§5 rules 2–3). A locale's translations are its holder's to
   commit, alone, and the coordinator's to merge (§5 rule 5).
+- A contributor role (`authority.json` `contributors`) commits its
+  entry's paths on its own `for/` branch; CI reads the base's; the
+  coordinator merges (§5 rule 8).
 - A guard is a commit-time check, a CI check on every added commit and a
-  planted suite case (§5 rule 6); a proposal is a PR left for the owning
-  role (§5 rule 7).
+  planted suite case (§5 rule 6); a proposal is a message to the owning
+  role, or a contributor's branch (§5 rule 7).
 - `check_charter_authority.sh` runs from `tests/run.sh` on every branch,
   reading `authority.json` from the base of the diff (§6).
 - A 2026-09-28 — the charter tripwire's CI call site: the known gap closed.
 - A 2026-09-30 — credentials and the stores are this role's; the Doppler project is gone (References).
+- A 2026-10-01 — the contributor carve-out; a proposal is a message (§5 rules 7–8).
 - Keywords: authority, read-only, fence, tripwire, Fabric-Role, trailer,
-  pre-commit, commit-msg, hooksPath, charter, locale carve-out, guard.
+  pre-commit, commit-msg, hooksPath, charter, locale carve-out,
+  contributor, guard.
 
 ### ADR-019 — Work arrives as pull requests: one open PR per agent, 8–16 work commits to arm, the gate read before arming, no machine attribution, repository settings (Accepted)
 

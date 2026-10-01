@@ -4,7 +4,7 @@
 **Status:** Accepted
 **Ratified:** owner, 2026-09-27, by arming agent-fabric #52 (ratification by merge, the owner's rule of 2026-09-27)
 **Decision Makers:** the owner; drafted by fabric-coordinator
-**Scope:** policies/AUTHORITY.md (the manual), policies/authority.json, policies/githooks/ (pre-commit, commit-msg, guarded-change.sh, locale-carve-out.sh), policies/check_agent_fabric_dir_authority.sh, policies/check_charter_authority.sh, policies/check_adr_amendment.sh, policies/ban_generated_by_attribution.sh, policies/check_repo_settings_carry_no_model_pins.sh, runtime/claude-code/bootstrap.sh (hook installation), .github/workflows/ci.yml, tests/run.sh, CLAUDE.md §"Read-only, unless you are fabric-coordinator"
+**Scope:** policies/AUTHORITY.md (the manual), policies/authority.json, policies/githooks/ (pre-commit, commit-msg, guarded-change.sh, locale-carve-out.sh), policies/check_agent_fabric_dir_authority.sh, tools/fabric/guards/contributors.py, policies/check_charter_authority.sh, policies/check_adr_amendment.sh, policies/ban_generated_by_attribution.sh, policies/check_repo_settings_carry_no_model_pins.sh, runtime/claude-code/bootstrap.sh (hook installation), .github/workflows/ci.yml, tests/run.sh, CLAUDE.md §"Read-only, unless you are fabric-coordinator"
 **Pillar:** P3
 
 ## 1. Context and Problem
@@ -34,8 +34,8 @@ role's definition.
 
 **agent-fabric is read-only for every role but `fabric-coordinator`**,
 and so is `.agent-fabric/` in every managed repository.
-Other roles read; what they need changed they propose — a pull request
-they do not merge, or a message. The owning role per surface, for review
+Other roles read; what they need changed they propose — a message, or a
+contributor's branch (A 2026-10-01). The owning role per surface, for review
 and consent, is `policies/AUTHORITY.md`'s table; who may *commit* is one
 answer for the whole repository.
 
@@ -54,10 +54,16 @@ deliberate bypass visible.
 it is what names the lane a commit came from, since the author line
 cannot.
 
-**One carve-out**: a locale's translations,
+**Two carve-outs for a role.** A locale's translations,
 `identities/roles/<role>/locale/<suffix>/`, are committed by the holder
 of `<role>` whose login is named for `<suffix>`, alone in their commit,
-and merged by `fabric-coordinator`.
+and merged by `fabric-coordinator`. A contributor role —
+one `policies/authority.json` names under `contributors` — commits, in
+agent-fabric itself, the paths its entry lists and none it excludes, on
+a contributor branch of its own; `fabric-coordinator` folds that branch
+into its own pull request and merges it (A 2026-10-01). What a role *is*
+— identities, routing, policies, the protocol, the records — is never in
+an entry.
 
 **A guard is three things or it is not a guard** (the coordinator's
 brief): a check at commit time where the fact is readable, a
@@ -120,10 +126,25 @@ record says so rather than claim otherwise.
    readable, a CI check over every commit a branch adds, and a suite case
    that plants the violation. The attribution ban, the read-only fence
    and the decision-record checks each have all three (§6 for the rest).
-7. A role proposing a change opens a pull request touching only the file
-   in question, says what the role would take on or give up, and leaves
-   it for the owning role; it never self-approves on the ground of being
-   the only session that understands the surface.
+7. A role proposing a change sends it to the owning role — a message
+   naming the file, the change, and what the role would take on or give
+   up — and leaves it there; a contributor may instead deliver it on a
+   contributor branch within its entry (rule 8). The fence refuses any
+   other role's commit, so "a pull request it does not merge" is a step
+   only a contributor can take. It never self-approves on the ground of
+   being the only session that understands the surface (A 2026-10-01).
+8. The contributor carve-out: a commit from a session bound to a role
+   `policies/authority.json` names under `contributors`, on a branch
+   `<host>/<login>/for/<caller>/<what>` of that login, staging only paths
+   its entry lists (a rule ending in `/` is a directory, any other one
+   file, no globs) and none it excludes, passes both hooks and is recorded
+   as `Fabric-Role: <role>`; CI admits it against the entry as the BASE
+   has it, so a branch cannot widen its own. Moves are judged by source
+   and destination; an amend, a half-written entry, another role and
+   `.agent-fabric/` in a project are refused as before. The decision is
+   `tools/fabric/guards/contributors.py`, one module for the hooks and CI.
+   The contributor opens no pull request; the coordinator folds the
+   branch unrebased and merges (A 2026-10-01).
 
 ## 6. Consequences
 
@@ -133,6 +154,7 @@ record says so rather than claim otherwise.
   |---|---|---|---|
   | no machine attribution | `commit-msg` | `ban_generated_by_attribution.sh` (a CI step, and `tests/run.sh`) | `test_ban_generated_by_attribution.sh`, `githooks/test_hooks.sh` |
   | read-only fence, `.agent-fabric/` | `pre-commit`, `commit-msg` | `check_agent_fabric_dir_authority.sh` | `test_check_agent_fabric_dir_authority.sh`, `githooks/test_hooks.sh` |
+| the contributor carve-out | `pre-commit`, `commit-msg` (`contributors.py hook`) | `check_agent_fabric_dir_authority.sh`, against the base's entry | `tests/test_contributors.py` |
   | decision records | `pre-commit` (`adr.py check` on the staged tree) | `check_adr_amendment.sh`, and `adr.py check` in lint | `tests/test_adr.py` |
   | charter authority by branch name | none | `tests/run.sh` against `origin/main` (A 2026-09-28) | `test_check_charter_authority.sh` |
   | no model pins in committed settings | none (the launcher refuses the same keys at launch) | not called here; gzapp's CI runs its own copy (`tools/checks/`) | `test_check_repo_settings_carry_no_model_pins.sh` |
@@ -159,7 +181,7 @@ would turn the trailer from a declaration into a proof; not planned.
 
 Accepted and in force: the read-only repository and the `.agent-fabric/`
 fence, the merge fold, the trailer on every commit, the locale
-carve-out, the decision-record check at commit time.
+and contributor carve-outs, the decision-record check at commit time.
 `policies/AUTHORITY.md` stays the manual.
 
 ## References
@@ -186,3 +208,4 @@ The body above reads current; each change's full note is in [history/ADR-018-ame
 |---|---|---|
 | 2026-09-28 | The charter tripwire runs on every branch | §6: `check_charter_authority.sh` called from `tests/run.sh`; the known gap closed |
 | 2026-09-30 | Doppler is retired: the stores replace it | References |
+| 2026-10-01 | A contributor role commits its entry's paths | §2, §5 rules 7–8, §6, §8: a role named under `contributors` commits its entry's paths on its own contributor branch; the coordinator folds and merges |
