@@ -5,7 +5,7 @@ topic: "fleet-upgrade-concurrency"
 description: "fabric-ctl all upgrade claude run on 13 accounts of one host at once: 9 installs failed; one at a time every one succeeded — serialize installs per host (fabric-lease), keep the error's LAST line, exit 1 on any failure"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-09-27"
+distilled_at: "2026-10-01"
 origin:
   - agent: user
     host: "develop-qzapp"

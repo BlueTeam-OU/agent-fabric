@@ -5,7 +5,7 @@ topic: "subagent-tools-and-transcripts"
 description: "What a Claude Code custom agent file's tools line really does (empty = every tool; none is refused), and what a subagent's transcript and sidecar carry — read back live 2026-09-17"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-09-26"
+distilled_at: "2026-10-01"
 origin:
   - agent: user
     host: "develop-qzapp"

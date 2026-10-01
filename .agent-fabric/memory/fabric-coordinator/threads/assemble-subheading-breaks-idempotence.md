@@ -5,7 +5,7 @@ topic: "assemble-subheading-breaks-idempotence"
 description: "FIXED 2026-09-25 (cac5a04): a claim body's own `## ` headings are demoted at render time and old split slices are absorbed; test_a_claim_body_s_own_headings_never_open_a_section"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-09-27"
+distilled_at: "2026-10-01"
 origin:
   - agent: user
     host: "develop-qzapp"

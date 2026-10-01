@@ -5,7 +5,7 @@ topic: "review-p3-may-defer"
 description: P1/P2 review findings are fixed in the PR; a P3 may be carried to a later PR instead of another fix round
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-09-27"
+distilled_at: "2026-10-01"
 origin:
   - agent: user
     host: "develop-qzapp"

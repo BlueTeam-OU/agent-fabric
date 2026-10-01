@@ -47,6 +47,10 @@
       "title": "Rust peer-to-peer networking developer"
     },
     {
+      "id": "python-dev",
+      "title": "Python developer"
+    },
+    {
       "id": "web-dev",
       "title": "Web sub-app developer"
     }

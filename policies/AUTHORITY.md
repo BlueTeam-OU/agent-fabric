@@ -27,7 +27,8 @@ explicitly names one.
 
 Every file here — and `.agent-fabric/` in every managed repository — is
 written only by a session whose binding holds `fabric-coordinator`.
-Other roles read; a change they need is proposed to that role. The
+Other roles read; a change they need is proposed to that role, and a
+contributor role commits the code its entry names (below). The
 table below says which role *owns* what, for the questions of review
 and consent; who may *commit* is answered once, here, and enforced by
 the fence and tripwire described under `.agent-fabric/` below, which
@@ -50,7 +51,7 @@ apply to this whole repository.
 | `.agent-fabric/` in a managed repository — the project's distilled knowledge (`memory/<role>/`) | the `fabric-coordinator` ROLE, whoever holds it: the drain writes it, every other role reads it | a fence at the keyboard — `policies/githooks/pre-commit` refuses the commit unless the binding holds the role, `commit-msg` records it as `Fabric-Role:` — and a tripwire in CI, `policies/check_agent_fabric_dir_authority.sh`, which reads that trailer; `lint.py` demands provenance |
 | `recall.md` for a role | the role itself | authored, exempt from provenance; must stay under `identities/roles/` |
 
-## Two carve-outs
+## Three carve-outs
 
 ### A locale's translations
 
@@ -84,6 +85,50 @@ pins current (`.github/dependabot.yml`). Its commits carry no
 beside it is refused as before. The pull request is reviewed and merged
 by fabric-coordinator. The author name is text, so this is a tripwire
 like the trailer, not a proof.
+
+### A contributor role's code
+
+A role `policies/authority.json` names under `contributors` commits, in
+agent-fabric itself, the paths its entry lists and none it excludes. A
+rule ending in `/` is a directory and everything under it; any other
+rule is one file; there are no globs. Each entry keeps out what a role
+*is* and what enforces the fence: identities, routing, policies (but the
+bash allowlist the port shrinks), the protocol, the decision records,
+the guards and the `git.py` they import, the lint, the suite runners and
+the helper they source, all of `runtime/claude-code/` (the reviewer's
+agent file, the harness hooks and the settings that register them, the
+workspace prompt, and what installs them), and the role, routing, prompt
+and review-brief code. CI judges a branch with main's copy of the
+guards, run isolated before any of the branch's code
+(`docs/live-checks/2026-10-01-guard-shadowing.md`), since a module
+beside the guards can shadow one they import whatever an entry excludes.
+Lint holds every entry to that list (`CONTRIBUTOR_NEVER` in
+`tools/fabric/lint.py`), comparing rules as prefixes. The owner chose
+this for a Python developer sharing the port of the fabric's bash
+(ADR-040), over sending patches (agent-fabric ADR-018 §5 rule 8).
+
+- **At the keyboard**, `pre-commit` and `commit-msg` admit a commit from
+  a session bound to that role, on a branch
+  `<host>/<login>/for/<caller>/<what>` of its own login, staging only
+  its entry's paths, read from the entry as HEAD has it (never an
+  uncommitted edit). A move is judged by its source and its destination;
+  an amend with nothing staged, a merge that hand-edits outside the
+  entry, and anything on another branch are refused. `commit-msg`
+  records `Fabric-Role: <role>`, and refuses any guarded commit whose
+  message types another role — so an amend of another role's commit,
+  which keeps its trailer, is refused too.
+- **In CI**, `check_agent_fabric_dir_authority.sh` admits such a commit
+  against the entry **as the base has it**: a branch that widens its
+  own entry is judged by main's.
+- **The contributor opens no pull request.** It tells fabric-coordinator
+  the branch is ready; the coordinator folds it unrebased into its own
+  pull request, the blind review covers it, and the coordinator merges.
+  A finding on a contributed hunk goes back to the contributor.
+- `.agent-fabric/` in a managed project admits no contributor: it is
+  the drain's.
+
+One module decides for all three, `tools/fabric/guards/contributors.py`,
+and `tests/test_contributors.py` plants each violation.
 
 ## `.agent-fabric/` in a managed repository
 
@@ -191,8 +236,10 @@ credentials out of commits apply unchanged.
 
 ## Proposing a change
 
-Open a pull request touching only the file in question, say what the
-role is being asked to take on or give up, and leave it for the role
-that owns it. Do not self-approve on the grounds of being the only
+Send it to the role that owns the file: a GZCoord message naming the
+file, the change, and what the role is being asked to take on or give
+up. The fence refuses any other role's commit here, so a pull request is
+not a step another role can take, except a contributor within its entry,
+which delivers its contributor branch instead. Do not self-approve on the grounds of being the only
 session that understands the surface; that is the argument these rules
 exist to refuse.

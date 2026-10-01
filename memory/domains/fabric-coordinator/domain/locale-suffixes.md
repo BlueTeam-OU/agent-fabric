@@ -5,7 +5,7 @@ topic: "locale-suffixes"
 description: "The fabric's locale suffixes: ge is Georgian (language-culture-ge, script Georgian), ru Russian; German would be de — never read ge as German"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-09-26"
+distilled_at: "2026-10-01"
 origin:
   - agent: user
     host: "develop-qzapp"

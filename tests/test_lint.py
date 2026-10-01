@@ -1428,6 +1428,63 @@ def case_bash_over_150_lines_needs_the_allowlist() -> None:
         assert not any("is added" in f for f in got), f"an entry the fork point had is not an addition: {got}"
 
 
+def case_a_contributor_entry_never_reaches_a_definition() -> None:
+    """ADR-018 §5 rule 8: a contributor's entry names a catalogued role, is
+    whole, and admits nothing that defines a role — however broad its
+    rules are spelled."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("fabric_lint_under_test", LINT)
+    lint = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(lint)
+    with tempfile.TemporaryDirectory() as root:
+        write(os.path.join(root, "identities", "roles", "catalog.json"),
+              json.dumps({"roles": [{"id": "fabric-coordinator"}, {"id": "python-dev"}]}))
+
+        def findings(*entries: dict) -> list[str]:
+            write(os.path.join(root, "policies", "authority.json"),
+                  json.dumps({"role_definitions": {"role": "fabric-coordinator"}, "contributors": list(entries)}))
+            return lint.contributor_findings(root)
+
+        excl = [n for n in lint.CONTRIBUTOR_NEVER if n.startswith(("tools/", "tests/"))]
+        good = {"role": "python-dev", "paths": ["tools/", "tests/", "policies/bash-allowlist.json"], "excluding": excl}
+        assert findings(good) == [], findings(good)
+        assert findings() == [], "no contributor, nothing to say"
+        got = findings({**good, "excluding": [e for e in excl if e != "tools/fabric/guards/"]})
+        assert any("rule 'tools/' reaches tools/fabric/guards/" in f for f in got), got
+        got = findings({**good, "paths": good["paths"] + ["policies/"]})
+        assert any("rule 'policies/' reaches policies/" in f for f in got), got
+        # Review of #75: rules narrower than any sample file, each one a
+        # definition or a guard.
+        for narrow in ("identities/roles/python-dev/", "identities/roles/python-dev/charter.md",
+                       "policies/githooks/commit-msg", "tools/fabric/guards/common.py",
+                       "identities/roles/catalog.json", "routing/effort.json",
+                       # Re-review of #75: what registers the hooks, the
+                       # workspace prompt, the helper the runner sources.
+                       "runtime/claude-code/workspace/settings.json", "runtime/claude-code/workspace/CLAUDE.md",
+                       "runtime/claude-code/", "tests/leak-check.sh", "tools/fabric/review_brief.py",
+                       "bin/fabric-review"):
+            got = findings({**good, "paths": [narrow]})
+            assert any(f"rule {narrow!r} reaches" in f for f in got), (narrow, got)
+        got = findings({**good, "excluding": excl + ["tools/fabric/guards/x.py"],
+                        "paths": ["tools/"]})
+        assert not any("reaches tools/fabric/guards/" in f for f in got), "an exclusion covering the prefix suffices"
+        got = findings({**good, "excluding": [e for e in excl if e != "tools/fabric/guards/"] + ["tools/fabric/guards/x.py"]})
+        assert any("reaches tools/fabric/guards/" in f for f in got), "an exclusion of one file under it does not"
+        got = findings({**good, "paths": [""]})
+        assert any("not a whole entry" in f for f in got), got
+        got = findings({**good, "role": ["python-dev"]})
+        assert any("not a whole entry" in f for f in got), got
+        got = findings({**good, "role": "web-dev"})
+        assert any("not in identities/roles/catalog.json" in f for f in got), got
+        got = findings({**good, "role": "fabric-coordinator"})
+        assert any("the owner role needs no entry" in f for f in got), got
+        write(os.path.join(root, "identities", "roles", "catalog.json"), "{")
+        got = findings(good)
+        assert any("catalog.json: unreadable" in f for f in got), got
+        write(os.path.join(root, "policies", "authority.json"), json.dumps({"contributors": {"role": "x"}}))
+        assert lint.contributor_findings(root) == ["policies/authority.json: `contributors` is not a list"]
+
+
 def main() -> int:
     cases = [
         case_clean_base_passes,
@@ -1480,6 +1537,7 @@ def main() -> int:
         case_a_bound_and_held_role_is_not_a_candidate,
         case_a_managed_projects_name_stays_out_of_generic_files,
         case_review_lenses_are_named_described_and_bounded,
+        case_a_contributor_entry_never_reaches_a_definition,
     ]
     failures = 0
     for case in cases:

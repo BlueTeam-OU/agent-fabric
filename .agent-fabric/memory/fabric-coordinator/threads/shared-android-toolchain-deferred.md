@@ -5,7 +5,7 @@ topic: "shared-android-toolchain-deferred"
 description: "Shared Android SDK / Gradle cache for Flutter logins on develop-qzapp — planned, deferred by the owner while flutter-dev-01 is the only user; revisit when a second Flutter login starts building"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-09-27"
+distilled_at: "2026-10-01"
 origin:
   - agent: user
     host: "develop-qzapp"

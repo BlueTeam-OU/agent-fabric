@@ -5,7 +5,7 @@ topic: "adr-no-inline-attribution"
 description: "No \"(the owner, YYYY-MM-DD)\" in an ADR body or DIGEST, and no date at all in §2–§8 (§1 may date an incident) — ADR-001 §5 rules 10–11, adr.py check refuses both"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-09-27"
+distilled_at: "2026-10-01"
 origin:
   - agent: user
     host: "develop-qzapp"

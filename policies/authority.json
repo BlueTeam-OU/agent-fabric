@@ -1,10 +1,47 @@
 {
   "version": 1,
-  "description": "Who holds the role that may change role definitions. Authority attaches to the ROLE (fabric-coordinator); this file names the Linux logins currently recognised as its holders, because the charter guard cannot read another account's runtime binding. An account named for the role (fabric-coordinator, fabric-coordinator-02, ...) is recognised without an entry. This file is itself a role definition and is guarded.",
+  "description": "Who holds the role that may change role definitions. Authority attaches to the ROLE (fabric-coordinator); this file names the Linux logins currently recognised as its holders, because the charter guard cannot read another account's runtime binding. An account named for the role (fabric-coordinator, fabric-coordinator-02, ...) is recognised without an entry. This file is itself a role definition and is guarded. `contributors` names a role that may commit, in agent-fabric itself, the paths its entry lists and none it excludes (a rule ending in / is a directory, any other one file), on its own contributor branch; CI reads this list from the base, never the branch (agent-fabric ADR-018 §5 rule 8).",
   "role_definitions": {
     "role": "fabric-coordinator",
     "holders": [
       "user"
     ]
-  }
+  },
+  "contributors": [
+    {
+      "role": "python-dev",
+      "note": "agent-fabric ADR-018 §5 rule 8: the code of the port of the fabric's bash to Python (ADR-040) and its Python tooling, on python-dev's own contributor branch, folded and merged by fabric-coordinator. Definitions and the fence stay out: identities/, routing/, policies/ (but the allowlist the port shrinks), communication/, docs/adr/, memory/, .agent-fabric/, .github/; the guards and git.py, which they import; the lint and the suite runners; runtime/claude-code/ whole (the reviewer's agent file, the harness hooks and the settings that register them, the workspace prompt, bootstrap and install-agent-files); the review brief and its tooling; tests/leak-check.sh, which the suite runner sources; the role, routing and prompt code; the harness pins. Lint holds every entry to that list (CONTRIBUTOR_NEVER).",
+      "paths": [
+        "tools/",
+        "tests/",
+        "bin/",
+        "runtime/github/",
+        "runtime/openrouter/",
+        "runtime/provisioning/",
+        "runtime/control/",
+        "runtime/hostexec/",
+        "projects/gzapp/integration/gh/",
+        "policies/bash-allowlist.json"
+      ],
+      "excluding": [
+        "tools/fabric/guards/",
+        "tools/fabric/lint.py",
+        "tests/run.sh",
+        "tests/static.sh",
+        "tests/test_contributors.py",
+        "tests/test_agent_fabric_dir_authority.py",
+        "tests/test_charter_authority.py",
+        "runtime/provisioning/github-host-keys",
+        "runtime/provisioning/github-host-keys.fingerprints",
+        "tools/fabric/git.py",
+        "tools/fabric/role.py",
+        "tools/fabric/routing.py",
+        "tools/fabric/launch_prompt.py",
+        "bin/fabric-role",
+        "tests/leak-check.sh",
+        "tools/fabric/review_brief.py",
+        "bin/fabric-review"
+      ]
+    }
+  ]
 }

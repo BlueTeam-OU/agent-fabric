@@ -5,7 +5,7 @@ topic: "hook-probe-writes-binding"
 description: "Running session-start.sh by hand as yourself rewrites your own binding's session id — the id the launcher resumes after a restart; probe with AGENT_FABRIC_STATE_DIR set to scratch"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-09-26"
+distilled_at: "2026-10-01"
 origin:
   - agent: user
     host: "develop-qzapp"
