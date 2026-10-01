@@ -238,6 +238,23 @@ def main() -> int:
         check("a credential variable is reported set, never echoed, in both forms",
               "ANTHROPIC_AUTH_TOKEN: set" in leaky.stdout and secret not in leaky.stdout + leaky.stderr
               and json.loads(leaky_json.stdout)["api"]["credentials"]["ANTHROPIC_AUTH_TOKEN"] == "set" and secret not in leaky_json.stdout)
+        # The pinned Python, present and absent (python_pin.py's own check).
+        with open(os.path.join(HERE, "runtime", "python.json"), encoding="utf-8") as fh:
+            pin = json.load(fh)
+        built = os.path.join(sb, "py", f"python-{pin['python']}+{pin['release']}", "bin")
+        os.makedirs(built)
+        with open(os.path.join(built, "python3"), "w") as fh:
+            fh.write(f"#!/bin/sh\necho {pin['python']}\n")
+        os.chmod(os.path.join(built, "python3"), 0o755)
+        os.symlink(os.path.join(built, "python3"), os.path.join(sb, "fabric-python"))
+        here_env = {**env, "AGENT_FABRIC_PYTHON_PREFIX": os.path.join(sb, "py"), "AGENT_FABRIC_PYTHON_LINK": os.path.join(sb, "fabric-python")}
+        present = subprocess.run(["bash", SHIM, "--json"], env=here_env, capture_output=True, text=True, timeout=120,
+                                 stdin=subprocess.DEVNULL, cwd=sb)
+        absent = subprocess.run(["bash", SHIM], env={**here_env, "AGENT_FABRIC_PYTHON_LINK": os.path.join(sb, "nope")},
+                                capture_output=True, text=True, timeout=120, stdin=subprocess.DEVNULL, cwd=sb)
+        check("the pinned Python is reported: as pinned when the link reaches it, MISSING with the install command when not",
+              json.loads(present.stdout)["host_tools"]["python"]["status"] == "ok"
+              and "python       MISSING: " in absent.stdout and "python_pin.py install" in absent.stdout)
         drifted = subprocess.run(["bash", SHIM], env={**env, "AGENT_FABRIC_LAUNCH_ROLE": "backend-dev", "AGENT_FABRIC_LAUNCH_PROMPT_DIGEST": "sha256:0",
                                       "AGENT_FABRIC_LAUNCH_PROVIDER": "anthropic", "AGENT_FABRIC_LAUNCH_SESSION_MODEL": "claude-sonnet-5"},
                                  capture_output=True, text=True, timeout=120, stdin=subprocess.DEVNULL, cwd=sb).stdout
