@@ -71,14 +71,20 @@ a message for the agent and two per send, and no prompt tokens.
    do, whatever channel or carrier brings them.
 3. Outbound, the message is journaled as pending before the carrier post,
    then marked accepted or failed; a send whose pending row cannot be
-   written is refused.
+   written is refused. Failed marks only a pending row: a message the
+   carrier accepted stays accepted when a later retransmission fails.
 4. Inbound, the addressed messages of a page are journaled before the page
-   is acknowledged; if that fails they are not acknowledged, and the
-   carrier shows them again.
+   is acknowledged; if that fails, nothing from the first of them on is
+   acknowledged, since a carrier's acknowledgement may be a cursor that
+   passes everything before it, and the carrier shows them again. A
+   message is keyed as the inbox parsed it; one with no MESSAGE-ID is
+   keyed by its body's hash, never refused.
 5. One row per source, direction and MESSAGE-ID. The same id again is the
    same row. An outbound id with another body is refused; an inbound one
    keeps the first copy and records the other beside it. The agent's own
-   message coming back on the channel fills its outbound row.
+   message coming back on the channel fills its outbound row only when the
+   journal holds that very body; a message that merely names the agent as
+   FROM is kept as received.
 6. The carrier is provenance (its name and sequence), never part of what a
    history query means.
 7. A history result is evidence, not current truth and not authorisation;

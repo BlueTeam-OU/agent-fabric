@@ -118,25 +118,31 @@ def _seconds(ts: str | None) -> str:
     return head + "Z" if len(head) == 19 else ts
 
 
+_FIRST = re.compile(r"^\[GZCOORD/1\] ([A-Z][A-Z0-9-]*)$")
+_KEY = re.compile(r"^([A-Z][A-Z0-9-]*): ")
+_SECTION = re.compile(r"^[A-Z][A-Z0-9-]*:$")
+
+
 def parse_header(text: str) -> tuple[str, dict[str, str]]:
-    """(type, metadata) of a GZCOORD/1 message: the first line names the
-    type, then KEY: value lines up to the first blank one. Enough to key and
-    thread the journal; validating is send.mjs's and the reader's job."""
-    lines = text.replace("\r\n", "\n").split("\n")
-    first = lines[0].strip() if lines else ""
-    if not first.startswith("[GZCOORD/"):
-        raise JournalError("not a GZCOORD message")
-    mtype = first.split("]", 1)[1].strip() if "]" in first else ""
+    """(type, metadata) of a GZCOORD/1 message, read exactly as gzmsg.mjs
+    parse() reads it: the inbox decides a record is addressed with that
+    parser, and the journal must key the message the inbox saw (review of
+    #78: a header that ended at a blank line read body lines as header).
+    A byte-order mark is dropped; KEY: value lines up to the first section
+    marker; a repeated key keeps its last value. Validating is send.mjs's
+    and the reader's job."""
+    lines = text.lstrip("\ufeff").replace("\r\n", "\n").split("\n")
+    m = _FIRST.match(lines[0] if lines else "")
+    if not m:
+        raise JournalError("not a GZCOORD/1 message")
     meta: dict[str, str] = {}
     for line in lines[1:]:
-        if not line.strip():
+        if _SECTION.match(line):
             break
-        if ":" in line:
-            k, v = line.split(":", 1)
-            meta[k.strip()] = v.strip()
-    if not meta.get("MESSAGE-ID"):
-        raise JournalError("the message has no MESSAGE-ID")
-    return mtype, meta
+        k = _KEY.match(line)
+        if k:
+            meta[k.group(1)] = line[k.end():].strip()
+    return m.group(1), meta
 
 
 def _sha(text: str) -> str:
@@ -200,6 +206,8 @@ def _row(conn: sqlite3.Connection, direction: str, message_id: str):
 def out_pending(conn: sqlite3.Connection, text: str, project: str | None = None, working_copy: str | None = None) -> str:
     """The outbound row, before the carrier sees the message. Its id."""
     mtype, meta = parse_header(text)
+    if not meta.get("MESSAGE-ID"):
+        raise JournalError("the message has no MESSAGE-ID")
     mid, h = meta["MESSAGE-ID"], _sha(text)
     conn.execute("BEGIN IMMEDIATE")
     try:
@@ -229,11 +237,16 @@ def out_final(conn: sqlite3.Connection, message_id: str, state: str, seq: int | 
               carrier: str = DEFAULT_CARRIER) -> None:
     if state not in ("accepted", "failed"):
         raise JournalError(f"state {state!r} is not accepted or failed")
-    cur = conn.execute("UPDATE episodes SET state=?, carrier=?, carrier_seq=COALESCE(?, carrier_seq), recorded_at=? "
-                       "WHERE source=? AND direction='outbound' AND message_id=?",
-                       (state, carrier, seq, now(), SOURCE, message_id))
-    if cur.rowcount != 1:
+    # Only a pending row takes an outcome of failed: the same message sent
+    # again while the relay is down must not mark the copy it already
+    # delivered as failed (review of #78).
+    row = _row(conn, "outbound", message_id)
+    if not row:
         raise JournalError(f"no outbound row for MESSAGE-ID {message_id} (a pending row comes first)")
+    if state == "failed" and row[2] != "pending":
+        return
+    conn.execute("UPDATE episodes SET state=?, carrier=?, carrier_seq=COALESCE(?, carrier_seq), recorded_at=? "
+                 "WHERE id=?", (state, carrier, seq, now(), row[0]))
 
 
 def inbound(conn: sqlite3.Connection, records: list[dict], carrier: str = DEFAULT_CARRIER,
@@ -241,18 +254,32 @@ def inbound(conn: sqlite3.Connection, records: list[dict], carrier: str = DEFAUL
     """Addressed records, one transaction: all journaled or none (so the
     caller acknowledges none). Counts by outcome."""
     me = own_address()
-    counts = {"written": 0, "same": 0, "echo": 0, "conflict": 0}
+    counts = {"written": 0, "same": 0, "echo": 0, "conflict": 0, "claims_me": 0}
     conn.execute("BEGIN IMMEDIATE")
     try:
         for rec in records:
             text = rec["content"]
-            mtype, meta = parse_header(text)
-            mid, h, seq = meta["MESSAGE-ID"], _sha(text), rec.get("seq")
+            h, seq = _sha(text), rec.get("seq")
+            try:
+                mtype, meta = parse_header(text)
+            except JournalError:
+                # The inbox addressed it, so it is kept, whatever its shape.
+                mtype, meta = None, {}
+            # A message with no id (a retired shape, a broadcast the relay did
+            # not validate) is keyed by its body: one unkeyable record must
+            # not hold every other one in the page (review of #78).
+            mid = meta.get("MESSAGE-ID") or f"sha256:{h}"
             if meta.get("FROM") == me:
-                conn.execute("UPDATE episodes SET carrier_seq=COALESCE(carrier_seq, ?) WHERE source=? "
-                             "AND direction='outbound' AND message_id=?", (seq, SOURCE, mid))
-                counts["echo"] += 1
-                continue
+                # Its own message coming back only when this journal holds that
+                # very message: a FROM in the content is the sender's claim, and
+                # a forged one must not pass for an echo, shown but not kept.
+                own = _row(conn, "outbound", mid)
+                if own and own[1] == h:
+                    conn.execute("UPDATE episodes SET carrier_seq=COALESCE(carrier_seq, ?) WHERE id=?",
+                                 (seq, own[0]))
+                    counts["echo"] += 1
+                    continue
+                counts["claims_me"] += 1
             row = _row(conn, "inbound", mid)
             if row and row[1] == h:
                 counts["same"] += 1
@@ -309,10 +336,15 @@ def main(argv: list[str]) -> int:
             return 0
         if cmd == "gzcoord-in":
             records = [json.loads(line) for line in sys.stdin if line.strip()]
+            if not all(isinstance(r, dict) and isinstance(r.get("content"), str) for r in records):
+                raise JournalError("gzcoord-in takes one JSON object with a content string per line")
             counts = inbound(connect(), records, carrier, project, wc)
             if counts["conflict"]:
                 print(f"episodic: {counts['conflict']} message(s) reuse an id this journal holds with another body; "
                       "the first copy stands, the other is in `conflicts`", file=sys.stderr)
+            if counts["claims_me"]:
+                print(f"episodic: {counts['claims_me']} message(s) name this account as FROM but are no message it "
+                      "sent; kept as received", file=sys.stderr)
             return 0
         print(f"episodic: unknown command {cmd!r}", file=sys.stderr)
         return 2

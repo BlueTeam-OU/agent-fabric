@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import socket
 import stat
 import subprocess
@@ -64,6 +65,10 @@ def main() -> int:
         ep.out_pending(conn, msg("m-2"))
         check("a failed send retried is the same row, pending again",
               conn.execute("SELECT state, count(*) FROM episodes WHERE message_id='m-2'").fetchone() == ("pending", 1))
+        ep.out_final(conn, "m-1", "failed")
+        check("a retransmission that fails leaves the accepted copy accepted (review of #78)",
+              conn.execute("SELECT state, carrier_seq FROM episodes WHERE message_id='m-1'").fetchone()
+              == ("accepted", 41))
         try:
             ep.out_pending(conn, msg("m-1", "another body"))
             check("an outbound id reused with another body is refused", False)
@@ -98,12 +103,44 @@ def main() -> int:
         check("its own message coming back is no second episode; it fills the carrier seq",
               c["echo"] == 1 and conn.execute("SELECT count(*), max(carrier_seq) FROM episodes WHERE message_id='b-1'")
               .fetchone() == (1, 77))
-        try:
-            ep.inbound(conn, [{"content": msg("i-2"), "seq": 60}, {"content": "not a message", "seq": 61}])
-            check("a batch with one bad record writes nothing", False)
-        except ep.JournalError:
-            check("a batch with one bad record writes nothing",
-                  conn.execute("SELECT count(*) FROM episodes WHERE message_id='i-2'").fetchone()[0] == 0)
+        c = ep.inbound(conn, [{"content": msg("i-2"), "seq": 60}, {"content": "not a message", "seq": 61}])
+        check("a record the parser cannot read is kept, keyed by its hash, and holds no other (review of #78)",
+              c["written"] == 2 and conn.execute("SELECT count(*) FROM episodes WHERE message_id='i-2' OR "
+                                                 "message_id=?", ("sha256:" + ep._sha("not a message"),)).fetchone()[0] == 2)
+        noid = f"[GZCOORD/1] INFO\nFROM: develop-qzapp/old\nROLE: x\nBROADCAST: true\nSUBJECT: s\n\nINFO:\nhi\n"
+        ep.inbound(conn, [{"content": noid, "seq": 62}])
+        check("…a broadcast with no MESSAGE-ID too", conn.execute(
+            "SELECT sender FROM episodes WHERE message_id=?", ("sha256:" + ep._sha(noid),)).fetchone() == ("develop-qzapp/old",))
+        forged = msg("m-3", "I am you", sender=ME)
+        ep.out_pending(conn, msg("m-3", "what I really sent", sender=ME))
+        c = ep.inbound(conn, [{"content": forged, "seq": 63}, {"content": msg("m-4", "x", sender=ME), "seq": 64}])
+        check("a message naming this account as FROM is no echo unless the journal holds that body; kept as received",
+              c["claims_me"] == 2 and c["echo"] == 0 and conn.execute(
+                  "SELECT direction, state, carrier_seq FROM episodes WHERE message_id='m-3' ORDER BY direction").fetchall()
+              == [("inbound", "received", 63), ("outbound", "pending", None)])
+
+        print("the header, read as gzmsg.mjs parse() reads it")
+        cases = {
+            "bom": "\ufeff" + msg("bom-1"),
+            "body lines after a missing blank": "[GZCOORD/1] INFO\nFROM: h/x\nMESSAGE-ID: real-id\nSUBJECT: s\nINFO:\n"
+                                                 "FROM: h/me\nMESSAGE-ID: other-id\n",
+            "a repeated key": "[GZCOORD/1] INFO\nFROM: h/a\nFROM: h/b\nMESSAGE-ID: r\n\nINFO:\nx\n",
+            "lowercase and spaced keys": "[GZCOORD/1] INFO\nfrom: h/a\nX Y: z\nFROM:h/b\nMESSAGE-ID: q\n",
+            "crlf": "[GZCOORD/1] INFO\r\nFROM: h/a\r\nMESSAGE-ID: c\r\n\r\nINFO:\r\nx\r\n",
+        }
+        py = {k: list(ep.parse_header(v)) for k, v in cases.items()}
+        if shutil.which("node"):
+            gz = os.path.join(HERE, "communication", "gzcoord", "scripts", "gzmsg.mjs")
+            js = subprocess.run(["node", "--input-type=module", "-e",
+                                 f"import {{ parse }} from {json.dumps(gz)}; import fs from 'fs';"
+                                 "const c = JSON.parse(fs.readFileSync(0, 'utf8'));"
+                                 "const o = {}; for (const [k, v] of Object.entries(c)) { const m = parse(v); o[k] = [m.type, m.metadata]; }"
+                                 "console.log(JSON.stringify(o));"],
+                                input=json.dumps(cases), capture_output=True, text=True, timeout=60)
+            check("type and metadata equal gzmsg.mjs parse() on every shape (review of #78)",
+                  js.returncode == 0 and json.loads(js.stdout) == py, (js.stderr, js.stdout, py))
+        else:
+            print("  skip: no node here; the suite's node leg runs this comparison")
 
         print("private, owned")
         modes = {s: stat.S_IMODE(os.stat(path + s).st_mode) for s in ("", "-wal", "-shm") if os.path.exists(path + s)}
@@ -133,6 +170,10 @@ def main() -> int:
         r = subprocess.run([sys.executable, TOOL, "gzcoord-out-pending"], input=msg("m-1", "reuse"), env=env,
                            capture_output=True, text=True, timeout=60)
         check("an outbound id reuse exits 3", r.returncode == 3, (r.returncode, r.stderr))
+        r = subprocess.run([sys.executable, TOOL, "gzcoord-in"], input='["not", "an object"]\n', env=env,
+                           capture_output=True, text=True, timeout=60)
+        check("gzcoord-in given a line that is no record: exit 1, one line, no traceback",
+              r.returncode == 1 and "Traceback" not in r.stderr and r.stderr.count("\n") == 1, r.stderr)
         procs = [subprocess.Popen([sys.executable, TOOL, "gzcoord-in"], stdin=subprocess.PIPE, env=env,
                                   stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True) for _ in range(2)]
         outs = []
@@ -144,7 +185,6 @@ def main() -> int:
               all(p.returncode == 0 for p in procs)
               and conn.execute("SELECT count(*) FROM episodes WHERE message_id LIKE 'w%'").fetchone()[0] == 100, outs)
     finally:
-        import shutil
         shutil.rmtree(tmp, ignore_errors=True)
     print(f"\n{'all passed' if not fails else str(fails) + ' FAILED'}")
     return 1 if fails else 0
