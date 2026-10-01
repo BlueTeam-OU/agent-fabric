@@ -214,7 +214,11 @@ export function table(op, rs) {
       const u = r.upgrade;
       if (r.status !== 'ok' || !u) { lines.push(`${r.account.padEnd(22)} ${r.status}`); continue; }
       const ft = u.status === 'current' ? (u.piece === 'fabric' ? `${u.to} (main)` : `${u.version} (pinned)`) : `${u.from ?? '-'} → ${u.to ?? '-'}`;
-      lines.push(`${r.account.padEnd(22)} ${String(u.status ?? 'no status').padEnd(10)} ${ft.padEnd(22)} ${String(u.session ?? '-').padEnd(26)} ${u.reason ?? u.note ?? ''}`.trimEnd());
+      // A claude upgrade reruns user-settings.py (#74) and says how it went
+      // in `settings`; without it in the row, a fleet run needed a read-back
+      // per account to know whether every auto-mode list was refreshed.
+      const why = [u.reason ?? u.note, u.settings && `settings ${u.settings}`].filter(Boolean).join('; ');
+      lines.push(`${r.account.padEnd(22)} ${String(u.status ?? 'no status').padEnd(10)} ${ft.padEnd(22)} ${String(u.session ?? '-').padEnd(26)} ${why}`.trimEnd());
     }
     return lines.join('\n');
   }

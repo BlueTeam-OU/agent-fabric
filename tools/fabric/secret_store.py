@@ -12,6 +12,12 @@
     fabric-secrets store set NAME                the agent writes an entry (value on stdin)
     fabric-secrets store export-key              the agent's PUBLIC key, armored (for its parent)
     fabric-secrets store push                    the store to its remote
+    fabric-secrets store bundle                  this store, armored, for its parent (first contact)
+    fabric-secrets store take-bundle             the child takes its parent's bundle (stdin)
+    fabric-secrets store seed-child ID --remote URL
+                                                 the parent takes a new child's bundle (stdin) as its
+                                                 mirror and pushes it
+    fabric-secrets store child-bundle LOGIN|ID   the parent's mirror of a child, armored
     fabric-secrets store names [--json]          the entries, by name
     fabric-secrets store put LOGIN|ID NAME [--store DIR]
                                                  the parent writes into a child's store
@@ -50,6 +56,7 @@ fingerprints and paths.
 from __future__ import annotations
 
 import argparse
+import base64
 import json
 import os
 import pwd
@@ -159,8 +166,12 @@ def _run(cmd: list[str], *, stdin: bytes | None = None, cwd: str | None = None,
     if check and r.returncode != 0:
         # The last line of stderr that is not git's advice ("hint:"), which
         # gpg and git keep free of values; the error, not the suggestion.
+        # Where git says what failed ("fatal:", the server's "ERROR:"), that
+        # line: its advice can follow it, and a push GitHub refused read
+        # "and the repository exists." (python-dev-01's enrolment).
         lines = [l for l in r.stderr.decode(errors="replace").strip().splitlines() if not l.startswith("hint:")]
-        why = (lines or [f"exit {r.returncode}"])[-1]
+        said = [l for l in lines if l.startswith(("fatal:", "error:", "ERROR:"))]
+        why = (said or lines or [f"exit {r.returncode}"])[-1]
         raise StoreError(f"{what}: {why}")
     return r
 
@@ -443,6 +454,129 @@ def values(store: str | None = None) -> dict[str, str]:
         r = gpg("--decrypt", os.path.join(store, "env", f"{name}.gpg"))
         out[name] = r.stdout.decode()   # exactly as written: many lines, or none
     return out
+
+
+# ── first contact: an account with no GitHub credential yet ───────────
+# A new account's SSH key reaches it from its own store, so neither its
+# first push nor its first pull can go over SSH: python-dev-01, the first
+# account made after the stores replaced Doppler, stopped at its push.
+# The store holds only ciphertext, its key's fingerprint and its agent id,
+# so its history may travel by any channel. It travels as a git bundle,
+# armored, through the host executor's stdin and stdout: the child's first
+# commit to its parent, who pushes it; the parent's mirror back to the
+# child once filled. Never a value, and nothing needs the two on one host.
+BUNDLE_BEGIN = "-----BEGIN AGENT-FABRIC STORE BUNDLE-----"
+BUNDLE_END = "-----END AGENT-FABRIC STORE BUNDLE-----"
+# Named in full wherever a bundle is read: an abbreviated `main` resolves a
+# tag before a branch, so a bundle holding both had its id checked on one
+# commit and the other cloned and pushed (review of #76, reproduced).
+MAIN = "refs/heads/main"
+
+
+def _bundle_armored(repo: str) -> str:
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "store.bundle")
+        git(repo, "bundle", "create", path, MAIN)
+        with open(path, "rb") as fh:
+            body = base64.encodebytes(fh.read()).decode()
+    return f"{BUNDLE_BEGIN}\n{body}{BUNDLE_END}\n"
+
+
+def _bundle_file(text: str, tmp: str) -> str:
+    lines = [l.strip() for l in text.strip().splitlines()]
+    if len(lines) < 3 or lines[0] != BUNDLE_BEGIN or lines[-1] != BUNDLE_END:
+        raise StoreError("not a store bundle (no armour); nothing taken")
+    try:
+        data = base64.b64decode("".join(lines[1:-1]), validate=True)
+    except ValueError as e:
+        raise StoreError(f"not a store bundle ({e}); nothing taken") from None
+    path = os.path.join(tmp, "store.bundle")
+    with open(path, "wb") as fh:
+        fh.write(data)
+    listed = _run(["git", "bundle", "list-heads", path], check=False)
+    refs = [l.split()[-1] for l in listed.stdout.decode(errors="replace").splitlines() if l.strip()]
+    if listed.returncode != 0 or refs != [MAIN]:
+        raise StoreError(f"not a store bundle (it must hold {MAIN} and nothing else); nothing taken")
+    return path
+
+
+def _bundle_identity(path: str, tmp: str) -> tuple[str, str]:
+    """(agent id, key fingerprint) the bundle's main names, read without
+    touching any store."""
+    peek = os.path.join(tmp, "peek")
+    _run(["git", "init", "-q", peek])
+    git(peek, "fetch", "-q", path, f"{MAIN}:refs/peek/main")
+    def show(name: str) -> str:
+        r = git(peek, "show", f"refs/peek/main:{name}", check=False)
+        return (r.stdout.decode().split() or [""])[0] if r.returncode == 0 else ""
+    return show(".agent-id"), show(".gpg-id")
+
+
+def bundle_own() -> str:
+    """This agent's store, armored, for its parent (store-enroll.sh)."""
+    store = store_dir()
+    key_of_store(store)
+    return _bundle_armored(store)
+
+
+def seed_child(agent_id: str, remote: str, text: str) -> dict:
+    """The parent takes a new child's first commit, as its mirror, and
+    pushes it to the child's repository with the parent's own access. The
+    bundle must name the agent the parent minted."""
+    if not AGENT_ID_RE.match(agent_id):
+        raise StoreError(f"{agent_id!r} is not an agent id")
+    mirror = os.path.join(children_dir(), agent_id)
+    with tempfile.TemporaryDirectory() as tmp:
+        path = _bundle_file(text, tmp)
+        aid, _ = _bundle_identity(path, tmp)
+        if aid != agent_id:
+            raise StoreError(f"the bundle is agent {aid or '(none)'}, not {agent_id}; nothing pushed")
+        if not os.path.isdir(os.path.join(mirror, ".git")):
+            os.makedirs(children_dir(), exist_ok=True)
+            # `clone -b main` would resolve the name again, on its own rules;
+            # the checkout names the one ref the id was read from.
+            _run(["git", "clone", "-q", "--no-checkout", path, mirror], label="git clone")
+            git(mirror, "checkout", "-q", "-B", "main", "refs/remotes/origin/main")
+            git(mirror, "remote", "set-url", "origin", remote)
+        else:
+            # An earlier run's mirror: whatever the remote already has, then
+            # the child's commit, each only as a fast-forward.
+            git(mirror, "fetch", "-q", "origin")
+            if git(mirror, "rev-parse", "-q", "--verify", "refs/remotes/origin/main", check=False).returncode == 0:
+                git(mirror, "merge", "-q", "--ff-only", "refs/remotes/origin/main")
+            git(mirror, "fetch", "-q", path, f"{MAIN}:refs/first-contact/main")
+            git(mirror, "merge", "-q", "--ff-only", "refs/first-contact/main")
+        git(mirror, "push", "-q", "-u", "origin", "HEAD:main")
+    return {"agent_id": agent_id, "mirror": mirror, "remote": remote}
+
+
+def child_bundle(who: str) -> str:
+    """A child's store as its parent's mirror holds it, brought up to the
+    remote first, armored: everything the parent wrote, encrypted to the
+    child's key, for the child's first sync."""
+    aid, _ = resolve(who)
+    mirror = os.path.join(children_dir(), aid)
+    if not os.path.isdir(os.path.join(mirror, ".git")):
+        raise StoreError(f"no mirror of {who} here (store-enroll.sh first)")
+    git(mirror, "pull", "-q", "--ff-only", "origin", "main")
+    return _bundle_armored(mirror)
+
+
+def take_bundle(text: str) -> dict:
+    """The child fast-forwards its store from its parent's bundle, and
+    only from one of its own store: the same agent id and the same key."""
+    store = store_dir()
+    fpr, own = key_of_store(store), own_agent_id(store)
+    with tempfile.TemporaryDirectory() as tmp:
+        path = _bundle_file(text, tmp)
+        aid, gpg_id = _bundle_identity(path, tmp)
+        if aid != own or gpg_id != fpr:
+            raise StoreError(f"the bundle is agent {aid or '(none)'} with key {gpg_id or '(none)'}, "
+                             f"not this store ({own}, {fpr}); nothing taken")
+        git(store, "fetch", "-q", path, f"{MAIN}:refs/remotes/origin/main")
+        git(store, "merge", "-q", "--ff-only", "refs/remotes/origin/main")
+    head = git(store, "rev-parse", "--short", "HEAD").stdout.decode().strip()
+    return {"agent_id": aid, "head": head, "names": len(names(store))}
 
 
 # ── the parent ────────────────────────────────────────────────────────
@@ -1172,6 +1306,13 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("verify")
     sub.add_parser("export-key")
     sub.add_parser("push")
+    sub.add_parser("bundle", help="this store, armored, for its parent (a new account's first contact)")
+    sub.add_parser("take-bundle", help="fast-forward this store from its parent's bundle on stdin")
+    sc = sub.add_parser("seed-child", help="a new child's bundle (stdin) becomes its mirror, pushed")
+    sc.add_argument("agent_id")
+    sc.add_argument("--remote", required=True)
+    cb = sub.add_parser("child-bundle", help="a child's store as its mirror holds it, armored")
+    cb.add_argument("login")
     pa = sub.add_parser("paper")
     pa.add_argument("--out")
     rc = sub.add_parser("recovery-copy")
@@ -1242,6 +1383,16 @@ def main(argv: list[str] | None = None) -> int:
                 raise StoreError("the store has no remote (fabric-secrets store init --remote URL)")
             git(store, "push", "-q", "-u", "origin", "HEAD:main")
             print("pushed")
+        elif args.cmd == "bundle":
+            sys.stdout.write(bundle_own())
+        elif args.cmd == "take-bundle":
+            r = take_bundle(sys.stdin.read())
+            print(f"taken: agent {r['agent_id']} at {r['head']}, {r['names']} entries")
+        elif args.cmd == "seed-child":
+            r = seed_child(args.agent_id, args.remote, sys.stdin.read())
+            print(f"seeded: agent {r['agent_id']}, mirror {r['mirror']}, pushed to {r['remote']}")
+        elif args.cmd == "child-bundle":
+            sys.stdout.write(child_bundle(args.login))
         elif args.cmd == "verify":
             f = verify()
             print("\n".join(f) if f else "keys: clean")

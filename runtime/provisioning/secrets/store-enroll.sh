@@ -25,7 +25,9 @@
 #   2. AS THE ACCOUNT, on the host it is placed on (runtime/hosts/registry.json,
 #      reached through runtime/hostexec/hostexec — directly, or over ssh):
 #      its key and store (`fabric-secrets store init --agent-id --remote`),
-#      pushed; its PUBLIC key exported to the parent;
+#      pushed — with --born-now handed to the parent as a bundle and
+#      pushed by it (`store bundle | store seed-child`), the account having
+#      no GitHub key yet; its PUBLIC key exported to the parent;
 #   3. the parent certifies that key with its own and writes
 #      identities/keys/<id>.asc and lineage.json in this checkout;
 #   4. the parent clones the child's store as its mirror
@@ -164,7 +166,15 @@ for login in "${LOGINS[@]}"; do
   if (( DRY )); then say "would: on $host as $login: store init --agent-id $aid --remote $(repo_url "$aid"), push, export-key; certify; mirror"; continue; fi
   as_login "$login" "$ACCOUNT_SECRETS" store init --agent-id "$aid" --remote "$(repo_url "$aid")" >&2 \
     || { say "$login: init failed on $host"; fail=1; continue; }
-  as_login "$login" "$ACCOUNT_SECRETS" store push >&2 || { say "$login: push failed"; fail=1; continue; }
+  if (( BORN_NOW )); then
+    # A new account has no GitHub key yet (it comes from this store), so
+    # its first commit reaches its repository through its parent: an
+    # armored bundle of ciphertext, pushed with the parent's own access.
+    as_login "$login" "$ACCOUNT_SECRETS" store bundle | python3 "$STORE" seed-child "$aid" --remote "$(repo_url "$aid")" >&2 \
+      || { say "$login: its first commit did not reach its repository through this login"; fail=1; continue; }
+  else
+    as_login "$login" "$ACCOUNT_SECRETS" store push >&2 || { say "$login: push failed"; fail=1; continue; }
+  fi
   pub="$(mktemp)"
   if ! as_login "$login" "$ACCOUNT_SECRETS" store export-key > "$pub" || ! grep -q "BEGIN PGP PUBLIC KEY BLOCK" "$pub"; then
     rm -f "$pub"; say "$login: its public key did not come back"; fail=1; continue

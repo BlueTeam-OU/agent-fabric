@@ -72,3 +72,15 @@ provision`, the parent's `put` into the child's store; `new-agent.sh`
 runs it after `store-enroll.sh`, and stops when the parent has no store.
 The shared names are an allowlist. Removing the binary and the tokens
 from the hosts, and closing the Doppler project, are left in §7.
+
+### Amendment 2026-10-01 — A new account's store reaches it as a bundle
+
+The first account made after the stores replaced Doppler, python-dev-01,
+stopped at enrolment: its own push of its new store was refused by
+GitHub, because the account had no key — its SSH key is one of the
+entries its parent provisions into that store. Every earlier account
+already had GitHub access when it was enrolled, and the account-creation
+test mocks GitHub, so neither had met it. The owner chose the bundle
+path: the store holds only ciphertext, so its history may travel through
+the host executor, and the parent pushes and fetches for the child until
+its first sync has written its key.
