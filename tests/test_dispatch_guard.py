@@ -15,6 +15,13 @@ import tempfile
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(HERE, "tools", "fabric"))
+# The guard reads the launch it runs under (AGENT_FABRIC_LAUNCH_*) and that
+# launch's agent files; run from a launched session, the suite judged this
+# account's live files, not the rules (a stray launch on the other provider
+# failed seven checks here and never in CI). The cases that need a launch
+# give their own.
+for _k in [k for k in os.environ if k.startswith("AGENT_FABRIC_LAUNCH_")]:
+    del os.environ[_k]
 from guards import dispatch_guard as dg  # noqa: E402
 
 SHIM = os.path.join(HERE, "runtime", "claude-code", "hooks", "agent-dispatch-guard.sh")
