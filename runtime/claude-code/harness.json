@@ -1,4 +1,4 @@
 {
   "description": "The Claude Code version the fleet runs. `fabric-ctl <login|all> upgrade claude` brings each account to it — stopping a running session gracefully, installing, and the launcher resuming the session on it (ADR-009). Moving the fleet is a one-line change here, reviewed like any other; a --version on the command overrides it for one account, for a trial. Background auto-update is off on every account through env.DISABLE_AUTOUPDATER in each login's user settings (runtime/claude-code/user-settings.py, written by bootstrap) — `autoUpdates: false` alone is not honoured on a protected native install — so nothing else moves it.",
-  "claude": "2.1.282"
+  "claude": "2.1.285"
 }

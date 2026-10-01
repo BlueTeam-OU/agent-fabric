@@ -66,3 +66,17 @@ allow, soft_deny or hard_deny entry of its own.
   `user-settings.py`.
 - Nothing the accounts carried was worth keeping; the first bootstrap
   after the merge replaces it.
+
+## 2.1.285, the build the fleet moves to
+
+The pin moves from 2.1.282 to 2.1.285, the stable channel's build
+(`npm view @anthropic-ai/claude-code dist-tags`: stable 2.1.285, latest
+2.1.286), trialled first on this account with `fabric-ctl user upgrade
+claude --version 2.1.285`. `claude auto-mode defaults` on it printed the
+same shape: 21 environment slots, 17 allow, 70 soft_deny, 1 hard_deny.
+All ten of the policy's slot names are among them, and the eleven
+built-in slots the policy keeps are word for word those of 2.1.282, so
+the fleet's configuration composes the same. The captured harness prompt
+(`runtime/claude-code/harness/en.md`) stays the 2.1.274 capture, which
+lint names as lagging; re-capturing it is its own live check.
+
