@@ -9,10 +9,10 @@
 #   runtime/openrouter/launch --provider anthropic # the same, on plain claude
 #   runtime/openrouter/launch --print              # resolve and print; no exec
 #
-# The fleet's pinned interpreter, never /usr/bin/python3: the launcher
-# starts every session, so it runs on the one Python every host has the
-# same of (runtime/python.json). Found by absolute path from this file,
-# since a relative $0 names nothing after the relaunch changes directory.
+# The fleet's pinned Python (runtime/python.json, ADR-040), one per host;
+# AGENT_FABRIC_PYTHON points elsewhere for a test or a host without it.
+# The module is found by absolute path from this file, since a relative $0
+# names nothing after the relaunch changes directory.
 py="${AGENT_FABRIC_PYTHON:-/usr/local/bin/fabric-python}"
 [[ -x "$py" ]] || { echo "launch: the fleet's pinned Python is not installed at $py; as root: /usr/bin/python3 <agent-fabric>/tools/fabric/python_pin.py install" >&2; exit 127; }
-exec "$py" "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../../tools/fabric/launch.py" "$@"
+exec "$py" -I "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../../tools/fabric/launch.py" "$@"
