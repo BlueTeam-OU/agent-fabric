@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Tests for tools/fabric/query.py's internals; the behaviour is
-tools/fabric/test_query.sh's, run unchanged against the shim (ADR-040 §5
+tests/test_query_cli.py's, run against the shim (ADR-040 §5
 rule 5). What a whole run there reaches only awkwardly is checked here
 directly: what a crossref may hold and how a broken one is refused, the
 ASCII-only fold, labels, the working-copy roots and the slice counts."""
