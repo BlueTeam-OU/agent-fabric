@@ -11,7 +11,7 @@
 # Bash builtins only, to find the module: the command is reached through a
 # symlink, which no builtin can follow, so python resolves it — with git or
 # hostname missing from PATH the report must still run, and say which.
-exec /usr/bin/python3 -c '
+exec /usr/bin/python3 -I -c '
 import os, runpy, sys
 here = os.path.dirname(os.path.realpath(sys.argv[1]))
 module = os.path.join(here, "..", "tools", "fabric", "status.py")

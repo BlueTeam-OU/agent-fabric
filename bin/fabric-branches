@@ -7,7 +7,7 @@
 # say which. It is reached through a symlink in ~/.local/bin, which no bash
 # builtin resolves, so Python does: the real path of this file, the module
 # beside its bin/.
-exec /usr/bin/python3 -c 'import os, runpy, sys
+exec /usr/bin/python3 -I -c 'import os, runpy, sys
 real = os.path.realpath(sys.argv[1])
 module = os.path.join(os.path.dirname(os.path.dirname(real)), "tools", "fabric", "branches.py")
 sys.argv = [module] + sys.argv[2:]

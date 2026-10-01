@@ -314,6 +314,19 @@ def main() -> int:
     finally:
         shutil.rmtree(scratch, ignore_errors=True)
 
+    print("a module in the caller's directory never runs under a bin/ shim (review of #73)")
+    evil = tempfile.mkdtemp(prefix="test_branches_evil.")
+    try:
+        with open(os.path.join(evil, "json.py"), "w") as f:
+            f.write("print('PLANTED')\nraise SystemExit(9)\n")
+        for cmd in ("fabric-branches", "fabric-status", "fabric-lease"):
+            r = subprocess.run(["bash", os.path.join(HERE, "bin", cmd), "--help"], cwd=evil, capture_output=True,
+                               text=True, timeout=60, stdin=subprocess.DEVNULL)
+            check(f"{cmd}: a json.py beside the caller is not imported", "PLANTED" not in r.stdout + r.stderr
+                  and r.returncode != 9, r.stdout[-200:])
+    finally:
+        shutil.rmtree(evil, ignore_errors=True)
+
     print(f"\n{'FAILED' if fails else 'all passed'}")
     return 1 if fails else 0
 
