@@ -123,11 +123,12 @@ DEFAULT_CHECK_TIMEOUT = "1800"
 FETCH_TIMEOUT_S = 600
 # A fresh worktree of a large base is a checkout; a merge rewrites files.
 WORKTREE_TIMEOUT_S = 600
-# No hook of the clone runs on anything the trial does to its worktree:
-# --no-verify skips only pre-merge-commit and commit-msg, and post-merge,
-# post-checkout and reference-transaction ran (git-lfs and husky install
-# them) on the add, the merge, the abort and the removal (reviews of #71
-# and #73).
+# No hook of the clone runs on anything the trial does to its worktree.
+# --no-verify skips only pre-merge-commit and commit-msg; measured, the add
+# ran post-checkout and reference-transaction, the merge post-merge, and an
+# abort reference-transaction (git-lfs and husky install such hooks;
+# reviews of #71 and #73). The removals carry it too as a guard: none was
+# seen to run a hook there.
 NO_HOOKS = ("-c", "core.hooksPath=/dev/null")
 # Two runs at once in one repository can make an add fail for a moment
 # (another run's prune, git's config lock): one add lost that race in CI.
