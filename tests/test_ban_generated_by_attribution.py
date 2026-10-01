@@ -158,6 +158,23 @@ def main() -> int:
         check("the explanation follows a blank line",
               "" in err and any("git rebase -i <base>" in l for l in err) and err[-1].endswith("reword it."))
 
+        # The offender above is in the range; a commit after it whose message
+        # cannot be read must not take its offence away (review of #72).
+        later = commit(repo, b"feat: three, clean")
+        real_run = guard.git.run
+
+        def failing(repo_, *args, **kw):
+            if args[:1] == ("log",) and later in args:
+                raise git.GitError("git log", "no answer within 120 s")
+            return real_run(repo_, *args, **kw)
+        guard.git.run = failing
+        try:
+            st, out, err = guard.check(env)
+        finally:
+            guard.git.run = real_run
+        check("an unreadable later commit keeps the earlier offence: exit 1",
+              st == 1 and any("feat: two" in l for l in err))
+
         commit(repo, b"feat: three")
         st, out, err = guard.check(env)
         check("an offender below the tip is found", st == 1 and sum("feat: two" in l for l in err) == 2)

@@ -245,19 +245,29 @@ def resolve_range(env) -> tuple[str, str] | None:
     return payload_range(env.get("GITHUB_EVENT_PATH", "")) or ref_range(env)
 
 
-def commit_offenders(base: str, head: str) -> list[str]:
-    """Every banned shape the commits base..head add, as the report's lines.
-    Raises git.GitError when the range or a message cannot be read: a commit
-    that was not read is not a commit that passed."""
-    offenders: list[str] = []
+def commit_offenders(base: str, head: str, offenders: list[str]) -> list[str]:
+    """Every banned shape the commits base..head add, as the report's lines,
+    appended to `offenders` as each is found. Raises git.GitError when the
+    range or a message cannot be read: a commit that was not read is not a
+    commit that passed — and an offence already found stays found, in the
+    caller's list, whatever a later read does (review of #72)."""
     shas = git.run(".", "rev-list", f"{base}..{head}").stdout.split()
+    unread: git.GitError | None = None
     for sha in shas:
-        body = git.run(".", "log", "-1", "--format=%B", sha, errors="replace").stdout
-        subject = git.run(".", "log", "-1", "--format=%s", sha, errors="replace").stdout.rstrip("\n")
+        # Every commit is read that can be: one that cannot (newest first, so
+        # often before the offender) must not keep the others from being seen.
+        try:
+            body = git.run(".", "log", "-1", "--format=%B", sha, errors="replace").stdout
+            subject = git.run(".", "log", "-1", "--format=%s", sha, errors="replace").stdout.rstrip("\n")
+        except git.GitError as e:
+            unread = unread or e
+            continue
         if has_trailer(body):
             offenders += [f"commit {sha[:8]}  {subject}", "    carries a banned attribution trailer"]
         if has_footer(body):
             offenders += [f"commit {sha[:8]}  {subject}", "    carries generated-with attribution or a session URL"]
+    if unread:
+        raise unread
     return offenders
 
 
@@ -274,7 +284,7 @@ def check(env) -> tuple[int, list[str], list[str]]:
         rng, git_problem = None, str(e)
     if rng:
         try:
-            offenders += commit_offenders(*rng)
+            commit_offenders(*rng, offenders)
             commits_enforced = True
         except git.GitError as e:
             git_problem = str(e)
