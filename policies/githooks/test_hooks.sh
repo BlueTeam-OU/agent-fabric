@@ -106,7 +106,16 @@ git -C "$TMP/repo" reset -q --hard
 
 
 echo "the one carve-out: a locale's translations, by the holder of the role named for the suffix"
-SUFFIX="${LOGIN##*-}"; LOC="identities/roles/language-culture/locale/$SUFFIX"
+# The hook matches the suffix against `id -un`. The account running the
+# suite is any login (user, python-dev-01: "01" is no locale), so this
+# section answers as a language-culture login; the binding stays the real
+# login's, as identity.py reads it.
+mkdir -p "$TMP/bin"; printf '#!/bin/sh
+[ "$*" = "-un" ] && { echo language-culture-ge; exit 0; }
+exec /usr/bin/id "$@"
+' > "$TMP/bin/id"; chmod +x "$TMP/bin/id"
+OLD_PATH="$PATH"; export PATH="$TMP/bin:$PATH"
+SUFFIX=ge; LOC="identities/roles/language-culture/locale/$SUFFIX"
 bind language-culture; mkdir -p "$TMP/repo/$LOC" "$TMP/repo/identities/roles/language-culture/locale/zz"
 [[ "$(try_commit "$LOC/team.md" 'ge team')" == 0 ]] && pass "language-culture bound on login *-$SUFFIX: locale/$SUFFIX/ commits" || fail "the holder's own locale refused" "$(cat "$TMP/err")"
 git -C "$TMP/repo" log -1 --format=%B | grep -q '^Fabric-Role: language-culture$' && pass "…declaring its own role, not the coordinator's" || fail "trailer on a carve-out commit" "$(git -C "$TMP/repo" log -1 --format=%B)"
@@ -129,6 +138,7 @@ bind backend-dev
 [[ "$(try_commit "$LOC/memory.md" 'ge memory')" == 1 ]] && pass "another role on the same login: refused" || fail "wrong role admitted to a locale" "$(cat "$TMP/err")"
 bind fabric-coordinator
 [[ "$(try_commit "$LOC/memory.md" 'ge memory')" == 0 ]] && pass "the coordinator still commits anywhere, the locale included" || fail "coordinator refused in a locale" "$(cat "$TMP/err")"
+export PATH="$OLD_PATH"
 
 echo "in agent-fabric itself an amend is a guarded change too"
 bind backend-dev
