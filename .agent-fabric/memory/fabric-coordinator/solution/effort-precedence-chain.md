@@ -5,7 +5,7 @@ topic: "effort-precedence-chain"
 description: How Claude Code resolves reasoning effort, read out of the 2.1.280 binary — the order, the escape values, and where each level can be read back
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-09-26"
+distilled_at: "2026-10-01"
 origin:
   - agent: user
     host: "develop-qzapp"

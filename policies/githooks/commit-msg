@@ -47,16 +47,37 @@ if (( ${#guarded[@]} )); then
 try: print(json.load(open(sys.argv[1]))["role_definitions"]["role"])
 except Exception: print("fabric-coordinator")' "$FABRIC_ROOT/policies/authority.json" 2>/dev/null || echo fabric-coordinator)"
     if [[ "$role" != "$owner_role" ]]; then
-        # The one carve-out (policies/AUTHORITY.md): a locale's translations,
+        # The locale carve-out (policies/AUTHORITY.md): a locale's translations,
         # by the holder of the role named for the suffix — the same test
         # pre-commit made; the trailer below then records that role.
         . "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/locale-carve-out.sh"
         login="$(id -un)"; mapfile -t own < <(locale_carve_out_paths)
-        if ! locale_carve_out_role "${own[@]}" \
+        # The contributor carve-out (ADR-018 §5 rule 8): the same question
+        # pre-commit asked contributors.py, in agent-fabric itself only.
+        contributor=1
+        if [[ "$guarded_what" == "agent-fabric itself" && -n "$role" \
+              && -f "$FABRIC_ROOT/tools/fabric/guards/contributors.py" ]]; then
+            python3 "$FABRIC_ROOT/tools/fabric/guards/contributors.py" hook "$FABRIC_ROOT" "$role" 2>/dev/null
+            contributor=$?
+        fi
+        if (( contributor == 0 )); then
+            :
+        elif ! locale_carve_out_role "${own[@]}" \
            || [[ "$role" != "$locale_role" ]] || [[ "$login" != *-"$locale_suffix" && "$login" != "$locale_suffix" ]]; then
             echo "commit-msg: a guarded change, but this agent's binding holds '${role:-no role}', not $owner_role." >&2
             exit 1
         fi
+    fi
+    # A guarded commit declares the binding the fence just checked, never a
+    # role typed into the message: CI reads the trailer, so a contributor's
+    # commit typed `Fabric-Role: <owner>` would pass there as the owner's, and
+    # an amend keeps the rewritten commit's trailer (review of #75). Read as
+    # CI reads it — the last trailer, up to the next colon.
+    typed="$(git interpret-trailers --parse "$msg" 2>/dev/null \
+             | awk -F': *' 'tolower($1) == "fabric-role" { v = $2 } END { print v }')"
+    if [[ -n "$typed" && "$typed" != "$role" ]]; then
+        echo "commit-msg: the message declares Fabric-Role: $typed, but this agent's binding holds '${role:-no role}' — remove the line; the hook writes the binding." >&2
+        exit 1
     fi
 fi
 # EVERY commit declares the role the account held when it was made — not
@@ -66,8 +87,10 @@ fi
 # rebase, cherry-pick and am, so an integration PR's history still says
 # which lane each commit came from (architect-cto's finding on gzapp
 # #785, 2026-09-16: no code commit carried one). A guarded change was
-# checked above and its role is the owner's; any other commit records the
-# binding as it is, and a session with no binding records nothing — the
+# checked above — the owner's, a contributor's within its entry, or a
+# locale holder's — and any typed trailer on it matches the binding; any
+# other commit records the binding as it is, and a session with no
+# binding records nothing — the
 # trailer states a fact about the account, never a claim it cannot make.
 if ! grep -qiE '^[[:space:]]*Fabric-Role:' "$msg"; then
     role="${role:-$(python3 "$FABRIC_ROOT/runtime/identity.py" --role 2>/dev/null || echo "")}"

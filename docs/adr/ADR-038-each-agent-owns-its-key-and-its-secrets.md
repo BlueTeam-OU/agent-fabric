@@ -4,7 +4,7 @@
 **Status:** Accepted
 **Ratified:** owner, 2026-09-29, by the merge of agent-fabric #63 (e00f750)
 **Decision Makers:** the owner (the move off Doppler, a repository per agent, a key per agent, paper recovery, the parent's role, no assumed co-location); drafted by fabric-coordinator
-**Scope:** every agent's credentials and the key that guards them: `tools/fabric/secret_store.py` behind `bin/fabric-secrets`; each agent's repository `gzapi-org/agent-fabric-secrets-<id>` (ADR-039); `identities/keys/`; `~/.config/agent-fabric/secrets.env` and its consumers; the migration from Doppler (ADR-012); the Claude-account templates (ADR-031); provisioning (`runtime/provisioning/new-agent.sh`)
+**Scope:** every agent's credentials and the key that guards them: `tools/fabric/secret_store.py` behind `bin/fabric-secrets`; each agent's repository `gzapi-org/agent-fabric-secrets-<id>` (ADR-039); `identities/keys/`; `~/.config/agent-fabric/secrets.env` and its consumers; filling a child's store (`fabric-secrets provision`); the migration from Doppler (ADR-012), complete; the Claude-account templates (ADR-031); provisioning (`runtime/provisioning/new-agent.sh`)
 **Pillar:** P1
 
 ## 1. Context and Problem
@@ -114,8 +114,10 @@ sharing a machine.
    without its parent's certification.
 3. An agent's store is encrypted to that agent's key alone (`.gpg-id`).
    Any holder of the committed public key may add an entry (`fabric-secrets
-   put`). Only the agent decrypts. No store is encrypted to another
-   agent's key.
+   put`); its parent fills a new agent's store that way (`fabric-secrets
+   provision`: identity, an allowlist of shared names, a key of its own on
+   each API) (A 2026-09-30). Only the agent decrypts. No store is
+   encrypted to another agent's key.
 4. A key names no host. A login moved with its home keeps its key. A
    login rebuilt without its home is re-keyed: its new key is certified
    by its parent, and the old key is revoked.
@@ -123,7 +125,16 @@ sharing a machine.
    accounts:
    - certification travels through the agent-fabric repository;
    - `put` is a push to the child's repository;
-   - migration and sync are signed control actions (ADR-029).
+   - sync is a signed control action (ADR-029);
+   - a new account, which has no GitHub key until its first sync writes
+     one, meets its store through its parent: its first commit as an
+     armored git bundle the parent pushes (`store bundle | store
+     seed-child`, store-enroll.sh `--born-now`), and its filled store back
+     the same way before that sync (`store child-bundle | store
+     take-bundle`, then `sync --no-pull`). A bundle carries only
+     ciphertext, the key's fingerprint and the agent id, through the host
+     executor's stdin and stdout; the child takes one only of its own store
+     (A 2026-10-01).
 6. Each key's recovery copy is written once at birth
    (`fabric-secrets store recovery-copy`), encrypted before it leaves the
    process and printing only a path, so it may run inside a model
@@ -132,21 +143,18 @@ sharing a machine.
    print a copy in the clear (`paper`, `paper --out`) refuse inside a
    model session (`CLAUDECODE` set). No secret value is ever shown to a
    model, put in a message, or written to a log (A 2026-09-29).
-7. `fabric-secrets sync` writes the same `secrets.env` whichever source
-   it reads. Its exit codes stay:
+7. `fabric-secrets sync` reads the store alone; its exit codes are
+   (A 2026-09-30):
    - 0: applied;
    - 1: unreadable;
    - 2: applied, with required names missing;
    - 3: the store names another login, and nothing is applied.
-8. The source is `doppler` until an account has been migrated, and
-   `store` from then on. Migration compares the sha256 of every value
-   sync applies (`values_sha256`: the SSH key and the git strings
-   included), never a value:
-   - Doppler's against the store's, before the source switches;
-   - the new sync's against Doppler's, after.
-
-   A difference at either point leaves the account on, or returns it
-   to, `doppler`.
+8. Every account reads its own store; Doppler is removed from the code —
+   its reader, `import-doppler`, the migration action, the enrolment and
+   the Doppler templates — and nothing reads a source file. The migration
+   compared the sha256 of every value sync applies (`values_sha256`),
+   never a value, before and after each account's switch
+   (A 2026-09-30).
 
 ## 6. Consequences
 
@@ -179,21 +187,23 @@ sharing a machine.
 - **The identity key off the host:** only its subkeys kept online, the
   primary only in the recovery copy, once certifying no longer needs it
   there (the coordinator certifies children with its own).
-- **Removal of Doppler:** the reader, the enrolment and the binary, once
-  every account's source is `store` (ADR-012 is superseded then).
+- **Doppler off the hosts:** each account's `~/.doppler` goes with the
+  upgrade that distributes its removal (`bootstrap.sh`); a token kept in
+  a desktop keyring stays there until the project is closed; the binary
+  under `/usr/local` is each host operator's to remove, and the project,
+  which revokes every token, the owner's to close.
 - **Hardware-held keys,** if an agent's host offers one.
 
 ## 8. Decision Status
 
-Accepted and in force. The coordinator reads its own store; the other
-accounts read Doppler until each is enrolled (`store-enroll.sh`) and
-migrated (`secrets-migrate`), after which Doppler is removed (§7).
+Accepted and in force. Every account reads its own store; a new account
+is keyed by `store-enroll.sh` and filled by `fabric-secrets provision`.
 
 ## References
 
-- ADR-012 — credentials; the Doppler layout this replaces.
+- ADR-012 — credentials; the Doppler layout this replaced.
 - ADR-031 — the Claude-account templates, which move to the coordinator's store.
-- ADR-029 — the signed control actions that carry migration and sync.
+- ADR-029 — the signed control actions that carry sync.
 - ADR-003 — per-agent state, which a moved login carries.
 
 ## Amendments
@@ -206,3 +216,5 @@ The body above reads current; each change's full note is in [history/ADR-038-ame
 | 2026-09-29 | Recovery copies are encrypted to the owner's recovery key | §5 rules 1 and 6, §6: option B, the passphrase-protected recovery key |
 | 2026-09-29 | Keys and stores are named by the agent id | §2, §5 rule 2, Scope: `<id>.asc`, `agent-fabric-secrets-<id>` (ADR-039) |
 | 2026-09-29 | One identity key per agent, a key per use beneath it | §5 rule 1, §7: a certify-only primary with encryption, signing and authentication subkeys |
+| 2026-09-30 | Doppler is removed: every account reads its own store, and a parent fills a child's with provision | Scope, §5 rules 3, 5, 7, 8; §7; §8 |
+| 2026-10-01 | A new account's store reaches it as a bundle | §5 rule 5: the first commit and the filled store travel as bundles through the parent; `sync --no-pull` once |

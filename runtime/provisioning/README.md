@@ -25,17 +25,17 @@ directory it stands in identifies context, never identity.
 **One command does all of it** (fabric-coordinator, from its own login).
 It has two halves: the orchestrator, `new-agent.sh`, runs where the
 coordinator is and keeps what only the coordinator holds — the
-registries, the Doppler administration, the API keys; the host half,
+registries, its own store (the account's parent, ADR-038), the API keys; the host half,
 `new-agent-worker.sh`, runs on the host the account lives on
 (`runtime/hosts/registry.json`; `--host` places a new account) through
 `runtime/hostexec/` — directly on this host, over ssh to any other — in
-two phases around the Doppler steps. The host names itself and is
+two phases around the secrets step. The host names itself and is
 refused if it answers as anything but its registry id. The host half
 starts with a host audit: a Qubes AppVM keeps only `/home` and
 `/usr/local` across a reboot, so the rpm tools the fabric itself calls
 (git, gh, node, npm, python3, jq, gpg) are checked and a missing one is
-named with its package for the TemplateVM; doppler goes to
-`/usr/local/bin` once; the account's own tools go under its `~/.local`.
+named with its package for the TemplateVM; the account's own tools go
+under its `~/.local`.
 What a project needs beyond that is the project's to say —
 `projects/<id>/integration/provisioning/host-check.sh`, run on the host
 for each `--project`:
@@ -61,10 +61,15 @@ overrides it with a version, `stable` or `latest`, and with no pin
 readable it is the vendor's latest — and `openrouter.ai/labs/ori/install.sh`; an installer that fails
 fails the script, nothing is copied from another account); GitHub's host key in
 `known_hosts`; `~/projects/agent-fabric` over https (the fabric is
-public; the account has no key yet); Doppler enrolment — `enroll.sh
-<login>`, `fill-from <coordinator>`, then `issue-openrouter-keys` and
-`issue-openai-keys` **once each** (a key of the account's own on each
-API; presence in its config is the check) — and the first sync; every
+public; the account has no key yet); its key and store —
+`store-enroll.sh <login> --born-now`, made on its host and certified by
+the coordinator — filled by the coordinator as its parent
+(`fabric-secrets provision identity`, `share`, then `issue-key
+openrouter` and `issue-key openai` **once each**: a key of the account's
+own on each API; presence in its store is the check) — then handed to
+the account as a bundle (`store child-bundle | store take-bundle`: its
+SSH key is in that store, so it cannot pull it yet) and its first sync,
+as the account, without a pull (`sync --no-pull`); every
 `--project` cloned as the account over SSH from the remote the registry
 names; `bootstrap.sh`; `bin/fabric-role bind <role>`; the toolchain each
 project's lockfile declares (pnpm under `~/.local`, `pnpm install`,
@@ -98,17 +103,18 @@ What the steps are, when done by hand:
    session's system prompt. A different role later is a rebind here and a
    relaunch.
 4. **Enrol the identity's secrets** (fabric-coordinator, from its own
-   login): `runtime/provisioning/secrets/enroll.sh <login>` — see
-   "Secrets" below. After it, `OPENROUTER_API_KEY`, `GH_TOKEN`,
+   login): `runtime/provisioning/secrets/store-enroll.sh <login>`, then
+   `fabric-secrets provision` — see "Secrets" below. After it,
+   `OPENROUTER_API_KEY`, `GH_TOKEN`,
    `OPENAI_API_KEY` and the GZCoord token are in the account's
    environment from `~/.config/agent-fabric/secrets.env`, git identity
    and signing are set, and `runtime/openrouter/launch` (with the `ori`
    CLI on `PATH`) runs from the working copy
-   (`runtime/openrouter/README.md`). `fill-from` never copies the
-   coordinator's own credentials (`*_ADMIN_KEY`, `*_PROVISIONING_KEY`,
-   `AGENT_FABRIC_READ_TOKEN`) nor a per-login name the registry declares
-   under `agent_env` (the API keys, a port offset): those have their own
-   steps.
+   (`runtime/openrouter/README.md`). `provision share` copies only an
+   allowlist of names and refuses the coordinator's own credentials
+   (`*_ADMIN_KEY`, `*_PROVISIONING_KEY`, the templates, the signing key)
+   even when named; a per-login name (the API keys, a port offset) has
+   its own step.
 
 The agent files (step 2) are written per account by
 `runtime/claude-code/install-agent-files.sh`, which `bootstrap.sh` runs
@@ -125,55 +131,54 @@ tree mid-work, is refused).
 
 ## Secrets
 
-An identity's secrets are recorded in **Doppler**, project `agent-fabric`,
-**one config per Linux login**: the branch config `<env>_<login>` under
-the environment `agents` — `agents2`, `agents3`, `agents4` once one holds
-its ten configs (a Developer-plan project: four environments of ten
-configs, so the login is the branch, never the environment; `enroll.sh`
-records the name in the account's doppler config, `enclave.config` at
-scope `/`, which is how `fabric-secrets` knows its own). Each account
-holds exactly one bootstrap secret — a read-only
-service token for its own config, in `~/.doppler/.doppler.yaml` — and
-everything else is derived from it:
+An identity's secrets are recorded in **its own store** (ADR-038): a
+pass-format git repository `<org>/agent-fabric-secrets-<agent-id>`
+(ADR-039), each entry encrypted to the agent's own key, cloned at
+`~/.local/share/agent-fabric/secrets`. The key is made in the account and
+certified by its parent, the coordinator, which keeps a mirror of the
+store to write into it — `put` encrypts to the child's committed key, so
+the parent cannot read what it wrote. Nothing else is held for it: no
+token, no service. What the store holds is derived into the places the
+tools read:
 
 | name | consumed as |
 |---|---|
-| `AGENT_LOGIN`, `AGENT_HOST` | `fabric-secrets sync` refuses a config whose `AGENT_LOGIN` is not the login running it — the invariant, enforced at the secret boundary |
+| `AGENT_LOGIN`, `AGENT_HOST` | `fabric-secrets sync` refuses a store whose `AGENT_LOGIN` is not the login running it — the invariant, enforced at the secret boundary |
 | `OPENROUTER_API_KEY`, `GH_TOKEN`, `CLAUDE_BRIDGE_AUTH_TOKEN`, `SERPAPI_API_KEY`, `BRAVE_SEARCH_API_KEY` (language-culture logins: the locale search tools, `runtime/mcp/websearch-locale`) | exported from `~/.config/agent-fabric/secrets.env` (0600), sourced by `~/.bashrc` |
 | `GIT_USER_NAME`, `GIT_USER_EMAIL`, `GIT_SIGNING_KEY`, `GIT_GPG_PROGRAM` | `git config --global` (strings; the signing key material stays in the keyring) |
 | `SSH_PRIVATE_KEY`, `SSH_PUBLIC_KEY` | `~/.ssh/id_ed25519(.pub)`, written only when absent (`--force` replaces) |
-| a project's `agent_env` names (`projects/registry.json`; gzapp: `GZAPP_PORT_OFFSET`) | exported from `secrets.env` when the config has them — per-login values that are not secrets but belong to the identity, never reported missing |
+| a project's `agent_env` names (`projects/registry.json`; gzapp: `GZAPP_PORT_OFFSET`) | exported from `secrets.env` when the store has them — per-login values that are not secrets but belong to the identity, never reported missing |
 
-- `bin/fabric-secrets sync` (as the account) pulls and applies; `status`
-  reports presence, modes and ages — neither prints a value.
-- `secrets/enroll.sh <login>|--all [--host <id>]` (coordinator) creates
-  the config, migrates what the account holds today, issues the token,
-  runs the first sync and, once verified, retires the old sources (the
-  `.bashrc` export, the clone's `settings.local.json` entry, the `gh`
-  stored login). Doppler, the token and the keys stay on the
-  coordinator; what touches the account's host — its home, its
-  `~/.doppler`, the sync, the retirement — runs there through
-  `runtime/hostexec/` as `secrets/enroll-worker.sh`, on the host the
-  account is placed on (`runtime/hosts/registry.json`; `--host` for a
-  login not placed yet). `AGENT_HOST` is what that host says of itself.
-  `--all` and `sync-all` walk the registry's placements.
-- Rotation: change the value in the Doppler dashboard, then
-  `secrets/enroll.sh sync-all`. Revoking an agent is revoking one token.
-- Keys of a login's own: `secrets/enroll.sh issue-openrouter-keys <login>…`
-  (OpenRouter, with the coordinator's provisioning key in its config as
-  `OPENROUTER_PROVISIONING_KEY`) and `issue-openai-keys <login>…` (OpenAI: a
-  service account `agent-fabric-<login>`, with the coordinator's admin key
-  as `OPENAI_ADMIN_KEY`; the key is minted once and goes API → Doppler).
-  Both providers then report spend per key, i.e. per agent.
-- A login enrolled with names missing (an account that never had a key)
-  is completed with `secrets/enroll.sh fill-from <login> [targets…]`:
-  copies into each target only the names it lacks and the source has,
-  never the identity names, then syncs the targets. Copied values are
-  shared values — spend and provenance on them follow the source's key
-  until the target gets its own.
-- The coordinator's own Doppler CLI token (workplace admin) is the only
-  credential that can write the project; it lives in the coordinator's
-  home and nowhere in this tree.
+- `bin/fabric-secrets sync` (as the account) pulls and applies;
+  `--no-pull` applies the copy as it is, once, right after `store
+  take-bundle`; `status` reports presence, modes and ages — neither
+  prints a value.
+- `secrets/store-enroll.sh <login> [--host <id>] [--born-now]`
+  (coordinator): the account's id, its private repository, its key and
+  store made on its host, the certification, the mirror. With
+  `--born-now` (a new account, with no GitHub key yet) its first commit
+  reaches its repository through the coordinator, as a bundle (`store
+  bundle | store seed-child`, ADR-038 §5 rule 5). Then
+  `fabric-secrets store recovery-copy` as the account and `store backup`
+  as the coordinator (ADR-038 §6).
+- `fabric-secrets provision` (coordinator, the parent) fills a child's
+  store: `identity <login> --host <id>` (AGENT_LOGIN, AGENT_HOST);
+  `share <login…|all>` (the coordinator's own value of each shared name —
+  GH_TOKEN, the relay token, the git strings, the SSH key pair — where
+  the child lacks it); `issue-key openrouter|openai <login…>` (a key of
+  the login's own, minted with the coordinator's `OPENROUTER_PROVISIONING_KEY`
+  or `OPENAI_ADMIN_KEY` from its store and put straight into the child's;
+  both providers then report spend per key, i.e. per agent). A name the
+  child holds is left alone unless `--replace`. Only names, statuses and
+  fingerprints are printed.
+- Rotation of a shared value: `fabric-secrets store set NAME` in the
+  coordinator's own store (the value on stdin), then `fabric-secrets
+  provision share all --name NAME --replace`, then `fabric-ctl all
+  secrets-sync`. A value only one login holds: `fabric-secrets store put
+  <login> NAME`, then `fabric-ctl <login> secrets-sync`.
+- Which Claude account a login runs on: `fabric-accounts assign`
+  (ADR-031), a template's token from the coordinator's store into the
+  login's.
 
 ## What does not transfer between accounts
 

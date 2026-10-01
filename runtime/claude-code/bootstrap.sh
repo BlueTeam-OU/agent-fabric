@@ -21,7 +21,10 @@
 #                                      attribution commit "", pr "", sessionUrl false — the harness's
 #                                      Co-Authored-By/Generated-with reminder off at its source —
 #                                      showThinkingSummaries and verbose on, tui default, the
-#                                      memory-write check hook (PostToolUse); every other key kept
+#                                      memory-write check hook (PostToolUse), env DISABLE_AUTOUPDATER,
+#                                      permissions (the fabric's commands allowed, auto mode), autoMode
+#                                      from policies/auto-mode.json and the auto-mode wizard off;
+#                                      every other key kept
 #   ~/.claude/skills/subagent-dispatch/SKILL.md
 #   ~/.claude/skills/fabric-decisions/SKILL.md
 #   ~/.claude/skills/branch-hygiene/SKILL.md
@@ -38,6 +41,8 @@
 #                                      ($PROJECTS/.gzcoord/venv exists): the relay as a unit
 #   ~/.cache/agent-fabric/langid/venv/  the language detector (pycld2) for the control agent's
 #                                      script op (runtime/langid/), best effort
+#   (removes ~/.doppler, ~/.local/bin/doppler and ~/.config/agent-fabric/secrets-source:
+#    Doppler is retired, ADR-038)
 #
 # Nothing here names an agent: the hooks ask the OS who is running at
 # session start. Nothing here makes projects/ a git repository. A managed
@@ -324,6 +329,11 @@ fi
 #    nothing else changes.
 if (( DRY_RUN )); then bash "$FABRIC_ROOT/runtime/langid/install.sh" --dry-run || true
 else bash "$FABRIC_ROOT/runtime/langid/install.sh" || echo "  !  langid: not installed (above); fabric-ctl <login> script reports language unavailable until it is"; fi
+
+# 8. Doppler, retired (ADR-038): what it left in this account goes on the
+#    upgrade that brings the fabric without it (retire-doppler.py).
+dry_arg=(); (( DRY_RUN )) && dry_arg=(--dry-run)
+python3 "$FABRIC_ROOT/runtime/claude-code/retire-doppler.py" "${dry_arg[@]}" || failed=$((failed+1))
 
 if (( failed )); then echo "bootstrap: $changed written, $same already current, $failed NOT written (above)."
 else echo "bootstrap: $changed written, $same already current."; fi

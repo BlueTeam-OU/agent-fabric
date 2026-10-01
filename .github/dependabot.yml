@@ -1,0 +1,11 @@
+# Dependabot keeps the SHA-pinned actions current (policies/check_actions_pinned_by_sha.py):
+# it rewrites a pin and its "# vX.Y.Z" comment together. Its commits carry
+# no Fabric-Role trailer, and change only .github/workflows/, the one shape
+# check_agent_fabric_dir_authority.sh admits for it; fabric-coordinator
+# reviews and merges each PR.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

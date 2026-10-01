@@ -5,7 +5,7 @@ topic: "sign-published-pages"
 description: "Every page published for the owner carries a signature footer — the agent's host/login, the role held, the date, the revisions it rests on, who was consulted; the owner also likes reports as browser pages"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-09-27"
+distilled_at: "2026-10-01"
 origin:
   - agent: user
     host: "develop-qzapp"

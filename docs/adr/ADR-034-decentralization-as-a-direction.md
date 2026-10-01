@@ -1,9 +1,10 @@
 # ADR-034 — Decentralization as a direction: a failure may reduce capacity, never take identity, knowledge or continuity
 
 **Date:** 2026-09-27
-**Status:** Proposed
+**Status:** Accepted
+**Ratified:** owner, 2026-09-29, "Accept", answering fabric-coordinator's question closing the Proposed records; carried by the pull request that marks them Accepted
 **Decision Makers:** the owner; drafted by fabric-coordinator
-**Scope:** the criterion by which the fabric decides what to decentralize, and the inventory of what depends on one host, one relay, one key or one service today; no tool, file or practice is changed by this record
+**Scope:** the criterion by which the fabric decides what to decentralize, and the inventory of what depends on one host, one relay, one key or one service today; a direction the fabric's changes are argued against
 **Pillar:** P5
 
 ## 1. Context and Problem
@@ -31,8 +32,8 @@ What depends on one thing today, read from the tree:
 | every account | one host: `runtime/hosts/registry.json` names one host, `develop-qzapp`, and places all sixteen logins on it | every session and control agent stops; `/home` persists, so identity, bindings and unpushed work survive a reboot of that host, not its loss | none documented beyond the reboot (the Qubes account snapshot, ADR-029 §5 rule 11) |
 | messages between sessions | one relay process on the operator's account, loopback only, one SQLite database (ADR-033) | no session receives anything; the channel's past is only in that database | the human relay (ADR-033 §5 rule 7) |
 | the control plane | the same relay, channel `fabric:control` (ADR-029) | no account answers; with the relay up and the control agents down, presence reads as unknown and `send.mjs` refuses without `--force` (ADR-030) | sudo fallbacks: `bin/fabric-usage`, `bin/fabric-host <host> drain` (ADR-029) |
-| signed actions | one key, in the operator's Doppler config (`FABRIC_CONTROL_SIGNING_KEY`) | no upgrade, distribution or account move can be ordered | `fabric-ctl keygen --force` makes a new key; the registry commit carries the public half |
-| secrets | Doppler, one config per login (ADR-012) | no sync, no rotation, no account move; the tools read the file the last sync wrote, which a failed read does not change | none needed while nothing must change |
+| signed actions | one key, in the operator's own store (`FABRIC_CONTROL_SIGNING_KEY`) (A 2026-09-30) | no upgrade, distribution or account move can be ordered | `fabric-ctl keygen --force` makes a new key; the registry commit carries the public half |
+| secrets | each login's own store, a private GitHub repository (ADR-038) (A 2026-09-30) | no sync, no rotation, no account move; the tools read the file the last sync wrote, which a failed read does not change | none needed while nothing must change |
 | the usage windows | one observer login's sign-ins (ADR-031) | the windows are unread | none |
 | model inference | two providers, `anthropic` and `openrouter` (`routing/capabilities.json`); on the plain path, the Claude accounts the templates name (ADR-031) | one path lost reduces capacity; a login is moved to another account by `fabric-accounts assign` or launched on the other provider | routing by capability class (ADR-005) |
 | knowledge | git: the fabric's corpus and each project's `.agent-fabric/` on GitHub and in every clone (ADR-013) | an unreachable GitHub stops pushes and merges, not reading | every clone is a full copy |
@@ -41,7 +42,7 @@ What depends on one thing today, read from the tree:
 
 ## 2. Decision
 
-Proposed: **decentralize only where a failure would otherwise take
+**Decentralize only where a failure would otherwise take
 identity, knowledge or the ability to go on working — and measure every
 piece against that criterion, not against a topology.** Reduced capacity
 is acceptable; loss is not. A component that is central but whose
@@ -83,8 +84,6 @@ record would make the channel less durable, not more.
 
 ## 5. Binding Rules
 
-Proposed — none binds until the owner accepts this record.
-
 1. The §1 inventory is kept current: a change that adds, removes or moves
    a dependency an operation relies on amends this record's table in the
    same pull request.
@@ -95,7 +94,7 @@ Proposed — none binds until the owner accepts this record.
    until then the row says "none documented".
 4. Identity stays derivable without any central service: the login and
    the host (ADR-002). No design makes an agent's identity depend on the
-   relay, Doppler or GitHub being reachable.
+   relay or GitHub being reachable (A 2026-09-30).
 5. A proposal to decentralize a component states which row it changes and
    what failure it stops from taking identity, knowledge or continuity;
    one that changes only capacity says so and competes with other
@@ -108,7 +107,7 @@ Proposed — none binds until the owner accepts this record.
 - Two rows lose data today on a loss of the host: the relay's database
   and every agent's undrained memory. Nothing backs up the first; the
   second is copied only when a coordinator runs a drain.
-- If accepted, the degraded modes listed today are unverified by this
+- The degraded modes listed today are unverified by this
   rule until each has its live check; the human relay's was exercised in
   practice before the relay existed, not as a drill.
 
@@ -130,11 +129,7 @@ ADR-029 §7 and ADR-033 §7.
 
 ## 8. Decision Status
 
-Proposed. It waits on the owner's acceptance of the criterion and the
-inventory rule, individually (ADR-001 §5 rule 2: arming the pull request
-that carries it does not ratify a new direction unless the description
-says so and the owner arms it on that basis). Until then it binds nothing
-and nothing is built for it.
+Accepted and in force.
 
 ## References
 
@@ -148,3 +143,11 @@ and nothing is built for it.
   `routing/capabilities.json`.
 - `docs/live-checks/2026-09-19-develop-qzapp-crash.md`,
   `docs/live-checks/2026-09-25-develop-qzapp-crash.md`.
+
+## Amendments
+
+The body above reads current; each change's full note is in [history/ADR-034-amendments.md](history/ADR-034-amendments.md).
+
+| Date | Amendment | Effect |
+|---|---|---|
+| 2026-09-30 | Doppler is retired: the stores replace it | §1 table (signed actions, secrets), §5 rule 4 |

@@ -177,8 +177,8 @@ def case_superseded_needs_a_point_map_to_a_real_record(tmp: str) -> None:
     only(root, "Superseded without a point map")
     edit(root, ONE, "## 1. Context and Problem", "Point map: §5 rule 1 → ADR-000 §5 rule 4.\n\n## 1. Context and Problem")
     assert not any("point map" in x for x in adr.check(root)), adr.check(root)
-    edit(root, ONE, "(→ ADR-000)", "(→ ADR-040)")
-    only(root, "superseded by ADR-040, which does not exist")
+    edit(root, ONE, "(→ ADR-000)", "(→ ADR-999)")
+    only(root, "superseded by ADR-999, which does not exist")
 
 
 def case_the_digest_follows_the_records(tmp: str) -> None:
@@ -203,6 +203,20 @@ def case_new_takes_the_next_number(tmp: str) -> None:
     path = adr.cmd_new(root, "a-new-thing", "A new thing")
     assert path.endswith(f"{nxt}-a-new-thing.md"), path
     assert open(path, encoding="utf-8").read().startswith(f"# {nxt} — A new thing")
+
+
+def case_lookup_with_no_word_is_the_table_and_an_entry_has_a_budget(tmp: str) -> None:
+    """ADR-001: a session looks the DIGEST up, never reads it whole. With no
+    word, lookup answers only the table of which record answers what; an
+    entry over the word budget is a finding, so a lookup stays cheap."""
+    table = adr.cmd_lookup(ROOT, [])
+    assert len(table) == 1 and table[0].startswith("| Looking for") and "### ADR-" not in table[0], table[:1]
+    assert len(table[0].split()) < len(open(os.path.join(ROOT, "docs/adr/DIGEST.md"), encoding="utf-8").read().split()) / 5, \
+        "the table is a small part of the DIGEST"
+    root = fixture(tmp)
+    assert adr.check(root) == [], adr.check(root)
+    edit(root, "docs/adr/DIGEST.md", "- Keywords: ADR, amendment,", "- " + "padding " * adr.DIGEST_ENTRY_WORDS + "\n- Keywords: ADR, amendment,")
+    only(root, f"DIGEST.md: ADR-001's entry is")
 
 
 def case_lookup_reads_the_digest(tmp: str) -> None:

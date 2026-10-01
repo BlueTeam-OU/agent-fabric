@@ -20,6 +20,13 @@ FABRIC="$(cd "$HERE/../.." && pwd)"
 export AGENT_FABRIC_LOCAL_BIN="$SANDBOX/.claude/local-bin"; mkdir -p "$AGENT_FABRIC_LOCAL_BIN"
 while IFS=$'\t' read -r name rel; do ln -s "$FABRIC/$rel" "$AGENT_FABRIC_LOCAL_BIN/$name"; done \
     < <(python3 -c 'import json,sys; [print(f"{k}\t{v}") for k, v in json.load(open(sys.argv[1]))["commands"].items()]' "$HERE/commands.json")
+# Claude Code's auto-mode defaults from a stand-in (inside .claude/, as
+# above): a runner without claude would otherwise make every write say the
+# defaults could not be read. tests/test_user_settings_auto_mode.py tests
+# autoMode itself.
+printf '%s\n' '#!/bin/sh' 'echo '"'"'{"environment": ["**Organization**: None configured"], "allow": [], "soft_deny": [], "hard_deny": []}'"'" \
+    > "$SANDBOX/.claude/claude"; chmod +x "$SANDBOX/.claude/claude"
+export AGENT_FABRIC_CLAUDE="$SANDBOX/.claude/claude"
 run() { python3 "$HERE/user-settings.py" "$@" 2>&1; }
 check() { python3 -c "import json,sys; d=json.load(open('$S')); a=d['attribution']; assert (a['commit'],a['pr'],a['sessionUrl'])==('','',False), d; assert d['showThinkingSummaries'] is True and d['verbose'] is True and d['tui'] == 'default', d; assert d['env']['DISABLE_AUTOUPDATER'] == '1', d; $1" 2>&1; }
 

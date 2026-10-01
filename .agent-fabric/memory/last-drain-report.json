@@ -1,101 +1,79 @@
 {
-  "clipped_descriptions": [],
-  "collision_decisions": [
-    {
-      "agent": "user",
-      "decision": "supersede",
-      "key": "fabric-coordinator/workflow:a-wrong-why-outlives-the-code#When deferring work, record the cost you measured — never a blocker you inferred from your own failed attempt",
-      "observed_at": "2026-09-23",
-      "rule": "same-agent"
-    },
-    {
-      "agent": "user",
-      "decision": "supersede",
-      "key": "fabric-coordinator/threads:assemble-subheading-breaks-idempotence#FIXED 2026-09-25 (cac5a04): a claim body's own `## ` headings are demoted at render time and old split slices are absorbed; test_a_claim_body_s_own_headings_never_open_a_section",
-      "observed_at": "2026-09-25",
-      "rule": "same-agent"
-    },
-    {
-      "agent": "user",
-      "decision": "supersede",
-      "key": "fabric-coordinator/workflow:check-exit-status-not-pipe#Never `check | tail -1 && git commit`: the pipe's status is tail's, so a failed lint/static/suite still commits — run the check, capture rc=$?, commit only on 0",
-      "observed_at": "2026-09-25",
-      "rule": "same-agent"
-    },
-    {
-      "agent": "user",
-      "decision": "supersede",
-      "key": "fabric-coordinator/solution:control-plane-daemon#Fleet facts in real time come from bin/fabric-ctl (a daemon per account on the relay's fabric:control channel), not from sudo loops; what to know when one account stays silent",
-      "observed_at": "2026-09-17",
-      "rule": "same-agent"
-    },
-    {
-      "agent": "user",
-      "decision": "supersede",
-      "key": "fabric-coordinator/workflow:distribute-after-merge#After a fabric PR merges, distribute it to every account yourself — fabric-ctl all upgrade fabric, run before moving your own checkout — a broadcast alone is not distribution",
-      "observed_at": "2026-09-23",
-      "rule": "same-agent"
-    },
-    {
-      "agent": "user",
-      "decision": "supersede",
-      "key": "fabric-coordinator/threads:drain-report-last-run-wins#FIXED (135b02b, ed5ca52): the drain report gathers every bundle of one drain and keeps each harvest; was — per-bundle runs overwrote last-drain-report.json",
-      "observed_at": "2026-09-25",
-      "rule": "same-agent"
-    },
-    {
-      "agent": "user",
-      "decision": "supersede",
-      "key": "fabric-coordinator/solution:fleet-upgrade-concurrency#fabric-ctl all upgrade claude run on 13 accounts of one host at once: 9 installs failed; one at a time every one succeeded — serialize installs per host (fabric-lease), keep the error's LAST line, exit 1 on any failure",
-      "observed_at": "2026-09-25",
-      "rule": "same-agent"
-    },
-    {
-      "agent": "user",
-      "decision": "supersede",
-      "key": "fabric-coordinator/workflow:request-dies-with-its-session#A GZCoord REQUEST that was acknowledged and deferred is lost when that session ends — the cursor has moved past it and no later session of the same login will ever see it",
-      "observed_at": "2026-09-27",
-      "rule": "same-agent"
-    },
-    {
-      "agent": "user",
-      "decision": "supersede",
-      "key": "fabric-coordinator/solution:system-prompt-replacement-mechanics#What --system-prompt-file replaces and what the harness still injects (read back live 2026-09-17), and the identifier rule a translated prompt must keep",
-      "observed_at": "2026-09-17",
-      "rule": "same-agent"
-    }
+  "clipped_descriptions": [
+    ".agent-fabric/memory/shared/threads-suite-scratch-leak.md: description clipped from 247 to 237 characters",
+    ".agent-fabric/memory/shared/workflow-smoke-container-before-ci.md: description clipped from 262 to 239 characters",
+    ".agent-fabric/memory/fabric-coordinator/threads/assemble-hygiene-inconsistent.md: description clipped from 279 to 237 characters",
+    ".agent-fabric/memory/fabric-coordinator/workflow/blind-review-loop.md: description clipped from 294 to 235 characters",
+    ".agent-fabric/memory/fabric-coordinator/workflow/prompt-change-readback.md: description clipped from 271 to 231 characters",
+    ".agent-fabric/memory/fabric-coordinator/workflow/skills-no-prs-no-dates.md: description clipped from 245 to 237 characters"
   ],
+  "collision_decisions": [],
   "files": [
+    ".agent-fabric/memory/shared/solution-gnupghome-default-agent-trap.md",
+    ".agent-fabric/memory/shared/threads-python-port-waves.md",
+    ".agent-fabric/memory/shared/threads-suite-scratch-leak.md",
+    ".agent-fabric/memory/shared/workflow-check-exit-status-not-pipe.md",
+    ".agent-fabric/memory/shared/workflow-guard-must-catch-the-shape-it-replaced.md",
+    ".agent-fabric/memory/shared/workflow-local-grep-is-ugrep.md",
+    ".agent-fabric/memory/shared/workflow-prefer-python-over-shell.md",
+    ".agent-fabric/memory/shared/workflow-run-suites-as-ci-before-push.md",
+    ".agent-fabric/memory/shared/workflow-smoke-container-before-ci.md",
+    ".agent-fabric/memory/shared/workflow-worktree-under-dot-claude.md",
+    "memory/domains/fabric-coordinator/domain/locale-suffixes.md",
+    "memory/domains/fabric-coordinator/domain/slice-correction-attribution-writer-name.md",
+    ".agent-fabric/memory/fabric-coordinator/rationale.md",
+    ".agent-fabric/memory/fabric-coordinator/solution/assemble-not-idempotent-over-same-drain.md",
+    ".agent-fabric/memory/fabric-coordinator/solution/claude-setup-token-facts.md",
     ".agent-fabric/memory/fabric-coordinator/solution/control-plane-daemon.md",
+    ".agent-fabric/memory/fabric-coordinator/solution/effort-precedence-chain.md",
     ".agent-fabric/memory/fabric-coordinator/solution/fleet-upgrade-concurrency.md",
+    ".agent-fabric/memory/fabric-coordinator/solution/pgrep-f-kills-own-session.md",
+    ".agent-fabric/memory/fabric-coordinator/solution/settings-reach-running-sessions.md",
+    ".agent-fabric/memory/fabric-coordinator/solution/subagent-tools-and-transcripts.md",
     ".agent-fabric/memory/fabric-coordinator/solution/system-prompt-replacement-mechanics.md",
+    ".agent-fabric/memory/fabric-coordinator/threads/assemble-hygiene-inconsistent.md",
     ".agent-fabric/memory/fabric-coordinator/threads/assemble-subheading-breaks-idempotence.md",
     ".agent-fabric/memory/fabric-coordinator/threads/drain-report-last-run-wins.md",
+    ".agent-fabric/memory/fabric-coordinator/threads/inbox-history-mode.md",
+    ".agent-fabric/memory/fabric-coordinator/threads/radicle-decentralized-forge.md",
     ".agent-fabric/memory/fabric-coordinator/threads/shared-android-toolchain-deferred.md",
     ".agent-fabric/memory/fabric-coordinator/workflow/a-wrong-why-outlives-the-code.md",
     ".agent-fabric/memory/fabric-coordinator/workflow/adr-no-inline-attribution.md",
-    ".agent-fabric/memory/fabric-coordinator/workflow/check-exit-status-not-pipe.md",
+    ".agent-fabric/memory/fabric-coordinator/workflow/auto-merge-is-immediate-here.md",
+    ".agent-fabric/memory/fabric-coordinator/workflow/blind-review-loop.md",
+    ".agent-fabric/memory/fabric-coordinator/workflow/branch-name-four-segments.md",
+    ".agent-fabric/memory/fabric-coordinator/workflow/correction-requests-name-merge-target.md",
+    ".agent-fabric/memory/fabric-coordinator/workflow/cross-repo-lint-window.md",
     ".agent-fabric/memory/fabric-coordinator/workflow/distribute-after-merge.md",
+    ".agent-fabric/memory/fabric-coordinator/workflow/fleet-ops-via-control-plane.md",
+    ".agent-fabric/memory/fabric-coordinator/workflow/hook-probe-writes-binding.md",
+    ".agent-fabric/memory/fabric-coordinator/workflow/house-i18n-standard.md",
+    ".agent-fabric/memory/fabric-coordinator/workflow/lint-before-commit.md",
+    ".agent-fabric/memory/fabric-coordinator/workflow/pr-band-accumulate.md",
+    ".agent-fabric/memory/fabric-coordinator/workflow/prompt-change-readback.md",
+    ".agent-fabric/memory/fabric-coordinator/workflow/redirecting-a-request-moves-its-credential.md",
     ".agent-fabric/memory/fabric-coordinator/workflow/request-dies-with-its-session.md",
     ".agent-fabric/memory/fabric-coordinator/workflow/review-p3-may-defer.md",
     ".agent-fabric/memory/fabric-coordinator/workflow/sign-published-pages.md",
-    ".agent-fabric/memory/fabric-coordinator/INDEX.md"
+    ".agent-fabric/memory/fabric-coordinator/workflow/skills-no-prs-no-dates.md",
+    ".agent-fabric/memory/fabric-coordinator/INDEX.md",
+    ".agent-fabric/memory/python-dev/INDEX.md"
   ],
-  "files_written": 14,
+  "files_written": 49,
   "harvest": {
     "host": "develop-qzapp",
-    "in_scope": 15,
-    "next_watermark": 1790538872241,
+    "in_scope": 57,
+    "next_watermark": 1790851351843,
     "provisional_agent": 0,
-    "since_watermark": 1790396187449
+    "since_watermark": 0
   },
   "harvest_sources": {
     "user@develop-qzapp": {
       "host": "develop-qzapp",
-      "in_scope": 15,
-      "next_watermark": 1790538872241,
+      "in_scope": 57,
+      "next_watermark": 1790851351843,
       "provisional_agent": 0,
-      "since_watermark": 1790396187449
+      "since_watermark": 0
     }
   },
   "hygiene_problems": [],
@@ -107,34 +85,46 @@
   "rejected_hygiene": [],
   "retired_in_siblings": [],
   "roles": [
-    "fabric-coordinator"
+    "fabric-coordinator",
+    "python-dev"
   ],
-  "shared_slices": 0,
-  "shared_topics": [],
-  "stamp": "2026-09-27",
+  "shared_slices": 10,
+  "shared_topics": [
+    "solution:gnupghome-default-agent-trap",
+    "threads:python-port-waves",
+    "threads:suite-scratch-leak",
+    "workflow:check-exit-status-not-pipe",
+    "workflow:guard-must-catch-the-shape-it-replaced",
+    "workflow:local-grep-is-ugrep",
+    "workflow:prefer-python-over-shell",
+    "workflow:run-suites-as-ci-before-push",
+    "workflow:smoke-container-before-ci",
+    "workflow:worktree-under-dot-claude"
+  ],
+  "stamp": "2026-10-01",
   "telemetry": {
     "fabric-coordinator": {
-      "admitted": 13,
-      "candidates": 15,
+      "admitted": 47,
+      "candidates": 57,
       "merged_into_existing": 0,
-      "observations_in": 15,
-      "rejected": 2
+      "observations_in": 57,
+      "rejected": 10
     }
   },
   "telemetry_sources": {
     "user@develop-qzapp": {
       "fabric-coordinator": {
-        "admitted": 13,
-        "candidates": 15,
+        "admitted": 47,
+        "candidates": 57,
         "merged_into_existing": 0,
-        "observations_in": 15,
-        "rejected": 2
+        "observations_in": 57,
+        "rejected": 10
       }
     }
   },
   "title_collisions": [],
   "watermarks": {
     "develop-qzapp": 1790347048334,
-    "user@develop-qzapp": 1790538872241
+    "user@develop-qzapp": 1790851351843
   }
 }

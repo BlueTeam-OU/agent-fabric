@@ -22,8 +22,10 @@ minted at its birth, is what it is stored as and what a rename keeps
 
 ## Decisions
 
-What the fabric has decided, and why, is in `docs/adr/`: read
-`docs/adr/DIGEST.md` first, then the record. From another repository a
+What the fabric has decided, and why, is in `docs/adr/`. Look it up,
+never read the whole DIGEST: `fabric-adr lookup <topic>` answers the
+matching entries, `fabric-adr lookup` alone the table of which record
+answers what; then read the record. From another repository a
 record is cited as "agent-fabric ADR-NNN", and every ADR number in this
 file is agent-fabric's, also inside a project that numbers its own.
 fabric-coordinator writes the records and only the owner accepts one; a
@@ -33,19 +35,25 @@ records say why.
 
 ## Read-only, unless you are fabric-coordinator
 
-**This repository is read-only for every role except `fabric-coordinator`**,
-and so is `.agent-fabric/` inside every managed project. Every other role
-reads it and proposes what it needs changed to `fabric-coordinator` — a
-pull request it does not merge, or a GZCoord message. It is a fence, not
-only a rule: the git hooks `bootstrap.sh` installs refuse a commit here
-unless the session's binding holds the role, and stamp every commit an
-account makes with a `Fabric-Role:` trailer that CI checks on every
-commit a branch adds (ADR-018, `policies/AUTHORITY.md`). Every account
-commits under one git author, so the trailer is what names the lane. One
-carve-out: a locale's translations, `identities/roles/<role>/locale/<suffix>/`,
-are committed by that locale's holder and merged by fabric-coordinator.
-A session becomes `fabric-coordinator` only by being launched with it
-bound; the login it runs as is irrelevant.
+**This repository is read-only for every role except
+`fabric-coordinator`**, and so is `.agent-fabric/` inside every managed
+project. Every other role reads it and proposes what it needs changed to
+`fabric-coordinator` in a GZCoord message. It is a fence, not only a
+rule: the git hooks `bootstrap.sh` installs refuse a commit here unless
+the session's binding holds the role, and stamp every commit an account
+makes with a `Fabric-Role:` trailer that CI checks on every commit a
+branch adds (ADR-018, `policies/AUTHORITY.md`). Every account commits
+under one git author, so the trailer is what names the lane. Three
+carve-outs: a contributor role (`policies/authority.json`
+`contributors`) commits its entry's paths on its own
+`<host>/<login>/for/<caller>/<what>` branch, which fabric-coordinator
+folds into its own PR and merges; a locale's translations,
+`identities/roles/<role>/locale/<suffix>/`, are committed by that
+locale's holder and merged by fabric-coordinator; Dependabot's commits
+that change only `.github/workflows/` (action-pin bumps) need no
+trailer, and fabric-coordinator merges them too. A session becomes
+`fabric-coordinator` only by being launched with it bound; the login it
+runs as is irrelevant.
 
 ## Who you are
 
@@ -148,6 +156,7 @@ is the capability class below (ADR-002, ADR-005).
 
 ```sh
 fabric-whoami [--json]                    # who this session is
+fabric-adr lookup [<topic>…]              # the decision records' entries on a topic; alone, which record answers what
 fabric-status                             # identity, binding, API path, models, effort, routing health
 fabric-model list                         # every model and effort choice per provider, with its source layer
 fabric-lease <name> -- <cmd>              # one holder per host resource across this host's accounts (ADR-010)
@@ -194,6 +203,5 @@ model choices and rendered launch prompt live under
 `${XDG_STATE_HOME:-~/.local/state}/agent-fabric/agents/<login>/`.
 Credentials never enter a committed file or a message: an identity's
 secrets are in its own encrypted store (`<org>/agent-fabric-secrets-<id>`, a pass
-repository only that login can read, ADR-038), or in Doppler until the
-account has migrated (ADR-012), and `fabric-secrets sync` puts them where
-the tools read them, the same file from either.
+repository only that login can read, ADR-038), and `fabric-secrets sync`
+puts them where the tools read them.

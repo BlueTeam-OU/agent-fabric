@@ -45,3 +45,26 @@ check or commit, and one history sentence moved to ADR-005 §1. Rule 11
 states the rule and `adr.py check` refuses a date in §2 to §8 outside a
 path, a code span or the engine's own marks. Rule 10's example, which
 put a date in the sentence, is removed.
+
+### Amendment 2026-09-29 — The DIGEST is looked up, never read whole, and each entry has a word budget
+
+An outside review said the governance corpus weighs on every agent. It
+was measured before anything changed:
+- A session loads about 8,400 tokens of fabric text: the launch prompt
+  and CLAUDE.md. It loads no record.
+- The DIGEST had grown to about 7,300 words, some 12,000 tokens. That is
+  twice the launch prompt, and CLAUDE.md told every agent to read it
+  first on any question about the fabric's rules.
+
+The entries are useful (about 160 words each, the rules with their
+sections), so they stay. What changes is how they are read:
+- `fabric-adr lookup <topic>` answers only the matching entries.
+- `fabric-adr lookup` alone answers the table of which record answers
+  what, about 530 words.
+- CLAUDE.md, the README, the fabric-decisions skill and the DIGEST's own
+  header now say to look the DIGEST up, never to read it whole.
+- `adr.py check` refuses an entry over 250 words, so a lookup stays
+  cheap.
+
+The two entries over the budget, ADR-029 and ADR-038, were tightened;
+ADR-038's was also stale about paper recovery.

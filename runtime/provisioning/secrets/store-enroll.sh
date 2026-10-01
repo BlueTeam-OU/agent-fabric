@@ -25,7 +25,9 @@
 #   2. AS THE ACCOUNT, on the host it is placed on (runtime/hosts/registry.json,
 #      reached through runtime/hostexec/hostexec — directly, or over ssh):
 #      its key and store (`fabric-secrets store init --agent-id --remote`),
-#      pushed; its PUBLIC key exported to the parent;
+#      pushed — with --born-now handed to the parent as a bundle and
+#      pushed by it (`store bundle | store seed-child`), the account having
+#      no GitHub key yet; its PUBLIC key exported to the parent;
 #   3. the parent certifies that key with its own and writes
 #      identities/keys/<id>.asc and lineage.json in this checkout;
 #   4. the parent clones the child's store as its mirror
@@ -83,16 +85,24 @@ ensure_repo() {  # the private repository, made by the parent when absent: <id> 
     || die "could not create $name (the parent's gh must be able to create a private repository in $ORG)"
 }
 
-# The id lineage.json records for a login, or nothing; read by the store
-# tool, so from the same fabric checkout it certifies into.
-id_of() { python3 "$STORE" id-of "$1" 2>/dev/null || true; }
+# The id lineage.json records for a login, or nothing when it records no
+# agent with that login (exit 3); read by the store tool, so from the same
+# fabric checkout it certifies into. Any other failure — a lineage that
+# cannot be read — fails the call: an empty answer would mint a second id.
+# A caller in $( ) checks it: `aid="$(id_of X)" || exit 1`.
+id_of() {
+  local out rc; out="$(python3 "$STORE" id-of "$1" 2>&1)"; rc=$?
+  (( rc == 0 )) && { printf '%s\n' "$out"; return 0; }
+  (( rc == 3 )) && return 0
+  say "$1: identities/keys/lineage.json could not be read (exit $rc): ${out##*$'\n'}; nothing made"; return 1
+}
 describe() { echo "agent-fabric secrets. Linux login: $1. Agent id: $2. (ADR-038, ADR-039)"; }
 mint() { python3 "$STORE" mint-id "$1"; }
 
 if (( RENAME )); then
   (( ${#LOGINS[@]} == 2 )) || die "--rename takes <old> <new>"
   old="${LOGINS[0]}"; new="${LOGINS[1]}"
-  aid="$(id_of "$old")"; [[ -n "$aid" ]] || die "$old: no agent with that login in identities/keys/lineage.json"
+  aid="$(id_of "$old")" || exit 1; [[ -n "$aid" ]] || die "$old: no agent with that login in identities/keys/lineage.json"
   (( DRY )) && { say "would: agent $aid: login $old -> $new in lineage.json and its repository's description"; exit 0; }
   python3 "$STORE" rename "$old" "$new" >&2 || die "rename failed"
   "$GH" repo edit "$ORG/agent-fabric-secrets-$aid" --description "$(describe "$new" "$aid")" >/dev/null \
@@ -106,7 +116,7 @@ if (( SELF )); then
   # As for a child: only "no id yet" (exit 3) may lead to minting.
   aid="$(python3 "$STORE" id 2>/dev/null)"; idrc=$?
   (( idrc == 0 || idrc == 3 )) || die "this store's agent id could not be read (exit $idrc); nothing made"
-  [[ -n "$aid" ]] || aid="$(id_of "$ME")"
+  [[ -n "$aid" ]] || { aid="$(id_of "$ME")" || exit 1; }
   if [[ -z "$aid" ]]; then
     if (( BORN_NOW )); then born=now; else born="$(stat -c %w "$HOME")"; fi
     aid="$(mint "$born")" || die "no birth for $ME: its home's creation time is unknown here ($born)"
@@ -133,7 +143,7 @@ for login in "${LOGINS[@]}"; do
   [[ "$login" == "$ME" ]] && { say "$login: that is this login; use --self"; fail=1; continue; }
   host="$(host_of "$login")"
   [[ -n "$host" ]] || { say "$login: not placed in runtime/hosts/registry.json (or name --host)"; fail=1; continue; }
-  aid="$(id_of "$login")"
+  aid="$(id_of "$login")" || { fail=1; continue; }
   # A run that stopped after init and before certification left the id in
   # the account's store: minting again would be refused there forever.
   if [[ -z "$aid" ]]; then
@@ -156,7 +166,15 @@ for login in "${LOGINS[@]}"; do
   if (( DRY )); then say "would: on $host as $login: store init --agent-id $aid --remote $(repo_url "$aid"), push, export-key; certify; mirror"; continue; fi
   as_login "$login" "$ACCOUNT_SECRETS" store init --agent-id "$aid" --remote "$(repo_url "$aid")" >&2 \
     || { say "$login: init failed on $host"; fail=1; continue; }
-  as_login "$login" "$ACCOUNT_SECRETS" store push >&2 || { say "$login: push failed"; fail=1; continue; }
+  if (( BORN_NOW )); then
+    # A new account has no GitHub key yet (it comes from this store), so
+    # its first commit reaches its repository through its parent: an
+    # armored bundle of ciphertext, pushed with the parent's own access.
+    as_login "$login" "$ACCOUNT_SECRETS" store bundle | python3 "$STORE" seed-child "$aid" --remote "$(repo_url "$aid")" >&2 \
+      || { say "$login: its first commit did not reach its repository through this login"; fail=1; continue; }
+  else
+    as_login "$login" "$ACCOUNT_SECRETS" store push >&2 || { say "$login: push failed"; fail=1; continue; }
+  fi
   pub="$(mktemp)"
   if ! as_login "$login" "$ACCOUNT_SECRETS" store export-key > "$pub" || ! grep -q "BEGIN PGP PUBLIC KEY BLOCK" "$pub"; then
     rm -f "$pub"; say "$login: its public key did not come back"; fail=1; continue

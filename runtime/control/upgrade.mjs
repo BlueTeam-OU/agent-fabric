@@ -203,11 +203,11 @@ export async function upgradeOnce(request, {
   try {
     // Sessions are read again under the lease: the wait can outlast one.
     try { pids = readPids(); } catch (e) { return { status: 'failed', piece: 'claude', from, to: target, reason: `could not tell whether a session is running (pgrep: ${String(e.message).split('\n')[0].slice(0, 120)}); nothing installed` }; }
-    return await installHeld({ request, dir, bin, exec, kill, alive, sleep, now, stopWaitMs, from, target, pids, own });
+    return await installHeld({ request, dir, bin, exec, kill, alive, sleep, now, stopWaitMs, from, target, pids, own, root, home });
   } finally { await held.release(); }
 }
 
-async function installHeld({ request, dir, bin, exec, kill, alive, sleep, now, stopWaitMs, from, target, pids, own }) {
+async function installHeld({ request, dir, bin, exec, kill, alive, sleep, now, stopWaitMs, from, target, pids, own, root, home }) {
   const stop = pids.length > 0 && !own;
   const marker = { request_id: request.id, requested_at: now().toISOString(), piece: 'claude', from, to: target, pids, status: 'pending' };
   if (stop) {
@@ -231,9 +231,27 @@ async function installHeld({ request, dir, bin, exec, kill, alive, sleep, now, s
       : `claude install ${target}: ${lastLine(e).slice(0, 200)}`;
   }
   const ok = !reason;
+  // The user settings are rewritten from the harness just installed: the
+  // auto-mode environment is that harness's own list with the fleet's
+  // slots in it (ADR-008), and only a fabric upgrade reran bootstrap, so a
+  // claude upgrade alone left the previous build's wording (review of
+  // #74). Before the marker: the session restarting reads the new file.
+  // Its failure is said, never a failed install.
+  let settings = null;
+  if (ok && root && home) {
+    try {
+      const r = await exec('python3', [path.join(root, 'runtime', 'claude-code', 'user-settings.py'), path.join(home, '.claude', 'settings.json')],
+        { encoding: 'utf8', timeout: 120_000, stdio: ['ignore', 'pipe', 'pipe'] });
+      // Exit 0 with a "  !  " line is a key it could not write — autoMode
+      // left at the previous build's when the new one's defaults could not
+      // be read — so not a refresh (re-review of #74).
+      const refused = String(r?.stderr ?? '').split('\n').find(l => l.startsWith('  !  '));
+      settings = refused ? `not refreshed: ${refused.slice(5, 165)}` : 'refreshed';
+    } catch (e) { settings = `not refreshed: ${lastLine(e).slice(0, 160)}`; }
+  }
   if (stop) writeMarker(dir, { ...marker, status: ok ? 'done' : 'failed', installed, ...(reason && { reason }), finished_at: now().toISOString() });
   return {
-    status: ok ? 'upgraded' : 'failed', piece: 'claude', from, to: target, ...(reason && { reason }),
+    status: ok ? 'upgraded' : 'failed', piece: 'claude', from, to: target, ...(reason && { reason }), ...(settings && { settings }),
     session: stop ? 'restarting' : own && pids.length ? 'yours: relaunch to use it' : pids.length ? 'running' : 'none',
   };
 }
@@ -281,7 +299,21 @@ export async function upgradeFabric(request, {
   let from, branch;
   try { from = await git('rev-parse', '--short', 'HEAD'); branch = await git('rev-parse', '--abbrev-ref', 'HEAD'); }
   catch (e) { return { status: 'failed', piece: 'fabric', reason: `${root} is not a readable checkout: ${lastLine(e).slice(0, 160)}` }; }
-  if (branch !== 'main') return { status: 'refused', piece: 'fabric', from, reason: `the checkout is on ${branch}, not main; not moved — find whose work it is before moving it` };
+  if (branch !== 'main') {
+    // Not moved either way: a session running on that branch would lose its
+    // hooks mid-session. But a branch with nothing uncommitted and nothing
+    // unpushed loses nothing by a switch, and saying so is what the person
+    // needs — a locale branch left checked out kept an account a release
+    // behind, and its next launch ran the stale fabric (2026-09-30).
+    let safe = false;
+    try {
+      const upstream = await git('rev-parse', '--abbrev-ref', '@{u}');
+      safe = !(await git('status', '--porcelain')) && (await git('rev-list', '--count', `${upstream}..HEAD`)) === '0';
+    } catch { /* no upstream, or unreadable: not known safe */ }
+    return { status: 'refused', piece: 'fabric', from, reason: safe
+      ? `the checkout is on ${branch}, not main; not moved — it is clean and pushed, so nothing is lost by \`git switch main\` on the account, then upgrade again`
+      : `the checkout is on ${branch}, not main; not moved — find whose work it is before moving it` };
+  }
   try { await git('fetch', '-q', 'origin', 'main'); }
   catch (e) { return { status: 'failed', piece: 'fabric', from, reason: `git fetch: ${e?.killed ? 'timed out' : lastLine(e).slice(0, 160)}; not moved` }; }
   // After the fetch, a commit this checkout does not have is not on its

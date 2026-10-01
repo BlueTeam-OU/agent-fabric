@@ -40,6 +40,12 @@ new_repo() {
   mkdir -p "$SANDBOX/policies" "$SANDBOX/identities/roles/flutter-dev" "$SANDBOX/projects/demo" \
            "$SANDBOX/memory/projects/demo/flutter-dev"
   cp "$UNDER_TEST" "$SANDBOX/policies/"
+  # The guard is a shim that finds its module beside it (ADR-040 §5 rule 4),
+  # so the copy above needs the module copied too; the original bash ignores
+  # these files. Kept out of the repository under test by info/exclude, below.
+  mkdir -p "$SANDBOX/tools/fabric/guards"
+  cp "$SCRIPT_DIR"/../tools/fabric/git.py "$SANDBOX/tools/fabric/"
+  cp "$SCRIPT_DIR"/../tools/fabric/guards/*.py "$SANDBOX/tools/fabric/guards/"
   printf 'scope\n' > "$SANDBOX/identities/roles/flutter-dev/charter.md"
   printf '{"roles":[]}\n' > "$SANDBOX/identities/roles/catalog.json"
   printf '{"role_definitions":{"role":"fabric-coordinator","holders":["coord-01"]}}\n' > "$SANDBOX/policies/authority.json"
@@ -47,6 +53,7 @@ new_repo() {
   printf 'other\n' > "$SANDBOX/memory/projects/demo/flutter-dev/workflow.md"
   git -C "$SANDBOX" init -q
   git -C "$SANDBOX" config user.email t@e; git -C "$SANDBOX" config user.name t
+  printf 'tools/\n' >> "$SANDBOX/.git/info/exclude"
   git -C "$SANDBOX" add -A; git -C "$SANDBOX" commit -qm base
   git -C "$SANDBOX" branch -q base-ref
   # Renamed so there is no `main` for the guard to fall back to:

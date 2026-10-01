@@ -43,6 +43,23 @@ FABRIC_ROOT = os.environ.get("AGENT_FABRIC_ROOT") or os.path.dirname(
     os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__)))))
 
 
+SUBAGENT_WORKTREE = re.compile(r"/\.claude/worktrees/[^/]+(/|$)")
+
+
+def is_subagent(payload, cwd: str) -> bool:
+    """A subagent's start, not the session's: the payload carries an
+    agent_id, or the cwd is a worktree the harness made for one
+    (<checkout>/.claude/worktrees/<name>/)."""
+    # agent_id, not agent_type: a main session launched with --agent
+    # carries agent_type too, and its start must still bind (review of #73).
+    if isinstance(payload, dict) and payload.get("agent_id"):
+        return True
+    try:
+        return bool(SUBAGENT_WORKTREE.search(os.path.realpath(cwd)))
+    except (OSError, ValueError):
+        return False
+
+
 def main() -> int:
     try:
         raw = sys.stdin.read() if not sys.stdin.isatty() else ""
@@ -57,9 +74,19 @@ def main() -> int:
         identity = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(identity)
         ctx = identity.resolve_context(cwd=cwd or os.getcwd(), session=session)
+        # A subagent the harness starts in its own worktree runs this hook
+        # too, with that worktree as its cwd and the parent's session id:
+        # written, it repointed the LOGIN's binding at a subagent's scratch
+        # checkout, and lint, fabric-status and fabric-jobs then read the
+        # wrong working copy until the next start (found 2026-10-01, four
+        # Wave 3 workers). A subagent reads the binding; it never writes it.
+        subagent = is_subagent(payload, cwd or os.getcwd())
         # Under the agent lock: another hook (a second session of this
         # login) or a rebind from the shell may be writing the same file.
-        binding = identity.update_binding(lambda b: {**b,
+        # Read, not updated to itself: a write re-stamps updated_at, which
+        # fabric-status and fabric-role report as a binding change, and
+        # creates a binding that was not there (review of #73).
+        binding = identity.read_binding(ctx["agent"]) if subagent else identity.update_binding(lambda b: {**b,
             "working_copy": ctx["working_copy"],
             "project": ctx["project"] if ctx["project_source"] == "working-copy" else b.get("project"),
             "session": session or b.get("session"),

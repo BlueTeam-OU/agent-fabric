@@ -5,7 +5,7 @@ topic: "control-plane-daemon"
 description: "Fleet facts in real time come from bin/fabric-ctl (a daemon per account on the relay's fabric:control channel), not from sudo loops; what to know when one account stays silent"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-09-27"
+distilled_at: "2026-10-01"
 origin:
   - agent: user
     host: "develop-qzapp"

@@ -102,8 +102,8 @@ variant graphs, not the cache. Measure before you clean, and say what
 you removed and how much.
 
 **The control plane is read-only.** `agent-fabric/` and every project's
-`.agent-fabric/` are fabric-coordinator's to write; a charter, a brief or
-a routing entry you believe wrong is raised (a message, or a PR you do
-not merge), and a slice is corrected through your own memory — never
-edited in place. Your own role, {role}, is what
-you were launched with; a different one is a relaunch from the shell.
+`.agent-fabric/` are fabric-coordinator's to write; a charter, a brief
+or a routing entry you believe wrong is raised in a message to
+fabric-coordinator, and a slice is corrected through your own memory —
+never edited in place. Your own role, {role}, is what you were launched
+with; a different one is a relaunch from the shell.

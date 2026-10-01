@@ -1,8 +1,9 @@
-# Decision digest — read first
+# Decision digest — looked up, never read whole
 
 What is true now, one entry per record. Non-normative: where an entry and
-its record disagree, the record wins. `tools/fabric/adr.py lookup <word>`
-searches it.
+its record disagree, the record wins. Look it up, never read it whole:
+`fabric-adr lookup <word>…` answers the entries that mention every word,
+`fabric-adr lookup` alone this table.
 
 | Looking for | Record |
 |---|---|
@@ -40,9 +41,13 @@ searches it.
 | which Claude account a login runs on; moving logins; setup-token; usage windows | ADR-031 |
 | changing the GZCoord protocol; the grammar freeze; GZCOORD/2 | ADR-032 |
 | the relay; the human relay; transports; Telegram; the adapter contract | ADR-033 |
-| what a failure may take; single points; degraded modes (proposed) | ADR-034 |
-| working with another organization; portable trust; what may be shared (proposed) | ADR-035 |
-| cost per verified result; spend; shared resources (proposed) | ADR-036 |
+| what a failure may take; single points; degraded modes | ADR-034 |
+| working with another organization; portable trust; what may be shared | ADR-035 |
+| cost per verified result; spend; shared resources | ADR-036 |
+| your job list; fabric-jobs; the next job and a fresh session | ADR-037 |
+| an agent's key and secrets; the store; provision; recovery; backup | ADR-038 |
+| the agent id; UUIDv7; renaming a login | ADR-039 |
+| which language a tool is written in; the bash size limit and allowlist; porting a script; gh.py, git.py | ADR-040 |
 
 ### ADR-000 — The enduring organization (Accepted)
 
@@ -82,6 +87,8 @@ searches it.
   header's and the history's (§5 rule 10).
 - A 2026-09-27 — a record reads current: no date in §2 to §8; §1 may date an
   incident (§5 rule 11).
+- A 2026-09-29 — the DIGEST is looked up (`fabric-adr lookup`), never read whole;
+  each entry is at most 250 words (§2).
 - Keywords: ADR, amendment, supersede, ratify, index, digest, rationale.
 
 ### ADR-002 — Role, login and model are kept apart (Accepted)
@@ -202,6 +209,9 @@ searches it.
 - A 2026-09-28 — `tui` "default" is pinned, so a session's terminal keeps its
   scrollback.
 - A 2026-09-28 — the settings writer adds the memory-write check hook (ADR-013 rule 14).
+- A 2026-10-01 — the auto-mode classifier's picture of the fleet is
+  policies/auto-mode.json, written into every login's user settings; the
+  setup wizard is off (§5 rule 7).
 - Keywords: Claude Code, harness, settings.json, attribution, Co-Authored-By,
   auto-update, DISABLE_AUTOUPDATER, verbose, auto mode, system prompt, build.
 
@@ -219,6 +229,7 @@ searches it.
   `~/.local/bin` with narrow allow rules; wrappers still ask (§5 rules 8–9).
 - A 2026-09-28 — a `fresh` restart marker starts a new session, not a resume
   (rule 4, ADR-022 rule 10).
+- A 2026-09-30 — the signing key is in the operator's own store (§6).
 - Keywords: fabric-ctl, upgrade, distribution, signed, control plane,
   agentd, hostexec, harness.json, commands.json, approval, allow rule.
 
@@ -236,6 +247,7 @@ searches it.
   project's (§5 rules 9–11). Quota and fleet lease are not built (§2).
 - Deferred by the owner (2026-09-26): a shared Android SDK/Gradle cache,
   until a second Flutter login needs it (§7).
+- A 2026-09-30 — the coordinator keeps its own store and fills each child's, not Doppler (§2, §5 rule 1).
 - Keywords: host, placement, hostexec, fabric-host, ssh, provisioning,
   new-agent, Qubes, persist-accounts, moveto, lease, heavy, memory, crash, OOM.
 
@@ -254,19 +266,19 @@ searches it.
 
 ### ADR-012 — Credentials (Accepted)
 
-- An identity's secrets live in Doppler, project `agent-fabric`, one
-  config per login; the account holds one read-only token and
-  `fabric-secrets sync` applies the rest; nothing is committed (§2, §5
-  rules 1–2).
-- No tool prints a value; enrolment never passes one through a terminal
-  or argv; `fill-from` never copies identity or coordinator credentials
-  (§5 rules 3–4).
+- An identity's secrets live per login, in its own store (ADR-038);
+  `fabric-secrets sync` applies them and refuses another login's;
+  nothing is committed (§2, §5 rules 1–2).
+- No tool prints a value; provisioning never passes one through a
+  terminal or argv; `provision share` shares an allowlist and refuses
+  the identity and the coordinator's credentials (§5 rules 3–4).
 - A secret is described by shape and locator, never reproduced (SPEC §17)
   (§5 rule 5).
 - A destination and its credential move together, with a check on the
   secret itself; credentials are tested by shape (§5 rules 6–7).
+- A 2026-09-30 — the Doppler layout is replaced by each login's own store (§2, §5 rules 1–4, 8).
 - Keywords: credentials, secrets, Doppler, token, API key, fabric-secrets,
-  enroll, rotation, leak, shape, locator, base URL.
+  provision, enroll, rotation, leak, shape, locator, base URL.
 
 ### ADR-013 — The memory model: scopes, kinds of truth, tiers, the drain (Accepted)
 
@@ -368,20 +380,25 @@ searches it.
 - Authority attaches to roles and policy files, never to logins or
   directories; holding a role gives nothing over its definition (§2).
 - agent-fabric, and `.agent-fabric/` in every project, is committed only
-  by a session bound to `fabric-coordinator`: `pre-commit` and
-  `commit-msg` fence it, `check_agent_fabric_dir_authority.sh` reads the
-  `Fabric-Role:` trailer in CI (§5 rules 1–4).
-- Every commit carries its account's role as a trailer; a fold-only merge
-  passes (§5 rules 2–3). A locale's translations are its holder's to
-  commit, alone, and the coordinator's to merge (§5 rule 5).
+  by a session bound to `fabric-coordinator`: the hooks fence it, CI
+  reads the `Fabric-Role:` trailer (§5 rules 1–4).
+- Every commit carries its role as a trailer; a fold-only merge passes
+  (§5 rules 2–3). A locale's holder commits its translations (§5 rule 5).
+- A contributor role (`authority.json` `contributors`) commits its
+  entry's paths on its own `for/` branch; CI reads the base's entry, the
+  hooks HEAD's; a typed role is refused (§5 rule 8).
 - A guard is a commit-time check, a CI check on every added commit and a
-  planted suite case (§5 rule 6); a proposal is a PR left for the owning
-  role (§5 rule 7).
-- `check_charter_authority.sh` runs from `tests/run.sh` on every branch,
-  reading `authority.json` from the base of the diff (§6).
-- A 2026-09-28 — the charter tripwire's CI call site: the known gap closed.
-- Keywords: authority, read-only, fence, tripwire, Fabric-Role, trailer,
-  pre-commit, commit-msg, hooksPath, charter, locale carve-out, guard.
+  planted suite case (§5 rule 6); a proposal is a message, or a
+  contributor's branch (§5 rule 7).
+- `check_charter_authority.sh` runs on every branch against the base's
+  `authority.json` (§6).
+- A 2026-09-28 — the charter tripwire runs in CI.
+- A 2026-09-30 — credentials and the stores are this role's (References).
+- A 2026-10-01 — the contributor carve-out; a proposal is a message (§5 rules 7–8).
+- A 2026-10-01 — the fence's code is never in an entry (§5 rule 8).
+- A 2026-10-01 — CI runs main's guards (§5 rule 4).
+- Keywords: authority, read-only, fence, tripwire, Fabric-Role,
+  pre-commit, commit-msg, charter, locale carve-out, contributor, guard.
 
 ### ADR-019 — Work arrives as pull requests: one open PR per agent, 8–16 work commits to arm, the gate read before arming, no machine attribution, repository settings (Accepted)
 
@@ -449,12 +466,11 @@ searches it.
   `gzcoord-send` tells the sender, without refusing (§5 rule 8).
 - A clone-started session is held only if its project wires the hooks
   (§5 rule 9, §7).
-- A 2026-09-28 — an agent ends its own finished job with `fabric-fresh`: a new
-  session, not a resumed one (§5 rule 10).
-- A 2026-09-28 — local branches are swept weekly: `fabric-branches --sweep` deletes
-  what is on origin/main and reports the rest (§5 rule 11).
+- A 2026-09-28 — a finished job ends its session with `fabric-fresh` (§5 rule 10).
+- A 2026-09-28 — `fabric-branches --sweep` weekly (§5 rule 11).
 - A 2026-09-28 — the next job decides whether the session continues: `fabric-jobs
   next`, then `fabric-fresh --job` into the job's working copy (§5 rule 12).
+- A 2026-09-30 — the opening prompt names no command (§5 rule 1).
 - Keywords: session, lifecycle, inbox watch, Monitor, gzcoord-inbox,
   --follow, opening prompt, resume, auto mode, defaultMode, plan mode,
   hold, planning, presence.
@@ -508,9 +524,9 @@ searches it.
 - Keywords: in flight, branch, no PR, overlap, shared paths, trial merge,
   combine, conflict, worktree, trial-check, dependency.
 
-### ADR-026 — Progress is measured as supervision per verified result (Proposed)
+### ADR-026 — Progress is measured as supervision per verified result (Accepted)
 
-- Proposed, not binding: P3's progress read as owner supervision events
+- P3's progress read as owner supervision events
   per verified result, as a trend beside the verified-result rate, never
   a target (§2, §5 rules 1, 4).
 - A verified result: a merged PR, reviewed and green at its head, not
@@ -576,33 +592,26 @@ searches it.
 
 ### ADR-029 — The control plane: a control agent per account answers signed actions over the relay (Accepted)
 
-- Every account runs `agentd.mjs` under a lingering user unit, alive with
-  or without a session; it answers on the relay's `fabric:control`
-  channel, which the GZCoord tools refuse (§2, §5 rules 1–2).
-- No cursor, no ack: a daemon primes from the newest record, so a restart
-  replays nothing and a request made while it was down is lost (§2).
-- A closed op set, no request field reaches a shell; reads answered for a
-  host operator's address, `presence` for any placed account (§5 rules
-  3–4).
-- Actions need the operator's Ed25519 signature, live ≤ 600 s, never more
-  than a minute ahead, strictly newer than the last (§5 rule 5; ADR-009).
+- Every account runs `agentd.mjs` under a lingering user unit, session or
+  not, answering on the relay's `fabric:control` channel; no cursor, so a
+  request made while it is down is lost (§2, §5 rules 1–2).
+- A closed op set, no request field reaches a shell; actions need the
+  operator's Ed25519 signature, fresh and strictly newer than the last
+  (§5 rules 3–5).
 - Every reply arrives, gaps named, no secret; `fabric-ctl` exits 1 on
-  silence, a refused bundle or a failed action; the drain files only
-  verified bundles (§5 rules 6–9).
-- Reads are fenced, not proved: a relay-token holder can forge a row until
-  replies are signed (§6, §7).
-- A 2026-09-27 — actions run beside the read loop, one of a kind per account; a
-  second is answered `busy` (§5 rule 12).
-- A 2026-09-27 — rule 12 lists each operation's answer budget and the
-  cross-kind `busy` (§5 rule 12).
-- A 2026-09-28 — `jobs` (an operator's read) and `jobs-add` (a signed
-  action, one login) carry the job list (§5 rule 13).
-- A 2026-09-29 — `secrets-migrate` (a signed action) moves an account from
-  Doppler to its own store, verified by sha256 of `secrets.env` (§5 rule 14).
+  silence or a failed action; the drain files only verified bundles
+  (§5 rules 6–9). Reads are fenced, not proved, until replies are signed (§6).
+- A 2026-09-27 — actions run beside the read loop, one of a kind per
+  account; a second is `busy` (§5 rule 12).
+- A 2026-09-27 — each operation's answer budget (§5 rule 12).
+- A 2026-09-28 — `jobs` and `jobs-add` carry the job list (§5 rule 13).
+- A 2026-09-29 — `secrets-migrate` moves an account from Doppler to its
+  store, verified by sha256 (§5 rule 14).
+- A 2026-09-30 — rule 14 withdrawn with Doppler; the signing key is in the
+  operator's store (§5 rules 5, 14).
 - Keywords: control plane, agentd, fabric-ctl, control channel,
   fabric:control, relay, ops, status, ping, keys, usage, recall, tokens,
   drain, memory, signed, operator_key, keygen, linger, persist.
-
 ### ADR-030 — Presence replaces HELLO and GOODBYE (Accepted)
 
 - Whether a session runs is the control agent's answer from its process
@@ -624,10 +633,11 @@ searches it.
 
 ### ADR-031 — Claude accounts: which account a login runs on is assigned, applied and proved by signed action (Accepted)
 
-- Working sessions run on a template's setup-token: one Doppler config per
-  Claude account, and one reference line in each login's config; the
-  launcher refuses a plain-claude session without one (§2, §5 rules 1–3).
-- `fabric-accounts assign` writes and reads back the reference, then the
+- Working sessions run on a template's setup-token: an entry of the
+  coordinator's store per Claude account, its token put into each
+  login's store; the launcher refuses a plain-claude session without one
+  (§2, §5 rules 1–3).
+- `fabric-accounts assign` writes the token into each login's store, then the
   signed `secrets-sync` action has each account sync, prove the
   template's fingerprint, and resume its session on it; any row not
   `synced` exits 1 (§5 rules 4–5).
@@ -640,6 +650,7 @@ searches it.
   next sync (§5 rule 4).
 - A 2026-09-29 — on the coordinator's store, a template is its entry and an
   assignment writes the token into the login's store (§5 rules 1–2).
+- A 2026-09-30 — Doppler retired: the store entry and the store write are the only ones (§5 rules 1, 2, 4).
 - Keywords: Claude account, subscription, setup-token, /login, template,
   claude-accounts, CLAUDE_CODE_OAUTH_TOKEN, fabric-accounts, assign,
   secrets-sync, fingerprint, usage windows, observer, /usage.
@@ -676,24 +687,25 @@ searches it.
   (§5 rules 3–4).
 - The transport is the Claude-Bridge relay: one user unit on the
   operator's account, loopback, one database, one channel for every
-  project, the control plane beside it; the token from Doppler (§2, §5
-  rules 5–6).
+  project, the control plane beside it; the token from the account's own
+  store (§2, §5 rules 5–6).
 - The human relay is the fallback: validate, fenced block, 72 columns,
   minted id; normalise and check the addressee before the body (§5 rules
   7–8).
 - The relay is a single point of failure, authenticates no sender and
   filters nothing — the inbox does (§6).
+- A 2026-09-30 — the relay token comes from the account's own store (§5 rule 6).
 - Keywords: transport, relay, Claude-Bridge, claude-bridge,
   gzcoord-relay, human relay, fallback, Telegram, adapter contract,
   channel, gzapp:gzcoord, bridge token, central, single point of failure.
 
-### ADR-034 — Decentralization as a direction: a failure may reduce capacity, never take identity, knowledge or continuity (Proposed)
+### ADR-034 — Decentralization as a direction: a failure may reduce capacity, never take identity, knowledge or continuity (Accepted)
 
-- Proposed, not binding: decentralize only where a failure would take
+- Decentralize only where a failure would take
   identity, knowledge or the ability to go on working; reduced capacity
   is acceptable (§2).
 - §1 inventories what depends on one thing today — one host, one relay
-  and its database, one signing key, Doppler, one observer, two
+  and its database, one signing key, one observer, two
   providers, undrained memory, the owner — with each degraded mode or
   "none" (§1, §5 rule 1).
 - Data that exists nowhere else gets a copy first; a degraded mode counts
@@ -701,12 +713,13 @@ searches it.
   (§5 rules 2–4).
 - First step: a copy of the relay's database and a restore read back
   (§7). Waits on the owner's acceptance (§8).
+- A 2026-09-30 — the inventory's key and secrets rows name the stores; Doppler is gone (§1, §5 rule 4).
 - Keywords: decentralization, resilience, single point of failure,
   degraded mode, relay, host, crash, backup, autonomy, P5, proposed.
 
-### ADR-035 — Federation between organizations: expertise transfers, confidential information does not; portable trust first (Proposed)
+### ADR-035 — Federation between organizations: expertise transfers, confidential information does not; portable trust first (Accepted)
 
-- Proposed, not binding: what crosses between organizations is expertise
+- What crosses between organizations is expertise
   and results; a project's code and knowledge, private memory,
   credentials and channel traffic never do (§2, §5 rules 1–2).
 - No shared credential; no exchange before identity, action and
@@ -723,9 +736,9 @@ searches it.
 - Keywords: federation, organization, portable trust, identity,
   signature, provenance, confidential, licence, expertise, P6, proposed.
 
-### ADR-036 — Sustainable operation: shared resources, and cost per verified result beside supervision per verified result (Proposed)
+### ADR-036 — Sustainable operation: shared resources, and cost per verified result beside supervision per verified result (Accepted)
 
-- Proposed, not binding: cost per verified result — spend attributable to
+- Cost per verified result — spend attributable to
   a period's verified results over their number, ADR-026's denominator —
   read as a trend beside supervision per verified result, never a target
   or per agent (§2, §5 rules 1–2, 4).
@@ -742,7 +755,7 @@ searches it.
 - Keywords: sustainable, cost, spend, tokens, usage windows, budget,
   lease, verified result, capability per spend, P7, proposed.
 
-### ADR-037 — Each agent keeps a job list (Proposed)
+### ADR-037 — Each agent keeps a job list (Accepted)
 
 - One list per login, `agents/<login>/jobs.json`, written only through
   `runtime/identity.py`; states queued, active (one at a time), blocked,
@@ -761,32 +774,28 @@ searches it.
 
 ### ADR-038 — Each agent owns its key and its secrets (Accepted)
 
-- The login is the principal and the key its credential: one key per
-  login, made in the account, whose private half leaves only as the
-  agent's paper sheet (§2, §5 rules 1, 6).
-- A key is an agent's when its public half is committed at
-  `identities/keys/<id>.asc` and certified by its parent recorded in
-  `lineage.json`; lint refuses one without (§5 rule 2).
+- One key per login, made in the account: a certify-only identity key with
+  encryption, signing and authentication subkeys. Its private half leaves
+  only as a recovery copy encrypted to the owner's recovery key, backed up
+  to the fleet's Proton Drive (§5 rules 1, 6; §6).
+- A key is an agent's when committed at `identities/keys/<id>.asc` and
+  certified by its parent recorded in `lineage.json`; lint refuses one
+  without (§5 rule 2).
 - Each agent's secrets are a private pass(1)-format repository,
-  `gzapi-org/agent-fabric-secrets-<id>`, encrypted to that key alone: the parent
+  `agent-fabric-secrets-<id>`, encrypted to that key alone: the parent
   writes (`fabric-secrets put`) and never reads (§5 rule 3).
-- No step relies on a shared host; a key names no host and moves with its
-  login's home (§5 rules 4–5).
-- `sync` writes the same `secrets.env` from either source; migration from
-  Doppler compares by sha256 and falls back on a mismatch (§5 rules 7–8).
-- A 2026-09-29 — each key's recovery copy and every store's backup go to a
-  Proton Drive account dedicated to the fleet, not to paper (§5 rules 1, 6; §6).
-- A 2026-09-29 — the recovery copies are encrypted to the owner's recovery key,
-  whose passphrase only the owner holds; no agent can read one (§5 rules 1, 6; §6).
-- A 2026-09-29 — keys, lineage and repositories are named by the agent id
-  (ADR-039), not the login (§2, §5 rule 2).
-- A 2026-09-29 — one identity key per agent: a certify-only primary with an
-  encryption, a signing and an authentication subkey (§5 rule 1, §7).
+- No step relies on a shared host (§5 rules 4–5). `sync` reads the store
+  alone; a parent fills a new store with `provision` (§5 rules 3, 7–8).
+- A 2026-09-29 — recovery copies and backups go to Proton Drive.
+- A 2026-09-29 — recovery copies are encrypted to the owner's recovery key.
+- A 2026-09-29 — keys, lineage and repositories are named by the agent id (ADR-039).
+- A 2026-09-29 — one identity key with a subkey per use (§5 rule 1, §7).
+- A 2026-09-30 — Doppler removed from the code; `provision` fills a child's store (§5 rules 3, 7–8; §7).
+- A 2026-10-01 — a new account's store travels as a bundle (§5 rule 5).
 - Keywords: secrets, key, GPG, pass, QtPass, browserpass, paperkey, Proton Drive, backup,
   identity, lineage, parent, custody, recovery, Doppler, migration,
-  placement, P1.
-
-### ADR-039 — The agent id is a UUIDv7 minted at birth (Proposed)
+  provision, placement, P1.
+### ADR-039 — The agent id is a UUIDv7 minted at birth (Accepted)
 
 - Each agent has an id, a UUIDv7 whose time is its birth: an existing
   account's home creation time, a new one's enrolment. It is minted once
@@ -805,3 +814,23 @@ searches it.
 - A reused login is a new agent with a new id (§5 rule 7).
 - Keywords: agent id, UUIDv7, birth, rename, identity, lineage, key,
   secrets repository, P1.
+
+### ADR-040 — Implementation language: Python above 150 lines (Accepted)
+
+- New fabric tooling is Python 3.12+, standard library only; bash stays
+  for shims, forwarders, hook entry points, the suite runners and
+  sudo/ssh/installer step-runners (§5 rule 1).
+- Lint refuses a tracked bash script over 150 lines not named in
+  `policies/bash-allowlist.json`; each entry names its wave, and the
+  list only shrinks (§5 rule 2).
+- A port freezes the contract (argv, environment, stdout/stderr, exit
+  codes, help) in the module's header, keeps the path as a shim, runs the
+  old bash test unchanged as the oracle, and removes the entry (§5 rules
+  3–5).
+- GitHub and git go through `gh.py` and `git.py`: bodies on stdin or a
+  file, bounded calls named in their errors, JSON in Python (§5 rule 6).
+- A 2026-10-01 — the oracle's assertions stay; its gh mock may learn
+  gh.py's transport (still passing the bash original), and a case
+  reading the source reads the module.
+- Keywords: Python, bash, shell, port, allowlist, lint, shim, wave, gh,
+  git, 150 lines, P1.

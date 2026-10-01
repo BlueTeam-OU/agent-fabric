@@ -322,6 +322,11 @@ test('upgrade: the word after it is the piece, --version is digits, the wait is 
   assert.match(busy[1], /^db-admin\s+busy\s.*an upgrade is already running on this account$/, 'a busy row shows its note');
   const bare = table('upgrade', rows([expected[0]], [{ kind: 'reply', from: 'h/db-admin', op: 'upgrade', data: { upgrade: { from: '2.1.280', to: '2.1.281' } } }])).split('\n');
   assert.match(bare[1], /^db-admin\s+no status\s+2\.1\.280 → 2\.1\.281/, 'a reply with no status says so, never "undefined"');
+  const settings = table('upgrade', rows(expected.slice(0, 2), [
+    { kind: 'reply', from: 'h/db-admin', op: 'upgrade', data: { upgrade: { status: 'upgraded', from: '2.1.282', to: '2.1.285', session: 'none', settings: 'refreshed' } } },
+    { kind: 'reply', from: 'h/web-dev-01', op: 'upgrade', data: { upgrade: { status: 'upgraded', from: '2.1.282', to: '2.1.285', session: 'none', reason: 'r', settings: 'not refreshed: defaults unreadable' } } }])).split('\n');
+  assert.match(settings[1], /\snone\s+settings refreshed$/, 'the settings refresh is in the row');
+  assert.match(settings[2], /\snone\s+r; settings not refreshed: defaults unreadable$/, '…after the reason, and a failed one says why');
 });
 
 test('upgrade fabric: no --version, its own wait; a current row names main; the commit sent is origin/main, never HEAD', () => {
@@ -341,27 +346,29 @@ test('upgrade fabric: no --version, its own wait; a current row names main; the 
   assert.equal(originMain('/fabric', () => { throw new Error('offline'); }), null, 'a failed fetch sends nothing');
 });
 
-test('keygen: the private half goes to Doppler on stdin and nowhere else; the public half into this host\'s operator_key; an existing key is kept without --force', () => {
+test('keygen: the private half goes into this login\'s store on stdin and nowhere else; the public half into this host\'s operator_key; an existing key is kept without --force', () => {
   const dir = scratch('ctl-keygen-');
   const reg = path.join(dir, 'registry.json');
   fs.writeFileSync(reg, JSON.stringify({ hosts: { h: { operator: 'user' } }, placement: {} }));
   const calls = [];
-  const exec = (bin, args, opts) => { calls.push({ args, input: opts?.input }); return args[0] === 'configure' ? 'agents2_user\n' : ''; };
+  const exec = (bin, args, opts) => { calls.push({ bin, args, input: opts?.input }); return ''; };
   const out = []; const log = console.log, err = console.error;
   console.log = (...a) => out.push(a.join(' ')); console.error = (...a) => out.push(a.join(' '));
   try {
-    assert.equal(keygen({ force: false }, { registry: reg, exec, who: { host: 'h', agent: 'web-dev-01' }, home: dir }), 2, 'only the host operator makes the key');
-    assert.equal(keygen({ force: false }, { registry: reg, exec, who: { host: 'h', agent: 'user' }, home: dir }), 0);
+    assert.equal(keygen({ force: false }, { registry: reg, exec, who: { host: 'h', agent: 'web-dev-01' } }), 2, 'only the host operator makes the key');
+    assert.equal(keygen({ force: false }, { registry: reg, exec, who: { host: 'h', agent: 'user' } }), 0);
   } finally { console.log = log; console.error = err; }
-  const set = calls.find(c => c.args[0] === 'secrets');
-  assert.deepEqual(set.args, ['secrets', 'set', 'FABRIC_CONTROL_SIGNING_KEY', '--project', 'agent-fabric', '--config', 'agents2_user', '--silent']);
-  assert.ok(privateKeyFrom(set.input), 'a usable private key went to doppler on stdin');
+  assert.equal(calls.length, 1, 'one call: the store');
+  const set = calls[0];
+  assert.match(set.bin, /bin\/fabric-secrets$/);
+  assert.deepEqual(set.args, ['store', 'set', 'FABRIC_CONTROL_SIGNING_KEY']);
+  assert.ok(privateKeyFrom(set.input), 'a usable private key went to the store on stdin');
   assert.ok(!set.args.some(a => a.includes('pkcs8')), 'never on the command line');
   assert.ok(!out.join('\n').includes(set.input.slice(14, 40)), 'never printed');
   const saved = JSON.parse(fs.readFileSync(reg, 'utf8')).hosts.h.operator_key;
   assert.ok(publicKeyFrom(saved), 'the public half is in the registry');
   console.error = () => {};
-  try { assert.equal(keygen({ force: false }, { registry: reg, exec, who: { host: 'h', agent: 'user' }, home: dir }), 2, 'a registered key is kept'); }
+  try { assert.equal(keygen({ force: false }, { registry: reg, exec, who: { host: 'h', agent: 'user' } }), 2, 'a registered key is kept'); }
   finally { console.error = err; }
   assert.equal(JSON.parse(fs.readFileSync(reg, 'utf8')).hosts.h.operator_key, saved);
 });
@@ -464,21 +471,3 @@ test('a placed non-operator may ask presence, and nothing else; an unplaced one 
   } finally { r.close(); }
 });
 
-test('keygen on a login whose secrets are on its store: the private half goes into the store on stdin, never to Doppler', () => {
-  const dir = scratch('ctl-keygen-store-');
-  const reg = path.join(dir, 'registry.json');
-  fs.writeFileSync(reg, JSON.stringify({ hosts: { h: { operator: 'user' } }, placement: {} }));
-  fs.mkdirSync(path.join(dir, '.config', 'agent-fabric'), { recursive: true });
-  fs.writeFileSync(path.join(dir, '.config', 'agent-fabric', 'secrets-source'), 'store\n');
-  const calls = [];
-  const exec = (bin, args, opts) => { calls.push({ bin, args, input: opts?.input }); return ''; };
-  const log = console.log; console.log = () => {};
-  try { assert.equal(keygen({ force: false }, { registry: reg, exec, who: { host: 'h', agent: 'user' }, home: dir }), 0); }
-  finally { console.log = log; }
-  assert.ok(!calls.some(c => c.bin === 'doppler'), 'Doppler is not called');
-  const set = calls.find(c => c.args[0] === 'store');
-  assert.deepEqual(set.args, ['store', 'set', 'FABRIC_CONTROL_SIGNING_KEY']);
-  assert.match(set.bin, /bin\/fabric-secrets$/);
-  assert.ok(privateKeyFrom(set.input), 'a usable private key on stdin');
-  assert.ok(publicKeyFrom(JSON.parse(fs.readFileSync(reg, 'utf8')).hosts.h.operator_key));
-});

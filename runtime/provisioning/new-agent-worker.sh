@@ -4,8 +4,9 @@
 # installers, the host keys, the clones, bootstrap, the binding, the
 # toolchain, the verification), run on the host the account is placed on
 # — directly by new-agent.sh for its own host, through
-# runtime/hostexec/hostexec for any other. It knows nothing of Doppler or
-# the API keys: those are the coordinator's, between its two phases.
+# runtime/hostexec/hostexec for any other. It knows nothing of the
+# account's secrets: its key, its store and what goes in it are the
+# coordinator's, between its two phases (ADR-038).
 #
 #   new-agent-worker.sh prepare <login> <role> [--claude VERSION|stable|latest] [--dry-run]
 #       steps 0-4: host audit, account, home + claude + ori, GitHub's host keys, the fabric clone
@@ -91,15 +92,6 @@ if [[ "$PHASE" == prepare ]]; then
         else say "0. $PLATFORM_ID: this AppVM lacks ${missing_pkgs[*]} — a package does not survive a reboot here;"
              say "   $PKG_INSTALL_HINT ${missing_pkgs[*]}   (then restart this AppVM)"; fi
     else say "0. $PLATFORM_ID: host tools present (${#FABRIC_HOST_TOOLS[@]}, the fabric's contract)"; fi
-    # doppler: a static binary; /usr/local persists in an AppVM, and enroll.sh
-    # reads it from there for every account.
-    if [[ -x /usr/local/bin/doppler ]]; then say "   doppler: /usr/local/bin/doppler"
-    elif command -v doppler >/dev/null 2>&1; then
-        best_effort $SUDO -n install -m 755 "$(command -v doppler)" /usr/local/bin/doppler; say "   doppler: copied to /usr/local/bin (persistent)"
-    else
-        if (( DRY )); then say "would: install doppler to /usr/local/bin with its vendor script (curl -Ls https://cli.doppler.com/install.sh | sudo sh)"
-        else curl -Ls -m 60 https://cli.doppler.com/install.sh | $SUDO -n sh >/dev/null 2>&1 && say "   doppler: installed to /usr/local/bin" || say "   warning: doppler NOT installed (vendor script failed); step 5 will stop there"; fi
-    fi
 
 
     # ---- 1. the account ---------------------------------------------------------
@@ -214,7 +206,7 @@ if [[ "$PHASE" == prepare ]]; then
     exit 0
 fi
 
-# ---- finish: after the coordinator's Doppler steps --------------------------
+# ---- finish: after the coordinator's secrets step ---------------------------
 # What a project needs of the host beyond the fabric's contract is the
 # project's to say: projects/<id>/integration/provisioning/host-check.sh,
 # run here for each project, names what is missing for the person.
@@ -279,8 +271,8 @@ done
 # The control agent bootstrap enabled in the account's user manager answers
 # the coordinator from here on: one ping, from this checkout, as the operator.
 "$ROOT/bin/fabric-ctl" "$LOGIN" ping 2>&1 | tail -n +2 | sed 's/^/   control plane: /' >&2 || true
-# A Claude account for plain claude: a template reference synced into the
-# login's secrets.env (docs/adr/ADR-031-claude-accounts-assigned-applied-and-proved-by-signed-action.md) — the launcher starts no
+# A Claude account for plain claude: a template's token, assigned into the
+# login's store and synced into its secrets.env (docs/adr/ADR-031-claude-accounts-assigned-applied-and-proved-by-signed-action.md) — the launcher starts no
 # plain-claude session without one. Never a copy of another login's
 # .credentials.json: a refresh token has one holder, and the first renewal
 # by either signs the other out.

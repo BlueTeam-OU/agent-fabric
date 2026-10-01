@@ -18,7 +18,7 @@ export MOVETO_TITLE="$2"
 #      coordinator, so this clone can only be behind — fast-forward it;
 #   2. bootstrap, which installs from that checkout (hooks, the agent
 #      files, the skills, the workspace settings) and is idempotent;
-#   3. the account's secrets, from its Doppler config into
+#   3. the account's secrets, from its own store into
 #      ~/.config/agent-fabric/secrets.env, before the shell sources it.
 fabric="$HOME/projects/agent-fabric"
 if [ "$(git -C "$fabric" rev-parse --is-inside-work-tree 2>/dev/null)" = true ]; then

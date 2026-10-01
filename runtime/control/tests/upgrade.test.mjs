@@ -11,7 +11,7 @@ import { scratch } from '../../../tests/scratch.mjs';
 import { fileURLToPath } from 'node:url';
 import { upgrade, upgradeOnce, holdLease, checkArgs, markerPath, pinnedVersion, sessionPids, lastLine, LEASE_HELD, POST_STOP_BUDGET_S } from '../upgrade.mjs';
 
-function fixture({ installed = '2.1.280', pin = '2.1.281', installFails = false, installsWrong = false } = {}) {
+function fixture({ installed = '2.1.280', pin = '2.1.281', installFails = false, installsWrong = false, settingsFail = false, settingsWarn = false } = {}) {
   const home = scratch('upgrade-home-');
   const root = scratch('upgrade-root-');
   fs.mkdirSync(path.join(root, 'runtime', 'claude-code'), { recursive: true });
@@ -20,8 +20,9 @@ function fixture({ installed = '2.1.280', pin = '2.1.281', installFails = false,
   const calls = [];
   let current = installed;
   const exec = async (bin, args) => {
-    calls.push(args.join(' '));
+    calls.push(bin === 'python3' ? `user-settings ${path.relative(home, args[1])}` : args.join(' '));
     if (args[0] === '--version') return { stdout: `${current} (Claude Code)\n` };
+    if (bin === 'python3') { if (settingsFail) { const e = new Error('Command failed: user-settings.py'); e.stderr = '  !  unreadable\n'; throw e; } return { stdout: '  +  settings\n', stderr: settingsWarn ? "  !  s.json: Claude Code's auto-mode defaults could not be read — autoMode left as it is\n" : '' }; }
     if (args[0] === 'install') { if (installFails) { const e = new Error(`Command failed: claude install ${args[1]}`); e.stderr = 'Downloading…\nInstall failed: network\n'; throw e; } current = installsWrong ? '2.1.279' : args[1]; return { stdout: '' }; }
     throw new Error('unexpected ' + args.join(' '));
   };
@@ -46,9 +47,9 @@ test('a running session: the marker first, then SIGTERM, wait, install, verify, 
   let alive = true;
   const kill = (pid, sig) => { order.push(`kill ${pid} ${sig}`); assert.equal(JSON.parse(fs.readFileSync(markerPath(f.dir))).status, 'pending', 'the marker is written before the session is signalled'); alive = false; };
   const r = await upgradeOnce(req(), { home: f.home, root: f.root, dir: f.dir, exec: f.exec, lease: f.lease, sessions: [4242], kill, alive: () => alive, sleep: async () => {}, me: 'h/db-admin', now: () => new Date('2026-09-24T21:00:00Z') });
-  assert.deepEqual(r, { status: 'upgraded', piece: 'claude', from: '2.1.280', to: '2.1.281', session: 'restarting' });
+  assert.deepEqual(r, { status: 'upgraded', piece: 'claude', from: '2.1.280', to: '2.1.281', settings: 'refreshed', session: 'restarting' });
   assert.deepEqual(order, ['kill 4242 SIGTERM']);
-  assert.deepEqual(f.calls, ['--version', 'lease held', 'install 2.1.281', '--version', 'lease released'], 'the lease is taken before the stop and held through the read-back');
+  assert.deepEqual(f.calls, ['--version', 'lease held', 'install 2.1.281', '--version', 'user-settings .claude/settings.json', 'lease released'], 'the lease is taken before the stop and held through the read-back; the settings follow the new build');
   const m = JSON.parse(fs.readFileSync(markerPath(f.dir)));
   assert.deepEqual([m.status, m.from, m.to, m.installed, m.request_id, m.pids], ['done', '2.1.280', '2.1.281', '2.1.281', 'req-1', [4242]]);
   assert.equal(fs.statSync(markerPath(f.dir)).mode & 0o777, 0o600);
@@ -148,6 +149,20 @@ test('holdLease: the real fabric-lease holds until release; no lease directory a
     await assert.rejects(holdLease(ROOT), e => e.code === 2 && e.reason === 'nodir' && /no lease directory/.test(e.line));
     await assert.rejects(holdLease(scratch('upgrade-noscript-')), e => e.code === -1 && /ENOENT/.test(e.line));
   } finally { if (saved === undefined) delete process.env.AGENT_FABRIC_LEASES; else process.env.AGENT_FABRIC_LEASES = saved; }
+});
+
+test('a refresh that wrote every key but autoMode is not a refresh', async () => {
+  const f = fixture({ settingsWarn: true });
+  const r = await upgradeOnce(req(), { home: f.home, root: f.root, dir: f.dir, exec: f.exec, lease: f.lease, sessions: [], kill: () => assert.fail('nothing to signal'), me: 'h/db-admin' });
+  assert.equal(r.status, 'upgraded');
+  assert.match(r.settings, /^not refreshed: .*auto-mode defaults could not be read/);
+});
+
+test('a settings refresh that fails is said, and the install still counts', async () => {
+  const f = fixture({ settingsFail: true });
+  const r = await upgradeOnce(req(), { home: f.home, root: f.root, dir: f.dir, exec: f.exec, lease: f.lease, sessions: [], kill: () => assert.fail('nothing to signal'), me: 'h/db-admin' });
+  assert.equal(r.status, 'upgraded');
+  assert.match(r.settings, /^not refreshed: .*unreadable/);
 });
 
 test('a failed install says why by its last line; one that timed out says so', async () => {

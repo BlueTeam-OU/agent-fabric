@@ -5,7 +5,7 @@ topic: "assemble-hygiene-inconsistent"
 description: "CLOSED 2026-09-20: assemble substitutes a banned term in place on both paths (new claim and carried text) since the 2026-09-16 decision; only non-English prose is still refused in a claim and reported in carried text — both make the run…"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-09-26"
+distilled_at: "2026-10-01"
 origin:
   - agent: user
     host: "develop-qzapp"

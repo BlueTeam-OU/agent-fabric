@@ -9,3 +9,7 @@ marker. Since `fabric-fresh` (ADR-022 rule 10) the marker can say
 `fresh`, and then the launcher starts a new session with no `--resume`;
 the blind review of that pull request found this rule still describing
 only the upgrade case. The upgrade path is unchanged.
+
+### Amendment 2026-09-30 — Doppler is retired: the stores replace it
+
+Doppler is removed (ADR-038, agent-fabric #69): the signing key lives in the operator's own store.

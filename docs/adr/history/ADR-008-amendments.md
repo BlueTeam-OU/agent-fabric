@@ -26,3 +26,21 @@ checkout is rewritten rather than duplicated, and every other hook the
 account has kept. A hook added to user settings reaches running sessions
 at the next upgrade, as a display key did the same day; a hook is
 additive and changes nothing on screen.
+
+### Amendment 2026-10-01 — The fleet's auto-mode picture is written centrally
+
+The owner asked for auto mode's setup to be done centrally, for every
+agent, after the architect-cto login's own /auto-mode-setup proposed a
+configuration. That proposal had read one project's transcripts. It
+called the trusted repository private, so confidential material was
+"fine to push", on a login that also pushes to agent-fabric, which is
+public; and its Host containment entry came out six times over.
+
+The harness's documentation settled where a fleet configuration goes:
+the classifier reads `autoMode` from user and managed settings, never
+from a project's settings. Managed settings would need root on every
+host, and `/etc` does not persist in a Qubes AppVM; user scope is where
+the fabric already writes its keys. Read back with `claude auto-mode
+config` (2.1.282) from a scratch configuration: 21 environment entries,
+the built-in 17 allow rules, 70 soft blocks plus the fleet's one, and 1
+hard block plus the fleet's one.

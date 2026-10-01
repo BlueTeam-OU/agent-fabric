@@ -5,11 +5,11 @@
 #   fabric-accounts login <account>   sign one Claude account in, once — a real terminal
 #   fabric-accounts list              signed in, email, sign-in expiry; never a token
 #   fabric-accounts read              every account's windows now, through the harness's /usage
-#   fabric-accounts assign <login…|all> <account> [--no-restart] [--no-sync]
-#                                     move logins to a Claude account (a Doppler reference each), then
+#   fabric-accounts assign <login…|all> <account> [--no-restart] [--no-sync] [--force]
+#                                     move logins to a Claude account (its token into each login's store), then
 #                                     fabric-ctl <logins> secrets-sync --expect <fp> --restart: each account
 #                                     applies it, proves it, and resumes a running session on it
-#   fabric-accounts templates         each Doppler template's fingerprint
+#   fabric-accounts templates         each template's fingerprint, in the coordinator's store
 #
 # The control daemon keeps these sign-ins alive and answers
 # `fabric-ctl <login> accounts`; this is the setup and the local look.

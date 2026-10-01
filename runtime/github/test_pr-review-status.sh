@@ -113,6 +113,19 @@ cat > "$SANDBOX/bin/gh" <<'MOCK'
 #!/usr/bin/env bash
 S="$GH_MOCK_STATE"
 
+# TWO TRANSPORTS, because the script under test has two generations. The
+# bash asked GraphQL with `-f query=...` and REST with `--jq`; the Python
+# port (tools/fabric/gh.py) sends a JSON request on stdin (`--input -`) and
+# reads GitHub's full response, and asks REST unfiltered, with `--paginate
+# --slurp` answering a LIST OF PAGES. Both are answered here, each in the
+# shape the real gh gives, so one oracle judges both implementations.
+GQL=""
+if [[ "$1 ${2:-}" == "api graphql" && "$*" == *"--input -"* ]]; then
+  GQL="$(jq -r '.query' < /dev/stdin)"
+fi
+SLURP=0
+[[ "$*" == *--slurp* ]] && SLURP=1
+
 case "$1 ${2:-}" in
   "pr view")
     if [[ "$*" == *"nameWithOwner"* ]]; then
@@ -148,14 +161,17 @@ import json,sys
 print(json.dumps([{'__typename':'User','login':sys.argv[1]}]*int(sys.argv[2])))" "$who" "$n")"
     exit 0 ;;
   "repo view")
-    echo '{"nameWithOwner":"o/r"}'; exit 0 ;;
+    # `--jq .nameWithOwner` (the bash) answers the bare name; without it
+    # (the port) the object. The real gh does both.
+    if [[ "$*" == *--jq* ]]; then echo 'o/r'; else echo '{"nameWithOwner":"o/r"}'; fi
+    exit 0 ;;
   "pr checks")
     echo "some / Check	pass	1s"; exit 0 ;;
   "api graphql")
     # REVIEW_REQUESTED_EVENT timestamps, so the refusal override has the
     # ordering the request COUNT cannot supply. state/formaldate empty
     # means the lookup found nothing.
-    if [[ "$*" == *REVIEW_REQUESTED_EVENT* ]]; then
+    if [[ "$*$GQL" == *REVIEW_REQUESTED_EVENT* ]]; then
       # RAW JSON ONLY. This mock previously accepted `--argjson` and ran
       # the caller's filter itself — a flag `gh api` does not have. The
       # real command failed with "unknown flag" on every invocation while
@@ -182,8 +198,20 @@ print(json.dumps([{'__typename':'User','login':sys.argv[1]}]*int(sys.argv[2])))"
     fi
     # The unresolved-threads lookup (already filtered: the script passes
     # --jq). state/threads_fail makes it FAIL, which must read as unknown.
-    if [[ "$*" == *reviewThreads* ]]; then
+    if [[ "$*$GQL" == *reviewThreads* ]]; then
       [[ -f "$S/threads_fail" ]] && exit 1
+      if [[ -n "$GQL" ]]; then
+        # Full response shape. The fixture holds the nodes; a blank one
+        # (the default) is a lookup that found no pull request, which the
+        # script must read as unknown, exactly as the filtered form's
+        # blank line was read.
+        if [[ -n "$(tr -d '[:space:]' < "$S/threads")" ]]; then
+          printf '{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":%s}}}}}\n' "$(cat "$S/threads")"
+        else
+          echo '{"data":{"repository":{"pullRequest":null}}}'
+        fi
+        exit 0
+      fi
       [[ -s "$S/threads" ]] && { cat "$S/threads"; exit 0; }
     fi
     echo '[]'; exit 0 ;;
@@ -207,6 +235,7 @@ if [[ "$1" == "api" && "$*" == *"/reviews"* ]]; then
     (( $(cat "$S/n" 2>/dev/null || echo 0) > $(cat "$S/reviews_fail_after") )) && exit 1
   fi
   {
+    (( SLURP )) && printf '['
     printf '['
     first=1
     # A fifth field is the reviewer's author_association; an account
@@ -241,6 +270,7 @@ if [[ "$1" == "api" && "$*" == *"/reviews"* ]]; then
         "$login" "$assoc" "$commit" "$at" "$body"
     done < "$S/reviews"
     printf ']\n'
+    (( SLURP )) && printf ']\n'
   }
   exit 0
 fi
@@ -311,6 +341,19 @@ if [[ "$1" == "api" && "$*" == *"/check-suites"* ]]; then
     fi
     printf ']}\n'
   } > "$S/.suites.json"
+  # `--paginate --slurp`: a list of PAGES, each the raw envelope. Page two
+  # carries one suite of this ref and this pr, dated EARLIER than page
+  # one's, so that reducing page one alone picks the wrong date.
+  if (( SLURP )); then
+    p2="$(cat "$S/page2suitedate" 2>/dev/null || true)"
+    if [[ -n "$p2" ]]; then
+      printf '[%s,{"check_suites":[{"id":7,"created_at":"%s","head_branch":%s,"pull_requests":[{"number":77}]}]}]\n' \
+        "$(cat "$S/.suites.json")" "$p2" "$ref"
+    else
+      printf '[%s]\n' "$(cat "$S/.suites.json")"
+    fi
+    exit 0
+  fi
   jqf=""
   prev=""
   for a in "$@"; do [[ "$prev" == "--jq" ]] && jqf="$a"; prev="$a"; done
@@ -347,6 +390,7 @@ fi
 if [[ "$1" == "api" && "$*" == *"/comments"* ]]; then
   [[ -f "$S/verdicts_fail" ]] && exit 1
   {
+    (( SLURP )) && printf '['
     printf '['
     first=1
     # <login>,<sha>[,<created_at>]. A sha of REFUSED serves the
@@ -374,6 +418,7 @@ if [[ "$1" == "api" && "$*" == *"/comments"* ]]; then
       fi
     done < "$S/verdicts" 2>/dev/null
     printf ']\n'
+    (( SLURP )) && printf ']\n'
   }
   exit 0
 fi
@@ -1204,14 +1249,12 @@ echo "pr-review-status.sh — no gh api call invents a flag gh does not have"
 # backslash continuations — folding those joined nothing, so a flag on a
 # later line was not seen as part of the call. Verified by putting the
 # defect back: it fails this case.
-offenders="$(awk '
-  /gh api/            { inside = 1 }
-  inside && /--(argjson|slurp|null-input|raw-input)/ {
-      match($0, /--(argjson|slurp|null-input|raw-input)/)
-      print substr($0, RSTART, RLENGTH)
-  }
-  inside && /\)"/     { inside = 0 }
-' "$UNDER_TEST" | sort -u | tr '\n' ' ')"
+# The implementation is Python now (ADR-040), and it calls no jq at all:
+# every argument list goes to gh, so a jq-only flag ANYWHERE in the module
+# is one handed to gh. `--slurp` left the list: gh api has had it since
+# 2.48, and gh.py pages with it.
+offenders="$(grep -oE -- '--(argjson|null-input|raw-input)' "$SCRIPT_DIR/../../tools/fabric/github/pr_review_status.py" \
+             | sort -u | tr '\n' ' ')"
 if [[ -z "${offenders// /}" ]]; then
     pass "gh api is never handed a jq-only flag"
 else

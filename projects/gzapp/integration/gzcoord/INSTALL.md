@@ -53,7 +53,7 @@ Do not create a nested Git repository, and do not vendor the subsystem.
    relay's runtime — venv, token, database, log — lives in the hosting
    workspace's `projects/.gzcoord/`, outside every repository. Every
    account gets the token as `CLAUDE_BRIDGE_AUTH_TOKEN` in its environment
-   from its own Doppler config (`bin/fabric-secrets sync`,
+   from its own store (`bin/fabric-secrets sync`,
    `runtime/provisioning/README.md` "Secrets"); the gitignored
    `.claude/settings.local.json` `env` entry and `infra/local/.env.local`
    remain accepted for a clone provisioned by hand.

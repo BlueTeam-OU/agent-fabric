@@ -5,7 +5,7 @@ topic: "pr-band-accumulate"
 description: "One open PR per agent (gzapp's rule, with its exceptions) and 8–16 work commits to arm — the next piece of work is another commit, never a PR per topic; two one-commit PRs in a morning was the mistake"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-09-26"
+distilled_at: "2026-10-01"
 origin:
   - agent: user
     host: "develop-qzapp"

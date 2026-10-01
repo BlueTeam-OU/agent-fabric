@@ -3,8 +3,8 @@
 # host: everything the control plane can do without a person at a
 # terminal, in order, idempotently, then the short list of what only a
 # person can do. Run by a fabric-coordinator holder from its own login
-# (the account steps go through sudo; the Doppler steps use the
-# coordinator's own CLI token).
+# (the account steps go through sudo; the secrets step is the
+# coordinator's as the account's parent, ADR-038).
 #
 #   runtime/provisioning/new-agent.sh <login> <role> [--host <id>] [--project <id>]... [--claude VERSION|stable|latest] [--dry-run]
 #
@@ -13,11 +13,11 @@
 #
 # TWO HALVES (review, 2026-09-16). This script is the ORCHESTRATOR: it
 # runs on the coordinator's host and keeps what only the coordinator
-# holds — the registry, the Doppler administration, the API keys. The
+# holds — the registry, its own store, the API keys. The
 # HOST half, runtime/provisioning/new-agent-worker.sh, runs on the host
 # the account is placed on (runtime/hosts/registry.json; --host names a
 # new placement) through runtime/hostexec/hostexec — directly on this
-# host, over ssh to any other — in two phases around the Doppler steps:
+# host, over ssh to any other — in two phases around the secrets step:
 # `prepare` (0-4) and `finish` (6-10). The host names itself (`hostname
 # -s`, checked against the registry id) and the coordinator never stamps
 # a host it is not on.
@@ -38,8 +38,8 @@
 #      package is the TemplateVM's (dnf there, not here). So: the rpm
 #      tools the fabric and the projects use (git, gh, node, npm,
 #      python3, jq, gpg) are audited and a missing one is named with its
-#      package for the template; doppler goes to /usr/local/bin once
-#      (persistent), the account's own tools go under its ~/.local. What
+#      package for the template; the account's own tools go under its
+#      ~/.local. What
 #      a PROJECT needs of the host beyond that is the project's own
 #      integration/provisioning/host-check.sh, run in finish. [worker: prepare]
 #   1. the Linux account (useradd), home 700, the shared-cache group, and the
@@ -62,10 +62,13 @@
 #   4. ~/projects/agent-fabric cloned over https (the fabric is public;
 #      the account has no key yet) — enrolment reads the account's own
 #      checkout for fabric-secrets                       [worker: prepare, 1-4]
-#   5. Doppler enrolment: enroll.sh <login>, fill-from <coordinator>,
-#      issue-openrouter-keys, issue-openai-keys, then sync — GH_TOKEN, the
-#      relay token, the SSH key pair, the git identity strings, a key of
-#      the account's own on each API                     [the coordinator]
+#   5. the account's key and store (store-enroll.sh --born-now: made on
+#      its host, certified here), filled by this login as its parent
+#      (fabric-secrets provision identity, share, issue-key openrouter and
+#      openai — AGENT_LOGIN/HOST, GH_TOKEN, the relay token, the SSH key
+#      pair, the git identity strings, a key of its own on each API), then
+#      handed to the account as a bundle (it has no key to pull with yet)
+#      and synced as it                                  [the coordinator]
 #   6. every --project cloned AS THE ACCOUNT over SSH from the remote the
 #      registry names (the key from step 5 is what makes this work)
 #   7. bootstrap.sh as the account (workspace CLAUDE.md, hooks, agent
@@ -80,11 +83,12 @@
 #      credential copy a classifier refuses an agent; §5), and the
 #      workspace-trust dialog at the first interactive launch. [worker: finish, 6-10]
 #
-# NEVER: a secret value on the terminal (enroll.sh keeps them inside
-# doppler calls); a copy of the coordinator's admin or provisioning keys
-# (enroll.sh fill-from excludes them); a guess at a port offset (a row in
-# the project's table is devex-tooling's to add, and the registry marks
-# the name per login so fill-from never inherits one).
+# NEVER: a secret value on the terminal (provision keeps them inside its
+# process, and the parent cannot read what it put); a copy of the
+# coordinator's admin or provisioning keys (provision shares an allowlist
+# of names, and refuses those even when named); a guess at a port offset
+# (a row in the project's table is devex-tooling's to add, and never a
+# shared name).
 #
 # FAILURE SEMANTICS (review, 2026-09-16 — before this, `run x; say done`
 # announced success whatever x returned, and a failed useradd, clone,
@@ -104,7 +108,7 @@ set -uo pipefail
 
 ROOT="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../.." && pwd)"
 REGISTRY="$ROOT/projects/registry.json"
-ENROLL="$ROOT/runtime/provisioning/secrets/enroll.sh"
+SECRETS="$ROOT/runtime/provisioning/secrets/fabric-secrets"
 STORE_ENROLL="$ROOT/runtime/provisioning/secrets/store-enroll.sh"
 HOSTS="${AGENT_FABRIC_HOSTS_REGISTRY:-$ROOT/runtime/hosts/registry.json}"
 HX="$ROOT/runtime/hostexec/hostexec"
@@ -137,7 +141,7 @@ must() { run "$@" || die "step failed: $* — nothing after it ran; fix the caus
 probe() { "$@"; }
 best_effort() { run "$@" || say "warning: $* failed; continuing"; }
 COORD="$(id -un)"
-[[ "$COORD" != root ]] || die "run this as the fabric-coordinator login, not root: the Doppler steps use your own CLI token."
+[[ "$COORD" != root ]] || die "run this as the fabric-coordinator login, not root: the account's store is filled from yours."
 
 # ---- what is asked for must exist in the fabric --------------------------
 [[ -f "$ROOT/identities/roles/$ROLE/charter.md" ]] || die "no role '$ROLE' under identities/roles/ (bin/fabric-role list)."
@@ -178,58 +182,41 @@ dry_arg=(); (( DRY )) && dry_arg=(--dry-run)
 # ---- 0-4 on the host ------------------------------------------------------------
 worker prepare "$LOGIN" "$ROLE" ${CLAUDE_TARGET:+--claude "$CLAUDE_TARGET"} "${dry_arg[@]}" || die "the host half stopped (above); nothing after it ran"
 
-# ---- 5. Doppler enrolment ---------------------------------------------------
-# A key of the account's own is minted once: issue-* replaces whatever the
-# name holds, so a re-run must not mint again. The name's presence in the
-# account's config is the check (names only; no value is read).
-config_has() {  # config_has <name> — true when the account's config carries it
-    # Asked THROUGH the account on its host: the recorded config name is
-    # in its ~/.doppler; only the names are read, never a value. Not
-    # bounded by a timeout on purpose: a lookup cut short reads as
-    # "absent", and a re-run would mint a second key. A hang makes
-    # nothing; these Doppler steps retire with Doppler (ADR-038 §7).
-    local cfg; cfg="$("$HX" "$HOST" --as "$LOGIN" -- doppler configure get enclave.config --plain --scope / 2>/dev/null || true)"
-    [[ -n "$cfg" ]] || return 1
-    doppler secrets --only-names --json --project agent-fabric --config "$cfg" 2>/dev/null | python3 -c 'import json,sys; sys.exit(0 if sys.argv[1] in json.load(sys.stdin) else 1)' "$1"
-}
-if (( DRY )); then say "would: enroll.sh $LOGIN; fill-from $COORD $LOGIN; issue-openrouter-keys and issue-openai-keys $LOGIN (each once)"
-else
-    # First pass: config + token + the strings. Its verification is
-    # EXPECTED to report the keys missing (they are issued below), so its
-    # exit status is not the fact here — what is, is that a config exists
-    # for the account afterwards, which config_has proves through it.
-    "$ENROLL" "$LOGIN" >"$LOG" 2>&1
-    probe config_has AGENT_LOGIN || { tail -5 "$LOG" >&2; die "step failed: enroll.sh $LOGIN — no Doppler config holds the account (see above); nothing after it ran"; }
-    "$ENROLL" fill-from "$COORD" "$LOGIN" 2>&1 | grep -v "^gathered\|^upload" | sed 's/^/   /' >&2
-    (( PIPESTATUS[0] == 0 )) || die "step failed: enroll.sh fill-from $COORD $LOGIN; nothing after it ran"
-    # Both API keys are per login (projects/registry.json agent_env), so
-    # fill-from never copies them and presence means "issued".
-    if probe config_has OPENROUTER_API_KEY; then say "   OpenRouter key: present (issued once; not minted again)"
-    else "$ENROLL" issue-openrouter-keys "$LOGIN" 2>&1 | tail -1 | sed 's/^/   /' >&2; (( PIPESTATUS[0] == 0 )) || die "step failed: enroll.sh issue-openrouter-keys $LOGIN; nothing after it ran"; fi
-    if probe config_has OPENAI_API_KEY; then say "   OpenAI key: present (issued once; not minted again)"
-    else "$ENROLL" issue-openai-keys "$LOGIN" 2>&1 | tail -1 | sed 's/^/   /' >&2; (( PIPESTATUS[0] == 0 )) || die "step failed: enroll.sh issue-openai-keys $LOGIN; nothing after it ran"; fi
-    "$ENROLL" "$LOGIN" 2>&1 | grep -E "authenticated|signing key|verification|OK$|NOT OK" | sed 's/^/   /' >&2
-    (( PIPESTATUS[0] == 0 )) || die "step failed: enroll.sh $LOGIN (sync and verify); nothing after it ran"
-    say "5. enrolled; secrets synced"
-fi
-
-# ---- 5b. the account's own key and store (ADR-038) ---------------------------
+# ---- 5. the account's key, store and secrets (ADR-038) ------------------------
 # Its parent is this login: the key is made in the account on its host,
-# certified here, and its store mirrored here. A parent without a store of
-# its own cannot certify (store-enroll.sh --self first): then this step is
-# said and skipped, never a stop, and the account is keyed later with
-# store-enroll.sh <login>, as the rest of the fleet is.
-if (( DRY )); then say "would: store-enroll.sh $LOGIN --host $HOST (its key, its private store, this login's certification)"
-elif ! python3 "$ROOT/tools/fabric/secret_store.py" export-key >/dev/null 2>&1; then
-    say "5b. skipped: this login has no store of its own yet (store-enroll.sh --self); key $LOGIN later with store-enroll.sh $LOGIN"
+# certified here, its store mirrored here and filled with put — which this
+# login cannot read back. Every piece is idempotent: store-enroll keeps a
+# key and id already made, and provision leaves a name the store holds
+# alone (a key is minted once; a second run must not mint again).
+provision() {  # provision <label> <args…>: one line per run, statuses only
+    local label="$1"; shift
+    local rows; rows="$("$SECRETS" provision "$@" 2>>"$LOG")" || { tail -3 "$LOG" >&2; die "step failed: fabric-secrets provision $*; nothing after it ran"; }
+    say "   $label: $(python3 -c 'import json,sys,collections; c=collections.Counter(r["status"] for r in json.load(sys.stdin)); print(", ".join(f"{v} {k}" for k, v in sorted(c.items())) or "nothing to do")' <<<"$rows")"
+}
+if (( DRY )); then say "would: store-enroll.sh $LOGIN --host $HOST --born-now; provision identity, share, issue-key openrouter and openai (each once); its store to $LOGIN as a bundle; fabric-secrets sync --no-pull as $LOGIN"
 else
+    python3 "$ROOT/tools/fabric/secret_store.py" export-key >/dev/null 2>&1 \
+        || die "this login has no store of its own, so it cannot be a parent: store-enroll.sh --self first; nothing after it ran"
     "$STORE_ENROLL" "$LOGIN" --host "$HOST" --born-now 2>&1 | sed 's/^/   /' >&2
     (( PIPESTATUS[0] == 0 )) || die "step failed: store-enroll.sh $LOGIN; nothing after it ran"
-    say "5b. its key made and certified, its store mirrored; commit identities/keys/, then write its recovery copy and back up:"
+    provision "identity" identity "$LOGIN" --host "$HOST"
+    provision "shared names" share "$LOGIN"
+    provision "OpenRouter key" issue-key openrouter "$LOGIN"
+    provision "OpenAI key" issue-key openai "$LOGIN"
+    # The filled store reaches the account as a bundle: its SSH key is in
+    # it, so it could not pull it (store-enroll's first contact). Then
+    # synced as the account, from its own checkout, without a pull: 2 is
+    # "applied, names missing", said by the verification in finish; 1 and
+    # 3 are a store the account cannot read or one naming someone else.
+    python3 "$ROOT/tools/fabric/secret_store.py" child-bundle "$LOGIN" \
+        | "$HX" "$HOST" --as "$LOGIN" -- projects/agent-fabric/bin/fabric-secrets store take-bundle 2>&1 | sed 's/^/   /' >&2
+    (( PIPESTATUS[0] == 0 && PIPESTATUS[1] == 0 )) || die "step failed: its store did not reach $LOGIN as a bundle; nothing after it ran"
+    "$HX" "$HOST" --as "$LOGIN" -- projects/agent-fabric/bin/fabric-secrets sync --quiet --no-pull 2>&1 | sed 's/^/   /' >&2
+    rc=${PIPESTATUS[0]}; (( rc == 0 || rc == 2 )) || die "step failed: fabric-secrets sync as $LOGIN (exit $rc); nothing after it ran"
+    say "5. its key made and certified, its store filled and synced; commit identities/keys/, then write its recovery copy and back up:"
     say "     bin/fabric-host $HOST run --as $LOGIN -- projects/agent-fabric/bin/fabric-secrets store recovery-copy"
     say "     bin/fabric-secrets store backup"
 fi
-
 
 # ---- 6-10 on the host -----------------------------------------------------------
 worker finish "$LOGIN" "$ROLE" "${clone_args[@]}" "${dry_arg[@]}" || die "the host half stopped (above); nothing after it ran"

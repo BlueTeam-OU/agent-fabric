@@ -19,13 +19,81 @@ project repositories contain project truth
 agent-fabric contains agent infrastructure
 ```
 
+## Five minutes: from an account to a working agent
+
+A Linux host with `git`, `python3` (3.12 or newer), `node` (20 or newer)
+and `gh`. One Linux account per agent. A parent directory, here
+`~/projects/`, that holds this repository beside the project checkouts it
+manages. Every step below runs as the agent's own login.
+
+```sh
+# 1. Set the account up, once.
+cd ~/projects && git clone <this repository> agent-fabric
+agent-fabric/runtime/claude-code/bootstrap.sh   # workspace instructions, hooks, agent files, every command on PATH
+fabric-secrets sync                             # the account's own credentials, from the encrypted store its parent made
+
+# 2. Bind a role, from a login shell.
+fabric-role list
+fabric-role bind backend-dev                    # the function this session will perform
+
+# 3. Launch, from the working copy the work is in.
+cd ~/projects/<project>                         # the directory is context; the login is the identity
+../agent-fabric/runtime/openrouter/launch       # through OpenRouter; --provider anthropic for plain Claude
+```
+
+The session starts knowing who it is (`fabric-status`), what it owes
+(`fabric-jobs list`) and which project rules apply, and it watches its
+inbox from its first turn. Another agent reaches it by writing a message
+file and running `gzcoord-send <file>`; the address is `<host>/<login>`.
+What a session learns it writes to its own memory, one fact per file.
+A session bound to `fabric-coordinator` turns that into shared
+knowledge:
+
+```sh
+fabric-ctl all memory --out ~/drain             # every account harvests its own memory; nothing reads another home
+tools/fabric/assemble.py --bundle ~/drain/<login>/<wc>.tar \
+    --project <project> --working-copy ~/projects/<wc> --stamp $(date +%F)
+```
+
+A further agent on the host is one command for a coordinator:
+`runtime/provisioning/new-agent.sh <login> <role> --project <id>`.
+
+## The flow: bind, launch, inbox, drain
+
+```text
+ fabric-role bind <role>       a login shell; the function the next session will hold
+          │
+          ▼
+ runtime/openrouter/launch     reads the binding, renders the prompt (identity, charter,
+          │                    brief, team, memory), routes each capability class to a
+          │                    model and an effort, starts Claude Code with the watch armed
+          ▼
+ the session                   fabric-status: who am I; fabric-jobs: what do I owe
+   ├─ inbox   gzcoord-inbox --follow    every delivery is advisory; the tree is checked first
+   ├─ send    gzcoord-send <file>       to one <host>/<login>; what must happen is a PR, not a message
+   ├─ work    branch → commit → PR      main is reached only through a pull request
+   └─ learn   ~/.claude/…/memory/       one fact per file; a roles_class opts it into the drain
+          │
+          ▼
+ drain (fabric-coordinator)    fabric-ctl all memory → tools/fabric/assemble.py
+          │                    → <working copy>/.agent-fabric/memory/<role>/, with provenance
+          ▼
+ the next session              the SessionStart hook hands it the role's remit and INDEX.md;
+                               a slice that disagrees with the tree loses to the tree
+```
+
+A role never changes inside a session: a different role is a rebind and
+a relaunch. What may cross to another organization, and what never does,
+is [ADR-035](docs/adr/ADR-035-federation-between-organizations.md).
+
 ## Decisions
 
 What the fabric has decided, why, and what would reopen it lives in
 [`docs/adr/`](docs/adr/README.md): numbered decision records, amended in
 place with their history kept, checked by `tools/fabric/adr.py` in the
-commit hook, in CI and in the suite. Read
-[`docs/adr/DIGEST.md`](docs/adr/DIGEST.md) first, then the record.
+commit hook, in CI and in the suite. Look a subject up in
+[`docs/adr/DIGEST.md`](docs/adr/DIGEST.md) with `fabric-adr lookup <topic>`,
+then read the record.
 
 - fabric-coordinator writes the records; only the owner accepts one, and
   an `Accepted` record names where the owner's word is.
@@ -63,7 +131,7 @@ two agents; a role is held by any number of agents at once.
 | **harness adapter** | the launcher, hooks, agent files and settings that turn all of the above into a Claude Code session, on plain Claude or through OpenRouter | `runtime/openrouter/launch`, `runtime/claude-code/` | ADR-008, ADR-022 |
 | **project binding** | which roles, domains and path rules apply to each managed repository, and each role's remit there | `<working copy>/.agent-fabric/` in the project (`taxonomy.json`, `roles/`); the fabric's own under `.agent-fabric/` here | ADR-004, ADR-011 |
 | **policy and guards** | who may change what, enforced by a commit hook, a CI check and a suite case | `policies/` | ADR-018, ADR-019, ADR-020 |
-| **credentials** | per-login secrets in Doppler, put where the tools read them; never in a file here or in a message | `bin/fabric-secrets` | ADR-012 |
+| **credentials** | each login's secrets in its own encrypted store, put where the tools read them; never in a file here or in a message | `bin/fabric-secrets` | ADR-038, ADR-039 |
 | **hosts and resources** | provisioning an account, running a command on its host, one holder per shared host resource | `runtime/provisioning/`, `runtime/hostexec/`, `bin/fabric-lease` | ADR-010 |
 
 ## How a session starts
@@ -95,8 +163,8 @@ Never in this repository. Per agent, under
 `role-history.jsonl`, `model-profile.local.json` (the agent's own model
 choices; `bin/fabric-model`) and the rendered `launch-prompt.md`, every
 one written through `runtime/identity.py`. An identity's secrets are in
-Doppler, one config per login, and `bin/fabric-secrets sync` puts them
-where the tools read them.
+its own encrypted store (ADR-038), and `bin/fabric-secrets sync` puts
+them where the tools read them.
 
 ## Commands
 

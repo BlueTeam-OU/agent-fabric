@@ -1,9 +1,10 @@
 # ADR-036 — Sustainable operation: shared resources, and cost per verified result beside supervision per verified result
 
 **Date:** 2026-09-27
-**Status:** Proposed
+**Status:** Accepted
+**Ratified:** owner, 2026-09-29, "Accept", answering fabric-coordinator's question closing the Proposed records; carried by the pull request that marks them Accepted
 **Decision Makers:** the owner; drafted by fabric-coordinator
-**Scope:** how the fabric would treat its finite means — host resources, model spend and usage windows, prompt and context budgets — as one account, and how it would measure cost per verified result; no tool, file or practice is changed by this record
+**Scope:** how the fabric treats its finite means — host resources, model spend and usage windows, prompt and context budgets — as one account, and how it measures cost per verified result (`tools/fabric/results.py`, `fabric-results`)
 **Pillar:** P7
 
 ## 1. Context and Problem
@@ -47,7 +48,7 @@ what the limit bought.
 
 ## 2. Decision
 
-Proposed: **the fabric measures cost per verified result, beside
+**The fabric measures cost per verified result, beside
 supervision per verified result, and treats each shared resource as a
 commitment.**
 
@@ -92,8 +93,6 @@ sources do not have.
 
 ## 5. Binding Rules
 
-Proposed — none binds until the owner accepts this record.
-
 1. Cost per verified result is published per period, per repository and
    in total, with its numerator, its denominator and the verified-result
    rate beside it, and the supervision measure of ADR-026 on the same
@@ -113,8 +112,10 @@ Proposed — none binds until the owner accepts this record.
 
 ## 6. Consequences
 
-- If accepted, a reader is owed: nothing attributes a login's spend to
-  the pull request it produced. The session records carry the spend; the
+- `fabric-results` reads the spend (`fabric-ctl all tokens`) over the
+  period its results were merged in, and divides it by verified results
+  only across every registered project (`--all`), because nothing yet
+  attributes a login's spend to the pull request it produced. The session records carry the spend; the
   link from a session to a result would come from the branch and the
   commits, and is not built.
 - Broker spend needs a reader of the provider's per-key report, which the
@@ -139,11 +140,7 @@ whether the definitions hold.
 
 ## 8. Decision Status
 
-Proposed. It waits on the owner's acceptance of the measure and of the
-shared-resource rule, individually (ADR-001 §5 rule 2: arming the pull
-request that carries it does not ratify a new direction unless the
-description says so and the owner arms it on that basis). Until then it
-binds nothing and nothing is built for it.
+Accepted and in force.
 
 ## References
 

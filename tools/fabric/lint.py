@@ -1359,6 +1359,172 @@ def key_lineage_findings(root: str) -> list[str]:
     return mod.verify(root)
 
 
+BASH_LINE_LIMIT = 150
+BASH_SHEBANG = re.compile(r"^#!.*\b(bash|sh)\b")
+
+
+def _git():
+    """tools/fabric/git.py (ADR-040 §5 rule 6), loaded by path: lint runs
+    as a script and as a module the tests load under another name."""
+    spec = importlib.util.spec_from_file_location("fabric_git", os.path.join(os.path.dirname(os.path.abspath(__file__)), "git.py"))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def _tracked(root: str) -> list[str]:
+    r = _git().run(root, "ls-files", "-z", check=False, timeout=60)
+    return [f for f in r.stdout.split("\0") if f] if r.returncode == 0 else []
+
+
+def _is_bash(path: str) -> bool:
+    if path.endswith(".sh"):
+        return True
+    try:
+        with open(path, "rb") as fh:
+            first = fh.readline(200).decode("utf-8", "replace")
+    except OSError:
+        return False
+    return bool(BASH_SHEBANG.match(first))
+
+
+def bash_size_findings(root: str, base_ref: str = "origin/main") -> list[str]:
+    """ADR-040 §5 rule 2: a tracked bash script over 150 lines must be on
+    policies/bash-allowlist.json; an entry whose script is gone or back
+    under the limit is stale; an entry the base branch's list does not
+    have is an addition, and the list only shrinks. Without a readable
+    base (a fresh clone, the commit that adds the list) additions are not
+    judged."""
+    listed_path = os.path.join(root, "policies", "bash-allowlist.json")
+    try:
+        listed = (json.load(open(listed_path, encoding="utf-8")).get("scripts") or {})
+    except FileNotFoundError:
+        listed = {}
+    except ValueError as e:
+        return [f"policies/bash-allowlist.json: not JSON ({e})"]
+    findings = []
+    over = {}
+    for rel in _tracked(root):
+        full = os.path.join(root, rel)
+        if not os.path.isfile(full) or os.path.islink(full) or not _is_bash(full):
+            continue
+        with open(full, "rb") as fh:
+            n = sum(1 for _ in fh)
+        if n > BASH_LINE_LIMIT:
+            over[rel] = n
+    for rel, n in sorted(over.items()):
+        if rel not in listed:
+            findings.append(f"{rel}: {n} lines of bash, over {BASH_LINE_LIMIT} and not on policies/bash-allowlist.json — "
+                            "write it in Python (ADR-040)")
+    for rel in sorted(listed):
+        if rel not in over:
+            findings.append(f"policies/bash-allowlist.json: {rel} is gone or {BASH_LINE_LIMIT} lines or fewer — remove its entry")
+    # The list as the branch forked from it, not as the base stands now: a
+    # branch behind main still lists what main has since ported away, and
+    # against main's tip those read as additions (review of #70). Without
+    # a merge base (a ref with no common history) the ref itself.
+    mb = _git().run(root, "merge-base", "HEAD", base_ref, check=False, timeout=60)
+    since = mb.stdout.strip() if mb.returncode == 0 and mb.stdout.strip() else base_ref
+    base = _git().run(root, "show", f"{since}:policies/bash-allowlist.json", check=False, timeout=60)
+    if base.returncode == 0:
+        try:
+            before = set((json.loads(base.stdout).get("scripts") or {}))
+        except ValueError:
+            before = None
+        if before is not None:
+            for rel in sorted(set(listed) - before):
+                findings.append(f"policies/bash-allowlist.json: {rel} is added; the list only shrinks (ADR-040 §5 rule 2)")
+    return findings
+
+
+# What a role IS, never a contributor's to commit (ADR-018 §5 rule 8): a rule
+# ending in "/" is a directory, any other one file, as in an entry. The
+# guards and what they import (git.py) or run in CI (the suite runners and
+# the helper they source); the definitions; runtime/claude-code/ whole — the
+# reviewer's agent file, the harness hooks and the settings that register
+# them, the workspace prompt, and what installs them; the role, routing,
+# prompt and review-brief code (review and re-review of #75).
+CONTRIBUTOR_NEVER = (
+    "identities/", "routing/", "policies/", "communication/gzcoord/protocol/", "docs/adr/", "memory/",
+    ".agent-fabric/", ".github/", "CLAUDE.md",
+    "tools/fabric/guards/", "tools/fabric/git.py", "tools/fabric/lint.py", "tests/run.sh", "tests/static.sh",
+    "tests/test_contributors.py", "tests/test_agent_fabric_dir_authority.py", "tests/test_charter_authority.py",
+    "tests/leak-check.sh", "runtime/identity.py", "runtime/claude-code/",
+    "bin/fabric-role", "tools/fabric/role.py", "tools/fabric/routing.py", "tools/fabric/launch_prompt.py",
+    "bin/fabric-review", "tools/fabric/review_brief.py",
+)
+# The one path under a never-prefix an entry may name: the list the port
+# shrinks, which lint itself holds to shrinking (ADR-040 §5 rule 2).
+CONTRIBUTOR_MAY = ("policies/bash-allowlist.json",)
+
+
+def _rule_covers(rule: str, path: str) -> bool:
+    return path.startswith(rule) if rule.endswith("/") else path == rule
+
+
+def contributor_rule_findings(paths: list[str], excluding: list[str]) -> list[str]:
+    """Each never-path a rule reaches, compared as prefixes rather than by
+    sample files (review of #75): a rule inside a never-prefix is refused
+    outright; a rule above one is refused unless an exclusion covers it."""
+    out = []
+    for r in paths:
+        if r in CONTRIBUTOR_MAY:
+            continue
+        for n in CONTRIBUTOR_NEVER:
+            inside = _rule_covers(n, r)
+            above = r.endswith("/") and n.startswith(r) and not any(_rule_covers(e, n) for e in excluding)
+            if inside or above:
+                out.append(f"rule {r!r} reaches {n}")
+    return out
+
+
+def contributor_findings(root: str) -> list[str]:
+    """policies/authority.json `contributors`: each entry is whole
+    (contributors.py drops a half-written one, which then admits nothing —
+    said here rather than found at a refused commit), names a catalogued role
+    other than the owner, and reaches nothing in CONTRIBUTOR_NEVER."""
+    path = os.path.join(root, "policies", "authority.json")
+    try:
+        text = open(path, encoding="utf-8").read()
+        doc = json.loads(text)
+    except FileNotFoundError:
+        return []
+    except ValueError as e:
+        return [f"policies/authority.json: not JSON ({e})"]
+    raw = doc.get("contributors", [])
+    if not isinstance(raw, list):
+        return ["policies/authority.json: `contributors` is not a list"]
+    spec = importlib.util.spec_from_file_location(
+        "fabric_contributors", os.path.join(os.path.dirname(os.path.abspath(__file__)), "guards", "contributors.py"))
+    co = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(co)
+    whole = co.contributors_of(text)
+    findings = []
+    catalogued: set[str] | None
+    try:
+        catalogued = {r["id"] for r in json.load(open(os.path.join(root, "identities", "roles", "catalog.json"),
+                                                        encoding="utf-8"))["roles"]}
+    except (OSError, ValueError, KeyError, TypeError) as e:
+        catalogued = None
+        if raw:
+            findings.append(f"identities/roles/catalog.json: unreadable ({e}), so no contributor's role can be checked")
+    owner = (doc.get("role_definitions") or {}).get("role")
+    for i, e in enumerate(raw):
+        role = e.get("role") if isinstance(e, dict) else None
+        if not isinstance(role, str) or role not in whole:
+            findings.append(f"policies/authority.json: contributors[{i}]: not a whole entry (a role, a non-empty "
+                            "list of paths, a list of exclusions) — it admits nothing")
+            continue
+        where = f"policies/authority.json: contributors[{i}] ({role})"
+        if role == owner:
+            findings.append(f"{where}: the owner role needs no entry")
+        if catalogued is not None and role not in catalogued:
+            findings.append(f"{where}: not in identities/roles/catalog.json")
+        for f in contributor_rule_findings(whole[role]["paths"], whole[role]["excluding"]):
+            findings.append(f"{where}: {f}, which defines what a role is or enforces the fence (ADR-018 §5 rule 8)")
+    return findings
+
+
 def host_registry_findings(root: str) -> list[str]:
     """runtime/hosts/registry.json: a host id is its short hostname, so ids
     are unique by construction and an ssh destination reaches one host;
@@ -1663,6 +1829,12 @@ def main() -> int:
 
     # --- no project's name in a generic file --------------------------------
     findings += project_name_findings(root)
+
+    # --- bash over 150 lines only where the allowlist says (ADR-040) ---------
+    findings += bash_size_findings(root)
+
+    # --- a contributor's entry never reaches a definition (ADR-018) ---------
+    findings += contributor_findings(root)
 
     # --- the review lenses ---------------------------------------------------
     findings += review_lens_findings(root)

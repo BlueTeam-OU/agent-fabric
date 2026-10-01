@@ -1,7 +1,8 @@
 # ADR-039 — The agent id is a UUIDv7 minted at birth
 
 **Date:** 2026-09-29
-**Status:** Proposed
+**Status:** Accepted
+**Ratified:** owner, 2026-09-29, by the merge of agent-fabric #64 (046c3a4), which carried it, as §8 provided
 **Decision Makers:** the owner (an id per agent from its birth time; the id as the identity across renames; the birth of an existing agent as its home's creation time, of a new one as its enrolment; what is stored named by the id, what is typed and read named by the login, the repository's description carrying both); drafted by fabric-coordinator
 **Scope:** the agent's identity record: `identities/keys/lineage.json` and `identities/keys/<id>.asc`; the agent key's user id; each agent's secrets repository and its mirror, bundle and recovery copy (ADR-038); `tools/fabric/secret_store.py`, `runtime/provisioning/secrets/store-enroll.sh`, `runtime/provisioning/new-agent.sh`
 **Pillar:** P1
@@ -140,9 +141,7 @@ whole when the parent is renamed.
 
 ## 8. Decision Status
 
-Proposed with the rollout of ADR-038. It is accepted by the owner's merge
-of the pull request that carries it. The coordinator already holds its
-id; every other agent receives one at enrolment.
+Accepted and in force.
 
 ## References
 

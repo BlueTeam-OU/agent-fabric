@@ -17,6 +17,7 @@ it was found."""
 from __future__ import annotations
 
 import json
+import re
 import os
 import shutil
 import subprocess
@@ -167,6 +168,193 @@ def main() -> int:
                   p.returncode == 1 and json.loads(p.stdout)[0]["status"] == "failed", p.stdout + p.stderr)
             p = run(parent, "assign", "no-such", "kid")
             check("an unknown template is refused", p.returncode == 1 and "not a template" in p.stderr, p.stderr)
+            # The coordinator assigning its own login: no mirror of itself
+            # exists under children/, the token is its own entry.
+            p = run(parent, "assign", "work-account", PID, "--json")
+            mine = json.loads(p.stdout or "[]")
+            got = subprocess.run(["gpg", "--batch", "--quiet", "--decrypt", os.path.join(own_env, "CLAUDE_CODE_OAUTH_TOKEN.gpg")],
+                                 env=parent, capture_output=True, text=True)
+            check("assigning the store's own agent writes its own entry, which it reads back",
+                  p.returncode == 0 and mine and mine[0]["status"] == "written" and got.stdout == TOKEN
+                  and TOKEN not in p.stdout, p.stdout + p.stderr + got.stderr[-200:])
+
+            # provision (the Doppler enrolment's replacement): the parent
+            # fills the child's store with put, reads nothing back, prints
+            # no value. Shared names are an allowlist.
+            PROV = os.path.join(ROOT, "tools", "fabric", "store_provision.py")
+            prov = lambda *a: subprocess.run([sys.executable, PROV, *a], env=parent, cwd=tmp, capture_output=True, text=True)
+            rows_of = lambda p: {(r.get("name"), r["status"]) for r in json.loads(p.stdout or "[]")}
+            for k, v in (("GH_TOKEN", "parent-gh-token"), ("GIT_USER_NAME", "Fleet Person"), ("SSH_PUBLIC_KEY", "ssh-ed25519 AAAAshared"),
+                         ("OPENROUTER_PROVISIONING_KEY", "prov-" + SECRET)):
+                run(parent, "set", k, stdin=v)
+            p = prov("share", "kid")
+            got = rows_of(p)
+            check("provision share: the parent's shared names the child lacks are written; one it holds is present",
+                  p.returncode == 0 and ("GIT_USER_NAME", "written") in got and ("SSH_PUBLIC_KEY", "written") in got
+                  and ("GH_TOKEN", "present") in got and ("SSH_PRIVATE_KEY", "skipped") in got, p.stdout + p.stderr)
+            check("…and never a name off the allowlist, nor a value",
+                  not os.path.exists(os.path.join(mirror, "env", "OPENROUTER_PROVISIONING_KEY.gpg"))
+                  and SECRET not in p.stdout + p.stderr and "Fleet Person" not in p.stdout, p.stdout)
+            p = prov("share", "kid")
+            check("provision share again: present, nothing written", p.returncode == 0
+                  and not any(st == "written" for _, st in rows_of(p)), p.stdout)
+            for named in ("OPENROUTER_PROVISIONING_KEY", "OPENROUTER_API_KEY"):
+                p = prov("share", "kid", "--name", named)
+                check(f"provision share --name {named}: refused, off the allowlist (review of #69, F2)", p.returncode == 1
+                      and "not a shared name" in p.stderr and not os.path.exists(os.path.join(mirror, "env", f"{named}.gpg")),
+                      p.stdout + p.stderr)
+            p = prov("identity", "kid", "--host", "h1")
+            check("provision identity writes AGENT_LOGIN and AGENT_HOST", p.returncode == 0
+                  and rows_of(p) == {("AGENT_LOGIN", "written"), ("AGENT_HOST", "written")}, p.stdout + p.stderr)
+            p = prov("identity", "kid", "--host", "h1")
+            check("…and leaves them alone once present", rows_of(p) == {("AGENT_LOGIN", "present"), ("AGENT_HOST", "present")}, p.stdout)
+
+            # issue-key against a local stand-in for OpenRouter: the
+            # provisioning key goes in the header, the minted key into the
+            # child's store, and a put that fails after the mint deletes it.
+            import http.server, threading
+            seen = []
+            class Keys(http.server.BaseHTTPRequestHandler):
+                def log_message(self, *a): pass
+                def do_GET(self):
+                    seen.append(("GET", self.path, self.headers.get("Authorization")))
+                    if self.path.startswith("/v1/organization/projects?"):
+                        body = {"data": [{"id": "proj_1", "status": "active"}]}
+                    else:   # the project's service accounts: an earlier one under this name
+                        body = {"data": [{"id": "sa_old", "name": "agent-fabric-kid"}]}
+                    self.send_response(200); self.end_headers(); self.wfile.write(json.dumps(body).encode())
+                def do_POST(self):
+                    seen.append(("POST", self.path, self.headers.get("Authorization")))
+                    if os.path.exists(os.path.join(tmp, "break-put")):
+                        os.rename(remote, remote + ".away")
+                    if os.path.exists(os.path.join(tmp, "refuse-push")):
+                        hook = os.path.join(remote, "hooks", "pre-receive")
+                        open(hook, "w").write("#!/bin/sh\nexit 1\n")
+                        os.chmod(hook, 0o755)
+                    data = {} if os.path.exists(os.path.join(tmp, "no-hash")) else {"hash": "h4sh"}
+                    body = json.dumps({"key": "sk-or-minted-" + SECRET, "data": data}).encode()
+                    if self.path.startswith("/v1/organization/"):
+                        body = json.dumps({"id": "sa_new", "api_key": {"id": "key_1", "value": "sk-proj-" + SECRET}}).encode()
+                    self.send_response(201); self.end_headers(); self.wfile.write(body)
+                def do_DELETE(self):
+                    seen.append(("DELETE", self.path, self.headers.get("Authorization")))
+                    self.send_response(200); self.end_headers(); self.wfile.write(b"{}")
+            srv = http.server.HTTPServer(("127.0.0.1", 0), Keys)
+            threading.Thread(target=srv.serve_forever, daemon=True).start()
+            try:
+                base = f"http://127.0.0.1:{srv.server_port}/api/v1"
+                ik = lambda *a: subprocess.run([sys.executable, PROV, "issue-key", "openrouter", *a], cwd=tmp, capture_output=True,
+                                               text=True, env={**parent, "OPENROUTER_API_BASE": base})
+                p = ik("kid")
+                check("issue-key: minted with the parent's provisioning key, named after the login, put in the child's store",
+                      p.returncode == 0 and rows_of(p) == {("OPENROUTER_API_KEY", "written")}
+                      and seen[:1] == [("POST", "/api/v1/keys", "Bearer prov-" + SECRET)]
+                      and os.path.exists(os.path.join(mirror, "env", "OPENROUTER_API_KEY.gpg")), p.stdout + p.stderr + repr(seen))
+                check("…and prints no value", SECRET not in p.stdout + p.stderr and "sk-or-minted" not in p.stdout)
+                p = ik("kid")
+                check("issue-key again: present, not minted again", rows_of(p) == {("OPENROUTER_API_KEY", "present")}
+                      and len(seen) == 1, p.stdout + repr(seen))
+                open(os.path.join(tmp, "break-put"), "w").close()
+                p = ik("kid", "--replace")
+                os.rename(remote + ".away", remote)
+                os.remove(os.path.join(tmp, "break-put"))
+                check("issue-key: a put that fails after the mint deletes the key it minted, and says so",
+                      p.returncode == 1 and ("DELETE", "/api/v1/keys/h4sh", "Bearer prov-" + SECRET) in seen
+                      and "deleted again" in p.stdout, p.stdout + p.stderr + repr(seen))
+                # F1: the pull succeeds and the PUSH is refused, after the
+                # commit: the mirror must not keep it, or the re-run reads
+                # the key as present and the store never gets one.
+                subprocess.run(["git", "-C", mirror, "rm", "-q", "env/OPENROUTER_API_KEY.gpg"], env=parent, check=True)
+                subprocess.run(["git", "-C", mirror, "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false",
+                                "commit", "-qm", "drop the key for the push case"], env=parent, check=True)
+                subprocess.run(["git", "-C", mirror, "push", "-q", "origin", "HEAD:main"], env=parent, check=True)
+                open(os.path.join(tmp, "refuse-push"), "w").close()
+                n0 = len(seen)
+                p = ik("kid")
+                os.remove(os.path.join(tmp, "refuse-push"))
+                os.remove(os.path.join(remote, "hooks", "pre-receive"))
+                ahead = subprocess.run(["git", "-C", mirror, "rev-list", "--count", "origin/main..HEAD"], env=parent,
+                                       capture_output=True, text=True).stdout.strip()
+                check("F1: a refused push is undone in the mirror as well as at OpenRouter",
+                      p.returncode == 1 and "deleted again" in p.stdout and ahead == "0"
+                      and not os.path.exists(os.path.join(mirror, "env", "OPENROUTER_API_KEY.gpg"))
+                      and ("DELETE", "/api/v1/keys/h4sh", "Bearer prov-" + SECRET) in seen[n0:], p.stdout + f" ahead={ahead}")
+                # M2: the reset after the refused push fails as well (the
+                # hook locks the mirror's index): both reasons are said.
+                hook = os.path.join(remote, "hooks", "pre-receive")
+                open(hook, "w").write(f"#!/bin/sh\ntouch '{mirror}/.git/index.lock'\nexit 1\n")
+                os.chmod(hook, 0o755)
+                p = run(parent, "put", "kid", "RESET_CASE", stdin="v")
+                os.remove(hook)
+                os.remove(os.path.join(mirror, ".git", "index.lock"))
+                subprocess.run(["git", "-C", mirror, "reset", "-q", "--hard", "origin/main"], env=parent, check=True)
+                # A commit that fails inside put leaves nothing staged.
+                hook = os.path.join(mirror, ".git", "hooks", "pre-commit")
+                open(hook, "w").write("#!/bin/sh\nexit 1\n")
+                os.chmod(hook, 0o755)
+                p2 = run(parent, "put", "kid", "COMMIT_CASE", stdin="v")
+                os.remove(hook)
+                staged = subprocess.run(["git", "-C", mirror, "status", "--porcelain"], env=parent,
+                                        capture_output=True, text=True).stdout
+                check("a commit that fails inside put: an error, and the mirror left clean",
+                      p2.returncode == 1 and staged == "" and not os.path.exists(os.path.join(mirror, "env", "COMMIT_CASE.gpg")),
+                      p2.stderr[-200:] + " status=" + staged)
+                # …and when the reset after it fails too, both are said (#70).
+                open(hook, "w").write(f"#!/bin/sh\ntouch '{mirror}/.git/index.lock'\nexit 1\n")
+                os.chmod(hook, 0o755)
+                p3 = run(parent, "put", "kid", "COMMIT_CASE", stdin="v")
+                os.remove(hook)
+                os.remove(os.path.join(mirror, ".git", "index.lock"))
+                subprocess.run(["git", "-C", mirror, "reset", "-q", "--hard", "HEAD"], env=parent, check=True)
+                check("a failed commit whose reset fails too: both said, and what to do",
+                      p3.returncode == 1 and "could not be reset" in p3.stderr and "reset it before the next put" in p3.stderr,
+                      p3.stderr[-300:])
+                check("M2: a reset that fails too is said, with the push's reason and the reset's",
+                      p.returncode == 1 and "git push" in p.stderr
+                      # git's own wording of the lock differs by version (Fedora's last
+                      # line names another process, Debian's says to remove the file):
+                      # the reset's reason is whatever follows the mirror's path.
+                      and re.search(r"could not be reset to its remote \([^()]*children/[^:]+: \S[^)]*\)", p.stderr),
+                      p.stderr[-400:])
+                p = ik("kid")
+                check("F1: …so the re-run mints and writes, never 'present'", p.returncode == 0
+                      and rows_of(p) == {("OPENROUTER_API_KEY", "written")}, p.stdout + p.stderr)
+                # F4: a key with no handle cannot be deleted, and the row says so.
+                open(os.path.join(tmp, "no-hash"), "w").close()
+                open(os.path.join(tmp, "break-put"), "w").close()
+                p = ik("kid", "--replace")
+                os.rename(remote + ".away", remote)
+                for f in ("no-hash", "break-put"):
+                    os.remove(os.path.join(tmp, f))
+                check("F4: an undo that deleted nothing says NOT deleted, never 'deleted again'",
+                      p.returncode == 1 and "NOT deleted" in p.stdout and "deleted again" not in p.stdout, p.stdout)
+                # OpenAI: a service account per login, the earlier one of the
+                # same name replaced; a put that fails deletes the one just
+                # made, by its id (#69 re-review, carried).
+                run(parent, "set", "OPENAI_ADMIN_KEY", stdin="adm-" + SECRET)
+                oa = lambda *a: subprocess.run([sys.executable, PROV, "issue-key", "openai", *a], cwd=tmp, capture_output=True,
+                                               text=True, env={**parent, "OPENAI_API_BASE": f"http://127.0.0.1:{srv.server_port}/v1"})
+                n0 = len(seen)
+                p = oa("kid")
+                calls = seen[n0:]
+                check("openai: the earlier account deleted, a new one made with the admin key, its key in the child's store",
+                      p.returncode == 0 and rows_of(p) == {("OPENAI_API_KEY", "written")}
+                      and ("DELETE", "/v1/organization/projects/proj_1/service_accounts/sa_old", "Bearer adm-" + SECRET) in calls
+                      and ("POST", "/v1/organization/projects/proj_1/service_accounts", "Bearer adm-" + SECRET) in calls
+                      and os.path.exists(os.path.join(mirror, "env", "OPENAI_API_KEY.gpg"))
+                      and SECRET not in p.stdout + p.stderr, p.stdout + p.stderr + repr(calls))
+                open(os.path.join(tmp, "break-put"), "w").close()
+                n0 = len(seen)
+                p = oa("kid", "--replace")
+                os.rename(remote + ".away", remote)
+                os.remove(os.path.join(tmp, "break-put"))
+                check("openai: a put that fails deletes the service account it just made, by its id",
+                      p.returncode == 1 and "deleted again" in p.stdout
+                      and ("DELETE", "/v1/organization/projects/proj_1/service_accounts/sa_new", "Bearer adm-" + SECRET) in seen[n0:],
+                      p.stdout + repr(seen[n0:]))
+            finally:
+                srv.shutdown()
+                srv.server_close()
 
             # The child reads it after a pull, and only in-process.
             subprocess.run(["git", "-C", child_store, "pull", "-q", "origin", "main"], check=True, env=child)
@@ -177,78 +365,31 @@ def main() -> int:
             lens = json.loads(got.stdout or "{}")
             check("the child reads it (values() in-process)", lens.get("GH_TOKEN") == len(SECRET)
                   and lens.get("CLAUDE_CODE_OAUTH_TOKEN") == len(TOKEN), got.stderr)
-            p = run(child, "set", "AGENT_LOGIN", stdin="kid\n")
+            p = run(child, "set", "OWN_NOTE", stdin="kid\n")
             check("the agent sets its own entry", p.returncode == 0 and "set" in p.stdout, p.stderr)
             p = run(child, "names")
             check("names lists names, never values", "AGENT_LOGIN" in p.stdout and "GH_TOKEN" in p.stdout
                   and SECRET not in p.stdout, p.stdout)
 
-            # fabric-secrets sync writes the SAME secrets.env from the store
-            # as from Doppler, for the same values (ADR-038 §5 rule 7).
+            # fabric-secrets sync applies what the store holds (ADR-038 §5 rule 7).
             me = subprocess.run(["id", "-un"], capture_output=True, text=True).stdout.strip()
             vals = {"AGENT_LOGIN": me, "AGENT_HOST": "somewhere", "OPENROUTER_API_KEY": "or-x",
                     "GH_TOKEN": SECRET, "CLAUDE_BRIDGE_AUTH_TOKEN": "bridge-x",
                     "CLAUDE_CODE_OAUTH_TOKEN": TOKEN}   # as the assignment above wrote it
             for k, v in vals.items():
                 run(child, "set", k, stdin=v)
-            stub = os.path.join(tmp, "stubbin")
-            os.makedirs(stub)
-            with open(os.path.join(stub, "doppler"), "w") as fh:
-                fh.write("#!/bin/sh\ncase \"$*\" in *download*) cat " + os.path.join(tmp, "dp.json")
-                         + ";; *only-names*) echo '{}';; *) exit 0;; esac\n")
-            os.chmod(os.path.join(stub, "doppler"), 0o755)
-            json.dump(vals, open(os.path.join(tmp, "dp.json"), "w"))
             fsync = os.path.join(ROOT, "runtime", "provisioning", "secrets", "fabric-secrets")
             envf = os.path.join(child["HOME"], ".config", "agent-fabric", "secrets.env")
             body = lambda: "".join(l for l in open(envf) if not l.startswith("#"))
-            dop = {**child, "PATH": stub + os.pathsep + child["PATH"]}
-            r1 = subprocess.run([fsync, "sync", "--json"], env=dop, capture_output=True, text=True)
-            from_doppler = body() if os.path.exists(envf) else None
-            os.makedirs(os.path.dirname(envf), exist_ok=True)
-            open(os.path.join(os.path.dirname(envf), "secrets-source"), "w").write("store\n")
-            r2 = subprocess.run([fsync, "sync", "--json"], env=dop, capture_output=True, text=True)
-            from_store = body()
-            check("sync from the store writes what sync from Doppler wrote", r1.returncode in (0, 2)
-                  and r2.returncode in (0, 2) and from_doppler == from_store and SECRET in from_store,
-                  f"rc {r1.returncode}/{r2.returncode} {r2.stderr[-200:]}")
-            check("sync never prints a value", SECRET not in r1.stdout + r2.stdout + r1.stderr + r2.stderr)
-            check("the report names the store as its source", '"project": "store"' in r2.stdout, r2.stdout[:200])
-            # A Doppler config lookup that hangs (a token in a locked keyring)
-            # is an error within the bound, never a fall back to agents_<login>.
-            hang = os.path.join(tmp, "hangbin")
-            os.makedirs(hang)
-            with open(os.path.join(hang, "doppler"), "w") as fh:
-                fh.write("#!/bin/sh\necho \"doppler $*\" >> " + os.path.join(tmp, "hang.calls")
-                         + "\ncase \"$*\" in *enclave.config*|*'get token'*) sleep 30;; esac\nexit 0\n")
-            os.chmod(os.path.join(hang, "doppler"), 0o755)
-            open(os.path.join(child["HOME"], ".config", "agent-fabric", "secrets-source"), "w").write("doppler\n")
-            hung = subprocess.run([fsync, "sync", "--json"], capture_output=True, text=True, timeout=60,
-                                  env={**child, "PATH": hang + os.pathsep + child["PATH"], "AGENT_FABRIC_DOPPLER_TIMEOUT_S": "1"})
-            calls = open(os.path.join(tmp, "hang.calls")).read() if os.path.exists(os.path.join(tmp, "hang.calls")) else ""
-            check("a hung Doppler config lookup is an error within its bound, and no other config is read",
-                  hung.returncode == 1 and "could not be read within 1 s" in hung.stdout and "download" not in calls,
-                  hung.stdout[-300:] + " calls: " + calls)
-            st = subprocess.run([fsync, "status", "--json"], capture_output=True, text=True, timeout=60,
-                                env={**child, "PATH": hang + os.pathsep + child["PATH"], "AGENT_FABRIC_DOPPLER_TIMEOUT_S": "1"})
-            tok = (json.loads(st.stdout or "{}").get("local") or json.loads(st.stdout or "{}")).get("doppler_token_configured")
-            check("status reports a hung token lookup as timed out, not as no token", tok == "timed out after 1 s", st.stdout[-300:])
-            p = subprocess.run([sys.executable, TOOL, "import-doppler"], capture_output=True, text=True, timeout=60, cwd=tmp,
-                               env={**child, "PATH": hang + os.pathsep + child["PATH"], "AGENT_FABRIC_DOPPLER_TIMEOUT_S": "1"})
-            check("import-doppler: a hung config lookup is an error within its bound, said as a timeout",
-                  p.returncode == 1 and "doppler configure: timed out after 1 s" in p.stderr, p.stderr[-300:])
-            open(os.path.join(child["HOME"], ".config", "agent-fabric", "secrets-source"), "w").write("store\n")
-
-            # import-doppler: the login's own Doppler config into its store,
-            # one commit, nothing printed but names.
-            json.dump({**vals, "NEW_NAME": "fresh-x", "DOPPLER_PROJECT": "agent-fabric"}, open(os.path.join(tmp, "dp.json"), "w"))
-            p = run({**dop, "AGENT_FABRIC_SECRETS_CONFIG": "agents_kid"}, "import-doppler")
-            check("import-doppler copies the config's names, not Doppler's own", p.returncode == 0
-                  and "NEW_NAME" in p.stdout and "DOPPLER_PROJECT" not in p.stdout and SECRET not in p.stdout,
-                  p.stdout + p.stderr)
-            p = run(child, "names")
-            check("…and they are entries now", "NEW_NAME" in p.stdout, p.stdout)
+            r2 = subprocess.run([fsync, "sync", "--json"], env=child, capture_output=True, text=True)
+            from_store = body() if os.path.exists(envf) else ""
+            check("sync applies the store's values to secrets.env", r2.returncode in (0, 2)
+                  and SECRET in from_store and "export OPENROUTER_API_KEY=or-x" in from_store,
+                  f"rc {r2.returncode} {r2.stderr[-200:]}")
+            check("sync never prints a value", SECRET not in r2.stdout + r2.stderr)
+            check("the report names the store as its source", '"source": "store"' in r2.stdout, r2.stdout[:200])
             run(child, "set", "AGENT_LOGIN", stdin="someone-else")
-            r3 = subprocess.run([fsync, "sync"], env=dop, capture_output=True, text=True)
+            r3 = subprocess.run([fsync, "sync"], env=child, capture_output=True, text=True)
             check("a store naming another login is refused, nothing applied", r3.returncode == 3
                   and body() == from_store, r3.stdout[-200:])
 
@@ -285,7 +426,14 @@ def main() -> int:
             p = run(child, "set", "SSH_PRIVATE_KEY", stdin=pem + "\n")
             check("F1: setting the same multi-line value again is unchanged", "unchanged" in p.stdout, p.stdout + p.stderr)
             p = run(child, "set", "EMPTY_ONE", stdin="")
-            check("F1: an empty value is stored", p.returncode == 0 and "EMPTY_ONE" in run(child, "names").stdout, p.stderr)
+            check("an empty value is refused, nothing written (a failed pipe stores no token)",
+                  p.returncode != 0 and "nothing written" in p.stderr and "EMPTY_ONE" not in run(child, "names").stdout,
+                  p.stdout + p.stderr)
+            p = run(child, "set", "EMPTY_ONE", stdin="\n")
+            check("…a lone newline is no value either", p.returncode != 0, p.stdout + p.stderr)
+            p = run(child, "set", "EMPTY_ONE", "--empty", stdin="")
+            check("F1: an empty value is stored when asked for with --empty",
+                  p.returncode == 0 and "EMPTY_ONE" in run(child, "names").stdout, p.stderr)
 
             # F4: the agent's own write reaches the remote, and a parent's put
             # afterwards merges with it; the child then reads both.
@@ -304,7 +452,7 @@ def main() -> int:
                   and "PARENT_WROTE" in run(child, "names").stdout, p.stderr)
             # A remote that cannot be reached is a failed sync, not a stale one.
             os.rename(remote, remote + ".away")
-            r4 = subprocess.run([fsync, "sync", "--json"], env=dop, capture_output=True, text=True)
+            r4 = subprocess.run([fsync, "sync", "--json"], env=child, capture_output=True, text=True)
             os.rename(remote + ".away", remote)
             check("F4: a store that cannot be brought up to its remote fails the sync", r4.returncode == 1
                   and "store:" in r4.stdout, r4.stdout[-300:])
@@ -320,20 +468,6 @@ def main() -> int:
             p = run(child, "set", "RETRIED", stdin="r1")
             check("N2: the retry pushes what the failed push left behind", p.returncode == 0
                   and "env/RETRIED.gpg" in remote_names(), p.stdout + p.stderr)
-
-            # N3: digest --source reads THAT source, whatever the account's is,
-            # and an unknown one is refused.
-            src_file = os.path.join(child["HOME"], ".config", "agent-fabric", "secrets-source")
-            open(src_file, "w").write("doppler\n")
-            json.dump({"AGENT_LOGIN": me, "GH_TOKEN": "a-doppler-only-value"}, open(os.path.join(tmp, "dp.json"), "w"))
-            ds = subprocess.run([fsync, "digest", "--source", "store"], env=dop, capture_output=True, text=True)
-            dd = subprocess.run([fsync, "digest", "--source", "doppler"], env=dop, capture_output=True, text=True)
-            check("N3: digest --source store reads the store while the account is on doppler",
-                  json.loads(ds.stdout)["source"] == "store" and json.loads(dd.stdout)["source"] == "doppler"
-                  and json.loads(ds.stdout)["values_sha256"] != json.loads(dd.stdout)["values_sha256"], ds.stdout + dd.stdout)
-            bogus = subprocess.run([fsync, "digest", "--source", "elsewhere"], env=dop, capture_output=True, text=True)
-            check("N3: an unknown --source is refused", bogus.returncode == 2 and "usage" in bogus.stderr, bogus.stderr)
-            open(src_file, "w").write("store\n")
 
             # F7: put pulls BEFORE it compares keys. Another clone pushes a
             # re-key; the parent's mirror has not pulled it yet.
@@ -351,19 +485,15 @@ def main() -> int:
             subprocess.run(g + ["push", "-q", "origin", "HEAD:main"], check=True, env=parent)
             subprocess.run(["git", "-C", mirror, "pull", "-q", "--rebase", "origin", "main"], env=parent, capture_output=True)
 
-            # The digest: the same hash from the store as sync reports.
+            # The report's values_sha256: the same hash for the same store,
+            # and never a value beside it.
             run(child, "set", "AGENT_LOGIN", stdin=me)
-            dg = subprocess.run([fsync, "digest", "--source", "store"], env=dop, capture_output=True, text=True)
-            sy = subprocess.run([fsync, "sync", "--json"], env=dop, capture_output=True, text=True)
-            check("digest --source store is the hash sync applies", dg.returncode == 0
-                  and json.loads(dg.stdout)["values_sha256"] == json.loads(sy.stdout)["values_sha256"], dg.stdout + dg.stderr)
-            check("…and neither prints a value", SECRET not in dg.stdout + sy.stdout and TOKEN not in dg.stdout + sy.stdout)
-
-            # F8: import-doppler names what it did not import.
-            json.dump({"GOOD_NAME": "v", "lower_case": "v", "NOT_A_STRING": 5}, open(os.path.join(tmp, "dp.json"), "w"))
-            p = run({**dop, "AGENT_FABRIC_SECRETS_CONFIG": "agents_kid"}, "import-doppler")
-            check("F8: import-doppler names what it skipped", p.returncode == 0 and "lower_case" in p.stderr
-                  and "NOT_A_STRING" in p.stderr, p.stdout + p.stderr)
+            sy = subprocess.run([fsync, "sync", "--json"], env=child, capture_output=True, text=True)
+            sy2 = subprocess.run([fsync, "sync", "--json"], env=child, capture_output=True, text=True)
+            check("two syncs of one store report one values_sha256", sy.returncode in (0, 2)
+                  and len(json.loads(sy.stdout)["values_sha256"]) == 64
+                  and json.loads(sy.stdout)["values_sha256"] == json.loads(sy2.stdout)["values_sha256"], sy.stdout[-300:])
+            check("…and the report prints no value", SECRET not in sy.stdout and TOKEN not in sy.stdout)
 
             # F2, F3: each key on its own, one root, no cycle.
             kd = os.path.join(fabric, "identities", "keys")

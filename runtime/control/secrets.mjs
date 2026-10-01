@@ -1,14 +1,13 @@
 // runtime/control/secrets.mjs — the control agent's second ACTION: re-sync
-// this account's secrets from its source — its own store (ADR-038), or
-// Doppler until it migrates — (bin/fabric-secrets sync), so a change
-// the coordinator made to the login's config — which Claude account it runs
-// on (`fabric-accounts assign`, docs/adr/ADR-031-claude-accounts-assigned-applied-and-proved-by-signed-action.md) — reaches the
+// this account's secrets from its own store (ADR-038; bin/fabric-secrets
+// sync), so a change the coordinator made to the login's store — which
+// Claude account it runs on (`fabric-accounts assign`, docs/adr/ADR-031-claude-accounts-assigned-applied-and-proved-by-signed-action.md) — reaches the
 // account without anyone logging in to it.
 //
 // An action, signed, for the same reason `upgrade` is: it changes what the
 // account's next session runs on. What it applies is whatever the login's
-// own Doppler config says, read with the login's own read-only token; the
-// request only says what to expect and whether to act on it now:
+// own store says, opened with the login's own key; the request only says
+// what to expect and whether to act on it now:
 //
 //   expect   the fingerprint the coordinator's template holds. The synced
 //            token must match it, or the sync is a failure: a move the
@@ -53,90 +52,10 @@ export function checkArgs(args) {
 }
 
 // fabric-secrets sync's exit codes: 0 applied, 2 applied with names
-// missing in Doppler (the env file is still written), 1 Doppler unreadable,
-// 3 the config names another login. Only the first two changed anything.
+// missing in the store (the env file is still written), 1 the store
+// unreadable, 3 the store names another login. Only the first two changed
+// anything.
 const APPLIED = new Set([0, 2]);
-
-// The migration off Doppler (agent-fabric ADR-038 §5 rule 8), a third
-// ACTION, run by the account's own daemon so no value leaves the account.
-// It is verified by `values_sha256`: the sha256 of every name sync applies
-// and its value (the SSH key and the git strings included, which
-// secrets.env does not carry), computed by fabric-secrets in-process —
-// only hashes cross into this daemon.
-//   1. a baseline sync from Doppler: its report's values_sha256;
-//   2. the login's Doppler config imported into its store;
-//   3. `fabric-secrets digest --source store`: the same hash, from the
-//      store, BEFORE anything switches — a difference stops here, and the
-//      account never left Doppler (an interruption anywhere before step 4
-//      leaves it on Doppler too);
-//   4. the source switched to `store` and synced; that report's hash must
-//      be the baseline's again, or the source goes back to `doppler`,
-//      syncs, and the action fails.
-// A store must exist first (fabric-secrets store init, at provisioning or
-// store-enroll.sh): the key is made and certified deliberately, never as
-// a side effect of a migration.
-// Five calls at most (baseline, import, digest, sync, the fallback sync)
-// must fit fabric-ctl's 420 s for secrets-migrate.
-export const MIGRATE_TIMEOUT_MS = 80000;
-export function checkMigrateArgs(args) {
-  return args === undefined ? null : 'secrets-migrate takes no arguments';
-}
-const sourceFile = home => path.join(home, '.config', 'agent-fabric', 'secrets-source');
-const envFile = home => path.join(home, '.config', 'agent-fabric', 'secrets.env');
-export const envDigest = text => sha12(String(text).split('\n').filter(l => l && !l.startsWith('#')).join('\n'));
-
-export function secretsMigrate(request, opts = {}) {
-  if (syncing) return Promise.resolve({ status: 'busy', note: 'a secrets-sync or migration is already running on this account' });
-  syncing = secretsMigrateOnce(request, opts).finally(() => { syncing = null; });
-  return syncing;
-}
-
-export async function secretsMigrateOnce(request, {
-  home = os.homedir(), root = process.env.AGENT_FABRIC_ROOT ?? path.join(home, 'projects', 'agent-fabric'), exec = execFileP,
-} = {}) {
-  const bad = checkMigrateArgs(request.args);
-  if (bad) return { status: 'refused', reason: bad };
-  const read = f => { try { return fs.readFileSync(f, 'utf8'); } catch { return null; } };
-  if ((read(sourceFile(home)) ?? '').trim() === 'store') return { status: 'current', note: 'this account already reads its store' };
-  if (read(path.join(process.env.AGENT_FABRIC_SECRET_STORE ?? path.join(home, '.local', 'share', 'agent-fabric', 'secrets'), '.gpg-id')) === null)
-    return { status: 'refused', reason: 'no store yet: fabric-secrets store init, and the parent\'s certification, come first' };
-  const bin = path.join(root, 'bin', 'fabric-secrets');
-  const run = async args => {
-    try { const r = await exec(bin, args, { encoding: 'utf8', timeout: MIGRATE_TIMEOUT_MS }); return { code: 0, out: typeof r === 'string' ? r : r.stdout, err: '' }; }
-    catch (e) {
-      // A call killed by its timeout has no error text of its own: said as
-      // what it was, never an empty reason (a Doppler call waiting on a
-      // locked keyring once read as "failed: " and nothing).
-      const timedOut = e?.killed === true || e?.signal === 'SIGTERM' || e?.code === 'ETIMEDOUT';
-      return { code: typeof e?.code === 'number' ? e.code : -1, out: e?.stdout ?? '',
-               err: timedOut ? `timed out after ${MIGRATE_TIMEOUT_MS / 1000} s` : String(e?.stderr ?? e?.message ?? e) };
-    }
-  };
-  const json = r => { try { return JSON.parse(r.out); } catch { return {}; } };
-  const last = r => (json(r).error ?? (String(r.err || r.out).trim().split('\n').filter(l => !l.startsWith('hint:')).pop() || 'no reason given')).slice(0, 200);
-  const setSource = v => { fs.mkdirSync(path.dirname(sourceFile(home)), { recursive: true }); fs.writeFileSync(sourceFile(home), `${v}\n`); };
-  const short = h => (h ? String(h).slice(0, 12) : null);
-  const base = await run(['sync', '--json']);
-  const d0 = json(base).values_sha256;
-  if (!APPLIED.has(base.code) || !d0) return { status: 'failed', reason: `the baseline sync from Doppler failed: ${last(base)}` };
-  const imp = await run(['store', 'import-doppler']);
-  if (imp.code !== 0) return { status: 'failed', reason: `import: ${last(imp)}` };
-  const dg = await run(['digest', '--source', 'store']);
-  const d1 = json(dg).values_sha256;
-  if (dg.code !== 0 || d1 !== d0)
-    return { status: 'failed', reason: d1 ? `the store holds other values than Doppler (${short(d0)} vs ${short(d1)}); still on doppler`
-      : `the store could not be read: ${last(dg)}; still on doppler`, sha_before: short(d0), sha_after: short(d1) };
-  setSource('store');
-  const moved = await run(['sync', '--json']);
-  const d2 = APPLIED.has(moved.code) ? json(moved).values_sha256 : null;
-  if (d2 !== d0) {
-    setSource('doppler');
-    await run(['sync', '--json']);
-    return { status: 'failed', reason: d2 ? `the sync from the store applied other values (${short(d0)} vs ${short(d2)}); back on doppler`
-      : `the sync from the store failed (${last(moved)}); back on doppler`, sha_before: short(d0), sha_after: short(d2) };
-  }
-  return { status: 'migrated', sha: short(d0), env_sha: envDigest(read(envFile(home)) ?? ''), imported: (imp.out.match(/imported (\d+)/) ?? [])[1] ?? null };
-}
 
 // A running session's own environment says what it runs on: the token
 // (the launcher exports it before the harness execs) and the provider the

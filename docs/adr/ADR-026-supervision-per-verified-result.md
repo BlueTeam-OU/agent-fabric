@@ -1,9 +1,10 @@
 # ADR-026 — Progress is measured as supervision per verified result
 
 **Date:** 2026-09-27
-**Status:** Proposed
+**Status:** Accepted
+**Ratified:** owner, 2026-09-29, "Accept", answering fabric-coordinator's question closing the Proposed records; carried by the pull request that marks them Accepted
 **Decision Makers:** the owner; drafted by fabric-coordinator
-**Scope:** how the fabric would measure its progress under pillar P3: the definitions of a verified result and of a supervision event, the artifacts they are read from, and how the number may and may not be used; no tool, file or practice is changed by this record
+**Scope:** how the fabric measures its progress under pillar P3: the definitions of a verified result and of a supervision event, the artifacts they are read from, and how the number may and may not be used; `tools/fabric/results.py` (`fabric-results`) measures it
 **Pillar:** P3
 
 ## 1. Context and Problem
@@ -27,7 +28,7 @@ existing.
 
 ## 2. Decision
 
-Proposed: the fabric's progress under P3 is read as **supervision per
+The fabric's progress under P3 is read as **supervision per
 verified result** — the number of supervision events attributable to a
 period's verified results, divided by the number of those results —
 tracked as a trend over time, per repository and in total, and never set
@@ -84,8 +85,6 @@ agents' private context.
 
 ## 5. Binding Rules
 
-Proposed — none binds until the owner accepts this record.
-
 1. The measure is supervision events per verified result, per period (a
    week proposed), per repository and in total, published with its
    numerator, its denominator and the verified-result rate (verified
@@ -107,12 +106,12 @@ Proposed — none binds until the owner accepts this record.
 
 ## 6. Consequences
 
-- If accepted, a counter is owed: nothing reads these artifacts today.
-  `runtime/github/commit-class.sh` already separates review fixes from
-  work; `pr-review-status.sh` already says whether a head was reviewed;
-  drain reports already record `collision_decisions`. The relay's
-  `OWNER-WORD` count needs a reader over message metadata and section
-  markers, which does not exist.
+- The counter is `fabric-results` (`tools/fabric/results.py`). It reads
+  the review marker on each head, the checks, reverts, and fixes named
+  by `runtime/github/commit-class.sh`, the band's floor, and owner
+  corrections in commit subjects. Not yet read: the relay's `OWNER-WORD`
+  sections (a reader over message metadata and section markers) and the
+  drain reports' `collision_decisions`.
 - Attribution is the hard part: every merge and comment on GitHub comes
   from one account, so an owner's arming can be told from a session's
   only by what the artifacts say (an arming basis comment, the owner's
@@ -129,11 +128,7 @@ rule that says what the owner need not see turns an ask into a check.
 
 ## 8. Decision Status
 
-Proposed. It waits on the owner's acceptance of the measure
-and its two definitions, individually (ADR-001 §5 rule 2: arming the
-pull request that carries it does not ratify a new direction unless the
-description says so and the owner arms it on that basis). Until then it
-binds nothing and nothing is built for it.
+Accepted and in force.
 
 ## References
 

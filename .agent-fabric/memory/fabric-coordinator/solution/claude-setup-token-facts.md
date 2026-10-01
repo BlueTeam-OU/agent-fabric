@@ -5,7 +5,7 @@ topic: "claude-setup-token-facts"
 description: "What a `claude setup-token` token can and cannot do, how to tell which account it belongs to, and that CLAUDE_CODE_OAUTH_TOKEN beats a stored sign-in — measured 2026-09-24 on 2.1.281"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-09-26"
+distilled_at: "2026-10-01"
 origin:
   - agent: user
     host: "develop-qzapp"

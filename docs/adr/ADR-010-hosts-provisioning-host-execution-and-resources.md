@@ -42,7 +42,8 @@ home are host-local. `bin/fabric-host` is the person's interface.
 
 **Provisioning is one idempotent command**, `new-agent.sh <login> <role>
 [--host] [--project]…`: the orchestrator keeps what only the coordinator
-holds (the registries, Doppler administration, API keys); the host half
+holds (the registries, its own store as every account's parent, API keys)
+(A 2026-09-30); the host half
 runs on the target through `hostexec`. Platform differences live in one
 file each under `runtime/provisioning/platform/`.
 
@@ -81,8 +82,9 @@ that killed the host without privilege and without anything going stale.
 
 1. A tool that touches an account's host does it through `hostexec`
    (`bin/fabric-host` for a person), never its own `sudo -u` or a path
-   under `/home`. What stays the coordinator's: Doppler administration,
-   the API keys minted for an account, the registry.
+   under `/home`. What stays the coordinator's: its own store and the
+   filling of each child's (`fabric-secrets provision`), the API keys
+   minted for an account, the registry (A 2026-09-30).
 2. The registry records placement and nothing else; its schema refuses a
    role or a name in a host entry. `bin/fabric-status` reports a session on
    a host other than its placement as drift.
@@ -162,3 +164,11 @@ Accepted and in force: host execution and the host lease.
 - `bin/fabric-lease`, `tests/test_fabric-lease.sh`.
 - The live checks in Evidence. ADR-002 (placement is not identity),
   ADR-009 (account operations through the control plane).
+
+## Amendments
+
+The body above reads current; each change's full note is in [history/ADR-010-amendments.md](history/ADR-010-amendments.md).
+
+| Date | Amendment | Effect |
+|---|---|---|
+| 2026-09-30 | Doppler is retired: the coordinator keeps its own store, a parent's | §2, §5 rule 1 |

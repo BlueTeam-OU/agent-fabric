@@ -5,7 +5,7 @@ topic: "request-dies-with-its-session"
 description: A GZCoord REQUEST that was acknowledged and deferred is lost when that session ends — the cursor has moved past it and no later session of the same login will ever see it
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-09-27"
+distilled_at: "2026-10-01"
 origin:
   - agent: user
     host: "develop-qzapp"

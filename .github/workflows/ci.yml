@@ -12,43 +12,90 @@ on:
 permissions:
   contents: read
 
+# A new push to a pull request cancels the run it supersedes: nobody reads
+# a verdict on a head that is no longer the PR's. Only pull requests: a
+# push to main and a queue run are each the last word on their commit, so
+# each gets a group of its own (its run id) — a shared group, even without
+# cancel-in-progress, keeps one pending run and cancels the one before it.
+concurrency:
+  group: ci-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   static:
     # Every bash script parses, shellcheck at error severity, ruff on the
     # rule set in ruff.toml — before any suite, on one interpreter.
     runs-on: ubuntu-latest
+    # Measured ~30 s. A job without a cap runs to GitHub's six hours.
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: '3.12'
       - run: sudo apt-get install -y --no-install-recommends shellcheck && python3 -m pip install --quiet --disable-pip-version-check ruff
       - run: bash tests/static.sh
 
   guards-and-suites:
-    # The suites on every interpreter an agent host runs: the oldest
-    # Python the tools promise (3.12) up to the one the hosts have, and
-    # the Node the GZCoord runtime is developed on beside the oldest it
-    # must still start on.
+    # Each suite on the interpreters it depends on, and no more: the Python
+    # suites on every Python an agent host runs (the oldest the tools
+    # promise, 3.12, up to the hosts'), the Node suites (GZCoord, the
+    # control plane, the locale MCP server) on the Node they are developed
+    # on and the oldest they must start on, and the bash suites and the
+    # guards on the oldest and newest interpreters. Every leg of the old
+    # matrix ran all 78 suites, ~49 runner-minutes a push; split, less, with
+    # each section still on every interpreter pairing it needs (devex-
+    # tooling's measurement, 2026-09-29). Static checks are their own job.
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        python: ['3.12', '3.13', '3.14']
-        node: ['22']
         include:
-          - python: '3.12'
-            node: '20'
+          - { section: python, python: '3.12', node: '20' }
+          - { section: python, python: '3.12', node: '22' }
+          - { section: python, python: '3.13', node: '22' }
+          - { section: python, python: '3.14', node: '22' }
+          - { section: gzcoord, python: '3.12', node: '20' }
+          - { section: gzcoord, python: '3.12', node: '22' }
+          # The bash suites drive Python in the launcher's heredocs, which
+          # nothing compiles on its own: they run on the oldest interpreters
+          # the hosts promise and on the newest (review of #68: 3.14 alone
+          # lost 3.12 and Node 20). The shims of ported scripts (ADR-040)
+          # run /usr/bin/python3, the runner's own, whatever this matrix
+          # sets up; the python section's suites import the same modules
+          # on each interpreter here.
+          - { section: bash, python: '3.12', node: '20' }
+          - { section: bash, python: '3.14', node: '22' }
+    # The whole run measured 7-9.5 min (2026-09-29); a section is less. The cap is for a hang.
+    timeout-minutes: 25
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          # Full history: the attribution guard enumerates the commits a
-          # branch adds over its base and refuses to guess a range.
+          # Full history: the attribution and authority guards enumerate
+          # the commits a branch adds over its base and refuse to guess a range.
           fetch-depth: 0
-      - uses: actions/setup-node@v4
+      # The branch's authority, judged by MAIN's copy of the guards, as
+      # the first step after the checkout: before any of the branch's code
+      # runs in this job (a later `python3 -m pip` puts the checkout first
+      # on sys.path; second re-review of #75). A contributor's
+      # entry admits tools/ and tests/ (agent-fabric ADR-018 §5 rule 8):
+      # run from the branch, a module it added beside the guards shadows a
+      # stdlib name they import, and a sourced test helper runs first and
+      # can rewrite them (re-review of #75). -I: no script directory, no
+      # user site, no PYTHON* variables; the guards then find their own
+      # modules beside main's copy, and judge this checkout.
+      - name: the branch's authority, judged by main's own guards
+        if: matrix.section == 'bash'
+        run: |
+          base="$(mktemp -d)"
+          git archive origin/main tools/fabric policies | tar -x -C "$base"
+          AGENT_FABRIC_CHARTER_BASE=origin/main /usr/bin/python3 -I "$base/tools/fabric/guards/agent_fabric_dir_authority.py"
+          AGENT_FABRIC_CHARTER_BASE=origin/main /usr/bin/python3 -I "$base/tools/fabric/guards/charter_authority.py" "$PWD"
+      # Node in every leg: some Python suites drive the .mjs tools.
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: ${{ matrix.node }}
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: ${{ matrix.python }}
       - name: the schema validator lint prefers (its structural fallback covers a clean machine)
@@ -59,9 +106,10 @@ jobs:
       - name: paperkey, for the recovery copy the store's suite makes
         run: sudo apt-get install -y --no-install-recommends paperkey
       - name: no machine attribution in commits or the PR description
+        if: matrix.section == 'bash'
         run: bash policies/ban_generated_by_attribution.sh
-      - name: every suite, every guard
-        run: bash tests/run.sh
+      - name: the ${{ matrix.section }} suites
+        run: bash tests/run.sh ${{ matrix.section }}
 
   platform-smoke:
     # The platform profiles are proven by being used: each container
@@ -83,6 +131,8 @@ jobs:
             install: apt-get install -y --no-install-recommends
             extra: shellcheck python3-pip ca-certificates hostname
     container: ${{ matrix.image }}
+    # Measured 7-8.5 min (2026-09-29); the cap is for a hang.
+    timeout-minutes: 25
     defaults:
       run:
         shell: bash   # a container's default `sh` is dash on Debian; the profiles are bash
@@ -92,7 +142,7 @@ jobs:
           set -e
           if command -v apt-get >/dev/null; then apt-get update; fi
           ${{ matrix.install }} bash git ca-certificates   # enough to check out and read the map
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
       - name: install what the profile names, and the static-check tools

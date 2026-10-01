@@ -1379,10 +1379,117 @@ def case_a_cited_fabric_document_must_resolve() -> None:
         assert code == 1, "a dangling citation is a finding"
 
 
+def case_bash_over_150_lines_needs_the_allowlist() -> None:
+    """ADR-040 §5 rule 2: a tracked bash script over 150 lines is a finding
+    unless the allowlist names it; an entry whose script is gone or short
+    is stale; an entry the base list does not have is an addition."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("fabric_lint_under_test", LINT)
+    lint = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(lint)
+    with tempfile.TemporaryDirectory() as root:
+        g = lambda *a: subprocess.run(["git", "-C", root, *a], check=True, capture_output=True)
+        long = "#!/usr/bin/env bash\n" + "echo x\n" * 151
+        write(os.path.join(root, "bin", "long-tool"), long)                 # by shebang
+        write(os.path.join(root, "runtime", "long.sh"), "echo y\n" * 160)   # by extension
+        write(os.path.join(root, "tools", "long.py"), "#!/usr/bin/env python3\n" + "x = 1\n" * 200)
+        write(os.path.join(root, "runtime", "short.sh"), "#!/bin/sh\necho z\n")
+        write(os.path.join(root, "policies", "bash-allowlist.json"),
+              json.dumps({"scripts": {"runtime/long.sh": 1, "runtime/short.sh": 2}}))
+        g("init", "-q", "-b", "main")
+        g("add", "-A")
+        g("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "base")
+        g("branch", "base")
+        got = lint.bash_size_findings(root, base_ref="base")
+        assert any(f.startswith("bin/long-tool: 152 lines of bash") for f in got), got
+        assert not any(f.startswith("runtime/long.sh:") or f.startswith("tools/long.py") for f in got), \
+            "a listed script, and a Python one, pass"
+        assert any("runtime/short.sh is gone or 150 lines or fewer" in f for f in got), "a stale entry is a finding"
+        write(os.path.join(root, "policies", "bash-allowlist.json"),
+              json.dumps({"scripts": {"runtime/long.sh": 1, "bin/long-tool": 3}}))
+        got = lint.bash_size_findings(root, base_ref="base")
+        assert any("bin/long-tool is added; the list only shrinks" in f for f in got), got
+        assert not any(f.startswith("bin/long-tool: 152") for f in got), "listed now, so not unlisted"
+        assert lint.bash_size_findings(root, base_ref="no-such-ref") == [], \
+            "without a base, additions are not judged and nothing else is wrong"
+        # A branch behind its base: the base has since dropped an entry the
+        # branch still carries. Not an addition — the branch forked with it.
+        g("checkout", "-q", "-b", "behind")
+        write(os.path.join(root, "policies", "bash-allowlist.json"),
+              json.dumps({"scripts": {"runtime/long.sh": 1}}))
+        g("checkout", "-q", "base")
+        write(os.path.join(root, "policies", "bash-allowlist.json"), json.dumps({"scripts": {}}))
+        g("add", "-A")
+        g("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "base ports runtime/long.sh away")
+        g("checkout", "-q", "behind")
+        write(os.path.join(root, "policies", "bash-allowlist.json"),
+              json.dumps({"scripts": {"runtime/long.sh": 1}}))
+        got = lint.bash_size_findings(root, base_ref="base")
+        assert not any("is added" in f for f in got), f"an entry the fork point had is not an addition: {got}"
+
+
+def case_a_contributor_entry_never_reaches_a_definition() -> None:
+    """ADR-018 §5 rule 8: a contributor's entry names a catalogued role, is
+    whole, and admits nothing that defines a role — however broad its
+    rules are spelled."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("fabric_lint_under_test", LINT)
+    lint = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(lint)
+    with tempfile.TemporaryDirectory() as root:
+        write(os.path.join(root, "identities", "roles", "catalog.json"),
+              json.dumps({"roles": [{"id": "fabric-coordinator"}, {"id": "python-dev"}]}))
+
+        def findings(*entries: dict) -> list[str]:
+            write(os.path.join(root, "policies", "authority.json"),
+                  json.dumps({"role_definitions": {"role": "fabric-coordinator"}, "contributors": list(entries)}))
+            return lint.contributor_findings(root)
+
+        excl = [n for n in lint.CONTRIBUTOR_NEVER if n.startswith(("tools/", "tests/"))]
+        good = {"role": "python-dev", "paths": ["tools/", "tests/", "policies/bash-allowlist.json"], "excluding": excl}
+        assert findings(good) == [], findings(good)
+        assert findings() == [], "no contributor, nothing to say"
+        got = findings({**good, "excluding": [e for e in excl if e != "tools/fabric/guards/"]})
+        assert any("rule 'tools/' reaches tools/fabric/guards/" in f for f in got), got
+        got = findings({**good, "paths": good["paths"] + ["policies/"]})
+        assert any("rule 'policies/' reaches policies/" in f for f in got), got
+        # Review of #75: rules narrower than any sample file, each one a
+        # definition or a guard.
+        for narrow in ("identities/roles/python-dev/", "identities/roles/python-dev/charter.md",
+                       "policies/githooks/commit-msg", "tools/fabric/guards/common.py",
+                       "identities/roles/catalog.json", "routing/effort.json",
+                       # Re-review of #75: what registers the hooks, the
+                       # workspace prompt, the helper the runner sources.
+                       "runtime/claude-code/workspace/settings.json", "runtime/claude-code/workspace/CLAUDE.md",
+                       "runtime/claude-code/", "tests/leak-check.sh", "tools/fabric/review_brief.py",
+                       "bin/fabric-review"):
+            got = findings({**good, "paths": [narrow]})
+            assert any(f"rule {narrow!r} reaches" in f for f in got), (narrow, got)
+        got = findings({**good, "excluding": excl + ["tools/fabric/guards/x.py"],
+                        "paths": ["tools/"]})
+        assert not any("reaches tools/fabric/guards/" in f for f in got), "an exclusion covering the prefix suffices"
+        got = findings({**good, "excluding": [e for e in excl if e != "tools/fabric/guards/"] + ["tools/fabric/guards/x.py"]})
+        assert any("reaches tools/fabric/guards/" in f for f in got), "an exclusion of one file under it does not"
+        got = findings({**good, "paths": [""]})
+        assert any("not a whole entry" in f for f in got), got
+        got = findings({**good, "role": ["python-dev"]})
+        assert any("not a whole entry" in f for f in got), got
+        got = findings({**good, "role": "web-dev"})
+        assert any("not in identities/roles/catalog.json" in f for f in got), got
+        got = findings({**good, "role": "fabric-coordinator"})
+        assert any("the owner role needs no entry" in f for f in got), got
+        write(os.path.join(root, "identities", "roles", "catalog.json"), "{")
+        got = findings(good)
+        assert any("catalog.json: unreadable" in f for f in got), got
+        write(os.path.join(root, "policies", "authority.json"), json.dumps({"contributors": {"role": "x"}}))
+        assert lint.contributor_findings(root) == ["policies/authority.json: `contributors` is not a list"]
+
+
 def main() -> int:
     cases = [
         case_clean_base_passes,
         case_decision_records_are_lint_findings,
+        case_bash_over_150_lines_needs_the_allowlist,
         case_a_cited_fabric_document_must_resolve,
         case_a_committed_agent_key_needs_its_lineage,
         case_a_committed_agent_source_may_not_pin_effort,
@@ -1430,6 +1537,7 @@ def main() -> int:
         case_a_bound_and_held_role_is_not_a_candidate,
         case_a_managed_projects_name_stays_out_of_generic_files,
         case_review_lenses_are_named_described_and_bounded,
+        case_a_contributor_entry_never_reaches_a_definition,
     ]
     failures = 0
     for case in cases:

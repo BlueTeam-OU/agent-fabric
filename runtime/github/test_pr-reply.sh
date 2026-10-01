@@ -117,7 +117,7 @@ if [[ "${1:-}" == "repo" && "${2:-}" == "view" ]]; then
   exit 0
 fi
 
-query=""; id=""; body=""
+query=""; id=""; body=""; json=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
     -f) case "$2" in
@@ -126,14 +126,27 @@ while [[ $# -gt 0 ]]; do
           body=*)  body="${2#body=}" ;;
         esac
         shift 2 ;;
+    # The same call with its query and variables as JSON on stdin (tools/
+    # fabric/gh.py, ADR-040 §5 rule 6: a body never in argv); answered in
+    # GraphQL's own shape, where the -f form was answered through --jq.
+    --input) json=1; shift 2 ;;
     *) shift ;;
   esac
 done
+if [[ "$json" == 1 ]]; then
+  req="$(cat)"
+  query="$(jq -r '.query' <<<"$req")"
+  id="$(jq -r '.variables.id // ""' <<<"$req")"
+  body="$(jq -r '.variables.body // empty' <<<"$req"; printf x)"; body="${body%x}"; body="${body%$'\n'}"
+fi
+wrap() {  # wrap <jq path> : put stdin at that path of a {"data": …} answer, as GitHub does
+  if [[ "$json" == 1 ]]; then jq -c --slurpfile v /dev/stdin -n "{data: {}} | $1 = \$v[0]"; else cat; fi
+}
 
 if [[ "$query" == *"PullRequestReviewThread"* && "$query" != *mutation* ]]; then
   echo "READ $id" >> "$GH_MOCK_STATE/calls"
   [[ -n "${GH_MOCK_READ_FAIL:-}" ]] && exit 1
-  cat "$GH_MOCK_STATE/thread.json"
+  wrap '.data.node' < "$GH_MOCK_STATE/thread.json"
   exit 0
 fi
 
@@ -141,15 +154,16 @@ if [[ "$query" == *addPullRequestReviewThreadReply* ]]; then
   echo "REPLY $id" >> "$GH_MOCK_STATE/calls"
   printf '%s' "$body" > "$GH_MOCK_STATE/body.txt"
   [[ -n "${GH_MOCK_REPLY_FAIL:-}" ]] && exit 1
-  [[ -n "${GH_MOCK_REPLY_EMPTY:-}" ]] && { echo ""; exit 0; }
-  echo "https://github.com/o/r/pull/1#discussion_r1"
+  [[ -n "${GH_MOCK_REPLY_EMPTY:-}" ]] && { if [[ "$json" == 1 ]]; then echo '""' | wrap '.data.addPullRequestReviewThreadReply.comment.url'; else echo ""; fi; exit 0; }
+  if [[ "$json" == 1 ]]; then echo '"https://github.com/o/r/pull/1#discussion_r1"' | wrap '.data.addPullRequestReviewThreadReply.comment.url'
+  else echo "https://github.com/o/r/pull/1#discussion_r1"; fi
   exit 0
 fi
 
 if [[ "$query" == *resolveReviewThread* ]]; then
   echo "RESOLVE $id" >> "$GH_MOCK_STATE/calls"
   [[ -n "${GH_MOCK_RESOLVE_FAIL:-}" ]] && exit 1
-  echo "true"
+  if [[ "$json" == 1 ]]; then echo 'true' | wrap '.data.resolveReviewThread.thread.isResolved'; else echo "true"; fi
   exit 0
 fi
 
@@ -189,7 +203,7 @@ invoke() {
     local body="$1"; shift
     [[ -n "$ROLE_STATE_DIR" ]] || with_role -
     RUN_OUT="$(cd "$SANDBOX/$CLONE_NAME" && printf '%s' "$body" | \
-        env PATH="$SANDBOX/bin:$PATH" GH_MOCK_STATE="$SANDBOX/state" \
+        env -u AGENT_FABRIC_LAUNCH_ROLE PATH="$SANDBOX/bin:$PATH" GH_MOCK_STATE="$SANDBOX/state" \
         AGENT_FABRIC_STATE_DIR="$ROLE_STATE_DIR" \
         "${MOCK_ENV[@]}" bash "$UNDER_TEST" "$@" 2>&1)"
     RUN_RC=$?
@@ -358,7 +372,9 @@ echo "pr-reply: a Dependabot PR is the devex-tooling role's — that role answer
 # still somebody's, so refused too.
 thread_fixture "dependabot/nuget/apps/backend_dotnet/dotnet-minor-patch-04e2" false
 with_role devex-tooling
+MOCK_ENV=(env AGENT_FABRIC_LAUNCH_ROLE=devex-tooling)   # launched with the role, as well as bound
 invoke "Superseded by #694; rebased there." "$THREAD_ID"
+MOCK_ENV=(env)
 assert_rc       "devex-tooling: exits 0" 0
 assert_contains "devex-tooling: says the role owns it" "owned by the devex-tooling role"
 [[ "$(calls)" == *REPLY* ]] && pass "devex-tooling: replied" || fail "devex-tooling: did not reply" "$(calls)"
@@ -369,6 +385,22 @@ invoke "Let me answer this one." "$THREAD_ID"
 assert_rc       "backend-dev: refused" 2
 assert_contains "backend-dev: names the owning role" "devex-tooling role owns"
 [[ "$(calls)" != *REPLY* ]] && pass "backend-dev: nothing posted" || fail "backend-dev: posted on a role-owned PR" "$(calls)"
+# Bound devex-tooling, but launched as another role: the launched role
+# is the session's (review of #68), so it is not the owner.
+thread_fixture "dependabot/nuget/apps/backend_dotnet/dotnet-minor-patch-04e2" false
+with_role devex-tooling
+MOCK_ENV=(env AGENT_FABRIC_LAUNCH_ROLE=backend-dev)
+invoke "Answering as the binding says." "$THREAD_ID"
+MOCK_ENV=(env)
+assert_rc       "bound devex-tooling, launched backend-dev: refused" 2
+[[ "$(calls)" != *REPLY* ]] && pass "…nothing posted" || fail "posted with a drifted role" "$(calls)"
+# Bound devex-tooling, but not started by the launcher: no stamp, no role
+# (review of #70).
+thread_fixture "dependabot/nuget/apps/backend_dotnet/dotnet-minor-patch-04e2" false
+with_role devex-tooling
+invoke "Answering without a launch." "$THREAD_ID"
+assert_rc       "bound devex-tooling, no launch stamp: refused" 2
+[[ "$(calls)" != *REPLY* ]] && pass "…nothing posted" || fail "posted without a launch stamp" "$(calls)"
 thread_fixture "dependabot/nuget/apps/backend_dotnet/dotnet-minor-patch-04e2" false
 with_role -
 invoke "No role here." "$THREAD_ID"

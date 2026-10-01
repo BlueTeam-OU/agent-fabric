@@ -47,6 +47,14 @@
       "title": "Rust peer-to-peer networking developer"
     },
     {
+      "id": "python-dev",
+      "title": "Python developer"
+    },
+    {
+      "id": "rust-ui-dev",
+      "title": "Rust native-client developer (Slint, accessibility, local store)"
+    },
+    {
       "id": "web-dev",
       "title": "Web sub-app developer"
     }

@@ -383,7 +383,11 @@ grep -q "CLAUDE-ENV:AGENT_FABRIC_LAUNCH_ROLE=backend-dev$" <<<"$out" && ok "role
 # of the caller's can take it as a value; print mode, the caller's own
 # prompt, --version and a caller's own `--` add none (the owner, 2026-09-26).
 out="$(run --provider anthropic 2>&1)"
-grep -q "CLAUDE-EXECCED:.*launch-prompt.md -- Session start: arm your GZCoord inbox watch now, with Monitor(command: 'gzcoord-inbox --follow'" <<<"$out" && ok "a bare launch opens with the prompt that arms the watch, after --" || bad "no opening prompt on a bare launch" "$out"
+grep -q "CLAUDE-EXECCED:.*launch-prompt.md -- Session start: arm your GZCoord inbox watch now, exactly as the session-start context's NO INBOX WATCH line gives it" <<<"$out" && ok "a bare launch opens with the prompt that arms the watch, after --" || bad "no opening prompt on a bare launch" "$out"
+# The prompt stays in claude's argv; a kill by the watch's command pattern
+# once matched it and ended the session (hooks/self-kill-guard.py).
+if grep "CLAUDE-EXECCED:" <<<"$out" | grep -q "gzcoord-inbox"; then bad "the opening prompt names the watch's command: a pgrep -f for it would match the session" "$out"
+else ok "…and names no command a process pattern could match"; fi
 out="$(run --provider anthropic --resume abc123 2>&1)"
 grep -q "CLAUDE-EXECCED:.*--resume abc123 -- Session start: arm your GZCoord inbox watch" <<<"$out" && ok "…and a resume, after the session id" || bad "no opening prompt on a resume" "$out"
 out="$(run --provider anthropic --resume 2>&1)"
