@@ -57,13 +57,14 @@ cannot.
 **Two carve-outs for a role.** A locale's translations,
 `identities/roles/<role>/locale/<suffix>/`, are committed by the holder
 of `<role>` whose login is named for `<suffix>`, alone in their commit,
-and merged by `fabric-coordinator`. A contributor role —
-one `policies/authority.json` names under `contributors` — commits, in
+and merged by `fabric-coordinator`. A contributor role — one
+`policies/authority.json` names under `contributors` — commits, in
 agent-fabric itself, the paths its entry lists and none it excludes, on
 a contributor branch of its own; `fabric-coordinator` folds that branch
 into its own pull request and merges it (A 2026-10-01). What a role *is*
-— identities, routing, policies, the protocol, the records — is never in
-an entry.
+and what enforces the fence — identities, routing, policies but the bash
+allowlist, the protocol, the records, the guards and what they import or
+run — is never in an entry, and lint holds every entry to that.
 
 **A guard is three things or it is not a guard** (the coordinator's
 brief): a check at commit time where the fact is readable, a
@@ -135,15 +136,19 @@ record says so rather than claim otherwise.
    being the only session that understands the surface (A 2026-10-01).
 8. The contributor carve-out: a commit from a session bound to a role
    `policies/authority.json` names under `contributors`, on a branch
-   `<host>/<login>/for/<caller>/<what>` of that login, staging only paths
-   its entry lists (a rule ending in `/` is a directory, any other one
-   file, no globs) and none it excludes, passes both hooks and is recorded
-   as `Fabric-Role: <role>`; CI admits it against the entry as the BASE
-   has it, so a branch cannot widen its own. Moves are judged by source
-   and destination; an amend, a half-written entry, another role and
-   `.agent-fabric/` in a project are refused as before. The decision is
-   `tools/fabric/guards/contributors.py`, one module for the hooks and CI.
-   The contributor opens no pull request; the coordinator folds the
+   `<host>/<login>/for/<caller>/<what>` of that login, staging only
+   paths its entry lists (a rule ending in `/` is a directory, any other
+   one file, no globs) and none it excludes, passes both hooks and is
+   recorded as `Fabric-Role: <role>`; CI admits it against the entry as
+   the BASE has it, so a branch cannot widen its own; the hooks read it
+   as HEAD has it. A guarded commit whose message types a role other
+   than the binding is refused. Moves are judged by source and
+   destination; an amend with nothing staged, an amend of another role's
+   commit, a half-written entry, another role and `.agent-fabric/` in a
+   project are refused as before; lint refuses an entry that reaches a
+   definition or the fence. The decision is
+   `tools/fabric/guards/contributors.py`, one module for the hooks and
+   CI. The contributor opens no pull request; the coordinator folds the
    branch unrebased and merges (A 2026-10-01).
 
 ## 6. Consequences
@@ -209,3 +214,4 @@ The body above reads current; each change's full note is in [history/ADR-018-ame
 | 2026-09-28 | The charter tripwire runs on every branch | §6: `check_charter_authority.sh` called from `tests/run.sh`; the known gap closed |
 | 2026-09-30 | Doppler is retired: the stores replace it | References |
 | 2026-10-01 | A contributor role commits its entry's paths | §2, §5 rules 7–8, §6, §8: a role named under `contributors` commits its entry's paths on its own contributor branch; the coordinator folds and merges |
+| 2026-10-01 | The fence's own code stays out; a guarded commit declares its binding | §2, §5 rule 8: the hooks read HEAD's entry; a typed role other than the binding is refused; the fence's own code is never in an entry; lint compares by prefix |

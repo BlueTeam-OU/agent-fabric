@@ -31,3 +31,17 @@ could take. The carve-out names the role and its paths in
 already was; definitions stay out of every entry, and every contributed
 commit reaches main inside the coordinator's pull request, under its blind
 review.
+
+### Amendment 2026-10-01 — The fence's own code stays out; a guarded commit declares its binding
+
+The blind review of the carve-out reproduced a contributor committing
+its own charter: the hook read the entry from the working tree, where
+an unstaged edit widened it, and `commit-msg` kept a typed owner
+trailer, which CI then accepted. It also found the first entry
+admitting the code that enforces the fence — `git.py`, which the CI
+guard imports, the reviewer's agent file, the harness hooks and their
+installers — and a lint that only caught rules broader than its sample
+files. The hooks now read the entry as HEAD has it, a guarded commit
+declaring a role other than its binding is refused, what a role is and
+what enforces the fence is never in an entry, and lint compares rules
+by prefix.

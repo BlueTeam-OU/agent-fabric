@@ -10,7 +10,7 @@
   "contributors": [
     {
       "role": "python-dev",
-      "note": "agent-fabric ADR-018 §5 rule 8: the code of the port of the fabric's bash to Python (ADR-040) and its Python tooling, on python-dev's own contributor branch, folded and merged by fabric-coordinator. Definitions stay out: identities/, routing/, policies/ (but the allowlist the port shrinks), communication/, docs/adr/, memory/, .agent-fabric/, .github/, the guards, the lint, the suite runners and the harness pins.",
+      "note": "agent-fabric ADR-018 §5 rule 8: the code of the port of the fabric's bash to Python (ADR-040) and its Python tooling, on python-dev's own contributor branch, folded and merged by fabric-coordinator. Definitions and the fence stay out: identities/, routing/, policies/ (but the allowlist the port shrinks), communication/, docs/adr/, memory/, .agent-fabric/, .github/; the guards and git.py, which they import; the lint and the suite runners; the reviewer's agent file and the harness hooks; bootstrap and install-agent-files, which install them; the role, routing and prompt code; the harness pins. Lint holds every entry to that list (CONTRIBUTOR_NEVER).",
       "paths": [
         "tools/",
         "tests/",
@@ -35,7 +35,16 @@
         "runtime/claude-code/harness.json",
         "runtime/claude-code/aliases.json",
         "runtime/provisioning/github-host-keys",
-        "runtime/provisioning/github-host-keys.fingerprints"
+        "runtime/provisioning/github-host-keys.fingerprints",
+        "tools/fabric/git.py",
+        "tools/fabric/role.py",
+        "tools/fabric/routing.py",
+        "tools/fabric/launch_prompt.py",
+        "bin/fabric-role",
+        "runtime/claude-code/agents/",
+        "runtime/claude-code/hooks/",
+        "runtime/claude-code/bootstrap.sh",
+        "runtime/claude-code/install-agent-files.sh"
       ]
     }
   ]

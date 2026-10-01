@@ -92,18 +92,26 @@ A role `policies/authority.json` names under `contributors` commits, in
 agent-fabric itself, the paths its entry lists and none it excludes. A
 rule ending in `/` is a directory and everything under it; any other
 rule is one file; there are no globs. Each entry keeps out what a role
-*is*: identities, routing, policies, the protocol, the decision records,
-the guards and the suite runner. The owner chose this for a Python
-developer sharing the port of the fabric's bash (ADR-040), over sending
-patches (agent-fabric ADR-018 §5 rule 8).
+*is* and what enforces the fence: identities, routing, policies (but the
+bash allowlist the port shrinks), the protocol, the decision records,
+the guards and the `git.py` they import, the lint and the suite runners,
+the reviewer's agent file, the harness hooks and the code that installs
+them, and the role, routing and prompt code. Lint holds every entry to
+that list (`CONTRIBUTOR_NEVER` in `tools/fabric/lint.py`), comparing
+rules as prefixes. The owner chose this for a Python developer sharing
+the port of the fabric's bash (ADR-040), over sending patches
+(agent-fabric ADR-018 §5 rule 8).
 
 - **At the keyboard**, `pre-commit` and `commit-msg` admit a commit from
   a session bound to that role, on a branch
   `<host>/<login>/for/<caller>/<what>` of its own login, staging only
-  its entry's paths. A move is judged by its source and its
-  destination; an amend, a merge that hand-edits outside the entry, and
-  anything on another branch are refused. `commit-msg` records
-  `Fabric-Role: <role>`.
+  its entry's paths, read from the entry as HEAD has it (never an
+  uncommitted edit). A move is judged by its source and its destination;
+  an amend with nothing staged, a merge that hand-edits outside the
+  entry, and anything on another branch are refused. `commit-msg`
+  records `Fabric-Role: <role>`, and refuses any guarded commit whose
+  message types another role — so an amend of another role's commit,
+  which keeps its trailer, is refused too.
 - **In CI**, `check_agent_fabric_dir_authority.sh` admits such a commit
   against the entry **as the base has it**: a branch that widens its
   own entry is judged by main's.
