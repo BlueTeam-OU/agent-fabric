@@ -90,9 +90,10 @@ took the substitution's failure for success and printed OK over an empty
 range); a commit whose message cannot be read makes the commit half NOT
 ENFORCED and names it (the bash `|| continue` skipped it and printed OK); a
 git that is missing or does not answer says so after the note. Everything
-else is replicated, including what reads as a defect: with no
-GITHUB_EVENT_PATH the OK line still says "nor in the pull-request
-description", and a payload that is JSON `null` or `false` "does not parse"
+else is replicated but two things. With no GITHUB_EVENT_PATH (every
+local run) the OK line said "nor in the pull-request description" though
+no description was read; it says now that there was none to read. And a
+payload that is JSON `null` or `false` "does not parse"
 (`jq -e .` exits 1 on it). Two things are not: a payload of several
 concatenated JSON documents, which jq reads as a stream and this reads as one
 that does not parse (NOT ENFORCED, where jq inspected each), and the warning
@@ -310,6 +311,9 @@ def check(env) -> tuple[int, list[str], list[str]]:
             out.append("ban_generated_by_attribution: what could be checked was clean.")
         return 0, out, []
 
+    if not event_path:
+        return 0, ["ban_generated_by_attribution: OK — no machine attribution in the"
+                   " commits this branch adds; no pull-request event, so no description to read."], []
     return 0, ["ban_generated_by_attribution: OK — no machine attribution in the"
                " commits this branch adds, nor in the pull-request description."], []
 
