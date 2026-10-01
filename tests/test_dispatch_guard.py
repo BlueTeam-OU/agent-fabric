@@ -54,6 +54,21 @@ def main() -> int:
         r = subprocess.run(["bash", SHIM], input=stdin, capture_output=True, timeout=60)
         check(f"{label}: exit 0 and ask", r.returncode == 0 and verdict(r.stdout) == "ask")
 
+    print("the review word after whitespace as jq read it (review of #72)")
+    for sep in ("\x1c", "\x1d", "\x1e", "\x1f"):
+        rv = dg.decide({"tool_input": {"subagent_type": "code-review", "model": "fable",
+                                       "description": sep + "review: write the fix"}})
+        check(f"U+{ord(sep):04X} before review: not a review, denied", rv is not None and
+              rv["hookSpecificOutput"]["permissionDecision"] == "deny")
+        other = dg.decide({"tool_input": {"subagent_type": "general-purpose", "model": "sonnet",
+                                          "isolation": "worktree", "description": sep + "review it"}})
+        check(f"U+{ord(sep):04X} before review on another type: allowed, as the bash", other is None)
+    for sep in ("\t", " ", "\u00a0", "\u3000", "\u2028"):
+        rv = dg.decide({"tool_input": {"subagent_type": "code-review", "model": "fable", "description": sep + "review"}})
+        # An allow: nothing, or under a fabric launch the pin's explicit one.
+        check(f"U+{ord(sep):04X} is whitespace to both", rv is None
+              or rv["hookSpecificOutput"]["permissionDecision"] == "allow")
+
     print("a fault inside the guard asks")
     real = dg.decide
 

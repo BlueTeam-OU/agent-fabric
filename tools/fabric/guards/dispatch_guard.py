@@ -120,7 +120,11 @@ SKILL = "See the subagent-dispatch skill (agent-fabric policies/subagent-dispatc
 ADR027 = "See docs/adr/ADR-027-language-and-culture-shape-the-work-the-bridge.md."
 CLASSES = ("code-low", "code-medium", "code-high", "code-plan", "code-review")
 PROBE_TIMEOUT_S = 20
-REVIEW_DESC = re.compile(r"^\s*(re-)?review")
+# Whitespace as jq's Oniguruma reads `\s`: Python's also takes the four
+# separators U+001C-U+001F, and with them "\u001freview: write the fix"
+# wore the review type past this rule (review of #72). Measured over every
+# character Python calls a space: those four are the only difference.
+REVIEW_DESC = re.compile(r"^(?:(?![\x1c-\x1f])\s)*(re-)?review")
 CODING_CLASS = re.compile(r"^code-(low|medium|high|plan)$")
 READ_ONLY = re.compile(r"^(Explore|Plan|claude-code-guide)$")
 PREMIUM = re.compile(r"opus|fable")
