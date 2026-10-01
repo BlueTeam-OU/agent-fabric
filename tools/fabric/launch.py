@@ -56,10 +56,20 @@ skipped with one line instead of a traceback (it was never refused); an
 unreadable ~/.claude.json is one line before the refusal; every subprocess
 is bounded (ori auth 60 s, the harness's --version 30 s, the agent-file
 install 300 s; a fetch was already 20 s), and a bound that is hit reads as
-that call's failure, ori's as exit 124; a closed stdout (`--print | head`)
-ends quietly with 141, as bash's SIGPIPE did. The helper processes run on
-this interpreter (the fleet's pin), where the bash ran whichever python3
-PATH named.
+that call's failure, ori's as exit 124; every git call is bounded too, at
+git.py's 120 s, the fabric's `pull --ff-only` included (a pull the bound
+ends is said as a timeout, never as "cannot fast-forward"), and so are
+the helpers (identity, routing, launch_prompt, jobs) at HELPER_TIMEOUT_S; a
+closed stdout (`--print | head`) ends quietly with 141, as bash's SIGPIPE
+did. The helper processes run on this interpreter (the fleet's pin),
+where the bash ran whichever python3 PATH named. The session inherits
+descriptors 0-2 only (close_fds): the bash passed it every descriptor
+its caller left open, and no caller hands one on (fabric-lease closes its
+lock's before the command; moveto's shell, the control agent and
+fabric-fresh hold none), while a leaked pipe end would hold the caller's
+pipeline open for the session's life. AGENT_FABRIC_RESTART_WAIT_S that
+is not a number is said in one line before the resume is given up, where
+the bash printed a traceback.
 
 WHY THIS EXISTS. Launching is a decision no session can make for itself:
 one launch decides the provider for EVERYTHING under it, subagents
@@ -348,6 +358,16 @@ def behind_count(repo: str, rng: str) -> int:
         return 0
 
 
+def pull_ff(repo: str) -> str:
+    """"ok", "failed" (it could not fast-forward) or "timeout": a pull the
+    bound ended is a different cause, said differently."""
+    try:
+        r = git.run(repo, "pull", "-q", "--ff-only", "origin", "main", check=False)
+    except git.GitError as exc:
+        return "timeout" if "no answer within" in exc.reason else "failed"
+    return "ok" if r.returncode == 0 else "failed"
+
+
 def keep_fabric_current(fabric_root: str, orig_args: list[str]) -> None:
     if not (git_status_ok(fabric_root, "rev-parse", "--is-inside-work-tree")
             and git_status_ok(fabric_root, "remote", "get-url", "origin")):
@@ -363,7 +383,13 @@ def keep_fabric_current(fabric_root: str, orig_args: list[str]) -> None:
     elif os.environ.get("AGENT_FABRIC_PULLED") == "1":
         die(f"agent-fabric at {fabric_root} is still {behind} commit(s) behind origin/main after a pull; not relaunching again.\n"
             f"  Look at the checkout: git -C \"{fabric_root}\" status")
-    elif git_status_ok(fabric_root, "pull", "-q", "--ff-only", "origin", "main"):
+    elif (pulled := pull_ff(fabric_root)) == "timeout":
+        die(f"agent-fabric at {fabric_root}: git pull did not answer within {git.TIMEOUT_S:g} s; nothing was "
+            "relaunched.\n"
+            "  A pull ended by the bound may leave .git/index.lock behind. Look:\n"
+            f"    git -C \"{fabric_root}\" status\n"
+            "  and relaunch once origin is reachable.")
+    elif pulled == "ok":
         head = git_text(fabric_root, "rev-parse", "--short", "HEAD") or ""
         say(f"launch: agent-fabric was {behind} commit(s) behind origin/main; pulled to {head} and relaunching on it.")
         reexec(env_with(AGENT_FABRIC_PULLED="1"), orig_args)
@@ -979,6 +1005,14 @@ def opening_prompt(fabric_root: str) -> str:
     return text
 
 
+def ignore_quit() -> None:
+    """In the session, before it starts: SIGQUIT ignored, as bash gave every
+    `&` job of a script (without job control, an asynchronous command
+    ignores SIGINT and SIGQUIT). SIGINT is ignored here already, and
+    inherited."""
+    signal.signal(signal.SIGQUIT, signal.SIG_IGN)
+
+
 def run_session(cmd: list[str]) -> int:
     """THE SESSION IS A CHILD, NOT AN EXEC (owner, 2026-09-16). This process
     outlives the session, which is what lets it bring the session back
@@ -1006,7 +1040,7 @@ def run_session(cmd: list[str]) -> int:
     signal.signal(signal.SIGTERM, forward)
     signal.signal(signal.SIGHUP, forward)
     try:
-        child = subprocess.Popen(cmd)
+        child = subprocess.Popen(cmd, preexec_fn=ignore_quit)
         status = child.wait()
     except OSError as exc:
         say(f"launch: {cmd[0]}: {exc.strerror}")
@@ -1034,6 +1068,8 @@ def read_restart(marker: str, started: int, binding: str, wait_s_text: str) -> s
     try:
         wait_s = int(wait_s_text)
     except ValueError:
+        say(f"launch: AGENT_FABRIC_RESTART_WAIT_S is '{wait_s_text}', not a number of seconds; not resuming the "
+            f"session (unset it for the default, {RESTART_WAIT_S} s).")
         return None
 
     def load():
@@ -1144,7 +1180,7 @@ def restart(state_dir: str, started: int, opening: bool, status: int, orig_args:
     if not os.path.isfile(marker):
         return
     resume = read_restart(marker, started, f"{state_dir}/binding.json",
-                          os.environ.get("AGENT_FABRIC_RESTART_WAIT_S", str(RESTART_WAIT_S)))
+                          os.environ.get("AGENT_FABRIC_RESTART_WAIT_S") or str(RESTART_WAIT_S))
     try:
         os.remove(marker)
     except OSError:
