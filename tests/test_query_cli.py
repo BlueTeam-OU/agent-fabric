@@ -173,9 +173,13 @@ def fixtures() -> None:
     "adrs": {"Ünï-1": {"observations": ["feed0003"], "slices": ["lesson:ü"]}},
     "files": {"apps/status_web": {"observations": [], "slices": ["lesson:w"]}}
   }''')
-    # An artifact with an observation and no slice: pinned below.
+    # An artifact with an observation and no slice: pinned below. ADR-002 is
+    # what the working-copy discovery cases ask for: an ordinary hit, so they
+    # hold the bash to discovery alone, not to the empty-slice fix (review of
+    # #73).
     xref(f"{WC_C}/.agent-fabric/memory/ops/crossref.json", "ops", '''{
-    "adrs": {"ADR-001": {"observations": ["0abc"], "slices": []}}
+    "adrs": {"ADR-001": {"observations": ["0abc"], "slices": []},
+             "ADR-002": {"observations": ["0abd"], "slices": ["lesson:found"]}}
   }''')
     put(f"{STATE}/binding.json", json.dumps({"working_copy": WC_C, "role": "x"}) + "\n")
 
@@ -365,7 +369,7 @@ def main() -> int:
     expect("roles: the table, in path order, with slices (no INDEX.md) per project, per domain, and the citations", 0,
            table(("project/role", "project", "domain", "citations"),
                  ("root/fabric-coordinator", 0, 0, 1), ("legacyproj/devrole", 2, 2, 11), ("wc-a/devrole", 1, 2, 2),
-                 ("wc-b/qa", 0, 0, 2), ("wc-c/ops", 0, 0, 1)), "")
+                 ("wc-b/qa", 0, 0, 2), ("wc-c/ops", 0, 0, 2)), "")
 
     print("query: crossrefs that cannot be read")
     bad = f"{T}/wc-bad"
@@ -410,20 +414,20 @@ def main() -> int:
     run("adr", "ADR-054", **full())
     expect("a binding with no working copy", 0, adr054_all, "")
     os.remove(f"{STATE}/binding.json")
-    run("adr", "ADR-001", AGENT_FABRIC_ROOT=ROOT, AGENT_FABRIC_STATE_DIR=STATE, AGENT_FABRIC_WORKING_COPIES="")
-    expect("no binding file, no working copy: wc-c is not seen", 0, nothing("ADR-001"), "")
+    run("adr", "ADR-002", AGENT_FABRIC_ROOT=ROOT, AGENT_FABRIC_STATE_DIR=STATE, AGENT_FABRIC_WORKING_COPIES="")
+    expect("no binding file, no working copy: wc-c is not seen", 0, nothing("ADR-002"), "")
     # The state directory when AGENT_FABRIC_STATE_DIR is unset: XDG_STATE_HOME, then HOME.
-    wc_c_ops = head_("wc-c/ops") + hit("ADR-001", 1, "none")
+    wc_c_ops = head_("wc-c/ops") + hit("ADR-002", 1, "lesson:found")
     binding = json.dumps({"working_copy": WC_C}) + "\n"
     put(f"{T}/xdg/agent-fabric/agents/{LOGIN}/binding.json", binding)
-    run("adr", "ADR-001", AGENT_FABRIC_ROOT=ROOT, XDG_STATE_HOME=f"{T}/xdg")
+    run("adr", "ADR-002", AGENT_FABRIC_ROOT=ROOT, XDG_STATE_HOME=f"{T}/xdg")
     expect("the binding under XDG_STATE_HOME/agent-fabric/agents/<login>", 0, wc_c_ops, "")
     put(f"{HOME}/.local/state/agent-fabric/agents/{LOGIN}/binding.json", binding)
-    run("adr", "ADR-001", AGENT_FABRIC_ROOT=ROOT)
+    run("adr", "ADR-002", AGENT_FABRIC_ROOT=ROOT)
     expect("…and under HOME/.local/state when that is unset too", 0, wc_c_ops, "")
-    run("adr", "ADR-001", AGENT_FABRIC_ROOT=ROOT, AGENT_FABRIC_WORKING_COPIES=WC_C, AGENT_FABRIC_STATE_DIR=f"{T}/nostate")
+    run("adr", "ADR-002", AGENT_FABRIC_ROOT=ROOT, AGENT_FABRIC_WORKING_COPIES=WC_C, AGENT_FABRIC_STATE_DIR=f"{T}/nostate")
     expect("WORKING_COPIES alone", 0, wc_c_ops, "")
-    run("adr", "ADR-001", AGENT_FABRIC_ROOT=ROOT, AGENT_FABRIC_WORKING_COPY=WC_C, AGENT_FABRIC_STATE_DIR=f"{T}/nostate")
+    run("adr", "ADR-002", AGENT_FABRIC_ROOT=ROOT, AGENT_FABRIC_WORKING_COPY=WC_C, AGENT_FABRIC_STATE_DIR=f"{T}/nostate")
     expect("WORKING_COPY alone", 0, wc_c_ops, "")
 
     print("query: the root defaults to the script's own checkout")
