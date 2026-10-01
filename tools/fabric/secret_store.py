@@ -384,6 +384,18 @@ def _after_commit(store: str) -> None:
         git(store, "push", "-q", "origin", f"HEAD:{_branch(store)}")
 
 
+def stdin_value(allow_empty: bool) -> bytes:
+    """A value from stdin, refused when it is empty and not meant to be: a
+    pipe whose producer failed reaches here as nothing, and stored it reads
+    "set" while the login now holds an empty token, which the launcher
+    refuses at the next session (devex-tooling, 2026-10-01). One trailing
+    newline is not a value either."""
+    value = sys.stdin.buffer.read()
+    if not allow_empty and not _one_line_off(value):
+        raise StoreError("no value on stdin — nothing written (an empty value on purpose: --empty)")
+    return value
+
+
 def set_entry(name: str, value: bytes, *, exact: bool = False) -> dict:
     """The agent writes its own entry. From stdin one trailing newline is
     dropped (exact=False); an in-process caller passes the value as it
@@ -779,6 +791,7 @@ def assign(slug: str, logins: list[str], *, force: bool = False) -> list[dict]:
         raise StoreError(f"{slug} is not a template in this store (fabric-secrets store templates)")
     rows = []
     fp = _sha12(vals[name])
+    me = own_agent_id(own)
     for who in logins:
         # A login or an agent id, resolved first (ADR-039 rule 5); rows
         # name the agent by its login, the record keys it by its id.
@@ -796,7 +809,13 @@ def assign(slug: str, logins: list[str], *, force: bool = False) -> list[dict]:
             rows.append({"login": who, "from": was, "to": slug, "status": "unchanged", "token_sha256_12": fp})
             continue
         try:
-            put(aid, "CLAUDE_CODE_OAUTH_TOKEN", vals[name].encode(), exact=True)
+            # The store's own agent has no mirror of itself under children/:
+            # its token is its own entry, which it can also read back
+            # (failed as "no store at …/children/<own id>", 2026-10-01).
+            if aid == me:
+                set_entry("CLAUDE_CODE_OAUTH_TOKEN", vals[name].encode(), exact=True)
+            else:
+                put(aid, "CLAUDE_CODE_OAUTH_TOKEN", vals[name].encode(), exact=True)
             set_entry(rec, f"{slug} {fp}".encode(), exact=True)
             rows.append({"login": who, "from": was, "to": slug, "status": "written", "token_sha256_12": fp})
         except StoreError as e:
@@ -1130,12 +1149,14 @@ def main(argv: list[str] | None = None) -> int:
     i.add_argument("--agent-id", help="the id the parent minted at enrolment (store-enroll.sh)")
     s = sub.add_parser("set")
     s.add_argument("name")
+    s.add_argument("--empty", action="store_true", help="store an empty value on purpose")
     n = sub.add_parser("names")
     n.add_argument("--json", action="store_true")
     p = sub.add_parser("put")
     p.add_argument("login")
     p.add_argument("name")
     p.add_argument("--store")
+    p.add_argument("--empty", action="store_true", help="store an empty value on purpose")
     mi = sub.add_parser("mint-id", help="a new agent id whose time is the birth given")
     mi.add_argument("born", help='the birth: "now", ISO 8601, or as `stat -c %%w` prints it')
     sub.add_parser("id", help="this store's agent id")
@@ -1197,13 +1218,13 @@ def main(argv: list[str] | None = None) -> int:
             r = rename(args.old, args.new)
             print(f"agent {r['agent_id']}: now {r['login']}")
         elif args.cmd == "set":
-            r = set_entry(args.name, sys.stdin.buffer.read())
+            r = set_entry(args.name, stdin_value(args.empty))
             print(f"{args.name}: {'set' if r['changed'] else 'unchanged'}")
         elif args.cmd == "names":
             ns = names()
             print(json.dumps(ns) if args.json else "\n".join(ns) or "(no entries)")
         elif args.cmd == "put":
-            r = put(args.login, args.name, sys.stdin.buffer.read(), store=args.store)
+            r = put(args.login, args.name, stdin_value(args.empty), store=args.store)
             print(f"{args.login} {args.name}: {'written' if r['changed'] else 'unchanged'}")
         elif args.cmd == "certify":
             if args.root == bool(args.login):

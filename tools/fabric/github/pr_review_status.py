@@ -872,7 +872,7 @@ def head_born(repo: str, pr: str, head: str, head_ref: str) -> str:
     "nothing is coming"."""
     born = ""
     try:
-        suites = gh.api(f"repos/{repo}/commits/{head}/check-suites", paginate=True) or []
+        suites = gh.api(f"repos/{repo}/commits/{head}/check-suites", paginate=True, items_key="check_suites") or []
         dates = [s.get("created_at") for s in suites
                  if s.get("head_branch") == head_ref
                  and int(pr) in [p.get("number") for p in (s.get("pull_requests") or [])]

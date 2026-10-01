@@ -31,6 +31,14 @@ if mode == "hang":
     time.sleep(5)
 if mode == "gqlerr":
     print(json.dumps({"errors": [{"message": "Field 'x' doesn't exist"}]})); sys.exit(0)
+if mode == "refused":
+    sys.stderr.write('Get "https://api.github.com/x": proxyconnect tcp: dial tcp 127.0.0.1:9: connect: connection refused\n'); sys.exit(1)
+if mode == "nohost":
+    sys.stderr.write("error connecting to nonexistent.invalid\ncheck your internet connection or https://githubstatus.com\n"); sys.exit(1)
+if mode == "reset":
+    sys.stderr.write('Post "https://api.github.com/graphql": read tcp 10.0.0.2:5555->140.82.112.6:443: read: connection reset by peer\n'); sys.exit(1)
+if mode == "objpages" and "--slurp" in sys.argv:
+    print(json.dumps([{"total_count": 3, "check_suites": [{"n": 1}, {"n": 2}]}, {"total_count": 3, "check_suites": [{"n": 3}]}])); sys.exit(0)
 if mode == "garbled":
     print("<html>truncated"); sys.exit(0)
 if mode == "gqlrate":
@@ -83,6 +91,22 @@ def main() -> int:
                 check("a GraphQL rate limit answered with 200 raises", False)
             except gh.GhError as e:
                 check("a GraphQL rate limit answered with 200 is transient", e.transient, (e, e.transient))
+            for mode in ("refused", "nohost", "reset"):
+                os.environ["FAKE_GH_MODE"] = mode
+                try:
+                    gh.api("repos/o/r")
+                    check(f"a network failure ({mode}) raises", False)
+                except gh.GhError as e:
+                    check(f"a network failure ({mode}) is transient, with no status", e.transient and e.status is None, (e, e.transient))
+            os.environ["FAKE_GH_MODE"] = "objpages"
+            got = gh.api("repos/o/r/commits/h/check-suites", paginate=True, items_key="check_suites")
+            check("object pages: the named field's items, one list", got == [{"n": 1}, {"n": 2}, {"n": 3}], got)
+            for key in (None, "nope"):
+                try:
+                    gh.api("repos/o/r/commits/h/check-suites", paginate=True, items_key=key)
+                    check(f"object pages, items_key={key!r}: raised, never a mixed list", False)
+                except gh.GhError as e:
+                    check(f"object pages, items_key={key!r}: raised, never a mixed list", "not a list" in e.reason, e)
             os.environ["FAKE_GH_MODE"] = "garbled"
             try:
                 gh.api("repos/o/r/pulls/7/reviews", method="POST", body={"body": "x"})

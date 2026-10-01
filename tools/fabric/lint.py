@@ -1419,7 +1419,13 @@ def bash_size_findings(root: str, base_ref: str = "origin/main") -> list[str]:
     for rel in sorted(listed):
         if rel not in over:
             findings.append(f"policies/bash-allowlist.json: {rel} is gone or {BASH_LINE_LIMIT} lines or fewer — remove its entry")
-    base = _git().run(root, "show", f"{base_ref}:policies/bash-allowlist.json", check=False, timeout=60)
+    # The list as the branch forked from it, not as the base stands now: a
+    # branch behind main still lists what main has since ported away, and
+    # against main's tip those read as additions (review of #70). Without
+    # a merge base (a ref with no common history) the ref itself.
+    mb = _git().run(root, "merge-base", "HEAD", base_ref, check=False, timeout=60)
+    since = mb.stdout.strip() if mb.returncode == 0 and mb.stdout.strip() else base_ref
+    base = _git().run(root, "show", f"{since}:policies/bash-allowlist.json", check=False, timeout=60)
     if base.returncode == 0:
         try:
             before = set((json.loads(base.stdout).get("scripts") or {}))

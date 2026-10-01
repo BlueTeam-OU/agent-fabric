@@ -168,6 +168,15 @@ def main() -> int:
                   p.returncode == 1 and json.loads(p.stdout)[0]["status"] == "failed", p.stdout + p.stderr)
             p = run(parent, "assign", "no-such", "kid")
             check("an unknown template is refused", p.returncode == 1 and "not a template" in p.stderr, p.stderr)
+            # The coordinator assigning its own login: no mirror of itself
+            # exists under children/, the token is its own entry.
+            p = run(parent, "assign", "work-account", PID, "--json")
+            mine = json.loads(p.stdout or "[]")
+            got = subprocess.run(["gpg", "--batch", "--quiet", "--decrypt", os.path.join(own_env, "CLAUDE_CODE_OAUTH_TOKEN.gpg")],
+                                 env=parent, capture_output=True, text=True)
+            check("assigning the store's own agent writes its own entry, which it reads back",
+                  p.returncode == 0 and mine and mine[0]["status"] == "written" and got.stdout == TOKEN
+                  and TOKEN not in p.stdout, p.stdout + p.stderr + got.stderr[-200:])
 
             # provision (the Doppler enrolment's replacement): the parent
             # fills the child's store with put, reads nothing back, prints
@@ -417,7 +426,14 @@ def main() -> int:
             p = run(child, "set", "SSH_PRIVATE_KEY", stdin=pem + "\n")
             check("F1: setting the same multi-line value again is unchanged", "unchanged" in p.stdout, p.stdout + p.stderr)
             p = run(child, "set", "EMPTY_ONE", stdin="")
-            check("F1: an empty value is stored", p.returncode == 0 and "EMPTY_ONE" in run(child, "names").stdout, p.stderr)
+            check("an empty value is refused, nothing written (a failed pipe stores no token)",
+                  p.returncode != 0 and "nothing written" in p.stderr and "EMPTY_ONE" not in run(child, "names").stdout,
+                  p.stdout + p.stderr)
+            p = run(child, "set", "EMPTY_ONE", stdin="\n")
+            check("…a lone newline is no value either", p.returncode != 0, p.stdout + p.stderr)
+            p = run(child, "set", "EMPTY_ONE", "--empty", stdin="")
+            check("F1: an empty value is stored when asked for with --empty",
+                  p.returncode == 0 and "EMPTY_ONE" in run(child, "names").stdout, p.stderr)
 
             # F4: the agent's own write reaches the remote, and a parent's put
             # afterwards merges with it; the child then reads both.

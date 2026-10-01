@@ -36,6 +36,14 @@ import subprocess
 
 TIMEOUT_S = 60
 _STATUS = re.compile(r"\(HTTP (\d{3})\)")
+# A request that never reached GitHub, or lost its answer on the way,
+# carries no HTTP status: a retry can help a read, and a write may or may
+# not have landed. Measured on gh 2.87.3 through dead proxies
+# (2026-10-01): "connect: connection refused", "error connecting to
+# <host>" (a name that does not resolve), "i/o timeout"; the rest are the
+# Go network layer's own texts for the same failures (review of #71).
+NETWORK_FAILURES = ("timeout", "connection refused", "connection reset", "error connecting to", "no such host",
+                    "unexpected eof", "tls handshake", "network is unreachable", "broken pipe")
 
 
 class GhError(Exception):
@@ -70,14 +78,15 @@ def run(args: list[str], *, input: str | None = None, timeout: float = TIMEOUT_S
         lines = [l for l in r.stderr.strip().splitlines() if l.strip()] or [f"exit {r.returncode}"]
         m = _STATUS.search(r.stderr)
         status = int(m.group(1)) if m else None
+        low = r.stderr.lower()
         transient = status is not None and (status >= 500 or status == 429) \
-            or "rate limit" in r.stderr.lower() or "timeout" in r.stderr.lower()
+            or "rate limit" in low or any(t in low for t in NETWORK_FAILURES)
         raise GhError(what, lines[-1], status, transient, r.stdout)
     return r.stdout
 
 
 def api(path: str, *, method: str = "GET", body: dict | list | None = None, paginate: bool = False,
-        timeout: float = TIMEOUT_S):
+        timeout: float = TIMEOUT_S, items_key: str | None = None):
     """A REST call, its JSON. With paginate, every page's items as one
     list (`--paginate --slurp`, which gh has had since 2.48)."""
     args = ["api", path, "--method", method]
@@ -96,14 +105,20 @@ def api(path: str, *, method: str = "GET", body: dict | list | None = None, pagi
         raise GhError(f"gh api {method} {path.split('?')[0]}", "the answer is not JSON", transient=True) from None
     if paginate and isinstance(data, list):
         # --slurp wraps the pages in a list; a page is a list of items, or
-        # an object whose one list field holds them (search, check runs).
+        # an object holding them under the field the caller names (search,
+        # check suites). Guessed, a page with no list field or several was
+        # appended whole, and the caller got items of two shapes (review of
+        # #70): an object page without its named field is a failed read.
         items = []
         for page in data:
             if isinstance(page, list):
                 items += page
-            elif isinstance(page, dict):
-                lists = [v for v in page.values() if isinstance(v, list)]
-                items += lists[0] if len(lists) == 1 else [page]
+            elif isinstance(page, dict) and items_key and isinstance(page.get(items_key), list):
+                items += page[items_key]
+            else:
+                what = f"gh api {method} {path.split('?')[0]}"
+                raise GhError(what, f"a page is not a list{f' and has no {items_key!r} list' if items_key else ''}"
+                              f" (pass items_key= for an endpoint whose pages are objects)")
         return items
     return data
 

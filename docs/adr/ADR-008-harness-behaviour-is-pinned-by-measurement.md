@@ -57,6 +57,15 @@ directory it starts in. The keys, and why:
   path — the memory model's write-time check (ADR-013 rule 14), at user
   scope because a memory is the account's; the account's own hooks are
   kept (A 2026-09-28).
+- `autoMode`, from `policies/auto-mode.json` — what the auto-mode
+  classifier is told about the fleet. The classifier reads it from user
+  and managed settings only, never from a project's `.claude/`. The
+  environment is the pinned harness's own list (`claude auto-mode
+  defaults`) with each slot the policy names replaced in place; the
+  allow and block lists are the built-in ones plus the policy's. And
+  `skillOverrides` `auto-mode-setup` `"off"`: a login's own setup wizard
+  sees one project's transcripts and would write that project's picture
+  over the fleet's (A 2026-10-01).
 
 The harness's system prompt is kept verbatim as
 `runtime/claude-code/harness/en.md`, the source a locale translates.
@@ -103,6 +112,12 @@ behaviour a property of the account, not of where a session was started.
    visible, never a gate.
 6. A `-p` probe that disallows tools passes its prompt on stdin:
    `--disallowedTools` is variadic and eats a following positional.
+7. The auto-mode classifier's picture of the fleet is
+   `policies/auto-mode.json`, the same on every account: a fact true of
+   every agent on every host, never one project's. A login does not keep
+   its own; the setup wizard stays off, and `user-settings.py` puts back
+   an `autoMode` edited by hand. When the harness's defaults cannot be
+   read, an existing `autoMode` is kept and the run says so (A 2026-10-01).
 
 ## 6. Consequences
 
@@ -141,3 +156,4 @@ The body above reads current; each change's full note is in [history/ADR-008-ame
 |---|---|---|
 | 2026-09-28 | The terminal keeps its scrollback | §2: `tui` "default" joins the display keys the settings writer pins |
 | 2026-09-28 | The settings writer adds the memory-write check | §2: a user-scope PostToolUse hook for ADR-013 rule 14 |
+| 2026-10-01 | The fleet's auto-mode picture is written centrally | §2 the keys and §5 rule 7: `autoMode` from policies/auto-mode.json, the setup wizard off |

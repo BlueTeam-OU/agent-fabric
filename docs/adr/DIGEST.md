@@ -209,6 +209,9 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-09-28 — `tui` "default" is pinned, so a session's terminal keeps its
   scrollback.
 - A 2026-09-28 — the settings writer adds the memory-write check hook (ADR-013 rule 14).
+- A 2026-10-01 — the auto-mode classifier's picture of the fleet is
+  policies/auto-mode.json, written into every login's user settings; the
+  setup wizard is off (§5 rule 7).
 - Keywords: Claude Code, harness, settings.json, attribution, Co-Authored-By,
   auto-update, DISABLE_AUTOUPDATER, verbose, auto mode, system prompt, build.
 
