@@ -50,7 +50,12 @@ def main() -> int:
         fails += not good
 
     store: dict = {"values": fixture(ME), "error": None}
-    s.fetch_values = lambda: (None, store["error"]) if store["error"] else (dict(store["values"]), None)
+    pulls: list[bool] = []
+
+    def fake_fetch_values(pull: bool = True):
+        pulls.append(pull)
+        return (None, store["error"]) if store["error"] else (dict(store["values"]), None)
+    s.fetch_values = fake_fetch_values
     s.fetch_names = lambda: (None, store["error"]) if store["error"] else (list(store["values"]), None)
 
     def run(fn, *a) -> tuple[int, str]:
@@ -67,6 +72,14 @@ def main() -> int:
         git = lambda k: subprocess.run(["git", "config", "--global", "--get", k], capture_output=True, text=True).stdout.strip()
         envf = s.env_file()
         try:
+            # --no-pull: a new account applies the copy it was just handed
+            # (store take-bundle); every other sync pulls first.
+            pulls.clear()
+            rc, _ = run(s.main, ["sync", "--quiet"])
+            rc2, _ = run(s.main, ["sync", "--quiet", "--no-pull"])
+            rc3, _ = run(s.main, ["status", "--no-pull"])
+            check("sync pulls; --no-pull does not; status refuses the flag",
+                  pulls == [True, False] and rc == 0 and rc2 == 0 and rc3 == 2, (pulls, rc, rc2, rc3))
             rc, out = run(s.sync, False, False)
             check("sync exits 0 with every name present", rc == 0, out)
             check("the env file is 0600", s.file_mode(envf) == 0o600)

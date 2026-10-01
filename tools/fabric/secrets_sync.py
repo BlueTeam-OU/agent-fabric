@@ -3,10 +3,12 @@
 (ADR-038), into the places the tools read them. Runs AS THE ACCOUNT, behind
 `fabric-secrets sync|status`.
 
-    fabric-secrets sync [--force] [--json] [--quiet]
+    fabric-secrets sync [--force] [--json] [--quiet] [--no-pull]
                                   pull this login's store, apply it (--quiet:
                                   one line, only when something is missing
-                                  or failed)
+                                  or failed; --no-pull: apply it as it is,
+                                  once, right after `store take-bundle` — a
+                                  new account has no key to pull with yet)
     fabric-secrets status [--json]
                                   what is present, missing, applied
 
@@ -55,7 +57,7 @@ GIT_NAMES = {"GIT_USER_NAME": "user.name", "GIT_USER_EMAIL": "user.email",
 SSH_NAMES = ["SSH_PRIVATE_KEY", "SSH_PUBLIC_KEY"]
 IDENTITY_NAMES = ["AGENT_LOGIN", "AGENT_HOST"]
 ALL_NAMES = IDENTITY_NAMES + ENV_NAMES + list(GIT_NAMES) + SSH_NAMES
-USAGE = "usage: fabric-secrets sync [--force] [--json] [--quiet] | status [--json] | store …"
+USAGE = "usage: fabric-secrets sync [--force] [--json] [--quiet] [--no-pull] | status [--json] | store …"
 
 
 def login() -> str:
@@ -109,12 +111,15 @@ def fetch_names() -> tuple[list[str] | None, str | None]:
         return None, f"store: {e}"
 
 
-def fetch_values() -> tuple[dict[str, str] | None, str | None]:
+def fetch_values(pull: bool = True) -> tuple[dict[str, str] | None, str | None]:
     # A pull that fails is an error, not a note: a stale copy would be
     # applied as if it were the store, and the sync would say applied.
+    # Skipped only when asked: the copy was just taken from the parent's
+    # bundle, and the key to pull with is what this sync writes.
     try:
         st = load_store()
-        st.pull()
+        if pull:
+            st.pull()
         return st.values(), None
     except Exception as e:  # noqa: BLE001 — the store's error, never a value
         return None, f"store: {e}"
@@ -243,12 +248,12 @@ def status(as_json: bool, quiet: bool = False) -> int:
     return 0 if ok else 1
 
 
-def sync(force: bool, as_json: bool, quiet: bool = False) -> int:
+def sync(force: bool, as_json: bool, quiet: bool = False, pull: bool = True) -> int:
     me = login()
     optional = project_agent_env()
     known = ALL_NAMES + optional
     obj = {"login": me, "source": "store", "store": store_path(), "applied": [], "skipped": []}
-    values, err = fetch_values()
+    values, err = fetch_values(pull)
     if err:
         obj["error"] = err
         obj["local"] = local_state()
@@ -308,12 +313,13 @@ def main(argv: list[str]) -> int:
         print(USAGE, file=sys.stderr)
         return 0 if argv else 2
     cmd, flags = argv[0], argv[1:]
-    if cmd not in ("sync", "status") or [f for f in flags if f not in ("--force", "--json", "--quiet")]:
+    if cmd not in ("sync", "status") or [f for f in flags if f not in ("--force", "--json", "--quiet", "--no-pull")] \
+            or (cmd == "status" and "--no-pull" in flags):
         print(USAGE, file=sys.stderr)
         return 2
     if cmd == "status":
         return status("--json" in flags, "--quiet" in flags)
-    return sync("--force" in flags, "--json" in flags, "--quiet" in flags)
+    return sync("--force" in flags, "--json" in flags, "--quiet" in flags, pull="--no-pull" not in flags)
 
 
 if __name__ == "__main__":
