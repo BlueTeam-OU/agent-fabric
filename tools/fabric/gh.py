@@ -17,10 +17,12 @@ errors its own way. Here:
   - JSON is parsed in Python, never with jq;
   - every call is bounded, and its error names the call and GitHub's
     reason (the HTTP status when gh reports one);
-  - `transient` says whether a retry could help (a timeout, a 5xx, a rate
-    limit), so a caller decides between waiting and giving up — the
-    distinction pr-review-status.sh's exit 5 draws ("permanent, don't
-    wait").
+  - `transient` says the outcome is not known to be a refusal: a timeout,
+    a 5xx, a rate limit, or an answer gh accepted and that could not be
+    read. For a read that means a retry could help — the distinction
+    pr-review-status.sh's exit 5 draws ("permanent, don't wait"). For a
+    WRITE it means the write may have landed: never retry one on it (a
+    review or a reply cannot be unsent); say so and let a person look.
 
 GitHub refuses one GraphQL query over 500,000 possible nodes; a list of
 pull requests with their commits, reviews and checks passes it at about
@@ -38,7 +40,8 @@ _STATUS = re.compile(r"\(HTTP (\d{3})\)")
 
 class GhError(Exception):
     """A gh call that failed: `what` it was, GitHub's `reason`, the HTTP
-    `status` when gh reported one, and whether a retry could help. `stdout`
+    `status` when gh reported one, and whether the outcome is unknown
+    (`transient`: a read may be retried, a write may have landed). `stdout`
     is what gh printed before it failed: `gh pr checks` exits 8 while a
     check is pending and 1 while one fails, and prints its table either
     way."""
