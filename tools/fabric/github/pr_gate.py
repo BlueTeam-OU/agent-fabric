@@ -38,7 +38,7 @@ HERE = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
 import gh  # noqa: E402
 import git  # noqa: E402
-from github import commit_class, local  # noqa: E402
+from github import commit_class, local, pr_review_status  # noqa: E402
 
 FABRIC = os.path.dirname(os.path.dirname(os.path.dirname(HERE)))
 
@@ -127,7 +127,7 @@ INFLIGHT_PATHS_CAP = 200   # a row's paths as data; the total is always given
 GATE_QUERY = """query($owner: String!, $name: String!, $number: Int!) {
   repository(owner: $owner, name: $name) { pullRequest(number: $number) {
     mergeStateStatus mergeable
-    reviewThreads(first: 100) { nodes { isResolved } }
+    reviewThreads(first: 100) { nodes { isResolved } pageInfo { hasNextPage endCursor } }
     mergeQueueEntry { position state }
     autoMergeRequest { enabledAt }
     statusCheckRollup { contexts(first: 100) { nodes {
@@ -275,10 +275,21 @@ def gate_state(repo: str, num: int) -> dict | None:
         checks = "none-yet"
     else:
         checks = "green"
-    threads = ((pr.get("reviewThreads") or {}).get("nodes") or [])
+    page = pr.get("reviewThreads") or {}
+    threads = page.get("nodes") or []
+    info = page.get("pageInfo") or {}
+    if info.get("hasNextPage"):
+        # Past the first 100 the count was short and read as whole (review
+        # of #71): the rest are read page by page, and a rest that cannot be
+        # read makes the count unknown, which blocks like any count but 0.
+        try:
+            threads = threads + pr_review_status.review_threads(owner, name, num, after=info.get("endCursor"))
+        except (gh.GhError, ValueError, TypeError, KeyError, AttributeError):
+            threads = None
     queue = alt((pr.get("mergeQueueEntry") or {}).get("position"))
     return {
-        "unresolved": str(sum(1 for t in threads if isinstance(t, dict) and not alt(t.get("isResolved")))),
+        "unresolved": "?" if threads is None else
+                      str(sum(1 for t in threads if isinstance(t, dict) and not alt(t.get("isResolved")))),
         "armed": "yes" if pr.get("autoMergeRequest") is not None else "no",
         "queue": "" if queue is None else jq_str(queue),
         "mstate": jq_str(alt(pr.get("mergeStateStatus"), "?")),

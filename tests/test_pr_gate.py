@@ -52,6 +52,54 @@ def main() -> int:
     check("two segments are their first", pr_gate.owner_of("h/l") == "h")
     check("jq's // skips null and false", pr_gate.alt(None, False, "", "x") == "")
     check("a null reads null in interpolation", pr_gate.jq_str(None) == "null")
+    print("review threads past the first 100 (review of #71)")
+    from github import pr_review_status as prs
+    import gh
+    real = gh.graphql
+
+    def node(resolved):
+        return {"isResolved": resolved, "isOutdated": False, "path": "a"}
+
+    def paged(pages):
+        def fake(query, **kw):
+            i = 0 if kw.get("after") is None else int(kw["after"])
+            last = i == len(pages) - 1
+            return {"repository": {"pullRequest": {"reviewThreads": {
+                "nodes": pages[i], "pageInfo": {"hasNextPage": not last, "endCursor": None if last else str(i + 1)}}}}}
+        return fake
+    try:
+        gh.graphql = paged([[node(True)] * 100, [node(False)] * 3])
+        check("two pages read whole", len(prs.review_threads("o", "r", 1)) == 103)
+        gh.graphql = paged([[node(True)]] * (prs.THREAD_PAGES + 1))
+        try:
+            prs.review_threads("o", "r", 1)
+            check("past the page cap: raised", False)
+        except ValueError:
+            check("past the page cap: raised, never a short count", True)
+
+        first = {"repository": {"pullRequest": {
+            "mergeStateStatus": "CLEAN", "mergeable": "MERGEABLE", "mergeQueueEntry": None, "autoMergeRequest": None,
+            "statusCheckRollup": {"contexts": {"nodes": [{"name": "a", "status": "COMPLETED", "conclusion": "SUCCESS"}]}},
+            "reviewThreads": {"nodes": [node(True)] * 100, "pageInfo": {"hasNextPage": True, "endCursor": "1"}}}}}
+
+        def gate(rest):
+            def fake(query, **kw):
+                if "mergeStateStatus" in query:
+                    return first
+                if isinstance(rest, Exception):
+                    raise rest
+                return {"repository": {"pullRequest": {"reviewThreads": {
+                    "nodes": rest, "pageInfo": {"hasNextPage": False, "endCursor": None}}}}}
+            return fake
+        gh.graphql = gate([node(False)])
+        check("pr-gate counts an unresolved thread on the second page", pr_gate.gate_state("o/r", 1)["unresolved"] == "1")
+        gh.graphql = gate(gh.GhError("gh api graphql", "no answer", transient=True))
+        st = pr_gate.gate_state("o/r", 1)
+        check("a second page that cannot be read: ?, which blocks", st["unresolved"] == "?"
+              and "unresolved thread" in pr_gate.verdict(1, "main", False, None, st, "head reviewed", []))
+    finally:
+        gh.graphql = real
+
     print(f"\n{'FAILED' if fails else 'all passed'}")
     return 1 if fails else 0
 

@@ -12,10 +12,22 @@ bad() { echo "  ✗ $1" >&2; [[ -n "${2:-}" ]] && printf '      %s\n' "$2" >&2; 
 
 # No network: a gh that answers "no pull request" for every branch.
 # The gh records the head it was asked about, and knows one pull request.
+# It speaks both transports: the jq program the bash asked for, and the JSON
+# the Python port parses itself (ADR-040 §5 rule 5).
 mkdir -p "$T/bin"
 cat > "$T/bin/gh" <<EOF
 #!/usr/bin/env bash
-while [ \$# -gt 0 ]; do [ "\$1" = --head ] && { echo "\$2" >> "$T/gh-heads"; [ "\$2" = "$(hostname -s)/$(id -un)/owed-remote" ] && echo "#7 OPEN"; }; shift; done
+jq=0; head=""
+while [ \$# -gt 0 ]; do
+    case "\$1" in
+        --head) head="\$2"; echo "\$2" >> "$T/gh-heads" ;;
+        --jq) jq=1 ;;
+    esac
+    shift
+done
+if [ "\$head" = "$(hostname -s)/$(id -un)/owed-remote" ]; then
+    if [ \$jq = 1 ]; then echo "#7 OPEN"; else echo '[{"number":7,"state":"OPEN"}]'; fi
+elif [ \$jq = 0 ]; then echo '[]'; fi
 exit 0
 EOF
 chmod +x "$T/bin/gh"

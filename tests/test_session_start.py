@@ -160,6 +160,45 @@ def test_hook_says_when_the_branch_sweep_is_due(tmp: str) -> None:
     assert "branch sweep due in this working copy (last 2026-01-01)" in ctx, ctx
 
 
+def test_a_subagent_start_never_rebinds_the_login(tmp: str) -> None:
+    """A worktree-isolated subagent starts in <checkout>/.claude/worktrees/
+    <name>/ with the parent's session id; the hook ran there and repointed
+    the login's binding at the subagent's scratch checkout (2026-10-01)."""
+    state = os.path.join(tmp, "state")
+    main_wc = os.path.join(tmp, "agent-fabric")
+    git_repo(main_wc, "git@github.com:gzapi-org/agent-fabric.git")
+    sub_wc = os.path.join(main_wc, ".claude", "worktrees", "agent-abc123")
+    git_repo(sub_wc, "git@github.com:gzapi-org/agent-fabric.git")
+    env = {**os.environ, "AGENT_FABRIC_ROOT": ROOT, "AGENT_FABRIC_STATE_DIR": state}
+    binding_path = os.path.join(state, "agents", id_un(), "binding.json")
+    os.makedirs(os.path.dirname(binding_path))
+    with open(binding_path, "w", encoding="utf-8") as fh:
+        json.dump({"agent": id_un(), "host": HOST, "role": "fabric-coordinator", "working_copy": main_wc,
+                   "session": "parent", "updated_at": "x"}, fh)
+    before = open(binding_path, "rb").read()
+    for payload in ({"cwd": sub_wc, "session_id": "parent"},
+                    {"cwd": main_wc, "session_id": "parent", "agent_id": "abc123", "agent_type": "code-medium"}):
+        proc = run_hook(payload, env)
+        assert proc.returncode == 0, proc.stderr
+        # Not a byte of it: a rewrite to the same fields re-stamps updated_at.
+        assert open(binding_path, "rb").read() == before, (payload, open(binding_path).read())
+    # A subagent's start creates no binding where there was none.
+    os.unlink(binding_path)
+    run_hook({"cwd": sub_wc, "session_id": "parent"}, env)
+    assert not os.path.exists(binding_path), "a subagent's start created a binding"
+    with open(binding_path, "wb") as fh:
+        fh.write(before)
+    # agent_type alone is a main session launched with --agent: it binds.
+    run_hook({"cwd": main_wc, "session_id": "main-agent", "agent_type": "code-plan"}, env)
+    assert json.load(open(binding_path, encoding="utf-8"))["session"] == "main-agent", open(binding_path).read()
+    # The session's own start still writes it.
+    other = os.path.join(tmp, "other-clone")
+    git_repo(other, "git@github.com:gzapi-org/agent-fabric.git")
+    run_hook({"cwd": other, "session_id": "next"}, env)
+    b = json.load(open(binding_path, encoding="utf-8"))
+    assert b["working_copy"] == other and b["session"] == "next", b
+
+
 def test_hook_from_the_parent_directory_has_no_project(tmp: str) -> None:
     state = os.path.join(tmp, "state")
     parent = os.path.join(tmp, "projects")
@@ -425,7 +464,8 @@ def test_hook_says_the_job_list(tmp: str) -> None:
 
 
 def main() -> int:
-    cases = [test_hook_records_context_not_identity, test_hook_gives_the_project_layer_from_the_working_copy,
+    cases = [test_hook_records_context_not_identity, test_a_subagent_start_never_rebinds_the_login,
+             test_hook_gives_the_project_layer_from_the_working_copy,
              test_hook_says_when_the_binding_drifted_from_the_launch,
              test_hook_from_the_parent_directory_has_no_project,
              test_hook_says_when_the_working_copy_trails_its_origin,

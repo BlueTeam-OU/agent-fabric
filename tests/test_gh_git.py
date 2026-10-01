@@ -31,6 +31,8 @@ if mode == "hang":
     time.sleep(5)
 if mode == "gqlerr":
     print(json.dumps({"errors": [{"message": "Field 'x' doesn't exist"}]})); sys.exit(0)
+if mode == "garbled":
+    print("<html>truncated"); sys.exit(0)
 if mode == "gqlrate":
     print(json.dumps({"errors": [{"type": "RATE_LIMITED", "message": "API rate limit exceeded"}]})); sys.exit(0)
 if "--slurp" in sys.argv:
@@ -81,6 +83,13 @@ def main() -> int:
                 check("a GraphQL rate limit answered with 200 raises", False)
             except gh.GhError as e:
                 check("a GraphQL rate limit answered with 200 is transient", e.transient, (e, e.transient))
+            os.environ["FAKE_GH_MODE"] = "garbled"
+            try:
+                gh.api("repos/o/r/pulls/7/reviews", method="POST", body={"body": "x"})
+                check("a REST answer gh accepted that is not JSON raises", False)
+            except gh.GhError as e:
+                check("…as an unknown outcome: transient, the call named", e.transient and "not JSON" in e.reason
+                      and "gh api POST repos/o/r/pulls/7/reviews" in str(e), (e, e.transient))
             os.environ["FAKE_GH_MODE"] = "404"
             try:
                 gh.api("repos/o/r/pulls/999")
