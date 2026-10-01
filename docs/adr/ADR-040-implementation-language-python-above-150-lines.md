@@ -108,11 +108,13 @@ serve as the parity oracle for each port, unchanged.
      are repointed; `send.mjs`'s journal already runs the pin
      (ADR-041) (A 2026-10-01).
 5. The script's existing bash test runs against the shim, as the parity
-   oracle, in the port's pull request, its assertions unchanged. Two
+   oracle, in the port's pull request, its assertions unchanged. Three
    things in it may follow the port: its mock of `gh` may learn the
    transport `gh.py` uses beside the one it served, and the extended mock
-   still passes the bash original; and a case that reads the
+   still passes the bash original; a case that reads the
    implementation's source, a constant or a scan, reads the module
+   (A 2026-10-01); and a fixture that copies the scripts it runs copies
+   their modules beside them, adding files and changing no assertion
    (A 2026-10-01). The same pull request deletes the bash implementation,
    adds Python tests for the internals and removes the entry from the
    allowlist.
@@ -158,3 +160,4 @@ The body above reads current; each change's full note is in [history/ADR-040-ame
 |---|---|---|
 | 2026-10-01 | The oracle's mock and its source reads may follow the port | §5 rule 5: the oracle's mock may learn gh.py's transport, and a case reading the source reads the module |
 | 2026-10-01 | One pinned Python, 3.13, installed per host | §2, §5 rules 1 and 4: `runtime/python.json`, `python_pin.py`, `fabric-python`; shims run it; CI installs it |
+| 2026-10-01 | A fixture may copy the modules of the scripts it copies | §5 rule 5: a third departure for the oracle, files added and no assertion changed |

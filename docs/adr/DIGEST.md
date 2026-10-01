@@ -834,6 +834,7 @@ its record disagree, the record wins. Look it up, never read it whole:
   gh.py's transport (still passing the bash original), and a case
   reading the source reads the module.
 - A 2026-10-01 — one pinned Python, 3.13, as fabric-python per host; shims run it (§5 rules 1, 4).
+- A 2026-10-01 — a fixture may copy the modules of the scripts it copies; no assertion changes (§5 rule 5).
 - Keywords: Python, bash, shell, port, allowlist, lint, shim, wave, gh,
   git, 150 lines, P1.
 

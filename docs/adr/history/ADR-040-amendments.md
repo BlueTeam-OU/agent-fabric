@@ -43,3 +43,18 @@ there, because lint's schema fallback skipped keywords jsonschema
 checks, and on a standard-library interpreter the fallback is the
 validator — fixed in the same pull request, with a rule that refuses a
 schema keyword the fallback does not check.
+
+### Amendment 2026-10-01 — A fixture may copy the modules of the scripts it copies
+
+Wave 5's oracle for account creation, `test_new-agent.sh`, builds a
+fixture fabric: it copies the scripts under test into it, beside fakes
+of what they call, and runs the copies. Behind a shim, a copied script
+finds no module, so the oracle could not run the port at all. The
+smallest change that lets it is the fixture copying the two modules
+too: files added, no assertion changed, and the bash original still
+passes the same fixture. The alternatives were worse: running the
+oracle against the live tree gives up the fakes that keep it off real
+accounts, and rewriting the fixture loses the parity the unchanged
+oracle stands for. A worker whose body is `sudo`, `useradd` and
+installer calls stays a bash step-runner under rule 1, its decisions in
+Python; the fixture rule does not widen what is ported.
