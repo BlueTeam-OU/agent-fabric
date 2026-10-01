@@ -533,8 +533,8 @@ def seed_child(agent_id: str, remote: str, text: str) -> dict:
             raise StoreError(f"the bundle is agent {aid or '(none)'}, not {agent_id}; nothing pushed")
         if not os.path.isdir(os.path.join(mirror, ".git")):
             os.makedirs(children_dir(), exist_ok=True)
-            # No checkout of a tree that is not yet the parent's own: the
-            # history only, checked out once it is in place.
+            # `clone -b main` would resolve the name again, on its own rules;
+            # the checkout names the one ref the id was read from.
             _run(["git", "clone", "-q", "--no-checkout", path, mirror], label="git clone")
             git(mirror, "checkout", "-q", "-B", "main", "refs/remotes/origin/main")
             git(mirror, "remote", "set-url", "origin", remote)

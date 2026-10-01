@@ -73,9 +73,12 @@ def main() -> int:
         with open(os.path.join(t, "hosts.json"), "w") as f:
             json.dump({"version": 1, "hosts": {"far-host": {"ssh": "op@far", "operator": "op", "fabric": fab}},
                        "placement": {"kid": "far-host"}}, f)
-        # The account has no key: its git sends every remote to nowhere.
+        # The account has no key: its git sends every remote to nowhere. It
+        # has an identity, as a synced account does, so a merge commit is
+        # possible and only --ff-only stands in its way (re-review of #76).
         with open(os.path.join(t, "kid", ".gc"), "w") as f:
-            f.write(f'[url "file:///nonexistent-no-key/"]\n\tinsteadOf = {remotes}/\n')
+            f.write(f'[url "file:///nonexistent-no-key/"]\n\tinsteadOf = {remotes}/\n'
+                    '[user]\n\tname = kid\n\temail = kid@example.invalid\n[commit]\n\tgpgsign = false\n')
         hx = os.path.join(binp, "hostexec")
         with open(hx, "w") as f:
             f.write(f"""#!/usr/bin/env bash
@@ -190,16 +193,19 @@ esac
         head_before = kid("git", "-C", ".local/share/agent-fabric/secrets", "rev-parse", "HEAD").stdout
         r = kid(ACCOUNT_SECRETS, "store", "take-bundle", stdin=armour(hand, "refs/heads/main"))
         check("the right agent id with another key is not taken", r.returncode != 0 and "nothing taken" in r.stderr, r.stderr)
-        alien = os.path.join(t, "alien")
-        os.makedirs(alien)
-        g(alien, "init", "-q", "-b", "main")
-        for name in (".agent-id", ".gpg-id"):
-            shutil.copy(os.path.join(mirror, name), alien)
-        g(alien, "add", "-A")
-        g(alien, "commit", "-qm", "the right id and key, an unrelated history")
-        r = kid(ACCOUNT_SECRETS, "store", "take-bundle", stdin=armour(alien, "refs/heads/main"))
+        # Diverged from a common base, not unrelated: a plain merge refuses
+        # unrelated histories on its own, so only this shape needs --ff-only
+        # (re-review of #76).
+        fork = os.path.join(t, "fork")
+        subprocess.run(["git", "clone", "-q", mirror, fork], env=genv, check=True, capture_output=True)
+        g(fork, "reset", "-q", "--hard", "HEAD~1")
+        with open(os.path.join(fork, "env", "FORKED.gpg"), "w") as f:
+            f.write("not ciphertext\n")
+        g(fork, "add", "-A")
+        g(fork, "commit", "-qm", "the right id and key, a history beside the store's")
+        r = kid(ACCOUNT_SECRETS, "store", "take-bundle", stdin=armour(fork, "refs/heads/main"))
         head_after = kid("git", "-C", ".local/share/agent-fabric/secrets", "rev-parse", "HEAD").stdout
-        check("…nor a history that does not descend from the store's, which is left as it was",
+        check("…nor a history diverged from the store's, which is left as it was",
               r.returncode != 0 and head_after == head_before and head_before.strip(), (r.stderr, head_before, head_after))
         mine = kid(ACCOUNT_SECRETS, "store", "bundle")
         other = "01a0f782-7e06-7dee-811f-0a860ed93bf3"
