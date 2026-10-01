@@ -109,7 +109,7 @@ def render(rows: list[sqlite3.Row], full: bool, patterns: list) -> list[str]:
                    + (f" (re {m('in_reply_to')})" if r["in_reply_to"] else ""))
         text = mask(r["content"], r["id"], patterns)
         if not full and len(text) > CUT:
-            text = text[:CUT] + f"\n… ({len(r['content']) - CUT} more characters: --full, or --thread {r['message_id']})"
+            text = text[:CUT] + f"\n… ({len(r['content']) - CUT} more characters: --full, or --thread {m('message_id')})"
         out.append(text.rstrip("\n"))
     return out
 

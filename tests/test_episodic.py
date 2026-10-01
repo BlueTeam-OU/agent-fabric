@@ -126,6 +126,7 @@ def main() -> int:
                                                  "FROM: h/me\nMESSAGE-ID: other-id\n",
             "a repeated key": "[GZCOORD/1] INFO\nFROM: h/a\nFROM: h/b\nMESSAGE-ID: r\n\nINFO:\nx\n",
             "lowercase and spaced keys": "[GZCOORD/1] INFO\nfrom: h/a\nX Y: z\nFROM:h/b\nMESSAGE-ID: q\n",
+            "values JS trim() keeps or drops": "[GZCOORD/1] INFO\nFROM: h/a\x1f\nMESSAGE-ID: \u00a0t\ufeff\nSUBJECT: \x1cs\n",
             "crlf": "[GZCOORD/1] INFO\r\nFROM: h/a\r\nMESSAGE-ID: c\r\n\r\nINFO:\r\nx\r\n",
         }
         py = {k: list(ep.parse_header(v)) for k, v in cases.items()}

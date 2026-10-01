@@ -870,7 +870,9 @@ test('--wait ends within its budget while the journal stays broken, the hold rep
   const r = await waitLoop({ ...relay, waitTotal: 70, forMeFn: msg => forMe(msg, me), sleep: async ms => { slept.push(ms); },
     journal: async () => { if (++tries > 20) throw new Error('never ended'); return { ok: false, reason: 'episodic: x' }; } });
   assert.deepEqual([r.delivered, r.journalFailed, relay.cursor()], [false, 'episodic: x', 0], 'held, said, unacknowledged');
-  assert.ok(r.waited >= 70 && tries <= 4, `returned within the budget (waited ${r.waited}, ${tries} tries)`);
+  // A 55 s slice, one failed attempt, a pause of the 15 s left: then back,
+  // with no fetch or journal attempt past the budget (re-review of #78).
+  assert.deepEqual([r.waited, tries, slept], [70, 1, [15000]], `returned at the budget (waited ${r.waited}, ${tries} tries)`);
   assert.ok(slept.every(ms => ms <= JOURNAL_RETRY_MS));
 });
 test('journalInbound sends the records as JSON lines and reads a failure from the journal\'s own last line', () => {

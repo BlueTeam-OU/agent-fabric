@@ -614,6 +614,8 @@ export async function waitLoop({ fetchPage, ack, waitTotal, forMeFn = forMe, key
         const pause = Math.min(journalRetryMs, (waitTotal - waited) * 1000);
         await sleep(pause);
         waited += Math.ceil(pause / 1000);
+        if (waited >= waitTotal)
+          return { classified: passed, waited, delivered: false, keywordHit: null, othersPassed: passed.length, journalFailed: kept.reason };
         continue;
       }
     }

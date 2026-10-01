@@ -121,6 +121,10 @@ def _seconds(ts: str | None) -> str:
 _FIRST = re.compile(r"^\[GZCOORD/1\] ([A-Z][A-Z0-9-]*)$")
 _KEY = re.compile(r"^([A-Z][A-Z0-9-]*): ")
 _SECTION = re.compile(r"^[A-Z][A-Z0-9-]*:$")
+# What JS String.prototype.trim() strips (ECMAScript WhiteSpace and
+# LineTerminator): str.strip() strips another set (\x1c-\x1f, not \ufeff),
+# and a value trimmed differently is a message keyed differently.
+_JS_TRIM = "\t\n\v\f\r \u00a0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff"
 
 
 def parse_header(text: str) -> tuple[str, dict[str, str]]:
@@ -141,7 +145,7 @@ def parse_header(text: str) -> tuple[str, dict[str, str]]:
             break
         k = _KEY.match(line)
         if k:
-            meta[k.group(1)] = line[k.end():].strip()
+            meta[k.group(1)] = line[k.end():].strip(_JS_TRIM)
     return m.group(1), meta
 
 
