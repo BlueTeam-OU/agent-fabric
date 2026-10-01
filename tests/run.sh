@@ -67,12 +67,15 @@ if [[ "$what" == all || "$what" == gzcoord ]]; then
     run "control plane (ops, agentd, ctl, accounts, unit)" bash -c 'node --test runtime/control/tests/*.test.mjs 2>&1 | grep -E -A14 "^not ok|^# (tests|pass|fail)"; [[ ${PIPESTATUS[0]} -eq 0 ]]'
 fi
 if [[ "$what" == all || "$what" == bash ]]; then
+    # The branch's authority first, before any suite runs the branch's own
+    # code in this job: a contributor's test (the launcher's is in its entry)
+    # could otherwise rewrite the checkout the verdict reads (review of #75).
+    run ".agent-fabric/ authority (this branch)" env AGENT_FABRIC_CHARTER_BASE=origin/main bash policies/check_agent_fabric_dir_authority.sh
+    run "charter authority (this branch)" env AGENT_FABRIC_CHARTER_BASE=origin/main bash policies/check_charter_authority.sh
     run "launcher" bash policies/run_suite.sh runtime/openrouter/test_launch.sh
     run "charter authority guard" bash policies/run_suite.sh policies/test_check_charter_authority.sh
     run "git hooks (attribution ban, .agent-fabric/ fence)" bash policies/run_suite.sh policies/githooks/test_hooks.sh
     run ".agent-fabric/ authority guard" bash policies/run_suite.sh policies/test_check_agent_fabric_dir_authority.sh
-    run ".agent-fabric/ authority (this branch)" env AGENT_FABRIC_CHARTER_BASE=origin/main bash policies/check_agent_fabric_dir_authority.sh
-    run "charter authority (this branch)" env AGENT_FABRIC_CHARTER_BASE=origin/main bash policies/check_charter_authority.sh
     run "no-model-pins guard" bash policies/run_suite.sh policies/test_check_repo_settings_carry_no_model_pins.sh
     run "actions pinned by SHA (this tree)" python3 policies/check_actions_pinned_by_sha.py
     run "attribution guard" bash policies/run_suite.sh policies/test_ban_generated_by_attribution.sh
