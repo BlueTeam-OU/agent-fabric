@@ -786,11 +786,12 @@ its record disagree, the record wins. Look it up, never read it whole:
   writes (`fabric-secrets put`) and never reads (§5 rule 3).
 - No step relies on a shared host (§5 rules 4–5). `sync` reads the store
   alone; a parent fills a new store with `provision` (§5 rules 3, 7–8).
-- A 2026-09-29 — recovery copies and backups go to Proton Drive, not paper.
+- A 2026-09-29 — recovery copies and backups go to Proton Drive.
 - A 2026-09-29 — recovery copies are encrypted to the owner's recovery key.
 - A 2026-09-29 — keys, lineage and repositories are named by the agent id (ADR-039).
 - A 2026-09-29 — one identity key with a subkey per use (§5 rule 1, §7).
 - A 2026-09-30 — Doppler removed from the code; `provision` fills a child's store (§5 rules 3, 7–8; §7).
+- A 2026-10-01 — a new account's store travels as a bundle (§5 rule 5).
 - Keywords: secrets, key, GPG, pass, QtPass, browserpass, paperkey, Proton Drive, backup,
   identity, lineage, parent, custody, recovery, Doppler, migration,
   provision, placement, P1.

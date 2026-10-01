@@ -125,7 +125,16 @@ sharing a machine.
    accounts:
    - certification travels through the agent-fabric repository;
    - `put` is a push to the child's repository;
-   - sync is a signed control action (ADR-029).
+   - sync is a signed control action (ADR-029);
+   - a new account, which has no GitHub key until its first sync writes
+     one, meets its store through its parent: its first commit as an
+     armored git bundle the parent pushes (`store bundle | store
+     seed-child`, store-enroll.sh `--born-now`), and its filled store back
+     the same way before that sync (`store child-bundle | store
+     take-bundle`, then `sync --no-pull`). A bundle carries only
+     ciphertext, the key's fingerprint and the agent id, through the host
+     executor's stdin and stdout; the child takes one only of its own store
+     (A 2026-10-01).
 6. Each key's recovery copy is written once at birth
    (`fabric-secrets store recovery-copy`), encrypted before it leaves the
    process and printing only a path, so it may run inside a model
@@ -208,3 +217,4 @@ The body above reads current; each change's full note is in [history/ADR-038-ame
 | 2026-09-29 | Keys and stores are named by the agent id | §2, §5 rule 2, Scope: `<id>.asc`, `agent-fabric-secrets-<id>` (ADR-039) |
 | 2026-09-29 | One identity key per agent, a key per use beneath it | §5 rule 1, §7: a certify-only primary with encryption, signing and authentication subkeys |
 | 2026-09-30 | Doppler is removed: every account reads its own store, and a parent fills a child's with provision | Scope, §5 rules 3, 5, 7, 8; §7; §8 |
+| 2026-10-01 | A new account's store reaches it as a bundle | §5 rule 5: the first commit and the filled store travel as bundles through the parent; `sync --no-pull` once |
