@@ -68,12 +68,15 @@ def main() -> int:
         ep.out_final(conn, "lost-1", "failed")
         ins([{"content": msg("s-1", f"the token is {TOKEN} keep it"), "seq": 5, "ts": "2026-10-01T13:00:00Z"}])
         ins([{"content": msg("long-1", "x" * 2000), "seq": 6, "ts": "2026-10-01T14:00:00Z"}])
+        ep.out_pending(conn, msg("hang-1", "posted, outcome never written", sender=ep.own_address()))
+        ins([{"content": msg("r-1", "a reply", reply=TOKEN), "seq": 7, "ts": "2026-10-01T15:00:00Z"}])
         conn.close()
 
         r = run("--limit", "50")
         check("the banner comes first", r.returncode == 0 and r.stdout.startswith("# history, not current truth"), r.stdout[:200])
         check("a failed send is hidden by default", "lost-1" not in r.stdout and "q-1" in r.stdout)
         check("…and shown with --include-failed", "lost-1 [failed]" in run("--include-failed", "--limit", "50").stdout)
+        check("a pending send is shown, tagged (review of #78)", "hang-1 [pending]" in r.stdout, r.stdout[-400:])
         heads = ids(r.stdout)
         check("oldest first", heads.index("q-1") < heads.index("f-1") < heads.index("long-1"), heads)
 
@@ -83,9 +86,10 @@ def main() -> int:
         check("text filter, case-insensitive", ids(run("THE PIN").stdout) == ["q-1"], ids(run("THE PIN").stdout))
         check("project filter", ids(run("--project", "gzapp").stdout) == ["x-1"])
         check("--since", "q-1" not in ids(run("--since", "2026-10-01T10:00:00Z").stdout))
-        # The outbound a-1 is stamped with the real time, so it is the newest.
+        # The outbound a-1 and hang-1 are stamped with the real time, so they
+        # are the newest (in one second: their order between them is free).
         lim = ids(run("--limit", "2").stdout)
-        check("--limit keeps the newest", lim == ["long-1", "a-1"], lim)
+        check("--limit keeps the newest", sorted(lim) == ["a-1", "hang-1"], lim)
         check("a long message is cut, and says how to see it", "more characters: --full" in run("long-1").stdout
               and "more characters" not in run("long-1", "--full").stdout)
 
@@ -94,6 +98,10 @@ def main() -> int:
               TOKEN not in s and "[withheld: credential" in s, s)
         check("…in --json too", TOKEN not in j and "withheld" in json.loads(j)["episodes"][0]["content"], j[:300])
         check("--json carries the banner", json.loads(j)["banner"].startswith("history, not current truth"))
+        s, j = run("a reply").stdout, run("a reply", "--json").stdout
+        check("a credential-shaped header field is withheld too, in both forms (review of #78)",
+              TOKEN not in s + j and "(re [withheld: credential" in s
+              and json.loads(j)["episodes"][0]["in_reply_to"].startswith("[withheld"), s + j[:300])
 
         other = os.path.join(tmp, "other-store")
         os.makedirs(other)

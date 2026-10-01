@@ -43,7 +43,9 @@ def credential_patterns() -> list:
     return [(p, label) for p, label, _ in layout.load_hygiene_patterns([]) if label.startswith("credential")]
 
 
-def mask(text: str, eid: str, patterns: list) -> str:
+def mask(text: str | None, eid: str, patterns: list) -> str | None:
+    if text is None:
+        return None
     for pat, label in patterns:
         text = pat.sub(f"[withheld: {label}, episode {eid[:8]}]", text)
     return text
@@ -77,7 +79,9 @@ def thread_ids(conn: sqlite3.Connection, start: str) -> set[str]:
 def query(conn: sqlite3.Connection, args) -> list[sqlite3.Row]:
     where, params = [], []
     if not args.include_failed:
-        where.append("NOT (direction='outbound' AND state IN ('failed', 'pending'))")
+        # A pending send may have left (the post succeeded, its outcome was
+        # not written): shown, tagged [pending]; only a failed one is hidden.
+        where.append("NOT (direction='outbound' AND state='failed')")
     if args.since:
         where.append("happened_at >= ?"); params.append(args.since)
     if args.until:
@@ -100,8 +104,9 @@ def render(rows: list[sqlite3.Row], full: bool, patterns: list) -> list[str]:
     for r in rows:
         arrow = "→" if r["direction"] == "outbound" else "←"
         state = "" if r["state"] in ("accepted", "received") else f" [{r['state']}]"
-        out.append(f"\n## {r['happened_at']} {arrow} {r['type']} {r['message_id']}{state}"
-                   + (f" (re {r['in_reply_to']})" if r["in_reply_to"] else ""))
+        m = lambda k: mask(r[k], r["id"], patterns)  # noqa: E731 — every printed field is a stored claim
+        out.append(f"\n## {r['happened_at']} {arrow} {m('type')} {m('message_id')}{state}"
+                   + (f" (re {m('in_reply_to')})" if r["in_reply_to"] else ""))
         text = mask(r["content"], r["id"], patterns)
         if not full and len(text) > CUT:
             text = text[:CUT] + f"\n… ({len(r['content']) - CUT} more characters: --full, or --thread {r['message_id']})"
@@ -132,7 +137,7 @@ def main(argv: list[str]) -> int:
     patterns = credential_patterns()
     if args.json:
         print(json.dumps({"banner": BANNER, "episodes": [
-            {k: (mask(r[k], r["id"], patterns) if k == "content" else r[k])
+            {k: (mask(r[k], r["id"], patterns) if isinstance(r[k], str) else r[k])
              for k in ("happened_at", "direction", "state", "type", "message_id", "in_reply_to", "sender", "project",
                        "carrier", "carrier_seq", "content")} for r in rows]}, indent=1))
     else:
