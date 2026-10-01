@@ -36,8 +36,12 @@ import urllib.request
 
 FABRIC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 PIN = os.path.join(FABRIC, "runtime", "python.json")
-PREFIX = os.environ.get("AGENT_FABRIC_PYTHON_PREFIX", "/usr/local/lib/agent-fabric")
-LINK = os.environ.get("AGENT_FABRIC_PYTHON_LINK", "/usr/local/bin/fabric-python")
+# The overrides are for a non-root reader (a test, fabric-status's check);
+# as root the installer writes only the fixed paths, whatever `sudo -E`
+# carried in (review of #77).
+_AS_ROOT = os.geteuid() == 0
+PREFIX = "/usr/local/lib/agent-fabric" if _AS_ROOT else os.environ.get("AGENT_FABRIC_PYTHON_PREFIX", "/usr/local/lib/agent-fabric")
+LINK = "/usr/local/bin/fabric-python" if _AS_ROOT else os.environ.get("AGENT_FABRIC_PYTHON_LINK", "/usr/local/bin/fabric-python")
 
 
 class PinError(Exception):
