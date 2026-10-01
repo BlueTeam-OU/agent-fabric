@@ -1518,6 +1518,8 @@ def case_the_fallback_validator_agrees_with_jsonschema() -> None:
         ({"type": "integer"}, 1.0, True),
         ({"type": "number"}, 0.5, False),
         ({"properties": {"a": {"type": "string"}}, "patternProperties": {"^a": {"minLength": 3}}}, {"a": "xyz"}, {"a": "x"}),
+        # Re-review of #77: 1 and 1.0 are one value to JSON; true and 1 are two.
+        ({"uniqueItems": True}, [1, True], [1, 1.0]),
     ]
     try:
         import jsonschema  # type: ignore

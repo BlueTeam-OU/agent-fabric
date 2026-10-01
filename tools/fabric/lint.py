@@ -1045,7 +1045,8 @@ def _structural_check(schema: dict[str, Any], doc: Any, where: str, path: str = 
             problems.append(f"{where}{path}: fewer than {schema['minItems']} items")
         if "maxItems" in schema and len(doc) > schema["maxItems"]:
             problems.append(f"{where}{path}: more than {schema['maxItems']} items")
-        if schema.get("uniqueItems") and len({json.dumps(v, sort_keys=True) for v in doc}) != len(doc):
+        if schema.get("uniqueItems") and any(_json_equal(doc[i], doc[j])
+                                             for i in range(len(doc)) for j in range(i + 1, len(doc))):
             problems.append(f"{where}{path}: duplicate items")
     if isinstance(doc, str):
         if "minLength" in schema and len(doc) < schema["minLength"]:
@@ -1638,6 +1639,8 @@ CONTRIBUTOR_NEVER = (
     ".claude/", "tools/fabric/fabric_settings.py",
     # Bootstrap runs it as every account, and it rewrites ~/.claude.json.
     "tools/fabric/workspace_trust.py",
+    # Writes and reads each agent's private conversational history (ADR-041).
+    "tools/fabric/episodic.py", "tools/fabric/history.py", "bin/fabric-history",
 )
 # The one path under a never-prefix an entry may name: the list the port
 # shrinks, which lint itself holds to shrinking (ADR-040 §5 rule 2).

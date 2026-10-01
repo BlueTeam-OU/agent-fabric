@@ -6,7 +6,6 @@ from __future__ import annotations
 
 import json
 import os
-import re
 import subprocess
 import tempfile
 import time
@@ -183,8 +182,10 @@ def main() -> int:
     check("a harmless command: no decision", g.decision("git status", CLAUDE) is None)
     check("still split outside quotes: a real pipe after a quoted word",
           g.verdict("echo 'x y' | xargs pkill -f 'claude-fable'", CLAUDE) is not None)
-    launch = open(os.path.join(HERE, "runtime", "openrouter", "launch"), encoding="utf-8").read()
-    opening = re.search(r'^OPENING="([^"]*)"', launch, re.M).group(1)
+    spec = importlib.util.spec_from_file_location("fabric_launch", os.path.join(HERE, "tools", "fabric", "launch.py"))
+    launch = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(launch)
+    opening = launch.OPENING
     fixed = CLAUDE.split(" -- ")[0] + " -- " + opening   # the launcher's own text, not a copy
     check("the launcher's new prompt: the old kill no longer matches the session",
           g.verdict("pgrep -f 'gzcoord-inbox --follow' | xargs kill", fixed) is None)

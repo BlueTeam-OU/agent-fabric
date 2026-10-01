@@ -90,17 +90,31 @@ serve as the parity oracle for each port, unchanged.
    forwarder and caller is repointed; a sourced script's shim defines the
    same shell functions, each calling Python, and fails the call, never
    its caller. Every entry point the fabric installs (`bin/`, the
-   `policies/` checks, `fabric-secrets`) runs it. Two kinds keep the
-   host's `python3`: the bash step-runners not yet ported (the launcher,
-   bootstrap, account creation, the git hooks), whose port moves them; and
-   the suite runners, which run the interpreter CI's matrix sets, to prove
-   3.12 and newer (A 2026-10-01).
+   `policies/` checks a person or a hook runs, `fabric-secrets`) runs it.
+   These keep the host's `python3`:
+   - the bash step-runners not yet ported — the launcher, bootstrap,
+     account creation with `store-enroll.sh`, the git hooks, the Claude
+     Code hooks (`session-start.sh`, `model-switch-guard.sh`,
+     `self-kill-guard.py`) — whose port moves them;
+   - `check_actions_pinned_by_sha.py`, run by CI's static job, which
+     installs no pin;
+   - what `fabric-host` runs on another host, which may not have the pin
+     yet;
+   - the suite runners, which run the interpreter CI's matrix sets, to
+     prove 3.12 and newer (A 2026-10-01);
+   - the Node scripts that run fabric Python — GZCoord's `gzmsg.mjs`
+     (whoami) and `send.mjs` (job intake), and the control agent's
+     `jobs.mjs`, `ops.mjs` and `upgrade.mjs` — which keep it until they
+     are repointed; `send.mjs`'s journal already runs the pin
+     (ADR-041) (A 2026-10-01).
 5. The script's existing bash test runs against the shim, as the parity
-   oracle, in the port's pull request, its assertions unchanged. Two
+   oracle, in the port's pull request, its assertions unchanged. Three
    things in it may follow the port: its mock of `gh` may learn the
    transport `gh.py` uses beside the one it served, and the extended mock
-   still passes the bash original; and a case that reads the
+   still passes the bash original; a case that reads the
    implementation's source, a constant or a scan, reads the module
+   (A 2026-10-01); and a fixture that copies the scripts it runs copies
+   their modules beside them, adding files and changing no assertion
    (A 2026-10-01). The same pull request deletes the bash implementation,
    adds Python tests for the internals and removes the entry from the
    allowlist.
@@ -146,3 +160,4 @@ The body above reads current; each change's full note is in [history/ADR-040-ame
 |---|---|---|
 | 2026-10-01 | The oracle's mock and its source reads may follow the port | §5 rule 5: the oracle's mock may learn gh.py's transport, and a case reading the source reads the module |
 | 2026-10-01 | One pinned Python, 3.13, installed per host | §2, §5 rules 1 and 4: `runtime/python.json`, `python_pin.py`, `fabric-python`; shims run it; CI installs it |
+| 2026-10-01 | A fixture may copy the modules of the scripts it copies | §5 rule 5: a third departure for the oracle, files added and no assertion changed |

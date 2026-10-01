@@ -255,6 +255,27 @@ def main() -> int:
         check("the pinned Python is reported: as pinned when the link reaches it, MISSING with the install command when not",
               json.loads(present.stdout)["host_tools"]["python"]["status"] == "ok"
               and "python       MISSING: " in absent.stdout and "python_pin.py install" in absent.stdout)
+        # The episodic journal (ADR-041): none yet, then counted, and
+        # another agent's named as such.
+        store = os.path.join(sb, "store"); os.makedirs(store)
+        with open(os.path.join(store, ".agent-id"), "w") as fh:
+            fh.write("01a0f782-7e06-7dee-811f-0a860ed93bf3\n")
+        # Its own state: the reports compared below must not see this journal.
+        jenv = {**env, "AGENT_FABRIC_SECRET_STORE": store, "AGENT_FABRIC_STATE_DIR": os.path.join(sb, "journal-state")}
+        def journal_state(e):
+            return json.loads(subprocess.run(["bash", SHIM, "--json"], env=e, capture_output=True, text=True, timeout=120,
+                                             stdin=subprocess.DEVNULL, cwd=sb).stdout)["host_tools"]["journal"]
+        before = journal_state(jenv)
+        subprocess.run([sys.executable, os.path.join(HERE, "tools", "fabric", "episodic.py"), "gzcoord-in"], env=jenv,
+                       input=json.dumps({"content": "[GZCOORD/1] INFO\nFROM: h/x\nMESSAGE-ID: j-1\n\nINFO:\nx\n", "seq": 1}) + "\n",
+                       capture_output=True, text=True, timeout=60, check=True)
+        after = journal_state(jenv)
+        with open(os.path.join(store, ".agent-id"), "w") as fh:
+            fh.write("01a0f7ea-15b0-7ed9-a176-6eb006592db1\n")
+        foreign = journal_state(jenv)
+        check("the journal is reported: none yet, then counted, and another agent's named",
+              before["status"] == "none" and after["status"] == "ok" and after["detail"].startswith("1 episode(s)")
+              and foreign["status"] == "foreign")
         drifted = subprocess.run(["bash", SHIM], env={**env, "AGENT_FABRIC_LAUNCH_ROLE": "backend-dev", "AGENT_FABRIC_LAUNCH_PROMPT_DIGEST": "sha256:0",
                                       "AGENT_FABRIC_LAUNCH_PROVIDER": "anthropic", "AGENT_FABRIC_LAUNCH_SESSION_MODEL": "claude-sonnet-5"},
                                  capture_output=True, text=True, timeout=120, stdin=subprocess.DEVNULL, cwd=sb).stdout

@@ -103,6 +103,11 @@ def main() -> int:
         check("an empty channel: nothing acknowledged", r.returncode == 0 and "no message yet" in r.stdout
               and not [c for c in Relay.calls if c[0] == "POST"], (r.stdout, Relay.calls))
 
+        Relay.messages = ["not an object"]
+        r = run("agent-fabric")
+        check("a malformed answer from the relay: exit 1, said, no traceback (re-review of #77)",
+              r.returncode == 1 and "relay-catchup:" in r.stderr and "Traceback" not in r.stderr, r.stderr)
+
         Relay.fail = True
         r = run("agent-fabric")
         check("a relay that refuses: exit 1, the status said, the token not", r.returncode == 1 and "500" in r.stderr
