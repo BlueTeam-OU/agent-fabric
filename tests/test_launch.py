@@ -57,9 +57,11 @@ def fake_routing(**over) -> types.SimpleNamespace:
 def main() -> int:
     fails = 0
 
-    def check(label: str, good: bool) -> None:
+    def check(label: str, good: bool, detail: str = "") -> None:
         nonlocal fails
         print(f"  {'ok  ' if good else 'FAIL'} {label}")
+        if not good and detail:
+            print("      " + detail.replace("\n", "\n      "))
         fails += not good
 
     with tempfile.TemporaryDirectory() as tmp:
@@ -335,6 +337,82 @@ def main() -> int:
                            capture_output=True, text=True, timeout=20)
         check("…and one that never finishes is waited for no longer than AGENT_FABRIC_RESTART_WAIT_S",
               r.stdout.strip() == "sess-7" and "did not finish within 1 s" in r.stderr)
+
+        print("the restart wait (review of #79)")
+        put(f"{state}/binding.json", json.dumps({"session": "sess-9"}))
+
+        def restart_with(wait):
+            put(f"{state}/restart.json", json.dumps({"requested_at": when, "status": "done", "piece": "claude",
+                                                     "from": "1", "to": "2"}))
+            calls.clear()
+            launch.reexec = lambda env, args: calls.append((env, args)) or (_ for _ in ()).throw(SystemExit(0))
+            saved = dict(os.environ)
+            os.environ["AGENT_FABRIC_RESTART_WAIT_S"] = wait
+            err = io.StringIO()
+            try:
+                with redirect_stderr(err):
+                    launch.restart(state, int(time.time()), True, 143, [], tmp, tmp)
+            except SystemExit:
+                pass
+            finally:
+                os.environ.clear()
+                os.environ.update(saved)
+                launch.reexec = launch_reexec
+            return err.getvalue()
+        restart_with("")
+        check("an EMPTY AGENT_FABRIC_RESTART_WAIT_S is the default, as the bash's :-600 had it: the session resumes",
+              len(calls) == 1 and calls[0][1] == ["--resume", "sess-9"], str(calls))
+        said = restart_with("ten")
+        check("a malformed one is said in one launch: line naming it, and the resume is given up",
+              calls == [] and said.count("\n") == 1 and said.startswith("launch: AGENT_FABRIC_RESTART_WAIT_S is 'ten'"),
+              said)
+
+        print("a pull the bound ends (review of #79)")
+        GitError = launch.git.GitError
+
+        def fake_git_run(repo, *args, check=True, timeout=120, **kw):
+            if args[:1] == ("pull",):
+                raise GitError("git pull", f"no answer within {timeout:g} s")
+            out = "1\n" if args[:1] == ("rev-list",) else ""
+            return types.SimpleNamespace(returncode=0, stdout=out, stderr="")
+        saved_run, launch.git.run = launch.git.run, fake_git_run
+        saved_env = dict(os.environ)
+        os.environ.pop("AGENT_FABRIC_ALLOW_STALE", None)
+        os.environ.pop("AGENT_FABRIC_PULLED", None)
+        try:
+            with redirect_stderr(io.StringIO()):
+                launch.keep_fabric_current(tmp, [])
+            check("a timed-out pull is refused", False)
+        except launch.Refused as exc:
+            check("a timed-out pull is said as a timeout, with the lock it may leave, never as 'cannot fast-forward'",
+                  "did not answer within 120 s" in str(exc) and "index.lock" in str(exc)
+                  and "cannot fast-forward" not in str(exc), str(exc))
+        finally:
+            launch.git.run = saved_run
+            os.environ.clear()
+            os.environ.update(saved_env)
+        check("the departures list names both new bounds", "git.py's 120 s" in launch.__doc__
+              and "HELPER_TIMEOUT_S" in launch.__doc__)
+
+        print("the session's signals and descriptors (review of #79)")
+        # The session here is a Python child reading its own mask and
+        # descriptor table: bash cannot be the probe, since `bash -c` on
+        # these hosts ignores SIGQUIT itself, whatever it inherited. SIGQUIT
+        # starts at its default, as in a terminal; whatever runs this suite
+        # may ignore it already.
+        child = ("import os; m = [l for l in open('/proc/self/status') if l.startswith('SigIgn')][0].split()[1]; "
+                 "open(%r, 'w').write(m); open(%r, 'w').write('leaked' if os.path.exists('/proc/self/fd/%%d' %% "
+                 "int(os.environ['W'])) else 'clean')") % (f"{tmp}/sig", f"{tmp}/fds")
+        probe = ("import os, signal, sys; signal.signal(signal.SIGQUIT, signal.SIG_DFL); "
+                 "sys.path.insert(0, %r); import launch; "
+                 "r, w = os.pipe(); os.set_inheritable(w, True); os.environ['W'] = str(w); "
+                 "sys.exit(launch.run_session([sys.executable, '-c', %r]))") % (os.path.dirname(launch.__file__), child)
+        subprocess.run([sys.executable, "-c", probe], timeout=60)
+        ignored = int(open(f"{tmp}/sig").read().strip(), 16)
+        check("the session ignores SIGINT and SIGQUIT, as bash's `&` job did",
+              bool(ignored & (1 << 1)) and bool(ignored & (1 << 2)), hex(ignored))
+        check("…and a descriptor the launcher holds does not reach it (close_fds)",
+              open(f"{tmp}/fds").read().strip() == "clean")
 
         print("the opening")
         saved = dict(os.environ)

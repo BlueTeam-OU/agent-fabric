@@ -15,11 +15,7 @@
     "runtime/github/test_pr-sessions.sh": 6,
     "runtime/github/test_trial-merge.sh": 6,
     "runtime/openrouter/test_launch.sh": 6,
-    "runtime/provisioning/moveto/moveto": 5,
     "runtime/provisioning/moveto/test_moveto.sh": 6,
-    "runtime/provisioning/new-agent-worker.sh": 5,
-    "runtime/provisioning/new-agent.sh": 5,
-    "runtime/provisioning/secrets/store-enroll.sh": 5,
     "runtime/provisioning/test_new-agent.sh": 6,
     "tests/test_fabric-lease.sh": 6,
     "tests/test_fabric-status.sh": 6
