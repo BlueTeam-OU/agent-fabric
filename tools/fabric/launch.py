@@ -919,6 +919,19 @@ def mark_onboarding_done(path: str) -> None:
         say("launch: marked the harness's onboarding done — a template login has no /login to onboard")
 
 
+def session_command(provider: str, session: str, caller_model: bool, session_effort: str, caller_effort: bool,
+                    prompt_flag: str, prompt_file: str, args: list[str]) -> list[str]:
+    """The session's command line up to the caller's own arguments: the
+    launcher's --model and --effort only where the caller passed none, so
+    the child sees one of each and the stamps say what it applies."""
+    cmd = ([] if provider == "anthropic" else ["ori"]) + ["claude"]
+    if not caller_model:
+        cmd += ["--model", session]
+    if not caller_effort and session_effort:
+        cmd += ["--effort", session_effort]
+    return cmd + [prompt_flag, prompt_file, *args]
+
+
 def wants_opening(args: list[str]) -> bool:
     opening, expect_value = True, False
     for a in args:
@@ -1384,12 +1397,8 @@ def launch(argv: list[str]) -> int:
     # than placed first: "last wins" would be an assumption about claude's
     # argv handling, and the stamp above must not be able to disagree with
     # what the child actually applies.
-    cmd = ([] if provider == "anthropic" else ["ori"]) + ["claude"]
-    if not caller_model:
-        cmd += ["--model", session]
-    if not caller_effort and session_effort:
-        cmd += ["--effort", session_effort]
-    cmd += [prompt_flag, prompt_file, *args]
+    cmd = session_command(provider, session, caller_model, session_effort, caller_effort, prompt_flag,
+                          prompt_file, args)
     # A language-culture login whose locale the fabric authored a search for
     # (identities/roles/language-culture/locale/<suffix>/locale.json, served
     # by runtime/mcp/websearch-locale) searches through that alone: the

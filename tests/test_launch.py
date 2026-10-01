@@ -10,6 +10,7 @@ from __future__ import annotations
 import io
 import json
 import os
+import pwd
 import signal
 import subprocess
 import sys
@@ -91,6 +92,15 @@ def main() -> int:
               launch.effort_for(["--version", "--effort"], "high") == ("", True)
               and launch.effort_for(["--effort", "low", "--effort"], "high") == ("", True))
 
+        print("the session's command line")
+        args = ["--effort", "low", "--model", "m"]
+        cmd = launch.session_command("anthropic", "claude-x", True, "low", True, "--append-system-prompt-file", "p", args)
+        check("the caller's --model and --effort reach claude once each, the launcher adding neither",
+              cmd.count("--effort") == 1 and cmd.count("--model") == 1 and cmd[:3] == ["claude", "--append-system-prompt-file", "p"])
+        cmd = launch.session_command("openrouter", "s@p", False, "high", False, "--append-system-prompt-file", "p", [])
+        check("…and the launcher's own when the caller passed none, through ori on the broker",
+              cmd == ["ori", "claude", "--model", "s@p", "--effort", "high", "--append-system-prompt-file", "p"])
+
         print("the files a launch needs")
         present = put(f"{tmp}/routing/capabilities.json", "{}")
         try:
@@ -98,6 +108,27 @@ def main() -> int:
             check("a missing routing file is refused", False)
         except launch.Refused as exc:
             check("a missing routing file is refused, by its path", str(exc) == f"{tmp}/routing/aliases.json is missing.")
+
+        # End to end through the shim: the call in launch() is what refuses,
+        # not only the helper. A fixture fabric with an identity and a
+        # binding, and no routing/capabilities.json.
+        fixture, state = f"{tmp}/fixture", f"{tmp}/fixture-state"
+        os.makedirs(f"{fixture}/runtime")
+        os.makedirs(f"{fixture}/tools/fabric")
+        os.makedirs(f"{fixture}/projects")
+        for rel in ("runtime/identity.py", "tools/fabric/workingcopy.py", "projects/registry.json"):
+            with open(os.path.join(HERE, rel), encoding="utf-8") as src:
+                put(f"{fixture}/{rel}", src.read())
+        login = pwd.getpwuid(os.getuid()).pw_name
+        put(f"{state}/agents/{login}/binding.json", json.dumps({"agent": login, "role": "backend-dev"}))
+        put(f"{tmp}/bin/ori", "#!/usr/bin/env bash\nexit 0\n", 0o755)
+        os.makedirs(f"{tmp}/nowhere")
+        r = subprocess.run(["bash", SHIM, "--print"], cwd=f"{tmp}/nowhere", capture_output=True, text=True, timeout=60,
+                           env=clean_env(AGENT_FABRIC_ROOT=fixture, AGENT_FABRIC_STATE_DIR=state, HOME=f"{tmp}/home",
+                                         PATH=f"{tmp}/bin:{os.environ['PATH']}", PWD=f"{tmp}/nowhere",
+                                         AGENT_FABRIC_PYTHON=sys.executable))
+        check("a launch with no capabilities.json is refused before anything else, by its path",
+              r.returncode == 1 and r.stderr == f"launch: {fixture}/routing/capabilities.json is missing.\n")
 
         print("settings scopes")
         repo, other = f"{tmp}/repo", f"{tmp}/other"
