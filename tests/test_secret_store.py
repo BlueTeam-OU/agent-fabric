@@ -168,6 +168,15 @@ def main() -> int:
                   p.returncode == 1 and json.loads(p.stdout)[0]["status"] == "failed", p.stdout + p.stderr)
             p = run(parent, "assign", "no-such", "kid")
             check("an unknown template is refused", p.returncode == 1 and "not a template" in p.stderr, p.stderr)
+            # The coordinator assigning its own login: no mirror of itself
+            # exists under children/, the token is its own entry.
+            p = run(parent, "assign", "work-account", PID, "--json")
+            mine = json.loads(p.stdout or "[]")
+            got = subprocess.run(["gpg", "--batch", "--quiet", "--decrypt", os.path.join(own_env, "CLAUDE_CODE_OAUTH_TOKEN.gpg")],
+                                 env=parent, capture_output=True, text=True)
+            check("assigning the store's own agent writes its own entry, which it reads back",
+                  p.returncode == 0 and mine and mine[0]["status"] == "written" and got.stdout == TOKEN
+                  and TOKEN not in p.stdout, p.stdout + p.stderr + got.stderr[-200:])
 
             # provision (the Doppler enrolment's replacement): the parent
             # fills the child's store with put, reads nothing back, prints

@@ -779,6 +779,7 @@ def assign(slug: str, logins: list[str], *, force: bool = False) -> list[dict]:
         raise StoreError(f"{slug} is not a template in this store (fabric-secrets store templates)")
     rows = []
     fp = _sha12(vals[name])
+    me = own_agent_id(own)
     for who in logins:
         # A login or an agent id, resolved first (ADR-039 rule 5); rows
         # name the agent by its login, the record keys it by its id.
@@ -796,7 +797,13 @@ def assign(slug: str, logins: list[str], *, force: bool = False) -> list[dict]:
             rows.append({"login": who, "from": was, "to": slug, "status": "unchanged", "token_sha256_12": fp})
             continue
         try:
-            put(aid, "CLAUDE_CODE_OAUTH_TOKEN", vals[name].encode(), exact=True)
+            # The store's own agent has no mirror of itself under children/:
+            # its token is its own entry, which it can also read back
+            # (failed as "no store at …/children/<own id>", 2026-10-01).
+            if aid == me:
+                set_entry("CLAUDE_CODE_OAUTH_TOKEN", vals[name].encode(), exact=True)
+            else:
+                put(aid, "CLAUDE_CODE_OAUTH_TOKEN", vals[name].encode(), exact=True)
             set_entry(rec, f"{slug} {fp}".encode(), exact=True)
             rows.append({"login": who, "from": was, "to": slug, "status": "written", "token_sha256_12": fp})
         except StoreError as e:
