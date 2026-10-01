@@ -132,6 +132,11 @@ def main() -> int:
         check("no candidate resolves: None", guard.ref_range({}) is None)
         sh(repo, "branch", "-m", "trunk", "main")
 
+        print("Unicode spaces, as CI's grep under C.UTF-8 (review of #72)")
+        check("an ideographic space before the trailer", guard.has_trailer("x\n\u3000Co-authored-by: a"))
+        check("an en space inside the footer", guard.has_footer("Generated with\u2002[Claude Code](u)"))
+        check("a line break still ends the trailer's indent", not guard.has_trailer("x\n\nfoo Co-authored-by: a"))
+
         print("the verdict")
         env = {"AGENT_FABRIC_ATTRIBUTION_BASE": "main"}
         st, out, err = guard.check(env)

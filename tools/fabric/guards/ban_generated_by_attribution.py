@@ -114,9 +114,11 @@ import git  # noqa: E402
 # emitted more than one capitalisation. No space required after the colon --
 # git's trailer parser does not require one either.
 TRAILER_KEYS = "Co-authored-by|Claude-Session"
-# [[:space:]] is written out: `\s` would also cross a line break under
-# re.M, and grep never shows a pattern more than one line.
-TRAILER_RE = re.compile(rf"^[ \t\r\f\v]*({TRAILER_KEYS}):", re.I | re.M | re.A)
+# [[:space:]] as CI's grep read it under C.UTF-8 — Unicode spaces too, so
+# "\u3000Co-authored-by:" failed there (review of #72) — but never a line
+# break: grep never shows a pattern more than one line, and `\s` would
+# cross one under re.M.
+TRAILER_RE = re.compile(rf"^[^\S\n]*({TRAILER_KEYS}):", re.I | re.M)
 # Footer text, matched anywhere: it arrives as a sentence, not as a key.
 # Matched against a NEWLINE-FLATTENED copy of the body, because grep is
 # line-oriented and the footer is routinely hard-wrapped between "with" and
@@ -128,7 +130,7 @@ TRAILER_RE = re.compile(rf"^[ \t\r\f\v]*({TRAILER_KEYS}):", re.I | re.M | re.A)
 # a sentence saying the words without the link is someone describing the
 # ban, and flattening newlines had made every such sentence an offence --
 # including the one in the commit that introduced this guard.
-FOOTER_RE = re.compile(r"Generated with[ \t\f\v]+\[Claude Code|claude\.ai/code/session_", re.I | re.A)
+FOOTER_RE = re.compile(r"Generated with[^\S\n]+\[Claude Code|claude\.ai/code/session_", re.I)
 
 EXPLANATION = """
   The repo authors its own history. Commit messages carry no
