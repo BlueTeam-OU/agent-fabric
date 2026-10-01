@@ -66,8 +66,10 @@ public; the account has no key yet); its key and store —
 the coordinator — filled by the coordinator as its parent
 (`fabric-secrets provision identity`, `share`, then `issue-key
 openrouter` and `issue-key openai` **once each**: a key of the account's
-own on each API; presence in its store is the check) — and the first
-sync, as the account; every
+own on each API; presence in its store is the check) — then handed to
+the account as a bundle (`store child-bundle | store take-bundle`: its
+SSH key is in that store, so it cannot pull it yet) and its first sync,
+as the account, without a pull (`sync --no-pull`); every
 `--project` cloned as the account over SSH from the remote the registry
 names; `bootstrap.sh`; `bin/fabric-role bind <role>`; the toolchain each
 project's lockfile declares (pnpm under `~/.local`, `pnpm install`,
@@ -147,11 +149,16 @@ tools read:
 | `SSH_PRIVATE_KEY`, `SSH_PUBLIC_KEY` | `~/.ssh/id_ed25519(.pub)`, written only when absent (`--force` replaces) |
 | a project's `agent_env` names (`projects/registry.json`; gzapp: `GZAPP_PORT_OFFSET`) | exported from `secrets.env` when the store has them — per-login values that are not secrets but belong to the identity, never reported missing |
 
-- `bin/fabric-secrets sync` (as the account) pulls and applies; `status`
-  reports presence, modes and ages — neither prints a value.
+- `bin/fabric-secrets sync` (as the account) pulls and applies;
+  `--no-pull` applies the copy as it is, once, right after `store
+  take-bundle`; `status` reports presence, modes and ages — neither
+  prints a value.
 - `secrets/store-enroll.sh <login> [--host <id>] [--born-now]`
   (coordinator): the account's id, its private repository, its key and
-  store made on its host, the certification, the mirror. Then
+  store made on its host, the certification, the mirror. With
+  `--born-now` (a new account, with no GitHub key yet) its first commit
+  reaches its repository through the coordinator, as a bundle (`store
+  bundle | store seed-child`, ADR-038 §5 rule 5). Then
   `fabric-secrets store recovery-copy` as the account and `store backup`
   as the coordinator (ADR-038 §6).
 - `fabric-secrets provision` (coordinator, the parent) fills a child's
