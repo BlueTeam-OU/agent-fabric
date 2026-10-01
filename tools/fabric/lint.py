@@ -1437,6 +1437,65 @@ def bash_size_findings(root: str, base_ref: str = "origin/main") -> list[str]:
     return findings
 
 
+# What a role IS, never a contributor's to commit (ADR-018 §5 rule 8): one
+# representative path under each, judged by the same decision the hooks and
+# CI make, so an entry whose broad rule reaches one of them — "policies/" in
+# place of the allowlist, "tools/" without the guards excluded — is caught
+# however it is spelled.
+CONTRIBUTOR_NEVER = (
+    "identities/roles/x/charter.md", "identities/prompt/team.md", "routing/x.json",
+    "policies/authority.json", "policies/githooks/pre-commit", "policies/AUTHORITY.md",
+    "communication/gzcoord/protocol/SPEC.md", "docs/adr/ADR-018-authority.md", "memory/shared/x.md",
+    ".agent-fabric/taxonomy.json", ".github/workflows/ci.yml", "tools/fabric/guards/contributors.py",
+    "tools/fabric/lint.py", "tests/run.sh", "tests/static.sh", "CLAUDE.md",
+)
+
+
+def contributor_findings(root: str) -> list[str]:
+    """policies/authority.json `contributors`: each entry names a catalogued
+    role other than the owner, is whole (contributors.py drops a half-written
+    one, which then admits nothing — said here rather than found at a
+    refused commit), and admits none of CONTRIBUTOR_NEVER."""
+    path = os.path.join(root, "policies", "authority.json")
+    try:
+        text = open(path, encoding="utf-8").read()
+        doc = json.loads(text)
+    except FileNotFoundError:
+        return []
+    except ValueError as e:
+        return [f"policies/authority.json: not JSON ({e})"]
+    raw = doc.get("contributors", [])
+    if not isinstance(raw, list):
+        return ["policies/authority.json: `contributors` is not a list"]
+    spec = importlib.util.spec_from_file_location(
+        "fabric_contributors", os.path.join(os.path.dirname(os.path.abspath(__file__)), "guards", "contributors.py"))
+    co = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(co)
+    whole = co.contributors_of(text)
+    try:
+        catalogued = {r["id"] for r in json.load(open(os.path.join(root, "identities", "roles", "catalog.json"),
+                                                        encoding="utf-8"))["roles"]}
+    except (OSError, ValueError, KeyError, TypeError):
+        catalogued = set()
+    owner = (doc.get("role_definitions") or {}).get("role")
+    findings = []
+    for i, e in enumerate(raw):
+        role = e.get("role") if isinstance(e, dict) else None
+        where = f"policies/authority.json: contributors[{i}] ({role or 'no role'})"
+        if role not in whole:
+            findings.append(f"{where}: not a whole entry (a role, a non-empty list of paths, a list of exclusions) "
+                            "— it admits nothing")
+            continue
+        if role == owner:
+            findings.append(f"{where}: the owner role needs no entry")
+        if catalogued and role not in catalogued:
+            findings.append(f"{where}: not in identities/roles/catalog.json")
+        for p in CONTRIBUTOR_NEVER:
+            if co.admitted(text, role, [p]):
+                findings.append(f"{where}: admits {p}, which defines what a role is (ADR-018 §5 rule 8)")
+    return findings
+
+
 def host_registry_findings(root: str) -> list[str]:
     """runtime/hosts/registry.json: a host id is its short hostname, so ids
     are unique by construction and an ssh destination reaches one host;
@@ -1744,6 +1803,9 @@ def main() -> int:
 
     # --- bash over 150 lines only where the allowlist says (ADR-040) ---------
     findings += bash_size_findings(root)
+
+    # --- a contributor's entry never reaches a definition (ADR-018) ---------
+    findings += contributor_findings(root)
 
     # --- the review lenses ---------------------------------------------------
     findings += review_lens_findings(root)
