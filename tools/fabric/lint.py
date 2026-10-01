@@ -1097,6 +1097,27 @@ def python_pin_findings(root: str) -> list[str]:
     return findings
 
 
+def fabric_settings_findings(root: str) -> list[str]:
+    """agent-fabric's own .claude/settings.json is the workspace template
+    rendered with the fabric at $CLAUDE_PROJECT_DIR (fabric_settings.py):
+    a session started inside this clone gets the workspace's hooks and
+    status line, never a second list that drifts."""
+    if not os.path.isfile(os.path.join(root, "runtime", "claude-code", "workspace", "settings.json")):
+        return []
+    spec = importlib.util.spec_from_file_location(
+        "fabric_settings_under_lint", os.path.join(os.path.dirname(os.path.abspath(__file__)), "fabric_settings.py"))
+    fs = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(fs)
+    try:
+        have = open(os.path.join(root, ".claude", "settings.json"), encoding="utf-8").read()
+    except OSError:
+        have = None
+    if have != fs.render(root):
+        return [".claude/settings.json: not runtime/claude-code/workspace/settings.json rendered with $CLAUDE_PROJECT_DIR "
+                "— python3 tools/fabric/fabric_settings.py --write"]
+    return []
+
+
 def schema_keyword_findings(root: str) -> list[str]:
     """Every tracked *.schema.json uses only keywords _structural_check
     checks: on the pinned interpreter there is no jsonschema to fall back
@@ -1587,6 +1608,8 @@ CONTRIBUTOR_NEVER = (
     "bin/fabric-review", "tools/fabric/review_brief.py",
     # Runs as root on every host and installs the interpreter every tool runs on.
     "tools/fabric/python_pin.py", "runtime/python.json",
+    # Wires the fleet's hooks into a session started in this clone.
+    ".claude/", "tools/fabric/fabric_settings.py",
 )
 # The one path under a never-prefix an entry may name: the list the port
 # shrinks, which lint itself holds to shrinking (ADR-040 §5 rule 2).
@@ -1967,6 +1990,9 @@ def main() -> int:
 
     # --- bash over 150 lines only where the allowlist says (ADR-040) ---------
     findings += bash_size_findings(root)
+
+    # --- a session started in this clone gets the workspace's hooks ---------
+    findings += fabric_settings_findings(root)
 
     # --- the pinned Python: checkable, and what CI runs (ADR-040) ------------
     findings += python_pin_findings(root)

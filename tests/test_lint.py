@@ -1555,6 +1555,29 @@ def case_the_python_pin_is_checkable_and_what_ci_runs() -> None:
                    "builds": {"x86_64": {"url": "https://h/3.14.0", "sha256": "a" * 64}}}))
 
 
+def case_the_fabrics_own_claude_settings_are_the_workspace_template() -> None:
+    """agent-fabric's .claude/settings.json is the workspace template with
+    the root at $CLAUDE_PROJECT_DIR: a hand edit or a template change not
+    re-rendered is a finding."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("fabric_lint_under_test", LINT)
+    lint = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(lint)
+    with tempfile.TemporaryDirectory() as root:
+        write(os.path.join(root, "runtime", "claude-code", "workspace", "settings.json"),
+              json.dumps({"_comment": "c", "statusLine": {"type": "command", "command": "bash \"$AGENT_FABRIC_ROOT/s.sh\""}}))
+        assert any("not runtime/claude-code/workspace/settings.json rendered" in f for f in lint.fabric_settings_findings(root))
+        spec2 = importlib.util.spec_from_file_location("fs_under_test", os.path.join(os.path.dirname(LINT), "fabric_settings.py"))
+        fs = importlib.util.module_from_spec(spec2)
+        spec2.loader.exec_module(fs)
+        rendered = fs.render(root)
+        assert '"$CLAUDE_PROJECT_DIR/s.sh' in rendered and "_comment" not in rendered, rendered
+        write(os.path.join(root, ".claude", "settings.json"), rendered)
+        assert lint.fabric_settings_findings(root) == []
+        write(os.path.join(root, ".claude", "settings.json"), rendered.replace("s.sh", "other.sh"))
+        assert lint.fabric_settings_findings(root), "a hand edit is a finding"
+
+
 def main() -> int:
     cases = [
         case_clean_base_passes,
@@ -1610,6 +1633,7 @@ def main() -> int:
         case_a_contributor_entry_never_reaches_a_definition,
         case_the_fallback_validator_agrees_with_jsonschema,
         case_the_python_pin_is_checkable_and_what_ci_runs,
+        case_the_fabrics_own_claude_settings_are_the_workspace_template,
     ]
     failures = 0
     for case in cases:
