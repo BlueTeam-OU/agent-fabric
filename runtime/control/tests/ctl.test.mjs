@@ -322,6 +322,11 @@ test('upgrade: the word after it is the piece, --version is digits, the wait is 
   assert.match(busy[1], /^db-admin\s+busy\s.*an upgrade is already running on this account$/, 'a busy row shows its note');
   const bare = table('upgrade', rows([expected[0]], [{ kind: 'reply', from: 'h/db-admin', op: 'upgrade', data: { upgrade: { from: '2.1.280', to: '2.1.281' } } }])).split('\n');
   assert.match(bare[1], /^db-admin\s+no status\s+2\.1\.280 → 2\.1\.281/, 'a reply with no status says so, never "undefined"');
+  const settings = table('upgrade', rows(expected.slice(0, 2), [
+    { kind: 'reply', from: 'h/db-admin', op: 'upgrade', data: { upgrade: { status: 'upgraded', from: '2.1.282', to: '2.1.285', session: 'none', settings: 'refreshed' } } },
+    { kind: 'reply', from: 'h/web-dev-01', op: 'upgrade', data: { upgrade: { status: 'upgraded', from: '2.1.282', to: '2.1.285', session: 'none', reason: 'r', settings: 'not refreshed: defaults unreadable' } } }])).split('\n');
+  assert.match(settings[1], /\snone\s+settings refreshed$/, 'the settings refresh is in the row');
+  assert.match(settings[2], /\snone\s+r; settings not refreshed: defaults unreadable$/, '…after the reason, and a failed one says why');
 });
 
 test('upgrade fabric: no --version, its own wait; a current row names main; the commit sent is origin/main, never HEAD', () => {
