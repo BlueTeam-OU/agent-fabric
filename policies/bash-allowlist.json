@@ -4,7 +4,6 @@
     "bin/fabric-branches": 3,
     "bin/fabric-lease": 3,
     "bin/fabric-status": 3,
-    "policies/check_agent_fabric_dir_authority.sh": 2,
     "policies/githooks/test_hooks.sh": 6,
     "policies/test_ban_generated_by_attribution.sh": 6,
     "policies/test_check_charter_authority.sh": 6,
