@@ -5,7 +5,7 @@ topic: "inbox-history-mode"
 description: "To do: gzcoord inbox.mjs needs a history-listing mode (a seq range, addressed-to-me only, HELLO/GOODBYE filtered) — an agent planned ~400 --replay calls to read 3808..4200; replay already fetches 500 records per call"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-09-26"
+distilled_at: "2026-10-01"
 origin:
   - agent: user
     host: "develop-qzapp"

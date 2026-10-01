@@ -5,7 +5,7 @@ topic: "cross-repo-lint-window"
 description: "A fabric push that changes what a project's index must list reddens that project's queue until its index PR merges — hold the push for a quiet queue until fabric-ref is live; and never chain a commit behind a piped test run"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-09-26"
+distilled_at: "2026-10-01"
 origin:
   - agent: user
     host: "develop-qzapp"

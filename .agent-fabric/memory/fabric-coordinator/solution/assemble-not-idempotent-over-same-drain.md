@@ -5,7 +5,7 @@ topic: "assemble-not-idempotent-over-same-drain"
 description: "FIXED 2026-09-20: assemble is idempotent over the same drain — split_by_budget no longer counts a re-rendered claim twice (heading+text identity); the -2 copies of 2026-09-17 were the carried count doubling past half budget"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-09-26"
+distilled_at: "2026-10-01"
 origin:
   - agent: user
     host: "develop-qzapp"
