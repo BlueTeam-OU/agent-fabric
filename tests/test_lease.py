@@ -386,6 +386,47 @@ def main() -> int:
     check("the lock taken, and said so", got is True and held and disarms == [1], f"got={got} held={held}")
     late.close()
 
+    # The narrower window: the alarm lands as flock returns, before any line
+    # of lock_exclusive runs (re-review of #73).
+    later = tempfile.NamedTemporaryFile(prefix="test_lease_later.")
+    real_fcntl = lease.fcntl
+
+    class AlarmAfterFlock:
+        def __getattr__(self, name):
+            return getattr(real_fcntl, name)
+
+        @staticmethod
+        def flock(fd, op):
+            real_fcntl.flock(fd, op)
+            if not op & real_fcntl.LOCK_NB:
+                signal.raise_signal(signal.SIGALRM)
+    lease.fcntl = AlarmAfterFlock()
+    try:
+        got = lease.lock_exclusive(later.fileno(), 5)
+    finally:
+        lease.fcntl = real_fcntl
+    try:
+        fcntl.flock(os.open(later.name, os.O_RDONLY), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        held = False
+    except BlockingIOError:
+        held = True
+    check("an alarm the instant flock returns: the lock taken, and said so", got is True and held,
+          f"got={got} held={held}")
+    later.close()
+
+    # And a real timeout is still one: another holder, the wait ends, not held.
+    busy = tempfile.NamedTemporaryFile(prefix="test_lease_busy.")
+    holder = os.open(busy.name, os.O_RDONLY)
+    fcntl.flock(holder, fcntl.LOCK_EX)
+    try:
+        t0 = time.monotonic()
+        got = lease.lock_exclusive(os.open(busy.name, os.O_RDONLY), 1)
+        took = time.monotonic() - t0
+    finally:
+        os.close(holder)
+        busy.close()
+    check("a lock held elsewhere is not taken when the wait ends", got is False and took < 3, f"got={got} took={took:.1f}")
+
     if fails:
         print(f"test_lease: {fails} FAILED")
         return 1

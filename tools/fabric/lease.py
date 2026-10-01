@@ -274,26 +274,29 @@ class _Alarm(Exception):
 
 def lock_exclusive(fd: int, seconds: int) -> bool:
     """flock -w SECS: blocks in the kernel, woken the moment the holder goes."""
-    # The alarm only interrupts a wait: once flock has returned, an alarm
-    # landing before the timer is disarmed is late, not a timeout. Raised
-    # then, it read as held (75) with the lock in hand (review of #73).
-    locked = False
-
+    # Whether the wait ended holding the lock is the kernel's to say, not a
+    # flag's: an alarm can land after flock has granted it, before any line
+    # of ours runs, and read as held (75) with the lock in hand (reviews of
+    # #73). On any interruption a non-blocking request on this descriptor
+    # answers: it succeeds when this descriptor holds the lock already.
     def on_alarm(signum: int, frame: object) -> None:
-        if not locked:
-            raise _Alarm
+        raise _Alarm
 
     previous = signal.signal(signal.SIGALRM, on_alarm)
     signal.setitimer(signal.ITIMER_REAL, min(seconds, MAX_WAIT_S))
     try:
-        fcntl.flock(fd, fcntl.LOCK_EX)
-        locked = True
-        return True
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX)
+            return True
+        finally:
+            signal.setitimer(signal.ITIMER_REAL, 0)
+            signal.signal(signal.SIGALRM, previous)
     except (_Alarm, OSError):
-        return locked
-    finally:
-        signal.setitimer(signal.ITIMER_REAL, 0)
-        signal.signal(signal.SIGALRM, previous)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            return True
+        except OSError:
+            return False
 
 
 def mem_field(meminfo: str, key: str) -> str:
