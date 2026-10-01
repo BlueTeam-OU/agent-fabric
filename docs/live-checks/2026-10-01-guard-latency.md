@@ -31,15 +31,45 @@ each run gave, so a changed answer would show beside a changed time.
 The p90 column is noisy on this host: one run of the same Python case
 gave 115 ms and the next 54 ms. Read the medians.
 
+## Under a fabric launch
+
+The table above ran without `AGENT_FABRIC_LAUNCH_PROVIDER`, but every
+session the launcher starts has it set, and then the guard also asks
+`routing.py` for the classes' efforts and, for a review, the reviewer's
+pinned model. Measured again later, 40 runs per case, the bash through
+a copy of 49d61f2's script beside the same aliases and routing, the
+Python at the branch head after the review fixes:
+
+| guard | launch | call | median (ms) | p90 (ms) | answer |
+|---|---|---|---|---|---|
+| bash (49d61f2) | none | review, allowed | 18.6 | 24.4 | allow |
+| bash (49d61f2) | none | code-medium, allowed | 19.4 | 26.4 | allow |
+| bash (49d61f2) | anthropic | review, allowed | 235.5 | 310.3 | allow, pinned |
+| bash (49d61f2) | anthropic | code-medium, allowed | 247.7 | 359.7 | allow |
+| python (head) | none | review, allowed | 39.9 | 47.4 | allow |
+| python (head) | none | code-medium, allowed | 42.4 | 61.6 | allow |
+| python (head) | anthropic | review, allowed | 217.1 | 308.2 | allow, pinned |
+| python (head) | anthropic | code-medium, allowed | 142.2 | 227.7 | allow |
+
+The routing probes are the cost under a launch, in both. The bash asked
+routing for the review pin on every dispatch; the port asks for it only
+when a review is judged, and its non-review dispatches run one probe
+fewer.
+
 ## What it decides
 
-- Every answer is unchanged.
-- The dispatch guard costs about 25 ms more per Agent call at the median,
-  on a call that then runs for seconds to minutes. It stays in Python.
-- The bare interpreter is about 41 ms of that, measured alone with the
-  module on a deny. `-I -S` saved about 5 ms of it; the shim keeps them
-  for the other reason they exist: no `PYTHONPATH` or user site can put
-  a module of its own under a permission gate.
+- Every measured case gave the same answer before and after.
+- Without a launch, the dispatch guard costs about 20 to 25 ms more per
+  Agent call at the median. That is most of the Python interpreter's
+  start: about 41 ms alone on this host, measured with the module on a
+  deny, against the 16 to 20 ms that bash and jq took for the whole
+  decision.
+- Under a launch, which is how every session runs, the port is faster:
+  about 100 ms less on a non-review dispatch, and level on a review.
+- `-I -S` saved about 5 ms of the start-up. The shim keeps them for the
+  other reason they exist: no `PYTHONPATH` or user site can put a module
+  of its own under the guard. The routing probe runs `-E -s` for the
+  same reason.
 - The policy scripts run once per CI job and suite; 30 to 60 ms there is
   nothing.
 - No guard needs to stay in bash for speed.
