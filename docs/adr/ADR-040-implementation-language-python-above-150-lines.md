@@ -25,8 +25,12 @@ around a program no linter reads. No shared Python layer for `gh` or
 
 ## 2. Decision
 
-Fabric tooling is written in **Python 3.12 or newer, standard library
-only**. Bash stays for what it is good at: forwarders and thin shims,
+Fabric tooling is written in **Python, standard library only**, and
+runs on one pinned interpreter: `runtime/python.json` names it (3.13
+today, a relocatable python-build-standalone build pinned by sha256),
+installed once per host as `/usr/local/bin/fabric-python`; the code
+stays valid on 3.12 and newer, the interpreters CI's matrix runs
+(A 2026-10-01). Bash stays for what it is good at: forwarders and thin shims,
 git hook entry points, the suite runners (`tests/run.sh`,
 `tests/static.sh`), and step-runners whose body is mostly `sudo`, `ssh`
 and installer calls. A tracked bash script over 150 lines is refused by
@@ -64,7 +68,13 @@ serve as the parity oracle for each port, unchanged.
 
 ## 5. Binding Rules
 
-1. New fabric tooling is Python 3.12+, standard library only. Bash is
+1. New fabric tooling is Python, standard library only, valid on 3.12
+   and newer, and runs on the pinned interpreter: `runtime/python.json`,
+   installed per host by `tools/fabric/python_pin.py` (run as root by
+   the host's own `/usr/bin/python3`, the hash checked before
+   extraction) and reached as `/usr/local/bin/fabric-python`; CI installs
+   the same build, and lint holds its minor version in CI's matrix
+   (A 2026-10-01). Bash is
    allowed for forwarders and shims, git hook entry points, `tests/run.sh`
    and `tests/static.sh`, and step-runners that are mostly `sudo`, `ssh`
    and installer calls.
@@ -74,9 +84,12 @@ serve as the parity oracle for each port, unchanged.
 3. A port freezes the script's contract first — its argv, the
    `AGENT_FABRIC_*` environment it reads, what goes to stdout and to
    stderr, its exit codes and its help text — in the new module's header.
-4. A ported script keeps its path as a shim, running `/usr/bin/python3`,
-   until every forwarder and caller is repointed; a sourced script's shim
-   defines the same shell functions, each calling Python.
+4. A ported script keeps its path as a shim, running the pinned
+   interpreter (`${AGENT_FABRIC_PYTHON:-/usr/local/bin/fabric-python}`,
+   refusing with the install command when it is absent), until every
+   forwarder and caller is repointed; a sourced script's shim defines the
+   same shell functions, each calling Python, and fails the call, never
+   its caller (A 2026-10-01).
 5. The script's existing bash test runs against the shim, as the parity
    oracle, in the port's pull request, its assertions unchanged. Two
    things in it may follow the port: its mock of `gh` may learn the
@@ -127,3 +140,4 @@ The body above reads current; each change's full note is in [history/ADR-040-ame
 | Date | Amendment | Effect |
 |---|---|---|
 | 2026-10-01 | The oracle's mock and its source reads may follow the port | §5 rule 5: the oracle's mock may learn gh.py's transport, and a case reading the source reads the module |
+| 2026-10-01 | One pinned Python, 3.13, installed per host | §2, §5 rules 1 and 4: `runtime/python.json`, `python_pin.py`, `fabric-python`; shims run it; CI installs it |
