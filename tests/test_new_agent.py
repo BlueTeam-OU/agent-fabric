@@ -83,6 +83,13 @@ def main() -> int:
         r = subprocess.run(["bash", step_runner], capture_output=True, text=True, timeout=60, env=clean_env())
         check("the step-runner stops where its arguments fail, with their status and words",
               r.returncode == 2 and r.stderr == w.USAGE + "\n" and r.stdout == "", r.stderr)
+        scratch = f"{tmp}/worker-tmp"
+        os.makedirs(scratch)
+        r = subprocess.run(["bash", step_runner, "host-check", "nobody-here"], capture_output=True, text=True, timeout=60,
+                           env=clean_env(TMPDIR=scratch))
+        check("host-check answers and leaves nothing in its TMPDIR (an exec would skip the trap that removes its log)",
+              r.returncode == 0 and r.stdout.endswith("account: absent\n") and os.listdir(scratch) == [],
+              f"{r.stderr} {os.listdir(scratch)}")
 
         print("the claude version")
         root = f"{tmp}/fab"

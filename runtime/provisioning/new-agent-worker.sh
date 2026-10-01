@@ -32,7 +32,7 @@ as_login() {
     $SUDO -n -u "$LOGIN" -H env -i HOME="$HOME_DIR" PATH="$p" AGENT_FABRIC_PATH="$p" \
         bash -lc 'export PATH="$AGENT_FABRIC_PATH:$PATH"; cd "$HOME" && eval "$1"' _ "$*"
 }
-[[ "$PHASE" == host-check ]] && exec "$PY" -I "$W" host-check "$LOGIN"
+[[ "$PHASE" == host-check ]] && { "$PY" -I "$W" host-check "$LOGIN"; exit $?; }   # not exec: the EXIT trap removes $LOG
 (( DRY )) || $SUDO -n true 2>/dev/null || die "sudo without a password is needed for the account steps (the operator on $(hostname -s) has none)."
 if [[ "$PHASE" == prepare ]]; then
     # ---- 0. the host: the fabric's contract (platform/detect.sh), each missing tool's package
