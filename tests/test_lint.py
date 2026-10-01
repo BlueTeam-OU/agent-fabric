@@ -1533,6 +1533,28 @@ def case_the_fallback_validator_agrees_with_jsonschema() -> None:
         assert not any("'type'" in f or "'n'" in f for f in got), ("a property name is not a keyword", got)
 
 
+def case_the_python_pin_is_checkable_and_what_ci_runs() -> None:
+    """runtime/python.json names a version, https URLs that name it, 64-hex
+    hashes; CI's matrix carries its minor version."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("fabric_lint_under_test", LINT)
+    lint = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(lint)
+    good = {"python": "3.13.15", "release": "r", "builds": {"x86_64": {"url": "https://h/cpython-3.13.15.tgz", "sha256": "a" * 64}}}
+    with tempfile.TemporaryDirectory() as root:
+        write(os.path.join(root, ".github", "workflows", "ci.yml"), "          - { section: python, python: '3.13', node: '22' }\n")
+        def got(doc):
+            write(os.path.join(root, "runtime", "python.json"), json.dumps(doc))
+            return lint.python_pin_findings(root)
+        assert got(good) == [], got(good)
+        assert any("must be https" in f for f in got({**good, "builds": {"x86_64": {**good["builds"]["x86_64"], "url": "http://h/3.13.15"}}}))
+        assert any("64 hex" in f for f in got({**good, "builds": {"x86_64": {**good["builds"]["x86_64"], "sha256": "xyz"}}}))
+        assert any("does not name Python" in f for f in got({**good, "python": "3.13.16"}))
+        assert any("not a 3.x.y" in f for f in got({**good, "python": "3.13"}))
+        assert any("no matrix leg on Python 3.14" in f for f in got({**good, "python": "3.14.0",
+                   "builds": {"x86_64": {"url": "https://h/3.14.0", "sha256": "a" * 64}}}))
+
+
 def main() -> int:
     cases = [
         case_clean_base_passes,
@@ -1587,6 +1609,7 @@ def main() -> int:
         case_review_lenses_are_named_described_and_bounded,
         case_a_contributor_entry_never_reaches_a_definition,
         case_the_fallback_validator_agrees_with_jsonschema,
+        case_the_python_pin_is_checkable_and_what_ci_runs,
     ]
     failures = 0
     for case in cases:

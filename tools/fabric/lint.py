@@ -1054,6 +1054,49 @@ SCHEMA_KEYWORDS = {
 _SCHEMA_MAPS = ("properties", "patternProperties", "$defs")
 
 
+def python_pin_findings(root: str) -> list[str]:
+    """runtime/python.json (ADR-040): a version, a release, and per machine
+    an https URL and a 64-hex sha256 — the installer downloads nothing it
+    cannot check. CI's matrix carries the pinned minor version, so what the
+    hosts run is what CI runs the Python suites on."""
+    path = os.path.join(root, "runtime", "python.json")
+    try:
+        with open(path, encoding="utf-8") as fh:
+            doc = json.load(fh)
+    except FileNotFoundError:
+        return []
+    except ValueError as e:
+        return [f"runtime/python.json: not JSON ({e})"]
+    findings = []
+    version = doc.get("python")
+    if not (isinstance(version, str) and re.fullmatch(r"3\.\d+\.\d+", version)):
+        findings.append(f"runtime/python.json: python {version!r} is not a 3.x.y version")
+    if not (isinstance(doc.get("release"), str) and doc["release"]):
+        findings.append("runtime/python.json: no release")
+    builds = doc.get("builds")
+    if not (isinstance(builds, dict) and builds):
+        findings.append("runtime/python.json: no builds")
+        builds = {}
+    for arch, b in builds.items():
+        if not (isinstance(b, dict) and isinstance(b.get("url"), str) and b["url"].startswith("https://")):
+            findings.append(f"runtime/python.json: {arch}: the url must be https")
+        if not (isinstance(b, dict) and isinstance(b.get("sha256"), str) and re.fullmatch(r"[0-9a-f]{64}", b["sha256"])):
+            findings.append(f"runtime/python.json: {arch}: the sha256 must be 64 hex digits")
+        elif isinstance(version, str) and isinstance(b.get("url"), str) and version not in b["url"]:
+            findings.append(f"runtime/python.json: {arch}: the url does not name Python {version}")
+    if isinstance(version, str) and re.fullmatch(r"3\.\d+\.\d+", version):
+        minor = ".".join(version.split(".")[:2])
+        try:
+            with open(os.path.join(root, ".github", "workflows", "ci.yml"), encoding="utf-8") as fh:
+                ci = fh.read()
+        except OSError:
+            ci = None
+        if ci is not None and f"python: '{minor}'" not in ci:
+            findings.append(f".github/workflows/ci.yml: no matrix leg on Python {minor}, the pinned version "
+                            "(runtime/python.json)")
+    return findings
+
+
 def schema_keyword_findings(root: str) -> list[str]:
     """Every tracked *.schema.json uses only keywords _structural_check
     checks: on the pinned interpreter there is no jsonschema to fall back
@@ -1542,6 +1585,8 @@ CONTRIBUTOR_NEVER = (
     "tests/leak-check.sh", "runtime/identity.py", "runtime/claude-code/",
     "bin/fabric-role", "tools/fabric/role.py", "tools/fabric/routing.py", "tools/fabric/launch_prompt.py",
     "bin/fabric-review", "tools/fabric/review_brief.py",
+    # Runs as root on every host and installs the interpreter every tool runs on.
+    "tools/fabric/python_pin.py", "runtime/python.json",
 )
 # The one path under a never-prefix an entry may name: the list the port
 # shrinks, which lint itself holds to shrinking (ADR-040 §5 rule 2).
@@ -1922,6 +1967,9 @@ def main() -> int:
 
     # --- bash over 150 lines only where the allowlist says (ADR-040) ---------
     findings += bash_size_findings(root)
+
+    # --- the pinned Python: checkable, and what CI runs (ADR-040) ------------
+    findings += python_pin_findings(root)
 
     # --- every schema checkable without jsonschema (the pinned Python) -------
     findings += schema_keyword_findings(root)
