@@ -1510,6 +1510,14 @@ def case_the_fallback_validator_agrees_with_jsonschema() -> None:
          {"k": "a", "x": 1}, {"k": "a", "y": 1}),
         ({"if": {"properties": {"k": {"const": "a"}}}, "then": {"required": ["x"]}, "else": {"required": ["y"]}},
          {"k": "b", "y": 1}, {"k": "b", "x": 1}),
+        # Review of #77: Python's True == 1 is not JSON's, and both kinds of
+        # property schema apply to one key.
+        ({"const": 1}, 1, True),
+        ({"const": False}, False, 0),
+        ({"enum": [1, 2]}, 2, True),
+        ({"type": "integer"}, 1.0, True),
+        ({"type": "number"}, 0.5, False),
+        ({"properties": {"a": {"type": "string"}}, "patternProperties": {"^a": {"minLength": 3}}}, {"a": "xyz"}, {"a": "x"}),
     ]
     try:
         import jsonschema  # type: ignore

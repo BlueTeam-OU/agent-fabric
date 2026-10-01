@@ -930,6 +930,33 @@ def validate_json(schema: dict[str, Any], doc: Any, where: str) -> list[str]:
     ]
 
 
+def _json_equal(a: Any, b: Any) -> bool:
+    """JSON Schema's equality: a boolean is never a number (Python's
+    True == 1 is not JSON's), and 1 equals 1.0; containers compare by it
+    recursively."""
+    if isinstance(a, bool) or isinstance(b, bool):
+        return isinstance(a, bool) and isinstance(b, bool) and a == b
+    if isinstance(a, (int, float)) and isinstance(b, (int, float)):
+        return a == b
+    if isinstance(a, dict) and isinstance(b, dict):
+        return a.keys() == b.keys() and all(_json_equal(a[k], b[k]) for k in a)
+    if isinstance(a, list) and isinstance(b, list):
+        return len(a) == len(b) and all(_json_equal(x, y) for x, y in zip(a, b))
+    return type(a) is type(b) and a == b
+
+
+def _json_type(doc: Any, t: str) -> bool:
+    """Is `doc` of JSON Schema type `t`: a boolean is not an integer or a
+    number, and 1.0 is an integer."""
+    if t == "boolean":
+        return isinstance(doc, bool)
+    if t == "integer":
+        return not isinstance(doc, bool) and (isinstance(doc, int) or (isinstance(doc, float) and doc.is_integer()))
+    if t == "number":
+        return not isinstance(doc, bool) and isinstance(doc, (int, float))
+    return isinstance(doc, {"object": dict, "array": list, "string": str, "null": type(None)}.get(t, object))
+
+
 def _structural_check(schema: dict[str, Any], doc: Any, where: str, path: str = "",
                       root: dict[str, Any] | None = None) -> list[str]:
     """The no-dependency validator, and on the fleet's pinned interpreter
@@ -973,15 +1000,9 @@ def _structural_check(schema: dict[str, Any], doc: Any, where: str, path: str = 
     problems: list[str] = []
     expected = schema.get("type")
     if expected:
-        kinds = {
-            "object": dict, "array": list, "string": str,
-            "integer": int, "number": (int, float), "boolean": bool,
-        }
         types = expected if isinstance(expected, list) else [expected]
-        allowed = tuple(kinds[t] for t in types if t in kinds)
-        if allowed and not isinstance(doc, allowed):
-            if not (doc is None and "null" in types):
-                return [f"{where}{path}: expected {expected}"]
+        if not any(_json_type(doc, t) for t in types):
+            return [f"{where}{path}: expected {expected}"]
     if isinstance(doc, dict):
         for key in schema.get("required", []):
             if key not in doc:
@@ -994,9 +1015,11 @@ def _structural_check(schema: dict[str, Any], doc: Any, where: str, path: str = 
         if isinstance(names, dict):
             for key in doc:
                 problems += _structural_check(names, key, where, f"{path}/<{key}>", root)
+        # Draft 2020-12 applies every matching pattern's schema, to a key
+        # `properties` also names as much as to any other.
         for pat, sub in pattern_props.items():
             for key, value in doc.items():
-                if key not in props and re.search(pat, key):
+                if re.search(pat, key):
                     problems += _structural_check(sub, value, where, f"{path}/{key}", root)
         if schema.get("additionalProperties") is False:
             for key in doc:
@@ -1035,9 +1058,9 @@ def _structural_check(schema: dict[str, Any], doc: Any, where: str, path: str = 
             problems.append(f"{where}{path}: {doc} is below the minimum {schema['minimum']}")
         if "maximum" in schema and doc > schema["maximum"]:
             problems.append(f"{where}{path}: {doc} is above the maximum {schema['maximum']}")
-    if "const" in schema and doc != schema["const"]:
+    if "const" in schema and not _json_equal(doc, schema["const"]):
         problems.append(f"{where}{path}: {doc!r} is not {schema['const']!r}")
-    if "enum" in schema and doc not in schema["enum"]:
+    if "enum" in schema and not any(_json_equal(doc, v) for v in schema["enum"]):
         problems.append(f"{where}{path}: {doc!r} not in {schema['enum']}")
     if "pattern" in schema and isinstance(doc, str) and not re.search(schema["pattern"], doc):
         problems.append(f"{where}{path}: {doc!r} does not match {schema['pattern']}")
