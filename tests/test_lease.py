@@ -360,6 +360,32 @@ def main() -> int:
                 h.kill()
                 h.wait(timeout=10)
         shutil.rmtree(scratch, ignore_errors=True)
+    print("an alarm after flock has returned is late, not a timeout (review of #73)")
+    import fcntl
+    late = tempfile.NamedTemporaryFile(prefix="test_lease_late.")
+    real_setitimer = lease.signal.setitimer
+    disarms = []
+
+    def alarm_at_disarm(which, seconds, *rest):
+        # The disarm in the finally: the alarm lands just before it, with the
+        # lock already in hand.
+        if seconds == 0 and not disarms:
+            disarms.append(1)
+            signal.raise_signal(signal.SIGALRM)
+        return real_setitimer(which, seconds, *rest)
+    lease.signal.setitimer = alarm_at_disarm
+    try:
+        got = lease.lock_exclusive(late.fileno(), 5)
+    finally:
+        lease.signal.setitimer = real_setitimer
+    try:
+        fcntl.flock(os.open(late.name, os.O_RDONLY), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        held = False
+    except BlockingIOError:
+        held = True
+    check("the lock taken, and said so", got is True and held and disarms == [1], f"got={got} held={held}")
+    late.close()
+
     if fails:
         print(f"test_lease: {fails} FAILED")
         return 1

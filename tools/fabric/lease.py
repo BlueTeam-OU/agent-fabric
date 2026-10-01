@@ -274,16 +274,23 @@ class _Alarm(Exception):
 
 def lock_exclusive(fd: int, seconds: int) -> bool:
     """flock -w SECS: blocks in the kernel, woken the moment the holder goes."""
+    # The alarm only interrupts a wait: once flock has returned, an alarm
+    # landing before the timer is disarmed is late, not a timeout. Raised
+    # then, it read as held (75) with the lock in hand (review of #73).
+    locked = False
+
     def on_alarm(signum: int, frame: object) -> None:
-        raise _Alarm
+        if not locked:
+            raise _Alarm
 
     previous = signal.signal(signal.SIGALRM, on_alarm)
     signal.setitimer(signal.ITIMER_REAL, min(seconds, MAX_WAIT_S))
     try:
         fcntl.flock(fd, fcntl.LOCK_EX)
+        locked = True
         return True
     except (_Alarm, OSError):
-        return False
+        return locked
     finally:
         signal.setitimer(signal.ITIMER_REAL, 0)
         signal.signal(signal.SIGALRM, previous)
