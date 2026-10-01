@@ -1888,7 +1888,9 @@ test('send: the automatic job intake is off unless switched on, and then takes o
     ['python3', 'add', '--request', '01a09fc1-0000-7000-8000-00000000000a', '--auto']);
   assert.match(calls[0][1], /tools\/fabric\/jobs\.py$/);
   assert.ok(opts[0].timeout > 0 && opts[0].timeout <= 30000, 'bounded: a hung relay must not hold a send that succeeded');
-  // The launcher never sets the switch.
-  const launch = fs.readFileSync(new URL('../../../runtime/openrouter/launch', import.meta.url), 'utf8');
-  assert.doesNotMatch(launch, /AGENT_FABRIC_JOBS_AUTO_INTAKE/);
+  // The launcher never sets the switch. Since Wave 4 (ADR-040) the launcher
+  // is a module behind a shim: both are read, and a source that moves fails
+  // the read rather than passing it by finding nothing.
+  for (const rel of ['runtime/openrouter/launch', 'tools/fabric/launch.py'])
+    assert.doesNotMatch(fs.readFileSync(new URL(`../../../${rel}`, import.meta.url), 'utf8'), /AGENT_FABRIC_JOBS_AUTO_INTAKE/, rel);
 });

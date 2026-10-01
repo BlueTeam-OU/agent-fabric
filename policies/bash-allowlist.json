@@ -14,7 +14,6 @@
     "runtime/github/test_pr-review-status.sh": 6,
     "runtime/github/test_pr-sessions.sh": 6,
     "runtime/github/test_trial-merge.sh": 6,
-    "runtime/openrouter/launch": 4,
     "runtime/openrouter/test_launch.sh": 6,
     "runtime/provisioning/moveto/moveto": 5,
     "runtime/provisioning/moveto/test_moveto.sh": 6,

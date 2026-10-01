@@ -1,0 +1,31 @@
+launch --print parity: bash at c2949ba vs python at b7fd35a, 28 cases, login python-dev-01
+role                 provider    rc bash/py  stdout bytes  identical
+architect-cto        openrouter  0/0                 2367  yes
+architect-cto        anthropic   0/0                 1627  yes
+backend-dev          openrouter  0/0                 2359  yes
+backend-dev          anthropic   0/0                 1619  yes
+brand-comms          openrouter  0/0                 2359  yes
+brand-comms          anthropic   0/0                 1619  yes
+db-admin             openrouter  0/0                 2347  yes
+db-admin             anthropic   0/0                 1607  yes
+devex-tooling        openrouter  0/0                 2367  yes
+devex-tooling        anthropic   0/0                 1627  yes
+domain-transit       openrouter  0/0                 2371  yes
+domain-transit       anthropic   0/0                 1631  yes
+edge-hosting         openrouter  0/0                 2363  yes
+edge-hosting         anthropic   0/0                 1623  yes
+fabric-coordinator   openrouter  0/0                 2387  yes
+fabric-coordinator   anthropic   0/0                 1647  yes
+flutter-dev          openrouter  0/0                 2359  yes
+flutter-dev          anthropic   0/0                 1619  yes
+language-culture     openrouter  0/0                 2379  yes
+language-culture     anthropic   0/0                 1639  yes
+p2p-network-dev      openrouter  0/0                 2375  yes
+p2p-network-dev      anthropic   0/0                 1635  yes
+python-dev           openrouter  0/0                 2355  yes
+python-dev           anthropic   0/0                 1615  yes
+rust-ui-dev          openrouter  0/0                 2359  yes
+rust-ui-dev          anthropic   0/0                 1619  yes
+web-dev              openrouter  0/0                 2343  yes
+web-dev              anthropic   0/0                 1603  yes
+28 identical, 0 different

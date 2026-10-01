@@ -169,13 +169,18 @@ under it is reported as DRIFT by `bin/fabric-status`, never applied.
 
 ## Files
 
-- `launch` — the launcher. `--print` resolves without spawning — it is the
-  launcher's flag, not claude's: for a headless run use claude's short
-  form, `-p "prompt"`, which passes through.
+- `launch` — the launcher, a shim since ADR-040 Wave 4: it runs
+  `tools/fabric/launch.py` on the fleet's pinned interpreter, and the
+  module's header is the launcher's contract. `--print` resolves without
+  spawning — it is the launcher's flag, not claude's: for a headless run
+  use claude's short form, `-p "prompt"`, which passes through.
 - `model-audit.sh` — what is the current session actually routed through,
   and how to read back the served model.
 - `test_launch.sh` — the behavioural suite for the launcher and the audit
-  (`bash policies/run_suite.sh runtime/openrouter/test_launch.sh`).
+  (`bash policies/run_suite.sh runtime/openrouter/test_launch.sh`), the
+  port's parity oracle; the module's internals are `tests/test_launch.py`,
+  and `tests/parity/launch_print.py` compares `--print` with the bash's,
+  byte for byte, for every role and provider.
 
 ## Why every class rides an alias, and how the review class got its own model (verified live 2026-09-13; read-backs in `docs/live-checks/2026-09-13-openrouter-routing.md`)
 

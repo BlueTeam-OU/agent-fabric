@@ -177,7 +177,7 @@ test('a failed install says why by its last line; one that timed out says so', a
 
 test('the launcher outwaits what the daemon does after the stop', () => {
   const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
-  const m = fs.readFileSync(path.join(ROOT, 'runtime', 'openrouter', 'launch'), 'utf8').match(/AGENT_FABRIC_RESTART_WAIT_S:-(\d+)/);
+  const m = fs.readFileSync(path.join(ROOT, 'tools', 'fabric', 'launch.py'), 'utf8').match(/^RESTART_WAIT_S = (\d+)$/m);
   assert.ok(m, 'the launcher\'s restart wait default is where this test reads it');
   assert.ok(Number(m[1]) > POST_STOP_BUDGET_S, `the launcher waits ${m[1]} s; the install and its read-back can take ${POST_STOP_BUDGET_S} s`);
 });

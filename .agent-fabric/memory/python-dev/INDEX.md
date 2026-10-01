@@ -20,6 +20,10 @@ control plane checked out beside it.
 
 - [`identities/roles/python-dev/charter.md`](identities/roles/python-dev/charter.md) — The fleet's Python developer: command-line tools, services and their tests, written to a frozen contract on the standard library, and the port of shell scripts to Python with the old tests as the parity oracle.
 
+## brief
+
+- [`identities/roles/python-dev/brief.md`](identities/roles/python-dev/brief.md) — How python-dev works day to day, in any project: freeze the contract, keep boundaries and failure explicit, prove the oracle can fail, verify the real invocation path, deliver evidence by level.
+
 ## solution
 
 - [`.agent-fabric/memory/shared/solution-gnupghome-default-agent-trap.md`](.agent-fabric/memory/shared/solution-gnupghome-default-agent-trap.md) — A test GNUPGHOME equal to $HOME/.gnupg shares the account's REAL gpg-agent — scratch keys land in ~/.gnupg and "separate" keyrings decrypt each other (shared)

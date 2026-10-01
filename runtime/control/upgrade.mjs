@@ -54,8 +54,8 @@ export const LEASE_WAIT_S = 900;
 export const LEASE_HELD = 75;   // fabric-lease's EX_TEMPFAIL: still held after the wait
 export const INSTALL_TIMEOUT_MS = 300000;
 // What the launcher waits out after the session stopped: the install and
-// its read-back. runtime/openrouter/launch's AGENT_FABRIC_RESTART_WAIT_S
-// default must exceed it (the suite checks), or the session resumes on
+// its read-back. The launcher's restart wait (RESTART_WAIT_S in
+// tools/fabric/launch.py) must exceed it (the suite checks), or the session resumes on
 // the old version while the install still runs.
 export const POST_STOP_BUDGET_S = (INSTALL_TIMEOUT_MS + VERSION_TIMEOUT_MS) / 1000;
 // The longest an upgrade can take to reply: read the version, queue,
