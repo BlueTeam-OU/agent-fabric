@@ -248,6 +248,20 @@ def main() -> int:
         finally:
             g.selects, g.GROUND_TRUTH_BUDGET_S = real_selects, budget
         check("the ground truth stops within its budget, across killall's names", took < 1.5, took)
+        # selects() hands its bound to the process it starts: a pgrep that
+        # hangs is killed at the timeout, never waited on (#70, tenth re-review).
+        real_run, seen = g.subprocess.run, []
+
+        def recording(argv, **kw):
+            seen.append(kw.get("timeout"))
+            raise g.subprocess.TimeoutExpired(argv, kw.get("timeout") or 0)
+        g.subprocess.run = recording
+        try:
+            answer = g.selects(["pgrep", "-f", "x"], pid, timeout=0.7)
+        finally:
+            g.subprocess.run = real_run
+        check("selects passes its timeout to subprocess.run, and a timeout is no answer",
+              seen == [0.7] and answer is None, (seen, answer))
         check("the dummy was not killed by any of this", dummy.poll() is None)
     finally:
         dummy.kill()
