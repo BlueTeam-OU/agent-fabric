@@ -159,8 +159,12 @@ def _run(cmd: list[str], *, stdin: bytes | None = None, cwd: str | None = None,
     if check and r.returncode != 0:
         # The last line of stderr that is not git's advice ("hint:"), which
         # gpg and git keep free of values; the error, not the suggestion.
+        # Where git says what failed ("fatal:", the server's "ERROR:"), that
+        # line: its advice can follow it, and a push GitHub refused read
+        # "and the repository exists." (python-dev-01's enrolment).
         lines = [l for l in r.stderr.decode(errors="replace").strip().splitlines() if not l.startswith("hint:")]
-        why = (lines or [f"exit {r.returncode}"])[-1]
+        said = [l for l in lines if l.startswith(("fatal:", "error:", "ERROR:"))]
+        why = (said or lines or [f"exit {r.returncode}"])[-1]
         raise StoreError(f"{what}: {why}")
     return r
 
