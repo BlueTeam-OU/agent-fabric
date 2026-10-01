@@ -45,3 +45,14 @@ files. The hooks now read the entry as HEAD has it, a guarded commit
 declaring a role other than its binding is refused, what a role is and
 what enforces the fence is never in an entry, and lint compares rules
 by prefix.
+
+### Amendment 2026-10-01 — CI judges a branch with main's guards
+
+The re-review of the carve-out found that a contributor's entry, which
+admits `tools/` and `tests/`, could reach the guard that judges it in
+CI: a module beside the guards named after a standard-library module
+they import is imported in its place, and a helper the suite runner
+sources runs before the check. The first was run and confirmed
+(`docs/live-checks/2026-10-01-guard-shadowing.md`). Python resolves an
+import by name, so no exclusion closes the class; CI now runs main's
+copy of the guards, isolated, before any of the branch's code.

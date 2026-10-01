@@ -67,9 +67,10 @@ if [[ "$what" == all || "$what" == gzcoord ]]; then
     run "control plane (ops, agentd, ctl, accounts, unit)" bash -c 'node --test runtime/control/tests/*.test.mjs 2>&1 | grep -E -A14 "^not ok|^# (tests|pass|fail)"; [[ ${PIPESTATUS[0]} -eq 0 ]]'
 fi
 if [[ "$what" == all || "$what" == bash ]]; then
-    # The branch's authority first, before any suite runs the branch's own
-    # code in this job: a contributor's test (the launcher's is in its entry)
-    # could otherwise rewrite the checkout the verdict reads (review of #75).
+    # The branch's authority, from the branch's own copy of the guards: the
+    # local check. CI's verdict is main's copy, run isolated in a step before
+    # this script (ci.yml), since a contributor's tests and modules run here
+    # first (docs/live-checks/2026-10-01-guard-shadowing.md).
     run ".agent-fabric/ authority (this branch)" env AGENT_FABRIC_CHARTER_BASE=origin/main bash policies/check_agent_fabric_dir_authority.sh
     run "charter authority (this branch)" env AGENT_FABRIC_CHARTER_BASE=origin/main bash policies/check_charter_authority.sh
     run "launcher" bash policies/run_suite.sh runtime/openrouter/test_launch.sh

@@ -115,8 +115,11 @@ record says so rather than claim otherwise.
 4. `check_agent_fabric_dir_authority.sh` fails a branch whose added
    commits (merges aside) change a guarded path without the owner's
    trailer — every commit in agent-fabric, `.agent-fabric/**` in a
-   project. It runs in `tests/run.sh` against `origin/main`, hence in CI
-   on every pull request, merge-queue run and push to `main`.
+   project. CI's verdict is main's copy of it, run isolated
+   (`python3 -I`) as a step before any of the branch's code, on every
+   pull request, merge-queue run and push to `main`; `tests/run.sh` runs
+   the branch's copy against `origin/main` as the local check
+   (A 2026-10-01).
 5. The carve-out: a commit staging only `identities/roles/<role>/locale/<suffix>/`,
    from a session bound to `<role>` on a login named for `<suffix>`,
    passes both hooks and is recorded as `Fabric-Role: <role>`; CI admits
@@ -159,7 +162,7 @@ record says so rather than claim otherwise.
   |---|---|---|---|
   | no machine attribution | `commit-msg` | `ban_generated_by_attribution.sh` (a CI step, and `tests/run.sh`) | `test_ban_generated_by_attribution.sh`, `githooks/test_hooks.sh` |
   | read-only fence, `.agent-fabric/` | `pre-commit`, `commit-msg` | `check_agent_fabric_dir_authority.sh` | `test_check_agent_fabric_dir_authority.sh`, `githooks/test_hooks.sh` |
-| the contributor carve-out | `pre-commit`, `commit-msg` (`contributors.py hook`) | `check_agent_fabric_dir_authority.sh`, against the base's entry | `tests/test_contributors.py` |
+  | the contributor carve-out | `pre-commit`, `commit-msg` (`contributors.py hook`) | `check_agent_fabric_dir_authority.sh`, main's copy, against the base's entry | `tests/test_contributors.py` |
   | decision records | `pre-commit` (`adr.py check` on the staged tree) | `check_adr_amendment.sh`, and `adr.py check` in lint | `tests/test_adr.py` |
   | charter authority by branch name | none | `tests/run.sh` against `origin/main` (A 2026-09-28) | `test_check_charter_authority.sh` |
   | no model pins in committed settings | none (the launcher refuses the same keys at launch) | not called here; gzapp's CI runs its own copy (`tools/checks/`) | `test_check_repo_settings_carry_no_model_pins.sh` |
@@ -215,3 +218,4 @@ The body above reads current; each change's full note is in [history/ADR-018-ame
 | 2026-09-30 | Doppler is retired: the stores replace it | References |
 | 2026-10-01 | A contributor role commits its entry's paths | §2, §5 rules 7–8, §6, §8: a role named under `contributors` commits its entry's paths on its own contributor branch; the coordinator folds and merges |
 | 2026-10-01 | The fence's own code stays out; a guarded commit declares its binding | §2, §5 rule 8: the hooks read HEAD's entry; a typed role other than the binding is refused; the fence's own code is never in an entry; lint compares by prefix |
+| 2026-10-01 | CI judges a branch with main's guards | §5 rule 4, §6: CI's authority verdict is main's copy of the guards, run isolated before the branch's code; `tests/run.sh` keeps the branch's copy as the local check |

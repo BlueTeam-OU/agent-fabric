@@ -88,6 +88,21 @@ jobs:
       # where it is missing rather than skip the case.
       - name: paperkey, for the recovery copy the store's suite makes
         run: sudo apt-get install -y --no-install-recommends paperkey
+      # The branch's authority, judged by MAIN's copy of the guards and
+      # before any of the branch's code runs in this job. A contributor's
+      # entry admits tools/ and tests/ (agent-fabric ADR-018 §5 rule 8):
+      # run from the branch, a module it added beside the guards shadows a
+      # stdlib name they import, and a sourced test helper runs first and
+      # can rewrite them (re-review of #75). -I: no script directory, no
+      # user site, no PYTHON* variables; the guards then find their own
+      # modules beside main's copy, and judge this checkout.
+      - name: the branch's authority, judged by main's own guards
+        if: matrix.section == 'bash'
+        run: |
+          base="$(mktemp -d)"
+          git archive origin/main tools/fabric policies | tar -x -C "$base"
+          AGENT_FABRIC_CHARTER_BASE=origin/main /usr/bin/python3 -I "$base/tools/fabric/guards/agent_fabric_dir_authority.py"
+          AGENT_FABRIC_CHARTER_BASE=origin/main /usr/bin/python3 -I "$base/tools/fabric/guards/charter_authority.py" "$PWD"
       - name: no machine attribution in commits or the PR description
         if: matrix.section == 'bash'
         run: bash policies/ban_generated_by_attribution.sh
