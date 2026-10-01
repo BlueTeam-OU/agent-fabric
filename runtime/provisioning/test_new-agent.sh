@@ -18,7 +18,7 @@ SANDBOX="$(mktemp -d)"; trap '[[ -n "${KEEP_SANDBOX:-}" ]] || rm -rf "$SANDBOX"'
 FAB="$SANDBOX/fabric"; mkdir -p "$FAB/runtime/provisioning/secrets" "$FAB/identities" "$FAB/projects" "$SANDBOX/home/.local/bin"
 cp -r "$ROOT/identities/roles" "$FAB/identities/"; cp "$ROOT/projects/registry.json" "$FAB/projects/"
 cp "$UNDER_TEST" "$HERE/new-agent-worker.sh" "$HERE/persist-accounts.sh" "$ROOT/runtime/provisioning/github-host-keys" "$FAB/runtime/provisioning/"
-cp -r "$ROOT/runtime/hostexec" "$FAB/runtime/"; cp -r "$ROOT/runtime/provisioning/platform" "$FAB/runtime/provisioning/"; mkdir -p "$FAB/runtime/claude-code"; cp "$ROOT/runtime/claude-code/harness.json" "$FAB/runtime/claude-code/"
+cp -r "$ROOT/runtime/hostexec" "$FAB/runtime/"; cp -r "$ROOT/runtime/provisioning/platform" "$FAB/runtime/provisioning/"; mkdir -p "$FAB/runtime/claude-code"; cp "$ROOT/runtime/claude-code/harness.json" "$FAB/runtime/claude-code/"; mkdir -p "$FAB/tools/fabric"; cp "$ROOT/tools/fabric/new_agent.py" "$ROOT/tools/fabric/new_agent_worker.py" "$FAB/tools/fabric/"
 printf '#!/bin/sh\necho fake\n' > "$SANDBOX/home/.local/bin/claude"; chmod +x "$SANDBOX/home/.local/bin/claude"
 # The host registry the orchestrator reads: this host (direct) and a far
 # one reached over a fake ssh that runs the same worker here.

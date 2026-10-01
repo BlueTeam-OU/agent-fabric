@@ -1,0 +1,369 @@
+#!/usr/bin/env python3
+"""Tests for tools/fabric/new_agent.py and new_agent_worker.py; the
+behaviour is runtime/provisioning/test_new-agent.sh's, run against the
+new-agent.sh shim and the new-agent-worker.sh step-runner (ADR-040 §5 rule
+5). What is here is what that suite does not reach: the worker's
+argument quirks, each decision on its own (the claude version, the
+subordinate ids, the host keys, the audit, the closing list), the
+verification read-backs, and the orchestrator's usage, refusals, bounds
+and pipelines. Plain script: prints ok/FAIL, exit 1 on any failure."""
+from __future__ import annotations
+
+import io
+import json
+import os
+import subprocess
+import sys
+import tempfile
+import time
+from contextlib import redirect_stderr
+
+HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(HERE, "tools", "fabric"))
+import new_agent as na  # noqa: E402
+import new_agent_worker as w  # noqa: E402
+
+SHIM = os.path.join(HERE, "runtime", "provisioning", "new-agent.sh")
+
+
+def clean_env(**extra) -> dict:
+    env = {k: v for k, v in os.environ.items() if not k.startswith(("GITHUB_", "AGENT_FABRIC_", "CLAUDE_", "ANTHROPIC_"))}
+    env.update(extra)
+    return env
+
+
+def worker_args(*argv: str):
+    try:
+        return 0, w.args(list(argv))
+    except w.Exit as exc:
+        return exc.code, exc.msg
+
+
+def main() -> int:
+    fails = 0
+
+    def check(label: str, good: bool, detail: str = "") -> None:
+        nonlocal fails
+        print(f"  {'ok  ' if good else 'FAIL'} {label}")
+        if not good and detail:
+            print("      " + str(detail).replace("\n", "\n      "))
+        fails += not good
+
+    with tempfile.TemporaryDirectory() as tmp:
+        def put(path: str, text: str, mode: int = 0o644) -> str:
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, "w", encoding="utf-8") as fh:
+                fh.write(text)
+            os.chmod(path, mode)
+            return path
+
+        print("the worker's arguments, as the bash shifted them")
+        rc, out = worker_args("prepare", "a-login", "a-role", "--claude", "1.2.3", "--dry-run")
+        got = subprocess.run(["bash", "-c", out + 'printf "%s|%s|%s|%s|%s" "$PHASE" "$LOGIN" "$ROLE" "$DRY" "$CLAUDE_TARGET"'],
+                             capture_output=True, text=True, timeout=30).stdout
+        check("prepare: every variable, quoted for eval", rc == 0 and got == "prepare|a-login|a-role|1|1.2.3", got)
+        rc, out = worker_args("finish", "l", "r", "--clone", "demo=git@h:o/d.git", "--clone=x=y=z", "--project", "p")
+        got = subprocess.run(["bash", "-c", out + 'printf "%s;" "${PROJECTS[@]}"; printf "%s;" "${REMOTE[demo]}" "${REMOTE[x]}"'],
+                             capture_output=True, text=True, timeout=30).stdout
+        check("finish: --clone <id>=<remote> splits at the first =, spaced or =; --project adds a project",
+              rc == 0 and got == "demo;x;p;git@h:o/d.git;y=z;", got)
+        rc, out = worker_args("prepare", "l", "r", "--clone", "x';touch /tmp/pwned;'=y")
+        got = subprocess.run(["bash", "-c", out + 'printf "%s" "${PROJECTS[0]}"'], capture_output=True, text=True,
+                             timeout=30).stdout
+        check("a value carrying shell characters stays a value through the eval", got == "x';touch /tmp/pwned;'", got)
+        check("no phase: the usage, exit 2", worker_args() == (2, w.USAGE) and worker_args("bogus")[0] == 2)
+        check("prepare with only a login: the login is an unknown argument (bash's shift 2 || true, kept)",
+              worker_args("prepare", "x") == (2, "new-agent-worker: unknown argument x"))
+        check("no login: said", worker_args("prepare") == (2, "new-agent-worker: no login"))
+        check("an unknown argument: said, exit 2", worker_args("finish", "l", "r", "--frob") == (2, "new-agent-worker: unknown argument --frob"))
+        check("--claude without a value: exit 1, one line", worker_args("prepare", "l", "r", "--claude")[0] == 1)
+        check("host-check takes a login and no role", worker_args("host-check", "l")[0] == 0)
+        check("an empty role is no role", worker_args("prepare", "l", "") == (2, "new-agent-worker: no role"))
+        step_runner = os.path.join(HERE, "runtime", "provisioning", "new-agent-worker.sh")
+        r = subprocess.run(["bash", step_runner], capture_output=True, text=True, timeout=60, env=clean_env())
+        check("the step-runner stops where its arguments fail, with their status and words",
+              r.returncode == 2 and r.stderr == w.USAGE + "\n" and r.stdout == "", r.stderr)
+
+        print("the claude version")
+        root = f"{tmp}/fab"
+        pin = f"{root}/runtime/claude-code/harness.json"
+
+        def want(target: str):
+            err = io.StringIO()
+            try:
+                with redirect_stderr(err):
+                    return w.claude_want(root, target), err.getvalue()
+            except w.Exit as exc:
+                return exc.code, exc.msg
+        put(pin, json.dumps({"claude": "2.1.285"}))
+        check("the fleet's pin, when the caller names none", want("") == ("2.1.285", ""))
+        check("the caller's target over the pin", want("latest")[0] == "latest" and want("2.1.282-beta.1")[0] == "2.1.282-beta.1")
+        put(pin, json.dumps({"claude": "2.1.282'; touch /tmp/pwned; '"}))
+        code, msg = want("")
+        check("a pin that is not a version is refused before any installer line is built",
+              code == 1 and "pins claude '2.1.282'; touch /tmp/pwned; '', which is not a version; nothing installed" in msg)
+        put(pin, json.dumps({"claude": 2}))
+        check("…a number is not a version either", want("")[0] == 1)
+        os.remove(pin)
+        got, err = want("")
+        check("no readable pin: latest, and that is said", got == "latest" and "no readable pin" in err)
+        code, msg = want("1.2.3';id;'")
+        check("a target with shell characters is refused here too", code == 1 and "is not stable, latest or a version" in msg)
+
+        print("the subordinate ids")
+        etc = f"{tmp}/etc"
+        os.makedirs(etc)
+        check("empty files: SUB_UID_MIN and SUB_UID_COUNT's defaults", w.subids("n", etc) == "alloc 524288-589823\n")
+        put(f"{etc}/login.defs", "# defs\nSUB_UID_MIN  100000\nSUB_UID_COUNT 1000\n")
+        put(f"{etc}/subuid", "a:100000:1000\nb:200000:500\n")
+        put(f"{etc}/subgid", "a:100000:1000\nc:300000:65536\n")
+        check("the next block above every range in either file, login.defs' size",
+              w.subids("n", etc) == "alloc 365536-366535\n", w.subids("n", etc))
+        check("an account with both ranges keeps them", w.subids("a", etc) == "have 100000:1000\n")
+        check("…but one with a uid range only gets both anew", w.subids("b", etc).startswith("alloc "))
+
+        print("the GitHub host keys")
+        keys = put(f"{tmp}/keys", "github.com ssh-ed25519 AAA\ngithub.com ecdsa BBB\n\n")
+        check("the published lines the account does not hold, whole lines only",
+              w.missing_keys(keys, "github.com ssh-ed25519 AAA\nother.com x y\n") == "github.com ecdsa BBB\n")
+        check("…none when it holds them all", w.missing_keys(keys, "github.com ecdsa BBB\ngithub.com ssh-ed25519 AAA\n") == "")
+        check("…and all of them when it holds none", w.missing_keys(keys, "").count("\n") == 2)
+        check("a line that only contains a published key is not that key (whole lines, as grep -x)",
+              w.missing_keys(keys, "github.com ecdsa BBB # pinned\ngithub.com ssh-ed25519 AAA\n") == "github.com ecdsa BBB\n")
+
+        print("the host audit")
+        check("nothing missing: the count of the contract",
+              w.audit("fedora", "1", "dnf", "23", []) == "new-agent: 0. fedora: host tools present (23, the fabric's contract)\n")
+        check("missing on a host that keeps packages: the hint with the packages",
+              w.audit("debian", "1", "sudo apt-get install", "23", ["gh", "jq"])
+              == "new-agent: 0. debian: this host lacks gh jq: sudo apt-get install gh jq\n")
+        check("missing on an AppVM: two lines, and the restart",
+              w.audit("fedora-qubes", "0", "dnf in the template", "23", ["gh"]).count("\n") == 2
+              and "(then restart this AppVM)" in w.audit("fedora-qubes", "", "x", "1", ["gh"]))
+
+        print("the closing list")
+        c = w.closing("acct", "0", "no", "demo")
+        check("no GPG key and no template: both named, with the commands, and the first launch in the first project",
+              "GPG secret key: NONE" in c and "sudo -u acct gpg --batch --import" in c and "bin/fabric-accounts assign acct" in c
+              and "moveto acct demo   then" in c and c.startswith("new-agent: done."))
+        c = w.closing("acct", "2", "template", "")
+        check("…present ones said as present; no project, no clone name",
+              "GPG secret key: present" in c and "a template token (plain-claude path ready)" in c and "moveto acct   then" in c)
+
+        print("the host names itself")
+        put(f"{tmp}/hbin/hostname", "#!/usr/bin/env bash\n[[ $1 == -s ]] && echo far-host\n", 0o755)
+        put(f"{tmp}/hbin/getent", "#!/usr/bin/env bash\n[[ $2 == here ]]\n", 0o755)
+        saved_path = os.environ["PATH"]
+        os.environ["PATH"] = f"{tmp}/hbin:{saved_path}"
+        try:
+            check("hostname -s first, then the account", w.host_check("here") == "far-host\naccount: present\n"
+                  and w.host_check("gone") == "far-host\naccount: absent\n")
+        finally:
+            os.environ["PATH"] = saved_path
+
+        print("the verification")
+        home = f"{tmp}/acct"
+        os.makedirs(f"{home}/.config/agent-fabric")
+        put(f"{tmp}/vbin/sudo", f"#!/usr/bin/env bash\necho \"$*\" >> {tmp}/sudo.calls\n[[ $1 == -n ]] && shift; [[ $1 == -u ]] && shift 2; [[ $1 == -H ]] && shift\nexec \"$@\"\n", 0o755)
+        put(f"{tmp}/vbin/gpg", "#!/usr/bin/env bash\necho 'sec  ed25519'\necho 'sec  rsa'\n", 0o755)
+        put(f"{root}/bin/fabric-ctl", "#!/usr/bin/env bash\necho header\necho pong\n", 0o755)
+        os.environ["PATH"] = f"{tmp}/vbin:{saved_path}"
+        err = io.BytesIO()
+        saved_err = sys.stderr
+        wrapper = sys.stderr = io.TextIOWrapper(err, encoding="utf-8")
+        try:
+            closing_text = w.verify(root, "acct", home, f"{tmp}/vbin/sudo", ["demo"])
+            wrapper.flush()
+            said = err.getvalue().decode()
+        finally:
+            sys.stderr = saved_err
+            wrapper.detach()
+            os.environ["PATH"] = saved_path
+        check("each read-back runs as the account, its lines prefixed; the ping's first line dropped",
+              "   control plane: pong\n" in said and "header" not in said and "   demo ssh to origin: FAILED\n" in said, said)
+        check("…the GPG keys counted from the account's keyring", "GPG secret key: present" in closing_text)
+        calls = open(f"{tmp}/sudo.calls").read().splitlines()
+        check("…every read-back asked of sudo as the account, never as root",
+              calls and all(c.startswith("-n -u acct -H env -i ") for c in calls if " bash -lc " in c), calls[:2])
+        put(f"{home}/.config/agent-fabric/secrets.env", "export CLAUDE_CODE_OAUTH_TOKEN='x'\n")
+        os.environ["PATH"] = f"{tmp}/vbin:{saved_path}"
+        sys.stderr = io.TextIOWrapper(io.BytesIO(), encoding="utf-8")
+        try:
+            closing_text = w.verify(root, "acct", home, f"{tmp}/vbin/sudo", [])
+        finally:
+            sys.stderr = saved_err
+            os.environ["PATH"] = saved_path
+        check("…and a template token in the synced record is read through sudo", "a template token" in closing_text)
+        sys.stderr = io.TextIOWrapper(io.BytesIO(), encoding="utf-8")
+        try:
+            missing = w.quiet_run([f"{tmp}/no-fabric-ctl"], stderr=subprocess.STDOUT)
+        finally:
+            sys.stderr = saved_err
+        check("a command that cannot start, its stderr merged: bash's error line is its output",
+              missing == f"{tmp}/no-fabric-ctl: No such file or directory\n".encode())
+
+        print("the orchestrator's command line")
+        def shim(*args, **env):
+            return subprocess.run(["bash", SHIM, *args], capture_output=True, text=True, timeout=60,
+                                  env=clean_env(AGENT_FABRIC_PYTHON=sys.executable, **env))
+        r = shim("--help")
+        check("--help: the header, on stdout, exit 0", r.returncode == 0 and r.stdout == na.HELP and
+              r.stdout.startswith("runtime/provisioning/new-agent.sh — give a role its own account"))
+        r = shim()
+        check("no login or role: the usage line, exit 2", r.returncode == 2 and r.stderr == na.USAGE)
+        r = shim("l", "r", "x")
+        check("a third positional: exit 2, named", r.returncode == 2 and r.stderr == "new-agent: unexpected argument x\n")
+        r = shim("l", "r", "--host")
+        check("a flag without its value: exit 1, one line, never a traceback",
+              r.returncode == 1 and r.stderr == "new-agent: --host needs a value\n")
+        r = shim("l", "r", "--claude", "9.9")
+        check("--claude 9.9 is not a version", r.returncode == 2 and "--claude takes stable, latest or a version" in r.stderr)
+        check("values spaced or with =, flags anywhere",
+              na.parse(["--project=a", "l", "--host", "h", "r", "--project", "b", "--claude=latest"])
+              == {"dry": False, "login": "l", "role": "r", "projects": ["a", "b"], "claude": "latest", "host": "h"})
+
+        r = subprocess.run(["bash", SHIM, "--help"], capture_output=True, text=True, timeout=30,
+                           env=clean_env(AGENT_FABRIC_PYTHON=f"{tmp}/no-python"))
+        check("the shim with no pinned interpreter: exit 127, one line",
+              r.returncode == 127 and r.stderr.count("\n") == 1 and "python_pin.py install" in r.stderr)
+
+        print("the orchestrator, against fakes")
+        # A fake host executor and store tools: each answers from files the
+        # case writes and records what it was asked.
+        fk = f"{tmp}/fakes"
+        hx = put(f"{fk}/hostexec", f"""#!/usr/bin/env bash
+echo "$*" >> {fk}/hx.calls
+[[ $1 == --resolve ]] && exit "$(cat {fk}/resolve.rc 2>/dev/null || echo 0)"
+case "$*" in
+  *host-check*) [[ -e {fk}/check.fails ]] && {{ echo "unreachable" >&2; exit 255; }}; cat {fk}/reports 2>/dev/null || echo "$1"; echo "account: absent" ;;
+  *take-bundle*) cat > {fk}/taken; grep -q BEGIN {fk}/taken ;;
+  *sync*) exit "$(cat {fk}/sync.rc 2>/dev/null || echo 0)" ;;
+esac
+exit 0
+""", 0o755)
+        store = put(f"{fk}/secret_store.py", f"""import sys
+a = sys.argv[1:]
+if a[:1] == ["child-bundle"]:
+    print("-----BEGIN AGENT-FABRIC STORE BUNDLE-----")
+    print("bundle on stderr", file=sys.stderr)
+    import os
+    sys.exit(1 if os.path.exists("{fk}/bundle.fails") else 0)
+sys.exit(0)
+""")
+        secrets = put(f"{fk}/fabric-secrets", "#!/usr/bin/env bash\necho '[{\"status\": \"written\"}]'\n", 0o755)
+        enroll = put(f"{fk}/store-enroll.sh", "#!/usr/bin/env bash\nexit 0\n", 0o755)
+        reg = put(f"{fk}/registry.json", json.dumps({"projects": {"demo": {"remotes": ["https://h/o/d.git", "git@h:o/d.git"]}}}))
+        hosts = put(f"{fk}/hosts.json", json.dumps({"hosts": {"here": {"ssh": None}, "far": {"ssh": "op@far"}},
+                                                    "placement": {"placed": "far"}}))
+        saved = (na.HX, na.STORE, na.SECRETS, na.STORE_ENROLL, na.REGISTRY, na.ROOT)
+        na.HX, na.STORE, na.SECRETS, na.STORE_ENROLL, na.REGISTRY = hx, store, secrets, enroll, reg
+        os.makedirs(f"{fk}/root/identities/roles/r")
+        put(f"{fk}/root/identities/roles/r/charter.md", "x")
+        na.ROOT = f"{fk}/root"
+
+        def orchestrate(*argv, hosts_path=hosts):
+            for f in ("hx.calls", "taken"):
+                if os.path.exists(f"{fk}/{f}"):
+                    os.remove(f"{fk}/{f}")
+            saved_env = os.environ.get("AGENT_FABRIC_HOSTS_REGISTRY")
+            os.environ["AGENT_FABRIC_HOSTS_REGISTRY"] = hosts_path
+            err = io.StringIO()
+            try:
+                with redirect_stderr(err):
+                    rc = na.new_agent(list(argv))
+                    msg = None
+            except na.Exit as exc:
+                rc, msg = exc.code, exc.msg
+            finally:
+                if saved_env is None:
+                    os.environ.pop("AGENT_FABRIC_HOSTS_REGISTRY", None)
+                else:
+                    os.environ["AGENT_FABRIC_HOSTS_REGISTRY"] = saved_env
+            calls = open(f"{fk}/hx.calls").read() if os.path.exists(f"{fk}/hx.calls") else ""
+            return rc, msg, err.getvalue(), calls
+        try:
+            check("the registry's SSH remote, though it is not the first", na.project_remote("demo") == "git@h:o/d.git")
+            rc, msg, err, calls = orchestrate("placed", "r", "--dry-run")
+            check("a placed account goes to its host, not this one", calls.startswith("--resolve far\n"), calls)
+            rc, msg, err, calls = orchestrate("new", "r", "--dry-run")
+            check("an unplaced one to this host", calls.startswith("--resolve here\n"), calls)
+            nohost = put(f"{fk}/nohost.json", json.dumps({"hosts": {"far": {"ssh": "op@far"}}}))
+            rc, msg, err, calls = orchestrate("new", "r", "--dry-run", hosts_path=nohost)
+            check("no --host, no placement, no host of this one's: refused, nothing asked",
+                  rc == 1 and "no host: name one with --host" in msg and calls == "")
+            put(f"{fk}/resolve.rc", "1")
+            rc, msg, err, calls = orchestrate("new", "r", "--dry-run")
+            check("a host hostexec cannot resolve: exit 1, hostexec's word, nothing after",
+                  rc == 1 and msg is None and calls == "--resolve here\n", calls)
+            os.remove(f"{fk}/resolve.rc")
+            put(f"{fk}/check.fails", "")
+            rc, msg, err, calls = orchestrate("new", "r", "--dry-run")
+            check("a host whose worker does not answer: its last words, then refused",
+                  rc == 1 and "unreachable" in err and "host here: unreachable, or its worker did not run" in msg)
+            os.remove(f"{fk}/check.fails")
+            put(f"{fk}/reports", "elsewhere\n")
+            rc, msg, err, calls = orchestrate("new", "r", "--dry-run")
+            check("a host that names itself otherwise is refused before any step",
+                  rc == 1 and "answers as 'elsewhere'" in msg and "prepare" not in calls)
+            os.remove(f"{fk}/reports")
+            saved_pwd = na.pwd.getpwuid
+            na.pwd.getpwuid = lambda uid: type("P", (), {"pw_name": "root"})()
+            try:
+                rc, msg, err, calls = orchestrate("new", "r", "--dry-run")
+            finally:
+                na.pwd.getpwuid = saved_pwd
+            check("root is refused: the store is filled from the coordinator's own", rc == 1 and "not root" in msg and calls == "")
+            rc, msg, err, calls = orchestrate("new", "r", "--project", "demo")
+            check("the whole run on fakes: the bundle handed over, prepare and finish with the clone",
+                  rc == 0 and open(f"{fk}/taken").read().startswith("-----BEGIN") and "finish new r --clone demo=git@h:o/d.git" in calls,
+                  f"{msg}\n{err}")
+            put(f"{fk}/bundle.fails", "")
+            rc, msg, err, calls = orchestrate("new", "r")
+            check("a bundle that failed is a failed hand-over, whatever the account took",
+                  rc == 1 and "its store did not reach new as a bundle" in msg and "finish" not in calls)
+            os.remove(f"{fk}/bundle.fails")
+            put(f"{fk}/sync.rc", "2")
+            rc, msg, err, calls = orchestrate("new", "r")
+            check("a sync that exits 2 (applied, names missing) goes on; finish says what is missing", rc == 0, f"{msg}")
+            put(f"{fk}/sync.rc", "3")
+            rc, msg, err, calls = orchestrate("new", "r")
+            check("…one that exits 3 stops, named with its code", rc == 1 and "fabric-secrets sync as new (exit 3)" in msg)
+            os.remove(f"{fk}/sync.rc")
+        finally:
+            na.HX, na.STORE, na.SECRETS, na.STORE_ENROLL, na.REGISTRY, na.ROOT = saved
+
+        print("the orchestrator's steps")
+        log = put(f"{tmp}/log", "")
+        s = na.Steps(log)
+        r = subprocess.run([sys.executable, "-c", "import sys; sys.path.insert(0, %r); import new_agent as na; "
+                            "print(na.Steps.indented(['bash', '-c', 'echo bundle; echo first-err >&2; exit 3'], "
+                            "['bash', '-c', 'cat; echo last-err >&2; exit 5']))" % os.path.join(HERE, "tools", "fabric")],
+                           capture_output=True, text=True, timeout=60)
+        check("a pipeline's statuses, each its own, as PIPESTATUS gave them", r.stdout.strip() == "[3, 5]")
+        check("…the last command's stderr merged and every line indented; the first's stderr left as it was",
+              r.stderr.splitlines() == ["first-err", "   bundle", "   last-err"]
+              or sorted(r.stderr.splitlines()) == sorted(["first-err", "   bundle", "   last-err"]), r.stderr)
+        saved_timeout = na.STEP_TIMEOUT_S
+        t0 = time.monotonic()
+        with redirect_stderr(io.StringIO()):
+            statuses = na.Steps.indented(["sleep", "60"], timeout=1)
+        took = time.monotonic() - t0
+        check("a pipeline that hangs is killed at its bound and fails", statuses == [124] and took < 10, f"{statuses} {took:.1f}")
+        na.STEP_TIMEOUT_S = saved_timeout
+        rc, out = s.capture(["bash", "-c", "echo out; echo to-the-log >&2; exit 4"])
+        check("a captured step: its stdout, its stderr kept in the log for the failure",
+              (rc, out) == (4, "out") and "to-the-log" in open(log).read())
+        err = io.StringIO()
+        with redirect_stderr(err):
+            s.tail(1)
+        check("…and the log's last lines shown when it fails", err.getvalue() == "to-the-log\n")
+        with redirect_stderr(io.StringIO()):
+            reg = na.hosts_registry(put(f"{tmp}/hosts.json", "{ not json"))
+        check("a hosts registry that cannot be read is empty, said in one line", reg == {})
+
+    print("test_new_agent.py: OK" if not fails else f"test_new_agent.py: {fails} FAILED")
+    return 1 if fails else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
