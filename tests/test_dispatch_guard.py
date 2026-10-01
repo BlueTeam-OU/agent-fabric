@@ -70,23 +70,40 @@ def main() -> int:
               or rv["hookSpecificOutput"]["permissionDecision"] == "allow")
 
     print("a fault inside the guard asks")
+    import io
+
+    def run_main(stdin: bytes, encoding: str = "utf-8") -> tuple[int, bytes]:
+        """main() with this stdin, and its stdout as the bytes it wrote."""
+        raw = io.BytesIO()
+        real_in, real_out = sys.stdin, sys.stdout
+        wrapper = io.TextIOWrapper(raw, encoding=encoding)
+        sys.stdin, sys.stdout = io.TextIOWrapper(io.BytesIO(stdin)), wrapper
+        try:
+            rc = dg.main()
+            wrapper.flush()
+        finally:
+            sys.stdin, sys.stdout = real_in, real_out
+        value = raw.getvalue()
+        wrapper.detach()   # a collected wrapper would close the buffer under a later read
+        return rc, value
+
     real = dg.decide
 
     def broken(call):
         raise KeyError("x")
     dg.decide = broken
     try:
-        import contextlib
-        import io
-        buf = io.StringIO()
-        sys.stdin = io.TextIOWrapper(io.BytesIO(b'{"tool_input":{}}'))
-        with contextlib.redirect_stdout(buf):
-            rc = dg.main()
+        rc, out = run_main(b'{"tool_input":{}}')
         check("exit 0", rc == 0)
-        check("ask, naming the fault", verdict(buf.getvalue().encode()) == "ask" and "KeyError" in buf.getvalue())
+        check("ask, naming the fault", verdict(out) == "ask" and b"KeyError" in out)
     finally:
         dg.decide = real
-        sys.stdin = sys.__stdin__
+
+    print("a stdout that is not UTF-8 still carries the deny (review of #72)")
+    rc, out = run_main(b'{"tool_input":{"subagent_type":"locale-worker","model":"opus","isolation":"worktree"}}',
+                       encoding="latin-1")
+    check("deny, with its dash, as UTF-8", rc == 0 and verdict(out) == "deny"
+          and "writes nothing anywhere \u2014".encode() in out)
 
     print("the shim fails closed on its own")
     scratch = tempfile.mkdtemp(prefix="test_dispatch_guard.")

@@ -18,9 +18,10 @@ cannot_run() {
 command -v python3 >/dev/null 2>&1 || cannot_run "python3 is not on PATH"
 [[ -x /usr/bin/python3 ]] || cannot_run "/usr/bin/python3 is missing"
 [[ -f "$module" ]] || cannot_run "its module is not beside it"
-# -I: no PYTHONPATH or user site can put a module of its own under a
-# permission gate; -S: no site import, which the stdlib-only guard never
-# needs (a few milliseconds on every dispatch).
+# -I: no PYTHONPATH or user site can put a module of its own under the
+# guard; the routing probe it starts under a fabric launch runs -E -s for
+# the same reason (the module says why not -I). -S: no site import, which
+# the stdlib-only guard never needs.
 out="$(/usr/bin/python3 -I -S "$module" 2>/dev/null)" || cannot_run "the guard failed"
 [[ -z "$out" ]] || printf '%s\n' "$out"
 exit 0

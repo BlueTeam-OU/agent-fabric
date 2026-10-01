@@ -183,8 +183,11 @@ def routing_map(provider: str, what: str, column: int) -> dict:
     """`routing.py <what> --me --provider <p>`: its first word and the
     word at `column`, a map; "-" values dropped for efforts, as the awk
     did. Anything unreadable is the empty map."""
+    # -E -s: no PYTHON* variable or user site reaches the probe whose
+    # answer the gate compares (review of #72). Not -I: that also drops
+    # routing.py's own directory, which it imports its siblings from.
     try:
-        r = subprocess.run([sys.executable, os.path.join(FABRIC, "tools", "fabric", "routing.py"), what, "--me",
+        r = subprocess.run([sys.executable, "-E", "-s", os.path.join(FABRIC, "tools", "fabric", "routing.py"), what, "--me",
                             "--provider", provider], capture_output=True, text=True, timeout=PROBE_TIMEOUT_S,
                            stdin=subprocess.DEVNULL)
     except (OSError, subprocess.TimeoutExpired):
@@ -418,13 +421,20 @@ def main() -> int:
         except ValueError:
             raise Malformed("the call is not JSON") from None
         out = decide(call)
+        # UTF-8 bytes, whatever the locale: print() would encode the
+        # reasons' dashes in a non-UTF-8 locale and raise, turning a deny
+        # into the shim's ask (review of #72).
+        if out is not None:
+            sys.stdout.buffer.write(json.dumps(out, ensure_ascii=False, separators=(",", ":")).encode() + b"\n")
     except Malformed as e:
-        out = ask(CANNOT_RUN.format(why=str(e)))
+        write_ask(CANNOT_RUN.format(why=str(e)))
     except Exception as e:  # noqa: BLE001 — a guard's own fault must ask, never allow
-        out = ask(CANNOT_RUN.format(why=f"{type(e).__name__} in the guard"))
-    if out is not None:
-        print(json.dumps(out, ensure_ascii=False, separators=(",", ":")))
+        write_ask(CANNOT_RUN.format(why=f"{type(e).__name__} in the guard"))
     return 0
+
+
+def write_ask(reason: str) -> None:
+    sys.stdout.buffer.write(json.dumps(ask(reason), separators=(",", ":")).encode() + b"\n")
 
 
 if __name__ == "__main__":
