@@ -212,6 +212,12 @@ ORI_AUTH_TIMEOUT_S = 60
 CLAUDE_VERSION_TIMEOUT_S = 30
 INSTALL_TIMEOUT_S = 300
 HELPER_TIMEOUT_S = 120
+# How long a launcher whose session was stopped for an upgrade waits for
+# it before resuming on what is installed (AGENT_FABRIC_RESTART_WAIT_S
+# overrides). It must exceed what the control agent does after the stop,
+# the install and its read-back: runtime/control/tests/upgrade.test.mjs
+# reads this line and checks it against POST_STOP_BUDGET_S.
+RESTART_WAIT_S = 600
 
 OPENING = ("Session start: arm your GZCoord inbox watch now, exactly as the session-start context's "
            "NO INBOX WATCH line gives it (with no such line, as the gzcoord-receive skill says); "
@@ -1138,7 +1144,7 @@ def restart(state_dir: str, started: int, opening: bool, status: int, orig_args:
     if not os.path.isfile(marker):
         return
     resume = read_restart(marker, started, f"{state_dir}/binding.json",
-                          os.environ.get("AGENT_FABRIC_RESTART_WAIT_S", "600"))
+                          os.environ.get("AGENT_FABRIC_RESTART_WAIT_S", str(RESTART_WAIT_S)))
     try:
         os.remove(marker)
     except OSError:
