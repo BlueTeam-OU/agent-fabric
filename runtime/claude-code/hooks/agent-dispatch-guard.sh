@@ -6,22 +6,25 @@
 #
 # A permission gate that cannot run must not vanish into an allow: the
 # harness reads a failed hook as no objection. So this shim does not exec:
-# with no python3 on PATH, a module that is not where it should be, or a
-# run that fails, it ASKS, and the person at the keyboard sees why. Bash
-# builtins only, so nothing it needs can be missing.
+# with the fleet's pinned Python missing, a module that is not where it
+# should be, or a run that fails, it ASKS, and the person at the keyboard
+# sees why. Bash builtins only, so nothing it needs can be missing.
 here="${BASH_SOURCE[0]%/*}"; [[ "$here" == "${BASH_SOURCE[0]}" ]] && here=.
 module="$here/../../../tools/fabric/guards/dispatch_guard.py"
 cannot_run() {
   printf '%s\n' "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"ask\",\"permissionDecisionReason\":\"The dispatch guard could not run ($1). Approve only if you have checked model and isolation yourself. See the subagent-dispatch skill (agent-fabric policies/subagent-dispatch/SKILL.md).\"}}"
   exit 0
 }
-command -v python3 >/dev/null 2>&1 || cannot_run "python3 is not on PATH"
-[[ -x /usr/bin/python3 ]] || cannot_run "/usr/bin/python3 is missing"
+# The fleet's pinned Python (runtime/python.json, ADR-040), by its fixed
+# path and never AGENT_FABRIC_PYTHON: a permission gate whose interpreter
+# the environment chose could be pointed at /bin/true (review of #77).
+py=/usr/local/bin/fabric-python
+[[ -x "$py" ]] || cannot_run "the fleet's pinned Python is missing ($py)"
 [[ -f "$module" ]] || cannot_run "its module is not beside it"
 # -I: no PYTHONPATH or user site can put a module of its own under the
 # guard; the routing probe it starts under a fabric launch runs -E -s for
 # the same reason (the module says why not -I). -S: no site import, which
 # the stdlib-only guard never needs.
-out="$(/usr/bin/python3 -I -S "$module" 2>/dev/null)" || cannot_run "the guard failed"
+out="$("$py" -I -S "$module" 2>/dev/null)" || cannot_run "the guard failed"
 [[ -z "$out" ]] || printf '%s\n' "$out"
 exit 0

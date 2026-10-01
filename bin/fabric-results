@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/local/bin/fabric-python
 """fabric-results — verified results, supervision and cost per verified
 result (ADR-026, ADR-036), from any directory. A thin entry point to
 tools/fabric/results.py, run by its real path."""

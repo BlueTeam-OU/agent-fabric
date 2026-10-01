@@ -121,7 +121,10 @@ r="$(reason '{"subagent_type":"locale-worker","model":"opus","isolation":"worktr
 if grep -q "writes nothing" <<<"$r"; then pass "the isolation denial says why"; else fail "the isolation denial says why" "$r"; fi
 
 echo "a guard that cannot run asks; it never silently allows"
-out="$(printf '{"tool_input":{"model":"sonnet","isolation":"worktree","description":"x"}}' | env PATH=/nonexistent /bin/bash "$UNDER_TEST" 2>/dev/null)"
+# Nothing to run on: the hook reaches the pinned Python by its fixed path,
+# so a copy whose path names nothing stands for a host without it.
+nopy="$(mktemp)"; sed 's|^py=/usr/local/bin/fabric-python$|py=/nonexistent/fabric-python|' "$UNDER_TEST" > "$nopy"
+out="$(printf '{"tool_input":{"model":"sonnet","isolation":"worktree","description":"x"}}' | env PATH=/nonexistent /bin/bash "$nopy" 2>/dev/null)"; rm -f "$nopy"
 if printf '%s' "$out" | jq -e '.hookSpecificOutput.permissionDecision == "ask"' >/dev/null 2>&1; then
   pass "with jq unavailable the guard asks rather than allowing"
 else

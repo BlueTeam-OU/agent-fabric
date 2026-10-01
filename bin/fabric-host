@@ -26,10 +26,14 @@ die() { printf 'fabric-host: %s\n' "$*" >&2; exit "${2:-2}"; }
 usage() { sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//'; }
 
 [[ $# -ge 1 ]] || { usage; exit 2; }
+# The fleet's pinned Python (runtime/python.json, ADR-040), one per host;
+# AGENT_FABRIC_PYTHON points elsewhere for a test or a host without it.
+py="${AGENT_FABRIC_PYTHON:-/usr/local/bin/fabric-python}"
+[[ -x "$py" ]] || { echo "fabric-host: the fleet's pinned Python is not installed at $py; as root: /usr/bin/python3 <agent-fabric>/tools/fabric/python_pin.py install" >&2; exit 127; }
 case "$1" in
     -h|--help) usage; exit 0 ;;
     list)
-        python3 -I - "$REGISTRY" <<'PY'
+        "$py" -I - "$REGISTRY" <<'PY'
 import json, sys
 reg = json.load(open(sys.argv[1]))
 for hid, h in sorted((reg.get("hosts") or {}).items()):

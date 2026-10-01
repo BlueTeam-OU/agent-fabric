@@ -8,4 +8,8 @@
 # argument: it is this file's parent, which is not the module's when the
 # oracle runs a copy of this file in a scratch repository.
 here="${BASH_SOURCE[0]%/*}"; [[ "$here" == "${BASH_SOURCE[0]}" ]] && here=.
-exec /usr/bin/python3 "$here/../tools/fabric/guards/charter_authority.py" "$here/.." "$@"
+# The fleet's pinned Python (runtime/python.json, ADR-040), one per host;
+# AGENT_FABRIC_PYTHON points elsewhere for a test or a host without it.
+py="${AGENT_FABRIC_PYTHON:-/usr/local/bin/fabric-python}"
+[[ -x "$py" ]] || { echo "check_charter_authority.sh: the fleet's pinned Python is not installed at $py; as root: /usr/bin/python3 <agent-fabric>/tools/fabric/python_pin.py install" >&2; exit 127; }
+exec "$py" "$here/../tools/fabric/guards/charter_authority.py" "$here/.." "$@"

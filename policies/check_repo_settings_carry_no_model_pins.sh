@@ -43,7 +43,11 @@ FILE="${AGENT_FABRIC_SETTINGS_FILE:-${AGENT_FABRIC_SETTINGS_FILE:-$REPO_ROOT/.cl
 
 [[ -f "$FILE" ]] || { echo "check_repo_settings_carry_no_model_pins: OK — $FILE does not exist."; exit 0; }
 
-python3 - "$FILE" <<'PY'
+# The fleet's pinned Python (runtime/python.json, ADR-040), one per host;
+# AGENT_FABRIC_PYTHON points elsewhere for a test or a host without it.
+py="${AGENT_FABRIC_PYTHON:-/usr/local/bin/fabric-python}"
+[[ -x "$py" ]] || { echo "check_repo_settings_carry_no_model_pins.sh: the fleet's pinned Python is not installed at $py; as root: /usr/bin/python3 <agent-fabric>/tools/fabric/python_pin.py install" >&2; exit 127; }
+"$py" - "$FILE" <<'PY'
 import json, sys
 
 path = sys.argv[1]

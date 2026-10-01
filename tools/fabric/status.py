@@ -372,6 +372,7 @@ def build_report(root, environ=None):
     # moveto is a copy under /usr/local; the source moved on and nobody re-ran
     # install.sh is invisible anywhere else (review, 2026-09-16).
     moveto = hosttools.moveto_drift(root=root)
+    python = pinned_python(root)
 
     # --- placement: is this account on the host the registry says? ----------
     # The registry records where an account was provisioned; a session on
@@ -399,10 +400,25 @@ def build_report(root, environ=None):
                 "claude_sign_in": claude_sign_in(sign_env, sign_file, environ)},
         "capabilities": classes,
         "routing_check": "clean" if not checks else checks,
-        "host_tools": {"moveto": moveto},
+        "host_tools": {"moveto": moveto, "python": python},
         "control_plane": root,
     }
     return report, base
+
+
+def pinned_python(root):
+    """The fleet's pinned Python on this host (runtime/python.json): every
+    shim runs it, so a host without it is a host where the fabric's
+    commands refuse. The answer is python_pin.py's own check."""
+    try:
+        pp = load("fabric_python_pin", os.path.join(root, "tools", "fabric", "python_pin.py"))
+        pin = pp.pin(os.path.join(root, "runtime", "python.json"))
+    except Exception as e:  # noqa: BLE001 — a status line, never a traceback
+        return {"status": "unknown", "detail": str(e)}
+    problem = pp.check(pin)
+    if problem:
+        return {"status": "missing", "detail": f"{problem}; as root: /usr/bin/python3 {root}/tools/fabric/python_pin.py install"}
+    return {"status": "ok", "detail": f"fabric-python {pin['python']} ({pin['release']}), as pinned"}
 
 
 def render(report, base):
@@ -457,6 +473,9 @@ def render(report, base):
           f"(none) written since {undrained['since']} — {undrained['dir']}")
     if moveto["installed"]:
         p(f"moveto       {moveto['status']}: {moveto['detail']}" if moveto["status"] == "drift" else f"moveto       {moveto['status']}")
+    python = report["host_tools"].get("python")
+    if python:
+        p(f"python       {python['detail']}" if python["status"] == "ok" else f"python       {python['status'].upper()}: {python['detail']}")
     p(f"control plane {report['control_plane']}")
     return out
 

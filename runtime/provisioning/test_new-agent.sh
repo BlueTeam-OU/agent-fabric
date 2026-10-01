@@ -90,6 +90,7 @@ printf '#!/usr/bin/env bash\ncase "$1" in status) echo "role      (none active)"
 # another login) when the fault file says account-sync.
 # Its calls are kept in order; take-bundle must be handed an armored bundle.
 printf '#!/usr/bin/env bash\necho "$*" >> "%s"\n[[ "$*" == "store take-bundle" ]] && { grep -q "BEGIN AGENT-FABRIC STORE BUNDLE" || { echo "no bundle on stdin" >&2; exit 1; }; echo "taken"; exit 0; }\ngrep -qsxF account-sync "%s" && { echo "fabric-secrets: the store names another login" >&2; exit 3; }\necho "fabric-secrets: OK"\n' "$SEQ/account-calls" "$SEQ/fault" > "$SRC/bin/fabric-secrets"
+mkdir -p "$SRC/tools/fabric"; printf '#!/usr/bin/env python3\nimport sys\nopen("%s", "a").write("relay_catchup " + " ".join(sys.argv[1:]) + "\\n")\n' "$SEQ/account-calls" > "$SRC/tools/fabric/relay_catchup.py"
 mkdir -p "$SRC/runtime/openrouter"; printf '#!/usr/bin/env bash\necho "launch: resolved profile x"\n' > "$SRC/runtime/openrouter/launch"
 chmod +x "$SRC/runtime/claude-code/bootstrap.sh" "$SRC/bin/"* "$SRC/runtime/openrouter/launch"
 git -C "$SRC" init -q -b main && git -C "$SRC" add -A && git -C "$SRC" -c user.name=t -c user.email=t@t -c commit.gpgsign=false commit -q -m init && git -C "$SRC" push -q "$BARE" HEAD:main
@@ -239,6 +240,9 @@ grep -qx "store-enroll seq-login --host $( [[ "$BACKEND" == ssh ]] && echo far-h
 grep -qx "secret_store child-bundle seq-login" "$CALLS" \
   && [[ "$(grep -E '^(store take-bundle|sync)' "$SEQ/account-calls" | head -2 | tr '\n' '|')" == "store take-bundle|sync --quiet --no-pull|" ]] \
   && ok "…its store handed over as a bundle, then synced without a pull" || bad "bundle hand-over" "$(cat "$CALLS"; cat "$SEQ/account-calls" 2>&1)"
+# Its inbox starts at the channel's newest message, for the projects it was made for.
+[[ "$(grep -E '^(sync|relay_catchup)' "$SEQ/account-calls" | tail -2 | tr '\n' '|')" == "sync --quiet --no-pull|relay_catchup demo|" ]] \
+  && ok "…then its inbox cursor moved to the newest message, after the sync, for its projects" || bad "inbox catch-up" "$(cat "$SEQ/account-calls" 2>&1)"
 if [[ "$BACKEND" == local ]]; then
   # A parent without a store of its own cannot key a child: a stop, named,
   # before any clone.

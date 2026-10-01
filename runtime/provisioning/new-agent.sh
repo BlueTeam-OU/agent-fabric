@@ -81,7 +81,8 @@
 #      person: the GPG secret key (a passphrase prompt; the runbook §4),
 #      ~/.claude/.credentials.json for the plain-claude path (a
 #      credential copy a classifier refuses an agent; §5), and the
-#      workspace-trust dialog at the first interactive launch. [worker: finish, 6-10]
+#      first launch — its folders already trusted by bootstrap (step 7),
+#      so it asks no trust question. [worker: finish, 6-10]
 #
 # NEVER: a secret value on the terminal (provision keeps them inside its
 # process, and the parent cannot read what it put); a copy of the
@@ -193,7 +194,7 @@ provision() {  # provision <label> <args…>: one line per run, statuses only
     local rows; rows="$("$SECRETS" provision "$@" 2>>"$LOG")" || { tail -3 "$LOG" >&2; die "step failed: fabric-secrets provision $*; nothing after it ran"; }
     say "   $label: $(python3 -c 'import json,sys,collections; c=collections.Counter(r["status"] for r in json.load(sys.stdin)); print(", ".join(f"{v} {k}" for k, v in sorted(c.items())) or "nothing to do")' <<<"$rows")"
 }
-if (( DRY )); then say "would: store-enroll.sh $LOGIN --host $HOST --born-now; provision identity, share, issue-key openrouter and openai (each once); its store to $LOGIN as a bundle; fabric-secrets sync --no-pull as $LOGIN"
+if (( DRY )); then say "would: store-enroll.sh $LOGIN --host $HOST --born-now; provision identity, share, issue-key openrouter and openai (each once); its store to $LOGIN as a bundle; fabric-secrets sync --no-pull as $LOGIN; its inbox cursor to the newest message"
 else
     python3 "$ROOT/tools/fabric/secret_store.py" export-key >/dev/null 2>&1 \
         || die "this login has no store of its own, so it cannot be a parent: store-enroll.sh --self first; nothing after it ran"
@@ -213,6 +214,13 @@ else
     (( PIPESTATUS[0] == 0 && PIPESTATUS[1] == 0 )) || die "step failed: its store did not reach $LOGIN as a bundle; nothing after it ran"
     "$HX" "$HOST" --as "$LOGIN" -- projects/agent-fabric/bin/fabric-secrets sync --quiet --no-pull 2>&1 | sed 's/^/   /' >&2
     rc=${PIPESTATUS[0]}; (( rc == 0 || rc == 2 )) || die "step failed: fabric-secrets sync as $LOGIN (exit $rc); nothing after it ran"
+    # Its GZCoord cursor at the channel's newest message: a consumer the
+    # relay has never seen reads from the first message it holds, and
+    # everything before the account existed is someone else's history.
+    # Not fatal: an account whose cursor stayed behind still works, it only
+    # reads old traffic once.
+    "$HX" "$HOST" --as "$LOGIN" -- python3 projects/agent-fabric/tools/fabric/relay_catchup.py "${PROJECTS[@]+"${PROJECTS[@]}"}" 2>&1 | sed 's/^/   /' >&2
+    (( PIPESTATUS[0] == 0 )) || say "   its inbox cursor was not moved (above); its first session reads the channel's backlog"
     say "5. its key made and certified, its store filled and synced; commit identities/keys/, then write its recovery copy and back up:"
     say "     bin/fabric-host $HOST run --as $LOGIN -- projects/agent-fabric/bin/fabric-secrets store recovery-copy"
     say "     bin/fabric-secrets store backup"
