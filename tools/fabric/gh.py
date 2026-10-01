@@ -36,6 +36,14 @@ import subprocess
 
 TIMEOUT_S = 60
 _STATUS = re.compile(r"\(HTTP (\d{3})\)")
+# A request that never reached GitHub, or lost its answer on the way,
+# carries no HTTP status: a retry can help a read, and a write may or may
+# not have landed. Measured on gh 2.87.3 through dead proxies
+# (2026-10-01): "connect: connection refused", "error connecting to
+# <host>" (a name that does not resolve), "i/o timeout"; the rest are the
+# Go network layer's own texts for the same failures (review of #71).
+NETWORK_FAILURES = ("timeout", "connection refused", "connection reset", "error connecting to", "no such host",
+                    "unexpected eof", "tls handshake", "network is unreachable", "broken pipe")
 
 
 class GhError(Exception):
@@ -70,8 +78,9 @@ def run(args: list[str], *, input: str | None = None, timeout: float = TIMEOUT_S
         lines = [l for l in r.stderr.strip().splitlines() if l.strip()] or [f"exit {r.returncode}"]
         m = _STATUS.search(r.stderr)
         status = int(m.group(1)) if m else None
+        low = r.stderr.lower()
         transient = status is not None and (status >= 500 or status == 429) \
-            or "rate limit" in r.stderr.lower() or "timeout" in r.stderr.lower()
+            or "rate limit" in low or any(t in low for t in NETWORK_FAILURES)
         raise GhError(what, lines[-1], status, transient, r.stdout)
     return r.stdout
 
