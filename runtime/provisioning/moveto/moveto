@@ -16,4 +16,8 @@ py="${AGENT_FABRIC_PYTHON:-/usr/local/bin/fabric-python}"
 here="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"
 module="$here/moveto.py"
 [[ -f "$module" ]] || module="$here/../share/moveto/moveto.py"
+# Python ignores SIGPIPE at start-up and cannot tell what it was; the
+# module gives the entered shell the caller's, as this file's exec did.
+unset _MOVETO_PIPE_IGNORED
+[[ "$(trap -p PIPE)" == *"''"* ]] && export _MOVETO_PIPE_IGNORED=1
 exec "$py" -I "$module" "$@"

@@ -16,7 +16,12 @@ CONTRACT, frozen from the bash (ADR-040 §5 rule 3):
             a clone that is not one path segment: exit 1.
   stdin     never read; the entered shell inherits it.
   env       PATH (getent, sudo, find, test, cat and sort are found there,
-            as the bash found them — the suite's mocks rely on it).
+            as the bash found them — the suite's mocks rely on it);
+            _MOVETO_PIPE_IGNORED, set by the shim when SIGPIPE was ignored
+            on entry, and removed before the shell is entered.
+  signals   the entered shell gets SIGPIPE as the caller gave it to the
+            shim, as the bash's exec passed it on: Python ignores it at
+            start-up, and an exec keeps an ignored signal ignored.
   stdout    USAGE, the --list lines, or --print's path and `title: …`.
   stderr    `moveto: …` for a refusal, and one line naming the account and
             directory before the shell is entered.
@@ -41,6 +46,7 @@ from __future__ import annotations
 import os
 import pwd
 import re
+import signal
 import subprocess
 import sys
 import unicodedata
@@ -48,6 +54,7 @@ import unicodedata
 PROJECTS_SUBDIR = "projects"
 CONTROL_PLANE_DIR = "agent-fabric"
 MOVETO_ENTER = "/usr/local/share/moveto/enter"
+PIPE_IGNORED_ENV = "_MOVETO_PIPE_IGNORED"
 # getent, sudo -n, find over one directory: nothing here should take long,
 # and a hung directory service must not leave the caller at a dead prompt.
 TIMEOUT_S = 60
@@ -260,6 +267,12 @@ def moveto(argv: list[str]) -> int:
     # The entering shell is a separate script rather than an inline `bash -lc`,
     # so the process command line stays short. A terminal that titles from the
     # running command showed the whole inline script otherwise.
+    enter(account, path, title)
+
+
+def enter(account: str, path: str, title: str) -> "NoReturn":  # noqa: F821
+    pipe = signal.SIG_IGN if os.environ.pop(PIPE_IGNORED_ENV, "") == "1" else signal.SIG_DFL
+    signal.signal(signal.SIGPIPE, pipe)
     if account == me():
         os.execv(MOVETO_ENTER, [MOVETO_ENTER, path, title])
     os.execvp("sudo", ["sudo", "-n", "-u", account, "-H", MOVETO_ENTER, path, title])
@@ -268,17 +281,22 @@ def moveto(argv: list[str]) -> int:
 def main(argv: list[str]) -> int:
     for stream in (sys.stdout, sys.stderr):
         stream.reconfigure(encoding="utf-8", errors="surrogateescape")
+    # BrokenPipeError is an OSError: it is caught first, and stdout is
+    # flushed inside the try, so a reader that went away is exit 141, not
+    # an exec failure or an error at interpreter shutdown.
     try:
-        return moveto(argv)
+        rc = moveto(argv)
+        sys.stdout.flush()
+        return rc
     except Refused as exc:
         print(f"moveto: {exc}", file=sys.stderr)
         return 1
-    except OSError as exc:
-        print(f"moveto: {exc.filename or MOVETO_ENTER}: {exc.strerror or exc}", file=sys.stderr)
-        return 126
     except BrokenPipeError:
         os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
         return 141
+    except OSError as exc:
+        print(f"moveto: {exc.filename or MOVETO_ENTER}: {exc.strerror or exc}", file=sys.stderr)
+        return 126
 
 
 if __name__ == "__main__":
