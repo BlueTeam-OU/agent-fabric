@@ -110,6 +110,21 @@ def main() -> int:
             os.environ.pop(k, None)
         shutil.rmtree(d, ignore_errors=True)
 
+    print("count_md counts what find counted (review of #73)")
+    tmp2 = tempfile.mkdtemp(prefix="test_query_count.")
+    try:
+        role = os.path.join(tmp2, "dev")
+        os.makedirs(os.path.join(role, "sub"))
+        for name in ("a.md", "INDEX.md", "sub/b.md", "note.txt"):
+            open(os.path.join(role, name), "w").close()
+        os.makedirs(os.path.join(tmp2, "elsewhere"))
+        open(os.path.join(tmp2, "elsewhere", "x.md"), "w").close()
+        os.symlink(os.path.join(tmp2, "elsewhere", "x.md"), os.path.join(role, "linked.md"))
+        os.symlink(os.path.join(tmp2, "elsewhere"), os.path.join(role, "linkdir"))
+        check("a.md, sub/b.md and the symlinked slice; not INDEX.md, not into a linked dir", q.count_md(role) == 3)
+    finally:
+        shutil.rmtree(tmp2, ignore_errors=True)
+
     print(f"test_query.py: {fails} failure(s)" if fails else "test_query.py: all checks passed")
     return 1 if fails else 0
 

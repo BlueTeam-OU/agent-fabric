@@ -273,7 +273,14 @@ def walk_md(top: str):
 
 
 def count_md(top: str) -> int:
-    return sum(1 for p in walk_md(top) if not p.endswith("/INDEX.md"))
+    """Every entry named *.md but INDEX.md under top, as `find -name '*.md'
+    ! -name INDEX.md` counted them: a symlinked slice is a slice, and so is a
+    directory named so; links are not followed into (review of #73). The
+    evidence search, walk_md, keeps to real files."""
+    n = 0
+    for _dp, dns, fns in os.walk(top):
+        n += sum(1 for name in dns + fns if name.endswith(".md") and name != "INDEX.md")
+    return n
 
 
 # ── the commands ────────────────────────────────────────────────────────
