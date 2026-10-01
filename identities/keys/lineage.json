@@ -94,5 +94,17 @@
     "fingerprint": "921B18CF1209F58B6BCC5E8286844B1D9079FBC5",
     "login": "language-culture-ru",
     "parent": "019bbe31-2fff-7a2f-9849-96bdf286e011"
+  },
+  "01a0f782-7e06-7dee-811f-0a860ed93bf3": {
+    "born": "2026-10-01T12:48:39.430Z",
+    "fingerprint": "A02CB0F908D4E584052372A8DF65DAA91B16BB30",
+    "login": "python-dev-01",
+    "parent": "019bbe31-2fff-7a2f-9849-96bdf286e011"
+  },
+  "01a0f7ea-15b0-7ed9-a176-6eb006592db1": {
+    "born": "2026-10-01T14:41:48.464Z",
+    "fingerprint": "55C2B4F2AD3776DCADC611DD6FC39442E727B91E",
+    "login": "rust-ui-dev-01",
+    "parent": "019bbe31-2fff-7a2f-9849-96bdf286e011"
   }
 }
