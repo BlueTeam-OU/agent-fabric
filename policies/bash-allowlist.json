@@ -1,7 +1,6 @@
 {
   "description": "Tracked bash scripts over 150 lines that lint admits (ADR-040 \u00a75 rule 2), each with the wave that ports it to Python: 1 the GitHub toolkit, 2 the guards, 3 bin/ and status, 4 the launcher, 5 provisioning, 6 the bash tests. The list only shrinks: a port removes its entry in the same pull request, and an entry the base branch does not have is a finding.",
   "scripts": {
-    "bin/fabric-branches": 3,
     "bin/fabric-lease": 3,
     "policies/githooks/test_hooks.sh": 6,
     "policies/test_ban_generated_by_attribution.sh": 6,
