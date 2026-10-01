@@ -1445,21 +1445,37 @@ def case_a_contributor_entry_never_reaches_a_definition() -> None:
                   json.dumps({"role_definitions": {"role": "fabric-coordinator"}, "contributors": list(entries)}))
             return lint.contributor_findings(root)
 
-        good = {"role": "python-dev", "paths": ["tools/", "tests/"],
-                "excluding": ["tools/fabric/guards/", "tools/fabric/lint.py", "tests/run.sh", "tests/static.sh"]}
+        excl = [n for n in lint.CONTRIBUTOR_NEVER if n.startswith(("tools/", "tests/"))]
+        good = {"role": "python-dev", "paths": ["tools/", "tests/", "policies/bash-allowlist.json"], "excluding": excl}
         assert findings(good) == [], findings(good)
         assert findings() == [], "no contributor, nothing to say"
-        got = findings({**good, "excluding": ["tools/fabric/lint.py", "tests/run.sh", "tests/static.sh"]})
-        assert any("admits tools/fabric/guards/contributors.py" in f for f in got), got
+        got = findings({**good, "excluding": [e for e in excl if e != "tools/fabric/guards/"]})
+        assert any("rule 'tools/' reaches tools/fabric/guards/" in f for f in got), got
         got = findings({**good, "paths": good["paths"] + ["policies/"]})
-        assert any("admits policies/authority.json" in f for f in got), got
-        assert any("admits policies/githooks/pre-commit" in f for f in got), got
+        assert any("rule 'policies/' reaches policies/" in f for f in got), got
+        # Review of #75: rules narrower than any sample file, each one a
+        # definition or a guard.
+        for narrow in ("identities/roles/python-dev/", "identities/roles/python-dev/charter.md",
+                       "policies/githooks/commit-msg", "tools/fabric/guards/common.py",
+                       "identities/roles/catalog.json", "routing/effort.json"):
+            got = findings({**good, "paths": [narrow]})
+            assert any(f"rule {narrow!r} reaches" in f for f in got), (narrow, got)
+        got = findings({**good, "excluding": excl + ["tools/fabric/guards/x.py"],
+                        "paths": ["tools/"]})
+        assert not any("reaches tools/fabric/guards/" in f for f in got), "an exclusion covering the prefix suffices"
+        got = findings({**good, "excluding": [e for e in excl if e != "tools/fabric/guards/"] + ["tools/fabric/guards/x.py"]})
+        assert any("reaches tools/fabric/guards/" in f for f in got), "an exclusion of one file under it does not"
         got = findings({**good, "paths": [""]})
+        assert any("not a whole entry" in f for f in got), got
+        got = findings({**good, "role": ["python-dev"]})
         assert any("not a whole entry" in f for f in got), got
         got = findings({**good, "role": "web-dev"})
         assert any("not in identities/roles/catalog.json" in f for f in got), got
         got = findings({**good, "role": "fabric-coordinator"})
         assert any("the owner role needs no entry" in f for f in got), got
+        write(os.path.join(root, "identities", "roles", "catalog.json"), "{")
+        got = findings(good)
+        assert any("catalog.json: unreadable" in f for f in got), got
         write(os.path.join(root, "policies", "authority.json"), json.dumps({"contributors": {"role": "x"}}))
         assert lint.contributor_findings(root) == ["policies/authority.json: `contributors` is not a list"]
 

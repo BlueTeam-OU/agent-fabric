@@ -1437,25 +1437,51 @@ def bash_size_findings(root: str, base_ref: str = "origin/main") -> list[str]:
     return findings
 
 
-# What a role IS, never a contributor's to commit (ADR-018 §5 rule 8): one
-# representative path under each, judged by the same decision the hooks and
-# CI make, so an entry whose broad rule reaches one of them — "policies/" in
-# place of the allowlist, "tools/" without the guards excluded — is caught
-# however it is spelled.
+# What a role IS, never a contributor's to commit (ADR-018 §5 rule 8): a rule
+# ending in "/" is a directory, any other one file, as in an entry. The
+# guards and what they import (git.py) or run in CI (the suite runners); the
+# definitions; the reviewer's agent file, the harness hooks, and the code that
+# installs them or writes a role's model and prompt (review of #75).
 CONTRIBUTOR_NEVER = (
-    "identities/roles/x/charter.md", "identities/prompt/team.md", "routing/x.json",
-    "policies/authority.json", "policies/githooks/pre-commit", "policies/AUTHORITY.md",
-    "communication/gzcoord/protocol/SPEC.md", "docs/adr/ADR-018-authority.md", "memory/shared/x.md",
-    ".agent-fabric/taxonomy.json", ".github/workflows/ci.yml", "tools/fabric/guards/contributors.py",
-    "tools/fabric/lint.py", "tests/run.sh", "tests/static.sh", "CLAUDE.md",
+    "identities/", "routing/", "policies/", "communication/gzcoord/protocol/", "docs/adr/", "memory/",
+    ".agent-fabric/", ".github/", "CLAUDE.md",
+    "tools/fabric/guards/", "tools/fabric/git.py", "tools/fabric/lint.py", "tests/run.sh", "tests/static.sh",
+    "tests/test_contributors.py", "tests/test_agent_fabric_dir_authority.py", "tests/test_charter_authority.py",
+    "runtime/identity.py", "runtime/claude-code/agents/", "runtime/claude-code/hooks/",
+    "runtime/claude-code/bootstrap.sh", "runtime/claude-code/install-agent-files.sh",
+    "runtime/claude-code/harness.json", "runtime/claude-code/aliases.json",
+    "bin/fabric-role", "tools/fabric/role.py", "tools/fabric/routing.py", "tools/fabric/launch_prompt.py",
 )
+# The one path under a never-prefix an entry may name: the list the port
+# shrinks, which lint itself holds to shrinking (ADR-040 §5 rule 2).
+CONTRIBUTOR_MAY = ("policies/bash-allowlist.json",)
+
+
+def _rule_covers(rule: str, path: str) -> bool:
+    return path.startswith(rule) if rule.endswith("/") else path == rule
+
+
+def contributor_rule_findings(paths: list[str], excluding: list[str]) -> list[str]:
+    """Each never-path a rule reaches, compared as prefixes rather than by
+    sample files (review of #75): a rule inside a never-prefix is refused
+    outright; a rule above one is refused unless an exclusion covers it."""
+    out = []
+    for r in paths:
+        if r in CONTRIBUTOR_MAY:
+            continue
+        for n in CONTRIBUTOR_NEVER:
+            inside = _rule_covers(n, r)
+            above = r.endswith("/") and n.startswith(r) and not any(_rule_covers(e, n) for e in excluding)
+            if inside or above:
+                out.append(f"rule {r!r} reaches {n}")
+    return out
 
 
 def contributor_findings(root: str) -> list[str]:
-    """policies/authority.json `contributors`: each entry names a catalogued
-    role other than the owner, is whole (contributors.py drops a half-written
-    one, which then admits nothing — said here rather than found at a
-    refused commit), and admits none of CONTRIBUTOR_NEVER."""
+    """policies/authority.json `contributors`: each entry is whole
+    (contributors.py drops a half-written one, which then admits nothing —
+    said here rather than found at a refused commit), names a catalogued role
+    other than the owner, and reaches nothing in CONTRIBUTOR_NEVER."""
     path = os.path.join(root, "policies", "authority.json")
     try:
         text = open(path, encoding="utf-8").read()
@@ -1472,27 +1498,29 @@ def contributor_findings(root: str) -> list[str]:
     co = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(co)
     whole = co.contributors_of(text)
+    findings = []
+    catalogued: set[str] | None
     try:
         catalogued = {r["id"] for r in json.load(open(os.path.join(root, "identities", "roles", "catalog.json"),
                                                         encoding="utf-8"))["roles"]}
-    except (OSError, ValueError, KeyError, TypeError):
-        catalogued = set()
+    except (OSError, ValueError, KeyError, TypeError) as e:
+        catalogued = None
+        if raw:
+            findings.append(f"identities/roles/catalog.json: unreadable ({e}), so no contributor's role can be checked")
     owner = (doc.get("role_definitions") or {}).get("role")
-    findings = []
     for i, e in enumerate(raw):
         role = e.get("role") if isinstance(e, dict) else None
-        where = f"policies/authority.json: contributors[{i}] ({role or 'no role'})"
-        if role not in whole:
-            findings.append(f"{where}: not a whole entry (a role, a non-empty list of paths, a list of exclusions) "
-                            "— it admits nothing")
+        if not isinstance(role, str) or role not in whole:
+            findings.append(f"policies/authority.json: contributors[{i}]: not a whole entry (a role, a non-empty "
+                            "list of paths, a list of exclusions) — it admits nothing")
             continue
+        where = f"policies/authority.json: contributors[{i}] ({role})"
         if role == owner:
             findings.append(f"{where}: the owner role needs no entry")
-        if catalogued and role not in catalogued:
+        if catalogued is not None and role not in catalogued:
             findings.append(f"{where}: not in identities/roles/catalog.json")
-        for p in CONTRIBUTOR_NEVER:
-            if co.admitted(text, role, [p]):
-                findings.append(f"{where}: admits {p}, which defines what a role is (ADR-018 §5 rule 8)")
+        for f in contributor_rule_findings(whole[role]["paths"], whole[role]["excluding"]):
+            findings.append(f"{where}: {f}, which defines what a role is or enforces the fence (ADR-018 §5 rule 8)")
     return findings
 
 
