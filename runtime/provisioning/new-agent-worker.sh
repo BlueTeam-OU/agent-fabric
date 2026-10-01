@@ -96,8 +96,14 @@ if [[ "$PHASE" == prepare ]]; then
     elif (( DRY )); then say "would: append GitHub's published host keys (runtime/provisioning/github-host-keys) to $HOME_DIR/.ssh/known_hosts"
     else must bash -c 'printf "%s\n" "$1" | '"$SUDO"' -n -u "$2" tee -a "$3/.ssh/known_hosts" >/dev/null' _ "$missing_keys" "$LOGIN" "$HOME_DIR"
          must $SUDO -n -u "$LOGIN" chmod 600 "$HOME_DIR/.ssh/known_hosts"; say "3. github.com host keys trusted (from the committed published set)"; fi
-    if $SUDO -n test -d "$HOME_DIR/projects/agent-fabric/.git"; then say "4. ~/projects/agent-fabric present"
-    else must as_login "git clone -q '${AGENT_FABRIC_CLONE_URL:-https://github.com/gzapi-org/agent-fabric.git}' ~/projects/agent-fabric"; say "4. agent-fabric cloned (https; the fabric is public)"; fi
+    # A clone already there is brought to origin/main, never left old (bootstrap and the launcher run from it), or refused off main.
+    if ! $SUDO -n test -d "$HOME_DIR/projects/agent-fabric/.git"; then
+        must as_login "git clone -q '${AGENT_FABRIC_CLONE_URL:-https://github.com/gzapi-org/agent-fabric.git}' ~/projects/agent-fabric"; say "4. agent-fabric cloned (https; the fabric is public)"
+    else
+        branch="$(as_login 'git -C ~/projects/agent-fabric symbolic-ref -q --short HEAD' 2>/dev/null)"
+        [[ "$branch" == main ]] || die "step failed: ~/projects/agent-fabric is on ${branch:-a detached HEAD}, not main; bring it to main as $LOGIN, then re-run; nothing after it ran"
+        must as_login "timeout 60 git -C ~/projects/agent-fabric pull -q --ff-only origin main"; (( DRY )) || say "4. ~/projects/agent-fabric at origin/main ($(as_login 'git -C ~/projects/agent-fabric rev-parse --short HEAD'))"
+    fi
     exit 0
 fi
 # ---- finish: each project's own host-check, then 6. its clone, as the account, over SSH

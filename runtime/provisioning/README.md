@@ -61,7 +61,9 @@ overrides it with a version, `stable` or `latest`, and with no pin
 readable it is the vendor's latest — and `openrouter.ai/labs/ori/install.sh`; an installer that fails
 fails the script, nothing is copied from another account); GitHub's host key in
 `known_hosts`; `~/projects/agent-fabric` over https (the fabric is
-public; the account has no key yet); its key and store —
+public; the account has no key yet) — or, when the account already has
+one, that clone fast-forwarded to `origin/main`, and refused when it is
+off `main`; its key and store —
 `store-enroll.sh <login> --born-now`, made on its host and certified by
 the coordinator — filled by the coordinator as its parent
 (`fabric-secrets provision identity`, `share`, then `issue-key
