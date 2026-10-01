@@ -21,7 +21,10 @@
 #                                      attribution commit "", pr "", sessionUrl false — the harness's
 #                                      Co-Authored-By/Generated-with reminder off at its source —
 #                                      showThinkingSummaries and verbose on, tui default, the
-#                                      memory-write check hook (PostToolUse); every other key kept
+#                                      memory-write check hook (PostToolUse), env DISABLE_AUTOUPDATER,
+#                                      permissions (the fabric's commands allowed, auto mode), autoMode
+#                                      from policies/auto-mode.json and the auto-mode wizard off;
+#                                      every other key kept
 #   ~/.claude/skills/subagent-dispatch/SKILL.md
 #   ~/.claude/skills/fabric-decisions/SKILL.md
 #   ~/.claude/skills/branch-hygiene/SKILL.md

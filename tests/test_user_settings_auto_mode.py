@@ -104,6 +104,44 @@ def main() -> int:
               and json.load(open(settings))["autoMode"]["environment"][0].startswith("**Organization**: gzapi-org"),
               r.stdout + r.stderr)
 
+        print("the pinned claude in ~/.local/bin wins over another on PATH")
+        other = os.path.join(tmp, "elsewhere")
+        os.makedirs(other)
+        with open(os.path.join(other, "claude"), "w") as f:
+            f.write("#!/bin/sh\necho '{\"environment\": [\"**Organization**: from another claude\"]}'\n")
+        os.chmod(os.path.join(other, "claude"), 0o755)
+        r = subprocess.run([sys.executable, SCRIPT, settings], capture_output=True, text=True,
+                           env={**bare, "PATH": other + ":/usr/bin:/bin"}, timeout=120)
+        envl = json.load(open(settings))["autoMode"]["environment"]
+        check("the defaults are the pinned harness's (three slots), not the other's (one)", len(envl) >= 3, envl)
+
+        print("a file settled but for the wizard switch is written")
+        doc = json.load(open(settings))
+        doc["skillOverrides"].pop("auto-mode-setup")
+        json.dump(doc, open(settings, "w"))
+        r = run()
+        check("written, and the switch is back", r.stdout.startswith("  +  ")
+              and json.load(open(settings))["skillOverrides"].get("auto-mode-setup") == "off", r.stdout)
+
+        print("a policy the writer cannot read is refused, never half-applied")
+        import shutil
+        policy_path = os.path.join(HERE, "policies", "auto-mode.json")
+        saved = open(policy_path, encoding="utf-8").read()
+        try:
+            for label, text in (("a misspelled key", json.dumps({**POLICY, "soft_denies": ["x"]})),
+                                ("a string where a list belongs", json.dumps({**POLICY, "hard_deny": "one rule"})),
+                                ("\"$defaults\" written by hand", json.dumps({**POLICY, "allow": ["$defaults"]})),
+                                ("not JSON", "{")):
+                open(policy_path, "w", encoding="utf-8").write(text)
+                before = open(settings).read()
+                r = run()
+                check(f"{label}: exit 1, one '!' line, the file untouched",
+                      r.returncode == 1 and r.stderr.startswith("  !  ") and "NOT written" in r.stderr
+                      and open(settings).read() == before, r.stdout + r.stderr)
+        finally:
+            open(policy_path, "w", encoding="utf-8").write(saved)
+        del shutil
+
         print("the policy itself")
         check("every slot has text", all(isinstance(v, str) and v.strip() for v in POLICY["environment"].values()))
         check("the public repositories are named as such",

@@ -166,12 +166,13 @@ def auto_mode_defaults() -> dict | None:
     """Claude Code's built-in auto-mode lists, from the harness on PATH, or
     None when it cannot say (no claude, a timeout, an answer that is not
     the expected object)."""
-    # ~/.local/bin after PATH: bootstrap runs from an account's control
-    # daemon too, whose PATH need not carry it, and that is where a native
-    # install of the pinned harness lives.
+    # ~/.local/bin first: that is the pinned harness, the one `fabric-ctl …
+    # upgrade claude` installs and verifies there (runtime/control/ops.mjs),
+    # and bootstrap runs from an account's control daemon too, whose PATH
+    # need not carry it. PATH only when there is none there.
     native = os.path.join(local_bin(), "claude")
-    claude = (os.environ.get("AGENT_FABRIC_CLAUDE") or shutil.which("claude")
-              or (native if os.access(native, os.X_OK) else None))
+    claude = (os.environ.get("AGENT_FABRIC_CLAUDE") or (native if os.access(native, os.X_OK) else None)
+              or shutil.which("claude"))
     if not claude:
         return None
     try:
@@ -185,12 +186,43 @@ def auto_mode_defaults() -> dict | None:
     return doc
 
 
+class BadPolicy(Exception):
+    """policies/auto-mode.json is not what the writer reads: refused."""
+
+
+POLICY_KEYS = {"_comment", "environment", "allow", "soft_deny", "hard_deny"}
+
+
+def read_policy() -> dict:
+    """The policy, its shape checked: a misspelled key would vanish and a
+    string where a list belongs would be spread into one rule per
+    character, so either is refused (review of #74)."""
+    try:
+        with open(AUTO_MODE_POLICY, encoding="utf-8") as fh:
+            policy = json.load(fh)
+    except (OSError, ValueError) as exc:
+        raise BadPolicy(f"{AUTO_MODE_POLICY}: {exc}") from exc
+    if not isinstance(policy, dict):
+        raise BadPolicy(f"{AUTO_MODE_POLICY}: not a JSON object")
+    unknown = sorted(set(policy) - POLICY_KEYS)
+    if unknown:
+        raise BadPolicy(f"{AUTO_MODE_POLICY}: unknown key(s) {', '.join(unknown)}")
+    env = policy.get("environment", {})
+    if not isinstance(env, dict) or not all(isinstance(k, str) and isinstance(v, str) and v.strip()
+                                            for k, v in env.items()):
+        raise BadPolicy(f"{AUTO_MODE_POLICY}: environment must map each slot to its text")
+    for key in ("allow", "soft_deny", "hard_deny"):
+        v = policy.get(key, [])
+        if not isinstance(v, list) or not all(isinstance(x, str) and x.strip() and x != "$defaults" for x in v):
+            raise BadPolicy(f"{AUTO_MODE_POLICY}: {key} must be a list of rules (the writer adds \"$defaults\")")
+    return policy
+
+
 def auto_mode() -> dict | None:
     """The fleet's `autoMode`, or None when Claude Code's defaults cannot be
     read: an environment composed without them would drop or contradict
-    the built-in slots."""
-    with open(AUTO_MODE_POLICY, encoding="utf-8") as fh:
-        policy = json.load(fh)
+    the built-in slots. Raises BadPolicy for a policy it cannot read."""
+    policy = read_policy()
     defaults = auto_mode_defaults()
     if defaults is None:
         return None
@@ -314,7 +346,11 @@ def main(argv: list[str]) -> int:
     if problem:
         print(f"  !  {path}: {problem} — fabric user settings NOT written", file=sys.stderr)
         return 1
-    auto = auto_mode()
+    try:
+        auto = auto_mode()
+    except BadPolicy as exc:
+        print(f"  !  {exc} — fabric user settings NOT written", file=sys.stderr)
+        return 1
     if auto is None:
         # The rest is still written; autoMode stays as it was, and says so.
         print(f"  !  {path}: Claude Code's auto-mode defaults could not be read (claude auto-mode defaults) — "
