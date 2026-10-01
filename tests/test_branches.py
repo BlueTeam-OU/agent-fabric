@@ -319,8 +319,9 @@ def main() -> int:
     try:
         with open(os.path.join(evil, "json.py"), "w") as f:
             f.write("print('PLANTED')\nraise SystemExit(9)\n")
-        for cmd in ("fabric-branches", "fabric-status", "fabric-lease"):
-            r = subprocess.run(["bash", os.path.join(HERE, "bin", cmd), "--help"], cwd=evil, capture_output=True,
+        for cmd, arg in (("fabric-branches", "--help"), ("fabric-status", "--help"), ("fabric-lease", "--help"),
+                         ("fabric-host", "list")):
+            r = subprocess.run(["bash", os.path.join(HERE, "bin", cmd), arg], cwd=evil, capture_output=True,
                                text=True, timeout=60, stdin=subprocess.DEVNULL)
             check(f"{cmd}: a json.py beside the caller is not imported", "PLANTED" not in r.stdout + r.stderr
                   and r.returncode != 9, r.stdout[-200:])

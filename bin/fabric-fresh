@@ -90,7 +90,7 @@ mkdir -p "$state" || exit 1
 # its own start, and a job can end within the second the session began.
 # Written through runtime/identity.py, like all per-agent state (ADR-003).
 # The marker as written, kept to take it back only if it is still ours.
-written="$(python3 - "$FABRIC" "$state/restart.json" "$note" "$job" <<'PY'
+written="$(python3 -I - "$FABRIC" "$state/restart.json" "$note" "$job" <<'PY'
 
 import importlib.util, os, sys
 spec = importlib.util.spec_from_file_location("fabric_identity", os.path.join(sys.argv[1], "runtime", "identity.py"))
