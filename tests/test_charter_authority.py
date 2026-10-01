@@ -20,9 +20,18 @@ from guards import common  # noqa: E402
 
 # Commits made here must not read the caller's config (signing, hooks).
 # Nothing of the runner's or the session's own: CI sets GITHUB_HEAD_REF and
-# GITHUB_BASE_REF on a pull request, and a launched session sets
-# AGENT_FABRIC_ROOT; inherited, either decides a case for its own reasons.
-CLEAN = {k: v for k, v in os.environ.items() if not k.startswith(("GITHUB_", "AGENT_FABRIC_"))}
+# GITHUB_BASE_REF on a pull request, a launched session sets
+# AGENT_FABRIC_ROOT, and a suite run from inside a git hook inherits
+# GIT_DIR, GIT_INDEX_FILE and GIT_WORK_TREE, which would point the guard's
+# git at the outer repository; inherited, any of them decides a case for
+# its own reasons.
+CLEAN = {k: v for k, v in os.environ.items()
+         if not k.startswith(("GITHUB_", "AGENT_FABRIC_"))
+         and k not in ("GIT_DIR", "GIT_INDEX_FILE", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_OBJECT_DIRECTORY")}
+# The guards' git calls take the process's own environment, not a dict
+# this test hands them: the repository-pointing ones leave it too.
+for _k in ("GIT_DIR", "GIT_INDEX_FILE", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_OBJECT_DIRECTORY"):
+    os.environ.pop(_k, None)
 GIT_ENV = {**CLEAN, "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_SYSTEM": "/dev/null",
            "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t",
            "GIT_COMMITTER_EMAIL": "t@t"}
@@ -30,6 +39,11 @@ GIT_ENV = {**CLEAN, "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_SYSTEM": "/dev
 
 def sh(cwd: str, *args: str) -> None:
     subprocess.run(["git", *args], cwd=cwd, env=GIT_ENV, check=True, capture_output=True, timeout=60)
+
+
+def sh_out(cwd: str, *args: str) -> str:
+    return subprocess.run(["git", *args], cwd=cwd, env=GIT_ENV, check=True, capture_output=True, text=True,
+                          timeout=60).stdout.strip()
 
 
 def main() -> int:
@@ -137,6 +151,12 @@ def main() -> int:
 
         rc, _, e = run()
         check("a non-holder's charter change is refused", rc == 1 and "web-dev-01" in e)
+        print("the branch: the override, then the pull request's head, then HEAD")
+        check("the override wins over GITHUB_HEAD_REF",
+              ca.head_branch(rr, {"AGENT_FABRIC_CHARTER_BRANCH": "a/b/c/d", "GITHUB_HEAD_REF": "e/f/g/h"}) == "a/b/c/d")
+        check("GITHUB_HEAD_REF wins over HEAD", ca.head_branch(rr, {"GITHUB_HEAD_REF": "e/f/g/h"}) == "e/f/g/h")
+        check("an empty GITHUB_HEAD_REF (a push) falls to HEAD",
+              ca.head_branch(rr, {"GITHUB_HEAD_REF": ""}) == sh_out(rr, "rev-parse", "--abbrev-ref", "HEAD"))
         rc, o, _ = run(AGENT_FABRIC_CHARTER_BRANCH="h/boss/feat/x")
         check("a listed holder passes", rc == 0 and "OK" in o)
         rc, o, _ = run(AGENT_FABRIC_CHARTER_BRANCH="gh-readonly-queue/main/pr-1-abc")

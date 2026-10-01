@@ -19,9 +19,18 @@ from guards import agent_fabric_dir_authority as da  # noqa: E402
 from guards import common  # noqa: E402
 
 # Nothing of the runner's or the session's own: CI sets GITHUB_HEAD_REF and
-# GITHUB_BASE_REF on a pull request, and a launched session sets
-# AGENT_FABRIC_ROOT; inherited, either decides a case for its own reasons.
-CLEAN = {k: v for k, v in os.environ.items() if not k.startswith(("GITHUB_", "AGENT_FABRIC_"))}
+# GITHUB_BASE_REF on a pull request, a launched session sets
+# AGENT_FABRIC_ROOT, and a suite run from inside a git hook inherits
+# GIT_DIR, GIT_INDEX_FILE and GIT_WORK_TREE, which would point the guard's
+# git at the outer repository; inherited, any of them decides a case for
+# its own reasons.
+CLEAN = {k: v for k, v in os.environ.items()
+         if not k.startswith(("GITHUB_", "AGENT_FABRIC_"))
+         and k not in ("GIT_DIR", "GIT_INDEX_FILE", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_OBJECT_DIRECTORY")}
+# The guards' git calls take the process's own environment, not a dict
+# this test hands them: the repository-pointing ones leave it too.
+for _k in ("GIT_DIR", "GIT_INDEX_FILE", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_OBJECT_DIRECTORY"):
+    os.environ.pop(_k, None)
 GIT_ENV = {**CLEAN, "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_SYSTEM": "/dev/null",
            "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t",
            "GIT_COMMITTER_EMAIL": "t@t"}
