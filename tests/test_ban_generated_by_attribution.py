@@ -145,6 +145,11 @@ def main() -> int:
         st, out, err = guard.check(dict(env, GITHUB_EVENT_PATH=empty_event))
         check("with one, it names the description it read", st == 0 and out[0].endswith(
             "nor in the pull-request description."))
+        with open(empty_event, "w") as f:
+            f.write('{"merge_group": {"head_sha": "x", "base_sha": "y"}}')
+        st, out, err = guard.check(dict(env, GITHUB_EVENT_PATH=empty_event))
+        check("a merge_group event has no description, and says so", st == 0 and out[0].endswith(
+            "; no pull-request event, so no description to read."))
         os.unlink(empty_event)
 
         commit(repo, b"feat: two\n\nClaude-Session: x\n\nGenerated with\n[Claude Code](u)")

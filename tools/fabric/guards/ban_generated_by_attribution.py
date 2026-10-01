@@ -276,6 +276,10 @@ def check(env) -> tuple[int, list[str], list[str]]:
     offenders: list[str] = []
     notes: list[str] = []
     commits_enforced = body_enforced = False
+    # Whether a pull request's description was there to read: every event
+    # sets GITHUB_EVENT_PATH, and only a pull request's payload has one
+    # (merge_group, push and workflow_dispatch do not; review of #72).
+    pr_read = False
 
     git_problem = ""
     try:
@@ -301,6 +305,7 @@ def check(env) -> tuple[int, list[str], list[str]]:
             notes.append("PR description: NOT ENFORCED — the event payload does not parse")
         else:
             body_enforced = True
+            pr_read = isinstance(doc, dict) and isinstance(doc.get("pull_request"), dict)
             try:
                 pr_body = first_present(doc, ("pull_request", "body"))
             except ValueError:
@@ -321,7 +326,7 @@ def check(env) -> tuple[int, list[str], list[str]]:
             out.append("ban_generated_by_attribution: what could be checked was clean.")
         return 0, out, []
 
-    if not event_path:
+    if not pr_read:
         return 0, ["ban_generated_by_attribution: OK — no machine attribution in the"
                    " commits this branch adds; no pull-request event, so no description to read."], []
     return 0, ["ban_generated_by_attribution: OK — no machine attribution in the"
