@@ -204,7 +204,9 @@ def main() -> int:
     print("the shim is bash builtins only and hands over the root")
     with open(os.path.join(HERE, "policies", "check_charter_authority.sh")) as f:
         shim = f.read()
-    check("exec of the module with the root", 'exec /usr/bin/python3 "$here/../tools/fabric/guards/charter_authority.py" "$here/.."' in shim)
+    check("exec of the module with the root, on the pinned Python",
+          'exec "$py" "$here/../tools/fabric/guards/charter_authority.py" "$here/.."' in shim
+          and 'py="${AGENT_FABRIC_PYTHON:-/usr/local/bin/fabric-python}"' in shim)
 
     print(f"\n{'all passed' if not fails else str(fails) + ' FAILED'}")
     return 1 if fails else 0

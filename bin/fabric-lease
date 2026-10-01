@@ -12,7 +12,11 @@
 # the environment because Python resets it at start-up.
 unset _FABRIC_LEASE_PIPE_IGNORED
 [[ "$(trap -p PIPE)" == *"''"* ]] && export _FABRIC_LEASE_PIPE_IGNORED=1
-exec /usr/bin/python3 -I -c 'import os, runpy, sys
+# The fleet's pinned Python (runtime/python.json, ADR-040), one per host;
+# AGENT_FABRIC_PYTHON points elsewhere for a test or a host without it.
+py="${AGENT_FABRIC_PYTHON:-/usr/local/bin/fabric-python}"
+[[ -x "$py" ]] || { echo "fabric-lease: the fleet's pinned Python is not installed at $py; as root: /usr/bin/python3 <agent-fabric>/tools/fabric/python_pin.py install" >&2; exit 127; }
+exec "$py" -I -c 'import os, runpy, sys
 m = os.path.join(os.path.dirname(os.path.realpath(sys.argv[1])), "..", "tools", "fabric", "lease.py")
 sys.argv = [m, *sys.argv[2:]]
 runpy.run_path(m, run_name="__main__")' "${BASH_SOURCE[0]}" "$@"

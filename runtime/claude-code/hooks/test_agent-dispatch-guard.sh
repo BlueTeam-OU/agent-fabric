@@ -121,7 +121,9 @@ r="$(reason '{"subagent_type":"locale-worker","model":"opus","isolation":"worktr
 if grep -q "writes nothing" <<<"$r"; then pass "the isolation denial says why"; else fail "the isolation denial says why" "$r"; fi
 
 echo "a guard that cannot run asks; it never silently allows"
-out="$(printf '{"tool_input":{"model":"sonnet","isolation":"worktree","description":"x"}}' | env PATH=/nonexistent /bin/bash "$UNDER_TEST" 2>/dev/null)"
+# Nothing to run on: no PATH, and no pinned Python (the hook reaches that by
+# its path, so an empty PATH alone no longer stops it).
+out="$(printf '{"tool_input":{"model":"sonnet","isolation":"worktree","description":"x"}}' | env PATH=/nonexistent AGENT_FABRIC_PYTHON=/nonexistent/fabric-python /bin/bash "$UNDER_TEST" 2>/dev/null)"
 if printf '%s' "$out" | jq -e '.hookSpecificOutput.permissionDecision == "ask"' >/dev/null 2>&1; then
   pass "with jq unavailable the guard asks rather than allowing"
 else

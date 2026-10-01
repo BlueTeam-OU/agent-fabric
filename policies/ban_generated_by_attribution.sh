@@ -7,4 +7,8 @@
 # Bash builtins only, to find it: with git or hostname missing from PATH the
 # module must still run, and say which.
 here="${BASH_SOURCE[0]%/*}"; [[ "$here" == "${BASH_SOURCE[0]}" ]] && here=.
-exec /usr/bin/python3 "$here/../tools/fabric/guards/ban_generated_by_attribution.py" "$@"
+# The fleet's pinned Python (runtime/python.json, ADR-040), one per host;
+# AGENT_FABRIC_PYTHON points elsewhere for a test or a host without it.
+py="${AGENT_FABRIC_PYTHON:-/usr/local/bin/fabric-python}"
+[[ -x "$py" ]] || { echo "ban_generated_by_attribution.sh: the fleet's pinned Python is not installed at $py; as root: /usr/bin/python3 <agent-fabric>/tools/fabric/python_pin.py install" >&2; exit 127; }
+exec "$py" "$here/../tools/fabric/guards/ban_generated_by_attribution.py" "$@"

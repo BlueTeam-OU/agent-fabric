@@ -114,9 +114,11 @@ def main() -> int:
         call = b'{"tool_input":{"subagent_type":"code-low","model":"haiku","isolation":"worktree","description":"x"}}'
         r = subprocess.run(["bash", os.path.join(alone, "guard.sh")], input=call, capture_output=True, timeout=60)
         check("a shim with no module beside it asks", verdict(r.stdout) == "ask" and b"module" in r.stdout)
+        # The hook runs the fleet's pinned interpreter by its path (ADR-040),
+        # so what can be missing is that, not a python3 on PATH.
         r = subprocess.run(["/bin/bash", SHIM], input=call, capture_output=True, timeout=60,
-                           env={"PATH": "/nonexistent"})
-        check("no python3 on PATH asks", verdict(r.stdout) == "ask" and b"python3" in r.stdout)
+                           env={**os.environ, "AGENT_FABRIC_PYTHON": os.path.join(scratch, "no-python")})
+        check("no pinned Python asks, naming it", verdict(r.stdout) == "ask" and b"pinned Python" in r.stdout)
         r = subprocess.run(["bash", SHIM], input=call, capture_output=True, timeout=60)
         check("…and with both, the rules decide (allow)", r.returncode == 0 and verdict(r.stdout) == "allow")
     finally:
