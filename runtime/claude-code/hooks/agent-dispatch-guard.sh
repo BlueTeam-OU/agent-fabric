@@ -15,9 +15,10 @@ cannot_run() {
   printf '%s\n' "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"ask\",\"permissionDecisionReason\":\"The dispatch guard could not run ($1). Approve only if you have checked model and isolation yourself. See the subagent-dispatch skill (agent-fabric policies/subagent-dispatch/SKILL.md).\"}}"
   exit 0
 }
-# The fleet's pinned Python (runtime/python.json, ADR-040), one per host;
-# AGENT_FABRIC_PYTHON points elsewhere for a test or a host without it.
-py="${AGENT_FABRIC_PYTHON:-/usr/local/bin/fabric-python}"
+# The fleet's pinned Python (runtime/python.json, ADR-040), by its fixed
+# path and never AGENT_FABRIC_PYTHON: a permission gate whose interpreter
+# the environment chose could be pointed at /bin/true (review of #77).
+py=/usr/local/bin/fabric-python
 [[ -x "$py" ]] || cannot_run "the fleet's pinned Python is missing ($py)"
 [[ -f "$module" ]] || cannot_run "its module is not beside it"
 # -I: no PYTHONPATH or user site can put a module of its own under the

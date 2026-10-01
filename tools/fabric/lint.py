@@ -1633,6 +1633,8 @@ CONTRIBUTOR_NEVER = (
     "tools/fabric/python_pin.py", "runtime/python.json",
     # Wires the fleet's hooks into a session started in this clone.
     ".claude/", "tools/fabric/fabric_settings.py",
+    # Bootstrap runs it as every account, and it rewrites ~/.claude.json.
+    "tools/fabric/workspace_trust.py",
 )
 # The one path under a never-prefix an entry may name: the list the port
 # shrinks, which lint itself holds to shrinking (ADR-040 §5 rule 2).
