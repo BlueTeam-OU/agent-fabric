@@ -185,6 +185,20 @@ def main() -> int:
         check("an unreadable later commit keeps the earlier offence: exit 1",
               st == 1 and any("feat: two" in l for l in err))
 
+        # The offender's own subject unreadable: its offence stays, by sha.
+
+        def no_subject(repo_, *args, **kw):
+            if args[:1] == ("log",) and "--format=%s" in args:
+                raise git.GitError("git log", "no answer within 120 s")
+            return real_run(repo_, *args, **kw)
+        guard.git.run = no_subject
+        try:
+            st, out, err = guard.check(env)
+        finally:
+            guard.git.run = real_run
+        check("an unreadable subject keeps its commit's offence: exit 1",
+              st == 1 and any("(subject unreadable)" in l for l in err))
+
         commit(repo, b"feat: three")
         st, out, err = guard.check(env)
         check("an offender below the tip is found", st == 1 and sum("feat: two" in l for l in err) == 2)

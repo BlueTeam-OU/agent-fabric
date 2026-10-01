@@ -114,10 +114,13 @@ import git  # noqa: E402
 # emitted more than one capitalisation. No space required after the colon --
 # git's trailer parser does not require one either.
 TRAILER_KEYS = "Co-authored-by|Claude-Session"
-# [[:space:]] as CI's grep read it under C.UTF-8 — Unicode spaces too, so
-# "\u3000Co-authored-by:" failed there (review of #72) — but never a line
-# break: grep never shows a pattern more than one line, and `\s` would
-# cross one under re.M.
+# Any whitespace but a line break: Python's Unicode `\s` minus `\n`, with
+# Unicode case folding. That is a superset of the [[:space:]] CI's grep read
+# under C.UTF-8, which caught "\u3000Co-authored-by:" while the ASCII-only
+# patterns passed it (review of #72); where the two differ (U+001C-U+001F,
+# U+0085, U+00A0, U+2007, U+202F, a dotted capital I) this refuses and grep
+# did not — the stricter side, for a ban. Never a line break: grep never
+# shows a pattern more than one line, and `\s` would cross one under re.M.
 TRAILER_RE = re.compile(rf"^[^\S\n]*({TRAILER_KEYS}):", re.I | re.M)
 # Footer text, matched anywhere: it arrives as a sentence, not as a key.
 # Matched against a NEWLINE-FLATTENED copy of the body, because grep is
@@ -260,10 +263,15 @@ def commit_offenders(base: str, head: str, offenders: list[str]) -> list[str]:
         # often before the offender) must not keep the others from being seen.
         try:
             body = git.run(".", "log", "-1", "--format=%B", sha, errors="replace").stdout
-            subject = git.run(".", "log", "-1", "--format=%s", sha, errors="replace").stdout.rstrip("\n")
         except git.GitError as e:
             unread = unread or e
             continue
+        # The subject only names the commit in the report: one that cannot
+        # be read must not take the commit's offence with it.
+        try:
+            subject = git.run(".", "log", "-1", "--format=%s", sha, errors="replace").stdout.rstrip("\n")
+        except git.GitError:
+            subject = "(subject unreadable)"
         if has_trailer(body):
             offenders += [f"commit {sha[:8]}  {subject}", "    carries a banned attribution trailer"]
         if has_footer(body):
