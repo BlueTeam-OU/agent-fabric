@@ -66,13 +66,16 @@ def main() -> int:
     check("no holders", ca.holders_of("{}") == [])
     check("a space is not a separator", ca.holders_of('{"role_definitions":{"holders":["a b"]}}') == ["a b"])
 
-    print("is_holder: listed, or named for the role (a prefix, as the bash)")
+    print("is_holder: listed, or named for the role — its name, or its name and a number")
     check("listed", ca.is_holder("x", ["x"], "fabric-coordinator"))
     check("the role's own name", ca.is_holder("fabric-coordinator", [], "fabric-coordinator"))
     check("a numbered account", ca.is_holder("fabric-coordinator-02", [], "fabric-coordinator"))
     check("a stranger", not ca.is_holder("web-dev-01", ["x"], "fabric-coordinator"))
     check("a `*` holder is not a glob", not ca.is_holder("web-dev-01", ["*"], "fabric-coordinator"))
     check("a holder is whole, not a prefix", not ca.is_holder("web-dev-01", ["web"], "fabric-coordinator"))
+    for name in ("fabric-coordinatorX", "fabric-coordinator-evil", "fabric-coordinator-02x", "fabric-coordinator-"):
+        check(f"named like the role is not named for it: {name}", not ca.is_holder(name, [], "fabric-coordinator"))
+    check("a role with a regex character is literal", not ca.is_holder("aXb", [], "a.b"))
 
     print("the protected set")
     check("charter and brief are :(glob)", ":(glob)identities/roles/*/charter.md" in ca.PROTECTED

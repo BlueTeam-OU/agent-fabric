@@ -82,14 +82,17 @@ entry that is not a string, names nobody (the bash joined a string into its
 characters, split an entry on spaces and expanded `*` against the working
 directory); a `role` that is empty or not a string is the default,
 fabric-coordinator (an empty one made `$agent == ""*` true for everybody).
-REPLICATED, though it reads as a defect: the role's name is a PREFIX match,
-so an account named fabric-coordinatorX is a holder, as is one named
-fabric-coordinator-02.
+NAMED FOR THE ROLE means the role's name, or that name and a number:
+fabric-coordinator, fabric-coordinator-02, as policies/authority.json says.
+The bash matched a PREFIX, so an account named fabric-coordinatorX, or
+fabric-coordinator-anything, was a holder too; any login a provisioner
+names that way would have owned every role's definition.
 """
 from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 
 HERE = os.path.dirname(os.path.realpath(__file__))
@@ -155,7 +158,7 @@ def holders_of(text: str) -> list[str]:
 
 
 def is_holder(agent: str, holders: list[str], owner_role: str) -> bool:
-    return agent in holders or agent.startswith(owner_role)
+    return agent in holders or bool(re.fullmatch(re.escape(owner_role) + r"(-[0-9]+)?", agent))
 
 
 def changed_paths(repo: str, base: str) -> list[str]:
