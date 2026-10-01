@@ -90,11 +90,18 @@ serve as the parity oracle for each port, unchanged.
    forwarder and caller is repointed; a sourced script's shim defines the
    same shell functions, each calling Python, and fails the call, never
    its caller. Every entry point the fabric installs (`bin/`, the
-   `policies/` checks, `fabric-secrets`) runs it. Two kinds keep the
-   host's `python3`: the bash step-runners not yet ported (the launcher,
-   bootstrap, account creation, the git hooks), whose port moves them; and
-   the suite runners, which run the interpreter CI's matrix sets, to prove
-   3.12 and newer (A 2026-10-01).
+   `policies/` checks a person or a hook runs, `fabric-secrets`) runs it.
+   These keep the host's `python3`:
+   - the bash step-runners not yet ported — the launcher, bootstrap,
+     account creation with `store-enroll.sh`, the git hooks, the Claude
+     Code hooks (`session-start.sh`, `model-switch-guard.sh`,
+     `self-kill-guard.py`) — whose port moves them;
+   - `check_actions_pinned_by_sha.py`, run by CI's static job, which
+     installs no pin;
+   - what `fabric-host` runs on another host, which may not have the pin
+     yet;
+   - the suite runners, which run the interpreter CI's matrix sets, to
+     prove 3.12 and newer (A 2026-10-01).
 5. The script's existing bash test runs against the shim, as the parity
    oracle, in the port's pull request, its assertions unchanged. Two
    things in it may follow the port: its mock of `gh` may learn the

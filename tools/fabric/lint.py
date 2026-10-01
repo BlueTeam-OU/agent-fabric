@@ -1045,7 +1045,8 @@ def _structural_check(schema: dict[str, Any], doc: Any, where: str, path: str = 
             problems.append(f"{where}{path}: fewer than {schema['minItems']} items")
         if "maxItems" in schema and len(doc) > schema["maxItems"]:
             problems.append(f"{where}{path}: more than {schema['maxItems']} items")
-        if schema.get("uniqueItems") and len({json.dumps(v, sort_keys=True) for v in doc}) != len(doc):
+        if schema.get("uniqueItems") and any(_json_equal(doc[i], doc[j])
+                                             for i in range(len(doc)) for j in range(i + 1, len(doc))):
             problems.append(f"{where}{path}: duplicate items")
     if isinstance(doc, str):
         if "minLength" in schema and len(doc) < schema["minLength"]:
