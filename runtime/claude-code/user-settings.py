@@ -69,11 +69,30 @@ denies or asks is kept as read, and an `ask` rule still wins.
 session starts in auto mode. Eight accounts provisioned by hand had no
 mode and started in the default one, asking for what the classifier
 would allow; the allow rules above assume auto.
+
+`autoMode` (the owner, 2026-10-01): what the auto-mode classifier is told
+about the fleet, from policies/auto-mode.json. A login's own wizard
+(/auto-mode-setup) saw one project's transcripts and proposed a picture
+true of that project alone — that project private, so confidential
+material "is fine to push", on a login that also pushes to agent-fabric,
+which is public. The classifier reads `autoMode` from user and managed settings
+only, never a project's .claude/ (the harness's own docs), so user scope
+is where the fleet's picture goes. `environment` is Claude Code's own
+list (`claude auto-mode defaults`, from the pinned harness) with each
+slot the policy names replaced: a "$defaults" plus the fleet's entries
+would leave the built-in "Organization: None configured" beside the
+fleet's own. When the defaults cannot be read, an existing `autoMode` is
+kept as it is and the line says so. `allow`, `soft_deny` and `hard_deny`
+are "$defaults" plus the policy's. `skillOverrides.auto-mode-setup`
+"off": the wizard would write a login's own `autoMode` over the fleet's.
 """
 from __future__ import annotations
 
 import json
 import os
+import re
+import shutil
+import subprocess
 import sys
 
 # python3 -OO strips docstrings; the usage must survive it.
@@ -82,6 +101,9 @@ ATTRIBUTION = {"commit": "", "pr": "", "sessionUrl": False}
 TOP_LEVEL = {"showThinkingSummaries": True, "verbose": True, "tui": "default"}
 ENV = {"DISABLE_AUTOUPDATER": "1"}
 COMMANDS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "commands.json")
+SKILL_OVERRIDES = {"auto-mode-setup": "off"}
+DEFAULTS_TIMEOUT_S = 60
+SLOT = re.compile(r"^\*\*(.+?)\*\*:")
 
 
 FABRIC_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -135,6 +157,54 @@ def with_memory_check(hooks: dict) -> dict:
             post.append({**e, "hooks": kept})
     hooks["PostToolUse"] = post + [memory_check_hook()]
     return hooks
+
+
+AUTO_MODE_POLICY = os.path.join(FABRIC_ROOT, "policies", "auto-mode.json")
+
+
+def auto_mode_defaults() -> dict | None:
+    """Claude Code's built-in auto-mode lists, from the harness on PATH, or
+    None when it cannot say (no claude, a timeout, an answer that is not
+    the expected object)."""
+    claude = os.environ.get("AGENT_FABRIC_CLAUDE") or shutil.which("claude")
+    if not claude:
+        return None
+    try:
+        r = subprocess.run([claude, "auto-mode", "defaults"], capture_output=True, text=True,
+                           timeout=DEFAULTS_TIMEOUT_S, stdin=subprocess.DEVNULL)
+        doc = json.loads(r.stdout) if r.returncode == 0 else None
+    except (OSError, subprocess.TimeoutExpired, ValueError):
+        return None
+    if not isinstance(doc, dict) or not isinstance(doc.get("environment"), list):
+        return None
+    return doc
+
+
+def auto_mode() -> dict | None:
+    """The fleet's `autoMode`, or None when Claude Code's defaults cannot be
+    read: an environment composed without them would drop or contradict
+    the built-in slots."""
+    with open(AUTO_MODE_POLICY, encoding="utf-8") as fh:
+        policy = json.load(fh)
+    defaults = auto_mode_defaults()
+    if defaults is None:
+        return None
+    ours = {slot: f"**{slot}**: {text}" for slot, text in policy.get("environment", {}).items()}
+    environment, placed = [], set()
+    for entry in defaults["environment"]:
+        m = SLOT.match(entry) if isinstance(entry, str) else None
+        slot = m.group(1) if m else None
+        if slot in ours:
+            environment.append(ours[slot])
+            placed.add(slot)
+        else:
+            environment.append(entry)
+    environment += [text for slot, text in ours.items() if slot not in placed]
+    out = {"environment": environment}
+    for key in ("allow", "soft_deny", "hard_deny"):
+        if policy.get(key):
+            out[key] = ["$defaults", *policy[key]]
+    return out
 
 
 def local_bin() -> str:
@@ -193,8 +263,9 @@ def allowed(doc: dict) -> list:
     return perms.get("allow") if isinstance(perms.get("allow"), list) else []
 
 
-def settled(doc: dict) -> bool:
+def settled(doc: dict, auto: dict | None) -> bool:
     current = doc.get("attribution") if isinstance(doc.get("attribution"), dict) else {}
+    overrides = doc.get("skillOverrides") if isinstance(doc.get("skillOverrides"), dict) else {}
     perms = doc.get("permissions") if isinstance(doc.get("permissions"), dict) else {}
     return (all(current.get(k) == v for k, v in ATTRIBUTION.items())
             and perms.get("defaultMode") == "auto"
@@ -203,7 +274,9 @@ def settled(doc: dict) -> bool:
             and "includeCoAuthoredBy" not in doc
             and all(doc.get(k) == v for k, v in TOP_LEVEL.items())
             and doc.get("hooks") == with_memory_check(doc.get("hooks"))
-            and isinstance(doc.get("env"), dict) and all(doc["env"].get(k) == v for k, v in ENV.items()))
+            and isinstance(doc.get("env"), dict) and all(doc["env"].get(k) == v for k, v in ENV.items())
+            and all(overrides.get(k) == v for k, v in SKILL_OVERRIDES.items())
+            and (auto is None or doc.get("autoMode") == auto))
 
 
 def main(argv: list[str]) -> int:
@@ -236,7 +309,12 @@ def main(argv: list[str]) -> int:
     if problem:
         print(f"  !  {path}: {problem} — fabric user settings NOT written", file=sys.stderr)
         return 1
-    if settled(doc):
+    auto = auto_mode()
+    if auto is None:
+        # The rest is still written; autoMode stays as it was, and says so.
+        print(f"  !  {path}: Claude Code's auto-mode defaults could not be read (claude auto-mode defaults) — "
+              "autoMode left as it is", file=sys.stderr)
+    if settled(doc, auto):
         print(f"  =  {path} fabric user settings")
         return 0
     if dry:
@@ -254,6 +332,10 @@ def main(argv: list[str]) -> int:
     perms["defaultMode"] = "auto"
     doc["permissions"] = perms
     doc["hooks"] = with_memory_check(doc.get("hooks"))
+    overrides = doc.get("skillOverrides") if isinstance(doc.get("skillOverrides"), dict) else {}
+    doc["skillOverrides"] = {**overrides, **SKILL_OVERRIDES}
+    if auto is not None:
+        doc["autoMode"] = auto
     save(path, doc)
     print(f"  +  {path} fabric user settings")
     return 0
