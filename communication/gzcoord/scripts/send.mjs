@@ -123,6 +123,21 @@ export function autoIntake(msg, env = process.env, run = spawnSync) {
   catch (e) { return { status: 1, stdout: '', stderr: String(e?.message ?? e) }; }
 }
 
+// The episodic journal (agent-fabric ADR-041): the message is kept in this
+// agent's own journal before the carrier sees it, and its outcome after.
+// tools/fabric/episodic.py speaks for itself on stderr, untranslated, like
+// fabric-jobs above: its lines name a path or an id, never the message. A
+// journal that cannot take the message refuses the send — a carrier may
+// keep no copy, so a message sent unremembered could be gone for good.
+// GZCOORD_JOURNAL=off sends without it, and says so every time.
+const EPISODIC = fileURLToPath(new URL('../../../tools/fabric/episodic.py', import.meta.url));
+export function journal(args, input, { env = process.env, run = spawnSync } = {}) {
+  const py = env.AGENT_FABRIC_PYTHON || '/usr/local/bin/fabric-python';
+  try { return run(py, [EPISODIC, ...args], { encoding: 'utf8', env, input, timeout: 30000 }); }
+  catch (e) { return { status: 1, stdout: '', stderr: `episodic: ${e?.message ?? e}\n` }; }
+}
+const journalOff = env => env.GZCOORD_JOURNAL === 'off';
+
 export async function main(argv = process.argv.slice(2)) {
   // The login first, before anything is printed: every line this function
   // writes is then the reader's, the usage line included — which is the
@@ -256,6 +271,17 @@ export async function main(argv = process.argv.slice(2)) {
     }
   }
   if (!tok) { console.error(t('send.no-token')); return 3; }
+  const where = [...(who.project ? ['--project', who.project] : []), ...(who.working_copy ? ['--working-copy', who.working_copy] : [])];
+  if (journalOff(process.env)) {
+    process.stderr.write('episodic: GZCOORD_JOURNAL=off — this message is sent without being kept in your journal (ADR-041)\n');
+  } else {
+    const kept = journal(['gzcoord-out-pending', ...where], text);
+    if (kept.status !== 0) {
+      process.stderr.write(kept.stderr || `episodic: the journal did not answer (${kept.signal ?? `exit ${kept.status}`})\n`);
+      process.stderr.write('episodic: not sent: a message is kept before it leaves (ADR-041); GZCOORD_JOURNAL=off sends without it\n');
+      return 2;
+    }
+  }
   let res;
   const post = authToken => api(authToken, '/api/send', { method: 'POST', body: JSON.stringify({ channel, sender: me.address, content: text }), relayUrl });
   try {
@@ -267,8 +293,19 @@ export async function main(argv = process.argv.slice(2)) {
       tok = fresh; res = await post(tok);
     }
   } catch (e) {
+    // The pending row becomes a failed one: kept, and hidden from recall
+    // unless asked; a retry with the same id makes it pending again.
+    if (!journalOff(process.env)) {
+      const done = journal(['gzcoord-out-final', id, '--state', 'failed'], '');
+      if (done.status !== 0) process.stderr.write(done.stderr);
+    }
     if (e.status === 401 || e.status === 403) { console.error(t('send.token-refused', { status: e.status })); return 3; }
     console.error(t('send.relay-unreachable', { relay_url: relayUrl, detail: e.message })); return 3;
+  }
+  if (!journalOff(process.env)) {
+    // The send has happened: a journal that fails now is said, never a failed send.
+    const done = journal(['gzcoord-out-final', id, '--state', 'accepted', ...(res.seq != null ? ['--seq', String(res.seq)] : [])], '');
+    if (done.status !== 0) process.stderr.write(done.stderr || 'episodic: the sent message was not marked accepted\n');
   }
   // Recorded only once the relay has it: a post that failed spent nothing.
   try { recordSent(ledger, { id, sha256: sha, seq: res.seq ?? null, at: new Date().toISOString() }); }

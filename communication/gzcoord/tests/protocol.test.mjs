@@ -907,13 +907,21 @@ function withRelay(fn) {
     try { resolve(await fn(`http://127.0.0.1:${server.address().port}`, posts)); } catch (e) { reject(e); } finally { server.close(); }
   }));
 }
+// A scratch secrets store holding an agent id: send keeps every message in
+// the sender's episodic journal (ADR-041), and a journal has an owner. Its
+// own directory, never HOME — one test makes the message's directory
+// read-only.
+const AGENT_ID = '01a0f782-7e06-7dee-811f-0a860ed93bf3';
+function idStore() {
+  const d = scratch('send-store-'); fs.writeFileSync(path.join(d, '.agent-id'), `${AGENT_ID}\n`); return d;
+}
 // Asynchronous on purpose: the stub relay lives in this process, and a
 // synchronous exec would block the event loop the server answers on.
 function sendWith(relay, text, extra = [], moreEnv = {}) {
   const f = path.join(scratch('send-'), 'm.txt'); fs.writeFileSync(f, text);
   // HOME is a scratch dir: the runner's own synced secrets.env must not be the token here.
   // The state dir too: send records every id it sends, and a test must never write that record into the runner's own.
-  const env = { ...process.env, HOME: path.dirname(f), AGENT_FABRIC_STATE_DIR: path.join(path.dirname(f), 'state'), CLAUDE_BRIDGE_URL: relay, CLAUDE_BRIDGE_AUTH_TOKEN: 'tok-fixture', GZCOORD_CHANNEL: 'fixture:chan', ...moreEnv };
+  const env = { ...process.env, HOME: path.dirname(f), AGENT_FABRIC_STATE_DIR: path.join(path.dirname(f), 'state'), AGENT_FABRIC_SECRET_STORE: idStore(), CLAUDE_BRIDGE_URL: relay, CLAUDE_BRIDGE_AUTH_TOKEN: 'tok-fixture', GZCOORD_CHANNEL: 'fixture:chan', ...moreEnv };
   return new Promise(resolve => execFile('node', [SEND, f, ...extra], { env, encoding: 'utf8' },
     (e, out, err) => resolve({ code: e ? e.code : 0, out: String(out), err: String(err) })));
 }
@@ -936,11 +944,57 @@ test('send posts a valid message as this login, to the configured channel', asyn
   });
 });
 
+// The episodic journal (ADR-041): the message is kept before the post and
+// marked with its outcome after; a journal that cannot take it stops the send.
+function journalRows(state, store) {
+  const py = process.env.AGENT_FABRIC_PYTHON || '/usr/local/bin/fabric-python';
+  const r = spawnSync(py, ['-c', `import sqlite3,json,sys
+sys.path.insert(0, sys.argv[1]); import episodic
+c = sqlite3.connect(episodic.db_path())
+print(json.dumps(c.execute("SELECT direction, state, message_id, carrier_seq, content FROM episodes ORDER BY recorded_at").fetchall()))`,
+    fileURLToPath(new URL('../../../tools/fabric', import.meta.url))],
+    { encoding: 'utf8', env: { ...process.env, AGENT_FABRIC_STATE_DIR: state, AGENT_FABRIC_SECRET_STORE: store } });
+  assert.equal(r.status, 0, r.stderr);
+  return JSON.parse(r.stdout);
+}
+test('send keeps the message in its journal before posting, and marks it accepted with the relay seq', async () => {
+  await withRelay(async (relay, posts) => {
+    const state = path.join(scratch('send-journal-'), 'state'); const store = idStore();
+    const r = await sendWith(relay, valid, [], { AGENT_FABRIC_STATE_DIR: state, AGENT_FABRIC_SECRET_STORE: store });
+    assert.equal(r.code, 0, r.err);
+    assert.deepEqual(journalRows(state, store), [['outbound', 'accepted', '01a09fc1-0000-7000-8000-000000000001', 42, valid]]);
+    assert.equal(posts.length, 1);
+  });
+});
+test('a journal that cannot take the message stops the send: nothing posted, exit 2, said', async () => {
+  await withRelay(async (relay, posts) => {
+    const r = await sendWith(relay, valid, [], { AGENT_FABRIC_SECRET_STORE: scratch('send-no-id-') });
+    assert.equal(r.code, 2, r.err);
+    assert.match(r.err, /no agent id/);
+    assert.match(r.err, /not sent: a message is kept before it leaves/);
+    assert.equal(posts.length, 0, 'the carrier never saw it');
+    const off = await sendWith(relay, valid, [], { AGENT_FABRIC_SECRET_STORE: scratch('send-no-id-'), GZCOORD_JOURNAL: 'off' });
+    assert.equal(off.code, 0, off.err);
+    assert.match(off.err, /GZCOORD_JOURNAL=off — this message is sent without being kept/);
+    assert.equal(posts.length, 1, 'the explicit bypass sends, and says so');
+  });
+});
+test('a post the relay refuses leaves the journal row failed, not accepted', async () => {
+  const server = http.createServer((req, res) => { res.statusCode = 500; res.end('{}'); });
+  await new Promise(r => server.listen(0, '127.0.0.1', r));
+  try {
+    const state = path.join(scratch('send-journal-fail-'), 'state'); const store = idStore();
+    const r = await sendWith(`http://127.0.0.1:${server.address().port}`, valid, [], { AGENT_FABRIC_STATE_DIR: state, AGENT_FABRIC_SECRET_STORE: store });
+    assert.equal(r.code, 3, r.err);
+    assert.deepEqual(journalRows(state, store).map(x => x.slice(0, 3)), [['outbound', 'failed', '01a09fc1-0000-7000-8000-000000000001']]);
+  } finally { server.closeAllConnections(); server.close(); }
+});
+
 // A message with no MESSAGE-ID gets one from the sender, written into the
 // file before it posts, so a retry of the same file carries the same id
 // (SPEC §7.2) — and the command on screen is the message that goes out.
 function sendFile(relay, f, extra = [], state = path.join(path.dirname(f), 'state')) {
-  const env = { ...process.env, HOME: path.dirname(f), AGENT_FABRIC_STATE_DIR: state, CLAUDE_BRIDGE_URL: relay, CLAUDE_BRIDGE_AUTH_TOKEN: 'tok-fixture', GZCOORD_CHANNEL: 'fixture:chan' };
+  const env = { ...process.env, HOME: path.dirname(f), AGENT_FABRIC_STATE_DIR: state, AGENT_FABRIC_SECRET_STORE: idStore(), CLAUDE_BRIDGE_URL: relay, CLAUDE_BRIDGE_AUTH_TOKEN: 'tok-fixture', GZCOORD_CHANNEL: 'fixture:chan' };
   return new Promise(resolve => execFile('node', [SEND, f, ...extra], { env, encoding: 'utf8' },
     (e, out, err) => resolve({ code: e ? e.code : 0, out: String(out), err: String(err) })));
 }
@@ -972,7 +1026,7 @@ test('a dry run mints in memory only; stdin is said to keep nothing; a present i
     assert.equal(dry.code, 0, dry.err);
     assert.equal(fs.readFileSync(f, 'utf8'), noId, 'the dry run changed nothing');
     assert.match(dry.err, /would mint one \(dry run/);
-    const env = { ...process.env, HOME: path.dirname(f), AGENT_FABRIC_STATE_DIR: path.join(path.dirname(f), 'state'), CLAUDE_BRIDGE_URL: relay, CLAUDE_BRIDGE_AUTH_TOKEN: 'tok-fixture', GZCOORD_CHANNEL: 'fixture:chan' };
+    const env = { ...process.env, HOME: path.dirname(f), AGENT_FABRIC_STATE_DIR: path.join(path.dirname(f), 'state'), AGENT_FABRIC_SECRET_STORE: idStore(), CLAUDE_BRIDGE_URL: relay, CLAUDE_BRIDGE_AUTH_TOKEN: 'tok-fixture', GZCOORD_CHANNEL: 'fixture:chan' };
     const piped = await new Promise(resolve => { const c = execFile('node', [SEND, '-'], { env, encoding: 'utf8' }, (e, out, err) => resolve({ code: e ? e.code : 0, out, err })); c.stdin.end(noId); });
     assert.equal(piped.code, 0, piped.err);
     assert.match(piped.err, /from stdin it is kept nowhere/);
