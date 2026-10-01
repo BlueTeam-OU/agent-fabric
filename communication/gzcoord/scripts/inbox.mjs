@@ -93,7 +93,8 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { execFileSync, spawn } from 'node:child_process';
+import { execFileSync, spawn, spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { parse, validate, normalize, loadTaxonomy, findTaxonomy, slugOf, recordedRole, whoami, FABRIC_ROOT, invokedAsMain, RETIRED_TYPES } from './gzmsg.mjs';
 import { defaultDictionaryOrEmpty, dictionary, localeReminder, printer } from './i18n.mjs';
 
@@ -534,8 +535,32 @@ export const HOLD_POLL_MS = 1000;
 // it. A replay by seq still shows one, by its metadata line: it carries no
 // addressing field, so it is addressed to nobody (forMe).
 
+// The episodic journal (agent-fabric ADR-041 rule 4): the messages addressed
+// to this session are kept in its own journal before the page is
+// acknowledged, so a message is never acknowledged — let go by the carrier
+// — and then lost between here and the session. If the journal cannot take
+// them they are neither acknowledged nor shown: the carrier shows them
+// again, after JOURNAL_RETRY_MS so a broken journal does not spin, and
+// onJournalFail says why once per cause, so the session knows messages are
+// held rather than missing. Others' traffic is acknowledged as before and
+// never journaled.
+export const JOURNAL_RETRY_MS = 30000;
+const EPISODIC = fileURLToPath(new URL('../../../tools/fabric/episodic.py', import.meta.url));
+export function journalInbound(records, who, { env = process.env, run = spawnSync } = {}) {
+  const py = env.AGENT_FABRIC_PYTHON || '/usr/local/bin/fabric-python';
+  const where = [...(who?.project ? ['--project', who.project] : []), ...(who?.working_copy ? ['--working-copy', who.working_copy] : [])];
+  const input = records.map(r => JSON.stringify({ content: r.content, seq: r.seq ?? null, ts: r.ts_full ?? r.timestamp ?? r.ts ?? null })).join('\n') + '\n';
+  let r;
+  try { r = run(py, [EPISODIC, 'gzcoord-in', ...where], { encoding: 'utf8', env, input, timeout: 30000 }); }
+  catch (e) { return { ok: false, reason: `episodic: ${e?.message ?? e}` }; }
+  const said = String(r.stderr ?? '').trim().split('\n').filter(Boolean);
+  if (r.status !== 0) return { ok: false, reason: said.at(-1) || `episodic: the journal did not answer (${r.signal ?? `exit ${r.status}`})` };
+  return { ok: true, said };
+}
+
 export async function waitLoop({ fetchPage, ack, waitTotal, forMeFn = forMe, keywords = [], ownAddress,
-                                 held = () => false, onHold = () => {}, holdPollMs = HOLD_POLL_MS, sleep = ms => new Promise(r => setTimeout(r, ms)) }) {
+                                 held = () => false, onHold = () => {}, holdPollMs = HOLD_POLL_MS, sleep = ms => new Promise(r => setTimeout(r, ms)),
+                                 journal = null, onJournalFail = () => {}, journalRetryMs = JOURNAL_RETRY_MS }) {
   let waited = 0;
   let hit = null;
   let wasHeld = false;
@@ -565,6 +590,19 @@ export async function waitLoop({ fetchPage, ack, waitTotal, forMeFn = forMe, key
       const isMine = msg ? forMeFn(msg) : false;
       classified.push({ rec, msg, isMine });
       if (isMine) delivered = true;
+    }
+    const mine = classified.filter(c => c.isMine);
+    if (journal && mine.length) {
+      const kept = await journal(mine.map(c => c.rec));
+      if (!kept.ok) {
+        // Held, not shown, not acknowledged: the carrier shows them again.
+        onJournalFail(kept.reason, mine.length);
+        for (const c of classified) if (!c.isMine) { try { await ack(c.rec.id); } catch { /* re-read next arm */ } }
+        if (waitTotal === 0) return { classified: classified.filter(c => !c.isMine), waited, delivered: false, keywordHit: null,
+                                      othersPassed: classified.length - mine.length, journalFailed: kept.reason };
+        await sleep(journalRetryMs);
+        continue;
+      }
     }
     for (const { rec } of classified) { try { await ack(rec.id); } catch { /* the next arm re-shows it */ } }
     // A keyword hit is a reason to stop waiting on a message that is not
@@ -771,6 +809,15 @@ export async function main(argv = process.argv.slice(2)) {
   // the source for them, and a key built in an expression is a key the
   // dead-and-missing guard cannot see.
   const onHold = h => console.error(h ? t('watch.held') : t('watch.hold-released'));
+  // The journal speaks for itself, untranslated, like fabric-jobs in
+  // send.mjs; on stdout in the watch, so the held messages reach the session.
+  const journal = process.env.GZCOORD_JOURNAL === 'off' ? null : recs => journalInbound(recs, who);
+  let journalCause = null;
+  const onJournalFail = (reason, n) => {
+    if (reason === journalCause) return;
+    journalCause = reason;
+    console.log(`gzcoord: ${n} message(s) addressed to you are held, not shown: your journal could not keep them (${reason}); they are shown once it can (ADR-041), or with GZCOORD_JOURNAL=off`);
+  };
   const fetchRecent = signal => api(tok, `/api/messages?${new URLSearchParams({ channel: CHANNEL, limit: String(HISTORY_WINDOW), full: '1' })}`, { relayUrl, signal });
 
   if (follow) {
@@ -782,7 +829,7 @@ export async function main(argv = process.argv.slice(2)) {
     for (;;) {
       let r;
       try {
-        r = await withFreshToken(() => waitLoop({ fetchPage, ack, waitTotal: 3600, forMeFn: msg => forMe(msg, me), keywords: [], ownAddress: me.address, held, onHold }));
+        r = await withFreshToken(() => waitLoop({ fetchPage, ack, waitTotal: 3600, forMeFn: msg => forMe(msg, me), keywords: [], ownAddress: me.address, held, onHold, journal, onJournalFail }));
       } catch (e) {
         const x = explainRelayError(e, relayUrl, t);
         if (x.code === 4) { console.error(x.line); return 4; }
@@ -791,13 +838,13 @@ export async function main(argv = process.argv.slice(2)) {
         continue;
       }
       if (down) { console.log(t('watch.relay-back')); down = false; }
-      if (r.delivered) { await markRetransmissions(r.classified, fetchRecent); console.log(render(r, me, CHANNEL, taxonomy, { cap: NOTIFICATION_CAP, t, reminder })); }
+      if (r.delivered) { journalCause = null; await markRetransmissions(r.classified, fetchRecent); console.log(render(r, me, CHANNEL, taxonomy, { cap: NOTIFICATION_CAP, t, reminder })); }
     }
   }
 
   let res;
   try {
-    res = await withFreshToken(() => waitLoop({ fetchPage, ack, waitTotal, forMeFn: msg => forMe(msg, me), keywords, ownAddress: me.address }));
+    res = await withFreshToken(() => waitLoop({ fetchPage, ack, waitTotal, forMeFn: msg => forMe(msg, me), keywords, ownAddress: me.address, journal, onJournalFail }));
   } catch (e) {
     const x = explainRelayError(e, relayUrl, t); console.error(x.line); return x.code;
   }
