@@ -47,10 +47,12 @@ SUBAGENT_WORKTREE = re.compile(r"/\.claude/worktrees/[^/]+(/|$)")
 
 
 def is_subagent(payload, cwd: str) -> bool:
-    """A subagent's start, not the session's: the payload names an agent,
-    or the cwd is a worktree the harness made for one
+    """A subagent's start, not the session's: the payload carries an
+    agent_id, or the cwd is a worktree the harness made for one
     (<checkout>/.claude/worktrees/<name>/)."""
-    if isinstance(payload, dict) and (payload.get("agent_id") or payload.get("agent_type")):
+    # agent_id, not agent_type: a main session launched with --agent
+    # carries agent_type too, and its start must still bind (review of #73).
+    if isinstance(payload, dict) and payload.get("agent_id"):
         return True
     try:
         return bool(SUBAGENT_WORKTREE.search(os.path.realpath(cwd)))
@@ -81,7 +83,10 @@ def main() -> int:
         subagent = is_subagent(payload, cwd or os.getcwd())
         # Under the agent lock: another hook (a second session of this
         # login) or a rebind from the shell may be writing the same file.
-        binding = identity.update_binding(lambda b: b if subagent else {**b,
+        # Read, not updated to itself: a write re-stamps updated_at, which
+        # fabric-status and fabric-role report as a binding change, and
+        # creates a binding that was not there (review of #73).
+        binding = identity.read_binding(ctx["agent"]) if subagent else identity.update_binding(lambda b: {**b,
             "working_copy": ctx["working_copy"],
             "project": ctx["project"] if ctx["project_source"] == "working-copy" else b.get("project"),
             "session": session or b.get("session"),

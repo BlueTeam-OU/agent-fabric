@@ -175,12 +175,22 @@ def test_a_subagent_start_never_rebinds_the_login(tmp: str) -> None:
     with open(binding_path, "w", encoding="utf-8") as fh:
         json.dump({"agent": id_un(), "host": HOST, "role": "fabric-coordinator", "working_copy": main_wc,
                    "session": "parent", "updated_at": "x"}, fh)
+    before = open(binding_path, "rb").read()
     for payload in ({"cwd": sub_wc, "session_id": "parent"},
                     {"cwd": main_wc, "session_id": "parent", "agent_id": "abc123", "agent_type": "code-medium"}):
         proc = run_hook(payload, env)
         assert proc.returncode == 0, proc.stderr
-        b = json.load(open(binding_path, encoding="utf-8"))
-        assert b["working_copy"] == main_wc and b["session"] == "parent", (payload, b)
+        # Not a byte of it: a rewrite to the same fields re-stamps updated_at.
+        assert open(binding_path, "rb").read() == before, (payload, open(binding_path).read())
+    # A subagent's start creates no binding where there was none.
+    os.unlink(binding_path)
+    run_hook({"cwd": sub_wc, "session_id": "parent"}, env)
+    assert not os.path.exists(binding_path), "a subagent's start created a binding"
+    with open(binding_path, "wb") as fh:
+        fh.write(before)
+    # agent_type alone is a main session launched with --agent: it binds.
+    run_hook({"cwd": main_wc, "session_id": "main-agent", "agent_type": "code-plan"}, env)
+    assert json.load(open(binding_path, encoding="utf-8"))["session"] == "main-agent", open(binding_path).read()
     # The session's own start still writes it.
     other = os.path.join(tmp, "other-clone")
     git_repo(other, "git@github.com:gzapi-org/agent-fabric.git")
