@@ -166,7 +166,12 @@ def auto_mode_defaults() -> dict | None:
     """Claude Code's built-in auto-mode lists, from the harness on PATH, or
     None when it cannot say (no claude, a timeout, an answer that is not
     the expected object)."""
-    claude = os.environ.get("AGENT_FABRIC_CLAUDE") or shutil.which("claude")
+    # ~/.local/bin after PATH: bootstrap runs from an account's control
+    # daemon too, whose PATH need not carry it, and that is where a native
+    # install of the pinned harness lives.
+    native = os.path.join(local_bin(), "claude")
+    claude = (os.environ.get("AGENT_FABRIC_CLAUDE") or shutil.which("claude")
+              or (native if os.access(native, os.X_OK) else None))
     if not claude:
         return None
     try:

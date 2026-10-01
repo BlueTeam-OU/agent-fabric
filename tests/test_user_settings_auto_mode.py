@@ -91,6 +91,19 @@ def main() -> int:
               after.get("autoMode"))
         check("…and the line says why", "auto-mode defaults could not be read" in r.stderr, r.stderr)
 
+        print("claude off PATH but in ~/.local/bin, as a control daemon runs bootstrap")
+        os.makedirs(os.path.join(tmp, "bin"), exist_ok=True)
+        os.symlink(fake, os.path.join(tmp, "bin", "claude"))
+        doc = json.load(open(settings))
+        doc["autoMode"] = {"environment": ["stale"]}
+        json.dump(doc, open(settings, "w"))
+        bare = {k: v for k, v in env.items() if k != "AGENT_FABRIC_CLAUDE"}
+        r = subprocess.run([sys.executable, SCRIPT, settings], capture_output=True, text=True,
+                           env={**bare, "PATH": "/usr/bin:/bin"}, timeout=120)
+        check("found there, and autoMode written", r.returncode == 0
+              and json.load(open(settings))["autoMode"]["environment"][0].startswith("**Organization**: gzapi-org"),
+              r.stdout + r.stderr)
+
         print("the policy itself")
         check("every slot has text", all(isinstance(v, str) and v.strip() for v in POLICY["environment"].values()))
         check("the public repositories are named as such",
