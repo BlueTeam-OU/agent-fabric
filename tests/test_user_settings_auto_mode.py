@@ -113,7 +113,8 @@ def main() -> int:
         r = subprocess.run([sys.executable, SCRIPT, settings], capture_output=True, text=True,
                            env={**bare, "PATH": other + ":/usr/bin:/bin"}, timeout=120)
         envl = json.load(open(settings))["autoMode"]["environment"]
-        check("the defaults are the pinned harness's (three slots), not the other's (one)", len(envl) >= 3, envl)
+        check("the defaults are the pinned harness's, not the other claude's",
+              envl[1] == DEFAULTS["environment"][1] and "from another claude" not in json.dumps(envl), envl[:3])
 
         print("a file settled but for the wizard switch is written")
         doc = json.load(open(settings))
@@ -124,9 +125,10 @@ def main() -> int:
               and json.load(open(settings))["skillOverrides"].get("auto-mode-setup") == "off", r.stdout)
 
         print("a policy the writer cannot read is refused, never half-applied")
-        import shutil
-        policy_path = os.path.join(HERE, "policies", "auto-mode.json")
-        saved = open(policy_path, encoding="utf-8").read()
+        # A scratch policy, named by the override: the checkout's own file is
+        # never written, so a killed run cannot leave it broken.
+        policy_path = os.path.join(tmp, "auto-mode.json")
+        env["AGENT_FABRIC_AUTO_MODE_POLICY"] = policy_path
         try:
             for label, text in (("a misspelled key", json.dumps({**POLICY, "soft_denies": ["x"]})),
                                 ("a string where a list belongs", json.dumps({**POLICY, "hard_deny": "one rule"})),
@@ -139,8 +141,7 @@ def main() -> int:
                       r.returncode == 1 and r.stderr.startswith("  !  ") and "NOT written" in r.stderr
                       and open(settings).read() == before, r.stdout + r.stderr)
         finally:
-            open(policy_path, "w", encoding="utf-8").write(saved)
-        del shutil
+            env.pop("AGENT_FABRIC_AUTO_MODE_POLICY")
 
         print("the policy itself")
         check("every slot has text", all(isinstance(v, str) and v.strip() for v in POLICY["environment"].values()))

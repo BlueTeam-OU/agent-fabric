@@ -159,11 +159,14 @@ def with_memory_check(hooks: dict) -> dict:
     return hooks
 
 
-AUTO_MODE_POLICY = os.path.join(FABRIC_ROOT, "policies", "auto-mode.json")
+# The environment override is for a test, which must never write the
+# checkout's own policy (re-review of #74).
+AUTO_MODE_POLICY = os.environ.get("AGENT_FABRIC_AUTO_MODE_POLICY") or os.path.join(FABRIC_ROOT, "policies", "auto-mode.json")
 
 
 def auto_mode_defaults() -> dict | None:
-    """Claude Code's built-in auto-mode lists, from the harness on PATH, or
+    """Claude Code's built-in auto-mode lists, from the pinned harness in
+    ~/.local/bin (else the one on PATH), or
     None when it cannot say (no claude, a timeout, an answer that is not
     the expected object)."""
     # ~/.local/bin first: that is the pinned harness, the one `fabric-ctl …

@@ -11,7 +11,7 @@ import { scratch } from '../../../tests/scratch.mjs';
 import { fileURLToPath } from 'node:url';
 import { upgrade, upgradeOnce, holdLease, checkArgs, markerPath, pinnedVersion, sessionPids, lastLine, LEASE_HELD, POST_STOP_BUDGET_S } from '../upgrade.mjs';
 
-function fixture({ installed = '2.1.280', pin = '2.1.281', installFails = false, installsWrong = false, settingsFail = false } = {}) {
+function fixture({ installed = '2.1.280', pin = '2.1.281', installFails = false, installsWrong = false, settingsFail = false, settingsWarn = false } = {}) {
   const home = scratch('upgrade-home-');
   const root = scratch('upgrade-root-');
   fs.mkdirSync(path.join(root, 'runtime', 'claude-code'), { recursive: true });
@@ -22,7 +22,7 @@ function fixture({ installed = '2.1.280', pin = '2.1.281', installFails = false,
   const exec = async (bin, args) => {
     calls.push(bin === 'python3' ? `user-settings ${path.relative(home, args[1])}` : args.join(' '));
     if (args[0] === '--version') return { stdout: `${current} (Claude Code)\n` };
-    if (bin === 'python3') { if (settingsFail) { const e = new Error('Command failed: user-settings.py'); e.stderr = '  !  unreadable\n'; throw e; } return { stdout: '  +  settings\n' }; }
+    if (bin === 'python3') { if (settingsFail) { const e = new Error('Command failed: user-settings.py'); e.stderr = '  !  unreadable\n'; throw e; } return { stdout: '  +  settings\n', stderr: settingsWarn ? "  !  s.json: Claude Code's auto-mode defaults could not be read — autoMode left as it is\n" : '' }; }
     if (args[0] === 'install') { if (installFails) { const e = new Error(`Command failed: claude install ${args[1]}`); e.stderr = 'Downloading…\nInstall failed: network\n'; throw e; } current = installsWrong ? '2.1.279' : args[1]; return { stdout: '' }; }
     throw new Error('unexpected ' + args.join(' '));
   };
@@ -149,6 +149,13 @@ test('holdLease: the real fabric-lease holds until release; no lease directory a
     await assert.rejects(holdLease(ROOT), e => e.code === 2 && e.reason === 'nodir' && /no lease directory/.test(e.line));
     await assert.rejects(holdLease(scratch('upgrade-noscript-')), e => e.code === -1 && /ENOENT/.test(e.line));
   } finally { if (saved === undefined) delete process.env.AGENT_FABRIC_LEASES; else process.env.AGENT_FABRIC_LEASES = saved; }
+});
+
+test('a refresh that wrote every key but autoMode is not a refresh', async () => {
+  const f = fixture({ settingsWarn: true });
+  const r = await upgradeOnce(req(), { home: f.home, root: f.root, dir: f.dir, exec: f.exec, lease: f.lease, sessions: [], kill: () => assert.fail('nothing to signal'), me: 'h/db-admin' });
+  assert.equal(r.status, 'upgraded');
+  assert.match(r.settings, /^not refreshed: .*auto-mode defaults could not be read/);
 });
 
 test('a settings refresh that fails is said, and the install still counts', async () => {

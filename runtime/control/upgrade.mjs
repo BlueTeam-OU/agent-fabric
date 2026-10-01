@@ -240,9 +240,13 @@ async function installHeld({ request, dir, bin, exec, kill, alive, sleep, now, s
   let settings = null;
   if (ok && root && home) {
     try {
-      await exec('python3', [path.join(root, 'runtime', 'claude-code', 'user-settings.py'), path.join(home, '.claude', 'settings.json')],
+      const r = await exec('python3', [path.join(root, 'runtime', 'claude-code', 'user-settings.py'), path.join(home, '.claude', 'settings.json')],
         { encoding: 'utf8', timeout: 120_000, stdio: ['ignore', 'pipe', 'pipe'] });
-      settings = 'refreshed';
+      // Exit 0 with a "  !  " line is a key it could not write — autoMode
+      // left at the previous build's when the new one's defaults could not
+      // be read — so not a refresh (re-review of #74).
+      const refused = String(r?.stderr ?? '').split('\n').find(l => l.startsWith('  !  '));
+      settings = refused ? `not refreshed: ${refused.slice(5, 165)}` : 'refreshed';
     } catch (e) { settings = `not refreshed: ${lastLine(e).slice(0, 160)}`; }
   }
   if (stop) writeMarker(dir, { ...marker, status: ok ? 'done' : 'failed', installed, ...(reason && { reason }), finished_at: now().toISOString() });
