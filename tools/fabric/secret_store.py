@@ -467,12 +467,16 @@ def values(store: str | None = None) -> dict[str, str]:
 # child once filled. Never a value, and nothing needs the two on one host.
 BUNDLE_BEGIN = "-----BEGIN AGENT-FABRIC STORE BUNDLE-----"
 BUNDLE_END = "-----END AGENT-FABRIC STORE BUNDLE-----"
+# Named in full wherever a bundle is read: an abbreviated `main` resolves a
+# tag before a branch, so a bundle holding both had its id checked on one
+# commit and the other cloned and pushed (review of #76, reproduced).
+MAIN = "refs/heads/main"
 
 
 def _bundle_armored(repo: str) -> str:
     with tempfile.TemporaryDirectory() as tmp:
         path = os.path.join(tmp, "store.bundle")
-        git(repo, "bundle", "create", path, "main")
+        git(repo, "bundle", "create", path, MAIN)
         with open(path, "rb") as fh:
             body = base64.encodebytes(fh.read()).decode()
     return f"{BUNDLE_BEGIN}\n{body}{BUNDLE_END}\n"
@@ -489,8 +493,10 @@ def _bundle_file(text: str, tmp: str) -> str:
     path = os.path.join(tmp, "store.bundle")
     with open(path, "wb") as fh:
         fh.write(data)
-    if _run(["git", "bundle", "list-heads", path, "refs/heads/main"], check=False).stdout.strip() == b"":
-        raise StoreError("not a store bundle (no main in it); nothing taken")
+    listed = _run(["git", "bundle", "list-heads", path], check=False)
+    refs = [l.split()[-1] for l in listed.stdout.decode(errors="replace").splitlines() if l.strip()]
+    if listed.returncode != 0 or refs != [MAIN]:
+        raise StoreError(f"not a store bundle (it must hold {MAIN} and nothing else); nothing taken")
     return path
 
 
@@ -499,7 +505,7 @@ def _bundle_identity(path: str, tmp: str) -> tuple[str, str]:
     touching any store."""
     peek = os.path.join(tmp, "peek")
     _run(["git", "init", "-q", peek])
-    git(peek, "fetch", "-q", path, "main:refs/peek/main")
+    git(peek, "fetch", "-q", path, f"{MAIN}:refs/peek/main")
     def show(name: str) -> str:
         r = git(peek, "show", f"refs/peek/main:{name}", check=False)
         return (r.stdout.decode().split() or [""])[0] if r.returncode == 0 else ""
@@ -527,7 +533,10 @@ def seed_child(agent_id: str, remote: str, text: str) -> dict:
             raise StoreError(f"the bundle is agent {aid or '(none)'}, not {agent_id}; nothing pushed")
         if not os.path.isdir(os.path.join(mirror, ".git")):
             os.makedirs(children_dir(), exist_ok=True)
-            _run(["git", "clone", "-q", "-b", "main", path, mirror], label="git clone")
+            # No checkout of a tree that is not yet the parent's own: the
+            # history only, checked out once it is in place.
+            _run(["git", "clone", "-q", "--no-checkout", path, mirror], label="git clone")
+            git(mirror, "checkout", "-q", "-B", "main", "refs/remotes/origin/main")
             git(mirror, "remote", "set-url", "origin", remote)
         else:
             # An earlier run's mirror: whatever the remote already has, then
@@ -535,7 +544,7 @@ def seed_child(agent_id: str, remote: str, text: str) -> dict:
             git(mirror, "fetch", "-q", "origin")
             if git(mirror, "rev-parse", "-q", "--verify", "refs/remotes/origin/main", check=False).returncode == 0:
                 git(mirror, "merge", "-q", "--ff-only", "refs/remotes/origin/main")
-            git(mirror, "fetch", "-q", path, "main:refs/first-contact/main")
+            git(mirror, "fetch", "-q", path, f"{MAIN}:refs/first-contact/main")
             git(mirror, "merge", "-q", "--ff-only", "refs/first-contact/main")
         git(mirror, "push", "-q", "-u", "origin", "HEAD:main")
     return {"agent_id": agent_id, "mirror": mirror, "remote": remote}
@@ -564,7 +573,7 @@ def take_bundle(text: str) -> dict:
         if aid != own or gpg_id != fpr:
             raise StoreError(f"the bundle is agent {aid or '(none)'} with key {gpg_id or '(none)'}, "
                              f"not this store ({own}, {fpr}); nothing taken")
-        git(store, "fetch", "-q", path, "main:refs/remotes/origin/main")
+        git(store, "fetch", "-q", path, f"{MAIN}:refs/remotes/origin/main")
         git(store, "merge", "-q", "--ff-only", "refs/remotes/origin/main")
     head = git(store, "rev-parse", "--short", "HEAD").stdout.decode().strip()
     return {"agent_id": aid, "head": head, "names": len(names(store))}

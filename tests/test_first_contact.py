@@ -138,6 +138,10 @@ esac
         print("first contact: the filled store comes back as a bundle")
         r = parent("python3", STORE, "put", "kid", "GH_TOKEN", stdin="fixture-not-a-token\n")
         check("the parent writes into the child's store", r.returncode == 0, r.stderr)
+        # The sync's own check: the store must name the login running it.
+        me = subprocess.run(["id", "-un"], capture_output=True, text=True).stdout.strip()
+        r = parent("python3", STORE, "put", "kid", "AGENT_LOGIN", stdin=f"{me}\n")
+        check("…and names the login that will sync it", r.returncode == 0, r.stderr)
         before = kid(ACCOUNT_SECRETS, "store", "names").stdout.split()
         bundle = parent("python3", STORE, "child-bundle", "kid")
         r = kid(ACCOUNT_SECRETS, "store", "take-bundle", stdin=bundle.stdout)
@@ -147,6 +151,10 @@ esac
               (bundle.stderr, r.stdout, r.stderr, before, after))
         check("…and the bundle is ciphertext: the value is nowhere in it",
               "fixture-not-a-token" not in bundle.stdout and "BEGIN AGENT-FABRIC STORE BUNDLE" in bundle.stdout)
+        r = kid(ACCOUNT_SECRETS, "sync", "--quiet")
+        r2 = kid(ACCOUNT_SECRETS, "sync", "--quiet", "--no-pull")
+        check("its first sync applies the copy without a pull; a sync that pulls fails here (the control)",
+              r.returncode == 1 and r2.returncode in (0, 2), (r.returncode, r.stderr, r2.returncode, r2.stderr))
 
         print("first contact: what is refused")
         foreign = parent("python3", STORE, "bundle")
@@ -154,6 +162,45 @@ esac
         check("another agent's store is not taken", r.returncode != 0 and "nothing taken" in r.stderr, r.stderr)
         r = kid(ACCOUNT_SECRETS, "store", "take-bundle", stdin="not a bundle\n")
         check("text that is not a bundle is not taken", r.returncode != 0 and "no armour" in r.stderr, r.stderr)
+        # Bundles made by hand, as an attacker would: a scratch copy of the
+        # mirror, each shape armoured the way the store armours its own.
+        genv = {**BASE_ENV, "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1",
+                "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t"}
+
+        def g(repo: str, *a: str) -> str:
+            return subprocess.run(["git", "-C", repo, *a], env=genv, check=True, capture_output=True, text=True).stdout
+
+        def armour(repo: str, *refs: str) -> str:
+            path = os.path.join(t, "hand.bundle")
+            g(repo, "bundle", "create", path, *refs)
+            with open(path, "rb") as f:
+                import base64
+                return f"{st.BUNDLE_BEGIN}\n{base64.encodebytes(f.read()).decode()}{st.BUNDLE_END}\n"
+
+        hand = os.path.join(t, "hand")
+        subprocess.run(["git", "clone", "-q", mirror, hand], env=genv, check=True, capture_output=True)
+        g(hand, "tag", "main", "HEAD")
+        r = parent("python3", STORE, "seed-child", kid_id, "--remote", repo, stdin=armour(hand, "refs/heads/main", "refs/tags/main"))
+        check("a bundle holding a tag main beside the branch is refused (an abbreviated main reads the tag)",
+              r.returncode != 0 and "refs/heads/main and nothing else" in r.stderr, r.stderr)
+        g(hand, "tag", "-d", "main")
+        with open(os.path.join(hand, ".gpg-id"), "w") as f:
+            f.write("0" * 40 + "\n")
+        g(hand, "commit", "-qam", "another key")
+        head_before = kid("git", "-C", ".local/share/agent-fabric/secrets", "rev-parse", "HEAD").stdout
+        r = kid(ACCOUNT_SECRETS, "store", "take-bundle", stdin=armour(hand, "refs/heads/main"))
+        check("the right agent id with another key is not taken", r.returncode != 0 and "nothing taken" in r.stderr, r.stderr)
+        alien = os.path.join(t, "alien")
+        os.makedirs(alien)
+        g(alien, "init", "-q", "-b", "main")
+        for name in (".agent-id", ".gpg-id"):
+            shutil.copy(os.path.join(mirror, name), alien)
+        g(alien, "add", "-A")
+        g(alien, "commit", "-qm", "the right id and key, an unrelated history")
+        r = kid(ACCOUNT_SECRETS, "store", "take-bundle", stdin=armour(alien, "refs/heads/main"))
+        head_after = kid("git", "-C", ".local/share/agent-fabric/secrets", "rev-parse", "HEAD").stdout
+        check("…nor a history that does not descend from the store's, which is left as it was",
+              r.returncode != 0 and head_after == head_before and head_before.strip(), (r.stderr, head_before, head_after))
         mine = kid(ACCOUNT_SECRETS, "store", "bundle")
         other = "01a0f782-7e06-7dee-811f-0a860ed93bf3"
         r = parent("python3", STORE, "seed-child", other, "--remote", os.path.join(remotes, "x.git"), stdin=mine.stdout)
