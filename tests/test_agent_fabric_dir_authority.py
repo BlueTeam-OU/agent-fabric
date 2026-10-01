@@ -103,6 +103,17 @@ def main() -> int:
         check("the branch's edit names nobody", da.owner_role_of(fab, {}, "main") == "base-owner")
         check("a base without the file: the default", da.owner_role_of(fab, {}, "before") == "fabric-coordinator")
 
+        print("a branch that deletes the file keeps agent-fabric's scope (review of #72)")
+        sh(fab, "rm", "-q", "policies/authority.json")
+        with open(os.path.join(fab, "other.txt"), "w") as f:
+            f.write("x\n")
+        sh(fab, "add", "-A")
+        sh(fab, "commit", "-qm", "delete the file, then change something else with no trailer")
+        check("still agent-fabric itself", da.is_fabric_itself(fab, "main"))
+        scope, commits = da.commits_to_examine(fab, "main")
+        check("every commit is examined", scope == "agent-fabric itself" and len(commits) == 2)
+        check("a base and a tree without the file: a managed project", not da.is_fabric_itself(fab, "before"))
+
         print("the run, end to end in a scratch managed project")
         rr = os.path.join(tmp, "p")
         os.mkdir(rr)

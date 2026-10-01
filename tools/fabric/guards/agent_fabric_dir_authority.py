@@ -148,8 +148,23 @@ def declared_role(message: str, interpreted: str) -> str:
     return declared
 
 
-def owner_role_of(top: str, env: dict[str, str], base: str) -> str:
+def is_fabric_itself(top: str, base: str) -> bool:
+    """Whether this is agent-fabric itself, where every commit is guarded.
+    Either side's policies/authority.json says so: read from the working
+    tree alone, as the bash did, a branch that deleted the file narrowed the
+    check to .agent-fabric/** and its other commits passed with no trailer
+    (review of #72). A git that cannot say reads as the stricter scope."""
     if os.path.isfile(os.path.join(top, "policies", "authority.json")):
+        return True
+    try:
+        r = git.run(top, "cat-file", "-e", f"{base}:policies/authority.json", check=False)
+    except git.GitError:
+        return True
+    return r.returncode == 0
+
+
+def owner_role_of(top: str, env: dict[str, str], base: str) -> str:
+    if is_fabric_itself(top, base):
         # agent-fabric itself: the base's file, never the branch's.
         shown = git.run(top, "show", f"{base}:policies/authority.json", check=False)
         role = common.role_of(shown.stdout) if shown.returncode == 0 else None
@@ -169,7 +184,7 @@ def owner_role_of(top: str, env: dict[str, str], base: str) -> str:
 
 
 def commits_to_examine(top: str, base: str) -> tuple[str, list[str]]:
-    if os.path.isfile(os.path.join(top, "policies", "authority.json")):
+    if is_fabric_itself(top, base):
         scope, args = "agent-fabric itself", ["rev-list", "--no-merges", f"{base}..HEAD"]
     else:
         scope, args = ".agent-fabric/", ["rev-list", "--no-merges", f"{base}..HEAD", "--", ".agent-fabric/**"]
