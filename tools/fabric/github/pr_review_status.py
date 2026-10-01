@@ -271,10 +271,33 @@ TIMELINE_QUERY = """query($owner: String!, $name: String!, $pr: Int!) {
             ... on User { login }
             ... on Bot  { login }
             ... on Team { login: slug } } } } } } } }"""
-THREADS_QUERY = """query($owner:String!,$name:String!,$pr:Int!){
+THREADS_QUERY = """query($owner:String!,$name:String!,$pr:Int!,$after:String){
   repository(owner:$owner,name:$name){
     pullRequest(number:$pr){
-      reviewThreads(first:100){nodes{isResolved isOutdated path}}}}}"""
+      reviewThreads(first:100,after:$after){nodes{isResolved isOutdated path}
+        pageInfo{hasNextPage endCursor}}}}}"""
+# A page is 100 threads: past it the count was short and read as whole
+# (review of #71). Pages are followed to the end; a PR with more than
+# THREAD_PAGES of them is "unknown", never a count of the first ones.
+THREAD_PAGES = 50
+
+
+def review_threads(owner: str, name: str, pr: int, after: str | None = None) -> list[dict]:
+    """Every review thread of the PR from `after` on, page by page. Raises
+    gh.GhError (or a lookup error on a malformed answer) when any page
+    cannot be read, and ValueError past THREAD_PAGES pages."""
+    nodes: list[dict] = []
+    for _ in range(THREAD_PAGES):
+        data = gh.graphql(THREADS_QUERY, owner=owner, name=name, pr=pr, after=after)
+        page = data["repository"]["pullRequest"]["reviewThreads"]
+        nodes += page["nodes"]
+        info = page.get("pageInfo") or {}
+        if not info.get("hasNextPage"):
+            return nodes
+        after = info.get("endCursor")
+        if not after:
+            raise ValueError("a next page of review threads with no cursor")
+    raise ValueError(f"more than {THREAD_PAGES * 100} review threads")
 
 # The reviewer's verdict comment: the sha in the body is abbreviated.
 VERDICT_SHA = re.compile(r"Reviewed commit:[^`]*`(?P<sha>[0-9a-f]{7,40})`", re.IGNORECASE)
@@ -1067,8 +1090,7 @@ def fetch_extras(ctx: "Ctx") -> Extras:
     2026-09-25). JSON says null."""
     owner, name = ctx.repo.split("/", 1)[0], ctx.repo.rsplit("/", 1)[-1]
     try:
-        data = gh.graphql(THREADS_QUERY, owner=owner, name=name, pr=int(ctx.pr))
-        nodes = data["repository"]["pullRequest"]["reviewThreads"]["nodes"]
+        nodes = review_threads(owner, name, int(ctx.pr))
         threads = [n for n in nodes if n.get("isResolved") is False]
         unresolved = len(threads)
     except (gh.GhError, ValueError, TypeError, KeyError, AttributeError):
