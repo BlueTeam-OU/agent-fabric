@@ -162,38 +162,61 @@ def main() -> int:
             os.environ["PATH"] = saved_path
 
         print("the verification")
+        # The read-backs are stubbed where they leave this process: the host's
+        # own gh, git and gpg must not answer (its real gpg reaches the real
+        # keyring even under a scratch home). Account.run itself is checked
+        # once below, through a recording sudo, with a line that reads nothing.
         home = f"{tmp}/acct"
         os.makedirs(f"{home}/.config/agent-fabric")
-        put(f"{tmp}/vbin/sudo", f"#!/usr/bin/env bash\necho \"$*\" >> {tmp}/sudo.calls\n[[ $1 == -n ]] && shift; [[ $1 == -u ]] && shift 2; [[ $1 == -H ]] && shift\nexec \"$@\"\n", 0o755)
-        put(f"{tmp}/vbin/gpg", "#!/usr/bin/env bash\necho 'sec  ed25519'\necho 'sec  rsa'\n", 0o755)
         put(f"{root}/bin/fabric-ctl", "#!/usr/bin/env bash\necho header\necho pong\n", 0o755)
-        os.environ["PATH"] = f"{tmp}/vbin:{saved_path}"
-        err = io.BytesIO()
-        saved_err = sys.stderr
-        wrapper = sys.stderr = io.TextIOWrapper(err, encoding="utf-8")
-        try:
-            closing_text = w.verify(root, "acct", home, f"{tmp}/vbin/sudo", ["demo"])
-            wrapper.flush()
-            said = err.getvalue().decode()
-        finally:
-            sys.stderr = saved_err
-            wrapper.detach()
-            os.environ["PATH"] = saved_path
-        check("each read-back runs as the account, its lines prefixed; the ping's first line dropped",
-              "   control plane: pong\n" in said and "header" not in said and "   demo ssh to origin: FAILED\n" in said, said)
-        check("…the GPG keys counted from the account's keyring", "GPG secret key: present" in closing_text)
-        calls = open(f"{tmp}/sudo.calls").read().splitlines()
-        check("…every read-back asked of sudo as the account, never as root",
-              calls and all(c.startswith("-n -u acct -H env -i ") for c in calls if " bash -lc " in c), calls[:2])
+        put(f"{tmp}/vbin/sudo", f"#!/usr/bin/env bash\necho \"$*\" >> {tmp}/sudo.calls\n[[ $1 == -n ]] && shift; [[ $1 == -u ]] && shift 2; [[ $1 == -H ]] && shift\nexec \"$@\"\n", 0o755)
+
+        def verify_with(answers: dict, projects: list[str]) -> tuple[str, str, list[str]]:
+            asked = []
+
+            def fake_run(self, line, *, stderr=None):
+                asked.append(line)
+                return next((v for k, v in answers.items() if k in line), b"")
+            saved_run, saved_err = w.Account.run, sys.stderr
+            w.Account.run = fake_run
+            buf = io.BytesIO()
+            wrapper = sys.stderr = io.TextIOWrapper(buf, encoding="utf-8")
+            try:
+                text = w.verify(root, "acct", home, f"{tmp}/vbin/sudo", projects)
+                wrapper.flush()
+                said = buf.getvalue().decode()
+            finally:
+                w.Account.run, sys.stderr = saved_run, saved_err
+                wrapper.detach()
+            return text, said, asked
+        text, said, asked = verify_with({"gpg --list-secret-keys": b"2\n", "ls-remote": b"ssh to origin: ok\n",
+                                         "gh auth status": b"Logged in to github.com\n"}, ["demo"])
+        check("each read-back's lines prefixed; the ping's first line dropped",
+              "   control plane: pong\n" in said and "header" not in said and "   demo ssh to origin: ok\n" in said
+              and "   gh: Logged in to github.com\n" in said, said)
+        check("…the account's GPG keys counted: present", "GPG secret key: present" in text)
+        check("…both launch paths read back, from the first project", sum("--provider anthropic --print" in a or
+              "--provider openrouter --print" in a for a in asked) == 2 and all("cd ~/projects/demo &&" in a for a in asked
+                                                                               if "--print" in a))
+        text, _, _ = verify_with({"gpg --list-secret-keys": b"0\n"}, [])
+        check("…none counted is NONE, with the commands to import one", "GPG secret key: NONE" in text
+              and "gpg --batch --import" in text)
+        text, _, _ = verify_with({"gpg --list-secret-keys": b"garbage\n"}, [])
+        check("…an answer with no count is none", "GPG secret key: NONE" in text)
         put(f"{home}/.config/agent-fabric/secrets.env", "export CLAUDE_CODE_OAUTH_TOKEN='x'\n")
+        text, _, _ = verify_with({}, [])
+        check("…and a template token in the synced record is read through sudo", "a template token" in text)
+        saved_path = os.environ["PATH"]
         os.environ["PATH"] = f"{tmp}/vbin:{saved_path}"
-        sys.stderr = io.TextIOWrapper(io.BytesIO(), encoding="utf-8")
         try:
-            closing_text = w.verify(root, "acct", home, f"{tmp}/vbin/sudo", [])
+            out = w.Account("acct", home, f"{tmp}/vbin/sudo").run("echo as-the-account")
         finally:
-            sys.stderr = saved_err
             os.environ["PATH"] = saved_path
-        check("…and a template token in the synced record is read through sudo", "a template token" in closing_text)
+        calls = open(f"{tmp}/sudo.calls").read().splitlines()
+        check("a read-back is a login shell as the account through sudo -u, never as root",
+              out == b"as-the-account\n" and any(c.startswith("-n -u acct -H env -i HOME=") and " bash -lc " in c
+                                                  for c in calls), calls[-1:])
+        saved_err = sys.stderr
         sys.stderr = io.TextIOWrapper(io.BytesIO(), encoding="utf-8")
         try:
             missing = w.quiet_run([f"{tmp}/no-fabric-ctl"], stderr=subprocess.STDOUT)
