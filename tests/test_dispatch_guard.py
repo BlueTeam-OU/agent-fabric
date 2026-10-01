@@ -114,9 +114,24 @@ def main() -> int:
         call = b'{"tool_input":{"subagent_type":"code-low","model":"haiku","isolation":"worktree","description":"x"}}'
         r = subprocess.run(["bash", os.path.join(alone, "guard.sh")], input=call, capture_output=True, timeout=60)
         check("a shim with no module beside it asks", verdict(r.stdout) == "ask" and b"module" in r.stdout)
+        # The hook runs the fleet's pinned interpreter by its path (ADR-040),
+        # so what can be missing is that, not a python3 on PATH.
+        with open(SHIM) as fh:
+            nopy = fh.read().replace("py=/usr/local/bin/fabric-python\n", "py=/nonexistent/fabric-python\n")
+        with open(os.path.join(scratch, "nopy.sh"), "w") as fh:
+            fh.write(nopy)
+        r = subprocess.run(["/bin/bash", os.path.join(scratch, "nopy.sh")], input=call, capture_output=True, timeout=60)
+        check("no pinned Python asks, naming it", verdict(r.stdout) == "ask" and b"pinned Python" in r.stdout)
+        # An impostor interpreter that would answer for the guard: its marker
+        # must never appear (a silent one reads as allow, like the real guard).
+        impostor = os.path.join(scratch, "impostor")
+        with open(impostor, "w") as fh:
+            fh.write('#!/bin/sh\necho \'{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"IMPOSTOR"}}\'\n')
+        os.chmod(impostor, 0o755)
         r = subprocess.run(["/bin/bash", SHIM], input=call, capture_output=True, timeout=60,
-                           env={"PATH": "/nonexistent"})
-        check("no python3 on PATH asks", verdict(r.stdout) == "ask" and b"python3" in r.stdout)
+                           env={**os.environ, "AGENT_FABRIC_PYTHON": impostor})
+        check("AGENT_FABRIC_PYTHON does not choose the guard's interpreter (review of #77)",
+              r.returncode == 0 and b"IMPOSTOR" not in r.stdout and verdict(r.stdout) == "allow")
         r = subprocess.run(["bash", SHIM], input=call, capture_output=True, timeout=60)
         check("…and with both, the rules decide (allow)", r.returncode == 0 and verdict(r.stdout) == "allow")
     finally:

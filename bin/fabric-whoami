@@ -2,4 +2,8 @@
 # The agent's name — the effective Linux login — and, with --json, the
 # runtime context bound to it. This is a thin exec of runtime/identity.py,
 # the single canonical resolver; nothing here derives anything itself.
-exec python3 "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../runtime/identity.py" "$@"
+# The fleet's pinned Python (runtime/python.json, ADR-040), one per host;
+# AGENT_FABRIC_PYTHON points elsewhere for a test or a host without it.
+py="${AGENT_FABRIC_PYTHON:-/usr/local/bin/fabric-python}"
+[[ -x "$py" ]] || { echo "fabric-whoami: the fleet's pinned Python is not installed at $py; as root: /usr/bin/python3 <agent-fabric>/tools/fabric/python_pin.py install" >&2; exit 127; }
+exec "$py" "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../runtime/identity.py" "$@"

@@ -327,12 +327,24 @@ def test_bootstrap_writes_only_the_workspace_and_home_files(tmp: str) -> None:
     runtime_dir = os.path.join(tmp, "run"); os.makedirs(runtime_dir)
     env = {**os.environ, "HOME": home, "AGENT_FABRIC_STATE_DIR": os.path.join(tmp, "state"), "XDG_RUNTIME_DIR": runtime_dir}
     env.pop("CLAUDE_CONFIG_DIR", None)
+    # A folder in the workspace that is not a registered working copy: never trusted.
+    stray = os.path.join(projects, "not-a-project"); os.makedirs(stray)
     proc = subprocess.run(["bash", BOOTSTRAP, "--projects", projects, "--dry-run"], capture_output=True, text=True, env=env)
     assert "systemd/user/agent-fabric-agentd.service (would write)" in proc.stdout, proc.stdout
+    # Claude Code itself may create .claude.json when bootstrap asks it
+    # something; what the dry run must not do is record any trust there.
+    cfg = os.path.join(home, ".claude.json")
+    recorded = json.load(open(cfg, encoding="utf-8")).get("projects", {}) if os.path.exists(cfg) else {}
+    assert "trusted in Claude Code (would write)" in proc.stdout and not any(
+        v.get("hasTrustDialogAccepted") for v in recorded.values()), "the dry run says what it would trust and records none"
     proc = subprocess.run(["bash", BOOTSTRAP, "--projects", projects], capture_output=True, text=True, env=env)
     assert proc.returncode == 0, proc.stdout + proc.stderr
     unit = os.path.join(home, ".config", "systemd", "user", "agent-fabric-agentd.service")
     assert os.path.isfile(unit), "the control agent's unit is installed per account"
+    trusted = {d for d, v in json.load(open(os.path.join(home, ".claude.json"), encoding="utf-8"))["projects"].items()
+               if v.get("hasTrustDialogAccepted") is True}
+    assert trusted == {os.path.realpath(projects), os.path.realpath(ROOT)}, \
+        ("the workspace and the fabric are trusted, and a folder that is no registered working copy is not", trusted)
     assert "agent-fabric-agentd: installed, not started" in proc.stdout and "no user manager" in proc.stdout, proc.stdout
     claude_md = open(os.path.join(projects, "CLAUDE.md"), encoding="utf-8").read()
     assert "@agent-fabric/CLAUDE.md" in claude_md and len(claude_md.splitlines()) <= 8, claude_md

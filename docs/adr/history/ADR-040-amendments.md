@@ -28,3 +28,18 @@ pages with; kept, the scan would have refused the transport the port
 uses. Every other assertion asks what it asked, and the extended mock's
 pass on the original bash is what keeps "parity" meaning the same
 behaviour.
+
+### Amendment 2026-10-01 — One pinned Python, 3.13, installed per host
+
+The owner decided that the fleet runs one tagged Python rather than
+whatever each host's packages provide, for compatibility across agents,
+and chose 3.13 as the first step of Wave 5. The shape follows what was
+agreed then, with one change: the installer is Python (`python_pin.py`,
+run by the host's own `/usr/bin/python3`, which the host contract
+already requires) rather than a bash step-runner, so it is tested like
+the rest. Read back on develop-qzapp: the build installed, ran for
+another account, and a fabric suite passed on it; two lint cases failed
+there, because lint's schema fallback skipped keywords jsonschema
+checks, and on a standard-library interpreter the fallback is the
+validator — fixed in the same pull request, with a rule that refuses a
+schema keyword the fallback does not check.

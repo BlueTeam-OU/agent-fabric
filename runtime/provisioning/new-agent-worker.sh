@@ -287,7 +287,7 @@ new-agent: done. Left for a person, in a terminal (nothing here can do them):
         *) echo "- Claude account: no template token — the launcher refuses a plain-claude session (--provider anthropic) without one, its own /login included; the broker path does not need one.
        As the coordinator: bin/fabric-accounts assign $LOGIN <account> (docs/adr/ADR-031-claude-accounts-assigned-applied-and-proved-by-signed-action.md). Never copy another login's .credentials.json." ;;
       esac )
-   - first launch is interactive, to accept the workspace-trust dialog:
+   - first launch (bootstrap has trusted its folders in Claude Code; no trust question):
        moveto $LOGIN${first:+ $first}   then   runtime/openrouter/launch
 EOF
 

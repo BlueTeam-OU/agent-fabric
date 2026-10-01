@@ -1485,6 +1485,111 @@ def case_a_contributor_entry_never_reaches_a_definition() -> None:
         assert lint.contributor_findings(root) == ["policies/authority.json: `contributors` is not a list"]
 
 
+def case_the_fallback_validator_agrees_with_jsonschema() -> None:
+    """On the pinned interpreter (standard library only) the structural
+    fallback is the validator: each keyword it claims gives jsonschema's
+    verdict on a planted pass and a planted fail, and a schema using a
+    keyword it does not check is refused by name."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("fabric_lint_under_test", LINT)
+    lint = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(lint)
+    cases = [
+        ({"type": "object", "propertyNames": {"pattern": "^[a-z]+$"}}, {"ok": 1}, {"Bad": 1}),
+        ({"type": "object", "minProperties": 1}, {"a": 1}, {}),
+        ({"const": "x"}, "x", "y"),
+        ({"oneOf": [{"type": "string"}, {"type": "integer"}]}, "s", 1.5),
+        ({"type": "object", "patternProperties": {"^n_": {"type": "integer"}}}, {"n_a": 1}, {"n_a": "s"}),
+        ({"type": "array", "minItems": 1, "maxItems": 2}, [1], []),
+        ({"type": "array", "maxItems": 1}, [1], [1, 2]),
+        ({"type": "string", "minLength": 2, "maxLength": 3}, "abc", "a"),
+        ({"type": "string", "maxLength": 2}, "ab", "abc"),
+        ({"type": "integer", "minimum": 1, "maximum": 3}, 2, 0),
+        ({"type": "integer", "maximum": 3}, 3, 4),
+        ({"if": {"properties": {"k": {"const": "a"}}}, "then": {"required": ["x"]}, "else": {"required": ["y"]}},
+         {"k": "a", "x": 1}, {"k": "a", "y": 1}),
+        ({"if": {"properties": {"k": {"const": "a"}}}, "then": {"required": ["x"]}, "else": {"required": ["y"]}},
+         {"k": "b", "y": 1}, {"k": "b", "x": 1}),
+        # Review of #77: Python's True == 1 is not JSON's, and both kinds of
+        # property schema apply to one key.
+        ({"const": 1}, 1, True),
+        ({"const": False}, False, 0),
+        ({"enum": [1, 2]}, 2, True),
+        ({"type": "integer"}, 1.0, True),
+        ({"type": "number"}, 0.5, False),
+        ({"properties": {"a": {"type": "string"}}, "patternProperties": {"^a": {"minLength": 3}}}, {"a": "xyz"}, {"a": "x"}),
+    ]
+    try:
+        import jsonschema  # type: ignore
+    except ImportError:
+        jsonschema = None
+    for schema, good, bad in cases:
+        assert lint._structural_check(schema, good, "w") == [], (schema, good)
+        assert lint._structural_check(schema, bad, "w") != [], (schema, bad)
+        if jsonschema is not None:
+            v = jsonschema.Draft202012Validator(schema)
+            assert v.is_valid(good) and not v.is_valid(bad), ("jsonschema disagrees with the case", schema)
+    assert set(k for schema, _, _ in cases for k in schema) <= lint.SCHEMA_KEYWORDS
+    with tempfile.TemporaryDirectory() as root:
+        g = lambda *a: subprocess.run(["git", "-C", root, *a], check=True, capture_output=True)
+        write(os.path.join(root, "x.schema.json"),
+              json.dumps({"type": "object", "properties": {"n": {"type": "integer", "multipleOf": 2}}}))
+        g("init", "-q")
+        g("add", "-A")
+        got = lint.schema_keyword_findings(root)
+        assert any("'multipleOf' is not checked without jsonschema" in f for f in got), got
+        assert not any("'type'" in f or "'n'" in f for f in got), ("a property name is not a keyword", got)
+
+
+def case_the_python_pin_is_checkable_and_what_ci_runs() -> None:
+    """runtime/python.json names a version, https URLs that name it, 64-hex
+    hashes; CI's matrix carries its minor version."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("fabric_lint_under_test", LINT)
+    lint = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(lint)
+    good = {"python": "3.13.15", "release": "r", "builds": {"x86_64": {"url": "https://h/cpython-3.13.15%2Br-x.tgz", "sha256": "a" * 64}}}
+    with tempfile.TemporaryDirectory() as root:
+        write(os.path.join(root, ".github", "workflows", "ci.yml"), "          - { section: python, python: '3.13', node: '22' }\n")
+        def got(doc):
+            write(os.path.join(root, "runtime", "python.json"), json.dumps(doc))
+            return lint.python_pin_findings(root)
+        assert got(good) == [], got(good)
+        assert any("must be https" in f for f in got({**good, "builds": {"x86_64": {**good["builds"]["x86_64"], "url": "http://h/3.13.15"}}}))
+        assert any("64 hex" in f for f in got({**good, "builds": {"x86_64": {**good["builds"]["x86_64"], "sha256": "xyz"}}}))
+        assert any("does not name Python" in f for f in got({**good, "python": "3.13.16"}))
+        assert any("does not name Python" in f for f in got({**good, "python": "3.13.1"})), "3.13.1 is not 3.13.15's prefix match"
+        os.remove(os.path.join(root, "runtime", "python.json"))
+        write(os.path.join(root, "tools", "fabric", "python_pin.py"), "")
+        assert any("runtime/python.json: missing" in f for f in lint.python_pin_findings(root))
+        assert any("not a 3.x.y" in f for f in got({**good, "python": "3.13"}))
+        assert any("no matrix leg on Python 3.14" in f for f in got({**good, "python": "3.14.0",
+                   "builds": {"x86_64": {"url": "https://h/cpython-3.14.0+r", "sha256": "a" * 64}}}))
+
+
+def case_the_fabrics_own_claude_settings_are_the_workspace_template() -> None:
+    """agent-fabric's .claude/settings.json is the workspace template with
+    the root at $CLAUDE_PROJECT_DIR: a hand edit or a template change not
+    re-rendered is a finding."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("fabric_lint_under_test", LINT)
+    lint = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(lint)
+    with tempfile.TemporaryDirectory() as root:
+        write(os.path.join(root, "runtime", "claude-code", "workspace", "settings.json"),
+              json.dumps({"_comment": "c", "statusLine": {"type": "command", "command": "bash \"$AGENT_FABRIC_ROOT/s.sh\""}}))
+        assert any("not runtime/claude-code/workspace/settings.json rendered" in f for f in lint.fabric_settings_findings(root))
+        spec2 = importlib.util.spec_from_file_location("fs_under_test", os.path.join(os.path.dirname(LINT), "fabric_settings.py"))
+        fs = importlib.util.module_from_spec(spec2)
+        spec2.loader.exec_module(fs)
+        rendered = fs.render(root)
+        assert '"$CLAUDE_PROJECT_DIR/s.sh' in rendered and "_comment" not in rendered, rendered
+        write(os.path.join(root, ".claude", "settings.json"), rendered)
+        assert lint.fabric_settings_findings(root) == []
+        write(os.path.join(root, ".claude", "settings.json"), rendered.replace("s.sh", "other.sh"))
+        assert lint.fabric_settings_findings(root), "a hand edit is a finding"
+
+
 def main() -> int:
     cases = [
         case_clean_base_passes,
@@ -1538,6 +1643,9 @@ def main() -> int:
         case_a_managed_projects_name_stays_out_of_generic_files,
         case_review_lenses_are_named_described_and_bounded,
         case_a_contributor_entry_never_reaches_a_definition,
+        case_the_fallback_validator_agrees_with_jsonschema,
+        case_the_python_pin_is_checkable_and_what_ci_runs,
+        case_the_fabrics_own_claude_settings_are_the_workspace_template,
     ]
     failures = 0
     for case in cases:

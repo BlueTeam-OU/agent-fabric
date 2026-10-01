@@ -29,4 +29,8 @@ if [[ -z "$base" ]]; then
     done
 fi
 [[ -n "$base" ]] || { echo "check_adr_amendment: no base to compare with — not enforced"; exit 0; }
-exec python3 tools/fabric/adr.py range-check "$base" "$head"
+# The fleet's pinned Python (runtime/python.json, ADR-040), one per host;
+# AGENT_FABRIC_PYTHON points elsewhere for a test or a host without it.
+py="${AGENT_FABRIC_PYTHON:-/usr/local/bin/fabric-python}"
+[[ -x "$py" ]] || { echo "check_adr_amendment.sh: the fleet's pinned Python is not installed at $py; as root: /usr/bin/python3 <agent-fabric>/tools/fabric/python_pin.py install" >&2; exit 127; }
+exec "$py" tools/fabric/adr.py range-check "$base" "$head"

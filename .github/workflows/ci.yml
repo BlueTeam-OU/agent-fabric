@@ -91,6 +91,12 @@ jobs:
           git archive origin/main tools/fabric policies | tar -x -C "$base"
           AGENT_FABRIC_CHARTER_BASE=origin/main /usr/bin/python3 -I "$base/tools/fabric/guards/agent_fabric_dir_authority.py"
           AGENT_FABRIC_CHARTER_BASE=origin/main /usr/bin/python3 -I "$base/tools/fabric/guards/charter_authority.py" "$PWD"
+      # The fleet's pinned Python (runtime/python.json), installed as a host
+      # installs it: every shim runs /usr/local/bin/fabric-python, and the
+      # suites strip AGENT_FABRIC_*, so no override would reach them. The
+      # matrix's interpreters still run the Python suites themselves.
+      - name: the fleet's pinned Python, as a host installs it
+        run: sudo /usr/bin/python3 tools/fabric/python_pin.py install && /usr/bin/python3 tools/fabric/python_pin.py check
       # Node in every leg: some Python suites drive the .mjs tools.
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
@@ -152,6 +158,8 @@ jobs:
           echo "installing: $pkgs"
           ${{ matrix.install }} $pkgs ${{ matrix.extra }}
           python3 -m pip install --quiet --disable-pip-version-check --break-system-packages ruff jsonschema || python3 -m pip install --quiet --disable-pip-version-check ruff jsonschema
+      - name: the fleet's pinned Python, as a host installs it (as root, before the unprivileged login)
+        run: /usr/bin/python3 tools/fabric/python_pin.py install && /usr/bin/python3 tools/fabric/python_pin.py check
       - name: every tool of the contract answers
         run: |
           set -e

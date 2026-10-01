@@ -817,7 +817,8 @@ its record disagree, the record wins. Look it up, never read it whole:
 
 ### ADR-040 — Implementation language: Python above 150 lines (Accepted)
 
-- New fabric tooling is Python 3.12+, standard library only; bash stays
+- New fabric tooling is Python, standard library only, valid on 3.12+
+  and run on the pinned `fabric-python` (`runtime/python.json`); bash stays
   for shims, forwarders, hook entry points, the suite runners and
   sudo/ssh/installer step-runners (§5 rule 1).
 - Lint refuses a tracked bash script over 150 lines not named in
@@ -832,5 +833,6 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-10-01 — the oracle's assertions stay; its gh mock may learn
   gh.py's transport (still passing the bash original), and a case
   reading the source reads the module.
+- A 2026-10-01 — one pinned Python, 3.13, as fabric-python per host; shims run it (§5 rules 1, 4).
 - Keywords: Python, bash, shell, port, allowlist, lint, shim, wave, gh,
   git, 150 lines, P1.

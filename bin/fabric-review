@@ -20,9 +20,13 @@
 set -uo pipefail
 ROOT="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
 export AGENT_FABRIC_ROOT="${AGENT_FABRIC_ROOT:-$ROOT}"
+# The fleet's pinned Python (runtime/python.json, ADR-040), one per host;
+# AGENT_FABRIC_PYTHON points elsewhere for a test or a host without it.
+py="${AGENT_FABRIC_PYTHON:-/usr/local/bin/fabric-python}"
+[[ -x "$py" ]] || { echo "fabric-review: the fleet's pinned Python is not installed at $py; as root: /usr/bin/python3 <agent-fabric>/tools/fabric/python_pin.py install" >&2; exit 127; }
 case "${1:-}" in
-    brief) shift; exec python3 "$ROOT/tools/fabric/review_brief.py" render "$@" ;;
-    check|lenses) exec python3 "$ROOT/tools/fabric/review_brief.py" "$@" ;;
+    brief) shift; exec "$py" "$ROOT/tools/fabric/review_brief.py" render "$@" ;;
+    check|lenses) exec "$py" "$ROOT/tools/fabric/review_brief.py" "$@" ;;
     -h|--help) sed -n '2,19p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     "") sed -n '2,19p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 2 ;;
     *) echo "fabric-review: unknown command $1 (brief | check | lenses)" >&2; exit 2 ;;
