@@ -88,7 +88,8 @@ printf '#!/usr/bin/env bash\necho "bootstrap: ok"\n' > "$SRC/runtime/claude-code
 printf '#!/usr/bin/env bash\ncase "$1" in status) echo "role      (none active)";; bind) echo "bound. role $2";; esac\n' > "$SRC/bin/fabric-role"
 # The account's own fabric-secrets: its sync answers 3 (a store naming
 # another login) when the fault file says account-sync.
-printf '#!/usr/bin/env bash\ngrep -qsxF account-sync "%s" && { echo "fabric-secrets: the store names another login" >&2; exit 3; }\necho "fabric-secrets: OK"\n' "$SEQ/fault" > "$SRC/bin/fabric-secrets"
+# Its calls are kept in order; take-bundle must be handed an armored bundle.
+printf '#!/usr/bin/env bash\necho "$*" >> "%s"\n[[ "$*" == "store take-bundle" ]] && { grep -q "BEGIN AGENT-FABRIC STORE BUNDLE" || { echo "no bundle on stdin" >&2; exit 1; }; echo "taken"; exit 0; }\ngrep -qsxF account-sync "%s" && { echo "fabric-secrets: the store names another login" >&2; exit 3; }\necho "fabric-secrets: OK"\n' "$SEQ/account-calls" "$SEQ/fault" > "$SRC/bin/fabric-secrets"
 mkdir -p "$SRC/runtime/openrouter"; printf '#!/usr/bin/env bash\necho "launch: resolved profile x"\n' > "$SRC/runtime/openrouter/launch"
 chmod +x "$SRC/runtime/claude-code/bootstrap.sh" "$SRC/bin/"* "$SRC/runtime/openrouter/launch"
 git -C "$SRC" init -q -b main && git -C "$SRC" add -A && git -C "$SRC" -c user.name=t -c user.email=t@t -c commit.gpgsign=false commit -q -m init && git -C "$SRC" push -q "$BARE" HEAD:main
@@ -182,7 +183,20 @@ json.dump(sorted(set(have) | set(names)), open(f, "w"))
 print(json.dumps(rows))
 PY
 STUB
-printf '#!/usr/bin/env python3\nimport sys\nsys.exit(0 if sys.argv[1:] == ["export-key"] else 9)\n' > "$SEQ/tools/secret_store.py"
+cat > "$SEQ/tools/secret_store.py" <<STUB
+#!/usr/bin/env python3
+import os, sys
+a = sys.argv[1:]
+if a == ["export-key"]:
+    sys.exit(0)
+if a[:1] == ["child-bundle"]:
+    open("$CALLS", "a").write("secret_store " + " ".join(a) + "\\n")
+    if os.path.exists("$FAULT") and "child-bundle" in open("$FAULT").read().split("\\n"):
+        sys.exit("fake: child-bundle failed (injected)")
+    print("-----BEGIN AGENT-FABRIC STORE BUNDLE-----\\nAAAA\\n-----END AGENT-FABRIC STORE BUNDLE-----")
+    sys.exit(0)
+sys.exit(9)
+STUB
 printf '#!/usr/bin/env bash\necho "gh auth: Logged in to github.com"\n' > "$BIN/gh"
 cat > "$BIN/git" <<STUB
 #!/usr/bin/env bash
@@ -209,7 +223,7 @@ seq_run() { rm -f "$CALLS"; local h=(); [[ "$BACKEND" == ssh ]] && h=(--host far
   bash "$FAB/runtime/provisioning/new-agent.sh" "$@" "${h[@]}" 2>&1; }
 cp "$SEQ/secrets/store-enroll.sh" "$SEQ/secrets/fabric-secrets" "$FAB/runtime/provisioning/secrets/"
 mkdir -p "$FAB/tools/fabric"; cp "$SEQ/tools/secret_store.py" "$FAB/tools/fabric/"
-reset_seq() { rm -rf "$HOMES" "$SEQ/passwd" "$SEQ/enrolled" "$FAULT" "$SANDBOX/persist/etc/subuid" "$SANDBOX/persist/etc/subgid"; mkdir -p "$HOMES"; }
+reset_seq() { rm -rf "$HOMES" "$SEQ/passwd" "$SEQ/enrolled" "$FAULT" "$SEQ/account-calls" "$SANDBOX/persist/etc/subuid" "$SANDBOX/persist/etc/subgid"; mkdir -p "$HOMES"; }
 
 for BACKEND in local ssh; do
 echo "new-agent: the real sequence on the $BACKEND backend"
@@ -220,6 +234,11 @@ grep -qx "store-enroll seq-login --host $( [[ "$BACKEND" == ssh ]] && echo far-h
   && grep -q "^secrets provision identity seq-login --host" "$CALLS" && grep -q "^secrets provision share seq-login" "$CALLS" \
   && grep -q "5. its key made and certified, its store filled and synced" <<<"$out" \
   && ok "5: the account keyed on its host, its store filled by the parent, and synced" || bad "step 5" "$(cat "$CALLS") $out"
+# A new account has no key to pull with: its filled store reaches it as a
+# bundle, then a sync without a pull.
+grep -qx "secret_store child-bundle seq-login" "$CALLS" \
+  && [[ "$(grep -E '^(store take-bundle|sync)' "$SEQ/account-calls" | head -2 | tr '\n' '|')" == "store take-bundle|sync --quiet --no-pull|" ]] \
+  && ok "…its store handed over as a bundle, then synced without a pull" || bad "bundle hand-over" "$(cat "$CALLS"; cat "$SEQ/account-calls" 2>&1)"
 if [[ "$BACKEND" == local ]]; then
   # A parent without a store of its own cannot key a child: a stop, named,
   # before any clone.
@@ -245,7 +264,7 @@ if [[ "$BACKEND" == ssh ]]; then
   grep -q "new-agent-worker.sh host-check seq-login" "$SSHLOG" && grep -q "new-agent-worker.sh prepare seq-login backend-dev" "$SSHLOG" && grep -q "new-agent-worker.sh finish seq-login backend-dev --clone demo=" "$SSHLOG" \
     && ok "ssh: host-check, prepare and finish each went to the far host's worker" || bad "ssh phases" "$(cat "$SSHLOG")"
   grep -q "^new-agent: host far-host (over ssh)" <<<"$out" && ok "…and the run says so" || bad "no ssh host line" "$out"
-  ! grep -q "store-enroll\|fabric-secrets provision" "$SSHLOG" && grep -q "fabric-secrets sync" "$SSHLOG" && ok "…while the store was filled on the coordinator, and only the sync ran on the host" || bad "secrets over ssh" "$(cat "$SSHLOG")"
+  ! grep -q "store-enroll\|fabric-secrets provision" "$SSHLOG" && grep -q "fabric-secrets store take-bundle" "$SSHLOG" && grep -q "fabric-secrets sync" "$SSHLOG" && ok "…while the store was filled on the coordinator, and only the hand-over and the sync ran on the host" || bad "secrets over ssh" "$(cat "$SSHLOG")"
 else
   [[ ! -s "$SSHLOG" ]] && ok "local: ssh never called" || bad "ssh called on the local backend" "$(cat "$SSHLOG")"
 fi
@@ -253,7 +272,7 @@ out="$(seq_run seq-login backend-dev --project demo)"
 grep -q "1. account seq-login exists" <<<"$out" && grep -q "2. claude $PIN present" <<<"$out" && grep -q "OpenRouter key: 1 present" <<<"$out" && ! grep -q "^useradd" "$CALLS" && ! grep -q "^usermod --add-subuids" "$CALLS" && grep -q "subuid/subgid: 524288:65536" <<<"$out" \
   && ok "a second run skips every step already true" || bad "not idempotent" "$out"
 
-for fault in useradd "git" "store-enroll" "provision share" "provision issue-key" account-sync curl; do
+for fault in useradd "git" "store-enroll" "provision share" "provision issue-key" child-bundle account-sync curl; do
   reset_seq
   case "$fault" in
     git) printf 'git\n' > "$FAULT" ;;              # the fake git fails a clone
@@ -269,6 +288,7 @@ for fault in useradd "git" "store-enroll" "provision share" "provision issue-key
     store-enroll) ! grep -q "^secrets provision" "$CALLS" && [[ ! -d "$H/projects/demo" ]] && ok "…and no clone, nothing provisioned after a failed enrolment" || bad "steps ran after the failed enrolment" "$(cat "$CALLS")" ;;
     "provision share") ! grep -q "^secrets provision issue-key" "$CALLS" && [[ ! -d "$H/projects/demo" ]] && ok "…and no key minted, no clone after a failed share" || bad "steps ran after the failed share" "$(cat "$CALLS")" ;;
     "provision issue-key") [[ ! -d "$H/projects/demo" ]] && ok "…and no clone after a failed key" || bad "steps ran after the failed key" "$(cat "$CALLS")" ;;
+    child-bundle) grep -q "its store did not reach seq-login as a bundle" <<<"$out" && ! grep -qs "^sync" "$SEQ/account-calls" && [[ ! -d "$H/projects/demo" ]] && ok "…and no sync, no clone after a failed hand-over" || bad "steps ran after the failed hand-over" "$out $(cat "$SEQ/account-calls" 2>&1)" ;;
     account-sync) grep -q "fabric-secrets sync as seq-login (exit 3)" <<<"$out" && [[ ! -d "$H/projects/demo" ]] && ok "…and a sync that exits 3 is named with its code, no clone after it" || bad "account sync exit 3" "$out" ;;
   esac
   rm -f "$FAULT"; out="$(seq_run seq-login backend-dev --project demo)"; rc=$?
