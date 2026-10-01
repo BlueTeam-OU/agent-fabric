@@ -161,10 +161,10 @@ record says so rather than claim otherwise.
   | guard | commit time | CI on the branch | suite |
   |---|---|---|---|
   | no machine attribution | `commit-msg` | `ban_generated_by_attribution.sh` (a CI step, and `tests/run.sh`) | `test_ban_generated_by_attribution.sh`, `githooks/test_hooks.sh` |
-  | read-only fence, `.agent-fabric/` | `pre-commit`, `commit-msg` | `check_agent_fabric_dir_authority.sh` | `test_check_agent_fabric_dir_authority.sh`, `githooks/test_hooks.sh` |
+  | read-only fence, `.agent-fabric/` | `pre-commit`, `commit-msg` | `check_agent_fabric_dir_authority.sh`, main's copy run isolated (ci.yml); `tests/run.sh` the local check | `test_check_agent_fabric_dir_authority.sh`, `githooks/test_hooks.sh` |
   | the contributor carve-out | `pre-commit`, `commit-msg` (`contributors.py hook`) | `check_agent_fabric_dir_authority.sh`, main's copy, against the base's entry | `tests/test_contributors.py` |
   | decision records | `pre-commit` (`adr.py check` on the staged tree) | `check_adr_amendment.sh`, and `adr.py check` in lint | `tests/test_adr.py` |
-  | charter authority by branch name | none | `tests/run.sh` against `origin/main` (A 2026-09-28) | `test_check_charter_authority.sh` |
+  | charter authority by branch name | none | main's copy run isolated against `origin/main` (ci.yml); `tests/run.sh` the local check (A 2026-09-28) | `test_check_charter_authority.sh` |
   | no model pins in committed settings | none (the launcher refuses the same keys at launch) | not called here; gzapp's CI runs its own copy (`tools/checks/`) | `test_check_repo_settings_carry_no_model_pins.sh` |
 
 - The branch-name tripwire runs in CI: `tests/run.sh` calls

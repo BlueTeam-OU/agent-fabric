@@ -1461,7 +1461,8 @@ def case_a_contributor_entry_never_reaches_a_definition() -> None:
                        # Re-review of #75: what registers the hooks, the
                        # workspace prompt, the helper the runner sources.
                        "runtime/claude-code/workspace/settings.json", "runtime/claude-code/workspace/CLAUDE.md",
-                       "runtime/claude-code/", "tests/leak-check.sh", "tools/fabric/review_brief.py"):
+                       "runtime/claude-code/", "tests/leak-check.sh", "tools/fabric/review_brief.py",
+                       "bin/fabric-review"):
             got = findings({**good, "paths": [narrow]})
             assert any(f"rule {narrow!r} reaches" in f for f in got), (narrow, got)
         got = findings({**good, "excluding": excl + ["tools/fabric/guards/x.py"],
