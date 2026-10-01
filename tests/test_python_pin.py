@@ -18,7 +18,7 @@ sys.path.insert(0, os.path.join(HERE, "tools", "fabric"))
 import python_pin as pp  # noqa: E402
 
 
-def archive(version: str, *, escape: bool = False) -> bytes:
+def archive(version: str, *, escape: str | None = None) -> bytes:
     """A tar.gz shaped like python-build-standalone's install_only: python/bin/python3."""
     script = f"#!/bin/sh\necho {version}\n".encode()
     buf = io.BytesIO()
@@ -28,7 +28,7 @@ def archive(version: str, *, escape: bool = False) -> bytes:
             ti.size, ti.mode = len(data), mode
             tf.addfile(ti, io.BytesIO(data))
         if escape:
-            ti = tarfile.TarInfo("../outside.txt")
+            ti = tarfile.TarInfo(escape)
             ti.size = 2
             tf.addfile(ti, io.BytesIO(b"x\n"))
     return buf.getvalue()
@@ -44,7 +44,16 @@ def main() -> int:
 
     with tempfile.TemporaryDirectory() as tmp:
         prefix, link = os.path.join(tmp, "lib"), os.path.join(tmp, "bin", "fabric-python")
-        blobs = {"good": archive("3.13.15"), "next": archive("3.13.16"), "evil": archive("3.13.15", escape=True)}
+        # A member that climbs out: extracted under <prefix>/.python-pin-*/x,
+        # three levels up is beside <prefix>, outside the temporary
+        # directory that would otherwise sweep it away. (An absolute name is
+        # no test: the data filter strips its slash and keeps it inside.)
+        # Without the filter — 3.12 and 3.13's default — tarfile writes it
+        # there; on 3.14 the default is already `data`, so CI's older legs
+        # are what catch the argument's removal.
+        escaped = os.path.join(tmp, "evil", "escaped.txt")
+        blobs = {"good": archive("3.13.15"), "next": archive("3.13.16"),
+                 "evil": archive("3.13.15", escape="../../../escaped.txt")}
         fetched: list[str] = []
 
         def fetch(url: str, dest: str) -> None:
@@ -88,10 +97,9 @@ def main() -> int:
         try:
             pp.install(pin("3.13.15", "evil"), evil_prefix, os.path.join(tmp, "evil-link"), machine="x86_64", fetch=fetch)
             check("an archive reaching outside its tree is refused", False)
-        except (pp.PinError, Exception) as e:  # tarfile's own refusal
-            check("an archive reaching outside its tree is refused",
-                  not os.path.exists(os.path.join(tmp, "evil", "outside.txt"))
-                  and not os.path.lexists(os.path.join(tmp, "evil-link")), e)
+        except tarfile.FilterError as e:
+            check("an archive reaching outside its tree is refused by tarfile's data filter",
+                  not os.path.exists(escaped) and not os.path.lexists(os.path.join(tmp, "evil-link")), e)
 
         nxt = pin("3.13.16", "next")
         line = pp.install(nxt, prefix, link, machine="x86_64", fetch=fetch)

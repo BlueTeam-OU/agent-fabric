@@ -46,10 +46,12 @@ def channels(projects: list[str], env: dict[str, str]) -> tuple[list[tuple[str, 
         try:
             with open(path, encoding="utf-8") as f:
                 cfg = json.load(f)
+            pair = (env.get("CLAUDE_BRIDGE_URL") or cfg["relay_url"], env.get("GZCOORD_CHANNEL") or cfg["channel"])
         except FileNotFoundError:
             none.append(p)
             continue
-        pair = (env.get("CLAUDE_BRIDGE_URL") or cfg["relay_url"], env.get("GZCOORD_CHANNEL") or cfg["channel"])
+        except (ValueError, KeyError, TypeError) as e:
+            raise ValueError(f"projects/{p}/integration/gzcoord/config.json is unreadable ({e})") from None
         if pair not in seen:
             seen.append(pair)
     return seen, none
@@ -67,11 +69,13 @@ def own_token(home: str) -> str | None:
 
 
 def _call(relay: str, tok: str, path: str, body: dict | None = None):
+    """GET answers JSON, which is read; a POST's answer is the status alone —
+    the ack landed whatever its body says (review of #77)."""
     req = urllib.request.Request(relay + path, data=None if body is None else json.dumps(body).encode(),
                                  headers={"Authorization": f"Bearer {tok}", "Content-Type": "application/json"},
                                  method="GET" if body is None else "POST")
     with urllib.request.urlopen(req, timeout=30) as r:
-        return json.load(r)
+        return json.load(r) if body is None else None
 
 
 def catch_up(relay: str, channel: str, consumer: str, tok: str) -> int | None:
@@ -97,7 +101,11 @@ def main(argv: list[str]) -> int:
         print(f"relay-catchup: no {TOKEN_NAME} in this account's secrets.env (fabric-secrets sync first)", file=sys.stderr)
         return 1
     consumer = f"{socket.gethostname().split('.')[0]}/{me.pw_name}"
-    pairs, none = channels(argv, os.environ)
+    try:
+        pairs, none = channels(argv, os.environ)
+    except ValueError as e:
+        print(f"relay-catchup: {e}", file=sys.stderr)
+        return 1
     for p in none:
         print(f"relay-catchup: {p} has no GZCoord integration; no channel to catch up on")
     rc = 0

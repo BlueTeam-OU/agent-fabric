@@ -1548,7 +1548,7 @@ def case_the_python_pin_is_checkable_and_what_ci_runs() -> None:
     spec = importlib.util.spec_from_file_location("fabric_lint_under_test", LINT)
     lint = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(lint)
-    good = {"python": "3.13.15", "release": "r", "builds": {"x86_64": {"url": "https://h/cpython-3.13.15.tgz", "sha256": "a" * 64}}}
+    good = {"python": "3.13.15", "release": "r", "builds": {"x86_64": {"url": "https://h/cpython-3.13.15%2Br-x.tgz", "sha256": "a" * 64}}}
     with tempfile.TemporaryDirectory() as root:
         write(os.path.join(root, ".github", "workflows", "ci.yml"), "          - { section: python, python: '3.13', node: '22' }\n")
         def got(doc):
@@ -1558,9 +1558,13 @@ def case_the_python_pin_is_checkable_and_what_ci_runs() -> None:
         assert any("must be https" in f for f in got({**good, "builds": {"x86_64": {**good["builds"]["x86_64"], "url": "http://h/3.13.15"}}}))
         assert any("64 hex" in f for f in got({**good, "builds": {"x86_64": {**good["builds"]["x86_64"], "sha256": "xyz"}}}))
         assert any("does not name Python" in f for f in got({**good, "python": "3.13.16"}))
+        assert any("does not name Python" in f for f in got({**good, "python": "3.13.1"})), "3.13.1 is not 3.13.15's prefix match"
+        os.remove(os.path.join(root, "runtime", "python.json"))
+        write(os.path.join(root, "tools", "fabric", "python_pin.py"), "")
+        assert any("runtime/python.json: missing" in f for f in lint.python_pin_findings(root))
         assert any("not a 3.x.y" in f for f in got({**good, "python": "3.13"}))
         assert any("no matrix leg on Python 3.14" in f for f in got({**good, "python": "3.14.0",
-                   "builds": {"x86_64": {"url": "https://h/3.14.0", "sha256": "a" * 64}}}))
+                   "builds": {"x86_64": {"url": "https://h/cpython-3.14.0+r", "sha256": "a" * 64}}}))
 
 
 def case_the_fabrics_own_claude_settings_are_the_workspace_template() -> None:

@@ -1087,7 +1087,9 @@ def python_pin_findings(root: str) -> list[str]:
         with open(path, encoding="utf-8") as fh:
             doc = json.load(fh)
     except FileNotFoundError:
-        return []
+        # python_pin.py and fabric-status read it: without it there is no pin.
+        return (["runtime/python.json: missing, and tools/fabric/python_pin.py installs from it"]
+                if os.path.exists(os.path.join(root, "tools", "fabric", "python_pin.py")) else [])
     except ValueError as e:
         return [f"runtime/python.json: not JSON ({e})"]
     findings = []
@@ -1105,7 +1107,8 @@ def python_pin_findings(root: str) -> list[str]:
             findings.append(f"runtime/python.json: {arch}: the url must be https")
         if not (isinstance(b, dict) and isinstance(b.get("sha256"), str) and re.fullmatch(r"[0-9a-f]{64}", b["sha256"])):
             findings.append(f"runtime/python.json: {arch}: the sha256 must be 64 hex digits")
-        elif isinstance(version, str) and isinstance(b.get("url"), str) and version not in b["url"]:
+        elif isinstance(version, str) and isinstance(b.get("url"), str) \
+                and not any(f"cpython-{version}{sep}" in b["url"] for sep in ("+", "%2B")):
             findings.append(f"runtime/python.json: {arch}: the url does not name Python {version}")
     if isinstance(version, str) and re.fullmatch(r"3\.\d+\.\d+", version):
         minor = ".".join(version.split(".")[:2])
