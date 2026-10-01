@@ -836,3 +836,19 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-10-01 — one pinned Python, 3.13, as fabric-python per host; shims run it (§5 rules 1, 4).
 - Keywords: Python, bash, shell, port, allowlist, lint, shim, wave, gh,
   git, 150 lines, P1.
+
+### ADR-041 — Agent-local episodic history: exact messages kept above the transport (Proposed)
+
+- Each agent keeps its own journal, `<state>/agents/<login>/episodic.db`,
+  0700/0600, owned by its agent id; a reused login is refused (§5 rule 1).
+- Only GZCoord messages it sent or was addressed; never control, presence
+  or others' traffic (§5 rule 2).
+- Written at the crossing: pending before the post, before the ack; a
+  failure refuses the send or withholds the ack (§5 rules 3–4).
+- One row per source, direction, MESSAGE-ID; outbound reuse refused,
+  inbound reuse set aside; the carrier is provenance (§5 rules 5–6).
+- Evidence, not truth; never auto-injected or auto-promoted; each agent
+  imports its own past (§5 rules 7–9).
+- Keywords: episodic, history, journal, GZCoord, carrier, transport,
+  relay, InterWeave, fabric-history, backfill.
+
