@@ -193,9 +193,11 @@ esac
         head_before = kid("git", "-C", ".local/share/agent-fabric/secrets", "rev-parse", "HEAD").stdout
         r = kid(ACCOUNT_SECRETS, "store", "take-bundle", stdin=armour(hand, "refs/heads/main"))
         check("the right agent id with another key is not taken", r.returncode != 0 and "nothing taken" in r.stderr, r.stderr)
-        # Diverged from a common base, not unrelated: a plain merge refuses
-        # unrelated histories on its own, so only this shape needs --ff-only
-        # (re-review of #76).
+        # Diverged from a common base, not unrelated (a plain merge refuses
+        # unrelated histories on its own), and with no remote-tracking ref in
+        # the store, as at a new account's first take-bundle: the fetch then
+        # has nothing to refuse, and --ff-only is the one guard (re-reviews
+        # of #76).
         fork = os.path.join(t, "fork")
         subprocess.run(["git", "clone", "-q", mirror, fork], env=genv, check=True, capture_output=True)
         g(fork, "reset", "-q", "--hard", "HEAD~1")
@@ -203,10 +205,12 @@ esac
             f.write("not ciphertext\n")
         g(fork, "add", "-A")
         g(fork, "commit", "-qm", "the right id and key, a history beside the store's")
+        kid("git", "-C", ".local/share/agent-fabric/secrets", "update-ref", "-d", "refs/remotes/origin/main")
         r = kid(ACCOUNT_SECRETS, "store", "take-bundle", stdin=armour(fork, "refs/heads/main"))
         head_after = kid("git", "-C", ".local/share/agent-fabric/secrets", "rev-parse", "HEAD").stdout
         check("…nor a history diverged from the store's, which is left as it was",
-              r.returncode != 0 and head_after == head_before and head_before.strip(), (r.stderr, head_before, head_after))
+              r.returncode != 0 and "git merge" in r.stderr and head_after == head_before and head_before.strip(),
+              (r.stderr, head_before, head_after))
         mine = kid(ACCOUNT_SECRETS, "store", "bundle")
         other = "01a0f782-7e06-7dee-811f-0a860ed93bf3"
         r = parent("python3", STORE, "seed-child", other, "--remote", os.path.join(remotes, "x.git"), stdin=mine.stdout)
