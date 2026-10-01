@@ -720,7 +720,7 @@ test('CLI: an unknown flag is refused before any side effect', () => {
 // inbox.mjs applies SPEC §7.1 addressing and the §17 reading rule at
 // delivery: the body of a message not addressed to this session is never
 // printed. forMe() is that decision, kept pure so it can be pinned.
-import { ensureRelay, forMe, identity, waitLoop, checkKeywords, keywordHit, inboxRoot, relayRuntimeDir, WORKSPACE, integrationConfig, holdDir, holdStatus, pidStart, pidAlive, render, splitMessage, NOTIFICATION_CAP, REPLAY_CMD, assertNotControlChannel, markRetransmissions } from '../scripts/inbox.mjs';
+import { ensureRelay, forMe, identity, waitLoop, checkKeywords, keywordHit, inboxRoot, relayRuntimeDir, WORKSPACE, integrationConfig, holdDir, holdStatus, pidStart, pidAlive, render, splitMessage, NOTIFICATION_CAP, REPLAY_CMD, assertNotControlChannel, markRetransmissions, journalInbound, JOURNAL_RETRY_MS } from '../scripts/inbox.mjs';
 test('inbox forMe: exactly the messages SPEC §7.1 addresses to this session', () => {
   const me = { address: 'develop-qzapp/db-admin', instance: 'db-admin', slug: 'db-admin' };
   const mk = (type, extra) => parse(`[GZCOORD/1] ${type}\nFROM: develop-qzapp/x\nROLE: architect-cto\nPROJECT: gzapp\nMESSAGE-ID: x-0001\n${extra}`);
@@ -794,6 +794,99 @@ test('waitLoop exits only on an addressed message; others pass acknowledged', as
     ack: async id => { acked4.push(id); }, waitTotal: 4, forMeFn: msg => forMe(msg, me) });
   assert.deepEqual([r4.delivered, r4.classified.length, r4.othersPassed], [false, 0, 0], 'a HELLO wakes nobody and is not listed');
   assert.deepEqual(acked4, ['h', 'g'], 'but the cursor moves past it');
+});
+
+// The episodic journal (ADR-041 rule 4): what is addressed to this session
+// is journaled before the page is acknowledged; a journal that cannot take
+// it holds the messages — unacknowledged, unshown — and says why.
+test('waitLoop journals the addressed records before acknowledging, and only those', async () => {
+  const me = { address: 'develop-qzapp/db-admin', instance: 'db-admin', slug: 'db-admin' };
+  const rec = (id, extra) => ({ id, seq: id.length, content: `[GZCOORD/1] INFO\nFROM: develop-qzapp/x\nROLE: r\nMESSAGE-ID: x-${id}\n${extra}` });
+  const order = [];
+  const r = await waitLoop({
+    fetchPage: async () => ({ messages: [rec('other', 'TO: develop-qzapp/web-dev-01\n'), rec('mine', 'TO: develop-qzapp/db-admin\n')] }),
+    ack: async id => { order.push(`ack ${id}`); }, waitTotal: 4, forMeFn: msg => forMe(msg, me),
+    journal: async recs => { order.push(`journal ${recs.map(x => x.id).join(',')}`); return { ok: true }; } });
+  assert.equal(r.delivered, true);
+  assert.deepEqual(order, ['journal mine', 'ack other', 'ack mine'], 'only the addressed record is journaled, and before any ack');
+});
+test('a journal that cannot keep them: the addressed records are held — not acknowledged, not shown — said once, retried after a pause', async () => {
+  const me = { address: 'develop-qzapp/db-admin', instance: 'db-admin', slug: 'db-admin' };
+  const rec = (id, seq, extra) => ({ id, seq, content: `[GZCOORD/1] INFO\nFROM: develop-qzapp/x\nROLE: r\nMESSAGE-ID: x-${id}\n${extra}` });
+  const page = { messages: [rec('other', 1, 'TO: develop-qzapp/web-dev-01\n'), rec('mine', 2, 'BROADCAST: true\n')] };
+  const acked = [], said = [], slept = [];
+  let tries = 0;
+  const r = await waitLoop({
+    fetchPage: async () => page, ack: async id => { acked.push(id); }, waitTotal: 3600, forMeFn: msg => forMe(msg, me),
+    sleep: async ms => { slept.push(ms); },
+    journal: async () => (++tries < 3 ? { ok: false, reason: 'episodic: disk full' } : { ok: true }),
+    onJournalFail: (reason, n) => said.push([reason, n]) });
+  assert.equal(r.delivered, true, 'shown once the journal could keep it');
+  assert.deepEqual(acked.filter(id => id === 'mine'), ['mine'], 'acknowledged once, only after it was kept');
+  assert.deepEqual(said, [['episodic: disk full', 1], ['episodic: disk full', 1]], 'each failure reported to the caller, which says it once per cause');
+  assert.deepEqual(slept, [JOURNAL_RETRY_MS, JOURNAL_RETRY_MS], 'a pause before the carrier is asked again: a broken journal does not spin');
+  const drained = await waitLoop({
+    fetchPage: async () => page, ack: async id => { acked.push(`drain ${id}`); }, waitTotal: 0, forMeFn: msg => forMe(msg, me),
+    journal: async () => ({ ok: false, reason: 'episodic: x' }) });
+  assert.deepEqual([drained.delivered, drained.journalFailed], [false, 'episodic: x'], 'a drain returns at once, held');
+  assert.ok(!acked.includes('drain mine') && acked.includes('drain other'), 'others acknowledged; the addressed one not');
+});
+// The relay's acknowledgement is a cursor (claude_bridge advance_cursor:
+// one last_seq per consumer, moved forward only), so this fake honours one:
+// a page is every record above it, and an ack of seq N passes all below.
+function cursorRelay(records) {
+  let cursor = 0;
+  return {
+    fetchPage: async () => ({ messages: records.filter(r => !(r.seq <= cursor)) }),
+    ack: async id => { cursor = Math.max(cursor, records.find(r => r.id === id).seq ?? cursor); },
+    cursor: () => cursor,
+  };
+}
+test('a held record is not passed by acknowledging a later one: the relay\'s cursor stays before it (review of #78)', async () => {
+  const me = { address: 'develop-qzapp/db-admin', instance: 'db-admin', slug: 'db-admin' };
+  const rec = (id, seq, extra) => ({ id, seq, content: `[GZCOORD/1] INFO\nFROM: develop-qzapp/x\nROLE: r\nMESSAGE-ID: x-${id}\n${extra}` });
+  const relay = cursorRelay([rec('before', 1, 'TO: develop-qzapp/web-dev-01\n'), rec('mine', 2, 'TO: develop-qzapp/db-admin\n'),
+                             rec('retired', 3, '').content.startsWith('[') && { id: 'retired', seq: 3, content: '[GZCOORD/1] HELLO\nFROM: develop-qzapp/x\n' },
+                             rec('after', 4, 'TO: develop-qzapp/web-dev-01\n')]);
+  let tries = 0;
+  const kept = [];
+  const r = await waitLoop({ ...relay, waitTotal: 3600, forMeFn: msg => forMe(msg, me), sleep: async () => {},
+    journal: async recs => { if (++tries === 1) { assert.equal(relay.cursor(), 0); return { ok: false, reason: 'episodic: x' }; } kept.push(...recs.map(x => x.id)); return { ok: true }; } });
+  assert.equal(tries, 2, 'the held record came back and was journaled');
+  assert.deepEqual([r.delivered, kept], [true, ['mine']], 'then shown');
+  assert.equal(relay.cursor(), 4, 'and the page acknowledged only after it was kept');
+  const relay2 = cursorRelay([rec('mine', 1, 'TO: develop-qzapp/db-admin\n'), rec('after', 2, 'TO: develop-qzapp/web-dev-01\n')]);
+  const d = await waitLoop({ ...relay2, waitTotal: 0, forMeFn: msg => forMe(msg, me), journal: async () => ({ ok: false, reason: 'episodic: x' }) });
+  assert.deepEqual([d.journalFailed, relay2.cursor()], ['episodic: x', 0], 'a drain held first in the page acknowledges nothing after it');
+  const relay3 = cursorRelay([{ id: 'nos', content: rec('mine', 0, 'TO: develop-qzapp/db-admin\n').content }, { ...rec('after', 0, 'TO: develop-qzapp/web-dev-01\n'), seq: 5 }]);
+  await waitLoop({ ...relay3, waitTotal: 0, forMeFn: msg => forMe(msg, me), journal: async () => ({ ok: false, reason: 'episodic: x' }) });
+  assert.equal(relay3.cursor(), 0, 'a held record with no comparable seq: nothing acknowledged');
+});
+test('--wait ends within its budget while the journal stays broken, the hold reported (review of #78)', async () => {
+  const me = { address: 'develop-qzapp/db-admin', instance: 'db-admin', slug: 'db-admin' };
+  const relay = cursorRelay([{ id: 'mine', seq: 1, content: '[GZCOORD/1] INFO\nFROM: develop-qzapp/x\nROLE: r\nTO: develop-qzapp/db-admin\nMESSAGE-ID: x-1\n' }]);
+  let tries = 0;
+  const slept = [];
+  const r = await waitLoop({ ...relay, waitTotal: 70, forMeFn: msg => forMe(msg, me), sleep: async ms => { slept.push(ms); },
+    journal: async () => { if (++tries > 20) throw new Error('never ended'); return { ok: false, reason: 'episodic: x' }; } });
+  assert.deepEqual([r.delivered, r.journalFailed, relay.cursor()], [false, 'episodic: x', 0], 'held, said, unacknowledged');
+  // A 55 s slice, one failed attempt, a pause of the 15 s left: then back,
+  // with no fetch or journal attempt past the budget (re-review of #78).
+  assert.deepEqual([r.waited, tries, slept], [70, 1, [15000]], `returned at the budget (waited ${r.waited}, ${tries} tries)`);
+  assert.ok(slept.every(ms => ms <= JOURNAL_RETRY_MS));
+});
+test('journalInbound sends the records as JSON lines and reads a failure from the journal\'s own last line', () => {
+  let call;
+  const run = (py, args, opts) => { call = { py, args, input: opts.input }; return { status: 0, stderr: '' }; };
+  const ok = journalInbound([{ content: 'C', seq: 7, ts_full: 'T' }], { project: 'p', working_copy: '/w' }, { env: { AGENT_FABRIC_PYTHON: '/py' }, run });
+  assert.equal(ok.ok, true);
+  assert.equal(call.py, '/py');
+  assert.deepEqual(call.args.slice(1), ['gzcoord-in', '--project', 'p', '--working-copy', '/w']);
+  assert.deepEqual(JSON.parse(call.input.trim()), { content: 'C', seq: 7, ts: 'T' });
+  const bad = journalInbound([{ content: 'C' }], {}, { env: {}, run: () => ({ status: 1, stderr: 'noise\nepisodic: the store has no id\n' }) });
+  assert.deepEqual(bad, { ok: false, reason: 'episodic: the store has no id' });
+  const thrown = journalInbound([{ content: 'C' }], {}, { env: {}, run: () => { throw new Error('ENOENT'); } });
+  assert.equal(thrown.ok, false); assert.match(thrown.reason, /ENOENT/);
 });
 
 // --keyword: reasons to stop waiting on a message NOT addressed to this
@@ -907,13 +1000,21 @@ function withRelay(fn) {
     try { resolve(await fn(`http://127.0.0.1:${server.address().port}`, posts)); } catch (e) { reject(e); } finally { server.close(); }
   }));
 }
+// A scratch secrets store holding an agent id: send keeps every message in
+// the sender's episodic journal (ADR-041), and a journal has an owner. Its
+// own directory, never HOME — one test makes the message's directory
+// read-only.
+const AGENT_ID = '01a0f782-7e06-7dee-811f-0a860ed93bf3';
+function idStore() {
+  const d = scratch('send-store-'); fs.writeFileSync(path.join(d, '.agent-id'), `${AGENT_ID}\n`); return d;
+}
 // Asynchronous on purpose: the stub relay lives in this process, and a
 // synchronous exec would block the event loop the server answers on.
 function sendWith(relay, text, extra = [], moreEnv = {}) {
   const f = path.join(scratch('send-'), 'm.txt'); fs.writeFileSync(f, text);
   // HOME is a scratch dir: the runner's own synced secrets.env must not be the token here.
   // The state dir too: send records every id it sends, and a test must never write that record into the runner's own.
-  const env = { ...process.env, HOME: path.dirname(f), AGENT_FABRIC_STATE_DIR: path.join(path.dirname(f), 'state'), CLAUDE_BRIDGE_URL: relay, CLAUDE_BRIDGE_AUTH_TOKEN: 'tok-fixture', GZCOORD_CHANNEL: 'fixture:chan', ...moreEnv };
+  const env = { ...process.env, HOME: path.dirname(f), AGENT_FABRIC_STATE_DIR: path.join(path.dirname(f), 'state'), AGENT_FABRIC_SECRET_STORE: idStore(), CLAUDE_BRIDGE_URL: relay, CLAUDE_BRIDGE_AUTH_TOKEN: 'tok-fixture', GZCOORD_CHANNEL: 'fixture:chan', ...moreEnv };
   return new Promise(resolve => execFile('node', [SEND, f, ...extra], { env, encoding: 'utf8' },
     (e, out, err) => resolve({ code: e ? e.code : 0, out: String(out), err: String(err) })));
 }
@@ -936,11 +1037,57 @@ test('send posts a valid message as this login, to the configured channel', asyn
   });
 });
 
+// The episodic journal (ADR-041): the message is kept before the post and
+// marked with its outcome after; a journal that cannot take it stops the send.
+function journalRows(state, store) {
+  const py = process.env.AGENT_FABRIC_PYTHON || '/usr/local/bin/fabric-python';
+  const r = spawnSync(py, ['-c', `import sqlite3,json,sys
+sys.path.insert(0, sys.argv[1]); import episodic
+c = sqlite3.connect(episodic.db_path())
+print(json.dumps(c.execute("SELECT direction, state, message_id, carrier_seq, content FROM episodes ORDER BY recorded_at").fetchall()))`,
+    fileURLToPath(new URL('../../../tools/fabric', import.meta.url))],
+    { encoding: 'utf8', env: { ...process.env, AGENT_FABRIC_STATE_DIR: state, AGENT_FABRIC_SECRET_STORE: store } });
+  assert.equal(r.status, 0, r.stderr);
+  return JSON.parse(r.stdout);
+}
+test('send keeps the message in its journal before posting, and marks it accepted with the relay seq', async () => {
+  await withRelay(async (relay, posts) => {
+    const state = path.join(scratch('send-journal-'), 'state'); const store = idStore();
+    const r = await sendWith(relay, valid, [], { AGENT_FABRIC_STATE_DIR: state, AGENT_FABRIC_SECRET_STORE: store });
+    assert.equal(r.code, 0, r.err);
+    assert.deepEqual(journalRows(state, store), [['outbound', 'accepted', '01a09fc1-0000-7000-8000-000000000001', 42, valid]]);
+    assert.equal(posts.length, 1);
+  });
+});
+test('a journal that cannot take the message stops the send: nothing posted, exit 2, said', async () => {
+  await withRelay(async (relay, posts) => {
+    const r = await sendWith(relay, valid, [], { AGENT_FABRIC_SECRET_STORE: scratch('send-no-id-') });
+    assert.equal(r.code, 2, r.err);
+    assert.match(r.err, /no agent id/);
+    assert.match(r.err, /not sent: a message is kept before it leaves/);
+    assert.equal(posts.length, 0, 'the carrier never saw it');
+    const off = await sendWith(relay, valid, [], { AGENT_FABRIC_SECRET_STORE: scratch('send-no-id-'), GZCOORD_JOURNAL: 'off' });
+    assert.equal(off.code, 0, off.err);
+    assert.match(off.err, /GZCOORD_JOURNAL=off — this message is sent without being kept/);
+    assert.equal(posts.length, 1, 'the explicit bypass sends, and says so');
+  });
+});
+test('a post the relay refuses leaves the journal row failed, not accepted', async () => {
+  const server = http.createServer((req, res) => { res.statusCode = 500; res.end('{}'); });
+  await new Promise(r => server.listen(0, '127.0.0.1', r));
+  try {
+    const state = path.join(scratch('send-journal-fail-'), 'state'); const store = idStore();
+    const r = await sendWith(`http://127.0.0.1:${server.address().port}`, valid, [], { AGENT_FABRIC_STATE_DIR: state, AGENT_FABRIC_SECRET_STORE: store });
+    assert.equal(r.code, 3, r.err);
+    assert.deepEqual(journalRows(state, store).map(x => x.slice(0, 3)), [['outbound', 'failed', '01a09fc1-0000-7000-8000-000000000001']]);
+  } finally { server.closeAllConnections(); server.close(); }
+});
+
 // A message with no MESSAGE-ID gets one from the sender, written into the
 // file before it posts, so a retry of the same file carries the same id
 // (SPEC §7.2) — and the command on screen is the message that goes out.
 function sendFile(relay, f, extra = [], state = path.join(path.dirname(f), 'state')) {
-  const env = { ...process.env, HOME: path.dirname(f), AGENT_FABRIC_STATE_DIR: state, CLAUDE_BRIDGE_URL: relay, CLAUDE_BRIDGE_AUTH_TOKEN: 'tok-fixture', GZCOORD_CHANNEL: 'fixture:chan' };
+  const env = { ...process.env, HOME: path.dirname(f), AGENT_FABRIC_STATE_DIR: state, AGENT_FABRIC_SECRET_STORE: idStore(), CLAUDE_BRIDGE_URL: relay, CLAUDE_BRIDGE_AUTH_TOKEN: 'tok-fixture', GZCOORD_CHANNEL: 'fixture:chan' };
   return new Promise(resolve => execFile('node', [SEND, f, ...extra], { env, encoding: 'utf8' },
     (e, out, err) => resolve({ code: e ? e.code : 0, out: String(out), err: String(err) })));
 }
@@ -972,7 +1119,7 @@ test('a dry run mints in memory only; stdin is said to keep nothing; a present i
     assert.equal(dry.code, 0, dry.err);
     assert.equal(fs.readFileSync(f, 'utf8'), noId, 'the dry run changed nothing');
     assert.match(dry.err, /would mint one \(dry run/);
-    const env = { ...process.env, HOME: path.dirname(f), AGENT_FABRIC_STATE_DIR: path.join(path.dirname(f), 'state'), CLAUDE_BRIDGE_URL: relay, CLAUDE_BRIDGE_AUTH_TOKEN: 'tok-fixture', GZCOORD_CHANNEL: 'fixture:chan' };
+    const env = { ...process.env, HOME: path.dirname(f), AGENT_FABRIC_STATE_DIR: path.join(path.dirname(f), 'state'), AGENT_FABRIC_SECRET_STORE: idStore(), CLAUDE_BRIDGE_URL: relay, CLAUDE_BRIDGE_AUTH_TOKEN: 'tok-fixture', GZCOORD_CHANNEL: 'fixture:chan' };
     const piped = await new Promise(resolve => { const c = execFile('node', [SEND, '-'], { env, encoding: 'utf8' }, (e, out, err) => resolve({ code: e ? e.code : 0, out, err })); c.stdin.end(noId); });
     assert.equal(piped.code, 0, piped.err);
     assert.match(piped.err, /from stdin it is kept nowhere/);
@@ -1238,7 +1385,7 @@ test('inbox reports a refused token as a rotation, exit 4', async () => {
   const server = http.createServer((req, res) => { res.statusCode = 401; res.setHeader('connection', 'close'); res.end('{}'); });
   await new Promise(r => server.listen(0, '127.0.0.1', r));
   const INBOX = fileURLToPath(new URL('../scripts/inbox.mjs', import.meta.url));
-  const env = { ...process.env, HOME: scratch('home-'), CLAUDE_BRIDGE_URL: `http://127.0.0.1:${server.address().port}`, CLAUDE_BRIDGE_AUTH_TOKEN: 'dead', GZCOORD_CHANNEL: 'fixture:chan' };
+  const env = { ...process.env, HOME: scratch('home-'), AGENT_FABRIC_SECRET_STORE: idStore(), CLAUDE_BRIDGE_URL: `http://127.0.0.1:${server.address().port}`, CLAUDE_BRIDGE_AUTH_TOKEN: 'dead', GZCOORD_CHANNEL: 'fixture:chan' };
   const r = await new Promise(resolve => execFile('node', [INBOX, '--wait', '1'], { env, encoding: 'utf8' }, (e, out, err) => resolve({ code: e ? e.code : 0, err: String(err) })));
   server.closeAllConnections(); server.close();
   assert.equal(r.code, 4, r.err);
@@ -1258,7 +1405,7 @@ test('inbox --replay shows a broadcast, withholds a body not for me, moves no cu
   });
   await new Promise(r => server.listen(0, '127.0.0.1', r));
   const INBOX = fileURLToPath(new URL('../scripts/inbox.mjs', import.meta.url));
-  const env = { ...process.env, HOME: scratch('home-'), CLAUDE_BRIDGE_URL: `http://127.0.0.1:${server.address().port}`, CLAUDE_BRIDGE_AUTH_TOKEN: 'tok', GZCOORD_CHANNEL: 'fixture:chan' };
+  const env = { ...process.env, HOME: scratch('home-'), AGENT_FABRIC_SECRET_STORE: idStore(), CLAUDE_BRIDGE_URL: `http://127.0.0.1:${server.address().port}`, CLAUDE_BRIDGE_AUTH_TOKEN: 'tok', GZCOORD_CHANNEL: 'fixture:chan' };
   const run = args => new Promise(resolve => execFile('node', [INBOX, ...args], { env, encoding: 'utf8' }, (e, out, err) => resolve({ code: e ? e.code : 0, out: String(out), err: String(err) })));
   const a = await run(['--replay', '7']);
   const b = await run(['--replay', '01a09fc1-0000-7000-8000-00000000000b']);
@@ -1294,7 +1441,7 @@ test('inbox --history lists the messages addressed to me, from a seq, and moves 
   });
   await new Promise(r => server.listen(0, '127.0.0.1', r));
   const INBOX = fileURLToPath(new URL('../scripts/inbox.mjs', import.meta.url));
-  const env = { ...process.env, HOME: scratch('home-'), CLAUDE_BRIDGE_URL: `http://127.0.0.1:${server.address().port}`, CLAUDE_BRIDGE_AUTH_TOKEN: 'tok', GZCOORD_CHANNEL: 'fixture:chan' };
+  const env = { ...process.env, HOME: scratch('home-'), AGENT_FABRIC_SECRET_STORE: idStore(), CLAUDE_BRIDGE_URL: `http://127.0.0.1:${server.address().port}`, CLAUDE_BRIDGE_AUTH_TOKEN: 'tok', GZCOORD_CHANNEL: 'fixture:chan' };
   const run = args => new Promise(resolve => execFile('node', [INBOX, ...args], { env, encoding: 'utf8' }, (e, out, err) => resolve({ code: e ? e.code : 0, out: String(out), err: String(err) })));
   const all = await run(['--history']);
   const from = await run(['--history', '6']);
@@ -1362,7 +1509,7 @@ test('the synced file is the token; the environment snapshot is not consulted wh
   });
   await new Promise(r => server.listen(0, '127.0.0.1', r));
   const INBOX = fileURLToPath(new URL('../scripts/inbox.mjs', import.meta.url));
-  const env = { ...process.env, HOME: home, CLAUDE_BRIDGE_URL: `http://127.0.0.1:${server.address().port}`, CLAUDE_BRIDGE_AUTH_TOKEN: 'dead', GZCOORD_CHANNEL: 'fixture:chan' };
+  const env = { ...process.env, HOME: home, AGENT_FABRIC_SECRET_STORE: idStore(), CLAUDE_BRIDGE_URL: `http://127.0.0.1:${server.address().port}`, CLAUDE_BRIDGE_AUTH_TOKEN: 'dead', GZCOORD_CHANNEL: 'fixture:chan' };
   const r = await new Promise(resolve => execFile('node', [INBOX, '--wait', '1'], { env, encoding: 'utf8' }, (e, out, err) => resolve({ code: e ? e.code : 0, out: String(out), err: String(err) })));
   server.closeAllConnections(); server.close();
   assert.equal(r.code, 0, r.err);
@@ -1390,7 +1537,7 @@ test('inbox --follow prints a delivery and keeps running', async () => {
   });
   await new Promise(r => server.listen(0, '127.0.0.1', r));
   const INBOX = fileURLToPath(new URL('../scripts/inbox.mjs', import.meta.url));
-  const env = { ...process.env, HOME: scratch('home-'), CLAUDE_BRIDGE_URL: `http://127.0.0.1:${server.address().port}`, CLAUDE_BRIDGE_AUTH_TOKEN: 'tok', GZCOORD_CHANNEL: 'fixture:chan' };
+  const env = { ...process.env, HOME: scratch('home-'), AGENT_FABRIC_SECRET_STORE: idStore(), CLAUDE_BRIDGE_URL: `http://127.0.0.1:${server.address().port}`, CLAUDE_BRIDGE_AUTH_TOKEN: 'tok', GZCOORD_CHANNEL: 'fixture:chan' };
   const child = spawn('node', [INBOX, '--follow'], { env });
   let out = '';
   const done = new Promise(resolve => {
@@ -1419,7 +1566,7 @@ test('inbox --follow bounds a long delivery to one notification and names the re
   });
   await new Promise(r => server.listen(0, '127.0.0.1', r));
   const INBOX = fileURLToPath(new URL('../scripts/inbox.mjs', import.meta.url));
-  const env = { ...process.env, HOME: scratch('home-'), CLAUDE_BRIDGE_URL: `http://127.0.0.1:${server.address().port}`, CLAUDE_BRIDGE_AUTH_TOKEN: 'tok', GZCOORD_CHANNEL: 'fixture:chan' };
+  const env = { ...process.env, HOME: scratch('home-'), AGENT_FABRIC_SECRET_STORE: idStore(), CLAUDE_BRIDGE_URL: `http://127.0.0.1:${server.address().port}`, CLAUDE_BRIDGE_AUTH_TOKEN: 'tok', GZCOORD_CHANNEL: 'fixture:chan' };
   const child = spawn('node', [INBOX, '--follow'], { env });
   let out = '';
   await new Promise(resolve => { child.stdout.on('data', d => { out += d; if (out.includes('--replay 77]')) setTimeout(resolve, 200); }); setTimeout(resolve, 8000); });
@@ -1548,7 +1695,7 @@ test('inbox --follow polls nothing while the hold marker names a live pid', asyn
   const marker = path.join(holdDir, `${process.pid}.json`);
   fs.writeFileSync(marker, JSON.stringify({ session_id: 'plan', pid: process.pid, start: pidStart(process.pid), since: 'T' }));
   const INBOX = fileURLToPath(new URL('../scripts/inbox.mjs', import.meta.url));
-  const env = { ...process.env, HOME: scratch('home-'), AGENT_FABRIC_HOLD_DIR: holdDir,
+  const env = { ...process.env, HOME: scratch('home-'), AGENT_FABRIC_SECRET_STORE: idStore(), AGENT_FABRIC_HOLD_DIR: holdDir,
                 CLAUDE_BRIDGE_URL: `http://127.0.0.1:${server.address().port}`, CLAUDE_BRIDGE_AUTH_TOKEN: 'tok', GZCOORD_CHANNEL: 'fixture:chan' };
   const child = spawn('node', [INBOX, '--follow'], { env });
   let out = '', err = '';
@@ -1655,7 +1802,7 @@ test('a :control channel is refused by the drain, the watch and send, before any
   const server = http.createServer((req, res) => { hits.push(req.url); res.setHeader('content-type', 'application/json'); res.end('{"messages":[]}'); });
   await new Promise(r => server.listen(0, '127.0.0.1', r));
   const INBOX = fileURLToPath(new URL('../scripts/inbox.mjs', import.meta.url));
-  const env = { ...process.env, HOME: scratch('home-'), CLAUDE_BRIDGE_URL: `http://127.0.0.1:${server.address().port}`, CLAUDE_BRIDGE_AUTH_TOKEN: 'tok', GZCOORD_CHANNEL: 'fabric:control' };
+  const env = { ...process.env, HOME: scratch('home-'), AGENT_FABRIC_SECRET_STORE: idStore(), CLAUDE_BRIDGE_URL: `http://127.0.0.1:${server.address().port}`, CLAUDE_BRIDGE_AUTH_TOKEN: 'tok', GZCOORD_CHANNEL: 'fabric:control' };
   for (const args of [[], ['--follow'], ['--wait', '1']]) {
     const r = spawnSync('node', [INBOX, ...args], { env, encoding: 'utf8', timeout: 10000 });
     assert.equal(r.status, 2, `inbox ${args.join(' ')}: exit ${r.status}\n${r.stderr}`);

@@ -112,8 +112,10 @@ def main(argv: list[str]) -> int:
     for relay, channel in pairs:
         try:
             seq = catch_up(relay, channel, consumer, tok)
-        except (OSError, ValueError, KeyError) as e:
-            # urllib's errors are OSErrors; the message names the status, never the token.
+        except (OSError, ValueError, KeyError, TypeError) as e:
+            # urllib's errors are OSErrors; the message names the status, never
+            # the token. A malformed answer (a page that is not a list of
+            # objects) is a TypeError: said too, never a traceback.
             print(f"relay-catchup: {channel} at {relay}: {e}", file=sys.stderr)
             rc = 1
             continue

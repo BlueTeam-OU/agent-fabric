@@ -373,6 +373,7 @@ def build_report(root, environ=None):
     # install.sh is invisible anywhere else (review, 2026-09-16).
     moveto = hosttools.moveto_drift(root=root)
     python = pinned_python(root)
+    journal = episodic_journal(root)
 
     # --- placement: is this account on the host the registry says? ----------
     # The registry records where an account was provisioned; a session on
@@ -400,7 +401,7 @@ def build_report(root, environ=None):
                 "claude_sign_in": claude_sign_in(sign_env, sign_file, environ)},
         "capabilities": classes,
         "routing_check": "clean" if not checks else checks,
-        "host_tools": {"moveto": moveto, "python": python},
+        "host_tools": {"moveto": moveto, "python": python, "journal": journal},
         "control_plane": root,
     }
     return report, base
@@ -419,6 +420,29 @@ def pinned_python(root):
     if problem:
         return {"status": "missing", "detail": f"{problem}; as root: /usr/bin/python3 {root}/tools/fabric/python_pin.py install"}
     return {"status": "ok", "detail": f"fabric-python {pin['python']} ({pin['release']}), as pinned"}
+
+
+def episodic_journal(root):
+    """This agent's episodic journal (ADR-041): where it is, how many
+    episodes, the last one. Read-only: never created here."""
+    try:
+        ep = load("fabric_episodic", os.path.join(root, "tools", "fabric", "episodic.py"))
+        path = ep.db_path()
+        if not os.path.exists(path):
+            return {"status": "none", "detail": f"none yet ({path}): it starts with the first message sent or received"}
+        import sqlite3
+        conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=2)
+        try:
+            owner = conn.execute("SELECT owner_agent_id FROM meta").fetchone()
+            n, last = conn.execute("SELECT count(*), max(recorded_at) FROM episodes").fetchone()
+        finally:
+            conn.close()
+        mine = ep.own_agent_id()
+        if owner and mine and owner[0] != mine:
+            return {"status": "foreign", "detail": f"{path} belongs to agent {owner[0]}, not this one ({mine})"}
+        return {"status": "ok", "detail": f"{n} episode(s), last {last or '-'} (fabric-history)", "path": path}
+    except Exception as e:  # noqa: BLE001 — a status line, never a traceback
+        return {"status": "unknown", "detail": str(e)}
 
 
 def render(report, base):
@@ -473,6 +497,9 @@ def render(report, base):
           f"(none) written since {undrained['since']} — {undrained['dir']}")
     if moveto["installed"]:
         p(f"moveto       {moveto['status']}: {moveto['detail']}" if moveto["status"] == "drift" else f"moveto       {moveto['status']}")
+    journal = report["host_tools"].get("journal")
+    if journal:
+        p(f"journal      {journal['detail']}" if journal["status"] in ("ok", "none") else f"journal      {journal['status'].upper()}: {journal['detail']}")
     python = report["host_tools"].get("python")
     if python:
         p(f"python       {python['detail']}" if python["status"] == "ok" else f"python       {python['status'].upper()}: {python['detail']}")
