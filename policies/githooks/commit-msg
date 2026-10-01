@@ -47,12 +47,22 @@ if (( ${#guarded[@]} )); then
 try: print(json.load(open(sys.argv[1]))["role_definitions"]["role"])
 except Exception: print("fabric-coordinator")' "$FABRIC_ROOT/policies/authority.json" 2>/dev/null || echo fabric-coordinator)"
     if [[ "$role" != "$owner_role" ]]; then
-        # The one carve-out (policies/AUTHORITY.md): a locale's translations,
+        # The locale carve-out (policies/AUTHORITY.md): a locale's translations,
         # by the holder of the role named for the suffix — the same test
         # pre-commit made; the trailer below then records that role.
         . "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/locale-carve-out.sh"
         login="$(id -un)"; mapfile -t own < <(locale_carve_out_paths)
-        if ! locale_carve_out_role "${own[@]}" \
+        # The contributor carve-out (ADR-018 §5 rule 8): the same question
+        # pre-commit asked contributors.py, in agent-fabric itself only.
+        contributor=1
+        if [[ "$guarded_what" == "agent-fabric itself" && -n "$role" \
+              && -f "$FABRIC_ROOT/tools/fabric/guards/contributors.py" ]]; then
+            python3 "$FABRIC_ROOT/tools/fabric/guards/contributors.py" hook "$FABRIC_ROOT" "$role" 2>/dev/null
+            contributor=$?
+        fi
+        if (( contributor == 0 )); then
+            :
+        elif ! locale_carve_out_role "${own[@]}" \
            || [[ "$role" != "$locale_role" ]] || [[ "$login" != *-"$locale_suffix" && "$login" != "$locale_suffix" ]]; then
             echo "commit-msg: a guarded change, but this agent's binding holds '${role:-no role}', not $owner_role." >&2
             exit 1

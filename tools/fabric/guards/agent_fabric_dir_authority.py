@@ -91,7 +91,7 @@ import sys
 HERE = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
 import git  # noqa: E402
-from guards import common  # noqa: E402
+from guards import common, contributors  # noqa: E402
 from guards.common import Refused, err, say  # noqa: E402
 
 NAME = "check_agent_fabric_dir_authority"
@@ -106,7 +106,8 @@ WORKFLOWS = ".github/workflows/"
 REFUSAL = """
 agent-fabric is read-only for every role but {role} — except a
 locale's translations, identities/roles/<role>/locale/<suffix>/, which
-the holder of <role> commits declaring its own role; in a managed
+the holder of <role> commits declaring its own role, and a contributor
+role's entry in policies/authority.json (`contributors`); in a managed
 project, .agent-fabric/ (the project's distilled knowledge) is. A commit
 there is made with that role bound (bin/fabric-role bind {role},
 from a login shell, then a relaunch) and the
@@ -183,6 +184,13 @@ def owner_role_of(top: str, env: dict[str, str], base: str) -> str:
     return common.DEFAULT_ROLE
 
 
+def base_authority(top: str, base: str) -> str:
+    """The base's policies/authority.json, "" when it has none: what a
+    branch may do is what main says, never what the branch wrote."""
+    shown = git.run(top, "show", f"{base}:policies/authority.json", check=False)
+    return shown.stdout if shown.returncode == 0 else ""
+
+
 def commits_to_examine(top: str, base: str) -> tuple[str, list[str]]:
     if is_fabric_itself(top, base):
         scope, args = "agent-fabric itself", ["rev-list", "--no-merges", f"{base}..HEAD"]
@@ -221,11 +229,13 @@ def run(env: dict[str, str]) -> int:
         say(f"check_agent_fabric_dir_authority: OK — no commit changes {scope}.")
         return 0
 
-    # The one carve-out (policies/AUTHORITY.md): a commit that changes nothing
-    # but identities/roles/<role>/locale/<suffix>/ may declare Fabric-Role:
-    # <role> — the holder of the role a locale translates writes its
-    # translations. The login is not visible here; the pre-commit hook held
-    # it to the suffix at the keyboard.
+    # The locale carve-out (policies/AUTHORITY.md): a commit that changes
+    # nothing but identities/roles/<role>/locale/<suffix>/ may declare
+    # Fabric-Role: <role> — the holder of the role a locale translates writes
+    # its translations. The login is not visible here; the pre-commit hook
+    # held it to the suffix at the keyboard.
+    fabric_itself = scope == "agent-fabric itself"
+    authority = base_authority(top, base) if fabric_itself else ""
     bad: list[str] = []
     for c in commits:
         message = git.run(top, "log", "-1", "--format=%B", c).stdout
@@ -240,7 +250,17 @@ def run(env: dict[str, str]) -> int:
                 f"identities/roles/{locale[0]}/locale/{locale[1]}/, declaring Fabric-Role: {locale[0]} "
                 "— the locale carve-out.")
             continue
-        # The second carve-out: Dependabot bumps the SHA-pinned actions
+        # The contributor carve-out (ADR-018 §5 rule 8), in agent-fabric
+        # itself only — never .agent-fabric/ in a project, which is the
+        # drain's: a role the BASE's authority.json names under
+        # `contributors`, within its entry's paths. The branch shape was held
+        # at the keyboard; folded into the coordinator's branch it is not
+        # visible here.
+        if fabric_itself and declared and contributors.admitted(authority, declared, touched):
+            say(f"check_agent_fabric_dir_authority: {log1(top, c, '%h')} declares Fabric-Role: {declared} "
+                "and stays within its contributor entry — the contributor carve-out.")
+            continue
+        # The Dependabot carve-out: Dependabot bumps the SHA-pinned actions
         # (.github/dependabot.yml) and can carry no trailer. Its commit may
         # change nothing but .github/workflows/; fabric-coordinator reviews
         # and merges the PR. The author name is text, so like the trailer

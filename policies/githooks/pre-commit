@@ -56,7 +56,7 @@ held="$(python3 "$FABRIC_ROOT/runtime/identity.py" --role 2>/dev/null || echo ""
 if [[ "$held" == "$owner_role" ]]; then
     exit 0
 fi
-# THE ONE CARVE-OUT. A locale's translations — identities/roles/<role>/
+# THE LOCALE CARVE-OUT. A locale's translations — identities/roles/<role>/
 # locale/<suffix>/* — are authored by the holder of <role> whose login is
 # named for <suffix> (language-culture-ge writes locale/ge/): the CEO's
 # rule of 2026-09-17 that no Georgian in the fabric has any author but
@@ -82,6 +82,21 @@ pre-commit: this commit changes only identities/roles/$locale_role/locale/$local
   binding holds ${held:-(no role bound)} on login $(id -un).
 MSG
     exit 1
+fi
+# THE CONTRIBUTOR CARVE-OUT (ADR-018 §5 rule 8), in agent-fabric itself
+# only: a role policies/authority.json names under `contributors` commits
+# the paths of its entry, on its own contributor branch
+# (<host>/<login>/for/<caller>/<what>), and fabric-coordinator folds and
+# merges it. contributors.py decides, here, in commit-msg and in CI. Only
+# exit 0 admits; exit 1 is its own refusal, said; anything else (3, not a
+# contributor; a fabric older than the module) falls to the refusal below.
+contributors="$FABRIC_ROOT/tools/fabric/guards/contributors.py"
+if [[ "$what" == "agent-fabric itself" && -n "$held" && -f "$contributors" ]]; then
+    python3 "$contributors" hook "$FABRIC_ROOT" "$held"
+    case $? in
+        0) exit 0 ;;
+        1) exit 1 ;;
+    esac
 fi
 cat >&2 <<MSG
 pre-commit: this commit changes $what, which only the $owner_role role writes.
