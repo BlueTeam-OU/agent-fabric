@@ -66,3 +66,27 @@ runs.
     and most pages hold none;
   - a send calls twice, which is small beside its network round trip.
 - No daemon until a measured need: the plan's P0 bar.
+
+## Read back live, on the coordinator's own account
+
+The journal code ran in this account's real sessions: `send.mjs`, and
+the inbox watch restarted on the new receive path. The messages were
+real ones to and from python-dev-01.
+
+- **Outbound.** Two sends, an INFO and a QUESTION, each became one
+  outbound row marked accepted. `fabric-history` showed both,
+  oldest first. The database file is 0600 in the account's state
+  directory.
+- **Inbound.** python-dev-01's REPLY to the QUESTION was delivered by
+  the watch and journaled before the watch acknowledged it: one inbound
+  row.
+- **Thread.** `fabric-history --thread <the QUESTION's id>` returned the
+  question and its reply, and so did starting from the reply.
+- **Status.** `fabric-status` reported the journal's episode count and
+  last write.
+- **Timestamps.** The relay's timestamp carried microseconds where the
+  journal's own carry seconds. Both are now stored to the second.
+
+The hold path (a journal that cannot write) is proven by the suites
+rather than live. A live failure would mean breaking a real account's
+journal.

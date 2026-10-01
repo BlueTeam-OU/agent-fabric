@@ -108,6 +108,16 @@ def now() -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
 
+def _seconds(ts: str | None) -> str:
+    """A carrier's timestamp in the journal's one form, to the second, UTC
+    (2026-10-01T17:19:04Z): the relay's carries microseconds, and the
+    journal orders by text."""
+    if not ts:
+        return now()
+    head = ts.replace(" ", "T").split(".")[0].rstrip("Z")
+    return head + "Z" if len(head) == 19 else ts
+
+
 def parse_header(text: str) -> tuple[str, dict[str, str]]:
     """(type, metadata) of a GZCOORD/1 message: the first line names the
     type, then KEY: value lines up to the first blank one. Enough to key and
@@ -256,7 +266,7 @@ def inbound(conn: sqlite3.Connection, records: list[dict], carrier: str = DEFAUL
                          "working_copy, message_id, in_reply_to, type, sender, carrier, carrier_seq, content, "
                          "content_hash, metadata_json) VALUES (?, ?, 'inbound', 'received', ?, ?, ?, ?, ?, ?, ?, ?, "
                          "?, ?, ?, ?, ?)",
-                         (str(uuid.uuid4()), SOURCE, rec.get("ts") or now(), now(), project, working_copy, mid,
+                         (str(uuid.uuid4()), SOURCE, _seconds(rec.get("ts")), now(), project, working_copy, mid,
                           meta.get("IN-REPLY-TO"), mtype, meta.get("FROM"), carrier, seq, text, h,
                           json.dumps(meta, sort_keys=True)))
             counts["written"] += 1

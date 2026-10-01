@@ -86,6 +86,11 @@ def main() -> int:
         check("a reused id with another body: the first stands, the other kept in conflicts",
               c["conflict"] == 1 and "hello" in kept
               and conn.execute("SELECT count(*) FROM conflicts WHERE message_id='i-1'").fetchone()[0] == 1)
+        check("a carrier's microseconds become the journal's seconds", conn.execute(
+            "SELECT happened_at FROM episodes WHERE message_id='i-1'").fetchone()[0] == "2026-10-01T10:00:00Z")
+        c = ep.inbound(conn, [{"content": msg("i-us", "x"), "seq": 52, "ts": "2026-10-01T17:19:04.630273Z"}])
+        check("…the relay's form included", conn.execute(
+            "SELECT happened_at FROM episodes WHERE message_id='i-us'").fetchone()[0] == "2026-10-01T17:19:04Z")
         check("…and the thread edge is recorded", conn.execute(
             "SELECT in_reply_to FROM episodes WHERE message_id='i-1'").fetchone()[0] == "m-1")
         ep.out_pending(conn, msg("b-1", "to all", sender=ME))
