@@ -82,7 +82,41 @@ def main() -> int:
               and launch.caller_value(["-p", "--model"], "--model") == (None, True, True)
               and launch.caller_value(["-p"], "--model") == (None, False, False))
 
+        print("the session's effort")
+        check("the routed level, unless the caller passed one",
+              launch.effort_for([], "high") == ("high", False)
+              and launch.effort_for(["--effort", "low"], "high") == ("low", True)
+              and launch.effort_for(["--effort=max"], "high") == ("max", True))
+        check("a trailing bare --effort is the caller's: no level added, none stamped",
+              launch.effort_for(["--version", "--effort"], "high") == ("", True)
+              and launch.effort_for(["--effort", "low", "--effort"], "high") == ("", True))
+
+        print("the files a launch needs")
+        present = put(f"{tmp}/routing/capabilities.json", "{}")
+        try:
+            launch.require_files(present, f"{tmp}/routing/aliases.json")
+            check("a missing routing file is refused", False)
+        except launch.Refused as exc:
+            check("a missing routing file is refused, by its path", str(exc) == f"{tmp}/routing/aliases.json is missing.")
+
         print("settings scopes")
+        repo, other = f"{tmp}/repo", f"{tmp}/other"
+        for d in (repo, other):
+            os.makedirs(d)
+            subprocess.run(["git", "init", "-q", d], check=True, timeout=30)
+        os.makedirs(f"{repo}/sub")
+        saved = dict(os.environ)
+        os.environ.clear()
+        os.environ.update(clean_env(REPO_ROOT=other))
+        try:
+            scopes = launch.settings_scopes(f"{tmp}/home", f"{repo}/sub")
+        finally:
+            os.environ.clear()
+            os.environ.update(saved)
+        check("launched from a subdirectory: the repository's scopes and the directory's, never an inherited "
+              "REPO_ROOT's",
+              f"{repo}/.claude/settings.local.json" in scopes and f"{repo}/sub/.claude/settings.json" in scopes
+              and not any(p.startswith(other) for p in scopes))
         check("pins are named", launch.settings_pins(put(f"{tmp}/s1.json", json.dumps(
             {"env": {"ANTHROPIC_MODEL": "x", "OTHER": "y"}, "modelOverrides": {}, "maxEffortLevel": "low"})))
             == ["env.ANTHROPIC_MODEL", "modelOverrides", "maxEffortLevel"])

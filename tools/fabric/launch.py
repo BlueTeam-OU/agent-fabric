@@ -435,7 +435,13 @@ def refuse_passthrough(args: list[str]) -> None:
 # is not evidence of pins. $PWD's .claude/ is scanned as well when the
 # launch directory is not the toplevel, and the managed-policy file
 # (root-owned; outranks every other scope) — a missing file is skipped.
-def settings_scopes(home: str, repo_root: str, cwd: str) -> list[str]:
+def settings_scopes(home: str, cwd: str) -> list[str]:
+    # Derived from the launch directory ONLY — never inherited. The scopes this
+    # fence inspects must be the scopes the child loads, and the child starts
+    # in $PWD: an inherited REPO_ROOT pointing at another clone let the fence
+    # pass on that clone's clean .claude/ while exec'ing in this one, pinned
+    # (a review finding on a managed project's PR #679, judged CONFIRMED).
+    repo_root = toplevel(cwd) or cwd
     config_dir = os.environ.get("CLAUDE_CONFIG_DIR", "")
     return ["/etc/claude-code/managed-settings.json",
             f"{home}/.claude/settings.json", f"{home}/.claude/settings.local.json",
@@ -765,6 +771,34 @@ def caller_value(args: list[str], flag: str) -> tuple[str | None, bool, bool]:
         prev = arg
     trailing = prev == flag
     return value, given or trailing, trailing
+
+
+def effort_for(args: list[str], routed: str) -> tuple[str, bool]:
+    """The session's effort and whether the caller decided it: the caller's
+    own --effort wins over the routed level."""
+    value, given, trailing = caller_value(args, "--effort")
+    if trailing:
+        # A TRAILING `--effort` with no value never entered the scan as a value,
+        # so the launcher appended its own and the child saw
+        # `--effort --effort <level>` — claude would read "--effort" as the level.
+        # The caller meant to pass one; let their (malformed) flag stand and let
+        # claude report it, rather than adding a second — and stamp nothing.
+        return "", True
+    return (value if value is not None else routed), given
+
+
+def require_files(*paths: str) -> None:
+    for path in paths:
+        if not os.path.isfile(path):
+            die(f"{path} is missing.")
+
+
+def toplevel(cwd: str) -> str:
+    """The launch directory's repository, or "" when it is in none."""
+    try:
+        return git.toplevel(cwd) or ""
+    except git.GitError:
+        return ""
 
 
 def make_tmpdir(path: str) -> None:
@@ -1153,16 +1187,7 @@ def launch(argv: list[str]) -> int:
     aliases = f"{fabric_root}/runtime/claude-code/aliases.json"
     cwd = logical_cwd()
     home = env.get("HOME", "")
-    # Derived from the launch directory ONLY — never inherited. The scopes this
-    # fence inspects must be the scopes the child loads, and the child starts
-    # in $PWD: an inherited REPO_ROOT pointing at another clone let the fence
-    # pass on that clone's clean .claude/ while exec'ing in this one, pinned
-    # (a review finding on a managed project's PR #679, judged CONFIRMED).
-    try:
-        wc = git.toplevel(cwd) or ""
-    except git.GitError:
-        wc = ""
-    repo_root = wc or cwd
+    wc = toplevel(cwd)
 
     keep_fabric_current(fabric_root, orig_args)
     keep_working_copy_current(wc, fabric_root)
@@ -1184,17 +1209,14 @@ def launch(argv: list[str]) -> int:
         die(f"agent '{agent}' has no active role binding ({state_dir}/binding.json).\n"
             "  The launcher resolves the profile and the system prompt from the agent's\n"
             "  role. From a login shell run: bin/fabric-role bind <role>; then re-run.")
-    if not os.path.isfile(capabilities):
-        die(f"{capabilities} is missing.")
-    if not os.path.isfile(aliases):
-        die(f"{aliases} is missing.")
+    require_files(capabilities, aliases)
     if provider == "openrouter":
         if not shutil.which("ori"):
             die("the ori CLI is not on PATH.")
     elif not shutil.which("claude"):
         die("claude is not on PATH.")
     refuse_passthrough(args)
-    refuse_pins(settings_scopes(home, repo_root, cwd), local_override)
+    refuse_pins(settings_scopes(home, cwd), local_override)
 
     # ── resolve ─────────────────────────────────────────────────────────
     try:
@@ -1234,18 +1256,9 @@ def launch(argv: list[str]) -> int:
     # disagree with what the child applies. Empty when the session's model
     # expresses no effort; then no flag is passed and nothing is stamped,
     # because a level the model cannot take is not a decision to record.
-    session_effort = stripped(helper([sys.executable, routing_path, "session-effort", "--me", "--provider",
-                                      provider], env=env_with(AGENT_FABRIC_ROOT=fabric_root), quiet=True))
-    caller_effort_value, caller_effort, trailing_effort = caller_value(args, "--effort")
-    if caller_effort_value is not None:
-        session_effort = caller_effort_value
-    # A TRAILING `--effort` with no value never entered the scan as a value,
-    # so the launcher appended its own and the child saw
-    # `--effort --effort <level>` — claude would read "--effort" as the level.
-    # The caller meant to pass one; let their (malformed) flag stand and let
-    # claude report it, rather than adding a second.
-    if trailing_effort:
-        session_effort = ""
+    routed_effort = stripped(helper([sys.executable, routing_path, "session-effort", "--me", "--provider",
+                                     provider], env=env_with(AGENT_FABRIC_ROOT=fabric_root), quiet=True))
+    session_effort, caller_effort = effort_for(args, routed_effort)
     # Cleared, not just left unset, when there is no level: this stamp is
     # CONDITIONAL, so a launch started from inside another fabric session
     # would otherwise inherit it (so is AGENT_FABRIC_LAUNCH_CLAUDE_VERSION,
