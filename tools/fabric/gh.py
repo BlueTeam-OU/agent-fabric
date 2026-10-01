@@ -77,7 +77,7 @@ def run(args: list[str], *, input: str | None = None, timeout: float = TIMEOUT_S
 
 
 def api(path: str, *, method: str = "GET", body: dict | list | None = None, paginate: bool = False,
-        timeout: float = TIMEOUT_S):
+        timeout: float = TIMEOUT_S, items_key: str | None = None):
     """A REST call, its JSON. With paginate, every page's items as one
     list (`--paginate --slurp`, which gh has had since 2.48)."""
     args = ["api", path, "--method", method]
@@ -96,14 +96,20 @@ def api(path: str, *, method: str = "GET", body: dict | list | None = None, pagi
         raise GhError(f"gh api {method} {path.split('?')[0]}", "the answer is not JSON", transient=True) from None
     if paginate and isinstance(data, list):
         # --slurp wraps the pages in a list; a page is a list of items, or
-        # an object whose one list field holds them (search, check runs).
+        # an object holding them under the field the caller names (search,
+        # check suites). Guessed, a page with no list field or several was
+        # appended whole, and the caller got items of two shapes (review of
+        # #70): an object page without its named field is a failed read.
         items = []
         for page in data:
             if isinstance(page, list):
                 items += page
-            elif isinstance(page, dict):
-                lists = [v for v in page.values() if isinstance(v, list)]
-                items += lists[0] if len(lists) == 1 else [page]
+            elif isinstance(page, dict) and items_key and isinstance(page.get(items_key), list):
+                items += page[items_key]
+            else:
+                what = f"gh api {method} {path.split('?')[0]}"
+                raise GhError(what, f"a page is not a list{f' and has no {items_key!r} list' if items_key else ''}"
+                              f" (pass items_key= for an endpoint whose pages are objects)")
         return items
     return data
 
