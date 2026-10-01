@@ -71,10 +71,11 @@ case; its value is what lies up to the NEXT colon, spaces kept on the right.
 So `Fabric-Role: a:b` declares `a`, and `Fabric-Role: fabric-coordinator ` (a
 trailing space) declares something else. Replicated, not fixed.
 
-REPLICATED, though it reads as a defect: the role name is read from the
-working tree's policies/authority.json — the branch's own — where the
-charter guard reads the base side; a branch that edits that file names its
-own owner for this check.
+THE OWNER ROLE IS THE BASE'S. In agent-fabric itself the role's name is
+read from policies/authority.json as the base has it, as the charter guard
+reads its holders: read from the working tree, as the bash did, a branch
+that edited that file named its own owner for this check. A managed
+project has no such file of its own, and reads the fabric's.
 
 WHAT DIFFERS FROM THE BASH, on purpose, each the direction of a refusal: the
 git failures named under `exit` above; a `role` that is not a non-empty
@@ -147,10 +148,14 @@ def declared_role(message: str, interpreted: str) -> str:
     return declared
 
 
-def owner_role_of(top: str, env: dict[str, str]) -> str:
-    for f in (os.path.join(top, "policies", "authority.json"),
-              os.path.join(env.get("AGENT_FABRIC_ROOT") or os.path.join(top, "..", "agent-fabric"),
-                           "policies", "authority.json")):
+def owner_role_of(top: str, env: dict[str, str], base: str) -> str:
+    if os.path.isfile(os.path.join(top, "policies", "authority.json")):
+        # agent-fabric itself: the base's file, never the branch's.
+        shown = git.run(top, "show", f"{base}:policies/authority.json", check=False)
+        role = common.role_of(shown.stdout) if shown.returncode == 0 else None
+        return role or common.DEFAULT_ROLE
+    for f in (os.path.join(env.get("AGENT_FABRIC_ROOT") or os.path.join(top, "..", "agent-fabric"),
+                           "policies", "authority.json"),):
         if not os.path.isfile(f):
             continue
         try:
@@ -195,7 +200,7 @@ def run(env: dict[str, str]) -> int:
         say(".agent-fabric/ would pass unexamined here.")
         return 0
 
-    owner_role = owner_role_of(top, env)
+    owner_role = owner_role_of(top, env, base)
     scope, commits = commits_to_examine(top, base)
     if not commits:
         say(f"check_agent_fabric_dir_authority: OK — no commit changes {scope}.")

@@ -76,23 +76,32 @@ def main() -> int:
         sib = os.path.join(tmp, "agent-fabric")
         os.makedirs(os.path.join(top, "policies"))
         os.makedirs(os.path.join(sib, "policies"))
-        check("the default", da.owner_role_of(top, {}) == "fabric-coordinator")
+        check("the default", da.owner_role_of(top, {}, "main") == "fabric-coordinator")
         with open(os.path.join(sib, "policies", "authority.json"), "w") as f:
             json.dump({"role_definitions": {"role": "sibling"}}, f)
-        check("the sibling checkout", da.owner_role_of(top, {}) == "sibling")
+        check("the sibling checkout", da.owner_role_of(top, {}, "main") == "sibling")
         os.makedirs(os.path.join(tmp, "elsewhere", "policies"))
         with open(os.path.join(tmp, "elsewhere", "policies", "authority.json"), "w") as f:
             json.dump({"role_definitions": {"role": "named"}}, f)
-        check("$AGENT_FABRIC_ROOT", da.owner_role_of(top, {"AGENT_FABRIC_ROOT": os.path.join(tmp, "elsewhere")}) == "named")
-        with open(os.path.join(top, "policies", "authority.json"), "w") as f:
-            json.dump({"role_definitions": {"role": "own"}}, f)
-        check("the working tree's own first", da.owner_role_of(top, {}) == "own")
-        with open(os.path.join(top, "policies", "authority.json"), "w") as f:
-            json.dump({"role_definitions": {"role": 5}}, f)
-        check("a non-string role falls through", da.owner_role_of(top, {}) == "sibling")
-        with open(os.path.join(top, "policies", "authority.json"), "w") as f:
-            f.write("{")
-        check("broken JSON falls through", da.owner_role_of(top, {}) == "sibling")
+        check("$AGENT_FABRIC_ROOT", da.owner_role_of(top, {"AGENT_FABRIC_ROOT": os.path.join(tmp, "elsewhere")}, "main")
+              == "named")
+
+        print("in agent-fabric itself the owner is the base's, never the branch's")
+        fab = os.path.join(tmp, "fab")
+        os.makedirs(os.path.join(fab, "policies"))
+        sh(fab, "init", "-q", "-b", "main")
+        sh(fab, "commit", "-q", "--allow-empty", "-m", "before the file")
+        sh(fab, "tag", "before")
+        with open(os.path.join(fab, "policies", "authority.json"), "w") as f:
+            json.dump({"role_definitions": {"role": "base-owner"}}, f)
+        sh(fab, "add", "-A")
+        sh(fab, "commit", "-q", "-m", "base")
+        sh(fab, "checkout", "-q", "-b", "h/intruder/feat/x")
+        with open(os.path.join(fab, "policies", "authority.json"), "w") as f:
+            json.dump({"role_definitions": {"role": "intruder"}}, f)
+        sh(fab, "commit", "-qam", "name myself the owner")
+        check("the branch's edit names nobody", da.owner_role_of(fab, {}, "main") == "base-owner")
+        check("a base without the file: the default", da.owner_role_of(fab, {}, "before") == "fabric-coordinator")
 
         print("the run, end to end in a scratch managed project")
         rr = os.path.join(tmp, "p")
