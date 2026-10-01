@@ -1485,6 +1485,54 @@ def case_a_contributor_entry_never_reaches_a_definition() -> None:
         assert lint.contributor_findings(root) == ["policies/authority.json: `contributors` is not a list"]
 
 
+def case_the_fallback_validator_agrees_with_jsonschema() -> None:
+    """On the pinned interpreter (standard library only) the structural
+    fallback is the validator: each keyword it claims gives jsonschema's
+    verdict on a planted pass and a planted fail, and a schema using a
+    keyword it does not check is refused by name."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("fabric_lint_under_test", LINT)
+    lint = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(lint)
+    cases = [
+        ({"type": "object", "propertyNames": {"pattern": "^[a-z]+$"}}, {"ok": 1}, {"Bad": 1}),
+        ({"type": "object", "minProperties": 1}, {"a": 1}, {}),
+        ({"const": "x"}, "x", "y"),
+        ({"oneOf": [{"type": "string"}, {"type": "integer"}]}, "s", 1.5),
+        ({"type": "object", "patternProperties": {"^n_": {"type": "integer"}}}, {"n_a": 1}, {"n_a": "s"}),
+        ({"type": "array", "minItems": 1, "maxItems": 2}, [1], []),
+        ({"type": "array", "maxItems": 1}, [1], [1, 2]),
+        ({"type": "string", "minLength": 2, "maxLength": 3}, "abc", "a"),
+        ({"type": "string", "maxLength": 2}, "ab", "abc"),
+        ({"type": "integer", "minimum": 1, "maximum": 3}, 2, 0),
+        ({"type": "integer", "maximum": 3}, 3, 4),
+        ({"if": {"properties": {"k": {"const": "a"}}}, "then": {"required": ["x"]}, "else": {"required": ["y"]}},
+         {"k": "a", "x": 1}, {"k": "a", "y": 1}),
+        ({"if": {"properties": {"k": {"const": "a"}}}, "then": {"required": ["x"]}, "else": {"required": ["y"]}},
+         {"k": "b", "y": 1}, {"k": "b", "x": 1}),
+    ]
+    try:
+        import jsonschema  # type: ignore
+    except ImportError:
+        jsonschema = None
+    for schema, good, bad in cases:
+        assert lint._structural_check(schema, good, "w") == [], (schema, good)
+        assert lint._structural_check(schema, bad, "w") != [], (schema, bad)
+        if jsonschema is not None:
+            v = jsonschema.Draft202012Validator(schema)
+            assert v.is_valid(good) and not v.is_valid(bad), ("jsonschema disagrees with the case", schema)
+    assert set(k for schema, _, _ in cases for k in schema) <= lint.SCHEMA_KEYWORDS
+    with tempfile.TemporaryDirectory() as root:
+        g = lambda *a: subprocess.run(["git", "-C", root, *a], check=True, capture_output=True)
+        write(os.path.join(root, "x.schema.json"),
+              json.dumps({"type": "object", "properties": {"n": {"type": "integer", "multipleOf": 2}}}))
+        g("init", "-q")
+        g("add", "-A")
+        got = lint.schema_keyword_findings(root)
+        assert any("'multipleOf' is not checked without jsonschema" in f for f in got), got
+        assert not any("'type'" in f or "'n'" in f for f in got), ("a property name is not a keyword", got)
+
+
 def main() -> int:
     cases = [
         case_clean_base_passes,
@@ -1538,6 +1586,7 @@ def main() -> int:
         case_a_managed_projects_name_stays_out_of_generic_files,
         case_review_lenses_are_named_described_and_bounded,
         case_a_contributor_entry_never_reaches_a_definition,
+        case_the_fallback_validator_agrees_with_jsonschema,
     ]
     failures = 0
     for case in cases:

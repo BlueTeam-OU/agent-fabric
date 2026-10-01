@@ -932,9 +932,16 @@ def validate_json(schema: dict[str, Any], doc: Any, where: str) -> list[str]:
 
 def _structural_check(schema: dict[str, Any], doc: Any, where: str, path: str = "",
                       root: dict[str, Any] | None = None) -> list[str]:
-    """The no-dependency validator: type, required, properties, items, enum,
-    pattern — and the two composition keywords the schemas here use,
-    local `$ref` (#/$defs/…) and `allOf`. Anything else is jsonschema's."""
+    """The no-dependency validator, and on the fleet's pinned interpreter
+    (standard library only, ADR-040) the only one: type, required,
+    properties, patternProperties, additionalProperties, propertyNames,
+    minProperties, items, minItems, maxItems, uniqueItems, enum, const,
+    pattern, minLength, maxLength, minimum, maximum, and the composition
+    the schemas here use — local `$ref` (#/$defs/…), `allOf`, `oneOf` and
+    `if`/`then`/`else`. SCHEMA_KEYWORDS lists them, and schema_keyword_findings
+    refuses a schema that uses any other: a keyword this cannot check
+    would pass unchecked wherever jsonschema is absent (two lint cases did,
+    on the pinned 3.13, 2026-10-01)."""
     root = root if root is not None else schema
     if "$ref" in schema:
         ref = schema["$ref"]
@@ -950,6 +957,17 @@ def _structural_check(schema: dict[str, Any], doc: Any, where: str, path: str = 
         for sub in schema["allOf"]:
             problems += _structural_check(sub, doc, where, path, root)
         rest = {k: v for k, v in schema.items() if k != "allOf"}
+        return problems + (_structural_check(rest, doc, where, path, root) if rest else [])
+    if "if" in schema:
+        # Draft 2020-12: `then` applies when `if` validates, `else` when not.
+        branch = schema.get("then") if not _structural_check(schema["if"], doc, where, path, root) else schema.get("else")
+        problems = _structural_check(branch, doc, where, path, root) if isinstance(branch, dict) else []
+        rest = {k: v for k, v in schema.items() if k not in ("if", "then", "else")}
+        return problems + (_structural_check(rest, doc, where, path, root) if rest else [])
+    if "oneOf" in schema:
+        matched = sum(1 for sub in schema["oneOf"] if not _structural_check(sub, doc, where, path, root))
+        problems = [] if matched == 1 else [f"{where}{path}: matches {matched} of its oneOf schemas, not exactly one"]
+        rest = {k: v for k, v in schema.items() if k != "oneOf"}
         return problems + (_structural_check(rest, doc, where, path, root) if rest else [])
     """Enough of JSON Schema to be useful without the dependency."""
     problems: list[str] = []
@@ -969,8 +987,18 @@ def _structural_check(schema: dict[str, Any], doc: Any, where: str, path: str = 
             if key not in doc:
                 problems.append(f"{where}{path}: missing required '{key}'")
         props = schema.get("properties", {})
+        pattern_props = schema.get("patternProperties", {})
+        if "minProperties" in schema and len(doc) < schema["minProperties"]:
+            problems.append(f"{where}{path}: fewer than {schema['minProperties']} properties")
+        names = schema.get("propertyNames")
+        if isinstance(names, dict):
+            for key in doc:
+                problems += _structural_check(names, key, where, f"{path}/<{key}>", root)
+        for pat, sub in pattern_props.items():
+            for key, value in doc.items():
+                if key not in props and re.search(pat, key):
+                    problems += _structural_check(sub, value, where, f"{path}/{key}", root)
         if schema.get("additionalProperties") is False:
-            pattern_props = schema.get("patternProperties", {})
             for key in doc:
                 if key in props:
                     continue
@@ -983,20 +1011,82 @@ def _structural_check(schema: dict[str, Any], doc: Any, where: str, path: str = 
         extra = schema.get("additionalProperties")
         if isinstance(extra, dict):
             for key, value in doc.items():
-                if key not in props:
+                if key not in props and not any(re.search(p, key) for p in pattern_props):
                     problems += _structural_check(extra, value, where, f"{path}/{key}", root)
     if isinstance(doc, list):
         items = schema.get("items")
         if isinstance(items, dict):
             for i, value in enumerate(doc):
                 problems += _structural_check(items, value, where, f"{path}[{i}]", root)
+        if "minItems" in schema and len(doc) < schema["minItems"]:
+            problems.append(f"{where}{path}: fewer than {schema['minItems']} items")
+        if "maxItems" in schema and len(doc) > schema["maxItems"]:
+            problems.append(f"{where}{path}: more than {schema['maxItems']} items")
         if schema.get("uniqueItems") and len({json.dumps(v, sort_keys=True) for v in doc}) != len(doc):
             problems.append(f"{where}{path}: duplicate items")
+    if isinstance(doc, str):
+        if "minLength" in schema and len(doc) < schema["minLength"]:
+            problems.append(f"{where}{path}: shorter than {schema['minLength']} characters")
+        if "maxLength" in schema and len(doc) > schema["maxLength"]:
+            problems.append(f"{where}{path}: longer than {schema['maxLength']} characters")
+    # bool is an int in Python and never a number in JSON Schema.
+    if isinstance(doc, (int, float)) and not isinstance(doc, bool):
+        if "minimum" in schema and doc < schema["minimum"]:
+            problems.append(f"{where}{path}: {doc} is below the minimum {schema['minimum']}")
+        if "maximum" in schema and doc > schema["maximum"]:
+            problems.append(f"{where}{path}: {doc} is above the maximum {schema['maximum']}")
+    if "const" in schema and doc != schema["const"]:
+        problems.append(f"{where}{path}: {doc!r} is not {schema['const']!r}")
     if "enum" in schema and doc not in schema["enum"]:
         problems.append(f"{where}{path}: {doc!r} not in {schema['enum']}")
     if "pattern" in schema and isinstance(doc, str) and not re.search(schema["pattern"], doc):
         problems.append(f"{where}{path}: {doc!r} does not match {schema['pattern']}")
     return problems
+
+
+SCHEMA_KEYWORDS = {
+    "$schema", "$id", "$ref", "$defs", "$comment", "title", "description", "examples", "default",
+    "type", "required", "properties", "patternProperties", "additionalProperties", "propertyNames",
+    "minProperties", "items", "minItems", "maxItems", "uniqueItems", "enum", "const", "pattern",
+    "minLength", "maxLength", "minimum", "maximum", "allOf", "oneOf", "if", "then", "else",
+}
+# Keywords whose value maps NAMES to schemas: the names are not keywords.
+_SCHEMA_MAPS = ("properties", "patternProperties", "$defs")
+
+
+def schema_keyword_findings(root: str) -> list[str]:
+    """Every tracked *.schema.json uses only keywords _structural_check
+    checks: on the pinned interpreter there is no jsonschema to fall back
+    on, and an unknown keyword would pass silently there."""
+    findings = []
+
+    def walk(node: Any, rel: str, at: str) -> None:
+        if isinstance(node, list):
+            for i, v in enumerate(node):
+                walk(v, rel, f"{at}[{i}]")
+            return
+        if not isinstance(node, dict):
+            return
+        for key, value in node.items():
+            if key not in SCHEMA_KEYWORDS:
+                findings.append(f"{rel}: {at or '<root>'}: keyword {key!r} is not checked without jsonschema "
+                                "(lint.py SCHEMA_KEYWORDS); add it to _structural_check or do without it")
+            if key in _SCHEMA_MAPS and isinstance(value, dict):
+                for name, sub in value.items():
+                    walk(sub, rel, f"{at}/{key}/{name}")
+            elif key in ("items", "additionalProperties", "propertyNames", "if", "then", "else"):
+                walk(value, rel, f"{at}/{key}")
+            elif key in ("allOf", "oneOf"):
+                walk(value, rel, f"{at}/{key}")
+
+    for rel in _tracked(root):
+        if rel.endswith(".schema.json"):
+            try:
+                with open(os.path.join(root, rel), encoding="utf-8") as fh:
+                    walk(json.load(fh), rel, "")
+            except (OSError, ValueError) as e:
+                findings.append(f"{rel}: unreadable ({e})")
+    return findings
 
 
 def model_profile_findings(root: str, doc: dict[str, Any], known_roles: set[str]) -> list[str]:
@@ -1832,6 +1922,9 @@ def main() -> int:
 
     # --- bash over 150 lines only where the allowlist says (ADR-040) ---------
     findings += bash_size_findings(root)
+
+    # --- every schema checkable without jsonschema (the pinned Python) -------
+    findings += schema_keyword_findings(root)
 
     # --- a contributor's entry never reaches a definition (ADR-018) ---------
     findings += contributor_findings(root)
