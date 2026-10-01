@@ -582,11 +582,12 @@ export async function waitLoop({ fetchPage, ack, waitTotal, forMeFn = forMe, key
     if (held()) page = { messages: [] };   // landed as the hold began: unread, unacknowledged, re-shown later
     waited += slice;
     const classified = [];
+    const retired = [];
     let delivered = false;
     for (const rec of page.messages ?? []) {
       let msg = null;
       try { msg = parse(rec.content); } catch { /* not GZCOORD/1: never addressed */ }
-      if (msg && RETIRED_TYPES.includes(msg.type)) { try { await ack(rec.id); } catch { /* re-read next arm */ } continue; }
+      if (msg && RETIRED_TYPES.includes(msg.type)) { retired.push(rec); continue; }
       const isMine = msg ? forMeFn(msg) : false;
       classified.push({ rec, msg, isMine });
       if (isMine) delivered = true;
@@ -595,15 +596,28 @@ export async function waitLoop({ fetchPage, ack, waitTotal, forMeFn = forMe, key
     if (journal && mine.length) {
       const kept = await journal(mine.map(c => c.rec));
       if (!kept.ok) {
-        // Held, not shown, not acknowledged: the carrier shows them again.
+        // Held, not shown, not acknowledged: the carrier shows them again —
+        // only if nothing after them is acknowledged either. The relay keeps
+        // one cursor per consumer and an acknowledgement moves it to that
+        // record's seq, so acknowledging a later record would pass the held
+        // one for good (review of #78). What precedes the first held record
+        // is acknowledged; a seq that cannot be compared acknowledges none.
         onJournalFail(kept.reason, mine.length);
-        for (const c of classified) if (!c.isMine) { try { await ack(c.rec.id); } catch { /* re-read next arm */ } }
-        if (waitTotal === 0) return { classified: classified.filter(c => !c.isMine), waited, delivered: false, keywordHit: null,
-                                      othersPassed: classified.length - mine.length, journalFailed: kept.reason };
-        await sleep(journalRetryMs);
+        const firstHeld = Math.min(...mine.map(c => Number(c.rec.seq)));
+        const before = rec => Number.isFinite(firstHeld) && Number(rec.seq) < firstHeld;
+        const passed = classified.filter(c => !c.isMine && before(c.rec));
+        for (const rec of [...retired.filter(before), ...passed.map(c => c.rec)]) { try { await ack(rec.id); } catch { /* re-read next arm */ } }
+        // A bounded wait ends within its budget, the hold said; the watch
+        // retries until the journal takes them.
+        if (waitTotal === 0 || waited >= waitTotal)
+          return { classified: passed, waited, delivered: false, keywordHit: null, othersPassed: passed.length, journalFailed: kept.reason };
+        const pause = Math.min(journalRetryMs, (waitTotal - waited) * 1000);
+        await sleep(pause);
+        waited += Math.ceil(pause / 1000);
         continue;
       }
     }
+    for (const rec of retired) { try { await ack(rec.id); } catch { /* re-read next arm */ } }
     for (const { rec } of classified) { try { await ack(rec.id); } catch { /* the next arm re-shows it */ } }
     // A keyword hit is a reason to stop waiting on a message that is not
     // addressed to this session. A delivered message wins the exit (it is

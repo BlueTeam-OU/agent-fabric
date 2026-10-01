@@ -812,8 +812,8 @@ test('waitLoop journals the addressed records before acknowledging, and only tho
 });
 test('a journal that cannot keep them: the addressed records are held — not acknowledged, not shown — said once, retried after a pause', async () => {
   const me = { address: 'develop-qzapp/db-admin', instance: 'db-admin', slug: 'db-admin' };
-  const rec = (id, extra) => ({ id, content: `[GZCOORD/1] INFO\nFROM: develop-qzapp/x\nROLE: r\nMESSAGE-ID: x-${id}\n${extra}` });
-  const page = { messages: [rec('other', 'TO: develop-qzapp/web-dev-01\n'), rec('mine', 'BROADCAST: true\n')] };
+  const rec = (id, seq, extra) => ({ id, seq, content: `[GZCOORD/1] INFO\nFROM: develop-qzapp/x\nROLE: r\nMESSAGE-ID: x-${id}\n${extra}` });
+  const page = { messages: [rec('other', 1, 'TO: develop-qzapp/web-dev-01\n'), rec('mine', 2, 'BROADCAST: true\n')] };
   const acked = [], said = [], slept = [];
   let tries = 0;
   const r = await waitLoop({
@@ -830,6 +830,48 @@ test('a journal that cannot keep them: the addressed records are held — not ac
     journal: async () => ({ ok: false, reason: 'episodic: x' }) });
   assert.deepEqual([drained.delivered, drained.journalFailed], [false, 'episodic: x'], 'a drain returns at once, held');
   assert.ok(!acked.includes('drain mine') && acked.includes('drain other'), 'others acknowledged; the addressed one not');
+});
+// The relay's acknowledgement is a cursor (claude_bridge advance_cursor:
+// one last_seq per consumer, moved forward only), so this fake honours one:
+// a page is every record above it, and an ack of seq N passes all below.
+function cursorRelay(records) {
+  let cursor = 0;
+  return {
+    fetchPage: async () => ({ messages: records.filter(r => !(r.seq <= cursor)) }),
+    ack: async id => { cursor = Math.max(cursor, records.find(r => r.id === id).seq ?? cursor); },
+    cursor: () => cursor,
+  };
+}
+test('a held record is not passed by acknowledging a later one: the relay\'s cursor stays before it (review of #78)', async () => {
+  const me = { address: 'develop-qzapp/db-admin', instance: 'db-admin', slug: 'db-admin' };
+  const rec = (id, seq, extra) => ({ id, seq, content: `[GZCOORD/1] INFO\nFROM: develop-qzapp/x\nROLE: r\nMESSAGE-ID: x-${id}\n${extra}` });
+  const relay = cursorRelay([rec('before', 1, 'TO: develop-qzapp/web-dev-01\n'), rec('mine', 2, 'TO: develop-qzapp/db-admin\n'),
+                             rec('retired', 3, '').content.startsWith('[') && { id: 'retired', seq: 3, content: '[GZCOORD/1] HELLO\nFROM: develop-qzapp/x\n' },
+                             rec('after', 4, 'TO: develop-qzapp/web-dev-01\n')]);
+  let tries = 0;
+  const kept = [];
+  const r = await waitLoop({ ...relay, waitTotal: 3600, forMeFn: msg => forMe(msg, me), sleep: async () => {},
+    journal: async recs => { if (++tries === 1) { assert.equal(relay.cursor(), 0); return { ok: false, reason: 'episodic: x' }; } kept.push(...recs.map(x => x.id)); return { ok: true }; } });
+  assert.equal(tries, 2, 'the held record came back and was journaled');
+  assert.deepEqual([r.delivered, kept], [true, ['mine']], 'then shown');
+  assert.equal(relay.cursor(), 4, 'and the page acknowledged only after it was kept');
+  const relay2 = cursorRelay([rec('mine', 1, 'TO: develop-qzapp/db-admin\n'), rec('after', 2, 'TO: develop-qzapp/web-dev-01\n')]);
+  const d = await waitLoop({ ...relay2, waitTotal: 0, forMeFn: msg => forMe(msg, me), journal: async () => ({ ok: false, reason: 'episodic: x' }) });
+  assert.deepEqual([d.journalFailed, relay2.cursor()], ['episodic: x', 0], 'a drain held first in the page acknowledges nothing after it');
+  const relay3 = cursorRelay([{ id: 'nos', content: rec('mine', 0, 'TO: develop-qzapp/db-admin\n').content }, { ...rec('after', 0, 'TO: develop-qzapp/web-dev-01\n'), seq: 5 }]);
+  await waitLoop({ ...relay3, waitTotal: 0, forMeFn: msg => forMe(msg, me), journal: async () => ({ ok: false, reason: 'episodic: x' }) });
+  assert.equal(relay3.cursor(), 0, 'a held record with no comparable seq: nothing acknowledged');
+});
+test('--wait ends within its budget while the journal stays broken, the hold reported (review of #78)', async () => {
+  const me = { address: 'develop-qzapp/db-admin', instance: 'db-admin', slug: 'db-admin' };
+  const relay = cursorRelay([{ id: 'mine', seq: 1, content: '[GZCOORD/1] INFO\nFROM: develop-qzapp/x\nROLE: r\nTO: develop-qzapp/db-admin\nMESSAGE-ID: x-1\n' }]);
+  let tries = 0;
+  const slept = [];
+  const r = await waitLoop({ ...relay, waitTotal: 70, forMeFn: msg => forMe(msg, me), sleep: async ms => { slept.push(ms); },
+    journal: async () => { if (++tries > 20) throw new Error('never ended'); return { ok: false, reason: 'episodic: x' }; } });
+  assert.deepEqual([r.delivered, r.journalFailed, relay.cursor()], [false, 'episodic: x', 0], 'held, said, unacknowledged');
+  assert.ok(r.waited >= 70 && tries <= 4, `returned within the budget (waited ${r.waited}, ${tries} tries)`);
+  assert.ok(slept.every(ms => ms <= JOURNAL_RETRY_MS));
 });
 test('journalInbound sends the records as JSON lines and reads a failure from the journal\'s own last line', () => {
   let call;
