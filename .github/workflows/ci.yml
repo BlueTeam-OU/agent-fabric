@@ -57,10 +57,13 @@ jobs:
           - { section: python, python: '3.14', node: '22' }
           - { section: gzcoord, python: '3.12', node: '20' }
           - { section: gzcoord, python: '3.12', node: '22' }
-          # The bash suites drive Python in heredocs (fabric-status, the
-          # launcher) that nothing compiles on its own: they run on the
-          # oldest interpreters the hosts promise and on the newest (review
-          # of #68: 3.14 alone lost 3.12 and Node 20).
+          # The bash suites drive Python in the launcher's heredocs, which
+          # nothing compiles on its own: they run on the oldest interpreters
+          # the hosts promise and on the newest (review of #68: 3.14 alone
+          # lost 3.12 and Node 20). The shims of ported scripts (ADR-040)
+          # run /usr/bin/python3, the runner's own, whatever this matrix
+          # sets up; the python section's suites import the same modules
+          # on each interpreter here.
           - { section: bash, python: '3.12', node: '20' }
           - { section: bash, python: '3.14', node: '22' }
     # The whole run measured 7-9.5 min (2026-09-29); a section is less. The cap is for a hang.
