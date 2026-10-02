@@ -180,7 +180,10 @@ import sys
 import tempfile
 
 HERE = os.path.dirname(os.path.realpath(__file__))
-FABRIC_ROOT = os.path.dirname(os.path.dirname(HERE))
+# The fabric is the one the shim was run from, as the bash found it from its
+# own place: abspath keeps the path the shim gave, so a fabric whose tools/
+# is a link elsewhere is still itself, not where the link points.
+FABRIC_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, HERE)
 import git as gitcmd  # noqa: E402
 import workingcopy  # noqa: E402

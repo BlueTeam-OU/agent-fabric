@@ -73,7 +73,10 @@ import subprocess
 import sys
 import tempfile
 
-FABRIC_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
+# The fabric is the one the shim was run from, as the bash found it from its
+# own place: abspath keeps the path the shim gave, so a fabric whose tools/
+# is a link elsewhere is still itself, not where the link points.
+FABRIC_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 CLASS_FILES = ("code-low.md", "code-medium.md", "code-high.md", "code-plan.md", "code-review.md")
 MARKER = b"agent-fabric"
 MODEL_LINE = re.compile(rb"^model: .*", re.M)
