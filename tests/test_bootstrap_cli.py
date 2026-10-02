@@ -90,7 +90,9 @@ def git(*args: str, cwd: str | None = None) -> str:
     # The fixture's own git: no global or system config of this account.
     e = {"PATH": "/usr/bin:/bin", "HOME": f"{T}/git-home", "GIT_CONFIG_NOSYSTEM": "1", "LC_ALL": "C.UTF-8"}
     return subprocess.run(["git", "-c", "commit.gpgsign=false", "-c", "user.name=fixture", "-c",
-                           "user.email=fixture@example.org", "-c", "init.defaultBranch=main", *args],
+                           "user.email=fixture@example.org", "-c", "init.defaultBranch=main",
+                           # No detached auto-gc: it repacks .git/objects while the fixture is copied.
+                           "-c", "gc.auto=0", "-c", "maintenance.auto=false", *args],
                           cwd=cwd, env=e, capture_output=True, text=True, check=True).stdout.strip()
 
 
@@ -624,7 +626,7 @@ def existing_files() -> None:
     r = bootstrap(a)
     check("exit 0 although two links were refused", r.rc == 0, r)
     check("step 1: a person's CLAUDE.md kept as .before-agent-fabric, said",
-          read(f"{P}/CLAUDE.md.before-agent-fabric") == "my own notes\n"
+          os.path.isfile(f"{P}/CLAUDE.md.before-agent-fabric") and read(f"{P}/CLAUDE.md.before-agent-fabric") == "my own notes\n"
           and f"     (kept the previous file as {P}/CLAUDE.md.before-agent-fabric)" in r.lines
           and read(f"{P}/CLAUDE.md") == read(f"{FR}/runtime/claude-code/workspace/CLAUDE.md"), r.out)
     i = r.lines.index(f"     (kept the previous file as {P}/CLAUDE.md.before-agent-fabric)") if \
@@ -925,15 +927,16 @@ def main() -> int:
         for name in ("systemctl", "loginctl", "curl", "ss", "pgrep", "claude", "pip", "uv"):
             if shutil.which(name, path=f"{T}/fakebin:{T}/sysbin") != f"{T}/fakebin/{name}":
                 sys.exit(f"test: refusing to run: {name} on the test PATH is not the fake")
-        first_run()
-        dry_run()
-        arguments()
-        existing_files()
-        no_config_dir()
-        local_bin_override()
-        user_manager()
-        relay()
-        failures()
+        for case in (first_run, dry_run, arguments, existing_files, no_config_dir, local_bin_override,
+                     user_manager, relay, failures):
+            # A file the script did not write, or a line it did not print,
+            # can raise in the case's own reading: that is a failure of the
+            # script, counted, and the other cases still run.
+            try:
+                case()
+            except Exception as exc:  # noqa: BLE001 — any raise is the script's failure here
+                import traceback
+                fail(f"{case.__name__}: stopped by {type(exc).__name__}", traceback.format_exc(limit=-2))
     finally:
         for dirpath, dirnames, _ in os.walk(T):
             for n in dirnames:
