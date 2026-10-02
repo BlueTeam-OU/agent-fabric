@@ -30,7 +30,7 @@ GIT_ENV = {**CLEAN, "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_SYSTEM": "/dev
            "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t",
            "GIT_COMMITTER_EMAIL": "t@t"}
 LOGIN = subprocess.run(["id", "-un"], capture_output=True, text=True, check=True).stdout.strip()
-# runtime/identity.py reads a binding only for this host, as test_hooks.sh binds.
+# runtime/identity.py reads a binding only for this host, as test_githooks_cli.py binds.
 HOST = subprocess.run(["hostname", "-s"], capture_output=True, text=True, check=True).stdout.strip()
 
 ENTRY = {"role": "python-dev", "paths": ["tools/", "bin/fabric-x", "policies/bash-allowlist.json"],

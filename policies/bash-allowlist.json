@@ -1,23 +1,14 @@
 {
-  "description": "Tracked bash scripts over 150 lines that lint admits (ADR-040 \u00a75 rule 2), each with the wave that ports it to Python: 1 the GitHub toolkit, 2 the guards, 3 bin/ and status, 4 the launcher, 5 provisioning, 6 the bash tests. The list only shrinks: a port removes its entry in the same pull request, and an entry the base branch does not have is a finding.",
+  "description": "Tracked bash scripts over 150 lines that lint admits (ADR-040 §5 rule 2), each with the wave that ports it to Python: 1 the GitHub toolkit, 2 the guards, 3 bin/ and status, 4 the launcher, 5 provisioning, 6 the bash tests. The list only shrinks: a port removes its entry in the same pull request, and an entry the base branch does not have is a finding.",
   "scripts": {
-    "policies/githooks/test_hooks.sh": 6,
-    "policies/test_ban_generated_by_attribution.sh": 6,
-    "policies/test_check_charter_authority.sh": 6,
     "runtime/claude-code/bootstrap.sh": 5,
-    "runtime/claude-code/hooks/test_agent-dispatch-guard.sh": 6,
-    "runtime/claude-code/hooks/test_tab-title.sh": 6,
     "runtime/claude-code/install-agent-files.sh": 5,
-    "runtime/github/test_post-review.sh": 6,
     "runtime/github/test_pr-gate.sh": 6,
     "runtime/github/test_pr-reply.sh": 6,
     "runtime/github/test_pr-review-status.sh": 6,
     "runtime/github/test_pr-sessions.sh": 6,
-    "runtime/github/test_trial-merge.sh": 6,
     "runtime/openrouter/test_launch.sh": 6,
     "runtime/provisioning/moveto/test_moveto.sh": 6,
-    "runtime/provisioning/test_new-agent.sh": 6,
-    "tests/test_fabric-lease.sh": 6,
-    "tests/test_fabric-status.sh": 6
+    "runtime/provisioning/test_new-agent.sh": 6
   }
 }

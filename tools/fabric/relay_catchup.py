@@ -21,61 +21,19 @@ writes; it is read in this process and never printed. A project with no
 integration has no channel to catch up on, and is said.
 
 exit 0 every channel caught up (or empty, or no integration); 1 a relay
-that refused or did not answer, or no token.
+that refused or did not answer, no token, or a control channel named
+(refused, never acknowledged).
 """
 from __future__ import annotations
 
-import json
 import os
 import pwd
-import shlex
 import socket
 import sys
 import urllib.parse
-import urllib.request
 
-FABRIC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-TOKEN_NAME = "CLAUDE_BRIDGE_AUTH_TOKEN"
-
-
-def channels(projects: list[str], env: dict[str, str]) -> tuple[list[tuple[str, str]], list[str]]:
-    """(relay, channel) pairs, once each, and the projects with no integration."""
-    seen, none = [], []
-    for p in projects:
-        path = os.path.join(FABRIC, "projects", p, "integration", "gzcoord", "config.json")
-        try:
-            with open(path, encoding="utf-8") as f:
-                cfg = json.load(f)
-            pair = (env.get("CLAUDE_BRIDGE_URL") or cfg["relay_url"], env.get("GZCOORD_CHANNEL") or cfg["channel"])
-        except FileNotFoundError:
-            none.append(p)
-            continue
-        except (ValueError, KeyError, TypeError) as e:
-            raise ValueError(f"projects/{p}/integration/gzcoord/config.json is unreadable ({e})") from None
-        if pair not in seen:
-            seen.append(pair)
-    return seen, none
-
-
-def own_token(home: str) -> str | None:
-    try:
-        with open(os.path.join(home, ".config", "agent-fabric", "secrets.env"), encoding="utf-8") as f:
-            for line in f:
-                if line.startswith(f"export {TOKEN_NAME}="):
-                    return (shlex.split(line.split("=", 1)[1]) or [None])[0]
-    except OSError:
-        return None
-    return None
-
-
-def _call(relay: str, tok: str, path: str, body: dict | None = None):
-    """GET answers JSON, which is read; a POST's answer is the status alone —
-    the ack landed whatever its body says (review of #77)."""
-    req = urllib.request.Request(relay + path, data=None if body is None else json.dumps(body).encode(),
-                                 headers={"Authorization": f"Bearer {tok}", "Content-Type": "application/json"},
-                                 method="GET" if body is None else "POST")
-    with urllib.request.urlopen(req, timeout=30) as r:
-        return json.load(r) if body is None else None
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from relay import TOKEN_NAME, call as _call, channels, is_control, own_token, records  # noqa: E402
 
 
 def catch_up(relay: str, channel: str, consumer: str, tok: str) -> int | None:
@@ -83,7 +41,7 @@ def catch_up(relay: str, channel: str, consumer: str, tok: str) -> int | None:
     seq the cursor now stands at, or None for an empty channel. The relay
     lists its newest page, oldest first."""
     page = _call(relay, tok, "/api/messages?" + urllib.parse.urlencode({"channel": channel, "limit": "50"}))
-    msgs = page.get("messages", []) if isinstance(page, dict) else page
+    msgs = records(page)
     if not msgs:
         return None
     newest = max(msgs, key=lambda m: int(m["seq"]))
@@ -110,6 +68,13 @@ def main(argv: list[str]) -> int:
         print(f"relay-catchup: {p} has no GZCoord integration; no channel to catch up on")
     rc = 0
     for relay, channel in pairs:
+        # The control channel carries the fleet's signed operations, never a
+        # session's messages: an acknowledgement there would move this
+        # account's cursor on it (inbox.mjs and send.mjs refuse it too).
+        if is_control(channel):
+            print(f"relay-catchup: {channel} is the control channel; not acknowledged there", file=sys.stderr)
+            rc = 1
+            continue
         try:
             seq = catch_up(relay, channel, consumer, tok)
         except (OSError, ValueError, KeyError, TypeError) as e:

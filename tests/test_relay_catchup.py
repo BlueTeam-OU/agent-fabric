@@ -94,6 +94,13 @@ def main() -> int:
               [c[2]["channel"] for c in Relay.calls if c[0] == "POST"] == ["elsewhere"], Relay.calls)
         del env["GZCOORD_CHANNEL"]
 
+        env["GZCOORD_CHANNEL"] = "fabric:control"
+        r = run("agent-fabric")
+        check("the control channel is refused, said, and nothing acknowledged there (positive control: the case above acknowledged)",
+              r.returncode == 1 and "control channel" in r.stderr and not [c for c in Relay.calls if c[0] == "POST"],
+              (r.returncode, r.stderr, Relay.calls))
+        del env["GZCOORD_CHANNEL"]
+
         r = run("no-such-project")
         check("a project with no integration is said, and is not a failure",
               r.returncode == 0 and "no GZCoord integration" in r.stdout and not Relay.calls, (r.returncode, r.stdout))

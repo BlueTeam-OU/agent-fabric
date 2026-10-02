@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Tests for tools/fabric/status.py's internals; the behaviour is
-tests/test_fabric-status.sh's, run against the bin/fabric-status shim
+tests/test_fabric_status_cli.py's, run against the bin/fabric-status shim
 (ADR-040 §5 rule 5). Plain script: prints ok/FAIL, exit 1 on any failure."""
 from __future__ import annotations
 

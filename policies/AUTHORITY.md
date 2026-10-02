@@ -197,7 +197,7 @@ by naming its branch differently, and nothing in this repository would
 catch that. It also does not confuse the two questions above: an agent
 named `flutter-dev-02` editing `flutter-dev`'s charter is refused, and so
 is `architect-cto-01` — gzapp's architecture authority is not the control
-plane's (`test_check_charter_authority.sh`).
+plane's (`test_check_charter_authority_cli.py`).
 
 ## What did not weaken in the migration
 
