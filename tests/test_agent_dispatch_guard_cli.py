@@ -52,8 +52,10 @@ def check(label: str, good: bool, detail: str = "") -> None:
 def base_env() -> dict[str, str]:
     # The runner may itself be a fabric-launched session: every launch
     # variable is removed, never inherited; a case sets its own on purpose.
+    # GIT_* (GIT_DIR, GIT_INDEX_FILE from a run inside a hook) and XDG_* (a real
+    # git config or binding) would point the fixture at the caller's (review of #83).
     env = {k: v for k, v in os.environ.items()
-           if not k.startswith(("AGENT_FABRIC_", "GITHUB_", "CLAUDE_", "GZCOORD_")) and k != "CLAUDECODE"}
+           if not k.startswith(("AGENT_FABRIC_", "GITHUB_", "CLAUDE_", "GZCOORD_", "GIT_", "XDG_")) and k != "CLAUDECODE"}
     env["HOME"] = SCRATCH_HOME
     env["CLAUDE_CONFIG_DIR"] = SCRATCH_HOME
     return env

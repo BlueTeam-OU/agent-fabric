@@ -41,8 +41,10 @@ def check(label: str, good: bool, detail: str = "") -> None:
 
 
 def clean_env() -> dict[str, str]:
+    # GIT_* (GIT_DIR, GIT_INDEX_FILE from a run inside a hook) and XDG_* (a real
+    # git config or binding) would point the fixture at the caller's (review of #83).
     e = {k: v for k, v in os.environ.items()
-         if not k.startswith(("AGENT_FABRIC_", "GITHUB_", "CLAUDE_", "GZCOORD_", "GIT_")) and k != "CLAUDECODE"}
+         if not k.startswith(("AGENT_FABRIC_", "GITHUB_", "CLAUDE_", "GZCOORD_", "GIT_", "XDG_")) and k != "CLAUDECODE"}
     e.update(HOME=HOME, XDG_STATE_HOME=f"{T}/state", XDG_CONFIG_HOME=f"{T}/config")
     return e
 

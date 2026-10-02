@@ -47,8 +47,10 @@ def base_env() -> dict[str, str]:
     # a PR whose own body carried the footer turned three fixture assertions
     # red, naming the description rather than the fixture. A self-test must not
     # read the ambient event.
+    # GIT_* (GIT_DIR, GIT_INDEX_FILE from a run inside a hook) and XDG_* (a real
+    # git config or binding) would point the fixture at the caller's (review of #83).
     e = {k: v for k, v in os.environ.items()
-         if not k.startswith(("AGENT_FABRIC_", "GITHUB_", "CLAUDE_", "GZCOORD_")) and k != "CLAUDECODE"}
+         if not k.startswith(("AGENT_FABRIC_", "GITHUB_", "CLAUDE_", "GZCOORD_", "GIT_", "XDG_")) and k != "CLAUDECODE"}
     e.update(HOME=f"{T}/home", GIT_CONFIG_NOSYSTEM="1", LC_ALL="C.UTF-8")
     return e
 

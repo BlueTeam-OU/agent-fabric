@@ -11,8 +11,11 @@ whole fixture.
 
 The hooks under test are the directory in $GITHOOKS_DIR, default
 policies/githooks, so one file runs against the bash-era copy and its
-replacement. The one difference from the bash: its "setup: drain on main"
-guard prints only when it fails, and so does the port.
+replacement. It asserts what the bash asserts, plus three checks the bash
+lacks: the carve-out's judgement of a hand-committed merge over
+MERGE_HEAD, which no bash case reached; a guard that the amend case's
+setup message carries no trailer; and the setup state the bash left
+behind is reset after the refused charter commit.
 
 Exit codes: 0 all checks passed, 1 one or more failed."""
 from __future__ import annotations
@@ -65,8 +68,10 @@ def section(title: str) -> None:
 def base_env(state: bool = False) -> dict:
     # A session's own AGENT_FABRIC_*, CLAUDE_* ... would bind the hooks to the
     # caller; the binding is the scratch state dir or nothing.
+    # GIT_* (GIT_DIR, GIT_INDEX_FILE from a run inside a hook) and XDG_* (a real
+    # git config or binding) would point the fixture at the caller's (review of #83).
     env = {k: v for k, v in os.environ.items()
-           if not k.startswith(("AGENT_FABRIC_", "GITHUB_", "CLAUDE_", "GZCOORD_")) and k != "CLAUDECODE"}
+           if not k.startswith(("AGENT_FABRIC_", "GITHUB_", "CLAUDE_", "GZCOORD_", "GIT_", "XDG_")) and k != "CLAUDECODE"}
     env["HOME"] = HOME
     env["GIT_CONFIG_NOSYSTEM"] = "1"
     env["GIT_CONFIG_GLOBAL"] = "/dev/null"
@@ -282,7 +287,11 @@ def run() -> None:
     check("the role's English charter is not the locale: refused",
           try_commit("identities/roles/language-culture/charter.md", "the English charter") == 1,
           f"charter admitted to the holder\n{err}")
+    git("reset", "-q", "--hard")   # the refused charter must not ride into the next commits
     # The holder folds main into its branch: main moved elsewhere (a code file), the branch adds only its locale — allowed; a merge that also hand-edits a code file is refused.
+    # `git merge` runs commit-msg but no pre-commit, so this first case proves
+    # the trailer on a merge; the carve-out's MERGE_HEAD judgement is the
+    # hand-committed merge further down.
     git("checkout", "-q", "-b", "feat/ge"); try_commit(f"{loc}/harness.md", "ge harness")
     git("checkout", "-q", "-"); bind("fabric-coordinator"); try_commit("src/a.txt", "main moved")
     main_branch = git("branch", "--show-current")[1].strip()
@@ -326,7 +335,12 @@ def run() -> None:
     rc = commit_rc("commit", "-q", "--amend", "--no-edit")
     check("backend-dev bound: an amend in the fabric is refused", rc == 1, f"amend admitted under backend-dev\n{err}")
     bind("fabric-coordinator")
-    git("commit", "-q", "--amend", "-m", "rewritten")   # message without a trailer
+    # A message with no trailer, written past the hooks: the --no-edit amend
+    # below then gets its trailer from commit-msg or not at all (review of
+    # #83: through the hooks this setup was refused and HEAD kept an old
+    # trailer, so the check could not fail).
+    git("commit", "-q", "--amend", "--no-verify", "-m", "rewritten", state=True)
+    check("setup: the amended message carries no trailer", "Fabric-Role" not in msg(), msg())
     rc = commit_rc("commit", "-q", "--amend", "--no-edit")
     check("fabric-coordinator bound: the amend commits", rc == 0, f"amend refused\n{err}")
     check("…and the amend carries the trailer (git am + amend is the handover route)",

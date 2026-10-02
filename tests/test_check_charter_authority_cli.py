@@ -47,8 +47,10 @@ def check(label: str, good: bool, detail: str = "") -> None:
 def env(**more: str) -> dict[str, str]:
     # The caller's own AGENT_FABRIC_*, GITHUB_*, CLAUDE* and GZCOORD_* never
     # reach the guard; each case sets what it needs.
+    # GIT_* (GIT_DIR, GIT_INDEX_FILE from a run inside a hook) and XDG_* (a real
+    # git config or binding) would point the fixture at the caller's (review of #83).
     e = {k: v for k, v in os.environ.items()
-         if not k.startswith(("AGENT_FABRIC_", "GITHUB_", "CLAUDE", "GZCOORD_"))}
+         if not k.startswith(("AGENT_FABRIC_", "GITHUB_", "CLAUDE", "GZCOORD_", "GIT_", "XDG_"))}
     e.update(HOME=HOME, GIT_CONFIG_NOSYSTEM="1")
     e.update(more)
     return e
