@@ -47,6 +47,8 @@
         "tools/fabric/bootstrap.py",
         "tools/fabric/install_agent_files.py",
         "tools/fabric/episodic.py",
+        "tools/fabric/episodic_import.py",
+        "tools/fabric/relay.py",
         "tools/fabric/history.py",
         "bin/fabric-history"
       ]
