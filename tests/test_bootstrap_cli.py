@@ -207,6 +207,11 @@ def make_pristine(script: str) -> str:
     subprocess.run(["tar", "-x", "-C", d], input=arch, check=True)
     shutil.copyfile(script, f"{d}/runtime/claude-code/bootstrap.sh")
     os.chmod(f"{d}/runtime/claude-code/bootstrap.sh", 0o755)
+    # The port's module beside the script under test, from the same tree
+    # (ADR-040 §5 rule 5): a shim runs whatever module sits next to it.
+    module = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(script))), "tools", "fabric", "bootstrap.py")
+    if os.path.isfile(module):
+        shutil.copyfile(module, f"{d}/tools/fabric/bootstrap.py")
     put(f"{d}/projects/registry.json", json.dumps(REGISTRY, indent=2) + "\n")
     git("init", "-q", d)
     git("-C", d, "add", "-A")
