@@ -50,7 +50,6 @@ import hashlib
 import json
 import os
 import pwd
-import socket
 import sqlite3
 import sys
 import uuid
