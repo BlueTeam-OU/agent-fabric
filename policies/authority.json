@@ -45,6 +45,7 @@
         "tools/fabric/fabric_settings.py",
         "tools/fabric/workspace_trust.py",
         "tools/fabric/episodic.py",
+        "tools/fabric/episodic_import.py",
         "tools/fabric/history.py",
         "bin/fabric-history"
       ]
