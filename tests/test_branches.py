@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Tests for tools/fabric/branches.py's internals; the behaviour is
-tests/test_fabric-branches.sh's, run against the shim (ADR-040 §5 rule 5).
+tests/test_fabric_branches_cli.py's, run against the shim (ADR-040 §5 rule 5).
 What that oracle cannot reach is here: a git call that fails must never read
 as "merged" and never delete, a branch named like an option, the current
 branch and a detached HEAD, a pull request's JSON, the worktree listing's

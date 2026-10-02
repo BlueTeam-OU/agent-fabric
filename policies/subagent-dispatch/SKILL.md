@@ -129,7 +129,7 @@ loop.
 
 So the carve-out is structural, and it is a CLASS with four conditions,
 enforced by `.claude/agent-dispatch-guard.sh` (the `PreToolUse` hook for
-`Agent`; decision table in `.claude/test_agent-dispatch-guard.sh`):
+`Agent`; decision table in `tests/test_agent_dispatch_guard_cli.py`):
 
 1. `subagent_type: "code-review"` — a file in the repo
    (`.claude/agents/code-review.md`), reviewable like any other,

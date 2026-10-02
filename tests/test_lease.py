@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Tests for tools/fabric/lease.py's internals; the behaviour is
-tests/test_fabric-lease.sh's, run against the bin/fabric-lease shim (ADR-040
+tests/test_fabric_lease_cli.py's, run against the bin/fabric-lease shim (ADR-040
 §5 rule 5). What that oracle cannot reach is here: a bash holder and a Python
 holder excluding each other on one file, the signals and descriptors the
 command gets, the exit statuses of a command that cannot run, bash's

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Tests for tools/fabric/github/trial_merge.py's internals; the behaviour
-is runtime/github/test_trial-merge.sh's, run against the shim (ADR-040 §5
+is tests/test_trial_merge_cli.py's, run against the shim (ADR-040 §5
 rule 5). What that oracle cannot reach is here: a PR number (no gh in its
 fixtures), the verdict and config readings at their edges, the sweep's
 liveness rule."""
