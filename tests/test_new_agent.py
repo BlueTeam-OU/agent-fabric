@@ -428,6 +428,38 @@ sys.exit(0)
             w.STOP_GRACE_S = saved_bounds[1]
         check("…and so does a coordinator step", rc == 124 and gone(tree), str(rc))
 
+        # A grandchild of another account (root's, under sudo) is not ours to
+        # signal: its kill is refused, so here every signal to it is refused,
+        # as the kernel would. No wait makes it end, so none is spent on it,
+        # and it is named as what it is, not as a SIGKILL that did not take.
+        orphan = f"{tmp}/orphan.pid"
+        p = subprocess.Popen(["bash", "-c", f"sleep 300 & echo $! > {orphan}; wait"])
+        for _ in range(100):
+            if os.path.exists(orphan) and open(orphan).read().strip():
+                break
+            time.sleep(0.02)
+        theirs = int(open(orphan).read())
+        real_kill = os.kill
+
+        def refusing_kill(pid: int, sig: int) -> None:
+            if pid == theirs:
+                raise PermissionError(1, "Operation not permitted")
+            real_kill(pid, sig)
+        saved_grace = w.STOP_GRACE_S
+        w.STOP_GRACE_S, os.kill = 2, refusing_kill
+        err = io.StringIO()
+        t0 = time.monotonic()
+        try:
+            with redirect_stderr(err):
+                w.stop_tree(p)
+        finally:
+            os.kill, w.STOP_GRACE_S = real_kill, saved_grace
+            took = time.monotonic() - t0
+            real_kill(theirs, signal.SIGKILL)
+        check("a process no signal reaches is not waited for, and named as such",
+              took < 1.5 and f"could not be signalled (another account's): pid {theirs}" in err.getvalue()
+              and "still running after SIGKILL" not in err.getvalue(), f"{took:.1f} s: {err.getvalue()}")
+
         hang = put(f"{tmp}/hang-bin/getent", "#!/usr/bin/env bash\nexec sleep 60\n", 0o755)
         r = subprocess.run([sys.executable, "-c", "import sys; sys.path.insert(0, %r); import new_agent_worker as w; "
                             "w.READBACK_TIMEOUT_S = 1; w.STOP_GRACE_S = 0.5; sys.exit(w.main(['host-check', 'x']))"
