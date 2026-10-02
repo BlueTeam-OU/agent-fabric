@@ -136,6 +136,14 @@ bash behaved, fixed here with its case changed:
      1 (grep -o failed inside the holder pipeline): the pgrep fallback and
      the "pid unknown" line were never reached, the relay not even
      enabled. Now ss, then pgrep, then "unknown", as intended.
+  3. User settings that are not JSON ended the run in the agent files with
+     a traceback from runtime/mcp/websearch-locale/install.py (allow- and
+     deny-websearch read the file first), before user-settings.py could
+     refuse it. install.py now says one line and leaves the file alone
+     (exit 0 for allow-websearch and remove, which have nothing to take
+     out of a file the harness cannot read either; exit 1 for set and
+     deny-websearch, which cannot write theirs), and the run carries on to
+     user-settings.py's own refusal, counted NOT written.
 Unpinned, and smaller: no temporary directory (the merge is in memory);
 commands.json unreadable, and workspace settings that are JSON but not an
 object, are one line rather than a traceback; install_agent_files is run

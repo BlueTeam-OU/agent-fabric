@@ -847,16 +847,19 @@ def failures() -> None:
     check("user settings the writer refuses: why on stderr, exit 0, counted NOT written, file untouched",
           r.rc == 0 and "fabric user settings NOT written" in r.err and r.lines[-2].endswith(", 1 NOT written (above).")
           and read(f"{c.cfg}/settings.json") == '{"hooks": {"PostToolUse": "x"}}\n', r)
-    # Found as it is, reported as a defect: a user settings file that is not
-    # JSON never reaches the writer's refusal. install-agent-files.sh reads
-    # it first (the WebSearch rule), its python raises, its set -e ends it,
-    # and bootstrap's set -e ends the run: exit 1, a traceback, no summary.
+    # A user settings file that is not JSON: the bash ended in the agent
+    # files with a traceback from the WebSearch rule's install.py, exit 1,
+    # no summary. Fixed: install.py says one line and leaves it alone, and
+    # the run reaches the user settings writer's own refusal.
     c2 = Account("settings-garbage", wcs=False)
     put(f"{c2.cfg}/settings.json", "{not json\n")
     r = bootstrap(c2)
-    check("user settings that are not JSON: the run ends in the agent files, exit 1, a traceback",
-          r.rc == 1 and "Traceback" in r.err and not any(x.startswith("bootstrap: ") for x in r.lines)
-          and not os.path.exists(f"{c2.cfg}/hooks/review-bash-guard.sh")
+    check("user settings that are not JSON: one line from the WebSearch rule, no traceback, the run goes on, exit 0",
+          r.rc == 0 and "Traceback" not in r.err
+          and f"  !  {c2.cfg}/settings.json: not JSON (JSONDecodeError); left alone, nothing of the fabric's to remove"
+          in r.err.splitlines()
+          and "fabric user settings NOT written" in r.err and r.lines[-2].endswith(", 1 NOT written (above).")
+          and os.path.isfile(f"{c2.cfg}/hooks/review-bash-guard.sh") and os.path.isfile(f"{c2.cfg}/agents/code-review.md")
           and read(f"{c2.cfg}/settings.json") == "{not json\n", r)
 
     d = Account("doppler-fail", wcs=False)
