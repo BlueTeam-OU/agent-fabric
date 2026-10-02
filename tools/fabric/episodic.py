@@ -7,6 +7,8 @@ the moment they cross the carrier, in its own runtime state.
     episodic.py gzcoord-out-final MESSAGE-ID --state accepted|failed [--seq N] [--carrier C]
     episodic.py gzcoord-in [--carrier C] [--project P] [--working-copy W]
                                             JSON lines on stdin: {"content", "seq", "ts"}
+    episodic.py gzcoord-import [--if-needed] [PROJECT...]
+                                            the backfill from the carrier (episodic_import.py)
     episodic.py where                       the journal's path
 
 Run AS THE ACCOUNT (send.mjs and inbox.mjs call it); every caller passes
@@ -325,6 +327,11 @@ def main(argv: list[str]) -> int:
         if cmd == "where":
             print(db_path())
             return 0
+        if cmd == "gzcoord-import":
+            # Loaded only here: a send and an inbox page run this script, and
+            # the backfill's HTTP client is no part of their cost.
+            import episodic_import
+            return episodic_import.main(argv[1:])
         project, wc = _flag(argv, "--project"), _flag(argv, "--working-copy")
         carrier = _flag(argv, "--carrier") or DEFAULT_CARRIER
         if cmd == "gzcoord-out-pending":
