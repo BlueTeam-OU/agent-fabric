@@ -891,21 +891,24 @@ def failures() -> None:
           and not os.path.exists(f"{g.cfg}/agents"), r)
     check("…its temporary directory still removed", os.listdir(g.tmp) == [], os.listdir(g.tmp))
 
-    # Found as it is, reported as a defect: a working copy whose marker names
-    # no registered project makes workingcopy.py exit non-zero; inside the
-    # pid pipeline, pipefail fails the assignment and set -e ends the run
-    # at that directory, silently (its stderr is discarded), exit 1 — the
-    # copies after it, the trust, the units, langid and Doppler all skipped.
+    # A working copy whose marker names no registered project: the bash
+    # ended the run there, silently, exit 1 (pipefail and set -e in the pid
+    # pipeline). Fixed in the port: one line names it, the run goes on.
     m = Account("bad-marker", wcs=False)
     git("init", "-q", f"{m.ws}/badmark")
     put(f"{m.ws}/badmark/.agent-fabric-project", "nosuch\n")
     git("init", "-q", f"{m.ws}/zeta")
     git("-C", f"{m.ws}/zeta", "remote", "add", "origin", "git@github.com:example-org/alpha.git")
     r = bootstrap(m)
-    check("a marker naming no project: the run ends at that directory, exit 1, nothing on stderr",
-          r.rc == 1 and r.err == "" and r.lines[-1] == f"  +  {m.fr}: core.hooksPath = {HOOK_REL}"
+    errs = r.err.splitlines()
+    check("a marker naming no project: one line on stderr naming that copy and the project, the run goes on, exit 0",
+          r.rc == 0 and len(errs) == 1 and errs[0].startswith(f"  !  {m.ws}/badmark: ") and "'nosuch'" in errs[0]
           and git_config(f"{m.ws}/badmark", "core.hooksPath") is None
-          and git_config(f"{m.ws}/zeta", "core.hooksPath") is None and not os.path.exists(f"{m.cfg}/.claude.json"), r)
+          and git_config(f"{m.ws}/zeta", "core.hooksPath") == f"{m.fr}/{HOOK_REL}"
+          and f"  +  {m.ws}/zeta (alpha): core.hooksPath = {m.fr}/{HOOK_REL}" in r.lines
+          and m.ws + "/zeta" in json.load(open(f"{m.cfg}/.claude.json"))["projects"]
+          and m.ws + "/badmark" not in json.load(open(f"{m.cfg}/.claude.json"))["projects"]
+          and r.lines[-2].endswith(", 1 NOT written (above)."), r)
 
     h = Account("no-git", wcs=False)
     r = bootstrap(h, env=h.env(PATH=path_without("git")))

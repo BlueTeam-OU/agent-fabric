@@ -124,7 +124,13 @@ it): without one, nothing after step 1 can be done, and the run stops
 there with 127, as the bash did when step 2's python3 was not found.
 
 DELIBERATE DEPARTURES from the bash, each a defect the oracle pinned as the
-bash behaved, fixed here with its case changed: none yet.
+bash behaved, fixed here with its case changed:
+  1. A working copy whose .agent-fabric-project marker names no registered
+     project ended the whole run at step 5, silently, exit 1 (workingcopy.py
+     failed inside the pid pipeline under pipefail and set -e): every copy
+     after it, the trust, the units, langid and Doppler were skipped. Now
+     one line on stderr names the working copy and why, it is counted NOT
+     written, and the run carries on.
 Unpinned, and smaller: no temporary directory (the merge is in memory);
 commands.json unreadable, and workspace settings that are JSON but not an
 object, are one line rather than a traceback; install_agent_files is run
@@ -594,8 +600,14 @@ class Bootstrap:
             try:
                 registry = workingcopy.load_registry(self.src("projects/registry.json"))
                 pid = workingcopy.resolve(wc, registry).get("project") or ""
-            except (SystemExit, Exception):  # noqa: BLE001 — as the bash: pipefail and set -e end the run, unsaid
-                raise Stop(1) from None
+            except SystemExit as e:
+                warn(f"  !  {wc}: {e.code}; its hooksPath and trust left as they are")
+                self.failed += 1
+                continue
+            except Exception as e:  # noqa: BLE001 — any failure is this copy's, said, and the run goes on
+                warn(f"  !  {wc}: not resolved ({type(e).__name__}: {e}); its hooksPath and trust left as they are")
+                self.failed += 1
+                continue
             if not pid:
                 continue
             trusted.append(wc)
