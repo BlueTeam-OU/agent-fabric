@@ -41,7 +41,7 @@ Writes, idempotently, and only machine-local files:
                                      script op (runtime/langid/), best effort
   (removes ~/.doppler, ~/.local/bin/doppler and ~/.config/agent-fabric/secrets-source:
    Doppler is retired, ADR-038)
-where <units> is ~/.config/systemd/user.
+where <units> is $XDG_CONFIG_HOME/systemd/user, else ~/.config/systemd/user.
 
 Nothing here names an agent: the hooks ask the OS who is running at
 session start. Nothing here makes projects/ a git repository. A managed
@@ -61,7 +61,7 @@ CONTRACT, frozen from the bash (ADR-040 §5 rule 3):
   environment  HOME; CLAUDE_CONFIG_DIR (else ~/.claude for the agent
                files, the guard, the user settings and the skills; the
                trust goes to its .claude.json, else ~/.claude.json);
-               XDG_RUNTIME_DIR
+               XDG_CONFIG_HOME (the systemd user units); XDG_RUNTIME_DIR
                (the user manager's bus; set to /run/user/<uid> for the
                children when unset, outside a dry run);
                AGENT_FABRIC_LOCAL_BIN (else ~/.local/bin);
@@ -149,6 +149,9 @@ bash behaved, fixed here with its case changed:
      skills), so the second change replaced the person's original with the
      fabric's own previous file. Now the backup is made once, as
      install_agent_files already does.
+  5. The systemd units went to ~/.config/systemd/user whatever
+     XDG_CONFIG_HOME said; `systemctl --user` reads $XDG_CONFIG_HOME/
+     systemd/user when it is set. Now the units go there.
 Unpinned, and smaller: no temporary directory (the merge is in memory);
 commands.json unreadable, and workspace settings that are JSON but not an
 object, are one line rather than a traceback; install_agent_files is run
@@ -310,7 +313,8 @@ class Bootstrap:
         self.root, self.projects, self.dry_run = root, projects, dry_run
         self.home = os.environ.get("HOME") or os.path.expanduser("~")
         self.claude_home = os.environ.get("CLAUDE_CONFIG_DIR") or os.path.join(self.home, ".claude")
-        self.units = os.path.join(self.home, ".config", "systemd", "user")
+        self.units = os.path.join(os.environ.get("XDG_CONFIG_HOME") or os.path.join(self.home, ".config"),
+                                  "systemd", "user")
         self.changed = self.same = self.failed = 0
         self.git_missing_said = False
 

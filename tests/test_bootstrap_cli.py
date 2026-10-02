@@ -278,6 +278,11 @@ class Account:
     def ch(self) -> str:
         return self.cfg
 
+    @property
+    def units(self) -> str:
+        """Where `systemctl --user` reads unit files: XDG_CONFIG_HOME is always set here."""
+        return f"{self.xdgcfg}/systemd/user"
+
     def bus(self) -> None:
         """A user manager's bus: a socket file is all the script tests for."""
         os.mknod(f"{self.run}/bus", stat.S_IFSOCK | 0o600)
@@ -390,7 +395,6 @@ def first_run() -> None:
     HOOKS = f"{FR}/{HOOK_REL}"
     VENV = f"{H}/.cache/agent-fabric/langid/venv"
     pkg = json.load(open(f"{FR}/runtime/langid/detector.json"))["package"]
-    xdgcfg_before = snapshot(a.xdgcfg)
     r = bootstrap(a)
     check("exit 0", r.rc == 0, r)
     check("nothing on stderr", r.err == "", r.err)
@@ -497,19 +501,21 @@ def first_run() -> None:
     check("step 5b: …not in HOME/.claude.json", not os.path.exists(f"{H}/.claude.json"))
 
     # Step 6.
-    unit = f"{H}/.config/systemd/user/{UNIT}.service"
+    unit = f"{a.units}/{UNIT}.service"
     k = j + 11
     check("step 6: the unit installed, and why it is not started",
           L[k:k + 2] == [f"  +  {unit}",
                          f"  !  {UNIT}: installed, not started — no user manager at {a.run}/bus "
                          f"(loginctl enable-linger {LOGIN}, or the next login starts it)"], "\n".join(L[k:k + 2]))
-    check("step 6: …the fabric's unit, mode 644, under HOME/.config (not XDG_CONFIG_HOME)",
+    # The bash wrote the units under HOME/.config whatever XDG_CONFIG_HOME
+    # said; `systemctl --user` reads XDG_CONFIG_HOME/systemd/user when set.
+    check("step 6: …the fabric's unit, mode 644, under XDG_CONFIG_HOME (where systemctl --user reads)",
           read(unit) == read(f"{FR}/runtime/control/{UNIT}.service") and mode(unit) == 0o644)
-    check("step 6: …nothing written under XDG_CONFIG_HOME", snapshot(a.xdgcfg) == xdgcfg_before)
+    check("step 6: …nothing under HOME/.config/systemd", not os.path.exists(f"{H}/.config/systemd"))
     check("step 6: no user manager: systemctl and loginctl never called", a.calls("systemctl") == [] and a.calls("loginctl") == [],
           a.calls())
     check("step 6b: no relay venv: no relay unit, no relay line",
-          not os.path.exists(f"{H}/.config/systemd/user/{RELAY}.service") and not any(RELAY in x for x in L))
+          not os.path.exists(f"{a.units}/{RELAY}.service") and not any(RELAY in x for x in L))
 
     # Step 7.
     check("step 7: the detector's venv made and its package installed, said",
@@ -568,7 +574,7 @@ def dry_run() -> None:
                  f"  +  {FR}: core.hooksPath = {HOOK_REL}",
                  f"  +  {a.wc['alpha']} (alpha): core.hooksPath = {FR}/{HOOK_REL}",
                  f"  +  {P}: trusted in Claude Code (would write)",
-                 f"  +  {a.home}/.config/systemd/user/{UNIT}.service (would write)",
+                 f"  +  {a.units}/{UNIT}.service (would write)",
                  f"  +  {a.home}/.cache/agent-fabric/langid/venv (would create and install "
                  f"{json.load(open(f'{FR}/runtime/langid/detector.json'))['package']})"):
         check(f"says: {line.strip()[:70]}", line in r.lines, r.out)
@@ -696,7 +702,7 @@ def existing_files() -> None:
 
 
 def no_config_dir() -> None:
-    print("bootstrap: CLAUDE_CONFIG_DIR unset")
+    print("bootstrap: CLAUDE_CONFIG_DIR unset, XDG_CONFIG_HOME unset")
     a = Account("noconfig", wcs=False)
     r = bootstrap(a, env=a.env(CLAUDE_CONFIG_DIR=None))
     check("exit 0", r.rc == 0, r)
@@ -704,6 +710,10 @@ def no_config_dir() -> None:
         check(f"~/.claude/{p}", os.path.isfile(f"{a.home}/.claude/{p}"))
     check("the trust in ~/.claude.json", a.ws in json.load(open(f"{a.home}/.claude.json"))["projects"])
     check("nothing under the unused config dir", os.listdir(a.cfg) == [], os.listdir(a.cfg))
+    b = Account("noxdgconfig", wcs=False)
+    r = bootstrap(b, env=b.env(XDG_CONFIG_HOME=None))
+    check("XDG_CONFIG_HOME unset: the control agent's unit under HOME/.config/systemd/user",
+          r.rc == 0 and os.path.isfile(f"{b.home}/.config/systemd/user/{UNIT}.service") and not os.path.exists(b.units), r)
 
 
 def local_bin_override() -> None:
@@ -735,7 +745,7 @@ def user_manager() -> None:
                                                                 ["systemctl", "--user", "is-active", UNIT]], a.calls("systemctl"))
     check("…and an inactive unit says so", f"  *  {UNIT}: inactive (systemctl --user status {UNIT})" in r.lines, r.out)
     # A changed unit under the daemon's own upgrade: the restart is its caller's.
-    put(f"{a.home}/.config/systemd/user/{UNIT}.service", "[Unit]\nDescription=agent-fabric old\n")
+    put(f"{a.units}/{UNIT}.service", "[Unit]\nDescription=agent-fabric old\n")
     a.clear_log()
     r = bootstrap(a, env=a.env(AGENT_FABRIC_DEFER_AGENTD_RESTART="1"))
     check("AGENT_FABRIC_DEFER_AGENTD_RESTART: no restart, said",
@@ -756,14 +766,14 @@ def user_manager() -> None:
 def relay() -> None:
     print("bootstrap: step 6b, the relay's account")
     a = Account("relay", relay=True, wcs=False)
-    unit = f"{a.home}/.config/systemd/user/{RELAY}.service"
+    unit = f"{a.units}/{RELAY}.service"
     r = bootstrap(a)
     check("no user manager: the relay unit installed, not started, said",
           r.rc == 0 and read(unit) == read(f"{a.fr}/communication/gzcoord/runtime/{RELAY}.service") and mode(unit) == 0o644
           and f"  +  {unit}" in r.lines
           and f"  !  {RELAY}: installed, not started — no user manager at {a.run}/bus" in r.lines, r)
     check("…after the control agent's lines", r.lines.index(f"  +  {unit}") > r.lines.index(
-        f"  +  {a.home}/.config/systemd/user/{UNIT}.service"), r.out)
+        f"  +  {a.units}/{UNIT}.service"), r.out)
 
     b = Account("relay-up", relay=True, wcs=False)
     b.bus()
@@ -816,13 +826,13 @@ def relay() -> None:
     c = Account("relay-away", ws="work", relay=True, wcs=False)
     r = bootstrap(c)
     check("a workspace not at $HOME/projects: the relay unit not installed, said",
-          r.rc == 0 and not os.path.exists(f"{c.home}/.config/systemd/user/{RELAY}.service")
+          r.rc == 0 and not os.path.exists(f"{c.units}/{RELAY}.service")
           and f"  !  {RELAY}: not installed — the unit expects the workspace at $HOME/projects, this one is {c.ws}" in r.lines, r)
     d = Account("relay-noexec", relay=True, wcs=False)
     os.chmod(f"{d.ws}/.gzcoord/venv/bin/claude-bridge", 0o644)
     r = bootstrap(d)
     check("a relay venv whose claude-bridge is not executable: no relay unit",
-          not os.path.exists(f"{d.home}/.config/systemd/user/{RELAY}.service") and not any(RELAY in x for x in r.lines), r)
+          not os.path.exists(f"{d.units}/{RELAY}.service") and not any(RELAY in x for x in r.lines), r)
 
 
 def failures() -> None:
@@ -936,7 +946,7 @@ def failures() -> None:
     r = bootstrap(h, env=h.env(PATH=path_without("git")))
     check("no git: step 4 stops the run, exit 127, said on stderr",
           r.rc == 127 and "git: command not found" in r.err and not r.lines[-1].startswith("bootstrap:")
-          and not os.path.exists(f"{h.home}/.config/systemd"), r)
+          and not os.path.exists(h.units), r)
 
     k = Account("no-python", wcs=False)
     r = bootstrap(k, env=k.env(PATH=path_without("python3")))
