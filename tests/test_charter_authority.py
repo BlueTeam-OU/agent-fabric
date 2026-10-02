@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Tests for tools/fabric/guards/charter_authority.py and common.py's
-internals; the behaviour is policies/test_check_charter_authority.sh's, run
+internals; the behaviour is tests/test_check_charter_authority_cli.py's, run
 against the shim (ADR-040 §5 rule 5)."""
 from __future__ import annotations
 

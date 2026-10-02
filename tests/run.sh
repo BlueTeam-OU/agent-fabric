@@ -74,33 +74,22 @@ if [[ "$what" == all || "$what" == bash ]]; then
     run ".agent-fabric/ authority (this branch)" env AGENT_FABRIC_CHARTER_BASE=origin/main bash policies/check_agent_fabric_dir_authority.sh
     run "charter authority (this branch)" env AGENT_FABRIC_CHARTER_BASE=origin/main bash policies/check_charter_authority.sh
     run "launcher" bash policies/run_suite.sh runtime/openrouter/test_launch.sh
-    run "charter authority guard" bash policies/run_suite.sh policies/test_check_charter_authority.sh
-    run "git hooks (attribution ban, .agent-fabric/ fence)" bash policies/run_suite.sh policies/githooks/test_hooks.sh
     run ".agent-fabric/ authority guard" bash policies/run_suite.sh policies/test_check_agent_fabric_dir_authority.sh
     run "no-model-pins guard" bash policies/run_suite.sh policies/test_check_repo_settings_carry_no_model_pins.sh
     run "actions pinned by SHA (this tree)" python3 policies/check_actions_pinned_by_sha.py
-    run "attribution guard" bash policies/run_suite.sh policies/test_ban_generated_by_attribution.sh
     run "attribution (this branch)" env AGENT_FABRIC_ATTRIBUTION_BASE=origin/main bash policies/ban_generated_by_attribution.sh
     run "decision-record amendments (this branch)" env AGENT_FABRIC_ADR_BASE=origin/main bash policies/check_adr_amendment.sh
-    run "fabric-status" bash policies/run_suite.sh tests/test_fabric-status.sh
-    run "fabric-usage" bash policies/run_suite.sh tests/test_fabric-usage.sh
-    run "fabric-lease (one holder per host resource)" bash tests/test_fabric-lease.sh
-    run "fabric-fresh (an agent ends its own session)" bash tests/test_fabric-fresh.sh
-    run "fabric-branches (local branch hygiene)" bash tests/test_fabric-branches.sh
     run "leak check (what a run left behind)" bash tests/test_leak-check.sh
     run "status line" bash runtime/claude-code/hooks/test_statusline.sh
     run "new-agent (the sequence, its refusals, a failure at each step)" bash runtime/provisioning/test_new-agent.sh
     run "account persistence (the Qubes boot script, the snapshot writer)" bash runtime/provisioning/platform/test_qubes-accounts.sh
     run "language identification (the detector venv)" bash runtime/langid/test_install.sh
-    run "rename-working-copy (the shell half)" bash runtime/provisioning/test_rename-working-copy.sh
-    run "dispatch guard" bash runtime/claude-code/hooks/test_agent-dispatch-guard.sh
     run "review bash guard" bash runtime/claude-code/hooks/test_review-bash-guard.sh
     run "subagent clone guard" bash runtime/claude-code/hooks/test_subagent-clone-guard.sh
     run "pipe status guard" bash runtime/claude-code/hooks/test_pipe-status-guard.sh
     run "model-switch guard" bash runtime/claude-code/hooks/test_model-switch-guard.sh
     run "plan hold" bash runtime/claude-code/hooks/test_plan-hold.sh
     run "model fallback note" bash runtime/claude-code/hooks/test_model-fallback-note.sh
-    run "tab title hook" bash runtime/claude-code/hooks/test_tab-title.sh
     run "install-agent-files (the locale worker)" bash runtime/claude-code/test_install-agent-files.sh
     run "the fabric's user settings (attribution off, thinking summaries, verbose)" bash runtime/claude-code/test_user-settings.sh
     run "moveto" bash runtime/provisioning/moveto/test_moveto.sh
@@ -108,11 +97,8 @@ if [[ "$what" == all || "$what" == bash ]]; then
     run "store-enroll (a parent keys an account on another host)" bash runtime/provisioning/secrets/test_store-enroll.sh
     run "github pr-reply" bash runtime/github/test_pr-reply.sh
     run "github pr-sessions" bash runtime/github/test_pr-sessions.sh
-    run "github commit-class (work, review fix, merge)" bash runtime/github/test_commit-class.sh
     run "github pr-review-status" bash runtime/github/test_pr-review-status.sh
-    run "github post-review" bash runtime/github/test_post-review.sh
     run "github pr-gate (the count rule, the verdict)" bash runtime/github/test_pr-gate.sh
-    run "github trial-merge (combine, conflict, the check, nothing left)" bash runtime/github/test_trial-merge.sh
 fi
 
 echo

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Tests for tools/fabric/guards/dispatch_guard.py's internals and its
 shim's refusals; the rules are runtime/claude-code/hooks/
-test_agent-dispatch-guard.sh's, run against the shim (ADR-040 §5 rule 5).
+test_agent_dispatch_guard_cli.py's, run against the shim (ADR-040 §5 rule 5).
 What that oracle cannot reach: the shim's own ways of failing closed, and
 a fault inside the module."""
 from __future__ import annotations

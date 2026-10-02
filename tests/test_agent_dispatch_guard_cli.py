@@ -189,14 +189,22 @@ def main() -> int:
     # so a copy whose path names nothing stands for a host without it.
     with open(UNDER_TEST, encoding="utf-8") as f:
         src = f.read()
-    src = src.replace("\npy=/usr/local/bin/fabric-python\n", "\npy=/nonexistent/fabric-python\n")
+    gone = src.replace("\npy=/usr/local/bin/fabric-python\n", "\npy=/nonexistent/fabric-python\n")
+    # The shim's interpreter line must be the one replaced: reworded, the
+    # copy would find the pin, and only the missing module would stop it.
+    check("setup: the shim's pinned-interpreter line is where the case expects it", gone != src)
+    src = gone
     nopy = f"{T}/nopy.sh"
     with open(nopy, "w", encoding="utf-8") as f:
         f.write(src)
     _, out = run(["/bin/bash", nopy], '{"tool_input":{"model":"sonnet","isolation":"worktree","description":"x"}}',
                  {"PATH": "/nonexistent"})
-    check("with jq unavailable the guard asks rather than allowing",
-          field(out, "hookSpecificOutput", "permissionDecision") == "ask", f"out=[{out}]")
+    # The copy sits outside the repository, so its module is never beside
+    # it and the shim would ask for that reason too: only the reason shows
+    # that the missing interpreter was what stopped it (review of #85).
+    check("with no pinned Python the guard asks rather than allowing, naming the missing interpreter",
+          field(out, "hookSpecificOutput", "permissionDecision") == "ask"
+          and "pinned Python" in (field(out, "hookSpecificOutput", "permissionDecisionReason") or ""), f"out=[{out}]")
 
     print("malformed input never breaks the tool call with a bad shape")
     for pl in ('{}', 'not json', ''):

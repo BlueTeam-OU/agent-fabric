@@ -17,7 +17,7 @@ CONTRACT, frozen from the bash (ADR-040 §5 rule 3):
 
 REVIEW_MARKER is the contract with every reader (pr-review-status, the
 gate, results.py): the first line of the body, versioned because a later
-field must not silently reclassify older reviews. test_post-review.sh
+field must not silently reclassify older reviews. test_post_review_cli.py
 compares this module's line with pr_review_status's, and
 tests/test_post_review.py the two constants and results.py's import.
 """

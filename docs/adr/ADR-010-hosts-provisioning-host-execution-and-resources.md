@@ -114,7 +114,7 @@ that killed the host without privilege and without anything going stale.
    lease. A name is a resource, not a job.
 10. `fabric-lease` fails fast by default (exit 75); every refusal ends with
     `fabric-lease: reason=<r>` on stderr, a contract pinned by
-    `tests/test_fabric-lease.sh`. It needs no privilege; the directory is
+    `tests/test_fabric_lease_cli.py`. It needs no privilege; the directory is
     root's, made at every boot by provisioning.
 11. The lease directory, the tool and the rule are the fabric's; which
     targets take which lease with what memory floor is the project's, in
@@ -161,7 +161,7 @@ Accepted and in force: host execution and the host lease.
 - `runtime/provisioning/README.md`, `runtime/provisioning/platform/README.md`,
   `runtime/provisioning/moveto/README.md`, `new-agent.sh`,
   `persist-accounts.sh`, `github-host-keys`.
-- `bin/fabric-lease`, `tests/test_fabric-lease.sh`.
+- `bin/fabric-lease`, `tests/test_fabric_lease_cli.py`.
 - The live checks in Evidence. ADR-002 (placement is not identity),
   ADR-009 (account operations through the control plane).
 

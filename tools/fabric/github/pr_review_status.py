@@ -244,7 +244,7 @@ Exit codes:
 
 # The marker post-review writes as the first line of every review the
 # review class posts. Must stay byte-identical to post_review.REVIEW_MARKER:
-# test_post-review.sh compares this line with that one, and
+# test_post_review_cli.py compares this line with that one, and
 # tests/test_post_review.py the two constants, so a one-sided change is
 # caught. A literal, not an import, so the comparison has two sides.
 REVIEW_MARKER = "<!-- agent-fabric-review v1 -->"
