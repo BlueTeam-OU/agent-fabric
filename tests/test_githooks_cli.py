@@ -298,6 +298,21 @@ def run() -> None:
     rc = commit_rc("commit", "-qm", "merge plus a hand edit")
     check("a merge that also hand-edits outside the locale: refused", rc == 1, f"hand-edited merge admitted\n{err}")
     git("merge", "--abort"); git("reset", "-q", "--hard"); git("checkout", "-q", main_branch)
+    # A merge left open, as a conflict leaves it, and committed with main's
+    # side only, while the branch carries a translation main lacks: the
+    # carve-out judges what the branch adds over MERGE_HEAD, its locale,
+    # and admits it. `git merge` alone runs no pre-commit hook,
+    # so only this shape reaches that branch of the hook (the port's
+    # mutation run found it covered by no case).
+    # Main moves a path the holder may not commit (its role's English
+    # charter), so judging against HEAD instead of MERGE_HEAD refuses it.
+    bind("fabric-coordinator"); try_commit("identities/roles/language-culture/charter.md", "main moves the charter")
+    git("checkout", "-q", "feat/ge"); bind("language-culture"); try_commit(f"{loc}/fold.md", "ge: a new translation")
+    git("merge", "-q", "--no-ff", "--no-commit", main_branch, state=True)
+    rc = commit_rc("commit", "-qm", "fold main, nothing of its own")
+    check("a merge committed by hand that adds only the locale over main: allowed, declaring its role",
+          rc == 0 and has(r"^Fabric-Role: language-culture$", msg()), f"the holder cannot commit a folded merge\n{err}")
+    git("checkout", "-q", main_branch)
     bind("backend-dev")
     check("another role on the same login: refused",
           try_commit(f"{loc}/memory.md", "ge memory") == 1, f"wrong role admitted to a locale\n{err}")
