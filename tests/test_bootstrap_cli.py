@@ -776,17 +776,22 @@ def relay() -> None:
                                FAKE_SS_OUT='LISTEN 0 5 127.0.0.1:8765 0.0.0.0:* users:(("claude-bridge",pid=4243,fd=3))'))
     check("…a unit crash-looping against it is said as RESTARTING",
           f"  !  {RELAY}: RESTARTING against a relay outside the unit that holds 127.0.0.1:8765 (pid 4243); stop that relay and the unit takes the port (systemctl --user status {RELAY})" in r.lines, r.out)
-    # Found as it is, reported as a defect, frozen until a fix changes it on
-    # purpose: with no pid in ss's answer, `grep -o` fails inside the
-    # holder's pipeline, pipefail makes the assignment fail and set -e ends
-    # the run there, silently, exit 1. The pgrep fallback and "pid unknown"
-    # are never reached, and the relay is not even enabled.
+    # With no pid from ss, the bash ended the run at the holder lookup,
+    # silently, exit 1 (grep -o failed under pipefail and set -e). Fixed in
+    # the port: the pgrep fallback, then "unknown", as intended.
+    held = f"  !  {RELAY}: enabled, NOT started — a relay outside the unit holds 127.0.0.1:8765 (pid %s); stop it, then: systemctl --user start {RELAY}"
     for label, more in (("an ss answer with no pid", {}), ("no ss on the host", {"PATH": path_without("ss")})):
         b.clear_log()
         r = bootstrap(b, env=b.env(FAKE_ACTIVE_gzcoord_relay="inactive", FAKE_CURL_RC="0", FAKE_PGREP_OUT="777", **more))
-        check(f"{label}: the run ends at the holder lookup, exit 1, nothing said",
-              r.rc == 1 and r.err == "" and r.lines[-1] == f"  =  {b.home}/.config/systemd/user/{RELAY}.service"
-              and b.calls("pgrep") == [] and ["systemctl", "--user", "enable", RELAY] not in b.calls("systemctl"), r)
+        check(f"{label}: the holder from pgrep, by this uid and the exact name; enabled only; said; the run goes on, exit 0",
+              r.rc == 0 and r.err == "" and held % "777" in r.lines and r.lines[-2].startswith("bootstrap: ")
+              and b.calls("pgrep") == [["pgrep", "-u", str(UID), "-x", "claude-bridge"]]
+              and [c for c in b.calls("systemctl") if c[-1] == RELAY] == [["systemctl", "--user", "is-active", RELAY],
+                                                                          ["systemctl", "--user", "enable", RELAY]], r)
+    b.clear_log()
+    r = bootstrap(b, env=b.env(FAKE_ACTIVE_gzcoord_relay="inactive", FAKE_CURL_RC="0"))
+    check("neither ss nor pgrep names the holder: pid unknown, exit 0",
+          r.rc == 0 and held % "unknown" in r.lines and ["systemctl", "--user", "enable", RELAY] in b.calls("systemctl"), r)
     b.clear_log()
     r = bootstrap(b, env=b.env(FAKE_ACTIVE_gzcoord_relay="inactive"))
     check("an inactive unit and a free port: enable --now, no restart (unit unchanged)",

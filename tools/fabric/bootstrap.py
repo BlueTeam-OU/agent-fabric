@@ -131,6 +131,11 @@ bash behaved, fixed here with its case changed:
      after it, the trust, the units, langid and Doppler were skipped. Now
      one line on stderr names the working copy and why, it is counted NOT
      written, and the run carries on.
+  2. A relay port held by a process ss could not name (no pid in its
+     answer, or no ss on the host) ended the run at step 6b, silently, exit
+     1 (grep -o failed inside the holder pipeline): the pgrep fallback and
+     the "pid unknown" line were never reached, the relay not even
+     enabled. Now ss, then pgrep, then "unknown", as intended.
 Unpinned, and smaller: no temporary directory (the merge is in memory);
 commands.json unreadable, and workspace settings that are JSON but not an
 object, are one line rather than a traceback; install_agent_files is run
@@ -280,16 +285,10 @@ def glob_order(names: list[str]) -> list[str]:
 def relay_holder(uid: int) -> str:
     """The pid holding the relay's port, or "" when nothing names it."""
     # ss is not in the host contract (iproute2 is absent on a minimal image): fall back to the process name.
-    if shutil.which("ss") is None:
-        raise Stop(1)
     m = re.search(r"pid=([0-9]*)", answer(["ss", "-Hltnp", "sport = :8765"]))
-    if not m:
-        raise Stop(1)
-    holder = m.group(1)
+    holder = m.group(1) if m else ""
     if not holder:
         holder = answer(["pgrep", "-u", str(uid), "-x", "claude-bridge"]).split("\n", 1)[0]
-        if not holder:
-            raise Stop(1)
     return holder
 
 
