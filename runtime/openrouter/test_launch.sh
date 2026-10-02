@@ -73,7 +73,7 @@ PY
     cp -r "$REAL_ROOT/runtime/claude-code/agents" "$FABRIC/runtime/claude-code/agents"
     mkdir -p "$FABRIC/runtime/mcp"; cp -r "$REAL_ROOT/runtime/mcp/websearch-locale" "$FABRIC/runtime/mcp/"   # the installer's MCP step reads its helper from the fabric
     cp "$REAL_ROOT/runtime/identity.py" "$FABRIC/runtime/"
-    cp "$REAL_ROOT/tools/fabric/routing.py" "$REAL_ROOT/tools/fabric/workingcopy.py" "$REAL_ROOT/tools/fabric/jobs.py" "$REAL_ROOT/tools/fabric/install_agent_files.py" "$FABRIC/tools/fabric/"   # the installer is a module behind its shim (ADR-040 section 5 rule 5)
+    cp "$REAL_ROOT/tools/fabric/routing.py" "$REAL_ROOT/tools/fabric/workingcopy.py" "$REAL_ROOT/tools/fabric/jobs.py" "$REAL_ROOT/tools/fabric/install_agent_files.py" "$REAL_ROOT/tools/fabric/fabric_writes.py" "$FABRIC/tools/fabric/"   # the installer is a module behind its shim (ADR-040 section 5 rule 5)
     # The role's system prompt: the assembler, the shared sections, and a
     # fixture charter for the bound role (no brief — the placeholder path).
     cp "$REAL_ROOT/tools/fabric/layout.py" "$REAL_ROOT/tools/fabric/launch_prompt.py" "$FABRIC/tools/fabric/"

@@ -77,6 +77,7 @@ def main() -> int:
             for d in (home, cfg, os.path.join(root, "tools", "fabric"), os.path.join(root, "runtime", "mcp", "websearch-locale")):
                 os.makedirs(d)
             shutil.copy(MODULE, os.path.join(root, "tools", "fabric", "install_agent_files.py"))
+            shutil.copy(os.path.join(os.path.dirname(MODULE), "fabric_writes.py"), os.path.join(root, "tools", "fabric"))
             shutil.copytree(AGENTS, os.path.join(root, "runtime", "claude-code", "agents"))
             for rel, body in (("tools/fabric/routing.py", ROUTING_STUB), ("runtime/identity.py", IDENTITY_STUB),
                               ("runtime/mcp/websearch-locale/install.py", INSTALL_STUB)):
@@ -127,6 +128,17 @@ def main() -> int:
         low = read(os.path.join(cfg, "agents", "code-low.md"))
         check("a class with no pin keeps the repo file's model line", read(os.path.join(root, "runtime", "claude-code", "agents", "code-low.md")).splitlines()[1:3] == [ln for ln in low.splitlines() if ln != "effort: high"][1:3], low[:200])
         check("exit 0 and the count line", r.returncode == 0 and r.stdout.splitlines()[-1] == "agent files (anthropic): 5 written, 0 already current.", r.stdout + r.stderr)
+
+        # An agents directory that cannot be written: one line and exit 1, as
+        # install(1) said it under the bash, never a traceback (review of #86).
+        root2, home2, cfg2 = fixture()
+        os.makedirs(cfg2, exist_ok=True)
+        with open(os.path.join(cfg2, "agents"), "w") as f:   # a file where the directory goes
+            f.write("not a directory\n")
+        r = run(root2, home2, cfg2)
+        check("a destination that cannot be written: exit 1, one line naming it, no traceback",
+              r.returncode == 1 and "install-agent-files: cannot write" in r.stderr
+              and "Traceback" not in r.stderr and r.stderr.strip().count("\n") == 0, r.stderr)
 
         # A level of "-" is no effort line at all.
         root, home, cfg = fixture()

@@ -77,6 +77,9 @@ import tempfile
 # own place: abspath keeps the path the shim gave, so a fabric whose tools/
 # is a link elsewhere is still itself, not where the link points.
 FABRIC_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import fabric_writes  # noqa: E402
+
 CLASS_FILES = ("code-low.md", "code-medium.md", "code-high.md", "code-plan.md", "code-review.md")
 MARKER = b"agent-fabric"
 MODEL_LINE = re.compile(rb"^model: .*", re.M)
@@ -84,6 +87,11 @@ MODEL_LINE = re.compile(rb"^model: .*", re.M)
 
 def say(line: str) -> None:
     print(line, flush=True)
+
+
+class WriteError(Exception):
+    """A file that could not be written or removed: one line, exit 1, as
+    install(1) and rm(1) said it under the bash (review of #86)."""
 
 
 def _read(path: str) -> bytes:
@@ -120,29 +128,32 @@ class Installer:
         if self.dry_run:
             say(f"  +  {dest} (would write)")
             return
-        os.makedirs(os.path.dirname(dest), exist_ok=True)
-        # Only ONCE, and only for a file the fabric did not write: the marker
-        # test alone re-made this backup on every run, so the second run
-        # replaced the user's original with the fabric's own previous file and
-        # the thing the backup exists for was gone. Found when effort: started
-        # rewriting files that were already the fabric's.
-        backup = dest + ".before-agent-fabric"
-        if os.path.isfile(dest) and not os.path.lexists(backup) and not marked(dest):
-            with open(backup, "wb") as f:
-                f.write(_read(dest))
-            say(f"     (kept the previous file as {backup})")
-        # install(1) replaces the destination rather than writing through it;
-        # a rename does the same, and never leaves a half-written agent file
-        # for a session starting at that moment.
-        fd, tmp = tempfile.mkstemp(dir=os.path.dirname(dest), prefix=".iaf-")
         try:
-            with os.fdopen(fd, "wb") as f:
-                f.write(content)
-            os.chmod(tmp, 0o644)
-            os.replace(tmp, dest)
-        except BaseException:
-            os.unlink(tmp)
-            raise
+            os.makedirs(os.path.dirname(dest), exist_ok=True)
+            # A person's version is kept, every time it differs from what the
+            # fabric last wrote, under a name of its own. Backing up only once
+            # lost a person's later edit; the marker alone re-made the backup
+            # on every run and replaced the user's original with the fabric's
+            # own previous file (found when effort: started rewriting files
+            # that were already the fabric's). fabric_writes has both.
+            backup = fabric_writes.keep_person_version(dest)
+            if backup:
+                say(f"     (kept the previous file as {backup})")
+            # install(1) replaces the destination rather than writing through
+            # it; a rename does the same, and never leaves a half-written agent
+            # file for a session starting at that moment.
+            fd, tmp = tempfile.mkstemp(dir=os.path.dirname(dest), prefix=".iaf-")
+            try:
+                with os.fdopen(fd, "wb") as f:
+                    f.write(content)
+                os.chmod(tmp, 0o644)
+                os.replace(tmp, dest)
+            except BaseException:
+                os.unlink(tmp)
+                raise
+        except OSError as e:
+            raise WriteError(f"install-agent-files: cannot write {dest}: {e.strerror or e}") from None
+        fabric_writes.record(dest, content)
         self.changed += 1
         say(f"  +  {dest}")
 
@@ -150,7 +161,10 @@ class Installer:
         if self.dry_run:
             say(f"  -  {path} (would remove: {reason})")
         else:
-            os.remove(path)
+            try:
+                os.remove(path)
+            except OSError as e:
+                raise WriteError(f"install-agent-files: cannot remove {path}: {e.strerror or e}") from None
             say(f"  -  {path} (removed: {reason})")
             self.changed += 1
 
@@ -324,7 +338,11 @@ def main(argv: list[str]) -> int:
         else:
             print(f"install-agent-files: unknown argument {a}", file=sys.stderr)
             return 2
-    return Installer(provider, dry_run).run()
+    try:
+        return Installer(provider, dry_run).run()
+    except WriteError as e:
+        print(e, file=sys.stderr)
+        return 1
 
 
 if __name__ == "__main__":
