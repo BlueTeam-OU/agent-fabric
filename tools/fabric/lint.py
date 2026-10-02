@@ -1640,7 +1640,7 @@ CONTRIBUTOR_NEVER = (
     # Bootstrap runs it as every account, and it rewrites ~/.claude.json.
     "tools/fabric/workspace_trust.py",
     # Writes and reads each agent's private conversational history (ADR-041).
-    "tools/fabric/episodic.py", "tools/fabric/history.py", "bin/fabric-history",
+    "tools/fabric/episodic.py", "tools/fabric/episodic_import.py", "tools/fabric/relay.py", "tools/fabric/history.py", "bin/fabric-history",
 )
 # The one path under a never-prefix an entry may name: the list the port
 # shrinks, which lint itself holds to shrinking (ADR-040 §5 rule 2).
