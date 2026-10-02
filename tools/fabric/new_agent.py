@@ -78,6 +78,8 @@ import threading
 
 HERE = os.path.dirname(os.path.realpath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
+sys.path.insert(0, HERE)
+from new_agent_worker import run_bounded, stop_tree  # noqa: E402
 REGISTRY = os.path.join(ROOT, "projects", "registry.json")
 SECRETS = os.path.join(ROOT, "runtime", "provisioning", "secrets", "fabric-secrets")
 STORE_ENROLL = os.path.join(ROOT, "runtime", "provisioning", "secrets", "store-enroll.sh")
@@ -248,8 +250,8 @@ class Steps:
         """stdout captured; stderr appended to LOG, as `2>>"$LOG"` did."""
         with open(self.log, "a", encoding="utf-8") as err:
             try:
-                r = subprocess.run(cmd, stdin=stdin, stdout=subprocess.PIPE, stderr=err, text=True,
-                                   errors="surrogateescape", timeout=timeout)
+                r = run_bounded(cmd, stdin=stdin, stdout=subprocess.PIPE, stderr=err, text=True,
+                                errors="surrogateescape", timeout=timeout)
             except subprocess.TimeoutExpired:
                 err.write(f"{cmd[0]}: no answer within {timeout} s\n")
                 return 124, ""
@@ -262,8 +264,8 @@ class Steps:
         """A command whose output is the person's to read, as it comes."""
         sys.stderr.flush()
         try:
-            return subprocess.run(cmd, stdin=None, stdout=subprocess.DEVNULL if quiet_stdout else None,
-                                  timeout=timeout).returncode
+            return run_bounded(cmd, stdin=None, stdout=subprocess.DEVNULL if quiet_stdout else None,
+                               timeout=timeout).returncode
         except subprocess.TimeoutExpired:
             say(f"{os.path.basename(cmd[0])} {' '.join(cmd[1:4])}: no answer within {timeout} s")
             return 124
@@ -301,7 +303,7 @@ class Steps:
             for p in procs:
                 if p.poll() is None:
                     killed.append(p)
-                    p.kill()
+                    stop_tree(p)
         timer = threading.Timer(timeout, overdue)
         timer.start()
         try:
@@ -340,13 +342,33 @@ def new_agent(argv: list[str]) -> int:
     hosts_path = os.environ.get("AGENT_FABRIC_HOSTS_REGISTRY") or os.path.join(ROOT, "runtime", "hosts", "registry.json")
     with tempfile.NamedTemporaryFile(prefix="new-agent-", suffix=".log", delete=False) as fh:
         log = fh.name
+    LOGS.append(log)
     try:
         return run_steps(o, login, role, host, dry, remote, hosts_path, Steps(log))
     finally:
+        remove_logs()
+
+
+# The bash's EXIT trap removed its log when a signal ended it too; a
+# signal's default action ends this process with no finally run. So each
+# of these, unless it was ignored on entry, removes the log first and then
+# ends the process by the same signal, as the bash's death reported it.
+LOGS: list[str] = []
+FATAL_SIGNALS = (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)
+
+
+def remove_logs() -> None:
+    while LOGS:
         try:
-            os.remove(log)
+            os.remove(LOGS.pop())
         except OSError:
             pass
+
+
+def die_of(signum: int, _frame) -> None:
+    remove_logs()
+    signal.signal(signum, signal.SIG_DFL)
+    os.kill(os.getpid(), signum)
 
 
 def run_steps(o: dict, login: str, role: str, host: str, dry: bool, remote: dict, hosts_path: str, s: Steps) -> int:
@@ -453,7 +475,9 @@ def secrets_step(s: Steps, login: str, host: str, projects: list[str]) -> None:
 
 
 def main(argv: list[str]) -> int:
-    signal.signal(signal.SIGINT, signal.SIG_DFL)
+    for sig in FATAL_SIGNALS:
+        if signal.getsignal(sig) != signal.SIG_IGN:
+            signal.signal(sig, die_of)
     for stream in (sys.stdout, sys.stderr):
         stream.reconfigure(encoding="utf-8", errors="surrogateescape")
     try:

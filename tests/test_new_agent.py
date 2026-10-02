@@ -12,6 +12,7 @@ from __future__ import annotations
 import io
 import json
 import os
+import signal
 import subprocess
 import sys
 import tempfile
@@ -390,6 +391,68 @@ sys.exit(0)
         with redirect_stderr(io.StringIO()):
             reg = na.hosts_registry(put(f"{tmp}/hosts.json", "{ not json"))
         check("a hosts registry that cannot be read is empty, said in one line", reg == {})
+
+        print("a step that runs out, and an interrupted run (review of #80)")
+        tools = os.path.join(HERE, "tools", "fabric")
+
+        def gone(pid_file: str) -> bool:
+            """Whether the process is gone; one that is not is killed here,
+            so a regression fails the check without leaving it behind."""
+            with open(pid_file, encoding="utf-8") as fh:
+                pid = int(fh.read())
+            try:
+                with open(f"/proc/{pid}/stat", encoding="ascii") as fh:
+                    if fh.read().rsplit(")", 1)[1].split()[0] == "Z":
+                        return True
+            except OSError:
+                return True
+            os.kill(pid, signal.SIGKILL)
+            return False
+        # A wrapper that ignores SIGTERM, as its child then does: only
+        # SIGKILL ends either, and the child is what the old kill left.
+        tree = f"{tmp}/tree.pid"
+        wrapper = ["bash", "-c", f"trap '' TERM; sleep 300 & echo $! > {tree}; wait"]
+        saved_bounds = (w.READBACK_TIMEOUT_S, getattr(w, "STOP_GRACE_S", None))
+        w.READBACK_TIMEOUT_S, w.STOP_GRACE_S = 1, 0.5
+        try:
+            with redirect_stderr(io.StringIO()):
+                w.quiet_run(wrapper)
+        finally:
+            w.READBACK_TIMEOUT_S, w.STOP_GRACE_S = saved_bounds
+        check("a worker read-back that runs out ends what it started, not only its wrapper", gone(tree))
+        os.remove(tree)
+        w.STOP_GRACE_S = 0.5
+        try:
+            rc, _ = na.Steps(log).capture(wrapper, timeout=1)
+        finally:
+            w.STOP_GRACE_S = saved_bounds[1]
+        check("…and so does a coordinator step", rc == 124 and gone(tree), str(rc))
+
+        hang = put(f"{tmp}/hang-bin/getent", "#!/usr/bin/env bash\nexec sleep 60\n", 0o755)
+        r = subprocess.run([sys.executable, "-c", "import sys; sys.path.insert(0, %r); import new_agent_worker as w; "
+                            "w.READBACK_TIMEOUT_S = 1; w.STOP_GRACE_S = 0.5; sys.exit(w.main(['host-check', 'x']))"
+                            % tools], env=clean_env(PATH=f"{os.path.dirname(hang)}:{os.environ['PATH']}"),
+                           capture_output=True, text=True, timeout=60)
+        check("a host-check whose account lookup gets no answer: neither present nor absent, one line, exit 1",
+              r.returncode == 1 and r.stdout == "" and r.stderr == "new-agent: getent: no answer within 1 s\n",
+              f"rc={r.returncode} {r.stdout!r} {r.stderr}")
+
+        scratch = f"{tmp}/interrupted-tmp"
+        os.makedirs(scratch)
+        started = f"{tmp}/hx-started"
+        slow = put(f"{tmp}/slow-hx", f"#!/usr/bin/env bash\ntouch {started}\nexec sleep 60\n", 0o755)
+        code = ("import sys; sys.path.insert(0, %r); import new_agent as na; na.HX = %r; na.ROOT = %r; "
+                "sys.exit(na.main(['l', 'r', '--host', 'here']))") % (tools, slow, f"{fk}/root")
+        p = subprocess.Popen([sys.executable, "-c", code], process_group=0, stdout=subprocess.DEVNULL,
+                             stderr=subprocess.DEVNULL,
+                             env=clean_env(TMPDIR=scratch, AGENT_FABRIC_HOSTS_REGISTRY=hosts))
+        deadline = time.monotonic() + 30
+        while not os.path.exists(started) and time.monotonic() < deadline and p.poll() is None:
+            time.sleep(0.05)
+        os.killpg(p.pid, signal.SIGINT)
+        rc = p.wait(timeout=30)
+        check("Ctrl-C mid-run: the run ends by SIGINT, and its log is gone, as the bash's EXIT trap left it",
+              rc == -signal.SIGINT and os.listdir(scratch) == [], f"rc={rc} left={os.listdir(scratch)}")
 
     print("test_new_agent.py: OK" if not fails else f"test_new_agent.py: {fails} FAILED")
     return 1 if fails else 0

@@ -30,10 +30,13 @@ Every message here is the worker's own (`new-agent: …`, or
 from __future__ import annotations
 
 import json
+import os
 import re
 import shlex
+import signal
 import subprocess
 import sys
+import time
 
 USAGE = "usage: new-agent-worker.sh prepare|finish <login> <role> ... | host-check <login> [--project <id>]..."
 VERSION = re.compile(r"[0-9]+\.[0-9]+\.[0-9]+")
@@ -106,10 +109,10 @@ def host_check(login: str) -> str:
     """The host names itself; the coordinator compares this with the
     registry id it reached the host as, and never stamps a host it is not
     on. `hostname -s` and getent as commands, as the bash ran them."""
-    name = subprocess.run(["hostname", "-s"], stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-                          timeout=READBACK_TIMEOUT_S).stdout.decode("utf-8", "surrogateescape")
-    present = subprocess.run(["getent", "passwd", login], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                             timeout=READBACK_TIMEOUT_S).returncode == 0
+    name = run_bounded(["hostname", "-s"], stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                       timeout=READBACK_TIMEOUT_S).stdout.decode("utf-8", "surrogateescape")
+    present = run_bounded(["getent", "passwd", login], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                          timeout=READBACK_TIMEOUT_S).returncode == 0
     return name + ("account: present\n" if present else "account: absent\n")
 
 
@@ -209,6 +212,74 @@ def missing_keys(keys_file: str, known_hosts: str) -> str:
 # Each read-back is a question to the account; none should take long, and
 # a hung one (a network, a gpg-agent) must not hold the verification.
 READBACK_TIMEOUT_S = 120
+# A bounded command that runs out is ended with what it started: its direct
+# child is sudo, ssh or a bash wrapper, and killing that alone left the rest
+# running — an account still being set up after the run said it failed.
+# SIGTERM goes to the whole tree first, since sudo relays it to the command
+# it runs (SIGKILL it cannot relay, and a process of another account is not
+# ours to signal); SIGKILL follows for whatever is left after the grace.
+STOP_GRACE_S = 5
+
+
+def _stat_fields(pid: int) -> list[str] | None:
+    """/proc/<pid>/stat after the command name, which may hold spaces and
+    parentheses: [state, ppid, ...]; None when the process is gone."""
+    try:
+        with open(f"/proc/{pid}/stat", encoding="ascii", errors="replace") as fh:
+            return fh.read().rsplit(")", 1)[1].split()
+    except (OSError, IndexError):
+        return None
+
+
+def descendants(pid: int) -> list[int]:
+    kids: dict[int, list[int]] = {}
+    for entry in os.listdir("/proc"):
+        if entry.isdigit():
+            f = _stat_fields(int(entry))
+            if f and len(f) > 1 and f[1].isdigit():
+                kids.setdefault(int(f[1]), []).append(int(entry))
+    found, todo = [], [pid]
+    while todo:
+        for k in kids.get(todo.pop(), []):
+            found.append(k)
+            todo.append(k)
+    return found
+
+
+def stop_tree(proc: subprocess.Popen) -> None:
+    def alive(pid: int) -> bool:
+        f = _stat_fields(pid)
+        return bool(f) and f[0] != "Z"
+
+    def send(pids: list[int], sig: int) -> None:
+        for pid in pids:
+            try:
+                os.kill(pid, sig)
+            except (ProcessLookupError, PermissionError):
+                pass
+    tree = [proc.pid, *descendants(proc.pid)]
+    send(tree, signal.SIGTERM)
+    deadline = time.monotonic() + STOP_GRACE_S
+    while time.monotonic() < deadline:
+        proc.poll()
+        tree += [d for d in (descendants(proc.pid) if proc.returncode is None else []) if d not in tree]
+        if not any(alive(p) for p in tree):
+            break
+        time.sleep(0.05)
+    send([p for p in tree if alive(p)], signal.SIGKILL)
+    proc.wait()
+
+
+def run_bounded(cmd: list[str], *, timeout: float, **popen) -> subprocess.CompletedProcess:
+    """subprocess.run(cmd, timeout=…), the timeout ending the command's
+    whole process tree (stop_tree) before TimeoutExpired is raised."""
+    with subprocess.Popen(cmd, **popen) as proc:
+        try:
+            out, err = proc.communicate(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            stop_tree(proc)
+            raise
+    return subprocess.CompletedProcess(cmd, proc.returncode, out, err)
 
 
 class Account:
@@ -233,8 +304,8 @@ class Account:
 def quiet_run(cmd: list[str], *, stderr=None) -> bytes:
     sys.stderr.flush()
     try:
-        return subprocess.run(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=stderr,
-                              timeout=READBACK_TIMEOUT_S).stdout
+        return run_bounded(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=stderr,
+                           timeout=READBACK_TIMEOUT_S).stdout
     except subprocess.TimeoutExpired:
         print(f"new-agent:    {cmd[0]}: no answer within {READBACK_TIMEOUT_S} s", file=sys.stderr)
         return b""
@@ -278,10 +349,10 @@ def verify(root: str, login: str, home: str, sudo: str, projects: list[str]) -> 
     # The control agent bootstrap enabled in the account's user manager
     # answers the coordinator from here on: one ping, as the operator.
     prefixed("   control plane: ", quiet_run([f"{root}/bin/fabric-ctl", login, "ping"], stderr=subprocess.STDOUT), skip=1)
-    has_template = subprocess.run([*sudo.split(), "-n", "grep", "-q", "^export CLAUDE_CODE_OAUTH_TOKEN=",
-                                   f"{home}/.config/agent-fabric/secrets.env"], stdin=subprocess.DEVNULL,
-                                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                                  timeout=READBACK_TIMEOUT_S).returncode == 0
+    has_template = run_bounded([*sudo.split(), "-n", "grep", "-q", "^export CLAUDE_CODE_OAUTH_TOKEN=",
+                                f"{home}/.config/agent-fabric/secrets.env"], stdin=subprocess.DEVNULL,
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                               timeout=READBACK_TIMEOUT_S).returncode == 0
     return closing(login, gpgkeys, "template" if has_template else "no", first)
 
 
@@ -344,6 +415,11 @@ def main(argv: list[str]) -> int:
     except Exit as exc:
         print(exc.msg, file=sys.stderr)
         return exc.code
+    # A question that got no answer is not a "no": host-check's account is
+    # neither present nor absent, and verify does not guess at a token.
+    except subprocess.TimeoutExpired as exc:
+        print(f"new-agent: {exc.cmd[0]}: no answer within {exc.timeout:g} s", file=sys.stderr)
+        return 1
     except OSError as exc:
         print(f"new-agent: {exc.filename}: {exc.strerror}", file=sys.stderr)
         return 1
