@@ -96,7 +96,8 @@ serve as the parity oracle for each port, unchanged.
      (`session-start.sh`, `model-switch-guard.sh`, `self-kill-guard.py`) —
      whose port moves them; the launcher, account creation and bootstrap
      have moved, and bootstrap's helpers under `runtime/` run on the pin
-     with it;
+     with it, but for step 7's language-detector venv, which is made with
+     the host's `python3`;
    - `check_actions_pinned_by_sha.py`, run by CI's static job, which
      installs no pin;
    - what `fabric-host` runs on another host, which may not have the pin
