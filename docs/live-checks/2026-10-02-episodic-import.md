@@ -46,9 +46,33 @@ since #78.
   counts, ids and role names only. It holds no message content and no
   token.
 
+## The send rule, corrected after review
+
+The first run stored a message as this account's send when its FROM and
+the relay's `sender` both named the account. #84's review showed that
+proves nothing: the relay authenticates no sender, so either field is a
+claim. The rule is now:
+
+- A send is `accepted` when the account's own records hold that body:
+  the ledger, or a row its live journal wrote.
+- A send dated after the ledger began but missing from it is refused.
+- A send from before the ledger is kept as `unverified`.
+
+The coordinator's journal was re-judged by that rule. A backup was kept
+beside it first. Of the 288 sends the first run imported:
+
+- 66 are verified by the ledger and stay `accepted`;
+- 222 predate the ledger and are now `unverified`;
+- none was dated after the ledger began and missing from it, so nothing
+  was removed and no send had been forged.
+
+The 222 are the same 222 the first run reported as missing from the
+ledger.
+
 ## What it decides
 
-The import is safe to offer to every account. It reads its own
-channel, moves no cursor, keeps only what rule 9 entitles, and takes
+The import, with the send rule above, is safe to offer to every account.
+It reads its own channel, moves no cursor, keeps only what rule 9
+entitles and what the account's own records can vouch for, and takes
 under two seconds for the whole of the fleet's history. Its rollout,
 run once per account from bootstrap, follows bootstrap's port to Python.
