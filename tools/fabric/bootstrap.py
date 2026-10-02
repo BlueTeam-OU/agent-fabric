@@ -90,8 +90,8 @@ CONTRACT, frozen from the bash (ADR-040 §5 rule 3):
                included; 2 a bad argument; 1 --projects names no
                directory, a file the run must write cannot be written
                (install's word: "bootstrap: install: …"), or the workspace
-               settings are not a JSON object; 127 git or python3 missing
-               (python3 just before step 2, git at the first write);
+               settings are not a JSON object; 127 git missing, at the first
+               write;
                install_agent_files' own non-zero status (nothing after the
                agent files ran); git's own status when a hooksPath cannot be
                set.
@@ -100,10 +100,10 @@ CONTRACT, frozen from the bash (ADR-040 §5 rule 3):
                <file>.before-agent-fabric beside a file the fabric did not
                write, once. Nothing under --dry-run but what the children's
                own dry runs leave (none).
-  calls        python3 (the host's, from PATH): runtime/identity.py,
+  calls        this interpreter: runtime/identity.py,
                runtime/claude-code/user-settings.py <settings> [--dry-run],
                runtime/claude-code/retire-doppler.py [--dry-run];
-               this interpreter: tools/fabric/install_agent_files.py
+               tools/fabric/install_agent_files.py
                [--dry-run]; bash runtime/langid/install.sh [--dry-run];
                git (through git.py): config --get / config core.hooksPath,
                rev-parse --is-inside-work-tree; systemctl --user
@@ -118,10 +118,12 @@ CONTRACT, frozen from the bash (ADR-040 §5 rule 3):
                "restart left to the caller"; moveto's enter: exit status
                only, output discarded, 30 s.
 
-The host's python3 runs the helpers under runtime/ as the bash ran them
-(ADR-040 §5 rule 4 still lists bootstrap's helpers among those that keep
-it): without one, nothing after step 1 can be done, and the run stops
-there with 127, as the bash did when step 2's python3 was not found.
+The helpers under runtime/ run on this interpreter, the fleet's pinned
+Python, as ADR-040 §5 rule 4 has it for bootstrap's port: the bash ran
+them on the host's python3 and stopped with 127 before step 2 without
+one. Only step 7's venv, the language detector's own environment, is
+still made with the host's python3; without it that step says so and the
+run carries on.
 
 DELIBERATE DEPARTURES from the bash, each a defect the oracle pinned as the
 bash behaved, fixed here with its case changed:
@@ -367,9 +369,9 @@ class Bootstrap:
     # --- the children ----------------------------------------------------
 
     def python3(self, script: str, *args: str, capture: bool = False) -> tuple[int, str]:
-        """A helper under runtime/, on the host's python3, as the bash ran it."""
+        """A helper under runtime/, on this interpreter, the fleet's pin."""
         try:
-            r = subprocess.run(["python3", self.src(script), *args], check=False,
+            r = subprocess.run([sys.executable, self.src(script), *args], check=False,
                                stdout=subprocess.PIPE if capture else None)
         except OSError:
             return 127, ""
@@ -414,9 +416,6 @@ class Bootstrap:
         say(f"agent-fabric bootstrap for agent {agent} — projects: {self.projects}")
         # 1. The workspace CLAUDE.md: three lines, an import, no instructions of its own.
         self.put_file(os.path.join(self.projects, "CLAUDE.md"), "runtime/claude-code/workspace/CLAUDE.md")
-        if shutil.which("python3") is None:
-            raise Stop(127, "bootstrap: python3: command not found — the helpers every later step runs need "
-                            "the host's python3")
         self.workspace_settings()
         self.retire_role_command()
         self.agent_files()

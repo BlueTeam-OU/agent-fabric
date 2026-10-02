@@ -950,9 +950,13 @@ def failures() -> None:
 
     k = Account("no-python", wcs=False)
     r = bootstrap(k, env=k.env(PATH=path_without("python3")))
-    check("no python3: the header has no agent, step 2 stops the run, exit 127",
-          r.rc == 127 and r.lines[0] == f"agent-fabric bootstrap for agent  — projects: {k.ws}"
-          and "python3: command not found" in r.err and not os.path.exists(f"{k.ws}/.claude/settings.json"), r)
+    # The helpers run on bootstrap's own interpreter, the fleet's pin
+    # (ADR-040 §5 rule 4); only step 7's venv needs the host's python3. The
+    # bash stopped here with 127 before step 2.
+    check("no host python3: the header names the agent, every step runs, step 7 says its venv failed, exit 0",
+          r.rc == 0 and r.lines[0] == f"agent-fabric bootstrap for agent {LOGIN} — projects: {k.ws}"
+          and os.path.exists(f"{k.ws}/.claude/settings.json") and os.path.exists(k.units)
+          and any("python3 -m venv failed" in ln for ln in r.lines), r)
 
 
 def main() -> int:
