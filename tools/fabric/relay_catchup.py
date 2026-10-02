@@ -21,7 +21,8 @@ writes; it is read in this process and never printed. A project with no
 integration has no channel to catch up on, and is said.
 
 exit 0 every channel caught up (or empty, or no integration); 1 a relay
-that refused or did not answer, or no token.
+that refused or did not answer, no token, or a control channel named
+(refused, never acknowledged).
 """
 from __future__ import annotations
 
