@@ -255,10 +255,8 @@ def answer(argv: list[str]) -> str:
 
 def merge_workspace_settings(template: dict, root: str, existing: object) -> dict:
     """The workspace settings: the template with the root substituted, over
-    what the file already has."""
-    tpl = dict(template)
-    tpl.pop("_comment", None)
-
+    what the file already has. Only statusLine, env and hooks are taken
+    from the template, so its _comment never reaches the file."""
     def sub(v: object) -> object:
         if isinstance(v, str):
             return v.replace("$AGENT_FABRIC_ROOT", root)
@@ -267,7 +265,7 @@ def merge_workspace_settings(template: dict, root: str, existing: object) -> dic
         if isinstance(v, dict):
             return {k: sub(x) for k, x in v.items()}
         return v
-    tpl = sub(tpl)
+    tpl = sub(template)
     # Merge over an existing workspace settings file: keep everything it has,
     # add or refresh only the entries agent-fabric owns (OWNED says by what).
     doc = existing or {}
@@ -499,7 +497,7 @@ class Bootstrap:
         # The capability-class agent files, with the review pin applied for this
         # account: install_agent_files.py (bin/fabric-model re-runs it when the
         # account's local layer changes the pin).
-        argv = [sys.executable, "-I", os.path.join(HERE, "install_agent_files.py")]
+        argv = [sys.executable, "-I", self.src("tools/fabric/install_agent_files.py")]
         if self.dry_run:
             argv.append("--dry-run")
         rc = subprocess.run(argv, check=False).returncode
