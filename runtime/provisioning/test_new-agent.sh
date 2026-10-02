@@ -18,7 +18,7 @@ SANDBOX="$(mktemp -d)"; trap '[[ -n "${KEEP_SANDBOX:-}" ]] || rm -rf "$SANDBOX"'
 FAB="$SANDBOX/fabric"; mkdir -p "$FAB/runtime/provisioning/secrets" "$FAB/identities" "$FAB/projects" "$SANDBOX/home/.local/bin"
 cp -r "$ROOT/identities/roles" "$FAB/identities/"; cp "$ROOT/projects/registry.json" "$FAB/projects/"
 cp "$UNDER_TEST" "$HERE/new-agent-worker.sh" "$HERE/persist-accounts.sh" "$ROOT/runtime/provisioning/github-host-keys" "$FAB/runtime/provisioning/"
-cp -r "$ROOT/runtime/hostexec" "$FAB/runtime/"; cp -r "$ROOT/runtime/provisioning/platform" "$FAB/runtime/provisioning/"; mkdir -p "$FAB/runtime/claude-code"; cp "$ROOT/runtime/claude-code/harness.json" "$FAB/runtime/claude-code/"
+cp -r "$ROOT/runtime/hostexec" "$FAB/runtime/"; cp -r "$ROOT/runtime/provisioning/platform" "$FAB/runtime/provisioning/"; mkdir -p "$FAB/runtime/claude-code"; cp "$ROOT/runtime/claude-code/harness.json" "$FAB/runtime/claude-code/"; mkdir -p "$FAB/tools/fabric"; cp "$ROOT/tools/fabric/new_agent.py" "$ROOT/tools/fabric/new_agent_worker.py" "$FAB/tools/fabric/"
 printf '#!/bin/sh\necho fake\n' > "$SANDBOX/home/.local/bin/claude"; chmod +x "$SANDBOX/home/.local/bin/claude"
 # The host registry the orchestrator reads: this host (direct) and a far
 # one reached over a fake ssh that runs the same worker here.
@@ -275,6 +275,27 @@ fi
 out="$(seq_run seq-login backend-dev --project demo)"
 grep -q "1. account seq-login exists" <<<"$out" && grep -q "2. claude $PIN present" <<<"$out" && grep -q "OpenRouter key: 1 present" <<<"$out" && ! grep -q "^useradd" "$CALLS" && ! grep -q "^usermod --add-subuids" "$CALLS" && grep -q "subuid/subgid: 524288:65536" <<<"$out" \
   && ok "a second run skips every step already true" || bad "not idempotent" "$out"
+if [[ "$BACKEND" == local ]]; then
+  # Step 4: a fabric clone already there is brought to origin/main, never
+  # left old (bootstrap and the launcher run from it), and one off main is
+  # refused rather than moved.
+  git -C "$SRC" -c user.name=t -c user.email=t@t -c commit.gpgsign=false commit -q --allow-empty -m newer && git -C "$SRC" push -q "$BARE" HEAD:main
+  out="$(seq_run seq-login backend-dev --project demo)"; rc=$?
+  [[ $rc -eq 0 && "$(git -C "$H/projects/agent-fabric" rev-parse HEAD)" == "$(git --git-dir "$BARE" rev-parse main)" ]] && grep -q "4. ~/projects/agent-fabric at origin/main" <<<"$out" \
+    && ok "an account's fabric clone behind origin/main is fast-forwarded, and that is said" || bad "a stale fabric clone was kept (rc=$rc)" "$out"
+  git -C "$H/projects/agent-fabric" checkout -q -b elsewhere
+  out="$(seq_run seq-login backend-dev --project demo)"; rc=$?
+  [[ $rc -eq 1 ]] && grep -q "agent-fabric is on elsewhere, not main" <<<"$out" && ! grep -q "7. bootstrap run" <<<"$out" \
+    && ok "…and one off main is refused, named, nothing after it" || bad "an off-main fabric clone was not refused (rc=$rc)" "$out"
+  git -C "$H/projects/agent-fabric" checkout -q main
+  # On main but ahead: pull --ff-only exits 0 there, so only a count of
+  # what origin/main lacks refuses it (review of #80).
+  git -C "$H/projects/agent-fabric" -c user.name=t -c user.email=t@t -c commit.gpgsign=false commit -q --allow-empty -m local
+  out="$(seq_run seq-login backend-dev --project demo)"; rc=$?
+  [[ $rc -eq 1 ]] && grep -q "agent-fabric has 1 commit(s) not on origin/main" <<<"$out" && ! grep -q "7. bootstrap run" <<<"$out" \
+    && ok "…and one with local commits is refused, counted, nothing after it" || bad "a fabric clone with local commits was not refused (rc=$rc)" "$out"
+  git -C "$H/projects/agent-fabric" reset -q --hard origin/main
+fi
 
 for fault in useradd "git" "store-enroll" "provision share" "provision issue-key" child-bundle account-sync curl; do
   reset_seq

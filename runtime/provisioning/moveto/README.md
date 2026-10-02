@@ -33,8 +33,10 @@ source, and `install.sh` is how it gets there.
 sudo runtime/provisioning/moveto/install.sh
 ```
 
-Three files land: `/usr/local/bin/moveto`, `/usr/local/share/moveto/enter`, and
-`/usr/local/share/moveto/rc`, and a manifest of what was installed,
+These land: `/usr/local/bin/moveto` (a shim since ADR-040 Wave 5), the
+work it runs, `/usr/local/share/moveto/moveto.py`, on the fleet's pinned
+Python, `/usr/local/share/moveto/enter`, `/usr/local/share/moveto/rc`, the
+tab completion, and a manifest of what was installed,
 `/usr/local/share/moveto/installed.sha256`. The copy under `/usr/local`
 can drift from this directory, and `bin/fabric-status` says so on every
 call — `moveto       drift: behind the repository: share/moveto/enter …`
