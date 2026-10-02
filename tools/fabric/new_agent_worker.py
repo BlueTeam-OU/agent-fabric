@@ -251,33 +251,53 @@ def stop_tree(proc: subprocess.Popen) -> None:
         f = _stat_fields(pid)
         return bool(f) and f[0] != "Z"
 
+    def reach(pid: int) -> str:
+        """Whether a signal reaches it: "ours"; "theirs" for a process of
+        another account (root's, under sudo), which no wait makes ours; or
+        "gone", exited since it was last seen — kept apart from "theirs", so
+        a process that just ended is not named another account's."""
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return "gone"
+        except PermissionError:
+            return "theirs"
+        return "ours"
+
     def send(pids: list[int], sig: int) -> None:
         for pid in pids:
             try:
                 os.kill(pid, sig)
             except (ProcessLookupError, PermissionError):
                 pass
+
+    def running() -> list[int]:
+        return [p for p in tree if alive(p) and reach(p) == "ours"]
     tree = [proc.pid, *descendants(proc.pid)]
     send(tree, signal.SIGTERM)
     deadline = time.monotonic() + STOP_GRACE_S
     while time.monotonic() < deadline:
         proc.poll()
         tree += [d for d in (descendants(proc.pid) if proc.returncode is None else []) if d not in tree]
-        if not any(alive(p) for p in tree):
+        if not running():
             break
         time.sleep(0.05)
-    send([p for p in tree if alive(p)], signal.SIGKILL)
+    send(running(), signal.SIGKILL)
     proc.wait()
     # SIGKILL is delivered, not yet acted on: a grandchild can still read
     # as running for a moment after it, and "ended" is a claim about the
     # tree, so it is waited for — bounded, and said if the bound passes.
+    # Only what a signal reached is waited for; the rest is named as such.
     deadline = time.monotonic() + STOP_GRACE_S
-    while any(alive(p) for p in tree):
+    while running():
         if time.monotonic() >= deadline:
-            left = " ".join(str(p) for p in tree if alive(p))
+            left = " ".join(str(p) for p in running())
             print(f"new-agent:    {proc.args[0]}: still running after SIGKILL: pid {left}", file=sys.stderr)
-            return
+            break
         time.sleep(0.02)
+    unreached = " ".join(str(p) for p in tree if alive(p) and reach(p) == "theirs")
+    if unreached:
+        print(f"new-agent:    {proc.args[0]}: could not be signalled (another account's): pid {unreached}", file=sys.stderr)
 
 
 def run_bounded(cmd: list[str], *, timeout: float, **popen) -> subprocess.CompletedProcess:

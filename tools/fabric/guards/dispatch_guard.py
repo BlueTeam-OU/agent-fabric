@@ -25,7 +25,7 @@ to deny or ask, or prints nothing to allow. The rules it enforces, and
 the incidents behind each one, are in the subagent-dispatch skill
 (policies/subagent-dispatch/SKILL.md); agent-fabric ADR-005 and ADR-020
 are the decisions. This file exists so the program can be
-READ and TESTED (.claude/test_agent-dispatch-guard.sh) -- it used to
+READ and TESTED (tests/test_agent_dispatch_guard_cli.py) -- it used to
 be a one-line jq string inside settings.json, which nothing exercised.
 
 TWO CLASSES OF DISPATCH, decided in this order:
