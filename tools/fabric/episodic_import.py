@@ -67,8 +67,11 @@ import relay  # noqa: E402
 # journals (tests/test_episodic_import.py holds this equal to its source).
 RETIRED_TYPES = ("HELLO", "GOODBYE")
 REPORT = "episodic-import.json"
+# When send.mjs began writing gzcoord-sent.jsonl (27f6db67, merged in #47):
+# a send of this agent's since then is in its ledger, or is not its own.
+LEDGER_EPOCH = datetime.datetime(2026, 9, 26, 16, 29, 25, tzinfo=datetime.timezone.utc)
 DECISIONS = ("outbound", "outbound_unverified", "outbound_same", "outbound_promoted", "outbound_conflict",
-             "to_me", "to_role", "to_role_unresolved", "broadcast", "before_birth", "from_me_unverified",
+             "to_me", "to_role", "to_role_unresolved", "broadcast", "before_birth", "from_me_refused",
              "inbound_written", "inbound_same", "inbound_conflict", "others", "retired", "not_gzcoord", "no_time")
 
 
@@ -186,8 +189,11 @@ class Importer:
         # (role-history.jsonl names no agent id): at birth no role is held.
         self.spans = [sp for sp in role_spans(os.path.join(state, "role-history.jsonl")) if sp[0] >= self.born]
         self.ledger = read_ledger(os.path.join(state, "gzcoord-sent.jsonl"))
+        # The ledger began when send.mjs started writing it, for every
+        # account at once, not at this account's first line: an account that
+        # has sent nothing yet, or whose ledger was trimmed, still began then.
         firsts = [t for t in (_when(e.get("at")) for es in self.ledger.values() for e in es) if t is not None]
-        self.ledger_from = min(firsts) if firsts else None
+        self.ledger_from = min([*firsts, LEDGER_EPOCH])
         self.counts = dict.fromkeys(DECISIONS, 0)
         self.unresolved: list[dict] = []
         self.mismatch = {"not_in_ledger": [], "hash_differs": [], "seq_differs": []}
@@ -229,8 +235,8 @@ class Importer:
                         or (row is not None and row[2] != "unverified" and row[1] == h))
             if verified or (row is not None and row[1] != h):
                 return outbound(self.conn, text, mtype, meta, seq, ts), None
-            if self.ledger_from is not None and when >= self.ledger_from:
-                return "from_me_unverified", None
+            if when >= self.ledger_from:
+                return "from_me_refused", None
             return outbound(self.conn, text, mtype, meta, seq, ts, state="unverified"), None
         keep = {"content": text, "seq": seq, "ts": ts}
         # inbox.mjs forMe, in its order: a broadcast, else TO decides alone,
@@ -389,7 +395,7 @@ def main(argv: list[str]) -> int:
     c = imp.counts
     sent = c["outbound"] + c["outbound_unverified"] + c["outbound_same"] + c["outbound_promoted"] + c["outbound_conflict"]
     print(f"gzcoord-import: {sent} sent ({c['outbound']} new, {c['outbound_unverified']} unverified before the ledger, "
-          f"{c['from_me_unverified']} refused), {c['to_me'] + c['to_role'] + c['broadcast']} received "
+          f"{c['from_me_refused']} refused), {c['to_me'] + c['to_role'] + c['broadcast']} received "
           f"({c['inbound_written']} new), "
           f"{c['to_role_unresolved']} TO-ROLE unresolved, "
           f"{sum(len(v) for v in imp.mismatch.values())} ledger mismatch(es); report {os.path.join(state, REPORT)}")

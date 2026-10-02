@@ -289,7 +289,7 @@ def main() -> int:
         c = rep["counts"]
         want = {"outbound": 2, "outbound_unverified": 1, "outbound_promoted": 1, "outbound_same": 0, "outbound_conflict": 0,
                 "to_me": 4, "to_role": 1, "broadcast": 1, "to_role_unresolved": 4, "before_birth": 3,
-                "from_me_unverified": 3, "others": 3, "retired": 1, "not_gzcoord": 1, "no_time": 3,
+                "from_me_refused": 3, "others": 3, "retired": 1, "not_gzcoord": 1, "no_time": 3,
                 # the failed run kept to-me-1 and role-held-1 before the relay
                 # stopped; live capture kept live-1
                 "inbound_written": 3, "inbound_same": 3,
@@ -353,6 +353,22 @@ def main() -> int:
               and conn.execute("SELECT COUNT(*) FROM conflicts").fetchone()[0] == 2, (c3, r.stderr))
         conn.close()
         del Relay.messages[-2:]
+
+        print("an agent born after the ledger began, that has sent nothing yet")
+        # Its ledger is empty, yet every send of its own would be in it, so a
+        # FROM of its own is refused, not kept as unverified (re-review of #84).
+        late_ms = int(datetime.datetime(2026, 9, 28, tzinfo=datetime.timezone.utc).timestamp() * 1000)
+        late = f"{late_ms:012x}"[:8] + "-" + f"{late_ms:012x}"[8:] + "-7abc-8def-0123456789ac"
+        late_state = os.path.join(tmp, "late-state")
+        os.makedirs(late_state)
+        lconn = ep.connect(os.path.join(late_state, "episodic.db"), agent_id=late)
+        limp = ei.Importer(lconn, ME, late, late_state)
+        forged = msg("forged-late", "BODY-L", frm=ME, to=OTHER)
+        d = limp.decide({"id": "x", "seq": 1, "sender": ME, "timestamp": "2026-10-01 10:00:00", "content": forged})
+        check("an empty ledger begins at the epoch: a send of its own it lacks is refused, stored nowhere",
+              d == ("from_me_refused", None)
+              and not lconn.execute("SELECT COUNT(*) FROM episodes").fetchone()[0], d)
+        lconn.close()
 
         print("refusals")
         r = run("agent-fabric", e={**env, "GZCOORD_CHANNEL": "fabric:control"})
