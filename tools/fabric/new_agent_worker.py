@@ -268,17 +268,29 @@ def stop_tree(proc: subprocess.Popen) -> None:
         time.sleep(0.05)
     send([p for p in tree if alive(p)], signal.SIGKILL)
     proc.wait()
+    # SIGKILL is delivered, not yet acted on: a grandchild can still read
+    # as running for a moment after it, and "ended" is a claim about the
+    # tree, so it is waited for — bounded, and said if the bound passes.
+    deadline = time.monotonic() + STOP_GRACE_S
+    while any(alive(p) for p in tree):
+        if time.monotonic() >= deadline:
+            left = " ".join(str(p) for p in tree if alive(p))
+            print(f"new-agent:    {proc.args[0]}: still running after SIGKILL: pid {left}", file=sys.stderr)
+            return
+        time.sleep(0.02)
 
 
 def run_bounded(cmd: list[str], *, timeout: float, **popen) -> subprocess.CompletedProcess:
     """subprocess.run(cmd, timeout=…), the timeout ending the command's
-    whole process tree (stop_tree) before TimeoutExpired is raised."""
+    whole process tree (stop_tree) before TimeoutExpired is raised. The
+    exception carries the bound the call was given: before 3.13, the one
+    communicate() raises holds what was left of it."""
     with subprocess.Popen(cmd, **popen) as proc:
         try:
             out, err = proc.communicate(timeout=timeout)
         except subprocess.TimeoutExpired:
             stop_tree(proc)
-            raise
+            raise subprocess.TimeoutExpired(cmd, timeout) from None
     return subprocess.CompletedProcess(cmd, proc.returncode, out, err)
 
 
