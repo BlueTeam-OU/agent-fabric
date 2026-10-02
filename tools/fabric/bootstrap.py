@@ -144,6 +144,11 @@ bash behaved, fixed here with its case changed:
      out of a file the harness cannot read either; exit 1 for set and
      deny-websearch, which cannot write theirs), and the run carries on to
      user-settings.py's own refusal, counted NOT written.
+  4. put() re-made a .before-agent-fabric backup each time a fabric file
+     carrying no "agent-fabric" marker changed (the guard, three of the
+     skills), so the second change replaced the person's original with the
+     fabric's own previous file. Now the backup is made once, as
+     install_agent_files already does.
 Unpinned, and smaller: no temporary directory (the merge is in memory);
 commands.json unreadable, and workspace settings that are JSON but not an
 object, are one line rather than a traceback; install_agent_files is run
@@ -324,8 +329,12 @@ class Bootstrap:
             return
         try:
             os.makedirs(os.path.dirname(dest), exist_ok=True)
+            # Only ONCE, and only for a file the fabric did not write: the
+            # marker test alone re-made the backup each time a fabric file
+            # without the marker changed, and the second change replaced the
+            # person's original with the fabric's own previous file.
             backup = dest + ".before-agent-fabric"
-            if os.path.isfile(dest) and not marked(dest):
+            if os.path.isfile(dest) and not os.path.lexists(backup) and not marked(dest):
                 with open(backup, "wb") as f:
                     f.write(_read(dest))
                 say(f"     (kept the previous file as {backup})")

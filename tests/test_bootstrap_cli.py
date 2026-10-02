@@ -604,6 +604,9 @@ def existing_files() -> None:
     a = Account("existing", wcs=False)
     P, CH, LB, FR = a.ws, a.ch, a.lb, a.fr
     put(f"{P}/CLAUDE.md", "my own notes\n")
+    # The review guard carries no agent-fabric marker: a person's file there
+    # is backed up, and later fabric versions of it must not replace that.
+    put(f"{CH}/hooks/review-bash-guard.sh", "my guard\n")
     old_root = "/old/checkout/agent-fabric"
     put(f"{P}/.claude/settings.json", json.dumps({
         "model": "keep-me",
@@ -679,6 +682,17 @@ def existing_files() -> None:
     r = bootstrap(a)
     check("step 3: a person's role.md stays, unsaid", read(f"{CH}/commands/role.md") == "my role command\n"
           and not any("role.md" in x for x in r.lines))
+    # The bash backed up again whenever a marker-less fabric file changed,
+    # replacing the person's original with the fabric's previous version.
+    guard = f"{CH}/hooks/review-bash-guard.sh"
+    check("a person's file with no marker kept once as .before-agent-fabric",
+          read(f"{guard}.before-agent-fabric") == "my guard\n")
+    put(guard, "an older version of the fabric's guard\n")
+    r = bootstrap(a)
+    check("…a later change of that fabric file keeps the person's backup, and says no backup",
+          r.rc == 0 and read(f"{guard}.before-agent-fabric") == "my guard\n"
+          and read(guard) == read(f"{FR}/runtime/claude-code/hooks/review-bash-guard.sh")
+          and f"     (kept the previous file as {guard}.before-agent-fabric)" not in r.lines and f"  +  {guard}" in r.lines, r)
 
 
 def no_config_dir() -> None:
