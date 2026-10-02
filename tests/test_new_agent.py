@@ -460,6 +460,33 @@ sys.exit(0)
               took < 1.5 and f"could not be signalled (another account's): pid {theirs}" in err.getvalue()
               and "still running after SIGKILL" not in err.getvalue(), f"{took:.1f} s: {err.getvalue()}")
 
+        # A process that exits between its /proc read and its kill answers
+        # ESRCH, not EPERM: here every signal to it says so while /proc
+        # still shows it. It is gone, not another account's, and is named
+        # as neither.
+        p = subprocess.Popen(["bash", "-c", f"sleep 300 & echo $! > {orphan}; wait"])
+        open(orphan, "w").close()
+        for _ in range(100):
+            if open(orphan).read().strip():
+                break
+            time.sleep(0.02)
+        vanishing = int(open(orphan).read())
+
+        def vanished_kill(pid: int, sig: int) -> None:
+            if pid == vanishing:
+                raise ProcessLookupError(3, "No such process")
+            real_kill(pid, sig)
+        w.STOP_GRACE_S, os.kill = 2, vanished_kill
+        err = io.StringIO()
+        try:
+            with redirect_stderr(err):
+                w.stop_tree(p)
+        finally:
+            os.kill, w.STOP_GRACE_S = real_kill, saved_grace
+            real_kill(vanishing, signal.SIGKILL)
+        check("a process that just exited is not named another account's",
+              "could not be signalled" not in err.getvalue() and "still running" not in err.getvalue(), err.getvalue())
+
         hang = put(f"{tmp}/hang-bin/getent", "#!/usr/bin/env bash\nexec sleep 60\n", 0o755)
         r = subprocess.run([sys.executable, "-c", "import sys; sys.path.insert(0, %r); import new_agent_worker as w; "
                             "w.READBACK_TIMEOUT_S = 1; w.STOP_GRACE_S = 0.5; sys.exit(w.main(['host-check', 'x']))"

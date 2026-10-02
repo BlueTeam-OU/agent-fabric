@@ -14,8 +14,13 @@ import subprocess
 import sys
 import tempfile
 
+# Every git this suite starts, fixture or under test, reads none of the
+# caller's ~/.gitconfig: set here, it reaches the calls that pass no env.
+os.environ["GIT_CONFIG_GLOBAL"] = os.devnull
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-CMD = os.path.join(ROOT, "bin", "fabric-branches")
+CMD = os.path.abspath(os.environ.get("FABRIC_BRANCHES") or os.path.join(ROOT, "bin", "fabric-branches"))
+if not os.path.isfile(CMD):
+    sys.exit(f"test: script under test not found at {CMD}")
 LOGIN = pwd.getpwuid(os.geteuid()).pw_name
 
 

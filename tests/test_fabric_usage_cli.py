@@ -14,7 +14,9 @@ import sys
 import tempfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-TOOL = os.path.join(ROOT, "bin", "fabric-usage")
+TOOL = os.path.abspath(os.environ.get("FABRIC_USAGE") or os.path.join(ROOT, "bin", "fabric-usage"))
+if not os.path.isfile(TOOL):
+    sys.exit(f"test: script under test not found at {TOOL}")
 
 
 def read_heredoc(path: str) -> str:

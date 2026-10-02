@@ -2,9 +2,10 @@
 """The shared work/fix/merge classifier (tools/fabric/github/commit_class.py,
 reached by callers through the sourced runtime/github/commit-class.sh), on
 the subjects the count rule was calibrated against. Ported from
-runtime/github/test_commit-class.sh (ADR-040 Wave 6), case for case: the
-table runs in-process against classify(), and the shim's two functions
-are run as callers source them. Plain script: prints ok/FAIL, exit 1 on
+runtime/github/test_commit-class.sh (ADR-040 Wave 6), case for case: as there,
+every case of the table goes through the sourced shim with all five
+arguments, so a shim or CLI that dropped one fails the cases that turn
+on it. Plain script: prints ok/FAIL, exit 1 on
 any failure."""
 from __future__ import annotations
 
@@ -13,9 +14,9 @@ import subprocess
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-SHIM = os.path.join(ROOT, "runtime", "github", "commit-class.sh")
-sys.path.insert(0, os.path.join(ROOT, "tools", "fabric"))
-from github import commit_class as cc  # noqa: E402
+SHIM = os.path.abspath(os.environ.get("COMMIT_CLASS") or os.path.join(ROOT, "runtime", "github", "commit-class.sh"))
+if not os.path.isfile(SHIM):
+    sys.exit(f"test: script under test not found at {SHIM}")
 
 AF = "gzapi-org/agent-fabric"
 # (expected, parents, subject, answers, pr, repo), grouped as the bash
@@ -151,33 +152,40 @@ def main() -> int:
             print("      " + detail.replace("\n", "\n      "))
         fails += not good
 
+    env = {k: v for k, v in os.environ.items()
+           if not k.startswith(("GITHUB_", "AGENT_FABRIC_", "CLAUDE_", "ANTHROPIC_"))}
+
+    def sourced(script: str, stdin: str = "") -> subprocess.CompletedProcess[str]:
+        return subprocess.run(["bash", "-c", f'. "$1"; {script}', "_", SHIM], input=stdin, env=env,
+                              capture_output=True, text=True, timeout=300)
+
+    # One bash for the whole table, as the bash suite sourced the shim once;
+    # US-separated fields keep an empty or blank argument in its place, which
+    # a whitespace IFS would collapse.
+    table = [case for _, cases in CASES for case in cases]
+    r = sourced("while IFS=$'\\x1f' read -r p s a n o; do "
+                'commit_class "$p" "$s" "$a" "$n" "$o" </dev/null || echo "exit $?"; done',
+                "".join("\x1f".join(case[1:]) + "\n" for case in table))
+    got = r.stdout.splitlines()
+    if r.returncode != 0 or len(got) != len(table):
+        check(f"the table runs through the shim ({len(table)} classes)", False,
+              f"exit {r.returncode}, {len(got)} lines\n{r.stderr}")
+        got += [""] * (len(table) - len(got))
+    classes = iter(got)
     for heading, cases in CASES:
         print(f"commit-class: {heading}")
-        for want, parents, subject, answers, pr, repo in cases:
-            got = cc.classify(parents, subject, answers, pr, repo)
+        for want, _parents, subject, answers, pr, repo in cases:
+            have = next(classes)
             on = f" on {repo}#{pr}" if repo else (f" on #{pr}" if pr else "")
-            check(f"{want}{on}: {subject}{f' [Answers: {answers}]' if answers else ''}", got == want, f"got {got}")
+            check(f"{want}{on}: {subject}{f' [Answers: {answers}]' if answers else ''}", have == want, f"got {have}")
 
-    print("commit-class: revert_targets reads git's own line, nothing else")
-    check("two targets, in order",
-          cc.revert_targets('Revert "feat: x"\n\nThis reverts commit 0123456789abcdef0123456789abcdef01234567.\n'
-                            "Also: This reverts commit abcdef1.\n")
-          == ["0123456789abcdef0123456789abcdef01234567", "abcdef1"])
-    check("a prose revert names no target", cc.revert_targets("Revert the thing by hand\n\nno trailer here\n") == [])
-
-    print("commit-class: the shim's functions, as a caller sources them")
-    env = {k: v for k, v in os.environ.items() if not k.startswith(("GITHUB_", "AGENT_FABRIC_", "CLAUDE_", "ANTHROPIC_"))}
-
-    def sourced(line: str, stdin: str = "") -> str:
-        r = subprocess.run(["bash", "-c", f'. "$1"; {line}', "_", SHIM], input=stdin, env=env, stdout=subprocess.PIPE,
-                           stderr=subprocess.STDOUT, text=True, timeout=60)
-        return r.stdout
-    check("commit_class <parents> <subject> <answers> <pr> <repo> prints the class",
-          sourced(f'commit_class aaa "review F1: the guard" "PR#53 F1" 53 {AF}') == "fix\n"
-          and sourced('commit_class "aaa bbb" "Merge origin/main"') == "merge\n"
-          and sourced('commit_class aaa "the guard (#53 P2)" "" 54') == "work\n")
-    out = sourced("revert_targets", "Revert x\n\nThis reverts commit abcdef1.\nThis reverts commit 1234567.\n")
-    check("revert_targets reads the body on stdin, one sha a line", out == "abcdef1\n1234567\n", repr(out))
+    print("commit-class: revert_targets reads git's own line from the body on stdin, nothing else")
+    sha = "0123456789abcdef0123456789abcdef01234567"
+    out = sourced("revert_targets",
+                  f'Revert "feat: x"\n\nThis reverts commit {sha}.\nAlso: This reverts commit abcdef1.\n').stdout
+    check("two targets, in order, one sha a line", out == f"{sha}\nabcdef1\n", repr(out))
+    out = sourced("revert_targets", "Revert the thing by hand\n\nno trailer here\n").stdout
+    check("a prose revert names no target", out == "", repr(out))
 
     print(f"\ntest_commit_class_cli: {'OK' if not fails else f'FAILED — {fails} check(s)'}")
     return 1 if fails else 0

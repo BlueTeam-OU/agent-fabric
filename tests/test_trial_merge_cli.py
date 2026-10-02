@@ -17,8 +17,13 @@ import sys
 import tempfile
 import time
 
+# Every git this suite starts, fixture or under test, reads none of the
+# caller's ~/.gitconfig: set here, it reaches the calls that pass no env.
+os.environ["GIT_CONFIG_GLOBAL"] = os.devnull
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-UNDER_TEST = os.path.join(ROOT, "runtime", "github", "trial-merge.sh")
+UNDER_TEST = os.path.abspath(os.environ.get("TRIAL_MERGE") or os.path.join(ROOT, "runtime", "github", "trial-merge.sh"))
+if not os.path.isfile(UNDER_TEST):
+    sys.exit(f"test: script under test not found at {UNDER_TEST}")
 
 
 def main() -> int:

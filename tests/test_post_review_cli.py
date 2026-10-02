@@ -19,8 +19,13 @@ import subprocess
 import sys
 import tempfile
 
+# Every git this suite starts, fixture or under test, reads none of the
+# caller's ~/.gitconfig: set here, it reaches the calls that pass no env.
+os.environ["GIT_CONFIG_GLOBAL"] = os.devnull
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-UNDER_TEST = os.path.join(ROOT, "runtime", "github", "post-review.sh")
+UNDER_TEST = os.path.abspath(os.environ.get("POST_REVIEW") or os.path.join(ROOT, "runtime", "github", "post-review.sh"))
+if not os.path.isfile(UNDER_TEST):
+    sys.exit(f"test: script under test not found at {UNDER_TEST}")
 # Both ends of the marker contract are Python modules; the scripts are
 # their shims, run as the paths every caller uses.
 EMITTER = os.path.join(ROOT, "tools", "fabric", "github", "post_review.py")
@@ -316,7 +321,7 @@ def main() -> int:
         # THE CROSS-FILE CONTRACT. Two constants in two modules; a one-sided
         # edit turns real coverage back into "0 reviews" with nothing failing.
         emit, read_ = marker_of(EMITTER), marker_of(READER)
-        check("emitter and pr-review-status agree on the marker", bool(emit) and emit == read_,
+        check("emitter and pr-review-status.sh agree on the marker", bool(emit) and emit == read_,
               f"emitter: {emit}\nreader : {read_}")
 
     print(f"\ntest_post_review_cli: {'OK' if not fails else f'FAILED — {fails} check(s)'}")
