@@ -212,6 +212,12 @@ def make_pristine(script: str) -> str:
     module = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(script))), "tools", "fabric", "bootstrap.py")
     if os.path.isfile(module):
         shutil.copyfile(module, f"{d}/tools/fabric/bootstrap.py")
+        # and the modules it imports from the same tree, which the archive
+        # of HEAD may not have yet
+        for dep in ("fabric_writes.py",):
+            src = os.path.join(os.path.dirname(module), dep)
+            if os.path.isfile(src):
+                shutil.copyfile(src, f"{d}/tools/fabric/{dep}")
     put(f"{d}/projects/registry.json", json.dumps(REGISTRY, indent=2) + "\n")
     git("init", "-q", d)
     git("-C", d, "add", "-A")
@@ -387,6 +393,32 @@ def between(lines: list[str], first: str, last: str) -> list[str]:
 
 
 # --- the cases --------------------------------------------------------------
+
+def fabric_worktree() -> None:
+    # A contributor's branch in a linked worktree of the fabric checkout
+    # itself, under the workspace (python-dev's remit). It shares the
+    # checkout's config: an absolute hooksPath written there would replace
+    # step 4's relative one, and the two would flip on every run (review of
+    # #86).
+    print("bootstrap: a linked worktree of the fabric checkout")
+    a = Account("fabric-wt", wcs=False)
+    FR, P = a.fr, a.ws
+    wt = f"{P}/agent-fabric-wt"
+    git("-C", FR, "remote", "add", "origin", "git@github.com:example-org/agent-fabric.git")
+    git("-C", FR, "worktree", "add", "-q", "-b", "contrib", wt)
+    r = bootstrap(a)
+    check("a fabric worktree: exit 0", r.rc == 0, r)
+    check("…no hooksPath written through the worktree", not any(wt in ln and "core.hooksPath" in ln for ln in r.lines),
+          "\n".join(r.lines))
+    check("…the checkout's hooksPath is step 4's relative one", git_config(FR, "core.hooksPath") == HOOK_REL,
+          git_config(FR, "core.hooksPath"))
+    cj = json.load(open(f"{a.cfg}/.claude.json"))
+    check("…and the worktree is trusted, a contributor works in it",
+          cj["projects"].get(wt, {}).get("hasTrustDialogAccepted") is True, sorted(cj.get("projects", {})))
+    r2 = bootstrap(a)
+    check("…a second run writes no hooksPath at all", not any(ln.startswith("  +  ") and "core.hooksPath" in ln
+                                                               for ln in r2.lines), "\n".join(r2.lines))
+
 
 def first_run() -> None:
     print("bootstrap: a fresh account, no user manager")
@@ -972,7 +1004,7 @@ def main() -> int:
             if shutil.which(name, path=f"{T}/fakebin:{T}/sysbin") != f"{T}/fakebin/{name}":
                 sys.exit(f"test: refusing to run: {name} on the test PATH is not the fake")
         for case in (first_run, dry_run, arguments, existing_files, no_config_dir, local_bin_override,
-                     user_manager, relay, failures):
+                     user_manager, relay, failures, fabric_worktree):
             # A file the script did not write, or a line it did not print,
             # can raise in the case's own reading: that is a failure of the
             # script, counted, and the other cases still run.

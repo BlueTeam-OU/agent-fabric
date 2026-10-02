@@ -144,8 +144,11 @@ bash behaved, fixed here with its case changed:
      refuse it. install.py now says one line and leaves the file alone
      (exit 0 for allow-websearch and remove, which have nothing to take
      out of a file the harness cannot read either; exit 1 for set and
-     deny-websearch, which cannot write theirs), and the run carries on to
-     user-settings.py's own refusal, counted NOT written.
+     deny-websearch, which cannot write theirs). On any login but a
+     language-culture one the run carries on to user-settings.py's own
+     refusal, counted NOT written; on a language-culture login the
+     installer's deny-websearch is that exit 1, and the run ends in the
+     agent files, said in install.py's one line, not a traceback.
   4. put() re-made a .before-agent-fabric backup each time a fabric file
      carrying no "agent-fabric" marker changed (the guard, three of the
      skills), so the second change replaced the person's original with the
@@ -188,6 +191,7 @@ sys.path.insert(0, HERE)
 import git as gitcmd  # noqa: E402
 import workingcopy  # noqa: E402
 import workspace_trust  # noqa: E402
+import fabric_writes  # noqa: E402
 
 MARKER = b"agent-fabric"
 HOOKS_REL = "policies/githooks"
@@ -336,14 +340,11 @@ class Bootstrap:
             return
         try:
             os.makedirs(os.path.dirname(dest), exist_ok=True)
-            # Only ONCE, and only for a file the fabric did not write: the
-            # marker test alone re-made the backup each time a fabric file
-            # without the marker changed, and the second change replaced the
-            # person's original with the fabric's own previous file.
-            backup = dest + ".before-agent-fabric"
-            if os.path.isfile(dest) and not os.path.lexists(backup) and not marked(dest):
-                with open(backup, "wb") as f:
-                    f.write(_read(dest))
+            # A person's version is kept, every time it differs from what the
+            # fabric last wrote, under a name of its own (fabric_writes says
+            # why each simpler rule lost a file).
+            backup = fabric_writes.keep_person_version(dest)
+            if backup:
                 say(f"     (kept the previous file as {backup})")
             # install(1) replaced the destination rather than writing
             # through it; a rename does the same, and never leaves a
@@ -359,6 +360,7 @@ class Bootstrap:
                 raise
         except OSError as e:
             raise Stop(1, f"bootstrap: install: cannot write {dest}: {e.strerror or e}") from None
+        fabric_writes.record(dest, content)
         self.changed += 1
         say(f"  +  {dest}")
 
@@ -402,6 +404,17 @@ class Bootstrap:
             if e.reason == "git is not installed":
                 raise Stop(127, "bootstrap: git: command not found") from None
             raise Stop(e.code or 1, f"bootstrap: {repo}: {e}") from None
+
+    def common_dir(self, path: str) -> str | None:
+        """The repository a work tree belongs to: a linked worktree shares
+        its main checkout's, and with it the config core.hooksPath lives in."""
+        try:
+            r = gitcmd.run(path, "rev-parse", "--git-common-dir", check=False)
+        except gitcmd.GitError:
+            return None
+        if r.returncode != 0 or not r.stdout.strip():
+            return None
+        return os.path.realpath(os.path.join(path, r.stdout.strip()))
 
     def is_work_tree(self, path: str) -> bool:
         # git's own answer, not a test for a .git DIRECTORY: a linked worktree
@@ -607,6 +620,7 @@ class Bootstrap:
         #    the commit records the role). A repo config per working copy, never
         #    committed; a directory that is not a registered project is left alone.
         hooks_abs = os.path.join(self.root, HOOKS_REL)
+        own_common = self.common_dir(self.root)
         trusted = [self.projects, self.root]
         try:
             names = [n for n in os.listdir(self.projects)
@@ -631,6 +645,13 @@ class Bootstrap:
             if not pid:
                 continue
             trusted.append(wc)
+            # A linked worktree of this checkout (a contributor's branch, as
+            # python-dev's remit has it) shares the checkout's config: an
+            # absolute hooksPath written there would replace step 4's relative
+            # one, and the two would flip on every run (review of #86). It is
+            # trusted, and its hooks are the checkout's.
+            if own_common is not None and self.common_dir(wc) == own_common:
+                continue
             if self.git_get(wc, "core.hooksPath") != hooks_abs:
                 if not self.dry_run:
                     self.git_set(wc, "core.hooksPath", hooks_abs)
