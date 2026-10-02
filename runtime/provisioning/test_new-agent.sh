@@ -288,6 +288,13 @@ if [[ "$BACKEND" == local ]]; then
   [[ $rc -eq 1 ]] && grep -q "agent-fabric is on elsewhere, not main" <<<"$out" && ! grep -q "7. bootstrap run" <<<"$out" \
     && ok "…and one off main is refused, named, nothing after it" || bad "an off-main fabric clone was not refused (rc=$rc)" "$out"
   git -C "$H/projects/agent-fabric" checkout -q main
+  # On main but ahead: pull --ff-only exits 0 there, so only a count of
+  # what origin/main lacks refuses it (review of #80).
+  git -C "$H/projects/agent-fabric" -c user.name=t -c user.email=t@t -c commit.gpgsign=false commit -q --allow-empty -m local
+  out="$(seq_run seq-login backend-dev --project demo)"; rc=$?
+  [[ $rc -eq 1 ]] && grep -q "agent-fabric has 1 commit(s) not on origin/main" <<<"$out" && ! grep -q "7. bootstrap run" <<<"$out" \
+    && ok "…and one with local commits is refused, counted, nothing after it" || bad "a fabric clone with local commits was not refused (rc=$rc)" "$out"
+  git -C "$H/projects/agent-fabric" reset -q --hard origin/main
 fi
 
 for fault in useradd "git" "store-enroll" "provision share" "provision issue-key" child-bundle account-sync curl; do

@@ -102,7 +102,7 @@ if [[ "$PHASE" == prepare ]]; then
     else
         branch="$(as_login 'git -C ~/projects/agent-fabric symbolic-ref -q --short HEAD' 2>/dev/null)"
         [[ "$branch" == main ]] || die "step failed: ~/projects/agent-fabric is on ${branch:-a detached HEAD}, not main; bring it to main as $LOGIN, then re-run; nothing after it ran"
-        must as_login "timeout 60 git -C ~/projects/agent-fabric pull -q --ff-only origin main"; (( DRY )) || say "4. ~/projects/agent-fabric at origin/main ($(as_login 'git -C ~/projects/agent-fabric rev-parse --short HEAD'))"
+        must as_login "timeout 60 git -C ~/projects/agent-fabric fetch -q origin main"; ahead="$(as_login 'git -C ~/projects/agent-fabric rev-list --count origin/main..HEAD' 2>/dev/null)"; (( DRY )) || [[ "$ahead" == 0 ]] || die "step failed: ~/projects/agent-fabric has ${ahead:-an unknown number of} commit(s) not on origin/main (pull --ff-only would keep them); push or drop them as $LOGIN, then re-run; nothing after it ran"; must as_login "git -C ~/projects/agent-fabric merge -q --ff-only origin/main"; (( DRY )) || say "4. ~/projects/agent-fabric at origin/main ($(as_login 'git -C ~/projects/agent-fabric rev-parse --short HEAD'))"
     fi
     exit 0
 fi

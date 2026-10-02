@@ -11,6 +11,7 @@ from __future__ import annotations
 import io
 import os
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -101,6 +102,7 @@ def main() -> int:
         print("the exec into the shell")
         calls = []
         saved = (mv.os.execv, mv.os.execvp, mv.me, mv.command, mv.run_as, mv.home_of, mv.list_clones)
+        saved_pipe = signal.getsignal(signal.SIGPIPE)
         mv.os.execv = lambda path, argv: calls.append(("execv", path, argv)) or (_ for _ in ()).throw(SystemExit(0))
         mv.os.execvp = lambda path, argv: calls.append(("execvp", path, argv)) or (_ for _ in ()).throw(SystemExit(0))
         mv.home_of = lambda a: f"/h/{a}"
@@ -137,6 +139,54 @@ def main() -> int:
                   str(calls))
         finally:
             mv.os.execv, mv.os.execvp, mv.me, mv.command, mv.run_as, mv.home_of, mv.list_clones = saved
+            signal.signal(signal.SIGPIPE, saved_pipe)
+
+        print("the entered shell's SIGPIPE (review of #80)")
+        # The probe is sh, not Python: a Python child would ignore SIGPIPE at
+        # its own start-up, whatever it inherited.
+        probe = put(f"{tmp}/enter-probe", "#!/bin/sh\n"
+                    "{ grep '^SigIgn' /proc/$$/status | cut -f2; echo \"${_MOVETO_PIPE_IGNORED-unset}\"; } > \"$1\"\n",
+                    0o755)
+
+        def entered(**env) -> tuple[bool, str]:
+            out = f"{tmp}/entered"
+            code = ("import sys; sys.path.insert(0, %r); import moveto as mv; mv.MOVETO_ENTER = %r; "
+                    "mv.me = lambda: 'acct'; mv.enter('acct', sys.argv[1], 'title')") % (SRC, probe)
+            subprocess.run([sys.executable, "-c", code, out], env=clean_env(**env), timeout=60)
+            with open(out, encoding="utf-8") as fh:
+                mask, leaked = fh.read().split()
+            os.remove(out)
+            return bool(int(mask, 16) & (1 << (signal.SIGPIPE - 1))), leaked
+        check("a caller's default SIGPIPE reaches the shell as the default, not Python's ignore",
+              entered() == (False, "unset"))
+        check("…one the caller ignored stays ignored, and the hand-over variable goes no further",
+              entered(_MOVETO_PIPE_IGNORED="1") == (True, "unset"))
+        fake_py = put(f"{tmp}/fake-python", "#!/bin/sh\necho \"${_MOVETO_PIPE_IGNORED-unset}\"\n", 0o755)
+        shim_env = clean_env(AGENT_FABRIC_PYTHON=fake_py, _MOVETO_PIPE_IGNORED="1")
+        # This process ignores SIGPIPE (Python's start-up): restore_signals
+        # off hands that to the shim, on hands it the default.
+        ign = subprocess.run(["bash", os.path.join(SRC, "moveto")], env=shim_env, capture_output=True, text=True,
+                             timeout=60, restore_signals=False).stdout
+        dfl = subprocess.run(["bash", os.path.join(SRC, "moveto")], env=shim_env, capture_output=True, text=True,
+                             timeout=60).stdout
+        check("the shim says which it was given, never passing on a stale value", (ign, dfl) == ("1\n", "unset\n"),
+              repr((ign, dfl)))
+
+        print("a reader that went away (review of #80)")
+        put(f"{bin_}/sudo", "#!/usr/bin/env bash\nwhile [[ $1 == -* ]]; do [[ $1 == -u ]] && shift; shift; done\nexec \"$@\"\n",
+            0o755)
+        os.makedirs(f"{tmp}/gone-home/projects", exist_ok=True)
+        put(f"{bin_}/getent", f"#!/usr/bin/env bash\necho \"gone:x:2000:2000::{tmp}/gone-home:/bin/bash\"\n", 0o755)
+        r_fd, w_fd = os.pipe()
+        os.close(r_fd)
+        try:
+            p = subprocess.run([sys.executable, os.path.join(SRC, "moveto.py"), "gone", "--print"], stdout=w_fd,
+                               stderr=subprocess.PIPE, text=True, timeout=60,
+                               env=clean_env(PATH=f"{bin_}:{saved_path}"))
+        finally:
+            os.close(w_fd)
+        check("--print into a closed pipe: exit 141, nothing on stderr", p.returncode == 141 and p.stderr == "",
+              f"rc={p.returncode} {p.stderr}")
 
         print("a directory service that hangs")
         put(f"{bin_}/getent", "#!/usr/bin/env bash\nexec sleep 60\n", 0o755)
