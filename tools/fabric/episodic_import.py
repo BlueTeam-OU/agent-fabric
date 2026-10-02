@@ -17,9 +17,13 @@ history the agent has rather than the role it holds now:
   before this agent's birth     never stored, sent or received: the time in
   (or no time at all)           its UUIDv7 agent id; a reused login's earlier
                                 messages are another agent's (ADR-039)
-  FROM this agent's address     outbound, accepted, the carrier seq kept,
-                                when the relay's sender is this account too;
-                                cross-checked against gzcoord-sent.jsonl
+  FROM this agent's address     outbound, the carrier seq kept: accepted when
+                                the account's own records hold that body (the
+                                gzcoord-sent.jsonl ledger, or a live row);
+                                refused when sent since the ledger began and
+                                missing from it; before the ledger, kept as
+                                unverified (FROM and the relay's sender are
+                                claims: the relay authenticates no sender)
   BROADCAST: true               inbound
   TO this agent's address       inbound
   TO-ROLE a role                inbound when role-history.jsonl shows this
@@ -63,7 +67,7 @@ import relay  # noqa: E402
 # journals (tests/test_episodic_import.py holds this equal to its source).
 RETIRED_TYPES = ("HELLO", "GOODBYE")
 REPORT = "episodic-import.json"
-DECISIONS = ("outbound", "outbound_same", "outbound_promoted", "outbound_conflict",
+DECISIONS = ("outbound", "outbound_unverified", "outbound_same", "outbound_promoted", "outbound_conflict",
              "to_me", "to_role", "to_role_unresolved", "broadcast", "before_birth", "from_me_unverified",
              "inbound_written", "inbound_same", "inbound_conflict", "others", "retired", "not_gzcoord", "no_time")
 
@@ -136,7 +140,7 @@ def read_ledger(path: str) -> dict[str, list[dict]]:
 
 
 def outbound(conn: sqlite3.Connection, text: str, mtype: str, meta: dict, seq, ts,
-             carrier: str = episodic.DEFAULT_CARRIER) -> str:
+             carrier: str = episodic.DEFAULT_CARRIER, state: str = "accepted") -> str:
     """This agent's own message as the carrier holds it: accepted, since the
     carrier has it. The same body again is the same row, given the carrier's
     seq if it had none, and accepted if a live send left it pending or
@@ -148,9 +152,12 @@ def outbound(conn: sqlite3.Connection, text: str, mtype: str, meta: dict, seq, t
     try:
         row = episodic._row(conn, "outbound", mid)
         if row and row[1] == h:
-            promoted = row[2] != "accepted"
-            conn.execute("UPDATE episodes SET state='accepted', carrier=COALESCE(carrier, ?), "
-                         "carrier_seq=COALESCE(carrier_seq, ?) WHERE id=?", (carrier, seq, row[0]))
+            # Only a verified copy promotes: an unverified one leaves the row
+            # as it is, whatever state that is.
+            promoted = state == "accepted" and row[2] != "accepted"
+            conn.execute("UPDATE episodes SET state=?, carrier=COALESCE(carrier, ?), "
+                         "carrier_seq=COALESCE(carrier_seq, ?) WHERE id=?",
+                         (state if promoted else row[2], carrier, seq, row[0]))
             out = "outbound_promoted" if promoted else "outbound_same"
         elif row:
             conn.execute("INSERT OR IGNORE INTO conflicts VALUES (?, 'outbound', ?, ?, ?, ?)",
@@ -159,11 +166,11 @@ def outbound(conn: sqlite3.Connection, text: str, mtype: str, meta: dict, seq, t
         else:
             conn.execute("INSERT INTO episodes (id, source, direction, state, happened_at, recorded_at, message_id, "
                          "in_reply_to, type, sender, carrier, carrier_seq, content, content_hash, metadata_json) "
-                         "VALUES (?, ?, 'outbound', 'accepted', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                         (str(uuid.uuid4()), episodic.SOURCE, episodic._seconds(ts), episodic.now(), mid,
+                         "VALUES (?, ?, 'outbound', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                         (str(uuid.uuid4()), episodic.SOURCE, state, episodic._seconds(ts), episodic.now(), mid,
                           meta.get("IN-REPLY-TO"), mtype, meta.get("FROM"), carrier, seq, text, h,
                           json.dumps(meta, sort_keys=True)))
-            out = "outbound"
+            out = "outbound" if state == "accepted" else "outbound_unverified"
         conn.execute("COMMIT")
     except BaseException:
         conn.execute("ROLLBACK")
@@ -175,8 +182,12 @@ class Importer:
     def __init__(self, conn: sqlite3.Connection, me: str, agent_id: str, state: str):
         self.conn, self.me = conn, me
         self.born = birth(agent_id)
-        self.spans = role_spans(os.path.join(state, "role-history.jsonl"))
+        # A role-history line before birth is a reused login's earlier agent
+        # (role-history.jsonl names no agent id): at birth no role is held.
+        self.spans = [sp for sp in role_spans(os.path.join(state, "role-history.jsonl")) if sp[0] >= self.born]
         self.ledger = read_ledger(os.path.join(state, "gzcoord-sent.jsonl"))
+        firsts = [t for t in (_when(e.get("at")) for es in self.ledger.values() for e in es) if t is not None]
+        self.ledger_from = min(firsts) if firsts else None
         self.counts = dict.fromkeys(DECISIONS, 0)
         self.unresolved: list[dict] = []
         self.mismatch = {"not_in_ledger": [], "hash_differs": [], "seq_differs": []}
@@ -203,13 +214,24 @@ class Importer:
         if when < self.born:
             return "before_birth", None
         if meta.get("FROM") == self.me:
-            # The content's FROM is the sender's claim; the relay records who
-            # posted it. Before the journal there is no body to compare an
-            # echo against (rule 5), so both must name this account.
-            if rec.get("sender") != self.me:
-                return "from_me_unverified", None
+            # FROM, and the relay's sender with it, are claims anyone holding
+            # the channel token can make: the relay authenticates no sender,
+            # every instance holds the same bearer token (its setup doc). What
+            # this account sent is known only from its own records: the
+            # ledger send.mjs writes on every post, or a row its live journal
+            # wrote. Since the ledger began, a send it lacks was not this
+            # account's and is refused; before it, nothing can tell, and the
+            # message is kept as unverified, never as accepted.
             self._check_ledger(text, meta, seq)
-            return outbound(self.conn, text, mtype, meta, seq, ts), None
+            h = hashlib.sha256(text.encode()).hexdigest()
+            row = episodic._row(self.conn, "outbound", meta.get("MESSAGE-ID") or f"sha256:{h}")
+            verified = (any(e.get("sha256") == h for e in self.ledger.get(meta.get("MESSAGE-ID") or "", []))
+                        or (row is not None and row[2] != "unverified" and row[1] == h))
+            if verified or (row is not None and row[1] != h):
+                return outbound(self.conn, text, mtype, meta, seq, ts), None
+            if self.ledger_from is not None and when >= self.ledger_from:
+                return "from_me_unverified", None
+            return outbound(self.conn, text, mtype, meta, seq, ts, state="unverified"), None
         keep = {"content": text, "seq": seq, "ts": ts}
         # inbox.mjs forMe, in its order: a broadcast, else TO decides alone,
         # else TO-ROLE.
@@ -262,10 +284,19 @@ def _ensure_marker_columns(conn: sqlite3.Connection) -> None:
             conn.execute(f"ALTER TABLE meta ADD COLUMN {col} TEXT")
 
 
-def imported(conn: sqlite3.Connection) -> str | None:
+def imported(conn: sqlite3.Connection) -> dict:
+    """The (relay channel) pairs a complete run has imported, by key."""
     _ensure_marker_columns(conn)
-    row = conn.execute("SELECT gzcoord_imported_at FROM meta").fetchone()
-    return row[0] if row else None
+    row = conn.execute("SELECT gzcoord_import_seqs FROM meta").fetchone()
+    try:
+        done = json.loads(row[0]) if row and row[0] else {}
+    except ValueError:
+        done = {}
+    return done if isinstance(done, dict) else {}
+
+
+def _key(url: str, channel: str) -> str:
+    return f"{url} {channel}"
 
 
 def _write_report(path: str, report: dict) -> None:
@@ -304,9 +335,15 @@ def main(argv: list[str]) -> int:
     try:
         agent_id = episodic.own_agent_id()
         conn = episodic.connect(agent_id=agent_id)
-        if if_needed and imported(conn):
-            print(f"gzcoord-import: already imported ({imported(conn)}); nothing to do")
-            return 0
+        done = imported(conn)
+        if if_needed:
+            # Only the pairs a complete run covered are skipped: a run held to
+            # one channel (GZCOORD_CHANNEL, a project argument) says nothing
+            # of the others (review of #84).
+            pairs = [(u, c) for u, c in pairs if _key(u, c) not in done]
+            if not pairs:
+                print("gzcoord-import: every channel already imported; nothing to do")
+                return 0
     except (episodic.JournalError, sqlite3.Error, OSError) as e:
         print(f"gzcoord-import: {e}", file=sys.stderr)
         return 1
@@ -341,16 +378,18 @@ def main(argv: list[str]) -> int:
               "ledger": imp.mismatch, "birth": imp.born.strftime("%Y-%m-%dT%H:%M:%SZ")}
     try:
         _write_report(os.path.join(state, REPORT), report)
-        if rc == 0:
+        complete = {_key(v["relay"], c): v["last_seq"] for c, v in seqs.items() if v["complete"]}
+        if complete:
             _ensure_marker_columns(conn)
             conn.execute("UPDATE meta SET gzcoord_imported_at=?, gzcoord_import_seqs=?",
-                         (report["at"], json.dumps({c: v["last_seq"] for c, v in seqs.items()}, sort_keys=True)))
+                         (report["at"], json.dumps({**done, **complete}, sort_keys=True)))
     except (OSError, sqlite3.Error) as e:
         print(f"gzcoord-import: {e}", file=sys.stderr)
         return 1
     c = imp.counts
-    sent = c["outbound"] + c["outbound_same"] + c["outbound_promoted"] + c["outbound_conflict"]
-    print(f"gzcoord-import: {sent} sent ({c['outbound']} new), {c['to_me'] + c['to_role'] + c['broadcast']} received "
+    sent = c["outbound"] + c["outbound_unverified"] + c["outbound_same"] + c["outbound_promoted"] + c["outbound_conflict"]
+    print(f"gzcoord-import: {sent} sent ({c['outbound']} new, {c['outbound_unverified']} unverified before the ledger, "
+          f"{c['from_me_unverified']} refused), {c['to_me'] + c['to_role'] + c['broadcast']} received "
           f"({c['inbound_written']} new), "
           f"{c['to_role_unresolved']} TO-ROLE unresolved, "
           f"{sum(len(v) for v in imp.mismatch.values())} ledger mismatch(es); report {os.path.join(state, REPORT)}")

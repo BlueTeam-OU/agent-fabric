@@ -79,6 +79,12 @@ RECORDS = [
     ("to-me-before-birth", msg("to-me-prev", "BODY-25", to=ME), 15),
     # FROM names this account but the relay records another sender.
     ("forged-from-me", msg("forged-1", "BODY-26", frm=ME, to=OTHER), 22),
+    # Sent after birth, before the ledger began (2026-09-22): nothing can
+    # verify it, so it is kept, as unverified.
+    ("sent-before-ledger", msg("sent-6", "BODY-27", frm=ME, to=OTHER), 21),
+    # After birth, while the role history's last line is the login's
+    # previous agent's (web-dev, before birth): no role is held yet.
+    ("role-reused-login", msg("role-reuse-1", "BODY-28", role="web-dev"), 20),
 ]
 FORGED = {"forged-from-me"}
 
@@ -214,7 +220,7 @@ def main() -> int:
         conn = ep.connect()
         check("exit 1, the status said, the token not", r.returncode == 1 and "500" in r.stderr and TOKEN not in r.stderr,
               (r.returncode, r.stderr))
-        check("…no marker: the import is not complete", ei.imported(conn) is None and rep["complete"] is False, rep)
+        check("…no marker: the import is not complete", ei.imported(conn) == {} and rep["complete"] is False, rep)
         conn.close()
 
         print("the import")
@@ -245,7 +251,16 @@ def main() -> int:
               not {"to-me-prev", "to-me-2"} & (inbound | outbound) and "to-me-1" in inbound)
         check("FROM this account with another relay sender is stored nowhere (positive control: sent-1 is outbound)",
               "forged-1" not in inbound | outbound and "sent-1" in outbound)
-        check("outbound is exactly the agent's own five", outbound == {f"sent-{i}" for i in range(1, 6)}, sorted(outbound))
+        check("outbound is exactly what the account's own records hold, and the one sent before its ledger",
+              outbound == {"sent-1", "sent-4", "sent-5", "sent-6"}, sorted(outbound))
+        states = {m: rows[("outbound", m)]["state"] for m in outbound}
+        check("…accepted when the ledger or a live row holds that body; unverified before the ledger, never accepted",
+              states == {"sent-1": "accepted", "sent-4": "accepted", "sent-5": "accepted", "sent-6": "unverified"}, states)
+        check("FROM and relay sender both this account, since the ledger began, but not in it: refused "
+              "(the relay authenticates no sender; positive control: sent-1, in the ledger, is kept)",
+              "sent-2" not in outbound and "sent-1" in outbound)
+        check("a body the ledger holds under another hash: refused, the ledger's body is the account's",
+              "sent-3" not in outbound | inbound)
         check("TO someone else is never stored, even with a TO-ROLE I hold (TO decides alone); nor one addressed to nobody",
               not {"to-other-1", "to-other-2", "unaddr-1"} & (inbound | outbound))
         check("TO-ROLE of a role left, held only later, deactivated, or held before birth: not stored",
@@ -272,9 +287,9 @@ def main() -> int:
 
         rep = json.load(open(report_path))
         c = rep["counts"]
-        want = {"outbound": 4, "outbound_promoted": 1, "outbound_same": 0, "outbound_conflict": 0,
-                "to_me": 4, "to_role": 1, "broadcast": 1, "to_role_unresolved": 3, "before_birth": 3,
-                "from_me_unverified": 1, "others": 3, "retired": 1, "not_gzcoord": 1, "no_time": 3,
+        want = {"outbound": 2, "outbound_unverified": 1, "outbound_promoted": 1, "outbound_same": 0, "outbound_conflict": 0,
+                "to_me": 4, "to_role": 1, "broadcast": 1, "to_role_unresolved": 4, "before_birth": 3,
+                "from_me_unverified": 3, "others": 3, "retired": 1, "not_gzcoord": 1, "no_time": 3,
                 # the failed run kept to-me-1 and role-held-1 before the relay
                 # stopped; live capture kept live-1
                 "inbound_written": 3, "inbound_same": 3,
@@ -283,11 +298,10 @@ def main() -> int:
         un = {u["message_id"]: u["why"] for u in rep["to_role_unresolved"]}
         check("the unresolved TO-ROLE ids, each with why", un == {
             "role-left-1": "role not held then", "role-later-1": "role not held then",
-            "role-deact-1": "role not held then"}, un)
+            "role-deact-1": "role not held then", "role-reuse-1": "role not held then"}, un)
         led = {k: [e["message_id"] for e in v] for k, v in rep["ledger"].items()}
-        check("ledger: one missing, one with another hash, one at another seq; each still stored",
-              led == {"not_in_ledger": ["sent-2"], "hash_differs": ["sent-3"], "seq_differs": ["sent-4"]}
-              and {"sent-2", "sent-3", "sent-4"} <= outbound, led)
+        check("ledger: the missing, the other hash and the other seq are each reported",
+              led == {"not_in_ledger": ["sent-2", "forged-1", "sent-6"], "hash_differs": ["sent-3"], "seq_differs": ["sent-4"]}, led)
         check("the report: the last seq, complete", rep["complete"] is True
               and rep["channels"]["gzapp:gzcoord"]["last_seq"] == 100 + len(RECORDS), rep["channels"])
         raw = open(report_path).read()
@@ -298,7 +312,8 @@ def main() -> int:
               TOKEN not in r.stdout + r.stderr + raw and any(TOKEN in (c[3] or "") for c in Relay.calls))
         mark = conn.execute("SELECT gzcoord_imported_at, gzcoord_import_seqs FROM meta").fetchone()
         check("the meta marker: when, and the last seq per channel",
-              mark[0] and json.loads(mark[1]) == {"gzapp:gzcoord": 100 + len(RECORDS)}, tuple(mark))
+              mark[0] and list(json.loads(mark[1]).values()) == [100 + len(RECORDS)]
+              and list(json.loads(mark[1]))[0].endswith(" gzapp:gzcoord"), tuple(mark))
         before = sorted((r["id"], r["direction"], r["message_id"], r["content_hash"], r["state"], r["carrier_seq"])
                         for r in conn.execute("SELECT * FROM episodes"))
         conn.close()
@@ -310,12 +325,18 @@ def main() -> int:
             "SELECT id, direction, message_id, content_hash, state, carrier_seq FROM episodes"))
         c2 = json.load(open(report_path))["counts"]
         check("a second run is the same rows", r.returncode == 0 and after == before, (r.stderr, len(before), len(after)))
-        check("…counted as already kept", c2["outbound"] == 0 and c2["outbound_same"] == 5 and c2["inbound_written"] == 0
+        check("…counted as already kept", c2["outbound"] == 0 and c2["outbound_same"] == 4 and c2["inbound_written"] == 0
               and c2["inbound_same"] == 6 and not conn.execute("SELECT COUNT(*) FROM conflicts").fetchone()[0], c2)
         conn.close()
         r = run("--if-needed", "agent-fabric")
         check("--if-needed after a complete import asks nothing of the relay (positive control: a run without it does)",
               r.returncode == 0 and "already imported" in r.stdout and not Relay.calls, (r.stdout, Relay.calls))
+        # The marker is per relay and channel: a channel no complete run
+        # covered is still imported (review of #84).
+        r = run("--if-needed", "agent-fabric", e={**env, "GZCOORD_CHANNEL": "gzapp:elsewhere"})
+        check("--if-needed on a channel the marker does not cover asks the relay for it",
+              r.returncode == 0 and any(c[0] == "GET" and c[2].get("channel") == "gzapp:elsewhere" for c in Relay.calls),
+              (r.stdout, r.stderr, Relay.calls[:2]))
 
         print("a body that differs under a kept id")
         Relay.messages.append({"id": "relay-x1", "seq": 900, "timestamp": DAY.format(27), "sender": OTHER,
