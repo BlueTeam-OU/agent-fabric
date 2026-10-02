@@ -32,7 +32,7 @@ import sys
 import urllib.parse
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from relay import TOKEN_NAME, call as _call, channels, own_token, records  # noqa: E402
+from relay import TOKEN_NAME, call as _call, channels, is_control, own_token, records  # noqa: E402
 
 
 def catch_up(relay: str, channel: str, consumer: str, tok: str) -> int | None:
@@ -67,6 +67,13 @@ def main(argv: list[str]) -> int:
         print(f"relay-catchup: {p} has no GZCoord integration; no channel to catch up on")
     rc = 0
     for relay, channel in pairs:
+        # The control channel carries the fleet's signed operations, never a
+        # session's messages: an acknowledgement there would move this
+        # account's cursor on it (inbox.mjs and send.mjs refuse it too).
+        if is_control(channel):
+            print(f"relay-catchup: {channel} is the control channel; not acknowledged there", file=sys.stderr)
+            rc = 1
+            continue
         try:
             seq = catch_up(relay, channel, consumer, tok)
         except (OSError, ValueError, KeyError, TypeError) as e:
