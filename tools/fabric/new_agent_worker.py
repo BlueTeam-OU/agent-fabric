@@ -251,14 +251,18 @@ def stop_tree(proc: subprocess.Popen) -> None:
         f = _stat_fields(pid)
         return bool(f) and f[0] != "Z"
 
-    def ours(pid: int) -> bool:
-        """Whether a signal reaches it: a process of another account (root's,
-        under sudo) is not ours to signal, and no wait makes it so."""
+    def reach(pid: int) -> str:
+        """Whether a signal reaches it: "ours"; "theirs" for a process of
+        another account (root's, under sudo), which no wait makes ours; or
+        "gone", exited since it was last seen — kept apart from "theirs", so
+        a process that just ended is not named another account's."""
         try:
             os.kill(pid, 0)
-        except (ProcessLookupError, PermissionError):
-            return False
-        return True
+        except ProcessLookupError:
+            return "gone"
+        except PermissionError:
+            return "theirs"
+        return "ours"
 
     def send(pids: list[int], sig: int) -> None:
         for pid in pids:
@@ -268,7 +272,7 @@ def stop_tree(proc: subprocess.Popen) -> None:
                 pass
 
     def running() -> list[int]:
-        return [p for p in tree if alive(p) and ours(p)]
+        return [p for p in tree if alive(p) and reach(p) == "ours"]
     tree = [proc.pid, *descendants(proc.pid)]
     send(tree, signal.SIGTERM)
     deadline = time.monotonic() + STOP_GRACE_S
@@ -291,7 +295,7 @@ def stop_tree(proc: subprocess.Popen) -> None:
             print(f"new-agent:    {proc.args[0]}: still running after SIGKILL: pid {left}", file=sys.stderr)
             break
         time.sleep(0.02)
-    unreached = " ".join(str(p) for p in tree if alive(p) and not ours(p))
+    unreached = " ".join(str(p) for p in tree if alive(p) and reach(p) == "theirs")
     if unreached:
         print(f"new-agent:    {proc.args[0]}: could not be signalled (another account's): pid {unreached}", file=sys.stderr)
 

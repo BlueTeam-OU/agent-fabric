@@ -20,7 +20,9 @@ import tempfile
 import time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-CMD = os.path.join(ROOT, "bin", "fabric-lease")
+CMD = os.path.abspath(os.environ.get("FABRIC_LEASE") or os.path.join(ROOT, "bin", "fabric-lease"))
+if not os.path.isfile(CMD):
+    sys.exit(f"test: script under test not found at {CMD}")
 LOGIN = pwd.getpwuid(os.geteuid()).pw_name
 
 
@@ -240,7 +242,7 @@ def main() -> int:
                         raise
                     time.sleep(0.05)
             if fd < 0:
-                check("the holder opened the fifo (it exited before its memory check)", False)
+                check("the holder never opened the fifo (exited before its memory check)", False)
             else:
                 os.set_blocking(fd, True)
                 os.write(fd, b"MemTotal:       18152000 kB\nMemAvailable:   12000000 kB\n")
