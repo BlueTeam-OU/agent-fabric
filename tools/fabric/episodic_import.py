@@ -14,14 +14,17 @@ this run and never acknowledged, so no agent's cursor moves. Each record is
 decided as the inbox decides what is addressed (inbox.mjs forMe), with the
 history the agent has rather than the role it holds now:
 
-  FROM this agent's address     outbound, accepted, the carrier seq kept;
+  before this agent's birth     never stored, sent or received: the time in
+  (or no time at all)           its UUIDv7 agent id; a reused login's earlier
+                                messages are another agent's (ADR-039)
+  FROM this agent's address     outbound, accepted, the carrier seq kept,
+                                when the relay's sender is this account too;
                                 cross-checked against gzcoord-sent.jsonl
-  BROADCAST: true               inbound when sent at or after this agent's
-                                birth (the time in its UUIDv7 agent id)
+  BROADCAST: true               inbound
   TO this agent's address       inbound
   TO-ROLE a role                inbound when role-history.jsonl shows this
-                                agent held it at the message's time, at or
-                                after its birth; otherwise unresolved
+                                agent held it at the message's time;
+                                otherwise unresolved
   anything else                 never stored; counted, never read further
 
 HELLO and GOODBYE (presence, retired) and records that are not GZCOORD/1
@@ -62,7 +65,7 @@ import relay  # noqa: E402
 RETIRED_TYPES = ("HELLO", "GOODBYE")
 REPORT = "episodic-import.json"
 DECISIONS = ("outbound", "outbound_same", "outbound_promoted", "outbound_conflict",
-             "to_me", "to_role", "to_role_unresolved", "broadcast", "broadcast_before_birth",
+             "to_me", "to_role", "to_role_unresolved", "broadcast", "before_birth", "from_me_unverified",
              "inbound_written", "inbound_same", "inbound_conflict", "others", "retired", "not_gzcoord", "no_time")
 
 
@@ -192,27 +195,35 @@ class Importer:
         if mtype in RETIRED_TYPES:
             return "retired", None
         seq, ts = rec.get("seq"), rec.get("ts_full") or rec.get("timestamp") or rec.get("ts")
+        when = _when(ts)
+        # Nothing from before this agent's birth is its own, sent or received:
+        # a login is reused across agents (ADR-039), and what was sent by or
+        # to the previous holder of the name is that agent's history.
+        if when is None:
+            return "no_time", None
+        if when < self.born:
+            return "before_birth", None
         if meta.get("FROM") == self.me:
+            # The content's FROM is the sender's claim; the relay records who
+            # posted it. Before the journal there is no body to compare an
+            # echo against (rule 5), so both must name this account.
+            if rec.get("sender") != self.me:
+                return "from_me_unverified", None
             self._check_ledger(text, meta, seq)
             return outbound(self.conn, text, mtype, meta, seq, ts), None
         keep = {"content": text, "seq": seq, "ts": ts}
-        when = _when(ts)
         # inbox.mjs forMe, in its order: a broadcast, else TO decides alone,
         # else TO-ROLE.
         if meta.get("BROADCAST") == "true":
-            if when is None:
-                return "no_time", None
-            return ("broadcast", keep) if when >= self.born else ("broadcast_before_birth", None)
+            return "broadcast", keep
         if "TO" in meta:
             return ("to_me", keep) if meta["TO"] == self.me else ("others", None)
         if "TO-ROLE" in meta:
             role = meta["TO-ROLE"]
-            if when is not None and when >= self.born and role_at(self.spans, when) == role:
+            if role_at(self.spans, when) == role:
                 return "to_role", keep
             self.unresolved.append({"message_id": meta.get("MESSAGE-ID") or f"sha256:{hashlib.sha256(text.encode()).hexdigest()}",
-                                    "seq": seq, "to_role": role,
-                                    "why": "no time" if when is None else "before birth" if when < self.born
-                                    else "role not held then"})
+                                    "seq": seq, "to_role": role, "why": "role not held then"})
             return "to_role_unresolved", None
         return "others", None
 

@@ -74,7 +74,13 @@ RECORDS = [
     ("role-no-time", msg("role-nt-1", "BODY-22", role="backend-dev"), None),
     ("broadcast-no-time", msg("bc-nt-1", "BODY-23", broadcast=True), None),
     ("unaddressed", msg("unaddr-1", "BODY-24"), 22),
+    # A reused login: addressed to this login by name, before this agent
+    # was born, so another agent's history (ADR-039).
+    ("to-me-before-birth", msg("to-me-prev", "BODY-25", to=ME), 15),
+    # FROM names this account but the relay records another sender.
+    ("forged-from-me", msg("forged-1", "BODY-26", frm=ME, to=OTHER), 22),
 ]
+FORGED = {"forged-from-me"}
 
 
 class Relay(BaseHTTPRequestHandler):
@@ -128,7 +134,8 @@ def main() -> int:
 
     Relay.messages = []
     for i, (name, content, day) in enumerate(RECORDS, start=1):
-        rec = {"id": f"relay-{i}", "seq": 100 + i, "sender": ME if f"FROM: {ME}\n" in content else OTHER,
+        rec = {"id": f"relay-{i}", "seq": 100 + i,
+               "sender": ME if f"FROM: {ME}\n" in content and name not in FORGED else OTHER,
                "content": content}
         if day is not None:
             rec["timestamp"] = DAY.format(day)
@@ -231,9 +238,13 @@ def main() -> int:
         inbound = {m for d, m in rows if d == "inbound"}
         outbound = {m for d, m in rows if d == "outbound"}
         nohash = "sha256:" + sha("no-id")
-        check("inbound is exactly: TO me, TO-ROLE held then, a broadcast after birth, no id (by hash), BOM, the live row, "
-              "TO me without a time",
-              inbound == {"to-me-1", "role-held-1", "bc-after-1", nohash, "bom-1", "live-1", "to-me-2"}, sorted(inbound))
+        check("inbound is exactly: TO me, TO-ROLE held then, a broadcast after birth, no id (by hash), BOM, the live row",
+              inbound == {"to-me-1", "role-held-1", "bc-after-1", nohash, "bom-1", "live-1"}, sorted(inbound))
+        check("nothing from before birth is stored, even TO this login by name (a reused login's history); nor a "
+              "record with no time (positive control: TO me after birth is)",
+              not {"to-me-prev", "to-me-2"} & (inbound | outbound) and "to-me-1" in inbound)
+        check("FROM this account with another relay sender is stored nowhere (positive control: sent-1 is outbound)",
+              "forged-1" not in inbound | outbound and "sent-1" in outbound)
         check("outbound is exactly the agent's own five", outbound == {f"sent-{i}" for i in range(1, 6)}, sorted(outbound))
         check("TO someone else is never stored, even with a TO-ROLE I hold (TO decides alone); nor one addressed to nobody",
               not {"to-other-1", "to-other-2", "unaddr-1"} & (inbound | outbound))
@@ -262,17 +273,17 @@ def main() -> int:
         rep = json.load(open(report_path))
         c = rep["counts"]
         want = {"outbound": 4, "outbound_promoted": 1, "outbound_same": 0, "outbound_conflict": 0,
-                "to_me": 5, "to_role": 1, "broadcast": 1, "to_role_unresolved": 5, "broadcast_before_birth": 1,
-                "others": 3, "retired": 1, "not_gzcoord": 1, "no_time": 1,
+                "to_me": 4, "to_role": 1, "broadcast": 1, "to_role_unresolved": 3, "before_birth": 3,
+                "from_me_unverified": 1, "others": 3, "retired": 1, "not_gzcoord": 1, "no_time": 3,
                 # the failed run kept to-me-1 and role-held-1 before the relay
                 # stopped; live capture kept live-1
-                "inbound_written": 4, "inbound_same": 3,
+                "inbound_written": 3, "inbound_same": 3,
                 "inbound_conflict": 0}
         check("the counts per decision", c == want, {k: (c.get(k), v) for k, v in want.items() if c.get(k) != v})
         un = {u["message_id"]: u["why"] for u in rep["to_role_unresolved"]}
         check("the unresolved TO-ROLE ids, each with why", un == {
             "role-left-1": "role not held then", "role-later-1": "role not held then",
-            "role-deact-1": "role not held then", "role-prev-1": "before birth", "role-nt-1": "no time"}, un)
+            "role-deact-1": "role not held then"}, un)
         led = {k: [e["message_id"] for e in v] for k, v in rep["ledger"].items()}
         check("ledger: one missing, one with another hash, one at another seq; each still stored",
               led == {"not_in_ledger": ["sent-2"], "hash_differs": ["sent-3"], "seq_differs": ["sent-4"]}
@@ -300,16 +311,16 @@ def main() -> int:
         c2 = json.load(open(report_path))["counts"]
         check("a second run is the same rows", r.returncode == 0 and after == before, (r.stderr, len(before), len(after)))
         check("…counted as already kept", c2["outbound"] == 0 and c2["outbound_same"] == 5 and c2["inbound_written"] == 0
-              and c2["inbound_same"] == 7 and not conn.execute("SELECT COUNT(*) FROM conflicts").fetchone()[0], c2)
+              and c2["inbound_same"] == 6 and not conn.execute("SELECT COUNT(*) FROM conflicts").fetchone()[0], c2)
         conn.close()
         r = run("--if-needed", "agent-fabric")
         check("--if-needed after a complete import asks nothing of the relay (positive control: a run without it does)",
               r.returncode == 0 and "already imported" in r.stdout and not Relay.calls, (r.stdout, Relay.calls))
 
         print("a body that differs under a kept id")
-        Relay.messages.append({"id": "relay-x1", "seq": 900, "timestamp": DAY.format(27),
+        Relay.messages.append({"id": "relay-x1", "seq": 900, "timestamp": DAY.format(27), "sender": OTHER,
                                "content": msg("to-me-1", "BODY-X", to=ME)})
-        Relay.messages.append({"id": "relay-x2", "seq": 901, "timestamp": DAY.format(27),
+        Relay.messages.append({"id": "relay-x2", "seq": 901, "timestamp": DAY.format(27), "sender": ME,
                                "content": msg("sent-1", "BODY-Y", frm=ME, to=OTHER)})
         r = run("agent-fabric")
         conn = ep.connect()
