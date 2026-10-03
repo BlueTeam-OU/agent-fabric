@@ -1923,3 +1923,19 @@ test('send: the automatic job intake is off unless switched on, and then takes o
   for (const rel of ['runtime/openrouter/launch', 'tools/fabric/launch.py'])
     assert.doesNotMatch(fs.readFileSync(new URL(`../../../${rel}`, import.meta.url), 'utf8'), /AGENT_FABRIC_JOBS_AUTO_INTAKE/, rel);
 });
+
+test('a trimmed sent ledger starts with one watermark, the oldest kept entry\'s time (review of #84)', async () => {
+  const { recordSent, spentElsewhere } = await import('../scripts/send.mjs');
+  const ledger = path.join(scratch('ledger-trim-'), 'gzcoord-sent.jsonl');
+  const at = i => new Date(Date.UTC(2026, 9, 1) + i * 1000).toISOString();
+  for (let i = 0; i < 9; i++) recordSent(ledger, { id: `m-${i}`, sha256: `h${i}`, seq: i, at: at(i) }, 3);
+  assert.ok(!fs.readFileSync(ledger, 'utf8').includes('trimmed_before'), 'under the bound: no trim, no mark');
+  for (let i = 9; i < 1012; i++) recordSent(ledger, { id: `m-${i}`, sha256: `h${i}`, seq: i, at: at(i) }, 3);
+  const lines = fs.readFileSync(ledger, 'utf8').split('\n').filter(Boolean);
+  const marks = lines.filter(l => l.includes('trimmed_before'));
+  assert.equal(marks.length, 1, 'one watermark, however many trims');
+  assert.equal(lines[0], marks[0], 'and it is the first line');
+  const firstKept = JSON.parse(lines[1]);
+  assert.equal(JSON.parse(marks[0]).trimmed_before, firstKept.at, 'it names the oldest kept entry\'s time');
+  assert.deepEqual(spentElsewhere(ledger, firstKept.id, 'other'), firstKept, 'entries are still read past it');
+});

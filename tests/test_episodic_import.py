@@ -370,6 +370,25 @@ def main() -> int:
               and not lconn.execute("SELECT COUNT(*) FROM episodes").fetchone()[0], d)
         lconn.close()
 
+        print("a trimmed ledger speaks only from its watermark (review of #84)")
+        trim_state = os.path.join(tmp, "trim-state")
+        os.makedirs(trim_state)
+        with open(os.path.join(trim_state, "gzcoord-sent.jsonl"), "w") as f:
+            f.write(json.dumps({"trimmed_before": "2026-09-30T00:00:00Z"}) + "\n")
+            f.write(json.dumps({"id": "kept-1", "sha256": "0" * 64, "seq": 9, "at": "2026-09-30T00:00:00Z"}) + "\n")
+        tconn = ep.connect(os.path.join(trim_state, "episodic.db"), agent_id=late)
+        timp = ei.Importer(tconn, ME, late, trim_state)
+        before = timp.decide({"id": "y", "seq": 2, "sender": ME, "timestamp": "2026-09-29 10:00:00",
+                              "content": msg("trimmed-away", "BODY-T", frm=ME, to=OTHER)})
+        after = timp.decide({"id": "z", "seq": 3, "sender": ME, "timestamp": "2026-10-01 10:00:00",
+                             "content": msg("missing-after", "BODY-U", frm=ME, to=OTHER)})
+        check("a send of its own from before the watermark, trimmed away: unverified, not refused",
+              before[0] == "outbound_unverified" and tconn.execute(
+                  "SELECT state FROM episodes WHERE message_id='trimmed-away'").fetchone() == ("unverified",), before)
+        check("…one after it the ledger lacks is still refused", after == ("from_me_refused", None), after)
+        check("the watermark line is no entry", "trimmed_before" not in json.dumps(sorted(timp.ledger)))
+        tconn.close()
+
         print("refusals")
         r = run("agent-fabric", e={**env, "GZCOORD_CHANNEL": "fabric:control"})
         check("a control channel is refused before any request", r.returncode == 2 and "control" in r.stderr

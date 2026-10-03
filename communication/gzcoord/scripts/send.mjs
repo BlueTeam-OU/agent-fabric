@@ -97,11 +97,23 @@ export function spentElsewhere(ledger, id, sha) {
   }
   return null;
 }
+// A trim drops the oldest entries, so the ledger no longer speaks for the
+// time before what it keeps: its first line then says from when it does,
+// {"trimmed_before": <the oldest kept entry's at>}. The journal's backfill
+// reads it, or it would refuse this account's own trimmed-away sends as
+// another's (episodic_import.py, review of #84). It has no id, so a reader
+// looking for entries passes over it.
 export function recordSent(ledger, entry, keep = 5000) {
   fs.mkdirSync(path.dirname(ledger), { recursive: true });
   fs.appendFileSync(ledger, JSON.stringify(entry) + '\n');
-  const lines = fs.readFileSync(ledger, 'utf8').split('\n').filter(Boolean);
-  if (lines.length > keep + 1000) fs.writeFileSync(ledger, lines.slice(-keep).join('\n') + '\n');
+  // An earlier watermark is the oldest line, so the slice always drops it.
+  const entries = fs.readFileSync(ledger, 'utf8').split('\n').filter(Boolean);
+  if (entries.length > keep + 1000) {
+    const kept = entries.slice(-keep);
+    let at; try { at = JSON.parse(kept[0]).at; } catch { /* unreadable: the trim time stands */ }
+    const mark = JSON.stringify({ trimmed_before: typeof at === 'string' ? at : new Date().toISOString() });
+    fs.writeFileSync(ledger, [mark, ...kept].join('\n') + '\n');
+  }
 }
 
 // The automatic request intake (agent-fabric ADR-037 rule 5): built and
