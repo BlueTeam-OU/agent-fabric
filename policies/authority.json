@@ -55,6 +55,50 @@
         "tools/fabric/relay_catchup.py",
         "tools/fabric/review_rounds.py"
       ]
+    },
+    {
+      "role": "devex-tooling",
+      "paths": [
+        "runtime/github/",
+        "tools/fabric/github/",
+        "projects/gzapp/integration/gh/",
+        "communication/gzcoord/scripts/",
+        "communication/gzcoord/tests/",
+        "bin/",
+        "tests/"
+      ],
+      "excluding": [
+        "tools/fabric/guards/",
+        "tools/fabric/lint.py",
+        "tests/run.sh",
+        "tests/static.sh",
+        "tests/test_contributors.py",
+        "tests/test_agent_fabric_dir_authority.py",
+        "tests/test_charter_authority.py",
+        "runtime/provisioning/github-host-keys",
+        "runtime/provisioning/github-host-keys.fingerprints",
+        "tools/fabric/git.py",
+        "tools/fabric/role.py",
+        "tools/fabric/routing.py",
+        "tools/fabric/launch_prompt.py",
+        "bin/fabric-role",
+        "tests/leak-check.sh",
+        "tools/fabric/review_brief.py",
+        "bin/fabric-review",
+        "tools/fabric/python_pin.py",
+        "tools/fabric/fabric_settings.py",
+        "tools/fabric/workspace_trust.py",
+        "tools/fabric/bootstrap.py",
+        "tools/fabric/fabric_writes.py",
+        "tools/fabric/install_agent_files.py",
+        "tools/fabric/episodic.py",
+        "tools/fabric/episodic_import.py",
+        "tools/fabric/relay.py",
+        "tools/fabric/history.py",
+        "bin/fabric-history",
+        "tools/fabric/relay_catchup.py",
+        "tools/fabric/review_rounds.py"
+      ]
     }
   ]
 }
