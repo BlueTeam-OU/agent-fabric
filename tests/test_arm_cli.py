@@ -318,7 +318,9 @@ def main() -> int:
                      "crates/transport/libp2p/src/dialing.rs", "apps/transportctl/src/phrase.rs",
                      "crates/discovery/kademlia/src/budgets.rs", "crates/discovery/cache/src/record.rs",
                      "crates/human/core/src/retention.rs", "architecture/config/config.schema.yaml",
-                     "architecture/config/examples/kademlia-enabled.yaml"):
+                     "architecture/config/examples/kademlia-enabled.yaml",
+                     "fixtures/identity/ed25519-bip39-entropy-v1.json", "Cargo.toml",
+                     "apps/human-desktop/src/recovery_seed.rs"):
             reset(); set_pr(me, "plain", [path]); set_gate(9)
             rc, out = run("7", "--basis", "b", script=SHIM, env=iw)
             check(f"InterWeave: {path} is a boundary", rc == 1 and "no review-class review" in out, out)
