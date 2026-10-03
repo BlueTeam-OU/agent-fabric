@@ -122,9 +122,20 @@ def main() -> int:
         ep.out_final(conn, "e-2", "failed")
         c = ep.inbound(conn, [{"content": msg("e-1", "posted, outcome lost", sender=ME), "seq": 21},
                               {"content": msg("e-2", "posted, client saw an error", sender=ME), "seq": 22}])
-        check("an echo of a pending or failed row: the carrier holds it, so accepted with its seq (review of #78)",
-              c["echo"] == 2 and conn.execute("SELECT state, carrier_seq FROM episodes WHERE message_id IN ('e-1','e-2') "
-                                             "ORDER BY message_id").fetchall() == [("accepted", 21), ("accepted", 22)])
+        check("an echo of a pending or failed row: the carrier holds it, so accepted with its seq and carrier "
+              "(review of #78)",
+              c["echo"] == 2 and conn.execute("SELECT state, carrier_seq, carrier FROM episodes WHERE message_id IN "
+                                             "('e-1','e-2') ORDER BY message_id").fetchall()
+              == [("accepted", 21, ep.DEFAULT_CARRIER), ("accepted", 22, ep.DEFAULT_CARRIER)])
+        unverified = msg("e-3", "the backfill could not vouch for this", sender=ME)
+        conn.execute("INSERT INTO episodes (id, source, direction, state, happened_at, recorded_at, message_id, "
+                     "type, sender, content, content_hash, metadata_json) VALUES ('u-3', ?, 'outbound', 'unverified', "
+                     "?, ?, 'e-3', 'INFO', ?, ?, ?, '{}')",
+                     (ep.SOURCE, ep.now(), ep.now(), ME, unverified, ep._sha(unverified)))
+        c = ep.inbound(conn, [{"content": unverified, "seq": 23}])
+        check("…but an echo of an unverified row leaves it unverified: the same copy is no more proof (review of #88)",
+              c["echo"] == 1 and conn.execute("SELECT state, carrier_seq FROM episodes WHERE message_id='e-3'")
+              .fetchone() == ("unverified", 23))
         ep.out_pending(conn, msg("m-3", "what I really sent", sender=ME))
         c = ep.inbound(conn, [{"content": forged, "seq": 63}, {"content": msg("m-4", "x", sender=ME), "seq": 64}])
         check("a message naming this account as FROM is no echo unless the journal holds that body; kept as received",
