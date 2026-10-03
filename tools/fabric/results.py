@@ -165,6 +165,16 @@ def period_cost(whole: dict | None, recent: dict | None) -> dict | None:
     return {"by_path": by_path, "accounts": len(whole["by_account"])}
 
 
+def closed_period(now: dt.datetime, days: int, window: int) -> tuple[dt.datetime, dt.datetime]:
+    """(since, end): the DAYS before the last WINDOW days. The period is the
+    one whose windows have closed: a PR merged less than WINDOW days ago
+    cannot be verified yet (ADR-026 §2), so counting it made every default
+    run read "verified 0" (review of #68). Those are listed apart as
+    pending and never enter a ratio."""
+    end = now - dt.timedelta(days=window)
+    return end - dt.timedelta(days=days), end
+
+
 def summarize(rows: list[dict], *, since: dt.datetime, end: dt.datetime, window: int, repos: list[str],
               cost: dict | None, every_repo: bool) -> dict:
     """The period's figures from the judged rows: only merges whose windows
@@ -195,12 +205,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--no-tokens", action="store_true", help="skip the control plane's token read")
     a = ap.parse_args(argv)
     now = dt.datetime.now(dt.timezone.utc)
-    # The period is the one whose windows have closed: a PR merged less than
-    # WINDOW days ago cannot be verified yet (ADR-026 §2), so counting it made
-    # every default run read "verified 0" (review of #68). Those are listed
-    # apart as pending and never enter a ratio.
-    end = now - dt.timedelta(days=a.window)
-    since = end - dt.timedelta(days=a.days)
+    since, end = closed_period(now, a.days, a.window)
     repos = registered_repos() if a.all else (a.repo or ["gzapi-org/agent-fabric"])
     rows = []
     try:
