@@ -31,7 +31,7 @@ with open(os.path.join(s, "calls"), "a") as fh:
         fh.write(f"pr comment {a[2]} --body {sys.stdin.read()}\n"); sys.exit(0)
 pr = json.load(open(os.path.join(s, "pr.json")))
 if line.startswith("repo view"):
-    print("gzapi-org/gzapp"); sys.exit(0)
+    print("noslash" if has("badrepo") else "gzapi-org/gzapp"); sys.exit(0)
 if line.startswith("api repos/gzapi-org/gzapp/pulls/7/files") and "--paginate --slurp" in line:
     def entry(f):
         old, _, new = f.rpartition("->")
@@ -112,7 +112,7 @@ def main() -> int:
                 fh.write(text)
 
         def reset() -> None:
-            for n in ("calls", "armed", "queued", "viewfail", "blind", "independent", "unresolved", "no_blind_field"):
+            for n in ("calls", "armed", "queued", "viewfail", "blind", "independent", "unresolved", "no_blind_field", "badrepo"):
                 if os.path.exists(f"{state}/{n}"):
                     os.remove(f"{state}/{n}")
             put("review_rc", "1")
@@ -306,6 +306,10 @@ def main() -> int:
         check("dry run posts and arms nothing", "pr merge" not in calls() and "pr comment" not in calls(), calls())
         reset(); put("viewfail", "")
         rc, out = run("7", "--basis", "b"); check("unreadable PR: exit 2", rc == 2, out)
+        reset(); set_pr(me, "plain", ["docs/a.md"]); set_gate(9); put("badrepo", "")
+        rc, out = run("7", "--basis", "b")
+        check("an answer of a shape gh never gave (a repository with no owner): exit 2, never 1, nothing armed",
+              rc == 2 and "unexpected answer" in out and "pr merge" not in calls(), out)
 
         print("arm: another project's rules — InterWeave's arm.json, through the shim")
         iw = {"AGENT_FABRIC_ARM_CONFIG": IW_CONFIG}
