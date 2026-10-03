@@ -862,6 +862,17 @@ test('a held record is not passed by acknowledging a later one: the relay\'s cur
   await waitLoop({ ...relay3, waitTotal: 0, forMeFn: msg => forMe(msg, me), journal: async () => ({ ok: false, reason: 'episodic: x' }) });
   assert.equal(relay3.cursor(), 0, 'a held record with no comparable seq: nothing acknowledged');
 });
+test('a keyword among records acknowledged before a held one is the exit reason (review of #78)', async () => {
+  const me = { address: 'develop-qzapp/db-admin', instance: 'db-admin', slug: 'db-admin' };
+  const relay = cursorRelay([
+    { id: 'kw', seq: 1, content: '[GZCOORD/1] INFO\nFROM: develop-qzapp/x\nROLE: r\nTO: develop-qzapp/web-dev-01\nMESSAGE-ID: x-1\n\nINFO:\nthe geocode outage\n' },
+    { id: 'mine', seq: 2, content: '[GZCOORD/1] INFO\nFROM: develop-qzapp/x\nROLE: r\nTO: develop-qzapp/db-admin\nMESSAGE-ID: x-2\n' }]);
+  const r = await waitLoop({ ...relay, waitTotal: 3600, forMeFn: msg => forMe(msg, me), keywords: ['geocode'], ownAddress: me.address,
+    sleep: async () => { throw new Error('waited instead of exiting on the keyword'); },
+    journal: async () => ({ ok: false, reason: 'episodic: x' }) });
+  assert.deepEqual([r.keywordHit?.id, r.journalFailed, relay.cursor()], ['kw', 'episodic: x', 1],
+    'the passed keyword record is named, the held one stays unacknowledged');
+});
 test('--wait ends within its budget while the journal stays broken, the hold reported (review of #78)', async () => {
   const me = { address: 'develop-qzapp/db-admin', instance: 'db-admin', slug: 'db-admin' };
   const relay = cursorRelay([{ id: 'mine', seq: 1, content: '[GZCOORD/1] INFO\nFROM: develop-qzapp/x\nROLE: r\nTO: develop-qzapp/db-admin\nMESSAGE-ID: x-1\n' }]);
