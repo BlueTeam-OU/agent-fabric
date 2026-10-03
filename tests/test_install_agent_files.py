@@ -140,6 +140,22 @@ def main() -> int:
               r.returncode == 1 and "install-agent-files: cannot write" in r.stderr
               and "Traceback" not in r.stderr and r.stderr.strip().count("\n") == 0, r.stderr)
 
+        # A remove that fails is one line and exit 1 too: the agents directory
+        # made read-only after a first run, so every class file is current and
+        # only the retired reviewer's removal is attempted (review of #86).
+        if os.geteuid() != 0:
+            root2, home2, cfg2 = fixture()
+            run(root2, home2, cfg2)
+            put(cfg2, "agents/blind-reviewer.md", "a reviewer from agent-fabric\n")
+            os.chmod(os.path.join(cfg2, "agents"), 0o555)
+            try:
+                r = run(root2, home2, cfg2)
+            finally:
+                os.chmod(os.path.join(cfg2, "agents"), 0o755)
+            check("a file that cannot be removed: exit 1, one line naming it, no traceback",
+                  r.returncode == 1 and "install-agent-files: cannot remove" in r.stderr and "blind-reviewer.md" in r.stderr
+                  and "Traceback" not in r.stderr and r.stderr.strip().count("\n") == 0, r.stderr)
+
         # A level of "-" is no effort line at all.
         root, home, cfg = fixture()
         run(root, home, cfg)

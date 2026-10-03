@@ -247,7 +247,12 @@ class Installer:
             if self.dry_run:
                 say(f"  -  {old} (would remove: retired name of code-review)")
             else:
-                os.remove(old)
+                # Its own line, not remove()'s "removed: …", which the oracle
+                # pins; the failure is remove()'s one line all the same.
+                try:
+                    os.remove(old)
+                except OSError as e:
+                    raise WriteError(f"install-agent-files: cannot remove {old}: {e.strerror or e}") from None
                 say(f"  -  {old} (retired name of code-review)")
                 self.changed += 1
         say(f"agent files ({self.provider}): {self.changed} written, {self.same} already current.")
