@@ -214,6 +214,11 @@ def main() -> int:
               rc == 0 and sum(1 for ln in secs.split("\n") if ln.startswith("sec")) == 1 and lid("kid") == kid,
               f"rc={rc}\n{out}")
         check("the parent can now write into the child's store", store("put", "kid", "GH_TOKEN", stdin="top secret\n")[0] == 0)
+        rc, out = P(ENROLL, "kid")
+        check("a re-run after the parent's put takes it and converges, never pushing the account's older head",
+              rc == 0 and "GH_TOKEN" in subprocess.run(["git", "--git-dir", f"{t}/remotes/agent-fabric-secrets-{kid}.git", "ls-tree",
+                                                         "-r", "--name-only", "main"], stdout=subprocess.PIPE, text=True,
+                                                        timeout=60).stdout, f"rc={rc}\n{out}")
         rc, out = P(ENROLL, "nobody")
         check("an unplaced login is refused by name", rc == 1 and "nobody: not placed" in out, f"rc={rc}\n{out}")
 

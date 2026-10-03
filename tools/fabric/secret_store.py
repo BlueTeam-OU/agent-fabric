@@ -1383,6 +1383,12 @@ def main(argv: list[str] | None = None) -> int:
             key_of_store(store)
             if not git(store, "remote", check=False).stdout.strip():
                 raise StoreError("the store has no remote (fabric-secrets store init --remote URL)")
+            # What the parent put since is taken first, only as a fast-forward:
+            # a re-enrolment after a put pushed the account's older head and
+            # was refused as non-fast-forward. A new repository has no main.
+            git(store, "fetch", "-q", "origin")
+            if git(store, "rev-parse", "-q", "--verify", "refs/remotes/origin/main", check=False).returncode == 0:
+                git(store, "merge", "-q", "--ff-only", "refs/remotes/origin/main")
             git(store, "push", "-q", "-u", "origin", "HEAD:main")
             print("pushed")
         elif args.cmd == "bundle":
