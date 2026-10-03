@@ -168,6 +168,24 @@ else:
           js["summary"].get("spend_unmatched") == ["b"] and js["summary"]["spend"] is None, js["summary"])
     check("main: the text says the reads disagreed, not that nothing was read",
           "answered for different accounts (b)" in text and "not read" not in text, text[-300:])
+    # main() reads the period closed_period gives it, and hands the same
+    # since to both reads (review of the carried audit).
+    saved = (results.main_commits, results.merged_prs, results.closed_period)
+    asked, seen = [], []
+    since, end = dt.datetime(2026, 8, 1, tzinfo=dt.timezone.utc), dt.datetime(2026, 8, 31, tzinfo=dt.timezone.utc)
+    results.closed_period = lambda now, days, window: asked.append((days, window)) or (since, end)
+    results.main_commits = lambda repo, s: seen.append(("main_commits", s)) or []
+    results.merged_prs = lambda repo, s: seen.append(("merged_prs", s)) or []
+    try:
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            results.main(["--json", "--no-tokens", "--days", "30", "--window", "14"])
+        js = json.loads(out.getvalue())
+    finally:
+        results.main_commits, results.merged_prs, results.closed_period = saved
+    check("main: the period is closed_period's, and both reads get its since",
+          asked == [(30, 14)] and sorted(seen) == [("main_commits", since), ("merged_prs", since)]
+          and js["summary"]["period"] == "2026-08-01..2026-08-31", (asked, seen, js["summary"]["period"]))
     print(f"\n{'FAILED' if fails else 'all passed'}")
     return 1 if fails else 0
 
