@@ -1639,6 +1639,8 @@ CONTRIBUTOR_NEVER = (
     ".claude/", "tools/fabric/fabric_settings.py",
     # Bootstrap runs it as every account, and it rewrites ~/.claude.json.
     "tools/fabric/workspace_trust.py",
+    # Bootstrap and the agent files it installs, ported out of runtime/claude-code/ (ADR-040).
+    "tools/fabric/bootstrap.py", "tools/fabric/fabric_writes.py", "tools/fabric/install_agent_files.py",
     # Writes and reads each agent's private conversational history (ADR-041).
     "tools/fabric/episodic.py", "tools/fabric/episodic_import.py", "tools/fabric/relay.py", "tools/fabric/history.py", "bin/fabric-history",
 )

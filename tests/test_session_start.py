@@ -304,6 +304,9 @@ def test_bootstrap_restarts_the_control_agent_unless_its_caller_is_the_control_a
             env = {**os.environ, "HOME": home, "AGENT_FABRIC_STATE_DIR": os.path.join(tmp, f"state-{defer}"),
                    "XDG_RUNTIME_DIR": runtime_dir, "PATH": bindir + os.pathsep + os.environ["PATH"]}
             env.pop("CLAUDE_CONFIG_DIR", None)
+            # The units follow XDG_CONFIG_HOME, which a CI runner sets to its
+            # real config directory: the scratch home's is the one under test.
+            env["XDG_CONFIG_HOME"] = os.path.join(home, ".config")
             if defer: env["AGENT_FABRIC_DEFER_AGENTD_RESTART"] = "1"
             else: env.pop("AGENT_FABRIC_DEFER_AGENTD_RESTART", None)
             proc = subprocess.run(["bash", BOOTSTRAP, "--projects", projects], capture_output=True, text=True, env=env)
@@ -327,6 +330,9 @@ def test_bootstrap_writes_only_the_workspace_and_home_files(tmp: str) -> None:
     runtime_dir = os.path.join(tmp, "run"); os.makedirs(runtime_dir)
     env = {**os.environ, "HOME": home, "AGENT_FABRIC_STATE_DIR": os.path.join(tmp, "state"), "XDG_RUNTIME_DIR": runtime_dir}
     env.pop("CLAUDE_CONFIG_DIR", None)
+    # The units follow XDG_CONFIG_HOME, which a CI runner sets to its real
+    # config directory: the scratch home's is the one under test.
+    env["XDG_CONFIG_HOME"] = os.path.join(home, ".config")
     # A folder in the workspace that is not a registered working copy: never trusted.
     stray = os.path.join(projects, "not-a-project"); os.makedirs(stray)
     proc = subprocess.run(["bash", BOOTSTRAP, "--projects", projects, "--dry-run"], capture_output=True, text=True, env=env)
