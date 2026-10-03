@@ -505,6 +505,32 @@ def test_crossref_maps_artifacts_to_slices(tmp: str) -> None:
     assert entry["slices"] == ["domain:one"]
 
 
+def test_an_empty_crossref_is_said_not_just_written(tmp: str) -> None:
+    """A memory drain carries an empty references.json, so the graph it
+    writes is empty; the file exists all the same and read as one that
+    answers. The run says which index came out empty, and stays clean."""
+    drain, claims_dir, out = build(tmp, {"alpha": claims("alpha", [
+        {"class": "domain", "topic": "one", "title": "T", "body": "b", "evidence": ["h1"]},
+    ])})
+    with open(os.path.join(drain, "references.json"), "w", encoding="utf-8") as fh:
+        json.dump({}, fh)
+    proc = run_assemble(drain, claims_dir, out)
+    assert proc.returncode == 0, proc.stderr
+    with open(proj(out, "alpha", "crossref.json"), encoding="utf-8") as fh:
+        assert json.load(fh)["index"] == {}
+    assert "CROSSREF EMPTY" in proc.stderr, proc.stderr
+    assert ".agent-fabric/memory/alpha/crossref.json" in proc.stderr, proc.stderr
+
+
+def test_a_crossref_with_entries_says_nothing(tmp: str) -> None:
+    drain, claims_dir, out = build(tmp, {"alpha": claims("alpha", [
+        {"class": "domain", "topic": "one", "title": "T", "body": "b", "evidence": ["h1"]},
+    ])})
+    proc = run_assemble(drain, claims_dir, out)
+    assert proc.returncode == 0, proc.stderr
+    assert "CROSSREF EMPTY" not in proc.stderr, proc.stderr
+
+
 def test_merge_mode_preserves_earlier_drains(tmp: str) -> None:
     """The second drain renders only what it admitted. Writing that alone
     would delete what the first drain learned, so prior sections are carried
@@ -2440,6 +2466,8 @@ def main() -> int:
         test_claim_owned_by_two_roles_is_stored_once,
         test_shared_claims_reach_every_owner_crossref,
         test_crossref_maps_artifacts_to_slices,
+    test_an_empty_crossref_is_said_not_just_written,
+    test_a_crossref_with_entries_says_nothing,
         test_merge_mode_preserves_earlier_drains,
         test_index_keeps_slices_this_drain_did_not_touch,
         test_a_title_containing_a_newline_is_not_truncated,
