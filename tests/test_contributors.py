@@ -188,6 +188,38 @@ def main() -> int:
                check=False)
         check("an amend (nothing staged to judge): refused", r.returncode != 0, r.stderr)
 
+        # Review: a contributor branch that folded main, then merges an
+        # older branch of its own (python-dev-01, seq 10894). Main's change
+        # outside the entry came from a parent whole; only a result that
+        # differs from every parent is the merge's own.
+        port = f"h/{LOGIN}/for/user/port"
+        sh(fab, "checkout", "-q", "-b", f"h/{LOGIN}/for/user/older", port)
+        r = attempt("bin/fabric-x", msg="older work")
+        sh(fab, "checkout", "-q", "main")
+        with open(os.path.join(fab, "src", "a.py"), "a") as f:
+            f.write("main\n")
+        sh(fab, "add", "-A")
+        sh(fab, "-c", "core.hooksPath=/dev/null", "commit", "-qm", "main moves\n\nFabric-Role: fabric-coordinator")
+        sh(fab, "checkout", "-q", port)
+        menv = {**GIT_ENV, "AGENT_FABRIC_STATE_DIR": state}
+        r = sh(fab, "merge", "-q", "--no-ff", "--no-edit", "main", env=menv, check=False)
+        check("folding main into the contributor branch: committed", r.returncode == 0, r.stderr)
+        r = sh(fab, "merge", "-q", "--no-ff", "--no-edit", f"h/{LOGIN}/for/user/older", env=menv, check=False)
+        check("then merging an older branch of its own: main's src/ change is no contribution",
+              r.returncode == 0, r.stderr)
+        sh(fab, "checkout", "-q", "-b", f"h/{LOGIN}/for/user/evil", f"h/{LOGIN}/for/user/older")
+        attempt("tools/a.py", msg="more older work")
+        sh(fab, "checkout", "-q", port)
+        r = sh(fab, "merge", "-q", "--no-ff", "--no-commit", f"h/{LOGIN}/for/user/evil", env=menv, check=False)
+        with open(os.path.join(fab, "src", "a.py"), "a") as f:
+            f.write("slipped in by the merge\n")
+        sh(fab, "add", "src/a.py")
+        r = sh(fab, "commit", "-q", "--no-edit", env=menv, check=False)
+        check("…but a merge result that differs from every parent outside the entry: refused",
+              r.returncode != 0 and "outside what python-dev" in r.stderr and "src/a.py" in r.stderr, r.stderr)
+        sh(fab, "merge", "--abort", check=False)
+        sh(fab, "reset", "-q", "--hard", "HEAD")
+
         sh(fab, "checkout", "-q", "-b", f"h/{LOGIN}/feat/own")
         r = attempt("tools/a.py")
         check("off a contributor branch: refused", r.returncode != 0 and "not a contributor branch" in r.stderr,

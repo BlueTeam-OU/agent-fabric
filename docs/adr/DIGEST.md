@@ -838,7 +838,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - Keywords: Python, bash, shell, port, allowlist, lint, shim, wave, gh,
   git, 150 lines, P1.
 
-### ADR-041 — Agent-local episodic history: exact messages kept above the transport (Proposed)
+### ADR-041 — Agent-local episodic history: exact messages kept above the transport (Accepted)
 
 - Each agent keeps its own journal, `<state>/agents/<login>/episodic.db`,
   0700/0600, owned by its agent id; a reused login is refused (§5 rule 1).

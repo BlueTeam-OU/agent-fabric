@@ -862,6 +862,17 @@ test('a held record is not passed by acknowledging a later one: the relay\'s cur
   await waitLoop({ ...relay3, waitTotal: 0, forMeFn: msg => forMe(msg, me), journal: async () => ({ ok: false, reason: 'episodic: x' }) });
   assert.equal(relay3.cursor(), 0, 'a held record with no comparable seq: nothing acknowledged');
 });
+test('a keyword among records acknowledged before a held one is the exit reason (review of #78)', async () => {
+  const me = { address: 'develop-qzapp/db-admin', instance: 'db-admin', slug: 'db-admin' };
+  const relay = cursorRelay([
+    { id: 'kw', seq: 1, content: '[GZCOORD/1] INFO\nFROM: develop-qzapp/x\nROLE: r\nTO: develop-qzapp/web-dev-01\nMESSAGE-ID: x-1\n\nINFO:\nthe geocode outage\n' },
+    { id: 'mine', seq: 2, content: '[GZCOORD/1] INFO\nFROM: develop-qzapp/x\nROLE: r\nTO: develop-qzapp/db-admin\nMESSAGE-ID: x-2\n' }]);
+  const r = await waitLoop({ ...relay, waitTotal: 3600, forMeFn: msg => forMe(msg, me), keywords: ['geocode'], ownAddress: me.address,
+    sleep: async () => { throw new Error('waited instead of exiting on the keyword'); },
+    journal: async () => ({ ok: false, reason: 'episodic: x' }) });
+  assert.deepEqual([r.keywordHit?.id, r.journalFailed, relay.cursor()], ['kw', 'episodic: x', 1],
+    'the passed keyword record is named, the held one stays unacknowledged');
+});
 test('--wait ends within its budget while the journal stays broken, the hold reported (review of #78)', async () => {
   const me = { address: 'develop-qzapp/db-admin', instance: 'db-admin', slug: 'db-admin' };
   const relay = cursorRelay([{ id: 'mine', seq: 1, content: '[GZCOORD/1] INFO\nFROM: develop-qzapp/x\nROLE: r\nTO: develop-qzapp/db-admin\nMESSAGE-ID: x-1\n' }]);
@@ -1080,6 +1091,24 @@ test('a post the relay refuses leaves the journal row failed, not accepted', asy
     const r = await sendWith(`http://127.0.0.1:${server.address().port}`, valid, [], { AGENT_FABRIC_STATE_DIR: state, AGENT_FABRIC_SECRET_STORE: store });
     assert.equal(r.code, 3, r.err);
     assert.deepEqual(journalRows(state, store).map(x => x.slice(0, 3)), [['outbound', 'failed', '01a09fc1-0000-7000-8000-000000000001']]);
+  } finally { server.closeAllConnections(); server.close(); }
+});
+
+test('a failed retransmission leaves a row pending whose earlier outcome was never written (review of #78)', async () => {
+  const server = http.createServer((req, res) => { res.statusCode = 500; res.end('{}'); });
+  await new Promise(r => server.listen(0, '127.0.0.1', r));
+  try {
+    const state = path.join(scratch('send-journal-unknown-'), 'state'); const store = idStore();
+    const env = { ...process.env, AGENT_FABRIC_STATE_DIR: state, AGENT_FABRIC_SECRET_STORE: store };
+    // An earlier send that died after its post: a pending row and no outcome.
+    const py = process.env.AGENT_FABRIC_PYTHON || '/usr/local/bin/fabric-python';
+    const first = spawnSync(py, [fileURLToPath(new URL('../../../tools/fabric/episodic.py', import.meta.url)), 'gzcoord-out-pending'],
+      { encoding: 'utf8', env, input: valid });
+    assert.deepEqual([first.status, first.stdout.trim()], [0, 'pending'], first.stderr);
+    const r = await sendWith(`http://127.0.0.1:${server.address().port}`, valid, [], { AGENT_FABRIC_STATE_DIR: state, AGENT_FABRIC_SECRET_STORE: store });
+    assert.equal(r.code, 3, r.err);
+    assert.match(r.err, /may have reached the relay; its row stays pending/);
+    assert.deepEqual(journalRows(state, store).map(x => x.slice(0, 3)), [['outbound', 'pending', '01a09fc1-0000-7000-8000-000000000001']]);
   } finally { server.closeAllConnections(); server.close(); }
 });
 
@@ -1893,4 +1922,21 @@ test('send: the automatic job intake is off unless switched on, and then takes o
   // the read rather than passing it by finding nothing.
   for (const rel of ['runtime/openrouter/launch', 'tools/fabric/launch.py'])
     assert.doesNotMatch(fs.readFileSync(new URL(`../../../${rel}`, import.meta.url), 'utf8'), /AGENT_FABRIC_JOBS_AUTO_INTAKE/, rel);
+});
+
+test('a trimmed sent ledger starts with one watermark, the oldest kept entry\'s time (review of #84)', async () => {
+  const { recordSent, spentElsewhere } = await import('../scripts/send.mjs');
+  const ledger = path.join(scratch('ledger-trim-'), 'gzcoord-sent.jsonl');
+  const at = i => new Date(Date.UTC(2026, 9, 1) + i * 1000).toISOString();
+  for (let i = 0; i < 9; i++) recordSent(ledger, { id: `m-${i}`, sha256: `h${i}`, seq: i, at: at(i) }, 3);
+  assert.ok(!fs.readFileSync(ledger, 'utf8').includes('trimmed_before'), 'under the bound: no trim, no mark');
+  // Past keep + 1000 twice: the second trim must carry the first mark away.
+  for (let i = 9; i < 2020; i++) recordSent(ledger, { id: `m-${i}`, sha256: `h${i}`, seq: i, at: at(i) }, 3);
+  const lines = fs.readFileSync(ledger, 'utf8').split('\n').filter(Boolean);
+  const marks = lines.filter(l => l.includes('trimmed_before'));
+  assert.equal(marks.length, 1, 'one watermark, however many trims');
+  assert.equal(lines[0], marks[0], 'and it is the first line');
+  const firstKept = JSON.parse(lines[1]);
+  assert.equal(JSON.parse(marks[0]).trimmed_before, firstKept.at, 'it names the oldest kept entry\'s time');
+  assert.deepEqual(spentElsewhere(ledger, firstKept.id, 'other'), firstKept, 'entries are still read past it');
 });

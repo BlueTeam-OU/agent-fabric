@@ -23,6 +23,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from contextlib import redirect_stderr, redirect_stdout
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -289,12 +290,35 @@ def glob_order(T: str) -> None:
         s.close()
 
 
+def journal_bound(T: str) -> None:
+    print("step 9: the journal's import is bounded")
+    s = Scratch(T, "journal")
+    try:
+        projects, root = fabric(s)
+        put(os.path.join(root, "tools", "fabric", "episodic.py"), "import time\ntime.sleep(30)\n")
+        saved = bootstrap.JOURNAL_IMPORT_TIMEOUT
+        bootstrap.JOURNAL_IMPORT_TIMEOUT = 1
+        try:
+            t0 = time.monotonic()
+            _, out, err = quiet(bootstrap.Bootstrap(projects, False, root).journal_import)
+            took = time.monotonic() - t0
+        finally:
+            bootstrap.JOURNAL_IMPORT_TIMEOUT = saved
+        check("an import that hangs is stopped at the bound, said in one line, and the run goes on",
+              took < 10 and out == "  !  episodic journal: the import did not finish in 1 s; the next bootstrap tries again\n"
+              and not err, (round(took, 1), out, err))
+        check("the bound is 20 s: within the 30 s moveto's enter gives all of bootstrap",
+              bootstrap.JOURNAL_IMPORT_TIMEOUT == 20)
+    finally:
+        s.close()
+
+
 def main() -> int:
     T = os.path.realpath(tempfile.mkdtemp(prefix="test_bootstrap_internals."))
     try:
         for case in (glob_order, workspace_settings_not_an_object, role_command_dry_run, agent_files_failure,
                      commands_unreadable,
-                     checkout_among_working_copies, work_tree_answer, user_manager, relay_holder):
+                     checkout_among_working_copies, work_tree_answer, user_manager, relay_holder, journal_bound):
             case(T)
     finally:
         shutil.rmtree(T, ignore_errors=True)

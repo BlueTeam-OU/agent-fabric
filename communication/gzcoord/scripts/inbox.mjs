@@ -607,6 +607,12 @@ export async function waitLoop({ fetchPage, ack, waitTotal, forMeFn = forMe, key
         const before = rec => Number.isFinite(firstHeld) && Number(rec.seq) < firstHeld;
         const passed = classified.filter(c => !c.isMine && before(c.rec));
         for (const rec of [...retired.filter(before), ...passed.map(c => c.rec)]) { try { await ack(rec.id); } catch { /* re-read next arm */ } }
+        // Acknowledged now, so never read again: a keyword among them is
+        // the exit reason here or nowhere (review of #78). The held records
+        // stay unacknowledged and come back on the next read.
+        const passedHit = passed.find(({ rec, msg }) => msg && keywordHit(rec.content, keywords, ownAddress))?.rec ?? null;
+        if (passedHit)
+          return { classified: passed, waited, delivered: false, keywordHit: passedHit, othersPassed: passed.length, journalFailed: kept.reason };
         // A bounded wait ends within its budget, the hold said; the watch
         // retries until the journal takes them.
         if (waitTotal === 0 || waited >= waitTotal)

@@ -94,16 +94,37 @@ def _git(*args: str) -> subprocess.CompletedProcess:
     return subprocess.run(["git", *args], capture_output=True, text=True, timeout=60)
 
 
-def staged_paths() -> list[str]:
-    """What this commit adds of its own. --no-renames, so a move out of a
-    path the entry excludes shows its source as a deletion; in a merge, what
-    the result changes over the merged-in side, as the locale carve-out
-    judges a fold of main."""
-    merge = _git("rev-parse", "-q", "--verify", "MERGE_HEAD").stdout.strip()
-    r = _git("diff", "--cached", "--name-only", "--no-renames", *([merge] if merge else []))
+def _merge_heads() -> list[str]:
+    path = _git("rev-parse", "--git-path", "MERGE_HEAD").stdout.strip()
+    try:
+        with open(path, encoding="utf-8") as f:
+            return [line.split()[0] for line in f if line.strip()]
+    except OSError:
+        return []
+
+
+def _changed_against(rev: str | None) -> set[str]:
+    r = _git("diff", "--cached", "--name-only", "--no-renames", *([rev] if rev else []))
     if r.returncode != 0:
         raise RuntimeError(f"git diff --cached failed: {r.stderr.strip()}")
-    return [p for p in r.stdout.splitlines() if p]
+    return {p for p in r.stdout.splitlines() if p}
+
+
+def staged_paths() -> list[str]:
+    """What this commit adds of its own. --no-renames, so a move out of a
+    path the entry excludes shows its source as a deletion. In a merge, what
+    the result changes over EVERY parent: a path equal to one parent's came
+    from that parent whole, and that commit was judged when it was made.
+    Judged over the merged-in side alone, a contributor branch that had
+    folded main and then merged an older branch of its own carried main's
+    changes as the contributor's, and was refused (python-dev-01, seq 10894)."""
+    merges = _merge_heads()
+    if not merges:
+        return sorted(_changed_against(None))
+    own = _changed_against("HEAD")
+    for rev in merges:
+        own &= _changed_against(rev)
+    return sorted(own)
 
 
 def committed_authority() -> str:
@@ -129,7 +150,10 @@ def hook(fabric_root: str, held: str) -> int:
     b = branch_problem(branch, login)
     if b:
         problems.append(b)
-    bad = outside(entry, staged_paths())
+    staged = staged_paths()
+    # A merge that adds nothing of its own (a clean fold) brings only
+    # commits already judged; an empty list is otherwise an amend.
+    bad = [] if not staged and _merge_heads() else outside(entry, staged)
     if bad:
         shown = " ".join(bad[:8]) + (f" … ({len(bad)} paths)" if len(bad) > 8 else "")
         problems.append(f"outside what {held} commits here: {shown}")

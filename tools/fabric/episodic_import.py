@@ -67,8 +67,11 @@ import relay  # noqa: E402
 # journals (tests/test_episodic_import.py holds this equal to its source).
 RETIRED_TYPES = ("HELLO", "GOODBYE")
 REPORT = "episodic-import.json"
-# When send.mjs began writing gzcoord-sent.jsonl (27f6db67, merged in #47):
-# a send of this agent's since then is in its ledger, or is not its own.
+# The earliest the ledger can have begun: when send.mjs began writing
+# gzcoord-sent.jsonl (27f6db67, merged in #47). An account that took that
+# send.mjs later has sends in between that its ledger lacks; they are
+# refused on purpose, because a FROM is only a claim and the window is short
+# (review of #84). A trimmed ledger begins at its watermark instead.
 LEDGER_EPOCH = datetime.datetime(2026, 9, 26, 16, 29, 25, tzinfo=datetime.timezone.utc)
 DECISIONS = ("outbound", "outbound_unverified", "outbound_same", "outbound_promoted", "outbound_conflict",
              "to_me", "to_role", "to_role_unresolved", "broadcast", "before_birth", "from_me_refused",
@@ -122,6 +125,17 @@ def role_at(spans: list, t: datetime.datetime) -> str | None:
             break
         held = role
     return held
+
+
+def ledger_watermark(path: str) -> datetime.datetime | None:
+    """The time before which a trimmed ledger no longer speaks: its first
+    line, {"trimmed_before": …}, written by send.mjs recordSent."""
+    try:
+        with open(path, encoding="utf-8") as fh:
+            first = json.loads(fh.readline() or "null")
+    except (OSError, ValueError):
+        return None
+    return _when(first.get("trimmed_before")) if isinstance(first, dict) else None
 
 
 def read_ledger(path: str) -> dict[str, list[dict]]:
@@ -188,12 +202,17 @@ class Importer:
         # A role-history line before birth is a reused login's earlier agent
         # (role-history.jsonl names no agent id): at birth no role is held.
         self.spans = [sp for sp in role_spans(os.path.join(state, "role-history.jsonl")) if sp[0] >= self.born]
-        self.ledger = read_ledger(os.path.join(state, "gzcoord-sent.jsonl"))
+        ledger = os.path.join(state, "gzcoord-sent.jsonl")
+        self.ledger = read_ledger(ledger)
         # The ledger began when send.mjs started writing it, for every
         # account at once, not at this account's first line: an account that
-        # has sent nothing yet, or whose ledger was trimmed, still began then.
+        # has sent nothing yet still began then. A trimmed one speaks only
+        # from its watermark: a send before it is unverified, never refused.
         firsts = [t for t in (_when(e.get("at")) for es in self.ledger.values() for e in es) if t is not None]
         self.ledger_from = min([*firsts, LEDGER_EPOCH])
+        mark = ledger_watermark(ledger)
+        if mark is not None:
+            self.ledger_from = max(self.ledger_from, mark)
         self.counts = dict.fromkeys(DECISIONS, 0)
         self.unresolved: list[dict] = []
         self.mismatch = {"not_in_ledger": [], "hash_differs": [], "seq_differs": []}

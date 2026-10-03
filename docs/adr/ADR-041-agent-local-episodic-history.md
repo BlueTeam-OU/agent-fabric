@@ -1,7 +1,8 @@
 # ADR-041 — Agent-local episodic history: exact messages kept above the transport
 
 **Date:** 2026-10-01
-**Status:** Proposed
+**Status:** Accepted
+**Ratified:** owner, 2026-10-01, by the merge of agent-fabric #78 (30c99471), which carried it, as §8 provided
 **Decision Makers:** the owner (the design, after a written review of what history the fleet keeps); drafted by fabric-coordinator
 **Scope:** `tools/fabric/episodic.py` (the journal), `tools/fabric/history.py` and `bin/fabric-history` (retrieval), the journal calls in `communication/gzcoord/scripts/send.mjs` and `inbox.mjs`, the per-agent `episodic.db` in the account's runtime state
 **Pillar:** P1
@@ -116,13 +117,17 @@ the case this is for.
 
 ## 8. Decision Status
 
-Proposed, in the pull request that carries it; accepted by the owner's
-merge of that pull request.
+Accepted and in force. Rule 9's import is `episodic.py gzcoord-import`,
+run once per account by bootstrap's last step and retried there until it
+has read every channel to its end.
 
 ## References
 
 - `tools/fabric/episodic.py`, `tests/test_episodic.py`,
   `docs/live-checks/2026-10-01-episodic-journal.md`.
+- `tools/fabric/episodic_import.py`, `tests/test_episodic_import.py`,
+  `docs/live-checks/2026-10-02-episodic-import.md`; the bootstrap step in
+  `tools/fabric/bootstrap.py`.
 - ADR-003 (per-agent state), ADR-013 (the memory model), ADR-033 (GZCoord's
   transports), ADR-034 (decentralization), ADR-036 (cost per verified
   result), ADR-039 (the agent id), ADR-040 (Python).

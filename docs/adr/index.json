@@ -374,7 +374,7 @@
       "number": "041",
       "file": "ADR-041-agent-local-episodic-history.md",
       "title": "Agent-local episodic history: exact messages kept above the transport",
-      "status": "Proposed",
+      "status": "Accepted",
       "date": "2026-10-01",
       "pillar": "P1",
       "amendments": 0
