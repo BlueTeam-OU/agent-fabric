@@ -3,8 +3,8 @@
 gates the managed projects put before the arming applied by the tool, not
 by memory (ADR-019's count rule; runtime/github/arm.sh is its shim, and
 the managed projects' tools/gh/arm.sh forward to that path). Ported from
-gzapp's tools/gh/arm.sh, whose test is the oracle (ADR-040 §5 rules 3–5);
-what was gzapp's own — the security-boundary paths and the classes that
+the first managed project's tools/gh/arm.sh, whose test is the oracle
+(ADR-040 §5 rules 3–5); what was that project's own — the security-boundary paths and the classes that
 arm under the floor without asking — is now the project's arm.json.
 
 CONTRACT, frozen from the bash (ADR-040 §5 rule 3):
@@ -31,7 +31,8 @@ this clone's remote as trial.json is (or AGENT_FABRIC_ARM_CONFIG):
   boundary.exempt   a regular expression for the files dropped BEFORE
                     the pattern is applied (documentation, tooling — a
                     wording PR on a privacy ADR says "regime" in its
-                    filename: gzapp #886 re-review, finding 1).
+                    filename: a managed project's PR #886, re-review
+                    finding 1).
   classes           {"<class>": "<regex every changed file must match>"}:
                     the classes the project lets arm under the floor
                     without the owner's word, stated in the PR body as
@@ -125,7 +126,7 @@ def say(msg: str) -> None:
 
 def has_owner_word(basis: str) -> bool:
     # A fixed phrase, not any sentence with "owner" in it ("the owner has
-    # not been asked yet" is not consent — gzapp #894 review): straight
+    # not been asked yet" is not consent — a managed project's PR #894 review): straight
     # or curly apostrophe.
     return re.search(r"owner('|’)s word", basis, re.I) is not None
 
@@ -299,12 +300,12 @@ def arm(argv: list[str]) -> int:
 
     # 4. the security boundary. The changed files come from the paginated
     # REST list, not `gh pr view --json files`, which stops at 100 — a
-    # boundary path past the 100th file would otherwise hide (gzapp #886
+    # boundary path past the 100th file would otherwise hide (a managed project's PR #886
     # review, pre-existing in gh).
     # A rename is judged by both of its names: a file moved OUT of a
     # boundary directory and edited on the way is a boundary change, and
     # GitHub names it by where it ended up (previous_filename is the
-    # other; review of this port, pre-existing in gzapp's bash).
+    # other; review of this port, pre-existing in the bash it was ported from).
     try:
         listed = gh.api(f"repos/{repo}/pulls/{num}/files?per_page=100", paginate=True)
         files = [f.get("filename", "") for f in listed]
@@ -343,7 +344,7 @@ def arm(argv: list[str]) -> int:
             if not any(isinstance(r, dict) and r.get("commit_sha8") == head[:8] for r in rows):
                 # An independent or automated review is not the boundary's
                 # review: the reader counts any non-author review object
-                # (gzapp #930 blind review, F1).
+                # (a managed project's PR #930 blind review, F1).
                 raise refuse(f"a security-boundary change with no review-class review of the current head: dispatch the"
                              f" review class on {head} and post with tools/gh/post-review.sh, then arm (an independent"
                              f" or automated review does not count here)")
@@ -369,7 +370,7 @@ def arm(argv: list[str]) -> int:
     if not isinstance(row, dict):
         raise Unanswered(f"pr-gate could not answer for #{num}")
     # A count that was never measured is not zero: commits_known=false
-    # when the head or the base is not in the local clone (gzapp #886
+    # when the head or the base is not in the local clone (a managed project's PR #886
     # review F2 — 0 read as "under 8" and armed).
     if row.get("commits_known") is not True:
         raise Unanswered(f"pr-gate could not count #{num}'s commits (head or base not in the clone — git fetch origin,"
@@ -415,7 +416,7 @@ def arm(argv: list[str]) -> int:
     except gh.GhError:
         raise Unanswered(f"gh pr merge --auto failed on #{num}") from None
     # A green PR goes STRAIGHT INTO THE QUEUE on arming, and a queued PR
-    # reads autoMergeRequest null — exactly like an unarmed one (gzapp
+    # reads autoMergeRequest null — exactly like an unarmed one (a managed project's PR
     # #881). So the read-back is the queue entry OR the arming.
     try:
         d = gh.graphql("query($o:String!,$n:String!,$num:Int!){repository(owner:$o,name:$n){pullRequest(number:$num)"
