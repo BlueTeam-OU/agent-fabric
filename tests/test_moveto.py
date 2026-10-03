@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Tests for runtime/provisioning/moveto/moveto.py's internals; the
-behaviour is runtime/provisioning/moveto/test_moveto.sh's, run unchanged
+behaviour is tests/test_moveto_cli.py's, run unchanged
 against the moveto shim (ADR-040 §5 rule 5). What is here is what that
 suite does not reach: the exec into the entering shell, a directory
 service that hangs, the shim run from an installed copy, and the details

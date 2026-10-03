@@ -154,7 +154,7 @@ presence is the control plane's (`docs/adr/ADR-030-presence-replaces-hello-and-g
 child the launcher waits on, not an exec, so it can bring the session
 back after an upgrade or an account move. The launch
 directory decides which settings scopes are fenced and which working copy
-the child starts in. It never decides who the agent is: `test_launch.sh`
+the child starts in. It never decides who the agent is: `tests/test_launch_cli.py`
 launches from a directory named for another agent with `USER` forged and
 checks the label still reads this login.
 
@@ -176,8 +176,8 @@ under it is reported as DRIFT by `bin/fabric-status`, never applied.
   use claude's short form, `-p "prompt"`, which passes through.
 - `model-audit.sh` — what is the current session actually routed through,
   and how to read back the served model.
-- `test_launch.sh` — the behavioural suite for the launcher and the audit
-  (`bash policies/run_suite.sh runtime/openrouter/test_launch.sh`), the
+- `tests/test_launch_cli.py` — the behavioural suite for the launcher and the audit
+  (`fabric-python tests/test_launch_cli.py`), the
   port's parity oracle; the module's internals are `tests/test_launch.py`,
   and `tests/parity/launch_print.py` compares `--print` with the bash's,
   byte for byte, for every role and provider.

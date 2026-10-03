@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Tests for tools/fabric/github/pr_review_status.py's internals; the behaviour
-is runtime/github/test_pr-review-status.sh's, run unchanged against the shim
+is tests/test_pr_review_status_cli.py's, run against the shim
 (ADR-040 §5 rule 5). What the fixtures there reach only through a whole run is
 checked here directly: the duration table and its octal reading, the regex
 dialect bridge, what counts as coverage, the ordering of a decline against a

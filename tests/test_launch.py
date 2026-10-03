@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Tests for tools/fabric/launch.py's internals; the behaviour is
-runtime/openrouter/test_launch.sh's, run unchanged against the
+tests/test_launch_cli.py's, run against the
 runtime/openrouter/launch shim (ADR-040 §5 rule 5). What is here is what
 that suite cannot reach: the paths that only crash or hang, the signal
 handling around the session, the relaunch's environment, and the shim's

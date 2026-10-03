@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Tests for tools/fabric/new_agent.py and new_agent_worker.py; the
-behaviour is runtime/provisioning/test_new-agent.sh's, run against the
+behaviour is tests/test_new_agent_cli.py's, run against the
 new-agent.sh shim and the new-agent-worker.sh step-runner (ADR-040 §5 rule
 5). What is here is what that suite does not reach: the worker's
 argument quirks, each decision on its own (the claude version, the

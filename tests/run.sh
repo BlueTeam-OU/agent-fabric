@@ -73,7 +73,6 @@ if [[ "$what" == all || "$what" == bash ]]; then
     # first (docs/live-checks/2026-10-01-guard-shadowing.md).
     run ".agent-fabric/ authority (this branch)" env AGENT_FABRIC_CHARTER_BASE=origin/main bash policies/check_agent_fabric_dir_authority.sh
     run "charter authority (this branch)" env AGENT_FABRIC_CHARTER_BASE=origin/main bash policies/check_charter_authority.sh
-    run "launcher" bash policies/run_suite.sh runtime/openrouter/test_launch.sh
     run ".agent-fabric/ authority guard" bash policies/run_suite.sh policies/test_check_agent_fabric_dir_authority.sh
     run "no-model-pins guard" bash policies/run_suite.sh policies/test_check_repo_settings_carry_no_model_pins.sh
     run "actions pinned by SHA (this tree)" python3 policies/check_actions_pinned_by_sha.py
@@ -81,8 +80,6 @@ if [[ "$what" == all || "$what" == bash ]]; then
     run "decision-record amendments (this branch)" env AGENT_FABRIC_ADR_BASE=origin/main bash policies/check_adr_amendment.sh
     run "leak check (what a run left behind)" bash tests/test_leak-check.sh
     run "status line" bash runtime/claude-code/hooks/test_statusline.sh
-    run "new-agent (the sequence, its refusals, a failure at each step)" bash runtime/provisioning/test_new-agent.sh
-    run "account persistence (the Qubes boot script, the snapshot writer)" bash runtime/provisioning/platform/test_qubes-accounts.sh
     run "language identification (the detector venv)" bash runtime/langid/test_install.sh
     run "review bash guard" bash runtime/claude-code/hooks/test_review-bash-guard.sh
     run "subagent clone guard" bash runtime/claude-code/hooks/test_subagent-clone-guard.sh
@@ -92,13 +89,7 @@ if [[ "$what" == all || "$what" == bash ]]; then
     run "model fallback note" bash runtime/claude-code/hooks/test_model-fallback-note.sh
     run "install-agent-files (the locale worker)" bash runtime/claude-code/test_install-agent-files.sh
     run "the fabric's user settings (attribution off, thinking summaries, verbose)" bash runtime/claude-code/test_user-settings.sh
-    run "moveto" bash runtime/provisioning/moveto/test_moveto.sh
     run "hostexec (local and ssh backends)" bash runtime/hostexec/test_hostexec.sh
-    run "store-enroll (a parent keys an account on another host)" bash runtime/provisioning/secrets/test_store-enroll.sh
-    run "github pr-reply" bash runtime/github/test_pr-reply.sh
-    run "github pr-sessions" bash runtime/github/test_pr-sessions.sh
-    run "github pr-review-status" bash runtime/github/test_pr-review-status.sh
-    run "github pr-gate (the count rule, the verdict)" bash runtime/github/test_pr-gate.sh
 fi
 
 echo
