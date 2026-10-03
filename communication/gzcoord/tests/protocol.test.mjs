@@ -1930,7 +1930,8 @@ test('a trimmed sent ledger starts with one watermark, the oldest kept entry\'s 
   const at = i => new Date(Date.UTC(2026, 9, 1) + i * 1000).toISOString();
   for (let i = 0; i < 9; i++) recordSent(ledger, { id: `m-${i}`, sha256: `h${i}`, seq: i, at: at(i) }, 3);
   assert.ok(!fs.readFileSync(ledger, 'utf8').includes('trimmed_before'), 'under the bound: no trim, no mark');
-  for (let i = 9; i < 1012; i++) recordSent(ledger, { id: `m-${i}`, sha256: `h${i}`, seq: i, at: at(i) }, 3);
+  // Past keep + 1000 twice: the second trim must carry the first mark away.
+  for (let i = 9; i < 2020; i++) recordSent(ledger, { id: `m-${i}`, sha256: `h${i}`, seq: i, at: at(i) }, 3);
   const lines = fs.readFileSync(ledger, 'utf8').split('\n').filter(Boolean);
   const marks = lines.filter(l => l.includes('trimmed_before'));
   assert.equal(marks.length, 1, 'one watermark, however many trims');

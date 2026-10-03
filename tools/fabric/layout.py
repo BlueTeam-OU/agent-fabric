@@ -33,10 +33,10 @@ access, and leaves this repository plainly Apache-2.0.
 (policies/AUTHORITY.md): the drain writes it, every other role reads it.
 
 The working copy for a project comes from, in order: an explicit
-`set_working_copy()` (a tool's --working-copy), `$AGENT_FABRIC_WORKING_COPY`,
-the agent's runtime binding (the session-start hook records the working copy
-it started in), and — for agent-fabric as a managed project of its own —
-this checkout. Links written into a project's INDEX.md are relative to the
+`set_working_copy()` (a tool's --working-copy); for agent-fabric as a managed
+project of its own, this checkout, whatever else names another; then
+`$AGENT_FABRIC_WORKING_COPY`, and the agent's runtime binding (the
+session-start hook records the working copy it started in). Links written into a project's INDEX.md are relative to the
 working copy root; a fabric-side slice (charter, domain, memory/shared) is
 linked as `../agent-fabric/<path>`, the sibling-checkout layout every
 adapter already assumes.
