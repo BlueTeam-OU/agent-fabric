@@ -46,9 +46,13 @@ def main() -> int:
         check("the line names what went, and no value", "~/.doppler" in p.stdout and "fixture" not in p.stdout, p.stdout)
         p = subprocess.run([sys.executable, TOOL], env=env, capture_output=True, text=True)
         check("a second run is silent: nothing left to remove", p.returncode == 0 and p.stdout == "", p.stdout)
-    boot = open(os.path.join(HERE, "runtime", "claude-code", "bootstrap.sh"), encoding="utf-8").read()
+    # bootstrap is Python behind its shim since its port (ADR-040 section 5
+    # rule 5: a case that reads the source reads the module). Its own oracle,
+    # tests/test_bootstrap_cli.py, runs the failure end to end.
+    boot = open(os.path.join(HERE, "tools", "fabric", "bootstrap.py"), encoding="utf-8").read()
+    step = boot.split("def retire_doppler(", 1)[-1].split("\ndef ", 1)[0]
     check("bootstrap runs it, and a failure counts as not written",
-          'retire-doppler.py" "${dry_arg[@]}" || failed=$((failed+1))' in boot)
+          '"runtime/claude-code/retire-doppler.py"' in step and "self.failed += 1" in step, step[:300])
     print(f"\n{'FAILED' if fails else 'all passed'}")
     return 1 if fails else 0
 

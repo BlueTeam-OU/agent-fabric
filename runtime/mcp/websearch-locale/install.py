@@ -20,6 +20,13 @@ the fabric did, in permissions.deny's sibling marker
 "WebSearch" the login denied itself (no marker). Prints one line in the
 installer's shape (+ = -) and exits 0. Both files are Claude Code's own:
 every other key is kept as read.
+
+A file that is not JSON is the login's to fix, and is left alone: one
+line on stderr, then exit 0 for `remove` and `allow-websearch` (nothing
+of the fabric's can be in force in a file the harness cannot read
+either) and 1 for `set` and `deny-websearch` (theirs is not written).
+It once raised here, and bootstrap ended in a traceback before the user
+settings' own writer could refuse the file.
 """
 from __future__ import annotations
 
@@ -64,7 +71,13 @@ def main(argv: list[str]) -> int:
         print(__doc__, file=sys.stderr)
         return 2
     path, op = argv[0], argv[1]
-    data = load(path)
+    try:
+        data = load(path)
+    except (ValueError, UnicodeDecodeError) as e:
+        undo = op in ("remove", "allow-websearch")
+        print(f"  !  {path}: not JSON ({type(e).__name__}); left alone, "
+              + ("nothing of the fabric's to remove" if undo else "nothing written"), file=sys.stderr)
+        return 0 if undo else 1
     servers = data.get("mcpServers") if isinstance(data.get("mcpServers"), dict) else {}
     current = servers.get(NAME)
     if op == "set":

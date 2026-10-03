@@ -25,6 +25,11 @@ fabric-coordinator by GZCoord when it is ready; it folds the branch
 unrebased into its own pull request, the blind review covers it, a
 finding on your hunks comes back to you, and it merges (ADR-018 §5
 rule 8). The hooks refuse anything outside the entry; so does CI.
+The branch lives in a worktree of its own,
+`git worktree add ~/projects/agent-fabric-<what> <branch>`, never in
+`~/projects/agent-fabric`: that checkout stays on main, because your
+launcher, hooks, prompt and routing run from it, and the launcher
+refuses to start from one that is behind origin/main (2026-10-02).
 
 **The work.** The port of the fabric's bash, wave by wave (ADR-040):
 freeze the contract in the module's header, keep the old path as a

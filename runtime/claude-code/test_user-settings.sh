@@ -88,9 +88,10 @@ msg="$(check "p=d['hooks']['PostToolUse']; assert p[0]=='odd' and any(e!='odd' a
   && ok "an unparseable entry in the list is kept as it is" || bad "odd entry" "$out ${msg:-} $(cat "$S")"
 
 echo "bootstrap runs it"
-grep -q 'user-settings.py" "\$CLAUDE_HOME/settings.json"' "$HERE/bootstrap.sh" && ok "bootstrap.sh calls it on the login's user settings" || bad "bootstrap wiring"
-grep -q 'attribution-off' "$HERE/bootstrap.sh" && bad "bootstrap.sh still names the retired writer" || ok "the retired name is gone from bootstrap.sh"
-grep -q 'failed=\$((failed+1))' "$HERE/bootstrap.sh" && ok "a refused write is counted, not read as already current" || bad "bootstrap accounting"
+BOOT="$HERE/../../tools/fabric/bootstrap.py"   # Python behind bootstrap.sh's shim (ADR-040 s5 rule 5)
+grep -q '"runtime/claude-code/user-settings.py", path' "$BOOT" && ok "bootstrap calls it on the login's user settings" || bad "bootstrap wiring"
+grep -q 'attribution-off' "$BOOT" && bad "bootstrap still names the retired writer" || ok "the retired name is gone from bootstrap"
+grep -q 'self.failed += 1' "$BOOT" && ok "a refused write is counted, not read as already current" || bad "bootstrap accounting"
 
 echo "a flag is never a path"
 cd "$SANDBOX" || exit 1
