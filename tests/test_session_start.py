@@ -304,6 +304,7 @@ def test_bootstrap_restarts_the_control_agent_unless_its_caller_is_the_control_a
             env = {**os.environ, "HOME": home, "AGENT_FABRIC_STATE_DIR": os.path.join(tmp, f"state-{defer}"),
                    "XDG_RUNTIME_DIR": runtime_dir, "PATH": bindir + os.pathsep + os.environ["PATH"]}
             env.pop("CLAUDE_CONFIG_DIR", None)
+            env.pop("AGENT_FABRIC_LOCAL_BIN", None)  # else the command links go to a real directory
             # The units follow XDG_CONFIG_HOME, which a CI runner sets to its
             # real config directory: the scratch home's is the one under test.
             env["XDG_CONFIG_HOME"] = os.path.join(home, ".config")
@@ -330,6 +331,7 @@ def test_bootstrap_writes_only_the_workspace_and_home_files(tmp: str) -> None:
     runtime_dir = os.path.join(tmp, "run"); os.makedirs(runtime_dir)
     env = {**os.environ, "HOME": home, "AGENT_FABRIC_STATE_DIR": os.path.join(tmp, "state"), "XDG_RUNTIME_DIR": runtime_dir}
     env.pop("CLAUDE_CONFIG_DIR", None)
+    env.pop("AGENT_FABRIC_LOCAL_BIN", None)  # else the command links go to a real directory
     # The units follow XDG_CONFIG_HOME, which a CI runner sets to its real
     # config directory: the scratch home's is the one under test.
     env["XDG_CONFIG_HOME"] = os.path.join(home, ".config")
