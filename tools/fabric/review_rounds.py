@@ -133,8 +133,12 @@ def next_request(request_path: str, report: str, head: str | None, keep_lenses: 
                  allow_rationale: bool = False) -> tuple[str, dict, str]:
     with open(request_path, encoding="utf-8") as f:
         req = review_brief.parse_request(f.read())
-    if not req.get("range"):
-        raise Refused(f"{request_path} has no range: a re-review follows a ranged review")
+    problems = review_brief.validate(req)
+    if problems or not req.get("range"):
+        # Validated before the range is split: a range with no `..` raised
+        # IndexError, a traceback where a refusal belongs (review of #89).
+        raise Refused(f"{request_path} is not a ranged request that validates: "
+                      + ("; ".join(problems) if problems else "a re-review follows a ranged review"))
     repo_dir = req["repository"]
     prev = req["range"].split("..", 1)[1]
     # A symbolic head (HEAD, a remote-tracking ref) resolves to where it is

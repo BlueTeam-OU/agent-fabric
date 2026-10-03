@@ -135,6 +135,12 @@ def main() -> int:
         r = run("next", verdict, "--report", report2, "--allow-rationale")
         check("…and --allow-rationale passes through to the render",
               r.returncode == 0 and os.path.exists(os.path.join(tmp, "scratch", "VERDICT-rr2.json")), r.stderr)
+        bad = os.path.join(tmp, "scratch", "BAD.yaml")
+        with open(bad, "w") as f:
+            f.write(open(req).read().replace(f"range: {base[:12]}..{head1[:12]}", "range: HEAD"))
+        r = run("next", bad, "--report", report2)
+        check("a source request whose range does not validate: one line, exit 1, no traceback (review of #89)",
+              r.returncode == 1 and "Traceback" not in r.stderr and "range" in r.stderr, r.stderr)
         r = run("next", req, "--pr", "8")
         check("a PR with no saved round is refused, naming save", r.returncode == 1 and "fabric-review save" in r.stderr,
               r.stderr)
