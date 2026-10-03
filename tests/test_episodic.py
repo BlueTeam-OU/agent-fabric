@@ -65,6 +65,11 @@ def main() -> int:
         ep.out_pending(conn, msg("m-2"))
         check("a failed send retried is the same row, pending again",
               conn.execute("SELECT state, count(*) FROM episodes WHERE message_id='m-2'").fetchone() == ("pending", 1))
+        check("an attempt over a row it made fresh, or over a failed one, owns its outcome",
+              ep.out_attempt(conn, msg("m-4"))[1] is False and ep.out_final(conn, "m-4", "failed") is None
+              and ep.out_attempt(conn, msg("m-4"))[1] is False)
+        check("an attempt over a row still pending says the earlier outcome is unknown (review of #78)",
+              ep.out_attempt(conn, msg("m-4"))[1] is True)
         ep.out_final(conn, "m-1", "failed")
         check("a retransmission that fails leaves the accepted copy accepted (review of #78)",
               conn.execute("SELECT state, carrier_seq FROM episodes WHERE message_id='m-1'").fetchone()

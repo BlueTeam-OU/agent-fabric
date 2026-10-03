@@ -3,7 +3,9 @@
 ADR-041): the exact GZCoord messages it sent and was addressed, written at
 the moment they cross the carrier, in its own runtime state.
 
-    episodic.py gzcoord-out-pending [--project P] [--working-copy W]   message on stdin
+    episodic.py gzcoord-out-pending [--project P] [--working-copy W]   message on stdin;
+                                            prints pending, or unknown when an earlier
+                                            attempt's outcome was never written
     episodic.py gzcoord-out-final MESSAGE-ID --state accepted|failed [--seq N] [--carrier C]
     episodic.py gzcoord-in [--carrier C] [--project P] [--working-copy W]
                                             JSON lines on stdin: {"content", "seq", "ts"}
@@ -211,6 +213,16 @@ def _row(conn: sqlite3.Connection, direction: str, message_id: str):
 
 def out_pending(conn: sqlite3.Connection, text: str, project: str | None = None, working_copy: str | None = None) -> str:
     """The outbound row, before the carrier sees the message. Its id."""
+    return out_attempt(conn, text, project, working_copy)[0]
+
+
+def out_attempt(conn: sqlite3.Connection, text: str, project: str | None = None,
+                working_copy: str | None = None) -> tuple[str, bool]:
+    """out_pending, and whether an earlier attempt's outcome is unknown: the
+    row was already pending, so a send died between its post and its
+    out_final and may have reached the carrier. A failure of THIS attempt
+    then says nothing about that one, and the caller leaves the row pending
+    rather than mark failed a message the carrier may hold (review of #78)."""
     mtype, meta = parse_header(text)
     if not meta.get("MESSAGE-ID"):
         raise JournalError("the message has no MESSAGE-ID")
@@ -225,7 +237,7 @@ def out_pending(conn: sqlite3.Connection, text: str, project: str | None = None,
             if row[2] == "failed":
                 conn.execute("UPDATE episodes SET state='pending', recorded_at=? WHERE id=?", (now(), row[0]))
             conn.execute("COMMIT")
-            return row[0]
+            return row[0], row[2] == "pending"
         eid = str(uuid.uuid4())
         conn.execute("INSERT INTO episodes (id, source, direction, state, happened_at, recorded_at, project, "
                      "working_copy, message_id, in_reply_to, type, sender, content, content_hash, metadata_json) "
@@ -233,7 +245,7 @@ def out_pending(conn: sqlite3.Connection, text: str, project: str | None = None,
                      (eid, SOURCE, now(), now(), project, working_copy, mid, meta.get("IN-REPLY-TO"), mtype,
                       meta.get("FROM"), text, h, json.dumps(meta, sort_keys=True)))
         conn.execute("COMMIT")
-        return eid
+        return eid, False
     except BaseException:
         conn.execute("ROLLBACK")
         raise
@@ -335,8 +347,10 @@ def main(argv: list[str]) -> int:
         project, wc = _flag(argv, "--project"), _flag(argv, "--working-copy")
         carrier = _flag(argv, "--carrier") or DEFAULT_CARRIER
         if cmd == "gzcoord-out-pending":
-            conn = connect()
-            out_pending(conn, sys.stdin.read(), project, wc)
+            # One word on stdout: "unknown" when an earlier attempt of this
+            # message may have reached the carrier, else "pending".
+            _, unknown = out_attempt(connect(), sys.stdin.read(), project, wc)
+            print("unknown" if unknown else "pending")
             return 0
         if cmd == "gzcoord-out-final":
             if len(argv) < 2 or _flag(argv, "--state") is None:

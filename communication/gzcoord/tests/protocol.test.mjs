@@ -1094,6 +1094,24 @@ test('a post the relay refuses leaves the journal row failed, not accepted', asy
   } finally { server.closeAllConnections(); server.close(); }
 });
 
+test('a failed retransmission leaves a row pending whose earlier outcome was never written (review of #78)', async () => {
+  const server = http.createServer((req, res) => { res.statusCode = 500; res.end('{}'); });
+  await new Promise(r => server.listen(0, '127.0.0.1', r));
+  try {
+    const state = path.join(scratch('send-journal-unknown-'), 'state'); const store = idStore();
+    const env = { ...process.env, AGENT_FABRIC_STATE_DIR: state, AGENT_FABRIC_SECRET_STORE: store };
+    // An earlier send that died after its post: a pending row and no outcome.
+    const py = process.env.AGENT_FABRIC_PYTHON || '/usr/local/bin/fabric-python';
+    const first = spawnSync(py, [fileURLToPath(new URL('../../../tools/fabric/episodic.py', import.meta.url)), 'gzcoord-out-pending'],
+      { encoding: 'utf8', env, input: valid });
+    assert.deepEqual([first.status, first.stdout.trim()], [0, 'pending'], first.stderr);
+    const r = await sendWith(`http://127.0.0.1:${server.address().port}`, valid, [], { AGENT_FABRIC_STATE_DIR: state, AGENT_FABRIC_SECRET_STORE: store });
+    assert.equal(r.code, 3, r.err);
+    assert.match(r.err, /may have reached the relay; its row stays pending/);
+    assert.deepEqual(journalRows(state, store).map(x => x.slice(0, 3)), [['outbound', 'pending', '01a09fc1-0000-7000-8000-000000000001']]);
+  } finally { server.closeAllConnections(); server.close(); }
+});
+
 // A message with no MESSAGE-ID gets one from the sender, written into the
 // file before it posts, so a retry of the same file carries the same id
 // (SPEC §7.2) — and the command on screen is the message that goes out.

@@ -272,10 +272,11 @@ export async function main(argv = process.argv.slice(2)) {
   }
   if (!tok) { console.error(t('send.no-token')); return 3; }
   const where = [...(who.project ? ['--project', who.project] : []), ...(who.working_copy ? ['--working-copy', who.working_copy] : [])];
+  let kept = null;
   if (journalOff(process.env)) {
     process.stderr.write('episodic: GZCOORD_JOURNAL=off — this message is sent without being kept in your journal (ADR-041)\n');
   } else {
-    const kept = journal(['gzcoord-out-pending', ...where], text);
+    kept = journal(['gzcoord-out-pending', ...where], text);
     if (kept.status !== 0) {
       process.stderr.write(kept.stderr || `episodic: the journal did not answer (${kept.signal ?? `exit ${kept.status}`})\n`);
       process.stderr.write('episodic: not sent: a message is kept before it leaves (ADR-041); GZCOORD_JOURNAL=off sends without it\n');
@@ -295,9 +296,16 @@ export async function main(argv = process.argv.slice(2)) {
   } catch (e) {
     // The pending row becomes a failed one: kept, and hidden from recall
     // unless asked; a retry with the same id makes it pending again.
+    // Unless an earlier attempt's outcome was never written: that one may
+    // have reached the relay, and this failure says nothing about it, so
+    // the row stays pending (review of #78).
     if (!journalOff(process.env)) {
-      const done = journal(['gzcoord-out-final', id, '--state', 'failed'], '');
-      if (done.status !== 0) process.stderr.write(done.stderr);
+      if (String(kept?.stdout ?? '').trim() === 'unknown') {
+        process.stderr.write('episodic: an earlier attempt of this message may have reached the relay; its row stays pending\n');
+      } else {
+        const done = journal(['gzcoord-out-final', id, '--state', 'failed'], '');
+        if (done.status !== 0) process.stderr.write(done.stderr);
+      }
     }
     if (e.status === 401 || e.status === 403) { console.error(t('send.token-refused', { status: e.status })); return 3; }
     console.error(t('send.relay-unreachable', { relay_url: relayUrl, detail: e.message })); return 3;
