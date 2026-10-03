@@ -56,18 +56,22 @@ test('usage: the two windows through the account\'s own token, which goes into o
   assert.deepEqual(await usage(h, fetchOk), { status: 'no-credentials' });
 });
 
-test('signing key secret: asked of the key git signs with, never a count of secret keys', () => {
+test('signing key secret: asked of the key git signs with, a usable signing key, never a count', async () => {
   const asked = [];
-  const exec = (secretHeld, key = 'ABCDEF0123456789') => (cmd, args) => {
+  const KEY = 'ABCDEF0123456789';
+  const usable = `sec:u:255:22:${KEY}:1:::::::scSC:::+:::23::0:\nssb:u:255:22:0448AC70CD742422:1::::::s:::+:::23:\n`;
+  const stub = `sec:u:255:22:${KEY}:1:::::::cC:::#:::23::0:\nssb:u:255:22:0448AC70CD742422:1::::::s:::#:::23:\n`;
+  const exec = (listing, key = KEY) => async (cmd, args) => {
     asked.push([cmd, ...args].join(' '));
-    if (cmd === 'git') { if (!key) throw new Error('exit 1'); return key + '\n'; }
-    if (cmd === 'gpg' && secretHeld) return '';
+    if (cmd === 'git') { if (!key) throw new Error('exit 1'); return { stdout: key + '\n' }; }
+    if (cmd === 'gpg' && listing !== null) return { stdout: listing };
     throw new Error('gpg: error reading key: No secret key');
   };
-  assert.deepEqual(signingSecret(exec(true)), { name: SIGNING_ROW, present: true });
-  assert.ok(asked.includes('gpg --list-secret-keys -- ABCDEF0123456789'), asked.join('; '));
-  assert.deepEqual(signingSecret(exec(false)), { name: SIGNING_ROW, present: false }, 'the store key alone is not it');
-  assert.deepEqual(signingSecret(exec(true, '')), { name: SIGNING_ROW, present: false }, 'no signing key configured');
+  assert.deepEqual(await signingSecret(exec(usable)), { name: SIGNING_ROW, present: true });
+  assert.ok(asked.includes(`gpg --list-secret-keys --with-colons -- ${KEY}`), asked.join('; '));
+  assert.deepEqual(await signingSecret(exec(null)), { name: SIGNING_ROW, present: false }, 'the store key alone is not it');
+  assert.deepEqual(await signingSecret(exec(stub)), { name: SIGNING_ROW, present: false }, 'a stub cannot sign');
+  assert.deepEqual(await signingSecret(exec(usable, '')), { name: SIGNING_ROW, present: false }, 'no signing key configured');
 });
 
 test('keys: names and twelve-digit fingerprints, never a value; an absent key says so', () => {
@@ -311,6 +315,9 @@ test('collect: status is every section, a single op its own, and a failing secti
   assertNoSecret(all);
   const one = await collect('keys', ctx);
   assert.deepEqual(Object.keys(one), ['keys']);
+  // ctx.exec throws: the probe reads absent and never reaches a real git or
+  // gpg (review of #89: the keyring of whoever runs the suite).
+  assert.deepEqual(one.keys.at(-1), { name: SIGNING_ROW, present: false });
   assert.ok(OPS.includes('ping') && OPS.includes('status') && OPS.includes('memory'));
   assert.ok(!('memory' in all), 'a drain is asked for, never part of status');
   const mem = await collect('memory', { home: h, exec: () => { throw new Error('never runs'); } });
