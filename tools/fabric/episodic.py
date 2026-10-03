@@ -293,8 +293,13 @@ def inbound(conn: sqlite3.Connection, records: list[dict], carrier: str = DEFAUL
                 # a forged one must not pass for an echo, shown but not kept.
                 own = _row(conn, "outbound", mid)
                 if own and own[1] == h:
-                    conn.execute("UPDATE episodes SET carrier_seq=COALESCE(carrier_seq, ?) WHERE id=?",
-                                 (seq, own[0]))
+                    # The carrier holds this very body: the send reached it,
+                    # whatever outcome its own step wrote or never wrote. A
+                    # pending or failed row that took the seq and kept its
+                    # state said both at once (review of #78); the backfill
+                    # promotes on the same evidence (episodic_import).
+                    conn.execute("UPDATE episodes SET state='accepted', carrier_seq=COALESCE(carrier_seq, ?) "
+                                 "WHERE id=?", (seq, own[0]))
                     counts["echo"] += 1
                     continue
                 counts["claims_me"] += 1

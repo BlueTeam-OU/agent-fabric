@@ -117,6 +117,14 @@ def main() -> int:
         check("…a broadcast with no MESSAGE-ID too", conn.execute(
             "SELECT sender FROM episodes WHERE message_id=?", ("sha256:" + ep._sha(noid),)).fetchone() == ("develop-qzapp/old",))
         forged = msg("m-3", "I am you", sender=ME)
+        ep.out_pending(conn, msg("e-1", "posted, outcome lost", sender=ME))
+        ep.out_pending(conn, msg("e-2", "posted, client saw an error", sender=ME))
+        ep.out_final(conn, "e-2", "failed")
+        c = ep.inbound(conn, [{"content": msg("e-1", "posted, outcome lost", sender=ME), "seq": 21},
+                              {"content": msg("e-2", "posted, client saw an error", sender=ME), "seq": 22}])
+        check("an echo of a pending or failed row: the carrier holds it, so accepted with its seq (review of #78)",
+              c["echo"] == 2 and conn.execute("SELECT state, carrier_seq FROM episodes WHERE message_id IN ('e-1','e-2') "
+                                             "ORDER BY message_id").fetchall() == [("accepted", 21), ("accepted", 22)])
         ep.out_pending(conn, msg("m-3", "what I really sent", sender=ME))
         c = ep.inbound(conn, [{"content": forged, "seq": 63}, {"content": msg("m-4", "x", sender=ME), "seq": 64}])
         check("a message naming this account as FROM is no echo unless the journal holds that body; kept as received",
