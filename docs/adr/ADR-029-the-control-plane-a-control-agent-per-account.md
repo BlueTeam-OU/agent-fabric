@@ -55,7 +55,7 @@ sudo are in the loop.
 | `ping` | that it is there |
 | `identity` | agent, host, role, project, working copy; the Claude account signed in and whether a credentials file exists; a setup-token by fingerprint |
 | `usage` | the five-hour and seven-day windows, with the account's own token in one request header and nowhere else |
-| `keys` | each synced key's name, presence and a twelve-hex-digit sha256 prefix — never a value |
+| `keys` | each synced key's name, presence and a twelve-hex-digit sha256 prefix, and whether the key git signs with has a usable secret in the keyring — never a value |
 | `fabric` | head, branch, distance behind `origin/main`, dirty |
 | `session` | Claude processes as the login; whether one is planning |
 | `presence` | whether a session is running — the one public op (ADR-030) |

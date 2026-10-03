@@ -8,7 +8,7 @@ import crypto from 'node:crypto';
 import zlib from 'node:zlib';
 import { execFileSync } from 'node:child_process';
 import { scratch } from '../../../tests/scratch.mjs';
-import { identity, usage, keys, fabric, session, host, script, recall, recallKind, scriptCounts, notesDir, workerTranscripts, languages, langidCmd, memoryDirs, memorySlug, memory, tokens, equivalent, TOKEN_RATIOS, collect, KEY_NAMES, OPS, MEMORY_PART_BYTES, accounts, readAccount, parseUsageReport, accountsDir, accountSlugs, takeReadLock, presence } from '../ops.mjs';
+import { identity, usage, keys, fabric, session, host, script, recall, recallKind, scriptCounts, notesDir, workerTranscripts, languages, langidCmd, memoryDirs, memorySlug, memory, tokens, equivalent, TOKEN_RATIOS, collect, KEY_NAMES, OPS, MEMORY_PART_BYTES, accounts, readAccount, parseUsageReport, accountsDir, accountSlugs, takeReadLock, presence, signingSecret, SIGNING_ROW } from '../ops.mjs';
 // A fence for any presence() a test forgets to give a hold: never the
 // runner's own ~/.cache/agent-fabric/hold (review of #49).
 process.env.AGENT_FABRIC_HOLD_DIR = scratch('ops-hold-');
@@ -54,6 +54,24 @@ test('usage: the two windows through the account\'s own token, which goes into o
   assert.deepEqual(await usage(h, async () => ({ ok: true, status: 200, json: async () => { throw new Error('bad json'); } })), { status: 'unreadable' });
   fs.unlinkSync(path.join(h, '.claude', '.credentials.json'));
   assert.deepEqual(await usage(h, fetchOk), { status: 'no-credentials' });
+});
+
+test('signing key secret: asked of the key git signs with, a usable signing key, never a count', async () => {
+  const asked = [];
+  const KEY = 'ABCDEF0123456789';
+  const usable = `sec:u:255:22:${KEY}:1:::::::scSC:::+:::23::0:\nssb:u:255:22:0448AC70CD742422:1::::::s:::+:::23:\n`;
+  const stub = `sec:u:255:22:${KEY}:1:::::::cC:::#:::23::0:\nssb:u:255:22:0448AC70CD742422:1::::::s:::#:::23:\n`;
+  const exec = (listing, key = KEY) => async (cmd, args) => {
+    asked.push([cmd, ...args].join(' '));
+    if (cmd === 'git') { if (!key) throw new Error('exit 1'); return { stdout: key + '\n' }; }
+    if (cmd === 'gpg' && listing !== null) return { stdout: listing };
+    throw new Error('gpg: error reading key: No secret key');
+  };
+  assert.deepEqual(await signingSecret(exec(usable)), { name: SIGNING_ROW, present: true });
+  assert.ok(asked.includes(`gpg --list-secret-keys --with-colons -- ${KEY}`), asked.join('; '));
+  assert.deepEqual(await signingSecret(exec(null)), { name: SIGNING_ROW, present: false }, 'the store key alone is not it');
+  assert.deepEqual(await signingSecret(exec(stub)), { name: SIGNING_ROW, present: false }, 'a stub cannot sign');
+  assert.deepEqual(await signingSecret(exec(usable, '')), { name: SIGNING_ROW, present: false }, 'no signing key configured');
 });
 
 test('keys: names and twelve-digit fingerprints, never a value; an absent key says so', () => {
@@ -297,6 +315,9 @@ test('collect: status is every section, a single op its own, and a failing secti
   assertNoSecret(all);
   const one = await collect('keys', ctx);
   assert.deepEqual(Object.keys(one), ['keys']);
+  // ctx.exec throws: the probe reads absent and never reaches a real git or
+  // gpg (review of #89: the keyring of whoever runs the suite).
+  assert.deepEqual(one.keys.at(-1), { name: SIGNING_ROW, present: false });
   assert.ok(OPS.includes('ping') && OPS.includes('status') && OPS.includes('memory'));
   assert.ok(!('memory' in all), 'a drain is asked for, never part of status');
   const mem = await collect('memory', { home: h, exec: () => { throw new Error('never runs'); } });

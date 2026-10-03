@@ -21,6 +21,8 @@
         "runtime/control/",
         "runtime/hostexec/",
         "projects/gzapp/integration/gh/",
+        "communication/gzcoord/scripts/",
+        "communication/gzcoord/tests/",
         "policies/bash-allowlist.json"
       ],
       "excluding": [
@@ -52,7 +54,64 @@
         "tools/fabric/relay.py",
         "tools/fabric/history.py",
         "bin/fabric-history",
-        "tools/fabric/relay_catchup.py"
+        "tools/fabric/relay_catchup.py",
+        "tools/fabric/review_rounds.py"
+      ]
+    },
+    {
+      "role": "devex-tooling",
+      "paths": [
+        "runtime/github/",
+        "tools/fabric/github/",
+        "projects/gzapp/integration/gh/",
+        "communication/gzcoord/scripts/",
+        "communication/gzcoord/tests/",
+        "tests/test_commit_class.py",
+        "tests/test_commit_class_cli.py",
+        "tests/test_post_review.py",
+        "tests/test_post_review_cli.py",
+        "tests/test_pr_gate.py",
+        "tests/test_pr_gate_cli.py",
+        "tests/test_pr_reply.py",
+        "tests/test_pr_reply_cli.py",
+        "tests/test_pr_review_status.py",
+        "tests/test_pr_review_status_cli.py",
+        "tests/test_pr_sessions.py",
+        "tests/test_pr_sessions_cli.py",
+        "tests/test_trial_merge.py",
+        "tests/test_trial_merge_cli.py"
+      ],
+      "excluding": [
+        "tools/fabric/guards/",
+        "tools/fabric/lint.py",
+        "tests/run.sh",
+        "tests/static.sh",
+        "tests/test_contributors.py",
+        "tests/test_agent_fabric_dir_authority.py",
+        "tests/test_charter_authority.py",
+        "runtime/provisioning/github-host-keys",
+        "runtime/provisioning/github-host-keys.fingerprints",
+        "tools/fabric/git.py",
+        "tools/fabric/role.py",
+        "tools/fabric/routing.py",
+        "tools/fabric/launch_prompt.py",
+        "bin/fabric-role",
+        "tests/leak-check.sh",
+        "tools/fabric/review_brief.py",
+        "bin/fabric-review",
+        "tools/fabric/python_pin.py",
+        "tools/fabric/fabric_settings.py",
+        "tools/fabric/workspace_trust.py",
+        "tools/fabric/bootstrap.py",
+        "tools/fabric/fabric_writes.py",
+        "tools/fabric/install_agent_files.py",
+        "tools/fabric/episodic.py",
+        "tools/fabric/episodic_import.py",
+        "tools/fabric/relay.py",
+        "tools/fabric/history.py",
+        "bin/fabric-history",
+        "tools/fabric/relay_catchup.py",
+        "tools/fabric/review_rounds.py"
       ]
     }
   ]

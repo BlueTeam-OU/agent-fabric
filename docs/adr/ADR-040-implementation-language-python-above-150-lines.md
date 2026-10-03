@@ -141,6 +141,16 @@ then the launcher on its own, then the provisioning logic; the bash
 tests migrate last. The decision is done when the allowlist holds no
 production script.
 
+Wave 7 is not bash: GZCoord's command-line tools, `gzmsg.mjs`,
+`send.mjs` and `inbox.mjs` with the `i18n.mjs` they read, move to Python
+together (A 2026-10-04). The rest of the fabric's Node, the control
+plane and the locale search server, stays Node. Their contract is
+frozen and their paths stay as shims, as for any port. The functions the
+control plane imports from them first move unchanged into one Node
+module of its own. The CLI cases of the protocol suite run unchanged
+against the shims; its unit cases are ported case for case; the two
+validators agree on every message of the suite before the Node one goes.
+
 ## 8. Decision Status
 
 Accepted and in force. Wave 1, the GitHub toolkit, follows; the
@@ -163,3 +173,4 @@ The body above reads current; each change's full note is in [history/ADR-040-ame
 | 2026-10-01 | The oracle's mock and its source reads may follow the port | §5 rule 5: the oracle's mock may learn gh.py's transport, and a case reading the source reads the module |
 | 2026-10-01 | One pinned Python, 3.13, installed per host | §2, §5 rules 1 and 4: `runtime/python.json`, `python_pin.py`, `fabric-python`; shims run it; CI installs it |
 | 2026-10-01 | A fixture may copy the modules of the scripts it copies | §5 rule 5: a third departure for the oracle, files added and no assertion changed |
+| 2026-10-04 | Wave 7: GZCoord's command-line tools move to Python | §7: send, inbox and gzmsg port together, the control plane's imports split out first, the protocol suite the oracle |

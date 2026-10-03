@@ -193,6 +193,33 @@ export function keys(home = os.homedir(), names = KEY_NAMES) {
   });
 }
 
+// Whether the secret of the key git signs with is in this account's
+// keyring and can sign: present or not, never the key. A secret-key COUNT
+// is no answer, since every account holds its own store key (ADR-038):
+// rust-ui-dev-01 held one and could not sign (2026-10-03). A stub (`#` in
+// the colon listing's 15th field, an offline primary) cannot sign either,
+// so presence is a sec or ssb line with signing capability and no stub
+// mark. git config exits 1 when unset, gpg non-zero when the key is
+// unknown: both are absent. Asynchronous, beside fabric(), so a slow
+// gpg-agent never holds the daemon's loop (review of #89); a test passes
+// its own exec, as it does for fabric() and session().
+export const SIGNING_ROW = 'signing key secret';
+export async function signingSecret(exec = execFileP) {
+  const opts = { encoding: 'utf8', timeout: 5000, stdio: ['ignore', 'pipe', 'ignore'] };
+  const text = r => String(typeof r === 'string' ? r : r?.stdout ?? '');
+  let k;
+  try { k = text(await exec('git', ['config', '--global', 'user.signingkey'], opts)).trim(); } catch { k = ''; }
+  if (!k) return { name: SIGNING_ROW, present: false };
+  let listing;
+  try { listing = text(await exec('gpg', ['--list-secret-keys', '--with-colons', '--', k], opts)); }
+  catch { return { name: SIGNING_ROW, present: false }; }
+  const signs = listing.split('\n').some(line => {
+    const f = line.split(':');
+    return (f[0] === 'sec' || f[0] === 'ssb') && (f[11] ?? '').includes('s') && f[14] !== '#';
+  });
+  return { name: SIGNING_ROW, present: signs };
+}
+
 // The fabric checkout the account runs on: head, branch, how far behind
 // origin/main, and whether the tree is clean. A fetch that cannot reach
 // origin is said, not hidden. Asynchronous so the daemon's event loop
@@ -802,7 +829,7 @@ export async function collect(op, ctx = {}) {
   await Promise.all(wants.map(name => {
     if (name === 'identity') return guard(name, () => identity(ctx.home, ctx.who));   // ctx.who unset: whoami() per request, so a rebind shows
     if (name === 'usage') return guard(name, () => ctx.usageCached ? ctx.usageCached() : usage(ctx.home, ctx.fetch));
-    if (name === 'keys') return guard(name, () => keys(ctx.home));
+    if (name === 'keys') return guard(name, async () => [...keys(ctx.home), await signingSecret(ctx.exec)]);
     if (name === 'fabric') return guard(name, () => fabric(ctx.root, ctx.exec));
     if (name === 'session') return guard(name, () => session(ctx.uid, ctx.exec));
     if (name === 'presence') return guard(name, () => presence(ctx.presenceOpts));

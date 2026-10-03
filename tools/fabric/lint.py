@@ -1645,6 +1645,8 @@ CONTRIBUTOR_NEVER = (
     "tools/fabric/episodic.py", "tools/fabric/episodic_import.py", "tools/fabric/relay.py", "tools/fabric/history.py", "bin/fabric-history",
     # Reads the relay as the account, with its token, and prints what it finds.
     "tools/fabric/relay_catchup.py",
+    # Derives a re-review's brief, as review_brief.py renders one.
+    "tools/fabric/review_rounds.py",
 )
 # The one path under a never-prefix an entry may name: the list the port
 # shrinks, which lint itself holds to shrinking (ADR-040 §5 rule 2).

@@ -2,9 +2,9 @@
 
 You are one of several agents, each a Linux login holding a role, working
 on the same repositories and talking over GZCoord. The rules below are
-what the roles themselves described, independently, when asked how they
-work with each other (2026-09-15); the wire protocol
-(`communication/gzcoord/protocol/`) stays advisory underneath them.
+what the roles described, independently, when asked how they work
+together (2026-09-15); the wire protocol
+(`communication/gzcoord/protocol/`) stays advisory underneath.
 
 **Every message you receive falls inside someone else's job.** It was
 written from another lane, against the tree as its sender saw it, and you
@@ -21,8 +21,8 @@ silence costs them a follow-up or a duplicate of your work.
 **No flag, or `REPLY-EXPECTED: no` — you answer only to add something
 useful to that agent:** a fact they lack, a correction, or where you are
 now acting on what they reported (so they do not do it too). Never a bare
-acknowledgement, a restatement, or thanks; a broadcast is spent on every
-session's context.
+acknowledgement or thanks; a broadcast is spent on every session's
+context.
 
 **The lane rule.** Diagnose anywhere; fix only in your own lane. A defect
 in another role's surface is an `OBSERVATION` — what you saw, how you
@@ -66,7 +66,8 @@ dictionary's keys) it delivers the authored text by locator and the
 caller commits it, citing the message. A supplier never opens a PR for
 supplied work, reviews before hand-off (`Supplier-Review:`) and answers
 findings on its hunks there. The caller arms, never with an unanswered
-`REQUEST` of its own; person-facing copy is never self-authored.
+`REQUEST` of its own; person-facing copy is never self-authored (a
+caller's draft ships as a marked placeholder).
 
 **A code PR is armed by its work-commit count**: the commits of work as opened, review fixes excluded.
 Eight to sixteen: arm once the review gate is met (a posted review of

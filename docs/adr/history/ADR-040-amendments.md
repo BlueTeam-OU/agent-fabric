@@ -58,3 +58,42 @@ accounts, and rewriting the fixture loses the parity the unchanged
 oracle stands for. A worker whose body is `sudo`, `useradd` and
 installer calls stays a bash step-runner under rule 1, its decisions in
 Python; the fixture rule does not widen what is ported.
+
+### Amendment 2026-10-04 — Wave 7: GZCoord's command-line tools move to Python
+
+The owner's decision, after the coordinator's recommendation. The
+fabric's Node had stayed outside the port: it is a tested language, not
+bash. Two seams made three of its files worth moving. `send.mjs` and
+`inbox.mjs` start the Python journal (`episodic.py`) as a process on
+every send and every inbox page, and that crossing is where the
+journal's edge cases kept appearing in review (#78, #84, #88).
+`gzmsg.mjs` holds the only copy of the message validator, which the
+Python tools reach only through `inbox.mjs`. Moved together, the send,
+the inbox, the validator and the journal are one language, in one
+process per message.
+
+What stays Node: the control plane (`runtime/control/`) and the locale
+search server (`runtime/mcp/websearch-locale/server.mjs`). They are
+self-contained and tested, and the daemon is an event loop Node suits;
+moving them would be churn with no defect behind it.
+
+The control plane imports, as a library, `whoami`, `FABRIC_ROOT`,
+`findTaxonomy` and `loadTaxonomy` from `gzmsg.mjs`, and `api`,
+`identity`, `integrationConfig`, `inboxRoot`, `token`, `syncedToken`,
+`syncedVar` and `holdStatus` from `inbox.mjs`; the search server imports
+`syncedVar`. Those move first, unchanged, into one Node module the
+control plane owns, so the daemon never depends on a script that becomes
+a shim. They are then two implementations of identity and the relay's
+API, a Node one and the Python one `relay.py` already is; the control
+plane's tests and the port's tests each hold their own.
+
+The oracle: the protocol suite's cases that run the scripts as commands
+run unchanged against the shims. Its cases that import functions are
+ported to Python, case for case, the way the bash tests were. Before the
+Node validator is removed, both validators run over every message the
+suite holds and agree on every verdict. The journal's order — a send
+kept before it is posted, a page journaled before it is acknowledged —
+is what those cases pin, and the port keeps it. The wire grammar is
+frozen; nothing here changes what a message is. The locale dictionaries
+stay the JSON they are, read by the Python as they were by the Node.
+

@@ -87,6 +87,14 @@ number. A re-review carries only the lenses it names — `general`
 included: it verifies, it does not explore — so one that names none pays
 for no lens text.
 
+Derive it rather than edit it: `bin/fabric-review save <PR> <round> <
+report` keeps a round's report under this account's state, and
+`bin/fabric-review next REQUEST --pr <PR>` writes `REQUEST-rr<N>.json`
+from the previous request (mode, the range from its head to `HEAD`, that
+report as `previous_findings`, `general` alone unless `--keep-lenses`)
+and renders it; it refuses when the head has not moved
+(`tools/fabric/review_rounds.py`).
+
 ## The dispatch
 
 ```
