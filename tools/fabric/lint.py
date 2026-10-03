@@ -1643,6 +1643,8 @@ CONTRIBUTOR_NEVER = (
     "tools/fabric/bootstrap.py", "tools/fabric/fabric_writes.py", "tools/fabric/install_agent_files.py",
     # Writes and reads each agent's private conversational history (ADR-041).
     "tools/fabric/episodic.py", "tools/fabric/episodic_import.py", "tools/fabric/relay.py", "tools/fabric/history.py", "bin/fabric-history",
+    # Reads the relay as the account, with its token, and prints what it finds.
+    "tools/fabric/relay_catchup.py",
 )
 # The one path under a never-prefix an entry may name: the list the port
 # shrinks, which lint itself holds to shrinking (ADR-040 §5 rule 2).

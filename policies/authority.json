@@ -51,7 +51,8 @@
         "tools/fabric/episodic_import.py",
         "tools/fabric/relay.py",
         "tools/fabric/history.py",
-        "bin/fabric-history"
+        "bin/fabric-history",
+        "tools/fabric/relay_catchup.py"
       ]
     }
   ]
