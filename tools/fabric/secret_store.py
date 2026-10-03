@@ -538,14 +538,16 @@ def seed_child(agent_id: str, remote: str, text: str) -> dict:
             _run(["git", "clone", "-q", "--no-checkout", path, mirror], label="git clone")
             git(mirror, "checkout", "-q", "-B", "main", "refs/remotes/origin/main")
             git(mirror, "remote", "set-url", "origin", remote)
-        else:
-            # An earlier run's mirror: whatever the remote already has, then
-            # the child's commit, each only as a fast-forward.
-            git(mirror, "fetch", "-q", "origin")
-            if git(mirror, "rev-parse", "-q", "--verify", "refs/remotes/origin/main", check=False).returncode == 0:
-                git(mirror, "merge", "-q", "--ff-only", "refs/remotes/origin/main")
-            git(mirror, "fetch", "-q", path, f"{MAIN}:refs/first-contact/main")
-            git(mirror, "merge", "-q", "--ff-only", "refs/first-contact/main")
+        # Whatever the remote already has, then the child's commit, each only
+        # as a fast-forward — a fresh clone included: a mirror deleted by hand
+        # after the parent's puts is cloned again from the child's bundle
+        # alone, behind the remote, and its push was refused as
+        # non-fast-forward (a carried review item).
+        git(mirror, "fetch", "-q", "origin")
+        if git(mirror, "rev-parse", "-q", "--verify", "refs/remotes/origin/main", check=False).returncode == 0:
+            git(mirror, "merge", "-q", "--ff-only", "refs/remotes/origin/main")
+        git(mirror, "fetch", "-q", path, f"{MAIN}:refs/first-contact/main")
+        git(mirror, "merge", "-q", "--ff-only", "refs/first-contact/main")
         git(mirror, "push", "-q", "-u", "origin", "HEAD:main")
     return {"agent_id": agent_id, "mirror": mirror, "remote": remote}
 
