@@ -189,6 +189,7 @@ import re
 import shlex
 import shutil
 import signal
+import stat
 import subprocess
 import sys
 import time
@@ -833,12 +834,32 @@ def toplevel(cwd: str) -> str:
         return ""
 
 
-def make_tmpdir(path: str) -> None:
+def make_tmpdir(path: str, *, ours: bool = True) -> None:
     """mkdir -p -m 700: the mode on the directory made, whatever the umask;
-    one that exists is left as it is."""
+    one that exists is left as it is, if it is this account's own directory.
+    /var/tmp is world-writable and sticky: another account can make
+    /var/tmp/agent-fabric-<agent> first, or a symlink by that name, and the
+    session would write its scratch where that account reads it and this one
+    cannot remove it. The bash's mkdir -p took either (review of #80); the
+    launch is refused instead, naming the path, so the person moves it. A
+    TMPDIR the account set itself (`ours` false) is its own choice, /tmp
+    included, and is taken as it is."""
     try:
-        if os.path.isdir(path):
+        st = os.lstat(path)
+    except FileNotFoundError:
+        st = None
+    except OSError:
+        return
+    if st is not None:
+        if not ours:
             return
+        if stat.S_ISLNK(st.st_mode) or not stat.S_ISDIR(st.st_mode):
+            die(f"TMPDIR {path} exists and is not a directory (a symlink is refused too); remove it or set TMPDIR")
+        if st.st_uid != os.geteuid():
+            die(f"TMPDIR {path} belongs to uid {st.st_uid}, not this account; remove it as that account or root, "
+                "or set TMPDIR")
+        return
+    try:
         os.makedirs(os.path.dirname(path), exist_ok=True)
         os.mkdir(path)
         os.chmod(path, 0o700)
@@ -1393,8 +1414,9 @@ def launch(argv: list[str]) -> int:
     # accumulates under a home for ever (the CEO, 2026-09-17). One directory
     # per login straight under /var/tmp, 700, so no account has to own a
     # shared parent. A TMPDIR the account set itself wins.
-    env["TMPDIR"] = env.get("TMPDIR") or f"/var/tmp/agent-fabric-{agent}"
-    make_tmpdir(env["TMPDIR"])
+    own_tmpdir = env.get("TMPDIR")
+    env["TMPDIR"] = own_tmpdir or f"/var/tmp/agent-fabric-{agent}"
+    make_tmpdir(env["TMPDIR"], ours=not own_tmpdir)
 
     if print_only:
         print_report(resolved, routing, label=label, agent=agent, role=role, provider=provider, session=session,
