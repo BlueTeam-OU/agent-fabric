@@ -573,9 +573,11 @@ def main() -> int:
         check("a TMPDIR the account set wins", f"CLAUDE-ENV:TMPDIR={sandbox}/own-tmp" in out2, out2)
         # /tmp is root's: the account's own choice is never held to the
         # per-login directory's owner check (review of #87).
-        out3 = out_of("--provider=anthropic", "--version", keep_tmpdir="/tmp")
-        check("…even one another account owns, as /tmp is root's",
-              "CLAUDE-ENV:TMPDIR=/tmp\n" in out3 + "\n" and "launch: TMPDIR" not in out3, out3)
+        # Under root /tmp is this account's own, and the case proves nothing.
+        if os.geteuid() != 0:
+            out3 = out_of("--provider=anthropic", "--version", keep_tmpdir="/tmp")
+            check("…even one another account owns, as /tmp is root's",
+                  "CLAUDE-ENV:TMPDIR=/tmp\n" in out3 + "\n" and "launch: TMPDIR" not in out3, out3)
         check("…not ori", "ORI-EXECCED" not in out, out)
         check("FABLE exported as code-plan's pin, the native id",
               has(r"CLAUDE-ENV:ANTHROPIC_DEFAULT_FABLE_MODEL=claude-fable-5-1$", out), out)

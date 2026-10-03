@@ -619,15 +619,22 @@ def dry_run() -> None:
 
 def record_current() -> None:
     """A file bootstrap finds already current is recorded as the fabric's, or
-    its first change upstream is kept as a person's version (review of #87).
-    The dry run writing no record is dry_run()'s snapshot of the whole root."""
+    its first change upstream is kept as a person's version; a dry run over
+    the same settled account records nothing (review of #87). dry_run()'s
+    fresh account never reaches put()'s "=" branch, so it cannot say that."""
     print("bootstrap: files found current are recorded")
     a = Account("record")
     r = bootstrap(a)
     check("a first run: exit 0", r.rc == 0, r)
     rec = f"{a.state}/agent-fabric/agents/{pwd.getpwuid(os.geteuid()).pw_name}/fabric-written.json"
     os.unlink(rec)
+    before = snapshot(a.root)
+    r = bootstrap(a, "--dry-run")
+    check("a dry run over the settled account: exit 0, no record, tree unchanged",
+          r.rc == 0 and f"  =  {a.ws}/CLAUDE.md" in r.lines and not os.path.exists(rec)
+          and snapshot(a.root) == before, diff(before, snapshot(a.root)))
     r = bootstrap(a)
+    check("the second run: exit 0", r.rc == 0, r)
     held = json.load(open(rec)) if os.path.exists(rec) else {}
     for f in (f"{a.ws}/CLAUDE.md", f"{a.ch}/hooks/review-bash-guard.sh"):
         check(f"a second run, everything current, records {os.path.basename(f)} with its hash",
