@@ -169,7 +169,10 @@ def main() -> int:
             # The installer's MCP step reads its helper from the fabric.
             shutil.copytree(f"{ROOT}/runtime/mcp/websearch-locale", f"{fabric}/runtime/mcp/websearch-locale")
             shutil.copy(f"{ROOT}/runtime/identity.py", f"{fabric}/runtime/")
-            for f in ("routing.py", "workingcopy.py", "jobs.py", "layout.py", "launch_prompt.py"):
+            # install-agent-files.sh is a shim for its module, which imports
+            # fabric_writes (ADR-040 §5 rule 5).
+            for f in ("routing.py", "workingcopy.py", "jobs.py", "layout.py", "launch_prompt.py",
+                      "install_agent_files.py", "fabric_writes.py"):
                 shutil.copy2(f"{ROOT}/tools/fabric/{f}", f"{fabric}/tools/fabric/")
             # The role's system prompt: the assembler, the shared sections and
             # a fixture charter for the bound role (no brief: the placeholder).
