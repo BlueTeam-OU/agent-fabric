@@ -179,13 +179,15 @@ def main() -> int:
             on = f" on {repo}#{pr}" if repo else (f" on #{pr}" if pr else "")
             check(f"{want}{on}: {subject}{f' [Answers: {answers}]' if answers else ''}", have == want, f"got {have}")
 
-    print("commit-class: revert_targets reads git's own line from the body on stdin, nothing else")
+    print("commit-class: revert_targets reads git's own line, nothing else")
     sha = "0123456789abcdef0123456789abcdef01234567"
     out = sourced("revert_targets",
                   f'Revert "feat: x"\n\nThis reverts commit {sha}.\nAlso: This reverts commit abcdef1.\n').stdout
-    check("two targets, in order, one sha a line", out == f"{sha}\nabcdef1\n", repr(out))
+    check("two targets, in order", out.split() == [sha, "abcdef1"], repr(out))
     out = sourced("revert_targets", "Revert the thing by hand\n\nno trailer here\n").stdout
     check("a prose revert names no target", out == "", repr(out))
+    out = sourced("revert_targets", "Revert x\n\nThis reverts commit abcdef1.\nThis reverts commit 1234567.\n").stdout
+    check("revert_targets reads the body on stdin, one sha a line", out == "abcdef1\n1234567\n", repr(out))
 
     print(f"\ntest_commit_class_cli: {'OK' if not fails else f'FAILED — {fails} check(s)'}")
     return 1 if fails else 0
