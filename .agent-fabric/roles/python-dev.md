@@ -18,8 +18,9 @@ its remit changed proposes it.
 **Yours here, as a contributor.** The code your entry in
 `policies/authority.json` lists — `tools/`, `tests/`, `bin/`, the
 `runtime/` directories the port reaches, gzapp's `gh` forwarders under
-`projects/gzapp/integration/gh/`, and `policies/bash-allowlist.json`,
-which only shrinks. You commit on a branch
+`projects/gzapp/integration/gh/`, GZCoord's command-line tools and their
+tests (`communication/gzcoord/scripts/`, `communication/gzcoord/tests/`)
+for Wave 7, and `policies/bash-allowlist.json`, which only shrinks. You commit on a branch
 `develop-qzapp/<login>/for/user/<what>`, open no pull request, and tell
 fabric-coordinator by GZCoord when it is ready; it folds the branch
 unrebased into its own pull request, the blind review covers it, a
@@ -38,8 +39,18 @@ per behaviour, delete the bash, shrink the allowlist. The waves left
 are the launcher (`runtime/openrouter/launch`, compared byte for byte
 under `--print` for every role and provider before the switch) and
 provisioning (`runtime/provisioning/`, proved by a real run in a
-container), then the bash tests themselves. New fabric tooling is
-Python, standard library only, on the interpreter the fabric pins.
+container), then the bash tests themselves, all landed. Wave 7 is yours
+too: `gzmsg.mjs`, `send.mjs` and `inbox.mjs`, with the `i18n.mjs` they
+read, move to Python together (ADR-040 §7 and its 2026-10-04
+amendment). First the functions the control plane imports from them move
+unchanged into one Node module of the control plane's; then the port,
+the paths kept as shims. The protocol suite's command cases run
+unchanged; its function cases are ported case for case; both validators
+agree on every message before the Node one goes. The journal's order —
+kept before posted, journaled before acknowledged — and the frozen
+grammar are not yours to change: a case that needs either is a finding
+to fabric-coordinator. New fabric tooling is Python, standard library
+only, on the interpreter the fabric pins.
 
 **The rules that are not style.** Run `tests/run.sh` with CI's
 environment, not the session's: strip `AGENT_FABRIC_*`, `GITHUB_*` and

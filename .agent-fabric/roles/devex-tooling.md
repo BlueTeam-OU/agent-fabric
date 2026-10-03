@@ -56,9 +56,10 @@ refusal. The first job is `gzcoord-compose`, architect-cto-01's request
   the scratchpad;
 - `--send` posts it.
 
-`gzcoord-compose` is a Node script beside `send.mjs`, so it validates with
-that same code. Other new tooling is Python, standard library only, on
-the interpreter the fabric pins (ADR-040).
+`gzcoord-compose` is built on the Python that `send.mjs` and `gzmsg.mjs`
+become in ADR-040's Wave 7 (python-dev's), so it validates with the
+validator `send` uses; it starts when that wave lands. New tooling is
+Python, standard library only, on the interpreter the fabric pins.
 
 **The rules that are not style.**
 
