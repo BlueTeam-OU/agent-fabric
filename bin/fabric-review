@@ -5,6 +5,10 @@
 #   fabric-review brief  REQUEST[.yaml|.json|-] [--allow-rationale]   the brief, to stdout
 #   fabric-review check  REQUEST                                        validate only, say what it is
 #   fabric-review lenses                                                 the lens vocabulary
+#   fabric-review save PR ROUND [--repo NAME] < report                  keep a round's report
+#   fabric-review next REQUEST (--report F | --pr PR) [--head REV] [--keep-lenses]
+#                                       the re-review's request, derived and rendered
+#                                       (tools/fabric/review_rounds.py)
 #
 # Then dispatch, exactly as the guard requires (it never reads the prompt):
 #
@@ -27,7 +31,8 @@ py="${AGENT_FABRIC_PYTHON:-/usr/local/bin/fabric-python}"
 case "${1:-}" in
     brief) shift; exec "$py" "$ROOT/tools/fabric/review_brief.py" render "$@" ;;
     check|lenses) exec "$py" "$ROOT/tools/fabric/review_brief.py" "$@" ;;
-    -h|--help) sed -n '2,19p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
-    "") sed -n '2,19p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 2 ;;
-    *) echo "fabric-review: unknown command $1 (brief | check | lenses)" >&2; exit 2 ;;
+    save|next) exec "$py" "$ROOT/tools/fabric/review_rounds.py" "$@" ;;
+    -h|--help) sed -n '2,23p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    "") sed -n '2,23p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 2 ;;
+    *) echo "fabric-review: unknown command $1 (brief | check | lenses | save | next)" >&2; exit 2 ;;
 esac
