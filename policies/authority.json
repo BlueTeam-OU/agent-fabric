@@ -64,8 +64,20 @@
         "projects/gzapp/integration/gh/",
         "communication/gzcoord/scripts/",
         "communication/gzcoord/tests/",
-        "bin/",
-        "tests/"
+        "tests/test_commit_class.py",
+        "tests/test_commit_class_cli.py",
+        "tests/test_post_review.py",
+        "tests/test_post_review_cli.py",
+        "tests/test_pr_gate.py",
+        "tests/test_pr_gate_cli.py",
+        "tests/test_pr_reply.py",
+        "tests/test_pr_reply_cli.py",
+        "tests/test_pr_review_status.py",
+        "tests/test_pr_review_status_cli.py",
+        "tests/test_pr_sessions.py",
+        "tests/test_pr_sessions_cli.py",
+        "tests/test_trial_merge.py",
+        "tests/test_trial_merge_cli.py"
       ],
       "excluding": [
         "tools/fabric/guards/",

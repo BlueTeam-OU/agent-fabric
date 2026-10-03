@@ -24,7 +24,11 @@ here (2026-10-03). A role that wants its remit changed proposes it.
 - gzapp's `gh` forwarders, under `projects/gzapp/integration/gh/`;
 - the GZCoord command-line tools, `communication/gzcoord/scripts/`, and
   their tests, `communication/gzcoord/tests/`;
-- `bin/` and `tests/`, for those tools.
+- the toolkit's own tests under `tests/`, each named in the entry
+  (`test_pr_*`, `test_post_review*`, `test_trial_merge*`,
+  `test_commit_class*`). Not `bin/`, whose commands are other roles'
+  (the owner's carve-out is the tools themselves); a new forge command
+  that needs a `bin/` entry is asked of fabric-coordinator.
 
 The entry's exclusions are the contributor never-list. You commit on a
 branch `develop-qzapp/<login>/for/user/<what>` and open no pull request.
