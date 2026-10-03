@@ -5,20 +5,21 @@ request by hand (bin/fabric-review save | next).
 
     review_rounds.py save PR ROUND [--repo NAME]  < report
     review_rounds.py next REQUEST (--report FILE | --pr PR [--repo NAME])
-                          [--head REV] [--keep-lenses]
+                          [--head REV] [--keep-lenses] [--allow-rationale]
 
 `save` keeps a round's report as <state>/agents/<login>/reviews/<repo>/
-pr-<PR>/round-<ROUND>.md, 0600 in a 0700 directory: a report quotes the
-change, and the account's state is its own. <repo> is the working copy's
-directory name unless --repo names it, since PR numbers repeat across
-repositories.
+pr-<PR>/round-<ROUND>.md, written atomically, 0600 under directories
+0700 at every level: a report quotes the change, and the account's state
+is its own. <repo> is the working copy's directory name unless --repo
+names it (for next --pr, the request's repository's), since PR numbers
+repeat across repositories.
 
 `next` reads the previous round's request and writes the re-review's
 beside it, REQUEST-rr<N>.json (JSON, which the brief reader takes as it
 is), then prints the rendered brief:
   mode               re-review
-  range              the previous range's head .. HEAD of the request's
-                     repository (or --head), both resolved to commits
+  range              the previous range's head, which must be a commit id,
+                     .. HEAD of the request's repository (or --head)
   previous_findings  --report, or the newest round saved for --pr
   lenses             [general], unless --keep-lenses
 Everything else is carried over unchanged. It refuses when the head has
@@ -88,11 +89,15 @@ def save(pr: str, rnd: str, report: str, repo: str) -> str:
     if not report.strip():
         raise Refused("no report on stdin")
     d = rounds_dir(repo, pr)
-    os.makedirs(d, mode=0o700, exist_ok=True)
+    # Every level 0700, not only the last: makedirs gives `mode` to the leaf
+    # alone (review of #89). The write is atomic, as every file under the
+    # agent's state is: a torn report would become a re-review's findings.
+    base = identity.agent_state_dir()
+    for level in ("reviews", os.path.join("reviews", repo), os.path.relpath(d, base)):
+        os.makedirs(os.path.join(base, level), mode=0o700, exist_ok=True)
+        os.chmod(os.path.join(base, level), 0o700)
     path = os.path.join(d, f"round-{rnd}.md")
-    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(fd, "w", encoding="utf-8") as f:
-        f.write(report)
+    identity.atomic_write(path, report, 0o600)
     return path
 
 
@@ -124,13 +129,21 @@ def _next_path(request_path: str) -> str:
     return os.path.join(d, f"{stem}-rr{max(taken, default=1) + 1}.json")
 
 
-def next_request(request_path: str, report: str, head: str | None, keep_lenses: bool) -> tuple[str, dict]:
+def next_request(request_path: str, report: str, head: str | None, keep_lenses: bool,
+                 allow_rationale: bool = False) -> tuple[str, dict, str]:
     with open(request_path, encoding="utf-8") as f:
         req = review_brief.parse_request(f.read())
     if not req.get("range"):
         raise Refused(f"{request_path} has no range: a re-review follows a ranged review")
     repo_dir = req["repository"]
-    old_head = _commit(repo_dir, req["range"].split("..", 1)[1])
+    prev = req["range"].split("..", 1)[1]
+    # A symbolic head (HEAD, a remote-tracking ref) resolves to where it is
+    # NOW, not to what was reviewed: refused, so a derived range never
+    # starts past or at the commits it should cover (review of #89).
+    if not re.fullmatch(r"[0-9a-f]{7,40}", prev):
+        raise Refused(f"the previous range's head {prev!r} is not a commit id: name the reviewed head as one "
+                      "(git rev-parse) in the request")
+    old_head = _commit(repo_dir, prev)
     new_head = _commit(repo_dir, head or "HEAD")
     if new_head == old_head:
         raise Refused(f"the head has not moved since {old_head[:12]}: nothing to re-review")
@@ -145,11 +158,14 @@ def next_request(request_path: str, report: str, head: str | None, keep_lenses: 
     problems = review_brief.validate(nxt)
     if problems:
         raise Refused("the re-review request does not validate:\n  " + "\n  ".join(problems))
+    # Rendered before it is written: a render that refuses leaves no orphan
+    # request for the next attempt to number past (review of #89).
+    brief = review_brief.render(nxt, allow_rationale=allow_rationale)
     path = _next_path(request_path)
     with open(path, "w", encoding="utf-8") as f:
         json.dump(nxt, f, indent=2)
         f.write("\n")
-    return path, nxt
+    return path, nxt, brief
 
 
 def _flag(args: list[str], name: str) -> str | None:
@@ -180,17 +196,22 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if cmd == "next":
             report, pr, repo, head = (_flag(args, f) for f in ("--report", "--pr", "--repo", "--head"))
-            keep = "--keep-lenses" in args
-            args = [a for a in args if a != "--keep-lenses"]
+            keep, allow = "--keep-lenses" in args, "--allow-rationale" in args
+            args = [a for a in args if a not in ("--keep-lenses", "--allow-rationale")]
             if len(args) != 1 or bool(report) == bool(pr) or (repo and not pr):
                 print("usage: fabric-review next REQUEST (--report FILE | --pr PR [--repo NAME]) [--head REV] "
-                      "[--keep-lenses]", file=sys.stderr)
+                      "[--keep-lenses] [--allow-rationale]", file=sys.stderr)
                 return 2
             if pr:
+                # The request's own repository, not the cwd's: PR numbers
+                # repeat across repositories (review of #89).
+                if not repo:
+                    with open(args[0], encoding="utf-8") as f:
+                        repo = os.path.basename(os.path.normpath(review_brief.parse_request(f.read())["repository"]))
                 report = newest_round(_repo_name(repo), _pr(pr))
-            path, nxt = next_request(args[0], report, head, keep)
+            path, _, brief = next_request(args[0], report, head, keep, allow)
             print(f"fabric-review: wrote {path}", file=sys.stderr)
-            sys.stdout.write(review_brief.render(nxt))
+            sys.stdout.write(brief)
             return 0
     except Refused as e:
         print(f"fabric-review: {e}", file=sys.stderr)
