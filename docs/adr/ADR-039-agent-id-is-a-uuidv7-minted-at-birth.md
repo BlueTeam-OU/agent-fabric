@@ -148,4 +148,4 @@ Accepted and in force.
 - ADR-038 — each agent owns its key and its secrets; this record keys them by id.
 - ADR-003 — per-agent state, which a moved login carries.
 - `tools/fabric/secret_store.py` (`mint_agent_id`, `verify`, `rename`); `runtime/provisioning/secrets/store-enroll.sh`.
-- `tests/test_secret_store.py`, `runtime/provisioning/secrets/test_store-enroll.sh`.
+- `tests/test_secret_store.py`, `tests/test_store_enroll_cli.py`.

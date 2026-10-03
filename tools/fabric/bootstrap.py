@@ -96,10 +96,14 @@ CONTRACT, frozen from the bash (ADR-040 §5 rule 3):
                agent files ran); git's own status when a hooksPath cannot be
                set.
   writes       the list above, with mode 644 (the user settings and
-               .claude.json keep their writers' modes); a
-               <file>.before-agent-fabric beside a file the fabric did not
-               write, once. Nothing under --dry-run but what the children's
-               own dry runs leave (none).
+               .claude.json keep their writers' modes); a person's version
+               of a file it replaces, every time it differs from what the
+               fabric last wrote there, under the first free
+               <file>.before-agent-fabric[.N] with that file's own mode;
+               the hash of each file written or found current in
+               <state>/agents/<login>/fabric-written.json (and its .lock).
+               Nothing under --dry-run but what the children's own dry runs
+               leave (none).
   calls        this interpreter: runtime/identity.py,
                runtime/claude-code/user-settings.py <settings> [--dry-run],
                runtime/claude-code/retire-doppler.py [--dry-run];
@@ -152,8 +156,10 @@ bash behaved, fixed here with its case changed:
   4. put() re-made a .before-agent-fabric backup each time a fabric file
      carrying no "agent-fabric" marker changed (the guard, three of the
      skills), so the second change replaced the person's original with the
-     fabric's own previous file. Now the backup is made once, as
-     install_agent_files already does.
+     fabric's own previous file. Now a person's version is kept every time
+     it differs from what the fabric last wrote, never over another backup
+     and never twice (tools/fabric/fabric_writes.py), as the installer
+     does.
   5. The systemd units went to ~/.config/systemd/user whatever
      XDG_CONFIG_HOME said; `systemctl --user` reads $XDG_CONFIG_HOME/
      systemd/user when it is set. Now the units go there.
@@ -334,6 +340,8 @@ class Bootstrap:
         if os.path.isfile(dest) and _read(dest) == content:
             self.same += 1
             say(f"  =  {dest}")
+            if not self.dry_run:
+                fabric_writes.record(dest, content)
             return
         if self.dry_run:
             say(f"  +  {dest} (would write)")

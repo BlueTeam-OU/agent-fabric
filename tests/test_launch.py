@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Tests for tools/fabric/launch.py's internals; the behaviour is
-runtime/openrouter/test_launch.sh's, run unchanged against the
+tests/test_launch_cli.py's, run against the
 runtime/openrouter/launch shim (ADR-040 §5 rule 5). What is here is what
 that suite cannot reach: the paths that only crash or hang, the signal
 handling around the session, the relaunch's environment, and the shim's
@@ -240,6 +240,40 @@ def main() -> int:
             os.umask(old_umask)
         check("a new per-login TMPDIR is 700 whatever the umask; one that exists is left as it is",
               made == 0o700 and kept == 0o755)
+        os.symlink(f"{tmp}/var/agent-fabric-x", f"{tmp}/var/agent-fabric-link")
+        try:
+            launch.make_tmpdir(f"{tmp}/var/agent-fabric-link")
+            linked = None
+        except launch.Refused as exc:
+            linked = str(exc)
+        check("a symlink where the per-login TMPDIR goes is refused, naming it",
+              linked is not None and "agent-fabric-link" in linked, linked)
+        with open(f"{tmp}/var/agent-fabric-file", "w") as f:
+            f.write("not a directory\n")
+        try:
+            launch.make_tmpdir(f"{tmp}/var/agent-fabric-file")
+            plain = None
+        except launch.Refused as exc:
+            plain = str(exc)
+        check("…and so is a regular file of this account's own",
+              plain is not None and "agent-fabric-file" in plain and "not a directory" in plain, plain)
+        real_euid = os.geteuid
+        os.geteuid = lambda: real_euid() + 1
+        try:
+            try:
+                launch.make_tmpdir(f"{tmp}/var/agent-fabric-x")
+                foreign = None
+            except launch.Refused as exc:
+                foreign = str(exc)
+            launch.make_tmpdir(f"{tmp}/var/agent-fabric-x", ours=False)
+            set_by_account = True
+        except launch.Refused:
+            set_by_account = False
+        finally:
+            os.geteuid = real_euid
+        check("a per-login TMPDIR another account owns is refused, naming its owner",
+              foreign is not None and f"uid {os.geteuid()}" in foreign, foreign)
+        check("…but a TMPDIR the account set itself is taken whoever owns it (/tmp is root's)", set_by_account)
 
         print("the agent files")
         fab = f"{tmp}/fab"

@@ -6,9 +6,11 @@ backed up; the record lives where runtime/identity.py puts the account's
 state (review of #86)."""
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import stat
+import subprocess
 import sys
 import tempfile
 
@@ -84,6 +86,23 @@ def main() -> int:
         write(b"fabric six\n")
         check("a free base name is used before a new number",
               open(base, "rb").read() == b"person v3\n" and not os.path.exists(base + ".2"), sorted(os.listdir(d)))
+
+        rec = os.path.join(fw.state_dir(), fw.RECORD)
+        before = os.stat(rec).st_ino
+        fw.record(dest, b"fabric six\n")
+        check("recording a hash already held writes nothing", os.stat(rec).st_ino == before)
+
+        # Two writers at once (bootstrap and its installer child, or two
+        # sessions bootstrapping): without the lock the slower replace drops
+        # the other's entries.
+        code = ("import sys; sys.path.insert(0, %r); import fabric_writes as fw\n"
+                "for i in range(60): fw.record(f'%s/{sys.argv[1]}-{i}', str(i).encode())\n"
+                % (os.path.join(HERE, "tools", "fabric"), d))
+        procs = [subprocess.Popen([sys.executable, "-c", code, w], env=os.environ.copy()) for w in ("a", "b", "c")]
+        rcs = [p.wait(timeout=120) for p in procs]
+        doc = json.load(open(rec))
+        lost = [f"{w}-{i}" for w in "abc" for i in range(60) if os.path.join(d, f"{w}-{i}") not in doc]
+        check("three concurrent writers lose no entry", rcs == [0, 0, 0] and not lost, (rcs, lost[:5], len(lost)))
 
         shutil.rmtree(os.path.join(tmp, "state"))
         with open(dest, "wb") as f:

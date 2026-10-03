@@ -5,7 +5,7 @@
 # exists exactly on a language-culture login whose locale the fabric
 # authored a worker for, and is removed from any other (a rebind, a locale
 # with no worker), by the marker in its description. The class files ride
-# unchanged. Sandboxed like runtime/openrouter/test_launch.sh: a fixture
+# unchanged. Sandboxed like tests/test_launch_cli.py: a fixture
 # fabric root, a state dir with this login's binding, HOME in scratch.
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

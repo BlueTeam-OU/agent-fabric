@@ -134,7 +134,7 @@ means "both" and is honoured inconsistently.
 ## Tests
 
 ```sh
-bash runtime/provisioning/moveto/test_moveto.sh
+fabric-python tests/test_moveto_cli.py
 ```
 
 Covers the resolution matrix through `--print`, which runs the whole resolution

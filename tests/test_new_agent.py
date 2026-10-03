@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Tests for tools/fabric/new_agent.py and new_agent_worker.py; the
-behaviour is runtime/provisioning/test_new-agent.sh's, run against the
+behaviour is tests/test_new_agent_cli.py's, run against the
 new-agent.sh shim and the new-agent-worker.sh step-runner (ADR-040 §5 rule
 5). What is here is what that suite does not reach: the worker's
 argument quirks, each decision on its own (the claude version, the
@@ -464,26 +464,28 @@ sys.exit(0)
         # ESRCH, not EPERM: here every signal to it says so while /proc
         # still shows it. It is gone, not another account's, and is named
         # as neither.
-        p = subprocess.Popen(["bash", "-c", f"sleep 300 & echo $! > {orphan}; wait"])
-        open(orphan, "w").close()
-        for _ in range(100):
-            if open(orphan).read().strip():
-                break
-            time.sleep(0.02)
-        vanishing = int(open(orphan).read())
+        # The pid comes from the child's stdout, so no file a slow start can
+        # race; whatever happens after the Popen, the finally ends both.
+        p = subprocess.Popen(["bash", "-c", "sleep 300 & echo $!; wait"], stdout=subprocess.PIPE, text=True)
+        vanishing = 0
 
         def vanished_kill(pid: int, sig: int) -> None:
             if pid == vanishing:
                 raise ProcessLookupError(3, "No such process")
             real_kill(pid, sig)
-        w.STOP_GRACE_S, os.kill = 2, vanished_kill
         err = io.StringIO()
         try:
+            vanishing = int(p.stdout.readline())
+            w.STOP_GRACE_S, os.kill = 2, vanished_kill
             with redirect_stderr(err):
                 w.stop_tree(p)
         finally:
             os.kill, w.STOP_GRACE_S = real_kill, saved_grace
-            real_kill(vanishing, signal.SIGKILL)
+            if vanishing:
+                real_kill(vanishing, signal.SIGKILL)
+            p.kill()
+            p.wait()
+            p.stdout.close()
         check("a process that just exited is not named another account's",
               "could not be signalled" not in err.getvalue() and "still running" not in err.getvalue(), err.getvalue())
 

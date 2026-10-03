@@ -617,6 +617,31 @@ def dry_run() -> None:
           a.calls() == [["claude", "auto-mode", "defaults"]], a.calls())
 
 
+def record_current() -> None:
+    """A file bootstrap finds already current is recorded as the fabric's, or
+    its first change upstream is kept as a person's version; a dry run over
+    the same settled account records nothing (review of #87). dry_run()'s
+    fresh account never reaches put()'s "=" branch, so it cannot say that."""
+    print("bootstrap: files found current are recorded")
+    a = Account("record")
+    r = bootstrap(a)
+    check("a first run: exit 0", r.rc == 0, r)
+    rec = f"{a.state}/agent-fabric/agents/{pwd.getpwuid(os.geteuid()).pw_name}/fabric-written.json"
+    os.unlink(rec)
+    before = snapshot(a.root)
+    r = bootstrap(a, "--dry-run")
+    check("a dry run over the settled account: exit 0, no record, tree unchanged",
+          r.rc == 0 and f"  =  {a.ws}/CLAUDE.md" in r.lines and not os.path.exists(rec)
+          and snapshot(a.root) == before, diff(before, snapshot(a.root)))
+    r = bootstrap(a)
+    check("the second run: exit 0", r.rc == 0, r)
+    held = json.load(open(rec)) if os.path.exists(rec) else {}
+    for f in (f"{a.ws}/CLAUDE.md", f"{a.ch}/hooks/review-bash-guard.sh"):
+        check(f"a second run, everything current, records {os.path.basename(f)} with its hash",
+              f"  =  {f}" in r.lines and held.get(f) == hashlib.sha256(open(f, "rb").read()).hexdigest(),
+              (r.out[-400:], sorted(held)[:5]))
+
+
 def arguments() -> None:
     print("bootstrap: arguments")
     a = Account("args", wcs=False)
@@ -1003,7 +1028,7 @@ def main() -> int:
         for name in ("systemctl", "loginctl", "curl", "ss", "pgrep", "claude", "pip", "uv"):
             if shutil.which(name, path=f"{T}/fakebin:{T}/sysbin") != f"{T}/fakebin/{name}":
                 sys.exit(f"test: refusing to run: {name} on the test PATH is not the fake")
-        for case in (first_run, dry_run, arguments, existing_files, no_config_dir, local_bin_override,
+        for case in (first_run, dry_run, record_current, arguments, existing_files, no_config_dir, local_bin_override,
                      user_manager, relay, failures, fabric_worktree):
             # A file the script did not write, or a line it did not print,
             # can raise in the case's own reading: that is a failure of the

@@ -21,13 +21,14 @@ last wrote there; otherwise it is a person's, and it is kept under the first
 free name of `<dest>.before-agent-fabric`, `.1`, `.2` …, with its mode, never
 over another backup, and not again if a backup already holds that content.
 
-The record is `fabric-written.json` in the account's own state directory
-(runtime/identity.py's rule: AGENT_FABRIC_STATE_DIR, else
+The record is `fabric-written.json`, beside a `.lock`, in the account's
+own state directory (runtime/identity.py's rule: AGENT_FABRIC_STATE_DIR, else
 $XDG_STATE_HOME/agent-fabric, then agents/<login>); a missing or unreadable
 record reads as empty, which costs at most one extra backup.
 """
 from __future__ import annotations
 
+import fcntl
 import hashlib
 import json
 import os
@@ -37,7 +38,7 @@ import tempfile
 
 MARKER = b"agent-fabric"
 SUFFIX = ".before-agent-fabric"
-RECORD = "fabric-written.json"
+RECORD = "fabric-written.json"  # and its .lock beside it
 
 
 def state_dir() -> str:
@@ -68,19 +69,36 @@ def _load() -> dict[str, str]:
 
 
 def record(dest: str, content: bytes) -> None:
-    """Remember that the fabric wrote `content` at `dest`. A record that
-    cannot be written costs at most one extra backup later, never a lost
-    file, so a failure here is not the caller's failure."""
+    """Remember that the fabric wrote `content` at `dest`, or found it there
+    already: a file that was current when this record began is the fabric's
+    too, or its first change upstream would be kept as a person's (review of
+    #86). A record that cannot be written costs at most one extra backup
+    later, never a lost file, so a failure here is not the caller's failure.
+
+    Bootstrap runs the installer as a child, and two sessions of one
+    account can bootstrap at once: the read-modify-replace is under an
+    exclusive lock, or the slower writer's replace drops the other's
+    entries. An entry already holding this hash writes nothing."""
     path = _record_path()
-    doc = _load()
-    doc[os.path.abspath(dest)] = _sha(content)
+    key, sha = os.path.abspath(dest), _sha(content)
     try:
         os.makedirs(os.path.dirname(path), mode=0o700, exist_ok=True)
-        fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path), prefix=".fabric-written-")
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            json.dump(doc, f, indent=1, sort_keys=True)
-            f.write("\n")
-        os.replace(tmp, path)
+        with open(path + ".lock", "a") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            doc = _load()
+            if doc.get(key) == sha:
+                return
+            doc[key] = sha
+            fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path), prefix=".fabric-written-")
+            try:
+                with os.fdopen(fd, "w", encoding="utf-8") as f:
+                    json.dump(doc, f, indent=1, sort_keys=True)
+                    f.write("\n")
+                os.replace(tmp, path)
+            except BaseException:
+                if os.path.exists(tmp):
+                    os.unlink(tmp)
+                raise
     except OSError:
         pass
 

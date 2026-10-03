@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Tests for tools/fabric/github/pr_gate.py's internals; the behaviour is
-runtime/github/test_pr-gate.sh's, run unchanged against the shim (ADR-040
+tests/test_pr_gate_cli.py's, run against the shim (ADR-040
 §5 rule 5). What the oracle does not pin: the band's edges, which it
 tests only at 6, 9 and 17."""
 from __future__ import annotations

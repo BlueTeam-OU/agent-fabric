@@ -7,7 +7,7 @@ subordinate id range, the GitHub host keys an account lacks, the closing
 list — it asks this module, by the fleet's pinned interpreter's fixed
 path (the worker runs as a host's operator, with sudo: an interpreter the
 environment chose could be anything). Standard library only, nothing
-imported from the fabric: test_new-agent.sh runs it in a fixture fabric.
+imported from the fabric: tests/test_new_agent_cli.py runs it in a fixture fabric.
 
     new_agent_worker.py args <worker argv…>        the worker's variables, as bash to eval
     new_agent_worker.py host-check <login>         hostname -s, then whether the account exists

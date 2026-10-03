@@ -48,7 +48,7 @@ runtime/provisioning/new-agent.sh <login> <role> --host <host-id> --project <id>
 
 Every step is `must` (a failure stops the run, named; nothing after it
 runs), `probe` (a question) or `best_effort` (one warning) —
-`test_new-agent.sh` runs the whole sequence against fakes on both
+`tests/test_new_agent_cli.py` runs the whole sequence against fakes on both
 backends and injects a failure at each `must`. Idempotent — every step is checked before it is done, so it is also how
 an account that came out short is completed. In order: the Linux account
 (home 700, the shared-cache group, persisted across the host's reboot —

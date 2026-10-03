@@ -6,7 +6,7 @@ first commit goes to its parent as a bundle (store-enroll.sh --born-now,
 way (`store child-bundle | store take-bundle`). python-dev-01, the first
 account made after the stores replaced Doppler, stopped at that push.
 
-Real keyrings and the real store module, as test_store-enroll.sh drives
+Real keyrings and the real store module, as tests/test_store_enroll_cli.py drives
 them: two scratch homes, each keyring OUTSIDE its home (a GNUPGHOME equal to
 $HOME/.gnupg shares the real gpg-agent), the account reached only through a
 fake host executor, bare repositories standing in for GitHub. The account's

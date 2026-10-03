@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Tests for tools/fabric/github/pr_sessions.py's internals; the behaviour is
-runtime/github/test_pr-sessions.sh's, run unchanged against the shim
+tests/test_pr_sessions_cli.py's, run against the shim
 (ADR-040 §5 rule 5). What the fixtures there reach only through a whole run
 is checked here directly: who owns a branch, the /lastDate span, the THR
 column's "!" rule, the unknown-is-not-zero reading of a thread page."""

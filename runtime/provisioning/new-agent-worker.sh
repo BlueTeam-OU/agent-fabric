@@ -9,7 +9,7 @@
 #   new-agent-worker.sh prepare <login> <role> [--claude V] [--dry-run]   0-4
 #   new-agent-worker.sh finish <login> <role> [--clone <id>=<remote>]... [--dry-run]   6-10
 #   new-agent-worker.sh host-check <login>   hostname -s, then whether the account exists
-# Every step is must, probe or best_effort (test_new-agent.sh fails each must).
+# Every step is must, probe or best_effort (tests/test_new_agent_cli.py fails each must).
 set -uo pipefail
 ROOT="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../.." && pwd)"
 PY=/usr/local/bin/fabric-python; W="$ROOT/tools/fabric/new_agent_worker.py"

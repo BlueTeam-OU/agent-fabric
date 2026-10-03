@@ -9,5 +9,5 @@ two to Sonnet 5.5. A test of the mechanics needs classes it can tell
 apart, so it runs on
 this frozen copy: `tests/test_routing.py` (every case built on
 `scratch_root`), `tests/test_model_profile.py`,
-`runtime/openrouter/test_launch.sh` and the dispatch guard's suite.
+`tests/test_launch_cli.py` and the dispatch guard's suite.
 `tests/test_routing.py` asserts the committed policy itself.

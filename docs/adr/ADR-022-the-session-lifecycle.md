@@ -193,7 +193,7 @@ the hold is now a stub pointing here.
 ## References
 
 - `runtime/openrouter/launch` (THE WATCH STARTS WITH THE SESSION),
-  `runtime/openrouter/test_launch.sh`.
+  `tests/test_launch_cli.py`.
 - `runtime/claude-code/hooks/session-start.py` (`WATCH_MISSING`),
   `tests/test_session_start.py`; `runtime/claude-code/hooks/plan-hold.sh`,
   `runtime/claude-code/hooks/test_plan-hold.sh`;

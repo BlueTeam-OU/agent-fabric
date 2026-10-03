@@ -8,7 +8,7 @@ the host half, runtime/provisioning/new-agent-worker.sh, and the secrets
 step is the coordinator's as the account's parent (ADR-038).
 
 Standard library only, and nothing imported from the fabric:
-test_new-agent.sh runs this in a fixture fabric that holds fakes of the
+tests/test_new_agent_cli.py runs this in a fixture fabric that holds fakes of the
 tools it calls (ADR-040 rule 5's fixture departure).
 
 CONTRACT, frozen from the bash (ADR-040 §5 rule 3):
@@ -55,7 +55,7 @@ Every step names one of three: must (a failure stops the run, naming the
 step; nothing after it runs), probe (a question, never an error),
 best_effort (a failure is one warning line). A pipeline that ends in a
 filter is judged by its FIRST command's status, never by the filter's.
-test_new-agent.sh runs the real sequence against fakes and injects a
+tests/test_new_agent_cli.py runs the real sequence against fakes and injects a
 failure at each must.
 
 NEVER: a secret value on the terminal (provision keeps them inside its

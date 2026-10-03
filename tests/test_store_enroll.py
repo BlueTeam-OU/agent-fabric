@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Tests for tools/fabric/store_enroll.py's internals; the behaviour is
-runtime/provisioning/secrets/test_store-enroll.sh's, run unchanged against
+tests/test_store_enroll_cli.py's, run against
 the store-enroll.sh shim (ADR-040 §5 rule 5). What is here is what that
 suite does not reach: the usage paths, an unreadable hosts registry, a
 step that hangs, either side of the bundle pipeline failing, a dry run,
