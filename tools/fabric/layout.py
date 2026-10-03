@@ -201,14 +201,18 @@ def working_copy_for(project: str) -> str | None:
     """The checkout holding `project`'s .agent-fabric/, if this run knows one."""
     if project in _WORKING_COPIES:
         return _WORKING_COPIES[project]
+    # The fabric's own .agent-fabric/ is in the checkout that is running,
+    # never the one a session is bound to: from a worktree of the fabric the
+    # binding named the main clone, and lint read the worktree's index
+    # against it as drift (python-dev-01, seq 10894).
+    if project == FABRIC_PROJECT_ID:
+        return FABRIC_ROOT
     env = os.environ.get("AGENT_FABRIC_WORKING_COPY")
     if env and _project_of_env_working_copy(env) == project:
         return os.path.abspath(env)
     bound = _binding_working_copy(project)
     if bound:
         return bound
-    if project == FABRIC_PROJECT_ID:
-        return FABRIC_ROOT
     return None
 
 
