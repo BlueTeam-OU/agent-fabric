@@ -139,8 +139,26 @@ def main() -> int:
         with open(bad, "w") as f:
             f.write(open(req).read().replace(f"range: {base[:12]}..{head1[:12]}", "range: HEAD"))
         r = run("next", bad, "--report", report2)
-        check("a source request whose range does not validate: one line, exit 1, no traceback (review of #89)",
-              r.returncode == 1 and "Traceback" not in r.stderr and "range" in r.stderr, r.stderr)
+        check("a source request whose range does not validate: one line naming it, exit 1 (review of #89)",
+              r.returncode == 1 and "'HEAD'" in r.stderr and r.stderr.strip().count("\n") == 0, r.stderr)
+        gone = os.path.join(tmp, "scratch", "gone-report.md")
+        with open(gone, "w") as f:
+            f.write("an earlier round\n")
+        chain = os.path.join(tmp, "scratch", "CHAIN-rr2.json")
+        with open(chain, "w") as f:
+            json.dump({**nxt3, "previous_findings": gone}, f)
+        os.remove(gone)
+        head4 = commit("fix 3")
+        r = run("next", chain, "--report", report2)
+        check("an earlier round's report deleted since does not refuse the chain (review of #89)",
+              r.returncode == 0 and json.load(open(os.path.join(tmp, "scratch", "CHAIN-rr3.json")))["range"]
+              == f"{head3[:12]}..{head4[:12]}", r.stderr)
+        norepo = os.path.join(tmp, "scratch", "NOREPO.json")
+        with open(norepo, "w") as f:
+            json.dump({k: v for k, v in nxt3.items() if k != "repository"}, f)
+        r = run("next", norepo, "--pr", "7")
+        check("--pr with a request naming no repository: refused in one line, no traceback (review of #89)",
+              r.returncode == 1 and "names no repository" in r.stderr and "Traceback" not in r.stderr, r.stderr)
         r = run("next", req, "--pr", "8")
         check("a PR with no saved round is refused, naming save", r.returncode == 1 and "fabric-review save" in r.stderr,
               r.stderr)
