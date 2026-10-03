@@ -33,7 +33,10 @@ pr = json.load(open(os.path.join(s, "pr.json")))
 if line.startswith("repo view"):
     print("gzapi-org/gzapp"); sys.exit(0)
 if line.startswith("api repos/gzapi-org/gzapp/pulls/7/files") and "--paginate --slurp" in line:
-    print(json.dumps([[{"filename": f} for f in pr["files"]]])); sys.exit(0)
+    def entry(f):
+        old, _, new = f.rpartition("->")
+        return {"filename": new, "previous_filename": old} if old else {"filename": f}
+    print(json.dumps([[entry(f) for f in pr["files"]]])); sys.exit(0)
 if line == "api graphql --input -":
     sys.stdin.read()
     p = {"autoMergeRequest": None, "mergeQueueEntry": None}
@@ -130,7 +133,7 @@ def main() -> int:
             p = f"{state}/calls"
             return open(p).read() if os.path.exists(p) else ""
 
-        def run(*args: str, script: str = GZAPP, env: dict | None = None) -> tuple[int, str]:
+        def run(*args: str, script: str = GZAPP, env: dict | None = None, cwd: str = sandbox) -> tuple[int, str]:
             e = dict(base_env, MOCK_STATE=state, PATH=f"{bindir}:{base_env.get('PATH', '')}",
                      GZAPP_PR_GATE=f"{bindir}/pr-gate", GZAPP_PR_REVIEW_STATUS=f"{bindir}/pr-review-status",
                      GZAPP_PR_SESSION="develop-qzapp/me")
@@ -140,7 +143,7 @@ def main() -> int:
                          AGENT_FABRIC_PR_REVIEW_STATUS=e.pop("GZAPP_PR_REVIEW_STATUS"))
             e.update(env or {})
             r = subprocess.run(["bash", script, *args], env=e, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                               stdin=subprocess.DEVNULL, text=True, timeout=120, cwd=sandbox)
+                               stdin=subprocess.DEVNULL, text=True, timeout=120, cwd=cwd)
             return r.returncode, r.stdout
 
         me = "develop-qzapp/me/feat/x"
@@ -223,6 +226,10 @@ def main() -> int:
         check("…and the review status was not asked", not any(l[:1].isdigit() for l in calls().splitlines()), calls())
         reset(); set_pr(me, "plain", ["docs/a.md"])
         rc, out = run("7", "--basis", "b", "--boundary"); check("--boundary forces the gate on a docs PR", rc == 1, out)
+        reset(); set_pr(me, "plain", ["apps/backend_dotnet/src/Gzapp.Infrastructure/Auth/Tokens.cs->docs/tokens.md"]); set_gate(9)
+        rc, out = run("7", "--basis", "b")
+        check("a file renamed OUT of a boundary directory is judged by its old name too",
+              rc == 1 and "no review-class review" in out, out)
         reset(); set_pr(me, "plain", mig)
         rc, out = run("7", "--basis", "the owner's word", "--no-boundary", "comment-only DDL, owner waived")
         check("--no-boundary waives it and says so", rc == 0 and "WAIVED" in out, out)
@@ -304,7 +311,10 @@ def main() -> int:
         iw = {"AGENT_FABRIC_ARM_CONFIG": IW_CONFIG}
         for path in ("crates/identity/profile-identity/src/lib.rs", "crates/human/store/src/lib.rs",
                      "architecture/contracts/schemas/human-chat/envelope.schema.json",
-                     "crates/transport/libp2p/src/dialing.rs", "apps/transportctl/src/phrase.rs"):
+                     "crates/transport/libp2p/src/dialing.rs", "apps/transportctl/src/phrase.rs",
+                     "crates/discovery/kademlia/src/budgets.rs", "crates/discovery/cache/src/record.rs",
+                     "crates/human/core/src/retention.rs", "architecture/config/config.schema.yaml",
+                     "architecture/config/examples/kademlia-enabled.yaml"):
             reset(); set_pr(me, "plain", [path]); set_gate(9)
             rc, out = run("7", "--basis", "b", script=SHIM, env=iw)
             check(f"InterWeave: {path} is a boundary", rc == 1 and "no review-class review" in out, out)
@@ -318,6 +328,28 @@ def main() -> int:
         rc, out = run("7", "--basis", "b", script=SHIM, env=iw)
         check("InterWeave has no classes: a stated docs-only under 8 still asks the owner",
               rc == 1 and "none in this project" in out, out)
+
+        print("arm: the rules found from the clone's remote, AGENT_FABRIC_ARM_CONFIG unset")
+        reg = json.load(open(os.path.join(ROOT, "projects", "registry.json")))
+        iw_remote = (reg.get("projects") or reg)["interweave"]["remotes"][0]
+        clones = {}
+        for name, url in (("iw", iw_remote), ("stranger", "git@github.com:nobody/unregistered.git")):
+            d = f"{sandbox}/{name}"
+            subprocess.run(["git", "init", "-q", d], env=base_env, check=True, timeout=30)
+            subprocess.run(["git", "-C", d, "remote", "add", "origin", url], env=base_env, check=True, timeout=30)
+            clones[name] = d
+        reset(); set_pr(me, "plain", ["crates/transport/libp2p/src/dialing.rs"]); set_gate(9)
+        rc, out = run("7", "--basis", "b", script=SHIM, cwd=clones["iw"])
+        check("a clone of InterWeave is judged by InterWeave's rules (transport is a boundary there, not in gzapp's)",
+              rc == 1 and "no review-class review" in out, out)
+        reset(); set_pr(me, "plain", ["infra/db/migrations/0053_x.sql"]); set_gate(9)
+        rc, out = run("7", "--basis", "b", script=SHIM, cwd=clones["iw"])
+        check("…and not by gzapp's (a migrations path is not InterWeave's boundary)",
+              rc == 0 and "not a security-boundary change" in out, out)
+        reset(); set_pr(me, "plain", ["docs/a.md"]); set_gate(9)
+        rc, out = run("7", "--basis", "b", script=SHIM, cwd=clones["stranger"])
+        check("a clone of an unregistered remote: exit 2, nothing armed",
+              rc == 2 and "no project found" in out and "pr merge" not in calls(), out)
 
         print("arm: a project with no arm.json")
         reset(); set_pr(me, "plain", ["docs/a.md"]); set_gate(9)

@@ -84,8 +84,8 @@ What it refuses, in order, and why:
   5. the count rule (pr-gate.sh's classifier): 8–16 arms at the review
      gate; over 16 is ADVICE for the next batch, never a refusal; under
      8 is armed on the owner's word — the --basis must carry the phrase
-     "owner's word" — EXCEPT a class the project lets arm at the gate
-     (gzapp: docs-only, single-check tooling), STATED in the PR body
+     "owner's word" — EXCEPT a class the project's arm.json lets arm at
+     the gate (none, in a project that declares none), STATED in the PR body
      ("Class: <class>") and confirmed by the changed files; a stated
      class the files contradict is refused, not trusted.
 
@@ -301,8 +301,14 @@ def arm(argv: list[str]) -> int:
     # REST list, not `gh pr view --json files`, which stops at 100 — a
     # boundary path past the 100th file would otherwise hide (gzapp #886
     # review, pre-existing in gh).
+    # A rename is judged by both of its names: a file moved OUT of a
+    # boundary directory and edited on the way is a boundary change, and
+    # GitHub names it by where it ended up (previous_filename is the
+    # other; review of this port, pre-existing in gzapp's bash).
     try:
-        files = [f.get("filename", "") for f in gh.api(f"repos/{repo}/pulls/{num}/files?per_page=100", paginate=True)]
+        listed = gh.api(f"repos/{repo}/pulls/{num}/files?per_page=100", paginate=True)
+        files = [f.get("filename", "") for f in listed]
+        files += [f["previous_filename"] for f in listed if f.get("previous_filename")]
     except (gh.GhError, AttributeError, TypeError):
         raise Unanswered(f"cannot list #{num}'s files") from None
     boundary_files = [f for f in files if not (exempt_re and exempt_re.search(f)) and boundary_re.search(f)]
@@ -434,6 +440,9 @@ def main(argv: list[str]) -> int:
         return 1
     except Unanswered as e:
         print(f"arm: {e}", file=sys.stderr)
+        return 2
+    except Exception as e:  # noqa: BLE001 — an answer of a shape gh never gave: unanswered, never "refused"
+        print(f"arm: an unexpected answer stopped the gates ({type(e).__name__}: {e}); read gh pr view before retrying", file=sys.stderr)
         return 2
 
 
