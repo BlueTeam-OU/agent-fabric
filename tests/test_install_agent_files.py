@@ -156,6 +156,19 @@ def main() -> int:
                   r.returncode == 1 and "install-agent-files: cannot remove" in r.stderr and "blind-reviewer.md" in r.stderr
                   and "Traceback" not in r.stderr and r.stderr.strip().count("\n") == 0, r.stderr)
 
+        # A file found already current is recorded as the fabric's, so its first
+        # change upstream is not kept as a person's version (review of #86).
+        root2, home2, cfg2 = fixture()
+        run(root2, home2, cfg2)
+        record = os.path.join(home2, ".local", "state", "agent-fabric", "agents", pwd.getpwuid(os.geteuid()).pw_name,
+                              "fabric-written.json")
+        os.unlink(record)
+        r = run(root2, home2, cfg2)
+        recorded = json.load(open(record)) if os.path.exists(record) else {}
+        check("a run that finds every class file current still records each one",
+              r.stdout.splitlines()[-1] == "agent files (anthropic): 0 written, 5 already current."
+              and all(os.path.join(cfg2, "agents", f"{c}.md") in recorded for c in CLASSES), r.stdout + str(sorted(recorded)))
+
         # A level of "-" is no effort line at all.
         root, home, cfg = fixture()
         run(root, home, cfg)

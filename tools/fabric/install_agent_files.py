@@ -32,8 +32,12 @@ CONTRACT, frozen from the bash (ADR-040 §5 rule 1):
   writes       ~/.claude/agents/<class>.md for the five classes (the repo
                file, `model:` replaced by the routed pin and an `effort:`
                line added after it, where routing resolves one), a
-               <file>.before-agent-fabric beside a file the fabric did not
-               write, ~/.claude/agents/locale-worker.md (language-culture
+               person's version of a file it replaces, every time it
+               differs from the fabric's last write, under the first free
+               <file>.before-agent-fabric[.N] with its own mode, the hash of
+               each file written or found current in
+               <state>/agents/<login>/fabric-written.json (and its .lock),
+               ~/.claude/agents/locale-worker.md (language-culture
                login with an authored worker for its locale; removed by the
                agent-fabric marker anywhere else), the locale MCP entry in
                .claude.json and the WebSearch deny in settings.json (both
@@ -124,6 +128,8 @@ class Installer:
         if os.path.isfile(dest) and _read(dest) == content:
             self.same += 1
             say(f"  =  {dest}")
+            if not self.dry_run:
+                fabric_writes.record(dest, content)
             return
         if self.dry_run:
             say(f"  +  {dest} (would write)")
