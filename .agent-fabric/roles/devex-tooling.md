@@ -21,12 +21,15 @@ here (2026-10-03). A role that wants its remit changed proposes it.
 - the GitHub toolkit: the shims under `runtime/github/` (pr-gate,
   pr-reply, post-review, pr-review-status, pr-sessions, trial-merge) and
   their Python under `tools/fabric/github/`;
-- gzapp's `gh` forwarders, under `projects/gzapp/integration/gh/`;
+- gzapp's `gh` forwarders and both projects' arm rules, under
+  `projects/gzapp/integration/gh/` and `projects/interweave/integration/gh/`
+  (an `arm.json` is a project's security boundary in path form: a change
+  that narrows one asks that project's architect-cto first);
 - the GZCoord command-line tools, `communication/gzcoord/scripts/`, and
   their tests, `communication/gzcoord/tests/`;
 - the toolkit's own tests under `tests/`, each named in the entry
   (`test_pr_*`, `test_post_review*`, `test_trial_merge*`,
-  `test_commit_class*`). Not `bin/`, whose commands are other roles'
+  `test_commit_class*`, `test_arm_cli`). Not `bin/`, whose commands are other roles'
   (the owner's carve-out is the tools themselves); a new forge command
   that needs a `bin/` entry is asked of fabric-coordinator.
 
