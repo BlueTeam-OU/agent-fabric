@@ -34,6 +34,17 @@ if [ "$(git -C "$fabric" rev-parse --is-inside-work-tree 2>/dev/null)" = true ];
             if [ "$rc" = 124 ]; then reason="git pull timed out after 30 s"; else reason="git pull exit $rc"; fi
         fi
         echo "moveto: agent-fabric not fast-forwarded ($reason); using it as is" >&2
+    else
+        # --ff-only succeeds without a word on a clone that is AHEAD of
+        # origin/main, so commits nobody merged stayed in force unsaid
+        # (review of #80). A count git cannot give is said as unknown,
+        # never read as zero.
+        ahead="$(git -C "$fabric" rev-list --count origin/main..HEAD 2>/dev/null)" || ahead=""
+        case "$ahead" in
+            0) ;;
+            ''|*[!0-9]*) echo "moveto: agent-fabric's commits beyond origin/main are unknown; using it as is" >&2 ;;
+            *) echo "moveto: agent-fabric is $ahead commit(s) ahead of origin/main, which only a merge changes; using it as is" >&2 ;;
+        esac
     fi
     timeout 30 bash "$fabric/runtime/claude-code/bootstrap.sh" >/dev/null 2>&1         || echo "moveto: bootstrap did not complete; run it by hand" >&2
 fi

@@ -270,6 +270,29 @@ def main() -> int:
         err = enter(PATH=f"{sandbox}/hungbin:{env['PATH']}")
         check("a silent timeout is said as one", "not fast-forwarded (git pull timed out after 30 s)", err)
 
+        print("enter: a clone ahead of origin/main is said, with its count")
+        origin = f"{sandbox}/origin.git"
+        subprocess.run(["git", "init", "-q", "--bare", "-b", "main", origin], env=env, check=True, timeout=30)
+        fab = f"{eh}/projects/agent-fabric"
+        g = ["git", "-C", fab, "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"]
+        subprocess.run(["git", "-C", fab, "remote", "set-url", "origin", origin], env=env, check=True, timeout=30)
+        subprocess.run([*g, "checkout", "-q", "-b", "main"], env=env, check=True, timeout=30)
+        subprocess.run([*g, "commit", "-q", "--allow-empty", "--no-verify", "-m", "base"], env=env, check=True,
+                       timeout=30)
+        subprocess.run([*g, "push", "-q", "origin", "main"], env=env, check=True, timeout=30)
+        err = enter()
+        check_absent("level with origin: nothing said", "ahead of origin/main", err)
+        for n in ("one", "two"):
+            subprocess.run([*g, "commit", "-q", "--allow-empty", "--no-verify", "-m", n], env=env, check=True,
+                           timeout=30)
+        err = enter()
+        check("two local commits: said, with the count", "agent-fabric is 2 commit(s) ahead of origin/main", err)
+        put(f"{sandbox}/norevbin/git", '#!/bin/sh\ncase " $* " in *" rev-list "*) exit 128 ;; esac\n'
+            f'exec {shutil.which("git")} "$@"\n', 0o755)
+        err = enter(PATH=f"{sandbox}/norevbin:{env['PATH']}")
+        check("a count git cannot give is said as unknown, never as level",
+              "commits beyond origin/main are unknown", err)
+
     print(f"\ntest_moveto_cli: {'OK' if not fails else f'FAILED — {fails} check(s)'}")
     return 1 if fails else 0
 
