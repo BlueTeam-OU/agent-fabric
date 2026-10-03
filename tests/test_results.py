@@ -101,9 +101,29 @@ else:
             os.environ["PATH"] = old
     check("merged_prs: each PR read alone, its commits' parents counted from REST",
           [c["parents"] for c in prs[0]["commits"]] == [1, 2], prs)
+    # One bound for both reads: GitHub's merged: search takes a date, so a
+    # PR merged that day before `since` comes back and is dropped here.
+    old = os.environ["PATH"]
+    with tempfile.TemporaryDirectory() as tmp:
+        open(os.path.join(tmp, "gh"), "w").write(fake)
+        os.chmod(os.path.join(tmp, "gh"), 0o755)
+        os.environ["PATH"] = tmp + os.pathsep + old
+        try:
+            later_same_day = results.merged_prs("o/r", dt.datetime(2026, 10, 1, 12, tzinfo=dt.timezone.utc))
+            at_merge = results.merged_prs("o/r", dt.datetime(2026, 10, 1, 10, tzinfo=dt.timezone.utc))
+        finally:
+            os.environ["PATH"] = old
+    check("merged_prs: the exact since, not GitHub's date — earlier that day dropped, at the instant kept",
+          later_same_day == [] and [p["number"] for p in at_merge] == [7], (later_same_day, at_merge))
     check("main_commits: subject, body and time from the REST list",
           commits == [{"sha": "s1", "subject": "fix x", "body": "body",
                        "when": dt.datetime(2026, 10, 2, tzinfo=dt.timezone.utc)}], commits)
+    # The period: the DAYS before the last WINDOW days, whose windows closed.
+    now = dt.datetime(2026, 10, 4, 9, tzinfo=dt.timezone.utc)
+    check("closed_period: since and end lie DAYS and WINDOW before now",
+          results.closed_period(now, 10, 14) == (dt.datetime(2026, 9, 10, 9, tzinfo=dt.timezone.utc),
+                                                  dt.datetime(2026, 9, 20, 9, tzinfo=dt.timezone.utc)),
+          results.closed_period(now, 10, 14))
     # The period's spend, account by account (review of #68).
     whole = {"by_account": {"a": {"direct": 100, "broker": 10}, "b": {"direct": 50}}}
     recent = {"by_account": {"a": {"direct": 30}, "b": {"direct": 20}}}
