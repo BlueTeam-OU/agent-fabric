@@ -248,6 +248,15 @@ def main() -> int:
             linked = str(exc)
         check("a symlink where the per-login TMPDIR goes is refused, naming it",
               linked is not None and "agent-fabric-link" in linked, linked)
+        with open(f"{tmp}/var/agent-fabric-file", "w") as f:
+            f.write("not a directory\n")
+        try:
+            launch.make_tmpdir(f"{tmp}/var/agent-fabric-file")
+            plain = None
+        except launch.Refused as exc:
+            plain = str(exc)
+        check("…and so is a regular file of this account's own",
+              plain is not None and "agent-fabric-file" in plain and "not a directory" in plain, plain)
         real_euid = os.geteuid
         os.geteuid = lambda: real_euid() + 1
         try:

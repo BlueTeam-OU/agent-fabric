@@ -844,27 +844,26 @@ def make_tmpdir(path: str, *, ours: bool = True) -> None:
     launch is refused instead, naming the path, so the person moves it. A
     TMPDIR the account set itself (`ours` false) is its own choice, /tmp
     included, and is taken as it is."""
-    try:
-        st = os.lstat(path)
-    except FileNotFoundError:
-        st = None
-    except OSError:
-        return
-    if st is not None:
-        if not ours:
-            return
-        if stat.S_ISLNK(st.st_mode) or not stat.S_ISDIR(st.st_mode):
-            die(f"TMPDIR {path} exists and is not a directory (a symlink is refused too); remove it or set TMPDIR")
-        if st.st_uid != os.geteuid():
-            die(f"TMPDIR {path} belongs to uid {st.st_uid}, not this account; remove it as that account or root, "
-                "or set TMPDIR")
-        return
+    # Made first, checked after: a check before the mkdir left a window in
+    # which another account's directory or symlink, made between the two,
+    # was taken unchecked (review of #87). mkdir never follows a symlink.
     try:
         os.makedirs(os.path.dirname(path), exist_ok=True)
-        os.mkdir(path)
+        os.mkdir(path, 0o700)
         os.chmod(path, 0o700)
     except OSError:
         pass
+    if not ours:
+        return
+    try:
+        st = os.lstat(path)
+    except OSError:
+        return
+    if stat.S_ISLNK(st.st_mode) or not stat.S_ISDIR(st.st_mode):
+        die(f"TMPDIR {path} exists and is not a directory (a symlink is refused too); remove it or set TMPDIR")
+    if st.st_uid != os.geteuid():
+        die(f"TMPDIR {path} belongs to uid {st.st_uid}, not this account; remove it as that account or root, "
+            "or set TMPDIR")
 
 
 def print_report(d: dict, routing, *, label: str, agent: str, role: str, provider: str, session: str,
