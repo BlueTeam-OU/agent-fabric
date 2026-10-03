@@ -218,6 +218,13 @@ def make_pristine(script: str) -> str:
             src = os.path.join(os.path.dirname(module), dep)
             if os.path.isfile(src):
                 shutil.copyfile(src, f"{d}/tools/fabric/{dep}")
+    # The journal's CLI, stood in for: the real import reads the relay as
+    # the account, which a scratch account must never reach. It logs its
+    # call; FAKE_JOURNAL_RC fails it.
+    put(f"{d}/tools/fabric/episodic.py",
+        "import os, sys\n"
+        "open(os.environ['FAKE_LOG'], 'a').write('\\t'.join(['episodic', *sys.argv[1:]]) + '\\n')\n"
+        "sys.exit(int(os.environ.get('FAKE_JOURNAL_RC') or 0))\n")
     put(f"{d}/projects/registry.json", json.dumps(REGISTRY, indent=2) + "\n")
     git("init", "-q", d)
     git("-C", d, "add", "-A")
@@ -393,6 +400,25 @@ def between(lines: list[str], first: str, last: str) -> list[str]:
 
 
 # --- the cases --------------------------------------------------------------
+
+def journal() -> None:
+    """Step 9: the journal's import, once per account, best effort (ADR-041
+    rule 9). Its 20 s bound is test_bootstrap_internals.py's."""
+    print("bootstrap: step 9, the journal's import")
+    a = Account("journal", wcs=False)
+    r = bootstrap(a, "--dry-run")
+    check("a dry run says it and calls nothing",
+          r.rc == 0 and "  +  episodic journal: would import this account's GZCoord history, once" in r.lines
+          and not a.calls("episodic"), r)
+    r = bootstrap(a)
+    check("a run calls the import once, --if-needed; exit 0, nothing on stderr",
+          r.rc == 0 and not r.err and a.calls("episodic") == [["episodic", "gzcoord-import", "--if-needed"]], r)
+    a.clear_log()
+    r = bootstrap(a, env=a.env(FAKE_JOURNAL_RC="1"))
+    check("an import that fails: one line, exit 0, not counted as NOT written",
+          r.rc == 0 and "  !  episodic journal: not imported (above); the next bootstrap tries again" in r.lines
+          and "NOT written" not in r.lines[-2] and a.calls("episodic"), r)
+
 
 def fabric_worktree() -> None:
     # A contributor's branch in a linked worktree of the fabric checkout
@@ -1028,7 +1054,7 @@ def main() -> int:
         for name in ("systemctl", "loginctl", "curl", "ss", "pgrep", "claude", "pip", "uv"):
             if shutil.which(name, path=f"{T}/fakebin:{T}/sysbin") != f"{T}/fakebin/{name}":
                 sys.exit(f"test: refusing to run: {name} on the test PATH is not the fake")
-        for case in (first_run, dry_run, record_current, arguments, existing_files, no_config_dir, local_bin_override,
+        for case in (first_run, dry_run, record_current, journal, arguments, existing_files, no_config_dir, local_bin_override,
                      user_manager, relay, failures, fabric_worktree):
             # A file the script did not write, or a line it did not print,
             # can raise in the case's own reading: that is a failure of the

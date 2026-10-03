@@ -41,6 +41,9 @@ Writes, idempotently, and only machine-local files:
                                      script op (runtime/langid/), best effort
   (removes ~/.doppler, ~/.local/bin/doppler and ~/.config/agent-fabric/secrets-source:
    Doppler is retired, ADR-038)
+  <state>/agents/<login>/episodic.db this account's GZCoord history, imported once through the
+                                     relay as itself (episodic.py gzcoord-import --if-needed,
+                                     agent-fabric ADR-041 rule 9), best effort
 where <units> is $XDG_CONFIG_HOME/systemd/user, else ~/.config/systemd/user.
 
 Nothing here names an agent: the hooks ask the OS who is running at
@@ -106,7 +109,9 @@ CONTRACT, frozen from the bash (ADR-040 §5 rule 3):
                leave (none).
   calls        this interpreter: runtime/identity.py,
                runtime/claude-code/user-settings.py <settings> [--dry-run],
-               runtime/claude-code/retire-doppler.py [--dry-run];
+               runtime/claude-code/retire-doppler.py [--dry-run],
+               tools/fabric/episodic.py gzcoord-import --if-needed (not
+               under --dry-run; 20 s);
                tools/fabric/install_agent_files.py
                [--dry-run]; bash runtime/langid/install.sh [--dry-run];
                git (through git.py): config --get / config core.hooksPath,
@@ -204,6 +209,7 @@ HOOKS_REL = "policies/githooks"
 UNIT = "agent-fabric-agentd"
 RELAY_UNIT = "gzcoord-relay"
 RELAY_STATUS = "http://127.0.0.1:8765/status"
+JOURNAL_IMPORT_TIMEOUT = 20
 # Ownership is by the hook path SHAPE (…/runtime/claude-code/hooks/…, and
 # the GZCoord inbox under communication/), not by the current root: an
 # entry written by an earlier bootstrap from another checkout (a shared
@@ -464,6 +470,7 @@ class Bootstrap:
         self.relay()
         self.langid()
         self.retire_doppler()
+        self.journal_import()
         if self.failed:
             say(f"bootstrap: {self.changed} written, {self.same} already current, {self.failed} NOT written (above).")
         else:
@@ -784,6 +791,30 @@ class Bootstrap:
         rc, _ = self.python3("runtime/claude-code/retire-doppler.py", *(["--dry-run"] if self.dry_run else []))
         if rc != 0:
             self.failed += 1
+
+    def journal_import(self) -> None:
+        # 9. This account's GZCoord history into its episodic journal, once
+        #    (ADR-041 rule 9): read through the relay as itself, with its own
+        #    token; --if-needed makes every later run a local no-op. Best
+        #    effort, like langid: no token yet (a new account), a relay down,
+        #    a journal that refuses — one line, and the next bootstrap tries
+        #    again, since only a run that read every channel to its end marks
+        #    it done. 20 s: the whole fleet's history took 1.84 s, and moveto's
+        #    enter gives all of bootstrap 30 s.
+        if self.dry_run:
+            say("  +  episodic journal: would import this account's GZCoord history, once")
+            return
+        argv = [sys.executable, self.src("tools/fabric/episodic.py"), "gzcoord-import", "--if-needed"]
+        try:
+            rc = subprocess.run(argv, check=False, timeout=JOURNAL_IMPORT_TIMEOUT).returncode
+        except subprocess.TimeoutExpired:
+            say(f"  !  episodic journal: the import did not finish in {JOURNAL_IMPORT_TIMEOUT} s; "
+                "the next bootstrap tries again")
+            return
+        except OSError:
+            rc = 127
+        if rc != 0:
+            say("  !  episodic journal: not imported (above); the next bootstrap tries again")
 
 
 def parse(argv: list[str]) -> tuple[str, bool]:
