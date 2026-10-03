@@ -373,8 +373,13 @@ def verify(root: str, login: str, home: str, sudo: str, projects: list[str]) -> 
     prefixed("   ", a.run("printf 'git: %s <%s> signingkey=%s gpgsign=%s\\n' \"$(git config --global user.name)\" "
                           "\"$(git config --global user.email)\" \"$(git config --global user.signingkey | cut -c1-12)\" "
                           "\"$(git config --global commit.gpgsign)\""))
-    gpgkeys = "".join(c for c in a.run("gpg --list-secret-keys 2>/dev/null | grep -c ^sec; true",
-                                       stderr=subprocess.DEVNULL).decode("ascii", "ignore") if c.isdigit())[:4] or "0"
+    # The secret of the key git signs with, not any secret key: since
+    # ADR-038 every account holds its own store key, so a count of secret
+    # keys was never zero and the hand-off below was never asked for
+    # (rust-ui-dev-01 could not commit, 2026-10-03, seq 11160).
+    signing = a.run('k="$(git config --global user.signingkey)"; if [ -z "$k" ]; then echo absent; '
+                    'elif gpg --list-secret-keys -- "$k" >/dev/null 2>&1; then echo present; else echo absent; fi',
+                    stderr=subprocess.DEVNULL).decode("ascii", "ignore").strip()
     for prov in ("anthropic", "openrouter"):
         prefixed(f"   launch ({prov}): ", a.run(f"cd {where} && ~/projects/agent-fabric/runtime/openrouter/launch "
                                                   f"--provider {prov} --print 2>&1 | grep -E '^launch:|resolved profile' | head -1"))
@@ -385,10 +390,10 @@ def verify(root: str, login: str, home: str, sudo: str, projects: list[str]) -> 
                                 f"{home}/.config/agent-fabric/secrets.env"], stdin=subprocess.DEVNULL,
                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                                timeout=READBACK_TIMEOUT_S).returncode == 0
-    return closing(login, gpgkeys, "template" if has_template else "no", first)
+    return closing(login, signing, "template" if has_template else "no", first)
 
 
-def closing(login: str, gpgkeys: str, creds: str, first: str) -> str:
+def closing(login: str, signing: str, creds: str, first: str) -> str:
     """What is left for a person, in a terminal. A Claude account for plain
     claude is a template's token, assigned into the login's store and synced
     into its secrets.env (docs/adr/ADR-031-claude-accounts-assigned-applied-
@@ -396,15 +401,11 @@ def closing(login: str, gpgkeys: str, creds: str, first: str) -> str:
     session without one. Never a copy of another login's .credentials.json:
     a refresh token has one holder, and the first renewal by either signs
     the other out."""
-    try:
-        has_key = int(gpgkeys) > 0
-    except ValueError:
-        has_key = False
-    if has_key:
-        gpg = "- GPG secret key: present"
+    if signing == "present":
+        gpg = "- GPG secret key: the signing key's, present"
     else:
-        gpg = ("- GPG secret key: NONE — commits will fail to sign. As the coordinator, in a terminal (the key has a "
-               "passphrase):\n"
+        gpg = ("- GPG secret key: the signing key's is NOT in this account's keyring — commits will fail to "
+               "sign. As the coordinator, in a terminal (the key has a passphrase):\n"
                f'       gpg --export-secret-keys "$(git config --get user.signingkey)" | sudo -u {login} gpg --batch --import\n'
                f"       sudo -u {login} bash -c \"echo '$(git config --get user.signingkey):6:' | gpg --import-ownertrust\"")
     if creds == "template":

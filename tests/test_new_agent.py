@@ -150,13 +150,13 @@ def main() -> int:
               and "(then restart this AppVM)" in w.audit("fedora-qubes", "", "x", "1", ["gh"]))
 
         print("the closing list")
-        c = w.closing("acct", "0", "no", "demo")
+        c = w.closing("acct", "absent", "no", "demo")
         check("no GPG key and no template: both named, with the commands, and the first launch in the first project",
-              "GPG secret key: NONE" in c and "sudo -u acct gpg --batch --import" in c and "bin/fabric-accounts assign acct" in c
+              "GPG secret key: the signing key's is NOT" in c and "sudo -u acct gpg --batch --import" in c and "bin/fabric-accounts assign acct" in c
               and "moveto acct demo   then" in c and c.startswith("new-agent: done."))
-        c = w.closing("acct", "2", "template", "")
+        c = w.closing("acct", "present", "template", "")
         check("…present ones said as present; no project, no clone name",
-              "GPG secret key: present" in c and "a template token (plain-claude path ready)" in c and "moveto acct   then" in c)
+              "GPG secret key: the signing key's, present" in c and "a template token (plain-claude path ready)" in c and "moveto acct   then" in c)
 
         print("the host names itself")
         put(f"{tmp}/hbin/hostname", "#!/usr/bin/env bash\n[[ $1 == -s ]] && echo far-host\n", 0o755)
@@ -197,20 +197,23 @@ def main() -> int:
                 w.Account.run, sys.stderr = saved_run, saved_err
                 wrapper.detach()
             return text, said, asked
-        text, said, asked = verify_with({"gpg --list-secret-keys": b"2\n", "ls-remote": b"ssh to origin: ok\n",
+        text, said, asked = verify_with({"gpg --list-secret-keys": b"present\n", "ls-remote": b"ssh to origin: ok\n",
                                          "gh auth status": b"Logged in to github.com\n"}, ["demo"])
         check("each read-back's lines prefixed; the ping's first line dropped",
               "   control plane: pong\n" in said and "header" not in said and "   demo ssh to origin: ok\n" in said
               and "   gh: Logged in to github.com\n" in said, said)
-        check("…the account's GPG keys counted: present", "GPG secret key: present" in text)
+        check("…the signing key's secret asked for by the key git signs with: present",
+              "GPG secret key: the signing key's, present" in text
+              and any("user.signingkey" in x and 'gpg --list-secret-keys -- "$k"' in x for x in asked), asked)
         check("…both launch paths read back, from the first project", sum("--provider anthropic --print" in a or
               "--provider openrouter --print" in a for a in asked) == 2 and all("cd ~/projects/demo &&" in a for a in asked
                                                                                if "--print" in a))
-        text, _, _ = verify_with({"gpg --list-secret-keys": b"0\n"}, [])
-        check("…none counted is NONE, with the commands to import one", "GPG secret key: NONE" in text
+        text, _, _ = verify_with({"gpg --list-secret-keys": b"absent\n"}, [])
+        check("…absent (an account holding only its own store key, rust-ui-dev-01's case): the commands to "
+              "import it", "GPG secret key: the signing key's is NOT" in text
               and "gpg --batch --import" in text)
         text, _, _ = verify_with({"gpg --list-secret-keys": b"garbage\n"}, [])
-        check("…an answer with no count is none", "GPG secret key: NONE" in text)
+        check("…any other answer is absent", "GPG secret key: the signing key's is NOT" in text)
         put(f"{home}/.config/agent-fabric/secrets.env", "export CLAUDE_CODE_OAUTH_TOKEN='x'\n")
         text, _, _ = verify_with({}, [])
         check("…and a template token in the synced record is read through sudo", "a template token" in text)
