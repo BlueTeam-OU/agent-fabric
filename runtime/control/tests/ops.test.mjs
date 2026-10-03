@@ -8,7 +8,7 @@ import crypto from 'node:crypto';
 import zlib from 'node:zlib';
 import { execFileSync } from 'node:child_process';
 import { scratch } from '../../../tests/scratch.mjs';
-import { identity, usage, keys, fabric, session, host, script, recall, recallKind, scriptCounts, notesDir, workerTranscripts, languages, langidCmd, memoryDirs, memorySlug, memory, tokens, equivalent, TOKEN_RATIOS, collect, KEY_NAMES, OPS, MEMORY_PART_BYTES, accounts, readAccount, parseUsageReport, accountsDir, accountSlugs, takeReadLock, presence } from '../ops.mjs';
+import { identity, usage, keys, fabric, session, host, script, recall, recallKind, scriptCounts, notesDir, workerTranscripts, languages, langidCmd, memoryDirs, memorySlug, memory, tokens, equivalent, TOKEN_RATIOS, collect, KEY_NAMES, OPS, MEMORY_PART_BYTES, accounts, readAccount, parseUsageReport, accountsDir, accountSlugs, takeReadLock, presence, signingSecret, SIGNING_ROW } from '../ops.mjs';
 // A fence for any presence() a test forgets to give a hold: never the
 // runner's own ~/.cache/agent-fabric/hold (review of #49).
 process.env.AGENT_FABRIC_HOLD_DIR = scratch('ops-hold-');
@@ -54,6 +54,20 @@ test('usage: the two windows through the account\'s own token, which goes into o
   assert.deepEqual(await usage(h, async () => ({ ok: true, status: 200, json: async () => { throw new Error('bad json'); } })), { status: 'unreadable' });
   fs.unlinkSync(path.join(h, '.claude', '.credentials.json'));
   assert.deepEqual(await usage(h, fetchOk), { status: 'no-credentials' });
+});
+
+test('signing key secret: asked of the key git signs with, never a count of secret keys', () => {
+  const asked = [];
+  const exec = (secretHeld, key = 'ABCDEF0123456789') => (cmd, args) => {
+    asked.push([cmd, ...args].join(' '));
+    if (cmd === 'git') { if (!key) throw new Error('exit 1'); return key + '\n'; }
+    if (cmd === 'gpg' && secretHeld) return '';
+    throw new Error('gpg: error reading key: No secret key');
+  };
+  assert.deepEqual(signingSecret(exec(true)), { name: SIGNING_ROW, present: true });
+  assert.ok(asked.includes('gpg --list-secret-keys -- ABCDEF0123456789'), asked.join('; '));
+  assert.deepEqual(signingSecret(exec(false)), { name: SIGNING_ROW, present: false }, 'the store key alone is not it');
+  assert.deepEqual(signingSecret(exec(true, '')), { name: SIGNING_ROW, present: false }, 'no signing key configured');
 });
 
 test('keys: names and twelve-digit fingerprints, never a value; an absent key says so', () => {

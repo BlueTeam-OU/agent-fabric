@@ -193,6 +193,21 @@ export function keys(home = os.homedir(), names = KEY_NAMES) {
   });
 }
 
+// Whether the secret of the key git signs with is in this account's
+// keyring: present or not, never the key. A secret-key COUNT is no answer,
+// since every account holds its own store key (ADR-038): rust-ui-dev-01
+// held one and could not sign (2026-10-03). git config exits 1 when unset,
+// gpg non-zero when the secret is missing: both are absent.
+export const SIGNING_ROW = 'signing key secret';
+export function signingSecret(exec = execFileSync) {
+  const opts = { encoding: 'utf8', timeout: 5000, stdio: ['ignore', 'pipe', 'ignore'] };
+  let k;
+  try { k = String(exec('git', ['config', '--global', 'user.signingkey'], opts)).trim(); } catch { k = ''; }
+  if (!k) return { name: SIGNING_ROW, present: false };
+  try { exec('gpg', ['--list-secret-keys', '--', k], opts); return { name: SIGNING_ROW, present: true }; }
+  catch { return { name: SIGNING_ROW, present: false }; }
+}
+
 // The fabric checkout the account runs on: head, branch, how far behind
 // origin/main, and whether the tree is clean. A fetch that cannot reach
 // origin is said, not hidden. Asynchronous so the daemon's event loop
@@ -802,7 +817,7 @@ export async function collect(op, ctx = {}) {
   await Promise.all(wants.map(name => {
     if (name === 'identity') return guard(name, () => identity(ctx.home, ctx.who));   // ctx.who unset: whoami() per request, so a rebind shows
     if (name === 'usage') return guard(name, () => ctx.usageCached ? ctx.usageCached() : usage(ctx.home, ctx.fetch));
-    if (name === 'keys') return guard(name, () => keys(ctx.home));
+    if (name === 'keys') return guard(name, () => [...keys(ctx.home), signingSecret(ctx.execSync)]);
     if (name === 'fabric') return guard(name, () => fabric(ctx.root, ctx.exec));
     if (name === 'session') return guard(name, () => session(ctx.uid, ctx.exec));
     if (name === 'presence') return guard(name, () => presence(ctx.presenceOpts));
