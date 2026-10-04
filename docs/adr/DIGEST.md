@@ -48,6 +48,8 @@ its record disagree, the record wins. Look it up, never read it whole:
 | an agent's key and secrets; the store; provision; recovery; backup | ADR-038 |
 | the agent id; UUIDv7; renaming a login | ADR-039 |
 | which language a tool is written in; the bash size limit and allowlist; porting a script; gh.py, git.py | ADR-040 |
+| your GZCoord history; the episodic journal; fabric-history | ADR-041 |
+| signed store commits; trusted base; trust-base; a refused store | ADR-042 |
 
 ### ADR-000 — The enduring organization (Accepted)
 
