@@ -52,9 +52,10 @@ is trusted once, at a recorded commit; verification starts after it.
 ## 4. Rationale
 
 The keys exist already. Since ADR-038, every account holds a signing
-subkey, certified by its parent and recorded in `lineage.json`. So
-signing costs nothing new to provision, and verification needs no
-authority beyond what the fabric already commits. A per-commit check
+subkey under its primary key. The primary key is committed at
+`identities/keys/<id>.asc` and recorded, with its parent, in
+`lineage.json`. So signing costs nothing new to provision, and
+verification needs no authority beyond what the fabric already commits. A per-commit check
 refuses a forged entry before it reaches the store, rather than finding it
 after it has been applied. The cost is one signature per write and one
 verification per pull: a few hundred milliseconds on a store that changes
@@ -65,9 +66,12 @@ a handful of times a day.
 1. A commit to an agent's store is signed with its writer's signing
    subkey: the agent's own for `set`, the parent's for `put` and
    `seed-child`. A writer that cannot sign does not write.
-2. The keys allowed to write a store are the agent's own and its parent's,
-   as `identities/keys/lineage.json` records them on the fabric's main
-   branch. Nothing else names a writer.
+2. The keys allowed to write a store are the agent's own and its
+   parent's, as `identities/keys/lineage.json` records them on the
+   fabric's main branch: a commit verifies when it is signed by a signing
+   subkey of one of those primary keys, read from the committed
+   `identities/keys/<id>.asc`. The root agent, which has no parent, is
+   its own store's only writer. Nothing else names a writer.
 3. `pull`, `take-bundle`, the fast-forward before a push, and `sync`
    verify every commit they would take beyond the store's trusted base. A
    commit unsigned, signed by a key outside rule 2, or failing
