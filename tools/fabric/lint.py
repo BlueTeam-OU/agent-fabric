@@ -1693,6 +1693,19 @@ def arm_boundary_findings(root: str, base_ref: str = "origin/main") -> list[str]
                     findings.append(f"{rel}: boundary.paths or boundary.exempt changed with no new "
                                     "boundary.changes entry (why, and whose word, citing a message id, a PR #N "
                                     "or a relay seq)")
+            # A record is history: the approval a reviewer checked stays as it
+            # was. Rewriting one would carry a new change under an old
+            # citation, which the all-new-entries rule above never sees.
+            for key in ("changes", "retired"):
+                old_rec = base_b.get(key) if isinstance(base_b, dict) else None
+                new_rec = b.get(key)
+                if isinstance(old_rec, dict):
+                    new_rec = new_rec if isinstance(new_rec, dict) else {}
+                    for k in sorted(old_rec):
+                        if new_rec.get(k) != old_rec[k]:
+                            findings.append(f"{rel}: boundary.{key} entry {k!r} is "
+                                            f"{'removed' if k not in new_rec else 'rewritten'}; a record "
+                                            "stays as it was, and a new decision is a new entry")
             retired = b.get("retired") or {}
             for c in sorted(set(before) - set(cases)):
                 why = retired.get(c) if isinstance(retired, dict) else None

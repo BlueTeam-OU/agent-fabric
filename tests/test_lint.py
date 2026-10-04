@@ -1454,6 +1454,20 @@ def case_arm_boundary_cases_only_leave_retired() -> None:
             changes={"vendor exempt": "vendored docs only; architect-cto, seq 2", "third exempt": "same again"})
         assert any("changed with no new" in f for f in lint.arm_boundary_findings(root, base_ref="base")), \
             "a second new entry riding on the first's locator (#91's review)"
+        # A record is history (#91's review): committed into the base, it
+        # may be neither rewritten nor removed.
+        arm(["src/a.rs", "lib/key.rs"], changes={"first": "the original rule; architect-cto, seq 3"})
+        g("add", "-A")
+        g("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "a record")
+        g("branch", "-f", "base")
+        assert lint.arm_boundary_findings(root, base_ref="base") == [], "an unchanged record: clean"
+        arm(["src/a.rs", "lib/key.rs"], paths="^src/|key|^vendor/",
+            changes={"first": "vendor too; architect-cto, seq 3"})
+        got = lint.arm_boundary_findings(root, base_ref="base")
+        assert any("'first' is rewritten" in f for f in got), ("a new change under an old record", got)
+        arm(["src/a.rs", "lib/key.rs"], changes={})
+        assert any("'first' is removed" in f for f in lint.arm_boundary_findings(root, base_ref="base")), \
+            "a record removed"
         arm(["src/a.rs"], paths="^src/")
         assert lint.arm_boundary_findings(root, base_ref="no-such-ref") == [], \
             "without a base (a project CI's depth-1 fabric checkout), nothing is compared"
