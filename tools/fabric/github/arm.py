@@ -358,8 +358,10 @@ def verify_waiver(waiver: str, num: str, repo: str, head: str, session: str, rol
     sender = str(msg.get("sender") or "")
     if not ADDRESS.fullmatch(sender) or meta.get("FROM") != sender:
         raise refuse(f"the waiver {waiver} was relayed from {sender or 'nobody'} but says FROM {meta.get('FROM')}")
-    if sender == session:
-        raise refuse(f"the waiver {waiver} is from {sender}, the session arming: a waiver is another login's")
+    # The login, not the address: the same login on another host is the
+    # same agent, and a waiver is another agent's (re-review of b1a8e41).
+    if sender.split("/", 1)[1] == session.split("/", 1)[-1]:
+        raise refuse(f"the waiver {waiver} is from {sender}, the login arming: a waiver is another login's")
     m = WAIVES.fullmatch(str(meta.get("WAIVES") or "").strip())
     if not m:
         raise refuse(f"the waiver {waiver} has no WAIVES: {repo}#{num}@<head sha> line — a message that mentions"
@@ -597,7 +599,10 @@ def arm(argv: list[str]) -> int:
     except gh.GhError:
         raise Unanswered(f"could not post the basis comment on #{num}") from None
     try:
-        gh.run(["pr", "merge", num, "--merge", "--auto"], what=f"gh pr merge {num}")
+        # Pinned to the head the gates read: a push between the checks and
+        # this call would otherwise arm a head nobody reviewed or waived
+        # (re-review of b1a8e41, pre-existing).
+        gh.run(["pr", "merge", num, "--merge", "--auto", "--match-head-commit", head], what=f"gh pr merge {num}")
     except gh.GhError:
         raise Unanswered(f"gh pr merge --auto failed on #{num}") from None
     # A green PR goes STRAIGHT INTO THE QUEUE on arming, and a queued PR

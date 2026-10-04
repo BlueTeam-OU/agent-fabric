@@ -46,7 +46,7 @@ if line == "api graphql --input -":
 if line.startswith("pr view "):
     if has("viewfail"): sys.exit(1)
     print(json.dumps({k: v for k, v in pr.items() if k != "files"})); sys.exit(0)
-if line == "pr merge 7 --merge --auto":
+if line == "pr merge 7 --merge --auto --match-head-commit abcdef0123456789abcdef0123456789abcdef01":
     open(os.path.join(s, "armed"), "w").close(); sys.exit(0)
 print("mock gh: unhandled: " + line, file=sys.stderr); sys.exit(1)
 '''
@@ -343,7 +343,8 @@ def main() -> int:
                  "not sent TO develop-qzapp/me (a broadcast or a role address)"),
                 ("broadcast", lambda: set_waiver(to=None, extra={"BROADCAST": "true"}), "a broadcast or a role address"),
                 ("sent TO another login", lambda: set_waiver(to="develop-qzapp/other"), "(TO develop-qzapp/other)"),
-                ("from the arming session itself", lambda: set_waiver(sender="develop-qzapp/me"), "the session arming")):
+                ("from the arming session itself", lambda: set_waiver(sender="develop-qzapp/me"), "the login arming"),
+                ("from the arming login on another host", lambda: set_waiver(sender="far-host/me"), "the login arming")):
             reset(); set_pr(me, "plain", mig); set_gate(9); set_presence(); setup()
             rc, out = waive()
             check(f"a waiver {label}: refused, nothing armed", rc == 1 and said in out and "pr merge" not in calls()
@@ -466,7 +467,8 @@ def main() -> int:
         reset(); set_pr(me, "plain", ["docs/a.md"]); set_gate(9)
         rc, out = run("7", "--basis", "nine work commits at the review gate")
         check("exits 0", rc == 0, out)
-        check("gh pr merge --auto ran once", calls().count("pr merge 7 --merge --auto") == 1, calls())
+        check("gh pr merge --auto ran once, pinned to the head the gates read",
+              calls().count(f"pr merge 7 --merge --auto --match-head-commit {HEAD}") == 1, calls())
         check("the basis comment carries the count and the head, on stdin",
               "pr comment 7 --body Arming basis: nine work commits at the review gate — 9 work commits, head abcdef01." in calls(), calls())
         check("prints the watcher line for the session", "tools/gh/wait-merged.sh 7 &" in out, out)
