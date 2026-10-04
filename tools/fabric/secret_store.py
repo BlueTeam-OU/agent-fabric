@@ -174,6 +174,26 @@ def keys_dir(fabric: str | None = None) -> str:
     return os.path.join(fabric or FABRIC_ROOT, "identities", "keys")
 
 
+# What git itself clears when it enters another repository (git rev-parse
+# --local-env-vars), and the config the environment injects
+# (GIT_CONFIG_KEY_<n>/VALUE_<n> beside GIT_CONFIG_COUNT). Set by a caller —
+# a git hook runs with GIT_DIR, a test or a shell can export it — they point
+# every `git -C <store>` at another repository: the --local trusted-base read
+# returned that repository's base (review of #96). GIT_CONFIG_GLOBAL, _SYSTEM
+# and _NOSYSTEM stay: they choose the account's own config files, not a
+# repository, and a test isolates its account with them.
+_GIT_REPO_ENV = frozenset({
+    "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_CONFIG", "GIT_CONFIG_PARAMETERS", "GIT_CONFIG_COUNT",
+    "GIT_OBJECT_DIRECTORY", "GIT_DIR", "GIT_WORK_TREE", "GIT_IMPLICIT_WORK_TREE", "GIT_GRAFT_FILE",
+    "GIT_INDEX_FILE", "GIT_NO_REPLACE_OBJECTS", "GIT_REPLACE_REF_BASE", "GIT_PREFIX", "GIT_SHALLOW_FILE",
+    "GIT_COMMON_DIR"})
+
+
+def _git_scrubbed(env: dict) -> dict:
+    return {k: v for k, v in env.items()
+            if k not in _GIT_REPO_ENV and not k.startswith(("GIT_CONFIG_KEY_", "GIT_CONFIG_VALUE_"))}
+
+
 def _run(cmd: list[str], *, stdin: bytes | None = None, cwd: str | None = None,
          env: dict | None = None, check: bool = True, timeout: float | None = None,
          label: str | None = None) -> subprocess.CompletedProcess:
@@ -181,6 +201,8 @@ def _run(cmd: list[str], *, stdin: bytes | None = None, cwd: str | None = None,
     # operation, which follows their fixed flags), else the command and its
     # first argument.
     what = label or " ".join([os.path.basename(cmd[0])] + cmd[1:2])
+    if os.path.basename(cmd[0]) == "git":
+        env = _git_scrubbed(os.environ if env is None else env)
     try:
         r = subprocess.run(cmd, input=stdin, capture_output=True, cwd=cwd, env=env, timeout=timeout)
     except subprocess.TimeoutExpired:

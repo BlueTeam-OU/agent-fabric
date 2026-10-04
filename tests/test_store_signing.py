@@ -162,6 +162,18 @@ def main() -> int:
         check("a base from the environment is no base: status NO BASE, and a write still refuses",
               sync.returncode == 1 and "NO BASE: the store" in sync.stdout
               and p.returncode == 1 and "has no trusted base" in p.stderr, (sync.stdout, p.stderr))
+        # A GIT_DIR in the caller's environment (a git hook runs with one)
+        # sent `git -C <store> config --local` to that repository's config.
+        other = os.path.join(tmp, "other-repo")
+        subprocess.run(["git", "init", "-q", other], check=True, env=child)
+        git(child, other, "config", "agent-fabric.trustedbase", cbase)
+        planted = {**child, "GIT_DIR": os.path.join(other, ".git"), "GIT_WORK_TREE": other,
+                   "GIT_INDEX_FILE": os.path.join(other, ".git", "index")}
+        sync = status(planted)
+        p = run(planted, "set", "PLANTED_BASE", stdin="h")
+        check("another repository's base through GIT_DIR is no base: status NO BASE, a write refuses",
+              sync.returncode == 1 and "NO BASE: the store" in sync.stdout
+              and p.returncode == 1 and "has no trusted base" in p.stderr, (sync.stdout, p.stderr))
         conf =os.path.join(cstore, ".git", "config")
         os.rename(conf, conf + ".aside")
         os.mkdir(conf)   # unreadable as a file, also to root
