@@ -933,7 +933,26 @@ def print_report(d: dict, routing, *, label: str, agent: str, role: str, provide
     print(f"            {first}")
 
 
-def install_agent_files(fabric_root: str, provider: str) -> None:
+def record_launch_provider(state_dir: str, provider: str) -> None:
+    """The provider the agent files were last installed for, so a run with
+    no provider of its own (bootstrap from the control agent, an upgrade,
+    fabric-model apply) installs for this one rather than for anthropic
+    (install_agent_files.py reads it). Atomic; a failure is said, not fatal:
+    the files themselves are installed."""
+    path = os.path.join(state_dir, "launch-provider.json")
+    try:
+        os.makedirs(state_dir, exist_ok=True)
+        tmp = f"{path}.tmp-{os.getpid()}"
+        with open(tmp, "w", encoding="utf-8") as fh:
+            json.dump({"provider": provider, "at": datetime.datetime.now(datetime.timezone.utc)
+                       .strftime("%Y-%m-%dT%H:%M:%SZ")}, fh)
+            fh.write("\n")
+        os.replace(tmp, path)
+    except OSError as exc:
+        say(f"launch: could not record the provider in {path}: {exc}")
+
+
+def install_agent_files(fabric_root: str, provider: str, state_dir: str | None = None) -> None:
     try:
         r = subprocess.run(["bash", f"{fabric_root}/runtime/claude-code/install-agent-files.sh", "--provider",
                             provider], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
@@ -944,6 +963,8 @@ def install_agent_files(fabric_root: str, provider: str) -> None:
     if not installed:
         die(f"could not install the capability-class agent files for {provider} "
             "(runtime/claude-code/install-agent-files.sh).")
+    if state_dir:
+        record_launch_provider(state_dir, provider)
 
 
 def mark_onboarding_done(path: str) -> None:
@@ -1429,7 +1450,7 @@ def launch(argv: list[str]) -> int:
     # session that will dispatch from them exists. The dispatch guard checks
     # the file against the same resolution and denies a review when another
     # launch on this account has since rewritten it.
-    install_agent_files(fabric_root, provider)
+    install_agent_files(fabric_root, provider, state_dir)
 
     login = pwd.getpwuid(os.getuid()).pw_name
     # A plain-claude session runs only on a long-lived sign-in: a template's

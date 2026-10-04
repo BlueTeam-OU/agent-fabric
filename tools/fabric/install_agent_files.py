@@ -13,8 +13,10 @@ CONTRACT, frozen from the bash (ADR-040 §5 rule 1):
   argv         [--provider openrouter|anthropic | --provider=P] [--dry-run]
                anything else: "install-agent-files: unknown argument X" on
                stderr, exit 2 (as does a --provider with no value)
-  environment  AGENT_FABRIC_LAUNCH_PROVIDER (the default provider, else
-               anthropic), CLAUDE_CONFIG_DIR (else ~/.claude for the agent
+  environment  AGENT_FABRIC_LAUNCH_PROVIDER (the default provider; else
+               the provider this account last launched on, from
+               <state>/agents/<login>/launch-provider.json, which the
+               launcher writes; else anthropic), CLAUDE_CONFIG_DIR (else ~/.claude for the agent
                files and the user settings; else $HOME for .claude.json),
                HOME. AGENT_FABRIC_ROOT is SET for the children, to this
                checkout (the module's own location), never read.
@@ -70,6 +72,7 @@ different providers would rewrite it in turn, which the guard catches.
 """
 from __future__ import annotations
 
+import json
 import os
 import pwd
 import re
@@ -335,8 +338,28 @@ class Installer:
         return 0
 
 
+LAUNCH_RECORD = "launch-provider.json"
+PROVIDERS = ("anthropic", "openrouter")
+
+
+def last_launch_provider() -> str | None:
+    """The provider this account's last launch installed for. A run with no
+    provider of its own — bootstrap from the control agent, fabric-ctl
+    upgrade, fabric-model apply — wrote the agent files for anthropic, and a
+    session on the broker then had a reviewer file for the other provider,
+    which the dispatch guard refused (2026-10-01). Unreadable or unknown is
+    None: the default stands."""
+    try:
+        with open(os.path.join(fabric_writes.state_dir(), LAUNCH_RECORD), encoding="utf-8") as f:
+            p = json.load(f).get("provider")
+    except (OSError, ValueError, AttributeError):
+        return None
+    return p if p in PROVIDERS else None
+
+
 def main(argv: list[str]) -> int:
-    dry_run, provider = False, os.environ.get("AGENT_FABRIC_LAUNCH_PROVIDER") or "anthropic"
+    dry_run = False
+    provider = os.environ.get("AGENT_FABRIC_LAUNCH_PROVIDER") or last_launch_provider() or "anthropic"
     i = 0
     while i < len(argv):
         a = argv[i]
