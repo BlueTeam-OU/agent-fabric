@@ -256,7 +256,7 @@ test('agentd --once: the keys probe reads the scratch HOME, never the runner\'s 
   };
   try {
     const reply = await keysOnce();
-    assert.deepEqual(reply.data.keys.at(-1), { name: SIGNING_ROW, present: false });
+    assert.deepEqual(reply.data.keys.find(k => k.name === SIGNING_ROW), { name: SIGNING_ROW, present: false });
     assert.ok(!fs.existsSync(asked), `gpg was asked under the runner's config: ${fs.existsSync(asked) && fs.readFileSync(asked, 'utf8')}`);
     const home = scratchHome();
     fs.writeFileSync(path.join(home, '.gitconfig'), '[user]\n\tsigningkey = SCRATCHKEY\n');

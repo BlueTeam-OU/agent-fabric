@@ -321,7 +321,7 @@ test('collect: status is every section, a single op its own, and a failing secti
   // gpg (review of #89: the keyring of whoever runs the suite). Absent
   // alone cannot show that — the real binaries read absent too where no
   // key is set — so the probe's question is asked of ctx.exec, recorded.
-  assert.deepEqual(one.keys.at(-1), { name: SIGNING_ROW, present: false });
+  assert.deepEqual(one.keys.find(k => k.name === SIGNING_ROW), { name: SIGNING_ROW, present: false });
   assert.deepEqual(calls, ['git config --global user.signingkey'], 'the signing probe went through ctx.exec');
   assert.ok(OPS.includes('ping') && OPS.includes('status') && OPS.includes('memory'));
   assert.ok(!('memory' in all), 'a drain is asked for, never part of status');
