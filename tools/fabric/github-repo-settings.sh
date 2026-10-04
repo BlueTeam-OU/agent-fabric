@@ -9,9 +9,10 @@
 #
 # Idempotent: every call sets the documented value. The ruleset on main
 # is tools/fabric/github-ruleset-main.json, created or updated by name;
-# its required checks are the CI job names GitHub reports, so a job
-# renamed in .github/workflows/ci.yml is renamed there too, or no PR can
-# merge. It never touches secrets (there are none) or collaborators.
+# its one required check is ci.yml's ci-ok job, which stands for every
+# other job, so a job renamed in .github/workflows/ci.yml needs no change
+# here, and ci-ok renamed is renamed there too, or no PR can merge. It
+# never touches secrets (there are none) or collaborators.
 set -euo pipefail
 show=0; [[ "${1:-}" == "--show" ]] && { show=1; shift; }
 REPO="${1:-gzapi-org/agent-fabric}"
@@ -19,6 +20,7 @@ if (( show )); then
     gh api "repos/$REPO" --jq '{visibility, default_branch, description, has_issues, has_projects, has_wiki, has_discussions, allow_merge_commit, allow_squash_merge, allow_rebase_merge, allow_auto_merge, delete_branch_on_merge, allow_update_branch, merge_commit_title, merge_commit_message, squash_merge_commit_title, squash_merge_commit_message, web_commit_signoff_required}'
     gh api "repos/$REPO/actions/permissions" --jq '{actions_enabled: .enabled, allowed_actions}'
     gh api "repos/$REPO/actions/permissions/workflow" --jq '{default_workflow_permissions, can_approve_pull_request_reviews}'
+    gh api "repos/$REPO/topics" --jq '.names'
     gh api "repos/$REPO/rules/branches/main" --jq '[.[].type]'
     exit 0
 fi
@@ -31,6 +33,10 @@ gh api -X PATCH "repos/$REPO" \
     -f merge_commit_title=MERGE_MESSAGE -f merge_commit_message=PR_TITLE \
     -f squash_merge_commit_title=COMMIT_OR_PR_TITLE -f squash_merge_commit_message=COMMIT_MESSAGES \
     -F web_commit_signoff_required=false >/dev/null
+# Topics replace the whole list on every call, so this is the list.
+gh api -X PUT "repos/$REPO/topics" -f 'names[]=agent-memory' -f 'names[]=agent-orchestration' -f 'names[]=ai-agents' \
+    -f 'names[]=claude-code' -f 'names[]=control-plane' -f 'names[]=developer-tools' -f 'names[]=llm-ops' \
+    -f 'names[]=multi-agent-systems' >/dev/null
 gh api -X PUT "repos/$REPO/actions/permissions" -F enabled=true -f allowed_actions=all >/dev/null
 gh api -X PUT "repos/$REPO/actions/permissions/workflow" -f default_workflow_permissions=read -F can_approve_pull_request_reviews=false >/dev/null
 # The ruleset: required checks and a pull request on main (ADR-019 rule 6),
