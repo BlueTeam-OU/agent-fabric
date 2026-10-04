@@ -69,6 +69,16 @@ def main() -> int:
             os.makedirs(d)
         for g in gnupg.values():
             os.makedirs(g, mode=0o700)
+        # The fabric is a checkout: a store's writers are read at its
+        # origin/main (ADR-042 rule 2); what enrolment certifies counts once
+        # it is published there, as a merged identities/keys/ PR is.
+        fab_git = ["git", "-C", fab, "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"]
+        subprocess.run(["git", "init", "-q", "-b", "main", fab], check=True, env=BASE_ENV)
+
+        def publish() -> None:
+            for a in (["add", "-A"], ["commit", "-q", "--allow-empty", "-m", "identities"],
+                      ["update-ref", "refs/remotes/origin/main", "HEAD"]):
+                subprocess.run(fab_git + a, check=True, env=BASE_ENV, capture_output=True)
         os.symlink(HERE, os.path.join(t, "kid", "projects", "agent-fabric"))
         with open(os.path.join(t, "hosts.json"), "w") as f:
             json.dump({"version": 1, "hosts": {"far-host": {"ssh": "op@far", "operator": "op", "fabric": fab}},
@@ -116,6 +126,7 @@ esac
         print("first contact: the parent, then the control")
         r = parent(ENROLL, "--self")
         check("the parent's own store", r.returncode == 0, r.stderr)
+        publish()
         pid = lineage_id(subprocess.run(["id", "-un"], capture_output=True, text=True).stdout.strip())
         own_remote = os.path.join(remotes, f"agent-fabric-secrets-{pid}.git")
         r = kid("git", "ls-remote", own_remote)
@@ -129,6 +140,7 @@ esac
               r.returncode == 1 and "kid: push failed" in r.stderr, r.stderr)
         r = parent(ENROLL, "kid", "--born-now")
         kid_id = lineage_id("kid")
+        publish()
         check("with --born-now the enrolment completes", r.returncode == 0 and bool(kid_id), r.stderr)
         repo = os.path.join(remotes, f"agent-fabric-secrets-{kid_id}.git")
         shown = subprocess.run(["git", "--git-dir", repo, "show", "main:.agent-id"], capture_output=True, text=True)
@@ -204,7 +216,13 @@ esac
         with open(os.path.join(fork, "env", "FORKED.gpg"), "w") as f:
             f.write("not ciphertext\n")
         g(fork, "add", "-A")
-        g(fork, "commit", "-qm", "the right id and key, a history beside the store's")
+        # Signed by a writer (the parent), so it passes ADR-042's verification
+        # and meets the guard this case is about: --ff-only.
+        with open(os.path.join(t, "parent", ".local", "share", "agent-fabric", "secrets", ".gpg-id")) as f:
+            parent_fpr = f.read().split()[0]
+        subprocess.run(["git", "-C", fork, "-c", "commit.gpgsign=true", "-c", f"user.signingkey={parent_fpr}",
+                        "commit", "-qm", "the right id and key, a history beside the store's"],
+                       env={**genv, "GNUPGHOME": gnupg["parent"]}, check=True, capture_output=True)
         kid("git", "-C", ".local/share/agent-fabric/secrets", "update-ref", "-d", "refs/remotes/origin/main")
         r = kid(ACCOUNT_SECRETS, "store", "take-bundle", stdin=armour(fork, "refs/heads/main"))
         head_after = kid("git", "-C", ".local/share/agent-fabric/secrets", "rev-parse", "HEAD").stdout

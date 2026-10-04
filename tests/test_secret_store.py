@@ -44,6 +44,16 @@ def main() -> int:
     with tempfile.TemporaryDirectory() as tmp:
         fabric = os.path.join(tmp, "fabric")
         os.makedirs(os.path.join(fabric, "identities", "keys"))
+        # The fabric is a checkout: a store's writers are read at its
+        # origin/main (ADR-042 rule 2), so what certify writes counts only
+        # once it is "merged" — committed here and published to origin/main.
+        fab_git = ["git", "-C", fabric, "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"]
+        subprocess.run(["git", "init", "-q", "-b", "main", fabric], check=True)
+
+        def publish() -> None:
+            subprocess.run(fab_git + ["add", "-A"], check=True)
+            subprocess.run(fab_git + ["commit", "-q", "--allow-empty", "-m", "identities"], check=True)
+            subprocess.run(fab_git + ["update-ref", "refs/remotes/origin/main", "HEAD"], check=True)
         remote = os.path.join(tmp, "child-remote.git")
         subprocess.run(["git", "init", "-q", "--bare", "-b", "main", remote], check=True)
 
@@ -93,6 +103,7 @@ def main() -> int:
                   "subkeys added" not in p2.stdout and len(subs) == 3, p2.stdout + f" {len(subs)} subkeys")
             p = run(parent, "certify", "--root")
             check("the root records its own key, no parent", p.returncode == 0 and "(root)" in p.stdout, p.stderr)
+            publish()
 
             # The child, on its own "host": its key, its store, its remote.
             p = run(child, "init", "--agent-id", KID, "--remote", remote)
@@ -122,6 +133,7 @@ def main() -> int:
 
             p = run(parent, "certify", "kid", exported)
             check("the parent certifies the child's key", p.returncode == 0 and child_fpr in p.stdout, p.stderr)
+            publish()
             p = run(parent, "verify")
             check("the certified key passes verify", p.returncode == 0 and "clean" in p.stdout, p.stdout + p.stderr)
 
@@ -129,6 +141,9 @@ def main() -> int:
             # clone of the child's remote, and cannot read what it wrote.
             mirror = os.path.join(parent["HOME"], ".local", "share", "agent-fabric", "children", KID)
             subprocess.run(["git", "clone", "-q", remote, mirror], check=True, env=parent)
+            # A mirror made by hand has no trusted base: the migration's step.
+            p = run(parent, "trust-base", "--store", mirror)
+            check("trust-base records a mirror's base at its head", p.returncode == 0 and "trusted base:" in p.stdout, p.stderr)
             p = run(parent, "put", "kid", "GH_TOKEN", stdin=SECRET)
             check("the parent writes into the child's store", p.returncode == 0 and "written" in p.stdout, p.stderr)
             dec = subprocess.run(["gpg", "--batch", "--decrypt", os.path.join(mirror, "env", "GH_TOKEN.gpg")],
@@ -474,14 +489,17 @@ def main() -> int:
             other = os.path.join(tmp, "other-clone")
             subprocess.run(["git", "clone", "-q", remote, other], check=True, env=parent)
             open(os.path.join(other, ".gpg-id"), "w").write("0" * 40 + "\n")
-            g = ["git", "-C", other, "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"]
-            subprocess.run(g + ["commit", "-qam", "re-keyed elsewhere"], check=True, env=parent)
+            # Signed by a writer of the store (the child), or the put would be
+            # refused for the signature before it reached the key check.
+            g = ["git", "-C", other, "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=true",
+                 "-c", f"user.signingkey={child_fpr}"]
+            subprocess.run(g + ["commit", "-qam", "re-keyed elsewhere"], check=True, env=child)
             subprocess.run(g + ["push", "-q", "origin", "HEAD:main"], check=True, env=parent)
             p = run(parent, "put", "kid", "AFTER_REKEY", stdin="z")
             check("F7: a re-key pushed elsewhere is seen before the key check, and the put is refused",
                   p.returncode == 1 and "another key" in p.stderr, p.stdout + p.stderr)
             open(os.path.join(other, ".gpg-id"), "w").write(child_fpr + "\n")
-            subprocess.run(g + ["commit", "-qam", "back"], check=True, env=parent)
+            subprocess.run(g + ["commit", "-qam", "back"], check=True, env=child)
             subprocess.run(g + ["push", "-q", "origin", "HEAD:main"], check=True, env=parent)
             subprocess.run(["git", "-C", mirror, "pull", "-q", "--rebase", "origin", "main"], env=parent, capture_output=True)
 
