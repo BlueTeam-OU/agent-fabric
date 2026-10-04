@@ -10,7 +10,7 @@ import crypto from 'node:crypto';
 import zlib from 'node:zlib';
 import { scratch } from '../../../tests/scratch.mjs';
 import { accept, remember, SEEN_MAX, newId, operatorAddresses, controlConfig, watchSource, answer, accountsKeeper, ACCOUNTS_KEEPALIVE_MS, leaver } from '../agentd.mjs';
-import { memorySlug } from '../ops.mjs';
+import { memorySlug, SIGNING_ROW } from '../ops.mjs';
 import { generateOperatorKey, signRequest } from '../sign.mjs';
 import { whoami } from '../gzcoord.mjs';
 import { fileURLToPath } from 'node:url';
@@ -161,11 +161,20 @@ function fakeHarvester(payload) {
   return bin;
 }
 const request = over => JSON.stringify({ v: 1, kind: 'request', id: newId(), from: 'develop-qzapp/user', to: '*', op: 'ping', ts: new Date().toISOString(), ttl_s: 30, ...over });
+// What points git or gpg somewhere other than HOME. The daemon's keys
+// probe runs the real git and gpg; under the runner's environment a
+// GIT_CONFIG_GLOBAL, an XDG_CONFIG_HOME or a GNUPGHOME reaches past the
+// scratch HOME into whoever runs the suite's own config and keyring
+// (review of #89). Stripped as a class: GIT_CONFIG_COUNT/KEY/VALUE and
+// GIT_CONFIG_PARAMETERS inject config the same way, and /etc/gitconfig
+// is kept out with GIT_CONFIG_NOSYSTEM.
+const POINTS_ELSEWHERE = /^(GIT_CONFIG.*|GIT_DIR|GIT_WORK_TREE|XDG_CONFIG_HOME|GNUPGHOME)$/;
+const ownEnv = () => ({ ...Object.fromEntries(Object.entries(process.env).filter(([k]) => !POINTS_ELSEWHERE.test(k))), GIT_CONFIG_NOSYSTEM: '1' });
 // Asynchronous: the fake relay lives in this process, and a synchronous
 // spawn would block the event loop it answers from.
 function runOnce(url, env = {}) {
   return new Promise(resolve => {
-    const child = spawn('node', [AGENTD, '--once'], { env: { ...process.env, HOME: scratchHome(), CLAUDE_BRIDGE_URL: url, FABRIC_CONTROL_CHANNEL: 'test:control', ...env } });
+    const child = spawn('node', [AGENTD, '--once'], { env: { ...ownEnv(), HOME: scratchHome(), CLAUDE_BRIDGE_URL: url, FABRIC_CONTROL_CHANNEL: 'test:control', ...env } });
     let stderr = '', stdout = '';
     child.stderr.on('data', d => { stderr += d; }); child.stdout.on('data', d => { stdout += d; });
     const t = setTimeout(() => child.kill('SIGKILL'), 20000);
@@ -216,6 +225,46 @@ test('agentd --once: a request from a non-operator, an unknown op and an expired
     assert.equal(k.present, true); assert.equal(k.sha256_12.length, 12);
     assert.ok(!JSON.stringify(rs).includes('sk-or-secret-value'), 'no key value in a reply');
   } finally { r.close(); }
+});
+
+// The keys probe asks git for the signing key and gpg for its secret.
+// The runner's GIT_CONFIG_GLOBAL, XDG_CONFIG_HOME and GNUPGHOME are set
+// hostile here; a gpg that records how it was asked sits first on PATH.
+// The positive control: the scratch HOME's own ~/.gitconfig naming a key
+// does reach that gpg, with no GNUPGHOME, so silence in the first run is
+// the environment kept out, not a recorder never reached.
+test('agentd --once: the keys probe reads the scratch HOME, never the runner\'s git config or keyring', async () => {
+  const hostile = scratch('agentd-hostile-');
+  fs.writeFileSync(path.join(hostile, 'gitconfig'), '[user]\n\tsigningkey = HOSTILEKEY\n');
+  fs.mkdirSync(path.join(hostile, 'xdg', 'git'), { recursive: true });
+  fs.writeFileSync(path.join(hostile, 'xdg', 'git', 'config'), '[user]\n\tsigningkey = HOSTILEKEY\n');
+  const bin = scratch('agentd-gpg-');
+  const asked = path.join(bin, 'asked');
+  fs.writeFileSync(path.join(bin, 'gpg'), `#!/bin/sh\necho "GNUPGHOME=\${GNUPGHOME-unset} $*" >> "${asked}"\nexit 2\n`, { mode: 0o755 });
+  const saved = Object.fromEntries(['GIT_CONFIG_GLOBAL', 'XDG_CONFIG_HOME', 'GNUPGHOME'].map(k => [k, process.env[k]]));
+  Object.assign(process.env, { GIT_CONFIG_GLOBAL: path.join(hostile, 'gitconfig'), XDG_CONFIG_HOME: path.join(hostile, 'xdg'), GNUPGHOME: hostile });
+  const keysOnce = async home => {
+    const r = relay([['develop-qzapp/user', request({ op: 'ping', id: 'primer' })]]);
+    await r.listen();
+    try {
+      r.waiting().then(() => r.add('develop-qzapp/user', request({ op: 'keys' })));
+      const out = await runOnce(r.url(), { PATH: `${bin}:${process.env.PATH}`, ...(home ? { HOME: home } : {}) });
+      assert.equal(out.status, 0, out.stderr);
+      assert.equal(replies(r).length, 1, out.stderr);
+      return replies(r)[0];
+    } finally { r.close(); }
+  };
+  try {
+    const reply = await keysOnce();
+    assert.deepEqual(reply.data.keys.at(-1), { name: SIGNING_ROW, present: false });
+    assert.ok(!fs.existsSync(asked), `gpg was asked under the runner's config: ${fs.existsSync(asked) && fs.readFileSync(asked, 'utf8')}`);
+    const home = scratchHome();
+    fs.writeFileSync(path.join(home, '.gitconfig'), '[user]\n\tsigningkey = SCRATCHKEY\n');
+    await keysOnce(home);
+    assert.equal(fs.readFileSync(asked, 'utf8'), 'GNUPGHOME=unset --list-secret-keys --with-colons -- SCRATCHKEY\n');
+  } finally {
+    for (const [k, v] of Object.entries(saved)) if (v === undefined) delete process.env[k]; else process.env[k] = v;
+  }
 });
 
 test('agentd --once: an empty channel is primed with an up record; a cleared history (since_id_not_found) re-primes instead of spinning', async () => {

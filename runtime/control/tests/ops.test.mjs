@@ -307,17 +307,22 @@ test('tokens: per model from the login\'s own records — deduplicated by reques
 
 test('collect: status is every section, a single op its own, and a failing section is inline', async () => {
   const h = home();
-  const ctx = { home: h, who, fetch: async () => ({ ok: true, status: 200, json: async () => ({}) }), root: '/r', exec: () => { throw new Error('boom'); }, uid: 1 };
+  const calls = [];
+  const ctx = { home: h, who, fetch: async () => ({ ok: true, status: 200, json: async () => ({}) }), root: '/r', exec: (cmd, args) => { calls.push([cmd, ...args].join(' ')); throw new Error('boom'); }, uid: 1 };
   const all = await collect('status', ctx);
   assert.deepEqual(Object.keys(all).sort(), ['fabric', 'identity', 'keys', 'session', 'usage']);
   assert.equal(all.fabric.status, 'not-a-checkout');
   assert.equal(all.session.claude_processes, 0);
   assertNoSecret(all);
+  calls.length = 0;
   const one = await collect('keys', ctx);
   assert.deepEqual(Object.keys(one), ['keys']);
   // ctx.exec throws: the probe reads absent and never reaches a real git or
-  // gpg (review of #89: the keyring of whoever runs the suite).
+  // gpg (review of #89: the keyring of whoever runs the suite). Absent
+  // alone cannot show that — the real binaries read absent too where no
+  // key is set — so the probe's question is asked of ctx.exec, recorded.
   assert.deepEqual(one.keys.at(-1), { name: SIGNING_ROW, present: false });
+  assert.deepEqual(calls, ['git config --global user.signingkey'], 'the signing probe went through ctx.exec');
   assert.ok(OPS.includes('ping') && OPS.includes('status') && OPS.includes('memory'));
   assert.ok(!('memory' in all), 'a drain is asked for, never part of status');
   const mem = await collect('memory', { home: h, exec: () => { throw new Error('never runs'); } });
