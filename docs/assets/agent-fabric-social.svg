@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 640" width="1280" height="640">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#232c63"/><stop offset="1" stop-color="#141a3a"/>
+    </linearGradient>
+  </defs>
+  <rect width="1280" height="640" fill="url(#bg)"/>
+  <g transform="translate(88,128) scale(0.75)">
+    <rect x="16" y="16" width="480" height="480" rx="108" fill="#0f1430" opacity="0.55"/>
+    
+    <line x1="104" y1="176" x2="408" y2="176" stroke="#141a3a" stroke-width="62" stroke-linecap="round"/>
+    <line x1="104" y1="176" x2="408" y2="176" stroke="#ffb547" stroke-width="48" stroke-linecap="round"/>
+    <line x1="104" y1="256" x2="408" y2="256" stroke="#141a3a" stroke-width="62" stroke-linecap="round"/>
+    <line x1="104" y1="256" x2="408" y2="256" stroke="#ffb547" stroke-width="48" stroke-linecap="round"/>
+    <line x1="104" y1="336" x2="408" y2="336" stroke="#141a3a" stroke-width="62" stroke-linecap="round"/>
+    <line x1="104" y1="336" x2="408" y2="336" stroke="#ffb547" stroke-width="48" stroke-linecap="round"/>
+    <line x1="176" y1="104" x2="176" y2="408" stroke="#141a3a" stroke-width="62" stroke-linecap="round"/>
+    <line x1="176" y1="104" x2="176" y2="408" stroke="#2ec4b6" stroke-width="48" stroke-linecap="round"/>
+    <line x1="256" y1="104" x2="256" y2="408" stroke="#141a3a" stroke-width="62" stroke-linecap="round"/>
+    <line x1="256" y1="104" x2="256" y2="408" stroke="#2ec4b6" stroke-width="48" stroke-linecap="round"/>
+    <line x1="336" y1="104" x2="336" y2="408" stroke="#141a3a" stroke-width="62" stroke-linecap="round"/>
+    <line x1="336" y1="104" x2="336" y2="408" stroke="#2ec4b6" stroke-width="48" stroke-linecap="round"/>
+    <rect x="144.0" y="225.0" width="64.0" height="62.0" fill="#141a3a"/>
+    <rect x="143.0" y="232.0" width="66.0" height="48.0" fill="#ffb547"/>
+    <rect x="224.0" y="145.0" width="64.0" height="62.0" fill="#141a3a"/>
+    <rect x="223.0" y="152.0" width="66.0" height="48.0" fill="#ffb547"/>
+    <rect x="224.0" y="305.0" width="64.0" height="62.0" fill="#141a3a"/>
+    <rect x="223.0" y="312.0" width="66.0" height="48.0" fill="#ffb547"/>
+    <rect x="304.0" y="225.0" width="64.0" height="62.0" fill="#141a3a"/>
+    <rect x="303.0" y="232.0" width="66.0" height="48.0" fill="#ffb547"/>
+  
+  </g>
+  <text x="520" y="292" font-family="Noto Sans, Liberation Sans, sans-serif" font-weight="700" font-size="92" fill="#ffffff" letter-spacing="-1">agent-fabric</text>
+  <text x="524" y="362" font-family="Noto Sans, Liberation Sans, sans-serif" font-size="32" fill="#c9d1f5">The control plane for a team of AI agents</text>
+  <text x="524" y="412" font-family="Noto Sans, Liberation Sans, sans-serif" font-size="25" fill="#8e98c9">identities · roles · memory · model routing · messaging</text>
+  <rect x="524" y="452" width="64" height="6" rx="3" fill="#2ec4b6"/>
+  <rect x="598" y="452" width="40" height="6" rx="3" fill="#ffb547"/>
+</svg>
