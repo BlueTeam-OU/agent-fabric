@@ -181,6 +181,7 @@ def main() -> int:
         rc, out = run("7", "--basis", "x", "--boundary", "--no-boundary", "why")
         check("--boundary with --no-boundary: exit 2", rc == 2, out)
         rc, out = run("--help"); check("--help prints the gates, exit 0", rc == 0 and "SECURITY-BOUNDARY" in out, out)
+        check("…and the merge command as the run issues it", "--merge --auto\n--match-head-commit <head>" in out, out)
 
         print("arm: gate 1 — open and not a draft")
         reset(); set_pr(me, "plain", ["docs/a.md"], "MERGED"); set_gate(9)
@@ -478,6 +479,8 @@ def main() -> int:
         reset()
         rc, out = run("7", "--basis", "b", "--dry-run")
         check("dry run exits 0", rc == 0 and "DRY RUN" in out, out)
+        check("…and names the command the run issues, pinned to the head",
+              f"would run: gh pr merge 7 --merge --auto --match-head-commit {HEAD}" in out, out)
         check("dry run posts and arms nothing", "pr merge" not in calls() and "pr comment" not in calls(), calls())
         reset(); put("viewfail", "")
         rc, out = run("7", "--basis", "b"); check("unreadable PR: exit 2", rc == 2, out)

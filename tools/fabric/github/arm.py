@@ -7,7 +7,12 @@ the first managed project's tools/gh/arm.sh, whose test is the oracle
 (ADR-040 §5 rules 3–5); what was that project's own — the security-boundary paths and the classes that
 arm under the floor without asking — is now the project's arm.json.
 
-CONTRACT, frozen from the bash (ADR-040 §5 rule 3):
+CONTRACT, frozen from the bash (ADR-040 §5 rule 3), its argv amended
+since by the owner's boundary-waiver ruling of 2026-10-04 (carried by
+agent-fabric #92): a boundary is waived only on the waiver role
+holder's message, so --no-boundary alone — the bash's form — is now a
+usage error, on a PR with no boundary file too, where a waiver of
+nothing wrote a false record.
   argv      <pr-number> --basis "<one line>"
             [--boundary | --no-boundary "<why>" --waiver <message-id|seq>]
             [--any-owner] [--dry-run] [-h|--help]
@@ -153,7 +158,8 @@ What it refuses, in order, and why:
      class the files contradict is refused, not trusted.
 
 Then: posts the arming basis as a comment ("Arming basis: <text> —
-<W> work commits, head <sha>"), runs `gh pr merge --merge --auto`,
+<W> work commits, head <sha>"), runs `gh pr merge <n> --merge --auto
+--match-head-commit <head>` — pinned to the head the gates read —
 and prints the watcher line to run — it is not started here, because
 a watcher must be the SESSION's child for its exit to be the
 session's callback.
@@ -591,7 +597,7 @@ def arm(argv: list[str]) -> int:
         comment += f" {waived_by}"
     if dry:
         say(f"DRY RUN — would post: {comment}")
-        say(f"DRY RUN — would run: gh pr merge {num} --merge --auto")
+        say(f"DRY RUN — would run: gh pr merge {num} --merge --auto --match-head-commit {head}")
         return 0
     # The body on stdin: a body is data (gh.py's invariant).
     try:
