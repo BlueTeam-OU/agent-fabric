@@ -16,6 +16,7 @@ import os
 import signal
 import subprocess
 import sys
+import tempfile
 import time
 import traceback
 from typing import Any, Callable
@@ -229,6 +230,64 @@ def _():
         ok(p["checked"] and said in p["problems"][0]["detail"], json.dumps(p))
 
 
+# A stand-in for the interpreter (python.mjs runs AGENT_FABRIC_PYTHON): it
+# records each signal it is sent, then dies of it. The real child's end
+# cannot show forwarding — PDEATHSIG ends it whether or not the shim
+# forwarded (review of #93, round 3).
+_FAKE_PYTHON = """import os, signal, sys, time
+log = os.environ["FAKE_SIGNAL_LOG"]
+def got(n, _f):
+    with open(log, "a", encoding="utf-8") as fh:
+        fh.write(signal.Signals(n).name + "\\n")
+    signal.signal(n, signal.SIG_DFL)
+    os.kill(os.getpid(), n)
+for s in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
+    signal.signal(s, got)
+with open(log, "a", encoding="utf-8") as fh:
+    fh.write("ready\\n")
+while True:
+    time.sleep(1)
+"""
+
+
+@case("the shim forwards TERM, INT and HUP to its child, which receives each before it ends")
+def _():
+    d = P.scratch("fake-python-")
+    fake = os.path.join(d, "python")
+    with open(fake, "w", encoding="utf-8") as fh:
+        fh.write(f"#!{os.path.realpath(PYTHON)}\n" + _FAKE_PYTHON)
+    os.chmod(fake, 0o700)
+    for sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
+        log = os.path.join(d, f"{sig.name}.log")
+        shim = subprocess.Popen(["node", P.INBOX_CMD, "--follow"], env={**os.environ, "AGENT_FABRIC_PYTHON": fake,
+                                "FAKE_SIGNAL_LOG": log}, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                stderr=subprocess.DEVNULL, start_new_session=True)
+        try:
+            deadline = time.monotonic() + 15
+            while not (os.path.exists(log) and "ready" in open(log, encoding="utf-8").read()) and time.monotonic() < deadline:
+                time.sleep(0.05)
+            ok(os.path.exists(log), f"{sig.name}: the stand-in never started")
+            os.kill(shim.pid, sig)
+            eq(shim.wait(10), -sig, f"{sig.name}: the shim ends as its child did")
+            eq(open(log, encoding="utf-8").read().split(), ["ready", sig.name], f"{sig.name}: what the child received")
+        finally:
+            with contextlib.suppress(OSError):
+                os.killpg(shim.pid, signal.SIGKILL)
+            shim.wait(10)
+
+
+@case("a command case's relay runtime dir is scratch, never the checkout's workspace: a hosting account's .gzcoord is not read")
+def _():
+    env = P.cmd_env(CLAUDE_BRIDGE_URL="http://127.0.0.1:1", GZCOORD_CHANNEL="fixture:chan")
+    r = subprocess.run([PYTHON, "-I", "-c", "import sys; sys.path.insert(0, sys.argv[1]); from gzcoord import inbox; "
+                        "print(inbox.relay_runtime_dir(inbox.integration_config(None)))", os.path.join(HERE, "tools", "fabric")],
+                       env=env, capture_output=True, text=True, timeout=30)
+    eq(r.returncode, 0, r.stderr)
+    runtime = r.stdout.strip()
+    ok(runtime.startswith(os.path.realpath(tempfile.gettempdir())) or runtime.startswith(tempfile.gettempdir()), runtime)
+    ok(not runtime.startswith(os.path.dirname(os.path.realpath(HERE)) + os.sep), f"the checkout's workspace: {runtime}")
+
+
 # ── 5. the port's own departures ─────────────────────────────────────
 
 def _replay_env(stub: P.Stub, **extra: str) -> dict:
@@ -357,14 +416,15 @@ def _():
         raise Failed("the synced token, the one re-read after a 401, passed unchecked")
     except inbox.TokenRefused:
         pass
-    seen: list[str | None] = []
-    stub = P.Stub(lambda h, _m, path, _b: (seen.append(h.headers.get("Authorization")),
+    seen: list[tuple[str, str | None]] = []
+    stub = P.Stub(lambda h, _m, path, _b: (seen.append((path, h.headers.get("Authorization"))),
                                            (200, '{"messages": []}') if path.startswith("/api/messages") else (200, "{}"))[1])
     try:
         r = subprocess.run(["node", P.INBOX_CMD, "--history"], env=_replay_env(stub, CLAUDE_BRIDGE_AUTH_TOKEN=" tok\r\n"),
                            capture_output=True, text=True, timeout=30)
         eq(r.returncode, 0, r.stderr)
-        ok(seen and all(a == "Bearer tok" for a in seen), f"trimmed before the header: {seen}")
+        api = [a for p, a in seen if p.startswith("/api/")]
+        ok(api and all(a == "Bearer tok" for a in api), f"trimmed before the header: {seen}")
     finally:
         stub.close()
 
@@ -387,6 +447,50 @@ def _():
     ok("line break or a NUL" in r.stderr, r.stderr)
     ok("SECRET" not in r.stderr + r.stdout, f"the token was said: {r.stderr}")
     eq([h for h in hits if h.startswith("/api/")], [], "nothing reached the relay, the presence request included")
+
+
+def _synced(home: str, value: str) -> None:
+    os.makedirs(os.path.join(home, ".config", "agent-fabric"), exist_ok=True)
+    with open(os.path.join(home, ".config", "agent-fabric", "secrets.env"), "w", encoding="utf-8") as fh:
+        fh.write(f"export CLAUDE_BRIDGE_AUTH_TOKEN='{value}'\n")
+
+
+@case("a 401, then a synced token with a NUL: --follow stops with exit 4 and one line, send exits 3; never 'relay down'")
+def _():
+    # The token is rotated under a running session: the synced file is
+    # written as the first request arrives, then answered 401. token()
+    # reads the synced file first, so one there at the start is refused
+    # before any request — a different path, exit 0 at a session start.
+    home = {"dir": ""}
+
+    def answer(_h, _m, path, _b):
+        if not path.startswith("/api/"):
+            return 200, "{}"
+        _synced(home["dir"], "HEAD\0TAIL")
+        return 401, '{"error": "no"}'
+    refuse = P.Stub(answer)
+    try:
+        env = _replay_env(refuse)
+        home["dir"] = env["HOME"]
+        try:
+            r = subprocess.run(["node", P.INBOX_CMD, "--follow"], env=env, capture_output=True, text=True, timeout=40)
+        except subprocess.TimeoutExpired:
+            raise Failed("--follow kept going: the refused token read as a relay that is down") from None
+        eq(r.returncode, 4, r.stdout + r.stderr)
+        ok("gzcoord inbox: the relay token holds a line break or a NUL" in r.stderr, r.stderr)
+        ok("relay down" not in r.stdout + r.stderr and "HEAD" not in r.stdout + r.stderr, r.stderr)
+        os.remove(os.path.join(env["HOME"], ".config", "agent-fabric", "secrets.env"))
+        me = gzmsg.whoami()
+        f = os.path.join(env["HOME"], "m.txt")
+        with open(f, "w", encoding="utf-8") as fh:
+            fh.write(f"[GZCOORD/1] INFO\nFROM: {me['host']}/{me['agent']}\nROLE: backend-dev\nPROJECT: fixture\n"
+                     f"BROADCAST: true\nSUBJECT: s\n\nNOTES:\nn\n")
+        r = subprocess.run(["node", P.SEND_CMD, f], env={**env, "GZCOORD_JOURNAL": "off"}, capture_output=True, text=True,
+                           timeout=60)
+        eq(r.returncode, 3, r.stderr)
+        ok("send: the relay token holds a line break or a NUL" in r.stderr and "HEAD" not in r.stderr, r.stderr)
+    finally:
+        refuse.close()
 
 
 def main() -> int:
