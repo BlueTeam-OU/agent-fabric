@@ -696,3 +696,30 @@ test('disk: NUL-ended records — a newline in a name invents nothing; outside t
   assert.ok(big.errors.every(e => e.endsWith(`du's output passed its ${DISK_MAX_BUFFER / 1048576} MiB bound`)), JSON.stringify(big.errors));
 });
 
+// Carried from #92: a dropped record is named, not silent; what du could
+// not read is counted and the first named (a rootless podman's volumes are
+// sub-UID owned); du is asked in the C locale so its complaints read the
+// same everywhere; a record begins at a NUL, never after a newline.
+test('disk: records outside the home named; unreadable paths counted, the first named; du in the C locale', async () => {
+  const home = scratch('disk-carry-');
+  fs.mkdirSync(path.join(home, 'projects'));
+  fs.mkdirSync(path.join(home, 'x'));
+  const envs = [];
+  const exec = async (cmd, args, opts) => {
+    envs.push(opts.env?.LC_ALL);
+    if (args.includes('-xsk')) return `100\t${path.join(home, 'x')}\0` + `999\t/etc\0` + `7\t/root\0` + `\n5\t${path.join(home, 'x', 'y')}\0`;
+    throw Object.assign(new Error('exit 1'), { code: 1, stdout: `50\t${path.join(home, 'projects')}\0`,
+      stderr: `du: cannot read directory '${home}/projects/p/volumes/v1': Permission denied\n` +
+              `du: cannot read directory "${home}/projects/it's": Permission denied\n` });
+  };
+  const d = await disk(home, { exec });
+  assert.deepEqual(envs, ['C', 'C'], 'du is asked in the C locale');
+  assert.equal(d.total_kb, 150, 'outside the home and a record after a newline count for nothing');
+  assert.equal(d.status, 'partial');
+  assert.deepEqual(d.errors, [
+    `home entries: 2 records outside ${home} dropped; the first: /etc`,
+    'projects: du exit 1, partial',
+    `projects: 2 paths du could not read, not counted; the first: '${home}/projects/p/volumes/v1'`,
+  ]);
+});
+
