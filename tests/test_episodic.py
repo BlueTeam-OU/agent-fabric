@@ -8,6 +8,7 @@ import json
 import os
 import shutil
 import socket
+import sqlite3
 import stat
 import subprocess
 import sys
@@ -191,6 +192,134 @@ def main() -> int:
         except ep.JournalError:
             check("no agent id: no journal", True)
         os.environ["AGENT_FABRIC_SECRET_STORE"] = store
+
+        print("schema versions and migrations")
+
+        def v1(name: str, *, markers: bool = False, version: object = 1, owner: str = AGENT_A) -> str:
+            """A journal as version 1 code left it: its DDL frozen here, as it
+            was before migrations; markers: as the importer's own ALTER left
+            some in the field."""
+            db = os.path.join(tmp, name)
+            c = sqlite3.connect(db, isolation_level=None)
+            c.execute("PRAGMA journal_mode=WAL")
+            c.execute("CREATE TABLE meta (schema_version INTEGER NOT NULL, owner_agent_id TEXT NOT NULL, "
+                      "created_at TEXT NOT NULL)")
+            c.execute("""CREATE TABLE episodes (
+                id TEXT PRIMARY KEY, source TEXT NOT NULL, direction TEXT, state TEXT NOT NULL,
+                happened_at TEXT NOT NULL, recorded_at TEXT NOT NULL,
+                session_id TEXT, project TEXT, working_copy TEXT,
+                message_id TEXT, in_reply_to TEXT, type TEXT, sender TEXT,
+                carrier TEXT, carrier_seq INTEGER,
+                content TEXT NOT NULL, content_hash TEXT NOT NULL, metadata_json TEXT NOT NULL,
+                UNIQUE (source, direction, message_id))""")
+            c.execute("""CREATE TABLE conflicts (
+                message_id TEXT NOT NULL, direction TEXT NOT NULL, content_hash TEXT NOT NULL,
+                content TEXT NOT NULL, seen_at TEXT NOT NULL, carrier_seq INTEGER,
+                PRIMARY KEY (message_id, direction, content_hash))""")
+            c.execute("INSERT INTO meta VALUES (?, ?, 'T')", (version, owner))
+            c.execute("INSERT INTO episodes VALUES ('e-1', 'gzcoord', 'inbound', 'received', 'T', 'T', NULL, NULL, "
+                      "NULL, 'k-1', NULL, 'INFO', 'x', NULL, 7, 'kept body', 'h', '{}')")
+            if markers:
+                c.execute("ALTER TABLE meta ADD COLUMN gzcoord_imported_at TEXT")
+                c.execute("ALTER TABLE meta ADD COLUMN gzcoord_import_seqs TEXT")
+                c.execute("""UPDATE meta SET gzcoord_import_seqs='{"r c": 5}'""")
+            c.close()
+            return db
+
+        def shape(db: str) -> tuple:
+            c = sqlite3.connect(db)
+            try:
+                return (c.execute("SELECT schema_version FROM meta").fetchall(),
+                        [r[1] for r in c.execute("PRAGMA table_info(meta)")][3:])
+            finally:
+                c.close()
+
+        def refused(db: str, owner: str = AGENT_A) -> str | None:
+            try:
+                ep.connect(db, agent_id=owner).close()
+            except ep.JournalError as e:
+                return str(e)
+            return None
+
+        markers = ["gzcoord_imported_at", "gzcoord_import_seqs"]
+        check("a new journal is at the code's version, with the import markers",
+              ep.SCHEMA_VERSION == 2 and shape(path) == ([(2,)], markers), shape(path))
+        db = v1("v1.db")
+        ep.connect(db).close()
+        c = sqlite3.connect(db)
+        check("a v1 journal is migrated to 2, its rows kept",
+              shape(db) == ([(2,)], markers)
+              and c.execute("SELECT content FROM episodes WHERE id='e-1'").fetchall() == [("kept body",)], shape(db))
+        c.close()
+        db = v1("v1-markers.db", markers=True)
+        ep.connect(db).close()
+        c = sqlite3.connect(db)
+        check("a v1 journal the importer had already ALTERed is migrated, its marker kept",
+              shape(db) == ([(2,)], markers)
+              and c.execute("SELECT gzcoord_import_seqs FROM meta").fetchall() == [('{"r c": 5}',)], shape(db))
+        c.close()
+        db = v1("v3.db", version=3)
+        with open(db, "rb") as fh:
+            before = fh.read()
+        why = refused(db)
+        with open(db, "rb") as fh:
+            after = fh.read()
+        check("a journal newer than the code is refused, naming both versions, and left byte for byte",
+              why is not None and "schema version 3" in why and "newer than this code's 2" in why and before == after,
+              why)
+        db = v1("other-owner.db", owner=AGENT_B)
+        check("another agent's v1 journal is refused before any migration",
+              "belongs to agent" in (refused(db) or "") and shape(db) == ([(1,)], []), shape(db))
+        db = v1("text-version.db", version="one")
+        check("a version that is no integer is refused, never read as one",
+              "not a version" in (refused(db) or "") and shape(db)[1] == [], refused(db))
+        db = v1("two-rows.db")
+        c = sqlite3.connect(db)
+        c.execute("INSERT INTO meta VALUES (1, ?, 'T')", (AGENT_A,))
+        c.commit()
+        c.close()
+        check("two meta rows are refused: the version is unknown", "2 rows" in (refused(db) or ""), refused(db))
+        real = ep.MIGRATIONS[2]
+
+        def broken(c: sqlite3.Connection) -> None:
+            real(c)
+            raise sqlite3.OperationalError("planted after the step's DDL")
+        ep.MIGRATIONS[2] = broken
+        try:
+            db = v1("broken.db")
+            try:
+                ep.connect(db).close()
+                check("a migration that fails rolls the whole open back: v1, no column", False)
+            except sqlite3.OperationalError:
+                check("a migration that fails rolls the whole open back: v1, no column",
+                      shape(db) == ([(1,)], []), shape(db))
+        finally:
+            ep.MIGRATIONS[2] = real
+
+        def step3(c: sqlite3.Connection) -> None:
+            c.execute("CREATE TABLE planted (x)")
+            raise sqlite3.OperationalError("planted in step 3")
+        ep.MIGRATIONS[3], ep.SCHEMA_VERSION = step3, 3
+        try:
+            db = v1("two-steps.db")
+            try:
+                ep.connect(db).close()
+                check("1→2→3 is one transaction: step 3 failing leaves the file at 1, step 2 undone too", False)
+            except sqlite3.OperationalError:
+                check("1→2→3 is one transaction: step 3 failing leaves the file at 1, step 2 undone too",
+                      shape(db) == ([(1,)], []), shape(db))
+        finally:
+            del ep.MIGRATIONS[3]
+            ep.SCHEMA_VERSION = 2
+        newer = os.path.join(tmp, "newer-state")
+        os.makedirs(os.path.join(newer, "agents", __import__("pwd").getpwuid(os.getuid()).pw_name))
+        os.replace(v1("v9.db", version=9), os.path.join(newer, "agents", os.path.basename(os.path.dirname(path)),
+                                                        "episodic.db"))
+        r = subprocess.run([sys.executable, TOOL, "gzcoord-out-pending"], input=msg("n-1"),
+                           env={**os.environ, "AGENT_FABRIC_STATE_DIR": newer}, capture_output=True, text=True, timeout=60)
+        check("the CLI on a newer journal: exit 1, one line, nothing pending",
+              r.returncode == 1 and r.stderr.count("\n") == 1 and "newer than this code" in r.stderr
+              and r.stdout == "", (r.returncode, r.stdout, r.stderr))
 
         print("the CLI, and two writers at once")
         env = {**os.environ}
