@@ -138,7 +138,7 @@ not on a pipe's exit status.
   | visibility, default branch | public, `main` |
   | description | "Control plane for the agents working on sibling repositories: identities, roles, memory, model routing, messaging." |
   | features | issues, projects, wiki on; discussions off |
-  | merge methods | merge commit (title `MERGE_MESSAGE`, message `PR_TITLE`), squash (`COMMIT_OR_PR_TITLE`, `COMMIT_MESSAGES`), rebase — all allowed |
+  | merge methods | merge commit (title `MERGE_MESSAGE`, message `PR_TITLE`), squash (`COMMIT_OR_PR_TITLE`, `COMMIT_MESSAGES`), rebase — all allowed by the repository; a pull request into `main` merges by merge commit only (the ruleset's `allowed_merge_methods`) |
   | auto-merge | on (it waits for the ruleset's required checks) |
   | delete branch on merge, suggest updating branches | off |
   | web commit sign-off | not required |
