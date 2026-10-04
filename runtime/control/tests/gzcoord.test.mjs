@@ -267,15 +267,19 @@ test('api sends the bearer token and JSON, and a refusal throws with its status'
   } finally { server.closeAllConnections(); server.close(); }
 });
 
-// The point of this module: the daemon never depends on a script that
-// becomes a shim when GZCoord's tools move to Python (ADR-040 §7).
-test('no control-plane module imports from communication/gzcoord/scripts/', () => {
-  const dir = fileURLToPath(new URL('..', import.meta.url));
+// The point of this module: the Node that stays Node — the control plane
+// and the locale search server, everything under runtime/ — never
+// depends on a script that becomes a shim when GZCoord's tools move to
+// Python (ADR-040 §7). Every import form: `from '…'` (export … from
+// too), a dynamic import('…'), and a bare side-effect import '…'.
+test('no module under runtime/ imports from communication/gzcoord/scripts/', () => {
+  const dir = fileURLToPath(new URL('../..', import.meta.url));
   const offenders = [];
-  for (const name of fs.readdirSync(dir, { recursive: true })) {
-    if (!name.endsWith('.mjs')) continue;
+  const names = fs.readdirSync(dir, { recursive: true }).filter(n => n.endsWith('.mjs') && !n.split(path.sep).includes('node_modules'));
+  assert.ok(names.includes(path.join('mcp', 'websearch-locale', 'server.mjs')), 'the search server is scanned');
+  for (const name of names) {
     const src = fs.readFileSync(path.join(dir, name), 'utf8');
-    for (const m of src.matchAll(/(?:\bfrom\s*|\bimport\s*\(\s*)['"]([^'"]+)['"]/g))
+    for (const m of src.matchAll(/(?:\bfrom\s*|\bimport\s*\(\s*|\bimport\s*)['"]([^'"]+)['"]/g))
       if (m[1].includes('communication/gzcoord/scripts/')) offenders.push(`${name}: ${m[1]}`);
   }
   assert.deepEqual(offenders, []);
