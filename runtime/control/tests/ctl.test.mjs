@@ -55,6 +55,29 @@ test('rows and table: an answered account and a silent one', () => {
   assert.match(none, /db-admin\s+ok\s+none.*unreadable\s+-\s*$/m);
 });
 
+test('disk table: one row per account, the largest home first; a partial one says why, a failed one says so, a silent one is a row', () => {
+  const expected = ['alpha', 'beta', 'gamma', 'delta', 'quiet'].map(login => ({ login, host: 'h', address: `h/${login}` }));
+  const reply = (login, disk) => ({ kind: 'reply', from: `h/${login}`, op: 'disk', data: { disk } });
+  const rs = rows(expected, [
+    reply('alpha', { status: 'ok', total_kb: 2 * 1048576, largest: [{ name: '.cache', kb: 1048576 }], targets: [], targets_kb: 0 }),
+    reply('beta', { status: 'ok', total_kb: 50 * 1048576, largest: [{ name: 'projects', kb: 45 * 1048576 }],
+                    targets: [{ path: 'projects/a/target', kb: 30 * 1048576 }, { path: 'projects/b/target', kb: 10 * 1048576 },
+                              { path: 'projects/c/target', kb: 2048 }, { path: 'projects/d/target', kb: 512 }], targets_kb: 40 * 1048576 + 2560 }),
+    reply('gamma', { status: 'partial', total_kb: 3072, largest: [{ name: '.local', kb: 3072 }], targets: [], targets_kb: 0, errors: ['home entries: du exit 1, partial'] }),
+    reply('delta', { status: 'failed', error: '/home/delta could not be listed (EACCES)' }),
+  ]);
+  const t = table('disk', rs).split('\n');
+  assert.match(t[0], /^account\s+status\s+total\s+largest entry\s+target\/\s+target\/ directories$/);
+  assert.deepEqual(t.slice(1).map(l => l.split(/\s+/)[0]).filter(Boolean), ['beta', 'alpha', 'gamma', 'delta', 'quiet'], 'the largest home first, then the failed and the silent');
+  assert.match(t[1], /^beta\s+ok\s+50\.0G\s+projects 45\.0G\s+40\.0G\s+projects\/a\/target 30\.0G, projects\/b\/target 10\.0G, projects\/c\/target 2M, \+1$/);
+  assert.match(t[2], /^alpha\s+ok\s+2\.0G\s+\.cache 1\.0G\s+0K\s+-$/);
+  assert.ok(t.some(l => /^gamma\s+partial\s+3M/.test(l)) && t.some(l => /^\s+home entries: du exit 1, partial$/.test(l)), 'a partial row says why under it');
+  assert.ok(t.some(l => /^delta\s+failed\s+\/home\/delta could not be listed \(EACCES\)$/.test(l)));
+  assert.ok(t.some(l => /^quiet\s+no answer$/.test(l)), 'an account that did not answer is a row');
+  assert.equal(rs[1].disk.targets.length, 4, '--json carries every target/, the table the first three');
+  assert.equal(parseArgs(['all', 'disk']).timeout, 200, 'a whole home takes a while: disk waits longer than a status');
+});
+
 test('host table: one row per host from whichever account answered first, the others counted; a silent host is a row; the leases and the largest processes under it', () => {
   const expected = [{ login: 'a', host: 'h1', address: 'h1/a' }, { login: 'b', host: 'h1', address: 'h1/b' }, { login: 'c', host: 'h2', address: 'h2/c' }];
   const machine = { status: 'ok', cpus: 6, loadavg: [0.9, 1.2, 0.8], mem_mb: { total: 18152, available: 12685, swap_total: 9216, swap_free: 9216 }, balloon_mb: { current: 18345, target: 18345, static_max: 18363 }, disk: [{ mount: '/rw', size_gb: 295, avail_gb: 41, use_pct: 87 }], leases: [{ name: 'backend-test', holder: 'db-admin', pid: 42, since: '2026-09-19T08:26:43Z' }], top_rss: [{ user: 'backend-dev-02', pid: 1, rss_mb: 2140, comm: 'dotnet' }] };
