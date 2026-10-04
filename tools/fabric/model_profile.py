@@ -74,7 +74,25 @@ CLASSES = tuple(routing.load_capabilities()["classes"])
 EFFORT_SUFFIX = "-effort"
 EFFORT_TARGETS = tuple(k + EFFORT_SUFFIX for k in CLASSES)
 TARGETS = {p: ("session",) + CLASSES + EFFORT_TARGETS for p in routing.PROVIDERS}
-PROVIDER_OF_THIS_SESSION = os.environ.get("AGENT_FABRIC_LAUNCH_PROVIDER") or "anthropic"
+fabric_writes = _load("fabric_writes", os.path.join(HERE, "fabric_writes.py"))
+
+
+def _last_launch_provider() -> str | None:
+    """The provider this account last launched on, as the launcher records
+    it (install_agent_files.py reads the same file). From a login shell,
+    `apply`, `seed` and `set code-review` wrote the agent files for
+    anthropic whatever the account ran on, and a broker session's reviews
+    were then refused (review of #91)."""
+    try:
+        with open(os.path.join(fabric_writes.state_dir(), "launch-provider.json"), encoding="utf-8") as f:
+            p = json.load(f).get("provider")
+    except (OSError, ValueError, AttributeError):
+        return None
+    return p if p in routing.PROVIDERS else None
+
+
+PROVIDER_OF_THIS_SESSION = (os.environ.get("AGENT_FABRIC_LAUNCH_PROVIDER") or _last_launch_provider()
+                            or "anthropic")
 
 
 class Refusal(Exception):
@@ -218,7 +236,8 @@ def check_review_gate(provider: str, role: str | None, agent: str, local: dict[s
 
 def apply_agent_files(quiet: bool = False) -> int:
     """The agent files for the provider THIS session was launched on (an
-    unlaunched session: anthropic) — one file serves one launch."""
+    unlaunched one: the account's last launch, else anthropic) — one file
+    serves one launch."""
     script = os.path.join(FABRIC_ROOT, "runtime", "claude-code", "install-agent-files.sh")
     proc = subprocess.run(["bash", script, "--provider", PROVIDER_OF_THIS_SESSION], capture_output=True, text=True,
                           env={**os.environ, "AGENT_FABRIC_ROOT": FABRIC_ROOT})
