@@ -319,16 +319,18 @@ def main() -> int:
                      "crates/discovery/kademlia/src/budgets.rs", "crates/discovery/cache/src/record.rs",
                      "crates/human/core/src/retention.rs", "architecture/config/config.schema.yaml",
                      "architecture/config/examples/kademlia-enabled.yaml",
-                     "fixtures/identity/ed25519-bip39-entropy-v1.json", "Cargo.toml",
+                     "fixtures/identity/ed25519-bip39-entropy-v1.json", "Cargo.toml", ".cargo/config.toml",
+                     ".cargo/config",
                      "apps/human-desktop/src/recovery_seed.rs"):
             reset(); set_pr(me, "plain", [path]); set_gate(9)
             rc, out = run("7", "--basis", "b", script=SHIM, env=iw)
             check(f"InterWeave: {path} is a boundary", rc == 1 and "no review-class review" in out, out)
         reset(); set_pr(me, "plain", ["infra/db/migrations/0053_x.sql", "architecture/adr/0050-x.md",
                                       "crates/identity/profile-identity/README.md", "tools/checks/check_x.sh",
+                                      "crates/human/ui-slint/Cargo.toml", "Cargo.lock", "fixtures/README.md",
                                       "crates/human/ui-slint/src/lib.rs"]); set_gate(9)
         rc, out = run("7", "--basis", "b", script=SHIM, env=iw)
-        check("InterWeave: gzapp's migrations, prose, a crate README, tooling and the UI are not",
+        check("InterWeave: gzapp's migrations, prose, a crate README, tooling, the UI, a crate manifest, the lockfile and the fixtures' README are not",
               rc == 0 and "not a security-boundary change" in out, out)
         reset(); set_pr(me, "Class: docs-only", ["architecture/adr/0050-x.md"]); set_gate(2)
         rc, out = run("7", "--basis", "b", script=SHIM, env=iw)
