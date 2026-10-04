@@ -854,3 +854,17 @@ its record disagree, the record wins. Look it up, never read it whole:
 - Keywords: episodic, history, journal, GZCoord, carrier, transport,
   relay, InterWeave, fabric-history, backfill.
 
+### ADR-042 — Store commits are signed by their writer and verified before they are applied (Proposed)
+
+- Every store commit is signed by its writer's own key: the agent's for
+  `set`, the parent's for `put` and `seed-child` (§5 rule 1).
+- Only the agent's and its parent's keys may write a store: a signing
+  subkey of a primary key `lineage.json` records, read from the committed
+  `identities/keys/<id>.asc`; the root writes alone (§5 rule 2).
+- `pull`, `take-bundle`, the fast-forward before a push and `sync` verify
+  every commit past the trusted base; one failure refuses the operation,
+  named, nothing applied (§5 rules 3–4).
+- A refusal is a security event, said by `fabric-secrets status` and
+  `fabric-ctl keys` until repaired (§5 rule 5).
+- Keywords: store, signing, signature, verify, forged entry, lineage,
+  pass, bundle, take-bundle, writer.

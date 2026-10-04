@@ -1379,6 +1379,76 @@ def case_a_cited_fabric_document_must_resolve() -> None:
         assert code == 1, "a dangling citation is a finding"
 
 
+def case_arm_boundary_cases_only_leave_retired() -> None:
+    """A project's arm.json lists the paths that must stay boundary: each
+    must match its own patterns, and one the branch forked with leaves only
+    into boundary.retired with why and whose word (reviews of #89, #90)."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("fabric_lint_under_test", LINT)
+    lint = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(lint)
+    with tempfile.TemporaryDirectory() as root:
+        g = lambda *a: subprocess.run(["git", "-C", root, *a], check=True, capture_output=True)
+        rel = os.path.join("projects", "demo", "integration", "gh", "arm.json")
+        def arm(cases, retired=None, paths="^src/|key", exempt="^docs/", changes=None):
+            b = {"paths": paths, "exempt": exempt, "cases": cases}
+            if retired is not None:
+                b["retired"] = retired
+            if changes is not None:
+                b["changes"] = changes
+            write(os.path.join(root, rel), json.dumps({"boundary": b}))
+        arm(["src/a.rs", "lib/key.rs"])
+        g("init", "-q", "-b", "main")
+        g("add", "-A")
+        g("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "base")
+        g("branch", "base")
+        assert lint.arm_boundary_findings(root, base_ref="base") == [], "cases that match: clean"
+        arm(["src/a.rs"])
+        got = lint.arm_boundary_findings(root, base_ref="base")
+        assert any("'lib/key.rs' is dropped" in f for f in got), got
+        arm(["src/a.rs"], retired={"lib/key.rs": "keys moved to crates/; architect-cto, seq 1"})
+        assert lint.arm_boundary_findings(root, base_ref="base") == [], "retired with why and word: clean"
+        arm(["src/a.rs"], retired={"lib/key.rs": "removed"})
+        assert any("is dropped" in f for f in lint.arm_boundary_findings(root, base_ref="base")), \
+            "a reason citing no approval anyone could look up (#91's review)"
+        arm(["src/a.rs"], retired={"lib/key.rs": "architect-cto, 01a105c9-b3e2-779e-99ed-9a8347021555"})
+        assert lint.arm_boundary_findings(root, base_ref="base") == [], "a message id is a locator"
+        arm(["src/a.rs"], retired={"lib/key.rs": " "})
+        assert any("is dropped" in f for f in lint.arm_boundary_findings(root, base_ref="base")), \
+            "a blank reason is no reason"
+        arm(["src/a.rs", "lib/key.rs"], paths="^src/")
+        got = lint.arm_boundary_findings(root, base_ref="base")
+        assert any("'lib/key.rs' is not boundary" in f for f in got), "a narrowed pattern its case catches"
+        arm(["docs/src/x.md"], paths="src/")
+        assert any("not boundary" in f for f in lint.arm_boundary_findings(root, base_ref="base")), \
+            "an exempt path is no boundary case"
+        write(os.path.join(root, rel), json.dumps({"boundary": {"paths": "^src/"}}))
+        assert any("boundary.cases must list" in f for f in lint.arm_boundary_findings(root, base_ref="base")), \
+            "no cases at all"
+        # The cases are a floor (review of #91): an alternative no case
+        # depends on goes, every case still matches, and only the record of
+        # the change stands between that and a silent narrowing.
+        arm(["src/a.rs", "lib/key.rs"], paths="^src/|key|^vendor/")
+        got = lint.arm_boundary_findings(root, base_ref="base")
+        assert any("changed with no new boundary.changes entry" in f for f in got), \
+            ("widening the patterns needs a record too", got)
+        arm(["src/a.rs", "lib/key.rs"], exempt="^docs/|^vendor/")
+        assert any("changed with no new boundary.changes entry" in f
+                   for f in lint.arm_boundary_findings(root, base_ref="base")), "a widened exemption, unrecorded"
+        arm(["src/a.rs", "lib/key.rs"], exempt="^docs/|^vendor/", changes={"vendor": " "})
+        assert any("changed with no new" in f for f in lint.arm_boundary_findings(root, base_ref="base")), \
+            "a blank reason records nothing"
+        arm(["src/a.rs", "lib/key.rs"], exempt="^docs/|^vendor/",
+            changes={"vendor exempt": "vendored docs only; architect-cto, seq 2"})
+        assert lint.arm_boundary_findings(root, base_ref="base") == [], "a relay seq is a locator"
+        arm(["src/a.rs", "lib/key.rs"], exempt="^docs/|^vendor/", changes={"vendor exempt": "agreed with the team"})
+        assert any("changed with no new" in f for f in lint.arm_boundary_findings(root, base_ref="base")), \
+            "a change citing nothing checkable"
+        arm(["src/a.rs", "lib/key.rs"], exempt="^docs/|^vendor/",
+            changes={"vendor exempt": "vendored docs only; gzapi-org/InterWeave#177"})
+        assert lint.arm_boundary_findings(root, base_ref="base") == [], "a recorded change: clean"
+
+
 def case_bash_over_150_lines_needs_the_allowlist() -> None:
     """ADR-040 §5 rule 2: a tracked bash script over 150 lines is a finding
     unless the allowlist names it; an entry whose script is gone or short
@@ -1597,6 +1667,7 @@ def main() -> int:
         case_clean_base_passes,
         case_decision_records_are_lint_findings,
         case_bash_over_150_lines_needs_the_allowlist,
+        case_arm_boundary_cases_only_leave_retired,
         case_a_cited_fabric_document_must_resolve,
         case_a_committed_agent_key_needs_its_lineage,
         case_a_committed_agent_source_may_not_pin_effort,

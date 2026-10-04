@@ -377,9 +377,10 @@ def verify(root: str, login: str, home: str, sudo: str, projects: list[str]) -> 
     # ADR-038 every account holds its own store key, so a count of secret
     # keys was never zero and the hand-off below was never asked for
     # (rust-ui-dev-01 could not commit, 2026-10-03, seq 11160).
-    signing = a.run('k="$(git config --global user.signingkey)"; if [ -z "$k" ]; then echo absent; '
-                    'elif gpg --list-secret-keys -- "$k" >/dev/null 2>&1; then echo present; else echo absent; fi',
-                    stderr=subprocess.DEVNULL).decode("ascii", "ignore").strip()
+    listing = a.run('k="$(git config --global user.signingkey)"; [ -n "$k" ] && '
+                    'gpg --list-secret-keys --with-colons -- "$k"',
+                    stderr=subprocess.DEVNULL).decode("utf-8", "replace")
+    signing = "present" if signs_with_secret(listing) else "absent"
     for prov in ("anthropic", "openrouter"):
         prefixed(f"   launch ({prov}): ", a.run(f"cd {where} && ~/projects/agent-fabric/runtime/openrouter/launch "
                                                   f"--provider {prov} --print 2>&1 | grep -E '^launch:|resolved profile' | head -1"))
@@ -391,6 +392,22 @@ def verify(root: str, login: str, home: str, sudo: str, projects: list[str]) -> 
                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                                timeout=READBACK_TIMEOUT_S).returncode == 0
     return closing(login, signing, "template" if has_template else "no", first)
+
+
+def signs_with_secret(listing: str) -> bool:
+    """Whether a `gpg --list-secret-keys --with-colons` listing holds a key
+    or subkey that can sign and whose secret is really here. gpg lists a
+    stub (field 15 `#`: the secret is elsewhere, or was exported away) and
+    exits 0 for it, so the exit status said present where commits could
+    not sign. The rule is runtime/control/ops.mjs signingSecret's, so
+    fabric-ctl keys and this read-back agree."""
+    for line in listing.splitlines():
+        f = line.split(":")
+        capabilities = f[11] if len(f) > 11 else ""
+        token = f[14] if len(f) > 14 else None
+        if f[0] in ("sec", "ssb") and "s" in capabilities and token != "#":
+            return True
+    return False
 
 
 def closing(login: str, signing: str, creds: str, first: str) -> str:

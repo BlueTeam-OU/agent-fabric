@@ -320,14 +320,16 @@ def main() -> int:
                      "crates/human/core/src/retention.rs", "architecture/config/config.schema.yaml",
                      "architecture/config/examples/kademlia-enabled.yaml",
                      "fixtures/identity/ed25519-bip39-entropy-v1.json", "Cargo.toml", ".cargo/config.toml",
-                     ".cargo/config",
+                     ".cargo/config", "crates/human/ui-slint/.cargo/config.toml",
+                     "tools/foo/.cargo/config.toml", "xtask/.cargo/config",
+                     "deny.toml", "crates/claude/channel-core/src/lib.rs", "apps/claude-channel/src/main.rs",
                      "apps/human-desktop/src/recovery_seed.rs"):
             reset(); set_pr(me, "plain", [path]); set_gate(9)
             rc, out = run("7", "--basis", "b", script=SHIM, env=iw)
             check(f"InterWeave: {path} is a boundary", rc == 1 and "no review-class review" in out, out)
         reset(); set_pr(me, "plain", ["infra/db/migrations/0053_x.sql", "architecture/adr/0050-x.md",
                                       "crates/identity/profile-identity/README.md", "tools/checks/check_x.sh",
-                                      "crates/human/ui-slint/Cargo.toml", "Cargo.lock", "fixtures/README.md",
+                                      "crates/human/ui-slint/Cargo.toml", "Cargo.lock", "fixtures/README.md", "crates/human/client-api/src/lib.rs",
                                       "crates/human/ui-slint/src/lib.rs"]); set_gate(9)
         rc, out = run("7", "--basis", "b", script=SHIM, env=iw)
         check("InterWeave: gzapp's migrations, prose, a crate README, tooling, the UI, a crate manifest, the lockfile and the fixtures' README are not",
@@ -364,6 +366,11 @@ def main() -> int:
         rc, out = run("7", "--basis", "b", script=SHIM, env={"AGENT_FABRIC_ARM_CONFIG": f"{sandbox}/none.json"})
         check("no arm.json: exit 2, the boundary never judged absent",
               rc == 2 and "declares no arm.json" in out and "pr merge" not in calls(), out)
+        reset(); put("narrowed.json", json.dumps({"boundary": {"paths": "^src/", "cases": ["src/a.rs", "keys/k.rs"]}}))
+        set_pr(me, "plain", ["docs/a.md"]); set_gate(9)
+        rc, out = run("7", "--basis", "b", script=SHIM, env={"AGENT_FABRIC_ARM_CONFIG": f"{state}/narrowed.json"})
+        check("a boundary case its own patterns miss: exit 2, nothing armed, the case named",
+              rc == 2 and "keys/k.rs" in out and "pr merge" not in calls(), out)
         reset(); put("bad.json", '{"boundary": {"paths": "("}}')
         rc, out = run("7", "--basis", "b", script=SHIM, env={"AGENT_FABRIC_ARM_CONFIG": f"{state}/bad.json"})
         check("an arm.json whose pattern does not compile: exit 2", rc == 2 and "not a usable arm.json" in out, out)

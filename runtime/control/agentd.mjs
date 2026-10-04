@@ -51,8 +51,7 @@ import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
-import { whoami, FABRIC_ROOT } from '../../communication/gzcoord/scripts/gzmsg.mjs';
-import { api, syncedToken, identity as gzIdentity, integrationConfig, inboxRoot, token as gzToken } from '../../communication/gzcoord/scripts/inbox.mjs';
+import { whoami, FABRIC_ROOT, api, syncedToken, identity as gzIdentity, integrationConfig, inboxRoot, token as gzToken } from './gzcoord.mjs';
 import { OPS, PUBLIC_OPS, collect, usage, accounts, accountSlugs, accountsDir } from './ops.mjs';
 import { jobsAdd } from './jobs.mjs';
 import { ACTION_OPS, ACTION_TTL_MAX_S, publicKeyFrom, verifyRequest } from './sign.mjs';
@@ -184,9 +183,12 @@ export function accept(rec, { me, operators, accounts = new Set(), keys = new Ma
 // A pull that changes the daemon's own code must reach the daemon: a
 // loaded module never reloads, so the process ends itself (after a 2 s
 // quiet period, a pull writes several files) and the unit's Restart=
-// starts the next one on the new tree. What is watched is the two
-// directories the daemon imports from, never a file's content.
-export function watchSource(onChange, dirs = [HERE, path.join(FABRIC_ROOT, 'communication', 'gzcoord', 'scripts')]) {
+// starts the next one on the new tree. What is watched is the directory
+// the daemon imports from, never a file's content: since GZCoord's
+// functions moved into runtime/control/gzcoord.mjs (ADR-040 §7) that is
+// this one alone, and a change to the scripts it no longer loads, the
+// Python port above all, must not restart it (review of #91).
+export function watchSource(onChange, dirs = [HERE]) {
   let timer = null;
   const arm = (ev, name) => { if (!name || !/\.(mjs|json)$/.test(String(name))) return; clearTimeout(timer); timer = setTimeout(onChange, 2000); };
   return dirs.map(d => { try { const w = fs.watch(d, arm); w.unref(); return w; } catch { return null; } });
