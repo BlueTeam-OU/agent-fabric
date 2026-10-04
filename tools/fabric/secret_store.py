@@ -18,6 +18,11 @@
                                                  the parent takes a new child's bundle (stdin) as its
                                                  mirror and pushes it
     fabric-secrets store child-bundle LOGIN|ID   the parent's mirror of a child, armored
+    fabric-secrets store refresh-mirror LOGIN|ID the parent's mirror of a child, brought up to its remote
+                                                 by the verified fetch (ADR-042)
+    fabric-secrets store trust-base [COMMIT] [--store DIR]
+                                                 the commit up to which the store's history is
+                                                 trusted unsigned (ADR-042; the migration, once)
     fabric-secrets store names [--json]          the entries, by name
     fabric-secrets store put LOGIN|ID NAME [--store DIR]
                                                  the parent writes into a child's store
@@ -48,6 +53,21 @@ user id addressed to that id, and `identities/keys/lineage.json` records
 that parent (ADR-039: stored under the id, typed as the login). Placement is not
 part of it: no host is named anywhere, and nothing here needs the
 parent and the child on one machine. They meet only through git.
+
+WHO MAY WRITE A STORE (ADR-042). Every commit to a store is signed by its
+writer's own key, and a store takes in only commits signed by its writers:
+the agent's own key and its recorded parent's, as lineage.json and
+identities/keys/ stand at the fabric checkout's origin/main. pull, the
+write paths' fetch, take-bundle, seed-child, child-bundle, refresh-mirror
+and push's fast-forward verify every commit beyond the store's trusted
+base (agent-fabric.trustedbase in its .git/config, set by `trust-base` or
+a new store's init, moved forward by each verified fetch). A refusal names
+the commit and why, applies nothing, and is kept beside the store for
+`fabric-secrets status` and `fabric-ctl keys` until a verified fetch
+succeeds. First contact, before a new agent's keys reach main, is the one
+exception, on both sides and only through a bundle: seed-child records the
+child's first bundle as its mirror's base, and the child's first
+take-bundle records its parent's (once).
 
 No function here prints a secret value. `values()` returns them to the
 caller in-process (fabric-secrets sync); everything else deals in names,
@@ -283,7 +303,8 @@ def init(remote: str | None = None, agent_id: str | None = None) -> dict:
     # fingerprint: its parent re-exports it at the next certification.
     added = _ensure_use_subkeys(fpr)
     os.makedirs(os.path.join(store, "env"), mode=0o700, exist_ok=True)
-    if not os.path.isdir(os.path.join(store, ".git")):
+    fresh = not os.path.isdir(os.path.join(store, ".git"))
+    if fresh:
         git(store, "init", "-q", "-b", "main")
     with open(gpg_id, "w", encoding="utf-8") as fh:
         fh.write(fpr + "\n")
@@ -292,6 +313,10 @@ def init(remote: str | None = None, agent_id: str | None = None) -> dict:
     git(store, "add", ".gpg-id", ".agent-id")
     if git(store, "diff", "--cached", "--quiet", check=False).returncode:
         _commit(store, f"agent {me} ({aid}): the store is encrypted to {fpr}")
+    if fresh:
+        # A store made here starts from its own signed commit: its trusted
+        # base, so it verifies what it is given from the first fetch on.
+        _set_base(store, _full(store, "HEAD"))
     if remote:
         if git(store, "remote", check=False).stdout.strip():
             git(store, "remote", "set-url", "origin", remote)
@@ -320,8 +345,234 @@ def _git_env() -> dict:
 def _commit(store: str, message: str) -> None:
     # The store's commits are its own history, attributed by message:
     # the writer ("agent <login>" or "parent <login>") and what changed,
-    # never a value.
-    _run(["git", "-C", store, "-c", "commit.gpgsign=false", "commit", "-q", "-m", message], env=_git_env(), label="git commit")
+    # never a value. Signed with the writer's own key (ADR-042 rule 1): a
+    # writer that cannot sign does not write.
+    _run(["git", "-C", store, *_signing_args(), "commit", "-q", "-m", message], env=_git_env(), label="git commit")
+
+
+# ── who may write a store (ADR-042) ───────────────────────────────────
+# Every commit to a store is signed by its writer: the agent's own key in
+# its store, the parent's own key in the mirror of a child's — always the
+# key of the account running this, key_of_store(store_dir()). A store takes
+# in only commits signed by a signing subkey of its writers: the agent's
+# own primary key and its recorded parent's (the root agent: its own
+# alone), read with `git show` at the fabric checkout's origin/main, never
+# its working tree, so an uncommitted edit names no writer. History the
+# store held before the decision is trusted once, at its trusted base:
+# agent-fabric.trustedbase in the store's own .git/config, never in a
+# commit, which the remote could write. `store trust-base` records it (the
+# migration, run once per store; a new store's init records its own first
+# commit), and a verified fetch moves it forward to what it verified. A
+# store with no base verifies nothing, and so takes nothing in.
+TRUST_KEY = "agent-fabric.trustedbase"
+REFUSAL_FILE = "agent-fabric-refusal.json"
+
+
+def _signing_args(signer: str | None = None) -> list[str]:
+    """git -c options that sign every commit made, a rebase's included, with
+    the writer's key: gpg chooses that key's signing subkey."""
+    return ["-c", "commit.gpgsign=true", "-c", f"user.signingkey={signer or key_of_store(store_dir())}",
+            "-c", "gpg.program=gpg", "-c", "gpg.format=openpgp"]
+
+
+def trusted_base(store: str) -> str | None:
+    r = git(store, "config", "--get", TRUST_KEY, check=False)
+    v = r.stdout.decode().strip()
+    return v if r.returncode == 0 and re.fullmatch(r"[0-9a-f]{40}", v) else None
+
+
+def _full(store: str, rev: str) -> str:
+    r = git(store, "rev-parse", "-q", "--verify", f"{rev}^{{commit}}", check=False)
+    if r.returncode != 0:
+        raise StoreError(f"{rev} is no commit in {store}")
+    return r.stdout.decode().strip()
+
+
+def _is_ancestor(store: str, older: str, newer: str) -> bool:
+    return git(store, "merge-base", "--is-ancestor", older, newer, check=False).returncode == 0
+
+
+def _set_base(store: str, commit: str) -> None:
+    git(store, "config", TRUST_KEY, commit)
+
+
+def trust_base(commit: str | None = None, store: str | None = None) -> dict:
+    """The store's trusted base: the commit up to which its history is taken
+    unsigned (ADR-042 rule 4). Set once — the migration — and only ever
+    moved forward: a base that is not a descendant of the one recorded is
+    refused, never a way to trust more of the past."""
+    store = store or store_dir()
+    key_of_store(store)
+    new = _full(store, commit or "HEAD")
+    if not _is_ancestor(store, new, "HEAD"):
+        raise StoreError(f"{new[:12]} is not in this store's history; a base is a commit the store already holds")
+    old = trusted_base(store)
+    if old and not _is_ancestor(store, old, new):
+        raise StoreError(f"the trusted base is {old[:12]}; {new[:12]} does not follow it, and a base only moves forward")
+    _set_base(store, new)
+    return {"store": store, "trusted_base": new, "was": old}
+
+
+def _no_base(store: str) -> StoreError:
+    return StoreError(f"{store} has no trusted base, so nothing it is given can be verified (ADR-042): "
+                      "fabric-secrets store trust-base, once, at the head it holds")
+
+
+def _main_show(rel: str, fabric: str | None = None) -> bytes | None:
+    """A file as the fabric's origin/main has it; None when main has no such
+    file. A checkout with no origin/main is an error, never a fallback."""
+    root = fabric or FABRIC_ROOT
+    if _run(["git", "-C", root, "rev-parse", "-q", "--verify", "refs/remotes/origin/main"], check=False).returncode:
+        raise StoreError(f"{root} has no origin/main to read the store's writers from: fetch the fabric")
+    r = _run(["git", "-C", root, "show", f"refs/remotes/origin/main:{rel}"], check=False)
+    return r.stdout if r.returncode == 0 else None
+
+
+def writers(agent_id: str, fabric: str | None = None) -> dict[str, bytes]:
+    """{primary fingerprint: its armored public key} for the keys allowed to
+    write this agent's store (ADR-042 rule 2), from the fabric's main."""
+    raw = _main_show("identities/keys/lineage.json", fabric)
+    try:
+        doc = json.loads(raw) if raw is not None else {}
+    except ValueError as e:
+        raise StoreError(f"identities/keys/lineage.json on origin/main is not JSON: {e}") from None
+    rec = doc.get(agent_id) if isinstance(doc, dict) else None
+    if not isinstance(rec, dict):
+        raise StoreError(f"agent {agent_id} is not yet on the fabric's main (lineage.json at origin/main): "
+                         "its writers cannot be known — fetch the fabric")
+    out: dict[str, bytes] = {}
+    for who in [agent_id] + ([rec["parent"]] if rec.get("parent") else []):
+        r = doc.get(who) if isinstance(doc.get(who), dict) else {}
+        fpr, key = r.get("fingerprint"), _main_show(f"identities/keys/{who}.asc", fabric)
+        if not fpr or key is None:
+            raise StoreError(f"agent {who}'s key is not yet on the fabric's main: fetch the fabric")
+        out[fpr] = key
+    return out
+
+
+def _signing_subkeys(homedir: str) -> dict[str, str]:
+    """{signing key fingerprint: its primary's} in a keyring: each valid
+    subkey with the sign capability, and a primary that itself signs."""
+    out, primary, last = {}, None, None
+    for line in gpg("--with-colons", "--fixed-list-mode", "--list-keys", homedir=homedir).stdout.decode().splitlines():
+        f = line.split(":")
+        if f[0] in ("pub", "sub"):
+            last = f
+        elif f[0] == "fpr" and last is not None:
+            if last[0] == "pub":
+                primary = f[9]
+            if "s" in last[11] and last[1] not in ("r", "e", "i", "d"):
+                out[f[9]] = primary
+            last = None
+    return out
+
+
+def _record_refusal(store: str, commit: str, reason: str) -> None:
+    """A refusal is a security event (ADR-042 rule 5): it is kept beside the
+    store until a verified fetch succeeds, for status and fabric-ctl keys."""
+    import datetime
+    path = os.path.join(store, ".git", REFUSAL_FILE)
+    with open(path + ".tmp", "w", encoding="utf-8") as fh:
+        json.dump({"commit": commit, "reason": reason,
+                   "at": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")}, fh)
+    os.replace(path + ".tmp", path)
+
+
+def refusal(store: str | None = None) -> dict | None:
+    try:
+        with open(os.path.join(store or store_dir(), ".git", REFUSAL_FILE), encoding="utf-8") as fh:
+            doc = json.load(fh)
+    except (OSError, ValueError):
+        return None
+    return doc if isinstance(doc, dict) else None
+
+
+def _clear_refusal(store: str) -> None:
+    try:
+        os.unlink(os.path.join(store, ".git", REFUSAL_FILE))
+    except FileNotFoundError:
+        pass
+
+
+def _verify_incoming(store: str, tip: str, agent_id: str | None = None, fabric: str | None = None) -> str:
+    """Every commit `tip` would bring that the store neither holds nor trusts
+    (tip, not HEAD, not the base), each signed by a writer of this agent's
+    store (ADR-042 rule 3). Any other refuses the whole operation: nothing
+    is applied, the refusal is recorded and names the commit and why, never
+    an entry. Returns the verified tip's full id."""
+    base = trusted_base(store)
+    if not base:
+        raise _no_base(store)
+    tip = _full(store, tip)
+    revs = git(store, "rev-list", "--reverse", tip, "^HEAD", f"^{base}").stdout.decode().split()
+    if not revs:
+        return tip
+    aid = agent_id or own_agent_id(store)
+
+    def refuse(commit: str, reason: str) -> StoreError:
+        _record_refusal(store, commit, reason)
+        return StoreError(f"commit {commit[:12]} refused: {reason}; nothing applied (ADR-042) — "
+                          "the store's parent or the owner repairs it")
+    try:
+        allowed = writers(aid, fabric)
+    except StoreError as e:
+        raise refuse(revs[0], str(e)) from None
+    with tempfile.TemporaryDirectory() as tmp:
+        os.chmod(tmp, 0o700)
+        try:
+            for key in allowed.values():
+                gpg("--import", stdin=key, homedir=tmp)
+            subkeys = _signing_subkeys(tmp)
+            env = {**os.environ, "GNUPGHOME": tmp}
+            for c in revs:
+                r = _run(["git", "-C", store, "-c", "gpg.program=gpg", "verify-commit", "--raw", c], env=env, check=False)
+                status = [l.split() for l in r.stderr.decode(errors="replace").splitlines() if l.startswith("[GNUPG:] ")]
+                tags = {f[1] for f in status if len(f) > 1}
+                valid = next((f for f in status if len(f) > 2 and f[1] == "VALIDSIG"), None)
+                if tags & {"EXPKEYSIG", "REVKEYSIG", "BADSIG", "EXPSIG"}:
+                    bad = sorted(tags & {"EXPKEYSIG", "REVKEYSIG", "BADSIG", "EXPSIG"})[0]
+                    raise refuse(c, {"BADSIG": "its signature does not verify", "EXPSIG": "its signature has expired",
+                                     "EXPKEYSIG": "signed by an expired key", "REVKEYSIG": "signed by a revoked key"}[bad])
+                if not valid:
+                    raise refuse(c, "signed by a key that is no writer of this store on the fabric's main "
+                                    "(a new or rotated key not yet merged: fetch the fabric)" if "ERRSIG" in tags
+                                    or "NO_PUBKEY" in tags else "not signed")
+                signer, primary = valid[2], valid[-1]
+                if primary not in allowed or subkeys.get(signer) != primary:
+                    raise refuse(c, f"signed by {signer[-16:]}, no signing key of this store's writers")
+        finally:
+            _run(["gpgconf", "--homedir", tmp, "--kill", "all"], check=False)
+    return tip
+
+
+FIRST_CONTACT_KEY = "agent-fabric.firstcontact"
+
+
+def on_main(agent_id: str, fabric: str | None = None) -> bool:
+    """Whether the fabric's main records this agent (its keys PR merged)."""
+    raw = _main_show("identities/keys/lineage.json", fabric)
+    try:
+        doc = json.loads(raw) if raw is not None else {}
+    except ValueError as e:
+        raise StoreError(f"identities/keys/lineage.json on origin/main is not JSON: {e}") from None
+    return isinstance(doc, dict) and isinstance(doc.get(agent_id), dict)
+
+
+def _taken(store: str, tip: str) -> None:
+    """What a verified fetch applied moves the trusted base forward to it,
+    and a refusal recorded earlier is over: the store took a verified head."""
+    base = trusted_base(store)
+    if base and _is_ancestor(store, base, tip) and _is_ancestor(store, tip, "HEAD"):
+        _set_base(store, tip)
+    _clear_refusal(store)
+
+
+def _take_verified(store: str, ref: str, agent_id: str | None = None) -> str:
+    """`ref` verified, then taken as a fast-forward only (ADR-042 rule 3)."""
+    tip = _verify_incoming(store, ref, agent_id)
+    git(store, "merge", "-q", "--ff-only", tip)
+    _taken(store, tip)
+    return tip
 
 
 def _check_name(name: str) -> None:
@@ -370,11 +621,24 @@ def _before_write(store: str) -> None:
     different names. A failure stops the write, loudly."""
     if not _remote(store):
         return
-    r = _run(["git", "-C", store, "-c", "commit.gpgsign=false", "pull", "-q", "--rebase", "origin", _branch(store)],
+    branch = _branch(store)
+
+    def failed(r: subprocess.CompletedProcess) -> StoreError:
+        lines = [l for l in r.stderr.decode(errors="replace").splitlines() if l.strip() and not l.startswith("hint:")]
+        return StoreError("the store could not be brought up to its remote; nothing written: " + (lines or ["?"])[-1])
+    r = _run(["git", "-C", store, "fetch", "-q", "origin", f"+{branch}:refs/remotes/origin/{branch}"],
              env=_git_env(), check=False)
     if r.returncode != 0:
-        lines = [l for l in r.stderr.decode(errors="replace").splitlines() if l.strip() and not l.startswith("hint:")]
-        raise StoreError("the store could not be brought up to its remote; nothing written: " + (lines or ["?"])[-1])
+        raise failed(r)
+    # Verified before anything is applied (ADR-042 rule 3): what the remote
+    # added since, each commit signed by a writer; then this store's own
+    # unpushed commits go on top, signed again by their writer.
+    tip = _verify_incoming(store, f"refs/remotes/origin/{branch}")
+    r = _run(["git", "-C", store, *_signing_args(), "rebase", "-q", tip], env=_git_env(), check=False)
+    if r.returncode != 0:
+        _run(["git", "-C", store, "rebase", "--abort"], check=False)
+        raise failed(r)
+    _taken(store, tip)
 
 
 
@@ -538,16 +802,24 @@ def seed_child(agent_id: str, remote: str, text: str) -> dict:
             _run(["git", "clone", "-q", "--no-checkout", path, mirror], label="git clone")
             git(mirror, "checkout", "-q", "-B", "main", "refs/remotes/origin/main")
             git(mirror, "remote", "set-url", "origin", remote)
+        git(mirror, "fetch", "-q", path, f"+{MAIN}:refs/first-contact/main")
+        # First contact (ADR-042, the coordinator's ruling of 2026-10-04):
+        # the child's own first commit is signed by a key not yet on the
+        # fabric's main — its keys merge after enrolment — so the bundle's
+        # head, handed over the host executor the parent drives, is the
+        # mirror's trusted base. Only from a bundle, and only for a mirror
+        # with none: a fetch never sets a base.
+        if trusted_base(mirror) is None:
+            _set_base(mirror, _full(mirror, "refs/first-contact/main"))
         # Whatever the remote already has, then the child's commit, each only
-        # as a fast-forward — a fresh clone included: a mirror deleted by hand
-        # after the parent's puts is cloned again from the child's bundle
-        # alone, behind the remote, and its push was refused as
+        # as a verified fast-forward — a fresh clone included: a mirror deleted
+        # by hand after the parent's puts is cloned again from the child's
+        # bundle alone, behind the remote, and its push was refused as
         # non-fast-forward (a carried review item).
         git(mirror, "fetch", "-q", "origin")
         if git(mirror, "rev-parse", "-q", "--verify", "refs/remotes/origin/main", check=False).returncode == 0:
-            git(mirror, "merge", "-q", "--ff-only", "refs/remotes/origin/main")
-        git(mirror, "fetch", "-q", path, f"{MAIN}:refs/first-contact/main")
-        git(mirror, "merge", "-q", "--ff-only", "refs/first-contact/main")
+            _take_verified(mirror, "refs/remotes/origin/main", agent_id)
+        _take_verified(mirror, "refs/first-contact/main", agent_id)
         git(mirror, "push", "-q", "-u", "origin", "HEAD:main")
     return {"agent_id": agent_id, "mirror": mirror, "remote": remote}
 
@@ -556,12 +828,20 @@ def child_bundle(who: str) -> str:
     """A child's store as its parent's mirror holds it, brought up to the
     remote first, armored: everything the parent wrote, encrypted to the
     child's key, for the child's first sync."""
+    return _bundle_armored(refresh_mirror(who))
+
+
+def refresh_mirror(who: str) -> str:
+    """A child's mirror brought up to its remote by the verified fetch
+    (ADR-042 rule 3): the only way a mirror moves, never a raw pull. Its
+    path."""
     aid, _ = resolve(who)
     mirror = os.path.join(children_dir(), aid)
     if not os.path.isdir(os.path.join(mirror, ".git")):
         raise StoreError(f"no mirror of {who} here (store-enroll.sh first)")
-    git(mirror, "pull", "-q", "--ff-only", "origin", "main")
-    return _bundle_armored(mirror)
+    git(mirror, "fetch", "-q", "origin", "+main:refs/remotes/origin/main")
+    _take_verified(mirror, "refs/remotes/origin/main", aid)
+    return mirror
 
 
 def take_bundle(text: str) -> dict:
@@ -575,8 +855,30 @@ def take_bundle(text: str) -> dict:
         if aid != own or gpg_id != fpr:
             raise StoreError(f"the bundle is agent {aid or '(none)'} with key {gpg_id or '(none)'}, "
                              f"not this store ({own}, {fpr}); nothing taken")
-        git(store, "fetch", "-q", path, f"{MAIN}:refs/remotes/origin/main")
-        git(store, "merge", "-q", "--ff-only", "refs/remotes/origin/main")
+        # Quarantined, verified, then taken (ADR-042 rule 3): the bundle's
+        # commits reach the store's refs only once every one verifies.
+        git(store, "fetch", "-q", path, f"+{MAIN}:refs/agent-fabric/incoming")
+        try:
+            if not on_main(own):
+                # First contact (the coordinator's ruling of 2026-10-04): a new
+                # agent takes its parent's first bundle before its keys reach
+                # main, so its writers cannot be read yet. That bundle — only a
+                # bundle, carried by the host executor the parent drives —
+                # becomes the store's base, once; a second one before the
+                # merge refuses, and a fetch never does this.
+                if git(store, "config", "--get", FIRST_CONTACT_KEY, check=False).returncode == 0:
+                    raise StoreError(f"agent {own} is not yet on the fabric's main, and this store has had its "
+                                     "first contact: nothing more is taken until its keys are merged — fetch the fabric")
+                tip = _full(store, "refs/agent-fabric/incoming")
+                git(store, "merge", "-q", "--ff-only", tip)
+                _set_base(store, tip)
+                git(store, "config", FIRST_CONTACT_KEY, tip)
+                _clear_refusal(store)
+            else:
+                tip = _take_verified(store, "refs/agent-fabric/incoming")
+            git(store, "update-ref", "refs/remotes/origin/main", tip)
+        finally:
+            git(store, "update-ref", "-d", "refs/agent-fabric/incoming", check=False)
     head = git(store, "rev-parse", "--short", "HEAD").stdout.decode().strip()
     return {"agent_id": aid, "head": head, "names": len(names(store))}
 
@@ -1306,6 +1608,9 @@ def main(argv: list[str] | None = None) -> int:
     c.add_argument("key_file", nargs="?")
     c.add_argument("--root", action="store_true")
     sub.add_parser("verify")
+    tb = sub.add_parser("trust-base", help="the commit up to which this store's history is trusted unsigned (ADR-042)")
+    tb.add_argument("commit", nargs="?")
+    tb.add_argument("--store", help="a store other than this agent's own (a child's mirror)")
     sub.add_parser("export-key")
     sub.add_parser("push")
     sub.add_parser("bundle", help="this store, armored, for its parent (a new account's first contact)")
@@ -1313,6 +1618,8 @@ def main(argv: list[str] | None = None) -> int:
     sc = sub.add_parser("seed-child", help="a new child's bundle (stdin) becomes its mirror, pushed")
     sc.add_argument("agent_id")
     sc.add_argument("--remote", required=True)
+    rm = sub.add_parser("refresh-mirror", help="a child's mirror brought up to its remote, every commit verified")
+    rm.add_argument("login")
     cb = sub.add_parser("child-bundle", help="a child's store as its mirror holds it, armored")
     cb.add_argument("login")
     pa = sub.add_parser("paper")
@@ -1378,6 +1685,11 @@ def main(argv: list[str] | None = None) -> int:
             print(f"{r['login']} ({r['agent_id']}): {r['fingerprint']}, parent {r['parent'] or '(root)'}")
         elif args.cmd == "export-key":
             sys.stdout.write(export_key())
+        elif args.cmd == "refresh-mirror":
+            print(f"mirror up to date: {refresh_mirror(args.login)}")
+        elif args.cmd == "trust-base":
+            r = trust_base(args.commit, args.store)
+            print(f"trusted base: {r['trusted_base']}" + (f" (was {r['was']})" if r["was"] and r["was"] != r["trusted_base"] else ""))
         elif args.cmd == "push":
             store = store_dir()
             key_of_store(store)
@@ -1388,7 +1700,7 @@ def main(argv: list[str] | None = None) -> int:
             # was refused as non-fast-forward. A new repository has no main.
             git(store, "fetch", "-q", "origin")
             if git(store, "rev-parse", "-q", "--verify", "refs/remotes/origin/main", check=False).returncode == 0:
-                git(store, "merge", "-q", "--ff-only", "refs/remotes/origin/main")
+                _take_verified(store, "refs/remotes/origin/main")
             git(store, "push", "-q", "-u", "origin", "HEAD:main")
             print("pushed")
         elif args.cmd == "bundle":
