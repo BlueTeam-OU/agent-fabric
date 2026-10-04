@@ -1037,6 +1037,55 @@
    ]
   },
   {
+   "section": "git's no-argument options never take a word; the search exemption reads options narrowly (carried from #96 round 9)",
+   "cases": [
+    {
+     "want": "deny",
+     "command": "git --no-pager push"
+    },
+    {
+     "want": "deny",
+     "command": "git -P -c core.pager=less log"
+    },
+    {
+     "want": "deny",
+     "command": "git -P x log secrets.env"
+    },
+    {
+     "want": "deny",
+     "command": "git --bare --attr-source HEAD push"
+    },
+    {
+     "want": "allow",
+     "command": "git --no-pager log --author push -1"
+    },
+    {
+     "want": "allow",
+     "command": "git --no-pager log -S commit"
+    },
+    {
+     "want": "allow",
+     "command": "git --no-pager grep -e add"
+    },
+    {
+     "want": "allow",
+     "command": "git --no-pager log -c -1"
+    },
+    {
+     "want": "allow",
+     "command": "git -P show -c HEAD"
+    },
+    {
+     "want": "allow",
+     "command": "git --no-pager grep -c TODO"
+    },
+    {
+     "want": "allow",
+     "command": "git --no-pager log --grep push -1"
+    }
+   ]
+  },
+  {
    "section": "running in a clean environment, and searching code for the word, stay allowed",
    "cases": [
     {
