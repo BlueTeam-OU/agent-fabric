@@ -225,6 +225,17 @@ def make_pristine(script: str) -> str:
         "import os, sys\n"
         "open(os.environ['FAKE_LOG'], 'a').write('\\t'.join(['episodic', *sys.argv[1:]]) + '\\n')\n"
         "sys.exit(int(os.environ.get('FAKE_JOURNAL_RC') or 0))\n")
+    # The store's CLI, stood in for: the real trust-base needs the store's
+    # key. It logs its call, records the base as the real one does, and
+    # FAKE_STORE_RC fails it.
+    put(f"{d}/tools/fabric/secret_store.py",
+        "import os, subprocess, sys\n"
+        "open(os.environ['FAKE_LOG'], 'a').write('\\t'.join(['secret_store', *sys.argv[1:]]) + '\\n')\n"
+        "rc = int(os.environ.get('FAKE_STORE_RC') or 0)\n"
+        "if rc == 0:\n"
+        "    store = sys.argv[sys.argv.index('--store') + 1]\n"
+        "    subprocess.run(['git', '-C', store, 'config', 'agent-fabric.trustedbase', 'HEAD'], check=True)\n"
+        "sys.exit(rc)\n")
     put(f"{d}/projects/registry.json", json.dumps(REGISTRY, indent=2) + "\n")
     git("init", "-q", d)
     git("-C", d, "add", "-A")
@@ -418,6 +429,40 @@ def journal() -> None:
     check("an import that fails: one line, exit 0, not counted as NOT written",
           r.rc == 0 and "  !  episodic journal: not imported (above); the next bootstrap tries again" in r.lines
           and "NOT written" not in r.lines[-2] and a.calls("episodic"), r)
+
+
+def store_trust_base() -> None:
+    """Step 10: ADR-042's migration, once per account. Every store the
+    account holds then trusts the head it holds; one with a base is left
+    alone; and never again by itself, so a mirror re-cloned later is not
+    trusted whole from its remote."""
+    print("bootstrap: step 10, the stores' trusted base, once")
+    a = Account("stores", wcs=False)
+    share = f"{a.home}/.local/share/agent-fabric"
+    for d in (f"{share}/secrets", f"{share}/children/child-a", f"{share}/children/child-b"):
+        git("init", "-q", d)
+    git("-C", f"{share}/children/child-b", "config", "agent-fabric.trustedbase", "abc")
+    r = bootstrap(a, "--dry-run")
+    check("a dry run names each store without a base and calls nothing",
+          r.rc == 0 and sum("would trust the head it holds" in line for line in r.lines) == 2
+          and not a.calls("secret_store"), r)
+    a.clear_log()
+    r = bootstrap(a, env=a.env(FAKE_STORE_RC="1"))
+    check("a trust-base that fails: said, counted, and the marker not written",
+          "no trusted base set (above); the next bootstrap tries again" in r.out
+          and "NOT written" in r.out and len(a.calls("secret_store")) == 2, r)
+    a.clear_log()
+    r = bootstrap(a)
+    check("a run sets the base of the own store and the mirror without one, not the other",
+          r.rc == 0 and sorted(c[-1] for c in a.calls("secret_store"))
+          == [f"{share}/children/child-a", f"{share}/secrets"]
+          and all(c[1:3] == ["trust-base", "--store"] for c in a.calls("secret_store")), r)
+    a.clear_log()
+    shutil.rmtree(f"{share}/children/child-a")
+    git("init", "-q", f"{share}/children/child-a")
+    r = bootstrap(a)
+    check("once: a mirror re-cloned after the migration is not trusted by bootstrap",
+          r.rc == 0 and not a.calls("secret_store"), r)
 
 
 def fabric_worktree() -> None:
@@ -1054,7 +1099,7 @@ def main() -> int:
         for name in ("systemctl", "loginctl", "curl", "ss", "pgrep", "claude", "pip", "uv"):
             if shutil.which(name, path=f"{T}/fakebin:{T}/sysbin") != f"{T}/fakebin/{name}":
                 sys.exit(f"test: refusing to run: {name} on the test PATH is not the fake")
-        for case in (first_run, dry_run, record_current, journal, arguments, existing_files, no_config_dir, local_bin_override,
+        for case in (first_run, dry_run, record_current, journal, store_trust_base, arguments, existing_files, no_config_dir, local_bin_override,
                      user_manager, relay, failures, fabric_worktree):
             # A file the script did not write, or a line it did not print,
             # can raise in the case's own reading: that is a failure of the
