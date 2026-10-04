@@ -39,7 +39,6 @@ between them: only a public key and ciphertext do.
 """
 from __future__ import annotations
 
-import importlib.util
 import json
 import os
 import pwd
@@ -94,14 +93,6 @@ For each login, idempotently:
 """
 
 
-def _load(name: str, path: str):
-    spec = importlib.util.spec_from_file_location(name, path)
-    m = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(m)
-    return m
-
-
-git = _load("fabric_git", os.path.join(HERE, "git.py"))
 
 
 class Usage(Exception):
@@ -365,26 +356,23 @@ class Enrol:
         return seeded == 0 and bundled == 0
 
     def mirror(self, login: str, aid: str, url: str) -> bool:
+        """The parent's mirror of the child's store, made and moved only
+        through secret_store.py (ADR-042, the coordinator's ruling of
+        2026-10-04): made from the account's own bundle (bundle |
+        seed-child, which records its first contact as the mirror's
+        trusted base and verifies the rest), brought up by the verified
+        fetch on a re-run. Never a raw clone or pull: a clone is a fetch,
+        which sets no base, and a pull takes commits unverified."""
         mirror = os.path.join(os.environ.get("HOME", ""), ".local", "share", "agent-fabric", "children", aid)
-        try:
-            if os.path.isdir(os.path.join(mirror, ".git")):
-                r = git.run(mirror, "pull", "-q", "--ff-only", "origin", "main", check=False, timeout=STEP_TIMEOUT_S)
-                if r.returncode != 0:
-                    sys.stderr.write(r.stderr)
-                    say(f"{login}: its mirror could not be brought up to date")
-                    return False
-            else:
-                os.makedirs(os.path.dirname(mirror), exist_ok=True)
-                r = git.run(os.path.dirname(mirror), "clone", "-q", url, mirror, check=False, timeout=STEP_TIMEOUT_S)
-                if r.returncode != 0:
-                    sys.stderr.write(r.stderr)
-                    say(f"{login}: mirror clone failed")
-                    return False
-        except git.GitError as exc:
-            say(f"{login}: {exc}")
+        if not os.path.isdir(os.path.join(mirror, ".git")):
+            if not self.seed(login, aid, url):
+                say(f"{login}: its mirror could not be made from its bundle")
+                return False
+            return True
+        if store("refresh-mirror", aid)[0] != 0:
+            say(f"{login}: its mirror could not be brought up to date")
             return False
         return True
-
 
 def parse(argv: list[str]) -> tuple[dict, list[str]]:
     opts = {"dry": False, "self": False, "rename": False, "born_now": False, "host": "", "help": False}

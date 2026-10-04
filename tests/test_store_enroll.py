@@ -211,8 +211,12 @@ sys.exit(0)
                   "repo create" in gh_calls and err.rstrip().endswith("commit identities/keys/ (the certified keys and lineage.json)"))
             put(f"{state}/exists", "")
             rc, err, hx_calls, gh_calls, seeded = whole(["kid"], born_now=False)
-            check("without it, the account pushes; an existing repository is not made again",
-                  rc == 0 and "store push" in hx_calls and "store bundle" not in hx_calls and "repo create" not in gh_calls, err)
+            # The mirror is made from the account's bundle either way (ADR-042,
+            # the coordinator's ruling of 2026-10-04): a clone is a fetch,
+            # which sets no trusted base. The account still pushes its own.
+            check("without it, the account pushes; its mirror comes from its bundle; an existing repository is not made again",
+                  rc == 0 and "store push" in hx_calls and "store bundle" in hx_calls and seeded == "BUNDLE\n"
+                  and "repo create" not in gh_calls, err)
             put(f"{state}/key", "a banner, not a key\n")
             rc, err, *_ = whole(["kid"])
             check("a public key that does not come back as one is refused", rc == 1 and "its public key did not come back" in err)
