@@ -81,7 +81,6 @@ if [[ "$what" == all || "$what" == bash ]]; then
     run "leak check (what a run left behind)" bash tests/test_leak-check.sh
     run "status line" bash runtime/claude-code/hooks/test_statusline.sh
     run "language identification (the detector venv)" bash runtime/langid/test_install.sh
-    run "review bash guard" bash runtime/claude-code/hooks/test_review-bash-guard.sh
     run "subagent clone guard" bash runtime/claude-code/hooks/test_subagent-clone-guard.sh
     run "pipe status guard" bash runtime/claude-code/hooks/test_pipe-status-guard.sh
     run "model-switch guard" bash runtime/claude-code/hooks/test_model-switch-guard.sh

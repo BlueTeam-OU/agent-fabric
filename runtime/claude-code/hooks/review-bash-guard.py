@@ -39,7 +39,8 @@ push to the session's real branch.
 Ported from bash when the round-3 fix took it past ADR-040's 150 lines; the
 patterns are the bash guard's, translated mechanically ([[:space:]] to \\s),
 and each is applied line by line as grep applied it, so no class crosses a
-newline. runtime/claude-code/hooks/test_review-bash-guard.sh is the oracle.
+newline. tests/test_review_bash_guard_cli.py, with its table in
+tests/fixtures/review-bash-guard-cases.json, is the oracle.
 """
 from __future__ import annotations
 
