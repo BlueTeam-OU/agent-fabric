@@ -55,6 +55,22 @@ test('rows and table: an answered account and a silent one', () => {
   assert.match(none, /db-admin\s+ok\s+none.*unreadable\s+-\s*$/m);
 });
 
+test('keys table: held keys, whether git signs, and a refused store said in full (ADR-042 rule 5)', () => {
+  const expected = ['alpha', 'beta', 'quiet'].map(login => ({ login, host: 'h', address: `h/${login}` }));
+  const reply = (login, keys) => ({ kind: 'reply', from: `h/${login}`, op: 'keys', data: { keys } });
+  const t = table('keys', rows(expected, [
+    reply('alpha', [{ name: 'GH_TOKEN', present: true, sha256_12: 'x' }, { name: 'OPENAI_API_KEY', present: false },
+                    { name: 'signing key secret', present: true }, { name: 'store commits verified', present: true }]),
+    reply('beta', [{ name: 'GH_TOKEN', present: true }, { name: 'signing key secret', present: false },
+                   { name: 'store commits verified', present: false, refused: { commit: '0123456789ab', at: 'T', reason: 'not signed' } }]),
+  ])).split('\n');
+  assert.match(t[0], /^account\s+status\s+keys\s+signing\s+store$/);
+  assert.match(t[1], /^alpha\s+ok\s+1\/2\s+yes\s+verified$/);
+  assert.match(t[2], /^\s+absent: OPENAI_API_KEY$/);
+  assert.match(t[3], /^beta\s+ok\s+1\/1\s+no\s+REFUSED 0123456789ab at T: not signed$/);
+  assert.match(t[4], /^quiet\s+no answer$/);
+});
+
 test('host table: one row per host from whichever account answered first, the others counted; a silent host is a row; the leases and the largest processes under it', () => {
   const expected = [{ login: 'a', host: 'h1', address: 'h1/a' }, { login: 'b', host: 'h1', address: 'h1/b' }, { login: 'c', host: 'h2', address: 'h2/c' }];
   const machine = { status: 'ok', cpus: 6, loadavg: [0.9, 1.2, 0.8], mem_mb: { total: 18152, available: 12685, swap_total: 9216, swap_free: 9216 }, balloon_mb: { current: 18345, target: 18345, static_max: 18363 }, disk: [{ mount: '/rw', size_gb: 295, avail_gb: 41, use_pct: 87 }], leases: [{ name: 'backend-test', holder: 'db-admin', pid: 42, since: '2026-09-19T08:26:43Z' }], top_rss: [{ user: 'backend-dev-02', pid: 1, rss_mb: 2140, comm: 'dotnet' }] };

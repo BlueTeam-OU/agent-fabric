@@ -331,6 +331,24 @@ export function table(op, rs) {
     }
     return lines.join('\n');
   }
+  if (op === 'keys') {
+    // One line per account: how many keys it holds, whether git can sign,
+    // and whether its store refused a commit (ADR-042 rule 5) — a refusal
+    // is a security event and is said until the store is repaired; the
+    // absent keys follow, by name. Never a value.
+    lines.push(`${'account'.padEnd(22)} ${'status'.padEnd(10)} ${'keys'.padEnd(8)} ${'signing'.padEnd(8)} store`);
+    for (const r of rs) {
+      if (r.status !== 'ok' || !Array.isArray(r.keys)) { lines.push(`${r.account.padEnd(22)} ${r.status !== 'ok' ? r.status : `ok         keys ${r.keys?.status ?? '-'}`}`); continue; }
+      const named = r.keys.filter(k => k.name !== 'signing key secret' && k.name !== 'store commits verified');
+      const sign = r.keys.find(k => k.name === 'signing key secret');
+      const store = r.keys.find(k => k.name === 'store commits verified');
+      const st = !store ? '-' : store.refused ? `REFUSED ${store.refused.commit} at ${store.refused.at ?? '?'}: ${store.refused.reason}` : store.present ? 'verified' : 'unreadable';
+      lines.push(`${r.account.padEnd(22)} ${'ok'.padEnd(10)} ${`${named.filter(k => k.present).length}/${named.length}`.padEnd(8)} ${(sign ? (sign.present ? 'yes' : 'no') : '-').padEnd(8)} ${st}`);
+      const absent = named.filter(k => !k.present).map(k => k.name);
+      if (absent.length) lines.push(`${''.padEnd(22)} ${''.padEnd(10)} absent: ${absent.join(', ')}`);
+    }
+    return lines.join('\n');
+  }
   if (op === 'tokens') {
     // Grouped by Claude account: a login's share is its direct-path
     // equivalents over the account's, from the logins that answered — the

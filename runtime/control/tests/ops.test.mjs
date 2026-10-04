@@ -8,7 +8,7 @@ import crypto from 'node:crypto';
 import zlib from 'node:zlib';
 import { execFileSync } from 'node:child_process';
 import { scratch } from '../../../tests/scratch.mjs';
-import { identity, usage, keys, fabric, session, host, script, recall, recallKind, scriptCounts, notesDir, workerTranscripts, languages, langidCmd, memoryDirs, memorySlug, memory, tokens, equivalent, TOKEN_RATIOS, collect, KEY_NAMES, OPS, MEMORY_PART_BYTES, accounts, readAccount, parseUsageReport, accountsDir, accountSlugs, takeReadLock, presence, signingSecret, SIGNING_ROW } from '../ops.mjs';
+import { identity, usage, keys, fabric, session, host, script, recall, recallKind, scriptCounts, notesDir, workerTranscripts, languages, langidCmd, memoryDirs, memorySlug, memory, tokens, equivalent, TOKEN_RATIOS, collect, KEY_NAMES, OPS, MEMORY_PART_BYTES, accounts, readAccount, parseUsageReport, accountsDir, accountSlugs, takeReadLock, presence, signingSecret, SIGNING_ROW, storeRefusal, STORE_ROW } from '../ops.mjs';
 // A fence for any presence() a test forgets to give a hold: never the
 // runner's own ~/.cache/agent-fabric/hold (review of #49).
 process.env.AGENT_FABRIC_HOLD_DIR = scratch('ops-hold-');
@@ -624,3 +624,19 @@ test('collect(presence) answers under the presence key — the name fabric-ctl r
   assert.deepEqual(Object.keys(data), ['presence']);
   assert.equal(data.presence.status, 'ok');
 });
+
+// ADR-042 rule 5: a store's refused commit is said by fabric-ctl keys until
+// the store is repaired — the record secret_store.py keeps beside it, read
+// for its commit, time and reason, never an entry.
+test('storeRefusal: verified, refused with its commit and reason, or unreadable', () => {
+  const store = scratch('store-');
+  fs.mkdirSync(path.join(store, '.git'));
+  assert.deepEqual(storeRefusal(undefined, store), { name: STORE_ROW, present: true }, 'no record: verified');
+  fs.writeFileSync(path.join(store, '.git', 'agent-fabric-refusal.json'),
+    JSON.stringify({ commit: '0123456789abcdef0123', reason: 'not signed', at: '2026-10-04T10:00:00Z' }));
+  assert.deepEqual(storeRefusal(undefined, store), { name: STORE_ROW, present: false,
+    refused: { commit: '0123456789ab', at: '2026-10-04T10:00:00Z', reason: 'not signed' } });
+  fs.writeFileSync(path.join(store, '.git', 'agent-fabric-refusal.json'), 'not json');
+  assert.equal(storeRefusal(undefined, store).present, false, 'a record that cannot be read is no clean bill');
+});
+
