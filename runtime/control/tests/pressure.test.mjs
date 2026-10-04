@@ -47,6 +47,23 @@ test('sampler: one sample a tick, persisted whole, bounded, kept across a restar
   assert.equal(RING_MAX, 1440, 'a day of minutes by default');
 });
 
+test('sampler: the ring reaches the disk — the file fsynced before its rename, the directory after it (review of #96)', t => {
+  const dir = scratch('pressure-durable-');
+  const file = path.join(dir, 'agents', 'me', 'memory-pressure.json');
+  const opened = new Map(), events = [];
+  const open = fs.openSync;
+  t.mock.method(fs, 'openSync', (p, ...rest) => { const fd = open(p, ...rest); opened.set(fd, String(p)); return fd; });
+  t.mock.method(fs, 'fsyncSync', fd => events.push(`fsync ${path.basename(opened.get(fd) ?? '?')}`));
+  const rename = fs.renameSync;
+  t.mock.method(fs, 'renameSync', (a, b) => { events.push(`rename ${path.basename(String(b))}`); rename(a, b); });
+  sampler({ file, proc: fakeProc(), now: () => T0, log: () => {} }).tick();
+  t.mock.restoreAll();
+  const tmp = `memory-pressure.json.${process.pid}.tmp`;
+  assert.deepEqual(events, [`fsync ${tmp}`, 'rename memory-pressure.json', 'fsync me']);
+  assert.equal(readRing(file).length, 1, 'control: the tick did write the ring');
+  assert.deepEqual(fs.readdirSync(path.dirname(file)), ['memory-pressure.json'], 'no temporary file left behind');
+});
+
 test('sampler: a bad ring is kept aside and a new one begun; a failure to write is one line when it starts and one when it ends', () => {
   const dir = scratch('pressure-bad-');
   const file = path.join(dir, 'memory-pressure.json');

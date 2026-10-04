@@ -468,6 +468,8 @@ test('keygen: the private half goes into this login\'s store on stdin and nowher
   assert.ok(privateKeyFrom(set.input), 'a usable private key went to the store on stdin');
   assert.ok(!set.args.some(a => a.includes('pkcs8')), 'never on the command line');
   assert.ok(!out.join('\n').includes(set.input.slice(14, 40)), 'never printed');
+  assert.ok(out.some(l => l.includes('next: commit the registry change')) && !out.join('\n').includes('fabric-secrets sync'),
+            'the next step is the registry commit alone: sync no longer carries the key (review of #96)');
   const saved = JSON.parse(fs.readFileSync(reg, 'utf8')).hosts.h.operator_key;
   assert.ok(publicKeyFrom(saved), 'the public half is in the registry');
   console.error = () => {};

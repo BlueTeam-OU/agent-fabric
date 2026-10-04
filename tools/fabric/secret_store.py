@@ -174,6 +174,26 @@ def keys_dir(fabric: str | None = None) -> str:
     return os.path.join(fabric or FABRIC_ROOT, "identities", "keys")
 
 
+# What git itself clears when it enters another repository (git rev-parse
+# --local-env-vars), and the config the environment injects
+# (GIT_CONFIG_KEY_<n>/VALUE_<n> beside GIT_CONFIG_COUNT). Set by a caller —
+# a git hook runs with GIT_DIR, a test or a shell can export it — they point
+# every `git -C <store>` at another repository: the --local trusted-base read
+# returned that repository's base (review of #96). GIT_CONFIG_GLOBAL, _SYSTEM
+# and _NOSYSTEM stay: they choose the account's own config files, not a
+# repository, and a test isolates its account with them.
+_GIT_REPO_ENV = frozenset({
+    "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_CONFIG", "GIT_CONFIG_PARAMETERS", "GIT_CONFIG_COUNT",
+    "GIT_OBJECT_DIRECTORY", "GIT_DIR", "GIT_WORK_TREE", "GIT_IMPLICIT_WORK_TREE", "GIT_GRAFT_FILE",
+    "GIT_INDEX_FILE", "GIT_NO_REPLACE_OBJECTS", "GIT_REPLACE_REF_BASE", "GIT_PREFIX", "GIT_SHALLOW_FILE",
+    "GIT_COMMON_DIR"})
+
+
+def _git_scrubbed(env: dict) -> dict:
+    return {k: v for k, v in env.items()
+            if k not in _GIT_REPO_ENV and not k.startswith(("GIT_CONFIG_KEY_", "GIT_CONFIG_VALUE_"))}
+
+
 def _run(cmd: list[str], *, stdin: bytes | None = None, cwd: str | None = None,
          env: dict | None = None, check: bool = True, timeout: float | None = None,
          label: str | None = None) -> subprocess.CompletedProcess:
@@ -181,6 +201,8 @@ def _run(cmd: list[str], *, stdin: bytes | None = None, cwd: str | None = None,
     # operation, which follows their fixed flags), else the command and its
     # first argument.
     what = label or " ".join([os.path.basename(cmd[0])] + cmd[1:2])
+    if os.path.basename(cmd[0]) == "git":
+        env = _git_scrubbed(os.environ if env is None else env)
     try:
         r = subprocess.run(cmd, input=stdin, capture_output=True, cwd=cwd, env=env, timeout=timeout)
     except subprocess.TimeoutExpired:
@@ -551,12 +573,29 @@ def _record_refusal(store: str, commit: str, reason: str) -> None:
         raise
 
 
+def _kept_refusal(store: str) -> str | None:
+    """Where a child's mirror's refusal is kept once the mirror is gone:
+    beside it, as its lock is, so removing the mirror leaves it. None for a
+    store that is no mirror."""
+    store = os.path.normpath(store)
+    return store + ".refusal.json" if os.path.dirname(store) == os.path.normpath(children_dir()) else None
+
+
 def refusal(store: str | None = None) -> dict | None:
     """The store's last refusal, or None when it has no record. A record
     that cannot be read or parsed is no clean bill: it comes back marked
-    unreadable, and status stays non-OK on it (review of #94)."""
+    unreadable, and status stays non-OK on it (review of #94). A mirror
+    with no record of its own is read beside it (_kept_refusal)."""
+    store = store or store_dir()
     try:
-        with open(os.path.join(store or store_dir(), ".git", REFUSAL_FILE), encoding="utf-8") as fh:
+        try:
+            fh = open(os.path.join(store, ".git", REFUSAL_FILE), encoding="utf-8")
+        except FileNotFoundError:
+            kept = _kept_refusal(store)
+            if kept is None:
+                raise
+            fh = open(kept, encoding="utf-8")
+        with fh:
             doc = json.load(fh)
     except FileNotFoundError:
         return None
@@ -565,12 +604,18 @@ def refusal(store: str | None = None) -> dict | None:
     return doc if isinstance(doc, dict) else {"unreadable": True, "reason": f"{REFUSAL_FILE} is not a JSON object"}
 
 
-def _mirror_ids() -> list[str]:
-    """The agent ids of the children's mirrors this account holds. No
+def _mirror_ids(*, kept: bool = False) -> list[str]:
+    """The agent ids of the children's mirrors this account holds; kept:
+    also those whose mirror is gone and whose refusal is kept beside it. No
     children directory is none; one that cannot be listed is an error, never
     an empty answer: status would read clean on it (review of #94)."""
     try:
-        return sorted(n for n in os.listdir(children_dir()) if AGENT_ID_RE.match(n))
+        names = os.listdir(children_dir())
+        ids = {n for n in names if AGENT_ID_RE.match(n)}
+        if kept:
+            ids |= {n[:-len(".refusal.json")] for n in names
+                    if n.endswith(".refusal.json") and AGENT_ID_RE.match(n[:-len(".refusal.json")])}
+        return sorted(ids)
     except FileNotFoundError:
         return []
     except OSError as e:
@@ -586,7 +631,7 @@ def refusals() -> list[dict]:
     own = refusal()
     if own:
         out.append({**own, "store": "own"})
-    for aid in _mirror_ids():
+    for aid in _mirror_ids(kept=True):
         r = refusal(os.path.join(children_dir(), aid))
         if r:
             out.append({**r, "store": aid})
@@ -620,10 +665,11 @@ def bases() -> list[dict]:
 
 
 def _clear_refusal(store: str) -> None:
-    try:
-        os.unlink(os.path.join(store, ".git", REFUSAL_FILE))
-    except FileNotFoundError:
-        pass
+    for path in filter(None, (os.path.join(store, ".git", REFUSAL_FILE), _kept_refusal(store))):
+        try:
+            os.unlink(path)
+        except FileNotFoundError:
+            pass
 
 
 def _verify_incoming(store: str, tip: str, agent_id: str | None = None, fabric: str | None = None,
@@ -944,13 +990,23 @@ def _rebuild_mirror(mirror: str, remote: str, agent_id: str) -> None:
         git(mirror, "checkout", "-q", "-B", "main", tip)
         _set_base(mirror, tip)
     except BaseException as e:
-        refused = isinstance(e, StoreError) and refusal(mirror) is not None
+        record = os.path.join(mirror, ".git", REFUSAL_FILE)
+        refused = isinstance(e, StoreError) and os.path.lexists(record)
+        lost = ""
+        if refused:
+            # The record outlives the mirror, or status never said the
+            # refusal: it read the record inside the mirror removed here
+            # (review of #96).
+            try:
+                os.replace(record, _kept_refusal(mirror))
+            except OSError as kept:
+                lost = f" (its refusal record could not be kept: {type(kept).__name__})"
         shutil.rmtree(mirror, ignore_errors=True)
         if refused:
             # Removing the mirror again rebuilds the same refusal: a child
             # enrolled before ADR-042 holds unsigned history on its remote,
             # and no command rebuilds its mirror (review of #94).
-            raise StoreError(f"{e}; no mirror is kept — a remote whose history its writers did not all sign "
+            raise StoreError(f"{e}; no mirror is kept{lost} — a remote whose history its writers did not all sign "
                              "(a child enrolled before ADR-042) is the owner's to repair by hand: a clone the "
                              f"owner has checked at {mirror}, then fabric-secrets store trust-base --store {mirror}") from e
         raise

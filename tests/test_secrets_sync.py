@@ -228,6 +228,15 @@ def main() -> int:
                       written)
                 check("nor listed as applied, nor printed",
                       "FABRIC_CONTROL_SIGNING_KEY" not in json.loads(out)["applied"] and sk not in out, out[:300])
+                # values_sha256 covers what sync applies: a store-only key is
+                # not applied, so changing it is no change (review of #96).
+                store["values"] = {**store["values"], "FABRIC_CONTROL_SIGNING_KEY": sk + "-rotated"}
+                rc2, out2 = run(s.sync, False, True)
+                store["values"] = {**store["values"], "DEMO_PORT_OFFSET": "641"}
+                rc3, out3 = run(s.sync, False, True)
+                digest = lambda o: json.loads(o)["values_sha256"]  # noqa: E731
+                check("the signing key is not in values_sha256; an applied value is (the control)",
+                      rc2 == rc3 == 0 and digest(out2) == digest(out) and digest(out3) != digest(out2), (out2[:200], out3[:200]))
                 json.dump({"projects": {"demo": {"agent_env": {"DEMO_PORT_OFFSET": "the login stack offset"}}}},
                           open(os.path.join(fab, "projects", "registry.json"), "w"))
                 rc, out = run(s.status, True)

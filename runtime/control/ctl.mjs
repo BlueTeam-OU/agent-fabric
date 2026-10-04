@@ -567,7 +567,9 @@ export function keygen(args, { registry = process.env.AGENT_FABRIC_HOSTS_REGISTR
   host.operator_key = k.publicKeySpec;
   fs.writeFileSync(registry, JSON.stringify(reg, null, 2) + '\n');
   console.log(`fabric-ctl: signing key made — private half in this login's store (FABRIC_CONTROL_SIGNING_KEY), public half in ${path.relative(FABRIC_ROOT, registry)} (operator_key of ${who.host}).`);
-  console.log('  next: bin/fabric-secrets sync; commit the registry change; the fleet trusts it once it has pulled that commit.');
+  // No sync: the key is never written into secrets.env (secrets_sync.py
+  // STORE_ONLY); signing decrypts it from the store (review of #96).
+  console.log('  next: commit the registry change; the fleet trusts it once it has pulled that commit.');
   return 0;
 }
 
