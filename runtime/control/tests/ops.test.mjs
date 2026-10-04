@@ -8,7 +8,7 @@ import crypto from 'node:crypto';
 import zlib from 'node:zlib';
 import { execFileSync } from 'node:child_process';
 import { scratch } from '../../../tests/scratch.mjs';
-import { identity, usage, keys, fabric, session, host, script, recall, recallKind, scriptCounts, notesDir, workerTranscripts, languages, langidCmd, memoryDirs, memorySlug, memory, tokens, equivalent, TOKEN_RATIOS, collect, KEY_NAMES, OPS, MEMORY_PART_BYTES, accounts, readAccount, parseUsageReport, accountsDir, accountSlugs, takeReadLock, presence, signingSecret, SIGNING_ROW } from '../ops.mjs';
+import { identity, usage, keys, fabric, session, host, script, recall, recallKind, scriptCounts, notesDir, workerTranscripts, languages, langidCmd, memoryDirs, memorySlug, memory, tokens, equivalent, TOKEN_RATIOS, collect, KEY_NAMES, OPS, MEMORY_PART_BYTES, accounts, readAccount, parseUsageReport, accountsDir, accountSlugs, takeReadLock, presence, signingSecret, SIGNING_ROW, disk, DISK_TIMEOUT_MS } from '../ops.mjs';
 // A fence for any presence() a test forgets to give a hold: never the
 // runner's own ~/.cache/agent-fabric/hold (review of #49).
 process.env.AGENT_FABRIC_HOLD_DIR = scratch('ops-hold-');
@@ -624,3 +624,58 @@ test('collect(presence) answers under the presence key — the name fabric-ctl r
   assert.deepEqual(Object.keys(data), ['presence']);
   assert.equal(data.presence.status, 'ok');
 });
+
+// The disk op: each daemon measures its own home, through du only — names
+// and sizes, never contents. A fake exec answers each du from a table, so
+// the case pins what is asked as well as what is made of the answer.
+test('disk: the own home in one scan — the largest entries, the target/ directories under projects/ to depth 3, a partial du said, never a crash', async () => {
+  const home = scratch('disk-home-');
+  for (const d of ['.cache', '.local', 'notes', 'projects']) fs.mkdirSync(path.join(home, d));
+  fs.writeFileSync(path.join(home, '.bashrc'), '');
+  const P = s => path.join(home, s);
+  const calls = [];
+  const answers = {
+    entries: [[400, '.cache'], [9000, '.local'], [4, '.bashrc'], [100, 'notes']],
+    tree: [[50000, 'projects'], [30000, 'projects/a'], [20000, 'projects/a/target'], [1000, 'projects/a/target/target'],
+           [12000, 'projects/b/c'], [9000, 'projects/b/c/target'], [5, 'projects/target-notes'], [700, 'projects/target']],
+  };
+  const out = rows => rows.map(([kb, rel]) => `${kb}\t${P(rel)}`).join('\n') + '\n';
+  const exec = async (cmd, args, opts) => {
+    calls.push([cmd, ...args, opts.timeout]);
+    return { stdout: args[0] === '-xsk' ? out(answers.entries) : out(answers.tree) };
+  };
+  const d = await disk(home, { exec });
+  assert.equal(d.status, 'ok', JSON.stringify(d));
+  assert.deepEqual(d.largest.map(e => e.name), ['projects', '.local', '.cache', 'notes', '.bashrc'], 'the largest first; projects counted by its own line');
+  assert.equal(d.total_kb, 50000 + 9000 + 400 + 100 + 4, 'the total is the sum of the entries');
+  assert.deepEqual(d.targets.map(t => [t.path, t.kb]), [['projects/a/target', 20000], ['projects/b/c/target', 9000], ['projects/target', 700]],
+    'every target/ to depth 3, largest first; one inside a target/ is not counted twice, a name only starting with target is not one');
+  assert.equal(d.targets_kb, 29700);
+  // Only du was run, bounded, and projects/ is scanned once, to depth 3.
+  assert.ok(calls.every(c => c[0] === 'du' && c.at(-1) === DISK_TIMEOUT_MS), JSON.stringify(calls));
+  assert.deepEqual(calls.find(c => c[1] === '-xk').slice(1, 4), ['-xk', '--max-depth=3', '--']);
+  assert.ok(!calls.find(c => c[1] === '-xsk').includes(P('projects')), 'projects/ is not scanned twice');
+  // A du that read part of a tree (exit 1) or stopped at its bound: what it
+  // measured stands, the status says partial, errors say why.
+  const partial = await disk(home, { exec: async (cmd, args) => {
+    if (args[0] === '-xsk') throw Object.assign(new Error('exit 1'), { code: 1, stdout: out(answers.entries) });
+    throw Object.assign(new Error('killed'), { killed: true, signal: 'SIGTERM', stdout: '' });
+  } });
+  assert.equal(partial.status, 'partial');
+  assert.equal(partial.total_kb, 9504, 'the entries du could read are counted');
+  assert.deepEqual(partial.errors, ['home entries: du exit 1, partial', `projects: du stopped at its ${DISK_TIMEOUT_MS / 1000} s bound`]);
+  // A home that cannot be listed: failed, said, nothing run.
+  const failed = await disk(path.join(home, 'gone'), { exec: async () => { throw new Error('ran'); } });
+  assert.equal(failed.status, 'failed');
+  assert.match(failed.error, /could not be listed \(ENOENT\)/);
+  // A home with no projects/: no tree scan, no targets.
+  const bare = scratch('disk-bare-'); fs.mkdirSync(path.join(bare, 'x'));
+  const bareCalls = [];
+  const b = await disk(bare, { exec: async (cmd, args) => { bareCalls.push(args[0]); return `7\t${path.join(bare, 'x')}\n`; } });
+  assert.deepEqual([b.status, b.total_kb, b.targets, bareCalls], ['ok', 7, [], ['-xsk']]);
+  assert.ok(OPS.includes('disk'), 'a known op');
+  // and collect() answers it under its own name, a failure inline
+  const c = await collect('disk', { home: path.join(home, 'gone') });
+  assert.equal(c.disk.status, 'failed');
+});
+
