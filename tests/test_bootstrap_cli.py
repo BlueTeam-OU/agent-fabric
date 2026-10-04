@@ -529,16 +529,17 @@ def first_run() -> None:
 
     # The agent files block (install-agent-files.sh), passed through.
     guard_line = f"  +  {CH}/hooks/review-bash-guard.sh"
-    block = between(L, f"  +  {P}/.claude/settings.json", guard_line)
+    block = between(L, f"  +  {P}/.claude/settings.json", f"  +  {CH}/hooks/review-bash-guard.py")
     agent_lines = [f"  +  {CH}/agents/{c}.md" for c in ("code-low", "code-medium", "code-high", "code-plan", "code-review")]
     check("the capability-class agent files: installed and said, then the installer's summary",
           block[:5] == agent_lines and block[-1] == "agent files (anthropic): 5 written, 0 already current.", "\n".join(block))
     for c in ("code-low", "code-medium", "code-high", "code-plan", "code-review"):
         check(f"…{c}.md under CLAUDE_CONFIG_DIR/agents, mode 644",
               os.path.isfile(f"{CH}/agents/{c}.md") and mode(f"{CH}/agents/{c}.md") == 0o644)
-    check("the review guard: the fabric's script, mode 644",
-          read(f"{CH}/hooks/review-bash-guard.sh") == read(f"{FR}/runtime/claude-code/hooks/review-bash-guard.sh")
-          and mode(f"{CH}/hooks/review-bash-guard.sh") == 0o644)
+    check("the review guard: the fabric's module and its shim, said in that order, mode 644",
+          all(read(f"{CH}/hooks/review-bash-guard.{x}") == read(f"{FR}/runtime/claude-code/hooks/review-bash-guard.{x}")
+              and mode(f"{CH}/hooks/review-bash-guard.{x}") == 0o644 for x in ("py", "sh"))
+          and guard_line in L and L[L.index(guard_line) - 1] == f"  +  {CH}/hooks/review-bash-guard.py")
 
     # The command links.
     cmds = commands(FR)
@@ -631,7 +632,7 @@ def first_run() -> None:
 
     # The summary counts the script's own puts, links, the user settings and
     # step 5's lines; the agent files, steps 4, 5b and 7 are not in it.
-    n_written = 2 + 1 + len(cmds) + 1 + 6 + 2 + 1
+    n_written = 2 + 2 + len(cmds) + 1 + 6 + 2 + 1
     check("the summary counts what was written",
           L[k + 3:] == [f"bootstrap: {n_written} written, 2 already current.",
                         f"Launch from {P}: cd \"{P}\" && claude   — the session starts as {LOGIN}."], "\n".join(L[k + 3:]))
@@ -648,7 +649,7 @@ def first_run() -> None:
     check("second run: the tree is unchanged (paths, modes, content)", before == after, diff(before, after))
     plus = [x for x in r2.lines if x.startswith("  +  ") or x.startswith("  -  ")]
     check("second run: nothing said written or removed", plus == [], "\n".join(plus))
-    n_same = 2 + 1 + len(cmds) + 1 + 6 + 4 + 1
+    n_same = 2 + 2 + len(cmds) + 1 + 6 + 4 + 1
     check("second run: the summary says all of it current",
           f"bootstrap: 0 written, {n_same} already current." in r2.lines, r2.out)
     check("second run: step 4 says =", f"  =  {FR}: core.hooksPath = {HOOK_REL}" in r2.lines)
@@ -671,6 +672,7 @@ def dry_run() -> None:
     P, FR, CH = a.ws, a.fr, a.ch
     for line in (f"  +  {P}/CLAUDE.md (would write)",
                  f"  +  {P}/.claude/settings.json (would write)",
+                 f"  +  {CH}/hooks/review-bash-guard.py (would write)",
                  f"  +  {CH}/hooks/review-bash-guard.sh (would write)",
                  f"  +  {a.lb}/fabric-status -> {FR}/bin/fabric-status (would link)",
                  f"  +  {CH}/settings.json fabric user settings (would write)",
@@ -834,7 +836,7 @@ def no_config_dir() -> None:
     a = Account("noconfig", wcs=False)
     r = bootstrap(a, env=a.env(CLAUDE_CONFIG_DIR=None))
     check("exit 0", r.rc == 0, r)
-    for p in ("agents/code-review.md", "hooks/review-bash-guard.sh", "settings.json", "skills/agent-jobs/SKILL.md"):
+    for p in ("agents/code-review.md", "hooks/review-bash-guard.sh", "hooks/review-bash-guard.py", "settings.json", "skills/agent-jobs/SKILL.md"):
         check(f"~/.claude/{p}", os.path.isfile(f"{a.home}/.claude/{p}"))
     check("the trust in ~/.claude.json", a.ws in json.load(open(f"{a.home}/.claude.json"))["projects"])
     check("nothing under the unused config dir", os.listdir(a.cfg) == [], os.listdir(a.cfg))

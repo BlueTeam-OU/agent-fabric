@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Behavioural tests for runtime/claude-code/hooks/review-bash-guard.sh -- the fence around
+# Behavioural tests for runtime/claude-code/hooks/review-bash-guard.sh (the shim) and
+# review-bash-guard.py, the fence around
 # the review class, which runs unisolated in the session clone.
 #
 # Two things held still: state-changing git and installs are DENIED
@@ -51,6 +52,13 @@ echo "a search exempts only itself: what is chained to it, and what makes it run
 for c in 'grep -c x README.md; env' 'git log -1; printenv' 'rg x tools && python3 -c "import os; print(os.environ)"' 'grep x f | xargs env' 'grep -c x README.md; ps eww' 'grep -h export ../../.config/agent-fabric/secrets.env' 'git show HEAD:README.md; cat ../../.config/agent-fabric/secrets.env' 'grep -r TOKEN ~/.config' 'grep -rh = ~/.local/share' 'grep -r TOKEN ~' 'grep -r TOKEN /home/user' 'grep -rn x /home' 'grep -rn x /' 'grep -r x /proc/self' 'grep $(env) f' 'grep `printenv` f' 'git -c diff.external=printenv diff' 'git --config-env=core.pager=X log' 'GIT_EXTERNAL_DIFF=env git diff' 'PAGER=env git log' 'rg --pre env x .' 'find . -maxdepth 0 -exec env \;' 'git config diff.external env' 'git config --add core.pager env' 'git config --global core.pager env' 'git config set core.pager env'; do
   expect "denied: $c" deny "$c"
 done
+echo "the cut respects quotes, a home through . or .. is a home, and no cd leaves the clone (#96 round 3)"
+for c in 'python3 -c "import os;grep =os.environ;print(grep)"' 'node -e "x=1;grep =process.env;console.log(grep)"' "python3 -c 'import os;grep =os.environ;print(grep)'" 'python3 -c "a=1;grep =x+\"/.config/agent-fabric/secrets.env\";print(open(grep).read())"' 'grep "a;b" f; env' 'grep "unclosed f; env' 'grep -rh TOKEN /home/user/.' 'grep -rh TOKEN ~/.' 'grep -rh TOKEN ~/projects/..' 'grep -rh TOKEN /home/user/projects/..' 'grep -r x ../../' 'grep -r x ../..' 'cd' 'cd ~' 'cd -' 'cd ..' 'cd ../..' 'cd /home/user' 'cd ~/.config' 'cd / && ls' 'pushd ~'; do
+  expect "denied: $c" deny "$c"
+done
+for c in 'cd tools && grep -rn x .' 'cd /home/user/projects/agent-fabric && git log -1' 'grep -rn "a|b" tools' "grep -rn 'a;b' tools" 'grep -rn x ../sibling/file' 'grep -E "foo|bar" tools | head -3'; do
+  expect "allowed: $c" allow "$c"
+done
 echo "running in a clean environment, and searching code for the word, stay allowed"
 for c in 'env -i HOME=/tmp/x PATH=/usr/bin python3 tools/fabric/lint.py' 'env -u AGENT_FABRIC_ROOT python3 tests/test_lint.py' 'env LC_ALL=C sort file' 'grep -rn "secrets.env" tools/fabric' 'grep -rn FABRIC_CONTROL_SIGNING_KEY runtime/control' 'set -euo pipefail' 'export FOO=bar && make' 'echo $HOME' 'echo ${PATH}' 'python3 -c "import os; print(os.environ.get(\"HOME\"))"' 'fabric-secrets status' 'git log -p -- tools/fabric/secret_store.py' 'grep -rn ".gnupg" tools' 'grep -rn ".password-store" tools' 'rg -n secret_store tools' 'git grep -n process.env runtime' 'git show HEAD:tools/fabric/secrets_sync.py' 'ps aux' 'ps -ef' 'cat .env.example' 'ls tests' 'python3 -c "import os; print(os.environ[\\"HOME\\"])"' 'node -e "console.log(process.env.HOME)"' 'grep -rn "secrets.env" tools | head' 'git grep -n process.env runtime | wc -l' 'grep -E "foo|bar" tools' 'git config --get user.name' 'git config --list' 'git log -c -1' 'grep -c x README.md' 'git -C /home/user/projects/agent-fabric log -1' 'grep -rn x /home/user/projects/agent-fabric/tools' 'rg -n TOKEN /home/user/projects/agent-fabric/runtime'; do
   expect "allowed: $c" allow "$c"
@@ -60,11 +68,11 @@ for c in 'git log --oneline -5' 'git show HEAD:CLAUDE.md' 'git diff origin/main.
   expect "allowed: $c" allow "$c"
 done
 echo "a guard that cannot run denies; it never silently allows"
-out="$(printf '{"tool_input":{"command":"git push"}}' | env PATH=/nonexistent /bin/bash "$UNDER_TEST" 2>/dev/null)"
+out="$(printf '{"tool_input":{"command":"ls"}}' | env AGENT_FABRIC_PYTHON=/nonexistent /bin/bash "$UNDER_TEST" 2>/dev/null)"
 if printf '%s' "$out" | jq -e '.hookSpecificOutput.permissionDecision == "deny"' >/dev/null 2>&1; then
-  pass "with jq unavailable the guard denies"
+  pass "with the fleet's Python unavailable the guard denies, even a harmless command"
 else
-  fail "with jq unavailable the guard denies" "out=[$out]"
+  fail "with the fleet's Python unavailable the guard denies, even a harmless command" "out=[$out]"
 fi
 
 echo "malformed input allows and never exits 2"
