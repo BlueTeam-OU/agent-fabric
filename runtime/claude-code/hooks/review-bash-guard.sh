@@ -50,15 +50,26 @@ INSTALL='(^|[;&|(]|`)[[:space:]]*(sudo[[:space:]]+)?((pnpm|npm|yarn)([[:space:]]
 # environment (~/.bashrc sources secrets.env), so a reviewer listing its
 # environment prints them into its transcript and the model's input:
 # on 2026-10-04 one did, and the operator's signing key was rotated (#95).
-# Denied: the environment printed whole (env with no command to run,
-# printenv, bare set/export, declare -p/-x), a secret-shaped variable
-# expanded, the environment printed from a one-liner, and secret
-# material read by path. `env -i … cmd` stays allowed: it RUNS a command
-# in a clean environment, which reviewers need. A code search for the
-# word "secrets.env" stays allowed; the file's path form does not.
-ENV_PRINT='(^|[;&|(]|`)[[:space:]]*(sudo[[:space:]]+)?([^[:space:]]*/)?(env([[:space:]]+(-u[[:space:]]+[^[:space:]]+|-[A-Za-z-]+|[A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*))*[[:space:]]*($|[;&|)])|printenv([[:space:]]|$|[;&|)])|set[[:space:]]*($|[;&|)])|(export|declare|typeset)[[:space:]]*($|[;&|)])|(export|declare|typeset)[[:space:]]+-[a-zA-Z]*[px]|compgen[[:space:]]+-[a-zA-Z]*[ev])'
-SECRET_VAR='\$\{?[A-Za-z0-9_]*(TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|_KEY)[A-Za-z0-9_]*'
-SECRET_READ='(print|dumps|pprint|log)\([^)]*(os\.environ|process\.env)([^.[A-Za-z_]|$)|\.config/agent-fabric/secrets\.env|\.local/share/agent-fabric/(secrets|children)|\.password-store|\.gnupg|/proc/[^[:space:]]*/environ|--export-secret|(^|[;&|(]|`)[[:space:]]*pass[[:space:]]+(show|ls|find|grep|otp)|(fabric-secrets|secret_store\.py)[[:space:]]+(store[[:space:]]+)?(get|show|export-key|bundle|child-bundle)'
+# Denied in any command: the environment printed whole (env or printenv
+# as a word with no command to run, bare set/export, declare -p/-x,
+# os.environ / process.env / %ENV / ENVIRON / $ENV taken whole, BSD
+# `ps e`), a secret-shaped name read (a $NAME expansion, ${!indirection},
+# or environ/getenv/process.env/ENVIRON near a secret-shaped name), and
+# secret material by path (secret*.env, .config/agent-fabric, the
+# stores, .password-store, .gnupg, /proc/*/environ, gpg's secret export,
+# pass, fabric-secrets store get). `env -i … cmd` stays allowed: it RUNS
+# a command in a clean environment. A code SEARCH (grep, rg, git grep /
+# log / show / diff / blame) may name these words as patterns and is
+# refused only when it names a real path under a home or /proc. This is
+# a fence for the routine spellings, not a sandbox: secret minimisation
+# (keeping a secret out of the session's environment) is the control.
+W='(^|[^[:alnum:]_.-])'
+ENV_PRINT="${W}"'\\?(env|printenv)([[:space:]]+(-[uC][[:space:]]+[^[:space:]]+|-[A-Za-z0-9-]+|[A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*))*[[:space:]]*($|[;&|)<>'"'"'"`])|'"${W}"'printenv([^[:alnum:]_.-]|$)|(^|[;&|(]|`)[[:space:]]*set[[:space:]]*($|[;&|)])|(^|[;&|(]|`)[[:space:]]*(export|declare|typeset)[[:space:]]*($|[;&|)])|(export|declare|typeset)[[:space:]]+-[a-zA-Z]*[px]|compgen[[:space:]]+-[a-zA-Z]*[ev]|os\.environ($|[^.[A-Za-z0-9_]|\.(copy|items|keys|values|__))|process\.env($|[^.[A-Za-z0-9_])|%ENV|ENVIRON($|[^[A-Za-z0-9_])|\$ENV($|[^A-Za-z0-9_])|'"${W}"'ps([[:space:]]+-[^[:space:]]+)*[[:space:]]+[a-zA-Z]*e[a-zA-Z]*([[:space:];|&]|$)'
+SECRET_NAME='(TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|_KEY)'
+SECRET_VAR='\$\{?[A-Za-z0-9_]*'"$SECRET_NAME"'|\$\{!|(environ|getenv|process\.env|ENVIRON|%ENV|\$ENV)[^;|&]{0,60}'"$SECRET_NAME"
+SECRET_PATH='secrets?[^[:space:]/]*\.env|\.config/agent-fabric|agent-fabric/(secrets|children)|\.password-store|\.gnupg|/proc/[^[:space:]]*/environ|--export-secret|(^|[;&|(]|`)[[:space:]]*pass[[:space:]]+(show|ls|find|grep|otp)|(fabric-secrets|secret_store\.py)[[:space:]]+(store[[:space:]]+)?(get|show|export-key|bundle|child-bundle)'
+HOME_PATH='(~|\$HOME|\$\{HOME\}|/home/[^/[:space:]]+|/root)/(\.config/agent-fabric|\.local/share/agent-fabric|\.password-store|\.gnupg)|/proc/[^[:space:]]*/environ'
+SEARCH='^[[:space:]]*(grep|egrep|fgrep|rg|ag|git([[:space:]]+-[A-Za-z]+([[:space:]]+[^[:space:]]+)?)*[[:space:]]+(grep|log|show|diff|blame))([[:space:]]|$)'
 
 # Shell escapes that would carry any of the above past a string match,
 # and the routine in-place file writes. Redirections are allowed only
@@ -68,7 +79,13 @@ WRITE='(^|[;&|(]|`)[[:space:]]*(sudo[[:space:]]+)?(sed[[:space:]]+(-[a-zA-Z]*i|-
 stripped="$(printf '%s' "$cmd" | sed -E 's/[0-9]*>&[0-9-]*//g; s/>>?[[:space:]]*\/dev\/null//g')"
 
 reason=""
-if printf '%s\n' "$cmd" | grep -qE "$ENV_PRINT" || printf '%s\n' "$cmd" | grep -qE "$SECRET_VAR" || printf '%s\n' "$cmd" | grep -qE "$SECRET_READ"; then
+secret=""
+if printf '%s\n' "$cmd" | grep -qE "$SEARCH"; then
+  printf '%s\n' "$cmd" | grep -qE "$HOME_PATH|$SECRET_VAR" && secret=1
+elif printf '%s\n' "$cmd" | grep -qE "$ENV_PRINT|$SECRET_VAR|$SECRET_PATH"; then
+  secret=1
+fi
+if [[ -n "$secret" ]]; then
   reason="The review class may not print the environment, expand a secret-shaped variable, or read secret material (secrets.env, the stores, gpg keys, /proc/*/environ): every account's environment carries its credentials, and what you print enters the transcript. Describe a secret by its name and shape only. To run a check in a clean environment, use env -i NAME=value … command."
 elif printf '%s\n' "$cmd" | grep -qE "$ESCAPE"; then
   reason="The review class may not use shell escapes (eval, exec, sh -c): they carry a write past this guard. Run the command directly."

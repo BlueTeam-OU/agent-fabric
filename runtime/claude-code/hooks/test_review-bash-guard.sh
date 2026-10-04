@@ -38,8 +38,17 @@ echo "the environment and secret material are denied (2026-10-04: a reviewer pri
 for c in 'env' 'env | grep -i fabric' 'env -u PATH' '/usr/bin/env' 'printenv' 'printenv GH_TOKEN' 'ls; printenv' 'set' 'set | head' 'export' 'export -p' 'declare -p' 'declare -px' 'typeset -x' 'compgen -v' 'echo $GH_TOKEN' 'printf %s "${FABRIC_CONTROL_SIGNING_KEY}"' 'echo $OPENROUTER_API_KEY | wc -c' 'echo $CLAUDE_BRIDGE_AUTH_TOKEN' 'cat ~/.config/agent-fabric/secrets.env' 'grep -c export $HOME/.config/agent-fabric/secrets.env' 'ls ~/.local/share/agent-fabric/secrets' 'git -C ~/.local/share/agent-fabric/children/x log' 'cat /proc/self/environ' 'tr "\\0" "\\n" < /proc/1234/environ' 'ls ~/.password-store' 'gpg --export-secret-keys' 'ls ~/.gnupg' 'pass show x' 'fabric-secrets store get GH_TOKEN' 'python3 -c "import os; print(os.environ)"' 'node -e "console.log(process.env)"' 'python3 -c "import json,os; print(json.dumps(dict(os.environ)))"'; do
   expect "denied: $c" deny "$c"
 done
+echo "…and the routine spellings two blind reviews of #96 found past the first version"
+for c in "python3 -c \"import os; print(os.environ['GH_TOKEN'])\"" 'node -e "console.log(process.env.GH_TOKEN)"' 'n=GH_TOKEN; echo ${!n}' 'node -p "process.env"' 'node -p process.env' 'jq -n env' "jq -n '\$ENV'" 'ps eww -p 1' 'xargs env < /dev/null' 'command env' '\env' 'nice env' 'time env' 'env -0' 'env -0 | tr x y' 'env -C /tmp' "perl -e 'print join(\"\\n\", %ENV)'" "perl -e 'print %ENV'" "awk 'BEGIN{for(k in ENVIRON) print k}'" 'cd ~/.config/agent-fabric && cat secrets.env' 'cat ~/.config/agent-fabric/secret*.env' 'cat ~/.config/agent-fabric/*.env' 'python3 -c "import os; print(os.environ.copy())"' 'python3 -c "import os; [print(k,v) for k,v in os.environ.items()]"' 'python3 -c "import os,sys; sys.stdout.write(repr(os.environ))"' 'grep x ~/.config/agent-fabric/secrets.env' 'rg token $HOME/.password-store' 'grep -a TOKEN /proc/1/environ' 'grep -n "$GH_TOKEN" tests'; do
+  expect "denied: $c" deny "$c"
+done
+# A search naming a /proc/*/environ path reads it as surely as cat does:
+# the guard cannot tell a pattern from a file argument there, so it is
+# refused (search for "environ" instead). The other secret words stay
+# searchable as patterns.
+expect "denied: a search naming a /proc environ path (indistinguishable from reading it)" deny 'grep -rn "/proc/self/environ" tests'
 echo "running in a clean environment, and searching code for the word, stay allowed"
-for c in 'env -i HOME=/tmp/x PATH=/usr/bin python3 tools/fabric/lint.py' 'env -u AGENT_FABRIC_ROOT python3 tests/test_lint.py' 'env LC_ALL=C sort file' 'grep -rn "secrets.env" tools/fabric' 'grep -rn FABRIC_CONTROL_SIGNING_KEY runtime/control' 'set -euo pipefail' 'export FOO=bar && make' 'echo $HOME' 'echo ${PATH}' 'python3 -c "import os; print(os.environ.get(\"HOME\"))"' 'fabric-secrets status' 'git log -p -- tools/fabric/secret_store.py'; do
+for c in 'env -i HOME=/tmp/x PATH=/usr/bin python3 tools/fabric/lint.py' 'env -u AGENT_FABRIC_ROOT python3 tests/test_lint.py' 'env LC_ALL=C sort file' 'grep -rn "secrets.env" tools/fabric' 'grep -rn FABRIC_CONTROL_SIGNING_KEY runtime/control' 'set -euo pipefail' 'export FOO=bar && make' 'echo $HOME' 'echo ${PATH}' 'python3 -c "import os; print(os.environ.get(\"HOME\"))"' 'fabric-secrets status' 'git log -p -- tools/fabric/secret_store.py' 'grep -rn ".gnupg" tools' 'grep -rn ".password-store" tools' 'rg -n secret_store tools' 'git grep -n process.env runtime' 'git show HEAD:tools/fabric/secrets_sync.py' 'ps aux' 'ps -ef' 'cat .env.example' 'ls tests' 'python3 -c "import os; print(os.environ[\\"HOME\\"])"' 'node -e "console.log(process.env.HOME)"'; do
   expect "allowed: $c" allow "$c"
 done
 echo "read-only git and no-install builds are allowed"
