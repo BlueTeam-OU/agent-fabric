@@ -377,8 +377,11 @@ def verify(root: str, login: str, home: str, sudo: str, projects: list[str]) -> 
     # ADR-038 every account holds its own store key, so a count of secret
     # keys was never zero and the hand-off below was never asked for
     # (rust-ui-dev-01 could not commit, 2026-10-03, seq 11160).
+    # The listing only when gpg answered 0, as fabric-ctl keys reads it
+    # (ops.mjs signingSecret): gpg can list a key and still exit non-zero
+    # (a keyring it could not fully read), and that is no clean answer.
     listing = a.run('k="$(git config --global user.signingkey)"; [ -n "$k" ] && '
-                    'gpg --list-secret-keys --with-colons -- "$k"',
+                    'out="$(gpg --list-secret-keys --with-colons -- "$k")" && printf "%s\\n" "$out"',
                     stderr=subprocess.DEVNULL).decode("utf-8", "replace")
     signing = "present" if signs_with_secret(listing) else "absent"
     for prov in ("anthropic", "openrouter"):

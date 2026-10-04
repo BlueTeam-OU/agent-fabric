@@ -77,21 +77,15 @@ TARGETS = {p: ("session",) + CLASSES + EFFORT_TARGETS for p in routing.PROVIDERS
 fabric_writes = _load("fabric_writes", os.path.join(HERE, "fabric_writes.py"))
 
 
-def _last_launch_provider() -> str | None:
-    """The provider this account last launched on, as the launcher records
-    it (install_agent_files.py reads the same file). From a login shell,
-    `apply`, `seed` and `set code-review` wrote the agent files for
-    anthropic whatever the account ran on, and a broker session's reviews
-    were then refused (review of #91)."""
-    try:
-        with open(os.path.join(fabric_writes.state_dir(), "launch-provider.json"), encoding="utf-8") as f:
-            p = json.load(f).get("provider")
-    except (OSError, ValueError, AttributeError):
-        return None
-    return p if p in routing.PROVIDERS else None
+# The provider this account last launched on, as the launcher records it:
+# read by install_agent_files's reader, the one copy (review of #91). From a
+# login shell, `apply`, `seed` and `set code-review` wrote the agent files
+# for anthropic whatever the account ran on, and a broker session's reviews
+# were then refused.
+install_agent_files = _load("install_agent_files", os.path.join(HERE, "install_agent_files.py"))
 
 
-PROVIDER_OF_THIS_SESSION = (os.environ.get("AGENT_FABRIC_LAUNCH_PROVIDER") or _last_launch_provider()
+PROVIDER_OF_THIS_SESSION = (os.environ.get("AGENT_FABRIC_LAUNCH_PROVIDER") or install_agent_files.last_launch_provider()
                             or "anthropic")
 
 
