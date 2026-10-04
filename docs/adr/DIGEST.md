@@ -674,9 +674,11 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-09-27 — HELLO and GOODBYE retired: a narrowing under rule 4.
 - A 2026-09-28 — SPEC is Normative and names this record; CAPABILITIES and
   SPECIALTIES are optional metadata on any message.
+- A 2026-10-04 — WAIVES, an optional common field (SPEC §7.5): a waiver
+  role's word that one pull request, at one head, may arm.
 - Keywords: GZCoord, GZCOORD/1, GZCOORD/2, protocol, SPEC, grammar,
   freeze, frozen, compatibility, narrowing, conformance, validator,
-  extension, X-, protocol change.
+  extension, X-, protocol change, WAIVES, waiver.
 
 ### ADR-033 — GZCoord's transports: the human relay, the adapter contract, Telegram retired; the relay is central today (Accepted)
 
@@ -695,6 +697,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - The relay is a single point of failure, authenticates no sender and
   filters nothing — the inbox does (§6).
 - A 2026-09-30 — the relay token comes from the account's own store (§5 rule 6).
+- A 2026-10-04 — cccc recorded among the refused alternatives (§3).
 - Keywords: transport, relay, Claude-Bridge, claude-bridge,
   gzcoord-relay, human relay, fallback, Telegram, adapter contract,
   channel, gzapp:gzcoord, bridge token, central, single point of failure.

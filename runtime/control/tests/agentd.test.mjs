@@ -267,6 +267,44 @@ test('agentd --once: the keys probe reads the scratch HOME, never the runner\'s 
   }
 });
 
+// disk walks a whole home: it answers beside the read loop, so a request
+// behind it — a sender's presence question waits seconds — is not held.
+test('agentd --once: a slow disk answers beside the loop; a ping sent after it is answered first', async () => {
+  const bin = scratch('agentd-du-');
+  fs.writeFileSync(path.join(bin, 'du'), '#!/bin/sh\nsleep 3\nfor a in "$@"; do case "$a" in -*) ;; *) printf "7\\t%s\\0" "$a";; esac; done\n', { mode: 0o755 });
+  const r = relay([['develop-qzapp/user', request({ op: 'ping', id: 'primer' })]]);
+  await r.listen();
+  try {
+    r.waiting().then(() => { r.add('develop-qzapp/user', request({ op: 'disk' })); r.add('develop-qzapp/user', request({ op: 'ping' })); });
+    const out = await runOnce(r.url(), { PATH: `${bin}:${process.env.PATH}` });
+    assert.equal(out.status, 0, out.stderr);
+    const rs = replies(r);
+    assert.deepEqual(rs.map(x => x.op), ['ping', 'disk'], `the ping was not held behind the disk:\n${out.stderr}`);
+    assert.equal(rs[1].ok, true);
+    assert.ok(rs[1].data.disk.total_kb > 0 && Array.isArray(rs[1].data.disk.largest), JSON.stringify(rs[1].data.disk));
+  } finally { r.close(); }
+});
+
+// Review of #92, round 4: one scan per daemon, shared by every request that
+// arrives while it runs — any placed account may post the read unsigned.
+test('agentd --once: three disk requests share one scan, and each is answered', async () => {
+  const bin = scratch('agentd-du-');
+  const count = path.join(bin, 'calls');
+  fs.writeFileSync(path.join(bin, 'du'), `#!/bin/sh\necho x >> ${JSON.stringify(count)}\nsleep 2\nfor a in "$@"; do case "$a" in -*) ;; *) printf "7\\t%s\\0" "$a";; esac; done\n`, { mode: 0o755 });
+  const r = relay([['develop-qzapp/user', request({ op: 'ping', id: 'primer' })]]);
+  await r.listen();
+  try {
+    r.waiting().then(() => { for (let i = 0; i < 3; i++) r.add('develop-qzapp/user', request({ op: 'disk' })); });
+    const out = await runOnce(r.url(), { PATH: `${bin}:${process.env.PATH}` });
+    assert.equal(out.status, 0, out.stderr);
+    const rs = replies(r).filter(x => x.op === 'disk');
+    assert.equal(rs.length, 3, `every request answered:\n${out.stderr}`);
+    assert.ok(rs.every(x => x.ok && x.data.disk.total_kb > 0), JSON.stringify(rs.map(x => x.data)));
+    const calls = fs.readFileSync(count, 'utf8').trim().split('\n').length;
+    assert.ok(calls <= 2, `one scan (at most two du: the entries and projects/), not one per request: ${calls}`);
+  } finally { r.close(); }
+});
+
 test('agentd --once: an empty channel is primed with an up record; a cleared history (since_id_not_found) re-primes instead of spinning', async () => {
   const r = relay();
   await r.listen();

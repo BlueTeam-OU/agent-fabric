@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
 # bin/fabric-ctl — ask the fleet's control agents, in real time.
 #
-#   fabric-ctl <login|all> [status|usage|identity|keys|fabric|session|script|recall|host|accounts|ping] [--json] [--timeout S]
+#   fabric-ctl <login|all> [status|usage|identity|keys|fabric|session|script|recall|host|disk|accounts|ping] [--json] [--timeout S]
 #   fabric-ctl <login|all> presence               whether each has a session, since when, as what — from ANY account
 #   fabric-ctl <login|all> host                   the machine, one row per host: load, memory and the Xen
 #                                                 balloon, disks, the leases held, the largest processes
+#   fabric-ctl <login|all> disk                   each account's own home, largest first: total, its largest
+#                                                 entry, the target/ directories under ~/projects
 #   fabric-ctl <login|all> tokens [--days N]     each login's spend from its own session records,
 #                                              grouped by Claude account with its share (docs/adr/ADR-029-the-control-plane-a-control-agent-per-account.md)
 #   fabric-ctl <login|all> memory --out <dir>     the drain: each account's bundles, <dir>/<login>/<wc>.tar
