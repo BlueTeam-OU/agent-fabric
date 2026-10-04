@@ -209,6 +209,30 @@ def main() -> int:
                       rc == 0 and "export DEMO_PORT_OFFSET=640" in open(envf).read() and "DEMO_PORT_OFFSET" in out, out)
                 rc, out = run(s.status, True)
                 check("status does not call it unexpected", json.loads(out)["unexpected"] == [], out[:300])
+
+                # The operator's signing key stays in the store, even where
+                # the registry declares it fabric-wide (as it did when a
+                # reviewer printed it from the environment), and a line an
+                # older sync wrote goes with the next one.
+                sk = "ed25519-pkcs8:FIXTURE-SIGNING-KEY"
+                json.dump({"agent_env": {"FABRIC_CONTROL_SIGNING_KEY": "the operator's key"},
+                           "projects": {"demo": {"agent_env": {"DEMO_PORT_OFFSET": "the login stack offset"}}}},
+                          open(os.path.join(fab, "projects", "registry.json"), "w"))
+                with open(envf, "a") as fh:
+                    fh.write(f"export FABRIC_CONTROL_SIGNING_KEY={sk}\n")
+                store["values"] = {**fixture(ME), "DEMO_PORT_OFFSET": "640", "FABRIC_CONTROL_SIGNING_KEY": sk}
+                rc, out = run(s.sync, False, True)
+                written = open(envf).read()
+                check("the signing key is never written into secrets.env, and a stale line is gone",
+                      rc == 0 and "FABRIC_CONTROL_SIGNING_KEY" not in written and "export DEMO_PORT_OFFSET=640" in written,
+                      written)
+                check("nor listed as applied, nor printed",
+                      "FABRIC_CONTROL_SIGNING_KEY" not in json.loads(out)["applied"] and sk not in out, out[:300])
+                json.dump({"projects": {"demo": {"agent_env": {"DEMO_PORT_OFFSET": "the login stack offset"}}}},
+                          open(os.path.join(fab, "projects", "registry.json"), "w"))
+                rc, out = run(s.status, True)
+                check("a store holding it is not unexpected, the registry naming it or not",
+                      json.loads(out)["unexpected"] == [], out[:300])
             finally:
                 s.ROOT = real_root
 

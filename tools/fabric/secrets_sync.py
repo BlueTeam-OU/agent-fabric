@@ -21,7 +21,9 @@ writes
                                          tools read from the environment:
                                          OPENROUTER_API_KEY, GH_TOKEN,
                                          CLAUDE_BRIDGE_AUTH_TOKEN, and the
-                                         registry's per-agent names
+                                         registry's per-agent names but
+                                         STORE_ONLY's, which a tool
+                                         decrypts itself when it needs one
     ~/.bashrc                            one marked line sourcing that file
     ~/.gitconfig                         user.name/email, signing key and
                                          program (strings; the key material
@@ -62,6 +64,14 @@ GIT_NAMES = {"GIT_USER_NAME": "user.name", "GIT_USER_EMAIL": "user.email",
              "GIT_SIGNING_KEY": "user.signingkey", "GIT_GPG_PROGRAM": "gpg.program"}
 SSH_NAMES = ["SSH_PRIVATE_KEY", "SSH_PUBLIC_KEY"]
 IDENTITY_NAMES = ["AGENT_LOGIN", "AGENT_HOST"]
+# Never written into secrets.env, whatever the registry declares: ~/.bashrc
+# sources that file, so an exported name is in every shell and subagent of
+# the account, and a reviewer printed its environment with the operator's
+# signing key in it (rotated, #95). fabric-ctl decrypts it from the store
+# when it signs (runtime/control/ctl.mjs signingKey()). Known, so a store
+# holding it is not "unexpected"; and since the file is rewritten whole,
+# the next sync drops a line an older one wrote.
+STORE_ONLY = ["FABRIC_CONTROL_SIGNING_KEY"]
 ALL_NAMES = IDENTITY_NAMES + ENV_NAMES + list(GIT_NAMES) + SSH_NAMES
 USAGE = "usage: fabric-secrets sync [--force] [--json] [--quiet] [--no-pull] | status [--json] | store …"
 
@@ -98,7 +108,7 @@ def project_agent_env(root: str | None = None) -> list[str]:
     # Fabric-wide names first (registry top-level agent_env), then each project's.
     for holder in [reg, *((reg.get("projects") or {}).values())]:
         for n in (holder.get("agent_env") or {}):
-            if n not in names and n not in ENV_NAMES:
+            if n not in names and n not in ENV_NAMES and n not in STORE_ONLY:
                 names.append(n)
     return names
 
@@ -285,7 +295,7 @@ def report(obj: dict, as_json: bool, quiet: bool, ok: bool) -> None:
 
 def status(as_json: bool, quiet: bool = False) -> int:
     optional = project_agent_env()
-    known = ALL_NAMES + optional
+    known = ALL_NAMES + optional + STORE_ONLY
     obj = {"login": login(), "source": "store", "store": store_path(), "local": local_state()}
     names, err = fetch_names()
     ok = True
@@ -320,7 +330,7 @@ def status(as_json: bool, quiet: bool = False) -> int:
 def sync(force: bool, as_json: bool, quiet: bool = False, pull: bool = True) -> int:
     me = login()
     optional = project_agent_env()
-    known = ALL_NAMES + optional
+    known = ALL_NAMES + optional + STORE_ONLY
     obj = {"login": me, "source": "store", "store": store_path(), "applied": [], "skipped": []}
     values, err = fetch_values(pull)
     if err:
