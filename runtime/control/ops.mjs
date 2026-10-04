@@ -192,6 +192,17 @@ export function keys(home = os.homedir(), names = KEY_NAMES) {
   });
 }
 
+// Whether this account's store refused a commit (ADR-042 rule 5): a
+// security event, said until the store is repaired. secret_store.py keeps
+// the last refusal beside the store; nothing here reads an entry.
+export const STORE_ROW = 'store commits verified';
+export function storeRefusal(home = os.homedir(), store = process.env.AGENT_FABRIC_SECRET_STORE ?? path.join(home, '.local', 'share', 'agent-fabric', 'secrets')) {
+  let r;
+  try { r = JSON.parse(fs.readFileSync(path.join(store, '.git', 'agent-fabric-refusal.json'), 'utf8')); }
+  catch (e) { return { name: STORE_ROW, present: e?.code === 'ENOENT' }; }
+  return { name: STORE_ROW, present: false, refused: { commit: String(r?.commit ?? '?').slice(0, 12), at: r?.at ?? null, reason: String(r?.reason ?? '?').slice(0, 300) } };
+}
+
 // Whether the secret of the key git signs with is in this account's
 // keyring and can sign: present or not, never the key. A secret-key COUNT
 // is no answer, since every account holds its own store key (ADR-038):
@@ -887,7 +898,7 @@ export async function collect(op, ctx = {}) {
   await Promise.all(wants.map(name => {
     if (name === 'identity') return guard(name, () => identity(ctx.home, ctx.who));   // ctx.who unset: whoami() per request, so a rebind shows
     if (name === 'usage') return guard(name, () => ctx.usageCached ? ctx.usageCached() : usage(ctx.home, ctx.fetch));
-    if (name === 'keys') return guard(name, async () => [...keys(ctx.home), await signingSecret(ctx.exec)]);
+    if (name === 'keys') return guard(name, async () => [...keys(ctx.home), await signingSecret(ctx.exec), storeRefusal(ctx.home, ctx.storeDir)]);
     if (name === 'fabric') return guard(name, () => fabric(ctx.root, ctx.exec));
     if (name === 'session') return guard(name, () => session(ctx.uid, ctx.exec));
     if (name === 'presence') return guard(name, () => presence(ctx.presenceOpts));

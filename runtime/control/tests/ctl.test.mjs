@@ -55,6 +55,31 @@ test('rows and table: an answered account and a silent one', () => {
   assert.match(none, /db-admin\s+ok\s+none.*unreadable\s+-\s*$/m);
 });
 
+test('keys table: held keys, whether git signs, and a refused store said in full (ADR-042 rule 5)', () => {
+  const expected = ['alpha', 'beta', 'quiet'].map(login => ({ login, host: 'h', address: `h/${login}` }));
+  const reply = (login, keys) => ({ kind: 'reply', from: `h/${login}`, op: 'keys', data: { keys } });
+  const t = table('keys', rows(expected, [
+    reply('alpha', [{ name: 'GH_TOKEN', present: true, sha256_12: 'x' }, { name: 'OPENAI_API_KEY', present: false },
+                    { name: 'signing key secret', present: true }, { name: 'store commits verified', present: true }]),
+    reply('beta', [{ name: 'GH_TOKEN', present: true }, { name: 'signing key secret', present: false },
+                   { name: 'store commits verified', present: false, refused: { commit: '0123456789ab', at: 'T', reason: 'not signed' } }]),
+  ])).split('\n');
+  assert.match(t[0], /^account\s+status\s+keys\s+signing\s+store$/);
+  assert.match(t[1], /^alpha\s+ok\s+1\/2\s+yes\s+verified$/);
+  assert.match(t[2], /^\s+absent: OPENAI_API_KEY$/);
+  assert.match(t[3], /^beta\s+ok\s+1\/1\s+no\s+REFUSED 0123456789ab at T: not signed$/);
+  assert.match(t[4], /^quiet\s+no answer$/);
+});
+
+test('keys table: a refusal and a key name are the account\'s, their control characters shown escaped', () => {
+  const t = table('keys', rows([{ login: 'beta', host: 'h', address: 'h/beta' }], [
+    { kind: 'reply', from: 'h/beta', op: 'keys', data: { keys: [{ name: 'X\u001b[2J', present: false },
+      { name: 'store commits verified', present: false, refused: { commit: 'ab\u009bc', at: 'T\u0007', reason: 'git: \u001b]0;pwned\u0007' } }] } },
+  ]));
+  assert.ok(!/[\u0000-\u0009\u000b-\u001f\u007f-\u009f]/.test(t), JSON.stringify(t));
+  assert.ok(t.includes('REFUSED ab\\x9bc at T\\x07: git: \\x1b]0;pwned\\x07') && t.includes('absent: X\\x1b[2J'), JSON.stringify(t));
+});
+
 test('disk table: one row per account, the largest home first; a partial one says why, a failed one says so, a silent one is a row', () => {
   const expected = ['alpha', 'beta', 'gamma', 'delta', 'quiet'].map(login => ({ login, host: 'h', address: `h/${login}` }));
   const reply = (login, disk) => ({ kind: 'reply', from: `h/${login}`, op: 'disk', data: { disk } });

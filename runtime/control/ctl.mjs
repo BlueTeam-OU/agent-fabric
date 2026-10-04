@@ -168,6 +168,11 @@ const at = w => (w && w.resets_at) ? String(w.resets_at).slice(0, 16) : '-';
 // What counts as success for each action; anything else fails the run.
 export const ACTION_OK = { upgrade: ['current', 'upgraded'], 'secrets-sync': ['synced'], 'jobs-add': ['added'] };
 
+// What an account sent, printed in the operator's terminal: its C0 and C1
+// control characters are shown escaped, never sent to the terminal (review
+// of #92, round 4).
+const esc = n => String(n).replace(/[\u0000-\u001f\u007f-\u009f]/g, c => `\\x${c.charCodeAt(0).toString(16).padStart(2, '0')}`);
+
 export function table(op, rs) {
   const lines = [];
   if (op === 'secrets-sync') {
@@ -333,13 +338,27 @@ export function table(op, rs) {
     }
     return lines.join('\n');
   }
+  if (op === 'keys') {
+    // One line per account: how many keys it holds, whether git can sign,
+    // and whether its store refused a commit (ADR-042 rule 5) — a refusal
+    // is a security event and is said until the store is repaired; the
+    // absent keys follow, by name. Never a value.
+    lines.push(`${'account'.padEnd(22)} ${'status'.padEnd(10)} ${'keys'.padEnd(8)} ${'signing'.padEnd(8)} store`);
+    for (const r of rs) {
+      if (r.status !== 'ok' || !Array.isArray(r.keys)) { lines.push(`${r.account.padEnd(22)} ${r.status !== 'ok' ? r.status : `ok         keys ${r.keys?.status ?? '-'}`}`); continue; }
+      const named = r.keys.filter(k => k.name !== 'signing key secret' && k.name !== 'store commits verified');
+      const sign = r.keys.find(k => k.name === 'signing key secret');
+      const store = r.keys.find(k => k.name === 'store commits verified');
+      const st = !store ? '-' : store.refused ? `REFUSED ${esc(store.refused.commit)} at ${esc(store.refused.at ?? '?')}: ${esc(store.refused.reason)}` : store.present ? 'verified' : 'unreadable';
+      lines.push(`${r.account.padEnd(22)} ${'ok'.padEnd(10)} ${`${named.filter(k => k.present).length}/${named.length}`.padEnd(8)} ${(sign ? (sign.present ? 'yes' : 'no') : '-').padEnd(8)} ${st}`);
+      const absent = named.filter(k => !k.present).map(k => esc(k.name));
+      if (absent.length) lines.push(`${''.padEnd(22)} ${''.padEnd(10)} absent: ${absent.join(', ')}`);
+    }
+    return lines.join('\n');
+  }
   if (op === 'disk') {
     // One row per account, the largest home first: what /home is spent on,
     // and by whom; then the failed, then the silent, each by name.
-    // A name is the account's, printed in the operator's terminal: its C0
-    // and C1 control characters are shown escaped, never sent to the
-    // terminal (review of #92, round 4).
-    const esc = n => String(n).replace(/[\u0000-\u001f\u007f-\u009f]/g, c => `\\x${c.charCodeAt(0).toString(16).padStart(2, '0')}`);
     const H = kb => kb == null ? '-' : kb >= 1048576 ? `${(kb / 1048576).toFixed(1)}G` : kb >= 1024 ? `${(kb / 1024).toFixed(0)}M` : `${kb}K`;
     lines.push(`${'account'.padEnd(22)} ${'status'.padEnd(8)} ${'total'.padStart(7)}  ${'largest entry'.padEnd(28)} ${'target/'.padStart(7)}  target/ directories`);
     const rank = r => r.status !== 'ok' || !r.disk ? 2 : r.disk.status === 'failed' || r.disk.total_kb == null ? 1 : 0;
