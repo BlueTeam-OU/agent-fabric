@@ -79,6 +79,10 @@ export function accountsKeeper(read = () => accounts(), { now = Date.now, cacheM
   return { refresh, cached };
 }
 
+// Reads that run beside the read loop, like the actions: each can take
+// minutes, and the loop must keep answering behind it.
+export const BESIDE_LOOP_OPS = ['disk'];
+
 export function controlConfig(env = process.env, file = path.join(HERE, 'config.json')) {
   let own = {};
   try { own = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { /* defaults below */ }
@@ -317,6 +321,18 @@ export async function main(argv = process.argv.slice(2)) {
           const p = answer(a.request, ctx).then(async reply => { const { _followups, ...first } = reply; moved = first.data?.upgrade?.restart_daemon === true; await post(first); console.error(`agentd: answered ${op} for ${from} (${id.slice(0, 8)}): ${first.data?.[op]?.status ?? '?'}`); })
             .catch(e => console.error(`agentd: ${op} for ${from} failed to answer: ${e.message}`))
             .finally(() => { inflight.delete(p); if (!once) { if (moved) leave.request('the fabric moved (upgrade fabric)'); else leave.settle(); } });
+          inflight.add(p);
+          continue;
+        }
+        // A read that walks a whole home (disk) can take minutes on a large
+        // one: it answers beside the loop too, or every request behind it —
+        // a sender's presence question, which waits seconds — would go
+        // unanswered and read as silent. No ledger: it is a read.
+        if (BESIDE_LOOP_OPS.includes(a.request.op)) {
+          const { op, from, id } = a.request;
+          const p = answer(a.request, ctx).then(async reply => { const { _followups, ...first } = reply; await post(first); console.error(`agentd: answered ${op} for ${from} (${id.slice(0, 8)})`); })
+            .catch(e => console.error(`agentd: ${op} for ${from} failed to answer: ${e.message}`))
+            .finally(() => { inflight.delete(p); if (!once) leave.settle(); });
           inflight.add(p);
           continue;
         }

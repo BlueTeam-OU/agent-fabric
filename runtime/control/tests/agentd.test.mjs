@@ -267,6 +267,24 @@ test('agentd --once: the keys probe reads the scratch HOME, never the runner\'s 
   }
 });
 
+// disk walks a whole home: it answers beside the read loop, so a request
+// behind it — a sender's presence question waits seconds — is not held.
+test('agentd --once: a slow disk answers beside the loop; a ping sent after it is answered first', async () => {
+  const bin = scratch('agentd-du-');
+  fs.writeFileSync(path.join(bin, 'du'), '#!/bin/sh\nsleep 3\nfor a in "$@"; do case "$a" in -*) ;; *) printf "7\\t%s\\n" "$a";; esac; done\n', { mode: 0o755 });
+  const r = relay([['develop-qzapp/user', request({ op: 'ping', id: 'primer' })]]);
+  await r.listen();
+  try {
+    r.waiting().then(() => { r.add('develop-qzapp/user', request({ op: 'disk' })); r.add('develop-qzapp/user', request({ op: 'ping' })); });
+    const out = await runOnce(r.url(), { PATH: `${bin}:${process.env.PATH}` });
+    assert.equal(out.status, 0, out.stderr);
+    const rs = replies(r);
+    assert.deepEqual(rs.map(x => x.op), ['ping', 'disk'], `the ping was not held behind the disk:\n${out.stderr}`);
+    assert.equal(rs[1].ok, true);
+    assert.ok(rs[1].data.disk.total_kb > 0 && Array.isArray(rs[1].data.disk.largest), JSON.stringify(rs[1].data.disk));
+  } finally { r.close(); }
+});
+
 test('agentd --once: an empty channel is primed with an up record; a cleared history (since_id_not_found) re-primes instead of spinning', async () => {
   const r = relay();
   await r.listen();
