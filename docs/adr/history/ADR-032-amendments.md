@@ -53,9 +53,10 @@ project's waiver role writes on a `DECISION` or `REPLY` addressed to
 the session that will arm. Only the metadata line counts; the same
 text in a section is a quotation. MESSAGE-FORMAT gains "Waiving a
 boundary gate", with a full example the inline-example test validates.
-The validator does not change: it already preserves an unknown key
-(§6), and the value's shape is the arming tool's to refuse (rule 8 has
-nothing to move).
+The validator accepts and preserves the line as before (§6); the
+value's shape is the arming tool's to refuse. Under rule 8 its list of
+the common fields §7 names gains `WAIVES`, so a misspelt `WAIVE:` is
+pointed at it (review of #92).
 
 Under which rule: rule 3. A new optional common field is not a grammar
 change; a reader of an earlier GZCOORD/1 text preserves the line and
