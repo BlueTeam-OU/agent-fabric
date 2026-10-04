@@ -1408,6 +1408,11 @@ def case_arm_boundary_cases_only_leave_retired() -> None:
         assert any("'lib/key.rs' is dropped" in f for f in got), got
         arm(["src/a.rs"], retired={"lib/key.rs": "keys moved to crates/; architect-cto, seq 1"})
         assert lint.arm_boundary_findings(root, base_ref="base") == [], "retired with why and word: clean"
+        arm(["src/a.rs"], retired={"lib/key.rs": "removed"})
+        assert any("is dropped" in f for f in lint.arm_boundary_findings(root, base_ref="base")), \
+            "a reason citing no approval anyone could look up (#91's review)"
+        arm(["src/a.rs"], retired={"lib/key.rs": "architect-cto, 01a105c9-b3e2-779e-99ed-9a8347021555"})
+        assert lint.arm_boundary_findings(root, base_ref="base") == [], "a message id is a locator"
         arm(["src/a.rs"], retired={"lib/key.rs": " "})
         assert any("is dropped" in f for f in lint.arm_boundary_findings(root, base_ref="base")), \
             "a blank reason is no reason"
@@ -1435,6 +1440,12 @@ def case_arm_boundary_cases_only_leave_retired() -> None:
             "a blank reason records nothing"
         arm(["src/a.rs", "lib/key.rs"], exempt="^docs/|^vendor/",
             changes={"vendor exempt": "vendored docs only; architect-cto, seq 2"})
+        assert lint.arm_boundary_findings(root, base_ref="base") == [], "a relay seq is a locator"
+        arm(["src/a.rs", "lib/key.rs"], exempt="^docs/|^vendor/", changes={"vendor exempt": "agreed with the team"})
+        assert any("changed with no new" in f for f in lint.arm_boundary_findings(root, base_ref="base")), \
+            "a change citing nothing checkable"
+        arm(["src/a.rs", "lib/key.rs"], exempt="^docs/|^vendor/",
+            changes={"vendor exempt": "vendored docs only; gzapi-org/InterWeave#177"})
         assert lint.arm_boundary_findings(root, base_ref="base") == [], "a recorded change: clean"
 
 

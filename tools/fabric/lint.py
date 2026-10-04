@@ -1619,6 +1619,18 @@ def bash_size_findings(root: str, base_ref: str = "origin/main") -> list[str]:
 
 
 
+# What a boundary record must cite so its approval can be checked: a GZCoord
+# MESSAGE-ID (a UUID), a pull request (#N or owner/repo#N), or a relay seq.
+# lint cannot authenticate an approval; it refuses one nobody could look up
+# (#91's review: "removed" passed as a reason).
+BOUNDARY_LOCATOR = re.compile(r"\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b"
+                              r"|(?:^|[\s(])(?:[\w.-]+/[\w.-]+)?#\d+\b|\bseq \d+\b", re.I)
+
+
+def _boundary_record_ok(value: object) -> bool:
+    return isinstance(value, str) and bool(value.strip()) and BOUNDARY_LOCATOR.search(value) is not None
+
+
 def arm_boundary_findings(root: str, base_ref: str = "origin/main") -> list[str]:
     """A project's arm.json (runtime/github/arm.sh's rules) names, beside
     its boundary patterns, the cases that MUST stay boundary: each case is
@@ -1669,15 +1681,17 @@ def arm_boundary_findings(root: str, base_ref: str = "origin/main") -> list[str]
                 now_changes = b.get("changes") if isinstance(b.get("changes"), dict) else {}
                 old_changes = base_b.get("changes") if isinstance(base_b.get("changes"), dict) else {}
                 added = {k: v for k, v in now_changes.items() if k not in old_changes}
-                if not any(isinstance(v, str) and v.strip() for v in added.values()):
+                if not any(_boundary_record_ok(v) for v in added.values()):
                     findings.append(f"{rel}: boundary.paths or boundary.exempt changed with no new "
-                                    "boundary.changes entry (why, and whose word)")
+                                    "boundary.changes entry (why, and whose word, citing a message id, a PR #N "
+                                    "or a relay seq)")
             retired = b.get("retired") or {}
             for c in sorted(set(before) - set(cases)):
                 why = retired.get(c) if isinstance(retired, dict) else None
-                if not (isinstance(why, str) and why.strip()):
+                if not _boundary_record_ok(why):
                     findings.append(f"{rel}: boundary case {c!r} is dropped; a narrowing moves it to "
-                                    "boundary.retired with why and whose word (the project's architect-cto)")
+                                    "boundary.retired with why and whose word (the project's architect-cto), "
+                                    "citing the approval: a message id, a PR #N or a relay seq")
     return findings
 
 # What a role IS, never a contributor's to commit (ADR-018 §5 rule 8): a rule
