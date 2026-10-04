@@ -1750,6 +1750,28 @@ def arm_boundary_findings(root: str, base_ref: str = "origin/main") -> list[str]
                     findings.append(f"{rel}: boundary case {c!r} is dropped; a narrowing moves it to "
                                     "boundary.retired with why and whose word (the project's architect-cto), "
                                     "citing the approval: a message id, a PR #N or a relay seq")
+    # A project's arm.json deleted takes its boundary, its cases and its
+    # records with it, and the per-file rules above never see a file that
+    # is gone (review of #92). It leaves only with its project: a removal
+    # while projects/registry.json still names the project is a finding.
+    # No base (a project CI's depth-1 checkout): nothing to compare.
+    mb = _git().run(root, "merge-base", "HEAD", base_ref, check=False, timeout=60)
+    since = mb.stdout.strip() if mb.returncode == 0 and mb.stdout.strip() else ""
+    if since:
+        listed = _git().run(root, "ls-tree", "-r", "--name-only", since, "--", "projects/", check=False, timeout=60)
+        before = {r for r in listed.stdout.splitlines()
+                  if re.fullmatch(r"projects/[^/]+/integration/gh/arm\.json", r)} if listed.returncode == 0 else set()
+        now = {r for r in _tracked(root) if re.fullmatch(r"projects/[^/]+/integration/gh/arm\.json", r)}
+        try:
+            with open(os.path.join(root, "projects", "registry.json"), encoding="utf-8") as fh:
+                registered = set((json.load(fh).get("projects") or {}))
+        except (OSError, ValueError, AttributeError):
+            registered = set()
+        for rel in sorted(before - now):
+            project = rel.split("/")[1]
+            if project in registered:
+                findings.append(f"{rel}: deleted while projects/registry.json still names {project!r}; a project's arm "
+                                "rules leave only with the project (its boundary, cases and records go with the file)")
     return findings
 
 # What a role IS, never a contributor's to commit (ADR-018 §5 rule 8): a rule
