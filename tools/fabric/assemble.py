@@ -1350,6 +1350,11 @@ def main() -> int:
 
     DESCRIPTION_MAX = 240  # identities/schemas/role-template.schema.json
     clipped_descriptions: list[str] = []
+    # A role whose crossref this run writes with an empty index. Said, not
+    # just written: harvest_memory.py emits an empty references.json (memories
+    # cite each other by name, not by git object), so every memory drain
+    # writes an empty graph, and a file that exists reads as one that answers.
+    empty_crossrefs: list[str] = []
 
     def clip_description(description: str, where: str) -> str:
         """The description is the retrieval cue an index shows; the schema
@@ -2004,6 +2009,8 @@ def main() -> int:
         with open(os.path.join(proj_dir, "crossref.json"), "w", encoding="utf-8") as fh:
             json.dump(crossref_doc, fh, ensure_ascii=False, indent=2, sort_keys=True)
             fh.write("\n")
+        if not crossref_doc["index"]:
+            empty_crossrefs.append(in_report(os.path.join(proj_dir, "crossref.json")))
 
         # INDEX.md is generated, never hand-maintained: it is the only thing a
         # session sees before choosing what to load, so it must not drift.
@@ -2184,6 +2191,12 @@ def main() -> int:
               "it is — retarget the memory if a stale section remains, drop the target if it was applied):",
               file=sys.stderr)
         for note in unresolved_targets:
+            print(f"  {note}", file=sys.stderr)
+    if empty_crossrefs:
+        print("\nCROSSREF EMPTY (written with no entry: no observation behind the role's slices "
+              "cites an artifact in this drain's references.json, and none was carried; "
+              "query.sh answers nothing from it):", file=sys.stderr)
+        for note in empty_crossrefs:
             print(f"  {note}", file=sys.stderr)
     if collisions:
         print("\nTITLE COLLISIONS (both claims kept):", file=sys.stderr)

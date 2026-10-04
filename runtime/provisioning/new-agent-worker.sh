@@ -23,7 +23,7 @@ must() { run "$@" || die "step failed: $* — nothing after it ran; fix the caus
 probe() { "$@"; }
 best_effort() { run "$@" || say "warning: $* failed; continuing"; }
 LOG="$(mktemp)"; trap 'rm -f "$LOG"' EXIT
-SUDO="${SUDO:-sudo}"   # a test puts a fake here; the real one is sudo
+SUDO="${SUDO:-sudo}"   # a test's fake; no escalation: read from the running operator's own environment (hostexec's ssh forwards none), so whoever sets it already is that operator
 HOME_DIR="$(getent passwd "$LOGIN" 2>/dev/null | cut -d: -f6)"; HOME_DIR="${HOME_DIR:-/home/$LOGIN}"
 GROUP="$(id -gn "$LOGIN" 2>/dev/null || echo "$LOGIN")"   # the primary group, whatever the host's policy names it
 # One shell line as the account, in a login shell; why the PATH is set twice: new_agent_worker.Account.

@@ -214,6 +214,23 @@ def main() -> int:
               rc == 0 and sum(1 for ln in secs.split("\n") if ln.startswith("sec")) == 1 and lid("kid") == kid,
               f"rc={rc}\n{out}")
         check("the parent can now write into the child's store", store("put", "kid", "GH_TOKEN", stdin="top secret\n")[0] == 0)
+        rc, out = P(ENROLL, "kid")
+        check("a re-run after the parent's put takes it and converges, never pushing the account's older head",
+              rc == 0 and "GH_TOKEN" in subprocess.run(["git", "--git-dir", f"{t}/remotes/agent-fabric-secrets-{kid}.git", "ls-tree",
+                                                         "-r", "--name-only", "main"], stdout=subprocess.PIPE, text=True,
+                                                        timeout=60).stdout, f"rc={rc}\n{out}")
+        # A mirror that cannot be brought up to date fails the enrolment: a
+        # stale mirror read as current is the parent's wrong view of the
+        # store (#63's carried items). The second run above is the control.
+        mirror = f"{t}/parent/.local/share/agent-fabric/children/{kid}"
+        url = subprocess.run(["git", "-C", mirror, "remote", "get-url", "origin"], stdout=subprocess.PIPE,
+                             text=True, timeout=60, check=True).stdout.strip()
+        subprocess.run(["git", "-C", mirror, "remote", "set-url", "origin", f"{t}/remotes/gone.git"], timeout=60, check=True)
+        rc, out = P(ENROLL, "kid")
+        subprocess.run(["git", "-C", mirror, "remote", "set-url", "origin", url], timeout=60, check=True)
+        check("a mirror that cannot be brought up to date is a failure, not a note",
+              rc == 1 and "kid: its mirror could not be brought up to date" in out
+              and not re.search(r"kid: agent .*mirrored", out), f"rc={rc}\n{out}")
         rc, out = P(ENROLL, "nobody")
         check("an unplaced login is refused by name", rc == 1 and "nobody: not placed" in out, f"rc={rc}\n{out}")
 

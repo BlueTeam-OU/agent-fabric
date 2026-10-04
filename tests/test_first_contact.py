@@ -216,6 +216,22 @@ esac
         r = parent("python3", STORE, "seed-child", other, "--remote", os.path.join(remotes, "x.git"), stdin=mine.stdout)
         check("a parent refuses a bundle naming another agent than it minted",
               r.returncode != 0 and f"not {other}" in r.stderr and not os.path.exists(os.path.join(remotes, "x.git")), r.stderr)
+
+        print("first contact: a mirror deleted by hand")
+        # The remote holds a put the account has not taken; a mirror cloned
+        # again from the account's bundle alone is behind it, and pushing
+        # that head was refused as non-fast-forward.
+        r = parent("python3", STORE, "put", "kid", "AFTER_TAKE", stdin="fixture\n")
+        check("…a put the account has not taken yet", r.returncode == 0, r.stderr)
+        remote_head = subprocess.run(["git", "--git-dir", repo, "rev-parse", "main"], capture_output=True, text=True).stdout
+        shutil.rmtree(mirror)
+        r = parent(ENROLL, "kid", "--born-now")
+        r2 = parent(ENROLL, "kid", "--born-now")
+        heads = (subprocess.run(["git", "--git-dir", repo, "rev-parse", "main"], capture_output=True, text=True).stdout,
+                 subprocess.run(["git", "-C", mirror, "rev-parse", "HEAD"], capture_output=True, text=True).stdout)
+        check("a re-run rebuilds the mirror at the remote's head, the parent's puts kept, and converges",
+              r.returncode == 0 and r2.returncode == 0 and heads == (remote_head, remote_head) and remote_head.strip(),
+              (r.stderr, r2.stderr, remote_head, heads))
     finally:
         for g in gnupg.values():
             subprocess.run(["gpgconf", "--homedir", g, "--kill", "all"], capture_output=True)

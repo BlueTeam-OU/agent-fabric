@@ -133,10 +133,19 @@ def next_request(request_path: str, report: str, head: str | None, keep_lenses: 
                  allow_rationale: bool = False) -> tuple[str, dict, str]:
     with open(request_path, encoding="utf-8") as f:
         req = review_brief.parse_request(f.read())
-    problems = review_brief.validate(req)
+    if not os.path.isfile(report):
+        raise Refused(f"no report at {report}")
+    # What is validated before the range is split is the request as it will
+    # be derived — the new report, re-review, the lenses it will carry — not
+    # the source as it stands: the derivation replaces previous_findings and
+    # may narrow the lenses, so an earlier report deleted since, or a lens
+    # no longer there, must not refuse a chain (review of #89). A range with
+    # no `..` still refuses here, as one line (it raised IndexError once).
+    shape = {**req, "mode": "re-review", "previous_findings": os.path.abspath(report)}
+    if not keep_lenses:
+        shape["lenses"] = ["general"]
+    problems = review_brief.validate(shape)
     if problems or not req.get("range"):
-        # Validated before the range is split: a range with no `..` raised
-        # IndexError, a traceback where a refusal belongs (review of #89).
         raise Refused(f"{request_path} is not a ranged request that validates: "
                       + ("; ".join(problems) if problems else "a re-review follows a ranged review"))
     repo_dir = req["repository"]
@@ -151,8 +160,6 @@ def next_request(request_path: str, report: str, head: str | None, keep_lenses: 
     new_head = _commit(repo_dir, head or "HEAD")
     if new_head == old_head:
         raise Refused(f"the head has not moved since {old_head[:12]}: nothing to re-review")
-    if not os.path.isfile(report):
-        raise Refused(f"no report at {report}")
     nxt = dict(req)
     nxt["mode"] = "re-review"
     nxt["range"] = f"{old_head[:12]}..{new_head[:12]}"
@@ -211,7 +218,12 @@ def main(argv: list[str] | None = None) -> int:
                 # repeat across repositories (review of #89).
                 if not repo:
                     with open(args[0], encoding="utf-8") as f:
-                        repo = os.path.basename(os.path.normpath(review_brief.parse_request(f.read())["repository"]))
+                        named = review_brief.parse_request(f.read()).get("repository")
+                    # A request with no repository, or not a path, is a
+                    # refusal, not a KeyError (review of #89).
+                    if not isinstance(named, str) or not named.strip():
+                        raise Refused(f"{args[0]} names no repository: name the round's with --repo")
+                    repo = os.path.basename(os.path.normpath(named))
                 report = newest_round(_repo_name(repo), _pr(pr))
             path, _, brief = next_request(args[0], report, head, keep, allow)
             print(f"fabric-review: wrote {path}", file=sys.stderr)
