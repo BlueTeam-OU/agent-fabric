@@ -13,7 +13,8 @@ the moment they cross the carrier, in its own runtime state.
                                             the backfill from the carrier (episodic_import.py)
     episodic.py where                       the journal's path
 
-Run AS THE ACCOUNT (send.mjs and inbox.mjs call it); every caller passes
+Run AS THE ACCOUNT (the GZCoord send and inbox, tools/fabric/gzcoord/, call
+it in their own process); every caller passes
 only messages it is entitled to read: its own, or ones addressed to it.
 Nothing here prints a message's content.
 
@@ -66,8 +67,12 @@ class IntegrityError(JournalError):
 
 # Three facts from runtime/identity.py and secret_store.py, read here rather
 # than imported: their imports (subprocess, argparse, tempfile) were 210 of
-# the 290 ms each journal call took, and send.mjs makes two calls per message
-# (measured 2026-10-01, docs/live-checks/2026-10-01-episodic-journal.md).
+# the 290 ms each journal call took when send.mjs ran it as a process, two
+# calls per message (measured 2026-10-01,
+# docs/live-checks/2026-10-01-episodic-journal.md). Since ADR-040 Wave 7 the
+# callers import this module in their own process and already import those
+# modules themselves, so the copies save nothing any more; they stay only
+# until they are replaced by the imports (carried from #93's review).
 # tests/test_episodic.py holds each equal to its source.
 AGENT_ID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")
 
