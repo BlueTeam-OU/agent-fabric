@@ -313,6 +313,8 @@ def init(remote: str | None = None, agent_id: str | None = None) -> dict:
     # failed (no signing key yet) leaves .git behind, and its retry must
     # still record the base (review of ADR-042, F2).
     first = git(store, "rev-parse", "-q", "--verify", "HEAD", check=False).returncode != 0
+    if not first:
+        _require_clean(store)
     with open(gpg_id, "w", encoding="utf-8") as fh:
         fh.write(fpr + "\n")
     with open(os.path.join(store, ".agent-id"), "w", encoding="utf-8") as fh:
@@ -357,18 +359,42 @@ def _commit(store: str, message: str) -> None:
     # writer that cannot sign does not write — and leaves nothing staged:
     # an entry left in the index made every later set, pull and sync fail
     # on the dirty store (review of ADR-042, F2). Back to HEAD, or, on a
-    # store with no commit yet, unstaged.
+    # store with no commit yet, unstaged. The reset discards every tracked
+    # change, so each writer starts from a clean store (_require_clean).
+    # "could not sign" only when signing is what failed — the key not
+    # found, or git saying gpg failed: a hook or a lock is another failure
+    # (review of #94). git's own words are read in the C locale.
     try:
-        _run(["git", "-C", store, *_signing_args(), "commit", "-q", "-m", message], env=_git_env(), label="git commit")
-    except StoreError as failed:
-        unborn = git(store, "rev-parse", "-q", "--verify", "HEAD", check=False).returncode != 0
-        r = git(store, "rm", "-r", "-q", "--cached", ".", check=False) if unborn else \
-            git(store, "reset", "-q", "--hard", "HEAD", check=False)
-        if r.returncode != 0:
-            why = ([l for l in r.stderr.decode(errors="replace").splitlines() if l.strip()] or [f"exit {r.returncode}"])[-1]
-            raise StoreError(f"could not sign the commit ({failed}); and {store} could not be reset ({why}) "
-                             "— reset it before the next write") from failed
-        raise StoreError(f"could not sign the commit ({failed}); nothing written") from failed
+        signing = _signing_args()
+    except StoreError as e:
+        failed, what = e, "could not sign the commit"
+    else:
+        r = _run(["git", "-C", store, *signing, "commit", "-q", "-m", message],
+                 env={**_git_env(), "LC_ALL": "C"}, check=False)
+        if r.returncode == 0:
+            return
+        failed = _failure("git commit", r)
+        what = "could not sign the commit" if b"failed to sign the data" in r.stderr else "could not commit"
+    unborn = git(store, "rev-parse", "-q", "--verify", "HEAD", check=False).returncode != 0
+    r = git(store, "rm", "-r", "-q", "--cached", ".", check=False) if unborn else \
+        git(store, "reset", "-q", "--hard", "HEAD", check=False)
+    if r.returncode != 0:
+        why = ([l for l in r.stderr.decode(errors="replace").splitlines() if l.strip()] or [f"exit {r.returncode}"])[-1]
+        raise StoreError(f"{what} ({failed}); and {store} could not be reset ({why}) "
+                         "— reset it before the next write") from failed
+    raise StoreError(f"{what} ({failed}); nothing written") from failed
+
+
+def _require_clean(store: str) -> None:
+    """A write starts from a store with no uncommitted change to a tracked
+    file: a failed write is undone by a reset to the last commit (_commit,
+    and put's reset to the remote), which would take such a change with it
+    (review of #94). Untracked files are no part of it: a reset leaves them."""
+    dirty = git(store, "status", "--porcelain", "--untracked-files=no").stdout.decode(errors="replace").splitlines()
+    if dirty:
+        more = f" and {len(dirty) - 1} more" if len(dirty) > 1 else ""
+        raise StoreError(f"{store} has uncommitted changes ({dirty[0][3:]}{more}); nothing written — "
+                         "a write starts from a clean store, since a failed one is undone by a reset")
 
 
 # ── who may write a store (ADR-042) ───────────────────────────────────
@@ -796,6 +822,7 @@ def set_entry(name: str, value: bytes, *, exact: bool = False) -> dict:
     fpr = key_of_store(store)
     _check_name(name)
     value = value if exact else _one_line_off(value)
+    _require_clean(store)
     _before_write(store)
     path = os.path.join(store, "env", f"{name}.gpg")
     if os.path.exists(path) and _decrypt(path) == value.decode(errors="replace"):
@@ -1099,6 +1126,7 @@ def put(child: str, name: str, value: bytes, store: str | None = None, fabric: s
     _check_name(name)
     # Brought up to date FIRST: a mirror still naming the old key must not
     # pass the check and then receive a re-keyed .gpg-id with the pull.
+    _require_clean(store)
     _before_write(store)
     committed = _key_file_fingerprint(key_file)
     if key_of_store(store) != committed:
@@ -1620,6 +1648,7 @@ def recovery_copy(force: bool = False) -> dict:
     rfpr = _key_file_fingerprint(pub)
     store = store_dir()
     key_of_store(store)
+    _require_clean(store)
     _before_write(store)
     aid = own_agent_id(store)
     if not aid:

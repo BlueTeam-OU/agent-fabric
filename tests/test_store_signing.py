@@ -393,6 +393,37 @@ def main() -> int:
               and not os.path.exists(os.path.join(cstore, "env", "UNSIGNED_WRITE.gpg")), (p.stderr, git(child, cstore, "status", "--porcelain").stdout))
         p = run(child, "set", "AFTER_UNSIGNED", stdin="a")
         check("…and the next set works", p.returncode == 0, p.stderr)
+        hook = os.path.join(cstore, ".git", "hooks", "pre-commit")
+        os.makedirs(os.path.dirname(hook), exist_ok=True)
+        with open(hook, "w") as fh:
+            fh.write("#!/bin/sh\necho 'a hook said no' >&2\nexit 1\n")
+        os.chmod(hook, 0o755)
+        p = run(child, "set", "HOOKED", stdin="h")
+        os.remove(hook)
+        check("a commit that fails for another reason says it could not commit, never could not sign (review of #94)",
+              p.returncode == 1 and "could not commit" in p.stderr and "could not sign" not in p.stderr
+              and git(child, cstore, "status", "--porcelain").stdout == "", (p.stderr, git(child, cstore, "status", "--porcelain").stdout))
+        # The reset that undoes a failed write takes every tracked change with
+        # it, so a write starts only from a clean store (review of #94).
+        own_entry = os.path.join(cstore, "env", "OWN.gpg")
+        with open(own_entry, "ab") as fh:
+            fh.write(b"a hand edit")
+        edited = open(own_entry, "rb").read()
+        p = run(child, "set", "ON_DIRTY", stdin="d")
+        check("a set on a store with an uncommitted change refuses, naming it, and keeps the change",
+              p.returncode == 1 and "uncommitted changes (env/OWN.gpg)" in p.stderr
+              and open(own_entry, "rb").read() == edited
+              and not os.path.exists(os.path.join(cstore, "env", "ON_DIRTY.gpg")), p.stderr)
+        git(child, cstore, "checkout", "-q", "--", "env/OWN.gpg")
+        mentry = os.path.join(mirror, "env", "GH_TOKEN.gpg")
+        with open(mentry, "ab") as fh:
+            fh.write(b"a hand edit")
+        p = run(parent, "put", "kid", "ON_DIRTY", stdin="d")
+        check("…a put on a dirty mirror too", p.returncode == 1 and "uncommitted changes (env/GH_TOKEN.gpg)" in p.stderr
+              and open(mentry, "rb").read().endswith(b"a hand edit"), p.stderr)
+        git(parent, mirror, "checkout", "-q", "--", "env/GH_TOKEN.gpg")
+        p = run(child, "set", "ON_CLEAN", stdin="c")
+        check("…the control: clean again, the set goes through", p.returncode == 0, p.stderr)
         late = role("late")
         late_id = secret_store.mint_agent_id(secret_store.born_ms_of("now"))
         p = run({**late, "PATH": f"{fake}:{late['PATH']}"}, "init", "--agent-id", late_id)
