@@ -321,7 +321,7 @@ def main() -> int:
                      "architecture/config/examples/kademlia-enabled.yaml",
                      "fixtures/identity/ed25519-bip39-entropy-v1.json", "Cargo.toml", ".cargo/config.toml",
                      ".cargo/config", "crates/human/ui-slint/.cargo/config.toml",
-                     "tools/foo/.cargo/config.toml", "xtask/.cargo/config",
+                     "tools/foo/.cargo/config.toml", "xtask/.cargo/config", "tools/foo/.Cargo/config.toml",
                      "deny.toml", "crates/claude/channel-core/src/lib.rs", "apps/claude-channel/src/main.rs",
                      "apps/human-desktop/src/recovery_seed.rs"):
             reset(); set_pr(me, "plain", [path]); set_gate(9)
