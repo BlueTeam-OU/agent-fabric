@@ -78,6 +78,19 @@ test('disk table: one row per account, the largest home first; a partial one say
   assert.equal(parseArgs(['all', 'disk']).timeout, 200, 'a whole home takes a while: disk waits longer than a status');
 });
 
+test('disk table, round 4: the failed rank above the silent whatever their names; control characters in a name are shown escaped', () => {
+  const expected = ['aaa-quiet', 'mid', 'zzz-failed'].map(login => ({ login, host: 'h', address: `h/${login}` }));
+  const t = table('disk', rows(expected, [
+    { kind: 'reply', from: 'h/zzz-failed', op: 'disk', data: { disk: { status: 'failed', error: 'no\u0007bell' } } },
+    { kind: 'reply', from: 'h/mid', op: 'disk', data: { disk: { status: 'ok', total_kb: 5, largest: [{ name: 'evil\u001b[2Jname', kb: 5 }],
+      targets: [{ path: 'projects/x\u009b/target', kb: 1 }], targets_kb: 1 } } },
+  ])).split('\n');
+  assert.deepEqual(t.slice(1).map(l => l.split(/\s+/)[0]), ['mid', 'zzz-failed', 'aaa-quiet'], 'ok, then failed, then silent');
+  assert.ok(t[1].includes('evil\\x1b[2Jname') && t[1].includes('projects/x\\x9b/target') && !/[\u0000-\u001f\u007f-\u009f]/.test(t.join('')),
+    JSON.stringify(t));
+  assert.ok(t[2].includes('no\\x07bell'));
+});
+
 test('host table: one row per host from whichever account answered first, the others counted; a silent host is a row; the leases and the largest processes under it', () => {
   const expected = [{ login: 'a', host: 'h1', address: 'h1/a' }, { login: 'b', host: 'h1', address: 'h1/b' }, { login: 'c', host: 'h2', address: 'h2/c' }];
   const machine = { status: 'ok', cpus: 6, loadavg: [0.9, 1.2, 0.8], mem_mb: { total: 18152, available: 12685, swap_total: 9216, swap_free: 9216 }, balloon_mb: { current: 18345, target: 18345, static_max: 18363 }, disk: [{ mount: '/rw', size_gb: 295, avail_gb: 41, use_pct: 87 }], leases: [{ name: 'backend-test', holder: 'db-admin', pid: 42, since: '2026-09-19T08:26:43Z' }], top_rss: [{ user: 'backend-dev-02', pid: 1, rss_mb: 2140, comm: 'dotnet' }] };

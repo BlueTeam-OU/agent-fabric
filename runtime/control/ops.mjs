@@ -834,8 +834,12 @@ export async function memory(home = os.homedir(), { root = process.env.AGENT_FAB
 // its bound or reads part of a tree (exit 1 on an unreadable file) still
 // reports what it measured, the status says partial and `errors` says
 // why; a home that cannot be listed is failed, never a crash. Sizes in
-// KiB, du's own unit.
+// KiB, du's own unit. du's records end in NUL (-0), never a newline: a
+// file name may hold one, and split on lines it invented entries, totals
+// and target/ paths; a record whose path is not under the home is dropped
+// (review of #92, round 4).
 export const DISK_TIMEOUT_MS = 150000;
+export const DISK_MAX_BUFFER = 64 * 1024 * 1024;
 export const DISK_TOP = 5;
 export async function disk(home = os.homedir(), { exec = execFileP, timeoutMs = DISK_TIMEOUT_MS, readdir = fs.readdirSync } = {}) {
   let names;
@@ -844,20 +848,26 @@ export async function disk(home = os.homedir(), { exec = execFileP, timeoutMs = 
   const errors = [];
   const du = async (args, what) => {
     let text = '';
-    try { const r = await exec('du', args, { encoding: 'utf8', timeout: timeoutMs, maxBuffer: 64 * 1024 * 1024 }); text = String(typeof r === 'string' ? r : r?.stdout ?? ''); }
+    try { const r = await exec('du', args, { encoding: 'utf8', timeout: timeoutMs, maxBuffer: DISK_MAX_BUFFER }); text = String(typeof r === 'string' ? r : r?.stdout ?? ''); }
     catch (e) {
       text = String(e?.stdout ?? '');
-      errors.push(`${what}: ${e?.killed || e?.signal ? `du stopped at its ${timeoutMs / 1000} s bound` : `du exit ${e?.code ?? '?'}`}${text.trim() ? ', partial' : ''}`);
+      const why = e?.code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER' ? `du's output passed its ${DISK_MAX_BUFFER / 1048576} MiB bound`
+        : e?.killed || e?.signal ? `du stopped at its ${timeoutMs / 1000} s bound` : `du exit ${e?.code ?? '?'}`;
+      errors.push(`${what}: ${why}${text.trim() ? ', partial' : ''}`);
     }
     const sizes = new Map();
-    for (const line of text.split('\n')) { const m = /^(\d+)\t(.+)$/.exec(line); if (m) sizes.set(m[2], Number(m[1])); }
+    const inside = p => p === home || p.startsWith(home.endsWith(path.sep) ? home : home + path.sep);
+    for (const rec of text.split('\0')) {
+      const m = /^(\d+)\t([\s\S]+)$/.exec(rec.replace(/^\n+/, ''));
+      if (m && inside(m[2])) sizes.set(m[2], Number(m[1]));
+    }
     return sizes;
   };
   const projects = path.join(home, 'projects');
   const others = names.filter(n => n !== 'projects').map(n => path.join(home, n));
   const [entries, tree] = await Promise.all([
-    others.length ? du(['-xsk', '--', ...others], 'home entries') : Promise.resolve(new Map()),
-    names.includes('projects') ? du(['-xk', '--max-depth=3', '--', projects], 'projects') : Promise.resolve(new Map()),
+    others.length ? du(['-0', '-xsk', '--', ...others], 'home entries') : Promise.resolve(new Map()),
+    names.includes('projects') ? du(['-0', '-xk', '--max-depth=3', '--', projects], 'projects') : Promise.resolve(new Map()),
   ]);
   const largest = [...entries].map(([p, kb]) => ({ name: path.basename(p), kb }));
   if (tree.has(projects)) largest.push({ name: 'projects', kb: tree.get(projects) });
@@ -886,7 +896,8 @@ export async function collect(op, ctx = {}) {
     if (name === 'tokens') return guard(name, () => tokens(ctx.home, ctx.days ? { days: ctx.days } : {}));
     if (name === 'memory') return guard(name, () => memory(ctx.home, { exec: ctx.exec, all: true }));
     if (name === 'host') return guard(name, () => host(ctx.hostOpts));
-    if (name === 'disk') return guard(name, () => disk(ctx.home, ctx.diskOpts));
+    // One scan per daemon however many ask at once (agentd's diskKeeper).
+    if (name === 'disk') return guard(name, () => ctx.diskCached ? ctx.diskCached() : disk(ctx.home, ctx.diskOpts));
     if (name === 'jobs') return guard(name, () => jobs({ home: ctx.home, root: ctx.root, ...(ctx.jobsOpts ?? {}) }));
     if (name === 'accounts') return guard(name, () => ctx.accountsCached ? ctx.accountsCached() : accounts(ctx.home, ctx.accountsOpts));
     return Promise.resolve();

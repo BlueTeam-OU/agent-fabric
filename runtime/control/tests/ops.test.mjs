@@ -8,7 +8,7 @@ import crypto from 'node:crypto';
 import zlib from 'node:zlib';
 import { execFileSync } from 'node:child_process';
 import { scratch } from '../../../tests/scratch.mjs';
-import { identity, usage, keys, fabric, session, host, script, recall, recallKind, scriptCounts, notesDir, workerTranscripts, languages, langidCmd, memoryDirs, memorySlug, memory, tokens, equivalent, TOKEN_RATIOS, collect, KEY_NAMES, OPS, MEMORY_PART_BYTES, accounts, readAccount, parseUsageReport, accountsDir, accountSlugs, takeReadLock, presence, signingSecret, SIGNING_ROW, disk, DISK_TIMEOUT_MS } from '../ops.mjs';
+import { identity, usage, keys, fabric, session, host, script, recall, recallKind, scriptCounts, notesDir, workerTranscripts, languages, langidCmd, memoryDirs, memorySlug, memory, tokens, equivalent, TOKEN_RATIOS, collect, KEY_NAMES, OPS, MEMORY_PART_BYTES, accounts, readAccount, parseUsageReport, accountsDir, accountSlugs, takeReadLock, presence, signingSecret, SIGNING_ROW, disk, DISK_TIMEOUT_MS, DISK_MAX_BUFFER } from '../ops.mjs';
 // A fence for any presence() a test forgets to give a hold: never the
 // runner's own ~/.cache/agent-fabric/hold (review of #49).
 process.env.AGENT_FABRIC_HOLD_DIR = scratch('ops-hold-');
@@ -639,10 +639,11 @@ test('disk: the own home in one scan — the largest entries, the target/ direct
     tree: [[50000, 'projects'], [30000, 'projects/a'], [20000, 'projects/a/target'], [1000, 'projects/a/target/target'],
            [12000, 'projects/b/c'], [9000, 'projects/b/c/target'], [5, 'projects/target-notes'], [700, 'projects/target']],
   };
-  const out = rows => rows.map(([kb, rel]) => `${kb}\t${P(rel)}`).join('\n') + '\n';
+  // du -0: each record ends in NUL, a newline is part of a name.
+  const out = rows => rows.map(([kb, rel]) => `${kb}\t${P(rel)}\0`).join('');
   const exec = async (cmd, args, opts) => {
     calls.push([cmd, ...args, opts.timeout]);
-    return { stdout: args[0] === '-xsk' ? out(answers.entries) : out(answers.tree) };
+    return { stdout: args.includes('-xsk') ? out(answers.entries) : out(answers.tree) };
   };
   const d = await disk(home, { exec });
   assert.equal(d.status, 'ok', JSON.stringify(d));
@@ -653,12 +654,13 @@ test('disk: the own home in one scan — the largest entries, the target/ direct
   assert.equal(d.targets_kb, 29700);
   // Only du was run, bounded, and projects/ is scanned once, to depth 3.
   assert.ok(calls.every(c => c[0] === 'du' && c.at(-1) === DISK_TIMEOUT_MS), JSON.stringify(calls));
-  assert.deepEqual(calls.find(c => c[1] === '-xk').slice(1, 4), ['-xk', '--max-depth=3', '--']);
-  assert.ok(!calls.find(c => c[1] === '-xsk').includes(P('projects')), 'projects/ is not scanned twice');
+  assert.deepEqual(calls.find(c => c.includes('-xk')).slice(1, 5), ['-0', '-xk', '--max-depth=3', '--'], 'NUL-ended records');
+  assert.equal(calls.find(c => c.includes('-xsk'))[1], '-0');
+  assert.ok(!calls.find(c => c.includes('-xsk')).includes(P('projects')), 'projects/ is not scanned twice');
   // A du that read part of a tree (exit 1) or stopped at its bound: what it
   // measured stands, the status says partial, errors say why.
   const partial = await disk(home, { exec: async (cmd, args) => {
-    if (args[0] === '-xsk') throw Object.assign(new Error('exit 1'), { code: 1, stdout: out(answers.entries) });
+    if (args.includes('-xsk')) throw Object.assign(new Error('exit 1'), { code: 1, stdout: out(answers.entries) });
     throw Object.assign(new Error('killed'), { killed: true, signal: 'SIGTERM', stdout: '' });
   } });
   assert.equal(partial.status, 'partial');
@@ -671,11 +673,26 @@ test('disk: the own home in one scan — the largest entries, the target/ direct
   // A home with no projects/: no tree scan, no targets.
   const bare = scratch('disk-bare-'); fs.mkdirSync(path.join(bare, 'x'));
   const bareCalls = [];
-  const b = await disk(bare, { exec: async (cmd, args) => { bareCalls.push(args[0]); return `7\t${path.join(bare, 'x')}\n`; } });
+  const b = await disk(bare, { exec: async (cmd, args) => { bareCalls.push(args[1]); return `7\t${path.join(bare, 'x')}\0`; } });
   assert.deepEqual([b.status, b.total_kb, b.targets, bareCalls], ['ok', 7, [], ['-xsk']]);
   assert.ok(OPS.includes('disk'), 'a known op');
   // and collect() answers it under its own name, a failure inline
   const c = await collect('disk', { home: path.join(home, 'gone') });
   assert.equal(c.disk.status, 'failed');
+});
+
+// Review of #92, round 4: a name with a newline is one entry, never an
+// invented one; a path du reports outside the home counts for nothing; a du
+// killed for its output says so, not that it ran out of time.
+test('disk: NUL-ended records — a newline in a name invents nothing; outside the home is dropped; maxBuffer said', async () => {
+  const home = scratch('disk-nul-');
+  fs.mkdirSync(path.join(home, 'a\nb'));
+  fs.mkdirSync(path.join(home, 'projects'));
+  const answer = `100\t${path.join(home, 'a\nb')}\0` + `999999\t/etc\0`;
+  const d = await disk(home, { exec: async (cmd, args) => (args.includes('-xsk') ? answer : `50\t${path.join(home, 'projects')}\0`) });
+  assert.deepEqual(d.largest.map(e => [e.name, e.kb]), [['a\nb', 100], ['projects', 50]], 'one entry, its newline kept; /etc dropped');
+  assert.equal(d.total_kb, 150);
+  const big = await disk(home, { exec: async () => { throw Object.assign(new Error('stdout maxBuffer length exceeded'), { code: 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER', killed: true, signal: 'SIGTERM', stdout: '' }); } });
+  assert.ok(big.errors.every(e => e.endsWith(`du's output passed its ${DISK_MAX_BUFFER / 1048576} MiB bound`)), JSON.stringify(big.errors));
 });
 
