@@ -697,6 +697,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - The relay is a single point of failure, authenticates no sender and
   filters nothing — the inbox does (§6).
 - A 2026-09-30 — the relay token comes from the account's own store (§5 rule 6).
+- A 2026-10-04 — cccc recorded among the refused alternatives (§3).
 - Keywords: transport, relay, Claude-Bridge, claude-bridge,
   gzcoord-relay, human relay, fallback, Telegram, adapter contract,
   channel, gzapp:gzcoord, bridge token, central, single point of failure.

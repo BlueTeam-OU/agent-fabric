@@ -65,6 +65,15 @@ the terminal that started it.
   channel is what the sessions on one host need, and a second relay
   would split the record. The cost is that the relay is a single point
   of failure (§6).
+- **cccc, a session manager with a transport inside.** Refused by the
+  owner, evaluated from its documentation and not run. It launches each
+  agent's `claude` itself, under the daemon's account, and forbids the
+  session, MCP and resume flags the launcher passes: against the rule
+  that the login is the agent. It delivers a message as a user turn,
+  against GZCoord's advisory authority model. Its actor ids are free
+  strings with no operating-system fact behind them. What was worth
+  wanting from it, push delivery and durable delivery and read facts,
+  is a feature request for the relay, not a reason to change transport.
 
 ## 4. Rationale
 
@@ -171,3 +180,4 @@ The body above reads current; each change's full note is in [history/ADR-033-ame
 | Date | Amendment | Effect |
 |---|---|---|
 | 2026-09-30 | Doppler is retired: the store holds what Doppler held | §5 rule 6 |
+| 2026-10-04 | cccc recorded as a refused alternative | §3: the owner's refusal, carried until now in a project's rationale slice |
