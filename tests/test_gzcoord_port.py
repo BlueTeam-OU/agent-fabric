@@ -16,6 +16,7 @@ import os
 import signal
 import subprocess
 import sys
+import tempfile
 import time
 import traceback
 from typing import Any, Callable
@@ -273,6 +274,18 @@ def _():
             with contextlib.suppress(OSError):
                 os.killpg(shim.pid, signal.SIGKILL)
             shim.wait(10)
+
+
+@case("a command case's relay runtime dir is scratch, never the checkout's workspace: a hosting account's .gzcoord is not read")
+def _():
+    env = P.cmd_env(CLAUDE_BRIDGE_URL="http://127.0.0.1:1", GZCOORD_CHANNEL="fixture:chan")
+    r = subprocess.run([PYTHON, "-I", "-c", "import sys; sys.path.insert(0, sys.argv[1]); from gzcoord import inbox; "
+                        "print(inbox.relay_runtime_dir(inbox.integration_config(None)))", os.path.join(HERE, "tools", "fabric")],
+                       env=env, capture_output=True, text=True, timeout=30)
+    eq(r.returncode, 0, r.stderr)
+    runtime = r.stdout.strip()
+    ok(runtime.startswith(os.path.realpath(tempfile.gettempdir())) or runtime.startswith(tempfile.gettempdir()), runtime)
+    ok(not runtime.startswith(os.path.dirname(os.path.realpath(HERE)) + os.sep), f"the checkout's workspace: {runtime}")
 
 
 # ── 5. the port's own departures ─────────────────────────────────────
