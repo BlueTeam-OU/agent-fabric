@@ -13,9 +13,9 @@
 locale_carve_out_paths() {
     local merge_head; merge_head="$(git rev-parse -q --verify MERGE_HEAD 2>/dev/null)" || merge_head=""
     if [[ -n "$merge_head" ]]; then
-        git diff --cached --name-only --diff-filter=ACDMRT "$merge_head" 2>/dev/null
+        git diff --cached --no-renames --name-only --diff-filter=ACDMRT "$merge_head" 2>/dev/null
     else
-        git diff --cached --name-only --diff-filter=ACDMRT 2>/dev/null
+        git diff --cached --no-renames --name-only --diff-filter=ACDMRT 2>/dev/null
     fi
 }
 locale_carve_out_role() {

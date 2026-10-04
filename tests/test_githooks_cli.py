@@ -404,6 +404,23 @@ def run() -> None:
           "a merge that drops one side's guarded change was admitted")
     git("merge", "--abort"); git("reset", "-q", "--hard")
 
+    section("with no clean three-way merge to compare (an octopus), a merge is judged against every parent")
+    # merge-tree takes two parents; an octopus falls back. An `-s ours`
+    # octopus stages exactly HEAD's tree, so judging against HEAD alone
+    # waved it through (review of #96).
+    bind("fabric-coordinator")
+    # From the commit before main's drain, so neither head contains the
+    # other and git keeps all three parents (from main itself, git would
+    # reduce it to an ordinary two-parent merge).
+    git("checkout", "-q", "-b", "second", git("merge-base", "carrier", main_name)[1].strip())
+    if try_commit(".agent-fabric/memory/backend-dev/other.md", "a second drain") != 0:
+        check("setup: a second drain", False, err)
+    git("checkout", "-q", "carrier"); bind("devex-tooling")
+    rc = commit_rc("merge", "-q", "--no-ff", "-s", "ours", "-m", "octopus keeping ours", main_name, "second")
+    check("devex-tooling bound: an `-s ours` octopus that drops both drains is refused, by the fence", rc == 1
+          and has(r"binding holds:? '?devex-tooling", err), f"rc={rc}\n{err}")
+    git("merge", "--abort"); git("reset", "-q", "--hard")
+
     section("the attribution ban still holds on the same hook")
     bind("fabric-coordinator"); new_repo()
     check("Co-authored-by is still refused",

@@ -185,7 +185,7 @@ def main() -> int:
         check("dependabot outside .github/workflows/ is refused", rc == 1)
         sh(rr, "reset", "-q", "--hard", "HEAD~1")
 
-        print("merge commits are not examined; their parents are")
+        print("a clean fold is no change of its own; its parents are judged")
         sh(rr, "checkout", "-q", "-b", "side", "main")
         commit(".agent-fabric/s.md", "side\n\nFabric-Role: fabric-coordinator")
         sh(rr, "checkout", "-q", "work")
@@ -282,15 +282,41 @@ def main() -> int:
         check("a workflows-only commit by another author is refused", rc == 1)
         sh(rr, "reset", "-q", "--hard", "HEAD~1")
 
-        # Path-limited listing drops merges by history simplification, so only
-        # here, with every commit examined, does --no-merges have work to do.
+        # In agent-fabric itself every path is guarded: a clean fold of a
+        # side branch is no change of its own and needs no trailer; the
+        # commits it brings are judged on their own.
         sh(rr, "checkout", "-q", "-b", "side", "main")
         commit("policies/notes.md", "side\n\nFabric-Role: fabric-coordinator")
         sh(rr, "checkout", "-q", "work")
         commit("policies/other.md", "own\n\nFabric-Role: fabric-coordinator")
         sh(rr, "merge", "-q", "--no-ff", "-m", "merge without trailer", "side")
         rc, o, _ = run()
-        check("a merge commit is not examined in agent-fabric itself", rc == 0 and "4 commit(s)" in o)
+        check("a clean fold is no change of its own in agent-fabric itself", rc == 0 and "4 commit(s)" in o)
+
+        print("in agent-fabric itself, a merge's own change is judged like a commit (review of #96)")
+        sh(rr, "checkout", "-q", "-b", "side4", "main")
+        commit("src/s4.py", "side4\n\nFabric-Role: fabric-coordinator")
+        sh(rr, "checkout", "-q", "work")
+        sh(rr, "merge", "-q", "--no-ff", "--no-commit", "side4")
+        with open(os.path.join(rr, "policies/other.md"), "a") as fh:
+            fh.write("by hand\n")
+        sh(rr, "add", "-A")
+        sh(rr, "commit", "-q", "-m", "fold plus a hand edit, no trailer")
+        rc, _, e = run()
+        check("a merge carrying an undeclared hand edit is refused in agent-fabric itself",
+              rc == 1 and "fold plus a hand edit" in e)
+        sh(rr, "reset", "-q", "--hard", "HEAD~1")
+        # A move out of a guarded path into a locale, made in the merge and
+        # declared as the locale's role: with renames detected only the
+        # destination showed, and the locale carve-out admitted it.
+        sh(rr, "merge", "-q", "--no-ff", "--no-commit", "side4")
+        os.makedirs(os.path.join(rr, "identities/roles/x/locale/it"), exist_ok=True)
+        sh(rr, "mv", "policies/other.md", "identities/roles/x/locale/it/b.md")
+        sh(rr, "commit", "-q", "-m", "fold that moves a policy into a locale\n\nFabric-Role: x")
+        rc, _, e = run()
+        check("a merge that moves a guarded file into a locale is not the locale carve-out",
+              rc == 1 and "moves a policy into a locale" in e)
+        sh(rr, "reset", "-q", "--hard", "HEAD~1")
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 

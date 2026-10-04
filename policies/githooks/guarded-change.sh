@@ -25,9 +25,9 @@ guarded_change() {
         guarded_what=".agent-fabric/"; prefix=".agent-fabric/"
     fi
     if [[ -n "$prefix" ]]; then
-        mapfile -t guarded < <(git diff --cached --name-only --diff-filter=ACDMRT -- "$prefix" 2>/dev/null)
+        mapfile -t guarded < <(git diff --cached --no-renames --name-only --diff-filter=ACDMRT -- "$prefix" 2>/dev/null)
     else
-        mapfile -t guarded < <(git diff --cached --name-only --diff-filter=ACDMRT 2>/dev/null)
+        mapfile -t guarded < <(git diff --cached --no-renames --name-only --diff-filter=ACDMRT 2>/dev/null)
     fi
     local merge_head; merge_head="$(git rev-parse -q --verify MERGE_HEAD 2>/dev/null)" || merge_head=""
     if [[ -z "$merge_head" ]]; then
@@ -41,19 +41,24 @@ guarded_change() {
     # A merge in progress: its own change is what the staged tree differs
     # by from the clean merge of HEAD and MERGE_HEAD — judged even when
     # nothing differs from HEAD, since keeping HEAD's guarded tree while
-    # the other side moved it drops landed changes. An octopus merge, or
-    # a merge-tree that cannot run (git older than 2.38), keeps what is
-    # staged against HEAD: judged as any commit, never waved through.
-    [[ "$(wc -l < "$(git rev-parse --git-path MERGE_HEAD)" 2>/dev/null)" -eq 1 ]] || return 0
+    # the other side moved it drops landed changes. Without that clean
+    # merge (an octopus merge, a git older than 2.38) the merge is judged
+    # against EVERY parent: whatever differs from any of them counts, so
+    # an `-s ours` merge is not waved through (review of #96). Renames are
+    # off, so a move out of a guarded path shows its source.
     staged_tree="$(git write-tree 2>/dev/null)" || return 0
+    local -a against=()
     local clean rc
-    clean="$(git merge-tree --write-tree HEAD "$merge_head" 2>/dev/null)"; rc=$?
-    (( rc == 0 || rc == 1 )) || return 0   # 1: conflicts; the tree still carries every clean path
-    clean="${clean%%$'\n'*}"
-    [[ "$clean" =~ ^[0-9a-f]{40,64}$ ]] || return 0
-    if [[ -n "$prefix" ]]; then
-        mapfile -t guarded < <(git diff --name-only "$clean" "$staged_tree" -- "$prefix" 2>/dev/null)
-    else
-        mapfile -t guarded < <(git diff --name-only "$clean" "$staged_tree" 2>/dev/null)
+    if [[ "$(grep -c . "$(git rev-parse --git-path MERGE_HEAD)" 2>/dev/null)" -eq 1 ]]; then
+        clean="$(git merge-tree --write-tree HEAD "$merge_head" 2>/dev/null)"; rc=$?
+        clean="${clean%%$'\n'*}"
+        (( rc == 0 || rc == 1 )) && [[ "$clean" =~ ^[0-9a-f]{40,64}$ ]] && against=("$clean")
     fi
+    if (( ${#against[@]} == 0 )); then
+        mapfile -t against < <(git rev-parse HEAD 2>/dev/null; git rev-parse $(cat "$(git rev-parse --git-path MERGE_HEAD)" 2>/dev/null) 2>/dev/null)
+    fi
+    local -a scope=(); [[ -n "$prefix" ]] && scope=(-- "$prefix")
+    mapfile -t guarded < <(for a in "${against[@]}"; do
+        git diff --no-renames --name-only "$a" "$staged_tree" "${scope[@]}" 2>/dev/null
+    done | sort -u)
 }

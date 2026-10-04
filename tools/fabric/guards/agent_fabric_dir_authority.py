@@ -213,20 +213,27 @@ def merge_own_change(top: str, commit: str, prefix: str) -> list[str]:
     sides moved the guarded tree; a conflict resolution or a hand edit is
     exactly the paths it touched. The commit hook judges a merge the same
     way (policies/githooks/guarded-change.sh); the two must agree. An
-    octopus merge, or a merge-tree that cannot run, counts everything the
-    merge changes against its first parent: judged, never waved through."""
+    octopus merge, or a merge-tree that cannot run, is judged against
+    EVERY parent — what differs from any of them counts — so an
+    `-s ours` merge is not waved through. Renames are off: a move out of
+    a guarded path shows its source, as diff-tree does for a commit
+    (review of #96: a rename into a locale passed the carve-out)."""
     scope = ["--", prefix] if prefix else []
     parents = git.run(top, "rev-parse", f"{commit}^@", check=False).stdout.split()
-    clean = ""
+    if not parents:
+        return ["(a merge with no parent to compare)"]
+    against: list[str] = []
     if len(parents) == 2:
         r = git.run(top, "merge-tree", "--write-tree", parents[0], parents[1], check=False)
         if r.returncode in (0, 1):   # 1: conflicts; the tree still carries every clean path
             head = (r.stdout.splitlines() or [""])[0].strip()
-            clean = head if re.fullmatch(r"[0-9a-f]{40,64}", head) else ""
-    against = clean or (parents[0] if parents else "")
-    if not against:
-        return ["(a merge with no parent to compare)"]
-    return common.lines_of(git.run(top, "diff", "--name-only", against, commit, *scope, check=False).stdout)
+            if re.fullmatch(r"[0-9a-f]{40,64}", head):
+                against = [head]
+    changed: set[str] = set()
+    for a in against or parents:
+        changed.update(common.lines_of(git.run(top, "diff", "--no-renames", "--name-only", a, commit, *scope,
+                                               check=False).stdout))
+    return sorted(changed)
 
 
 def merges_to_examine(top: str, base: str) -> list[str]:
