@@ -222,8 +222,9 @@ def values_digest(values: dict[str, str], known: list[str]) -> str:
     """sha256 over every name sync applies and its value, in a canonical
     form, the SSH key and the git strings included, which secrets.env does
     not carry: two syncs applied the same values when it is equal. Only
-    the hash is printed."""
-    applied = {n: values[n] for n in known if n in values}
+    the hash is printed. STORE_ONLY is known but never applied, so not in
+    it (review of #96)."""
+    applied = {n: values[n] for n in known if n in values and n not in STORE_ONLY}
     return hashlib.sha256(json.dumps(applied, sort_keys=True).encode()).hexdigest()
 
 
