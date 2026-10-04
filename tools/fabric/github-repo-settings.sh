@@ -7,8 +7,11 @@
 #   tools/fabric/github-repo-settings.sh [owner/repo]     # default: gzapi-org/agent-fabric
 #   tools/fabric/github-repo-settings.sh --show [owner/repo]
 #
-# Idempotent: every call sets the documented value. It never touches
-# secrets (there are none), rules (there are none) or collaborators.
+# Idempotent: every call sets the documented value. The ruleset on main
+# is tools/fabric/github-ruleset-main.json, created or updated by name;
+# its required checks are the CI job names GitHub reports, so a job
+# renamed in .github/workflows/ci.yml is renamed there too, or no PR can
+# merge. It never touches secrets (there are none) or collaborators.
 set -euo pipefail
 show=0; [[ "${1:-}" == "--show" ]] && { show=1; shift; }
 REPO="${1:-gzapi-org/agent-fabric}"
@@ -16,6 +19,7 @@ if (( show )); then
     gh api "repos/$REPO" --jq '{visibility, default_branch, description, has_issues, has_projects, has_wiki, has_discussions, allow_merge_commit, allow_squash_merge, allow_rebase_merge, allow_auto_merge, delete_branch_on_merge, allow_update_branch, merge_commit_title, merge_commit_message, squash_merge_commit_title, squash_merge_commit_message, web_commit_signoff_required}'
     gh api "repos/$REPO/actions/permissions" --jq '{actions_enabled: .enabled, allowed_actions}'
     gh api "repos/$REPO/actions/permissions/workflow" --jq '{default_workflow_permissions, can_approve_pull_request_reviews}'
+    gh api "repos/$REPO/rules/branches/main" --jq '[.[].type]'
     exit 0
 fi
 gh api -X PATCH "repos/$REPO" \
@@ -23,10 +27,20 @@ gh api -X PATCH "repos/$REPO" \
     -f default_branch=main \
     -F has_issues=true -F has_projects=true -F has_wiki=true -F has_discussions=false \
     -F allow_merge_commit=true -F allow_squash_merge=true -F allow_rebase_merge=true \
-    -F allow_auto_merge=false -F delete_branch_on_merge=false -F allow_update_branch=false \
+    -F allow_auto_merge=true -F delete_branch_on_merge=false -F allow_update_branch=false \
     -f merge_commit_title=MERGE_MESSAGE -f merge_commit_message=PR_TITLE \
     -f squash_merge_commit_title=COMMIT_OR_PR_TITLE -f squash_merge_commit_message=COMMIT_MESSAGES \
     -F web_commit_signoff_required=false >/dev/null
 gh api -X PUT "repos/$REPO/actions/permissions" -F enabled=true -f allowed_actions=all >/dev/null
 gh api -X PUT "repos/$REPO/actions/permissions/workflow" -f default_workflow_permissions=read -F can_approve_pull_request_reviews=false >/dev/null
+# The ruleset: required checks and a pull request on main (ADR-019 rule 6),
+# so auto-merge waits for green and nothing reaches main another way.
+RULESET="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/github-ruleset-main.json"
+name="$(jq -r .name "$RULESET")"
+id="$(gh api "repos/$REPO/rulesets" --jq ".[] | select(.name == \"$name\") | .id" | head -1)"
+if [[ -n "$id" ]]; then
+    gh api -X PUT "repos/$REPO/rulesets/$id" --input "$RULESET" >/dev/null
+else
+    gh api -X POST "repos/$REPO/rulesets" --input "$RULESET" >/dev/null
+fi
 echo "github-repo-settings: applied to $REPO (docs/adr/ADR-019-work-arrives-as-pull-requests.md)"

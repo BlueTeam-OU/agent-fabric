@@ -415,6 +415,8 @@ its record disagree, the record wins. Look it up, never read it whole:
   on agent-fabric arming is the merge (§5 rules 5–6).
 - No `Co-authored-by:`/`Claude-Session:` trailer, footer or session URL
   in commits or PR descriptions (§5 rule 7). GitHub settings: §6.
+- A 2026-10-04 — `main` is protected: a ruleset requires a pull request,
+  the CI checks and signed commits; auto-merge waits for green (§5 rule 6).
 - Keywords: pull request, PR, arm, merge, band, work commits, Answers,
   pr-gate, MERGEABLE, one open PR, attribution, Co-authored-by, CodeQL,
   repository settings, auto-merge.

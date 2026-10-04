@@ -111,12 +111,15 @@ not on a pipe's exit status.
    findings; the session also has no open P1 or P2 finding before it arms
    (`identities/prompt/team.md`). Arming is a separate command, run on a
    verdict read — never chained behind the gate's own run.
-6. What arming is depends on the repository. agent-fabric has auto-merge
-   off, no ruleset, no branch protection and no merge queue, so a PR there
-   is armed by merging it, and every merge is made from the one GitHub
-   account every session uses; a PR that introduces a new direction is
-   merged only on the owner's word (ADR-001 §5 rule 2). A managed project
-   with auto-merge and a merge queue is armed with `gh pr merge --auto`.
+6. What arming is depends on the repository. agent-fabric's `main` is
+   held by a ruleset (`tools/fabric/github-ruleset-main.json`): a pull
+   request, the CI checks and signed commits are required, and deletion
+   and force-pushes are refused. With auto-merge on, a PR there is armed
+   with `gh pr merge --auto --merge`, which waits for green; every merge
+   is made from the one GitHub account every session uses, and a PR that
+   introduces a new direction is merged only on the owner's word (ADR-001
+   §5 rule 2). A managed project with a merge queue is armed with its own
+   `tools/gh/arm.sh`.
 7. No commit message or PR description carries `Co-authored-by:` or
    `Claude-Session:` as a trailer, a "Generated with Claude Code" footer or
    a session URL: `policies/githooks/commit-msg` refuses the message,
@@ -136,9 +139,10 @@ not on a pipe's exit status.
   | description | "Control plane for the agents working on sibling repositories: identities, roles, memory, model routing, messaging." |
   | features | issues, projects, wiki on; discussions off |
   | merge methods | merge commit (title `MERGE_MESSAGE`, message `PR_TITLE`), squash (`COMMIT_OR_PR_TITLE`, `COMMIT_MESSAGES`), rebase — all allowed |
-  | auto-merge, delete branch on merge, suggest updating branches | off |
+  | auto-merge | on (it waits for the ruleset's required checks) |
+  | delete branch on merge, suggest updating branches | off |
   | web commit sign-off | not required |
-  | rulesets, branch protection, merge queue | none |
+  | ruleset on `main` | `tools/fabric/github-ruleset-main.json`: deletion and force-push refused; a pull request (merge commits only, no approval count); the CI jobs `static`, `guards-and-suites` (8) and `platform-smoke` (2) required; signed commits required. No merge queue, no branch protection beside it |
   | Actions | enabled, all actions allowed, SHA pinning not required; default workflow permissions read, may not approve pull requests |
   | secrets, variables, environments, self-hosted runners | none |
   | code scanning | CodeQL default setup (actions, JavaScript/TypeScript, Python), weekly and on every PR |
@@ -165,8 +169,10 @@ not on a pipe's exit status.
   context `ci / guards-and-suites`; the first no longer holds (§1), the
   second was changed on GitHub, the third is not a name GitHub reports.
   `github-repo-settings.sh` now writes the live description.
-- A ruleset requiring the CI checks and a pull request on `main` would
-  turn rule 1 into a fence; not decided.
+- The required checks are the CI job names GitHub reports, two of them
+  truncated matrix names: a job renamed or a matrix argument changed in
+  `.github/workflows/ci.yml` blocks every merge until the ruleset names
+  it. One aggregate job required alone would remove that coupling.
 
 ## 8. Decision Status
 
@@ -185,3 +191,11 @@ band, one open PR per agent. The settings note is now a stub pointing here.
   `.agent-fabric/memory/fabric-coordinator/workflow/check-exit-status-not-pipe.md`.
 - ADR-000 (P3), ADR-001 (ratification by merge), ADR-008 (attribution in
   user settings), ADR-011 (fabric-ref), ADR-018 (the commit-time guards).
+
+## Amendments
+
+The body above reads current; each change's full note is in [history/ADR-019-amendments.md](history/ADR-019-amendments.md).
+
+| Date | Amendment | Effect |
+|---|---|---|
+| 2026-10-04 | `main` is protected | §5 rule 6, §6: a ruleset requires a pull request, the CI checks and signed commits; auto-merge on, so arming waits for green |
