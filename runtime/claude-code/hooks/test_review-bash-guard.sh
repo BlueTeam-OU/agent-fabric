@@ -74,6 +74,24 @@ done
 for c in "grep -rn x tools${nl}git log -1" "grep -rn secrets.env tools" 'grep -rn "secrets.env" tools # where it is read'; do
   expect "allowed: $c" allow "$c"
 done
+echo "a search may not run a pager or reach a home through a glob (#96 round 6)"
+for c in "git grep -O'less;true' -e x" 'git grep --open-files-in-pager=less x' 'grep -rn x /h*/*/.config/agent-fabric/' 'grep -r . /h??e/*/.config/agent-fabric/secrets.env' 'grep -r TOKEN /home/user/.c*' 'grep -r TOKEN ~/.[a-z]*'; do
+  expect "denied: $c" deny "$c"
+done
+for c in 'grep -rn x tools/*.py' 'grep -n x /home/user/projects/agent-fabric/tools/*.py' 'git log -1 --format=%H'; do
+  expect "allowed: $c" allow "$c"
+done
+echo "Python backtracks where grep did not: a crafted command is judged in time, and a late verdict is a deny (CodeQL on #96)"
+tabs=$'\t'
+long_git="git"; long_env="env${tabs}"; for _ in $(seq 3000); do long_git+="${tabs}--"; long_env+="-C${tabs}--${tabs}"; done
+expect "allowed in time: git followed by 3000 options" allow "${long_git}!"
+expect "allowed in time: env -C -- repeated 3000 times, then text" allow "${long_env}!"
+out="$(jq -nc '{tool_input:{command:"ls"}}' | AGENT_FABRIC_REVIEW_GUARD_BUDGET=0 bash "$UNDER_TEST" 2>/dev/null)"
+if printf '%s' "$out" | jq -e '.hookSpecificOutput.permissionDecision == "deny"' >/dev/null 2>&1; then
+  pass "a verdict later than the budget is a deny, even for ls"
+else
+  fail "a verdict later than the budget is a deny, even for ls" "out=[$out]"
+fi
 echo "running in a clean environment, and searching code for the word, stay allowed"
 for c in 'env -i HOME=/tmp/x PATH=/usr/bin python3 tools/fabric/lint.py' 'env -u AGENT_FABRIC_ROOT python3 tests/test_lint.py' 'env LC_ALL=C sort file' 'grep -rn "secrets.env" tools/fabric' 'grep -rn FABRIC_CONTROL_SIGNING_KEY runtime/control' 'set -euo pipefail' 'export FOO=bar && make' 'echo $HOME' 'echo ${PATH}' 'python3 -c "import os; print(os.environ.get(\"HOME\"))"' 'fabric-secrets status' 'git log -p -- tools/fabric/secret_store.py' 'grep -rn ".gnupg" tools' 'grep -rn ".password-store" tools' 'rg -n secret_store tools' 'git grep -n process.env runtime' 'git show HEAD:tools/fabric/secrets_sync.py' 'ps aux' 'ps -ef' 'cat .env.example' 'ls tests' 'python3 -c "import os; print(os.environ[\\"HOME\\"])"' 'node -e "console.log(process.env.HOME)"' 'grep -rn "secrets.env" tools | head' 'git grep -n process.env runtime | wc -l' 'grep -E "foo|bar" tools' 'git config --get user.name' 'git config --list' 'git log -c -1' 'grep -c x README.md' 'git -C /home/user/projects/agent-fabric log -1' 'grep -rn x /home/user/projects/agent-fabric/tools' 'rg -n TOKEN /home/user/projects/agent-fabric/runtime'; do
   expect "allowed: $c" allow "$c"
