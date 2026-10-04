@@ -34,6 +34,14 @@ echo "shell escapes, path-qualified git and in-place writes are denied"
 for c in 'bash -c "git push"' 'sh -c git\ push' 'eval "git push"' 'exec git push' '/usr/bin/git push' 'sed -i s/a/b/ CLAUDE.md' 'sed --in-place -e x f' 'echo x > CLAUDE.md' 'echo x >> notes.md' 'tee out.txt' 'rm -rf apps' 'mv a b' 'cp a b' 'ls > /tmp/out'; do
   expect "denied: $c" deny "$c"
 done
+echo "the environment and secret material are denied (2026-10-04: a reviewer printed the signing key)"
+for c in 'env' 'env | grep -i fabric' 'env -u PATH' '/usr/bin/env' 'printenv' 'printenv GH_TOKEN' 'ls; printenv' 'set' 'set | head' 'export' 'export -p' 'declare -p' 'declare -px' 'typeset -x' 'compgen -v' 'echo $GH_TOKEN' 'printf %s "${FABRIC_CONTROL_SIGNING_KEY}"' 'echo $OPENROUTER_API_KEY | wc -c' 'echo $CLAUDE_BRIDGE_AUTH_TOKEN' 'cat ~/.config/agent-fabric/secrets.env' 'grep -c export $HOME/.config/agent-fabric/secrets.env' 'ls ~/.local/share/agent-fabric/secrets' 'git -C ~/.local/share/agent-fabric/children/x log' 'cat /proc/self/environ' 'tr "\\0" "\\n" < /proc/1234/environ' 'ls ~/.password-store' 'gpg --export-secret-keys' 'ls ~/.gnupg' 'pass show x' 'fabric-secrets store get GH_TOKEN' 'python3 -c "import os; print(os.environ)"' 'node -e "console.log(process.env)"' 'python3 -c "import json,os; print(json.dumps(dict(os.environ)))"'; do
+  expect "denied: $c" deny "$c"
+done
+echo "running in a clean environment, and searching code for the word, stay allowed"
+for c in 'env -i HOME=/tmp/x PATH=/usr/bin python3 tools/fabric/lint.py' 'env -u AGENT_FABRIC_ROOT python3 tests/test_lint.py' 'env LC_ALL=C sort file' 'grep -rn "secrets.env" tools/fabric' 'grep -rn FABRIC_CONTROL_SIGNING_KEY runtime/control' 'set -euo pipefail' 'export FOO=bar && make' 'echo $HOME' 'echo ${PATH}' 'python3 -c "import os; print(os.environ.get(\"HOME\"))"' 'fabric-secrets status' 'git log -p -- tools/fabric/secret_store.py'; do
+  expect "allowed: $c" allow "$c"
+done
 echo "read-only git and no-install builds are allowed"
 for c in 'git log --oneline -5' 'git show HEAD:CLAUDE.md' 'git diff origin/main..HEAD' 'git blame -L 1,5 file' 'git status --short' 'git rev-parse HEAD' 'git branch --show-current' 'git remote -v' 'git worktree list' 'git tag --list' 'dotnet build Gzapp.sln -c Release --no-restore' 'dotnet test Gzapp.sln --no-restore' 'pnpm --filter admin_web test' 'flutter analyze' 'flutter test' 'node tools/validate_contracts/validate.js' 'bash tools/checks/scan_semantic_collisions.sh' 'grep -rn gitadd .' 'echo "git push is banned"' 'cat docs/git-pushing.md' 'dotnet test 2>/dev/null' 'ls >/dev/null 2>&1' 'cmd 2>&1 | head' 'git diff origin/main..HEAD > /dev/null'; do
   expect "allowed: $c" allow "$c"
