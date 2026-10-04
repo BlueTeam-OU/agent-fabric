@@ -1447,6 +1447,16 @@ def case_arm_boundary_cases_only_leave_retired() -> None:
         arm(["src/a.rs", "lib/key.rs"], exempt="^docs/|^vendor/",
             changes={"vendor exempt": "vendored docs only; gzapi-org/InterWeave#177"})
         assert lint.arm_boundary_findings(root, base_ref="base") == [], "a recorded change: clean"
+        arm(["src/a.rs", "lib/key.rs"], exempt="^docs/|^vendor/",
+            changes={"vendor exempt": "vendored docs only; architect-cto, #177"})
+        assert lint.arm_boundary_findings(root, base_ref="base") == [], "a bare #N is a locator"
+        arm(["src/a.rs", "lib/key.rs"], exempt="^docs/|^vendor/|^third/",
+            changes={"vendor exempt": "vendored docs only; architect-cto, seq 2", "third exempt": "same again"})
+        assert any("changed with no new" in f for f in lint.arm_boundary_findings(root, base_ref="base")), \
+            "a second new entry riding on the first's locator (#91's review)"
+        arm(["src/a.rs"], paths="^src/")
+        assert lint.arm_boundary_findings(root, base_ref="no-such-ref") == [], \
+            "without a base (a project CI's depth-1 fabric checkout), nothing is compared"
 
 
 def case_bash_over_150_lines_needs_the_allowlist() -> None:

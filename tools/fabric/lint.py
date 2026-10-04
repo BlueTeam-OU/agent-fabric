@@ -1662,6 +1662,11 @@ def arm_boundary_findings(root: str, base_ref: str = "origin/main") -> list[str]
         mb = _git().run(root, "merge-base", "HEAD", base_ref, check=False, timeout=60)
         since = mb.stdout.strip() if mb.returncode == 0 and mb.stdout.strip() else base_ref
         base = _git().run(root, "show", f"{since}:{rel}", check=False, timeout=60)
+        # No base, no comparison, and no finding: a managed project's CI runs
+        # this lint on a depth-1 checkout of the fabric at its pinned ref,
+        # with no origin/main, and a finding there would fail every project
+        # PR. The fabric's own CI fetches full history, so a branch here is
+        # always compared (#91's review asked; carried to the next PR).
         if base.returncode == 0:
             try:
                 before = json.loads(base.stdout)["boundary"].get("cases") or []
@@ -1681,7 +1686,10 @@ def arm_boundary_findings(root: str, base_ref: str = "origin/main") -> list[str]
                 now_changes = b.get("changes") if isinstance(b.get("changes"), dict) else {}
                 old_changes = base_b.get("changes") if isinstance(base_b.get("changes"), dict) else {}
                 added = {k: v for k, v in now_changes.items() if k not in old_changes}
-                if not any(_boundary_record_ok(v) for v in added.values()):
+                # Every new entry cites its approval, not just one of them: a
+                # second change riding on the first's record is unrecorded
+                # (#91's review).
+                if not added or not all(_boundary_record_ok(v) for v in added.values()):
                     findings.append(f"{rel}: boundary.paths or boundary.exempt changed with no new "
                                     "boundary.changes entry (why, and whose word, citing a message id, a PR #N "
                                     "or a relay seq)")
