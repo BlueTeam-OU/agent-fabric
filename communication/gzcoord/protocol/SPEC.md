@@ -211,6 +211,14 @@ REPLY-EXPECTED: yes | no
 
 Optional. Each message type carries a default expectation (SEMANTICS.md, "When a reply is expected"); this field overrides it for one message — an `OBSERVATION` that is purely for information, an `INFO` that asks to be corrected. `no` means the sender will not wait for a reply and does not want one; the recipient may still act, and says so through the authoritative artifact. Like the correlation fields, it MUST NOT create workflow state: it is a courtesy to whoever carries the message, not a constraint on the recipient.
 
+### 7.5 Boundary waiver
+
+```text
+WAIVES: <owner>/<repository>#<pull request>@<head commit>
+```
+
+Optional. A role that a project names to waive its arming boundary (the `waiver_role` of the project's arm rules) writes it on a `DECISION` or a `REPLY` addressed `TO` the session that will arm, to say that this pull request, at this head, may be armed although it touches a path the boundary holds back. The head commit is 8 to 40 hexadecimal digits. The value names one head: a push after it is a new head and needs a new waiver. Only the metadata line counts; the same text in a section is a quotation, never a waiver, so a decline that quotes the line waives nothing. A validator does not check the value; the arming tool reads it, refuses one of any other shape, and checks the sender against the role. Like the correlation fields, it MUST NOT create workflow state: what the waiver permits is decided by the arming tool, and the merge remains the authority.
+
 ## 8. HELLO and GOODBYE (retired)
 
 `HELLO` and `GOODBYE` were self-announcements: an instance said it had started, and that it was leaving. They were deprecated when presence became the deployment's to answer (§5), and are retired: no instance sends them, and a conforming parser rejects a message of either type, naming the type as retired (§18). This narrows the accepted set as §18 allows — a reader of an earlier GZCOORD/1 text still accepts every message a sender of this one emits. The section number is kept so that every citation of §9 onwards keeps its target.

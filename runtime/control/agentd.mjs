@@ -52,7 +52,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { whoami, FABRIC_ROOT, api, syncedToken, identity as gzIdentity, integrationConfig, inboxRoot, token as gzToken } from './gzcoord.mjs';
-import { OPS, PUBLIC_OPS, collect, usage, accounts, accountSlugs, accountsDir } from './ops.mjs';
+import { OPS, PUBLIC_OPS, collect, usage, accounts, accountSlugs, accountsDir, disk } from './ops.mjs';
 import { jobsAdd } from './jobs.mjs';
 import { ACTION_OPS, ACTION_TTL_MAX_S, publicKeyFrom, verifyRequest } from './sign.mjs';
 import { upgrade, stateDir } from './upgrade.mjs';
@@ -78,6 +78,15 @@ export function accountsKeeper(read = () => accounts(), { now = Date.now, cacheM
   const cached = () => (last && now() - at < cacheMs) ? Promise.resolve(last) : refresh();
   return { refresh, cached };
 }
+
+// Reads that run beside the read loop, like the actions: each can take
+// minutes, and the loop must keep answering behind it.
+export const BESIDE_LOOP_OPS = ['disk'];
+// One disk scan per daemon, shared by every request that arrives while it
+// runs, and its answer kept a minute: any placed account may post the read
+// unsigned, and fifty requests started a hundred du (review of #92,
+// round 4). The keeper is accountsKeeper's: one read in flight at a time.
+export const DISK_CACHE_MS = 60000;
 
 export function controlConfig(env = process.env, file = path.join(HERE, 'config.json')) {
   let own = {};
@@ -198,7 +207,8 @@ export function watchSource(onChange, dirs = [HERE]) {
 // fired the moment an `upgrade fabric` pulled this daemon's own code, and
 // exiting then killed the process before it posted the reply the operator
 // was waiting for. request() asks to leave; settle() is called as each
-// action finishes, and leaves once none is left.
+// action finishes, and leaves once none is left. A disk read runs there
+// too (BESIDE_LOOP_OPS), so a restart also waits for a scan in flight.
 export function leaver({ inflight, exit = code => process.exit(code), log = m => console.error(m) }) {
   let why = null;
   const settle = () => {
@@ -245,7 +255,8 @@ export async function main(argv = process.argv.slice(2)) {
   let usageAt = 0, usageLast = null;
   const usageCached = async () => { if (Date.now() - usageAt > USAGE_CACHE_MS) { usageLast = await usage(); usageAt = Date.now(); } return usageLast; };
   const keeper = accountsKeeper();
-  const ctx = { me, started, usageCached, accountsCached: keeper.cached };   // no `who`: identity() resolves it per request
+  const diskKeeper = accountsKeeper(() => disk(), { cacheMs: DISK_CACHE_MS });
+  const ctx = { me, started, usageCached, accountsCached: keeper.cached, diskCached: diskKeeper.cached };   // no `who`: identity() resolves it per request
   if (self) { const { _followups, ...r } = await answer({ id: 'self', op: 'status' }, ctx); console.log(JSON.stringify(r, null, 2)); return 0; }
 
   const root = inboxRoot(who);
@@ -255,7 +266,7 @@ export async function main(argv = process.argv.slice(2)) {
   if (operatorAddresses().size === 0) { console.error('agentd: no host operator in runtime/hosts/registry.json — nothing could ever be answered; not starting'); return 3; }
   const seen = new Set();
   const ledger = actionLedger();
-  const inflight = new Set();   // actions running beside the loop; --once waits for them before exiting
+  const inflight = new Set();   // actions and disk reads running beside the loop; --once and a restart wait for them
   // What is not logged: every reply on the channel (not a request), a
   // request for another account (not for me) and a duplicate (seen) —
   // fifteen daemons times fifteen replies per fabric-ctl would be noise.
@@ -317,6 +328,18 @@ export async function main(argv = process.argv.slice(2)) {
           const p = answer(a.request, ctx).then(async reply => { const { _followups, ...first } = reply; moved = first.data?.upgrade?.restart_daemon === true; await post(first); console.error(`agentd: answered ${op} for ${from} (${id.slice(0, 8)}): ${first.data?.[op]?.status ?? '?'}`); })
             .catch(e => console.error(`agentd: ${op} for ${from} failed to answer: ${e.message}`))
             .finally(() => { inflight.delete(p); if (!once) { if (moved) leave.request('the fabric moved (upgrade fabric)'); else leave.settle(); } });
+          inflight.add(p);
+          continue;
+        }
+        // A read that walks a whole home (disk) can take minutes on a large
+        // one: it answers beside the loop too, or every request behind it —
+        // a sender's presence question, which waits seconds — would go
+        // unanswered and read as silent. No ledger: it is a read.
+        if (BESIDE_LOOP_OPS.includes(a.request.op)) {
+          const { op, from, id } = a.request;
+          const p = answer(a.request, ctx).then(async reply => { const { _followups, ...first } = reply; await post(first); console.error(`agentd: answered ${op} for ${from} (${id.slice(0, 8)})`); })
+            .catch(e => console.error(`agentd: ${op} for ${from} failed to answer: ${e.message}`))
+            .finally(() => { inflight.delete(p); if (!once) leave.settle(); });
           inflight.add(p);
           continue;
         }

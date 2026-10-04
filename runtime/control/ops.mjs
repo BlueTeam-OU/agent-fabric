@@ -20,7 +20,7 @@ import zlib from 'node:zlib';
 import { whoami, findTaxonomy, loadTaxonomy, syncedVar, holdStatus, identity as gzIdentity } from './gzcoord.mjs';
 import { jobs } from './jobs.mjs';
 
-export const OPS = ['ping', 'identity', 'usage', 'keys', 'fabric', 'session', 'script', 'recall', 'tokens', 'memory', 'host', 'accounts', 'upgrade', 'secrets-sync', 'status', 'presence', 'jobs', 'jobs-add'];
+export const OPS = ['ping', 'identity', 'usage', 'keys', 'fabric', 'session', 'script', 'recall', 'tokens', 'memory', 'host', 'disk', 'accounts', 'upgrade', 'secrets-sync', 'status', 'presence', 'jobs', 'jobs-add'];
 // Answered for any placed account, not only an operator: whether a session
 // is running is what every sender needs before it writes to one, and it
 // names nothing a relay reader could not already infer (the owner,
@@ -821,6 +821,64 @@ export async function memory(home = os.homedir(), { root = process.env.AGENT_FAB
   return { status: 'ok', bundles };
 }
 
+// The account's own home, measured: what /home's space is spent on, and by
+// whom (2026-10-04: /home on a host reached 90% and no account could say
+// whose homes held it; the owner ran sudo du by hand). Each daemon
+// measures its OWN home and nothing else: its largest top-level entries
+// and every target/ directory under ~/projects to depth 3 — names and
+// sizes only, never contents. One scan: du -xsk over the top-level entries
+// but projects/, and du -xk -d 3 over projects/, whose own line is its
+// total and whose target/ lines are the build directories (a target/
+// inside a target/ is not counted twice). The total is the sum of the
+// entries. du runs through the injected exec, bounded: one that stops at
+// its bound or reads part of a tree (exit 1 on an unreadable file) still
+// reports what it measured, the status says partial and `errors` says
+// why; a home that cannot be listed is failed, never a crash. Sizes in
+// KiB, du's own unit. du's records end in NUL (-0), never a newline: a
+// file name may hold one, and split on lines it invented entries, totals
+// and target/ paths; a record whose path is not under the home is dropped
+// (review of #92, round 4).
+export const DISK_TIMEOUT_MS = 150000;
+export const DISK_MAX_BUFFER = 64 * 1024 * 1024;
+export const DISK_TOP = 5;
+export async function disk(home = os.homedir(), { exec = execFileP, timeoutMs = DISK_TIMEOUT_MS, readdir = fs.readdirSync } = {}) {
+  let names;
+  try { names = readdir(home); }
+  catch (e) { return { status: 'failed', error: `${home} could not be listed (${e.code ?? e.message})` }; }
+  const errors = [];
+  const du = async (args, what) => {
+    let text = '';
+    try { const r = await exec('du', args, { encoding: 'utf8', timeout: timeoutMs, maxBuffer: DISK_MAX_BUFFER }); text = String(typeof r === 'string' ? r : r?.stdout ?? ''); }
+    catch (e) {
+      text = String(e?.stdout ?? '');
+      const why = e?.code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER' ? `du's output passed its ${DISK_MAX_BUFFER / 1048576} MiB bound`
+        : e?.killed || e?.signal ? `du stopped at its ${timeoutMs / 1000} s bound` : `du exit ${e?.code ?? '?'}`;
+      errors.push(`${what}: ${why}${text.trim() ? ', partial' : ''}`);
+    }
+    const sizes = new Map();
+    const inside = p => p === home || p.startsWith(home.endsWith(path.sep) ? home : home + path.sep);
+    for (const rec of text.split('\0')) {
+      const m = /^(\d+)\t([\s\S]+)$/.exec(rec.replace(/^\n+/, ''));
+      if (m && inside(m[2])) sizes.set(m[2], Number(m[1]));
+    }
+    return sizes;
+  };
+  const projects = path.join(home, 'projects');
+  const others = names.filter(n => n !== 'projects').map(n => path.join(home, n));
+  const [entries, tree] = await Promise.all([
+    others.length ? du(['-0', '-xsk', '--', ...others], 'home entries') : Promise.resolve(new Map()),
+    names.includes('projects') ? du(['-0', '-xk', '--max-depth=3', '--', projects], 'projects') : Promise.resolve(new Map()),
+  ]);
+  const largest = [...entries].map(([p, kb]) => ({ name: path.basename(p), kb }));
+  if (tree.has(projects)) largest.push({ name: 'projects', kb: tree.get(projects) });
+  largest.sort((a, b) => b.kb - a.kb);
+  const targets = [...tree].filter(([p]) => path.basename(p) === 'target' && !path.relative(projects, path.dirname(p)).split(path.sep).includes('target'))
+    .map(([p, kb]) => ({ path: path.relative(home, p), kb })).sort((a, b) => b.kb - a.kb);
+  return { status: errors.length ? 'partial' : 'ok', home, total_kb: largest.reduce((n, e) => n + e.kb, 0),
+           largest: largest.slice(0, DISK_TOP), targets, targets_kb: targets.reduce((n, t) => n + t.kb, 0),
+           ...(errors.length ? { errors } : {}) };
+}
+
 // Everything, for `status`; the sections a request names, otherwise.
 export async function collect(op, ctx = {}) {
   const wants = op === 'status' ? ['identity', 'usage', 'keys', 'fabric', 'session'] : op === 'tokens' ? ['identity', 'tokens'] : [op];
@@ -838,6 +896,8 @@ export async function collect(op, ctx = {}) {
     if (name === 'tokens') return guard(name, () => tokens(ctx.home, ctx.days ? { days: ctx.days } : {}));
     if (name === 'memory') return guard(name, () => memory(ctx.home, { exec: ctx.exec, all: true }));
     if (name === 'host') return guard(name, () => host(ctx.hostOpts));
+    // One scan per daemon however many ask at once (agentd's diskKeeper).
+    if (name === 'disk') return guard(name, () => ctx.diskCached ? ctx.diskCached() : disk(ctx.home, ctx.diskOpts));
     if (name === 'jobs') return guard(name, () => jobs({ home: ctx.home, root: ctx.root, ...(ctx.jobsOpts ?? {}) }));
     if (name === 'accounts') return guard(name, () => ctx.accountsCached ? ctx.accountsCached() : accounts(ctx.home, ctx.accountsOpts));
     return Promise.resolve();

@@ -2,8 +2,10 @@
 // post one request on the control channel, read the replies, print them.
 // Front door: bin/fabric-ctl.
 //
-//   fabric-ctl <login|all> [status|usage|identity|keys|fabric|session|script|recall|host|accounts|ping] [--json] [--timeout S]
+//   fabric-ctl <login|all> [status|usage|identity|keys|fabric|session|script|recall|host|disk|accounts|ping] [--json] [--timeout S]
 //   fabric-ctl <login|all> host                     the machine, one row per host: load, memory, balloon, disks, leases, largest processes
+//   fabric-ctl <login|all> disk                     each account's own home, largest first: its total, its largest entry,
+//                                                   its target/ directories under ~/projects (names and sizes, never contents)
 //   fabric-ctl <login|all> memory --out <dir>       each account's drain bundles, <dir>/<login>/<working copy>.tar
 //   fabric-ctl <login|all> upgrade claude [--version V]   an ACTION, signed with the operator's key: bring the harness
 //                                                   to the pinned version, restarting a running session (ADR-009)
@@ -91,7 +93,7 @@ export function parseArgs(argv) {
     else if (OPS.includes(a) && out.targets.length) out.op = a;
     else out.targets.push(a);
   }
-  if (out.timeout === null) out.timeout = out.op === 'ping' ? 5 : out.op === 'memory' ? 120 : out.op === 'tokens' ? 60 : out.op === 'accounts' ? 300 : out.op === 'upgrade' ? (out.piece === 'fabric' ? FABRIC_UPGRADE_BUDGET_S : UPGRADE_BUDGET_S) : out.op === 'secrets-sync' ? 240 : 20;
+  if (out.timeout === null) out.timeout = out.op === 'ping' ? 5 : out.op === 'memory' ? 120 : out.op === 'tokens' ? 60 : out.op === 'accounts' ? 300 : out.op === 'disk' ? 200 : out.op === 'upgrade' ? (out.piece === 'fabric' ? FABRIC_UPGRADE_BUDGET_S : UPGRADE_BUDGET_S) : out.op === 'secrets-sync' ? 240 : 20;
   if (out.op === 'upgrade' && !PIECES.includes(out.piece)) throw new Error(`upgrade takes a piece: ${PIECES.join(', ')}`);
   if (out.version !== null && (out.op !== 'upgrade' || !VERSION_RE.test(out.version))) throw new Error('--version takes digits.digits.digits, with upgrade only');
   if (out.version !== null && out.piece === 'fabric') throw new Error('upgrade fabric takes no --version: it moves every account to this checkout\'s origin/main');
@@ -157,7 +159,7 @@ export function rows(expected, replies) {
     return { account: e.login, host: e.host, status: 'ok', op: r.op, latency_ms: r.latency_ms ?? null,
              email: d.identity?.claude_account?.email ?? (d.identity?.claude_account?.via === 'setup-token' ? `setup-token ${d.identity.claude_account.token_sha256_12}` : null), role: d.identity?.role ?? null,
              five_hour: d.usage?.five_hour ?? null, seven_day: d.usage?.seven_day ?? null, usage_status: d.usage?.status ?? null,
-             keys: d.keys ?? null, fabric: d.fabric ?? null, session: d.session ?? null, script: d.script ?? null, recall: d.recall ?? null, tokens: d.tokens ?? null, memory: d.memory ?? null, machine: d.host ?? null, accounts: d.accounts ?? null, upgrade: d.upgrade ?? null, secretsSync: d['secrets-sync'] ?? null, presence: d.presence ?? null, jobs: d.jobs ?? null, jobsAdd: d['jobs-add'] ?? null, agentd: d.agentd ?? null };
+             keys: d.keys ?? null, fabric: d.fabric ?? null, session: d.session ?? null, script: d.script ?? null, recall: d.recall ?? null, tokens: d.tokens ?? null, memory: d.memory ?? null, machine: d.host ?? null, disk: d.disk ?? null, accounts: d.accounts ?? null, upgrade: d.upgrade ?? null, secretsSync: d['secrets-sync'] ?? null, presence: d.presence ?? null, jobs: d.jobs ?? null, jobsAdd: d['jobs-add'] ?? null, agentd: d.agentd ?? null };
   });
 }
 
@@ -331,6 +333,28 @@ export function table(op, rs) {
     }
     return lines.join('\n');
   }
+  if (op === 'disk') {
+    // One row per account, the largest home first: what /home is spent on,
+    // and by whom; then the failed, then the silent, each by name.
+    // A name is the account's, printed in the operator's terminal: its C0
+    // and C1 control characters are shown escaped, never sent to the
+    // terminal (review of #92, round 4).
+    const esc = n => String(n).replace(/[\u0000-\u001f\u007f-\u009f]/g, c => `\\x${c.charCodeAt(0).toString(16).padStart(2, '0')}`);
+    const H = kb => kb == null ? '-' : kb >= 1048576 ? `${(kb / 1048576).toFixed(1)}G` : kb >= 1024 ? `${(kb / 1024).toFixed(0)}M` : `${kb}K`;
+    lines.push(`${'account'.padEnd(22)} ${'status'.padEnd(8)} ${'total'.padStart(7)}  ${'largest entry'.padEnd(28)} ${'target/'.padStart(7)}  target/ directories`);
+    const rank = r => r.status !== 'ok' || !r.disk ? 2 : r.disk.status === 'failed' || r.disk.total_kb == null ? 1 : 0;
+    const size = r => rank(r) === 0 ? r.disk.total_kb : 0;
+    for (const r of [...rs].sort((a, b) => rank(a) - rank(b) || size(b) - size(a) || a.account.localeCompare(b.account))) {
+      const d = r.disk;
+      if (r.status !== 'ok' || !d) { lines.push(`${r.account.padEnd(22)} ${r.status}`); continue; }
+      if (d.status === 'failed') { lines.push(`${r.account.padEnd(22)} ${'failed'.padEnd(8)} ${esc(d.error ?? '')}`.trimEnd()); continue; }
+      const top = d.largest?.[0] ? `${esc(d.largest[0].name)} ${H(d.largest[0].kb)}` : '-';
+      const targets = (d.targets ?? []).slice(0, 3).map(t => `${esc(t.path)} ${H(t.kb)}`).join(', ') + ((d.targets ?? []).length > 3 ? `, +${d.targets.length - 3}` : '');
+      lines.push(`${r.account.padEnd(22)} ${d.status.padEnd(8)} ${H(d.total_kb).padStart(7)}  ${top.padEnd(28)} ${H(d.targets_kb).padStart(7)}  ${targets || '-'}`.trimEnd());
+      for (const e of d.errors ?? []) lines.push(`${''.padEnd(22)} ${''.padEnd(8)} ${esc(e)}`);
+    }
+    return lines.join('\n');
+  }
   if (op === 'tokens') {
     // Grouped by Claude account: a login's share is its direct-path
     // equivalents over the account's, from the logins that answered — the
@@ -367,7 +391,7 @@ export function table(op, rs) {
 export async function main(argv = process.argv.slice(2), { registry, fetchImpl } = {}) {
   let args;
   try { args = parseArgs(argv); } catch (e) { console.error(`fabric-ctl: ${e.message}`); return 2; }
-  if (args.help || (!args.targets.length && args.op !== 'keygen')) { console.error('usage: fabric-ctl <login|all> [status|usage|identity|keys|fabric|session|script|recall|host|accounts|ping] [--json] [--timeout S]\n       fabric-ctl <login|all> tokens [--days N]\n       fabric-ctl <login|all> memory --out <dir>\n       fabric-ctl <login|all> upgrade claude [--version V]\n       fabric-ctl <login|all> upgrade fabric   (every account to this checkout\'s origin/main, then bootstrap)\n       fabric-ctl <login|all> secrets-sync [--expect SHA12] [--restart]\n       fabric-ctl <login|all> presence   (any placed account may ask)\n       fabric-ctl <login|all> jobs\n       fabric-ctl <login> jobs-add [--topic T] [--project P] [--] "<title>"\n       fabric-ctl keygen [--force]'); return args.help ? 0 : 2; }
+  if (args.help || (!args.targets.length && args.op !== 'keygen')) { console.error('usage: fabric-ctl <login|all> [status|usage|identity|keys|fabric|session|script|recall|host|disk|accounts|ping] [--json] [--timeout S]\n       fabric-ctl <login|all> tokens [--days N]\n       fabric-ctl <login|all> memory --out <dir>\n       fabric-ctl <login|all> upgrade claude [--version V]\n       fabric-ctl <login|all> upgrade fabric   (every account to this checkout\'s origin/main, then bootstrap)\n       fabric-ctl <login|all> secrets-sync [--expect SHA12] [--restart]\n       fabric-ctl <login|all> presence   (any placed account may ask)\n       fabric-ctl <login|all> jobs\n       fabric-ctl <login> jobs-add [--topic T] [--project P] [--] "<title>"\n       fabric-ctl keygen [--force]'); return args.help ? 0 : 2; }
   if (args.op === 'keygen') return keygen(args, { registry });
   const all = placements(registry);
   let expected;

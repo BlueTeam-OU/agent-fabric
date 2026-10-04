@@ -166,3 +166,4 @@ The body above reads current; each change's full note is in [history/ADR-032-ame
 |---|---|---|
 | 2026-09-27 | HELLO and GOODBYE retired | SPEC §5, §8, §10, §11, §14, §18 and the companion texts: the two types are retired, a narrowing under rule 4 with the evidence of rule 6 |
 | 2026-09-28 | The retirement's loose ends | §6: SPEC's header is Normative and names this record; SPEC §1, §4 and §9 and two READMEs no longer describe self-announcement |
+| 2026-10-04 | WAIVES, the boundary waiver | SPEC §7.5 and MESSAGE-FORMAT §Waiving a boundary gate: an optional common field naming the pull request and head a project's waiver role lets arm; rule 3, no grammar change |

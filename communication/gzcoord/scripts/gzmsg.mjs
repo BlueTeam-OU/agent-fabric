@@ -44,7 +44,7 @@ const addressRe = /^[a-z0-9._-]+\/[a-z0-9._-]+$/;
 // reject: §6 requires unknown metadata to be preserved, because that is
 // how the protocol extends.
 const KNOWN_KEYS = ['FROM','ROLE','PROJECT','TO','TO-ROLE','BROADCAST','MESSAGE-ID','IN-REPLY-TO',
-  'REPOSITORY','BRANCH','COMMIT','REPLY-EXPECTED','SUBJECT','SPECIALTIES','CAPABILITIES'];
+  'REPOSITORY','BRANCH','COMMIT','REPLY-EXPECTED','SUBJECT','SPECIALTIES','CAPABILITIES','WAIVES'];
 // An id-shaped value: a UUID (the deployment mints UUIDv7), or the retired
 // `<instance>-NNNN` counter form still seen in older traffic.
 const ID_SHAPED = /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[a-z0-9._-]+-\d{4})$/;
