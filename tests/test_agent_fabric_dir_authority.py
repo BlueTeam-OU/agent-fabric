@@ -193,6 +193,39 @@ def main() -> int:
         rc, o, _ = run()
         check("only the declared side commit counts", rc == 0 and "2 commit(s)" in o)
 
+        print("a merge is judged on what it changes itself (2026-10-04)")
+        # A hand edit carried in a merge used to pass unseen, merges being
+        # skipped whole; now only the clean three-way fold is exempt.
+        sh(rr, "checkout", "-q", "-b", "side2", "main")
+        commit(".agent-fabric/t.md", "side2\n\nFabric-Role: fabric-coordinator")
+        sh(rr, "checkout", "-q", "work")
+        sh(rr, "merge", "-q", "--no-ff", "--no-commit", "side2")
+        with open(os.path.join(rr, ".agent-fabric/s.md"), "a") as fh:
+            fh.write("by hand\n")
+        sh(rr, "add", "-A")
+        sh(rr, "commit", "-q", "-m", "merge plus a hand edit, no trailer")
+        rc, _, e = run()
+        check("a merge carrying a hand edit under .agent-fabric/ is refused", rc == 1 and "merge plus a hand edit" in e)
+        sh(rr, "reset", "-q", "--hard", "HEAD~1")
+        # side3 grows from side, so it MOVES the s.md work already holds
+        # (commit() appends a line); keeping work's copy drops that move.
+        sh(rr, "checkout", "-q", "-b", "side3", "side")
+        commit(".agent-fabric/s.md", "side3 moves s\n\nFabric-Role: fabric-coordinator")
+        sh(rr, "checkout", "-q", "work")
+        sh(rr, "merge", "-q", "--no-ff", "--no-commit", "side3")
+        sh(rr, "checkout", "HEAD", "--", ".agent-fabric/s.md")
+        sh(rr, "commit", "-q", "-m", "merge keeping ours, no trailer")
+        rc, _, e = run()
+        check("a merge that keeps one side's guarded file where the other moved it is refused",
+              rc == 1 and "merge keeping ours" in e)
+        sh(rr, "commit", "-q", "--amend", "-m", "merge keeping ours\n\nFabric-Role: fabric-coordinator")
+        rc, _, _ = run()
+        check("…and passes when the coordinator declares it", rc == 0)
+        sh(rr, "reset", "-q", "--hard", "HEAD~1")
+        sh(rr, "merge", "-q", "--no-ff", "-m", "clean fold of side2, no trailer", "side2")
+        rc, o, _ = run()
+        check("a clean fold where both sides moved .agent-fabric/ is no change of its own", rc == 0)
+
         print("failing to list is a refusal, never a pass")
         rc, _, e = run({"AGENT_FABRIC_CHARTER_BASE": "nope", "GITHUB_BASE_REF": ""})
         check("an unresolvable caller base falls through to main", rc == 0)
