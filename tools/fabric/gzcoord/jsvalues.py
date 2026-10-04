@@ -76,7 +76,9 @@ def stringify(v: Any) -> str:
     return json.dumps(v, ensure_ascii=False, separators=(",", ":"))
 
 
-_DEC = re.compile(r"[+-]?(?:\d+\.?\d*(?:[eE][+-]?\d+)?|\.\d+(?:[eE][+-]?\d+)?)")
+# ASCII: Python's \d, int() and float() take any Unicode digit ("١٢" is 12),
+# Number() only 0-9.
+_DEC = re.compile(r"[+-]?(?:\d+\.?\d*(?:[eE][+-]?\d+)?|\.\d+(?:[eE][+-]?\d+)?)", re.ASCII)
 _INT = {"0x": 16, "0o": 8, "0b": 2}
 
 
@@ -101,7 +103,8 @@ def number(v: Any) -> float:
     base = _INT.get(s[:2].lower())
     if base:
         try:
-            return float(int(s[2:], base)) if s[2:] and "_" not in s[2:] else math.nan
+            # int() also takes a sign, spaces, "_" and non-ASCII digits; Number() none.
+            return float(int(s[2:], base)) if s[2:].isascii() and s[2:].isalnum() else math.nan
         except ValueError:
             return math.nan
     return float(s) if _DEC.fullmatch(s) else math.nan

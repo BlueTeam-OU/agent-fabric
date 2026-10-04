@@ -345,14 +345,31 @@ class RelayError(Exception):
 API_TIMEOUT = 300
 
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *_a, **_k):  # noqa: ANN002 — the stdlib's signature
+        return None   # a 3xx is then an HTTPError: an answer that is not 2xx
+
+
+# The relay is called directly and nowhere else: urllib, unlike the Node's
+# fetch, would go through http_proxy/https_proxy from the environment and
+# follow a redirect with the Authorization header to whatever host it names.
+_OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}), _NoRedirect())
+
+
 def api(tok: str, path_and_query: str, relay_url: str | None = None, method: str = "GET", body: str | None = None,
         timeout: float = API_TIMEOUT) -> Any:
     relay_url = default_relay() if relay_url is None else relay_url
+    # Trimmed of HTTP whitespace, as fetch's Headers did. A line break or NUL
+    # left inside is refused here: http.client's own refusal quotes the
+    # whole header, the token in it, into an error line.
+    tok = tok.strip(" \t\r\n")
+    if any(c in tok for c in "\r\n\0"):
+        raise RelayError("the relay token holds a line break or a NUL; not sent")
     req = urllib.request.Request(f"{relay_url}{path_and_query}", method=method,
                                  data=None if body is None else body.encode("utf-8"),
                                  headers={"Authorization": f"Bearer {tok}", "Content-Type": "application/json"})
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as r:
+        with _OPENER.open(req, timeout=timeout) as r:
             raw = r.read()
     except urllib.error.HTTPError as e:
         raise RelayError(f"{path_and_query} -> HTTP {e.code}", e.code) from None
@@ -623,7 +640,7 @@ def hold_status(directory: str | None = None, is_alive: Callable[[int], bool] = 
         return {"held": False, "reason": t("held.not-this-login"), "sessions": []}
     sessions, stale = [], []
     for name in os.listdir(directory):
-        if not re.fullmatch(r"\d+\.json", name):
+        if not re.fullmatch(r"\d+\.json", name, re.ASCII):
             continue
         file = os.path.join(directory, name)
         try:
@@ -678,13 +695,17 @@ def _episodic():
 
 def run_episodic(args: list[str], stdin: str) -> dict:
     """{status, stdout, stderr} of `episodic.py <args>` with stdin, in this
-    process. An exception that escapes it is a journal that did not answer."""
+    process. An exception that escapes it is a journal that did not answer;
+    an interrupt or an exit is not."""
     out, err = io.StringIO(), io.StringIO()
     saved = sys.stdin
     try:
         sys.stdin = io.StringIO(stdin)
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
             status = _episodic().main(args)
+    except (KeyboardInterrupt, SystemExit):
+        # Read as "journal failed", a forwarded SIGINT left the watch running.
+        raise
     except BaseException as e:  # noqa: BLE001 — anything the journal raised is its non-answer
         status, err = 1, io.StringIO(err.getvalue() + f"episodic: {type(e).__name__}: {e}\n")
     finally:

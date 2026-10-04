@@ -24,18 +24,31 @@ PR_SET_PDEATHSIG = 1
 
 
 def tie_to_shim() -> bool:
-    """False when the shim that started this is already gone."""
+    """False when the shim that started this is already gone. Run with no
+    shim (a test, a direct call) there is nothing to tie. A shim named but
+    not tied to — a pid that is no pid, no prctl — is said in one line: the
+    process then outlives a shim killed outright, and nothing else says it."""
     shim = os.environ.get("GZCOORD_SHIM_PID")
-    if not shim or not shim.isdigit():
+    if shim is None:
+        return True
+    if not (shim.isascii() and shim.isdigit()):
+        print(f"gzcoord: not tied to the shim (GZCOORD_SHIM_PID is no pid: {shim[:40]!r})", file=sys.stderr)
         return True
     try:
-        ctypes.CDLL(None, use_errno=True).prctl(PR_SET_PDEATHSIG, signal.SIGTERM, 0, 0, 0)
-    except (OSError, AttributeError):
-        pass   # not Linux: the shim's own signal forwarding is what remains
+        if ctypes.CDLL(None, use_errno=True).prctl(PR_SET_PDEATHSIG, signal.SIGTERM, 0, 0, 0) != 0:
+            raise OSError(ctypes.get_errno(), "prctl failed")
+    except (OSError, AttributeError) as e:
+        # not Linux: the shim's own signal forwarding is what remains
+        print(f"gzcoord: not tied to the shim ({e}): a shim killed outright leaves this running", file=sys.stderr)
     return os.getppid() == int(shim)
 
 
 def main(argv: list[str]) -> int:
+    # UTF-8 whatever the locale, and a character UTF-8 cannot hold (a lone
+    # surrogate from a relay record) replaced, never raised: the Node wrote
+    # UTF-8 always, and an encoding error after the ack ended --follow.
+    for stream in (sys.stdout, sys.stderr):
+        stream.reconfigure(encoding="utf-8", errors="replace")
     tool, rest = (argv[0] if argv else ""), argv[1:]
     if tool not in ("gzmsg", "send", "inbox"):
         print("usage: run.py gzmsg|send|inbox [argv…]", file=sys.stderr)
