@@ -538,6 +538,11 @@ def _verify_incoming(store: str, tip: str, agent_id: str | None = None, fabric: 
                                     "(a new or rotated key not yet merged: fetch the fabric)" if "ERRSIG" in tags
                                     or "NO_PUBKEY" in tags else "not signed")
                 signer, primary = valid[2], valid[-1]
+                # Defence in depth, not dead code: gpg already refuses a
+                # signature by a key that is no signing key of its primary,
+                # and the keyring holds only writers' keys, so no test can
+                # make this fail today (its mutation survives). It holds the
+                # rule should gpg's behaviour or the keyring's contents change.
                 if primary not in allowed or subkeys.get(signer) != primary:
                     raise refuse(c, f"signed by {signer[-16:]}, no signing key of this store's writers")
         finally:
