@@ -1618,6 +1618,49 @@ def bash_size_findings(root: str, base_ref: str = "origin/main") -> list[str]:
     return findings
 
 
+
+def arm_boundary_findings(root: str, base_ref: str = "origin/main") -> list[str]:
+    """A project's arm.json (runtime/github/arm.sh's rules) names, beside
+    its boundary patterns, the cases that MUST stay boundary: each case is
+    a path the patterns match and the exemptions do not, and a case the
+    branch forked with leaves only into boundary.retired, with why and
+    whose word. Narrowing the boundary then needs a visible edit, which the
+    fold and the blind review see; before, a shrunk regex failed nothing
+    (reviews of #89 and #90)."""
+    findings = []
+    for rel in sorted(r for r in _tracked(root)
+                      if re.fullmatch(r"projects/[^/]+/integration/gh/arm\.json", r)):
+        try:
+            doc = json.load(open(os.path.join(root, rel), encoding="utf-8"))
+            b = doc["boundary"]
+            paths = re.compile(b["paths"], re.I)
+            exempt = re.compile(b["exempt"]) if b.get("exempt") else None
+        except (OSError, ValueError, KeyError, TypeError, re.error) as e:
+            findings.append(f"{rel}: not a usable arm.json ({type(e).__name__}: {e})")
+            continue
+        cases = b.get("cases")
+        if not isinstance(cases, list) or not cases or not all(isinstance(c, str) and c for c in cases):
+            findings.append(f"{rel}: boundary.cases must list the paths that must stay boundary")
+            continue
+        for c in cases:
+            if (exempt and exempt.search(c)) or not paths.search(c):
+                findings.append(f"{rel}: boundary case {c!r} is not boundary under these patterns")
+        mb = _git().run(root, "merge-base", "HEAD", base_ref, check=False, timeout=60)
+        since = mb.stdout.strip() if mb.returncode == 0 and mb.stdout.strip() else base_ref
+        base = _git().run(root, "show", f"{since}:{rel}", check=False, timeout=60)
+        if base.returncode == 0:
+            try:
+                before = json.loads(base.stdout)["boundary"].get("cases") or []
+            except (ValueError, KeyError, TypeError, AttributeError):
+                before = []
+            retired = b.get("retired") or {}
+            for c in sorted(set(before) - set(cases)):
+                why = retired.get(c) if isinstance(retired, dict) else None
+                if not (isinstance(why, str) and why.strip()):
+                    findings.append(f"{rel}: boundary case {c!r} is dropped; a narrowing moves it to "
+                                    "boundary.retired with why and whose word (the project's architect-cto)")
+    return findings
+
 # What a role IS, never a contributor's to commit (ADR-018 §5 rule 8): a rule
 # ending in "/" is a directory, any other one file, as in an entry. The
 # guards and what they import (git.py) or run in CI (the suite runners and
@@ -2027,6 +2070,7 @@ def main() -> int:
 
     # --- bash over 150 lines only where the allowlist says (ADR-040) ---------
     findings += bash_size_findings(root)
+    findings += arm_boundary_findings(root)
 
     # --- a session started in this clone gets the workspace's hooks ---------
     findings += fabric_settings_findings(root)

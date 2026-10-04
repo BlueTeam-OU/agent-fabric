@@ -364,6 +364,11 @@ def main() -> int:
         rc, out = run("7", "--basis", "b", script=SHIM, env={"AGENT_FABRIC_ARM_CONFIG": f"{sandbox}/none.json"})
         check("no arm.json: exit 2, the boundary never judged absent",
               rc == 2 and "declares no arm.json" in out and "pr merge" not in calls(), out)
+        reset(); put("narrowed.json", json.dumps({"boundary": {"paths": "^src/", "cases": ["src/a.rs", "keys/k.rs"]}}))
+        set_pr(me, "plain", ["docs/a.md"]); set_gate(9)
+        rc, out = run("7", "--basis", "b", script=SHIM, env={"AGENT_FABRIC_ARM_CONFIG": f"{state}/narrowed.json"})
+        check("a boundary case its own patterns miss: exit 2, nothing armed, the case named",
+              rc == 2 and "keys/k.rs" in out and "pr merge" not in calls(), out)
         reset(); put("bad.json", '{"boundary": {"paths": "("}}')
         rc, out = run("7", "--basis", "b", script=SHIM, env={"AGENT_FABRIC_ARM_CONFIG": f"{state}/bad.json"})
         check("an arm.json whose pattern does not compile: exit 2", rc == 2 and "not a usable arm.json" in out, out)

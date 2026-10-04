@@ -33,6 +33,9 @@ this clone's remote as trial.json is (or AGENT_FABRIC_ARM_CONFIG):
                     wording PR on a privacy ADR says "regime" in its
                     filename: a managed project's PR #886, re-review
                     finding 1).
+  boundary.cases    paths that must stay boundary: a case the patterns
+                    miss is exit 2, never a judgement (lint also refuses
+                    one dropped without boundary.retired's why and word).
   classes           {"<class>": "<regex every changed file must match>"}:
                     the classes the project lets arm under the floor
                     without the owner's word, stated in the PR body as
@@ -165,10 +168,18 @@ def load_config(path: str) -> tuple[re.Pattern, re.Pattern | None, dict[str, re.
         paths = re.compile(b["paths"], re.I)
         exempt = re.compile(b["exempt"]) if b.get("exempt") else None
         classes = {str(k).lower(): re.compile(v) for k, v in (doc.get("classes") or {}).items()}
+        # The project's own statement of what must stay boundary: a case the
+        # patterns no longer match is a boundary narrowed by mistake, and
+        # arming on it would judge with rules the project did not mean
+        # (lint holds the same, and that no case is dropped unretired).
+        missed = [c for c in (b.get("cases") or []) if (exempt and exempt.search(c)) or not paths.search(c)]
     except FileNotFoundError:
         raise Unanswered(f"this project declares no arm.json ({path}); the security boundary cannot be judged") from None
     except (OSError, ValueError, KeyError, TypeError, AttributeError, re.error) as e:
         raise Unanswered(f"{path} is not a usable arm.json ({type(e).__name__}: {e})") from None
+    if missed:
+        raise Unanswered(f"{path}: boundary case(s) not boundary under its own patterns — {', '.join(missed[:3])}"
+                         " — the security boundary cannot be judged")
     return paths, exempt, classes
 
 
