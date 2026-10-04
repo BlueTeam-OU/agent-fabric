@@ -383,10 +383,10 @@
       "number": "042",
       "file": "ADR-042-store-commits-are-signed-and-verified.md",
       "title": "Store commits are signed by their writer and verified before they are applied",
-      "status": "Proposed",
+      "status": "Accepted",
       "date": "2026-10-04",
       "pillar": "P1",
-      "amendments": 0
+      "amendments": 1
     }
   ]
 }
