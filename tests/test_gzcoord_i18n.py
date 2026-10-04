@@ -16,6 +16,7 @@ import os
 import pwd
 import re
 import shutil
+import subprocess
 import sys
 import tempfile
 import traceback
@@ -367,6 +368,83 @@ def _():
        out)
     ok(re.search(r"^Not addressed to you — listed, bodies not read \(SPEC §17\):$", out, re.M), out)
     ok(re.search(r"^--- relay seq 1, from h/sender, 2026-09-21T08:00:00Z$", out, re.M), out)
+
+
+# ── cases that run a command beside a function: ported whole ─────────
+
+INBOX_CMD = os.path.join(HERE, "communication", "gzcoord", "scripts", "inbox.mjs")
+
+
+def last_line(text: str) -> str:
+    """A tool may print a diagnostic before the line under test — the
+    pinned-locale notice does, on a login that has a dictionary."""
+    return text.strip().split("\n")[-1]
+
+
+def replay_usage(env: dict) -> "subprocess.CompletedProcess[str]":
+    return subprocess.run(["node", INBOX_CMD, "--replay"], env=env, capture_output=True, text=True, timeout=60,
+                          stdin=subprocess.DEVNULL)
+
+
+@case("--replay with no value is a usage line and exit 1")
+def _():
+    r = replay_usage(dict(os.environ))
+    eq(r.returncode, 1, r.stderr)
+    eq(last_line(r.stderr), i18n.default_dictionary()["replay.usage"])
+
+
+USAGE_KA = "ᲒᲐᲛᲝᲧᲔᲜᲔᲑᲐ: inbox.mjs --replay <seq|message-id>"
+
+
+def live_env(values: dict) -> tuple[str, dict, dict]:
+    """The tools run AS a login with a dictionary: a scratch fabric root
+    holding the locale, and a binding giving the role. A scratch root has
+    no identity.py, so whoami() falls back to the login plus this binding."""
+    agent = pwd.getpwuid(os.geteuid()).pw_name
+    root, state = scratch("live-locale-"), scratch("live-state-")
+    os.makedirs(os.path.join(state, "agents", agent))
+    with open(os.path.join(state, "agents", agent, "binding.json"), "w", encoding="utf-8") as fh:
+        json.dump({"role": ROLE, "project": "agent-fabric"}, fh)
+    d = os.path.join(root, "identities", "roles", ROLE, "locale", i18n.suffix(agent))
+    os.makedirs(d)
+    with open(os.path.join(d, "locale.json"), "w", encoding="utf-8") as fh:
+        json.dump({"tag": "xx-XX", "reminder": " - ᲛᲘᲜᲘᲨᲜᲔᲑᲐ"}, fh)
+    en = i18n.default_dictionary()
+    with open(os.path.join(d, "xx-XX.json"), "w", encoding="utf-8") as fh:
+        json.dump({k: values.get(k, f"ᲗᲐᲠᲒᲛᲐᲜᲘ {v}") for k, v in en.items()}, fh)
+    env = {**os.environ, "AGENT_FABRIC_ROOT": root, "AGENT_FABRIC_STATE_DIR": state}
+    return root, {"agent": agent, "role": ROLE}, env
+
+
+@case("the tools run as a login that HAS a dictionary, and print it")
+def _():
+    _root, _me, env = live_env({"replay.usage": USAGE_KA})
+    r = replay_usage({**env, "GZCOORD_DEFAULT_LOCALE_ONLY": ""})
+    eq(r.returncode, 1, r.stderr)
+    eq(last_line(r.stderr), USAGE_KA)
+
+
+@case("a locale dictionary that cannot be read falls back to English, and says so")
+def _():
+    root, me, env = live_env({})
+    with open(os.path.join(root, "identities", "roles", me["role"], "locale", i18n.suffix(me["agent"]), "xx-XX.json"), "w") as fh:
+        fh.write("{ not json")
+    r = replay_usage({**env, "GZCOORD_DEFAULT_LOCALE_ONLY": ""})
+    eq(r.returncode, 1, r.stderr)
+    eq(last_line(r.stderr), i18n.default_dictionary()["replay.usage"])
+    ok(re.search(r"xx-XX\.json could not be read .*; printing the default locale", r.stderr), r.stderr)
+
+
+@case("and the same run pinned to the default locale prints English, whoever runs it")
+def _():
+    _root, _me, env = live_env({"replay.usage": USAGE_KA})
+    r = replay_usage({**env, "GZCOORD_DEFAULT_LOCALE_ONLY": "1"})
+    eq(r.returncode, 1, r.stderr)
+    # The English line, and the notice that a configured locale was pinned
+    # away — silence there is what the switch's threat model asks about.
+    ok(re.search(f"^{re.escape(i18n.default_dictionary()['replay.usage'])}$", r.stderr, re.M), r.stderr)
+    ok(re.search(r"GZCOORD_DEFAULT_LOCALE_ONLY=1 — printing the default locale, not ", r.stderr), r.stderr)
+    ok(USAGE_KA not in r.stderr, r.stderr)
 
 
 def main() -> int:

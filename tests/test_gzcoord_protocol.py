@@ -1415,6 +1415,374 @@ def _():
     eq(send.spent_elsewhere(ledger, first_kept["id"], "other"), first_kept, "entries are still read past it")
 
 
+# ── cases that run a command beside a function: ported whole ─────────
+
+SCRIPTS = os.path.join(GZCOORD, "scripts")
+INBOX_CMD = os.path.join(SCRIPTS, "inbox.mjs")
+SEND_CMD = os.path.join(SCRIPTS, "send.mjs")
+AGENT_ID = "01a0f782-7e06-7dee-811f-0a860ed93bf3"
+
+
+def scratch(prefix: str) -> str:
+    d = tempfile.mkdtemp(prefix=prefix)
+    SCRATCH.append(d)
+    return d
+
+
+def id_store() -> str:
+    """A scratch secrets store holding an agent id: the journal has an owner."""
+    d = scratch("send-store-")
+    with open(os.path.join(d, ".agent-id"), "w", encoding="utf-8") as fh:
+        fh.write(AGENT_ID + "\n")
+    return d
+
+
+class Stub:
+    """A relay stub on a thread: `answer(handler, method, path, body)` writes
+    the response. A handler that returns None stalls until the stub stops,
+    as a long poll that never answers."""
+
+    def __init__(self, answer: Callable):
+        import http.server
+        stub = self
+        self.stop_event = threading.Event()
+
+        class H(http.server.BaseHTTPRequestHandler):
+            def log_message(self, *_a):
+                pass
+
+            def _do(self, method: str) -> None:
+                n = int(self.headers.get("content-length") or 0)
+                body = self.rfile.read(n).decode("utf-8") if n else ""
+                out = answer(self, method, self.path, body)
+                if out is None:
+                    stub.stop_event.wait(30)
+                    return
+                status, payload = out
+                data = payload.encode("utf-8")
+                self.send_response(status)
+                self.send_header("content-type", "application/json")
+                self.send_header("content-length", str(len(data)))
+                self.send_header("connection", "close")
+                self.end_headers()
+                self.wfile.write(data)
+
+            def do_GET(self):  # noqa: N802 — the stdlib's name
+                self._do("GET")
+
+            def do_POST(self):  # noqa: N802
+                self._do("POST")
+        self.server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), H)
+        self.server.daemon_threads = True
+        self.url = f"http://127.0.0.1:{self.server.server_address[1]}"
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+
+    def close(self) -> None:
+        self.stop_event.set()
+        self.server.shutdown()
+        self.server.server_close()
+
+
+def cmd_env(**extra: str) -> dict:
+    return {**os.environ, "HOME": scratch("home-"), "AGENT_FABRIC_SECRET_STORE": id_store(), **extra}
+
+
+@case("normalize CLI prints the normalised message for validate to read")
+def _():
+    f = scratch_file("  [GZCOORD/1] INFO\n  FROM: develop-gzapp/gzapp\n  ROLE: Tester\n  PROJECT: gzapp\nMESSAGE-ID: test-0001\n"
+                     "  BROADCAST: true\n")
+    run = gzmsg_cli("normalize", f)
+    eq(run.returncode, 0)
+    eq(run.stdout, "[GZCOORD/1] INFO\nFROM: develop-gzapp/gzapp\nROLE: Tester\nPROJECT: gzapp\nMESSAGE-ID: test-0001\nBROADCAST: true\n")
+    eq(validate(run.stdout)["errors"], [])
+
+
+# SPEC §7.2: a retransmission keeps its MESSAGE-ID. The watch shows the copy —
+# the first may never have been read — marked with the earlier seq.
+@case("a retransmitted delivery is marked with the seq of the earlier copy; a first copy is not")
+def _():
+    def text(mid: str, frm: str = "x/y") -> str:
+        return (f"[GZCOORD/1] INFO\nFROM: {frm}\nROLE: backend-dev\nPROJECT: fixture\nBROADCAST: true\nMESSAGE-ID: {mid}\n"
+                f"SUBJECT: s\n\nNOTES:\nn\n")
+
+    def rec(seq: int, mid: str, frm: str | None = None) -> dict:
+        return {"seq": seq, "id": f"r{seq}", "sender": frm or "x/y", "timestamp": f"T{seq}", "content": text(mid, frm or "x/y")}
+    a, b = "01a09fc1-0000-7000-8000-0000000000a1", "01a09fc1-0000-7000-8000-0000000000b1"
+    recent = {"messages": [rec(4, a), rec(6, b, "other/z"), rec(9, a), rec(10, b)]}
+
+    def classify(r: dict) -> dict:
+        return {"rec": r, "msg": parse(r["content"]), "isMine": True}
+    got = [classify(rec(9, a)), classify(rec(10, b))]
+    inbox.mark_retransmissions(got, lambda _d: recent)
+    eq(got[0].get("retransmitOf"), 4)
+    eq(got[1].get("retransmitOf"), None, "the same id from another FROM is another message")
+    out = inbox.render({"classified": got}, {"address": "h/me"}, "fixture:chan", None)
+    ok(re.search(r"retransmission: the same FROM and MESSAGE-ID arrived before as relay seq 4", out), out)
+    eq(len(re.findall(r"retransmission:", out)), 1)
+    failed = [classify(rec(9, a))]
+    inbox.mark_retransmissions(failed, lambda _d: (_ for _ in ()).throw(RuntimeError("relay down")))
+    eq(failed[0].get("retransmitOf"), None)
+    inbox.mark_retransmissions(failed, lambda _d: {})
+    eq(failed[0].get("retransmitOf"), None, "an answer that is not a list marks nothing")
+    # A relay that never answers: the lookup gives up at its bound, marking nothing.
+    import time
+    t0 = time.monotonic()
+    inbox.mark_retransmissions(failed, lambda done: done.wait(60), 200)
+    ok(time.monotonic() - t0 < 1.5, f"the lookup waited {time.monotonic() - t0:.2f} s")
+    eq(failed[0].get("retransmitOf"), None)
+    # A lookup that settles at once leaves nothing behind: a process that ran it
+    # with a ten-second bound exits at once, not when the bound expires.
+    t1 = time.monotonic()
+    child = subprocess.run([sys.executable, "-c",
+                            "import sys; sys.path.insert(0, sys.argv[1]); from gzcoord import inbox\n"
+                            "inbox.mark_retransmissions([], lambda d: {'messages': []}, 10000)\n"
+                            "inbox.mark_retransmissions([{'isMine': True, 'rec': {'seq': 2}, 'msg': {'metadata': "
+                            "{'FROM': 'a', 'MESSAGE-ID': 'x'}}}], lambda d: {'messages': []}, 10000)",
+                            os.path.join(HERE, "tools", "fabric")], capture_output=True, text=True, timeout=9)
+    eq(child.returncode, 0, child.stderr)
+    ok(time.monotonic() - t1 < 5, f"the process lingered {time.monotonic() - t1:.2f} s after the lookup settled")
+
+
+def follow_until(env: dict, done: Callable[[str], bool], seconds: float = 8.0) -> str:
+    """inbox --follow, read until `done(out)` or the time is up, then killed
+    as the harness kills it (SIGKILL, the shim first)."""
+    import time
+    child = subprocess.Popen(["node", INBOX_CMD, "--follow"], env=env, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                             stdin=subprocess.DEVNULL)
+    os.set_blocking(child.stdout.fileno(), False)
+    out, deadline = b"", time.monotonic() + seconds
+    try:
+        while time.monotonic() < deadline:
+            chunk = child.stdout.read() or b""
+            out += chunk
+            if done(out.decode("utf-8", "replace")):
+                time.sleep(0.2)
+                out += child.stdout.read() or b""
+                break
+            time.sleep(0.05)
+    finally:
+        child.kill()
+        child.wait(10)
+    return out.decode("utf-8", "replace")
+
+
+@case("inbox --follow bounds a long delivery to one notification and names the replay")
+def _():
+    body = "\n".join(f"line {i} LONG-BODY" for i in range(200)) + "\nTHE-END\n"
+    mine = ("[GZCOORD/1] INFO\nFROM: x/y\nROLE: backend-dev\nPROJECT: fixture\nBROADCAST: true\n"
+            f"MESSAGE-ID: 01a09fc1-0000-7000-8000-00000000002f\nSUBJECT: long\n\nNOTES:\n{body}")
+    served = [False]
+
+    def answer(_h, _method, path, _body):
+        if path == "/status":
+            return 200, "{}"
+        if path.startswith("/api/wait"):
+            if not served[0]:
+                served[0] = True
+                return 200, json.dumps({"messages": [{"seq": 77, "id": "r77", "ts": "T", "sender": "x/y", "content": mine}],
+                                        "next_cursor": "c"})
+            return None
+        return 200, "{}"
+    stub = Stub(answer)
+    try:
+        out = follow_until(cmd_env(CLAUDE_BRIDGE_URL=stub.url, CLAUDE_BRIDGE_AUTH_TOKEN="tok", GZCOORD_CHANNEL="fixture:chan"),
+                           lambda o: "--replay 77]" in o)
+    finally:
+        stub.close()
+    ok(jsvalues.length(out) <= inbox.NOTIFICATION_CAP + 1, f"the event is bounded: {jsvalues.length(out)}")
+    ok("SUBJECT: long\n\nNOTES:\nline 0 LONG-BODY" in out, f"metadata and the body head are there: {out[:300]}")
+    ok("THE-END" not in out, "the tail is not")
+    ok("[gzcoord: body cut here to fit one notification — the whole message: gzcoord-inbox --replay 77]" in out)
+
+
+@case("inbox --follow polls nothing while the hold marker names a live pid")
+def _():
+    import time
+    mine = ("[GZCOORD/1] INFO\nFROM: x/y\nROLE: backend-dev\nPROJECT: fixture\nBROADCAST: true\n"
+            "MESSAGE-ID: 01a09fc1-0000-7000-8000-00000000001f\nSUBJECT: live\n\nNOTES:\nHELD-BODY\n")
+    waits = [0]
+
+    def answer(_h, _method, path, _body):
+        if path == "/status":
+            return 200, "{}"
+        if path.startswith("/api/wait"):
+            waits[0] += 1
+            return 200, json.dumps({"messages": [{"seq": 5, "id": "r5", "ts": "T", "sender": "x/y", "content": mine}],
+                                    "next_cursor": "c"})
+        return 200, "{}"
+    stub = Stub(answer)
+    hold = scratch("hold-")
+    os.chmod(hold, 0o700)
+    marker = os.path.join(hold, f"{os.getpid()}.json")
+
+    def put_marker() -> None:
+        with open(marker, "w", encoding="utf-8") as fh:
+            json.dump({"session_id": "plan", "pid": os.getpid(), "start": inbox.pid_start(os.getpid()), "since": "T"}, fh)
+    put_marker()
+    env = cmd_env(AGENT_FABRIC_HOLD_DIR=hold, CLAUDE_BRIDGE_URL=stub.url, CLAUDE_BRIDGE_AUTH_TOKEN="tok",
+                  GZCOORD_CHANNEL="fixture:chan")
+    child = subprocess.Popen(["node", INBOX_CMD, "--follow"], env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                             stdin=subprocess.DEVNULL)
+    for fd in (child.stdout, child.stderr):
+        os.set_blocking(fd.fileno(), False)
+    out = err = b""
+    try:
+        time.sleep(2.5)
+        out += child.stdout.read() or b""
+        err += child.stderr.read() or b""
+        waits_while_held, out_while_held = waits[0], out
+        os.unlink(marker)   # the plan is approved
+        deadline = time.monotonic() + 8
+        while b"HELD-BODY" not in out and time.monotonic() < deadline:
+            time.sleep(0.05)
+            out += child.stdout.read() or b""
+        err += child.stderr.read() or b""
+    finally:
+        child.kill()
+        child.wait(10)
+        stub.close()
+    eq(waits_while_held, 0, "the relay was not polled while held")
+    eq(out_while_held, b"", "nothing on stdout while held")
+    ok(re.search(rb"inbox held", err), err)
+    ok(b"HELD-BODY" in out, "delivered once the marker was gone")
+    # --held answers from the same marker
+    put_marker()
+    h = subprocess.run(["node", INBOX_CMD, "--held"], env=env, capture_output=True, text=True, timeout=60)
+    eq(h.returncode, 0)
+    ok(re.match(r"held: .* session plan \(pid \d+\)", h.stdout), h.stdout)
+    os.unlink(marker)
+    with open(os.path.join(hold, "4194304000.json"), "w", encoding="utf-8") as fh:
+        json.dump({"session_id": "plan", "pid": 4194304000, "since": "T"}, fh)
+    n = subprocess.run(["node", INBOX_CMD, "--held"], env=env, capture_output=True, text=True, timeout=60)
+    eq(n.returncode, 1)
+    ok(re.match(r"not held: 4194304000\.json: session 4194304000 is gone", n.stdout), n.stdout)
+
+
+def valid_message() -> str:
+    me = gzmsg.whoami()
+    return (f"[GZCOORD/1] INFO\nFROM: {me['host']}/{me['agent']}\nROLE: backend-dev\nPROJECT: fixture\nBROADCAST: true\n"
+            f"MESSAGE-ID: 01a09fc1-0000-7000-8000-000000000001\nSUBJECT: fixture\n\nNOTES:\nhello\n")
+
+
+# The control channel: machine records, never a session's.
+@case("a :control channel is refused by the drain, the watch and send, before any request reaches the relay")
+def _():
+    for bad in ("fabric:control",):
+        try:
+            inbox.assert_not_control_channel(bad)
+            raise Failed(f"{bad} passed")
+        except inbox.ControlChannel as e:
+            ok(re.search(r"control channel", str(e)), str(e))
+    inbox.assert_not_control_channel("gzapp:gzcoord")
+    inbox.assert_not_control_channel("x:controls")
+    hits: list = []
+
+    def answer(_h, _method, path, _body):
+        hits.append(path)
+        return 200, '{"messages":[]}'
+    stub = Stub(answer)
+    try:
+        env = cmd_env(CLAUDE_BRIDGE_URL=stub.url, CLAUDE_BRIDGE_AUTH_TOKEN="tok", GZCOORD_CHANNEL="fabric:control")
+        for args in ([], ["--follow"], ["--wait", "1"]):
+            r = subprocess.run(["node", INBOX_CMD, *args], env=env, capture_output=True, text=True, timeout=10)
+            eq(r.returncode, 2, f"inbox {' '.join(args)}: exit {r.returncode}\n{r.stderr}")
+            ok(re.search(r"control channel", r.stderr), r.stderr)
+        f = os.path.join(env["HOME"], "m.txt")
+        with open(f, "w", encoding="utf-8") as fh:
+            fh.write(valid_message())
+        sres = subprocess.run(["node", SEND_CMD, f], env=env, capture_output=True, text=True, timeout=10)
+    finally:
+        stub.close()
+    eq(sres.returncode, 2, f"send: exit {sres.returncode}\n{sres.stderr}")
+    ok(re.search(r"is a control channel[\s\S]*not sent", sres.stderr), sres.stderr)
+    eq([u for u in hits if u.startswith("/api/")], [], f"a request reached the relay: {hits}")
+
+
+# The hosting account's relay is a user unit once bootstrap installed it:
+# ensure_relay starts the unit by name and never spawns beside it; a workspace
+# without the venv is a client and hosts nothing; without a unit file (or a
+# user manager) the detached spawn stays the fallback.
+@case("ensureRelay: a client hosts nothing; with the unit installed the relay is started by name, not spawned")
+def _():
+    import time
+    runtime = scratch("gzc-")
+    eq(inbox.ensure_relay(runtime, "http://127.0.0.1:1"), {"hosted": False, "started": False}, "no venv: a client")
+    os.makedirs(os.path.join(runtime, "venv", "bin"))
+    bridge = os.path.join(runtime, "venv", "bin", "claude-bridge")
+    with open(bridge, "w") as fh:   # a "claude-bridge" that would betray itself if spawned
+        fh.write('#!/usr/bin/env bash\necho SPAWNED >> "$(dirname "$0")/../../spawned"\nsleep 30\n')
+    os.chmod(bridge, 0o755)
+    with open(os.path.join(runtime, "bridge-token"), "w") as fh:
+        fh.write("tok\n")
+    home, binp, xdg = scratch("home-"), scratch("bin-"), scratch("xdg-")
+    open(os.path.join(xdg, "bus"), "w").close()
+    unit = os.path.join(home, ".config", "systemd", "user", "gzcoord-relay.service")
+    os.makedirs(os.path.dirname(unit))
+    with open(unit, "w") as fh:
+        fh.write("[Service]\n")
+    log, spawned = os.path.join(runtime, "systemctl.log"), os.path.join(runtime, "spawned")
+
+    def tool(name: str, body: str) -> None:
+        with open(os.path.join(binp, name), "w") as fh:
+            fh.write("#!/usr/bin/env bash\n" + body)
+        os.chmod(os.path.join(binp, name), 0o755)
+    # fake systemctl records the call; fake curl answers the probe only after systemctl ran
+    tool("systemctl", f'echo "$*" >> {json.dumps(log)}\n')
+    tool("curl", f"[[ -f {json.dumps(log)} ]]\n")
+    keys = ("HOME", "PATH", "XDG_RUNTIME_DIR", "GZCOORD_TEST_BUS_ANY")
+    saved = {k: os.environ.get(k) for k in keys}
+    # the fixture's bus is a plain file, not a socket: the test switch admits it
+    os.environ.update(HOME=home, PATH=f"{binp}:{os.environ['PATH']}", XDG_RUNTIME_DIR=xdg, GZCOORD_TEST_BUS_ANY="1")
+    pids: list[int] = []
+    try:
+        r = inbox.ensure_relay(runtime, "http://127.0.0.1:1")
+        eq(r, {"hosted": True, "started": True, "unit": "gzcoord-relay"}, json.dumps(r))
+        with open(log) as fh:
+            eq(fh.read().strip(), "--user start gzcoord-relay")
+        ok(not os.path.exists(spawned), "the venv binary was not spawned beside the unit")
+        # no unit file: the fallback spawns (and the fake binary says so)
+        os.remove(unit)
+        os.remove(log)
+        tool("curl", f"[[ -f {json.dumps(spawned)} ]]\n")
+        f = inbox.ensure_relay(runtime, "http://127.0.0.1:1")
+        pids.append(f.get("pid") or 0)
+        eq(f["started"], True)
+        ok(f.get("pid"), "the fallback spawned and reports a pid")
+        ok(os.path.exists(spawned))
+        # systemctl itself failing (no manager reachable): the spawn is the fallback, not an 8 s wait on nothing
+        with open(unit, "w") as fh:
+            fh.write("[Service]\n")
+        os.remove(spawned)
+        tool("systemctl", "exit 1\n")
+        t0 = time.monotonic()
+        s2 = inbox.ensure_relay(runtime, "http://127.0.0.1:1")
+        pids.append(s2.get("pid") or 0)
+        eq(s2["started"], True)
+        ok(s2.get("pid") and not s2.get("unit"), "a failed systemctl falls back to the spawn")
+        ok(time.monotonic() - t0 < 6, "no eight-second wait on a unit that was never asked")
+        # the passed environment: systemctl sees XDG_RUNTIME_DIR even when the shell had none
+        tool("systemctl", f'echo "XDG=$XDG_RUNTIME_DIR" >> {json.dumps(log)}\n')
+        tool("curl", f"[[ -f {json.dumps(log)} ]]\n")
+        del os.environ["XDG_RUNTIME_DIR"]   # the shell has none: the resolved /run/user/<uid> must reach systemctl anyway
+        s3 = inbox.ensure_relay(runtime, "http://127.0.0.1:1")
+        pids.append(s3.get("pid") or 0)
+        eq(s3.get("unit"), "gzcoord-relay", f"the unit path must be taken with no XDG_RUNTIME_DIR in the shell: {s3}")
+        with open(log) as fh:
+            ok(re.search(r"^XDG=/run/user/\d+$", fh.read(), re.M), "systemctl received the resolved runtime dir")
+    finally:
+        for pid in pids:
+            if pid:
+                try:
+                    os.killpg(pid, 9)
+                except OSError:
+                    pass
+        for k, v in saved.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+
+
 def main() -> int:
     fails = 0
     for name, fn in CASES:
