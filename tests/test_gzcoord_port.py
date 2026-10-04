@@ -107,6 +107,13 @@ def _():
         eq((r.returncode, r.stdout), (0, "valid GZCOORD/1 message\n"), f"{flags}: {r.stderr}")
 
 
+@case("a binding recorded as \"\" is that binding, not the path rule's: the Node's ?? read it as set")
+def _():
+    tax = gzmsg.load_taxonomy(P.CATALOG)
+    r = gzmsg.recorded_role(tax, {"agent": "nobody", "binding": "", "role": "no-such-role"})
+    ok(r["error"].startswith(' records role "no-such-role"'), r["error"])
+
+
 # ── 3. the journal never swallows an interrupt ───────────────────────
 
 @case("run_episodic re-raises KeyboardInterrupt and SystemExit; any other exception is the journal's non-answer")
