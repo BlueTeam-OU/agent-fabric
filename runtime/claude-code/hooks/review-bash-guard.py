@@ -30,8 +30,10 @@ restore|add, pip install, cargo add). Allows everything else: read-only git,
 validators, guards, builds and tests that need no install (dotnet build/test
 --no-restore; pnpm --filter X test).
 
-Output: a deny decision, or nothing. Exit 0 always -- exit 2 would block; a
-guard that cannot parse its input allows and says nothing. A guard that
+Output: a deny decision, or the command rewritten to run with a clean
+environment (CLEAN_ENV below) and no permission decision. Exit 0 always --
+exit 2 would block; a guard that cannot parse its input allows and says
+nothing. A guard that
 cannot RUN denies (the shim, when the fleet's Python is missing): the
 reviewer never needs Bash to finish, and the failure mode of allowing is a
 push to the session's real branch.
@@ -48,6 +50,7 @@ import json
 import os
 import re
 import select
+import shlex
 import signal
 import sys
 
@@ -262,19 +265,47 @@ def judged(cmd: str) -> str | None:
     return answer if answer in REASONS else "error"
 
 
+# What a command the fence lets through keeps of its environment: the
+# variables a build or a test needs to find its tools and a place to write,
+# and nothing else. Every account's shell carries its synced secrets
+# (~/.bashrc sources secrets.env), and the patterns above judge spellings,
+# which bash can always outrun (#96: nine rounds, each a new one); a command
+# that starts from this list has no secret to print, however it is spelled.
+# The names are fixed here and the values are expanded by the reviewer's
+# own shell when the command runs, so no value passes through this hook.
+# Measured: docs/live-checks/2026-10-05-hook-updated-input.md.
+CLEAN_ENV = ("PATH", "HOME", "USER", "LOGNAME", "SHELL", "PWD", "TERM", "TMPDIR", "TZ",
+             "LANG", "LANGUAGE", "LC_ALL", "LC_CTYPE", "LC_MESSAGES", "XDG_RUNTIME_DIR",
+             "AGENT_FABRIC_ROOT", "AGENT_FABRIC_PYTHON")
+assert not any(re.search(r"TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|_KEY", n) for n in CLEAN_ENV)
+
+
+def wrapped(cmd: str) -> str:
+    """cmd run by bash with only CLEAN_ENV, each kept only when it is set
+    (an empty TZ is not an unset one)."""
+    keep = " ".join('${%s+"%s=$%s"}' % (n, n, n) for n in CLEAN_ENV)
+    return f"/usr/bin/env -i {keep} bash -c {shlex.quote(cmd)}"
+
+
 def main() -> int:
     try:
-        cmd = json.load(sys.stdin)["tool_input"]["command"]
+        tool_input = json.load(sys.stdin)["tool_input"]
+        cmd = tool_input["command"]
     except Exception:
         return 0
     if not isinstance(cmd, str) or not cmd:
         return 0
     why = judged(cmd.rstrip("\n"))
     if why:
-        print(json.dumps({"hookSpecificOutput": {
-            "hookEventName": "PreToolUse",
-            "permissionDecision": "deny",
-            "permissionDecisionReason": REASONS[why]}}, ensure_ascii=False))
+        out = {"hookEventName": "PreToolUse", "permissionDecision": "deny",
+               "permissionDecisionReason": REASONS[why]}
+    else:
+        # No permission decision: the rewrite changes what runs and nothing
+        # about who may run it; the session's own permission checks still
+        # apply. The whole input goes back, so a timeout, a description or a
+        # background run is kept.
+        out = {"hookEventName": "PreToolUse", "updatedInput": {**tool_input, "command": wrapped(cmd)}}
+    print(json.dumps({"hookSpecificOutput": out}, ensure_ascii=False))
     return 0
 
 

@@ -438,6 +438,8 @@ its record disagree, the record wins. Look it up, never read it whole:
   and posted by the PR's account or a named poster, or unmarked from a
   trusted account (§5 rules 6–7). Legacy markers until the sunset (§5
   rule 8).
+- A 2026-10-05 — the reviewer holds no secret: every command its fence
+  lets through runs with a clean environment (§5 rule 4).
 - Keywords: review, blind review, code-review, re-review, brief,
   fabric-review, post-review, pr-review-status, marker, coverage,
   review-grade, substitute.

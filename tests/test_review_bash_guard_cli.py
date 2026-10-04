@@ -65,9 +65,22 @@ def decision(command: str, **extra: str) -> str:
     if not r.stdout.strip():
         return "allow"
     try:
-        return json.loads(r.stdout)["hookSpecificOutput"]["permissionDecision"]
+        out = json.loads(r.stdout)["hookSpecificOutput"]
     except (ValueError, KeyError, TypeError):
         return "malformed"
+    # A command let through comes back rewritten to run with a clean
+    # environment, with no decision: that is an allow.
+    if "permissionDecision" in out:
+        return out["permissionDecision"]
+    return "allow" if isinstance(out.get("updatedInput"), dict) else "malformed"
+
+
+def rewritten(tool_input: dict) -> dict | None:
+    r = run(json.dumps({"tool_name": "Bash", "tool_input": tool_input, "agent_type": "code-review"}))
+    try:
+        return json.loads(r.stdout)["hookSpecificOutput"]["updatedInput"]
+    except (ValueError, KeyError, TypeError):
+        return None
 
 
 def expect(label: str, want: str, command: str, **extra: str) -> None:
@@ -103,6 +116,40 @@ def in_time() -> None:
         expect(f"allowed in time: {label}", "allow", command)
 
 
+def clean_environment() -> None:
+    # The structural half of the fence: whatever a spelling slips past the
+    # patterns, the command it is in runs without the account's secrets
+    # (docs/live-checks/2026-10-05-hook-updated-input.md).
+    print("a command let through runs with a clean environment, and otherwise as asked")
+    probe = "python3 tests/fixtures/clean-env-probe.py"
+    got = rewritten({"command": probe, "timeout": 5000, "description": "names", "run_in_background": False})
+    check("the rewrite keeps the rest of the input (timeout, description, background)",
+          bool(got) and got.get("timeout") == 5000 and got.get("description") == "names"
+          and got.get("run_in_background") is False, str(got))
+    if not got:
+        return
+    shell_env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": os.environ.get("HOME", "/tmp"),
+                 "LANG": "C.UTF-8", "PLANTED_GH_TOKEN": "planted", "PLANTED_SIGNING_KEY": "planted",
+                 "SOME_UNLISTED": "x"}
+    r = subprocess.run(["bash", "-c", got["command"]], capture_output=True, text=True, env=shell_env,
+                       cwd=HERE, timeout=60)
+    names = set(r.stdout.split())
+    check("…a planted secret-shaped variable never reaches the command",
+          r.returncode == 0 and not names & {"PLANTED_GH_TOKEN", "PLANTED_SIGNING_KEY"}, f"rc={r.returncode} {sorted(names)}")
+    check("…nor an unlisted one, while PATH, HOME and LANG stay",
+          "SOME_UNLISTED" not in names and {"PATH", "HOME", "LANG"} <= names, str(sorted(names)))
+    check("…and an unset listed one stays unset (TZ is not set to empty)", "TZ" not in names, str(sorted(names)))
+    got = rewritten({"command": "exit 3"})
+    r = subprocess.run(["bash", "-c", got["command"]], capture_output=True, text=True, env=shell_env, timeout=60)
+    check("…its exit status is the command's", r.returncode == 3, f"rc={r.returncode}")
+    quoted = """printf '%s|' "it's" 'a$b' "$((1+2))" '"q"'"""
+    got = rewritten({"command": quoted})
+    direct = subprocess.run(["bash", "-c", quoted], capture_output=True, text=True, env=shell_env, timeout=60)
+    r = subprocess.run(["bash", "-c", got["command"]], capture_output=True, text=True, env=shell_env, timeout=60)
+    check("…and its quoting survives the rewrite", r.stdout == direct.stdout and r.stdout != "",
+          f"direct=[{direct.stdout}] wrapped=[{r.stdout}]")
+
+
 def fails_closed() -> None:
     print("a guard that cannot run, runs late or dies denies; it never silently allows")
     expect("with the fleet's Python unavailable the guard denies, even a harmless command", "deny", "ls",
@@ -121,6 +168,7 @@ def fails_closed() -> None:
 def main() -> int:
     table()
     in_time()
+    clean_environment()
     fails_closed()
     print()
     if failures:
