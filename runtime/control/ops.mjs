@@ -20,22 +20,20 @@ import zlib from 'node:zlib';
 import { whoami, findTaxonomy, loadTaxonomy, syncedVar, holdStatus, identity as gzIdentity } from './gzcoord.mjs';
 import { jobs } from './jobs.mjs';
 import { memoryPressure } from './pressure.mjs';
+import { readJson, sha12, execFileP } from './ops/util.mjs';
 
 export const OPS = ['ping', 'identity', 'usage', 'keys', 'fabric', 'session', 'script', 'recall', 'tokens', 'memory', 'host', 'disk', 'accounts', 'upgrade', 'secrets-sync', 'status', 'presence', 'jobs', 'jobs-add'];
+
 // Answered for any placed account, not only an operator: whether a session
 // is running is what every sender needs before it writes to one, and it
 // names nothing a relay reader could not already infer (the owner,
 // 2026-09-25: presence moves from HELLO/GOODBYE, now retired, to the
 // control plane).
 export const PUBLIC_OPS = ['presence'];
+
 export const KEY_NAMES = ['OPENROUTER_API_KEY', 'OPENAI_API_KEY', 'GH_TOKEN', 'CLAUDE_BRIDGE_AUTH_TOKEN', 'SERPAPI_API_KEY', 'BRAVE_SEARCH_API_KEY', 'CLAUDE_CODE_OAUTH_TOKEN'];
+
 export const USAGE_URL = 'https://api.anthropic.com/api/oauth/usage';
-
-function readJson(file) {
-  try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return null; }
-}
-
-const sha12 = v => crypto.createHash('sha256').update(v).digest('hex').slice(0, 12);
 
 // Who this account is, and which Claude account its sessions run on. A
 // template's setup-token (CLAUDE_CODE_OAUTH_TOKEN, synced from the
@@ -93,13 +91,16 @@ export async function usage(home = os.homedir(), fetchFn = globalThis.fetch, url
 // refresh, exits, and leaves a lock the next run trips on until the
 // harness calls it stale (60 s).
 export const ACCOUNTS_TIMEOUT_MS = 120000;
+
 export const ACCOUNT_SLUG = /^[a-z0-9][a-z0-9-]{0,62}$/;
+
 // Under the login's fabric state root, the same one runtime/identity.py
 // resolves: AGENT_FABRIC_STATE_DIR when set, else the XDG default.
 export function accountsDir(home = os.homedir(), env = process.env) {
   const root = env.AGENT_FABRIC_STATE_DIR ? path.resolve(env.AGENT_FABRIC_STATE_DIR) : path.join(env.XDG_STATE_HOME || path.join(home, '.local', 'state'), 'agent-fabric');
   return path.join(root, 'accounts');
 }
+
 // One reader per account across PROCESSES, not only inside the daemon: a
 // person's `fabric-accounts read` beside the keeper would start a second
 // harness on the same config directory, and the loser fails on the
@@ -122,14 +123,17 @@ export function takeReadLock(dir, pid = process.pid) {
   }
   return null;
 }
+
 export function accountSlugs(dir) {
   try { return fs.readdirSync(dir, { withFileTypes: true }).filter(d => d.isDirectory() && ACCOUNT_SLUG.test(d.name)).map(d => d.name).sort(); }
   catch { return []; }
 }
+
 export function claudeBin(home = os.homedir()) {
   const own = path.join(home, '.local', 'bin', 'claude');
   return fs.existsSync(own) ? own : 'claude';
 }
+
 // The /usage events, reduced to fixed keys. `limits` are the server's
 // meters in its order: session, weekly_all, weekly_scoped (per model).
 export function parseUsageReport(stdout) {
@@ -147,6 +151,7 @@ export function parseUsageReport(stdout) {
                                resets_at: l?.resets_at ?? null, model: l?.scope?.model?.display_name ?? null })),
   };
 }
+
 // One account's reading. The child gets an environment built from
 // nothing: a token variable inherited from the observer's own session
 // (CLAUDE_CODE_OAUTH_TOKEN, ANTHROPIC_API_KEY, a base URL) would outrank
@@ -175,6 +180,7 @@ export async function readAccount(dir, { home = os.homedir(), exec = execFileP, 
     release();
   }
 }
+
 // Every observed account, one at a time: two harness runs on one config
 // directory race for its refresh lock.
 export async function accounts(home = os.homedir(), { dir = accountsDir(home), ...opts } = {}) {
@@ -202,7 +208,9 @@ export function keys(home = os.homedir(), names = KEY_NAMES) {
 // there or has no base (review of ADR-042, F4). A mirror's refusal is the
 // parent's to repair, named by the child's agent id (F3).
 export const STORE_ROW = 'store commits verified';
+
 const REFUSAL_FILE = 'agent-fabric-refusal.json';
+
 const AGENT_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
 // kept: where a child's mirror's refusal is kept once a refused rebuild
@@ -281,6 +289,7 @@ export function storeRefusal(home = os.homedir(), store = process.env.AGENT_FABR
 // gpg-agent never holds the daemon's loop (review of #89); a test passes
 // its own exec, as it does for fabric() and session().
 export const SIGNING_ROW = 'signing key secret';
+
 export async function signingSecret(exec = execFileP) {
   const opts = { encoding: 'utf8', timeout: 5000, stdio: ['ignore', 'pipe', 'ignore'] };
   const text = r => String(typeof r === 'string' ? r : r?.stdout ?? '');
@@ -304,7 +313,6 @@ export async function signingSecret(exec = execFileP) {
 // the usage read of the same request); the read loop itself still
 // answers one record at a time (exec may return a string or a {stdout};
 // a test passes a synchronous fake).
-const execFileP = promisify(execFile);
 export async function fabric(root = process.env.AGENT_FABRIC_ROOT ?? path.join(os.homedir(), 'projects', 'agent-fabric'), exec = execFileP) {
   const git = async (...a) => { const r = await exec('git', ['-C', root, ...a], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 10000 }); return (typeof r === 'string' ? r : r.stdout).trim(); };
   const out = { root };
@@ -496,6 +504,7 @@ const SCRIPT_RANGES = [
   ['cjk', [[0x3040, 0x30FF], [0x4E00, 0x9FFF], [0xAC00, 0xD7AF]]],
   ['latin', [[0x0041, 0x005A], [0x0061, 0x007A], [0x00C0, 0x024F], [0x1E00, 0x1EFF]]],
 ];
+
 export function scriptCounts(text, counts = {}) {
   for (const ch of text) {
     const cp = ch.codePointAt(0);
@@ -507,12 +516,14 @@ export function scriptCounts(text, counts = {}) {
   }
   return counts;
 }
+
 const shares = counts => {
   const total = Object.values(counts).reduce((a, b) => a + b, 0);
   const out = { letters: total };
   for (const [k, v] of Object.entries(counts).sort((a, b) => b[1] - a[1])) out[k] = Math.round(1000 * v / total) / 10;
   return out;
 };
+
 // A block (a thinking block, a paragraph) binned by its non-Latin share:
 // `only` at 90 %, `mixed` from 30 %, `latin` below, `empty` under 20 letters.
 const binInto = (blocks, counts) => {
@@ -522,7 +533,9 @@ const binInto = (blocks, counts) => {
   const share = nonLatin / total;
   blocks[share >= 0.9 ? 'only' : share >= 0.3 ? 'mixed' : 'latin'] += 1;
 };
+
 const paragraphs = (text, counts, blocks, sink) => { for (const para of text.split(/\n\s*\n/)) { const c = scriptCounts(para); binInto(blocks, c); for (const [k, v] of Object.entries(c)) counts[k] = (counts[k] ?? 0) + v; sink?.push(para); } };
+
 // THE LANGUAGE, not only the script (the CEO, 2026-09-17: CLD2). Script
 // shares cannot tell English from Italian or Russian from Ukrainian, and
 // a single-label classifier cannot see the English inside a Georgian
@@ -538,9 +551,11 @@ const paragraphs = (text, counts, blocks, sink) => { for (const para of text.spl
 // under 20 letters is not sent. Without the venv the section says
 // `unavailable`, never a guess.
 const lettersOf = p => Object.values(scriptCounts(p)).reduce((a, b) => a + b, 0);
+
 export function langidCmd(home = os.homedir(), root = process.env.AGENT_FABRIC_ROOT ?? path.join(home, 'projects', 'agent-fabric')) {
   return [path.join(home, '.cache', 'agent-fabric', 'langid', 'venv', 'bin', 'python'), path.join(root, 'runtime', 'langid', 'langid.py')];
 }
+
 export function languages(paragraphs, { home, root, exec = execFileSync } = {}) {
   const judged = paragraphs.filter(p => lettersOf(p) >= 20);
   const [py, script] = langidCmd(home, root);
@@ -563,6 +578,7 @@ export function languages(paragraphs, { home, root, exec = execFileSync } = {}) 
   const shares = total ? sorted(Object.fromEntries(Object.entries(weight).map(([k, v]) => [k, Math.round(1000 * v / total) / 10]))) : {};
   return { status: 'ok', paragraphs: judged.length, unreliable, shares, dominant: sorted(dominant) };
 }
+
 // RECALL — is the corpus read? A drain is instrumented end to end; the
 // read-back never was: a slice read is a plain Read in the session's
 // record and nothing counted them, so a slice with a poor cue could be
@@ -581,7 +597,9 @@ export function languages(paragraphs, { home, root, exec = execFileSync } = {}) 
 // `.agent-fabric/memory/<role>/INDEX.md` relative to its working copy —
 // the shape every instruction file shows — is reading the corpus.
 const CORPUS_RE = /(?:^|\/)(?:\.agent-fabric\/memory\/|memory\/(?:domains|shared)\/)/;
+
 const IDENTITY_RE = /(?:^|\/)identities\/roles\/[a-z0-9-]+\/(?:charter|brief|recall)\.md$/;
+
 export function recallKind(tool, input) {
   const p = typeof input?.file_path === 'string' ? input.file_path : typeof input?.path === 'string' ? input.path : '';
   if (tool === 'Read') {
@@ -596,6 +614,7 @@ export function recallKind(tool, input) {
   }
   return null;
 }
+
 export function recall(home = os.homedir(), { hours = 24, now = Date.now() } = {}) {
   const root = path.join(home, '.claude', 'projects');
   const files = [];
@@ -649,6 +668,7 @@ export function recall(home = os.homedir(), { hours = 24, now = Date.now() } = {
 export function notesDir(home = os.homedir(), env = process.env, login = (() => { try { return os.userInfo().username; } catch { return 'unknown'; } })()) {
   return path.join(env.XDG_STATE_HOME ?? path.join(home, '.local', 'state'), 'agent-fabric', 'agents', login, 'notes');
 }
+
 export function script(home = os.homedir(), { hours = 24, limit = 5, now = Date.now(), notes = notesDir(home), langid = languages } = {}) {
   const root = path.join(home, '.claude', 'projects');
   let files = [];
@@ -717,10 +737,13 @@ export function script(home = os.homedir(), { hours = 24, limit = 5, now = Date.
 // 2026-09-19: this login's session, 155 requests, 22.5M cache reads,
 // 68k output. Counts only; nothing of the text leaves.
 export const TOKEN_RATIOS = { input: 1, cache_write: 1.25, cache_read: 0.1, output: 5 };
+
 export const TOKENS_DAYS = 7;
+
 export function equivalent(u, ratios = TOKEN_RATIOS) {
   return Math.round(u.input * ratios.input + u.cache_write * ratios.cache_write + u.cache_read * ratios.cache_read + u.output * ratios.output);
 }
+
 export function tokens(home = os.homedir(), { days = TOKENS_DAYS, now = Date.now() } = {}) {
   const root = path.join(home, '.claude', 'projects');
   const since = now - days * 86400000;
@@ -802,7 +825,9 @@ export function tokens(home = os.homedir(), { days = TOKENS_DAYS, now = Date.now
 // a worker that used a tool is a worker with one. Paragraphs binned like
 // the notes; counts only.
 export const WORKER_TYPE = 'locale-worker';
+
 const REMINDER_RE = /<system-reminder>[\s\S]*?(<\/system-reminder>|$)/g;
+
 export function workerTranscripts(files, { hours = 24, now = Date.now(), type = WORKER_TYPE, langid = null } = {}) {
   const input = {}, text = {}; const inputBlocks = { only: 0, mixed: 0, latin: 0, empty: 0 }, textBlocks = { only: 0, mixed: 0, latin: 0, empty: 0 }; const inputParas = [], textParas = [];
   let n = 0, turns = 0, others = 0, toolUses = 0;
@@ -854,11 +879,13 @@ export function workerTranscripts(files, { hours = 24, now = Date.now(), type = 
 // a memory directory with no working copy beside it, or with two, is
 // named and left where it is.
 export const MEMORY_PART_BYTES = 90 * 1024;
+
 // The harness's name for a launch directory: every character that is not
 // a letter or a digit becomes `-` — `/` and `.` alike (read back 2026-09-17:
 // ~/projects/foo.bar is -home-…-projects-foo-bar). The harvester's
 // memory_slug is the same rule.
 export function memorySlug(dir) { return path.resolve(dir).replace(/[^A-Za-z0-9]/g, '-'); }
+
 export function memoryDirs(home = os.homedir(), projectsDir = path.join(home, 'projects')) {
   const root = path.join(home, '.claude', 'projects');
   let slugs; try { slugs = fs.readdirSync(root); } catch { return []; }
@@ -876,6 +903,7 @@ export function memoryDirs(home = os.homedir(), projectsDir = path.join(home, 'p
   }
   return out;
 }
+
 export async function memory(home = os.homedir(), { root = process.env.AGENT_FABRIC_ROOT ?? path.join(home, 'projects', 'agent-fabric'), exec = execFileP, dirs = memoryDirs(home), all = false, partBytes = MEMORY_PART_BYTES } = {}) {
   const tool = path.join(root, 'tools', 'fabric', 'harvest_memory.py');
   const bundles = [];
@@ -917,8 +945,11 @@ export async function memory(home = os.homedir(), { root = process.env.AGENT_FAB
 // and target/ paths; a record whose path is not under the home is dropped
 // (review of #92, round 4).
 export const DISK_TIMEOUT_MS = 150000;
+
 export const DISK_MAX_BUFFER = 64 * 1024 * 1024;
+
 export const DISK_TOP = 5;
+
 export async function disk(home = os.homedir(), { exec = execFileP, timeoutMs = DISK_TIMEOUT_MS, readdir = fs.readdirSync } = {}) {
   let names;
   try { names = readdir(home); }
