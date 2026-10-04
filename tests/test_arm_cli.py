@@ -265,12 +265,22 @@ def main() -> int:
         put("no-waiver-rules.json", json.dumps(rules))
         wenv = {"AGENT_FABRIC_ARM_CONFIG": f"{state}/waiver-rules.json"}
 
+        waives = f"gzapi-org/gzapp#7@{HEAD[:8]}"
+
         def set_waiver(addressed: bool = True, typ: str = "DECISION", sender: str = cto, frm: str | None = None,
-                       role_line: str = "architect-cto", text: str = "Waived for #7: comment-only DDL.") -> None:
+                       role_line: str = "architect-cto", text: str = "Waived for #7: comment-only DDL.",
+                       line: str | None = waives, to: str | None = "develop-qzapp/me", extra: dict | None = None,
+                       message_id: str | None = mid) -> None:
             if not addressed:
                 put("waiver.out", json.dumps({"addressed": False, "seq": 4242}) + "\n"); put("waiver_rc", "2"); return
-            meta = {"FROM": frm if frm is not None else sender, "ROLE": role_line, "PROJECT": "gzapp",
-                    "TO": "develop-qzapp/me", "MESSAGE-ID": mid}
+            meta = {"FROM": frm if frm is not None else sender, "ROLE": role_line, "PROJECT": "gzapp"}
+            if to is not None:
+                meta["TO"] = to
+            if message_id is not None:
+                meta["MESSAGE-ID"] = message_id
+            if line is not None:
+                meta["WAIVES"] = line
+            meta.update(extra or {})
             put("waiver.out", json.dumps({"addressed": True, "seq": 4242, "sender": sender, "when": "t", "type": typ,
                                           "metadata": meta, "text": f"[GZCOORD/1] {typ}\n" + text}) + "\n")
             put("waiver_rc", "0")
@@ -308,8 +318,8 @@ def main() -> int:
         rc, out = run("7", "--basis", "b", "--no-boundary", why, "--waiver", "4242", env=wenv)
         check("a waiver named by relay seq: the comment records its MESSAGE-ID", rc == 0
               and f"waived by architect-cto-01 ({mid})" in calls(), calls())
-        reset(); set_pr(me, "plain", mig); set_gate(9); set_waiver(text="github-pr: gzapi-org/gzapp#7\nwaived."); set_presence()
-        rc, out = waive(); check("a github-pr reference to this repository names the PR", rc == 0, out)
+        reset(); set_pr(me, "plain", mig); set_gate(9); set_waiver(line=f"GZAPI-ORG/GZAPP#7@{HEAD[:16].upper()}"); set_presence()
+        rc, out = waive(); check("WAIVES: the repository case-insensitive, a longer head prefix in capitals", rc == 0, out)
         reset(); set_pr(me, "plain", mig); set_gate(9); set_waiver(); set_presence()
         rc, out = waive("--dry-run")
         check("a dry run checks the waiver and posts nothing", rc == 0 and "WAIVED" in out and "pr comment" not in calls()
@@ -320,10 +330,20 @@ def main() -> int:
                 ("an INFO, not a DECISION or REPLY", lambda: set_waiver(typ="INFO"), "not a DECISION or REPLY"),
                 ("a REQUEST", lambda: set_waiver(typ="REQUEST"), "not a DECISION or REPLY"),
                 ("a FROM other than the relay's sender", lambda: set_waiver(frm="develop-qzapp/me"), "says FROM"),
-                ("a text naming another PR (#70)", lambda: set_waiver(text="Waived for #70."), "does not name #7"),
-                ("another repository's #7", lambda: set_waiver(text="Waived: gzapi-org/other#7, github-pr: gzapi-org/other#7"),
-                 "does not name #7"),
-                ("no PR named at all", lambda: set_waiver(text="Waived."), "does not name #7")):
+                ("declining #7, with no WAIVES line", lambda: set_waiver(text="I do NOT waive #7.", line=None), "has no WAIVES"),
+                ("whose WAIVES line names another PR", lambda: set_waiver(line=f"gzapi-org/gzapp#70@{HEAD[:8]}"),
+                 "WAIVES gzapi-org/gzapp#70, not gzapi-org/gzapp#7"),
+                ("whose WAIVES line names another repository", lambda: set_waiver(line=f"gzapi-org/other#7@{HEAD[:8]}"),
+                 "WAIVES gzapi-org/other#7, not"),
+                ("for an earlier head", lambda: set_waiver(line="gzapi-org/gzapp#7@12345678"),
+                 "WAIVES head 12345678, and #7's head is now abcdef012345"),
+                ("whose head is under 8 hex", lambda: set_waiver(line=f"gzapi-org/gzapp#7@{HEAD[:7]}"), "has no WAIVES"),
+                ("with the WAIVES text in its body only", lambda: set_waiver(text=f"WAIVES: {waives}", line=None), "has no WAIVES"),
+                ("sent to the role, not to this login", lambda: set_waiver(to=None, extra={"TO-ROLE": "python-dev"}),
+                 "not sent TO develop-qzapp/me (a broadcast or a role address)"),
+                ("broadcast", lambda: set_waiver(to=None, extra={"BROADCAST": "true"}), "a broadcast or a role address"),
+                ("sent TO another login", lambda: set_waiver(to="develop-qzapp/other"), "(TO develop-qzapp/other)"),
+                ("from the arming session itself", lambda: set_waiver(sender="develop-qzapp/me"), "the session arming")):
             reset(); set_pr(me, "plain", mig); set_gate(9); set_presence(); setup()
             rc, out = waive()
             check(f"a waiver {label}: refused, nothing armed", rc == 1 and said in out and "pr merge" not in calls()
@@ -365,6 +385,16 @@ def main() -> int:
         put("bad-role.json", json.dumps(dict(rules, waiver_role="")))
         rc, out = waive(env={"AGENT_FABRIC_ARM_CONFIG": f"{state}/bad-role.json"})
         check("a waiver_role that is not a slug: exit 2", rc == 2 and "not a usable arm.json" in out, out)
+        for bad in (" architect-cto", "Architect CTO", "ghost-role"):
+            reset(); set_pr(me, "plain", mig); set_gate(9); set_waiver(); set_presence()
+            put("bad-role.json", json.dumps(dict(rules, waiver_role=bad)))
+            rc, out = waive(env={"AGENT_FABRIC_ARM_CONFIG": f"{state}/bad-role.json"})
+            check(f"waiver_role {bad!r}, not a catalogue slug: exit 2, the relay not asked",
+                  rc == 2 and "is not a role of identities/roles/catalog.json" in out and "replay" not in calls(), out)
+        reset(); set_pr(me, "plain", mig); set_gate(9); set_waiver(message_id=None); set_presence()
+        rc, out = run("7", "--basis", "b", "--no-boundary", why, "--waiver", "4242", env=wenv)
+        check("a waiver with no MESSAGE-ID: exit 2, never recorded under the seq typed",
+              rc == 2 and "carries no MESSAGE-ID" in out and "pr comment" not in calls(), out)
 
         reset(); set_pr(me, "plain", ["docs/a.md"]); set_gate(9); set_waiver(addressed=False)
         rc, out = waive()

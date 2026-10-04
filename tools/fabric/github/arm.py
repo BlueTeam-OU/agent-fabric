@@ -35,20 +35,35 @@ of the project's waiver role, read from the relay and checked here, never
 on the caller's say-so. Read only when a boundary matched: on a PR that
 matched none the waiver is said, not read, and not recorded. It is
 refused (exit 1) unless ALL of —
-  - the replay says it is addressed to this session (`addressed`);
+  - the replay says it is addressed to this session, and its TO is this
+    session's own <host>/<login>: a BROADCAST or a TO-ROLE is not a
+    waiver given to this session;
   - its type is DECISION or REPLY;
-  - the relay's sender is a <host>/<login> and its FROM says the same;
-  - its text names this PR: `#<n>` as a token of its own, or
-    `github-pr: <this repository>#<n>`;
+  - the relay's sender is a <host>/<login>, its FROM says the same, and
+    it is not this session's own login (no self-waiver);
+  - it carries the metadata line the approver writes on purpose,
+        WAIVES: <owner>/<repo>#<n>@<head sha, 8 or more hex>
+    naming this repository (case-insensitive), this PR, and a prefix of
+    its CURRENT head — a message that only mentions the PR, a decline
+    included, waives nothing, and an approval of one head arms no other;
   - fabric-ctl's presence of that login, on that host, reports the
     role arm.json's `waiver_role` names — the fabric's record of the
     login's binding, never the message's ROLE line.
 Unanswerable (exit 2, nothing posted): the replay not giving its JSON
-(relay down, no such message, a refused token), fabric-ctl not
-answering for the login, and an arm.json with no waiver_role while a
-waiver is asked. The arming comment records "Boundary gate waived by
-<login> (<message-id>): <why>". A boundary that is NOT waived still
-needs the review of the head, no open thread and the owner's word.
+(relay down, no such message, a refused token), a waiver with no
+MESSAGE-ID, fabric-ctl not answering for the login, and an arm.json
+whose waiver_role is missing while a waiver is asked, or is not a role
+of identities/roles/catalog.json. The arming comment records "Boundary
+gate waived by <login> (<message-id>): <why>". A boundary that is NOT
+waived still needs the review of the head, no open thread and the
+owner's word.
+
+WHAT THIS DOES NOT PROVE: the relay does not authenticate a sender
+(BRIDGE-RELAY-SETUP.md) — FROM and the relay's sender are both the
+poster's claim. The check stops a mistake (the wrong message, the wrong
+PR, a decline, a stale head, a role not held), not a forger: a session
+able to forge a waiver can run gh pr merge itself. A signed waiver is a
+protocol question, not this tool's.
 
 THE PROJECT'S RULES, projects/<id>/integration/gh/arm.json, found from
 this clone's remote as trial.json is (or AGENT_FABRIC_ARM_CONFIG):
@@ -66,8 +81,10 @@ this clone's remote as trial.json is (or AGENT_FABRIC_ARM_CONFIG):
                     without the owner's word, stated in the PR body as
                     "Class: <class>". None is a project that has none.
   waiver_role       the catalogue slug whose holder may waive the
-                    boundary gate (optional; a waiver asked of a project
-                    without one is exit 2).
+                    boundary gate: [a-z0-9][a-z0-9-]*, and a role of
+                    identities/roles/catalog.json. Optional; a waiver
+                    asked of a project without one, or with one that is
+                    not a catalogue role, is exit 2.
 A project with no arm.json is exit 2: a boundary the tool cannot read is
 never judged absent.
 """
@@ -114,11 +131,15 @@ What it refuses, in order, and why:
      agent-fabric). --boundary forces the gate on. --no-boundary
      <reason> --waiver <message-id|seq> waives it, on a message from the
      holder of the project's waiver role (arm.json "waiver_role") that
-     the relay holds: addressed to this session, a DECISION or REPLY,
-     naming this PR (#<n>, or github-pr: <repo>#<n>), its sender's role
-     as fabric-ctl presence reports it — never the message's ROLE line.
-     Any of those not so is refused; a relay or fabric-ctl that cannot
-     answer is exit 2. The comment records who waived it, the message
+     the relay holds: a DECISION or REPLY sent TO this login (not a
+     broadcast, not a role), from another login, carrying the line
+         WAIVES: <owner>/<repo>#<n>@<head sha, 8+ hex>
+     for this repository, this PR and its CURRENT head, from a sender
+     fabric-ctl presence reports holding the role — never the message's
+     ROLE line. Any of those not so is refused; a relay or fabric-ctl
+     that cannot answer, or a message with no MESSAGE-ID, is exit 2.
+     The relay does not authenticate senders: this stops mistakes, not
+     a forger. The comment records who waived it, the message
      and the reason. A PR that matches no boundary ignores a waiver;
   5. the count rule (pr-gate.sh's classifier): 8–16 arms at the review
      gate; over 16 is ADVICE for the next batch, never a refusal; under
@@ -260,25 +281,40 @@ def stated_class(body: str, classes: dict[str, re.Pattern]) -> str:
 
 
 ADDRESS = re.compile(r"[a-z0-9._-]+/[a-z0-9._-]+")
+# The line an approver writes on purpose: a message that only mentions the
+# PR — "I do NOT waive #7" included — waives nothing (review of 0c2498a,
+# F1), and the head it names ties the approval to the code it was given
+# for (F2).
+WAIVES = re.compile(r"([\w.-]+/[\w.-]+)#(\d+)@([0-9a-fA-F]{8,40})")
+SLUG = re.compile(r"[a-z0-9][a-z0-9-]*")
 
 
-def names_pr(text: str, num: str, repo: str) -> bool:
-    """`#<n>` standing alone — not the tail of another repository's
-    `org/name#<n>`, nor of a longer number — or a `github-pr:` reference
-    to this repository's <n>."""
-    if re.search(rf"(?<![\w./-])#{num}(?!\d)", text):
-        return True
-    return any(m.group(1).lower() == repo.lower() and m.group(2) == num
-               for m in re.finditer(r"github-pr:\s*([\w.-]+/[\w.-]+)#(\d+)", text))
-
-
-def verify_waiver(waiver: str, num: str, repo: str, role: str | None, refuse) -> tuple[str, str]:
-    """(login, message-id) of a waiver that holds, or Refused / Unanswered.
-    Every refusal is a fact of the message or of the fabric's record; a
-    question neither could answer is never read as a refusal or a pass."""
+def waiver_role_checked(role: str | None) -> str:
+    """arm.json's waiver_role, a slug the catalogue holds; anything else is
+    unanswerable — a misspelt role would refuse every waiver as the
+    approver's fault (review of 0c2498a, F5)."""
     if not role:
         raise Unanswered("a boundary waiver was asked, and this project's arm.json names no waiver_role — nobody"
                          " can be checked as holding it")
+    catalog = os.path.join(os.environ.get("AGENT_FABRIC_ROOT") or FABRIC, "identities", "roles", "catalog.json")
+    try:
+        with open(catalog, encoding="utf-8") as fh:
+            roles = {r.get("id") for r in json.load(fh).get("roles", []) if isinstance(r, dict)}
+    except (OSError, ValueError, AttributeError) as e:
+        raise Unanswered(f"the role catalogue could not be read to check waiver_role ({type(e).__name__}: {e})") from None
+    if not SLUG.fullmatch(role) or role not in roles:
+        raise Unanswered(f"arm.json's waiver_role {role!r} is not a role of identities/roles/catalog.json")
+    return role
+
+
+def verify_waiver(waiver: str, num: str, repo: str, head: str, session: str, role: str | None,
+                  refuse) -> tuple[str, str]:
+    """(login, message-id) of a waiver that holds, or Refused / Unanswered.
+    Every refusal is a fact of the message or of the fabric's record; a
+    question neither could answer is never read as a refusal or a pass.
+    The relay does not authenticate a sender (BRIDGE-RELAY-SETUP.md): this
+    stops a mistake, not a forger (review of 0c2498a, F4)."""
+    role = waiver_role_checked(role)
     rc, out = run_reader(program("AGENT_FABRIC_GZCOORD_INBOX",
                                  os.path.join(FABRIC, "communication", "gzcoord", "scripts", "inbox.mjs")),
                          ["--replay", waiver, "--json"], timeout=120)
@@ -296,13 +332,32 @@ def verify_waiver(waiver: str, num: str, repo: str, role: str | None, refuse) ->
     if not msg["addressed"]:
         raise refuse(f"the waiver {waiver} is not addressed to this session")
     meta = msg.get("metadata") if isinstance(msg.get("metadata"), dict) else {}
+    mid = meta.get("MESSAGE-ID")
+    if not isinstance(mid, str) or not mid:
+        # The comment names the message by its id; a seq is the relay's
+        # position, not the message (review of 0c2498a, F6).
+        raise Unanswered(f"the waiver {waiver} carries no MESSAGE-ID — the arming comment could not name it")
+    # A broadcast or a role address is "addressed" to every holder; a
+    # waiver is given to the session that arms (review of 0c2498a, F3).
+    if meta.get("TO") != session:
+        raise refuse(f"the waiver {waiver} is not sent TO {session} "
+                     f"({'TO ' + meta['TO'] if meta.get('TO') else 'a broadcast or a role address'})")
     if msg.get("type") not in ("DECISION", "REPLY"):
         raise refuse(f"the waiver {waiver} is a {msg.get('type')}, not a DECISION or REPLY")
     sender = str(msg.get("sender") or "")
     if not ADDRESS.fullmatch(sender) or meta.get("FROM") != sender:
         raise refuse(f"the waiver {waiver} was relayed from {sender or 'nobody'} but says FROM {meta.get('FROM')}")
-    if not names_pr(str(msg.get("text") or ""), num, repo):
-        raise refuse(f"the waiver {waiver} does not name #{num} (#{num}, or github-pr: {repo}#{num})")
+    if sender == session:
+        raise refuse(f"the waiver {waiver} is from {sender}, the session arming: a waiver is another login's")
+    m = WAIVES.fullmatch(str(meta.get("WAIVES") or "").strip())
+    if not m:
+        raise refuse(f"the waiver {waiver} has no WAIVES: {repo}#{num}@<head sha> line — a message that mentions"
+                     f" the PR waives nothing")
+    if m.group(1).lower() != repo.lower() or m.group(2) != num:
+        raise refuse(f"the waiver {waiver} WAIVES {m.group(1)}#{m.group(2)}, not {repo}#{num}")
+    if not head.lower().startswith(m.group(3).lower()):
+        raise refuse(f"the waiver {waiver} WAIVES head {m.group(3)}, and #{num}'s head is now {head[:12]}"
+                     f" — an approval of one head arms no other")
     host, login = sender.split("/", 1)
     rc, out = run_reader(program("AGENT_FABRIC_CTL", os.path.join(FABRIC, "bin", "fabric-ctl")),
                          [login, "presence", "--json"], timeout=120)
@@ -317,7 +372,7 @@ def verify_waiver(waiver: str, num: str, repo: str, role: str | None, refuse) ->
                          f" cannot be checked")
     if p.get("role") != role:
         raise refuse(f"the waiver {waiver} is from {login}, who holds {p.get('role') or 'no role'}, not {role}")
-    return login, str(meta.get("MESSAGE-ID") or waiver)
+    return login, mid
 
 
 def arm(argv: list[str]) -> int:
@@ -441,7 +496,7 @@ def arm(argv: list[str]) -> int:
     waived_by = ""
     if is_boundary:
         if waiver:
-            login, mid = verify_waiver(waiver, num, repo, waiver_role, refuse)
+            login, mid = verify_waiver(waiver, num, repo, head, session, waiver_role, refuse)
             waived_by = f"Boundary gate waived by {login} ({mid}): {no_boundary}."
             say(f"boundary gate WAIVED by {login}, {waiver_role} ({mid}): {no_boundary}")
         else:
