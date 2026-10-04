@@ -8,9 +8,35 @@
 // The answer is the process table, not a claim a session made about
 // itself: a crash, or a launch that never reached the harness, is never
 // "present" — what the HELLO/GOODBYE pair, now retired, got wrong.
+//
+// THE CLI, for the sender in Python (agent-fabric ADR-040 §7, Wave 7; the
+// coordinator's decision of 2026-10-04): the control channel's request
+// and reply shapes stay here, in the control plane Node keeps, rather
+// than copied into the sender — one implementation, changed once. It
+// runs only for a TO or TO-ROLE send, beside a wait of up to
+// GZCOORD_PRESENCE_WAIT_MS.
+//
+//   node runtime/control/presence.mjs check
+//     stdin   one JSON object: {"metadata": {<the message's metadata>},
+//             "from": "<host>/<login>", "token": "<relay token>"} — the
+//             token on stdin, never in argv
+//     env     GZCOORD_PRESENCE_WAIT_MS, AGENT_FABRIC_HOSTS_REGISTRY,
+//             FABRIC_CONTROL_CHANNEL / CLAUDE_BRIDGE_URL (controlConfig)
+//     stdout  one JSON object: checkAddressees' answer {checked,
+//             problems, notes}; or, when the request could not be made,
+//             {"error": "<one line>", "status": <HTTP status or null>}
+//     exit    0 checked, no problem (or nothing to check); 4 a definite
+//             problem only (offline, not-placed, no-holder with every
+//             placement answering); 5 an addressee that did not answer
+//             (silent, or a no-holder with silent placements); 6
+//             unavailable — a presence that could not read its process
+//             table, or the request that could not be made; 2 usage or
+//             unreadable stdin. The JSON is the answer; the status sums it.
 
+import fs from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { api } from './gzcoord.mjs';
-import { controlConfig, newId } from './agentd.mjs';
+import { controlConfig, newId, accountAddresses, operatorAddresses } from './agentd.mjs';
 
 // How long a sender waits for an answer: a control agent answers within a
 // second; the rest is the relay's poll. GZCOORD_PRESENCE_WAIT_MS shortens
@@ -81,3 +107,30 @@ export async function checkAddressees(metadata, { from, token, placed, operators
   const silent = Object.entries(all).filter(([, p]) => p === null || p.status !== 'ok').map(([a]) => a);
   return { checked: true, problems: [{ kind: 'no-holder', role, holders: holders.map(([a]) => a), silent }] };
 }
+
+// The summary status of an answer (the CLI's exit code, header above).
+export function exitCodeOf(answer) {
+  if (answer.error !== undefined) return 6;
+  const kinds = (answer.problems ?? []).map(p => p.kind === 'no-holder' && p.silent?.length ? 'silent' : p.kind);
+  if (kinds.includes('unavailable')) return 6;
+  if (kinds.includes('silent')) return 5;
+  return kinds.length ? 4 : 0;
+}
+
+export async function cli(argv = process.argv.slice(2), input = () => fs.readFileSync(0, 'utf8'), ask = checkAddressees) {
+  if (argv.length !== 1 || argv[0] !== 'check') { console.error('usage: presence.mjs check   (the request as JSON on stdin)'); return 2; }
+  let req;
+  // Never the parser's message: it quotes the input, and the input carries the token.
+  try { req = JSON.parse(input()); } catch { console.error('presence: stdin is not one JSON object'); return 2; }
+  if (!req || typeof req !== 'object' || !req.metadata || typeof req.metadata !== 'object' || typeof req.from !== 'string' || typeof req.token !== 'string') {
+    console.error('presence: stdin needs {"metadata": {...}, "from": "<host>/<login>", "token": "<relay token>"}'); return 2;
+  }
+  let answer;
+  try { answer = await ask(req.metadata, { from: req.from, token: req.token, placed: [...accountAddresses()], operators: [...operatorAddresses()] }); }
+  catch (e) { answer = { error: String(e?.message ?? e).split('\n')[0].slice(0, 160), status: Number.isInteger(e?.status) ? e.status : null }; }
+  console.log(JSON.stringify(answer));
+  return exitCodeOf(answer);
+}
+
+if (process.argv[1] && fs.realpathSync(process.argv[1]) === fileURLToPath(import.meta.url))
+  cli().then(c => process.exit(c), e => { console.log(JSON.stringify({ error: `presence: ${e?.message ?? e}`, status: null })); process.exit(6); });
