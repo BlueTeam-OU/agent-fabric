@@ -8,19 +8,47 @@ the first managed project's tools/gh/arm.sh, whose test is the oracle
 arm under the floor without asking — is now the project's arm.json.
 
 CONTRACT, frozen from the bash (ADR-040 §5 rule 3):
-  argv      <pr-number> --basis "<one line>" [--boundary | --no-boundary "<why>"]
+  argv      <pr-number> --basis "<one line>"
+            [--boundary | --no-boundary "<why>" --waiver <message-id|seq>]
             [--any-owner] [--dry-run] [-h|--help]
+            --no-boundary and --waiver come together; either alone is
+            usage (exit 2)
   env       AGENT_FABRIC_PR_GATE (the count reader, run as a program),
             AGENT_FABRIC_PR_REVIEW_STATUS (the review reader, run as a
             program), AGENT_FABRIC_PR_SESSION (<host>/<login>),
             AGENT_FABRIC_ARM_CONFIG (an arm.json used instead of the
-            project's), AGENT_FABRIC_ROOT
+            project's), AGENT_FABRIC_GZCOORD_INBOX (the inbox, run as a
+            program: <it> --replay <id> --json), AGENT_FABRIC_CTL
+            (fabric-ctl, run as a program: <it> <login> presence
+            --json), AGENT_FABRIC_ROOT
   stdout    `arm: ` lines — what each gate found, and the watcher line
   stderr    `arm: REFUSED #N — <why>` on a refusal; `arm: <why>` when a
             question could not be answered, or on a usage error
   exit      0 armed (or, with --dry-run, would arm); 1 refused — the
             reason is the last line; 2 gh / pr-gate / pr-review-status /
-            the project's arm.json could not answer, or usage
+            the project's arm.json / the relay / fabric-ctl could not
+            answer, or usage
+
+THE WAIVER (the owner's rule of 2026-10-04, relayed by devex-tooling):
+the security-boundary gate is waived only on a message from the holder
+of the project's waiver role, read from the relay and checked here, never
+on the caller's say-so. Read only when a boundary matched: on a PR that
+matched none the waiver is said, not read, and not recorded. It is
+refused (exit 1) unless ALL of —
+  - the replay says it is addressed to this session (`addressed`);
+  - its type is DECISION or REPLY;
+  - the relay's sender is a <host>/<login> and its FROM says the same;
+  - its text names this PR: `#<n>` as a token of its own, or
+    `github-pr: <this repository>#<n>`;
+  - fabric-ctl's presence of that login, on that host, reports the
+    role arm.json's `waiver_role` names — the fabric's record of the
+    login's binding, never the message's ROLE line.
+Unanswerable (exit 2, nothing posted): the replay not giving its JSON
+(relay down, no such message, a refused token), fabric-ctl not
+answering for the login, and an arm.json with no waiver_role while a
+waiver is asked. The arming comment records "Boundary gate waived by
+<login> (<message-id>): <why>". A boundary that is NOT waived still
+needs the review of the head, no open thread and the owner's word.
 
 THE PROJECT'S RULES, projects/<id>/integration/gh/arm.json, found from
 this clone's remote as trial.json is (or AGENT_FABRIC_ARM_CONFIG):
@@ -37,6 +65,9 @@ this clone's remote as trial.json is (or AGENT_FABRIC_ARM_CONFIG):
                     the classes the project lets arm under the floor
                     without the owner's word, stated in the PR body as
                     "Class: <class>". None is a project that has none.
+  waiver_role       the catalogue slug whose holder may waive the
+                    boundary gate (optional; a waiver asked of a project
+                    without one is exit 2).
 A project with no arm.json is exit 2: a boundary the tool cannot read is
 never judged absent.
 """
@@ -80,8 +111,15 @@ What it refuses, in order, and why:
      gate: exit 0 means ANY counted review, an empty thread-reply review
      included. The boundary is read from the changed files against the
      project's patterns (projects/<id>/integration/gh/arm.json in
-     agent-fabric). --boundary forces the gate on, --no-boundary
-     <reason> waives it and records the reason in the arming comment;
+     agent-fabric). --boundary forces the gate on. --no-boundary
+     <reason> --waiver <message-id|seq> waives it, on a message from the
+     holder of the project's waiver role (arm.json "waiver_role") that
+     the relay holds: addressed to this session, a DECISION or REPLY,
+     naming this PR (#<n>, or github-pr: <repo>#<n>), its sender's role
+     as fabric-ctl presence reports it — never the message's ROLE line.
+     Any of those not so is refused; a relay or fabric-ctl that cannot
+     answer is exit 2. The comment records who waived it, the message
+     and the reason. A PR that matches no boundary ignores a waiver;
   5. the count rule (pr-gate.sh's classifier): 8–16 arms at the review
      gate; over 16 is ADVICE for the next batch, never a refusal; under
      8 is armed on the owner's word — the --basis must carry the phrase
@@ -99,17 +137,20 @@ session's callback.
 Options:
   --basis "<text>"      required: the one-line arming basis
   --boundary            treat as a security-boundary change regardless of paths
-  --no-boundary "<why>" waive the boundary gate; the reason goes in the comment
+  --no-boundary "<why>" waive the boundary gate, with --waiver; the reason goes in the comment
+  --waiver <id|seq>     the waiver role holder's message (MESSAGE-ID or relay seq)
   --any-owner           arm a PR whose branch is not this session's
   --dry-run             evaluate every gate, arm nothing, post nothing
 
 Exit codes:
   0  armed (or, with --dry-run, would arm)
   1  refused — the reason is the last line
-  2  gh / pr-gate / pr-review-status / arm.json could not answer, or usage
+  2  gh / pr-gate / pr-review-status / arm.json / the relay / fabric-ctl
+     could not answer, or usage
 
 Environment: AGENT_FABRIC_PR_GATE, AGENT_FABRIC_PR_REVIEW_STATUS,
-AGENT_FABRIC_PR_SESSION, AGENT_FABRIC_ARM_CONFIG."""
+AGENT_FABRIC_PR_SESSION, AGENT_FABRIC_ARM_CONFIG,
+AGENT_FABRIC_GZCOORD_INBOX, AGENT_FABRIC_CTL."""
 
 
 class Refused(Exception):
@@ -154,7 +195,7 @@ def config_path() -> str:
     return os.path.join(fabric, "projects", pid, "integration", "gh", "arm.json") if pid else ""
 
 
-def load_config(path: str) -> tuple[re.Pattern, re.Pattern | None, dict[str, re.Pattern]]:
+def load_config(path: str) -> tuple[re.Pattern, re.Pattern | None, dict[str, re.Pattern], str | None]:
     if not path:
         raise Unanswered("no project found for this working copy, so no arm.json to read the security boundary from"
                          " (projects/<id>/integration/gh/arm.json in agent-fabric, or AGENT_FABRIC_ARM_CONFIG)")
@@ -165,11 +206,14 @@ def load_config(path: str) -> tuple[re.Pattern, re.Pattern | None, dict[str, re.
         paths = re.compile(b["paths"], re.I)
         exempt = re.compile(b["exempt"]) if b.get("exempt") else None
         classes = {str(k).lower(): re.compile(v) for k, v in (doc.get("classes") or {}).items()}
+        waiver_role = doc.get("waiver_role")
+        if waiver_role is not None and not (isinstance(waiver_role, str) and waiver_role.strip()):
+            raise TypeError("waiver_role is not a role's slug")
     except FileNotFoundError:
         raise Unanswered(f"this project declares no arm.json ({path}); the security boundary cannot be judged") from None
     except (OSError, ValueError, KeyError, TypeError, AttributeError, re.error) as e:
         raise Unanswered(f"{path} is not a usable arm.json ({type(e).__name__}: {e})") from None
-    return paths, exempt, classes
+    return paths, exempt, classes, waiver_role
 
 
 # ── readers run as programs: the seams the oracle mocks ──────────────
@@ -178,9 +222,9 @@ def program(env: str, default: str) -> str:
     return os.environ.get(env) or default
 
 
-def run_reader(path: str, args: list[str]) -> tuple[int, str]:
+def run_reader(path: str, args: list[str], timeout: int = 600) -> tuple[int, str]:
     try:
-        r = subprocess.run([path, *args], capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=600)
+        r = subprocess.run([path, *args], capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=timeout)
     except OSError:
         return 127, ""
     except subprocess.TimeoutExpired:
@@ -215,8 +259,69 @@ def stated_class(body: str, classes: dict[str, re.Pattern]) -> str:
     return ""
 
 
+ADDRESS = re.compile(r"[a-z0-9._-]+/[a-z0-9._-]+")
+
+
+def names_pr(text: str, num: str, repo: str) -> bool:
+    """`#<n>` standing alone — not the tail of another repository's
+    `org/name#<n>`, nor of a longer number — or a `github-pr:` reference
+    to this repository's <n>."""
+    if re.search(rf"(?<![\w./-])#{num}(?!\d)", text):
+        return True
+    return any(m.group(1).lower() == repo.lower() and m.group(2) == num
+               for m in re.finditer(r"github-pr:\s*([\w.-]+/[\w.-]+)#(\d+)", text))
+
+
+def verify_waiver(waiver: str, num: str, repo: str, role: str | None, refuse) -> tuple[str, str]:
+    """(login, message-id) of a waiver that holds, or Refused / Unanswered.
+    Every refusal is a fact of the message or of the fabric's record; a
+    question neither could answer is never read as a refusal or a pass."""
+    if not role:
+        raise Unanswered("a boundary waiver was asked, and this project's arm.json names no waiver_role — nobody"
+                         " can be checked as holding it")
+    rc, out = run_reader(program("AGENT_FABRIC_GZCOORD_INBOX",
+                                 os.path.join(FABRIC, "communication", "gzcoord", "scripts", "inbox.mjs")),
+                         ["--replay", waiver, "--json"], timeout=120)
+    try:
+        msg = json.loads(out)
+    except ValueError:
+        msg = None
+    # The replay exits 0 with {"addressed": true, ...} for a message
+    # addressed to this session and 2 with {"addressed": false} for one
+    # that is not; any other failure (no such message, a relay that did
+    # not answer, a refused token) prints no JSON object. A status and an
+    # object that disagree are an answer of a shape it never gave.
+    if not isinstance(msg, dict) or (rc, msg.get("addressed")) not in ((0, True), (2, False)):
+        raise Unanswered(f"the waiver {waiver} could not be read from the relay (gzcoord-inbox --replay exit {rc})")
+    if not msg["addressed"]:
+        raise refuse(f"the waiver {waiver} is not addressed to this session")
+    meta = msg.get("metadata") if isinstance(msg.get("metadata"), dict) else {}
+    if msg.get("type") not in ("DECISION", "REPLY"):
+        raise refuse(f"the waiver {waiver} is a {msg.get('type')}, not a DECISION or REPLY")
+    sender = str(msg.get("sender") or "")
+    if not ADDRESS.fullmatch(sender) or meta.get("FROM") != sender:
+        raise refuse(f"the waiver {waiver} was relayed from {sender or 'nobody'} but says FROM {meta.get('FROM')}")
+    if not names_pr(str(msg.get("text") or ""), num, repo):
+        raise refuse(f"the waiver {waiver} does not name #{num} (#{num}, or github-pr: {repo}#{num})")
+    host, login = sender.split("/", 1)
+    rc, out = run_reader(program("AGENT_FABRIC_CTL", os.path.join(FABRIC, "bin", "fabric-ctl")),
+                         [login, "presence", "--json"], timeout=120)
+    try:
+        row = json.loads(out.strip().splitlines()[0]) if rc == 0 and out.strip() else None
+    except ValueError:
+        row = None
+    p = row.get("presence") if isinstance(row, dict) else None
+    if (not isinstance(p, dict) or row.get("status") != "ok" or p.get("status") != "ok"
+            or row.get("account") != login or row.get("host") != host):
+        raise Unanswered(f"fabric-ctl could not say which role {login} holds (presence, exit {rc}) — the waiver"
+                         f" cannot be checked")
+    if p.get("role") != role:
+        raise refuse(f"the waiver {waiver} is from {login}, who holds {p.get('role') or 'no role'}, not {role}")
+    return login, str(meta.get("MESSAGE-ID") or waiver)
+
+
 def arm(argv: list[str]) -> int:
-    num = basis = no_boundary = ""
+    num = basis = no_boundary = waiver = ""
     boundary = any_owner = dry = False
     i = 0
     while i < len(argv):
@@ -231,6 +336,12 @@ def arm(argv: list[str]) -> int:
             no_boundary = argv[i + 1] if i + 1 < len(argv) else ""
             if not no_boundary:
                 raise Unanswered("--no-boundary needs the reason")
+            i += 2
+            continue
+        elif a == "--waiver":
+            waiver = argv[i + 1] if i + 1 < len(argv) else ""
+            if not waiver or waiver.startswith("-"):
+                raise Unanswered("--waiver needs the waiver's MESSAGE-ID or relay seq")
             i += 2
             continue
         elif a == "--any-owner":
@@ -253,6 +364,9 @@ def arm(argv: list[str]) -> int:
         raise Unanswered('--basis "<one line>" is required — the arming comment is the record')
     if boundary and no_boundary:
         raise Unanswered("--boundary and --no-boundary contradict")
+    if bool(no_boundary) != bool(waiver):
+        raise Unanswered('--no-boundary "<why>" and --waiver <message-id|seq> come together: a boundary is waived'
+                         " only on the waiver role holder's message (try --help)")
     if not shutil.which("gh"):
         raise Unanswered("gh is required")
 
@@ -296,7 +410,7 @@ def arm(argv: list[str]) -> int:
 
     # The project's rules are read only now: gates 1–3 hold for any
     # project, and refuse without them.
-    boundary_re, exempt_re, classes = load_config(config_path())
+    boundary_re, exempt_re, classes, waiver_role = load_config(config_path())
 
     # 4. the security boundary. The changed files come from the paginated
     # REST list, not `gh pr view --json files`, which stops at 100 — a
@@ -322,9 +436,14 @@ def arm(argv: list[str]) -> int:
         say(f"security boundary: {len(boundary_files)} changed file(s) match — {head_lines(boundary_files)}")
     else:
         say("not a security-boundary change by its paths")
+        if waiver:
+            say(f"no boundary matched: the waiver {waiver} is not needed, not read, and not recorded")
+    waived_by = ""
     if is_boundary:
-        if no_boundary:
-            say(f"boundary gate WAIVED: {no_boundary}")
+        if waiver:
+            login, mid = verify_waiver(waiver, num, repo, waiver_role, refuse)
+            waived_by = f"Boundary gate waived by {login} ({mid}): {no_boundary}."
+            say(f"boundary gate WAIVED by {login}, {waiver_role} ({mid}): {no_boundary}")
         else:
             rc, out = run_reader(program("AGENT_FABRIC_PR_REVIEW_STATUS", os.path.join(RUNTIME, "pr-review-status.sh")),
                                  [num, "-q", "--json"])
@@ -400,8 +519,8 @@ def arm(argv: list[str]) -> int:
         say(f"count rule: {work} work commits — in the 8–16 band")
 
     comment = f"Arming basis: {basis} — {work} work commits{f', class: {cls}' if cls else ''}, head {head[:8]}."
-    if no_boundary:
-        comment += f" Boundary gate waived: {no_boundary}."
+    if waived_by:
+        comment += f" {waived_by}"
     if dry:
         say(f"DRY RUN — would post: {comment}")
         say(f"DRY RUN — would run: gh pr merge {num} --merge --auto")
