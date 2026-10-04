@@ -46,7 +46,7 @@ if line == "api graphql --input -":
 if line.startswith("pr view "):
     if has("viewfail"): sys.exit(1)
     print(json.dumps({k: v for k, v in pr.items() if k != "files"})); sys.exit(0)
-if line == "pr merge 7 --merge --auto":
+if line == "pr merge 7 --merge --auto --match-head-commit abcdef0123456789abcdef0123456789abcdef01":
     open(os.path.join(s, "armed"), "w").close(); sys.exit(0)
 print("mock gh: unhandled: " + line, file=sys.stderr); sys.exit(1)
 '''
@@ -82,6 +82,27 @@ out = {"state": "OPEN", "head": "abcdef0123456789", "head_reviewed": rc == 0,
 print(json.dumps(out)); sys.exit(rc)
 '''
 
+# The waiver's two readers, from state files: the relay's replay
+# (`waiver.out` printed, `waiver_rc` its exit) and fabric-ctl's presence
+# (`presence.out`, `ctl_rc`). Each call is recorded, prefixed, so a test
+# can say whether it was asked at all.
+INBOX_MOCK = r'''#!/usr/bin/env python3
+import os, sys
+s = os.environ["MOCK_STATE"]
+rd = lambda n, d="": open(os.path.join(s, n)).read() if os.path.exists(os.path.join(s, n)) else d
+with open(os.path.join(s, "calls"), "a") as fh:
+    fh.write("replay " + " ".join(sys.argv[1:]) + "\n")
+sys.stdout.write(rd("waiver.out")); sys.exit(int(rd("waiver_rc", "0") or 0))
+'''
+CTL_MOCK = r'''#!/usr/bin/env python3
+import os, sys
+s = os.environ["MOCK_STATE"]
+rd = lambda n, d="": open(os.path.join(s, n)).read() if os.path.exists(os.path.join(s, n)) else d
+with open(os.path.join(s, "calls"), "a") as fh:
+    fh.write("ctl " + " ".join(sys.argv[1:]) + "\n")
+sys.stdout.write(rd("presence.out")); sys.exit(int(rd("ctl_rc", "0") or 0))
+'''
+
 HEAD = "abcdef0123456789abcdef0123456789abcdef01"
 
 
@@ -102,7 +123,8 @@ def main() -> int:
         state, bindir = f"{sandbox}/state", f"{sandbox}/bin"
         os.makedirs(state)
         os.makedirs(bindir)
-        for name, text in (("gh", GH_MOCK), ("pr-gate", GATE_MOCK), ("pr-review-status", REVIEW_MOCK)):
+        for name, text in (("gh", GH_MOCK), ("pr-gate", GATE_MOCK), ("pr-review-status", REVIEW_MOCK),
+                           ("gzcoord-inbox", INBOX_MOCK), ("fabric-ctl", CTL_MOCK)):
             with open(f"{bindir}/{name}", "w") as fh:
                 fh.write(text)
             os.chmod(f"{bindir}/{name}", 0o755)
@@ -112,7 +134,8 @@ def main() -> int:
                 fh.write(text)
 
         def reset() -> None:
-            for n in ("calls", "armed", "queued", "viewfail", "blind", "independent", "unresolved", "no_blind_field", "badrepo"):
+            for n in ("calls", "armed", "queued", "viewfail", "blind", "independent", "unresolved", "no_blind_field", "badrepo",
+                      "waiver.out", "waiver_rc", "presence.out", "ctl_rc"):
                 if os.path.exists(f"{state}/{n}"):
                     os.remove(f"{state}/{n}")
             put("review_rc", "1")
@@ -136,7 +159,8 @@ def main() -> int:
         def run(*args: str, script: str = GZAPP, env: dict | None = None, cwd: str = sandbox) -> tuple[int, str]:
             e = dict(base_env, MOCK_STATE=state, PATH=f"{bindir}:{base_env.get('PATH', '')}",
                      GZAPP_PR_GATE=f"{bindir}/pr-gate", GZAPP_PR_REVIEW_STATUS=f"{bindir}/pr-review-status",
-                     GZAPP_PR_SESSION="develop-qzapp/me")
+                     GZAPP_PR_SESSION="develop-qzapp/me", AGENT_FABRIC_GZCOORD_INBOX=f"{bindir}/gzcoord-inbox",
+                     AGENT_FABRIC_CTL=f"{bindir}/fabric-ctl")
             if script == SHIM:
                 # The shim reads the fabric's names; only gzapp's forwarder maps GZAPP_*.
                 e.update(AGENT_FABRIC_PR_GATE=e.pop("GZAPP_PR_GATE"), AGENT_FABRIC_PR_SESSION=e.pop("GZAPP_PR_SESSION"),
@@ -157,6 +181,7 @@ def main() -> int:
         rc, out = run("7", "--basis", "x", "--boundary", "--no-boundary", "why")
         check("--boundary with --no-boundary: exit 2", rc == 2, out)
         rc, out = run("--help"); check("--help prints the gates, exit 0", rc == 0 and "SECURITY-BOUNDARY" in out, out)
+        check("…and the merge command as the run issues it", "--merge --auto\n--match-head-commit <head>" in out, out)
 
         print("arm: gate 1 — open and not a draft")
         reset(); set_pr(me, "plain", ["docs/a.md"], "MERGED"); set_gate(9)
@@ -230,9 +255,159 @@ def main() -> int:
         rc, out = run("7", "--basis", "b")
         check("a file renamed OUT of a boundary directory is judged by its old name too",
               rc == 1 and "no review-class review" in out, out)
-        reset(); set_pr(me, "plain", mig)
-        rc, out = run("7", "--basis", "the owner's word", "--no-boundary", "comment-only DDL, owner waived")
-        check("--no-boundary waives it and says so", rc == 0 and "WAIVED" in out, out)
+
+        print("arm: gate 4 — a waiver, read from the relay and checked against the fabric")
+        cto, mid = "develop-qzapp/architect-cto-01", "01a10593-0000-7000-8000-00000000c7f0"
+        with open(os.path.join(ROOT, "projects", "gzapp", "integration", "gh", "arm.json")) as fh:
+            rules = json.load(fh)
+        rules["waiver_role"] = "architect-cto"
+        put("waiver-rules.json", json.dumps(rules))
+        rules.pop("waiver_role")
+        put("no-waiver-rules.json", json.dumps(rules))
+        wenv = {"AGENT_FABRIC_ARM_CONFIG": f"{state}/waiver-rules.json"}
+
+        waives = f"gzapi-org/gzapp#7@{HEAD[:8]}"
+
+        def set_waiver(addressed: bool = True, typ: str = "DECISION", sender: str = cto, frm: str | None = None,
+                       role_line: str = "architect-cto", text: str = "Waived for #7: comment-only DDL.",
+                       line: str | None = waives, to: str | None = "develop-qzapp/me", extra: dict | None = None,
+                       message_id: str | None = mid) -> None:
+            if not addressed:
+                put("waiver.out", json.dumps({"addressed": False, "seq": 4242}) + "\n"); put("waiver_rc", "2"); return
+            meta = {"FROM": frm if frm is not None else sender, "ROLE": role_line, "PROJECT": "gzapp"}
+            if to is not None:
+                meta["TO"] = to
+            if message_id is not None:
+                meta["MESSAGE-ID"] = message_id
+            if line is not None:
+                meta["WAIVES"] = line
+            meta.update(extra or {})
+            put("waiver.out", json.dumps({"addressed": True, "seq": 4242, "sender": sender, "when": "t", "type": typ,
+                                          "metadata": meta, "text": f"[GZCOORD/1] {typ}\n" + text}) + "\n")
+            put("waiver_rc", "0")
+
+        def set_presence(role: str | None = "architect-cto", account: str = "architect-cto-01",
+                         host: str = "develop-qzapp", status: str = "ok", pstatus: str = "ok") -> None:
+            put("presence.out", json.dumps({"account": account, "host": host, "status": status, "op": "presence",
+                                            "presence": {"status": pstatus, "online": True, "role": role}}) + "\n")
+
+        why = "comment-only DDL"
+
+        def waive(*extra: str, basis: str = "nine at the gate", env: dict | None = None) -> tuple[int, str]:
+            return run("7", "--basis", basis, "--no-boundary", why, "--waiver", mid, *extra, env=env or wenv)
+
+        reset(); set_pr(me, "plain", mig); set_gate(9)
+        rc, out = run("7", "--basis", "the owner's word", "--no-boundary", why, env=wenv)
+        check("--no-boundary without --waiver: exit 2, nothing armed", rc == 2 and "come together" in out
+              and "pr merge" not in calls(), out)
+        rc, out = run("7", "--basis", "b", "--waiver", mid, env=wenv)
+        check("--waiver without --no-boundary: exit 2", rc == 2 and "come together" in out, out)
+        rc, out = run("7", "--basis", "b", "--no-boundary", why, "--waiver", env=wenv)
+        check("--waiver with no value: exit 2", rc == 2 and "--waiver needs" in out, out)
+
+        reset(); set_pr(me, "plain", mig); set_gate(9); set_waiver(); set_presence()
+        rc, out = waive()
+        check("a waiver from the role's holder, addressed here, naming the PR: armed",
+              rc == 0 and "boundary gate WAIVED by architect-cto-01" in out and "ARMED #7" in out, out)
+        check("…the comment records the login, the message and the reason",
+              f"Boundary gate waived by architect-cto-01 ({mid}): {why}." in calls(), calls())
+        check("…the replay asked by the id given, the role asked of fabric-ctl for the sender's login",
+              f"replay --replay {mid} --json" in calls() and "ctl architect-cto-01 presence --json" in calls(), calls())
+        check("…no review asked and no owner's word needed", not any(l[:1].isdigit() for l in calls().splitlines())
+              and "owner's word" not in out, calls())
+        reset(); set_pr(me, "plain", mig); set_gate(9); set_waiver(); set_presence()
+        rc, out = run("7", "--basis", "b", "--no-boundary", why, "--waiver", "4242", env=wenv)
+        check("a waiver named by relay seq: the comment records its MESSAGE-ID", rc == 0
+              and f"waived by architect-cto-01 ({mid})" in calls(), calls())
+        reset(); set_pr(me, "plain", mig); set_gate(9); set_waiver(line=f"GZAPI-ORG/GZAPP#7@{HEAD[:16].upper()}"); set_presence()
+        rc, out = waive(); check("WAIVES: the repository case-insensitive, a longer head prefix in capitals", rc == 0, out)
+        reset(); set_pr(me, "plain", mig); set_gate(9); set_waiver(); set_presence()
+        rc, out = waive("--dry-run")
+        check("a dry run checks the waiver and posts nothing", rc == 0 and "WAIVED" in out and "pr comment" not in calls()
+              and "replay --replay" in calls(), out)
+
+        for label, setup, said in (
+                ("not addressed to this session", lambda: set_waiver(addressed=False), "not addressed to this session"),
+                ("an INFO, not a DECISION or REPLY", lambda: set_waiver(typ="INFO"), "not a DECISION or REPLY"),
+                ("a REQUEST", lambda: set_waiver(typ="REQUEST"), "not a DECISION or REPLY"),
+                ("a FROM other than the relay's sender", lambda: set_waiver(frm="develop-qzapp/me"), "says FROM"),
+                ("declining #7, with no WAIVES line", lambda: set_waiver(text="I do NOT waive #7.", line=None), "has no WAIVES"),
+                ("whose WAIVES line names another PR", lambda: set_waiver(line=f"gzapi-org/gzapp#70@{HEAD[:8]}"),
+                 "WAIVES gzapi-org/gzapp#70, not gzapi-org/gzapp#7"),
+                ("whose WAIVES line names another repository", lambda: set_waiver(line=f"gzapi-org/other#7@{HEAD[:8]}"),
+                 "WAIVES gzapi-org/other#7, not"),
+                ("for an earlier head", lambda: set_waiver(line="gzapi-org/gzapp#7@12345678"),
+                 "WAIVES head 12345678, and #7's head is now abcdef012345"),
+                ("whose head is under 8 hex", lambda: set_waiver(line=f"gzapi-org/gzapp#7@{HEAD[:7]}"), "has no WAIVES"),
+                ("with the WAIVES text in its body only", lambda: set_waiver(text=f"WAIVES: {waives}", line=None), "has no WAIVES"),
+                ("sent to the role, not to this login", lambda: set_waiver(to=None, extra={"TO-ROLE": "python-dev"}),
+                 "not sent TO develop-qzapp/me (a broadcast or a role address)"),
+                ("broadcast", lambda: set_waiver(to=None, extra={"BROADCAST": "true"}), "a broadcast or a role address"),
+                ("sent TO another login", lambda: set_waiver(to="develop-qzapp/other"), "(TO develop-qzapp/other)"),
+                ("from the arming session itself", lambda: set_waiver(sender="develop-qzapp/me"), "the login arming"),
+                ("from the arming login on another host", lambda: set_waiver(sender="far-host/me"), "the login arming")):
+            reset(); set_pr(me, "plain", mig); set_gate(9); set_presence(); setup()
+            rc, out = waive()
+            check(f"a waiver {label}: refused, nothing armed", rc == 1 and said in out and "pr merge" not in calls()
+                  and "pr comment" not in calls(), out)
+        reset(); set_pr(me, "plain", mig); set_gate(9); set_waiver(sender="develop-qzapp/backend-dev-01")
+        set_presence(role="backend-dev", account="backend-dev-01")
+        rc, out = waive()
+        check("a sender holding another role, its ROLE line claiming architect-cto: refused — the fabric's record wins",
+              rc == 1 and "who holds backend-dev, not architect-cto" in out and "pr merge" not in calls(), out)
+        reset(); set_pr(me, "plain", mig); set_gate(9); set_waiver(); set_presence(role=None)
+        rc, out = waive(); check("a sender holding no role: refused", rc == 1 and "holds no role" in out, out)
+
+        for label, setup in (
+                ("the replay finds no message (exit 1, no JSON)", lambda: (put("waiver.out", ""), put("waiver_rc", "1"))),
+                ("the relay is down (exit 0, no JSON)", lambda: (put("waiver.out", "gzcoord: relay unreachable\n"), put("waiver_rc", "0"))),
+                ("a refused token (exit 4)", lambda: (put("waiver.out", ""), put("waiver_rc", "4"))),
+                ("JSON with no addressed field", lambda: (put("waiver.out", '{"seq": 1}'), put("waiver_rc", "0"))),
+                ("addressed, with a failing exit", lambda: (set_waiver(), put("waiver_rc", "1"))),
+                ("not addressed, with exit 0", lambda: (set_waiver(addressed=False), put("waiver_rc", "0")))):
+            reset(); set_pr(me, "plain", mig); set_gate(9); set_presence(); setup()
+            rc, out = waive()
+            check(f"{label}: exit 2, nothing posted", rc == 2 and "could not be read from the relay" in out
+                  and "pr comment" not in calls() and "pr merge" not in calls(), out)
+        for label, setup in (
+                ("fabric-ctl fails", lambda: (set_presence(), put("ctl_rc", "3"))),
+                ("fabric-ctl says no answer", lambda: set_presence(status="no answer")),
+                ("presence could not be read", lambda: set_presence(pstatus="error")),
+                ("presence for another host", lambda: set_presence(host="far-host")),
+                ("presence for another account", lambda: set_presence(account="architect-cto-02")),
+                ("fabric-ctl prints nothing", lambda: put("presence.out", ""))):
+            reset(); set_pr(me, "plain", mig); set_gate(9); set_waiver(); setup()
+            rc, out = waive()
+            check(f"{label}: exit 2, the role unread is not a refusal nor a pass", rc == 2
+                  and "could not say which role" in out and "pr merge" not in calls(), out)
+        reset(); set_pr(me, "plain", mig); set_gate(9); set_waiver(); set_presence()
+        rc, out = waive(env={"AGENT_FABRIC_ARM_CONFIG": f"{state}/no-waiver-rules.json"})
+        check("an arm.json with no waiver_role: exit 2, and the relay not asked", rc == 2 and "names no waiver_role" in out
+              and "replay" not in calls() and "pr merge" not in calls(), out)
+        put("bad-role.json", json.dumps(dict(rules, waiver_role="")))
+        rc, out = waive(env={"AGENT_FABRIC_ARM_CONFIG": f"{state}/bad-role.json"})
+        check("a waiver_role that is not a slug: exit 2", rc == 2 and "not a usable arm.json" in out, out)
+        for bad in (" architect-cto", "Architect CTO", "ghost-role"):
+            reset(); set_pr(me, "plain", mig); set_gate(9); set_waiver(); set_presence()
+            put("bad-role.json", json.dumps(dict(rules, waiver_role=bad)))
+            rc, out = waive(env={"AGENT_FABRIC_ARM_CONFIG": f"{state}/bad-role.json"})
+            check(f"waiver_role {bad!r}, not a catalogue slug: exit 2, the relay not asked",
+                  rc == 2 and "is not a role of identities/roles/catalog.json" in out and "replay" not in calls(), out)
+        reset(); set_pr(me, "plain", mig); set_gate(9); set_waiver(message_id=None); set_presence()
+        rc, out = run("7", "--basis", "b", "--no-boundary", why, "--waiver", "4242", env=wenv)
+        check("a waiver with no MESSAGE-ID: exit 2, never recorded under the seq typed",
+              rc == 2 and "carries no MESSAGE-ID" in out and "pr comment" not in calls(), out)
+
+        reset(); set_pr(me, "plain", ["docs/a.md"]); set_gate(9); set_waiver(addressed=False)
+        rc, out = waive()
+        check("a waiver on a PR that matched no boundary: armed, said, not read", rc == 0
+              and "the waiver " + mid + " is not needed, not read, and not recorded" in out
+              and "replay" not in calls() and "ctl " not in calls(), out)
+        check("…and the comment carries no waiver", "pr comment 7 --body Arming basis: nine at the gate — 9 work commits,"
+              " head abcdef01.\n" in calls() and "waived" not in calls(), calls())
+        reset(); set_pr(me, "plain", ["docs/a.md"]); set_gate(9); set_waiver(); set_presence()
+        rc, out = run("7", "--basis", "b", "--boundary", "--no-boundary", why, "--waiver", mid, env=wenv)
+        check("--boundary with a waiver still contradicts: exit 2", rc == 2 and "contradict" in out, out)
 
         print("arm: gate 5 — the classes that arm under 8 without asking")
         reset(); set_pr("develop-qzapp/me/docs/x", "Wording.\n\nClass: docs-only",
@@ -293,7 +468,8 @@ def main() -> int:
         reset(); set_pr(me, "plain", ["docs/a.md"]); set_gate(9)
         rc, out = run("7", "--basis", "nine work commits at the review gate")
         check("exits 0", rc == 0, out)
-        check("gh pr merge --auto ran once", calls().count("pr merge 7 --merge --auto") == 1, calls())
+        check("gh pr merge --auto ran once, pinned to the head the gates read",
+              calls().count(f"pr merge 7 --merge --auto --match-head-commit {HEAD}") == 1, calls())
         check("the basis comment carries the count and the head, on stdin",
               "pr comment 7 --body Arming basis: nine work commits at the review gate — 9 work commits, head abcdef01." in calls(), calls())
         check("prints the watcher line for the session", "tools/gh/wait-merged.sh 7 &" in out, out)
@@ -303,6 +479,8 @@ def main() -> int:
         reset()
         rc, out = run("7", "--basis", "b", "--dry-run")
         check("dry run exits 0", rc == 0 and "DRY RUN" in out, out)
+        check("…and names the command the run issues, pinned to the head",
+              f"would run: gh pr merge 7 --merge --auto --match-head-commit {HEAD}" in out, out)
         check("dry run posts and arms nothing", "pr merge" not in calls() and "pr comment" not in calls(), calls())
         reset(); put("viewfail", "")
         rc, out = run("7", "--basis", "b"); check("unreadable PR: exit 2", rc == 2, out)
@@ -321,7 +499,7 @@ def main() -> int:
                      "architecture/config/examples/kademlia-enabled.yaml",
                      "fixtures/identity/ed25519-bip39-entropy-v1.json", "Cargo.toml", ".cargo/config.toml",
                      ".cargo/config", "crates/human/ui-slint/.cargo/config.toml",
-                     "tools/foo/.cargo/config.toml", "xtask/.cargo/config",
+                     "tools/foo/.cargo/config.toml", "xtask/.cargo/config", "tools/foo/.Cargo/config.toml",
                      "deny.toml", "crates/claude/channel-core/src/lib.rs", "apps/claude-channel/src/main.rs",
                      "apps/human-desktop/src/recovery_seed.rs"):
             reset(); set_pr(me, "plain", [path]); set_gate(9)

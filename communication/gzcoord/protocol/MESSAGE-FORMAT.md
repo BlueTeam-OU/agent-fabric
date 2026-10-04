@@ -250,6 +250,38 @@ OWNER-WORD:
 A paraphrase ("the owner agreed") is not an `OWNER-WORD`. What the
 recipient does with it is in SEMANTICS.md, "The owner's word, relayed".
 
+## Waiving a boundary gate
+
+A project's arm rules hold back a pull request that touches its
+security boundary, and the arming tool lets it through only on a
+waiver from the role the rules name (`waiver_role`). The waiver is a
+`DECISION` or a `REPLY` from a holder of that role, addressed `TO` the
+session that will arm, with one metadata line naming the pull request
+and the head it saw (SPEC.md §7.5):
+
+```text
+[GZCOORD/1] DECISION
+FROM: develop-qzapp/architect-cto-01
+ROLE: architect-cto
+PROJECT: interweave
+REPOSITORY: gzapi-org/InterWeave
+TO: develop-qzapp/rust-ui-dev-01
+IN-REPLY-TO: 01a0…
+MESSAGE-ID: 01a0…
+WAIVES: gzapi-org/InterWeave#181@3f9c2d1e
+SUBJECT: #181 may arm: the boundary hit is a renamed test fixture
+
+DECISION:
+The only boundary path #181 touches is a fixture renamed with its
+contract unchanged; the review of 3f9c2d1e saw it. Arm.
+```
+
+The line goes in the metadata block, never in a section: the tool
+reads only the header, so a reply that quotes a waiver to decline it
+waives nothing. It names one head; a push after it needs a new one,
+and a waiver names its reason in the body, because the merge, not the
+message, is what anyone audits later.
+
 ## Asking for an undo
 
 Every message arrives late — read after an unknown delay, against a tree

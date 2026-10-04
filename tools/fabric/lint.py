@@ -1631,6 +1631,16 @@ def _boundary_record_ok(value: object) -> bool:
     return isinstance(value, str) and bool(value.strip()) and BOUNDARY_LOCATOR.search(value) is not None
 
 
+def _catalog_roles(root: str) -> set[str] | None:
+    """The catalogue's role ids; None when it cannot be read, so the
+    finding names the catalogue, not the role (review of #92)."""
+    try:
+        with open(os.path.join(root, "identities", "roles", "catalog.json"), encoding="utf-8") as f:
+            return {r["id"] for r in json.load(f).get("roles", [])}
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        return None
+
+
 def arm_boundary_findings(root: str, base_ref: str = "origin/main") -> list[str]:
     """A project's arm.json (runtime/github/arm.sh's rules) names, beside
     its boundary patterns, the cases that MUST stay boundary: each case is
@@ -1652,6 +1662,28 @@ def arm_boundary_findings(root: str, base_ref: str = "origin/main") -> list[str]
         except (OSError, ValueError, KeyError, TypeError, re.error) as e:
             findings.append(f"{rel}: not a usable arm.json ({type(e).__name__}: {e})")
             continue
+        role = doc.get("waiver_role")
+        if role is not None:
+            catalogued = _catalog_roles(root)
+            if catalogued is None:
+                findings.append(f"{rel}: waiver_role {role!r} cannot be checked: identities/roles/catalog.json "
+                                "is missing or unreadable")
+            elif role not in catalogued:
+                findings.append(f"{rel}: waiver_role {role!r} is not a role in identities/roles/catalog.json")
+        # Every record cites an approval anyone can look up, whether or not
+        # the patterns moved and whether or not there is a base to compare:
+        # a record lands uncited once, and the history rule then keeps it
+        # so (review of #92). Retired entries are checked again below, per
+        # dropped case.
+        for key in ("changes", "retired"):
+            rec = b.get(key)
+            if rec is not None and not isinstance(rec, dict):
+                findings.append(f"{rel}: boundary.{key} must map a name to its record")
+                continue
+            for k, v in sorted((rec or {}).items()):
+                if not _boundary_record_ok(v):
+                    findings.append(f"{rel}: boundary.{key} entry {k!r} cites no approval (why, and whose word, "
+                                    "citing a message id, a PR #N or a relay seq)")
         cases = b.get("cases")
         if not isinstance(cases, list) or not cases or not all(isinstance(c, str) and c for c in cases):
             findings.append(f"{rel}: boundary.cases must list the paths that must stay boundary")
@@ -1662,29 +1694,55 @@ def arm_boundary_findings(root: str, base_ref: str = "origin/main") -> list[str]
         mb = _git().run(root, "merge-base", "HEAD", base_ref, check=False, timeout=60)
         since = mb.stdout.strip() if mb.returncode == 0 and mb.stdout.strip() else base_ref
         base = _git().run(root, "show", f"{since}:{rel}", check=False, timeout=60)
+        # No base, no comparison, and no finding: a managed project's CI runs
+        # this lint on a depth-1 checkout of the fabric at its pinned ref,
+        # with no origin/main, and a finding there would fail every project
+        # PR. The fabric's own CI fetches full history, so a branch here is
+        # always compared (#91's review asked; carried to the next PR).
         if base.returncode == 0:
             try:
                 before = json.loads(base.stdout)["boundary"].get("cases") or []
             except (ValueError, KeyError, TypeError, AttributeError):
                 before = []
             try:
-                base_b = json.loads(base.stdout)["boundary"]
-            except (ValueError, KeyError, TypeError):
-                base_b = {}
+                base_doc = json.loads(base.stdout)
+                base_b = base_doc["boundary"]
+                base_role = base_doc.get("waiver_role")
+            except (ValueError, KeyError, TypeError, AttributeError):
+                base_b, base_role = {}, None
             # The cases are a floor, not the boundary: a regex loses an
             # alternative no case depends on, or an exemption widens, and
             # every case still matches (review of #91). So any change to the
             # patterns themselves, widening included, is recorded as a new
             # boundary.changes entry: why, and whose word.
+            # Who may waive the gate loosens it as much as an exemption does:
+            # a waiver_role change is a boundary change too (review of #92).
             if isinstance(base_b, dict) and (base_b.get("paths") != b.get("paths")
-                                             or base_b.get("exempt") != b.get("exempt")):
+                                             or base_b.get("exempt") != b.get("exempt")
+                                             or base_role != doc.get("waiver_role")):
                 now_changes = b.get("changes") if isinstance(b.get("changes"), dict) else {}
                 old_changes = base_b.get("changes") if isinstance(base_b.get("changes"), dict) else {}
                 added = {k: v for k, v in now_changes.items() if k not in old_changes}
-                if not any(_boundary_record_ok(v) for v in added.values()):
-                    findings.append(f"{rel}: boundary.paths or boundary.exempt changed with no new "
+                # Every entry cites its approval (the all-records loop at
+                # the top of this file's checks); here, the change needs one
+                # of its own.
+                if not added:
+                    findings.append(f"{rel}: boundary.paths, boundary.exempt or waiver_role changed with no new "
                                     "boundary.changes entry (why, and whose word, citing a message id, a PR #N "
                                     "or a relay seq)")
+            # A record is history: the approval a reviewer checked stays as it
+            # was. Rewriting one would carry a new change under an old
+            # citation, which the all-new-entries rule above never sees.
+            for key in ("changes", "retired"):
+                old_rec = base_b.get(key) if isinstance(base_b, dict) else None
+                new_rec = b.get(key)
+                if isinstance(old_rec, dict):
+                    new_rec = new_rec if isinstance(new_rec, dict) else {}
+                    for k in sorted(old_rec):
+                        if new_rec.get(k) != old_rec[k]:
+                            findings.append(f"{rel}: boundary.{key} entry {k!r} is "
+                                            f"{'removed' if k not in new_rec else 'rewritten'}; a record "
+                                            "stays as it was, and a new decision is a new entry")
             retired = b.get("retired") or {}
             for c in sorted(set(before) - set(cases)):
                 why = retired.get(c) if isinstance(retired, dict) else None
