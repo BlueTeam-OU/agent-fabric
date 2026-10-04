@@ -3,7 +3,7 @@
 // Front door: bin/fabric-ctl.
 //
 //   fabric-ctl <login|all> [status|usage|identity|keys|fabric|session|script|recall|host|disk|accounts|ping] [--json] [--timeout S]
-//   fabric-ctl <login|all> host                     the machine, one row per host: load, memory, balloon, disks, leases, largest processes
+//   fabric-ctl <login|all> host                     the machine, one row per host: load, memory, balloon, disks, leases, largest processes, memory pressure (last readings, worst of the hour)
 //   fabric-ctl <login|all> disk                     each account's own home, largest first: its total, its largest entry,
 //                                                   its target/ directories under ~/projects (names and sizes, never contents)
 //   fabric-ctl <login|all> memory --out <dir>       each account's drain bundles, <dir>/<login>/<working copy>.tar
@@ -174,6 +174,20 @@ export const ACTION_OK = { upgrade: ['current', 'upgraded'], 'secrets-sync': ['s
 // of #92, round 4).
 const esc = n => String(n).replace(/[\u0000-\u001f\u007f-\u009f]/g, c => `\\x${c.charCodeAt(0).toString(16).padStart(2, '0')}`);
 
+// The host's memory pressure line. Every daemon on a host samples the same
+// machine; the one with the most samples in the hour has been up longest
+// and speaks for it. some/full are PSI avg10, a % of the last ten seconds.
+export function pressureText(answers) {
+  const hhmm = ts => `${String(ts).slice(11, 16)}Z`;
+  const N = n => n == null ? '-' : `${n}`;
+  const best = answers.filter(p => p?.status === 'ok').sort((a, b) => (b.hour?.samples ?? 0) - (a.hour?.samples ?? 0))[0];
+  if (!best) { const p = answers.find(x => x?.status === 'failed') ?? answers.find(x => x); return !p ? '-' : p.status === 'none' ? 'no samples yet' : `${esc(p.status)}${p.error ? `: ${esc(p.error)}` : ''}`; }
+  const last = (best.last ?? []).map(x => `${hhmm(x.ts)} ${N(x.some_avg10)}/${N(x.full_avg10)} ${N(x.mem_available_mb)} MB`).join(', ') || '-';
+  const h = best.hour ?? {};
+  const w = (label, x, unit = '') => `${label} ${x ? `${x.value}${unit} at ${hhmm(x.ts)}` : '-'}`;
+  return `last ${last} (some/full avg10 %, available); worst of the hour (${N(h.samples)} samples): ${w('some', h.some_avg10)}, ${w('full', h.full_avg10)}, ${w('available', h.mem_available_mb, ' MB')}`;
+}
+
 export function table(op, rs) {
   const lines = [];
   if (op === 'secrets-sync') {
@@ -335,6 +349,7 @@ export function table(op, rs) {
       const top = (m.top_rss ?? []).slice(0, 5).map(p => `${p.comm} ${p.user} ${p.rss_mb} MB`).join(', ') || '-';
       lines.push(`${''.padEnd(16)} ${''.padEnd(9)} leases: ${leases}`);
       lines.push(`${''.padEnd(16)} ${''.padEnd(9)} largest: ${top}`);
+      lines.push(`${''.padEnd(16)} ${''.padEnd(9)} memory: ${pressureText(ok.map(r => r.machine.memory_pressure))}`);
       for (const r of group) if (r.status !== 'ok') lines.push(`${''.padEnd(16)} ${''.padEnd(9)} ${r.account}: ${r.status}`);
     }
     return lines.join('\n');

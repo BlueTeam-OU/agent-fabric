@@ -19,6 +19,7 @@ import { promisify } from 'node:util';
 import zlib from 'node:zlib';
 import { whoami, findTaxonomy, loadTaxonomy, syncedVar, holdStatus, identity as gzIdentity } from './gzcoord.mjs';
 import { jobs } from './jobs.mjs';
+import { memoryPressure } from './pressure.mjs';
 
 export const OPS = ['ping', 'identity', 'usage', 'keys', 'fabric', 'session', 'script', 'recall', 'tokens', 'memory', 'host', 'disk', 'accounts', 'upgrade', 'secrets-sync', 'status', 'presence', 'jobs', 'jobs-add'];
 // Answered for any placed account, not only an operator: whether a session
@@ -961,7 +962,8 @@ export async function collect(op, ctx = {}) {
     if (name === 'recall') return guard(name, () => recall(ctx.home));
     if (name === 'tokens') return guard(name, () => tokens(ctx.home, ctx.days ? { days: ctx.days } : {}));
     if (name === 'memory') return guard(name, () => memory(ctx.home, { exec: ctx.exec, all: true }));
-    if (name === 'host') return guard(name, () => host(ctx.hostOpts));
+    // The machine now, and the pressure this daemon sampled up to now (pressure.mjs).
+    if (name === 'host') return guard(name, () => ({ ...host(ctx.hostOpts), memory_pressure: memoryPressure(ctx.pressureOpts) }));
     // One scan per daemon however many ask at once (agentd's diskKeeper).
     if (name === 'disk') return guard(name, () => ctx.diskCached ? ctx.diskCached() : disk(ctx.home, ctx.diskOpts));
     if (name === 'jobs') return guard(name, () => jobs({ home: ctx.home, root: ctx.root, ...(ctx.jobsOpts ?? {}) }));
