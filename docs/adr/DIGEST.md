@@ -48,6 +48,9 @@ its record disagree, the record wins. Look it up, never read it whole:
 | an agent's key and secrets; the store; provision; recovery; backup | ADR-038 |
 | the agent id; UUIDv7; renaming a login | ADR-039 |
 | which language a tool is written in; the bash size limit and allowlist; porting a script; gh.py, git.py | ADR-040 |
+| your GZCoord history; the episodic journal; fabric-history | ADR-041 |
+| signed store commits; trusted base; trust-base; a refused store | ADR-042 |
+| Claude Code mods; managed settings; where the guards live; the fleet's own mods | ADR-043 |
 
 ### ADR-000 — The enduring organization (Accepted)
 
@@ -874,3 +877,19 @@ its record disagree, the record wins. Look it up, never read it whole:
   enrolment bundle; a store with no base refuses (§5 rules 2, 4).
 - Keywords: store, signing, signature, verify, forged entry, lineage,
   pass, bundle, take-bundle, writer, trust-base, trusted base.
+
+### ADR-043 — Claude Code mods: managed only, the guards in managed settings, the fleet's mods from a root-owned marketplace (Proposed)
+
+- User-installed mods, and mods Claude writes in a session, never load on a
+  fleet host: managed settings set sec-default's `allowManagedModsOnly`
+  and `disableSideloadFlags` (§5 rule 1).
+- The guards move into managed settings, where they run before any mod and
+  their block is final, each running a root-owned copy of its script
+  (§5 rule 2).
+- The fleet's own mods load first from a root-owned marketplace; the first
+  one redacts the login's secret values from tool results, failing closed
+  (§5 rules 3–4).
+- The Claude Code pin moves past 2.1.287 only after every host reports
+  rules 1 and 2 in force (§5 rule 6).
+- Keywords: mods, plugin, managed settings, allowManagedModsOnly,
+  disableSideloadFlags, prependPlugins, sec-default, guard, redaction.
