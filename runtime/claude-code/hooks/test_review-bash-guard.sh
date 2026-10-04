@@ -88,6 +88,11 @@ expect "allowed in time: git followed by 3000 options" allow "${long_git}!"
 expect "allowed in time: env -C -- repeated 3000 times, then text" allow "${long_env}!"
 long_search="git${tabs}-A"; for _ in $(seq 3000); do long_search+="${tabs}-A"; done
 expect "allowed in time: git -A repeated 3000 times, then text" allow "${long_search}!"
+long_words=""; for _ in $(seq 20000); do long_words+="git "; done
+expect "allowed in time: the word git 20000 times" allow "${long_words}x"
+long_cc="git"; long_attr="git"; for _ in $(seq 3000); do long_cc+=" -C -C"; long_attr+=" --attr-source"; done
+expect "allowed in time: git -C -C repeated 3000 times, then text" allow "${long_cc}!"
+expect "allowed in time: git --attr-source repeated 3000 times, then text" allow "${long_attr}!"
 out="$(jq -nc '{tool_input:{command:"ls"}}' | AGENT_FABRIC_REVIEW_GUARD_BUDGET=0 bash "$UNDER_TEST" 2>/dev/null)"
 if printf '%s' "$out" | jq -e '.hookSpecificOutput.permissionDecision == "deny"' >/dev/null 2>&1; then
   pass "a verdict later than the budget is a deny, even for ls"
@@ -95,12 +100,19 @@ else
   fail "a verdict later than the budget is a deny, even for ls" "out=[$out]"
 fi
 echo "an option's argument is the next word whatever it is, as getopt reads it; pagers and expansions (#96 round 7)"
-for c in 'env -u -.' 'env -u -/' 'env -u -.x' 'env -u -. | sort' 'env -C -.' 'env -C =x' 'env -C/tmp' 'env --chdir=/tmp' 'env --unset=X' 'git -C -. push origin HEAD' 'git -C -/ -c core.pager=less log' 'git --git-dir=.git push' 'git --work-tree=. commit -m x' 'git --git-dir .git push' "git grep -iO'less' -e x" 'git grep "-Oless" -e x' "git grep --open='less' -e x" 'git log -c -1' 'grep -r TOKEN /h*' 'grep -r TOKEN /hom?' 'grep -r TOKEN /[h]ome' 'grep -r TOKEN /*' 'grep -r TOKEN /{home,x}/user/.config/agent-fabric/' 'grep -r TOKEN ~{,}/.config/agent-fabric' 'grep -r TOKEN ~user/.config/agent-fabric' 'grep -r TOKEN .?/.?/.config' 'grep -n x /home/user/projects/agent-fabric/tools/*.py'; do
+for c in 'env -u -.' 'env -u -/' 'env -u -.x' 'env -u -. | sort' 'env -C -.' 'env -C =x' 'env -C/tmp' 'env --chdir=/tmp' 'env --unset=X' 'git -C -. push origin HEAD' 'git -C -/ -c core.pager=less log' 'git --git-dir=.git push' 'git --work-tree=. commit -m x' 'git --git-dir .git push' "git grep -iO'less' -e x" 'git grep "-Oless" -e x' "git grep --open='less' -e x" 'grep -r TOKEN /h*' 'grep -r TOKEN /hom?' 'grep -r TOKEN /[h]ome' 'grep -r TOKEN /*' 'grep -r TOKEN /{home,x}/user/.config/agent-fabric/' 'grep -r TOKEN ~{,}/.config/agent-fabric' 'grep -r TOKEN ~user/.config/agent-fabric' 'grep -r TOKEN .?/.?/.config' 'grep -n x /home/user/projects/agent-fabric/tools/*.py'; do
   expect "denied: $c" deny "$c"
 done
 # Refused on purpose, with the spelling that works: a search over an absolute
-# glob (use a relative path from the clone), git's -c anywhere (use --cc).
+# glob (use a relative path from the clone).
 for c in 'gcc -O2 x.c' 'python3 -O tests/x.py' 'git log --cc -1' 'grep -n x tools/*.py' 'git -C tools log -1'; do
+  expect "allowed: $c" allow "$c"
+done
+echo "an option no list knows may take a word too; getopt_long's long, abbreviated and clustered forms (#96 round 8)"
+for c in 'git --attr-source HEAD push origin HEAD' 'git --attr-source HEAD commit -m x' 'git --attr-source HEAD -C . reset --hard' 'git --a-future-option value push' 'env --unset X' 'env --uns X' 'env -0u X' 'env -0uX' 'env --unset -.' 'env --chdir /tmp' 'git -c core.pager=less log' 'git -C . -c core.pager=less log' 'git --no-pager -c core.pager=less log'; do
+  expect "denied: $c" deny "$c"
+done
+for c in 'git grep -c TODO' 'git log -SOracle -1' 'git log -c -1' 'git --attr-source HEAD log -1' 'git log --grep push -1'; do
   expect "allowed: $c" allow "$c"
 done
 echo "running in a clean environment, and searching code for the word, stay allowed"
