@@ -1624,9 +1624,11 @@ def arm_boundary_findings(root: str, base_ref: str = "origin/main") -> list[str]
     its boundary patterns, the cases that MUST stay boundary: each case is
     a path the patterns match and the exemptions do not, and a case the
     branch forked with leaves only into boundary.retired, with why and
-    whose word. Narrowing the boundary then needs a visible edit, which the
-    fold and the blind review see; before, a shrunk regex failed nothing
-    (reviews of #89 and #90)."""
+    whose word. And the patterns themselves change only with a new
+    boundary.changes entry: the cases are a floor, and a regex can lose an
+    alternative no case depends on (review of #91). Narrowing or widening
+    then needs a visible record, which the fold and the blind review see;
+    before, a shrunk regex failed nothing (reviews of #89 and #90)."""
     findings = []
     for rel in sorted(r for r in _tracked(root)
                       if re.fullmatch(r"projects/[^/]+/integration/gh/arm\.json", r)):
@@ -1653,6 +1655,23 @@ def arm_boundary_findings(root: str, base_ref: str = "origin/main") -> list[str]
                 before = json.loads(base.stdout)["boundary"].get("cases") or []
             except (ValueError, KeyError, TypeError, AttributeError):
                 before = []
+            try:
+                base_b = json.loads(base.stdout)["boundary"]
+            except (ValueError, KeyError, TypeError):
+                base_b = {}
+            # The cases are a floor, not the boundary: a regex loses an
+            # alternative no case depends on, or an exemption widens, and
+            # every case still matches (review of #91). So any change to the
+            # patterns themselves, widening included, is recorded as a new
+            # boundary.changes entry: why, and whose word.
+            if isinstance(base_b, dict) and (base_b.get("paths") != b.get("paths")
+                                             or base_b.get("exempt") != b.get("exempt")):
+                now_changes = b.get("changes") if isinstance(b.get("changes"), dict) else {}
+                old_changes = base_b.get("changes") if isinstance(base_b.get("changes"), dict) else {}
+                added = {k: v for k, v in now_changes.items() if k not in old_changes}
+                if not any(isinstance(v, str) and v.strip() for v in added.values()):
+                    findings.append(f"{rel}: boundary.paths or boundary.exempt changed with no new "
+                                    "boundary.changes entry (why, and whose word)")
             retired = b.get("retired") or {}
             for c in sorted(set(before) - set(cases)):
                 why = retired.get(c) if isinstance(retired, dict) else None

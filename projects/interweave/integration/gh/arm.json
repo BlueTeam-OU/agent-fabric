@@ -23,6 +23,10 @@
       "deny.toml",
       "crates/claude/channel-core/src/lib.rs",
       "apps/claude-channel/src/main.rs"
-    ]
+    ],
+    "changes": {
+      "2026-10-04 nested .cargo/config": "Cargo reads .cargo/config.toml from every ancestor of where it runs, so a nested one can redirect crates as the root's can; widened at any depth (#90 re-review risk; devex-tooling, 6e49aa67)",
+      "2026-10-04 deny.toml and the Claude channel": "the owner's ruling on InterWeave #177's open paths: deny.toml, crates/claude/ and apps/claude-channel/ on; Cargo.lock and crates/human/client-api/ off (devex-tooling, e96860c)"
+    }
   }
 }

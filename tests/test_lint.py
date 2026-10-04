@@ -1390,10 +1390,12 @@ def case_arm_boundary_cases_only_leave_retired() -> None:
     with tempfile.TemporaryDirectory() as root:
         g = lambda *a: subprocess.run(["git", "-C", root, *a], check=True, capture_output=True)
         rel = os.path.join("projects", "demo", "integration", "gh", "arm.json")
-        def arm(cases, retired=None, paths="^src/|key"):
-            b = {"paths": paths, "exempt": "^docs/", "cases": cases}
+        def arm(cases, retired=None, paths="^src/|key", exempt="^docs/", changes=None):
+            b = {"paths": paths, "exempt": exempt, "cases": cases}
             if retired is not None:
                 b["retired"] = retired
+            if changes is not None:
+                b["changes"] = changes
             write(os.path.join(root, rel), json.dumps({"boundary": b}))
         arm(["src/a.rs", "lib/key.rs"])
         g("init", "-q", "-b", "main")
@@ -1418,6 +1420,22 @@ def case_arm_boundary_cases_only_leave_retired() -> None:
         write(os.path.join(root, rel), json.dumps({"boundary": {"paths": "^src/"}}))
         assert any("boundary.cases must list" in f for f in lint.arm_boundary_findings(root, base_ref="base")), \
             "no cases at all"
+        # The cases are a floor (review of #91): an alternative no case
+        # depends on goes, every case still matches, and only the record of
+        # the change stands between that and a silent narrowing.
+        arm(["src/a.rs", "lib/key.rs"], paths="^src/|key|^vendor/")
+        got = lint.arm_boundary_findings(root, base_ref="base")
+        assert any("changed with no new boundary.changes entry" in f for f in got), \
+            ("widening the patterns needs a record too", got)
+        arm(["src/a.rs", "lib/key.rs"], exempt="^docs/|^vendor/")
+        assert any("changed with no new boundary.changes entry" in f
+                   for f in lint.arm_boundary_findings(root, base_ref="base")), "a widened exemption, unrecorded"
+        arm(["src/a.rs", "lib/key.rs"], exempt="^docs/|^vendor/", changes={"vendor": " "})
+        assert any("changed with no new" in f for f in lint.arm_boundary_findings(root, base_ref="base")), \
+            "a blank reason records nothing"
+        arm(["src/a.rs", "lib/key.rs"], exempt="^docs/|^vendor/",
+            changes={"vendor exempt": "vendored docs only; architect-cto, seq 2"})
+        assert lint.arm_boundary_findings(root, base_ref="base") == [], "a recorded change: clean"
 
 
 def case_bash_over_150_lines_needs_the_allowlist() -> None:
