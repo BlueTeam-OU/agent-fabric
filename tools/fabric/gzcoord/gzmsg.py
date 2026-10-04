@@ -631,5 +631,17 @@ def main(argv: list[str]) -> int:
     return 2
 
 
+def run(argv: list[str]) -> int:
+    """The command, with a last resort: one line and exit 1 (the Node died
+    of an uncaught exception with exit 1 and a stack trace)."""
+    try:
+        return main(argv)
+    except KeyboardInterrupt:
+        return 130
+    except Exception as e:  # noqa: BLE001 — the contract's last resort
+        print(f"gzmsg: {e}", file=sys.stderr)
+        return 1
+
+
 if __name__ == "__main__":
-    sys.exit(main(sys.argv[1:]))
+    sys.exit(run(sys.argv[1:]))

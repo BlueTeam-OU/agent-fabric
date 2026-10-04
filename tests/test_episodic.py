@@ -143,7 +143,7 @@ def main() -> int:
                   "SELECT direction, state, carrier_seq FROM episodes WHERE message_id='m-3' ORDER BY direction").fetchall()
               == [("inbound", "received", 63), ("outbound", "pending", None)])
 
-        print("the header, read as gzmsg.mjs parse() reads it")
+        print("the header, read as gzmsg's parse() reads it")
         cases = {
             "bom": "\ufeff" + msg("bom-1"),
             "body lines after a missing blank": "[GZCOORD/1] INFO\nFROM: h/x\nMESSAGE-ID: real-id\nSUBJECT: s\nINFO:\n"
@@ -154,18 +154,12 @@ def main() -> int:
             "crlf": "[GZCOORD/1] INFO\r\nFROM: h/a\r\nMESSAGE-ID: c\r\n\r\nINFO:\r\nx\r\n",
         }
         py = {k: list(ep.parse_header(v)) for k, v in cases.items()}
-        if shutil.which("node"):
-            gz = os.path.join(HERE, "communication", "gzcoord", "scripts", "gzmsg.mjs")
-            js = subprocess.run(["node", "--input-type=module", "-e",
-                                 f"import {{ parse }} from {json.dumps(gz)}; import fs from 'fs';"
-                                 "const c = JSON.parse(fs.readFileSync(0, 'utf8'));"
-                                 "const o = {}; for (const [k, v] of Object.entries(c)) { const m = parse(v); o[k] = [m.type, m.metadata]; }"
-                                 "console.log(JSON.stringify(o));"],
-                                input=json.dumps(cases), capture_output=True, text=True, timeout=60)
-            check("type and metadata equal gzmsg.mjs parse() on every shape (review of #78)",
-                  js.returncode == 0 and json.loads(js.stdout) == py, (js.stderr, js.stdout, py))
-        else:
-            print("  skip: no node here; the suite's node leg runs this comparison")
+        # The validator is Python now (tools/fabric/gzcoord/gzmsg.py, ADR-040
+        # §7), and its parse() is what the inbox delivers by: the journal's
+        # header reading is held to it in this process.
+        from gzcoord import gzmsg
+        gz = {k: [m["type"], m["metadata"]] for k, m in ((k, gzmsg.parse(v)) for k, v in cases.items())}
+        check("type and metadata equal gzmsg's parse() on every shape (review of #78)", gz == py, (gz, py))
 
         print("private, owned")
         modes = {s: stat.S_IMODE(os.stat(path + s).st_mode) for s in ("", "-wal", "-shm") if os.path.exists(path + s)}
