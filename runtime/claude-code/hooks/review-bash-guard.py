@@ -53,10 +53,13 @@ import sys
 # Python's re backtracks where grep did not, so a quantified group whose
 # pieces can match the same text is exponential on a crafted command (CodeQL
 # on #96: `git` and many `\t--`). Every repeated option group here is
-# unambiguous: an option's argument never starts with "-" (nor holds "=" for
-# env -u/-C), so it cannot also be read as the next option. The time budget
+# unambiguous: an option that takes the next word as its argument (git -C,
+# -c, --git-dir...; env -u, -C) takes it whatever it is, as getopt does, and
+# the generic option branch refuses exactly those options, so no word can be
+# read two ways. (Refusing arguments that start with "-" instead let
+# `env -u -.` and `git -C -. push` through: #96 round 7.) The time budget
 # below is what holds if one is missed.
-GIT_WRITE = r'(^|[;&|(]|`)[\s]*(sudo[\s]+)?([^\s]*/)?git([\s]+-[A-Za-z-]+([\s]+[^\s-][^\s]*)?)*[\s]+(push|commit|add|rm|mv|checkout|switch|restore|reset|stash|rebase|merge|cherry-pick|revert|clean|am|apply|fetch|pull|gc|tag[\s]+(-[adsfm]|--delete|--force|[A-Za-z0-9][^\s]*)|worktree[\s]+(add|remove|prune|move|lock|unlock|repair)|branch[\s]+(-[dDmMc]|--delete|--move|--copy)|remote[\s]+(add|remove|rm|rename|set-url)|config([\s]+(--(local|worktree|global|system)|(-f|--file)[\s]+[^\s]+))*[\s]+(set|unset|--add|--unset|--unset-all|--replace-all|--rename-section|--remove-section|--edit|-e|rename-section|remove-section|edit|[A-Za-z][A-Za-z0-9-]*\.[^\s]+[\s]+[^\s;&|-][^\s;&|]*))([\s]|$|[);&|])'
+GIT_WRITE = r'(^|[;&|(]|`)[\s]*(sudo[\s]+)?([^\s]*/)?git(?:[\s]+(?:(?:-[Cc]|--(?:git-dir|work-tree|namespace|super-prefix|config-env|exec-path))[\s]+[^\s]+|-(?!(?:[Cc]|-(?:git-dir|work-tree|namespace|super-prefix|config-env|exec-path))(?:[\s]|$))[A-Za-z-]+(?:=[^\s]*)?))*[\s]+(push|commit|add|rm|mv|checkout|switch|restore|reset|stash|rebase|merge|cherry-pick|revert|clean|am|apply|fetch|pull|gc|tag[\s]+(-[adsfm]|--delete|--force|[A-Za-z0-9][^\s]*)|worktree[\s]+(add|remove|prune|move|lock|unlock|repair)|branch[\s]+(-[dDmMc]|--delete|--move|--copy)|remote[\s]+(add|remove|rm|rename|set-url)|config([\s]+(--(local|worktree|global|system)|(-f|--file)[\s]+[^\s]+))*[\s]+(set|unset|--add|--unset|--unset-all|--replace-all|--rename-section|--remove-section|--edit|-e|rename-section|remove-section|edit|[A-Za-z][A-Za-z0-9-]*\.[^\s]+[\s]+[^\s;&|-][^\s;&|]*))([\s]|$|[);&|])'
 INSTALL = r'(^|[;&|(]|`)[\s]*(sudo[\s]+)?((pnpm|npm|yarn)([\s]+-[A-Za-z-]+)*[\s]+(install|i|add|remove|rm|update|up|dedupe)([\s]|$|[);&|])|(flutter|dart)[\s]+pub[\s]+(get|add|remove|upgrade|downgrade)([\s]|$|[);&|])|dotnet[\s]+(restore|add|remove)([\s]|$|[);&|])|pip3?[\s]+install([\s]|$|[);&|])|cargo[\s]+(add|install)([\s]|$|[);&|]))'
 
 # Secrets. Every account's shell carries its synced secrets in the
@@ -78,7 +81,7 @@ INSTALL = r'(^|[;&|(]|`)[\s]*(sudo[\s]+)?((pnpm|npm|yarn)([\s]+-[A-Za-z-]+)*[\s]
 # This is a fence for the routine spellings, not a sandbox: secret
 # minimisation (keeping a secret out of the session's environment) is the
 # control.
-ENV_PRINT = (r'(^|[^A-Za-z0-9_.-])\\?(env|printenv)([\s]+(-[uC][\s]+[^\s=-][^\s=]*|-[A-Za-z0-9-]+|[A-Za-z_][A-Za-z0-9_]*=[^\s]*))*[\s]*($|[;&|)<>#' "'" r'"`])|(^|[^A-Za-z0-9_.-])printenv([^A-Za-z0-9_.-]|$)|(^|[;&|(]|`)[\s]*set[\s]*($|[;&|)#])|(^|[;&|(]|`)[\s]*(export|declare|typeset)[\s]*($|[;&|)#])|(export|declare|typeset)[\s]+-[a-zA-Z]*[px]|compgen[\s]+-[a-zA-Z]*[ev]|os\.environ($|[^.[A-Za-z0-9_]|\.(copy|items|keys|values|__))|process\.env($|[^.[A-Za-z0-9_])|%ENV|ENVIRON($|[^[A-Za-z0-9_])|\$ENV($|[^A-Za-z0-9_])|(^|[^A-Za-z0-9_.-])ps([\s]+-[^\s]+)*[\s]+[a-zA-Z]*e[a-zA-Z]*([\s;|&]|$)')
+ENV_PRINT = (r'(^|[^A-Za-z0-9_.-])\\?(env|printenv)([\s]+(-[uC](?:[\s]+[^\s]+|[^\s]+)|--[A-Za-z-]+=[^\s]*|-(?![uC])[A-Za-z0-9-]+|[A-Za-z_][A-Za-z0-9_]*=[^\s]*))*[\s]*($|[;&|)<>#' "'" r'"`])|(^|[^A-Za-z0-9_.-])printenv([^A-Za-z0-9_.-]|$)|(^|[;&|(]|`)[\s]*set[\s]*($|[;&|)#])|(^|[;&|(]|`)[\s]*(export|declare|typeset)[\s]*($|[;&|)#])|(export|declare|typeset)[\s]+-[a-zA-Z]*[px]|compgen[\s]+-[a-zA-Z]*[ev]|os\.environ($|[^.[A-Za-z0-9_]|\.(copy|items|keys|values|__))|process\.env($|[^.[A-Za-z0-9_])|%ENV|ENVIRON($|[^[A-Za-z0-9_])|\$ENV($|[^A-Za-z0-9_])|(^|[^A-Za-z0-9_.-])ps([\s]+-[^\s]+)*[\s]+[a-zA-Z]*e[a-zA-Z]*([\s;|&]|$)')
 SECRET_VAR = r'\$\{?[A-Za-z0-9_]*(TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|_KEY)|\$\{!|(environ|getenv|process\.env|ENVIRON|%ENV|\$ENV)[^;|&]{0,60}(TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|_KEY)'
 SECRET_PATH = r'secrets?[^\s/]*\.env|\.config/agent-fabric|agent-fabric/(secrets|children)|\.password-store|\.gnupg|/proc/[^\s]*/environ|--export-secret|(^|[;&|(]|`)[\s]*pass[\s]+(show|ls|find|grep|otp)|(fabric-secrets|secret_store\.py)[\s]+(store[\s]+)?(get|show|export-key|bundle|child-bundle)'
 # A search's PATH, as opposed to its pattern: a home itself or anything under
@@ -88,11 +91,16 @@ SECRET_PATH = r'secrets?[^\s/]*\.env|\.config/agent-fabric|agent-fabric/(secrets
 # component (~/., ~/projects/..), and any climb of two levels or more (from a
 # clone, ../.. is its home).
 HOME_PATH = (r'(~|\$HOME|\$\{HOME\}|/home/[^/\s""' "'" r']+|/root)(/[^\s""' "'" r']*)?/\.\.?(/|[\s""' "'" r';&|)]|$)|\.\.(/[^\s""' "'" r']*)?/\.\.(/|[\s""' "'" r';&|)]|$)|(~|\$HOME|\$\{HOME\}|/home/[^/\s"' "'" r']+|/root)(/\.[^/\s"' "'" r']+(/[^\s"' "'" r']*)?)?/?([\s"' "'" r';&|)]|$)|(^|[\s"' "'" r'=])(\.\./)+\.[^/\s"' "'" r']+|(^|[\s"' "'" r'=])/(home|root|proc)?/?([\s"' "'" r';&|)]|$)|(^|[\s"' "'" r'=])/proc(/[^\s]*)?([\s"' "'" r';&|)]|$)|/proc/[^\s]*/environ')
-# A search path written as a glob reaches what HOME_PATH names without
-# naming it (/h*/*/.config/...): a glob before a later "/" of an absolute or
-# home path, or in one of its hidden components, is a home path too.
-GLOB_PATH = r"(^|[\s\"'=])[~/][^\s]*[*?[][^\s]*/|(^|[\s\"'=])[~/][^\s]*/\.[^\s/]*[*?[]"
-SEARCH = r'^[\s]*(grep|egrep|fgrep|rg|ag|git([\s]+-[A-Za-z]+([\s]+[^\s-][^\s]*)?)*[\s]+(grep|log|show|diff|blame))([\s]|$)'
+# A search path written with bash's expansions reaches what HOME_PATH names
+# without naming it (/h*/*/.config/..., /{home,x}/..., ~user, .?/.?): any
+# glob or brace in an absolute or ~ path, ~name, and a glob in a component
+# that starts with "." count as a home path. This closes the routine
+# spellings in a search only; a reader judged by the full rules (cat, an
+# interpreter's open()) can expand a path just as well, which no string
+# fence can follow -- the control for that is keeping secrets out of what
+# the session can read.
+GLOB_PATH = r"(^|[\s\"'=])[~/][^\s]*[*?[{]|(^|[\s\"'=])~[A-Za-z_]|(^|[\s\"'=/])\.[^\s/]*[*?[{]"
+SEARCH = r'^[\s]*(grep|egrep|fgrep|rg|ag|git(?:[\s]+(?:(?:-[Cc]|--(?:git-dir|work-tree|namespace|super-prefix|config-env|exec-path))[\s]+[^\s]+|-(?!(?:[Cc]|-(?:git-dir|work-tree|namespace|super-prefix|config-env|exec-path))(?:[\s]|$))[A-Za-z-]+(?:=[^\s]*)?))*[\s]+(grep|log|show|diff|blame))([\s]|$)'
 SUBSTITUTION = r'\$\(|`|[<>]\('
 
 # A directory change outlives the command (the harness keeps the shell's
@@ -107,9 +115,10 @@ CD_UP = r"(^|[\s/\"'])\.\.(/|[\s\"']|$)"
 # the routine in-place file writes. Also what makes an allowed tool run a
 # program the guard never sees: git's one-shot config (-c / --config-env:
 # diff.external, core.pager), a GIT_*, PAGER or EDITOR assignment, rg --pre,
-# find -exec / -ok, git grep -O (its pager is a shell command). Redirections are allowed only to /dev/null (the
+# find -exec / -ok, git grep -O in any option cluster or --op... prefix (its
+# pager is a shell command). Redirections are allowed only to /dev/null (the
 # reviewer's own quieting) or to another fd.
-ESCAPE = r'(^|[;&|(]|`)[\s]*(sudo[\s]+)?(eval|exec|(ba|z|da|k)?sh[\s]+-[a-zA-Z]*c)([\s]|$)|(^|[^A-Za-z0-9_.-])git([\s]+(-C[\s]+[^\s-][^\s]*|--[a-z-]+(=[^\s]+)?|-[pP]))*[\s]+(-c|--config-env)([\s=]|[A-Za-z])|(^|[;&|(`\s])(GIT_[A-Z0-9_]+|PAGER|LESSOPEN|LESSCLOSE|EDITOR|VISUAL)=|[\s]--pre([\s=]|$)|[\s]-(exec|execdir|ok|okdir)([\s]|$)|[\s]-O|--open-files-in-pager'
+ESCAPE = (r'(^|[;&|(]|`)[\s]*(sudo[\s]+)?(eval|exec|(ba|z|da|k)?sh[\s]+-[a-zA-Z]*c)([\s]|$)|(^|[^A-Za-z0-9_.-])git[\s]([^;&|]*[\s])?(-c([\s]|$)|--config-env)|(^|[^A-Za-z0-9_.-])git[\s]([^;&|]*[\s"' "'" r'])?(-[A-Za-z]*O|--op)|(^|[;&|(`\s])(GIT_[A-Z0-9_]+|PAGER|LESSOPEN|LESSCLOSE|EDITOR|VISUAL)=|[\s]--pre([\s=]|$)|[\s]-(exec|execdir|ok|okdir)([\s]|$)')
 WRITE = r'(^|[;&|(]|`)[\s]*(sudo[\s]+)?(sed[\s]+(-[a-zA-Z]*i|--in-place)|tee|rm|mv|cp|truncate|chmod|chown|ln|install|patch|rsync)([\s]|$)'
 
 # A hook that runs past the agent file's timeout (10 s) is not a refusal, so
@@ -218,6 +227,8 @@ def judged(cmd: str) -> str | None:
         budget = min(budget, float(os.environ.get("AGENT_FABRIC_REVIEW_GUARD_BUDGET", budget)))
     except ValueError:
         pass
+    if not budget > 0:
+        return "slow"
     r, w = os.pipe()
     pid = os.fork()
     if pid == 0:

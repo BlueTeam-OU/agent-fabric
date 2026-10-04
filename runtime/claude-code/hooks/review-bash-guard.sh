@@ -16,4 +16,8 @@ if [[ ! -x "$py" || ! -f "$here/review-bash-guard.py" ]]; then
   printf '%s\n' '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"The review-class bash guard could not run (the fleet'"'"'s pinned Python or review-bash-guard.py is missing), so Bash is denied for the reviewer. Report without it."}}'
   exit 0
 fi
-exec "$py" "$here/review-bash-guard.py"
+# Not exec: a module that cannot load or dies exits non-zero with nothing on
+# stdout, and the harness reads that as no objection. Any exit but 0 denies.
+out="$("$py" "$here/review-bash-guard.py")" && { [[ -z "$out" ]] || printf '%s\n' "$out"; exit 0; }
+printf '%s\n' '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"The review-class bash guard failed while judging this command, so Bash is denied for it. Report without it."}}'
+exit 0
