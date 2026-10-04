@@ -51,11 +51,25 @@ export function readRing(file = ringFile()) {
   return ring;
 }
 
+// Whole or not at all, and durable: a freeze mid-write must not cost the
+// ring, and the minutes before a freeze are what it is for — so the data
+// reaches the disk before the rename, and the rename before the next tick.
+// Without the two fsyncs a reboot could find the old ring, or an empty file
+// under the new name (review of #96).
 function writeRing(file, ring) {
-  fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
+  const dir = path.dirname(file);
+  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
   const tmp = `${file}.${process.pid}.tmp`;
-  fs.writeFileSync(tmp, JSON.stringify(ring) + '\n', { mode: 0o600 });
-  fs.renameSync(tmp, file);   // whole or not at all: a freeze mid-write must not cost the ring
+  try {
+    const fd = fs.openSync(tmp, 'w', 0o600);
+    try { fs.writeFileSync(fd, JSON.stringify(ring) + '\n'); fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
+    fs.renameSync(tmp, file);
+  } catch (e) {
+    try { fs.unlinkSync(tmp); } catch { /* not made, or already renamed */ }
+    throw e;
+  }
+  const dfd = fs.openSync(dir, 'r');
+  try { fs.fsyncSync(dfd); } finally { fs.closeSync(dfd); }
 }
 
 // One per daemon. tick() takes a sample and persists the ring; a failure is
