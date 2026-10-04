@@ -1663,6 +1663,20 @@ def arm_boundary_findings(root: str, base_ref: str = "origin/main") -> list[str]
         role = doc.get("waiver_role")
         if role is not None and role not in _catalog_roles(root):
             findings.append(f"{rel}: waiver_role {role!r} is not a role in identities/roles/catalog.json")
+        # Every record cites an approval anyone can look up, whether or not
+        # the patterns moved and whether or not there is a base to compare:
+        # a record lands uncited once, and the history rule then keeps it
+        # so (review of #92). Retired entries are checked again below, per
+        # dropped case.
+        for key in ("changes", "retired"):
+            rec = b.get(key)
+            if rec is not None and not isinstance(rec, dict):
+                findings.append(f"{rel}: boundary.{key} must map a name to its record")
+                continue
+            for k, v in sorted((rec or {}).items()):
+                if not _boundary_record_ok(v):
+                    findings.append(f"{rel}: boundary.{key} entry {k!r} cites no approval (why, and whose word, "
+                                    "citing a message id, a PR #N or a relay seq)")
         cases = b.get("cases")
         if not isinstance(cases, list) or not cases or not all(isinstance(c, str) and c for c in cases):
             findings.append(f"{rel}: boundary.cases must list the paths that must stay boundary")
@@ -1701,10 +1715,9 @@ def arm_boundary_findings(root: str, base_ref: str = "origin/main") -> list[str]
                 now_changes = b.get("changes") if isinstance(b.get("changes"), dict) else {}
                 old_changes = base_b.get("changes") if isinstance(base_b.get("changes"), dict) else {}
                 added = {k: v for k, v in now_changes.items() if k not in old_changes}
-                # Every new entry cites its approval, not just one of them: a
-                # second change riding on the first's record is unrecorded
-                # (#91's review).
-                if not added or not all(_boundary_record_ok(v) for v in added.values()):
+                # Every entry cites its approval (checked for all records
+                # below); here, the change needs one of its own.
+                if not added:
                     findings.append(f"{rel}: boundary.paths, boundary.exempt or waiver_role changed with no new "
                                     "boundary.changes entry (why, and whose word, citing a message id, a PR #N "
                                     "or a relay seq)")

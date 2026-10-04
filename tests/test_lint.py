@@ -1441,13 +1441,13 @@ def case_arm_boundary_cases_only_leave_retired() -> None:
         assert any("changed with no new boundary.changes entry" in f
                    for f in lint.arm_boundary_findings(root, base_ref="base")), "a widened exemption, unrecorded"
         arm(["src/a.rs", "lib/key.rs"], exempt="^docs/|^vendor/", changes={"vendor": " "})
-        assert any("changed with no new" in f for f in lint.arm_boundary_findings(root, base_ref="base")), \
+        assert any("cites no approval" in f for f in lint.arm_boundary_findings(root, base_ref="base")), \
             "a blank reason records nothing"
         arm(["src/a.rs", "lib/key.rs"], exempt="^docs/|^vendor/",
             changes={"vendor exempt": "vendored docs only; architect-cto, seq 2"})
         assert lint.arm_boundary_findings(root, base_ref="base") == [], "a relay seq is a locator"
         arm(["src/a.rs", "lib/key.rs"], exempt="^docs/|^vendor/", changes={"vendor exempt": "agreed with the team"})
-        assert any("changed with no new" in f for f in lint.arm_boundary_findings(root, base_ref="base")), \
+        assert any("cites no approval" in f for f in lint.arm_boundary_findings(root, base_ref="base")), \
             "a change citing nothing checkable"
         arm(["src/a.rs", "lib/key.rs"], exempt="^docs/|^vendor/",
             changes={"vendor exempt": "vendored docs only; gzapi-org/InterWeave#177"})
@@ -1457,7 +1457,7 @@ def case_arm_boundary_cases_only_leave_retired() -> None:
         assert lint.arm_boundary_findings(root, base_ref="base") == [], "a bare #N is a locator"
         arm(["src/a.rs", "lib/key.rs"], exempt="^docs/|^vendor/|^third/",
             changes={"vendor exempt": "vendored docs only; architect-cto, seq 2", "third exempt": "same again"})
-        assert any("changed with no new" in f for f in lint.arm_boundary_findings(root, base_ref="base")), \
+        assert any("'third exempt' cites no approval" in f for f in lint.arm_boundary_findings(root, base_ref="base")), \
             "a second new entry riding on the first's locator (#91's review)"
         # A record is history (#91's review): committed into the base, it
         # may be neither rewritten nor removed.
@@ -1501,6 +1501,13 @@ def case_arm_boundary_cases_only_leave_retired() -> None:
             changes={**keep["changes"], "waiver": "typo; the owner, seq 11"})
         assert any("waiver_role 'architect-ctoo' is not a role" in f
                    for f in lint.arm_boundary_findings(root, base_ref="base")), "a misspelt waiver role"
+        # A record added with no pattern change is checked too, base or none
+        # (review of #92): history would otherwise keep it uncited.
+        arm(["src/a.rs"], waiver_role="architect-cto", retired=keep["retired"],
+            changes={**keep["changes"], "note": "agreed with the team"})
+        for ref in ("base", "no-such-ref"):
+            assert any("'note' cites no approval" in f for f in lint.arm_boundary_findings(root, base_ref=ref)), \
+                ("an uncited record with no pattern change", ref)
         arm(["src/a.rs"], paths="^src/")
         assert lint.arm_boundary_findings(root, base_ref="no-such-ref") == [], \
             "without a base (a project CI's depth-1 fabric checkout), nothing is compared"
