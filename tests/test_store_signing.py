@@ -119,6 +119,17 @@ def main() -> int:
               and base_before != git(child, cstore, "rev-list", "--max-parents=0", "HEAD").stdout.strip())
 
         print("refusals: unsigned, an outsider, nothing applied, said until repaired")
+        # The control: a complete store, synced, reads OK before anything is refused.
+        import pwd
+        me = pwd.getpwuid(os.getuid()).pw_name
+        for name, value in (("AGENT_LOGIN", me), ("AGENT_HOST", "h"), ("OPENROUTER_API_KEY", "k"),
+                            ("CLAUDE_BRIDGE_AUTH_TOKEN", "b"), ("GIT_USER_NAME", "n"), ("GIT_USER_EMAIL", "e@x"),
+                            ("GIT_SIGNING_KEY", cfpr), ("GIT_GPG_PROGRAM", "gpg"),
+                            ("SSH_PRIVATE_KEY", "private"), ("SSH_PUBLIC_KEY", "public")):
+            run(child, "set", name, stdin=value)
+        subprocess.run([sys.executable, SYNC, "sync", "--quiet"], env=child, capture_output=True, text=True)
+        sync = subprocess.run([sys.executable, SYNC, "status"], env=child, capture_output=True, text=True)
+        check("control: the complete, synced store's status is OK", sync.returncode == 0, sync.stdout + sync.stderr)
         other = os.path.join(tmp, "other")
         subprocess.run(["git", "clone", "-q", remote, other], check=True, env=child, capture_output=True)
         g = ["-c", "user.name=t", "-c", "user.email=t@t"]
@@ -134,7 +145,7 @@ def main() -> int:
               and git(child, cstore, "rev-parse", "HEAD").stdout.strip() == head
               and not os.path.exists(os.path.join(cstore, "env", "FORGED.gpg")), p.stderr)
         sync = subprocess.run([sys.executable, SYNC, "status"], env=child, capture_output=True, text=True)
-        check("fabric-secrets status says the refusal, and is not OK", sync.returncode == 1
+        check("fabric-secrets status says the refusal, and is not OK because of it", sync.returncode == 1
               and "REFUSED: the store refused commit" in sync.stdout and "not signed" in sync.stdout, sync.stdout)
         # Repaired: the remote put back (the parent's or the owner's work).
         git(child, other, "reset", "-q", "--hard", "HEAD~1")
@@ -226,6 +237,30 @@ def main() -> int:
         p = run(nkid, "take-bundle", stdin=b.stdout)
         check("merged, the next one verifies and takes it", p.returncode == 0
               and os.path.exists(os.path.join(nstore, "env", "TOKEN2.gpg")), p.stderr)
+
+        def forged_bundle(source: str, env: dict) -> str:
+            """The source's main with one unsigned commit on top, armored."""
+            fork = tempfile.mkdtemp(prefix="fork-", dir=tmp)
+            subprocess.run(["git", "clone", "-q", source, fork], env=env, check=True, capture_output=True)
+            with open(os.path.join(fork, "env", "FORGED.gpg"), "w") as fh:
+                fh.write("x\n")
+            git(env, fork, "add", "-A")
+            git(env, fork, "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false", "commit", "-qm", "forged")
+            return secret_store._bundle_armored(fork)
+        head = git(nkid, nstore, "rev-parse", "HEAD").stdout.strip()
+        p = run(nkid, "take-bundle", stdin=forged_bundle(nmirror, parent))
+        check("on main, a bundle carrying an unsigned commit is refused, and nothing is taken",
+              p.returncode == 1 and "refused: not signed" in p.stderr
+              and git(nkid, nstore, "rev-parse", "HEAD").stdout.strip() == head
+              and not os.path.exists(os.path.join(nstore, "env", "FORGED.gpg")), p.stderr)
+        mbase = git(parent, nmirror, "config", "--get", "agent-fabric.trustedbase").stdout.strip()
+        mhead = git(parent, nmirror, "rev-parse", "HEAD").stdout.strip()
+        p = subprocess.run([sys.executable, TOOL, "seed-child", new_id, "--remote", os.path.join(tmp, "new-remote.git")],
+                           env=parent, input=forged_bundle(nstore, nkid), capture_output=True, text=True)
+        check("a mirror with a base is never re-based by a bundle: its unsigned commit is refused",
+              p.returncode == 1 and "refused: not signed" in p.stderr
+              and git(parent, nmirror, "config", "--get", "agent-fabric.trustedbase").stdout.strip() == mbase
+              and git(parent, nmirror, "rev-parse", "HEAD").stdout.strip() == mhead, p.stderr)
     finally:
         for g in gnupgs:
             subprocess.run(["gpgconf", "--homedir", g, "--kill", "all"], capture_output=True)
