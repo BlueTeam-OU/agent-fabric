@@ -534,7 +534,7 @@ LOCALE_FILE_RE = {"timezone": re.compile(r"^[A-Za-z_]+/[A-Za-z_]+(/[A-Za-z_]+)?$
 # Optional, and in the locale: the standing "think in <the language>" the
 # holder reads on every drain and every delivery, appended to the inbox's
 # head line. Not a dictionary key — it translates no English line, and an
-# en-US login has no such rule (communication/gzcoord/scripts/i18n.mjs).
+# en-US login has no such rule (tools/fabric/gzcoord/i18n.py).
 LOCALE_FILE_OPTIONAL = ("reminder",)
 
 

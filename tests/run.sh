@@ -35,7 +35,7 @@ export TMPDIR="$SCRATCH_DIR"
 # their lines depends on which login runs it: green on a login with no
 # locale directory (CI's) and red on every holder's. The run pins the
 # default locale; the cases that exercise a locale build their own
-# dictionary and pass it explicitly (communication/gzcoord/scripts/i18n.mjs).
+# dictionary and pass it explicitly (tools/fabric/gzcoord/i18n.py).
 export GZCOORD_DEFAULT_LOCALE_ONLY=1
 # Likewise the account's commit signing: a gpg key with a timestamp that
 # needs the network made five suites' fixture commits fail offline, green
