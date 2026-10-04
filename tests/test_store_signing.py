@@ -261,6 +261,124 @@ def main() -> int:
               p.returncode == 1 and "refused: not signed" in p.stderr
               and git(parent, nmirror, "config", "--get", "agent-fabric.trustedbase").stdout.strip() == mbase
               and git(parent, nmirror, "rev-parse", "HEAD").stdout.strip() == mhead, p.stderr)
+
+        print("review of ADR-042: F1-F5 and two risks")
+        refusal_file = lambda store: os.path.join(store, ".git", "agent-fabric-refusal.json")  # noqa: E731
+
+        def forge_on(remote_repo: str, env: dict) -> str:
+            """One unsigned commit pushed on top of a remote's main; the head before it."""
+            fork = tempfile.mkdtemp(prefix="forge-", dir=tmp)
+            subprocess.run(["git", "clone", "-q", remote_repo, fork], env=env, check=True, capture_output=True)
+            before = git(env, fork, "rev-parse", "HEAD").stdout.strip()
+            os.makedirs(os.path.join(fork, "env"), exist_ok=True)
+            with open(os.path.join(fork, "env", "FORGED.gpg"), "w") as fh:
+                fh.write("x\n")
+            git(env, fork, "add", "-A")
+            git(env, fork, "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false", "commit", "-qm", "forged")
+            git(env, fork, "push", "-q", "origin", "HEAD:main")
+            return before
+
+        def unforge(remote_repo: str, head: str) -> None:
+            subprocess.run(["git", "-C", remote_repo, "update-ref", "refs/heads/main", head], check=True)
+
+        # F5, and the refusal's temporary name: store push takes the remote
+        # only as a verified fast-forward; a directory where the old fixed
+        # .tmp name lay does not stop the refusal being recorded.
+        head = git(child, cstore, "rev-parse", "HEAD").stdout.strip()
+        before = forge_on(remote, child)
+        os.makedirs(refusal_file(cstore) + ".tmp")
+        p = run(child, "push")
+        check("store push refuses an unsigned commit on the remote: HEAD unchanged, nothing pushed over it",
+              p.returncode == 1 and "refused: not signed" in p.stderr
+              and git(child, cstore, "rev-parse", "HEAD").stdout.strip() == head, p.stderr)
+        check("…and the refusal is recorded, whatever lies at the old .tmp name", os.path.exists(refusal_file(cstore)))
+        os.rmdir(refusal_file(cstore) + ".tmp")
+        unforge(remote, before)
+        p = run(child, "push")
+        check("repaired, store push goes through", p.returncode == 0, p.stderr)
+
+        # F3: a refusal recorded on a child's mirror is said by the parent's status.
+        before = forge_on(remote, child)
+        p = run(parent, "refresh-mirror", "kid")
+        sync = subprocess.run([sys.executable, SYNC, "status"], env=parent, capture_output=True, text=True)
+        check("a refusal on a child's mirror is said by the parent's fabric-secrets status, naming the child",
+              p.returncode == 1 and f"REFUSED: the mirror of agent {KID} refused commit" in sync.stdout
+              and sync.returncode == 1, (p.stderr, sync.stdout))
+        unforge(remote, before)
+        p = run(parent, "refresh-mirror", "kid")
+        sync = subprocess.run([sys.executable, SYNC, "status"], env=parent, capture_output=True, text=True)
+        check("…and cleared by its next verified fetch", p.returncode == 0 and f"mirror of agent {KID}" not in sync.stdout,
+              (p.stderr, sync.stdout))
+
+        # F2: a write whose signing fails leaves nothing staged, says so, and the
+        # next write works. git signs through `gpg -bsau`: only that fails.
+        fake = os.path.join(tmp, "nosign-bin")
+        os.makedirs(fake)
+        real_gpg = shutil.which("gpg")
+        with open(os.path.join(fake, "gpg"), "w") as fh:
+            fh.write(f"#!/bin/sh\nfor a; do case \"$a\" in -bsau|--detach-sign) echo 'signing failed' >&2; exit 2;; esac; done\n"
+                     f"exec {real_gpg} \"$@\"\n")
+        os.chmod(os.path.join(fake, "gpg"), 0o755)
+        nosign = {**child, "PATH": f"{fake}:{child['PATH']}"}
+        p = run(nosign, "set", "UNSIGNED_WRITE", stdin="u")
+        check("a set whose signing fails says it could not sign, and leaves the store clean",
+              p.returncode == 1 and "could not sign" in p.stderr and git(child, cstore, "status", "--porcelain").stdout == ""
+              and not os.path.exists(os.path.join(cstore, "env", "UNSIGNED_WRITE.gpg")), (p.stderr, git(child, cstore, "status", "--porcelain").stdout))
+        p = run(child, "set", "AFTER_UNSIGNED", stdin="a")
+        check("…and the next set works", p.returncode == 0, p.stderr)
+        late = role("late")
+        late_id = secret_store.mint_agent_id(secret_store.born_ms_of("now"))
+        p = run({**late, "PATH": f"{fake}:{late['PATH']}"}, "init", "--agent-id", late_id)
+        lstore = late["AGENT_FABRIC_SECRET_STORE"]
+        check("an init whose first commit cannot be signed fails, and stages nothing",
+              p.returncode == 1 and "could not sign" in p.stderr
+              and not [l for l in git(late, lstore, "status", "--porcelain").stdout.splitlines() if not l.startswith("??")],
+              (p.stderr, git(late, lstore, "status", "--porcelain").stdout))
+        p = run(late, "init", "--agent-id", late_id)
+        check("…and its retry records the base at its first commit, though .git was already there",
+              p.returncode == 0 and git(late, lstore, "config", "--get", "agent-fabric.trustedbase").stdout.strip()
+              == git(late, lstore, "rev-parse", "HEAD").stdout.strip(), p.stderr)
+
+        # A risk: writers not known yet is no refusal. late is on no main.
+        late_remote = os.path.join(tmp, "late-remote.git")
+        subprocess.run(["git", "init", "-q", "--bare", "-b", "main", late_remote], check=True)
+        git(late, lstore, "remote", "add", "origin", late_remote)
+        git(late, lstore, "push", "-q", "origin", "HEAD:main")
+        forge_on(late_remote, late)
+        p = run(late, "set", "X", stdin="x")
+        check("a store whose writers are not yet on main stops, but records no refusal: not a security event",
+              p.returncode == 1 and "not yet on the fabric's main" in p.stderr and "nothing applied" in p.stderr
+              and not os.path.exists(refusal_file(lstore)), p.stderr)
+
+        # F1: a child on main, its mirror deleted, re-seeded from a forged
+        # bundle: the mirror is rebuilt from the verified remote, the bundle's
+        # unsigned commit refused, nothing pushed.
+        new_remote = os.path.join(tmp, "new-remote.git")
+        rhead = subprocess.run(["git", "-C", new_remote, "rev-parse", "main"], capture_output=True, text=True).stdout.strip()
+        shutil.rmtree(nmirror)
+        p = subprocess.run([sys.executable, TOOL, "seed-child", new_id, "--remote", new_remote],
+                           env=parent, input=forged_bundle(nstore, nkid), capture_output=True, text=True)
+        check("a deleted mirror of a child on main takes no base from a bundle: its unsigned commit refused, nothing pushed",
+              p.returncode == 1 and "refused: not signed" in p.stderr
+              and subprocess.run(["git", "-C", new_remote, "rev-parse", "main"], capture_output=True, text=True).stdout.strip()
+              == rhead, p.stderr)
+        check("…the mirror rebuilt from the child's remote, verified from the root, its base that head",
+              git(parent, nmirror, "config", "--get", "agent-fabric.trustedbase").stdout.strip() == rhead
+              and git(parent, nmirror, "rev-parse", "HEAD").stdout.strip() == rhead)
+        before = forge_on(new_remote, parent)
+        shutil.rmtree(nmirror)
+        p = subprocess.run([sys.executable, TOOL, "seed-child", new_id, "--remote", new_remote],
+                           env=parent, input=run(nkid, "bundle").stdout, capture_output=True, text=True)
+        check("a remote carrying an unsigned commit gives no mirror: refused, and nothing left behind",
+              p.returncode == 1 and "refused: not signed" in p.stderr and not os.path.exists(nmirror), p.stderr)
+        unforge(new_remote, before)
+        os.makedirs(os.path.join(nmirror, ".git"))
+        p = subprocess.run([sys.executable, TOOL, "seed-child", new_id, "--remote", new_remote],
+                           env=parent, input=run(nkid, "bundle").stdout, capture_output=True, text=True)
+        check("a mirror that is there with no base is refused before it is touched",
+              p.returncode == 1 and "has no trusted base" in p.stderr and os.listdir(os.path.join(nmirror, ".git")) == [],
+              p.stderr)
+        shutil.rmtree(nmirror)
     finally:
         for g in gnupgs:
             subprocess.run(["gpgconf", "--homedir", g, "--kill", "all"], capture_output=True)

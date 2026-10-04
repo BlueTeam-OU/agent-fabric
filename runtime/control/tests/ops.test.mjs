@@ -628,16 +628,31 @@ test('collect(presence) answers under the presence key — the name fabric-ctl r
 // ADR-042 rule 5: a store's refused commit is said by fabric-ctl keys until
 // the store is repaired — the record secret_store.py keeps beside it, read
 // for its commit, time and reason, never an entry.
-test('storeRefusal: verified, refused with its commit and reason, or unreadable', () => {
-  const store = scratch('store-');
-  fs.mkdirSync(path.join(store, '.git'));
-  assert.deepEqual(storeRefusal(undefined, store), { name: STORE_ROW, present: true }, 'no record: verified');
+test('storeRefusal: no store, no base, verified, refused or unreadable; and each mirror\'s refusal, named (review of ADR-042, F3 F4)', () => {
+  const home = scratch('store-home-');
+  const store = path.join(home, 'store'), children = path.join(home, 'children');
+  const row = () => storeRefusal(home, store, children);
+  assert.deepEqual(row(), { name: STORE_ROW, present: false, state: 'no store' }, 'no .git: no store, never verified');
+  fs.mkdirSync(path.join(store, '.git'), { recursive: true });
+  fs.writeFileSync(path.join(store, '.git', 'config'), '[core]\n\tbare = false\n');
+  assert.deepEqual(row(), { name: STORE_ROW, present: false, state: 'no base' }, 'no trusted base: it verifies nothing');
+  fs.writeFileSync(path.join(store, '.git', 'config'), `[core]\n\tbare = false\n[agent-fabric]\n\ttrustedbase = ${'a'.repeat(40)}\n`);
+  assert.deepEqual(row(), { name: STORE_ROW, present: true, state: 'verified' });
   fs.writeFileSync(path.join(store, '.git', 'agent-fabric-refusal.json'),
     JSON.stringify({ commit: '0123456789abcdef0123', reason: 'not signed', at: '2026-10-04T10:00:00Z' }));
-  assert.deepEqual(storeRefusal(undefined, store), { name: STORE_ROW, present: false,
+  assert.deepEqual(row(), { name: STORE_ROW, present: false, state: 'refused',
     refused: { commit: '0123456789ab', at: '2026-10-04T10:00:00Z', reason: 'not signed' } });
   fs.writeFileSync(path.join(store, '.git', 'agent-fabric-refusal.json'), 'not json');
-  assert.equal(storeRefusal(undefined, store).present, false, 'a record that cannot be read is no clean bill');
+  assert.equal(row().state, 'unreadable', 'a record that cannot be read is no clean bill');
+  fs.rmSync(path.join(store, '.git', 'agent-fabric-refusal.json'));
+  const kid = '01a106ee-84ec-74bc-84ef-3720a55d6a3f';
+  fs.mkdirSync(path.join(children, kid, '.git'), { recursive: true });
+  fs.mkdirSync(path.join(children, 'not-an-id', '.git'), { recursive: true });
+  fs.writeFileSync(path.join(children, 'not-an-id', '.git', 'agent-fabric-refusal.json'), '{}');
+  assert.deepEqual(row(), { name: STORE_ROW, present: true, state: 'verified' }, 'a clean mirror adds nothing; a name that is no agent id is no mirror');
+  fs.writeFileSync(path.join(children, kid, '.git', 'agent-fabric-refusal.json'), JSON.stringify({ commit: 'ffff', reason: 'outsider', at: 'T' }));
+  assert.deepEqual(row(), { name: STORE_ROW, present: false, state: 'verified',
+    mirrors: [{ agent_id: kid, commit: 'ffff', at: 'T', reason: 'outsider' }] }, 'the own store verified, a mirror refused: not clean');
 });
 
 // The disk op: each daemon measures its own home, through du only — names
@@ -709,5 +724,32 @@ test('disk: NUL-ended records — a newline in a name invents nothing; outside t
   assert.equal(d.total_kb, 150);
   const big = await disk(home, { exec: async () => { throw Object.assign(new Error('stdout maxBuffer length exceeded'), { code: 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER', killed: true, signal: 'SIGTERM', stdout: '' }); } });
   assert.ok(big.errors.every(e => e.endsWith(`du's output passed its ${DISK_MAX_BUFFER / 1048576} MiB bound`)), JSON.stringify(big.errors));
+});
+
+// Carried from #92: a dropped record is named, not silent; what du could
+// not read is counted and the first named (a rootless podman's volumes are
+// sub-UID owned); du is asked in the C locale so its complaints read the
+// same everywhere; a record begins at a NUL, never after a newline.
+test('disk: records outside the home named; unreadable paths counted, the first named; du in the C locale', async () => {
+  const home = scratch('disk-carry-');
+  fs.mkdirSync(path.join(home, 'projects'));
+  fs.mkdirSync(path.join(home, 'x'));
+  const envs = [];
+  const exec = async (cmd, args, opts) => {
+    envs.push(opts.env?.LC_ALL);
+    if (args.includes('-xsk')) return `100\t${path.join(home, 'x')}\0` + `999\t/etc\0` + `7\t/root\0` + `\n5\t${path.join(home, 'x', 'y')}\0`;
+    throw Object.assign(new Error('exit 1'), { code: 1, stdout: `50\t${path.join(home, 'projects')}\0`,
+      stderr: `du: cannot read directory '${home}/projects/p/volumes/v1': Permission denied\n` +
+              `du: cannot read directory "${home}/projects/it's": Permission denied\n` });
+  };
+  const d = await disk(home, { exec });
+  assert.deepEqual(envs, ['C', 'C'], 'du is asked in the C locale');
+  assert.equal(d.total_kb, 150, 'outside the home and a record after a newline count for nothing');
+  assert.equal(d.status, 'partial');
+  assert.deepEqual(d.errors, [
+    `home entries: 2 records outside ${home} dropped; the first: /etc`,
+    'projects: du exit 1, partial',
+    `projects: 2 paths du could not read, not counted; the first: '${home}/projects/p/volumes/v1'`,
+  ]);
 });
 
