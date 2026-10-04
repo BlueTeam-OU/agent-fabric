@@ -37,8 +37,8 @@ fi
 # (policies/check_agent_fabric_dir_authority.sh) and refuses a change under
 # .agent-fabric/ without the owner's. Self-declared there,
 # real here: that is the fence/tripwire split policies/AUTHORITY.md states.
-# The same question pre-commit asked, answered the same way (a merge that
-# only folds a parent's guarded tree is not a guarded change).
+# The same question pre-commit asked, answered the same way (a merge is
+# judged on what differs from the clean three-way merge of its parents).
 . "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/guarded-change.sh"
 guarded_change "$FABRIC_ROOT"
 if (( ${#guarded[@]} )); then

@@ -19,6 +19,7 @@ import { promisify } from 'node:util';
 import zlib from 'node:zlib';
 import { whoami, findTaxonomy, loadTaxonomy, syncedVar, holdStatus, identity as gzIdentity } from './gzcoord.mjs';
 import { jobs } from './jobs.mjs';
+import { memoryPressure } from './pressure.mjs';
 
 export const OPS = ['ping', 'identity', 'usage', 'keys', 'fabric', 'session', 'script', 'recall', 'tokens', 'memory', 'host', 'disk', 'accounts', 'upgrade', 'secrets-sync', 'status', 'presence', 'jobs', 'jobs-add'];
 // Answered for any placed account, not only an operator: whether a session
@@ -204,39 +205,60 @@ export const STORE_ROW = 'store commits verified';
 const REFUSAL_FILE = 'agent-fabric-refusal.json';
 const AGENT_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
-function readRefusal(store) {
+// kept: where a child's mirror's refusal is kept once a refused rebuild
+// removed the mirror — beside it, `<id>.refusal.json` (secret_store.py).
+function readRefusal(store, kept = null) {
   let r;
   try { r = JSON.parse(fs.readFileSync(path.join(store, '.git', REFUSAL_FILE), 'utf8')); }
-  catch (e) { return e?.code === 'ENOENT' ? null : { unreadable: true }; }
+  catch (e) {
+    if (e?.code !== 'ENOENT') return { unreadable: true };
+    if (!kept) return null;
+    try { r = JSON.parse(fs.readFileSync(kept, 'utf8')); }
+    catch (e2) { return e2?.code === 'ENOENT' ? null : { unreadable: true }; }
+  }
   return { refused: { commit: String(r?.commit ?? '?').slice(0, 12), at: r?.at ?? null, reason: String(r?.reason ?? '?').slice(0, 300) } };
 }
 
 // The trusted base is agent-fabric.trustedbase in the store's own
 // .git/config, which secret_store.py writes through `git config`: read as a
 // file, so the keys probe runs no git. true, false, or null (unreadable).
+// As the verifier reads it (secret_store.trusted_base): the key's name in
+// any case, its last value, and that value 40 lowercase hex — an uppercase
+// one, or a good line before a bad one, read "verified" here while every
+// verified operation refused the store.
 function hasBase(store) {
   let text;
   try { text = fs.readFileSync(path.join(store, '.git', 'config'), 'utf8'); } catch { return null; }
   let inSection = false;
+  let base = false;
   for (const line of text.split('\n')) {
     const head = /^\s*\[([^\]]*)\]/.exec(line);
     if (head) { inSection = head[1].trim().toLowerCase() === 'agent-fabric'; continue; }
-    if (inSection && /^\s*trustedbase\s*=\s*[0-9a-f]{40}\s*$/i.test(line)) return true;
+    const kv = /^\s*trustedbase\s*=\s*(.*?)\s*$/i.exec(line);
+    if (inSection && kv) base = /^[0-9a-f]{40}$/.test(kv[1]);
   }
-  return false;
+  return base;
 }
 
 export function storeRefusal(home = os.homedir(), store = process.env.AGENT_FABRIC_SECRET_STORE ?? path.join(home, '.local', 'share', 'agent-fabric', 'secrets'),
                              children = path.join(home, '.local', 'share', 'agent-fabric', 'children')) {
   let kids = [];
-  try { kids = fs.readdirSync(children).filter(n => AGENT_ID_RE.test(n)).sort(); } catch { /* no mirrors */ }
+  let gone = [];
+  try {
+    const names = fs.readdirSync(children);
+    kids = names.filter(n => AGENT_ID_RE.test(n));
+    gone = names.filter(n => n.endsWith('.refusal.json')).map(n => n.slice(0, -'.refusal.json'.length))
+      .filter(aid => AGENT_ID_RE.test(aid) && !kids.includes(aid));
+  } catch { /* no mirrors */ }
   const mirrors = [];
   // A mirror with no base refuses every verified operation on it, so it is
-  // as unclean as a refusal (review of #94): said, as the own store's is.
-  for (const aid of kids) {
+  // as unclean as a refusal (review of #94): said, as the own store's is. A
+  // mirror a refused rebuild removed is said by its kept refusal alone: no
+  // base to read where there is no mirror (review of #96).
+  for (const aid of [...kids, ...gone].sort()) {
     const mirror = path.join(children, aid);
-    const r = readRefusal(mirror);
-    const base = hasBase(mirror);
+    const r = readRefusal(mirror, path.join(children, `${aid}.refusal.json`));
+    const base = gone.includes(aid) ? true : hasBase(mirror);
     if (r) mirrors.push({ agent_id: aid, ...(r.refused ?? { unreadable: true }) });
     else if (base !== true) mirrors.push({ agent_id: aid, state: base === null ? 'unreadable' : 'no base' });
   }
@@ -961,7 +983,8 @@ export async function collect(op, ctx = {}) {
     if (name === 'recall') return guard(name, () => recall(ctx.home));
     if (name === 'tokens') return guard(name, () => tokens(ctx.home, ctx.days ? { days: ctx.days } : {}));
     if (name === 'memory') return guard(name, () => memory(ctx.home, { exec: ctx.exec, all: true }));
-    if (name === 'host') return guard(name, () => host(ctx.hostOpts));
+    // The machine now, and the pressure this daemon sampled up to now (pressure.mjs).
+    if (name === 'host') return guard(name, () => ({ ...host(ctx.hostOpts), memory_pressure: memoryPressure(ctx.pressureOpts) }));
     // One scan per daemon however many ask at once (agentd's diskKeeper).
     if (name === 'disk') return guard(name, () => ctx.diskCached ? ctx.diskCached() : disk(ctx.home, ctx.diskOpts));
     if (name === 'jobs') return guard(name, () => jobs({ home: ctx.home, root: ctx.root, ...(ctx.jobsOpts ?? {}) }));

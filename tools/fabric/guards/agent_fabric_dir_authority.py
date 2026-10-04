@@ -47,8 +47,10 @@ text anyone can type, so it stops the accident — a session that never
 bound the role and never ran the hooks — and makes a deliberate change
 visible in review; it does not stop a session that means to route
 around it. The same limit check_charter_authority.sh states for the
-branch name. Merge commits are not examined (they carry no change of
-their own).
+branch name. A merge commit is judged on what it changes itself — where
+its tree differs from the clean three-way merge of its parents
+(merge_own_change) — so a fold of main passes and a hand edit carried in
+a merge does not.
 
 RUNS IN ANY REPOSITORY. In agent-fabric ITSELF — recognised by
 policies/authority.json at the toplevel — EVERY commit the branch adds
@@ -204,6 +206,45 @@ def commits_to_examine(top: str, base: str) -> tuple[str, list[str]]:
     return scope, common.lines_of(r.stdout)
 
 
+def merge_own_change(top: str, commit: str, prefix: str) -> list[str]:
+    """The paths a merge commit changes ITSELF: where its tree differs from
+    the clean three-way merge of its parents (git merge-tree --write-tree),
+    under the guarded prefix. A fold of main changes nothing, even when both
+    sides moved the guarded tree; a conflict resolution or a hand edit is
+    exactly the paths it touched. The commit hook judges a merge the same
+    way (policies/githooks/guarded-change.sh); the two must agree. An
+    octopus merge, or a merge-tree that cannot run, is judged against
+    EVERY parent — what differs from any of them counts — so an
+    `-s ours` merge is not waved through. Renames are off: a move out of
+    a guarded path shows its source, as diff-tree does for a commit
+    (review of #96: a rename into a locale passed the carve-out)."""
+    scope = ["--", prefix] if prefix else []
+    parents = git.run(top, "rev-parse", f"{commit}^@", check=False).stdout.split()
+    if not parents:
+        return ["(a merge with no parent to compare)"]
+    against: list[str] = []
+    if len(parents) == 2:
+        r = git.run(top, "merge-tree", "--write-tree", parents[0], parents[1], check=False)
+        if r.returncode in (0, 1):   # 1: conflicts; the tree still carries every clean path
+            head = (r.stdout.splitlines() or [""])[0].strip()
+            if re.fullmatch(r"[0-9a-f]{40,64}", head):
+                against = [head]
+    changed: set[str] = set()
+    for a in against or parents:
+        changed.update(common.lines_of(git.run(top, "diff", "--no-renames", "--name-only", a, commit, *scope,
+                                               check=False).stdout))
+    return sorted(changed)
+
+
+def merges_to_examine(top: str, base: str) -> list[str]:
+    r = git.run(top, "rev-list", "--merges", f"{base}..HEAD", check=False)
+    if r.returncode != 0:
+        lines = [l for l in r.stderr.strip().splitlines() if l.strip()]
+        raise Refused(f"cannot list the merges in {base}..HEAD ({(lines or [f'exit {r.returncode}'])[-1]}) — "
+                      "a change under .agent-fabric/ could pass unexamined")
+    return common.lines_of(r.stdout)
+
+
 def log1(top: str, commit: str, fmt: str) -> str:
     """One field of a commit, as `$(git log -1 --format=...)` has it: only
     trailing newlines stripped."""
@@ -225,6 +266,17 @@ def run(env: dict[str, str]) -> int:
 
     owner_role = owner_role_of(top, env, base)
     scope, commits = commits_to_examine(top, base)
+    # A merge is judged on what it changes itself (merge_own_change); one
+    # that only folds its parents' guarded changes is not a change at all.
+    # Until 2026-10-04 merges were skipped whole, so a hand edit carried in
+    # a merge (a conflict resolution, a --no-verify commit) passed unseen.
+    prefix = "" if is_fabric_itself(top, base) else ".agent-fabric/"
+    own: dict[str, list[str]] = {}
+    for m in merges_to_examine(top, base):
+        changed = merge_own_change(top, m, prefix)
+        if changed:
+            own[m] = changed
+    commits = commits + list(own)
     if not commits:
         say(f"check_agent_fabric_dir_authority: OK — no commit changes {scope}.")
         return 0
@@ -242,8 +294,8 @@ def run(env: dict[str, str]) -> int:
         declared = declared_role(message, git.run(top, "interpret-trailers", "--parse", input=message).stdout)
         if declared == owner_role:
             continue
-        touched = common.lines_of(git.run(top, "diff-tree", "--no-commit-id", "--name-only", "-r", c,
-                                          check=False).stdout)
+        touched = own[c] if c in own else common.lines_of(
+            git.run(top, "diff-tree", "--no-commit-id", "--name-only", "-r", c, check=False).stdout)
         locale = locale_carve_out_role(touched)
         if locale and declared == locale[0]:
             say(f"check_agent_fabric_dir_authority: {log1(top, c, '%h')} changes only "

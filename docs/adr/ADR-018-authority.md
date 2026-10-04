@@ -109,12 +109,17 @@ record says so rather than claim otherwise.
    commit and writes `Fabric-Role: <role>` on every commit whose account
    has a binding, and nothing on one that has none. `bootstrap.sh` sets
    `core.hooksPath` in this checkout and every registered working copy.
-3. A merge that only folds a parent's guarded tree is no change of its
-   own and passes; one that also edits the guarded tree is judged like
-   any commit (`guarded-change.sh`).
+3. A merge changes only the guarded paths where it differs from the
+   clean three-way merge of its parents (`git merge-tree --write-tree`),
+   compared with renames off; without a clean merge (an octopus, an old
+   git) it is judged against every parent. A fold of main is therefore no
+   change of its own and passes, even when both sides moved the guarded
+   tree; a conflict resolution, a hand edit, or keeping one side's tree
+   where the other moved it is judged like any commit
+   (`guarded-change.sh`).
 4. `check_agent_fabric_dir_authority.sh` fails a branch whose added
-   commits (merges aside) change a guarded path without the owner's
-   trailer — every commit in agent-fabric, `.agent-fabric/**` in a
+   commits, merges judged as rule 3 says, change a guarded path without
+   the owner's trailer — every commit in agent-fabric, `.agent-fabric/**` in a
    project. CI's verdict is main's copy of it, run isolated
    (`python3 -I`) as a step before any of the branch's code, on every
    pull request, merge-queue run and push to `main`; `tests/run.sh` runs
@@ -219,3 +224,4 @@ The body above reads current; each change's full note is in [history/ADR-018-ame
 | 2026-10-01 | A contributor role commits its entry's paths | §2, §5 rules 7–8, §6, §8: a role named under `contributors` commits its entry's paths on its own contributor branch; the coordinator folds and merges |
 | 2026-10-01 | The fence's own code stays out; a guarded commit declares its binding | §2, §5 rule 8: the hooks read HEAD's entry; a typed role other than the binding is refused; the fence's own code is never in an entry; lint compares by prefix |
 | 2026-10-01 | CI judges a branch with main's guards | §5 rule 4, §6: CI's authority verdict is main's copy of the guards, run isolated before the branch's code; `tests/run.sh` keeps the branch's copy as the local check |
+| 2026-10-04 | A merge is judged on its own change | §5 rules 3–4: a merge's own change is what differs from the clean three-way merge of its parents, at the hooks and in CI; CI no longer skips merges |

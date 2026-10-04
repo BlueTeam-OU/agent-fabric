@@ -9,8 +9,11 @@
                                   or failed; --no-pull: apply it as it is,
                                   once, right after `store take-bundle` — a
                                   new account has no key to pull with yet)
-    fabric-secrets status [--json]
-                                  what is present, missing, applied
+    fabric-secrets status [--json] [--quiet]
+                                  what is present, missing, applied; and
+                                  each store (its own, each child's mirror)
+                                  that refused a commit or has no trusted
+                                  base (ADR-042), which is NOT OK (exit 1)
 
 The store is this login's pass-format repository (secret_store.py). sync
 writes
@@ -18,7 +21,9 @@ writes
                                          tools read from the environment:
                                          OPENROUTER_API_KEY, GH_TOKEN,
                                          CLAUDE_BRIDGE_AUTH_TOKEN, and the
-                                         registry's per-agent names
+                                         registry's per-agent names but
+                                         STORE_ONLY's, which a tool
+                                         decrypts itself when it needs one
     ~/.bashrc                            one marked line sourcing that file
     ~/.gitconfig                         user.name/email, signing key and
                                          program (strings; the key material
@@ -32,7 +37,10 @@ heredoc and its Doppler reader retired: the exit codes — 0 applied, 1
 unreadable, 2 applied with required names missing, 3 the store names
 another login and nothing is applied; the JSON report's `error` and
 `missing`, which the control agent reads (runtime/control/secrets.mjs);
-the `--quiet` line on stderr, which moveto's shell entry shows.
+the `--quiet` line on stderr, which moveto's shell entry shows. status
+exits 0 or 1; its JSON lists `refused` and `no_trusted_base` per store
+("store": "own" or the child's agent id; a base's "state" is "no base" or
+"unreadable", as fabric-ctl keys names it).
 
 Nothing here prints a secret value: names, presence, ages and modes only.
 """
@@ -56,6 +64,14 @@ GIT_NAMES = {"GIT_USER_NAME": "user.name", "GIT_USER_EMAIL": "user.email",
              "GIT_SIGNING_KEY": "user.signingkey", "GIT_GPG_PROGRAM": "gpg.program"}
 SSH_NAMES = ["SSH_PRIVATE_KEY", "SSH_PUBLIC_KEY"]
 IDENTITY_NAMES = ["AGENT_LOGIN", "AGENT_HOST"]
+# Never written into secrets.env, whatever the registry declares: ~/.bashrc
+# sources that file, so an exported name is in every shell and subagent of
+# the account, and a reviewer printed its environment with the operator's
+# signing key in it (rotated, #95). fabric-ctl decrypts it from the store
+# when it signs (runtime/control/ctl.mjs signingKey()). Known, so a store
+# holding it is not "unexpected"; and since the file is rewritten whole,
+# the next sync drops a line an older one wrote.
+STORE_ONLY = ["FABRIC_CONTROL_SIGNING_KEY"]
 ALL_NAMES = IDENTITY_NAMES + ENV_NAMES + list(GIT_NAMES) + SSH_NAMES
 USAGE = "usage: fabric-secrets sync [--force] [--json] [--quiet] [--no-pull] | status [--json] | store …"
 
@@ -92,7 +108,7 @@ def project_agent_env(root: str | None = None) -> list[str]:
     # Fabric-wide names first (registry top-level agent_env), then each project's.
     for holder in [reg, *((reg.get("projects") or {}).values())]:
         for n in (holder.get("agent_env") or {}):
-            if n not in names and n not in ENV_NAMES:
+            if n not in names and n not in ENV_NAMES and n not in STORE_ONLY:
                 names.append(n)
     return names
 
@@ -125,14 +141,16 @@ def fetch_values(pull: bool = True) -> tuple[dict[str, str] | None, str | None]:
         return None, f"store: {e}"
 
 
-def fetch_refusals() -> list[dict]:
+def fetch_verification() -> tuple[list[dict], list[dict], str | None]:
     """The last refused commit of the own store and of each child's mirror
-    (ADR-042 rule 5), each named. A store that cannot be read says so
-    through fetch_names, not here."""
+    (ADR-042 rule 5), and every one of them with no trusted base, each
+    named. Either reading that fails is said, never an empty list: status
+    read clean whenever it could not look (review of #94)."""
     try:
-        return load_store().refusals()
-    except Exception:  # noqa: BLE001 — unreadable is fetch_names' to report
-        return []
+        st = load_store()
+        return st.refusals(), st.bases(), None
+    except Exception as e:  # noqa: BLE001 — said as the error; names and paths only, never a value
+        return [], [], f"the stores' refusals and trusted bases could not be read: {e}"
 
 
 def git_get(key: str) -> str:
@@ -204,8 +222,9 @@ def values_digest(values: dict[str, str], known: list[str]) -> str:
     """sha256 over every name sync applies and its value, in a canonical
     form, the SSH key and the git strings included, which secrets.env does
     not carry: two syncs applied the same values when it is equal. Only
-    the hash is printed."""
-    applied = {n: values[n] for n in known if n in values}
+    the hash is printed. STORE_ONLY is known but never applied, so not in
+    it (review of #96)."""
+    applied = {n: values[n] for n in known if n in values and n not in STORE_ONLY}
     return hashlib.sha256(json.dumps(applied, sort_keys=True).encode()).hexdigest()
 
 
@@ -219,11 +238,35 @@ def _refused_line(r: dict) -> str:
             f"{r.get('reason', '?')} — {who} repairs it (ADR-042)")
 
 
+def _base_line(b: dict) -> str:
+    """A store with no trusted base refuses every verified operation, so it
+    is said as a refusal is, with its repair (the coordinator's ruling of
+    2026-10-04): the own store's base is its head, once; a mirror's history
+    came from the child's remote, so its base is set with the owner."""
+    own = b.get("store") == "own"
+    which = "the store" if own else f"the mirror of agent {b.get('store')}"
+    if b.get("state") == "unreadable":
+        who = "this account" if own else "this account, the child's parent, or the owner"
+        return f"BASE UNREADABLE: {which}: {b.get('reason', '?')} — its trusted base cannot be read; {who} looks at it (ADR-042)"
+    if own:
+        return (f"NO BASE: {which} has no trusted base, so it takes nothing in — "
+                "fabric-secrets store trust-base, once, at the head it holds (ADR-042)")
+    return (f"NO BASE: {which} has no trusted base, so it takes nothing in — "
+            f"fabric-secrets store trust-base --store {b.get('path', '?')}, with the owner where its history "
+            "cannot be verified (ADR-042)")
+
+
+def _verification_lines(obj: dict) -> list[str]:
+    return [_refused_line(r) for r in obj.get("refused") or []] + \
+        [_base_line(b) for b in obj.get("no_trusted_base") or []]
+
+
 def report(obj: dict, as_json: bool, quiet: bool, ok: bool) -> None:
     if quiet:
         # For a shell entry (moveto): silence when all is well, one line otherwise.
         if not ok:
-            what = obj.get("error") or ("; ".join(_refused_line(r) for r in obj["refused"]) if obj.get("refused") else
+            said = _verification_lines(obj)
+            what = obj.get("error") or ("; ".join(said) if said else
                                         f"missing in the store: {', '.join(obj.get('missing', []))}")
             print(f"fabric-secrets: {what}", file=sys.stderr)
         return
@@ -233,8 +276,8 @@ def report(obj: dict, as_json: bool, quiet: bool, ok: bool) -> None:
     print(f"fabric-secrets: login={obj['login']} store={obj['store']}")
     if obj.get("error"):
         print(f"  error: {obj['error']}")
-    for r in obj.get("refused") or []:
-        print(f"  {_refused_line(r)}")
+    for line in _verification_lines(obj):
+        print(f"  {line}")
     if "present" in obj:
         print(f"  present: {', '.join(obj['present']) or '(none)'}")
         print(f"  missing: {', '.join(obj['missing']) or '(none)'}")
@@ -253,7 +296,7 @@ def report(obj: dict, as_json: bool, quiet: bool, ok: bool) -> None:
 
 def status(as_json: bool, quiet: bool = False) -> int:
     optional = project_agent_env()
-    known = ALL_NAMES + optional
+    known = ALL_NAMES + optional + STORE_ONLY
     obj = {"login": login(), "source": "store", "store": store_path(), "local": local_state()}
     names, err = fetch_names()
     ok = True
@@ -267,10 +310,18 @@ def status(as_json: bool, quiet: bool = False) -> int:
         obj["unexpected"] = sorted(n for n in names if n not in known)
         ok = not obj["missing"]
     # A refused commit is a security event (ADR-042 rule 5): said here until
-    # the store is repaired, whatever else is well.
-    refused = fetch_refusals()
+    # the store is repaired, whatever else is well. So is a store with no
+    # trusted base, which refuses everything it is given; and so is not
+    # being able to tell.
+    refused, unbased, verr = fetch_verification()
     if refused:
         obj["refused"] = refused
+        ok = False
+    if unbased:
+        obj["no_trusted_base"] = unbased
+        ok = False
+    if verr:
+        obj["error"] = f"{obj['error']}; {verr}" if obj.get("error") else verr
         ok = False
     ok = ok and obj["local"]["env_file_mode"] == "0600" and obj["local"]["bashrc_sources_env_file"]
     report(obj, as_json, quiet, ok)
@@ -280,7 +331,7 @@ def status(as_json: bool, quiet: bool = False) -> int:
 def sync(force: bool, as_json: bool, quiet: bool = False, pull: bool = True) -> int:
     me = login()
     optional = project_agent_env()
-    known = ALL_NAMES + optional
+    known = ALL_NAMES + optional + STORE_ONLY
     obj = {"login": me, "source": "store", "store": store_path(), "applied": [], "skipped": []}
     values, err = fetch_values(pull)
     if err:

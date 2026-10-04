@@ -43,13 +43,19 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-import pwd
 import re
 import socket
 import sqlite3
 import sys
 import time
 import uuid
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+for _p in (HERE, os.path.join(os.path.dirname(os.path.dirname(HERE)), "runtime")):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
+import identity  # noqa: E402
+import secret_store  # noqa: E402
 
 SCHEMA_VERSION = 1
 SOURCE = "gzcoord"
@@ -65,42 +71,31 @@ class IntegrityError(JournalError):
     pass
 
 
-# Three facts from runtime/identity.py and secret_store.py, read here rather
-# than imported: their imports (subprocess, argparse, tempfile) were 210 of
-# the 290 ms each journal call took when send.mjs ran it as a process, two
-# calls per message (measured 2026-10-01,
-# docs/live-checks/2026-10-01-episodic-journal.md). Since ADR-040 Wave 7 the
-# callers import this module in their own process and already import those
-# modules themselves, so the copies save nothing any more; they stay only
-# until they are replaced by the imports (carried from #93's review).
-# tests/test_episodic.py holds each equal to its source.
-AGENT_ID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")
+# The login, its state directory and its agent id come from their one
+# source: runtime/identity.py and secret_store.py. Until #93 they were
+# copied here, because the journal ran as a process twice per message and
+# those modules' imports cost 210 of its 290 ms; since ADR-040 Wave 7 the
+# callers import this module in their own process, where those modules
+# are already loaded, so a copy saved nothing and could drift.
+AGENT_ID_RE = secret_store.AGENT_ID_RE
 
 
 def _login() -> str:
-    return pwd.getpwuid(os.geteuid()).pw_name
+    return identity.current_agent()
 
 
 def state_dir() -> str:
     """identity.agent_state_dir() for this login."""
-    override = os.environ.get("AGENT_FABRIC_STATE_DIR")
-    root = os.path.abspath(override) if override else os.path.join(
-        os.environ.get("XDG_STATE_HOME") or os.path.join(os.path.expanduser("~"), ".local", "state"), "agent-fabric")
-    return os.path.join(root, "agents", _login())
+    return identity.agent_state_dir()
 
 
 def own_agent_id() -> str | None:
-    """secret_store.own_agent_id(): the id in this account's own store."""
-    home = os.environ.get("HOME") or pwd.getpwuid(os.getuid()).pw_dir
-    store = os.environ.get("AGENT_FABRIC_SECRET_STORE") or os.path.join(home, ".local", "share", "agent-fabric", "secrets")
+    """secret_store.own_agent_id(): the id in this account's own store, its
+    refusal of a malformed id said as the journal's own error."""
     try:
-        with open(os.path.join(store, ".agent-id"), encoding="utf-8") as fh:
-            aid = fh.read().strip()
-    except FileNotFoundError:
-        return None
-    if not AGENT_ID_RE.match(aid):
-        raise JournalError(f"the store's .agent-id is not an agent id: {aid[:40]!r}")
-    return aid
+        return secret_store.own_agent_id()
+    except secret_store.StoreError as e:
+        raise JournalError(str(e)) from None
 
 
 def db_path() -> str:

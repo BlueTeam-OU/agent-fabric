@@ -162,7 +162,7 @@ def is_holder(agent: str, holders: list[str], owner_role: str) -> bool:
 
 
 def changed_paths(repo: str, base: str) -> list[str]:
-    r = git.run(repo, "diff", "--name-only", f"{base}...HEAD", "--", *PROTECTED, check=False)
+    r = git.run(repo, "diff", "--no-renames", "--name-only", f"{base}...HEAD", "--", *PROTECTED, check=False)
     if r.returncode != 0:
         lines = [l for l in r.stderr.strip().splitlines() if l.strip()]
         raise Refused(f"cannot diff {base}...HEAD ({(lines or [f'exit {r.returncode}'])[-1]}) — "

@@ -1524,6 +1524,26 @@ def case_arm_boundary_cases_only_leave_retired() -> None:
         arm(["src/a.rs"], paths="^src/")
         assert lint.arm_boundary_findings(root, base_ref="no-such-ref") == [], \
             "without a base (a project CI's depth-1 fabric checkout), nothing is compared"
+        # A deleted arm.json takes its records with it (review of #92): it
+        # leaves only with its project.
+        write(os.path.join(root, "identities", "roles", "catalog.json"),
+              json.dumps({"roles": [{"id": "architect-cto"}]}))
+        write(os.path.join(root, "projects", "registry.json"), json.dumps({"projects": {"demo": {}}}))
+        arm(["src/a.rs"], paths="^src/")
+        g("add", "-A")
+        g("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "a usable arm.json")
+        g("branch", "-f", "base")
+        g("rm", "-q", rel)
+        got = lint.arm_boundary_findings(root, base_ref="base")
+        assert any("deleted while projects/registry.json still names 'demo'" in f for f in got), \
+            ("an arm.json deleted under a registered project", got)
+        write(os.path.join(root, "projects", "registry.json"), "{ not json")
+        assert any("projects/registry.json: unreadable" in f and "cannot be judged" in f
+                   for f in lint.arm_boundary_findings(root, base_ref="base")), \
+            "an unreadable registry is no clean bill for a deletion (review of #96)"
+        write(os.path.join(root, "projects", "registry.json"), json.dumps({"projects": {}}))
+        assert lint.arm_boundary_findings(root, base_ref="base") == [], "…and allowed when the project leaves too"
+        assert lint.arm_boundary_findings(root, base_ref="no-such-ref") == [], "…and nothing without a base"
 
 
 def case_bash_over_150_lines_needs_the_allowlist() -> None:

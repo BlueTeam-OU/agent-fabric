@@ -374,6 +374,53 @@ def run() -> None:
     check("…by the fence", "this agent's binding holds: backend-dev" in err, f"wording\n{err}")
     git("merge", "--abort"); git("reset", "-q", "--hard")
 
+    section("a fold where BOTH sides moved .agent-fabric/ is no change of its own when the merge is clean")
+    # The branch carries a coordinator-supplied fabric-ref; main then gets a
+    # drain. The merged .agent-fabric/ equals neither parent's, only their
+    # clean three-way merge (devex-tooling, gzapp #1028, 2026-10-04).
+    bind("fabric-coordinator"); new_repo()
+    main_name = git("rev-parse", "--abbrev-ref", "HEAD")[1].strip()
+    git("checkout", "-q", "-b", "carrier")
+    if try_commit(".agent-fabric/fabric-ref", "supplied fabric-ref") != 0:
+        check("setup: the supplied fabric-ref", False, err)
+    git("checkout", "-q", main_name)
+    if try_commit(".agent-fabric/memory/backend-dev/workflow.md", "drain on main") != 0:
+        check("setup: drain on main", False, err)
+    git("checkout", "-q", "carrier"); bind("devex-tooling")
+    rc = commit_rc("merge", "-q", "--no-ff", "--no-edit", main_name)
+    check("devex-tooling bound: the fold commits", rc == 0, f"a clean three-way fold was refused\n{err}")
+    check("…and .agent-fabric/ holds both sides",
+          git("diff", "HEAD^1", "HEAD", "--name-only", "--", ".agent-fabric/")[1].strip()
+          == ".agent-fabric/memory/backend-dev/workflow.md"
+          and git("diff", "HEAD^2", "HEAD", "--name-only", "--", ".agent-fabric/")[1].strip() == ".agent-fabric/fabric-ref",
+          git("show", "--stat", "HEAD")[1])
+
+    section("the same fold resolved to drop one side's .agent-fabric/ change is the merge's own change: refused")
+    git("reset", "-q", "--hard", "HEAD^"); bind("devex-tooling")
+    git("merge", "-q", "--no-ff", "--no-commit", main_name, state=True)
+    git("checkout", "HEAD", "--", ".agent-fabric/memory/backend-dev/workflow.md")
+    rc = commit_rc("commit", "-qm", "fold, keeping ours")
+    check("devex-tooling bound: refused (it silently drops main's drain)", rc == 1,
+          "a merge that drops one side's guarded change was admitted")
+    git("merge", "--abort"); git("reset", "-q", "--hard")
+
+    section("with no clean three-way merge to compare (an octopus), a merge is judged against every parent")
+    # merge-tree takes two parents; an octopus falls back. An `-s ours`
+    # octopus stages exactly HEAD's tree, so judging against HEAD alone
+    # waved it through (review of #96).
+    bind("fabric-coordinator")
+    # From the commit before main's drain, so neither head contains the
+    # other and git keeps all three parents (from main itself, git would
+    # reduce it to an ordinary two-parent merge).
+    git("checkout", "-q", "-b", "second", git("merge-base", "carrier", main_name)[1].strip())
+    if try_commit(".agent-fabric/memory/backend-dev/other.md", "a second drain") != 0:
+        check("setup: a second drain", False, err)
+    git("checkout", "-q", "carrier"); bind("devex-tooling")
+    rc = commit_rc("merge", "-q", "--no-ff", "-s", "ours", "-m", "octopus keeping ours", main_name, "second")
+    check("devex-tooling bound: an `-s ours` octopus that drops both drains is refused, by the fence", rc == 1
+          and has(r"binding holds:? '?devex-tooling", err), f"rc={rc}\n{err}")
+    git("merge", "--abort"); git("reset", "-q", "--hard")
+
     section("the attribution ban still holds on the same hook")
     bind("fabric-coordinator"); new_repo()
     check("Co-authored-by is still refused",

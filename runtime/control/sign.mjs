@@ -7,7 +7,8 @@
 // needs a proof. So an ACTION op is answered only when the request
 // carries `sig`, an Ed25519 signature over its canonical form made with a
 // key only the operator's own store holds
-// (FABRIC_CONTROL_SIGNING_KEY, synced into that login's secrets.env), and
+// (FABRIC_CONTROL_SIGNING_KEY, which fabric-ctl decrypts when it signs and
+// never takes from the environment, ctl.mjs signingKey()), and
 // verified against the public key its host commits in
 // runtime/hosts/registry.json (`operator_key`). Read-only ops stay
 // unsigned-compatible: a daemon that cannot verify still reports.
@@ -24,7 +25,7 @@ import crypto from 'node:crypto';
 export const ACTION_OPS = ['upgrade', 'secrets-sync', 'jobs-add'];
 export const ACTION_TTL_MAX_S = 600;
 export const KEY_PREFIX = 'ed25519:';
-export const PRIVATE_PREFIX = 'ed25519-pkcs8:';   // one line: secrets.env is read a line at a time
+export const PRIVATE_PREFIX = 'ed25519-pkcs8:';   // one line: the store's entry is read as its first line (pass layout)
 
 export function canonical(value) {
   if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`;
