@@ -214,16 +214,22 @@ function readRefusal(store) {
 // The trusted base is agent-fabric.trustedbase in the store's own
 // .git/config, which secret_store.py writes through `git config`: read as a
 // file, so the keys probe runs no git. true, false, or null (unreadable).
+// As the verifier reads it (secret_store.trusted_base): the key's name in
+// any case, its last value, and that value 40 lowercase hex — an uppercase
+// one, or a good line before a bad one, read "verified" here while every
+// verified operation refused the store.
 function hasBase(store) {
   let text;
   try { text = fs.readFileSync(path.join(store, '.git', 'config'), 'utf8'); } catch { return null; }
   let inSection = false;
+  let base = false;
   for (const line of text.split('\n')) {
     const head = /^\s*\[([^\]]*)\]/.exec(line);
     if (head) { inSection = head[1].trim().toLowerCase() === 'agent-fabric'; continue; }
-    if (inSection && /^\s*trustedbase\s*=\s*[0-9a-f]{40}\s*$/i.test(line)) return true;
+    const kv = /^\s*trustedbase\s*=\s*(.*?)\s*$/i.exec(line);
+    if (inSection && kv) base = /^[0-9a-f]{40}$/.test(kv[1]);
   }
-  return false;
+  return base;
 }
 
 export function storeRefusal(home = os.homedir(), store = process.env.AGENT_FABRIC_SECRET_STORE ?? path.join(home, '.local', 'share', 'agent-fabric', 'secrets'),

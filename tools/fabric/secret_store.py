@@ -78,6 +78,7 @@ from __future__ import annotations
 import argparse
 import base64
 import contextlib
+import fcntl
 import json
 import os
 import pwd
@@ -185,16 +186,19 @@ def _run(cmd: list[str], *, stdin: bytes | None = None, cwd: str | None = None,
     except subprocess.TimeoutExpired:
         raise StoreError(f"{what}: timed out after {timeout:g} s") from None
     if check and r.returncode != 0:
-        # The last line of stderr that is not git's advice ("hint:"), which
-        # gpg and git keep free of values; the error, not the suggestion.
-        # Where git says what failed ("fatal:", the server's "ERROR:"), that
-        # line: its advice can follow it, and a push GitHub refused read
-        # "and the repository exists." (python-dev-01's enrolment).
-        lines = [l for l in r.stderr.decode(errors="replace").strip().splitlines() if not l.startswith("hint:")]
-        said = [l for l in lines if l.startswith(("fatal:", "error:", "ERROR:"))]
-        why = (said or lines or [f"exit {r.returncode}"])[-1]
-        raise StoreError(f"{what}: {why}")
+        raise _failure(what, r)
     return r
+
+
+def _failure(what: str, r: subprocess.CompletedProcess) -> StoreError:
+    # The last line of stderr that is not git's advice ("hint:"), which
+    # gpg and git keep free of values; the error, not the suggestion.
+    # Where git says what failed ("fatal:", the server's "ERROR:"), that
+    # line: its advice can follow it, and a push GitHub refused read
+    # "and the repository exists." (python-dev-01's enrolment).
+    lines = [l for l in r.stderr.decode(errors="replace").strip().splitlines() if not l.startswith("hint:")]
+    said = [l for l in lines if l.startswith(("fatal:", "error:", "ERROR:"))]
+    return StoreError(f"{what}: {(said or lines or [f'exit {r.returncode}'])[-1]}")
 
 
 # gpg's commands, as opposed to its options: what an error names.
@@ -310,6 +314,8 @@ def init(remote: str | None = None, agent_id: str | None = None) -> dict:
     # failed (no signing key yet) leaves .git behind, and its retry must
     # still record the base (review of ADR-042, F2).
     first = git(store, "rev-parse", "-q", "--verify", "HEAD", check=False).returncode != 0
+    if not first:
+        _require_clean(store)
     with open(gpg_id, "w", encoding="utf-8") as fh:
         fh.write(fpr + "\n")
     with open(os.path.join(store, ".agent-id"), "w", encoding="utf-8") as fh:
@@ -354,18 +360,42 @@ def _commit(store: str, message: str) -> None:
     # writer that cannot sign does not write — and leaves nothing staged:
     # an entry left in the index made every later set, pull and sync fail
     # on the dirty store (review of ADR-042, F2). Back to HEAD, or, on a
-    # store with no commit yet, unstaged.
+    # store with no commit yet, unstaged. The reset discards every tracked
+    # change, so each writer starts from a clean store (_require_clean).
+    # "could not sign" only when signing is what failed — the key not
+    # found, or git saying gpg failed: a hook or a lock is another failure
+    # (review of #94). git's own words are read in the C locale.
     try:
-        _run(["git", "-C", store, *_signing_args(), "commit", "-q", "-m", message], env=_git_env(), label="git commit")
-    except StoreError as failed:
-        unborn = git(store, "rev-parse", "-q", "--verify", "HEAD", check=False).returncode != 0
-        r = git(store, "rm", "-r", "-q", "--cached", ".", check=False) if unborn else \
-            git(store, "reset", "-q", "--hard", "HEAD", check=False)
-        if r.returncode != 0:
-            why = ([l for l in r.stderr.decode(errors="replace").splitlines() if l.strip()] or [f"exit {r.returncode}"])[-1]
-            raise StoreError(f"could not sign the commit ({failed}); and {store} could not be reset ({why}) "
-                             "— reset it before the next write") from failed
-        raise StoreError(f"could not sign the commit ({failed}); nothing written") from failed
+        signing = _signing_args()
+    except StoreError as e:
+        failed, what = e, "could not sign the commit"
+    else:
+        r = _run(["git", "-C", store, *signing, "commit", "-q", "-m", message],
+                 env={**_git_env(), "LC_ALL": "C"}, check=False)
+        if r.returncode == 0:
+            return
+        failed = _failure("git commit", r)
+        what = "could not sign the commit" if b"failed to sign the data" in r.stderr else "could not commit"
+    unborn = git(store, "rev-parse", "-q", "--verify", "HEAD", check=False).returncode != 0
+    r = git(store, "rm", "-r", "-q", "--cached", ".", check=False) if unborn else \
+        git(store, "reset", "-q", "--hard", "HEAD", check=False)
+    if r.returncode != 0:
+        why = ([l for l in r.stderr.decode(errors="replace").splitlines() if l.strip()] or [f"exit {r.returncode}"])[-1]
+        raise StoreError(f"{what} ({failed}); and {store} could not be reset ({why}) "
+                         "— reset it before the next write") from failed
+    raise StoreError(f"{what} ({failed}); nothing written") from failed
+
+
+def _require_clean(store: str) -> None:
+    """A write starts from a store with no uncommitted change to a tracked
+    file: a failed write is undone by a reset to the last commit (_commit,
+    and put's reset to the remote), which would take such a change with it
+    (review of #94). Untracked files are no part of it: a reset leaves them."""
+    dirty = git(store, "status", "--porcelain", "--untracked-files=no").stdout.decode(errors="replace").splitlines()
+    if dirty:
+        more = f" and {len(dirty) - 1} more" if len(dirty) > 1 else ""
+        raise StoreError(f"{store} has uncommitted changes ({dirty[0][3:]}{more}); nothing written — "
+                         "a write starts from a clean store, since a failed one is undone by a reset")
 
 
 # ── who may write a store (ADR-042) ───────────────────────────────────
@@ -393,10 +423,27 @@ def _signing_args(signer: str | None = None) -> list[str]:
             "-c", "gpg.program=gpg", "-c", "gpg.format=openpgp"]
 
 
-def trusted_base(store: str) -> str | None:
-    r = git(store, "config", "--get", TRUST_KEY, check=False)
+def _read_base(store: str) -> tuple[str | None, str | None]:
+    """(the base, None), (None, None) when there is none, or (None, why)
+    when the store's config cannot be read. --local: a plain get also read
+    ~/.gitconfig, the system's and GIT_CONFIG_* from the environment, and a
+    base set there trusted every store. The config is opened first: git
+    reads one it cannot open as one without the key (exit 1, a warning),
+    which would say "no base" for "unreadable"."""
+    try:
+        with open(os.path.join(store, ".git", "config"), "rb"):
+            pass
+    except OSError as e:
+        return None, f".git/config could not be read ({type(e).__name__})"
+    r = git(store, "config", "--local", "--get", TRUST_KEY, check=False)
+    if r.returncode not in (0, 1):
+        return None, str(_failure(".git/config", r))
     v = r.stdout.decode().strip()
-    return v if r.returncode == 0 and re.fullmatch(r"[0-9a-f]{40}", v) else None
+    return (v if r.returncode == 0 and re.fullmatch(r"[0-9a-f]{40}", v) else None), None
+
+
+def trusted_base(store: str) -> str | None:
+    return _read_base(store)[0]
 
 
 def _full(store: str, rev: str) -> str:
@@ -518,6 +565,18 @@ def refusal(store: str | None = None) -> dict | None:
     return doc if isinstance(doc, dict) else {"unreadable": True, "reason": f"{REFUSAL_FILE} is not a JSON object"}
 
 
+def _mirror_ids() -> list[str]:
+    """The agent ids of the children's mirrors this account holds. No
+    children directory is none; one that cannot be listed is an error, never
+    an empty answer: status would read clean on it (review of #94)."""
+    try:
+        return sorted(n for n in os.listdir(children_dir()) if AGENT_ID_RE.match(n))
+    except FileNotFoundError:
+        return []
+    except OSError as e:
+        raise StoreError(f"{children_dir()} could not be listed ({type(e).__name__})") from None
+
+
 def refusals() -> list[dict]:
     """Every refusal this account holds, each named: its own store's
     ("store": "own") and each child's mirror's ("store": the child's agent
@@ -527,14 +586,36 @@ def refusals() -> list[dict]:
     own = refusal()
     if own:
         out.append({**own, "store": "own"})
-    try:
-        kids = sorted(os.listdir(children_dir()))
-    except OSError:
-        kids = []
-    for aid in kids:
-        r = refusal(os.path.join(children_dir(), aid)) if AGENT_ID_RE.match(aid) else None
+    for aid in _mirror_ids():
+        r = refusal(os.path.join(children_dir(), aid))
         if r:
             out.append({**r, "store": aid})
+    return out
+
+
+def base_state(store: str) -> dict | None:
+    """None when the store has a trusted base; else its state, in the names
+    fabric-ctl keys uses: "no base", or "unreadable" with why. Read as the
+    verifier reads it (_read_base), so status cannot disagree with it."""
+    base, why = _read_base(store)
+    if why:
+        return {"state": "unreadable", "reason": why}
+    return None if base else {"state": "no base"}
+
+
+def bases() -> list[dict]:
+    """Every store this account holds that has no trusted base, and so
+    refuses every verified operation (ADR-042): its own ("store": "own"),
+    when there is one, and each child's mirror ("store": the agent id),
+    with its path. Said by status as a refusal is (review of #94)."""
+    out = []
+    own = store_dir()
+    stores = ([("own", own)] if os.path.isdir(os.path.join(own, ".git")) else []) + \
+        [(aid, os.path.join(children_dir(), aid)) for aid in _mirror_ids()]
+    for name, path in stores:
+        st = base_state(path)
+        if st:
+            out.append({**st, "store": name, "path": path})
     return out
 
 
@@ -742,6 +823,7 @@ def set_entry(name: str, value: bytes, *, exact: bool = False) -> dict:
     fpr = key_of_store(store)
     _check_name(name)
     value = value if exact else _one_line_off(value)
+    _require_clean(store)
     _before_write(store)
     path = os.path.join(store, "env", f"{name}.gpg")
     if os.path.exists(path) and _decrypt(path) == value.decode(errors="replace"):
@@ -861,9 +943,39 @@ def _rebuild_mirror(mirror: str, remote: str, agent_id: str) -> None:
         tip = _verify_incoming(mirror, "refs/remotes/origin/main", agent_id, from_root=True)
         git(mirror, "checkout", "-q", "-B", "main", tip)
         _set_base(mirror, tip)
-    except BaseException:
+    except BaseException as e:
+        refused = isinstance(e, StoreError) and refusal(mirror) is not None
         shutil.rmtree(mirror, ignore_errors=True)
+        if refused:
+            # Removing the mirror again rebuilds the same refusal: a child
+            # enrolled before ADR-042 holds unsigned history on its remote,
+            # and no command rebuilds its mirror (review of #94).
+            raise StoreError(f"{e}; no mirror is kept — a remote whose history its writers did not all sign "
+                             "(a child enrolled before ADR-042) is the owner's to repair by hand: a clone the "
+                             f"owner has checked at {mirror}, then fabric-secrets store trust-base --store {mirror}") from e
         raise
+
+
+@contextlib.contextmanager
+def _mirror_lock(agent_id: str):
+    """One seed-child at a time per mirror on this account: two overlapping
+    runs removed each other's mirror, a failed rebuild deleting the one the
+    other was making (review of #94). flock(2) on <children>/<id>.lock,
+    beside the mirror so a removal leaves it; the kernel drops it when the
+    holder exits, however it exits, so there is no stale holder to find. A
+    second run is refused at once, not queued: an enrolment re-run while
+    one is going is the operator's to sequence."""
+    os.makedirs(children_dir(), exist_ok=True)
+    fd = os.open(os.path.join(children_dir(), f"{agent_id}.lock"), os.O_RDWR | os.O_CREAT, 0o600)
+    try:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise StoreError(f"another seed-child of agent {agent_id} is running on this account; "
+                             "nothing taken or pushed — run it again once that one ends") from None
+        yield
+    finally:
+        os.close(fd)
 
 
 def seed_child(agent_id: str, remote: str, text: str) -> dict:
@@ -873,7 +985,7 @@ def seed_child(agent_id: str, remote: str, text: str) -> dict:
     if not AGENT_ID_RE.match(agent_id):
         raise StoreError(f"{agent_id!r} is not an agent id")
     mirror = os.path.join(children_dir(), agent_id)
-    with tempfile.TemporaryDirectory() as tmp:
+    with _mirror_lock(agent_id), tempfile.TemporaryDirectory() as tmp:
         path = _bundle_file(text, tmp)
         aid, _ = _bundle_identity(path, tmp)
         if aid != agent_id:
@@ -889,9 +1001,13 @@ def seed_child(agent_id: str, remote: str, text: str) -> dict:
         has_mirror = os.path.isdir(os.path.join(mirror, ".git"))
         if not (has_mirror and trusted_base(mirror)) and on_main(agent_id):
             if has_mirror:
+                # Not "remove it to rebuild": for a child enrolled before
+                # ADR-042 the rebuild refuses, and the advice looped (review
+                # of #94).
                 raise StoreError(f"agent {agent_id} is on the fabric's main, and its mirror {mirror} has no trusted "
-                                 "base: nothing taken or pushed — remove the mirror to rebuild it from the child's "
-                                 "remote, or record its base (fabric-secrets store trust-base --store) with the owner")
+                                 "base: nothing taken or pushed — its base is the owner's to record, at a head the "
+                                 f"owner has checked: fabric-secrets store trust-base --store {mirror}. Removing the "
+                                 "mirror rebuilds it only from a remote whose every commit its writers signed")
             _rebuild_mirror(mirror, remote, agent_id)
         if not os.path.isdir(os.path.join(mirror, ".git")):
             os.makedirs(children_dir(), exist_ok=True)
@@ -1045,6 +1161,7 @@ def put(child: str, name: str, value: bytes, store: str | None = None, fabric: s
     _check_name(name)
     # Brought up to date FIRST: a mirror still naming the old key must not
     # pass the check and then receive a re-keyed .gpg-id with the pull.
+    _require_clean(store)
     _before_write(store)
     committed = _key_file_fingerprint(key_file)
     if key_of_store(store) != committed:
@@ -1566,6 +1683,7 @@ def recovery_copy(force: bool = False) -> dict:
     rfpr = _key_file_fingerprint(pub)
     store = store_dir()
     key_of_store(store)
+    _require_clean(store)
     _before_write(store)
     aid = own_agent_id(store)
     if not aid:
