@@ -100,7 +100,9 @@ KNOWN_KEYS = ("FROM", "ROLE", "PROJECT", "TO", "TO-ROLE", "BROADCAST", "MESSAGE-
               "WAIVES")
 # An id-shaped value: a UUID (the deployment mints UUIDv7), or the retired
 # `<instance>-NNNN` counter form still seen in older traffic.
-ID_SHAPED = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[a-z0-9._-]+-\d{4}")
+# re.ASCII on every pattern with a class escape: Python's \d, \w, \s and \b
+# are Unicode, the Node's were ASCII (test-١٢٣٤ is no minted id there).
+ID_SHAPED = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[a-z0-9._-]+-\d{4}", re.ASCII)
 _UNEXPANDED = re.compile(r"\$\{?[A-Za-z_][A-Za-z0-9_]*\}?")
 
 
@@ -335,7 +337,7 @@ def recorded_role(taxonomy: Taxonomy | None, me: dict | None = None) -> dict:
     if taxonomy is None or not taxonomy.path:
         return {"role": None}
     me = whoami() if me is None else me
-    file = me.get("binding") or binding_file(me["agent"])
+    file = me["binding"] if me.get("binding") is not None else binding_file(me["agent"])
     if me.get("role") is None:
         if not os.path.exists(file):
             return {"role": None}
@@ -602,7 +604,9 @@ def main(argv: list[str]) -> int:
     # --no-taxonomy validates the wire grammar alone. Loaded before the
     # command is looked at, as the Node did: a catalogue that does not load
     # ends any command.
-    tax_path = None if args["flags"].get("no-taxonomy") else (args["flags"].get("taxonomy") or find_taxonomy())
+    # --taxonomy "" is set, as the Node's `??` read it: no catalogue.
+    named = args["flags"].get("taxonomy")
+    tax_path = None if args["flags"].get("no-taxonomy") else (named if named is not None else find_taxonomy())
     try:
         taxonomy = load_taxonomy(tax_path) if tax_path else None
         if cmd == "validate":

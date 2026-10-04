@@ -253,6 +253,19 @@ def check_addressees(metadata: dict, sender: str, tok: str,
     return answer
 
 
+def asked_presence(metadata: dict, sender: str, tok: str, run: Callable[..., Any] = subprocess.run) -> dict:
+    """check_addressees, with a request that could not be made read as send
+    acts on it: skipped on a refused token, otherwise "unavailable"."""
+    pres = check_addressees(metadata, sender, tok, run)
+    if "error" not in pres:
+        return pres
+    # A refused token is the post's to handle: it re-reads the synced
+    # token and says "refused" if that fails too (review of #38).
+    if pres.get("status") in (401, 403):
+        return {"checked": False, "skipped": True}
+    return {"checked": True, "problems": [{"kind": "unavailable", "detail": str(pres["error"]).split("\n")[0][:160]}]}
+
+
 def _read_input(file: str) -> str:
     if file == "-":
         return sys.stdin.buffer.read().decode("utf-8", errors="replace")
@@ -392,12 +405,7 @@ def main(argv: list[str]) -> int:
     # nobody now. The sender decides — --force sends anyway (the owner,
     # 2026-09-25). A broadcast is not checked.
     if tok:
-        pres = check_addressees(msg["metadata"], me["address"], tok)
-        if "error" in pres:
-            # A refused token is the post's to handle: it re-reads the synced
-            # token and says "refused" if that fails too (review of #38).
-            pres = {"checked": False, "skipped": True} if pres.get("status") in (401, 403) else \
-                {"checked": True, "problems": [{"kind": "unavailable", "detail": str(pres["error"]).split("\n")[0][:160]}]}
+        pres = asked_presence(msg["metadata"], me["address"], tok)
         # Said, never silent: the contract is that a TO is checked.
         if pres.get("skipped"):
             print(t("send.presence-skipped"), file=sys.stderr)

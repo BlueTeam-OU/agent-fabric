@@ -11,7 +11,8 @@ default printer — the commands those suites spawn included (the hook,
 parity/record-hook.mjs and record-loader.mjs, is in commit 9e7b195, the
 last tree where the Node validator ran). The last two lines, a WAIVE: and
 a WAIVES: field, were recorded from main's gzmsg.mjs at 66aa491, when #92
-added WAIVES to its known keys while this branch was open.
+added WAIVES to its known keys while this branch was open; the three after
+them, ids in non-ASCII digits, from the same file in review of #93.
 Each distinct call is one line. The checkout's path, which the catalogue
 diagnostics quote, is written {FABRIC}. Outputs that repeat the input — a
 parse result, a normalized text, a validate's message — are kept as the
