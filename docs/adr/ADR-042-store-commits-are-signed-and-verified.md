@@ -1,7 +1,8 @@
 # ADR-042 — Store commits are signed by their writer and verified before they are applied
 
 **Date:** 2026-10-04
-**Status:** Proposed
+**Status:** Accepted
+**Ratified:** owner, 2026-10-04, by the merge of agent-fabric #91 (a05c9cab), which carried it, as §8 provided
 **Decision Makers:** the owner (signed and verified, over trusting repository access); drafted by fabric-coordinator
 **Scope:** `tools/fabric/secret_store.py` (every commit to an agent's store, `pull`, `take-bundle`, `seed-child`, `sync`), `identities/keys/lineage.json` as the record of who may write a store, and the per-agent store repositories `agent-fabric-secrets-<id>`
 **Pillar:** P1
@@ -70,16 +71,28 @@ a handful of times a day.
    parent's, as `identities/keys/lineage.json` records them on the
    fabric's main branch: a commit verifies when it is signed by a signing
    subkey of one of those primary keys, read from the committed
-   `identities/keys/<id>.asc`. The root agent, which has no parent, is
-   its own store's only writer. Nothing else names a writer.
+   `identities/keys/<id>.asc`. Both files are read as the account's
+   fabric checkout has them at `origin/main`, never from its working
+   tree, so an uncommitted edit names nobody; a key not there yet is
+   refused with a pointer to fetch the fabric. The root agent, which has
+   no parent, is its own store's only writer. Nothing else names a
+   writer.
 3. `pull`, `take-bundle`, the fast-forward before a push, and `sync`
    verify every commit they would take beyond the store's trusted base. A
    commit unsigned, signed by a key outside rule 2, or failing
    verification refuses the whole operation: nothing is applied, and the
    refusal names the commit and the reason, never an entry's value.
 4. Each store records its trusted base: the commit up to which history
-   is taken unsigned. It is set once, by the migration that follows this
-   decision, and only ever moves forward, to a verified commit.
+   is taken unsigned, in the store's own git configuration, never in a
+   commit the remote could write. It is set explicitly, never inferred
+   from a store that has none: `fabric-secrets store trust-base`, which
+   bootstrap runs once per account for every store it then holds (the
+   migration). A store born later gets its base at first contact, from
+   the enrolment bundle the host executor carries, never from a fetch:
+   the parent's mirror at `seed-child`, the child's store at its first
+   `take-bundle` while the agent is not yet on main's lineage. A store
+   with no base refuses every verified operation and names the command.
+   The base only ever moves forward, to a verified commit.
 5. A refusal is a security event. `fabric-secrets status` and
    `fabric-ctl <login> keys` say it until the store is repaired, and the
    repair is the parent's or the owner's.
@@ -105,9 +118,9 @@ server side; it would add to the local check, not replace it.
 
 ## 8. Decision Status
 
-Proposed, in the pull request that carries it; accepted by the owner's
-merge of that pull request. python-dev-01 implements it after
-ADR-040's Wave 7, in its contributor entry: `secret_store.py` and its tests.
+Accepted and in force: `secret_store.py` signs every store write and
+verifies before it takes, and bootstrap's last step sets each existing
+store's trusted base once.
 
 ## References
 
@@ -115,3 +128,11 @@ ADR-040's Wave 7, in its contributor entry: `secret_store.py` and its tests.
   `seed_child`, `take_bundle`, `put`, `set_entry`; `identities/keys/lineage.json`.
 - ADR-038 (each agent owns its key and its secrets), ADR-039 (the agent
   id), ADR-012 (credentials).
+
+## Amendments
+
+The body above reads current; each change's full note is in [history/ADR-042-amendments.md](history/ADR-042-amendments.md).
+
+| Date | Amendment | Effect |
+|---|---|---|
+| 2026-10-04 | Where writers are read; how a base is set | §5 rules 2 and 4: writers from origin/main, never the working tree; the base explicit, by a once-only migration or at first contact through the enrolment bundle |

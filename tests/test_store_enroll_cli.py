@@ -50,6 +50,16 @@ def main() -> int:
         fab = f"{t}/fabric"
         for d in (f"{fab}/identities/keys", f"{t}/remotes", f"{t}/bin"):
             os.makedirs(d)
+        # The fabric is a checkout: a store's writers are read at its
+        # origin/main (ADR-042 rule 2); what enrolment certifies counts once
+        # published there, as a merged identities/keys/ PR is.
+        fab_git = ["git", "-C", fab, "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"]
+        subprocess.run(["git", "init", "-q", "-b", "main", fab], check=True, timeout=30, capture_output=True)
+
+        def publish() -> None:
+            for a in (["add", "-A"], ["commit", "-q", "--allow-empty", "-m", "identities"],
+                      ["update-ref", "refs/remotes/origin/main", "HEAD"]):
+                subprocess.run(fab_git + a, check=True, timeout=30, capture_output=True)
         # The two homes are born apart: an id's time is its home's creation
         # to the millisecond, and two homes made in one millisecond could not
         # tell a child's birth read on its host from one read on the parent.
@@ -145,6 +155,7 @@ def main() -> int:
               f"rc={rc}\n{out}")
         check("…its id's time is its home's creation time", bool(pid) and id_ms(pid) == born_ms(f"{t}/parent"),
               f"{pid} vs {born_ms(f'{t}/parent')}")
+        publish()
 
         # #65 carried: --self with a malformed .agent-id in its store stops and
         # mints nothing; a lineage that is not JSON stops a child's enrolment
@@ -188,6 +199,7 @@ def main() -> int:
         check("a first run whose push fails stops after init, the id in the account's store",
               rc == 1 and bool(first_id) and "kid: push failed" in out, f"rc={rc}\n{out}")
         rc, out = P(ENROLL, "kid")
+        publish()   # the child's keys PR, merged
         check("the child gets its key and store, and is certified",
               rc == 0 and re.search(r"kid: agent [0-9a-f-]{36}, key certified", out) is not None, f"rc={rc}\n{out}")
         check("…every account step went through the host executor to its placed host",

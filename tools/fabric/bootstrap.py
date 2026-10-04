@@ -41,6 +41,10 @@ Writes, idempotently, and only machine-local files:
                                      script op (runtime/langid/), best effort
   (removes ~/.doppler, ~/.local/bin/doppler and ~/.config/agent-fabric/secrets-source:
    Doppler is retired, ADR-038)
+  <state>/agents/<login>/store-trust-base.done
+                                     ADR-042's migration, once: every store this account holds then
+                                     (its own, its children's mirrors) trusts the head it holds
+                                     (secret_store.py trust-base --store DIR)
   <state>/agents/<login>/episodic.db this account's GZCoord history, imported once through the
                                      relay as itself (episodic.py gzcoord-import --if-needed,
                                      agent-fabric ADR-041 rule 9), best effort
@@ -210,6 +214,8 @@ UNIT = "agent-fabric-agentd"
 RELAY_UNIT = "gzcoord-relay"
 RELAY_STATUS = "http://127.0.0.1:8765/status"
 JOURNAL_IMPORT_TIMEOUT = 20
+# The marker of ADR-042's migration on this account, under its state.
+STORE_BASE_MARKER = "store-trust-base.done"
 # Ownership is by the hook path SHAPE (…/runtime/claude-code/hooks/…, and
 # the GZCoord inbox under communication/), not by the current root: an
 # entry written by an earlier bootstrap from another checkout (a shared
@@ -471,6 +477,7 @@ class Bootstrap:
         self.langid()
         self.retire_doppler()
         self.journal_import()
+        self.store_trust_base()
         if self.failed:
             say(f"bootstrap: {self.changed} written, {self.same} already current, {self.failed} NOT written (above).")
         else:
@@ -815,6 +822,57 @@ class Bootstrap:
             rc = 127
         if rc != 0:
             say("  !  episodic journal: not imported (above); the next bootstrap tries again")
+
+
+    def stores(self) -> list[str]:
+        """This account's own store and its mirrors of its children's, as
+        tools/fabric/secret_store.py places them; only those that exist."""
+        share = os.path.join(self.home, ".local", "share", "agent-fabric")
+        own = os.environ.get("AGENT_FABRIC_SECRET_STORE") or os.path.join(share, "secrets")
+        children = os.path.join(share, "children")
+        try:
+            mirrors = sorted(os.path.join(children, n) for n in os.listdir(children))
+        except OSError:
+            mirrors = []
+        return [d for d in [own, *mirrors] if os.path.isdir(os.path.join(d, ".git"))]
+
+    def store_trust_base(self) -> None:
+        # 10. ADR-042's migration, once per account: every store that exists
+        #     now takes the head it holds as its trusted base, the history it
+        #     has already applied. ONCE, by a marker, and never again by
+        #     itself: a mirror deleted and re-made later would otherwise be
+        #     trusted whole from its remote. Such a mirror is rebuilt by
+        #     store-enroll's seed-child only from its remote's history
+        #     verified against the writers on main. A child enrolled before
+        #     this migration has unsigned history on its remote, so its
+        #     deleted mirror cannot be rebuilt by any command: the rebuild
+        #     refuses, and trust-base needs a mirror to act on. That repair is
+        #     the owner's, by hand, until an owner-run rebuild exists (#94's
+        #     review, round 2). A store
+        #     born after the migration gets its base at first contact
+        #     (seed-child, take-bundle). One that has a base is left alone.
+        marker = os.path.join(fabric_writes.state_dir(), STORE_BASE_MARKER)
+        if os.path.exists(marker):
+            return
+        todo = [d for d in self.stores() if not self.git_get(d, "agent-fabric.trustedbase")]
+        if self.dry_run:
+            for d in todo:
+                say(f"  +  secret store {d}: would trust the head it holds as its base (ADR-042), once")
+            return
+        failed = 0
+        for d in todo:
+            rc, _ = self.python3("tools/fabric/secret_store.py", "trust-base", "--store", d)
+            if rc != 0:
+                failed += 1
+                say(f"  !  secret store {d}: no trusted base set (above); the next bootstrap tries again")
+            else:
+                say(f"  +  secret store {d}: its head is its trusted base (ADR-042)")
+        if failed:
+            self.failed += 1
+            return
+        os.makedirs(os.path.dirname(marker), exist_ok=True)
+        with open(marker, "w", encoding="utf-8") as f:
+            f.write(f"{len(todo)} store(s) based\n")
 
 
 def parse(argv: list[str]) -> tuple[str, bool]:

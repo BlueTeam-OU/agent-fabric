@@ -125,6 +125,16 @@ def fetch_values(pull: bool = True) -> tuple[dict[str, str] | None, str | None]:
         return None, f"store: {e}"
 
 
+def fetch_refusals() -> list[dict]:
+    """The last refused commit of the own store and of each child's mirror
+    (ADR-042 rule 5), each named. A store that cannot be read says so
+    through fetch_names, not here."""
+    try:
+        return load_store().refusals()
+    except Exception:  # noqa: BLE001 — unreadable is fetch_names' to report
+        return []
+
+
 def git_get(key: str) -> str:
     r = subprocess.run(["git", "config", "--global", "--get", key], capture_output=True, text=True)
     return r.stdout.strip() if r.returncode == 0 else ""
@@ -199,11 +209,22 @@ def values_digest(values: dict[str, str], known: list[str]) -> str:
     return hashlib.sha256(json.dumps(applied, sort_keys=True).encode()).hexdigest()
 
 
+def _refused_line(r: dict) -> str:
+    which = "the store" if r.get("store") == "own" else f"the mirror of agent {r.get('store')}"
+    who = "the store's parent or the owner" if r.get("store") == "own" else "this account, the child's parent, or the owner"
+    if r.get("unreadable"):
+        return (f"REFUSAL UNREADABLE: {which}: {r.get('reason', '?')} — a refusal may stand; {who} looks at it "
+                "(ADR-042)")
+    return (f"REFUSED: {which} refused commit {str(r.get('commit', '?'))[:12]} at {r.get('at', '?')}: "
+            f"{r.get('reason', '?')} — {who} repairs it (ADR-042)")
+
+
 def report(obj: dict, as_json: bool, quiet: bool, ok: bool) -> None:
     if quiet:
         # For a shell entry (moveto): silence when all is well, one line otherwise.
         if not ok:
-            what = obj.get("error") or f"missing in the store: {', '.join(obj.get('missing', []))}"
+            what = obj.get("error") or ("; ".join(_refused_line(r) for r in obj["refused"]) if obj.get("refused") else
+                                        f"missing in the store: {', '.join(obj.get('missing', []))}")
             print(f"fabric-secrets: {what}", file=sys.stderr)
         return
     if as_json:
@@ -212,6 +233,8 @@ def report(obj: dict, as_json: bool, quiet: bool, ok: bool) -> None:
     print(f"fabric-secrets: login={obj['login']} store={obj['store']}")
     if obj.get("error"):
         print(f"  error: {obj['error']}")
+    for r in obj.get("refused") or []:
+        print(f"  {_refused_line(r)}")
     if "present" in obj:
         print(f"  present: {', '.join(obj['present']) or '(none)'}")
         print(f"  missing: {', '.join(obj['missing']) or '(none)'}")
@@ -243,6 +266,12 @@ def status(as_json: bool, quiet: bool = False) -> int:
         obj["optional"] = [n for n in optional if n in names]
         obj["unexpected"] = sorted(n for n in names if n not in known)
         ok = not obj["missing"]
+    # A refused commit is a security event (ADR-042 rule 5): said here until
+    # the store is repaired, whatever else is well.
+    refused = fetch_refusals()
+    if refused:
+        obj["refused"] = refused
+        ok = False
     ok = ok and obj["local"]["env_file_mode"] == "0600" and obj["local"]["bashrc_sources_env_file"]
     report(obj, as_json, quiet, ok)
     return 0 if ok else 1

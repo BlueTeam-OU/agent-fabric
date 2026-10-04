@@ -55,6 +55,43 @@ test('rows and table: an answered account and a silent one', () => {
   assert.match(none, /db-admin\s+ok\s+none.*unreadable\s+-\s*$/m);
 });
 
+test('keys table: held keys, whether git signs, and a refused store said in full (ADR-042 rule 5)', () => {
+  const expected = ['alpha', 'beta', 'quiet'].map(login => ({ login, host: 'h', address: `h/${login}` }));
+  const reply = (login, keys) => ({ kind: 'reply', from: `h/${login}`, op: 'keys', data: { keys } });
+  const t = table('keys', rows(expected, [
+    reply('alpha', [{ name: 'GH_TOKEN', present: true, sha256_12: 'x' }, { name: 'OPENAI_API_KEY', present: false },
+                    { name: 'signing key secret', present: true }, { name: 'store commits verified', present: true }]),
+    reply('beta', [{ name: 'GH_TOKEN', present: true }, { name: 'signing key secret', present: false },
+                   { name: 'store commits verified', present: false, refused: { commit: '0123456789ab', at: 'T', reason: 'not signed' } }]),
+  ])).split('\n');
+  assert.match(t[0], /^account\s+status\s+keys\s+signing\s+store$/);
+  assert.match(t[1], /^alpha\s+ok\s+1\/2\s+yes\s+verified$/);
+  assert.match(t[2], /^\s+absent: OPENAI_API_KEY$/);
+  assert.match(t[3], /^beta\s+ok\s+1\/1\s+no\s+REFUSED 0123456789ab at T: not signed$/);
+  assert.match(t[4], /^quiet\s+no answer$/);
+  const s = table('keys', rows([{ login: 'gamma', host: 'h', address: 'h/gamma' }, { login: 'delta', host: 'h', address: 'h/delta' }], [
+    reply('gamma', [{ name: 'store commits verified', present: false, state: 'no base' }]),
+    reply('delta', [{ name: 'store commits verified', present: false, state: 'verified',
+                      mirrors: [{ agent_id: 'kid-id', commit: 'ffff', at: 'T', reason: 'outsider' }] }]),
+  ])).split('\n');
+  assert.match(s[1], /^gamma\s+ok\s+0\/0\s+-\s+no base$/, 'no base is said, never verified');
+  assert.match(s[2], /^delta\s+ok\s+0\/0\s+-\s+verified$/);
+  assert.match(s[3], /^\s+mirror of kid-id: REFUSED ffff at T: outsider$/, 'a mirror\'s refusal is a line of its own, named');
+  const n = table('keys', rows([{ login: 'eps', host: 'h', address: 'h/eps' }], [
+    reply('eps', [{ name: 'store commits verified', present: false, state: 'verified', mirrors: [{ agent_id: 'kid-2', state: 'no base' }] }]),
+  ])).split('\n');
+  assert.match(n[2], /^\s+mirror of kid-2: no base$/, 'a mirror with no base is a line of its own (review of #94)');
+});
+
+test('keys table: a refusal and a key name are the account\'s, their control characters shown escaped', () => {
+  const t = table('keys', rows([{ login: 'beta', host: 'h', address: 'h/beta' }], [
+    { kind: 'reply', from: 'h/beta', op: 'keys', data: { keys: [{ name: 'X\u001b[2J', present: false },
+      { name: 'store commits verified', present: false, refused: { commit: 'ab\u009bc', at: 'T\u0007', reason: 'git: \u001b]0;pwned\u0007' } }] } },
+  ]));
+  assert.ok(!/[\u0000-\u0009\u000b-\u001f\u007f-\u009f]/.test(t), JSON.stringify(t));
+  assert.ok(t.includes('REFUSED ab\\x9bc at T\\x07: git: \\x1b]0;pwned\\x07') && t.includes('absent: X\\x1b[2J'), JSON.stringify(t));
+});
+
 test('disk table: one row per account, the largest home first; a partial one says why, a failed one says so, a silent one is a row', () => {
   const expected = ['alpha', 'beta', 'gamma', 'delta', 'quiet'].map(login => ({ login, host: 'h', address: `h/${login}` }));
   const reply = (login, disk) => ({ kind: 'reply', from: `h/${login}`, op: 'disk', data: { disk } });
@@ -89,6 +126,15 @@ test('disk table, round 4: the failed rank above the silent whatever their names
   assert.ok(t[1].includes('evil\\x1b[2Jname') && t[1].includes('projects/x\\x9b/target') && !/[\u0000-\u001f\u007f-\u009f]/.test(t.join('')),
     JSON.stringify(t));
   assert.ok(t[2].includes('no\\x07bell'));
+});
+
+test('disk table: a status and a size are the account\'s too — escaped, and a size that is no number is not formatted', () => {
+  const t = table('disk', rows([{ login: 'odd', host: 'h', address: 'h/odd' }], [
+    { kind: 'reply', from: 'h/odd', op: 'disk', data: { disk: { status: 'ok\u001b[2J', total_kb: '9\u0007', largest: [{ name: 'n', kb: 'x\u009b' }],
+      targets: [{ path: 'p', kb: 1 }], targets_kb: 2048 } } },
+  ]));
+  assert.ok(!/[\u0000-\u0009\u000b-\u001f\u007f-\u009f]/.test(t), JSON.stringify(t));
+  assert.ok(t.includes('ok\\x1b[2J') && t.includes('9\\x07') && t.includes('n x\\x9b') && t.includes(' 2M '), JSON.stringify(t));
 });
 
 test('host table: one row per host from whichever account answered first, the others counted; a silent host is a row; the leases and the largest processes under it', () => {

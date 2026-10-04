@@ -192,6 +192,62 @@ export function keys(home = os.homedir(), names = KEY_NAMES) {
   });
 }
 
+// Whether this account's stores took only verified commits (ADR-042 rule
+// 5): its own store and each child's mirror. A refusal is a security event,
+// said until the store is repaired; secret_store.py keeps the last one
+// beside the store, and nothing here reads an entry. The row's state:
+// verified, refused, no store, no base (it verifies nothing, so takes
+// nothing in), or unreadable — never "verified" for a store that is not
+// there or has no base (review of ADR-042, F4). A mirror's refusal is the
+// parent's to repair, named by the child's agent id (F3).
+export const STORE_ROW = 'store commits verified';
+const REFUSAL_FILE = 'agent-fabric-refusal.json';
+const AGENT_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+
+function readRefusal(store) {
+  let r;
+  try { r = JSON.parse(fs.readFileSync(path.join(store, '.git', REFUSAL_FILE), 'utf8')); }
+  catch (e) { return e?.code === 'ENOENT' ? null : { unreadable: true }; }
+  return { refused: { commit: String(r?.commit ?? '?').slice(0, 12), at: r?.at ?? null, reason: String(r?.reason ?? '?').slice(0, 300) } };
+}
+
+// The trusted base is agent-fabric.trustedbase in the store's own
+// .git/config, which secret_store.py writes through `git config`: read as a
+// file, so the keys probe runs no git. true, false, or null (unreadable).
+function hasBase(store) {
+  let text;
+  try { text = fs.readFileSync(path.join(store, '.git', 'config'), 'utf8'); } catch { return null; }
+  let inSection = false;
+  for (const line of text.split('\n')) {
+    const head = /^\s*\[([^\]]*)\]/.exec(line);
+    if (head) { inSection = head[1].trim().toLowerCase() === 'agent-fabric'; continue; }
+    if (inSection && /^\s*trustedbase\s*=\s*[0-9a-f]{40}\s*$/i.test(line)) return true;
+  }
+  return false;
+}
+
+export function storeRefusal(home = os.homedir(), store = process.env.AGENT_FABRIC_SECRET_STORE ?? path.join(home, '.local', 'share', 'agent-fabric', 'secrets'),
+                             children = path.join(home, '.local', 'share', 'agent-fabric', 'children')) {
+  let kids = [];
+  try { kids = fs.readdirSync(children).filter(n => AGENT_ID_RE.test(n)).sort(); } catch { /* no mirrors */ }
+  const mirrors = [];
+  // A mirror with no base refuses every verified operation on it, so it is
+  // as unclean as a refusal (review of #94): said, as the own store's is.
+  for (const aid of kids) {
+    const mirror = path.join(children, aid);
+    const r = readRefusal(mirror);
+    const base = hasBase(mirror);
+    if (r) mirrors.push({ agent_id: aid, ...(r.refused ?? { unreadable: true }) });
+    else if (base !== true) mirrors.push({ agent_id: aid, state: base === null ? 'unreadable' : 'no base' });
+  }
+  const own = fs.existsSync(path.join(store, '.git')) ? readRefusal(store) : undefined;
+  const base = own === undefined ? null : hasBase(store);
+  const state = own === undefined ? 'no store' : own?.unreadable ? 'unreadable' : own?.refused ? 'refused'
+    : base === null ? 'unreadable' : base ? 'verified' : 'no base';
+  return { name: STORE_ROW, present: state === 'verified' && !mirrors.length, state,
+           ...(own?.refused ? { refused: own.refused } : {}), ...(mirrors.length ? { mirrors } : {}) };
+}
+
 // Whether the secret of the key git signs with is in this account's
 // keyring and can sign: present or not, never the key. A secret-key COUNT
 // is no answer, since every account holds its own store key (ADR-038):
@@ -847,20 +903,30 @@ export async function disk(home = os.homedir(), { exec = execFileP, timeoutMs = 
   catch (e) { return { status: 'failed', error: `${home} could not be listed (${e.code ?? e.message})` }; }
   const errors = [];
   const du = async (args, what) => {
-    let text = '';
-    try { const r = await exec('du', args, { encoding: 'utf8', timeout: timeoutMs, maxBuffer: DISK_MAX_BUFFER }); text = String(typeof r === 'string' ? r : r?.stdout ?? ''); }
+    let text = '', said = '';
+    // LC_ALL=C: du's complaints are read below, so they must not be translated.
+    const opts = { encoding: 'utf8', timeout: timeoutMs, maxBuffer: DISK_MAX_BUFFER, env: { ...process.env, LC_ALL: 'C' } };
+    try { const r = await exec('du', args, opts); text = String(typeof r === 'string' ? r : r?.stdout ?? ''); said = String(r?.stderr ?? ''); }
     catch (e) {
-      text = String(e?.stdout ?? '');
+      text = String(e?.stdout ?? ''); said = String(e?.stderr ?? '');
       const why = e?.code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER' ? `du's output passed its ${DISK_MAX_BUFFER / 1048576} MiB bound`
         : e?.killed || e?.signal ? `du stopped at its ${timeoutMs / 1000} s bound` : `du exit ${e?.code ?? '?'}`;
       errors.push(`${what}: ${why}${text.trim() ? ', partial' : ''}`);
     }
-    const sizes = new Map();
+    // What du could not read is not in the total: say how much, and where to
+    // look first. A rootless podman's volumes are owned by a sub-UID, so a
+    // home that runs containers has some.
+    const unread = said.split('\n').map(l => /^du: cannot (?:read directory|access) (.*): [^:]*$/.exec(l)?.[1]).filter(Boolean);
+    if (unread.length) errors.push(`${what}: ${unread.length} path${unread.length === 1 ? '' : 's'} du could not read, not counted; the first: ${unread[0]}`);
+    const sizes = new Map(), outside = [];
     const inside = p => p === home || p.startsWith(home.endsWith(path.sep) ? home : home + path.sep);
+    // Each record ends in NUL (-0): a newline is part of a name, never a separator.
     for (const rec of text.split('\0')) {
-      const m = /^(\d+)\t([\s\S]+)$/.exec(rec.replace(/^\n+/, ''));
-      if (m && inside(m[2])) sizes.set(m[2], Number(m[1]));
+      const m = /^(\d+)\t([\s\S]+)$/.exec(rec);
+      if (!m) continue;
+      if (inside(m[2])) sizes.set(m[2], Number(m[1])); else outside.push(m[2]);
     }
+    if (outside.length) errors.push(`${what}: ${outside.length} record${outside.length === 1 ? '' : 's'} outside ${home} dropped; the first: ${outside[0]}`);
     return sizes;
   };
   const projects = path.join(home, 'projects');
@@ -887,7 +953,7 @@ export async function collect(op, ctx = {}) {
   await Promise.all(wants.map(name => {
     if (name === 'identity') return guard(name, () => identity(ctx.home, ctx.who));   // ctx.who unset: whoami() per request, so a rebind shows
     if (name === 'usage') return guard(name, () => ctx.usageCached ? ctx.usageCached() : usage(ctx.home, ctx.fetch));
-    if (name === 'keys') return guard(name, async () => [...keys(ctx.home), await signingSecret(ctx.exec)]);
+    if (name === 'keys') return guard(name, async () => [...keys(ctx.home), await signingSecret(ctx.exec), storeRefusal(ctx.home, ctx.storeDir)]);
     if (name === 'fabric') return guard(name, () => fabric(ctx.root, ctx.exec));
     if (name === 'session') return guard(name, () => session(ctx.uid, ctx.exec));
     if (name === 'presence') return guard(name, () => presence(ctx.presenceOpts));

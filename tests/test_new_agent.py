@@ -249,6 +249,19 @@ def main() -> int:
         text, _, _ = verify_with({"gpg --list-secret-keys": SIGNING_STUB}, [])
         check("…a stub (gpg lists it and exits 0; the secret is elsewhere) is absent",
               "GPG secret key: the signing key's is NOT" in text)
+        # The line itself, run as the account would: a listing gpg printed
+        # while exiting non-zero is no answer, as fabric-ctl keys reads it
+        # (review carry from #91); exit 0 is the control.
+        line = next(x for x in asked if "user.signingkey" in x and "--list-secret-keys" in x)
+        fakes = f"{tmp}/gpgfake"
+        os.makedirs(fakes, exist_ok=True)
+        put(f"{fakes}/git", "#!/bin/sh\necho AAAA1111BBBB2222\n", 0o755)
+        for code, want in ((0, True), (2, False)):
+            put(f"{fakes}/gpg", f"#!/bin/sh\nprintf '%s' '{SIGNING_SECRET.decode()}'\nexit {code}\n", 0o755)
+            out = subprocess.run(["bash", "-c", line], env={"PATH": f"{fakes}:/usr/bin:/bin", "HOME": home},
+                                 capture_output=True, timeout=10).stdout.decode()
+            check(f"…the read-back line with gpg exiting {code}: {'present' if want else 'absent, as fabric-ctl keys says'}",
+                  w.signs_with_secret(out) is want, out)
         put(f"{home}/.config/agent-fabric/secrets.env", "export CLAUDE_CODE_OAUTH_TOKEN='x'\n")
         text, _, _ = verify_with({}, [])
         check("…and a template token in the synced record is read through sudo", "a template token" in text)
