@@ -59,6 +59,14 @@ done
 for c in 'cd tools && grep -rn x .' 'cd /home/user/projects/agent-fabric && git log -1' 'grep -rn "a|b" tools' "grep -rn 'a;b' tools" 'grep -rn x ../sibling/file' 'grep -E "foo|bar" tools | head -3'; do
   expect "allowed: $c" allow "$c"
 done
+echo "the cut is trusted only where it cannot disagree with bash: comments, multi-line quotes, \$'...' (#96 round 4)"
+nl=$'\n'
+for c in "grep -r x . #'${nl}env${nl}#'" "grep -r x . #\"${nl}printenv${nl}#\"" "grep -r x . #'${nl}true; env${nl}#'" "grep x \$'\\'' ; env #'" 'grep "$(echo '"'"')" ; env ; '"'"'x' 'env # x' 'set #x' 'export # x'; do
+  expect "denied: $c" deny "$c"
+done
+for c in 'grep -rn "#!" tools' "grep -rn '#' tools | head" 'grep -rn x tools # a note' 'env -i PATH=/usr/bin ls # note'; do
+  expect "allowed: $c" allow "$c"
+done
 echo "running in a clean environment, and searching code for the word, stay allowed"
 for c in 'env -i HOME=/tmp/x PATH=/usr/bin python3 tools/fabric/lint.py' 'env -u AGENT_FABRIC_ROOT python3 tests/test_lint.py' 'env LC_ALL=C sort file' 'grep -rn "secrets.env" tools/fabric' 'grep -rn FABRIC_CONTROL_SIGNING_KEY runtime/control' 'set -euo pipefail' 'export FOO=bar && make' 'echo $HOME' 'echo ${PATH}' 'python3 -c "import os; print(os.environ.get(\"HOME\"))"' 'fabric-secrets status' 'git log -p -- tools/fabric/secret_store.py' 'grep -rn ".gnupg" tools' 'grep -rn ".password-store" tools' 'rg -n secret_store tools' 'git grep -n process.env runtime' 'git show HEAD:tools/fabric/secrets_sync.py' 'ps aux' 'ps -ef' 'cat .env.example' 'ls tests' 'python3 -c "import os; print(os.environ[\\"HOME\\"])"' 'node -e "console.log(process.env.HOME)"' 'grep -rn "secrets.env" tools | head' 'git grep -n process.env runtime | wc -l' 'grep -E "foo|bar" tools' 'git config --get user.name' 'git config --list' 'git log -c -1' 'grep -c x README.md' 'git -C /home/user/projects/agent-fabric log -1' 'grep -rn x /home/user/projects/agent-fabric/tools' 'rg -n TOKEN /home/user/projects/agent-fabric/runtime'; do
   expect "allowed: $c" allow "$c"

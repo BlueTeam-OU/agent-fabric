@@ -69,7 +69,7 @@ INSTALL = r'(^|[;&|(]|`)[\s]*(sudo[\s]+)?((pnpm|npm|yarn)([\s]+-[A-Za-z-]+)*[\s]
 # This is a fence for the routine spellings, not a sandbox: secret
 # minimisation (keeping a secret out of the session's environment) is the
 # control.
-ENV_PRINT = (r'(^|[^A-Za-z0-9_.-])\\?(env|printenv)([\s]+(-[uC][\s]+[^\s]+|-[A-Za-z0-9-]+|[A-Za-z_][A-Za-z0-9_]*=[^\s]*))*[\s]*($|[;&|)<>' "'" r'"`])|(^|[^A-Za-z0-9_.-])printenv([^A-Za-z0-9_.-]|$)|(^|[;&|(]|`)[\s]*set[\s]*($|[;&|)])|(^|[;&|(]|`)[\s]*(export|declare|typeset)[\s]*($|[;&|)])|(export|declare|typeset)[\s]+-[a-zA-Z]*[px]|compgen[\s]+-[a-zA-Z]*[ev]|os\.environ($|[^.[A-Za-z0-9_]|\.(copy|items|keys|values|__))|process\.env($|[^.[A-Za-z0-9_])|%ENV|ENVIRON($|[^[A-Za-z0-9_])|\$ENV($|[^A-Za-z0-9_])|(^|[^A-Za-z0-9_.-])ps([\s]+-[^\s]+)*[\s]+[a-zA-Z]*e[a-zA-Z]*([\s;|&]|$)')
+ENV_PRINT = (r'(^|[^A-Za-z0-9_.-])\\?(env|printenv)([\s]+(-[uC][\s]+[^\s]+|-[A-Za-z0-9-]+|[A-Za-z_][A-Za-z0-9_]*=[^\s]*))*[\s]*($|[;&|)<>#' "'" r'"`])|(^|[^A-Za-z0-9_.-])printenv([^A-Za-z0-9_.-]|$)|(^|[;&|(]|`)[\s]*set[\s]*($|[;&|)#])|(^|[;&|(]|`)[\s]*(export|declare|typeset)[\s]*($|[;&|)#])|(export|declare|typeset)[\s]+-[a-zA-Z]*[px]|compgen[\s]+-[a-zA-Z]*[ev]|os\.environ($|[^.[A-Za-z0-9_]|\.(copy|items|keys|values|__))|process\.env($|[^.[A-Za-z0-9_])|%ENV|ENVIRON($|[^[A-Za-z0-9_])|\$ENV($|[^A-Za-z0-9_])|(^|[^A-Za-z0-9_.-])ps([\s]+-[^\s]+)*[\s]+[a-zA-Z]*e[a-zA-Z]*([\s;|&]|$)')
 SECRET_VAR = r'\$\{?[A-Za-z0-9_]*(TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|_KEY)|\$\{!|(environ|getenv|process\.env|ENVIRON|%ENV|\$ENV)[^;|&]{0,60}(TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|_KEY)'
 SECRET_PATH = r'secrets?[^\s/]*\.env|\.config/agent-fabric|agent-fabric/(secrets|children)|\.password-store|\.gnupg|/proc/[^\s]*/environ|--export-secret|(^|[;&|(]|`)[\s]*pass[\s]+(show|ls|find|grep|otp)|(fabric-secrets|secret_store\.py)[\s]+(store[\s]+)?(get|show|export-key|bundle|child-bundle)'
 # A search's PATH, as opposed to its pattern: a home itself or anything under
@@ -115,13 +115,21 @@ def found(pattern: str, text: str) -> bool:
     return any(rx.search(line) for line in text.split("\n"))
 
 
-def split_unquoted(cmd: str) -> list[str] | None:
-    """The command cut at ; & | and newlines OUTSIDE quotes, or None when a
-    quote is left open (bash itself would refuse it; no segment is exempt).
-    An exemption over the whole command let `grep x f; env` through (#96
-    round 2); a cut blind to quotes made a search of the middle of
-    `python3 -c "a;grep =...;b"` (round 3)."""
+def split_unquoted(cmd: str) -> tuple[list[str], bool]:
+    """The command cut at ; & | and newlines OUTSIDE quotes, and whether the
+    cut can be trusted to agree with bash about what is quoted. An exemption
+    over the whole command let `grep x f; env` through (#96 round 2); a cut
+    blind to quotes made a search of the middle of `python3 -c "a;grep
+    =...;b"` (round 3); a comment hid a quote from the cut, so `grep x #'`,
+    a line running env, and `#'` read as one quoted search (round 4).
+    Modelling each construct bash quotes by would only move the next gap,
+    so the cut is trusted only where it cannot disagree with bash: no quote
+    left open, none spanning a newline, no unquoted # comment, no $'...',
+    and no substitution anywhere in the command. Otherwise no segment is
+    exempt and every one answers to the full rules: a search refused,
+    never a command admitted."""
     segments, cur, quote, i = [], [], "", 0
+    trusted = not re.search(SUBSTITUTION, cmd) and "$'" not in cmd
     while i < len(cmd):
         c = cmd[i]
         if c == "\\" and quote != "'":
@@ -131,7 +139,9 @@ def split_unquoted(cmd: str) -> list[str] | None:
         if quote:
             if c == quote:
                 quote = ""
-            cur.append(" " if c == "\n" else c)
+            elif c == "\n":
+                trusted = False
+            cur.append(c)
         elif c in "\"'":
             quote = c
             cur.append(c)
@@ -139,22 +149,21 @@ def split_unquoted(cmd: str) -> list[str] | None:
             segments.append("".join(cur))
             cur = []
         else:
+            if c == "#" and (i == 0 or cmd[i - 1] in " \t;&|()<>"):
+                trusted = False
             cur.append(c)
         i += 1
     segments.append("".join(cur))
-    return None if quote else segments
+    return segments, trusted and not quote
 
 
 def verdict(cmd: str) -> str | None:
-    segments = split_unquoted(cmd)
-    exempt = segments is not None
-    if segments is None:
-        segments = cmd.split("\n")
+    segments, exempt = split_unquoted(cmd)
     secret = moved = False
     for seg in segments:
         if found(CD_ANY, seg) and (found(CD, seg) or found(CD_UP, seg) or found(HOME_PATH, seg)):
             moved = True
-        if exempt and found(SEARCH, seg) and not found(SUBSTITUTION, seg):
+        if exempt and found(SEARCH, seg):
             secret |= found(HOME_PATH, seg) or found(SECRET_VAR, seg)
         elif found(ENV_PRINT, seg) or found(SECRET_VAR, seg) or found(SECRET_PATH, seg):
             secret = True
