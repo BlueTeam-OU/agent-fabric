@@ -44,3 +44,30 @@ gzcoord README and the runtime README say the same.
 
 Under which rule: rule 4 — nothing a sender emits becomes invalid; the
 two fields were already preserved as unknown metadata by every reader.
+
+### Amendment 2026-10-04 — WAIVES, the boundary waiver
+
+What changed: SPEC §7.5 defines `WAIVES: <owner>/<repository>#<pull
+request>@<head commit>`, an optional common field a holder of a
+project's waiver role writes on a `DECISION` or `REPLY` addressed to
+the session that will arm. Only the metadata line counts; the same
+text in a section is a quotation. MESSAGE-FORMAT gains "Waiving a
+boundary gate", with a full example the inline-example test validates.
+The validator does not change: it already preserves an unknown key
+(§6), and the value's shape is the arming tool's to refuse (rule 8 has
+nothing to move).
+
+Under which rule: rule 3. A new optional common field is not a grammar
+change; a reader of an earlier GZCOORD/1 text preserves the line and
+accepts every message it accepted before. Nothing narrows and no
+reader disagrees with another, so neither rule 4 nor rule 5 applies.
+
+The evidence of rule 6: the arming tool's waiver (agent-fabric's
+`tools/fabric/github/arm.py`, python-dev-01's branch) was built to read
+the line from the metadata block and to refuse it in a body, so that a
+decline quoting a waiver waives nothing. devex-tooling asked for the
+convention to be written down, to save a refused round trip per
+waiver, and then found that the coordinator had described it to them
+as a body convention: two descriptions of one message that would have
+refused every real waiver. The text settles it once, where both
+readers look.
