@@ -9,7 +9,7 @@
 // itself: a crash, or a launch that never reached the harness, is never
 // "present" — what the HELLO/GOODBYE pair, now retired, got wrong.
 
-import { api } from '../../communication/gzcoord/scripts/inbox.mjs';
+import { api } from './gzcoord.mjs';
 import { controlConfig, newId } from './agentd.mjs';
 
 // How long a sender waits for an answer: a control agent answers within a

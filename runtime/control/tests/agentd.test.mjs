@@ -12,7 +12,7 @@ import { scratch } from '../../../tests/scratch.mjs';
 import { accept, remember, SEEN_MAX, newId, operatorAddresses, controlConfig, watchSource, answer, accountsKeeper, ACCOUNTS_KEEPALIVE_MS, leaver } from '../agentd.mjs';
 import { memorySlug } from '../ops.mjs';
 import { generateOperatorKey, signRequest } from '../sign.mjs';
-import { whoami } from '../../../communication/gzcoord/scripts/gzmsg.mjs';
+import { whoami } from '../gzcoord.mjs';
 import { fileURLToPath } from 'node:url';
 
 const AGENTD = fileURLToPath(new URL('../agentd.mjs', import.meta.url));

@@ -17,8 +17,7 @@ import crypto from 'node:crypto';
 import { execFileSync, execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import zlib from 'node:zlib';
-import { whoami, findTaxonomy, loadTaxonomy } from '../../communication/gzcoord/scripts/gzmsg.mjs';
-import { syncedVar, holdStatus, identity as gzIdentity } from '../../communication/gzcoord/scripts/inbox.mjs';
+import { whoami, findTaxonomy, loadTaxonomy, syncedVar, holdStatus, identity as gzIdentity } from './gzcoord.mjs';
 import { jobs } from './jobs.mjs';
 
 export const OPS = ['ping', 'identity', 'usage', 'keys', 'fabric', 'session', 'script', 'recall', 'tokens', 'memory', 'host', 'accounts', 'upgrade', 'secrets-sync', 'status', 'presence', 'jobs', 'jobs-add'];
@@ -253,9 +252,10 @@ export function session(uid = process.getuid(), exec = execFileSync) {
 // 2026-09-25.
 // The daemon's own children (the observer's /usage runs) are not a
 // session. The role is derived exactly as the inbox's delivery derives it
-// (inbox.mjs identity(): the binding's role, else the slug the login
-// carries), so a TO-ROLE the relay would deliver is never refused for a
-// holder with no role recorded (review of #38). The project is the
+// (identity() in gzcoord.mjs, moved from the inbox: the binding's
+// role, else the slug the login carries), so a TO-ROLE the relay would
+// deliver is never refused for a holder with no role recorded (review
+// of #38). The project is the
 // binding's: where the last session here worked.
 export function presence({ uid = process.getuid(), exec = execFileSync, proc = '/proc', self = process.pid, who = null, binding = null, hold = () => holdStatus() } = {}) {
   let pids = [];
