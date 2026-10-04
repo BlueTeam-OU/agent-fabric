@@ -78,6 +78,7 @@ from __future__ import annotations
 import argparse
 import base64
 import contextlib
+import fcntl
 import json
 import os
 import pwd
@@ -942,9 +943,39 @@ def _rebuild_mirror(mirror: str, remote: str, agent_id: str) -> None:
         tip = _verify_incoming(mirror, "refs/remotes/origin/main", agent_id, from_root=True)
         git(mirror, "checkout", "-q", "-B", "main", tip)
         _set_base(mirror, tip)
-    except BaseException:
+    except BaseException as e:
+        refused = isinstance(e, StoreError) and refusal(mirror) is not None
         shutil.rmtree(mirror, ignore_errors=True)
+        if refused:
+            # Removing the mirror again rebuilds the same refusal: a child
+            # enrolled before ADR-042 holds unsigned history on its remote,
+            # and no command rebuilds its mirror (review of #94).
+            raise StoreError(f"{e}; no mirror is kept — a remote whose history its writers did not all sign "
+                             "(a child enrolled before ADR-042) is the owner's to repair by hand: a clone the "
+                             f"owner has checked at {mirror}, then fabric-secrets store trust-base --store {mirror}") from e
         raise
+
+
+@contextlib.contextmanager
+def _mirror_lock(agent_id: str):
+    """One seed-child at a time per mirror on this account: two overlapping
+    runs removed each other's mirror, a failed rebuild deleting the one the
+    other was making (review of #94). flock(2) on <children>/<id>.lock,
+    beside the mirror so a removal leaves it; the kernel drops it when the
+    holder exits, however it exits, so there is no stale holder to find. A
+    second run is refused at once, not queued: an enrolment re-run while
+    one is going is the operator's to sequence."""
+    os.makedirs(children_dir(), exist_ok=True)
+    fd = os.open(os.path.join(children_dir(), f"{agent_id}.lock"), os.O_RDWR | os.O_CREAT, 0o600)
+    try:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise StoreError(f"another seed-child of agent {agent_id} is running on this account; "
+                             "nothing taken or pushed — run it again once that one ends") from None
+        yield
+    finally:
+        os.close(fd)
 
 
 def seed_child(agent_id: str, remote: str, text: str) -> dict:
@@ -954,7 +985,7 @@ def seed_child(agent_id: str, remote: str, text: str) -> dict:
     if not AGENT_ID_RE.match(agent_id):
         raise StoreError(f"{agent_id!r} is not an agent id")
     mirror = os.path.join(children_dir(), agent_id)
-    with tempfile.TemporaryDirectory() as tmp:
+    with _mirror_lock(agent_id), tempfile.TemporaryDirectory() as tmp:
         path = _bundle_file(text, tmp)
         aid, _ = _bundle_identity(path, tmp)
         if aid != agent_id:
@@ -970,9 +1001,13 @@ def seed_child(agent_id: str, remote: str, text: str) -> dict:
         has_mirror = os.path.isdir(os.path.join(mirror, ".git"))
         if not (has_mirror and trusted_base(mirror)) and on_main(agent_id):
             if has_mirror:
+                # Not "remove it to rebuild": for a child enrolled before
+                # ADR-042 the rebuild refuses, and the advice looped (review
+                # of #94).
                 raise StoreError(f"agent {agent_id} is on the fabric's main, and its mirror {mirror} has no trusted "
-                                 "base: nothing taken or pushed — remove the mirror to rebuild it from the child's "
-                                 "remote, or record its base (fabric-secrets store trust-base --store) with the owner")
+                                 "base: nothing taken or pushed — its base is the owner's to record, at a head the "
+                                 f"owner has checked: fabric-secrets store trust-base --store {mirror}. Removing the "
+                                 "mirror rebuilds it only from a remote whose every commit its writers signed")
             _rebuild_mirror(mirror, remote, agent_id)
         if not os.path.isdir(os.path.join(mirror, ".git")):
             os.makedirs(children_dir(), exist_ok=True)

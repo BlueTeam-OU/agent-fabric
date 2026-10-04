@@ -9,6 +9,7 @@ and a scratch fabric checkout whose origin/main stands for the merged
 identities/keys/. Plain script: prints ok/FAIL, exit 1 on any failure."""
 from __future__ import annotations
 
+import fcntl
 import json
 import os
 import shutil
@@ -469,13 +470,27 @@ def main() -> int:
                            env=parent, input=run(nkid, "bundle").stdout, capture_output=True, text=True)
         check("a remote carrying an unsigned commit gives no mirror: refused, and nothing left behind",
               p.returncode == 1 and "refused: not signed" in p.stderr and not os.path.exists(nmirror), p.stderr)
+        check("…and the refusal names the owner's repair, not a rebuild that would refuse again (review of #94)",
+              "the owner's to repair by hand" in p.stderr and f"trust-base --store {nmirror}" in p.stderr, p.stderr)
         unforge(new_remote, before)
         os.makedirs(os.path.join(nmirror, ".git"))
+        # Two seed-childs on one mirror removed each other's (review of #94):
+        # one at a time, the second refused while the first holds the lock.
+        lock = os.open(nmirror + ".lock", os.O_RDWR | os.O_CREAT, 0o600)
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        p = subprocess.run([sys.executable, TOOL, "seed-child", new_id, "--remote", new_remote],
+                           env=parent, input=run(nkid, "bundle").stdout, capture_output=True, text=True)
+        os.close(lock)
+        check("a seed-child while another holds the mirror is refused, and touches nothing",
+              p.returncode == 1 and f"another seed-child of agent {new_id} is running" in p.stderr
+              and os.listdir(os.path.join(nmirror, ".git")) == [], p.stderr)
         p = subprocess.run([sys.executable, TOOL, "seed-child", new_id, "--remote", new_remote],
                            env=parent, input=run(nkid, "bundle").stdout, capture_output=True, text=True)
         check("a mirror that is there with no base is refused before it is touched",
               p.returncode == 1 and "has no trusted base" in p.stderr and os.listdir(os.path.join(nmirror, ".git")) == [],
               p.stderr)
+        check("…its advice is the owner's trust-base, never a removal that loops (review of #94)",
+              f"trust-base --store {nmirror}" in p.stderr and "remove the mirror to rebuild" not in p.stderr, p.stderr)
         shutil.rmtree(nmirror)
     finally:
         for g in gnupgs:
