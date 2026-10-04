@@ -38,7 +38,7 @@ CONTRACT, frozen from the bash (ADR-040 §5 rule 3):
             model-profile.local.json, restart.json); writes
             $STATE_DIR/launch-prompt.md (launch_prompt.py),
             ${CLAUDE_CONFIG_DIR:-$HOME}/.claude.json (onboarding, plain
-            claude only), the agent files (install-agent-files.sh; none
+            claude only, none for --help), the agent files (install-agent-files.sh; none
             for --help), $STATE_DIR/launch-provider.json after they are
             installed (the provider, for a later install with none), and
             creates /var/tmp/agent-fabric-<agent>. Fast-forwards the fabric
@@ -1486,8 +1486,10 @@ def launch(argv: list[str]) -> int:
     # and opens a browser for the /login refused above (web-dev-01, which never
     # signed in, 2026-09-25; read back in a pty on 2.1.282). A login that runs
     # on a template has nothing to onboard, so the flag is set here, in the
-    # file the harness reads — under CLAUDE_CONFIG_DIR when that is set.
-    if provider == "anthropic":
+    # file the harness reads — under CLAUDE_CONFIG_DIR when that is set. Not
+    # for claude's own help: no session follows, and a help read writes
+    # nothing of the account's (#91's review).
+    if provider == "anthropic" and not asks_help(args):
         mark_onboarding_done(f"{env.get('CLAUDE_CONFIG_DIR') or home}/.claude.json")
 
     # Plain claude: no broker, no shim; the exports above are the column's

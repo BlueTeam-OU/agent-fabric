@@ -785,6 +785,11 @@ def main() -> int:
               f"rc={rc}")
         put(sec, "export CLAUDE_CODE_OAUTH_TOKEN='sk-ant-oat01-SUITE-FIXTURE'\n")
         put(f"{home}/.claude.json", '{"hasCompletedOnboarding": false, "theme": "dark"}\n')
+        out = out_of("--provider", "anthropic", "--help")
+        check("a help read leaves onboarding alone: no session follows it (#91's review)",
+              "marked the harness's onboarding done" not in out
+              and json.loads(read(f"{home}/.claude.json")).get("hasCompletedOnboarding") is False,
+              read(f"{home}/.claude.json"))
         out = out_of("--provider", "anthropic", "--version")
         try:
             d = json.loads(read(f"{home}/.claude.json"))
