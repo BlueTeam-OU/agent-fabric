@@ -69,6 +69,14 @@ test('keys table: held keys, whether git signs, and a refused store said in full
   assert.match(t[2], /^\s+absent: OPENAI_API_KEY$/);
   assert.match(t[3], /^beta\s+ok\s+1\/1\s+no\s+REFUSED 0123456789ab at T: not signed$/);
   assert.match(t[4], /^quiet\s+no answer$/);
+  const s = table('keys', rows([{ login: 'gamma', host: 'h', address: 'h/gamma' }, { login: 'delta', host: 'h', address: 'h/delta' }], [
+    reply('gamma', [{ name: 'store commits verified', present: false, state: 'no base' }]),
+    reply('delta', [{ name: 'store commits verified', present: false, state: 'verified',
+                      mirrors: [{ agent_id: 'kid-id', commit: 'ffff', at: 'T', reason: 'outsider' }] }]),
+  ])).split('\n');
+  assert.match(s[1], /^gamma\s+ok\s+0\/0\s+-\s+no base$/, 'no base is said, never verified');
+  assert.match(s[2], /^delta\s+ok\s+0\/0\s+-\s+verified$/);
+  assert.match(s[3], /^\s+mirror of kid-id: REFUSED ffff at T: outsider$/, 'a mirror\'s refusal is a line of its own, named');
 });
 
 test('keys table: a refusal and a key name are the account\'s, their control characters shown escaped', () => {

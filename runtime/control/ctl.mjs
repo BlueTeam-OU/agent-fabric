@@ -349,10 +349,13 @@ export function table(op, rs) {
       const named = r.keys.filter(k => k.name !== 'signing key secret' && k.name !== 'store commits verified');
       const sign = r.keys.find(k => k.name === 'signing key secret');
       const store = r.keys.find(k => k.name === 'store commits verified');
-      const st = !store ? '-' : store.refused ? `REFUSED ${esc(store.refused.commit)} at ${esc(store.refused.at ?? '?')}: ${esc(store.refused.reason)}` : store.present ? 'verified' : 'unreadable';
+      const refusedText = x => `REFUSED ${esc(x.commit)} at ${esc(x.at ?? '?')}: ${esc(x.reason)}`;
+      const st = !store ? '-' : store.refused ? refusedText(store.refused) : esc(store.state ?? (store.present ? 'verified' : 'unreadable'));
       lines.push(`${r.account.padEnd(22)} ${'ok'.padEnd(10)} ${`${named.filter(k => k.present).length}/${named.length}`.padEnd(8)} ${(sign ? (sign.present ? 'yes' : 'no') : '-').padEnd(8)} ${st}`);
       const absent = named.filter(k => !k.present).map(k => esc(k.name));
       if (absent.length) lines.push(`${''.padEnd(22)} ${''.padEnd(10)} absent: ${absent.join(', ')}`);
+      for (const m of Array.isArray(store?.mirrors) ? store.mirrors : [])
+        lines.push(`${''.padEnd(22)} ${''.padEnd(10)} mirror of ${esc(m.agent_id)}: ${m.unreadable ? 'refusal record unreadable' : refusedText(m)}`);
     }
     return lines.join('\n');
   }

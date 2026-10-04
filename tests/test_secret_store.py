@@ -322,7 +322,7 @@ def main() -> int:
                 os.remove(os.path.join(mirror, ".git", "index.lock"))
                 subprocess.run(["git", "-C", mirror, "reset", "-q", "--hard", "HEAD"], env=parent, check=True)
                 check("a failed commit whose reset fails too: both said, and what to do",
-                      p3.returncode == 1 and "could not be reset" in p3.stderr and "reset it before the next put" in p3.stderr,
+                      p3.returncode == 1 and "could not be reset" in p3.stderr and "reset it before the next write" in p3.stderr,
                       p3.stderr[-300:])
                 check("M2: a reset that fails too is said, with the push's reason and the reset's",
                       p.returncode == 1 and "git push" in p.stderr

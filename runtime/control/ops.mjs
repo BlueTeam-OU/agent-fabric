@@ -192,15 +192,55 @@ export function keys(home = os.homedir(), names = KEY_NAMES) {
   });
 }
 
-// Whether this account's store refused a commit (ADR-042 rule 5): a
-// security event, said until the store is repaired. secret_store.py keeps
-// the last refusal beside the store; nothing here reads an entry.
+// Whether this account's stores took only verified commits (ADR-042 rule
+// 5): its own store and each child's mirror. A refusal is a security event,
+// said until the store is repaired; secret_store.py keeps the last one
+// beside the store, and nothing here reads an entry. The row's state:
+// verified, refused, no store, no base (it verifies nothing, so takes
+// nothing in), or unreadable — never "verified" for a store that is not
+// there or has no base (review of ADR-042, F4). A mirror's refusal is the
+// parent's to repair, named by the child's agent id (F3).
 export const STORE_ROW = 'store commits verified';
-export function storeRefusal(home = os.homedir(), store = process.env.AGENT_FABRIC_SECRET_STORE ?? path.join(home, '.local', 'share', 'agent-fabric', 'secrets')) {
+const REFUSAL_FILE = 'agent-fabric-refusal.json';
+const AGENT_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+
+function readRefusal(store) {
   let r;
-  try { r = JSON.parse(fs.readFileSync(path.join(store, '.git', 'agent-fabric-refusal.json'), 'utf8')); }
-  catch (e) { return { name: STORE_ROW, present: e?.code === 'ENOENT' }; }
-  return { name: STORE_ROW, present: false, refused: { commit: String(r?.commit ?? '?').slice(0, 12), at: r?.at ?? null, reason: String(r?.reason ?? '?').slice(0, 300) } };
+  try { r = JSON.parse(fs.readFileSync(path.join(store, '.git', REFUSAL_FILE), 'utf8')); }
+  catch (e) { return e?.code === 'ENOENT' ? null : { unreadable: true }; }
+  return { refused: { commit: String(r?.commit ?? '?').slice(0, 12), at: r?.at ?? null, reason: String(r?.reason ?? '?').slice(0, 300) } };
+}
+
+// The trusted base is agent-fabric.trustedbase in the store's own
+// .git/config, which secret_store.py writes through `git config`: read as a
+// file, so the keys probe runs no git. true, false, or null (unreadable).
+function hasBase(store) {
+  let text;
+  try { text = fs.readFileSync(path.join(store, '.git', 'config'), 'utf8'); } catch { return null; }
+  let inSection = false;
+  for (const line of text.split('\n')) {
+    const head = /^\s*\[([^\]]*)\]/.exec(line);
+    if (head) { inSection = head[1].trim().toLowerCase() === 'agent-fabric'; continue; }
+    if (inSection && /^\s*trustedbase\s*=\s*[0-9a-f]{40}\s*$/i.test(line)) return true;
+  }
+  return false;
+}
+
+export function storeRefusal(home = os.homedir(), store = process.env.AGENT_FABRIC_SECRET_STORE ?? path.join(home, '.local', 'share', 'agent-fabric', 'secrets'),
+                             children = path.join(home, '.local', 'share', 'agent-fabric', 'children')) {
+  let kids = [];
+  try { kids = fs.readdirSync(children).filter(n => AGENT_ID_RE.test(n)).sort(); } catch { /* no mirrors */ }
+  const mirrors = [];
+  for (const aid of kids) {
+    const r = readRefusal(path.join(children, aid));
+    if (r) mirrors.push({ agent_id: aid, ...(r.refused ?? { unreadable: true }) });
+  }
+  const own = fs.existsSync(path.join(store, '.git')) ? readRefusal(store) : undefined;
+  const base = own === undefined ? null : hasBase(store);
+  const state = own === undefined ? 'no store' : own?.unreadable ? 'unreadable' : own?.refused ? 'refused'
+    : base === null ? 'unreadable' : base ? 'verified' : 'no base';
+  return { name: STORE_ROW, present: state === 'verified' && !mirrors.length, state,
+           ...(own?.refused ? { refused: own.refused } : {}), ...(mirrors.length ? { mirrors } : {}) };
 }
 
 // Whether the secret of the key git signs with is in this account's

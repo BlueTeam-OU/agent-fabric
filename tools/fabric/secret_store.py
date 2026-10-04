@@ -77,6 +77,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import contextlib
 import json
 import os
 import pwd
@@ -303,9 +304,12 @@ def init(remote: str | None = None, agent_id: str | None = None) -> dict:
     # fingerprint: its parent re-exports it at the next certification.
     added = _ensure_use_subkeys(fpr)
     os.makedirs(os.path.join(store, "env"), mode=0o700, exist_ok=True)
-    fresh = not os.path.isdir(os.path.join(store, ".git"))
-    if fresh:
+    if not os.path.isdir(os.path.join(store, ".git")):
         git(store, "init", "-q", "-b", "main")
+    # Keyed on a first commit, not on a new .git: an init whose first commit
+    # failed (no signing key yet) leaves .git behind, and its retry must
+    # still record the base (review of ADR-042, F2).
+    first = git(store, "rev-parse", "-q", "--verify", "HEAD", check=False).returncode != 0
     with open(gpg_id, "w", encoding="utf-8") as fh:
         fh.write(fpr + "\n")
     with open(os.path.join(store, ".agent-id"), "w", encoding="utf-8") as fh:
@@ -313,9 +317,10 @@ def init(remote: str | None = None, agent_id: str | None = None) -> dict:
     git(store, "add", ".gpg-id", ".agent-id")
     if git(store, "diff", "--cached", "--quiet", check=False).returncode:
         _commit(store, f"agent {me} ({aid}): the store is encrypted to {fpr}")
-    if fresh:
+    if first and trusted_base(store) is None:
         # A store made here starts from its own signed commit: its trusted
         # base, so it verifies what it is given from the first fetch on.
+        # A store that held history before keeps the explicit trust-base.
         _set_base(store, _full(store, "HEAD"))
     if remote:
         if git(store, "remote", check=False).stdout.strip():
@@ -346,8 +351,21 @@ def _commit(store: str, message: str) -> None:
     # The store's commits are its own history, attributed by message:
     # the writer ("agent <login>" or "parent <login>") and what changed,
     # never a value. Signed with the writer's own key (ADR-042 rule 1): a
-    # writer that cannot sign does not write.
-    _run(["git", "-C", store, *_signing_args(), "commit", "-q", "-m", message], env=_git_env(), label="git commit")
+    # writer that cannot sign does not write — and leaves nothing staged:
+    # an entry left in the index made every later set, pull and sync fail
+    # on the dirty store (review of ADR-042, F2). Back to HEAD, or, on a
+    # store with no commit yet, unstaged.
+    try:
+        _run(["git", "-C", store, *_signing_args(), "commit", "-q", "-m", message], env=_git_env(), label="git commit")
+    except StoreError as failed:
+        unborn = git(store, "rev-parse", "-q", "--verify", "HEAD", check=False).returncode != 0
+        r = git(store, "rm", "-r", "-q", "--cached", ".", check=False) if unborn else \
+            git(store, "reset", "-q", "--hard", "HEAD", check=False)
+        if r.returncode != 0:
+            why = ([l for l in r.stderr.decode(errors="replace").splitlines() if l.strip()] or [f"exit {r.returncode}"])[-1]
+            raise StoreError(f"could not sign the commit ({failed}); and {store} could not be reset ({why}) "
+                             "— reset it before the next write") from failed
+        raise StoreError(f"could not sign the commit ({failed}); nothing written") from failed
 
 
 # ── who may write a store (ADR-042) ───────────────────────────────────
@@ -472,10 +490,18 @@ def _record_refusal(store: str, commit: str, reason: str) -> None:
     store until a verified fetch succeeds, for status and fabric-ctl keys."""
     import datetime
     path = os.path.join(store, ".git", REFUSAL_FILE)
-    with open(path + ".tmp", "w", encoding="utf-8") as fh:
-        json.dump({"commit": commit, "reason": reason,
-                   "at": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")}, fh)
-    os.replace(path + ".tmp", path)
+    # A temporary name of its own: two runs refusing on one store at once
+    # must not write through each other's half-written file.
+    fd, tmp = tempfile.mkstemp(prefix=REFUSAL_FILE + ".", dir=os.path.dirname(path))
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            json.dump({"commit": commit, "reason": reason,
+                       "at": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")}, fh)
+        os.replace(tmp, path)
+    except BaseException:
+        with contextlib.suppress(OSError):
+            os.unlink(tmp)
+        raise
 
 
 def refusal(store: str | None = None) -> dict | None:
@@ -487,6 +513,26 @@ def refusal(store: str | None = None) -> dict | None:
     return doc if isinstance(doc, dict) else None
 
 
+def refusals() -> list[dict]:
+    """Every refusal this account holds, each named: its own store's
+    ("store": "own") and each child's mirror's ("store": the child's agent
+    id). A mirror's refusal is the parent's to repair, and was said nowhere
+    while only the own store was read (review of ADR-042, F3)."""
+    out = []
+    own = refusal()
+    if own:
+        out.append({**own, "store": "own"})
+    try:
+        kids = sorted(os.listdir(children_dir()))
+    except OSError:
+        kids = []
+    for aid in kids:
+        r = refusal(os.path.join(children_dir(), aid)) if AGENT_ID_RE.match(aid) else None
+        if r:
+            out.append({**r, "store": aid})
+    return out
+
+
 def _clear_refusal(store: str) -> None:
     try:
         os.unlink(os.path.join(store, ".git", REFUSAL_FILE))
@@ -494,17 +540,19 @@ def _clear_refusal(store: str) -> None:
         pass
 
 
-def _verify_incoming(store: str, tip: str, agent_id: str | None = None, fabric: str | None = None) -> str:
+def _verify_incoming(store: str, tip: str, agent_id: str | None = None, fabric: str | None = None,
+                     *, from_root: bool = False) -> str:
     """Every commit `tip` would bring that the store neither holds nor trusts
     (tip, not HEAD, not the base), each signed by a writer of this agent's
     store (ADR-042 rule 3). Any other refuses the whole operation: nothing
     is applied, the refusal is recorded and names the commit and why, never
-    an entry. Returns the verified tip's full id."""
+    an entry. from_root: every commit of tip's history, for a store that
+    holds nothing and trusts nothing yet. Returns the verified tip's full id."""
     base = trusted_base(store)
-    if not base:
+    if not base and not from_root:
         raise _no_base(store)
     tip = _full(store, tip)
-    revs = git(store, "rev-list", "--reverse", tip, "^HEAD", f"^{base}").stdout.decode().split()
+    revs = git(store, "rev-list", "--reverse", tip, *([] if from_root else ["^HEAD", f"^{base}"])).stdout.decode().split()
     if not revs:
         return tip
     aid = agent_id or own_agent_id(store)
@@ -516,7 +564,11 @@ def _verify_incoming(store: str, tip: str, agent_id: str | None = None, fabric: 
     try:
         allowed = writers(aid, fabric)
     except StoreError as e:
-        raise refuse(revs[0], str(e)) from None
+        # The writers are not known yet (a new child before its keys merge,
+        # a fabric not fetched): the operation stops, nothing applied, but
+        # nothing was shown wrong with the commit — no refusal recorded, no
+        # security event said until a repair (review of ADR-042).
+        raise StoreError(f"{e}; nothing applied") from None
     with tempfile.TemporaryDirectory() as tmp:
         os.chmod(tmp, 0o700)
         try:
@@ -788,6 +840,27 @@ def bundle_own() -> str:
     return _bundle_armored(store)
 
 
+def _rebuild_mirror(mirror: str, remote: str, agent_id: str) -> None:
+    """A child's mirror made from its remote alone, every commit verified
+    against the writers on the fabric's main, its base the verified head.
+    A remote with nothing on main gives nothing to rebuild from. Removed
+    again if anything fails, so no unverified mirror is left behind."""
+    os.makedirs(children_dir(), exist_ok=True)
+    git(children_dir(), "init", "-q", "-b", "main", mirror)
+    try:
+        git(mirror, "remote", "add", "origin", remote)
+        git(mirror, "fetch", "-q", "origin", "+main:refs/remotes/origin/main", check=False)
+        if git(mirror, "rev-parse", "-q", "--verify", "refs/remotes/origin/main", check=False).returncode != 0:
+            raise StoreError(f"agent {agent_id} is on the fabric's main and its remote has no main to rebuild the "
+                             "mirror from: a bundle is not first contact any more — nothing taken or pushed")
+        tip = _verify_incoming(mirror, "refs/remotes/origin/main", agent_id, from_root=True)
+        git(mirror, "checkout", "-q", "-B", "main", tip)
+        _set_base(mirror, tip)
+    except BaseException:
+        shutil.rmtree(mirror, ignore_errors=True)
+        raise
+
+
 def seed_child(agent_id: str, remote: str, text: str) -> dict:
     """The parent takes a new child's first commit, as its mirror, and
     pushes it to the child's repository with the parent's own access. The
@@ -800,6 +873,21 @@ def seed_child(agent_id: str, remote: str, text: str) -> dict:
         aid, _ = _bundle_identity(path, tmp)
         if aid != agent_id:
             raise StoreError(f"the bundle is agent {aid or '(none)'}, not {agent_id}; nothing pushed")
+        # A bundle is first contact only while the child's keys are not on
+        # the fabric's main. After that its writers can be read: a mirror
+        # deleted and re-seeded by a re-run enrolment took a forged bundle's
+        # head as trusted and pushed it with the parent's access (review of
+        # ADR-042, F1). Such a mirror is rebuilt from the child's remote,
+        # every commit verified from the root, and the bundle is taken on it
+        # only as a verified fast-forward. A mirror that is there with no
+        # base holds what nothing verified: refused, before it is touched.
+        has_mirror = os.path.isdir(os.path.join(mirror, ".git"))
+        if not (has_mirror and trusted_base(mirror)) and on_main(agent_id):
+            if has_mirror:
+                raise StoreError(f"agent {agent_id} is on the fabric's main, and its mirror {mirror} has no trusted "
+                                 "base: nothing taken or pushed — remove the mirror to rebuild it from the child's "
+                                 "remote, or record its base (fabric-secrets store trust-base --store) with the owner")
+            _rebuild_mirror(mirror, remote, agent_id)
         if not os.path.isdir(os.path.join(mirror, ".git")):
             os.makedirs(children_dir(), exist_ok=True)
             # `clone -b main` would resolve the name again, on its own rules;
@@ -961,18 +1049,11 @@ def put(child: str, name: str, value: bytes, store: str | None = None, fabric: s
     changed = git(store, "diff", "--cached", "--quiet", check=False).returncode != 0
     if changed:
         try:
+            # A failed commit puts the mirror back to what it held itself
+            # (_commit; review of #69, and the reset's failure said, #70).
             _commit(store, f"parent {login()}: put {name}")
         except StoreError as failed:
-            # The entry is staged and uncommitted: left there, the next
-            # pull refuses the dirty mirror. The mirror goes back to what
-            # it held, as after a refused push (review of #69), and a
-            # reset that fails says so, as the push path's does (#70).
-            r = git(store, "reset", "-q", "--hard", "HEAD", check=False)
-            if r.returncode != 0:
-                why = ([l for l in r.stderr.decode(errors="replace").splitlines() if l.strip()] or [f"exit {r.returncode}"])[-1]
-                raise StoreError(f"{rec.get('login')}: {failed}; and the mirror could not be reset ({store}: {why}) "
-                                 "— reset it before the next put") from failed
-            raise
+            raise StoreError(f"{rec.get('login')}: {failed}") from failed
         try:
             _after_commit(store)
         except StoreError as pushed:
