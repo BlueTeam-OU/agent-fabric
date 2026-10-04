@@ -1390,13 +1390,18 @@ def case_arm_boundary_cases_only_leave_retired() -> None:
     with tempfile.TemporaryDirectory() as root:
         g = lambda *a: subprocess.run(["git", "-C", root, *a], check=True, capture_output=True)
         rel = os.path.join("projects", "demo", "integration", "gh", "arm.json")
-        def arm(cases, retired=None, paths="^src/|key", exempt="^docs/", changes=None):
+        def arm(cases, retired=None, paths="^src/|key", exempt="^docs/", changes=None, waiver_role=None):
             b = {"paths": paths, "exempt": exempt, "cases": cases}
             if retired is not None:
                 b["retired"] = retired
             if changes is not None:
                 b["changes"] = changes
-            write(os.path.join(root, rel), json.dumps({"boundary": b}))
+            doc = {"boundary": b}
+            if waiver_role is not None:
+                doc["waiver_role"] = waiver_role
+            write(os.path.join(root, rel), json.dumps(doc))
+        write(os.path.join(root, "identities", "roles", "catalog.json"),
+              json.dumps({"roles": [{"id": "architect-cto"}, {"id": "devex-tooling"}]}))
         arm(["src/a.rs", "lib/key.rs"])
         g("init", "-q", "-b", "main")
         g("add", "-A")
@@ -1468,6 +1473,34 @@ def case_arm_boundary_cases_only_leave_retired() -> None:
         arm(["src/a.rs", "lib/key.rs"], changes={})
         assert any("'first' is removed" in f for f in lint.arm_boundary_findings(root, base_ref="base")), \
             "a record removed"
+        # retired is history as much as changes is (review of #92, F2).
+        arm(["src/a.rs"], changes={"first": "the original rule; architect-cto, seq 3"},
+            retired={"lib/key.rs": "keys moved; architect-cto, seq 4"}, waiver_role="architect-cto")
+        g("add", "-A")
+        g("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "retired, and a waiver role")
+        g("branch", "-f", "base")
+        assert lint.arm_boundary_findings(root, base_ref="base") == [], "the base as it stands: clean"
+        arm(["src/a.rs"], changes={"first": "the original rule; architect-cto, seq 3"},
+            retired={"lib/key.rs": "keys moved; someone else, seq 9"}, waiver_role="architect-cto")
+        assert any("boundary.retired entry 'lib/key.rs' is rewritten" in f
+                   for f in lint.arm_boundary_findings(root, base_ref="base")), "a retired record rewritten"
+        arm(["src/a.rs"], changes={"first": "the original rule; architect-cto, seq 3"},
+            retired={}, waiver_role="architect-cto")
+        assert any("boundary.retired entry 'lib/key.rs' is removed" in f
+                   for f in lint.arm_boundary_findings(root, base_ref="base")), "a retired record removed"
+        # Who may waive is the boundary too (review of #92, F1).
+        keep = {"changes": {"first": "the original rule; architect-cto, seq 3"},
+                "retired": {"lib/key.rs": "keys moved; architect-cto, seq 4"}}
+        arm(["src/a.rs"], waiver_role="devex-tooling", **keep)
+        assert any("waiver_role changed with no new" in f for f in lint.arm_boundary_findings(root, base_ref="base")), \
+            "a waiver role moved with no record"
+        arm(["src/a.rs"], waiver_role="devex-tooling", retired=keep["retired"],
+            changes={**keep["changes"], "waiver": "devex-tooling waives; the owner, seq 10"})
+        assert lint.arm_boundary_findings(root, base_ref="base") == [], "a recorded waiver role change: clean"
+        arm(["src/a.rs"], waiver_role="architect-ctoo", retired=keep["retired"],
+            changes={**keep["changes"], "waiver": "typo; the owner, seq 11"})
+        assert any("waiver_role 'architect-ctoo' is not a role" in f
+                   for f in lint.arm_boundary_findings(root, base_ref="base")), "a misspelt waiver role"
         arm(["src/a.rs"], paths="^src/")
         assert lint.arm_boundary_findings(root, base_ref="no-such-ref") == [], \
             "without a base (a project CI's depth-1 fabric checkout), nothing is compared"

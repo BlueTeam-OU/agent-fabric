@@ -10,7 +10,10 @@
       "packages/web-shared/src/auth/refresh.ts",
       "apps/backend_dotnet/src/Gzapp.Persistence/Consent/ConsentRepository.cs",
       "apps/backend_dotnet/src/Gzapp.Persistence/DriverPositions/Store.cs"
-    ]
+    ],
+    "changes": {
+      "2026-10-04 waiver_role architect-cto": "the boundary gate is waived only by a holder of architect-cto, with a WAIVES message arm.py checks (#92; devex-tooling's request, relay seq 11665)"
+    }
   },
   "waiver_role": "architect-cto",
   "classes": {

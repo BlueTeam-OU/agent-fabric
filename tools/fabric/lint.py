@@ -1631,6 +1631,14 @@ def _boundary_record_ok(value: object) -> bool:
     return isinstance(value, str) and bool(value.strip()) and BOUNDARY_LOCATOR.search(value) is not None
 
 
+def _catalog_roles(root: str) -> set[str]:
+    try:
+        with open(os.path.join(root, "identities", "roles", "catalog.json"), encoding="utf-8") as f:
+            return {r["id"] for r in json.load(f).get("roles", [])}
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        return set()
+
+
 def arm_boundary_findings(root: str, base_ref: str = "origin/main") -> list[str]:
     """A project's arm.json (runtime/github/arm.sh's rules) names, beside
     its boundary patterns, the cases that MUST stay boundary: each case is
@@ -1652,6 +1660,9 @@ def arm_boundary_findings(root: str, base_ref: str = "origin/main") -> list[str]
         except (OSError, ValueError, KeyError, TypeError, re.error) as e:
             findings.append(f"{rel}: not a usable arm.json ({type(e).__name__}: {e})")
             continue
+        role = doc.get("waiver_role")
+        if role is not None and role not in _catalog_roles(root):
+            findings.append(f"{rel}: waiver_role {role!r} is not a role in identities/roles/catalog.json")
         cases = b.get("cases")
         if not isinstance(cases, list) or not cases or not all(isinstance(c, str) and c for c in cases):
             findings.append(f"{rel}: boundary.cases must list the paths that must stay boundary")
@@ -1681,8 +1692,12 @@ def arm_boundary_findings(root: str, base_ref: str = "origin/main") -> list[str]
             # every case still matches (review of #91). So any change to the
             # patterns themselves, widening included, is recorded as a new
             # boundary.changes entry: why, and whose word.
+            # Who may waive the gate loosens it as much as an exemption does:
+            # a waiver_role change is a boundary change too (review of #92).
+            base_role = json.loads(base.stdout).get("waiver_role") if isinstance(base_b, dict) else None
             if isinstance(base_b, dict) and (base_b.get("paths") != b.get("paths")
-                                             or base_b.get("exempt") != b.get("exempt")):
+                                             or base_b.get("exempt") != b.get("exempt")
+                                             or base_role != doc.get("waiver_role")):
                 now_changes = b.get("changes") if isinstance(b.get("changes"), dict) else {}
                 old_changes = base_b.get("changes") if isinstance(base_b.get("changes"), dict) else {}
                 added = {k: v for k, v in now_changes.items() if k not in old_changes}
@@ -1690,7 +1705,7 @@ def arm_boundary_findings(root: str, base_ref: str = "origin/main") -> list[str]
                 # second change riding on the first's record is unrecorded
                 # (#91's review).
                 if not added or not all(_boundary_record_ok(v) for v in added.values()):
-                    findings.append(f"{rel}: boundary.paths or boundary.exempt changed with no new "
+                    findings.append(f"{rel}: boundary.paths, boundary.exempt or waiver_role changed with no new "
                                     "boundary.changes entry (why, and whose word, citing a message id, a PR #N "
                                     "or a relay seq)")
             # A record is history: the approval a reviewer checked stays as it

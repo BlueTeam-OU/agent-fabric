@@ -31,7 +31,8 @@
       "2026-10-04 nested .cargo/config": "Cargo reads .cargo/config.toml from every ancestor of where it runs, so a nested one can redirect crates as the root's can; widened at any depth (#90 re-review risk; devex-tooling, 6e49aa67)",
       "2026-10-04 deny.toml and the Claude channel": "the owner's ruling on InterWeave #177's open paths: deny.toml, crates/claude/ and apps/claude-channel/ on; Cargo.lock and crates/human/client-api/ off (devex-tooling, e96860c)",
       "2026-10-04 .cargo/config under an exempt tree": "the exemption ran first, so tools/**/.cargo/config(.toml) and xtask/.cargo/config escaped the at-any-depth pattern; a .cargo/config is never exempt now (#91 review thread, coordinator relay seq 11599; devex-tooling)",
-      "2026-10-04 .cargo/config case-insensitive in the exemption": "exempt is matched case-sensitively and paths is not, so tools/foo/.Cargo/config.toml stayed exempt though a case-insensitive filesystem lets Cargo read it; the never-exempt lookahead is case-insensitive now (#91 re-review P3, coordinator message 01a105f7-f012-7dee-8567-2a7a6397ce7b; devex-tooling)"
+      "2026-10-04 .cargo/config case-insensitive in the exemption": "exempt is matched case-sensitively and paths is not, so tools/foo/.Cargo/config.toml stayed exempt though a case-insensitive filesystem lets Cargo read it; the never-exempt lookahead is case-insensitive now (#91 re-review P3, coordinator message 01a105f7-f012-7dee-8567-2a7a6397ce7b; devex-tooling)",
+      "2026-10-04 waiver_role architect-cto": "the boundary gate is waived only by a holder of architect-cto, with a WAIVES message arm.py checks (#92; devex-tooling's request, relay seq 11665)"
     }
   },
   "waiver_role": "architect-cto"
