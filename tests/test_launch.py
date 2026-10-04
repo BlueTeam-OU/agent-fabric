@@ -298,6 +298,10 @@ def main() -> int:
               recorded.get("provider") == "openrouter" and recorded.get("at", "").endswith("Z")
               and not [n for n in os.listdir(rec_state) if ".tmp-" in n], (recorded, os.listdir(rec_state)))
 
+        check("a help read asks for help; a prompt after -- that says --help does not",
+              launch.asks_help(["--help"]) and launch.asks_help(["--model", "x", "-h"])
+              and not launch.asks_help(["--", "--help"]) and not launch.asks_help(["--version"]))
+
         print("the session is a child")
         # The launcher ignores Ctrl-C while the session runs, forwards
         # SIGTERM to it, and returns the session's status.

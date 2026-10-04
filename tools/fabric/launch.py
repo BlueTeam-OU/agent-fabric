@@ -15,7 +15,10 @@ CONTRACT, frozen from the bash (ADR-040 §5 rule 3):
             (the default) | anthropic; any other value: exit 1. Both are
             the launcher's and are removed; every other argument passes
             through to claude in order, after the refusals below. There is
-            no help text: --help and --version pass through to claude.
+            no help text: --help and --version pass through to claude. A
+            --help (or -h) before any `--` installs no agent files: a help
+            read rewrote the account's for the launcher's default provider
+            and the dispatch guard then refused reviews (2026-10-02).
   stdin     never read; the session inherits it.
   env       AGENT_FABRIC_ROOT (defaults to the repository this file is in),
             AGENT_FABRIC_STATE_DIR (identity.py), AGENT_FABRIC_ALLOW_STALE,
@@ -1005,6 +1008,17 @@ def session_command(provider: str, session: str, caller_model: bool, session_eff
     return cmd + [prompt_flag, prompt_file, *args]
 
 
+def asks_help(args: list[str]) -> bool:
+    """claude's own help, asked before any `--`: no session will dispatch,
+    so nothing of the account's is rewritten for it."""
+    for a in args:
+        if a == "--":
+            return False
+        if a in ("-h", "--help"):
+            return True
+    return False
+
+
 def wants_opening(args: list[str]) -> bool:
     opening, expect_value = True, False
     for a in args:
@@ -1450,7 +1464,8 @@ def launch(argv: list[str]) -> int:
     # session that will dispatch from them exists. The dispatch guard checks
     # the file against the same resolution and denies a review when another
     # launch on this account has since rewritten it.
-    install_agent_files(fabric_root, provider, state_dir)
+    if not asks_help(args):
+        install_agent_files(fabric_root, provider, state_dir)
 
     login = pwd.getpwuid(os.getuid()).pw_name
     # A plain-claude session runs only on a long-lived sign-in: a template's
