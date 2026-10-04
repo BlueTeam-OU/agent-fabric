@@ -183,6 +183,12 @@ def main() -> int:
         check("a config that cannot be read is BASE UNREADABLE, never no base or OK",
               sync.returncode == 1 and "BASE UNREADABLE: the store: .git/config could not be read (IsADirectoryError)"
               in sync.stdout and "NO BASE" not in sync.stdout, sync.stdout)
+        os.rename(os.path.join(cstore, ".git"), os.path.join(cstore, ".git.aside"))
+        sync = status(child)
+        os.rename(os.path.join(cstore, ".git.aside"), os.path.join(cstore, ".git"))
+        check("a store whose .git is gone is BASE UNREADABLE, never OK (#96 review)",
+              sync.returncode == 1 and "BASE UNREADABLE: the store: .git/config could not be read (FileNotFoundError)"
+              in sync.stdout and "NOT OK" in sync.stdout, sync.stdout)
         git(child, cstore, "config", "agent-fabric.trustedbase", cbase)
         sync = status(child)
         check("…the control: the base back, status is OK again", sync.returncode == 0 and "BASE" not in sync.stdout, sync.stdout)

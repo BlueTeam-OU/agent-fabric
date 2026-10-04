@@ -222,6 +222,19 @@ def main() -> int:
         rc, _, _ = run()
         check("…and passes when the coordinator declares it", rc == 0)
         sh(rr, "reset", "-q", "--hard", "HEAD~1")
+        # merge-tree takes two parents, so an octopus has no clean merge to
+        # compare with; judged against its first parent alone, an `-s ours`
+        # octopus would be no change at all (the review of #96).
+        sh(rr, "checkout", "-q", "-b", "side4", "side")
+        commit(".agent-fabric/s.md", "side4 moves s\n\nFabric-Role: fabric-coordinator")
+        sh(rr, "checkout", "-q", "-b", "side5", "main")
+        commit(".agent-fabric/u.md", "side5\n\nFabric-Role: fabric-coordinator")
+        sh(rr, "checkout", "-q", "work")
+        sh(rr, "merge", "-q", "--no-ff", "-s", "ours", "-m", "octopus keeping ours, no trailer", "side4", "side5")
+        rc, _, e = run()
+        check("an `-s ours` octopus is judged against every parent, and refused",
+              rc == 1 and "octopus keeping ours" in e)
+        sh(rr, "reset", "-q", "--hard", "HEAD~1")
         sh(rr, "merge", "-q", "--no-ff", "-m", "clean fold of side2, no trailer", "side2")
         rc, o, _ = run()
         check("a clean fold where both sides moved .agent-fabric/ is no change of its own", rc == 0)

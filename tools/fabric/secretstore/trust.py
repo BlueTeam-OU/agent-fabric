@@ -279,10 +279,13 @@ def bases() -> list[dict]:
     """Every store this account holds that has no trusted base, and so
     refuses every verified operation (ADR-042): its own ("store": "own"),
     when there is one, and each child's mirror ("store": the agent id),
-    with its path. Said by status as a refusal is (review of #94)."""
+    with its path. Said by status as a refusal is (review of #94). The own
+    store is read when its directory exists at all, not when its .git does:
+    a store whose .git is gone still has every env/*.gpg status checks, and
+    status read OK on it with no repository and no base (#96 review)."""
     out = []
     own = store_dir()
-    stores = ([("own", own)] if os.path.isdir(os.path.join(own, ".git")) else []) + \
+    stores = ([("own", own)] if os.path.lexists(own) else []) + \
         [(aid, os.path.join(children_dir(), aid)) for aid in _mirror_ids()]
     for name, path in stores:
         st = base_state(path)
