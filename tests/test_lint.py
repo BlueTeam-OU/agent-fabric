@@ -1508,6 +1508,19 @@ def case_arm_boundary_cases_only_leave_retired() -> None:
         for ref in ("base", "no-such-ref"):
             assert any("'note' cites no approval" in f for f in lint.arm_boundary_findings(root, base_ref=ref)), \
                 ("an uncited record with no pattern change", ref)
+        # A base whose arm.json is malformed: a finding, never a crash
+        # (review of #92, round 2).
+        for broken in ("{ broken", "[]"):
+            write(os.path.join(root, rel), broken)
+            g("add", "-A")
+            g("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "broken base")
+            g("branch", "-f", "base")
+            arm(["src/a.rs"], waiver_role="architect-cto", retired=keep["retired"], changes=keep["changes"])
+            got = lint.arm_boundary_findings(root, base_ref="base")
+            assert got == [], ("the repair's records are all cited: nothing to report", broken, got)
+        os.remove(os.path.join(root, "identities", "roles", "catalog.json"))
+        assert any("cannot be checked: identities/roles/catalog.json" in f
+                   for f in lint.arm_boundary_findings(root, base_ref="base")), "an unreadable catalogue is named"
         arm(["src/a.rs"], paths="^src/")
         assert lint.arm_boundary_findings(root, base_ref="no-such-ref") == [], \
             "without a base (a project CI's depth-1 fabric checkout), nothing is compared"
