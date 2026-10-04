@@ -154,6 +154,21 @@ def test_review_is_gated_on_both_providers_and_reaches_the_file(f: Fixture) -> N
         "the other provider's pin does not touch this launch's file"
 
 
+def test_unlaunched_follows_the_last_launch(f: Fixture) -> None:
+    """From a login shell (no launch environment), the files follow the
+    provider the account last launched on, not anthropic (review of #91)."""
+    os.makedirs(os.path.dirname(f.local), exist_ok=True)
+    with open(os.path.join(os.path.dirname(f.local), "launch-provider.json"), "w") as fh:
+        json.dump({"provider": "openrouter", "at": "x"}, fh)
+    p = f.run("set", "--provider", "openrouter", "code-review", "anthropic/claude-opus-5")
+    assert p.returncode == 0, p.stderr
+    assert f.reviewer_model() == "anthropic/claude-opus-5", \
+        ("the broker's pin reaches the file: the account last launched there", f.reviewer_model())
+    p = f.run("set", "--provider", "anthropic", "code-review", "claude-opus-5")
+    assert p.returncode == 0 and "next launch" in p.stdout and f.reviewer_model() == "anthropic/claude-opus-5", \
+        "anthropic's pin waits for an anthropic launch"
+
+
 def test_a_flat_local_file_is_migrated_on_first_write(f: Fixture) -> None:
     os.makedirs(os.path.dirname(f.local))
     json.dump({"session": "anthropic/claude-opus-5", "capabilities": {"code-low": "z-ai/glm-5.2"}}, open(f.local, "w"))
@@ -262,6 +277,7 @@ def main() -> int:
         test_a_write_waits_for_the_agent_lock,
         test_vocabulary_is_the_class_and_the_providers_model,
         test_review_is_gated_on_both_providers_and_reaches_the_file,
+        test_unlaunched_follows_the_last_launch,
         test_a_flat_local_file_is_migrated_on_first_write,
         test_a_malformed_local_file_is_refused_not_rewritten,
         test_seed_copies_the_merged_defaults_as_pins,

@@ -41,7 +41,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { syncedVar } from '../../../communication/gzcoord/scripts/inbox.mjs';
+import { syncedVar } from '../../control/gzcoord.mjs';
 
 export const SERPAPI_URL = 'https://serpapi.com/search.json';
 export const BRAVE_URL = 'https://api.search.brave.com/res/v1/web/search';

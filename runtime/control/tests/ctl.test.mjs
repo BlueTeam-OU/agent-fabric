@@ -12,8 +12,7 @@ import { scratch } from '../../../tests/scratch.mjs';
 import { parseArgs, rows, table, writeBundles, manifestAgent, partKey, keygen, originMain } from '../ctl.mjs';
 import { publicKeyFrom, privateKeyFrom, generateOperatorKey, verifyRequest, ACTION_TTL_MAX_S } from '../sign.mjs';
 import { pinnedVersion, UPGRADE_BUDGET_S, FABRIC_UPGRADE_BUDGET_S } from '../upgrade.mjs';
-import { FABRIC_ROOT } from '../../../communication/gzcoord/scripts/gzmsg.mjs';
-import { whoami } from '../../../communication/gzcoord/scripts/gzmsg.mjs';
+import { FABRIC_ROOT, whoami } from '../gzcoord.mjs';
 import { fileURLToPath } from 'node:url';
 
 const CTL = fileURLToPath(new URL('../ctl.mjs', import.meta.url));

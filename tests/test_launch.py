@@ -278,8 +278,9 @@ def main() -> int:
         print("the agent files")
         fab = f"{tmp}/fab"
         put(f"{fab}/runtime/claude-code/install-agent-files.sh", "exit 3\n")
+        rec_state = f"{tmp}/state-rec"
         try:
-            launch.install_agent_files(fab, "anthropic")
+            launch.install_agent_files(fab, "anthropic", rec_state)
             check("an installer that fails stops the launch", False)
         except launch.Refused as exc:
             check("an installer that fails stops the launch, naming the provider",
@@ -290,6 +291,16 @@ def main() -> int:
             check("…and one that succeeds does not", True)
         except launch.Refused:
             check("…and one that succeeds does not", False)
+        check("…a failed install records no provider", not os.path.exists(f"{rec_state}/launch-provider.json"))
+        launch.install_agent_files(fab, "openrouter", rec_state)
+        recorded = json.load(open(f"{rec_state}/launch-provider.json"))
+        check("a successful install records its provider for the next run with none (install_agent_files.py)",
+              recorded.get("provider") == "openrouter" and recorded.get("at", "").endswith("Z")
+              and not [n for n in os.listdir(rec_state) if ".tmp-" in n], (recorded, os.listdir(rec_state)))
+
+        check("a help read asks for help; a prompt after -- that says --help does not",
+              launch.asks_help(["--help"]) and launch.asks_help(["--model", "x", "-h"])
+              and not launch.asks_help(["--", "--help"]) and not launch.asks_help(["--version"]))
 
         print("the session is a child")
         # The launcher ignores Ctrl-C while the session runs, forwards

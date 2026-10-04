@@ -169,6 +169,29 @@ def main() -> int:
               r.stdout.splitlines()[-1] == "agent files (anthropic): 0 written, 5 already current."
               and all(os.path.join(cfg2, "agents", f"{c}.md") in recorded for c in CLASSES), r.stdout + str(sorted(recorded)))
 
+        # The provider a run without one installs for: the account's last
+        # launch, recorded by the launcher, not anthropic (2026-10-01: a
+        # bootstrap from the control agent rewrote a broker session's
+        # reviewer file for anthropic).
+        root2, home2, cfg2 = fixture()
+        rec_dir = os.path.join(home2, ".local", "state", "agent-fabric", "agents", pwd.getpwuid(os.geteuid()).pw_name)
+        os.makedirs(rec_dir)
+        with open(os.path.join(rec_dir, "launch-provider.json"), "w") as f:
+            json.dump({"provider": "openrouter", "at": "x"}, f)
+        r = run(root2, home2, cfg2)
+        check("no --provider, no environment: the provider of the account's last launch",
+              r.stdout.splitlines()[-1].startswith("agent files (openrouter):"), r.stdout + r.stderr)
+        r = run(root2, home2, cfg2, AGENT_FABRIC_LAUNCH_PROVIDER="anthropic")
+        check("…the environment outranks the record", r.stdout.splitlines()[-1].startswith("agent files (anthropic):"),
+              r.stdout)
+        r = run(root2, home2, cfg2, "--provider", "anthropic")
+        check("…and so does --provider", r.stdout.splitlines()[-1].startswith("agent files (anthropic):"), r.stdout)
+        with open(os.path.join(rec_dir, "launch-provider.json"), "w") as f:
+            f.write("{not json")
+        r = run(root2, home2, cfg2)
+        check("an unreadable record: anthropic, as before", r.stdout.splitlines()[-1].startswith("agent files (anthropic):"),
+              r.stdout)
+
         # A level of "-" is no effort line at all.
         root, home, cfg = fixture()
         run(root, home, cfg)

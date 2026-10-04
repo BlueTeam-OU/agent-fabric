@@ -589,6 +589,10 @@ def main() -> int:
         check("…and a broker launch rewrites it with the composite: one file, one launch at a time",
               has(r"^model: deepseek/deepseek-v4-pro-0813@preset/deepseek2claude-shim$", read(f"{home}/.claude/agents/code-review.md")),
               read(f"{home}/.claude/agents/code-review.md")[:300])
+        out_of("--provider=anthropic", "--help")
+        check("…but a help read on the other provider rewrites nothing (2026-10-02: it broke the review guard)",
+              has(r"^model: deepseek/deepseek-v4-pro-0813@preset/deepseek2claude-shim$", read(f"{home}/.claude/agents/code-review.md")),
+              read(f"{home}/.claude/agents/code-review.md")[:300])
         check("code-plan keeps its alias line: its pin is the export",
               has(r"^model: fable$", read(f"{home}/.claude/agents/code-plan.md")), read(f"{home}/.claude/agents/code-plan.md")[:300])
         out = out_of("--provider=anthropic", "--version")

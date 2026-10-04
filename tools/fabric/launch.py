@@ -15,7 +15,10 @@ CONTRACT, frozen from the bash (ADR-040 §5 rule 3):
             (the default) | anthropic; any other value: exit 1. Both are
             the launcher's and are removed; every other argument passes
             through to claude in order, after the refusals below. There is
-            no help text: --help and --version pass through to claude.
+            no help text: --help and --version pass through to claude. A
+            --help (or -h) before any `--` installs no agent files: a help
+            read rewrote the account's for the launcher's default provider
+            and the dispatch guard then refused reviews (2026-10-02).
   stdin     never read; the session inherits it.
   env       AGENT_FABRIC_ROOT (defaults to the repository this file is in),
             AGENT_FABRIC_STATE_DIR (identity.py), AGENT_FABRIC_ALLOW_STALE,
@@ -35,7 +38,9 @@ CONTRACT, frozen from the bash (ADR-040 §5 rule 3):
             model-profile.local.json, restart.json); writes
             $STATE_DIR/launch-prompt.md (launch_prompt.py),
             ${CLAUDE_CONFIG_DIR:-$HOME}/.claude.json (onboarding, plain
-            claude only), the agent files (install-agent-files.sh), and
+            claude only), the agent files (install-agent-files.sh; none
+            for --help), $STATE_DIR/launch-provider.json after they are
+            installed (the provider, for a later install with none), and
             creates /var/tmp/agent-fabric-<agent>. Fast-forwards the fabric
             checkout and the launch working copy when they are behind.
   stdout    --print's report, byte for byte the bash's (compared for every
@@ -933,7 +938,26 @@ def print_report(d: dict, routing, *, label: str, agent: str, role: str, provide
     print(f"            {first}")
 
 
-def install_agent_files(fabric_root: str, provider: str) -> None:
+def record_launch_provider(state_dir: str, provider: str) -> None:
+    """The provider the agent files were last installed for, so a run with
+    no provider of its own (bootstrap from the control agent, an upgrade,
+    fabric-model apply) installs for this one rather than for anthropic
+    (install_agent_files.py reads it). Atomic; a failure is said, not fatal:
+    the files themselves are installed."""
+    path = os.path.join(state_dir, "launch-provider.json")
+    try:
+        os.makedirs(state_dir, exist_ok=True)
+        tmp = f"{path}.tmp-{os.getpid()}"
+        with open(tmp, "w", encoding="utf-8") as fh:
+            json.dump({"provider": provider, "at": datetime.datetime.now(datetime.timezone.utc)
+                       .strftime("%Y-%m-%dT%H:%M:%SZ")}, fh)
+            fh.write("\n")
+        os.replace(tmp, path)
+    except OSError as exc:
+        say(f"launch: could not record the provider in {path}: {exc}")
+
+
+def install_agent_files(fabric_root: str, provider: str, state_dir: str | None = None) -> None:
     try:
         r = subprocess.run(["bash", f"{fabric_root}/runtime/claude-code/install-agent-files.sh", "--provider",
                             provider], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
@@ -944,6 +968,8 @@ def install_agent_files(fabric_root: str, provider: str) -> None:
     if not installed:
         die(f"could not install the capability-class agent files for {provider} "
             "(runtime/claude-code/install-agent-files.sh).")
+    if state_dir:
+        record_launch_provider(state_dir, provider)
 
 
 def mark_onboarding_done(path: str) -> None:
@@ -982,6 +1008,17 @@ def session_command(provider: str, session: str, caller_model: bool, session_eff
     if not caller_effort and session_effort:
         cmd += ["--effort", session_effort]
     return cmd + [prompt_flag, prompt_file, *args]
+
+
+def asks_help(args: list[str]) -> bool:
+    """claude's own help, asked before any `--`: no session will dispatch,
+    so nothing of the account's is rewritten for it."""
+    for a in args:
+        if a == "--":
+            return False
+        if a in ("-h", "--help"):
+            return True
+    return False
 
 
 def wants_opening(args: list[str]) -> bool:
@@ -1429,7 +1466,8 @@ def launch(argv: list[str]) -> int:
     # session that will dispatch from them exists. The dispatch guard checks
     # the file against the same resolution and denies a review when another
     # launch on this account has since rewritten it.
-    install_agent_files(fabric_root, provider)
+    if not asks_help(args):
+        install_agent_files(fabric_root, provider, state_dir)
 
     login = pwd.getpwuid(os.getuid()).pw_name
     # A plain-claude session runs only on a long-lived sign-in: a template's

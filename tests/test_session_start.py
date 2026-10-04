@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -17,7 +18,6 @@ import socket
 HOST = socket.gethostname().split('.')[0]
 ROOT = os.path.dirname(HERE)
 HOOK = os.path.join(ROOT, "runtime", "claude-code", "hooks", "session-start.sh")
-BOOTSTRAP = os.path.join(ROOT, "runtime", "claude-code", "bootstrap.sh")
 
 
 def id_un() -> str:
@@ -28,6 +28,33 @@ def git_repo(path: str, remote: str) -> None:
     os.makedirs(path, exist_ok=True)
     subprocess.run(["git", "init", "-q", "."], cwd=path, check=True)
     subprocess.run(["git", "remote", "add", "origin", remote], cwd=path, check=True)
+
+
+def fabric_copy(tmp: str) -> str:
+    """The fabric as it stands in this tree — tracked and untracked files,
+    not what .gitignore keeps out — in a checkout of its own. Bootstrap
+    finds its root from its own path and sets that checkout's
+    core.hooksPath (step 4); run in place, it wrote the config of the
+    clone running the suite, which a scratch clone outside projects/
+    showed (devex-tooling, review of #89)."""
+    root = os.path.join(tmp, "fabric", "agent-fabric")
+    listed = subprocess.run(["git", "-C", ROOT, "ls-files", "-co", "--exclude-standard", "-z"],
+                            capture_output=True, check=True, timeout=60).stdout
+    for rel in filter(None, listed.decode("utf-8", "surrogateescape").split("\0")):
+        src, dst = os.path.join(ROOT, rel), os.path.join(root, rel)
+        if not os.path.lexists(src):
+            continue                                   # deleted in the tree, not yet in the index
+        os.makedirs(os.path.dirname(dst), exist_ok=True)
+        if os.path.islink(src):
+            os.symlink(os.readlink(src), dst)
+        else:
+            shutil.copy2(src, dst)
+    quiet = {"PATH": os.environ["PATH"], "HOME": tmp, "GIT_CONFIG_NOSYSTEM": "1",
+             "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t"}
+    for args in (["init", "-q", "-b", "main"], ["add", "-A"],
+                 ["-c", "core.hooksPath=/dev/null", "-c", "commit.gpgsign=false", "commit", "-q", "-m", "fixture"]):
+        subprocess.run(["git", "-C", root, *args], check=True, env=quiet, timeout=120, stdout=subprocess.DEVNULL)
+    return root
 
 
 def run_hook(payload: dict, env: dict) -> subprocess.CompletedProcess:
@@ -288,6 +315,8 @@ def test_bootstrap_restarts_the_control_agent_unless_its_caller_is_the_control_a
     """A changed unit is restarted by bootstrap run by hand, and left to the
     daemon when the daemon runs it (`fabric-ctl upgrade fabric`): a restart
     there would kill the process waiting on bootstrap."""
+    root = fabric_copy(tmp)
+    bootstrap = os.path.join(root, "runtime", "claude-code", "bootstrap.sh")
     import socket
     runtime_dir = os.path.join(tmp, "run"); os.makedirs(runtime_dir)
     bus = socket.socket(socket.AF_UNIX); bus.bind(os.path.join(runtime_dir, "bus"))
@@ -310,7 +339,7 @@ def test_bootstrap_restarts_the_control_agent_unless_its_caller_is_the_control_a
             env["XDG_CONFIG_HOME"] = os.path.join(home, ".config")
             if defer: env["AGENT_FABRIC_DEFER_AGENTD_RESTART"] = "1"
             else: env.pop("AGENT_FABRIC_DEFER_AGENTD_RESTART", None)
-            proc = subprocess.run(["bash", BOOTSTRAP, "--projects", projects], capture_output=True, text=True, env=env)
+            proc = subprocess.run(["bash", bootstrap, "--projects", projects], capture_output=True, text=True, env=env)
             assert proc.returncode == 0, proc.stdout + proc.stderr
             restarted = "restart agent-fabric-agentd" in open(calls).read()
             if defer:
@@ -323,6 +352,8 @@ def test_bootstrap_restarts_the_control_agent_unless_its_caller_is_the_control_a
 
 
 def test_bootstrap_writes_only_the_workspace_and_home_files(tmp: str) -> None:
+    root = fabric_copy(tmp)
+    bootstrap = os.path.join(root, "runtime", "claude-code", "bootstrap.sh")
     projects = os.path.join(tmp, "projects")
     home = os.path.join(tmp, "home")
     os.makedirs(projects); os.makedirs(home)
@@ -337,7 +368,7 @@ def test_bootstrap_writes_only_the_workspace_and_home_files(tmp: str) -> None:
     env["XDG_CONFIG_HOME"] = os.path.join(home, ".config")
     # A folder in the workspace that is not a registered working copy: never trusted.
     stray = os.path.join(projects, "not-a-project"); os.makedirs(stray)
-    proc = subprocess.run(["bash", BOOTSTRAP, "--projects", projects, "--dry-run"], capture_output=True, text=True, env=env)
+    proc = subprocess.run(["bash", bootstrap, "--projects", projects, "--dry-run"], capture_output=True, text=True, env=env)
     assert "systemd/user/agent-fabric-agentd.service (would write)" in proc.stdout, proc.stdout
     # Claude Code itself may create .claude.json when bootstrap asks it
     # something; what the dry run must not do is record any trust there.
@@ -345,20 +376,20 @@ def test_bootstrap_writes_only_the_workspace_and_home_files(tmp: str) -> None:
     recorded = json.load(open(cfg, encoding="utf-8")).get("projects", {}) if os.path.exists(cfg) else {}
     assert "trusted in Claude Code (would write)" in proc.stdout and not any(
         v.get("hasTrustDialogAccepted") for v in recorded.values()), "the dry run says what it would trust and records none"
-    proc = subprocess.run(["bash", BOOTSTRAP, "--projects", projects], capture_output=True, text=True, env=env)
+    proc = subprocess.run(["bash", bootstrap, "--projects", projects], capture_output=True, text=True, env=env)
     assert proc.returncode == 0, proc.stdout + proc.stderr
     unit = os.path.join(home, ".config", "systemd", "user", "agent-fabric-agentd.service")
     assert os.path.isfile(unit), "the control agent's unit is installed per account"
     trusted = {d for d, v in json.load(open(os.path.join(home, ".claude.json"), encoding="utf-8"))["projects"].items()
                if v.get("hasTrustDialogAccepted") is True}
-    assert trusted == {os.path.realpath(projects), os.path.realpath(ROOT)}, \
+    assert trusted == {os.path.realpath(projects), os.path.realpath(root)}, \
         ("the workspace and the fabric are trusted, and a folder that is no registered working copy is not", trusted)
     assert "agent-fabric-agentd: installed, not started" in proc.stdout and "no user manager" in proc.stdout, proc.stdout
     claude_md = open(os.path.join(projects, "CLAUDE.md"), encoding="utf-8").read()
     assert "@agent-fabric/CLAUDE.md" in claude_md and len(claude_md.splitlines()) <= 8, claude_md
     settings = json.load(open(os.path.join(projects, ".claude", "settings.json"), encoding="utf-8"))
     hooks = json.dumps(settings["hooks"])
-    assert "session-start.sh" in hooks and "agent-dispatch-guard.sh" in hooks and ROOT in hooks
+    assert "session-start.sh" in hooks and "agent-dispatch-guard.sh" in hooks and root in hooks
     assert "communication/gzcoord/scripts/inbox.mjs" in hooks, "the workspace drains the GZCoord inbox too"
     for event in ("PreToolUse", "UserPromptSubmit", "SessionEnd"):
         assert "plan-hold.sh" in json.dumps(settings["hooks"][event]), f"the plan hold follows the mode on {event}"
@@ -376,10 +407,10 @@ def test_bootstrap_writes_only_the_workspace_and_home_files(tmp: str) -> None:
     # Every command a session is told to run is on PATH by name and allowed
     # by a narrow rule — never a wrapper that runs another command (the
     # owner, 2026-09-26: no approval for any fabric script or executable).
-    cmds = json.load(open(os.path.join(ROOT, "runtime", "claude-code", "commands.json"), encoding="utf-8"))
+    cmds = json.load(open(os.path.join(root, "runtime", "claude-code", "commands.json"), encoding="utf-8"))
     for name, rel in cmds["commands"].items():
         link = os.path.join(home, ".local", "bin", name)
-        assert os.path.islink(link) and os.readlink(link) == os.path.join(ROOT, rel), (name, link)
+        assert os.path.islink(link) and os.readlink(link) == os.path.join(root, rel), (name, link)
     allow = json.load(open(os.path.join(home, ".claude", "settings.json"), encoding="utf-8"))["permissions"]["allow"]
     assert "Bash(gzcoord-inbox *)" in allow and "Bash(fabric-status *)" in allow, allow
     assert not any(f"Bash({n} *)" in allow for n in cmds["not_allowed"]), allow
@@ -387,7 +418,7 @@ def test_bootstrap_writes_only_the_workspace_and_home_files(tmp: str) -> None:
     # account's: refused, named, never replaced.
     foreign = os.path.join(home, ".local", "bin", "gzmsg")
     os.remove(foreign); open(foreign, "w").write("mine\n")
-    again = subprocess.run(["bash", BOOTSTRAP, "--projects", projects], capture_output=True, text=True, env=env)
+    again = subprocess.run(["bash", bootstrap, "--projects", projects], capture_output=True, text=True, env=env)
     assert "is not a link this fabric made" in again.stderr and open(foreign).read() == "mine\n", again.stderr
     allow = json.load(open(os.path.join(home, ".claude", "settings.json"), encoding="utf-8"))["permissions"]["allow"]
     assert "Bash(gzmsg *)" not in allow, "a foreign gzmsg on PATH kept the fabric's allow rule"
@@ -407,12 +438,12 @@ def test_bootstrap_writes_only_the_workspace_and_home_files(tmp: str) -> None:
     linked = os.path.join(projects, "gzapp-linked")
     subprocess.run(["git", "-C", main_repo, "worktree", "add", "-q", "--detach", linked, "HEAD"], check=True)
     assert os.path.isfile(os.path.join(linked, ".git")), "a linked worktree's .git is a file"
-    proc = subprocess.run(["bash", BOOTSTRAP, "--projects", projects], capture_output=True, text=True, env=env)
+    proc = subprocess.run(["bash", bootstrap, "--projects", projects], capture_output=True, text=True, env=env)
     assert proc.returncode == 0, proc.stdout + proc.stderr
     hooks_path = subprocess.run(["git", "-C", linked, "config", "--get", "core.hooksPath"], capture_output=True, text=True).stdout.strip()
-    assert hooks_path == os.path.join(ROOT, "policies", "githooks"), f"the linked worktree got no hooks: {hooks_path!r}\n{proc.stdout}"
+    assert hooks_path == os.path.join(root, "policies", "githooks"), f"the linked worktree got no hooks: {hooks_path!r}\n{proc.stdout}"
     # Idempotent: a second run changes nothing.
-    proc = subprocess.run(["bash", BOOTSTRAP, "--projects", projects], capture_output=True, text=True, env=env)
+    proc = subprocess.run(["bash", bootstrap, "--projects", projects], capture_output=True, text=True, env=env)
     assert "0 written" in proc.stdout, proc.stdout
     # An account that still carries the retired /role command from an
     # earlier bootstrap: our copy is removed (dry-run says so first), a
@@ -423,20 +454,20 @@ def test_bootstrap_writes_only_the_workspace_and_home_files(tmp: str) -> None:
         fh.write("---\ndescription: x\n---\n!`python3 /old/agent-fabric/tools/fabric/role.py $ARGUMENTS`\n")
     with open(retired + ".before-agent-fabric", "w", encoding="utf-8") as fh:
         fh.write("the human's own\n")
-    proc = subprocess.run(["bash", BOOTSTRAP, "--projects", projects, "--dry-run"], capture_output=True, text=True, env=env)
+    proc = subprocess.run(["bash", bootstrap, "--projects", projects, "--dry-run"], capture_output=True, text=True, env=env)
     assert "would remove" in proc.stdout and os.path.isfile(retired), proc.stdout
-    proc = subprocess.run(["bash", BOOTSTRAP, "--projects", projects], capture_output=True, text=True, env=env)
+    proc = subprocess.run(["bash", bootstrap, "--projects", projects], capture_output=True, text=True, env=env)
     assert not os.path.exists(retired) and "removed: /role is retired" in proc.stdout, proc.stdout
     assert os.path.isfile(retired + ".before-agent-fabric"), "the human's backup was touched"
     with open(retired, "w", encoding="utf-8") as fh:
         fh.write("---\ndescription: my own role command\n---\nnothing to do with the fabric\n")
-    proc = subprocess.run(["bash", BOOTSTRAP, "--projects", projects], capture_output=True, text=True, env=env)
+    proc = subprocess.run(["bash", bootstrap, "--projects", projects], capture_output=True, text=True, env=env)
     assert os.path.isfile(retired), "a command the human wrote was removed"
     os.remove(retired); os.remove(retired + ".before-agent-fabric")
     # An existing settings file keeps its own entries.
     with open(os.path.join(projects, ".claude", "settings.json"), "w", encoding="utf-8") as fh:
         json.dump({"permissions": {"allow": ["Bash(ls:*)"]}, "env": {"MY_OWN": "x"}, "hooks": {"SessionStart": [{"hooks": [{"type": "command", "command": "echo mine"}]}]}}, fh)
-    proc = subprocess.run(["bash", BOOTSTRAP, "--projects", projects], capture_output=True, text=True, env=env)
+    proc = subprocess.run(["bash", bootstrap, "--projects", projects], capture_output=True, text=True, env=env)
     settings = json.load(open(os.path.join(projects, ".claude", "settings.json"), encoding="utf-8"))
     assert settings["env"] == {"MY_OWN": "x", "CLAUDE_CODE_DISABLE_TERMINAL_TITLE": "1"}, settings["env"]
     assert settings["permissions"] == {"allow": ["Bash(ls:*)"]}
@@ -448,7 +479,7 @@ def test_bootstrap_writes_only_the_workspace_and_home_files(tmp: str) -> None:
     with open(os.path.join(projects, ".claude", "settings.json"), "w", encoding="utf-8") as fh:
         json.dump({"hooks": {"SessionStart": [{"hooks": [{"type": "command",
                    "command": "bash \"/somewhere/else/agent-fabric/runtime/claude-code/hooks/session-start.sh\""}]}]}}, fh)
-    proc = subprocess.run(["bash", BOOTSTRAP, "--projects", projects], capture_output=True, text=True, env=env)
+    proc = subprocess.run(["bash", bootstrap, "--projects", projects], capture_output=True, text=True, env=env)
     settings = json.load(open(os.path.join(projects, ".claude", "settings.json"), encoding="utf-8"))
     starts = [json.dumps(g) for g in settings["hooks"]["SessionStart"]]
     assert not any("/somewhere/else" in g for g in starts), starts
@@ -483,6 +514,11 @@ def test_hook_says_the_job_list(tmp: str) -> None:
     assert proc.returncode == 0 and "agent=" in ctx and "jobs —" not in ctx, proc.stdout + proc.stderr
 
 
+def clone_config() -> str:
+    return subprocess.run(["git", "-C", ROOT, "config", "--local", "--list"], capture_output=True, text=True,
+                          check=True, timeout=30).stdout
+
+
 def main() -> int:
     cases = [test_hook_records_context_not_identity, test_a_subagent_start_never_rebinds_the_login,
              test_hook_gives_the_project_layer_from_the_working_copy,
@@ -496,6 +532,10 @@ def main() -> int:
              test_hook_says_the_job_list,
              test_bootstrap_restarts_the_control_agent_unless_its_caller_is_the_control_agent,
              test_bootstrap_writes_only_the_workspace_and_home_files]
+    # The clone running the suite is not a fixture: whatever the cases do,
+    # its own git config is what it was (core.hooksPath appeared in a
+    # scratch clone outside projects/ after a run, review of #89).
+    own_config = clone_config()
     failures = 0
     for case in cases:
         with tempfile.TemporaryDirectory() as tmp:
@@ -505,6 +545,9 @@ def main() -> int:
             except AssertionError as exc:
                 failures += 1
                 print(f"  FAIL {case.__name__}: {exc}")
+    if clone_config() != own_config:
+        failures += 1
+        print(f"  FAIL the running clone's git config changed:\n{own_config}\n->\n{clone_config()}")
     print(f"\n{len(cases) - failures}/{len(cases)} passed")
     return 1 if failures else 0
 
