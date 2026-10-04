@@ -1484,7 +1484,15 @@ class Stub:
 
 
 def cmd_env(**extra: str) -> dict:
-    return {**os.environ, "HOME": scratch("home-"), "AGENT_FABRIC_SECRET_STORE": id_store(), **extra}
+    # The workspace a command sees is AGENT_FABRIC_ROOT's parent, and its
+    # .gzcoord is where a hosting account keeps the relay: left at the
+    # checkout's, a case on such an account asked the real relay's status
+    # and, were it down, would start it (review of #93, round 3). A scratch
+    # workspace whose agent-fabric is the checkout, by a link.
+    ws = scratch("ws-")
+    os.symlink(HERE, os.path.join(ws, "agent-fabric"))
+    return {**os.environ, "HOME": scratch("home-"), "AGENT_FABRIC_SECRET_STORE": id_store(),
+            "AGENT_FABRIC_ROOT": os.path.join(ws, "agent-fabric"), **extra}
 
 
 @case("normalize CLI prints the normalised message for validate to read")

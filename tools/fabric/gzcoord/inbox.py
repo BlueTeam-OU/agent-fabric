@@ -407,6 +407,10 @@ def explain_relay_error(e: BaseException, relay_url: str, t: i18n.Printer | None
     status = getattr(e, "status", None)
     if status in (401, 403):
         return {"line": t("relay.refused", {"relay_url": relay_url, "status": status}), "code": 4}
+    # The synced token re-read after a 401 that holds a line break: the 401
+    # stands, and the watch stops on it, never "relay down" every 30 s.
+    if isinstance(e, TokenRefused):
+        return {"line": f"gzcoord inbox: {e}", "code": 4}
     return {"line": t("relay.unreachable", {"relay_url": relay_url, "detail": str(e)}), "code": 0}
 
 

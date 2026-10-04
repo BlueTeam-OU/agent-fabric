@@ -481,6 +481,9 @@ def main(argv: list[str]) -> int:
         if status in (401, 403):
             print(t("send.token-refused", {"status": status}), file=sys.stderr)
             return 3
+        if isinstance(e, inbox.TokenRefused):   # the synced token re-read after a 401
+            print(f"send: {e}", file=sys.stderr)
+            return 3
         print(t("send.relay-unreachable", {"relay_url": relay_url, "detail": str(e)}), file=sys.stderr)
         return 3
     seq = js.get(res, "seq") if isinstance(res, dict) else js.UNDEFINED
