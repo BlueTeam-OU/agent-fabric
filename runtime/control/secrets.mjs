@@ -32,7 +32,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { execFile, execFileSync } from 'node:child_process';
 import { promisify } from 'node:util';
-import { syncedVar } from '../../communication/gzcoord/scripts/inbox.mjs';
+import { syncedVar } from './gzcoord.mjs';
 import fs from 'node:fs';
 import { sessionPids, stateDir, writeMarker, markerPath, upgradeRunning, restartInFlight, STOP_WAIT_MS } from './upgrade.mjs';
 

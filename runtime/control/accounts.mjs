@@ -27,7 +27,7 @@ import { spawnSync, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { accountsDir, accountSlugs, accounts, claudeBin, ACCOUNT_SLUG, takeReadLock } from './ops.mjs';
 import { placements } from './ctl.mjs';
-import { FABRIC_ROOT } from '../../communication/gzcoord/scripts/gzmsg.mjs';
+import { FABRIC_ROOT } from './gzcoord.mjs';
 
 const USAGE = `usage: fabric-accounts login <account> | list | read | templates | assign <login…|all> <account> [--no-restart] [--no-sync] [--force]
   <account>: lowercase letters, digits and hyphens — the account's email with @ and . as -,
