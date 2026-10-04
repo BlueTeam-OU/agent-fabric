@@ -1762,12 +1762,19 @@ def arm_boundary_findings(root: str, base_ref: str = "origin/main") -> list[str]
         before = {r for r in listed.stdout.splitlines()
                   if re.fullmatch(r"projects/[^/]+/integration/gh/arm\.json", r)} if listed.returncode == 0 else set()
         now = {r for r in _tracked(root) if re.fullmatch(r"projects/[^/]+/integration/gh/arm\.json", r)}
+        removed = sorted(before - now)
         try:
             with open(os.path.join(root, "projects", "registry.json"), encoding="utf-8") as fh:
                 registered = set((json.load(fh).get("projects") or {}))
-        except (OSError, ValueError, AttributeError):
+        except (OSError, ValueError, AttributeError) as e:
+            # Unknown is not "no project": an unreadable registry would
+            # let every deletion through (review of #96).
+            if removed:
+                findings.append(f"projects/registry.json: unreadable ({type(e).__name__}), so the deletion of "
+                                f"{', '.join(removed)} cannot be judged")
             registered = set()
-        for rel in sorted(before - now):
+            removed = []
+        for rel in removed:
             project = rel.split("/")[1]
             if project in registered:
                 findings.append(f"{rel}: deleted while projects/registry.json still names {project!r}; a project's arm "

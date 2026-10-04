@@ -1537,6 +1537,10 @@ def case_arm_boundary_cases_only_leave_retired() -> None:
         got = lint.arm_boundary_findings(root, base_ref="base")
         assert any("deleted while projects/registry.json still names 'demo'" in f for f in got), \
             ("an arm.json deleted under a registered project", got)
+        write(os.path.join(root, "projects", "registry.json"), "{ not json")
+        assert any("projects/registry.json: unreadable" in f and "cannot be judged" in f
+                   for f in lint.arm_boundary_findings(root, base_ref="base")), \
+            "an unreadable registry is no clean bill for a deletion (review of #96)"
         write(os.path.join(root, "projects", "registry.json"), json.dumps({"projects": {}}))
         assert lint.arm_boundary_findings(root, base_ref="base") == [], "…and allowed when the project leaves too"
         assert lint.arm_boundary_findings(root, base_ref="no-such-ref") == [], "…and nothing without a base"
