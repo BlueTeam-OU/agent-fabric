@@ -5,11 +5,11 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import http from 'node:http';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import crypto from 'node:crypto';
 import zlib from 'node:zlib';
 import { scratch } from '../../../tests/scratch.mjs';
-import { parseArgs, rows, table, writeBundles, manifestAgent, partKey, keygen, originMain } from '../ctl.mjs';
+import { parseArgs, rows, table, writeBundles, manifestAgent, partKey, keygen, originMain, signingKey, storeDir } from '../ctl.mjs';
 import { publicKeyFrom, privateKeyFrom, generateOperatorKey, verifyRequest, ACTION_TTL_MAX_S } from '../sign.mjs';
 import { pinnedVersion, UPGRADE_BUDGET_S, FABRIC_UPGRADE_BUDGET_S } from '../upgrade.mjs';
 import { FABRIC_ROOT, whoami } from '../gzcoord.mjs';
@@ -260,6 +260,28 @@ const H = ME.host;
 const registryFile = (operator = ME.agent) => { const f = path.join(scratch('reg-'), 'registry.json');
   fs.writeFileSync(f, JSON.stringify({ hosts: { [H]: { operator } }, placement: { 'db-admin': H, 'web-dev-01': H, 'edge-hosting': H } })); return f; };
 
+// The operator's own store as fabric-ctl reads it at signing time: a
+// scratch keyring outside the scratch HOME (gpg treats GNUPGHOME equal to
+// $HOME/.gnupg as the default and puts its agent's socket elsewhere) and a
+// pass-layout store whose env/FABRIC_CONTROL_SIGNING_KEY.gpg, when a key is
+// given, is encrypted to it. The keyring's agent is the caller's to end:
+// done() in its finally, so the run leaves no process it did not find.
+function operatorStore(privateSpec) {
+  const gnupg = scratch('ctl-gnupg-');
+  const store = scratch('ctl-store-');
+  const env = { ...process.env, GNUPGHOME: gnupg };
+  const gpg = (args, input) => {
+    const r = spawnSync('gpg', ['--batch', '--yes', '--no-tty', '--pinentry-mode', 'loopback', '--passphrase', '', ...args], { env, input, timeout: 60_000 });
+    if (r.status !== 0) throw new Error(`gpg ${args[0]}: ${r.error?.message ?? r.stderr}`);
+    return r.stdout;
+  };
+  gpg(['--quick-gen-key', 'operator <operator@agents.agent-fabric>', 'future-default', 'default', 'never']);
+  fs.mkdirSync(path.join(store, 'env'));
+  if (privateSpec) gpg(['--trust-model', 'always', '-r', 'operator@agents.agent-fabric', '--output', path.join(store, 'env', 'FABRIC_CONTROL_SIGNING_KEY.gpg'), '--encrypt'], privateSpec);
+  return { store, env: { GNUPGHOME: gnupg, AGENT_FABRIC_SECRET_STORE: store },
+           done: () => spawnSync('gpgconf', ['--homedir', gnupg, '--kill', 'all'], { stdio: 'ignore', timeout: 30_000 }) };
+}
+
 test('fabric-ctl all usage: two of three answer — table, a no-answer row, exit 1; --json one line each', async () => {
   const r = relay(); await r.listen();
   let done = false;
@@ -446,6 +468,8 @@ test('keygen: the private half goes into this login\'s store on stdin and nowher
   assert.ok(privateKeyFrom(set.input), 'a usable private key went to the store on stdin');
   assert.ok(!set.args.some(a => a.includes('pkcs8')), 'never on the command line');
   assert.ok(!out.join('\n').includes(set.input.slice(14, 40)), 'never printed');
+  assert.ok(out.some(l => l.includes('next: commit the registry change')) && !out.join('\n').includes('fabric-secrets sync'),
+            'the next step is the registry commit alone: sync no longer carries the key (review of #96)');
   const saved = JSON.parse(fs.readFileSync(reg, 'utf8')).hosts.h.operator_key;
   assert.ok(publicKeyFrom(saved), 'the public half is in the registry');
   console.error = () => {};
@@ -454,27 +478,65 @@ test('keygen: the private half goes into this login\'s store on stdin and nowher
   assert.equal(JSON.parse(fs.readFileSync(reg, 'utf8')).hosts.h.operator_key, saved);
 });
 
-test('fabric-ctl upgrade: the coordinator\'s pin travels in the signed request; no key, nothing is sent', async () => {
+test('fabric-ctl upgrade: the coordinator\'s pin travels in the signed request; no key in the store, nothing is sent', async () => {
   const r = relay(); await r.listen();
+  const k = generateOperatorKey();
+  const withKey = operatorStore(k.privateKeySpec), without = operatorStore(null);
   try {
     const reg = registryFile();
-    const k = generateOperatorKey();
-    const runKey = (key, args) => new Promise(resolve => {
-      const child = spawn('node', [CTL, ...args], { env: { ...process.env, HOME: scratch('ctl-home-'), CLAUDE_BRIDGE_URL: r.url(), CLAUDE_BRIDGE_AUTH_TOKEN: 'tok', FABRIC_CONTROL_CHANNEL: 'test:control', AGENT_FABRIC_HOSTS_REGISTRY: reg, ...(key ? { FABRIC_CONTROL_SIGNING_KEY: key } : { FABRIC_CONTROL_SIGNING_KEY: '' }) } });
+    // The environment's key, valid and someone else's, is set on every run:
+    // a signature by it, or a run that sends with it, is the leak back.
+    const envKey = generateOperatorKey();
+    const runKey = (held, args) => new Promise(resolve => {
+      const child = spawn('node', [CTL, ...args], { env: { ...process.env, HOME: scratch('ctl-home-'), CLAUDE_BRIDGE_URL: r.url(), CLAUDE_BRIDGE_AUTH_TOKEN: 'tok', FABRIC_CONTROL_CHANNEL: 'test:control', AGENT_FABRIC_HOSTS_REGISTRY: reg, FABRIC_CONTROL_SIGNING_KEY: envKey.privateKeySpec, ...held.env } });
       let out = '', err = ''; child.stdout.on('data', d => { out += d; }); child.stderr.on('data', d => { err += d; });
       child.on('close', status => resolve({ status, out, err }));
     });
-    const none = await runKey(null, ['db-admin', 'upgrade', 'claude', '--timeout', '1']);
-    assert.equal(none.status, 3, none.err); assert.match(none.err, /signed or not sent/); assert.equal(r.rows.length, 0, 'nothing was sent unsigned');
-    const sent = await runKey(k.privateKeySpec, ['db-admin', 'upgrade', 'claude', '--timeout', '1']);
+    const none = await runKey(without, ['db-admin', 'upgrade', 'claude', '--timeout', '1']);
+    assert.equal(none.status, 3, none.err);
+    assert.equal(none.err, "fabric-ctl: no FABRIC_CONTROL_SIGNING_KEY in this login's store — fabric-ctl keygen makes it — an action is signed or not sent\n", 'one line, naming keygen');
+    assert.equal(r.rows.length, 0, 'nothing was sent: the key in the environment is not read');
+    const sent = await runKey(withKey, ['db-admin', 'upgrade', 'claude', '--timeout', '1']);
+    assert.ok(!verifyRequest(JSON.parse(r.rows[0].content), publicKeyFrom(envKey.publicKeySpec)), 'not signed with the environment\'s key');
     const req = JSON.parse(r.rows[0].content);
     assert.deepEqual(req.args, { piece: 'claude', version: pinnedVersion(FABRIC_ROOT) }, 'one command, one version: the pin is named, not left to each account');
     assert.ok(/^\d+\.\d+\.\d+$/.test(req.args.version));
     assert.ok(verifyRequest(req, publicKeyFrom(k.publicKeySpec)), 'signed, over the version too');
     assert.ok(!sent.err.includes(k.privateKeySpec.slice(20, 50)) && !sent.out.includes(k.privateKeySpec.slice(20, 50)));
-    const over = await runKey(k.privateKeySpec, ['db-admin', 'upgrade', 'claude', '--version', '2.1.279', '--timeout', '1']);
+    const over = await runKey(withKey, ['db-admin', 'upgrade', 'claude', '--version', '2.1.279', '--timeout', '1']);
     assert.equal(JSON.parse(r.rows.at(-1).content).args.version, '2.1.279', '--version overrides the pin'); void over;
-  } finally { r.close(); }
+  } finally { r.close(); withKey.done(); without.done(); }
+});
+
+test('signingKey: each way the store can fail is its own line, none carries a value; the store is AGENT_FABRIC_SECRET_STORE or, unset or empty, the default', () => {
+  assert.equal(storeDir({ AGENT_FABRIC_SECRET_STORE: '/s' }, '/h'), '/s');
+  assert.equal(storeDir({ AGENT_FABRIC_SECRET_STORE: '' }, '/h'), '/h/.local/share/agent-fabric/secrets', 'empty is unset, as in secret_store.py');
+  const dir = scratch('ctl-sk-');
+  assert.match(signingKey({ store: path.join(dir, 'none') }).error, /^no secret store at .*none \(fabric-secrets store init\)$/);
+  fs.mkdirSync(path.join(dir, 'env'));
+  assert.match(signingKey({ store: dir }).error, /fabric-ctl keygen makes it$/, 'a store without the entry names keygen');
+  fs.writeFileSync(path.join(dir, 'env', 'FABRIC_CONTROL_SIGNING_KEY.gpg'), 'ciphertext');
+  const calls = [];
+  const run = result => (bin, args, opts) => { calls.push({ bin, args, opts }); return result; };
+  const enoent = Object.assign(new Error('spawnSync gpg ENOENT'), { code: 'ENOENT' });
+  const slow = Object.assign(new Error('spawnSync gpg ETIMEDOUT'), { code: 'ETIMEDOUT' });
+  assert.equal(signingKey({ store: dir, run: run({ error: enoent }) }).error, 'gpg not found; the signing key cannot be decrypted');
+  assert.match(signingKey({ store: dir, run: run({ error: slow }) }).error, /timed out after 30 s$/);
+  assert.equal(signingKey({ store: dir, run: run({ status: 2, stdout: '', stderr: 'gpg: encrypted with cv25519 key\ngpg: decryption failed: No secret key\n' }) }).error,
+               'gpg --decrypt of FABRIC_CONTROL_SIGNING_KEY failed: gpg: decryption failed: No secret key', 'gpg\'s last line says why');
+  assert.match(signingKey({ store: dir, run: run({ status: null, signal: 'SIGKILL', stdout: '', stderr: '' }) }).error, /failed: killed by SIGKILL$/);
+  assert.match(signingKey({ store: dir, run: run({ status: 0, stdout: '\n', stderr: '' }) }).error, /is empty — fabric-ctl keygen --force replaces it$/);
+  assert.deepEqual(signingKey({ store: dir, run: run({ status: 0, stdout: 'ed25519-pkcs8:AAAA\nsecond line\n', stderr: '' }) }), { key: 'ed25519-pkcs8:AAAA' }, 'the first line, as pass reads it');
+  const c = calls.at(-1);
+  assert.equal(c.bin, 'gpg');
+  assert.deepEqual(c.args.slice(-2), ['--decrypt', path.join(dir, 'env', 'FABRIC_CONTROL_SIGNING_KEY.gpg')]);
+  assert.deepEqual(c.opts.stdio, ['ignore', 'pipe', 'pipe'], 'the value comes back on a pipe');
+  assert.ok(c.opts.timeout > 0, 'a decrypt that hangs is cut off');
+  if (process.getuid() !== 0) {
+    fs.chmodSync(path.join(dir, 'env', 'FABRIC_CONTROL_SIGNING_KEY.gpg'), 0o000);
+    try { assert.match(signingKey({ store: dir, run: run({ status: 0, stdout: 'x' }) }).error, /^cannot read .*FABRIC_CONTROL_SIGNING_KEY\.gpg \(EACCES\)$/); }
+    finally { fs.chmodSync(path.join(dir, 'env', 'FABRIC_CONTROL_SIGNING_KEY.gpg'), 0o600); }
+  }
 });
 
 test('secrets-sync takes --expect (a fingerprint) and --restart, and nothing else takes them', () => {
@@ -486,9 +548,10 @@ test('secrets-sync takes --expect (a fingerprint) and --restart, and nothing els
 
 test('fabric-ctl upgrade exits 1 when any account failed, 0 when every answer is upgraded or current', async () => {
   const r = relay(); await r.listen();
+  const k = generateOperatorKey();
+  const op = operatorStore(k.privateKeySpec);
   try {
     const reg = registryFile();
-    const k = generateOperatorKey();
     let lastTtl = null;
     const go = (statuses, extra = ['--timeout', '5']) => new Promise(resolve => {
       let done = false;
@@ -501,7 +564,7 @@ test('fabric-ctl upgrade exits 1 when any account failed, 0 when every answer is
         for (const [login, st] of Object.entries(statuses)) r.add(`${H}/${login}`, JSON.stringify({ v: 1, kind: 'reply', id: 'r-' + login + Math.random(), in_reply_to: id, from: `${H}/${login}`, op: 'upgrade', ok: true, data: { upgrade: { ...(st && { status: st }), from: '2.1.281', to: '2.1.282', session: 'none' } } }));
       };
       setTimeout(answer, 30);
-      const child = spawn('node', [CTL, 'db-admin', 'web-dev-01', 'upgrade', 'claude', ...extra], { env: { ...process.env, HOME: scratch('ctl-home-'), CLAUDE_BRIDGE_URL: r.url(), CLAUDE_BRIDGE_AUTH_TOKEN: 'tok', FABRIC_CONTROL_CHANNEL: 'test:control', AGENT_FABRIC_HOSTS_REGISTRY: reg, FABRIC_CONTROL_SIGNING_KEY: k.privateKeySpec } });
+      const child = spawn('node', [CTL, 'db-admin', 'web-dev-01', 'upgrade', 'claude', ...extra], { env: { ...process.env, HOME: scratch('ctl-home-'), CLAUDE_BRIDGE_URL: r.url(), CLAUDE_BRIDGE_AUTH_TOKEN: 'tok', FABRIC_CONTROL_CHANNEL: 'test:control', AGENT_FABRIC_HOSTS_REGISTRY: reg, ...op.env } });
       let out = ''; child.stdout.on('data', d => { out += d; });
       child.on('close', status => resolve({ status, out }));
     });
@@ -514,7 +577,7 @@ test('fabric-ctl upgrade exits 1 when any account failed, 0 when every answer is
     const long = await go({ 'db-admin': 'upgraded', 'web-dev-01': 'current' }, ['--timeout', '3600']);
     assert.equal(long.status, 0, long.out);
     assert.equal(lastTtl, ACTION_TTL_MAX_S, 'a long wait for replies does not stretch the signed action\'s lifetime');
-  } finally { r.close(); }
+  } finally { r.close(); op.done(); }
 });
 
 test('presence: one row per account — running since when, as what; none; a failed read says unknown', () => {

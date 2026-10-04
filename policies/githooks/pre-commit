@@ -41,8 +41,9 @@ fi
 
 # In agent-fabric ITSELF every commit is the coordinator's: the repository
 # is read-only for every other role (CLAUDE.md, policies/AUTHORITY.md). In
-# a managed project only .agent-fabric/ is. A merge that only folds a
-# parent's guarded tree is no change of its own (guarded-change.sh).
+# a managed project only .agent-fabric/ is. A merge changes only what
+# differs from the clean three-way merge of its parents; a fold of main
+# is no change of its own (guarded-change.sh).
 . "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/guarded-change.sh"
 guarded_change "$FABRIC_ROOT"
 what="$guarded_what"; staged=("${guarded[@]}")

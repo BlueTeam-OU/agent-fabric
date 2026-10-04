@@ -50,6 +50,19 @@ def main() -> int:
         check("the state dir, the agent id and the address are their sources' own",
               ep.state_dir() == identity.agent_state_dir() and ep.own_agent_id() == secret_store.own_agent_id() == AGENT_A
               and ep.own_address() == f"{identity.current_host()}/{identity.current_agent()}")
+        # The source refuses a malformed id with its own error; the journal's
+        # callers catch JournalError, so the refusal arrives as one.
+        with open(os.path.join(store, ".agent-id"), "w") as f:
+            f.write("not-an-id\n")
+        try:
+            ep.own_agent_id()
+            said = None
+        except ep.JournalError as e:
+            said = str(e)
+        check("a malformed .agent-id is refused as the journal's own error", said is not None and "not an agent id" in said,
+              said)
+        with open(os.path.join(store, ".agent-id"), "w") as f:
+            f.write(AGENT_A + "\n")
         conn = ep.connect()
         path = ep.db_path()
         print("outbound: pending before the carrier, then its outcome")

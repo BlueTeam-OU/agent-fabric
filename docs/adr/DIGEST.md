@@ -48,6 +48,8 @@ its record disagree, the record wins. Look it up, never read it whole:
 | an agent's key and secrets; the store; provision; recovery; backup | ADR-038 |
 | the agent id; UUIDv7; renaming a login | ADR-039 |
 | which language a tool is written in; the bash size limit and allowlist; porting a script; gh.py, git.py | ADR-040 |
+| your GZCoord history; the episodic journal; fabric-history | ADR-041 |
+| signed store commits; trusted base; trust-base; a refused store | ADR-042 |
 
 ### ADR-000 — The enduring organization (Accepted)
 
@@ -382,21 +384,20 @@ its record disagree, the record wins. Look it up, never read it whole:
 - agent-fabric, and `.agent-fabric/` in every project, is committed only
   by a session bound to `fabric-coordinator`: the hooks fence it, CI
   reads the `Fabric-Role:` trailer (§5 rules 1–4).
-- Every commit carries its role as a trailer; a fold-only merge passes
+- Every commit carries its role as a trailer; a clean fold passes
   (§5 rules 2–3). A locale's holder commits its translations (§5 rule 5).
 - A contributor role (`authority.json` `contributors`) commits its
-  entry's paths on its own `for/` branch; CI reads the base's entry, the
-  hooks HEAD's; a typed role is refused (§5 rule 8).
+  entry's paths on its own `for/` branch (§5 rule 8).
 - A guard is a commit-time check, a CI check on every added commit and a
   planted suite case (§5 rule 6); a proposal is a message, or a
   contributor's branch (§5 rule 7).
-- `check_charter_authority.sh` runs on every branch against the base's
-  `authority.json` (§6).
+- The charter tripwire reads the base's `authority.json` (§6).
 - A 2026-09-28 — the charter tripwire runs in CI.
 - A 2026-09-30 — credentials and the stores are this role's (References).
 - A 2026-10-01 — the contributor carve-out; a proposal is a message (§5 rules 7–8).
 - A 2026-10-01 — the fence's code is never in an entry (§5 rule 8).
 - A 2026-10-01 — CI runs main's guards (§5 rule 4).
+- A 2026-10-04 — a merge is judged on its own change (§5 rules 3–4).
 - Keywords: authority, read-only, fence, tripwire, Fabric-Role,
   pre-commit, commit-msg, charter, locale carve-out, contributor, guard.
 
@@ -414,6 +415,8 @@ its record disagree, the record wins. Look it up, never read it whole:
   on agent-fabric arming is the merge (§5 rules 5–6).
 - No `Co-authored-by:`/`Claude-Session:` trailer, footer or session URL
   in commits or PR descriptions (§5 rule 7). GitHub settings: §6.
+- A 2026-10-04 — `main` is protected: a ruleset requires a pull request,
+  the CI checks and signed commits; auto-merge waits for green (§5 rule 6).
 - Keywords: pull request, PR, arm, merge, band, work commits, Answers,
   pr-gate, MERGEABLE, one open PR, attribution, Co-authored-by, CodeQL,
   repository settings, auto-merge.

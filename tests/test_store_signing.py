@@ -9,6 +9,8 @@ and a scratch fabric checkout whose origin/main stands for the merged
 identities/keys/. Plain script: prints ok/FAIL, exit 1 on any failure."""
 from __future__ import annotations
 
+import fcntl
+import json
 import os
 import shutil
 import subprocess
@@ -104,8 +106,15 @@ def main() -> int:
         p = run(parent, "put", "kid", "GH_TOKEN", stdin="t1")
         check("a mirror with no trusted base refuses, naming the step that gives it one",
               p.returncode == 1 and "trust-base" in p.stderr, p.stderr)
+        status = lambda env, *a: subprocess.run([sys.executable, SYNC, "status", *a], env=env,  # noqa: E731
+                                                capture_output=True, text=True)
+        sync = status(parent)
+        check("the parent's status says its mirror has no base, with the repair and the owner (review of #94)",
+              sync.returncode == 1 and f"NO BASE: the mirror of agent {KID} has no trusted base" in sync.stdout
+              and f"trust-base --store {mirror}, with the owner" in sync.stdout, sync.stdout)
         p = run(parent, "trust-base", "--store", mirror)
         check("trust-base records the mirror's base at its head", p.returncode == 0, p.stderr)
+        check("…and status says it no more", "NO BASE" not in status(parent).stdout, status(parent).stdout)
         p = run(parent, "put", "kid", "GH_TOKEN", stdin="t1")
         check("the parent's put is signed with the parent's own key", p.returncode == 0 and signer(parent, mirror) == pfpr,
               (p.stderr, signer(parent, mirror), pfpr))
@@ -130,6 +139,59 @@ def main() -> int:
         subprocess.run([sys.executable, SYNC, "sync", "--quiet"], env=child, capture_output=True, text=True)
         sync = subprocess.run([sys.executable, SYNC, "status"], env=child, capture_output=True, text=True)
         check("control: the complete, synced store's status is OK", sync.returncode == 0, sync.stdout + sync.stderr)
+        # A store with no trusted base refuses everything it is given: NOT OK,
+        # said as a refusal is, in all three forms (review of #94).
+        cbase = git(child, cstore, "config", "--get", "agent-fabric.trustedbase").stdout.strip()
+        git(child, cstore, "config", "--unset", "agent-fabric.trustedbase")
+        sync, quiet, js = status(child), status(child, "--quiet"), status(child, "--json")
+        check("the own store with no base: status NOT OK, naming trust-base",
+              sync.returncode == 1 and "NO BASE: the store has no trusted base" in sync.stdout
+              and "fabric-secrets store trust-base, once" in sync.stdout and "NOT OK" in sync.stdout, sync.stdout)
+        check("…--quiet says it in one line, exit 1",
+              quiet.returncode == 1 and quiet.stdout == "" and quiet.stderr.count("\n") == 1
+              and quiet.stderr.startswith("fabric-secrets: NO BASE: the store"), repr(quiet.stderr))
+        check("…--json lists it by store, in fabric-ctl keys' state name",
+              js.returncode == 1 and json.loads(js.stdout).get("no_trusted_base")
+              == [{"store": "own", "state": "no base", "path": cstore}], js.stdout[:600])
+        # The base is the store's own .git/config's: one in the caller's
+        # environment (or ~/.gitconfig) was read as the store's, and trusted it.
+        hostile = {**child, "GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "agent-fabric.trustedbase",
+                   "GIT_CONFIG_VALUE_0": cbase}
+        sync = status(hostile)
+        p = run(hostile, "set", "HOSTILE_BASE", stdin="h")
+        check("a base from the environment is no base: status NO BASE, and a write still refuses",
+              sync.returncode == 1 and "NO BASE: the store" in sync.stdout
+              and p.returncode == 1 and "has no trusted base" in p.stderr, (sync.stdout, p.stderr))
+        # A GIT_DIR in the caller's environment (a git hook runs with one)
+        # sent `git -C <store> config --local` to that repository's config.
+        other = os.path.join(tmp, "other-repo")
+        subprocess.run(["git", "init", "-q", other], check=True, env=child)
+        git(child, other, "config", "agent-fabric.trustedbase", cbase)
+        planted = {**child, "GIT_DIR": os.path.join(other, ".git"), "GIT_WORK_TREE": other,
+                   "GIT_INDEX_FILE": os.path.join(other, ".git", "index")}
+        sync = status(planted)
+        p = run(planted, "set", "PLANTED_BASE", stdin="h")
+        check("another repository's base through GIT_DIR is no base: status NO BASE, a write refuses",
+              sync.returncode == 1 and "NO BASE: the store" in sync.stdout
+              and p.returncode == 1 and "has no trusted base" in p.stderr, (sync.stdout, p.stderr))
+        conf =os.path.join(cstore, ".git", "config")
+        os.rename(conf, conf + ".aside")
+        os.mkdir(conf)   # unreadable as a file, also to root
+        sync = status(child)
+        os.rmdir(conf)
+        os.rename(conf + ".aside", conf)
+        check("a config that cannot be read is BASE UNREADABLE, never no base or OK",
+              sync.returncode == 1 and "BASE UNREADABLE: the store: .git/config could not be read (IsADirectoryError)"
+              in sync.stdout and "NO BASE" not in sync.stdout, sync.stdout)
+        os.rename(os.path.join(cstore, ".git"), os.path.join(cstore, ".git.aside"))
+        sync = status(child)
+        os.rename(os.path.join(cstore, ".git.aside"), os.path.join(cstore, ".git"))
+        check("a store whose .git is gone is BASE UNREADABLE, never OK (#96 review)",
+              sync.returncode == 1 and "BASE UNREADABLE: the store: .git/config could not be read (FileNotFoundError)"
+              in sync.stdout and "NOT OK" in sync.stdout, sync.stdout)
+        git(child, cstore, "config", "agent-fabric.trustedbase", cbase)
+        sync = status(child)
+        check("…the control: the base back, status is OK again", sync.returncode == 0 and "BASE" not in sync.stdout, sync.stdout)
         other = os.path.join(tmp, "other")
         subprocess.run(["git", "clone", "-q", remote, other], check=True, env=child, capture_output=True)
         g = ["-c", "user.name=t", "-c", "user.email=t@t"]
@@ -319,6 +381,20 @@ def main() -> int:
         sync = subprocess.run([sys.executable, SYNC, "status"], env=parent, capture_output=True, text=True)
         check("…and cleared by its next verified fetch", p.returncode == 0 and f"mirror of agent {KID}" not in sync.stdout,
               (p.stderr, sync.stdout))
+        # Not being able to look is no clean bill: a children directory that
+        # cannot be listed was read as no mirrors (review of #94).
+        kids = os.path.dirname(mirror)
+        os.rename(kids, kids + ".aside")
+        open(kids, "w").close()
+        sync = status(parent, "--json")
+        os.remove(kids)
+        os.rename(kids + ".aside", kids)
+        check("status fails when the mirrors cannot be listed, and says why",
+              sync.returncode == 1 and "could not be read" in json.loads(sync.stdout).get("error", "")
+              and "NotADirectoryError" in json.loads(sync.stdout)["error"], sync.stdout[:600])
+        sync = status(parent, "--json")
+        check("…the control: listed again, no such error", "could not be read" not in json.loads(sync.stdout).get("error", ""),
+              sync.stdout[:600])
 
         # F2: a write whose signing fails leaves nothing staged, says so, and the
         # next write works. git signs through `gpg -bsau`: only that fails.
@@ -336,6 +412,37 @@ def main() -> int:
               and not os.path.exists(os.path.join(cstore, "env", "UNSIGNED_WRITE.gpg")), (p.stderr, git(child, cstore, "status", "--porcelain").stdout))
         p = run(child, "set", "AFTER_UNSIGNED", stdin="a")
         check("…and the next set works", p.returncode == 0, p.stderr)
+        hook = os.path.join(cstore, ".git", "hooks", "pre-commit")
+        os.makedirs(os.path.dirname(hook), exist_ok=True)
+        with open(hook, "w") as fh:
+            fh.write("#!/bin/sh\necho 'a hook said no' >&2\nexit 1\n")
+        os.chmod(hook, 0o755)
+        p = run(child, "set", "HOOKED", stdin="h")
+        os.remove(hook)
+        check("a commit that fails for another reason says it could not commit, never could not sign (review of #94)",
+              p.returncode == 1 and "could not commit" in p.stderr and "could not sign" not in p.stderr
+              and git(child, cstore, "status", "--porcelain").stdout == "", (p.stderr, git(child, cstore, "status", "--porcelain").stdout))
+        # The reset that undoes a failed write takes every tracked change with
+        # it, so a write starts only from a clean store (review of #94).
+        own_entry = os.path.join(cstore, "env", "OWN.gpg")
+        with open(own_entry, "ab") as fh:
+            fh.write(b"a hand edit")
+        edited = open(own_entry, "rb").read()
+        p = run(child, "set", "ON_DIRTY", stdin="d")
+        check("a set on a store with an uncommitted change refuses, naming it, and keeps the change",
+              p.returncode == 1 and "uncommitted changes (env/OWN.gpg)" in p.stderr
+              and open(own_entry, "rb").read() == edited
+              and not os.path.exists(os.path.join(cstore, "env", "ON_DIRTY.gpg")), p.stderr)
+        git(child, cstore, "checkout", "-q", "--", "env/OWN.gpg")
+        mentry = os.path.join(mirror, "env", "GH_TOKEN.gpg")
+        with open(mentry, "ab") as fh:
+            fh.write(b"a hand edit")
+        p = run(parent, "put", "kid", "ON_DIRTY", stdin="d")
+        check("…a put on a dirty mirror too", p.returncode == 1 and "uncommitted changes (env/GH_TOKEN.gpg)" in p.stderr
+              and open(mentry, "rb").read().endswith(b"a hand edit"), p.stderr)
+        git(parent, mirror, "checkout", "-q", "--", "env/GH_TOKEN.gpg")
+        p = run(child, "set", "ON_CLEAN", stdin="c")
+        check("…the control: clean again, the set goes through", p.returncode == 0, p.stderr)
         late = role("late")
         late_id = secret_store.mint_agent_id(secret_store.born_ms_of("now"))
         p = run({**late, "PATH": f"{fake}:{late['PATH']}"}, "init", "--agent-id", late_id)
@@ -381,14 +488,41 @@ def main() -> int:
                            env=parent, input=run(nkid, "bundle").stdout, capture_output=True, text=True)
         check("a remote carrying an unsigned commit gives no mirror: refused, and nothing left behind",
               p.returncode == 1 and "refused: not signed" in p.stderr and not os.path.exists(nmirror), p.stderr)
+        check("…and the refusal names the owner's repair, not a rebuild that would refuse again (review of #94)",
+              "the owner's to repair by hand" in p.stderr and f"trust-base --store {nmirror}" in p.stderr, p.stderr)
+        # The refusal's record lay inside the mirror removed with it, so status
+        # never said it (review of #96): kept beside the mirror, until a
+        # verified fetch clears it.
+        sync = subprocess.run([sys.executable, SYNC, "status"], env=parent, capture_output=True, text=True)
+        check("…and the parent's status says that refusal, though the mirror is gone",
+              sync.returncode == 1 and f"REFUSED: the mirror of agent {new_id} refused commit" in sync.stdout
+              and os.path.exists(nmirror + ".refusal.json"), sync.stdout)
         unforge(new_remote, before)
         os.makedirs(os.path.join(nmirror, ".git"))
+        # Two seed-childs on one mirror removed each other's (review of #94):
+        # one at a time, the second refused while the first holds the lock.
+        lock = os.open(nmirror + ".lock", os.O_RDWR | os.O_CREAT, 0o600)
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        p = subprocess.run([sys.executable, TOOL, "seed-child", new_id, "--remote", new_remote],
+                           env=parent, input=run(nkid, "bundle").stdout, capture_output=True, text=True)
+        os.close(lock)
+        check("a seed-child while another holds the mirror is refused, and touches nothing",
+              p.returncode == 1 and f"another seed-child of agent {new_id} is running" in p.stderr
+              and os.listdir(os.path.join(nmirror, ".git")) == [], p.stderr)
         p = subprocess.run([sys.executable, TOOL, "seed-child", new_id, "--remote", new_remote],
                            env=parent, input=run(nkid, "bundle").stdout, capture_output=True, text=True)
         check("a mirror that is there with no base is refused before it is touched",
               p.returncode == 1 and "has no trusted base" in p.stderr and os.listdir(os.path.join(nmirror, ".git")) == [],
               p.stderr)
+        check("…its advice is the owner's trust-base, never a removal that loops (review of #94)",
+              f"trust-base --store {nmirror}" in p.stderr and "remove the mirror to rebuild" not in p.stderr, p.stderr)
         shutil.rmtree(nmirror)
+        p = subprocess.run([sys.executable, TOOL, "seed-child", new_id, "--remote", new_remote],
+                           env=parent, input=run(nkid, "bundle").stdout, capture_output=True, text=True)
+        sync = subprocess.run([sys.executable, SYNC, "status"], env=parent, capture_output=True, text=True)
+        check("the kept refusal is over once the mirror is rebuilt and takes a verified head",
+              p.returncode == 0 and not os.path.exists(nmirror + ".refusal.json")
+              and f"mirror of agent {new_id}" not in sync.stdout, (p.stderr, sync.stdout))
     finally:
         for g in gnupgs:
             subprocess.run(["gpgconf", "--homedir", g, "--kill", "all"], capture_output=True)

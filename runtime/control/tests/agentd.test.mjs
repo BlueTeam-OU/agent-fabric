@@ -93,6 +93,8 @@ function relay(initial = []) {
       // a long poll, like the relay: answer when something follows since_id, or at the timeout
       const since = u.searchParams.get('since_id'); const deadline = Date.now() + Number(u.searchParams.get('timeout_seconds') || 1) * 1000;
       const tick = () => {
+        // A closed relay ends its polls: a resident daemon's 55 s wait would hold the suite open.
+        if (req.socket.destroyed) return;
         const a = since ? after(since) : rows;
         if (a === null) { res.end(JSON.stringify({ messages: [], warning: 'since_id_not_found' })); return; }
         if (a.length || Date.now() >= deadline) { res.end(JSON.stringify({ messages: a.slice(0, 50) })); return; }
@@ -486,4 +488,32 @@ test('leaving for new code waits for every running action to reply, then exits o
   assert.match(logs[0], /agentd: source changed; exiting/, 'the first reason is the one said');
   const idle = leaver({ inflight: new Set(), exit: c => exits.push(c), log: () => {} });
   assert.equal(idle.request('source changed'), true, 'nothing running: leaves at once, as at the base');
+});
+
+test('agentd: the resident daemon samples memory pressure into its own state from its start and answers it in host; --once samples nothing', async () => {
+  const state = scratch('agentd-state-');
+  const ring = path.join(state, 'agents', whoami().agent, 'memory-pressure.json');
+  const r = relay([]);
+  await r.listen();
+  try {
+    const once = await runOnce(r.url(), { AGENT_FABRIC_STATE_DIR: state });
+    assert.equal(once.status, 0, once.stderr);
+    assert.equal(fs.existsSync(ring), false, '--once leaves no ring');
+    const waits = r.hits.filter(h => h.startsWith('/api/wait?')).length;
+    const child = spawn('node', [AGENTD], { env: { ...ownEnv(), HOME: scratchHome(), CLAUDE_BRIDGE_URL: r.url(), FABRIC_CONTROL_CHANNEL: 'test:control', AGENT_FABRIC_STATE_DIR: state } });
+    let stderr = ''; child.stderr.on('data', d => { stderr += d; });
+    const exited = new Promise(res => child.on('close', res));
+    try {
+      const until = async (cond, what) => { const end = Date.now() + 15000; while (!cond()) { if (Date.now() > end) throw new Error(`${what}\n${stderr}`); await new Promise(res => setTimeout(res, 50)); } };
+      await until(() => fs.existsSync(ring), 'no ring was written at start');
+      assert.equal(JSON.parse(fs.readFileSync(ring, 'utf8')).length, 1, 'one sample at start; the next a minute on');
+      // After its prime: a request posted before it would be history to it.
+      await until(() => r.hits.filter(h => h.startsWith('/api/wait?')).length > waits, 'the daemon never waited');
+      r.add('develop-qzapp/user', request({ op: 'host' }));
+      await until(() => replies(r).some(x => x.op === 'host'), 'no host reply');
+      const mp = replies(r).find(x => x.op === 'host').data.host.memory_pressure;
+      assert.equal(mp.status, 'ok', JSON.stringify(mp));
+      assert.equal(mp.hour.samples, 1);
+    } finally { child.kill('SIGTERM'); await exited; }
+  } finally { r.close(); }
 });

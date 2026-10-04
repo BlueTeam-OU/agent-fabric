@@ -3,7 +3,7 @@
 // Front door: bin/fabric-ctl.
 //
 //   fabric-ctl <login|all> [status|usage|identity|keys|fabric|session|script|recall|host|disk|accounts|ping] [--json] [--timeout S]
-//   fabric-ctl <login|all> host                     the machine, one row per host: load, memory, balloon, disks, leases, largest processes
+//   fabric-ctl <login|all> host                     the machine, one row per host: load, memory, balloon, disks, leases, largest processes, memory pressure (last readings, worst of the hour)
 //   fabric-ctl <login|all> disk                     each account's own home, largest first: its total, its largest entry,
 //                                                   its target/ directories under ~/projects (names and sizes, never contents)
 //   fabric-ctl <login|all> memory --out <dir>       each account's drain bundles, <dir>/<login>/<working copy>.tar
@@ -33,10 +33,11 @@
 // the channel, and nothing else anywhere.
 
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { whoami, FABRIC_ROOT, api, syncedToken, syncedVar, identity as gzIdentity, integrationConfig, inboxRoot, token as gzToken } from './gzcoord.mjs';
-import { execFileSync } from 'node:child_process';
+import { whoami, FABRIC_ROOT, api, syncedToken, identity as gzIdentity, integrationConfig, inboxRoot, token as gzToken } from './gzcoord.mjs';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { ACTION_OPS, ACTION_TTL_MAX_S, signRequest, generateOperatorKey, publicKeyFrom } from './sign.mjs';
 import { PIECES, VERSION_RE, UPGRADE_BUDGET_S, FABRIC_UPGRADE_BUDGET_S, pinnedVersion } from './upgrade.mjs';
 import zlib from 'node:zlib';
@@ -172,6 +173,20 @@ export const ACTION_OK = { upgrade: ['current', 'upgraded'], 'secrets-sync': ['s
 // control characters are shown escaped, never sent to the terminal (review
 // of #92, round 4).
 const esc = n => String(n).replace(/[\u0000-\u001f\u007f-\u009f]/g, c => `\\x${c.charCodeAt(0).toString(16).padStart(2, '0')}`);
+
+// The host's memory pressure line. Every daemon on a host samples the same
+// machine; the one with the most samples in the hour has been up longest
+// and speaks for it. some/full are PSI avg10, a % of the last ten seconds.
+export function pressureText(answers) {
+  const hhmm = ts => `${String(ts).slice(11, 16)}Z`;
+  const N = n => n == null ? '-' : `${n}`;
+  const best = answers.filter(p => p?.status === 'ok').sort((a, b) => (b.hour?.samples ?? 0) - (a.hour?.samples ?? 0))[0];
+  if (!best) { const p = answers.find(x => x?.status === 'failed') ?? answers.find(x => x); return !p ? '-' : p.status === 'none' ? 'no samples yet' : `${esc(p.status)}${p.error ? `: ${esc(p.error)}` : ''}`; }
+  const last = (best.last ?? []).map(x => `${hhmm(x.ts)} ${N(x.some_avg10)}/${N(x.full_avg10)} ${N(x.mem_available_mb)} MB`).join(', ') || '-';
+  const h = best.hour ?? {};
+  const w = (label, x, unit = '') => `${label} ${x ? `${x.value}${unit} at ${hhmm(x.ts)}` : '-'}`;
+  return `last ${last} (some/full avg10 %, available); worst of the hour (${N(h.samples)} samples): ${w('some', h.some_avg10)}, ${w('full', h.full_avg10)}, ${w('available', h.mem_available_mb, ' MB')}`;
+}
 
 export function table(op, rs) {
   const lines = [];
@@ -334,6 +349,7 @@ export function table(op, rs) {
       const top = (m.top_rss ?? []).slice(0, 5).map(p => `${p.comm} ${p.user} ${p.rss_mb} MB`).join(', ') || '-';
       lines.push(`${''.padEnd(16)} ${''.padEnd(9)} leases: ${leases}`);
       lines.push(`${''.padEnd(16)} ${''.padEnd(9)} largest: ${top}`);
+      lines.push(`${''.padEnd(16)} ${''.padEnd(9)} memory: ${pressureText(ok.map(r => r.machine.memory_pressure))}`);
       for (const r of group) if (r.status !== 'ok') lines.push(`${''.padEnd(16)} ${''.padEnd(9)} ${r.account}: ${r.status}`);
     }
     return lines.join('\n');
@@ -456,9 +472,9 @@ export async function main(argv = process.argv.slice(2), { registry, fetchImpl }
   if (ACTION_OPS.includes(args.op)) {
     // An action is signed or not sent: an unsigned one is refused by every
     // daemon, and a silent table would read as agents that did not answer.
-    const key = process.env.FABRIC_CONTROL_SIGNING_KEY ?? syncedVar('FABRIC_CONTROL_SIGNING_KEY');
-    if (!key) { console.error('fabric-ctl: no FABRIC_CONTROL_SIGNING_KEY (fabric-ctl keygen, then fabric-secrets sync) — an action is signed or not sent'); return 3; }
-    try { request = signRequest(request, key); } catch (e) { console.error(`fabric-ctl: ${e.message}`); return 3; }
+    const k = signingKey();
+    if (k.error) { console.error(`fabric-ctl: ${k.error} — an action is signed or not sent`); return 3; }
+    try { request = signRequest(request, k.key); } catch (e) { console.error(`fabric-ctl: ${e.message}`); return 3; }
   }
   let sent;
   try { sent = await call('/api/send', { method: 'POST', body: JSON.stringify({ channel: cfg.channel, sender: me.address, content: JSON.stringify(request) }) }); }
@@ -501,6 +517,40 @@ export async function main(argv = process.argv.slice(2), { registry, fetchImpl }
   return want.size || short() || refused || actionFailed ? 1 : 0;
 }
 
+// The operator's signing key, decrypted from this login's own store at the
+// moment an action is signed, and never read from the environment: ~/.bashrc
+// sources secrets.env, so a synced key sat in every shell and subagent of
+// the account, and a reviewer printed its environment (key rotated, #95).
+// gpg hands the value to this process on its stdout pipe — never argv,
+// never a file — with secret_store.py gpg()'s flags. Each way it can fail
+// is its own line, and none of them carries the value.
+export const SIGNING_KEY_NAME = 'FABRIC_CONTROL_SIGNING_KEY';
+const DECRYPT_TIMEOUT_MS = 30_000;
+// secret_store.py store_dir(), its `or` included: an empty variable is unset.
+export const storeDir = (env = process.env, home = os.homedir()) =>
+  env.AGENT_FABRIC_SECRET_STORE || path.join(home, '.local', 'share', 'agent-fabric', 'secrets');
+
+export function signingKey({ store = storeDir(), run = spawnSync } = {}) {
+  const file = path.join(store, 'env', `${SIGNING_KEY_NAME}.gpg`);
+  try { fs.statSync(store); }
+  catch (e) { return { error: e.code === 'ENOENT' ? `no secret store at ${store} (fabric-secrets store init)` : `cannot read the secret store ${store} (${e.code})` }; }
+  try { fs.accessSync(file, fs.constants.R_OK); }
+  catch (e) { return { error: e.code === 'ENOENT' ? `no ${SIGNING_KEY_NAME} in this login's store — fabric-ctl keygen makes it` : `cannot read ${file} (${e.code})` }; }
+  const r = run('gpg', ['--batch', '--yes', '--no-tty', '--pinentry-mode', 'loopback', '--passphrase', '', '--decrypt', file],
+                { stdio: ['ignore', 'pipe', 'pipe'], encoding: 'utf8', timeout: DECRYPT_TIMEOUT_MS });
+  if (r.error?.code === 'ENOENT') return { error: 'gpg not found; the signing key cannot be decrypted' };
+  if (r.error?.code === 'ETIMEDOUT') return { error: `gpg --decrypt of ${SIGNING_KEY_NAME} timed out after ${DECRYPT_TIMEOUT_MS / 1000} s` };
+  if (r.error) return { error: `gpg --decrypt of ${SIGNING_KEY_NAME}: ${r.error.message}` };
+  if (r.status !== 0) {
+    // gpg's last line names why (no secret key, bad data); its stderr never holds the plaintext.
+    const why = String(r.stderr ?? '').trim().split('\n').at(-1) || (r.signal ? `killed by ${r.signal}` : `exit ${r.status}`);
+    return { error: `gpg --decrypt of ${SIGNING_KEY_NAME} failed: ${why}` };
+  }
+  // pass(1)'s layout: the value is the first line.
+  const key = String(r.stdout).split('\n')[0].trim();
+  return key ? { key } : { error: `${SIGNING_KEY_NAME} in this login's store is empty — fabric-ctl keygen --force replaces it` };
+}
+
 // The operator's signing key, made once (or rotated): the private half goes
 // from this process into the operator's own store on stdin — never
 // printed, never a file — and the public half into this host's
@@ -517,7 +567,9 @@ export function keygen(args, { registry = process.env.AGENT_FABRIC_HOSTS_REGISTR
   host.operator_key = k.publicKeySpec;
   fs.writeFileSync(registry, JSON.stringify(reg, null, 2) + '\n');
   console.log(`fabric-ctl: signing key made — private half in this login's store (FABRIC_CONTROL_SIGNING_KEY), public half in ${path.relative(FABRIC_ROOT, registry)} (operator_key of ${who.host}).`);
-  console.log('  next: bin/fabric-secrets sync; commit the registry change; the fleet trusts it once it has pulled that commit.');
+  // No sync: the key is never written into secrets.env (secrets_sync.py
+  // STORE_ONLY); signing decrypts it from the store (review of #96).
+  console.log('  next: commit the registry change; the fleet trusts it once it has pulled that commit.');
   return 0;
 }
 

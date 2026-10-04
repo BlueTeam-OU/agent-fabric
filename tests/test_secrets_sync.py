@@ -57,6 +57,7 @@ def main() -> int:
         return (None, store["error"]) if store["error"] else (dict(store["values"]), None)
     s.fetch_values = fake_fetch_values
     s.fetch_names = lambda: (None, store["error"]) if store["error"] else (list(store["values"]), None)
+    real_load_store = s.load_store
 
     def run(fn, *a) -> tuple[int, str]:
         out, err = io.StringIO(), io.StringIO()
@@ -136,6 +137,46 @@ def main() -> int:
             rc, out = run(s.status, False)
             check("status exits 1 when a name is missing, and names it", rc == 1 and "missing: GH_TOKEN" in out, out)
 
+            # The stores' verification state (ADR-042), faked at its reader:
+            # a missing base is NOT OK, said as a refusal is, and a reading
+            # that fails is never a clean bill (review of #94).
+            store["values"] = fixture(ME)
+            real_verification = s.fetch_verification
+            kid = "01a106ee-84ec-74bc-84ef-3720a55d6a3f"
+            try:
+                s.fetch_verification = lambda: ([], [], None)
+                rc, out = run(s.status, False)
+                check("control: nothing refused and every base there, status is OK", rc == 0 and "BASE" not in out, out)
+                s.fetch_verification = lambda: ([], [{"store": kid, "state": "no base", "path": "/m/" + kid}], None)
+                rc, out = run(s.status, False)
+                check("a mirror with no base: exit 1, its repair and the owner named",
+                      rc == 1 and f"NO BASE: the mirror of agent {kid} has no trusted base" in out
+                      and f"trust-base --store /m/{kid}, with the owner where its history cannot be verified" in out, out)
+                rc, out = run(s.status, True)
+                check("…--json lists it under no_trusted_base",
+                      rc == 1 and json.loads(out)["no_trusted_base"] == [{"store": kid, "state": "no base", "path": "/m/" + kid}], out[:300])
+                s.fetch_verification = lambda: ([], [{"store": "own", "state": "unreadable", "reason": "r"}], None)
+                rc, out = run(s.status, False, True)
+                check("--quiet: an unreadable base in one line, exit 1",
+                      rc == 1 and out == "fabric-secrets: BASE UNREADABLE: the store: r — its trusted base cannot be read; "
+                      "this account looks at it (ADR-042)\n", repr(out))
+                s.fetch_verification = lambda: ([{"store": "own", "commit": "c" * 40, "at": "T", "reason": "not signed"}],
+                                                [{"store": kid, "state": "no base", "path": "p"}], None)
+                rc, out = run(s.status, False, True)
+                check("--quiet: a refusal and a missing base, both in the one line",
+                      rc == 1 and out.count("\n") == 1 and "REFUSED: the store" in out and "; NO BASE: the mirror" in out, repr(out))
+                s.fetch_verification = lambda: ([], [], "the stores' refusals and trusted bases could not be read: x")
+                rc, out = run(s.status, True)
+                check("a reading that fails: exit 1, said as the error",
+                      rc == 1 and json.loads(out)["error"].endswith("could not be read: x"), out[:300])
+                s.load_store = lambda: (_ for _ in ()).throw(RuntimeError("no module"))
+                s.fetch_verification = real_verification
+                check("…the real reader turns any failure into that error, never an empty list",
+                      s.fetch_verification() == ([], [], "the stores' refusals and trusted bases could not be read: no module"))
+            finally:
+                s.fetch_verification = real_verification
+                s.load_store = real_load_store
+
             store["values"] = fixture(ME)
             rc, out = run(s.sync, False, False, True)
             check("--quiet with everything present prints nothing, exit 0", rc == 0 and out == "", out)
@@ -168,6 +209,39 @@ def main() -> int:
                       rc == 0 and "export DEMO_PORT_OFFSET=640" in open(envf).read() and "DEMO_PORT_OFFSET" in out, out)
                 rc, out = run(s.status, True)
                 check("status does not call it unexpected", json.loads(out)["unexpected"] == [], out[:300])
+
+                # The operator's signing key stays in the store, even where
+                # the registry declares it fabric-wide (as it did when a
+                # reviewer printed it from the environment), and a line an
+                # older sync wrote goes with the next one.
+                sk = "ed25519-pkcs8:FIXTURE-SIGNING-KEY"
+                json.dump({"agent_env": {"FABRIC_CONTROL_SIGNING_KEY": "the operator's key"},
+                           "projects": {"demo": {"agent_env": {"DEMO_PORT_OFFSET": "the login stack offset"}}}},
+                          open(os.path.join(fab, "projects", "registry.json"), "w"))
+                with open(envf, "a") as fh:
+                    fh.write(f"export FABRIC_CONTROL_SIGNING_KEY={sk}\n")
+                store["values"] = {**fixture(ME), "DEMO_PORT_OFFSET": "640", "FABRIC_CONTROL_SIGNING_KEY": sk}
+                rc, out = run(s.sync, False, True)
+                written = open(envf).read()
+                check("the signing key is never written into secrets.env, and a stale line is gone",
+                      rc == 0 and "FABRIC_CONTROL_SIGNING_KEY" not in written and "export DEMO_PORT_OFFSET=640" in written,
+                      written)
+                check("nor listed as applied, nor printed",
+                      "FABRIC_CONTROL_SIGNING_KEY" not in json.loads(out)["applied"] and sk not in out, out[:300])
+                # values_sha256 covers what sync applies: a store-only key is
+                # not applied, so changing it is no change (review of #96).
+                store["values"] = {**store["values"], "FABRIC_CONTROL_SIGNING_KEY": sk + "-rotated"}
+                rc2, out2 = run(s.sync, False, True)
+                store["values"] = {**store["values"], "DEMO_PORT_OFFSET": "641"}
+                rc3, out3 = run(s.sync, False, True)
+                digest = lambda o: json.loads(o)["values_sha256"]  # noqa: E731
+                check("the signing key is not in values_sha256; an applied value is (the control)",
+                      rc2 == rc3 == 0 and digest(out2) == digest(out) and digest(out3) != digest(out2), (out2[:200], out3[:200]))
+                json.dump({"projects": {"demo": {"agent_env": {"DEMO_PORT_OFFSET": "the login stack offset"}}}},
+                          open(os.path.join(fab, "projects", "registry.json"), "w"))
+                rc, out = run(s.status, True)
+                check("a store holding it is not unexpected, the registry naming it or not",
+                      json.loads(out)["unexpected"] == [], out[:300])
             finally:
                 s.ROOT = real_root
 

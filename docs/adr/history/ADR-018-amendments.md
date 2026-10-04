@@ -56,3 +56,18 @@ sources runs before the check. The first was run and confirmed
 (`docs/live-checks/2026-10-01-guard-shadowing.md`). Python resolves an
 import by name, so no exclusion closes the class; CI now runs main's
 copy of the guards, isolated, before any of the branch's code.
+
+### Amendment 2026-10-04 — A merge is judged on its own change
+
+Rule 3 exempted a merge whose guarded tree equalled one parent's, and
+rule 4 had CI skip merges. Two consequences, both reported: a branch
+carrying a coordinator-supplied `fabric-ref` could not fold a main that
+a drain had moved, since the merged `.agent-fabric/` equalled neither
+parent (devex-tooling, gzapp #1028); and a hand edit carried in a merge,
+a conflict resolution or a commit made past the hook, passed CI unseen.
+Both now compare a merge with the clean three-way merge of its parents
+(`git merge-tree --write-tree`), with renames off, so a move out of a
+guarded path shows its source; without a clean merge, the merge is
+judged against every parent. The blind review of agent-fabric #96 found
+the rename case and the `-s ours` fallback; both are closed in the same
+pull request.

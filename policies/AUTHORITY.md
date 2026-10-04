@@ -174,13 +174,17 @@ make. Only under guard is the role also checked against the owner; on a
 code commit the trailer is attribution, not authorisation, and CI reads
 it nowhere but under guard.
 
-A merge commit that only folds a parent's `.agent-fabric/` — the routine
-"update from main" after a drain — changes nothing of its own: the hooks
-compare the staged guarded tree with each parent's and let it through
-(with the folding account's role as its trailer, like any commit),
-exactly as the CI tripwire skips merge commits. A merge
-that also edits a slice by hand differs from both parents and is refused
-like any other change (`policies/githooks/guarded-change.sh`).
+A merge commit that only folds its parents' `.agent-fabric/` — the
+routine "update from main" after a drain, even when the branch also moved
+`.agent-fabric/`, as a branch carrying a supplied `fabric-ref` does —
+changes nothing of its own: the hooks compare the staged guarded tree with
+the clean three-way merge of the parents (`git merge-tree --write-tree`)
+and let it through, with the folding account's role as its trailer like
+any commit. The CI tripwire judges merge commits the same way. What a
+conflict resolution or a hand edit changes in a merge, including keeping
+one side's guarded tree where the other moved it, is the merge's own
+change and is judged like any other (`policies/githooks/guarded-change.sh`,
+`tools/fabric/guards/agent_fabric_dir_authority.py`).
 
 ## What the tripwire can and cannot do
 
