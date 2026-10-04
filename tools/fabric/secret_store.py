@@ -505,12 +505,17 @@ def _record_refusal(store: str, commit: str, reason: str) -> None:
 
 
 def refusal(store: str | None = None) -> dict | None:
+    """The store's last refusal, or None when it has no record. A record
+    that cannot be read or parsed is no clean bill: it comes back marked
+    unreadable, and status stays non-OK on it (review of #94)."""
     try:
         with open(os.path.join(store or store_dir(), ".git", REFUSAL_FILE), encoding="utf-8") as fh:
             doc = json.load(fh)
-    except (OSError, ValueError):
+    except FileNotFoundError:
         return None
-    return doc if isinstance(doc, dict) else None
+    except (OSError, ValueError) as e:
+        return {"unreadable": True, "reason": f"{REFUSAL_FILE} could not be read ({type(e).__name__})"}
+    return doc if isinstance(doc, dict) else {"unreadable": True, "reason": f"{REFUSAL_FILE} is not a JSON object"}
 
 
 def refusals() -> list[dict]:

@@ -297,6 +297,16 @@ def main() -> int:
         p = run(child, "push")
         check("repaired, store push goes through", p.returncode == 0, p.stderr)
 
+        # A refusal record that cannot be parsed is no clean bill (review of #94).
+        with open(refusal_file(cstore), "w") as fh:
+            fh.write('{"commit": "abc", "rea')
+        sync = subprocess.run([sys.executable, SYNC, "status"], env=child, capture_output=True, text=True)
+        check("a truncated refusal record keeps status non-OK, and says so",
+              sync.returncode == 1 and "REFUSAL UNREADABLE: the store" in sync.stdout, sync.stdout)
+        os.remove(refusal_file(cstore))
+        sync = subprocess.run([sys.executable, SYNC, "status"], env=child, capture_output=True, text=True)
+        check("…the control: with no record, nothing of it is said", "REFUSAL" not in sync.stdout, sync.stdout)
+
         # F3: a refusal recorded on a child's mirror is said by the parent's status.
         before = forge_on(remote, child)
         p = run(parent, "refresh-mirror", "kid")

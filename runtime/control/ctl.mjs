@@ -355,7 +355,7 @@ export function table(op, rs) {
       const absent = named.filter(k => !k.present).map(k => esc(k.name));
       if (absent.length) lines.push(`${''.padEnd(22)} ${''.padEnd(10)} absent: ${absent.join(', ')}`);
       for (const m of Array.isArray(store?.mirrors) ? store.mirrors : [])
-        lines.push(`${''.padEnd(22)} ${''.padEnd(10)} mirror of ${esc(m.agent_id)}: ${m.unreadable ? 'refusal record unreadable' : refusedText(m)}`);
+        lines.push(`${''.padEnd(22)} ${''.padEnd(10)} mirror of ${esc(m.agent_id)}: ${m.unreadable ? 'refusal record unreadable' : m.state ? esc(m.state) : refusedText(m)}`);
     }
     return lines.join('\n');
   }

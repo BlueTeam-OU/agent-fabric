@@ -231,9 +231,14 @@ export function storeRefusal(home = os.homedir(), store = process.env.AGENT_FABR
   let kids = [];
   try { kids = fs.readdirSync(children).filter(n => AGENT_ID_RE.test(n)).sort(); } catch { /* no mirrors */ }
   const mirrors = [];
+  // A mirror with no base refuses every verified operation on it, so it is
+  // as unclean as a refusal (review of #94): said, as the own store's is.
   for (const aid of kids) {
-    const r = readRefusal(path.join(children, aid));
+    const mirror = path.join(children, aid);
+    const r = readRefusal(mirror);
+    const base = hasBase(mirror);
     if (r) mirrors.push({ agent_id: aid, ...(r.refused ?? { unreadable: true }) });
+    else if (base !== true) mirrors.push({ agent_id: aid, state: base === null ? 'unreadable' : 'no base' });
   }
   const own = fs.existsSync(path.join(store, '.git')) ? readRefusal(store) : undefined;
   const base = own === undefined ? null : hasBase(store);
