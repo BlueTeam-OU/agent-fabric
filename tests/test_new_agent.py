@@ -158,6 +158,35 @@ def main() -> int:
         check("…present ones said as present; no project, no clone name",
               "GPG secret key: the signing key's, present" in c and "a template token (plain-claude path ready)" in c and "moveto acct   then" in c)
 
+        print("the signing key's secret: the colon listing, judged as fabric-ctl keys judges it")
+        listings = {
+            "a signing primary key": "sec:u:255:22:K:1:::u:::scESC:::+::ed25519:::0:\n",
+            "a stub primary (#)": "sec:u:255:22:K:1:::u:::scESC:::#::ed25519:::0:\n",
+            "a stub primary, a signing subkey": "sec:u:255:22:K:1:::u:::cC:::#::ed25519:::0:\n"
+                                                "ssb:u:255:22:S:1::::::s:::+::ed25519::\n",
+            "an encryption-only subkey": "sec:u:255:22:K:1:::u:::cC:::#::ed25519:::0:\nssb:u:255:18:E:1::::::e:::+::cv25519::\n",
+            "capability S only (the key's total, not the key)": "sec:u:255:22:K:1:::u:::cSC:::+::ed25519:::0:\n",
+            "a line short of field 15": "sec:u:255:22:K:1:::u:::s\n",
+            "a public key line": "pub:u:255:22:K:1:::u:::scESC::::::::0:\n",
+            "nothing": "",
+        }
+        mine = {name: w.signs_with_secret(text) for name, text in listings.items()}
+        node = subprocess.run(
+            ["node", "--input-type=module", "-e",
+             "const { signingSecret } = await import(process.argv[1]);"
+             "const cases = JSON.parse(process.argv[2]); const out = {};"
+             "for (const [n, t] of Object.entries(cases))"
+             "  out[n] = (await signingSecret(async (cmd) => cmd === 'git' ? 'K\\n' : t)).present;"
+             "console.log(JSON.stringify(out));",
+             os.path.join(HERE, "runtime", "control", "ops.mjs"), json.dumps(listings)],
+            capture_output=True, text=True, timeout=60, env=clean_env())
+        check("fabric-ctl keys (ops.mjs signingSecret) answered", node.returncode == 0, node.stderr)
+        theirs = json.loads(node.stdout) if node.returncode == 0 else {}
+        check("…and agrees with the read-back on every listing", mine == theirs, (mine, theirs))
+        check("…which is present only with a signing secret held here",
+              [n for n, v in mine.items() if v] == ["a signing primary key", "a stub primary, a signing subkey",
+                                                     "a line short of field 15"], mine)
+
         print("the host names itself")
         put(f"{tmp}/hbin/hostname", "#!/usr/bin/env bash\n[[ $1 == -s ]] && echo far-host\n", 0o755)
         put(f"{tmp}/hbin/getent", "#!/usr/bin/env bash\n[[ $2 == here ]]\n", 0o755)
@@ -179,6 +208,9 @@ def main() -> int:
         put(f"{root}/bin/fabric-ctl", "#!/usr/bin/env bash\necho header\necho pong\n", 0o755)
         put(f"{tmp}/vbin/sudo", f"#!/usr/bin/env bash\necho \"$*\" >> {tmp}/sudo.calls\n[[ $1 == -n ]] && shift; [[ $1 == -u ]] && shift 2; [[ $1 == -H ]] && shift\nexec \"$@\"\n", 0o755)
 
+        SIGNING_SECRET = b"sec:u:255:22:AAAA1111BBBB2222:1700000000:::u:::scESC:::+::ed25519:::0:\n"
+        SIGNING_STUB = b"sec:u:255:22:AAAA1111BBBB2222:1700000000:::u:::scESC:::#::ed25519:::0:\n"
+
         def verify_with(answers: dict, projects: list[str]) -> tuple[str, str, list[str]]:
             asked = []
 
@@ -197,23 +229,26 @@ def main() -> int:
                 w.Account.run, sys.stderr = saved_run, saved_err
                 wrapper.detach()
             return text, said, asked
-        text, said, asked = verify_with({"gpg --list-secret-keys": b"present\n", "ls-remote": b"ssh to origin: ok\n",
+        text, said, asked = verify_with({"gpg --list-secret-keys": SIGNING_SECRET, "ls-remote": b"ssh to origin: ok\n",
                                          "gh auth status": b"Logged in to github.com\n"}, ["demo"])
         check("each read-back's lines prefixed; the ping's first line dropped",
               "   control plane: pong\n" in said and "header" not in said and "   demo ssh to origin: ok\n" in said
               and "   gh: Logged in to github.com\n" in said, said)
         check("…the signing key's secret asked for by the key git signs with: present",
               "GPG secret key: the signing key's, present" in text
-              and any("user.signingkey" in x and 'gpg --list-secret-keys -- "$k"' in x for x in asked), asked)
+              and any("user.signingkey" in x and 'gpg --list-secret-keys --with-colons -- "$k"' in x for x in asked), asked)
         check("…both launch paths read back, from the first project", sum("--provider anthropic --print" in a or
               "--provider openrouter --print" in a for a in asked) == 2 and all("cd ~/projects/demo &&" in a for a in asked
                                                                                if "--print" in a))
-        text, _, _ = verify_with({"gpg --list-secret-keys": b"absent\n"}, [])
+        text, _, _ = verify_with({"gpg --list-secret-keys": b""}, [])
         check("…absent (an account holding only its own store key, rust-ui-dev-01's case): the commands to "
               "import it", "GPG secret key: the signing key's is NOT" in text
               and "gpg --batch --import" in text)
         text, _, _ = verify_with({"gpg --list-secret-keys": b"garbage\n"}, [])
         check("…any other answer is absent", "GPG secret key: the signing key's is NOT" in text)
+        text, _, _ = verify_with({"gpg --list-secret-keys": SIGNING_STUB}, [])
+        check("…a stub (gpg lists it and exits 0; the secret is elsewhere) is absent",
+              "GPG secret key: the signing key's is NOT" in text)
         put(f"{home}/.config/agent-fabric/secrets.env", "export CLAUDE_CODE_OAUTH_TOKEN='x'\n")
         text, _, _ = verify_with({}, [])
         check("…and a template token in the synced record is read through sudo", "a template token" in text)
