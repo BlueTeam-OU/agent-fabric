@@ -9,8 +9,11 @@
                                   or failed; --no-pull: apply it as it is,
                                   once, right after `store take-bundle` — a
                                   new account has no key to pull with yet)
-    fabric-secrets status [--json]
-                                  what is present, missing, applied
+    fabric-secrets status [--json] [--quiet]
+                                  what is present, missing, applied; and
+                                  each store (its own, each child's mirror)
+                                  that refused a commit or has no trusted
+                                  base (ADR-042), which is NOT OK (exit 1)
 
 The store is this login's pass-format repository (secret_store.py). sync
 writes
@@ -32,7 +35,10 @@ heredoc and its Doppler reader retired: the exit codes — 0 applied, 1
 unreadable, 2 applied with required names missing, 3 the store names
 another login and nothing is applied; the JSON report's `error` and
 `missing`, which the control agent reads (runtime/control/secrets.mjs);
-the `--quiet` line on stderr, which moveto's shell entry shows.
+the `--quiet` line on stderr, which moveto's shell entry shows. status
+exits 0 or 1; its JSON lists `refused` and `no_trusted_base` per store
+("store": "own" or the child's agent id; a base's "state" is "no base" or
+"unreadable", as fabric-ctl keys names it).
 
 Nothing here prints a secret value: names, presence, ages and modes only.
 """
@@ -125,14 +131,16 @@ def fetch_values(pull: bool = True) -> tuple[dict[str, str] | None, str | None]:
         return None, f"store: {e}"
 
 
-def fetch_refusals() -> list[dict]:
+def fetch_verification() -> tuple[list[dict], list[dict], str | None]:
     """The last refused commit of the own store and of each child's mirror
-    (ADR-042 rule 5), each named. A store that cannot be read says so
-    through fetch_names, not here."""
+    (ADR-042 rule 5), and every one of them with no trusted base, each
+    named. Either reading that fails is said, never an empty list: status
+    read clean whenever it could not look (review of #94)."""
     try:
-        return load_store().refusals()
-    except Exception:  # noqa: BLE001 — unreadable is fetch_names' to report
-        return []
+        st = load_store()
+        return st.refusals(), st.bases(), None
+    except Exception as e:  # noqa: BLE001 — said as the error; names and paths only, never a value
+        return [], [], f"the stores' refusals and trusted bases could not be read: {e}"
 
 
 def git_get(key: str) -> str:
@@ -219,11 +227,35 @@ def _refused_line(r: dict) -> str:
             f"{r.get('reason', '?')} — {who} repairs it (ADR-042)")
 
 
+def _base_line(b: dict) -> str:
+    """A store with no trusted base refuses every verified operation, so it
+    is said as a refusal is, with its repair (the coordinator's ruling of
+    2026-10-04): the own store's base is its head, once; a mirror's history
+    came from the child's remote, so its base is set with the owner."""
+    own = b.get("store") == "own"
+    which = "the store" if own else f"the mirror of agent {b.get('store')}"
+    if b.get("state") == "unreadable":
+        who = "this account" if own else "this account, the child's parent, or the owner"
+        return f"BASE UNREADABLE: {which}: {b.get('reason', '?')} — its trusted base cannot be read; {who} looks at it (ADR-042)"
+    if own:
+        return (f"NO BASE: {which} has no trusted base, so it takes nothing in — "
+                "fabric-secrets store trust-base, once, at the head it holds (ADR-042)")
+    return (f"NO BASE: {which} has no trusted base, so it takes nothing in — "
+            f"fabric-secrets store trust-base --store {b.get('path', '?')}, with the owner where its history "
+            "cannot be verified (ADR-042)")
+
+
+def _verification_lines(obj: dict) -> list[str]:
+    return [_refused_line(r) for r in obj.get("refused") or []] + \
+        [_base_line(b) for b in obj.get("no_trusted_base") or []]
+
+
 def report(obj: dict, as_json: bool, quiet: bool, ok: bool) -> None:
     if quiet:
         # For a shell entry (moveto): silence when all is well, one line otherwise.
         if not ok:
-            what = obj.get("error") or ("; ".join(_refused_line(r) for r in obj["refused"]) if obj.get("refused") else
+            said = _verification_lines(obj)
+            what = obj.get("error") or ("; ".join(said) if said else
                                         f"missing in the store: {', '.join(obj.get('missing', []))}")
             print(f"fabric-secrets: {what}", file=sys.stderr)
         return
@@ -233,8 +265,8 @@ def report(obj: dict, as_json: bool, quiet: bool, ok: bool) -> None:
     print(f"fabric-secrets: login={obj['login']} store={obj['store']}")
     if obj.get("error"):
         print(f"  error: {obj['error']}")
-    for r in obj.get("refused") or []:
-        print(f"  {_refused_line(r)}")
+    for line in _verification_lines(obj):
+        print(f"  {line}")
     if "present" in obj:
         print(f"  present: {', '.join(obj['present']) or '(none)'}")
         print(f"  missing: {', '.join(obj['missing']) or '(none)'}")
@@ -267,10 +299,18 @@ def status(as_json: bool, quiet: bool = False) -> int:
         obj["unexpected"] = sorted(n for n in names if n not in known)
         ok = not obj["missing"]
     # A refused commit is a security event (ADR-042 rule 5): said here until
-    # the store is repaired, whatever else is well.
-    refused = fetch_refusals()
+    # the store is repaired, whatever else is well. So is a store with no
+    # trusted base, which refuses everything it is given; and so is not
+    # being able to tell.
+    refused, unbased, verr = fetch_verification()
     if refused:
         obj["refused"] = refused
+        ok = False
+    if unbased:
+        obj["no_trusted_base"] = unbased
+        ok = False
+    if verr:
+        obj["error"] = f"{obj['error']}; {verr}" if obj.get("error") else verr
         ok = False
     ok = ok and obj["local"]["env_file_mode"] == "0600" and obj["local"]["bashrc_sources_env_file"]
     report(obj, as_json, quiet, ok)

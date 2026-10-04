@@ -9,6 +9,7 @@ and a scratch fabric checkout whose origin/main stands for the merged
 identities/keys/. Plain script: prints ok/FAIL, exit 1 on any failure."""
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import subprocess
@@ -104,8 +105,15 @@ def main() -> int:
         p = run(parent, "put", "kid", "GH_TOKEN", stdin="t1")
         check("a mirror with no trusted base refuses, naming the step that gives it one",
               p.returncode == 1 and "trust-base" in p.stderr, p.stderr)
+        status = lambda env, *a: subprocess.run([sys.executable, SYNC, "status", *a], env=env,  # noqa: E731
+                                                capture_output=True, text=True)
+        sync = status(parent)
+        check("the parent's status says its mirror has no base, with the repair and the owner (review of #94)",
+              sync.returncode == 1 and f"NO BASE: the mirror of agent {KID} has no trusted base" in sync.stdout
+              and f"trust-base --store {mirror}, with the owner" in sync.stdout, sync.stdout)
         p = run(parent, "trust-base", "--store", mirror)
         check("trust-base records the mirror's base at its head", p.returncode == 0, p.stderr)
+        check("…and status says it no more", "NO BASE" not in status(parent).stdout, status(parent).stdout)
         p = run(parent, "put", "kid", "GH_TOKEN", stdin="t1")
         check("the parent's put is signed with the parent's own key", p.returncode == 0 and signer(parent, mirror) == pfpr,
               (p.stderr, signer(parent, mirror), pfpr))
@@ -130,6 +138,41 @@ def main() -> int:
         subprocess.run([sys.executable, SYNC, "sync", "--quiet"], env=child, capture_output=True, text=True)
         sync = subprocess.run([sys.executable, SYNC, "status"], env=child, capture_output=True, text=True)
         check("control: the complete, synced store's status is OK", sync.returncode == 0, sync.stdout + sync.stderr)
+        # A store with no trusted base refuses everything it is given: NOT OK,
+        # said as a refusal is, in all three forms (review of #94).
+        cbase = git(child, cstore, "config", "--get", "agent-fabric.trustedbase").stdout.strip()
+        git(child, cstore, "config", "--unset", "agent-fabric.trustedbase")
+        sync, quiet, js = status(child), status(child, "--quiet"), status(child, "--json")
+        check("the own store with no base: status NOT OK, naming trust-base",
+              sync.returncode == 1 and "NO BASE: the store has no trusted base" in sync.stdout
+              and "fabric-secrets store trust-base, once" in sync.stdout and "NOT OK" in sync.stdout, sync.stdout)
+        check("…--quiet says it in one line, exit 1",
+              quiet.returncode == 1 and quiet.stdout == "" and quiet.stderr.count("\n") == 1
+              and quiet.stderr.startswith("fabric-secrets: NO BASE: the store"), repr(quiet.stderr))
+        check("…--json lists it by store, in fabric-ctl keys' state name",
+              js.returncode == 1 and json.loads(js.stdout).get("no_trusted_base")
+              == [{"store": "own", "state": "no base", "path": cstore}], js.stdout[:600])
+        # The base is the store's own .git/config's: one in the caller's
+        # environment (or ~/.gitconfig) was read as the store's, and trusted it.
+        hostile = {**child, "GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "agent-fabric.trustedbase",
+                   "GIT_CONFIG_VALUE_0": cbase}
+        sync = status(hostile)
+        p = run(hostile, "set", "HOSTILE_BASE", stdin="h")
+        check("a base from the environment is no base: status NO BASE, and a write still refuses",
+              sync.returncode == 1 and "NO BASE: the store" in sync.stdout
+              and p.returncode == 1 and "has no trusted base" in p.stderr, (sync.stdout, p.stderr))
+        conf =os.path.join(cstore, ".git", "config")
+        os.rename(conf, conf + ".aside")
+        os.mkdir(conf)   # unreadable as a file, also to root
+        sync = status(child)
+        os.rmdir(conf)
+        os.rename(conf + ".aside", conf)
+        check("a config that cannot be read is BASE UNREADABLE, never no base or OK",
+              sync.returncode == 1 and "BASE UNREADABLE: the store: .git/config could not be read (IsADirectoryError)"
+              in sync.stdout and "NO BASE" not in sync.stdout, sync.stdout)
+        git(child, cstore, "config", "agent-fabric.trustedbase", cbase)
+        sync = status(child)
+        check("…the control: the base back, status is OK again", sync.returncode == 0 and "BASE" not in sync.stdout, sync.stdout)
         other = os.path.join(tmp, "other")
         subprocess.run(["git", "clone", "-q", remote, other], check=True, env=child, capture_output=True)
         g = ["-c", "user.name=t", "-c", "user.email=t@t"]
@@ -319,6 +362,20 @@ def main() -> int:
         sync = subprocess.run([sys.executable, SYNC, "status"], env=parent, capture_output=True, text=True)
         check("…and cleared by its next verified fetch", p.returncode == 0 and f"mirror of agent {KID}" not in sync.stdout,
               (p.stderr, sync.stdout))
+        # Not being able to look is no clean bill: a children directory that
+        # cannot be listed was read as no mirrors (review of #94).
+        kids = os.path.dirname(mirror)
+        os.rename(kids, kids + ".aside")
+        open(kids, "w").close()
+        sync = status(parent, "--json")
+        os.remove(kids)
+        os.rename(kids + ".aside", kids)
+        check("status fails when the mirrors cannot be listed, and says why",
+              sync.returncode == 1 and "could not be read" in json.loads(sync.stdout).get("error", "")
+              and "NotADirectoryError" in json.loads(sync.stdout)["error"], sync.stdout[:600])
+        sync = status(parent, "--json")
+        check("…the control: listed again, no such error", "could not be read" not in json.loads(sync.stdout).get("error", ""),
+              sync.stdout[:600])
 
         # F2: a write whose signing fails leaves nothing staged, says so, and the
         # next write works. git signs through `gpg -bsau`: only that fails.

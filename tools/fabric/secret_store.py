@@ -185,16 +185,19 @@ def _run(cmd: list[str], *, stdin: bytes | None = None, cwd: str | None = None,
     except subprocess.TimeoutExpired:
         raise StoreError(f"{what}: timed out after {timeout:g} s") from None
     if check and r.returncode != 0:
-        # The last line of stderr that is not git's advice ("hint:"), which
-        # gpg and git keep free of values; the error, not the suggestion.
-        # Where git says what failed ("fatal:", the server's "ERROR:"), that
-        # line: its advice can follow it, and a push GitHub refused read
-        # "and the repository exists." (python-dev-01's enrolment).
-        lines = [l for l in r.stderr.decode(errors="replace").strip().splitlines() if not l.startswith("hint:")]
-        said = [l for l in lines if l.startswith(("fatal:", "error:", "ERROR:"))]
-        why = (said or lines or [f"exit {r.returncode}"])[-1]
-        raise StoreError(f"{what}: {why}")
+        raise _failure(what, r)
     return r
+
+
+def _failure(what: str, r: subprocess.CompletedProcess) -> StoreError:
+    # The last line of stderr that is not git's advice ("hint:"), which
+    # gpg and git keep free of values; the error, not the suggestion.
+    # Where git says what failed ("fatal:", the server's "ERROR:"), that
+    # line: its advice can follow it, and a push GitHub refused read
+    # "and the repository exists." (python-dev-01's enrolment).
+    lines = [l for l in r.stderr.decode(errors="replace").strip().splitlines() if not l.startswith("hint:")]
+    said = [l for l in lines if l.startswith(("fatal:", "error:", "ERROR:"))]
+    return StoreError(f"{what}: {(said or lines or [f'exit {r.returncode}'])[-1]}")
 
 
 # gpg's commands, as opposed to its options: what an error names.
@@ -393,10 +396,27 @@ def _signing_args(signer: str | None = None) -> list[str]:
             "-c", "gpg.program=gpg", "-c", "gpg.format=openpgp"]
 
 
-def trusted_base(store: str) -> str | None:
-    r = git(store, "config", "--get", TRUST_KEY, check=False)
+def _read_base(store: str) -> tuple[str | None, str | None]:
+    """(the base, None), (None, None) when there is none, or (None, why)
+    when the store's config cannot be read. --local: a plain get also read
+    ~/.gitconfig, the system's and GIT_CONFIG_* from the environment, and a
+    base set there trusted every store. The config is opened first: git
+    reads one it cannot open as one without the key (exit 1, a warning),
+    which would say "no base" for "unreadable"."""
+    try:
+        with open(os.path.join(store, ".git", "config"), "rb"):
+            pass
+    except OSError as e:
+        return None, f".git/config could not be read ({type(e).__name__})"
+    r = git(store, "config", "--local", "--get", TRUST_KEY, check=False)
+    if r.returncode not in (0, 1):
+        return None, str(_failure(".git/config", r))
     v = r.stdout.decode().strip()
-    return v if r.returncode == 0 and re.fullmatch(r"[0-9a-f]{40}", v) else None
+    return (v if r.returncode == 0 and re.fullmatch(r"[0-9a-f]{40}", v) else None), None
+
+
+def trusted_base(store: str) -> str | None:
+    return _read_base(store)[0]
 
 
 def _full(store: str, rev: str) -> str:
@@ -518,6 +538,18 @@ def refusal(store: str | None = None) -> dict | None:
     return doc if isinstance(doc, dict) else {"unreadable": True, "reason": f"{REFUSAL_FILE} is not a JSON object"}
 
 
+def _mirror_ids() -> list[str]:
+    """The agent ids of the children's mirrors this account holds. No
+    children directory is none; one that cannot be listed is an error, never
+    an empty answer: status would read clean on it (review of #94)."""
+    try:
+        return sorted(n for n in os.listdir(children_dir()) if AGENT_ID_RE.match(n))
+    except FileNotFoundError:
+        return []
+    except OSError as e:
+        raise StoreError(f"{children_dir()} could not be listed ({type(e).__name__})") from None
+
+
 def refusals() -> list[dict]:
     """Every refusal this account holds, each named: its own store's
     ("store": "own") and each child's mirror's ("store": the child's agent
@@ -527,14 +559,36 @@ def refusals() -> list[dict]:
     own = refusal()
     if own:
         out.append({**own, "store": "own"})
-    try:
-        kids = sorted(os.listdir(children_dir()))
-    except OSError:
-        kids = []
-    for aid in kids:
-        r = refusal(os.path.join(children_dir(), aid)) if AGENT_ID_RE.match(aid) else None
+    for aid in _mirror_ids():
+        r = refusal(os.path.join(children_dir(), aid))
         if r:
             out.append({**r, "store": aid})
+    return out
+
+
+def base_state(store: str) -> dict | None:
+    """None when the store has a trusted base; else its state, in the names
+    fabric-ctl keys uses: "no base", or "unreadable" with why. Read as the
+    verifier reads it (_read_base), so status cannot disagree with it."""
+    base, why = _read_base(store)
+    if why:
+        return {"state": "unreadable", "reason": why}
+    return None if base else {"state": "no base"}
+
+
+def bases() -> list[dict]:
+    """Every store this account holds that has no trusted base, and so
+    refuses every verified operation (ADR-042): its own ("store": "own"),
+    when there is one, and each child's mirror ("store": the agent id),
+    with its path. Said by status as a refusal is (review of #94)."""
+    out = []
+    own = store_dir()
+    stores = ([("own", own)] if os.path.isdir(os.path.join(own, ".git")) else []) + \
+        [(aid, os.path.join(children_dir(), aid)) for aid in _mirror_ids()]
+    for name, path in stores:
+        st = base_state(path)
+        if st:
+            out.append({**st, "store": name, "path": path})
     return out
 
 

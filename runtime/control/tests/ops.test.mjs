@@ -638,6 +638,13 @@ test('storeRefusal: no store, no base, verified, refused or unreadable; and each
   assert.deepEqual(row(), { name: STORE_ROW, present: false, state: 'no base' }, 'no trusted base: it verifies nothing');
   fs.writeFileSync(path.join(store, '.git', 'config'), `[core]\n\tbare = false\n[agent-fabric]\n\ttrustedbase = ${'a'.repeat(40)}\n`);
   assert.deepEqual(row(), { name: STORE_ROW, present: true, state: 'verified' });
+  // As the verifier reads it: the last value, and only lowercase hex.
+  fs.writeFileSync(path.join(store, '.git', 'config'), `[agent-fabric]\n\ttrustedbase = ${'A'.repeat(40)}\n`);
+  assert.equal(row().state, 'no base', 'an uppercase base is none to the verifier, so none here');
+  fs.writeFileSync(path.join(store, '.git', 'config'), `[agent-fabric]\n\tTrustedBase = ${'a'.repeat(40)}\n\ttrustedbase = x\n`);
+  assert.equal(row().state, 'no base', 'git reads the last value: a good line before a bad one is no base');
+  fs.writeFileSync(path.join(store, '.git', 'config'), `[agent-fabric]\n\ttrustedbase = x\n\tTRUSTEDBASE = ${'a'.repeat(40)}\n`);
+  assert.equal(row().state, 'verified', '…and a good last line, the key in any case, is the base');
   fs.writeFileSync(path.join(store, '.git', 'agent-fabric-refusal.json'),
     JSON.stringify({ commit: '0123456789abcdef0123', reason: 'not signed', at: '2026-10-04T10:00:00Z' }));
   assert.deepEqual(row(), { name: STORE_ROW, present: false, state: 'refused',
