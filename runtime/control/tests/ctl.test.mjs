@@ -77,6 +77,10 @@ test('keys table: held keys, whether git signs, and a refused store said in full
   assert.match(s[1], /^gamma\s+ok\s+0\/0\s+-\s+no base$/, 'no base is said, never verified');
   assert.match(s[2], /^delta\s+ok\s+0\/0\s+-\s+verified$/);
   assert.match(s[3], /^\s+mirror of kid-id: REFUSED ffff at T: outsider$/, 'a mirror\'s refusal is a line of its own, named');
+  const n = table('keys', rows([{ login: 'eps', host: 'h', address: 'h/eps' }], [
+    reply('eps', [{ name: 'store commits verified', present: false, state: 'verified', mirrors: [{ agent_id: 'kid-2', state: 'no base' }] }]),
+  ])).split('\n');
+  assert.match(n[2], /^\s+mirror of kid-2: no base$/, 'a mirror with no base is a line of its own (review of #94)');
 });
 
 test('keys table: a refusal and a key name are the account\'s, their control characters shown escaped', () => {

@@ -647,6 +647,11 @@ test('storeRefusal: no store, no base, verified, refused or unreadable; and each
   fs.rmSync(path.join(store, '.git', 'agent-fabric-refusal.json'));
   const kid = '01a106ee-84ec-74bc-84ef-3720a55d6a3f';
   fs.mkdirSync(path.join(children, kid, '.git'), { recursive: true });
+  assert.deepEqual(row().mirrors, [{ agent_id: kid, state: 'unreadable' }], 'a mirror whose config cannot be read is said (review of #94)');
+  fs.writeFileSync(path.join(children, kid, '.git', 'config'), '[core]\n\tbare = false\n');
+  assert.deepEqual(row(), { name: STORE_ROW, present: false, state: 'verified', mirrors: [{ agent_id: kid, state: 'no base' }] },
+    'a mirror with no base refuses every verified operation: not clean, said by name');
+  fs.writeFileSync(path.join(children, kid, '.git', 'config'), `[agent-fabric]\n\ttrustedbase = ${'b'.repeat(40)}\n`);
   fs.mkdirSync(path.join(children, 'not-an-id', '.git'), { recursive: true });
   fs.writeFileSync(path.join(children, 'not-an-id', '.git', 'agent-fabric-refusal.json'), '{}');
   assert.deepEqual(row(), { name: STORE_ROW, present: true, state: 'verified' }, 'a clean mirror adds nothing; a name that is no agent id is no mirror');

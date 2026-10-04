@@ -212,6 +212,9 @@ def values_digest(values: dict[str, str], known: list[str]) -> str:
 def _refused_line(r: dict) -> str:
     which = "the store" if r.get("store") == "own" else f"the mirror of agent {r.get('store')}"
     who = "the store's parent or the owner" if r.get("store") == "own" else "this account, the child's parent, or the owner"
+    if r.get("unreadable"):
+        return (f"REFUSAL UNREADABLE: {which}: {r.get('reason', '?')} — a refusal may stand; {who} looks at it "
+                "(ADR-042)")
     return (f"REFUSED: {which} refused commit {str(r.get('commit', '?'))[:12]} at {r.get('at', '?')}: "
             f"{r.get('reason', '?')} — {who} repairs it (ADR-042)")
 
