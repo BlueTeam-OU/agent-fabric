@@ -840,11 +840,14 @@ class Bootstrap:
         # 10. ADR-042's migration, once per account: every store that exists
         #     now takes the head it holds as its trusted base, the history it
         #     has already applied. ONCE, by a marker, and never again by
-        #     itself: a mirror deleted and re-cloned later would otherwise be
-        #     trusted whole from its remote. That one refuses until a person
-        #     runs `fabric-secrets store trust-base`; a store born after the
-        #     migration gets its base at first contact (seed-child,
-        #     take-bundle). A store that already has a base is left alone.
+        #     itself: a mirror deleted and re-made later would otherwise be
+        #     trusted whole from its remote. Such a mirror is rebuilt by
+        #     store-enroll's seed-child only from its remote's history
+        #     verified against the writers on main, and a store whose history
+        #     cannot be verified refuses until a person runs `fabric-secrets
+        #     store trust-base` (review of the ADR-042 branch, F1). A store
+        #     born after the migration gets its base at first contact
+        #     (seed-child, take-bundle). One that has a base is left alone.
         marker = os.path.join(fabric_writes.state_dir(), STORE_BASE_MARKER)
         if os.path.exists(marker):
             return
