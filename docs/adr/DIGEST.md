@@ -858,8 +858,9 @@ its record disagree, the record wins. Look it up, never read it whole:
 
 - Every store commit is signed by its writer's own key: the agent's for
   `set`, the parent's for `put` and `seed-child` (§5 rule 1).
-- Only the agent's and its parent's keys, as `lineage.json` records them,
-  may write a store (§5 rule 2).
+- Only the agent's and its parent's keys may write a store: a signing
+  subkey of a primary key `lineage.json` records, read from the committed
+  `identities/keys/<id>.asc`; the root writes alone (§5 rule 2).
 - `pull`, `take-bundle`, the fast-forward before a push and `sync` verify
   every commit past the trusted base; one failure refuses the operation,
   named, nothing applied (§5 rules 3–4).

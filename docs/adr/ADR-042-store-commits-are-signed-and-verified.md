@@ -90,8 +90,9 @@ a handful of times a day.
   one, an attacker now needs a writer's private key, not just push access.
 - Every store write needs its writer's signing key unlocked. That is
   already true of the encryption it does.
-- A key rotation must reach `lineage.json` before the rotated key's
-  writes verify. Rotation already goes through it.
+- A rotated signing subkey verifies once the agent's committed
+  `identities/keys/<id>.asc` carries it on main. A new primary key also
+  reaches `lineage.json`. Rotation already goes through both.
 - One migration: each store's current head becomes its trusted base, and
   each account's signing configuration for the store is set.
 
