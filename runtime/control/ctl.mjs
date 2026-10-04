@@ -33,10 +33,11 @@
 // the channel, and nothing else anywhere.
 
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { whoami, FABRIC_ROOT, api, syncedToken, syncedVar, identity as gzIdentity, integrationConfig, inboxRoot, token as gzToken } from './gzcoord.mjs';
-import { execFileSync } from 'node:child_process';
+import { whoami, FABRIC_ROOT, api, syncedToken, identity as gzIdentity, integrationConfig, inboxRoot, token as gzToken } from './gzcoord.mjs';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { ACTION_OPS, ACTION_TTL_MAX_S, signRequest, generateOperatorKey, publicKeyFrom } from './sign.mjs';
 import { PIECES, VERSION_RE, UPGRADE_BUDGET_S, FABRIC_UPGRADE_BUDGET_S, pinnedVersion } from './upgrade.mjs';
 import zlib from 'node:zlib';
@@ -456,9 +457,9 @@ export async function main(argv = process.argv.slice(2), { registry, fetchImpl }
   if (ACTION_OPS.includes(args.op)) {
     // An action is signed or not sent: an unsigned one is refused by every
     // daemon, and a silent table would read as agents that did not answer.
-    const key = process.env.FABRIC_CONTROL_SIGNING_KEY ?? syncedVar('FABRIC_CONTROL_SIGNING_KEY');
-    if (!key) { console.error('fabric-ctl: no FABRIC_CONTROL_SIGNING_KEY (fabric-ctl keygen, then fabric-secrets sync) — an action is signed or not sent'); return 3; }
-    try { request = signRequest(request, key); } catch (e) { console.error(`fabric-ctl: ${e.message}`); return 3; }
+    const k = signingKey();
+    if (k.error) { console.error(`fabric-ctl: ${k.error} — an action is signed or not sent`); return 3; }
+    try { request = signRequest(request, k.key); } catch (e) { console.error(`fabric-ctl: ${e.message}`); return 3; }
   }
   let sent;
   try { sent = await call('/api/send', { method: 'POST', body: JSON.stringify({ channel: cfg.channel, sender: me.address, content: JSON.stringify(request) }) }); }
@@ -499,6 +500,40 @@ export async function main(argv = process.argv.slice(2), { registry, fetchImpl }
   // answered: the first fleet upgrade printed nine failed rows and exited 0.
   const actionFailed = ACTION_OPS.includes(args.op) && replies.some(r => !(ACTION_OK[args.op] ?? []).includes(r.data?.[args.op]?.status));
   return want.size || short() || refused || actionFailed ? 1 : 0;
+}
+
+// The operator's signing key, decrypted from this login's own store at the
+// moment an action is signed, and never read from the environment: ~/.bashrc
+// sources secrets.env, so a synced key sat in every shell and subagent of
+// the account, and a reviewer printed its environment (key rotated, #95).
+// gpg hands the value to this process on its stdout pipe — never argv,
+// never a file — with secret_store.py gpg()'s flags. Each way it can fail
+// is its own line, and none of them carries the value.
+export const SIGNING_KEY_NAME = 'FABRIC_CONTROL_SIGNING_KEY';
+const DECRYPT_TIMEOUT_MS = 30_000;
+// secret_store.py store_dir(), its `or` included: an empty variable is unset.
+export const storeDir = (env = process.env, home = os.homedir()) =>
+  env.AGENT_FABRIC_SECRET_STORE || path.join(home, '.local', 'share', 'agent-fabric', 'secrets');
+
+export function signingKey({ store = storeDir(), run = spawnSync } = {}) {
+  const file = path.join(store, 'env', `${SIGNING_KEY_NAME}.gpg`);
+  try { fs.statSync(store); }
+  catch (e) { return { error: e.code === 'ENOENT' ? `no secret store at ${store} (fabric-secrets store init)` : `cannot read the secret store ${store} (${e.code})` }; }
+  try { fs.accessSync(file, fs.constants.R_OK); }
+  catch (e) { return { error: e.code === 'ENOENT' ? `no ${SIGNING_KEY_NAME} in this login's store — fabric-ctl keygen makes it` : `cannot read ${file} (${e.code})` }; }
+  const r = run('gpg', ['--batch', '--yes', '--no-tty', '--pinentry-mode', 'loopback', '--passphrase', '', '--decrypt', file],
+                { stdio: ['ignore', 'pipe', 'pipe'], encoding: 'utf8', timeout: DECRYPT_TIMEOUT_MS });
+  if (r.error?.code === 'ENOENT') return { error: 'gpg not found; the signing key cannot be decrypted' };
+  if (r.error?.code === 'ETIMEDOUT') return { error: `gpg --decrypt of ${SIGNING_KEY_NAME} timed out after ${DECRYPT_TIMEOUT_MS / 1000} s` };
+  if (r.error) return { error: `gpg --decrypt of ${SIGNING_KEY_NAME}: ${r.error.message}` };
+  if (r.status !== 0) {
+    // gpg's last line names why (no secret key, bad data); its stderr never holds the plaintext.
+    const why = String(r.stderr ?? '').trim().split('\n').at(-1) || (r.signal ? `killed by ${r.signal}` : `exit ${r.status}`);
+    return { error: `gpg --decrypt of ${SIGNING_KEY_NAME} failed: ${why}` };
+  }
+  // pass(1)'s layout: the value is the first line.
+  const key = String(r.stdout).split('\n')[0].trim();
+  return key ? { key } : { error: `${SIGNING_KEY_NAME} in this login's store is empty — fabric-ctl keygen --force replaces it` };
 }
 
 // The operator's signing key, made once (or rotated): the private half goes
