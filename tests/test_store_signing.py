@@ -484,6 +484,13 @@ def main() -> int:
               p.returncode == 1 and "refused: not signed" in p.stderr and not os.path.exists(nmirror), p.stderr)
         check("…and the refusal names the owner's repair, not a rebuild that would refuse again (review of #94)",
               "the owner's to repair by hand" in p.stderr and f"trust-base --store {nmirror}" in p.stderr, p.stderr)
+        # The refusal's record lay inside the mirror removed with it, so status
+        # never said it (review of #96): kept beside the mirror, until a
+        # verified fetch clears it.
+        sync = subprocess.run([sys.executable, SYNC, "status"], env=parent, capture_output=True, text=True)
+        check("…and the parent's status says that refusal, though the mirror is gone",
+              sync.returncode == 1 and f"REFUSED: the mirror of agent {new_id} refused commit" in sync.stdout
+              and os.path.exists(nmirror + ".refusal.json"), sync.stdout)
         unforge(new_remote, before)
         os.makedirs(os.path.join(nmirror, ".git"))
         # Two seed-childs on one mirror removed each other's (review of #94):
@@ -504,6 +511,12 @@ def main() -> int:
         check("…its advice is the owner's trust-base, never a removal that loops (review of #94)",
               f"trust-base --store {nmirror}" in p.stderr and "remove the mirror to rebuild" not in p.stderr, p.stderr)
         shutil.rmtree(nmirror)
+        p = subprocess.run([sys.executable, TOOL, "seed-child", new_id, "--remote", new_remote],
+                           env=parent, input=run(nkid, "bundle").stdout, capture_output=True, text=True)
+        sync = subprocess.run([sys.executable, SYNC, "status"], env=parent, capture_output=True, text=True)
+        check("the kept refusal is over once the mirror is rebuilt and takes a verified head",
+              p.returncode == 0 and not os.path.exists(nmirror + ".refusal.json")
+              and f"mirror of agent {new_id}" not in sync.stdout, (p.stderr, sync.stdout))
     finally:
         for g in gnupgs:
             subprocess.run(["gpgconf", "--homedir", g, "--kill", "all"], capture_output=True)

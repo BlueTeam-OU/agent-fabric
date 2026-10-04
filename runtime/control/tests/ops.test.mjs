@@ -665,6 +665,13 @@ test('storeRefusal: no store, no base, verified, refused or unreadable; and each
   fs.writeFileSync(path.join(children, kid, '.git', 'agent-fabric-refusal.json'), JSON.stringify({ commit: 'ffff', reason: 'outsider', at: 'T' }));
   assert.deepEqual(row(), { name: STORE_ROW, present: false, state: 'verified',
     mirrors: [{ agent_id: kid, commit: 'ffff', at: 'T', reason: 'outsider' }] }, 'the own store verified, a mirror refused: not clean');
+  // A refused rebuild removes the mirror and keeps its refusal beside it
+  // (review of #96): said by that record alone, no base to read.
+  fs.rmSync(path.join(children, kid), { recursive: true });
+  assert.deepEqual(row(), { name: STORE_ROW, present: true, state: 'verified' }, 'control: no mirror and no record, nothing said');
+  fs.writeFileSync(path.join(children, `${kid}.refusal.json`), JSON.stringify({ commit: 'eeee', reason: 'not signed', at: 'U' }));
+  assert.deepEqual(row(), { name: STORE_ROW, present: false, state: 'verified',
+    mirrors: [{ agent_id: kid, commit: 'eeee', at: 'U', reason: 'not signed' }] }, 'a removed mirror\'s kept refusal is said by name');
 });
 
 // The disk op: each daemon measures its own home, through du only — names
