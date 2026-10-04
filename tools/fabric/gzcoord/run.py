@@ -13,6 +13,7 @@ the shim's ends (PR_SET_PDEATHSIG); a shim that is already gone when this
 starts is an orphaned start, and nothing runs."""
 from __future__ import annotations
 
+import codecs
 import ctypes
 import os
 import signal
@@ -21,6 +22,11 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
 
 PR_SET_PDEATHSIG = 1
+
+# What the Node wrote for a code unit UTF-8 cannot hold (a lone surrogate):
+# U+FFFD, one per unit. errors="replace" would write "?". Bytes, not a str:
+# the UTF-8 encoder takes only ASCII back from a handler as text.
+codecs.register_error("gzcoord-fffd", lambda e: ("\ufffd".encode("utf-8") * (e.end - e.start), e.end))
 
 
 def tie_to_shim() -> bool:
@@ -48,7 +54,7 @@ def main(argv: list[str]) -> int:
     # surrogate from a relay record) replaced, never raised: the Node wrote
     # UTF-8 always, and an encoding error after the ack ended --follow.
     for stream in (sys.stdout, sys.stderr):
-        stream.reconfigure(encoding="utf-8", errors="replace")
+        stream.reconfigure(encoding="utf-8", errors="gzcoord-fffd")
     tool, rest = (argv[0] if argv else ""), argv[1:]
     if tool not in ("gzmsg", "send", "inbox"):
         print("usage: run.py gzmsg|send|inbox [argv…]", file=sys.stderr)

@@ -195,8 +195,28 @@ def synced_var(name: str, home: str | None = None) -> str | None:
     return None
 
 
+class TokenRefused(Exception):
+    """The relay token holds a line break or a NUL. Said in one line that
+    names no part of it."""
+
+
+def checked_token(v: str | None) -> str | None:
+    """Every token leaves this module through here: trimmed of HTTP
+    whitespace, as fetch's Headers trimmed a header value, and refused with
+    a CR, LF or NUL inside. Such a token reached presence.mjs whole, and the
+    first line of its fetch error, carrying the token's start, was printed
+    as the presence detail (review of #93, round 2)."""
+    if v is None:
+        return None
+    v = v.strip(" \t\r\n")
+    if any(c in v for c in "\r\n\0"):
+        raise TokenRefused("the relay token holds a line break or a NUL; nothing was sent with it "
+                           "(fabric-secrets sync writes it again)")
+    return v
+
+
 def synced_token(home: str | None = None) -> str | None:
-    return synced_var("CLAUDE_BRIDGE_AUTH_TOKEN", home)
+    return checked_token(synced_var("CLAUDE_BRIDGE_AUTH_TOKEN", home))
 
 
 def token(root: str, cfg: dict | None = None) -> str | None:
@@ -204,9 +224,13 @@ def token(root: str, cfg: dict | None = None) -> str | None:
     never logged. The synced file first: the environment is a snapshot of
     it taken when the session's shell started, and after a rotation it
     stays wrong for the life of the session (web-dev-01, 2026-09-14)."""
+    return checked_token(_token(root, cfg))
+
+
+def _token(root: str, cfg: dict | None) -> str | None:
     # Fields only: nothing this default says is printed.
     cfg = integration_config(None, os.environ, en()) if cfg is None else cfg
-    synced = synced_token()
+    synced = synced_var("CLAUDE_BRIDGE_AUTH_TOKEN")
     if synced:
         return synced
     if os.environ.get("CLAUDE_BRIDGE_AUTH_TOKEN"):
@@ -359,12 +383,8 @@ _OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}), _NoRedire
 def api(tok: str, path_and_query: str, relay_url: str | None = None, method: str = "GET", body: str | None = None,
         timeout: float = API_TIMEOUT) -> Any:
     relay_url = default_relay() if relay_url is None else relay_url
-    # Trimmed of HTTP whitespace, as fetch's Headers did. A line break or NUL
-    # left inside is refused here: http.client's own refusal quotes the
-    # whole header, the token in it, into an error line.
-    tok = tok.strip(" \t\r\n")
-    if any(c in tok for c in "\r\n\0"):
-        raise RelayError("the relay token holds a line break or a NUL; not sent")
+    # tok came through checked_token(): http.client's own refusal of a line
+    # break would quote the whole header, the token in it, into an error line.
     req = urllib.request.Request(f"{relay_url}{path_and_query}", method=method,
                                  data=None if body is None else body.encode("utf-8"),
                                  headers={"Authorization": f"Bearer {tok}", "Content-Type": "application/json"})

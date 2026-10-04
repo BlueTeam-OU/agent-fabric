@@ -166,7 +166,14 @@ def _alive(pid: int) -> bool:
         return False
 
 
-@case("the Python child is gone after TERM, INT, HUP or KILL on its shim")
+# The shim's own status says whether it forwarded: an INT forwarded is the
+# inbox's KeyboardInterrupt, exit 130; one not forwarded kills the shim.
+# The child's end alone cannot say it: PDEATHSIG ends it either way.
+SHIM_STATUS = {signal.SIGTERM: -signal.SIGTERM, signal.SIGINT: 130, signal.SIGHUP: -signal.SIGHUP,
+               signal.SIGKILL: -signal.SIGKILL}
+
+
+@case("the Python child is gone after TERM, INT, HUP or KILL on its shim, and the shim ends as the child did")
 def _():
     waits: list[int] = []
 
@@ -191,7 +198,7 @@ def _():
                 kids = _children(shim.pid)
                 eq(len(kids), 1, f"{sig.name}: the shim's children")
                 os.kill(shim.pid, sig)
-                shim.wait(10)
+                eq(shim.wait(10), SHIM_STATUS[sig], f"{sig.name}: the shim's status")
                 deadline = time.monotonic() + 10
                 while _alive(kids[0]) and time.monotonic() < deadline:
                     time.sleep(0.05)
@@ -225,7 +232,7 @@ def _():
 # ── 5. the port's own departures ─────────────────────────────────────
 
 def _replay_env(stub: P.Stub, **extra: str) -> dict:
-    return P.cmd_env(CLAUDE_BRIDGE_URL=stub.url, CLAUDE_BRIDGE_AUTH_TOKEN="tok", GZCOORD_CHANNEL="fixture:chan", **extra)
+    return P.cmd_env(**{"CLAUDE_BRIDGE_URL": stub.url, "CLAUDE_BRIDGE_AUTH_TOKEN": "tok", "GZCOORD_CHANNEL": "fixture:chan", **extra})
 
 
 def _record_stub(content_json: str) -> P.Stub:
@@ -234,7 +241,7 @@ def _record_stub(content_json: str) -> P.Stub:
                   else (200, "{}"))
 
 
-@case("a lone surrogate in a relay record is replaced on stdout, never an encoding error")
+@case("a lone surrogate in a relay record is U+FFFD on stdout, as the Node wrote it, never an encoding error")
 def _():
     stub = _record_stub(json.dumps("[GZCOORD/1] INFO\nFROM: x/y\nROLE: backend-dev\nPROJECT: fixture\nBROADCAST: true\n"
                                    "MESSAGE-ID: 01a09fc1-0000-7000-8000-000000000005\nSUBJECT: s\n\nNOTES:\nA") [:-1]
@@ -244,7 +251,7 @@ def _():
     finally:
         stub.close()
     eq(r.returncode, 0, r.stderr.decode("utf-8", "replace"))
-    ok(b"A?B" in r.stdout, r.stdout[-200:])
+    ok("A\ufffdB".encode("utf-8") in r.stdout, f"U+FFFD, as the Node wrote: {r.stdout[-200:]!r}")
 
 
 @case("output is UTF-8 under a non-UTF-8 locale")
@@ -331,18 +338,55 @@ class _Redirect:
         self.server.server_close()
 
 
-@case("the relay token is trimmed before the header; one with a line break inside is refused, and never said")
+@case("every token is trimmed once where it is read; one with a line break or NUL inside is refused, and never said")
 def _():
-    seen: list[str | None] = []
-    stub = P.Stub(lambda h, _m, _p, _b: (seen.append(h.headers.get("Authorization")), (200, "{}"))[1])
+    eq(inbox.checked_token(" tok\r\n"), "tok")
+    eq(inbox.checked_token(None), None)
+    for bad in ("a\r\nb", "a\nb", "a\0b"):
+        try:
+            inbox.checked_token(bad)
+            raise Failed(f"{bad!r} passed")
+        except inbox.TokenRefused as e:
+            ok(str(e).startswith("the relay token holds a line break or a NUL; nothing was sent"), str(e))
+    home = P.scratch("synced-")
+    os.makedirs(os.path.join(home, ".config", "agent-fabric"))
+    with open(os.path.join(home, ".config", "agent-fabric", "secrets.env"), "w", encoding="utf-8") as fh:
+        fh.write("export CLAUDE_BRIDGE_AUTH_TOKEN='HEAD\0TAIL'\n")
     try:
-        eq(_api(stub.url, " tok\r\n"), "{}")
-        eq(seen, ["Bearer tok"])
-        out = _api(stub.url, "sec\r\nret")
-        ok(out.startswith("RelayError None ") and "sec" not in out and "ret" not in out, out)
-        eq(len(seen), 1, "nothing was sent")
+        inbox.synced_token(home)
+        raise Failed("the synced token, the one re-read after a 401, passed unchecked")
+    except inbox.TokenRefused:
+        pass
+    seen: list[str | None] = []
+    stub = P.Stub(lambda h, _m, path, _b: (seen.append(h.headers.get("Authorization")),
+                                           (200, '{"messages": []}') if path.startswith("/api/messages") else (200, "{}"))[1])
+    try:
+        r = subprocess.run(["node", P.INBOX_CMD, "--history"], env=_replay_env(stub, CLAUDE_BRIDGE_AUTH_TOKEN=" tok\r\n"),
+                           capture_output=True, text=True, timeout=30)
+        eq(r.returncode, 0, r.stderr)
+        ok(seen and all(a == "Bearer tok" for a in seen), f"trimmed before the header: {seen}")
     finally:
         stub.close()
+
+
+@case("send's presence path never sees a token with a line break: refused before presence.mjs is asked, the token unsaid")
+def _():
+    hits: list[str] = []
+    stub = P.Stub(lambda _h, _m, path, _b: (hits.append(path), (200, '{"messages": []}'))[1])
+    try:
+        env = _replay_env(stub, CLAUDE_BRIDGE_AUTH_TOKEN="SECRET-HEAD\r\nSECRET-TAIL")
+        me = gzmsg.whoami()
+        f = os.path.join(env["HOME"], "m.txt")
+        with open(f, "w", encoding="utf-8") as fh:
+            fh.write(f"[GZCOORD/1] INFO\nFROM: {me['host']}/{me['agent']}\nROLE: backend-dev\nPROJECT: fixture\n"
+                     f"TO: {me['host']}/{me['agent']}\nSUBJECT: s\n\nNOTES:\nn\n")
+        r = subprocess.run(["node", P.SEND_CMD, f], env=env, capture_output=True, text=True, timeout=60)
+    finally:
+        stub.close()
+    eq(r.returncode, 1, r.stderr)
+    ok("line break or a NUL" in r.stderr, r.stderr)
+    ok("SECRET" not in r.stderr + r.stdout, f"the token was said: {r.stderr}")
+    eq([h for h in hits if h.startswith("/api/")], [], "nothing reached the relay, the presence request included")
 
 
 def main() -> int:
