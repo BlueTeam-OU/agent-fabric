@@ -338,6 +338,22 @@ def main() -> int:
         check("--if-needed on a channel the marker does not cover asks the relay for it",
               r.returncode == 0 and any(c[0] == "GET" and c[2].get("channel") == "gzapp:elsewhere" for c in Relay.calls),
               (r.stdout, r.stderr, Relay.calls[:2]))
+        conn = ep.connect()
+        good = conn.execute("SELECT gzcoord_import_seqs FROM meta").fetchone()[0]
+        conn.execute("UPDATE meta SET gzcoord_import_seqs='{not json'")
+        r = run("--if-needed", "agent-fabric")
+        check("an unparsable import marker is refused, never read as none: exit 1, one line naming the file and "
+              "the column, nothing asked", r.returncode == 1 and r.stderr.count("\n") == 1 and ep.db_path() in r.stderr
+              and "gzcoord_import_seqs" in r.stderr and not Relay.calls, (r.returncode, r.stderr, Relay.calls[:2]))
+        conn.execute("UPDATE meta SET gzcoord_import_seqs='[]'")
+        r = run("--if-needed", "agent-fabric")
+        check("…a marker that is JSON but no object, the same", r.returncode == 1 and "gzcoord_import_seqs" in r.stderr
+              and not Relay.calls, (r.returncode, r.stderr))
+        conn.execute("UPDATE meta SET gzcoord_import_seqs=?", (good,))
+        r = run("--if-needed", "agent-fabric")
+        check("…positive control: the marker back, --if-needed reads it", r.returncode == 0
+              and "already imported" in r.stdout, (r.returncode, r.stderr))
+        conn.close()
 
         print("a body that differs under a kept id")
         Relay.messages.append({"id": "relay-x1", "seq": 900, "timestamp": DAY.format(27), "sender": OTHER,
