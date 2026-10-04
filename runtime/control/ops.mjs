@@ -898,20 +898,30 @@ export async function disk(home = os.homedir(), { exec = execFileP, timeoutMs = 
   catch (e) { return { status: 'failed', error: `${home} could not be listed (${e.code ?? e.message})` }; }
   const errors = [];
   const du = async (args, what) => {
-    let text = '';
-    try { const r = await exec('du', args, { encoding: 'utf8', timeout: timeoutMs, maxBuffer: DISK_MAX_BUFFER }); text = String(typeof r === 'string' ? r : r?.stdout ?? ''); }
+    let text = '', said = '';
+    // LC_ALL=C: du's complaints are read below, so they must not be translated.
+    const opts = { encoding: 'utf8', timeout: timeoutMs, maxBuffer: DISK_MAX_BUFFER, env: { ...process.env, LC_ALL: 'C' } };
+    try { const r = await exec('du', args, opts); text = String(typeof r === 'string' ? r : r?.stdout ?? ''); said = String(r?.stderr ?? ''); }
     catch (e) {
-      text = String(e?.stdout ?? '');
+      text = String(e?.stdout ?? ''); said = String(e?.stderr ?? '');
       const why = e?.code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER' ? `du's output passed its ${DISK_MAX_BUFFER / 1048576} MiB bound`
         : e?.killed || e?.signal ? `du stopped at its ${timeoutMs / 1000} s bound` : `du exit ${e?.code ?? '?'}`;
       errors.push(`${what}: ${why}${text.trim() ? ', partial' : ''}`);
     }
-    const sizes = new Map();
+    // What du could not read is not in the total: say how much, and where to
+    // look first. A rootless podman's volumes are owned by a sub-UID, so a
+    // home that runs containers has some.
+    const unread = said.split('\n').map(l => /^du: cannot (?:read directory|access) (.*): [^:]*$/.exec(l)?.[1]).filter(Boolean);
+    if (unread.length) errors.push(`${what}: ${unread.length} path${unread.length === 1 ? '' : 's'} du could not read, not counted; the first: ${unread[0]}`);
+    const sizes = new Map(), outside = [];
     const inside = p => p === home || p.startsWith(home.endsWith(path.sep) ? home : home + path.sep);
+    // Each record ends in NUL (-0): a newline is part of a name, never a separator.
     for (const rec of text.split('\0')) {
-      const m = /^(\d+)\t([\s\S]+)$/.exec(rec.replace(/^\n+/, ''));
-      if (m && inside(m[2])) sizes.set(m[2], Number(m[1]));
+      const m = /^(\d+)\t([\s\S]+)$/.exec(rec);
+      if (!m) continue;
+      if (inside(m[2])) sizes.set(m[2], Number(m[1])); else outside.push(m[2]);
     }
+    if (outside.length) errors.push(`${what}: ${outside.length} record${outside.length === 1 ? '' : 's'} outside ${home} dropped; the first: ${outside[0]}`);
     return sizes;
   };
   const projects = path.join(home, 'projects');

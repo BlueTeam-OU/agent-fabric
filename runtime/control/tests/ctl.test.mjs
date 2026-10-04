@@ -124,6 +124,15 @@ test('disk table, round 4: the failed rank above the silent whatever their names
   assert.ok(t[2].includes('no\\x07bell'));
 });
 
+test('disk table: a status and a size are the account\'s too — escaped, and a size that is no number is not formatted', () => {
+  const t = table('disk', rows([{ login: 'odd', host: 'h', address: 'h/odd' }], [
+    { kind: 'reply', from: 'h/odd', op: 'disk', data: { disk: { status: 'ok\u001b[2J', total_kb: '9\u0007', largest: [{ name: 'n', kb: 'x\u009b' }],
+      targets: [{ path: 'p', kb: 1 }], targets_kb: 2048 } } },
+  ]));
+  assert.ok(!/[\u0000-\u0009\u000b-\u001f\u007f-\u009f]/.test(t), JSON.stringify(t));
+  assert.ok(t.includes('ok\\x1b[2J') && t.includes('9\\x07') && t.includes('n x\\x9b') && t.includes(' 2M '), JSON.stringify(t));
+});
+
 test('host table: one row per host from whichever account answered first, the others counted; a silent host is a row; the leases and the largest processes under it', () => {
   const expected = [{ login: 'a', host: 'h1', address: 'h1/a' }, { login: 'b', host: 'h1', address: 'h1/b' }, { login: 'c', host: 'h2', address: 'h2/c' }];
   const machine = { status: 'ok', cpus: 6, loadavg: [0.9, 1.2, 0.8], mem_mb: { total: 18152, available: 12685, swap_total: 9216, swap_free: 9216 }, balloon_mb: { current: 18345, target: 18345, static_max: 18363 }, disk: [{ mount: '/rw', size_gb: 295, avail_gb: 41, use_pct: 87 }], leases: [{ name: 'backend-test', holder: 'db-admin', pid: 42, since: '2026-09-19T08:26:43Z' }], top_rss: [{ user: 'backend-dev-02', pid: 1, rss_mb: 2140, comm: 'dotnet' }] };

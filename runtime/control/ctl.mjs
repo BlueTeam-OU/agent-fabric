@@ -362,7 +362,9 @@ export function table(op, rs) {
   if (op === 'disk') {
     // One row per account, the largest home first: what /home is spent on,
     // and by whom; then the failed, then the silent, each by name.
-    const H = kb => kb == null ? '-' : kb >= 1048576 ? `${(kb / 1048576).toFixed(1)}G` : kb >= 1024 ? `${(kb / 1024).toFixed(0)}M` : `${kb}K`;
+    // A size is formatted only when it is a number; anything else the account
+    // sent is shown as it came, escaped (esc, at module scope).
+    const H = kb => kb == null ? '-' : !Number.isFinite(kb) ? esc(kb) : kb >= 1048576 ? `${(kb / 1048576).toFixed(1)}G` : kb >= 1024 ? `${(kb / 1024).toFixed(0)}M` : `${kb}K`;
     lines.push(`${'account'.padEnd(22)} ${'status'.padEnd(8)} ${'total'.padStart(7)}  ${'largest entry'.padEnd(28)} ${'target/'.padStart(7)}  target/ directories`);
     const rank = r => r.status !== 'ok' || !r.disk ? 2 : r.disk.status === 'failed' || r.disk.total_kb == null ? 1 : 0;
     const size = r => rank(r) === 0 ? r.disk.total_kb : 0;
@@ -372,7 +374,7 @@ export function table(op, rs) {
       if (d.status === 'failed') { lines.push(`${r.account.padEnd(22)} ${'failed'.padEnd(8)} ${esc(d.error ?? '')}`.trimEnd()); continue; }
       const top = d.largest?.[0] ? `${esc(d.largest[0].name)} ${H(d.largest[0].kb)}` : '-';
       const targets = (d.targets ?? []).slice(0, 3).map(t => `${esc(t.path)} ${H(t.kb)}`).join(', ') + ((d.targets ?? []).length > 3 ? `, +${d.targets.length - 3}` : '');
-      lines.push(`${r.account.padEnd(22)} ${d.status.padEnd(8)} ${H(d.total_kb).padStart(7)}  ${top.padEnd(28)} ${H(d.targets_kb).padStart(7)}  ${targets || '-'}`.trimEnd());
+      lines.push(`${r.account.padEnd(22)} ${esc(d.status).padEnd(8)} ${H(d.total_kb).padStart(7)}  ${top.padEnd(28)} ${H(d.targets_kb).padStart(7)}  ${targets || '-'}`.trimEnd());
       for (const e of d.errors ?? []) lines.push(`${''.padEnd(22)} ${''.padEnd(8)} ${esc(e)}`);
     }
     return lines.join('\n');
