@@ -17,7 +17,8 @@
 // The lines integrationConfig() and holdStatus() print come from the same
 // default dictionary the GZCoord tools read
 // (communication/gzcoord/i18n/en-US.json), read here directly rather than
-// through i18n.mjs, which moves with them. The daemon prints none of them
+// through the tools' own reader (tools/fabric/gzcoord/i18n.py, Python since
+// ADR-040 Wave 7). The daemon prints none of them
 // to a person: it reads `configured` and `held`.
 import fs from 'node:fs';
 import os from 'node:os';

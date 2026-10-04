@@ -166,10 +166,11 @@ def main() -> int:
         state = ep.state_dir()
         report_path = os.path.join(state, "episodic-import.json")
 
-        src = open(os.path.join(HERE, "communication", "gzcoord", "scripts", "gzmsg.mjs"), encoding="utf-8").read()
-        retired = re.search(r"export const RETIRED_TYPES = \[([^\]]*)\]", src)
-        check("RETIRED_TYPES is gzmsg.mjs's own",
-              retired and tuple(re.findall(r"'([A-Z-]+)'", retired.group(1))) == ei.RETIRED_TYPES, retired)
+        # The validator's own list, read from the module (ADR-040's 2026-10-01
+        # amendment: a case reading the source reads the module).
+        from gzcoord import gzmsg
+        check("RETIRED_TYPES is gzmsg's own", tuple(gzmsg.RETIRED_TYPES) == ei.RETIRED_TYPES,
+              (gzmsg.RETIRED_TYPES, ei.RETIRED_TYPES))
         check("the fixture's agent id is a UUIDv7 born 2026-09-20",
               ep.AGENT_ID_RE.match(AGENT) and ei.birth(AGENT) == datetime.datetime(2026, 9, 20, tzinfo=datetime.UTC), AGENT)
 

@@ -24,7 +24,8 @@ doing" has one answer.
 list: the title, sender and project are read from the message through the
 inbox's own replay (addressed to this login, or refused, SPEC §17), and
 a message already on the list is refused by name. Only the receiver runs
-it (ADR-037 rule 4). The automatic intake in send.mjs calls it with
+it (ADR-037 rule 4). The automatic intake in the GZCoord send
+(tools/fabric/gzcoord/send.py) calls it with
 --auto, which skips quietly what is not a REQUEST or is already listed;
 that path runs only under AGENT_FABRIC_JOBS_AUTO_INTAKE=1, which nothing
 sets (rule 5).
