@@ -23,7 +23,7 @@
 # state-changing git (push, commit, add, rm, mv, checkout,
 # switch, restore, reset, stash, rebase, merge, cherry-pick, revert,
 # tag, branch creation/deletion, clean, worktree, am, apply, fetch,
-# pull, remote changes, gc) and package installs/restores (pnpm/npm/
+# pull, remote and config changes, gc) and package installs/restores (pnpm/npm/
 # yarn install|add|remove|update, flutter/dart pub get|add|upgrade,
 # dotnet restore|add, pip install, cargo add). Allows everything else:
 # read-only git, validators, guards, builds and tests that need no
@@ -43,7 +43,7 @@ fi
 cmd="$(jq -r '.tool_input.command // empty' 2>/dev/null)" || exit 0
 [[ -n "$cmd" ]] || exit 0
 
-GIT_WRITE='(^|[;&|(]|`)[[:space:]]*(sudo[[:space:]]+)?([^[:space:]]*/)?git([[:space:]]+-[A-Za-z-]+([[:space:]]+[^[:space:]]+)?)*[[:space:]]+(push|commit|add|rm|mv|checkout|switch|restore|reset|stash|rebase|merge|cherry-pick|revert|clean|am|apply|fetch|pull|gc|tag[[:space:]]+(-[adsfm]|--delete|--force|[A-Za-z0-9][^[:space:]]*)|worktree[[:space:]]+(add|remove|prune|move|lock|unlock|repair)|branch[[:space:]]+(-[dDmMc]|--delete|--move|--copy)|remote[[:space:]]+(add|remove|rm|rename|set-url))([[:space:]]|$|[);&|])'
+GIT_WRITE='(^|[;&|(]|`)[[:space:]]*(sudo[[:space:]]+)?([^[:space:]]*/)?git([[:space:]]+-[A-Za-z-]+([[:space:]]+[^[:space:]]+)?)*[[:space:]]+(push|commit|add|rm|mv|checkout|switch|restore|reset|stash|rebase|merge|cherry-pick|revert|clean|am|apply|fetch|pull|gc|tag[[:space:]]+(-[adsfm]|--delete|--force|[A-Za-z0-9][^[:space:]]*)|worktree[[:space:]]+(add|remove|prune|move|lock|unlock|repair)|branch[[:space:]]+(-[dDmMc]|--delete|--move|--copy)|remote[[:space:]]+(add|remove|rm|rename|set-url)|config([[:space:]]+(--(local|worktree|global|system)|(-f|--file)[[:space:]]+[^[:space:]]+))*[[:space:]]+(set|unset|--add|--unset|--unset-all|--replace-all|--rename-section|--remove-section|--edit|-e|rename-section|remove-section|edit|[A-Za-z][A-Za-z0-9-]*\.[^[:space:]]+[[:space:]]+[^[:space:];&|-][^[:space:];&|]*))([[:space:]]|$|[);&|])'
 INSTALL='(^|[;&|(]|`)[[:space:]]*(sudo[[:space:]]+)?((pnpm|npm|yarn)([[:space:]]+-[A-Za-z-]+)*[[:space:]]+(install|i|add|remove|rm|update|up|dedupe)([[:space:]]|$|[);&|])|(flutter|dart)[[:space:]]+pub[[:space:]]+(get|add|remove|upgrade|downgrade)([[:space:]]|$|[);&|])|dotnet[[:space:]]+(restore|add|remove)([[:space:]]|$|[);&|])|pip3?[[:space:]]+install([[:space:]]|$|[);&|])|cargo[[:space:]]+(add|install)([[:space:]]|$|[);&|]))'
 
 # Secrets. Every account's shell carries its synced secrets in the
@@ -60,7 +60,9 @@ INSTALL='(^|[;&|(]|`)[[:space:]]*(sudo[[:space:]]+)?((pnpm|npm|yarn)([[:space:]]
 # pass, fabric-secrets store get). `env -i … cmd` stays allowed: it RUNS
 # a command in a clean environment. A code SEARCH (grep, rg, git grep /
 # log / show / diff / blame) may name these words as patterns and is
-# refused only when it names a real path under a home or /proc. This is
+# refused only when it names a home, a hidden directory in one, or
+# /proc as a path; the exemption covers that search alone, never what
+# is chained or substituted into it. This is
 # a fence for the routine spellings, not a sandbox: secret minimisation
 # (keeping a secret out of the session's environment) is the control.
 W='(^|[^[:alnum:]_.-])'
@@ -68,21 +70,43 @@ ENV_PRINT="${W}"'\\?(env|printenv)([[:space:]]+(-[uC][[:space:]]+[^[:space:]]+|-
 SECRET_NAME='(TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|_KEY)'
 SECRET_VAR='\$\{?[A-Za-z0-9_]*'"$SECRET_NAME"'|\$\{!|(environ|getenv|process\.env|ENVIRON|%ENV|\$ENV)[^;|&]{0,60}'"$SECRET_NAME"
 SECRET_PATH='secrets?[^[:space:]/]*\.env|\.config/agent-fabric|agent-fabric/(secrets|children)|\.password-store|\.gnupg|/proc/[^[:space:]]*/environ|--export-secret|(^|[;&|(]|`)[[:space:]]*pass[[:space:]]+(show|ls|find|grep|otp)|(fabric-secrets|secret_store\.py)[[:space:]]+(store[[:space:]]+)?(get|show|export-key|bundle|child-bundle)'
-HOME_PATH='(~|\$HOME|\$\{HOME\}|/home/[^/[:space:]]+|/root)/(\.config/agent-fabric|\.local/share/agent-fabric|\.password-store|\.gnupg)|/proc/[^[:space:]]*/environ'
+# A search's PATH, as opposed to its pattern: a home itself or anything
+# under one of its hidden directories (~/.config, ~/.local/share, the
+# stores, .gnupg), the same reached by climbing out of the clone
+# (../../.config), /, /home and /root as roots, and anything in /proc.
+HOME_PATH='(~|\$HOME|\$\{HOME\}|/home/[^/[:space:]"'"'"']+|/root)(/\.[^/[:space:]"'"'"']+(/[^[:space:]"'"'"']*)?)?/?([[:space:]"'"'"';&|)]|$)|(^|[[:space:]"'"'"'=])(\.\./)+\.[^/[:space:]"'"'"']+|(^|[[:space:]"'"'"'=])/(home|root|proc)?/?([[:space:]"'"'"';&|)]|$)|(^|[[:space:]"'"'"'=])/proc(/[^[:space:]]*)?([[:space:]"'"'"';&|)]|$)|/proc/[^[:space:]]*/environ'
 SEARCH='^[[:space:]]*(grep|egrep|fgrep|rg|ag|git([[:space:]]+-[A-Za-z]+([[:space:]]+[^[:space:]]+)?)*[[:space:]]+(grep|log|show|diff|blame))([[:space:]]|$)'
 
 # Shell escapes that would carry any of the above past a string match,
 # and the routine in-place file writes. Redirections are allowed only
 # to /dev/null (the reviewer's own quieting) or to another fd.
-ESCAPE='(^|[;&|(]|`)[[:space:]]*(sudo[[:space:]]+)?(eval|exec|(ba|z|da|k)?sh[[:space:]]+-[a-zA-Z]*c)([[:space:]]|$)'
+# Also what makes an allowed tool run a program the guard never sees:
+# git's one-shot config (-c / --config-env: diff.external, core.pager),
+# a GIT_*, PAGER or EDITOR assignment, rg --pre, find -exec / -ok.
+ESCAPE='(^|[;&|(]|`)[[:space:]]*(sudo[[:space:]]+)?(eval|exec|(ba|z|da|k)?sh[[:space:]]+-[a-zA-Z]*c)([[:space:]]|$)|(^|[^[:alnum:]_.-])git([[:space:]]+(-C[[:space:]]+[^[:space:]]+|--[a-z-]+(=[^[:space:]]+)?|-[pP]))*[[:space:]]+(-c|--config-env)([[:space:]=]|[A-Za-z])|(^|[;&|(`[:space:]])(GIT_[A-Z0-9_]+|PAGER|LESSOPEN|LESSCLOSE|EDITOR|VISUAL)=|[[:space:]]--pre([[:space:]=]|$)|[[:space:]]-(exec|execdir|ok|okdir)([[:space:]]|$)'
 WRITE='(^|[;&|(]|`)[[:space:]]*(sudo[[:space:]]+)?(sed[[:space:]]+(-[a-zA-Z]*i|--in-place)|tee|rm|mv|cp|truncate|chmod|chown|ln|install|patch|rsync)([[:space:]]|$)'
 stripped="$(printf '%s' "$cmd" | sed -E 's/[0-9]*>&[0-9-]*//g; s/>>?[[:space:]]*\/dev\/null//g')"
 
 reason=""
 secret=""
-if printf '%s\n' "$cmd" | grep -qE "$SEARCH"; then
-  printf '%s\n' "$cmd" | grep -qE "$HOME_PATH|$SECRET_VAR" && secret=1
-elif printf '%s\n' "$cmd" | grep -qE "$ENV_PRINT|$SECRET_VAR|$SECRET_PATH"; then
+# The search exemption is per segment: a command is cut at ; & | and
+# newlines, and only a segment that IS a search, with no substitution
+# inside it, is judged by the search rule; every other segment by the
+# full one. Cut naively, so a | inside a quoted pattern may refuse a
+# search, never admit a command (an exemption over the whole command
+# let `grep x f; env` through: #96 round 2).
+segments="$(printf '%s\n' "$cmd" | sed -E 's/(\|\||&&|[;&|])/\n/g')"
+while IFS= read -r seg; do
+  if printf '%s\n' "$seg" | grep -qE "$SEARCH" && ! printf '%s\n' "$seg" | grep -qE '\$\(|`|[<>]\('; then
+    printf '%s\n' "$seg" | grep -qE "$HOME_PATH|$SECRET_VAR" && secret=1
+  elif printf '%s\n' "$seg" | grep -qE "$ENV_PRINT|$SECRET_VAR|$SECRET_PATH"; then
+    secret=1
+  fi
+done <<<"$segments"
+# The cut loses the separators some patterns anchor on; the whole
+# command still answers to them unless a segment was a search.
+if [[ -z "$secret" ]] && ! printf '%s\n' "$segments" | grep -qE "$SEARCH" \
+   && printf '%s\n' "$cmd" | grep -qE "$ENV_PRINT|$SECRET_VAR|$SECRET_PATH"; then
   secret=1
 fi
 if [[ -n "$secret" ]]; then
