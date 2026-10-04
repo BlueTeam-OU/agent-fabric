@@ -36,6 +36,11 @@ it fills the outbound row's carrier sequence.
 THE OWNER. The database names the agent id it belongs to; opened by an
 account whose id differs (a reused login, ADR-039) it refuses.
 
+THE VERSION. meta.schema_version, the one number (PRAGMA user_version is
+unused). Every open brings an older journal to SCHEMA_VERSION through
+MIGRATIONS in one transaction, and refuses one written by newer code
+untouched (exit 1), so a send refuses before it posts.
+
 exit 0 written; 1 failure (said); 2 usage; 3 integrity (outbound id reuse).
 """
 from __future__ import annotations
@@ -57,7 +62,6 @@ for _p in (HERE, os.path.join(os.path.dirname(os.path.dirname(HERE)), "runtime")
 import identity  # noqa: E402
 import secret_store  # noqa: E402
 
-SCHEMA_VERSION = 1
 SOURCE = "gzcoord"
 DEFAULT_CARRIER = "claude-bridge"
 STATES_OUT = ("pending", "accepted", "failed")
@@ -157,10 +161,42 @@ def _sha(text: str) -> str:
     return hashlib.sha256(text.encode()).hexdigest()
 
 
+def _migrate_2(conn: sqlite3.Connection) -> None:
+    """meta has the GZCoord import's markers. Not a blind ADD COLUMN: before
+    there were migrations the importer added these columns itself to v1
+    journals on first use, so a v1 file in the field may hold them already."""
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(meta)")}
+    for col in ("gzcoord_imported_at", "gzcoord_import_seqs"):
+        if col not in cols:
+            conn.execute(f"ALTER TABLE meta ADD COLUMN {col} TEXT")
+
+
+# The steps from version n-1 to n, by n, applied in order by connect() in its
+# one transaction: a step that fails leaves the file at the version it had.
+# Every step so far is additive, so v1 code still reads a v2 journal (it never
+# reads the version): a later step that drops or renames breaks that
+# downgrade, and says so.
+MIGRATIONS = {2: _migrate_2}
+SCHEMA_VERSION = max(MIGRATIONS)
+
+
+def _version(path: str, rows: list) -> int:
+    """meta's one row's schema_version; anything else is no version at all,
+    never a default."""
+    if len(rows) != 1:
+        raise JournalError(f"{path}: meta holds {len(rows)} rows, not one; the journal's version is unknown")
+    v = rows[0][1]
+    if type(v) is not int or v < 1:
+        raise JournalError(f"{path}: meta.schema_version is {v!r}, not a version; the journal's version is unknown")
+    return v
+
+
 def connect(path: str | None = None, agent_id: str | None = None) -> sqlite3.Connection:
     """The journal, created private (directory 0700, files 0600 — the WAL
-    and its index too, so the umask is set around the open) and checked
-    against its owner."""
+    and its index too, so the umask is set around the open), checked
+    against its owner, and brought to SCHEMA_VERSION. A journal written by
+    newer code is refused, untouched: this code cannot know what its
+    columns mean."""
     path = path or db_path()
     owner = agent_id or own_agent_id()
     if not owner:
@@ -170,34 +206,52 @@ def connect(path: str | None = None, agent_id: str | None = None) -> sqlite3.Con
     old = os.umask(0o077)
     try:
         conn = sqlite3.connect(path, timeout=5.0, isolation_level=None)
-        conn.execute("PRAGMA journal_mode=WAL")
-        conn.execute("PRAGMA busy_timeout=5000")
-        conn.execute("BEGIN IMMEDIATE")
-        conn.execute("CREATE TABLE IF NOT EXISTS meta (schema_version INTEGER NOT NULL, "
-                     "owner_agent_id TEXT NOT NULL, created_at TEXT NOT NULL)")
-        conn.execute("""CREATE TABLE IF NOT EXISTS episodes (
-            id TEXT PRIMARY KEY, source TEXT NOT NULL, direction TEXT, state TEXT NOT NULL,
-            happened_at TEXT NOT NULL, recorded_at TEXT NOT NULL,
-            session_id TEXT, project TEXT, working_copy TEXT,
-            message_id TEXT, in_reply_to TEXT, type TEXT, sender TEXT,
-            carrier TEXT, carrier_seq INTEGER,
-            content TEXT NOT NULL, content_hash TEXT NOT NULL, metadata_json TEXT NOT NULL,
-            UNIQUE (source, direction, message_id))""")
-        conn.execute("""CREATE TABLE IF NOT EXISTS conflicts (
-            message_id TEXT NOT NULL, direction TEXT NOT NULL, content_hash TEXT NOT NULL,
-            content TEXT NOT NULL, seen_at TEXT NOT NULL, carrier_seq INTEGER,
-            PRIMARY KEY (message_id, direction, content_hash))""")
-        for col in ("happened_at", "message_id", "in_reply_to", "project"):
-            conn.execute(f"CREATE INDEX IF NOT EXISTS episodes_{col} ON episodes({col})")
-        row = conn.execute("SELECT owner_agent_id, schema_version FROM meta").fetchone()
-        if row is None:
-            conn.execute("INSERT INTO meta VALUES (?, ?, ?)", (SCHEMA_VERSION, owner, now()))
-        elif row[0] != owner:
-            conn.execute("ROLLBACK")
+        try:
+            conn.execute("PRAGMA journal_mode=WAL")
+            conn.execute("PRAGMA busy_timeout=5000")
+            # IMMEDIATE: two openers of one old file serialize here, and the
+            # second finds it migrated.
+            conn.execute("BEGIN IMMEDIATE")
+            # Version 1, as it was: a new file is created at 1 and migrated
+            # like any old one, so both end the same.
+            conn.execute("CREATE TABLE IF NOT EXISTS meta (schema_version INTEGER NOT NULL, "
+                         "owner_agent_id TEXT NOT NULL, created_at TEXT NOT NULL)")
+            conn.execute("""CREATE TABLE IF NOT EXISTS episodes (
+                id TEXT PRIMARY KEY, source TEXT NOT NULL, direction TEXT, state TEXT NOT NULL,
+                happened_at TEXT NOT NULL, recorded_at TEXT NOT NULL,
+                session_id TEXT, project TEXT, working_copy TEXT,
+                message_id TEXT, in_reply_to TEXT, type TEXT, sender TEXT,
+                carrier TEXT, carrier_seq INTEGER,
+                content TEXT NOT NULL, content_hash TEXT NOT NULL, metadata_json TEXT NOT NULL,
+                UNIQUE (source, direction, message_id))""")
+            conn.execute("""CREATE TABLE IF NOT EXISTS conflicts (
+                message_id TEXT NOT NULL, direction TEXT NOT NULL, content_hash TEXT NOT NULL,
+                content TEXT NOT NULL, seen_at TEXT NOT NULL, carrier_seq INTEGER,
+                PRIMARY KEY (message_id, direction, content_hash))""")
+            for col in ("happened_at", "message_id", "in_reply_to", "project"):
+                conn.execute(f"CREATE INDEX IF NOT EXISTS episodes_{col} ON episodes({col})")
+            rows = conn.execute("SELECT owner_agent_id, schema_version FROM meta").fetchall()
+            if not rows:
+                conn.execute("INSERT INTO meta VALUES (?, ?, ?)", (1, owner, now()))
+                rows = [(owner, 1)]
+            # The owner before the version: another agent's journal is never
+            # migrated by this one.
+            if len(rows) == 1 and rows[0][0] != owner:
+                raise JournalError(f"{path} belongs to agent {rows[0][0]}, not {owner}: a reused login never reads "
+                                   "another agent's history")
+            version = _version(path, rows)
+            if version > SCHEMA_VERSION:
+                raise JournalError(f"{path} is at schema version {version}, newer than this code's "
+                                   f"{SCHEMA_VERSION}: update the fabric; the journal is left as it is")
+            for n in range(version + 1, SCHEMA_VERSION + 1):
+                MIGRATIONS[n](conn)
+                conn.execute("UPDATE meta SET schema_version=?", (n,))
+            conn.execute("COMMIT")
+        except BaseException:
+            if conn.in_transaction:
+                conn.execute("ROLLBACK")
             conn.close()
-            raise JournalError(f"{path} belongs to agent {row[0]}, not {owner}: a reused login never reads "
-                               "another agent's history")
-        conn.execute("COMMIT")
+            raise
     finally:
         os.umask(old)
     for suffix in ("", "-wal", "-shm"):
