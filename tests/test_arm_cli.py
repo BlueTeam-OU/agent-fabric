@@ -320,7 +320,7 @@ def main() -> int:
                      "crates/human/core/src/retention.rs", "architecture/config/config.schema.yaml",
                      "architecture/config/examples/kademlia-enabled.yaml",
                      "fixtures/identity/ed25519-bip39-entropy-v1.json", "Cargo.toml", ".cargo/config.toml",
-                     ".cargo/config",
+                     ".cargo/config", "crates/human/ui-slint/.cargo/config.toml",
                      "apps/human-desktop/src/recovery_seed.rs"):
             reset(); set_pr(me, "plain", [path]); set_gate(9)
             rc, out = run("7", "--basis", "b", script=SHIM, env=iw)
