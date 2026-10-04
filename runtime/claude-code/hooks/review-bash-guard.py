@@ -122,14 +122,18 @@ def split_unquoted(cmd: str) -> tuple[list[str], bool]:
     blind to quotes made a search of the middle of `python3 -c "a;grep
     =...;b"` (round 3); a comment hid a quote from the cut, so `grep x #'`,
     a line running env, and `#'` read as one quoted search (round 4).
-    Modelling each construct bash quotes by would only move the next gap,
-    so the cut is trusted only where it cannot disagree with bash: no quote
-    left open, none spanning a newline, no unquoted # comment, no $'...',
-    and no substitution anywhere in the command. Otherwise no segment is
-    exempt and every one answers to the full rules: a search refused,
-    never a command admitted."""
+    and a continuation (backslash-newline) hid a comment the same way
+    (round 5). Modelling each construct bash quotes by would only move the
+    next gap, so the cut is trusted only where it cannot disagree with
+    bash: ONE line (bash parses a whole line before it runs any of it, and
+    a comment there runs nothing, so # needs no rule of its own), no quote
+    left open, no $'...' (an escaped quote bash reads and the cut does not),
+    no ${...} (whose quotes bash parses by rules of their own), and no
+    substitution anywhere in the command. Otherwise no segment is exempt and
+    every one answers to the full rules: a search refused, never a command
+    admitted."""
     segments, cur, quote, i = [], [], "", 0
-    trusted = not re.search(SUBSTITUTION, cmd) and "$'" not in cmd
+    trusted = not re.search(SUBSTITUTION, cmd) and not any(x in cmd for x in ("$'", "${", "\n"))
     while i < len(cmd):
         c = cmd[i]
         if c == "\\" and quote != "'":
@@ -139,8 +143,6 @@ def split_unquoted(cmd: str) -> tuple[list[str], bool]:
         if quote:
             if c == quote:
                 quote = ""
-            elif c == "\n":
-                trusted = False
             cur.append(c)
         elif c in "\"'":
             quote = c
@@ -149,8 +151,6 @@ def split_unquoted(cmd: str) -> tuple[list[str], bool]:
             segments.append("".join(cur))
             cur = []
         else:
-            if c == "#" and (i == 0 or cmd[i - 1] in " \t;&|()<>"):
-                trusted = False
             cur.append(c)
         i += 1
     segments.append("".join(cur))

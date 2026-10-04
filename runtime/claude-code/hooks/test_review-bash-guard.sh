@@ -67,6 +67,13 @@ done
 for c in 'grep -rn "#!" tools' "grep -rn '#' tools | head" 'grep -rn x tools # a note' 'env -i PATH=/usr/bin ls # note'; do
   expect "allowed: $c" allow "$c"
 done
+echo "a search is exempt on one line only: a continuation hid a comment (#96 round 5)"
+for c in "grep x . \\${nl}#\\${nl}env" "grep x . #\\${nl}env" "grep x . \\${nl}#\\${nl}printenv" "git log -1 \\${nl}#\\${nl}ps eww" "grep x . \\${nl}#\\${nl}cat ~/.config/agent-fabric/secrets.env" "grep x . \\${nl}#\\${nl}cat secrets.env" "grep -rn x tools${nl}env" 'grep "${x:-'"'"'}"'"'"'}" ; env #'"'"; do
+  expect "denied: $c" deny "$c"
+done
+for c in "grep -rn x tools${nl}git log -1" "grep -rn secrets.env tools" 'grep -rn "secrets.env" tools # where it is read'; do
+  expect "allowed: $c" allow "$c"
+done
 echo "running in a clean environment, and searching code for the word, stay allowed"
 for c in 'env -i HOME=/tmp/x PATH=/usr/bin python3 tools/fabric/lint.py' 'env -u AGENT_FABRIC_ROOT python3 tests/test_lint.py' 'env LC_ALL=C sort file' 'grep -rn "secrets.env" tools/fabric' 'grep -rn FABRIC_CONTROL_SIGNING_KEY runtime/control' 'set -euo pipefail' 'export FOO=bar && make' 'echo $HOME' 'echo ${PATH}' 'python3 -c "import os; print(os.environ.get(\"HOME\"))"' 'fabric-secrets status' 'git log -p -- tools/fabric/secret_store.py' 'grep -rn ".gnupg" tools' 'grep -rn ".password-store" tools' 'rg -n secret_store tools' 'git grep -n process.env runtime' 'git show HEAD:tools/fabric/secrets_sync.py' 'ps aux' 'ps -ef' 'cat .env.example' 'ls tests' 'python3 -c "import os; print(os.environ[\\"HOME\\"])"' 'node -e "console.log(process.env.HOME)"' 'grep -rn "secrets.env" tools | head' 'git grep -n process.env runtime | wc -l' 'grep -E "foo|bar" tools' 'git config --get user.name' 'git config --list' 'git log -c -1' 'grep -c x README.md' 'git -C /home/user/projects/agent-fabric log -1' 'grep -rn x /home/user/projects/agent-fabric/tools' 'rg -n TOKEN /home/user/projects/agent-fabric/runtime'; do
   expect "allowed: $c" allow "$c"
