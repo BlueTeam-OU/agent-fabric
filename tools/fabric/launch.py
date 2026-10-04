@@ -38,7 +38,9 @@ CONTRACT, frozen from the bash (ADR-040 §5 rule 3):
             model-profile.local.json, restart.json); writes
             $STATE_DIR/launch-prompt.md (launch_prompt.py),
             ${CLAUDE_CONFIG_DIR:-$HOME}/.claude.json (onboarding, plain
-            claude only), the agent files (install-agent-files.sh), and
+            claude only), the agent files (install-agent-files.sh; none
+            for --help), $STATE_DIR/launch-provider.json after they are
+            installed (the provider, for a later install with none), and
             creates /var/tmp/agent-fabric-<agent>. Fast-forwards the fabric
             checkout and the launch working copy when they are behind.
   stdout    --print's report, byte for byte the bash's (compared for every
