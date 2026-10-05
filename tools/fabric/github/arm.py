@@ -60,8 +60,8 @@ MESSAGE-ID, fabric-ctl not answering for the login, and an arm.json
 whose waiver_role is missing while a waiver is asked, or is not a role
 of identities/roles/catalog.json. The arming comment records "Boundary
 gate waived by <login> (<message-id>): <why>". A boundary that is NOT
-waived still needs the review of the head, no open thread and the
-owner's word.
+waived still needs the review of the head and no open thread, and,
+under 8 work commits, the owner's word.
 
 WHAT THIS DOES NOT PROVE: the relay does not authenticate a sender
 (BRIDGE-RELAY-SETUP.md) — FROM and the relay's sender are both the
@@ -128,8 +128,8 @@ What it refuses, in order, and why:
      login — supply asked for and not folded (owed-supply.sh lists
      these; the caller arms never with its own REQUEST unanswered);
   4. a SECURITY-BOUNDARY change without the REVIEW CLASS'S review of
-     the CURRENT head, or with an unresolved review thread, or without
-     the owner's word. Read from pr-review-status.sh --json: a
+     the CURRENT head, or with an unresolved review thread, at any
+     count (its owner's word is the count rule's, gate 5). Read from pr-review-status.sh --json: a
      `blind.rows` entry whose commit_sha8 is the head, and
      `unresolved_threads` 0 ("no open P1 or P2"); a missing field or a
      null count is exit 2, never a pass. Its exit status is NOT the
@@ -155,7 +155,10 @@ What it refuses, in order, and why:
      "owner's word" — EXCEPT a class the project's arm.json lets arm at
      the gate (none, in a project that declares none), STATED in the PR body
      ("Class: <class>") and confirmed by the changed files; a stated
-     class the files contradict is refused, not trusted.
+     class the files contradict is refused, not trusted. A
+     security-boundary change under 8 needs the owner's word whatever
+     class it states; at 8 or more it needs none, boundary or not (the
+     owner, 2026-10-05). A waived boundary is judged as no boundary.
 
 Then: posts the arming basis as a comment ("Arming basis: <text> —
 <W> work commits, head <sha>"), runs `gh pr merge <n> --merge --auto
@@ -513,6 +516,7 @@ def arm(argv: list[str]) -> int:
         if waiver:
             say(f"no boundary matched: the waiver {waiver} is not needed, not read, and not recorded")
     waived_by = ""
+    boundary_unwaived = False
     if is_boundary:
         if waiver:
             login, mid = verify_waiver(waiver, num, repo, head, session, waiver_role, refuse)
@@ -548,11 +552,10 @@ def arm(argv: list[str]) -> int:
                 raise refuse(f"a security-boundary change with {unresolved} unresolved review thread(s): answer and"
                              f" resolve them first (no open P1 or P2)")
             say(f"the current head {head} has the review class's review, and no unresolved thread")
-            # …AND the owner's word, whatever the count.
-            if not has_owner_word(basis):
-                raise refuse("a security-boundary change arms only on the owner's word as well as the review"
-                             " (CLAUDE.md §A security-boundary change), and the basis does not carry the phrase"
-                             " \"owner's word\"")
+            # Its owner's word follows the count (gate 5): only under 8 work
+            # commits, and there no class stands in for it (the owner,
+            # 2026-10-05).
+            boundary_unwaived = True
 
     # 5. the count rule, from pr-gate's classifier
     rc, out = run_reader(program("AGENT_FABRIC_PR_GATE", os.path.join(RUNTIME, "pr-gate.sh")), ["--json", num])
@@ -581,13 +584,16 @@ def arm(argv: list[str]) -> int:
         if offlist:
             raise refuse(f"the body states Class: {cls} but the changed files are not that class — {head_lines(offlist)}")
         say(f"class stated and confirmed by the files: {cls}")
+    if work < 8 and boundary_unwaived and not has_owner_word(basis):
+        raise refuse(f"{work} work commits — a security-boundary change under 8 arms only on the owner's word as well"
+                     f" as the review, whatever class is stated; the basis does not carry the phrase \"owner's word\"")
     if work < 8 and not cls and not has_owner_word(basis):
         gate_classes = " / ".join(f"Class: {c}" for c in classes) or "none in this project"
         raise refuse(f"{work} work commits — under 8 arms only on the owner's word, unless the body states a class"
                      f" that arms at the gate ({gate_classes}) and the files agree; the basis does not carry the"
                      f" phrase \"owner's word\" and no class is stated")
     if work < 8:
-        say(f"count rule: {work} work commits — under 8, arms at the gate as {cls}" if cls
+        say(f"count rule: {work} work commits — under 8, arms at the gate as {cls}" if cls and not boundary_unwaived
             else f"count rule: {work} work commits — under 8, on the owner's word")
     elif work <= 16:
         say(f"count rule: {work} work commits — in the 8–16 band")

@@ -211,10 +211,27 @@ def main() -> int:
         check("asked pr-review-status for the PR as --json", "7 -q --json" in calls().splitlines(), calls())
         reset(); set_pr(me, "plain", ["apps/backend_dotnet/src/Gzapp.Infrastructure/Auth/DriverIdentity.cs"]); put("review_rc", "0")
         rc, out = run("7", "--basis", "b")
-        check("an Auth/ change reviewed but no owner's word: refused", rc == 1 and "owner's word as well as the review" in out, out)
+        check("an Auth/ change reviewed, 9 work commits, no owner's word: armed (the owner, 2026-10-05)",
+              rc == 0 and "has the review class's review, and no unresolved thread" in out and "ARMED #7" in out, out)
+        set_gate(17); rc, out = run("7", "--basis", "b")
+        check("…at 17, no owner's word: armed", rc == 0 and "ARMED #7" in out, out)
+        set_gate(8); rc, out = run("7", "--basis", "b")
+        check("…at 8, no owner's word: armed", rc == 0 and "ARMED #7" in out, out)
+        set_gate(7); reset(); put("review_rc", "0"); rc, out = run("7", "--basis", "b")
+        check("…at 7, no owner's word: refused, the count named",
+              rc == 1 and "7 work commits — a security-boundary change under 8 arms only on the owner's word" in out, out)
+        check("…and nothing armed", "pr merge" not in calls(), calls())
         rc, out = run("7", "--basis", owner)
-        check("…with the review AND the owner's word: armed",
-              rc == 0 and "has the review class's review, and no unresolved thread" in out, out)
+        check("…at 7 with the review AND the owner's word: armed",
+              rc == 0 and "has the review class's review, and no unresolved thread" in out and "ARMED #7" in out, out)
+        for n in (3, 20):
+            reset(); set_gate(n); rc, out = run("7", "--basis", owner)
+            check(f"…at {n} with the owner's word but no review: refused",
+                  rc == 1 and "no review-class review of the current head" in out, out)
+            reset(); set_gate(n); put("review_rc", "0"); put("unresolved", "1"); rc, out = run("7", "--basis", owner)
+            check(f"…at {n} with the owner's word, reviewed, one thread open: refused",
+                  rc == 1 and "with 1 unresolved review thread(s)" in out, out)
+        set_gate(9)
         for path, label in (("apps/backend_dotnet/src/Gzapp.Admin/Drivers/AdminDriverDirectoryRepository.cs", "Drivers/"),
                             ("packages/web-shared/src/auth/refresh.ts", "a lowercase client auth/ (case-insensitive)"),
                             ("apps/backend_dotnet/src/Gzapp.Persistence/Consent/ConsentRepository.cs", "Consent/")):
@@ -409,6 +426,21 @@ def main() -> int:
         rc, out = run("7", "--basis", "b", "--boundary", "--no-boundary", why, "--waiver", mid, env=wenv)
         check("--boundary with a waiver still contradicts: exit 2", rc == 2 and "contradict" in out, out)
 
+        # A waived boundary is judged as no boundary at the count rule too:
+        # under 8, a class the files confirm arms it without the owner's word,
+        # where the same PR reviewed but unwaived needs that word.
+        put("ddl-rules.json", json.dumps(dict(rules, waiver_role="architect-cto",
+                                              classes=dict(rules.get("classes") or {}, ddl="^infra/db/migrations/"))))
+        denv = {"AGENT_FABRIC_ARM_CONFIG": f"{state}/ddl-rules.json"}
+        reset(); set_pr(me, "Class: ddl", mig); set_gate(2); set_waiver(); set_presence()
+        rc, out = waive(basis="two commits", env=denv)
+        check("a waived boundary at 2 under a confirmed class: armed at the gate as the class",
+              rc == 0 and "under 8, arms at the gate as ddl" in out and "ARMED #7" in out, out)
+        reset(); set_pr(me, "Class: ddl", mig); set_gate(2); put("review_rc", "0")
+        rc, out = run("7", "--basis", "two commits", env=denv)
+        check("…the same PR reviewed but not waived: refused without the owner's word",
+              rc == 1 and "whatever class is stated" in out, out)
+
         print("arm: gate 5 — the classes that arm under 8 without asking")
         reset(); set_pr("develop-qzapp/me/docs/x", "Wording.\n\nClass: docs-only",
                         ["docs/adr/ADR-054-x.md", ".claude/skills/pr-gate/SKILL.md", "apps/backend_dotnet/CLAUDE.md"]); set_gate(2)
@@ -438,6 +470,13 @@ def main() -> int:
         reset(); set_pr(me, "Class: docs-only", ["apps/backend_dotnet/src/Gzapp.Infrastructure/Auth/DriverIdentity.cs"]); set_gate(2)
         put("review_rc", "0")
         rc, out = run("7", "--basis", "b"); check("a boundary file under a stated docs-only class: refused", rc == 1, out)
+        reset(); set_pr(me, "Class: docs-only", ["docs/a.md"]); set_gate(2); put("review_rc", "0")
+        rc, out = run("7", "--basis", "b", "--boundary")
+        check("a boundary under 8 whose files ARE the stated class: refused without the owner's word",
+              rc == 1 and "whatever class is stated" in out, out)
+        rc, out = run("7", "--basis", owner, "--boundary")
+        check("…and armed on it, said as the owner's word, not the class",
+              rc == 0 and "under 8, on the owner's word" in out, out)
 
         print("arm: gate 5 — the count rule")
         reset(); set_pr(me, "plain", ["docs/a.md"]); set_gate(17)
