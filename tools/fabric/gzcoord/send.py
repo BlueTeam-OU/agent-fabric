@@ -17,8 +17,9 @@ CONTRACT, frozen from the Node:
   exit      0 sent (a dry run: validated and resolved); 1 usage or
             unreadable input, or the id could not be written into the
             file; 2 invalid, FROM not this login, an id already sent with
-            other text, a control channel, or a journal that cannot keep
-            the message; 3 not configured, no token, relay unreachable or
+            other text, a control channel, a journal that cannot keep
+            the message, or (GZCOORD_JOURNAL=off) a bypass that cannot
+            be recorded; 3 not configured, no token, relay unreachable or
             the token refused; 4 an addressee with no session, silent, not
             placed, or presence not askable — unless --force
 
@@ -59,7 +60,9 @@ is "unavailable" — never present.
 THE JOURNAL (ADR-041), in this process: kept before the carrier sees it,
 its outcome after; a journal that cannot take it refuses the send — a
 carrier may keep no copy, so a message sent unremembered could be gone
-for good. GZCOORD_JOURNAL=off sends without it and says so every time.
+for good. GZCOORD_JOURNAL=off sends without it and says so every time,
+and first appends a line to journal-bypass.jsonl (gzcoord/bypass.py): a
+bypass that cannot be recorded is refused, exit 2.
 The order is the protocol's and is kept.
 """
 from __future__ import annotations
@@ -72,7 +75,7 @@ import subprocess
 import sys
 from typing import Any, Callable
 
-from . import gzmsg, i18n, inbox, paths
+from . import bypass, gzmsg, i18n, inbox, paths
 from . import jsvalues as js
 
 
@@ -213,7 +216,7 @@ def journal(args: list[str], stdin: str, run: Callable[[list[str], str], dict] =
 
 
 def _journal_off() -> bool:
-    return os.environ.get("GZCOORD_JOURNAL") == "off"
+    return bypass.is_off()
 
 
 # ── presence, through the control plane's own process ────────────────
@@ -441,6 +444,11 @@ def main(argv: list[str]) -> int:
              *(["--working-copy", who["working_copy"]] if who.get("working_copy") else [])]
     kept = None
     if _journal_off():
+        try:
+            bypass.record([bypass.entry("out", text)])
+        except bypass.BypassUnrecorded as e:
+            sys.stderr.write(f"episodic: not sent: {e}; the journal is bypassed only with a record of it (ADR-041)\n")
+            return 2
         sys.stderr.write("episodic: GZCOORD_JOURNAL=off — this message is sent without being kept in your journal"
                          " (ADR-041)\n")
     else:

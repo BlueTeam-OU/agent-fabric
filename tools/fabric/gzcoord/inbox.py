@@ -31,8 +31,9 @@ CONTRACT, frozen from the Node:
             GZCOORD_TEST_BUS_ANY=1, XDG_RUNTIME_DIR, HOME,
             GZCOORD_DEFAULT_LOCALE_ONLY
   stdout    deliveries, the drain's listing, replay/history output, the
-            keyword hit, the watch's relay-down/back lines and the
-            journal's held-messages line — what the Monitor turns into
+            keyword hit, the watch's relay-down/back lines, the
+            journal's held-messages line and, under GZCOORD_JOURNAL=off,
+            one bypass warning per page — what the Monitor turns into
             notifications
   stderr    every start-up and refusal line; the hold's held/released
   exit      0 drained, delivered, nothing for you, not configured, no
@@ -54,6 +55,10 @@ acknowledged; one the journal cannot take is neither acknowledged nor
 shown. The Node ran episodic.py as a process per page, and that crossing
 is where the journal's edge cases kept appearing (#78, #84, #88) — the
 reason Wave 7 moved this file. The order is the protocol's and is kept.
+GZCOORD_JOURNAL=off skips the journal, never the record: each of those
+messages gets a line in journal-bypass.jsonl (gzcoord/bypass.py) before it
+is shown or acknowledged, and a line that cannot be written holds the page
+as a journal that cannot keep it does.
 """
 from __future__ import annotations
 
@@ -74,7 +79,7 @@ import urllib.parse
 import urllib.request
 from typing import Any, Callable
 
-from . import gzmsg, i18n, paths
+from . import bypass, gzmsg, i18n, paths
 from . import jsvalues as js
 from .gzmsg import en
 
@@ -751,6 +756,21 @@ def journal_inbound(records: list[dict], who: dict | None, run: Callable[[list[s
     return {"ok": True, "said": said}
 
 
+def bypass_inbound(records: list[dict]) -> dict:
+    """GZCOORD_JOURNAL=off, in journal_inbound's place: no journal row, but a
+    line per record in journal-bypass.jsonl before any is shown or
+    acknowledged, and one warning for the page. A line that cannot be
+    written holds the page as a journal that cannot keep it does."""
+    try:
+        bypass.record([bypass.entry("in", r.get("content") if isinstance(r.get("content"), str) else "",
+                                    js.get(r, "seq")) for r in records])
+    except bypass.BypassUnrecorded as e:
+        return {"ok": False, "reason": str(e)}
+    print(f"gzcoord: GZCOORD_JOURNAL=off — {len(records)} message(s) addressed to you are shown without being kept"
+          " in your journal (ADR-041)", flush=True)
+    return {"ok": True, "said": []}
+
+
 # ── the wait ─────────────────────────────────────────────────────────
 
 def wait_loop(fetch_page: Callable[[int, threading.Event], Any], ack: Callable[[Any], Any], wait_total: float,
@@ -1177,7 +1197,8 @@ def main(argv: list[str]) -> int:
     def on_hold(h: bool) -> None:
         print(t("watch.held") if h else t("watch.hold-released"), file=sys.stderr, flush=True)
 
-    journal = None if os.environ.get("GZCOORD_JOURNAL") == "off" else (lambda recs: journal_inbound(recs, who))
+    off = bypass.is_off()
+    journal = bypass_inbound if off else (lambda recs: journal_inbound(recs, who))
     cause = {"reason": None}
 
     def on_journal_fail(reason: str, n: int) -> None:
@@ -1186,6 +1207,11 @@ def main(argv: list[str]) -> int:
         if reason == cause["reason"]:
             return
         cause["reason"] = reason
+        if off:
+            print(f"gzcoord: {n} message(s) addressed to you are held, not shown: {reason}; the journal is"
+                  " bypassed only with a record of it, and they are shown once it can be written (ADR-041)",
+                  flush=True)
+            return
         print(f"gzcoord: {n} message(s) addressed to you are held, not shown: your journal could not keep them"
               f" ({reason}); they are shown once it can (ADR-041), or with GZCOORD_JOURNAL=off", flush=True)
 
