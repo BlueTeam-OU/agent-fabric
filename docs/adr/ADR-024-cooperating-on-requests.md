@@ -137,12 +137,14 @@ a stale request.
   slices recording work "owed by nobody"; blind-review findings that a
   "verified" or "folded" was false. No counter for any of these exists
   yet.
-- **Missing tools, reported and not built:** a thread view (a request and
-  every `REPLY` to it; `inbox.mjs` has `--replay` by one message only);
-  a list of owed requests across sessions (the `REPLY-EXPECTED: yes`
-  requests to a login that no `REPLY` answered); neither is built. The
-  in-flight view and the trial merge, reported with them, were built (the
-  next record's subject).
+- **Missing tools, reported:** a thread view (a request and every `REPLY`
+  to it) is built, as `fabric-history --thread <id>`, over the agent's own
+  episodic journal (ADR-041), from either end of the thread; it shows
+  what this agent sent and received, not other agents' traffic. A list of
+  owed requests across sessions (the `REPLY-EXPECTED: yes` requests to a
+  login that no `REPLY` answered) is not built. The in-flight view and
+  the trial merge, reported with them, were built (the next record's
+  subject).
 - Left as it was on purpose: `HANDOFF` (SPEC §10), the
   `REPLY-EXPECTED` defaults, the supply sections (`DELIVER-TO`,
   `ACCEPTANCE`, `FACT`, `BY`, `FOLD-BY`) as the long form of a request,
