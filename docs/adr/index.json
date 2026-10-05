@@ -175,7 +175,7 @@
     {
       "number": "019",
       "file": "ADR-019-work-arrives-as-pull-requests.md",
-      "title": "Work arrives as pull requests: one open PR per agent, 8–16 work commits to arm, the gate read before arming, no machine attribution, repository settings",
+      "title": "Work arrives as pull requests: one open PR per agent, 8 or more work commits to arm, the gate read before arming, no machine attribution, repository settings",
       "status": "Accepted",
       "date": "2026-09-18",
       "pillar": "P3",

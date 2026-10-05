@@ -1,4 +1,4 @@
-# ADR-019 — Work arrives as pull requests: one open PR per agent, 8–16 work commits to arm, the gate read before arming, no machine attribution, repository settings
+# ADR-019 — Work arrives as pull requests: one open PR per agent, 8 or more work commits to arm, the gate read before arming, no machine attribution, repository settings
 
 **Date:** 2026-09-18
 **Status:** Accepted
@@ -38,7 +38,8 @@ the merge. Concerns are commit boundaries, not PR boundaries.
 
 **A PR is armed by its work-commit count**: the
 commits of work as opened, review fixes excluded. Eight or more arm once
-the gate is met, without the owner's word; fewer ask the owner, who arms;
+the gate is met, without the owner's word, a security-boundary change
+too; fewer ask the owner, who arms;
 sixteen is the size to open a batch at, not a condition for arming it.
 
 **The gate is read before arming.** `pr-gate.sh` gives each open PR one
@@ -75,8 +76,9 @@ part it covers.
 ## 4. Rationale
 
 The band spends the owner's attention where it matters: a PR large enough
-to be worth a review round is armed by the gate, a small one is the
-owner's call, and an oversized one is caught before review. One PR per
+to be worth a review round is armed by the gate, a security-boundary
+change and an oversized one included, and a small one is the owner's
+call; sixteen keeps a batch reviewable as advice, not as a gate. One PR per
 agent makes a session's in-flight work one artifact to review and one
 place to look. Reading the gate's verdict before arming — rather than
 chaining a merge after a check — makes the arming depend on the verdict,
@@ -101,7 +103,9 @@ not on a pipe's exit status.
    is a fix; a revert and the commit it reverts, both in the range, count
    in no column; everything else is work.
 4. Eight or more work commits: arm once the gate is met, without the
-   owner's word, over sixteen too (A 2026-10-05). Under eight: ask the
+   owner's word, a security-boundary change and over sixteen too
+   (A 2026-10-05); a managed project's own contract may still ask the
+   owner on a boundary until it is amended to match. Under eight: ask the
    owner, who arms. Sixteen is the size a batch is opened at; a PR over
    it is armed on the gate all the same, and the count is advice for the
    next batch.

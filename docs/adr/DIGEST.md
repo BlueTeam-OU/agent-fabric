@@ -404,7 +404,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - Keywords: authority, read-only, fence, tripwire, Fabric-Role,
   pre-commit, commit-msg, charter, locale carve-out, contributor, guard.
 
-### ADR-019 — Work arrives as pull requests: one open PR per agent, 8–16 work commits to arm, the gate read before arming, no machine attribution, repository settings (Accepted)
+### ADR-019 — Work arrives as pull requests: one open PR per agent, 8 or more work commits to arm, the gate read before arming, no machine attribution, repository settings (Accepted)
 
 - Every change reaches `main` through a PR; on agent-fabric since
   2026-09-18, by practice — no ruleset, protection or queue there (§2,
@@ -412,8 +412,9 @@ its record disagree, the record wins. Look it up, never read it whole:
 - One open PR per agent; the next work is another commit while the
   branch is addable; two stated exceptions (§5 rule 2).
 - Work commits exclude review fixes (`Answers:` trailer, else the
-  subject; `commit-class.sh`): 8–16 arm at the gate, under 8 ask the
-  owner, over 16 split before opening (§5 rules 3–4).
+  subject; `commit-class.sh`): 8 or more arm at the gate, a security
+  boundary too, under 8 ask the owner; 16 is the batch size advised
+  (§5 rules 3–4).
 - Arm only on `pr-gate.sh`'s `MERGEABLE`, read first, with no open P1/P2;
   on agent-fabric arming is the merge (§5 rules 5–6).
 - No `Co-authored-by:`/`Claude-Session:` trailer, footer or session URL

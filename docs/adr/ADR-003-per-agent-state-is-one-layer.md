@@ -96,7 +96,12 @@ state file an obvious place to get its writer.
    control agent is the named exception (§2), and writes only by
    temporary and rename. A self-contained transactional store (§2) is
    the other: `episodic.db`, written only by `tools/fabric/episodic.py`
-   through its own transactions (A 2026-10-05).
+   through its own transactions (A 2026-10-05). Two append-only GZCoord
+   logs are the third: `journal-bypass.jsonl` (ADR-041 rule 10), appended
+   by `tools/fabric/gzcoord/bypass.py` under `agent_lock` with
+   `O_NOFOLLOW`, mode 0600, one write and an fsync per line, and
+   `gzcoord-sent.jsonl`, the send ledger, which does not yet hold
+   `agent_lock` when it trims (a known gap, to close).
 2. Every read-modify-write of per-agent state holds `agent_lock`, except
    the Node control agent's own files (§2), which only it writes and the
    launcher only consumes; `restart.json` has a second writer,

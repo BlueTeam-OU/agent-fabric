@@ -196,9 +196,11 @@ Never in this repository. Per agent, under
 `binding.json` (role, project, working copy, session, host),
 `role-history.jsonl`, `model-profile.local.json` (the agent's own model
 choices; `bin/fabric-model`), the rendered `launch-prompt.md` and the job
-list, every one written through `runtime/identity.py`; and the episodic
+list, every one written through `runtime/identity.py`; the episodic
 journal `episodic.db`, a SQLite store written only by
-`tools/fabric/episodic.py` (ADR-003, ADR-041). The journal is local: a
+`tools/fabric/episodic.py`; and two append-only GZCoord logs, the send
+ledger `gzcoord-sent.jsonl` and `journal-bypass.jsonl`, the record of
+every crossing made without the journal (ADR-003, ADR-041). The journal is local: a
 host lost is a journal lost, until a backup exists. An identity's secrets are in
 its own encrypted store (ADR-038), and `bin/fabric-secrets sync` puts
 them where the tools read them.
