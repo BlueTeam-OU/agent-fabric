@@ -426,6 +426,21 @@ def main() -> int:
         rc, out = run("7", "--basis", "b", "--boundary", "--no-boundary", why, "--waiver", mid, env=wenv)
         check("--boundary with a waiver still contradicts: exit 2", rc == 2 and "contradict" in out, out)
 
+        # A waived boundary is judged as no boundary at the count rule too:
+        # under 8, a class the files confirm arms it without the owner's word,
+        # where the same PR reviewed but unwaived needs that word.
+        put("ddl-rules.json", json.dumps(dict(rules, waiver_role="architect-cto",
+                                              classes=dict(rules.get("classes") or {}, ddl="^infra/db/migrations/"))))
+        denv = {"AGENT_FABRIC_ARM_CONFIG": f"{state}/ddl-rules.json"}
+        reset(); set_pr(me, "Class: ddl", mig); set_gate(2); set_waiver(); set_presence()
+        rc, out = waive(basis="two commits", env=denv)
+        check("a waived boundary at 2 under a confirmed class: armed at the gate as the class",
+              rc == 0 and "under 8, arms at the gate as ddl" in out and "ARMED #7" in out, out)
+        reset(); set_pr(me, "Class: ddl", mig); set_gate(2); put("review_rc", "0")
+        rc, out = run("7", "--basis", "two commits", env=denv)
+        check("…the same PR reviewed but not waived: refused without the owner's word",
+              rc == 1 and "whatever class is stated" in out, out)
+
         print("arm: gate 5 — the classes that arm under 8 without asking")
         reset(); set_pr("develop-qzapp/me/docs/x", "Wording.\n\nClass: docs-only",
                         ["docs/adr/ADR-054-x.md", ".claude/skills/pr-gate/SKILL.md", "apps/backend_dotnet/CLAUDE.md"]); set_gate(2)
