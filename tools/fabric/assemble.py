@@ -58,17 +58,12 @@ so it is never done implicitly.
 from __future__ import annotations
 
 import argparse
-import atexit
 import functools
 import json
 import os
 import glob
-import hashlib
 import re
 import sys
-import shutil
-import tarfile
-import tempfile
 from collections import defaultdict
 from typing import Callable, Any
 
@@ -78,64 +73,7 @@ sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 
 from assembler.core import layout, workingcopy, TIER1, DEFAULT_SLICE_BUDGET_TOKENS, CHARS_PER_TOKEN, CLASS_FILES, BANNED_PATTERNS, normalize_artifact, slugify, origin_of_row, origin_key, render_frontmatter, REDACTED, hygiene_check, hygiene_substitute, DESCRIPTION_MAX, Run, base_for, in_report  # noqa: E402
 from assembler.slices import merge_reports, scan_collisions, retire_in_siblings, remove_sections, read_existing_slice, OBSERVED_RE, undated, claim_heading, absorbed, claim_block  # noqa: E402
-
-
-BUNDLE_FORMAT = "agent-fabric-drain/1"
-
-
-def open_bundle(source: str) -> str:
-    """Verify a drain bundle and unpack it into a temp directory; return
-    the directory (its claims/ is --claims, itself --drain). Refuses, by
-    file, anything the manifest does not vouch for."""
-    stream = sys.stdin.buffer if source == "-" else open(source, "rb")
-    dest = tempfile.mkdtemp(prefix="assemble-bundle-")
-    # The unpacked bundle lives for this run only; a refusal below exits
-    # through sys.exit, so the removal is registered, not reached.
-    atexit.register(shutil.rmtree, dest, ignore_errors=True)
-    members: dict[str, bytes] = {}
-    try:
-        with tarfile.open(fileobj=stream, mode="r|*") as tar:
-            for info in tar:
-                name = info.name
-                if not info.isfile() or name.startswith(("/", "../")) or "/../" in name:
-                    sys.exit(f"assemble: bundle: refusing member {name!r} (not a plain file under the bundle root)")
-                fh = tar.extractfile(info)
-                members[name] = fh.read() if fh else b""
-    finally:
-        if source != "-":
-            stream.close()
-    if "manifest.json" not in members:
-        sys.exit("assemble: bundle: no manifest.json — not a drain bundle, or cut short before its first member")
-    try:
-        manifest = json.loads(members["manifest.json"])
-    except ValueError as exc:
-        sys.exit(f"assemble: bundle: manifest.json does not parse ({exc})")
-    if manifest.get("format") != BUNDLE_FORMAT:
-        sys.exit(f"assemble: bundle: format {manifest.get('format')!r}, expected {BUNDLE_FORMAT!r}")
-    named = manifest.get("files") or {}
-    for f, digest in sorted(named.items()):
-        if f not in members:
-            sys.exit(f"assemble: bundle: {f} is named in the manifest but missing from the tar (cut short?)")
-        actual = hashlib.sha256(members[f]).hexdigest()
-        if actual != digest:
-            sys.exit(f"assemble: bundle: {f} does not match its manifest digest (changed on the way, or a different harvest)")
-    for f in sorted(members):
-        if f != "manifest.json" and f not in named:
-            sys.exit(f"assemble: bundle: {f} is in the tar but not in the manifest; nothing unnamed is read")
-    if "harvest-report.json" not in members:
-        sys.exit("assemble: bundle: no harvest-report.json")
-    report = json.loads(members["harvest-report.json"])
-    for key in ("agent", "host", "role", "project"):
-        if manifest.get(key) != report.get(key):
-            sys.exit(f"assemble: bundle: manifest says {key}={manifest.get(key)!r} but harvest-report.json says {report.get(key)!r}")
-    for f, data in members.items():
-        path = os.path.join(dest, f)
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        with open(path, "wb") as fh:
-            fh.write(data)
-    print(f"bundle: {manifest['agent']}@{manifest['host']} role {manifest['role']} project {manifest['project']}: "
-          f"{manifest.get('claims', '?')} claim(s), {len(named)} file(s) verified")
-    return dest
+from assembler.bundle import open_bundle  # noqa: E402
 
 
 def parse_args() -> argparse.Namespace:
