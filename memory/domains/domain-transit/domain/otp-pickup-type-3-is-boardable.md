@@ -5,7 +5,7 @@ topic: "otp-pickup-type-3-is-boardable"
 description: "OTP 2.10 non-flex boards a pickup_type 3 stop exactly as 0; type 1 removes it and silently walks the rider to a neighbour"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-09-26"
+distilled_at: "2026-10-05"
 origin:
   - agent: "domain-transit"
     host: "develop-qzapp"

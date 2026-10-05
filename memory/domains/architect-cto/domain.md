@@ -4,7 +4,7 @@ class: domain
 description: "When a per-client carrier serves a subset of a shared row kind, the narrowing goes in the schema (allOf + not), never in prose — a bare $ref permits every optional member the row declares."
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-09-28"
+distilled_at: "2026-10-05"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

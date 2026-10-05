@@ -5,7 +5,7 @@ topic: "podman-lock-collision-deadlocks-start-after-reboot"
 description: "after a VM reboot, `podman start` (and then every podman ps/stats) hung on a futex — the compose pod and a volume shared lock 0; `podman system renumber` fixes it"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-09-28"
+distilled_at: "2026-10-05"
 origin:
   - agent: "devex-tooling"
     host: "develop-qzapp"

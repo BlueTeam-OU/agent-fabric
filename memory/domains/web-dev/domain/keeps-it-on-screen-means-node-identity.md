@@ -5,7 +5,7 @@ topic: "keeps-it-on-screen-means-node-identity"
 description: "A test that a surface \"survives\" a state change must assert DOM node identity — findability passes through a full remount."
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-09-28"
+distilled_at: "2026-10-05"
 origin:
   - agent: "web-dev-01"
     host: "develop-qzapp"

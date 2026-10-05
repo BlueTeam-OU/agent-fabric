@@ -5,7 +5,7 @@ topic: "replacing-a-libp2p-behaviour-leaks-its-tasks"
 description: before swapping a libp2p behaviour at runtime, check what its Drop stops — tokio JoinHandles detach, so spawned tasks outlive it
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-09-26"
+distilled_at: "2026-10-05"
 origin:
   - agent: "p2p-network-dev-01"
     host: "develop-qzapp"

@@ -5,7 +5,7 @@ topic: "a-polyfill-can-depend-on-a-private-of-the-thing-it-patches"
 description: when a dependency bump breaks a DOM API, check whether the test harness — not the library — implements it, by reading a private
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-09-28"
+distilled_at: "2026-10-05"
 origin:
   - agent: "web-dev-01"
     host: "develop-qzapp"

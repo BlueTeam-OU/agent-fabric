@@ -5,7 +5,7 @@ topic: "absence-speaks-about-the-record"
 description: "A label for a person's missing attribute (name, contacts, a decision on their application) speaks about the record or the application, not the person — on a Regime 3 surface that is no nuance"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-09-28"
+distilled_at: "2026-10-05"
 origin:
   - agent: "language-culture-ru"
     host: "develop-qzapp"

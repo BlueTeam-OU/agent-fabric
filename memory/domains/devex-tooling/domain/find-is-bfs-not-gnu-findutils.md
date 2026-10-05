@@ -5,7 +5,7 @@ topic: "find-is-bfs-not-gnu-findutils"
 description: "`find` on develop-qzapp is bfs, which rejects relative timestamps — and the error reads as \"zero results\" whenever stderr is discarded."
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-09-28"
+distilled_at: "2026-10-05"
 origin:
   - agent: "devex-tooling"
     host: "develop-qzapp"
