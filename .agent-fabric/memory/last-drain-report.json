@@ -1,6 +1,35 @@
 {
   "clipped_descriptions": [],
-  "collision_decisions": [],
+  "collision_decisions": [
+    {
+      "agent": "user",
+      "decision": "supersede",
+      "key": "fabric-coordinator/workflow:auto-merge-is-immediate-here#SUPERSEDED 2026-10-04: agent-fabric main now has a ruleset with required checks and auto-merge on, so `gh pr merge --auto` waits for green; still read the gate before arming",
+      "observed_at": "2026-09-29",
+      "rule": "same-agent"
+    },
+    {
+      "agent": "user",
+      "decision": "supersede",
+      "key": "fabric-coordinator/workflow:lint-before-commit#Run tools/fabric/lint.py --no-siblings (and the ADR range-check for an ADR edit) before every agent-fabric commit, not only the suites — lint caught a project name in a generic file three times after the commit (2026-09-27)",
+      "observed_at": "2026-10-04",
+      "rule": "same-agent"
+    },
+    {
+      "agent": "user",
+      "decision": "supersede",
+      "key": "fabric-coordinator/solution:pgrep-f-kills-own-session#a pgrep/pkill -f pattern can match the session's own claude process (its argv carries the opening prompt); killing by pattern ended architect-cto-01's session twice and mine once",
+      "observed_at": "2026-09-29",
+      "rule": "same-agent"
+    },
+    {
+      "agent": "user",
+      "decision": "supersede",
+      "key": "shared/workflow:check-exit-status-not-pipe#Never `check | tail -1 && git commit`: the pipe's status is tail's, so a failed lint/static/suite still commits — run the check, capture rc=$?, commit only on 0",
+      "observed_at": "2026-09-25",
+      "rule": "same-agent"
+    }
+  ],
   "files": [
     "memory/domains/python-dev/domain/env-isolation-in-process-environ.md",
     "memory/domains/python-dev/domain/facade-split-monkeypatch-trap.md",
@@ -19,15 +48,27 @@
     ".agent-fabric/memory/python-dev/workflow/lint-in-a-worktree-reads-the-session-root.md",
     ".agent-fabric/memory/python-dev/workflow/suites-inherit-launch-stamps.md",
     ".agent-fabric/memory/python-dev/workflow/test-port-by-mutation-parity.md",
-    ".agent-fabric/memory/python-dev/INDEX.md"
+    ".agent-fabric/memory/python-dev/INDEX.md",
+    ".agent-fabric/memory/shared/workflow-check-exit-status-not-pipe.md",
+    ".agent-fabric/memory/fabric-coordinator/solution/host-freeze-2026-10-04.md",
+    ".agent-fabric/memory/fabric-coordinator/solution/pgrep-f-kills-own-session.md",
+    ".agent-fabric/memory/fabric-coordinator/solution/port-grep-regex-to-python-backtracks.md",
+    ".agent-fabric/memory/fabric-coordinator/threads/new-agent-first-credential-gap.md",
+    ".agent-fabric/memory/fabric-coordinator/workflow/auto-merge-is-immediate-here.md",
+    ".agent-fabric/memory/fabric-coordinator/workflow/launcher-help-is-a-launch.md",
+    ".agent-fabric/memory/fabric-coordinator/workflow/lint-before-commit.md",
+    ".agent-fabric/memory/fabric-coordinator/workflow/parallel-agents-share-scratchpad.md",
+    ".agent-fabric/memory/fabric-coordinator/workflow/suite-in-a-worktree-lints-wrong.md",
+    ".agent-fabric/memory/fabric-coordinator/workflow/supplied-work-folds-into-callers-pr.md",
+    ".agent-fabric/memory/fabric-coordinator/INDEX.md"
   ],
-  "files_written": 18,
+  "files_written": 30,
   "harvest": {
     "host": "develop-qzapp",
-    "in_scope": 20,
-    "next_watermark": 1791151673758,
+    "in_scope": 14,
+    "next_watermark": 1791153038832,
     "provisional_agent": 0,
-    "since_watermark": 0
+    "since_watermark": 1790851351843
   },
   "harvest_sources": {
     "python-dev-01@develop-qzapp": {
@@ -36,6 +77,13 @@
       "next_watermark": 1791151673758,
       "provisional_agent": 0,
       "since_watermark": 0
+    },
+    "user@develop-qzapp": {
+      "host": "develop-qzapp",
+      "in_scope": 14,
+      "next_watermark": 1791153038832,
+      "provisional_agent": 0,
+      "since_watermark": 1790851351843
     }
   },
   "hygiene_problems": [],
@@ -49,12 +97,22 @@
   "rejected_hygiene": [],
   "retired_in_siblings": [],
   "roles": [
+    "fabric-coordinator",
     "python-dev"
   ],
-  "shared_slices": 0,
-  "shared_topics": [],
+  "shared_slices": 1,
+  "shared_topics": [
+    "workflow:check-exit-status-not-pipe"
+  ],
   "stamp": "2026-10-05",
   "telemetry": {
+    "fabric-coordinator": {
+      "admitted": 11,
+      "candidates": 14,
+      "merged_into_existing": 0,
+      "observations_in": 14,
+      "rejected": 3
+    },
     "python-dev": {
       "admitted": 17,
       "candidates": 20,
@@ -72,12 +130,21 @@
         "observations_in": 20,
         "rejected": 3
       }
+    },
+    "user@develop-qzapp": {
+      "fabric-coordinator": {
+        "admitted": 11,
+        "candidates": 14,
+        "merged_into_existing": 0,
+        "observations_in": 14,
+        "rejected": 3
+      }
     }
   },
   "title_collisions": [],
   "watermarks": {
     "develop-qzapp": 1790347048334,
     "python-dev-01@develop-qzapp": 1791151673758,
-    "user@develop-qzapp": 1790851351843
+    "user@develop-qzapp": 1791153038832
   }
 }

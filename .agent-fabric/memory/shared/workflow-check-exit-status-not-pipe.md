@@ -8,7 +8,7 @@ knowledge_scope: full
 shared_with:
   - "fabric-coordinator"
   - "python-dev"
-distilled_at: "2026-10-01"
+distilled_at: "2026-10-05"
 origin:
   - agent: user
     host: "develop-qzapp"
@@ -16,6 +16,7 @@ origin:
     working_copy: "agent-fabric"
 derived_from:
   - 4e966d2efc009e29
+  - 83363cff18e3ce7b
 ---
 
 ## Never `check | tail -1 && git commit`: the pipe's status is tail's, so a failed lint/static/suite still commits — run the check, capture rc=$?, commit only on 0
@@ -57,6 +58,10 @@ Sixth occurrence, 2026-09-27 on #51: `python3 tests/test_adr.py | tail -1 && git
 The same failure one level up (#55, 2026-09-27): a commit guarded by `[ $static -eq 0 ] && git commit`, followed by `; git push; gh pr comment "fixed in $H"` on separate statements. The static check failed, the commit was skipped, and the push and the "fixed in" comment ran anyway with the old head. Anything that reports a commit (a push, a PR comment, a message) runs inside `if [ $rc -eq 0 ]; then …; fi` on the commit's own status.
 
 2026-10-01, Wave 2: a conflict-resolution script's assert failed (the file stayed unwritten), and the next lines of the SAME command ran `git add` and `git cherry-pick --continue` — committing conflict markers in policies/bash-allowlist.json. Caught by grep, amended before push. Gate every git add/continue/commit on the resolving script's exit status (`python3 … && git add …`), and match keys exactly (`"<key>"`), never by substring: "check_charter_authority.sh" matched test_check_charter_authority.sh.
+
+**Also (2026-10-01):** running the check in one tool call and committing in the next, without reading the check's exit status in between, is the same defect: lint printed `rc=1` and the commit went in anyway (episodic engine, caught before push, amended). Gate in one command: `check > log; rc=$?; [ $rc -eq 0 ] && git commit …`, or read the rc before issuing the commit.
+
+#78 (2026-10-01): a CI-wait summary ended in `| head`, cut 15 checks to 10 and hid the one red leg; the gate caught it. Print only the non-passing checks (`select(.bucket != "pass")`), never a truncated list of all.
 
 *References: cross-repo-lint-window*
 
