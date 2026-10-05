@@ -276,8 +276,9 @@ def judged(cmd: str) -> str | None:
 # that starts from this list inherits no secret, however it is spelled. It
 # removes the inherited environment, not every way back to it: the account's
 # files, a parent's /proc environ and a shell init file that sources
-# secrets.env are still the patterns' to refuse (SECRET_PATH), and keeping
-# secrets off what the session can read is what closes them.
+# secrets.env stay reachable by some spelling. SECRET_PATH refuses the
+# routine ones and closes none; keeping secrets off what the session can
+# read is what would.
 # The names are fixed here and the values are expanded by the reviewer's
 # own shell when the command runs, so no value passes through this hook.
 # Measured: docs/live-checks/2026-10-05-hook-updated-input.md.

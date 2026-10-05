@@ -19,8 +19,10 @@ permission decision, so the fence rewrites every command it lets through
 to run under `env -i`, keeping only the variables a build or a test needs
 (`CLEAN_ENV`); the names are fixed in the module and the values are
 expanded by the reviewer's own shell, so none passes through the hook.
-The patterns stay as the first line; secret material on disk, a parent's
-`/proc` environ and a shell init file that sources `secrets.env` still rest
-on them, and on keeping secrets out of what a session can read. The
+The patterns stay as the first line, and only that: secret material on
+disk, a parent's `/proc` environ and a shell init file that sources
+`secrets.env` stay reachable by some spelling (the review of #97 found
+`/usr/../proc/…`, `{ . ~/.bashrc; …}` and `BASH_ENV=`), and what closes
+them is keeping secrets out of what a session can read. The
 session markers (`CLAUDECODE` and its kin) stay in the clean environment:
 they are no secret, and tools read them to refuse inside a model session.

@@ -63,5 +63,6 @@ probe agent file was removed after each run.
   still judges. No suite would see that: the oracle runs the rewrite
   itself, outside Claude Code. What catches it is a read-back after a
   Claude Code upgrade: a reviewer running
-  `python3 tests/fixtures/clean-env-probe.py`, whose names must be only
-  `CLEAN_ENV`'s.
+  `python3 tests/fixtures/clean-env-probe.py`, whose names must be
+  `CLEAN_ENV`'s and those the shell and Python add themselves (`SHLVL`,
+  `_`, `LC_CTYPE`), and no other.

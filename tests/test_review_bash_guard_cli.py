@@ -123,6 +123,8 @@ def clean_environment() -> None:
     print("a command let through runs with a clean environment, and otherwise as asked")
     probe = "python3 tests/fixtures/clean-env-probe.py"
     got = rewritten({"command": probe, "timeout": 5000, "description": "names", "run_in_background": False})
+    check("the rewrite reads no shell init file (--norc --noprofile): bash reads ~/.bashrc for a socket stdin",
+          bool(got) and " bash --norc --noprofile -c " in got.get("command", ""), str(got))
     check("the rewrite keeps the rest of the input (timeout, description, background)",
           bool(got) and got.get("timeout") == 5000 and got.get("description") == "names"
           and got.get("run_in_background") is False, str(got))

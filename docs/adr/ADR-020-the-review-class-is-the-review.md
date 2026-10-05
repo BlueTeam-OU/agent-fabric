@@ -102,8 +102,10 @@ outage procedure.
    build or a test needs and the session markers (`CLEAN_ENV`), never the
    account's secrets. The rewrite removes the inherited environment, not
    every way back to it: secret files, a parent's `/proc` environ and a
-   shell init file are refused by the patterns. It has Read, Glob, Grep
-   and Bash only.
+   shell init file that sources `secrets.env` stay reachable by some
+   spelling; the patterns refuse the routine ones and close none.
+   Keeping secrets off what the session can read is what would. It has
+   Read, Glob, Grep and Bash only.
 5. A brief is rendered by `fabric-review brief` from a request naming
    what must be true — mode, repository, range, objective, requirements,
    invariants, compatibility, threat model, scope, out of scope, lenses —
