@@ -444,13 +444,13 @@ def main(argv: list[str]) -> int:
              *(["--working-copy", who["working_copy"]] if who.get("working_copy") else [])]
     kept = None
     if _journal_off():
-        sys.stderr.write("episodic: GZCOORD_JOURNAL=off — this message is sent without being kept in your journal"
-                         " (ADR-041)\n")
         try:
             bypass.record([bypass.entry("out", text)])
         except bypass.BypassUnrecorded as e:
             sys.stderr.write(f"episodic: not sent: {e}; the journal is bypassed only with a record of it (ADR-041)\n")
             return 2
+        sys.stderr.write("episodic: GZCOORD_JOURNAL=off — this message is sent without being kept in your journal"
+                         " (ADR-041)\n")
     else:
         kept = journal(["gzcoord-out-pending", *where], text)
         if kept["status"] != 0:

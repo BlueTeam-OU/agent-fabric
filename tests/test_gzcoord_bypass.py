@@ -147,6 +147,7 @@ def _():
     eq(r.returncode, 2, r.stderr)
     eq(relay.posts, [], "the carrier never saw it")
     ok("not sent: the journal-bypass record" in r.stderr and "only with a record of it" in r.stderr, r.stderr)
+    ok("this message is sent without being kept" not in r.stderr, f"a refused send said it is sent: {r.stderr}")
     page = [{"seq": 7, "id": "r7", "ts": "T7", "sender": "x/y", "content": message(MID, frm="x/y")}]
     relay = Relay(page)
     try:
@@ -178,14 +179,49 @@ def _():
         eq(fh.read(), "untouched\n")
 
 
-@case("no bypass, no record: the journal on, or a dry run with it off, writes no line")
+@case("a FIFO where the record goes is refused at once, not waited on with the agent's lock held")
 def _():
-    relay, state = Relay(), P.scratch("bypass-state-")
+    state = P.scratch("bypass-state-")
+    os.makedirs(os.path.dirname(record_path(state)))
+    os.mkfifo(record_path(state), 0o600)
+    relay = Relay()
+    try:
+        r = send(relay.env(state, GZCOORD_JOURNAL="off"), message(MID))   # send() times out at 60 s
+    finally:
+        relay.close()
+    eq(r.returncode, 2, r.stderr)
+    eq(relay.posts, [])
+
+
+@case("a record the relay sends with a lone surrogate crosses the bypass recorded, not as a relay failure")
+def _():
+    content = message(MID, frm="x/y").replace(BODY, "half \ud800 a pair")
+    page = [{"seq": 7, "id": "r7", "ts": "T7", "sender": "x/y", "content": content}]
+    relay, state = Relay(page), P.scratch("bypass-state-")
+    try:
+        r = drain(relay.env(state, GZCOORD_JOURNAL="off"))
+    finally:
+        relay.close()
+    eq(r.returncode, 0, r.stdout + r.stderr)
+    ok("relay unreachable" not in r.stderr, r.stderr)
+    got = lines_of(record_path(state))
+    eq([(x["message_id"], x["seq"], x["sha256"]) for x in got],
+       [(MID, 7, hashlib.sha256(content.encode("utf-8", "surrogatepass")).hexdigest())], got)
+    eq(relay.acks, ["r7"])
+
+
+@case("no bypass, no record: the journal on (a send and a page), or a dry run with it off, writes no line")
+def _():
+    page = [{"seq": 7, "id": "r7", "ts": "T7", "sender": "x/y", "content": message(MID[:-2] + "c5", frm="x/y")}]
+    relay, state = Relay(page), P.scratch("bypass-state-")
     try:
         r = send(relay.env(state), message(MID))
         eq(r.returncode, 0, r.stderr)
         r = send(relay.env(state, GZCOORD_JOURNAL="off"), message(MID[:-2] + "c4"), "--dry-run")
         eq(r.returncode, 0, r.stderr)
+        r = drain(relay.env(state))
+        eq(r.returncode, 0, r.stdout + r.stderr)
+        eq(relay.acks, ["r7"], "the journal kept the page and it was acknowledged")
     finally:
         relay.close()
     ok(not os.path.exists(record_path(state)), "a line was written with nothing bypassed")

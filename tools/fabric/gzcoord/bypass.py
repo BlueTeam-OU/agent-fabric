@@ -5,21 +5,29 @@ before an inbound one is shown or acknowledged. GZCOORD_JOURNAL=off is the
 break-glass that skips the journal; this is what it leaves instead, so an
 escape from the invariant is never an escape without a trace:
 
-  <agent state dir>/journal-bypass.jsonl, one JSON object per message:
+  <agent state dir>/journal-bypass.jsonl, one JSON object per crossing:
     {"at", "direction": "out"|"in", "message_id", "sha256", "seq", "reason"}
 
   at          UTC, milliseconds, Z (as send.py's ledger stamps)
   message_id  the message's MESSAGE-ID, null when it has none or does not parse
   sha256      of the text the journal would have hashed (the posted text out,
-              the record's content in), so a bypass line and a journal row match
+              the record's content in), so a bypass line and a journal row
+              match; UTF-8, a lone surrogate passed through as its bytes
   seq         the carrier's seq when known: an inbound record's; null out,
               since the line is written before the post
   reason      "GZCOORD_JOURNAL=off"
 
-Never the body. Appended under identity.agent_lock (ADR-003), the file
-created 0600 and never followed through a symlink. Kept whole: an audit
-record is not trimmed. A line that cannot be written raises BypassUnrecorded,
-and the caller refuses the bypass: fail closed.
+A line is one crossing, not one message: a record the relay shows again
+(its acknowledgement was lost) crossed again, and gets another line;
+(direction, seq, sha256) names the message across them.
+
+Never the body. Each line is ASCII JSON, so no text the relay sends can
+fail to be written. Appended under identity.agent_lock (ADR-003), the
+file created 0600, never followed through a symlink nor waited on as a
+FIFO (the lock is held while it opens); a directory or a socket there
+fails the open too. Kept whole: an audit record is
+not trimmed. A line that cannot be written raises BypassUnrecorded, and the
+caller refuses the bypass: fail closed.
 """
 from __future__ import annotations
 
@@ -70,7 +78,10 @@ def entry(direction: str, text: str, seq: Any = None) -> dict:
     except (gzmsg.NotGzcoord, AttributeError, TypeError, KeyError):
         mid = None
     return {"at": _now_iso(), "direction": direction, "message_id": mid,
-            "sha256": hashlib.sha256(text.encode()).hexdigest(),
+            # surrogatepass: the same bytes as the journal's for any valid text;
+            # a lone surrogate the relay may send (JSON \ud800) is hashed, not
+            # raised past the inbox's hold as a transport failure.
+            "sha256": hashlib.sha256(text.encode("utf-8", "surrogatepass")).hexdigest(),
             "seq": seq if isinstance(seq, int) and not isinstance(seq, bool) else None, "reason": REASON}
 
 
@@ -78,7 +89,7 @@ def record(entries: list[dict]) -> None:
     """Append the lines in one write, under the agent's lock, or raise."""
     if not entries:
         return
-    data = "".join(json.dumps(e, ensure_ascii=False, separators=(",", ":")) + "\n" for e in entries).encode()
+    data = "".join(json.dumps(e, ensure_ascii=True, separators=(",", ":")) + "\n" for e in entries).encode("ascii")
     try:
         identity = _identity()
         target = path()
@@ -87,7 +98,11 @@ def record(entries: list[dict]) -> None:
                                f" unknown ({e})") from None
     try:
         with identity.agent_lock():
-            fd = os.open(target, os.O_WRONLY | os.O_APPEND | os.O_CREAT | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)
+            # O_NONBLOCK: a FIFO placed here fails the open (no reader) instead
+            # of blocking it, and the agent's lock with it; it changes nothing
+            # for a regular file, the only kind written to.
+            fd = os.open(target, os.O_WRONLY | os.O_APPEND | os.O_CREAT | os.O_NOFOLLOW | os.O_CLOEXEC
+                         | os.O_NONBLOCK, 0o600)
             try:
                 os.fchmod(fd, 0o600)
                 written = os.write(fd, data)
