@@ -76,6 +76,24 @@ def main() -> int:
         check("each role has its own gpg-agent, not the account's",
               len({sock(parent), sock(child), default_sock}) == 3, f"{sock(parent)} {sock(child)} {default_sock}")
 
+        # The recovery passphrase's floor, with the terminal prompt replaced:
+        # the recovery-key test below replaces the whole reader, so nothing
+        # else holds the floor (coordinator, 01a1093c-ba21).
+        from unittest import mock
+
+        def passphrase(*typed: str) -> str:
+            with mock.patch("getpass.getpass", side_effect=list(typed)):
+                try:
+                    return secret_store._read_recovery_passphrase()
+                except secret_store.StoreError as e:
+                    return f"refused: {e}"
+        check("a recovery passphrase of 11 characters is refused, and says the floor",
+              passphrase("a" * 11, "a" * 11) == "refused: a recovery passphrase has at least 12 characters; nothing was made",
+              passphrase("a" * 11, "a" * 11))
+        check("…12 characters, typed twice the same, is taken",
+              passphrase("b" * 12, "b" * 12) == "b" * 12, passphrase("b" * 12, "b" * 12))
+        check("…two that differ are refused", passphrase("c" * 12, "d" * 12).startswith("refused: the two passphrases differ"))
+
         # From a directory that is no repository, as an account's own may be:
         # backup --verify passed only because the suite ran inside one.
         def run(env: dict, *args: str, stdin: str | None = None) -> subprocess.CompletedProcess:

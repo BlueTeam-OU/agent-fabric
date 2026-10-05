@@ -303,22 +303,20 @@ class Importer:
             self.counts["inbound_conflict"] += c["conflict"]
 
 
-def _ensure_marker_columns(conn: sqlite3.Connection) -> None:
-    cols = {r[1] for r in conn.execute("PRAGMA table_info(meta)")}
-    for col in ("gzcoord_imported_at", "gzcoord_import_seqs"):
-        if col not in cols:
-            conn.execute(f"ALTER TABLE meta ADD COLUMN {col} TEXT")
-
-
 def imported(conn: sqlite3.Connection) -> dict:
-    """The (relay channel) pairs a complete run has imported, by key."""
-    _ensure_marker_columns(conn)
+    """The (relay channel) pairs a complete run has imported, by key. A
+    marker that is not a JSON object is refused, never read as none: a
+    re-import being idempotent makes that default cheap, not right."""
     row = conn.execute("SELECT gzcoord_import_seqs FROM meta").fetchone()
     try:
-        done = json.loads(row[0]) if row and row[0] else {}
+        done = json.loads(row[0]) if row and row[0] is not None else {}
     except ValueError:
-        done = {}
-    return done if isinstance(done, dict) else {}
+        done = None
+    if not isinstance(done, dict):
+        path = conn.execute("PRAGMA database_list").fetchone()[2]
+        raise episodic.JournalError(f"{path}: meta.gzcoord_import_seqs is not a JSON object; "
+                                    "the import marker is unreadable")
+    return done
 
 
 def _key(url: str, channel: str) -> str:
@@ -406,7 +404,6 @@ def main(argv: list[str]) -> int:
         _write_report(os.path.join(state, REPORT), report)
         complete = {_key(v["relay"], c): v["last_seq"] for c, v in seqs.items() if v["complete"]}
         if complete:
-            _ensure_marker_columns(conn)
             conn.execute("UPDATE meta SET gzcoord_imported_at=?, gzcoord_import_seqs=?",
                          (report["at"], json.dumps({**done, **complete}, sort_keys=True)))
     except (OSError, sqlite3.Error) as e:

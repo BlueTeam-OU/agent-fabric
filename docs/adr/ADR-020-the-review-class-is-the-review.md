@@ -94,9 +94,18 @@ outage procedure.
    capability within `routing/policies/review-grade.json`'s closed set;
    lint refuses a committed profile outside it and the launcher refuses
    the merged result. It is never a tier export.
-4. The reviewer writes nothing: `review-bash-guard.sh`, declared in the
-   agent file, denies state-changing git and package installs while that
-   agent runs; it has Read, Glob, Grep and Bash only.
+4. The reviewer writes nothing and inherits no secret: `review-bash-guard.sh`
+   (the shim the agent file declares) and `review-bash-guard.py` deny
+   state-changing git, package installs and printing the environment or
+   secret material while that agent runs, and every command they let
+   through runs with a clean environment that keeps only the variables a
+   build or a test needs and the session markers (`CLEAN_ENV`), never the
+   account's secrets. The rewrite removes the inherited environment, not
+   every way back to it: secret files, a parent's `/proc` environ and a
+   shell init file that sources `secrets.env` stay reachable by some
+   spelling; the patterns refuse the routine ones and close none.
+   Keeping secrets off what the session can read is what would. It has
+   Read, Glob, Grep and Bash only.
 5. A brief is rendered by `fabric-review brief` from a request naming
    what must be true — mode, repository, range, objective, requirements,
    invariants, compatibility, threat model, scope, out of scope, lenses —
@@ -152,8 +161,9 @@ note that recorded it is now a stub pointing here.
 
 - `runtime/claude-code/agents/code-review.md` (the constitution),
   `runtime/claude-code/hooks/agent-dispatch-guard.sh`,
-  `runtime/claude-code/hooks/review-bash-guard.sh`,
-  `runtime/claude-code/aliases.json`.
+  `runtime/claude-code/hooks/review-bash-guard.sh` and `.py`,
+  `runtime/claude-code/aliases.json`;
+  `docs/live-checks/2026-10-05-hook-updated-input.md`.
 - `bin/fabric-review`, `tools/fabric/review_brief.py`,
   `runtime/claude-code/review/README.md`, `tests/test_review_brief.py`.
 - `runtime/github/post-review.sh`, `runtime/github/pr-review-status.sh`,
@@ -161,3 +171,11 @@ note that recorded it is now a stub pointing here.
 - `routing/capabilities.json`, `routing/policies/review-grade.json`.
 - `policies/subagent-dispatch/SKILL.md` §"The review brief".
 - ADR-005, ADR-006, ADR-019, ADR-000 (P3).
+
+## Amendments
+
+The body above reads current; each change's full note is in [history/ADR-020-amendments.md](history/ADR-020-amendments.md).
+
+| Date | Amendment | Effect |
+|---|---|---|
+| 2026-10-05 | The reviewer inherits no secret | §5 rule 4: the fence also refuses printing the environment and secret material, and every command it lets through runs with a clean environment |

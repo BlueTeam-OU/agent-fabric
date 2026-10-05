@@ -1,3 +1,5 @@
+<p align="center"><img src="docs/assets/agent-fabric-icon.svg" width="128" alt="agent-fabric: warp and weft threads woven together"></p>
+
 # agent-fabric
 
 The infrastructure through which people and agents build **enduring

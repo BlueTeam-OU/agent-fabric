@@ -38,47 +38,7 @@
         "do_not_enforce_on_create": false,
         "required_status_checks": [
           {
-            "context": "guards-and-suites (bash, 3.12, 20)",
-            "integration_id": 15368
-          },
-          {
-            "context": "guards-and-suites (bash, 3.14, 22)",
-            "integration_id": 15368
-          },
-          {
-            "context": "guards-and-suites (gzcoord, 3.12, 20)",
-            "integration_id": 15368
-          },
-          {
-            "context": "guards-and-suites (gzcoord, 3.12, 22)",
-            "integration_id": 15368
-          },
-          {
-            "context": "guards-and-suites (python, 3.12, 20)",
-            "integration_id": 15368
-          },
-          {
-            "context": "guards-and-suites (python, 3.12, 22)",
-            "integration_id": 15368
-          },
-          {
-            "context": "guards-and-suites (python, 3.13, 22)",
-            "integration_id": 15368
-          },
-          {
-            "context": "guards-and-suites (python, 3.14, 22)",
-            "integration_id": 15368
-          },
-          {
-            "context": "platform-smoke (debian, debian:stable-slim, apt-get install -y --no-install-recommends, shellchec...",
-            "integration_id": 15368
-          },
-          {
-            "context": "platform-smoke (fedora, fedora:latest, dnf install -y --setopt=install_weak_deps=False, ShellChec...",
-            "integration_id": 15368
-          },
-          {
-            "context": "static",
+            "context": "ci-ok",
             "integration_id": 15368
           }
         ]

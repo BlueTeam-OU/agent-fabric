@@ -22,6 +22,7 @@ fail() { echo "  FAIL $1" >&2; [[ $# -gt 1 ]] && printf '       %s\n' "$2" >&2; 
 CLONE="${TMPDIR:-/tmp}/fixture-clone"; WT="$CLONE/.claude/worktrees/agent-abc"
 
 # decision <tool> <agent_type|-> <cwd> [command] -> allow | deny | ask | malformed
+# (a command rewritten to run with a clean environment, and no decision, is an allow)
 decision() {
   local tool="$1" type="$2" cwd="$3" cmd="${4:-}" out payload
   if [[ "$type" == "-" ]]; then
@@ -30,7 +31,7 @@ decision() {
     payload=$(jq -nc --arg t "$tool" --arg a "$type" --arg c "$cwd" --arg m "$cmd" '{tool_name:$t,agent_id:"a1",agent_type:$a,cwd:$c,tool_input:{command:$m}}')
   fi
   out="$(printf '%s' "$payload" | bash "$UNDER_TEST" 2>/dev/null)"
-  if [[ -z "$out" ]]; then echo allow; else printf '%s' "$out" | jq -r '.hookSpecificOutput.permissionDecision // "malformed"'; fi
+  if [[ -z "$out" ]]; then echo allow; else printf '%s' "$out" | jq -r '.hookSpecificOutput | .permissionDecision // (if .updatedInput then "allow" else "malformed" end)'; fi
 }
 expect() {
   local label="$1" want="$2"; shift 2

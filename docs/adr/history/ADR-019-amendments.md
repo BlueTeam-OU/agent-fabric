@@ -18,3 +18,17 @@ no merge queue, so arming stays one command. Auto-merge is on, so
 `tools/fabric/github-repo-settings.sh`, which used to force auto-merge
 off. The authority guards still decide who may merge; GitHub now
 refuses what is not a green pull request.
+
+### Amendment 2026-10-05 — One required check
+
+The 2026-10-04 ruleset required eleven checks by the names GitHub reports,
+one per CI matrix leg; two of them, the platform-smoke legs, are names
+GitHub cuts past a length, and every leg's name carries its matrix values,
+so a job renamed or a matrix argument changed would have blocked every
+merge until the ruleset named it (the record's own §7 said so). CI now
+has an aggregate job, `ci-ok`, which needs `static`, `guards-and-suites`
+and `platform-smoke` and fails unless each of them succeeded; it runs even
+when one failed or was cancelled, since a skipped required check reads as
+passing. The ruleset requires `ci-ok` alone. The repository's topics,
+set by hand when the icon was made, are written by
+`tools/fabric/github-repo-settings.sh` with the rest of the settings.

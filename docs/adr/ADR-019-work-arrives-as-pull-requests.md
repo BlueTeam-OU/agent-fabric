@@ -113,7 +113,8 @@ not on a pipe's exit status.
    verdict read — never chained behind the gate's own run.
 6. What arming is depends on the repository. agent-fabric's `main` is
    held by a ruleset (`tools/fabric/github-ruleset-main.json`): a pull
-   request, the CI checks and signed commits are required, and deletion
+   request, CI's aggregate check `ci-ok` and signed commits are required,
+   and deletion
    and force-pushes are refused. With auto-merge on, a PR there is armed
    with `gh pr merge --auto --merge`, which waits for green; every merge
    is made from the one GitHub account every session uses, and a PR that
@@ -137,12 +138,13 @@ not on a pipe's exit status.
   |---|---|
   | visibility, default branch | public, `main` |
   | description | "Control plane for the agents working on sibling repositories: identities, roles, memory, model routing, messaging." |
+  | topics | agent-memory, agent-orchestration, ai-agents, claude-code, control-plane, developer-tools, llm-ops, multi-agent-systems |
   | features | issues, projects, wiki on; discussions off |
   | merge methods | merge commit (title `MERGE_MESSAGE`, message `PR_TITLE`), squash (`COMMIT_OR_PR_TITLE`, `COMMIT_MESSAGES`), rebase — all allowed by the repository; a pull request into `main` merges by merge commit only (the ruleset's `allowed_merge_methods`) |
   | auto-merge | on (it waits for the ruleset's required checks) |
   | delete branch on merge, suggest updating branches | off |
   | web commit sign-off | not required |
-  | ruleset on `main` | `tools/fabric/github-ruleset-main.json`: deletion and force-push refused; a pull request (merge commits only, no approval count); the CI jobs `static`, `guards-and-suites` (8) and `platform-smoke` (2) required; signed commits required. No merge queue, no branch protection beside it |
+  | ruleset on `main` | `tools/fabric/github-ruleset-main.json`: deletion and force-push refused; a pull request (merge commits only, no approval count); one CI check required, `ci-ok`, which fails unless `static` and every `guards-and-suites` and `platform-smoke` leg succeeded; signed commits required. No merge queue, no branch protection beside it |
   | Actions | enabled, all actions allowed, SHA pinning not required; default workflow permissions read, may not approve pull requests |
   | secrets, variables, environments, self-hosted runners | none |
   | code scanning | CodeQL default setup (actions, JavaScript/TypeScript, Python), weekly and on every PR |
@@ -154,9 +156,10 @@ not on a pipe's exit status.
   `tests/run.sh`, `policies/`); CodeQL's default setup and secret scanning
   are the GitHub-side exceptions, and `github-repo-settings.sh` sets
   neither. The check names a PR reports are per matrix leg —
-  `guards-and-suites (3.12, 22)` and its siblings, `static`,
-  `platform-smoke (…)` — so a required check, if one is ever wanted, names
-  those.
+  `guards-and-suites (python, 3.12, 22)` and its siblings, `static`,
+  `platform-smoke (…)`, cut by GitHub past a length — so the ruleset
+  requires only `ci-ok`, the job that needs them all, and a leg renamed
+  or added changes nothing there.
 - Nothing on GitHub enforces rules 1, 2, 4 or 5 on agent-fabric; they are
   practice, read to every session in `team.md`, and visible in the history.
 - A managed project's CI checks this public repository out without a
@@ -169,10 +172,6 @@ not on a pipe's exit status.
   context `ci / guards-and-suites`; the first no longer holds (§1), the
   second was changed on GitHub, the third is not a name GitHub reports.
   `github-repo-settings.sh` now writes the live description.
-- The required checks are the CI job names GitHub reports, two of them
-  truncated matrix names: a job renamed or a matrix argument changed in
-  `.github/workflows/ci.yml` blocks every merge until the ruleset names
-  it. One aggregate job required alone would remove that coupling.
 
 ## 8. Decision Status
 
@@ -199,3 +198,4 @@ The body above reads current; each change's full note is in [history/ADR-019-ame
 | Date | Amendment | Effect |
 |---|---|---|
 | 2026-10-04 | `main` is protected | §5 rule 6, §6: a ruleset requires a pull request, the CI checks and signed commits; auto-merge on, so arming waits for green |
+| 2026-10-05 | One required check | §5 rule 6, §6, §7: the ruleset requires CI's aggregate job `ci-ok` alone, in place of eleven per-leg names; the topics join the settings |

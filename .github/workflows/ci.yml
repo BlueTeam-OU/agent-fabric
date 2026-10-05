@@ -173,3 +173,25 @@ jobs:
           set -e
           useradd -m ci && chown -R ci "$GITHUB_WORKSPACE"
           su ci -c "cd '$GITHUB_WORKSPACE' && bash tests/run.sh static && bash tests/run.sh python && bash tests/run.sh bash"
+
+  ci-ok:
+    # The one check the ruleset on main requires
+    # (tools/fabric/github-ruleset-main.json). A matrix leg's check name
+    # carries its matrix values and GitHub cuts it past a length, so
+    # requiring the legs by name broke whenever the matrix changed: this
+    # job stands for all of them. always(): a needed job that failed or was
+    # cancelled must make this one fail, not skip it (a skipped required
+    # check reads as passing).
+    if: always()
+    needs: [static, guards-and-suites, platform-smoke]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: every needed job succeeded
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          for r in $RESULTS; do
+            [ "$r" = success ] || { echo "ci-ok: a needed job ended $r (all: $RESULTS)"; exit 1; }
+          done
+          echo "ci-ok: $RESULTS"

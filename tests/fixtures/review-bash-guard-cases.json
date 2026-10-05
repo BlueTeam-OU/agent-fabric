@@ -1,0 +1,1461 @@
+{
+ "about": "The review-class Bash fence's decision table: each command is piped through runtime/claude-code/hooks/review-bash-guard.sh as a PreToolUse payload and its decision read back (deny, or allow: the command rewritten to run with a clean environment and no decision, or no output for a payload without a command). Read by tests/test_review_bash_guard_cli.py. A case is added with the review that found it; a refusal on purpose names the spelling that works.",
+ "sections": [
+  {
+   "section": "state-changing git is denied",
+   "cases": [
+    {
+     "want": "deny",
+     "command": "git push"
+    },
+    {
+     "want": "deny",
+     "command": "git push origin HEAD"
+    },
+    {
+     "want": "deny",
+     "command": "  git commit -m x"
+    },
+    {
+     "want": "deny",
+     "command": "git add -A"
+    },
+    {
+     "want": "deny",
+     "command": "git checkout main"
+    },
+    {
+     "want": "deny",
+     "command": "git switch -c x"
+    },
+    {
+     "want": "deny",
+     "command": "git reset --hard"
+    },
+    {
+     "want": "deny",
+     "command": "git stash"
+    },
+    {
+     "want": "deny",
+     "command": "git rebase -i HEAD~2"
+    },
+    {
+     "want": "deny",
+     "command": "git merge origin/main"
+    },
+    {
+     "want": "deny",
+     "command": "git worktree add /tmp/x"
+    },
+    {
+     "want": "deny",
+     "command": "git fetch"
+    },
+    {
+     "want": "deny",
+     "command": "git pull"
+    },
+    {
+     "want": "deny",
+     "command": "git clean -fd"
+    },
+    {
+     "want": "deny",
+     "command": "git branch -D x"
+    },
+    {
+     "want": "deny",
+     "command": "git tag v1"
+    },
+    {
+     "want": "deny",
+     "command": "git -C /repo push"
+    },
+    {
+     "want": "deny",
+     "command": "git --no-pager -c user.name=x commit -m y"
+    },
+    {
+     "want": "deny",
+     "command": "cd /repo && git push"
+    },
+    {
+     "want": "deny",
+     "command": "ls; git reset --hard"
+    },
+    {
+     "want": "deny",
+     "command": "sudo git push"
+    },
+    {
+     "want": "deny",
+     "command": "echo $(git stash)"
+    },
+    {
+     "want": "deny",
+     "command": "git restore ."
+    }
+   ]
+  },
+  {
+   "section": "installs and restores are denied",
+   "cases": [
+    {
+     "want": "deny",
+     "command": "pnpm install"
+    },
+    {
+     "want": "deny",
+     "command": "pnpm -r install"
+    },
+    {
+     "want": "deny",
+     "command": "npm i"
+    },
+    {
+     "want": "deny",
+     "command": "yarn add left-pad"
+    },
+    {
+     "want": "deny",
+     "command": "flutter pub get"
+    },
+    {
+     "want": "deny",
+     "command": "dart pub upgrade"
+    },
+    {
+     "want": "deny",
+     "command": "dotnet restore Gzapp.sln"
+    },
+    {
+     "want": "deny",
+     "command": "dotnet add package X"
+    },
+    {
+     "want": "deny",
+     "command": "pip install requests"
+    },
+    {
+     "want": "deny",
+     "command": "cd apps/passenger_flutter && flutter pub get"
+    }
+   ]
+  },
+  {
+   "section": "shell escapes, path-qualified git and in-place writes are denied",
+   "cases": [
+    {
+     "want": "deny",
+     "command": "bash -c \"git push\""
+    },
+    {
+     "want": "deny",
+     "command": "sh -c git\\ push"
+    },
+    {
+     "want": "deny",
+     "command": "eval \"git push\""
+    },
+    {
+     "want": "deny",
+     "command": "exec git push"
+    },
+    {
+     "want": "deny",
+     "command": "/usr/bin/git push"
+    },
+    {
+     "want": "deny",
+     "command": "sed -i s/a/b/ CLAUDE.md"
+    },
+    {
+     "want": "deny",
+     "command": "sed --in-place -e x f"
+    },
+    {
+     "want": "deny",
+     "command": "echo x > CLAUDE.md"
+    },
+    {
+     "want": "deny",
+     "command": "echo x >> notes.md"
+    },
+    {
+     "want": "deny",
+     "command": "tee out.txt"
+    },
+    {
+     "want": "deny",
+     "command": "rm -rf apps"
+    },
+    {
+     "want": "deny",
+     "command": "mv a b"
+    },
+    {
+     "want": "deny",
+     "command": "cp a b"
+    },
+    {
+     "want": "deny",
+     "command": "ls > /tmp/out"
+    }
+   ]
+  },
+  {
+   "section": "the environment and secret material are denied (2026-10-04: a reviewer printed the signing key)",
+   "cases": [
+    {
+     "want": "deny",
+     "command": "env"
+    },
+    {
+     "want": "deny",
+     "command": "env | grep -i fabric"
+    },
+    {
+     "want": "deny",
+     "command": "env -u PATH"
+    },
+    {
+     "want": "deny",
+     "command": "/usr/bin/env"
+    },
+    {
+     "want": "deny",
+     "command": "printenv"
+    },
+    {
+     "want": "deny",
+     "command": "printenv GH_TOKEN"
+    },
+    {
+     "want": "deny",
+     "command": "ls; printenv"
+    },
+    {
+     "want": "deny",
+     "command": "set"
+    },
+    {
+     "want": "deny",
+     "command": "set | head"
+    },
+    {
+     "want": "deny",
+     "command": "export"
+    },
+    {
+     "want": "deny",
+     "command": "export -p"
+    },
+    {
+     "want": "deny",
+     "command": "declare -p"
+    },
+    {
+     "want": "deny",
+     "command": "declare -px"
+    },
+    {
+     "want": "deny",
+     "command": "typeset -x"
+    },
+    {
+     "want": "deny",
+     "command": "compgen -v"
+    },
+    {
+     "want": "deny",
+     "command": "echo $GH_TOKEN"
+    },
+    {
+     "want": "deny",
+     "command": "printf %s \"${FABRIC_CONTROL_SIGNING_KEY}\""
+    },
+    {
+     "want": "deny",
+     "command": "echo $OPENROUTER_API_KEY | wc -c"
+    },
+    {
+     "want": "deny",
+     "command": "echo $CLAUDE_BRIDGE_AUTH_TOKEN"
+    },
+    {
+     "want": "deny",
+     "command": "cat ~/.config/agent-fabric/secrets.env"
+    },
+    {
+     "want": "deny",
+     "command": "grep -c export $HOME/.config/agent-fabric/secrets.env"
+    },
+    {
+     "want": "deny",
+     "command": "ls ~/.local/share/agent-fabric/secrets"
+    },
+    {
+     "want": "deny",
+     "command": "git -C ~/.local/share/agent-fabric/children/x log"
+    },
+    {
+     "want": "deny",
+     "command": "cat /proc/self/environ"
+    },
+    {
+     "want": "deny",
+     "command": "tr \"\\\\0\" \"\\\\n\" < /proc/1234/environ"
+    },
+    {
+     "want": "deny",
+     "command": "ls ~/.password-store"
+    },
+    {
+     "want": "deny",
+     "command": "gpg --export-secret-keys"
+    },
+    {
+     "want": "deny",
+     "command": "ls ~/.gnupg"
+    },
+    {
+     "want": "deny",
+     "command": "pass show x"
+    },
+    {
+     "want": "deny",
+     "command": "fabric-secrets store get GH_TOKEN"
+    },
+    {
+     "want": "deny",
+     "command": "python3 -c \"import os; print(os.environ)\""
+    },
+    {
+     "want": "deny",
+     "command": "node -e \"console.log(process.env)\""
+    },
+    {
+     "want": "deny",
+     "command": "python3 -c \"import json,os; print(json.dumps(dict(os.environ)))\""
+    }
+   ]
+  },
+  {
+   "section": "…and the routine spellings two blind reviews of #96 found past the first version",
+   "cases": [
+    {
+     "want": "deny",
+     "command": "python3 -c \"import os; print(os.environ['GH_TOKEN'])\""
+    },
+    {
+     "want": "deny",
+     "command": "node -e \"console.log(process.env.GH_TOKEN)\""
+    },
+    {
+     "want": "deny",
+     "command": "n=GH_TOKEN; echo ${!n}"
+    },
+    {
+     "want": "deny",
+     "command": "node -p \"process.env\""
+    },
+    {
+     "want": "deny",
+     "command": "node -p process.env"
+    },
+    {
+     "want": "deny",
+     "command": "jq -n env"
+    },
+    {
+     "want": "deny",
+     "command": "jq -n '$ENV'"
+    },
+    {
+     "want": "deny",
+     "command": "ps eww -p 1"
+    },
+    {
+     "want": "deny",
+     "command": "xargs env < /dev/null"
+    },
+    {
+     "want": "deny",
+     "command": "command env"
+    },
+    {
+     "want": "deny",
+     "command": "\\env"
+    },
+    {
+     "want": "deny",
+     "command": "nice env"
+    },
+    {
+     "want": "deny",
+     "command": "time env"
+    },
+    {
+     "want": "deny",
+     "command": "env -0"
+    },
+    {
+     "want": "deny",
+     "command": "env -0 | tr x y"
+    },
+    {
+     "want": "deny",
+     "command": "env -C /tmp"
+    },
+    {
+     "want": "deny",
+     "command": "perl -e 'print join(\"\\n\", %ENV)'"
+    },
+    {
+     "want": "deny",
+     "command": "perl -e 'print %ENV'"
+    },
+    {
+     "want": "deny",
+     "command": "awk 'BEGIN{for(k in ENVIRON) print k}'"
+    },
+    {
+     "want": "deny",
+     "command": "cd ~/.config/agent-fabric && cat secrets.env"
+    },
+    {
+     "want": "deny",
+     "command": "cat ~/.config/agent-fabric/secret*.env"
+    },
+    {
+     "want": "deny",
+     "command": "cat ~/.config/agent-fabric/*.env"
+    },
+    {
+     "want": "deny",
+     "command": "python3 -c \"import os; print(os.environ.copy())\""
+    },
+    {
+     "want": "deny",
+     "command": "python3 -c \"import os; [print(k,v) for k,v in os.environ.items()]\""
+    },
+    {
+     "want": "deny",
+     "command": "python3 -c \"import os,sys; sys.stdout.write(repr(os.environ))\""
+    },
+    {
+     "want": "deny",
+     "command": "grep x ~/.config/agent-fabric/secrets.env"
+    },
+    {
+     "want": "deny",
+     "command": "rg token $HOME/.password-store"
+    },
+    {
+     "want": "deny",
+     "command": "grep -a TOKEN /proc/1/environ"
+    },
+    {
+     "want": "deny",
+     "command": "grep -n \"$GH_TOKEN\" tests"
+    },
+    {
+     "want": "deny",
+     "command": "grep -rn \"/proc/self/environ\" tests",
+     "label": "denied: a search naming a /proc environ path (indistinguishable from reading it)"
+    }
+   ],
+   "note": "A search naming a /proc/*/environ path reads it as surely as cat does: the guard cannot tell a pattern from a file argument there, so it is refused (search for \"environ\" instead). The other secret words stay searchable as patterns."
+  },
+  {
+   "section": "a search exempts only itself: what is chained to it, and what makes it run a program, is judged in full (#96 round 2)",
+   "cases": [
+    {
+     "want": "deny",
+     "command": "grep -c x README.md; env"
+    },
+    {
+     "want": "deny",
+     "command": "git log -1; printenv"
+    },
+    {
+     "want": "deny",
+     "command": "rg x tools && python3 -c \"import os; print(os.environ)\""
+    },
+    {
+     "want": "deny",
+     "command": "grep x f | xargs env"
+    },
+    {
+     "want": "deny",
+     "command": "grep -c x README.md; ps eww"
+    },
+    {
+     "want": "deny",
+     "command": "grep -h export ../../.config/agent-fabric/secrets.env"
+    },
+    {
+     "want": "deny",
+     "command": "git show HEAD:README.md; cat ../../.config/agent-fabric/secrets.env"
+    },
+    {
+     "want": "deny",
+     "command": "grep -r TOKEN ~/.config"
+    },
+    {
+     "want": "deny",
+     "command": "grep -rh = ~/.local/share"
+    },
+    {
+     "want": "deny",
+     "command": "grep -r TOKEN ~"
+    },
+    {
+     "want": "deny",
+     "command": "grep -r TOKEN /home/user"
+    },
+    {
+     "want": "deny",
+     "command": "grep -rn x /home"
+    },
+    {
+     "want": "deny",
+     "command": "grep -rn x /"
+    },
+    {
+     "want": "deny",
+     "command": "grep -r x /proc/self"
+    },
+    {
+     "want": "deny",
+     "command": "grep $(env) f"
+    },
+    {
+     "want": "deny",
+     "command": "grep `printenv` f"
+    },
+    {
+     "want": "deny",
+     "command": "git -c diff.external=printenv diff"
+    },
+    {
+     "want": "deny",
+     "command": "git --config-env=core.pager=X log"
+    },
+    {
+     "want": "deny",
+     "command": "GIT_EXTERNAL_DIFF=env git diff"
+    },
+    {
+     "want": "deny",
+     "command": "PAGER=env git log"
+    },
+    {
+     "want": "deny",
+     "command": "rg --pre env x ."
+    },
+    {
+     "want": "deny",
+     "command": "find . -maxdepth 0 -exec env \\;"
+    },
+    {
+     "want": "deny",
+     "command": "git config diff.external env"
+    },
+    {
+     "want": "deny",
+     "command": "git config --add core.pager env"
+    },
+    {
+     "want": "deny",
+     "command": "git config --global core.pager env"
+    },
+    {
+     "want": "deny",
+     "command": "git config set core.pager env"
+    }
+   ]
+  },
+  {
+   "section": "the cut respects quotes, a home through . or .. is a home, and no cd leaves the clone (#96 round 3)",
+   "cases": [
+    {
+     "want": "deny",
+     "command": "python3 -c \"import os;grep =os.environ;print(grep)\""
+    },
+    {
+     "want": "deny",
+     "command": "node -e \"x=1;grep =process.env;console.log(grep)\""
+    },
+    {
+     "want": "deny",
+     "command": "python3 -c 'import os;grep =os.environ;print(grep)'"
+    },
+    {
+     "want": "deny",
+     "command": "python3 -c \"a=1;grep =x+\\\"/.config/agent-fabric/secrets.env\\\";print(open(grep).read())\""
+    },
+    {
+     "want": "deny",
+     "command": "grep \"a;b\" f; env"
+    },
+    {
+     "want": "deny",
+     "command": "grep \"unclosed f; env"
+    },
+    {
+     "want": "deny",
+     "command": "grep -rh TOKEN /home/user/."
+    },
+    {
+     "want": "deny",
+     "command": "grep -rh TOKEN ~/."
+    },
+    {
+     "want": "deny",
+     "command": "grep -rh TOKEN ~/projects/.."
+    },
+    {
+     "want": "deny",
+     "command": "grep -rh TOKEN /home/user/projects/.."
+    },
+    {
+     "want": "deny",
+     "command": "grep -r x ../../"
+    },
+    {
+     "want": "deny",
+     "command": "grep -r x ../.."
+    },
+    {
+     "want": "deny",
+     "command": "cd"
+    },
+    {
+     "want": "deny",
+     "command": "cd ~"
+    },
+    {
+     "want": "deny",
+     "command": "cd -"
+    },
+    {
+     "want": "deny",
+     "command": "cd .."
+    },
+    {
+     "want": "deny",
+     "command": "cd ../.."
+    },
+    {
+     "want": "deny",
+     "command": "cd /home/user"
+    },
+    {
+     "want": "deny",
+     "command": "cd ~/.config"
+    },
+    {
+     "want": "deny",
+     "command": "cd / && ls"
+    },
+    {
+     "want": "deny",
+     "command": "pushd ~"
+    },
+    {
+     "want": "allow",
+     "command": "cd tools && grep -rn x ."
+    },
+    {
+     "want": "allow",
+     "command": "cd /home/user/projects/agent-fabric && git log -1"
+    },
+    {
+     "want": "allow",
+     "command": "grep -rn \"a|b\" tools"
+    },
+    {
+     "want": "allow",
+     "command": "grep -rn 'a;b' tools"
+    },
+    {
+     "want": "allow",
+     "command": "grep -rn x ../sibling/file"
+    },
+    {
+     "want": "allow",
+     "command": "grep -E \"foo|bar\" tools | head -3"
+    }
+   ]
+  },
+  {
+   "section": "the cut is trusted only where it cannot disagree with bash: comments, multi-line quotes, $'...' (#96 round 4)",
+   "cases": [
+    {
+     "want": "deny",
+     "command": "grep -r x . #'\nenv\n#'"
+    },
+    {
+     "want": "deny",
+     "command": "grep -r x . #\"\nprintenv\n#\""
+    },
+    {
+     "want": "deny",
+     "command": "grep -r x . #'\ntrue; env\n#'"
+    },
+    {
+     "want": "deny",
+     "command": "grep x $'\\'' ; env #'"
+    },
+    {
+     "want": "deny",
+     "command": "grep \"$(echo ')\" ; env ; 'x"
+    },
+    {
+     "want": "deny",
+     "command": "env # x"
+    },
+    {
+     "want": "deny",
+     "command": "set #x"
+    },
+    {
+     "want": "deny",
+     "command": "export # x"
+    },
+    {
+     "want": "allow",
+     "command": "grep -rn \"#!\" tools"
+    },
+    {
+     "want": "allow",
+     "command": "grep -rn '#' tools | head"
+    },
+    {
+     "want": "allow",
+     "command": "grep -rn x tools # a note"
+    },
+    {
+     "want": "allow",
+     "command": "env -i PATH=/usr/bin ls # note"
+    }
+   ]
+  },
+  {
+   "section": "a search is exempt on one line only: a continuation hid a comment (#96 round 5)",
+   "cases": [
+    {
+     "want": "deny",
+     "command": "grep x . \\\n#\\\nenv"
+    },
+    {
+     "want": "deny",
+     "command": "grep x . #\\\nenv"
+    },
+    {
+     "want": "deny",
+     "command": "grep x . \\\n#\\\nprintenv"
+    },
+    {
+     "want": "deny",
+     "command": "git log -1 \\\n#\\\nps eww"
+    },
+    {
+     "want": "deny",
+     "command": "grep x . \\\n#\\\ncat ~/.config/agent-fabric/secrets.env"
+    },
+    {
+     "want": "deny",
+     "command": "grep x . \\\n#\\\ncat secrets.env"
+    },
+    {
+     "want": "deny",
+     "command": "grep -rn x tools\nenv"
+    },
+    {
+     "want": "deny",
+     "command": "grep \"${x:-'}\"'}\" ; env #'"
+    },
+    {
+     "want": "allow",
+     "command": "grep -rn x tools\ngit log -1"
+    },
+    {
+     "want": "allow",
+     "command": "grep -rn secrets.env tools"
+    },
+    {
+     "want": "allow",
+     "command": "grep -rn \"secrets.env\" tools # where it is read"
+    }
+   ]
+  },
+  {
+   "section": "a search may not run a pager or reach a home through a glob (#96 round 6)",
+   "cases": [
+    {
+     "want": "deny",
+     "command": "git grep -O'less;true' -e x"
+    },
+    {
+     "want": "deny",
+     "command": "git grep --open-files-in-pager=less x"
+    },
+    {
+     "want": "deny",
+     "command": "grep -rn x /h*/*/.config/agent-fabric/"
+    },
+    {
+     "want": "deny",
+     "command": "grep -r . /h??e/*/.config/agent-fabric/secrets.env"
+    },
+    {
+     "want": "deny",
+     "command": "grep -r TOKEN /home/user/.c*"
+    },
+    {
+     "want": "deny",
+     "command": "grep -r TOKEN ~/.[a-z]*"
+    },
+    {
+     "want": "allow",
+     "command": "grep -rn x tools/*.py"
+    },
+    {
+     "want": "allow",
+     "command": "git log -1 --format=%H"
+    }
+   ]
+  },
+  {
+   "section": "an option's argument is the next word whatever it is, as getopt reads it; pagers and expansions (#96 round 7)",
+   "cases": [
+    {
+     "want": "deny",
+     "command": "env -u -."
+    },
+    {
+     "want": "deny",
+     "command": "env -u -/"
+    },
+    {
+     "want": "deny",
+     "command": "env -u -.x"
+    },
+    {
+     "want": "deny",
+     "command": "env -u -. | sort"
+    },
+    {
+     "want": "deny",
+     "command": "env -C -."
+    },
+    {
+     "want": "deny",
+     "command": "env -C =x"
+    },
+    {
+     "want": "deny",
+     "command": "env -C/tmp"
+    },
+    {
+     "want": "deny",
+     "command": "env --chdir=/tmp"
+    },
+    {
+     "want": "deny",
+     "command": "env --unset=X"
+    },
+    {
+     "want": "deny",
+     "command": "git -C -. push origin HEAD"
+    },
+    {
+     "want": "deny",
+     "command": "git -C -/ -c core.pager=less log"
+    },
+    {
+     "want": "deny",
+     "command": "git --git-dir=.git push"
+    },
+    {
+     "want": "deny",
+     "command": "git --work-tree=. commit -m x"
+    },
+    {
+     "want": "deny",
+     "command": "git --git-dir .git push"
+    },
+    {
+     "want": "deny",
+     "command": "git grep -iO'less' -e x"
+    },
+    {
+     "want": "deny",
+     "command": "git grep \"-Oless\" -e x"
+    },
+    {
+     "want": "deny",
+     "command": "git grep --open='less' -e x"
+    },
+    {
+     "want": "deny",
+     "command": "grep -r TOKEN /h*"
+    },
+    {
+     "want": "deny",
+     "command": "grep -r TOKEN /hom?"
+    },
+    {
+     "want": "deny",
+     "command": "grep -r TOKEN /[h]ome"
+    },
+    {
+     "want": "deny",
+     "command": "grep -r TOKEN /*"
+    },
+    {
+     "want": "deny",
+     "command": "grep -r TOKEN /{home,x}/user/.config/agent-fabric/"
+    },
+    {
+     "want": "deny",
+     "command": "grep -r TOKEN ~{,}/.config/agent-fabric"
+    },
+    {
+     "want": "deny",
+     "command": "grep -r TOKEN ~user/.config/agent-fabric"
+    },
+    {
+     "want": "deny",
+     "command": "grep -r TOKEN .?/.?/.config"
+    },
+    {
+     "want": "deny",
+     "command": "grep -n x /home/user/projects/agent-fabric/tools/*.py"
+    },
+    {
+     "want": "allow",
+     "command": "gcc -O2 x.c"
+    },
+    {
+     "want": "allow",
+     "command": "python3 -O tests/x.py"
+    },
+    {
+     "want": "allow",
+     "command": "git log --cc -1"
+    },
+    {
+     "want": "allow",
+     "command": "grep -n x tools/*.py"
+    },
+    {
+     "want": "allow",
+     "command": "git -C tools log -1"
+    }
+   ],
+   "note": "Refused on purpose, with the spelling that works: a search over an absolute glob (use a relative path from the clone)."
+  },
+  {
+   "section": "an option no list knows may take a word too; getopt_long's long, abbreviated and clustered forms (#96 round 8)",
+   "cases": [
+    {
+     "want": "deny",
+     "command": "git --attr-source HEAD push origin HEAD"
+    },
+    {
+     "want": "deny",
+     "command": "git --attr-source HEAD commit -m x"
+    },
+    {
+     "want": "deny",
+     "command": "git --attr-source HEAD -C . reset --hard"
+    },
+    {
+     "want": "deny",
+     "command": "git --a-future-option value push"
+    },
+    {
+     "want": "deny",
+     "command": "env --unset X"
+    },
+    {
+     "want": "deny",
+     "command": "env --uns X"
+    },
+    {
+     "want": "deny",
+     "command": "env -0u X"
+    },
+    {
+     "want": "deny",
+     "command": "env -0uX"
+    },
+    {
+     "want": "deny",
+     "command": "env --unset -."
+    },
+    {
+     "want": "deny",
+     "command": "env --chdir /tmp"
+    },
+    {
+     "want": "deny",
+     "command": "git -c core.pager=less log"
+    },
+    {
+     "want": "deny",
+     "command": "git -C . -c core.pager=less log"
+    },
+    {
+     "want": "deny",
+     "command": "git --no-pager -c core.pager=less log"
+    },
+    {
+     "want": "allow",
+     "command": "git grep -c TODO"
+    },
+    {
+     "want": "allow",
+     "command": "git log -SOracle -1"
+    },
+    {
+     "want": "allow",
+     "command": "git log -c -1"
+    },
+    {
+     "want": "allow",
+     "command": "git --attr-source HEAD log -1"
+    },
+    {
+     "want": "allow",
+     "command": "git log --grep push -1"
+    }
+   ]
+  },
+  {
+   "section": "git's no-argument options never take a word; the search exemption reads options narrowly (carried from #96 round 9)",
+   "cases": [
+    {
+     "want": "deny",
+     "command": "git --no-pager push"
+    },
+    {
+     "want": "deny",
+     "command": "git -P -c core.pager=less log"
+    },
+    {
+     "want": "deny",
+     "command": "git -P x log secrets.env"
+    },
+    {
+     "want": "deny",
+     "command": "git --bare --attr-source HEAD push"
+    },
+    {
+     "want": "allow",
+     "command": "git --no-pager log --author push -1"
+    },
+    {
+     "want": "allow",
+     "command": "git --no-pager log -S commit"
+    },
+    {
+     "want": "allow",
+     "command": "git --no-pager grep -e add"
+    },
+    {
+     "want": "allow",
+     "command": "git --no-pager log -c -1"
+    },
+    {
+     "want": "allow",
+     "command": "git -P show -c HEAD"
+    },
+    {
+     "want": "allow",
+     "command": "git --no-pager grep -c TODO"
+    },
+    {
+     "want": "allow",
+     "command": "git --no-pager log --grep push -1"
+    }
+   ]
+  },
+  {
+   "section": "running in a clean environment, and searching code for the word, stay allowed",
+   "cases": [
+    {
+     "want": "allow",
+     "command": "env -i HOME=/tmp/x PATH=/usr/bin python3 tools/fabric/lint.py"
+    },
+    {
+     "want": "allow",
+     "command": "env -u AGENT_FABRIC_ROOT python3 tests/test_lint.py"
+    },
+    {
+     "want": "allow",
+     "command": "env LC_ALL=C sort file"
+    },
+    {
+     "want": "allow",
+     "command": "grep -rn \"secrets.env\" tools/fabric"
+    },
+    {
+     "want": "allow",
+     "command": "grep -rn FABRIC_CONTROL_SIGNING_KEY runtime/control"
+    },
+    {
+     "want": "allow",
+     "command": "set -euo pipefail"
+    },
+    {
+     "want": "allow",
+     "command": "export FOO=bar && make"
+    },
+    {
+     "want": "allow",
+     "command": "echo $HOME"
+    },
+    {
+     "want": "allow",
+     "command": "echo ${PATH}"
+    },
+    {
+     "want": "allow",
+     "command": "python3 -c \"import os; print(os.environ.get(\\\"HOME\\\"))\""
+    },
+    {
+     "want": "allow",
+     "command": "fabric-secrets status"
+    },
+    {
+     "want": "allow",
+     "command": "git log -p -- tools/fabric/secret_store.py"
+    },
+    {
+     "want": "allow",
+     "command": "grep -rn \".gnupg\" tools"
+    },
+    {
+     "want": "allow",
+     "command": "grep -rn \".password-store\" tools"
+    },
+    {
+     "want": "allow",
+     "command": "rg -n secret_store tools"
+    },
+    {
+     "want": "allow",
+     "command": "git grep -n process.env runtime"
+    },
+    {
+     "want": "allow",
+     "command": "git show HEAD:tools/fabric/secrets_sync.py"
+    },
+    {
+     "want": "allow",
+     "command": "ps aux"
+    },
+    {
+     "want": "allow",
+     "command": "ps -ef"
+    },
+    {
+     "want": "allow",
+     "command": "cat .env.example"
+    },
+    {
+     "want": "allow",
+     "command": "ls tests"
+    },
+    {
+     "want": "allow",
+     "command": "python3 -c \"import os; print(os.environ[\\\\\"HOME\\\\\"])\""
+    },
+    {
+     "want": "allow",
+     "command": "node -e \"console.log(process.env.HOME)\""
+    },
+    {
+     "want": "allow",
+     "command": "grep -rn \"secrets.env\" tools | head"
+    },
+    {
+     "want": "allow",
+     "command": "git grep -n process.env runtime | wc -l"
+    },
+    {
+     "want": "allow",
+     "command": "grep -E \"foo|bar\" tools"
+    },
+    {
+     "want": "allow",
+     "command": "git config --get user.name"
+    },
+    {
+     "want": "allow",
+     "command": "git config --list"
+    },
+    {
+     "want": "allow",
+     "command": "grep -c x README.md"
+    },
+    {
+     "want": "allow",
+     "command": "git -C /home/user/projects/agent-fabric log -1"
+    },
+    {
+     "want": "allow",
+     "command": "grep -rn x /home/user/projects/agent-fabric/tools"
+    },
+    {
+     "want": "allow",
+     "command": "rg -n TOKEN /home/user/projects/agent-fabric/runtime"
+    }
+   ]
+  },
+  {
+   "section": "read-only git and no-install builds are allowed",
+   "cases": [
+    {
+     "want": "allow",
+     "command": "git log --oneline -5"
+    },
+    {
+     "want": "allow",
+     "command": "git show HEAD:CLAUDE.md"
+    },
+    {
+     "want": "allow",
+     "command": "git diff origin/main..HEAD"
+    },
+    {
+     "want": "allow",
+     "command": "git blame -L 1,5 file"
+    },
+    {
+     "want": "allow",
+     "command": "git status --short"
+    },
+    {
+     "want": "allow",
+     "command": "git rev-parse HEAD"
+    },
+    {
+     "want": "allow",
+     "command": "git branch --show-current"
+    },
+    {
+     "want": "allow",
+     "command": "git remote -v"
+    },
+    {
+     "want": "allow",
+     "command": "git worktree list"
+    },
+    {
+     "want": "allow",
+     "command": "git tag --list"
+    },
+    {
+     "want": "allow",
+     "command": "dotnet build Gzapp.sln -c Release --no-restore"
+    },
+    {
+     "want": "allow",
+     "command": "dotnet test Gzapp.sln --no-restore"
+    },
+    {
+     "want": "allow",
+     "command": "pnpm --filter admin_web test"
+    },
+    {
+     "want": "allow",
+     "command": "flutter analyze"
+    },
+    {
+     "want": "allow",
+     "command": "flutter test"
+    },
+    {
+     "want": "allow",
+     "command": "node tools/validate_contracts/validate.js"
+    },
+    {
+     "want": "allow",
+     "command": "bash tools/checks/scan_semantic_collisions.sh"
+    },
+    {
+     "want": "allow",
+     "command": "grep -rn gitadd ."
+    },
+    {
+     "want": "allow",
+     "command": "echo \"git push is banned\""
+    },
+    {
+     "want": "allow",
+     "command": "cat docs/git-pushing.md"
+    },
+    {
+     "want": "allow",
+     "command": "dotnet test 2>/dev/null"
+    },
+    {
+     "want": "allow",
+     "command": "ls >/dev/null 2>&1"
+    },
+    {
+     "want": "allow",
+     "command": "cmd 2>&1 | head"
+    },
+    {
+     "want": "allow",
+     "command": "git diff origin/main..HEAD > /dev/null"
+    }
+   ]
+  },
+  {
+   "section": "the rewrite keeps the session markers, and the ways back to the secrets are refused (#97's review)",
+   "cases": [
+    {
+     "want": "deny",
+     "command": "tr '\\0' '\\n' < /proc/$PPID/envir?n"
+    },
+    {
+     "want": "deny",
+     "command": "cat /pr*c/self/environ"
+    },
+    {
+     "want": "deny",
+     "command": "cat /?roc/1/environ"
+    },
+    {
+     "want": "deny",
+     "command": "source ~/.bashrc && python3 x.py"
+    },
+    {
+     "want": "deny",
+     "command": ". ~/.profile; python3 x.py"
+    },
+    {
+     "want": "deny",
+     "command": "source ~/.config/agent-fabric/secrets.env"
+    },
+    {
+     "want": "deny",
+     "command": "bash -i x.sh"
+    },
+    {
+     "want": "deny",
+     "command": "bash --login -s"
+    },
+    {
+     "want": "deny",
+     "command": "fabric-secrets store paper --out sheet.txt"
+    },
+    {
+     "want": "deny",
+     "command": "fabric-secrets store recovery-copy"
+    },
+    {
+     "want": "allow",
+     "command": "ls /usr/lib"
+    },
+    {
+     "want": "allow",
+     "command": "cat /etc/os-release"
+    },
+    {
+     "want": "allow",
+     "command": "bash tests/run.sh python"
+    },
+    {
+     "want": "allow",
+     "command": "python3 tests/x.py"
+    }
+   ]
+  },
+  {
+   "section": "a cd that ends a command is refused: under the rewrite it would not last (Codex on #97)",
+   "cases": [
+    {
+     "want": "deny",
+     "command": "cd tools"
+    },
+    {
+     "want": "deny",
+     "command": "cd /home/user/projects/agent-fabric"
+    },
+    {
+     "want": "deny",
+     "command": "ls; cd tools"
+    },
+    {
+     "want": "deny",
+     "command": "pushd tools"
+    },
+    {
+     "want": "allow",
+     "command": "cd tools && ls"
+    },
+    {
+     "want": "allow",
+     "command": "cd /home/user/projects/agent-fabric && git log -1"
+    },
+    {
+     "want": "allow",
+     "command": "cd tools; grep -rn x ."
+    },
+    {
+     "want": "deny",
+     "command": "cd tools >/dev/null 2>&1"
+    },
+    {
+     "want": "deny",
+     "command": "cd tools 2>&1"
+    },
+    {
+     "want": "deny",
+     "command": "{ cd tools; }"
+    },
+    {
+     "want": "deny",
+     "command": "cd tools || true"
+    },
+    {
+     "want": "deny",
+     "command": "if true; then cd tools; fi"
+    },
+    {
+     "want": "deny",
+     "command": "command cd tools"
+    },
+    {
+     "want": "deny",
+     "command": "builtin cd tools"
+    },
+    {
+     "want": "deny",
+     "command": "popd"
+    },
+    {
+     "want": "allow",
+     "command": "cd tools 2>&1 && ls"
+    },
+    {
+     "want": "allow",
+     "command": "{ cd tools; ls; }"
+    },
+    {
+     "want": "allow",
+     "command": "if true; then cd tools; ls; fi"
+    }
+   ]
+  }
+ ]
+}

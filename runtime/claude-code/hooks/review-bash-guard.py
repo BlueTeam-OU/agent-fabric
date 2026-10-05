@@ -30,8 +30,10 @@ restore|add, pip install, cargo add). Allows everything else: read-only git,
 validators, guards, builds and tests that need no install (dotnet build/test
 --no-restore; pnpm --filter X test).
 
-Output: a deny decision, or nothing. Exit 0 always -- exit 2 would block; a
-guard that cannot parse its input allows and says nothing. A guard that
+Output: a deny decision, or the command rewritten to run with a clean
+environment (CLEAN_ENV below) and no permission decision. Exit 0 always --
+exit 2 would block; a guard that cannot parse its input allows and says
+nothing. A guard that
 cannot RUN denies (the shim, when the fleet's Python is missing): the
 reviewer never needs Bash to finish, and the failure mode of allowing is a
 push to the session's real branch.
@@ -39,7 +41,8 @@ push to the session's real branch.
 Ported from bash when the round-3 fix took it past ADR-040's 150 lines; the
 patterns are the bash guard's, translated mechanically ([[:space:]] to \\s),
 and each is applied line by line as grep applied it, so no class crosses a
-newline. runtime/claude-code/hooks/test_review-bash-guard.sh is the oracle.
+newline. tests/test_review_bash_guard_cli.py, with its table in
+tests/fixtures/review-bash-guard-cases.json, is the oracle.
 """
 from __future__ import annotations
 
@@ -47,6 +50,7 @@ import json
 import os
 import re
 import select
+import shlex
 import signal
 import sys
 
@@ -61,9 +65,14 @@ import sys
 # right, and no word can be read two ways. (Refusing every argument that
 # starts with "-" let `env -u -.` and `git -C -. push` through, round 7;
 # listing only the options known to take one let `git --attr-source HEAD
-# push` through, round 8.) The time budget below is what holds if one is
+# push` through, round 8.) git's options known to take no word (--no-pager,
+# -p, -P...) never take one. The deny patterns read an unknown option
+# broadly and the search exemption (SEARCH) narrowly, so a misreading can
+# only refuse, or fall to the full rules, which do not refuse a bare home
+# path (a git option no git has; git itself rejects it). env's generic branch takes no separated word: an env option
+# that takes one is named. The time budget below is what holds if one is
 # missed.
-GIT_WRITE = r'(^|[;&|(]|`)[\s]*(sudo[\s]+)?([^\s]*/)?git(?:[\s]+(?:(?:-[Cc]|--(?:git-dir|work-tree|namespace|super-prefix|config-env|attr-source|list-cmds))[\s]+[^\s]+|(?!(?:-[Cc]|--(?:git-dir|work-tree|namespace|super-prefix|config-env|attr-source|list-cmds))(?:[\s]|$))-[A-Za-z-]+(?:=[^\s]*|[\s]+[^\s-][^\s]*)?))*[\s]+(push|commit|add|rm|mv|checkout|switch|restore|reset|stash|rebase|merge|cherry-pick|revert|clean|am|apply|fetch|pull|gc|tag[\s]+(-[adsfm]|--delete|--force|[A-Za-z0-9][^\s]*)|worktree[\s]+(add|remove|prune|move|lock|unlock|repair)|branch[\s]+(-[dDmMc]|--delete|--move|--copy)|remote[\s]+(add|remove|rm|rename|set-url)|config([\s]+(--(local|worktree|global|system)|(-f|--file)[\s]+[^\s]+))*[\s]+(set|unset|--add|--unset|--unset-all|--replace-all|--rename-section|--remove-section|--edit|-e|rename-section|remove-section|edit|[A-Za-z][A-Za-z0-9-]*\.[^\s]+[\s]+[^\s;&|-][^\s;&|]*))([\s]|$|[);&|])'
+GIT_WRITE = r'(^|[;&|(]|`)[\s]*(sudo[\s]+)?([^\s]*/)?git(?:[\s]+(?:(?:-[Cc]|--(?:git-dir|work-tree|namespace|super-prefix|config-env|attr-source|list-cmds))[\s]+[^\s]+|(?:-[pPhv]|--(?:no-pager|paginate|bare|literal-pathspecs|glob-pathspecs|noglob-pathspecs|icase-pathspecs|no-replace-objects|no-lazy-fetch|no-optional-locks|no-advice|html-path|man-path|info-path|version|help))(?=[\s]|$)|(?!(?:(?:-[Cc]|--(?:git-dir|work-tree|namespace|super-prefix|config-env|attr-source|list-cmds))|(?:-[pPhv]|--(?:no-pager|paginate|bare|literal-pathspecs|glob-pathspecs|noglob-pathspecs|icase-pathspecs|no-replace-objects|no-lazy-fetch|no-optional-locks|no-advice|html-path|man-path|info-path|version|help)))(?:[\s]|$))-[A-Za-z-]+(?:=[^\s]*|[\s]+[^\s-][^\s]*)?))*[\s]+(push|commit|add|rm|mv|checkout|switch|restore|reset|stash|rebase|merge|cherry-pick|revert|clean|am|apply|fetch|pull|gc|tag[\s]+(-[adsfm]|--delete|--force|[A-Za-z0-9][^\s]*)|worktree[\s]+(add|remove|prune|move|lock|unlock|repair)|branch[\s]+(-[dDmMc]|--delete|--move|--copy)|remote[\s]+(add|remove|rm|rename|set-url)|config([\s]+(--(local|worktree|global|system)|(-f|--file)[\s]+[^\s]+))*[\s]+(set|unset|--add|--unset|--unset-all|--replace-all|--rename-section|--remove-section|--edit|-e|rename-section|remove-section|edit|[A-Za-z][A-Za-z0-9-]*\.[^\s]+[\s]+[^\s;&|-][^\s;&|]*))([\s]|$|[);&|])'
 INSTALL = r'(^|[;&|(]|`)[\s]*(sudo[\s]+)?((pnpm|npm|yarn)([\s]+-[A-Za-z-]+)*[\s]+(install|i|add|remove|rm|update|up|dedupe)([\s]|$|[);&|])|(flutter|dart)[\s]+pub[\s]+(get|add|remove|upgrade|downgrade)([\s]|$|[);&|])|dotnet[\s]+(restore|add|remove)([\s]|$|[);&|])|pip3?[\s]+install([\s]|$|[);&|])|cargo[\s]+(add|install)([\s]|$|[);&|]))'
 
 # Secrets. Every account's shell carries its synced secrets in the
@@ -87,7 +96,7 @@ INSTALL = r'(^|[;&|(]|`)[\s]*(sudo[\s]+)?((pnpm|npm|yarn)([\s]+-[A-Za-z-]+)*[\s]
 # control.
 ENV_PRINT = (r'(^|[^A-Za-z0-9_.-])\\?(env|printenv)([\s]+(-[0iv]*[uCS](?:[\s]+[^\s]+|[^\s]+)|--(?:u|ch|sp)[A-Za-z-]*(?:=[^\s]*|[\s]+[^\s]+)|-(?![0iv]*[uCS]|-(?:u|ch|sp))[A-Za-z0-9-]+(?:=[^\s]*)?|[A-Za-z_][A-Za-z0-9_]*=[^\s]*))*[\s]*($|[;&|)<>#' "'" r'"`])|(^|[^A-Za-z0-9_.-])printenv([^A-Za-z0-9_.-]|$)|(^|[;&|(]|`)[\s]*set[\s]*($|[;&|)#])|(^|[;&|(]|`)[\s]*(export|declare|typeset)[\s]*($|[;&|)#])|(export|declare|typeset)[\s]+-[a-zA-Z]*[px]|compgen[\s]+-[a-zA-Z]*[ev]|os\.environ($|[^.[A-Za-z0-9_]|\.(copy|items|keys|values|__))|process\.env($|[^.[A-Za-z0-9_])|%ENV|ENVIRON($|[^[A-Za-z0-9_])|\$ENV($|[^A-Za-z0-9_])|(^|[^A-Za-z0-9_.-])ps([\s]+-[^\s]+)*[\s]+[a-zA-Z]*e[a-zA-Z]*([\s;|&]|$)')
 SECRET_VAR = r'\$\{?[A-Za-z0-9_]*(TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|_KEY)|\$\{!|(environ|getenv|process\.env|ENVIRON|%ENV|\$ENV)[^;|&]{0,60}(TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|_KEY)'
-SECRET_PATH = r'secrets?[^\s/]*\.env|\.config/agent-fabric|agent-fabric/(secrets|children)|\.password-store|\.gnupg|/proc/[^\s]*/environ|--export-secret|(^|[;&|(]|`)[\s]*pass[\s]+(show|ls|find|grep|otp)|(fabric-secrets|secret_store\.py)[\s]+(store[\s]+)?(get|show|export-key|bundle|child-bundle)'
+SECRET_PATH = r'secrets?[^\s/]*\.env|\.config/agent-fabric|agent-fabric/(secrets|children)|\.password-store|\.gnupg|/proc/[^\s]*/environ|--export-secret|(^|[;&|(]|`)[\s]*pass[\s]+(show|ls|find|grep|otp)|(fabric-secrets|secret_store\.py)[\s]+(store[\s]+)?(get|show|export-key|bundle|child-bundle|paper|recovery-copy)|(^|[\s"=<>(])/([^\s/]*[*?[{]|p)[^\s/]*(/|[\s]|$)|(^|[;&|(`][\s]*|[\s])(ba|z|k|da)?sh[\s]+([^;&|]*[\s])?(-[a-zA-Z]*[il][a-zA-Z]*|--login|--rcfile|--init-file)([\s=]|$)|(^|[;&|(`]|\bthen|\bdo)[\s]*(source|\.)[\s]+[^\s;&|]*(\.bashrc|\.bash_profile|\.bash_login|\.profile|\.zshrc|\.zprofile|secrets?[^\s/;&|]*\.env|[*?[])'
 # A search's PATH, as opposed to its pattern: a home itself or anything under
 # one of its hidden directories (~/.config, ~/.local/share, the stores,
 # .gnupg), the same reached by climbing out of the clone (../../.config), /,
@@ -104,15 +113,19 @@ HOME_PATH = (r'(~|\$HOME|\$\{HOME\}|/home/[^/\s""' "'" r']+|/root)(/[^\s""' "'" 
 # fence can follow -- the control for that is keeping secrets out of what
 # the session can read.
 GLOB_PATH = r"(^|[\s\"'=])[~/][^\s]*[*?[{]|(^|[\s\"'=])~[A-Za-z_]|(^|[\s\"'=/])\.[^\s/]*[*?[{]"
-SEARCH = r'^[\s]*(grep|egrep|fgrep|rg|ag|git(?:[\s]+(?:(?:-[Cc]|--(?:git-dir|work-tree|namespace|super-prefix|config-env|attr-source|list-cmds))[\s]+[^\s]+|(?!(?:-[Cc]|--(?:git-dir|work-tree|namespace|super-prefix|config-env|attr-source|list-cmds))(?:[\s]|$))-[A-Za-z-]+(?:=[^\s]*|[\s]+[^\s-][^\s]*)?))*[\s]+(grep|log|show|diff|blame))([\s]|$)'
+SEARCH = r'^[\s]*(grep|egrep|fgrep|rg|ag|git(?:[\s]+(?:(?:-[Cc]|--(?:git-dir|work-tree|namespace|super-prefix|config-env|attr-source|list-cmds))[\s]+[^\s]+|(?!(?:-[Cc]|--(?:git-dir|work-tree|namespace|super-prefix|config-env|attr-source|list-cmds))(?:[\s]|$))-[A-Za-z-]+(?:=[^\s]*)?))*[\s]+(grep|log|show|diff|blame))([\s]|$)'
 SUBSTITUTION = r'\$\(|`|[<>]\('
 
 # A directory change outlives the command (the harness keeps the shell's
-# directory between calls), so a later search of . would read wherever it
+# directory between calls; under the clean-environment rewrite a cd inside
+# `bash -c` no longer does, and the rule stays for a command the rewrite
+# misses), so a later search of . would read wherever it
 # went: no cd or pushd home (bare, -, ~), into a home's hidden directories,
 # up out of the clone (..), or to /, /home, /root, /proc.
 CD = r'^[\s]*(cd|pushd)([\s]+-[LPe@]+)*[\s]*($|-([\s]|$)|~)'
 CD_ANY = r'^[\s]*(cd|pushd)([\s]|$)'
+CD_STEP = r"(^|[\s{(]|then|do|else)[\s]*((command|builtin)[\s]+)?(cd|pushd|popd)([\s]|$)"
+TRIVIAL = r"^[\s]*([0-9]*|[})]+|fi|done|esac|true|false|:|[0-9]*>[\s]*/dev/null)?[\s]*$"
 CD_UP = r"(^|[\s/\"'])\.\.(/|[\s\"']|$)"
 
 # Shell escapes that would carry any of the above past a string match, and
@@ -123,7 +136,7 @@ CD_UP = r"(^|[\s/\"'])\.\.(/|[\s\"']|$)"
 # pager is a shell command). git's -c only among its global options, so
 # `git grep -c` and `git log -c` count as reads. Redirections are allowed only to /dev/null (the
 # reviewer's own quieting) or to another fd.
-ESCAPE = (r'(^|[;&|(]|`)[\s]*(sudo[\s]+)?(eval|exec|(ba|z|da|k)?sh[\s]+-[a-zA-Z]*c)([\s]|$)|(^|[^A-Za-z0-9_.-])git(?:[\s]+(?:(?:-C|--(?:git-dir|work-tree|namespace|super-prefix|attr-source|list-cmds))[\s]+[^\s]+|(?!(?:-C|--(?:git-dir|work-tree|namespace|super-prefix|attr-source|list-cmds))(?:[\s]|$))-[A-Za-z-]+(?:=[^\s]*|[\s]+[^\s-][^\s]*)?))*[\s]+(-c([\s]|$)|--config-env)|(^|[^A-Za-z0-9_.-])git(?:[\s]+(?:(?:-[Cc]|--(?:git-dir|work-tree|namespace|super-prefix|config-env|attr-source|list-cmds))[\s]+[^\s]+|(?!(?:-[Cc]|--(?:git-dir|work-tree|namespace|super-prefix|config-env|attr-source|list-cmds))(?:[\s]|$))-[A-Za-z-]+(?:=[^\s]*|[\s]+[^\s-][^\s]*)?))*[\s]+grep[\s]([^;&|]*[\s\"' "'" r'])?(-[A-Za-z]*O|--op)|(^|[;&|(`\s])(GIT_[A-Z0-9_]+|PAGER|LESSOPEN|LESSCLOSE|EDITOR|VISUAL)=|[\s]--pre([\s=]|$)|[\s]-(exec|execdir|ok|okdir)([\s]|$)')
+ESCAPE = (r'(^|[;&|(]|`)[\s]*(sudo[\s]+)?(eval|exec|(ba|z|da|k)?sh[\s]+-[a-zA-Z]*c)([\s]|$)|(^|[^A-Za-z0-9_.-])git(?:[\s]+(?:(?:-C|--(?:git-dir|work-tree|namespace|super-prefix|attr-source|list-cmds))[\s]+[^\s]+|(?:-[pPhv]|--(?:no-pager|paginate|bare|literal-pathspecs|glob-pathspecs|noglob-pathspecs|icase-pathspecs|no-replace-objects|no-lazy-fetch|no-optional-locks|no-advice|html-path|man-path|info-path|version|help))(?=[\s]|$)|(?!(?:(?:-C|--(?:git-dir|work-tree|namespace|super-prefix|attr-source|list-cmds))|(?:-[pPhv]|--(?:no-pager|paginate|bare|literal-pathspecs|glob-pathspecs|noglob-pathspecs|icase-pathspecs|no-replace-objects|no-lazy-fetch|no-optional-locks|no-advice|html-path|man-path|info-path|version|help)))(?:[\s]|$))-[A-Za-z-]+(?:=[^\s]*|[\s]+[^\s-][^\s]*)?))*[\s]+(-c([\s]|$)|--config-env)|(^|[^A-Za-z0-9_.-])git(?:[\s]+(?:(?:-[Cc]|--(?:git-dir|work-tree|namespace|super-prefix|config-env|attr-source|list-cmds))[\s]+[^\s]+|(?:-[pPhv]|--(?:no-pager|paginate|bare|literal-pathspecs|glob-pathspecs|noglob-pathspecs|icase-pathspecs|no-replace-objects|no-lazy-fetch|no-optional-locks|no-advice|html-path|man-path|info-path|version|help))(?=[\s]|$)|(?!(?:(?:-[Cc]|--(?:git-dir|work-tree|namespace|super-prefix|config-env|attr-source|list-cmds))|(?:-[pPhv]|--(?:no-pager|paginate|bare|literal-pathspecs|glob-pathspecs|noglob-pathspecs|icase-pathspecs|no-replace-objects|no-lazy-fetch|no-optional-locks|no-advice|html-path|man-path|info-path|version|help)))(?:[\s]|$))-[A-Za-z-]+(?:=[^\s]*|[\s]+[^\s-][^\s]*)?))*[\s]+grep[\s]([^;&|]*[\s\"' "'" r'])?(-[A-Za-z]*O|--op)|(^|[;&|(`\s])(GIT_[A-Z0-9_]+|PAGER|LESSOPEN|LESSCLOSE|EDITOR|VISUAL)=|[\s]--pre([\s=]|$)|[\s]-(exec|execdir|ok|okdir)([\s]|$)')
 WRITE = r'(^|[;&|(]|`)[\s]*(sudo[\s]+)?(sed[\s]+(-[a-zA-Z]*i|--in-place)|tee|rm|mv|cp|truncate|chmod|chown|ln|install|patch|rsync)([\s]|$)'
 
 # A hook that runs past the agent file's timeout (10 s) is not a refusal, so
@@ -136,7 +149,8 @@ REASONS = {
     "slow": "The review-class bash guard could not judge this command within its time budget, so it is denied. Split it into simpler commands.",
     "error": "The review-class bash guard failed while judging this command, so it is denied. Report without it, or split it into simpler commands.",
     "secret": "The review class may not print the environment, expand a secret-shaped variable, or read secret material (secrets.env, the stores, gpg keys, /proc/*/environ): every account's environment carries its credentials, and what you print enters the transcript. Describe a secret by its name and shape only. To run a check in a clean environment, use env -i NAME=value \u2026 command.",
-    "moved": "The review class may not change directory to a home, a hidden directory in one, up out of the clone (..), or back (cd, cd -, cd ~): the shell keeps its directory between calls, so what you search next would read it. Name the path in the command, or use git -C <path>.",
+    "moved": "The review class may not change directory to a home, a hidden directory in one, up out of the clone (..), or back (cd, cd -, cd ~): what the command does after the cd would read there. Name the path in the command, or use git -C <path>.",
+    "cd-last": "A cd that ends a command does not last: each command the review class runs is its own shell, so the next one starts where this one did. Put the work after it in the same command (cd <dir> && git log ...), or name the directory (git -C <dir> ..., grep -rn x <dir>).",
     "escape": "The review class may not use shell escapes (eval, exec, sh -c): they carry a write past this guard. Run the command directly.",
     "write": "The review class runs in the session clone and is READ-ONLY: no in-place edits, no file writes, no redirection except to /dev/null. Report what you would have changed instead.",
     "git": "The review class runs in the session clone and is READ-ONLY: no state-changing git (push, commit, checkout, reset, stash, ...). Read-only history (log, show, diff, blame) is expected of you. Report what you would have changed instead.",
@@ -210,6 +224,18 @@ def verdict(cmd: str) -> str | None:
         return "secret"
     if moved:
         return "moved"
+    # Under the rewrite the command runs in its own `bash -c`, so a cd that
+    # ends it changes nothing the next call sees: the reviewer would then
+    # read, search and test the directory it meant to leave (Codex on #97).
+    # A cd before more work in the same command still applies to that work.
+    # The cut also splits a redirection's `2>&1` and leaves a closing `}`,
+    # `fi` or `|| true` behind, so it is the last cd-like segment that
+    # counts, when nothing after it does work (#97's round 4).
+    for i in range(len(segments) - 1, -1, -1):
+        if found(CD_STEP, segments[i]):
+            if all(found(TRIVIAL, seg) for seg in segments[i + 1:]):
+                return "cd-last"
+            break
     if found(ESCAPE, cmd):
         return "escape"
     stripped = "\n".join(
@@ -257,19 +283,59 @@ def judged(cmd: str) -> str | None:
     return answer if answer in REASONS else "error"
 
 
+# What a command the fence lets through keeps of its environment: the
+# variables a build or a test needs to find its tools and a place to write,
+# and nothing else. Every account's shell carries its synced secrets
+# (~/.bashrc sources secrets.env), and the patterns above judge spellings,
+# which bash can always outrun (#96: nine rounds, each a new one); a command
+# that starts from this list inherits no secret, however it is spelled. It
+# removes the inherited environment, not every way back to it: the account's
+# files, a parent's /proc environ and a shell init file that sources
+# secrets.env stay reachable by some spelling. SECRET_PATH refuses the
+# routine ones and closes none; keeping secrets off what the session can
+# read is what would.
+# The names are fixed here and the values are expanded by the reviewer's
+# own shell when the command runs, so no value passes through this hook.
+# Measured: docs/live-checks/2026-10-05-hook-updated-input.md.
+CLEAN_ENV = ("PATH", "HOME", "USER", "LOGNAME", "SHELL", "PWD", "TERM", "TMPDIR", "TZ",
+             "LANG", "LANGUAGE", "LC_ALL", "LC_CTYPE", "LC_MESSAGES", "XDG_RUNTIME_DIR",
+             "AGENT_FABRIC_ROOT", "AGENT_FABRIC_PYTHON",
+             # The session markers: no secret, and what a tool reads to refuse
+             # inside a model session (fabric-secrets store paper, a role
+             # rebind); without them those refusals would not fire.
+             "CLAUDECODE", "CLAUDE_ENV_FILE", "AGENT_FABRIC_LAUNCH_PROFILE")
+assert not any(re.search(r"TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|_KEY", n) for n in CLEAN_ENV)
+
+
+def wrapped(cmd: str) -> str:
+    """cmd run by bash with only CLEAN_ENV, each kept only when it is set
+    (an empty TZ is not an unset one). --norc: bash reads ~/.bashrc, which
+    sources secrets.env, for `bash -c` whose stdin is a socket (measured in
+    #97's review; the harness gives /dev/null today), so the rewrite must
+    not depend on what stdin it is given."""
+    keep = " ".join('${%s+"%s=$%s"}' % (n, n, n) for n in CLEAN_ENV)
+    return f"/usr/bin/env -i {keep} bash --norc --noprofile -c {shlex.quote(cmd)}"
+
+
 def main() -> int:
     try:
-        cmd = json.load(sys.stdin)["tool_input"]["command"]
+        tool_input = json.load(sys.stdin)["tool_input"]
+        cmd = tool_input["command"]
     except Exception:
         return 0
     if not isinstance(cmd, str) or not cmd:
         return 0
     why = judged(cmd.rstrip("\n"))
     if why:
-        print(json.dumps({"hookSpecificOutput": {
-            "hookEventName": "PreToolUse",
-            "permissionDecision": "deny",
-            "permissionDecisionReason": REASONS[why]}}, ensure_ascii=False))
+        out = {"hookEventName": "PreToolUse", "permissionDecision": "deny",
+               "permissionDecisionReason": REASONS[why]}
+    else:
+        # No permission decision: the rewrite changes what runs and nothing
+        # about who may run it; the session's own permission checks still
+        # apply. The whole input goes back, so a timeout, a description or a
+        # background run is kept.
+        out = {"hookEventName": "PreToolUse", "updatedInput": {**tool_input, "command": wrapped(cmd)}}
+    print(json.dumps({"hookSpecificOutput": out}, ensure_ascii=False))
     return 0
 
 
