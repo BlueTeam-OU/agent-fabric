@@ -883,7 +883,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - Keywords: store, signing, signature, verify, forged entry, lineage,
   pass, bundle, take-bundle, writer, trust-base, trusted base.
 
-### ADR-043 — Claude Code mods: managed only, the guards in managed settings, the fleet's mods from a root-owned marketplace (Proposed)
+### ADR-043 — Claude Code mods: managed only, the guards in managed settings, the fleet's mods from a root-owned marketplace (Accepted)
 
 - User-installed mods, and mods Claude writes in a session, never load on a
   fleet host: managed settings set the built-in guard's

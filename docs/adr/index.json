@@ -392,7 +392,7 @@
       "number": "043",
       "file": "ADR-043-claude-code-mods-managed-only.md",
       "title": "Claude Code mods: managed only, the guards in managed settings, the fleet's mods from a root-owned marketplace",
-      "status": "Proposed",
+      "status": "Accepted",
       "date": "2026-10-04",
       "pillar": "P1",
       "amendments": 0

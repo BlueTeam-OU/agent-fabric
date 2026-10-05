@@ -1,7 +1,8 @@
 # ADR-043 — Claude Code mods: managed only, the guards in managed settings, the fleet's mods from a root-owned marketplace
 
 **Date:** 2026-10-04
-**Status:** Proposed
+**Status:** Accepted
+**Ratified:** owner, 2026-10-05, by the merge of agent-fabric #97 (6f58bf7d), which carried it, as §8 provided
 **Decision Makers:** the owner (asked for this record after reading the mods announcement); drafted by fabric-coordinator
 **Scope:** each host's `/etc/claude-code/managed-settings.json`, the fleet's guards (the `PreToolUse` and `PreModelSwitch` hooks now registered in the workspace's `.claude/settings.json`), the fleet's own mods, and the Claude Code pin in `runtime/claude-code/harness.json`
 **Pillar:** P1
@@ -57,7 +58,7 @@ The GZCoord inbox as a mod with a timer and a pane, replacing the monitor a sess
 
 ## 8. Decision Status
 
-Proposed, in the pull request that carries it; accepted by the owner's merge of that pull request. Rules 1, 2 and 7 need root on each host and are the owner's to apply; the templates, the redaction mod and the checks are fabric-coordinator's.
+Accepted by the owner's merge of agent-fabric #97, which carried it. Not yet in force on any host: rules 1, 2 and 7 need root on each host and are the owner's to apply, and the pin stays at 2.1.285 until they are (rule 6); the templates, the redaction mod and the checks are fabric-coordinator's.
 
 ## References
 
