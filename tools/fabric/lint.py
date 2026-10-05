@@ -868,7 +868,7 @@ def parse_frontmatter(text: str) -> dict[str, Any] | None:
                 try:
                     meta[key] = json.loads(value)
                 except json.JSONDecodeError:
-                    # MATCH assemble.decode_scalar's fallback, which strips the
+                    # MATCH assembler/slices.py decode_scalar's fallback, which strips the
                     # outer quotes when json.loads fails. Keeping them here made
                     # the two parsers disagree about the same file: a
                     # description written with unescaped inner quotes — which
@@ -895,7 +895,7 @@ def check_durable_references(role: str, crossref: dict[str, Any]) -> list[str]:
     directory belonging to one session on one machine, dead by the
     time anyone reads it, yet still shaped like a file to open. Three
     such keys reached the repo from other sessions before this check
-    existed; `assemble.normalize_artifact` now collapses them to a
+    existed; `assembler/core.py normalize_artifact` now collapses them to a
     `scratch:` pseudo-path on the way in, and this catches any that
     arrive by another route (a hand edit, an older generator).
 
