@@ -35,3 +35,13 @@ names the class (a self-contained transactional store) and its one
 member, with the guarantees it keeps instead: one writer module, short
 transactions, private modes, its own schema version.
 
+### Amendment 2026-10-05 — The GZCoord logs are a writer class
+
+The review of agent-fabric#99 found two per-agent files written outside
+`runtime/identity.py` and named in no rule: `journal-bypass.jsonl`, new
+with ADR-041 rule 10, appended by `bypass.py` under `agent_lock`; and the
+older send ledger `gzcoord-sent.jsonl`, appended by `send.py` and trimmed
+by a read-then-rewrite that holds no lock. Rule 1 now names them as a
+class, with how each is written, and records the ledger's unlocked trim
+as a gap to close rather than as conforming.
+

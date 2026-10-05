@@ -130,6 +130,8 @@ its record disagree, the record wins. Look it up, never read it whole:
   `update_jobs` (§5 rule 1).
 - A 2026-10-05 — `episodic.db` is a second writer class, a self-contained
   transactional store written only by `episodic.py` (§5 rule 1).
+- A 2026-10-05 — the GZCoord logs (`journal-bypass.jsonl`, the send ledger)
+  are a writer class; the ledger's unlocked trim is a named gap (§5 rule 1).
 - Keywords: state, binding, atomic write, lock, flock, rename, history,
   host, XDG_STATE_HOME.
 

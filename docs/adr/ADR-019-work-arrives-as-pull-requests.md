@@ -104,8 +104,7 @@ not on a pipe's exit status.
    in no column; everything else is work.
 4. Eight or more work commits: arm once the gate is met, without the
    owner's word, a security-boundary change and over sixteen too
-   (A 2026-10-05); a managed project's own contract may still ask the
-   owner on a boundary until it is amended to match. Under eight: ask the
+   (A 2026-10-05). Under eight: ask the
    owner, who arms. Sixteen is the size a batch is opened at; a PR over
    it is armed on the gate all the same, and the count is advice for the
    next batch.

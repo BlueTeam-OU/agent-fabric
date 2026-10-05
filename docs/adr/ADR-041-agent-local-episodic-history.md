@@ -104,7 +104,7 @@ a message for the agent and two per send, and no prompt tokens.
    (time, direction, MESSAGE-ID, the hash the journal would have kept,
    the carrier sequence when known; never a body), mode 0600, under
    `agent_lock`, and warns per send on stderr and once per inbox page on
-   the watch's stdout, where the session sees it. A
+   the inbox's stdout (its drain and its watch), where the session sees it. A
    line that cannot be written refuses the crossing, as a journal that
    cannot be written does (A 2026-10-05).
 

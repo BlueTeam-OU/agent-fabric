@@ -96,12 +96,13 @@ state file an obvious place to get its writer.
    control agent is the named exception (§2), and writes only by
    temporary and rename. A self-contained transactional store (§2) is
    the other: `episodic.db`, written only by `tools/fabric/episodic.py`
-   through its own transactions (A 2026-10-05). Two append-only GZCoord
-   logs are the third: `journal-bypass.jsonl` (ADR-041 rule 10), appended
+   through its own transactions (A 2026-10-05). Two GZCoord logs are the
+   third: `journal-bypass.jsonl` (ADR-041 rule 10), append-only, written
    by `tools/fabric/gzcoord/bypass.py` under `agent_lock` with
-   `O_NOFOLLOW`, mode 0600, one write and an fsync per line, and
-   `gzcoord-sent.jsonl`, the send ledger, which does not yet hold
-   `agent_lock` when it trims (a known gap, to close).
+   `O_NOFOLLOW`, mode 0600, one write and an fsync per batch of lines;
+   and `gzcoord-sent.jsonl`, the send ledger, appended by
+   `tools/fabric/gzcoord/send.py` and trimmed by rewrite, without
+   `agent_lock` yet (a known gap, to close) (A 2026-10-05).
 2. Every read-modify-write of per-agent state holds `agent_lock`, except
    the Node control agent's own files (§2), which only it writes and the
    launcher only consumes; `restart.json` has a second writer,
@@ -153,4 +154,5 @@ The body above reads current; each change's full note is in [history/ADR-003-ame
 |---|---|---|
 | 2026-09-28 | An agent's own session writes its restart marker and its sweep record | §2, §5 rule 2: `fabric-fresh` a second `restart.json` writer; `fabric-branches` writes `branch-sweep.json` under `agent_lock` |
 | 2026-10-05 | A self-contained transactional store is a writer class | §2, §5 rule 1: `episodic.db` (ADR-041) written only by `episodic.py`, through SQLite's own transactions |
+| 2026-10-05 | The GZCoord logs are a writer class | §5 rule 1: `journal-bypass.jsonl` and the send ledger, written by `bypass.py` and `send.py`; the ledger's unlocked trim named as a gap |
 | 2026-09-28 | The job list is per-agent state | §5 rule 1: `jobs.json` and its writer `update_jobs` |
