@@ -1379,6 +1379,39 @@
      "command": "python3 tests/x.py"
     }
    ]
+  },
+  {
+   "section": "a cd that ends a command is refused: under the rewrite it would not last (Codex on #97)",
+   "cases": [
+    {
+     "want": "deny",
+     "command": "cd tools"
+    },
+    {
+     "want": "deny",
+     "command": "cd /home/user/projects/agent-fabric"
+    },
+    {
+     "want": "deny",
+     "command": "ls; cd tools"
+    },
+    {
+     "want": "deny",
+     "command": "pushd tools"
+    },
+    {
+     "want": "allow",
+     "command": "cd tools && ls"
+    },
+    {
+     "want": "allow",
+     "command": "cd /home/user/projects/agent-fabric && git log -1"
+    },
+    {
+     "want": "allow",
+     "command": "cd tools; grep -rn x ."
+    }
+   ]
   }
  ]
 }

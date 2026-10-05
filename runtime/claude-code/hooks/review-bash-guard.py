@@ -148,6 +148,7 @@ REASONS = {
     "error": "The review-class bash guard failed while judging this command, so it is denied. Report without it, or split it into simpler commands.",
     "secret": "The review class may not print the environment, expand a secret-shaped variable, or read secret material (secrets.env, the stores, gpg keys, /proc/*/environ): every account's environment carries its credentials, and what you print enters the transcript. Describe a secret by its name and shape only. To run a check in a clean environment, use env -i NAME=value \u2026 command.",
     "moved": "The review class may not change directory to a home, a hidden directory in one, up out of the clone (..), or back (cd, cd -, cd ~): the shell keeps its directory between calls, so what you search next would read it. Name the path in the command, or use git -C <path>.",
+    "cd-last": "A cd that ends a command does not last: each command the review class runs is its own shell, so the next one starts where this one did. Put the work after it in the same command (cd <dir> && git log ...), or name the directory (git -C <dir> ..., grep -rn x <dir>).",
     "escape": "The review class may not use shell escapes (eval, exec, sh -c): they carry a write past this guard. Run the command directly.",
     "write": "The review class runs in the session clone and is READ-ONLY: no in-place edits, no file writes, no redirection except to /dev/null. Report what you would have changed instead.",
     "git": "The review class runs in the session clone and is READ-ONLY: no state-changing git (push, commit, checkout, reset, stash, ...). Read-only history (log, show, diff, blame) is expected of you. Report what you would have changed instead.",
@@ -221,6 +222,13 @@ def verdict(cmd: str) -> str | None:
         return "secret"
     if moved:
         return "moved"
+    # Under the rewrite the command runs in its own `bash -c`, so a cd that
+    # ends it changes nothing the next call sees: the reviewer would then
+    # read, search and test the directory it meant to leave (Codex on #97).
+    # A cd before more work in the same command still applies to that work.
+    last = next((seg for seg in reversed(segments) if seg.strip()), "")
+    if found(CD_ANY, last):
+        return "cd-last"
     if found(ESCAPE, cmd):
         return "escape"
     stripped = "\n".join(
