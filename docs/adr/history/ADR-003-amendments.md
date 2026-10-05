@@ -21,3 +21,17 @@ per-agent state like the binding: `runtime/identity.py` gains its reader
 and its writer (`read_jobs`, `update_jobs`), the writer holds
 `agent_lock`, and the reader refuses a list naming another agent or
 written on another host, as `read_binding` does.
+
+### Amendment 2026-10-05 — A self-contained transactional store is a writer class
+
+Rule 1 said every Python write under `agents/<login>/` goes through
+`runtime/identity.py`, with the Node control agent the one exception.
+ADR-041's episodic journal (`episodic.db`) has been written directly by
+`tools/fabric/episodic.py` since it landed: a SQLite database in WAL mode
+owns its atomicity and locking, and a temporary-and-rename or a file
+lock around it would only duplicate or defeat them. An external review
+(2026-10-05) named the record and the tree disagreeing. The record now
+names the class (a self-contained transactional store) and its one
+member, with the guarantees it keeps instead: one writer module, short
+transactions, private modes, its own schema version.
+

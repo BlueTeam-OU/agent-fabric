@@ -128,6 +128,8 @@ its record disagree, the record wins. Look it up, never read it whole:
   `identity.py`; `fabric-branches` records its sweeps under `agent_lock`.
 - A 2026-09-28 — the job list, `jobs.json`, is per-agent state written by
   `update_jobs` (§5 rule 1).
+- A 2026-10-05 — `episodic.db` is a second writer class, a self-contained
+  transactional store written only by `episodic.py` (§5 rule 1).
 - Keywords: state, binding, atomic write, lock, flock, rename, history,
   host, XDG_STATE_HOME.
 
