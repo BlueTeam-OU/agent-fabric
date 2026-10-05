@@ -5,7 +5,7 @@ topic: "libp2p-relay-client-listener-semantics"
 description: "What libp2p-relay 0.21.1's client actually reports for a reservation -- addresses are the relay's external ones, one NewListenAddr each, re-emitted on renewal; every failure and a release alike end in ListenerClosed"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-09-26"
+distilled_at: "2026-10-05"
 origin:
   - agent: "p2p-network-dev-01"
     host: "develop-qzapp"

@@ -5,7 +5,7 @@ topic: "nominatim-settlement-is-rank-address-16"
 description: in a Nominatim gazetteer the settlement ancestor is rank_address 16, never admin_level, and isaddress must order rather than filter
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-09-26"
+distilled_at: "2026-10-05"
 origin:
   - agent: "domain-transit"
     host: "develop-qzapp"

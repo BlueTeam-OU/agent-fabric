@@ -5,7 +5,7 @@ topic: "postgres18-skip-scan-changes-index-necessity"
 description: "PostgreSQL 18 skip-scans a non-leading index column, so a predicate that needs an index on 16 may already be served on 18"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-09-26"
+distilled_at: "2026-10-05"
 origin:
   - agent: "db-admin"
     host: "develop-qzapp"

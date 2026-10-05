@@ -5,13 +5,14 @@ topic: "pgrep-f-kills-own-session"
 description: "a pgrep/pkill -f pattern can match the session's own claude process (its argv carries the opening prompt); killing by pattern ended architect-cto-01's session twice and mine once"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-01"
+distilled_at: "2026-10-05"
 origin:
   - agent: user
     host: "develop-qzapp"
     project: "agent-fabric"
     working_copy: "agent-fabric"
 derived_from:
+  - 49dfc29fd677f692
   - 5e17c145e77f34f5
 ---
 
@@ -32,6 +33,8 @@ A claude process launched by the fabric carries its opening prompt in argv for t
 - In a listing, a line starting with `claude` is the session itself.
 
 See [[one-inbox-watch-after-compaction]].
+
+The same self-match makes a pgrep -f *guard* lie (2026-10-04): `pgrep -u user -f "tests/run.sh" && echo "already running" || bash tests/run.sh` matched its own `bash -c` command line, which contains the pattern, and skipped the suite. Check with `ps -o pid,args | grep "[t]ests/run.sh"` (the bracket keeps grep from matching itself) and read the rows; never trust a bare pgrep -f exit code for a pattern your own command contains.
 
 *References: one-inbox-watch-after-compaction*
 

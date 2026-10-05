@@ -5,7 +5,7 @@ topic: "aot-snapshot-byte-find-needs-a-positive-control"
 description: "A byte-find on a Flutter release snapshot (libapp.so) passes on an --obfuscate build because the names are gone; require a control string that only an unobfuscated snapshot carries."
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-09-28"
+distilled_at: "2026-10-05"
 origin:
   - agent: "devex-tooling"
     host: "develop-qzapp"

@@ -5,7 +5,7 @@ topic: "ka-recurring-defect-families"
 description: The Georgian defect families that recur across every gzapi surface — check these first before reading a new text line by line
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-09-26"
+distilled_at: "2026-10-05"
 origin:
   - agent: "language-culture-ge"
     host: "develop-qzapp"

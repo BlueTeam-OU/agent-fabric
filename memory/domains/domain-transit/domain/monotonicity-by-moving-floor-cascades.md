@@ -5,7 +5,7 @@ topic: "monotonicity-by-moving-floor-cascades"
 description: "enforce ordering along a line with an anchor from the construction, never by carrying the previous result forward as the next search's floor"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-09-26"
+distilled_at: "2026-10-05"
 origin:
   - agent: "domain-transit"
     host: "develop-qzapp"

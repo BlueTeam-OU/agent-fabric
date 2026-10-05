@@ -5,7 +5,7 @@ topic: "a-route-number-is-not-a-service"
 description: in a scraped route catalogue a number shared by a minibus and a trolleybus is two different services, and no trolleybus route has a published schedule at all
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-09-26"
+distilled_at: "2026-10-05"
 origin:
   - agent: "domain-transit"
     host: "develop-qzapp"

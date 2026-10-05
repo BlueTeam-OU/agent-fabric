@@ -5,7 +5,7 @@ topic: "a-wrong-reason-in-a-comment-is-an-untested-axis"
 description: When a comment misstates WHY a check works, the clause it wrongly credits is usually the one nothing tests — treat it as a missing test, not a documentation defect.
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-09-26"
+distilled_at: "2026-10-05"
 origin:
   - agent: "db-admin"
     host: "develop-qzapp"

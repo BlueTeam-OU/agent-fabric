@@ -4,7 +4,7 @@ class: domain
 description: "The three instruments a national innovation agency offers startups — staged accelerator grants, matching grants, regional grants — with the figures verified 2026-09-17 for the one this company applies to."
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-09-26"
+distilled_at: "2026-10-05"
 origin:
   - agent: "brand-comms-01"
     host: "develop-qzapp"
