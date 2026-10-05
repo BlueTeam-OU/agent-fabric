@@ -182,6 +182,8 @@ def main() -> int:
         check("--boundary with --no-boundary: exit 2", rc == 2, out)
         rc, out = run("--help"); check("--help prints the gates, exit 0", rc == 0 and "SECURITY-BOUNDARY" in out, out)
         check("…and the merge command as the run issues it", "--merge --auto\n--match-head-commit <head>" in out, out)
+        check("…and the boundary sentence the comment carries at 8 or more",
+              "a security boundary armed at 8 or more\nwithout the owner's word adds a sentence saying so" in out, out)
 
         print("arm: gate 1 — open and not a draft")
         reset(); set_pr(me, "plain", ["docs/a.md"], "MERGED"); set_gate(9)
@@ -336,6 +338,8 @@ def main() -> int:
               rc == 0 and "boundary gate WAIVED by architect-cto-01" in out and "ARMED #7" in out, out)
         check("…the comment records the login, the message and the reason",
               f"Boundary gate waived by architect-cto-01 ({mid}): {why}." in calls(), calls())
+        check("…and a waived boundary is not marked as armed without the owner's word",
+              "Security boundary" not in calls(), calls())
         check("…the replay asked by the id given, the role asked of fabric-ctl for the sender's login",
               f"replay --replay {mid} --json" in calls() and "ctl architect-cto-01 presence --json" in calls(), calls())
         check("…no review asked and no owner's word needed", not any(l[:1].isdigit() for l in calls().splitlines())

@@ -604,7 +604,9 @@ def arm(argv: list[str]) -> int:
         comment += f" {waived_by}"
     # A boundary armed at 8 or more needs no owner's word (gate 5), so the
     # record says that is what happened: a reader of the PR would
-    # otherwise take an unmarked boundary arming for an oversight.
+    # otherwise take an unmarked boundary arming for an oversight. Gate 5
+    # already refused an unwaived boundary under 8 without the word, so
+    # `work >= 8` restates it here rather than deciding anything.
     if boundary_unwaived and work >= 8 and not has_owner_word(basis):
         comment += " Security boundary, armed on the count rule (8 or more work commits) without the owner's word."
     if dry:
