@@ -213,10 +213,17 @@ def main() -> int:
         rc, out = run("7", "--basis", "b")
         check("an Auth/ change reviewed, 9 work commits, no owner's word: armed (the owner, 2026-10-05)",
               rc == 0 and "has the review class's review, and no unresolved thread" in out and "ARMED #7" in out, out)
+        marked = "armed on the count rule (8 or more work commits) without the owner's word."
+        check("…and the comment says it is a boundary armed without the owner's word",
+              f"pr comment 7 --body Arming basis: b — 9 work commits, head abcdef01. Security boundary, {marked}"
+              in calls(), calls())
         set_gate(17); rc, out = run("7", "--basis", "b")
         check("…at 17, no owner's word: armed", rc == 0 and "ARMED #7" in out, out)
-        set_gate(8); rc, out = run("7", "--basis", "b")
-        check("…at 8, no owner's word: armed", rc == 0 and "ARMED #7" in out, out)
+        set_gate(8); reset(); put("review_rc", "0"); rc, out = run("7", "--basis", "b")
+        check("…at 8, no owner's word: armed, and marked", rc == 0 and "ARMED #7" in out and marked in calls(), calls())
+        reset(); put("review_rc", "0"); rc, out = run("7", "--basis", owner)
+        check("…at 8 WITH the owner's word: armed, not marked as without it",
+              rc == 0 and "ARMED #7" in out and "Security boundary" not in calls(), calls())
         set_gate(7); reset(); put("review_rc", "0"); rc, out = run("7", "--basis", "b")
         check("…at 7, no owner's word: refused, the count named",
               rc == 1 and "7 work commits — a security-boundary change under 8 arms only on the owner's word" in out, out)
@@ -224,6 +231,7 @@ def main() -> int:
         rc, out = run("7", "--basis", owner)
         check("…at 7 with the review AND the owner's word: armed",
               rc == 0 and "has the review class's review, and no unresolved thread" in out and "ARMED #7" in out, out)
+        check("…and not marked as armed without it", "Security boundary" not in calls(), calls())
         for n in (3, 20):
             reset(); set_gate(n); rc, out = run("7", "--basis", owner)
             check(f"…at {n} with the owner's word but no review: refused",
