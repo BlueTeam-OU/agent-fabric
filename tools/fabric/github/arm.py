@@ -161,7 +161,8 @@ What it refuses, in order, and why:
      owner, 2026-10-05). A waived boundary is judged as no boundary.
 
 Then: posts the arming basis as a comment ("Arming basis: <text> —
-<W> work commits, head <sha>"), runs `gh pr merge <n> --merge --auto
+<W> work commits, head <sha>"; a security boundary armed at 8 or more
+without the owner's word adds a sentence saying so), runs `gh pr merge <n> --merge --auto
 --match-head-commit <head>` — pinned to the head the gates read —
 and prints the watcher line to run — it is not started here, because
 a watcher must be the SESSION's child for its exit to be the
@@ -601,6 +602,13 @@ def arm(argv: list[str]) -> int:
     comment = f"Arming basis: {basis} — {work} work commits{f', class: {cls}' if cls else ''}, head {head[:8]}."
     if waived_by:
         comment += f" {waived_by}"
+    # A boundary armed at 8 or more needs no owner's word (gate 5), so the
+    # record says that is what happened: a reader of the PR would
+    # otherwise take an unmarked boundary arming for an oversight. Gate 5
+    # already refused an unwaived boundary under 8 without the word, so
+    # `work >= 8` restates it here rather than deciding anything.
+    if boundary_unwaived and work >= 8 and not has_owner_word(basis):
+        comment += " Security boundary, armed on the count rule (8 or more work commits) without the owner's word."
     if dry:
         say(f"DRY RUN — would post: {comment}")
         say(f"DRY RUN — would run: gh pr merge {num} --merge --auto --match-head-commit {head}")
