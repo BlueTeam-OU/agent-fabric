@@ -196,7 +196,9 @@ def _():
 @case("a record the relay sends with a lone surrogate crosses the bypass recorded, not as a relay failure")
 def _():
     content = message(MID, frm="x/y").replace(BODY, "half \ud800 a pair")
-    page = [{"seq": 7, "id": "r7", "ts": "T7", "sender": "x/y", "content": content}]
+    odd_id = MID[:-2] + "\ud800"   # in a field the line carries, not only in the body it never does
+    page = [{"seq": 7, "id": "r7", "ts": "T7", "sender": "x/y", "content": content},
+            {"seq": 8, "id": "r8", "ts": "T8", "sender": "x/y", "content": message(odd_id, frm="x/y")}]
     relay, state = Relay(page), P.scratch("bypass-state-")
     try:
         r = drain(relay.env(state, GZCOORD_JOURNAL="off"))
@@ -206,8 +208,9 @@ def _():
     ok("relay unreachable" not in r.stderr, r.stderr)
     got = lines_of(record_path(state))
     eq([(x["message_id"], x["seq"], x["sha256"]) for x in got],
-       [(MID, 7, hashlib.sha256(content.encode("utf-8", "surrogatepass")).hexdigest())], got)
-    eq(relay.acks, ["r7"])
+       [(MID, 7, hashlib.sha256(content.encode("utf-8", "surrogatepass")).hexdigest()),
+        (odd_id, 8, hashlib.sha256(page[1]["content"].encode("utf-8", "surrogatepass")).hexdigest())], got)
+    eq(sorted(relay.acks), ["r7", "r8"])
 
 
 @case("no bypass, no record: the journal on (a send and a page), or a dry run with it off, writes no line")
