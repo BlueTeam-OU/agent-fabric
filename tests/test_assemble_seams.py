@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import subprocess
 import sys
 import tempfile
 
@@ -110,12 +111,30 @@ def test_a_carried_copy_dropped_clips_the_carried_files_new_cue(tmp: str) -> Non
     assert "workflow-carried-2025-12-01.md: description clipped" in proc.stderr, proc.stderr
 
 
+def test_the_command_runs_in_isolated_mode(tmp: str) -> None:
+    """`python -I` leaves the script's directory off sys.path. The command
+    still finds what it reads beside it, and assembles a drain."""
+    drain, claims_dir, out = ta.build(tmp, {"alpha": ta.claims("alpha", [
+        {"class": "domain", "topic": "ble", "title": "Advertisements are one-way",
+         "body": "A passive beacon emits and never listens.", "evidence": ["h1"]},
+    ])})
+    os.makedirs(os.path.join(ta.working_copy(out), ".agent-fabric"), exist_ok=True)
+    proc = subprocess.run(
+        [sys.executable, "-I", ta.ASSEMBLE, "--claims", claims_dir, "--drain", drain,
+         "--fabric", out, "--project", ta.PROJECT, "--working-copy", ta.working_copy(out),
+         "--stamp", "2026-01-01"],
+        capture_output=True, text=True, timeout=120)
+    assert proc.returncode == 0, proc.stderr
+    assert "Advertisements are one-way" in ta.read(ta.dom(out, "alpha", "domain.md"))
+
+
 def main() -> int:
     cases = [
         test_an_owner_named_only_in_shared_with_gets_its_index,
         test_a_project_collision_is_reported_relative_to_the_working_copy,
         test_a_retire_beside_a_flat_file_clips_the_siblings_new_cue,
         test_a_carried_copy_dropped_clips_the_carried_files_new_cue,
+        test_the_command_runs_in_isolated_mode,
     ]
     # Cases run because they are listed, so one written and not listed
     # would pass forever unrun (test_assemble.py's registry rule).

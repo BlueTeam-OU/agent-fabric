@@ -55,7 +55,8 @@ CLASS_FILES = {
 # Hygiene: the generic patterns live in layout.load_hygiene_patterns; a
 # project's own (deployment names, sibling projects — that project's to
 # keep) come from its working copy's .agent-fabric/hygiene.json, loaded
-# once the project is known (main()).
+# once the project is known (intake.open_layout), in place: every part
+# reads this one list.
 BANNED_PATTERNS: list = []
 
 

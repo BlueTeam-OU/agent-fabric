@@ -60,8 +60,10 @@ from __future__ import annotations
 import os
 import sys
 
-# The parts are found beside this file however it is run: as the command,
-# or by its path (tests/test_harvest_memory.py, tests/test_assemble.py).
+# A script's own directory is on sys.path only by default: `python -I`, `-P`
+# and PYTHONSAFEPATH leave it out, and so does a load by spec. The parts beside
+# this file are put there explicitly, as layout.py was found by its path when
+# this was one file (tests/test_assemble_seams.py runs it under -I).
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 
 from assembler.core import Run  # noqa: E402
