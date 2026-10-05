@@ -37,9 +37,9 @@ the branch is still addable; otherwise it is built locally and waits for
 the merge. Concerns are commit boundaries, not PR boundaries.
 
 **A PR is armed by its work-commit count**: the
-commits of work as opened, review fixes excluded. Eight to sixteen arm
-once the gate is met; fewer ask the owner, who arms; more than sixteen is
-split before the PR opens.
+commits of work as opened, review fixes excluded. Eight or more arm once
+the gate is met, without the owner's word; fewer ask the owner, who arms;
+sixteen is the size to open a batch at, not a condition for arming it.
 
 **The gate is read before arming.** `pr-gate.sh` gives each open PR one
 verdict from its checks, its review, its threads and its merge state;
@@ -100,10 +100,11 @@ not on a pipe's exit status.
    fix; without one, a subject that names a review and says it answers one
    is a fix; a revert and the commit it reverts, both in the range, count
    in no column; everything else is work.
-4. Eight to sixteen work commits: arm once the gate is met. Under eight:
-   ask the owner, who arms. Over sixteen: split before the PR opens; a PR
-   already open over sixteen is armed on its basis, and the count is
-   advice for the next batch.
+4. Eight or more work commits: arm once the gate is met, without the
+   owner's word, over sixteen too (A 2026-10-05). Under eight: ask the
+   owner, who arms. Sixteen is the size a batch is opened at; a PR over
+   it is armed on the gate all the same, and the count is advice for the
+   next batch.
 5. The gate is `runtime/github/pr-gate.sh`'s verdict for the PR, read
    before arming: `MERGEABLE` needs checks green, a review on the current
    head (`pr-review-status.sh`), no unresolved thread, no conflict, no
@@ -198,4 +199,5 @@ The body above reads current; each change's full note is in [history/ADR-019-ame
 | Date | Amendment | Effect |
 |---|---|---|
 | 2026-10-04 | `main` is protected | §5 rule 6, §6: a ruleset requires a pull request, the CI checks and signed commits; auto-merge on, so arming waits for green |
+| 2026-10-05 | Eight or more arm without the owner's word, over sixteen too | §1, §5 rule 4: the owner's rulings of 2026-10-05; sixteen is batch-size advice only |
 | 2026-10-05 | One required check | §5 rule 6, §6, §7: the ruleset requires CI's aggregate job `ci-ok` alone, in place of eleven per-leg names; the topics join the settings |

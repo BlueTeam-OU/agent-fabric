@@ -422,6 +422,8 @@ its record disagree, the record wins. Look it up, never read it whole:
   the CI checks and signed commits; auto-merge waits for green (§5 rule 6).
 - A 2026-10-05 — the ruleset requires CI's aggregate check `ci-ok` alone
   (§5 rule 6).
+- A 2026-10-05 — eight or more work commits arm on the gate alone, a
+  security boundary and over sixteen included (§5 rule 4).
 - Keywords: pull request, PR, arm, merge, band, work commits, Answers,
   pr-gate, MERGEABLE, one open PR, attribution, Co-authored-by, CodeQL,
   repository settings, auto-merge.

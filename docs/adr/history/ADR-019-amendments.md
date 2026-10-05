@@ -32,3 +32,17 @@ when one failed or was cancelled, since a skipped required check reads as
 passing. The ruleset requires `ci-ok` alone. The repository's topics,
 set by hand when the icon was made, are written by
 `tools/fabric/github-repo-settings.sh` with the rest of the settings.
+
+### Amendment 2026-10-05 — Eight or more arm without the owner's word, over sixteen too
+
+Rule 4 armed eight to sixteen work commits on the gate, asked the owner
+under eight, and had a batch over sixteen split before it opened. The
+owner ruled twice on 2026-10-05: their standing word ("over 8 commits a
+pr can be armed without my authorization") covers a security-boundary
+change too, and "over 16 commit don't require my authorization". So
+eight or more arm on the gate alone, over sixteen included; under eight
+still asks the owner; sixteen stays the size a batch is opened at, as
+advice. `tools/fabric/github/arm.py` asks the owner's word on a
+security-boundary change only under eight (devex-tooling's supply), and
+`identities/prompt/team.md` says the same to every session.
+
