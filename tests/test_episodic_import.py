@@ -349,6 +349,10 @@ def main() -> int:
         r = run("--if-needed", "agent-fabric")
         check("…a marker that is JSON but no object, the same", r.returncode == 1 and "gzcoord_import_seqs" in r.stderr
               and not Relay.calls, (r.returncode, r.stderr))
+        conn.execute("UPDATE meta SET gzcoord_import_seqs=''")
+        r = run("--if-needed", "agent-fabric")
+        check("…an empty marker, the same: only NULL means never imported (#97's review)",
+              r.returncode == 1 and "gzcoord_import_seqs" in r.stderr and not Relay.calls, (r.returncode, r.stderr))
         conn.execute("UPDATE meta SET gzcoord_import_seqs=?", (good,))
         r = run("--if-needed", "agent-fabric")
         check("…positive control: the marker back, --if-needed reads it", r.returncode == 0

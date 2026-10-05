@@ -309,7 +309,7 @@ def imported(conn: sqlite3.Connection) -> dict:
     re-import being idempotent makes that default cheap, not right."""
     row = conn.execute("SELECT gzcoord_import_seqs FROM meta").fetchone()
     try:
-        done = json.loads(row[0]) if row and row[0] else {}
+        done = json.loads(row[0]) if row and row[0] is not None else {}
     except ValueError:
         done = None
     if not isinstance(done, dict):
