@@ -36,7 +36,10 @@
 # not closed.
 #
 # Output: a deny decision, an ask when the guard itself cannot run, or
-# nothing. Exit 0 always — exit 2 would block; a guard that cannot parse
+# nothing; for Bash, the review fence's answer passed through, which lets a
+# command through rewritten to run with a clean environment (no secret
+# inherited, the session markers kept), so every unisolated subagent's Bash
+# runs that way, not the review class's alone. Exit 0 always — exit 2 would block; a guard that cannot parse
 # its input allows and says nothing.
 set -uo pipefail
 

@@ -139,6 +139,10 @@ def clean_environment() -> None:
     check("…nor an unlisted one, while PATH, HOME and LANG stay",
           "SOME_UNLISTED" not in names and {"PATH", "HOME", "LANG"} <= names, str(sorted(names)))
     check("…and an unset listed one stays unset (TZ is not set to empty)", "TZ" not in names, str(sorted(names)))
+    marked = subprocess.run(["bash", "-c", got["command"]], capture_output=True, text=True,
+                            env={**shell_env, "CLAUDECODE": "1", "AGENT_FABRIC_LAUNCH_PROFILE": "p"}, cwd=HERE, timeout=60)
+    check("…and the session markers stay, so a tool still refuses inside a model session",
+          {"CLAUDECODE", "AGENT_FABRIC_LAUNCH_PROFILE"} <= set(marked.stdout.split()), marked.stdout)
     got = rewritten({"command": "exit 3"})
     r = subprocess.run(["bash", "-c", got["command"]], capture_output=True, text=True, env=shell_env, timeout=60)
     check("…its exit status is the command's", r.returncode == 3, f"rc={r.returncode}")

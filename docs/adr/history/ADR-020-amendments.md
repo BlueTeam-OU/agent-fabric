@@ -2,7 +2,7 @@
 
 The full notes; the ADR's body reads current and its Amendments table lists them.
 
-### Amendment 2026-10-05 — The reviewer holds no secret
+### Amendment 2026-10-05 — The reviewer inherits no secret
 
 Rule 4 said the reviewer's Bash fence denies state-changing git and
 package installs. On 2026-10-04 a review subagent printed its environment,
@@ -19,5 +19,8 @@ permission decision, so the fence rewrites every command it lets through
 to run under `env -i`, keeping only the variables a build or a test needs
 (`CLEAN_ENV`); the names are fixed in the module and the values are
 expanded by the reviewer's own shell, so none passes through the hook.
-The patterns stay as the first line; secret material on disk still rests
-on them, and on keeping secrets out of what a session can read.
+The patterns stay as the first line; secret material on disk, a parent's
+`/proc` environ and a shell init file that sources `secrets.env` still rest
+on them, and on keeping secrets out of what a session can read. The
+session markers (`CLAUDECODE` and its kin) stay in the clean environment:
+they are no secret, and tools read them to refuse inside a model session.

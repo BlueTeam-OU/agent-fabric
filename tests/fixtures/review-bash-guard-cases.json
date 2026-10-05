@@ -1,5 +1,5 @@
 {
- "about": "The review-class Bash fence's decision table: each command is piped through runtime/claude-code/hooks/review-bash-guard.sh as a PreToolUse payload and its decision read back (deny, or allow: no output). Read by tests/test_review_bash_guard_cli.py. A case is added with the review that found it; a refusal on purpose names the spelling that works.",
+ "about": "The review-class Bash fence's decision table: each command is piped through runtime/claude-code/hooks/review-bash-guard.sh as a PreToolUse payload and its decision read back (deny, or allow: the command rewritten to run with a clean environment and no decision, or no output for a payload without a command). Read by tests/test_review_bash_guard_cli.py. A case is added with the review that found it; a refusal on purpose names the spelling that works.",
  "sections": [
   {
    "section": "state-changing git is denied",
@@ -1316,6 +1316,67 @@
     {
      "want": "allow",
      "command": "git diff origin/main..HEAD > /dev/null"
+    }
+   ]
+  },
+  {
+   "section": "the rewrite keeps the session markers, and the ways back to the secrets are refused (#97's review)",
+   "cases": [
+    {
+     "want": "deny",
+     "command": "tr '\\0' '\\n' < /proc/$PPID/envir?n"
+    },
+    {
+     "want": "deny",
+     "command": "cat /pr*c/self/environ"
+    },
+    {
+     "want": "deny",
+     "command": "cat /?roc/1/environ"
+    },
+    {
+     "want": "deny",
+     "command": "source ~/.bashrc && python3 x.py"
+    },
+    {
+     "want": "deny",
+     "command": ". ~/.profile; python3 x.py"
+    },
+    {
+     "want": "deny",
+     "command": "source ~/.config/agent-fabric/secrets.env"
+    },
+    {
+     "want": "deny",
+     "command": "bash -i x.sh"
+    },
+    {
+     "want": "deny",
+     "command": "bash --login -s"
+    },
+    {
+     "want": "deny",
+     "command": "fabric-secrets store paper --out sheet.txt"
+    },
+    {
+     "want": "deny",
+     "command": "fabric-secrets store recovery-copy"
+    },
+    {
+     "want": "allow",
+     "command": "ls /usr/lib"
+    },
+    {
+     "want": "allow",
+     "command": "cat /etc/os-release"
+    },
+    {
+     "want": "allow",
+     "command": "bash tests/run.sh python"
+    },
+    {
+     "want": "allow",
+     "command": "python3 tests/x.py"
     }
    ]
   }

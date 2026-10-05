@@ -7,3 +7,11 @@ exclude = ["node_modules", "communication/gzcoord/history"]
 
 [lint]
 select = ["E9", "F63", "F7", "F82", "F401", "F811", "F821", "F841"]
+
+[lint.per-file-ignores]
+# The facade's re-exports are its contract: bin/fabric-secrets, the tests and
+# the fenced modules reach the split parts through it (its docstring names
+# who reaches each private one). F401 reads them as unused, and its --fix
+# would delete them; listing every name in __all__ instead would add a
+# second copy of the list to keep in step.
+"tools/fabric/secret_store.py" = ["F401"]

@@ -94,13 +94,16 @@ outage procedure.
    capability within `routing/policies/review-grade.json`'s closed set;
    lint refuses a committed profile outside it and the launcher refuses
    the merged result. It is never a tier export.
-4. The reviewer writes nothing and holds no secret: `review-bash-guard.sh`
+4. The reviewer writes nothing and inherits no secret: `review-bash-guard.sh`
    (the shim the agent file declares) and `review-bash-guard.py` deny
    state-changing git, package installs and printing the environment or
    secret material while that agent runs, and every command they let
    through runs with a clean environment that keeps only the variables a
-   build or a test needs (`CLEAN_ENV`), never the account's secrets; it
-   has Read, Glob, Grep and Bash only.
+   build or a test needs and the session markers (`CLEAN_ENV`), never the
+   account's secrets. The rewrite removes the inherited environment, not
+   every way back to it: secret files, a parent's `/proc` environ and a
+   shell init file are refused by the patterns. It has Read, Glob, Grep
+   and Bash only.
 5. A brief is rendered by `fabric-review brief` from a request naming
    what must be true — mode, repository, range, objective, requirements,
    invariants, compatibility, threat model, scope, out of scope, lenses —
@@ -173,4 +176,4 @@ The body above reads current; each change's full note is in [history/ADR-020-ame
 
 | Date | Amendment | Effect |
 |---|---|---|
-| 2026-10-05 | The reviewer holds no secret | §5 rule 4: the fence also refuses printing the environment and secret material, and every command it lets through runs with a clean environment |
+| 2026-10-05 | The reviewer inherits no secret | §5 rule 4: the fence also refuses printing the environment and secret material, and every command it lets through runs with a clean environment |
