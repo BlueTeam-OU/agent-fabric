@@ -1410,6 +1410,50 @@
     {
      "want": "allow",
      "command": "cd tools; grep -rn x ."
+    },
+    {
+     "want": "deny",
+     "command": "cd tools >/dev/null 2>&1"
+    },
+    {
+     "want": "deny",
+     "command": "cd tools 2>&1"
+    },
+    {
+     "want": "deny",
+     "command": "{ cd tools; }"
+    },
+    {
+     "want": "deny",
+     "command": "cd tools || true"
+    },
+    {
+     "want": "deny",
+     "command": "if true; then cd tools; fi"
+    },
+    {
+     "want": "deny",
+     "command": "command cd tools"
+    },
+    {
+     "want": "deny",
+     "command": "builtin cd tools"
+    },
+    {
+     "want": "deny",
+     "command": "popd"
+    },
+    {
+     "want": "allow",
+     "command": "cd tools 2>&1 && ls"
+    },
+    {
+     "want": "allow",
+     "command": "{ cd tools; ls; }"
+    },
+    {
+     "want": "allow",
+     "command": "if true; then cd tools; ls; fi"
     }
    ]
   }

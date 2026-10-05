@@ -124,6 +124,8 @@ SUBSTITUTION = r'\$\(|`|[<>]\('
 # up out of the clone (..), or to /, /home, /root, /proc.
 CD = r'^[\s]*(cd|pushd)([\s]+-[LPe@]+)*[\s]*($|-([\s]|$)|~)'
 CD_ANY = r'^[\s]*(cd|pushd)([\s]|$)'
+CD_STEP = r"(^|[\s{(]|then|do|else)[\s]*((command|builtin)[\s]+)?(cd|pushd|popd)([\s]|$)"
+TRIVIAL = r"^[\s]*([0-9]*|[})]+|fi|done|esac|true|false|:|[0-9]*>[\s]*/dev/null)?[\s]*$"
 CD_UP = r"(^|[\s/\"'])\.\.(/|[\s\"']|$)"
 
 # Shell escapes that would carry any of the above past a string match, and
@@ -147,7 +149,7 @@ REASONS = {
     "slow": "The review-class bash guard could not judge this command within its time budget, so it is denied. Split it into simpler commands.",
     "error": "The review-class bash guard failed while judging this command, so it is denied. Report without it, or split it into simpler commands.",
     "secret": "The review class may not print the environment, expand a secret-shaped variable, or read secret material (secrets.env, the stores, gpg keys, /proc/*/environ): every account's environment carries its credentials, and what you print enters the transcript. Describe a secret by its name and shape only. To run a check in a clean environment, use env -i NAME=value \u2026 command.",
-    "moved": "The review class may not change directory to a home, a hidden directory in one, up out of the clone (..), or back (cd, cd -, cd ~): the shell keeps its directory between calls, so what you search next would read it. Name the path in the command, or use git -C <path>.",
+    "moved": "The review class may not change directory to a home, a hidden directory in one, up out of the clone (..), or back (cd, cd -, cd ~): what the command does after the cd would read there. Name the path in the command, or use git -C <path>.",
     "cd-last": "A cd that ends a command does not last: each command the review class runs is its own shell, so the next one starts where this one did. Put the work after it in the same command (cd <dir> && git log ...), or name the directory (git -C <dir> ..., grep -rn x <dir>).",
     "escape": "The review class may not use shell escapes (eval, exec, sh -c): they carry a write past this guard. Run the command directly.",
     "write": "The review class runs in the session clone and is READ-ONLY: no in-place edits, no file writes, no redirection except to /dev/null. Report what you would have changed instead.",
@@ -226,9 +228,14 @@ def verdict(cmd: str) -> str | None:
     # ends it changes nothing the next call sees: the reviewer would then
     # read, search and test the directory it meant to leave (Codex on #97).
     # A cd before more work in the same command still applies to that work.
-    last = next((seg for seg in reversed(segments) if seg.strip()), "")
-    if found(CD_ANY, last):
-        return "cd-last"
+    # The cut also splits a redirection's `2>&1` and leaves a closing `}`,
+    # `fi` or `|| true` behind, so it is the last cd-like segment that
+    # counts, when nothing after it does work (#97's round 4).
+    for i in range(len(segments) - 1, -1, -1):
+        if found(CD_STEP, segments[i]):
+            if all(found(TRIVIAL, seg) for seg in segments[i + 1:]):
+                return "cd-last"
+            break
     if found(ESCAPE, cmd):
         return "escape"
     stripped = "\n".join(
