@@ -23,7 +23,8 @@
       "license": "LicenseRef-gzapp-Proprietary",
       "agent_env": {
         "GZAPP_PORT_OFFSET": "the port offset of this login's local stack (infra/local/port-offsets.tsv); exported by fabric-secrets sync, wins over .env.local and the table"
-      }
+      },
+      "plain_env": ["GZAPP_PORT_OFFSET"]
     },
     "agent-fabric": {
       "title": "agent-fabric, the control plane itself",

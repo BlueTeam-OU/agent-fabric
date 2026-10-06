@@ -17,14 +17,21 @@
 
 The store is this login's pass-format repository (secret_store.py). sync
 writes
-    ~/.config/agent-fabric/secrets.env   (0600) — the string secrets the
-                                         tools read from the environment:
+    ~/.config/agent-fabric/secrets.env   (0600) — the string secrets, read
+                                         from the file by the tools that need
+                                         one and never sourced by a shell:
                                          OPENROUTER_API_KEY, GH_TOKEN,
                                          CLAUDE_BRIDGE_AUTH_TOKEN, and the
                                          registry's per-agent names but
                                          STORE_ONLY's, which a tool
                                          decrypts itself when it needs one
-    ~/.bashrc                            one marked line sourcing that file
+    ~/.config/agent-fabric/env.sh        (0600) — only the names the registry
+                                         marks `plain_env`: values that are
+                                         the login's, not secrets
+    ~/.bashrc                            one marked line sourcing env.sh
+    gh's own configuration               GH_TOKEN, by `gh auth login
+                                         --with-token`, so gh needs nothing
+                                         in the environment
     ~/.gitconfig                         user.name/email, signing key and
                                          program (strings; the key material
                                          stays in the keyring)
@@ -34,8 +41,8 @@ configuration never decide who an agent is, the login does.
 
 The contract (ADR-038 §5 rule 7), frozen when this moved from the bash
 heredoc and its Doppler reader retired: the exit codes — 0 applied, 1
-unreadable, 2 applied with required names missing, 3 the store names
-another login and nothing is applied; the JSON report's `error` and
+unreadable, 2 applied with required names missing (or gh refusing
+GH_TOKEN), 3 the store names another login and nothing is applied; the JSON report's `error` and
 `missing`, which the control agent reads (runtime/control/secrets.mjs);
 the `--quiet` line on stderr, which moveto's shell entry shows. status
 exits 0 or 1; its JSON lists `refused` and `no_trusted_base` per store
@@ -52,6 +59,7 @@ import json
 import os
 import pwd
 import shlex
+import shutil
 import stat
 import subprocess
 import sys
@@ -65,9 +73,11 @@ GIT_NAMES = {"GIT_USER_NAME": "user.name", "GIT_USER_EMAIL": "user.email",
 SSH_NAMES = ["SSH_PRIVATE_KEY", "SSH_PUBLIC_KEY"]
 IDENTITY_NAMES = ["AGENT_LOGIN", "AGENT_HOST"]
 # Never written into secrets.env, whatever the registry declares: ~/.bashrc
-# sources that file, so an exported name is in every shell and subagent of
+# sourced that file, so an exported name was in every shell and subagent of
 # the account, and a reviewer printed its environment with the operator's
-# signing key in it (rotated, #95). fabric-ctl decrypts it from the store
+# signing key in it (rotated, #95). No shell sources secrets.env any more
+# (ADR-038 rule 11), but a file every tool may read is still no place for
+# the key that signs fleet actions. fabric-ctl decrypts it from the store
 # when it signs (runtime/control/ctl.mjs signingKey()). Known, so a store
 # holding it is not "unexpected"; and since the file is rewritten whole,
 # the next sync drops a line an older one wrote.
@@ -86,6 +96,10 @@ def home() -> str:
 
 def env_file() -> str:
     return os.path.join(home(), ".config", "agent-fabric", "secrets.env")
+
+
+def shell_env_file() -> str:
+    return os.path.join(home(), ".config", "agent-fabric", "env.sh")
 
 
 def store_path() -> str:
@@ -108,6 +122,23 @@ def project_agent_env(root: str | None = None) -> list[str]:
     # Fabric-wide names first (registry top-level agent_env), then each project's.
     for holder in [reg, *((reg.get("projects") or {}).values())]:
         for n in (holder.get("agent_env") or {}):
+            if n not in names and n not in ENV_NAMES and n not in STORE_ONLY:
+                names.append(n)
+    return names
+
+
+def plain_env_names(root: str | None = None) -> list[str]:
+    """The per-agent names the registry marks `plain_env` — fabric-wide or
+    per project — the only ones a shell may carry. Everything else synced is
+    a secret, read from secrets.env by the tool that needs it: a name nobody
+    marked is never exported, so a new secret is safe by default."""
+    try:
+        reg = json.load(open(os.path.join(root or ROOT, "projects", "registry.json"), encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    names: list[str] = []
+    for holder in [reg, *((reg.get("projects") or {}).values())]:
+        for n in (holder.get("plain_env") or []):
             if n not in names and n not in ENV_NAMES and n not in STORE_ONLY:
                 names.append(n)
     return names
@@ -183,16 +214,105 @@ def bashrc() -> str:
     return os.path.join(home(), ".bashrc")
 
 
-def bashrc_has_line() -> bool:
+def bashrc_marked_lines() -> list[str]:
     try:
-        return any(MARKER in line for line in open(bashrc(), encoding="utf-8"))
+        return [line.rstrip("\n") for line in open(bashrc(), encoding="utf-8") if MARKER in line]
     except FileNotFoundError:
-        return False
+        return []
 
 
 def source_line() -> str:
-    f = env_file()
-    return f"[ -r {f} ] && . {f}  {MARKER}" if " " not in f else f"[ -r {shlex.quote(f)} ] && . {shlex.quote(f)}  {MARKER}"
+    f = shlex.quote(shell_env_file())
+    return f"[ -r {f} ] && . {f}  {MARKER}"
+
+
+def bashrc_sources(which: str) -> bool:
+    """Whether a marked ~/.bashrc line sources `which` (a path)."""
+    return any(which in line or shlex.quote(which) in line for line in bashrc_marked_lines())
+
+
+def settle_bashrc() -> str | None:
+    """Exactly one marked line, sourcing env.sh. A line an older sync wrote
+    sources secrets.env, and every shell, session and subagent of the
+    account then held every secret (ADR-038 rule 11): it is replaced in
+    place, the rest of the file kept byte for byte and its mode kept.
+    Returns what was done, or None when the file was already right."""
+    want = source_line()
+    try:
+        lines = open(bashrc(), encoding="utf-8").read().split("\n")
+        mode = file_mode(bashrc())
+    except FileNotFoundError:
+        lines, mode = [], None
+    marked = [i for i, line in enumerate(lines) if MARKER in line]
+    if [lines[i] for i in marked] == [want]:
+        return None
+    if marked:
+        lines[marked[0]] = want
+        lines = [line for i, line in enumerate(lines) if i not in marked[1:]]
+        done = "bashrc (now sources env.sh, not secrets.env)"
+    else:
+        lines += [want, ""] if lines and lines[-1] == "" else ["", want, ""]
+        done = "bashrc"
+    write_private(bashrc(), "\n".join(lines), mode if mode is not None else 0o644)
+    return done
+
+
+# gh reads GH_TOKEN from the environment first and its own configuration
+# second; the token goes to the second, so no shell needs the first. The
+# binary is AGENT_FABRIC_GH where a test points it at a fake: a sync in a
+# sandbox HOME must never sign the real gh in, nor reach the network.
+GH_ENV_TOKENS = ("GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN")
+GH_TIMEOUT_S = 60
+
+
+def gh_binary() -> str | None:
+    """A sandbox HOME (a test, a probe) never reaches the login's real gh:
+    gh follows XDG_CONFIG_HOME and the keyring, not HOME, and a test once
+    read the runner's token and tried a network login with a fixture."""
+    if os.environ.get("AGENT_FABRIC_GH"):
+        return os.environ["AGENT_FABRIC_GH"]
+    if os.path.realpath(home()) != os.path.realpath(pwd.getpwuid(os.getuid()).pw_dir):
+        return None
+    return shutil.which("gh")
+
+
+def _gh(args: list[str], stdin: str | None = None) -> subprocess.CompletedProcess | None:
+    gh = gh_binary()
+    if not gh:
+        return None
+    env = {k: v for k, v in os.environ.items() if k not in GH_ENV_TOKENS}
+    env["GH_CONFIG_DIR"] = os.path.join(home(), ".config", "gh")
+    try:
+        return subprocess.run([gh, *args], input=stdin if stdin is not None else "", env=env, capture_output=True,
+                              text=True, timeout=GH_TIMEOUT_S)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+
+
+def gh_token_matches(token: str | None = None) -> bool | None:
+    """Whether gh's own configuration holds a token for github.com (and,
+    given one, that token). Compared in this process; never printed. None:
+    no gh to ask."""
+    r = _gh(["auth", "token", "--hostname", "github.com"])
+    if r is None:
+        return None
+    if r.returncode != 0 or not r.stdout.strip():
+        return False
+    return token is None or r.stdout.strip() == token.strip()
+
+
+def apply_gh_token(token: str) -> str:
+    """'unchanged', 'applied', or why not — never the token."""
+    if gh_token_matches(token):
+        return "unchanged"
+    if gh_binary() is None:
+        return "no gh (not on PATH, or a sandbox HOME)"
+    r = _gh(["auth", "login", "--hostname", "github.com", "--with-token", "--insecure-storage"], stdin=token.strip() + "\n")
+    if r is None:
+        return f"gh auth login did not finish within {GH_TIMEOUT_S} s"
+    if r.returncode != 0:
+        return f"gh auth login exit {r.returncode}"
+    return "applied" if gh_token_matches(token) else "gh auth login reported success, but gh holds another token"
 
 
 def ssh_key() -> str:
@@ -211,7 +331,9 @@ def local_state() -> dict:
     return {
         "env_file": f, "env_file_mode": (f"{mode:04o}" if mode is not None else None),
         "env_file_age_seconds": age, "env_file_exports": exported,
-        "bashrc_sources_env_file": bashrc_has_line(),
+        "bashrc_sources_shell_env": bashrc_sources(shell_env_file()),
+        "bashrc_sources_secrets": bashrc_sources(f),
+        "gh_has_token": gh_token_matches(),
         "ssh_key_present": os.path.exists(ssh_key()),
         "git": {key: bool(git_get(key)) for key in GIT_NAMES.values()},
         "commit_gpgsign": git_get("commit.gpgsign") == "true",
@@ -289,7 +411,9 @@ def report(obj: dict, as_json: bool, quiet: bool, ok: bool) -> None:
     env = f"{ls['env_file']} mode={ls['env_file_mode']} age={ls['env_file_age_seconds']}s exports={','.join(ls['env_file_exports'])}" \
         if ls["env_file_mode"] else f"{ls['env_file']} (absent)"
     print(f"  env file: {env}")
-    print(f"  bashrc sources it: {ls['bashrc_sources_env_file']}   ssh key: {ls['ssh_key_present']}   "
+    if ls["bashrc_sources_secrets"]:
+        print("  ~/.bashrc SOURCES secrets.env: every shell holds every secret — fabric-secrets sync replaces the line")
+    print(f"  bashrc sources env.sh: {ls['bashrc_sources_shell_env']}   gh has a token: {ls['gh_has_token']}   ssh key: {ls['ssh_key_present']}   "
           f"git: {', '.join(k for k, v in ls['git'].items() if v) or '(unset)'}   commit.gpgsign: {ls['commit_gpgsign']}")
     print("  " + ("OK" if ok else "NOT OK"))
 
@@ -323,7 +447,9 @@ def status(as_json: bool, quiet: bool = False) -> int:
     if verr:
         obj["error"] = f"{obj['error']}; {verr}" if obj.get("error") else verr
         ok = False
-    ok = ok and obj["local"]["env_file_mode"] == "0600" and obj["local"]["bashrc_sources_env_file"]
+    ls = obj["local"]
+    ok = ok and ls["env_file_mode"] == "0600" and ls["bashrc_sources_shell_env"] and not ls["bashrc_sources_secrets"] \
+        and (ls["gh_has_token"] is not False or "GH_TOKEN" not in obj.get("present", []))
     report(obj, as_json, quiet, ok)
     return 0 if ok else 1
 
@@ -352,18 +478,34 @@ def sync(force: bool, as_json: bool, quiet: bool = False, pull: bool = True) -> 
         obj["local"] = local_state()
         report(obj, as_json, quiet, False)
         return 3
-    # 1. the env file — only the names the tools read from the environment
-    lines = [f"{MARKER}: written by fabric-secrets sync, {time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())}; do not edit"]
+    # 1. the env files: secrets.env holds every string a tool reads; env.sh
+    #    only what the registry marks plain, the one a shell sources
+    stamp = f"{MARKER}: written by fabric-secrets sync, {time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())}; do not edit"
+    plain = plain_env_names()
+    lines, shell_lines = [stamp], [stamp + " (plain values only: never a secret)"]
     for name in ENV_NAMES + optional:
         if name in values:
             lines.append(f"export {name}={shlex.quote(values[name])}")
+            if name in plain:
+                shell_lines.append(lines[-1])
             obj["applied"].append(name)
     write_private(env_file(), "\n".join(lines) + "\n", 0o600)
-    # 2. ~/.bashrc sources it (once)
-    if not bashrc_has_line():
-        with open(bashrc(), "a", encoding="utf-8") as fh:
-            fh.write(f"\n{source_line()}\n")
-        obj["applied"].append("bashrc")
+    write_private(shell_env_file(), "\n".join(shell_lines) + "\n", 0o600)
+    # 2. ~/.bashrc sources env.sh, once, and secrets.env never
+    done = settle_bashrc()
+    if done:
+        obj["applied"].append(done)
+    # 2b. gh holds GH_TOKEN itself
+    gh_failed = None
+    if "GH_TOKEN" in values:
+        gh = apply_gh_token(values["GH_TOKEN"])
+        if gh == "applied":
+            obj["applied"].append("GH_TOKEN into gh")
+        elif gh.startswith("no gh"):
+            obj["skipped"].append(f"GH_TOKEN into gh ({gh}): nothing here can use it")
+        elif gh != "unchanged":
+            gh_failed = f"GH_TOKEN into gh ({gh})"
+            obj["skipped"].append(gh_failed)
     # 3. git identity and signing — strings, not key material
     for name, key in GIT_NAMES.items():
         if name in values:
@@ -383,7 +525,9 @@ def sync(force: bool, as_json: bool, quiet: bool = False, pull: bool = True) -> 
                 write_private(ssh_key() + ".pub", values["SSH_PUBLIC_KEY"].rstrip("\n") + "\n", 0o644)
                 obj["applied"].append("SSH_PUBLIC_KEY")
     obj["local"] = local_state()
-    ok = not obj["missing"]
+    ok = not obj["missing"] and not gh_failed
+    if gh_failed:
+        obj["error"] = f"applied, but gh does not hold the token: {gh_failed}"
     report(obj, as_json, quiet, ok)
     return 0 if ok else 2
 
