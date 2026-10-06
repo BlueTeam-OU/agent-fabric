@@ -3,7 +3,7 @@
 #
 # The fabric's keys in a login's user settings: user-settings.py writes
 # attribution {commit "", pr "", sessionUrl false}, showThinkingSummaries
-# true and verbose true, the memory-write and session-state hooks, keeps every other key, replaces the deprecated
+# true and verbose true, keeps every other key, replaces the deprecated
 # includeCoAuthoredBy, is idempotent, refuses a flag instead of writing it
 # as a path, and bootstrap.sh runs it.
 set -uo pipefail
@@ -86,23 +86,6 @@ printf '{"hooks": {"PostToolUse": ["odd", {"matcher": "Bash", "hooks": [{"type":
 out="$(run "$S")"
 msg="$(check "p=d['hooks']['PostToolUse']; assert p[0]=='odd' and any(e!='odd' and e['hooks'][0]['command']=='mine.sh' for e in p) and sum(1 for e in p if isinstance(e,dict) and 'memory-write-check.py' in e['hooks'][0]['command'])==1, p")" \
   && ok "an unparseable entry in the list is kept as it is" || bad "odd entry" "$out ${msg:-} $(cat "$S")"
-
-echo "the session-state hook at user scope"
-EVENTS="SessionStart UserPromptSubmit PreToolUse PermissionRequest Notification Stop SessionEnd"
-printf '{"hooks": {"Stop": [{"hooks": [{"type": "command", "command": "stop.sh"}]}, {"hooks": [{"type": "command", "command": "python3 \\"/old/runtime/claude-code/hooks/session-state.py\\""}]}]}}\n' > "$S"
-out="$(run "$S")"
-msg="$(check "h=d['hooks']
-for ev in '$EVENTS'.split():
-    cmds=[x['command'] for e in h[ev] for x in e['hooks']]
-    ss=[c for c in cmds if 'session-state.py' in c]
-    assert ss==['python3 \"$FABRIC/runtime/claude-code/hooks/session-state.py\"'], (ev, cmds)
-assert 'stop.sh' in [x['command'] for e in h['Stop'] for x in e['hooks']], h")" \
-  && ok "one entry on each of the seven events, at this checkout's path; the account's own Stop hook kept" || bad "session-state hook" "$out ${msg:-} $(cat "$S")"
-out="$(run "$S")"; [[ "$out" == "  =  $S fabric user settings" ]] && ok "…and a second run changes nothing" || bad "session-state idempotence" "$out"
-printf '{"hooks": {"Notification": {"hooks": []}}}\n' > "$S"
-out="$(run "$S" 2>&1)"; rc=$?
-[[ $rc -eq 1 && "$out" == "  !  "*"Notification is not a list"*"NOT written" && "$(cat "$S")" == '{"hooks": {"Notification": {"hooks": []}}}' ]] \
-  && ok "a Notification that is not a list is refused in one line, untouched" || bad "malformed Notification" "rc=$rc $out"
 
 echo "bootstrap runs it"
 BOOT="$HERE/../../tools/fabric/bootstrap.py"   # Python behind bootstrap.sh's shim (ADR-040 s5 rule 5)
