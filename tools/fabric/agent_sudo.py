@@ -21,8 +21,18 @@ already. apply:
     timestamp_timeout=0 asks the password at every sudo: an agent's own
     session, which runs as the same account, can never ride on a prompt
     the owner answered a minute before.
-It changes nothing it finds right, so it runs again safely; a new account
-needs only apply (and passwd) again.
+It changes nothing it finds right, so it runs again safely. new-agent
+joins a new account to the group when the group exists (step 1 of
+new-agent-worker.sh); passwd gives it its password.
+
+Where /etc does not survive a reboot (a Qubes AppVM: platform/detect.sh,
+PERSISTS_ACROSS_REBOOT=0), apply also keeps a snapshot under /rw —
+the group's /etc/group and /etc/gshadow lines and the rule, in
+/rw/config/agent-fabric/agent-sudo/ (root's, 0700/0600) — and installs
+platform/qubes/agent-fabric-0-sudo.rc into /rw/config/rc.local.d, which
+puts them back at boot before agent-fabric-accounts.rc restores each
+login's groups; and passwd re-runs persist-accounts.sh for the accounts it
+set, so their shadow lines, and with them the passwords, survive too.
 
 passwd runs passwd(1) for each account, interactively, and refuses inside
 a model session (CLAUDECODE set): a password typed there would enter a
@@ -47,6 +57,11 @@ RULE = f"Defaults:%{GROUP} timestamp_timeout=0\n%{GROUP} ALL=(ALL) ALL\n"
 HEADER = ("# agent-fabric tools/fabric/agent_sudo.py: sudo with a password asked every time,\n"
           "# for the agent accounts this host places. Rewritten by `agent_sudo.py apply`.\n")
 USAGE = "usage: agent_sudo.py plan|apply|check [--host H] | passwd [LOGIN...]"
+SNAPSHOT = "/rw/config/agent-fabric/agent-sudo"
+RC_D = "/rw/config/rc.local.d"
+RC_NAME = "agent-fabric-0-sudo.rc"
+RC_SRC = os.path.join(ROOT, "runtime", "provisioning", "platform", "qubes", RC_NAME)
+PERSIST = os.path.join(ROOT, "runtime", "provisioning", "persist-accounts.sh")
 
 
 class SudoError(Exception):
@@ -128,6 +143,73 @@ def write_sudoers(sudoers: str = SUDOERS, run=_run) -> bool:
     return True
 
 
+def persists(root: str = ROOT) -> bool:
+    """Whether /etc survives this host's reboot, as platform/detect.sh says."""
+    r = subprocess.run(["bash", "-c", '. "$1/runtime/provisioning/platform/detect.sh" >/dev/null && echo "$PERSISTS_ACROSS_REBOOT"', "_", root],
+                       capture_output=True, text=True, timeout=30)
+    if r.returncode != 0 or r.stdout.strip() not in ("0", "1"):
+        raise SudoError(f"platform/detect.sh could not say whether /etc persists: {(r.stderr or r.stdout).strip()[:200]}")
+    return r.stdout.strip() == "1"
+
+
+def _write_private(path: str, text: str, mode: int) -> None:
+    fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path), prefix=".snap.")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(text)
+        os.chmod(tmp, mode)
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+
+
+def group_line(etc: str, name: str, group: str = GROUP) -> str | None:
+    try:
+        with open(os.path.join(etc, name), encoding="utf-8") as fh:
+            return next((line.rstrip("\n") for line in fh if line.startswith(f"{group}:")), None)
+    except FileNotFoundError:
+        return None
+
+
+def snapshot(group: str = GROUP, etc: str = "/etc", snap: str = SNAPSHOT, rcd: str = RC_D, rc_src: str = RC_SRC) -> list[str]:
+    """The group's lines and the rule kept under /rw, and the boot script
+    that puts them back; only what differs is written."""
+    done = []
+    os.makedirs(snap, mode=0o700, exist_ok=True)
+    os.chmod(snap, 0o700)
+    for name, text in (("group", group_line(etc, "group", group)), ("gshadow", group_line(etc, "gshadow", group)),
+                       ("sudoers", (HEADER + RULE).rstrip("\n"))):
+        if text is None:
+            continue
+        want = text + "\n"
+        path = os.path.join(snap, name)
+        try:
+            with open(path, encoding="utf-8") as fh:
+                if fh.read() == want:
+                    continue
+        except FileNotFoundError:
+            pass
+        _write_private(path, want, 0o600)
+        done.append(f"kept {name} under {snap}")
+    with open(rc_src, encoding="utf-8") as fh:
+        rc = fh.read()
+    dest = os.path.join(rcd, os.path.basename(rc_src))
+    try:
+        with open(dest, encoding="utf-8") as fh:
+            same = fh.read() == rc
+    except FileNotFoundError:
+        same = False
+    if not same:
+        os.makedirs(rcd, mode=0o755, exist_ok=True)
+        _write_private(dest, rc, 0o755)
+        done.append(f"installed {dest}")
+    return done
+
+
 def apply(logins: list[str], group: str = GROUP, sudoers: str = SUDOERS, run=_run) -> list[str]:
     done = []
     have = members(group)
@@ -142,6 +224,24 @@ def apply(logins: list[str], group: str = GROUP, sudoers: str = SUDOERS, run=_ru
     if write_sudoers(sudoers, run):
         done.append(f"wrote {sudoers}")
     return done
+
+
+def snapshot_problems(group: str = GROUP, etc: str = "/etc", snap: str = SNAPSHOT, rcd: str = RC_D, rc_src: str = RC_SRC) -> list[str]:
+    problems = []
+    for name in ("group", "gshadow"):
+        live = group_line(etc, name, group)
+        try:
+            with open(os.path.join(snap, name), encoding="utf-8") as fh:
+                kept = fh.read().rstrip("\n")
+        except FileNotFoundError:
+            kept = None
+        if live is not None and kept != live:
+            problems.append(f"{snap}/{name} does not hold the live {group} line: a reboot would lose it (apply)")
+    if not os.path.exists(os.path.join(snap, "sudoers")):
+        problems.append(f"no {snap}/sudoers: a reboot would lose the rule (apply)")
+    if not os.path.exists(os.path.join(rcd, os.path.basename(rc_src))):
+        problems.append(f"no {rcd}/{os.path.basename(rc_src)}: nothing puts them back at boot (apply)")
+    return problems
 
 
 def check(logins: list[str], group: str = GROUP, sudoers: str = SUDOERS) -> list[str]:
@@ -190,7 +290,15 @@ def main(argv: list[str]) -> int:
             unknown = [u for u in rest if u not in known]
             if unknown:
                 raise SudoError(f"not an agent account placed on this host: {', '.join(unknown)}")
-            return set_passwords(rest or known)
+            rc = set_passwords(rest or known)
+            # The shadow lines carry the new hashes; where /etc is volatile
+            # the snapshot persist-accounts.sh keeps must take them now.
+            if not persists():
+                r = subprocess.run(["bash", PERSIST, *(rest or known)], timeout=300)
+                if r.returncode != 0:
+                    print("agent_sudo: persist-accounts.sh failed: the passwords may not survive a reboot", file=sys.stderr)
+                    rc = 1
+            return rc
         host = this_host()
         if rest[:1] == ["--host"] and len(rest) == 2:
             host = rest[1]
@@ -206,10 +314,12 @@ def main(argv: list[str]) -> int:
             raise SudoError(f"{cmd} needs root (sudo /usr/bin/python3 {os.path.abspath(__file__)} {cmd})")
         if cmd == "apply":
             done = apply(logins)
+            if not persists():
+                done += snapshot()
             print("\n".join(done) if done else "nothing to change")
             print("a new group reaches a login at its next login: a running su shell or session does not have it yet")
             return 0
-        problems = check(logins)
+        problems = check(logins) + ([] if persists() else snapshot_problems())
         print("\n".join(problems) if problems else f"agent-sudo: {len(logins)} accounts in {GROUP}, {SUDOERS} in place")
         return 1 if problems else 0
     except (SudoError, OSError) as e:

@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+# agent-fabric: put back, at boot, the agent-sudo group and its sudoers
+# rule (tools/fabric/agent_sudo.py), which a Qubes AppVM's volatile /etc
+# loses at every reboot while /rw keeps the snapshot apply wrote.
+#
+# Named to sort, and so run, before agent-fabric-accounts.rc: that script
+# restores each login's supplementary groups only into groups that already
+# exist, so agent-sudo must be there first. Members named in the group's
+# own snapshot line come back with it; a login that joined later (new-agent
+# joins it before persist-accounts.sh) comes back through accounts.rc.
+#
+# The group line is not re-added when its gid is taken by another group,
+# and the sudoers rule is placed only if visudo accepts it: a broken rule
+# in /etc/sudoers.d would stop every sudo on the host. Either is said on
+# stderr; nothing else is touched.
+S="${AGENT_FABRIC_SUDO_SNAPSHOT:-/rw/config/agent-fabric/agent-sudo}"
+ETC="${AGENT_FABRIC_ETC:-/etc}"
+VISUDO="${AGENT_FABRIC_VISUDO:-visudo}"
+[ -d "$S" ] || exit 0
+for f in group gshadow; do
+    [ -f "$S/$f" ] && [ -f "$ETC/$f" ] || continue
+    line="$(head -1 "$S/$f")"; n="${line%%:*}"
+    [ -n "$n" ] || continue
+    grep -q "^$n:" "$ETC/$f" && continue
+    if [ "$f" = group ]; then
+        gid="$(printf '%s' "$line" | cut -d: -f3)"
+        if grep -q "^[^:]*:[^:]*:$gid:" "$ETC/group"; then
+            printf 'agent-fabric-sudo: gid %s is taken in %s/group; group %s not re-added, sudo for the agent accounts is off\n' "$gid" "$ETC" "$n" >&2
+            exit 0
+        fi
+    fi
+    printf '%s\n' "$line" >> "$ETC/$f"
+done
+if [ -f "$S/sudoers" ]; then
+    d="$ETC/sudoers.d"; tmp="$d/.agent-sudo.boot"
+    install -d -m 750 "$d" && install -m 440 "$S/sudoers" "$tmp" || { rm -f "$tmp"; exit 0; }
+    if "$VISUDO" -cf "$tmp" >/dev/null 2>&1; then mv -f "$tmp" "$d/agent-sudo"
+    else rm -f "$tmp"; echo "agent-fabric-sudo: the snapshot's sudoers rule does not pass visudo; not placed" >&2; fi
+fi
+exit 0

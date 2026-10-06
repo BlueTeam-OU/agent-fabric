@@ -200,9 +200,18 @@ sudo /usr/bin/python3 tools/fabric/agent_sudo.py check        # exit 1 when anyt
 ```
 
 The passwords are the owner's alone: never in a store, a file, a message
-or a model session (`passwd` refuses where `CLAUDECODE` is set). A new
-account needs `apply` and `passwd` again; the group reaches a login at its
-next login.
+or a model session (`passwd` refuses where `CLAUDECODE` is set), and never
+known to the control plane: anything it could set or read, the account it
+runs as could read too, and with sudo that is root. `new-agent` joins a new
+account to `agent-sudo` where the group exists, with its password locked
+(`useradd`'s default), so sudo lets nothing through until the owner runs
+`passwd` for it. The group reaches a login at its next login.
+
+Where `/etc` does not survive a reboot (a Qubes AppVM), `apply` keeps the
+group's lines and the rule under `/rw/config/agent-fabric/agent-sudo/` and
+installs `platform/qubes/agent-fabric-0-sudo.rc`, which puts them back at
+boot before `agent-fabric-accounts.rc` restores each login's groups; `passwd`
+re-runs `persist-accounts.sh`, so the new password hashes survive too.
 
 ## What does not transfer between accounts
 

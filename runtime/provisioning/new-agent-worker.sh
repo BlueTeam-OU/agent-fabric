@@ -55,8 +55,8 @@ if [[ "$PHASE" == prepare ]]; then
     esac
     GROUP="$(id -gn "$LOGIN" 2>/dev/null || echo "$LOGIN")"
     must $SUDO -n chmod 700 "$HOME_DIR"
-    if probe getent group otscache >/dev/null && ! id -nG "$LOGIN" 2>/dev/null | tr ' ' '\n' | grep -qx otscache; then
-        best_effort $SUDO -n usermod -aG otscache "$LOGIN"; say "   otscache (the shared timestamp cache): joined"; fi
+    # The shared timestamp cache, and sudo with a password (agent_sudo.py; locked until the owner sets one): joined before the snapshot below.
+    for g in otscache agent-sudo; do probe getent group "$g" >/dev/null && ! id -nG "$LOGIN" 2>/dev/null | tr ' ' '\n' | grep -qx "$g" && { best_effort $SUDO -n usermod -aG "$g" "$LOGIN"; say "   $g: joined"; }; done
     # Survive the host's reboot: linger everywhere; on Qubes the record goes into the /rw snapshot (after the group join).
     must $SUDO -n bash "$ROOT/runtime/provisioning/persist-accounts.sh" "$LOGIN"; say "   persisted across reboot (linger$( (( PERSISTS_ACROSS_REBOOT )) || printf '; record snapshot under /rw' ))"
     # ---- 2. the home skeleton, then claude and ori from their vendors' installers, as the account

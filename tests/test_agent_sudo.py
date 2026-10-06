@@ -87,6 +87,68 @@ def main() -> int:
         except a.SudoError as e:
             check("passwd refuses inside a model session", "model session" in str(e), e)
 
+    # Where /etc is volatile: the snapshot apply keeps under /rw, and the
+    # boot script that puts the group and the rule back, in scratch roots.
+    with tempfile.TemporaryDirectory() as tmp:
+        etc, snap, rcd = (os.path.join(tmp, d) for d in ("etc", "snap", "rcd"))
+        os.makedirs(os.path.join(etc, "sudoers.d"))
+        with open(os.path.join(etc, "group"), "w") as fh:
+            fh.write("root:x:0:\nagent-sudo:x:1990:a-dev,b-dev\n")
+        with open(os.path.join(etc, "gshadow"), "w") as fh:
+            fh.write("root:::\nagent-sudo:!::a-dev,b-dev\n")
+        done = a.snapshot("agent-sudo", etc, snap, rcd)
+        check("snapshot keeps the group's two lines and the rule, root's, and installs the boot script",
+              open(os.path.join(snap, "group")).read() == "agent-sudo:x:1990:a-dev,b-dev\n"
+              and open(os.path.join(snap, "gshadow")).read() == "agent-sudo:!::a-dev,b-dev\n"
+              and os.stat(snap).st_mode & 0o777 == 0o700 and os.stat(os.path.join(snap, "group")).st_mode & 0o777 == 0o600
+              and os.access(os.path.join(rcd, a.RC_NAME), os.X_OK) and len(done) == 4, done)
+        check("a second snapshot writes nothing", a.snapshot("agent-sudo", etc, snap, rcd) == [])
+        check("snapshot_problems: none when the snapshot holds the live lines",
+              a.snapshot_problems("agent-sudo", etc, snap, rcd) == [], a.snapshot_problems("agent-sudo", etc, snap, rcd))
+        with open(os.path.join(etc, "group"), "w") as fh:
+            fh.write("root:x:0:\nagent-sudo:x:1990:a-dev,b-dev,c-dev\n")
+        check("…a member joined since: the group's snapshot is stale, said",
+              any("group does not hold the live" in x for x in a.snapshot_problems("agent-sudo", etc, snap, rcd)))
+
+        # The boot: a volatile /etc without the group.
+        boot = os.path.join(tmp, "boot-etc")
+        os.makedirs(os.path.join(boot, "sudoers.d"))
+        with open(os.path.join(boot, "group"), "w") as fh:
+            fh.write("root:x:0:\n")
+        with open(os.path.join(boot, "gshadow"), "w") as fh:
+            fh.write("root:::\n")
+        fake = os.path.join(tmp, "visudo")
+        with open(fake, "w") as fh:
+            fh.write("#!/usr/bin/env bash\ngrep -q 'timestamp_timeout=0' \"$2\"\n")
+        os.chmod(fake, 0o755)
+        rc = os.path.join(rcd, a.RC_NAME)
+        env = {**os.environ, "AGENT_FABRIC_SUDO_SNAPSHOT": snap, "AGENT_FABRIC_ETC": boot, "AGENT_FABRIC_VISUDO": fake}
+        r = subprocess.run(["bash", rc], env=env, capture_output=True, text=True)
+        check("at boot the group and the rule come back, the rule 0440",
+              r.returncode == 0 and "agent-sudo:x:1990:a-dev,b-dev" in open(os.path.join(boot, "group")).read()
+              and "agent-sudo:!::a-dev,b-dev" in open(os.path.join(boot, "gshadow")).read()
+              and "timestamp_timeout=0" in open(os.path.join(boot, "sudoers.d", "agent-sudo")).read()
+              and os.stat(os.path.join(boot, "sudoers.d", "agent-sudo")).st_mode & 0o777 == 0o440, r.stderr)
+        subprocess.run(["bash", rc], env=env, capture_output=True, text=True)
+        check("…a second boot adds nothing twice", open(os.path.join(boot, "group")).read().count("agent-sudo:") == 1)
+        clash = os.path.join(tmp, "clash-etc")
+        os.makedirs(os.path.join(clash, "sudoers.d"))
+        with open(os.path.join(clash, "group"), "w") as fh:
+            fh.write("root:x:0:\nother:x:1990:\n")
+        r = subprocess.run(["bash", rc], env={**env, "AGENT_FABRIC_ETC": clash}, capture_output=True, text=True)
+        check("a gid taken by another group: not re-added, said",
+              "agent-sudo" not in open(os.path.join(clash, "group")).read() and "gid 1990 is taken" in r.stderr, r.stderr)
+        with open(os.path.join(snap, "sudoers"), "w") as fh:
+            fh.write("%agent-sudo ALL=(ALL) NOPASSWD: ALL\n")
+        fresh = os.path.join(tmp, "fresh-etc")
+        os.makedirs(os.path.join(fresh, "sudoers.d"))
+        for f in ("group", "gshadow"):
+            with open(os.path.join(fresh, f), "w") as fh:
+                fh.write("root:x:0:\n" if f == "group" else "root:::\n")
+        r = subprocess.run(["bash", rc], env={**env, "AGENT_FABRIC_ETC": fresh}, capture_output=True, text=True)
+        check("a rule visudo refuses is not placed at boot, and nothing is left beside",
+              os.listdir(os.path.join(fresh, "sudoers.d")) == [] and "does not pass visudo" in r.stderr, r.stderr)
+
     p = subprocess.run([sys.executable, TOOL, "wipe"], capture_output=True, text=True)
     check("an unknown command is usage, exit 2", p.returncode == 2 and "usage" in p.stderr, p.stderr)
     if os.geteuid() != 0:
