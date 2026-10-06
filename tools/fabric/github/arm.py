@@ -8,8 +8,7 @@ the first managed project's tools/gh/arm.sh, whose test is the oracle
 arm under the floor without asking — is now the project's arm.json.
 
 CONTRACT, frozen from the bash (ADR-040 §5 rule 3), its argv amended
-since by the owner's boundary-waiver ruling of 2026-10-04 (carried by
-agent-fabric #92): a boundary is waived only on the waiver role
+since (agent-fabric #92): a boundary is waived only on the waiver role
 holder's message, so --no-boundary alone — the bash's form — is now a
 usage error, on a PR with no boundary file too, where a waiver of
 nothing wrote a false record.
@@ -34,7 +33,7 @@ nothing wrote a false record.
             the project's arm.json / the relay / fabric-ctl could not
             answer, or usage
 
-THE WAIVER (the owner's rule of 2026-10-04, relayed by devex-tooling):
+THE WAIVER:
 the security-boundary gate is waived only on a message from the holder
 of the project's waiver role, read from the relay and checked here, never
 on the caller's say-so. Read only when a boundary matched: on a PR that
@@ -149,16 +148,15 @@ What it refuses, in order, and why:
      The relay does not authenticate senders: this stops mistakes, not
      a forger. The comment records who waived it, the message
      and the reason. A PR that matches no boundary ignores a waiver;
-  5. the count rule (pr-gate.sh's classifier): 8–16 arms at the review
-     gate; over 16 is ADVICE for the next batch, never a refusal; under
+  5. the count rule (pr-gate.sh's classifier): 8 or more arms at the
+     review gate; over 16 is ADVICE for the next batch, never a refusal; under
      8 is armed on the owner's word — the --basis must carry the phrase
      "owner's word" — EXCEPT a class the project's arm.json lets arm at
      the gate (none, in a project that declares none), STATED in the PR body
      ("Class: <class>") and confirmed by the changed files; a stated
      class the files contradict is refused, not trusted. A
      security-boundary change under 8 needs the owner's word whatever
-     class it states; at 8 or more it needs none, boundary or not (the
-     owner, 2026-10-05). A waived boundary is judged as no boundary.
+     class it states; at 8 or more it needs none, boundary or not. A waived boundary is judged as no boundary.
 
 Then: posts the arming basis as a comment ("Arming basis: <text> —
 <W> work commits, head <sha>"; a security boundary armed at 8 or more
@@ -554,8 +552,7 @@ def arm(argv: list[str]) -> int:
                              f" resolve them first (no open P1 or P2)")
             say(f"the current head {head} has the review class's review, and no unresolved thread")
             # Its owner's word follows the count (gate 5): only under 8 work
-            # commits, and there no class stands in for it (the owner,
-            # 2026-10-05).
+            # commits, and there no class stands in for it.
             boundary_unwaived = True
 
     # 5. the count rule, from pr-gate's classifier
@@ -576,7 +573,7 @@ def arm(argv: list[str]) -> int:
     if not isinstance(work, int) or isinstance(work, bool) or work < 0:
         raise Unanswered(f"pr-gate reported no commit count for #{num}")
     # Over 16 is advice for the NEXT batch, never a gate at arming time
-    # nor a reorganisation of the open PR (the owner, 2026-09-19).
+    # nor a reorganisation of the open PR.
     if work > 16:
         say(f"{work} work commits — over 16: smaller batches next time; arming on the basis given")
     cls = stated_class(body, classes)
@@ -597,7 +594,7 @@ def arm(argv: list[str]) -> int:
         say(f"count rule: {work} work commits — under 8, arms at the gate as {cls}" if cls and not boundary_unwaived
             else f"count rule: {work} work commits — under 8, on the owner's word")
     elif work <= 16:
-        say(f"count rule: {work} work commits — in the 8–16 band")
+        say(f"count rule: {work} work commits — 8 or more, arms at the review gate")
 
     comment = f"Arming basis: {basis} — {work} work commits{f', class: {cls}' if cls else ''}, head {head[:8]}."
     if waived_by:
