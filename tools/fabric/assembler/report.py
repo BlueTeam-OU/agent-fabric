@@ -7,7 +7,7 @@ import json
 import os
 import sys
 from typing import Any
-from assembler.core import layout, Run, in_report
+from assembler.core import layout, Run, in_report, hygiene_substitute
 from assembler.slices import merge_reports, scan_collisions
 
 
@@ -50,7 +50,18 @@ def report(run: Run) -> int:
             "next_watermark": hr.get("next_watermark"),
             "provisional_agent": counts.get("provisional_agent", counts.get("provisional_clone")),
             "in_scope": counts.get("in_scope"),
+            # The memories the harvest left out for want of a roles_class:
+            # in the committed record, so the owner sees them after the
+            # drain directory is gone. Names an agent chose, held to the
+            # same hygiene as any committed text.
+            "skipped_no_roles_class": [],
         }
+        for name in hr.get("skipped_no_roles_class") or []:
+            if isinstance(name, str):
+                kept, notes = hygiene_substitute(name, "harvest skipped_no_roles_class")
+                run.redactions.extend(notes)
+                harvest_meta["skipped_no_roles_class"].append(kept)
+        harvest_meta["skipped_no_roles_class"].sort()
         # Keyed agent@host: each account on a host has its own store, and
         # its harvest reads this key back (harvest_memory.previous_watermark).
         if hr.get("host") is not None and hr.get("next_watermark") is not None:

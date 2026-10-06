@@ -2555,6 +2555,25 @@ def test_a_name_scoped_others_stays_in_its_own_projects_slices_only(tmp: str) ->
         layout._WORKING_COPIES.update(saved[1])
 
 
+def test_the_memories_skipped_for_no_roles_class_are_named_in_the_committed_report(tmp: str) -> None:
+    """The harvest names the memories it left out for want of a roles_class;
+    the drain directory that held that list is temporary, so the committed
+    report carries it, per source, under the same hygiene as any committed
+    text (the 2026-10-05 drain's review, B7)."""
+    drain, claims_dir, out = build(tmp, {"alpha": claims("alpha", [
+        {"class": "domain", "topic": "one", "title": "T", "body": "b", "evidence": ["h1"]},
+    ])})
+    with open(os.path.join(drain, "harvest-report.json"), "w", encoding="utf-8") as fh:
+        json.dump({"agent": "dev-01", "host": "hostA", "next_watermark": 5, "counts": {"in_scope": 3},
+                   "skipped_no_roles_class": ["private-notes", "springfield-trip"]}, fh)
+    proc = run_assemble(drain, claims_dir, out)
+    assert proc.returncode == 0, proc.stderr
+    report = json.loads(read(report_path(out)))
+    assert report["harvest"]["skipped_no_roles_class"] == ["[redacted]-trip", "private-notes"], report["harvest"]
+    assert report["harvest_sources"]["dev-01@hostA"]["skipped_no_roles_class"] == ["[redacted]-trip", "private-notes"]
+    assert "springfield" not in read(report_path(out)).lower()
+
+
 def main() -> int:
     cases = [
         test_a_topic_named_like_a_budget_part_is_its_own_memory,
@@ -2634,6 +2653,7 @@ def main() -> int:
         test_a_bundle_that_cannot_be_read_is_refused_in_one_line,
         test_a_malformed_hygiene_list_stops_the_drain_in_one_line,
         test_a_name_scoped_others_stays_in_its_own_projects_slices_only,
+        test_the_memories_skipped_for_no_roles_class_are_named_in_the_committed_report,
     ]
     # THE REGISTRY IS THE TRAP THIS GUARDS. Cases run because they are
     # listed here, not because they are named test_*, so a case that is
