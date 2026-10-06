@@ -25,9 +25,10 @@ Never the body. Each line is ASCII JSON, so no text the relay sends can
 fail to be written. Appended under identity.agent_lock (ADR-003), the
 file created 0600, never followed through a symlink nor waited on as a
 FIFO (the lock is held while it opens); a directory or a socket there
-fails the open too. Kept whole: an audit record is
-not trimmed. A line that cannot be written raises BypassUnrecorded, and the
-caller refuses the bypass: fail closed.
+fails the open too. Kept whole: an audit record is not trimmed, and
+holds whole lines only: a write that lands short or fails after landing
+bytes is truncated back to where it began. A line that cannot be written
+raises BypassUnrecorded, and the caller refuses the bypass: fail closed.
 """
 from __future__ import annotations
 
@@ -105,10 +106,27 @@ def record(entries: list[dict]) -> None:
                          | os.O_NONBLOCK, 0o600)
             try:
                 os.fchmod(fd, 0o600)
-                written = os.write(fd, data)
-                if written != len(data):
-                    raise OSError(f"wrote {written} of {len(data)} bytes")
-                os.fsync(fd)
+                # The end before this write: every writer appends under the
+                # lock, so nothing else moves it until the lock is released.
+                start = os.fstat(fd).st_size
+                try:
+                    written = os.write(fd, data)
+                    if written != len(data):
+                        # A full disk or quota takes a prefix: those bytes are
+                        # in the file, a line cut short before every later one.
+                        raise OSError(f"wrote {written} of {len(data)} bytes")
+                    os.fsync(fd)
+                except OSError as e:
+                    # Refused, so not one byte of it stays: the file is whole
+                    # lines at every instant, and a refused crossing has none.
+                    try:
+                        os.ftruncate(fd, start)
+                    except OSError as undo:
+                        raise BypassUnrecorded(
+                            f"the journal-bypass record {target} could not be written ({e.strerror or e}), and"
+                            f" the partial line could not be removed ({undo.strerror or undo}): the record may"
+                            f" end in a fragment") from None
+                    raise
             finally:
                 os.close(fd)
     except OSError as e:

@@ -7,6 +7,7 @@ against a stub relay, with a scratch state directory. Plain script: prints
 ok/FAIL, exit 1 on any failure."""
 from __future__ import annotations
 
+import errno
 import hashlib
 import json
 import os
@@ -228,6 +229,59 @@ def _():
     finally:
         relay.close()
     ok(not os.path.exists(record_path(state)), "a line was written with nothing bypassed")
+
+
+@case("a write that lands short, or fails after landing, is truncated back: refused, the record byte-identical")
+def _():
+    from gzcoord import bypass
+    state = P.scratch("bypass-state-")
+    saved = os.environ.get("AGENT_FABRIC_STATE_DIR")
+    os.environ["AGENT_FABRIC_STATE_DIR"] = state
+    real_write, real_fsync, real_ftruncate = os.write, os.fsync, os.ftruncate
+
+    def raising(*_a):
+        raise OSError(errno.EIO, "Input/output error")
+
+    def refused(why: str) -> str:
+        try:
+            bypass.record([bypass.entry("out", message(MID[:-2] + "d1"))])
+        except bypass.BypassUnrecorded as e:
+            return str(e)
+        raise Failed(f"{why}: not refused")
+
+    def raw() -> bytes:
+        with open(record_path(state), "rb") as fh:
+            return fh.read()
+    try:
+        bypass.record([bypass.entry("out", message(MID))])
+        before = raw()
+        os.write = lambda fd, data: real_write(fd, data[:7])   # a full disk takes a prefix
+        try:
+            said = refused("a short write")
+        finally:
+            os.write = real_write
+        ok("wrote 7 of" in said, said)
+        eq(raw(), before, "the short write's bytes stayed")
+        os.fsync = raising   # every byte landed, then the write fails
+        try:
+            refused("an fsync that fails")
+        finally:
+            os.fsync = real_fsync
+        eq(raw(), before, "a refused crossing's line stayed")
+        bypass.record([bypass.entry("out", message(MID[:-2] + "d2"))])
+        eq([x["message_id"] for x in lines_of(record_path(state))], [MID, MID[:-2] + "d2"], "the next record appends cleanly")
+        os.write, os.ftruncate = (lambda fd, data: real_write(fd, data[:7])), raising
+        try:
+            said = refused("a short write whose undo fails")
+        finally:
+            os.write, os.ftruncate = real_write, real_ftruncate
+        ok("the partial line could not be removed" in said and "may end in a fragment" in said, said)
+    finally:
+        os.write, os.fsync, os.ftruncate = real_write, real_fsync, real_ftruncate
+        if saved is None:
+            os.environ.pop("AGENT_FABRIC_STATE_DIR", None)
+        else:
+            os.environ["AGENT_FABRIC_STATE_DIR"] = saved
 
 
 def main() -> int:
