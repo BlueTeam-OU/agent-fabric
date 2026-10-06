@@ -8,7 +8,7 @@ import os
 import re
 from collections import defaultdict
 from typing import Callable, Any
-from assembler.core import layout, TIER1, CHARS_PER_TOKEN, CLASS_FILES, origin_key, render_frontmatter, hygiene_check, hygiene_substitute, DESCRIPTION_MAX, Run, base_for, in_report
+from assembler.core import layout, TIER1, CHARS_PER_TOKEN, CLASS_FILES, origin_key, render_frontmatter, hygiene_check, hygiene_substitute, patterns_for, DESCRIPTION_MAX, Run, base_for, in_report
 from assembler.slices import retire_in_siblings, remove_sections, read_existing_slice, OBSERVED_RE, undated, claim_heading, absorbed, claim_block
 from assembler.targets import existing_sections, is_budget_part, slice_candidates, is_carried
 
@@ -246,17 +246,18 @@ def write_slice(
     body = "\n\n".join(f"## {h}\n\n{blocks[h]}" for h in order) + "\n"
     # Carried text (a slice written before a pattern existed) is
     # substituted the same way, and named.
-    body, notes = hygiene_substitute(body, in_report(run, path))
+    body, notes = hygiene_substitute(body, in_report(run, path), patterns_for(klass))
     run.redactions.extend(notes)
     if isinstance(meta.get("description"), str):
-        meta["description"], notes = hygiene_substitute(meta["description"], in_report(run, path) + " description")
+        meta["description"], notes = hygiene_substitute(meta["description"], in_report(run, path) + " description",
+                                                        patterns_for(klass))
         run.redactions.extend(notes)
     text = render_frontmatter(meta) + "\n\n" + body
     with open(path, "w", encoding="utf-8") as fh:
         fh.write(text.rstrip() + "\n")
     if path not in run.written:   # a retire may have rewritten this part earlier in the run
         run.written.append(path)
-    run.problems.extend(hygiene_check(body, in_report(run, path)))
+    run.problems.extend(hygiene_check(body, in_report(run, path), patterns_for(klass)))
 
 
 def carried_chars(claims: list[dict[str, Any]], *candidates: str) -> int:

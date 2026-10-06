@@ -2486,6 +2486,72 @@ def test_a_bundle_that_cannot_be_read_is_refused_in_one_line(tmp: str) -> None:
             f"{os.path.basename(path)}: not one refusal line naming it:\n{proc.stderr}"
 
 
+def test_a_malformed_hygiene_list_stops_the_drain_in_one_line(tmp: str) -> None:
+    """A project's hygiene.json that does not parse, holds a key nothing
+    reads, a pattern that does not compile, or a scope that is not
+    "others" withholds nothing: skipped, it let every name it lists into
+    the corpus without a word. The drain stops, one line naming the file,
+    nothing written (the 2026-10-05 drain's review, B6)."""
+    drain, claims_dir, out = build(tmp, {"alpha": claims("alpha", [
+        {"class": "domain", "topic": "one", "title": "T", "body": "b", "evidence": ["h1"]},
+    ])})
+    hyg = os.path.join(working_copy(out), ".agent-fabric", "hygiene.json")
+    os.makedirs(os.path.dirname(hyg), exist_ok=True)
+    for broken, said in (
+        ("{not json", "does not parse"),
+        (json.dumps({"patterns": [{"pattern": "x", "scop": "others"}]}), "keys this does not read: scop"),
+        (json.dumps({"patterns": [{"pattern": "(unclosed"}]}), "does not compile"),
+        (json.dumps({"patterns": [{"pattern": "x", "scope": "mine"}]}), "the one scope is"),
+        (json.dumps({"patterns": [{"label": "no pattern"}]}), "has no pattern"),
+        (json.dumps(["not", "an", "object"]), "\"patterns\" list"),
+    ):
+        with open(hyg, "w", encoding="utf-8") as fh:
+            fh.write(broken)
+        proc = run_assemble(drain, claims_dir, out)
+        lines = proc.stderr.strip().split("\n")
+        assert proc.returncode == 1 and len(lines) == 1 and lines[0].startswith("assemble: ") \
+            and "hygiene.json" in lines[0] and said in lines[0], f"{broken!r}:\n{proc.stderr}"
+        assert not os.path.exists(dom(out, "alpha")), "a slice was written past a broken list"
+
+
+def test_a_name_scoped_others_stays_in_its_own_projects_slices_only(tmp: str) -> None:
+    """"scope": "others" marks a name as its project's own (the owner,
+    2026-10-05: gzapp's slices may name the city): the project's own slice
+    keeps it, a domain slice of the same drain still has it withheld, and
+    another project's slices withhold it too (B9)."""
+    drain, claims_dir, out = build(tmp, {"alpha": claims("alpha", [
+        {"class": "solution", "topic": "where", "title": "Where it runs", "body": "The pilot runs in Springfield.",
+         "evidence": ["h1"]},
+        {"class": "domain", "topic": "cities", "title": "Cities", "body": "Springfield has a grid plan.",
+         "evidence": ["h2"]},
+    ])})
+    hyg = os.path.join(working_copy(out), ".agent-fabric", "hygiene.json")
+    os.makedirs(os.path.dirname(hyg), exist_ok=True)
+    with open(hyg, "w", encoding="utf-8") as fh:
+        json.dump({"patterns": [{"pattern": "\\bspringfield\\b", "flags": "i", "label": "city name",
+                                 "scope": "others"}]}, fh)
+    proc = run_assemble(drain, claims_dir, out)
+    assert proc.returncode == 0, proc.stderr
+    assert "The pilot runs in Springfield." in read(proj(out, "alpha", "solution.md")), "the project's own slice lost its name"
+    domain = read(dom(out, "alpha", "domain.md"))
+    assert "Springfield" not in domain and "[redacted] has a grid plan." in domain, domain
+    sys.path.insert(0, os.path.join(ROOT, "tools", "fabric"))
+    import importlib
+    layout = importlib.import_module("layout")
+    saved = (layout.FABRIC_ROOT, dict(layout._WORKING_COPIES))
+    try:
+        layout.FABRIC_ROOT = out
+        layout.set_working_copy(PROJECT, working_copy(out))
+        labels = lambda **kw: [label for _p, label, _r in layout.load_hygiene_patterns([PROJECT], **kw)]
+        assert "city name" in labels(), "with no project named, every pattern applies"
+        assert "city name" in labels(for_project="another"), "another project's slices must withhold it"
+        assert "city name" not in labels(for_project=PROJECT), "its own project's slices may name it"
+    finally:
+        layout.FABRIC_ROOT = saved[0]
+        layout._WORKING_COPIES.clear()
+        layout._WORKING_COPIES.update(saved[1])
+
+
 def main() -> int:
     cases = [
         test_a_topic_named_like_a_budget_part_is_its_own_memory,
@@ -2563,6 +2629,8 @@ def main() -> int:
         test_same_named_temp_artifacts_stay_distinct,
         test_lint_rejects_a_session_temp_crossref_key,
         test_a_bundle_that_cannot_be_read_is_refused_in_one_line,
+        test_a_malformed_hygiene_list_stops_the_drain_in_one_line,
+        test_a_name_scoped_others_stays_in_its_own_projects_slices_only,
     ]
     # THE REGISTRY IS THE TRAP THIS GUARDS. Cases run because they are
     # listed here, not because they are named test_*, so a case that is

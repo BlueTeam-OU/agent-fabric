@@ -58,6 +58,16 @@ CLASS_FILES = {
 # once the project is known (intake.open_layout), in place: every part
 # reads this one list.
 BANNED_PATTERNS: list = []
+# The same lists for a slice of this project's own (its classes and its
+# shared/): a name its hygiene.json marks "scope": "others" is its own to
+# say there, and withheld everywhere else (the owner, 2026-10-05).
+PROJECT_PATTERNS: list = []
+
+
+def patterns_for(klass: str) -> list:
+    """The patterns a slice of `klass` is held to: the project's own set
+    for a project class, every pattern for a fabric one (domain)."""
+    return PROJECT_PATTERNS if klass in layout.PROJECT_CLASSES else BANNED_PATTERNS
 
 
 # Italian function words that would not appear in ordinary English prose.
@@ -225,9 +235,9 @@ def render_frontmatter(meta: dict[str, Any]) -> str:
 REDACTED = "[redacted]"
 
 
-def hygiene_check(text: str, where: str) -> list[str]:
+def hygiene_check(text: str, where: str, patterns: list | None = None) -> list[str]:
     problems = []
-    for pattern, label, _refer_as in BANNED_PATTERNS:
+    for pattern, label, _refer_as in (BANNED_PATTERNS if patterns is None else patterns):
         hit = pattern.search(text)
         if hit:
             problems.append(f"{where}: {label} -- {hit.group(0)!r}")
@@ -237,14 +247,14 @@ def hygiene_check(text: str, where: str) -> list[str]:
     return problems
 
 
-def hygiene_substitute(text: str, where: str) -> tuple[str, list[str]]:
+def hygiene_substitute(text: str, where: str, patterns: list | None = None) -> tuple[str, list[str]]:
     """Replace every banned hit: with the entry's refer_as (a person becomes
     "the CEO"), else with "[redacted]" (a secret, a deployment's name).
     The knowledge stays; what must not travel does not (decided
     2026-09-16: substitute in place rather than refuse the claim). Every
     substitution is named, so the memory's owner fixes the source."""
     notes: list[str] = []
-    for pattern, label, refer_as in BANNED_PATTERNS:
+    for pattern, label, refer_as in (BANNED_PATTERNS if patterns is None else patterns):
         replacement = refer_as or REDACTED
         def sub(m, label=label, replacement=replacement):
             notes.append(f"{where}: {label} -- {m.group(0)!r} -> {replacement!r}")

@@ -6,7 +6,7 @@ import argparse
 import json
 import os
 import sys
-from assembler.core import layout, workingcopy, DEFAULT_SLICE_BUDGET_TOKENS, BANNED_PATTERNS, slugify, origin_of_row, REDACTED, hygiene_check, hygiene_substitute, Run
+from assembler.core import layout, workingcopy, DEFAULT_SLICE_BUDGET_TOKENS, BANNED_PATTERNS, PROJECT_PATTERNS, patterns_for, slugify, origin_of_row, REDACTED, hygiene_check, hygiene_substitute, Run
 from assembler.bundle import open_bundle
 
 
@@ -62,8 +62,12 @@ def open_layout(args: argparse.Namespace) -> str:
     for pid, path in workingcopy.sibling_working_copies(layout.FABRIC_ROOT).items():
         if pid not in layout.explicit_working_copies():
             layout.set_working_copy(pid, path)
-    BANNED_PATTERNS[:] = layout.load_hygiene_patterns(
-        sorted(set(layout.project_ids()) | set(layout.explicit_working_copies())))
+    try:
+        listed = sorted(set(layout.project_ids()) | set(layout.explicit_working_copies()))
+        BANNED_PATTERNS[:] = layout.load_hygiene_patterns(listed)
+        PROJECT_PATTERNS[:] = layout.load_hygiene_patterns(listed, for_project=project)
+    except layout.HygieneError as exc:
+        sys.exit(f"assemble: {exc}")
     return project
 
 
@@ -141,14 +145,14 @@ def screen_hygiene(run: Run) -> None:
             where = f"{role}/{claim['class']}:{claim['topic']}"
             for field in ("title", "description", "body"):
                 if isinstance(claim.get(field), str):
-                    claim[field], notes = hygiene_substitute(claim[field], f"{where} {field}")
+                    claim[field], notes = hygiene_substitute(claim[field], f"{where} {field}", patterns_for(claim["class"]))
                     run.redactions.extend(notes)
             if isinstance(claim.get("topic"), str):
-                topic, notes = hygiene_substitute(claim["topic"], f"{where} topic")
+                topic, notes = hygiene_substitute(claim["topic"], f"{where} topic", patterns_for(claim["class"]))
                 if notes:
                     claim["topic"] = slugify(topic.replace(REDACTED, "redacted")) or "redacted"
                     run.redactions.extend(notes)
-            issues = hygiene_check(claim.get("body") or "", where)
+            issues = hygiene_check(claim.get("body") or "", where, patterns_for(claim["class"]))
             if issues:
                 run.rejected_hygiene.extend(issues)
                 run.telemetry.setdefault(role, {}).setdefault("rejected_hygiene", 0)

@@ -110,8 +110,12 @@ identity = _load("fabric_identity", os.path.join(layout.FABRIC_ROOT, "runtime", 
 # carries a credential by shape never leaves the account: the whole drain
 # is refused and the file named, as a bad roles_class is. Names are left
 # to the assembler's substitution, as designed (policies/hygiene.json).
-CREDENTIAL_PATTERNS = [(pattern, label) for pattern, label, _refer_as in layout.load_hygiene_patterns()
-                       if "credential" in label]
+try:
+    CREDENTIAL_PATTERNS = [(pattern, label) for pattern, label, _refer_as in layout.load_hygiene_patterns()
+                           if "credential" in label]
+except layout.HygieneError as _exc:
+    # A broken list cannot screen a credential: no memory leaves unscreened.
+    sys.exit(f"harvest_memory: {_exc}")
 
 
 def credential_hits(text: str) -> list[str]:
