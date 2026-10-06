@@ -58,6 +58,8 @@ if [[ "${1:-}" == "api" && "${2:-}" == repos/* ]]; then
 fi
 if [[ "${1:-}" == "api" ]]; then
   [[ -f "$MOCK_STATE/billing_unreadable" ]] && exit 1
+  # Refused with an error body on stdout, as gh does for a 403 or 404.
+  [[ -f "$MOCK_STATE/billing_error_body" ]] && { echo '{"message":"Not Found","status":"404"}'; exit 1; }
   printf '%s\n' "${2:-}" > "$MOCK_STATE/last_request"
   if [[ -f "$MOCK_STATE/billing_raw" ]]; then cat "$MOCK_STATE/billing_raw"; exit 0; fi
   net="$(cat "$MOCK_STATE/billing_net" 2>/dev/null || echo 0)"
@@ -393,6 +395,11 @@ def main() -> int:
         rc("a negative one: exits 2", 2)
         invoke(allowance="0")
         rc("zero is no allowance: exits 2", 2)
+        invoke(allowance="\u0663\u0660\u0660\u0660")
+        rc("digits that are not ASCII are no number: exits 2", 2)
+        invoke(allowance="9" * 400 + ".0")
+        rc("a number past a double's range: exits 2, no traceback", 2)
+        has("  and names the setting", "must be a positive number")
         invoke(allowance="3000.5")
         rc("a decimal one is a number: exits 0", 0)
 
@@ -429,6 +436,38 @@ def main() -> int:
         invoke(allowance="3000")
         rc("a quantity that is no number: the allowance is not checked, exit 0 on the status", 0)
         has("  and says so", "Allowance not checked")
+
+        reset()
+        put("billing_error_body")
+        invoke(allowance="3000")
+        rc("a billing call refused with an error body: exit 0 on the status", 0)
+        has("  and the allowance not claimed checked", "Allowance not checked")
+        lacks("  never read as no usage", "0 of 3000 minutes used")
+        put("status_unreachable")
+        invoke(allowance="3000")
+        rc("  …and with no status either: exits 2", 2)
+        reset()
+        put("billing_raw", '{"usageItems":[{"product":"actions","unitType":"Minutes","quantity":NaN,"netAmount":0}]}\n')
+        invoke("--json", allowance="3000")
+        rc("NaN in a minute row: the allowance not checked, exit 0 on the status, no traceback", 0)
+        has("  and said", "Allowance not checked")
+        reset()
+        put("billing_raw", '[]\n')
+        invoke(allowance="3000")
+        rc("a billing answer that is a JSON array is unreadable too", 0)
+        has("  and said", "Allowance not checked")
+        reset()
+        put("billing_raw", '{"usageItems":[{"product":"actions","unitType":"Minutes","quantity":40,"netAmount":0,"date":false}]}\n')
+        invoke(allowance="3000")
+        rc("a row dated false is counted, as jq's // reads it", 0)
+        has("  in the sum", "40 of 3000 minutes used")
+
+        print("actions-health: an error nothing foresaw is unknown, never degraded")
+        reset()
+        put("billing_raw", "[" * 200000 + "\n")
+        invoke(allowance="3000")
+        rc("a billing body too deep to parse: exits 2, not 1", 2)
+        has("  and says why", "could not decide (RecursionError")
 
         print("actions-health: billing alone never claims the platform is up")
         reset()
@@ -506,9 +545,9 @@ def main() -> int:
         rc("unknown option exits 2", 2)
         invoke("--org")
         rc("--org needs a value", 2)
-        invoke("--json", "--nope")
-        check("a usage error is stderr alone, even with --json", out["rc"] == 2 and not out["text"].startswith("{"),
-              out["text"])
+        r = subprocess.run([TOOL, "--json", "--nope"], env=base, capture_output=True, text=True, timeout=120)
+        check("a usage error is stderr alone, even with --json",
+              r.returncode == 2 and r.stdout == "" and "unknown option" in r.stderr, f"{r.stdout!r} {r.stderr!r}")
 
     print(f"\ntest_actions_health_cli: {'OK' if not fails else f'FAILED — {fails} check(s)'}")
     return 1 if fails else 0

@@ -73,13 +73,17 @@ would stop work for no reason.
 # byte; departures, each a parse failure the bash turned into a plausible
 # number: a billing answer that is not a JSON object, or a minute row
 # whose quantity or netAmount is not a number, is unreadable (the bash
-# summed it as 0); an allowance must be a positive decimal number (awk
-# read "3000abc" as 3000). Beyond that: --json; jq is not needed;
+# summed it as 0); a billing call gh reports failed is unreadable even
+# when it printed an error body (the bash read the body as no usage); an
+# allowance must be a positive decimal number in ASCII digits (awk read
+# "3000abc" as 3000). An error nothing here foresaw is exit 2 with its
+# reason: 1 is a fact about GitHub, and a crash is not one. Beyond that: --json; jq is not needed;
 # every call is bounded.
 from __future__ import annotations
 
 import datetime
 import json
+import math
 import os
 import re
 import shutil
@@ -92,7 +96,7 @@ import gh  # noqa: E402
 
 STATUS_URL = "https://www.githubstatus.com/api/v2/summary.json"
 SETTING = "AGENT_FABRIC_ACTIONS_INCLUDED_MINUTES"
-NUMBER = re.compile(r"(?:\d+(?:\.\d*)?|\.\d+)")
+NUMBER = re.compile(r"(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)")
 
 
 class Usage(Exception):
@@ -112,7 +116,11 @@ def plain(x):
 
 
 def as_number(text: str) -> float | int:
-    return int(text) if text.isdigit() else float(text)
+    """An allowance NUMBER matched, as a finite number, or ValueError."""
+    value = int(text) if "." not in text else float(text)
+    if not math.isfinite(value):
+        raise ValueError(text)
+    return value
 
 
 def parse(argv: list[str], env) -> dict | None:
@@ -191,7 +199,7 @@ def _in_period(row: dict, period: str) -> bool:
     """The row bills for the period. A row with no date counts: the filter
     excludes OTHER months, it does not demand a field older payloads lack."""
     date = row.get("date")
-    if date is None:
+    if date is None or date is False:   # jq's `.date // $p`
         return True
     text = jqnum(date) if isinstance(date, (int, float)) and not isinstance(date, bool) else (
         date if isinstance(date, str) else json.dumps(date, separators=(",", ":")))
@@ -210,7 +218,7 @@ def _sum(rows: list[dict], key: str) -> float | int:
     total: float | int = 0
     for r in rows:
         v = r.get(key)
-        if isinstance(v, bool) or not isinstance(v, (int, float)):
+        if isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v):
             raise ValueError(f"a minute row's {key} is not a number")
         total += v
     return total
@@ -247,9 +255,12 @@ def check(opts: dict, env) -> tuple[int, str, dict]:
     # API, or a public repository's OK line.
     included = None
     if included_text:
-        if not NUMBER.fullmatch(included_text) or as_number(included_text) <= 0:
+        try:
+            included = as_number(included_text) if NUMBER.fullmatch(included_text) else 0
+        except ValueError:
+            included = 0
+        if included <= 0:
             raise Usage(f"{setting} must be a positive number, got '{included_text}'")
-        included = as_number(included_text)
         fields["included"] = plain(included)
     reachable = False
     # What the OK lines are entitled to claim. Only source 1 can confirm the
@@ -399,13 +410,16 @@ def run(argv: list[str], env=None) -> int:
         code, line, fields = check(opts, env)
     except Usage as e:
         code, line, fields = 2, str(e), None
+    except Exception as e:  # noqa: BLE001 — never exit 1, which says GitHub is degraded
+        code, line, fields = 2, f"could not decide ({type(e).__name__}: {e}) — health unknown", {}
     verdict = {0: "ok", 1: "degraded"}.get(code) or ("invalid" if fields is None else "unknown")
+    fields = fields or {}
     if code == 2:
         print(f"actions-health: {line}", file=sys.stderr)
     if opts["json"]:
         doc = {"exit": code, "verdict": verdict, "reason": line}
-        doc.update(fields or {"public": None, "period": None, "private_minutes": None, "private_net": None,
-                              "own_net": None, "included": None, "remaining": None})
+        for key in ("public", "period", "private_minutes", "private_net", "own_net", "included", "remaining"):
+            doc[key] = fields.get(key)
         print(json.dumps(doc, ensure_ascii=False, allow_nan=False))
     elif code != 2 and not opts["quiet"]:
         print(line)
