@@ -45,7 +45,8 @@ direction that must not happen:
   - every call is bounded: a call that does not answer is a failure.
 Replicated, though odd: a branch whose upstream was pruned shows its
 `b@{u}` spec on one line and `-` on the next; a branch whose commits cannot be counted shows `?`
-and is kept; a local branch named `main` is never listed; a worktree whose
+and is kept; the local branch named for the default branch is never
+listed; a worktree whose
 `HEAD` line is empty is counted as the working copy's own HEAD.
 """
 from __future__ import annotations
@@ -145,9 +146,34 @@ def default_branch() -> str | None:
         r = None
     if r is not None and r.returncode == 0 and r.stdout.strip().startswith("origin/"):
         return r.stdout.strip()[len("origin/"):]
-    project = workingcopy.resolve(".").get("project")
-    entry = (workingcopy.load_registry().get("projects") or {}).get(project or "") or {}
-    name = entry.get("default_branch")
+    # The registry's word for this working copy's project: its marker, else
+    # its origin remote, matched as tools/fabric/workingcopy.py matches them.
+    # The remote is read here, bounded: workingcopy's own git call is not.
+    # What cannot be read is a refusal, as every other here (exit 2).
+    try:
+        registry = workingcopy.load_registry()
+    except (OSError, ValueError) as e:
+        raise Refused(f"projects/registry.json cannot be read ({e}); the default branch of origin is unknown") from None
+    projects = registry.get("projects") if isinstance(registry, dict) else None
+    if not isinstance(projects, dict):
+        raise Refused("projects/registry.json has no projects map; the default branch of origin is unknown")
+    if os.path.isfile(workingcopy.MARKER):
+        try:
+            with open(workingcopy.MARKER, encoding="utf-8") as fh:
+                project = fh.read().strip()
+        except (OSError, UnicodeDecodeError) as e:
+            raise Refused(f"{workingcopy.MARKER} cannot be read ({e})") from None
+        if project not in projects:
+            raise Refused(f"{workingcopy.MARKER} names project {project!r}, which projects/registry.json does "
+                          "not know; the default branch of origin is unknown")
+    else:
+        try:
+            u = git.run(".", "remote", "get-url", "origin", check=False)
+        except git.GitError as e:
+            raise Refused(str(e)) from None
+        project = workingcopy.project_for_remote(u.stdout.strip() if u.returncode == 0 else None, registry)
+    entry = projects.get(project or "")
+    name = entry.get("default_branch") if isinstance(entry, dict) else None
     return name if isinstance(name, str) and name else None
 
 
@@ -313,12 +339,8 @@ def run(argv: list[str]) -> int:
         say("uncommitted changes here; commit or stash them first — nothing deleted")
         return 2
 
-    default = default_branch()
-    if not default:
-        say("the default branch of origin is unknown: origin/HEAD is unset (git remote set-head origin --auto "
-            "sets it) and projects/registry.json names none for this working copy — nothing counted")
-        return 2
-    base = f"origin/{default}"
+    # Fetched first: git 2.48 and later set a missing origin/HEAD on fetch,
+    # so the default branch is read from what the fetch left.
     try:
         fetched = git.run(".", "fetch", "-q", "origin", check=False, timeout=FETCH_TIMEOUT_S)
         failed = fetched.returncode != 0
@@ -326,9 +348,16 @@ def run(argv: list[str]) -> int:
     except git.GitError as e:
         failed, err = True, e.reason
     if failed:
-        say(f"git fetch origin failed ({err}); counting against a stale {base} would call merged work "
+        say(f"git fetch origin failed ({err}); counting against a stale default branch would call merged work "
             "unmerged — nothing done")
         return 2
+    default = default_branch()
+    if not default:
+        say("the default branch of origin is unknown: origin/HEAD is unset (the fetch did not set it; git remote "
+            "set-head origin --auto does) and projects/registry.json names none for this working copy — "
+            "nothing counted")
+        return 2
+    base = f"origin/{default}"
     if git.run(".", "rev-parse", "-q", "--verify", base, check=False).returncode != 0:
         say(f"no {base} here")
         return 2
