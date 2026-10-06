@@ -2429,6 +2429,63 @@ def test_a_topic_named_like_a_budget_part_is_its_own_memory(tmp: str) -> None:
     assert "Different." in released and "## Release process, revised" in released, released
 
 
+def test_a_bundle_that_cannot_be_read_is_refused_in_one_line(tmp: str) -> None:
+    """Every way a --bundle can be unreadable or malformed is one
+    `assemble: bundle: ...` line and exit 1, as the verified refusals are:
+    a missing file, a directory, not a tar, a tar cut short, a manifest or
+    harvest report that is not the JSON object it names, a manifest naming
+    no agent. Each was a traceback, which a person on a drain cannot read
+    (review of the assembler's split, 2026-10-05)."""
+    import hashlib
+    import io
+    import tarfile
+
+    def bundle(name: str, members: list[tuple[str, bytes]] | None = None, raw: bytes | None = None) -> str:
+        path = os.path.join(tmp, name)
+        if raw is not None:
+            with open(path, "wb") as fh:
+                fh.write(raw)
+            return path
+        with tarfile.open(path, "w") as t:
+            for n, data in members or []:
+                info = tarfile.TarInfo(n)
+                info.size = len(data)
+                t.addfile(info, io.BytesIO(data))
+        return path
+
+    def manifest(**extra) -> bytes:
+        return json.dumps({"format": "agent-fabric-drain/1", **extra}).encode()
+
+    bad_report = b"{not json"
+    named = {"harvest-report.json": hashlib.sha256(bad_report).hexdigest()}
+    good = bundle("whole.tar", [("manifest.json", manifest(files=named)), ("harvest-report.json", bad_report)])
+    os.makedirs(os.path.join(tmp, "a-directory"))
+    cases = {
+        os.path.join(tmp, "absent.tar"): "absent.tar cannot be read",
+        os.path.join(tmp, "a-directory"): "a-directory cannot be read",
+        bundle("empty.tar", raw=b""): "not a readable tar",
+        bundle("text.tar", raw=b"plain text, not a tar\n"): "not a readable tar",
+        bundle("cut.tar", raw=open(good, "rb").read()[:700]): "not a readable tar",
+        bundle("list.tar", [("manifest.json", b"[1, 2]")]): "manifest.json is not an object",
+        bundle("files.tar", [("manifest.json", manifest(files=["x"]))]): "manifest.json's files is not an object",
+        good: "harvest-report.json does not parse",
+        bundle("report-list.tar", [("manifest.json", manifest(files={"harvest-report.json": hashlib.sha256(b"[1]").hexdigest()})),
+                                   ("harvest-report.json", b"[1]")]): "harvest-report.json is not an object",
+        bundle("no-agent.tar", [("manifest.json", manifest(files={"harvest-report.json": hashlib.sha256(b"{}").hexdigest()})),
+                                ("harvest-report.json", b"{}")]): "manifest.json names no agent",
+    }
+    os.makedirs(os.path.join(working_copy(tmp), ".agent-fabric"), exist_ok=True)
+    for path, said in cases.items():
+        proc = subprocess.run(
+            [sys.executable, ASSEMBLE, "--bundle", path, "--fabric", tmp, "--project", PROJECT,
+             "--working-copy", working_copy(tmp), "--stamp", "2026-01-01"],
+            capture_output=True, text=True, timeout=60)
+        lines = proc.stderr.strip().split("\n")
+        assert proc.returncode == 1, f"{os.path.basename(path)}: exit {proc.returncode}\n{proc.stderr}"
+        assert len(lines) == 1 and lines[0].startswith("assemble: bundle: ") and said in lines[0], \
+            f"{os.path.basename(path)}: not one refusal line naming it:\n{proc.stderr}"
+
+
 def main() -> int:
     cases = [
         test_a_topic_named_like_a_budget_part_is_its_own_memory,
@@ -2505,6 +2562,7 @@ def main() -> int:
         test_a_tracked_scratchpad_path_is_left_alone,
         test_same_named_temp_artifacts_stay_distinct,
         test_lint_rejects_a_session_temp_crossref_key,
+        test_a_bundle_that_cannot_be_read_is_refused_in_one_line,
     ]
     # THE REGISTRY IS THE TRAP THIS GUARDS. Cases run because they are
     # listed here, not because they are named test_*, so a case that is

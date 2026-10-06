@@ -19,7 +19,12 @@ def open_bundle(source: str) -> str:
     """Verify a drain bundle and unpack it into a temp directory; return
     the directory (its claims/ is --claims, itself --drain). Refuses, by
     file, anything the manifest does not vouch for."""
-    stream = sys.stdin.buffer if source == "-" else open(source, "rb")
+    # Every way a bundle can be unreadable or malformed is a refusal line
+    # like the rest, never a traceback: a person reads it on the drain.
+    try:
+        stream = sys.stdin.buffer if source == "-" else open(source, "rb")
+    except OSError as exc:
+        sys.exit(f"assemble: bundle: {source} cannot be read ({exc.strerror or exc})")
     dest = tempfile.mkdtemp(prefix="assemble-bundle-")
     # The unpacked bundle lives for this run only; a refusal below exits
     # through sys.exit, so the removal is registered, not reached.
@@ -33,6 +38,8 @@ def open_bundle(source: str) -> str:
                     sys.exit(f"assemble: bundle: refusing member {name!r} (not a plain file under the bundle root)")
                 fh = tar.extractfile(info)
                 members[name] = fh.read() if fh else b""
+    except (tarfile.TarError, EOFError, OSError) as exc:
+        sys.exit(f"assemble: bundle: not a readable tar ({exc}) — not a drain bundle, or cut short")
     finally:
         if source != "-":
             stream.close()
@@ -42,9 +49,13 @@ def open_bundle(source: str) -> str:
         manifest = json.loads(members["manifest.json"])
     except ValueError as exc:
         sys.exit(f"assemble: bundle: manifest.json does not parse ({exc})")
+    if not isinstance(manifest, dict):
+        sys.exit("assemble: bundle: manifest.json is not an object")
     if manifest.get("format") != BUNDLE_FORMAT:
         sys.exit(f"assemble: bundle: format {manifest.get('format')!r}, expected {BUNDLE_FORMAT!r}")
     named = manifest.get("files") or {}
+    if not isinstance(named, dict):
+        sys.exit("assemble: bundle: manifest.json's files is not an object of name to digest")
     for f, digest in sorted(named.items()):
         if f not in members:
             sys.exit(f"assemble: bundle: {f} is named in the manifest but missing from the tar (cut short?)")
@@ -56,8 +67,15 @@ def open_bundle(source: str) -> str:
             sys.exit(f"assemble: bundle: {f} is in the tar but not in the manifest; nothing unnamed is read")
     if "harvest-report.json" not in members:
         sys.exit("assemble: bundle: no harvest-report.json")
-    report = json.loads(members["harvest-report.json"])
+    try:
+        report = json.loads(members["harvest-report.json"])
+    except ValueError as exc:
+        sys.exit(f"assemble: bundle: harvest-report.json does not parse ({exc})")
+    if not isinstance(report, dict):
+        sys.exit("assemble: bundle: harvest-report.json is not an object")
     for key in ("agent", "host", "role", "project"):
+        if not isinstance(manifest.get(key), str) or not manifest[key]:
+            sys.exit(f"assemble: bundle: manifest.json names no {key}")
         if manifest.get(key) != report.get(key):
             sys.exit(f"assemble: bundle: manifest says {key}={manifest.get(key)!r} but harvest-report.json says {report.get(key)!r}")
     for f, data in members.items():
