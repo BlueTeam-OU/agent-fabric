@@ -98,6 +98,23 @@ def main() -> int:
         finally:
             os.chdir(cwd)
 
+        print("a registry entry that is not an object is a refusal, never a traceback")
+        odd = os.path.join(scratch, "odd")
+        sh(scratch, "init", "-q", "-b", "main", odd)
+        sh(odd, "remote", "add", "origin", "https://github.com/gzapi-org/herd")
+        real_load = br.workingcopy.load_registry
+        br.workingcopy.load_registry = lambda *_a: {"version": 1, "projects": {"herd": ["not", "an", "object"]}}
+        os.chdir(odd)
+        try:
+            br.default_branch()
+            refused = ""
+        except br.Refused as e:
+            refused = str(e)
+        finally:
+            os.chdir(cwd)
+            br.workingcopy.load_registry = real_load
+        check("a malformed entry, matched by the remote: Refused, said", "cannot be read" in refused, refused)
+
         print("the worktree listing")
         sh(wc, "worktree", "add", "-q", os.path.join(scratch, "wt-a"), "-b", "wt-a", "main")
         sh(wc, "worktree", "add", "-q", "--detach", os.path.join(scratch, "wt b"), "main")

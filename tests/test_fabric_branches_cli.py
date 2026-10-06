@@ -151,7 +151,8 @@ def main() -> int:
         git("remote", "set-url", "origin", f"{t}/nowhere.git")
         rc, out = run("--sweep")
         check("a failed fetch: exit 2, nothing deleted",
-              rc == 2 and has_branch(f"{me}/merged") and "fetch origin failed" in out, f"rc={rc}\n{out}")
+              rc == 2 and has_branch(f"{me}/merged") and "fetch origin failed" in out
+              and "counting against a stale origin/main" in out, f"rc={rc}\n{out}")
         git("remote", "set-url", "origin", origin)
         rc, out = run(cwd=t)
         check("outside a working copy: exit 2", rc == 2, f"rc={rc}\n{out}")

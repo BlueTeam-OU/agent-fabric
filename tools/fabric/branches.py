@@ -171,7 +171,11 @@ def default_branch() -> str | None:
             u = git.run(".", "remote", "get-url", "origin", check=False)
         except git.GitError as e:
             raise Refused(str(e)) from None
-        project = workingcopy.project_for_remote(u.stdout.strip() if u.returncode == 0 else None, registry)
+        try:
+            project = workingcopy.project_for_remote(u.stdout.strip() if u.returncode == 0 else None, registry)
+        except (AttributeError, TypeError) as e:
+            raise Refused(f"projects/registry.json has a project entry that cannot be read ({e}); the default "
+                          "branch of origin is unknown") from None
     entry = projects.get(project or "")
     name = entry.get("default_branch") if isinstance(entry, dict) else None
     return name if isinstance(name, str) and name else None
@@ -340,7 +344,13 @@ def run(argv: list[str]) -> int:
         return 2
 
     # Fetched first: git 2.48 and later set a missing origin/HEAD on fetch,
-    # so the default branch is read from what the fetch left.
+    # so the default branch is read from what the fetch left. What it names
+    # before the fetch is only for the failure's message.
+    try:
+        pre = git.run(".", "symbolic-ref", "-q", "--short", "refs/remotes/origin/HEAD", check=False)
+        stale = pre.stdout.strip() if pre.returncode == 0 and pre.stdout.strip() else "default branch"
+    except git.GitError:
+        stale = "default branch"
     try:
         fetched = git.run(".", "fetch", "-q", "origin", check=False, timeout=FETCH_TIMEOUT_S)
         failed = fetched.returncode != 0
@@ -348,7 +358,7 @@ def run(argv: list[str]) -> int:
     except git.GitError as e:
         failed, err = True, e.reason
     if failed:
-        say(f"git fetch origin failed ({err}); counting against a stale default branch would call merged work "
+        say(f"git fetch origin failed ({err}); counting against a stale {stale} would call merged work "
             "unmerged — nothing done")
         return 2
     default = default_branch()
