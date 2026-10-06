@@ -201,6 +201,12 @@ import traceback
 # loads its siblings by path on purpose (git.py, in launcher/base.py), so a
 # fixture fabric on sys.path cannot answer for its imports; and the shim
 # runs it under -I, which puts no directory of its own on sys.path.
+# A second launch.py in one process — a fixture's copy beside the real one —
+# loads its own parts, never the first one's from sys.modules (#102's
+# review): the cached package is dropped first. A launcher loaded before
+# keeps the parts it already bound.
+for _name in [n for n in sys.modules if n == "fabric_launcher" or n.startswith("fabric_launcher.")]:
+    del sys.modules[_name]
 _spec = importlib.util.spec_from_file_location(
     "fabric_launcher", os.path.join(os.path.dirname(os.path.realpath(__file__)), "launcher", "__init__.py"),
     submodule_search_locations=[os.path.join(os.path.dirname(os.path.realpath(__file__)), "launcher")])
