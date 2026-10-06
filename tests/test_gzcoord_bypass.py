@@ -389,6 +389,34 @@ def _():
     ok("is not a regular file" in r.stderr and "a reused id is not checked" in r.stderr, r.stderr)
 
 
+@case("a bypassed send to a relay that refuses the connection is failed: it provably never arrived")
+def _():
+    import socket as _socket
+    with _socket.socket() as probe:   # a port nothing listens on once closed
+        probe.bind(("127.0.0.1", 0))
+        port = probe.getsockname()[1]
+    state = P.scratch("bypass-state-")
+    env = P.cmd_env(CLAUDE_BRIDGE_URL=f"http://127.0.0.1:{port}", CLAUDE_BRIDGE_AUTH_TOKEN="tok",
+                    GZCOORD_CHANNEL="fixture:chan", AGENT_FABRIC_STATE_DIR=state, GZCOORD_JOURNAL="off")
+    r = send(env, message(MID))
+    eq(r.returncode, 3, r.stderr)
+    eq([x["outcome"] for x in lines_of(record_path(state))], ["pending", "failed"])
+
+
+@case("an unknown outcome from stdin never promises a safe resend: a new id is minted unless the text carries it")
+def _():
+    relay, state = Relay(send_status=503), P.scratch("bypass-state-")
+    try:
+        env = relay.env(state)
+        text = message(MID).replace(f"MESSAGE-ID: {MID}\n", "")
+        r = subprocess.run(["node", P.SEND_CMD, "-"], env=env, input=text, capture_output=True, text=True, timeout=60)
+    finally:
+        relay.close()
+    eq(r.returncode, 3, r.stderr)
+    ok("may have been delivered" in r.stderr and "a resend from stdin mints a new id" in r.stderr, r.stderr)
+    ok("sending the same file again is safe" not in r.stderr, r.stderr)
+
+
 def main() -> int:
     fails = 0
     for name, fn in CASES:

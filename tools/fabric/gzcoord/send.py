@@ -19,8 +19,9 @@ CONTRACT, frozen from the Node:
             file; 2 invalid, FROM not this login, an id already sent with
             other text, a control channel, a journal that cannot keep
             the message, or (GZCOORD_JOURNAL=off) a bypass that cannot
-            be recorded; 3 not configured, no token, relay unreachable or
-            the token refused; 4 an addressee with no session, silent, not
+            be recorded; 3 not configured, no token, relay unreachable,
+            the token refused, or a post whose outcome is unknown (it may
+            have been delivered); 4 an addressee with no session, silent, not
             placed, or presence not askable — unless --force
 
 The message is normalized (a pasted body carries terminal indentation),
@@ -58,7 +59,9 @@ six seconds. A timeout, a missing node or an answer that cannot be read
 is "unavailable" — never present.
 
 THE JOURNAL (ADR-041), in this process: kept before the carrier sees it,
-its outcome after; a journal that cannot take it refuses the send — a
+its outcome after, once it is known (accepted, or failed when the relay
+provably does not hold it; otherwise the row stays pending, "may have
+reached the carrier"); a journal that cannot take it refuses the send — a
 carrier may keep no copy, so a message sent unremembered could be gone
 for good. GZCOORD_JOURNAL=off sends without it and says so every time:
 first a "pending" line in journal-bypass.jsonl (gzcoord/bypass.py), and
@@ -533,9 +536,10 @@ def main(argv: list[str]) -> int:
             tok = fresh
             res = post(tok)
     except Exception as e:  # noqa: BLE001 — any failure of the post is the relay's, said
-        # The pending row becomes a failed one — unless an earlier attempt's
-        # outcome was never written: that one may have reached the relay,
-        # and this failure says nothing about it (review of #78).
+        # The pending row becomes a failed one only when this post provably
+        # did not reach the relay and no earlier attempt's outcome is unknown
+        # (an earlier one may have reached it, and this failure says nothing
+        # about it: review of #78); otherwise it stays pending.
         never = _never_delivered(e)
         if _journal_off():
             _bypass_outcome(text, "failed" if never else "unknown")
@@ -559,8 +563,13 @@ def main(argv: list[str]) -> int:
             print(f"send: {e}", file=sys.stderr)
             return 3
         if not never:
-            sys.stderr.write(f"send: the relay's answer could not be read at {relay_url} ({e}) — the message may"
-                             " have been delivered; sending the same file again is safe, its id is kept\n")
+            # From a file the id was written into it, so a resend is the same
+            # message and readers discard the copy; from stdin it was minted
+            # in memory only, and a resend would mint another (SPEC §7.2).
+            again = ("sending the same file again is safe: it carries the same id" if file != "-" else
+                     f"a resend from stdin mints a new id unless the text carries MESSAGE-ID: {mid}")
+            sys.stderr.write(f"send: no answer the relay can be held to at {relay_url} ({e}) — the message may"
+                             f" have been delivered; {again}\n")
             return 3
         print(t("send.relay-unreachable", {"relay_url": relay_url, "detail": str(e)}), file=sys.stderr)
         return 3
