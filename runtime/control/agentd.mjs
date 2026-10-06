@@ -57,6 +57,7 @@ import { jobsAdd } from './jobs.mjs';
 import { localPrune } from './local.mjs';
 import { ACTION_OPS, ACTION_TTL_MAX_S, publicKeyFrom, verifyRequest } from './sign.mjs';
 import { upgrade, stateDir } from './upgrade.mjs';
+import { stateWatcher, STATE_POLL_MS } from './sessions.mjs';
 import { secretsSync } from './secrets.mjs';
 import { sampler, SAMPLE_INTERVAL_MS } from './pressure.mjs';
 
@@ -318,6 +319,11 @@ export async function main(argv = process.argv.slice(2)) {
     const pressure = sampler();
     pressure.tick();
     setInterval(pressure.tick, SAMPLE_INTERVAL_MS).unref();
+    // What the account's sessions are doing, posted when it changes
+    // (sessions.mjs); first at start, so a restart re-says it.
+    const states = stateWatcher({ address: me.address, post, binding: who.binding });
+    states.tick();
+    setInterval(states.tick, STATE_POLL_MS).unref();
   }
   for (;;) {
     try {
