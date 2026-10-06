@@ -1385,6 +1385,7 @@ def _():
     # a module behind a shim: both are read, and a source that moves fails the
     # read rather than passing it by finding nothing.
     parts = sorted(glob.glob(os.path.join(HERE, "tools", "fabric", "launcher", "*.py")))
+    ok(parts, "the launcher's parts are where this test reads them (tools/fabric/launcher/)")
     for rel in ("runtime/openrouter/launch", "tools/fabric/launch.py", *(os.path.relpath(p, HERE) for p in parts)):
         with open(os.path.join(HERE, rel), encoding="utf-8") as fh:
             ok("AGENT_FABRIC_JOBS_AUTO_INTAKE" not in fh.read(), rel)

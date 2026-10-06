@@ -232,6 +232,25 @@ from fabric_launcher.session import mark_onboarding_done, session_command, openi
 from fabric_launcher.session import ignore_quit, run_session, read_restart  # noqa: E402, F401
 
 
+# ── the fabric itself must be current ───────────────────────────────
+# A session is fixed at exec: it runs on the launcher, hooks, prompt
+# sections and routing of the checkout it was launched from. "Pull, then
+# relaunch" was the rule, and moveto pulls on entry — but an account
+# that keeps its moveto shell open for a day relaunches from it without
+# a pull, and on 2026-09-16 two accounts came back on the previous
+# launcher (no GOODBYE, two HELLOs) after a DECISION told everyone to
+# pull. So the launcher checks: a fetch, and a checkout behind
+# origin/main is PULLED — fast-forward only; every role but the
+# coordinator is read-only here, so there is nothing local to lose, and
+# --ff-only refuses on its own if the checkout ever diverged — and the
+# launcher re-executes itself so the session runs on what was pulled
+# (the code under a running launcher must not change).
+# It was a refusal naming the pull command until the CEO asked, the same
+# day, why the person had to type what the launcher already knew. A pull
+# that cannot fast-forward is refused with the reason; offline (the fetch
+# fails) it launches on what is checked out and says so.
+# AGENT_FABRIC_ALLOW_STALE=1 overrides, loudly, for the case where the
+# push itself is what a session is about to do.
 def keep_fabric_current(fabric_root: str, orig_args: list[str]) -> None:
     if not (git_status_ok(fabric_root, "rev-parse", "--is-inside-work-tree")
             and git_status_ok(fabric_root, "remote", "get-url", "origin")):

@@ -59,7 +59,7 @@ def resolve(routing, aliases_path: str, local_path: str, role: str, agent: str, 
             # alias is also code-plan's, and through the export the reviewer
             # would follow code-plan (as it once followed code-high on opus).
             # Its model reaches its agent file — install-agent-files.sh, run
-            # below for this provider — and the dispatch guard drops the
+            # by launch() for this provider — and the dispatch guard drops the
             # dispatch's alias under a fabric launch so the file decides.
             if res["via"] == "file":
                 out["files"][klass] = res["composite"]

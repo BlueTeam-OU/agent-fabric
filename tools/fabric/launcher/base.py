@@ -29,7 +29,7 @@ def _load(name: str, path: str):
 git = _load("fabric_git", os.path.join(HERE, "git.py"))
 
 
-# This file's shim by absolute path: every re-exec below runs it again, and
+# The launcher's shim by absolute path: every re-exec (launch.py's reexec) runs it again, and
 # the fresh relaunch of a job changes directory first (ADR-022 rule 12),
 # where a relative $0 — `agent-fabric/runtime/openrouter/launch` from
 # projects/, as the README runs it — names nothing.
@@ -79,7 +79,7 @@ SETUP_TOKEN = re.compile(r"sk-ant-oat[0-9]+-[A-Za-z0-9_-]+")
 PROMPT_FLAGS = ("--system-prompt", "--system-prompt-file", "--append-system-prompt", "--append-system-prompt-file")
 
 
-# The options of claude's that take a value, for the opening scan below.
+# The options of claude's that take a value, for the opening scan (argv.wants_opening).
 VALUE_OPTIONS = ("--model", "--effort", "--resume", "-r", "--permission-mode", "--session-id", "--add-dir",
                  "--settings", "--mcp-config", "--fallback-model", "--agents", "--allowedTools",
                  "--disallowedTools", "--output-format", "--input-format")

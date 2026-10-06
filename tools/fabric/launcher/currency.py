@@ -6,25 +6,8 @@ import os
 from fabric_launcher.base import git, FETCH_TIMEOUT_S, say
 
 
-# ── the fabric itself must be current ───────────────────────────────
-# A session is fixed at exec: it runs on the launcher, hooks, prompt
-# sections and routing of the checkout it was launched from. "Pull, then
-# relaunch" was the rule, and moveto pulls on entry — but an account
-# that keeps its moveto shell open for a day relaunches from it without
-# a pull, and on 2026-09-16 two accounts came back on the previous
-# launcher (no GOODBYE, two HELLOs) after a DECISION told everyone to
-# pull. So the launcher checks: a fetch, and a checkout behind
-# origin/main is PULLED — fast-forward only; every role but the
-# coordinator is read-only here, so there is nothing local to lose, and
-# --ff-only refuses on its own if the checkout ever diverged — and the
-# launcher re-executes itself so the session runs on what was pulled
-# (the code under a running launcher must not change).
-# It was a refusal naming the pull command until the CEO asked, the same
-# day, why the person had to type what the launcher already knew. A pull
-# that cannot fast-forward is refused with the reason; offline (the fetch
-# fails) it launches on what is checked out and says so.
-# AGENT_FABRIC_ALLOW_STALE=1 overrides, loudly, for the case where the
-# push itself is what a session is about to do.
+# git's answers for the currency checks; why the fabric must be current
+# is said above keep_fabric_current, in launch.py.
 def git_status_ok(repo: str, *args: str, timeout: float = git.TIMEOUT_S) -> bool:
     try:
         return git.run(repo, *args, check=False, timeout=timeout).returncode == 0
@@ -61,7 +44,7 @@ def pull_ff(repo: str) -> str:
 # Its CLAUDE.md and rules are binding the moment the session loads them,
 # and a clone left on a week-old main gave a session instructions its
 # project had already replaced (a retired review flow, followed live on
-# a managed project's PR). The same fetch as above, but this checkout is the
+# a managed project's PR). The same fetch as keep_fabric_current's (launch.py), but this checkout is the
 # session's own work, never the launcher's to refuse: on the default
 # branch with nothing uncommitted it is fast-forwarded; on any other
 # branch, or with changes, it is left alone and the gap is said, here
