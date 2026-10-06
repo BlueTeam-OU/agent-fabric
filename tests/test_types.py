@@ -8,6 +8,7 @@ TypedDict is checked against real values: every required key present,
 nothing undeclared. Plain script: prints ok/FAIL, exit 1 on any failure."""
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import sys
@@ -19,6 +20,7 @@ HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(HERE, "tools", "fabric"))
 from gzcoord import gzmsg  # noqa: E402
 from secretstore import mirrors, trust  # noqa: E402
+import jobs as jobs_mod  # noqa: E402
 
 CASES: list[tuple[str, Callable[[], None]]] = []
 SCRATCH: list[str] = []
@@ -162,6 +164,39 @@ def _():
         raise Failed("identities/keys/lineage.json holds no agent")
     for aid, entry in doc.items():
         holds(entry, mirrors.LineageEntry, f"lineage[{aid}]")
+
+
+@case("every job fabric-jobs writes, through each state it can take, is a Job")
+def _():
+    import subprocess
+    state = scratch()
+    env = {**os.environ, "AGENT_FABRIC_STATE_DIR": state}
+    jobs = os.path.join(HERE, "tools", "fabric", "jobs.py")
+
+    def run(*args: str) -> None:
+        r = subprocess.run([sys.executable, jobs, *args], env=env, cwd=HERE, capture_output=True, text=True, timeout=60)
+        if r.returncode != 0:
+            raise Failed(f"fabric-jobs {' '.join(args)}: exit {r.returncode}\n{r.stderr}")
+    run("add", "first", "--topic", "t")
+    run("add", "second")
+    run("add", "third")
+    run("start", "j1")
+    run("block", "j1", "a reply")
+    run("start", "j2")
+    run("deliver", "j2", "branch x@abc")
+    run("drop", "j3", "not needed")
+    with open(os.path.join(state, "agents", jobs_login(), "jobs.json"), encoding="utf-8") as fh:
+        doc = json.load(fh)
+    states = sorted(j["state"] for j in doc["jobs"])
+    if states != ["blocked", "delivered", "dropped"]:
+        raise Failed(f"the states were not all reached: {states}")
+    for j in doc["jobs"]:
+        holds(j, jobs_mod.Job, f"job {j.get('id')}")
+
+
+def jobs_login() -> str:
+    import pwd
+    return pwd.getpwuid(os.geteuid()).pw_name
 
 
 def main() -> int:

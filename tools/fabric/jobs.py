@@ -47,10 +47,34 @@ import json
 import os
 import subprocess
 import sys
+from typing import Any, TypedDict
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 FABRIC_ROOT = os.environ.get("AGENT_FABRIC_ROOT") or os.path.dirname(os.path.dirname(HERE))
 
+
+
+# A job as jobs.json keeps it (runtime/control/jobs.mjs reads it too). The
+# keys a state change adds live in a total=False subclass: under `from
+# __future__ import annotations` TypedDict counts NotRequired[...] as
+# required. tests/test_types.py holds every job the CLI writes to it.
+class _JobKeys(TypedDict):
+    id: str
+    title: str
+    topic: str | None
+    project: str | None
+    working_copy: str | None
+    state: str
+    source: dict[str, Any]
+    artifacts: list[str]
+    created: str
+    updated: str
+    log: list[dict[str, str]]
+
+
+class Job(_JobKeys, total=False):
+    blocked_on: str
+    reason: str
 
 def _load(name: str, path: str):
     spec = importlib.util.spec_from_file_location(name, path)
@@ -70,14 +94,14 @@ class Refused(Exception):
     """A change the list does not allow; the message is the whole answer."""
 
 
-def find(doc: dict, job_id: str) -> dict:
+def find(doc: dict, job_id: str) -> Job:
     for job in doc["jobs"]:
         if job["id"] == job_id:
             return job
     raise Refused(f"no job {job_id} in this list (fabric-jobs list --all)")
 
 
-def active(doc: dict) -> dict | None:
+def active(doc: dict) -> Job | None:
     return next((j for j in doc["jobs"] if j["state"] == "active"), None)
 
 
@@ -134,7 +158,7 @@ def working_copy_of(project: str) -> str | None:
     return None
 
 
-def new_job(doc: dict, title: str, *, topic=None, project=None, working_copy=None, source=None) -> dict:
+def new_job(doc: dict, title: str, *, topic=None, project=None, working_copy=None, source=None) -> Job:
     # Control characters (C0, DEL, C1) would reach every terminal that
     # lists the job and the opening prompt of a fresh session. Tab, newline
     # and carriage return are whitespace, collapsed below as they always were
@@ -198,7 +222,7 @@ def fetch_message(which: str) -> dict:
     return json.loads(p.stdout)
 
 
-def request_job(doc: dict, msg: dict, *, topic=None, project=None, working_copy=None, auto=False) -> dict | None:
+def request_job(doc: dict, msg: dict, *, topic=None, project=None, working_copy=None, auto=False) -> Job | None:
     meta = msg.get("metadata") or {}
     mid = meta.get("MESSAGE-ID") or str(msg.get("seq"))
     if auto and msg.get("type") != "REQUEST":
