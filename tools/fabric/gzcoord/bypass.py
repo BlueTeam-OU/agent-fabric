@@ -92,10 +92,11 @@ def entry(direction: str, text: str, seq: Any = None, outcome: str | None = None
             **({"outcome": outcome} if outcome is not None else {})}
 
 
-def _last_byte(target: str, fd: int) -> bytes:
+def last_byte(target: str, fd: int) -> bytes:
     """The file's last byte, read through a second, read-only descriptor of
     the same file: the record's own is write-only, which is what makes a
-    FIFO there fail its open."""
+    FIFO there fail its open. send.record_sent guards the sent ledger with
+    it too."""
     rfd = os.open(target, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC | os.O_NONBLOCK)
     try:
         here, there = os.fstat(fd), os.fstat(rfd)
@@ -129,7 +130,7 @@ def record(entries: list[dict]) -> None:
                 # The end before this write: every writer appends under the
                 # lock, so nothing else moves it until the lock is released.
                 start = os.fstat(fd).st_size
-                if start and _last_byte(target, fd) != b"\n":
+                if start and last_byte(target, fd) != b"\n":
                     # A fragment (a kill, or an undo that failed) ends the
                     # file: this line starts on its own, readable after it.
                     data = b"\n" + data

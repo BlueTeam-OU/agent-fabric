@@ -529,6 +529,26 @@ def _():
     ok(waited >= 1.0, f"record_sent wrote while another process held the lock ({waited:.2f} s)")
 
 
+@case("a ledger that ends in a fragment: the new entry starts on its own line, readable")
+def _():
+    d = P.scratch("ledger-fragment-")
+    ledger = os.path.join(d, "gzcoord-sent.jsonl")
+    whole = js.stringify({"id": "m-0", "sha256": "h0", "seq": 1, "at": "T0"}) + "\n"
+    with open(ledger, "w", encoding="utf-8") as fh:
+        fh.write(whole + '{"id":"m-cut","sha')   # a send killed mid-append
+    with _state_dir(d):
+        send.record_sent(ledger, {"id": "m-1", "sha256": "h1", "seq": 2, "at": "T1"}, 3)
+    with open(ledger, encoding="utf-8") as fh:
+        lines = fh.read().split("\n")
+    eq(lines[:2], [whole.rstrip("\n"), '{"id":"m-cut","sha'], "what was there is kept as it was")
+    eq(json.loads(lines[2]).get("id"), "m-1", "the new entry is a line of its own")
+    eq(lines[3:], [""], "one newline ends the file")
+    with _state_dir(d):
+        send.record_sent(ledger, {"id": "m-2", "sha256": "h2", "seq": 3, "at": "T2"}, 3)
+    with open(ledger, encoding="utf-8") as fh:
+        eq(fh.read().count("\n\n"), 0, "a whole last line gets no blank line after it")
+
+
 @case("a trim that cannot replace the ledger leaves it whole: never rewritten in place, never cut")
 def _():
     d = P.scratch("ledger-trim-fail-")
