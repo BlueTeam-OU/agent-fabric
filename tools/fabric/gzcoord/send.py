@@ -235,6 +235,18 @@ def _journal_off() -> bool:
     return bypass.is_off()
 
 
+def _never_delivered(e: BaseException) -> bool:
+    """A post that failed in a way that proves the relay does not hold the
+    message: refused with a 4xx (the request was judged and turned away),
+    a connection that never reached it, or a token refused before it left.
+    Anything else (no answer, a timeout, a reset, a body that is not the
+    relay's, a 5xx from the relay or a proxy in front of it) may come after
+    the relay stored it: delivered or not is unknown."""
+    status = getattr(e, "status", None)
+    return ((isinstance(status, int) and 400 <= status < 500) or getattr(e, "reached", None) is False
+            or isinstance(e, inbox.TokenRefused))
+
+
 def _bypass_outcome(text: str, outcome: str, seq: Any = None) -> None:
     """A bypassed send's second line, once the post is over. Not a
     refusal when it cannot be written: the message has left or failed
@@ -503,20 +515,17 @@ def main(argv: list[str]) -> int:
         # The pending row becomes a failed one — unless an earlier attempt's
         # outcome was never written: that one may have reached the relay,
         # and this failure says nothing about it (review of #78).
+        never = _never_delivered(e)
         if _journal_off():
-            # "failed" only when the relay refused it (a 4xx: the request was
-            # judged and turned away), or it never left (a refused token).
-            # Anything else (no answer, a timeout, a body that is not the
-            # relay's, a 5xx from the relay or a proxy in front of it, which
-            # may come after the message was stored) says nothing of what
-            # the relay holds: "unknown", it may have reached it.
-            status = getattr(e, "status", None)
-            refused = (isinstance(status, int) and 400 <= status < 500) or isinstance(e, inbox.TokenRefused)
-            _bypass_outcome(text, "failed" if refused else "unknown")
+            _bypass_outcome(text, "failed" if never else "unknown")
         else:
             if str((kept or {}).get("stdout") or "").strip() == "unknown":
                 sys.stderr.write("episodic: an earlier attempt of this message may have reached the relay; its row"
                                  " stays pending\n")
+            elif not never:
+                # Not "failed": the relay may hold it. The row stays pending,
+                # the journal's own "may have reached the carrier".
+                sys.stderr.write("episodic: this message may have reached the relay; its row stays pending\n")
             else:
                 done = journal(["gzcoord-out-final", mid, "--state", "failed"], "")
                 if done["status"] != 0:
@@ -527,6 +536,10 @@ def main(argv: list[str]) -> int:
             return 3
         if isinstance(e, inbox.TokenRefused):   # the synced token re-read after a 401
             print(f"send: {e}", file=sys.stderr)
+            return 3
+        if not never:
+            sys.stderr.write(f"send: the relay's answer could not be read at {relay_url} ({e}) — the message may"
+                             " have been delivered; sending the same file again is safe, its id is kept\n")
             return 3
         print(t("send.relay-unreachable", {"relay_url": relay_url, "detail": str(e)}), file=sys.stderr)
         return 3

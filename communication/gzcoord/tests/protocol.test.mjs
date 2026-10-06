@@ -176,7 +176,7 @@ test('a journal that cannot take the message stops the send: nothing posted, exi
   });
 });
 test('a post the relay refuses leaves the journal row failed, not accepted', async () => {
-  const server = http.createServer((req, res) => { res.statusCode = 500; res.end('{}'); });
+  const server = http.createServer((req, res) => { res.statusCode = 409; res.end('{}'); });
   await new Promise(r => server.listen(0, '127.0.0.1', r));
   try {
     const state = path.join(scratch('send-journal-fail-'), 'state'); const store = idStore();
@@ -184,6 +184,25 @@ test('a post the relay refuses leaves the journal row failed, not accepted', asy
     assert.equal(r.code, 3, r.err);
     assert.deepEqual(journalRows(state, store).map(x => x.slice(0, 3)), [['outbound', 'failed', '01a09fc1-0000-7000-8000-000000000001']]);
   } finally { server.closeAllConnections(); server.close(); }
+});
+
+test('a post whose answer cannot be read (a 5xx) leaves the row pending and says it may have been delivered; a refused connection is not sent', async () => {
+  const server = http.createServer((req, res) => { res.statusCode = 503; res.end('{}'); });
+  await new Promise(r => server.listen(0, '127.0.0.1', r));
+  try {
+    const state = path.join(scratch('send-journal-5xx-'), 'state'); const store = idStore();
+    const r = await sendWith(`http://127.0.0.1:${server.address().port}`, valid, [], { AGENT_FABRIC_STATE_DIR: state, AGENT_FABRIC_SECRET_STORE: store });
+    assert.equal(r.code, 3, r.err);
+    assert.match(r.err, /may have been delivered/); assert.doesNotMatch(r.err, /not sent/);
+    assert.deepEqual(journalRows(state, store).map(x => x.slice(0, 3)), [['outbound', 'pending', '01a09fc1-0000-7000-8000-000000000001']]);
+  } finally { server.closeAllConnections(); server.close(); }
+  // A port nothing listens on: the connection is refused, the relay never saw it.
+  const closed = http.createServer(); await new Promise(r => closed.listen(0, '127.0.0.1', r));
+  const port = closed.address().port; await new Promise(r => closed.close(r));
+  const state = path.join(scratch('send-journal-refused-'), 'state'); const store = idStore();
+  const r = await sendWith(`http://127.0.0.1:${port}`, valid, [], { AGENT_FABRIC_STATE_DIR: state, AGENT_FABRIC_SECRET_STORE: store });
+  assert.equal(r.code, 3, r.err); assert.match(r.err, /not sent/);
+  assert.deepEqual(journalRows(state, store).map(x => x.slice(0, 3)), [['outbound', 'failed', '01a09fc1-0000-7000-8000-000000000001']]);
 });
 
 test('a failed retransmission leaves a row pending whose earlier outcome was never written (review of #78)', async () => {

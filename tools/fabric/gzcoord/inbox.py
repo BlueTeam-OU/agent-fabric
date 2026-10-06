@@ -366,11 +366,15 @@ def ensure_relay(runtime_dir: str, relay_url: str | None = None, t: i18n.Printer
 
 class RelayError(Exception):
     """A relay call that did not answer 2xx (status set) or could not be
-    made at all (status None)."""
+    made at all (status None). `reached` is False when the request provably
+    never reached the relay (the connection was refused, the name did not
+    resolve), None when that cannot be told (a timeout or a reset may come
+    after the relay took it)."""
 
-    def __init__(self, message: str, status: int | None = None):
+    def __init__(self, message: str, status: int | None = None, reached: bool | None = None):
         super().__init__(message)
         self.status = status
+        self.reached = reached
 
 
 # Node's fetch gave up on a response with no headers after 300 s (undici's
@@ -404,7 +408,8 @@ def api(tok: str, path_and_query: str, relay_url: str | None = None, method: str
         raise RelayError(f"{path_and_query} -> HTTP {e.code}", e.code) from None
     except (urllib.error.URLError, OSError) as e:
         reason = getattr(e, "reason", e)
-        raise RelayError(f"fetch failed ({reason})") from None
+        never = isinstance(reason, (ConnectionRefusedError, socket.gaierror))
+        raise RelayError(f"fetch failed ({reason})", reached=False if never else None) from None
     return json.loads(raw.decode("utf-8"))
 
 
