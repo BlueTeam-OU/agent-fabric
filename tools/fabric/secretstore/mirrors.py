@@ -90,6 +90,12 @@ class LineageEntry(TypedDict):
     parent: str | None
 
 
+def lineage_entry(aid: str, name: str, fpr: str, parent: str | None) -> LineageEntry:
+    """The entry certify() records for agent `aid`, built here alone so
+    tests/test_types.py holds what is written, not only what is on disk."""
+    return {"login": name, "born": born_of(aid), "fingerprint": fpr, "parent": parent}
+
+
 def _bundle_armored(repo: str) -> str:
     with tempfile.TemporaryDirectory() as tmp:
         path = os.path.join(tmp, "store.bundle")
@@ -418,7 +424,7 @@ def certify(child: str | None, key_file: str | None, fabric: str | None = None) 
                                  "only after the old one is retired")
         if aid in doc and doc[aid].get("login") != name:
             raise StoreError(f"agent {aid} is {doc[aid].get('login')}, not {name}: a rename is `store rename`")
-        doc[aid] = {"login": name, "born": born_of(aid), "fingerprint": fpr, "parent": parent}
+        doc[aid] = lineage_entry(aid, name, fpr, parent)
         _write_lineage(doc, fabric)
 
     if child is None:
