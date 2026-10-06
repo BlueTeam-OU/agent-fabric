@@ -197,9 +197,10 @@ import sys
 import time
 import traceback
 
-# The parts, a package loaded BY PATH as fabric_launcher: launch.py loads
-# its siblings by path on purpose (git.py below), so a fixture fabric on
-# sys.path cannot answer for its imports, and the shim runs it under -I.
+# The parts, a package loaded BY PATH as fabric_launcher: the launcher
+# loads its siblings by path on purpose (git.py, in launcher/base.py), so a
+# fixture fabric on sys.path cannot answer for its imports; and the shim
+# runs it under -I, which puts no directory of its own on sys.path.
 _spec = importlib.util.spec_from_file_location(
     "fabric_launcher", os.path.join(os.path.dirname(os.path.realpath(__file__)), "launcher", "__init__.py"),
     submodule_search_locations=[os.path.join(os.path.dirname(os.path.realpath(__file__)), "launcher")])
