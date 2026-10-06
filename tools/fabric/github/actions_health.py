@@ -100,7 +100,9 @@ NUMBER = re.compile(r"(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)")
 
 
 class Usage(Exception):
-    """A bad command line or allowance: the message, exit 2."""
+    """A bad command line, or a bad allowance: the message, exit 2. A bad
+    command line is stderr alone; an allowance is judged once the line
+    parsed, so --json says it too, as verdict invalid."""
 
 
 def jqnum(x: float | int) -> str:
@@ -115,12 +117,22 @@ def plain(x):
     return int(x) if isinstance(x, float) and x.is_integer() and abs(x) < 1e17 else x
 
 
+def finite(value: float | int) -> float | int:
+    """`value`, or ValueError when a double cannot hold it: NaN, an
+    infinity, or an integer past a double's range (whose float() raises
+    OverflowError, not ValueError)."""
+    try:
+        as_float = float(value)
+    except OverflowError:
+        raise ValueError(f"{value!r:.40} is past a double's range") from None
+    if not math.isfinite(as_float):
+        raise ValueError(f"{value!r} is not finite")
+    return value
+
+
 def as_number(text: str) -> float | int:
     """An allowance NUMBER matched, as a finite number, or ValueError."""
-    value = int(text) if "." not in text else float(text)
-    if not math.isfinite(value):
-        raise ValueError(text)
-    return value
+    return finite(int(text) if "." not in text else float(text))
 
 
 def parse(argv: list[str], env) -> dict | None:
@@ -218,10 +230,11 @@ def _sum(rows: list[dict], key: str) -> float | int:
     total: float | int = 0
     for r in rows:
         v = r.get(key)
-        if isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v):
+        if isinstance(v, bool) or not isinstance(v, (int, float)):
             raise ValueError(f"a minute row's {key} is not a number")
-        total += v
-    return total
+        total += finite(v)
+    # Rows each finite can still sum past a double.
+    return finite(total)
 
 
 def private_repos(org: str, usage: dict) -> set[str]:
@@ -420,6 +433,7 @@ def run(argv: list[str], env=None) -> int:
         doc = {"exit": code, "verdict": verdict, "reason": line}
         for key in ("public", "period", "private_minutes", "private_net", "own_net", "included", "remaining"):
             doc[key] = fields.get(key)
+        # Every number in it went through finite(): nothing here can fail.
         print(json.dumps(doc, ensure_ascii=False, allow_nan=False))
     elif code != 2 and not opts["quiet"]:
         print(line)

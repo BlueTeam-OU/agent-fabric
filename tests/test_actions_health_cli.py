@@ -397,9 +397,14 @@ def main() -> int:
         rc("zero is no allowance: exits 2", 2)
         invoke(allowance="\u0663\u0660\u0660\u0660")
         rc("digits that are not ASCII are no number: exits 2", 2)
-        invoke(allowance="9" * 400 + ".0")
-        rc("a number past a double's range: exits 2, no traceback", 2)
-        has("  and names the setting", "must be a positive number")
+        for big in ("9" * 400 + ".0", "2" * 309):
+            invoke(allowance=big)
+            rc(f"a number past a double's range ({'decimal' if '.' in big else 'integer'}): exits 2", 2)
+            has("  refused, naming the setting", "must be a positive number")
+        invoke("--json", allowance="2" * 309)
+        lines = out["text"].splitlines()
+        check("  …and --json calls it invalid", out["rc"] == 2 and bool(lines)
+              and json.loads(lines[-1]).get("verdict") == "invalid", out["text"])
         invoke(allowance="3000.5")
         rc("a decimal one is a number: exits 0", 0)
 
@@ -451,6 +456,24 @@ def main() -> int:
         invoke("--json", allowance="3000")
         rc("NaN in a minute row: the allowance not checked, exit 0 on the status, no traceback", 0)
         has("  and said", "Allowance not checked")
+        for label, rows in (
+                ("an integer past a double's range in a minute row",
+                 '[{"product":"actions","unitType":"Minutes","quantity":' + "2" * 309 + ',"netAmount":0}]'),
+                ("rows past a double's range whose sum is not",
+                 '[{"product":"actions","unitType":"Minutes","quantity":' + "2" * 309 + ',"netAmount":0},'
+                 '{"product":"actions","unitType":"Minutes","quantity":-' + "2" * 309 + ',"netAmount":0}]'),
+                ("finite rows whose sum is not",
+                 '[{"product":"actions","unitType":"Minutes","quantity":1,"netAmount":1e308},'
+                 '{"product":"actions","unitType":"Minutes","quantity":1,"netAmount":1e308}]')):
+            reset()
+            put("billing_raw", '{"usageItems":' + rows + '}\n')
+            invoke("--json", allowance="3000")
+            try:
+                doc = json.loads(out["text"])
+            except ValueError:
+                doc = {}
+            check(f"{label}: the allowance not checked, exit 0 on the status, valid JSON",
+                  out["rc"] == 0 and "Allowance not checked" in doc.get("reason", ""), out["text"][:300])
         reset()
         put("billing_raw", '[]\n')
         invoke(allowance="3000")
