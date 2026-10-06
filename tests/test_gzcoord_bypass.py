@@ -373,6 +373,22 @@ def _():
     ok("the send's outcome (accepted) is not in the bypass record" in r.stderr, r.stderr)
 
 
+@case("a FIFO where the ledger of sent ids goes never hangs a send: the check and the record are said, the send goes")
+def _():
+    state = P.scratch("ledger-fifo-")
+    ledger = os.path.join(state, "agents", P.LOGIN, "gzcoord-sent.jsonl")
+    os.makedirs(os.path.dirname(ledger))
+    os.mkfifo(ledger, 0o600)
+    relay = Relay()
+    try:
+        r = send(relay.env(state), message(MID))   # send() times out at 60 s: a blocking open would hang here
+    finally:
+        relay.close()
+    eq(r.returncode, 0, r.stderr)
+    eq(len(relay.posts), 1)
+    ok("is not a regular file" in r.stderr and "a reused id is not checked" in r.stderr, r.stderr)
+
+
 def main() -> int:
     fails = 0
     for name, fn in CASES:

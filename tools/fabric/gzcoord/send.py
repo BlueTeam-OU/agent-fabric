@@ -73,6 +73,7 @@ import datetime
 import hashlib
 import json
 import os
+import stat
 import subprocess
 import sys
 from typing import Any, Callable
@@ -136,11 +137,31 @@ def sent_ledger_path(who: dict) -> str:
     return os.path.join(os.path.dirname(who["binding"]), "gzcoord-sent.jsonl")
 
 
+def _ledger(path: str, flags: int):
+    """The ledger opened as a regular file or not at all: never followed
+    through a symlink, never waited on as a FIFO (a send would hang before
+    its post, and under the agent's lock in record_sent). Anything else
+    there is refused with an OSError naming it."""
+    fd = os.open(path, flags | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC, 0o600)
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            raise OSError(f"{path} is not a regular file")
+    except BaseException:
+        os.close(fd)
+        raise
+    return fd
+
+
 def spent_elsewhere(ledger: str, mid: str, sha: str) -> dict | None:
     try:
-        with open(ledger, encoding="utf-8", errors="replace") as fh:
+        with os.fdopen(_ledger(ledger, os.O_RDONLY), encoding="utf-8", errors="replace") as fh:
             lines = fh.read().split("\n")
-    except OSError:
+    except FileNotFoundError:
+        return None   # no send recorded yet
+    except OSError as e:
+        # Said, not guessed: the check for a reused id is not made.
+        sys.stderr.write(f"send: the ledger of sent ids cannot be read ({e.strerror or e}); a reused id is not"
+                         " checked\n")
         return None
     for line in lines:
         try:
@@ -173,9 +194,9 @@ def record_sent(ledger: str, entry: dict, keep: int = 5000) -> None:
     identity = paths.identity()
     os.makedirs(os.path.dirname(ledger), exist_ok=True)
     with identity.agent_lock():
-        with open(ledger, "a", encoding="utf-8") as fh:
+        with os.fdopen(_ledger(ledger, os.O_WRONLY | os.O_APPEND | os.O_CREAT), "a", encoding="utf-8") as fh:
             fh.write(js.stringify(entry) + "\n")
-        with open(ledger, encoding="utf-8", errors="replace") as fh:
+        with os.fdopen(_ledger(ledger, os.O_RDONLY), encoding="utf-8", errors="replace") as fh:
             entries = [x for x in fh.read().split("\n") if x]
         if len(entries) > keep + 1000:
             kept = entries[-keep:]
