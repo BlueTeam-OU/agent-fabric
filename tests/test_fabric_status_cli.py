@@ -69,7 +69,7 @@ def main() -> int:
                                 "placement": {LOGIN: host}}) + "\n")
         os.makedirs(f"{sandbox}/home")
         base = {k: v for k, v in os.environ.items()
-                if not k.startswith(("GITHUB_", "AGENT_FABRIC_", "CLAUDE_", "ANTHROPIC_")) and k != "GIT_DIR"}
+                if not k.startswith(("GITHUB_", "AGENT_FABRIC_", "CLAUDE_", "ANTHROPIC_")) and k not in ("GIT_DIR", "CLAUDECODE")}
         base.update(HOME=f"{sandbox}/home", AGENT_FABRIC_STATE_DIR=state, AGENT_FABRIC_HOSTS_REGISTRY=placed)
 
         def status(*mode: str, cwd: str | None = None, **env: str) -> str:

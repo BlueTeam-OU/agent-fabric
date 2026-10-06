@@ -63,6 +63,21 @@ def main() -> int:
             check("a launch provider does not change a custom path", status.api_path({"ANTHROPIC_BASE_URL": "http://h:1", "AGENT_FABRIC_LAUNCH_PROVIDER": "anthropic"})[1] == "custom base URL (h)")
             check("an unparsable URL has no host and is custom", status.api_path({"ANTHROPIC_BASE_URL": "http://[::1"})[1:3] == ("custom base URL ()", ""))
 
+            # The session's credentials are read from the harness process
+            # (its Bash holds none now): a fake /proc, a bash under a claude.
+            proc = os.path.join(tmp, "proc")
+            for pid, comm, ppid, env in ((40, "bash", 30, b"PATH=/x\0"), (30, "claude", 20, b"CLAUDE_CODE_OAUTH_TOKEN=t\0A=b=c\0"),
+                                         (20, "python3", 1, b"")):
+                os.makedirs(os.path.join(proc, str(pid)))
+                for name, body in (("comm", f"{comm}\n".encode()), ("status", f"Name:\t{comm}\nPPid:\t{ppid}\n".encode()),
+                                   ("environ", env)):
+                    with open(os.path.join(proc, str(pid), name), "wb") as fh:
+                        fh.write(body)
+            check("the nearest claude ancestor's environment is the session's",
+                  status.harness_environ(40, proc) == {"CLAUDE_CODE_OAUTH_TOKEN": "t", "A": "b=c"})
+            check("no claude up the chain: None, and the caller uses its own", status.harness_environ(20, proc) is None)
+            check("an unreadable /proc: None, never a crash", status.harness_environ(99, proc) is None)
+
             print("the fallback marker")
             fb = os.path.join(tmp, "fb")
             alive = os.getpid()
