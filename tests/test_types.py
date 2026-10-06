@@ -164,6 +164,12 @@ def _():
         raise Failed("identities/keys/lineage.json holds no agent")
     for aid, entry in doc.items():
         holds(entry, mirrors.LineageEntry, f"lineage[{aid}]")
+    # What certify() writes for a root and for a child, through the one
+    # builder it uses, so an entry written tomorrow is held as well.
+    root = "01a111d3-7e46-744b-8159-5131b5598f4d"
+    holds(mirrors.lineage_entry(root, "user", "A" * 40, None), mirrors.LineageEntry, "a root's entry")
+    holds(mirrors.lineage_entry("01a111d3-e2a5-7817-8019-35e185dcad48", "dev-01", "B" * 40, root),
+          mirrors.LineageEntry, "a child's entry")
 
 
 @case("every job fabric-jobs writes, through each state it can take, is a Job")
