@@ -43,8 +43,14 @@ there is no session to stop.
 #   - the marker: one JSON line, requested_at a second ahead, the note's
 #     whitespace collapsed and cut at 300 characters, `job` only when given.
 #   - stdout is never written; every word is on stderr.
-# The pinned-Python check is the shim's (bin/fabric-fresh), as for every
-# forwarder: run without that Python, even --help is exit 127 now.
+# Changed, and said in j31's delivery:
+#   - the pinned-Python check is the shim's (bin/fabric-fresh), as for
+#     every forwarder: run without that Python, even --help is exit 127;
+#   - the job lookup and each git call are bounded at TIMEOUT_S (the bash
+#     waited for ever): a job list that does not answer is exit 2, said;
+#   - a marker that cannot be written says so in a line of its own (the
+#     bash left mkdir's or Python's own words, the same exit 1);
+#   - the walk up to the session reads /proc, not ps.
 from __future__ import annotations
 
 import datetime

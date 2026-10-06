@@ -92,8 +92,8 @@ def main() -> int:
     with tempfile.TemporaryDirectory() as t:
         calls = os.path.join(t, "calls")
         hx = os.path.join(t, "hostexec")
-        # The executor's answer per account; "!fail" exits non-zero having
-        # printed nothing, as a host that cannot be reached does.
+        # The executor's answer per account; "!fail" prints a line that
+        # looks like numbers and exits non-zero: a read cut short is no answer.
         lines = {"ok-one": "a@x.org\t45.5\t2026-10-06T10:00\t12\t2026-10-09T00:00",
                  "down-one": "!fail", "bare-one": "no-credentials", "late-one": "read-failed\tl@x.org"}
         with open(os.path.join(t, "lines.json"), "w", encoding="utf-8") as fh:
@@ -103,7 +103,8 @@ def main() -> int:
                      f"open({calls!r}, 'a').write(json.dumps(sys.argv[1:]) + '\\n')\n"
                      "login = sys.argv[sys.argv.index('--as') + 1]\n"
                      f"line = json.load(open({os.path.join(t, 'lines.json')!r}))[login]\n"
-                     "sys.exit(3) if line == '!fail' else print(line)\n")
+                     "print('x@x.org\\t1\\t2\\t3\\t4' if line == '!fail' else line)\n"
+                     "sys.exit(3 if line == '!fail' else 0)\n")
         os.chmod(hx, 0o755)
         registry = os.path.join(t, "registry.json")
         with open(registry, "w", encoding="utf-8") as fh:
@@ -153,6 +154,12 @@ def main() -> int:
         rc, out, err = usage()
         check("a registry it cannot read: exit 2, no table", rc == 2 and out == "" and "host registry" in err,
               f"rc={rc}\n{out}{err}")
+        for text in ('{"hosts": {}}', '{"placement": null}', '{"placement": {"a": ["h1"]}}'):
+            with open(registry, "w", encoding="utf-8") as fh:
+                fh.write(text)
+            rc, out, err = usage()
+            check(f"a registry with no placement map of login to host ({text}): exit 2, no table",
+                  rc == 2 and out == "" and "placement map" in err, f"rc={rc}\n{out}{err}")
         rc, out, err = usage("--bogus")
         check("an unknown option: exit 2, named", rc == 2 and "--bogus" in err, f"rc={rc}\n{err}")
         rc, out, err = usage("--help")

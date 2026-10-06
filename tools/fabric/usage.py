@@ -45,7 +45,11 @@ the fallback for a host whose daemons are down.
 # own header promises never to do); jq is no longer needed on this host
 # (the remote read still uses jq and curl, as before); an executor that
 # has not answered within EXECUTOR_TIMEOUT_S is `executor-failed` (the
-# bash waited for ever).
+# bash waited for ever; the executor is killed, and what it started as
+# the account ends at curl's own 20 s bound); an executor that exits
+# non-zero is `executor-failed` whatever it printed (the bash read its
+# last line as the account's numbers); AGENT_FABRIC_HOSTEXEC names
+# another executor, as store_enroll.py reads it, for a test.
 from __future__ import annotations
 
 import json
@@ -139,11 +143,17 @@ def number(text: str) -> int | float | None:
 
 
 def read_account(hx: str, host: str, login: str) -> str:
-    """The read's last line, or '' when the executor gave none."""
+    """The read's last line, or '' when the executor failed or gave none.
+
+    Every branch of READ exits 0 having printed its line, so a non-zero
+    exit is the executor's failure or a read cut short, and whatever it
+    printed is no answer."""
     try:
         r = subprocess.run([hx, host, "--as", login, "--", "sh", "-c", READ], stdin=subprocess.DEVNULL,
                            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=EXECUTOR_TIMEOUT_S)
     except (OSError, subprocess.TimeoutExpired):
+        return ""
+    if r.returncode != 0:
         return ""
     return last_line(r.stdout.decode("utf-8", errors="replace"))
 
@@ -176,7 +186,6 @@ def run(argv: list[str]) -> int:
     except Refused as e:
         say(str(e))
         return 2
-    # AGENT_FABRIC_HOSTEXEC, as store_enroll.py reads it, for a test.
     hx = os.environ.get("AGENT_FABRIC_HOSTEXEC") or os.path.join(ROOT, "runtime", "hostexec", "hostexec")
     if not as_json:
         print(f"{'account':<22} {'claude account':<34} {'5h':>8}  {'5h resets (UTC)':<16} {'7d':>8}  {'7d resets (UTC)':<16}",
