@@ -3,10 +3,14 @@
 scratch home. A login on a Claude-account template is `setup-token` (its
 own sign-in is another account's; the template cannot read usage), and
 neither token is ever printed. Ported from tests/test_fabric-usage.sh
-(ADR-040 Wave 6), case for case. Plain script: prints ok/FAIL, exit 1 on
-any failure."""
+(ADR-040 Wave 6), case for case. Then the table around it, through the
+shim with a fake executor: never silently short, a registry it cannot
+read refused (tools/fabric/usage.py, ADR-040 Wave 3). Plain script:
+prints ok/FAIL, exit 1 on any failure."""
 from __future__ import annotations
 
+import importlib.util
+import json
 import os
 import re
 import subprocess
@@ -19,18 +23,12 @@ if not os.path.isfile(TOOL):
     sys.exit(f"test: script under test not found at {TOOL}")
 
 
-def read_heredoc(path: str) -> str:
-    """The READ heredoc, exactly as bin/fabric-usage hands it to the executor."""
-    body, inside = [], False
-    with open(path, encoding="utf-8") as fh:
-        for line in fh.read().split("\n"):
-            if not inside:
-                inside = line.startswith("read -r -d '' READ <<'EOF'")
-            elif line == "EOF":
-                break
-            else:
-                body.append(line)
-    return "\n".join(body)
+def read_text() -> str:
+    """The READ text, exactly as tools/fabric/usage.py hands it to the executor."""
+    spec = importlib.util.spec_from_file_location("fabric_usage", os.path.join(ROOT, "tools", "fabric", "usage.py"))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)  # type: ignore[union-attr]
+    return mod.READ
 
 
 def main() -> int:
@@ -43,8 +41,8 @@ def main() -> int:
             print("      " + detail.replace("\n", "\n      "))
         fails += not good
 
-    read = read_heredoc(TOOL)
-    check("the per-account read is found in bin/fabric-usage", bool(read))
+    read = read_text()
+    check("the per-account read is found in tools/fabric/usage.py", bool(read))
 
     with tempfile.TemporaryDirectory() as sandbox:
         home = os.path.join(sandbox, "h")
@@ -89,6 +87,77 @@ def main() -> int:
         check("no template: the login's own sign-in is read, as before",
               os.path.exists(curl_ran) and re.search(r"^read-failed\told@example\.org$", out, re.M) is not None, out)
         check("…and its token stays out of the output", "sk-ant-" not in out, out)
+
+    print("fabric-usage: the table, one row for every placed account")
+    with tempfile.TemporaryDirectory() as t:
+        calls = os.path.join(t, "calls")
+        hx = os.path.join(t, "hostexec")
+        # The executor's answer per account; "!fail" exits non-zero having
+        # printed nothing, as a host that cannot be reached does.
+        lines = {"ok-one": "a@x.org\t45.5\t2026-10-06T10:00\t12\t2026-10-09T00:00",
+                 "down-one": "!fail", "bare-one": "no-credentials", "late-one": "read-failed\tl@x.org"}
+        with open(os.path.join(t, "lines.json"), "w", encoding="utf-8") as fh:
+            json.dump(lines, fh)
+        with open(hx, "w", encoding="utf-8") as fh:
+            fh.write(f"#!{sys.executable}\nimport json, sys\n"
+                     f"open({calls!r}, 'a').write(json.dumps(sys.argv[1:]) + '\\n')\n"
+                     "login = sys.argv[sys.argv.index('--as') + 1]\n"
+                     f"line = json.load(open({os.path.join(t, 'lines.json')!r}))[login]\n"
+                     "sys.exit(3) if line == '!fail' else print(line)\n")
+        os.chmod(hx, 0o755)
+        registry = os.path.join(t, "registry.json")
+        with open(registry, "w", encoding="utf-8") as fh:
+            json.dump({"placement": {"ok-one": "h1", "down-one": "h2", "bare-one": "h1", "late-one": "h2"}}, fh)
+        env = {k: v for k, v in os.environ.items()
+               if not k.startswith(("GITHUB_", "AGENT_FABRIC_", "CLAUDE_", "ANTHROPIC_")) and k != "GIT_DIR"}
+        env.update(AGENT_FABRIC_HOSTS_REGISTRY=registry, AGENT_FABRIC_HOSTEXEC=hx)
+
+        def usage(*args: str) -> tuple[int, str, str]:
+            r = subprocess.run([TOOL, *args], env=env, capture_output=True, text=True, timeout=60)
+            return r.returncode, r.stdout, r.stderr
+
+        rc, out, err = usage()
+        rows = out.splitlines()
+        check("text: a header and every placement, in the registry's order, exit 0",
+              rc == 0 and len(rows) == 5 and rows[0].startswith("account ")
+              and [r.split()[0] for r in rows[1:]] == ["ok-one", "down-one", "bare-one", "late-one"],
+              f"rc={rc}\n{out}{err}")
+        check("…numbers where the read had them, a status where it had none",
+              len(rows) == 5 and "45.5%" in rows[1] and "12%" in rows[1]
+              and rows[2].split()[1:] == ["-", "executor-failed"]
+              and rows[3].split()[1:] == ["-", "no-credentials"] and rows[4].split()[1:] == ["l@x.org", "read-failed"],
+              out)
+        argvs = []
+        if os.path.exists(calls):
+            with open(calls, encoding="utf-8") as fh:
+                argvs = [json.loads(line) for line in fh]
+        check("…each read handed to the executor as the account: `sh -c` and the read itself",
+              [a[:4] for a in argvs] == [["h1", "--as", "ok-one", "--"], ["h2", "--as", "down-one", "--"],
+                                         ["h1", "--as", "bare-one", "--"], ["h2", "--as", "late-one", "--"]]
+              and all(a[4:] == ["sh", "-c", read] for a in argvs), json.dumps(argvs)[:400])
+
+        rc, out, err = usage("--json", "late-one", "ok-one")
+        try:
+            docs = [json.loads(line) for line in out.splitlines()]
+        except ValueError:
+            docs = []
+        check("--json with logins: those accounts only, in the registry's order, numbers as numbers",
+              rc == 0 and [d.get("account") for d in docs] == ["ok-one", "late-one"]
+              and docs[0]["five_hour"] == {"utilization": 45.5, "resets_at": "2026-10-06T10:00"}
+              and docs[0]["seven_day"]["utilization"] == 12
+              and docs[1] == {"account": "late-one", "host": "h2", "status": "read-failed", "email": "l@x.org"},
+              f"rc={rc}\n{out}{err}")
+
+        with open(registry, "w", encoding="utf-8") as fh:
+            fh.write("{")
+        rc, out, err = usage()
+        check("a registry it cannot read: exit 2, no table", rc == 2 and out == "" and "host registry" in err,
+              f"rc={rc}\n{out}{err}")
+        rc, out, err = usage("--bogus")
+        check("an unknown option: exit 2, named", rc == 2 and "--bogus" in err, f"rc={rc}\n{err}")
+        rc, out, err = usage("--help")
+        check("--help: the usage lines only, exit 0",
+              rc == 0 and "fabric-usage --json" in out and "OAuth" not in out, f"rc={rc}\n{out}")
 
     print(f"\ntest_fabric_usage_cli: {'OK' if not fails else f'FAILED — {fails} check(s)'}")
     return 1 if fails else 0
