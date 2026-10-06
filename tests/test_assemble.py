@@ -2614,6 +2614,43 @@ def test_a_held_back_slice_is_neither_written_nor_reported_as_the_drains(tmp: st
     assert proc.returncode == 1 and len(lines) == 1 and "names no slice of this drain: alpha/domain:nothing-by-that-name" in lines[0], proc.stderr
 
 
+def read_slice_meta(path: str):
+    sys.path.insert(0, os.path.join(ROOT, "tools", "fabric"))
+    import importlib
+    return importlib.import_module("assembler.slices").read_existing_slice(path)
+
+
+def test_a_flat_file_moved_in_is_deduplicated_by_text_and_restamped(tmp: str) -> None:
+    """A flat class file moved into its directory under one topic's name
+    can still hold another topic's section, written there by an earlier
+    collision as "Two (2)": the drain writing that topic's own file left
+    the copy beside it. The moved file is deduplicated against the drain's
+    topics by text, not heading, and it carries this drain's stamp and the
+    topic it is now named for (the 2026-10-05 drain's review, B4)."""
+    one = {"class": "workflow", "topic": "alpha-one", "title": "One", "body": "First way.", "evidence": ["h1"]}
+    two = {"class": "workflow", "topic": "alpha-two", "title": "Two", "body": "Second way.", "evidence": ["h2"]}
+    three = {"class": "workflow", "topic": "three", "title": "Three", "body": "Third way.", "evidence": ["h3"]}
+    drain, claims_dir, out = build(tmp, {"alpha": claims("alpha", [one])})
+    assert run_assemble(drain, claims_dir, out).returncode == 0
+    flat = proj(out, "alpha", "workflow.md")
+    text = read(flat).replace("distilled_at: 2026-01-01", "distilled_at: 2025-12-01")
+    with open(flat, "w", encoding="utf-8") as fh:
+        fh.write(text.rstrip() + "\n\n## Two (2)\n\nSecond way.\n")
+    # One's topic brings no claim this time: only the move touches its file.
+    set_claims(claims_dir, "alpha", [two, three])
+    proc = run_assemble(drain, claims_dir, out)
+    assert proc.returncode == 0, proc.stderr
+    wf = proj(out, "alpha", "workflow")
+    assert sorted(os.listdir(wf)) == ["alpha-one.md", "alpha-two.md", "three.md"], sorted(os.listdir(wf))
+    moved = read(os.path.join(wf, "alpha-one.md"))
+    assert "Second way." not in moved and "## One" in moved, moved
+    assert "Second way." in read(os.path.join(wf, "alpha-two.md"))
+    meta, _sections = read_slice_meta(os.path.join(wf, "alpha-one.md"))
+    assert meta.get("distilled_at") == "2026-01-01" and meta.get("topic") == "alpha-one", meta
+    migrated = json.loads(read(report_path(out)))["migrated"]
+    assert any("'Two (2)' dropped from workflow/alpha-one.md" in m for m in migrated), migrated
+
+
 def main() -> int:
     cases = [
         test_a_topic_named_like_a_budget_part_is_its_own_memory,
@@ -2695,6 +2732,7 @@ def main() -> int:
         test_a_name_scoped_others_stays_in_its_own_projects_slices_only,
         test_the_memories_skipped_for_no_roles_class_are_named_in_the_committed_report,
         test_a_held_back_slice_is_neither_written_nor_reported_as_the_drains,
+        test_a_flat_file_moved_in_is_deduplicated_by_text_and_restamped,
     ]
     # THE REGISTRY IS THE TRAP THIS GUARDS. Cases run because they are
     # listed here, not because they are named test_*, so a case that is

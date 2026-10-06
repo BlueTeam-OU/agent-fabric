@@ -219,6 +219,28 @@ def remove_sections(path: str, victims: list[str], resolved: list[str],
     return "rewritten"
 
 
+def restamp(path: str, stamp: str, topic: str | None = None) -> None:
+    """A slice moved into its class directory carries this drain's stamp,
+    and, when it is now one topic's file, that topic (is_budget_part reads
+    it). Edited textually, as remove_sections edits: every other line of
+    the frontmatter stays as written."""
+    with open(path, encoding="utf-8") as fh:
+        text = fh.read()
+    m = re.match(r"^---\n(.*?)\n---\n", text, re.S)
+    if not m:
+        return
+    front = m.group(1)
+    for key, value in (("distilled_at", stamp), ("topic", topic)):
+        if value is None:
+            continue
+        line = f"{key}: {yaml_scalar(value)}"
+        front, n = re.subn(rf"(?m)^{key}: .*$", line, front, count=1)
+        if not n:
+            front += "\n" + line
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write("---\n" + front + "\n---\n" + text[m.end():])
+
+
 def read_existing_slice(path: str) -> tuple[dict[str, Any], dict[str, str]]:
     """Return (frontmatter, {heading: section-text}) for a slice already on disk.
 

@@ -325,6 +325,9 @@ class Run:
     # "shared/<class>:<topic>"), and every file they have or would have, as
     # the report names it: what the report must not count as this drain's.
     held_back: list[str] = field(default_factory=list)
+    # A flat class file moved into its directory this run, by (role, class):
+    # its new name, deduplicated against the drain's other topics.
+    moved_flat: dict[tuple[str, str], str] = field(default_factory=dict)
     held_files: set[str] = field(default_factory=set)
 
 
