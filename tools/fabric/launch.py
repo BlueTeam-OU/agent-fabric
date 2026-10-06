@@ -771,7 +771,7 @@ def settle_oauth_token(provider: str, home: str) -> None:
 SYNCED_SECRETS = ("OPENROUTER_API_KEY", "GH_TOKEN", "CLAUDE_BRIDGE_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN")
 HARNESS_CREDENTIAL = {"anthropic": "CLAUDE_CODE_OAUTH_TOKEN", "openrouter": "OPENROUTER_API_KEY"}
 # What the harness itself expands, not a Bash call: a project's .mcp.json
-# names the relay token in its claude-bridge header (gzapp), and the
+# names the relay token in its claude-bridge header, and the
 # harness fills ${CLAUDE_BRIDGE_AUTH_TOKEN} from its own environment. Set
 # from the file, like the sign-in; the SessionStart seal still unsets it
 # for every Bash call (review of #100).
