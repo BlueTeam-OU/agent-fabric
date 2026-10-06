@@ -596,16 +596,27 @@ export function stateRow(address, rec, now = Date.now()) {
            state: stale ? 'unknown' : top ? top.state : 'none', since: top?.since ?? null, ...(stale ? { why: 'no record for two heartbeats' } : {}) };
 }
 
+// The channel takes any relay-token holder's post: a record is shown only
+// when every field the row reads has the shape agentd writes, so a forged
+// one can mislead a row, never stop the table.
+const STR = v => typeof v === 'string';
+const OPT = v => v === undefined || v === null || STR(v);
 export function stateRecordOf(rec, want) {
-  let r; try { r = JSON.parse(rec.content); } catch { return null; }
-  return r?.kind === 'state' && r.v === 1 && want.has(r.from) && Array.isArray(r.sessions) ? r : null;
+  let r; try { r = JSON.parse(rec?.content); } catch { return null; }
+  return r?.kind === 'state' && r.v === 1 && want.has(r.from) && STR(r.ts) && OPT(r.role) && OPT(r.project)
+    && Array.isArray(r.sessions) && r.sessions.every(s => s && typeof s === 'object' && STR(s.session) && STR(s.state) && OPT(s.since)) ? r : null;
 }
+
+// A role, project or session id is a forger's text too: in the table it
+// reaches a terminal, so control characters (an escape sequence that
+// retitles the window or writes the clipboard) never do.
+const printable = v => String(v).replace(/[\x00-\x1f\x7f-\x9f]/g, '?');
 
 export async function states(args, expected, { call, cfg, out = m => console.log(m), err = m => console.error(m), now = Date.now, sleep = ms => new Promise(r => setTimeout(r, ms)), forever = true }) {
   const q = o => new URLSearchParams(o).toString();
   const want = new Set(expected.map(e => e.address));
   const line = row => args.json ? JSON.stringify(row)
-    : `${row.address.padEnd(32)} ${String(row.state).padEnd(8)} ${String(row.role ?? '-').padEnd(18)} ${row.sessions.length} session${row.sessions.length === 1 ? '' : 's'}${row.since ? `  since ${row.since}` : ''}${row.why ? `  (${row.why})` : ''}`;
+    : `${row.address.padEnd(32)} ${printable(row.state).padEnd(8)} ${printable(row.role ?? '-').padEnd(18)} ${row.sessions.length} session${row.sessions.length === 1 ? '' : 's'}${row.since ? `  since ${printable(row.since)}` : ''}${row.why ? `  (${row.why})` : ''}`;
   let page;
   try { page = await call(`/api/messages?${q({ channel: cfg.channel, limit: String(STATES_REPLAY), full: '1' })}`); }
   catch (e) { err(`fabric-ctl: relay ${e.status ? `refused (HTTP ${e.status})` : `unreachable at ${cfg.relay_url}`}`); return 3; }
@@ -616,16 +627,20 @@ export async function states(args, expected, { call, cfg, out = m => console.log
   if (!args.follow) return [...want].every(a => latest.has(a)) ? 0 : 1;
   let last = rows_.at(-1)?.id ?? null, down = false;
   do {
+    // Only the relay calls are in the try: an outage is said as one, and
+    // nothing a record holds can be mistaken for it.
+    let w;
     try {
       if (!last) { const p = await call(`/api/messages?${q({ channel: cfg.channel, limit: '1' })}`); last = (p.messages ?? p).at(-1)?.id ?? null; if (!last) { await sleep(5000); continue; } }
-      const w = await call(`/api/wait?${q({ channel: cfg.channel, since_id: last, timeout_seconds: '55', limit: '50', full: '1' })}`);
-      if (down) { err('fabric-ctl: relay is back'); down = false; }
-      if (w.warning === 'since_id_not_found') { last = null; continue; }
-      for (const rec of w.messages ?? []) { last = rec.id; const r = stateRecordOf(rec, want); if (r) out(line(stateRow(r.from, r, now()))); }
+      w = await call(`/api/wait?${q({ channel: cfg.channel, since_id: last, timeout_seconds: '55', limit: '50', full: '1' })}`);
     } catch (e) {
       if (!down) { err(`fabric-ctl: relay unreachable at ${cfg.relay_url} (${e.message}) — retrying every 5 s`); down = true; }
       await sleep(5000);
+      continue;
     }
+    if (down) { err('fabric-ctl: relay is back'); down = false; }
+    if (w.warning === 'since_id_not_found') { last = null; continue; }
+    for (const rec of w.messages ?? []) { last = rec.id; const r = stateRecordOf(rec, want); if (r) out(line(stateRow(r.from, r, now()))); }
   } while (forever);
   return 0;
 }

@@ -686,3 +686,30 @@ test('states takes --follow, and --follow goes with nothing else', () => {
   assert.equal(parseArgs(['all', 'states', '--follow']).follow, true);
   assert.throws(() => parseArgs(['all', 'status', '--follow']), /--follow goes with states only/);
 });
+
+test('states: a forged record can mislead a row, never stop the table or reach the terminal raw (review of #105)', async () => {
+  const { states } = await import('../ctl.mjs');
+  const now = Date.parse('2026-10-07T12:00:00Z');
+  const ts = '2026-10-07T11:59:00Z';
+  const forged = [
+    { v: 1, kind: 'state', from: 'h/a', ts, sessions: [null] },
+    { v: 1, kind: 'state', from: 'h/a', ts, sessions: [{ session: 's', state: { x: 1 } }] },
+    { v: 1, kind: 'state', from: 'h/a', ts: 5, sessions: [] },
+    { v: 1, kind: 'state', from: 'h/a', ts, sessions: [], role: ['x'] },
+  ].map((r, i) => ({ id: `f${i}`, content: JSON.stringify(r) }));
+  const good = { id: 'g', content: JSON.stringify({ v: 1, kind: 'state', from: 'h/b', ts, role: 'web\x1b]52;c;ZXZpbA==\x07dev', sessions: [{ session: 's', state: 'idle', since: 't' }] }) };
+  const out = [];
+  const rc = await states({ json: false, follow: false }, [{ address: 'h/a' }, { address: 'h/b' }], { call: async () => ({ messages: [...forged, good] }), cfg: { channel: 'c', relay_url: 'x' }, out: m => out.push(m), now: () => now });
+  assert.equal(rc, 1);
+  assert.equal(out.length, 2, 'every account has its row');
+  assert.match(out[0], /unknown/, 'a malformed record is no record');
+  assert.ok(!/[\x00-\x1f\x7f]/.test(out.join('')), `no control character reaches the terminal: ${JSON.stringify(out)}`);
+  // --follow: a forged record is skipped, never read as a relay outage.
+  const err = []; const lines = []; let i = 0, stop;
+  const done = new Promise(r => { stop = r; });
+  const script = [() => ({ messages: [{ id: 'z' }] }), () => ({ messages: [...forged, { id: 'ok', content: JSON.stringify({ v: 1, kind: 'state', from: 'h/a', ts, sessions: [] }) }] })];
+  states({ json: true, follow: true }, [{ address: 'h/a' }], { call: async () => { if (i >= script.length) { stop(); return new Promise(() => {}); } return script[i++](); }, cfg: { channel: 'c', relay_url: 'x' }, out: m => lines.push(JSON.parse(m).state), err: m => err.push(m), now: () => now, sleep: async () => {} });
+  await done;
+  assert.deepEqual(lines, ['unknown', 'none']);
+  assert.deepEqual(err, [], 'no outage said');
+});
