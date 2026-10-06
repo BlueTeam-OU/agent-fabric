@@ -73,6 +73,18 @@ def main() -> int:
         rc, out = fresh("--force", path=broken)
         check("…--force goes ahead past it", rc == 2 and "no no-such-proc process" in out, f"rc={rc}\n{out}")
 
+        print("fabric-fresh: no working copy is no refusal")
+        for where in ("bare", "dot-git"):
+            d = os.path.join(t, where)
+            if where == "bare":
+                subprocess.run(["git", "init", "-q", "--bare", d], check=True, timeout=30)
+            else:
+                d = os.path.join(wc, ".git")
+            r = subprocess.run([CMD], env=env, cwd=d, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+                               timeout=120)
+            check(f"{where}: past the check, to the walk", r.returncode == 2 and "no no-such-proc process" in r.stdout,
+                  f"rc={r.returncode}\n{r.stdout}")
+
         print("fabric-fresh: a file name that is not UTF-8 is a change")
         subprocess.run(["git", "-C", wc, "config", "core.quotePath", "false"], check=True, timeout=30)
         with open(os.path.join(os.fsencode(wc), b"caf\xe9"), "w", encoding="utf-8") as fh:

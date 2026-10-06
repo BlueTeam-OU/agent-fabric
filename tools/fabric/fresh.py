@@ -167,8 +167,11 @@ def dirty_toplevel() -> str | None:
     A `git status` that fails inside a working copy is Unknown, never
     clean: the bash read it as clean, and a session ended over work it
     could not see (review of j31)."""
+    # `false` with exit 0 is a bare repository or a directory inside .git:
+    # no working copy, as outside one (the bash went on to a status that
+    # failed there, and read it as clean).
     inside = _git("rev-parse", "--is-inside-work-tree")
-    if inside.returncode != 0:
+    if inside.returncode != 0 or inside.stdout.strip() != "true":
         return None
     status = _git("status", "--porcelain")
     if status.returncode != 0:
