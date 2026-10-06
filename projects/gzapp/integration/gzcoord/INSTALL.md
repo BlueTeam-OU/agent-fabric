@@ -52,8 +52,9 @@ Do not create a nested Git repository, and do not vendor the subsystem.
 4. Relay hosting: [`BRIDGE-RELAY-SETUP.md`](BRIDGE-RELAY-SETUP.md). The
    relay's runtime — venv, token, database, log — lives in the hosting
    workspace's `projects/.gzcoord/`, outside every repository. Every
-   account gets the token as `CLAUDE_BRIDGE_AUTH_TOKEN` in its environment
-   from its own store (`bin/fabric-secrets sync`,
+   account gets the token as `CLAUDE_BRIDGE_AUTH_TOKEN` in
+   `~/.config/agent-fabric/secrets.env`, which the relay clients read and
+   no shell sources (agent-fabric ADR-038 rule 9), from its own store (`bin/fabric-secrets sync`,
    `runtime/provisioning/README.md` "Secrets"); the gitignored
    `.claude/settings.local.json` `env` entry and `infra/local/.env.local`
    remain accepted for a clone provisioned by hand.

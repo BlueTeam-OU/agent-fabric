@@ -679,8 +679,8 @@ def is_broker_url(url: str) -> bool:
 # classifies a session by), the pointing, the credentials and the model
 # tuning go. The privacy opt-outs STAY: clearing them could switch
 # telemetry back on against a person's own choice, and leaving them costs
-# nothing. OPENROUTER_API_KEY stays: it is the account's own (secrets.env)
-# and the broker path needs it. A base URL naming anything else is someone's
+# nothing. OPENROUTER_API_KEY is not this function's: settle_secrets
+# keeps it on the broker path, from the file, and drops it on this one. A base URL naming anything else is someone's
 # deliberate choice, unreviewed, and is left exactly as it was. What is
 # dropped is said once on stderr — names, never values.
 def drop_broker_env() -> None:
@@ -727,8 +727,9 @@ def synced_oauth_token(home: str) -> str:
     return synced_values(home).get("CLAUDE_CODE_OAUTH_TOKEN", "")
 
 
-# The other way round: a login moved to a Claude-account template carries
-# CLAUDE_CODE_OAUTH_TOKEN in every shell (fabric-secrets sync), and a broker
+# The other way round: a login moved to a Claude-account template has
+# CLAUDE_CODE_OAUTH_TOKEN in its synced record (and, from a shell older
+# than ADR-038 rule 9, in its environment), and a broker
 # session must never hold it — whichever credential the harness prefers
 # with a base URL set, an Anthropic subscription token has no business in
 # a process whose requests go to a third party (review of #33). Dropped

@@ -249,6 +249,7 @@ Still open:
   a systemd user unit on the hosting account (§Hosting), up with the
   account's user manager at boot, restarted on failure.
 - ~~The token has to reach the other clones~~ — closed 2026-09-14: it
-  reaches every account as `CLAUDE_BRIDGE_AUTH_TOKEN` in the environment,
-  from the account's own store (`bin/fabric-secrets sync`); the
+  reaches every account as `CLAUDE_BRIDGE_AUTH_TOKEN` in its
+  `secrets.env`, read by the relay clients (never exported since
+  agent-fabric ADR-038 rule 9), from the account's own store (`bin/fabric-secrets sync`); the
   coordinator puts it in each store (`fabric-secrets provision share`).
