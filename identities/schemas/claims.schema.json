@@ -130,7 +130,7 @@
         },
         "allOf": [
           {
-            "$comment": "Domain-only evidence comes from a sibling project: it is transferable knowledge about a FIELD, never a statement about this repository. Filed as `solution` it asserts what this system implements; as `workflow` or `rationale` it asserts how this team works. tools/roles/assemble.py enforces this in code as well, because lint's fallback validator cannot evaluate a conditional when jsonschema is absent.",
+            "$comment": "Domain-only evidence comes from a sibling project: it is transferable knowledge about a FIELD, never a statement about this repository. Filed as `solution` it asserts what this system implements; as `workflow` or `rationale` it asserts how this team works. tools/fabric/assembler/intake.py enforces this in code as well, because lint's fallback validator cannot evaluate a conditional when jsonschema is absent.",
             "if": {
               "properties": {
                 "knowledge_scope": {

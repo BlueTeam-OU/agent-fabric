@@ -21,3 +21,27 @@ per-agent state like the binding: `runtime/identity.py` gains its reader
 and its writer (`read_jobs`, `update_jobs`), the writer holds
 `agent_lock`, and the reader refuses a list naming another agent or
 written on another host, as `read_binding` does.
+
+### Amendment 2026-10-05 — A self-contained transactional store is a writer class
+
+Rule 1 said every Python write under `agents/<login>/` goes through
+`runtime/identity.py`, with the Node control agent the one exception.
+ADR-041's episodic journal (`episodic.db`) has been written directly by
+`tools/fabric/episodic.py` since it landed: a SQLite database in WAL mode
+owns its atomicity and locking, and a temporary-and-rename or a file
+lock around it would only duplicate or defeat them. An external review
+(2026-10-05) named the record and the tree disagreeing. The record now
+names the class (a self-contained transactional store) and its one
+member, with the guarantees it keeps instead: one writer module, short
+transactions, private modes, its own schema version.
+
+### Amendment 2026-10-05 — The GZCoord logs are a writer class
+
+The review of agent-fabric#99 found two per-agent files written outside
+`runtime/identity.py` and named in no rule: `journal-bypass.jsonl`, new
+with ADR-041 rule 10, appended by `bypass.py` under `agent_lock`; and the
+older send ledger `gzcoord-sent.jsonl`, appended by `send.py` and trimmed
+by a read-then-rewrite that holds no lock. Rule 1 now names them as a
+class, with how each is written, and records the ledger's unlocked trim
+as a gap to close rather than as conforming.
+

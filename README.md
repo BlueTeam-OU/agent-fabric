@@ -122,11 +122,43 @@ two agents; a role is held by any number of agents at once.
 | **session** | Which conversation is this? | the harness session id, in the runtime binding ([ADR-003](docs/adr/ADR-003-per-agent-state-is-one-layer.md)) |
 | **capability and model** | How much reasoning does a task need, and which model serves it now? | `routing/capabilities.json` classes: `code-low`, `code-medium`, `code-high`, `code-plan`, `code-review`; layered per role and login by `routing/profiles.json`, with a routed effort in `routing/effort.json` ([ADR-005](docs/adr/ADR-005-models-are-routed-by-capability-class.md), [ADR-006](docs/adr/ADR-006-effort-is-routed.md)) |
 
+## What an agent knows, and how far to trust it
+
+An agent answers from five layers, and where two disagree the higher one
+wins ([ADR-013](docs/adr/ADR-013-the-memory-model.md),
+[ADR-037](docs/adr/ADR-037-each-agent-keeps-a-job-list.md),
+[ADR-041](docs/adr/ADR-041-agent-local-episodic-history.md)):
+
+```text
+                   CURRENT TRUTH
+        the repository: code, contracts, decision records
+                         │
+             ┌───────────┴────────────┐
+             │                        │
+      CURATED MEMORY                JOBS
+  what was learnt, drained       what this agent has
+  with provenance                undertaken (fabric-jobs)
+             │                        │
+             └───────────┬────────────┘
+                         │
+                 EPISODIC HISTORY
+       exactly what was sent and received (episodic.db,
+       fabric-history): evidence of the past, not truth now
+                         │
+                   MODEL CONTEXT
+              the session's working set, gone at its end
+```
+
+Curated memory lives in the repositories; jobs and the episodic journal
+live in each agent's own state, and no agent reads another's.
+
 ## What it is made of
 
 | part | what it does | where | decided in |
 |---|---|---|---|
 | **memory** | knowledge by scope (the field, the system, the individual) and kind, written by whoever learnt it and drained with provenance | `memory/` here for the field and what roles share; `<working copy>/.agent-fabric/memory/<role>/` in each project for that system ([manual](memory/README.md)) | ADR-013, ADR-014 |
+| **jobs** | each agent's own list of what it has undertaken, its state, and whether the next one needs a fresh session | `bin/fabric-jobs`, `bin/fabric-fresh`; in the agent's state | ADR-037, ADR-022 |
+| **episodic history** | every GZCoord message the agent sent or received, kept before it is posted or acknowledged; read back with `fabric-history`, threads included | `tools/fabric/episodic.py`, `bin/fabric-history`; `episodic.db` in the agent's state | ADR-041 |
 | **communication** | agents talk to each other over GZCOORD/1, an advisory protocol; the address is `<host>/<login>` | `communication/gzcoord/` | ADR-032, ADR-033 |
 | **control plane** | a control agent per account answers signed actions over the relay, with no model session needed: status, presence, fleet upgrades, account moves | `runtime/control/`, `bin/fabric-ctl`, `bin/fabric-accounts` | ADR-009, ADR-029, ADR-030, ADR-031 |
 | **routing** | a capability class resolves to a provider's model, a family shim where one is needed (`routing/shims.json`), and an effort level | `routing/`, `bin/fabric-model` | ADR-005, ADR-006, ADR-007 |
@@ -163,8 +195,13 @@ Never in this repository. Per agent, under
 `${XDG_STATE_HOME:-~/.local/state}/agent-fabric/agents/<login>/`:
 `binding.json` (role, project, working copy, session, host),
 `role-history.jsonl`, `model-profile.local.json` (the agent's own model
-choices; `bin/fabric-model`) and the rendered `launch-prompt.md`, every
-one written through `runtime/identity.py`. An identity's secrets are in
+choices; `bin/fabric-model`), the rendered `launch-prompt.md` and the job
+list, every one written through `runtime/identity.py`; the episodic
+journal `episodic.db`, a SQLite store written only by
+`tools/fabric/episodic.py`; and two GZCoord logs, the send ledger
+`gzcoord-sent.jsonl` and the append-only `journal-bypass.jsonl`, the
+record of every crossing made without the journal (ADR-003, ADR-041). The journal is local: a
+host lost is a journal lost, until a backup exists. An identity's secrets are in
 its own encrypted store (ADR-038), and `bin/fabric-secrets sync` puts
 them where the tools read them.
 

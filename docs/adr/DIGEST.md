@@ -128,6 +128,10 @@ its record disagree, the record wins. Look it up, never read it whole:
   `identity.py`; `fabric-branches` records its sweeps under `agent_lock`.
 - A 2026-09-28 — the job list, `jobs.json`, is per-agent state written by
   `update_jobs` (§5 rule 1).
+- A 2026-10-05 — `episodic.db` is a second writer class, a self-contained
+  transactional store written only by `episodic.py` (§5 rule 1).
+- A 2026-10-05 — the GZCoord logs (`journal-bypass.jsonl`, the send ledger)
+  are a writer class; the ledger's unlocked trim is a named gap (§5 rule 1).
 - Keywords: state, binding, atomic write, lock, flock, rename, history,
   host, XDG_STATE_HOME.
 
@@ -402,7 +406,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - Keywords: authority, read-only, fence, tripwire, Fabric-Role,
   pre-commit, commit-msg, charter, locale carve-out, contributor, guard.
 
-### ADR-019 — Work arrives as pull requests: one open PR per agent, 8–16 work commits to arm, the gate read before arming, no machine attribution, repository settings (Accepted)
+### ADR-019 — Work arrives as pull requests: one open PR per agent, 8 or more work commits to arm, the gate read before arming, no machine attribution, repository settings (Accepted)
 
 - Every change reaches `main` through a PR; on agent-fabric since
   2026-09-18, by practice — no ruleset, protection or queue there (§2,
@@ -410,8 +414,9 @@ its record disagree, the record wins. Look it up, never read it whole:
 - One open PR per agent; the next work is another commit while the
   branch is addable; two stated exceptions (§5 rule 2).
 - Work commits exclude review fixes (`Answers:` trailer, else the
-  subject; `commit-class.sh`): 8–16 arm at the gate, under 8 ask the
-  owner, over 16 split before opening (§5 rules 3–4).
+  subject; `commit-class.sh`): 8 or more arm at the gate, a security
+  boundary too, under 8 ask the owner; 16 is the batch size advised
+  (§5 rules 3–4).
 - Arm only on `pr-gate.sh`'s `MERGEABLE`, read first, with no open P1/P2;
   on agent-fabric arming is the merge (§5 rules 5–6).
 - No `Co-authored-by:`/`Claude-Session:` trailer, footer or session URL
@@ -420,6 +425,8 @@ its record disagree, the record wins. Look it up, never read it whole:
   the CI checks and signed commits; auto-merge waits for green (§5 rule 6).
 - A 2026-10-05 — the ruleset requires CI's aggregate check `ci-ok` alone
   (§5 rule 6).
+- A 2026-10-05 — eight or more work commits arm on the gate alone, a
+  security boundary and over sixteen included (§5 rule 4).
 - Keywords: pull request, PR, arm, merge, band, work commits, Answers,
   pr-gate, MERGEABLE, one open PR, attribution, Co-authored-by, CodeQL,
   repository settings, auto-merge.
@@ -862,6 +869,8 @@ its record disagree, the record wins. Look it up, never read it whole:
   inbound reuse set aside; the carrier is provenance (§5 rules 5–6).
 - Evidence, not truth; never auto-injected or auto-promoted; each agent
   imports its own past (§5 rules 7–9).
+- A 2026-10-05 — `GZCOORD_JOURNAL=off` is a recorded break-glass: each
+  bypassed crossing appends an audit line first, or is refused (§5 rule 10).
 - Keywords: episodic, history, journal, GZCoord, carrier, transport,
   relay, InterWeave, fabric-history, backfill.
 
@@ -883,7 +892,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - Keywords: store, signing, signature, verify, forged entry, lineage,
   pass, bundle, take-bundle, writer, trust-base, trusted base.
 
-### ADR-043 — Claude Code mods: managed only, the guards in managed settings, the fleet's mods from a root-owned marketplace (Proposed)
+### ADR-043 — Claude Code mods: managed only, the guards in managed settings, the fleet's mods from a root-owned marketplace (Accepted)
 
 - User-installed mods, and mods Claude writes in a session, never load on a
   fleet host: managed settings set the built-in guard's

@@ -56,6 +56,16 @@ too when it ends its own finished job (`bin/fabric-fresh`, ADR-022),
 through `identity.atomic_write`; the launcher reads a fresh marker at
 once and waits on nothing.
 
+The second class is a self-contained transactional store: a database
+that owns its own atomicity and locking, which `atomic_write` and
+`agent_lock` would only duplicate or defeat. The agent's episodic
+journal, `agents/<login>/episodic.db` (ADR-041), is the one such store:
+SQLite in WAL mode, written only by `tools/fabric/episodic.py`, every
+write a short transaction (`BEGIN IMMEDIATE`, a 5 s busy timeout), the
+directory 0700 and the files 0600, and its own schema version migrated
+in the opening transaction. Its path comes from
+`identity.agent_state_dir()`, as every other file's does.
+
 A binding is per (agent, host). A working-copy rename merges history,
 never overwrites it.
 
@@ -84,7 +94,15 @@ state file an obvious place to get its writer.
    (A 2026-09-28). A new state file gets its writer added to
    `runtime/identity.py`, not a rewrite in place elsewhere. The Node
    control agent is the named exception (§2), and writes only by
-   temporary and rename.
+   temporary and rename. A self-contained transactional store (§2) is
+   the other: `episodic.db`, written only by `tools/fabric/episodic.py`
+   through its own transactions (A 2026-10-05). Two GZCoord logs are the
+   third: `journal-bypass.jsonl` (ADR-041 rule 10), append-only, written
+   by `tools/fabric/gzcoord/bypass.py` under `agent_lock` with
+   `O_NOFOLLOW`, mode 0600, one write and an fsync per batch of lines;
+   and `gzcoord-sent.jsonl`, the send ledger, appended by
+   `tools/fabric/gzcoord/send.py` and trimmed by rewrite, without
+   `agent_lock` yet (a known gap, to close) (A 2026-10-05).
 2. Every read-modify-write of per-agent state holds `agent_lock`, except
    the Node control agent's own files (§2), which only it writes and the
    launcher only consumes; `restart.json` has a second writer,
@@ -135,4 +153,6 @@ The body above reads current; each change's full note is in [history/ADR-003-ame
 | Date | Amendment | Effect |
 |---|---|---|
 | 2026-09-28 | An agent's own session writes its restart marker and its sweep record | §2, §5 rule 2: `fabric-fresh` a second `restart.json` writer; `fabric-branches` writes `branch-sweep.json` under `agent_lock` |
+| 2026-10-05 | A self-contained transactional store is a writer class | §2, §5 rule 1: `episodic.db` (ADR-041) written only by `episodic.py`, through SQLite's own transactions |
+| 2026-10-05 | The GZCoord logs are a writer class | §5 rule 1: `journal-bypass.jsonl` and the send ledger, written by `bypass.py` and `send.py`; the ledger's unlocked trim named as a gap |
 | 2026-09-28 | The job list is per-agent state | §5 rule 1: `jobs.json` and its writer `update_jobs` |

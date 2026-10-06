@@ -96,6 +96,17 @@ a message for the agent and two per send, and no prompt tokens.
    carrier as itself; a TO-ROLE message is imported only where the
    agent's own role history shows it held that role then, and a broadcast
    only from the agent's birth.
+10. Rules 3 and 4 have one exception, a break-glass: `GZCOORD_JOURNAL=off`
+   sends and receives without the journal, for an operator whose journal
+   cannot be written. It is never silent and never untraced: every send
+   and every addressed inbound record that crosses without the journal
+   first appends one line to `journal-bypass.jsonl` in the agent's state
+   (time, direction, MESSAGE-ID, the hash the journal would have kept,
+   the carrier sequence when known; never a body), mode 0600, under
+   `agent_lock`, and warns per send on stderr and once per inbox page on
+   the inbox's stdout (its drain and its watch), where the session sees it. A
+   line that cannot be written refuses the crossing, as a journal that
+   cannot be written does (A 2026-10-05).
 
 ## 6. Consequences
 
@@ -131,3 +142,11 @@ has read every channel to its end.
 - ADR-003 (per-agent state), ADR-013 (the memory model), ADR-033 (GZCoord's
   transports), ADR-034 (decentralization), ADR-036 (cost per verified
   result), ADR-039 (the agent id), ADR-040 (Python).
+
+## Amendments
+
+The body above reads current; each change's full note is in [history/ADR-041-amendments.md](history/ADR-041-amendments.md).
+
+| Date | Amendment | Effect |
+|---|---|---|
+| 2026-10-05 | `GZCOORD_JOURNAL=off` is a recorded break-glass | §5 rule 10: every bypassed crossing appends an audit line first, or is refused |

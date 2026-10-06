@@ -117,8 +117,8 @@ decision with the agents while giving them the facts they lacked.
 
 The live check's positive control — a run with gzapp's check available,
 expected FAIL on a known pair — was due after gzapp #943 merged;
-no later read-back is recorded. A thread view and a list of
-owed requests remain unbuilt (ADR-024 §6).
+no later read-back is recorded. A list of owed requests remains unbuilt;
+the thread view is built over each agent's own journal (ADR-024 §6).
 
 ## 8. Decision Status
 
