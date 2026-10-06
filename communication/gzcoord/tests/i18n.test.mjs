@@ -31,6 +31,14 @@ const brokenTree = (contents) => {
     for (const f of fs.readdirSync(path.join(FABRIC, from)))
       if (fs.statSync(path.join(FABRIC, from, f)).isFile()) fs.copyFileSync(path.join(FABRIC, from, f), path.join(to, f));
   }
+  // The modules' subpackages too (gzcoord/inbox_parts/): a module whose
+  // parts were left behind does not import, and the case would fail on a
+  // missing module, never on the dictionary it means to break.
+  const mods = path.join(FABRIC, 'tools', 'fabric', 'gzcoord');
+  for (const d of fs.readdirSync(mods))
+    if (d !== '__pycache__' && fs.statSync(path.join(mods, d)).isDirectory())
+      fs.cpSync(path.join(mods, d), path.join(dir, 'tools', 'fabric', 'gzcoord', d),
+                { recursive: true, filter: src => !src.split(path.sep).includes('__pycache__') });
   fs.mkdirSync(path.join(gz, 'i18n'), { recursive: true });
   fs.writeFileSync(path.join(gz, 'i18n', 'en-US.json'), contents);
   return path.join(gz, 'scripts', 'inbox.mjs');
