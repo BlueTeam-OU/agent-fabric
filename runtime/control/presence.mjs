@@ -51,6 +51,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 export async function askPresence({ from, to, expect, token, waitMs = PRESENCE_WAIT_MS, cfg = controlConfig(), call = null }) {
   const c = call ?? ((p, init) => api(token, p, { relayUrl: cfg.relay_url, ...init }));
   const id = newId();
+  /** @type {import('./protocol.mjs').Request} */
   const request = { v: 1, kind: 'request', id, from, to, op: 'presence', ts: new Date().toISOString(), ttl_s: Math.max(cfg.ttl_s, Math.ceil(waitMs / 1000)) };
   const sent = await c('/api/send', { method: 'POST', body: JSON.stringify({ channel: cfg.channel, sender: from, content: JSON.stringify(request) }) });
   const out = Object.fromEntries(expect.map(a => [a, null]));
