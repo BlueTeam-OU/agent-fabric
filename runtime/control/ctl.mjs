@@ -527,8 +527,9 @@ export async function main(argv = process.argv.slice(2), { registry, fetchImpl }
 
 // The operator's signing key, decrypted from this login's own store at the
 // moment an action is signed, and never read from the environment: ~/.bashrc
-// sources secrets.env, so a synced key sat in every shell and subagent of
-// the account, and a reviewer printed its environment (key rotated, #95).
+// sourced secrets.env before ADR-038 rule 9, so a synced key sat in every
+// shell and subagent of the account, and a reviewer printed its
+// environment (key rotated, #95).
 // gpg hands the value to this process on its stdout pipe — never argv,
 // never a file — with secret_store.py gpg()'s flags. Each way it can fail
 // is its own line, and none of them carries the value.

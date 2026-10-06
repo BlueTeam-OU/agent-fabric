@@ -285,8 +285,10 @@ def _gh(args: list[str], stdin: str | None = None) -> subprocess.CompletedProces
     if not gh:
         return None
     # gh's own resolution of its configuration (GH_CONFIG_DIR, then
-    # XDG_CONFIG_HOME, then ~/.config) is the one the account's shells use;
-    # a sandbox HOME never gets here (gh_binary).
+    # XDG_CONFIG_HOME, then ~/.config) is the one the account's shells use.
+    # A sandbox HOME gets here only when AGENT_FABRIC_GH names a fake
+    # (gh_binary), and that caller clears GH_CONFIG_DIR and XDG_CONFIG_HOME
+    # itself, or the fake writes where they point.
     env = {k: v for k, v in os.environ.items() if k not in GH_ENV_TOKENS}
     try:
         return subprocess.run([gh, *args], input=stdin if stdin is not None else "", env=env, capture_output=True,
