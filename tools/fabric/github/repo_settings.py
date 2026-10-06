@@ -31,7 +31,8 @@ never touches secrets (there are none) or collaborators.
 # bash took it for a repository's name); the ruleset file is read before
 # the first write, so a missing or broken one changes nothing; the
 # rulesets are listed across every page (the bash read the first thirty,
-# and a ruleset past them would have been created twice).
+# and a ruleset past them would have been created twice), and the
+# organisation's are not among them (review of j31).
 from __future__ import annotations
 
 import json
@@ -102,8 +103,10 @@ def apply(repo: str) -> None:
     gh.api(f"repos/{repo}/actions/permissions/workflow", method="PUT", body=WORKFLOW)
     # The ruleset: required checks and a pull request on main (ADR-019
     # rule 6), so auto-merge waits for green and nothing reaches main
-    # another way.
-    ids = [r.get("id") for r in gh.api(f"repos/{repo}/rulesets", paginate=True)
+    # another way. The repository's own rulesets only: the list includes
+    # the organisation's by default, and one of the same name would be
+    # matched and its id PUT to the repository, which GitHub refuses.
+    ids = [r.get("id") for r in gh.api(f"repos/{repo}/rulesets?includes_parents=false", paginate=True)
            if isinstance(r, dict) and r.get("name") == rules["name"]]
     if ids:
         gh.api(f"repos/{repo}/rulesets/{ids[0]}", method="PUT", body=rules)

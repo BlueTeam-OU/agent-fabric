@@ -25,14 +25,15 @@ TOOL = os.path.join(ROOT, "tools", "fabric", "github-repo-settings.sh")
 GH = r'''#!{python}
 import json, os, sys
 a = sys.argv[1:]
-path, method, body, slurp = a[1], "GET", None, False
+path, _, query = a[1].partition("?")
+method, body, slurp = "GET", None, False
 if "--method" in a:
     method = a[a.index("--method") + 1]
 if "--input" in a:
     body = json.load(sys.stdin)
 slurp = "--slurp" in a
 with open(os.environ["GH_LOG"], "a") as fh:
-    fh.write(json.dumps({"method": method, "path": path, "body": body}) + "\n")
+    fh.write(json.dumps({"method": method, "path": path, "query": query, "body": body}) + "\n")
 if os.environ.get("GH_FAIL") == f"{method} {path}":
     print("gh: Validation Failed (HTTP 422)", file=sys.stderr)
     sys.exit(1)
@@ -98,6 +99,9 @@ def main() -> int:
               == {"default_workflow_permissions": "read", "can_approve_pull_request_reviews": False},
               json.dumps(body)[:600])
         check("…the ruleset sent is the file, whole", body.get("repos/o/r/rulesets/7") == ruleset)
+        listed = [c["query"] for c in calls if c["method"] == "GET" and c["path"] == "repos/o/r/rulesets"]
+        check("…found among the repository's own rulesets, not the organisation's",
+              listed == ["includes_parents=false"], json.dumps(listed))
         check("…and one line on stdout", out == "github-repo-settings: applied to o/r "
               "(docs/adr/ADR-019-work-arrives-as-pull-requests.md)\n", out)
 
