@@ -49,7 +49,8 @@ there is no session to stop.
 #   - the job lookup and each git call are bounded at TIMEOUT_S (the bash
 #     waited for ever): a job list that does not answer is exit 2, said;
 #   - a working copy git cannot answer for — a git call past TIMEOUT_S,
-#     or a `git status` that fails inside it — is exit 3, said, and
+#     a `git status` that fails inside it, or a rev-parse that fails for
+#     any reason but "not a git repository" — is exit 3, said, and
 #     --force still goes ahead (the bash read a failed status as clean);
 #   - a marker that cannot be written says so in a line of its own (the
 #     bash left mkdir's or Python's own words, the same exit 1);
@@ -149,10 +150,11 @@ def _git(*args: str) -> subprocess.CompletedProcess:
     """`git <args>`, decoded with replacement: only emptiness and the
     toplevel are read, and a file name that is not UTF-8 is still a change.
     No git at all is a failed call (the bash's `command not found`); git
-    that does not answer is Unknown."""
+    that does not answer is Unknown. LC_ALL=C: git's own words are read
+    ("not a git repository"), and git translates them."""
     try:
         return subprocess.run(["git", *args], stdin=subprocess.DEVNULL, capture_output=True, text=True,
-                              errors="replace", timeout=TIMEOUT_S)
+                              errors="replace", timeout=TIMEOUT_S, env={**os.environ, "LC_ALL": "C"})
     except OSError as e:
         return subprocess.CompletedProcess(["git", *args], 127, "", str(e))
     except subprocess.TimeoutExpired:
@@ -169,8 +171,14 @@ def dirty_toplevel() -> str | None:
     could not see (review of j31)."""
     # `false` with exit 0 is a bare repository or a directory inside .git:
     # no working copy, as outside one (the bash went on to a status that
-    # failed there, and read it as clean).
+    # failed there, and read it as clean). Of rev-parse's failures, only
+    # "not a git repository" says there is none, and no git at all (127)
+    # stays the bash's; any other — dubious ownership, a broken config —
+    # is git not answering for a working copy that may be there (#100's
+    # review, round 7).
     inside = _git("rev-parse", "--is-inside-work-tree")
+    if inside.returncode not in (0, 127) and "not a git repository" not in inside.stderr:
+        raise Unknown(f"git rev-parse failed: {(inside.stderr.strip().splitlines() or ['exit ' + str(inside.returncode)])[-1]}")
     if inside.returncode != 0 or inside.stdout.strip() != "true":
         return None
     status = _git("status", "--porcelain")

@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import importlib.util
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -84,6 +85,41 @@ def main() -> int:
                                timeout=120)
             check(f"{where}: past the check, to the walk", r.returncode == 2 and "no no-such-proc process" in r.stdout,
                   f"rc={r.returncode}\n{r.stdout}")
+
+        print("fabric-fresh: a repository git refuses to read is not clean")
+        # Dubious ownership (a repository another account owns): rev-parse
+        # fails, as it does outside a repository, but with another reason.
+        dubious = os.path.join(t, "dubious")
+        os.makedirs(dubious)
+        with open(os.path.join(dubious, "git"), "w", encoding="utf-8") as fh:
+            fh.write('#!/bin/sh\necho "fatal: detected dubious ownership in repository at \'/x\'" >&2\nexit 128\n')
+        os.chmod(os.path.join(dubious, "git"), 0o755)
+        rc, out = fresh(path=dubious)
+        check("dubious ownership: exit 3, the reason said, nothing stopped",
+              rc == 3 and "dubious ownership" in out and not os.path.exists(killed), f"rc={rc}\n{out}")
+        rc, out = fresh("--force", path=dubious)
+        check("…--force goes ahead past it", rc == 2 and "no no-such-proc process" in out, f"rc={rc}\n{out}")
+        plain = os.path.join(t, "plain")
+        os.makedirs(plain)
+        # A translated locale is asked for too; it proves LC_ALL=C only on a
+        # host that has a German locale generated (git falls back to
+        # English without one, as on the fabric's hosts today).
+        r = subprocess.run([CMD], env={**env, "LANGUAGE": "de", "LANG": "de_DE.UTF-8"}, cwd=plain,
+                           stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=120)
+        check("a directory that is no repository is no working copy, not a refusal",
+              r.returncode == 2 and "no no-such-proc process" in r.stdout, f"rc={r.returncode}\n{r.stdout}")
+
+        # No git on the host at all: no working copy, as the bash read
+        # `command not found`; the shim needs bash, dirname and readlink,
+        # and nothing else is on PATH.
+        nogit = os.path.join(t, "nogit")
+        os.makedirs(nogit)
+        for tool in ("bash", "dirname", "readlink"):
+            os.symlink(shutil.which(tool), os.path.join(nogit, tool))
+        r = subprocess.run([CMD], env={**env, "PATH": nogit}, cwd=wc, stdout=subprocess.PIPE,
+                           stderr=subprocess.STDOUT, text=True, timeout=120)
+        check("no git at all: no working copy, past the check", r.returncode == 2
+              and "no no-such-proc process" in r.stdout, f"rc={r.returncode}\n{r.stdout}")
 
         print("fabric-fresh: a file name that is not UTF-8 is a change")
         subprocess.run(["git", "-C", wc, "config", "core.quotePath", "false"], check=True, timeout=30)
