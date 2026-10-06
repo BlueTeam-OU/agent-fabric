@@ -183,6 +183,27 @@ tools read:
   (ADR-031), a template's token from the coordinator's store into the
   login's.
 
+## sudo from an agent account
+
+The owner enters an agent account with `su` (no password: `/etc/pam.d/su`
+admits the `qubes` group) and may need sudo there. `tools/fabric/agent_sudo.py`
+gives every account this host places, but its operator, sudo with a
+password asked at **every** use (`timestamp_timeout=0`), so the agent's own
+sessions, which run as the same account, never ride on a prompt the owner
+answered:
+
+```sh
+python3 tools/fabric/agent_sudo.py plan                       # what would change; no root
+sudo /usr/bin/python3 tools/fabric/agent_sudo.py apply        # group agent-sudo, its members, /etc/sudoers.d/agent-sudo
+sudo /usr/bin/python3 tools/fabric/agent_sudo.py passwd       # each password, interactively, from your own terminal
+sudo /usr/bin/python3 tools/fabric/agent_sudo.py check        # exit 1 when anything is missing
+```
+
+The passwords are the owner's alone: never in a store, a file, a message
+or a model session (`passwd` refuses where `CLAUDECODE` is set). A new
+account needs `apply` and `passwd` again; the group reaches a login at its
+next login.
+
 ## What does not transfer between accounts
 
 Session memory is the account's (`~/.claude/projects/…/memory/`); a drain
