@@ -21,8 +21,14 @@ every tool call and writes nothing while the session stays working.
 
 Beside the state, the session's own `claude` process (the nearest
 ancestor of that name) and its start time: a session killed or crashed
-never sends SessionEnd, and the reader drops an entry whose process is
-gone, the start time telling a reused pid from the session's own.
+never sends SessionEnd, so an entry whose process is gone is dropped —
+by the reader when it says the state, and here whenever the file is
+written — the start time telling a reused pid from the session's own.
+
+The lock is waited on for LOCK_WAIT_S at most: a holder that is stopped
+(not crashed — a crash releases it) would otherwise hold every session's
+hook until the harness's timeout kills it and shows an error. A state
+that could not be written is lost; the next event says it again.
 
 A hook must never stand in a session's way: any failure is swallowed,
 nothing is printed, the exit is 0. It runs nothing and reaches nothing
@@ -38,6 +44,7 @@ import sys
 import time
 
 FILE = "session-state.json"
+LOCK_WAIT_S = 1.0
 NEEDS_A_PERSON = {"permission_prompt", "worker_permission_prompt", "elicitation_dialog",
                   "elicitation_url_dialog", "agent_needs_input"}
 
@@ -69,6 +76,31 @@ def harness(proc: str = "/proc", pid: int | None = None) -> tuple[int, int] | No
     return None
 
 
+def alive(pid: object, start: object, proc: str = "/proc") -> bool:
+    """Whether an entry's process is still its session's; an entry that
+    names none is kept, since nothing says it is gone."""
+    if not isinstance(pid, int):
+        return True
+    try:
+        with open(f"{proc}/{pid}/stat", encoding="utf-8", errors="replace") as fh:
+            raw = fh.read()
+    except OSError:
+        return False
+    return not isinstance(start, int) or int(raw[raw.rindex(")") + 2:].split()[19]) == start
+
+
+def lock(fh, wait: float = LOCK_WAIT_S) -> bool:
+    deadline = time.monotonic() + wait
+    while True:
+        try:
+            fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            return True
+        except BlockingIOError:
+            if time.monotonic() >= deadline:
+                return False
+            time.sleep(0.02)
+
+
 def state_of(payload: dict) -> str | None:
     """The state an event puts a session in; None when it says nothing."""
     event = payload.get("hook_event_name")
@@ -89,7 +121,7 @@ def state_of(payload: dict) -> str | None:
 
 
 def record(payload: dict, directory: str | None = None, now: float | None = None,
-           process: tuple[int, int] | None = None) -> bool:
+           process: tuple[int, int] | None = None, proc: str = "/proc") -> bool:
     """True when the file changed. `process` is the session's harness
     (pid, start); looked up when not given."""
     sid = payload.get("session_id")
@@ -99,25 +131,30 @@ def record(payload: dict, directory: str | None = None, now: float | None = None
     directory = directory or state_dir()
     os.makedirs(directory, mode=0o700, exist_ok=True)
     path = os.path.join(directory, FILE)
-    with open(os.path.join(directory, FILE + ".lock"), "a") as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
+    with open(os.path.join(directory, FILE + ".lock"), "a") as held:
+        if not lock(held):
+            return False
         try:
             with open(path, encoding="utf-8") as fh:
                 doc = json.load(fh)
             sessions = doc.get("sessions") if isinstance(doc, dict) and isinstance(doc.get("sessions"), dict) else {}
         except (OSError, ValueError):
             sessions = {}
+        before = len(sessions)
+        sessions = {k: v for k, v in sessions.items()
+                    if k == sid or (isinstance(v, dict) and alive(v.get("pid"), v.get("start"), proc))}
+        pruned = len(sessions) != before
         current = sessions.get(sid) if isinstance(sessions.get(sid), dict) else {}
         if state == "gone":
-            if sid not in sessions:
+            if sid not in sessions and not pruned:
                 return False
-            del sessions[sid]
+            sessions.pop(sid, None)
         else:
             # A resumed session keeps its id under a new process: the
             # process is part of what changes, or its entry would point
             # at the old one and be dropped as dead.
             pid, start = process if process is not None else (harness() or (None, None))
-            if (current.get("state"), current.get("pid"), current.get("start")) == (state, pid, start):
+            if (current.get("state"), current.get("pid"), current.get("start")) == (state, pid, start) and not pruned:
                 return False
             sessions[sid] = {"state": state, "since": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now)),
                              "pid": pid, "start": start}
