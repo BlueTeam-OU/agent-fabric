@@ -269,7 +269,7 @@ class Importer:
                 return "from_me_refused", None
             return outbound(self.conn, text, mtype, meta, seq, ts, state="unverified"), None
         keep = {"content": text, "seq": seq, "ts": ts}
-        # The inbox's for_me (tools/fabric/gzcoord/inbox.py), in its order: a
+        # The inbox's for_me (tools/fabric/gzcoord/inbox_parts/tokens.py), in its order: a
         # broadcast, else TO decides alone,
         # else TO-ROLE.
         if meta.get("BROADCAST") == "true":
