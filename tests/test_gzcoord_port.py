@@ -48,7 +48,8 @@ def case(name: str) -> Callable:
 def _():
     escapes = ("\\d", "\\w", "\\s", "\\b", "\\D", "\\W", "\\S", "\\B")
     bare = []
-    for file in sorted(glob.glob(os.path.join(PACKAGE, "*.py"))):
+    # Every module, its subpackages' too (gzcoord/inbox_parts/).
+    for file in sorted(glob.glob(os.path.join(PACKAGE, "**", "*.py"), recursive=True)):
         tree = ast.parse(open(file, encoding="utf-8").read(), file)
         for node in ast.walk(tree):
             if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
