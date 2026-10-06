@@ -12,6 +12,7 @@ the failure this whole mechanism was built to end. Plain script: prints
 ok/FAIL, exit 1 on any failure."""
 from __future__ import annotations
 
+import glob
 import json
 import os
 import pwd
@@ -59,6 +60,15 @@ case "$1" in
 esac
 echo "mock gh: unhandled $1" >&2; exit 1
 """
+
+
+def reader_marker() -> str:
+    """The reader's REVIEW_MARKER, from the one file of pr_review_status.py
+    and its parts (tools/fabric/github/review_status/) that defines it;
+    none, or two, is no answer."""
+    parts = sorted(glob.glob(os.path.join(os.path.dirname(READER), "review_status", "*.py")))
+    found = [m for m in (marker_of(f) for f in [READER, *parts]) if m]
+    return found[0] if len(found) == 1 else ""
 
 
 def marker_of(path: str) -> str:
@@ -320,7 +330,7 @@ def main() -> int:
         print("post-review: the marker matches the READER's, byte for byte")
         # THE CROSS-FILE CONTRACT. Two constants in two modules; a one-sided
         # edit turns real coverage back into "0 reviews" with nothing failing.
-        emit, read_ = marker_of(EMITTER), marker_of(READER)
+        emit, read_ = marker_of(EMITTER), reader_marker()
         check("emitter and pr-review-status.sh agree on the marker", bool(emit) and emit == read_,
               f"emitter: {emit}\nreader : {read_}")
 
