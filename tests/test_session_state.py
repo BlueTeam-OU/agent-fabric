@@ -41,33 +41,50 @@ def main() -> int:
         ({"hook_event_name": "SessionEnd"}, "gone"),
         ({"hook_event_name": "SubagentStop"}, None),
     ]
+    P = (4242, 777)
     got = [(p, ss.state_of(p)) for p, _ in cases]
     check("each event's state", [g for _, g in got] == [w for _, w in cases], got)
 
     with tempfile.TemporaryDirectory() as tmp:
+        def proc(pid: int, comm: str, ppid: int, start: int) -> None:
+            os.makedirs(f"{tmp}/proc/{pid}", exist_ok=True)
+            # Field 22 is the start time; the comm may hold spaces and parentheses.
+            fields = ["S", str(ppid)] + ["0"] * 17 + [str(start)]
+            open(f"{tmp}/proc/{pid}/stat", "w").write(f"{pid} ({comm}) " + " ".join(fields) + " 0 0\n")
+        proc(1, "systemd", 0, 1)
+        proc(50, "claude", 1, 4000)
+        proc(60, "sh (x)", 50, 4100)
+        proc(70, "python3", 60, 4200)
+        proc(80, "bash", 1, 4300)
+        check("the harness is the nearest claude ancestor, with its start time", ss.harness(f"{tmp}/proc", 70) == (50, 4000),
+              ss.harness(f"{tmp}/proc", 70))
+        check("no claude ancestor: None", ss.harness(f"{tmp}/proc", 80) is None)
+        check("a vanished process: None", ss.harness(f"{tmp}/proc", 99) is None)
         d = os.path.join(tmp, "agents", "x")
         f = os.path.join(d, ss.FILE)
         ev = lambda e, **k: {"session_id": "s1", "hook_event_name": e, **k}  # noqa: E731
-        check("a start writes idle", ss.record(ev("SessionStart"), d, 0) is True
+        check("a start writes idle", ss.record(ev("SessionStart"), d, 0, P) is True
               and json.load(open(f))["sessions"]["s1"]["state"] == "idle")
         check("…the file is 0600", os.stat(f).st_mode & 0o777 == 0o600, oct(os.stat(f).st_mode))
-        check("a prompt: working", ss.record(ev("UserPromptSubmit"), d, 1) is True
-              and json.load(open(f))["sessions"]["s1"] == {"state": "working", "since": "1970-01-01T00:00:01Z"})
+        check("a prompt: working", ss.record(ev("UserPromptSubmit"), d, 1, P) is True
+              and json.load(open(f))["sessions"]["s1"] == {"state": "working", "since": "1970-01-01T00:00:01Z", "pid": 4242, "start": 777})
         before = os.stat(f).st_mtime_ns
-        check("tool calls while working write nothing", ss.record(ev("PreToolUse"), d, 2) is False
+        check("tool calls while working write nothing", ss.record(ev("PreToolUse"), d, 2, P) is False
               and os.stat(f).st_mtime_ns == before)
-        check("a permission prompt: blocked", ss.record(ev("Notification", notification_type="permission_prompt"), d, 3)
+        check("a permission prompt: blocked", ss.record(ev("Notification", notification_type="permission_prompt"), d, 3, P)
               and json.load(open(f))["sessions"]["s1"]["state"] == "blocked")
-        ss.record({"session_id": "s2", "hook_event_name": "SessionStart"}, d, 4)
+        ss.record({"session_id": "s2", "hook_event_name": "SessionStart"}, d, 4, P)
         check("two sessions kept apart", set(json.load(open(f))["sessions"]) == {"s1", "s2"})
-        check("an ended session leaves the file", ss.record(ev("SessionEnd"), d, 5) is True
+        check("an ended session leaves the file", ss.record(ev("SessionEnd"), d, 5, P) is True
               and set(json.load(open(f))["sessions"]) == {"s2"})
-        check("an end for an unknown session writes nothing", ss.record(ev("SessionEnd"), d, 6) is False)
-        check("no session id: nothing", ss.record({"hook_event_name": "Stop"}, d, 7) is False)
+        check("an end for an unknown session writes nothing", ss.record(ev("SessionEnd"), d, 6, P) is False)
+        check("no session id: nothing", ss.record({"hook_event_name": "Stop"}, d, 7, P) is False)
         with open(f, "w") as fh:
             fh.write("{broken")
-        check("an unreadable file starts over", ss.record(ev("SessionStart"), d, 8) is True
-              and json.load(open(f))["sessions"] == {"s1": {"state": "idle", "since": "1970-01-01T00:00:08Z"}})
+        check("an unreadable file starts over", ss.record(ev("SessionStart"), d, 8, P) is True
+              and json.load(open(f))["sessions"] == {"s1": {"state": "idle", "since": "1970-01-01T00:00:08Z", "pid": 4242, "start": 777}})
+        check("a resumed session (same id, new process) is rewritten", ss.record(ev("SessionStart"), d, 9, (5151, 888)) is True
+              and json.load(open(f))["sessions"]["s1"]["pid"] == 5151)
         check("no temporary file left", sorted(os.listdir(d)) == [ss.FILE, ss.FILE + ".lock"], os.listdir(d))
 
         env = {**os.environ, "AGENT_FABRIC_STATE_DIR": os.path.join(tmp, "cli")}

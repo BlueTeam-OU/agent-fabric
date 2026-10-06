@@ -19,6 +19,11 @@ runtime/control/upgrade.mjs's stateDir name), mode 0600, rewritten whole
 under a lock and only when a session's state changes: PreToolUse fires on
 every tool call and writes nothing while the session stays working.
 
+Beside the state, the session's own `claude` process (the nearest
+ancestor of that name) and its start time: a session killed or crashed
+never sends SessionEnd, and the reader drops an entry whose process is
+gone, the start time telling a reused pid from the session's own.
+
 A hook must never stand in a session's way: any failure is swallowed,
 nothing is printed, the exit is 0. It runs nothing and reaches nothing
 but that one file; the control agent decides what leaves the account.
@@ -45,6 +50,25 @@ def state_dir() -> str:
     return os.path.join(root, "agents", login)
 
 
+def harness(proc: str = "/proc", pid: int | None = None) -> tuple[int, int] | None:
+    """The nearest ancestor named `claude`, as (pid, start time in clock
+    ticks since boot, /proc/<pid>/stat field 22); None outside a harness."""
+    p = pid or os.getpid()
+    for _ in range(64):
+        try:
+            with open(f"{proc}/{p}/stat", encoding="utf-8", errors="replace") as fh:
+                raw = fh.read()
+        except OSError:
+            return None
+        rest = raw[raw.rindex(")") + 2:].split()
+        if raw[raw.index("(") + 1:raw.rindex(")")] == "claude":
+            return p, int(rest[19])
+        if int(rest[1]) <= 1:
+            return None
+        p = int(rest[1])
+    return None
+
+
 def state_of(payload: dict) -> str | None:
     """The state an event puts a session in; None when it says nothing."""
     event = payload.get("hook_event_name")
@@ -64,8 +88,10 @@ def state_of(payload: dict) -> str | None:
     return None
 
 
-def record(payload: dict, directory: str | None = None, now: float | None = None) -> bool:
-    """True when the file changed."""
+def record(payload: dict, directory: str | None = None, now: float | None = None,
+           process: tuple[int, int] | None = None) -> bool:
+    """True when the file changed. `process` is the session's harness
+    (pid, start); looked up when not given."""
     sid = payload.get("session_id")
     state = state_of(payload)
     if not isinstance(sid, str) or not sid or state is None:
@@ -81,15 +107,20 @@ def record(payload: dict, directory: str | None = None, now: float | None = None
             sessions = doc.get("sessions") if isinstance(doc, dict) and isinstance(doc.get("sessions"), dict) else {}
         except (OSError, ValueError):
             sessions = {}
-        current = sessions.get(sid, {}).get("state") if isinstance(sessions.get(sid), dict) else None
+        current = sessions.get(sid) if isinstance(sessions.get(sid), dict) else {}
         if state == "gone":
             if sid not in sessions:
                 return False
             del sessions[sid]
-        elif current == state:
-            return False
         else:
-            sessions[sid] = {"state": state, "since": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now))}
+            # A resumed session keeps its id under a new process: the
+            # process is part of what changes, or its entry would point
+            # at the old one and be dropped as dead.
+            pid, start = process if process is not None else (harness() or (None, None))
+            if (current.get("state"), current.get("pid"), current.get("start")) == (state, pid, start):
+                return False
+            sessions[sid] = {"state": state, "since": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now)),
+                             "pid": pid, "start": start}
         tmp = f"{path}.{os.getpid()}"
         fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
         with os.fdopen(fd, "w", encoding="utf-8") as fh:
