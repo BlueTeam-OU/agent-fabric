@@ -388,7 +388,9 @@ def replay_usage(env: dict) -> "subprocess.CompletedProcess[str]":
 
 @case("--replay with no value is a usage line and exit 1")
 def _():
-    r = replay_usage(dict(os.environ))
+    # Pinned to the default locale: the case is about the usage line, and a
+    # login with a dictionary of its own (a ru holder) prints it translated.
+    r = replay_usage({**os.environ, "GZCOORD_DEFAULT_LOCALE_ONLY": "1"})
     eq(r.returncode, 1, r.stderr)
     eq(last_line(r.stderr), i18n.default_dictionary()["replay.usage"])
 
