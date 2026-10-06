@@ -161,6 +161,14 @@ def _git(*args: str) -> subprocess.CompletedProcess:
         raise Unknown(f"git {args[0]} did not answer within {TIMEOUT_S} s") from None
 
 
+def _reason(r: subprocess.CompletedProcess) -> str:
+    """git's reason: its `fatal:` line, which leads a message whose last
+    lines are a hint (dubious ownership ends on the `git config` to run);
+    else its first line, else the exit."""
+    lines = [line.strip() for line in r.stderr.splitlines() if line.strip()]
+    return next((line for line in lines if line.startswith("fatal:")), lines[0] if lines else f"exit {r.returncode}")
+
+
 def dirty_toplevel() -> str | None:
     """The working copy's toplevel when it has uncommitted changes, None
     when it has none or this is no working copy; Unknown when git cannot
@@ -172,18 +180,19 @@ def dirty_toplevel() -> str | None:
     # `false` with exit 0 is a bare repository or a directory inside .git:
     # no working copy, as outside one (the bash went on to a status that
     # failed there, and read it as clean). Of rev-parse's failures, only
-    # "not a git repository" says there is none, and no git at all (127)
-    # stays the bash's; any other — dubious ownership, a broken config —
-    # is git not answering for a working copy that may be there (#100's
-    # review, round 7).
+    # "not a git repository (or any …" says there is none, and no git at
+    # all (127) stays the bash's; any other — dubious ownership, a broken
+    # config, a linked worktree whose gitdir is gone ("not a git
+    # repository: <path>") — is git not answering for a working copy that
+    # may be there (#100's review, round 7).
     inside = _git("rev-parse", "--is-inside-work-tree")
-    if inside.returncode not in (0, 127) and "not a git repository" not in inside.stderr:
-        raise Unknown(f"git rev-parse failed: {(inside.stderr.strip().splitlines() or ['exit ' + str(inside.returncode)])[-1]}")
+    if inside.returncode not in (0, 127) and "not a git repository (or any" not in inside.stderr:
+        raise Unknown(f"git rev-parse failed: {_reason(inside)}")
     if inside.returncode != 0 or inside.stdout.strip() != "true":
         return None
     status = _git("status", "--porcelain")
     if status.returncode != 0:
-        raise Unknown(f"git status failed: {(status.stderr.strip().splitlines() or ['exit ' + str(status.returncode)])[-1]}")
+        raise Unknown(f"git status failed: {_reason(status)}")
     if not status.stdout.strip("\n"):
         return None
     return _git("rev-parse", "--show-toplevel").stdout.rstrip("\n")

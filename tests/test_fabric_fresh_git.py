@@ -18,6 +18,10 @@ import sys
 import tempfile
 
 os.environ["GIT_CONFIG_GLOBAL"] = os.devnull
+# Every git here, the fixtures' too, is the test's own: an inherited
+# GIT_DIR or work tree would point them at the caller's repository.
+for _var in ("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_COMMON_DIR"):
+    os.environ.pop(_var, None)
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CMD = os.path.join(ROOT, "bin", "fabric-fresh")
 
@@ -92,22 +96,50 @@ def main() -> int:
         dubious = os.path.join(t, "dubious")
         os.makedirs(dubious)
         with open(os.path.join(dubious, "git"), "w", encoding="utf-8") as fh:
-            fh.write('#!/bin/sh\necho "fatal: detected dubious ownership in repository at \'/x\'" >&2\nexit 128\n')
+            # git's own four lines: the reason first, a hint last.
+            fh.write('#!/bin/sh\n{ echo "fatal: detected dubious ownership in repository at \'/x\'"; '
+                     'echo "To add an exception for this directory, call:"; echo; '
+                     'printf "\\tgit config --global --add safe.directory /x\\n"; } >&2\nexit 128\n')
         os.chmod(os.path.join(dubious, "git"), 0o755)
         rc, out = fresh(path=dubious)
-        check("dubious ownership: exit 3, the reason said, nothing stopped",
-              rc == 3 and "dubious ownership" in out and not os.path.exists(killed), f"rc={rc}\n{out}")
+        check("dubious ownership: exit 3, git's reason said, not its hint",
+              rc == 3 and "dubious ownership" in out and "safe.directory" not in out
+              and not os.path.exists(killed), f"rc={rc}\n{out}")
         rc, out = fresh("--force", path=dubious)
         check("…--force goes ahead past it", rc == 2 and "no no-such-proc process" in out, f"rc={rc}\n{out}")
         plain = os.path.join(t, "plain")
         os.makedirs(plain)
-        # A translated locale is asked for too; it proves LC_ALL=C only on a
-        # host that has a German locale generated (git falls back to
-        # English without one, as on the fabric's hosts today).
-        r = subprocess.run([CMD], env={**env, "LANGUAGE": "de", "LANG": "de_DE.UTF-8"}, cwd=plain,
-                           stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=120)
+        r = subprocess.run([CMD], env=env, cwd=plain, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                           text=True, timeout=120)
         check("a directory that is no repository is no working copy, not a refusal",
               r.returncode == 2 and "no no-such-proc process" in r.stdout, f"rc={r.returncode}\n{r.stdout}")
+        # git translates its words; the fabric's hosts have no translated
+        # locale generated, so a git that speaks German unless LC_ALL=C
+        # stands in for one that has.
+        german = os.path.join(t, "german")
+        os.makedirs(german)
+        with open(os.path.join(german, "git"), "w", encoding="utf-8") as fh:
+            fh.write('#!/bin/sh\nif [ "$LC_ALL" = C ]; then echo "fatal: not a git repository (or any of the parent '
+                     'directories): .git" >&2; else echo "fatal: Kein Git-Repository (oder irgendeines der '
+                     'Elternverzeichnisse): .git" >&2; fi\nexit 128\n')
+        os.chmod(os.path.join(german, "git"), 0o755)
+        r = subprocess.run([CMD], env={**env, "PATH": german + os.pathsep + env["PATH"], "LANG": "de_DE.UTF-8",
+                                "LC_ALL": "de_DE.UTF-8"},
+                           cwd=plain, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=120)
+        check("…whatever language git speaks: its words are read under LC_ALL=C",
+              r.returncode == 2 and "no no-such-proc process" in r.stdout, f"rc={r.returncode}\n{r.stdout}")
+        # A linked worktree whose gitdir is gone: git says "not a git
+        # repository: <path>", and the checkout's work is still there.
+        main_repo, linked = os.path.join(t, "main-repo"), os.path.join(t, "linked")
+        g = ["git", "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"]
+        subprocess.run([*g, "init", "-q", main_repo], check=True, timeout=30)
+        subprocess.run([*g, "-C", main_repo, "commit", "-q", "--allow-empty", "-m", "a"], check=True, timeout=30)
+        subprocess.run([*g, "-C", main_repo, "worktree", "add", "-q", linked], check=True, timeout=30)
+        shutil.rmtree(os.path.join(main_repo, ".git", "worktrees"))
+        r = subprocess.run([CMD], env=env, cwd=linked, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                           text=True, timeout=120)
+        check("a linked worktree whose gitdir is gone: exit 3, git's reason said",
+              r.returncode == 3 and "not a git repository:" in r.stdout, f"rc={r.returncode}\n{r.stdout}")
 
         # No git on the host at all: no working copy, as the bash read
         # `command not found`; the shim needs bash, dirname and readlink,
