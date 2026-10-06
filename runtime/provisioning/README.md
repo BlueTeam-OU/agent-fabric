@@ -183,35 +183,15 @@ tools read:
   (ADR-031), a template's token from the coordinator's store into the
   login's.
 
-## sudo from an agent account
+## Root while working in an agent account
 
-The owner enters an agent account with `su` (no password: `/etc/pam.d/su`
-admits the `qubes` group) and may need sudo there. `tools/fabric/agent_sudo.py`
-gives every account this host places, but its operator, sudo with a
-password asked at **every** use (`timestamp_timeout=0`), so the agent's own
-sessions, which run as the same account, never ride on a prompt the owner
-answered:
-
-```sh
-python3 tools/fabric/agent_sudo.py plan                       # what would change; no root
-sudo /usr/bin/python3 tools/fabric/agent_sudo.py apply        # group agent-sudo, its members, /etc/sudoers.d/agent-sudo
-sudo /usr/bin/python3 tools/fabric/agent_sudo.py passwd       # each password, interactively, from your own terminal
-sudo /usr/bin/python3 tools/fabric/agent_sudo.py check        # exit 1 when anything is missing
-```
-
-The passwords are the owner's alone: never in a store, a file, a message
-or a model session (`passwd` refuses where `CLAUDECODE` is set), and never
-known to the control plane: anything it could set or read, the account it
-runs as could read too, and with sudo that is root. `new-agent` joins a new
-account to `agent-sudo` where the group exists, with its password locked
-(`useradd`'s default), so sudo lets nothing through until the owner runs
-`passwd` for it. The group reaches a login at its next login.
-
-Where `/etc` does not survive a reboot (a Qubes AppVM), `apply` keeps the
-group's lines and the rule under `/rw/config/agent-fabric/agent-sudo/` and
-installs `platform/qubes/agent-fabric-0-sudo.rc`, which puts them back at
-boot before `agent-fabric-accounts.rc` restores each login's groups; `passwd`
-re-runs `persist-accounts.sh`, so the new password hashes survive too.
+No agent account holds sudo, and none has a password. To work as an
+agent, enter it from the operator's login with `sudo -iu <login>` (or
+`su - <login>`); for root, `exit` back to the operator's shell, whose sudo
+is its own. A password typed inside an agent's shell is typed into a shell
+that agent configures — its `~/.bashrc` can wrap `sudo` and keep what it
+reads — so giving an agent account sudo would give its own sessions root
+(blind review of agent-fabric #101; the owner, 2026-10-06).
 
 ## What does not transfer between accounts
 
