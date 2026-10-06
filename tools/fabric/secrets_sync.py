@@ -238,9 +238,13 @@ def settle_bashrc() -> str | None:
     place, the rest of the file kept byte for byte and its mode kept.
     Returns what was done, or None when the file was already right."""
     want = source_line()
+    # Through a symlink to its target: a dotfiles-managed ~/.bashrc replaced
+    # by a regular file would leave the target, still sourcing secrets.env,
+    # for anything that reads it directly.
+    path = os.path.realpath(bashrc())
     try:
-        lines = open(bashrc(), encoding="utf-8").read().split("\n")
-        mode = file_mode(bashrc())
+        lines = open(path, encoding="utf-8").read().split("\n")
+        mode = file_mode(path)
     except FileNotFoundError:
         lines, mode = [], None
     marked = [i for i, line in enumerate(lines) if MARKER in line]
@@ -253,7 +257,7 @@ def settle_bashrc() -> str | None:
     else:
         lines += [want, ""] if lines and lines[-1] == "" else ["", want, ""]
         done = "bashrc"
-    write_private(bashrc(), "\n".join(lines), mode if mode is not None else 0o644)
+    write_private(path, "\n".join(lines), mode if mode is not None else 0o644)
     return done
 
 
@@ -280,8 +284,10 @@ def _gh(args: list[str], stdin: str | None = None) -> subprocess.CompletedProces
     gh = gh_binary()
     if not gh:
         return None
+    # gh's own resolution of its configuration (GH_CONFIG_DIR, then
+    # XDG_CONFIG_HOME, then ~/.config) is the one the account's shells use;
+    # a sandbox HOME never gets here (gh_binary).
     env = {k: v for k, v in os.environ.items() if k not in GH_ENV_TOKENS}
-    env["GH_CONFIG_DIR"] = os.path.join(home(), ".config", "gh")
     try:
         return subprocess.run([gh, *args], input=stdin if stdin is not None else "", env=env, capture_output=True,
                               text=True, timeout=GH_TIMEOUT_S)

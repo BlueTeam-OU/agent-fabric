@@ -150,6 +150,20 @@ def main() -> int:
             check("a second marked line goes too: exactly one remains", open(s.bashrc()).read().count("# agent-fabric secrets") == 1,
                   open(s.bashrc()).read())
 
+            # A dotfiles-managed ~/.bashrc: the line is fixed in its target,
+            # and the link stays a link.
+            target = os.path.join(tmp, "dotfiles-bashrc")
+            os.replace(s.bashrc(), target)
+            with open(target, "a") as fh:
+                fh.write(f"{old}\n")
+            os.symlink(target, s.bashrc())
+            run(s.sync, False, False)
+            check("a symlinked ~/.bashrc is fixed in its target and stays a link",
+                  os.path.islink(s.bashrc()) and envf not in open(target).read()
+                  and open(target).read().count("# agent-fabric secrets") == 1, open(target).read())
+            os.remove(s.bashrc())
+            os.replace(target, s.bashrc())
+
             # gh refusing the token: exit 2, said, never the token.
             os.remove(os.path.join(tmp, ".config", "gh", "fake-token"))
             os.environ["FAKE_GH_LOGIN_EXIT"] = "1"
@@ -158,6 +172,9 @@ def main() -> int:
             check("gh refusing GH_TOKEN fails the sync (exit 2), named, valueless",
                   rc == 2 and "GH_TOKEN into gh (gh auth login exit 1)" in json.loads(out)["skipped"]
                   and "ghp_FIXTUREGH" not in out, out[:400])
+            rc, out = run(s.status, False)
+            check("…and status is NOT OK while the store holds GH_TOKEN and gh holds none",
+                  rc == 1 and "gh has a token: False" in out, out)
             os.environ.pop("AGENT_FABRIC_GH")
             check("a sandbox HOME with no fake named never reaches a real gh", s.gh_binary() is None)
             os.environ["AGENT_FABRIC_GH"] = FAKE_GH
