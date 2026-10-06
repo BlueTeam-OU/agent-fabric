@@ -22,6 +22,9 @@
 //                                                   env key names (synced secrets marked), permission counts, other keys — never a value
 //   fabric-ctl <login|all> local-prune              an ACTION: remove from those files the env entries that duplicate a
 //                                                   synced secret (ADR-038 rule 9), nothing else
+//   fabric-ctl <login|all> states [--follow] [--json]   what each account's sessions are doing (working,
+//                                                   blocked, idle), from the state records agentd posts (ADR-029
+//                                                   rule 16): no request sent; --follow streams each change
 //   fabric-ctl keygen [--force]                     the operator's signing key: private half into this login's store,
 //                                                   public into the registry
 //
@@ -82,7 +85,7 @@ export function placements(registry = process.env.AGENT_FABRIC_HOSTS_REGISTRY ??
 const jobArgs = a => ({ title: a.title ?? undefined, ...(a.topic !== null ? { topic: a.topic } : {}), ...(a.project !== null ? { project: a.project } : {}) });
 
 export function parseArgs(argv) {
-  const out = { targets: [], op: 'status', json: false, timeout: null, out: null, days: null, piece: null, version: null, force: false, expect: null, restart: false, title: null, topic: null, project: null };
+  const out = { targets: [], op: 'status', json: false, timeout: null, out: null, days: null, piece: null, version: null, force: false, expect: null, restart: false, title: null, topic: null, project: null, follow: false };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     // A jobs-add title that starts with a dash follows `--`, as for
@@ -101,6 +104,7 @@ export function parseArgs(argv) {
     else if (a === '--expect') out.expect = argv[++i];
     else if (a.startsWith('--expect=')) out.expect = a.slice(9);
     else if (a === '--restart') out.restart = true;
+    else if (a === '--follow') out.follow = true;
     else if (a === '--topic') out.topic = argv[++i];
     else if (a.startsWith('--topic=')) out.topic = a.slice(8);
     else if (a === '--project') out.project = argv[++i];
@@ -110,7 +114,7 @@ export function parseArgs(argv) {
     else if (a === 'keygen' && !out.targets.length) out.op = 'keygen';
     else if (out.op === 'upgrade' && out.piece === null) out.piece = a;   // the word after `upgrade` is the piece, never a login
     else if (out.op === 'jobs-add' && out.title === null) out.title = a;  // the word after `jobs-add` is the title, never a login
-    else if (OPS.includes(a) && out.targets.length) out.op = a;
+    else if ((OPS.includes(a) || a === 'states') && out.targets.length) out.op = a;
     else out.targets.push(a);
   }
   if (out.timeout === null) out.timeout = out.op === 'ping' ? 5 : out.op === 'memory' ? 120 : out.op === 'tokens' ? 60 : out.op === 'accounts' ? 300 : out.op === 'disk' ? 200 : out.op === 'upgrade' ? (out.piece === 'fabric' ? FABRIC_UPGRADE_BUDGET_S : UPGRADE_BUDGET_S) : out.op === 'secrets-sync' ? 240 : 20;
@@ -121,6 +125,7 @@ export function parseArgs(argv) {
   if (out.expect !== null && !/^[0-9a-f]{12}$/.test(out.expect)) throw new Error('--expect takes a 12-hex setup-token fingerprint (fabric-accounts templates)');
   if (out.days !== null && (out.op !== 'tokens' || !Number.isFinite(out.days) || out.days <= 0)) throw new Error('--days takes a positive number of days, with tokens only');
   if ((out.topic !== null || out.project !== null) && out.op !== 'jobs-add') throw new Error('--topic and --project go with jobs-add only');
+  if (out.follow && out.op !== 'states') throw new Error('--follow goes with states only');
   if (out.op === 'jobs-add') {
     const bad = checkJobArgs(jobArgs(out));
     if (bad) throw new Error(`jobs-add: ${bad}`);
@@ -478,7 +483,7 @@ export function table(op, rs) {
 export async function main(argv = process.argv.slice(2), { registry, fetchImpl } = {}) {
   let args;
   try { args = parseArgs(argv); } catch (e) { console.error(`fabric-ctl: ${e.message}`); return 2; }
-  if (args.help || (!args.targets.length && args.op !== 'keygen')) { console.error('usage: fabric-ctl <login|all> [status|usage|identity|keys|fabric|session|script|recall|host|disk|accounts|ping] [--json] [--timeout S]\n       fabric-ctl <login|all> tokens [--days N]\n       fabric-ctl <login|all> memory --out <dir>\n       fabric-ctl <login|all> upgrade claude [--version V]\n       fabric-ctl <login|all> upgrade fabric   (every account to this checkout\'s origin/main, then bootstrap)\n       fabric-ctl <login|all> secrets-sync [--expect SHA12] [--restart]\n       fabric-ctl <login|all> presence   (any placed account may ask)\n       fabric-ctl <login|all> jobs\n       fabric-ctl <login> jobs-add [--topic T] [--project P] [--] "<title>"\n       fabric-ctl <login|all> local\n       fabric-ctl <login|all> local-prune\n       fabric-ctl keygen [--force]'); return args.help ? 0 : 2; }
+  if (args.help || (!args.targets.length && args.op !== 'keygen')) { console.error('usage: fabric-ctl <login|all> [status|usage|identity|keys|fabric|session|script|recall|host|disk|accounts|ping] [--json] [--timeout S]\n       fabric-ctl <login|all> tokens [--days N]\n       fabric-ctl <login|all> memory --out <dir>\n       fabric-ctl <login|all> upgrade claude [--version V]\n       fabric-ctl <login|all> upgrade fabric   (every account to this checkout\'s origin/main, then bootstrap)\n       fabric-ctl <login|all> secrets-sync [--expect SHA12] [--restart]\n       fabric-ctl <login|all> presence   (any placed account may ask)\n       fabric-ctl <login|all> jobs\n       fabric-ctl <login> jobs-add [--topic T] [--project P] [--] "<title>"\n       fabric-ctl <login|all> local\n       fabric-ctl <login|all> local-prune\n       fabric-ctl <login|all> states [--follow] [--json]\n       fabric-ctl keygen [--force]'); return args.help ? 0 : 2; }
   if (args.op === 'keygen') return keygen(args, { registry });
   const all = placements(registry);
   let expected;
@@ -493,6 +498,15 @@ export async function main(argv = process.argv.slice(2), { registry, fetchImpl }
   }
   const who = whoami();
   const me = gzIdentity(who);
+  if (args.op === 'states') {
+    // A read of the channel, not a request: no daemon is asked and none
+    // answers, so no operator check — the relay token is the gate.
+    const cfg = controlConfig();
+    const gz = integrationConfig(who.project);
+    const tok = gzToken(inboxRoot(who), gz.configured ? gz : undefined) ?? syncedToken();
+    if (!tok) { console.error('fabric-ctl: no CLAUDE_BRIDGE_AUTH_TOKEN (fabric-secrets sync)'); return 3; }
+    return states(args, expected, { call: (p, init) => api(tok, p, { relayUrl: cfg.relay_url, ...init }), cfg });
+  }
   // What the daemons will answer: an operator anything, a placed account a public op (agentd accept()).
   if (!operatorAddresses().has(me.address) && !(PUBLIC_OPS.includes(args.op) && accountAddresses().has(me.address))) { console.error(`fabric-ctl: ${me.address} is not a host operator in runtime/hosts/registry.json — no agent would answer; not sent`); return 2; }
   const cfg = controlConfig();
@@ -559,6 +573,61 @@ export async function main(argv = process.argv.slice(2), { registry, fetchImpl }
   // answered: the first fleet upgrade printed nine failed rows and exited 0.
   const actionFailed = ACTION_OPS.includes(args.op) && replies.some(r => !(ACTION_OK[args.op] ?? []).includes(r.data?.[args.op]?.status));
   return want.size || short() || refused || actionFailed ? 1 : 0;
+}
+
+// `states`: the state records agentd posts (runtime/control/sessions.mjs).
+// The snapshot is the newest record per expected address among the last
+// STATES_REPLAY on the channel; --follow then waits on the channel and
+// prints each new record for an expected address, one line, as it comes.
+// A record older than STATES_STALE_MS says the account's daemon has not
+// spoken for two heartbeats: its sessions are unknown, not idle. With
+// --json, one object per line — what a listener (the herdr bridge) reads.
+export const STATES_REPLAY = 500;
+export const STATES_STALE_MS = 2 * 10 * 60 * 1000;
+const RANK = { blocked: 3, working: 2, idle: 1 };
+
+/** One account's line: the state that most wants a person, and since when. */
+export function stateRow(address, rec, now = Date.now()) {
+  if (!rec) return { address, state: 'unknown', sessions: [], why: 'no state record on the channel' };
+  const stale = now - Date.parse(rec.ts) > STATES_STALE_MS;
+  const sessions = Array.isArray(rec.sessions) ? rec.sessions : [];
+  const top = sessions.reduce((a, s) => ((RANK[s.state] ?? 0) > (RANK[a?.state] ?? 0) ? s : a), null);
+  return { address, ts: rec.ts, role: rec.role ?? null, project: rec.project ?? null, sessions,
+           state: stale ? 'unknown' : top ? top.state : 'none', since: top?.since ?? null, ...(stale ? { why: 'no record for two heartbeats' } : {}) };
+}
+
+export function stateRecordOf(rec, want) {
+  let r; try { r = JSON.parse(rec.content); } catch { return null; }
+  return r?.kind === 'state' && r.v === 1 && want.has(r.from) && Array.isArray(r.sessions) ? r : null;
+}
+
+export async function states(args, expected, { call, cfg, out = m => console.log(m), err = m => console.error(m), now = Date.now, sleep = ms => new Promise(r => setTimeout(r, ms)), forever = true }) {
+  const q = o => new URLSearchParams(o).toString();
+  const want = new Set(expected.map(e => e.address));
+  const line = row => args.json ? JSON.stringify(row)
+    : `${row.address.padEnd(32)} ${String(row.state).padEnd(8)} ${String(row.role ?? '-').padEnd(18)} ${row.sessions.length} session${row.sessions.length === 1 ? '' : 's'}${row.since ? `  since ${row.since}` : ''}${row.why ? `  (${row.why})` : ''}`;
+  let page;
+  try { page = await call(`/api/messages?${q({ channel: cfg.channel, limit: String(STATES_REPLAY), full: '1' })}`); }
+  catch (e) { err(`fabric-ctl: relay ${e.status ? `refused (HTTP ${e.status})` : `unreachable at ${cfg.relay_url}`}`); return 3; }
+  const rows_ = page.messages ?? [];
+  const latest = new Map();
+  for (const rec of rows_) { const r = stateRecordOf(rec, want); if (r) latest.set(r.from, r); }
+  for (const e of expected) out(line(stateRow(e.address, latest.get(e.address), now())));
+  if (!args.follow) return [...want].every(a => latest.has(a)) ? 0 : 1;
+  let last = rows_.at(-1)?.id ?? null, down = false;
+  do {
+    try {
+      if (!last) { const p = await call(`/api/messages?${q({ channel: cfg.channel, limit: '1' })}`); last = (p.messages ?? p).at(-1)?.id ?? null; if (!last) { await sleep(5000); continue; } }
+      const w = await call(`/api/wait?${q({ channel: cfg.channel, since_id: last, timeout_seconds: '55', limit: '50', full: '1' })}`);
+      if (down) { err('fabric-ctl: relay is back'); down = false; }
+      if (w.warning === 'since_id_not_found') { last = null; continue; }
+      for (const rec of w.messages ?? []) { last = rec.id; const r = stateRecordOf(rec, want); if (r) out(line(stateRow(r.from, r, now()))); }
+    } catch (e) {
+      if (!down) { err(`fabric-ctl: relay unreachable at ${cfg.relay_url} (${e.message}) — retrying every 5 s`); down = true; }
+      await sleep(5000);
+    }
+  } while (forever);
+  return 0;
 }
 
 // The operator's signing key, decrypted from this login's own store at the

@@ -18,10 +18,10 @@ import { fileURLToPath } from 'node:url';
 const CTL = fileURLToPath(new URL('../ctl.mjs', import.meta.url));
 
 test('parseArgs: targets, op, flags, defaults', () => {
-  assert.deepEqual(parseArgs(['all']), { targets: ['all'], op: 'status', json: false, timeout: 20, out: null, days: null, piece: null, version: null, force: false, expect: null, restart: false, title: null, topic: null, project: null });
-  assert.deepEqual(parseArgs(['db-admin', 'ping', '--json']), { targets: ['db-admin'], op: 'ping', json: true, timeout: 5, out: null, days: null, piece: null, version: null, force: false, expect: null, restart: false, title: null, topic: null, project: null });
-  assert.deepEqual(parseArgs(['all', 'memory', '--out', '/tmp/d']), { targets: ['all'], op: 'memory', json: false, timeout: 120, out: '/tmp/d', days: null, piece: null, version: null, force: false, expect: null, restart: false, title: null, topic: null, project: null });
-  assert.deepEqual(parseArgs(['all', 'tokens', '--days', '3']), { targets: ['all'], op: 'tokens', json: false, timeout: 60, out: null, days: 3, piece: null, version: null, force: false, expect: null, restart: false, title: null, topic: null, project: null });
+  assert.deepEqual(parseArgs(['all']), { targets: ['all'], op: 'status', json: false, timeout: 20, out: null, days: null, piece: null, version: null, force: false, expect: null, restart: false, title: null, topic: null, project: null, follow: false });
+  assert.deepEqual(parseArgs(['db-admin', 'ping', '--json']), { targets: ['db-admin'], op: 'ping', json: true, timeout: 5, out: null, days: null, piece: null, version: null, force: false, expect: null, restart: false, title: null, topic: null, project: null, follow: false });
+  assert.deepEqual(parseArgs(['all', 'memory', '--out', '/tmp/d']), { targets: ['all'], op: 'memory', json: false, timeout: 120, out: '/tmp/d', days: null, piece: null, version: null, force: false, expect: null, restart: false, title: null, topic: null, project: null, follow: false });
+  assert.deepEqual(parseArgs(['all', 'tokens', '--days', '3']), { targets: ['all'], op: 'tokens', json: false, timeout: 60, out: null, days: 3, piece: null, version: null, force: false, expect: null, restart: false, title: null, topic: null, project: null, follow: false });
   assert.equal(parseArgs(['all', 'tokens', '--days=14']).days, 14);
   assert.throws(() => parseArgs(['all', 'tokens', '--days', '0']), /--days/);
   assert.throws(() => parseArgs(['all', 'status', '--days', '3']), /--days/, 'a window belongs to tokens only');
@@ -634,3 +634,55 @@ test('a placed non-operator may ask presence, and nothing else; an unplaced one 
   } finally { r.close(); }
 });
 
+
+test('states: the newest state record per account, the state that most wants a person, stale as unknown', async () => {
+  const { states, stateRow, STATES_STALE_MS } = await import('../ctl.mjs');
+  const now = Date.parse('2026-10-07T12:00:00Z');
+  const rec = (from, sessions, ts = '2026-10-07T11:59:00Z', extra = {}) => ({ id: `${from}-${ts}`, content: JSON.stringify({ v: 1, kind: 'state', from, ts, sessions, ...extra }) });
+  const messages = [
+    rec('h/a', [{ session: 's1', state: 'working', since: 't0' }], '2026-10-07T11:50:00Z'),
+    { id: 'r', content: JSON.stringify({ v: 1, kind: 'reply', from: 'h/a', sessions: [] }) },
+    { id: 'junk', content: 'not json' },
+    rec('h/a', [{ session: 's1', state: 'idle', since: 't1' }, { session: 's2', state: 'blocked', since: 't2' }], '2026-10-07T11:59:00Z', { role: 'web-dev', project: 'gzapp' }),
+    rec('h/b', [], new Date(now - STATES_STALE_MS - 1000).toISOString()),
+    rec('h/other', [{ session: 'x', state: 'working', since: 't' }]),
+  ];
+  const out = [];
+  const calls = [];
+  const call = async p => { calls.push(p); return { messages }; };
+  const rc = await states({ json: true, follow: false }, [{ address: 'h/a' }, { address: 'h/b' }, { address: 'h/c' }], { call, cfg: { channel: 'fabric:control', relay_url: 'x' }, out: m => out.push(JSON.parse(m)), now: () => now });
+  assert.equal(rc, 1, 'an account with no record is a short table');
+  assert.equal(calls.length, 1); assert.ok(!calls[0].includes('/api/send'), 'a read, nothing sent');
+  assert.deepEqual(out.map(r => [r.address, r.state, r.since ?? null, r.role ?? null]), [['h/a', 'blocked', 't2', 'web-dev'], ['h/b', 'unknown', null, null], ['h/c', 'unknown', null, null]]);
+  assert.equal(stateRow('h/d', { ts: new Date(now).toISOString(), sessions: [] }, now).state, 'none', 'no session: none, not unknown');
+});
+
+test('states --follow prints each new record for an expected account, and survives a relay outage', async () => {
+  const { states } = await import('../ctl.mjs');
+  const now = Date.parse('2026-10-07T12:00:00Z');
+  const st = (id, from, state) => ({ id, content: JSON.stringify({ v: 1, kind: 'state', from, ts: '2026-10-07T12:00:00Z', sessions: [{ session: 's', state, since: 't' }] }) });
+  const script = [
+    () => ({ messages: [st('1', 'h/a', 'idle')] }),
+    () => { throw new Error('ECONNREFUSED'); },
+    () => ({ messages: [st('2', 'h/z', 'working'), st('3', 'h/a', 'working')] }),
+    () => ({ warning: 'since_id_not_found' }),
+    () => ({ messages: [{ id: '9' }] }),
+    () => ({ messages: [st('10', 'h/a', 'blocked')] }),
+  ];
+  const seen = [];
+  const out = [], err = [];
+  let i = 0, stop = null;
+  const call = async p => { seen.push(p); if (i >= script.length) { stop(); return new Promise(() => {}); } return script[i++](); };
+  const done = new Promise(r => { stop = r; });
+  states({ json: true, follow: true }, [{ address: 'h/a' }], { call, cfg: { channel: 'fabric:control', relay_url: 'x' }, out: m => out.push(JSON.parse(m).state), err: m => err.push(m), now: () => now, sleep: async () => {} });
+  await done;
+  assert.deepEqual(out, ['idle', 'working', 'blocked'], 'the snapshot, then each change of h/a only');
+  assert.equal(err.length, 2, `down once, back once: ${err}`);
+  assert.ok(seen[1].includes('since_id=1') && seen.some(p => p.includes('since_id=9')), `waits after the last id, re-anchors after a lost one: ${seen}`);
+});
+
+test('states takes --follow, and --follow goes with nothing else', () => {
+  assert.equal(parseArgs(['all', 'states', '--follow', '--json']).op, 'states');
+  assert.equal(parseArgs(['all', 'states', '--follow']).follow, true);
+  assert.throws(() => parseArgs(['all', 'status', '--follow']), /--follow goes with states only/);
+});
