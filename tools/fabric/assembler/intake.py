@@ -146,15 +146,17 @@ def screen_hygiene(run: Run) -> None:
     for role, claims in list(run.all_claims.items()):
         kept = []
         for claim in claims:
+            # The topic first: every note below names the claim by it, and a
+            # note must never carry what it says was withheld.
+            if isinstance(claim.get("topic"), str):
+                topic, notes = hygiene_substitute(claim["topic"], "", patterns_for(claim["class"]))
+                if notes:
+                    claim["topic"] = slugify(topic.replace(REDACTED, "redacted")) or "redacted"
+                    run.redactions.extend(f"{role}/{claim['class']}:{claim['topic']} topic{n}" for n in notes)
             where = f"{role}/{claim['class']}:{claim['topic']}"
             for field in ("title", "description", "body"):
                 if isinstance(claim.get(field), str):
                     claim[field], notes = hygiene_substitute(claim[field], f"{where} {field}", patterns_for(claim["class"]))
-                    run.redactions.extend(notes)
-            if isinstance(claim.get("topic"), str):
-                topic, notes = hygiene_substitute(claim["topic"], f"{where} topic", patterns_for(claim["class"]))
-                if notes:
-                    claim["topic"] = slugify(topic.replace(REDACTED, "redacted")) or "redacted"
                     run.redactions.extend(notes)
             issues = hygiene_check(claim.get("body") or "", where, patterns_for(claim["class"]))
             if issues:

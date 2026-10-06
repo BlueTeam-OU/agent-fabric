@@ -74,8 +74,13 @@ def open_bundle(source: str) -> str:
     if not isinstance(report, dict):
         sys.exit("assemble: bundle: harvest-report.json is not an object")
     for key in ("agent", "host", "role", "project"):
-        if not isinstance(manifest.get(key), str) or not manifest[key]:
+        # agent and host name the store a watermark is kept for; role and
+        # project may be null (an unregistered working copy), as before,
+        # but the manifest says so rather than leaving them out.
+        if key in ("agent", "host") and (not isinstance(manifest.get(key), str) or not manifest[key]):
             sys.exit(f"assemble: bundle: manifest.json names no {key}")
+        if key not in manifest:
+            sys.exit(f"assemble: bundle: manifest.json has no {key} field")
         if manifest.get(key) != report.get(key):
             sys.exit(f"assemble: bundle: manifest says {key}={manifest.get(key)!r} but harvest-report.json says {report.get(key)!r}")
     for f, data in members.items():

@@ -19,12 +19,25 @@ def drop_held(report: dict[str, Any], keys: list[str], paths: set[str]) -> None:
     as this drain's. A list item names its file first ("<path>: ..."), a
     decision its slice ("<role>/<class>:<topic>#<heading>"). `paths` are
     the held files this run did not itself write."""
+    # A note names its slice either by file ("<path>: ...") or by claim
+    # ("<role>/<class>:<topic> body: ..."); a shared claim's notes carry
+    # its owner role, so a held shared slice matches under any role.
+    slice_names = []
+    for k in keys:
+        label, _, rest = k.partition("/")
+        slice_names.append(re.compile((r"[^/\s]+" if label == "shared" else re.escape(label)) + "/"
+                                      + re.escape(rest) + r"[ :#]"))
+
     def names_held(item: Any) -> bool:
-        return isinstance(item, str) and any(item == p or item.startswith(p + ":") for p in paths)
+        return isinstance(item, str) and (any(item == p or item.startswith(p + ":") for p in paths)
+                                          or any(n.match(item) for n in slice_names))
     for key in REPORT_LISTS:
         if key != "held_back":
             report[key] = [x for x in report.get(key) or [] if not names_held(x)]
     report["files_written"] = len(report["files"])
+    held_shared = {k.partition("/")[2] for k in keys if k.startswith("shared/")}
+    report["shared_topics"] = [t for t in report.get("shared_topics") or [] if t not in held_shared]
+    report["shared_slices"] = len(report["shared_topics"])
     report["collision_decisions"] = [d for d in report.get("collision_decisions") or []
                                      if not any(str(d.get("key", "")).startswith(k + "#") for k in keys)]
 

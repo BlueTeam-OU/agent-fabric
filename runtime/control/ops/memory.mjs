@@ -64,7 +64,10 @@ export async function memory(home = os.homedir(), { root = process.env.AGENT_FAB
   for (const d of dirs) {
     if (!d.working_copy) { bundles.push({ slug: d.slug, files: d.files, status: d.ambiguous ? 'ambiguous-working-copy' : 'no-working-copy' }); continue; }
     // The tar on stdout, the report on stderr: one run gives both.
-    const args = [tool, '--bundle', '-', '--memory', d.memory, '--working-copy', d.working_copy, ...(all ? ['--all'] : [])];
+    // The projects root's store files under the fabric checkout beside the
+    // checkout's own: named apart, so the two never share a watermark.
+    const args = [tool, '--bundle', '-', '--memory', d.memory, '--working-copy', d.working_copy,
+      ...(d.projects_root ? ['--store', 'projects-root'] : []), ...(all ? ['--all'] : [])];
     let r;
     try { r = await exec('python3', args, { encoding: 'buffer', maxBuffer: 64 * 1024 * 1024, env: { ...process.env, AGENT_FABRIC_ROOT: root }, timeout: 120000 }); }
     catch (e) { bundles.push({ slug: d.slug, files: d.files, working_copy: d.working_copy, ...(d.projects_root ? { projects_root: true } : {}), status: 'harvest-failed', error: String(e?.stderr ?? e?.message ?? e).slice(-400) }); continue; }

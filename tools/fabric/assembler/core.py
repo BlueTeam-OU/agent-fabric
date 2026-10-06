@@ -328,6 +328,9 @@ class Run:
     # A flat class file moved into its directory this run, by (role, class):
     # its new name, deduplicated against the drain's other topics.
     moved_flat: dict[tuple[str, str], str] = field(default_factory=dict)
+    # The roles the project's taxonomy binds whose domain holds slices:
+    # read before anything is written, since an unreadable taxonomy refuses.
+    bound_roles: set[str] = field(default_factory=set)
     held_files: set[str] = field(default_factory=set)
 
 

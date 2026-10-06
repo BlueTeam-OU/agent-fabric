@@ -352,6 +352,10 @@ def load_hygiene_patterns(projects: list[str] | None = None, for_project: str | 
             for key in ("label", "flags", "refer_as"):
                 if entry.get(key) is not None and not isinstance(entry[key], str):
                     raise HygieneError(f"{where}: {key} is not a string")
+            if entry.get("flags") not in (None, "", "i"):
+                # "I" or "x" was read as no flag: a pattern meant to ignore
+                # case let every other casing through.
+                raise HygieneError(f"{where}: flags is {entry['flags']!r}; the one flag is \"i\"")
             scope = entry.get("scope")
             if scope is not None and scope != "others":
                 raise HygieneError(f"{where}: scope is {scope!r}; the one scope is \"others\"")

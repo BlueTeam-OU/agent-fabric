@@ -485,6 +485,8 @@ def write_role(run: Run, role: str) -> None:
             # topic's file and says so.
             restamp(os.path.join(base, CLASS_FILES[klass], name), run.args.stamp,
                     None if is_carried(klass, plan["flat_topic"]) else plan["flat_topic"])
+            if os.path.join(base, CLASS_FILES[klass], name) not in run.written:
+                run.written.append(os.path.join(base, CLASS_FILES[klass], name))   # rewritten, so this drain's
             run.moved_flat[(role, klass)] = name
         for topic, claims in topics:
             if not claims:

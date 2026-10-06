@@ -86,6 +86,7 @@ def main() -> int:
     load_decisions(run)
     plan_classes(run)
     held_files(run)
+    run.bound_roles = bound_roles_with_domain_slices(run)
     if resolve_all_targets(run):
         return 1
     if check_collisions(run):
@@ -96,7 +97,7 @@ def main() -> int:
     # otherwise end up with knowledge and no way to find it — and so does
     # every role the project binds whose domain holds slices.
     run.owning_roles = sorted(set(run.per_role) | set(run.shared_index) | set(run.all_claims)
-                              | bound_roles_with_domain_slices(run))
+                              | run.bound_roles)
     for role in run.owning_roles:
         write_role(run, role)
         index_role(run, role)

@@ -220,6 +220,17 @@ test('memoryDirs: the projects root\'s own memory is filed under the fabric chec
   assert.deepEqual(memoryDirs(h), [{ slug: memorySlug(projects), memory: d, files: 1, working_copy: null }], 'no checkout: not guessed');
 });
 
+test('memory: the projects root\'s store is harvested as its own (--store projects-root), the checkout\'s as before', async () => {
+  const calls = [];
+  const exec = async (cmd, args) => { calls.push(args); return { stdout: Buffer.from('x'), stderr: Buffer.from('{}') }; };
+  const dirs = [{ slug: 's-root', memory: '/m/root', files: 1, working_copy: '/h/projects/agent-fabric', projects_root: true },
+                { slug: 's-fab', memory: '/m/fab', files: 1, working_copy: '/h/projects/agent-fabric' }];
+  const m = await memory('/h', { root: '/r', exec, dirs });
+  assert.equal(m.bundles[0].projects_root, true);
+  assert.deepEqual(calls[0].slice(calls[0].indexOf('--store'), calls[0].indexOf('--store') + 2), ['--store', 'projects-root']);
+  assert.ok(!calls[1].includes('--store'), 'the checkout\'s own store keeps its key');
+});
+
 test('memory: one harvester run per directory — the tar from stdout, the report from stderr — gzipped, base64, in parts; a failure and a strayed directory are rows, not throws', async () => {
   const tar = crypto.randomBytes(3000);   // incompressible: the parts are real
   const report = { role: 'db-admin', claims: 2, counts: { in_scope: 3, total: 3 }, needs_rendering: ['ka-note'], skipped_no_roles_class: ['private'], memory_dir: '/never/leaves' };

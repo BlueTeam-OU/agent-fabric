@@ -11,6 +11,15 @@ from assembler.core import layout, Run, in_report, hygiene_substitute
 from assembler.slices import merge_reports, scan_collisions, drop_held
 
 
+def store_of(hr: dict) -> str:
+    """The store a harvest read: its own key when it names one, else
+    agent@host. Also the source its harvest and telemetry are kept under."""
+    store = hr.get("store")
+    if isinstance(store, str) and store:
+        return store
+    return f"{hr.get('agent') or 'unattributed'}@{hr.get('host') or 'unknown'}"
+
+
 def report(run: Run) -> int:
     # An unresolved collision is a property of the corpus, not of the drain
     # that happened to create it. Deriving it from the tree is what makes the
@@ -62,13 +71,15 @@ def report(run: Run) -> int:
                 run.redactions.extend(notes)
                 harvest_meta["skipped_no_roles_class"].append(kept)
         harvest_meta["skipped_no_roles_class"].sort()
-        # Keyed agent@host: each account on a host has its own store, and
-        # its harvest reads this key back (harvest_memory.previous_watermark).
+        # Keyed by store: agent@host for a working copy's own memory, with
+        # #<slug> for another (harvest_memory.store_key), so two stores of
+        # one account never share a mark; the harvest reads it back
+        # (harvest_memory.previous_watermark). A report without "store" is
+        # an older harvest's, keyed agent@host as it always was.
         if hr.get("host") is not None and hr.get("next_watermark") is not None:
-            watermarks[f"{hr.get('agent') or 'unattributed'}@{hr['host']}"] = hr["next_watermark"]
+            watermarks[store_of(hr)] = hr["next_watermark"]
 
-    source = f"{hr.get('agent') or 'unattributed'}@{hr.get('host') or 'unknown'}" \
-        if harvest_meta is not None else "unattributed"
+    source = store_of(hr) if harvest_meta is not None else "unattributed"
     files = [in_report(run, p) for p in run.written]
     report = {
         "stamp": run.args.stamp,
@@ -109,6 +120,13 @@ def report(run: Run) -> int:
     report = merge_reports(previous, report, still_there)
     if run.held_files or run.held_back:
         drop_held(report, run.held_back, run.held_files - set(files))
+    # A key an earlier run of the stamp held stays held only while no run
+    # has written its slice since: this run writing it ends the hold.
+    def written_now(key: str) -> bool:
+        label, _, rest = key.partition("/")
+        klass, _, topic = rest.partition(":")
+        return bool(run.shared.get((klass, topic)) if label == "shared" else run.per_role.get(label, {}).get((klass, topic)))
+    report["held_back"] = sorted(k for k in report.get("held_back") or [] if k in run.held_back or not written_now(k))
     os.makedirs(os.path.dirname(report_path), exist_ok=True)
     with open(report_path, "w", encoding="utf-8") as fh:
         json.dump(report, fh, ensure_ascii=False, indent=2, sort_keys=True)
