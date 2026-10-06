@@ -22,6 +22,7 @@ import { keys, storeRefusal, signingSecret } from './ops/keys.mjs';
 import { host, disk } from './ops/host.mjs';
 import { recall, script } from './ops/activity.mjs';
 import { memory } from './ops/memory.mjs';
+import { local } from './local.mjs';
 
 export { identity, fabric, session, presence } from './ops/identity.mjs';
 export { USAGE_URL, usage, ACCOUNTS_TIMEOUT_MS, ACCOUNT_SLUG, accountsDir, takeReadLock, accountSlugs, claudeBin, parseUsageReport, readAccount, accounts, TOKEN_RATIOS, TOKENS_DAYS, equivalent, tokens } from './ops/usage.mjs';
@@ -31,7 +32,7 @@ export { scriptCounts, langidCmd, languages, recallKind, recall, notesDir, scrip
 export { MEMORY_PART_BYTES, memorySlug, memoryDirs, memory } from './ops/memory.mjs';
 
 
-export const OPS = ['ping', 'identity', 'usage', 'keys', 'fabric', 'session', 'script', 'recall', 'tokens', 'memory', 'host', 'disk', 'accounts', 'upgrade', 'secrets-sync', 'status', 'presence', 'jobs', 'jobs-add'];
+export const OPS = ['ping', 'identity', 'usage', 'keys', 'fabric', 'session', 'script', 'recall', 'tokens', 'memory', 'host', 'disk', 'accounts', 'upgrade', 'secrets-sync', 'status', 'presence', 'jobs', 'jobs-add', 'local', 'local-prune'];
 
 // Answered for any placed account, not only an operator: whether a session
 // is running is what every sender needs before it writes to one, and it
@@ -61,6 +62,7 @@ export async function collect(op, ctx = {}) {
     if (name === 'host') return guard(name, () => ({ ...host(ctx.hostOpts), memory_pressure: memoryPressure(ctx.pressureOpts) }));
     // One scan per daemon however many ask at once (agentd's diskKeeper).
     if (name === 'disk') return guard(name, () => ctx.diskCached ? ctx.diskCached() : disk(ctx.home, ctx.diskOpts));
+    if (name === 'local') return guard(name, () => local({ home: ctx.home, root: ctx.root }));
     if (name === 'jobs') return guard(name, () => jobs({ home: ctx.home, root: ctx.root, ...(ctx.jobsOpts ?? {}) }));
     if (name === 'accounts') return guard(name, () => ctx.accountsCached ? ctx.accountsCached() : accounts(ctx.home, ctx.accountsOpts));
     return Promise.resolve();

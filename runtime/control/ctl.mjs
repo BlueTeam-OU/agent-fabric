@@ -18,6 +18,10 @@
 //   fabric-ctl <login|all> jobs                     each account's open jobs (bin/fabric-jobs; ADR-037)
 //   fabric-ctl <login> jobs-add [--topic T] [--project P] [--] "<title>"   an ACTION: the owner's job on that
 //                                                   login's list, source `owner` (ADR-037 rule 4)
+//   fabric-ctl <login|all> local                    each account's .claude/settings.local.json per working copy:
+//                                                   env key names (synced secrets marked), permission counts, other keys — never a value
+//   fabric-ctl <login|all> local-prune              an ACTION: remove from those files the env entries that duplicate a
+//                                                   synced secret (ADR-038 rule 9), nothing else
 //   fabric-ctl keygen [--force]                     the operator's signing key: private half into this login's store,
 //                                                   public into the registry
 //
@@ -183,14 +187,14 @@ export function rows(expected, replies) {
     return { account: e.login, host: e.host, status: 'ok', op: r.op, latency_ms: r.latency_ms ?? null,
              email: d.identity?.claude_account?.email ?? (d.identity?.claude_account?.via === 'setup-token' ? `setup-token ${d.identity.claude_account.token_sha256_12}` : null), role: d.identity?.role ?? null,
              five_hour: d.usage?.five_hour ?? null, seven_day: d.usage?.seven_day ?? null, usage_status: d.usage?.status ?? null,
-             keys: d.keys ?? null, fabric: d.fabric ?? null, session: d.session ?? null, script: d.script ?? null, recall: d.recall ?? null, tokens: d.tokens ?? null, memory: d.memory ?? null, machine: d.host ?? null, disk: d.disk ?? null, accounts: d.accounts ?? null, upgrade: d.upgrade ?? null, secretsSync: d['secrets-sync'] ?? null, presence: d.presence ?? null, jobs: d.jobs ?? null, jobsAdd: d['jobs-add'] ?? null, agentd: d.agentd ?? null };
+             keys: d.keys ?? null, fabric: d.fabric ?? null, session: d.session ?? null, script: d.script ?? null, recall: d.recall ?? null, tokens: d.tokens ?? null, memory: d.memory ?? null, machine: d.host ?? null, disk: d.disk ?? null, accounts: d.accounts ?? null, upgrade: d.upgrade ?? null, secretsSync: d['secrets-sync'] ?? null, presence: d.presence ?? null, jobs: d.jobs ?? null, jobsAdd: d['jobs-add'] ?? null, local: d.local ?? null, localPrune: d['local-prune'] ?? null, agentd: d.agentd ?? null };
   });
 }
 
 const pct = w => (w && w.utilization != null) ? `${Number(w.utilization).toFixed(0).padStart(3)}%` : '   -';
 const at = w => (w && w.resets_at) ? String(w.resets_at).slice(0, 16) : '-';
 // What counts as success for each action; anything else fails the run.
-export const ACTION_OK = { upgrade: ['current', 'upgraded'], 'secrets-sync': ['synced'], 'jobs-add': ['added'] };
+export const ACTION_OK = { upgrade: ['current', 'upgraded'], 'secrets-sync': ['synced'], 'jobs-add': ['added'], 'local-prune': ['pruned', 'clean'] };
 
 // What an account sent, printed in the operator's terminal: its C0 and C1
 // control characters are shown escaped, never sent to the terminal (review
@@ -220,6 +224,26 @@ export function table(op, rs) {
       if (r.status !== 'ok' || !u) { lines.push(`${r.account.padEnd(22)} ${r.status}`); continue; }
       const si = u.claude_sign_in?.via === 'setup-token' ? `setup-token ${u.claude_sign_in.token_sha256_12}` : (u.claude_sign_in?.via ?? '-');
       lines.push(`${r.account.padEnd(22)} ${String(u.status ?? 'no status').padEnd(10)} ${si.padEnd(34)} ${String(u.session ?? '-').padEnd(28)} ${u.reason ?? u.note ?? (u.missing ? `missing in the store: ${u.missing.join(', ')}` : '')}`.trimEnd());
+    }
+    return lines.join('\n');
+  }
+  if (op === 'local' || op === 'local-prune') {
+    // Names and counts only: the reply never carries a value.
+    lines.push(`${'account'.padEnd(22)} ${'working copy'.padEnd(18)} ${'status'.padEnd(10)} ${op === 'local' ? 'env (secrets marked *)  permissions  other keys' : 'removed / reason'}`);
+    for (const r of rs) {
+      const u = op === 'local' ? r.local : r.localPrune;
+      if (r.status !== 'ok' || !u) { lines.push(`${r.account.padEnd(22)} ${r.status}`); continue; }
+      if (u.status !== 'ok' && op === 'local') { lines.push(`${r.account.padEnd(22)} ${''.padEnd(18)} ${esc(u.status)}${u.error ? `: ${esc(u.error)}` : ''}`); continue; }
+      if (op === 'local-prune' && !u.files) { lines.push(`${r.account.padEnd(22)} ${''.padEnd(18)} ${esc(u.status)}  ${esc(u.reason ?? '')}`.trimEnd()); continue; }
+      if (!u.files.length) { lines.push(`${r.account.padEnd(22)} ${'-'.padEnd(18)} none`); continue; }
+      u.files.forEach((f, i) => {
+        const head = `${(i ? '' : r.account).padEnd(22)} ${esc(f.working_copy).padEnd(18)} ${esc(f.status).padEnd(10)}`;
+        if (op === 'local-prune') { lines.push(`${head} ${(f.removed?.length ? f.removed.map(esc).join(' ') : '') || esc(f.reason ?? '')}`.trimEnd()); return; }
+        if (f.status !== 'ok') { lines.push(head.trimEnd()); return; }
+        const env = f.env.length ? f.env.map(n => `${esc(n)}${f.secrets.includes(n) ? '*' : ''}`).join(' ') : '-';
+        const p = f.permissions; const other = f.keys.length ? f.keys.map(esc).join(' ') : '-';
+        lines.push(`${head} ${env}  allow ${p.allow}/deny ${p.deny}/ask ${p.ask}  ${other}`);
+      });
     }
     return lines.join('\n');
   }
@@ -454,7 +478,7 @@ export function table(op, rs) {
 export async function main(argv = process.argv.slice(2), { registry, fetchImpl } = {}) {
   let args;
   try { args = parseArgs(argv); } catch (e) { console.error(`fabric-ctl: ${e.message}`); return 2; }
-  if (args.help || (!args.targets.length && args.op !== 'keygen')) { console.error('usage: fabric-ctl <login|all> [status|usage|identity|keys|fabric|session|script|recall|host|disk|accounts|ping] [--json] [--timeout S]\n       fabric-ctl <login|all> tokens [--days N]\n       fabric-ctl <login|all> memory --out <dir>\n       fabric-ctl <login|all> upgrade claude [--version V]\n       fabric-ctl <login|all> upgrade fabric   (every account to this checkout\'s origin/main, then bootstrap)\n       fabric-ctl <login|all> secrets-sync [--expect SHA12] [--restart]\n       fabric-ctl <login|all> presence   (any placed account may ask)\n       fabric-ctl <login|all> jobs\n       fabric-ctl <login> jobs-add [--topic T] [--project P] [--] "<title>"\n       fabric-ctl keygen [--force]'); return args.help ? 0 : 2; }
+  if (args.help || (!args.targets.length && args.op !== 'keygen')) { console.error('usage: fabric-ctl <login|all> [status|usage|identity|keys|fabric|session|script|recall|host|disk|accounts|ping] [--json] [--timeout S]\n       fabric-ctl <login|all> tokens [--days N]\n       fabric-ctl <login|all> memory --out <dir>\n       fabric-ctl <login|all> upgrade claude [--version V]\n       fabric-ctl <login|all> upgrade fabric   (every account to this checkout\'s origin/main, then bootstrap)\n       fabric-ctl <login|all> secrets-sync [--expect SHA12] [--restart]\n       fabric-ctl <login|all> presence   (any placed account may ask)\n       fabric-ctl <login|all> jobs\n       fabric-ctl <login> jobs-add [--topic T] [--project P] [--] "<title>"\n       fabric-ctl <login|all> local\n       fabric-ctl <login|all> local-prune\n       fabric-ctl keygen [--force]'); return args.help ? 0 : 2; }
   if (args.op === 'keygen') return keygen(args, { registry });
   const all = placements(registry);
   let expected;

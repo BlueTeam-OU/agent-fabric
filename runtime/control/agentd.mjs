@@ -54,6 +54,7 @@ import { fileURLToPath } from 'node:url';
 import { whoami, FABRIC_ROOT, api, syncedToken, identity as gzIdentity, integrationConfig, inboxRoot, token as gzToken } from './gzcoord.mjs';
 import { OPS, PUBLIC_OPS, collect, usage, accounts, accountSlugs, accountsDir, disk } from './ops.mjs';
 import { jobsAdd } from './jobs.mjs';
+import { localPrune } from './local.mjs';
 import { ACTION_OPS, ACTION_TTL_MAX_S, publicKeyFrom, verifyRequest } from './sign.mjs';
 import { upgrade, stateDir } from './upgrade.mjs';
 import { secretsSync } from './secrets.mjs';
@@ -247,6 +248,7 @@ export async function answer(request, ctx) {
   const data = request.op === 'ping' ? {} : request.op === 'upgrade' ? { upgrade: await upgrade(request, { me: ctx.me.address, ...ctx.upgradeOpts }) }
     : request.op === 'secrets-sync' ? { 'secrets-sync': await secretsSync(request, { me: ctx.me.address, ...ctx.secretsOpts }) }
     : request.op === 'jobs-add' ? { 'jobs-add': await jobsAdd(request, { home: ctx.home, root: ctx.root, ...(ctx.jobsOpts ?? {}) }) }
+    : request.op === 'local-prune' ? { 'local-prune': await localPrune(request, { home: ctx.home, root: ctx.root }) }
     : await collect(request.op, Number.isFinite(days) && days > 0 ? { ...ctx, days: Math.min(days, 90) } : ctx);
   const head = () => ({ v: 1, kind: 'reply', id: newId(), in_reply_to: request.id, from: ctx.me.address, op: request.op, ts: new Date().toISOString(), ok: true });
   const meta = { agentd: { pid: process.pid, started: ctx.started, uptime_s: Math.round((Date.now() - Date.parse(ctx.started)) / 1000) } };
