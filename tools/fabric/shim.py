@@ -117,7 +117,7 @@ def die(msg: str) -> "NoReturn":  # noqa: F821
 
 def api_key() -> str:
     """The account's own key, from the file sync writes: no shell sources it
-    (ADR-038 rule 11). An exported one still wins, for a caller that set it
+    (ADR-038 rule 9). An exported one still wins, for a caller that set it
     on purpose."""
     key = os.environ.get("OPENROUTER_API_KEY")
     if key:

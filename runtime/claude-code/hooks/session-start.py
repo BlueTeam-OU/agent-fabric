@@ -60,7 +60,7 @@ def is_subagent(payload, cwd: str) -> bool:
         return False
 
 
-# No secret in the session's shell (ADR-038 rule 11). The harness holds its
+# No secret in the session's shell (ADR-038 rule 9). The harness holds its
 # own credential in its environment, and every Bash call and subagent
 # inherited it, with whatever else the launch's shell carried; a reviewer
 # printed its environment and a key was rotated (#95). The file the

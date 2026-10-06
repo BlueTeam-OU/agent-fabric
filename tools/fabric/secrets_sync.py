@@ -76,7 +76,7 @@ IDENTITY_NAMES = ["AGENT_LOGIN", "AGENT_HOST"]
 # sourced that file, so an exported name was in every shell and subagent of
 # the account, and a reviewer printed its environment with the operator's
 # signing key in it (rotated, #95). No shell sources secrets.env any more
-# (ADR-038 rule 11), but a file every tool may read is still no place for
+# (ADR-038 rule 9), but a file every tool may read is still no place for
 # the key that signs fleet actions. fabric-ctl decrypts it from the store
 # when it signs (runtime/control/ctl.mjs signingKey()). Known, so a store
 # holding it is not "unexpected"; and since the file is rewritten whole,
@@ -234,7 +234,7 @@ def bashrc_sources(which: str) -> bool:
 def settle_bashrc() -> str | None:
     """Exactly one marked line, sourcing env.sh. A line an older sync wrote
     sources secrets.env, and every shell, session and subagent of the
-    account then held every secret (ADR-038 rule 11): it is replaced in
+    account then held every secret (ADR-038 rule 9): it is replaced in
     place, the rest of the file kept byte for byte and its mode kept.
     Returns what was done, or None when the file was already right."""
     want = source_line()

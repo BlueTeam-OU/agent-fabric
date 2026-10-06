@@ -273,7 +273,7 @@ def jobs_summary(identity, agent):
 
 
 # A session's Bash no longer holds the harness's credentials (the
-# SessionStart hook unsets them, ADR-038 rule 11), so what this session
+# SessionStart hook unsets them, ADR-038 rule 9), so what this session
 # signs in with is read where it is: the environment of the nearest
 # ancestor that is the harness itself, by its process name. Read in this
 # process, fingerprinted or reduced to "set", never printed. None outside

@@ -288,7 +288,7 @@ def test_hook_exports_the_control_plane_into_the_session_shell(tmp: str) -> None
 def test_hook_unsets_every_secret_in_the_session_shell(tmp: str) -> None:
     """The env file the harness sources into every Bash call unsets the
     harness's credentials and each name sync wrote, but the plain values
-    (ADR-038 rule 11). Asked as set/unset per name, in a clean shell: a
+    (ADR-038 rule 9). Asked as set/unset per name, in a clean shell: a
     check about secrets prints no value, even when it fails."""
     home = os.path.join(tmp, "home-secrets")
     cfg = os.path.join(home, ".config", "agent-fabric")

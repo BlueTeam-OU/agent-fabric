@@ -28,7 +28,7 @@ def test_sources_round_trip(tmp: str) -> None:
 
 def test_the_key_is_required_and_read_from_the_synced_file(tmp: str) -> None:
     """No shell exports the key since sync stopped sourcing secrets.env
-    (ADR-038 rule 11): the account's own file is where it is."""
+    (ADR-038 rule 9): the account's own file is where it is."""
     os.environ.pop("OPENROUTER_API_KEY", None)
     try:
         shim.api_key()

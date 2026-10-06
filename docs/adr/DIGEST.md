@@ -792,10 +792,9 @@ its record disagree, the record wins. Look it up, never read it whole:
 
 ### ADR-038 — Each agent owns its key and its secrets (Accepted)
 
-- One key per login, made in the account: a certify-only identity key with
-  encryption, signing and authentication subkeys. Its private half leaves
-  only as a recovery copy encrypted to the owner's recovery key, backed up
-  to the fleet's Proton Drive (§5 rules 1, 6; §6).
+- One key per login, made in the account, a subkey per use. Its private
+  half leaves only as a recovery copy encrypted to the owner's recovery
+  key, backed up to Proton Drive (§5 rules 1, 6; §6).
 - A key is an agent's when committed at `identities/keys/<id>.asc` and
   certified by its parent recorded in `lineage.json`; lint refuses one
   without (§5 rule 2).
@@ -803,14 +802,15 @@ its record disagree, the record wins. Look it up, never read it whole:
   `agent-fabric-secrets-<id>`, encrypted to that key alone: the parent
   writes (`fabric-secrets put`) and never reads (§5 rule 3).
 - No step relies on a shared host (§5 rules 4–5). `sync` reads the store
-  alone; a parent fills a new store with `provision` (§5 rules 3, 7–8).
+  alone (§5 rules 7–8).
 - A 2026-09-29 — recovery copies and backups go to Proton Drive.
 - A 2026-09-29 — recovery copies are encrypted to the owner's recovery key.
 - A 2026-09-29 — keys, lineage and repositories are named by the agent id (ADR-039).
 - A 2026-09-29 — one identity key with a subkey per use (§5 rule 1, §7).
 - A 2026-09-30 — Doppler removed from the code; `provision` fills a child's store (§5 rules 3, 7–8; §7).
 - A 2026-10-01 — a new account's store travels as a bundle (§5 rule 5).
-- Keywords: secrets, key, GPG, pass, QtPass, browserpass, paperkey, Proton Drive, backup,
+- A 2026-10-06 — no shell holds a secret; env.sh holds plain values (§5 rule 9).
+- Keywords: secrets, key, GPG, pass, paperkey, backup, env.sh, bashrc,
   identity, lineage, parent, custody, recovery, Doppler, migration,
   provision, placement, P1.
 ### ADR-039 — The agent id is a UUIDv7 minted at birth (Accepted)

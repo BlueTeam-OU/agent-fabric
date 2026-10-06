@@ -759,7 +759,7 @@ def settle_oauth_token(provider: str, home: str) -> None:
             "never reaches a broker session)")
 
 
-# The session gets its own credential and no other secret (ADR-038 rule 11).
+# The session gets its own credential and no other secret (ADR-038 rule 9).
 # No shell sources secrets.env any more, but a launch from a shell opened
 # before that sync — or from inside an older session — still inherits every
 # synced name, and the session would hand them to every Bash call and

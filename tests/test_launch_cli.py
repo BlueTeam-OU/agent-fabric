@@ -789,7 +789,7 @@ def main() -> int:
         rc, out = run("--provider", "anthropic", "--version")
         check("a token not of a setup-token's shape is refused too", rc == 1 and "no long-lived Claude sign-in" in out,
               f"rc={rc}")
-        print("launch: the session holds its own credential and no other synced secret (ADR-038 rule 11)")
+        print("launch: the session holds its own credential and no other synced secret (ADR-038 rule 9)")
         put(sec, "export CLAUDE_CODE_OAUTH_TOKEN='sk-ant-oat01-SUITE-FIXTURE'\nexport OPENROUTER_API_KEY=sk-or-FILE\n"
                  "export GH_TOKEN=gh-FILE\nexport OPENAI_API_KEY=oa-FILE\nexport DEMO_PORT_OFFSET=640\n")
         put(f"{home}/.config/agent-fabric/env.sh", "export DEMO_PORT_OFFSET=640\n")
