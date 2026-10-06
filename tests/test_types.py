@@ -267,7 +267,10 @@ def _():
     ]), "gamma": ta.claims("gamma", [ONLY])})
     ta.with_agents(drain, {h: "dev-01" for h in ("a1", "a2", "a3", "a4", "a5")})
     with open(os.path.join(drain, "observations.jsonl"), "a", encoding="utf-8") as fh:
+        # An older row's clone, and a row naming its project and working copy.
         fh.write(json.dumps({"content_hash": "c9", "clone_id": "clone-z", "host": "hostB"}) + "\n")
+        fh.write(json.dumps({"content_hash": "c8", "agent": "dev-01", "host": "hostA", "project": "demo",
+                             "working_copy": "wc-demo"}) + "\n")
     first = ta.run_assemble(drain, claims_dir, out)
     if first.returncode != 0:
         raise Failed(f"the first drain failed: {first.stderr}")
@@ -278,7 +281,7 @@ def _():
          "observed_at": "2026-09-24"},
         {"class": "domain", "topic": "same", "title": "Same", "body": "Two.", "evidence": ["a5"]},
         {"class": "domain", "topic": "both", "title": "Both", "body": "Shared.", "evidence": ["a3"],
-         "shared_with": ["beta"]},
+         "shared_with": ["beta"], "citations": {"memories": ["x"]}, "knowledge_scope": "full"},
     ])
     r = subprocess.run([sys.executable, "-c", CAPTURE, ta.ASSEMBLE, "--claims", claims_dir, "--drain", drain,
                         "--fabric", out, "--project", ta.PROJECT, "--working-copy", ta.working_copy(out),
@@ -290,12 +293,13 @@ def _():
     if got["rc"] != 0:
         raise Failed(f"the second drain failed: {r.stderr[-800:]}")
     claims = got["claims"]
-    # Every optional key reached, so a type that drops one fails here too.
-    for key in ("_retire", "merge_target", "_role", "shared_with", "title", "observed_at"):
-        if not any(key in c for c in claims):
-            raise Failed(f"no claim carried {key}: the fixture no longer reaches it")
-    if not any("agent" in o for o in got["origins"]) or not any("clone_id" in o for o in got["origins"]):
-        raise Failed(f"both origin forms were not built: {got['origins']}")
+    # Every optional key of each type reached, so a type that drops one fails
+    # here too; and one added to a type fails until the fixture reaches it.
+    for td, values in ((asm_core.Claim, claims), (asm_core.Origin, got["origins"])):
+        reached = {k for v in values for k in v} & set(td.__optional_keys__)
+        if reached != set(td.__optional_keys__):
+            raise Failed(f"no {td.__name__} built carried {sorted(set(td.__optional_keys__) - reached)}: "
+                         "the fixture no longer reaches them")
     if not got["plan"] or not got["index"] or not got["shared_index"]:
         raise Failed(f"no plan, index or shared index entry was built: {got}")
     if not any(e.get("flat_topic") for e in got["plan"]):
