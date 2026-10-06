@@ -187,6 +187,17 @@ with Doppler (ADR-038 §5 rule 8).
     symlink, and writes nothing when the file changed under it. Both run
     `tools/fabric/local_settings.py` as the account; neither is public
     (A 2026-10-06).
+16. A session's state — working, blocked on a person, or idle — is
+    kept by the harness hook `session-state.py` in the account's own
+    state directory, and the account's control agent posts it as a
+    `state` record (`sessions.mjs`) when what it would say changes, and
+    every ten minutes. The record names each live session's id, state
+    and since when, and the binding's role and project; a session whose
+    `claude` process is gone is left out. `fabric-ctl states` reads
+    those records, sending no request; a record older than two
+    heartbeats reads as unknown. A display that shows the states
+    consumes `fabric-ctl states --follow --json` and never polls the
+    accounts (A 2026-10-07).
 
 ## 6. Consequences
 
@@ -224,7 +235,8 @@ actions are in use on every placed account.
 ## References
 
 - `runtime/control/agentd.mjs` (`accept`, `answer`, `actionLedger`,
-  `watchSource`), `runtime/control/ops.mjs` (`OPS`, `PUBLIC_OPS`),
+  `watchSource`), `runtime/control/sessions.mjs`,
+  `runtime/claude-code/hooks/session-state.py`, `runtime/control/ops.mjs` (`OPS`, `PUBLIC_OPS`),
   `runtime/control/sign.mjs` (`ACTION_OPS`), `runtime/control/ctl.mjs`,
   `runtime/control/upgrade.mjs`, `runtime/control/config.json`,
   `runtime/control/agent-fabric-agentd.service`, `runtime/control/tests/`.
@@ -251,3 +263,4 @@ The body above reads current; each change's full note is in [history/ADR-029-ame
 | 2026-09-29 | secrets-migrate moves an account to its own store | §5 rule 14: the migration action |
 | 2026-09-30 | Doppler is retired: the store holds what Doppler held | §5 rule 5 (the signing key's home), rule 14 withdrawn |
 | 2026-10-06 | Each account's settings.local.json on the control plane | §5 rule 15: `local`, a names-only read; `local-prune`, an action removing synced secrets from its `env` |
+| 2026-10-07 | Session state on the control channel | §5 rule 16: the session-state hook, agentd's `state` record on change and heartbeat, `fabric-ctl states [--follow]` |
