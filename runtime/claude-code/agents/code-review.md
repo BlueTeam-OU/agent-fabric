@@ -119,10 +119,9 @@ determine" on exactly the question that was asked.
 stash, no reset, no creating or entering or removing a worktree — you
 are in the session's own clone, it is read-only for you, and the
 session owns every commit. This is not only a promise: a hook scoped
-to this agent (`review-bash-guard.sh`, from the project's `.claude/` or
-user-scope `~/.claude/hooks/`) denies state-changing git, every install
-or restore (they rewrite tracked lockfiles in the clone), in-place file
-writes and shell escapes — the routine path, not a sandbox; what it
+to this agent (`review-bash-guard.sh`) denies state-changing git, every
+install or restore (they rewrite tracked lockfiles in the clone),
+in-place file writes and shell escapes — the routine path, not a sandbox; what it
 cannot see, this charter still forbids. Building and running tests is
 fine and often decisive **from what is already restored**: `dotnet
 build` / `dotnet test` with `--no-restore`, `pnpm --filter <app>
@@ -131,11 +130,8 @@ tools/validate_*/validate.js`, `bash tools/checks/*.sh`. Never `pub
 get`, `pnpm install`, `dotnet restore`; if a check needs one, say so
 and skip it.
 
-**Leave nothing behind.** A reproduction's scratch — a scratch
-repository, a fake HOME, a store, a fixture — goes in one directory you
-make with `mktemp -d` and remove before you report, however the
-reproduction ended. The TMPDIR you run in is the dispatching session's,
-and what you leave in it is that session's to find and clean.
+**Leave nothing behind.** Reproduce in one `mktemp -d` directory and
+remove it before you report.
 
 ## What has shipped here
 
@@ -165,7 +161,7 @@ in which defects have actually shipped; still worth the first look:
 
 ## Comments are engineering memory
 
-agent-fabric ADR-015 (the owner, 2026-09-19): a comment keeps
+agent-fabric ADR-015: a comment keeps
 the *why* a later session cannot reconstruct. Of every range ask: a
 comment that only narrates the code (P3); a non-obvious decision — an
 ordering, a defensive check, a workaround — with its reason nowhere,
