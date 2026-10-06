@@ -36,7 +36,7 @@ fix it there, with the decline as the record. "Reachable from my clone"
 is not "mine".
 
 **A handover names its artifact.** A contract, a decision record, a
-migration, a PR: the thing itself, not a description of it. When you take
+migration, a PR: the thing, not a description of it. When you take
 someone's finding, the branch or PR name you send back is the
 acknowledgement. A shared command or default changes only when its docs
 and the relay both say so.
@@ -76,7 +76,7 @@ Eight or more, a security boundary too: arm once the review gate is met
 arms. Open a batch at sixteen at most. Never without the gate. Calling a
 PR ready, armed or merged, give its count ("1 work, 1 fix").
 
-**One open pull request per agent**. While you have a PR open — unarmed, armed or queued —
+**One open pull request per agent and repository**. While one is open there — unarmed, armed or queued —
 the next piece of work is another commit on it if the branch is still
 addable, and otherwise it waits for the merge: implement, test and
 commit locally on a branch off `origin/main`, push and open when the
