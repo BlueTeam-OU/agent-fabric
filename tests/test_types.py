@@ -21,6 +21,7 @@ sys.path.insert(0, os.path.join(HERE, "tools", "fabric"))
 from gzcoord import gzmsg  # noqa: E402
 from secretstore import mirrors, trust  # noqa: E402
 import jobs as jobs_mod  # noqa: E402
+from assembler import core as asm_core  # noqa: E402
 
 CASES: list[tuple[str, Callable[[], None]]] = []
 SCRATCH: list[str] = []
@@ -218,6 +219,99 @@ def _():
         raise Failed(f"no request job was built: {taken}")
     for j in [*doc["jobs"], taken]:
         holds(j, jobs_mod.Job, f"job {j.get('id')}")
+
+
+# The drain, run through the real assemble.py in its own process, with its
+# report phase wrapped to hand out the Run it was given: the claims, origins,
+# class plan and index entries every phase built.
+CAPTURE = r"""
+import importlib.util, json, sys
+spec = importlib.util.spec_from_file_location("assemble_capture", sys.argv[1])
+m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+caught = {}
+real = m.report
+def capture(run):
+    caught["run"] = run
+    return real(run)
+m.report = capture
+sys.argv = ["assemble.py", *sys.argv[2:]]
+rc = m.main()
+run = caught["run"]
+claims = [c for cs in run.all_claims.values() for c in cs]
+claims += [c for buckets in run.per_role.values() for cs in buckets.values() for c in cs]
+claims += [c for cs in run.shared.values() for c in cs]
+print(json.dumps({"rc": rc, "claims": claims, "origins": list(run.origins.values()),
+                  "plan": list(run.class_plan.values()),
+                  "index": [e for es in run.index_entries.values() for e in es],
+                  "shared_index": [e for es in run.shared_index.values() for e in es]}, default=sorted))
+"""
+
+
+# A role with one topic in its class, in both drains: the flat file the first
+# writes is the one the second's plan names (flat_topic).
+ONLY = {"class": "domain", "topic": "only", "title": "Only", "body": "One topic.", "evidence": ["a5"]}
+
+
+@case("assemble: every claim, origin, class plan entry and index entry a drain builds is its type")
+def _():
+    import subprocess
+    sys.path.insert(0, os.path.join(HERE, "tests"))
+    import test_assemble as ta
+    t = scratch()
+    drain, claims_dir, out = ta.build(t, {"alpha": ta.claims("alpha", [
+        {"class": "domain", "topic": "tracker", "title": "Issue is open", "body": "Waiting.", "evidence": ["a1"],
+         "observed_at": "2026-09-20"},
+        {"class": "domain", "topic": "same", "title": "Same", "body": "One.", "evidence": ["a2"]},
+        {"class": "domain", "topic": "both", "title": "Both", "body": "Shared.", "evidence": ["a3"],
+         "shared_with": ["beta"], "citations": {"memories": ["x"]}, "knowledge_scope": "full"},
+    ]), "gamma": ta.claims("gamma", [ONLY])})
+    ta.with_agents(drain, {h: "dev-01" for h in ("a1", "a2", "a3", "a4", "a5")})
+    with open(os.path.join(drain, "observations.jsonl"), "a", encoding="utf-8") as fh:
+        # An older row's clone, and a row naming its project and working copy.
+        fh.write(json.dumps({"content_hash": "c9", "clone_id": "clone-z", "host": "hostB"}) + "\n")
+        fh.write(json.dumps({"content_hash": "c8", "agent": "dev-01", "host": "hostA", "project": "demo",
+                             "working_copy": "wc-demo"}) + "\n")
+    first = ta.run_assemble(drain, claims_dir, out)
+    if first.returncode != 0:
+        raise Failed(f"the first drain failed: {first.stderr}")
+    # The second: the tracker retitled (_retire) and a section rewritten
+    # (merge_target), both by the agent that wrote them.
+    ta.set_claims(claims_dir, "alpha", [
+        {"class": "domain", "topic": "tracker", "title": "Issue is merged", "body": "Merged.", "evidence": ["a4"],
+         "observed_at": "2026-09-24"},
+        {"class": "domain", "topic": "same", "title": "Same", "body": "Two.", "evidence": ["a5"]},
+        {"class": "domain", "topic": "both", "title": "Both", "body": "Shared.", "evidence": ["a3"],
+         "shared_with": ["beta"], "citations": {"memories": ["x"]}, "knowledge_scope": "full"},
+    ])
+    r = subprocess.run([sys.executable, "-c", CAPTURE, ta.ASSEMBLE, "--claims", claims_dir, "--drain", drain,
+                        "--fabric", out, "--project", ta.PROJECT, "--working-copy", ta.working_copy(out),
+                        "--stamp", "2026-01-02"], capture_output=True, text=True, timeout=120)
+    try:
+        got = json.loads(r.stdout.strip().splitlines()[-1])
+    except (ValueError, IndexError):
+        raise Failed(f"the second drain gave nothing to read: {r.stdout[-500:]}{r.stderr[-500:]}") from None
+    if got["rc"] != 0:
+        raise Failed(f"the second drain failed: {r.stderr[-800:]}")
+    claims = got["claims"]
+    # Every optional key of each type reached, so a type that drops one fails
+    # here too; and one added to a type fails until the fixture reaches it.
+    for td, values in ((asm_core.Claim, claims), (asm_core.Origin, got["origins"])):
+        reached = {k for v in values for k in v} & set(td.__optional_keys__)
+        if reached != set(td.__optional_keys__):
+            raise Failed(f"no {td.__name__} built carried {sorted(set(td.__optional_keys__) - reached)}: "
+                         "the fixture no longer reaches them")
+    if not got["plan"] or not got["index"] or not got["shared_index"]:
+        raise Failed(f"no plan, index or shared index entry was built: {got}")
+    if not any(e.get("flat_topic") for e in got["plan"]):
+        raise Failed(f"no plan entry named a flat topic: {got['plan']}")
+    for c in claims:
+        holds(c, asm_core.Claim, f"claim {c.get('topic')}")
+    for o in got["origins"]:
+        holds(o, asm_core.Origin, "origin")
+    for e in got["plan"]:
+        holds(e, asm_core.ClassPlanEntry, "class plan entry")
+    for e in got["index"] + got["shared_index"]:
+        holds(e, asm_core.IndexEntry, f"index entry {e.get('path')}")
 
 
 def jobs_login() -> str:

@@ -46,3 +46,13 @@ advice. `tools/fabric/github/arm.py` asks the owner's word on a
 security-boundary change only under eight (devex-tooling's supply), and
 `identities/prompt/team.md` says the same to every session.
 
+
+### Amendment 2026-10-06 — One open pull request per agent and repository
+
+rust-ui-dev-01, given gzapi-org/herdr beside InterWeave, asked whether a
+herdr pull request waits behind an InterWeave one. It never did in
+practice: a branch in another repository cannot take the next commit,
+so it is never addable to the open one, and the coordinator had kept a
+fabric PR and project PRs open together throughout. team.md said so in
+agent-fabric #104; this record follows it, as the two moved together
+when "sixteen work commits" replaced "the band's ceiling".

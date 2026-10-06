@@ -1,0 +1,6 @@
+{
+  "description": "herdr's GZCoord integration: its role, rust-ui-dev (the owner, 2026-10-06), is on the fleet's coordination channel — the same relay and channel as every other project of the fleet, hosted on the coordinator's workspace. Read by communication/gzcoord/scripts/inbox.mjs when the working copy resolves to project herdr; CLAUDE_BRIDGE_URL and GZCOORD_CHANNEL in the environment override it. No token_env_file: the account's token is read from its own secrets.env (ADR-038 rule 9). relay_runtime_dir is relative to the workspace, never inside a repository. Written 2026-10-06 when the fork became a managed project.",
+  "relay_url": "http://127.0.0.1:8765",
+  "channel": "gzapp:gzcoord",
+  "relay_runtime_dir": ".gzcoord"
+}

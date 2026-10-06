@@ -1,4 +1,4 @@
-# ADR-019 — Work arrives as pull requests: one open PR per agent, 8 or more work commits to arm, the gate read before arming, no machine attribution, repository settings
+# ADR-019 — Work arrives as pull requests: one open PR per agent and repository, 8 or more work commits to arm, the gate read before arming, no machine attribution, repository settings
 
 **Date:** 2026-09-18
 **Status:** Accepted
@@ -31,9 +31,9 @@ rule against it in two different shapes.
 pull request; on agent-fabric every change from #11 onward has been a
 merged PR.
 
-**One open pull request per agent**. While an
-agent has a PR open, its next piece of work is another commit on it, if
-the branch is still addable; otherwise it is built locally and waits for
+**One open pull request per agent and repository**. While an
+agent has a PR open in a repository, its next piece of work there is
+another commit on it, if the branch is still addable; otherwise it is built locally and waits for
 the merge. Concerns are commit boundaries, not PR boundaries.
 
 **A PR is armed by its work-commit count**: the
@@ -88,7 +88,9 @@ not on a pipe's exit status.
 
 1. Every change reaches a repository's `main` through a pull request;
    the author opens it, and it lands only through the gate (rule 5).
-2. One open pull request per agent. While one is open — unarmed, armed
+2. One open pull request per agent and repository (A 2026-10-06): a
+   branch in another repository is never addable to the open one. While
+   one is open — unarmed, armed
    or queued — the next work is another commit on it while the branch is
    addable. A branch stops being addable when the next piece depends on
    something merged, the branch is queued or merged, it touches a slow or
@@ -204,3 +206,4 @@ The body above reads current; each change's full note is in [history/ADR-019-ame
 | 2026-10-04 | `main` is protected | §5 rule 6, §6: a ruleset requires a pull request, the CI checks and signed commits; auto-merge on, so arming waits for green |
 | 2026-10-05 | Eight or more arm without the owner's word, over sixteen too | §1, §5 rule 4: the owner's rulings of 2026-10-05; sixteen is batch-size advice only |
 | 2026-10-05 | One required check | §5 rule 6, §6, §7: the ruleset requires CI's aggregate job `ci-ok` alone, in place of eleven per-leg names; the topics join the settings |
+| 2026-10-06 | One open pull request per agent and repository | title, §2, §5 rule 2: the limit is per repository; a branch in another repository is never addable |
