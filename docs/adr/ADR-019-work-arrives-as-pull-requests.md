@@ -93,7 +93,7 @@ not on a pipe's exit status.
    addable. A branch stops being addable when the next piece depends on
    something merged, the branch is queued or merged, it touches a slow or
    flaky surface that would hold the rest hostage, the urgency differs, or
-   the band's ceiling is reached. Two exceptions, each stated in the new
+   it holds sixteen work commits, the size a batch is opened at. Two exceptions, each stated in the new
    PR's description: a finding on the queued PR itself (prefer dequeuing
    and fixing on the same head), and a fix that must land now (a
    user-visible or CI-blocking defect).
