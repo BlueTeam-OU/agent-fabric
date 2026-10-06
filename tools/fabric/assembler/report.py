@@ -8,7 +8,7 @@ import os
 import sys
 from typing import Any
 from assembler.core import layout, Run, in_report, hygiene_substitute
-from assembler.slices import merge_reports, scan_collisions
+from assembler.slices import merge_reports, scan_collisions, drop_held
 
 
 def report(run: Run) -> int:
@@ -93,6 +93,7 @@ def report(run: Run) -> int:
         "harvest": harvest_meta,
         "harvest_sources": {source: harvest_meta} if harvest_meta is not None else {},
         "watermarks": watermarks,
+        "held_back": sorted(run.held_back),
     }
     report_path = layout.project_report_path(run.project)
     try:
@@ -106,6 +107,8 @@ def report(run: Run) -> int:
         roots = [layout.working_copy_for(run.project), layout.FABRIC_ROOT]
         return any(root and os.path.exists(os.path.join(root, rel)) for root in roots)
     report = merge_reports(previous, report, still_there)
+    if run.held_files or run.held_back:
+        drop_held(report, run.held_back, run.held_files - set(files))
     os.makedirs(os.path.dirname(report_path), exist_ok=True)
     with open(report_path, "w", encoding="utf-8") as fh:
         json.dump(report, fh, ensure_ascii=False, indent=2, sort_keys=True)

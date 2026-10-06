@@ -10,7 +10,23 @@ from assembler.core import layout, yaml_scalar
 
 
 REPORT_LISTS = ("files", "hygiene_problems", "rejected_hygiene", "redactions", "retired_in_siblings",
-                "oversized_claims", "clipped_descriptions", "migrated", "merge_target_unresolved")
+                "oversized_claims", "clipped_descriptions", "migrated", "merge_target_unresolved", "held_back")
+
+
+def drop_held(report: dict[str, Any], keys: list[str], paths: set[str]) -> None:
+    """--hold, after the merge: what an earlier run of this stamp said of a
+    held slice goes, so a held-back slice is neither counted nor reported
+    as this drain's. A list item names its file first ("<path>: ..."), a
+    decision its slice ("<role>/<class>:<topic>#<heading>"). `paths` are
+    the held files this run did not itself write."""
+    def names_held(item: Any) -> bool:
+        return isinstance(item, str) and any(item == p or item.startswith(p + ":") for p in paths)
+    for key in REPORT_LISTS:
+        if key != "held_back":
+            report[key] = [x for x in report.get(key) or [] if not names_held(x)]
+    report["files_written"] = len(report["files"])
+    report["collision_decisions"] = [d for d in report.get("collision_decisions") or []
+                                     if not any(str(d.get("key", "")).startswith(k + "#") for k in keys)]
 
 
 def merge_reports(previous: dict[str, Any], current: dict[str, Any],

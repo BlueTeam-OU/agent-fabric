@@ -67,8 +67,8 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 
 from assembler.core import Run  # noqa: E402
-from assembler.intake import parse_args, open_layout, read_claims, screen_hygiene, bucket_claims, load_decisions  # noqa: E402
-from assembler.targets import plan_classes, resolve_all_targets  # noqa: E402
+from assembler.intake import parse_args, open_layout, read_claims, screen_hygiene, bucket_claims, hold_back, load_decisions  # noqa: E402
+from assembler.targets import plan_classes, held_files, resolve_all_targets  # noqa: E402
 from assembler.collisions import check_collisions  # noqa: E402
 from assembler.writer import write_shared, write_role  # noqa: E402
 from assembler.index import index_role  # noqa: E402
@@ -82,8 +82,10 @@ def main() -> int:
         return 1
     screen_hygiene(run)
     bucket_claims(run)
+    hold_back(run)
     load_decisions(run)
     plan_classes(run)
+    held_files(run)
     if resolve_all_targets(run):
         return 1
     if check_collisions(run):

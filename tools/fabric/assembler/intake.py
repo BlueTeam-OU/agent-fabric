@@ -26,6 +26,10 @@ def parse_args() -> argparse.Namespace:
                          "for agent-fabric itself)")
     ap.add_argument("--stamp", required=True, help="distillation date (YYYY-MM-DD)")
     ap.add_argument("--budget", type=int, default=DEFAULT_SLICE_BUDGET_TOKENS)
+    ap.add_argument("--hold", default=None, metavar="FILE",
+                    help="slices held back from this drain: a JSON list of \"<role>/<class>:<topic>\" "
+                         "(\"shared/<class>:<topic>\" for a shared one); their claims are not written, the "
+                         "report lists them as held_back and drops what an earlier run of the stamp said of them")
     ap.add_argument("--collision-decisions", default=None, metavar="FILE",
                     help="the owner's decision per collision the previous run refused on: "
                          "{\"<role>/<class>:<topic>#<heading>\": \"supersede\"|\"keep-both\"|\"drop\"}")
@@ -176,6 +180,39 @@ def bucket_claims(run: Run) -> None:
                 run.shared_owners[key] |= owners
             else:
                 run.per_role[role][key].append(claim)
+
+
+def hold_back(run: Run) -> None:
+    """--hold: the claims of each held slice leave the drain before anything
+    is planned, so nothing of them is written, decided or clipped. A key
+    that names no slice of this drain is refused: a typo would otherwise
+    let the slice through, held by nobody."""
+    if not run.args.hold:
+        return
+    try:
+        with open(run.args.hold, encoding="utf-8") as fh:
+            keys = json.load(fh)
+    except OSError as exc:
+        sys.exit(f"assemble: --hold: {run.args.hold} cannot be read ({exc.strerror or exc})")
+    except ValueError as exc:
+        sys.exit(f"assemble: --hold: {run.args.hold} does not parse ({exc})")
+    if not isinstance(keys, list) or not all(isinstance(k, str) for k in keys):
+        sys.exit("assemble: --hold: a JSON list of \"<role>/<class>:<topic>\" keys")
+    unmatched = []
+    for key in keys:
+        label, _, rest = key.partition("/")
+        klass, _, topic = rest.partition(":")
+        if label == "shared" and (klass, topic) in run.shared:
+            del run.shared[(klass, topic)]
+            run.shared_owners.pop((klass, topic), None)
+        elif label != "shared" and (klass, topic) in run.per_role.get(label, {}):
+            del run.per_role[label][(klass, topic)]
+        else:
+            unmatched.append(key)
+            continue
+        run.held_back.append(key)
+    if unmatched:
+        sys.exit(f"assemble: --hold names no slice of this drain: {', '.join(unmatched)}")
 
 
 def load_decisions(run: Run) -> None:

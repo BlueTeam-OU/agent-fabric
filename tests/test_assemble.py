@@ -2574,6 +2574,46 @@ def test_the_memories_skipped_for_no_roles_class_are_named_in_the_committed_repo
     assert "springfield" not in read(report_path(out)).lower()
 
 
+def test_a_held_back_slice_is_neither_written_nor_reported_as_the_drains(tmp: str) -> None:
+    """--hold: the coordinator holds a slice back from a drain. A hand
+    revert after a first run left the report naming it in files,
+    files_written, collision_decisions and clipped_descriptions; the
+    re-run of the stamp with --hold writes nothing of it and drops what
+    the first run said of it, and lists it as held_back (B2). A key that
+    names no slice of the drain is refused, not held by nobody."""
+    long_title = "Held " + "and long " * 40
+    drain, claims_dir, out = build(tmp, {"alpha": claims("alpha", [
+        {"class": "domain", "topic": "kept", "title": "Kept", "body": "Stays.", "evidence": ["h1"]},
+        {"class": "domain", "topic": "held", "title": long_title, "body": "First.", "evidence": ["h1"]},
+        {"class": "domain", "topic": "held", "title": long_title, "body": "Second.", "evidence": ["h2"]},
+    ])})
+    heading = long_title.strip()
+    proc = run_assemble(drain, claims_dir, out, *keep_both(tmp, f"alpha/domain:held#{heading}"))
+    assert proc.returncode == 0, proc.stderr
+    held_file = dom(out, "alpha", "domain", "held.md")
+    first = json.loads(read(report_path(out)))
+    held_rel = [f for f in first["files"] if f.endswith("domain/held.md")]
+    assert held_rel and any(c.startswith(held_rel[0]) for c in first["clipped_descriptions"]), first
+    assert any(d["key"].startswith("alpha/domain:held#") for d in first["collision_decisions"]), first
+    os.remove(held_file)   # the hand revert of a slice that was new
+    hold = os.path.join(tmp, "hold.json")
+    with open(hold, "w", encoding="utf-8") as fh:
+        json.dump(["alpha/domain:held"], fh)
+    proc = run_assemble(drain, claims_dir, out, "--hold", hold, *keep_both(tmp, f"alpha/domain:held#{heading}"))
+    assert proc.returncode == 0, proc.stderr
+    assert not os.path.exists(held_file), "a held slice was written"
+    report = json.loads(read(report_path(out)))
+    assert report["held_back"] == ["alpha/domain:held"], report["held_back"]
+    said = json.dumps({k: report[k] for k in ("files", "clipped_descriptions", "collision_decisions")})
+    assert "held.md" not in said and "domain:held#" not in said, said
+    assert report["files_written"] == len(report["files"]) and any(f.endswith("domain/kept.md") for f in report["files"]), report
+    with open(hold, "w", encoding="utf-8") as fh:
+        json.dump(["alpha/domain:nothing-by-that-name"], fh)
+    proc = run_assemble(drain, claims_dir, out, "--hold", hold)
+    lines = proc.stderr.strip().split("\n")
+    assert proc.returncode == 1 and len(lines) == 1 and "names no slice of this drain: alpha/domain:nothing-by-that-name" in lines[0], proc.stderr
+
+
 def main() -> int:
     cases = [
         test_a_topic_named_like_a_budget_part_is_its_own_memory,
@@ -2654,6 +2694,7 @@ def main() -> int:
         test_a_malformed_hygiene_list_stops_the_drain_in_one_line,
         test_a_name_scoped_others_stays_in_its_own_projects_slices_only,
         test_the_memories_skipped_for_no_roles_class_are_named_in_the_committed_report,
+        test_a_held_back_slice_is_neither_written_nor_reported_as_the_drains,
     ]
     # THE REGISTRY IS THE TRAP THIS GUARDS. Cases run because they are
     # listed here, not because they are named test_*, so a case that is

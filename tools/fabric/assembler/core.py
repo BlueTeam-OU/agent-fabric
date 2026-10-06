@@ -321,6 +321,11 @@ class Run:
     empty_crossrefs: list[str] = field(default_factory=list)
     shared_index: dict[str, list[dict[str, str]]] = field(default_factory=lambda: defaultdict(list))
     owning_roles: list[str] = field(default_factory=list)
+    # --hold: the slices held back from this drain ("<role>/<class>:<topic>",
+    # "shared/<class>:<topic>"), and every file they have or would have, as
+    # the report names it: what the report must not count as this drain's.
+    held_back: list[str] = field(default_factory=list)
+    held_files: set[str] = field(default_factory=set)
 
 
 def base_for(run: Run, role: str, klass: str) -> str:
