@@ -67,12 +67,15 @@ STATUSES = ("no-credentials", "read-failed", "unreadable", "executor-failed", "s
 
 # The read, as the account. One line of tab-separated fields on stdout:
 # email, five-hour %, five-hour reset, seven-day %, seven-day reset — or
-# a reason in the first field when there is nothing to read.
+# a reason in the first field when there is nothing to read. The token
+# reaches curl as a header on its stdin (-H @-), never in its argv: an
+# argument is readable by every account on the host in /proc/<pid>/cmdline
+# for as long as curl runs (review of j31; the bash had it in argv).
 READ = r"""grep -Eq "^export CLAUDE_CODE_OAUTH_TOKEN=[^'\"[:space:]]|^export CLAUDE_CODE_OAUTH_TOKEN='[^']" "$HOME/.config/agent-fabric/secrets.env" 2>/dev/null && { printf 'setup-token\n'; exit 0; }
 f="$HOME/.claude/.credentials.json"
 [ -s "$f" ] || { printf 'no-credentials\n'; exit 0; }
 email="$(jq -r '.oauthAccount.emailAddress // "-"' "$HOME/.claude.json" 2>/dev/null || echo -)"
-u="$(curl -sS --max-time 20 -H "Authorization: Bearer $(jq -r .claudeAiOauth.accessToken "$f")" -H "anthropic-beta: oauth-2025-04-20" https://api.anthropic.com/api/oauth/usage 2>/dev/null)" || { printf 'read-failed\t%s\n' "$email"; exit 0; }
+u="$(jq -r '"Authorization: Bearer " + .claudeAiOauth.accessToken' "$f" 2>/dev/null | curl -sS --max-time 20 -H @- -H "anthropic-beta: oauth-2025-04-20" https://api.anthropic.com/api/oauth/usage 2>/dev/null)" || { printf 'read-failed\t%s\n' "$email"; exit 0; }
 printf '%s' "$u" | jq -r --arg e "$email" '[$e, (.five_hour.utilization // "-" | tostring), (.five_hour.resets_at // "-" | tostring | .[0:16]), (.seven_day.utilization // "-" | tostring), (.seven_day.resets_at // "-" | tostring | .[0:16])] | @tsv' 2>/dev/null || printf 'unreadable\t%s\n' "$email"
 """[:-1]  # the heredoc's text; `read -d ''` dropped its last newline
 

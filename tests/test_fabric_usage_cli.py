@@ -61,7 +61,9 @@ def main() -> int:
         # curl must never run for a template login: a fake that records it.
         curl_ran = os.path.join(sandbox, "curl-ran")
         os.makedirs(os.path.join(sandbox, "bin"))
-        put(os.path.join(sandbox, "bin", "curl"), f'#!/bin/sh\ntouch "{curl_ran}"\nexit 7\n')
+        # It keeps its argv and its stdin, to show where the token went.
+        put(os.path.join(sandbox, "bin", "curl"),
+            f'#!/bin/sh\ntouch "{curl_ran}"\nprintf "%s\\n" "$@" > "{curl_ran}.argv"\ncat > "{curl_ran}.stdin"\nexit 7\n')
         os.chmod(os.path.join(sandbox, "bin", "curl"), 0o755)
         env = {"HOME": home, "PATH": os.path.join(sandbox, "bin") + os.pathsep + os.environ.get("PATH", "")}
 
@@ -87,6 +89,15 @@ def main() -> int:
         check("no template: the login's own sign-in is read, as before",
               os.path.exists(curl_ran) and re.search(r"^read-failed\told@example\.org$", out, re.M) is not None, out)
         check("…and its token stays out of the output", "sk-ant-" not in out, out)
+        argv, stdin = "", ""
+        if os.path.exists(curl_ran + ".argv"):
+            with open(curl_ran + ".argv", encoding="utf-8") as fh:
+                argv = fh.read()
+            with open(curl_ran + ".stdin", encoding="utf-8") as fh:
+                stdin = fh.read()
+        check("…sent as a header on curl's stdin, never in its argv",
+              "sk-ant-" not in argv and stdin == "Authorization: Bearer sk-ant-oat01-OWN-SIGNIN\n"
+              and "@-" in argv.split("\n"), f"argv: {argv!r}\nstdin: {stdin!r}")
 
     print("fabric-usage: the table, one row for every placed account")
     with tempfile.TemporaryDirectory() as t:
