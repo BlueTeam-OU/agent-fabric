@@ -528,8 +528,14 @@ def write_role(run: Run, role: str) -> None:
                     os.path.join(directory, filename))
                 if is_carried(klass, topic) and os.path.exists(os.path.join(directory, filename)):
                     # The carried file's cue is the one it moved with:
-                    # it names several topics, never one claim's title.
-                    description = described(os.path.join(directory, filename), description)
+                    # it names several topics, never one claim's title —
+                    # unless a correction retitles its only section, when
+                    # the cue that named that section names the new one.
+                    _meta, sections = read_existing_slice(os.path.join(directory, filename))
+                    retitle = [c for c in group if len(sections) == 1
+                               and (c.get("merge_target") or "").strip() in sections]
+                    description = clip_description(run, claim_heading(retitle[0]), os.path.join(directory, filename)) \
+                        if retitle else described(os.path.join(directory, filename), description)
                 write_slice(run, directory, filename, role, klass, group, description,
                             topic=topic if directory != base else None)
                 run.index_entries[role].append(

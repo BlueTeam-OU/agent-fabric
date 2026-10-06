@@ -2676,6 +2676,31 @@ def test_every_role_the_project_binds_with_domain_slices_gets_an_index(tmp: str)
     assert proc.returncode == 1 and "taxonomy cannot be read" in proc.stderr, proc.stderr
 
 
+def test_a_correction_retitling_a_carried_files_only_section_renames_its_cue(tmp: str) -> None:
+    """A carried file keeps the cue it moved with, since it names several
+    topics. When a correction's merge_target retitles its only section, that
+    cue named the stale section: the file's description, and the index line,
+    take the correction's heading (the 2026-10-05 drain's review, B8)."""
+    drain, claims_dir, out = build(tmp, {"alpha": claims("alpha", [
+        {"class": "workflow", "topic": "fix", "title": "New cue", "body": "Corrected.", "merge_target": "Old cue",
+         "evidence": ["h1"]},
+    ])})
+    wf = proj(out, "alpha", "workflow")
+    os.makedirs(wf, exist_ok=True)
+    head = "---\nrole: alpha\nclass: workflow\ndescription: {cue}\ntier: 1\n---\n\n"
+    with open(os.path.join(wf, "workflow-carried-2025-12-01.md"), "w", encoding="utf-8") as fh:
+        fh.write(head.format(cue="Old cue") + "## Old cue\n\nStale.\n")
+    with open(os.path.join(wf, "other.md"), "w", encoding="utf-8") as fh:
+        fh.write(head.format(cue="Other") + "## Other\n\nO.\n")
+    proc = run_assemble(drain, claims_dir, out)
+    assert proc.returncode == 0, proc.stderr
+    carried = read(os.path.join(wf, "workflow-carried-2025-12-01.md"))
+    assert "## New cue" in carried and "Stale." not in carried, carried
+    assert "description: New cue" in carried or 'description: "New cue"' in carried, carried
+    index = read(proj(out, "alpha", "INDEX.md"))
+    assert "workflow-carried-2025-12-01.md) — New cue" in index and "Old cue" not in index, index
+
+
 def main() -> int:
     cases = [
         test_a_topic_named_like_a_budget_part_is_its_own_memory,
@@ -2759,6 +2784,7 @@ def main() -> int:
         test_a_held_back_slice_is_neither_written_nor_reported_as_the_drains,
         test_a_flat_file_moved_in_is_deduplicated_by_text_and_restamped,
         test_every_role_the_project_binds_with_domain_slices_gets_an_index,
+        test_a_correction_retitling_a_carried_files_only_section_renames_its_cue,
     ]
     # THE REGISTRY IS THE TRAP THIS GUARDS. Cases run because they are
     # listed here, not because they are named test_*, so a case that is
