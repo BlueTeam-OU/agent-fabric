@@ -132,8 +132,10 @@ from dataclasses import dataclass, field
 HERE = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
 import gh  # noqa: E402
+# Every name the parts define, from here as before: callers and tests reach
+# them as pr_review_status.<name> (pr_gate, post_review, tests/test_pr_review_status.py).
+from github.review_status.base import PROG, Die, out, err, jstr, sha8, jkey, login_of  # noqa: E402, F401
 
-PROG = "pr-review-status"
 
 HELP = """Has THE HEAD of this PR been reviewed — by a reviewer other than the
 author, or by the review class's blind review? A raw `gh pr view`
@@ -242,12 +244,15 @@ Exit codes:
      owed — or a configured automated reviewer declined (the `decline
      reason` line says which phrase). Never returned for a merged pr."""
 
+
 # The marker post-review writes as the first line of every review the
 # review class posts. Must stay byte-identical to post_review.REVIEW_MARKER:
 # test_post_review_cli.py compares this line with that one, and
 # tests/test_post_review.py the two constants, so a one-sided change is
 # caught. A literal, not an import, so the comparison has two sides.
 REVIEW_MARKER = "<!-- agent-fabric-review v1 -->"
+
+
 # Reviews posted under earlier markers keep counting: the fabric's own
 # previous marker is built in, and a project's integration forwarder
 # (projects/<id>/integration/gh/) may add its own through
@@ -257,8 +262,12 @@ REVIEW_MARKER = "<!-- agent-fabric-review v1 -->"
 # 2026-09-20 (docs/adr/ADR-020-the-review-class-is-the-review.md §5 rule 8).
 BUILTIN_LEGACY_MARKER = "<!-- agent-fabric-substitute-review v1 -->"
 
+
 TRUSTED_ASSOCIATIONS = ("OWNER", "MEMBER", "COLLABORATOR")
+
+
 PR_FIELDS = ["state", "mergeStateStatus", "headRefOid", "headRefName", "author", "isDraft", "reviewRequests"]
+
 
 # `${owner}`/`${name}`/`${pr}` are GraphQL VARIABLES: the bash spliced them
 # into the query text, the port never does (ADR-040 §5 rule 6).
@@ -271,11 +280,15 @@ TIMELINE_QUERY = """query($owner: String!, $name: String!, $pr: Int!) {
             ... on User { login }
             ... on Bot  { login }
             ... on Team { login: slug } } } } } } } }"""
+
+
 THREADS_QUERY = """query($owner:String!,$name:String!,$pr:Int!,$after:String){
   repository(owner:$owner,name:$name){
     pullRequest(number:$pr){
       reviewThreads(first:100,after:$after){nodes{isResolved isOutdated path}
         pageInfo{hasNextPage endCursor}}}}}"""
+
+
 # A page is 100 threads: past it the count was short and read as whole
 # (review of #71). Pages are followed to the end; a PR with more than
 # THREAD_PAGES of them is "unknown", never a count of the first ones.
@@ -299,57 +312,12 @@ def review_threads(owner: str, name: str, pr: int, after: str | None = None) -> 
             raise ValueError("a next page of review threads with no cursor")
     raise ValueError(f"more than {THREAD_PAGES * 100} review threads")
 
+
 # The reviewer's verdict comment: the sha in the body is abbreviated.
 VERDICT_SHA = re.compile(r"Reviewed commit:[^`]*`(?P<sha>[0-9a-f]{7,40})`", re.IGNORECASE)
+
+
 PASS_LINE = re.compile(r"\spass\s")
-
-
-class Die(Exception):
-    """A refusal: the message is the stderr text, verbatim, after the
-    `pr-review-status: ` prefix; `code` is the exit (2 unless said)."""
-
-    def __init__(self, msg: str, code: int = 2):
-        super().__init__(msg)
-        self.code = code
-
-
-def out(text: str = "", end: str = "\n") -> None:
-    sys.stderr.flush()
-    sys.stdout.write(text + end)
-    sys.stdout.flush()
-
-
-def err(text: str) -> None:
-    sys.stdout.flush()
-    print(text, file=sys.stderr, flush=True)
-
-
-# ── jq's reading of values, where the report prints them ────────────────
-
-def jstr(v) -> str:
-    """A value as jq's string interpolation (and `jq -r`) prints it: null
-    is the word null, a string is itself."""
-    if v is None:
-        return "null"
-    if isinstance(v, bool):
-        return "true" if v else "false"
-    if isinstance(v, str):
-        return v
-    return json.dumps(v, ensure_ascii=False)
-
-
-def sha8(v):
-    """`.commit_id[0:8]`: null stays null."""
-    return None if v is None else v[:8]
-
-
-def jkey(v):
-    """jq's sort order for a timestamp that may be null: null first."""
-    return (v is not None, "" if v is None else v)
-
-
-def login_of(row: dict):
-    return (row.get("user") or {}).get("login")
 
 
 # ── arguments ───────────────────────────────────────────────────────────
