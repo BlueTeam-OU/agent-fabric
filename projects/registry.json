@@ -119,6 +119,19 @@
       "integration": "projects/agent-fabric-gateway/integration",
       "license": "Apache-2.0",
       "note": "The fabric is the control plane (identity, roles, capability policy, model selection); the gateway accepts harness-native API traffic, executes the route it is given and adapts only where it must (its ADR-001, ADR-014). Designed by the owner's own sessions until 2026-09-24, when the owner put the whole repository under fabric-coordinator: one owner for the control/data boundary, its decision records, its code and its CI."
+    },
+    "herdr": {
+      "title": "herdr — the terminal workspace the owner runs the agents in (gzapi-org's fork of herdrdev/herdr)",
+      "remotes": [
+        "git@github.com:gzapi-org/herdr.git",
+        "https://github.com/gzapi-org/herdr"
+      ],
+      "default_branch": "master",
+      "taxonomy": ".agent-fabric/taxonomy.json",
+      "memory": ".agent-fabric/memory",
+      "integration": "projects/herdr/integration",
+      "license": "Apache-2.0",
+      "note": "A Rust terminal multiplexer for coding agents; the owner opens one tab per agent account, each entered with moveto. Forked 2026-10-06 on the owner's word: a change general to herdr (a switch that turns its socket API off or limits it to the attached client) goes upstream to herdrdev/herdr as a pull request from this fork; everything the fabric needs of it (per-pane status from the control plane's presence, a fabric-herd that builds the workspace from the host registry, status for a pane whose agent runs as another login) stays in this fork. rust-ui-dev holds it beside InterWeave (the owner, 2026-10-06)."
     }
   }
 }
