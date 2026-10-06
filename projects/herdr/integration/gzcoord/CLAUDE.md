@@ -6,8 +6,8 @@ integration with it, and the state is the first thing to know.
 
 ## GZCoord is ACTIVE — over the relay the coordinator hosts
 
-herdr's role, rust-ui-dev — gzapi-org's fork of herdrdev/herdr, held
-beside InterWeave — is on the fleet's coordination channel: the same
+herdr's role, rust-ui-dev — gzapi-org's fork of herdrdev/herdr — is on
+the fleet's coordination channel: the same
 relay and channel as every other project of the fleet (`config.json`
 beside this file), hosted on the coordinator's workspace
 (`projects/gzapp/integration/gzcoord/BRIDGE-RELAY-SETUP.md`). Activated
