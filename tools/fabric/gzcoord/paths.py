@@ -5,6 +5,7 @@ diagnostics are dictionary lines)."""
 from __future__ import annotations
 
 import os
+import sys
 
 # tools/fabric/gzcoord/ -> the checkout. Real paths: the commands are links
 # in ~/.local/bin, and a link's directory is not the checkout's.
@@ -22,3 +23,14 @@ def fabric_root() -> str:
     empty is set, as `??` read it in paths.mjs: the port keeps what the
     Node did, and an empty root names nothing found."""
     return os.environ.get("AGENT_FABRIC_ROOT", CHECKOUT)
+
+
+def identity():
+    """runtime/identity.py of the checkout this code is in: the one source
+    of the agent's state directory, its lock and its atomic write
+    (ADR-003), loaded when a caller first writes state."""
+    runtime = os.path.join(CHECKOUT, "runtime")
+    if runtime not in sys.path:
+        sys.path.insert(0, runtime)
+    import identity as module  # noqa: E402 — runtime/, found by its path
+    return module
