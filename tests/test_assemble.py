@@ -2802,10 +2802,13 @@ def test_a_role_id_that_is_no_slug_is_refused_before_anything_is_written(tmp: st
             ([{"id": "Alpha"}], "alpha"),
             (["alpha"], "alpha"),
             ([{"keywords": []}], "alpha"),
-            ([{"id": "alpha"}], "../escaped"))):
+            ([{"id": "alpha"}], "../escaped"),
+            ([{"id": "alpha"}], "alpha+shared"))):
         case = os.path.join(tmp, str(n))
-        drain, claims_dir, out = build(case, {"alpha": claims(claims_role, [
-            {"class": "domain", "topic": "one", "title": "T", "body": "b", "evidence": ["h1"]},
+        # "alpha+shared": a valid role whose claim names a co-owner that traverses.
+        shared = {"shared_with": ["../../../escaped"]} if claims_role == "alpha+shared" else {}
+        drain, claims_dir, out = build(case, {"alpha": claims(claims_role.split("+")[0], [
+            {"class": "domain", "topic": "one", "title": "T", "body": "b", "evidence": ["h1"], **shared},
         ])})
         os.makedirs(os.path.join(working_copy(out), ".agent-fabric"), exist_ok=True)
         with open(os.path.join(working_copy(out), ".agent-fabric", "hygiene.json"), "w", encoding="utf-8") as fh:

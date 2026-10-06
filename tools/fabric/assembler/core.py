@@ -150,8 +150,9 @@ def normalize_artifact(kind: str, value: str) -> str:
 
 # A role id, as identities/schemas/claims.schema.json gives it: what the
 # assembler joins into a path (layout.domain_dir, project_dir), so it is
-# held to it wherever it comes from — a claims file or the project's
-# taxonomy — before anything is written (#100's review, 2).
+# held to it wherever it comes from — a claims file's role, a claim's
+# shared_with, the project's taxonomy — before anything is written
+# (#100's review, 2).
 ROLE_ID = re.compile(r"[a-z][a-z0-9-]*")
 
 

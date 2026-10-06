@@ -115,6 +115,12 @@ def read_claims(run: Run) -> int | None:
         run.all_claims[role] = payload.get("claims", [])
         for claim in run.all_claims[role]:
             claim["_role"] = role   # for the section's dated tail; never written to disk
+            # A co-owner is a role id too: it gets a project directory and
+            # an index (writer.write_shared, assemble.py's owning roles).
+            for owner in claim.get("shared_with") or []:
+                why = role_id_error(owner)
+                if why:
+                    sys.exit(f"assemble: {name}: a claim's shared_with names {why}")
         run.telemetry[role] = payload.get("telemetry", {})
 
         # DOMAIN-ONLY EVIDENCE MAY SUPPORT ONLY A DOMAIN CLAIM.
