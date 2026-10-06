@@ -58,7 +58,10 @@ reason Wave 7 moved this file. The order is the protocol's and is kept.
 GZCOORD_JOURNAL=off skips the journal, never the record: each of those
 messages gets a line in journal-bypass.jsonl (gzcoord/bypass.py) before it
 is shown or acknowledged, and a line that cannot be written holds the page
-as a journal that cannot keep it does.
+as a journal that cannot keep it does. --replay and --history leave no
+bypass line, journal on or off: they show what the relay already holds and
+acknowledge nothing, and the journal is not written by them in either mode;
+the crossing was recorded when the record was first shown.
 """
 from __future__ import annotations
 

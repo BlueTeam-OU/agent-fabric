@@ -52,9 +52,10 @@ def lines_of(path: str) -> list[dict]:
 
 
 class Relay:
-    """The stub relay: sends answered with a seq, one page served once, acks counted."""
+    """The stub relay: sends answered with a seq (or `send_status`), one page
+    served once, the same page as history, acks counted."""
 
-    def __init__(self, page: list[dict] | None = None):
+    def __init__(self, page: list[dict] | None = None, send_status: int = 200):
         self.posts: list[dict] = []
         self.acks: list[str] = []
         served = [False]
@@ -62,6 +63,8 @@ class Relay:
         def answer(_h, _method, path, body):
             if path.startswith("/api/send"):
                 self.posts.append(json.loads(body))
+                if send_status != 200:
+                    return send_status, json.dumps({"error": "refused"})
                 return 200, json.dumps({"seq": 42, "id": "r42"})
             if path.startswith("/api/ack"):
                 self.acks.append(json.loads(body).get("message_id"))
@@ -71,6 +74,8 @@ class Relay:
                     served[0] = True
                     return 200, json.dumps({"messages": page, "next_cursor": "c"})
                 return 200, json.dumps({"messages": []})
+            if path.startswith("/api/messages"):
+                return 200, json.dumps({"messages": page or []})
             return 200, "{}"
         self.stub = P.Stub(answer)
 
@@ -96,7 +101,7 @@ def drain(env: dict) -> subprocess.CompletedProcess:
 MID = "01a09fc1-0000-7000-8000-0000000000c1"
 
 
-@case("a bypassed send leaves exactly one line, before the post: id, hash, no seq, 0600, never the body")
+@case("a bypassed send leaves a pending line before the post and an accepted one with the seq after: 0600, no body")
 def _():
     relay, state = Relay(), P.scratch("bypass-state-")
     try:
@@ -107,12 +112,17 @@ def _():
     ok("GZCOORD_JOURNAL=off — this message is sent without being kept" in r.stderr, r.stderr)
     eq(len(relay.posts), 1)
     got = lines_of(record_path(state))
-    eq(len(got), 1, got)
     posted = relay.posts[0]["content"]
-    eq({k: got[0][k] for k in ("direction", "message_id", "sha256", "seq", "reason")},
-       {"direction": "out", "message_id": MID, "sha256": hashlib.sha256(posted.encode()).hexdigest(), "seq": None,
-        "reason": "GZCOORD_JOURNAL=off"})
-    ok(isinstance(got[0]["at"], str) and got[0]["at"].endswith("Z"), got[0])
+    sha = hashlib.sha256(posted.encode()).hexdigest()
+    eq([{k: x[k] for k in ("direction", "message_id", "sha256", "seq", "reason", "outcome")} for x in got],
+       [{"direction": "out", "message_id": MID, "sha256": sha, "seq": None, "reason": "GZCOORD_JOURNAL=off",
+         "outcome": "pending"},
+        {"direction": "out", "message_id": MID, "sha256": sha, "seq": 42, "reason": "GZCOORD_JOURNAL=off",
+         "outcome": "accepted"}])
+    ok(all(isinstance(x["at"], str) and x["at"].endswith("Z") for x in got), got)
+    with open(record_path(state), "rb") as fh:
+        raw = fh.read()
+    ok(raw.endswith(b"\n") and b"\n\n" not in raw, f"the record holds a blank line: {raw!r}")
     eq(stat.S_IMODE(os.stat(record_path(state)).st_mode), 0o600)
 
 
@@ -282,6 +292,50 @@ def _():
             os.environ.pop("AGENT_FABRIC_STATE_DIR", None)
         else:
             os.environ["AGENT_FABRIC_STATE_DIR"] = saved
+
+
+@case("a bypassed send the relay refuses leaves pending then failed: an auditor tells sent from refused")
+def _():
+    relay, state = Relay(send_status=500), P.scratch("bypass-state-")
+    try:
+        r = send(relay.env(state, GZCOORD_JOURNAL="off"), message(MID))
+    finally:
+        relay.close()
+    eq(r.returncode, 3, r.stderr)
+    eq([(x["outcome"], x["seq"]) for x in lines_of(record_path(state))], [("pending", None), ("failed", None)])
+
+
+@case("a record that ends in a fragment: the next line starts on a fresh line, readable after it")
+def _():
+    state = P.scratch("bypass-state-")
+    os.makedirs(os.path.dirname(record_path(state)))
+    with open(record_path(state), "w", encoding="ascii") as fh:
+        fh.write('{"at":"2026-10-06T00:00:00.000Z","direction":"out","messa')   # a kill mid-write left this
+    relay = Relay()
+    try:
+        r = send(relay.env(state, GZCOORD_JOURNAL="off"), message(MID))
+    finally:
+        relay.close()
+    eq(r.returncode, 0, r.stderr)
+    with open(record_path(state), encoding="ascii") as fh:
+        lines = fh.read().split("\n")
+    ok(lines[0].endswith('"messa'), lines)
+    eq([json.loads(x)["outcome"] for x in lines[1:] if x], ["pending", "accepted"], lines)
+
+
+@case("--replay under the bypass shows the record and leaves no line: it acknowledges nothing, as the journal-on replay")
+def _():
+    page = [{"seq": 7, "id": "r7", "ts": "T7", "sender": "x/y", "content": message(MID, frm="x/y")}]
+    relay, state = Relay(page), P.scratch("bypass-state-")
+    try:
+        r = subprocess.run(["node", P.INBOX_CMD, "--replay", "7"], env=relay.env(state, GZCOORD_JOURNAL="off"),
+                           capture_output=True, text=True, timeout=60)
+    finally:
+        relay.close()
+    eq(r.returncode, 0, r.stdout + r.stderr)
+    ok(BODY in r.stdout, f"the record was not shown: {r.stdout}{r.stderr}")
+    eq(relay.acks, [])
+    ok(not os.path.exists(record_path(state)), "a replay wrote a bypass line")
 
 
 def main() -> int:

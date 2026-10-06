@@ -60,9 +60,11 @@ is "unavailable" — never present.
 THE JOURNAL (ADR-041), in this process: kept before the carrier sees it,
 its outcome after; a journal that cannot take it refuses the send — a
 carrier may keep no copy, so a message sent unremembered could be gone
-for good. GZCOORD_JOURNAL=off sends without it and says so every time,
-and first appends a line to journal-bypass.jsonl (gzcoord/bypass.py): a
-bypass that cannot be recorded is refused, exit 2.
+for good. GZCOORD_JOURNAL=off sends without it and says so every time:
+first a "pending" line in journal-bypass.jsonl (gzcoord/bypass.py), and
+a bypass that cannot be recorded is refused, exit 2; then, once the relay
+has answered, an "accepted" or "failed" line (said, never a refusal, when
+it cannot be written).
 The order is the protocol's and is kept.
 """
 from __future__ import annotations
@@ -223,6 +225,16 @@ def journal(args: list[str], stdin: str, run: Callable[[list[str], str], dict] =
 
 def _journal_off() -> bool:
     return bypass.is_off()
+
+
+def _bypass_outcome(text: str, outcome: str, seq: Any = None) -> None:
+    """A bypassed send's second line, once the relay has answered. Not a
+    refusal when it cannot be written: the message has left or failed
+    already, and its pending line stands for it."""
+    try:
+        bypass.record([bypass.entry("out", text, seq, outcome=outcome)])
+    except bypass.BypassUnrecorded as e:
+        sys.stderr.write(f"episodic: the send's outcome ({outcome}) is not in the bypass record: {e}\n")
 
 
 # ── presence, through the control plane's own process ────────────────
@@ -451,7 +463,7 @@ def main(argv: list[str]) -> int:
     kept = None
     if _journal_off():
         try:
-            bypass.record([bypass.entry("out", text)])
+            bypass.record([bypass.entry("out", text, outcome="pending")])
         except bypass.BypassUnrecorded as e:
             sys.stderr.write(f"episodic: not sent: {e}; the journal is bypassed only with a record of it (ADR-041)\n")
             return 2
@@ -483,7 +495,9 @@ def main(argv: list[str]) -> int:
         # The pending row becomes a failed one — unless an earlier attempt's
         # outcome was never written: that one may have reached the relay,
         # and this failure says nothing about it (review of #78).
-        if not _journal_off():
+        if _journal_off():
+            _bypass_outcome(text, "failed")
+        else:
             if str((kept or {}).get("stdout") or "").strip() == "unknown":
                 sys.stderr.write("episodic: an earlier attempt of this message may have reached the relay; its row"
                                  " stays pending\n")
@@ -501,7 +515,9 @@ def main(argv: list[str]) -> int:
         print(t("send.relay-unreachable", {"relay_url": relay_url, "detail": str(e)}), file=sys.stderr)
         return 3
     seq = js.get(res, "seq") if isinstance(res, dict) else js.UNDEFINED
-    if not _journal_off():
+    if _journal_off():
+        _bypass_outcome(text, "accepted", seq)
+    else:
         # The send has happened: a journal that fails now is said, never a failed send.
         done = journal(["gzcoord-out-final", mid, "--state", "accepted",
                         *(["--seq", js.string(seq)] if not js.nullish(seq) else [])], "")
