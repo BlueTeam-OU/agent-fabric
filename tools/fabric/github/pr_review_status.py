@@ -43,8 +43,8 @@ CONTRACT, frozen from the bash (ADR-040 §5 rule 3):
             5  no review is COMING, on an OPEN pr: permanent, do not wait.
                The head advanced past every counted review with none
                requested, or a configured automated reviewer declined
-  help      HELP below, byte for byte what the bash printed from its own
-            header
+  help      HELP (review_status/cli.py), byte for byte what the bash
+            printed from its own header
   lines     stdout and stderr are flushed in program order, so a caller that
             merges the two (2>&1) sees the order the bash printed in
 
@@ -131,7 +131,8 @@ HERE = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
 import gh  # noqa: E402
 # Every name the parts define, from here as before: callers and tests reach
-# them as pr_review_status.<name> (pr_gate, post_review, tests/test_pr_review_status.py).
+# them as pr_review_status.<name> (pr_gate; tests/test_pr_review_status.py,
+# test_post_review.py, test_pr_gate.py).
 from github.review_status.base import PROG, Die, out, err, jstr, sha8, jkey, login_of  # noqa: E402, F401
 from github.review_status.cli import HELP, OctalError, bash_int, as_seconds, Args, parse  # noqa: E402, F401
 from github.review_status.config import REVIEW_MARKER, BUILTIN_LEGACY_MARKER  # noqa: E402, F401
