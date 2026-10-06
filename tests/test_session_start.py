@@ -285,6 +285,34 @@ def test_hook_exports_the_control_plane_into_the_session_shell(tmp: str) -> None
     assert run_hook({"cwd": "/"}, env).returncode == 0
 
 
+def test_hook_unsets_every_secret_in_the_session_shell(tmp: str) -> None:
+    """The env file the harness sources into every Bash call unsets the
+    harness's credentials and each name sync wrote, but the plain values
+    (ADR-038 rule 11). Asked as set/unset per name, in a clean shell: a
+    check about secrets prints no value, even when it fails."""
+    home = os.path.join(tmp, "home-secrets")
+    cfg = os.path.join(home, ".config", "agent-fabric")
+    os.makedirs(cfg)
+    with open(os.path.join(cfg, "secrets.env"), "w", encoding="utf-8") as fh:
+        fh.write("# agent-fabric secrets\nexport GH_TOKEN=x\nexport OPENAI_API_KEY='y z'\nexport DEMO_PORT_OFFSET=640\n")
+    with open(os.path.join(cfg, "env.sh"), "w", encoding="utf-8") as fh:
+        fh.write("# agent-fabric secrets\nexport DEMO_PORT_OFFSET=640\n")
+    env_file = os.path.join(tmp, "claude-env-secrets")
+    env = {**os.environ, "HOME": home, "AGENT_FABRIC_STATE_DIR": os.path.join(tmp, "state-s"), "CLAUDE_ENV_FILE": env_file}
+    assert run_hook({"cwd": "/"}, env).returncode == 0
+    names = ("CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "OPENROUTER_API_KEY", "GH_TOKEN",
+             "CLAUDE_BRIDGE_AUTH_TOKEN", "OPENAI_API_KEY", "DEMO_PORT_OFFSET")
+    probe = "; ".join(f'[ -n "${{{n}+x}}" ] && echo {n}=set || echo {n}=unset' for n in names)
+    planted = {n: "planted" for n in names}
+    got = subprocess.run(["bash", "-c", f'source "{env_file}"; {probe}'], capture_output=True, text=True,
+                         env={"PATH": os.environ.get("PATH", "/usr/bin:/bin"), **planted}).stdout.split()
+    want = [f"{n}=unset" for n in names[:-1]] + ["DEMO_PORT_OFFSET=set"]
+    assert got == want, got
+    run_hook({"cwd": "/"}, env)
+    assert open(env_file, encoding="utf-8").read().count("no secret in the session shell") == 1
+    assert "planted" not in open(env_file, encoding="utf-8").read() and "y z" not in open(env_file, encoding="utf-8").read()
+
+
 def test_hook_says_when_the_session_has_no_inbox_watch(tmp: str) -> None:
     """Under a process named claude with no `inbox.mjs --follow` beneath it,
     the context says to arm the watch; with one beneath it, it does not."""
@@ -527,6 +555,7 @@ def main() -> int:
              test_hook_says_when_the_working_copy_trails_its_origin,
              test_hook_reports_a_bad_marker_and_still_starts,
              test_hook_never_blocks, test_hook_exports_the_control_plane_into_the_session_shell,
+             test_hook_unsets_every_secret_in_the_session_shell,
              test_hook_says_when_the_session_has_no_inbox_watch,
              test_hook_says_when_the_branch_sweep_is_due,
              test_hook_says_the_job_list,
