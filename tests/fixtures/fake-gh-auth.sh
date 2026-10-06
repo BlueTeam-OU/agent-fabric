@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/usr/bin/env bash
 # A gh for the secrets-sync tests (AGENT_FABRIC_GH): it keeps one token in
 # the sandbox HOME and never reaches the network or a keyring. A real gh in
 # a test once read the runner's keyring and tried a login with a fixture
