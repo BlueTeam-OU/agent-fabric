@@ -504,11 +504,14 @@ def main(argv: list[str]) -> int:
         # outcome was never written: that one may have reached the relay,
         # and this failure says nothing about it (review of #78).
         if _journal_off():
-            # "failed" only when the relay answered and refused it (an HTTP
-            # status), or it never left (a refused token). Anything else (no
-            # answer, a timeout, a body that is not the relay's) says nothing
-            # of what the relay holds: "unknown", it may have reached it.
-            refused = getattr(e, "status", None) is not None or isinstance(e, inbox.TokenRefused)
+            # "failed" only when the relay refused it (a 4xx: the request was
+            # judged and turned away), or it never left (a refused token).
+            # Anything else (no answer, a timeout, a body that is not the
+            # relay's, a 5xx from the relay or a proxy in front of it, which
+            # may come after the message was stored) says nothing of what
+            # the relay holds: "unknown", it may have reached it.
+            status = getattr(e, "status", None)
+            refused = (isinstance(status, int) and 400 <= status < 500) or isinstance(e, inbox.TokenRefused)
             _bypass_outcome(text, "failed" if refused else "unknown")
         else:
             if str((kept or {}).get("stdout") or "").strip() == "unknown":

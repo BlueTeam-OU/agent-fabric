@@ -20,8 +20,8 @@ escape from the invariant is never an escape without a trace:
   outcome     a send has two lines: "pending" before the post (written, or
               the send is refused), then one once the post is over:
               "accepted" (the relay took it, with its seq), "failed" (the
-              relay answered and refused it, or it never left this
-              process), or "unknown" (no answer that could be read: it may
+              relay refused it with a 4xx, or it never left this process),
+              or "unknown" (no answer that could be read, or a 5xx: it may
               have reached the relay). A pending line with no second one is
               a send whose outcome was never recorded: it may have too.
 

@@ -301,7 +301,7 @@ def _():
 
 @case("a bypassed send the relay refuses leaves pending then failed: an auditor tells sent from refused")
 def _():
-    relay, state = Relay(send_status=500), P.scratch("bypass-state-")
+    relay, state = Relay(send_status=409), P.scratch("bypass-state-")
     try:
         r = send(relay.env(state, GZCOORD_JOURNAL="off"), message(MID))
     finally:
@@ -343,16 +343,17 @@ def _():
     ok(not os.path.exists(record_path(state)), "a replay wrote a bypass line")
 
 
-@case("a post whose answer cannot be read is \"unknown\", never \"failed\": the relay may hold it")
+@case("a post whose answer cannot be read, or a 5xx, is \"unknown\", never \"failed\": the relay may hold it")
 def _():
-    relay, state = Relay(send_body="accepted, but not JSON"), P.scratch("bypass-state-")
-    try:
-        r = send(relay.env(state, GZCOORD_JOURNAL="off"), message(MID))
-    finally:
-        relay.close()
-    eq(r.returncode, 3, r.stderr)
-    eq(len(relay.posts), 1, "the relay received it")
-    eq([x["outcome"] for x in lines_of(record_path(state))], ["pending", "unknown"])
+    for kw in ({"send_body": "accepted, but not JSON"}, {"send_status": 503}):
+        relay, state = Relay(**kw), P.scratch("bypass-state-")
+        try:
+            r = send(relay.env(state, GZCOORD_JOURNAL="off"), message(MID))
+        finally:
+            relay.close()
+        eq(r.returncode, 3, f"{kw}: {r.stderr}")
+        eq(len(relay.posts), 1, "the relay received it")
+        eq([x["outcome"] for x in lines_of(record_path(state))], ["pending", "unknown"], str(kw))
 
 
 @case("a send's second line that cannot be written is said, never a refusal: the message has left")
