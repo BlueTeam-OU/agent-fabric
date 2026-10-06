@@ -48,6 +48,9 @@ there is no session to stop.
 #     every forwarder: run without that Python, even --help is exit 127;
 #   - the job lookup and each git call are bounded at TIMEOUT_S (the bash
 #     waited for ever): a job list that does not answer is exit 2, said;
+#   - a working copy git cannot answer for — a git call past TIMEOUT_S,
+#     or a `git status` that fails inside it — is exit 3, said, and
+#     --force still goes ahead (the bash read a failed status as clean);
 #   - a marker that cannot be written says so in a line of its own (the
 #     bash left mkdir's or Python's own words, the same exit 1);
 #   - the walk up to the session reads /proc, not ps.
@@ -138,30 +141,41 @@ def job_known(job: str) -> bool:
     return r.returncode == 0
 
 
-def _git(*args: str) -> subprocess.CompletedProcess | None:
+class Unknown(Exception):
+    """Whether the working copy has uncommitted changes cannot be told."""
+
+
+def _git(*args: str) -> subprocess.CompletedProcess:
+    """`git <args>`, decoded with replacement: only emptiness and the
+    toplevel are read, and a file name that is not UTF-8 is still a change.
+    No git at all is a failed call (the bash's `command not found`); git
+    that does not answer is Unknown."""
     try:
         return subprocess.run(["git", *args], stdin=subprocess.DEVNULL, capture_output=True, text=True,
-                              timeout=TIMEOUT_S)
-    except (OSError, subprocess.TimeoutExpired):
-        return None
+                              errors="replace", timeout=TIMEOUT_S)
+    except OSError as e:
+        return subprocess.CompletedProcess(["git", *args], 127, "", str(e))
+    except subprocess.TimeoutExpired:
+        raise Unknown(f"git {args[0]} did not answer within {TIMEOUT_S} s") from None
 
 
 def dirty_toplevel() -> str | None:
-    """The working copy's toplevel when it has uncommitted changes.
-
-    Untracked files count: a new file never added is work not yet at its
-    artifact, as much as an edit is (fabric-branches counts them too).
-    Outside a working copy, or where git cannot say, the tree is not held
-    to be dirty: the bash read a failed `git status` as clean, and the
-    port keeps that (reported to fabric-coordinator with j31)."""
+    """The working copy's toplevel when it has uncommitted changes, None
+    when it has none or this is no working copy; Unknown when git cannot
+    say. Untracked files count: a new file never added is work not yet at
+    its artifact, as much as an edit is (fabric-branches counts them too).
+    A `git status` that fails inside a working copy is Unknown, never
+    clean: the bash read it as clean, and a session ended over work it
+    could not see (review of j31)."""
     inside = _git("rev-parse", "--is-inside-work-tree")
-    if inside is None or inside.returncode != 0:
+    if inside.returncode != 0:
         return None
     status = _git("status", "--porcelain")
-    if status is None or not status.stdout.strip("\n"):
+    if status.returncode != 0:
+        raise Unknown(f"git status failed: {(status.stderr.strip().splitlines() or ['exit ' + str(status.returncode)])[-1]}")
+    if not status.stdout.strip("\n"):
         return None
-    top = _git("rev-parse", "--show-toplevel")
-    return top.stdout.rstrip("\n") if top is not None else ""
+    return _git("rev-parse", "--show-toplevel").stdout.rstrip("\n")
 
 
 def _parent(pid: int) -> int | None:
@@ -246,7 +260,12 @@ def run(argv: list[str]) -> int:
     if job and not job_known(job):
         return 2
     if not opts["force"]:
-        top = dirty_toplevel()
+        try:
+            top = dirty_toplevel()
+        except Unknown as e:
+            say(f"cannot tell whether this working copy has uncommitted changes ({e}); "
+                "commit or stash them, or pass --force")
+            return 3
         if top is not None:
             say(f"{top} has uncommitted changes; commit or stash them, or pass --force")
             return 3
