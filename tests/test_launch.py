@@ -11,6 +11,7 @@ import io
 import json
 import os
 import pwd
+import shutil
 import signal
 import subprocess
 import sys
@@ -512,6 +513,34 @@ def main() -> int:
                            capture_output=True, text=True, timeout=30)
         check("the shim runs the module by absolute path, its argv untouched",
               r.returncode == 1 and r.stderr == "launch: --provider must be openrouter or anthropic, not 'nowhere'\n")
+
+        print("two launchers in one process")
+        # A fixture copy and the real launcher loaded in one process each run
+        # their own parts: the package is loaded by path, and a second load
+        # must not take the first one's cached parts (#102's review).
+        copy = f"{tmp}/copy/tools/fabric"
+        os.makedirs(copy)
+        shutil.copytree(os.path.join(os.path.dirname(MODULE), "launcher"), f"{copy}/launcher",
+                        ignore=shutil.ignore_patterns("__pycache__"))
+        for f in ("launch.py", "git.py"):
+            shutil.copy(os.path.join(os.path.dirname(MODULE), f), f"{copy}/{f}")
+        code = ("import importlib.util, inspect, sys\n"
+                "def load(name, path):\n"
+                "    spec = importlib.util.spec_from_file_location(name, path)\n"
+                "    m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m); return m\n"
+                "a = load('launch_a', sys.argv[1]); b = load('launch_b', sys.argv[2])\n"
+                "print(inspect.getsourcefile(a.helper)); print(inspect.getsourcefile(b.helper))\n"
+                "print(a.helper is b.helper)\n")
+        r = subprocess.run([sys.executable, "-I", "-c", code, MODULE, f"{copy}/launch.py"],
+                           capture_output=True, text=True, timeout=60)
+        files = r.stdout.splitlines()
+        # Resolved on both sides: launch.py names its parts by realpath, and a
+        # clone or $TMPDIR may sit behind a symlink.
+        real = [os.path.realpath(f) for f in files[:2]]
+        check("each launcher runs its own parts, whichever loaded first",
+              r.returncode == 0 and len(files) == 3
+              and real[0].startswith(os.path.realpath(os.path.dirname(MODULE)) + os.sep)
+              and real[1].startswith(os.path.realpath(copy) + os.sep) and files[2] == "False", f"{r.stdout}{r.stderr}")
 
     print("test_launch.py: OK" if not fails else f"test_launch.py: {fails} FAILED")
     return 1 if fails else 0
