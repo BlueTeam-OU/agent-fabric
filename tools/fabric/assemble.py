@@ -71,7 +71,7 @@ from assembler.intake import parse_args, open_layout, read_claims, screen_hygien
 from assembler.targets import plan_classes, held_files, resolve_all_targets  # noqa: E402
 from assembler.collisions import check_collisions  # noqa: E402
 from assembler.writer import write_shared, write_role  # noqa: E402
-from assembler.index import index_role  # noqa: E402
+from assembler.index import bound_roles_with_domain_slices, index_role  # noqa: E402
 from assembler.report import report  # noqa: E402
 
 
@@ -93,8 +93,10 @@ def main() -> int:
     write_shared(run)
     # Every role that owns anything gets a project directory and an index —
     # including one whose claims all live in shared slices, which would
-    # otherwise end up with knowledge and no way to find it.
-    run.owning_roles = sorted(set(run.per_role) | set(run.shared_index) | set(run.all_claims))
+    # otherwise end up with knowledge and no way to find it — and so does
+    # every role the project binds whose domain holds slices.
+    run.owning_roles = sorted(set(run.per_role) | set(run.shared_index) | set(run.all_claims)
+                              | bound_roles_with_domain_slices(run))
     for role in run.owning_roles:
         write_role(run, role)
         index_role(run, role)

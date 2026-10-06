@@ -2651,6 +2651,31 @@ def test_a_flat_file_moved_in_is_deduplicated_by_text_and_restamped(tmp: str) ->
     assert any("'Two (2)' dropped from workflow/alpha-one.md" in m for m in migrated), migrated
 
 
+def test_every_role_the_project_binds_with_domain_slices_gets_an_index(tmp: str) -> None:
+    """A role the project's taxonomy binds, whose domain holds slices, must
+    be indexed by the project (lint holds every visible project to it), even
+    when the drain brought that role nothing: InterWeave's lint was red for
+    two such roles (the 2026-10-05 drain's review, B5)."""
+    drain, claims_dir, out = build(tmp, {"alpha": claims("alpha", [
+        {"class": "domain", "topic": "one", "title": "T", "body": "b", "evidence": ["h1"]},
+    ])})
+    os.makedirs(os.path.join(working_copy(out), ".agent-fabric"), exist_ok=True)
+    with open(os.path.join(working_copy(out), ".agent-fabric", "taxonomy.json"), "w", encoding="utf-8") as fh:
+        json.dump({"version": 1, "project": PROJECT, "roles": [{"id": "alpha"}, {"id": "beta"}, {"id": "gamma"}]}, fh)
+    os.makedirs(dom(out, "beta"), exist_ok=True)
+    with open(dom(out, "beta", "domain.md"), "w", encoding="utf-8") as fh:
+        fh.write("---\nrole: beta\nclass: domain\ndescription: What beta knows of the field\ntier: 2\n---\n\n## X\n\nY.\n")
+    proc = run_assemble(drain, claims_dir, out)
+    assert proc.returncode == 0, proc.stderr
+    index = read(proj(out, "beta", "INDEX.md"))
+    assert "memory/domains/beta/domain.md" in index and "What beta knows of the field" in index, index
+    assert not os.path.exists(proj(out, "gamma")), "a bound role with no domain slice needs no index"
+    with open(os.path.join(working_copy(out), ".agent-fabric", "taxonomy.json"), "w", encoding="utf-8") as fh:
+        fh.write("{broken")
+    proc = run_assemble(drain, claims_dir, out)
+    assert proc.returncode == 1 and "taxonomy cannot be read" in proc.stderr, proc.stderr
+
+
 def main() -> int:
     cases = [
         test_a_topic_named_like_a_budget_part_is_its_own_memory,
@@ -2733,6 +2758,7 @@ def main() -> int:
         test_the_memories_skipped_for_no_roles_class_are_named_in_the_committed_report,
         test_a_held_back_slice_is_neither_written_nor_reported_as_the_drains,
         test_a_flat_file_moved_in_is_deduplicated_by_text_and_restamped,
+        test_every_role_the_project_binds_with_domain_slices_gets_an_index,
     ]
     # THE REGISTRY IS THE TRAP THIS GUARDS. Cases run because they are
     # listed here, not because they are named test_*, so a case that is
