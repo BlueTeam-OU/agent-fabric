@@ -55,6 +55,21 @@ export function originMain(root = FABRIC_ROOT, exec = execFileSync) {
   try { git('fetch', '-q', 'origin', 'main'); return git('rev-parse', 'origin/main'); } catch { return null; }
 }
 
+/**
+ * The request this command sends, before it is signed: a Request
+ * (protocol.mjs), held to ENVELOPE_KEYS by runtime/control/tests/
+ * protocol.test.mjs for every op shape built here. `commit` and `version`
+ * read origin/main and the pinned harness, called only for an upgrade.
+ * @returns {import('./protocol.mjs').Request}
+ */
+export function buildRequest(args, { id, from, to, cfg, ts = new Date().toISOString(),
+                                     commit = () => originMain(), version = () => pinnedVersion(FABRIC_ROOT) }) {
+  return { v: 1, kind: 'request', id, from, to, op: args.op, ts, ttl_s: Math.min(ACTION_OPS.includes(args.op) ? ACTION_TTL_MAX_S : Infinity, Math.max(cfg.ttl_s, Math.ceil(args.timeout))), ...(args.days ? { days: args.days } : {}),
+           ...(args.op === 'upgrade' ? { args: args.piece === 'fabric' ? { piece: 'fabric', commit: commit() } : { piece: args.piece, version: args.version ?? version() } } : {}),
+           ...(args.op === 'jobs-add' ? { args: jobArgs(args) } : {}),
+           ...(args.op === 'secrets-sync' && (args.expect || args.restart) ? { args: { ...(args.expect ? { expect: args.expect } : {}), ...(args.restart ? { restart: true } : {}) } } : {}) };
+}
+
 export function placements(registry = process.env.AGENT_FABRIC_HOSTS_REGISTRY ?? path.join(FABRIC_ROOT, 'runtime', 'hosts', 'registry.json')) {
   const d = JSON.parse(fs.readFileSync(registry, 'utf8'));
   return Object.entries(d.placement ?? {}).map(([login, host]) => ({ login, host, address: `${host}/${login}` }));
@@ -468,10 +483,7 @@ export async function main(argv = process.argv.slice(2), { registry, fetchImpl }
   // capped; how long this command waits for replies is --timeout, which
   // for a queued fleet upgrade is far longer — the last account replies
   // long after every account accepted.
-  let request = { v: 1, kind: 'request', id, from: me.address, to: expected === all ? '*' : expected.map(e => e.address), op: args.op, ts: new Date().toISOString(), ttl_s: Math.min(ACTION_OPS.includes(args.op) ? ACTION_TTL_MAX_S : Infinity, Math.max(cfg.ttl_s, Math.ceil(args.timeout))), ...(args.days ? { days: args.days } : {}),
-                  ...(args.op === 'upgrade' ? { args: args.piece === 'fabric' ? { piece: 'fabric', commit: originMain() } : { piece: args.piece, version: args.version ?? pinnedVersion(FABRIC_ROOT) } } : {}),
-                  ...(args.op === 'jobs-add' ? { args: jobArgs(args) } : {}),
-                  ...(args.op === 'secrets-sync' && (args.expect || args.restart) ? { args: { ...(args.expect ? { expect: args.expect } : {}), ...(args.restart ? { restart: true } : {}) } } : {}) };
+  let request = buildRequest(args, { id, from: me.address, to: expected === all ? '*' : expected.map(e => e.address), cfg });
   // One command, one version: the coordinator's pin travels in the signed
   // request. Left to each account, an account that had not pulled the pin
   // bump would read its own older pin and answer `current` (review of #34).
