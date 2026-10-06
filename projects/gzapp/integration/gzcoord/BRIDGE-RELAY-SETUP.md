@@ -43,8 +43,10 @@ convention.
 }
 ```
 
-**No secret is committed.** The token is read from the environment, and
-each clone supplies its own copy in the gitignored
+**No secret is committed.** The header's token is expanded from the
+harness's environment: on a provisioned account the launcher puts it
+there from `secrets.env` (agent-fabric ADR-038 rule 9); a clone
+provisioned by hand supplies its own copy in the gitignored
 `.claude/settings.local.json`:
 
 ```json
@@ -249,6 +251,9 @@ Still open:
   a systemd user unit on the hosting account (§Hosting), up with the
   account's user manager at boot, restarted on failure.
 - ~~The token has to reach the other clones~~ — closed 2026-09-14: it
-  reaches every account as `CLAUDE_BRIDGE_AUTH_TOKEN` in the environment,
-  from the account's own store (`bin/fabric-secrets sync`); the
+  reaches every account as `CLAUDE_BRIDGE_AUTH_TOKEN` in its
+  `secrets.env`, read by gzcoord-inbox and gzcoord-send, and handed by
+  the launcher to the harness alone for the `.mcp.json` bridge entry
+  (never exported to a shell since agent-fabric ADR-038 rule 9), from the
+  account's own store (`bin/fabric-secrets sync`); the
   coordinator puts it in each store (`fabric-secrets provision share`).

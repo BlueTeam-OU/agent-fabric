@@ -6,7 +6,7 @@ import argparse
 import json
 import os
 import sys
-from assembler.core import layout, workingcopy, DEFAULT_SLICE_BUDGET_TOKENS, BANNED_PATTERNS, slugify, origin_of_row, REDACTED, hygiene_check, hygiene_substitute, Run
+from assembler.core import layout, workingcopy, DEFAULT_SLICE_BUDGET_TOKENS, BANNED_PATTERNS, PROJECT_PATTERNS, patterns_for, store_error, slugify, origin_of_row, REDACTED, hygiene_check, hygiene_substitute, role_id_error, Run
 from assembler.bundle import open_bundle
 
 
@@ -26,6 +26,10 @@ def parse_args() -> argparse.Namespace:
                          "for agent-fabric itself)")
     ap.add_argument("--stamp", required=True, help="distillation date (YYYY-MM-DD)")
     ap.add_argument("--budget", type=int, default=DEFAULT_SLICE_BUDGET_TOKENS)
+    ap.add_argument("--hold", default=None, metavar="FILE",
+                    help="slices held back from this drain: a JSON list of \"<role>/<class>:<topic>\" "
+                         "(\"shared/<class>:<topic>\" for a shared one); their claims are not written, the "
+                         "report lists them as held_back and drops what an earlier run of the stamp said of them")
     ap.add_argument("--collision-decisions", default=None, metavar="FILE",
                     help="the owner's decision per collision the previous run refused on: "
                          "{\"<role>/<class>:<topic>#<heading>\": \"supersede\"|\"keep-both\"|\"drop\"}")
@@ -62,13 +66,29 @@ def open_layout(args: argparse.Namespace) -> str:
     for pid, path in workingcopy.sibling_working_copies(layout.FABRIC_ROOT).items():
         if pid not in layout.explicit_working_copies():
             layout.set_working_copy(pid, path)
-    BANNED_PATTERNS[:] = layout.load_hygiene_patterns(
-        sorted(set(layout.project_ids()) | set(layout.explicit_working_copies())))
+    try:
+        listed = sorted(set(layout.project_ids()) | set(layout.explicit_working_copies()))
+        BANNED_PATTERNS[:] = layout.load_hygiene_patterns(listed)
+        PROJECT_PATTERNS[:] = layout.load_hygiene_patterns(listed, for_project=project)
+    except layout.HygieneError as exc:
+        sys.exit(f"assemble: {exc}")
     return project
 
 
 def read_claims(run: Run) -> int | None:
     """The drain's references, origins and claims; 1 when a claim is out of its scope."""
+    # The harvest's record is judged before anything is written: the store
+    # it names becomes a committed watermark (core.store_error).
+    harvest_report = os.path.join(run.args.drain, "harvest-report.json")
+    if os.path.exists(harvest_report):
+        try:
+            with open(harvest_report, encoding="utf-8") as fh:
+                hr = json.load(fh)
+        except (OSError, ValueError) as exc:
+            sys.exit(f"assemble: {harvest_report}: cannot be read ({exc})")
+        why = store_error(hr) if isinstance(hr, dict) else "harvest-report.json is not an object"
+        if why:
+            sys.exit(f"assemble: {why}")
     with open(os.path.join(run.args.drain, "references.json"), encoding="utf-8") as fh:
         run.references = json.load(fh)
     obs_path = os.path.join(run.args.drain, "observations.final.jsonl")
@@ -79,6 +99,7 @@ def read_claims(run: Run) -> int | None:
             if line.strip():
                 row = json.loads(line)
                 run.origins[row["content_hash"]] = origin_of_row(row)
+                run.evidence_epoch[row["content_hash"]] = row.get("created_at_epoch")
 
     claim_files = sorted(
         f for f in os.listdir(run.args.claims) if f.endswith(".json") and not f.startswith(".")
@@ -87,10 +108,19 @@ def read_claims(run: Run) -> int | None:
     for name in claim_files:
         with open(os.path.join(run.args.claims, name), encoding="utf-8") as fh:
             payload = json.load(fh)
-        role = payload["role"]
+        role = payload.get("role") if isinstance(payload, dict) else None
+        why = role_id_error(role)
+        if why:
+            sys.exit(f"assemble: {name}: the claims file's role {why}")
         run.all_claims[role] = payload.get("claims", [])
         for claim in run.all_claims[role]:
             claim["_role"] = role   # for the section's dated tail; never written to disk
+            # A co-owner is a role id too: it gets a project directory and
+            # an index (writer.write_shared, assemble.py's owning roles).
+            for owner in claim.get("shared_with") or []:
+                why = role_id_error(owner)
+                if why:
+                    sys.exit(f"assemble: {name}: a claim's shared_with names {why}")
         run.telemetry[role] = payload.get("telemetry", {})
 
         # DOMAIN-ONLY EVIDENCE MAY SUPPORT ONLY A DOMAIN CLAIM.
@@ -138,17 +168,22 @@ def screen_hygiene(run: Run) -> None:
     for role, claims in list(run.all_claims.items()):
         kept = []
         for claim in claims:
-            where = f"{role}/{claim['class']}:{claim['topic']}"
-            for field in ("title", "description", "body"):
-                if isinstance(claim.get(field), str):
-                    claim[field], notes = hygiene_substitute(claim[field], f"{where} {field}")
-                    run.redactions.extend(notes)
+            # The topic first: every note below names the claim by it, and a
+            # note must never carry what it says was withheld.
+            # A note names the slice its claim lands in: a claim another role
+            # shares lands in shared/, so --hold matches the one it held.
+            label = "shared" if set(claim.get("shared_with") or []) - {role} else role
             if isinstance(claim.get("topic"), str):
-                topic, notes = hygiene_substitute(claim["topic"], f"{where} topic")
+                topic, notes = hygiene_substitute(claim["topic"], "", patterns_for(claim["class"]))
                 if notes:
                     claim["topic"] = slugify(topic.replace(REDACTED, "redacted")) or "redacted"
+                    run.redactions.extend(f"{label}/{claim['class']}:{claim['topic']} topic{n}" for n in notes)
+            where = f"{label}/{claim['class']}:{claim['topic']}"
+            for field in ("title", "description", "body"):
+                if isinstance(claim.get(field), str):
+                    claim[field], notes = hygiene_substitute(claim[field], f"{where} {field}", patterns_for(claim["class"]))
                     run.redactions.extend(notes)
-            issues = hygiene_check(claim.get("body") or "", where)
+            issues = hygiene_check(claim.get("body") or "", where, patterns_for(claim["class"]))
             if issues:
                 run.rejected_hygiene.extend(issues)
                 run.telemetry.setdefault(role, {}).setdefault("rejected_hygiene", 0)
@@ -172,6 +207,41 @@ def bucket_claims(run: Run) -> None:
                 run.shared_owners[key] |= owners
             else:
                 run.per_role[role][key].append(claim)
+
+
+def hold_back(run: Run) -> None:
+    """--hold: the claims of each held slice leave the drain before anything
+    is planned, so nothing of them is written, decided or clipped. A key
+    that names no slice of this drain is refused: a typo would otherwise
+    let the slice through, held by nobody."""
+    if not run.args.hold:
+        return
+    try:
+        with open(run.args.hold, encoding="utf-8") as fh:
+            keys = json.load(fh)
+    except OSError as exc:
+        sys.exit(f"assemble: --hold: {run.args.hold} cannot be read ({exc.strerror or exc})")
+    except ValueError as exc:
+        sys.exit(f"assemble: --hold: {run.args.hold} does not parse ({exc})")
+    if not isinstance(keys, list) or not all(isinstance(k, str) for k in keys):
+        sys.exit("assemble: --hold: a JSON list of \"<role>/<class>:<topic>\" keys")
+    unmatched = []
+    for key in keys:
+        label, _, rest = key.partition("/")
+        klass, _, topic = rest.partition(":")
+        if label == "shared" and (klass, topic) in run.shared:
+            run.held_evidence.update(h for c in run.shared[(klass, topic)] for h in c.get("evidence") or [])
+            del run.shared[(klass, topic)]
+            run.shared_owners.pop((klass, topic), None)
+        elif label != "shared" and (klass, topic) in run.per_role.get(label, {}):
+            run.held_evidence.update(h for c in run.per_role[label][(klass, topic)] for h in c.get("evidence") or [])
+            del run.per_role[label][(klass, topic)]
+        else:
+            unmatched.append(key)
+            continue
+        run.held_back.append(key)
+    if unmatched:
+        sys.exit(f"assemble: --hold names no slice of this drain: {', '.join(unmatched)}")
 
 
 def load_decisions(run: Run) -> None:

@@ -84,3 +84,26 @@ test mocks GitHub, so neither had met it. The owner chose the bundle
 path: the store holds only ciphertext, so its history may travel through
 the host executor, and the parent pushes and fetches for the child until
 its first sync has written its key.
+
+### Amendment 2026-10-06 — No secret in a session's shell
+
+`fabric-secrets sync` wrote `secrets.env` and a `~/.bashrc` line that
+sourced it, so every shell, session, Bash call and subagent of an account
+held every synced secret. A reviewer printed its environment and the
+operator's signing key was rotated (#95); the review guard's clean
+environment (ADR-020) then fenced the review class alone. The owner asked
+for credential minimisation and approved the plan on 2026-10-06, scoped
+to the environment of every session, the harness's own token staying in
+its process and unset for Bash.
+
+What was measured first: every reader of the relay token and the search
+keys already read the file; `shim.py` and the broker launch needed the
+key in the environment; gh needs `GH_TOKEN` or its own configuration;
+`GZAPP_PORT_OFFSET` is a plain value a shell needs, hence `plain_env`.
+The harness's own `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB` was not taken: on
+2.1.285 it runs Bash in a bubblewrap sandbox with protected paths, not a
+variable filter.
+
+What it does not do is said in the rule: the store's key has no
+passphrase, so a session that reads the file reaches the secret. The
+step that would close that is §7's broker in another account.

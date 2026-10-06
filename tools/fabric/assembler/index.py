@@ -3,13 +3,49 @@ A part of tools/fabric/assemble.py, whose docstring is the contract."""
 from __future__ import annotations
 
 import json
+import sys
 import os
 from collections import defaultdict
 from typing import Any
-from assembler.core import layout, CLASS_FILES, normalize_artifact, render_frontmatter, Run, base_for, in_report
+from assembler.core import layout, CLASS_FILES, normalize_artifact, render_frontmatter, Run, base_for, in_report, role_id_error
 from assembler.slices import read_existing_slice
 from assembler.writer import described
 
+
+
+def bound_roles_with_domain_slices(run: Run) -> set[str]:
+    """Every role this project's taxonomy binds whose fabric domain holds a
+    slice: the project's INDEX.md is where those slices must be listed
+    (lint holds every visible project to it), so each such role gets an
+    index here even when this drain brought it nothing (B5). A taxonomy
+    that exists and cannot be read stops the drain, as a broken hygiene
+    list does: a skipped one would quietly index nothing."""
+    path = layout.project_taxonomy_path(run.project)
+    if not path:
+        return set()
+    try:
+        with open(path, encoding="utf-8") as fh:
+            tax = json.load(fh)
+    except (OSError, ValueError) as exc:
+        sys.exit(f"assemble: {path}: the project's taxonomy cannot be read ({exc})")
+    roles = tax.get("roles") if isinstance(tax, dict) else None
+    if not isinstance(roles, list):
+        sys.exit(f"assemble: {path}: the project's taxonomy has no roles list")
+    bound = set()
+    for r in roles:
+        if not isinstance(r, dict):
+            sys.exit(f"assemble: {path}: the project's taxonomy binds {r!r}, not a role entry with an id")
+        why = role_id_error(r.get("id"))
+        if why:
+            sys.exit(f"assemble: {path}: the project's taxonomy binds {why}")
+        bound.add(r["id"])
+    out = set()
+    for role in bound:
+        directory = layout.domain_dir(role)
+        if os.path.isdir(directory) and any(
+                n.endswith(".md") for _d, _s, files in os.walk(directory) for n in files):
+            out.add(role)
+    return out
 
 def index_role(run: Run, role: str) -> None:
     buckets = run.per_role.get(role, {})

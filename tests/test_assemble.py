@@ -1083,8 +1083,11 @@ def test_hygiene_violation_is_redacted_in_place(tmp: str) -> None:
     assert "This mentions [redacted], which must never" in text and "Set [redacted] too." in text, text
     assert "REDACTED (hygiene" in proc.stderr and "city name" in proc.stderr and "credential" in proc.stderr, proc.stderr
     report = json.loads(read(report_path(out)))
-    assert any("Springfield" in r and "[redacted]" in r for r in report["redactions"]), report["redactions"]
+    assert any("city name" in r and "[redacted]" in r and "alpha/domain:leak" in r for r in report["redactions"]), report["redactions"]
     assert report["rejected_hygiene"] == [] and "rejected_hygiene" not in report["telemetry"]["alpha"]
+    # The report is committed and stderr is read: neither carries what was withheld (B3).
+    for said in (read(report_path(out)), proc.stderr):
+        assert "Springfield" not in said and "hunter2" not in said, said
 
 
 def test_carried_text_is_redacted_the_same_way_a_claim_is(tmp: str) -> None:
@@ -2429,6 +2432,509 @@ def test_a_topic_named_like_a_budget_part_is_its_own_memory(tmp: str) -> None:
     assert "Different." in released and "## Release process, revised" in released, released
 
 
+def test_a_bundle_that_cannot_be_read_is_refused_in_one_line(tmp: str) -> None:
+    """Every way a --bundle can be unreadable or malformed is one
+    `assemble: bundle: ...` line and exit 1, as the verified refusals are:
+    a missing file, a directory, not a tar, a tar cut short, a manifest or
+    harvest report that is not the JSON object it names, a manifest naming
+    no agent. Each was a traceback, which a person on a drain cannot read
+    (review of the assembler's split, 2026-10-05)."""
+    import hashlib
+    import io
+    import tarfile
+
+    def bundle(name: str, members: list[tuple[str, bytes]] | None = None, raw: bytes | None = None) -> str:
+        path = os.path.join(tmp, name)
+        if raw is not None:
+            with open(path, "wb") as fh:
+                fh.write(raw)
+            return path
+        with tarfile.open(path, "w") as t:
+            for n, data in members or []:
+                info = tarfile.TarInfo(n)
+                info.size = len(data)
+                t.addfile(info, io.BytesIO(data))
+        return path
+
+    def manifest(**extra) -> bytes:
+        return json.dumps({"format": "agent-fabric-drain/1", **extra}).encode()
+
+    bad_report = b"{not json"
+    forged = json.dumps({"agent": "dev-01", "host": "hostA", "role": "alpha", "project": None,
+                         "store": "victim@hostA#x"}).encode()
+    named = {"harvest-report.json": hashlib.sha256(bad_report).hexdigest()}
+    good = bundle("whole.tar", [("manifest.json", manifest(files=named)), ("harvest-report.json", bad_report)])
+    os.makedirs(os.path.join(tmp, "a-directory"))
+    cases = {
+        os.path.join(tmp, "absent.tar"): "absent.tar cannot be read",
+        os.path.join(tmp, "a-directory"): "a-directory cannot be read",
+        bundle("empty.tar", raw=b""): "not a readable tar",
+        bundle("text.tar", raw=b"plain text, not a tar\n"): "not a readable tar",
+        bundle("cut.tar", raw=open(good, "rb").read()[:700]): "not a readable tar",
+        bundle("list.tar", [("manifest.json", b"[1, 2]")]): "manifest.json is not an object",
+        bundle("files.tar", [("manifest.json", manifest(files=["x"]))]): "manifest.json's files is not an object",
+        good: "harvest-report.json does not parse",
+        bundle("report-list.tar", [("manifest.json", manifest(files={"harvest-report.json": hashlib.sha256(b"[1]").hexdigest()})),
+                                   ("harvest-report.json", b"[1]")]): "harvest-report.json is not an object",
+        bundle("forged-store.tar", [("manifest.json", manifest(agent="dev-01", host="hostA", role="alpha", project=None,
+                                                              files={"harvest-report.json": hashlib.sha256(forged).hexdigest()})),
+                                    ("harvest-report.json", forged)]): "names the store 'victim@hostA#x'",
+        bundle("no-agent.tar", [("manifest.json", manifest(files={"harvest-report.json": hashlib.sha256(b"{}").hexdigest()})),
+                                ("harvest-report.json", b"{}")]): "manifest.json names no agent",
+    }
+    os.makedirs(os.path.join(working_copy(tmp), ".agent-fabric"), exist_ok=True)
+    # A good bundle from an unregistered working copy: project null, as the
+    # harvest writes it. Read as before, never refused for it.
+    files = {"claims/alpha.json": json.dumps(claims("alpha", [
+                 {"class": "domain", "topic": "one", "title": "T", "body": "b", "evidence": ["h1"]}])).encode(),
+             "observations.jsonl": (json.dumps(OBSERVATIONS[0]) + "\n").encode(),
+             "references.json": json.dumps(REFERENCES).encode(),
+             "harvest-report.json": json.dumps({"agent": "dev-01", "host": "hostA", "role": "alpha",
+                                                "project": None}).encode()}
+    nullp = bundle("null-project.tar", [("manifest.json", manifest(agent="dev-01", host="hostA", role="alpha", project=None,
+                                                                    files={n: hashlib.sha256(d).hexdigest() for n, d in files.items()})),
+                                        *files.items()])
+    proc = subprocess.run([sys.executable, ASSEMBLE, "--bundle", nullp, "--fabric", tmp, "--project", PROJECT,
+                           "--working-copy", working_copy(tmp), "--stamp", "2026-01-01"],
+                          capture_output=True, text=True, timeout=60)
+    assert proc.returncode == 0 and "file(s) verified" in proc.stdout, proc.stdout + proc.stderr
+    for path, said in cases.items():
+        proc = subprocess.run(
+            [sys.executable, ASSEMBLE, "--bundle", path, "--fabric", tmp, "--project", PROJECT,
+             "--working-copy", working_copy(tmp), "--stamp", "2026-01-01"],
+            capture_output=True, text=True, timeout=60)
+        lines = proc.stderr.strip().split("\n")
+        assert proc.returncode == 1, f"{os.path.basename(path)}: exit {proc.returncode}\n{proc.stderr}"
+        assert len(lines) == 1 and lines[0].startswith("assemble: bundle: ") and said in lines[0], \
+            f"{os.path.basename(path)}: not one refusal line naming it:\n{proc.stderr}"
+
+
+def test_a_malformed_hygiene_list_stops_the_drain_in_one_line(tmp: str) -> None:
+    """A project's hygiene.json that does not parse, holds a key nothing
+    reads, a pattern that does not compile, or a scope that is not
+    "others" withholds nothing: skipped, it let every name it lists into
+    the corpus without a word. The drain stops, one line naming the file,
+    nothing written (the 2026-10-05 drain's review, B6)."""
+    drain, claims_dir, out = build(tmp, {"alpha": claims("alpha", [
+        {"class": "domain", "topic": "one", "title": "T", "body": "b", "evidence": ["h1"]},
+    ])})
+    hyg = os.path.join(working_copy(out), ".agent-fabric", "hygiene.json")
+    os.makedirs(os.path.dirname(hyg), exist_ok=True)
+    for broken, said in (
+        ("{not json", "does not parse"),
+        (json.dumps({"patterns": [{"pattern": "x", "scop": "others"}]}), "keys this does not read: scop"),
+        (json.dumps({"patterns": [{"pattern": "(unclosed"}]}), "does not compile"),
+        (json.dumps({"patterns": [{"pattern": "x", "scope": "mine"}]}), "the one scope is"),
+        (json.dumps({"patterns": [{"label": "no pattern"}]}), "has no pattern"),
+        (json.dumps({"patterns": [{"pattern": "x", "flags": "I"}]}), "the one flag is"),
+        (json.dumps(["not", "an", "object"]), "\"patterns\" list"),
+    ):
+        with open(hyg, "w", encoding="utf-8") as fh:
+            fh.write(broken)
+        proc = run_assemble(drain, claims_dir, out)
+        lines = proc.stderr.strip().split("\n")
+        assert proc.returncode == 1 and len(lines) == 1 and lines[0].startswith("assemble: ") \
+            and "hygiene.json" in lines[0] and said in lines[0], f"{broken!r}:\n{proc.stderr}"
+        assert not os.path.exists(dom(out, "alpha")), "a slice was written past a broken list"
+
+
+def test_a_name_scoped_others_stays_in_its_own_projects_slices_only(tmp: str) -> None:
+    """"scope": "others" marks a name as its project's own (the owner,
+    2026-10-05: gzapp's slices may name the city): the project's own slice
+    keeps it, a domain slice of the same drain still has it withheld, and
+    another project's slices withhold it too (B9)."""
+    drain, claims_dir, out = build(tmp, {"alpha": claims("alpha", [
+        {"class": "solution", "topic": "where", "title": "Where it runs", "body": "The pilot runs in Springfield.",
+         "evidence": ["h1"]},
+        {"class": "domain", "topic": "cities", "title": "Cities", "body": "Springfield has a grid plan.",
+         "evidence": ["h2"]},
+    ])})
+    hyg = os.path.join(working_copy(out), ".agent-fabric", "hygiene.json")
+    os.makedirs(os.path.dirname(hyg), exist_ok=True)
+    with open(hyg, "w", encoding="utf-8") as fh:
+        json.dump({"patterns": [{"pattern": "\\bspringfield\\b", "flags": "i", "label": "city name",
+                                 "scope": "others"}]}, fh)
+    proc = run_assemble(drain, claims_dir, out)
+    assert proc.returncode == 0, proc.stderr
+    assert "The pilot runs in Springfield." in read(proj(out, "alpha", "solution.md")), "the project's own slice lost its name"
+    domain = read(dom(out, "alpha", "domain.md"))
+    assert "Springfield" not in domain and "[redacted] has a grid plan." in domain, domain
+    sys.path.insert(0, os.path.join(ROOT, "tools", "fabric"))
+    import importlib
+    layout = importlib.import_module("layout")
+    saved = (layout.FABRIC_ROOT, dict(layout._WORKING_COPIES))
+    try:
+        layout.FABRIC_ROOT = out
+        layout.set_working_copy(PROJECT, working_copy(out))
+        labels = lambda **kw: [label for _p, label, _r in layout.load_hygiene_patterns([PROJECT], **kw)]
+        assert "city name" in labels(), "with no project named, every pattern applies"
+        assert "city name" in labels(for_project="another"), "another project's slices must withhold it"
+        assert "city name" not in labels(for_project=PROJECT), "its own project's slices may name it"
+    finally:
+        layout.FABRIC_ROOT = saved[0]
+        layout._WORKING_COPIES.clear()
+        layout._WORKING_COPIES.update(saved[1])
+
+
+def test_the_memories_skipped_for_no_roles_class_are_named_in_the_committed_report(tmp: str) -> None:
+    """The harvest names the memories it left out for want of a roles_class;
+    the drain directory that held that list is temporary, so the committed
+    report carries it, per source, under the same hygiene as any committed
+    text (the 2026-10-05 drain's review, B7)."""
+    drain, claims_dir, out = build(tmp, {"alpha": claims("alpha", [
+        {"class": "domain", "topic": "one", "title": "T", "body": "b", "evidence": ["h1"]},
+    ])})
+    with open(os.path.join(drain, "harvest-report.json"), "w", encoding="utf-8") as fh:
+        json.dump({"agent": "dev-01", "host": "hostA", "next_watermark": 5, "counts": {"in_scope": 3},
+                   "skipped_no_roles_class": ["private-notes", "springfield-trip"]}, fh)
+    proc = run_assemble(drain, claims_dir, out)
+    assert proc.returncode == 0, proc.stderr
+    report = json.loads(read(report_path(out)))
+    assert report["harvest"]["skipped_no_roles_class"] == ["[redacted]-trip", "private-notes"], report["harvest"]
+    assert report["harvest_sources"]["dev-01@hostA"]["skipped_no_roles_class"] == ["[redacted]-trip", "private-notes"]
+    assert "springfield" not in read(report_path(out)).lower()
+
+
+def test_a_held_back_slice_is_neither_written_nor_reported_as_the_drains(tmp: str) -> None:
+    """--hold: the coordinator holds a slice back from a drain. A hand
+    revert after a first run left the report naming it in files,
+    files_written, collision_decisions and clipped_descriptions; the
+    re-run of the stamp with --hold writes nothing of it and drops what
+    the first run said of it, and lists it as held_back (B2). A key that
+    names no slice of the drain is refused, not held by nobody."""
+    long_title = "Held " + "and long " * 40
+    drain, claims_dir, out = build(tmp, {"alpha": claims("alpha", [
+        {"class": "domain", "topic": "kept", "title": "Kept", "body": "Stays.", "evidence": ["h1"]},
+        {"class": "domain", "topic": "held", "title": long_title, "body": "First, in Springfield.", "evidence": ["h1"]},
+        {"class": "domain", "topic": "held", "title": long_title, "body": "Second.", "evidence": ["h2"]},
+        {"class": "domain", "topic": "sh", "title": "Shared", "body": "Both know it.", "evidence": ["h1"],
+         "shared_with": ["beta"]},
+    ])})
+    heading = long_title.strip()
+    proc = run_assemble(drain, claims_dir, out, *keep_both(tmp, f"alpha/domain:held#{heading}"))
+    assert proc.returncode == 0, proc.stderr
+    held_file = dom(out, "alpha", "domain", "held.md")
+    first = json.loads(read(report_path(out)))
+    held_rel = [f for f in first["files"] if f.endswith("domain/held.md")]
+    assert held_rel and any(c.startswith(held_rel[0]) for c in first["clipped_descriptions"]), first
+    assert any(d["key"].startswith("alpha/domain:held#") for d in first["collision_decisions"]), first
+    os.remove(held_file)   # the hand revert of slices that were new
+    os.remove(shared_path(out, "domain-sh.md"))
+    hold = os.path.join(tmp, "hold.json")
+    with open(hold, "w", encoding="utf-8") as fh:
+        json.dump(["alpha/domain:held", "shared/domain:sh"], fh)
+    proc = run_assemble(drain, claims_dir, out, "--hold", hold, *keep_both(tmp, f"alpha/domain:held#{heading}"))
+    assert proc.returncode == 0, proc.stderr
+    assert not os.path.exists(held_file), "a held slice was written"
+    report = json.loads(read(report_path(out)))
+    assert report["held_back"] == ["alpha/domain:held", "shared/domain:sh"], report["held_back"]
+    said = json.dumps({k: report[k] for k in ("files", "clipped_descriptions", "collision_decisions", "redactions",
+                                               "shared_topics")})
+    assert "held.md" not in said and "domain:held" not in said and "domain:sh" not in said, said
+    assert report["shared_slices"] == 0, report
+    assert report["files_written"] == len(report["files"]) and any(f.endswith("domain/kept.md") for f in report["files"]), report
+    # The same stamp again without --hold writes the slices: no longer held.
+    proc = run_assemble(drain, claims_dir, out, *keep_both(tmp, f"alpha/domain:held#{heading}"))
+    assert proc.returncode == 0, proc.stderr
+    third = json.loads(read(report_path(out)))
+    assert third["held_back"] == [] and os.path.exists(held_file), third["held_back"]
+    with open(hold, "w", encoding="utf-8") as fh:
+        json.dump(["alpha/domain:nothing-by-that-name"], fh)
+    proc = run_assemble(drain, claims_dir, out, "--hold", hold)
+    lines = proc.stderr.strip().split("\n")
+    assert proc.returncode == 1 and len(lines) == 1 and "names no slice of this drain: alpha/domain:nothing-by-that-name" in lines[0], proc.stderr
+
+
+def test_a_held_slice_is_drained_again_once_released(tmp: str) -> None:
+    """A hold waits on a ruling; it is not a drop. The store's mark stays
+    below the oldest memory a held claim stands on, as for an unrendered
+    memory, so the next harvest reads it again and the drain after the
+    ruling writes it (#100's review, P2). A held claim whose memory has no
+    time recorded moves no mark at all."""
+    drain, claims_dir, out = build(tmp, {"alpha": claims("alpha", [
+        {"class": "domain", "topic": "kept", "title": "Kept", "body": "Stays.", "evidence": ["k1"]},
+        {"class": "domain", "topic": "held", "title": "Held", "body": "Waits.", "evidence": ["w1", "w2"]},
+        {"class": "domain", "topic": "both", "title": "Both", "body": "Shared, waits.", "evidence": ["s1"],
+         "shared_with": ["beta"]},
+    ])})
+    with open(os.path.join(drain, "observations.jsonl"), "w", encoding="utf-8") as fh:
+        for cid, epoch in (("k1", 1), ("w1", 4), ("w2", 3), ("s1", 2)):
+            fh.write(json.dumps({"content_hash": cid, "agent": "dev-01", "host": "hostA",
+                                 "created_at_epoch": epoch}) + "\n")
+    with open(os.path.join(drain, "harvest-report.json"), "w", encoding="utf-8") as fh:
+        json.dump({"agent": "dev-01", "host": "hostA", "since_watermark": 0, "next_watermark": 9000,
+                   "counts": {"in_scope": 3}}, fh)
+    hold = os.path.join(tmp, "hold.json")
+    with open(hold, "w", encoding="utf-8") as fh:
+        json.dump(["alpha/domain:held"], fh)
+    proc = run_assemble(drain, claims_dir, out, "--hold", hold)
+    assert proc.returncode == 0, proc.stderr
+    report = json.loads(read(report_path(out)))
+    assert report["watermarks"] == {"dev-01@hostA": 2999}, report["watermarks"]
+    # A held shared slice holds the mark the same way: below its memory.
+    with open(hold, "w", encoding="utf-8") as fh:
+        json.dump(["alpha/domain:held", "shared/domain:both"], fh)
+    proc = run_assemble(drain, claims_dir, out, "--hold", hold)
+    assert proc.returncode == 0, proc.stderr
+    report = json.loads(read(report_path(out)))
+    assert report["watermarks"] == {"dev-01@hostA": 1999}, report["watermarks"]
+    with open(hold, "w", encoding="utf-8") as fh:
+        json.dump(["alpha/domain:held"], fh)
+    sys.path.insert(0, os.path.join(ROOT, "tools", "fabric"))
+    import importlib
+    harvest = importlib.import_module("harvest_memory")
+    mark = harvest.previous_watermark(working_copy(out), "hostA", "dev-01")[0]
+    assert mark < 3000, f"the next harvest would skip the held memory: mark {mark}"
+    # The ruling came: the next drain, another stamp, holds nothing.
+    with open(os.path.join(drain, "harvest-report.json"), "w", encoding="utf-8") as fh:
+        json.dump({"agent": "dev-01", "host": "hostA", "since_watermark": mark, "next_watermark": 9000,
+                   "counts": {"in_scope": 2}}, fh)
+    proc = run_assemble(drain, claims_dir, out, "--stamp", "2026-01-02")
+    assert proc.returncode == 0, proc.stderr
+    report = json.loads(read(report_path(out)))
+    assert os.path.exists(dom(out, "alpha", "domain", "held.md")), "the released slice was not written"
+    assert report["held_back"] == [] and report["watermarks"] == {"dev-01@hostA": 9000}, report
+    # No time for a held claim's memory: the mark is not moved.
+    with open(os.path.join(drain, "observations.jsonl"), "w", encoding="utf-8") as fh:
+        fh.write(json.dumps({"content_hash": "k1", "agent": "dev-01", "host": "hostA", "created_at_epoch": 1}) + "\n")
+    with open(os.path.join(drain, "harvest-report.json"), "w", encoding="utf-8") as fh:
+        json.dump({"agent": "dev-01", "host": "hostA", "since_watermark": 9000, "next_watermark": 12000,
+                   "counts": {"in_scope": 2}}, fh)
+    proc = run_assemble(drain, claims_dir, out, "--hold", hold, "--stamp", "2026-01-03")
+    assert proc.returncode == 0, proc.stderr
+    report = json.loads(read(report_path(out)))
+    assert report["watermarks"] == {"dev-01@hostA": 9000}, report["watermarks"]
+
+
+def read_slice_meta(path: str):
+    sys.path.insert(0, os.path.join(ROOT, "tools", "fabric"))
+    import importlib
+    return importlib.import_module("assembler.slices").read_existing_slice(path)
+
+
+def test_a_flat_file_moved_in_is_deduplicated_by_text_and_restamped(tmp: str) -> None:
+    """A flat class file moved into its directory under one topic's name
+    can still hold another topic's section, written there by an earlier
+    collision as "Two (2)": the drain writing that topic's own file left
+    the copy beside it. The moved file is deduplicated against the drain's
+    topics by text, not heading, and it carries this drain's stamp and the
+    topic it is now named for (the 2026-10-05 drain's review, B4)."""
+    one = {"class": "workflow", "topic": "alpha-one", "title": "One", "body": "First way.", "evidence": ["h1"]}
+    two = {"class": "workflow", "topic": "alpha-two", "title": "Two", "body": "Second way.", "evidence": ["h2"]}
+    three = {"class": "workflow", "topic": "three", "title": "Three", "body": "Third way.", "evidence": ["h3"]}
+    drain, claims_dir, out = build(tmp, {"alpha": claims("alpha", [one])})
+    assert run_assemble(drain, claims_dir, out).returncode == 0
+    flat = proj(out, "alpha", "workflow.md")
+    text = read(flat).replace("distilled_at: 2026-01-01", "distilled_at: 2025-12-01")
+    with open(flat, "w", encoding="utf-8") as fh:
+        fh.write(text.rstrip() + "\n\n## Two (2)\n\nSecond way.\n")
+    # One's topic brings no claim this time: only the move touches its file.
+    set_claims(claims_dir, "alpha", [two, three])
+    proc = run_assemble(drain, claims_dir, out)
+    assert proc.returncode == 0, proc.stderr
+    wf = proj(out, "alpha", "workflow")
+    assert sorted(os.listdir(wf)) == ["alpha-one.md", "alpha-two.md", "three.md"], sorted(os.listdir(wf))
+    moved = read(os.path.join(wf, "alpha-one.md"))
+    assert "Second way." not in moved and "## One" in moved, moved
+    assert "Second way." in read(os.path.join(wf, "alpha-two.md"))
+    assert any(f.endswith("workflow/alpha-one.md") for f in json.loads(read(report_path(out)))["files"]), \
+        "a moved and restamped file is this drain's too"
+    meta, _sections = read_slice_meta(os.path.join(wf, "alpha-one.md"))
+    assert meta.get("distilled_at") == "2026-01-01" and meta.get("topic") == "alpha-one", meta
+    migrated = json.loads(read(report_path(out)))["migrated"]
+    assert any("'Two (2)' dropped from workflow/alpha-one.md" in m for m in migrated), migrated
+
+    # Moved and restamped with nothing to drop: still this drain's file.
+    plain = os.path.join(tmp, "plain")
+    drain2, claims2, out2 = build(plain, {"alpha": claims("alpha", [one])})
+    assert run_assemble(drain2, claims2, out2).returncode == 0
+    set_claims(claims2, "alpha", [two, three])
+    proc = run_assemble(drain2, claims2, out2)
+    assert proc.returncode == 0, proc.stderr
+    files = json.loads(read(report_path(out2)))["files"]
+    assert any(f.endswith("workflow/alpha-one.md") for f in files), files
+
+
+def test_every_role_the_project_binds_with_domain_slices_gets_an_index(tmp: str) -> None:
+    """A role the project's taxonomy binds, whose domain holds slices, must
+    be indexed by the project (lint holds every visible project to it), even
+    when the drain brought that role nothing: InterWeave's lint was red for
+    two such roles (the 2026-10-05 drain's review, B5)."""
+    drain, claims_dir, out = build(tmp, {"alpha": claims("alpha", [
+        {"class": "domain", "topic": "one", "title": "T", "body": "b", "evidence": ["h1"]},
+    ])})
+    os.makedirs(os.path.join(working_copy(out), ".agent-fabric"), exist_ok=True)
+    with open(os.path.join(working_copy(out), ".agent-fabric", "taxonomy.json"), "w", encoding="utf-8") as fh:
+        json.dump({"version": 1, "project": PROJECT, "roles": [{"id": "alpha"}, {"id": "beta"}, {"id": "gamma"}]}, fh)
+    os.makedirs(dom(out, "beta"), exist_ok=True)
+    with open(dom(out, "beta", "domain.md"), "w", encoding="utf-8") as fh:
+        fh.write("---\nrole: beta\nclass: domain\ndescription: What beta knows of the field\ntier: 2\n---\n\n## X\n\nY.\n")
+    proc = run_assemble(drain, claims_dir, out)
+    assert proc.returncode == 0, proc.stderr
+    index = read(proj(out, "beta", "INDEX.md"))
+    assert "memory/domains/beta/domain.md" in index and "What beta knows of the field" in index, index
+    assert not os.path.exists(proj(out, "gamma")), "a bound role with no domain slice needs no index"
+    with open(os.path.join(working_copy(out), ".agent-fabric", "taxonomy.json"), "w", encoding="utf-8") as fh:
+        fh.write("{broken")
+    proc = run_assemble(drain, claims_dir, out)
+    assert proc.returncode == 1 and "taxonomy cannot be read" in proc.stderr, proc.stderr
+    # Refused before anything is written: a fresh fabric with a shared claim
+    # and a broken taxonomy gets no file at all.
+    fresh = os.path.join(tmp, "fresh")
+    drain2, claims2, out2 = build(fresh, {"alpha": claims("alpha", [
+        {"class": "domain", "topic": "sh", "title": "S", "body": "b", "evidence": ["h1"], "shared_with": ["beta"]},
+    ])})
+    os.makedirs(os.path.join(working_copy(out2), ".agent-fabric"), exist_ok=True)
+    with open(os.path.join(working_copy(out2), ".agent-fabric", "taxonomy.json"), "w", encoding="utf-8") as fh:
+        fh.write("{broken")
+    proc = run_assemble(drain2, claims2, out2)
+    assert proc.returncode == 1 and not os.path.exists(os.path.join(out2, "memory")), \
+        f"a slice was written before the taxonomy refused: {proc.stderr}"
+
+
+def test_a_role_id_that_is_no_slug_is_refused_before_anything_is_written(tmp: str) -> None:
+    """A role id becomes a path (the role's domain and project directories),
+    from the project's taxonomy as from a claims file: one that is no role
+    slug, or a taxonomy entry with none, stops the drain before a file is
+    written, so no index lands outside the corpus (#100's review, 2)."""
+    for n, (taxonomy_roles, claims_role) in enumerate((
+            ([{"id": "../../escaped"}], "alpha"),
+            ([{"id": "Alpha"}], "alpha"),
+            (["alpha"], "alpha"),
+            ([{"keywords": []}], "alpha"),
+            ([{"id": "alpha"}], "../escaped"),
+            ([{"id": "alpha"}], "alpha+shared"))):
+        case = os.path.join(tmp, str(n))
+        # "alpha+shared": a valid role whose claim names a co-owner that traverses.
+        shared = {"shared_with": ["../../../escaped"]} if claims_role == "alpha+shared" else {}
+        drain, claims_dir, out = build(case, {"alpha": claims(claims_role.split("+")[0], [
+            {"class": "domain", "topic": "one", "title": "T", "body": "b", "evidence": ["h1"], **shared},
+        ])})
+        os.makedirs(os.path.join(working_copy(out), ".agent-fabric"), exist_ok=True)
+        with open(os.path.join(working_copy(out), ".agent-fabric", "hygiene.json"), "w", encoding="utf-8") as fh:
+            json.dump(HYGIENE, fh)
+        with open(os.path.join(working_copy(out), ".agent-fabric", "taxonomy.json"), "w", encoding="utf-8") as fh:
+            json.dump({"version": 1, "project": PROJECT, "roles": taxonomy_roles}, fh)
+        # A domain the traversing id resolves to, holding a slice: what
+        # would make it a bound role with an index to write.
+        os.makedirs(os.path.join(out, "memory", "domains", "..", "..", "escaped"), exist_ok=True)
+        with open(os.path.join(out, "memory", "domains", "..", "..", "escaped", "d.md"), "w", encoding="utf-8") as fh:
+            fh.write("x\n")
+        before = sorted(os.path.relpath(os.path.join(d, f), case) for d, _s, fs in os.walk(case) for f in fs)
+        proc = run_assemble(drain, claims_dir, out)
+        after = sorted(os.path.relpath(os.path.join(d, f), case) for d, _s, fs in os.walk(case) for f in fs)
+        assert proc.returncode == 1 and ("is not a role id" in proc.stderr or "not a role entry" in proc.stderr), \
+            (taxonomy_roles, claims_role, proc.stderr)
+        assert after == before, f"{taxonomy_roles} {claims_role}: written before the refusal: {set(after) - set(before)}"
+
+
+def test_a_correction_retitling_a_carried_files_only_section_renames_its_cue(tmp: str) -> None:
+    """A carried file keeps the cue it moved with, since it names several
+    topics. When a correction's merge_target retitles its only section, that
+    cue named the stale section: the file's description, and the index line,
+    take the correction's heading (the 2026-10-05 drain's review, B8)."""
+    drain, claims_dir, out = build(tmp, {"alpha": claims("alpha", [
+        {"class": "workflow", "topic": "fix", "title": "New cue", "body": "Corrected.", "merge_target": "Old cue",
+         "evidence": ["h1"]},
+    ])})
+    wf = proj(out, "alpha", "workflow")
+    os.makedirs(wf, exist_ok=True)
+    head = "---\nrole: alpha\nclass: workflow\ndescription: {cue}\ntier: 1\n---\n\n"
+    with open(os.path.join(wf, "workflow-carried-2025-12-01.md"), "w", encoding="utf-8") as fh:
+        fh.write(head.format(cue="Old cue") + "## Old cue\n\nStale.\n")
+    with open(os.path.join(wf, "other.md"), "w", encoding="utf-8") as fh:
+        fh.write(head.format(cue="Other") + "## Other\n\nO.\n")
+    proc = run_assemble(drain, claims_dir, out)
+    assert proc.returncode == 0, proc.stderr
+    carried = read(os.path.join(wf, "workflow-carried-2025-12-01.md"))
+    assert "## New cue" in carried and "Stale." not in carried, carried
+    assert "description: New cue" in carried or 'description: "New cue"' in carried, carried
+    index = read(proj(out, "alpha", "INDEX.md"))
+    assert "workflow-carried-2025-12-01.md) — New cue" in index and "Old cue" not in index, index
+
+
+def test_a_withheld_name_in_a_topic_reaches_no_note(tmp: str) -> None:
+    """Every redaction note names its claim by topic: built from the topic
+    before it was substituted, the notes carried the very name they said
+    was withheld, into stderr and the committed report (B3's review, F4)."""
+    drain, claims_dir, out = build(tmp, {"alpha": claims("alpha", [
+        {"class": "domain", "topic": "springfield-grid", "title": "Springfield grid", "body": "Springfield is gridded.",
+         "evidence": ["h1"]},
+    ])})
+    proc = run_assemble(drain, claims_dir, out)
+    assert proc.returncode == 0, proc.stderr
+    report = read(report_path(out))
+    assert json.loads(report)["redactions"], report
+    for said in (report, proc.stderr):
+        assert "springfield" not in said.lower(), said
+
+
+def test_two_stores_of_one_account_keep_two_watermarks(tmp: str) -> None:
+    """The projects root's own memory files under the fabric checkout beside
+    the checkout's own: one key for both let the later drain's mark skip
+    the other store's unread memories (B1's review, F2). A harvest that
+    names its store (--store) is kept under agent@host#<store>, and reads
+    its own mark back."""
+    drain, claims_dir, out = build(tmp, {"alpha": claims("alpha", [
+        {"class": "domain", "topic": "one", "title": "T", "body": "b", "evidence": ["h1"]},
+    ])})
+    report_file = os.path.join(drain, "harvest-report.json")
+    for store, mark in ((None, 200), ("dev-01@hostA#projects-root", 99)):
+        with open(report_file, "w", encoding="utf-8") as fh:
+            json.dump({"agent": "dev-01", "host": "hostA", "next_watermark": mark, "counts": {},
+                       **({"store": store} if store else {})}, fh)
+        proc = run_assemble(drain, claims_dir, out)
+        assert proc.returncode == 0, proc.stderr
+    report = json.loads(read(report_path(out)))
+    assert report["watermarks"] == {"dev-01@hostA": 200, "dev-01@hostA#projects-root": 99}, report["watermarks"]
+    assert set(report["harvest_sources"]) == {"dev-01@hostA", "dev-01@hostA#projects-root"}, report["harvest_sources"]
+    sys.path.insert(0, os.path.join(ROOT, "tools", "fabric"))
+    import importlib
+    harvest = importlib.import_module("harvest_memory")
+    key = harvest.store_key("dev-01", "hostA", "projects-root")
+    assert harvest.previous_watermark(working_copy(out), "hostA", "dev-01", key)[0] == 99
+    assert harvest.previous_watermark(working_copy(out), "hostA", "dev-01")[0] == 200
+
+
+def test_a_harvest_naming_another_accounts_store_is_refused_before_any_write(tmp: str) -> None:
+    """A harvest report's store becomes a committed watermark: one naming
+    another account's store would move that account's mark and skip its
+    unread memories, unsaid (B's re-review, finding 1). Refused before
+    anything is written; the account's own second store is accepted."""
+    drain, claims_dir, out = build(tmp, {"alpha": claims("alpha", [
+        {"class": "domain", "topic": "one", "title": "T", "body": "b", "evidence": ["h1"]},
+    ])})
+    report_file = os.path.join(drain, "harvest-report.json")
+    with open(report_file, "w", encoding="utf-8") as fh:
+        json.dump({"agent": "dev-01", "host": "hostA", "next_watermark": 9, "store": "victim@hostA"}, fh)
+    proc = run_assemble(drain, claims_dir, out)
+    assert proc.returncode == 1 and "names the store 'victim@hostA'" in proc.stderr, proc.stderr
+    assert not os.path.exists(os.path.join(out, "memory")), "written before the refusal"
+    with open(report_file, "w", encoding="utf-8") as fh:
+        json.dump({"agent": "dev-01", "host": "hostA", "next_watermark": 9, "store": "dev-01@hostA#projects-root"}, fh)
+    assert run_assemble(drain, claims_dir, out).returncode == 0
+
+
+def test_holding_a_shared_slice_keeps_the_notes_of_a_role_slice_under_the_same_key(tmp: str) -> None:
+    """A note names the slice its claim lands in: holding shared/domain:sh
+    drops the shared slice's notes and keeps those of gamma's own
+    domain:sh, which this run wrote (B's re-review, finding 2)."""
+    drain, claims_dir, out = build(tmp, {
+        "alpha": claims("alpha", [{"class": "domain", "topic": "sh", "title": "Shared", "body": "In Springfield.",
+                                   "evidence": ["h1"], "shared_with": ["beta"]}]),
+        "gamma": claims("gamma", [{"class": "domain", "topic": "sh", "title": "Own", "body": "Also Springfield.",
+                                   "evidence": ["h2"]}]),
+    })
+    hold = os.path.join(tmp, "hold.json")
+    with open(hold, "w", encoding="utf-8") as fh:
+        json.dump(["shared/domain:sh"], fh)
+    proc = run_assemble(drain, claims_dir, out, "--hold", hold)
+    assert proc.returncode == 0, proc.stderr
+    redactions = json.loads(read(report_path(out)))["redactions"]
+    assert [r for r in redactions if " body:" in r] == ["gamma/domain:sh body: city name -> '[redacted]'"], redactions
+    assert os.path.exists(dom(out, "gamma", "domain.md"))
+
+
 def main() -> int:
     cases = [
         test_a_topic_named_like_a_budget_part_is_its_own_memory,
@@ -2505,6 +3011,20 @@ def main() -> int:
         test_a_tracked_scratchpad_path_is_left_alone,
         test_same_named_temp_artifacts_stay_distinct,
         test_lint_rejects_a_session_temp_crossref_key,
+        test_a_bundle_that_cannot_be_read_is_refused_in_one_line,
+        test_a_malformed_hygiene_list_stops_the_drain_in_one_line,
+        test_a_name_scoped_others_stays_in_its_own_projects_slices_only,
+        test_the_memories_skipped_for_no_roles_class_are_named_in_the_committed_report,
+        test_a_held_back_slice_is_neither_written_nor_reported_as_the_drains,
+        test_a_flat_file_moved_in_is_deduplicated_by_text_and_restamped,
+        test_every_role_the_project_binds_with_domain_slices_gets_an_index,
+        test_a_correction_retitling_a_carried_files_only_section_renames_its_cue,
+        test_a_withheld_name_in_a_topic_reaches_no_note,
+        test_two_stores_of_one_account_keep_two_watermarks,
+        test_a_harvest_naming_another_accounts_store_is_refused_before_any_write,
+        test_holding_a_shared_slice_keeps_the_notes_of_a_role_slice_under_the_same_key,
+        test_a_held_slice_is_drained_again_once_released,
+        test_a_role_id_that_is_no_slug_is_refused_before_anything_is_written,
     ]
     # THE REGISTRY IS THE TRAP THIS GUARDS. Cases run because they are
     # listed here, not because they are named test_*, so a case that is

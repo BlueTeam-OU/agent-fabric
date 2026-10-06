@@ -49,6 +49,7 @@ import pwd
 import socket
 import sys
 import tempfile
+from typing import TypedDict
 
 # The repository this module lives in. AGENT_FABRIC_ROOT lets a test point
 # at a fixture tree; it never influences the agent NAME.
@@ -85,6 +86,26 @@ def state_root() -> str:
 def agent_state_dir(agent: str | None = None) -> str:
     return os.path.join(state_root(), "agents", agent or current_agent())
 
+
+
+# The runtime binding, as write_binding stamps it and its writers fill it
+# (role.py bind/unbind, the session-start hook, rename_history). The keys a
+# writer may leave out live in a total=False subclass: under `from
+# __future__ import annotations` TypedDict counts NotRequired[...] as
+# required. tests/test_role.py holds a real bind's binding to it.
+class _BindingKeys(TypedDict):
+    agent: str
+    host: str
+    updated_at: str
+
+
+class Binding(_BindingKeys, total=False):
+    role: str | None
+    project: str | None
+    working_copy: str | None
+    workspace: str | None
+    session: str | None
+    installed: list[dict[str, str]]
 
 def binding_path(agent: str | None = None) -> str:
     return os.path.join(agent_state_dir(agent), "binding.json")
@@ -158,7 +179,7 @@ def agent_lock(agent: str | None = None, *, shared: bool = False):
             os.close(fd)
 
 
-def read_binding(agent: str | None = None) -> dict:
+def read_binding(agent: str | None = None) -> Binding | dict:
     """The agent's runtime binding, or {} when none has been written.
 
     A binding that names a different agent than the directory it sits in

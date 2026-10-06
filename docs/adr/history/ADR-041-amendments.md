@@ -16,3 +16,15 @@ appends an audit line before it crosses, and a line that cannot be
 written refuses the crossing. python-dev-01's supply,
 `tools/fabric/gzcoord/bypass.py`, does it, with
 `tests/test_gzcoord_bypass.py`.
+
+### Amendment 2026-10-06 — A bypassed send records its outcome
+
+The review of #97 found that a bypassed send's record said only that a
+crossing was attempted: a reader could not tell a message the relay took
+from one it refused. The send now writes its line as "pending" before the
+post and a second line after it: "accepted" with the carrier sequence,
+"failed" only when the post provably never reached the relay (a 4xx, a
+connection refused, a token refused before it left), and "unknown"
+otherwise — a timeout or a 5xx may come after the relay stored it. The
+journal's own row follows the same rule. Delivered by python-dev-01 on
+its contributor branch, reviewed there.

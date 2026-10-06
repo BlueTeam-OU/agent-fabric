@@ -58,6 +58,30 @@ CLASS_FILES = {
 # once the project is known (intake.open_layout), in place: every part
 # reads this one list.
 BANNED_PATTERNS: list = []
+# The same lists for a slice of this project's own (its classes and its
+# shared/): a name its hygiene.json marks "scope": "others" is its own to
+# say there, and withheld everywhere else (the owner, 2026-10-05).
+PROJECT_PATTERNS: list = []
+
+
+def store_error(hr: dict) -> str | None:
+    """Why a harvest report's "store" is not its own, or None. A store is
+    the harvesting account's: agent@host, or agent@host#<name> for a second
+    store of it. Any other value would set another account's watermark, and
+    its unread memories would be skipped by its next drain, unsaid."""
+    store = hr.get("store")
+    if store is None:
+        return None
+    own = f"{hr.get('agent') or 'unattributed'}@{hr.get('host') or 'unknown'}"
+    if not isinstance(store, str) or not (store == own or store.startswith(own + "#")):
+        return f"harvest-report.json names the store {store!r}, not one of {own}'s"
+    return None
+
+
+def patterns_for(klass: str) -> list:
+    """The patterns a slice of `klass` is held to: the project's own set
+    for a project class, every pattern for a fabric one (domain)."""
+    return PROJECT_PATTERNS if klass in layout.PROJECT_CLASSES else BANNED_PATTERNS
 
 
 # Italian function words that would not appear in ordinary English prose.
@@ -122,6 +146,21 @@ def normalize_artifact(kind: str, value: str) -> str:
     # were, which is the point.
     digest = hashlib.sha256(value.encode("utf-8")).hexdigest()[:8]
     return f"scratch:{tail}#{digest}"
+
+
+# A role id, as identities/schemas/claims.schema.json gives it: what the
+# assembler joins into a path (layout.domain_dir, project_dir), so it is
+# held to it wherever it comes from — a claims file's role, a claim's
+# shared_with, the project's taxonomy — before anything is written
+# (#100's review, 2).
+ROLE_ID = re.compile(r"[a-z][a-z0-9-]*")
+
+
+def role_id_error(role: Any) -> str | None:
+    """Why `role` is no role id, or None."""
+    if not isinstance(role, str) or not ROLE_ID.fullmatch(role):
+        return f"{role!r} is not a role id ({ROLE_ID.pattern})"
+    return None
 
 
 def slugify(value: str) -> str:
@@ -225,29 +264,30 @@ def render_frontmatter(meta: dict[str, Any]) -> str:
 REDACTED = "[redacted]"
 
 
-def hygiene_check(text: str, where: str) -> list[str]:
+def hygiene_check(text: str, where: str, patterns: list | None = None) -> list[str]:
     problems = []
-    for pattern, label, _refer_as in BANNED_PATTERNS:
-        hit = pattern.search(text)
-        if hit:
-            problems.append(f"{where}: {label} -- {hit.group(0)!r}")
+    for pattern, label, _refer_as in (BANNED_PATTERNS if patterns is None else patterns):
+        # The label and the place, never the hit: the note lands on stderr
+        # and in the committed drain report, and the hit is what must not.
+        if pattern.search(text):
+            problems.append(f"{where}: {label}")
     italian = ITALIAN_MARKERS.findall(text)
     if len(set(w.lower() for w in italian)) >= 3:
         problems.append(f"{where}: reads as non-English (markers: {sorted(set(italian))[:5]})")
     return problems
 
 
-def hygiene_substitute(text: str, where: str) -> tuple[str, list[str]]:
+def hygiene_substitute(text: str, where: str, patterns: list | None = None) -> tuple[str, list[str]]:
     """Replace every banned hit: with the entry's refer_as (a person becomes
     "the CEO"), else with "[redacted]" (a secret, a deployment's name).
     The knowledge stays; what must not travel does not (decided
     2026-09-16: substitute in place rather than refuse the claim). Every
     substitution is named, so the memory's owner fixes the source."""
     notes: list[str] = []
-    for pattern, label, refer_as in BANNED_PATTERNS:
+    for pattern, label, refer_as in (BANNED_PATTERNS if patterns is None else patterns):
         replacement = refer_as or REDACTED
         def sub(m, label=label, replacement=replacement):
-            notes.append(f"{where}: {label} -- {m.group(0)!r} -> {replacement!r}")
+            notes.append(f"{where}: {label} -> {replacement!r}")   # never the withheld text
             # "the CEO" opens a sentence as "The CEO".
             before = text[:m.start()].rstrip()
             if not before or before[-1] in ".!?:" or text[:m.start()].endswith("\n\n") or before.endswith("#"):
@@ -310,6 +350,22 @@ class Run:
     empty_crossrefs: list[str] = field(default_factory=list)
     shared_index: dict[str, list[dict[str, str]]] = field(default_factory=lambda: defaultdict(list))
     owning_roles: list[str] = field(default_factory=list)
+    # --hold: the slices held back from this drain ("<role>/<class>:<topic>",
+    # "shared/<class>:<topic>"), and every file they have or would have, as
+    # the report names it: what the report must not count as this drain's.
+    held_back: list[str] = field(default_factory=list)
+    # A flat class file moved into its directory this run, by (role, class):
+    # its new name, deduplicated against the drain's other topics.
+    moved_flat: dict[tuple[str, str], str] = field(default_factory=dict)
+    # The roles the project's taxonomy binds whose domain holds slices:
+    # read before anything is written, since an unreadable taxonomy refuses.
+    bound_roles: set[str] = field(default_factory=set)
+    held_files: set[str] = field(default_factory=set)
+    # The evidence a held claim stands on, and when each memory was written
+    # (the observation's created_at_epoch, seconds): the store's mark stays
+    # below the oldest, so the hold is drained again once released.
+    held_evidence: set[str] = field(default_factory=set)
+    evidence_epoch: dict[str, Any] = field(default_factory=dict)
 
 
 def base_for(run: Run, role: str, klass: str) -> str:

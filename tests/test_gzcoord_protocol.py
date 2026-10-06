@@ -1398,13 +1398,23 @@ def _():
     def at(i: int) -> str:
         t = datetime.datetime(2026, 10, 1, tzinfo=datetime.timezone.utc) + datetime.timedelta(seconds=i)
         return t.isoformat(timespec="milliseconds").replace("+00:00", "Z")
-    for i in range(9):
-        send.record_sent(ledger, {"id": f"m-{i}", "sha256": f"h{i}", "seq": i, "at": at(i)}, 3)
-    with open(ledger, encoding="utf-8") as fh:
-        ok("trimmed_before" not in fh.read(), "under the bound: no trim, no mark")
-    # Past keep + 1000 twice: the second trim must carry the first mark away.
-    for i in range(9, 2020):
-        send.record_sent(ledger, {"id": f"m-{i}", "sha256": f"h{i}", "seq": i, "at": at(i)}, 3)
+    # The ledger is written under the agent's lock: its state directory is
+    # this case's, never the runner's.
+    saved = os.environ.get("AGENT_FABRIC_STATE_DIR")
+    os.environ["AGENT_FABRIC_STATE_DIR"] = d
+    try:
+        for i in range(9):
+            send.record_sent(ledger, {"id": f"m-{i}", "sha256": f"h{i}", "seq": i, "at": at(i)}, 3)
+        with open(ledger, encoding="utf-8") as fh:
+            ok("trimmed_before" not in fh.read(), "under the bound: no trim, no mark")
+        # Past keep + 1000 twice: the second trim must carry the first mark away.
+        for i in range(9, 2020):
+            send.record_sent(ledger, {"id": f"m-{i}", "sha256": f"h{i}", "seq": i, "at": at(i)}, 3)
+    finally:
+        if saved is None:
+            os.environ.pop("AGENT_FABRIC_STATE_DIR", None)
+        else:
+            os.environ["AGENT_FABRIC_STATE_DIR"] = saved
     with open(ledger, encoding="utf-8") as fh:
         lines = [x for x in fh.read().split("\n") if x]
     marks = [x for x in lines if "trimmed_before" in x]

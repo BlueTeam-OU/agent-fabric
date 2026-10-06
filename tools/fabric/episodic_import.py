@@ -62,6 +62,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import episodic  # noqa: E402
 import relay  # noqa: E402
+from gzcoord.send import _ledger  # noqa: E402
 
 # gzmsg.mjs RETIRED_TYPES: presence, which the inbox acknowledges and never
 # journals (tests/test_episodic_import.py holds this equal to its source).
@@ -131,19 +132,22 @@ def ledger_watermark(path: str) -> datetime.datetime | None:
     """The time before which a trimmed ledger no longer speaks: its first
     line, {"trimmed_before": …}, written by send.mjs recordSent."""
     try:
-        with open(path, encoding="utf-8") as fh:
+        with os.fdopen(_ledger(path, os.O_RDONLY), encoding="utf-8", errors="replace") as fh:
             first = json.loads(fh.readline() or "null")
     except (OSError, ValueError):
         return None
     return _when(first.get("trimmed_before")) if isinstance(first, dict) else None
 
 
-def read_ledger(path: str) -> dict[str, list[dict]]:
+def read_ledger(path: str) -> tuple[dict[str, list[dict]], str | None]:
     """gzcoord-sent.jsonl by id: every post send.mjs recorded (a
-    retransmission is another line with the same id)."""
+    retransmission is another line with the same id), and why it could not
+    be read, if it could not. Opened as send opens it: a regular file or
+    not at all — a FIFO there would hang the backfill, a symlink would
+    make another file this account's record."""
     out: dict[str, list[dict]] = {}
     try:
-        with open(path, encoding="utf-8") as fh:
+        with os.fdopen(_ledger(path, os.O_RDONLY), encoding="utf-8", errors="replace") as fh:
             for line in fh:
                 try:
                     rec = json.loads(line)
@@ -153,7 +157,9 @@ def read_ledger(path: str) -> dict[str, list[dict]]:
                     out.setdefault(rec["id"], []).append(rec)
     except FileNotFoundError:
         pass
-    return out
+    except OSError as e:
+        return {}, str(e.strerror or e)
+    return out, None
 
 
 def outbound(conn: sqlite3.Connection, text: str, mtype: str, meta: dict, seq, ts,
@@ -203,7 +209,7 @@ class Importer:
         # (role-history.jsonl names no agent id): at birth no role is held.
         self.spans = [sp for sp in role_spans(os.path.join(state, "role-history.jsonl")) if sp[0] >= self.born]
         ledger = os.path.join(state, "gzcoord-sent.jsonl")
-        self.ledger = read_ledger(ledger)
+        self.ledger, self.ledger_unreadable = read_ledger(ledger)
         # The ledger began when send.mjs started writing it, for every
         # account at once, not at this account's first line: an account that
         # has sent nothing yet still began then. A trimmed one speaks only
@@ -213,6 +219,11 @@ class Importer:
         mark = ledger_watermark(ledger)
         if mark is not None:
             self.ledger_from = max(self.ledger_from, mark)
+        # A ledger that cannot be read speaks for no time at all: this
+        # account's own messages are kept unverified, never refused as
+        # another's for want of a record that is there but unreadable.
+        if self.ledger_unreadable:
+            self.ledger_from = datetime.datetime.max.replace(tzinfo=datetime.timezone.utc)
         self.counts = dict.fromkeys(DECISIONS, 0)
         self.unresolved: list[dict] = []
         self.mismatch = {"not_in_ledger": [], "hash_differs": [], "seq_differs": []}
@@ -399,7 +410,8 @@ def main(argv: list[str]) -> int:
         print(f"gzcoord-import: {address} on {channel}: {pages} page(s), last seq {last if last is not None else '-'}")
     report = {"agent_id": agent_id, "address": address, "at": episodic.now(), "complete": rc == 0,
               "channels": seqs, "counts": imp.counts, "to_role_unresolved": imp.unresolved,
-              "ledger": imp.mismatch, "birth": imp.born.strftime("%Y-%m-%dT%H:%M:%SZ")}
+              "ledger": {**imp.mismatch, **({"unreadable": imp.ledger_unreadable} if imp.ledger_unreadable else {})},
+              "birth": imp.born.strftime("%Y-%m-%dT%H:%M:%SZ")}
     try:
         _write_report(os.path.join(state, REPORT), report)
         complete = {_key(v["relay"], c): v["last_seq"] for c, v in seqs.items() if v["complete"]}

@@ -4,7 +4,7 @@
 **Status:** Accepted
 **Ratified:** owner, 2026-09-29, by the merge of agent-fabric #63 (e00f750)
 **Decision Makers:** the owner (the move off Doppler, a repository per agent, a key per agent, paper recovery, the parent's role, no assumed co-location); drafted by fabric-coordinator
-**Scope:** every agent's credentials and the key that guards them: `tools/fabric/secret_store.py` behind `bin/fabric-secrets`; each agent's repository `gzapi-org/agent-fabric-secrets-<id>` (ADR-039); `identities/keys/`; `~/.config/agent-fabric/secrets.env` and its consumers; filling a child's store (`fabric-secrets provision`); the migration from Doppler (ADR-012), complete; the Claude-account templates (ADR-031); provisioning (`runtime/provisioning/new-agent.sh`)
+**Scope:** every agent's credentials and the key that guards them: `tools/fabric/secret_store.py` behind `bin/fabric-secrets`; each agent's repository `gzapi-org/agent-fabric-secrets-<id>` (ADR-039); `identities/keys/`; `~/.config/agent-fabric/secrets.env`, `env.sh` and their consumers; what a session's shell holds; filling a child's store (`fabric-secrets provision`); the migration from Doppler (ADR-012), complete; the Claude-account templates (ADR-031); provisioning (`runtime/provisioning/new-agent.sh`)
 **Pillar:** P1
 
 ## 1. Context and Problem
@@ -147,7 +147,7 @@ sharing a machine.
    (A 2026-09-30):
    - 0: applied;
    - 1: unreadable;
-   - 2: applied, with required names missing;
+   - 2: applied, with required names missing, or gh refusing `GH_TOKEN`;
    - 3: the store names another login, and nothing is applied.
 8. Every account reads its own store; Doppler is removed from the code —
    its reader, `import-doppler`, the migration action, the enrolment and
@@ -155,6 +155,24 @@ sharing a machine.
    compared the sha256 of every value sync applies (`values_sha256`),
    never a value, before and after each account's switch
    (A 2026-09-30).
+9. No shell holds a secret (A 2026-10-06):
+   - sync writes every string a tool reads into `secrets.env` (0600),
+     which no shell sources; a tool that needs one reads it from there.
+     Only names the registry marks `plain_env` also go to `env.sh`, the
+     one file `~/.bashrc` sources; an unmarked name is a secret;
+   - `GH_TOKEN` goes into gh's own configuration, so gh needs nothing in
+     the environment;
+   - the launcher gives the harness its own credential, from the file,
+     and the relay token a project's `.mcp.json` header expands, and
+     drops every other synced name it inherited;
+   - the SessionStart hook unsets the harness's credentials and every
+     synced secret in the file the harness sources into each Bash call,
+     so no Bash call or subagent inherits one; `fabric-status` reads the
+     session's sign-in from the harness process, fingerprinted.
+   This keeps secrets out of what a session prints by accident. It does
+   not keep them from a session that reads the file: the store's key has
+   no passphrase, and anything running as the login can decrypt the
+   store. Holding secrets in another account is §7.
 
 ## 6. Consequences
 
@@ -193,6 +211,10 @@ sharing a machine.
   under `/usr/local` is each host operator's to remove, and the project,
   which revokes every token, the owner's to close.
 - **Hardware-held keys,** if an agent's host offers one.
+- **Secrets out of the login's reach.** Rule 9 removes them from the
+  environment only. A broker running as another account, handing one
+  credential per call to the process that needs it, would remove them
+  from what a session can read; it needs root on each host.
 
 ## 8. Decision Status
 
@@ -218,3 +240,4 @@ The body above reads current; each change's full note is in [history/ADR-038-ame
 | 2026-09-29 | One identity key per agent, a key per use beneath it | §5 rule 1, §7: a certify-only primary with encryption, signing and authentication subkeys |
 | 2026-09-30 | Doppler is removed: every account reads its own store, and a parent fills a child's with provision | Scope, §5 rules 3, 5, 7, 8; §7; §8 |
 | 2026-10-01 | A new account's store reaches it as a bundle | §5 rule 5: the first commit and the filled store travel as bundles through the parent; `sync --no-pull` once |
+| 2026-10-06 | No secret in a session's shell | Scope, §5 rules 7 and 9, §7: secrets.env is sourced by no shell, env.sh holds plain values, gh holds GH_TOKEN, the launcher and SessionStart keep the session's shell free of secrets |

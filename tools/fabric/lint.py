@@ -96,6 +96,7 @@ LOCALE_DIRNAME = "locale"
 # copy's .agent-fabric/hygiene.json), loaded in main() once the working
 # copies are known: layout.load_hygiene_patterns.
 BANNED_PATTERNS: list = []
+PROJECT_PATTERNS: dict[str, list] = {}   # project id -> the set its own slices are held to
 
 ITALIAN_MARKERS = re.compile(
     r"(?<![a-z])(perch[eé]|per[oò]|quindi|anche|questo|questa|quello|quella|"
@@ -239,7 +240,7 @@ def harness_source_findings(root: str | None = None) -> list[str]:
     return out
 
 
-def hygiene_findings(where: str, text: str) -> list[str]:
+def hygiene_findings(where: str, text: str, patterns: list | None = None) -> list[str]:
     """Banned patterns and the language check — for slices AND payload.
 
     Payload is exempt from the slice judgements; it is never exempt from
@@ -248,10 +249,11 @@ def hygiene_findings(where: str, text: str) -> list[str]:
     this is the only thing between a pasted credential and every one of them.
     """
     out: list[str] = []
-    for pattern, label, _refer_as in BANNED_PATTERNS:
-        hit = pattern.search(text)
-        if hit:
-            out.append(f"{where}: {label} -- {hit.group(0)!r}")
+    # The label and the place, never the hit: a finding lands in CI's log,
+    # and a credential pattern's hit is the credential.
+    for pattern, label, _refer_as in (BANNED_PATTERNS if patterns is None else patterns):
+        if pattern.search(text):
+            out.append(f"{where}: {label}")
     italian = {w.lower() for w in ITALIAN_MARKERS.findall(text)}
     if len(italian) >= 3:
         out.append(
@@ -2023,7 +2025,7 @@ def lint_slices(base: str, where_prefix: str, template_schema: dict[str, Any] | 
             approx = len(body) // CHARS_PER_TOKEN
             if approx > budget * BUDGET_TOLERANCE:
                 findings.append(f"{rel}: ~{approx} tokens exceeds the {budget} budget; split the slice")
-            findings += hygiene_findings(rel, body)
+            findings += hygiene_findings(rel, body, PROJECT_PATTERNS.get(project) if project else None)
             # The cue is English like the body: an index line and a heading
             # are what every holder of the role reads before choosing a
             # slice. The Italian check above missed a whole drain of Russian
@@ -2107,8 +2109,18 @@ def main() -> int:
     schemas = os.path.join("identities", "schemas")
     # Every project whose working copy this run knows contributes its
     # hygiene list — whether or not that working copy holds memory yet.
-    BANNED_PATTERNS[:] = layout.load_hygiene_patterns(
-        sorted(set(layout.list_projects()) | set(layout.explicit_working_copies())))
+    # A broken list withholds nothing: a finding, and nothing is judged
+    # clean against it (layout.HygieneError names the file and the entry).
+    hygiene_projects = sorted(set(layout.list_projects()) | set(layout.explicit_working_copies()))
+    try:
+        BANNED_PATTERNS[:] = layout.load_hygiene_patterns(hygiene_projects)
+        # A project's own slices are held to its set: its "scope": "others"
+        # names are its own to say there, and withheld everywhere else.
+        PROJECT_PATTERNS.clear()
+        PROJECT_PATTERNS.update({pid: layout.load_hygiene_patterns(hygiene_projects, for_project=pid)
+                                 for pid in hygiene_projects})
+    except layout.HygieneError as exc:
+        findings.append(str(exc))
 
     # --- the role catalogue ------------------------------------------------
     known_roles: set[str] = set()

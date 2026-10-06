@@ -75,8 +75,9 @@ import sys
 GIT_WRITE = r'(^|[;&|(]|`)[\s]*(sudo[\s]+)?([^\s]*/)?git(?:[\s]+(?:(?:-[Cc]|--(?:git-dir|work-tree|namespace|super-prefix|config-env|attr-source|list-cmds))[\s]+[^\s]+|(?:-[pPhv]|--(?:no-pager|paginate|bare|literal-pathspecs|glob-pathspecs|noglob-pathspecs|icase-pathspecs|no-replace-objects|no-lazy-fetch|no-optional-locks|no-advice|html-path|man-path|info-path|version|help))(?=[\s]|$)|(?!(?:(?:-[Cc]|--(?:git-dir|work-tree|namespace|super-prefix|config-env|attr-source|list-cmds))|(?:-[pPhv]|--(?:no-pager|paginate|bare|literal-pathspecs|glob-pathspecs|noglob-pathspecs|icase-pathspecs|no-replace-objects|no-lazy-fetch|no-optional-locks|no-advice|html-path|man-path|info-path|version|help)))(?:[\s]|$))-[A-Za-z-]+(?:=[^\s]*|[\s]+[^\s-][^\s]*)?))*[\s]+(push|commit|add|rm|mv|checkout|switch|restore|reset|stash|rebase|merge|cherry-pick|revert|clean|am|apply|fetch|pull|gc|tag[\s]+(-[adsfm]|--delete|--force|[A-Za-z0-9][^\s]*)|worktree[\s]+(add|remove|prune|move|lock|unlock|repair)|branch[\s]+(-[dDmMc]|--delete|--move|--copy)|remote[\s]+(add|remove|rm|rename|set-url)|config([\s]+(--(local|worktree|global|system)|(-f|--file)[\s]+[^\s]+))*[\s]+(set|unset|--add|--unset|--unset-all|--replace-all|--rename-section|--remove-section|--edit|-e|rename-section|remove-section|edit|[A-Za-z][A-Za-z0-9-]*\.[^\s]+[\s]+[^\s;&|-][^\s;&|]*))([\s]|$|[);&|])'
 INSTALL = r'(^|[;&|(]|`)[\s]*(sudo[\s]+)?((pnpm|npm|yarn)([\s]+-[A-Za-z-]+)*[\s]+(install|i|add|remove|rm|update|up|dedupe)([\s]|$|[);&|])|(flutter|dart)[\s]+pub[\s]+(get|add|remove|upgrade|downgrade)([\s]|$|[);&|])|dotnet[\s]+(restore|add|remove)([\s]|$|[);&|])|pip3?[\s]+install([\s]|$|[);&|])|cargo[\s]+(add|install)([\s]|$|[);&|]))'
 
-# Secrets. Every account's shell carries its synced secrets in the
-# environment (~/.bashrc sources secrets.env), so a reviewer listing its
+# Secrets. Every account's shell carried its synced secrets in the
+# environment (~/.bashrc sourced secrets.env until ADR-038 rule 9), and a
+# session started from such a shell still can, so a reviewer listing its
 # environment prints them into its transcript and the model's input: on
 # 2026-10-04 one did, and the operator's signing key was rotated (#95).
 # Denied in any command: the environment printed whole (env or printenv as a
@@ -148,7 +149,7 @@ BUDGET_S = 3.0
 REASONS = {
     "slow": "The review-class bash guard could not judge this command within its time budget, so it is denied. Split it into simpler commands.",
     "error": "The review-class bash guard failed while judging this command, so it is denied. Report without it, or split it into simpler commands.",
-    "secret": "The review class may not print the environment, expand a secret-shaped variable, or read secret material (secrets.env, the stores, gpg keys, /proc/*/environ): every account's environment carries its credentials, and what you print enters the transcript. Describe a secret by its name and shape only. To run a check in a clean environment, use env -i NAME=value \u2026 command.",
+    "secret": "The review class may not print the environment, expand a secret-shaped variable, or read secret material (secrets.env, the stores, gpg keys, /proc/*/environ): an account's environment or files may carry its credentials, and what you print enters the transcript. Describe a secret by its name and shape only. To run a check in a clean environment, use env -i NAME=value \u2026 command.",
     "moved": "The review class may not change directory to a home, a hidden directory in one, up out of the clone (..), or back (cd, cd -, cd ~): what the command does after the cd would read there. Name the path in the command, or use git -C <path>.",
     "cd-last": "A cd that ends a command does not last: each command the review class runs is its own shell, so the next one starts where this one did. Put the work after it in the same command (cd <dir> && git log ...), or name the directory (git -C <dir> ..., grep -rn x <dir>).",
     "escape": "The review class may not use shell escapes (eval, exec, sh -c): they carry a write past this guard. Run the command directly.",
@@ -285,8 +286,9 @@ def judged(cmd: str) -> str | None:
 
 # What a command the fence lets through keeps of its environment: the
 # variables a build or a test needs to find its tools and a place to write,
-# and nothing else. Every account's shell carries its synced secrets
-# (~/.bashrc sources secrets.env), and the patterns above judge spellings,
+# and nothing else. An account's shell carried its synced secrets
+# (~/.bashrc sourced secrets.env before ADR-038 rule 9; a session from an
+# older shell still may), and the patterns above judge spellings,
 # which bash can always outrun (#96: nine rounds, each a new one); a command
 # that starts from this list inherits no secret, however it is spelled. It
 # removes the inherited environment, not every way back to it: the account's
@@ -310,7 +312,8 @@ assert not any(re.search(r"TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|_KEY", n) for
 def wrapped(cmd: str) -> str:
     """cmd run by bash with only CLEAN_ENV, each kept only when it is set
     (an empty TZ is not an unset one). --norc: bash reads ~/.bashrc, which
-    sources secrets.env, for `bash -c` whose stdin is a socket (measured in
+    sourced secrets.env before ADR-038 rule 9 and may again by a hand
+    edit, for `bash -c` whose stdin is a socket (measured in
     #97's review; the harness gives /dev/null today), so the rewrite must
     not depend on what stdin it is given."""
     keep = " ".join('${%s+"%s=$%s"}' % (n, n, n) for n in CLEAN_ENV)

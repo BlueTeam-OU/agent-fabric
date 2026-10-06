@@ -19,6 +19,7 @@ import tempfile
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TOOL = os.path.join(HERE, "tools", "fabric", "secrets_sync.py")
 SHIM = os.path.join(HERE, "runtime", "provisioning", "secrets", "fabric-secrets")
+FAKE_GH = os.path.join(HERE, "tests", "fixtures", "fake-gh-auth.sh")
 spec = importlib.util.spec_from_file_location("secrets_sync", TOOL)
 s = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(s)
@@ -65,9 +66,15 @@ def main() -> int:
             rc = fn(*a)
         return rc, out.getvalue() + err.getvalue()
 
-    saved = {k: os.environ.get(k) for k in ("HOME", "GIT_CONFIG_GLOBAL", "GIT_CONFIG_NOSYSTEM")}
+    saved = {k: os.environ.get(k) for k in ("HOME", "GIT_CONFIG_GLOBAL", "GIT_CONFIG_NOSYSTEM", "AGENT_FABRIC_GH",
+                                             "GH_CONFIG_DIR", "XDG_CONFIG_HOME", "FAKE_GH_LOGIN_EXIT")}
     with tempfile.TemporaryDirectory() as tmp:
         os.environ["HOME"] = tmp
+        # Never the real gh: it follows XDG_CONFIG_HOME and the keyring, not
+        # HOME (it once read the runner's token from here).
+        os.environ["AGENT_FABRIC_GH"] = FAKE_GH
+        for k in ("GH_CONFIG_DIR", "XDG_CONFIG_HOME", "FAKE_GH_LOGIN_EXIT"):
+            os.environ.pop(k, None)
         os.environ.pop("GIT_CONFIG_GLOBAL", None)
         os.environ["GIT_CONFIG_NOSYSTEM"] = "1"
         git = lambda k: subprocess.run(["git", "config", "--global", "--get", k], capture_output=True, text=True).stdout.strip()
@@ -92,7 +99,23 @@ def main() -> int:
             sourced = subprocess.run(["bash", "-c", f"source '{envf}'; printf '%s' \"$CLAUDE_BRIDGE_AUTH_TOKEN\""],
                                      capture_output=True, text=True).stdout
             check("a value with quotes and a dollar survives sourcing", sourced == "bridge-FIXTURE with 'quote' and $dollar", sourced)
-            check("bashrc sources the env file once", open(s.bashrc()).read().count("agent-fabric secrets") == 1)
+            rc_text = open(s.bashrc()).read()
+            check("bashrc sources env.sh once, and secrets.env never",
+                  rc_text.count("agent-fabric secrets") == 1 and s.shell_env_file() in rc_text and envf not in rc_text,
+                  rc_text)
+            shell = open(s.shell_env_file()).read()
+            check("env.sh is 0600 and carries no secret (nothing is marked plain here)",
+                  s.file_mode(s.shell_env_file()) == 0o600 and "export " not in shell, shell)
+            # A clean environment (the runner's own shell may hold the real
+            # names), and the shell answers set/unset per name, never a value:
+            # this check once printed a real token when it failed.
+            names = ("GH_TOKEN", "OPENROUTER_API_KEY", "CLAUDE_BRIDGE_AUTH_TOKEN")
+            probe = "; ".join(f'[ -n "${{{n}+x}}" ] && echo {n}=set || echo {n}=unset' for n in names)
+            leaked = subprocess.run(["bash", "-ic", probe], capture_output=True, text=True,
+                                    env={"HOME": tmp, "PATH": os.environ.get("PATH", "/usr/bin:/bin"), "TERM": "dumb"}).stdout
+            check("an interactive shell of the account holds no synced secret",
+                  leaked.split() == [f"{n}=unset" for n in names], leaked.split())
+            check("gh holds GH_TOKEN, through its own configuration", s.gh_token_matches("ghp_FIXTUREGH") is True)
             check("git identity, signing key and program applied",
                   (git("user.name"), git("user.signingkey"), git("gpg.program"), git("commit.gpgsign"))
                   == ("Fixture Person", "0123456789ABCDEF0123456789ABCDEF01234567", "/usr/bin/gpg", "true"))
@@ -101,8 +124,61 @@ def main() -> int:
             check("sync prints no value", "sk-or-FIXTURE" not in out and "ghp_FIXTUREGH" not in out, out)
             check("the report names the store", f"store={s.store_path()}" in out, out)
 
+            rc, out = run(s.sync, False, True)
+            check("idempotent: a second sync adds no second bashrc line, and gh is unchanged",
+                  open(s.bashrc()).read().count("agent-fabric secrets") == 1
+                  and not [a for a in json.loads(out)["applied"] if "bashrc" in a or "into gh" in a], out[:400])
+
+            # An older sync's line sourced secrets.env: replaced in place, the
+            # rest of ~/.bashrc kept byte for byte, and status says it until then.
+            old = f"[ -r {envf} ] && . {envf}  # agent-fabric secrets"
+            with open(s.bashrc(), "w") as fh:
+                fh.write(f"# mine, above\nalias ll='ls -l'\n{old}\nexport MINE=1\n")
+            os.chmod(s.bashrc(), 0o640)
+            rc, out = run(s.status, False)
+            check("status: a bashrc that sources secrets.env is NOT OK, and said",
+                  rc == 1 and "SOURCES secrets.env" in out, out)
+            rc, out = run(s.sync, False, True)
+            after = open(s.bashrc()).read()
+            check("sync replaces that line in place, keeping the rest and the mode",
+                  after == f"# mine, above\nalias ll='ls -l'\n{s.source_line()}\nexport MINE=1\n"
+                  and s.file_mode(s.bashrc()) == 0o640
+                  and "bashrc (now sources env.sh, not secrets.env)" in json.loads(out)["applied"], after)
+            with open(s.bashrc(), "a") as fh:
+                fh.write(f"{old}\n")
             run(s.sync, False, False)
-            check("idempotent: a second sync adds no second bashrc line", open(s.bashrc()).read().count("agent-fabric secrets") == 1)
+            check("a second marked line goes too: exactly one remains", open(s.bashrc()).read().count("# agent-fabric secrets") == 1,
+                  open(s.bashrc()).read())
+
+            # A dotfiles-managed ~/.bashrc: the line is fixed in its target,
+            # and the link stays a link.
+            target = os.path.join(tmp, "dotfiles-bashrc")
+            os.replace(s.bashrc(), target)
+            with open(target, "a") as fh:
+                fh.write(f"{old}\n")
+            os.symlink(target, s.bashrc())
+            run(s.sync, False, False)
+            check("a symlinked ~/.bashrc is fixed in its target and stays a link",
+                  os.path.islink(s.bashrc()) and envf not in open(target).read()
+                  and open(target).read().count("# agent-fabric secrets") == 1, open(target).read())
+            os.remove(s.bashrc())
+            os.replace(target, s.bashrc())
+
+            # gh refusing the token: exit 2, said, never the token.
+            os.remove(os.path.join(tmp, ".config", "gh", "fake-token"))
+            os.environ["FAKE_GH_LOGIN_EXIT"] = "1"
+            rc, out = run(s.sync, False, True)
+            os.environ.pop("FAKE_GH_LOGIN_EXIT")
+            check("gh refusing GH_TOKEN fails the sync (exit 2), named, valueless",
+                  rc == 2 and "GH_TOKEN into gh (gh auth login exit 1)" in json.loads(out)["skipped"]
+                  and "ghp_FIXTUREGH" not in out, out[:400])
+            rc, out = run(s.status, False)
+            check("…and status is NOT OK while the store holds GH_TOKEN and gh holds none",
+                  rc == 1 and "gh has a token: False" in out, out)
+            os.environ.pop("AGENT_FABRIC_GH")
+            check("a sandbox HOME with no fake named never reaches a real gh", s.gh_binary() is None)
+            os.environ["AGENT_FABRIC_GH"] = FAKE_GH
+            run(s.sync, False, False)
 
             open(s.ssh_key(), "w").write("LOCAL-KEY")
             rc, out = run(s.sync, False, False)
@@ -207,6 +283,14 @@ def main() -> int:
                 rc, out = run(s.sync, False, False)
                 check("with it: exported and listed as applied",
                       rc == 0 and "export DEMO_PORT_OFFSET=640" in open(envf).read() and "DEMO_PORT_OFFSET" in out, out)
+                check("…but not into env.sh: a name nobody marked plain is a secret", "DEMO_PORT_OFFSET" not in open(s.shell_env_file()).read())
+                json.dump({"projects": {"demo": {"agent_env": {"DEMO_PORT_OFFSET": "the login stack offset"},
+                                                 "plain_env": ["DEMO_PORT_OFFSET", "GH_TOKEN"]}}},
+                          open(os.path.join(fab, "projects", "registry.json"), "w"))
+                run(s.sync, False, False)
+                shell = open(s.shell_env_file()).read()
+                check("marked plain: in env.sh, and a fabric secret marked plain is still never there",
+                      "export DEMO_PORT_OFFSET=640" in shell and "GH_TOKEN" not in shell, shell)
                 rc, out = run(s.status, True)
                 check("status does not call it unexpected", json.loads(out)["unexpected"] == [], out[:300])
 

@@ -158,6 +158,12 @@ def test_binding_names_the_agent_by_login_and_the_role_separately(f: Fixture) ->
     paths = {i["path"] for i in b["installed"]}
     assert ".claude/skills/widget-testing" in paths
     assert all(i.get("digest") for i in b["installed"])
+    # The binding a real bind writes is an identity.Binding: every stamped
+    # key present, nothing undeclared (no checker runs, j28).
+    sys.path.insert(0, os.path.join(ROOT, "runtime"))
+    import identity
+    declared = set(identity.Binding.__required_keys__) | set(identity.Binding.__optional_keys__)
+    assert set(identity.Binding.__required_keys__) <= set(b) <= declared, sorted(set(b) ^ declared)
 
 
 def test_exclude_block_names_the_copies_and_keeps_user_entries(f: Fixture) -> None:

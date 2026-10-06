@@ -197,7 +197,8 @@ arrive, and each can be traced to who learnt it, where and when.
 11. The drain report merges every run of one stamp (one per bundle):
     each bundle's harvest under `harvest_sources`, telemetry per
     agent@host, `files` as the tree holds them after the last run.
-    Watermarks are per store (`agent@host`): a run replaces the mark of
+    Watermarks are per store (`agent@host`, or `agent@host#<store>` for
+    an account's second store, the projects root's): a run replaces the mark of
     each store it harvested with that harvest's own — lower included,
     since the harvester holds a mark below a memory still awaiting its
     rendering — and a run that harvested nothing changes none.

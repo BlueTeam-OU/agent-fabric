@@ -7,6 +7,7 @@ import json
 import os
 import re
 import tempfile
+from typing import TypedDict
 
 from .core import (
     FABRIC_ROOT,
@@ -23,6 +24,36 @@ from .core import (
     git,
 )
 from .keys import key_of_store, _signing_args, _signing_subkeys
+
+
+# The records status, fabric-ctl keys and the drain read. The optional keys
+# live in a total=False subclass: under `from __future__ import annotations`
+# TypedDict counts a NotRequired[...] key as required. tests/test_types.py
+# holds both to the values built here.
+class _RefusalKeys(TypedDict):
+    reason: str
+
+
+class RefusalRecord(_RefusalKeys, total=False):
+    """A store's last refusal (ADR-042 rule 5): the commit and when, as
+    _record_refusal writes it; or a record that could not be read
+    (unreadable, with why). refusals() names the store it is of."""
+    commit: str
+    at: str
+    unreadable: bool
+    store: str
+
+
+class _BaseKeys(TypedDict):
+    state: str
+
+
+class BaseRecord(_BaseKeys, total=False):
+    """A store with no trusted base: "no base", or "unreadable" with why.
+    bases() names the store and its path."""
+    reason: str
+    store: str
+    path: str
 
 
 def _git_env() -> dict:
@@ -208,7 +239,7 @@ def _kept_refusal(store: str) -> str | None:
     return store + ".refusal.json" if os.path.dirname(store) == os.path.normpath(children_dir()) else None
 
 
-def refusal(store: str | None = None) -> dict | None:
+def refusal(store: str | None = None) -> RefusalRecord | None:
     """The store's last refusal, or None when it has no record. A record
     that cannot be read or parsed is no clean bill: it comes back marked
     unreadable, and status stays non-OK on it (review of #94). A mirror
@@ -249,7 +280,7 @@ def _mirror_ids(*, kept: bool = False) -> list[str]:
         raise StoreError(f"{children_dir()} could not be listed ({type(e).__name__})") from None
 
 
-def refusals() -> list[dict]:
+def refusals() -> list[RefusalRecord]:
     """Every refusal this account holds, each named: its own store's
     ("store": "own") and each child's mirror's ("store": the child's agent
     id). A mirror's refusal is the parent's to repair, and was said nowhere
@@ -265,7 +296,7 @@ def refusals() -> list[dict]:
     return out
 
 
-def base_state(store: str) -> dict | None:
+def base_state(store: str) -> BaseRecord | None:
     """None when the store has a trusted base; else its state, in the names
     fabric-ctl keys uses: "no base", or "unreadable" with why. Read as the
     verifier reads it (_read_base), so status cannot disagree with it."""
@@ -275,7 +306,7 @@ def base_state(store: str) -> dict | None:
     return None if base else {"state": "no base"}
 
 
-def bases() -> list[dict]:
+def bases() -> list[BaseRecord]:
     """Every store this account holds that has no trusted base, and so
     refuses every verified operation (ADR-042): its own ("store": "own"),
     when there is one, and each child's mirror ("store": the agent id),

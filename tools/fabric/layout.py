@@ -272,14 +272,34 @@ def project_hygiene_path(project: str) -> str | None:
     return os.path.join(wc, PROJECT_DIRNAME, "hygiene.json") if wc else None
 
 
-def load_hygiene_patterns(projects: list[str] | None = None) -> list[tuple]:
+class HygieneError(ValueError):
+    """A hygiene list that cannot be read or is malformed. It withholds
+    nothing, so nothing may proceed as if it did: skipped, it once let
+    every name it lists into the corpus without a word."""
+
+
+HYGIENE_ENTRY_KEYS = {"pattern", "label", "flags", "refer_as", "scope"}
+
+
+def load_hygiene_patterns(projects: list[str] | None = None, for_project: str | None = None) -> list[tuple]:
     """Compiled (pattern, label, refer_as) triples: the generic ones, the
     fabric's own list (policies/hygiene.json), then every listed project's
     (from <working copy>/.agent-fabric/hygiene.json, when that working copy
     is known). Entries: {"pattern": <regex>, "label": <what it is>,
-    "flags": "i"?, "refer_as": <what the corpus says instead>?}. The
-    assembler replaces a hit with refer_as, or "[redacted]" without one;
-    lint refuses a committed hit either way."""
+    "flags": "i"?, "refer_as": <what the corpus says instead>?,
+    "scope": "others"?}. The assembler replaces a hit with refer_as, or
+    "[redacted]" without one; lint refuses a committed hit either way.
+
+    "scope": "others" marks a name that is the listing project's own: it
+    is withheld from the fabric's slices and from every other project's,
+    and allowed in that project's own. `for_project` names the project
+    whose slices the patterns are for: its own "others" entries are left
+    out. Without it every entry applies, everywhere (the strictest set).
+
+    A list that exists but cannot be read, does not parse, or holds an
+    entry that is not a pattern this reads raises HygieneError, naming the
+    file and the entry: an absent list is no list, a broken one is an
+    error."""
     import re
     # Secrets by shape: known token prefixes, key material, and any
     # password / api key / token ASSIGNED a value that looks like one (a
@@ -301,24 +321,53 @@ def load_hygiene_patterns(projects: list[str] | None = None) -> list[tuple]:
     # The fabric's own list first (policies/hygiene.json: people by role,
     # never by name — a privacy rule, so it holds in every project), then
     # each project's.
-    sources = [(os.path.join(FABRIC_ROOT, "policies", "hygiene.json"), "fabric hygiene")]
+    sources: list[tuple[str, str, str | None]] = [
+        (os.path.join(FABRIC_ROOT, "policies", "hygiene.json"), "fabric hygiene", None)]
     for pid in projects or []:
         path = project_hygiene_path(pid)
         if path:
-            sources.append((path, f"{pid} hygiene"))
-    for path, default_label in sources:
-        if not os.path.isfile(path):
+            sources.append((path, f"{pid} hygiene", pid))
+    for path, default_label, owner in sources:
+        if not os.path.lexists(path):
             continue
         try:
-            doc = json.load(open(path, encoding="utf-8"))
-        except (OSError, ValueError):
-            continue
-        for entry in doc.get("patterns") or []:
-            flags = re.I if "i" in (entry.get("flags") or "") else 0
+            with open(path, encoding="utf-8") as fh:
+                doc = json.load(fh)
+        except OSError as exc:
+            raise HygieneError(f"{path}: cannot be read ({exc.strerror or exc})") from None
+        except ValueError as exc:
+            raise HygieneError(f"{path}: does not parse ({exc})") from None
+        if not isinstance(doc, dict) or not isinstance(doc.get("patterns"), list):
+            raise HygieneError(f"{path}: not an object with a \"patterns\" list")
+        for i, entry in enumerate(doc["patterns"]):
+            where = f"{path}: patterns[{i}]"
+            if not isinstance(entry, dict):
+                raise HygieneError(f"{where} is not an object")
+            unknown = sorted(set(entry) - HYGIENE_ENTRY_KEYS)
+            if unknown:
+                raise HygieneError(f"{where} has keys this does not read: {', '.join(unknown)}")
+            pattern = entry.get("pattern")
+            if not isinstance(pattern, str) or not pattern:
+                raise HygieneError(f"{where} has no pattern")
+            for key in ("label", "flags", "refer_as"):
+                if entry.get(key) is not None and not isinstance(entry[key], str):
+                    raise HygieneError(f"{where}: {key} is not a string")
+            if entry.get("flags") not in (None, "", "i"):
+                # "I" or "x" was read as no flag: a pattern meant to ignore
+                # case let every other casing through.
+                raise HygieneError(f"{where}: flags is {entry['flags']!r}; the one flag is \"i\"")
+            scope = entry.get("scope")
+            if scope is not None and scope != "others":
+                raise HygieneError(f"{where}: scope is {scope!r}; the one scope is \"others\"")
+            if scope == "others" and owner is None:
+                raise HygieneError(f"{where}: scope \"others\" belongs in a project's list, not the fabric's")
             try:
-                out.append((re.compile(entry["pattern"], flags), entry.get("label") or default_label, entry.get("refer_as")))
-            except (re.error, KeyError):
-                continue
+                compiled = re.compile(pattern, re.I if "i" in (entry.get("flags") or "") else 0)
+            except re.error as exc:
+                raise HygieneError(f"{where}: the pattern does not compile ({exc})") from None
+            if scope == "others" and owner == for_project:
+                continue   # this project's own name, in this project's own slices
+            out.append((compiled, entry.get("label") or default_label, entry.get("refer_as")))
     return out
 
 

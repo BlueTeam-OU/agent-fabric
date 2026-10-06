@@ -100,9 +100,12 @@ a message for the agent and two per send, and no prompt tokens.
    sends and receives without the journal, for an operator whose journal
    cannot be written. It is never silent and never untraced: every send
    and every addressed inbound record that crosses without the journal
-   first appends one line to `journal-bypass.jsonl` in the agent's state
+   first appends a line to `journal-bypass.jsonl` in the agent's state
    (time, direction, MESSAGE-ID, the hash the journal would have kept,
-   the carrier sequence when known; never a body), mode 0600, under
+   the carrier sequence when known; never a body), and a send a second
+   line after its post with its outcome (accepted, failed or unknown)
+   (A 2026-10-06),
+   mode 0600, under
    `agent_lock`, and warns per send on stderr and once per inbox page on
    the inbox's stdout (its drain and its watch), where the session sees it. A
    line that cannot be written refuses the crossing, as a journal that
@@ -150,3 +153,4 @@ The body above reads current; each change's full note is in [history/ADR-041-ame
 | Date | Amendment | Effect |
 |---|---|---|
 | 2026-10-05 | `GZCOORD_JOURNAL=off` is a recorded break-glass | §5 rule 10: every bypassed crossing appends an audit line first, or is refused |
+| 2026-10-06 | A bypassed send records its outcome | §5 rule 10: a second line after the post, accepted, failed or unknown; a failed line only when the post provably never reached the relay |

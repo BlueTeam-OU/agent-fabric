@@ -410,6 +410,29 @@ def main() -> int:
         check("the watermark line is no entry", "trimmed_before" not in json.dumps(sorted(timp.ledger)))
         tconn.close()
 
+        print("a ledger that is not a regular file is never waited on, followed or trusted")
+        # A FIFO there would hang the backfill (it opened with a plain
+        # open()); a symlink would make another file this account's record.
+        # Unreadable, it speaks for no time: its own sends are unverified.
+        for kind in ("fifo", "symlink"):
+            k_state = os.path.join(tmp, f"{kind}-state")
+            os.makedirs(k_state)
+            target = os.path.join(k_state, "gzcoord-sent.jsonl")
+            if kind == "fifo":
+                os.mkfifo(target)
+            else:
+                elsewhere = os.path.join(k_state, "elsewhere.jsonl")
+                with open(elsewhere, "w") as f:
+                    f.write(json.dumps({"id": "planted", "sha256": "0" * 64, "seq": 1, "at": "2026-09-30T00:00:00Z"}) + "\n")
+                os.symlink(elsewhere, target)
+            kconn = ep.connect(os.path.join(k_state, "episodic.db"), agent_id=late)
+            kimp = ei.Importer(kconn, ME, late, k_state)
+            d = kimp.decide({"id": "w", "seq": 4, "sender": ME, "timestamp": "2026-10-01 10:00:00",
+                             "content": msg(f"own-{kind}", "BODY-K", frm=ME, to=OTHER)})
+            check(f"a {kind} ledger: read as nothing, said, and its own send kept unverified, not refused",
+                  kimp.ledger == {} and kimp.ledger_unreadable and d[0] == "outbound_unverified", (kimp.ledger, d))
+            kconn.close()
+
         print("refusals")
         r = run("agent-fabric", e={**env, "GZCOORD_CHANNEL": "fabric:control"})
         check("a control channel is refused before any request", r.returncode == 2 and "control" in r.stderr

@@ -229,6 +229,29 @@ def case_hygiene_still_runs_over_payload() -> None:
         assert code == 1 and "city name" in out, f"the banned place name went unreported:\n{out}"
 
 
+def case_a_projects_own_name_is_held_to_its_own_set() -> None:
+    """A project's "scope": "others" pattern withholds a name everywhere
+    but in that project's own slices; a hygiene finding names the label,
+    never the hit (it lands in CI's log); a broken hygiene list is a
+    finding, never a traceback. Kills: holding project slices to the
+    union, echoing the hit, letting HygieneError escape main()."""
+    scoped = {"patterns": [{"pattern": "\\bspringfield\\b", "flags": "i", "label": "city name", "scope": "others"}]}
+    with tempfile.TemporaryDirectory() as root:
+        fabric = make_base(root)
+        wc = os.path.join(root, "wc-demo")
+        write(os.path.join(wc, ".agent-fabric", "hygiene.json"), json.dumps(scoped))
+        write(proj(fabric, "solution", "city.md"), SLICE.replace("A claim with provenance.", "The stack runs in Springfield."))
+        write(dom(fabric, "domain", "city.md"), SLICE.replace("A claim with provenance.", "The stack runs in Springfield."))
+        code, out = run_lint(fabric, "--working-copy", f"{PROJECT}={wc}")
+        mine = [line for line in out.splitlines() if "city name" in line]
+        assert any("domains/web-dev/domain/city.md" in line for line in mine), f"the fabric slice passed:\n{out}"
+        assert not any("solution/city.md" in line for line in mine), f"the project's own slice was held to the union:\n{out}"
+        assert "Springfield" not in out and "springfield" not in out, f"a finding echoed the withheld text:\n{out}"
+        write(os.path.join(wc, ".agent-fabric", "hygiene.json"), "{not json")
+        code, out = run_lint(fabric, "--working-copy", f"{PROJECT}={wc}")
+        assert code == 1 and "Traceback" not in out and "hygiene.json" in out, f"a broken list was not one finding:\n{out}"
+
+
 def case_secrets_are_refused_by_shape() -> None:
     """Passwords, keys and tokens assigned a value, key material and known
     token shapes are refused wherever they appear; a sentence about a
@@ -1776,6 +1799,7 @@ def main() -> int:
         case_payload_is_exempt,
         case_hygiene_still_runs_over_payload,
         case_secrets_are_refused_by_shape,
+        case_a_projects_own_name_is_held_to_its_own_set,
         case_a_persons_name_is_refused_everywhere,
         case_slices_are_still_linted,
         case_a_cue_in_another_script_is_refused,

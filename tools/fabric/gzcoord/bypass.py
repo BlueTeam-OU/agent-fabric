@@ -7,15 +7,23 @@ escape from the invariant is never an escape without a trace:
 
   <agent state dir>/journal-bypass.jsonl, one JSON object per crossing:
     {"at", "direction": "out"|"in", "message_id", "sha256", "seq", "reason"}
+    and, on an out line, "outcome": "pending" | "accepted" | "failed" | "unknown"
 
   at          UTC, milliseconds, Z (as send.py's ledger stamps)
   message_id  the message's MESSAGE-ID, null when it has none or does not parse
   sha256      of the text the journal would have hashed (the posted text out,
               the record's content in), so a bypass line and a journal row
               match; UTF-8, a lone surrogate passed through as its bytes
-  seq         the carrier's seq when known: an inbound record's; null out,
-              since the line is written before the post
+  seq         the carrier's seq when known: an inbound record's, an accepted
+              send's; null on a pending or failed one
   reason      "GZCOORD_JOURNAL=off"
+  outcome     a send has two lines: "pending" before the post (written, or
+              the send is refused), then one once the post is over:
+              "accepted" (the relay took it, with its seq), "failed" (the
+              relay refused it with a 4xx, or it never left this process),
+              or "unknown" (no answer that could be read, or a 5xx: it may
+              have reached the relay). A pending line with no second one is
+              a send whose outcome was never recorded: it may have too.
 
 A line is one crossing, not one message: a record the relay shows again
 (its acknowledgement was lost) crossed again, and gets another line;
@@ -25,10 +33,17 @@ Never the body. Each line is ASCII JSON, so no text the relay sends can
 fail to be written. Appended under identity.agent_lock (ADR-003), the
 file created 0600, never followed through a symlink nor waited on as a
 FIFO (the lock is held while it opens); a directory or a socket there
-fails the open too. Kept whole: an audit record is not trimmed, and
-holds whole lines only: a write that lands short or fails after landing
-bytes is truncated back to where it began. A line that cannot be written
-raises BypassUnrecorded, and the caller refuses the bypass: fail closed.
+fails the open too. Kept whole: an audit record is not trimmed.
+
+What is guaranteed, and what is not: a write that lands short or fails
+after landing bytes is truncated back to where it began, so a refused
+crossing leaves no line. A process killed between its write and that
+truncate, or a truncate that itself fails (said, in the refusal), can
+leave a fragment at the end. So a reader skips a line that does not parse,
+and a writer that finds the file not ending in a newline starts on a fresh
+line: one fragment never swallows the line after it. A line that cannot be
+written raises BypassUnrecorded, and the caller refuses the bypass: fail
+closed.
 """
 from __future__ import annotations
 
@@ -36,10 +51,9 @@ import datetime
 import hashlib
 import json
 import os
-import sys
 from typing import Any
 
-from . import gzmsg
+from . import gzmsg, paths
 
 REASON = "GZCOORD_JOURNAL=off"
 FILE = "journal-bypass.jsonl"
@@ -53,18 +67,8 @@ def is_off() -> bool:
     return os.environ.get("GZCOORD_JOURNAL") == "off"
 
 
-def _identity():
-    """runtime/identity.py, the one source of the state directory and its lock."""
-    runtime = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(
-        os.path.realpath(__file__))))), "runtime")
-    if runtime not in sys.path:
-        sys.path.insert(0, runtime)
-    import identity  # noqa: E402 — runtime/, found by its path
-    return identity
-
-
 def path() -> str:
-    return os.path.join(_identity().agent_state_dir(), FILE)
+    return os.path.join(paths.identity().agent_state_dir(), FILE)
 
 
 def _now_iso() -> str:
@@ -72,8 +76,9 @@ def _now_iso() -> str:
     return now.strftime("%Y-%m-%dT%H:%M:%S.") + f"{now.microsecond // 1000:03d}Z"
 
 
-def entry(direction: str, text: str, seq: Any = None) -> dict:
-    """One line's content: the message by id and hash, never its body."""
+def entry(direction: str, text: str, seq: Any = None, outcome: str | None = None) -> dict:
+    """One line's content: the message by id and hash, never its body;
+    `outcome` on a send's lines (see the contract above)."""
     try:
         mid = gzmsg.parse(text)["metadata"].get("MESSAGE-ID") or None
     except (gzmsg.NotGzcoord, AttributeError, TypeError, KeyError):
@@ -83,7 +88,23 @@ def entry(direction: str, text: str, seq: Any = None) -> dict:
             # a lone surrogate the relay may send (JSON \ud800) is hashed, not
             # raised past the inbox's hold as a transport failure.
             "sha256": hashlib.sha256(text.encode("utf-8", "surrogatepass")).hexdigest(),
-            "seq": seq if isinstance(seq, int) and not isinstance(seq, bool) else None, "reason": REASON}
+            "seq": seq if isinstance(seq, int) and not isinstance(seq, bool) else None, "reason": REASON,
+            **({"outcome": outcome} if outcome is not None else {})}
+
+
+def last_byte(target: str, fd: int) -> bytes:
+    """The file's last byte, read through a second, read-only descriptor of
+    the same file: the record's own is write-only, which is what makes a
+    FIFO there fail its open. send.record_sent guards the sent ledger with
+    it too."""
+    rfd = os.open(target, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC | os.O_NONBLOCK)
+    try:
+        here, there = os.fstat(fd), os.fstat(rfd)
+        if (here.st_dev, here.st_ino) != (there.st_dev, there.st_ino):
+            raise OSError(f"{target} was replaced while it was opened")
+        return os.pread(rfd, 1, here.st_size - 1)
+    finally:
+        os.close(rfd)
 
 
 def record(entries: list[dict]) -> None:
@@ -92,7 +113,7 @@ def record(entries: list[dict]) -> None:
         return
     data = "".join(json.dumps(e, ensure_ascii=True, separators=(",", ":")) + "\n" for e in entries).encode("ascii")
     try:
-        identity = _identity()
+        identity = paths.identity()
         target = path()
     except Exception as e:  # noqa: BLE001 — no state directory is no record: refused, never a default path
         raise BypassUnrecorded(f"the journal-bypass record has no place: this login's state directory is"
@@ -109,6 +130,10 @@ def record(entries: list[dict]) -> None:
                 # The end before this write: every writer appends under the
                 # lock, so nothing else moves it until the lock is released.
                 start = os.fstat(fd).st_size
+                if start and last_byte(target, fd) != b"\n":
+                    # A fragment (a kill, or an undo that failed) ends the
+                    # file: this line starts on its own, readable after it.
+                    data = b"\n" + data
                 try:
                     written = os.write(fd, data)
                     if written != len(data):
@@ -117,8 +142,8 @@ def record(entries: list[dict]) -> None:
                         raise OSError(f"wrote {written} of {len(data)} bytes")
                     os.fsync(fd)
                 except OSError as e:
-                    # Refused, so not one byte of it stays: the file is whole
-                    # lines at every instant, and a refused crossing has none.
+                    # Refused, so not one byte of it stays: a refused crossing
+                    # leaves no line, not even the start of one.
                     try:
                         os.ftruncate(fd, start)
                     except OSError as undo:

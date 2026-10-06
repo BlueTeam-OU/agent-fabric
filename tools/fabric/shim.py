@@ -66,6 +66,7 @@ import difflib
 import json
 import os
 import re
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -115,9 +116,21 @@ def die(msg: str) -> "NoReturn":  # noqa: F821
 
 
 def api_key() -> str:
+    """The account's own key, from the file sync writes: no shell sources it
+    (ADR-038 rule 9). An exported one still wins, for a caller that set it
+    on purpose."""
     key = os.environ.get("OPENROUTER_API_KEY")
+    if key:
+        return key
+    try:
+        with open(os.path.expanduser("~/.config/agent-fabric/secrets.env"), encoding="utf-8") as fh:
+            for line in fh:
+                if line.startswith("export OPENROUTER_API_KEY="):
+                    key = (shlex.split(line.split("=", 1)[1]) or [""])[0]
+    except (OSError, ValueError):
+        key = None
     if not key:
-        die("OPENROUTER_API_KEY is not in the environment (bin/fabric-secrets sync).")
+        die("no OPENROUTER_API_KEY in ~/.config/agent-fabric/secrets.env (bin/fabric-secrets sync).")
     return key
 
 

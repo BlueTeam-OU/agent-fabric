@@ -84,8 +84,8 @@ causes" are commit boundaries, not PR boundaries; documentation of a
 thing belongs in the PR that adds the thing. A branch stops being
 addable when the next piece depends on something being *merged*, the
 branch is already queued or merged, it touches a slow or flaky surface
-that would hold the rest hostage, the urgency differs, or the band's
-ceiling is reached — then land, no second PR. Two exceptions, each
+that would hold the rest hostage, the urgency differs, or it holds
+sixteen work commits — then land, no second PR. Two exceptions, each
 stated in the new PR's description: a finding on the queued PR itself
 (prefer dequeuing and fixing on the same head), and a fix that must
 land now — a user-visible or CI-blocking defect, not impatience.

@@ -110,8 +110,12 @@ identity = _load("fabric_identity", os.path.join(layout.FABRIC_ROOT, "runtime", 
 # carries a credential by shape never leaves the account: the whole drain
 # is refused and the file named, as a bad roles_class is. Names are left
 # to the assembler's substitution, as designed (policies/hygiene.json).
-CREDENTIAL_PATTERNS = [(pattern, label) for pattern, label, _refer_as in layout.load_hygiene_patterns()
-                       if "credential" in label]
+try:
+    CREDENTIAL_PATTERNS = [(pattern, label) for pattern, label, _refer_as in layout.load_hygiene_patterns()
+                           if "credential" in label]
+except layout.HygieneError as _exc:
+    # A broken list cannot screen a credential: no memory leaves unscreened.
+    sys.exit(f"harvest_memory: {_exc}")
 
 
 def credential_hits(text: str) -> list[str]:
@@ -186,7 +190,18 @@ memory_slug = layout.memory_slug
 default_memory_dir = layout.default_memory_dir
 
 
-def previous_watermark(working_copy: str, host: str, agent: str | None = None) -> tuple[int, str | None]:
+def store_key(agent: str | None, host: str, store: str | None = None) -> str:
+    """The name a store's watermark is kept under: `agent@host`, or
+    `agent@host#<store>` for a second store of the account that files under
+    the same working copy (--store; the memory op names the projects root's
+    own "projects-root"). Two stores under one key let the later drain's
+    mark skip the other's memories."""
+    own = f"{agent or 'unattributed'}@{host}"   # the assembler's spelling of an unknown agent
+    return f"{own}#{store}" if store else own
+
+
+def previous_watermark(working_copy: str, host: str, agent: str | None = None,
+                       key: str | None = None) -> tuple[int, str | None]:
     """The ms-epoch watermark the project's last drain recorded for this
     agent on this host, and the report it came from — (0, None) when
     there is none. Read from the working copy's own report (the assembler
@@ -199,7 +214,7 @@ def previous_watermark(working_copy: str, host: str, agent: str | None = None) -
     try:
         with open(report, encoding="utf-8") as fh:
             marks = json.load(fh).get("watermarks") or {}
-        return int(marks.get(f"{agent}@{host}") or 0), report
+        return int(marks.get(key or store_key(agent, host)) or 0), report
     except (OSError, ValueError, TypeError):
         return 0, None
 
@@ -357,6 +372,9 @@ def main() -> int:
                     help="write the drain as one tar with a manifest (- for stdout) instead of a directory")
     ap.add_argument("--memory", default=None,
                     help="memory dir (default: the one Claude Code keeps for --working-copy)")
+    ap.add_argument("--store", default=None, metavar="NAME",
+                    help="name this memory store apart from the working copy's own, whose watermark it would "
+                         "share otherwise (the memory op passes projects-root for the projects root's own)")
     ap.add_argument("--working-copy", default=None,
                     help="the checkout whose memory is drained (default: cwd); sets project and label")
     ap.add_argument("--project", default=None,
@@ -400,7 +418,8 @@ def main() -> int:
     # newer than the last watermark for this host are in scope (all of
     # them under --all, or when there is no report yet), and the report
     # carries the max mtime read as the next watermark.
-    since_ms, since_report = (0, None) if args.all else previous_watermark(working_copy, host, ctx["agent"])
+    store = store_key(ctx["agent"], host, args.store)
+    since_ms, since_report = (0, None) if args.all else previous_watermark(working_copy, host, ctx["agent"], store)
     next_ms = since_ms
     total = 0
     before_watermark: list[str] = []
@@ -507,6 +526,7 @@ def main() -> int:
         # into the committed report (`harvest`, `watermarks`).
         "since_watermark": since_ms,
         "since_report": since_report,
+        "store": store,
         "next_watermark": next_ms,
         "counts": {"in_scope": total - len(before_watermark), "total": total,
                    "before_watermark": len(before_watermark), "provisional_agent": 0},

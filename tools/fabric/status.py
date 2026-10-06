@@ -272,10 +272,51 @@ def jobs_summary(identity, agent):
             **{st: sum(1 for j in _jobs if j["state"] == st) for st in ("queued", "blocked", "delivered")}}
 
 
-def build_report(root, environ=None):
+# A session's Bash no longer holds the harness's credentials (the
+# SessionStart hook unsets them, ADR-038 rule 9), so what this session
+# signs in with is read where it is: the environment of the nearest
+# ancestor that is the harness itself, by its process name. Read in this
+# process, fingerprinted or reduced to "set", never printed. None outside
+# a session, or where /proc is not readable: the process's own then.
+def harness_environ(start_pid=None, proc="/proc"):
+    pid = os.getppid() if start_pid is None else start_pid
+    for _ in range(64):
+        try:
+            with open(f"{proc}/{pid}/comm", encoding="utf-8") as fh:
+                comm = fh.read().strip()
+            if comm == "claude":
+                with open(f"{proc}/{pid}/environ", "rb") as fh:
+                    pairs = [e.split(b"=", 1) for e in fh.read().split(b"\0") if b"=" in e]
+                return {k.decode(errors="replace"): v.decode(errors="replace") for k, v in pairs}
+            with open(f"{proc}/{pid}/status", encoding="utf-8") as fh:
+                pid = int(next(line.split()[1] for line in fh if line.startswith("PPid:")))
+        except (OSError, ValueError, StopIteration):
+            return None
+        if pid <= 1:
+            return None
+    return None
+
+
+def session_environ(environ, find=None):
+    """Where the session's credentials are: the harness's environment, but
+    only inside a session's Bash. The harness marks its children with
+    CLAUDECODE, and a process outside one (CI, a suite that cleared it) has
+    no harness to ask: an unrelated claude up the chain is not its session."""
+    if environ.get("CLAUDECODE") != "1":
+        return None
+    return (find or harness_environ)()
+
+
+def build_report(root, environ=None, cred_environ=None):
     """(report, base): the whole picture as the --json object, and the
-    ANTHROPIC_BASE_URL the human report's sign-in line is conditional on."""
-    environ = os.environ if environ is None else environ
+    ANTHROPIC_BASE_URL the human report's sign-in line is conditional on.
+    cred_environ is where the session's credentials are read: the harness
+    process's environment by default (harness_environ)."""
+    if environ is None:
+        environ = os.environ
+        if cred_environ is None:
+            cred_environ = session_environ(environ)
+    cred_environ = environ if cred_environ is None else cred_environ
     identity = load("fabric_identity", os.path.join(root, "runtime", "identity.py"))
     routing = load("fabric_routing", os.path.join(root, "tools", "fabric", "routing.py"))
     hosttools = load("fabric_hosttools", os.path.join(root, "tools", "fabric", "hosttools.py"))
@@ -288,10 +329,12 @@ def build_report(root, environ=None):
     stamp = environ.get("AGENT_FABRIC_LAUNCH_SESSION_MODEL")
     fallback_drift = fallback_drift_line(fallback_marker(environ))
     pins = {k: environ.get(k) for k in PIN_VARS}
-    present = sorted(k for k in environ if k.startswith("ANTHROPIC_")
-                     or k in ("OPENROUTER_API_KEY", "CLAUDE_CODE_SUBAGENT_MODEL", "CLAUDE_CODE_EFFORT_LEVEL"))
+    present = sorted(set(k for k in environ if k.startswith("ANTHROPIC_")
+                         or k in ("CLAUDE_CODE_SUBAGENT_MODEL", "CLAUDE_CODE_EFFORT_LEVEL"))
+                     | set(k for k in cred_environ if k in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN",
+                                                              "OPENROUTER_API_KEY")))
     credentials = {k: "set" for k in present if k not in pins and k != "ANTHROPIC_BASE_URL"}
-    sign_env, sign_file = environ.get("CLAUDE_CODE_OAUTH_TOKEN"), synced_template_token()
+    sign_env, sign_file = cred_environ.get("CLAUDE_CODE_OAUTH_TOKEN"), synced_template_token()
     signin_drift = signin_drift_line(sign_env, sign_file, base)
 
     # --- how the classes resolve on that provider --------------------------

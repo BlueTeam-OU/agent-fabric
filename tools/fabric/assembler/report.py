@@ -7,8 +7,33 @@ import json
 import os
 import sys
 from typing import Any
-from assembler.core import layout, Run, in_report
-from assembler.slices import merge_reports, scan_collisions
+from assembler.core import layout, Run, in_report, hygiene_substitute
+from assembler.slices import merge_reports, scan_collisions, drop_held
+
+
+def store_of(hr: dict) -> str:
+    """The store a harvest read: its own key when it names one, else
+    agent@host. Also the source its harvest and telemetry are kept under."""
+    store = hr.get("store")
+    if isinstance(store, str) and store:
+        return store
+    return f"{hr.get('agent') or 'unattributed'}@{hr.get('host') or 'unknown'}"
+
+
+def held_mark(run: Run, next_mark: int) -> int | None:
+    """The store's mark when claims were held: below the oldest memory a
+    held claim stands on, as the harvest keeps it below an unrendered one,
+    so the next harvest reads it again and a hold is never a drop (#100's
+    review, P2). The harvest's mtime_ms is at least created_at_epoch * 1000,
+    so one millisecond below that is below the memory. A held claim whose
+    memory has no time recorded leaves the mark where it was (None): no
+    bound is known that keeps it in the next harvest."""
+    if not run.held_evidence:
+        return next_mark
+    epochs = [run.evidence_epoch.get(h) for h in run.held_evidence]
+    if not all(isinstance(e, int) and not isinstance(e, bool) for e in epochs):
+        return None
+    return min(next_mark, min(epochs) * 1000 - 1)
 
 
 def report(run: Run) -> int:
@@ -50,14 +75,30 @@ def report(run: Run) -> int:
             "next_watermark": hr.get("next_watermark"),
             "provisional_agent": counts.get("provisional_agent", counts.get("provisional_clone")),
             "in_scope": counts.get("in_scope"),
+            # The memories the harvest left out for want of a roles_class:
+            # in the committed record, so the owner sees them after the
+            # drain directory is gone. Names an agent chose, held to the
+            # same hygiene as any committed text.
+            "skipped_no_roles_class": [],
         }
-        # Keyed agent@host: each account on a host has its own store, and
-        # its harvest reads this key back (harvest_memory.previous_watermark).
+        for name in hr.get("skipped_no_roles_class") or []:
+            if isinstance(name, str):
+                kept, notes = hygiene_substitute(name, "harvest skipped_no_roles_class")
+                run.redactions.extend(notes)
+                harvest_meta["skipped_no_roles_class"].append(kept)
+        harvest_meta["skipped_no_roles_class"].sort()
+        # Keyed by store: agent@host for a working copy's own memory, with
+        # #<store> (--store, e.g. projects-root) for another (harvest_memory.
+        # store_key, checked as the account's own by core.store_error), so two stores of
+        # one account never share a mark; the harvest reads it back
+        # (harvest_memory.previous_watermark). A report without "store" is
+        # an older harvest's, keyed agent@host as it always was.
         if hr.get("host") is not None and hr.get("next_watermark") is not None:
-            watermarks[f"{hr.get('agent') or 'unattributed'}@{hr['host']}"] = hr["next_watermark"]
+            mark = held_mark(run, hr["next_watermark"])
+            if mark is not None:
+                watermarks[store_of(hr)] = mark
 
-    source = f"{hr.get('agent') or 'unattributed'}@{hr.get('host') or 'unknown'}" \
-        if harvest_meta is not None else "unattributed"
+    source = store_of(hr) if harvest_meta is not None else "unattributed"
     files = [in_report(run, p) for p in run.written]
     report = {
         "stamp": run.args.stamp,
@@ -82,6 +123,7 @@ def report(run: Run) -> int:
         "harvest": harvest_meta,
         "harvest_sources": {source: harvest_meta} if harvest_meta is not None else {},
         "watermarks": watermarks,
+        "held_back": sorted(run.held_back),
     }
     report_path = layout.project_report_path(run.project)
     try:
@@ -95,6 +137,15 @@ def report(run: Run) -> int:
         roots = [layout.working_copy_for(run.project), layout.FABRIC_ROOT]
         return any(root and os.path.exists(os.path.join(root, rel)) for root in roots)
     report = merge_reports(previous, report, still_there)
+    if run.held_files or run.held_back:
+        drop_held(report, run.held_back, run.held_files - set(files))
+    # A key an earlier run of the stamp held stays held only while no run
+    # has written its slice since: this run writing it ends the hold.
+    def written_now(key: str) -> bool:
+        label, _, rest = key.partition("/")
+        klass, _, topic = rest.partition(":")
+        return bool(run.shared.get((klass, topic)) if label == "shared" else run.per_role.get(label, {}).get((klass, topic)))
+    report["held_back"] = sorted(k for k in report.get("held_back") or [] if k in run.held_back or not written_now(k))
     os.makedirs(os.path.dirname(report_path), exist_ok=True)
     with open(report_path, "w", encoding="utf-8") as fh:
         json.dump(report, fh, ensure_ascii=False, indent=2, sort_keys=True)

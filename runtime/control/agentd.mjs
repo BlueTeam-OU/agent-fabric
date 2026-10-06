@@ -226,11 +226,22 @@ export function remember(seen, id) {
   if (seen.size > SEEN_MAX) seen.delete(seen.values().next().value);
 }
 
+/**
+ * The record agentd posts once when it comes up (protocol.mjs).
+ * @param {string} address
+ * @returns {import('./protocol.mjs').Up}
+ */
+export function upRecord(address) { return { v: 1, kind: 'up', from: address, ts: new Date().toISOString() }; }
+
 // A reply is one record; a `memory` reply is several: the first carries
 // the bundles' reports and sizes, then one record per part
 // ({part, parts, slug, chunk}) — the relay's message limit is 128 KiB and
 // a drain is bigger. The coordinator reassembles by slug and part and
 // verifies the sha256 the first record names.
+/**
+ * @param {import('./protocol.mjs').Request} request
+ * @returns {Promise<import('./protocol.mjs').Reply & { _followups?: import('./protocol.mjs').Reply[] }>}
+ */
 export async function answer(request, ctx) {
   const days = Number(request.days);
   const data = request.op === 'ping' ? {} : request.op === 'upgrade' ? { upgrade: await upgrade(request, { me: ctx.me.address, ...ctx.upgradeOpts }) }
@@ -289,7 +300,7 @@ export async function main(argv = process.argv.slice(2)) {
     const page = await call(`/api/messages?${q({ channel: cfg.channel, limit: '1' })}`);
     const rows = page.messages ?? page;
     if (rows.length) { last = rows[rows.length - 1].id; return; }
-    const up = await post({ v: 1, kind: 'up', from: me.address, ts: new Date().toISOString() });
+    const up = await post(upRecord(me.address));
     last = up.id;
   };
   console.error(`agentd: ${me.address} on ${cfg.channel} at ${cfg.relay_url}; operators: ${[...operatorAddresses()].join(' ')}`);

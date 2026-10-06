@@ -49,9 +49,10 @@ THE QUESTION IT ANSWERS. "Show my open PRs, how many commits, is it
 mergeable?" needed four tools and a head count by hand: pr-sessions.sh
 for the list, git rev-list for the commits, gh pr checks for the
 checks, pr-review-status.sh for the review, and the owner's arming rule
-(2026-09-18) applied on top — 8-16 WORK commits arm at the gate, fewer
-ask the owner, more than 16 advised to split. One line per PR now carries all of
-it, and a verdict.
+applied on top — eight or more WORK commits arm at the gate, a security
+boundary too; under eight the owner is asked;
+sixteen is batch-size advice for the next batch, never a block. One line
+per PR now carries all of it, and a verdict.
 
 WHAT A ROW SAYS
   #N  <owner> [(me)]  commits=T (W work, F fix, M merge[, R netted by a revert])  checks=<green|red:<names>|pending:<k>>
@@ -80,7 +81,7 @@ WHAT A ROW SAYS
   review whether a review — an independent one, or the review class's blind review — covers the CURRENT head
          (pr-review-status.sh's reading)
   verdict one of:
-    MERGEABLE — arm (8-16 work commits, gate met: post the basis, arm)
+    MERGEABLE — arm (8–16 work commits, gate met: post the basis, arm)
     MERGEABLE — ask the owner (under 8 work commits, gate met)
     MERGEABLE — N work commits, over 16: smaller batches next time (advice, never a block)
     MERGEABLE — commits unknown (the base is not fetched; count by hand)
@@ -369,8 +370,7 @@ def verdict(num: int, base: str, draft: bool, commits: dict | None, st: dict, re
         return "MERGEABLE — commits unknown (fetch the base); apply the count rule by hand"
     work = commits["work"]
     if work > 16:
-        return (f"MERGEABLE — {work} work commits, over 16: smaller batches next time; arm on the basis (the owner, "
-                "2026-09-19: advice for the next batch, never a reorganisation of this PR)")
+        return f"MERGEABLE — {work} work commits, over 16: smaller batches next time; arm on the basis"
     if work >= 8:
         return f"MERGEABLE — arm: post the basis ({work} work commits, review on head) and gh pr merge {num} --auto"
     return f"MERGEABLE — ask the owner ({work} work commits < 8), then arm"

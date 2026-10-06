@@ -8,8 +8,8 @@ import os
 import re
 from collections import defaultdict
 from typing import Callable, Any
-from assembler.core import layout, TIER1, CHARS_PER_TOKEN, CLASS_FILES, origin_key, render_frontmatter, hygiene_check, hygiene_substitute, DESCRIPTION_MAX, Run, base_for, in_report
-from assembler.slices import retire_in_siblings, remove_sections, read_existing_slice, OBSERVED_RE, undated, claim_heading, absorbed, claim_block
+from assembler.core import layout, TIER1, CHARS_PER_TOKEN, CLASS_FILES, origin_key, render_frontmatter, hygiene_check, hygiene_substitute, patterns_for, DESCRIPTION_MAX, Run, base_for, in_report
+from assembler.slices import retire_in_siblings, remove_sections, restamp, read_existing_slice, OBSERVED_RE, undated, claim_heading, absorbed, claim_block
 from assembler.targets import existing_sections, is_budget_part, slice_candidates, is_carried
 
 
@@ -246,17 +246,18 @@ def write_slice(
     body = "\n\n".join(f"## {h}\n\n{blocks[h]}" for h in order) + "\n"
     # Carried text (a slice written before a pattern existed) is
     # substituted the same way, and named.
-    body, notes = hygiene_substitute(body, in_report(run, path))
+    body, notes = hygiene_substitute(body, in_report(run, path), patterns_for(klass))
     run.redactions.extend(notes)
     if isinstance(meta.get("description"), str):
-        meta["description"], notes = hygiene_substitute(meta["description"], in_report(run, path) + " description")
+        meta["description"], notes = hygiene_substitute(meta["description"], in_report(run, path) + " description",
+                                                        patterns_for(klass))
         run.redactions.extend(notes)
     text = render_frontmatter(meta) + "\n\n" + body
     with open(path, "w", encoding="utf-8") as fh:
         fh.write(text.rstrip() + "\n")
     if path not in run.written:   # a retire may have rewritten this part earlier in the run
         run.written.append(path)
-    run.problems.extend(hygiene_check(body, in_report(run, path)))
+    run.problems.extend(hygiene_check(body, in_report(run, path), patterns_for(klass)))
 
 
 def carried_chars(claims: list[dict[str, Any]], *candidates: str) -> int:
@@ -383,19 +384,25 @@ def described(path: str, fallback: str) -> str:
 
 def drop_carried_copies(run: Run, role: str, klass: str, directory: str, topic: str) -> None:
     """A section standing both in the topic's own file and, word for
-    word, in a carried file is one claim written twice — what a drain
-    before the carried file was visible to the pre-pass left behind.
-    The carried copy goes; a carried file left with no section goes
-    too, and both are reported in `migrated`."""
+    word, in a carried file — or in the flat class file this run moved in
+    under another topic's name — is one claim written twice: what a drain
+    before that file was visible to the pre-pass left behind. The copy
+    goes; a file left with no section goes too, and both are reported in
+    `migrated`. Matched by text, not heading: a copy an earlier collision
+    left as "X (2)" is the same claim as "X"."""
     mine = existing_sections(slice_candidates(run, role, klass, topic))
     if not mine or not os.path.isdir(directory):
         return
+    texts = {undated(t) for t in mine.values()}
+    moved = run.moved_flat.get((role, klass))
     for name in sorted(os.listdir(directory)):
-        if not name.endswith(".md") or not is_carried(klass, name[:-3]):
+        if not name.endswith(".md") or name[:-3] == topic:
+            continue
+        if not is_carried(klass, name[:-3]) and name != moved:
             continue
         path = os.path.join(directory, name)
         _meta, sections = read_existing_slice(path)
-        copies = [h for h, t in sections.items() if h in mine and undated(mine[h]) == undated(t)]
+        copies = [h for h, t in sections.items() if undated(t) in texts]
         if not copies:
             continue
         what = remove_sections(path, copies, copies, functools.partial(clip_description, run))
@@ -474,6 +481,13 @@ def write_role(run: Run, role: str) -> None:
             os.makedirs(os.path.join(base, CLASS_FILES[klass]), exist_ok=True)
             os.replace(flat, os.path.join(base, CLASS_FILES[klass], name))
             run.migrated.append(f"{role}/{klass}: {CLASS_FILES[klass]}.md -> {CLASS_FILES[klass]}/{name}")
+            # Moved now, so stamped now; named for one topic, it is that
+            # topic's file and says so.
+            restamp(os.path.join(base, CLASS_FILES[klass], name), run.args.stamp,
+                    None if is_carried(klass, plan["flat_topic"]) else plan["flat_topic"])
+            if os.path.join(base, CLASS_FILES[klass], name) not in run.written:
+                run.written.append(os.path.join(base, CLASS_FILES[klass], name))   # rewritten, so this drain's
+            run.moved_flat[(role, klass)] = name
         for topic, claims in topics:
             if not claims:
                 continue   # every claim dropped by the owner: the slice stays as it was
@@ -516,8 +530,14 @@ def write_role(run: Run, role: str) -> None:
                     os.path.join(directory, filename))
                 if is_carried(klass, topic) and os.path.exists(os.path.join(directory, filename)):
                     # The carried file's cue is the one it moved with:
-                    # it names several topics, never one claim's title.
-                    description = described(os.path.join(directory, filename), description)
+                    # it names several topics, never one claim's title —
+                    # unless a correction retitles its only section, when
+                    # the cue that named that section names the new one.
+                    _meta, sections = read_existing_slice(os.path.join(directory, filename))
+                    retitle = [c for c in group if len(sections) == 1
+                               and (c.get("merge_target") or "").strip() in sections]
+                    description = clip_description(run, claim_heading(retitle[0]), os.path.join(directory, filename)) \
+                        if retitle else described(os.path.join(directory, filename), description)
                 write_slice(run, directory, filename, role, klass, group, description,
                             topic=topic if directory != base else None)
                 run.index_entries[role].append(

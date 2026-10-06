@@ -214,6 +214,17 @@ status and no file.
 `bin/fabric-host <host> drain <login> > drain.tar` remains only as the
 sudo fallback for a host whose daemons are down.
 
+**Holding a slice back.** `assemble.py --hold FILE` (a JSON list of
+`<role>/<class>:<topic>` or `shared/<class>:<topic>`) keeps those slices
+out of this drain — knowledge waiting on a ruling, say — and the report
+lists them under `held_back`. A key naming no slice refuses the run. A
+hold defers, it does not drop: the store's watermark is kept below the
+oldest memory a held claim stands on (or not moved, when one has no
+recorded time), so the next drain without the hold writes the slice.
+Under a hold the report's `watermarks` for that store is therefore lower
+than its harvest's own `next_watermark`; the former is what the next
+harvest reads.
+
 One `assemble.py --bundle` run per bundle, all with the drain's one
 `--stamp`, build one drain report: a run finding a report of the same
 stamp merges into it — roles and shared topics unioned, decisions (one
@@ -231,7 +242,9 @@ project from the working copy's remote, and the working copy as a label.
 It reads only memories newer than the **watermark** the project's last
 report recorded for this agent's store (`last-drain-report.json`,
 `watermarks`, keyed `agent@host` — every account on a host has its own
-store; `--all` ignores it), and writes `harvest-report.json` with the next one,
+store; the projects root's memory is a second store of the account,
+keyed `agent@host#projects-root`, with a bundle of its own; a harvest
+report names only its own store; `--all` ignores it), and writes `harvest-report.json` with the next one,
 which `assemble.py` commits — so each drain starts where the last one
 stopped, and `bin/fabric-status` can say how much is undrained.
 Each agent drains **its own** memories; nothing reads another account's
@@ -395,6 +408,15 @@ a hit becomes what the entry says instead (`refer_as`: a person becomes
 the file name alike, and every substitution is named in the drain
 report so the memory's owner fixes the source. Lint refuses a committed
 slice that still carries a hit, so nothing reaches `main` unsubstituted.
+
+A project's own entry may carry `"scope": "others"`: the name is that
+project's to say in its own slices (its `.agent-fabric/memory/`), and is
+withheld everywhere else — the fabric's corpus and every other project.
+The fabric's own list may not use the scope, and a list that cannot be
+read, or carries a key or flag it does not know, stops the drain and is
+a lint finding: nothing is judged clean against a broken list. A
+substitution note names the entry's label and the place, never the text
+it withheld.
 
 **Where the rule stops** (three roles asked on the first fleet drain,
 2026-09-18): the lists ban a deployment's *place names* — its city, its
