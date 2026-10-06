@@ -231,7 +231,9 @@ project from the working copy's remote, and the working copy as a label.
 It reads only memories newer than the **watermark** the project's last
 report recorded for this agent's store (`last-drain-report.json`,
 `watermarks`, keyed `agent@host` — every account on a host has its own
-store; `--all` ignores it), and writes `harvest-report.json` with the next one,
+store; the projects root's memory is a second store of the account,
+keyed `agent@host#projects-root`, with a bundle of its own; a harvest
+report names only its own store; `--all` ignores it), and writes `harvest-report.json` with the next one,
 which `assemble.py` commits — so each drain starts where the last one
 stopped, and `bin/fabric-status` can say how much is undrained.
 Each agent drains **its own** memories; nothing reads another account's
