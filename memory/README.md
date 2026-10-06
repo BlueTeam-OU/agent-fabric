@@ -217,7 +217,13 @@ sudo fallback for a host whose daemons are down.
 **Holding a slice back.** `assemble.py --hold FILE` (a JSON list of
 `<role>/<class>:<topic>` or `shared/<class>:<topic>`) keeps those slices
 out of this drain — knowledge waiting on a ruling, say — and the report
-lists them under `held_back`. A key naming no slice refuses the run.
+lists them under `held_back`. A key naming no slice refuses the run. A
+hold defers, it does not drop: the store's watermark is kept below the
+oldest memory a held claim stands on (or not moved, when one has no
+recorded time), so the next drain without the hold writes the slice.
+Under a hold the report's `watermarks` for that store is therefore lower
+than its harvest's own `next_watermark`; the former is what the next
+harvest reads.
 
 One `assemble.py --bundle` run per bundle, all with the drain's one
 `--stamp`, build one drain report: a run finding a report of the same
