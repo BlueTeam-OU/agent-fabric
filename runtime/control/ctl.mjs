@@ -129,6 +129,9 @@ export function manifestAgent(tar) {
 }
 export function partKey(from, p) { return `${from}\u0000${p?.slug}\u0000${p?.part}`; }
 export function writeBundles(out, expected, replies, parts) {
+  // Two bundles of one account never share a file: the second would replace
+  // the first and one memory directory would never reach the drain unsaid.
+  const writtenNow = new Set();
   for (const e of expected) {
     const r = replies.find(x => x.from === e.address); if (!r) continue;
     const got = [...(parts[e.address] ?? new Map()).values()];
@@ -145,7 +148,12 @@ export function writeBundles(out, expected, replies, parts) {
       // mkdir's mode and writeFile's apply only on creation: a directory or a
       // tar left by an earlier drain keeps its mode unless set again.
       const dir = path.join(out, e.login); fs.mkdirSync(dir, { recursive: true, mode: 0o700 }); fs.chmodSync(dir, 0o700);
-      const file = path.join(dir, `${path.basename(b.working_copy)}.tar`); fs.writeFileSync(file, tar, { mode: 0o600 }); fs.chmodSync(file, 0o600); b.written = file;
+      // The projects root's own memory is filed under the fabric checkout too
+      // (memoryDirs): its tar is named apart from the checkout's own.
+      const file = path.join(dir, `${path.basename(b.working_copy)}${b.projects_root ? '-projects-root' : ''}.tar`);
+      if (writtenNow.has(file)) { b.written = null; b.status = 'duplicate-target'; continue; }
+      writtenNow.add(file);
+      fs.writeFileSync(file, tar, { mode: 0o600 }); fs.chmodSync(file, 0o600); b.written = file;
     }
   }
 }
@@ -280,7 +288,7 @@ export function table(op, rs) {
       for (const b of bs) {
         const rep = b.report ? `${b.report.claims} claim(s), ${b.report.needs_rendering.length} need rendering, ${b.report.skipped_no_roles_class.length} skipped` : 'no report';
         const why = b.status === 'harvest-failed' ? `: ${String(b.error ?? '').trim().split('\n').slice(-2).join(' ')}` : b.status === 'wrong-agent' ? `: manifest names ${b.manifest_agent ?? 'nobody'}` : '';
-        lines.push(`${r.account.padEnd(22)} ${'ok'.padEnd(10)} ${(b.working_copy ? path.basename(b.working_copy) : b.slug).padEnd(24)} ${b.files} memories  ${b.status}${why}${b.written ? ` -> ${b.written}` : ''}  ${b.status === 'ok' ? rep : ''}`.trimEnd());
+        lines.push(`${r.account.padEnd(22)} ${'ok'.padEnd(10)} ${(b.working_copy ? path.basename(b.working_copy) + (b.projects_root ? ' (projects root)' : '') : b.slug).padEnd(24)} ${b.files} memories  ${b.status}${why}${b.written ? ` -> ${b.written}` : ''}  ${b.status === 'ok' ? rep : ''}`.trimEnd());
       }
     }
     return lines.join('\n');

@@ -9,7 +9,7 @@ import re
 import sys
 from collections import defaultdict
 from typing import Any
-from assembler.core import layout, CLASS_FILES, Run
+from assembler.core import layout, CLASS_FILES, Run, in_report
 from assembler.slices import read_existing_slice, claim_heading
 
 
@@ -129,6 +129,27 @@ def slice_candidates(run: Run, role: str | None, klass: str, topic: str) -> list
         flat = [flat_file] if plan.get("flat_topic") == topic else []
     parts = [f"{stem}.md"] + sorted(p for p in glob.glob(f"{stem}-*.md") if is_budget_part(run, role, klass, p, topic))
     return [p for p in flat + parts if os.path.exists(p)]
+
+
+def held_files(run: Run) -> None:
+    """Every file a held slice has or would have, as the report names it:
+    its topic file, its parts and, when the hold left its class with
+    nothing in this drain, the flat class file. Planned first, so the parts
+    are found the way the write phase would find them. The report keeps any
+    of them this run wrote all the same (another topic's flat file)."""
+    for key in run.held_back:
+        label, _, rest = key.partition("/")
+        klass, _, topic = rest.partition(":")
+        role = None if label == "shared" else label
+        paths = slice_candidates(run, role, klass, topic)
+        if role is None:
+            paths.append(os.path.join(layout.shared_home(klass, run.project), f"{klass}-{topic}.md"))
+        else:
+            base = layout.class_home(klass, role, run.project)
+            paths.append(os.path.join(base, CLASS_FILES[klass], f"{topic}.md"))
+            if (role, klass) not in run.class_plan:
+                paths.append(os.path.join(base, f"{CLASS_FILES[klass]}.md"))
+        run.held_files.update(in_report(run, p) for p in paths)
 
 
 def topics_on_disk(run: Run, role: str | None, klass: str) -> dict[str, list[str]]:

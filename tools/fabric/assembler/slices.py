@@ -10,7 +10,32 @@ from assembler.core import layout, yaml_scalar
 
 
 REPORT_LISTS = ("files", "hygiene_problems", "rejected_hygiene", "redactions", "retired_in_siblings",
-                "oversized_claims", "clipped_descriptions", "migrated", "merge_target_unresolved")
+                "oversized_claims", "clipped_descriptions", "migrated", "merge_target_unresolved", "held_back")
+
+
+def drop_held(report: dict[str, Any], keys: list[str], paths: set[str]) -> None:
+    """--hold, after the merge: what an earlier run of this stamp said of a
+    held slice goes, so a held-back slice is neither counted nor reported
+    as this drain's. A list item names its file first ("<path>: ..."), a
+    decision its slice ("<role>/<class>:<topic>#<heading>"). `paths` are
+    the held files this run did not itself write."""
+    # A note names its slice either by file ("<path>: ...") or by claim
+    # ("<role>/<class>:<topic> body: ...", "shared/..." for a shared one):
+    # the held key itself, exactly.
+    slice_names = [re.compile(re.escape(k) + r"[ :#]") for k in keys]
+
+    def names_held(item: Any) -> bool:
+        return isinstance(item, str) and (any(item == p or item.startswith(p + ":") for p in paths)
+                                          or any(n.match(item) for n in slice_names))
+    for key in REPORT_LISTS:
+        if key != "held_back":
+            report[key] = [x for x in report.get(key) or [] if not names_held(x)]
+    report["files_written"] = len(report["files"])
+    held_shared = {k.partition("/")[2] for k in keys if k.startswith("shared/")}
+    report["shared_topics"] = [t for t in report.get("shared_topics") or [] if t not in held_shared]
+    report["shared_slices"] = len(report["shared_topics"])
+    report["collision_decisions"] = [d for d in report.get("collision_decisions") or []
+                                     if not any(str(d.get("key", "")).startswith(k + "#") for k in keys)]
 
 
 def merge_reports(previous: dict[str, Any], current: dict[str, Any],
@@ -201,6 +226,28 @@ def remove_sections(path: str, victims: list[str], resolved: list[str],
     with open(path, "w", encoding="utf-8") as fh:
         fh.write(("---\n" + front + "\n---\n\n" + body).rstrip() + "\n")
     return "rewritten"
+
+
+def restamp(path: str, stamp: str, topic: str | None = None) -> None:
+    """A slice moved into its class directory carries this drain's stamp,
+    and, when it is now one topic's file, that topic (is_budget_part reads
+    it). Edited textually, as remove_sections edits: every other line of
+    the frontmatter stays as written."""
+    with open(path, encoding="utf-8") as fh:
+        text = fh.read()
+    m = re.match(r"^---\n(.*?)\n---\n", text, re.S)
+    if not m:
+        return
+    front = m.group(1)
+    for key, value in (("distilled_at", stamp), ("topic", topic)):
+        if value is None:
+            continue
+        line = f"{key}: {yaml_scalar(value)}"
+        front, n = re.subn(rf"(?m)^{key}: .*$", line, front, count=1)
+        if not n:
+            front += "\n" + line
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write("---\n" + front + "\n---\n" + text[m.end():])
 
 
 def read_existing_slice(path: str) -> tuple[dict[str, Any], dict[str, str]]:

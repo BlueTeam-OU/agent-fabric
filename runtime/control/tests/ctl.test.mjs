@@ -190,6 +190,23 @@ function tarWith(manifest, filler = 1200) {
 // The bundles a drain answers with, put back together: by slug and part,
 // gunzipped, checked against the sha the report named, written under the
 // login; anything short, corrupt or wrong-sha is a status, not a file.
+test('writeBundles: the projects root\'s bundle and the checkout\'s are two files; a second bundle for one file is refused, not written over', () => {
+  const out = scratch('drain-root-');
+  const tar = tarWith({ format: 'agent-fabric-drain/1', agent: 'db-admin', host: 'h' }); const sha = crypto.createHash('sha256').update(tar).digest('hex');
+  const b64 = zlib.gzipSync(tar).toString('base64');
+  const wc = '/h/db-admin/projects/agent-fabric';
+  const bundle = (slug, over = {}) => ({ slug, working_copy: wc, files: 1, status: 'ok', bytes: tar.length, sha256: sha, parts: 1, ...over });
+  const expected = [{ login: 'db-admin', host: 'h', address: 'h/db-admin' }];
+  const replies = [{ from: 'h/db-admin', data: { memory: { status: 'ok', bundles: [bundle('s-fabric'), bundle('s-root', { projects_root: true }), bundle('s-again')] } } }];
+  const parts = { 'h/db-admin': new Map(['s-fabric', 's-root', 's-again'].map(slug => [partKey('h/db-admin', { slug, part: 1 }), { slug, part: 1, parts: 1, chunk: b64 }])) };
+  writeBundles(out, expected, replies, parts);
+  const [fabric, root, again] = replies[0].data.memory.bundles;
+  assert.equal(fabric.written, path.join(out, 'db-admin', 'agent-fabric.tar'));
+  assert.equal(root.written, path.join(out, 'db-admin', 'agent-fabric-projects-root.tar'));
+  assert.equal(again.status, 'duplicate-target'); assert.equal(again.written, null);
+  assert.deepEqual(fs.readdirSync(path.join(out, 'db-admin')).sort(), ['agent-fabric-projects-root.tar', 'agent-fabric.tar']);
+});
+
 test('writeBundles: reassembly, and the three ways a bundle is refused', () => {
   const out = scratch('drain-out-');
   const tar = tarWith({ format: 'agent-fabric-drain/1', agent: 'db-admin', host: 'h' }); const sha = crypto.createHash('sha256').update(tar).digest('hex');
@@ -232,6 +249,8 @@ test('writeBundles: reassembly, and the three ways a bundle is refused', () => {
   assert.match(t, /db-admin\s+ok\s+s-d\s+1 memories\s+no-working-copy/);
   assert.match(t, /silent\s+no answer/);
   assert.match(table('memory', rows(expected, [{ from: 'h/silent', data: { memory: { status: 'ok', bundles: [] } } }])), /silent\s+ok\s+no memory/);
+  const rootRow = table('memory', rows(expected, [{ from: 'h/db-admin', data: { memory: { status: 'ok', bundles: [{ slug: '-h-db-admin-projects', working_copy: '/h/db-admin/projects/agent-fabric', projects_root: true, files: 2, status: 'harvest-failed', error: 'x' }] } } }]));
+  assert.match(rootRow, /db-admin\s+ok\s+agent-fabric \(projects root\)\s+2 memories/, 'the projects root\'s memory is named as such');
 });
 
 function relay() {
