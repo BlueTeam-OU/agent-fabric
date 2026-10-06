@@ -493,6 +493,71 @@ def _():
         refuse.close()
 
 
+# ── the sent ledger is state: under the agent's lock, trimmed whole (ADR-003) ──
+
+@contextlib.contextmanager
+def _state_dir(d: str):
+    saved = os.environ.get("AGENT_FABRIC_STATE_DIR")
+    os.environ["AGENT_FABRIC_STATE_DIR"] = d
+    try:
+        yield
+    finally:
+        if saved is None:
+            os.environ.pop("AGENT_FABRIC_STATE_DIR", None)
+        else:
+            os.environ["AGENT_FABRIC_STATE_DIR"] = saved
+
+
+@case("record_sent waits for the agent's lock: a second sender never reads the ledger mid-trim")
+def _():
+    d = P.scratch("ledger-lock-")
+    ledger = os.path.join(d, "gzcoord-sent.jsonl")
+    holder = subprocess.Popen(
+        [sys.executable, "-c",
+         "import sys, time; sys.path.insert(0, sys.argv[1]); import identity\n"
+         "with identity.agent_lock():\n    print('held', flush=True); time.sleep(1.5)",
+         os.path.join(HERE, "runtime")],
+        env={**os.environ, "AGENT_FABRIC_STATE_DIR": d}, stdout=subprocess.PIPE, text=True)
+    try:
+        eq(holder.stdout.readline().strip(), "held")
+        with _state_dir(d):
+            t0 = time.monotonic()
+            send.record_sent(ledger, {"id": "m-1", "sha256": "h1", "seq": 1, "at": "T"}, 3)
+            waited = time.monotonic() - t0
+    finally:
+        holder.wait(timeout=10)
+    ok(waited >= 1.0, f"record_sent wrote while another process held the lock ({waited:.2f} s)")
+
+
+@case("a trim that cannot replace the ledger leaves it whole: never rewritten in place, never cut")
+def _():
+    d = P.scratch("ledger-trim-fail-")
+    ledger = os.path.join(d, "gzcoord-sent.jsonl")
+    with open(ledger, "w", encoding="utf-8") as fh:
+        fh.writelines(js.stringify({"id": f"m-{i}", "sha256": f"h{i}", "seq": i, "at": f"T{i}"}) + "\n" for i in range(1004))
+    with open(ledger, "rb") as fh:
+        before = fh.read()
+    real = os.replace
+
+    def refuse(*_a):
+        raise OSError(28, "No space left on device")
+    os.replace = refuse
+    try:
+        with _state_dir(d):
+            try:
+                send.record_sent(ledger, {"id": "m-new", "sha256": "hn", "seq": 9, "at": "Tn"}, 3)
+                raise Failed("a trim whose replace failed was not said")
+            except OSError:
+                pass
+    finally:
+        os.replace = real
+    with open(ledger, "rb") as fh:
+        after = fh.read()
+    eq(after[:len(before)], before, "the ledger was rewritten")
+    eq(after[len(before):].count(b"\n"), 1, "only the new line was added")
+    eq([x for x in os.listdir(d) if x.startswith(".tmp-")], [], "a temporary was left beside it")
+
+
 def main() -> int:
     fails = 0
     for name, fn in CASES:

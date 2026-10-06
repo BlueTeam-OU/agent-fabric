@@ -157,21 +157,27 @@ def record_sent(ledger: str, entry: dict, keep: int = 5000) -> None:
     {"trimmed_before": <the oldest kept entry's at>} — the journal's
     backfill reads it, or it would refuse this account's own trimmed-away
     sends as another's (episodic_import.py, review of #84). It has no id,
-    so a reader looking for entries passes over it."""
+    so a reader looking for entries passes over it.
+
+    Under identity.agent_lock, the append and the trim both: two sends at
+    once could each read the ledger and the later rewrite drop the earlier
+    one's line. The trim replaces the file whole (identity.atomic_write),
+    so a kill mid-trim leaves the old ledger, never a cut one (ADR-003)."""
+    identity = paths.identity()
     os.makedirs(os.path.dirname(ledger), exist_ok=True)
-    with open(ledger, "a", encoding="utf-8") as fh:
-        fh.write(js.stringify(entry) + "\n")
-    with open(ledger, encoding="utf-8", errors="replace") as fh:
-        entries = [x for x in fh.read().split("\n") if x]
-    if len(entries) > keep + 1000:
-        kept = entries[-keep:]
-        try:
-            at = json.loads(kept[0]).get("at")
-        except (ValueError, AttributeError):
-            at = None
-        mark = js.stringify({"trimmed_before": at if isinstance(at, str) else _now_iso()})
-        with open(ledger, "w", encoding="utf-8") as fh:
-            fh.write("\n".join([mark, *kept]) + "\n")
+    with identity.agent_lock():
+        with open(ledger, "a", encoding="utf-8") as fh:
+            fh.write(js.stringify(entry) + "\n")
+        with open(ledger, encoding="utf-8", errors="replace") as fh:
+            entries = [x for x in fh.read().split("\n") if x]
+        if len(entries) > keep + 1000:
+            kept = entries[-keep:]
+            try:
+                at = json.loads(kept[0]).get("at")
+            except (ValueError, AttributeError):
+                at = None
+            mark = js.stringify({"trimmed_before": at if isinstance(at, str) else _now_iso()})
+            identity.atomic_write(ledger, "\n".join([mark, *kept]) + "\n")
 
 
 def _now_iso() -> str:

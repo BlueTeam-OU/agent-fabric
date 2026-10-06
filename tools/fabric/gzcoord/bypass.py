@@ -36,10 +36,9 @@ import datetime
 import hashlib
 import json
 import os
-import sys
 from typing import Any
 
-from . import gzmsg
+from . import gzmsg, paths
 
 REASON = "GZCOORD_JOURNAL=off"
 FILE = "journal-bypass.jsonl"
@@ -53,18 +52,8 @@ def is_off() -> bool:
     return os.environ.get("GZCOORD_JOURNAL") == "off"
 
 
-def _identity():
-    """runtime/identity.py, the one source of the state directory and its lock."""
-    runtime = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(
-        os.path.realpath(__file__))))), "runtime")
-    if runtime not in sys.path:
-        sys.path.insert(0, runtime)
-    import identity  # noqa: E402 — runtime/, found by its path
-    return identity
-
-
 def path() -> str:
-    return os.path.join(_identity().agent_state_dir(), FILE)
+    return os.path.join(paths.identity().agent_state_dir(), FILE)
 
 
 def _now_iso() -> str:
@@ -92,7 +81,7 @@ def record(entries: list[dict]) -> None:
         return
     data = "".join(json.dumps(e, ensure_ascii=True, separators=(",", ":")) + "\n" for e in entries).encode("ascii")
     try:
-        identity = _identity()
+        identity = paths.identity()
         target = path()
     except Exception as e:  # noqa: BLE001 — no state directory is no record: refused, never a default path
         raise BypassUnrecorded(f"the journal-bypass record has no place: this login's state directory is"
