@@ -177,6 +177,16 @@ proof.
 **§5 rule 14 — withdrawn** (Amendment 2026-09-30): the `secrets-migrate`
 action moved every account from Doppler to its own store and retired
 with Doppler (ADR-038 §5 rule 8).
+15. `local` is an operator's read of the account's
+    `.claude/settings.local.json` files, one per working copy under
+    `~/projects` and the projects root's: the `env` key names, which are
+    synced secrets, the permission rules by count, the other top-level
+    keys; never a value. `local-prune` is an action that removes from
+    those files the `env` entries duplicating a synced secret (ADR-038
+    rule 9) and nothing else; it takes no arguments, never follows a
+    symlink, and writes nothing when the file changed under it. Both run
+    `tools/fabric/local_settings.py` as the account; neither is public
+    (A 2026-10-06).
 
 ## 6. Consequences
 
@@ -240,3 +250,4 @@ The body above reads current; each change's full note is in [history/ADR-029-ame
 | 2026-09-28 | The owner reads and adds jobs through the control plane | §5 rule 3: `jobs.mjs` arguments; rule 13: `jobs`, `jobs-add` |
 | 2026-09-29 | secrets-migrate moves an account to its own store | §5 rule 14: the migration action |
 | 2026-09-30 | Doppler is retired: the store holds what Doppler held | §5 rule 5 (the signing key's home), rule 14 withdrawn |
+| 2026-10-06 | Each account's settings.local.json on the control plane | §5 rule 15: `local`, a names-only read; `local-prune`, an action removing synced secrets from its `env` |
