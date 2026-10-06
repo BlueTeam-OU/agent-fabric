@@ -11,6 +11,8 @@ import shutil
 import tarfile
 import tempfile
 
+from assembler.core import store_error
+
 
 BUNDLE_FORMAT = "agent-fabric-drain/1"
 
@@ -83,6 +85,9 @@ def open_bundle(source: str) -> str:
             sys.exit(f"assemble: bundle: manifest.json has no {key} field")
         if manifest.get(key) != report.get(key):
             sys.exit(f"assemble: bundle: manifest says {key}={manifest.get(key)!r} but harvest-report.json says {report.get(key)!r}")
+    why = store_error(report)
+    if why:
+        sys.exit(f"assemble: bundle: {why}")
     for f, data in members.items():
         path = os.path.join(dest, f)
         os.makedirs(os.path.dirname(path), exist_ok=True)

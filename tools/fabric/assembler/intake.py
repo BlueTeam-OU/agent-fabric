@@ -6,7 +6,7 @@ import argparse
 import json
 import os
 import sys
-from assembler.core import layout, workingcopy, DEFAULT_SLICE_BUDGET_TOKENS, BANNED_PATTERNS, PROJECT_PATTERNS, patterns_for, slugify, origin_of_row, REDACTED, hygiene_check, hygiene_substitute, Run
+from assembler.core import layout, workingcopy, DEFAULT_SLICE_BUDGET_TOKENS, BANNED_PATTERNS, PROJECT_PATTERNS, patterns_for, store_error, slugify, origin_of_row, REDACTED, hygiene_check, hygiene_substitute, Run
 from assembler.bundle import open_bundle
 
 
@@ -77,6 +77,18 @@ def open_layout(args: argparse.Namespace) -> str:
 
 def read_claims(run: Run) -> int | None:
     """The drain's references, origins and claims; 1 when a claim is out of its scope."""
+    # The harvest's record is judged before anything is written: the store
+    # it names becomes a committed watermark (core.store_error).
+    harvest_report = os.path.join(run.args.drain, "harvest-report.json")
+    if os.path.exists(harvest_report):
+        try:
+            with open(harvest_report, encoding="utf-8") as fh:
+                hr = json.load(fh)
+        except (OSError, ValueError) as exc:
+            sys.exit(f"assemble: {harvest_report}: cannot be read ({exc})")
+        why = store_error(hr) if isinstance(hr, dict) else "harvest-report.json is not an object"
+        if why:
+            sys.exit(f"assemble: {why}")
     with open(os.path.join(run.args.drain, "references.json"), encoding="utf-8") as fh:
         run.references = json.load(fh)
     obs_path = os.path.join(run.args.drain, "observations.final.jsonl")
@@ -148,12 +160,15 @@ def screen_hygiene(run: Run) -> None:
         for claim in claims:
             # The topic first: every note below names the claim by it, and a
             # note must never carry what it says was withheld.
+            # A note names the slice its claim lands in: a claim another role
+            # shares lands in shared/, so --hold matches the one it held.
+            label = "shared" if set(claim.get("shared_with") or []) - {role} else role
             if isinstance(claim.get("topic"), str):
                 topic, notes = hygiene_substitute(claim["topic"], "", patterns_for(claim["class"]))
                 if notes:
                     claim["topic"] = slugify(topic.replace(REDACTED, "redacted")) or "redacted"
-                    run.redactions.extend(f"{role}/{claim['class']}:{claim['topic']} topic{n}" for n in notes)
-            where = f"{role}/{claim['class']}:{claim['topic']}"
+                    run.redactions.extend(f"{label}/{claim['class']}:{claim['topic']} topic{n}" for n in notes)
+            where = f"{label}/{claim['class']}:{claim['topic']}"
             for field in ("title", "description", "body"):
                 if isinstance(claim.get(field), str):
                     claim[field], notes = hygiene_substitute(claim[field], f"{where} {field}", patterns_for(claim["class"]))

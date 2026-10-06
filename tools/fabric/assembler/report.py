@@ -72,7 +72,8 @@ def report(run: Run) -> int:
                 harvest_meta["skipped_no_roles_class"].append(kept)
         harvest_meta["skipped_no_roles_class"].sort()
         # Keyed by store: agent@host for a working copy's own memory, with
-        # #<slug> for another (harvest_memory.store_key), so two stores of
+        # #<store> (--store, e.g. projects-root) for another (harvest_memory.
+        # store_key, checked as the account's own by core.store_error), so two stores of
         # one account never share a mark; the harvest reads it back
         # (harvest_memory.previous_watermark). A report without "store" is
         # an older harvest's, keyed agent@host as it always was.

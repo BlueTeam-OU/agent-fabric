@@ -196,7 +196,8 @@ def store_key(agent: str | None, host: str, store: str | None = None) -> str:
     the same working copy (--store; the memory op names the projects root's
     own "projects-root"). Two stores under one key let the later drain's
     mark skip the other's memories."""
-    return f"{agent}@{host}#{store}" if store else f"{agent}@{host}"
+    own = f"{agent or 'unattributed'}@{host}"   # the assembler's spelling of an unknown agent
+    return f"{own}#{store}" if store else own
 
 
 def previous_watermark(working_copy: str, host: str, agent: str | None = None,
@@ -213,7 +214,7 @@ def previous_watermark(working_copy: str, host: str, agent: str | None = None,
     try:
         with open(report, encoding="utf-8") as fh:
             marks = json.load(fh).get("watermarks") or {}
-        return int(marks.get(key or f"{agent}@{host}") or 0), report
+        return int(marks.get(key or store_key(agent, host)) or 0), report
     except (OSError, ValueError, TypeError):
         return 0, None
 

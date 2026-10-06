@@ -2460,6 +2460,8 @@ def test_a_bundle_that_cannot_be_read_is_refused_in_one_line(tmp: str) -> None:
         return json.dumps({"format": "agent-fabric-drain/1", **extra}).encode()
 
     bad_report = b"{not json"
+    forged = json.dumps({"agent": "dev-01", "host": "hostA", "role": "alpha", "project": None,
+                         "store": "victim@hostA#x"}).encode()
     named = {"harvest-report.json": hashlib.sha256(bad_report).hexdigest()}
     good = bundle("whole.tar", [("manifest.json", manifest(files=named)), ("harvest-report.json", bad_report)])
     os.makedirs(os.path.join(tmp, "a-directory"))
@@ -2474,6 +2476,9 @@ def test_a_bundle_that_cannot_be_read_is_refused_in_one_line(tmp: str) -> None:
         good: "harvest-report.json does not parse",
         bundle("report-list.tar", [("manifest.json", manifest(files={"harvest-report.json": hashlib.sha256(b"[1]").hexdigest()})),
                                    ("harvest-report.json", b"[1]")]): "harvest-report.json is not an object",
+        bundle("forged-store.tar", [("manifest.json", manifest(agent="dev-01", host="hostA", role="alpha", project=None,
+                                                              files={"harvest-report.json": hashlib.sha256(forged).hexdigest()})),
+                                    ("harvest-report.json", forged)]): "names the store 'victim@hostA#x'",
         bundle("no-agent.tar", [("manifest.json", manifest(files={"harvest-report.json": hashlib.sha256(b"{}").hexdigest()})),
                                 ("harvest-report.json", b"{}")]): "manifest.json names no agent",
     }
@@ -2794,6 +2799,45 @@ def test_two_stores_of_one_account_keep_two_watermarks(tmp: str) -> None:
     assert harvest.previous_watermark(working_copy(out), "hostA", "dev-01")[0] == 200
 
 
+def test_a_harvest_naming_another_accounts_store_is_refused_before_any_write(tmp: str) -> None:
+    """A harvest report's store becomes a committed watermark: one naming
+    another account's store would move that account's mark and skip its
+    unread memories, unsaid (B's re-review, finding 1). Refused before
+    anything is written; the account's own second store is accepted."""
+    drain, claims_dir, out = build(tmp, {"alpha": claims("alpha", [
+        {"class": "domain", "topic": "one", "title": "T", "body": "b", "evidence": ["h1"]},
+    ])})
+    report_file = os.path.join(drain, "harvest-report.json")
+    with open(report_file, "w", encoding="utf-8") as fh:
+        json.dump({"agent": "dev-01", "host": "hostA", "next_watermark": 9, "store": "victim@hostA"}, fh)
+    proc = run_assemble(drain, claims_dir, out)
+    assert proc.returncode == 1 and "names the store 'victim@hostA'" in proc.stderr, proc.stderr
+    assert not os.path.exists(os.path.join(out, "memory")), "written before the refusal"
+    with open(report_file, "w", encoding="utf-8") as fh:
+        json.dump({"agent": "dev-01", "host": "hostA", "next_watermark": 9, "store": "dev-01@hostA#projects-root"}, fh)
+    assert run_assemble(drain, claims_dir, out).returncode == 0
+
+
+def test_holding_a_shared_slice_keeps_the_notes_of_a_role_slice_under_the_same_key(tmp: str) -> None:
+    """A note names the slice its claim lands in: holding shared/domain:sh
+    drops the shared slice's notes and keeps those of gamma's own
+    domain:sh, which this run wrote (B's re-review, finding 2)."""
+    drain, claims_dir, out = build(tmp, {
+        "alpha": claims("alpha", [{"class": "domain", "topic": "sh", "title": "Shared", "body": "In Springfield.",
+                                   "evidence": ["h1"], "shared_with": ["beta"]}]),
+        "gamma": claims("gamma", [{"class": "domain", "topic": "sh", "title": "Own", "body": "Also Springfield.",
+                                   "evidence": ["h2"]}]),
+    })
+    hold = os.path.join(tmp, "hold.json")
+    with open(hold, "w", encoding="utf-8") as fh:
+        json.dump(["shared/domain:sh"], fh)
+    proc = run_assemble(drain, claims_dir, out, "--hold", hold)
+    assert proc.returncode == 0, proc.stderr
+    redactions = json.loads(read(report_path(out)))["redactions"]
+    assert [r for r in redactions if " body:" in r] == ["gamma/domain:sh body: city name -> '[redacted]'"], redactions
+    assert os.path.exists(dom(out, "gamma", "domain.md"))
+
+
 def main() -> int:
     cases = [
         test_a_topic_named_like_a_budget_part_is_its_own_memory,
@@ -2880,6 +2924,8 @@ def main() -> int:
         test_a_correction_retitling_a_carried_files_only_section_renames_its_cue,
         test_a_withheld_name_in_a_topic_reaches_no_note,
         test_two_stores_of_one_account_keep_two_watermarks,
+        test_a_harvest_naming_another_accounts_store_is_refused_before_any_write,
+        test_holding_a_shared_slice_keeps_the_notes_of_a_role_slice_under_the_same_key,
     ]
     # THE REGISTRY IS THE TRAP THIS GUARDS. Cases run because they are
     # listed here, not because they are named test_*, so a case that is

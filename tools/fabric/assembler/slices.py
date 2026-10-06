@@ -20,13 +20,9 @@ def drop_held(report: dict[str, Any], keys: list[str], paths: set[str]) -> None:
     decision its slice ("<role>/<class>:<topic>#<heading>"). `paths` are
     the held files this run did not itself write."""
     # A note names its slice either by file ("<path>: ...") or by claim
-    # ("<role>/<class>:<topic> body: ..."); a shared claim's notes carry
-    # its owner role, so a held shared slice matches under any role.
-    slice_names = []
-    for k in keys:
-        label, _, rest = k.partition("/")
-        slice_names.append(re.compile((r"[^/\s]+" if label == "shared" else re.escape(label)) + "/"
-                                      + re.escape(rest) + r"[ :#]"))
+    # ("<role>/<class>:<topic> body: ...", "shared/..." for a shared one):
+    # the held key itself, exactly.
+    slice_names = [re.compile(re.escape(k) + r"[ :#]") for k in keys]
 
     def names_held(item: Any) -> bool:
         return isinstance(item, str) and (any(item == p or item.startswith(p + ":") for p in paths)

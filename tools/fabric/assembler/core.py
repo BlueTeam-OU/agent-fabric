@@ -64,6 +64,20 @@ BANNED_PATTERNS: list = []
 PROJECT_PATTERNS: list = []
 
 
+def store_error(hr: dict) -> str | None:
+    """Why a harvest report's "store" is not its own, or None. A store is
+    the harvesting account's: agent@host, or agent@host#<name> for a second
+    store of it. Any other value would set another account's watermark, and
+    its unread memories would be skipped by its next drain, unsaid."""
+    store = hr.get("store")
+    if store is None:
+        return None
+    own = f"{hr.get('agent') or 'unattributed'}@{hr.get('host') or 'unknown'}"
+    if not isinstance(store, str) or not (store == own or store.startswith(own + "#")):
+        return f"harvest-report.json names the store {store!r}, not one of {own}'s"
+    return None
+
+
 def patterns_for(klass: str) -> list:
     """The patterns a slice of `klass` is held to: the project's own set
     for a project class, every pattern for a fabric one (domain)."""
