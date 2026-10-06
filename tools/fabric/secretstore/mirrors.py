@@ -9,6 +9,7 @@ import json
 import os
 import shutil
 import tempfile
+from typing import TypedDict
 
 from .core import (
     LOGIN_RE,
@@ -77,6 +78,17 @@ BUNDLE_END = "-----END AGENT-FABRIC STORE BUNDLE-----"
 # commit and the other cloned and pushed (review of #76, reproduced).
 MAIN = "refs/heads/main"
 
+
+
+class LineageEntry(TypedDict):
+    """One agent in identities/keys/lineage.json, keyed by its agent id:
+    the login it is now, when it was born (from the id), its key's
+    fingerprint, and the agent id of the parent that certified it (None
+    for the root). tests/test_types.py holds the committed file to it."""
+    login: str
+    born: str
+    fingerprint: str
+    parent: str | None
 
 def _bundle_armored(repo: str) -> str:
     with tempfile.TemporaryDirectory() as tmp:
@@ -305,7 +317,7 @@ def take_bundle(text: str) -> dict:
 
 
 # ── the parent ────────────────────────────────────────────────────────
-def lineage(fabric: str | None = None) -> dict:
+def lineage(fabric: str | None = None) -> dict[str, LineageEntry]:
     try:
         with open(os.path.join(keys_dir(fabric), "lineage.json"), encoding="utf-8") as fh:
             return json.load(fh)

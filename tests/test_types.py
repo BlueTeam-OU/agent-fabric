@@ -18,6 +18,7 @@ from typing import Any, Callable
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(HERE, "tools", "fabric"))
 from gzcoord import gzmsg  # noqa: E402
+from secretstore import mirrors, trust  # noqa: E402
 
 CASES: list[tuple[str, Callable[[], None]]] = []
 SCRATCH: list[str] = []
@@ -99,6 +100,68 @@ def _():
     if keys != {"no taxonomy": [], "no record": [], "unreadable": ["warning"],
                 "not in the catalogue": ["error"], "a catalogue role": ["file"]}:
         raise Failed(f"the four outcomes are not told apart by their keys: {keys}")
+
+
+def _env(**values: str):
+    saved = {k: os.environ.get(k) for k in values}
+    os.environ.update(values)
+
+    def restore() -> None:
+        for k, v in saved.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+    return restore
+
+
+@case("secretstore: a refusal, written or unreadable, and every refusal listed, is a RefusalRecord")
+def _():
+    home = scratch()
+    store = os.path.join(home, "store")
+    os.makedirs(os.path.join(store, ".git"))
+    restore = _env(HOME=home, AGENT_FABRIC_SECRET_STORE=store)
+    try:
+        trust._record_refusal(store, "0123abcd", "unsigned commit")
+        holds(trust.refusal(store), trust.RefusalRecord, "refusal (written)")
+        listed = trust.refusals()
+        if [r.get("store") for r in listed] != ["own"]:
+            raise Failed(f"the own store's refusal is not listed as own: {listed}")
+        for r in listed:
+            holds(r, trust.RefusalRecord, "refusals")
+        with open(os.path.join(store, ".git", trust.REFUSAL_FILE), "w", encoding="utf-8") as fh:
+            fh.write("{not json")
+        unreadable = trust.refusal(store)
+        holds(unreadable, trust.RefusalRecord, "refusal (unreadable)")
+        if unreadable.get("unreadable") is not True:
+            raise Failed(f"an unreadable record reads as a refusal: {unreadable}")
+    finally:
+        restore()
+
+
+@case("secretstore: a store with no trusted base is a BaseRecord in bases()")
+def _():
+    home = scratch()
+    store = os.path.join(home, "store")
+    os.makedirs(os.path.join(store, "env"))
+    restore = _env(HOME=home, AGENT_FABRIC_SECRET_STORE=store)
+    try:
+        listed = trust.bases()
+    finally:
+        restore()
+    if not listed:
+        raise Failed("a store with no base is not listed")
+    for r in listed:
+        holds(r, trust.BaseRecord, "bases")
+
+
+@case("secretstore: every agent in the committed lineage is a LineageEntry")
+def _():
+    doc = mirrors.lineage(HERE)
+    if not doc:
+        raise Failed("identities/keys/lineage.json holds no agent")
+    for aid, entry in doc.items():
+        holds(entry, mirrors.LineageEntry, f"lineage[{aid}]")
 
 
 def main() -> int:
