@@ -207,6 +207,19 @@ test('memoryDirs: every memory directory with a memory in it, matched to ~/proje
   assert.equal(memorySlug('/home/x/.claude-mem'), '-home-x--claude-mem');
 });
 
+test('memoryDirs: the projects root\'s own memory is filed under the fabric checkout, marked; with none there it stays a no-working-copy row', () => {
+  const h = scratch('mem-root-');
+  const projects = path.join(h, 'projects'); const fabric = path.join(projects, 'agent-fabric');
+  fs.mkdirSync(fabric, { recursive: true });
+  const d = path.join(h, '.claude', 'projects', memorySlug(projects), 'memory'); fs.mkdirSync(d, { recursive: true });
+  fs.writeFileSync(path.join(d, 'fact.md'), '---\nname: fact\n---\nx');
+  assert.deepEqual(memoryDirs(h), [{ slug: memorySlug(projects), memory: d, files: 1, working_copy: fabric, projects_root: true }]);
+  const elsewhere = path.join(h, 'checkouts', 'fabric'); fs.mkdirSync(elsewhere, { recursive: true });
+  assert.equal(memoryDirs(h, projects, elsewhere)[0].working_copy, elsewhere, 'the checkout the op runs from, wherever it is');
+  fs.rmSync(fabric, { recursive: true });
+  assert.deepEqual(memoryDirs(h), [{ slug: memorySlug(projects), memory: d, files: 1, working_copy: null }], 'no checkout: not guessed');
+});
+
 test('memory: one harvester run per directory — the tar from stdout, the report from stderr — gzipped, base64, in parts; a failure and a strayed directory are rows, not throws', async () => {
   const tar = crypto.randomBytes(3000);   // incompressible: the parts are real
   const report = { role: 'db-admin', claims: 2, counts: { in_scope: 3, total: 3 }, needs_rendering: ['ka-note'], skipped_no_roles_class: ['private'], memory_dir: '/never/leaves' };

@@ -32,12 +32,19 @@ export const MEMORY_PART_BYTES = 90 * 1024;
 // memory_slug is the same rule.
 export function memorySlug(dir) { return path.resolve(dir).replace(/[^A-Za-z0-9]/g, '-'); }
 
-export function memoryDirs(home = os.homedir(), projectsDir = path.join(home, 'projects')) {
+// A session started in ~/projects itself keeps its memory under the
+// projects root's slug, which names no working copy: that workspace's
+// CLAUDE.md is the fabric's, so its memory is filed under the account's
+// fabric checkout, and the row says so (projects_root). Without a checkout
+// there it stays a no-working-copy row: reported, never guessed.
+export function memoryDirs(home = os.homedir(), projectsDir = path.join(home, 'projects'), fabric = path.join(projectsDir, 'agent-fabric')) {
   const root = path.join(home, '.claude', 'projects');
   let slugs; try { slugs = fs.readdirSync(root); } catch { return []; }
   let copies = []; try { copies = fs.readdirSync(projectsDir).map(d => path.join(projectsDir, d)).filter(d => { try { return fs.statSync(d).isDirectory(); } catch { return false; } }); } catch { /* no projects dir */ }
   const bySlug = new Map(); const ambiguous = new Set();
   for (const d of copies) { const k = memorySlug(d); if (bySlug.has(k)) ambiguous.add(k); else bySlug.set(k, d); }
+  const rootSlug = memorySlug(projectsDir);
+  let fabricHere = false; try { fabricHere = fs.statSync(fabric).isDirectory(); } catch { /* no checkout */ }
   const out = [];
   for (const slug of slugs) {
     const memory = path.join(root, slug, 'memory');
@@ -45,12 +52,13 @@ export function memoryDirs(home = os.homedir(), projectsDir = path.join(home, 'p
     if (!n) continue;
     // Two working copies with one slug (foo.bar and foo-bar): the
     // harness cannot tell them apart and neither can this; named, not guessed.
+    if (slug === rootSlug && fabricHere) { out.push({ slug, memory, files: n, working_copy: fabric, projects_root: true }); continue; }
     out.push({ slug, memory, files: n, working_copy: ambiguous.has(slug) ? null : (bySlug.get(slug) ?? null), ...(ambiguous.has(slug) ? { ambiguous: true } : {}) });
   }
   return out;
 }
 
-export async function memory(home = os.homedir(), { root = process.env.AGENT_FABRIC_ROOT ?? path.join(home, 'projects', 'agent-fabric'), exec = execFileP, dirs = memoryDirs(home), all = false, partBytes = MEMORY_PART_BYTES } = {}) {
+export async function memory(home = os.homedir(), { root = process.env.AGENT_FABRIC_ROOT ?? path.join(home, 'projects', 'agent-fabric'), exec = execFileP, dirs = memoryDirs(home, path.join(home, 'projects'), root), all = false, partBytes = MEMORY_PART_BYTES } = {}) {
   const tool = path.join(root, 'tools', 'fabric', 'harvest_memory.py');
   const bundles = [];
   for (const d of dirs) {
@@ -59,7 +67,7 @@ export async function memory(home = os.homedir(), { root = process.env.AGENT_FAB
     const args = [tool, '--bundle', '-', '--memory', d.memory, '--working-copy', d.working_copy, ...(all ? ['--all'] : [])];
     let r;
     try { r = await exec('python3', args, { encoding: 'buffer', maxBuffer: 64 * 1024 * 1024, env: { ...process.env, AGENT_FABRIC_ROOT: root }, timeout: 120000 }); }
-    catch (e) { bundles.push({ slug: d.slug, files: d.files, working_copy: d.working_copy, status: 'harvest-failed', error: String(e?.stderr ?? e?.message ?? e).slice(-400) }); continue; }
+    catch (e) { bundles.push({ slug: d.slug, files: d.files, working_copy: d.working_copy, ...(d.projects_root ? { projects_root: true } : {}), status: 'harvest-failed', error: String(e?.stderr ?? e?.message ?? e).slice(-400) }); continue; }
     const tar = Buffer.from(r.stdout ?? '');
     let report = null;
     try { const j = JSON.parse(String(r.stderr ?? '')); report = { claims: j.claims, counts: j.counts, needs_rendering: j.needs_rendering ?? [], skipped_no_roles_class: j.skipped_no_roles_class ?? [] }; } catch { report = null; }
@@ -67,7 +75,7 @@ export async function memory(home = os.homedir(), { root = process.env.AGENT_FAB
     const b64 = gz.toString('base64');
     const parts = [];
     for (let i = 0; i < b64.length; i += partBytes) parts.push(b64.slice(i, i + partBytes));
-    bundles.push({ slug: d.slug, files: d.files, working_copy: d.working_copy, status: 'ok', bytes: tar.length, gzip_bytes: gz.length,
+    bundles.push({ slug: d.slug, files: d.files, working_copy: d.working_copy, ...(d.projects_root ? { projects_root: true } : {}), status: 'ok', bytes: tar.length, gzip_bytes: gz.length,
                    sha256: crypto.createHash('sha256').update(tar).digest('hex'), parts: parts.length, report, _parts: parts });
   }
   return { status: 'ok', bundles };

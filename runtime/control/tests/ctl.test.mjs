@@ -232,6 +232,8 @@ test('writeBundles: reassembly, and the three ways a bundle is refused', () => {
   assert.match(t, /db-admin\s+ok\s+s-d\s+1 memories\s+no-working-copy/);
   assert.match(t, /silent\s+no answer/);
   assert.match(table('memory', rows(expected, [{ from: 'h/silent', data: { memory: { status: 'ok', bundles: [] } } }])), /silent\s+ok\s+no memory/);
+  const rootRow = table('memory', rows(expected, [{ from: 'h/db-admin', data: { memory: { status: 'ok', bundles: [{ slug: '-h-db-admin-projects', working_copy: '/h/db-admin/projects/agent-fabric', projects_root: true, files: 2, status: 'harvest-failed', error: 'x' }] } } }]));
+  assert.match(rootRow, /db-admin\s+ok\s+agent-fabric \(projects root\)\s+2 memories/, 'the projects root\'s memory is named as such');
 });
 
 function relay() {
