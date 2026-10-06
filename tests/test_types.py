@@ -143,16 +143,25 @@ def _():
 
 @case("secretstore: a store with no trusted base is a BaseRecord in bases()")
 def _():
-    home = scratch()
-    store = os.path.join(home, "store")
-    os.makedirs(os.path.join(store, "env"))
-    restore = _env(HOME=home, AGENT_FABRIC_SECRET_STORE=store)
-    try:
-        listed = trust.bases()
-    finally:
-        restore()
-    if not listed:
-        raise Failed("a store with no base is not listed")
+    import subprocess
+    listed = []
+    # Both states base_state() gives: "unreadable" (no repository) and
+    # "no base" (a repository that names none).
+    for kind in ("unreadable", "no base"):
+        home = scratch()
+        store = os.path.join(home, "store")
+        os.makedirs(os.path.join(store, "env"))
+        if kind == "no base":
+            subprocess.run(["git", "init", "-q", store], check=True, timeout=30,
+                           env={**os.environ, "GIT_CONFIG_GLOBAL": os.devnull})
+        restore = _env(HOME=home, AGENT_FABRIC_SECRET_STORE=store)
+        try:
+            listed += trust.bases()
+        finally:
+            restore()
+    states = sorted(r.get("state") for r in listed)
+    if states != ["no base", "unreadable"]:
+        raise Failed(f"both states were not reached: {states}")
     for r in listed:
         holds(r, trust.BaseRecord, "bases")
 
@@ -191,12 +200,23 @@ def _():
     run("start", "j2")
     run("deliver", "j2", "branch x@abc")
     run("drop", "j3", "not needed")
+    run("add", "fourth")
+    run("start", "j4")
+    run("done", "j4")
     with open(os.path.join(state, "agents", jobs_login(), "jobs.json"), encoding="utf-8") as fh:
         doc = json.load(fh)
     states = sorted(j["state"] for j in doc["jobs"])
-    if states != ["blocked", "delivered", "dropped"]:
+    if states != ["blocked", "delivered", "done", "dropped"]:
         raise Failed(f"the states were not all reached: {states}")
-    for j in doc["jobs"]:
+    # A job taken from a request (`add --request`): request_job() builds it
+    # from the replayed message, as the command does, with no relay here.
+    msg = {"type": "REQUEST", "seq": 7, "sender": "h/user",
+           "metadata": {"MESSAGE-ID": "01a111d3-7e46-744b-8159-5131b5598f4d", "FROM": "h/user",
+                        "SUBJECT": "a request"}}
+    taken = jobs_mod.request_job({"jobs": list(doc["jobs"])}, msg, working_copy=HERE)
+    if not taken or (taken.get("source") or {}).get("kind") != "request":
+        raise Failed(f"no request job was built: {taken}")
+    for j in [*doc["jobs"], taken]:
         holds(j, jobs_mod.Job, f"job {j.get('id')}")
 
 
