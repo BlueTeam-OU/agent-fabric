@@ -79,7 +79,6 @@ BUNDLE_END = "-----END AGENT-FABRIC STORE BUNDLE-----"
 MAIN = "refs/heads/main"
 
 
-
 class LineageEntry(TypedDict):
     """One agent in identities/keys/lineage.json, keyed by its agent id:
     the login it is now, when it was born (from the id), its key's
@@ -89,6 +88,7 @@ class LineageEntry(TypedDict):
     born: str
     fingerprint: str
     parent: str | None
+
 
 def _bundle_armored(repo: str) -> str:
     with tempfile.TemporaryDirectory() as tmp:

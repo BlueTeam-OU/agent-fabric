@@ -53,7 +53,6 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 FABRIC_ROOT = os.environ.get("AGENT_FABRIC_ROOT") or os.path.dirname(os.path.dirname(HERE))
 
 
-
 # A job as jobs.json keeps it (runtime/control/jobs.mjs reads it too). The
 # keys a state change adds live in a total=False subclass: under `from
 # __future__ import annotations` TypedDict counts NotRequired[...] as
@@ -75,6 +74,7 @@ class _JobKeys(TypedDict):
 class Job(_JobKeys, total=False):
     blocked_on: str
     reason: str
+
 
 def _load(name: str, path: str):
     spec = importlib.util.spec_from_file_location(name, path)

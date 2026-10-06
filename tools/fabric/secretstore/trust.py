@@ -26,7 +26,6 @@ from .core import (
 from .keys import key_of_store, _signing_args, _signing_subkeys
 
 
-
 # The records status, fabric-ctl keys and the drain read. The optional keys
 # live in a total=False subclass: under `from __future__ import annotations`
 # TypedDict counts a NotRequired[...] key as required. tests/test_types.py
@@ -55,6 +54,7 @@ class BaseRecord(_BaseKeys, total=False):
     reason: str
     store: str
     path: str
+
 
 def _git_env() -> dict:
     """The store's own identity for every commit it makes, a rebase's

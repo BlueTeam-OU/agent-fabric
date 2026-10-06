@@ -226,11 +226,6 @@ export function remember(seen, id) {
   if (seen.size > SEEN_MAX) seen.delete(seen.values().next().value);
 }
 
-// A reply is one record; a `memory` reply is several: the first carries
-// the bundles' reports and sizes, then one record per part
-// ({part, parts, slug, chunk}) — the relay's message limit is 128 KiB and
-// a drain is bigger. The coordinator reassembles by slug and part and
-// verifies the sha256 the first record names.
 /**
  * The record agentd posts once when it comes up (protocol.mjs).
  * @param {string} address
@@ -238,6 +233,11 @@ export function remember(seen, id) {
  */
 export function upRecord(address) { return { v: 1, kind: 'up', from: address, ts: new Date().toISOString() }; }
 
+// A reply is one record; a `memory` reply is several: the first carries
+// the bundles' reports and sizes, then one record per part
+// ({part, parts, slug, chunk}) — the relay's message limit is 128 KiB and
+// a drain is bigger. The coordinator reassembles by slug and part and
+// verifies the sha256 the first record names.
 /**
  * @param {import('./protocol.mjs').Request} request
  * @returns {Promise<import('./protocol.mjs').Reply & { _followups?: import('./protocol.mjs').Reply[] }>}

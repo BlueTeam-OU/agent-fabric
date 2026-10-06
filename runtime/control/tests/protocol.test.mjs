@@ -4,7 +4,11 @@
 // them true.
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import crypto from 'node:crypto';
 import { scratch } from '../../../tests/scratch.mjs';
+import { memorySlug } from '../ops.mjs';
 import { ENVELOPE_KEYS } from '../protocol.mjs';
 import { answer, upRecord } from '../agentd.mjs';
 import { askPresence } from '../presence.mjs';
@@ -21,10 +25,22 @@ function holds(value, kind, what) {
 }
 
 test('a reply agentd answers with is a Reply, and so is each part of a memory reply', async () => {
+  const ping = { v: 1, kind: 'request', id: 'q1', from: 'h/user', to: '*', op: 'ping', ts: new Date().toISOString() };
   const ctx = { me: { address: 'h/db-admin' }, started: new Date().toISOString(), home: scratch('protocol-home-') };
-  const { _followups, ...reply } = await answer({ v: 1, kind: 'request', id: 'q1', from: 'h/user', to: '*', op: 'ping', ts: new Date().toISOString() }, ctx);
+  const { _followups: none, ...reply } = await answer(ping, ctx);
   holds(reply, 'reply', 'ping reply');
-  for (const part of _followups ?? []) holds(part, 'reply', 'a part');
+  assert.equal(none, undefined, 'a ping has no parts');
+  // A memory reply big enough to need parts: the harvester stubbed, as in agentd.test.mjs.
+  const h = scratch('protocol-mem-');
+  const wc = path.join(h, 'projects', 'gzapp'); fs.mkdirSync(wc, { recursive: true });
+  const mem = path.join(h, '.claude', 'projects', memorySlug(wc), 'memory'); fs.mkdirSync(mem, { recursive: true });
+  fs.writeFileSync(path.join(mem, 'a.md'), 'x');
+  const tar = crypto.randomBytes(200000);
+  const exec = async () => ({ stdout: tar, stderr: JSON.stringify({ claims: 1, counts: { in_scope: 1, total: 1 }, needs_rendering: [], skipped_no_roles_class: [] }) });
+  const { _followups, ...first } = await answer({ ...ping, id: 'q2', op: 'memory' }, { ...ctx, home: h, exec });
+  holds(first, 'reply', 'memory reply');
+  assert.ok(_followups && _followups.length > 1, `a memory reply this size comes in parts: ${_followups?.length}`);
+  for (const part of _followups) holds(part, 'reply', 'a part');
 });
 
 test('the request presence sends is a Request; a signed one too', async () => {

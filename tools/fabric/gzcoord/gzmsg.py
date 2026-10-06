@@ -217,7 +217,7 @@ def _lines(text: str) -> list[str]:
 class ParsedMessage(TypedDict):
     """parse()'s result, the Node's shape and key names: the inbox's JSON
     and the journal carry it as it is, so a key here is a key on the wire.
-    tests/test_gzcoord_types.py holds every real one to these keys."""
+    tests/test_types.py holds every real one to these keys."""
     type: str
     metadata: dict[str, str]
     sections: dict[str, str]

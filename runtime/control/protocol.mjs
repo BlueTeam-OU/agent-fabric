@@ -3,8 +3,10 @@
 // it announces when it comes up. JSDoc typedefs for a reader, and each
 // envelope's keys as data, because no checker reads JSDoc here (agent-fabric
 // typing is option (B), j28): runtime/control/tests/protocol.test.mjs holds
-// the envelopes the code builds to these keys, so a typedef that drifts from
-// the code fails a test rather than claiming a shape that is gone.
+// the envelopes the code builds to these keys (agentd's replies and their
+// parts, presence's request, the up record; ctl's request is not checked
+// yet), so a typedef that drifts from the code fails a test rather than
+// claiming a shape that is gone.
 //
 // Not GZCoord: these ride the relay's control channel as JSON, and
 // gzcoord.mjs (the relay client) never reads them.
