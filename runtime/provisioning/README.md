@@ -108,9 +108,10 @@ What the steps are, when done by hand:
    login): `runtime/provisioning/secrets/store-enroll.sh <login>`, then
    `fabric-secrets provision` — see "Secrets" below. After it,
    `OPENROUTER_API_KEY`, `GH_TOKEN`,
-   `OPENAI_API_KEY` and the GZCoord token are in the account's
-   environment from `~/.config/agent-fabric/secrets.env`, git identity
-   and signing are set, and `runtime/openrouter/launch` (with the `ori`
+   `OPENAI_API_KEY` and the GZCoord token are in
+   `~/.config/agent-fabric/secrets.env`, read by the tools that need
+   them and sourced by no shell (ADR-038 rule 9), gh holds `GH_TOKEN`,
+   git identity and signing are set, and `runtime/openrouter/launch` (with the `ori`
    CLI on `PATH`) runs from the working copy
    (`runtime/openrouter/README.md`). `provision share` copies only an
    allowlist of names and refuses the coordinator's own credentials
@@ -146,10 +147,10 @@ tools read:
 | name | consumed as |
 |---|---|
 | `AGENT_LOGIN`, `AGENT_HOST` | `fabric-secrets sync` refuses a store whose `AGENT_LOGIN` is not the login running it — the invariant, enforced at the secret boundary |
-| `OPENROUTER_API_KEY`, `GH_TOKEN`, `CLAUDE_BRIDGE_AUTH_TOKEN`, `SERPAPI_API_KEY`, `BRAVE_SEARCH_API_KEY` (language-culture logins: the locale search tools, `runtime/mcp/websearch-locale`) | exported from `~/.config/agent-fabric/secrets.env` (0600), sourced by `~/.bashrc` |
+| `OPENROUTER_API_KEY`, `GH_TOKEN`, `CLAUDE_BRIDGE_AUTH_TOKEN`, `SERPAPI_API_KEY`, `BRAVE_SEARCH_API_KEY` (language-culture logins: the locale search tools, `runtime/mcp/websearch-locale`) | written to `~/.config/agent-fabric/secrets.env` (0600) and read from there by the tool that needs one — the launcher, the relay clients, the search tools; no shell sources it. `GH_TOKEN` also goes into gh's own configuration (`gh auth login --with-token`). A session's Bash holds none of them: the SessionStart hook unsets them (ADR-038 rule 9) |
 | `GIT_USER_NAME`, `GIT_USER_EMAIL`, `GIT_SIGNING_KEY`, `GIT_GPG_PROGRAM` | `git config --global` (strings; the signing key material stays in the keyring) |
 | `SSH_PRIVATE_KEY`, `SSH_PUBLIC_KEY` | `~/.ssh/id_ed25519(.pub)`, written only when absent (`--force` replaces) |
-| a project's `agent_env` names (`projects/registry.json`; gzapp: `GZAPP_PORT_OFFSET`) | exported from `secrets.env` when the store has them — per-login values that are not secrets but belong to the identity, never reported missing |
+| a project's `agent_env` names (`projects/registry.json`; gzapp: `GZAPP_PORT_OFFSET`) | written to `secrets.env` when the store has them, never reported missing; a name the registry also lists in `plain_env` — a per-login value that is not a secret, like the port offset — goes to `~/.config/agent-fabric/env.sh` too, the one file `~/.bashrc` sources. An unmarked name is treated as a secret |
 
 - `bin/fabric-secrets sync` (as the account) pulls and applies;
   `--no-pull` applies the copy as it is, once, right after `store

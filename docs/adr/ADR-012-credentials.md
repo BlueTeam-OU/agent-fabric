@@ -30,7 +30,7 @@ An identity's secrets are recorded **per Linux login**, in the login's own
 encrypted store (ADR-038; the Doppler project, one config per login, that
 this record first chose is retired (A 2026-09-30)). `bin/fabric-secrets
 sync`, run as the account, puts them where the tools read them (`~/.config/agent-fabric/secrets.env`
-0600, `~/.gitconfig`, `~/.ssh/`). **Credentials never enter a committed
+0600, which no shell sources (ADR-038 rule 9), gh's own configuration, `~/.gitconfig`, `~/.ssh/`). **Credentials never enter a committed
 file.**
 
 Around that record:

@@ -49,7 +49,7 @@ A managed hook that runs a script from a login's own checkout is no stronger tha
 - A session can no longer extend Claude Code by writing a mod for itself. Every mod is a fabric change, reviewed like a guard.
 - Installing a guard or a fleet mod needs root on each host, so it moves with the operator's distribution, not only with `fabric-ctl all upgrade fabric`. A guard change reaches a host only when its operator installs it.
 - The guards become stronger than they are today, mods aside: a login can no longer weaken its own guard by editing its checkout.
-- The redaction mod makes a printed secret a name in the transcript. Secrets still sit in each login's environment; `fabric-ctl`'s signing key is the first to leave it.
+- The redaction mod makes a printed secret a name in the transcript. Secrets have left the session's environment (ADR-038 rule 9) but still sit in each login's files, which a session can read.
 - Two sources of truth for a guard's script exist during the move: the checkout's and the installed copy. The installed copy is authoritative once managed settings name it, and a check reports drift between the two.
 
 ## 7. Future Evolution
