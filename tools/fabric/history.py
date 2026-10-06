@@ -134,7 +134,12 @@ def main(argv: list[str]) -> int:
     except (episodic.JournalError, sqlite3.Error, OSError) as e:
         print(f"fabric-history: {e}", file=sys.stderr)
         return 1
-    patterns = credential_patterns()
+    try:
+        patterns = credential_patterns()
+    except layout.HygieneError as e:
+        # A broken list cannot mask a credential: nothing is shown unmasked.
+        print(f"fabric-history: {e}", file=sys.stderr)
+        return 1
     if args.json:
         print(json.dumps({"banner": BANNER, "episodes": [
             {k: (mask(r[k], r["id"], patterns) if isinstance(r[k], str) else r[k])

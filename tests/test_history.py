@@ -73,6 +73,17 @@ def main() -> int:
         ins([{"content": msg(TOKEN, "y" * 2000), "seq": 8, "ts": "2026-10-01T15:30:00Z"}])
         conn.close()
 
+        # A hygiene list that cannot be read cannot mask a credential, so
+        # nothing is shown at all (B6): one line, exit 1, never the body.
+        broken = os.path.join(tmp, "broken-fabric")
+        os.makedirs(os.path.join(broken, "policies"))
+        with open(os.path.join(broken, "policies", "hygiene.json"), "w") as f:
+            f.write("{not json")
+        r = run("token", e={**env, "AGENT_FABRIC_ROOT": broken})
+        check("a broken hygiene list: refused in one line, nothing unmasked shown",
+              r.returncode == 1 and TOKEN not in r.stdout + r.stderr and r.stdout == ""
+              and "Traceback" not in r.stderr and "hygiene" in r.stderr, (r.returncode, r.stderr[-300:]))
+
         r = run("--limit", "50")
         check("the banner comes first", r.returncode == 0 and r.stdout.startswith("# history, not current truth"), r.stdout[:200])
         check("a failed send is hidden by default", "lost-1" not in r.stdout and "q-1" in r.stdout)
