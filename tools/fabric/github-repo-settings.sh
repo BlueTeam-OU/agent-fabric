@@ -1,52 +1,14 @@
 #!/usr/bin/env bash
 # tools/fabric/github-repo-settings.sh — reapply this repository's GitHub-side
-# settings (docs/adr/ADR-019-work-arrives-as-pull-requests.md §6) to a
-# repository, with `gh`. It covers the repository, Actions and workflow
-# permissions; code scanning and secret scanning are set on GitHub by hand.
+# settings (docs/adr/ADR-019-work-arrives-as-pull-requests.md §6). The path
+# is the contract (ADR-019 names it); the work, its rules and every reason
+# for them are in tools/fabric/github/repo_settings.py (ADR-040 Wave 1).
 #
 #   tools/fabric/github-repo-settings.sh [owner/repo]     # default: gzapi-org/agent-fabric
 #   tools/fabric/github-repo-settings.sh --show [owner/repo]
-#
-# Idempotent: every call sets the documented value. The ruleset on main
-# is tools/fabric/github-ruleset-main.json, created or updated by name;
-# its one required check is ci.yml's ci-ok job, which stands for every
-# other job, so a job renamed in .github/workflows/ci.yml needs no change
-# here, and ci-ok renamed is renamed there too, or no PR can merge. It
-# never touches secrets (there are none) or collaborators.
-set -euo pipefail
-show=0; [[ "${1:-}" == "--show" ]] && { show=1; shift; }
-REPO="${1:-gzapi-org/agent-fabric}"
-if (( show )); then
-    gh api "repos/$REPO" --jq '{visibility, default_branch, description, has_issues, has_projects, has_wiki, has_discussions, allow_merge_commit, allow_squash_merge, allow_rebase_merge, allow_auto_merge, delete_branch_on_merge, allow_update_branch, merge_commit_title, merge_commit_message, squash_merge_commit_title, squash_merge_commit_message, web_commit_signoff_required}'
-    gh api "repos/$REPO/actions/permissions" --jq '{actions_enabled: .enabled, allowed_actions}'
-    gh api "repos/$REPO/actions/permissions/workflow" --jq '{default_workflow_permissions, can_approve_pull_request_reviews}'
-    gh api "repos/$REPO/topics" --jq '.names'
-    gh api "repos/$REPO/rules/branches/main" --jq '[.[].type]'
-    exit 0
-fi
-gh api -X PATCH "repos/$REPO" \
-    -f description='Control plane for the agents working on sibling repositories: identities, roles, memory, model routing, messaging.' \
-    -f default_branch=main \
-    -F has_issues=true -F has_projects=true -F has_wiki=true -F has_discussions=false \
-    -F allow_merge_commit=true -F allow_squash_merge=true -F allow_rebase_merge=true \
-    -F allow_auto_merge=true -F delete_branch_on_merge=false -F allow_update_branch=false \
-    -f merge_commit_title=MERGE_MESSAGE -f merge_commit_message=PR_TITLE \
-    -f squash_merge_commit_title=COMMIT_OR_PR_TITLE -f squash_merge_commit_message=COMMIT_MESSAGES \
-    -F web_commit_signoff_required=false >/dev/null
-# Topics replace the whole list on every call, so this is the list.
-gh api -X PUT "repos/$REPO/topics" -f 'names[]=agent-memory' -f 'names[]=agent-orchestration' -f 'names[]=ai-agents' \
-    -f 'names[]=claude-code' -f 'names[]=control-plane' -f 'names[]=developer-tools' -f 'names[]=llm-ops' \
-    -f 'names[]=multi-agent-systems' >/dev/null
-gh api -X PUT "repos/$REPO/actions/permissions" -F enabled=true -f allowed_actions=all >/dev/null
-gh api -X PUT "repos/$REPO/actions/permissions/workflow" -f default_workflow_permissions=read -F can_approve_pull_request_reviews=false >/dev/null
-# The ruleset: required checks and a pull request on main (ADR-019 rule 6),
-# so auto-merge waits for green and nothing reaches main another way.
-RULESET="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/github-ruleset-main.json"
-name="$(jq -r .name "$RULESET")"
-id="$(gh api "repos/$REPO/rulesets" --jq ".[] | select(.name == \"$name\") | .id" | head -1)"
-if [[ -n "$id" ]]; then
-    gh api -X PUT "repos/$REPO/rulesets/$id" --input "$RULESET" >/dev/null
-else
-    gh api -X POST "repos/$REPO/rulesets" --input "$RULESET" >/dev/null
-fi
-echo "github-repo-settings: applied to $REPO (docs/adr/ADR-019-work-arrives-as-pull-requests.md)"
+here="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"
+# The fleet's pinned Python (runtime/python.json, ADR-040), one per host;
+# AGENT_FABRIC_PYTHON points elsewhere for a test or a host without it.
+py="${AGENT_FABRIC_PYTHON:-/usr/local/bin/fabric-python}"
+[[ -x "$py" ]] || { echo "github-repo-settings: the fleet's pinned Python is not installed at $py; as root: /usr/bin/python3 <agent-fabric>/tools/fabric/python_pin.py install" >&2; exit 127; }
+exec "$py" "$here/github/repo_settings.py" "$@"

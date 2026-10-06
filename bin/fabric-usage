@@ -1,75 +1,12 @@
 #!/usr/bin/env bash
 # bin/fabric-usage — the fleet's Claude usage windows, one line per placed
-# account, read by the coordinator through the host executor.
-#
-#   fabric-usage                the fleet: every placement in runtime/hosts/registry.json
-#   fabric-usage <login>...     those accounts only
-#   fabric-usage --json         the same as JSON lines
-#
-# Each account reads its OWN usage: the executor runs the read as that
-# login, in its home, and the account's OAuth token goes from its
-# credentials file into one request header and nowhere else — never to
-# a terminal, never to this output. What comes back is the utilisation
-# of the five-hour and seven-day windows, when each resets, and the
-# Claude account the login is signed into (email, from the harness's own
-# profile record, not a secret). A control-plane read: no message, no
-# session, no model in the loop (the CEO, 2026-09-17 — the first such
-# table was made by hand, and only the coordinator's login can make it).
-#
-# An account with no credentials file, or whose read fails, gets one
-# line saying so; the table is never silently short. An account running
-# on a Claude-account template (CLAUDE_CODE_OAUTH_TOKEN in its synced
-# secrets.env) is `setup-token`: its own sign-in, if any, is another
-# account's, and the setup-token cannot read usage — the observer's
-# `fabric-ctl <observer> accounts` has those windows (docs/adr/ADR-031-claude-accounts-assigned-applied-and-proved-by-signed-action.md).
-#
-# Superseded for everyday use by `bin/fabric-ctl all usage`, which asks
-# each account's control agent over the relay (docs/adr/ADR-029-the-control-plane-a-control-agent-per-account.md):
-# no sudo, no per-host loop, a second instead of a minute. This stays as
-# the fallback for a host whose daemons are down.
-set -uo pipefail
+# account, through the host executor: the fallback for a host whose
+# control agents are down (`fabric-ctl all usage` otherwise). The path is
+# the contract (runtime/claude-code/commands.json); the work, its rules
+# and every reason for them are in tools/fabric/usage.py (ADR-040 Wave 3).
 ROOT="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
-REGISTRY="${AGENT_FABRIC_HOSTS_REGISTRY:-$ROOT/runtime/hosts/registry.json}"
-HX="$ROOT/runtime/hostexec/hostexec"
-JSON=0; LOGINS=()
-for a in "$@"; do
-  case "$a" in
-    --json) JSON=1 ;;
-    -h|--help) sed -n '2,7p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
-    --*) printf 'fabric-usage: unknown option %s\n' "$a" >&2; exit 2 ;;
-    *) LOGINS+=("$a") ;;
-  esac
-done
-command -v jq >/dev/null 2>&1 || { echo "fabric-usage: jq is required" >&2; exit 2; }
-[[ -f "$REGISTRY" ]] || { echo "fabric-usage: no host registry at $REGISTRY" >&2; exit 2; }
-
-# The read, as the account. One line of tab-separated fields on stdout:
-# email, five-hour %, five-hour reset, seven-day %, seven-day reset — or
-# a reason in the first field when there is nothing to read.
-read -r -d '' READ <<'EOF' || true
-grep -Eq "^export CLAUDE_CODE_OAUTH_TOKEN=[^'\"[:space:]]|^export CLAUDE_CODE_OAUTH_TOKEN='[^']" "$HOME/.config/agent-fabric/secrets.env" 2>/dev/null && { printf 'setup-token\n'; exit 0; }
-f="$HOME/.claude/.credentials.json"
-[ -s "$f" ] || { printf 'no-credentials\n'; exit 0; }
-email="$(jq -r '.oauthAccount.emailAddress // "-"' "$HOME/.claude.json" 2>/dev/null || echo -)"
-u="$(curl -sS --max-time 20 -H "Authorization: Bearer $(jq -r .claudeAiOauth.accessToken "$f")" -H "anthropic-beta: oauth-2025-04-20" https://api.anthropic.com/api/oauth/usage 2>/dev/null)" || { printf 'read-failed\t%s\n' "$email"; exit 0; }
-printf '%s' "$u" | jq -r --arg e "$email" '[$e, (.five_hour.utilization // "-" | tostring), (.five_hour.resets_at // "-" | tostring | .[0:16]), (.seven_day.utilization // "-" | tostring), (.seven_day.resets_at // "-" | tostring | .[0:16])] | @tsv' 2>/dev/null || printf 'unreadable\t%s\n' "$email"
-EOF
-
-mapfile -t PLACED < <(jq -r '.placement | to_entries[] | "\(.key)\t\(.value)"' "$REGISTRY")
-(( JSON )) || printf '%-22s %-34s %8s  %-16s %8s  %-16s\n' account "claude account" 5h "5h resets (UTC)" 7d "7d resets (UTC)"
-for entry in "${PLACED[@]}"; do
-  login="${entry%%	*}"; host="${entry#*	}"
-  if (( ${#LOGINS[@]} )); then
-    keep=0; for l in "${LOGINS[@]}"; do [[ "$l" == "$login" ]] && keep=1; done; (( keep )) || continue
-  fi
-  line="$("$HX" "$host" --as "$login" -- sh -c "$READ" 2>/dev/null | tail -1)"
-  IFS=$'\t' read -r a b c d e <<<"${line:-executor-failed}"
-  case "$a" in
-    no-credentials|read-failed|unreadable|executor-failed|setup-token)
-      if (( JSON )); then jq -nc --arg l "$login" --arg h "$host" --arg s "$a" --arg e "${b:-}" '{account:$l, host:$h, status:$s, email:($e|select(.!="")//null)}'
-      else printf '%-22s %-34s %s\n' "$login" "${b:--}" "$a"; fi ;;
-    *)
-      if (( JSON )); then jq -nc --arg l "$login" --arg h "$host" --arg e "$a" --arg f "$b" --arg fr "$c" --arg s "$d" --arg sr "$e" '{account:$l, host:$h, status:"ok", email:$e, five_hour:{utilization:($f|tonumber? // null), resets_at:$fr}, seven_day:{utilization:($s|tonumber? // null), resets_at:$sr}}'
-      else printf '%-22s %-34s %7s%%  %-16s %7s%%  %-16s\n' "$login" "$a" "$b" "$c" "$d" "$e"; fi ;;
-  esac
-done
+# The fleet's pinned Python (runtime/python.json, ADR-040), one per host;
+# AGENT_FABRIC_PYTHON points elsewhere for a test or a host without it.
+py="${AGENT_FABRIC_PYTHON:-/usr/local/bin/fabric-python}"
+[[ -x "$py" ]] || { echo "fabric-usage: the fleet's pinned Python is not installed at $py; as root: /usr/bin/python3 <agent-fabric>/tools/fabric/python_pin.py install" >&2; exit 127; }
+exec "$py" "$ROOT/tools/fabric/usage.py" "$@"
