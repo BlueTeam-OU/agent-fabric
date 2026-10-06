@@ -94,9 +94,8 @@ def _():
 def _sources() -> dict[str, str]:
     """Every module that prints a dictionary line: the inbox with each of
     its parts (gzcoord/inbox_parts/), the validator, send."""
-    names = ["inbox.py", *(os.path.join("inbox_parts", n)
-                           for n in sorted(os.listdir(os.path.join(MODULES, "inbox_parts")))
-                           if n.endswith(".py"))] if os.path.isdir(os.path.join(MODULES, "inbox_parts")) else ["inbox.py"]
+    parts = sorted(n for n in os.listdir(os.path.join(MODULES, "inbox_parts")) if n.endswith(".py"))
+    names = ["inbox.py", *(os.path.join("inbox_parts", n) for n in parts)]
     out = {}
     for name in (*names, "gzmsg.py", "send.py"):
         with open(os.path.join(MODULES, name), encoding="utf-8") as fh:

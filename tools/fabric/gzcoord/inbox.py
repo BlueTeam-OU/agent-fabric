@@ -45,8 +45,8 @@ CONTRACT, frozen from the Node:
             contract of a session start is one line and exit 0.
 
 The rest of the Node's header — the modes, the hold, the addressee rule,
-why the watch is one process under a Monitor — is kept below where each
-applies. Never blocks a session start: relay down, no token, no
+why the watch is one process under a Monitor — is kept where each
+applies: below, or in the part that holds it (inbox_parts/). Never blocks a session start: relay down, no token, no
 catalogue — each is one line on stderr and exit 0.
 
 THE JOURNAL (ADR-041 rule 4), in this process now: a page's messages
@@ -72,9 +72,7 @@ import os
 import sys
 import threading
 import time
-import urllib.error
 import urllib.parse
-import urllib.request
 from typing import Any, Callable
 
 from . import bypass, gzmsg, i18n
@@ -86,7 +84,9 @@ from .gzmsg import en  # noqa: F401 — send.py calls inbox.en()
 
 # Every name the parts define, from here as before: the GZCoord tools and
 # tests reach them as inbox.<name>. _episodic, which tests replace, stays
-# here with run_episodic and journal_inbound, which call it.
+# here with run_episodic and journal_inbound, which call it; it is the one
+# name a test can replace here: the parts call one another directly, so
+# replacing any other name on inbox changes main() and nothing it calls.
 from .inbox_parts.config import workspace, relay_runtime_dir, integration_config, default_relay  # noqa: F401
 from .inbox_parts.config import ControlChannel, assert_not_control_channel, git_toplevel  # noqa: F401
 from .inbox_parts.config import inbox_root  # noqa: F401

@@ -5,9 +5,7 @@ from __future__ import annotations
 import re
 import sys
 import threading
-import urllib.error
 import urllib.parse
-import urllib.request
 from typing import Any, Callable
 from .. import gzmsg
 from .. import i18n
