@@ -238,9 +238,10 @@ REDACTED = "[redacted]"
 def hygiene_check(text: str, where: str, patterns: list | None = None) -> list[str]:
     problems = []
     for pattern, label, _refer_as in (BANNED_PATTERNS if patterns is None else patterns):
-        hit = pattern.search(text)
-        if hit:
-            problems.append(f"{where}: {label} -- {hit.group(0)!r}")
+        # The label and the place, never the hit: the note lands on stderr
+        # and in the committed drain report, and the hit is what must not.
+        if pattern.search(text):
+            problems.append(f"{where}: {label}")
     italian = ITALIAN_MARKERS.findall(text)
     if len(set(w.lower() for w in italian)) >= 3:
         problems.append(f"{where}: reads as non-English (markers: {sorted(set(italian))[:5]})")
@@ -257,7 +258,7 @@ def hygiene_substitute(text: str, where: str, patterns: list | None = None) -> t
     for pattern, label, refer_as in (BANNED_PATTERNS if patterns is None else patterns):
         replacement = refer_as or REDACTED
         def sub(m, label=label, replacement=replacement):
-            notes.append(f"{where}: {label} -- {m.group(0)!r} -> {replacement!r}")
+            notes.append(f"{where}: {label} -> {replacement!r}")   # never the withheld text
             # "the CEO" opens a sentence as "The CEO".
             before = text[:m.start()].rstrip()
             if not before or before[-1] in ".!?:" or text[:m.start()].endswith("\n\n") or before.endswith("#"):

@@ -1083,8 +1083,11 @@ def test_hygiene_violation_is_redacted_in_place(tmp: str) -> None:
     assert "This mentions [redacted], which must never" in text and "Set [redacted] too." in text, text
     assert "REDACTED (hygiene" in proc.stderr and "city name" in proc.stderr and "credential" in proc.stderr, proc.stderr
     report = json.loads(read(report_path(out)))
-    assert any("Springfield" in r and "[redacted]" in r for r in report["redactions"]), report["redactions"]
+    assert any("city name" in r and "[redacted]" in r and "alpha/domain:leak" in r for r in report["redactions"]), report["redactions"]
     assert report["rejected_hygiene"] == [] and "rejected_hygiene" not in report["telemetry"]["alpha"]
+    # The report is committed and stderr is read: neither carries what was withheld (B3).
+    for said in (read(report_path(out)), proc.stderr):
+        assert "Springfield" not in said and "hunter2" not in said, said
 
 
 def test_carried_text_is_redacted_the_same_way_a_claim_is(tmp: str) -> None:
