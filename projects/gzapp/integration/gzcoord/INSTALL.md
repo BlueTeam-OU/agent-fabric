@@ -53,8 +53,10 @@ Do not create a nested Git repository, and do not vendor the subsystem.
    relay's runtime — venv, token, database, log — lives in the hosting
    workspace's `projects/.gzcoord/`, outside every repository. Every
    account gets the token as `CLAUDE_BRIDGE_AUTH_TOKEN` in
-   `~/.config/agent-fabric/secrets.env`, which the relay clients read and
-   no shell sources (agent-fabric ADR-038 rule 9), from its own store (`bin/fabric-secrets sync`,
+   `~/.config/agent-fabric/secrets.env`, which gzcoord-inbox and
+   gzcoord-send read and no shell sources (agent-fabric ADR-038 rule 9);
+   the launcher hands it to the harness alone, for the `claude-bridge`
+   entry of `.mcp.json`, and a session's Bash never holds it; from its own store (`bin/fabric-secrets sync`,
    `runtime/provisioning/README.md` "Secrets"); the gitignored
    `.claude/settings.local.json` `env` entry and `infra/local/.env.local`
    remain accepted for a clone provisioned by hand.

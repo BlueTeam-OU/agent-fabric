@@ -791,7 +791,8 @@ def main() -> int:
               f"rc={rc}")
         print("launch: the session holds its own credential and no other synced secret (ADR-038 rule 9)")
         put(sec, "export CLAUDE_CODE_OAUTH_TOKEN='sk-ant-oat01-SUITE-FIXTURE'\nexport OPENROUTER_API_KEY=sk-or-FILE\n"
-                 "export GH_TOKEN=gh-FILE\nexport OPENAI_API_KEY=oa-FILE\nexport DEMO_PORT_OFFSET=640\n")
+                 "export GH_TOKEN=gh-FILE\nexport OPENAI_API_KEY=oa-FILE\nexport DEMO_PORT_OFFSET=640\n"
+                 "export CLAUDE_BRIDGE_AUTH_TOKEN=br-FILE\n")
         put(f"{home}/.config/agent-fabric/env.sh", "export DEMO_PORT_OFFSET=640\n")
         inherited = {"GH_TOKEN": "gh-SHELL", "CLAUDE_BRIDGE_AUTH_TOKEN": "br-SHELL", "OPENAI_API_KEY": "oa-SHELL",
                      "DEMO_PORT_OFFSET": "640"}
@@ -799,22 +800,24 @@ def main() -> int:
         out = out_of("--provider", "anthropic", "--version", OPENROUTER_API_KEY="sk-or-SHELL", **inherited)
         got = dict(re.findall(r"^CLAUDE-HAS:(\w+)=(\w*)$", out, re.M))
         check("plain claude: only the OAuth token and the plain value reach the session",
-              got == {"OPENROUTER_API_KEY": "", "GH_TOKEN": "", "CLAUDE_BRIDGE_AUTH_TOKEN": "", "OPENAI_API_KEY": "",
+              got == {"OPENROUTER_API_KEY": "", "GH_TOKEN": "", "CLAUDE_BRIDGE_AUTH_TOKEN": "yes", "OPENAI_API_KEY": "",
                       "CLAUDE_CODE_OAUTH_TOKEN": "yes", "DEMO_PORT_OFFSET": "yes"}, got)
         check("…the drop is said by name, never by value",
-              "dropped what this shell inherited: CLAUDE_BRIDGE_AUTH_TOKEN GH_TOKEN OPENAI_API_KEY OPENROUTER_API_KEY" in out
+              "dropped what this shell inherited: GH_TOKEN OPENAI_API_KEY OPENROUTER_API_KEY" in out
               and "-SHELL" not in out and "-FILE" not in out, grep("(?i)dropped", out))
         mkfabric()
         out = out_of("--version", **inherited)
         got = dict(re.findall(r"^ORI-HAS:(\w+)=(\w*)$", out, re.M))
         check("broker: the OpenRouter key from the file reaches ori, though no shell exported it; nothing else",
-              got == {"OPENROUTER_API_KEY": "yes", "GH_TOKEN": "", "CLAUDE_BRIDGE_AUTH_TOKEN": "", "OPENAI_API_KEY": "",
+              got == {"OPENROUTER_API_KEY": "yes", "GH_TOKEN": "", "CLAUDE_BRIDGE_AUTH_TOKEN": "yes", "OPENAI_API_KEY": "",
                       "DEMO_PORT_OFFSET": "yes"} and has(r"^ORI-HAS-OAUTH-TOKEN:$", out), got)
         put(sec, "export CLAUDE_CODE_OAUTH_TOKEN='sk-ant-oat01-SUITE-FIXTURE'\n")
         rm(f"{home}/.config/agent-fabric/env.sh")
-        out = out_of("--provider", "anthropic", "--version", GH_TOKEN="gh-SHELL")
+        out = out_of("--provider", "anthropic", "--version", GH_TOKEN="gh-SHELL", CLAUDE_BRIDGE_AUTH_TOKEN="br-SHELL")
         check("a fixed secret name is dropped even when the file no longer lists it (the stale shell)",
               has(r"^CLAUDE-HAS:GH_TOKEN=$", out), grep("CLAUDE-HAS", out))
+        check("…the relay token too: the harness holds the file's or none, never a stale shell's",
+              has(r"^CLAUDE-HAS:CLAUDE_BRIDGE_AUTH_TOKEN=$", out), grep("CLAUDE-HAS", out))
         put(f"{home}/.claude.json", '{"hasCompletedOnboarding": false, "theme": "dark"}\n')
         out = out_of("--provider", "anthropic", "--help")
         check("a help read leaves onboarding alone: no session follows it (#91's review)",

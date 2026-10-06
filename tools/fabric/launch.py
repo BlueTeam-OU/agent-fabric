@@ -770,6 +770,12 @@ def settle_oauth_token(provider: str, home: str) -> None:
 # even with no file, since an inherited shell is exactly the stale case.
 SYNCED_SECRETS = ("OPENROUTER_API_KEY", "GH_TOKEN", "CLAUDE_BRIDGE_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN")
 HARNESS_CREDENTIAL = {"anthropic": "CLAUDE_CODE_OAUTH_TOKEN", "openrouter": "OPENROUTER_API_KEY"}
+# What the harness itself expands, not a Bash call: a project's .mcp.json
+# names the relay token in its claude-bridge header (gzapp), and the
+# harness fills ${CLAUDE_BRIDGE_AUTH_TOKEN} from its own environment. Set
+# from the file, like the sign-in; the SessionStart seal still unsets it
+# for every Bash call (review of #100).
+HARNESS_EXPANDS = ("CLAUDE_BRIDGE_AUTH_TOKEN",)
 
 
 def settle_secrets(provider: str, home: str) -> None:
@@ -778,7 +784,10 @@ def settle_secrets(provider: str, home: str) -> None:
     keep = HARNESS_CREDENTIAL.get(provider)
     if keep == "OPENROUTER_API_KEY" and synced.get(keep):
         env[keep] = synced[keep]
-    names = (set(synced) | set(SYNCED_SECRETS)) - set(plain) - {keep}
+    for n in HARNESS_EXPANDS:
+        if synced.get(n):
+            env[n] = synced[n]
+    names = (set(synced) | set(SYNCED_SECRETS)) - set(plain) - {keep} - {n for n in HARNESS_EXPANDS if synced.get(n)}
     dropped = sorted(n for n in names if n in env)
     for n in dropped:
         del env[n]

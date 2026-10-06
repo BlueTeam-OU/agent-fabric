@@ -163,7 +163,8 @@ sharing a machine.
    - `GH_TOKEN` goes into gh's own configuration, so gh needs nothing in
      the environment;
    - the launcher gives the harness its own credential, from the file,
-     and drops every other synced name it inherited;
+     and the relay token a project's `.mcp.json` header expands, and
+     drops every other synced name it inherited;
    - the SessionStart hook unsets the harness's credentials and every
      synced secret in the file the harness sources into each Bash call,
      so no Bash call or subagent inherits one; `fabric-status` reads the
