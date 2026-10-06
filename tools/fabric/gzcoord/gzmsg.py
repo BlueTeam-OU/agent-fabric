@@ -44,7 +44,7 @@ import socket
 import sys
 import time
 from bisect import bisect_right
-from typing import Any
+from typing import Any, TypedDict
 
 from . import i18n, paths
 from .jsvalues import JS_SPACE
@@ -214,7 +214,68 @@ def _lines(text: str) -> list[str]:
     return (text[1:] if text.startswith("﻿") else text).replace("\r\n", "\n").split("\n")
 
 
-def parse(text: str, t: i18n.Printer | None = None) -> dict:
+class ParsedMessage(TypedDict):
+    """parse()'s result, the Node's shape and key names: the inbox's JSON
+    and the journal carry it as it is, so a key here is a key on the wire.
+    tests/test_gzcoord_types.py holds every real one to these keys."""
+    type: str
+    metadata: dict[str, str]
+    sections: dict[str, str]
+    malformed: list[str]
+    duplicateKeys: list[str]
+
+
+class Validation(TypedDict):
+    """validate()'s result: message is None when the first line is not
+    GZCOORD/1 (nothing after it can be read)."""
+    ok: bool
+    errors: list[str]
+    warnings: list[str]
+    message: ParsedMessage | None
+
+
+# The optional keys of a record live in a total=False subclass, not in
+# NotRequired[...]: under `from __future__ import annotations` an annotation
+# is a string, and TypedDict then counts a NotRequired key as required.
+class _WhoamiKeys(TypedDict):
+    agent: str
+    host: str
+    role: str | None
+    project: str | None
+    working_copy: str | None
+    binding: str
+
+
+class Whoami(_WhoamiKeys, total=False):
+    """whoami(): runtime/identity.py's resolve_context() with this login's
+    binding file, or, when identity cannot answer, the fallback, which
+    carries only the six keys above and fallback=True."""
+    address: str
+    project_source: str | None
+    working_copy_id: str | None
+    remote: str | None
+    session: str | None
+    cwd: str
+    fabric_root: str
+    state_dir: str
+    fallback: bool
+
+
+class _RoleKeys(TypedDict):
+    role: str | None
+
+
+class RoleRecord(_RoleKeys, total=False):
+    """recorded_role()'s four outcomes, told apart by which key is present:
+    no record (role None alone), a catalogue role (with file), a record
+    that cannot be read or names no role (warning), a role the catalogue
+    lacks (error). Callers read them with .get()."""
+    file: str
+    warning: str
+    error: str
+
+
+def parse(text: str, t: i18n.Printer | None = None) -> ParsedMessage:
     """{type, metadata, sections, malformed, duplicateKeys} — the Node's
     shape and key names, which the inbox's JSON and the journal carry."""
     t = t or en()
@@ -278,7 +339,7 @@ def _identity_module(root: str):
     return module
 
 
-def whoami() -> dict:
+def whoami() -> Whoami:
     try:
         me = _identity_module(paths.fabric_root()).resolve_context()
         if not isinstance(me, dict) or not isinstance(me.get("agent"), str):
@@ -326,7 +387,7 @@ def load_taxonomy(file: str) -> Taxonomy:
     return Taxonomy(file, roles)
 
 
-def recorded_role(taxonomy: Taxonomy | None, me: dict | None = None) -> dict:
+def recorded_role(taxonomy: Taxonomy | None, me: Whoami | None = None) -> RoleRecord:
     """The AGENT's active-role record (the runtime binding role.py writes).
     Four outcomes, kept distinct because a record that fails to name a
     usable role must never pass as "no record" and fall through to a guess
@@ -380,7 +441,7 @@ _SWALLOWED = re.compile(f"[{JS_SPACE}]*[A-Z][A-Z0-9-]*:[{JS_SPACE}]*")
 
 
 def validate(text: str, taxonomy: Taxonomy | None = None, max_columns: int = RELAY_MAX_COLUMNS,
-             t: i18n.Printer | None = None) -> dict:
+             t: i18n.Printer | None = None) -> Validation:
     """{ok, errors, warnings, message} — the Node's result shape."""
     t = t or en()
     errors: list[str] = []
