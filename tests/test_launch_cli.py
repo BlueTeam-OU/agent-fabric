@@ -42,6 +42,9 @@ for v in ANTHROPIC_DEFAULT_HAIKU_MODEL ANTHROPIC_DEFAULT_SONNET_MODEL ANTHROPIC_
 done
 # Presence only, never a value: a template token must not reach the broker.
 echo "ORI-HAS-OAUTH-TOKEN:${CLAUDE_CODE_OAUTH_TOKEN+yes}"
+for v in OPENROUTER_API_KEY GH_TOKEN CLAUDE_BRIDGE_AUTH_TOKEN OPENAI_API_KEY DEMO_PORT_OFFSET; do
+    echo "ORI-HAS:$v=${!v+yes}"
+done
 '''
 # A fake claude that records its argv, the tuning and the tier variables,
 # and credentials by SHAPE, never by value.
@@ -54,6 +57,9 @@ for v in ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN ANTHROPIC_CUSTOM_HEADERS; do
     if [[ -z "${!v+x}" ]]; then shape=unset; elif [[ -z "${!v}" ]]; then shape=empty
     elif [[ "${!v}" == sk-or-* ]]; then shape=sk-or; elif [[ "${!v}" == sk-ant-* ]]; then shape=sk-ant; else shape=other; fi
     echo "CLAUDE-CRED:$v=$shape"
+done
+for v in OPENROUTER_API_KEY GH_TOKEN CLAUDE_BRIDGE_AUTH_TOKEN OPENAI_API_KEY CLAUDE_CODE_OAUTH_TOKEN DEMO_PORT_OFFSET; do
+    echo "CLAUDE-HAS:$v=${!v+yes}"
 done
 for v in ANTHROPIC_DEFAULT_HAIKU_MODEL ANTHROPIC_DEFAULT_SONNET_MODEL ANTHROPIC_DEFAULT_OPUS_MODEL ANTHROPIC_DEFAULT_FABLE_MODEL ANTHROPIC_BASE_URL AGENT_FABRIC_LAUNCH_SESSION_MODEL AGENT_FABRIC_LAUNCH_EFFORT AGENT_FABRIC_LAUNCH_PROVIDER AGENT_FABRIC_LAUNCH_PROFILE AGENT_FABRIC_LAUNCH_ROLE AGENT_FABRIC_LAUNCH_PROMPT_DIGEST AGENT_FABRIC_LAUNCH_CLAUDE_VERSION CLAUDE_CODE_DISABLE_TERMINAL_TITLE TMPDIR; do
     echo "CLAUDE-ENV:$v=${!v:-}"
@@ -96,7 +102,7 @@ def main() -> int:
     # CLAUDE_CONFIG_DIR pointed the launcher at the runner's LIVE config).
     base = {k: v for k, v in os.environ.items()
             if not k.startswith(("GITHUB_", "AGENT_FABRIC_", "CLAUDE_", "ANTHROPIC_"))
-            and k not in ("GIT_DIR", "OPENROUTER_API_KEY", "REPO_ROOT", "USER", "LOGNAME")}
+            and k not in ("GIT_DIR", "OPENROUTER_API_KEY", "GH_TOKEN", "OPENAI_API_KEY", "REPO_ROOT", "USER", "LOGNAME")}
     base.update(USER=LOGIN, LOGNAME=LOGIN)
 
     with tempfile.TemporaryDirectory() as sandbox:
@@ -783,7 +789,32 @@ def main() -> int:
         rc, out = run("--provider", "anthropic", "--version")
         check("a token not of a setup-token's shape is refused too", rc == 1 and "no long-lived Claude sign-in" in out,
               f"rc={rc}")
+        print("launch: the session holds its own credential and no other synced secret (ADR-038 rule 11)")
+        put(sec, "export CLAUDE_CODE_OAUTH_TOKEN='sk-ant-oat01-SUITE-FIXTURE'\nexport OPENROUTER_API_KEY=sk-or-FILE\n"
+                 "export GH_TOKEN=gh-FILE\nexport OPENAI_API_KEY=oa-FILE\nexport DEMO_PORT_OFFSET=640\n")
+        put(f"{home}/.config/agent-fabric/env.sh", "export DEMO_PORT_OFFSET=640\n")
+        inherited = {"GH_TOKEN": "gh-SHELL", "CLAUDE_BRIDGE_AUTH_TOKEN": "br-SHELL", "OPENAI_API_KEY": "oa-SHELL",
+                     "DEMO_PORT_OFFSET": "640"}
+        put(f"{bin_}/claude", FAKE_CLAUDE, 0o755)
+        out = out_of("--provider", "anthropic", "--version", OPENROUTER_API_KEY="sk-or-SHELL", **inherited)
+        got = dict(re.findall(r"^CLAUDE-HAS:(\w+)=(\w*)$", out, re.M))
+        check("plain claude: only the OAuth token and the plain value reach the session",
+              got == {"OPENROUTER_API_KEY": "", "GH_TOKEN": "", "CLAUDE_BRIDGE_AUTH_TOKEN": "", "OPENAI_API_KEY": "",
+                      "CLAUDE_CODE_OAUTH_TOKEN": "yes", "DEMO_PORT_OFFSET": "yes"}, got)
+        check("…the drop is said by name, never by value",
+              "dropped what this shell inherited: CLAUDE_BRIDGE_AUTH_TOKEN GH_TOKEN OPENAI_API_KEY OPENROUTER_API_KEY" in out
+              and "-SHELL" not in out and "-FILE" not in out, grep("(?i)dropped", out))
+        mkfabric()
+        out = out_of("--version", **inherited)
+        got = dict(re.findall(r"^ORI-HAS:(\w+)=(\w*)$", out, re.M))
+        check("broker: the OpenRouter key from the file reaches ori, though no shell exported it; nothing else",
+              got == {"OPENROUTER_API_KEY": "yes", "GH_TOKEN": "", "CLAUDE_BRIDGE_AUTH_TOKEN": "", "OPENAI_API_KEY": "",
+                      "DEMO_PORT_OFFSET": "yes"} and has(r"^ORI-HAS-OAUTH-TOKEN:$", out), got)
         put(sec, "export CLAUDE_CODE_OAUTH_TOKEN='sk-ant-oat01-SUITE-FIXTURE'\n")
+        rm(f"{home}/.config/agent-fabric/env.sh")
+        out = out_of("--provider", "anthropic", "--version", GH_TOKEN="gh-SHELL")
+        check("a fixed secret name is dropped even when the file no longer lists it (the stale shell)",
+              has(r"^CLAUDE-HAS:GH_TOKEN=$", out), grep("CLAUDE-HAS", out))
         put(f"{home}/.claude.json", '{"hasCompletedOnboarding": false, "theme": "dark"}\n')
         out = out_of("--provider", "anthropic", "--help")
         check("a help read leaves onboarding alone: no session follows it (#91's review)",

@@ -28,7 +28,8 @@ CONTRACT, frozen from the bash (ADR-040 §5 rule 3):
             CLAUDE_CODE_SUBAGENT_MODEL, CLAUDE_CODE_SUBAGENT_MODEL_FORCE,
             CLAUDE_CODE_EFFORT_LEVEL (refused when set), ANTHROPIC_* and the
             broker's tuning variables (cleared on the plain-claude path, see
-            BROKER_ENV), OPENROUTER_API_KEY, CLAUDE_CODE_OAUTH_TOKEN, TMPDIR,
+            BROKER_ENV), every synced secret but the harness's own
+            (dropped, settle_secrets), TMPDIR,
             HOME, PATH, PWD (the launch directory, as the shell names it).
             Written into the session's environment: the alias pins, every
             AGENT_FABRIC_LAUNCH_* stamp, CLAUDE_CODE_DISABLE_TERMINAL_TITLE,
@@ -174,10 +175,11 @@ own model and forces the parent's; capability classes would stop
 meaning anything.
 
 CREDENTIAL: an OpenRouter API key per agent account, as
-OPENROUTER_API_KEY in that account's environment — exported by
-~/.config/agent-fabric/secrets.env, which `fabric-secrets sync` writes
-from the account's own store (runtime/provisioning/README.md,
-"Secrets"; ADR-038) — never in the repo.
+OPENROUTER_API_KEY in ~/.config/agent-fabric/secrets.env, which
+`fabric-secrets sync` writes from the account's own store
+(runtime/provisioning/README.md, "Secrets"; ADR-038) and no shell
+sources: the launcher reads it and hands it to ori alone, and drops every
+other synced secret from the session (settle_secrets) — never in the repo.
 
 The environment is handled as the bash's shell environment was: this
 process's os.environ IS what the session and every helper inherit, set and
@@ -703,15 +705,26 @@ def drop_broker_env() -> None:
             "environment: " + " ".join(dropped))
 
 
-def synced_oauth_token(home: str) -> str:
+def synced_values(home: str, name: str = "secrets.env") -> dict[str, str]:
+    """The `export NAME=value` lines fabric-secrets sync wrote, parsed as the
+    shell would; an unreadable line is skipped, never guessed."""
+    out: dict[str, str] = {}
     try:
-        with open(f"{home}/.config/agent-fabric/secrets.env", encoding="utf-8") as fh:
+        with open(f"{home}/.config/agent-fabric/{name}", encoding="utf-8") as fh:
             for line in fh:
-                if line.startswith("export CLAUDE_CODE_OAUTH_TOKEN="):
-                    return shlex.split(line[len("export "):])[0].split("=", 1)[1].rstrip("\n")
-    except (OSError, ValueError, IndexError):
+                if line.startswith("export ") and "=" in line:
+                    try:
+                        k, v = shlex.split(line[len("export "):])[0].split("=", 1)
+                    except (ValueError, IndexError):
+                        continue
+                    out[k] = v
+    except OSError:
         pass
-    return ""
+    return out
+
+
+def synced_oauth_token(home: str) -> str:
+    return synced_values(home).get("CLAUDE_CODE_OAUTH_TOKEN", "")
 
 
 # The other way round: a login moved to a Claude-account template carries
@@ -744,6 +757,33 @@ def settle_oauth_token(provider: str, home: str) -> None:
         del env["CLAUDE_CODE_OAUTH_TOKEN"]
         say("launch: the broker path — dropped CLAUDE_CODE_OAUTH_TOKEN (a Claude-account template's token "
             "never reaches a broker session)")
+
+
+# The session gets its own credential and no other secret (ADR-038 rule 11).
+# No shell sources secrets.env any more, but a launch from a shell opened
+# before that sync — or from inside an older session — still inherits every
+# synced name, and the session would hand them to every Bash call and
+# subagent. Each name sync wrote is dropped here, except the plain ones
+# (env.sh) and the one credential this provider's harness signs in with,
+# which comes from the file, not the shell. The fixed names are dropped
+# even with no file, since an inherited shell is exactly the stale case.
+SYNCED_SECRETS = ("OPENROUTER_API_KEY", "GH_TOKEN", "CLAUDE_BRIDGE_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN")
+HARNESS_CREDENTIAL = {"anthropic": "CLAUDE_CODE_OAUTH_TOKEN", "openrouter": "OPENROUTER_API_KEY"}
+
+
+def settle_secrets(provider: str, home: str) -> None:
+    env = os.environ
+    synced, plain = synced_values(home), synced_values(home, "env.sh")
+    keep = HARNESS_CREDENTIAL.get(provider)
+    if keep == "OPENROUTER_API_KEY" and synced.get(keep):
+        env[keep] = synced[keep]
+    names = (set(synced) | set(SYNCED_SECRETS)) - set(plain) - {keep}
+    dropped = sorted(n for n in names if n in env)
+    for n in dropped:
+        del env[n]
+    if dropped:
+        say("launch: the session holds only its own credential — dropped what this shell inherited: "
+            + " ".join(dropped))
 
 
 # ── the pins ─────────────────────────────────────────────────────────
@@ -792,7 +832,8 @@ def check_ori_auth() -> None:
         rc, text = 127, ""
     if rc != 0 or not ori_auth_ok(text):
         die(f"ori is not authenticated from the environment (ori auth exit {rc}). This account needs "
-            "OPENROUTER_API_KEY in its environment (~/.config/agent-fabric/secrets.env via fabric-secrets sync) "
+            "OPENROUTER_API_KEY in ~/.config/agent-fabric/secrets.env (fabric-secrets sync), which the launcher "
+            "hands to ori "
             "— a stored `ori login` credential is deliberately not accepted, because per-agent spend follows "
             "the key (ori auth --json to inspect).")
 
@@ -1347,6 +1388,7 @@ def launch(argv: list[str]) -> int:
     if provider == "anthropic":
         drop_broker_env()
     settle_oauth_token(provider, home)
+    settle_secrets(provider, home)
     set_pins(aliases, resolved["exports"])
     if provider == "openrouter":
         check_ori_auth()
