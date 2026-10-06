@@ -157,7 +157,7 @@ Accepted and in force: host execution and the host lease.
 ## References
 
 - `runtime/hosts/registry.json`, `runtime/hostexec/` (`hostexec`, `worker`,
-  `test_hostexec.sh`), `bin/fabric-host`.
+  `tests/test_hostexec_cli.py`), `bin/fabric-host`.
 - `runtime/provisioning/README.md`, `runtime/provisioning/platform/README.md`,
   `runtime/provisioning/moveto/README.md`, `new-agent.sh`,
   `persist-accounts.sh`, `github-host-keys`.

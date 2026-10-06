@@ -29,6 +29,6 @@ in argv), stdout, stderr, the exit status; `--tty` asks for a terminal
 -s`) with the id it was reached as, and a mismatch is refused before an
 account is placed there.
 
-Tests: `test_hostexec.sh` (a fixture registry, a fake `ssh` that runs
+Tests: `tests/test_hostexec_cli.py` (a fixture registry, a fake `ssh` that runs
 the remote line locally, a fake `sudo`). Concept: ADR-010.
 Environment for tests: `AGENT_FABRIC_HOSTS_REGISTRY`, `SSH`, `SUDO`.
