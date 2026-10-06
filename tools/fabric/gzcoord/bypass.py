@@ -7,7 +7,7 @@ escape from the invariant is never an escape without a trace:
 
   <agent state dir>/journal-bypass.jsonl, one JSON object per crossing:
     {"at", "direction": "out"|"in", "message_id", "sha256", "seq", "reason"}
-    and, on an out line, "outcome": "pending" | "accepted" | "failed"
+    and, on an out line, "outcome": "pending" | "accepted" | "failed" | "unknown"
 
   at          UTC, milliseconds, Z (as send.py's ledger stamps)
   message_id  the message's MESSAGE-ID, null when it has none or does not parse
@@ -18,10 +18,12 @@ escape from the invariant is never an escape without a trace:
               send's; null on a pending or failed one
   reason      "GZCOORD_JOURNAL=off"
   outcome     a send has two lines: "pending" before the post (written, or
-              the send is refused), then "accepted" or "failed" once the
-              relay has answered, so an auditor tells sent from refused. A
-              pending line with no second one is a send whose answer was
-              never recorded: it may have reached the relay.
+              the send is refused), then one once the post is over:
+              "accepted" (the relay took it, with its seq), "failed" (the
+              relay answered and refused it, or it never left this
+              process), or "unknown" (no answer that could be read: it may
+              have reached the relay). A pending line with no second one is
+              a send whose outcome was never recorded: it may have too.
 
 A line is one crossing, not one message: a record the relay shows again
 (its acknowledgement was lost) crossed again, and gets another line;

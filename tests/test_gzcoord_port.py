@@ -547,8 +547,8 @@ def _():
             try:
                 send.record_sent(ledger, {"id": "m-new", "sha256": "hn", "seq": 9, "at": "Tn"}, 3)
                 raise Failed("a trim whose replace failed was not said")
-            except OSError:
-                pass
+            except send.LedgerNotTrimmed:
+                pass   # said as "recorded, not trimmed", never as an unwritten ledger
     finally:
         os.replace = real
     with open(ledger, "rb") as fh:

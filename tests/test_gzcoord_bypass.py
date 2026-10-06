@@ -55,7 +55,8 @@ class Relay:
     """The stub relay: sends answered with a seq (or `send_status`), one page
     served once, the same page as history, acks counted."""
 
-    def __init__(self, page: list[dict] | None = None, send_status: int = 200):
+    def __init__(self, page: list[dict] | None = None, send_status: int = 200, send_body: str | None = None,
+                 on_send: Callable[[], None] | None = None):
         self.posts: list[dict] = []
         self.acks: list[str] = []
         served = [False]
@@ -63,6 +64,10 @@ class Relay:
         def answer(_h, _method, path, body):
             if path.startswith("/api/send"):
                 self.posts.append(json.loads(body))
+                if on_send:
+                    on_send()
+                if send_body is not None:
+                    return send_status, send_body
                 if send_status != 200:
                     return send_status, json.dumps({"error": "refused"})
                 return 200, json.dumps({"seq": 42, "id": "r42"})
@@ -336,6 +341,35 @@ def _():
     ok(BODY in r.stdout, f"the record was not shown: {r.stdout}{r.stderr}")
     eq(relay.acks, [])
     ok(not os.path.exists(record_path(state)), "a replay wrote a bypass line")
+
+
+@case("a post whose answer cannot be read is \"unknown\", never \"failed\": the relay may hold it")
+def _():
+    relay, state = Relay(send_body="accepted, but not JSON"), P.scratch("bypass-state-")
+    try:
+        r = send(relay.env(state, GZCOORD_JOURNAL="off"), message(MID))
+    finally:
+        relay.close()
+    eq(r.returncode, 3, r.stderr)
+    eq(len(relay.posts), 1, "the relay received it")
+    eq([x["outcome"] for x in lines_of(record_path(state))], ["pending", "unknown"])
+
+
+@case("a send's second line that cannot be written is said, never a refusal: the message has left")
+def _():
+    state = P.scratch("bypass-state-")
+
+    def swap() -> None:   # mid-post: the record becomes a directory, so the second line fails
+        os.remove(record_path(state))
+        os.makedirs(record_path(state))
+    relay = Relay(on_send=swap)
+    try:
+        r = send(relay.env(state, GZCOORD_JOURNAL="off"), message(MID))
+    finally:
+        relay.close()
+    eq(r.returncode, 0, r.stderr)
+    ok(r.stdout.startswith("sent seq 42 "), r.stdout)
+    ok("the send's outcome (accepted) is not in the bypass record" in r.stderr, r.stderr)
 
 
 def main() -> int:

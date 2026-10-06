@@ -60,8 +60,9 @@ messages gets a line in journal-bypass.jsonl (gzcoord/bypass.py) before it
 is shown or acknowledged, and a line that cannot be written holds the page
 as a journal that cannot keep it does. --replay and --history leave no
 bypass line, journal on or off: they show what the relay already holds and
-acknowledge nothing, and the journal is not written by them in either mode;
-the crossing was recorded when the record was first shown.
+acknowledge nothing, and the journal is not written by them in either mode.
+A replay ahead of the drain shows a record no line or row records yet: it
+is logged when the drain or the watch delivers it.
 """
 from __future__ import annotations
 

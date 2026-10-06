@@ -62,9 +62,9 @@ its outcome after; a journal that cannot take it refuses the send — a
 carrier may keep no copy, so a message sent unremembered could be gone
 for good. GZCOORD_JOURNAL=off sends without it and says so every time:
 first a "pending" line in journal-bypass.jsonl (gzcoord/bypass.py), and
-a bypass that cannot be recorded is refused, exit 2; then, once the relay
-has answered, an "accepted" or "failed" line (said, never a refusal, when
-it cannot be written).
+a bypass that cannot be recorded is refused, exit 2; then, once the post
+is over, an "accepted", "failed" or "unknown" line (said, never a
+refusal, when it cannot be written).
 The order is the protocol's and is kept.
 """
 from __future__ import annotations
@@ -152,6 +152,11 @@ def spent_elsewhere(ledger: str, mid: str, sha: str) -> dict | None:
     return None
 
 
+class LedgerNotTrimmed(OSError):
+    """The entry is in the ledger; only the trim after it failed. Not the
+    ledger left unwritten: a reused id is still caught."""
+
+
 def record_sent(ledger: str, entry: dict, keep: int = 5000) -> None:
     """Append, then trim the oldest past keep+1000. A trim drops the oldest
     entries, so the ledger no longer speaks for the time before what it
@@ -179,7 +184,10 @@ def record_sent(ledger: str, entry: dict, keep: int = 5000) -> None:
             except (ValueError, AttributeError):
                 at = None
             mark = js.stringify({"trimmed_before": at if isinstance(at, str) else _now_iso()})
-            identity.atomic_write(ledger, "\n".join([mark, *kept]) + "\n")
+            try:
+                identity.atomic_write(ledger, "\n".join([mark, *kept]) + "\n")
+            except OSError as exc:
+                raise LedgerNotTrimmed(exc.errno, exc.strerror or str(exc)) from None
 
 
 def _now_iso() -> str:
@@ -228,7 +236,7 @@ def _journal_off() -> bool:
 
 
 def _bypass_outcome(text: str, outcome: str, seq: Any = None) -> None:
-    """A bypassed send's second line, once the relay has answered. Not a
+    """A bypassed send's second line, once the post is over. Not a
     refusal when it cannot be written: the message has left or failed
     already, and its pending line stands for it."""
     try:
@@ -496,7 +504,12 @@ def main(argv: list[str]) -> int:
         # outcome was never written: that one may have reached the relay,
         # and this failure says nothing about it (review of #78).
         if _journal_off():
-            _bypass_outcome(text, "failed")
+            # "failed" only when the relay answered and refused it (an HTTP
+            # status), or it never left (a refused token). Anything else (no
+            # answer, a timeout, a body that is not the relay's) says nothing
+            # of what the relay holds: "unknown", it may have reached it.
+            refused = getattr(e, "status", None) is not None or isinstance(e, inbox.TokenRefused)
+            _bypass_outcome(text, "failed" if refused else "unknown")
         else:
             if str((kept or {}).get("stdout") or "").strip() == "unknown":
                 sys.stderr.write("episodic: an earlier attempt of this message may have reached the relay; its row"
@@ -526,6 +539,9 @@ def main(argv: list[str]) -> int:
     # Recorded only once the relay has it: a post that failed spent nothing.
     try:
         record_sent(ledger, {"id": mid, "sha256": sha, "seq": js.coalesce(seq, None), "at": _now_iso()})
+    except LedgerNotTrimmed as e:
+        sys.stderr.write(f"send: the id is recorded, but the ledger of sent ids could not be trimmed ({e.strerror});"
+                         " a later send trims it\n")
     except OSError as e:
         print(t("send.ledger-not-written", {"detail": e.strerror or str(e)}), file=sys.stderr)
     deduplicated = res.get("deduplicated") if isinstance(res, dict) else None
