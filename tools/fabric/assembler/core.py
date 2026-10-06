@@ -346,6 +346,11 @@ class Run:
     # read before anything is written, since an unreadable taxonomy refuses.
     bound_roles: set[str] = field(default_factory=set)
     held_files: set[str] = field(default_factory=set)
+    # The evidence a held claim stands on, and when each memory was written
+    # (the observation's created_at_epoch, seconds): the store's mark stays
+    # below the oldest, so the hold is drained again once released.
+    held_evidence: set[str] = field(default_factory=set)
+    evidence_epoch: dict[str, Any] = field(default_factory=dict)
 
 
 def base_for(run: Run, role: str, klass: str) -> str:

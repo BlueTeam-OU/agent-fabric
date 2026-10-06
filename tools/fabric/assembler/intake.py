@@ -99,6 +99,7 @@ def read_claims(run: Run) -> int | None:
             if line.strip():
                 row = json.loads(line)
                 run.origins[row["content_hash"]] = origin_of_row(row)
+                run.evidence_epoch[row["content_hash"]] = row.get("created_at_epoch")
 
     claim_files = sorted(
         f for f in os.listdir(run.args.claims) if f.endswith(".json") and not f.startswith(".")
@@ -220,9 +221,11 @@ def hold_back(run: Run) -> None:
         label, _, rest = key.partition("/")
         klass, _, topic = rest.partition(":")
         if label == "shared" and (klass, topic) in run.shared:
+            run.held_evidence.update(h for c in run.shared[(klass, topic)] for h in c.get("evidence") or [])
             del run.shared[(klass, topic)]
             run.shared_owners.pop((klass, topic), None)
         elif label != "shared" and (klass, topic) in run.per_role.get(label, {}):
+            run.held_evidence.update(h for c in run.per_role[label][(klass, topic)] for h in c.get("evidence") or [])
             del run.per_role[label][(klass, topic)]
         else:
             unmatched.append(key)
