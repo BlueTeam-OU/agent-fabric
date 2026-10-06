@@ -6,7 +6,7 @@ import argparse
 import json
 import os
 import sys
-from assembler.core import layout, workingcopy, DEFAULT_SLICE_BUDGET_TOKENS, BANNED_PATTERNS, PROJECT_PATTERNS, patterns_for, store_error, slugify, origin_of_row, REDACTED, hygiene_check, hygiene_substitute, Run
+from assembler.core import layout, workingcopy, DEFAULT_SLICE_BUDGET_TOKENS, BANNED_PATTERNS, PROJECT_PATTERNS, patterns_for, store_error, slugify, origin_of_row, REDACTED, hygiene_check, hygiene_substitute, role_id_error, Run
 from assembler.bundle import open_bundle
 
 
@@ -99,6 +99,7 @@ def read_claims(run: Run) -> int | None:
             if line.strip():
                 row = json.loads(line)
                 run.origins[row["content_hash"]] = origin_of_row(row)
+                run.evidence_epoch[row["content_hash"]] = row.get("created_at_epoch")
 
     claim_files = sorted(
         f for f in os.listdir(run.args.claims) if f.endswith(".json") and not f.startswith(".")
@@ -107,10 +108,19 @@ def read_claims(run: Run) -> int | None:
     for name in claim_files:
         with open(os.path.join(run.args.claims, name), encoding="utf-8") as fh:
             payload = json.load(fh)
-        role = payload["role"]
+        role = payload.get("role") if isinstance(payload, dict) else None
+        why = role_id_error(role)
+        if why:
+            sys.exit(f"assemble: {name}: the claims file's role {why}")
         run.all_claims[role] = payload.get("claims", [])
         for claim in run.all_claims[role]:
             claim["_role"] = role   # for the section's dated tail; never written to disk
+            # A co-owner is a role id too: it gets a project directory and
+            # an index (writer.write_shared, assemble.py's owning roles).
+            for owner in claim.get("shared_with") or []:
+                why = role_id_error(owner)
+                if why:
+                    sys.exit(f"assemble: {name}: a claim's shared_with names {why}")
         run.telemetry[role] = payload.get("telemetry", {})
 
         # DOMAIN-ONLY EVIDENCE MAY SUPPORT ONLY A DOMAIN CLAIM.
@@ -220,9 +230,11 @@ def hold_back(run: Run) -> None:
         label, _, rest = key.partition("/")
         klass, _, topic = rest.partition(":")
         if label == "shared" and (klass, topic) in run.shared:
+            run.held_evidence.update(h for c in run.shared[(klass, topic)] for h in c.get("evidence") or [])
             del run.shared[(klass, topic)]
             run.shared_owners.pop((klass, topic), None)
         elif label != "shared" and (klass, topic) in run.per_role.get(label, {}):
+            run.held_evidence.update(h for c in run.per_role[label][(klass, topic)] for h in c.get("evidence") or [])
             del run.per_role[label][(klass, topic)]
         else:
             unmatched.append(key)

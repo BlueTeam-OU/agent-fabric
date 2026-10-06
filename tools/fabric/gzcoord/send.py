@@ -197,7 +197,14 @@ def record_sent(ledger: str, entry: dict, keep: int = 5000) -> None:
     identity = paths.identity()
     os.makedirs(os.path.dirname(ledger), exist_ok=True)
     with identity.agent_lock():
-        with os.fdopen(_ledger(ledger, os.O_WRONLY | os.O_APPEND | os.O_CREAT), "a", encoding="utf-8") as fh:
+        fd = _ledger(ledger, os.O_WRONLY | os.O_APPEND | os.O_CREAT)
+        with os.fdopen(fd, "a", encoding="utf-8") as fh:
+            # A fragment (a send killed mid-append) ends the ledger: this
+            # entry starts on its own line, or both are lost to a reader
+            # (#100's review, 3). Every writer appends under the lock, so
+            # the end does not move between the read and the write.
+            if os.fstat(fd).st_size and bypass.last_byte(ledger, fd) != b"\n":
+                fh.write("\n")
             fh.write(js.stringify(entry) + "\n")
         with os.fdopen(_ledger(ledger, os.O_RDONLY), encoding="utf-8", errors="replace") as fh:
             entries = [x for x in fh.read().split("\n") if x]

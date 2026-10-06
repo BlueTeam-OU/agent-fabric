@@ -7,7 +7,7 @@ import sys
 import os
 from collections import defaultdict
 from typing import Any
-from assembler.core import layout, CLASS_FILES, normalize_artifact, render_frontmatter, Run, base_for, in_report
+from assembler.core import layout, CLASS_FILES, normalize_artifact, render_frontmatter, Run, base_for, in_report, role_id_error
 from assembler.slices import read_existing_slice
 from assembler.writer import described
 
@@ -31,7 +31,14 @@ def bound_roles_with_domain_slices(run: Run) -> set[str]:
     roles = tax.get("roles") if isinstance(tax, dict) else None
     if not isinstance(roles, list):
         sys.exit(f"assemble: {path}: the project's taxonomy has no roles list")
-    bound = {r["id"] for r in roles if isinstance(r, dict) and isinstance(r.get("id"), str)}
+    bound = set()
+    for r in roles:
+        if not isinstance(r, dict):
+            sys.exit(f"assemble: {path}: the project's taxonomy binds {r!r}, not a role entry with an id")
+        why = role_id_error(r.get("id"))
+        if why:
+            sys.exit(f"assemble: {path}: the project's taxonomy binds {why}")
+        bound.add(r["id"])
     out = set()
     for role in bound:
         directory = layout.domain_dir(role)

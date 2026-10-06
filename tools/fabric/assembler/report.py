@@ -20,6 +20,22 @@ def store_of(hr: dict) -> str:
     return f"{hr.get('agent') or 'unattributed'}@{hr.get('host') or 'unknown'}"
 
 
+def held_mark(run: Run, next_mark: int) -> int | None:
+    """The store's mark when claims were held: below the oldest memory a
+    held claim stands on, as the harvest keeps it below an unrendered one,
+    so the next harvest reads it again and a hold is never a drop (#100's
+    review, P2). The harvest's mtime_ms is at least created_at_epoch * 1000,
+    so one millisecond below that is below the memory. A held claim whose
+    memory has no time recorded leaves the mark where it was (None): no
+    bound is known that keeps it in the next harvest."""
+    if not run.held_evidence:
+        return next_mark
+    epochs = [run.evidence_epoch.get(h) for h in run.held_evidence]
+    if not all(isinstance(e, int) and not isinstance(e, bool) for e in epochs):
+        return None
+    return min(next_mark, min(epochs) * 1000 - 1)
+
+
 def report(run: Run) -> int:
     # An unresolved collision is a property of the corpus, not of the drain
     # that happened to create it. Deriving it from the tree is what makes the
@@ -78,7 +94,9 @@ def report(run: Run) -> int:
         # (harvest_memory.previous_watermark). A report without "store" is
         # an older harvest's, keyed agent@host as it always was.
         if hr.get("host") is not None and hr.get("next_watermark") is not None:
-            watermarks[store_of(hr)] = hr["next_watermark"]
+            mark = held_mark(run, hr["next_watermark"])
+            if mark is not None:
+                watermarks[store_of(hr)] = mark
 
     source = store_of(hr) if harvest_meta is not None else "unattributed"
     files = [in_report(run, p) for p in run.written]
