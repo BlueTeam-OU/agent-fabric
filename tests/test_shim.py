@@ -3,7 +3,7 @@
 the diff, the push body it would send, and the check's verdict over a
 recorded transcript. The API itself is read back live in
 docs/live-checks/2026-09-16-openrouter-presets.md; nothing here talks to
-it (OPENROUTER_API_KEY is unset for every case)."""
+it (OPENROUTER_API_KEY is unset and HOME is a sandbox for every case)."""
 from __future__ import annotations
 
 import importlib.util
@@ -26,14 +26,22 @@ def test_sources_round_trip(tmp: str) -> None:
     assert prompt == "# delta\n\nFollow the harness.\n" and config == {"provider": {"allow_fallbacks": False, "only": ["x"]}}
 
 
-def test_the_key_is_required_and_never_read_from_a_file() -> None:
+def test_the_key_is_required_and_read_from_the_synced_file(tmp: str) -> None:
+    """No shell exports the key since sync stopped sourcing secrets.env
+    (ADR-038 rule 11): the account's own file is where it is."""
     os.environ.pop("OPENROUTER_API_KEY", None)
     try:
         shim.api_key()
     except SystemExit:
         pass
     else:
-        raise AssertionError("api_key() returned without OPENROUTER_API_KEY")
+        raise AssertionError("api_key() returned with no key in the environment or the file")
+    f = os.path.join(tmp, ".config", "agent-fabric", "secrets.env")
+    os.makedirs(os.path.dirname(f), exist_ok=True)
+    with open(f, "w") as fh:
+        fh.write("# agent-fabric secrets\nexport GH_TOKEN=x\nexport OPENROUTER_API_KEY='sk-or-FIXTURE'\n")
+    assert shim.api_key() == "sk-or-FIXTURE"
+    os.remove(f)
 
 
 def test_diff_is_empty_when_live_matches_source(tmp: str) -> None:
@@ -111,12 +119,13 @@ def test_verdict_from_a_recorded_transcript(tmp: str) -> None:
 
 
 def main() -> int:
-    cases = [test_sources_round_trip, test_the_key_is_required_and_never_read_from_a_file,
+    cases = [test_sources_round_trip, test_the_key_is_required_and_read_from_the_synced_file,
              test_diff_is_empty_when_live_matches_source, test_push_sends_system_and_provider_and_nothing_else,
              test_verdict_from_a_recorded_transcript]
     failures = 0
     os.environ.pop("OPENROUTER_API_KEY", None)
     with tempfile.TemporaryDirectory() as tmp:
+        os.environ["HOME"] = tmp
         for case in cases:
             try:
                 case(tmp) if case.__code__.co_argcount else case()
