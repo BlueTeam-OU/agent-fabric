@@ -226,7 +226,7 @@ def sweep_due(working_copy: str | None, state_dir: str, now: float | None = None
             return []
     since = f"last {last[:10]}" if isinstance(last, str) else "never swept"
     return [f"agent-fabric: branch sweep due in this working copy ({since}) — when nothing is running on the tree, "
-            f"run `fabric-branches --sweep`: it deletes the local branches and worktrees wholly on origin/main and "
+            f"run `fabric-branches --sweep`: it deletes the local branches and worktrees wholly on the default branch and "
             f"reports the rest, which you bring to the person (the branch-hygiene skill)."]
 
 
