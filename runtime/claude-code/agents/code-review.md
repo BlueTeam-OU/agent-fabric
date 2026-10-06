@@ -131,6 +131,12 @@ tools/validate_*/validate.js`, `bash tools/checks/*.sh`. Never `pub
 get`, `pnpm install`, `dotnet restore`; if a check needs one, say so
 and skip it.
 
+**Leave nothing behind.** A reproduction's scratch — a scratch
+repository, a fake HOME, a store, a fixture — goes in one directory you
+make with `mktemp -d` and remove before you report, however the
+reproduction ended. The TMPDIR you run in is the dispatching session's,
+and what you leave in it is that session's to find and clean.
+
 ## What has shipped here
 
 Accumulated lessons from the projects this reviewer serves, in the order
