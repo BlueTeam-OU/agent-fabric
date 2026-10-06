@@ -54,7 +54,9 @@ test('readSessions keeps live sessions in a known state, sorted, without the pro
 test('the watcher posts at start, on a change, and on the heartbeat; nothing in between', async () => {
   const { d, proc, file, write } = setup();
   const binding = path.join(d, 'binding.json');
-  fs.writeFileSync(binding, JSON.stringify({ role: 'backend-dev', project: 'gzapp', session: 'secret-ish' }));
+  // The binding's other fields (a path, the harness pid) never leave; its
+  // session id does, as a key of the hook's file (ADR-029 rule 16 names it).
+  fs.writeFileSync(binding, JSON.stringify({ role: 'backend-dev', project: 'gzapp', session: 's', working_copy: '/home/x/projects/private-wc', pid: 31337 }));
   const posts = [];
   let t = 1_000_000;
   const w = stateWatcher({ address: 'h/x', post: async r => { posts.push(r); }, file, binding, proc, now: () => t, heartbeatMs: 60_000, log: () => {} });
@@ -72,7 +74,9 @@ test('the watcher posts at start, on a change, and on the heartbeat; nothing in 
   t += 59_000; assert.equal(await w.tick(), false);
   t += 2000; assert.equal(await w.tick(), true, 'the heartbeat re-says it');
   assert.equal(posts.length, 5);
-  assert.ok(!JSON.stringify(posts).includes('secret-ish') && !JSON.stringify(posts).includes('"pid"'), 'no binding field but role and project, no process id');
+  const said = JSON.stringify(posts);
+  assert.ok(!said.includes('private-wc') && !said.includes('31337') && !said.includes('"pid"') && !said.includes('"start"') && !said.includes('5000'),
+    'no path, no binding field but role and project, no process id or start time');
 });
 
 test('a failed post is retried on the next tick and said once', async () => {
