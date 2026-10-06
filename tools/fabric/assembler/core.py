@@ -10,7 +10,7 @@ import hashlib
 import re
 from collections import defaultdict
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, TypedDict
 
 
 _spec = importlib.util.spec_from_file_location(
@@ -211,7 +211,56 @@ def yaml_scalar(value: Any) -> str:
 ORIGIN_KEYS = ("agent", "clone_id", "host", "project", "working_copy")
 
 
-def origin_of_row(row: dict[str, Any]) -> dict[str, str]:
+# The drain's dict records, typed where the type carries behaviour (option
+# B, j28: no checker). NotRequired is read as required under `from
+# __future__ import annotations`, so each optional key sits in a
+# total=False subclass. tests/test_types.py holds every one of them, as an
+# assemble run builds it, to its keys.
+# The functional form: `class` is a keyword, so no class body can name it.
+_ClaimKeys = TypedDict("_ClaimKeys", {  # identities/schemas/claims.schema.json's required fields
+    "class": str, "topic": str, "body": str, "evidence": list[str]})
+
+
+class Claim(_ClaimKeys, total=False):
+    """One claim of a claims file (the schema's fields), and the two keys the
+    drain adds in memory and never writes: `_role`, the claims file's role,
+    and `_retire`, the headings a retitling supersede retires."""
+    title: str
+    citations: dict[str, list[str]]
+    knowledge_scope: str
+    merge_target: str
+    shared_with: list[str]
+    observed_at: str
+    _role: str
+    _retire: list[str]
+
+
+class _OriginKeys(TypedDict):
+    host: str
+
+
+class Origin(_OriginKeys, total=False):
+    """Who produced a piece of evidence, and where: the agent (with the
+    project and working copy when the row names them), or an older row's
+    clone_id."""
+    agent: str
+    project: str
+    working_copy: str
+    clone_id: str
+
+
+class ClassPlanEntry(TypedDict):
+    """How one role's class is laid out this run: split into a directory of
+    topic files, and which topic, if any, the flat `<class>.md` holds."""
+    split: bool
+    flat_topic: str | None
+
+
+# One line of a role's INDEX.md: the slice's path, its cue, its class.
+IndexEntry = TypedDict("IndexEntry", {"path": str, "description": str, "class": str})
+
+
+def origin_of_row(row: dict[str, Any]) -> Origin:
     """The origin record for one observation row."""
     if row.get("agent") or "clone_id" not in row:
         origin = {"agent": row.get("agent") or "unresolved", "host": row.get("host") or "unknown"}
@@ -321,11 +370,11 @@ class Run:
     args: argparse.Namespace
     project: str
     references: dict[str, Any] = field(default_factory=dict)
-    origins: dict[str, dict[str, str]] = field(default_factory=dict)
-    all_claims: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
+    origins: dict[str, Origin] = field(default_factory=dict)
+    all_claims: dict[str, list[Claim]] = field(default_factory=dict)
     telemetry: dict[str, Any] = field(default_factory=dict)
-    shared: dict[tuple[str, str], list[dict[str, Any]]] = field(default_factory=lambda: defaultdict(list))
-    per_role: dict[str, dict[tuple[str, str], list[dict[str, Any]]]] = field(
+    shared: dict[tuple[str, str], list[Claim]] = field(default_factory=lambda: defaultdict(list))
+    per_role: dict[str, dict[tuple[str, str], list[Claim]]] = field(
         default_factory=lambda: defaultdict(lambda: defaultdict(list)))
     shared_owners: dict[tuple[str, str], set[str]] = field(default_factory=lambda: defaultdict(set))
     rejected_hygiene: list[str] = field(default_factory=list)
@@ -334,21 +383,21 @@ class Run:
     oversized: list[str] = field(default_factory=list)
     migrated: list[str] = field(default_factory=list)
     decisions: dict[str, str] = field(default_factory=dict)
-    class_plan: dict[tuple[str, str], dict[str, Any]] = field(default_factory=dict)
+    class_plan: dict[tuple[str, str], ClassPlanEntry] = field(default_factory=dict)
     arrived: dict[tuple[str | None, str], set[str]] = field(default_factory=lambda: defaultdict(set))
     ambiguous_targets: list[str] = field(default_factory=list)
     unresolved_targets: list[str] = field(default_factory=list)
     applied_decisions: list[dict[str, str]] = field(default_factory=list)
     written: list[str] = field(default_factory=list)
     retired_in: list[str] = field(default_factory=list)   # sibling parts a supersede touched: path, section, rewritten|removed
-    index_entries: dict[str, list[dict[str, str]]] = field(default_factory=lambda: defaultdict(list))
+    index_entries: dict[str, list[IndexEntry]] = field(default_factory=lambda: defaultdict(list))
     clipped_descriptions: list[str] = field(default_factory=list)
     # A role whose crossref this run writes with an empty index. Said, not
     # just written: harvest_memory.py emits an empty references.json (memories
     # cite each other by name, not by git object), so every memory drain
     # writes an empty graph, and a file that exists reads as one that answers.
     empty_crossrefs: list[str] = field(default_factory=list)
-    shared_index: dict[str, list[dict[str, str]]] = field(default_factory=lambda: defaultdict(list))
+    shared_index: dict[str, list[IndexEntry]] = field(default_factory=lambda: defaultdict(list))
     owning_roles: list[str] = field(default_factory=list)
     # --hold: the slices held back from this drain ("<role>/<class>:<topic>",
     # "shared/<class>:<topic>"), and every file they have or would have, as
