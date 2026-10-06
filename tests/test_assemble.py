@@ -2792,6 +2792,39 @@ def test_every_role_the_project_binds_with_domain_slices_gets_an_index(tmp: str)
         f"a slice was written before the taxonomy refused: {proc.stderr}"
 
 
+def test_a_role_id_that_is_no_slug_is_refused_before_anything_is_written(tmp: str) -> None:
+    """A role id becomes a path (the role's domain and project directories),
+    from the project's taxonomy as from a claims file: one that is no role
+    slug, or a taxonomy entry with none, stops the drain before a file is
+    written, so no index lands outside the corpus (#100's review, 2)."""
+    for n, (taxonomy_roles, claims_role) in enumerate((
+            ([{"id": "../../escaped"}], "alpha"),
+            ([{"id": "Alpha"}], "alpha"),
+            (["alpha"], "alpha"),
+            ([{"keywords": []}], "alpha"),
+            ([{"id": "alpha"}], "../escaped"))):
+        case = os.path.join(tmp, str(n))
+        drain, claims_dir, out = build(case, {"alpha": claims(claims_role, [
+            {"class": "domain", "topic": "one", "title": "T", "body": "b", "evidence": ["h1"]},
+        ])})
+        os.makedirs(os.path.join(working_copy(out), ".agent-fabric"), exist_ok=True)
+        with open(os.path.join(working_copy(out), ".agent-fabric", "hygiene.json"), "w", encoding="utf-8") as fh:
+            json.dump(HYGIENE, fh)
+        with open(os.path.join(working_copy(out), ".agent-fabric", "taxonomy.json"), "w", encoding="utf-8") as fh:
+            json.dump({"version": 1, "project": PROJECT, "roles": taxonomy_roles}, fh)
+        # A domain the traversing id resolves to, holding a slice: what
+        # would make it a bound role with an index to write.
+        os.makedirs(os.path.join(out, "memory", "domains", "..", "..", "escaped"), exist_ok=True)
+        with open(os.path.join(out, "memory", "domains", "..", "..", "escaped", "d.md"), "w", encoding="utf-8") as fh:
+            fh.write("x\n")
+        before = sorted(os.path.relpath(os.path.join(d, f), case) for d, _s, fs in os.walk(case) for f in fs)
+        proc = run_assemble(drain, claims_dir, out)
+        after = sorted(os.path.relpath(os.path.join(d, f), case) for d, _s, fs in os.walk(case) for f in fs)
+        assert proc.returncode == 1 and ("is not a role id" in proc.stderr or "not a role entry" in proc.stderr), \
+            (taxonomy_roles, claims_role, proc.stderr)
+        assert after == before, f"{taxonomy_roles} {claims_role}: written before the refusal: {set(after) - set(before)}"
+
+
 def test_a_correction_retitling_a_carried_files_only_section_renames_its_cue(tmp: str) -> None:
     """A carried file keeps the cue it moved with, since it names several
     topics. When a correction's merge_target retitles its only section, that
@@ -2988,6 +3021,7 @@ def main() -> int:
         test_a_harvest_naming_another_accounts_store_is_refused_before_any_write,
         test_holding_a_shared_slice_keeps_the_notes_of_a_role_slice_under_the_same_key,
         test_a_held_slice_is_drained_again_once_released,
+        test_a_role_id_that_is_no_slug_is_refused_before_anything_is_written,
     ]
     # THE REGISTRY IS THE TRAP THIS GUARDS. Cases run because they are
     # listed here, not because they are named test_*, so a case that is

@@ -148,6 +148,20 @@ def normalize_artifact(kind: str, value: str) -> str:
     return f"scratch:{tail}#{digest}"
 
 
+# A role id, as identities/schemas/claims.schema.json gives it: what the
+# assembler joins into a path (layout.domain_dir, project_dir), so it is
+# held to it wherever it comes from — a claims file or the project's
+# taxonomy — before anything is written (#100's review, 2).
+ROLE_ID = re.compile(r"[a-z][a-z0-9-]*")
+
+
+def role_id_error(role: Any) -> str | None:
+    """Why `role` is no role id, or None."""
+    if not isinstance(role, str) or not ROLE_ID.fullmatch(role):
+        return f"{role!r} is not a role id ({ROLE_ID.pattern})"
+    return None
+
+
 def slugify(value: str) -> str:
     slug = re.sub(r"[^a-z0-9]+", "-", (value or "").lower()).strip("-")
     return slug or "general"

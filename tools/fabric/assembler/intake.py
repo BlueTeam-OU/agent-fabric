@@ -6,7 +6,7 @@ import argparse
 import json
 import os
 import sys
-from assembler.core import layout, workingcopy, DEFAULT_SLICE_BUDGET_TOKENS, BANNED_PATTERNS, PROJECT_PATTERNS, patterns_for, store_error, slugify, origin_of_row, REDACTED, hygiene_check, hygiene_substitute, Run
+from assembler.core import layout, workingcopy, DEFAULT_SLICE_BUDGET_TOKENS, BANNED_PATTERNS, PROJECT_PATTERNS, patterns_for, store_error, slugify, origin_of_row, REDACTED, hygiene_check, hygiene_substitute, role_id_error, Run
 from assembler.bundle import open_bundle
 
 
@@ -108,7 +108,10 @@ def read_claims(run: Run) -> int | None:
     for name in claim_files:
         with open(os.path.join(run.args.claims, name), encoding="utf-8") as fh:
             payload = json.load(fh)
-        role = payload["role"]
+        role = payload.get("role") if isinstance(payload, dict) else None
+        why = role_id_error(role)
+        if why:
+            sys.exit(f"assemble: {name}: the claims file's role {why}")
         run.all_claims[role] = payload.get("claims", [])
         for claim in run.all_claims[role]:
             claim["_role"] = role   # for the section's dated tail; never written to disk
