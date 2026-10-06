@@ -155,7 +155,8 @@ def _ledger(path: str, flags: int):
     return fd
 
 
-def spent_elsewhere(ledger: str, mid: str, sha: str) -> dict | None:
+def spent_elsewhere(ledger: str, mid: str, sha: str, t: i18n.Printer | None = None) -> dict | None:
+    t = t or inbox.en()
     try:
         with os.fdopen(_ledger(ledger, os.O_RDONLY), encoding="utf-8", errors="replace") as fh:
             lines = fh.read().split("\n")
@@ -163,8 +164,7 @@ def spent_elsewhere(ledger: str, mid: str, sha: str) -> dict | None:
         return None   # no send recorded yet
     except OSError as e:
         # Said, not guessed: the check for a reused id is not made.
-        sys.stderr.write(f"send: the ledger of sent ids cannot be read ({e.strerror or e}); a reused id is not"
-                         " checked\n")
+        sys.stderr.write(t("send.ledger-unreadable", {"detail": e.strerror or str(e)}) + "\n")
         return None
     for line in lines:
         try:
@@ -454,7 +454,7 @@ def main(argv: list[str]) -> int:
             "topic_again": topic or t("send.fallback-unknown-topic-again")}), file=sys.stderr)
     sha = hashlib.sha256(text.encode("utf-8")).hexdigest()
     ledger = sent_ledger_path(who)
-    spent = spent_elsewhere(ledger, mid, sha) if mid != "(none)" else None
+    spent = spent_elsewhere(ledger, mid, sha, t) if mid != "(none)" else None
     if spent:
         print(t("send.id-reused", {"id": mid, "seq": js.coalesce(js.get(spent, "seq"), "?")}), file=sys.stderr)
         return 2
@@ -566,12 +566,15 @@ def main(argv: list[str]) -> int:
             # From a file the id was written into it, so a resend is the same
             # message and readers discard the copy; from stdin it was minted
             # in memory only, and a resend would mint another (SPEC §7.2).
-            again = ("sending the same file again is safe: it carries the same id" if file != "-" else
-                     f"a resend from stdin mints a new id unless the text carries MESSAGE-ID: {mid}")
-            sys.stderr.write(f"send: no answer the relay can be held to at {relay_url} ({e}) — the message may"
-                             f" have been delivered; {again}\n")
+            again = t("send.again-file") if file != "-" else t("send.again-stdin", {"id": mid})
+            print(t("send.outcome-unknown", {"relay_url": relay_url, "detail": str(e), "again": again}), file=sys.stderr)
             return 3
-        print(t("send.relay-unreachable", {"relay_url": relay_url, "detail": str(e)}), file=sys.stderr)
+        # Never delivered: either the relay answered and refused it (a 4xx),
+        # or the connection never reached it — "unreachable" only for that.
+        if isinstance(status, int) and 400 <= status < 500:
+            print(t("send.relay-refused", {"relay_url": relay_url, "detail": str(e)}), file=sys.stderr)
+        else:
+            print(t("send.relay-unreachable", {"relay_url": relay_url, "detail": str(e)}), file=sys.stderr)
         return 3
     seq = js.get(res, "seq") if isinstance(res, dict) else js.UNDEFINED
     if _journal_off():
@@ -586,8 +589,7 @@ def main(argv: list[str]) -> int:
     try:
         record_sent(ledger, {"id": mid, "sha256": sha, "seq": js.coalesce(seq, None), "at": _now_iso()})
     except LedgerNotTrimmed as e:
-        sys.stderr.write(f"send: the id is recorded, but the ledger of sent ids could not be trimmed ({e.strerror});"
-                         " a later send trims it\n")
+        print(t("send.ledger-not-trimmed", {"detail": e.strerror or str(e)}), file=sys.stderr)
     except OSError as e:
         print(t("send.ledger-not-written", {"detail": e.strerror or str(e)}), file=sys.stderr)
     deduplicated = res.get("deduplicated") if isinstance(res, dict) else None
