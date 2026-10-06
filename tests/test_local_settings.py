@@ -99,6 +99,12 @@ def main() -> int:
         link = os.path.join(home, "projects", "linked", ".claude", "settings.local.json")
         os.makedirs(os.path.dirname(link))
         os.symlink(target, link)
+        elsewhere = os.path.join(tmp, "elsewhere-dir")
+        os.makedirs(elsewhere)
+        with open(os.path.join(elsewhere, "settings.local.json"), "w") as fh:
+            json.dump({"env": {"GH_TOKEN": VALUE}}, fh)
+        os.makedirs(os.path.join(home, "projects", "dirlinked"))
+        os.symlink(elsewhere, os.path.join(home, "projects", "dirlinked", ".claude"))
         f = put("alpha", {"env": {"GH_TOKEN": VALUE}})
 
         def harness_writes() -> None:
@@ -106,7 +112,10 @@ def main() -> int:
                 json.dump({"env": {"GH_TOKEN": VALUE}, "permissions": {"allow": ["Read"]}}, fh)
         r = ls.prune(home, before_rename=harness_writes)
         check("a concurrent write is never overwritten (busy), a symlink never followed (skipped); the run fails",
-              r["status"] == "failed" and [(x["working_copy"], x["status"]) for x in r["files"]] == [("alpha", "busy"), ("linked", "skipped")], r)
+              r["status"] == "failed" and [(x["working_copy"], x["status"]) for x in r["files"]] ==
+              [("alpha", "busy"), ("dirlinked", "skipped"), ("linked", "skipped")], r)
+        check("…a symlinked .claude directory is never followed either (review of #101)",
+              VALUE in open(os.path.join(elsewhere, "settings.local.json")).read())
         check("…the concurrent write stands", json.load(open(f)).get("permissions") == {"allow": ["Read"]})
         check("…the link's target is untouched", VALUE in open(target).read())
         check("…no temporary file left", sorted(os.listdir(os.path.dirname(f))) == ["settings.local.json"])

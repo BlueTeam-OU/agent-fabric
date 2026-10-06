@@ -69,13 +69,18 @@ def settings_files(home: str) -> list[tuple[str, str]]:
         return []
     found = []
     for label, path in [(ROOT_LABEL, os.path.join(root, SETTINGS)), *[(n, os.path.join(root, n, SETTINGS)) for n in names]]:
-        if os.path.lexists(path):
+        if os.path.lexists(path) or os.path.islink(os.path.dirname(path)):
             found.append((label, path))
     return found
 
 
 def read_settings(path: str):
-    """(status, doc, stat)."""
+    """(status, doc, stat). Neither the file nor its .claude directory may
+    be a symlink: O_NOFOLLOW guards only the last component, and a linked
+    .claude would take every read and write into the link's target."""
+    if os.path.islink(os.path.dirname(path)):
+        st = os.lstat(os.path.dirname(path))
+        return "symlink", None, st
     st = os.lstat(path)
     if stat.S_ISLNK(st.st_mode):
         return "symlink", None, st
