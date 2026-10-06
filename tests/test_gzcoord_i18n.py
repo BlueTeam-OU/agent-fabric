@@ -92,8 +92,13 @@ def _():
 
 
 def _sources() -> dict[str, str]:
+    """Every module that prints a dictionary line: the inbox with each of
+    its parts (gzcoord/inbox_parts/), the validator, send."""
+    names = ["inbox.py", *(os.path.join("inbox_parts", n)
+                           for n in sorted(os.listdir(os.path.join(MODULES, "inbox_parts")))
+                           if n.endswith(".py"))] if os.path.isdir(os.path.join(MODULES, "inbox_parts")) else ["inbox.py"]
     out = {}
-    for name in ("inbox.py", "gzmsg.py", "send.py"):
+    for name in (*names, "gzmsg.py", "send.py"):
         with open(os.path.join(MODULES, name), encoding="utf-8") as fh:
             out[name] = fh.read()
     return out
@@ -122,13 +127,16 @@ def _():
     # syntax tree, not by text: a helper's printer is the parameter named t,
     # positional, defaulting to None; every call names it — at its position
     # or as t= — and a call that wants English says en().
-    tree = ast.parse(_sources()["inbox.py"])
     helpers: dict[str, int] = {}
-    for node in tree.body:
-        if isinstance(node, ast.FunctionDef):
-            names = [a.arg for a in node.args.args]
-            if "t" in names and node.args.defaults:
-                helpers[node.name] = names.index("t")
+    # The inbox's helpers, wherever in it they are defined: inbox.py or a part.
+    for file, src in _sources().items():
+        if not (file == "inbox.py" or file.startswith("inbox_parts")):
+            continue
+        for node in ast.parse(src).body:
+            if isinstance(node, ast.FunctionDef):
+                names = [a.arg for a in node.args.args]
+                if "t" in names and node.args.defaults:
+                    helpers[node.name] = names.index("t")
     ok("integration_config" in helpers and "assert_not_control_channel" in helpers, f"helpers found: {sorted(helpers)}")
     bare = []
     for file, src in _sources().items():
