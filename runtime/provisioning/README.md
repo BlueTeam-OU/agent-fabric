@@ -183,6 +183,16 @@ tools read:
   (ADR-031), a template's token from the coordinator's store into the
   login's.
 
+## Root while working in an agent account
+
+No agent account holds sudo, and none has a password. To work as an
+agent, enter it from the operator's login with `sudo -iu <login>` (or
+`su - <login>`); for root, `exit` back to the operator's shell, whose sudo
+is its own. A password typed inside an agent's shell is typed into a shell
+that agent configures — its `~/.bashrc` can wrap `sudo` and keep what it
+reads — so giving an agent account sudo would give its own sessions root
+(blind review of agent-fabric #101; the owner, 2026-10-06).
+
 ## What does not transfer between accounts
 
 Session memory is the account's (`~/.claude/projects/…/memory/`); a drain

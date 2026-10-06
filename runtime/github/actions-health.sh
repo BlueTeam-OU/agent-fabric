@@ -2,7 +2,8 @@
 # runtime/github/actions-health.sh — is it worth spending CI minutes right
 # now: GitHub Actions' status and the organisation's included allowance,
 # in one line and one exit code. The path is the contract (the managed
-# projects' tools/gh/actions-health.sh forward here); the work, its rules
+# projects' tools/gh/actions-health.sh will forward here; until then each
+# still runs its own copy); the work, its rules
 # and every reason for them are in tools/fabric/github/actions_health.py
 # (ADR-040 §5 rule 4). Bash builtins only, to find it.
 here="${BASH_SOURCE[0]%/*}"; [[ "$here" == "${BASH_SOURCE[0]}" ]] && here=.

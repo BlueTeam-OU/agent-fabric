@@ -13,6 +13,7 @@ import { ENVELOPE_KEYS } from '../protocol.mjs';
 import { answer, upRecord } from '../agentd.mjs';
 import { askPresence } from '../presence.mjs';
 import { signRequest, generateOperatorKey } from '../sign.mjs';
+import { buildRequest, parseArgs } from '../ctl.mjs';
 
 function holds(value, kind, what) {
   const { required, optional } = ENVELOPE_KEYS[kind];
@@ -54,4 +55,25 @@ test('the request presence sends is a Request; a signed one too', async () => {
 
 test('what agentd posts when it comes up is an Up', () => {
   holds(upRecord('h/db-admin'), 'up', 'up');
+});
+
+test('the request fabric-ctl sends is a Request, for every op shape it builds', () => {
+  const cfg = { ttl_s: 30 };
+  const build = argv => buildRequest(parseArgs(argv), {
+    id: 'q', from: 'h/user', to: '*', cfg, commit: () => 'c'.repeat(40), version: () => '9.9.9' });
+  const shapes = [
+    ['all', 'status'],
+    ['all', 'tokens', '--days', '7'],
+    ['all', 'upgrade', 'fabric'],
+    ['all', 'upgrade', 'claude'],
+    ['h-dev', 'jobs-add', 'a title', '--topic', 't'],
+    ['all', 'secrets-sync', '--restart'],
+    ['all', 'secrets-sync', '--expect', 'abcdef012345'],
+  ];
+  for (const argv of shapes) {
+    const r = build(argv);
+    holds(r, 'request', `fabric-ctl ${argv.join(' ')}`);
+  }
+  assert.ok('days' in build(['all', 'tokens', '--days', '7']), 'the days a usage request carries');
+  assert.ok('args' in build(['all', 'upgrade', 'fabric']), 'the args an action carries');
 });

@@ -48,3 +48,14 @@ account reads its own store, and the coordinator's templates and
 signing key live in the coordinator's store. Rule 5 names the signing key's
 home; rule 14, the `secrets-migrate` action, is withdrawn with the
 migration it ran.
+
+### Amendment 2026-10-06 — Each account's settings.local.json on the control plane
+
+After ADR-038 rule 9 took the synced secrets out of every shell, the owner
+asked what the agents keep in their per-clone `.claude/settings.local.json`
+— a file the relay's install notes once told each clone to hold the relay
+token in. No account may read another's home, and the coordinator's
+login can read none of them, so the owner ruled on 2026-10-06 that the
+file be manageable from the control plane, as a report and a prune of
+secrets only: the account's own control agent reads and rewrites its own
+file, and nothing a request carries reaches it but the operation's name.

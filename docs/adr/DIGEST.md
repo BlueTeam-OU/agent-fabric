@@ -624,6 +624,7 @@ its record disagree, the record wins. Look it up, never read it whole:
   store, verified by sha256 (§5 rule 14).
 - A 2026-09-30 — rule 14 withdrawn with Doppler; the signing key is in the
   operator's store (§5 rules 5, 14).
+- A 2026-10-06 — `local` reads, `local-prune` cleans each account's settings.local.json (§5 rule 15).
 - Keywords: control plane, agentd, fabric-ctl, control channel,
   fabric:control, relay, ops, status, ping, keys, usage, recall, tokens,
   drain, memory, signed, operator_key, keygen, linger, persist.
