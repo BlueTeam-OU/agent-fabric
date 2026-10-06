@@ -213,7 +213,7 @@ def main() -> int:
         check("asked pr-review-status for the PR as --json", "7 -q --json" in calls().splitlines(), calls())
         reset(); set_pr(me, "plain", ["apps/backend_dotnet/src/Gzapp.Infrastructure/Auth/DriverIdentity.cs"]); put("review_rc", "0")
         rc, out = run("7", "--basis", "b")
-        check("an Auth/ change reviewed, 9 work commits, no owner's word: armed (the owner, 2026-10-05)",
+        check("an Auth/ change reviewed, 9 work commits, no owner's word: armed",
               rc == 0 and "has the review class's review, and no unresolved thread" in out and "ARMED #7" in out, out)
         marked = "armed on the count rule (8 or more work commits) without the owner's word."
         check("…and the comment says it is a boundary armed without the owner's word",
