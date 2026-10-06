@@ -23,6 +23,7 @@ it is fixture, not code under test.
 Plain script: prints ok/FAIL, exit 1 on any failure."""
 from __future__ import annotations
 
+import glob
 import json
 import os
 import re
@@ -881,8 +882,15 @@ def main() -> int:
         # real invocation while the suite stayed green). The implementation
         # is Python and calls no jq: every argument list goes to gh, so a
         # jq-only flag ANYWHERE in the module is one handed to gh.
-        with open(MODULE, encoding="utf-8") as fh:
-            offenders = sorted(set(re.findall(r"--(argjson|null-input|raw-input)", fh.read())))
+        # The module and every part it is split into (tools/fabric/github/
+        # review_status/): a scan of the facade alone would pass for code
+        # that has moved out of it.
+        sources = [MODULE, *sorted(glob.glob(os.path.join(os.path.dirname(MODULE), "review_status", "*.py")))]
+        offenders = []
+        for source in sources:
+            with open(source, encoding="utf-8") as fh:
+                offenders += re.findall(r"--(argjson|null-input|raw-input)", fh.read())
+        offenders = sorted(set(offenders))
         check("gh api is never handed a jq-only flag", not offenders, f"gh api does not accept: {offenders}")
 
         print("pr-review-status.sh — a request event for someone NOT pending does not clear the refusal")
