@@ -142,9 +142,10 @@ the same command asks on one account and not on another.
     (A 2026-09-28). `--job <id>` names the job the fresh session is for.
 11. Each working copy's local branches are swept weekly with
     `fabric-branches --sweep`, after a plain fetch: the agent deletes on
-    its own what is wholly on `origin/main`, and worktrees at 0 with no
-    changes, no ignored files and no lock, never the one it runs in; a
-    branch with commits off main is kept and brought to the
+    its own what is wholly on the remote's default branch (`origin/HEAD`,
+    else the project registry's; unknown, it refuses), and worktrees at
+    0 with no changes, no ignored files and no lock, never the one it
+    runs in; a branch with commits off it is kept and brought to the
     person. Local only: no remote branch is deleted or pushed. The
     session-start hook says when a working copy's last sweep is older
     than seven days; nothing runs on a timer (A 2026-09-28).
