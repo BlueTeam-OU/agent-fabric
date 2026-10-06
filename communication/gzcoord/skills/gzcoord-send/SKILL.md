@@ -138,8 +138,8 @@ indentation), validates it as the last step before it leaves — a message
 that fails is not sent — and refuses a `FROM` that is not your address:
 the sender is the login, never a claim. It resolves the relay, the
 channel and the token exactly as the inbox does (your project's
-integration; the token from the environment `fabric-secrets sync`
-populated). It prints `sent seq <n> <TYPE> <id>` and nothing else — the
+integration; the token from the file `fabric-secrets sync` writes,
+`~/.config/agent-fabric/secrets.env`, which no shell sources). It prints `sent seq <n> <TYPE> <id>` and nothing else — the
 id it minted, or yours. Keep the id: a reply names it in `IN-REPLY-TO`.
 
 **Before a `TO` or `TO-ROLE` message leaves, `send.mjs` asks whether the
