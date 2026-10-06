@@ -77,6 +77,10 @@ def main() -> int:
                   status.harness_environ(40, proc) == {"CLAUDE_CODE_OAUTH_TOKEN": "t", "A": "b=c"})
             check("no claude up the chain: None, and the caller uses its own", status.harness_environ(20, proc) is None)
             check("an unreadable /proc: None, never a crash", status.harness_environ(99, proc) is None)
+            found = lambda: {"CLAUDE_CODE_OAUTH_TOKEN": "t"}  # noqa: E731
+            check("outside a session's Bash the harness is never asked",
+                  status.session_environ({}, found) is None and status.session_environ({"CLAUDECODE": "0"}, found) is None)
+            check("…inside one it is", status.session_environ({"CLAUDECODE": "1"}, found) == {"CLAUDE_CODE_OAUTH_TOKEN": "t"})
 
             print("the fallback marker")
             fb = os.path.join(tmp, "fb")

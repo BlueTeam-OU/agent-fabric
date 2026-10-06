@@ -297,6 +297,16 @@ def harness_environ(start_pid=None, proc="/proc"):
     return None
 
 
+def session_environ(environ, find=None):
+    """Where the session's credentials are: the harness's environment, but
+    only inside a session's Bash. The harness marks its children with
+    CLAUDECODE, and a process outside one (CI, a suite that cleared it) has
+    no harness to ask: an unrelated claude up the chain is not its session."""
+    if environ.get("CLAUDECODE") != "1":
+        return None
+    return (find or harness_environ)()
+
+
 def build_report(root, environ=None, cred_environ=None):
     """(report, base): the whole picture as the --json object, and the
     ANTHROPIC_BASE_URL the human report's sign-in line is conditional on.
@@ -304,12 +314,8 @@ def build_report(root, environ=None, cred_environ=None):
     process's environment by default (harness_environ)."""
     if environ is None:
         environ = os.environ
-        # Only inside a session's Bash: the harness marks its children with
-        # CLAUDECODE, and a process outside one (CI, a suite that cleared
-        # it) has no harness to ask — an unrelated claude up the chain is
-        # not its session.
-        if cred_environ is None and environ.get("CLAUDECODE") == "1":
-            cred_environ = harness_environ()
+        if cred_environ is None:
+            cred_environ = session_environ(environ)
     cred_environ = environ if cred_environ is None else cred_environ
     identity = load("fabric_identity", os.path.join(root, "runtime", "identity.py"))
     routing = load("fabric_routing", os.path.join(root, "tools", "fabric", "routing.py"))
