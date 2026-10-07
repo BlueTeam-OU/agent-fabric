@@ -294,9 +294,14 @@ def main() -> int:
             pid = int(open(pidfile).read())
             gone = False
             for _ in range(50):
+                # Gone, or a zombie: dead, and left unreaped where PID 1 does
+                # not reap orphans (the platform-smoke containers on #110).
                 try:
-                    os.kill(pid, 0)
-                except ProcessLookupError:
+                    with open(f"/proc/{pid}/stat", encoding="utf-8") as fh:
+                        state = fh.read().rsplit(")", 1)[1].split()[0]
+                except (FileNotFoundError, ProcessLookupError):
+                    state = "gone"
+                if state in ("gone", "Z", "X"):
                     gone = True
                     break
                 time.sleep(0.1)

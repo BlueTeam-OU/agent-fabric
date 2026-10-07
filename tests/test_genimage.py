@@ -36,7 +36,7 @@ import genimage  # noqa: E402
 BIN = os.path.join(ROOT, "bin", "fabric-genimage")
 FRAG = "Incorrect API key provided: sk-proj-****CANARYabcd"
 KEY51 = "sk-abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUV"
-SECRETS_LINE = "• key:    from ~/.config/agent-fabric/secrets.env"
+SYNCED_ENV_LINE = "• key:    from ~/.config/agent-fabric/secrets.env"
 
 
 class FakeResponse:
@@ -156,7 +156,7 @@ def main() -> int:
                            fixture_env(sec="export OPENAI_API_KEY=sk-from-secrets\n"))
         check("the four lines and the dry-run line, exit 0", rc == 0 and err == "" and out == (
             "• model gpt-image-1 · 1536x1024 · quality high · background transparent\n"
-            "• prompt: a  red fox\n• out:    art/fox.png\n" + SECRETS_LINE + "\n(dry run — no request made)\n"),
+            "• prompt: a  red fox\n• out:    art/fox.png\n" + SYNCED_ENV_LINE + "\n(dry run — no request made)\n"),
               f"rc={rc}\n{out}{err}")
         check("…and nothing was written", not os.path.exists(os.path.join(wc, "art")))
 
@@ -166,7 +166,7 @@ def main() -> int:
               all(genimage.shell_unquote(shlex.quote(v)) == v for v in values))
         dry = ["p", "-o", "a.png", "--dry-run"]
         for label, env, want in (
-                ("K2 only secrets.env", lambda: fixture_env(sec="export OPENAI_API_KEY=s\n"), SECRETS_LINE),
+                ("K2 only secrets.env", lambda: fixture_env(sec="export OPENAI_API_KEY=s\n"), SYNCED_ENV_LINE),
                 ("K3 the environment first", lambda: fixture_env(env_key="e", local="OPENAI_API_KEY=l\n", sec="export OPENAI_API_KEY=s\n"),
                  "• key:    from the environment"),
                 ("K4 .env.local before secrets.env", lambda: fixture_env(local="OPENAI_API_KEY=l\n", sec="export OPENAI_API_KEY=s\n"),

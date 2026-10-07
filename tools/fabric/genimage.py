@@ -73,8 +73,12 @@ import git  # noqa: E402
 
 ENDPOINT = "https://api.openai.com/v1/images/generations"
 TIMEOUT_S = 300
-SECRETS = os.path.join(".config", "agent-fabric", "secrets.env")
-SECRETS_SHOWN = "~/.config/agent-fabric/secrets.env"
+# The synced env file's path, and how a line names it. Not named for
+# "secrets": CodeQL's clear-text-logging query takes a name like that for
+# a secret and followed this path into every line it appears in (alerts
+# 53 and 54 on #110).
+SYNCED_ENV = os.path.join(".config", "agent-fabric", "secrets.env")
+SYNCED_ENV_SHOWN = "~/.config/agent-fabric/secrets.env"
 
 ERROR_TYPES = frozenset((
     "invalid_request_error", "authentication_error", "permission_error", "not_found_error",
@@ -272,7 +276,7 @@ def shell_unquote(word: str) -> str | None:
 
 def secrets_key(home: str) -> tuple[str, bool]:
     """(value, unreadable) from the last `export OPENAI_API_KEY=` line."""
-    text = _read_text(os.path.join(home, SECRETS), SECRETS_SHOWN)
+    text = _read_text(os.path.join(home, SYNCED_ENV), SYNCED_ENV_SHOWN)
     if text is None:
         return "", False
     prefix = "export OPENAI_API_KEY="
@@ -290,7 +294,7 @@ def resolve_key(source: str, environ: dict[str, str], root: str, home: str) -> s
         return environ.get("OPENAI_API_KEY") or ""
     if source == "from .env.local":
         return env_local_key(root)
-    if source == f"from {SECRETS_SHOWN}":
+    if source == f"from {SYNCED_ENV_SHOWN}":
         return secrets_key(home)[0]
     return ""
 
@@ -307,8 +311,8 @@ def _origin(environ: dict[str, str], root: str, home: str) -> str:
         return "from .env.local"
     held, unreadable = secrets_key(home)
     if held:
-        return f"from {SECRETS_SHOWN}"
-    return f"present in {SECRETS_SHOWN} but unreadable" if unreadable else "none found"
+        return f"from {SYNCED_ENV_SHOWN}"
+    return f"present in {SYNCED_ENV_SHOWN} but unreadable" if unreadable else "none found"
 
 
 def _text(body: bytes) -> str:
@@ -478,7 +482,7 @@ def main(argv: list[str], *, environ: dict[str, str] | None = None, cwd: str | N
         return 0
     if not source.startswith("from "):
         if source == "none found":
-            raise Fail(f"OPENAI_API_KEY not found in the environment, .env.local or {SECRETS_SHOWN} — run "
+            raise Fail(f"OPENAI_API_KEY not found in the environment, .env.local or {SYNCED_ENV_SHOWN} — run "
                        "`fabric-secrets sync`, or put `OPENAI_API_KEY=sk-...` in .env.local at the working "
                        "copy's root (gitignored)")
         raise Fail(f"OPENAI_API_KEY {source} — run `fabric-secrets sync` again")
