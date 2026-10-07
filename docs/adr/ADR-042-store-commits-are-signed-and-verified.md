@@ -95,7 +95,16 @@ a handful of times a day.
    The base only ever moves forward, to a verified commit.
 5. A refusal is a security event. `fabric-secrets status` and
    `fabric-ctl <login> keys` say it until the store is repaired, and the
-   repair is the parent's or the owner's.
+   repair is the parent's or the owner's. A commit that verification
+   could not judge is not refused but stops the operation: "could not be
+   verified; nothing applied", nothing recorded. It is one that gave not a
+   single [GNUPG:] status line while it carries the signature header git
+   verifies for the store's object format (gpgsig for sha1, gpgsig-sha256
+   for sha256) with PGP armour in it: there the machine failed (no gpg, an
+   unusable temporary directory), not the commit. Any other commit that
+   does not verify, a header of the wrong format or junk in armour
+   included, is refused "not signed" and recorded, so push access to a
+   store's remote cannot turn a refusal into a silent stop (A 2026-10-07).
 
 ## 6. Consequences
 
@@ -136,3 +145,4 @@ The body above reads current; each change's full note is in [history/ADR-042-ame
 | Date | Amendment | Effect |
 |---|---|---|
 | 2026-10-04 | Where writers are read; how a base is set | §5 rules 2 and 4: writers from origin/main, never the working tree; the base explicit, by a once-only migration or at first contact through the enrolment bundle |
+| 2026-10-07 | A commit verification could not judge is a stop, not a refusal | §5 rule 5: no [GNUPG:] status, the store format's signature header with PGP armour: stop, nothing applied, nothing recorded; every other unverified commit refused as before |

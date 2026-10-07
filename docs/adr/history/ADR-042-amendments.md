@@ -30,3 +30,17 @@ never a raw `git clone` or `git pull`.
 
 The record also still read Proposed after the merge that accepted it
 (#91); it now reads Accepted.
+
+### Amendment 2026-10-07 — A commit verification could not judge is a stop, not a refusal
+
+§5 rule 5 narrowed for one case. python-dev-01 found that a correctly
+signed store commit was recorded as refused "not signed" when gpg or git
+could not run (an unusable temporary directory, no gpg): verify-commit
+is silent then as for an unsigned commit, and a standing refusal reads
+as forgery. The coordinator ruled that a commit gpg could not judge
+stops the operation without a record. The blind review of the change
+(#112) found that "a signature header and no verdict" alone let anyone
+with push access to a store's remote switch the refusal off (junk in
+PGP armour, a header of the other object format, a header in no
+signature format), so the stop needs all three: no status line, the
+header git verifies for the store's format, and PGP armour in it.
