@@ -221,8 +221,10 @@ def env_local_key(root: str) -> str:
     text = _read_text(os.path.join(root, ".env.local"))
     found = ""
     for line in re.split(r"\r?\n", text or ""):
+        # A "#" line never matches: the name must come first. The .mjs also
+        # tested for "#", a check no line could reach.
         m = _ENV_LINE.match(line)
-        if not m or js_trim(line).startswith("#") or m.group(1) != "OPENAI_API_KEY" or found:
+        if not m or m.group(1) != "OPENAI_API_KEY" or found:
             continue
         found = _QUOTED.sub(r"\2", m.group(2))
     return found
