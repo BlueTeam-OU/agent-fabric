@@ -44,12 +44,6 @@ def answer(path, value):
         node = node.setdefault(key, {})
     node[path[-1]] = value
     print(json.dumps(doc))
-if a[:2] == ["repo", "view"]:
-    log("REPOVIEW")
-    if os.environ.get("GH_MOCK_REPO_FAIL"):
-        sys.exit(1)
-    print(os.environ.get("GH_MOCK_HERE_REPO", "gzapi-org/gzapp"))
-    sys.exit(0)
 req = {"query": "", "variables": {}}
 if "--input" in a:
     src = a[a.index("--input") + 1]
@@ -166,9 +160,6 @@ def main() -> int:
         check("exits 0", rc == 0, out)
         check("reports the reply URL", "discussion_r1" in out, out)
         check("reports the resolve", "resolved: #77" in out, out)
-        # REPOVIEW sits between the read and the reply: the repository check
-        # runs on the thread it just read, and must happen BEFORE anything is
-        # written.
         # The repository check is in-process now (gh.this_repo: GH_REPO, else
         # origin; never gh repo view), and refuses before any write.
         check("read, then reply, then resolve — in that order",

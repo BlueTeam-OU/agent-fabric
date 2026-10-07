@@ -30,8 +30,6 @@ with open(os.path.join(s, "calls"), "a") as fh:
     if line.startswith("pr comment ") and line.endswith("--body-file -"):
         fh.write(f"pr comment {a[2]} --body {sys.stdin.read()}\n"); sys.exit(0)
 pr = json.load(open(os.path.join(s, "pr.json")))
-if line.startswith("repo view"):
-    print("noslash" if has("badrepo") else "gzapi-org/gzapp"); sys.exit(0)
 if line.startswith("api repos/gzapi-org/gzapp/pulls/7/files") and "--paginate --slurp" in line:
     def entry(f):
         old, _, new = f.rpartition("->")
@@ -136,7 +134,7 @@ def main() -> int:
                 fh.write(text)
 
         def reset() -> None:
-            for n in ("calls", "armed", "queued", "viewfail", "blind", "independent", "unresolved", "no_blind_field", "badrepo",
+            for n in ("calls", "armed", "queued", "viewfail", "blind", "independent", "unresolved", "no_blind_field",
                       "waiver.out", "waiver_rc", "presence.out", "ctl_rc"):
                 if os.path.exists(f"{state}/{n}"):
                     os.remove(f"{state}/{n}")

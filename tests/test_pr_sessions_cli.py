@@ -45,11 +45,6 @@ if a[:1] == ["pr"]:
             fh.write(a[a.index("--limit") + 1] + "\n")
     sys.stdout.write(open(os.path.join(d, "pr-list.json")).read())
     sys.exit(0)
-if a[:1] == ["repo"]:
-    if os.environ.get("GH_MOCK_REPOVIEW_FAIL"):
-        sys.exit(1)
-    print(os.environ.get("GH_MOCK_REPO", "gzapi-org/gzapp"))
-    sys.exit(0)
 if a[:1] == ["api"]:
     if os.environ.get("GH_MOCK_GRAPHQL_FAIL"):
         sys.exit(1)

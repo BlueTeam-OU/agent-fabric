@@ -92,17 +92,38 @@ def this_repo(cwd: str | None = None) -> str:
     return m.group("repo")
 
 
-def _env() -> dict[str, str] | None:
+# gh's subcommands that act on one repository, guessed from the git
+# remotes when none is named.
+_REPO_SCOPED = {"pr", "repo", "issue", "run", "workflow", "release", "secret", "variable", "label", "cache",
+                "ruleset", "browse", "attestation"}
+
+
+def _scoped(args: list[str]) -> bool:
+    """Whether gh would pick a repository for this call itself: a scoped
+    subcommand without --repo/-R, or an api path naming {owner}/{repo}."""
+    if any(a in ("--repo", "-R") or a.startswith("--repo=") for a in args):
+        return False
+    if args[:1] == ["api"]:
+        return any("{owner}" in a or "{repo}" in a for a in args[1:])
+    if args[:2] == ["repo", "view"] and len(args) > 2 and not args[2].startswith("-"):
+        return False
+    return bool(args) and args[0] in _REPO_SCOPED
+
+
+def _env(args: list[str], what: str) -> dict[str, str] | None:
     """The environment for gh: GH_REPO pinned to this_repo(), so a command
     that takes no --repo (gh pr view N, gh pr merge N, gh api's {owner}/
     {repo}) targets this working copy's repository, never gh's default.
-    Outside a GitHub working copy nothing is pinned, and a repository-
-    scoped command then fails in gh rather than guessing."""
+    When nothing names one, a call gh would aim by guessing is refused: gh
+    ranks an `upstream` remote above origin, and outside a GitHub origin
+    that guess is the upstream project (review of the merges branch)."""
     if os.environ.get("GH_REPO"):
         return None
     try:
         return {**os.environ, "GH_REPO": this_repo()}
-    except GhError:
+    except GhError as e:
+        if _scoped(args):
+            raise GhError(what, e.reason) from None
         return None
 
 
@@ -114,7 +135,8 @@ def run(args: list[str], *, input: str | None = None, timeout: float = TIMEOUT_S
         # No input is an empty stdin, never the caller's: a gh that reads
         # stdin would otherwise wait on it for the whole bound.
         stdin = {"input": input} if input is not None else {"stdin": subprocess.DEVNULL}
-        r = subprocess.run(["gh", *args], capture_output=True, text=True, timeout=timeout, env=_env(), **stdin)
+        env = _env(args, what)
+        r = subprocess.run(["gh", *args], capture_output=True, text=True, timeout=timeout, env=env, **stdin)
     except FileNotFoundError:
         raise GhError(what, "gh is not installed") from None
     except subprocess.TimeoutExpired:

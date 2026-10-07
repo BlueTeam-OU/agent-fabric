@@ -404,8 +404,8 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-10-01 — CI runs main's guards (§5 rule 4).
 - A 2026-10-04 — a merge is judged on its own change (§5 rules 3–4).
 - A 2026-10-07 — an entry that `merges` opens its own PR (§5 rule 8).
-- Keywords: authority, fence, Fabric-Role, charter,
-  contributor, merges.
+- Keywords: Fabric-Role, pre-commit, commit-msg,
+  locale carve-out, contributor, merges.
 
 ### ADR-019 — Work arrives as pull requests: one open PR per agent and repository, 8 or more work commits to arm, the gate read before arming, no machine attribution, repository settings (Accepted)
 

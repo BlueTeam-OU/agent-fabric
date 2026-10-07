@@ -25,7 +25,9 @@ GIT = shutil.which("git") or "/usr/bin/git"
 
 def clean_env(**extra: str) -> dict:
     env = {k: v for k, v in os.environ.items() if not k.startswith(("GITHUB_", "AGENT_FABRIC_"))}
-    env.update(GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_SYSTEM=os.devnull, GH_TOKEN="")
+    # The scratch origin is a local path: GH_REPO names the repository the
+    # fake gh serves, since gh's default is never used (gh.this_repo).
+    env.update(GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_SYSTEM=os.devnull, GH_TOKEN="", GH_REPO="o/r")
     env.update(extra)
     return env
 

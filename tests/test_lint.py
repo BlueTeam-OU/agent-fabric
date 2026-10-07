@@ -1646,6 +1646,10 @@ def case_a_contributor_entry_never_reaches_a_definition() -> None:
         # judged (review of the merges branch, F4), and a second entry is one.
         got = findings({**good, "merges": True}, {**good, "merges": "yes"})
         assert any("contributors[1] (python-dev): a second entry" in f for f in got), got
+        # The order `alone` exists for: the malformed entry first, a whole one
+        # after it, where the role's whole entry would have hidden it.
+        got = findings({**good, "merges": "yes"}, {**good, "merges": True})
+        assert any("contributors[0]: not a whole entry" in f for f in got), got
         got = findings({**good, "excluding": [e for e in excl if e != "tools/fabric/guards/"]})
         assert any("rule 'tools/' reaches tools/fabric/guards/" in f for f in got), got
         # The rule modules lint.py loads are the coordinator's as lint.py is:

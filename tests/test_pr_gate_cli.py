@@ -27,8 +27,6 @@ line = " ".join(a)
 def load(name):
     with open(os.path.join(s, name)) as fh:
         return json.load(fh)
-if line.startswith("repo view"):
-    print("testorg/testrepo"); sys.exit(0)
 if line.startswith("pr list"):
     if os.path.exists(os.path.join(s, "prlist_fail")):
         sys.exit(1)

@@ -77,7 +77,20 @@ def main() -> int:
         try:
             check("gh.run in a fork clone pins the fork", gh.run(["pr", "view", "3"]) == "gzapi-org/herdr")
             remote("origin", "https://example.com/x/y.git")
-            check("outside a GitHub clone nothing is pinned, nothing guessed", gh.run(["pr", "view", "3"]) == "unset")
+            # An upstream github.com remote is still there: gh would guess it.
+            try:
+                gh.run(["pr", "view", "3"])
+                check("no repository named: a scoped call is refused, never guessed", False)
+            except gh.GhError as e:
+                check("no repository named: a scoped call is refused, never guessed",
+                      "never used" in e.reason and "example.com" not in e.reason, e.reason)
+            try:
+                gh.run(["api", "repos/{owner}/{repo}/pulls"])
+                check("…an api path naming {owner}/{repo} too", False)
+            except gh.GhError:
+                check("…an api path naming {owner}/{repo} too", True)
+            check("…a call naming its repository runs", gh.run(["pr", "view", "3", "--repo", "o/r"]) == "unset")
+            check("…a call on no repository runs", gh.run(["api", "user"]) == "unset")
         finally:
             os.chdir(cwd)
     for k, v in saved.items():
