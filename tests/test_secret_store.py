@@ -55,11 +55,12 @@ def main() -> int:
             os.makedirs(h)
             os.makedirs(g, mode=0o700)
             # No inherited GIT_*: run from a hook, GIT_DIR would point every
-            # git call here at the hook's repository, not the scratch one.
+            # git call here at the hook's repository, not the scratch one. The
+            # machine's /etc/gitconfig is no part of a scratch role either.
             return {**{k: v for k, v in os.environ.items() if k != "CLAUDECODE" and not k.startswith("GIT_")},
                     "HOME": h, "GNUPGHOME": g, "AGENT_FABRIC_ROOT": fabric,
                     "AGENT_FABRIC_SECRET_STORE": os.path.join(h, "store"),
-                    "GIT_CONFIG_GLOBAL": os.path.join(h, ".gitconfig")}
+                    "GIT_CONFIG_GLOBAL": os.path.join(h, ".gitconfig"), "GIT_CONFIG_NOSYSTEM": "1"}
 
         # Every git call runs in a role's env, the fixture's too: with the
         # runner's HOME a global init.templateDir, core.hooksPath or signing
