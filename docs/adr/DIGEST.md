@@ -385,7 +385,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 ### ADR-018 — Authority: one writer role per surface; a guard is hook + CI + suite; the read-only fence (Accepted)
 
 - Authority attaches to roles and policy files, never to logins or
-  directories (§2).
+  directories; holding a role gives nothing over its definition (§2).
 - agent-fabric, and `.agent-fabric/` in every project, is committed only
   by a session bound to `fabric-coordinator`: the hooks fence it, CI
   reads the `Fabric-Role:` trailer (§5 rules 1–4).
@@ -393,19 +393,19 @@ its record disagree, the record wins. Look it up, never read it whole:
   (§5 rules 2–3). A locale's holder commits its translations (§5 rule 5).
 - A contributor role (`authority.json` `contributors`) commits its
   entry's paths on its own branch (§5 rule 8).
-- A guard is a commit-time check, a CI check on every commit and a
+- A guard is a commit-time check, a CI check on every added commit and a
   planted suite case (§5 rule 6); a proposal is a message, or a
   contributor's branch (§5 rule 7).
-- The charter tripwire reads the base's `authority.json` (§6).
+- The tripwires read the base's `authority.json` (§6).
 - A 2026-09-28 — the charter tripwire runs in CI.
 - A 2026-09-30 — the stores are this role's (References).
 - A 2026-10-01 — the contributor carve-out (§5 rules 7–8).
 - A 2026-10-01 — the fence's code is never in an entry (§5 rule 8).
 - A 2026-10-01 — CI runs main's guards (§5 rule 4).
 - A 2026-10-04 — a merge is judged on its own change (§5 rules 3–4).
-- A 2026-10-07 — an entry that `merges` opens its own pull request (§5 rule 8).
-- Keywords: authority, read-only, fence, tripwire, Fabric-Role,
-  pre-commit, commit-msg, charter, locale carve-out, contributor, guard.
+- A 2026-10-07 — an entry that `merges` opens its own PR (§5 rule 8).
+- Keywords: authority, fence, Fabric-Role, charter,
+  contributor, merges.
 
 ### ADR-019 — Work arrives as pull requests: one open PR per agent and repository, 8 or more work commits to arm, the gate read before arming, no machine attribution, repository settings (Accepted)
 
