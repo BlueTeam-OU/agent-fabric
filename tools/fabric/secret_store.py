@@ -76,7 +76,10 @@ base (agent-fabric.trustedbase in its .git/config, set by `trust-base` or
 a new store's init, moved forward by each verified fetch). A refusal names
 the commit and why, applies nothing, and is kept beside the store for
 `fabric-secrets status` and `fabric-ctl keys` until a verified fetch
-succeeds. First contact, before a new agent's keys reach main, is the one
+succeeds. A signed commit gpg gave no verdict on (git or gpg could not
+run) is no refusal: the operation stops, "could not be verified",
+nothing applied and nothing kept; "not signed" is a commit with no
+signature header in the object itself. First contact, before a new agent's keys reach main, is the one
 exception, on both sides and only through a bundle: seed-child records the
 child's first bundle as its mirror's base, and the child's first
 take-bundle records its parent's (once).

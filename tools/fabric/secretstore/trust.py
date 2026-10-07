@@ -186,6 +186,16 @@ def _no_base(store: str) -> StoreError:
                       "fabric-secrets store trust-base, once, at the head it holds")
 
 
+def _carries_signature(store: str, commit: str) -> bool:
+    """Whether the commit object holds a signature header. Read from the
+    object, never from verify-commit's silence: it is silent both for an
+    unsigned commit and when it could not run, and only the first is a
+    refusal."""
+    raw = git(store, "cat-file", "commit", commit).stdout
+    headers = raw.split(b"\n\n", 1)[0].split(b"\n")
+    return any(h.startswith((b"gpgsig ", b"gpgsig-sha256 ")) for h in headers)
+
+
 def _main_show(rel: str, fabric: str | None = None) -> bytes | None:
     """A file as the fabric's origin/main has it; None when main has no such
     file. A checkout with no origin/main is an error, never a fallback."""
@@ -384,10 +394,19 @@ def _verify_incoming(store: str, tip: str, agent_id: str | None = None, fabric: 
                     bad = sorted(tags & {"EXPKEYSIG", "REVKEYSIG", "BADSIG", "EXPSIG"})[0]
                     raise refuse(c, {"BADSIG": "its signature does not verify", "EXPSIG": "its signature has expired",
                                      "EXPKEYSIG": "signed by an expired key", "REVKEYSIG": "signed by a revoked key"}[bad])
-                if not valid:
+                if not valid and tags & {"ERRSIG", "NO_PUBKEY"}:
                     raise refuse(c, "signed by a key that is no writer of this store on the fabric's main "
-                                    "(a new or rotated key not yet merged: fetch the fabric)" if "ERRSIG" in tags
-                                    or "NO_PUBKEY" in tags else "not signed")
+                                    "(a new or rotated key not yet merged: fetch the fabric)")
+                if not valid and _carries_signature(store, c):
+                    # Signed, and gpg gave no verdict: git or gpg could not
+                    # run (no usable TMPDIR, no gpg, a full disk). Fail
+                    # closed, but nothing was shown wrong with the commit, so
+                    # no refusal is recorded, as for unknown writers above
+                    # (fabric-coordinator, 01a117f0-1fff).
+                    raise StoreError(f"commit {c[:12]} could not be verified "
+                                     f"({_failure('git verify-commit', r).args[0]}); nothing applied")
+                if not valid:
+                    raise refuse(c, "not signed")
                 signer, primary = valid[2], valid[-1]
                 # Defence in depth, not dead code: gpg already refuses a
                 # signature by a key that is no signing key of its primary,

@@ -219,6 +219,23 @@ def main() -> int:
         sync = subprocess.run([sys.executable, SYNC, "status"], env=child, capture_output=True, text=True)
         check("repaired, the next verified fetch clears it", p.returncode == 0 and "REFUSED" not in sync.stdout,
               (p.stderr, sync.stdout))
+        # A writer's signed commit that gpg could not judge: verify-commit is
+        # silent when its TMPDIR is unusable, as for an unsigned commit, but
+        # the commit carries a signature, so it is no refusal (coordinator,
+        # 01a117f0-1fff). The unsigned case above is the control.
+        p = run(parent, "put", "kid", "UNJUDGED", stdin="u")
+        check("control: the parent's signed put reaches the remote", p.returncode == 0, p.stderr)
+        head = git(child, cstore, "rev-parse", "HEAD").stdout.strip()
+        p = run({**child, "TMPDIR": os.path.join(tmp, "no-such-dir")}, "set", "AFTER2", stdin="a")
+        sync = subprocess.run([sys.executable, SYNC, "status"], env=child, capture_output=True, text=True)
+        check("a signed commit with no verdict stops the write, 'could not be verified', nothing applied",
+              p.returncode == 1 and "could not be verified" in p.stderr and "nothing applied" in p.stderr
+              and "refused" not in p.stderr and git(child, cstore, "rev-parse", "HEAD").stdout.strip() == head
+              and not os.path.exists(os.path.join(cstore, "env", "UNJUDGED.gpg")), p.stderr)
+        check("…and records no refusal: status says none", "REFUSED" not in sync.stdout, sync.stdout)
+        p = run(child, "set", "AFTER2", stdin="a")
+        check("…verify able to run, the same commit is taken", p.returncode == 0
+              and os.path.exists(os.path.join(cstore, "env", "UNJUDGED.gpg")), p.stderr)
         # A stranger's key: a valid signature, by no writer of this store.
         subprocess.run(["gpg", "--batch", "--passphrase", "", "--quick-gen-key", "stranger <s@x>", "ed25519", "sign", "never"],
                        env=stranger, capture_output=True, check=True)
