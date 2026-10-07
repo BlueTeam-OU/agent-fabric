@@ -9,7 +9,7 @@ import sys
 
 from .core import StoreError, login, own_agent_id, home, store_dir, _run, gpg
 from .keys import key_of_store
-from .entries import _before_write, _push_if_ahead, set_entry, values
+from .entries import _before_write, _push_if_ahead, set_entry, values, names
 from .mirrors import resolve, put
 
 
@@ -43,7 +43,7 @@ def template_set(slug: str, value: bytes) -> dict:
 def templates() -> list[dict]:
     """Each template by its account and its token's fingerprint: the
     value goes into a hash and nowhere else."""
-    vals = values()
+    vals = values(only=[n for n in names() if n.startswith(TEMPLATE_PREFIX)])
     return [{"account": n[len(TEMPLATE_PREFIX):].lower().replace("_", "-"), "token_sha256_12": _sha12(v) if v else None}
             for n, v in sorted(vals.items()) if n.startswith(TEMPLATE_PREFIX)]
 
@@ -56,8 +56,8 @@ def assign(slug: str, logins: list[str], *, force: bool = False) -> list[dict]:
     own = store_dir()
     _before_write(own)
     _push_if_ahead(own)   # a record an earlier failed push left behind
-    vals = values()
     name = _slug_name(slug)
+    vals = values(only=[n for n in names() if n == name or n.startswith(ASSIGNED_PREFIX)])
     if not vals.get(name):
         raise StoreError(f"{slug} is not a template in this store (fabric-secrets store templates)")
     rows = []
