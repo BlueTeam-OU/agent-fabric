@@ -197,14 +197,14 @@ def new_job(doc: dict, title: str, *, topic=None, project=None, working_copy=Non
     return job
 
 
-INBOX = os.path.join(FABRIC_ROOT, "communication", "gzcoord", "scripts", "inbox.mjs")
+INBOX = os.path.join(FABRIC_ROOT, "bin", "gzcoord-inbox")
 
 
 def fetch_message(which: str) -> dict:
     """The message, read the way `gzcoord-inbox --replay` reads it: the
     relay's recent history, the body only when addressed to this login."""
     try:
-        p = subprocess.run(["node", INBOX, "--replay", which, "--json"], capture_output=True, text=True, timeout=15)
+        p = subprocess.run([INBOX, "--replay", which, "--json"], capture_output=True, text=True, timeout=15)
     except subprocess.TimeoutExpired:
         raise Refused(f"cannot read message {which}: the relay did not answer within 15 s")
     # Exit 2 is also inbox's refusal of a control channel: only its own

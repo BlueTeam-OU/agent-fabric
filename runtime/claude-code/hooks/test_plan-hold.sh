@@ -10,7 +10,7 @@
 # planning under one login hold and release independently; SessionEnd
 # clears; the hold directory must be the login's own, 700, not a symlink;
 # the hook is silent and exits 0 on every input, malformed included. The
-# reader side (inbox.mjs --held, and the watch not polling) is in
+# reader side (gzcoord-inbox --held, and the watch not polling) is in
 # communication/gzcoord/tests.
 #
 # Exit 0 all passed, 1 otherwise.

@@ -335,7 +335,7 @@ def verify_waiver(waiver: str, num: str, repo: str, head: str, session: str, rol
     stops a mistake, not a forger (review of 0c2498a, F4)."""
     role = waiver_role_checked(role)
     rc, out = run_reader(program("AGENT_FABRIC_GZCOORD_INBOX",
-                                 os.path.join(FABRIC, "communication", "gzcoord", "scripts", "inbox.mjs")),
+                                 os.path.join(FABRIC, "bin", "gzcoord-inbox")),
                          ["--replay", waiver, "--json"], timeout=120)
     try:
         msg = json.loads(out)
