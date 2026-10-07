@@ -319,7 +319,8 @@ def error_kind(body: bytes, types: frozenset[str] = ERROR_TYPES, codes: frozense
         return "unparseable body"
     except RecursionError:
         # JSON nested deeper than Python's recursion, which JSON.parse
-        # reads: JSON, but no type or code can be read from it.
+        # reads. Its type and code go unread, so the kind can be less
+        # specific than the .mjs gave; a non-recursive parser is not worth it.
         return "no error type"
     error = doc.get("error") if isinstance(doc, dict) else None
 
