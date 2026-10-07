@@ -37,6 +37,14 @@ def main() -> int:
         check(f"{f}: not boundary", not boundary(f))
     check("no classes", classes == {})
     check("no role waives the boundary: the owner arms it", waiver is None)
+    import glob
+    for cfg in sorted(glob.glob(os.path.join(HERE, "projects", "*", "integration", "gh", "arm.json"))):
+        rel = os.path.relpath(cfg, HERE)
+        try:
+            arm.load_config(cfg)
+            check(f"{rel} loads, its cases boundary", True)
+        except Exception as e:  # noqa: BLE001 - the case says which and why
+            check(f"{rel} loads, its cases boundary ({type(e).__name__}: {e})", False)
     print(f"\n{'all passed' if not fails else str(fails) + ' FAILED'}")
     return 1 if fails else 0
 
