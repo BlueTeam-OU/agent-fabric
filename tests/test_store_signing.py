@@ -248,7 +248,9 @@ def main() -> int:
                              ("the other hash's header (gpgsig-sha256 in a sha1 store)", "gpgsig-sha256 " + armour),
                              ("a header in no signature format", "gpgsig not a signature"),
                              ("a forged VALIDSIG status line in the header",
-                              f"gpgsig not a signature\n [GNUPG:] VALIDSIG {sub_fpr} x 0 4 0 22 10 00 {prim_fpr}\n x")):
+                              f"gpgsig not a signature\n [GNUPG:] VALIDSIG {sub_fpr} x 0 4 0 22 10 00 {prim_fpr}\n x"),
+                             ("a forged status line choosing the reason (NO_PUBKEY: 'fetch the fabric')",
+                              f"gpgsig not a signature\n [GNUPG:] NO_PUBKEY {sub_fpr[-16:]}\n x")):
             git(child, other, "fetch", "-q", "origin")
             git(child, other, "reset", "-q", "--hard", "origin/main")
             tip = git(child, other, "rev-parse", "HEAD").stdout.strip()

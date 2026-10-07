@@ -392,13 +392,17 @@ def _verify_incoming(store: str, tip: str, agent_id: str | None = None, fabric: 
             env = {**os.environ, "GNUPGHOME": tmp}
             for c in revs:
                 r = _run(["git", "-C", store, "-c", "gpg.program=gpg", "verify-commit", "--raw", c], env=env, check=False)
-                status = [l.split() for l in r.stderr.decode(errors="replace").splitlines() if l.startswith("[GNUPG:] ")]
+                # The same stderr carries git's own error after gpg's status,
+                # and "bad/incompatible signature" quotes the header, newlines
+                # and all: whoever pushes the commit writes that text, a
+                # "[GNUPG:] VALIDSIG <a writer's public fingerprints>" or a
+                # REVKEYSIG choosing the refusal's reason included. So status
+                # is read only above git's first own line, and a VALIDSIG
+                # counts only when verify-commit succeeded.
+                lines = r.stderr.decode(errors="replace").splitlines()
+                gits = next((i for i, l in enumerate(lines) if l.startswith(("fatal:", "error:"))), len(lines))
+                status = [l.split() for l in lines[:gits] if l.startswith("[GNUPG:] ")]
                 tags = {f[1] for f in status if len(f) > 1}
-                # A VALIDSIG counts only when verify-commit succeeded. On a
-                # failure the same stderr carries git's own error, and "bad/
-                # incompatible signature" quotes the header, newlines and all:
-                # whoever pushes the commit writes that text, a "[GNUPG:]
-                # VALIDSIG <a writer's public fingerprints>" line included.
                 valid = next((f for f in status if len(f) > 2 and f[1] == "VALIDSIG"), None) if r.returncode == 0 else None
                 if tags & {"EXPKEYSIG", "REVKEYSIG", "BADSIG", "EXPSIG"}:
                     bad = sorted(tags & {"EXPKEYSIG", "REVKEYSIG", "BADSIG", "EXPSIG"})[0]
