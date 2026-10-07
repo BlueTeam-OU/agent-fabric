@@ -81,6 +81,13 @@ exception, on both sides and only through a bundle: seed-child records the
 child's first bundle as its mirror's base, and the child's first
 take-bundle records its parent's (once).
 
+ONE WRITER PER STORE (the own-secrets review, R2). Every write to a store —
+set, rm, pull, init, put, assign, take-bundle, push, a recovery copy, a
+backup's pull — runs under secretstore/lock.py's flock on
+<store>/.git/agent-fabric-write.lock, waits up to WRITE_LOCK_WAIT_S, then
+refuses naming the holder; _before_write, _commit and _take_verified refuse
+a store whose lock the process does not hold.
+
 No function here prints a secret value. `values()` returns them to the
 caller in-process (fabric-secrets sync); everything else deals in names,
 fingerprints and paths.
@@ -101,6 +108,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 import tempfile
 
@@ -165,6 +173,7 @@ from secretstore.entries import (  # noqa: E402
     values,
 )
 from secretstore.reserved import RegistryUnreadable, reserved  # noqa: E402
+from secretstore.lock import write_lock  # noqa: E402
 from secretstore.mirrors import (  # noqa: E402
     BUNDLE_BEGIN,
     BUNDLE_END,
@@ -295,6 +304,8 @@ def main(argv: list[str] | None = None) -> int:
                                     "is rotated at its provider")
     rme.add_argument("name")
     rme.add_argument("--managed", action="store_true", help=managed_help)
+    rme.add_argument("--expect-last", metavar="COMMIT",
+                     help="remove only while COMMIT (a full sha) is still the last write to the entry")
     n = sub.add_parser("names")
     n.add_argument("--json", action="store_true")
     p = sub.add_parser("put")
@@ -380,7 +391,9 @@ def main(argv: list[str] | None = None) -> int:
             print(f"{args.name}: {'set' if r['changed'] else 'unchanged'}")
         elif args.cmd == "rm":
             _own_or_managed(args.name, args.managed, "removed")
-            r = rm_entry(args.name)
+            if args.expect_last is not None and not re.fullmatch(r"[0-9a-f]{40}", args.expect_last):
+                raise StoreError(f"--expect-last takes a full commit sha, not {args.expect_last!r}; nothing removed")
+            r = rm_entry(args.name, expect_last=args.expect_last)
             print(f"{args.name}: {'removed' if r['changed'] else 'absent'}")
         elif args.cmd == "names":
             ns = names()
@@ -410,10 +423,11 @@ def main(argv: list[str] | None = None) -> int:
             # What the parent put since is taken first, only as a fast-forward:
             # a re-enrolment after a put pushed the account's older head and
             # was refused as non-fast-forward. A new repository has no main.
-            git(store, "fetch", "-q", "origin")
-            if git(store, "rev-parse", "-q", "--verify", "refs/remotes/origin/main", check=False).returncode == 0:
-                _take_verified(store, "refs/remotes/origin/main")
-            git(store, "push", "-q", "-u", "origin", "HEAD:main")
+            with write_lock(store):
+                git(store, "fetch", "-q", "origin")
+                if git(store, "rev-parse", "-q", "--verify", "refs/remotes/origin/main", check=False).returncode == 0:
+                    _take_verified(store, "refs/remotes/origin/main")
+                git(store, "push", "-q", "-u", "origin", "HEAD:main")
             print("pushed")
         elif args.cmd == "bundle":
             sys.stdout.write(bundle_own())

@@ -259,7 +259,7 @@ def main() -> int:
         has("down to the exit codes", "2  invocation problem")
         has("and the header's last line", "would stop work for no reason.")
         lacks("and no code after it", "from __future__")
-        has("names the --json fields", "own_net, included, remaining}")
+        has("names the --json fields", "own_net, included, remaining, status, incident}")
 
         print("actions-health: a bad allowance is exit 2 before any network answer")
         for st in ("this_repo_public", "billing_unreadable", "major_outage"):
@@ -428,6 +428,11 @@ def main() -> int:
         put("billing_unreadable")
         invoke()
         rc("a summary without the component is unknown too", 2)
+        invoke("--json")
+        lines = out["text"].splitlines()
+        doc = json.loads(lines[-1]) if lines else {}
+        check("…and --json says status null: a page without the component was not read",
+              out["rc"] == 2 and "status" in doc and doc["status"] is None and doc.get("incident") is None, out["text"])
 
         print("actions-health: a billing answer it cannot parse is not a billing it read")
         reset()
@@ -526,12 +531,20 @@ def main() -> int:
             doc = {}
         check("one object, whatever --quiet says, with every field",
               out["rc"] == 0 and list(doc) == ["exit", "verdict", "reason", "public", "period", "private_minutes",
-                                               "private_net", "own_net", "included", "remaining"], out["text"])
+                                               "private_net", "own_net", "included", "remaining", "status",
+                                               "incident"], out["text"])
         check("…the values the line is made of",
               doc.get("exit") == 0 and doc.get("verdict") == "ok" and doc.get("public") is False
               and doc.get("period") == now.strftime("%Y-%m") and doc.get("private_minutes") == 3025
               and doc.get("private_net") == 0 and doc.get("own_net") is None and doc.get("included") == 50000
-              and doc.get("remaining") == 46975 and "3025 of 50000 minutes used" in doc.get("reason", ""), out["text"])
+              and doc.get("remaining") == 46975 and "3025 of 50000 minutes used" in doc.get("reason", "")
+              and doc.get("status") == "operational" and doc.get("incident") is None, out["text"])
+        reset()
+        put("incident", "Incident with Pages\n")
+        invoke("--json")
+        doc = json.loads(out["text"] or "{}")
+        check("an incident listed while Actions is operational is not quoted, so incident is null",
+              out["rc"] == 0 and doc.get("status") == "operational" and doc.get("incident") is None, out["text"])
         reset()
         put("this_repo_public")
         put("self_net", "0.75\n")
@@ -548,8 +561,8 @@ def main() -> int:
         doc = json.loads(lines[-1]) if lines else {}
         check("neither source read: exit 2, verdict unknown, the reason said on stderr too",
               out["rc"] == 2 and doc.get("verdict") == "unknown" and "health unknown" in doc.get("reason", "")
-              and any(ln.startswith("actions-health: ") for ln in lines) and doc.get("private_minutes") is None,
-              out["text"])
+              and any(ln.startswith("actions-health: ") for ln in lines) and doc.get("private_minutes") is None
+              and doc.get("status") is None and doc.get("incident") is None, out["text"])
         invoke("--json", allowance="abc")
         lines = out["text"].splitlines()
         doc = json.loads(lines[-1]) if lines else {}
@@ -558,9 +571,23 @@ def main() -> int:
         put("actions_status", "major_outage\n")
         invoke("--json")
         doc = json.loads(out["text"] or "{}")
-        check("a degraded platform: exit 1 before billing, its fields null",
+        check("a degraded platform: exit 1 before billing, its fields null; no incident, incident null",
               out["rc"] == 1 and doc.get("verdict") == "degraded" and doc.get("period") is None
-              and doc.get("private_minutes") is None, out["text"])
+              and doc.get("private_minutes") is None and doc.get("status") == "major_outage"
+              and doc.get("incident") is None, out["text"])
+        put("incident", "Incident with Actions. Runs are queued. Retry later\n")
+        invoke("--json")
+        doc = json.loads(out["text"] or "{}")
+        check("an outage with an incident: status and incident set, the incident whole with its \". \"",
+              out["rc"] == 1 and doc.get("status") == "major_outage"
+              and doc.get("incident") == "Incident with Actions. Runs are queued. Retry later"
+              and f"({doc.get('incident')})" in doc.get("reason", ""), out["text"])
+
+        put("incident", "Inc \\ud800 x\n")
+        for args in ((), ("--json",)):
+            invoke(*args)
+            check(f"a lone surrogate in the incident{' (--json)' if args else ''}: U+FFFD, the outage still reported",
+                  out["rc"] == 1 and "Traceback" not in out["text"] and "Inc \ufffd x" in out["text"], out["text"])
 
         print("actions-health: invocation errors")
         reset()
@@ -571,6 +598,29 @@ def main() -> int:
         r = subprocess.run([TOOL, "--json", "--nope"], env=base, capture_output=True, text=True, timeout=120)
         check("a usage error is stderr alone, even with --json",
               r.returncode == 2 and r.stdout == "" and "unknown option" in r.stderr, f"{r.stdout!r} {r.stderr!r}")
+
+    print("actions-health: a failure after the status page was read keeps what it read")
+    sys.path.insert(0, os.path.join(ROOT, "tools", "fabric", "github"))
+    import contextlib
+    import io
+
+    import actions_health as ah
+    saved = ah.actions_status, ah.shutil.which
+    try:
+        ah.actions_status = lambda: ("operational", "")
+
+        def which(name: str) -> str:
+            raise RuntimeError("billing broke")
+        ah.shutil.which = which
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(io.StringIO()):
+            code = ah.run(["--json"], env={})
+        doc = json.loads(buf.getvalue() or "{}")
+    finally:
+        ah.actions_status, ah.shutil.which = saved
+    check("could not decide: exit 2, verdict unknown, status still operational",
+          code == 2 and doc.get("verdict") == "unknown" and doc.get("status") == "operational"
+          and doc.get("incident") is None and doc.get("private_minutes") is None, buf.getvalue())
 
     print(f"\ntest_actions_health_cli: {'OK' if not fails else f'FAILED — {fails} check(s)'}")
     return 1 if fails else 0

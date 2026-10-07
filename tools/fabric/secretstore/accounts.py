@@ -11,6 +11,7 @@ from .core import StoreError, login, own_agent_id, home, store_dir, _run, gpg
 from .keys import key_of_store
 from .entries import _before_write, _push_if_ahead, set_entry, values, names
 from .mirrors import resolve, put
+from .lock import write_lock
 
 
 # ── the Claude-account templates (ADR-031), in the coordinator's store ─
@@ -54,44 +55,45 @@ def assign(slug: str, logins: list[str], *, force: bool = False) -> list[dict]:
     back); the assignment is recorded in the parent's own store, since
     the parent cannot read the child's."""
     own = store_dir()
-    _before_write(own)
-    _push_if_ahead(own)   # a record an earlier failed push left behind
-    name = _slug_name(slug)
-    vals = values(only=[n for n in names() if n == name or n.startswith(ASSIGNED_PREFIX)])
-    if not vals.get(name):
-        raise StoreError(f"{slug} is not a template in this store (fabric-secrets store templates)")
-    rows = []
-    fp = _sha12(vals[name])
-    me = own_agent_id(own)
-    for who in logins:
-        # A login or an agent id, resolved first (ADR-039 rule 5); rows
-        # name the agent by its login, the record keys it by its id.
-        try:
-            aid, lin = resolve(who)
-        except StoreError as e:
-            rows.append({"login": who, "from": "none", "status": "failed", "reason": str(e)[:160]})
-            continue
-        who, rec = lin.get("login") or who, _assigned_name(aid)
-        # The parent's record is "<slug> <fingerprint>": the parent cannot
-        # read the child's entry, so whether the child already holds this
-        # token is decided here, by what the parent last wrote.
-        was, _, was_fp = (vals.get(rec) or "none").partition(" ")
-        if was == slug and was_fp == fp and not force:
-            rows.append({"login": who, "from": was, "to": slug, "status": "unchanged", "token_sha256_12": fp})
-            continue
-        try:
-            # The store's own agent has no mirror of itself under children/:
-            # its token is its own entry, which it can also read back
-            # (failed as "no store at …/children/<own id>", 2026-10-01).
-            if aid == me:
-                set_entry("CLAUDE_CODE_OAUTH_TOKEN", vals[name].encode(), exact=True)
-            else:
-                put(aid, "CLAUDE_CODE_OAUTH_TOKEN", vals[name].encode(), exact=True)
-            set_entry(rec, f"{slug} {fp}".encode(), exact=True)
-            rows.append({"login": who, "from": was, "to": slug, "status": "written", "token_sha256_12": fp})
-        except StoreError as e:
-            rows.append({"login": who, "from": was, "status": "failed", "reason": str(e)[:160]})
-    return rows
+    with write_lock(own):
+        _before_write(own)
+        _push_if_ahead(own)   # a record an earlier failed push left behind
+        name = _slug_name(slug)
+        vals = values(only=[n for n in names() if n == name or n.startswith(ASSIGNED_PREFIX)])
+        if not vals.get(name):
+            raise StoreError(f"{slug} is not a template in this store (fabric-secrets store templates)")
+        rows = []
+        fp = _sha12(vals[name])
+        me = own_agent_id(own)
+        for who in logins:
+            # A login or an agent id, resolved first (ADR-039 rule 5); rows
+            # name the agent by its login, the record keys it by its id.
+            try:
+                aid, lin = resolve(who)
+            except StoreError as e:
+                rows.append({"login": who, "from": "none", "status": "failed", "reason": str(e)[:160]})
+                continue
+            who, rec = lin.get("login") or who, _assigned_name(aid)
+            # The parent's record is "<slug> <fingerprint>": the parent cannot
+            # read the child's entry, so whether the child already holds this
+            # token is decided here, by what the parent last wrote.
+            was, _, was_fp = (vals.get(rec) or "none").partition(" ")
+            if was == slug and was_fp == fp and not force:
+                rows.append({"login": who, "from": was, "to": slug, "status": "unchanged", "token_sha256_12": fp})
+                continue
+            try:
+                # The store's own agent has no mirror of itself under children/:
+                # its token is its own entry, which it can also read back
+                # (failed as "no store at …/children/<own id>", 2026-10-01).
+                if aid == me:
+                    set_entry("CLAUDE_CODE_OAUTH_TOKEN", vals[name].encode(), exact=True)
+                else:
+                    put(aid, "CLAUDE_CODE_OAUTH_TOKEN", vals[name].encode(), exact=True)
+                set_entry(rec, f"{slug} {fp}".encode(), exact=True)
+                rows.append({"login": who, "from": was, "to": slug, "status": "written", "token_sha256_12": fp})
+            except StoreError as e:
+                rows.append({"login": who, "from": was, "status": "failed", "reason": str(e)[:160]})
+        return rows
 
 
 # ── the owner's sheet ─────────────────────────────────────────────────
