@@ -182,9 +182,11 @@ def dirty_toplevel() -> str | None:
     # failed there, and read it as clean). Of rev-parse's failures, only
     # "not a git repository (or any …" says there is none, and no git at
     # all (127) stays the bash's; any other — dubious ownership, a broken
-    # config, a linked worktree whose gitdir is gone ("not a git
-    # repository: <path>") — is git not answering for a working copy that
-    # may be there (#100's review, round 7).
+    # config, a linked worktree whose gitdir is gone (git 2.55 says "not a
+    # git repository: <path>", 2.56 "gitfile does not point to a valid
+    # repository", and any other wording counts the same) — is git not
+    # answering for a working copy that may be there (#100's review,
+    # round 7).
     inside = _git("rev-parse", "--is-inside-work-tree")
     if inside.returncode not in (0, 127) and "not a git repository (or any" not in inside.stderr:
         raise Unknown(f"git rev-parse failed: {_reason(inside)}")
