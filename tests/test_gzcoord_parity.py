@@ -20,7 +20,10 @@ sha256 of their JSON; the diagnostics themselves (ok, errors, warnings, a
 parse's error) are kept whole, so a disagreement reads as text.
 
 Once the Node validator is gone the corpus cannot be re-recorded: it is
-the Node's verdict, frozen, and this test holds the Python to it.
+the Node's verdict, frozen, and this test holds the Python to it. One edit
+since: the MESSAGE-ID hint names `gzmsg new-id`, as the command is now
+called, where the recording said `gzmsg.mjs new-id`; the lines that carry
+it were rewritten in place and nothing else in them.
 Plain script: prints ok/FAIL, exit 1 on any failure."""
 from __future__ import annotations
 

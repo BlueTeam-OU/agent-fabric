@@ -55,11 +55,11 @@ refusal. The first job is `gzcoord-compose`, architect-cto-01's request
 - FROM and ROLE come from `fabric-whoami`;
 - PROJECT and REPOSITORY come from the working copy, unless given;
 - the id is minted;
-- the message is validated as `send.mjs` validates it, and written to
+- the message is validated as `gzcoord-send` validates it, and written to
   the scratchpad;
 - `--send` posts it.
 
-`gzcoord-compose` is built on the Python that `send.mjs` and `gzmsg.mjs`
+`gzcoord-compose` is built on the Python that `gzcoord-send` and `gzmsg`
 become in ADR-040's Wave 7 (python-dev's), so it validates with the
 validator `send` uses; it starts when that wave lands. New tooling is
 Python, standard library only, on the interpreter the fabric pins.
@@ -68,8 +68,8 @@ Python, standard library only, on the interpreter the fabric pins.
 
 - The GZCoord grammar is frozen (`communication/gzcoord/protocol/`,
   fabric-coordinator's). A tool composes what SPEC.md already allows and
-  validates with the same code `send.mjs` uses, never a second copy.
-- `send.mjs` and `inbox.mjs` write each agent's journal (ADR-041). A
+  validates with the same code `gzcoord-send` uses, never a second copy.
+- `gzcoord-send` and `gzcoord-inbox` write each agent's journal (ADR-041). A
   send is kept before it is posted, and a page before it is
   acknowledged. A change that moves either step is a finding to
   fabric-coordinator before it is code.

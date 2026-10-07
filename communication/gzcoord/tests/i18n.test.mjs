@@ -21,7 +21,7 @@ const FABRIC = fileURLToPath(new URL('../../../', import.meta.url));
 // environment can point it elsewhere (blind review F1 on PR #28). The tree
 // is the checkout's shape, the Python modules beside the shims that run
 // them (ADR-040's 2026-10-01 amendment: a fixture may copy the modules of
-// the scripts it copies).
+// the scripts it copies); the entry is bin/gzcoord-inbox, beside them.
 const brokenTree = (contents) => {
   const dir = scratch('i18n-broken-');
   const gz = path.join(dir, 'communication', 'gzcoord');
@@ -41,14 +41,17 @@ const brokenTree = (contents) => {
                 { recursive: true, filter: src => !src.split(path.sep).includes('__pycache__') });
   fs.mkdirSync(path.join(gz, 'i18n'), { recursive: true });
   fs.writeFileSync(path.join(gz, 'i18n', 'en-US.json'), contents);
-  return path.join(gz, 'scripts', 'inbox.mjs');
+  fs.mkdirSync(path.join(dir, 'bin'));
+  fs.copyFileSync(path.join(FABRIC, 'bin', 'gzcoord-inbox'), path.join(dir, 'bin', 'gzcoord-inbox'));
+  fs.chmodSync(path.join(dir, 'bin', 'gzcoord-inbox'), 0o755);
+  return path.join(dir, 'bin', 'gzcoord-inbox');
 };
 
 for (const [what, contents] of [['unparsable', '{ not json'], ['absent', null]]) {
   test(`a ${what} default dictionary degrades loudly and the tool still runs`, () => {
     const entry = brokenTree(contents ?? '{}');
-    if (contents === null) fs.rmSync(path.join(path.dirname(entry), '..', 'i18n', 'en-US.json'));
-    const r = spawnSync(process.execPath, [entry, '--held'],
+    if (contents === null) fs.rmSync(path.join(path.dirname(entry), '..', 'communication', 'gzcoord', 'i18n', 'en-US.json'));
+    const r = spawnSync(entry, ['--held'],
                         { env: { ...process.env, AGENT_FABRIC_ROOT: FABRIC.replace(/\/$/, '') }, encoding: 'utf8' });
     const { status, stdout, stderr } = r;
     // Constrained, not unconstrained: --held answers 0 held / 1 not held,

@@ -32,7 +32,7 @@ Pick the type (`INFO`, `OBSERVATION`, `QUESTION`, `REQUEST`, `REVIEW`,
 
 ```text
 [GZCOORD/1] OBSERVATION
-FROM: <host>/<login>            # yours — send.mjs refuses any other
+FROM: <host>/<login>            # yours — gzcoord-send refuses any other
 ROLE: <slug>                    # the role you hold (fabric-status); a catalogue slug, never a title
 PROJECT: <project>
 REPOSITORY: <org>/<repo>        # when it concerns one
@@ -70,7 +70,7 @@ Rules that are not style:
 - **Lines of 72 columns or fewer, where you can** — a courtesy to the
   reader's terminal, not a rule of the wire: the bridge carries a line
   as written, so a path or an id that is longer goes out whole and
-  `send.mjs` says nothing about it. Only a message someone will paste
+  `gzcoord-send` says nothing about it. Only a message someone will paste
   by hand (`gzmsg validate`) still warns about width.
 - **Address one way.** `TO` for a session, `TO-ROLE` for whoever holds
   the role, `BROADCAST` for a rule everyone applies. A recipient reads the
@@ -80,7 +80,7 @@ Rules that are not style:
   `REQUEST`, a finding to fix, a supply — anything with a `REQUEST:`,
   `ACCEPTANCE:` or `DELIVER-TO:` section — names a login, because the
   runtime delivers a role address to every holder and each executes the
-  job unaware of the others: two PRs on the same hunk. `send.mjs` refuses it. When you do not
+  job unaware of the others: two PRs on the same hunk. `gzcoord-send` refuses it. When you do not
   know which holder: the one whose pushed branch — PR or not — touches
   the path (`pr-gate.sh --in-flight --path <prefix>`), else one holding it with a session running now
   (`fabric-ctl all presence`), else the lowest-numbered login — and say which rule chose
@@ -105,7 +105,7 @@ Rules that are not style:
   name where a finding is (file, line, PR) and what class of problem it
   is, never its content, and let the reader open it in their own
   repository. The PostModelSwitch hook says this to you the moment it
-  happens, naming the category, and `send.mjs` repeats it on stderr
+  happens, naming the category, and `gzcoord-send` repeats it on stderr
   while the session is marked as fallen back; it cannot check the
   content, only you can.
 - **When you start acting on someone's finding, say where**: a `REPLY`
@@ -142,7 +142,7 @@ integration; the token from the file `fabric-secrets sync` writes,
 `~/.config/agent-fabric/secrets.env`, which no shell sources). It prints `sent seq <n> <TYPE> <id>` and nothing else — the
 id it minted, or yours. Keep the id: a reply names it in `IN-REPLY-TO`.
 
-**Before a `TO` or `TO-ROLE` message leaves, `send.mjs` asks whether the
+**Before a `TO` or `TO-ROLE` message leaves, `gzcoord-send` asks whether the
 addressee has a session running** — the control plane answers from each
 account's process table (`fabric-ctl <login|all> presence` shows the
 same). An addressee with no session, a control agent that did not answer
@@ -177,7 +177,7 @@ fabric-ctl <login> presence    # one account
 fabric-ctl all presence        # everyone
 ```
 
-`send.mjs` asks the same before a `TO` or `TO-ROLE` message leaves (§3).
+`gzcoord-send` asks the same before a `TO` or `TO-ROLE` message leaves (§3).
 A crash, or a launch that never started, reads as no session: presence is
 the process table, not what a session said about itself. A **role cannot
 change inside a session**: it is bound from a login shell

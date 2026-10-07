@@ -107,7 +107,7 @@ def db_path() -> str:
 
 
 def own_address() -> str:
-    """<host>/<login>, as the inbox and send.mjs address this account
+    """<host>/<login>, as the inbox and gzcoord-send address this account
     (identity.current_host() is the short hostname)."""
     return f"{socket.gethostname().split('.')[0]}/{_login()}"
 
@@ -136,12 +136,12 @@ _JS_TRIM = "\t\n\v\f\r \u00a0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2
 
 
 def parse_header(text: str) -> tuple[str, dict[str, str]]:
-    """(type, metadata) of a GZCOORD/1 message, read exactly as gzmsg.mjs
+    """(type, metadata) of a GZCOORD/1 message, read exactly as gzmsg
     parse() reads it: the inbox decides a record is addressed with that
     parser, and the journal must key the message the inbox saw (review of
     #78: a header that ended at a blank line read body lines as header).
     A byte-order mark is dropped; KEY: value lines up to the first section
-    marker; a repeated key keeps its last value. Validating is send.mjs's
+    marker; a repeated key keeps its last value. Validating is gzcoord-send's
     and the reader's job."""
     lines = text.lstrip("\ufeff").replace("\r\n", "\n").split("\n")
     m = _FIRST.match(lines[0] if lines else "")

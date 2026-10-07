@@ -644,7 +644,7 @@ def parse_args(argv: list[str], spec: dict) -> dict:
     return {"flags": flags, "positional": positional}
 
 
-USAGE = "usage: gzmsg.mjs validate <file> | normalize <file> | new-id   (--taxonomy <path> | --no-taxonomy)"
+USAGE = "usage: gzmsg validate <file> | normalize <file> | new-id   (--taxonomy <path> | --no-taxonomy)"
 
 
 def _read(file: str) -> str:
@@ -672,7 +672,7 @@ def main(argv: list[str]) -> int:
         taxonomy = load_taxonomy(tax_path) if tax_path else None
         if cmd == "validate":
             if not args["positional"]:
-                raise UsageError("usage: gzmsg.mjs validate <file>")
+                raise UsageError("usage: gzmsg validate <file>")
             result = validate(_read(args["positional"][0]), taxonomy=taxonomy, t=i18n.t_for(whoami()))
             for w in result["warnings"]:
                 print(f"warning: {w}", file=sys.stderr)
@@ -683,7 +683,7 @@ def main(argv: list[str]) -> int:
             return 0
         if cmd == "normalize":
             if not args["positional"]:
-                raise UsageError("usage: gzmsg.mjs normalize <file>")
+                raise UsageError("usage: gzmsg normalize <file>")
             sys.stdout.write(normalize(_read(args["positional"][0])))
             return 0
         if cmd == "new-id":

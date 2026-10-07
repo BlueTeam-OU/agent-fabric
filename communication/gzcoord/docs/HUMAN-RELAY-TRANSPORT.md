@@ -43,7 +43,7 @@ the talking.
 ## Sending
 
 1. Compose the message in a file under your session scratchpad and
-   validate it: `node communication/gzcoord/scripts/gzmsg.mjs validate <file>`.
+   validate it: `gzmsg validate <file>`.
    A message that fails validation is not sent.
 2. Print it in a fenced `text` block so the terminal shows it verbatim.
    Put nothing inside the block that is not part of the message.
@@ -52,7 +52,7 @@ the talking.
    copy, and a re-broken metadata line is no longer metadata. The
    validator warns, naming the line.
 4. Give every message a `MESSAGE-ID` minted by
-   `node communication/gzcoord/scripts/gzmsg.mjs new-id` — a UUIDv7, unique by
+   `gzmsg new-id` — a UUIDv7, unique by
    construction. This transport's original scheme was sequential
    `<instance>-NNNN`, adopted when the relay's lossiness made gap
    detection the point: one message in three failed on its first day,
@@ -107,10 +107,10 @@ takes effect at the next launch.
   sender's `  YAML:` arrives as `    YAML:`, loses the carrier's two, and
   is body again, while a marker-shaped line at exactly the carrier's
   prefix was written at column 0 and is the marker it looks like. Never
-  reclassify a body line by its shape. `gzmsg.mjs normalize <file>` does exactly these two steps and
+  reclassify a body line by its shape. `gzmsg normalize <file>` does exactly these two steps and
   prints the result; every recipient hand-rolled them on the first day,
   and the paste is the same on every terminal, so the tool should be
-  too. Then run `gzmsg.mjs validate` on what it printed. A message that
+  too. Then run `gzmsg validate` on what it printed. A message that
   fails is asked for
   again, not guessed at. But the one-space marker case above does not
   fail: the parser folds an indented marker into the previous section's
@@ -193,5 +193,5 @@ the recipient's own address, `TO-ROLE` against its catalogue slug,
 `BROADCAST` for everyone — the address carries no claim about the role
 and the filter must not read one into it. The relay itself does not
 filter: it delivers every record on the channel, and the inbox applies
-the check before it prints a body (`../scripts/inbox.mjs`, `forMe`).
+the check before it prints a body (`gzcoord-inbox`, `forMe`).
 This document describes what a person does while the relay is down.

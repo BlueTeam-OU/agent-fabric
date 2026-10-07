@@ -379,7 +379,7 @@ def _():
 
 # ── cases that run a command beside a function: ported whole ─────────
 
-INBOX_CMD = os.path.join(HERE, "communication", "gzcoord", "scripts", "inbox.mjs")
+INBOX_CMD = os.path.join(HERE, "bin", "gzcoord-inbox")
 
 
 def last_line(text: str) -> str:
@@ -389,7 +389,7 @@ def last_line(text: str) -> str:
 
 
 def replay_usage(env: dict) -> "subprocess.CompletedProcess[str]":
-    return subprocess.run(["node", INBOX_CMD, "--replay"], env=env, capture_output=True, text=True, timeout=60,
+    return subprocess.run([INBOX_CMD, "--replay"], env=env, capture_output=True, text=True, timeout=60,
                           stdin=subprocess.DEVNULL)
 
 
@@ -402,7 +402,7 @@ def _():
     eq(last_line(r.stderr), i18n.default_dictionary()["replay.usage"])
 
 
-USAGE_KA = "ᲒᲐᲛᲝᲧᲔᲜᲔᲑᲐ: inbox.mjs --replay <seq|message-id>"
+USAGE_KA = "ᲒᲐᲛᲝᲧᲔᲜᲔᲑᲐ: gzcoord-inbox --replay <seq|message-id>"
 
 
 def live_env(values: dict) -> tuple[str, dict, dict]:
