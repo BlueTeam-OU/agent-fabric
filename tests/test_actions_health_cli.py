@@ -428,6 +428,11 @@ def main() -> int:
         put("billing_unreadable")
         invoke()
         rc("a summary without the component is unknown too", 2)
+        invoke("--json")
+        lines = out["text"].splitlines()
+        doc = json.loads(lines[-1]) if lines else {}
+        check("…and --json says status null: a page without the component was not read",
+              out["rc"] == 2 and "status" in doc and doc["status"] is None and doc.get("incident") is None, out["text"])
 
         print("actions-health: a billing answer it cannot parse is not a billing it read")
         reset()
