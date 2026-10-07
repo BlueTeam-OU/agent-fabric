@@ -12,6 +12,7 @@ import { memorySlug } from '../ops.mjs';
 import { ENVELOPE_KEYS } from '../protocol.mjs';
 import { answer, upRecord } from '../agentd.mjs';
 import { askPresence } from '../presence.mjs';
+import { stateRecord } from '../sessions.mjs';
 import { signRequest, generateOperatorKey } from '../sign.mjs';
 import { buildRequest, parseArgs } from '../ctl.mjs';
 
@@ -55,6 +56,11 @@ test('the request presence sends is a Request; a signed one too', async () => {
 
 test('what agentd posts when it comes up is an Up', () => {
   holds(upRecord('h/db-admin'), 'up', 'up');
+});
+
+test('what agentd posts about its sessions is a State, with and without a binding', () => {
+  holds(stateRecord('h/db-admin', { sessions: [{ session: 's', state: 'idle', since: 't' }], role: 'db-admin', project: 'gzapp' }), 'state', 'state');
+  holds(stateRecord('h/db-admin', { sessions: [], role: null, project: null }), 'state', 'unbound state');
 });
 
 test('the request fabric-ctl sends is a Request, for every op shape it builds', () => {

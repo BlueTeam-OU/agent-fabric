@@ -182,7 +182,8 @@ not on a pipe's exit status.
 ## 8. Decision Status
 
 Accepted and in force: the attribution ban, pull requests only, the
-band, one open PR per agent. The settings note is now a stub pointing here.
+band, one open PR per agent and repository. The settings note is now a
+stub pointing here.
 
 ## References
 
@@ -206,4 +207,4 @@ The body above reads current; each change's full note is in [history/ADR-019-ame
 | 2026-10-04 | `main` is protected | §5 rule 6, §6: a ruleset requires a pull request, the CI checks and signed commits; auto-merge on, so arming waits for green |
 | 2026-10-05 | Eight or more arm without the owner's word, over sixteen too | §1, §5 rule 4: the owner's rulings of 2026-10-05; sixteen is batch-size advice only |
 | 2026-10-05 | One required check | §5 rule 6, §6, §7: the ruleset requires CI's aggregate job `ci-ok` alone, in place of eleven per-leg names; the topics join the settings |
-| 2026-10-06 | One open pull request per agent and repository | title, §2, §5 rule 2: the limit is per repository; a branch in another repository is never addable |
+| 2026-10-06 | One open pull request per agent and repository | title, §2, §5 rule 2, §8: the limit is per repository; a branch in another repository is never addable |

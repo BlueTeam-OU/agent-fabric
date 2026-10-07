@@ -18,10 +18,10 @@ import { fileURLToPath } from 'node:url';
 const CTL = fileURLToPath(new URL('../ctl.mjs', import.meta.url));
 
 test('parseArgs: targets, op, flags, defaults', () => {
-  assert.deepEqual(parseArgs(['all']), { targets: ['all'], op: 'status', json: false, timeout: 20, out: null, days: null, piece: null, version: null, force: false, expect: null, restart: false, title: null, topic: null, project: null });
-  assert.deepEqual(parseArgs(['db-admin', 'ping', '--json']), { targets: ['db-admin'], op: 'ping', json: true, timeout: 5, out: null, days: null, piece: null, version: null, force: false, expect: null, restart: false, title: null, topic: null, project: null });
-  assert.deepEqual(parseArgs(['all', 'memory', '--out', '/tmp/d']), { targets: ['all'], op: 'memory', json: false, timeout: 120, out: '/tmp/d', days: null, piece: null, version: null, force: false, expect: null, restart: false, title: null, topic: null, project: null });
-  assert.deepEqual(parseArgs(['all', 'tokens', '--days', '3']), { targets: ['all'], op: 'tokens', json: false, timeout: 60, out: null, days: 3, piece: null, version: null, force: false, expect: null, restart: false, title: null, topic: null, project: null });
+  assert.deepEqual(parseArgs(['all']), { targets: ['all'], op: 'status', json: false, timeout: 20, out: null, days: null, piece: null, version: null, force: false, expect: null, restart: false, title: null, topic: null, project: null, follow: false });
+  assert.deepEqual(parseArgs(['db-admin', 'ping', '--json']), { targets: ['db-admin'], op: 'ping', json: true, timeout: 5, out: null, days: null, piece: null, version: null, force: false, expect: null, restart: false, title: null, topic: null, project: null, follow: false });
+  assert.deepEqual(parseArgs(['all', 'memory', '--out', '/tmp/d']), { targets: ['all'], op: 'memory', json: false, timeout: 120, out: '/tmp/d', days: null, piece: null, version: null, force: false, expect: null, restart: false, title: null, topic: null, project: null, follow: false });
+  assert.deepEqual(parseArgs(['all', 'tokens', '--days', '3']), { targets: ['all'], op: 'tokens', json: false, timeout: 60, out: null, days: 3, piece: null, version: null, force: false, expect: null, restart: false, title: null, topic: null, project: null, follow: false });
   assert.equal(parseArgs(['all', 'tokens', '--days=14']).days, 14);
   assert.throws(() => parseArgs(['all', 'tokens', '--days', '0']), /--days/);
   assert.throws(() => parseArgs(['all', 'status', '--days', '3']), /--days/, 'a window belongs to tokens only');
@@ -634,3 +634,109 @@ test('a placed non-operator may ask presence, and nothing else; an unplaced one 
   } finally { r.close(); }
 });
 
+
+test('states: the newest state record per account, the state that most wants a person, stale as unknown', async () => {
+  const { states, stateRow, STATES_STALE_MS } = await import('../ctl.mjs');
+  const now = Date.parse('2026-10-07T12:00:00Z');
+  const rec = (from, sessions, ts = '2026-10-07T11:59:00Z', extra = {}) => ({ id: `${from}-${ts}`, content: JSON.stringify({ v: 1, kind: 'state', from, ts, sessions, ...extra }) });
+  const messages = [
+    rec('h/a', [{ session: 's1', state: 'working', since: 't0' }], '2026-10-07T11:50:00Z'),
+    { id: 'r', content: JSON.stringify({ v: 1, kind: 'reply', from: 'h/a', sessions: [] }) },
+    { id: 'junk', content: 'not json' },
+    rec('h/a', [{ session: 's1', state: 'idle', since: 't1' }, { session: 's2', state: 'blocked', since: 't2' }], '2026-10-07T11:59:00Z', { role: 'web-dev', project: 'gzapp' }),
+    rec('h/b', [], new Date(now - STATES_STALE_MS - 1000).toISOString()),
+    rec('h/other', [{ session: 'x', state: 'working', since: 't' }]),
+  ];
+  const out = [];
+  const calls = [];
+  const call = async p => { calls.push(p); return { messages }; };
+  const rc = await states({ json: true, follow: false }, [{ address: 'h/a' }, { address: 'h/b' }, { address: 'h/c' }], { call, cfg: { channel: 'fabric:control', relay_url: 'x' }, out: m => out.push(JSON.parse(m)), now: () => now });
+  assert.equal(rc, 1, 'an account with no record is a short table');
+  assert.equal(calls.length, 1); assert.ok(!calls[0].includes('/api/send'), 'a read, nothing sent');
+  assert.deepEqual(out.map(r => [r.address, r.state, r.since ?? null, r.role ?? null]), [['h/a', 'blocked', 't2', 'web-dev'], ['h/b', 'unknown', null, null], ['h/c', 'unknown', null, null]]);
+  assert.equal(stateRow('h/d', { ts: new Date(now).toISOString(), sessions: [] }, now).state, 'none', 'no session: none, not unknown');
+});
+
+test('states --follow prints each new record for an expected account, and survives a relay outage', async () => {
+  const { states } = await import('../ctl.mjs');
+  const now = Date.parse('2026-10-07T12:00:00Z');
+  const st = (id, from, state) => ({ id, content: JSON.stringify({ v: 1, kind: 'state', from, ts: '2026-10-07T12:00:00Z', sessions: [{ session: 's', state, since: 't' }] }) });
+  const script = [
+    () => ({ messages: [st('1', 'h/a', 'idle')] }),
+    () => { throw new Error('ECONNREFUSED'); },
+    () => ({ messages: [st('2', 'h/z', 'working'), st('3', 'h/a', 'working')] }),
+    () => ({ warning: 'since_id_not_found' }),
+    () => ({ messages: [{ id: '9' }] }),
+    () => ({ messages: [st('10', 'h/a', 'blocked')] }),
+  ];
+  const seen = [];
+  const out = [], err = [];
+  let i = 0, stop = null;
+  const call = async p => { seen.push(p); if (i >= script.length) { stop(); return new Promise(() => {}); } return script[i++](); };
+  const done = new Promise(r => { stop = r; });
+  states({ json: true, follow: true }, [{ address: 'h/a' }], { call, cfg: { channel: 'fabric:control', relay_url: 'x' }, out: m => out.push(JSON.parse(m).state), err: m => err.push(m), now: () => now, sleep: async () => {} });
+  await done;
+  assert.deepEqual(out, ['idle', 'working', 'blocked'], 'the snapshot, then each change of h/a only');
+  assert.equal(err.length, 2, `down once, back once: ${err}`);
+  assert.ok(seen[1].includes('since_id=1') && seen.some(p => p.includes('since_id=9')), `waits after the last id, re-anchors after a lost one: ${seen}`);
+});
+
+test('states takes --follow, and --follow goes with nothing else', () => {
+  assert.equal(parseArgs(['all', 'states', '--follow', '--json']).op, 'states');
+  assert.equal(parseArgs(['all', 'states', '--follow']).follow, true);
+  assert.throws(() => parseArgs(['all', 'status', '--follow']), /--follow goes with states only/);
+});
+
+test('states: a forged record can mislead a row, never stop the table or reach the terminal raw (review of #105)', async () => {
+  const { states } = await import('../ctl.mjs');
+  const now = Date.parse('2026-10-07T12:00:00Z');
+  const ts = '2026-10-07T11:59:00Z';
+  const forged = [
+    { v: 1, kind: 'state', from: 'h/a', ts, sessions: [null] },
+    { v: 1, kind: 'state', from: 'h/a', ts, sessions: [{ session: 's', state: { x: 1 } }] },
+    { v: 1, kind: 'state', from: 'h/a', ts: 5, sessions: [] },
+    { v: 1, kind: 'state', from: 'h/a', ts, sessions: [], role: ['x'] },
+  ].map((r, i) => ({ id: `f${i}`, content: JSON.stringify(r) }));
+  const good = { id: 'g', content: JSON.stringify({ v: 1, kind: 'state', from: 'h/b', ts, role: 'web\x1b]52;c;ZXZpbA==\x07dev', sessions: [{ session: 's', state: 'idle', since: 't' }] }) };
+  const out = [];
+  const rc = await states({ json: false, follow: false }, [{ address: 'h/a' }, { address: 'h/b' }], { call: async () => ({ messages: [...forged, good] }), cfg: { channel: 'c', relay_url: 'x' }, out: m => out.push(m), now: () => now });
+  assert.equal(rc, 1);
+  assert.equal(out.length, 2, 'every account has its row');
+  assert.match(out[0], /unknown/, 'a malformed record is no record');
+  assert.ok(!/[\x00-\x1f\x7f]/.test(out.join('')), `no control character reaches the terminal: ${JSON.stringify(out)}`);
+  // --follow: a forged record is skipped, never read as a relay outage.
+  const err = []; const lines = []; let i = 0, stop;
+  const done = new Promise(r => { stop = r; });
+  const script = [() => ({ messages: [{ id: 'z' }] }), () => ({ messages: [...forged, { id: 'ok', content: JSON.stringify({ v: 1, kind: 'state', from: 'h/a', ts, sessions: [] }) }] })];
+  states({ json: true, follow: true }, [{ address: 'h/a' }], { call: async () => { if (i >= script.length) { stop(); return new Promise(() => {}); } return script[i++](); }, cfg: { channel: 'c', relay_url: 'x' }, out: m => lines.push(JSON.parse(m).state), err: m => err.push(m), now: () => now, sleep: async () => {} });
+  await done;
+  assert.deepEqual(lines, ['unknown', 'none']);
+  assert.deepEqual(err, [], 'no outage said');
+});
+
+test('states --follow: a row goes unknown when its account falls silent, a heartbeat prints nothing, the re-anchor is read (review of #105)', async () => {
+  const { states, STATES_STALE_MS } = await import('../ctl.mjs');
+  let t = Date.parse('2026-10-07T12:00:00Z');
+  const st = (id, state, at = new Date(t).toISOString()) => ({ id, content: JSON.stringify({ v: 1, kind: 'state', from: 'h/a', ts: at, sessions: [{ session: 's', state, since: 'x' }] }) });
+  const paths = [];
+  const script = [
+    () => ({ messages: [st('1', 'working')] }),                       // snapshot
+    () => ({ messages: [st('2', 'working')] }),                       // a heartbeat: nothing new
+    () => { t += STATES_STALE_MS + 1000; return { messages: [] }; },  // silence past the deadline
+    () => ({ warning: 'since_id_not_found' }),                        // the cursor is lost
+    () => ({ messages: [st('5', 'blocked')] }),                       // the re-anchor holds the news
+    () => ({ messages: [] }),
+    () => ({ messages: [null, { content: 'x' }, { id: '6', content: '{}' }] }),  // odd replies the relay may give
+    () => null,
+  ];
+  const out = [], err = [];
+  let i = 0, stop;
+  const done = new Promise(r => { stop = r; });
+  const call = async p => { paths.push(p); if (i >= script.length) { stop(); return new Promise(() => {}); } return script[i++](); };
+  states({ json: true, follow: true }, [{ address: 'h/a' }], { call, cfg: { channel: 'fabric:control', state_channel: 'fabric:state:control', relay_url: 'x' }, out: m => out.push(JSON.parse(m).state), err: m => err.push(m), now: () => t, sleep: async () => {} });
+  await done;
+  assert.deepEqual(out, ['working', 'unknown', 'blocked'], 'the snapshot, the staleness, the re-anchored record; no line for the heartbeat or the odd replies');
+  assert.deepEqual(err, []);
+  assert.ok(paths.every(p => p.includes('channel=fabric%3Astate%3Acontrol')), `the state channel only: ${paths}`);
+  assert.ok(paths.some(p => p.includes('since_id=6')), 'an odd reply with an id still moves the cursor');
+});

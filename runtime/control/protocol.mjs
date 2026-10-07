@@ -1,12 +1,13 @@
-// runtime/control/protocol.mjs — the control plane's three envelopes (ADR-029):
-// what ctl and presence send, what agentd accepts and answers with, and what
-// it announces when it comes up. JSDoc typedefs for a reader, and each
-// envelope's keys as data, because no checker reads JSDoc here (agent-fabric
-// typing is option (B), j28): runtime/control/tests/protocol.test.mjs holds
-// the envelopes the code builds to these keys (agentd's replies and their
-// parts, presence's request, ctl's request in every op shape it builds,
-// the up record), so a typedef that drifts from the code fails a test
-// rather than claiming a shape that is gone.
+// runtime/control/protocol.mjs — the control plane's four envelopes (ADR-029):
+// what ctl and presence send, what agentd accepts and answers with, what
+// it announces when it comes up, and what its account's sessions are
+// doing. JSDoc typedefs for a reader, and each envelope's keys as data,
+// because no checker reads JSDoc here (agent-fabric typing is option (B),
+// j28): runtime/control/tests/protocol.test.mjs holds the envelopes the
+// code builds to these keys (agentd's replies and their parts, presence's
+// request, ctl's request in every op shape it builds, the up and state
+// records), so a typedef that drifts from the code fails a test rather
+// than claiming a shape that is gone.
 //
 // Not GZCoord: these ride the relay's control channel as JSON, and
 // gzcoord.mjs (the relay client) never reads them.
@@ -53,8 +54,23 @@
  * @property {string} ts
  */
 
+/**
+ * State: what an account's sessions are doing (runtime/control/sessions.mjs),
+ * posted by agentd when it changes and on a heartbeat (ADR-029 rule 16).
+ * @typedef {object} State
+ * @property {1} v
+ * @property {'state'} kind
+ * @property {string} from
+ * @property {string} ts
+ * @property {{session: string, state: 'working'|'blocked'|'idle', since: string}[]} sessions
+ *                                       every live session; empty when none runs
+ * @property {string} [role]             the account's bound role
+ * @property {string} [project]          the binding's project
+ */
+
 export const ENVELOPE_KEYS = Object.freeze({
   request: Object.freeze({ required: ['v', 'kind', 'id', 'from', 'to', 'op', 'ts'], optional: ['ttl_s', 'days', 'args', 'sig'] }),
   reply: Object.freeze({ required: ['v', 'kind', 'id', 'in_reply_to', 'from', 'op', 'ts', 'ok'], optional: ['data'] }),
   up: Object.freeze({ required: ['v', 'kind', 'from', 'ts'], optional: [] }),
+  state: Object.freeze({ required: ['v', 'kind', 'from', 'ts', 'sessions'], optional: ['role', 'project'] }),
 });

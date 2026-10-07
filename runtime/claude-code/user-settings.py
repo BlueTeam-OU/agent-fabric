@@ -123,6 +123,23 @@ def memory_check_hook() -> dict:
         "timeout": 10}]}
 
 
+# What each session is doing (hooks/session-state.py), at user scope for
+# the same reason: every session of the account, wherever it was started,
+# keeps its state where the account's control agent reads it (ADR-029
+# rule 16). One entry per event, identified by the script's name, so a
+# moved checkout rewrites the path rather than adding a second.
+SESSION_STATE = "session-state.py"
+SESSION_EVENTS = ("SessionStart", "UserPromptSubmit", "PreToolUse", "PermissionRequest", "Notification",
+                  "Stop", "SessionEnd")
+
+
+def session_state_hook() -> dict:
+    return {"hooks": [{
+        "type": "command",
+        "command": f'python3 "{os.path.join(FABRIC_ROOT, "runtime", "claude-code", "hooks", SESSION_STATE)}"',
+        "timeout": 5}]}
+
+
 def hooks_problem(hooks) -> str | None:
     """What makes an account's `hooks` value one this writer refuses, or
     None. One test for both callers: main() refuses on it before anything
@@ -130,8 +147,10 @@ def hooks_problem(hooks) -> str | None:
     # A PostToolUse that is not a list is a mistake in the account's own
     # file: iterating it wrote its keys or characters back as entries.
     # Refused, the file left untouched, like an unreadable one.
-    if isinstance(hooks, dict) and "PostToolUse" in hooks and not isinstance(hooks["PostToolUse"], list):
-        return "hooks.PostToolUse is not a list"
+    if isinstance(hooks, dict):
+        for event in ("PostToolUse", *SESSION_EVENTS):
+            if event in hooks and not isinstance(hooks[event], list):
+                return f"hooks.{event} is not a list"
     return None
 
 
@@ -157,6 +176,32 @@ def with_memory_check(hooks: dict) -> dict:
             post.append({**e, "hooks": kept})
     hooks["PostToolUse"] = post + [memory_check_hook()]
     return hooks
+
+
+def with_session_state(hooks: dict) -> dict:
+    """`hooks` with exactly one session-state entry per event, the current
+    one; every other entry kept as it was."""
+    hooks = dict(hooks) if isinstance(hooks, dict) else {}
+    problem = hooks_problem(hooks)
+    if problem:
+        raise Unreadable(problem)
+    for event in SESSION_EVENTS:
+        kept = []
+        for e in hooks.get(event) or []:
+            if not isinstance(e, dict) or not isinstance(e.get("hooks"), list):
+                kept.append(e)
+                continue
+            mine = [h for h in e["hooks"] if not (isinstance(h, dict) and SESSION_STATE in str(h.get("command", "")))]
+            if len(mine) == len(e["hooks"]):
+                kept.append(e)
+            elif mine:
+                kept.append({**e, "hooks": mine})
+        hooks[event] = kept + [session_state_hook()]
+    return hooks
+
+
+def with_fabric_hooks(hooks: dict) -> dict:
+    return with_session_state(with_memory_check(hooks))
 
 
 # The environment override is for a test, which must never write the
@@ -313,7 +358,7 @@ def settled(doc: dict, auto: dict | None) -> bool:
             and not any(r in allowed(doc) for r in rules()[1])
             and "includeCoAuthoredBy" not in doc
             and all(doc.get(k) == v for k, v in TOP_LEVEL.items())
-            and doc.get("hooks") == with_memory_check(doc.get("hooks"))
+            and doc.get("hooks") == with_fabric_hooks(doc.get("hooks"))
             and isinstance(doc.get("env"), dict) and all(doc["env"].get(k) == v for k, v in ENV.items())
             and all(overrides.get(k) == v for k, v in SKILL_OVERRIDES.items())
             and (auto is None or doc.get("autoMode") == auto))
@@ -375,7 +420,7 @@ def main(argv: list[str]) -> int:
     perms["allow"] = [r for r in allowed(doc) if r not in withheld] + [r for r in granted if r not in allowed(doc)]
     perms["defaultMode"] = "auto"
     doc["permissions"] = perms
-    doc["hooks"] = with_memory_check(doc.get("hooks"))
+    doc["hooks"] = with_fabric_hooks(doc.get("hooks"))
     overrides = doc.get("skillOverrides") if isinstance(doc.get("skillOverrides"), dict) else {}
     doc["skillOverrides"] = {**overrides, **SKILL_OVERRIDES}
     if auto is not None:

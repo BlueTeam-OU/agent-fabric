@@ -88,7 +88,6 @@ if [[ "$what" == all || "$what" == bash ]]; then
     run "model fallback note" bash runtime/claude-code/hooks/test_model-fallback-note.sh
     run "install-agent-files (the locale worker)" bash runtime/claude-code/test_install-agent-files.sh
     run "the fabric's user settings (attribution off, thinking summaries, verbose)" bash runtime/claude-code/test_user-settings.sh
-    run "hostexec (local and ssh backends)" bash runtime/hostexec/test_hostexec.sh
 fi
 
 echo

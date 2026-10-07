@@ -71,6 +71,9 @@ def main() -> int:
             sh(scratch, "clone", "-q", origin, wc)
             sh(wc, "commit", "-q", "--allow-empty", "-m", "base")
             sh(wc, "push", "-q", "origin", "HEAD:main")
+            # A clone of an empty origin has no origin/HEAD, and before git
+            # 2.48 no fetch sets it: set it as a clone of a non-empty one has it.
+            sh(wc, "remote", "set-head", "origin", "main")
             sh(wc, "branch", "merged")
             sh(wc, "checkout", "-q", "-b", "owed")
             sh(wc, "commit", "-q", "--allow-empty", "-m", "owed")
@@ -91,12 +94,29 @@ def main() -> int:
         cwd = os.getcwd()
         os.chdir(wc)
         try:
-            check("a merged branch is 0", br.ahead("merged") == "0")
-            check("a branch with a commit off main is 1", br.ahead("owed") == "1")
-            check("a ref git does not know is ?", br.ahead("nope") == "?")
-            check("an empty ref counts HEAD, as the bash did", br.ahead("") == "0")
+            check("a merged branch is 0", br.ahead("merged", "origin/main") == "0")
+            check("a branch with a commit off main is 1", br.ahead("owed", "origin/main") == "1")
+            check("a ref git does not know is ?", br.ahead("nope", "origin/main") == "?")
+            check("an empty ref counts HEAD, as the bash did", br.ahead("", "origin/main") == "0")
         finally:
             os.chdir(cwd)
+
+        print("a registry entry that is not an object is a refusal, never a traceback")
+        odd = os.path.join(scratch, "odd")
+        sh(scratch, "init", "-q", "-b", "main", odd)
+        sh(odd, "remote", "add", "origin", "https://github.com/gzapi-org/herd")
+        real_load = br.workingcopy.load_registry
+        br.workingcopy.load_registry = lambda *_a: {"version": 1, "projects": {"herd": ["not", "an", "object"]}}
+        os.chdir(odd)
+        try:
+            br.default_branch()
+            refused = ""
+        except br.Refused as e:
+            refused = str(e)
+        finally:
+            os.chdir(cwd)
+            br.workingcopy.load_registry = real_load
+        check("a malformed entry, matched by the remote: Refused, said", "cannot be read" in refused, refused)
 
         print("the worktree listing")
         sh(wc, "worktree", "add", "-q", os.path.join(scratch, "wt-a"), "-b", "wt-a", "main")
@@ -232,10 +252,10 @@ def main() -> int:
         wc = fixture("recount")
         os.chdir(wc)
         try:
-            check("a branch that has commits off main is KEPT when handed over", br.sweep_one("owed", set()) == "KEPT owed"
+            check("a branch that has commits off main is KEPT when handed over", br.sweep_one("owed", set(), "origin/main") == "KEPT owed"
                   and "owed" in branches_of(wc))
-            check("a branch that cannot be counted is KEPT", br.sweep_one("nope", set()) == "KEPT nope")
-            check("a checked-out branch is KEPT with the reason", br.sweep_one("merged", {"merged"}).startswith("KEPT merged — checked out")
+            check("a branch that cannot be counted is KEPT", br.sweep_one("nope", set(), "origin/main") == "KEPT nope")
+            check("a checked-out branch is KEPT with the reason", br.sweep_one("merged", {"merged"}, "origin/main").startswith("KEPT merged — checked out")
                   and "merged" in branches_of(wc))
             real_run = br.git.run
 
@@ -243,13 +263,13 @@ def main() -> int:
                 raise AssertionError("git was asked")
             br.git.run = never
             try:
-                kept_x = br.sweep_one("-x", set())
+                kept_x = br.sweep_one("-x", set(), "origin/main")
             except AssertionError:
                 kept_x = "git was asked"
             finally:
                 br.git.run = real_run
             check("a name that starts with - is KEPT without asking git", kept_x == "KEPT -x", kept_x)
-            check("a merged branch is deleted, with its sha", br.sweep_one("merged", set()).startswith("deleted merged (")
+            check("a merged branch is deleted, with its sha", br.sweep_one("merged", set(), "origin/main").startswith("deleted merged (")
                   and "merged" not in branches_of(wc))
         finally:
             os.chdir(cwd)
@@ -276,6 +296,11 @@ def main() -> int:
         sh(scratch, "init", "-q", "-b", "main", wc)
         sh(wc, "remote", "add", "origin", os.path.join(scratch, "empty-origin.git"))
         sh(scratch, "init", "-q", "--bare", "-b", "main", os.path.join(scratch, "empty-origin.git"))
+        r = fabric(wc, "--sweep")
+        check("no default branch known (origin/HEAD unset, no registry entry): exit 2, said, nothing counted",
+              r.returncode == 2 and "the default branch of origin is unknown" in r.stderr, r.stdout + r.stderr)
+        # Known, and absent on origin: origin/HEAD names a branch the remote has not got.
+        sh(wc, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
         r = fabric(wc, "--sweep")
         check("no origin/main: exit 2", r.returncode == 2 and "no origin/main here" in r.stderr, r.stdout + r.stderr)
         r = fabric(wc, "--nope")

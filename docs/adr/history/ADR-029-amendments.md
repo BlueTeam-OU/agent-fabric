@@ -59,3 +59,21 @@ login can read none of them, so the owner ruled on 2026-10-06 that the
 file be manageable from the control plane, as a report and a prune of
 secrets only: the account's own control agent reads and rewrites its own
 file, and nothing a request carries reaches it but the operation's name.
+
+### Amendment 2026-10-07 — Session state on the control channel
+
+§5 rule 16 added. The operator watches the fleet through herdr, one pane
+per account, and its agent panel showed only presence: whether a
+session ran, read by asking every account's control agent on a timer,
+never what the session was doing. The owner asked whether polling was
+the right solution and whether it would reach an agent on another host,
+and approved the event-driven design: the harness's own hook events
+(prompt submitted, tool call, permission prompt, idle, stop, end) are
+written by the session's account into its own state directory, and the
+control agent already running there says it on the control channel, on
+a change only. Nothing new listens on a port and no account is asked;
+the display reads one stream. A second host needs only what §7
+already names, a relay its daemons reach.
+
+Live: a hook payload on the coordinator's account reached
+`fabric-ctl states` as blocked within seconds, and its end as none.

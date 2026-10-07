@@ -3,6 +3,8 @@
 #
 #   fabric-ctl <login|all> [status|usage|identity|keys|fabric|session|script|recall|host|disk|accounts|ping] [--json] [--timeout S]
 #   fabric-ctl <login|all> presence               whether each has a session, since when, as what — from ANY account
+#   fabric-ctl <login|all> states [--follow] [--json]   what each account's sessions are doing (working,
+#                                                 blocked, idle) from agentd's state records; no request sent
 #   fabric-ctl <login|all> host                   the machine, one row per host: load, memory and the Xen
 #                                                 balloon, disks, the leases held, the largest processes
 #   fabric-ctl <login|all> disk                   each account's own home, largest first: total, its largest

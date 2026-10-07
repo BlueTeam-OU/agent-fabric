@@ -86,6 +86,9 @@ def main() -> int:
                        stderr=subprocess.DEVNULL)
         git("commit", "-q", "--allow-empty", "-m", "base")
         git("push", "-q", "origin", "HEAD:main")
+        # A clone of an empty origin has no origin/HEAD, and before git 2.48
+        # no fetch sets it: set it as a clone of a non-empty one has it.
+        git("remote", "set-head", "origin", "main")
         # merged: its commit is on main. owed: one commit that is not.
         # theirs: a local copy of another agent's branch, merged.
         git("checkout", "-q", "-b", f"{me}/merged")
@@ -151,7 +154,8 @@ def main() -> int:
         git("remote", "set-url", "origin", f"{t}/nowhere.git")
         rc, out = run("--sweep")
         check("a failed fetch: exit 2, nothing deleted",
-              rc == 2 and has_branch(f"{me}/merged") and "fetch origin failed" in out, f"rc={rc}\n{out}")
+              rc == 2 and has_branch(f"{me}/merged") and "fetch origin failed" in out
+              and "counting against a stale origin/main" in out, f"rc={rc}\n{out}")
         git("remote", "set-url", "origin", origin)
         rc, out = run(cwd=t)
         check("outside a working copy: exit 2", rc == 2, f"rc={rc}\n{out}")
@@ -190,6 +194,72 @@ def main() -> int:
         except (OSError, ValueError, TypeError):
             recorded = False
         check("…and the sweep is recorded for the working copy", recorded)
+
+        print("fabric-branches: origin/HEAD missing, and the fetch sets it again")
+        v = tuple(int(x) for x in re.findall(r"\d+", git("version", cwd=t))[:2])
+        if v >= (2, 48):
+            git("remote", "set-head", "origin", "-d")
+            rc, out = run()
+            check("read after the fetch (git 2.48+ sets it): counted against origin/main as before",
+                  rc == 0 and "commits not on origin/main" in out, f"rc={rc}\n{out}")
+        else:
+            print(f"  skip git {v[0]}.{v[1]} does not set origin/HEAD on fetch")
+
+        print("fabric-branches: a remote whose default branch is master")
+        origin2, wc2 = f"{t}/herd.git", f"{t}/herd"
+        subprocess.run(["git", "init", "-q", "--bare", "-b", "master", origin2], env=env, check=True, timeout=30)
+        git("clone", "-q", origin2, wc2, cwd=t)
+        git("commit", "-q", "--allow-empty", "-m", "base", cwd=wc2)
+        git("push", "-q", "origin", "HEAD:master", cwd=wc2)
+        git("remote", "set-head", "origin", "master", cwd=wc2)
+        git("checkout", "-q", "-b", "merged-here", cwd=wc2)
+        git("commit", "-q", "--allow-empty", "-m", "merged", cwd=wc2)
+        git("push", "-q", "origin", "merged-here:master", cwd=wc2)
+        git("checkout", "-q", "master", cwd=wc2)
+        git("pull", "-q", "--ff-only", "origin", "master", cwd=wc2)
+        rc, out = run(cwd=wc2)
+        check("origin/HEAD names master: counted against origin/master, the merged branch at 0",
+              rc == 0 and "commits not on origin/master" in out and "safe to delete (0): merged-here" in out
+              and "  master  " not in out, f"rc={rc}\n{out}")
+        # origin/HEAD unset, and kept unset by the fetch (as before git 2.48):
+        # the project's registry entry says which.
+        git("remote", "set-head", "origin", "-d", cwd=wc2)
+        git("config", "remote.origin.followRemoteHEAD", "never", cwd=wc2)
+        fab = f"{t}/fab"
+        os.makedirs(f"{fab}/projects")
+        with open(f"{fab}/projects/registry.json", "w", encoding="utf-8") as fh:
+            json.dump({"version": 1, "projects": {"herd": {"remotes": [], "default_branch": "master"}}}, fh)
+        with open(f"{wc2}/.agent-fabric-project", "w", encoding="utf-8") as fh:
+            fh.write("herd\n")
+        r = subprocess.run([CMD], cwd=wc2, env={**env, "AGENT_FABRIC_ROOT": fab}, stdout=subprocess.PIPE,
+                           stderr=subprocess.STDOUT, text=True, timeout=120)
+        check("origin/HEAD unset: the registry's default_branch, master",
+              r.returncode == 0 and "commits not on origin/master" in r.stdout, f"rc={r.returncode}\n{r.stdout}")
+        # A marker naming no project the registry knows, and a registry that
+        # does not parse: refusals, prefixed, exit 2 — never a traceback.
+        with open(f"{wc2}/.agent-fabric-project", "w", encoding="utf-8") as fh:
+            fh.write("typo\n")
+        r = subprocess.run([CMD], cwd=wc2, env={**env, "AGENT_FABRIC_ROOT": fab}, capture_output=True,
+                           text=True, timeout=120)
+        check("a marker naming an unknown project: exit 2, a prefixed refusal",
+              r.returncode == 2 and r.stderr.startswith("fabric-branches: ") and "does not know" in r.stderr,
+              f"rc={r.returncode}\n{r.stderr}")
+        os.remove(f"{wc2}/.agent-fabric-project")
+        with open(f"{fab}/projects/registry.json", "w", encoding="utf-8") as fh:
+            fh.write("{")
+        r = subprocess.run([CMD], cwd=wc2, env={**env, "AGENT_FABRIC_ROOT": fab}, capture_output=True,
+                           text=True, timeout=120)
+        check("a registry that does not parse: exit 2, a prefixed refusal, no traceback",
+              r.returncode == 2 and r.stderr.startswith("fabric-branches: ") and "Traceback" not in r.stderr,
+              f"rc={r.returncode}\n{r.stderr}")
+        with open(f"{fab}/projects/registry.json", "w", encoding="utf-8") as fh:
+            json.dump({"version": 1, "projects": {}}, fh)
+        # Neither: unknown, never guessed as main.
+        r = subprocess.run([CMD], cwd=wc2, env={**env, "AGENT_FABRIC_ROOT": fab}, stdout=subprocess.PIPE,
+                           stderr=subprocess.STDOUT, text=True, timeout=120)
+        check("neither: exit 2, the default branch said unknown, nothing counted against main",
+              r.returncode == 2 and "default branch" in r.stdout and "origin/main" not in r.stdout,
+              f"rc={r.returncode}\n{r.stdout}")
 
     print(f"\ntest_fabric_branches_cli: {'OK' if not fails else f'FAILED — {fails} check(s)'}")
     return 1 if fails else 0

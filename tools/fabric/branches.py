@@ -15,7 +15,8 @@ CONTRACT, frozen from the bash (ADR-040 §5 rule 3):
             said when a deletion they were asked for failed
   exit      0 reported, or swept; 2 refused — an unknown argument, not in a
             git working copy, uncommitted changes with --sweep, a failed
-            fetch, no origin/main, or a git call whose answer could not be
+            fetch, no default branch known (origin/HEAD unset and none in
+            projects/registry.json) or none on origin, or a git call whose answer could not be
             read; 1 a sweep that deleted what it was to but could not record
             itself (or whose closing `git branch` failed)
 
@@ -44,7 +45,8 @@ direction that must not happen:
   - every call is bounded: a call that does not answer is a failure.
 Replicated, though odd: a branch whose upstream was pruned shows its
 `b@{u}` spec on one line and `-` on the next; a branch whose commits cannot be counted shows `?`
-and is kept; a local branch named `main` is never listed; a worktree whose
+and is kept; the local branch named for the default branch is never
+listed; a worktree whose
 `HEAD` line is empty is counted as the working copy's own HEAD.
 """
 from __future__ import annotations
@@ -60,6 +62,7 @@ ROOT = os.path.dirname(os.path.dirname(HERE))
 sys.path.insert(0, HERE)
 import gh  # noqa: E402
 import git  # noqa: E402
+import workingcopy  # noqa: E402
 
 HELP = """bin/fabric-branches — local branch hygiene: what is left over in this
 working copy, and the deletion of what is provably merged (agent-fabric
@@ -68,23 +71,27 @@ ADR-022).
   fabric-branches            report every local branch and worktree
   fabric-branches --sweep    report, then delete what shows 0
 
-The number beside a branch is how many of its commits are NOT on
-origin/main, after a plain `git fetch origin`: a refspec fetch does not
-move origin/main, and a stale one makes merged work look unmerged. 0
-means everything on the branch is already on main, so deleting it
-loses nothing. --sweep deletes exactly those, re-counted at deletion,
-and removes a worktree only when it has no changes, no ignored files
-and no lock, its commit is on main, and it is not the one this runs
-in. Anything with commits off main is reported with its commits and
-its pull request, and kept: it is work still owed, or the person's
-decision. The current branch and main are never touched.
+The number beside a branch is how many of its commits are NOT on the
+remote's default branch — origin/HEAD, as the launcher reads it, else
+the project's default_branch in projects/registry.json; main where that
+is main — after a plain `git fetch origin`: a refspec fetch does not
+move it, and a stale one makes merged work look unmerged. 0 means
+everything on the branch is already on the default branch, so deleting
+it loses nothing. --sweep deletes exactly those, re-counted at
+deletion, and removes a worktree only when it has no changes, no
+ignored files and no lock, its commit is on the default branch, and it
+is not the one this runs in. Anything with commits off it is reported
+with its commits and its pull request, and kept: it is work still owed,
+or the person's decision. The current branch and the default branch are
+never touched.
 
 Local only: no remote branch is deleted or pushed; the merge queue owns
 those. A branch tracking another agent's remote branch is only a local
 copy, deleted like any other when it shows 0.
 
-Refused (exit 2) outside a git working copy, when the fetch fails, and
-for --sweep on a working copy with uncommitted changes. A sweep that
+Refused (exit 2) outside a git working copy, when the default branch is
+unknown (never guessed), when the fetch fails, and for --sweep on a
+working copy with uncommitted changes. A sweep that
 completes is recorded, per working copy, in the agent's state; the
 session-start hook says when this working copy's last one is old."""
 
@@ -127,11 +134,58 @@ def lines_of(text: str) -> list[str]:
     return text.rstrip("\n").split("\n") if text.rstrip("\n") else []
 
 
-def ahead(ref: str) -> str:
-    """How many commits of `ref` are not on origin/main; `?` when git cannot
-    say, which is never 0."""
+def default_branch() -> str | None:
+    """The remote's default branch: origin/HEAD, as the launcher and the
+    session-start hook read it; else the default_branch projects/
+    registry.json gives this working copy's project. None when neither
+    says: unknown, never guessed as main (a managed project's default can
+    be master)."""
     try:
-        r = git.run(".", "rev-list", "--count", f"origin/main..{ref}", check=False)
+        r = git.run(".", "symbolic-ref", "-q", "--short", "refs/remotes/origin/HEAD", check=False)
+    except git.GitError:
+        r = None
+    if r is not None and r.returncode == 0 and r.stdout.strip().startswith("origin/"):
+        return r.stdout.strip()[len("origin/"):]
+    # The registry's word for this working copy's project: its marker, else
+    # its origin remote, matched as tools/fabric/workingcopy.py matches them.
+    # The remote is read here, bounded: workingcopy's own git call is not.
+    # What cannot be read is a refusal, as every other here (exit 2).
+    try:
+        registry = workingcopy.load_registry()
+    except (OSError, ValueError) as e:
+        raise Refused(f"projects/registry.json cannot be read ({e}); the default branch of origin is unknown") from None
+    projects = registry.get("projects") if isinstance(registry, dict) else None
+    if not isinstance(projects, dict):
+        raise Refused("projects/registry.json has no projects map; the default branch of origin is unknown")
+    if os.path.isfile(workingcopy.MARKER):
+        try:
+            with open(workingcopy.MARKER, encoding="utf-8") as fh:
+                project = fh.read().strip()
+        except (OSError, UnicodeDecodeError) as e:
+            raise Refused(f"{workingcopy.MARKER} cannot be read ({e})") from None
+        if project not in projects:
+            raise Refused(f"{workingcopy.MARKER} names project {project!r}, which projects/registry.json does "
+                          "not know; the default branch of origin is unknown")
+    else:
+        try:
+            u = git.run(".", "remote", "get-url", "origin", check=False)
+        except git.GitError as e:
+            raise Refused(str(e)) from None
+        try:
+            project = workingcopy.project_for_remote(u.stdout.strip() if u.returncode == 0 else None, registry)
+        except (AttributeError, TypeError) as e:
+            raise Refused(f"projects/registry.json has a project entry that cannot be read ({e}); the default "
+                          "branch of origin is unknown") from None
+    entry = projects.get(project or "")
+    name = entry.get("default_branch") if isinstance(entry, dict) else None
+    return name if isinstance(name, str) and name else None
+
+
+def ahead(ref: str, base: str) -> str:
+    """How many commits of `ref` are not on `base` (origin/<default>); `?`
+    when git cannot say, which is never 0."""
+    try:
+        r = git.run(".", "rev-list", "--count", f"{base}..{ref}", check=False)
     except git.GitError:
         return "?"
     n = r.stdout.strip()
@@ -228,8 +282,8 @@ def record_sweep(top: str) -> None:
         identity.atomic_write(path, json.dumps(doc, indent=2, sort_keys=True) + "\n")
 
 
-def sweep_one(b: str, checked_out: set[str]) -> str:
-    """Delete branch `b` if, counted again now, it is wholly on origin/main,
+def sweep_one(b: str, checked_out: set[str], base: str) -> str:
+    """Delete branch `b` if, counted again now, it is wholly on `base`,
     and say what was done in the report's words. Anything else — a count
     that is not 0 or cannot be had, a sha that cannot be read, a name git
     would take for an option, a refusal by git — is KEPT."""
@@ -242,7 +296,7 @@ def sweep_one(b: str, checked_out: set[str]) -> str:
             sha = s.stdout.strip() if s.returncode == 0 else ""
         except git.GitError:
             sha = ""
-    if not sha or ahead(b) != "0":
+    if not sha or ahead(b, base) != "0":
         return f"KEPT {b}"
     try:
         d = git.run(".", "branch", "-q", "-D", b, check=False)
@@ -289,6 +343,14 @@ def run(argv: list[str]) -> int:
         say("uncommitted changes here; commit or stash them first — nothing deleted")
         return 2
 
+    # Fetched first: git 2.48 and later set a missing origin/HEAD on fetch,
+    # so the default branch is read from what the fetch left. What it names
+    # before the fetch is only for the failure's message.
+    try:
+        pre = git.run(".", "symbolic-ref", "-q", "--short", "refs/remotes/origin/HEAD", check=False)
+        stale = pre.stdout.strip() if pre.returncode == 0 and pre.stdout.strip() else "default branch"
+    except git.GitError:
+        stale = "default branch"
     try:
         fetched = git.run(".", "fetch", "-q", "origin", check=False, timeout=FETCH_TIMEOUT_S)
         failed = fetched.returncode != 0
@@ -296,11 +358,18 @@ def run(argv: list[str]) -> int:
     except git.GitError as e:
         failed, err = True, e.reason
     if failed:
-        say(f"git fetch origin failed ({err}); counting against a stale origin/main would call merged work "
+        say(f"git fetch origin failed ({err}); counting against a stale {stale} would call merged work "
             "unmerged — nothing done")
         return 2
-    if git.run(".", "rev-parse", "-q", "--verify", "origin/main", check=False).returncode != 0:
-        say("no origin/main here")
+    default = default_branch()
+    if not default:
+        say("the default branch of origin is unknown: origin/HEAD is unset (the fetch did not set it; git remote "
+            "set-head origin --auto does) and projects/registry.json names none for this working copy — "
+            "nothing counted")
+        return 2
+    base = f"origin/{default}"
+    if git.run(".", "rev-parse", "-q", "--verify", base, check=False).returncode != 0:
+        say(f"no {base} here")
         return 2
 
     identity = load_identity()
@@ -325,7 +394,7 @@ def run(argv: list[str]) -> int:
         wt_count += 1
         changes = status_lines(path)
         ignored = status_lines(path, "--ignored")
-        n = ahead(wt["head"])
+        n = ahead(wt["head"], base)
         why = ""
         if changes is None or ignored is None:
             why = "status unreadable"
@@ -346,13 +415,13 @@ def run(argv: list[str]) -> int:
         echo("  (none besides the main one)")
 
     echo()
-    echo("branches (commits not on origin/main):")
+    echo(f"branches (commits not on {base}):")
     zero: list[str] = []
     kept: list[str] = []
     for b in lines_of(read("for-each-ref", "--format=%(refname:short)", "refs/heads/")):
-        if b == "main":
+        if b == default:
             continue
-        n = ahead(b)
+        n = ahead(b, base)
         try:
             u = git.run(".", "rev-parse", "--abbrev-ref", f"{b}@{{u}}", check=False)
             # Replicated from the bash: a failed `rev-parse --abbrev-ref`
@@ -381,12 +450,13 @@ def run(argv: list[str]) -> int:
         echo()
         pr = pull_requests(pr_head(b))
         echo(f"  {b} — pull request: {pr or 'none'}")
-        # A merged PR whose commits are not on main was squashed, or its
-        # history rewritten: the count cannot prove it merged, the person can.
+        # A merged PR whose commits are not on the default branch was
+        # squashed, or its history rewritten: the count cannot prove it
+        # merged, the person can.
         if "MERGED" in pr:
-            echo("      (merged, but these commits are not on main: squashed or rewritten — the person's decision)")
+            echo(f"      (merged, but these commits are not on {default}: squashed or rewritten — the person's decision)")
         try:
-            log = git.run(".", "log", "--oneline", f"origin/main..{b}", check=False)
+            log = git.run(".", "log", "--oneline", f"{base}..{b}", check=False)
             if log.returncode != 0:
                 say(f"could not list the commits of {b}: {log.stderr.strip().splitlines()[-1] if log.stderr.strip() else f'exit {log.returncode}'}")
             for line in lines_of(log.stdout):
@@ -426,9 +496,9 @@ def run(argv: list[str]) -> int:
         say(f"{e}: no branch was deleted")
         return 2
     for b in zero:
-        echo(sweep_one(b, checked_out))
+        echo(sweep_one(b, checked_out, base))
     if kept:
-        echo(f"kept, with commits off main: {' '.join(kept)} — work still owed, or the person's decision")
+        echo(f"kept, with commits off {default}: {' '.join(kept)} — work still owed, or the person's decision")
 
     rc = 0
     try:

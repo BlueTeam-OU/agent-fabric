@@ -1,0 +1,91 @@
+// runtime/control/sessions.mjs — what this account's sessions are doing,
+// told to the control channel when it changes (ADR-029 rule 16).
+//
+// The harness hook runtime/claude-code/hooks/session-state.py keeps
+// <state>/session-state.json: per session id, working, blocked or idle,
+// since when, and the session's `claude` process with its start time.
+// agentd reads it every STATE_POLL_MS and posts a `state` record
+// (protocol.mjs) on the state channel (config.json `state_channel`) when
+// what it would say differs from what it last said,
+// and again every STATE_HEARTBEAT_MS, so a listener that starts late, or
+// missed a record while the relay was down, converges without asking.
+//
+// A session whose process is gone is left out: a kill or a crash never
+// sends SessionEnd, and an entry that outlived its process would read as
+// a session forever idle. The start time tells a reused pid from the
+// session's own. The hook's file is never rewritten here; the hook owns it.
+//
+// What leaves the account is the session id, its state and since when,
+// and the binding's role and project: no path, no process id, nothing a
+// prompt holds.
+
+import fs from 'node:fs';
+import path from 'node:path';
+import { stateDir } from './upgrade.mjs';
+
+export const STATE_FILE = 'session-state.json';
+export const STATE_POLL_MS = 2000;
+export const STATE_HEARTBEAT_MS = 10 * 60 * 1000;
+const STATES = new Set(['working', 'blocked', 'idle']);
+
+/** Whether the process the hook recorded is still the session's own. */
+export function alive(pid, start, proc = '/proc') {
+  // An entry the hook wrote outside a harness names no process: it is
+  // kept, since nothing says it is gone.
+  if (!Number.isInteger(pid)) return true;
+  let raw;
+  try { raw = fs.readFileSync(path.join(proc, String(pid), 'stat'), 'utf8'); } catch { return false; }
+  const rest = raw.slice(raw.lastIndexOf(')') + 2).split(' ');
+  return !Number.isInteger(start) || Number(rest[19]) === start;
+}
+
+/** The sessions the file names whose process lives, sorted by id. */
+export function readSessions(file, { proc = '/proc' } = {}) {
+  let doc;
+  try { doc = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return []; }
+  const sessions = doc && typeof doc.sessions === 'object' && !Array.isArray(doc.sessions) ? doc.sessions : {};
+  return Object.entries(sessions)
+    .filter(([, s]) => s && STATES.has(s.state) && alive(s.pid, s.start, proc))
+    .map(([session, s]) => ({ session, state: s.state, since: String(s.since ?? '') }))
+    .sort((a, b) => (a.session < b.session ? -1 : a.session > b.session ? 1 : 0));
+}
+
+/**
+ * @returns {import('./protocol.mjs').State}
+ */
+export function stateRecord(address, { sessions, role, project }, ts = new Date().toISOString()) {
+  return { v: 1, kind: 'state', from: address, ts, sessions, ...(role ? { role } : {}), ...(project ? { project } : {}) };
+}
+
+function bound(file) {
+  try { const b = JSON.parse(fs.readFileSync(file, 'utf8')); return { role: b.role ?? null, project: b.project ?? null }; }
+  catch { return { role: null, project: null }; }
+}
+
+// tick() never throws and never runs twice at once (setInterval does not
+// wait for a post). A post that fails leaves the last record unchanged, so
+// the next tick tries again; it is said once, not every two seconds — the
+// relay loop already reports the relay down.
+export function stateWatcher({ address, post, file = path.join(stateDir(), STATE_FILE), binding, proc = '/proc',
+  now = Date.now, heartbeatMs = STATE_HEARTBEAT_MS, log = m => console.error(m) }) {
+  let lastKey = null, lastAt = 0, busy = false, failing = false;
+  return {
+    async tick() {
+      if (busy) return false;
+      busy = true;
+      try {
+        const now_ = now();
+        const said = { sessions: readSessions(file, { proc }), ...(binding ? bound(binding) : { role: null, project: null }) };
+        const key = JSON.stringify(said);
+        if (key === lastKey && now_ - lastAt < heartbeatMs) return false;
+        await post(stateRecord(address, said, new Date(now_).toISOString()));
+        lastKey = key; lastAt = now_;
+        if (failing) { log('agentd: session state posted again'); failing = false; }
+        return true;
+      } catch (e) {
+        if (!failing) { log(`agentd: session state not posted (${e.message}); retrying`); failing = true; }
+        return false;
+      } finally { busy = false; }
+    },
+  };
+}
