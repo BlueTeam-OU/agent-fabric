@@ -71,9 +71,10 @@ standing rule can allow it. That ask is the point, not an obstacle.
 
 Exit 2 with a `fabric-secret-run:` line on stderr, naming the name and
 never the value, means nothing ran: a malformed, managed, absent or
-undecryptable name, or a registry it could not read. 126 and 127 mean
-the command could not be executed or was not found. Any other status —
-an exit 2 without that line included — is the command's own.
+undecryptable name, or a registry it could not read. 126 and 127 with
+that line mean the command could not be executed or was not found.
+Any other status — a 2, 126 or 127 without that line included — is the
+command's own.
 
 ## See what you hold
 
