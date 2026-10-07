@@ -111,6 +111,14 @@ def judge(ref: str, comment: str) -> str | None:
     return None
 
 
+def needs_version_comment(ref: str) -> bool:
+    """A third-party use that names its release in a comment: not a local
+    action, and not a docker image by digest, which carries no comment —
+    so two digests on one line share nothing (devex-tooling, seq 17579)."""
+    ref = ref.strip().strip("'\"")
+    return not (ref.startswith("./") or (ref.startswith("docker://") and "@sha256:" in ref))
+
+
 def check(root: str) -> tuple[list[str], int]:
     """Findings, one line each, and the number of pinned uses."""
     findings, pinned = [], 0
@@ -121,7 +129,7 @@ def check(root: str) -> tuple[list[str], int]:
         for num, line in enumerate(lines, 1):
             code, comment = split_comment(line)
             refs = [(m.group(1), comment) for m in USES_RE.finditer(code)]
-            third = [r for r, _ in refs if not r.strip().strip("'\"").startswith("./")]
+            third = [r for r, _ in refs if needs_version_comment(r)]
             if len(third) > 1:
                 findings.append(f"FAIL: {rel}:{num} {len(third)} third-party uses on one line share one version "
                                 "comment — put each on its own line")
@@ -174,7 +182,13 @@ def main(argv: list[str]) -> int:
     if not workflow_files(root):
         print(f"{ME}: no workflow under {root}/.github/workflows", file=sys.stderr)
         return 2
-    findings, pinned = check(root)
+    try:
+        findings, pinned = check(root)
+    except (OSError, UnicodeDecodeError) as e:
+        # Exit 1 is a finding; a workflow that cannot be read was not checked.
+        print(f"{ME}: a workflow could not be read ({e.__class__.__name__}): {getattr(e, 'filename', '') or ''}",
+              file=sys.stderr)
+        return 2
     if findings:
         print("\n".join(findings))
         print("\nA tag or branch is a pointer the action's owner — or whoever holds\n"
