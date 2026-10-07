@@ -51,6 +51,10 @@
       "title": "Python developer"
     },
     {
+      "id": "rust-services-dev",
+      "title": "Rust network-services developer (proxies, gateways, streaming)"
+    },
+    {
       "id": "rust-ui-dev",
       "title": "Rust native-client developer (Slint, accessibility, local store)"
     },
