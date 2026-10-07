@@ -55,6 +55,14 @@ set by hand with `/tui default`, scrolled; every other account did not.
 The person operating the fleet reads a session's history in its
 terminal, for the same reason as the two keys above.
 
+`statusLine`: the fabric's status line (hooks/statusline.sh: harness
+version, model, effort, agent@host, pull request, working copy, branch),
+at user scope so it shows wherever a session starts. The workspace's
+.claude/settings.json carries it too, but a session started inside a
+working copy reads that project's settings, not the workspace's, and
+two new agents launched in a clone had none (the owner, 2026-10-07).
+The fabric's always: a status line of another command is replaced.
+
 `permissions.allow`: `Bash(<name> *)` for every command in
 runtime/claude-code/commands.json — the fabric's own commands, which
 bootstrap links into ~/.local/bin (the owner, 2026-09-26: no approval
@@ -107,6 +115,9 @@ SLOT = re.compile(r"^\*\*(.+?)\*\*:")
 
 
 FABRIC_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+STATUS_LINE = {"type": "command",
+               "command": f'bash "{os.path.join(FABRIC_ROOT, "runtime", "claude-code", "hooks", "statusline.sh")}"'}
 
 # The memory-write check (hooks/memory-write-check.py) at user scope, so
 # it runs for every session of the account wherever it was started — a
@@ -358,6 +369,7 @@ def settled(doc: dict, auto: dict | None) -> bool:
             and not any(r in allowed(doc) for r in rules()[1])
             and "includeCoAuthoredBy" not in doc
             and all(doc.get(k) == v for k, v in TOP_LEVEL.items())
+            and doc.get("statusLine") == STATUS_LINE
             and doc.get("hooks") == with_fabric_hooks(doc.get("hooks"))
             and isinstance(doc.get("env"), dict) and all(doc["env"].get(k) == v for k, v in ENV.items())
             and all(overrides.get(k) == v for k, v in SKILL_OVERRIDES.items())
@@ -413,6 +425,7 @@ def main(argv: list[str]) -> int:
     doc["attribution"] = {**current, **ATTRIBUTION}
     doc.pop("includeCoAuthoredBy", None)
     doc.update(TOP_LEVEL)
+    doc["statusLine"] = STATUS_LINE
     env = doc.get("env") if isinstance(doc.get("env"), dict) else {}
     doc["env"] = {**env, **ENV}
     perms = doc.get("permissions") if isinstance(doc.get("permissions"), dict) else {}
