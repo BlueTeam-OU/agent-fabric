@@ -389,7 +389,10 @@ def _verify_incoming(store: str, tip: str, agent_id: str | None = None, fabric: 
             for key in allowed.values():
                 gpg("--import", stdin=key, homedir=tmp)
             subkeys = _signing_subkeys(tmp)
-            env = {**os.environ, "GNUPGHOME": tmp}
+            # git's own lines in C, so the cut below finds "fatal:"/"error:"
+            # under any locale (LANGUAGE=de says "Fehler:"); gpg's [GNUPG:]
+            # status lines are never translated.
+            env = {**{k: v for k, v in os.environ.items() if k != "LANGUAGE"}, "GNUPGHOME": tmp, "LC_ALL": "C"}
             for c in revs:
                 r = _run(["git", "-C", store, "-c", "gpg.program=gpg", "verify-commit", "--raw", c], env=env, check=False)
                 # The same stderr carries git's own error after gpg's status,
