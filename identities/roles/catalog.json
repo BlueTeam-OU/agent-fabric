@@ -4,7 +4,11 @@
   "groups": [
     "Coordinator",
     "C-Level",
-    "Developers",
+    "Rust Developer",
+    "Net Developer",
+    "Python Developer",
+    "Flutter Developer",
+    "TypeScript Developer",
     "Experts",
     "Infrastructure"
   ],
@@ -17,7 +21,7 @@
     {
       "id": "backend-dev",
       "title": ".NET backend developer",
-      "group": "Developers"
+      "group": "Net Developer"
     },
     {
       "id": "brand-comms",
@@ -52,7 +56,7 @@
     {
       "id": "flutter-dev",
       "title": "Flutter developer",
-      "group": "Developers"
+      "group": "Flutter Developer"
     },
     {
       "id": "language-culture",
@@ -62,27 +66,27 @@
     {
       "id": "p2p-network-dev",
       "title": "Rust peer-to-peer networking developer",
-      "group": "Developers"
+      "group": "Rust Developer"
     },
     {
       "id": "python-dev",
       "title": "Python developer",
-      "group": "Developers"
+      "group": "Python Developer"
     },
     {
       "id": "rust-services-dev",
       "title": "Rust network-services developer (proxies, gateways, streaming)",
-      "group": "Developers"
+      "group": "Rust Developer"
     },
     {
       "id": "rust-ui-dev",
       "title": "Rust native-client developer (Slint, accessibility, local store)",
-      "group": "Developers"
+      "group": "Rust Developer"
     },
     {
       "id": "web-dev",
       "title": "Web sub-app developer",
-      "group": "Developers"
+      "group": "TypeScript Developer"
     }
   ]
 }
