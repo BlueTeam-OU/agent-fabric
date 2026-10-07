@@ -465,6 +465,11 @@ def main(argv: list[str] | None = None) -> int:
     except StoreError as e:
         print(f"fabric-secrets store: {e}", file=sys.stderr)
         return 1
+    except UnicodeError:
+        # Its message quotes the bytes it could not read, which may be a
+        # value's: never printed (review of the own-secrets PR).
+        print("fabric-secrets store: a value is not UTF-8 text where text was needed; nothing more is said", file=sys.stderr)
+        return 1
     return 0
 
 

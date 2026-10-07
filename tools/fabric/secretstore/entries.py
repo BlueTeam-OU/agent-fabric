@@ -103,9 +103,12 @@ def _write_entry(store: str, name: str, value: bytes, recipient_args: list[str])
     return path
 
 
-def _decrypt(path: str) -> str | None:
+def _decrypt(path: str) -> bytes | None:
+    """The value as stored, bytes: an own entry may hold any bytes, and a
+    decode here once made set of a non-UTF-8 value fail with a traceback
+    naming one of its bytes (review of the own-secrets PR)."""
     r = gpg("--decrypt", path, check=False)
-    return r.stdout.decode() if r.returncode == 0 else None
+    return r.stdout if r.returncode == 0 else None
 
 
 def _remote(store: str) -> bool:
@@ -193,7 +196,7 @@ def set_entry(name: str, value: bytes, *, exact: bool = False) -> dict:
     _require_clean(store)
     _before_write(store)
     path = os.path.join(store, "env", f"{name}.gpg")
-    if os.path.exists(path) and _decrypt(path) == value.decode(errors="replace"):
+    if os.path.exists(path) and _decrypt(path) == value:
         _push_if_ahead(store)   # unchanged, but an earlier failed push is caught up
         return {"name": name, "changed": False}
     _write_entry(store, name, value, ["--recipient", fpr])
@@ -248,13 +251,24 @@ def pull(store: str | None = None) -> None:
     _before_write(store or store_dir())
 
 
-def values(store: str | None = None) -> dict[str, str]:
-    """Every entry, decrypted, for fabric-secrets sync. In-process only:
-    nothing here prints or logs a value."""
+def values(store: str | None = None, only=None) -> dict[str, str]:
+    """The entries named in `only` (every entry when None), decrypted, as
+    text. In-process only: nothing here prints or logs a value. A caller
+    names what it uses: an agent's own entry may hold any bytes, and
+    decrypting every entry made one non-UTF-8 own value fail the whole
+    sync, with a byte of it in the error (review of the own-secrets PR).
+    A value this must read that is not UTF-8 is a StoreError naming the
+    entry, never the decoder's message, which quotes the byte."""
     store = store or store_dir()
     key_of_store(store)
+    wanted = None if only is None else set(only)
     out = {}
     for name in names(store):
+        if wanted is not None and name not in wanted:
+            continue
         r = gpg("--decrypt", os.path.join(store, "env", f"{name}.gpg"))
-        out[name] = r.stdout.decode()   # exactly as written: many lines, or none
+        try:
+            out[name] = r.stdout.decode()   # exactly as written: many lines, or none
+        except UnicodeDecodeError:
+            raise StoreError(f"{name}: the value is not UTF-8 text, and this reads it as text") from None
     return out

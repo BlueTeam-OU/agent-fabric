@@ -528,6 +528,37 @@ def main() -> int:
                   and json.loads(r4.stdout or "{}").get("own") == ["TYPED_ONE"], r4.stdout[:400] + p.stderr)
 
             check("the report names the store as its source", '"source": "store"' in r2.stdout, r2.stdout[:200])
+            # An own entry may hold any bytes: sync decrypts only what it
+            # applies, so one that is not UTF-8 stops nothing, and no output
+            # holds a byte of it (review of the own-secrets PR, 1).
+            raw = b"\xff\xfeRAWBIN-" + SECRET.encode() + b"\x80\xc3"
+            bset = lambda e, name, value, *flags: subprocess.run(  # noqa: E731
+                [sys.executable, TOOL, "set", name, *flags], env=e, input=value, cwd=tmp, capture_output=True, timeout=300)
+            b = bset(child, "OWN_RAW", raw)
+            r5 = subprocess.run([fsync, "sync", "--json"], env=child, capture_output=True, timeout=300)
+            said = (r5.stdout + r5.stderr).decode(errors="replace") + repr(r5.stdout + r5.stderr)
+            rep5 = json.loads(r5.stdout or b"{}")
+            leaked = lambda text: any(x in text for x in ("RAWBIN", "\\xff", "0xff", "\\x80", "0x80", SECRET))  # noqa: E731
+            check("a non-UTF-8 own entry: sync still applies every managed name, lists it as own, prints no byte of it",
+                  b.returncode == 0 and r5.returncode == r2.returncode and "error" not in rep5
+                  and "OWN_RAW" in rep5.get("own", []) and body() == from_store and not leaked(said), said[-600:])
+            b2 = bset(child, "OWN_RAW", raw)
+            check("…set of the same bytes again: unchanged, no traceback, no byte",
+                  b2.returncode == 0 and b2.stdout.decode().strip() == "OWN_RAW: unchanged"
+                  and not leaked(repr(b2.stdout + b2.stderr)), repr(b2.stdout + b2.stderr))
+            st5 = subprocess.run([fsync, "status", "--json"], env=child, capture_output=True, timeout=300)
+            check("…status names it, and no byte", "OWN_RAW" in json.loads(st5.stdout or b"{}").get("own", [])
+                  and not leaked(repr(st5.stdout + st5.stderr)), repr(st5.stdout[-300:]))
+            # A managed value that is not text cannot be applied: the sync
+            # fails naming the entry, never the decoder's words.
+            bset(child, "OPENAI_API_KEY", raw, "--managed")
+            r6 = subprocess.run([fsync, "sync", "--json"], env=child, capture_output=True, timeout=300)
+            e6 = json.loads(r6.stdout or b"{}").get("error", "")
+            check("a non-UTF-8 managed value: sync fails naming it, and no byte",
+                  r6.returncode == 1 and "OPENAI_API_KEY: the value is not UTF-8 text" in e6
+                  and not leaked(repr(r6.stdout + r6.stderr)), repr(r6.stdout[-400:] + r6.stderr[-200:]))
+            run(child, "rm", "OPENAI_API_KEY", "--managed")
+            run(child, "rm", "OWN_RAW")
             run(child, "set", "AGENT_LOGIN", "--managed", stdin="someone-else")
             r3 = subprocess.run([fsync, "sync"], env=child, capture_output=True, text=True)
             check("a store naming another login is refused, nothing applied", r3.returncode == 3

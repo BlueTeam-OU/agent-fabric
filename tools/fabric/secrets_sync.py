@@ -158,9 +158,16 @@ def load_store():
     return mod
 
 
+# A decoder's message quotes the bytes it could not read, which may be a
+# value's: said by its class only, wherever the store's error is reported.
+NOT_TEXT = "store: a value is not UTF-8 text"
+
+
 def fetch_names() -> tuple[list[str] | None, str | None]:
     try:
         return load_store().names(), None
+    except UnicodeError:
+        return None, NOT_TEXT
     except Exception as e:  # noqa: BLE001 — reported as the store's error, never a value
         return None, f"store: {e}"
 
@@ -170,11 +177,17 @@ def fetch_values(pull: bool = True) -> tuple[dict[str, str] | None, str | None]:
     # applied as if it were the store, and the sync would say applied.
     # Skipped only when asked: the copy was just taken from the parent's
     # bundle, and the key to pull with is what this sync writes.
+    # Only the names sync applies are decrypted: an agent's own entries are
+    # listed by name (fetch_names) and never read here, so one holding
+    # bytes that are not text cannot stop the sync (review of the
+    # own-secrets PR). STORE_ONLY is never applied, so never decrypted.
     try:
         st = load_store()
         if pull:
             st.pull()
-        return st.values(), None
+        return st.values(only=ALL_NAMES + project_agent_env()), None
+    except UnicodeError:
+        return None, NOT_TEXT
     except Exception as e:  # noqa: BLE001 — the store's error, never a value
         return None, f"store: {e}"
 
@@ -493,10 +506,16 @@ def sync(force: bool, as_json: bool, quiet: bool = False, pull: bool = True) -> 
         obj["local"] = local_state()
         report(obj, as_json, quiet, False)
         return 1
+    held, err = fetch_names()   # every name, own ones included; after the pull above
+    if err:
+        obj["error"] = err
+        obj["local"] = local_state()
+        report(obj, as_json, quiet, False)
+        return 1
     obj["present"] = [n for n in ALL_NAMES if n in values]
     obj["missing"] = [n for n in ALL_NAMES if n not in values]
     obj["optional"] = [n for n in optional if n in values]
-    obj["own"], obj["unexpected"] = own_and_unexpected(values, known)
+    obj["own"], obj["unexpected"] = own_and_unexpected(held, known)
     obj["values_sha256"] = values_digest(values, known)
     # The invariant, enforced: a store that does not name this login is
     # someone else's, whatever key opened it.
