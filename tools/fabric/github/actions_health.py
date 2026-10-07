@@ -51,10 +51,12 @@ Usage:
 
 --json prints, whatever --quiet says, one object on stdout:
   {exit, verdict, reason, public, period, private_minutes, private_net,
-   own_net, included, remaining}
+   own_net, included, remaining, status, incident}
 verdict is ok, degraded, unknown (neither source read) or invalid (a
 bad allowance); reason is the line, or the refusal without its prefix;
-a value not read or not applicable is null. A usage error is stderr
+status is the Actions component's status on githubstatus.com
+("operational", "major_outage", ...), and incident the incident name the
+outage reason quotes; a value not read or not applicable is null. A usage error is stderr
 alone.
 
 Exit codes:
@@ -187,7 +189,17 @@ def actions_status() -> tuple[str, str] | None:
     if not isinstance(status, str) or not status:
         return None
     incident = next((x.get("name") for x in _items(summary.get("incidents")) if isinstance(x, dict)), None)
-    return status, incident if isinstance(incident, str) else ""
+    return _text(status), _text(incident) if isinstance(incident, str) else ""
+
+
+_SURROGATE = re.compile("[\ud800-\udfff]")
+
+
+def _text(s: str) -> str:
+    """A lone surrogate (a "\\ud800" escape json.loads accepts) as U+FFFD,
+    as jq printed it: left in, it fails the print, a crash whose exit 1
+    would say "degraded"."""
+    return _SURROGATE.sub("\ufffd", s)
 
 
 def _items(v) -> list:
@@ -267,12 +279,16 @@ def private_repos(org: str, usage: dict) -> set[str]:
     return private
 
 
-def check(opts: dict, env) -> tuple[int, str, dict]:
-    """(exit, line, the --json fields). The checks in the bash's order."""
+def check(opts: dict, env, page: dict | None = None) -> tuple[int, str, dict]:
+    """(exit, line, the --json fields). The checks in the bash's order.
+    `page` receives status and incident as soon as the status page is
+    read, so a later failure does not report a page that was read as
+    unread."""
     setting = env.get("AGENT_FABRIC_ACTIONS_INCLUDED_SETTING") or SETTING
     included_text = opts["included"]
     fields: dict = {"public": None, "period": None, "private_minutes": None, "private_net": None,
-                    "own_net": None, "included": None, "remaining": None}
+                    "own_net": None, "included": None, "remaining": None, "status": None, "incident": None}
+    page = {} if page is None else page
     # A bad allowance is an invocation problem (exit 2) whatever the network
     # says, so it is judged before any call: validated only once billing had
     # answered, it vanished behind every earlier exit — an unreadable billing
@@ -299,7 +315,11 @@ def check(opts: dict, env) -> tuple[int, str, dict]:
         status, incident = got
         reachable = True
         ops_phrase = "Actions operational"
+        fields["status"] = page["status"] = status
         if status != "operational":
+            # A program reads the incident here rather than cut it out of
+            # the reason, whose wording may change.
+            fields["incident"] = page["incident"] = incident or None
             # Name the incident too — "major_outage" alone does not say
             # whether anyone is working on it.
             return 1, (f"DEGRADED — GitHub Actions is {status}{f' ({incident})' if incident else ''}. "
@@ -430,19 +450,21 @@ def run(argv: list[str], env=None) -> int:
         return 2
     if opts is None:
         return 0
+    page: dict = {}
     try:
-        code, line, fields = check(opts, env)
+        code, line, fields = check(opts, env, page)
     except Usage as e:
         code, line, fields = 2, str(e), None
     except Exception as e:  # noqa: BLE001 — never exit 1, which says GitHub is degraded
-        code, line, fields = 2, f"could not decide ({type(e).__name__}: {e}) — health unknown", {}
+        code, line, fields = 2, f"could not decide ({type(e).__name__}: {e}) — health unknown", dict(page)
     verdict = {0: "ok", 1: "degraded"}.get(code) or ("invalid" if fields is None else "unknown")
     fields = fields or {}
     if code == 2:
         print(f"actions-health: {line}", file=sys.stderr)
     if opts["json"]:
         doc = {"exit": code, "verdict": verdict, "reason": line}
-        for key in ("public", "period", "private_minutes", "private_net", "own_net", "included", "remaining"):
+        for key in ("public", "period", "private_minutes", "private_net", "own_net", "included", "remaining",
+                    "status", "incident"):
             doc[key] = fields.get(key)
         # Every number in it went through finite(): nothing here can fail.
         print(json.dumps(doc, ensure_ascii=False, allow_nan=False))

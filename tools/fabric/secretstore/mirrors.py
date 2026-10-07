@@ -47,6 +47,7 @@ from .trust import (
     on_main,
     _take_verified,
 )
+from .lock import write_lock
 from .entries import (
     _require_clean,
     _check_name,
@@ -239,26 +240,33 @@ def seed_child(agent_id: str, remote: str, text: str) -> dict:
             _run(["git", "clone", "-q", "--no-checkout", path, mirror], label="git clone")
             git(mirror, "checkout", "-q", "-B", "main", "refs/remotes/origin/main")
             git(mirror, "remote", "set-url", "origin", remote)
-        git(mirror, "fetch", "-q", path, f"+{MAIN}:refs/first-contact/main")
-        # First contact (ADR-042, the coordinator's ruling of 2026-10-04):
-        # the child's own first commit is signed by a key not yet on the
-        # fabric's main — its keys merge after enrolment — so the bundle's
-        # head, handed over the host executor the parent drives, is the
-        # mirror's trusted base. Only from a bundle, and only for a mirror
-        # with none: a fetch never sets a base.
-        if trusted_base(mirror) is None:
-            _set_base(mirror, _full(mirror, "refs/first-contact/main"))
-        # Whatever the remote already has, then the child's commit, each only
-        # as a verified fast-forward — a fresh clone included: a mirror deleted
-        # by hand after the parent's puts is cloned again from the child's
-        # bundle alone, behind the remote, and its push was refused as
-        # non-fast-forward (a carried review item).
-        git(mirror, "fetch", "-q", "origin")
-        if git(mirror, "rev-parse", "-q", "--verify", "refs/remotes/origin/main", check=False).returncode == 0:
-            _take_verified(mirror, "refs/remotes/origin/main", agent_id)
-        _take_verified(mirror, "refs/first-contact/main", agent_id)
-        git(mirror, "push", "-q", "-u", "origin", "HEAD:main")
+        # The mirror is new or rebuilt under _mirror_lock; its write lock
+        # is taken too, so a put that arrives meanwhile waits for the take.
+        with write_lock(mirror):
+            _seed_take(mirror, path, remote, agent_id)
     return {"agent_id": agent_id, "mirror": mirror, "remote": remote}
+
+
+def _seed_take(mirror: str, path: str, remote: str, agent_id: str) -> None:
+    git(mirror, "fetch", "-q", path, f"+{MAIN}:refs/first-contact/main")
+    # First contact (ADR-042, the coordinator's ruling of 2026-10-04):
+    # the child's own first commit is signed by a key not yet on the
+    # fabric's main — its keys merge after enrolment — so the bundle's
+    # head, handed over the host executor the parent drives, is the
+    # mirror's trusted base. Only from a bundle, and only for a mirror
+    # with none: a fetch never sets a base.
+    if trusted_base(mirror) is None:
+        _set_base(mirror, _full(mirror, "refs/first-contact/main"))
+    # Whatever the remote already has, then the child's commit, each only
+    # as a verified fast-forward — a fresh clone included: a mirror deleted
+    # by hand after the parent's puts is cloned again from the child's
+    # bundle alone, behind the remote, and its push was refused as
+    # non-fast-forward (a carried review item).
+    git(mirror, "fetch", "-q", "origin")
+    if git(mirror, "rev-parse", "-q", "--verify", "refs/remotes/origin/main", check=False).returncode == 0:
+        _take_verified(mirror, "refs/remotes/origin/main", agent_id)
+    _take_verified(mirror, "refs/first-contact/main", agent_id)
+    git(mirror, "push", "-q", "-u", "origin", "HEAD:main")
 
 
 def child_bundle(who: str) -> str:
@@ -276,8 +284,9 @@ def refresh_mirror(who: str) -> str:
     mirror = os.path.join(children_dir(), aid)
     if not os.path.isdir(os.path.join(mirror, ".git")):
         raise StoreError(f"no mirror of {who} here (store-enroll.sh first)")
-    git(mirror, "fetch", "-q", "origin", "+main:refs/remotes/origin/main")
-    _take_verified(mirror, "refs/remotes/origin/main", aid)
+    with write_lock(mirror):
+        git(mirror, "fetch", "-q", "origin", "+main:refs/remotes/origin/main")
+        _take_verified(mirror, "refs/remotes/origin/main", aid)
     return mirror
 
 
@@ -285,39 +294,40 @@ def take_bundle(text: str) -> dict:
     """The child fast-forwards its store from its parent's bundle, and
     only from one of its own store: the same agent id and the same key."""
     store = store_dir()
-    fpr, own = key_of_store(store), own_agent_id(store)
-    with tempfile.TemporaryDirectory() as tmp:
-        path = _bundle_file(text, tmp)
-        aid, gpg_id = _bundle_identity(path, tmp)
-        if aid != own or gpg_id != fpr:
-            raise StoreError(f"the bundle is agent {aid or '(none)'} with key {gpg_id or '(none)'}, "
-                             f"not this store ({own}, {fpr}); nothing taken")
-        # Quarantined, verified, then taken (ADR-042 rule 3): the bundle's
-        # commits reach the store's refs only once every one verifies.
-        git(store, "fetch", "-q", path, f"+{MAIN}:refs/agent-fabric/incoming")
-        try:
-            if not on_main(own):
-                # First contact (the coordinator's ruling of 2026-10-04): a new
-                # agent takes its parent's first bundle before its keys reach
-                # main, so its writers cannot be read yet. That bundle — only a
-                # bundle, carried by the host executor the parent drives —
-                # becomes the store's base, once; a second one before the
-                # merge refuses, and a fetch never does this.
-                if git(store, "config", "--get", FIRST_CONTACT_KEY, check=False).returncode == 0:
-                    raise StoreError(f"agent {own} is not yet on the fabric's main, and this store has had its "
-                                     "first contact: nothing more is taken until its keys are merged — fetch the fabric")
-                tip = _full(store, "refs/agent-fabric/incoming")
-                git(store, "merge", "-q", "--ff-only", tip)
-                _set_base(store, tip)
-                git(store, "config", FIRST_CONTACT_KEY, tip)
-                _clear_refusal(store)
-            else:
-                tip = _take_verified(store, "refs/agent-fabric/incoming")
-            git(store, "update-ref", "refs/remotes/origin/main", tip)
-        finally:
-            git(store, "update-ref", "-d", "refs/agent-fabric/incoming", check=False)
-    head = git(store, "rev-parse", "--short", "HEAD").stdout.decode().strip()
-    return {"agent_id": aid, "head": head, "names": len(names(store))}
+    with write_lock(store):
+        fpr, own = key_of_store(store), own_agent_id(store)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = _bundle_file(text, tmp)
+            aid, gpg_id = _bundle_identity(path, tmp)
+            if aid != own or gpg_id != fpr:
+                raise StoreError(f"the bundle is agent {aid or '(none)'} with key {gpg_id or '(none)'}, "
+                                 f"not this store ({own}, {fpr}); nothing taken")
+            # Quarantined, verified, then taken (ADR-042 rule 3): the bundle's
+            # commits reach the store's refs only once every one verifies.
+            git(store, "fetch", "-q", path, f"+{MAIN}:refs/agent-fabric/incoming")
+            try:
+                if not on_main(own):
+                    # First contact (the coordinator's ruling of 2026-10-04): a new
+                    # agent takes its parent's first bundle before its keys reach
+                    # main, so its writers cannot be read yet. That bundle — only a
+                    # bundle, carried by the host executor the parent drives —
+                    # becomes the store's base, once; a second one before the
+                    # merge refuses, and a fetch never does this.
+                    if git(store, "config", "--get", FIRST_CONTACT_KEY, check=False).returncode == 0:
+                        raise StoreError(f"agent {own} is not yet on the fabric's main, and this store has had its "
+                                         "first contact: nothing more is taken until its keys are merged — fetch the fabric")
+                    tip = _full(store, "refs/agent-fabric/incoming")
+                    git(store, "merge", "-q", "--ff-only", tip)
+                    _set_base(store, tip)
+                    git(store, "config", FIRST_CONTACT_KEY, tip)
+                    _clear_refusal(store)
+                else:
+                    tip = _take_verified(store, "refs/agent-fabric/incoming")
+                git(store, "update-ref", "refs/remotes/origin/main", tip)
+            finally:
+                git(store, "update-ref", "-d", "refs/agent-fabric/incoming", check=False)
+        head = git(store, "rev-parse", "--short", "HEAD").stdout.decode().strip()
+        return {"agent_id": aid, "head": head, "names": len(names(store))}
 
 
 # ── the parent ────────────────────────────────────────────────────────
@@ -361,40 +371,41 @@ def put(child: str, name: str, value: bytes, store: str | None = None, fabric: s
         raise StoreError(f"no committed key for {rec.get('login')} ({key_file})")
     store = store or os.path.join(children_dir(), aid)
     _check_name(name)
-    # Brought up to date FIRST: a mirror still naming the old key must not
-    # pass the check and then receive a re-keyed .gpg-id with the pull.
-    _require_clean(store)
-    _before_write(store)
-    committed = _key_file_fingerprint(key_file)
-    if key_of_store(store) != committed:
-        raise StoreError(f"{rec.get('login')}'s store is encrypted to another key than the committed one; "
-                         "a store and its key must agree before anything is written")
-    _write_entry(store, name, value if exact else _one_line_off(value), ["--recipient-file", key_file])
-    changed = git(store, "diff", "--cached", "--quiet", check=False).returncode != 0
-    if changed:
-        try:
-            # A failed commit puts the mirror back to what it held itself
-            # (_commit; review of #69, and the reset's failure said, #70).
-            _commit(store, f"parent {login()}: put {name}")
-        except StoreError as failed:
-            raise StoreError(f"{rec.get('login')}: {failed}") from failed
-        try:
-            _after_commit(store)
-        except StoreError as pushed:
-            # The mirror is the parent's view of the child's store, never a
-            # record of its own: a put that did not reach the remote is
-            # undone here, or the next look at the mirror reads the entry
-            # as held and the next put pushes it (review of #69, F1). The
-            # agent's own store keeps an unpushed commit instead, and
-            # _push_if_ahead retries it — that store IS the record.
-            if _remote(store):
-                r = git(store, "reset", "-q", "--hard", f"origin/{_branch(store)}", check=False)
-                if r.returncode != 0:
-                    why = ([l for l in r.stderr.decode(errors="replace").splitlines() if l.strip()] or [f"exit {r.returncode}"])[-1]
-                    raise StoreError(f"{rec.get('login')}: {pushed}; and the mirror could not be reset to its remote "
-                                     f"({store}: {why}) — reset it before the next put") from pushed
-            raise
-    return {"child": rec.get("login"), "agent_id": aid, "name": name, "changed": changed}
+    with write_lock(store):
+        # Brought up to date FIRST: a mirror still naming the old key must not
+        # pass the check and then receive a re-keyed .gpg-id with the pull.
+        _require_clean(store)
+        _before_write(store)
+        committed = _key_file_fingerprint(key_file)
+        if key_of_store(store) != committed:
+            raise StoreError(f"{rec.get('login')}'s store is encrypted to another key than the committed one; "
+                             "a store and its key must agree before anything is written")
+        _write_entry(store, name, value if exact else _one_line_off(value), ["--recipient-file", key_file])
+        changed = git(store, "diff", "--cached", "--quiet", check=False).returncode != 0
+        if changed:
+            try:
+                # A failed commit puts the mirror back to what it held itself
+                # (_commit; review of #69, and the reset's failure said, #70).
+                _commit(store, f"parent {login()}: put {name}")
+            except StoreError as failed:
+                raise StoreError(f"{rec.get('login')}: {failed}") from failed
+            try:
+                _after_commit(store)
+            except StoreError as pushed:
+                # The mirror is the parent's view of the child's store, never a
+                # record of its own: a put that did not reach the remote is
+                # undone here, or the next look at the mirror reads the entry
+                # as held and the next put pushes it (review of #69, F1). The
+                # agent's own store keeps an unpushed commit instead, and
+                # _push_if_ahead retries it — that store IS the record.
+                if _remote(store):
+                    r = git(store, "reset", "-q", "--hard", f"origin/{_branch(store)}", check=False)
+                    if r.returncode != 0:
+                        why = ([l for l in r.stderr.decode(errors="replace").splitlines() if l.strip()] or [f"exit {r.returncode}"])[-1]
+                        raise StoreError(f"{rec.get('login')}: {pushed}; and the mirror could not be reset to its remote "
+                                         f"({store}: {why}) — reset it before the next put") from pushed
+                raise
+        return {"child": rec.get("login"), "agent_id": aid, "name": name, "changed": changed}
 
 
 def certify(child: str | None, key_file: str | None, fabric: str | None = None) -> dict:
