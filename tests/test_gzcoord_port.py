@@ -637,6 +637,24 @@ def _():
         eq((r.returncode, r.stderr), (0, ""), f"GZCOORD_SHIM_PID={shim!r}")
 
 
+@case("AGENT_FABRIC_PYTHON naming a wrapper that execs the interpreter: the entry execs once and runs (review of #106)")
+def _():
+    real = os.path.realpath(os.environ.get("AGENT_FABRIC_PYTHON") or "/usr/local/bin/fabric-python")
+    if not os.access(real, os.X_OK):
+        real = sys.executable
+    d = P.scratch("wrapper-")
+    wrapper = os.path.join(d, "python")
+    with open(wrapper, "w", encoding="utf-8") as fh:
+        fh.write(f'#!/bin/sh\nexec "{real}" "$@"\n')
+    os.chmod(wrapper, 0o755)
+    env = {**os.environ, "AGENT_FABRIC_PYTHON": wrapper}
+    env.pop("GZCOORD_ENTRY_EXECED", None)
+    r = subprocess.run([os.path.join(BIN, "gzmsg"), "new-id"], env=env, capture_output=True, text=True, timeout=20,
+                       stdin=subprocess.DEVNULL)
+    eq((r.returncode, r.stderr), (0, ""))
+    ok(len(r.stdout.strip()) == 36, r.stdout)
+
+
 @case("a running `gzcoord-inbox --follow` is found by the session-start hook's watch detection, under the name it is linked as")
 def _():
     waits: list[int] = []

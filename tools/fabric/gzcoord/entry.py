@@ -30,15 +30,23 @@ def _same_file(a: str, b: str) -> bool:
     return os.path.realpath(a) == os.path.realpath(b)
 
 
+EXECED = "GZCOORD_ENTRY_EXECED"
+
+
 def launch(tool: str, script: str) -> None:
     """Never returns: execs the pinned interpreter on `script` (the entry
     as it was named, link or not), or runs the tool and exits with its status."""
     label, status = LAST_RESORT[tool]
     try:
         py = os.environ.get("AGENT_FABRIC_PYTHON") or PINNED
-        if not _same_file(sys.executable, py):
+        # Exec once, then trust the marker, never the interpreter's identity:
+        # a wrapper (a pyenv shim, a script that execs python) is never
+        # sys.executable, and comparing them re-exec'd forever (review of #106).
+        execed = os.environ.pop(EXECED, None) == "1"
+        if not execed and not _same_file(sys.executable, py):
             if not os.access(py, os.X_OK):
                 raise OSError("the fleet's pinned Python is not installed at %s" % py)
+            os.environ[EXECED] = "1"
             os.execv(py, [py, "-I", script] + sys.argv[1:])
         # No Node parent to watch: a GZCOORD_SHIM_PID inherited from an
         # old-style shim up the tree names a process that is not ours, and
