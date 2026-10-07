@@ -71,6 +71,9 @@ def main() -> int:
             sh(scratch, "clone", "-q", origin, wc)
             sh(wc, "commit", "-q", "--allow-empty", "-m", "base")
             sh(wc, "push", "-q", "origin", "HEAD:main")
+            # A clone of an empty origin has no origin/HEAD, and before git
+            # 2.48 no fetch sets it: set it as a clone of a non-empty one has it.
+            sh(wc, "remote", "set-head", "origin", "main")
             sh(wc, "branch", "merged")
             sh(wc, "checkout", "-q", "-b", "owed")
             sh(wc, "commit", "-q", "--allow-empty", "-m", "owed")

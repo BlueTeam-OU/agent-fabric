@@ -170,6 +170,9 @@ def test_hook_says_when_the_branch_sweep_is_due(tmp: str) -> None:
     origin = os.path.join(tmp, "origin.git"); g(tmp, "init", "-q", "--bare", "-b", "main", origin)
     wc = os.path.join(tmp, "gzapp"); g(tmp, "clone", "-q", origin, wc)
     g(wc, "commit", "-q", "--allow-empty", "-m", "base"); g(wc, "push", "-q", "origin", "HEAD:main")
+    # A clone of an empty origin has no origin/HEAD, and before git 2.48 no
+    # fetch sets it: set it as a clone of a non-empty one has it.
+    g(wc, "remote", "set-head", "origin", "main")
     ctx = context_of(run_hook({"cwd": wc}, env))
     assert "branch sweep due in this working copy (never swept)" in ctx, ctx
     sweep = subprocess.run([os.path.join(ROOT, "bin", "fabric-branches"), "--sweep"], cwd=wc,

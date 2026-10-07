@@ -86,6 +86,9 @@ def main() -> int:
                        stderr=subprocess.DEVNULL)
         git("commit", "-q", "--allow-empty", "-m", "base")
         git("push", "-q", "origin", "HEAD:main")
+        # A clone of an empty origin has no origin/HEAD, and before git 2.48
+        # no fetch sets it: set it as a clone of a non-empty one has it.
+        git("remote", "set-head", "origin", "main")
         # merged: its commit is on main. owed: one commit that is not.
         # theirs: a local copy of another agent's branch, merged.
         git("checkout", "-q", "-b", f"{me}/merged")
