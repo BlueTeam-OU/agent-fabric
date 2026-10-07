@@ -498,9 +498,17 @@ def main() -> int:
             fresh = os.path.join(tmp, "fresh-store")
             pi = run({**child, "AGENT_FABRIC_SECRET_STORE": fresh, "AGENT_FABRIC_STORE_LOCK_WAIT_S": "0"},
                      "init", "--agent-id", KID)
-            check("…and init refuses a malformed wait before it makes the store's .git",
+            fresh_gnupg = os.path.join(tmp, "fresh-gnupg")
+            os.makedirs(fresh_gnupg, mode=0o700, exist_ok=True)
+            pk = run({**child, "GNUPGHOME": fresh_gnupg, "AGENT_FABRIC_SECRET_STORE": fresh,
+                      "AGENT_FABRIC_STORE_LOCK_WAIT_S": "0"}, "init", "--agent-id", KID)
+            keys = subprocess.run(["gpg", "--list-secret-keys", "--with-colons"], env={**child, "GNUPGHOME": fresh_gnupg},
+                                  capture_output=True, text=True).stdout
+            subprocess.run(["gpgconf", "--homedir", fresh_gnupg, "--kill", "all"], capture_output=True, timeout=30)
+            check("…and init refuses a malformed wait before it makes anything: no .git, and no key in a new keyring",
                   pi.returncode == 1 and "is not a whole number of seconds" in pi.stderr
-                  and not os.path.exists(os.path.join(fresh, ".git")), pi.stdout + pi.stderr)
+                  and not os.path.exists(os.path.join(fresh, ".git"))
+                  and pk.returncode == 1 and "sec:" not in keys, pi.stdout + pi.stderr + pk.stderr + keys[:200])
             head1 = subprocess.run(["git", "-C", cstore, "rev-parse", "HEAD"], capture_output=True, text=True).stdout
             check("a write lock held past the wait: refused, its holder named, nothing written",
                   held.returncode == 1 and "has held its lock for 1 s" in held.stdout and f"pid {os.getpid()}" in held.stdout

@@ -17,6 +17,7 @@ def init(remote: str | None = None, agent_id: str | None = None) -> dict:
     unattended) and its store, under the agent id its parent minted.
     Idempotent: an existing key, store or id is kept, never replaced; a
     key made before ids existed gains the id's user id."""
+    lock_wait_s()   # a malformed lock wait refuses before anything is made, key included
     me, store = login(), store_dir()
     held = own_agent_id(store) if os.path.isdir(store) else None
     if held and agent_id and held != agent_id:
@@ -37,7 +38,6 @@ def init(remote: str | None = None, agent_id: str | None = None) -> dict:
     # A key made before the split gains the subkeys it lacks, and keeps its
     # fingerprint: its parent re-exports it at the next certification.
     added = _ensure_use_subkeys(fpr)
-    lock_wait_s()   # a malformed wait refuses before .git is made, as any write does
     os.makedirs(os.path.join(store, "env"), mode=0o700, exist_ok=True)
     if not os.path.isdir(os.path.join(store, ".git")):
         git(store, "init", "-q", "-b", "main")

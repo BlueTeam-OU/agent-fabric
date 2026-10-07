@@ -193,7 +193,11 @@ def main() -> int:
                   p.returncode == 1 and [s["step"] for s in r.get("steps", [])] == ["precondition"]
                   and git("rev-parse", "HEAD") == other, p.stdout + p.stderr)
             os.remove(mark)
-            run([SHIM, "store", "rm", "AF_SELFTEST_CANARY"])
+            # The amended commit replaced one the remote holds: back to the
+            # remote's, then removed, so what follows starts from a clean store.
+            git("reset", "-q", "--hard", "origin/main")
+            cleaned = run([SHIM, "store", "rm", "AF_SELFTEST_CANARY"])
+            check("…(and removed again, the store clean)", cleaned.returncode == 0, cleaned.stdout + cleaned.stderr)
             # …nor one with the selftest's subject, signed by another key this
             # keyring holds (a good signature, not the store's key).
             run(["gpg", "--batch", "--passphrase", "", "--quick-gen-key", "other <other@test.invalid>", "ed25519", "sign", "never"])
@@ -216,6 +220,25 @@ def main() -> int:
                   and git("rev-parse", "HEAD") == foreign, p.stdout + p.stderr)
             git("reset", "-q", "--hard", "HEAD~1")
             os.remove(mark)
+            # With git on PATH and gpg not, git answers N for the selftest's
+            # own signed set: no answer, never "not a leftover".
+            own_set = run([SHIM, "store", "set", "AF_SELFTEST_CANARY"], stdin="signed by the store")
+            gitonly = os.path.join(tmp, "git-only")
+            os.makedirs(gitonly, exist_ok=True)
+            if not os.path.exists(os.path.join(gitonly, "git")):
+                os.symlink(shutil.which("git"), os.path.join(gitonly, "git"))
+            probe_last = ("import sys; sys.path.insert(0, sys.argv[1]); import secret_selftest as t\n"
+                          "try: print(t._last_set_by_me(sys.argv[2]))\n"
+                          "except t.StoreError as e: print('StoreError', e)")
+            seen_ok = run([sys.executable, "-c", probe_last, os.path.dirname(TOOL), store])
+            seen_nogpg = run([sys.executable, "-c", probe_last, os.path.dirname(TOOL), store],
+                             e={**env, "PATH": gitonly})
+            check("…a signed set read with no gpg to start is no answer (and, with gpg, the commit itself)",
+                  own_set.returncode == 0 and seen_ok.stdout.strip() == git("rev-parse", "HEAD")
+                  and seen_nogpg.stdout.startswith("StoreError"),
+                  own_set.stderr + seen_ok.stdout + seen_ok.stderr + seen_nogpg.stdout + seen_nogpg.stderr)
+            cleaned = run([SHIM, "store", "rm", "AF_SELFTEST_CANARY"])
+            check("…(and removed again)", cleaned.returncode == 0, cleaned.stdout + cleaned.stderr)
         finally:
             subprocess.run(["gpgconf", "--homedir", gnupg, "--kill", "all"], capture_output=True, timeout=30)
 
@@ -328,13 +351,19 @@ def main() -> int:
                               ({"--format=%H %s": (0, "abc agent me: set AF_SELFTEST_CANARY"), "--format=%G?": (0, "E")},
                                "a signature gpg could not check (E)"),
                               ({"--format=%H %s": (0, "abc agent me: set AF_SELFTEST_CANARY"), "--format=%G?": (0, "G"),
-                                "verify-commit": (1, "")}, "verify-commit failing on a good %G?")):
+                                "verify-commit": (1, "")}, "verify-commit failing on a good %G?"),
+                              ({"--format=%H %s": (0, "abc agent me: set AF_SELFTEST_CANARY"), "--format=%G?": (0, "N"),
+                                "cat-file": (0, "tree t\nauthor a\ngpgsig -----BEGIN PGP SIGNATURE-----\n\nmessage")},
+                               "N on a commit that carries a signature (gpg not started)")):
             st.git = git_answering(answers)
             try:
                 got = st._last_set_by_me("/nowhere")
                 check(f"…{what}: no answer, a StoreError", False, f"answered {got!r}")
             except st.StoreError:
                 check(f"…{what}: no answer, a StoreError", True)
+        st.git = git_answering({"--format=%H %s": (0, "abc agent me: set AF_SELFTEST_CANARY"), "--format=%G?": (0, "N"),
+                                "cat-file": (0, "tree t\nauthor a\n\nmessage")})
+        check("…while N on a commit with no signature is a plain no", st._last_set_by_me("/nowhere") is None)
     finally:
         st.git, st.login = saved_git, saved_login
     rm_fails = lambda args, stdin=None: (1, "", "") if "rm" in args else fake(args, stdin)  # noqa: E731
@@ -350,8 +379,19 @@ def main() -> int:
     env_seen = real_cmd(["sh", "-c", "printf %s \"$AGENT_FABRIC_STORE_LOCK_WAIT_S\""])
     check("a command is told to wait for the store's write lock under its own bound",
           env_seen[0] == 0 and env_seen[1] == str(st.LOCK_WAIT_S) and st.LOCK_WAIT_S < st.STEP_TIMEOUT_S, env_seen)
-    check("…and seven commands, each with its grace, fit the control agent's 450 s",
-          7 * (st.STEP_TIMEOUT_S + st.STOP_GRACE_S + 2 * st.REAP_S) <= 420 < 450)
+    # The bound is counted from the code, not written down: each _cmd in
+    # selftest(), and each _names (one command each), against the limit
+    # selftest.mjs sets (review of #110, re-review 2).
+    import ast
+    tree = ast.parse(open(TOOL, encoding="utf-8").read())
+    body = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "selftest")
+    commands = sum(isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id in ("_cmd", "_names")
+                   for n in ast.walk(body))
+    limit_ms = int(re.search(r"SELFTEST_TIMEOUT_MS = (\d+);", open(os.path.join(ROOT, "runtime", "control", "selftest.mjs"),
+                                                                    encoding="utf-8").read()).group(1))
+    worst = commands * (st.STEP_TIMEOUT_S + st.STOP_GRACE_S + 2 * st.REAP_S)
+    check(f"…and the selftest's {commands} commands, each with its grace, fit the control agent's limit "
+          f"({worst} s < {limit_ms // 1000} s)", worst < limit_ms / 1000, (commands, worst, limit_ms))
 
     print(f"\n{'FAILED' if fails else 'all passed'}")
     return 1 if fails else 0

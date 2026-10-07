@@ -157,12 +157,19 @@ def _last_set_by_me(store: str) -> str | None:
     sha, _, subject = git(store, "log", "-1", "--format=%H %s", "--", rel).stdout.decode().strip().partition(" ")
     if not sha or subject != f"agent {login()}: set {NAME}":
         return None
-    # %G?: N no signature, B/X/Y/R a bad, expired or revoked one — each a
-    # "no"; E could not be checked (gpg missing, the key not in the
-    # keyring) — no answer; G/U a good one, whose key is read below.
+    # %G?: B/X/Y/R a bad, expired or revoked signature — a "no"; E could
+    # not be checked (the key not in the keyring) — no answer; G/U a good
+    # one, whose key is read below. N says "no signature", and also what
+    # git answers when it cannot start gpg at all (git 2.55, review of
+    # #110): an N on a commit that carries a gpgsig header is no answer.
     state = git(store, "-c", "gpg.program=gpg", "log", "-1", "--format=%G?", sha).stdout.decode().strip()
     if state not in ("N", "B", "X", "Y", "R", "G", "U"):
         raise StoreError(f"the signature of {sha[:12]} could not be checked ({state or 'no answer'})")
+    if state == "N":
+        headers = git(store, "cat-file", "commit", sha).stdout.decode(errors="replace").split("\n\n", 1)[0]
+        if any(line.startswith("gpgsig ") for line in headers.splitlines()):
+            raise StoreError(f"the signature of {sha[:12]} could not be checked (git read none on a signed commit)")
+        return None
     if state not in ("G", "U"):
         return None
     r = git(store, "-c", "gpg.program=gpg", "verify-commit", "--raw", sha, check=False)
