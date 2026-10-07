@@ -462,6 +462,19 @@ def main() -> int:
                           and "--managed" in p.stderr and SECRET not in p.stdout + p.stderr, p.stderr)
             check("…and nothing was written or removed", git_c("rev-parse", "HEAD") == head0
                   and run(child, "names").stdout == names0, git_c("log", "--oneline", "-3"))
+            # Refused before stdin is read: a stdin that never closes still
+            # gets its answer (review of the own-secrets PR, 2).
+            hang = subprocess.Popen([sys.executable, TOOL, "set", "GH_TOKEN"], env=child, cwd=tmp,
+                                    stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            try:
+                hrc = hang.wait(timeout=30)
+            except subprocess.TimeoutExpired:
+                hang.kill()
+                hrc = "still reading stdin after 30 s"
+            herr = hang.stderr.read().decode()
+            hang.stdin.close(); hang.stdout.close(); hang.stderr.close()
+            check("a managed name is refused with stdin still open: before any value is read",
+                  hrc == 1 and "GH_TOKEN is managed by" in herr, f"{hrc} {herr}")
             noreg = {**child, "AGENT_FABRIC_ROOT": os.path.join(tmp, "no-fabric")}
             p = run(noreg, "set", "OWN_UNKNOWN", stdin="x")
             check("a registry that cannot be read refuses an own name too: unknown is not own",
