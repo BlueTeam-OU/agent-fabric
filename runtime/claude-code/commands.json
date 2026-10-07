@@ -22,9 +22,11 @@
     "fabric-fresh": "bin/fabric-fresh",
     "fabric-branches": "bin/fabric-branches",
     "fabric-jobs": "bin/fabric-jobs",
-    "fabric-history": "bin/fabric-history"
+    "fabric-history": "bin/fabric-history",
+    "fabric-genimage": "bin/fabric-genimage"
   },
   "not_allowed": {
+    "fabric-genimage": "every run spends on the OpenAI account (the owner, 2026-10-07): a person approves each one, so no session spends unattended",
     "fabric-lease": "runs whatever command follows `--`: an allow rule for it would allow every command, so it asks as any command does",
     "fabric-host": "`run` executes any command on a host as any account (the operator's instrument): allowing it would allow everything"
   }
