@@ -251,20 +251,22 @@ def pull(store: str | None = None) -> None:
     _before_write(store or store_dir())
 
 
-def values(store: str | None = None, only=None) -> dict[str, str]:
-    """The entries named in `only` (every entry when None), decrypted, as
+def values(store: str | None = None, *, only) -> dict[str, str]:
+    """The entries named in `only` that the store holds, decrypted, as
     text. In-process only: nothing here prints or logs a value. A caller
-    names what it uses: an agent's own entry may hold any bytes, and
-    decrypting every entry made one non-UTF-8 own value fail the whole
-    sync, with a byte of it in the error (review of the own-secrets PR).
+    names what it uses, and there is no "every entry": an agent's own entry
+    may hold any bytes, and decrypting every entry made one non-UTF-8 own
+    value fail the whole sync, then every provisioning (new-agent
+    included), with a byte of it in the error (review of the own-secrets
+    PR; #108's Codex P2).
     A value this must read that is not UTF-8 is a StoreError naming the
     entry, never the decoder's message, which quotes the byte."""
     store = store or store_dir()
     key_of_store(store)
-    wanted = None if only is None else set(only)
+    wanted = set(only)
     out = {}
     for name in names(store):
-        if wanted is not None and name not in wanted:
+        if name not in wanted:
             continue
         r = gpg("--decrypt", os.path.join(store, "env", f"{name}.gpg"))
         try:

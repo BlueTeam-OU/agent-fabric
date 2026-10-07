@@ -291,6 +291,21 @@ def main() -> int:
                 p = ik("kid")
                 check("issue-key again: present, not minted again", rows_of(p) == {("OPENROUTER_API_KEY", "present")}
                       and len(seen) == 1, p.stdout + repr(seen))
+                # A parent's own entry may hold any bytes: share and issue-key
+                # decrypt only the names they use, so one that is not UTF-8
+                # stops neither, and no output holds a byte of it (#108,
+                # Codex P2: values() decrypted every entry for both).
+                rawp = b"\xff\xfePARENTRAW-" + SECRET.encode() + b"\x80\xc3"
+                b = subprocess.run([sys.executable, TOOL, "set", "PARENT_RAW"], env=parent, input=rawp, cwd=tmp,
+                                   capture_output=True, timeout=300)
+                ps, pk = prov("share", "kid"), ik("kid")
+                said = ps.stdout + ps.stderr + pk.stdout + pk.stderr
+                check("a non-UTF-8 own entry in the parent's store: share and issue-key go on, and print no byte of it",
+                      b.returncode == 0 and ps.returncode == 0 and ("GH_TOKEN", "present") in rows_of(ps)
+                      and pk.returncode == 0 and rows_of(pk) == {("OPENROUTER_API_KEY", "present")}
+                      and not any(x in said for x in ("PARENTRAW", "\\xff", "0xff", "\\x80", SECRET)), said[-600:])
+                r = run(parent, "rm", "PARENT_RAW")
+                check("…and it is removed again", r.returncode == 0, r.stdout + r.stderr)
                 open(os.path.join(tmp, "break-put"), "w").close()
                 p = ik("kid", "--replace")
                 os.rename(remote + ".away", remote)
@@ -397,7 +412,7 @@ def main() -> int:
             subprocess.run(["git", "-C", child_store, "pull", "-q", "origin", "main"], check=True, env=child)
             sys.path.insert(0, os.path.dirname(TOOL))
             got = subprocess.run([sys.executable, "-c",
-                                  "import secret_store as s, json; v=s.values(); print(json.dumps({k: len(x) for k, x in v.items()}))"],
+                                  "import secret_store as s, json; v=s.values(only=s.names()); print(json.dumps({k: len(x) for k, x in v.items()}))"],
                                  cwd=os.path.dirname(TOOL), env=child, capture_output=True, text=True)
             lens = json.loads(got.stdout or "{}")
             check("the child reads it (values() in-process)", lens.get("GH_TOKEN") == len(SECRET)
@@ -437,7 +452,7 @@ def main() -> int:
                 os.close(fd)
                 return os.waitstatus_to_exitcode(os.waitpid(pid, 0)[1]), out.decode(errors="replace")
             rc, screen = typed("TYPED-" + SECRET, "TYPED-" + SECRET)
-            got = subprocess.run([sys.executable, "-c", "import secret_store as s; print(s.values()['TYPED_ONE'])"],
+            got = subprocess.run([sys.executable, "-c", "import secret_store as s; print(s.values(only=['TYPED_ONE'])['TYPED_ONE'])"],
                                  cwd=os.path.dirname(TOOL), env=child, capture_output=True, text=True)
             check("set from a terminal asks twice, stores what was typed, and echoes none of it",
                   rc == 0 and "TYPED_ONE (not echoed):" in screen and "the same again:" in screen
@@ -600,7 +615,7 @@ def main() -> int:
             # it again is unchanged; an empty value is a value.
             pem = "-----BEGIN OPENSSH PRIVATE KEY-----\nAAAA" + "b" * 60 + "\nCCCC\n-----END OPENSSH PRIVATE KEY-----\n"
             run(child, "set", "SSH_PRIVATE_KEY", "--managed", stdin=pem + "\n")   # stdin's own newline is dropped, the PEM's kept
-            got = subprocess.run([sys.executable, "-c", "import secret_store as s, json, hashlib; v=s.values();"
+            got = subprocess.run([sys.executable, "-c", "import secret_store as s, json, hashlib; v=s.values(only=['SSH_PRIVATE_KEY']);"
                                   "print(json.dumps({k: hashlib.sha256(x.encode()).hexdigest() for k, x in v.items()}))"],
                                  cwd=os.path.dirname(TOOL), env=child, capture_output=True, text=True)
             import hashlib
