@@ -90,10 +90,10 @@ ERROR_CODES = frozenset((
 
 # JavaScript's whitespace (String.prototype.trim, \s) and line terminators
 # (what `.` does not match): Python's str.strip and re's \s are another set.
-_JS_SPACE = "\t\n\v\f\r    -     　﻿"
+_JS_SPACE = "\t\n\v\f\r \u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff"
 _JS_TRIM = re.compile(f"^[{_JS_SPACE}]+|[{_JS_SPACE}]+$")
 _JS_SPACE_CHAR = re.compile(f"[{_JS_SPACE}]")
-_JS_DOT = "[^\n\r  ]"
+_JS_DOT = "[^\n\r\u2028\u2029]"
 _ENV_LINE = re.compile(f"^[{_JS_SPACE}]*(?:export[{_JS_SPACE}]+)?([A-Za-z_][A-Za-z0-9_]*)[{_JS_SPACE}]*="
                        f"[{_JS_SPACE}]*({_JS_DOT}*?)[{_JS_SPACE}]*$")
 _QUOTED = re.compile(r"^(['\"])(.*)\1$", re.DOTALL)
