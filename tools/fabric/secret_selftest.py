@@ -40,8 +40,9 @@ NAME = "AF_SELFTEST_CANARY"
 CHECKOUT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 SECRETS = os.path.join(CHECKOUT, "runtime", "provisioning", "secrets", "fabric-secrets")
 SECRET_RUN = os.path.join(CHECKOUT, "bin", "fabric-secret-run")
-# set and rm pull and push the store over the network.
-STEP_TIMEOUT_S = 180
+# set and rm pull and push the store over the network. Seven commands at
+# most: runtime/control/selftest.mjs waits longer than all seven.
+STEP_TIMEOUT_S = 60
 PROBE = ("import hashlib, hmac, os, sys\n"
          f"v = os.environb.get({NAME.encode()!r})\n"
          "want = sys.stdin.read().strip()\n"

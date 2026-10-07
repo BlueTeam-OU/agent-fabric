@@ -59,6 +59,7 @@ import { ACTION_OPS, ACTION_TTL_MAX_S, publicKeyFrom, verifyRequest } from './si
 import { upgrade, stateDir } from './upgrade.mjs';
 import { stateWatcher, STATE_POLL_MS } from './sessions.mjs';
 import { secretsSync } from './secrets.mjs';
+import { secretsSelftest } from './selftest.mjs';
 import { sampler, SAMPLE_INTERVAL_MS } from './pressure.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -262,6 +263,7 @@ export async function answer(request, ctx) {
     : request.op === 'secrets-sync' ? { 'secrets-sync': await secretsSync(request, { me: ctx.me.address, ...ctx.secretsOpts }) }
     : request.op === 'jobs-add' ? { 'jobs-add': await jobsAdd(request, { home: ctx.home, root: ctx.root, ...(ctx.jobsOpts ?? {}) }) }
     : request.op === 'local-prune' ? { 'local-prune': await localPrune(request, { home: ctx.home, root: ctx.root }) }
+    : request.op === 'secrets-selftest' ? { 'secrets-selftest': await secretsSelftest(request, { home: ctx.home, root: ctx.root, ...(ctx.selftestOpts ?? {}) }) }
     : await collect(request.op, Number.isFinite(days) && days > 0 ? { ...ctx, days: Math.min(days, 90) } : ctx);
   const head = () => ({ v: 1, kind: 'reply', id: newId(), in_reply_to: request.id, from: ctx.me.address, op: request.op, ts: new Date().toISOString(), ok: true });
   const meta = { agentd: { pid: process.pid, started: ctx.started, uptime_s: Math.round((Date.now() - Date.parse(ctx.started)) / 1000) } };
