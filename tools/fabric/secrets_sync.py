@@ -53,6 +53,7 @@ Nothing here prints a secret value: names, presence, ages and modes only.
 """
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import importlib.util
 import json
@@ -63,6 +64,7 @@ import shutil
 import stat
 import subprocess
 import sys
+import tempfile
 import time
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.realpath(__file__)), "..", ".."))
@@ -194,13 +196,25 @@ def git_set(key: str, value: str) -> None:
 
 
 def write_private(path: str, content: str, mode: int) -> None:
-    os.makedirs(os.path.dirname(path), mode=0o700, exist_ok=True)
-    tmp = path + ".tmp"
-    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, mode)
-    with os.fdopen(fd, "w") as fh:
-        fh.write(content)
-    os.chmod(tmp, mode)
-    os.replace(tmp, path)
+    """Written beside the target and renamed over it. The temporary file is
+    made new by mkstemp (O_EXCL, 0600) before a byte of the secret reaches
+    it: the fixed `<path>.tmp` this once opened with O_TRUNC followed a
+    symlink planted there and kept a looser mode an earlier file had. One
+    such file an older sync left is removed, never written through."""
+    d = os.path.dirname(path)
+    os.makedirs(d, mode=0o700, exist_ok=True)
+    with contextlib.suppress(FileNotFoundError):
+        os.unlink(path + ".tmp")
+    fd, tmp = tempfile.mkstemp(dir=d, prefix=f".{os.path.basename(path)}.")
+    try:
+        with os.fdopen(fd, "w") as fh:
+            fh.write(content)
+            os.fchmod(fh.fileno(), mode)
+        os.replace(tmp, path)
+    except BaseException:
+        with contextlib.suppress(FileNotFoundError):
+            os.unlink(tmp)
+        raise
 
 
 def file_mode(path: str) -> int | None:
