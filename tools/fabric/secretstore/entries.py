@@ -9,6 +9,7 @@ import sys
 from .core import NAME_RE, UID_DOMAIN, StoreError, login, AGENT_ID_RE, own_agent_id, store_dir, _run, gpg, git
 from .keys import fingerprints, key_of_store, _ensure_use_subkeys, uid_of, _signing_args
 from .trust import _git_env, _commit, trusted_base, _full, _set_base, _verify_incoming, _taken
+from .lock import write_lock, require_write_lock
 
 
 def init(remote: str | None = None, agent_id: str | None = None) -> dict:
@@ -39,30 +40,33 @@ def init(remote: str | None = None, agent_id: str | None = None) -> dict:
     os.makedirs(os.path.join(store, "env"), mode=0o700, exist_ok=True)
     if not os.path.isdir(os.path.join(store, ".git")):
         git(store, "init", "-q", "-b", "main")
-    # Keyed on a first commit, not on a new .git: an init whose first commit
-    # failed (no signing key yet) leaves .git behind, and its retry must
-    # still record the base (review of ADR-042, F2).
-    first = git(store, "rev-parse", "-q", "--verify", "HEAD", check=False).returncode != 0
-    if not first:
-        _require_clean(store)
-    with open(gpg_id, "w", encoding="utf-8") as fh:
-        fh.write(fpr + "\n")
-    with open(os.path.join(store, ".agent-id"), "w", encoding="utf-8") as fh:
-        fh.write(aid + "\n")
-    git(store, "add", ".gpg-id", ".agent-id")
-    if git(store, "diff", "--cached", "--quiet", check=False).returncode:
-        _commit(store, f"agent {me} ({aid}): the store is encrypted to {fpr}")
-    if first and trusted_base(store) is None:
-        # A store made here starts from its own signed commit: its trusted
-        # base, so it verifies what it is given from the first fetch on.
-        # A store that held history before keeps the explicit trust-base.
-        _set_base(store, _full(store, "HEAD"))
-    if remote:
-        if git(store, "remote", check=False).stdout.strip():
-            git(store, "remote", "set-url", "origin", remote)
-        else:
-            git(store, "remote", "add", "origin", remote)
-    return {"login": me, "agent_id": aid, "fingerprint": fpr, "key_made": made, "store": store, "subkeys_added": added}
+    # Locked from here: the steps above make the key and .git, each
+    # idempotent, and a lock needs the .git it lives in.
+    with write_lock(store):
+        # Keyed on a first commit, not on a new .git: an init whose first commit
+        # failed (no signing key yet) leaves .git behind, and its retry must
+        # still record the base (review of ADR-042, F2).
+        first = git(store, "rev-parse", "-q", "--verify", "HEAD", check=False).returncode != 0
+        if not first:
+            _require_clean(store)
+        with open(gpg_id, "w", encoding="utf-8") as fh:
+            fh.write(fpr + "\n")
+        with open(os.path.join(store, ".agent-id"), "w", encoding="utf-8") as fh:
+            fh.write(aid + "\n")
+        git(store, "add", ".gpg-id", ".agent-id")
+        if git(store, "diff", "--cached", "--quiet", check=False).returncode:
+            _commit(store, f"agent {me} ({aid}): the store is encrypted to {fpr}")
+        if first and trusted_base(store) is None:
+            # A store made here starts from its own signed commit: its trusted
+            # base, so it verifies what it is given from the first fetch on.
+            # A store that held history before keeps the explicit trust-base.
+            _set_base(store, _full(store, "HEAD"))
+        if remote:
+            if git(store, "remote", check=False).stdout.strip():
+                git(store, "remote", "set-url", "origin", remote)
+            else:
+                git(store, "remote", "add", "origin", remote)
+        return {"login": me, "agent_id": aid, "fingerprint": fpr, "key_made": made, "store": store, "subkeys_added": added}
 
 
 def _require_clean(store: str) -> None:
@@ -124,6 +128,7 @@ def _before_write(store: str) -> None:
     the agent and its parent both write, and a write on a stale copy is a
     divergence. One file per entry, so a rebase never conflicts on two
     different names. A failure stops the write, loudly."""
+    require_write_lock(store)
     if not _remote(store):
         return
     branch = _branch(store)
@@ -190,21 +195,22 @@ def set_entry(name: str, value: bytes, *, exact: bool = False) -> dict:
     is. GPG encryption is randomised, so "unchanged" is decided on the
     decrypted value, which the agent can read (a parent cannot: see assign)."""
     store = store_dir()
-    fpr = key_of_store(store)
-    _check_name(name)
-    value = value if exact else _one_line_off(value)
-    _require_clean(store)
-    _before_write(store)
-    path = os.path.join(store, "env", f"{name}.gpg")
-    if os.path.exists(path) and _decrypt(path) == value:
-        _push_if_ahead(store)   # unchanged, but an earlier failed push is caught up
-        return {"name": name, "changed": False}
-    _write_entry(store, name, value, ["--recipient", fpr])
-    changed = git(store, "diff", "--cached", "--quiet", check=False).returncode != 0
-    if changed:
-        _commit(store, f"agent {login()}: set {name}")
-        _after_commit(store)
-    return {"name": name, "changed": changed}
+    with write_lock(store):
+        fpr = key_of_store(store)
+        _check_name(name)
+        value = value if exact else _one_line_off(value)
+        _require_clean(store)
+        _before_write(store)
+        path = os.path.join(store, "env", f"{name}.gpg")
+        if os.path.exists(path) and _decrypt(path) == value:
+            _push_if_ahead(store)   # unchanged, but an earlier failed push is caught up
+            return {"name": name, "changed": False}
+        _write_entry(store, name, value, ["--recipient", fpr])
+        changed = git(store, "diff", "--cached", "--quiet", check=False).returncode != 0
+        if changed:
+            _commit(store, f"agent {login()}: set {name}")
+            _after_commit(store)
+        return {"name": name, "changed": changed}
 
 
 def rm_entry(name: str) -> dict:
@@ -215,25 +221,26 @@ def rm_entry(name: str) -> dict:
     An absent name changes nothing ("changed": False); an earlier failed
     push is still caught up."""
     store = store_dir()
-    key_of_store(store)
-    _check_name(name)
-    _require_clean(store)
-    _before_write(store)
-    rel = os.path.join("env", f"{name}.gpg")
-    tracked = git(store, "ls-files", "--error-unmatch", "--", rel, check=False).returncode == 0
-    if not tracked:
-        # Never committed: an entry no write path leaves (each stages what
-        # it writes), removed all the same so that "absent" is true.
-        try:
-            os.remove(os.path.join(store, rel))
-        except FileNotFoundError:
-            _push_if_ahead(store)
-            return {"name": name, "changed": False}
+    with write_lock(store):
+        key_of_store(store)
+        _check_name(name)
+        _require_clean(store)
+        _before_write(store)
+        rel = os.path.join("env", f"{name}.gpg")
+        tracked = git(store, "ls-files", "--error-unmatch", "--", rel, check=False).returncode == 0
+        if not tracked:
+            # Never committed: an entry no write path leaves (each stages what
+            # it writes), removed all the same so that "absent" is true.
+            try:
+                os.remove(os.path.join(store, rel))
+            except FileNotFoundError:
+                _push_if_ahead(store)
+                return {"name": name, "changed": False}
+            return {"name": name, "changed": True}
+        git(store, "rm", "-q", "--", rel)
+        _commit(store, f"agent {login()}: rm {name}")
+        _after_commit(store)
         return {"name": name, "changed": True}
-    git(store, "rm", "-q", "--", rel)
-    _commit(store, f"agent {login()}: rm {name}")
-    _after_commit(store)
-    return {"name": name, "changed": True}
 
 
 def names(store: str | None = None) -> list[str]:
@@ -248,7 +255,9 @@ def pull(store: str | None = None) -> None:
     """The store brought up to its remote, when it has one; a failure is
     an error (StoreError), never a note: a sync that read a stale copy
     would apply less than the store holds and still say applied."""
-    _before_write(store or store_dir())
+    store = store or store_dir()
+    with write_lock(store):
+        _before_write(store)
 
 
 def values(store: str | None = None, *, only) -> dict[str, str]:

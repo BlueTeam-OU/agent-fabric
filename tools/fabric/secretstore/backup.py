@@ -28,6 +28,7 @@ from .trust import _commit
 from .entries import _require_clean, _before_write, _push_if_ahead, _after_commit
 from .mirrors import lineage
 from .accounts import _sheet_text
+from .lock import write_lock
 
 
 # ── Proton Drive: the stores' backup and the keys' recovery copies ─────
@@ -139,27 +140,28 @@ def recovery_copy(force: bool = False) -> dict:
         raise StoreError("no recovery key yet (identities/recovery.asc): the owner runs `fabric-secrets store recovery-key init`")
     rfpr = _key_file_fingerprint(pub)
     store = store_dir()
-    key_of_store(store)
-    _require_clean(store)
-    _before_write(store)
-    aid = own_agent_id(store)
-    if not aid:
-        raise StoreError("this store has no agent id yet (store-enroll.sh)")
-    path = os.path.join(store, "recovery", f"{aid}.key.gpg")
-    note = os.path.join(store, "recovery", f"{aid}.recipient")
-    if os.path.exists(path) and not force and open(note, encoding="utf-8").read().strip() == rfpr:
-        _push_if_ahead(store)
-        return {"path": path, "changed": False, "recipient": rfpr}
-    os.makedirs(os.path.dirname(path), mode=0o700, exist_ok=True)
-    gpg("--trust-model", "always", "--no-encrypt-to", "--encrypt", "--recipient-file", pub,
-        "--output", path + ".tmp", stdin=_sheet_text().encode())
-    os.replace(path + ".tmp", path)
-    with open(note, "w", encoding="utf-8") as fh:
-        fh.write(rfpr + "\n")
-    git(store, "add", os.path.relpath(path, store), os.path.relpath(note, store))
-    _commit(store, f"agent {login()}: recovery copy, encrypted to the recovery key {rfpr[-16:]}")
-    _after_commit(store)
-    return {"path": path, "changed": True, "recipient": rfpr}
+    with write_lock(store):
+        key_of_store(store)
+        _require_clean(store)
+        _before_write(store)
+        aid = own_agent_id(store)
+        if not aid:
+            raise StoreError("this store has no agent id yet (store-enroll.sh)")
+        path = os.path.join(store, "recovery", f"{aid}.key.gpg")
+        note = os.path.join(store, "recovery", f"{aid}.recipient")
+        if os.path.exists(path) and not force and open(note, encoding="utf-8").read().strip() == rfpr:
+            _push_if_ahead(store)
+            return {"path": path, "changed": False, "recipient": rfpr}
+        os.makedirs(os.path.dirname(path), mode=0o700, exist_ok=True)
+        gpg("--trust-model", "always", "--no-encrypt-to", "--encrypt", "--recipient-file", pub,
+            "--output", path + ".tmp", stdin=_sheet_text().encode())
+        os.replace(path + ".tmp", path)
+        with open(note, "w", encoding="utf-8") as fh:
+            fh.write(rfpr + "\n")
+        git(store, "add", os.path.relpath(path, store), os.path.relpath(note, store))
+        _commit(store, f"agent {login()}: recovery copy, encrypted to the recovery key {rfpr[-16:]}")
+        _after_commit(store)
+        return {"path": path, "changed": True, "recipient": rfpr}
 
 
 def _stores() -> dict[str, str]:
@@ -189,12 +191,16 @@ def backup() -> dict:
     manifest["at"] = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     with tempfile.TemporaryDirectory() as tmp:
         for who, d in _stores().items():
-            _before_write(d)
-            bundle = os.path.join(tmp, f"{REPO_PREFIX}{who}.bundle")
-            git(d, "bundle", "create", bundle, "--all")
+            # Locked through the bundle: a write between the pull and the
+            # bundle would make the manifest's head not the bundle's.
+            with write_lock(d):
+                _before_write(d)
+                bundle = os.path.join(tmp, f"{REPO_PREFIX}{who}.bundle")
+                git(d, "bundle", "create", bundle, "--all")
+                head = git(d, "rev-parse", "HEAD").stdout.decode().strip()
             name = ((lineage().get(who) or {}).get("login")) or (login() if d == store_dir() else None)
             manifest["stores"][who] = {"bundle": os.path.basename(bundle), "sha256": _sha256_file(bundle), "login": name,
-                                       "head": git(d, "rev-parse", "HEAD").stdout.decode().strip()}
+                                       "head": head}
             # Each store's recovery copy, already encrypted to the owner's
             # recovery key, also stands alone in keys/ for a restore.
             rdir = os.path.join(d, "recovery")

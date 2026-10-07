@@ -419,6 +419,81 @@ def main() -> int:
                   and lens.get("CLAUDE_CODE_OAUTH_TOKEN") == len(TOKEN), got.stderr)
             p = run(child, "set", "OWN_NOTE", stdin="kid\n")
             check("the agent sets its own entry", p.returncode == 0 and "set" in p.stdout, p.stderr)
+            # Two writers in one store at once (the own-secrets review, R2:
+            # the agent's set beside its control agent's self-test). The first
+            # is held between staging its entry and committing it (a
+            # pre-commit hook that waits), and the second starts only then:
+            # unlocked, it found the first's staged entry and refused, or
+            # took it into its own commit. Locked, it waits, and both land,
+            # here and on the remote.
+            import time
+            cstore = child["AGENT_FABRIC_SECRET_STORE"]
+            hook, mark = os.path.join(cstore, ".git", "hooks", "pre-commit"), os.path.join(tmp, "first-in-commit")
+            os.makedirs(os.path.dirname(hook), exist_ok=True)
+            with open(hook, "w", encoding="utf-8") as fh:
+                fh.write(f"#!/bin/sh\n[ -e '{mark}' ] && exit 0\ntouch '{mark}'; sleep 3\n")
+            os.chmod(hook, 0o755)
+            setp = lambda name: subprocess.Popen([sys.executable, TOOL, "set", name], env=child, cwd=tmp, text=True,  # noqa: E731
+                                                 stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            first = setp("CONC_ONE")
+            first.stdin.write("v1\n")
+            first.stdin.close()
+            deadline = time.monotonic() + 120
+            while not os.path.exists(mark) and time.monotonic() < deadline and first.poll() is None:
+                time.sleep(0.05)
+            second = setp("CONC_TWO")
+            out2, err2 = second.communicate("v2\n", timeout=300)
+            out1, err1 = first.stdout.read(), first.stderr.read()
+            first.wait(timeout=300)
+            os.remove(hook)
+            subjects = lambda *a: subprocess.run(["git", *a, "log", "--format=%s"], capture_output=True,  # noqa: E731
+                                                 text=True).stdout.splitlines()
+            local, pushed = subjects("-C", cstore), subjects("--git-dir", remote)
+            check("two sets at once in one store: the second waits for the first's write lock, and both land, "
+                  "each in its own commit, here and on the remote",
+                  os.path.exists(mark) and first.returncode == 0 and second.returncode == 0
+                  and sum(x.endswith(": set CONC_ONE") for x in local) == 1 and sum(x.endswith(": set CONC_TWO") for x in local) == 1
+                  and sum(": set CONC_" in x for x in pushed) == 2
+                  and subprocess.run(["git", "-C", cstore, "show", "--name-only", "--format=", "HEAD"], capture_output=True,
+                                     text=True).stdout.split() == ["env/CONC_TWO.gpg"],
+                  f"{first.returncode} {out1} {err1[-300:]}\n{second.returncode} {out2} {err2[-300:]}\n{local[:4]}\n{pushed[:4]}")
+            for name in ("CONC_ONE", "CONC_TWO"):
+                run(child, "rm", name)
+            # The wait is bounded: a lock held past it refuses, naming its
+            # holder, and nothing is written.
+            import fcntl
+            lock_path = os.path.join(cstore, ".git", "agent-fabric-write.lock")
+            head0 = subprocess.run(["git", "-C", cstore, "rev-parse", "HEAD"], capture_output=True, text=True).stdout
+            fd = os.open(lock_path, os.O_RDWR | os.O_CREAT, 0o600)
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX)
+                os.ftruncate(fd, 0)
+                os.write(fd, f"{os.getpid()}\n".encode())
+                try:
+                    held = subprocess.run([sys.executable, "-c",
+                                           "import sys; sys.path.insert(0, sys.argv[1]); import secret_store as s; "
+                                           "import secretstore.lock as l; l.WRITE_LOCK_WAIT_S = 1\n"
+                                           "try: s.set_entry('HELD_ONE', b'x')\n"
+                                           "except s.StoreError as e: print(e); sys.exit(1)", os.path.dirname(TOOL)],
+                                          env=child, cwd=tmp, capture_output=True, text=True, timeout=60)
+                except subprocess.TimeoutExpired:
+                    held = subprocess.CompletedProcess([], 124, "still waiting after 60 s: the wait is not bounded", "")
+            finally:
+                os.close(fd)
+            head1 = subprocess.run(["git", "-C", cstore, "rev-parse", "HEAD"], capture_output=True, text=True).stdout
+            check("a write lock held past the wait: refused, its holder named, nothing written",
+                  held.returncode == 1 and "has held its lock for 1 s" in held.stdout and f"pid {os.getpid()}" in held.stdout
+                  and head0 == head1 and not os.path.exists(os.path.join(cstore, "env", "HELD_ONE.gpg")),
+                  held.stdout + held.stderr[-300:])
+            # The rule is executable: a commit outside the lock is refused.
+            bare = subprocess.run([sys.executable, "-c",
+                                   "import sys; sys.path.insert(0, sys.argv[1]); import secret_store as s; "
+                                   "from secretstore.trust import _commit\n"
+                                   "try: _commit(sys.argv[2], 'x')\n"
+                                   "except s.StoreError as e: print(e); sys.exit(1)", os.path.dirname(TOOL), cstore],
+                                  env=child, cwd=tmp, capture_output=True, text=True, timeout=120)
+            check("…and a commit outside the write lock is refused, before git is asked",
+                  bare.returncode == 1 and "outside its write lock" in bare.stdout, bare.stdout + bare.stderr[-300:])
             # From a terminal the value is typed twice and never echoed: a real
             # pty, so getpass talks to the tty the CLI's stdin is.
             import pty

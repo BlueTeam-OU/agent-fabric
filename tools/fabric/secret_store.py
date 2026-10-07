@@ -81,6 +81,13 @@ exception, on both sides and only through a bundle: seed-child records the
 child's first bundle as its mirror's base, and the child's first
 take-bundle records its parent's (once).
 
+ONE WRITER PER STORE (the own-secrets review, R2). Every write to a store —
+set, rm, pull, init, put, assign, take-bundle, push, a recovery copy, a
+backup's pull — runs under secretstore/lock.py's flock on
+<store>/.git/agent-fabric-write.lock, waits up to WRITE_LOCK_WAIT_S, then
+refuses naming the holder; _before_write, _commit and _take_verified refuse
+a store whose lock the process does not hold.
+
 No function here prints a secret value. `values()` returns them to the
 caller in-process (fabric-secrets sync); everything else deals in names,
 fingerprints and paths.
@@ -165,6 +172,7 @@ from secretstore.entries import (  # noqa: E402
     values,
 )
 from secretstore.reserved import RegistryUnreadable, reserved  # noqa: E402
+from secretstore.lock import write_lock  # noqa: E402
 from secretstore.mirrors import (  # noqa: E402
     BUNDLE_BEGIN,
     BUNDLE_END,
@@ -410,10 +418,11 @@ def main(argv: list[str] | None = None) -> int:
             # What the parent put since is taken first, only as a fast-forward:
             # a re-enrolment after a put pushed the account's older head and
             # was refused as non-fast-forward. A new repository has no main.
-            git(store, "fetch", "-q", "origin")
-            if git(store, "rev-parse", "-q", "--verify", "refs/remotes/origin/main", check=False).returncode == 0:
-                _take_verified(store, "refs/remotes/origin/main")
-            git(store, "push", "-q", "-u", "origin", "HEAD:main")
+            with write_lock(store):
+                git(store, "fetch", "-q", "origin")
+                if git(store, "rev-parse", "-q", "--verify", "refs/remotes/origin/main", check=False).returncode == 0:
+                    _take_verified(store, "refs/remotes/origin/main")
+                git(store, "push", "-q", "-u", "origin", "HEAD:main")
             print("pushed")
         elif args.cmd == "bundle":
             sys.stdout.write(bundle_own())

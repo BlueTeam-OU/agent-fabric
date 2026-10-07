@@ -24,6 +24,7 @@ from .core import (
     git,
 )
 from .keys import key_of_store, _signing_args, _signing_subkeys
+from .lock import require_write_lock
 
 
 # The records status, fabric-ctl keys and the drain read. The optional keys
@@ -81,6 +82,7 @@ def _commit(store: str, message: str) -> None:
     # "could not sign" only when signing is what failed — the key not
     # found, or git saying gpg failed: a hook or a lock is another failure
     # (review of #94). git's own words are read in the C locale.
+    require_write_lock(store)
     try:
         signing = _signing_args()
     except StoreError as e:
@@ -419,6 +421,7 @@ def _taken(store: str, tip: str) -> None:
 
 def _take_verified(store: str, ref: str, agent_id: str | None = None) -> str:
     """`ref` verified, then taken as a fast-forward only (ADR-042 rule 3)."""
+    require_write_lock(store)
     tip = _verify_incoming(store, ref, agent_id)
     git(store, "merge", "-q", "--ff-only", tip)
     _taken(store, tip)
