@@ -97,6 +97,25 @@ def main() -> int:
             fresh.fetch_detached = real
         check("a worktree's own fresh fetch: no fetch started", started == [], started)
 
+        # No origin/HEAD and a default branch named master: the first
+        # existing of main and master is read, never a missing origin/main.
+        morigin, mclone, mother = (os.path.join(tmp, n) for n in ("m.git", "mwc", "mother"))
+        sh("init", "-q", "--bare", "-b", "master", morigin)
+        sh("init", "-q", "-b", "master", mother)
+        sh("commit", "-q", "--allow-empty", "-m", "a", cwd=mother)
+        sh("remote", "add", "origin", morigin, cwd=mother)
+        sh("push", "-q", "origin", "master", cwd=mother)
+        sh("init", "-q", "-b", "master", mclone)
+        sh("remote", "add", "origin", morigin, cwd=mclone)
+        sh("fetch", "-q", "origin", cwd=mclone)
+        sh("reset", "-q", "--hard", "origin/master", cwd=mclone)
+        sh("commit", "-q", "--allow-empty", "-m", "b", cwd=mother)
+        sh("push", "-q", "origin", "master", cwd=mother)
+        sh("fetch", "-q", "origin", cwd=mclone)
+        line = fresh.note({"cwd": mclone, "session_id": "s4"}, state=state)
+        check("no origin/HEAD, default master: the gap is said against origin/master",
+              line is not None and "lacks 1 commit(s) of origin/master" in line, line)
+
         nogit = os.path.join(tmp, "plain")
         os.makedirs(nogit)
         check("no git working copy: nothing", fresh.note({"cwd": nogit, "session_id": "s1"}, state=state) is None)

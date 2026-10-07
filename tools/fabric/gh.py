@@ -66,6 +66,9 @@ class GhError(Exception):
 _ORIGIN = re.compile(r"^(?:[^@/:\s]+@github\.com:|(?:https|ssh|git)://(?:[^@/\s]+@)?github\.com/)"
                      r"(?P<repo>[A-Za-z0-9._-]+/[A-Za-z0-9._-]+?)(?:\.git)?/?$")
 _REPO = re.compile(r"^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$")
+# What gh takes after --repo/-R: [HOST/]OWNER/REPO (a GitHub Enterprise
+# host included); naming the host names the repository too (#111 review).
+_SELECTOR = re.compile(r"^([A-Za-z0-9.-]+\.[A-Za-z]{2,}/)?[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$")
 _ITEM_URL = re.compile(r"^https://github\.com/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+/(pull|issues)/\d+/?$")
 
 
@@ -110,7 +113,7 @@ def _scoped(args: list[str]) -> bool:
     for i, a in enumerate(args):
         value = (args[i + 1] if i + 1 < len(args) else "") if a in ("--repo", "-R") \
             else a[len("--repo="):] if a.startswith("--repo=") else a[2:] if a.startswith("-R") else None
-        if value is not None and _REPO.match(value):
+        if value is not None and _SELECTOR.match(value):
             return False
     if args[:1] == ["api"]:
         return any("{owner}" in a or "{repo}" in a for a in args[1:])

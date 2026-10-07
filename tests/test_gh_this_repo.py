@@ -92,6 +92,7 @@ def main() -> int:
             check("…a call naming its repository runs", gh.run(["pr", "view", "3", "--repo", "o/r"]) == "unset")
             check("…a call on no repository runs", gh.run(["api", "user"]) == "unset")
             check("…-Rowner/repo as one word names it", gh.run(["pr", "view", "3", "-Ro/r"]) == "unset")
+            check("…a host-qualified selector names it", gh.run(["pr", "view", "3", "-R", "github.example.com/o/r"]) == "unset")
             check("…gh repo <verb> <owner>/<repo> names it", gh.run(["repo", "view", "o/r"]) == "unset")
             check("…a pull request's URL names it", gh.run(["pr", "view", "https://github.com/o/r/pull/3"]) == "unset")
             for label, args in (("a URL inside a body", ["pr", "comment", "5", "--body", "https://github.com/o/r/pull/9 fixes it"]),

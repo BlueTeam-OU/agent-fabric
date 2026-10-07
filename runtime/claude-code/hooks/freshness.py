@@ -82,7 +82,15 @@ def note(payload: dict, now: float | None = None, state: str | None = None) -> s
         fetched = None
     if fetched is None or now - fetched > FETCH_EVERY_S:
         fetch_detached(top)
-    ref = git(top, "symbolic-ref", "-q", "--short", "refs/remotes/origin/HEAD").stdout.strip() or "origin/main"
+    # origin/HEAD is absent after `git remote add` (a fetch does not create
+    # it); then the first of main and master that exists, else nothing is
+    # said: a missing ref must never read as "current" (#111 review).
+    ref = git(top, "symbolic-ref", "-q", "--short", "refs/remotes/origin/HEAD").stdout.strip()
+    if not ref:
+        ref = next((c for c in ("origin/main", "origin/master")
+                    if git(top, "rev-parse", "--verify", "--quiet", f"refs/remotes/{c}").returncode == 0), "")
+    if not ref:
+        return None
     n = git(top, "rev-list", "--count", f"HEAD..{ref}")
     behind = int(n.stdout) if n.returncode == 0 and n.stdout.strip().isdigit() else 0
     path = os.path.join(state or state_dir(), f"freshness-{session}.json")
