@@ -289,9 +289,12 @@ def run(env: dict[str, str]) -> int:
     fabric_itself = scope == "agent-fabric itself"
     authority = base_authority(top, base) if fabric_itself else ""
     bad: list[str] = []
+    roles: list[str] = []
     for c in commits:
         message = git.run(top, "log", "-1", "--format=%B", c).stdout
         declared = declared_role(message, git.run(top, "interpret-trailers", "--parse", input=message).stdout)
+        if declared:
+            roles.append(declared)
         if declared == owner_role:
             continue
         touched = own[c] if c in own else common.lines_of(
@@ -323,6 +326,16 @@ def run(env: dict[str, str]) -> int:
                 ".github/workflows/ — the action-pin carve-out.")
             continue
         bad.append(f"{log1(top, c, '%h %s')}  [Fabric-Role: {declared or 'none'}]")
+
+    # Who may open the pull request (ADR-018 §5 rule 8): in a pull request's
+    # CI only, where GitHub names the head branch.
+    head_ref = env.get("GITHUB_HEAD_REF", "")
+    pr_problem = contributors.pull_request_problem(authority, head_ref, roles, owner_role) \
+        if fabric_itself and head_ref else None
+    if pr_problem:
+        err(f"FAIL: {pr_problem}.")
+        if not bad:
+            return 1
 
     if not bad:
         say(f"check_agent_fabric_dir_authority: OK — {len(commits)} commit(s) change {scope}, "

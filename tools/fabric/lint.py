@@ -358,7 +358,7 @@ def contributor_findings(root: str) -> list[str]:
         role = e.get("role") if isinstance(e, dict) else None
         if not isinstance(role, str) or role not in whole:
             findings.append(f"policies/authority.json: contributors[{i}]: not a whole entry (a role, a non-empty "
-                            "list of paths, a list of exclusions) — it admits nothing")
+                            "list of paths, a list of exclusions, `merges` a boolean when present) — it admits nothing")
             continue
         where = f"policies/authority.json: contributors[{i}] ({role})"
         if role == owner:

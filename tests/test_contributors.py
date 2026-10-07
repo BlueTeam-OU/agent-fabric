@@ -56,7 +56,12 @@ def main() -> int:
     text = json.dumps(AUTHORITY)
     print("contributors_of keeps whole entries only")
     check("the entry", co.contributors_of(text) == {"python-dev": {"paths": ENTRY["paths"],
-                                                                    "excluding": ENTRY["excluding"]}})
+                                                                    "excluding": ENTRY["excluding"],
+                                                                    "merges": False}})
+    check("merges: true is kept", co.contributors_of(json.dumps(
+        {"contributors": [{**ENTRY, "merges": True}]}))["python-dev"]["merges"] is True)
+    check("a merges that is not a boolean spoils the entry",
+          co.contributors_of(json.dumps({"contributors": [{**ENTRY, "merges": "yes"}]})) == {})
     check("no key", co.contributors_of('{"role_definitions": {}}') == {})
     check("not JSON", co.contributors_of("{") == {})
     check("not a list", co.contributors_of('{"contributors": {"role": "x"}}') == {})
@@ -86,6 +91,23 @@ def main() -> int:
     check("no what", co.branch_problem(f"h/{LOGIN}/for/user", LOGIN) is not None)
     check("an empty segment", co.branch_problem(f"h/{LOGIN}/for//x", LOGIN) is not None)
     check("detached", co.branch_problem("", LOGIN) is not None)
+    print("branch_problem with merges: its own four-segment branch too")
+    check("its own feat branch", co.branch_problem(f"h/{LOGIN}/feat/x", LOGIN, True) is None)
+    check("…still its for/ branch", co.branch_problem(f"h/{LOGIN}/for/user/x", LOGIN, True) is None)
+    check("…never another login's", co.branch_problem("h/someone/feat/x", LOGIN, True) is not None)
+    check("…never three segments", co.branch_problem(f"h/{LOGIN}/x", LOGIN, True) is not None)
+    check("…never a for/ without its caller", co.branch_problem(f"h/{LOGIN}/for/x", LOGIN, True) is not None)
+
+    print("pull_request_problem: who opens a pull request")
+    merging = json.dumps({**AUTHORITY, "contributors": [{**ENTRY, "merges": True}]})
+    pr = co.pull_request_problem
+    owner = "fabric-coordinator"
+    check("a supply branch opens none", pr(merging, f"h/{LOGIN}/for/user/x", ["python-dev"], owner) is not None)
+    check("the owner's pull request", pr(text, f"h/{LOGIN}/feat/x", [owner, "python-dev"], owner) is None)
+    check("a contributor's own, without merges: refused",
+          pr(text, f"h/{LOGIN}/feat/x", ["python-dev"], owner) is not None)
+    check("a contributor's own, with merges: admitted", pr(merging, f"h/{LOGIN}/feat/x", ["python-dev"], owner) is None)
+    check("no declared role (Dependabot): not judged here", pr(text, "dependabot/github_actions/a/b", [], owner) is None)
 
     tmp = tempfile.mkdtemp(prefix="contributors-")
     try:
@@ -225,6 +247,22 @@ def main() -> int:
         check("off a contributor branch: refused", r.returncode != 0 and "not a contributor branch" in r.stderr,
               r.stderr)
 
+        # With merges, its own branch is admitted: the owner turns the flag on
+        # in HEAD's authority.json (the hooks read HEAD's), then python-dev
+        # commits there.
+        bind("fabric-coordinator")
+        with open(os.path.join(fab, "policies", "authority.json"), "w") as f:
+            json.dump({**AUTHORITY, "contributors": [{**ENTRY, "merges": True}]}, f)
+        sh(fab, "add", "policies/authority.json")
+        r = sh(fab, "commit", "-q", "-m", "merges", env={**GIT_ENV, "AGENT_FABRIC_STATE_DIR": state}, check=False)
+        check("(the owner turns merges on)", r.returncode == 0, r.stderr)
+        bind("python-dev")
+        r = attempt("tools/a.py")
+        check("with merges, its own branch: committed", r.returncode == 0, r.stderr)
+        r = attempt("src/a.py")
+        check("…and still only within its paths", r.returncode != 0, r.stderr)
+        sh(fab, "reset", "-q", "--hard", "HEAD~2")
+
         sh(fab, "checkout", "-q", f"h/{LOGIN}/for/user/port")
         bind("web-dev")
         r = attempt("tools/a.py")
@@ -241,13 +279,14 @@ def main() -> int:
 
         print("the CI tripwire reads the base's entry")
 
-        def ci() -> tuple[int, str, str]:
+        def ci(head_ref: str = "") -> tuple[int, str, str]:
             out, er = io.StringIO(), io.StringIO()
             cwd = os.getcwd()
             os.chdir(fab)
+            pr_env = {"GITHUB_HEAD_REF": head_ref} if head_ref else {}
             try:
                 with redirect_stdout(out), redirect_stderr(er):
-                    rc = da.run({**GIT_ENV, "AGENT_FABRIC_CHARTER_BASE": "main"})
+                    rc = da.run({**GIT_ENV, "AGENT_FABRIC_CHARTER_BASE": "main", **pr_env})
             finally:
                 os.chdir(cwd)
             return rc, out.getvalue(), er.getvalue()
@@ -262,6 +301,27 @@ def main() -> int:
         commit_raw("tools/a.py", "port\n\nFabric-Role: python-dev")
         rc, o, e = ci()
         check("a contributor's commit within its entry passes", rc == 0 and "contributor carve-out" in o, o + e)
+        rc, o, e = ci(f"h/{LOGIN}/feat/port")
+        check("…but as its own pull request, without merges on main: refused",
+              rc == 1 and "does not merge its own work" in e, o + e)
+        rc, o, e = ci(f"h/{LOGIN}/for/user/port")
+        check("a supply branch as a pull request: refused", rc == 1 and "supply branch" in e, o + e)
+        commit_raw("tools/b.py", "fold\n\nFabric-Role: fabric-coordinator")
+        rc, o, e = ci(f"h/{LOGIN}/feat/fold")
+        check("with an owner commit in it, the owner's pull request: admitted", rc == 0, o + e)
+        sh(fab, "reset", "-q", "--hard", "HEAD~1")
+        sh(fab, "checkout", "-q", "main")
+        with open(os.path.join(fab, "policies", "authority.json"), "w") as f:
+            json.dump({**AUTHORITY, "contributors": [{**ENTRY, "merges": True}]}, f)
+        sh(fab, "add", "-A")
+        sh(fab, "-c", "core.hooksPath=/dev/null", "commit", "-qm", "merges\n\nFabric-Role: fabric-coordinator")
+        # main moved past ci's fork point; main..ci is still ci's own commits.
+        sh(fab, "checkout", "-q", "ci")
+        rc, o, e = ci(f"h/{LOGIN}/feat/port")
+        check("with merges on main, its own pull request: admitted", rc == 0, o + e)
+        sh(fab, "checkout", "-q", "main")
+        sh(fab, "reset", "-q", "--hard", "HEAD~1")
+        sh(fab, "checkout", "-q", "ci")
         commit_raw("src/a.py", "stray\n\nFabric-Role: python-dev")
         rc, o, e = ci()
         check("one outside it fails the branch", rc == 1 and "[Fabric-Role: python-dev]" in e, o + e)
