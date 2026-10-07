@@ -93,7 +93,6 @@ from fabric_lint_rules.schema import load_schema, model_profile_findings, python
 from fabric_lint_rules.schema import schema_keyword_findings, validate_json  # noqa: E402, F401
 from fabric_lint_rules.shape import BASH_LINE_LIMIT, BASH_SHEBANG, _is_bash, bash_size_findings  # noqa: E402, F401
 from fabric_lint_rules.shape import candidate_role_findings, host_registry_findings  # noqa: E402, F401
-from fabric_lint_rules.shape import role_group_findings  # noqa: E402, F401
 from fabric_lint_rules.locales import AGENT_FRONTMATTER_RE, I18N_CONTROL_RE, I18N_DEFAULT_REL  # noqa: E402, F401
 from fabric_lint_rules.locales import I18N_EXTRA_PATTERNS, I18N_SCHEMA_REL, LOCALE_ENGINES  # noqa: E402, F401
 from fabric_lint_rules.locales import LOCALE_FILE_OPTIONAL, LOCALE_FILE_RE, _i18n_key_re  # noqa: E402, F401
@@ -494,7 +493,6 @@ def main() -> int:
 
     # --- a candidate that a project binds and a login holds is proved ------
     findings += candidate_role_findings(root, catalog, taxonomy_roles)
-    findings += role_group_findings(catalog)
 
     # --- licenses ----------------------------------------------------------
     findings += license_findings(root)
