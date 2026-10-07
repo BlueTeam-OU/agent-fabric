@@ -760,6 +760,9 @@ def existing_files() -> None:
     # refreshed; a foreign file and a foreign link are refused.
     os.makedirs(LB)
     os.symlink("/old/checkout/agent-fabric/bin/fabric-whoami", f"{LB}/fabric-whoami")
+    # A command that moved: the Node shim an account was linked to before the
+    # Python entry points (review of #106).
+    os.symlink(f"{FR}/communication/gzcoord/scripts/gzmsg.mjs", f"{LB}/gzmsg")
     put(f"{LB}/fabric-status", "#!/bin/sh\necho mine\n", 0o755)
     os.symlink("/usr/bin/true", f"{LB}/fabric-jobs")
     # Step 8: every Doppler leftover goes.
@@ -797,6 +800,8 @@ def existing_files() -> None:
     check("links: one of ours from another checkout refreshed",
           os.readlink(f"{LB}/fabric-whoami") == f"{FR}/bin/fabric-whoami"
           and f"  +  {LB}/fabric-whoami -> {FR}/bin/fabric-whoami" in r.lines)
+    check("links: a command's earlier target (commands.json replaces) moved to the current one",
+          os.readlink(f"{LB}/gzmsg") == f"{FR}/bin/gzmsg" and f"  +  {LB}/gzmsg -> {FR}/bin/gzmsg" in r.lines, r.out)
     check("links: a foreign file and a foreign link left alone",
           read(f"{LB}/fabric-status") == "#!/bin/sh\necho mine\n" and os.readlink(f"{LB}/fabric-jobs") == "/usr/bin/true")
     check("links: each refusal on stderr, one line each",
@@ -805,6 +810,7 @@ def existing_files() -> None:
     us = json.load(open(f"{CH}/settings.json"))
     check("user settings: no allow rule for a name whose link is not the fabric's",
           "Bash(fabric-status *)" not in us["permissions"]["allow"] and "Bash(fabric-whoami *)" in us["permissions"]["allow"])
+    check("user settings: a moved command keeps its allow rule", "Bash(gzmsg *)" in us["permissions"]["allow"])
     check("step 8: the Doppler leftovers removed, said in one line",
           "  -  Doppler retired: removed ~/.doppler, ~/.local/bin/doppler, ~/.config/agent-fabric/secrets-source" in r.lines
           and not os.path.lexists(f"{a.home}/.doppler") and not os.path.lexists(f"{a.home}/.local/bin/doppler")

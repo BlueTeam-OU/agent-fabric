@@ -560,13 +560,19 @@ class Bootstrap:
         # substitution linked nothing and reported success (review of #42).
         try:
             with open(self.src("runtime/claude-code/commands.json"), encoding="utf-8") as f:
-                commands = list(json.load(f)["commands"].items())
+                spec = json.load(f)
+            commands = list(spec["commands"].items())
             if not all(isinstance(v, str) for _, v in commands):
                 raise ValueError("a target is not a string")
+            # A command's earlier targets are links this fabric made too: an
+            # account bootstrapped before a command moved keeps its old link
+            # otherwise, and loses the command's allow rule (review of #106).
+            replaces = {k: v for k, v in (spec.get("replaces") or {}).items()
+                        if k != "_comment" and isinstance(v, list) and all(isinstance(x, str) for x in v)}
         except (OSError, ValueError, KeyError, TypeError, AttributeError):
             warn("  !  runtime/claude-code/commands.json unreadable — no command linked")
             self.failed += 1
-            commands = []
+            commands, replaces = [], {}
         for name, rel in commands:
             if not name:
                 continue
@@ -576,7 +582,8 @@ class Bootstrap:
                 say(f"  =  {link}")
                 self.same += 1
                 continue
-            if os.path.lexists(link) and not (current is not None and current.endswith("/" + rel)):
+            ours = current is not None and any(current.endswith("/" + r) for r in [rel, *replaces.get(name, [])])
+            if os.path.lexists(link) and not ours:
                 warn(f"  !  {link} is not a link this fabric made — left alone; {name} is not on PATH")
                 self.failed += 1
                 continue
