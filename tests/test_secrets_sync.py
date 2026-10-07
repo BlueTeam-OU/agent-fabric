@@ -329,6 +329,23 @@ def main() -> int:
             finally:
                 s.ROOT = real_root
 
+            # write_private: a symlink or a looser file at the old fixed
+            # temporary path is never written through, and nothing is left.
+            cfg = os.path.join(tmp, "wp")
+            os.makedirs(cfg, mode=0o700)
+            outside = os.path.join(tmp, "outside")
+            open(outside, "w").close()
+            os.symlink(outside, os.path.join(cfg, "secrets.env.tmp"))
+            s.write_private(os.path.join(cfg, "secrets.env"), "export X='CANARY-WP'\n", 0o600)
+            check("write_private never writes through a symlink at <path>.tmp",
+                  open(outside).read() == "" and open(os.path.join(cfg, "secrets.env")).read() == "export X='CANARY-WP'\n",
+                  open(outside).read())
+            check("and leaves only the target, 0600",
+                  os.listdir(cfg) == ["secrets.env"] and s.file_mode(os.path.join(cfg, "secrets.env")) == 0o600, os.listdir(cfg))
+            s.write_private(os.path.join(cfg, "id.pub"), "pub\n", 0o644)
+            check("a public file still gets the mode asked for", s.file_mode(os.path.join(cfg, "id.pub")) == 0o644,
+                  oct(s.file_mode(os.path.join(cfg, "id.pub")) or 0))
+
             # The shim: sync and status go to this module, an unknown command
             # is usage (2), and no Doppler is asked — there is none.
             r = subprocess.run([SHIM, "digest"], capture_output=True, text=True, env={**os.environ, "HOME": tmp})

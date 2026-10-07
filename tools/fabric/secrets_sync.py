@@ -49,10 +49,17 @@ exits 0 or 1; its JSON lists `refused` and `no_trusted_base` per store
 ("store": "own" or the child's agent id; a base's "state" is "no base" or
 "unreadable", as fabric-ctl keys names it).
 
+An agent's own entries — a name the fabric does not reserve
+(secretstore/reserved.py), which `fabric-secrets store set` took — are
+reported as `own` (names; the text says "own: N") and written nowhere:
+fabric-secret-run decrypts one for one command. `unexpected` is left for a
+reserved name nothing applies.
+
 Nothing here prints a secret value: names, presence, ages and modes only.
 """
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import importlib.util
 import json
@@ -63,26 +70,17 @@ import shutil
 import stat
 import subprocess
 import sys
+import tempfile
 import time
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.realpath(__file__)), "..", ".."))
 MARKER = "# agent-fabric secrets"
-ENV_NAMES = ["OPENROUTER_API_KEY", "GH_TOKEN", "CLAUDE_BRIDGE_AUTH_TOKEN"]
-GIT_NAMES = {"GIT_USER_NAME": "user.name", "GIT_USER_EMAIL": "user.email",
-             "GIT_SIGNING_KEY": "user.signingkey", "GIT_GPG_PROGRAM": "gpg.program"}
-SSH_NAMES = ["SSH_PRIVATE_KEY", "SSH_PUBLIC_KEY"]
-IDENTITY_NAMES = ["AGENT_LOGIN", "AGENT_HOST"]
-# Never written into secrets.env, whatever the registry declares: ~/.bashrc
-# sourced that file, so an exported name was in every shell and subagent of
-# the account, and a reviewer printed its environment with the operator's
-# signing key in it (rotated, #95). No shell sources secrets.env any more
-# (ADR-038 rule 9), but a file every tool may read is still no place for
-# the key that signs fleet actions. fabric-ctl decrypts it from the store
-# when it signs (runtime/control/ctl.mjs signingKey()). Known, so a store
-# holding it is not "unexpected"; and since the file is rewritten whole,
-# the next sync drops a line an older one wrote.
-STORE_ONLY = ["FABRIC_CONTROL_SIGNING_KEY"]
-ALL_NAMES = IDENTITY_NAMES + ENV_NAMES + list(GIT_NAMES) + SSH_NAMES
+# The names, and which are reserved, are secretstore/reserved.py's: set and
+# rm refuse exactly the names this applies or reports as known.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from secretstore.reserved import (  # noqa: E402
+    ENV_NAMES, GIT_NAMES, STORE_ONLY, ALL_NAMES, RegistryUnreadable, registry_agent_env, reserved,
+)
 USAGE = "usage: fabric-secrets sync [--force] [--json] [--quiet] [--no-pull] | status [--json] | store …"
 
 
@@ -115,16 +113,25 @@ def project_agent_env(root: str | None = None) -> list[str]:
     stopped meaning anything once every clone was named after its project.
     Exported when the store has them; their absence is never a missing name."""
     try:
-        reg = json.load(open(os.path.join(root or ROOT, "projects", "registry.json"), encoding="utf-8"))
-    except (OSError, ValueError):
+        declared = registry_agent_env(root or ROOT)
+    except RegistryUnreadable:
         return []
-    names: list[str] = []
     # Fabric-wide names first (registry top-level agent_env), then each project's.
-    for holder in [reg, *((reg.get("projects") or {}).values())]:
-        for n in (holder.get("agent_env") or {}):
-            if n not in names and n not in ENV_NAMES and n not in STORE_ONLY:
-                names.append(n)
-    return names
+    return [n for n in declared if n not in ENV_NAMES and n not in STORE_ONLY]
+
+
+def own_and_unexpected(names, known: list[str], root: str | None = None) -> tuple[list[str], list[str]]:
+    """Of the names the fabric does not apply, the agent's own (not
+    reserved: set, rm and fabric-secret-run take them) and the unexpected
+    (a reserved name nothing applies, CLAUDE_X or FABRIC_X, or one whose
+    standing the registry could not tell). Names only; never written."""
+    own, unexpected = [], []
+    for n in sorted(x for x in names if x not in known):
+        try:
+            (unexpected if reserved(n, root or ROOT) else own).append(n)
+        except RegistryUnreadable:
+            unexpected.append(n)
+    return own, unexpected
 
 
 def plain_env_names(root: str | None = None) -> list[str]:
@@ -151,9 +158,16 @@ def load_store():
     return mod
 
 
+# A decoder's message quotes the bytes it could not read, which may be a
+# value's: said by its class only, wherever the store's error is reported.
+NOT_TEXT = "store: a value is not UTF-8 text"
+
+
 def fetch_names() -> tuple[list[str] | None, str | None]:
     try:
         return load_store().names(), None
+    except UnicodeError:
+        return None, NOT_TEXT
     except Exception as e:  # noqa: BLE001 — reported as the store's error, never a value
         return None, f"store: {e}"
 
@@ -163,11 +177,17 @@ def fetch_values(pull: bool = True) -> tuple[dict[str, str] | None, str | None]:
     # applied as if it were the store, and the sync would say applied.
     # Skipped only when asked: the copy was just taken from the parent's
     # bundle, and the key to pull with is what this sync writes.
+    # Only the names sync applies are decrypted: an agent's own entries are
+    # listed by name (fetch_names) and never read here, so one holding
+    # bytes that are not text cannot stop the sync (review of the
+    # own-secrets PR). STORE_ONLY is never applied, so never decrypted.
     try:
         st = load_store()
         if pull:
             st.pull()
-        return st.values(), None
+        return st.values(only=ALL_NAMES + project_agent_env()), None
+    except UnicodeError:
+        return None, NOT_TEXT
     except Exception as e:  # noqa: BLE001 — the store's error, never a value
         return None, f"store: {e}"
 
@@ -194,13 +214,25 @@ def git_set(key: str, value: str) -> None:
 
 
 def write_private(path: str, content: str, mode: int) -> None:
-    os.makedirs(os.path.dirname(path), mode=0o700, exist_ok=True)
-    tmp = path + ".tmp"
-    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, mode)
-    with os.fdopen(fd, "w") as fh:
-        fh.write(content)
-    os.chmod(tmp, mode)
-    os.replace(tmp, path)
+    """Written beside the target and renamed over it. The temporary file is
+    made new by mkstemp (O_EXCL, 0600) before a byte of the secret reaches
+    it: the fixed `<path>.tmp` this once opened with O_TRUNC followed a
+    symlink planted there and kept a looser mode an earlier file had. One
+    such file an older sync left is removed, never written through."""
+    d = os.path.dirname(path)
+    os.makedirs(d, mode=0o700, exist_ok=True)
+    with contextlib.suppress(FileNotFoundError):
+        os.unlink(path + ".tmp")
+    fd, tmp = tempfile.mkstemp(dir=d, prefix=f".{os.path.basename(path)}.")
+    try:
+        with os.fdopen(fd, "w") as fh:
+            fh.write(content)
+            os.fchmod(fh.fileno(), mode)
+        os.replace(tmp, path)
+    except BaseException:
+        with contextlib.suppress(FileNotFoundError):
+            os.unlink(tmp)
+        raise
 
 
 def file_mode(path: str) -> int | None:
@@ -411,6 +443,7 @@ def report(obj: dict, as_json: bool, quiet: bool, ok: bool) -> None:
     if "present" in obj:
         print(f"  present: {', '.join(obj['present']) or '(none)'}")
         print(f"  missing: {', '.join(obj['missing']) or '(none)'}")
+        print(f"  own: {len(obj.get('own') or [])}" + (f" ({', '.join(obj['own'])})" if obj.get("own") else ""))
     if "applied" in obj:
         print(f"  applied: {', '.join(obj['applied']) or '(none)'}")
         if obj.get("skipped"):
@@ -439,7 +472,7 @@ def status(as_json: bool, quiet: bool = False) -> int:
         obj["present"] = [n for n in ALL_NAMES if n in names]
         obj["missing"] = [n for n in ALL_NAMES if n not in names]
         obj["optional"] = [n for n in optional if n in names]
-        obj["unexpected"] = sorted(n for n in names if n not in known)
+        obj["own"], obj["unexpected"] = own_and_unexpected(names, known)
         ok = not obj["missing"]
     # A refused commit is a security event (ADR-042 rule 5): said here until
     # the store is repaired, whatever else is well. So is a store with no
@@ -473,10 +506,16 @@ def sync(force: bool, as_json: bool, quiet: bool = False, pull: bool = True) -> 
         obj["local"] = local_state()
         report(obj, as_json, quiet, False)
         return 1
+    held, err = fetch_names()   # every name, own ones included; after the pull above
+    if err:
+        obj["error"] = err
+        obj["local"] = local_state()
+        report(obj, as_json, quiet, False)
+        return 1
     obj["present"] = [n for n in ALL_NAMES if n in values]
     obj["missing"] = [n for n in ALL_NAMES if n not in values]
     obj["optional"] = [n for n in optional if n in values]
-    obj["unexpected"] = sorted(n for n in values if n not in known)
+    obj["own"], obj["unexpected"] = own_and_unexpected(held, known)
     obj["values_sha256"] = values_digest(values, known)
     # The invariant, enforced: a store that does not name this login is
     # someone else's, whatever key opened it.

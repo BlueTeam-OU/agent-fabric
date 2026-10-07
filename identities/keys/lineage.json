@@ -106,5 +106,23 @@
     "fingerprint": "55C2B4F2AD3776DCADC611DD6FC39442E727B91E",
     "login": "rust-ui-dev-01",
     "parent": "019bbe31-2fff-7a2f-9849-96bdf286e011"
+  },
+  "01a11615-14e1-7139-975c-84ad21a5c91f": {
+    "born": "2026-10-07T11:17:22.785Z",
+    "fingerprint": "7FFAD380EEBAB56BAA699562F0F883BAC51AC1C5",
+    "login": "python-dev-02",
+    "parent": "019bbe31-2fff-7a2f-9849-96bdf286e011"
+  },
+  "01a11618-0f9b-7e96-8272-dad8faa1defa": {
+    "born": "2026-10-07T11:20:38.043Z",
+    "fingerprint": "2B07F2FEC5F1003E6322B066D0FF348026426FCE",
+    "login": "rust-services-dev-01",
+    "parent": "019bbe31-2fff-7a2f-9849-96bdf286e011"
+  },
+  "01a11619-eab1-74c0-bbd0-42fafa15c39b": {
+    "born": "2026-10-07T11:22:39.665Z",
+    "fingerprint": "3FB7CDE462F9E3221085313957A0DD0B9D322A0B",
+    "login": "p2p-network-dev-02",
+    "parent": "019bbe31-2fff-7a2f-9849-96bdf286e011"
   }
 }

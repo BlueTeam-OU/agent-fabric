@@ -77,3 +77,12 @@ already names, a relay its daemons reach.
 
 Live: a hook payload on the coordinator's account reached
 `fabric-ctl states` as blocked within seconds, and its end as none.
+
+### Amendment 2026-10-07 — secrets-selftest proves an account's own secrets
+
+§5 rule 17 added. The owner asked that every agent be able to add, use
+and delete secrets in its own store, in the most secure way, and know
+how. The action is how the operator verifies it per account without a
+value ever leaving the account: the reply carries the steps and the
+verdict only. Delete is hygiene: what the store no longer holds is not
+used.

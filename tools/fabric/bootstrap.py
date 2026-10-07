@@ -28,6 +28,7 @@ Writes, idempotently, and only machine-local files:
   ~/.claude/skills/fabric-decisions/SKILL.md
   ~/.claude/skills/branch-hygiene/SKILL.md
   ~/.claude/skills/agent-jobs/SKILL.md
+  ~/.claude/skills/own-secrets/SKILL.md
   ~/.claude/skills/gzcoord-send/SKILL.md, gzcoord-receive/SKILL.md
                                      the dispatch policy as a loadable skill, from policies/
   ~/.local/bin/<name>                every command a session runs, by name
@@ -229,6 +230,7 @@ SKILLS = (("subagent-dispatch", "policies/subagent-dispatch/SKILL.md"),
           ("fabric-decisions", "policies/fabric-decisions/SKILL.md"),
           ("branch-hygiene", "policies/branch-hygiene/SKILL.md"),
           ("agent-jobs", "policies/agent-jobs/SKILL.md"),
+          ("own-secrets", "policies/own-secrets/SKILL.md"),
           ("gzcoord-send", "communication/gzcoord/skills/gzcoord-send/SKILL.md"),
           ("gzcoord-receive", "communication/gzcoord/skills/gzcoord-receive/SKILL.md"))
 

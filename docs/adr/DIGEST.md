@@ -615,16 +615,15 @@ its record disagree, the record wins. Look it up, never read it whole:
 - Every reply arrives, gaps named, no secret; `fabric-ctl` exits 1 on
   silence or a failed action; the drain files only verified bundles
   (§5 rules 6–9). Reads are fenced, not proved (§6).
-- A 2026-09-27 — actions run beside the read loop, one of a kind;
-  a second is `busy` (§5 rule 12).
+- A 2026-09-27 — actions run beside the read loop, one per kind (§5 rule 12).
 - A 2026-09-27 — each operation's answer budget (§5 rule 12).
 - A 2026-09-28 — `jobs` and `jobs-add` carry the job list (§5 rule 13).
 - A 2026-09-29 — `secrets-migrate`, Doppler to the store (§5 rule 14).
 - A 2026-09-30 — rule 14 withdrawn; the signing key is in the
   operator's store (§5 rule 5).
-- A 2026-10-06 — `local` reads, `local-prune` cleans each account's settings.local.json (§5 rule 15).
-- A 2026-10-07 — agentd posts each session's state on change;
-  `fabric-ctl states --follow` streams it (§5 rule 16).
+- A 2026-10-06 — `local`, `local-prune`: settings.local.json (§5 rule 15).
+- A 2026-10-07 — session state on the control plane (§5 rule 16).
+- A 2026-10-07 — `secrets-selftest`: an own secret added, used, removed (§5 rule 17).
 - Keywords: control plane, agentd, fabric-ctl, control channel,
   fabric:control, relay, ops, status, ping, keys, usage, recall, tokens,
   drain, memory, signed, operator_key, keygen, linger, persist, session

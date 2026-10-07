@@ -483,7 +483,7 @@ test('keygen: the private half goes into this login\'s store on stdin and nowher
   assert.equal(calls.length, 1, 'one call: the store');
   const set = calls[0];
   assert.match(set.bin, /bin\/fabric-secrets$/);
-  assert.deepEqual(set.args, ['store', 'set', 'FABRIC_CONTROL_SIGNING_KEY']);
+  assert.deepEqual(set.args, ['store', 'set', '--managed', 'FABRIC_CONTROL_SIGNING_KEY'], 'a managed name, on purpose (secretstore/reserved.py)');
   assert.ok(privateKeyFrom(set.input), 'a usable private key went to the store on stdin');
   assert.ok(!set.args.some(a => a.includes('pkcs8')), 'never on the command line');
   assert.ok(!out.join('\n').includes(set.input.slice(14, 40)), 'never printed');

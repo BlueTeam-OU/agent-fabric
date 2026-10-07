@@ -9,6 +9,7 @@ set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 fail=0
+skipped=()
 
 # Every bash script: the .sh files and the shebang'd tools without a suffix.
 mapfile -t scripts < <({ git ls-files '*.sh'; git ls-files | while read -r f; do
@@ -25,12 +26,12 @@ done
 if command -v shellcheck >/dev/null 2>&1; then
     shellcheck -S error "${scripts[@]}" || fail=1
 else
-    echo "  ! shellcheck not installed: not run here (CI runs it)"
+    echo "  ! shellcheck not installed: not run here (CI runs it)"; skipped+=(shellcheck)
 fi
 if command -v ruff >/dev/null 2>&1; then
     ruff check . || fail=1
 else
-    echo "  ! ruff not installed: not run here (CI runs it)"
+    echo "  ! ruff not installed: not run here (CI runs it)"; skipped+=(ruff)
 fi
 for f in $(git ls-files '*.py'); do
     python3 -m py_compile "$f" || { echo "  ✗ py_compile $f"; fail=1; }
@@ -84,4 +85,10 @@ if bad:
 sys.exit(1 if bad else 0)
 PY
 if (( fail )); then echo "static: FAILED"; exit 1; fi
-echo "static: all bash scripts parse, shellcheck and ruff clean"
+# The summary names what did not run: a reader of the last line took a
+# skipped ruff for a clean one and delivered two unused imports to CI.
+if (( ${#skipped[@]} )); then
+    echo "static: passed, but NOT run here: ${skipped[*]} (CI runs it)"
+else
+    echo "static: all bash scripts parse, shellcheck and ruff clean"
+fi

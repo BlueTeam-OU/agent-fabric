@@ -395,6 +395,7 @@ SKILLS = (("subagent-dispatch", "policies/subagent-dispatch/SKILL.md"),
           ("fabric-decisions", "policies/fabric-decisions/SKILL.md"),
           ("branch-hygiene", "policies/branch-hygiene/SKILL.md"),
           ("agent-jobs", "policies/agent-jobs/SKILL.md"),
+          ("own-secrets", "policies/own-secrets/SKILL.md"),
           ("gzcoord-send", "communication/gzcoord/skills/gzcoord-send/SKILL.md"),
           ("gzcoord-receive", "communication/gzcoord/skills/gzcoord-receive/SKILL.md"))
 
@@ -565,14 +566,14 @@ def first_run() -> None:
 
     j = i + 2 + len(cmds)
     want = [f"  +  {CH}/skills/{n}/SKILL.md" for n, _ in SKILLS]
-    check("the six skills: one line each, in order", L[j:j + 6] == want, "\n".join(L[j:j + 6]))
+    check("every skill: one line each, in order", L[j:j + len(SKILLS)] == want, "\n".join(L[j:j + len(SKILLS)]))
     for n, src in SKILLS:
         check(f"…{n}: the fabric's file, mode 644",
               read(f"{CH}/skills/{n}/SKILL.md") == read(f"{FR}/{src}") and mode(f"{CH}/skills/{n}/SKILL.md") == 0o644)
     check("step 3: no /role command to remove, none said", not any("role.md" in x for x in L))
 
     # Step 4.
-    j += 6
+    j += len(SKILLS)
     check("step 4: the checkout's hooksPath set, said", L[j] == f"  +  {FR}: core.hooksPath = {HOOK_REL}", L[j])
     check("step 4: …relative, in the checkout's own config", git_config(FR, "core.hooksPath") == HOOK_REL)
 
@@ -632,7 +633,7 @@ def first_run() -> None:
 
     # The summary counts the script's own puts, links, the user settings and
     # step 5's lines; the agent files, steps 4, 5b and 7 are not in it.
-    n_written = 2 + 2 + len(cmds) + 1 + 6 + 2 + 1
+    n_written = 2 + 2 + len(cmds) + 1 + len(SKILLS) + 2 + 1
     check("the summary counts what was written",
           L[k + 3:] == [f"bootstrap: {n_written} written, 2 already current.",
                         f"Launch from {P}: cd \"{P}\" && claude   — the session starts as {LOGIN}."], "\n".join(L[k + 3:]))
@@ -649,7 +650,7 @@ def first_run() -> None:
     check("second run: the tree is unchanged (paths, modes, content)", before == after, diff(before, after))
     plus = [x for x in r2.lines if x.startswith("  +  ") or x.startswith("  -  ")]
     check("second run: nothing said written or removed", plus == [], "\n".join(plus))
-    n_same = 2 + 2 + len(cmds) + 1 + 6 + 4 + 1
+    n_same = 2 + 2 + len(cmds) + 1 + len(SKILLS) + 4 + 1
     check("second run: the summary says all of it current",
           f"bootstrap: 0 written, {n_same} already current." in r2.lines, r2.out)
     check("second run: step 4 says =", f"  =  {FR}: core.hooksPath = {HOOK_REL}" in r2.lines)

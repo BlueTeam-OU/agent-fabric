@@ -32,7 +32,7 @@ export { scriptCounts, langidCmd, languages, recallKind, recall, notesDir, scrip
 export { MEMORY_PART_BYTES, memorySlug, memoryDirs, memory } from './ops/memory.mjs';
 
 
-export const OPS = ['ping', 'identity', 'usage', 'keys', 'fabric', 'session', 'script', 'recall', 'tokens', 'memory', 'host', 'disk', 'accounts', 'upgrade', 'secrets-sync', 'status', 'presence', 'jobs', 'jobs-add', 'local', 'local-prune'];
+export const OPS = ['ping', 'identity', 'usage', 'keys', 'fabric', 'session', 'script', 'recall', 'tokens', 'memory', 'host', 'disk', 'accounts', 'upgrade', 'secrets-sync', 'status', 'presence', 'jobs', 'jobs-add', 'local', 'local-prune', 'secrets-selftest'];
 
 // Answered for any placed account, not only an operator: whether a session
 // is running is what every sender needs before it writes to one, and it

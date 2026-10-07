@@ -103,9 +103,12 @@ def _write_entry(store: str, name: str, value: bytes, recipient_args: list[str])
     return path
 
 
-def _decrypt(path: str) -> str | None:
+def _decrypt(path: str) -> bytes | None:
+    """The value as stored, bytes: an own entry may hold any bytes, and a
+    decode here once made set of a non-UTF-8 value fail with a traceback
+    naming one of its bytes (review of the own-secrets PR)."""
     r = gpg("--decrypt", path, check=False)
-    return r.stdout.decode() if r.returncode == 0 else None
+    return r.stdout if r.returncode == 0 else None
 
 
 def _remote(store: str) -> bool:
@@ -160,13 +163,22 @@ def _after_commit(store: str) -> None:
         git(store, "push", "-q", "origin", f"HEAD:{_branch(store)}")
 
 
-def stdin_value(allow_empty: bool) -> bytes:
+def stdin_value(allow_empty: bool, name: str = "the value") -> bytes:
     """A value from stdin, refused when it is empty and not meant to be: a
     pipe whose producer failed reaches here as nothing, and stored it reads
     "set" while the login now holds an empty token, which the launcher
     refuses at the next session (devex-tooling, 2026-10-01). One trailing
-    newline is not a value either."""
-    value = sys.stdin.buffer.read()
+    newline is not a value either. A terminal is asked twice without echo,
+    as the recovery passphrase is: read from a tty, the value was echoed
+    onto the screen and into its scrollback."""
+    if sys.stdin.isatty():
+        import getpass
+        first = getpass.getpass(f"{name} (not echoed): ")
+        if getpass.getpass("the same again: ") != first:
+            raise StoreError("the two entries differ; nothing written")
+        value = first.encode()
+    else:
+        value = sys.stdin.buffer.read()
     if not allow_empty and not _one_line_off(value):
         raise StoreError("no value on stdin — nothing written (an empty value on purpose: --empty)")
     return value
@@ -184,7 +196,7 @@ def set_entry(name: str, value: bytes, *, exact: bool = False) -> dict:
     _require_clean(store)
     _before_write(store)
     path = os.path.join(store, "env", f"{name}.gpg")
-    if os.path.exists(path) and _decrypt(path) == value.decode(errors="replace"):
+    if os.path.exists(path) and _decrypt(path) == value:
         _push_if_ahead(store)   # unchanged, but an earlier failed push is caught up
         return {"name": name, "changed": False}
     _write_entry(store, name, value, ["--recipient", fpr])
@@ -193,6 +205,35 @@ def set_entry(name: str, value: bytes, *, exact: bool = False) -> dict:
         _commit(store, f"agent {login()}: set {name}")
         _after_commit(store)
     return {"name": name, "changed": changed}
+
+
+def rm_entry(name: str) -> dict:
+    """The agent removes its own entry: env/NAME.gpg, committed signed as
+    set commits ("agent <login>: rm NAME") and pushed. History is not
+    rewritten — the value stays readable to this key in the store's past,
+    so a value that may have leaked is rotated at its provider, not removed.
+    An absent name changes nothing ("changed": False); an earlier failed
+    push is still caught up."""
+    store = store_dir()
+    key_of_store(store)
+    _check_name(name)
+    _require_clean(store)
+    _before_write(store)
+    rel = os.path.join("env", f"{name}.gpg")
+    tracked = git(store, "ls-files", "--error-unmatch", "--", rel, check=False).returncode == 0
+    if not tracked:
+        # Never committed: an entry no write path leaves (each stages what
+        # it writes), removed all the same so that "absent" is true.
+        try:
+            os.remove(os.path.join(store, rel))
+        except FileNotFoundError:
+            _push_if_ahead(store)
+            return {"name": name, "changed": False}
+        return {"name": name, "changed": True}
+    git(store, "rm", "-q", "--", rel)
+    _commit(store, f"agent {login()}: rm {name}")
+    _after_commit(store)
+    return {"name": name, "changed": True}
 
 
 def names(store: str | None = None) -> list[str]:
@@ -210,13 +251,26 @@ def pull(store: str | None = None) -> None:
     _before_write(store or store_dir())
 
 
-def values(store: str | None = None) -> dict[str, str]:
-    """Every entry, decrypted, for fabric-secrets sync. In-process only:
-    nothing here prints or logs a value."""
+def values(store: str | None = None, *, only) -> dict[str, str]:
+    """The entries named in `only` that the store holds, decrypted, as
+    text. In-process only: nothing here prints or logs a value. A caller
+    names what it uses, and there is no "every entry": an agent's own entry
+    may hold any bytes, and decrypting every entry made one non-UTF-8 own
+    value fail the whole sync, then every provisioning (new-agent
+    included), with a byte of it in the error (review of the own-secrets
+    PR; #108's Codex P2).
+    A value this must read that is not UTF-8 is a StoreError naming the
+    entry, never the decoder's message, which quotes the byte."""
     store = store or store_dir()
     key_of_store(store)
+    wanted = set(only)
     out = {}
     for name in names(store):
+        if name not in wanted:
+            continue
         r = gpg("--decrypt", os.path.join(store, "env", f"{name}.gpg"))
-        out[name] = r.stdout.decode()   # exactly as written: many lines, or none
+        try:
+            out[name] = r.stdout.decode()   # exactly as written: many lines, or none
+        except UnicodeDecodeError:
+            raise StoreError(f"{name}: the value is not UTF-8 text, and this reads it as text") from None
     return out

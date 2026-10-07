@@ -66,8 +66,8 @@ def test_every_script_runs_through_its_link() -> None:
 
 def test_a_wrapper_that_runs_another_command_is_never_allowed() -> None:
     assert set(DOC.get("not_allowed", {})) <= set(DOC["commands"]), DOC.get("not_allowed")
-    assert {"fabric-lease", "fabric-host"} <= set(DOC.get("not_allowed", {})), \
-        "fabric-lease runs the command after --, fabric-host runs any command on a host: an allow rule would allow everything"
+    assert {"fabric-lease", "fabric-host", "fabric-secret-run"} <= set(DOC.get("not_allowed", {})), \
+        "fabric-lease and fabric-secret-run run the command after --, fabric-host runs any command on a host: an allow rule would allow everything"
 
 
 # In a Markdown text a session reads, a command named by its script or by

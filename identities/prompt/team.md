@@ -73,8 +73,8 @@ caller's draft ships as a marked placeholder).
 **A code PR is armed by its work-commit count**: the commits of work as opened, review fixes excluded.
 Eight or more, a security boundary too: arm once the review gate is met
 (a posted review of the head, no open P1/P2). Fewer: ask the owner, who
-arms. Open a batch at sixteen at most. Never without the gate. Calling a
-PR ready, armed or merged, give its count ("1 work, 1 fix").
+arms. Open a batch at sixteen at most. Never without the gate. Any PR
+status you state carries its counts ("#215 is unarmed: 6 work, 2 fix").
 
 **One open pull request per agent and repository**. While one is open there — unarmed, armed or queued —
 the next piece of work is another commit on it if the branch is still

@@ -44,6 +44,10 @@ def main() -> int:
     with tempfile.TemporaryDirectory() as tmp:
         fabric = os.path.join(tmp, "fabric")
         os.makedirs(os.path.join(fabric, "identities", "keys"))
+        # Which names are managed is read from the registry: the store reads
+        # the scratch fabric's, sync its own checkout's, so this is a copy.
+        os.makedirs(os.path.join(fabric, "projects"))
+        shutil.copy(os.path.join(ROOT, "projects", "registry.json"), os.path.join(fabric, "projects", "registry.json"))
         # The fabric is a checkout: a store's writers are read at its
         # origin/main (ADR-042 rule 2), so what certify writes counts only
         # once it is "merged" — committed here and published to origin/main.
@@ -219,7 +223,7 @@ def main() -> int:
             rows_of = lambda p: {(r.get("name"), r["status"]) for r in json.loads(p.stdout or "[]")}
             for k, v in (("GH_TOKEN", "parent-gh-token"), ("GIT_USER_NAME", "Fleet Person"), ("SSH_PUBLIC_KEY", "ssh-ed25519 AAAAshared"),
                          ("OPENROUTER_PROVISIONING_KEY", "prov-" + SECRET)):
-                run(parent, "set", k, stdin=v)
+                run(parent, "set", k, "--managed", stdin=v)
             p = prov("share", "kid")
             got = rows_of(p)
             check("provision share: the parent's shared names the child lacks are written; one it holds is present",
@@ -287,6 +291,21 @@ def main() -> int:
                 p = ik("kid")
                 check("issue-key again: present, not minted again", rows_of(p) == {("OPENROUTER_API_KEY", "present")}
                       and len(seen) == 1, p.stdout + repr(seen))
+                # A parent's own entry may hold any bytes: share and issue-key
+                # decrypt only the names they use, so one that is not UTF-8
+                # stops neither, and no output holds a byte of it (#108,
+                # Codex P2: values() decrypted every entry for both).
+                rawp = b"\xff\xfePARENTRAW-" + SECRET.encode() + b"\x80\xc3"
+                b = subprocess.run([sys.executable, TOOL, "set", "PARENT_RAW"], env=parent, input=rawp, cwd=tmp,
+                                   capture_output=True, timeout=300)
+                ps, pk = prov("share", "kid"), ik("kid")
+                said = ps.stdout + ps.stderr + pk.stdout + pk.stderr
+                check("a non-UTF-8 own entry in the parent's store: share and issue-key go on, and print no byte of it",
+                      b.returncode == 0 and ps.returncode == 0 and ("GH_TOKEN", "present") in rows_of(ps)
+                      and pk.returncode == 0 and rows_of(pk) == {("OPENROUTER_API_KEY", "present")}
+                      and not any(x in said for x in ("PARENTRAW", "\\xff", "0xff", "\\x80", SECRET)), said[-600:])
+                r = run(parent, "rm", "PARENT_RAW")
+                check("…and it is removed again", r.returncode == 0, r.stdout + r.stderr)
                 open(os.path.join(tmp, "break-put"), "w").close()
                 p = ik("kid", "--replace")
                 os.rename(remote + ".away", remote)
@@ -393,13 +412,116 @@ def main() -> int:
             subprocess.run(["git", "-C", child_store, "pull", "-q", "origin", "main"], check=True, env=child)
             sys.path.insert(0, os.path.dirname(TOOL))
             got = subprocess.run([sys.executable, "-c",
-                                  "import secret_store as s, json; v=s.values(); print(json.dumps({k: len(x) for k, x in v.items()}))"],
+                                  "import secret_store as s, json; v=s.values(only=s.names()); print(json.dumps({k: len(x) for k, x in v.items()}))"],
                                  cwd=os.path.dirname(TOOL), env=child, capture_output=True, text=True)
             lens = json.loads(got.stdout or "{}")
             check("the child reads it (values() in-process)", lens.get("GH_TOKEN") == len(SECRET)
                   and lens.get("CLAUDE_CODE_OAUTH_TOKEN") == len(TOKEN), got.stderr)
             p = run(child, "set", "OWN_NOTE", stdin="kid\n")
             check("the agent sets its own entry", p.returncode == 0 and "set" in p.stdout, p.stderr)
+            # From a terminal the value is typed twice and never echoed: a real
+            # pty, so getpass talks to the tty the CLI's stdin is.
+            import pty
+
+            def typed(*lines: str) -> tuple[int, str]:
+                pid, fd = pty.fork()
+                if pid == 0:
+                    os.chdir(tmp)
+                    os.execve(sys.executable, [sys.executable, TOOL, "set", "TYPED_ONE"], child)
+                # One line per prompt, sent only once the prompt is on the
+                # screen: getpass flushes what was typed before it turned
+                # echo off (TCSAFLUSH), and what was typed between its two
+                # prompts is echoed.
+                import select
+                import signal
+                import time
+                out, sent, deadline = b"", list(lines), time.monotonic() + 60
+                while True:
+                    if not select.select([fd], [], [], max(0.0, deadline - time.monotonic()))[0]:
+                        os.kill(pid, signal.SIGKILL)   # a CLI still reading: never a hung suite
+                        break
+                    try:
+                        chunk = os.read(fd, 1024)
+                    except OSError:
+                        break
+                    if not chunk:
+                        break
+                    out += chunk
+                    if sent and out.endswith(b": ") and len(lines) - len(sent) < out.count(b": "):
+                        os.write(fd, sent.pop(0).encode() + b"\n")
+                os.close(fd)
+                return os.waitstatus_to_exitcode(os.waitpid(pid, 0)[1]), out.decode(errors="replace")
+            rc, screen = typed("TYPED-" + SECRET, "TYPED-" + SECRET)
+            got = subprocess.run([sys.executable, "-c", "import secret_store as s; print(s.values(only=['TYPED_ONE'])['TYPED_ONE'])"],
+                                 cwd=os.path.dirname(TOOL), env=child, capture_output=True, text=True)
+            check("set from a terminal asks twice, stores what was typed, and echoes none of it",
+                  rc == 0 and "TYPED_ONE (not echoed):" in screen and "the same again:" in screen
+                  and SECRET not in screen and got.stdout.strip() == "TYPED-" + SECRET, f"{rc} {screen!r} {got.stderr}")
+            rc, screen = typed("TYPED-a", "TYPED-b")
+            check("…two entries that differ write nothing",
+                  rc == 1 and "the two entries differ; nothing written" in screen and "TYPED-" not in screen, f"{rc} {screen!r}")
+            # A managed name is refused by set and rm, saying who manages it,
+            # before a value is read; --managed is what lets one through.
+            git_c = lambda *a: subprocess.run(["git", "-C", child["AGENT_FABRIC_SECRET_STORE"], *a], env=child,
+                                              capture_output=True, text=True).stdout.strip()
+            head0, names0 = git_c("rev-parse", "HEAD"), run(child, "names").stdout
+            for name, who in (("GH_TOKEN", "the coordinator"), ("SSH_PRIVATE_KEY", "the agent's parent"),
+                              ("AGENT_LOGIN", "the agent's parent"), ("FABRIC_CONTROL_SIGNING_KEY", "fabric-ctl keygen"),
+                              ("CLAUDE_ANYTHING", "every CLAUDE_ name"), ("FABRIC_ANYTHING", "every FABRIC_ name"),
+                              ("OPENAI_API_KEY", "projects/registry.json (agent_env)"),
+                              ("GZAPP_PORT_OFFSET", "projects/registry.json (projects.gzapp.agent_env)")):
+                for verb in ("set", "rm"):
+                    p = run(child, verb, name, stdin="CANARY-" + SECRET)
+                    check(f"{verb} {name} is refused, naming who manages it",
+                          p.returncode == 1 and f"{name} is managed by" in p.stderr and who in p.stderr
+                          and "--managed" in p.stderr and SECRET not in p.stdout + p.stderr, p.stderr)
+            check("…and nothing was written or removed", git_c("rev-parse", "HEAD") == head0
+                  and run(child, "names").stdout == names0, git_c("log", "--oneline", "-3"))
+            # Refused before stdin is read: a stdin that never closes still
+            # gets its answer (review of the own-secrets PR, 2).
+            hang = subprocess.Popen([sys.executable, TOOL, "set", "GH_TOKEN"], env=child, cwd=tmp,
+                                    stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            try:
+                hrc = hang.wait(timeout=30)
+            except subprocess.TimeoutExpired:
+                hang.kill()
+                hrc = "still reading stdin after 30 s"
+            herr = hang.stderr.read().decode()
+            hang.stdin.close(); hang.stdout.close(); hang.stderr.close()
+            check("a managed name is refused with stdin still open: before any value is read",
+                  hrc == 1 and "GH_TOKEN is managed by" in herr, f"{hrc} {herr}")
+            noreg = {**child, "AGENT_FABRIC_ROOT": os.path.join(tmp, "no-fabric")}
+            p = run(noreg, "set", "OWN_UNKNOWN", stdin="x")
+            check("a registry that cannot be read refuses an own name too: unknown is not own",
+                  p.returncode == 1 and "cannot tell whether OWN_UNKNOWN is managed" in p.stderr, p.stderr)
+            p = run(child, "set", "CLAUDE_MANAGED_CASE", "--managed", stdin="m")
+            p2 = run(child, "rm", "CLAUDE_MANAGED_CASE", "--managed")
+            check("--managed writes and removes a managed name", p.returncode == p2.returncode == 0
+                  and "CLAUDE_MANAGED_CASE: removed" in p2.stdout, p.stderr + p2.stderr)
+            p = run(child, "set", "--help")
+            check("set's help says --managed is intent, not a fence", "intent, not a fence" in " ".join(p.stdout.split()), p.stdout)
+
+            # rm: a signed commit "agent <login>: rm NAME", pushed; the past
+            # keeps the entry; an absent name is "absent", exit 0.
+            run(child, "set", "RM_ME", stdin="gone-" + SECRET)
+            p = run(child, "rm", "RM_ME")
+            me_login = subprocess.run(["id", "-un"], capture_output=True, text=True).stdout.strip()
+            check("rm removes an own entry and says so", p.returncode == 0 and p.stdout.strip() == "RM_ME: removed"
+                  and "RM_ME" not in run(child, "names").stdout.split(), p.stdout + p.stderr)
+            check("…as a commit 'agent <login>: rm NAME', signed by the store's key",
+                  git_c("log", "-1", "--format=%s") == f"agent {me_login}: rm RM_ME"
+                  and git_c("log", "-1", "--format=%G?") in ("G", "U"), git_c("log", "-1", "--format=%s %G?"))
+            check("…pushed to the store's remote",
+                  subprocess.run(["git", "-C", remote, "log", "-1", "--format=%s", "main"], capture_output=True,
+                                 text=True).stdout.strip() == f"agent {me_login}: rm RM_ME")
+            check("…and history is not rewritten: the commit before still holds it",
+                  git_c("cat-file", "-t", "HEAD~1:env/RM_ME.gpg") == "blob")
+            p = run(child, "rm", "RM_ME")
+            check("rm of an absent name: 'absent', exit 0, no commit", p.returncode == 0 and p.stdout.strip() == "RM_ME: absent"
+                  and git_c("log", "-1", "--format=%s") == f"agent {me_login}: rm RM_ME", p.stdout + p.stderr)
+            p = run(child, "rm", "not-a-name")
+            check("rm of a malformed name is refused", p.returncode == 1 and "is not a secret name" in p.stderr, p.stderr)
+
             p = run(child, "names")
             check("names lists names, never values", "AGENT_LOGIN" in p.stdout and "GH_TOKEN" in p.stdout
                   and SECRET not in p.stdout, p.stdout)
@@ -410,7 +532,7 @@ def main() -> int:
                     "GH_TOKEN": SECRET, "CLAUDE_BRIDGE_AUTH_TOKEN": "bridge-x",
                     "CLAUDE_CODE_OAUTH_TOKEN": TOKEN}   # as the assignment above wrote it
             for k, v in vals.items():
-                run(child, "set", k, stdin=v)
+                run(child, "set", k, "--managed", stdin=v)
             fsync = os.path.join(ROOT, "runtime", "provisioning", "secrets", "fabric-secrets")
             envf = os.path.join(child["HOME"], ".config", "agent-fabric", "secrets.env")
             body = lambda: "".join(l for l in open(envf) if not l.startswith("#"))
@@ -420,8 +542,52 @@ def main() -> int:
                   and SECRET in from_store and "export OPENROUTER_API_KEY=or-x" in from_store,
                   f"rc {r2.returncode} {r2.stderr[-200:]}")
             check("sync never prints a value", SECRET not in r2.stdout + r2.stderr)
+            rep = json.loads(r2.stdout or "{}")
+            check("sync reports the agent's own names as own, never unexpected, and writes none of them",
+                  "OWN_NOTE" in rep.get("own", []) and "TYPED_ONE" in rep.get("own", []) and rep.get("unexpected") == []
+                  and "OWN_NOTE" not in from_store and "TYPED_ONE" not in from_store, r2.stdout[:600])
+            st = subprocess.run([fsync, "status"], env=child, capture_output=True, text=True)
+            check("status says 'own: N' with the names, never a value",
+                  "own: 2 (OWN_NOTE, TYPED_ONE)" in st.stdout and SECRET not in st.stdout, st.stdout[-600:])
+            p = run(child, "rm", "OWN_NOTE")
+            r4 = subprocess.run([fsync, "sync", "--json"], env=child, capture_output=True, text=True)
+            check("rm then sync drops nothing registered: secrets.env as before, OWN_NOTE gone from own",
+                  p.returncode == 0 and r4.returncode == r2.returncode and body() == from_store
+                  and json.loads(r4.stdout or "{}").get("own") == ["TYPED_ONE"], r4.stdout[:400] + p.stderr)
+
             check("the report names the store as its source", '"source": "store"' in r2.stdout, r2.stdout[:200])
-            run(child, "set", "AGENT_LOGIN", stdin="someone-else")
+            # An own entry may hold any bytes: sync decrypts only what it
+            # applies, so one that is not UTF-8 stops nothing, and no output
+            # holds a byte of it (review of the own-secrets PR, 1).
+            raw = b"\xff\xfeRAWBIN-" + SECRET.encode() + b"\x80\xc3"
+            bset = lambda e, name, value, *flags: subprocess.run(  # noqa: E731
+                [sys.executable, TOOL, "set", name, *flags], env=e, input=value, cwd=tmp, capture_output=True, timeout=300)
+            b = bset(child, "OWN_RAW", raw)
+            r5 = subprocess.run([fsync, "sync", "--json"], env=child, capture_output=True, timeout=300)
+            said = (r5.stdout + r5.stderr).decode(errors="replace") + repr(r5.stdout + r5.stderr)
+            rep5 = json.loads(r5.stdout or b"{}")
+            leaked = lambda text: any(x in text for x in ("RAWBIN", "\\xff", "0xff", "\\x80", "0x80", SECRET))  # noqa: E731
+            check("a non-UTF-8 own entry: sync still applies every managed name, lists it as own, prints no byte of it",
+                  b.returncode == 0 and r5.returncode == r2.returncode and "error" not in rep5
+                  and "OWN_RAW" in rep5.get("own", []) and body() == from_store and not leaked(said), said[-600:])
+            b2 = bset(child, "OWN_RAW", raw)
+            check("…set of the same bytes again: unchanged, no traceback, no byte",
+                  b2.returncode == 0 and b2.stdout.decode().strip() == "OWN_RAW: unchanged"
+                  and not leaked(repr(b2.stdout + b2.stderr)), repr(b2.stdout + b2.stderr))
+            st5 = subprocess.run([fsync, "status", "--json"], env=child, capture_output=True, timeout=300)
+            check("…status names it, and no byte", "OWN_RAW" in json.loads(st5.stdout or b"{}").get("own", [])
+                  and not leaked(repr(st5.stdout + st5.stderr)), repr(st5.stdout[-300:]))
+            # A managed value that is not text cannot be applied: the sync
+            # fails naming the entry, never the decoder's words.
+            bset(child, "OPENAI_API_KEY", raw, "--managed")
+            r6 = subprocess.run([fsync, "sync", "--json"], env=child, capture_output=True, timeout=300)
+            e6 = json.loads(r6.stdout or b"{}").get("error", "")
+            check("a non-UTF-8 managed value: sync fails naming it, and no byte",
+                  r6.returncode == 1 and "OPENAI_API_KEY: the value is not UTF-8 text" in e6
+                  and not leaked(repr(r6.stdout + r6.stderr)), repr(r6.stdout[-400:] + r6.stderr[-200:]))
+            run(child, "rm", "OPENAI_API_KEY", "--managed")
+            run(child, "rm", "OWN_RAW")
+            run(child, "set", "AGENT_LOGIN", "--managed", stdin="someone-else")
             r3 = subprocess.run([fsync, "sync"], env=child, capture_output=True, text=True)
             check("a store naming another login is refused, nothing applied", r3.returncode == 3
                   and body() == from_store, r3.stdout[-200:])
@@ -448,15 +614,15 @@ def main() -> int:
             # F1: a multi-line value (a PEM key) comes back exactly; setting
             # it again is unchanged; an empty value is a value.
             pem = "-----BEGIN OPENSSH PRIVATE KEY-----\nAAAA" + "b" * 60 + "\nCCCC\n-----END OPENSSH PRIVATE KEY-----\n"
-            run(child, "set", "SSH_PRIVATE_KEY", stdin=pem + "\n")   # stdin's own newline is dropped, the PEM's kept
-            got = subprocess.run([sys.executable, "-c", "import secret_store as s, json, hashlib; v=s.values();"
+            run(child, "set", "SSH_PRIVATE_KEY", "--managed", stdin=pem + "\n")   # stdin's own newline is dropped, the PEM's kept
+            got = subprocess.run([sys.executable, "-c", "import secret_store as s, json, hashlib; v=s.values(only=['SSH_PRIVATE_KEY']);"
                                   "print(json.dumps({k: hashlib.sha256(x.encode()).hexdigest() for k, x in v.items()}))"],
                                  cwd=os.path.dirname(TOOL), env=child, capture_output=True, text=True)
             import hashlib
             hashes = json.loads(got.stdout or "{}")
             check("F1: a multi-line value comes back exactly", hashes.get("SSH_PRIVATE_KEY") == hashlib.sha256(pem.encode()).hexdigest(),
                   got.stderr)
-            p = run(child, "set", "SSH_PRIVATE_KEY", stdin=pem + "\n")
+            p = run(child, "set", "SSH_PRIVATE_KEY", "--managed", stdin=pem + "\n")
             check("F1: setting the same multi-line value again is unchanged", "unchanged" in p.stdout, p.stdout + p.stderr)
             p = run(child, "set", "EMPTY_ONE", stdin="")
             check("an empty value is refused, nothing written (a failed pipe stores no token)",
@@ -523,7 +689,7 @@ def main() -> int:
 
             # The report's values_sha256: the same hash for the same store,
             # and never a value beside it.
-            run(child, "set", "AGENT_LOGIN", stdin=me)
+            run(child, "set", "AGENT_LOGIN", "--managed", stdin=me)
             sy = subprocess.run([fsync, "sync", "--json"], env=child, capture_output=True, text=True)
             sy2 = subprocess.run([fsync, "sync", "--json"], env=child, capture_output=True, text=True)
             check("two syncs of one store report one values_sha256", sy.returncode in (0, 2)

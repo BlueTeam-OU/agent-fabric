@@ -9,7 +9,7 @@ fabric-coordinator login, the parent, behind `fabric-secrets provision`.
     fabric-secrets provision share <login…|all> [--name NAME]... [--replace]
         the parent's own value of each shared name into each child's store
         where the child lacks it; --replace writes it anyway (a rotation:
-        `fabric-secrets store set NAME` first, then this, then
+        `fabric-secrets store set --managed NAME` first, then this, then
         `fabric-ctl all secrets-sync`)
     fabric-secrets provision issue-key openrouter|openai <login…> [--replace]
         a key of the login's own, minted with the parent's provisioning key
@@ -87,7 +87,7 @@ def share(logins: list[str], names: list[str] | None = None, *, replace: bool = 
         raise ss.StoreError(f"not a shared name: {', '.join(bad)} (store_provision.SHARED_NAMES; a login's own "
                             "value is put with `fabric-secrets store put`)")
     ss.pull()
-    own = ss.values()
+    own = ss.values(only=names)
     rows = []
     for who in logins:
         try:
@@ -177,11 +177,16 @@ def _mint_openai(login: str, own: dict[str, str]):
     return key, undo
 
 
+# What each minter reads of the parent's store, and nothing else is
+# decrypted for it (values() has no "every entry").
+MINT_READS = {"openrouter": ["OPENROUTER_PROVISIONING_KEY"], "openai": ["OPENAI_ADMIN_KEY", "OPENAI_PROJECT_ID"]}
+
+
 def issue_key(service: str, logins: list[str], *, replace: bool = False) -> list[dict]:
     entry = KEY_NAMES[service]
     mint = _mint_openrouter if service == "openrouter" else _mint_openai
     ss.pull()
-    own = ss.values()
+    own = ss.values(only=MINT_READS[service])
     rows = []
     for who in logins:
         try:
