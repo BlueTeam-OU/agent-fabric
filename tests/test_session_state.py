@@ -97,6 +97,14 @@ def main() -> int:
         check("a killed session (no SessionEnd) is pruned when another session writes",
               ss.record(ev("UserPromptSubmit"), d, 12, (5151, 888), PROC) is True and "s3" not in json.load(open(f))["sessions"],
               json.load(open(f)))
+        since = json.load(open(f))["sessions"]["s1"]["since"]
+        proc(7171, "claude", 1, 1)
+        ss.record({"session_id": "s5", "hook_event_name": "SessionStart"}, d, 20, (7171, 1), PROC)
+        shutil.rmtree(f"{PROC}/7171")
+        check("a prune keeps the writer's since when its state is unchanged",
+              ss.record(ev("PreToolUse"), d, 21, (5151, 888), PROC) is True
+              and "s5" not in json.load(open(f))["sessions"] and json.load(open(f))["sessions"]["s1"]["since"] == since,
+              json.load(open(f)))
         proc(6161, "claude", 1, 1000)
         ss.record({"session_id": "s4", "hook_event_name": "SessionStart"}, d, 13, (6161, 1000), PROC)
         os.makedirs(f"{PROC}/6161", exist_ok=True)

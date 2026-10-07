@@ -639,8 +639,8 @@ export async function states(args, expected, { call, cfg, out = m => console.log
       continue;
     }
     if (down) { err('fabric-ctl: relay is back'); down = false; }
-    if (w.warning === 'since_id_not_found') { last = null; continue; }
-    for (const rec of w.messages ?? []) { last = rec.id; const r = stateRecordOf(rec, want); if (r) out(line(stateRow(r.from, r, now()))); }
+    if (w?.warning === 'since_id_not_found') { last = null; continue; }
+    for (const rec of Array.isArray(w?.messages) ? w.messages : []) { if (!rec) continue; last = rec.id ?? last; const r = stateRecordOf(rec, want); if (r) out(line(stateRow(r.from, r, now()))); }
   } while (forever);
   return 0;
 }

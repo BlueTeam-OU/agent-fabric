@@ -154,10 +154,14 @@ def record(payload: dict, directory: str | None = None, now: float | None = None
             # process is part of what changes, or its entry would point
             # at the old one and be dropped as dead.
             pid, start = process if process is not None else (harness() or (None, None))
-            if (current.get("state"), current.get("pid"), current.get("start")) == (state, pid, start) and not pruned:
-                return False
-            sessions[sid] = {"state": state, "since": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now)),
-                             "pid": pid, "start": start}
+            # `since` is when the session entered its state: a write made
+            # only to prune another entry keeps it (review of #105).
+            if (current.get("state"), current.get("pid"), current.get("start")) == (state, pid, start):
+                if not pruned:
+                    return False
+            else:
+                sessions[sid] = {"state": state, "since": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now)),
+                                 "pid": pid, "start": start}
         tmp = f"{path}.{os.getpid()}"
         fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
         with os.fdopen(fd, "w", encoding="utf-8") as fh:
