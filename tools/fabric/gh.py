@@ -66,6 +66,7 @@ class GhError(Exception):
 _ORIGIN = re.compile(r"^(?:[^@/:\s]+@github\.com:|(?:https|ssh|git)://(?:[^@/\s]+@)?github\.com/)"
                      r"(?P<repo>[A-Za-z0-9._-]+/[A-Za-z0-9._-]+?)(?:\.git)?/?$")
 _REPO = re.compile(r"^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$")
+_ITEM_URL = re.compile(r"^https://github\.com/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+/(pull|issues)/\d+/?$")
 
 
 def this_repo(cwd: str | None = None) -> str:
@@ -101,14 +102,21 @@ _REPO_SCOPED = {"pr", "repo", "issue", "run", "workflow", "release", "secret", "
 def _scoped(args: list[str]) -> bool:
     """Whether gh would pick a repository for this call itself: a scoped
     subcommand without --repo/-R, or an api path naming {owner}/{repo}."""
-    if any(a in ("--repo", "-R") or a.startswith(("--repo=", "-R")) for a in args):
-        return False
+    # Only a real selector names the repository: --repo/-R with a value, a
+    # joined -R<owner>/<repo>, `gh repo <verb> <owner>/<repo>`, or a pull
+    # request's or issue's URL as the subcommand's argument. A URL or a
+    # "-R…" inside a flag's value (a body, a title) names nothing (review
+    # of the carried-109 branch, F1).
+    for i, a in enumerate(args):
+        value = (args[i + 1] if i + 1 < len(args) else "") if a in ("--repo", "-R") \
+            else a[len("--repo="):] if a.startswith("--repo=") else a[2:] if a.startswith("-R") else None
+        if value is not None and _REPO.match(value):
+            return False
     if args[:1] == ["api"]:
         return any("{owner}" in a or "{repo}" in a for a in args[1:])
-    # `gh repo <verb> <owner>/<repo>` and a pull request's URL name it too.
     if args[:1] == ["repo"] and len(args) > 2 and _REPO.match(args[2]):
         return False
-    if any(a.startswith("https://github.com/") for a in args[1:]):
+    if args[:1] in (["pr"], ["issue"]) and len(args) > 2 and _ITEM_URL.match(args[2]):
         return False
     return bool(args) and args[0] in _REPO_SCOPED
 

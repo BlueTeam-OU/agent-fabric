@@ -94,6 +94,13 @@ def main() -> int:
             check("…-Rowner/repo as one word names it", gh.run(["pr", "view", "3", "-Ro/r"]) == "unset")
             check("…gh repo <verb> <owner>/<repo> names it", gh.run(["repo", "view", "o/r"]) == "unset")
             check("…a pull request's URL names it", gh.run(["pr", "view", "https://github.com/o/r/pull/3"]) == "unset")
+            for label, args in (("a URL inside a body", ["pr", "comment", "5", "--body", "https://github.com/o/r/pull/9 fixes it"]),
+                                ("a -R… flag value", ["pr", "view", "3", "--body-file", "-R"])):
+                try:
+                    gh.run(args)
+                    check(f"…{label} names nothing: refused", False)
+                except gh.GhError:
+                    check(f"…{label} names nothing: refused", True)
             try:
                 gh.run(["repo", "view", "--json", "name"])
                 check("…gh repo view with no repository is still refused", False)
