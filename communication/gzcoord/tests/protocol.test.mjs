@@ -572,7 +572,7 @@ test('inbox --history lists the messages addressed to me, from a seq, and moves 
   assert.match(all.out, /2 addressed to you in the relay's last 3/); assert.match(all.out, / 5 .*early/); assert.match(all.out, / 7 .*for all/);
   assert.doesNotMatch(all.out, /private|BODY-/); assert.match(all.out, /gzcoord-inbox --replay <seq>/);
   assert.equal(from.code, 0, from.err); assert.match(from.out, /1 addressed to you/); assert.doesNotMatch(from.out, /early/);
-  assert.equal(bad.code, 1); assert.match(bad.err, /usage: inbox\.mjs --history/);
+  assert.equal(bad.code, 1); assert.match(bad.err, /usage: gzcoord-inbox --history/);
   assert.ok(hits.every(u => u === '/status' || (u.startsWith('/api/messages?') && !u.includes('consumer_id'))), hits);
   assert.ok(!hits.some(u => u.includes('/api/ack') || u.includes('/api/wait')), hits);
 });
