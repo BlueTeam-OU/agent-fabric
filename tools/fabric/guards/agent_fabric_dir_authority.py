@@ -339,7 +339,7 @@ def run(env: dict[str, str]) -> int:
 
     if not bad:
         say(f"check_agent_fabric_dir_authority: OK — {len(commits)} commit(s) change {scope}, "
-            f"each declaring Fabric-Role: {owner_role}.")
+            f"each declaring Fabric-Role: {owner_role} or admitted under a carve-out named above.")
         return 0
 
     err(f"FAIL: {scope} changed in {len(bad)} commit(s) that do not declare Fabric-Role: {owner_role}.")
