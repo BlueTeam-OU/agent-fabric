@@ -128,8 +128,11 @@ def main() -> int:
                            cwd=plain, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=120)
         check("…whatever language git speaks: its words are read under LC_ALL=C",
               r.returncode == 2 and "no no-such-proc process" in r.stdout, f"rc={r.returncode}\n{r.stdout}")
-        # A linked worktree whose gitdir is gone: git says "not a git
-        # repository: <path>", and the checkout's work is still there.
+        # A linked worktree whose gitdir is gone: git refuses, and the
+        # checkout's work is still there. Its words differ by version ("not a
+        # git repository: <path>"; from 2.56 "gitfile does not point to a valid
+        # repository: <path>"), so what is held is that git's own fatal line
+        # is quoted, never one wording of it.
         main_repo, linked = os.path.join(t, "main-repo"), os.path.join(t, "linked")
         g = ["git", "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"]
         subprocess.run([*g, "init", "-q", main_repo], check=True, timeout=30)
@@ -139,7 +142,8 @@ def main() -> int:
         r = subprocess.run([CMD], env=env, cwd=linked, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                            text=True, timeout=120)
         check("a linked worktree whose gitdir is gone: exit 3, git's reason said",
-              r.returncode == 3 and "not a git repository:" in r.stdout, f"rc={r.returncode}\n{r.stdout}")
+              r.returncode == 3 and "git rev-parse failed: fatal:" in r.stdout,
+              f"rc={r.returncode}\n{r.stdout}")
 
         # No git on the host at all: no working copy, as the bash read
         # `command not found`; the shim needs bash, dirname and readlink,
