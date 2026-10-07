@@ -184,6 +184,24 @@ LOCALE_FILE_RE = {"timezone": re.compile(r"^[A-Za-z_]+/[A-Za-z_]+(/[A-Za-z_]+)?$
 # en-US login has no such rule (tools/fabric/gzcoord/i18n.py).
 LOCALE_FILE_OPTIONAL = ("reminder",)
 
+# The fleet's source language: every prompt piece and the tools'
+# dictionary are written in it (communication/gzcoord/i18n/en-US.json).
+# A locale with this tag translates nothing — its holder works in the
+# source, with no bridge worker — so it carries only locale.json, and the
+# "is this text in the locale" test, which reads a non-Latin script as the
+# locale's, does not apply to it (the owner, 2026-10-07: language-culture-en
+# for a project's English copy).
+SOURCE_TAG = "en-US"
+
+
+def _locale_tag(locale_dir: str) -> str | None:
+    try:
+        with open(os.path.join(locale_dir, "locale.json"), encoding="utf-8") as fh:
+            tag = json.load(fh).get("tag")
+    except (OSError, ValueError, AttributeError):
+        return None
+    return tag if isinstance(tag, str) else None
+
 
 def locale_file_findings(role: str, role_path: str) -> list[str]:
     """identities/roles/<role>/locale/<suffix>/locale.json: what the
@@ -210,6 +228,12 @@ def locale_file_findings(role: str, role_path: str) -> list[str]:
         if not isinstance(data, dict):
             out.append(f"{rel}: not an object")
             continue
+        source = data.get("tag") == SOURCE_TAG
+
+        def in_locale(text: str) -> bool:
+            return source or _is_mostly_non_latin(text)
+        if source and data.get("reminder") is not None:
+            out.append(f"{rel}: reminder in the source locale — it exists to keep a translator thinking in its locale")
         for key, pattern in LOCALE_FILE_RE.items():
             value = data.get(key)
             if not isinstance(value, str) or not pattern.match(value):
@@ -218,7 +242,7 @@ def locale_file_findings(role: str, role_path: str) -> list[str]:
         if reminder is not None:
             if not isinstance(reminder, str) or not reminder.strip():
                 out.append(f"{rel}: reminder {reminder!r} — a non-empty line, or absent")
-            elif not _is_mostly_non_latin(reminder):
+            elif not in_locale(reminder):
                 out.append(f"{rel}: reminder {reminder!r} is not in the locale — it exists to be read in the locale")
         engines = [e for e in LOCALE_ENGINES if e in data]
         if not engines:
@@ -239,10 +263,10 @@ def locale_file_findings(role: str, role_path: str) -> list[str]:
             desc = block.get("tool_description")
             if not isinstance(desc, str) or not desc.strip():
                 out.append(f"{rel}: {engine}.tool_description missing — the holder reads it")
-            elif not _is_mostly_non_latin(desc):
+            elif not in_locale(desc):
                 out.append(f"{rel}: {engine}.tool_description is not in the locale — its reader is the holder, who reasons in the locale")
             label = block.get("label")
-            if label is not None and (not isinstance(label, str) or not label.strip() or not _is_mostly_non_latin(label)):
+            if label is not None and (not isinstance(label, str) or not label.strip() or not in_locale(label)):
                 out.append(f"{rel}: {engine}.label {label!r} — the name the holder sees for the engine, in the locale")
             extra = sorted(set(block) - set(required) - set(optional) - {"tool_description", "label"})
             if extra:
@@ -434,6 +458,14 @@ def locale_alignment_findings(role: str, role_path: str) -> list[str]:
     for suffix in sorted(os.listdir(base)):
         d = os.path.join(base, suffix)
         if not os.path.isdir(d):
+            continue
+        if _locale_tag(d) == SOURCE_TAG:
+            # The source locale translates nothing: it carries locale.json
+            # alone, and nothing else is asked of it or of the others for it.
+            extra = sorted(n for n in os.listdir(d) if n != "locale.json")
+            if extra:
+                out.append(f"identities/roles/{role}/{LOCALE_DIRNAME}/{suffix}/: {', '.join(extra)} in the source "
+                           f"locale ({SOURCE_TAG}) — it translates nothing; locale.json alone")
             continue
         try:
             with open(os.path.join(d, "locale.json"), encoding="utf-8") as fh:

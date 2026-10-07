@@ -1,0 +1,18 @@
+{
+  "tag": "en-US",
+  "timezone": "Asia/Tbilisi",
+  "serpapi": {
+    "label": "main engine",
+    "gl": "ge",
+    "hl": "en",
+    "google_domain": "google.ge",
+    "tool_description": "Web search in English, as an English-speaking reader in this deployment sees the results: the country is fixed, the language is English. If the main engine refuses (for example, its monthly quota is spent), the same query goes to the second index automatically, and the answer's last line says which one answered. You choose only the search phrase; country and language are fixed."
+  },
+  "brave": {
+    "label": "second index",
+    "country": "ALL",
+    "search_lang": "en",
+    "ui_lang": "en-US",
+    "tool_description": "Global web search (second index): no country, results in English. You choose only the search phrase."
+  }
+}
