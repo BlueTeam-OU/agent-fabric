@@ -101,6 +101,13 @@ def main() -> int:
                 check(f"{label}: exit 2, named, nothing run, no value",
                       p.returncode == 2 and said in p.stderr and not os.path.exists(marker)
                       and "canary" not in (p.stdout + p.stderr).lower() and p.stdout == "", f"{p.returncode} {p.stderr}")
+            only_bash = os.path.join(tmp, "only-bash")   # the wrapper's shebang, and no gpg
+            os.makedirs(only_bash)
+            os.symlink(shutil.which("bash"), os.path.join(only_bash, "bash"))
+            p = run("OWN_A", "--", *touch, extra={"PATH": only_bash})
+            check("no gpg to decrypt with: exit 2, the name, nothing run",
+                  p.returncode == 2 and "OWN_A: could not be decrypted" in p.stderr and "Traceback" not in p.stderr
+                  and not os.path.exists(marker), f"{p.returncode} {p.stderr}")
             p = run("GH_TOKEN", "--", *touch)
             check("…a managed name points at sync", "fabric-secrets sync" in p.stderr, p.stderr)
             p = run("OWN_A", "--", *touch, extra={"AGENT_FABRIC_ROOT": os.path.join(tmp, "no-fabric")})

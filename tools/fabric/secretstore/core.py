@@ -121,6 +121,10 @@ def _run(cmd: list[str], *, stdin: bytes | None = None, cwd: str | None = None,
         r = subprocess.run(cmd, input=stdin, capture_output=True, cwd=cwd, env=env, timeout=timeout)
     except subprocess.TimeoutExpired:
         raise StoreError(f"{what}: timed out after {timeout:g} s") from None
+    except OSError as e:
+        # gpg or git not installed, or not executable: an answer like any
+        # other failure, never a traceback (review of the own-secrets range, F2).
+        raise StoreError(f"{what}: {e.strerror}") from None
     if check and r.returncode != 0:
         raise _failure(what, r)
     return r
