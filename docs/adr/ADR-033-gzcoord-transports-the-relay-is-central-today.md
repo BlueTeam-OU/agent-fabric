@@ -114,9 +114,9 @@ lets the decentralisation direction (ADR-000, P5) be measured against it.
 7. When the relay is down, messages go by the human relay: composed and
    validated in a file, printed in a fenced block, lines of 72 columns or
    fewer, a minted `MESSAGE-ID`; on receipt normalised
-   (`gzmsg.mjs normalize`), validated, and the addressee checked before
+   (`gzmsg normalize`), validated, and the addressee checked before
    the body is read.
-8. `MESSAGE-ID`s are minted UUIDv7 (`gzmsg.mjs new-id`) on every
+8. `MESSAGE-ID`s are minted UUIDv7 (`gzmsg new-id`) on every
    transport; the sequential per-instance scheme is retired, and loss is a
    question for the sender, retransmitted under the original id.
 
@@ -132,7 +132,7 @@ lets the decentralisation direction (ADR-000, P5) be measured against it.
   signature (ADR-029).
 - **Everything shares one channel.** Every project's sessions read the
   same `gzapp:gzcoord`; the inbox filters by addressee before it prints a
-  body (`inbox.mjs` `forMe`) — the relay itself delivers everything.
+  body (`gzcoord-inbox` `forMe`) — the relay itself delivers everything.
 - **Delivery is pull.** A session reads only while its watch runs
   (ADR-022).
 - The relay's database is the channel's only record of its past; it is

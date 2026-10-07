@@ -99,7 +99,7 @@ Why these choices:
    refused).
 5. The automatic request intake is built and inactive: it runs only under
    `AGENT_FABRIC_JOBS_AUTO_INTAKE=1`, which nothing sets. With it on, a
-   REPLY sent through `send.mjs` adds the message it answers when that is
+   REPLY sent through `gzcoord-send` adds the message it answers when that is
    a REQUEST addressed to this login and not yet listed. A REPLY says
    whether it undertakes the request in prose, so the intake cannot tell
    an undertaking from a decline: that, with the owner's choice, keeps it
