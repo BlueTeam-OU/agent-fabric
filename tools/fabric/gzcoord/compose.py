@@ -104,7 +104,6 @@ _BREAK = re.compile("[\r\n\v\f\x1c\x1d\x1e\x85\u2028\u2029]")
 _REMOTE = (re.compile(r"^[^/@:\s]+@[^/:\s]+:(?P<path>[^\s]+)$", re.ASCII),
            re.compile(r"^(?:https?|ssh|git)://[^/\s]+/(?P<path>[^\s]+)$", re.ASCII))
 # Any scheme RFC 3986 admits, in any case: one git cannot use is printed too.
-_USERINFO = re.compile(r"^(?P<scheme>[A-Za-z][A-Za-z0-9+.-]*://)[^/\s]*@", re.ASCII)
 _ORG_REPO = re.compile(r"^(?P<org>[A-Za-z0-9._-]+)/(?P<repo>[A-Za-z0-9._-]+?)(?:\.git)?/?$")
 
 
@@ -176,8 +175,12 @@ def origin_repository(cwd: str) -> tuple[str | None, str | None]:
             path = _ORG_REPO.match(m.group("path"))
             if path:
                 return f"{path.group('org')}/{path.group('repo')}", None
-    # A URL can carry a token as its user part; stderr reaches a transcript.
-    return None, f"origin's URL is not <host>/<org>/<repo>: {_USERINFO.sub(r'\g<scheme>', url)}"
+    # The URL is never echoed: a remote can carry a credential in more
+    # places than a pattern can name (a scheme's user part, an scp-style
+    # "token@host:", a query string), and stderr reaches a transcript.
+    # `git remote get-url origin` shows it to a person who wants it
+    # (review of #107).
+    return None, "origin's URL is not <host>/<org>/<repo> (see `git remote get-url origin`)"
 
 
 def skeleton(mtype: str, header: list[tuple[str, str]], to_role: bool) -> str:

@@ -213,8 +213,11 @@ def main() -> int:
         rc, out, err = compose("INFO", "--broadcast", "--subject", "s")
         check("a URL that is not <org>/<repo>: left out, its user part never printed",
               rc == 0 and "REPOSITORY" not in header(out) and "s3cr3t-t0ken" not in err
-              and "x-access-token" not in err and "gitlab.example/group/sub/widgets.git" in err, f"rc={rc}\n{err}")
-        for url in ("HTTPS://u:s3cr3t-t0ken@gitlab.example/g/s/r.git", "git+https://u:s3cr3t-t0ken@host.example/g/s/r"):
+              and "x-access-token" not in err and "origin's URL is not <host>/<org>/<repo>" in err, f"rc={rc}\n{err}")
+        # Never echoed at all: an scp-style user part and a query-string token
+        # are credentials no redaction pattern named (review of #107).
+        for url in ("HTTPS://u:s3cr3t-t0ken@gitlab.example/g/s/r.git", "git+https://u:s3cr3t-t0ken@host.example/g/s/r",
+                    "s3cr3t-t0ken@gitlab.example:group/sub/repo.git", "https://gitlab.example/g/s/r.git?private_token=s3cr3t-t0ken"):
             git("remote", "set-url", "origin", url)
             rc, out, err = compose("INFO", "--broadcast", "--subject", "s")
             check(f"{url.split(':')[0]}: the user part never printed",
@@ -232,7 +235,7 @@ def main() -> int:
         rc, out, err = compose("INFO", "--broadcast", "--subject", "s")
         check("a local path: left out, stderr says why, still composed",
               rc == 0 and "REPOSITORY" not in header(out) and "REPOSITORY left out" in err
-              and "/srv/git/widgets.git" in err, f"rc={rc}\n{err}")
+              and "/srv/git/widgets.git" not in err and "git remote get-url origin" in err, f"rc={rc}\n{err}")
         git("remote", "remove", "origin")
         rc, out, err = compose("INFO", "--broadcast", "--subject", "s")
         check("no origin: left out, stderr says why", rc == 0 and "REPOSITORY" not in header(out)
