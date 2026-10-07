@@ -5,7 +5,8 @@
 # tools/fabric/new_agent.py (ADR-040 §5 rule 4); the host half is
 # runtime/provisioning/new-agent-worker.sh.
 #
-#   runtime/provisioning/new-agent.sh <login> <role> [--host <id>] [--project <id>]... [--claude VERSION|stable|latest] [--dry-run]
+#   runtime/provisioning/new-agent.sh <login> <role> (--claude-account <slug> | --no-claude-account)
+#       [--host <id>] [--project <id>]... [--claude VERSION|stable|latest] [--dry-run]
 #
 # The fleet's pinned Python (runtime/python.json, ADR-040), one per host;
 # AGENT_FABRIC_PYTHON points elsewhere for a test or a host without it.
