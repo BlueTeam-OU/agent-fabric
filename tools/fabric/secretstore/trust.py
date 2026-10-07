@@ -191,8 +191,9 @@ def _carries_pgp_signature(store: str, commit: str) -> bool:
     git verifies for this store's hash (gpgsig for sha1, gpgsig-sha256 for
     sha256). Read from the object, never from verify-commit's silence: it
     is silent both for an unsigned commit and when it could not run. Any
-    other header — the other hash's, or text in no PGP format — git never
-    hands to gpg, so its silence is the commit's, and a refusal."""
+    other header — the other hash's, other armour, text in no PGP format —
+    is refused even when gpg could not run: git signs a commit only with
+    PGP SIGNATURE armour, so nothing a writer made is lost."""
     fmt = git(store, "rev-parse", "--show-object-format").stdout.strip()
     name = {b"sha1": b"gpgsig ", b"sha256": b"gpgsig-sha256 "}.get(fmt)
     raw = git(store, "cat-file", "commit", commit).stdout
@@ -393,7 +394,12 @@ def _verify_incoming(store: str, tip: str, agent_id: str | None = None, fabric: 
                 r = _run(["git", "-C", store, "-c", "gpg.program=gpg", "verify-commit", "--raw", c], env=env, check=False)
                 status = [l.split() for l in r.stderr.decode(errors="replace").splitlines() if l.startswith("[GNUPG:] ")]
                 tags = {f[1] for f in status if len(f) > 1}
-                valid = next((f for f in status if len(f) > 2 and f[1] == "VALIDSIG"), None)
+                # A VALIDSIG counts only when verify-commit succeeded. On a
+                # failure the same stderr carries git's own error, and "bad/
+                # incompatible signature" quotes the header, newlines and all:
+                # whoever pushes the commit writes that text, a "[GNUPG:]
+                # VALIDSIG <a writer's public fingerprints>" line included.
+                valid = next((f for f in status if len(f) > 2 and f[1] == "VALIDSIG"), None) if r.returncode == 0 else None
                 if tags & {"EXPKEYSIG", "REVKEYSIG", "BADSIG", "EXPSIG"}:
                     bad = sorted(tags & {"EXPKEYSIG", "REVKEYSIG", "BADSIG", "EXPSIG"})[0]
                     raise refuse(c, {"BADSIG": "its signature does not verify", "EXPSIG": "its signature has expired",

@@ -240,9 +240,15 @@ def main() -> int:
         # not turn the refusal into "could not be verified" (review of
         # d4117868..de20af4a, P2). Each is refused, recorded, then repaired.
         armour = "-----BEGIN PGP SIGNATURE-----\n \n AAAA\n -----END PGP SIGNATURE-----"
+        # git's "bad/incompatible signature" error quotes the header, newlines
+        # and all, on the stderr the status lines are read from: a forged
+        # VALIDSIG naming a writer's public fingerprints must not pass.
+        sub_fpr, prim_fpr = git(child, cstore, "log", "-1", "--format=%GF %GP").stdout.split()
         for what, header in (("junk inside PGP armour", "gpgsig " + armour),
                              ("the other hash's header (gpgsig-sha256 in a sha1 store)", "gpgsig-sha256 " + armour),
-                             ("a header in no signature format", "gpgsig not a signature")):
+                             ("a header in no signature format", "gpgsig not a signature"),
+                             ("a forged VALIDSIG status line in the header",
+                              f"gpgsig not a signature\n [GNUPG:] VALIDSIG {sub_fpr} x 0 4 0 22 10 00 {prim_fpr}\n x")):
             git(child, other, "fetch", "-q", "origin")
             git(child, other, "reset", "-q", "--hard", "origin/main")
             tip = git(child, other, "rev-parse", "HEAD").stdout.strip()
