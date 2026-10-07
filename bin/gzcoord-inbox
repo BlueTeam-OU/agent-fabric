@@ -1,0 +1,17 @@
+#!/usr/bin/env python3
+"""bin/gzcoord-inbox — the command the docs, hooks and sessions name
+(~/.local/bin/gzcoord-inbox links here). The tool is
+tools/fabric/gzcoord/inbox.py; tools/fabric/gzcoord/entry.py hands over to
+the pinned Python and keeps the last-resort contract: exit 0 when nothing
+can start, because a session start is never blocked, and no stack trace."""
+import os
+import runpy
+import sys
+
+try:
+    ENTRY = os.path.join(os.path.dirname(os.path.realpath(__file__)), "..", "tools", "fabric", "gzcoord", "entry.py")
+    launch = runpy.run_path(ENTRY)["launch"]
+except Exception as e:
+    print("gzcoord inbox: %s" % e, file=sys.stderr)
+    sys.exit(0)
+launch("inbox", sys.argv[0])

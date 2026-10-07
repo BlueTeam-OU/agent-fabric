@@ -1,16 +1,22 @@
-"""tools/fabric/gzcoord/run.py <gzmsg|send|inbox> [argv…] — the entry the
-shims at communication/gzcoord/scripts/*.mjs run under the pinned Python
-(`fabric-python -I`, which puts no script directory on sys.path: this file
-puts tools/fabric there itself). Each tool's own contract is its module's
-header; this file only routes, and ties the child's life to its shim.
+"""tools/fabric/gzcoord/run.py <gzmsg|send|inbox> [argv…] — the routing the
+entries share, under the pinned Python (`fabric-python -I`, which puts no
+script directory on sys.path: this file puts tools/fabric there itself).
+bin/gzcoord-inbox, bin/gzcoord-send and bin/gzmsg reach it through
+entry.py, in their own process; the Node shims at
+communication/gzcoord/scripts/*.mjs, kept for callers outside this
+repository until they are retired, spawn it. Each tool's own contract is
+its module's header; this file only routes, and ties the child's life to
+its shim when there is one.
 
-The shim stays alive for as long as the tool runs — the harness and the
-session-start hook find the watch by `inbox.mjs --follow` in the process
-table — so the tool must not outlive it: a shim killed outright (SIGKILL,
-which it cannot forward) would leave a watch running that nothing sees and
-a second one started beside it. On Linux the kernel ends this process when
-the shim's ends (PR_SET_PDEATHSIG); a shim that is already gone when this
-starts is an orphaned start, and nothing runs."""
+A Node shim stays alive for as long as the tool runs — the session-start
+hook finds the watch by `inbox.mjs --follow` in the process table — so the
+tool must not outlive it: a shim killed outright (SIGKILL, which it cannot
+forward) would leave a watch running that nothing sees and a second one
+started beside it. The shim names itself in GZCOORD_SHIM_PID; on Linux the
+kernel ends this process when the shim's ends (PR_SET_PDEATHSIG), and a
+shim that is already gone when this starts is an orphaned start, and
+nothing runs. Without GZCOORD_SHIM_PID — every start through bin/ — there
+is no parent to watch, and nothing is tied."""
 from __future__ import annotations
 
 import codecs
@@ -31,7 +37,7 @@ codecs.register_error("gzcoord-fffd", lambda e: ("\ufffd".encode("utf-8") * (e.e
 
 def tie_to_shim() -> bool:
     """False when the shim that started this is already gone. Run with no
-    shim (a test, a direct call) there is nothing to tie. A shim named but
+    shim (a bin entry, a test, a direct call) there is nothing to tie. A shim named but
     not tied to — a pid that is no pid, no prctl — is said in one line: the
     process then outlives a shim killed outright, and nothing else says it."""
     shim = os.environ.get("GZCOORD_SHIM_PID")
