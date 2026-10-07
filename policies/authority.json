@@ -28,6 +28,7 @@
       "excluding": [
         "tools/fabric/guards/",
         "tools/fabric/lint.py",
+        "tools/fabric/lint_rules/",
         "tests/run.sh",
         "tests/static.sh",
         "tests/test_contributors.py",
@@ -86,6 +87,7 @@
       "excluding": [
         "tools/fabric/guards/",
         "tools/fabric/lint.py",
+        "tools/fabric/lint_rules/",
         "tests/run.sh",
         "tests/static.sh",
         "tests/test_contributors.py",

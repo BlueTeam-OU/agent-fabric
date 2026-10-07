@@ -274,7 +274,7 @@ def arm_boundary_findings(root: str, base_ref: str = "origin/main") -> list[str]
 CONTRIBUTOR_NEVER = (
     "identities/", "routing/", "policies/", "communication/gzcoord/protocol/", "docs/adr/", "memory/",
     ".agent-fabric/", ".github/", "CLAUDE.md",
-    "tools/fabric/guards/", "tools/fabric/git.py", "tools/fabric/lint.py", "tests/run.sh", "tests/static.sh",
+    "tools/fabric/guards/", "tools/fabric/git.py", "tools/fabric/lint.py", "tools/fabric/lint_rules/", "tests/run.sh", "tests/static.sh",
     "tests/test_contributors.py", "tests/test_agent_fabric_dir_authority.py", "tests/test_charter_authority.py",
     "tests/leak-check.sh", "runtime/identity.py", "runtime/claude-code/",
     "bin/fabric-role", "tools/fabric/role.py", "tools/fabric/routing.py", "tools/fabric/launch_prompt.py",
