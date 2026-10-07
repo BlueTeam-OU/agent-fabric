@@ -217,11 +217,14 @@ JOURNAL_IMPORT_TIMEOUT = 20
 # The marker of ADR-042's migration on this account, under its state.
 STORE_BASE_MARKER = "store-trust-base.done"
 # Ownership is by the hook path SHAPE (…/runtime/claude-code/hooks/…, and
-# the GZCoord inbox under communication/), not by the current root: an
-# entry written by an earlier bootstrap from another checkout (a shared
-# path, before an account got its own clone) must be replaced, not kept
-# beside the new one.
-OWNED = ("/runtime/claude-code/hooks/", "/communication/gzcoord/scripts/inbox.mjs")
+# the GZCoord inbox entry), not by the current root: an entry written by an
+# earlier bootstrap from another checkout (a shared path, before an account
+# got its own clone) must be replaced, not kept beside the new one. The
+# inbox has two shapes: bin/gzcoord-inbox, and the Node shim path that
+# earlier bootstraps wrote and the shim's own callers still carry; both stay
+# owned, or an installed hook on the old path would sit beside the new one
+# and drain the inbox twice.
+OWNED = ("/runtime/claude-code/hooks/", "/bin/gzcoord-inbox", "/communication/gzcoord/scripts/inbox.mjs")
 SKILLS = (("subagent-dispatch", "policies/subagent-dispatch/SKILL.md"),
           ("fabric-decisions", "policies/fabric-decisions/SKILL.md"),
           ("branch-hygiene", "policies/branch-hygiene/SKILL.md"),
@@ -547,7 +550,7 @@ class Bootstrap:
     def link_commands(self) -> None:
         # Every command a session is told to run, on PATH under its own name
         # (runtime/claude-code/commands.json): a skill says `gzcoord-send <file>`,
-        # never `node "$AGENT_FABRIC_ROOT/…"`, because the harness asks before any
+        # never a path through `$AGENT_FABRIC_ROOT`, because the harness asks before any
         # command carrying a shell expansion (the owner, 2026-09-26). A link this
         # fabric made — to this checkout or another one's same path — is
         # refreshed; anything else at that name is the account's and is refused,

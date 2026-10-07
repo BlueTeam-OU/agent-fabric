@@ -7,7 +7,7 @@
 # was not asked to absorb. The harness gives no way to pause
 # notifications, but the whole delivery path is ours: a message becomes a
 # notification only because the watch (communication/gzcoord/scripts/
-# inbox.mjs --follow) polls the relay and prints it. So the session says
+# gzcoord-inbox --follow) polls the relay and prints it. So the session says
 # "planning" through a marker, and the watch does not poll while a
 # marker is live: nothing is consumed, the relay keeps the cursor, and
 # the first poll after the plan is approved delivers everything at once.
