@@ -47,7 +47,8 @@ under one git author, so the trailer is what names the lane. Three
 carve-outs: a contributor role (`policies/authority.json`
 `contributors`) commits its entry's paths on its own
 `<host>/<login>/for/<caller>/<what>` branch, which fabric-coordinator
-folds into its own PR and merges; a locale's translations,
+folds into its own PR and merges (a role whose entry `merges` opens and
+merges its own PR instead); a locale's translations,
 `identities/roles/<role>/locale/<suffix>/`, are committed by that
 locale's holder and merged by fabric-coordinator; Dependabot's commits
 that change only `.github/workflows/` (action-pin bumps) need no

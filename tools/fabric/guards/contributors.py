@@ -17,18 +17,20 @@ the entry for the commit it rides with — and CI reads the base's, so a
 branch that edits the file is judged by what main says.
 
   contributors.py hook <fabric-root> <held-role>
-    exit 0  every staged path is the held role's, on its contributor branch
+    exit 0  every staged path is the held role's, on its own branch (its
+            for/ branch, or its own <type>/ branch when it merges)
     exit 1  the held role is a contributor and this commit is outside its
             entry, or not on its branch; the reason is on stderr
     exit 3  the held role is no contributor (silent: the caller refuses as
             it always did)
 
-WHY A BRANCH SHAPE AT THE KEYBOARD ONLY. `<host>/<login>/for/<caller>/<what>`
-is the supplier branch the team's rules name; it keeps a contributor's
-commits off any branch that opens a PR of its own. CI cannot hold a commit to
-a branch name — once folded, the commit is on the coordinator's branch — so
-the shape is checked where the branch is readable, as the locale carve-out
-holds the login to its suffix there and not in CI.
+WHY THE COMMIT'S BRANCH AT THE KEYBOARD. `<host>/<login>/for/<caller>/<what>`
+is the supplier branch the team's rules name. CI cannot hold a commit to the
+branch it was made on — once folded, the commit is on the coordinator's
+branch — so that shape is checked where the branch is readable, as the
+locale carve-out holds the login to its suffix there. What CI does read is
+the pull request's head branch (pull_request_problem): a for/ branch opens
+no pull request, and a contributor-only pull request needs `merges`.
 """
 from __future__ import annotations
 

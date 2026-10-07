@@ -23,8 +23,8 @@ yours alone. The rest is yours too, and a contributor role may also
 commit it within its entry in `policies/authority.json` (ADR-018 §5 rule
 8).
 
-**A contribution.** A contributor delivers a branch
-`<host>/<login>/for/<you>/<what>` and opens no pull request. You fold it
+**A contribution.** A contributor whose entry does not merge delivers a
+branch `<host>/<login>/for/<you>/<what>` and opens no pull request. You fold it
 unrebased into your own branch — a merge, so its commits keep their
 `Fabric-Role:` trailer — and name its range in the pull request's
 description; the blind review covers the whole range, a finding on a

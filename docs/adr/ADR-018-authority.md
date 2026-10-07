@@ -61,7 +61,8 @@ and merged by `fabric-coordinator`. A contributor role — one
 `policies/authority.json` names under `contributors` — commits, in
 agent-fabric itself, the paths its entry lists and none it excludes, on
 a contributor branch of its own; `fabric-coordinator` folds that branch
-into its own pull request and merges it (A 2026-10-01). What a role *is*
+into its own pull request and merges it (A 2026-10-01), unless the entry
+`merges`, when the role carries its own pull request (A 2026-10-07). What a role *is*
 and what enforces the fence — identities, routing, policies but the bash
 allowlist, the protocol, the records, the guards and what they import or
 run — is never in an entry, and lint holds every entry to that.

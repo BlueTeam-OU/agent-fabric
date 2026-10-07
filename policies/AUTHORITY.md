@@ -109,7 +109,8 @@ this for a Python developer sharing the port of the fabric's bash
 
 - **At the keyboard**, `pre-commit` and `commit-msg` admit a commit from
   a session bound to that role, on a branch
-  `<host>/<login>/for/<caller>/<what>` of its own login, staging only
+  `<host>/<login>/for/<caller>/<what>` of its own login (or, where its
+  entry carries `"merges": true`, `<host>/<login>/<type>/<what>`), staging only
   its entry's paths, read from the entry as HEAD has it (never an
   uncommitted edit). A move is judged by its source and its destination;
   an amend with nothing staged, a merge that hand-edits outside the
@@ -120,10 +121,17 @@ this for a Python developer sharing the port of the fabric's bash
 - **In CI**, `check_agent_fabric_dir_authority.sh` admits such a commit
   against the entry **as the base has it**: a branch that widens its
   own entry is judged by main's.
-- **The contributor opens no pull request.** It tells fabric-coordinator
-  the branch is ready; the coordinator folds it unrebased into its own
-  pull request, the blind review covers it, and the coordinator merges.
-  A finding on a contributed hunk goes back to the contributor.
+- **The contributor opens no pull request** unless its entry carries
+  `"merges": true`. Otherwise it tells fabric-coordinator the branch is
+  ready; the coordinator folds it unrebased into its own pull request,
+  the blind review covers it, and the coordinator merges. A finding on a
+  contributed hunk goes back to the contributor. A role that merges
+  carries its own pull request as every agent does (its own blind
+  review, the gate, the team's arming rule); what lies outside its entry
+  the coordinator commits onto its branch, and the coordinator
+  distributes the merge. CI refuses a pull request from a `for/` branch,
+  and one with no owner-role commit whose contributor role does not
+  merge.
 - `.agent-fabric/` in a managed project admits no contributor: it is
   the drain's.
 
@@ -244,6 +252,7 @@ Send it to the role that owns the file: a GZCoord message naming the
 file, the change, and what the role is being asked to take on or give
 up. The fence refuses any other role's commit here, so a pull request is
 not a step another role can take, except a contributor within its entry,
-which delivers its contributor branch instead. Do not self-approve on the grounds of being the only
+which delivers its contributor branch instead (or, where its entry
+merges, carries its own pull request). Do not self-approve on the grounds of being the only
 session that understands the surface; that is the argument these rules
 exist to refuse.
