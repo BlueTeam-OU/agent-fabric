@@ -108,6 +108,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 import tempfile
 
@@ -303,6 +304,8 @@ def main(argv: list[str] | None = None) -> int:
                                     "is rotated at its provider")
     rme.add_argument("name")
     rme.add_argument("--managed", action="store_true", help=managed_help)
+    rme.add_argument("--expect-last", metavar="COMMIT",
+                     help="remove only while COMMIT (a full sha) is still the last write to the entry")
     n = sub.add_parser("names")
     n.add_argument("--json", action="store_true")
     p = sub.add_parser("put")
@@ -388,7 +391,9 @@ def main(argv: list[str] | None = None) -> int:
             print(f"{args.name}: {'set' if r['changed'] else 'unchanged'}")
         elif args.cmd == "rm":
             _own_or_managed(args.name, args.managed, "removed")
-            r = rm_entry(args.name)
+            if args.expect_last is not None and not re.fullmatch(r"[0-9a-f]{40}", args.expect_last):
+                raise StoreError(f"--expect-last takes a full commit sha, not {args.expect_last!r}; nothing removed")
+            r = rm_entry(args.name, expect_last=args.expect_last)
             print(f"{args.name}: {'removed' if r['changed'] else 'absent'}")
         elif args.cmd == "names":
             ns = names()

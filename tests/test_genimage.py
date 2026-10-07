@@ -107,7 +107,7 @@ def main() -> int:
             with open(path, "w", encoding="utf-8") as fh:
                 fh.write(text)
 
-        def keys(env_key: str | None = None, local: str | None = None, sec: str | None = None) -> dict[str, str]:
+        def fixture_env(env_key: str | None = None, local: str | None = None, sec: str | None = None) -> dict[str, str]:
             put(env_local, local)
             put(secrets, sec)
             env = dict(base_env)
@@ -120,7 +120,7 @@ def main() -> int:
             """In process, through run(): the seams a caller of the command lacks."""
             out, err = io.StringIO(), io.StringIO()
             with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
-                rc = genimage.run(argv, environ=env if env is not None else keys(env_key="test-key"), cwd=cwd,
+                rc = genimage.run(argv, environ=env if env is not None else fixture_env(env_key="test-key"), cwd=cwd,
                                   opener=opener or FakeOpener(500, b"{}"), timeout=timeout)
             return rc, out.getvalue(), err.getvalue()
 
@@ -130,7 +130,7 @@ def main() -> int:
             return r.returncode, r.stdout, r.stderr
 
         print("arguments")
-        rc, out, err = cli(["--help"], keys())
+        rc, out, err = cli(["--help"], fixture_env())
         check("--help: stdout, exit 0, every option", rc == 0 and err == "" and all(
             o in out for o in ("-o, --out", "--size", "--quality", "--model", "--background", "--dry-run", "-h, --help",
                                "working copy root", ".env.local", "secrets.env")), out + err)
@@ -143,17 +143,17 @@ def main() -> int:
                 ("no -o", ["a", "fox"], "fabric-genimage: -o <path> is required (e.g. -o gita/assets/hero.png)"),
                 ("-o not a .png", ["p", "-o", "a.jpg"], "fabric-genimage: output must be a .png (the API returns PNG)"),
                 ("an unknown option before -h is reported", ["--bogus", "-h"], "fabric-genimage: unknown option --bogus")):
-            rc, out, err = cli(argv, keys())
+            rc, out, err = cli(argv, fixture_env())
             check(f"{label}: exit 1, one line", rc == 1 and err == line + "\n" and out == "", f"rc={rc}\n{out}{err}")
-        rc, out, _ = cli(["-h", "--bogus"], keys())
+        rc, out, _ = cli(["-h", "--bogus"], fixture_env())
         check("-h before an unknown option is the help", rc == 0 and out.startswith("usage:"), out)
-        rc, out, _ = cli(["a", "fox", "-o", "x/FOX.PNG", "--size", "--dry-run", "--quality", "low"], keys())
+        rc, out, _ = cli(["a", "fox", "-o", "x/FOX.PNG", "--size", "--dry-run", "--quality", "low"], fixture_env())
         check("a value is the next token whatever it looks like (--size --dry-run); .PNG accepted",
               rc == 1 and "• model gpt-image-1 · --dry-run · quality low\n" in out and "(dry run" not in out, out)
 
         print("dry run: what is printed, nothing asked")
         rc, out, err = cli(["a", " red", "fox ", "-o", "art/fox.png", "--background", "transparent", "--dry-run"],
-                           keys(sec="export OPENAI_API_KEY=sk-from-secrets\n"))
+                           fixture_env(sec="export OPENAI_API_KEY=sk-from-secrets\n"))
         check("the four lines and the dry-run line, exit 0", rc == 0 and err == "" and out == (
             "• model gpt-image-1 · 1536x1024 · quality high · background transparent\n"
             "• prompt: a  red fox\n• out:    art/fox.png\n" + SECRETS_LINE + "\n(dry run — no request made)\n"),
@@ -166,25 +166,25 @@ def main() -> int:
               all(genimage.shell_unquote(shlex.quote(v)) == v for v in values))
         dry = ["p", "-o", "a.png", "--dry-run"]
         for label, env, want in (
-                ("K2 only secrets.env", lambda: keys(sec="export OPENAI_API_KEY=s\n"), SECRETS_LINE),
-                ("K3 the environment first", lambda: keys(env_key="e", local="OPENAI_API_KEY=l\n", sec="export OPENAI_API_KEY=s\n"),
+                ("K2 only secrets.env", lambda: fixture_env(sec="export OPENAI_API_KEY=s\n"), SECRETS_LINE),
+                ("K3 the environment first", lambda: fixture_env(env_key="e", local="OPENAI_API_KEY=l\n", sec="export OPENAI_API_KEY=s\n"),
                  "• key:    from the environment"),
-                ("K4 .env.local before secrets.env", lambda: keys(local="OPENAI_API_KEY=l\n", sec="export OPENAI_API_KEY=s\n"),
+                ("K4 .env.local before secrets.env", lambda: fixture_env(local="OPENAI_API_KEY=l\n", sec="export OPENAI_API_KEY=s\n"),
                  "• key:    from .env.local"),
-                ("K5 an exported empty OPENAI_API_KEY counts as unset", lambda: keys(env_key="", local="OPENAI_API_KEY=l\n"),
+                ("K5 an exported empty OPENAI_API_KEY counts as unset", lambda: fixture_env(env_key="", local="OPENAI_API_KEY=l\n"),
                  "• key:    from .env.local"),
                 ("K7 a value with a newline is unreadable",
-                 lambda: keys(sec=f"export OPENAI_API_KEY={shlex.quote('a' + chr(10) + 'b')}\n"),
+                 lambda: fixture_env(sec=f"export OPENAI_API_KEY={shlex.quote('a' + chr(10) + 'b')}\n"),
                  "• key:    present in ~/.config/agent-fabric/secrets.env but unreadable"),
-                ("K8 nothing anywhere", keys, "• key:    none found")):
+                ("K8 nothing anywhere", fixture_env, "• key:    none found")):
             # Each case's files are written as it runs, not when the table is built.
             rc, out, err = cli(dry, env())
             check(f"{label}: {want.split(':', 1)[1].strip()}", rc == 0 and want + "\n" in out, f"rc={rc}\n{out}{err}")
-        rc, out, err = cli(["p", "-o", "a.png"], keys(sec=f"export OPENAI_API_KEY={shlex.quote('a' + chr(10) + 'b')}\n"))
+        rc, out, err = cli(["p", "-o", "a.png"], fixture_env(sec=f"export OPENAI_API_KEY={shlex.quote('a' + chr(10) + 'b')}\n"))
         check("K7 …and a real run exits 1 with the unreadable line", rc == 1 and err == (
             "fabric-genimage: OPENAI_API_KEY present in ~/.config/agent-fabric/secrets.env but unreadable"
             " — run `fabric-secrets sync` again\n"), f"rc={rc}\n{err}")
-        rc, out, err = cli(["p", "-o", "a.png"], keys())
+        rc, out, err = cli(["p", "-o", "a.png"], fixture_env())
         check("K8 …and a real run exits 1 with the not-found line", rc == 1 and err == (
             "fabric-genimage: OPENAI_API_KEY not found in the environment, .env.local or"
             " ~/.config/agent-fabric/secrets.env — run `fabric-secrets sync`, or put `OPENAI_API_KEY=sk-...`"
@@ -195,26 +195,38 @@ def main() -> int:
             run(["p", "-o", "k.png"], env=env, opener=fake)
             return fake.requests[0].get_header("Authorization") if fake.requests else None
 
+        # The key line and the key are read apart (CodeQL alert 53 on #110):
+        # a key gone between the two reads is a refusal, never a request
+        # sent with no key.
+        saved_resolve = genimage.resolve_key
+        genimage.resolve_key = lambda *a: ""
+        try:
+            fake = FakeOpener(200, image(b"png"))
+            rc, out, err = run(["p", "-o", "gone.png"], env=fixture_env(env_key="e"), opener=fake)
+        finally:
+            genimage.resolve_key = saved_resolve
+        check("a key that was there for the key line and is gone for the request: refused, nothing sent",
+              rc == 1 and "OPENAI_API_KEY (from the environment) is gone now" in err and not fake.requests, f"rc={rc}\n{err}")
         check("K6 the last of two export lines is used",
-              bearer(keys(sec="export OPENAI_API_KEY=first\nexport OPENAI_API_KEY=second\n")) == "Bearer second")
+              bearer(fixture_env(sec="export OPENAI_API_KEY=first\nexport OPENAI_API_KEY=second\n")) == "Bearer second")
         check(".env.local: export prefix, quotes stripped, # lines skipped, the first non-empty value wins",
-              bearer(keys(local="# OPENAI_API_KEY=commented\nOPENAI_API_KEY=\nexport OPENAI_API_KEY='quoted'\n"
+              bearer(fixture_env(local="# OPENAI_API_KEY=commented\nOPENAI_API_KEY=\nexport OPENAI_API_KEY='quoted'\n"
                                 "OPENAI_API_KEY=later\n")) == "Bearer quoted")
         for empty in ("", "''", '""'):
             check(f"secrets.env: an empty value ({empty or 'nothing'}) is unreadable",
-                  "but unreadable" in cli(dry, keys(sec=f"export OPENAI_API_KEY={empty}\n"))[1])
-        env = keys()
+                  "but unreadable" in cli(dry, fixture_env(sec=f"export OPENAI_API_KEY={empty}\n"))[1])
+        env = fixture_env()
         os.makedirs(env_local)
         rc, out, err = cli(dry, env)
         check(".env.local that cannot be read: a line naming it, exit 1",
               rc == 1 and err == "fabric-genimage: cannot read .env.local (EISDIR)\n", f"rc={rc}\n{err}")
         os.rmdir(env_local)
         check("secrets.env: a word after the value is unreadable, never guessed",
-              cli(dry, keys(sec="export OPENAI_API_KEY=abc def\n"))[1].count("but unreadable") == 1)
+              cli(dry, fixture_env(sec="export OPENAI_API_KEY=abc def\n"))[1].count("but unreadable") == 1)
         canary = "sk-CANARY-from-secrets-0123456789"
         seen = []
         for opener in (None, FakeOpener(401, FRAG.encode()), FakeOpener(200, image(b"x"))):
-            env = keys(sec=f"export OPENAI_API_KEY={canary}\n")
+            env = fixture_env(sec=f"export OPENAI_API_KEY={canary}\n")
             if opener is None:
                 seen.append("".join(cli(dry, env)[1:]))
             else:
@@ -351,14 +363,14 @@ def main() -> int:
         print("the working copy root")
         put(os.path.join(outside, ".env.local"), "OPENAI_API_KEY=outside\n")
         fake = FakeOpener(200, image(b"x"))
-        rc, _, err = run(["p", "-o", "o.png"], env=keys(), cwd=outside, opener=fake)
+        rc, _, err = run(["p", "-o", "o.png"], env=fixture_env(), cwd=outside, opener=fake)
         check("outside a repository: the cwd (.env.local read there, the file written there)",
               rc == 0 and fake.requests[0].get_header("Authorization") == "Bearer outside"
               and os.path.isfile(os.path.join(outside, "o.png")), err)
-        rc, _, err = run(["p", "-o", "o.png"], env={**keys(env_key="k"), "GIT_DIR": os.path.join(outside, "nothing")},
+        rc, _, err = run(["p", "-o", "o.png"], env={**fixture_env(env_key="k"), "GIT_DIR": os.path.join(outside, "nothing")},
                          opener=FakeOpener(200, image(b"x")))
         check("a session's GIT_DIR does not move it", rc == 0 and os.path.isfile(os.path.join(wc, "o.png")), err)
-        rc, _, err = run(["p", "-o", "o.png"], env={**keys(env_key="k"), "PATH": os.path.join(sandbox, "empty")},
+        rc, _, err = run(["p", "-o", "o.png"], env={**fixture_env(env_key="k"), "PATH": os.path.join(sandbox, "empty")},
                          opener=FakeOpener(200, image(b"x")))
         check("git missing: refused, never taken as the cwd",
               rc == 1 and err == "fabric-genimage: cannot find the working copy root (git is not installed)\n", err)

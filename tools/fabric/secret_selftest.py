@@ -192,16 +192,18 @@ def _remember_leftover() -> bool:
     return True
 
 
-def _own_leftover() -> bool:
-    """Whether the canary in the store is the one an earlier run left: the
-    recorded commit, still the last write to the name."""
+def _own_leftover() -> str | None:
+    """The commit an earlier run left the canary in, while it is still the
+    last write to the name; else None. rm is then held to it
+    (--expect-last), under the store's lock: a write in between is the
+    agent's, and is not removed."""
     store = store_dir()
     try:
         with open(os.path.join(store, ".git", LEFTOVER_MARK), encoding="utf-8") as fh:
             mark = fh.read().strip()
     except FileNotFoundError:
-        return False
-    return bool(mark) and _last_set_by_me(store) == mark
+        return None
+    return mark if mark and _last_set_by_me(store) == mark else None
 
 
 def _forget_leftover() -> None:
@@ -256,7 +258,7 @@ def selftest() -> dict:
             step("precondition", False, f"{NAME} is in the store already: an agent's own entry is never overwritten "
                                         "or removed by the test (store rm it, if it is a test's leftover)")
             return done()
-        rc, out, _ = _cmd([SECRETS, "store", "rm", NAME])
+        rc, out, _ = _cmd([SECRETS, "store", "rm", NAME, "--expect-last", leftover])
         if not (rc == 0 and out.strip() == f"{NAME}: removed"):
             step("leftover", False, "the canary an earlier selftest left committed is still there ("
                  + (_why("store rm", rc) if rc else "store rm did not answer removed") + "); the next selftest tries again")

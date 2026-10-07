@@ -214,7 +214,7 @@ def set_entry(name: str, value: bytes, *, exact: bool = False) -> dict:
         return {"name": name, "changed": changed}
 
 
-def rm_entry(name: str) -> dict:
+def rm_entry(name: str, *, expect_last: str | None = None) -> dict:
     """The agent removes its own entry: env/NAME.gpg, committed signed as
     set commits ("agent <login>: rm NAME") and pushed. History is not
     rewritten — the value stays readable to this key in the store's past,
@@ -228,6 +228,14 @@ def rm_entry(name: str) -> dict:
         _require_clean(store)
         _before_write(store)
         rel = os.path.join("env", f"{name}.gpg")
+        if expect_last is not None:
+            # Checked here, under the lock and after the fetch: a caller that
+            # judged the entry before (the self-test's leftover) must not
+            # remove a write that landed since (review of #110, Codex P1).
+            last = git(store, "log", "-1", "--format=%H", "--", rel).stdout.decode().strip()
+            if last != expect_last:
+                raise StoreError(f"{name} was last written by {last[:12] or 'nothing'}, not {expect_last[:12]}; "
+                                 "nothing removed")
         tracked = git(store, "ls-files", "--error-unmatch", "--", rel, check=False).returncode == 0
         if not tracked:
             # Never committed: an entry no write path leaves (each stages what

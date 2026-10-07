@@ -283,18 +283,27 @@ def secrets_key(home: str) -> tuple[str, bool]:
     return (value, False) if value else ("", True)
 
 
-def resolve_key(environ: dict[str, str], root: str, home: str) -> tuple[str, str]:
-    """(key, what the key line says). An empty key with a "present … but
-    unreadable" or "none found" line is a refusal unless it is a dry run."""
+def resolve_key(environ: dict[str, str], root: str, home: str) -> str:
+    """The key, first found wins; "" when there is none to use."""
     if environ.get("OPENAI_API_KEY"):
-        return environ["OPENAI_API_KEY"], "from the environment"
-    key = env_local_key(root)
-    if key:
-        return key, "from .env.local"
-    key, unreadable = secrets_key(home)
-    if key:
-        return key, f"from {SECRETS_SHOWN}"
-    return "", (f"present in {SECRETS_SHOWN} but unreadable" if unreadable else "none found")
+        return environ["OPENAI_API_KEY"]
+    return env_local_key(root) or secrets_key(home)[0]
+
+
+def _origin(environ: dict[str, str], root: str, home: str) -> str:
+    """What the key line says, in the same order as resolve_key; "present …
+    but unreadable" and "none found" are a refusal unless it is a dry run.
+    Apart from resolve_key on purpose: what is printed is decided by which
+    source holds a value, and never travels with the value itself
+    (CodeQL alert 53 on #110)."""
+    if environ.get("OPENAI_API_KEY"):
+        return "from the environment"
+    if env_local_key(root):
+        return "from .env.local"
+    held, unreadable = secrets_key(home)
+    if held:
+        return f"from {SECRETS_SHOWN}"
+    return f"present in {SECRETS_SHOWN} but unreadable" if unreadable else "none found"
 
 
 def _text(body: bytes) -> str:
@@ -457,12 +466,12 @@ def main(argv: list[str], *, environ: dict[str, str] | None = None, cwd: str | N
     _say(f"• prompt: {prompt}")
     _say(f"• out:    {o.out}")
     home = environ.get("HOME") or pwd.getpwuid(os.geteuid()).pw_dir
-    key, source = resolve_key(environ, root, home)
+    source = _origin(environ, root, home)
     _say(f"• key:    {source}")
     if o.dry_run:
         _say("(dry run — no request made)")
         return 0
-    if not key:
+    if not source.startswith("from "):
         if source == "none found":
             raise Fail(f"OPENAI_API_KEY not found in the environment, .env.local or {SECRETS_SHOWN} — run "
                        "`fabric-secrets sync`, or put `OPENAI_API_KEY=sk-...` in .env.local at the working "
@@ -470,6 +479,9 @@ def main(argv: list[str], *, environ: dict[str, str] | None = None, cwd: str | N
         raise Fail(f"OPENAI_API_KEY {source} — run `fabric-secrets sync` again")
 
     payload = json.dumps(body, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    key = resolve_key(environ, root, home)
+    if not key:
+        raise Fail(f"OPENAI_API_KEY ({source}) is gone now — run it again")
     answer = post(opener or make_opener(), ENDPOINT, payload, key, timeout)
     if not 200 <= answer.status < 300:
         raise Fail(f"API {answer.status} ({error_kind(answer.body)})")

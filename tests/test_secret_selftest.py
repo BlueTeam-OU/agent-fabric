@@ -248,9 +248,27 @@ def main() -> int:
     spec.loader.exec_module(st)
     st.reserved = lambda name, root: None
     real_cmd = st._cmd
+    # The leftover's rm is held to the recorded commit (--expect-last), so a
+    # write that lands between the check and the rm is not removed.
+    leftover_sha = "f" * 40
+    seen_rm: list[list[str]] = []
+
+    def held_once(args, stdin=None):
+        if args[-2:] == ["names", "--json"]:
+            return 0, '["AF_SELFTEST_CANARY"]' if not seen_rm else "[]", ""
+        if "rm" in args and "--expect-last" in args:
+            seen_rm.append(args)
+            return 0, "AF_SELFTEST_CANARY: removed\n", ""
+        return 0, "", ""
+    st._own_leftover, st._cmd = (lambda: leftover_sha), held_once
+    st.selftest()
+    check("the leftover's rm names the recorded commit (--expect-last)",
+          seen_rm and seen_rm[0][-2:] == ["--expect-last", leftover_sha], seen_rm)
+    st._cmd = real_cmd
+
     # The store is the fakes': no leftover is read or recorded in a real one.
     st._remember_leftover = lambda: False
-    st._own_leftover = lambda: False
+    st._own_leftover = lambda: None
 
     # A timeout ends the command's whole group (the own-secrets review, R3):
     # the shim's python and the git it runs, not only the direct child. A

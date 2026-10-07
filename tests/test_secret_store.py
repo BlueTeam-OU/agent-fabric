@@ -419,6 +419,26 @@ def main() -> int:
                   and lens.get("CLAUDE_CODE_OAUTH_TOKEN") == len(TOKEN), got.stderr)
             p = run(child, "set", "OWN_NOTE", stdin="kid\n")
             check("the agent sets its own entry", p.returncode == 0 and "set" in p.stdout, p.stderr)
+            # rm --expect-last: removed only while that commit is still the
+            # entry's last write, judged under the lock (review of #110, Codex P1).
+            cs = child["AGENT_FABRIC_SECRET_STORE"]
+            last_of = lambda: subprocess.run(["git", "-C", cs, "log", "-1", "--format=%H", "--",  # noqa: E731
+                                              "env/GUARDED_ONE.gpg"], capture_output=True, text=True).stdout.strip()
+            run(child, "set", "GUARDED_ONE", stdin="first")
+            first_write = last_of()
+            run(child, "set", "GUARDED_ONE", stdin="written since")
+            stale = run(child, "rm", "GUARDED_ONE", "--expect-last", first_write)
+            check("rm --expect-last a commit that is no longer the last write: refused, the entry kept",
+                  stale.returncode == 1 and "nothing removed" in stale.stderr
+                  and "GUARDED_ONE" in run(child, "names").stdout, stale.stdout + stale.stderr)
+            bad_sha = run(child, "rm", "GUARDED_ONE", "--expect-last", "abc")
+            check("…a value that is not a full sha: refused, the entry kept",
+                  bad_sha.returncode == 1 and "full commit sha" in bad_sha.stderr
+                  and "GUARDED_ONE" in run(child, "names").stdout, bad_sha.stderr)
+            current = run(child, "rm", "GUARDED_ONE", "--expect-last", last_of())
+            check("…while the commit named is the last write: removed",
+                  current.returncode == 0 and current.stdout.strip() == "GUARDED_ONE: removed"
+                  and "GUARDED_ONE" not in run(child, "names").stdout, current.stdout + current.stderr)
             # Two writers in one store at once (the own-secrets review, R2:
             # the agent's set beside its control agent's self-test). The first
             # is held between staging its entry and committing it (a
