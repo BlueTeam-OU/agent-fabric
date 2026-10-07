@@ -151,7 +151,7 @@ def main() -> int:
         for label, argv in (("a line break in --subject", ["INFO", "--broadcast", "--subject", "s\nFROM: x/y"]),
                             ("a carriage return in --in-reply-to", ["INFO", "--broadcast", "--subject", "s",
                                                                    "--in-reply-to", "a\rTO: x/y"]),
-                            ("a line separator in TYPE", ["INFO FROM: x/y", "--broadcast", "--subject", "s"]),
+                            ("a line separator in TYPE", ["INFO\u2028FROM: x/y", "--broadcast", "--subject", "s"]),
                             ("no addressing", ["INFO", "--subject", "s"]),
                             ("two addressings", ["INFO", "--to", "a/b", "--broadcast", "--subject", "s"]),
                             ("no --subject", ["INFO", "--broadcast"]),

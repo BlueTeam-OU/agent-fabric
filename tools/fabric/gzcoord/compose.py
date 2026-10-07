@@ -98,13 +98,13 @@ message would be invalid, or refused by gzcoord-send (the reason)
 
 # Any line break the parser or a terminal would honour: a value carrying
 # one would write a line of its own into the header (a forged key).
-_BREAK = re.compile("[\r\n\v\f\x1c\x1d\x1e\x85  ]")
+_BREAK = re.compile("[\r\n\v\f\x1c\x1d\x1e\x85\u2028\u2029]")
 # origin's URL: scp-like (git@host:org/repo), or a URL with a scheme
 # (https://, ssh://, git://, file:// is not a forge and is not matched).
-_REMOTE = (re.compile(r"^[^/@:\s]+@[^/:\s]+:(?P<path>[^\s]+)$"),
-           re.compile(r"^(?:https?|ssh|git)://[^/\s]+/(?P<path>[^\s]+)$"))
+_REMOTE = (re.compile(r"^[^/@:\s]+@[^/:\s]+:(?P<path>[^\s]+)$", re.ASCII),
+           re.compile(r"^(?:https?|ssh|git)://[^/\s]+/(?P<path>[^\s]+)$", re.ASCII))
 # Any scheme RFC 3986 admits, in any case: one git cannot use is printed too.
-_USERINFO = re.compile(r"^(?P<scheme>[A-Za-z][A-Za-z0-9+.-]*://)[^/\s]*@")
+_USERINFO = re.compile(r"^(?P<scheme>[A-Za-z][A-Za-z0-9+.-]*://)[^/\s]*@", re.ASCII)
 _ORG_REPO = re.compile(r"^(?P<org>[A-Za-z0-9._-]+)/(?P<repo>[A-Za-z0-9._-]+?)(?:\.git)?/?$")
 
 
