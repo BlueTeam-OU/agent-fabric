@@ -1,62 +1,92 @@
 {
   "version": 1,
-  "description": "The reusable roles agent-fabric knows: id (the slug that goes on the wire and names identities/roles/<id>/), title, and whether the role is still a candidate. Path and keyword rules that say WHERE a role applies inside a managed repository are not here — they belong to projects/<project-id>/taxonomy.json.",
+  "description": "The reusable roles agent-fabric knows: id (the slug that goes on the wire and names identities/roles/<id>/), title, a starting group, and whether the role is still a candidate. Path and keyword rules that say WHERE a role applies inside a managed repository are not here — they belong to projects/<project-id>/taxonomy.json. `groups` and each role's `group` are a starting layout for Fleet Deck, the operator's console over the fleet: what it seeds when first set up on a host. The operator arranges the deck as they like from then on; nothing re-applies or checks this.",
+  "groups": [
+    "Coordinator",
+    "C-Level",
+    "Rust Developer",
+    "Net Developer",
+    "Python Developer",
+    "Flutter Developer",
+    "TypeScript Developer",
+    "Experts",
+    "Infrastructure"
+  ],
   "roles": [
     {
       "id": "architect-cto",
-      "title": "Architect / CTO"
+      "title": "Architect / CTO",
+      "group": "C-Level"
     },
     {
       "id": "backend-dev",
-      "title": ".NET backend developer"
+      "title": ".NET backend developer",
+      "group": "Net Developer"
     },
     {
       "id": "brand-comms",
-      "title": "Brand and communications"
+      "title": "Brand and communications",
+      "group": "Experts"
     },
     {
       "id": "db-admin",
-      "title": "Database administrator"
+      "title": "Database administrator",
+      "group": "Infrastructure"
     },
     {
       "id": "devex-tooling",
-      "title": "Developer experience and repo tooling"
+      "title": "Developer experience and repo tooling",
+      "group": "Infrastructure"
     },
     {
       "id": "domain-transit",
-      "title": "Transit domain"
+      "title": "Transit domain",
+      "group": "Experts"
     },
     {
       "id": "edge-hosting",
-      "title": "Domain, DNS, edge and hosting"
+      "title": "Domain, DNS, edge and hosting",
+      "group": "Infrastructure"
     },
     {
       "id": "fabric-coordinator",
-      "title": "Control-plane coordinator (agent-fabric, and the GZCoord protocol)"
+      "title": "Control-plane coordinator (agent-fabric, and the GZCoord protocol)",
+      "group": "Coordinator"
     },
     {
       "id": "flutter-dev",
-      "title": "Flutter developer"
+      "title": "Flutter developer",
+      "group": "Flutter Developer"
     },
     {
       "id": "language-culture",
-      "title": "Language, translation, localization and culture"
+      "title": "Language, translation, localization and culture",
+      "group": "Experts"
     },
     {
       "id": "p2p-network-dev",
-      "title": "Rust peer-to-peer networking developer"
+      "title": "Rust peer-to-peer networking developer",
+      "group": "Rust Developer"
     },
     {
       "id": "python-dev",
-      "title": "Python developer"
+      "title": "Python developer",
+      "group": "Python Developer"
+    },
+    {
+      "id": "rust-services-dev",
+      "title": "Rust network-services developer (proxies, gateways, streaming)",
+      "group": "Rust Developer"
     },
     {
       "id": "rust-ui-dev",
-      "title": "Rust native-client developer (Slint, accessibility, local store)"
+      "title": "Rust native-client developer (Slint, accessibility, local store)",
+      "group": "Rust Developer"
     },
     {
       "id": "web-dev",
-      "title": "Web sub-app developer"
+      "title": "Web sub-app developer",
+      "group": "TypeScript Developer"
     }
   ]
 }

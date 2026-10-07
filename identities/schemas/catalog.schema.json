@@ -9,6 +9,7 @@
   "properties": {
     "version": {"type": "integer", "minimum": 1},
     "description": {"type": "string"},
+    "groups": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}, "description": "A starting layout for Fleet Deck, the operator's console: the groups it seeds when it is first set up on a host. Only a seed: the operator arranges the deck as they like afterwards, and nothing re-applies or checks this."},
     "roles": {
       "type": "array",
       "minItems": 1,
@@ -19,7 +20,8 @@
         "properties": {
           "id": {"type": "string", "pattern": "^[a-z][a-z0-9-]*$", "description": "The slug: names identities/roles/<id>/ and goes on the wire as ROLE."},
           "title": {"type": "string"},
-          "candidate": {"type": "boolean", "description": "True while the cluster has not yet proved it carries its own weight."}
+          "candidate": {"type": "boolean", "description": "True while the cluster has not yet proved it carries its own weight."},
+          "group": {"type": "string", "description": "The group of `groups` a new host's Fleet Deck starts this role's agents in; a seed, never enforced."}
         }
       }
     }
