@@ -578,6 +578,12 @@ def main() -> int:
               and doc.get("incident") == "Incident with Actions. Runs are queued. Retry later"
               and f"({doc.get('incident')})" in doc.get("reason", ""), out["text"])
 
+        put("incident", "Inc \\ud800 x\n")
+        for args in ((), ("--json",)):
+            invoke(*args)
+            check(f"a lone surrogate in the incident{' (--json)' if args else ''}: U+FFFD, the outage still reported",
+                  out["rc"] == 1 and "Traceback" not in out["text"] and "Inc \ufffd x" in out["text"], out["text"])
+
         print("actions-health: invocation errors")
         reset()
         invoke("--nope")
@@ -587,6 +593,29 @@ def main() -> int:
         r = subprocess.run([TOOL, "--json", "--nope"], env=base, capture_output=True, text=True, timeout=120)
         check("a usage error is stderr alone, even with --json",
               r.returncode == 2 and r.stdout == "" and "unknown option" in r.stderr, f"{r.stdout!r} {r.stderr!r}")
+
+    print("actions-health: a failure after the status page was read keeps what it read")
+    sys.path.insert(0, os.path.join(ROOT, "tools", "fabric", "github"))
+    import contextlib
+    import io
+
+    import actions_health as ah
+    saved = ah.actions_status, ah.shutil.which
+    try:
+        ah.actions_status = lambda: ("operational", "")
+
+        def which(name: str) -> str:
+            raise RuntimeError("billing broke")
+        ah.shutil.which = which
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(io.StringIO()):
+            code = ah.run(["--json"], env={})
+        doc = json.loads(buf.getvalue() or "{}")
+    finally:
+        ah.actions_status, ah.shutil.which = saved
+    check("could not decide: exit 2, verdict unknown, status still operational",
+          code == 2 and doc.get("verdict") == "unknown" and doc.get("status") == "operational"
+          and doc.get("incident") is None and doc.get("private_minutes") is None, buf.getvalue())
 
     print(f"\ntest_actions_health_cli: {'OK' if not fails else f'FAILED — {fails} check(s)'}")
     return 1 if fails else 0
