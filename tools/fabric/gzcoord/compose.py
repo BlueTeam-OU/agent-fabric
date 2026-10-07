@@ -11,11 +11,14 @@ CONTRACT:
   stdout    the message, or nothing with -o; --help's text
   stderr    a warning the validator raised, REPOSITORY left out and why,
             the file written, a refusal
-  exit      0 composed; 1 usage, a value with a line break in it, or -o
-            FILE that exists or cannot be written; 2 the message would be
-            invalid (an unknown or retired type, an assignment toward a
-            role, an address of the wrong shape, ROLE or PROJECT unknown):
-            the validator's own reason, in the reader's language
+  exit      0 composed; 1 usage (an option given twice included), a
+            value with a line break, bytes that are not UTF-8 or nothing
+            but blanks, or -o FILE that exists or cannot be written; 2 the
+            message would be invalid (an unknown or retired type, an
+            assignment toward a role, an address of the wrong shape, ROLE
+            or PROJECT unknown) or refused by send (an IN-REPLY-TO that is
+            not an id): the validator's own reason, in the reader's
+            language
 
 It never sends. FROM, ROLE and PROJECT are what gzcoord-send resolves for
 this login (gzmsg.whoami, inbox.identity), so a composed message passes
@@ -88,8 +91,9 @@ an assignment, which goes to one login. A REQUEST toward a role is refused.
   -o FILE   write to FILE, created mode 0600; refused if FILE exists (a
             new message is a new file: send keeps the id in it)
 
-exit: 0 composed; 1 usage, a value with a line break, -o FILE exists or
-cannot be written; 2 the message would be invalid (the validator's reason)
+exit: 0 composed; 1 usage (a value with a line break, bytes that are not
+UTF-8, an option given twice), -o FILE exists or cannot be written; 2 the
+message would be invalid, or refused by gzcoord-send (the reason)
 """
 
 # Any line break the parser or a terminal would honour: a value carrying
@@ -99,6 +103,7 @@ _BREAK = re.compile("[\r\n\v\f\x1c\x1d\x1e\x85  ]")
 # (https://, ssh://, git://, file:// is not a forge and is not matched).
 _REMOTE = (re.compile(r"^[^/@:\s]+@[^/:\s]+:(?P<path>[^\s]+)$"),
            re.compile(r"^(?:https?|ssh|git)://[^/\s]+/(?P<path>[^\s]+)$"))
+_USERINFO = re.compile(r"^(?P<scheme>[a-z]+://)[^/\s]*@")
 _ORG_REPO = re.compile(r"^(?P<org>[A-Za-z0-9._-]+)/(?P<repo>[A-Za-z0-9._-]+?)(?:\.git)?/?$")
 
 
@@ -111,35 +116,53 @@ class _Parser(argparse.ArgumentParser):
         raise Usage(message)
 
 
+class _Once(argparse.Action):
+    """argparse keeps the last of a repeated option: `--to a/b --to c/d`
+    would address c/d and drop a/b without a word."""
+
+    def __call__(self, parser, namespace, values, option_string=None):  # type: ignore[override]
+        if getattr(namespace, self.dest, None) is not None:
+            raise Usage(f"{option_string} given twice")
+        setattr(namespace, self.dest, values)
+
+
 def parse_args(argv: list[str]) -> argparse.Namespace:
-    p = _Parser(prog="gzcoord-compose", add_help=False)
+    p = _Parser(prog="gzcoord-compose", add_help=False, allow_abbrev=False)
     p.add_argument("type")
     where = p.add_mutually_exclusive_group(required=True)
-    where.add_argument("--to")
-    where.add_argument("--to-role")
+    where.add_argument("--to", action=_Once)
+    where.add_argument("--to-role", action=_Once)
     where.add_argument("--broadcast", action="store_true")
-    p.add_argument("--subject", required=True)
-    p.add_argument("--in-reply-to")
-    p.add_argument("--reply-expected")
-    p.add_argument("--repository")
-    p.add_argument("-o", dest="output")
+    p.add_argument("--subject", required=True, action=_Once)
+    p.add_argument("--in-reply-to", action=_Once)
+    p.add_argument("--reply-expected", action=_Once)
+    p.add_argument("--repository", action=_Once)
+    p.add_argument("-o", dest="output", action=_Once)
     a = p.parse_args(argv)
+    # A value is carried exactly or refused: never a forged line, a byte
+    # turned into "?" on the way out, or a header the parser reads as empty.
     for flag in ("type", "to", "to_role", "subject", "in_reply_to", "reply_expected", "repository"):
         value = getattr(a, flag)
         if value is None:
             continue
         name = "TYPE" if flag == "type" else "--" + flag.replace("_", "-")
+        if any("\udc80" <= c <= "\udcff" for c in value):
+            raise Usage(f"{name} holds bytes that are not UTF-8")
         if _BREAK.search(value):
             raise Usage(f"{name} holds a line break; a header value is one line")
-        if not value.strip():
+        if not gzmsg.js_trim(value):
             raise Usage(f"{name} is empty")
     return a
 
 
 def origin_repository(cwd: str) -> tuple[str | None, str | None]:
     """(<org>/<repo>, None) or (None, why it was left out)."""
+    # The working copy at cwd, not one a session's GIT_DIR or GIT_CONFIG_*
+    # points at.
+    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
     try:
-        r = git.run(cwd, "remote", "get-url", "origin", check=False, timeout=30, what="git remote get-url origin")
+        r = git.run(cwd, "remote", "get-url", "origin", check=False, timeout=30, env=env,
+                    what="git remote get-url origin")
     except git.GitError as e:
         return None, str(e)
     if r.returncode != 0:
@@ -152,7 +175,8 @@ def origin_repository(cwd: str) -> tuple[str | None, str | None]:
             path = _ORG_REPO.match(m.group("path"))
             if path:
                 return f"{path.group('org')}/{path.group('repo')}", None
-    return None, f"origin's URL is not <host>/<org>/<repo>: {url}"
+    # A URL can carry a token as its user part; stderr reaches a transcript.
+    return None, f"origin's URL is not <host>/<org>/<repo>: {_USERINFO.sub(r'\g<scheme>', url)}"
 
 
 def skeleton(mtype: str, header: list[tuple[str, str]], to_role: bool) -> str:
@@ -224,10 +248,14 @@ def main(argv: list[str]) -> int:
 
     text = skeleton(a.type, header, a.to_role is not None)
     result = gzmsg.validate(text, taxonomy=taxonomy, max_columns=0, t=t)
+    # send refuses an id that is not id-shaped where the validator only
+    # warns; a composed message is one send will take.
+    refused = [c for c in (gzmsg.id_complaint(k, v, t) for k, v in header if k in ("MESSAGE-ID", "IN-REPLY-TO")) if c]
     for w in result["warnings"]:
-        print(f"gzcoord-compose: warning: {w}", file=sys.stderr)
-    if not result["ok"]:
-        for e in result["errors"]:
+        if w not in refused:
+            print(f"gzcoord-compose: warning: {w}", file=sys.stderr)
+    if not result["ok"] or refused:
+        for e in (*result["errors"], *refused):
             print(f"gzcoord-compose: {e}", file=sys.stderr)
         return 2
 

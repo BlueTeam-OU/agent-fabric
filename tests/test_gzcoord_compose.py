@@ -73,10 +73,10 @@ def main() -> int:
 
         git("init", "-q")
 
-        def compose(*argv: str, cwd: str = repo, run_env: dict | None = None) -> tuple[int, str, str]:
-            r = subprocess.run([link, *argv], cwd=cwd, env=run_env or env, capture_output=True, text=True,
+        def compose(*argv: str | bytes, cwd: str = repo, run_env: dict | None = None) -> tuple[int, str, str]:
+            r = subprocess.run([link, *argv], cwd=cwd, env=run_env or env, capture_output=True,
                                timeout=60, stdin=subprocess.DEVNULL)
-            return r.returncode, r.stdout, r.stderr
+            return r.returncode, r.stdout.decode("utf-8", "surrogateescape"), r.stderr.decode("utf-8", "surrogateescape")
 
         def sections(text: str) -> list[str]:
             return [m.group(1) for m in map(SECTION.match, text.split("\n")[1:]) if m]
@@ -155,9 +155,19 @@ def main() -> int:
                             ("no addressing", ["INFO", "--subject", "s"]),
                             ("two addressings", ["INFO", "--to", "a/b", "--broadcast", "--subject", "s"]),
                             ("no --subject", ["INFO", "--broadcast"]),
-                            ("an empty --subject", ["INFO", "--broadcast", "--subject", " "])):
+                            ("an empty --subject", ["INFO", "--broadcast", "--subject", " "]),
+                            ("a --subject of nothing but U+FEFF", ["INFO", "--broadcast", "--subject", "\ufeff"]),
+                            ("bytes that are not UTF-8 in --subject", ["INFO", "--broadcast", "--subject", b"caf\xe9"]),
+                            ("--to given twice", ["INFO", "--to", "a/b", "--to", "c/d", "--subject", "s"]),
+                            ("--subject given twice", ["INFO", "--broadcast", "--subject", "s", "--subject", "t"]),
+                            ("an abbreviated option", ["INFO", "--broadcast", "--subj", "s"])):
             rc, out, err = compose(*argv)
             check(f"{label}: exit 1, stdout empty", rc == 1 and out == "" and "usage:" in err, f"rc={rc}\n{out}{err}")
+        for value in ("junk", "$ID"):
+            rc, out, err = compose("INFO", "--broadcast", "--subject", "s", "--in-reply-to", value)
+            check(f"--in-reply-to {value}: exit 2, as send refuses it, said once",
+                  rc == 2 and out == "" and err.count(gzmsg.id_complaint("IN-REPLY-TO", value, EN)) == 1,
+                  f"rc={rc}\nerr={err}")
         rc, out, _ = compose("--help")
         check("--help: exit 0, the table, said to be the tool's convention",
               rc == 0 and "OBSERVATION: VERIFIED: NOT-VERIFIED: IMPACT: REQUEST:" in out
@@ -181,6 +191,11 @@ def main() -> int:
         rc, _, err = compose("INFO", "--broadcast", "--subject", "s", "-o", os.path.join(sandbox, "via-link"))
         with open(victim, encoding="utf-8") as fh:
             check("a link there is refused, its target untouched", rc == 1 and fh.read() == "keep\n", err)
+        dangling = os.path.join(sandbox, "dangling")
+        os.symlink(os.path.join(sandbox, "made-through-link"), dangling)
+        rc, _, err = compose("INFO", "--broadcast", "--subject", "s", "-o", dangling)
+        check("a dangling link is refused, its target never created",
+              rc == 1 and not os.path.exists(os.path.join(sandbox, "made-through-link")), err)
         rc, _, err = compose("REQUEST", "--to-role", "python-dev", "--subject", "s",
                              "-o", os.path.join(sandbox, "refused.txt"))
         check("an invalid message writes no file", rc == 2 and not os.path.exists(os.path.join(sandbox, "refused.txt")),
@@ -194,6 +209,20 @@ def main() -> int:
             check(f"from {url}", header(out).get("REPOSITORY") == "acme-org/widgets", out)
         _, out, _ = compose("INFO", "--broadcast", "--subject", "s", "--repository", "other-org/thing")
         check("--repository wins over origin", header(out).get("REPOSITORY") == "other-org/thing", out)
+        git("remote", "set-url", "origin", "https://x-access-token:s3cr3t-t0ken@gitlab.example/group/sub/widgets.git")
+        rc, out, err = compose("INFO", "--broadcast", "--subject", "s")
+        check("a URL that is not <org>/<repo>: left out, its user part never printed",
+              rc == 0 and "REPOSITORY" not in header(out) and "s3cr3t-t0ken" not in err
+              and "x-access-token" not in err and "gitlab.example/group/sub/widgets.git" in err, f"rc={rc}\n{err}")
+        other = os.path.join(sandbox, "other")
+        subprocess.run(["git", "init", "-q", other], env=env, check=True, capture_output=True, timeout=30)
+        subprocess.run(["git", "-C", other, "remote", "add", "origin", "https://github.com/wrong-org/wrong.git"],
+                       env=env, check=True, capture_output=True, timeout=30)
+        git("remote", "set-url", "origin", "https://github.com/acme-org/widgets.git")
+        _, out, _ = compose("INFO", "--broadcast", "--subject", "s",
+                            run_env={**env, "GIT_DIR": os.path.join(other, ".git")})
+        check("origin is the working copy's, not a GIT_DIR the session set",
+              header(out).get("REPOSITORY") == "acme-org/widgets", out)
         git("remote", "set-url", "origin", "/srv/git/widgets.git")
         rc, out, err = compose("INFO", "--broadcast", "--subject", "s")
         check("a local path: left out, stderr says why, still composed",
