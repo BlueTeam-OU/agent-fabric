@@ -214,6 +214,11 @@ def main() -> int:
         check("a URL that is not <org>/<repo>: left out, its user part never printed",
               rc == 0 and "REPOSITORY" not in header(out) and "s3cr3t-t0ken" not in err
               and "x-access-token" not in err and "gitlab.example/group/sub/widgets.git" in err, f"rc={rc}\n{err}")
+        for url in ("HTTPS://u:s3cr3t-t0ken@gitlab.example/g/s/r.git", "git+https://u:s3cr3t-t0ken@host.example/g/s/r"):
+            git("remote", "set-url", "origin", url)
+            rc, out, err = compose("INFO", "--broadcast", "--subject", "s")
+            check(f"{url.split(':')[0]}: the user part never printed",
+                  rc == 0 and "s3cr3t-t0ken" not in err and "REPOSITORY left out" in err, f"rc={rc}\n{err}")
         other = os.path.join(sandbox, "other")
         subprocess.run(["git", "init", "-q", other], env=env, check=True, capture_output=True, timeout=30)
         subprocess.run(["git", "-C", other, "remote", "add", "origin", "https://github.com/wrong-org/wrong.git"],
