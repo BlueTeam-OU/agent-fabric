@@ -98,6 +98,7 @@ from fabric_lint_rules.locales import I18N_EXTRA_PATTERNS, I18N_SCHEMA_REL, LOCA
 from fabric_lint_rules.locales import LOCALE_FILE_OPTIONAL, LOCALE_FILE_RE, _i18n_key_re  # noqa: E402, F401
 from fabric_lint_rules.locales import i18n_default_dictionary_findings, i18n_dictionary_findings  # noqa: E402, F401
 from fabric_lint_rules.locales import locale_file_findings, locale_translation_findings  # noqa: E402, F401
+from fabric_lint_rules.locales import locale_alignment_findings  # noqa: E402, F401
 from fabric_lint_rules.locales import locale_worker_findings  # noqa: E402, F401
 from fabric_lint_rules.slices import CLASS_DIRS, flat_and_dir_findings, lint_slices  # noqa: E402, F401
 
@@ -572,6 +573,7 @@ def main() -> int:
         findings += locale_worker_findings(role, role_path)
         findings += locale_file_findings(role, role_path)
         findings += i18n_dictionary_findings(role, role_path)
+        findings += locale_alignment_findings(role, role_path)
         for rel in identity_slices[role]:
             klass = (parse_frontmatter(open(os.path.join(root, rel), encoding="utf-8").read()) or {}).get("class")
             if klass not in layout.IDENTITY_CLASSES:

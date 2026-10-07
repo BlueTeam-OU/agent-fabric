@@ -416,3 +416,37 @@ def i18n_dictionary_findings(role: str, role_path: str) -> list[str]:
         if values and not any(_is_mostly_non_latin(v) for v in values):
             out.append(f"{rel}: no value is in the locale — this is the default locale copied, not translated")
     return out
+
+
+def locale_alignment_findings(role: str, role_path: str) -> list[str]:
+    """Every locale of a role carries every artifact another locale of it
+    has: a translated prompt piece, the worker, the tools' dictionary.
+    Translations are requested of every locale together (the owner,
+    2026-10-07): ge had no dictionary while ru had one, and nothing said
+    so — a missing dictionary reads as "not an active locale", and a
+    Georgian session saw the tools in English. The dictionary is compared
+    by its role, not its name, since each is named by its own tag."""
+    out: list[str] = []
+    base = os.path.join(role_path, LOCALE_DIRNAME)
+    if not os.path.isdir(base):
+        return out
+    held: dict[str, set[str]] = {}
+    for suffix in sorted(os.listdir(base)):
+        d = os.path.join(base, suffix)
+        if not os.path.isdir(d):
+            continue
+        try:
+            with open(os.path.join(d, "locale.json"), encoding="utf-8") as fh:
+                tag = json.load(fh).get("tag")
+        except (OSError, ValueError):
+            tag = None      # locale_file_findings names it
+        held[suffix] = {"<the tools' dictionary, <tag>.json>" if tag and name == f"{tag}.json" else name
+                        for name in os.listdir(d) if os.path.isfile(os.path.join(d, name))}
+    every = set().union(*held.values()) if held else set()
+    for suffix, names in held.items():
+        for missing in sorted(every - names):
+            others = sorted(s for s, n in held.items() if missing in n)
+            out.append(f"identities/roles/{role}/{LOCALE_DIRNAME}/{suffix}/: no {missing}, which "
+                       f"{', '.join(others)} {'has' if len(others) == 1 else 'have'} — a translation is requested of "
+                       "every locale together and kept aligned")
+    return out
