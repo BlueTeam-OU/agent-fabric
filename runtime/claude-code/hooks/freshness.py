@@ -67,15 +67,17 @@ def note(payload: dict, now: float | None = None, state: str | None = None) -> s
     session = str(payload.get("session_id") or "")
     if not isinstance(cwd, str) or not os.path.isdir(cwd) or not SESSION_RE.match(session):
         return None
-    r = git(cwd, "rev-parse", "--show-toplevel", "--git-common-dir")
+    # --git-path, not the common dir: a linked worktree's fetch writes its
+    # own FETCH_HEAD, so the common one would throttle on another checkout.
+    r = git(cwd, "rev-parse", "--show-toplevel", "--git-path", "FETCH_HEAD")
     if r.returncode != 0:
         return None
-    top, common = (r.stdout.splitlines() + ["", ""])[:2]
-    common = common if os.path.isabs(common) else os.path.join(cwd, common)
+    top, fetch_head = (r.stdout.splitlines() + ["", ""])[:2]
+    fetch_head = fetch_head if os.path.isabs(fetch_head) else os.path.join(cwd, fetch_head)
     if git(top, "remote", "get-url", "origin").returncode != 0:
         return None
     try:
-        fetched = os.stat(os.path.join(common, "FETCH_HEAD")).st_mtime
+        fetched = os.stat(fetch_head).st_mtime
     except OSError:
         fetched = None
     if fetched is None or now - fetched > FETCH_EVERY_S:
@@ -91,14 +93,25 @@ def note(payload: dict, now: float | None = None, state: str | None = None) -> s
         said = {}
     if not isinstance(said, dict):
         said = {}
-    if said.get(top) == behind:
+    if said.get(top, 0) == behind:
         return None
-    said[top] = behind
+    # A note is kept only while there is a gap to remember: a current copy
+    # leaves nothing behind for a session that never fell behind.
+    if behind:
+        said[top] = behind
+    else:
+        said.pop(top, None)
     os.makedirs(os.path.dirname(path), mode=0o700, exist_ok=True)
-    tmp = f"{path}.{os.getpid()}.tmp"
-    with open(tmp, "w", encoding="utf-8") as fh:
-        json.dump(said, fh)
-    os.replace(tmp, path)
+    if said:
+        tmp = f"{path}.{os.getpid()}.tmp"
+        with open(tmp, "w", encoding="utf-8") as fh:
+            json.dump(said, fh)
+        os.replace(tmp, path)
+    else:
+        try:
+            os.remove(path)
+        except OSError:
+            pass
     if behind == 0:
         return None
     age = "never fetched" if fetched is None else f"fetched {int((now - fetched) // 60)} min ago"

@@ -61,6 +61,7 @@ def main() -> int:
         check("…another session is told too", fresh.note({**p, "session_id": "s2"}, state=state) is not None)
         sh("merge", "-q", "--ff-only", "origin/main", cwd=wc)
         check("caught up: nothing said", fresh.note(p, state=state) is None)
+        check("…and a session current again keeps no note", not os.path.exists(os.path.join(state, "freshness-s1.json")))
 
         # A stale fetch is started in the background: the call returns at
         # once, and the remote ref moves on its own.
@@ -79,6 +80,22 @@ def main() -> int:
         check("…and the background fetch brought origin/main up", sh("rev-parse", "origin/main", cwd=wc).strip() == head)
         line = fresh.note(p, state=state)
         check("…so the next prompt says the new gap", line is not None and "lacks 1 commit(s)" in line, line)
+
+        # A linked worktree fetches into its own FETCH_HEAD: the throttle
+        # reads that one, so a fresh worktree fetch starts no second fetch.
+        wt = os.path.join(tmp, "wt")
+        sh("worktree", "add", "-q", wt, "-b", "side", cwd=wc)
+        sh("fetch", "-q", "origin", cwd=wt)
+        old = time.time() - 3600
+        os.utime(os.path.join(wc, ".git", "FETCH_HEAD"), (old, old))
+        started = []
+        real = fresh.fetch_detached
+        fresh.fetch_detached = started.append
+        try:
+            fresh.note({"cwd": wt, "session_id": "s3"}, state=state)
+        finally:
+            fresh.fetch_detached = real
+        check("a worktree's own fresh fetch: no fetch started", started == [], started)
 
         nogit = os.path.join(tmp, "plain")
         os.makedirs(nogit)
