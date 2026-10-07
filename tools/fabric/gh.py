@@ -101,11 +101,14 @@ _REPO_SCOPED = {"pr", "repo", "issue", "run", "workflow", "release", "secret", "
 def _scoped(args: list[str]) -> bool:
     """Whether gh would pick a repository for this call itself: a scoped
     subcommand without --repo/-R, or an api path naming {owner}/{repo}."""
-    if any(a in ("--repo", "-R") or a.startswith("--repo=") for a in args):
+    if any(a in ("--repo", "-R") or a.startswith(("--repo=", "-R")) for a in args):
         return False
     if args[:1] == ["api"]:
         return any("{owner}" in a or "{repo}" in a for a in args[1:])
-    if args[:2] == ["repo", "view"] and len(args) > 2 and not args[2].startswith("-"):
+    # `gh repo <verb> <owner>/<repo>` and a pull request's URL name it too.
+    if args[:1] == ["repo"] and len(args) > 2 and _REPO.match(args[2]):
+        return False
+    if any(a.startswith("https://github.com/") for a in args[1:]):
         return False
     return bool(args) and args[0] in _REPO_SCOPED
 

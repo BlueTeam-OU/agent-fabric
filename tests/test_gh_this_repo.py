@@ -91,6 +91,14 @@ def main() -> int:
                 check("…an api path naming {owner}/{repo} too", True)
             check("…a call naming its repository runs", gh.run(["pr", "view", "3", "--repo", "o/r"]) == "unset")
             check("…a call on no repository runs", gh.run(["api", "user"]) == "unset")
+            check("…-Rowner/repo as one word names it", gh.run(["pr", "view", "3", "-Ro/r"]) == "unset")
+            check("…gh repo <verb> <owner>/<repo> names it", gh.run(["repo", "view", "o/r"]) == "unset")
+            check("…a pull request's URL names it", gh.run(["pr", "view", "https://github.com/o/r/pull/3"]) == "unset")
+            try:
+                gh.run(["repo", "view", "--json", "name"])
+                check("…gh repo view with no repository is still refused", False)
+            except gh.GhError:
+                check("…gh repo view with no repository is still refused", True)
         finally:
             os.chdir(cwd)
     for k, v in saved.items():
