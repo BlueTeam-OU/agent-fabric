@@ -3,6 +3,7 @@
   "commands": {
     "gzcoord-inbox": "bin/gzcoord-inbox",
     "gzcoord-send": "bin/gzcoord-send",
+    "gzcoord-compose": "bin/gzcoord-compose",
     "gzmsg": "bin/gzmsg",
     "fabric-accounts": "bin/fabric-accounts",
     "fabric-adr": "bin/fabric-adr",
