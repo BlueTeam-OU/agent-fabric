@@ -1,0 +1,22 @@
+{
+  "description": "agent-fabric's rules for runtime/github/arm.sh: which changes are its security boundary, so that a pull request of fewer than eight work commits touching one is armed only on the owner's word and one of eight or more is named as a boundary change in its basis. boundary.paths: the fence and every guard (policies/, tools/fabric/guards/, runtime/claude-code/hooks/ and the settings that register them), what may change what (policies/authority.json, identities/keys/), the secret stores and every tool that reads, writes or runs with a secret (tools/fabric/secretstore/, secret_store.py, secrets_sync.py, secret_run.py, store_*.py, accounts), the control plane's signing and actions (runtime/control/), provisioning, which runs as root on every host (runtime/provisioning/, new_agent*.py, python_pin.py), the launcher, which composes every session's environment (tools/fabric/launch.py, runtime/openrouter/), the GitHub layer's repository resolution (tools/fabric/gh.py), the routing that picks the review model (routing/policies/), CI (.github/), and words where the boundary is a file anywhere (secret, token, credential, key, sign, trust, auth, guard). boundary.exempt is dropped first: Markdown prose under docs/ and memory/, and a locale's translations. No classes. waiver_role is null: in agent-fabric only the owner waives the boundary, by arming it themselves.",
+  "boundary": {
+    "paths": "^policies/|^tools/fabric/guards/|^runtime/claude-code/hooks/|^runtime/claude-code/(user-settings\\.py|workspace/settings\\.json)$|^identities/keys/|^tools/fabric/secretstore/|^tools/fabric/(secret_store|secrets_sync|secret_run|secret_selftest|store_[a-z_]+|new_agent[a-z_]*|python_pin|launch|gh)\\.py$|^runtime/control/|^runtime/provisioning/|^runtime/openrouter/|^routing/policies/|^\\.github/|secret|token|credential|keyring|sign|trust|auth",
+    "exempt": "^(docs|memory)/.*\\.md$|^identities/roles/[^/]+/locale/",
+    "cases": [
+      "policies/authority.json",
+      "tools/fabric/guards/contributors.py",
+      "runtime/claude-code/hooks/agent-dispatch-guard.py",
+      "tools/fabric/secretstore/entries.py",
+      "tools/fabric/secret_run.py",
+      "runtime/control/sign.mjs",
+      "runtime/provisioning/new-agent-worker.sh",
+      "tools/fabric/launch.py",
+      "tools/fabric/gh.py",
+      "identities/keys/lineage.json",
+      ".github/workflows/ci.yml",
+      "routing/policies/review-grade.json"
+    ]
+  },
+  "waiver_role": null
+}
