@@ -236,6 +236,32 @@ def main() -> int:
         p = run(child, "set", "AFTER2", stdin="a")
         check("…verify able to run, the same commit is taken", p.returncode == 0
               and os.path.exists(os.path.join(cstore, "env", "UNJUDGED.gpg")), p.stderr)
+        # Whoever can push to the remote writes the headers: a forged one must
+        # not turn the refusal into "could not be verified" (review of
+        # d4117868..de20af4a, P2). Each is refused, recorded, then repaired.
+        armour = "-----BEGIN PGP SIGNATURE-----\n \n AAAA\n -----END PGP SIGNATURE-----"
+        for what, header in (("junk inside PGP armour", "gpgsig " + armour),
+                             ("the other hash's header (gpgsig-sha256 in a sha1 store)", "gpgsig-sha256 " + armour),
+                             ("a header in no signature format", "gpgsig not a signature")):
+            git(child, other, "fetch", "-q", "origin")
+            git(child, other, "reset", "-q", "--hard", "origin/main")
+            tip = git(child, other, "rev-parse", "HEAD").stdout.strip()
+            tree = git(child, other, "rev-parse", "HEAD^{tree}").stdout.strip()
+            body = (f"tree {tree}\nparent {tip}\nauthor t <t@t> 0 +0000\ncommitter t <t@t> 0 +0000\n"
+                    f"{header}\n\nforged\n")
+            forged = subprocess.run(["git", "-C", other, "hash-object", "-t", "commit", "-w", "--stdin"], env=child,
+                                    input=body, capture_output=True, text=True).stdout.strip()
+            git(child, other, "push", "-q", "origin", f"{forged}:refs/heads/main")
+            head = git(child, cstore, "rev-parse", "HEAD").stdout.strip()
+            p = run(child, "set", "AFTER3", stdin="a")
+            sync = subprocess.run([sys.executable, SYNC, "status"], env=child, capture_output=True, text=True)
+            check(f"{what}: refused 'not signed', not applied, and status says it",
+                  forged and p.returncode == 1 and "refused: not signed" in p.stderr
+                  and git(child, cstore, "rev-parse", "HEAD").stdout.strip() == head
+                  and "REFUSED: the store refused commit" in sync.stdout, (forged, p.stderr, sync.stdout))
+            git(child, other, "push", "-q", "--force", "origin", f"{tip}:refs/heads/main")
+            p = run(child, "set", "AFTER3", stdin="a")
+            check(f"{what}: repaired, the write goes through", p.returncode == 0, p.stderr)
         # A stranger's key: a valid signature, by no writer of this store.
         subprocess.run(["gpg", "--batch", "--passphrase", "", "--quick-gen-key", "stranger <s@x>", "ed25519", "sign", "never"],
                        env=stranger, capture_output=True, check=True)

@@ -186,14 +186,18 @@ def _no_base(store: str) -> StoreError:
                       "fabric-secrets store trust-base, once, at the head it holds")
 
 
-def _carries_signature(store: str, commit: str) -> bool:
-    """Whether the commit object holds a signature header. Read from the
-    object, never from verify-commit's silence: it is silent both for an
-    unsigned commit and when it could not run, and only the first is a
-    refusal."""
+def _carries_pgp_signature(store: str, commit: str) -> bool:
+    """Whether the commit object holds PGP armour in the signature header
+    git verifies for this store's hash (gpgsig for sha1, gpgsig-sha256 for
+    sha256). Read from the object, never from verify-commit's silence: it
+    is silent both for an unsigned commit and when it could not run. Any
+    other header — the other hash's, or text in no PGP format — git never
+    hands to gpg, so its silence is the commit's, and a refusal."""
+    fmt = git(store, "rev-parse", "--show-object-format").stdout.strip()
+    name = {b"sha1": b"gpgsig ", b"sha256": b"gpgsig-sha256 "}.get(fmt)
     raw = git(store, "cat-file", "commit", commit).stdout
     headers = raw.split(b"\n\n", 1)[0].split(b"\n")
-    return any(h.startswith((b"gpgsig ", b"gpgsig-sha256 ")) for h in headers)
+    return name is not None and any(h.startswith(name + b"-----BEGIN PGP SIGNATURE-----") for h in headers)
 
 
 def _main_show(rel: str, fabric: str | None = None) -> bytes | None:
@@ -397,14 +401,17 @@ def _verify_incoming(store: str, tip: str, agent_id: str | None = None, fabric: 
                 if not valid and tags & {"ERRSIG", "NO_PUBKEY"}:
                     raise refuse(c, "signed by a key that is no writer of this store on the fabric's main "
                                     "(a new or rotated key not yet merged: fetch the fabric)")
-                if not valid and _carries_signature(store, c):
-                    # Signed, and gpg gave no verdict: git or gpg could not
-                    # run (no usable TMPDIR, no gpg, a full disk). Fail
-                    # closed, but nothing was shown wrong with the commit, so
-                    # no refusal is recorded, as for unknown writers above
-                    # (fabric-coordinator, 01a117f0-1fff).
-                    raise StoreError(f"commit {c[:12]} could not be verified "
-                                     f"({_failure('git verify-commit', r).args[0]}); nothing applied")
+                if not status and _carries_pgp_signature(store, c):
+                    # A PGP signature git would hand to gpg, and not one
+                    # status line: gpg never ran (no usable TMPDIR, no gpg,
+                    # a full disk). Fail closed, but nothing was shown wrong
+                    # with the commit, so no refusal is recorded, as for
+                    # unknown writers above (fabric-coordinator,
+                    # 01a117f0-1fff). Junk inside the armour makes gpg run
+                    # and say NODATA: status, so that is refused below.
+                    said = _failure("git verify-commit", r).args[0]
+                    said = "".join(ch if ch.isprintable() else "?" for ch in said)
+                    raise StoreError(f"commit {c[:12]} could not be verified ({said}); nothing applied")
                 if not valid:
                     raise refuse(c, "not signed")
                 signer, primary = valid[2], valid[-1]
