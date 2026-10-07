@@ -584,10 +584,12 @@ export async function main(argv = process.argv.slice(2), { registry, fetchImpl }
 // account's row whenever it changes: a new record that says something
 // new, or a record that has aged past STATES_STALE_MS — the account's
 // daemon has not spoken for two heartbeats, so its sessions are unknown,
-// not what it last said. Each wait returns within a minute, so a row goes
-// unknown within a minute of its deadline. A lost cursor re-reads the
-// snapshot, never skipping what it anchors on. With --json, one object
-// per line — what a listener (the herdr bridge) reads.
+// not what it last said. Each wait returns within a minute and an
+// unreachable relay is retried every five seconds, so a row goes unknown
+// within a minute of its deadline, whether or not the relay answers. A
+// lost cursor re-reads the snapshot, never skipping what it anchors on.
+// With --json, one object per line — what a listener (the herdr bridge)
+// reads.
 export const STATES_REPLAY = 500;
 export const STATES_STALE_MS = 2 * 10 * 60 * 1000;
 const RANK = { blocked: 3, working: 2, idle: 1 };
@@ -658,6 +660,9 @@ export async function states(args, expected, { call, cfg, out = m => console.log
       if (last) w = await call(`/api/wait?${q({ channel, since_id: last, timeout_seconds: '55', limit: '50', full: '1' })}`);
     } catch (e) {
       if (!down) { err(`fabric-ctl: relay unreachable at ${cfg.relay_url} (${e.message}) — retrying every 5 s`); down = true; }
+      // What this side cannot read has grown old all the same: a row past
+      // its deadline goes unknown during the outage, not after it.
+      for (const a of expected) show(a.address);
       await sleep(5000);
       continue;
     }

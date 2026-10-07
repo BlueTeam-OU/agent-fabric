@@ -650,7 +650,7 @@ test('states: the newest state record per account, the state that most wants a p
   const out = [];
   const calls = [];
   const call = async p => { calls.push(p); return { messages }; };
-  const rc = await states({ json: true, follow: false }, [{ address: 'h/a' }, { address: 'h/b' }, { address: 'h/c' }], { call, cfg: { channel: 'fabric:control', relay_url: 'x' }, out: m => out.push(JSON.parse(m)), now: () => now });
+  const rc = await states({ json: true, follow: false }, [{ address: 'h/a' }, { address: 'h/b' }, { address: 'h/c' }], { call, cfg: { channel: 'fabric:control', state_channel: 'fabric:state:control', relay_url: 'x' }, out: m => out.push(JSON.parse(m)), now: () => now });
   assert.equal(rc, 1, 'an account with no record is a short table');
   assert.equal(calls.length, 1); assert.ok(!calls[0].includes('/api/send'), 'a read, nothing sent');
   assert.deepEqual(out.map(r => [r.address, r.state, r.since ?? null, r.role ?? null]), [['h/a', 'blocked', 't2', 'web-dev'], ['h/b', 'unknown', null, null], ['h/c', 'unknown', null, null]]);
@@ -674,7 +674,7 @@ test('states --follow prints each new record for an expected account, and surviv
   let i = 0, stop = null;
   const call = async p => { seen.push(p); if (i >= script.length) { stop(); return new Promise(() => {}); } return script[i++](); };
   const done = new Promise(r => { stop = r; });
-  states({ json: true, follow: true }, [{ address: 'h/a' }], { call, cfg: { channel: 'fabric:control', relay_url: 'x' }, out: m => out.push(JSON.parse(m).state), err: m => err.push(m), now: () => now, sleep: async () => {} });
+  states({ json: true, follow: true }, [{ address: 'h/a' }], { call, cfg: { channel: 'fabric:control', state_channel: 'fabric:state:control', relay_url: 'x' }, out: m => out.push(JSON.parse(m).state), err: m => err.push(m), now: () => now, sleep: async () => {} });
   await done;
   assert.deepEqual(out, ['idle', 'working', 'blocked'], 'the snapshot, then each change of h/a only');
   assert.equal(err.length, 2, `down once, back once: ${err}`);
@@ -699,7 +699,7 @@ test('states: a forged record can mislead a row, never stop the table or reach t
   ].map((r, i) => ({ id: `f${i}`, content: JSON.stringify(r) }));
   const good = { id: 'g', content: JSON.stringify({ v: 1, kind: 'state', from: 'h/b', ts, role: 'web\x1b]52;c;ZXZpbA==\x07dev', sessions: [{ session: 's', state: 'idle', since: 't' }] }) };
   const out = [];
-  const rc = await states({ json: false, follow: false }, [{ address: 'h/a' }, { address: 'h/b' }], { call: async () => ({ messages: [...forged, good] }), cfg: { channel: 'c', relay_url: 'x' }, out: m => out.push(m), now: () => now });
+  const rc = await states({ json: false, follow: false }, [{ address: 'h/a' }, { address: 'h/b' }], { call: async () => ({ messages: [...forged, good] }), cfg: { channel: 'c', state_channel: 'c:state', relay_url: 'x' }, out: m => out.push(m), now: () => now });
   assert.equal(rc, 1);
   assert.equal(out.length, 2, 'every account has its row');
   assert.match(out[0], /unknown/, 'a malformed record is no record');
@@ -708,7 +708,7 @@ test('states: a forged record can mislead a row, never stop the table or reach t
   const err = []; const lines = []; let i = 0, stop;
   const done = new Promise(r => { stop = r; });
   const script = [() => ({ messages: [{ id: 'z' }] }), () => ({ messages: [...forged, { id: 'ok', content: JSON.stringify({ v: 1, kind: 'state', from: 'h/a', ts, sessions: [] }) }] })];
-  states({ json: true, follow: true }, [{ address: 'h/a' }], { call: async () => { if (i >= script.length) { stop(); return new Promise(() => {}); } return script[i++](); }, cfg: { channel: 'c', relay_url: 'x' }, out: m => lines.push(JSON.parse(m).state), err: m => err.push(m), now: () => now, sleep: async () => {} });
+  states({ json: true, follow: true }, [{ address: 'h/a' }], { call: async () => { if (i >= script.length) { stop(); return new Promise(() => {}); } return script[i++](); }, cfg: { channel: 'c', state_channel: 'c:state', relay_url: 'x' }, out: m => lines.push(JSON.parse(m).state), err: m => err.push(m), now: () => now, sleep: async () => {} });
   await done;
   assert.deepEqual(lines, ['unknown', 'none']);
   assert.deepEqual(err, [], 'no outage said');
@@ -739,4 +739,25 @@ test('states --follow: a row goes unknown when its account falls silent, a heart
   assert.deepEqual(err, []);
   assert.ok(paths.every(p => p.includes('channel=fabric%3Astate%3Acontrol')), `the state channel only: ${paths}`);
   assert.ok(paths.some(p => p.includes('since_id=6')), 'an odd reply with an id still moves the cursor');
+});
+
+test('states --follow: a row goes unknown while the relay itself is unreachable (review of #105, round 4)', async () => {
+  const { states, STATES_STALE_MS } = await import('../ctl.mjs');
+  let t = Date.parse('2026-10-07T12:00:00Z');
+  const rec = { id: '1', content: JSON.stringify({ v: 1, kind: 'state', from: 'h/a', ts: new Date(t).toISOString(), sessions: [{ session: 's', state: 'working', since: 'x' }] }) };
+  const script = [
+    () => ({ messages: [rec] }),
+    () => { t += STATES_STALE_MS + 1000; throw new Error('ECONNREFUSED'); },
+  ];
+  const out = [], err = [];
+  let i = 0, stop;
+  const done = new Promise(r => { stop = r; });
+  states({ json: true, follow: true }, [{ address: 'h/a' }], {
+    call: async () => { if (i >= script.length) { stop(); return new Promise(() => {}); } return script[i++](); },
+    cfg: { channel: 'fabric:control', state_channel: 'fabric:state:control', relay_url: 'x' },
+    out: m => out.push(JSON.parse(m).state), err: m => err.push(m), now: () => t, sleep: async () => {},
+  });
+  await done;
+  assert.deepEqual(out, ['working', 'unknown'], 'stale during the outage, not after it');
+  assert.equal(err.length, 1, 'the outage is said once');
 });
