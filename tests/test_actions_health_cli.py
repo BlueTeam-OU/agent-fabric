@@ -259,7 +259,7 @@ def main() -> int:
         has("down to the exit codes", "2  invocation problem")
         has("and the header's last line", "would stop work for no reason.")
         lacks("and no code after it", "from __future__")
-        has("names the --json fields", "own_net, included, remaining}")
+        has("names the --json fields", "own_net, included, remaining, status, incident}")
 
         print("actions-health: a bad allowance is exit 2 before any network answer")
         for st in ("this_repo_public", "billing_unreadable", "major_outage"):
@@ -526,12 +526,20 @@ def main() -> int:
             doc = {}
         check("one object, whatever --quiet says, with every field",
               out["rc"] == 0 and list(doc) == ["exit", "verdict", "reason", "public", "period", "private_minutes",
-                                               "private_net", "own_net", "included", "remaining"], out["text"])
+                                               "private_net", "own_net", "included", "remaining", "status",
+                                               "incident"], out["text"])
         check("…the values the line is made of",
               doc.get("exit") == 0 and doc.get("verdict") == "ok" and doc.get("public") is False
               and doc.get("period") == now.strftime("%Y-%m") and doc.get("private_minutes") == 3025
               and doc.get("private_net") == 0 and doc.get("own_net") is None and doc.get("included") == 50000
-              and doc.get("remaining") == 46975 and "3025 of 50000 minutes used" in doc.get("reason", ""), out["text"])
+              and doc.get("remaining") == 46975 and "3025 of 50000 minutes used" in doc.get("reason", "")
+              and doc.get("status") == "operational" and doc.get("incident") is None, out["text"])
+        reset()
+        put("incident", "Incident with Pages\n")
+        invoke("--json")
+        doc = json.loads(out["text"] or "{}")
+        check("an incident listed while Actions is operational is not quoted, so incident is null",
+              out["rc"] == 0 and doc.get("status") == "operational" and doc.get("incident") is None, out["text"])
         reset()
         put("this_repo_public")
         put("self_net", "0.75\n")
@@ -548,8 +556,8 @@ def main() -> int:
         doc = json.loads(lines[-1]) if lines else {}
         check("neither source read: exit 2, verdict unknown, the reason said on stderr too",
               out["rc"] == 2 and doc.get("verdict") == "unknown" and "health unknown" in doc.get("reason", "")
-              and any(ln.startswith("actions-health: ") for ln in lines) and doc.get("private_minutes") is None,
-              out["text"])
+              and any(ln.startswith("actions-health: ") for ln in lines) and doc.get("private_minutes") is None
+              and doc.get("status") is None and doc.get("incident") is None, out["text"])
         invoke("--json", allowance="abc")
         lines = out["text"].splitlines()
         doc = json.loads(lines[-1]) if lines else {}
@@ -558,9 +566,17 @@ def main() -> int:
         put("actions_status", "major_outage\n")
         invoke("--json")
         doc = json.loads(out["text"] or "{}")
-        check("a degraded platform: exit 1 before billing, its fields null",
+        check("a degraded platform: exit 1 before billing, its fields null; no incident, incident null",
               out["rc"] == 1 and doc.get("verdict") == "degraded" and doc.get("period") is None
-              and doc.get("private_minutes") is None, out["text"])
+              and doc.get("private_minutes") is None and doc.get("status") == "major_outage"
+              and doc.get("incident") is None, out["text"])
+        put("incident", "Incident with Actions. Runs are queued. Retry later\n")
+        invoke("--json")
+        doc = json.loads(out["text"] or "{}")
+        check("an outage with an incident: status and incident set, the incident whole with its \". \"",
+              out["rc"] == 1 and doc.get("status") == "major_outage"
+              and doc.get("incident") == "Incident with Actions. Runs are queued. Retry later"
+              and f"({doc.get('incident')})" in doc.get("reason", ""), out["text"])
 
         print("actions-health: invocation errors")
         reset()
