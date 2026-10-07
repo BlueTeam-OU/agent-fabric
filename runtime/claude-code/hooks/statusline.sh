@@ -73,9 +73,15 @@ if [ -n "$wc" ] && [ -n "${branch:-}" ]; then
         [ $((now - mtime)) -lt "$ttl" ] && fresh="$(cat "$cache" 2>/dev/null)"
     fi
     if [ -z "$fresh" ]; then
-        if command -v gh >/dev/null 2>&1; then
+        # The repository named as tools/fabric/gh.py's this_repo names it:
+        # GH_REPO, else origin on github.com; never gh's default, which in a
+        # fork clone is the upstream project (agent-fabric #109).
+        repo="${GH_REPO:-$(git -C "$dir" remote get-url origin 2>/dev/null \
+            | sed -nE 's#^([^@/:]+@github\.com:|(https|ssh|git)://([^@/]+@)?github\.com/)([A-Za-z0-9._-]+/[A-Za-z0-9._-]+)/?$#\4#p' \
+            | sed -E 's#(\.git)?/?$##')}"
+        if [ -n "$repo" ] && command -v gh >/dev/null 2>&1; then
             # The newest PR for this head branch, open first; state and number.
-            found="$(cd "$dir" && gh pr list --head "$branch" --state all --limit 5 --json number,state 2>/dev/null \
+            found="$(cd "$dir" && gh pr list --repo "$repo" --head "$branch" --state all --limit 5 --json number,state 2>/dev/null \
                 | jq -r 'sort_by(if .state == "OPEN" then 0 else 1 end) | .[0] | if . == null then "none" else "\(.state) \(.number)" end' 2>/dev/null)"
             [ -n "$found" ] || found="unknown"
         else

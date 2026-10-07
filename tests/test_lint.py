@@ -1828,10 +1828,43 @@ def case_locales_carry_the_same_files() -> None:
         assert got and "/ru/" in got[0] and "worker.md" in got[0], "either direction"
 
 
+
+def case_the_source_locale_translates_nothing() -> None:
+    """An en-US locale is the fleet's source: it carries locale.json alone,
+    asks no translation of the others, and its English text is in its
+    locale (the owner, 2026-10-07: language-culture-en)."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("fabric_lint_under_test", LINT)
+    lint = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(lint)
+    english = {"tag": "en-US", "timezone": "Asia/Tbilisi",
+               "brave": {"country": "ALL", "label": "second index", "tool_description": "Global web search."}}
+    with tempfile.TemporaryDirectory() as root:
+        role = os.path.join(root, "role")
+        write(os.path.join(role, "locale", "ru", "locale.json"), json.dumps({"tag": "ru-RU"}))
+        write(os.path.join(role, "locale", "ru", "team.md"), "x")
+        write(os.path.join(role, "locale", "en", "locale.json"), json.dumps(english))
+        assert lint.locale_alignment_findings("demo", role) == [], "en asks nothing, and is asked nothing"
+        write(os.path.join(role, "locale", "en", "team.md"), "x")
+        got = lint.locale_alignment_findings("demo", role)
+        assert len(got) == 1 and "/en/" in got[0] and "translates nothing" in got[0], got
+        os.remove(os.path.join(role, "locale", "en", "team.md"))
+        assert lint.locale_file_findings("demo", role) == [] or not any(
+            "/en/" in f for f in lint.locale_file_findings("demo", role)), lint.locale_file_findings("demo", role)
+        # The same English text in a translated locale is not in that locale.
+        write(os.path.join(role, "locale", "ru", "locale.json"), json.dumps({**english, "tag": "ru-RU"}))
+        got = lint.locale_file_findings("demo", role)
+        assert any("/ru/" in f and "not in the locale" in f for f in got), got
+        write(os.path.join(role, "locale", "en", "locale.json"), json.dumps({**english, "reminder": "Think in English"}))
+        assert any("/en/" in f and "reminder in the source locale" in f
+                   for f in lint.locale_file_findings("demo", role))
+
+
 def main() -> int:
     cases = [
         case_clean_base_passes,
         case_locales_carry_the_same_files,
+        case_the_source_locale_translates_nothing,
         case_decision_records_are_lint_findings,
         case_bash_over_150_lines_needs_the_allowlist,
         case_arm_boundary_cases_only_leave_retired,

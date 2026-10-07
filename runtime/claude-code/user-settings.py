@@ -55,6 +55,11 @@ set by hand with `/tui default`, scrolled; every other account did not.
 The person operating the fleet reads a session's history in its
 terminal, for the same reason as the two keys above.
 
+`hooks.UserPromptSubmit` freshness.py (the owner, 2026-10-07): on each
+prompt, a background `git fetch` of the session's working copy when its
+last fetch is over ten minutes old, and one line to the model when the
+checkout lacks commits of origin's default branch, said once per change.
+
 `statusLine`: the fabric's status line (hooks/statusline.sh: harness
 version, model, effort, agent@host, pull request, working copy, branch),
 at user scope so it shows wherever a session starts. The workspace's
@@ -211,8 +216,40 @@ def with_session_state(hooks: dict) -> dict:
     return hooks
 
 
+# The working copy's freshness (hooks/freshness.py), at user scope so every
+# session of the account, in any working copy, fetches in the background
+# and is told when its checkout lacks commits of origin's default branch
+# (the owner, 2026-10-07). One UserPromptSubmit entry, by script name.
+FRESHNESS = "freshness.py"
+
+
+def freshness_hook() -> dict:
+    return {"hooks": [{
+        "type": "command",
+        "command": f'python3 "{os.path.join(FABRIC_ROOT, "runtime", "claude-code", "hooks", FRESHNESS)}"',
+        "timeout": 15}]}
+
+
+def with_freshness(hooks: dict) -> dict:
+    """`hooks` with exactly one freshness entry on UserPromptSubmit, the
+    current one; every other entry kept as it was."""
+    hooks = dict(hooks) if isinstance(hooks, dict) else {}
+    kept = []
+    for e in hooks.get("UserPromptSubmit") or []:
+        if not isinstance(e, dict) or not isinstance(e.get("hooks"), list):
+            kept.append(e)
+            continue
+        mine = [h for h in e["hooks"] if not (isinstance(h, dict) and FRESHNESS in str(h.get("command", "")))]
+        if len(mine) == len(e["hooks"]):
+            kept.append(e)
+        elif mine:
+            kept.append({**e, "hooks": mine})
+    hooks["UserPromptSubmit"] = kept + [freshness_hook()]
+    return hooks
+
+
 def with_fabric_hooks(hooks: dict) -> dict:
-    return with_session_state(with_memory_check(hooks))
+    return with_freshness(with_session_state(with_memory_check(hooks)))
 
 
 # The environment override is for a test, which must never write the

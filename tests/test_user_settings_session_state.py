@@ -54,6 +54,23 @@ def main() -> int:
         r = run()
         check("a second run changes nothing", r.stdout.startswith("  =  "), r.stdout + r.stderr)
 
+        # The freshness hook (hooks/freshness.py) rides UserPromptSubmit: one
+        # entry, at this checkout's path, beside the account's own; an old
+        # checkout's entry replaced (review of the carried-109 branch, 5).
+        fresh = f'python3 "{HERE}/runtime/claude-code/hooks/freshness.py"'
+        doc = json.load(open(settings))
+        doc["hooks"]["UserPromptSubmit"] = doc["hooks"].get("UserPromptSubmit", []) + [
+            {"hooks": [{"type": "command", "command": "mine.sh"}]},
+            {"hooks": [{"type": "command", "command": 'python3 "/old/runtime/claude-code/hooks/freshness.py"'}]}]
+        write(doc)
+        r = run()
+        ups = [h["command"] for e in json.load(open(settings))["hooks"]["UserPromptSubmit"] for h in e["hooks"]]
+        check("freshness: one entry on UserPromptSubmit, this checkout's, the old one gone",
+              [c for c in ups if "freshness.py" in c] == [fresh], ups)
+        check("freshness: the account's own UserPromptSubmit hook kept", "mine.sh" in ups, ups)
+        r = run()
+        check("freshness: a second run changes nothing", r.stdout.startswith("  =  "), r.stdout + r.stderr)
+
         raw = '{"hooks": {"Notification": {"hooks": []}}}'
         with open(settings, "w") as f:
             f.write(raw)

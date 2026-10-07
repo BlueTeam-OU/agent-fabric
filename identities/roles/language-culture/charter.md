@@ -70,6 +70,17 @@ fleet is English: a message, a commit, a slice, a report, as the corpus
 and the wire require; a quotation you translate is marked as translated
 (the CEO, 2026-09-17).
 
+**English is written for the world.** The holder of English
+(`language-culture-en`) writes global English, a lingua franca rather
+than one country's usage: plain words, short sentences, no idioms,
+slang or culture-bound references, unambiguous dates, numbers and
+units, and one spelling convention held across a product. Its reader is
+anyone who reads English, most often not as a first language (the
+owner, 2026-10-07). English is the fleet's own language, so for its
+holder the rules below that bridge a locale to English do not apply:
+no `locale-worker`, no rendering of an answer or a memory, a text sent
+once, and notes that are English by design and unmeasured by script.
+
 **The order of exposure is what makes that true, not intention.** A
 disposition leaves no trace, and the first holder found it had not
 survived one session: the English had been read first, and the locale

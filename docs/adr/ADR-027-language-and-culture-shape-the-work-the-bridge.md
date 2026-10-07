@@ -73,6 +73,11 @@ fabric installs it, measures it and drains through it:
 - **Memory in the locale.** The holder's memory is written in the locale;
   a memory meant for the fleet carries its own rendering, which the drain
   takes as the claim.
+- **The source locale.** A holder of the fleet's own language, English
+  (`en-US`), translates nothing: its locale carries `locale.json` alone,
+  no worker is installed, nothing is rendered, and its notes are not
+  measured by script. It writes English for readers of English as a
+  second language (A 2026-10-07).
 
 What reaches the fleet — a message, a commit, a slice, a report — is the
 English rendering. What the GZCoord tools print *around* a message on a
@@ -277,3 +282,11 @@ the whole prompt in the locale are in use.
   ADR-008 (the harness capture), ADR-013 (the drain), ADR-018 (the
   carve-out).
 - The live checks in Evidence.
+
+## Amendments
+
+The body above reads current; each change's full note is in [history/ADR-027-amendments.md](history/ADR-027-amendments.md).
+
+| Date | Amendment | Effect |
+|---|---|---|
+| 2026-10-07 | The source locale has no bridge | §2: an en-US holder's locale carries locale.json alone; no worker, no rendering, notes unmeasured; global English |

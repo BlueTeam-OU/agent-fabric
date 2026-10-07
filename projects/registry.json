@@ -120,7 +120,7 @@
       "memory": ".agent-fabric/memory",
       "integration": "projects/agent-fabric-gateway/integration",
       "license": "Apache-2.0",
-      "note": "The fabric is the control plane (identity, roles, capability policy, model selection); the gateway accepts harness-native API traffic, executes the route it is given and adapts only where it must (its ADR-001, ADR-014). Designed by the owner's own sessions until 2026-09-24, when the owner put the whole repository under fabric-coordinator: one owner for the control/data boundary, its decision records, its code and its CI."
+      "note": "The fabric is the control plane (identity, roles, capability policy, model selection); the gateway accepts harness-native API traffic, executes the route it is given and adapts only where it must (its ADR-001, ADR-014). Designed by the owner's own sessions until 2026-09-24, when the owner put the whole repository under fabric-coordinator; since 2026-10-07 rust-services-dev holds its Rust workspace (apps, crates, tests, fixtures, spikes, packaging, xtask), and fabric-coordinator keeps the control/data boundary: its decision records, architecture/, CI, tools/ and the operating files (CLAUDE.md, README.md and .agent-fabric/)."
     },
     "herdr": {
       "title": "herdr — gzapi-org's fork of herdrdev/herdr, the base of Fleet Deck, the operator's console over the fleet",

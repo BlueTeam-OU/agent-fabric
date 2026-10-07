@@ -105,6 +105,21 @@ def main() -> int:
     ok = got == 1 and "2 third-party uses on one line share one version comment" in out
     fails += not ok
     print(f"  {'ok  ' if ok else 'FAIL'} two uses on one line: refused, named" + ("" if ok else f"\n        {out[-300:]}"))
+    digests = step(f"      - {{uses: docker://a@sha256:{DIGEST}}}\n"
+                   f"      - [{{uses: docker://a@sha256:{DIGEST}}}, {{uses: docker://b@sha256:{DIGEST}}}]")
+    got, out = run({"workflows/ci.yml": digests})
+    ok = got == 0
+    fails += not ok
+    print(f"  {'ok  ' if ok else 'FAIL'} two docker digests on one line pass: a digest needs no version comment"
+          + ("" if ok else f"\n        {out[-300:]}"))
+    with tempfile.TemporaryDirectory() as root:
+        os.makedirs(os.path.join(root, ".github", "workflows"))
+        open(os.path.join(root, ".github", "workflows", "ci.yml"), "wb").write(b"jobs:\n  a: \xff\xfe\n")
+        r = subprocess.run([sys.executable, TOOL, "--root", root], capture_output=True, text=True)
+    ok = r.returncode == 2 and "could not be read: .github/workflows/ci.yml (UnicodeDecodeError)" in r.stderr
+    fails += not ok
+    print(f"  {'ok  ' if ok else 'FAIL'} a workflow that is not UTF-8: exit 2, not checked, never a finding"
+          + ("" if ok else f"\n        rc={r.returncode} {r.stderr[-200:]}"))
     good = {"workflows/ci.yml": step(f"      - uses: actions/checkout@{SHA} # v7.0.1")}
     for want, label, argv, needle in [
         (0, "--root <dir> names the tree", ["--root", "{root}"], "OK"),

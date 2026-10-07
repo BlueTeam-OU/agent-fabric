@@ -30,8 +30,8 @@ The mapping has moved since without an agent being rebuilt: on the
 broker the session (from Sonnet 5) and the upper classes (from GLM) went
 to DeepSeek V4 Pro (2026-09-19); on plain claude every class went from the top model of
 its own tier (Haiku 4.5, Sonnet 5, Opus 5.5, Fable 5.1) to Opus 5.5
-(2026-09-25), and the two lower classes on from Opus 5.5 to Sonnet 5.5
-(2026-09-29).
+(2026-09-25), the two lower classes on from Opus 5.5 to Sonnet 5.5
+(2026-09-29), and code-low on to Haiku 5.5 (2026-10-07).
 
 ## 2. Decision
 
@@ -53,14 +53,15 @@ in the child's environment.
 
 The current mapping:
 
-- **Plain claude.** `code-low` and `code-medium` are
-  `claude-sonnet-5-5`; `code-high`, `code-plan` and the review class are
-  `claude-opus-5-5`, and so is the default session (A 2026-09-29);
+- **Plain claude.** `code-low` is `claude-haiku-5-5` (A 2026-10-07),
+  `code-medium` is `claude-sonnet-5-5`; `code-high`, `code-plan` and the
+  review class are `claude-opus-5-5`, and so is the default session
+  (A 2026-09-29);
   `architect-cto-01`'s session is `claude-fable-5-1` (an agent layer).
   `anthropic/claude-opus-5-5` is admitted to review-grade without the
   `[1m]` marker (Opus 5.5's context is natively 1M). The aliases stay:
-  they are how the harness spells a class; `haiku` and `sonnet` bind to
-  Sonnet 5.5, `opus` and `fable` to Opus 5.5.
+  they are how the harness spells a class; `haiku` binds to Haiku 5.5,
+  `sonnet` to Sonnet 5.5, `opus` and `fable` to Opus 5.5.
 - **The broker.** The session, `code-high`, `code-plan` and the review
   class are `deepseek/deepseek-v4-pro-0813`; `code-low` and `code-medium`
   are GLM. The reason for the review class is the tier, not the family:
@@ -142,7 +143,8 @@ profile layer or a local override.
 - `fabric-model list` shows every choice with its layer; `fabric-status`
   the resolution a session launched with.
 - On plain claude every class asks one level today, and the two lower
-  classes differ from the upper by model (Sonnet 5.5 against Opus 5.5);
+  classes differ from the upper by model (Haiku 5.5 and Sonnet 5.5
+  against Opus 5.5);
   otherwise the classes differ by alias, isolation and whether a
   dispatch asks (ADR-006). The review shares code-high's model there, so
   its independence is its brief and context.
@@ -180,3 +182,4 @@ The body above reads current; each change's full note is in [history/ADR-005-ame
 | Date | Amendment | Effect |
 |---|---|---|
 | 2026-09-29 | code-low and code-medium are Sonnet 5.5 on plain claude | §2 the current mapping: the two lower classes on `claude-sonnet-5-5` |
+| 2026-10-07 | code-low is Haiku 5.5 on plain claude | §1, §2 the current mapping: `code-low` on `claude-haiku-5-5`, `haiku` binds to it |

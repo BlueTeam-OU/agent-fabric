@@ -42,8 +42,8 @@ project's forwarder passes its own toplevel: the default is the fabric's
 tree, never the project's.
 
 Exit codes: 0 every action is pinned by SHA with its version comment;
-1 at least one is not; 2 invocation problem (no workflow found, a bad
-argument).
+1 at least one is not; 2 not checked (no workflow found, a bad argument,
+a workflow that cannot be read).
 
 Ported from devex-tooling's shell guard of the same name (itself ported from
 gzapp's); the owner asked for new fabric tooling in Python.
@@ -111,17 +111,32 @@ def judge(ref: str, comment: str) -> str | None:
     return None
 
 
+class Unreadable(Exception):
+    """A workflow that could not be read: the run checked nothing, exit 2."""
+
+
+def needs_version_comment(ref: str) -> bool:
+    """A third-party use that names its release in a comment: not a local
+    action, and not a docker image by digest, which carries no comment —
+    so two digests on one line share nothing (devex-tooling, seq 17579)."""
+    ref = ref.strip().strip("'\"")
+    return not (ref.startswith("./") or (ref.startswith("docker://") and "@sha256:" in ref))
+
+
 def check(root: str) -> tuple[list[str], int]:
     """Findings, one line each, and the number of pinned uses."""
     findings, pinned = [], 0
     for path in workflow_files(root):
         rel = os.path.relpath(path, root)
-        with open(path, encoding="utf-8") as fh:
-            lines = fh.read().split("\n")
+        try:
+            with open(path, encoding="utf-8") as fh:
+                lines = fh.read().split("\n")
+        except (OSError, UnicodeDecodeError) as e:
+            raise Unreadable(f"{rel} ({e.__class__.__name__})") from None
         for num, line in enumerate(lines, 1):
             code, comment = split_comment(line)
             refs = [(m.group(1), comment) for m in USES_RE.finditer(code)]
-            third = [r for r, _ in refs if not r.strip().strip("'\"").startswith("./")]
+            third = [r for r, _ in refs if needs_version_comment(r)]
             if len(third) > 1:
                 findings.append(f"FAIL: {rel}:{num} {len(third)} third-party uses on one line share one version "
                                 "comment — put each on its own line")
@@ -174,7 +189,12 @@ def main(argv: list[str]) -> int:
     if not workflow_files(root):
         print(f"{ME}: no workflow under {root}/.github/workflows", file=sys.stderr)
         return 2
-    findings, pinned = check(root)
+    try:
+        findings, pinned = check(root)
+    except Unreadable as e:
+        # Exit 1 is a finding; a workflow that cannot be read was not checked.
+        print(f"{ME}: a workflow could not be read: {e}", file=sys.stderr)
+        return 2
     if findings:
         print("\n".join(findings))
         print("\nA tag or branch is a pointer the action's owner — or whoever holds\n"

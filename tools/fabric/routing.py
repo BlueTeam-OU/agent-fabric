@@ -226,7 +226,11 @@ class AnthropicAdapter(ProviderAdapter):
     # separate capabilities, which is why 4.6 stops at max and 4.7 does
     # not (docs/live-checks/2026-09-23-effort-registry.md).
     effort_by_model = (
-        ("claude-haiku-*", (), {}),                   # no "effort" capability: none is sent
+        # Haiku 4.x has no "effort" capability: none is sent. Haiku 5.5 is not
+        # in 2.1.285's registry; the harness takes it with its defaults and
+        # reports per_turn_effort_active true, where Haiku 4.5 reports false
+        # (docs/live-checks/2026-10-07-haiku-5-5.md), so the catch-all holds it.
+        ("claude-haiku-4*", (), {}),
         ("claude-opus-4-6*", ("low", "medium", "high", "max"), {}),   # no xhigh before 4.7
         ("claude-sonnet-4-6*", ("low", "medium", "high", "max"), {}),
         ("claude-*", ("low", "medium", "high", "xhigh", "max"), {}),
