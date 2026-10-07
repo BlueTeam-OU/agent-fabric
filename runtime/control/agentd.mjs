@@ -232,6 +232,15 @@ export function remember(seen, id) {
 }
 
 /**
+ * How a state record leaves: on the state channel, never the control
+ * channel, whose replies would push it out of a reader's window (ADR-029
+ * rule 16).
+ */
+export function statePoster(call, cfg, address) {
+  return content => call('/api/send', { method: 'POST', body: JSON.stringify({ channel: cfg.state_channel, sender: address, content: JSON.stringify(content) }) });
+}
+
+/**
  * The record agentd posts once when it comes up (protocol.mjs).
  * @param {string} address
  * @returns {import('./protocol.mjs').Up}
@@ -324,8 +333,7 @@ export async function main(argv = process.argv.slice(2)) {
     setInterval(pressure.tick, SAMPLE_INTERVAL_MS).unref();
     // What the account's sessions are doing, posted when it changes
     // (sessions.mjs); first at start, so a restart re-says it.
-    const postState = content => call('/api/send', { method: 'POST', body: JSON.stringify({ channel: cfg.state_channel, sender: me.address, content: JSON.stringify(content) }) });
-    const states = stateWatcher({ address: me.address, post: postState, binding: who.binding });
+    const states = stateWatcher({ address: me.address, post: statePoster(call, cfg, me.address), binding: who.binding });
     states.tick();
     setInterval(states.tick, STATE_POLL_MS).unref();
   }
