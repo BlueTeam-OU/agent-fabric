@@ -41,6 +41,6 @@ as forgery. The coordinator ruled that a commit gpg could not judge
 stops the operation without a record. The blind review of the change
 (#112) found that "a signature header and no verdict" alone let anyone
 with push access to a store's remote switch the refusal off (junk in
-PGP armour, a header of the other object format, a header in no
+PGP SIGNATURE armour, a header of the other object format, a header in no
 signature format), so the stop needs all three: no status line, the
-header git verifies for the store's format, and PGP armour in it.
+header git verifies for the store's format, and PGP SIGNATURE armour in it.
