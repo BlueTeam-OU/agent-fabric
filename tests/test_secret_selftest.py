@@ -92,6 +92,108 @@ def main() -> int:
                   p.stdout + p.stderr)
             p = run([SHIM, "selftest", "--bogus"])
             check("an unknown argument is usage: exit 2", p.returncode == 2 and "usage" in p.stderr, p.stderr)
+
+            # A leftover (the own-secrets review, R3; the coordinator's rule
+            # D): the store gets a remote whose receive refuses (set's push
+            # fails, its commit kept) and whose second upload-pack fails
+            # (rm's fetch fails after set's succeeded). The canary stays
+            # committed; the run says so and fails; the next run, the remote
+            # back, removes it first and passes.
+            bare = os.path.join(tmp, "remote.git")
+            run(["git", "init", "-q", "--bare", "-b", "main", bare])
+            git("remote", "add", "origin", bare)
+            run(["git", "-C", store, "push", "-q", "origin", "HEAD:main"])
+            hook = os.path.join(bare, "hooks", "pre-receive")
+            served = os.path.join(tmp, "served-once")
+
+            def break_remote() -> None:
+                with open(hook, "w", encoding="utf-8") as fh:
+                    fh.write("#!/bin/sh\nexit 1\n")
+                os.chmod(hook, 0o755)
+                pack = os.path.join(tmp, "upload-pack-once")
+                with open(pack, "w", encoding="utf-8") as fh:
+                    fh.write(f"#!/bin/sh\n[ -e '{served}' ] && exit 1\ntouch '{served}'\nexec git-upload-pack \"$@\"\n")
+                os.chmod(pack, 0o755)
+                git("config", "remote.origin.uploadpack", pack)
+
+            def mend_remote() -> None:
+                os.remove(hook)
+                git("config", "--unset", "remote.origin.uploadpack")
+                if os.path.exists(served):
+                    os.remove(served)
+
+            mark = os.path.join(store, ".git", "agent-fabric-selftest-leftover")
+            break_remote()
+            p = run([SHIM, "selftest", "--json"])
+            r = json.loads(p.stdout or "{}")
+            steps = {s["step"]: s for s in r.get("steps", [])}
+            check("set's push and rm's fetch both fail: fail, and the report says the canary is still committed and "
+                  "that the next selftest removes it",
+                  p.returncode == 1 and r.get("status") == "fail" and not steps.get("set", {}).get("ok", True)
+                  and "the next selftest removes it" in steps.get("rm", {}).get("reason", "")
+                  and "AF_SELFTEST_CANARY" in run([SHIM, "store", "names", "--json"]).stdout and os.path.exists(mark),
+                  p.stdout + p.stderr)
+            mend_remote()
+            p = run([SHIM, "selftest", "--json"])
+            r = json.loads(p.stdout or "{}")
+            check("…the next run, the remote back: the leftover removed first, then a pass, and nothing left",
+                  p.returncode == 0 and [(s["step"], s["ok"]) for s in r.get("steps", [])]
+                  == [("leftover", True), ("precondition", True), ("set", True), ("run", True), ("rm", True), ("absent", True)]
+                  and run([SHIM, "store", "names", "--json"]).stdout == names0 and not os.path.exists(mark),
+                  p.stdout + p.stderr)
+            break_remote()
+            run([SHIM, "selftest", "--json"])
+            mend_remote()
+            run([SHIM, "store", "set", "AF_SELFTEST_CANARY"], stdin="the agent's own, after the leftover")
+            head1 = git("rev-parse", "HEAD")
+            p = run([SHIM, "selftest", "--json"])
+            r = json.loads(p.stdout or "{}")
+            check("…but an agent's own write to the name after the leftover makes it the agent's: refused, untouched",
+                  p.returncode == 1 and [s["step"] for s in r.get("steps", [])] == ["precondition"]
+                  and "in the store already" in r["steps"][0]["reason"] and git("rev-parse", "HEAD") == head1,
+                  p.stdout + p.stderr)
+            run([SHIM, "store", "rm", "AF_SELFTEST_CANARY"])
+            # …and a commit with the selftest's subject that this store's key
+            # did not sign is no leftover either, even named in the record.
+            env_dir = os.path.join(store, "env")
+            shutil.copy(os.path.join(env_dir, "OWN_KEPT.gpg"), os.path.join(env_dir, "AF_SELFTEST_CANARY.gpg"))
+            git("add", "env/AF_SELFTEST_CANARY.gpg")
+            run(["git", "-C", store, "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false", "commit",
+                 "-q", "-m", f"agent {me}: set AF_SELFTEST_CANARY"])
+            unsigned = git("rev-parse", "HEAD")
+            check("…(that commit is there, unsigned, under the selftest's subject)",
+                  git("log", "-1", "--format=%G? %s") == f"N agent {me}: set AF_SELFTEST_CANARY", git("log", "-1", "--format=%G? %s"))
+            with open(mark, "w", encoding="utf-8") as fh:
+                fh.write(unsigned + "\n")
+            p = run([SHIM, "selftest", "--json"])
+            r = json.loads(p.stdout or "{}")
+            check("…nor is an unsigned commit with the selftest's subject, named in the record: refused, untouched",
+                  p.returncode == 1 and [s["step"] for s in r.get("steps", [])] == ["precondition"]
+                  and git("rev-parse", "HEAD") == unsigned, p.stdout + p.stderr)
+            git("reset", "-q", "--hard", "HEAD~1")
+            os.remove(mark)
+            # …nor a signed commit under another subject, named in the record.
+            run([SHIM, "store", "set", "AF_SELFTEST_CANARY"], stdin="own")
+            signing = run([sys.executable, "-c", "import sys; sys.path.insert(0, sys.argv[1]); "
+                           "from secretstore.keys import _signing_args; print('\\n'.join(_signing_args()))",
+                           os.path.dirname(STORE_TOOL)]).stdout.split("\n")
+            amended = run(["git", "-C", store, "-c", "user.name=t", "-c", "user.email=t@t", *[a for a in signing if a],
+                           "commit", "-q", "--amend", "-m",
+                           f"agent {me}: put AF_SELFTEST_CANARY"])
+            check("…(the amended commit is signed, under the other subject)",
+                  git("log", "-1", "--format=%G? %s") in (f"G agent {me}: put AF_SELFTEST_CANARY",
+                                                          f"U agent {me}: put AF_SELFTEST_CANARY"),
+                  f"{git('log', '-1', '--format=%G? %s')} {signing} {amended.stderr}")
+            other = git("rev-parse", "HEAD")
+            with open(mark, "w", encoding="utf-8") as fh:
+                fh.write(other + "\n")
+            p = run([SHIM, "selftest", "--json"])
+            r = json.loads(p.stdout or "{}")
+            check("…nor a signed commit under another subject, named in the record: refused, untouched",
+                  p.returncode == 1 and [s["step"] for s in r.get("steps", [])] == ["precondition"]
+                  and git("rev-parse", "HEAD") == other, p.stdout + p.stderr)
+            os.remove(mark)
+            run([SHIM, "store", "rm", "AF_SELFTEST_CANARY"])
         finally:
             subprocess.run(["gpgconf", "--homedir", gnupg, "--kill", "all"], capture_output=True, timeout=30)
 
@@ -100,6 +202,36 @@ def main() -> int:
     st = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(st)
     st.reserved = lambda name, root: None
+    # The store is the fakes': no leftover is read or recorded in a real one.
+    st._remember_leftover = lambda: False
+    st._own_leftover = lambda: False
+
+    # A timeout ends the command's whole group (the own-secrets review, R3):
+    # the shim's python and the git it runs, not only the direct child. A
+    # grandchild that ignores SIGTERM is killed after the grace.
+    import time
+    with tempfile.TemporaryDirectory() as gtmp:
+        st.STEP_TIMEOUT_S, st.STOP_GRACE_S = 1, 1
+        for trap, what in (("", "a grandchild"), ("trap '' TERM; ", "a grandchild that ignores SIGTERM")):
+            pidfile = os.path.join(gtmp, "pid")
+            t0 = time.monotonic()
+            got = st._cmd(["bash", "-c", f"{trap}(trap '' TERM; exec sleep 60) & echo $! > {pidfile}; wait"
+                           if trap else f"sleep 60 & echo $! > {pidfile}; wait"])
+            took = time.monotonic() - t0
+            pid = int(open(pidfile).read())
+            gone = False
+            for _ in range(50):
+                try:
+                    os.kill(pid, 0)
+                except ProcessLookupError:
+                    gone = True
+                    break
+                time.sleep(0.1)
+            check(f"a command that runs out: 124, and {what} it started is ended with it", got[0] == 124 and gone
+                  and took < 20, f"{got} gone={gone} took={took:.1f}")
+            if not gone:
+                os.kill(pid, 9)
+        st.STEP_TIMEOUT_S, st.STOP_GRACE_S = 60, 5
     calls: list[list[str]] = []
 
     def fake(args, stdin=None):
