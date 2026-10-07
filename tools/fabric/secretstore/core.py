@@ -151,12 +151,13 @@ GPG_COMMANDS = {"--import", "--export", "--export-secret-keys", "--list-keys", "
                 "--quick-add-uid", "--quick-sign-key", "--gen-revoke", "--list-packets"}
 
 
-def gpg(*args: str, stdin: bytes | None = None, homedir: str | None = None, check: bool = True):
+def gpg(*args: str, stdin: bytes | None = None, homedir: str | None = None, check: bool = True,
+        timeout: float | None = None):
     cmd = ["gpg", "--batch", "--yes", "--no-tty", "--pinentry-mode", "loopback", "--passphrase", ""]
     if homedir:
         cmd += ["--homedir", homedir]
     op = next((a for a in args if a in GPG_COMMANDS), args[0] if args else "")
-    return _run(cmd + list(args), stdin=stdin, check=check, label=f"gpg {op}")
+    return _run(cmd + list(args), stdin=stdin, check=check, label=f"gpg {op}", timeout=timeout)
 
 
 def git(store: str, *args: str, check: bool = True):
