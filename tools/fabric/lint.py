@@ -355,9 +355,19 @@ def contributor_findings(root: str) -> list[str]:
         if raw:
             findings.append(f"identities/roles/catalog.json: unreadable ({e}), so no contributor's role can be checked")
     owner = (doc.get("role_definitions") or {}).get("role")
+    seen: set[str] = set()
     for i, e in enumerate(raw):
         role = e.get("role") if isinstance(e, dict) else None
-        if not isinstance(role, str) or role not in whole:
+        # Each entry judged on its own: a malformed one beside a whole entry
+        # of the same role was dropped by contributors_of and passed unsaid.
+        alone = co.contributors_of(json.dumps({"contributors": [e]}))
+        if isinstance(role, str) and role in seen:
+            findings.append(f"policies/authority.json: contributors[{i}] ({role}): a second entry for the role — "
+                            "one entry per role")
+            continue
+        if isinstance(role, str):
+            seen.add(role)
+        if not isinstance(role, str) or role not in alone:
             findings.append(f"policies/authority.json: contributors[{i}]: not a whole entry (a role, a non-empty "
                             "list of paths, a list of exclusions, `merges` a boolean when present) — it admits nothing")
             continue
