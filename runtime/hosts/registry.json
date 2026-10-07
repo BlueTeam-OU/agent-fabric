@@ -30,6 +30,7 @@
     "python-dev-01": "develop-qzapp",
     "rust-ui-dev-01": "develop-qzapp",
     "p2p-network-dev-02": "develop-qzapp",
-    "rust-services-dev-01": "develop-qzapp"
+    "rust-services-dev-01": "develop-qzapp",
+    "python-dev-02": "develop-qzapp"
   }
 }
