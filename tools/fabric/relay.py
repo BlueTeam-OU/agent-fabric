@@ -5,7 +5,7 @@ a command; relay_catchup.py and the journal's import (episodic_import.py)
 read the relay through it.
 
 Each project's integration (projects/<id>/integration/gzcoord/config.json)
-names its relay and channel, as communication/gzcoord/scripts/inbox.mjs
+names its relay and channel, as gzcoord-inbox
 reads them; CLAUDE_BRIDGE_URL and GZCOORD_CHANNEL override them there and
 here. The token is the account's own, from the file `fabric-secrets sync`
 writes; a caller reads it in its own process, puts it in a header, and
@@ -58,7 +58,7 @@ def channels(projects: list[str], env: dict[str, str]) -> tuple[list[tuple[str, 
 def is_control(channel: str) -> bool:
     """A channel of the fabric's machine records (runtime/control/), never
     GZCOORD/1 messages: no session and no tool of a session's reads it
-    (inbox.mjs assertNotControlChannel)."""
+    (gzcoord-inbox assertNotControlChannel)."""
     return channel.endswith(":control")
 
 

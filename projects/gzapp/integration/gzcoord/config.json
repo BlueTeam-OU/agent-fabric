@@ -1,5 +1,5 @@
 {
-  "description": "gzapp's GZCoord integration: the Claude-Bridge relay hosted on the coordinator's workspace, the channel every gzapp agent joins, where a gzapp working copy keeps the relay token, and where the hosted relay's runtime lives. Read by communication/gzcoord/scripts/inbox.mjs when the working copy resolves to project gzapp; CLAUDE_BRIDGE_URL and GZCOORD_CHANNEL in the environment override it. token_env_file is relative to the working copy; relay_runtime_dir is relative to the workspace (the projects/ directory holding the fabric checkout), never inside a repository.",
+  "description": "gzapp's GZCoord integration: the Claude-Bridge relay hosted on the coordinator's workspace, the channel every gzapp agent joins, where a gzapp working copy keeps the relay token, and where the hosted relay's runtime lives. Read by gzcoord-inbox when the working copy resolves to project gzapp; CLAUDE_BRIDGE_URL and GZCOORD_CHANNEL in the environment override it. token_env_file is relative to the working copy; relay_runtime_dir is relative to the workspace (the projects/ directory holding the fabric checkout), never inside a repository.",
   "relay_url": "http://127.0.0.1:8765",
   "channel": "gzapp:gzcoord",
   "token_env_file": "infra/local/.env.local",
