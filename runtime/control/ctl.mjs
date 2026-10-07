@@ -728,7 +728,7 @@ export function keygen(args, { registry = process.env.AGENT_FABRIC_HOSTS_REGISTR
   if (!host || (host.operator ?? 'user') !== who.agent) { console.error(`fabric-ctl: ${who.host}/${who.agent} is not this host's operator in the registry; no key made`); return 2; }
   if (publicKeyFrom(host.operator_key) && !args.force) { console.error('fabric-ctl: this host already has an operator_key; --force to rotate it'); return 2; }
   const k = generateOperatorKey();
-  exec(path.join(FABRIC_ROOT, 'bin', 'fabric-secrets'), ['store', 'set', 'FABRIC_CONTROL_SIGNING_KEY'], { input: k.privateKeySpec, encoding: 'utf8', stdio: ['pipe', 'ignore', 'inherit'] });
+  exec(path.join(FABRIC_ROOT, 'bin', 'fabric-secrets'), ['store', 'set', '--managed', 'FABRIC_CONTROL_SIGNING_KEY'], { input: k.privateKeySpec, encoding: 'utf8', stdio: ['pipe', 'ignore', 'inherit'] });
   host.operator_key = k.publicKeySpec;
   fs.writeFileSync(registry, JSON.stringify(reg, null, 2) + '\n');
   console.log(`fabric-ctl: signing key made — private half in this login's store (FABRIC_CONTROL_SIGNING_KEY), public half in ${path.relative(FABRIC_ROOT, registry)} (operator_key of ${who.host}).`);

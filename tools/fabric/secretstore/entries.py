@@ -204,6 +204,35 @@ def set_entry(name: str, value: bytes, *, exact: bool = False) -> dict:
     return {"name": name, "changed": changed}
 
 
+def rm_entry(name: str) -> dict:
+    """The agent removes its own entry: env/NAME.gpg, committed signed as
+    set commits ("agent <login>: rm NAME") and pushed. History is not
+    rewritten — the value stays readable to this key in the store's past,
+    so a value that may have leaked is rotated at its provider, not removed.
+    An absent name changes nothing ("changed": False); an earlier failed
+    push is still caught up."""
+    store = store_dir()
+    key_of_store(store)
+    _check_name(name)
+    _require_clean(store)
+    _before_write(store)
+    rel = os.path.join("env", f"{name}.gpg")
+    tracked = git(store, "ls-files", "--error-unmatch", "--", rel, check=False).returncode == 0
+    if not tracked:
+        # Never committed: an entry no write path leaves (each stages what
+        # it writes), removed all the same so that "absent" is true.
+        try:
+            os.remove(os.path.join(store, rel))
+        except FileNotFoundError:
+            _push_if_ahead(store)
+            return {"name": name, "changed": False}
+        return {"name": name, "changed": True}
+    git(store, "rm", "-q", "--", rel)
+    _commit(store, f"agent {login()}: rm {name}")
+    _after_commit(store)
+    return {"name": name, "changed": True}
+
+
 def names(store: str | None = None) -> list[str]:
     d = os.path.join(store or store_dir(), "env")
     try:

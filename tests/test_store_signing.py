@@ -37,6 +37,9 @@ def main() -> int:
     try:
         fabric = os.path.join(tmp, "fabric")
         os.makedirs(os.path.join(fabric, "identities", "keys"))
+        # set asks the registry which names are managed (secretstore/reserved.py).
+        os.makedirs(os.path.join(fabric, "projects"))
+        shutil.copy(os.path.join(ROOT, "projects", "registry.json"), os.path.join(fabric, "projects", "registry.json"))
         fab_git = ["git", "-C", fabric, "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"]
         subprocess.run(["git", "init", "-q", "-b", "main", fabric], check=True)
 
@@ -135,7 +138,7 @@ def main() -> int:
                             ("CLAUDE_BRIDGE_AUTH_TOKEN", "b"), ("GIT_USER_NAME", "n"), ("GIT_USER_EMAIL", "e@x"),
                             ("GIT_SIGNING_KEY", cfpr), ("GIT_GPG_PROGRAM", "gpg"),
                             ("SSH_PRIVATE_KEY", "private"), ("SSH_PUBLIC_KEY", "public")):
-            run(child, "set", name, stdin=value)
+            run(child, "set", name, "--managed", stdin=value)
         subprocess.run([sys.executable, SYNC, "sync", "--quiet"], env=child, capture_output=True, text=True)
         sync = subprocess.run([sys.executable, SYNC, "status"], env=child, capture_output=True, text=True)
         check("control: the complete, synced store's status is OK", sync.returncode == 0, sync.stdout + sync.stderr)
