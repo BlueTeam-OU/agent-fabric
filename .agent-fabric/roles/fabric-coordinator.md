@@ -2,7 +2,7 @@
 role: fabric-coordinator
 class: remit
 project: agent-fabric
-description: "What the control-plane coordinator covers in agent-fabric itself: every file, and the contributions it folds and merges."
+description: "What the control-plane coordinator covers in agent-fabric itself: every file, the contributions it folds and merges, and the distribution of what a merging contributor lands."
 origin:
   - agent: user
     host: develop-qzapp
@@ -32,6 +32,13 @@ contributed hunk goes back to its contributor, and you arm and merge.
 The contributed commits count toward the band like your own. A rule a
 contributor reports wrong while porting it is yours to decide; the port
 keeps the old behaviour until you change the rule.
+
+**A contributor that merges.** An entry with `"merges": true` (python-dev
+since 2026-10-07) opens, blind-reviews and merges its own pull request
+from its own branch, inside its entry. What it needs outside the entry
+you supply as commits onto its branch; you never arm its pull request.
+After it merges you distribute (`fabric-ctl all upgrade fabric`), as for
+your own.
 
 **What to read first.** `fabric-status`; the log of `origin/main` for
 the last day; the inbox; `tests/run.sh` with CI's environment.
