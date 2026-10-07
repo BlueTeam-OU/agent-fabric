@@ -125,7 +125,7 @@ def main() -> int:
     r = st.selftest()
     check("a set that fails skips run, and rm is still asked",
           [s["step"] for s in r["steps"]] == ["precondition", "set", "rm", "absent"]
-          and any("rm" in c for c in calls) and r["steps"][1]["reason"] == "fabric-secrets store: could not push", r)
+          and any("rm" in c for c in calls) and r["steps"][1]["reason"] == "store set exited 1", r)
     probe = lambda value, given: subprocess.run(  # noqa: E731
         [sys.executable, "-I", "-c", st.PROBE], input=given, text=True, capture_output=True, timeout=60,
         env={"PATH": os.environ.get("PATH", ""), **({st.NAME: value} if value is not None else {})}).returncode
@@ -138,8 +138,22 @@ def main() -> int:
                                         else (1, "", f"a broken set that echoed {stdin}"))[1]
     r = st.selftest()
     canary = next(x for x in seen if x)
-    check("a reason that would carry the canary is withheld", canary not in json.dumps(r)
-          and r["steps"][1]["reason"] == "a broken set that echoed (withheld)", r)
+    check("a set whose stderr echoed the canary: the reason is its exit, no output relayed (#108, CodeQL 48/49)",
+          canary not in json.dumps(r) and "echoed" not in json.dumps(r) and r["steps"][1]["reason"] == "store set exited 1", r)
+    for rc, why in ((124, f"store set: no answer within {st.STEP_TIMEOUT_S} s"), (127, "store set: could not be started")):
+        st._cmd = lambda args, stdin=None, rc=rc: fake(args, stdin) if "set" not in args else (rc, "", f"echo {stdin}")
+        r = st.selftest()
+        check(f"…exit {rc}: said in words", r["steps"][1]["reason"] == why, r)
+    st._cmd = lambda args, stdin=None: fake(args, stdin) if "set" not in args else (0, f"echoed {stdin}\n", "")
+    r = st.selftest()
+    check("…a set that exits 0 with another answer: fixed text, not its output",
+          r["steps"][1]["reason"] == "store set did not answer 'AF_SELFTEST_CANARY: set'" and "echoed" not in json.dumps(r), r)
+    st._cmd = lambda args, stdin=None: (2, "", "fabric-secret-run: refused for another reason") \
+        if args[0] == st.SECRET_RUN and "pass" in args else fake(args, stdin)
+    r = st.selftest()
+    check("…an absent check refused otherwise: fixed text, not its stderr",
+          r["steps"][-1]["reason"] == "fabric-secret-run refused the removed name, not as absent"
+          and "another reason" not in json.dumps(r), r)
     print(f"\n{'FAILED' if fails else 'all passed'}")
     return 1 if fails else 0
 

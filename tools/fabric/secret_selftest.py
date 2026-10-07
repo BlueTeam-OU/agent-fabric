@@ -20,7 +20,9 @@ The real commands, as an agent would run them, each a subprocess:
 So a pass leaves the store as it was found, with two signed commits more
 (set and rm). The report names each step, ok or not, and why — never the
 canary or its digest, which live only in this process and the probe's
-stdin. Exit 0 pass, 1 fail; the JSON is {"status": "pass"|"fail",
+stdin. A reason is fixed text and an exit code, never a command's
+output: a command whose stdin was the canary could echo it, and a scrub of
+what it printed is a sanitizer nobody can check (#108, CodeQL 48 and 49). Exit 0 pass, 1 fail; the JSON is {"status": "pass"|"fail",
 "name": NAME, "steps": [{"step", "ok", "reason"}]}."""
 from __future__ import annotations
 
@@ -51,7 +53,8 @@ PROBE = ("import hashlib, hmac, os, sys\n"
 
 def _cmd(args: list[str], stdin: str | None = None) -> tuple[int, str, str]:
     """(exit, stdout, the last line of stderr); 124 a timeout, 127 a command
-    that could not be started."""
+    that could not be started. What it printed is for checking an answer
+    only, never for a reason (_why)."""
     try:
         r = subprocess.run(args, input=stdin, capture_output=True, text=True, timeout=STEP_TIMEOUT_S)
     except subprocess.TimeoutExpired:
@@ -62,10 +65,19 @@ def _cmd(args: list[str], stdin: str | None = None) -> tuple[int, str, str]:
     return r.returncode, r.stdout, last
 
 
+def _why(what: str, rc: int) -> str:
+    """A failed command's reason: the command and its exit, in words."""
+    if rc == 124:
+        return f"{what}: no answer within {STEP_TIMEOUT_S} s"
+    if rc == 127:
+        return f"{what}: could not be started"
+    return f"{what} exited {rc}"
+
+
 def _names() -> list[str]:
-    rc, out, err = _cmd([SECRETS, "store", "names", "--json"])
+    rc, out, _ = _cmd([SECRETS, "store", "names", "--json"])
     if rc != 0:
-        raise RuntimeError(f"store names exited {rc}: {err}")
+        raise RuntimeError(_why("store names", rc))
     try:
         got = json.loads(out)
     except ValueError:
@@ -81,10 +93,6 @@ def selftest() -> dict:
     digest = hashlib.sha256(canary.encode()).hexdigest()
 
     def step(name: str, ok: bool, reason: str = "") -> bool:
-        # Every reason comes from a command that never prints a value; held
-        # here too, so no path can carry the canary or its digest out.
-        for withheld in (canary, digest):
-            reason = reason.replace(withheld, "(withheld)")
         steps.append({"step": name, "ok": ok, "reason": reason})
         return ok
 
@@ -106,17 +114,17 @@ def selftest() -> dict:
         return done()
     step("precondition", True)
 
-    rc, out, err = _cmd([SECRETS, "store", "set", NAME], stdin=canary)
+    rc, out, _ = _cmd([SECRETS, "store", "set", NAME], stdin=canary)
     ok = rc == 0 and out.strip() == f"{NAME}: set"
-    if step("set", ok, "" if ok else err or f"exit {rc}: {out.strip()}"):
-        rc, _, err = _cmd([SECRET_RUN, NAME, "--", sys.executable, "-I", "-c", PROBE], stdin=digest)
+    if step("set", ok, "" if ok else _why("store set", rc) if rc else f"store set did not answer '{NAME}: set'"):
+        rc, _, _ = _cmd([SECRET_RUN, NAME, "--", sys.executable, "-I", "-c", PROBE], stdin=digest)
         step("run", rc == 0, "" if rc == 0 else
-             "the command's environment held another value" if rc == 3 else err or f"exit {rc}")
+             "the command's environment held another value" if rc == 3 else _why("fabric-secret-run", rc))
     # Asked whatever happened: a set that failed may still have written,
     # and rm says "absent" when nothing was.
-    rc, out, err = _cmd([SECRETS, "store", "rm", NAME])
+    rc, out, _ = _cmd([SECRETS, "store", "rm", NAME])
     ok = rc == 0 and out.strip() in (f"{NAME}: removed", f"{NAME}: absent")
-    step("rm", ok, "" if ok else err or f"exit {rc}: {out.strip()}")
+    step("rm", ok, "" if ok else _why("store rm", rc) if rc else f"store rm did not answer '{NAME}: removed' or absent")
     try:
         still = NAME in _names()
     except RuntimeError as e:
@@ -125,7 +133,8 @@ def selftest() -> dict:
     rc, _, err = _cmd([SECRET_RUN, NAME, "--", sys.executable, "-I", "-c", "pass"])
     step("absent", not still and rc == 2 and "absent" in err,
          f"{NAME} is still in the store" if still else "" if rc == 2 and "absent" in err
-         else f"fabric-secret-run exited {rc} for the removed name: {err}")
+         else _why("fabric-secret-run", rc) + " for the removed name" if rc != 2
+         else "fabric-secret-run refused the removed name, not as absent")
     return done()
 
 
