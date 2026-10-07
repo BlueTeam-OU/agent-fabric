@@ -270,7 +270,7 @@ WATCH_MISSING = ("agent-fabric: NO INBOX WATCH is running for this session ({sou
 
 
 def watch_running(proc: str = "/proc", pid: int | None = None) -> bool | None:
-    """Whether a `inbox.mjs --follow` runs under the session this hook
+    """Whether a `gzcoord-inbox --follow` runs under the session this hook
     belongs to: the nearest ancestor whose command is `claude`. None when
     there is no such ancestor (not under a harness) — nothing to say."""
     def stat(p: int) -> tuple[str, int] | None:
@@ -304,9 +304,11 @@ def watch_running(proc: str = "/proc", pid: int | None = None) -> bool | None:
                 cmd = fh.read().replace(b"\0", b" ").decode("utf-8", "replace")
         except OSError:
             continue
-        # The script by its file, or by the name bootstrap links it under
-        # (the watch the message below prescribes): missing the name told an
-        # armed session to arm a second consumer (review of #42).
+        # The entry by the name bootstrap links it under (the watch the
+        # message below prescribes; bin/gzcoord-inbox keeps that name in the
+        # process table under the pinned Python), or the Node shim's file,
+        # which callers outside this repository still run: missing either
+        # told an armed session to arm a second consumer (review of #42).
         if not ("inbox.mjs" in cmd or "gzcoord-inbox" in cmd) or "--follow" not in cmd:
             continue
         a = d

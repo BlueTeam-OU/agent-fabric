@@ -20,7 +20,7 @@ This directory is agent-fabric's communication subsystem (`communication/gzcoord
   on the channel is a decision nobody can hold.
 - **Repository `CLAUDE.md`** governs how agents operate on the repository.
 - **GZCoord** defines identity, roles, addressing and human-readable message semantics; who is running is presence, the deployment's to answer (SPEC §5).
-- **Transport adapters** deliver messages. **The current transport is a Claude-Bridge relay** hosted on the developer host by the fabric-coordinator's working copy (a project's integration says where: `projects/<id>/integration/gzcoord/`), drained at session start by `scripts/inbox.mjs`; when the relay is down, a person copies messages between session terminals (`docs/HUMAN-RELAY-TRANSPORT.md`). The first automated attempt before the relay is retired (`history/telegram-transport/`); how the relay was selected is `history/claude-bridge-selection/`. The interface an automated adapter must satisfy is `docs/TRANSPORT-ADAPTER-CONTRACT.md`.
+- **Transport adapters** deliver messages. **The current transport is a Claude-Bridge relay** hosted on the developer host by the fabric-coordinator's working copy (a project's integration says where: `projects/<id>/integration/gzcoord/`), drained at session start by `gzcoord-inbox`; when the relay is down, a person copies messages between session terminals (`docs/HUMAN-RELAY-TRANSPORT.md`). The first automated attempt before the relay is retired (`history/telegram-transport/`); how the relay was selected is `history/claude-bridge-selection/`. The interface an automated adapter must satisfy is `docs/TRANSPORT-ADAPTER-CONTRACT.md`.
 - **Local runtime config** contains model/provider and subagent policy; those values are not sent in messages.
 
 ## Identity
@@ -47,7 +47,7 @@ deployment's to answer, never an announcement (`protocol/SPEC.md` §5):
 `HELLO` and `GOODBYE` are retired (`protocol/SPEC.md` §8), and a
 validator rejects either. In agent-fabric the control plane
 answers it from each account's process table —
-`bin/fabric-ctl <login|all> presence` — and `scripts/send.mjs` asks it
+`bin/fabric-ctl <login|all> presence` — and `gzcoord-send` asks it
 before a `TO` or `TO-ROLE` message leaves (`docs/adr/ADR-030-presence-replaces-hello-and-goodbye.md`).
 
 ## Normal message
@@ -78,10 +78,10 @@ The message is parseable, but it remains readable without tooling.
 
 ## Sending and receiving, as a session
 
-`scripts/send.mjs <file>` posts one message: normalized, validated last,
+`gzcoord-send <file>` posts one message: normalized, validated last,
 refused when `FROM` is not the session's own address, resolved (relay,
-channel, token) exactly as `scripts/inbox.mjs` resolves the inbox.
-`scripts/inbox.mjs` drains at session start and, with `--follow`, is the
+channel, token) exactly as `gzcoord-inbox` resolves the inbox.
+`gzcoord-inbox` drains at session start and, with `--follow`, is the
 session-long watch (`--wait [S]` is a bounded read for a reply you expect). The procedures around them — when a message is the
 right instrument, how to address it, what a delivery is and is not — are
 two skills every account has: `skills/gzcoord-send/SKILL.md` and
@@ -107,7 +107,7 @@ limits are the launcher's (`runtime/openrouter/`), not part of GZCOORD/1.
 1. Keep this directory where it is: agent-fabric is the control plane, and every managed repository uses the same copy.
 2. Add the project's snippet to its root `CLAUDE.md` — gzapp's is `projects/gzapp/integration/gzcoord/CLAUDE.snippet.md`.
 3. Configure the project's transport (gzapp's relay: `projects/gzapp/integration/gzcoord/BRIDGE-RELAY-SETUP.md`); a project with no integration joins nothing.
-4. Validate messages with `node communication/gzcoord/scripts/gzmsg.mjs validate <file>`.
+4. Validate messages with `gzmsg validate <file>`.
 
 `protocol/SPEC.md` is the normative protocol; the layout is the section
 above. How the relay was chosen is `history/claude-bridge-selection/`.

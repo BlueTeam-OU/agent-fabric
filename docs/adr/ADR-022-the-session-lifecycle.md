@@ -112,7 +112,7 @@ the same command asks on one account and not on another.
    the login's, mode 700 and not a symlink, sweeps markers whose harness
    is gone or whose pid was reused, and writes nothing at all without
    `jq`.
-6. `inbox.mjs --follow` polls nothing while any marker names a live
+6. `gzcoord-inbox --follow` polls nothing while any marker names a live
    harness of this login (a pid of another login is never a hold),
    checked before each slice, once a second during one and when it
    returns; nothing is acknowledged while held, so the relay re-shows

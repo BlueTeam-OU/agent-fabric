@@ -7,7 +7,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const gzmsg = (...args) =>
-  spawnSync(process.execPath, [fileURLToPath(new URL('../scripts/gzmsg.mjs', import.meta.url)), ...args],
+  spawnSync(fileURLToPath(new URL('../../../bin/gzmsg', import.meta.url)), args,
             { encoding: 'utf8' });
 
 test('validate CLI reports a bad first line on one line and exits 1', () => {
@@ -64,7 +64,7 @@ test('CLI: an unknown flag is refused before any side effect', () => {
     assert.equal(peek.stdout, '');
     const retired = gzmsg('hello', '--no-taxonomy', '--from', 'develop-gzapp/web', '--role', 'R', '--project', 'p');
     assert.equal(retired.status, 2, 'hello is no longer a command');
-    assert.match(retired.stderr, /^usage: gzmsg\.mjs validate/);
+    assert.match(retired.stderr, /^usage: gzmsg validate/);
     assert.equal(retired.stdout, '');
     const file = path.join(dir, 'm.txt'); fs.writeFileSync(file, '[GZCOORD/1] INFO\nFROM: a/b\nROLE: R\nPROJECT: p\nMESSAGE-ID: b-0001\nBROADCAST: true\n');
     const v = gzmsg('validate', file, '--nope');
@@ -76,13 +76,13 @@ test('CLI: an unknown flag is refused before any side effect', () => {
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
-// send.mjs is the other half of the inbox: same identity, same relay,
+// gzcoord-send is the other half of the inbox: same identity, same relay,
 // same token resolution. It validates last, refuses a FROM that is not
 // this login's address, and posts exactly {channel, sender, content}.
 import http from 'node:http';
 import { execFile, spawn } from 'node:child_process';
 import { scratch } from '../../../tests/scratch.mjs';
-const SEND = fileURLToPath(new URL('../scripts/send.mjs', import.meta.url));
+const SEND = fileURLToPath(new URL('../../../bin/gzcoord-send', import.meta.url));
 function withRelay(fn) {
   const posts = [];
   const server = http.createServer((req, res) => {
@@ -110,11 +110,11 @@ function sendWith(relay, text, extra = [], moreEnv = {}) {
   // HOME is a scratch dir: the runner's own synced secrets.env must not be the token here.
   // The state dir too: send records every id it sends, and a test must never write that record into the runner's own.
   const env = { ...process.env, HOME: path.dirname(f), AGENT_FABRIC_STATE_DIR: path.join(path.dirname(f), 'state'), AGENT_FABRIC_SECRET_STORE: idStore(), CLAUDE_BRIDGE_URL: relay, CLAUDE_BRIDGE_AUTH_TOKEN: 'tok-fixture', GZCOORD_CHANNEL: 'fixture:chan', ...moreEnv };
-  return new Promise(resolve => execFile('node', [SEND, f, ...extra], { env, encoding: 'utf8' },
+  return new Promise(resolve => execFile(SEND, [f, ...extra], { env, encoding: 'utf8' },
     (e, out, err) => resolve({ code: e ? e.code : 0, out: String(out), err: String(err) })));
 }
 // The login's address, from the one place that derives it — what
-// gzmsg.mjs's whoami() asked, asked by the fixture now that the tools
+// gzmsg's whoami() asked, asked by the fixture now that the tools
 // are Python behind these command paths (ADR-040 §7).
 function whoami() {
   const r = spawnSync('python3', [fileURLToPath(new URL('../../../runtime/identity.py', import.meta.url)), '--json'], { encoding: 'utf8' });
@@ -229,7 +229,7 @@ test('a failed retransmission leaves a row pending whose earlier outcome was nev
 // (SPEC §7.2) — and the command on screen is the message that goes out.
 function sendFile(relay, f, extra = [], state = path.join(path.dirname(f), 'state')) {
   const env = { ...process.env, HOME: path.dirname(f), AGENT_FABRIC_STATE_DIR: state, AGENT_FABRIC_SECRET_STORE: idStore(), CLAUDE_BRIDGE_URL: relay, CLAUDE_BRIDGE_AUTH_TOKEN: 'tok-fixture', GZCOORD_CHANNEL: 'fixture:chan' };
-  return new Promise(resolve => execFile('node', [SEND, f, ...extra], { env, encoding: 'utf8' },
+  return new Promise(resolve => execFile(SEND, [f, ...extra], { env, encoding: 'utf8' },
     (e, out, err) => resolve({ code: e ? e.code : 0, out: String(out), err: String(err) })));
 }
 const noId = valid.replace(/^MESSAGE-ID: .*\n/m, '');
@@ -261,7 +261,7 @@ test('a dry run mints in memory only; stdin is said to keep nothing; a present i
     assert.equal(fs.readFileSync(f, 'utf8'), noId, 'the dry run changed nothing');
     assert.match(dry.err, /would mint one \(dry run/);
     const env = { ...process.env, HOME: path.dirname(f), AGENT_FABRIC_STATE_DIR: path.join(path.dirname(f), 'state'), AGENT_FABRIC_SECRET_STORE: idStore(), CLAUDE_BRIDGE_URL: relay, CLAUDE_BRIDGE_AUTH_TOKEN: 'tok-fixture', GZCOORD_CHANNEL: 'fixture:chan' };
-    const piped = await new Promise(resolve => { const c = execFile('node', [SEND, '-'], { env, encoding: 'utf8' }, (e, out, err) => resolve({ code: e ? e.code : 0, out, err })); c.stdin.end(noId); });
+    const piped = await new Promise(resolve => { const c = execFile(SEND, ['-'], { env, encoding: 'utf8' }, (e, out, err) => resolve({ code: e ? e.code : 0, out, err })); c.stdin.end(noId); });
     assert.equal(piped.code, 0, piped.err);
     assert.match(piped.err, /from stdin it is kept nowhere/);
     const kept = await sendWith(relay, valid);
@@ -418,7 +418,7 @@ test('send stops, named, when no integration is configured — nothing is posted
     const emptyFabric = scratch('fabric-');
     const env = { ...process.env, HOME: path.dirname(f), CLAUDE_BRIDGE_URL: relay, CLAUDE_BRIDGE_AUTH_TOKEN: 'tok', AGENT_FABRIC_ROOT: emptyFabric };
     delete env.GZCOORD_CHANNEL;
-    const r = await new Promise(resolve => execFile('node', [SEND, f], { env, encoding: 'utf8', cwd: emptyFabric },
+    const r = await new Promise(resolve => execFile(SEND, [f], { env, encoding: 'utf8', cwd: emptyFabric },
       (e, out, err) => resolve({ code: e ? e.code : 0, out: String(out), err: String(err) })));
     assert.equal(r.code, 3, r.err);
     assert.match(r.err, /no GZCoord integration configured/);
@@ -505,9 +505,9 @@ test('send normalizes a pasted, indented message before validating', async () =>
 test('inbox reports a refused token as a rotation, exit 4', async () => {
   const server = http.createServer((req, res) => { res.statusCode = 401; res.setHeader('connection', 'close'); res.end('{}'); });
   await new Promise(r => server.listen(0, '127.0.0.1', r));
-  const INBOX = fileURLToPath(new URL('../scripts/inbox.mjs', import.meta.url));
+  const INBOX = fileURLToPath(new URL('../../../bin/gzcoord-inbox', import.meta.url));
   const env = { ...process.env, HOME: scratch('home-'), AGENT_FABRIC_SECRET_STORE: idStore(), CLAUDE_BRIDGE_URL: `http://127.0.0.1:${server.address().port}`, CLAUDE_BRIDGE_AUTH_TOKEN: 'dead', GZCOORD_CHANNEL: 'fixture:chan' };
-  const r = await new Promise(resolve => execFile('node', [INBOX, '--wait', '1'], { env, encoding: 'utf8' }, (e, out, err) => resolve({ code: e ? e.code : 0, err: String(err) })));
+  const r = await new Promise(resolve => execFile(INBOX, ['--wait', '1'], { env, encoding: 'utf8' }, (e, out, err) => resolve({ code: e ? e.code : 0, err: String(err) })));
   server.closeAllConnections(); server.close();
   assert.equal(r.code, 4, r.err);
   assert.match(r.err, /refused this token \(HTTP 401\) — it was rotated; run bin\/fabric-secrets sync/);
@@ -525,9 +525,9 @@ test('inbox --replay shows a broadcast, withholds a body not for me, moves no cu
       { seq: 7, id: 'r7', ts: 'T7', sender: 'x/y', content: mine }, { seq: 8, id: 'r8', ts: 'T8', sender: 'x/y', content: theirs }] }));
   });
   await new Promise(r => server.listen(0, '127.0.0.1', r));
-  const INBOX = fileURLToPath(new URL('../scripts/inbox.mjs', import.meta.url));
+  const INBOX = fileURLToPath(new URL('../../../bin/gzcoord-inbox', import.meta.url));
   const env = { ...process.env, HOME: scratch('home-'), AGENT_FABRIC_SECRET_STORE: idStore(), CLAUDE_BRIDGE_URL: `http://127.0.0.1:${server.address().port}`, CLAUDE_BRIDGE_AUTH_TOKEN: 'tok', GZCOORD_CHANNEL: 'fixture:chan' };
-  const run = args => new Promise(resolve => execFile('node', [INBOX, ...args], { env, encoding: 'utf8' }, (e, out, err) => resolve({ code: e ? e.code : 0, out: String(out), err: String(err) })));
+  const run = args => new Promise(resolve => execFile(INBOX, [...args], { env, encoding: 'utf8' }, (e, out, err) => resolve({ code: e ? e.code : 0, out: String(out), err: String(err) })));
   const a = await run(['--replay', '7']);
   const b = await run(['--replay', '01a09fc1-0000-7000-8000-00000000000b']);
   const c = await run(['--replay', '99']);
@@ -561,9 +561,9 @@ test('inbox --history lists the messages addressed to me, from a seq, and moves 
       { seq: 8, id: 'r8', ts: 'T8', sender: 'x/y', content: msg(8, 'TO: other-host/someone', 'private') }] }));
   });
   await new Promise(r => server.listen(0, '127.0.0.1', r));
-  const INBOX = fileURLToPath(new URL('../scripts/inbox.mjs', import.meta.url));
+  const INBOX = fileURLToPath(new URL('../../../bin/gzcoord-inbox', import.meta.url));
   const env = { ...process.env, HOME: scratch('home-'), AGENT_FABRIC_SECRET_STORE: idStore(), CLAUDE_BRIDGE_URL: `http://127.0.0.1:${server.address().port}`, CLAUDE_BRIDGE_AUTH_TOKEN: 'tok', GZCOORD_CHANNEL: 'fixture:chan' };
-  const run = args => new Promise(resolve => execFile('node', [INBOX, ...args], { env, encoding: 'utf8' }, (e, out, err) => resolve({ code: e ? e.code : 0, out: String(out), err: String(err) })));
+  const run = args => new Promise(resolve => execFile(INBOX, [...args], { env, encoding: 'utf8' }, (e, out, err) => resolve({ code: e ? e.code : 0, out: String(out), err: String(err) })));
   const all = await run(['--history']);
   const from = await run(['--history', '6']);
   const bad = await run(['--history', 'x']);
@@ -572,7 +572,7 @@ test('inbox --history lists the messages addressed to me, from a seq, and moves 
   assert.match(all.out, /2 addressed to you in the relay's last 3/); assert.match(all.out, / 5 .*early/); assert.match(all.out, / 7 .*for all/);
   assert.doesNotMatch(all.out, /private|BODY-/); assert.match(all.out, /gzcoord-inbox --replay <seq>/);
   assert.equal(from.code, 0, from.err); assert.match(from.out, /1 addressed to you/); assert.doesNotMatch(from.out, /early/);
-  assert.equal(bad.code, 1); assert.match(bad.err, /usage: inbox\.mjs --history/);
+  assert.equal(bad.code, 1); assert.match(bad.err, /usage: gzcoord-inbox --history/);
   assert.ok(hits.every(u => u === '/status' || (u.startsWith('/api/messages?') && !u.includes('consumer_id'))), hits);
   assert.ok(!hits.some(u => u.includes('/api/ack') || u.includes('/api/wait')), hits);
 });
@@ -592,9 +592,9 @@ test('the synced file is the token; the environment snapshot is not consulted wh
     res.end(JSON.stringify({ messages: [], next_cursor: null }));
   });
   await new Promise(r => server.listen(0, '127.0.0.1', r));
-  const INBOX = fileURLToPath(new URL('../scripts/inbox.mjs', import.meta.url));
+  const INBOX = fileURLToPath(new URL('../../../bin/gzcoord-inbox', import.meta.url));
   const env = { ...process.env, HOME: home, AGENT_FABRIC_SECRET_STORE: idStore(), CLAUDE_BRIDGE_URL: `http://127.0.0.1:${server.address().port}`, CLAUDE_BRIDGE_AUTH_TOKEN: 'dead', GZCOORD_CHANNEL: 'fixture:chan' };
-  const r = await new Promise(resolve => execFile('node', [INBOX, '--wait', '1'], { env, encoding: 'utf8' }, (e, out, err) => resolve({ code: e ? e.code : 0, out: String(out), err: String(err) })));
+  const r = await new Promise(resolve => execFile(INBOX, ['--wait', '1'], { env, encoding: 'utf8' }, (e, out, err) => resolve({ code: e ? e.code : 0, out: String(out), err: String(err) })));
   server.closeAllConnections(); server.close();
   assert.equal(r.code, 0, r.err);
   assert.ok(seen.includes('Bearer fresh-token') && !seen.includes('Bearer dead'), seen);
@@ -620,9 +620,9 @@ test('inbox --follow prints a delivery and keeps running', async () => {
     res.end('{}');   // ack
   });
   await new Promise(r => server.listen(0, '127.0.0.1', r));
-  const INBOX = fileURLToPath(new URL('../scripts/inbox.mjs', import.meta.url));
+  const INBOX = fileURLToPath(new URL('../../../bin/gzcoord-inbox', import.meta.url));
   const env = { ...process.env, HOME: scratch('home-'), AGENT_FABRIC_SECRET_STORE: idStore(), CLAUDE_BRIDGE_URL: `http://127.0.0.1:${server.address().port}`, CLAUDE_BRIDGE_AUTH_TOKEN: 'tok', GZCOORD_CHANNEL: 'fixture:chan' };
-  const child = spawn('node', [INBOX, '--follow'], { env });
+  const child = spawn(INBOX, ['--follow'], { env });
   let out = '';
   const done = new Promise(resolve => {
     child.stdout.on('data', d => { out += d; if (out.includes('FOLLOW-BODY')) resolve(); });

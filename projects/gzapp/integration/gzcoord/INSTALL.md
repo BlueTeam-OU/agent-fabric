@@ -14,7 +14,7 @@ Do not create a nested Git repository, and do not vendor the subsystem.
    root `CLAUDE.md` (or reference it from the project rules if that
    repository already has a modular rules structure).
 2. Wire the `SessionStart` hook in gzapp's `.claude/settings.json` at
-   `f="$CLAUDE_PROJECT_DIR/../agent-fabric/communication/gzcoord/scripts/inbox.mjs"; [ -f "$f" ] && node "$f"; true`
+   `f="$CLAUDE_PROJECT_DIR/../agent-fabric/bin/gzcoord-inbox"; [ -x "$f" ] && "$f"; true`
    — the inbox drain, as the workspace copy runs it
    (`agent-fabric/runtime/claude-code/bootstrap.sh` writes that one with
    the path substituted). A project keeps its own for sessions launched
@@ -48,7 +48,7 @@ Do not create a nested Git repository, and do not vendor the subsystem.
    and runtime binding (the role `bin/fabric-role` bound from a login
    shell; slugs from agent-fabric's `identities/roles/catalog.json`), the
    relay and channel are this file's neighbour `config.json`, read by
-   `communication/gzcoord/scripts/inbox.mjs` when the working copy
+   `gzcoord-inbox` when the working copy
    resolves to gzapp, and the token arrives with `fabric-secrets sync`.
 4. Relay hosting: [`BRIDGE-RELAY-SETUP.md`](BRIDGE-RELAY-SETUP.md). The
    relay's runtime — venv, token, database, log — lives in the hosting

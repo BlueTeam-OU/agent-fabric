@@ -96,11 +96,11 @@ def send(env: dict, text: str, *flags: str) -> subprocess.CompletedProcess:
     f = os.path.join(env["HOME"], "m.txt")
     with open(f, "w", encoding="utf-8") as fh:
         fh.write(text)
-    return subprocess.run(["node", P.SEND_CMD, f, *flags], env=env, capture_output=True, text=True, timeout=60)
+    return subprocess.run([P.SEND_CMD, f, *flags], env=env, capture_output=True, text=True, timeout=60)
 
 
 def drain(env: dict) -> subprocess.CompletedProcess:
-    return subprocess.run(["node", P.INBOX_CMD], env=env, capture_output=True, text=True, timeout=60)
+    return subprocess.run([P.INBOX_CMD], env=env, capture_output=True, text=True, timeout=60)
 
 
 MID = "01a09fc1-0000-7000-8000-0000000000c1"
@@ -333,7 +333,7 @@ def _():
     page = [{"seq": 7, "id": "r7", "ts": "T7", "sender": "x/y", "content": message(MID, frm="x/y")}]
     relay, state = Relay(page), P.scratch("bypass-state-")
     try:
-        r = subprocess.run(["node", P.INBOX_CMD, "--replay", "7"], env=relay.env(state, GZCOORD_JOURNAL="off"),
+        r = subprocess.run([P.INBOX_CMD, "--replay", "7"], env=relay.env(state, GZCOORD_JOURNAL="off"),
                            capture_output=True, text=True, timeout=60)
     finally:
         relay.close()
@@ -409,7 +409,7 @@ def _():
     try:
         env = relay.env(state)
         text = message(MID).replace(f"MESSAGE-ID: {MID}\n", "")
-        r = subprocess.run(["node", P.SEND_CMD, "-"], env=env, input=text, capture_output=True, text=True, timeout=60)
+        r = subprocess.run([P.SEND_CMD, "-"], env=env, input=text, capture_output=True, text=True, timeout=60)
     finally:
         relay.close()
     eq(r.returncode, 3, r.stderr)

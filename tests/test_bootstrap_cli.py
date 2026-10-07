@@ -750,7 +750,8 @@ def existing_files() -> None:
         "statusLine": {"type": "command", "command": "mine"},
         "hooks": {"SessionStart": [{"hooks": [{"type": "command", "command": f"bash {old_root}/runtime/claude-code/hooks/session-start.sh"}]},
                                    {"hooks": [{"type": "command", "command": "echo mine"}]},
-                                   {"hooks": [{"type": "command", "command": f"node {old_root}/communication/gzcoord/scripts/inbox.mjs"}]}],
+                                   {"hooks": [{"type": "command", "command": f"node {old_root}/communication/gzcoord/scripts/inbox.mjs"}]},
+                                   {"hooks": [{"type": "command", "command": f"{old_root}/bin/gzcoord-inbox"}]}],
                   "Stop": [{"hooks": [{"type": "command", "command": "echo stop"}]}]}}) + "\n")
     # Step 3: ours goes; a person's, and a backup sibling, stay.
     put(f"{CH}/commands/role.md", "the agent-fabric /role command\n")

@@ -137,7 +137,7 @@ rm -f "$AGENT_FABRIC_LOCAL_BIN/gzmsg"; printf '#!/bin/sh\necho mine\n' > "$AGENT
 out="$(run "$S")"
 jq -e '(.permissions.allow | index("Bash(gzmsg *)")) == null and (.permissions.allow | index("Bash(gzcoord-send *)")) != null' "$S" >/dev/null \
     && ok "a name that is not the fabric's script gets no rule, and loses one it had" || bad "foreign name allowed" "$(jq -c .permissions.allow "$S")"
-rm -f "$AGENT_FABRIC_LOCAL_BIN/gzmsg"; ln -s "$FABRIC/communication/gzcoord/scripts/gzmsg.mjs" "$AGENT_FABRIC_LOCAL_BIN/gzmsg"; run "$S" >/dev/null
+rm -f "$AGENT_FABRIC_LOCAL_BIN/gzmsg"; ln -s "$FABRIC/bin/gzmsg" "$AGENT_FABRIC_LOCAL_BIN/gzmsg"; run "$S" >/dev/null
 # Every session starts in auto mode (the owner, 2026-09-26): a file
 # settled in every other key but the mode is written.
 jq 'del(.permissions.defaultMode)' "$S" > "$S.tmp" && mv "$S.tmp" "$S"
