@@ -579,6 +579,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - Memory rendered under `## English` by its holder, else
   `needs_rendering`; locale search through `websearch-locale`, SerpAPI
   then Brave, the harness's `WebSearch` removed (§5 rules 12–13).
+- A 2026-10-07 — the source locale (en-US) has no bridge (§2).
 - Keywords: language-culture, locale, translation, culture, bridge,
   locale-worker, worker, Georgian, Russian, ka-GE, ru-RU, harness.md,
   system-prompt-file, notes, script, needs_rendering, web search, SerpAPI,
