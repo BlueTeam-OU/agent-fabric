@@ -51,8 +51,10 @@ def main() -> int:
 
     def gw_boundary(f: str) -> bool:
         return not (ge and ge.search(f)) and bool(gp.search(f))
-    for f in ("crates/test-support/src/lib.rs", "tests/anthropic-passthrough/tests/stream.rs",
-              "fixtures/anthropic/count_tokens/request.json", "xtask/src/main.rs",
+    # Each exempt tree sampled with a file its patterns WOULD select (a word
+    # in the name), so dropping that exemption turns a check red.
+    for f in ("crates/test-support/src/token.rs", "tests/security/tests/auth.rs",
+              "fixtures/anthropic/count_tokens/request.json", "xtask/src/signing.rs",
               "architecture/roadmap/BOTTOM-UP-IMPLEMENTATION-PLAN.md", "architecture/adr/ADR-003-x.md",
               ".agent-fabric/taxonomy.json", "README.md"):
         check(f"gateway {f}: not boundary", not gw_boundary(f))
