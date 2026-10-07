@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "description": "The reusable roles agent-fabric knows: id (the slug that goes on the wire and names identities/roles/<id>/), title, its group, and whether the role is still a candidate. Path and keyword rules that say WHERE a role applies inside a managed repository are not here — they belong to projects/<project-id>/taxonomy.json. `group` is one of `groups`: how Fleet Deck (the operator's console over the fleet) arranges the agents, one workspace per group (the owner, 2026-10-06 and 2026-10-07); a new role names its group in the change that adds it.",
+  "description": "The reusable roles agent-fabric knows: id (the slug that goes on the wire and names identities/roles/<id>/), title, a starting group, and whether the role is still a candidate. Path and keyword rules that say WHERE a role applies inside a managed repository are not here — they belong to projects/<project-id>/taxonomy.json. `groups` and each role's `group` are a starting layout for Fleet Deck, the operator's console over the fleet: what it seeds when first set up on a host. The operator arranges the deck as they like from then on; nothing re-applies or checks this.",
   "groups": [
     "Coordinator",
     "C-Level",
