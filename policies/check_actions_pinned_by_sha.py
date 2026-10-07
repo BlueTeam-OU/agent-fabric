@@ -31,8 +31,19 @@ history rather than a fork's (GitHub serves a fork's commit under the
 parent's path), or that the comment names the release the SHA is in. Both
 need the network; the diff that changes a pin is where they are read.
 
+Two third-party uses on one line (a flow mapping, `- {uses: a@<sha>, …}`)
+are refused: they would share one version comment, which can name only one
+release.
+
+    check_actions_pinned_by_sha.py [--root <dir>] [-h|--help]
+
+The root is --root, else REPO_ROOT, else this repository. A managed
+project's forwarder passes its own toplevel: the default is the fabric's
+tree, never the project's.
+
 Exit codes: 0 every action is pinned by SHA with its version comment;
-1 at least one is not; 2 invocation problem (no workflow found).
+1 at least one is not; 2 invocation problem (no workflow found, a bad
+argument).
 
 Ported from devex-tooling's shell guard of the same name (itself ported from
 gzapp's); the owner asked for new fabric tooling in Python.
@@ -110,6 +121,11 @@ def check(root: str) -> tuple[list[str], int]:
         for num, line in enumerate(lines, 1):
             code, comment = split_comment(line)
             refs = [(m.group(1), comment) for m in USES_RE.finditer(code)]
+            third = [r for r, _ in refs if not r.strip().strip("'\"").startswith("./")]
+            if len(third) > 1:
+                findings.append(f"FAIL: {rel}:{num} {len(third)} third-party uses on one line share one version "
+                                "comment — put each on its own line")
+                continue
             if EMPTY_USES_RE.search(code):
                 # The value is a plain scalar on a following line indented
                 # deeper than the key, comment-only lines skipped; its
@@ -138,8 +154,23 @@ def check(root: str) -> tuple[list[str], int]:
     return findings, pinned
 
 
-def main() -> int:
-    root = os.environ.get("REPO_ROOT") or os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+def main(argv: list[str]) -> int:
+    root = None
+    args = list(argv)
+    while args:
+        a = args.pop(0)
+        if a in ("-h", "--help"):
+            print(__doc__.strip())
+            return 0
+        if a == "--root" or a.startswith("--root="):
+            root = a.split("=", 1)[1] if "=" in a else (args.pop(0) if args else "")
+            if not root:
+                print(f"{ME}: --root needs a value", file=sys.stderr)
+                return 2
+            continue
+        print(f"{ME}: unexpected argument: {a}", file=sys.stderr)
+        return 2
+    root = root or os.environ.get("REPO_ROOT") or os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     if not workflow_files(root):
         print(f"{ME}: no workflow under {root}/.github/workflows", file=sys.stderr)
         return 2
@@ -158,4 +189,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(main(sys.argv[1:]))
