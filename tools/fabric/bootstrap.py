@@ -40,7 +40,7 @@ Writes, idempotently, and only machine-local files:
                                      ($PROJECTS/.gzcoord/venv exists): the relay as a unit
   ~/.cache/agent-fabric/langid/venv/ the language detector (pycld2) for the control agent's
                                      script op (runtime/langid/), best effort
-  (removes ~/.doppler, ~/.local/bin/doppler and ~/.config/agent-fabric/secrets-source:
+  (removes ~/.config/agent-fabric/secrets-source, the fabric's own leftover; the Doppler CLI and its config stay, a project may use them:
    Doppler is retired, ADR-038)
   <state>/agents/<login>/store-trust-base.done
                                      ADR-042's migration, once: every store this account holds then

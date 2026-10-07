@@ -766,7 +766,7 @@ def existing_files() -> None:
     os.symlink(f"{FR}/communication/gzcoord/scripts/gzmsg.mjs", f"{LB}/gzmsg")
     put(f"{LB}/fabric-status", "#!/bin/sh\necho mine\n", 0o755)
     os.symlink("/usr/bin/true", f"{LB}/fabric-jobs")
-    # Step 8: every Doppler leftover goes.
+    # Step 8: the fabric's own Doppler leftover goes; the CLI and its config stay.
     put(f"{a.home}/.doppler/.doppler.yaml", "token: x\n")
     put(f"{a.home}/.local/bin/doppler", "#!/bin/sh\n", 0o755)
     put(f"{a.home}/.config/agent-fabric/secrets-source", "doppler\n")
@@ -812,9 +812,9 @@ def existing_files() -> None:
     check("user settings: no allow rule for a name whose link is not the fabric's",
           "Bash(fabric-status *)" not in us["permissions"]["allow"] and "Bash(fabric-whoami *)" in us["permissions"]["allow"])
     check("user settings: a moved command keeps its allow rule", "Bash(gzmsg *)" in us["permissions"]["allow"])
-    check("step 8: the Doppler leftovers removed, said in one line",
-          "  -  Doppler retired: removed ~/.doppler, ~/.local/bin/doppler, ~/.config/agent-fabric/secrets-source" in r.lines
-          and not os.path.lexists(f"{a.home}/.doppler") and not os.path.lexists(f"{a.home}/.local/bin/doppler")
+    check("step 8: the fabric's Doppler leftover removed, said in one line; the CLI and its config kept",
+          "  -  Doppler retired: removed ~/.config/agent-fabric/secrets-source" in r.lines
+          and os.path.lexists(f"{a.home}/.doppler") and os.path.lexists(f"{a.home}/.local/bin/doppler")
           and not os.path.lexists(f"{a.home}/.config/agent-fabric/secrets-source"), r.out)
     cj = json.load(open(f"{a.cfg}/.claude.json"))
     check("step 5b: the .claude.json's other keys kept, its mode kept",

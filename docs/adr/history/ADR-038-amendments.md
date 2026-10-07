@@ -107,3 +107,14 @@ variable filter.
 What it does not do is said in the rule: the store's key has no
 passphrase, so a session that reads the file reaches the secret. The
 step that would close that is §7's broker in another account.
+
+### Amendment 2026-10-07 — The fabric removes only its own Doppler leftover
+
+§6's "Doppler off the hosts" corrected. The owner: "doppler is still used
+for secrets inside the gzapp repo". gzapp's local stack loads its
+application secrets with `doppler run -- make up` and `make seed-secrets`
+(project gzapp-backend, config dev, a per-directory mapping in the CLI's
+config), and retire-doppler.py had removed the CLI and that config from
+every account. This record retired Doppler as the fabric's store; a
+project's use of it was never decided here. The upgrade now removes only
+the fabric's own leftover, the secrets-source file.

@@ -815,9 +815,9 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-09-30 — Doppler removed from the code; `provision` fills a child's store (§5 rules 3, 7–8; §7).
 - A 2026-10-01 — a new account's store travels as a bundle (§5 rule 5).
 - A 2026-10-06 — no shell holds a secret; env.sh holds plain values (§5 rule 9).
-- Keywords: secrets, key, GPG, pass, paperkey, backup, env.sh, bashrc,
-  identity, lineage, parent, custody, recovery, Doppler, migration,
-  provision, placement, P1.
+- A 2026-10-07 — the Doppler CLI stays (§6).
+- Keywords: secrets, GPG, pass, paperkey, env.sh, bashrc, lineage,
+  custody, Doppler, migration, provision, placement.
 ### ADR-039 — The agent id is a UUIDv7 minted at birth (Accepted)
 
 - Each agent has an id, a UUIDv7 whose time is its birth: an existing

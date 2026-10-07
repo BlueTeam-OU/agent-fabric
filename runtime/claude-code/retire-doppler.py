@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """runtime/claude-code/retire-doppler.py [--dry-run] — what Doppler left in
-this account, removed: its CLI config (~/.doppler, with the token when it
-is kept there), a copy of the CLI in ~/.local/bin, and the source file
-the migration wrote, which nothing reads (ADR-038). bootstrap.sh runs it, so the upgrade that brings
+this account, removed: the source file the migration wrote, which nothing
+reads (ADR-038). The Doppler CLI and its config (~/.doppler) stay: a
+project may use them for its own secrets. bootstrap.sh runs it, so the upgrade that brings
 the fabric without Doppler also takes it off each account.
 
 The binary under /usr/local is the host's, removed there by its operator.
@@ -20,7 +20,12 @@ import os
 import shutil
 import sys
 
-RETIRED = (".doppler", ".local/bin/doppler", ".config/agent-fabric/secrets-source")
+# Only what the fabric itself wrote. The Doppler CLI and its config are a
+# project's tool too: a managed project may load its application secrets
+# with `doppler run`, and removing them took that away from every account
+# (the owner, 2026-10-07; ADR-038 §6). ADR-038 retired Doppler as the
+# fabric's store, never a project's use of it.
+RETIRED = (".config/agent-fabric/secrets-source",)
 
 
 def retire(home: str, dry_run: bool = False) -> tuple[list[str], list[str]]:
