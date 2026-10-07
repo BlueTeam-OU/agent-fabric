@@ -9,7 +9,8 @@
     fabric-secrets store id-of LOGIN             the agent id lineage.json records for a login
                                                  (exit 3: no agent with that login)
     fabric-secrets store rename OLD NEW          a login renamed; its id, key and store stay
-    fabric-secrets store set NAME                the agent writes an entry (value on stdin)
+    fabric-secrets store set NAME                the agent writes an entry (value on stdin; from a
+                                                 terminal, typed twice, not echoed)
     fabric-secrets store export-key              the agent's PUBLIC key, armored (for its parent)
     fabric-secrets store push                    the store to its remote
     fabric-secrets store bundle                  this store, armored, for its parent (first contact)
@@ -341,13 +342,13 @@ def main(argv: list[str] | None = None) -> int:
             r = rename(args.old, args.new)
             print(f"agent {r['agent_id']}: now {r['login']}")
         elif args.cmd == "set":
-            r = set_entry(args.name, stdin_value(args.empty))
+            r = set_entry(args.name, stdin_value(args.empty, args.name))
             print(f"{args.name}: {'set' if r['changed'] else 'unchanged'}")
         elif args.cmd == "names":
             ns = names()
             print(json.dumps(ns) if args.json else "\n".join(ns) or "(no entries)")
         elif args.cmd == "put":
-            r = put(args.login, args.name, stdin_value(args.empty), store=args.store)
+            r = put(args.login, args.name, stdin_value(args.empty, args.name), store=args.store)
             print(f"{args.login} {args.name}: {'written' if r['changed'] else 'unchanged'}")
         elif args.cmd == "certify":
             if args.root == bool(args.login):

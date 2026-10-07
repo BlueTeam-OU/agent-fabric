@@ -400,6 +400,47 @@ def main() -> int:
                   and lens.get("CLAUDE_CODE_OAUTH_TOKEN") == len(TOKEN), got.stderr)
             p = run(child, "set", "OWN_NOTE", stdin="kid\n")
             check("the agent sets its own entry", p.returncode == 0 and "set" in p.stdout, p.stderr)
+            # From a terminal the value is typed twice and never echoed: a real
+            # pty, so getpass talks to the tty the CLI's stdin is.
+            import pty
+
+            def typed(*lines: str) -> tuple[int, str]:
+                pid, fd = pty.fork()
+                if pid == 0:
+                    os.chdir(tmp)
+                    os.execve(sys.executable, [sys.executable, TOOL, "set", "TYPED_ONE"], child)
+                # One line per prompt, sent only once the prompt is on the
+                # screen: getpass flushes what was typed before it turned
+                # echo off (TCSAFLUSH), and what was typed between its two
+                # prompts is echoed.
+                import select
+                import signal
+                import time
+                out, sent, deadline = b"", list(lines), time.monotonic() + 60
+                while True:
+                    if not select.select([fd], [], [], max(0.0, deadline - time.monotonic()))[0]:
+                        os.kill(pid, signal.SIGKILL)   # a CLI still reading: never a hung suite
+                        break
+                    try:
+                        chunk = os.read(fd, 1024)
+                    except OSError:
+                        break
+                    if not chunk:
+                        break
+                    out += chunk
+                    if sent and out.endswith(b": ") and len(lines) - len(sent) < out.count(b": "):
+                        os.write(fd, sent.pop(0).encode() + b"\n")
+                os.close(fd)
+                return os.waitstatus_to_exitcode(os.waitpid(pid, 0)[1]), out.decode(errors="replace")
+            rc, screen = typed("TYPED-" + SECRET, "TYPED-" + SECRET)
+            got = subprocess.run([sys.executable, "-c", "import secret_store as s; print(s.values()['TYPED_ONE'])"],
+                                 cwd=os.path.dirname(TOOL), env=child, capture_output=True, text=True)
+            check("set from a terminal asks twice, stores what was typed, and echoes none of it",
+                  rc == 0 and "TYPED_ONE (not echoed):" in screen and "the same again:" in screen
+                  and SECRET not in screen and got.stdout.strip() == "TYPED-" + SECRET, f"{rc} {screen!r} {got.stderr}")
+            rc, screen = typed("TYPED-a", "TYPED-b")
+            check("…two entries that differ write nothing",
+                  rc == 1 and "the two entries differ; nothing written" in screen and "TYPED-" not in screen, f"{rc} {screen!r}")
             p = run(child, "names")
             check("names lists names, never values", "AGENT_LOGIN" in p.stdout and "GH_TOKEN" in p.stdout
                   and SECRET not in p.stdout, p.stdout)
