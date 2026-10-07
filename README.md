@@ -58,7 +58,7 @@ tools/fabric/assemble.py --bundle ~/drain/<login>/<wc>.tar \
 ```
 
 A further agent on the host is one command for a coordinator:
-`runtime/provisioning/new-agent.sh <login> <role> --project <id>`.
+`runtime/provisioning/new-agent.sh <login> <role> --claude-account <account> --project <id>`.
 
 ## The flow: bind, launch, inbox, drain
 
