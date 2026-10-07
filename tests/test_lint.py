@@ -1646,6 +1646,8 @@ def case_a_contributor_entry_never_reaches_a_definition() -> None:
         got = findings({**good, "excluding": [e for e in excl if e != "tools/fabric/lint_rules/"]})
         assert any("rule 'tools/' reaches tools/fabric/lint_rules/" in f for f in got), got
         assert "tools/fabric/lint_rules/" in lint.CONTRIBUTOR_NEVER
+        for loaded in ("tools/fabric/layout.py", "tools/fabric/workingcopy.py", "tools/fabric/adr.py"):
+            assert loaded in lint.CONTRIBUTOR_NEVER, f"{loaded} is loaded by lint by path: it is fenced like lint.py"
         got = findings({**good, "paths": good["paths"] + ["policies/"]})
         assert any("rule 'policies/' reaches policies/" in f for f in got), got
         # Review of #75: rules narrower than any sample file, each one a

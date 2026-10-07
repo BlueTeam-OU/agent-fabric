@@ -354,17 +354,19 @@ def test_a_role_change_announces_nothing(f: Fixture, tmp: str) -> None:
     record every send, so "nothing" is what the relay would have seen."""
     # Own fixture: the shared one has no gzcoord entries and the stubs must not leak into other cases.
     own = os.path.join(tmp, "announce"); os.makedirs(own, exist_ok=True); f = Fixture(own)
-    entries = os.path.join(f.root, "bin")
-    os.makedirs(entries); open(os.path.join(entries, "gzmsg"), "w").close(); open(os.path.join(entries, "gzcoord-send"), "w").close()
+    # The logging stubs stand both on PATH and at the fabric's own bin/, so a
+    # send by absolute path ($AGENT_FABRIC_ROOT/bin/gzcoord-send) is caught too.
+    entries = os.path.join(f.root, "bin"); os.makedirs(entries)
     log = os.path.join(own, "send.log"); bindir = os.path.join(own, "bin"); os.makedirs(bindir)
     stubs = {
         "gzmsg": 'case "$1" in new-id) echo 01a09fc1-0000-7000-8000-000000000009 ;; esac\n',
         "gzcoord-send": 'body=$(cat); printf \'SEND %s\\n\' "$(printf \'%s\' "$body" | head -3 | tr \'\\n\' \' \')" >> "$LOG"; echo \'sent seq 1\'\n',
     }
     for name, body in stubs.items():
-        with open(os.path.join(bindir, name), "w", encoding="utf-8") as fh:
-            fh.write("#!/usr/bin/env bash\n" + body)
-        os.chmod(os.path.join(bindir, name), 0o755)
+        for d in (bindir, entries):
+            with open(os.path.join(d, name), "w", encoding="utf-8") as fh:
+                fh.write("#!/usr/bin/env bash\n" + body)
+            os.chmod(os.path.join(d, name), 0o755)
     f.env["PATH"] = bindir + os.pathsep + f.env["PATH"]; f.env["LOG"] = log
     assert f.run("backend-dev").returncode == 0
     assert f.run("flutter-dev").returncode == 0
