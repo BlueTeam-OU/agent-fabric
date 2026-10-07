@@ -101,7 +101,7 @@ description: Payload carrying what must never be committed.
 Run it against ghp_ABCDEFGHIJKLMNOP in Springfield.
 """
 
-CATALOG = {"version": 1, "roles": [{"id": "web-dev", "title": "Web sub-app developer"}]}
+CATALOG = {"version": 1, "groups": ["Developers"], "roles": [{"id": "web-dev", "title": "Web sub-app developer", "group": "Developers"}]}
 TAXONOMY = {
     "version": 1, "project": PROJECT,
     "projects": {"include": ["demo"], "exclude": [], "unattributed_bucket": "observer-sessions"},
@@ -464,7 +464,7 @@ def case_domain_bound_by_an_unseen_project_is_not_judged() -> None:
         other = os.path.join(fabric, "memory", "domains", "db-admin", "domain", "plan.md")
         write(other, SLICE.replace('role: "web-dev"', 'role: "db-admin"'))
         cat = json.load(open(os.path.join(fabric, "identities", "roles", "catalog.json"), encoding="utf-8"))
-        cat["roles"].append({"id": "db-admin", "title": "DB"})
+        cat["roles"].append({"id": "db-admin", "title": "DB", "group": "Developers"})
         write(os.path.join(fabric, "identities", "roles", "catalog.json"), json.dumps(cat))
         code, out = run_lint(fabric)
         assert "indexed by no project" not in out, f"a role the visible project does not bind was judged:\n{out}"
@@ -1790,9 +1790,22 @@ def case_the_fabrics_own_claude_settings_are_the_workspace_template() -> None:
         assert lint.fabric_settings_findings(root), "a hand edit is a finding"
 
 
+def case_every_role_names_a_fleet_deck_group() -> None:
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("fabric_lint_under_test", LINT)
+    lint = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(lint)
+    ok = {"groups": ["Developers"], "roles": [{"id": "a", "group": "Developers"}]}
+    assert lint.role_group_findings(ok) == []
+    got = lint.role_group_findings({"groups": ["Developers"], "roles": [{"id": "a"}, {"id": "b", "group": "Other"}]})
+    assert len(got) == 2 and "'a'" in got[0] and "'Other'" in got[1], got
+    assert lint.role_group_findings({"roles": [{"id": "a", "group": "x"}]}), "no groups list: said"
+
+
 def main() -> int:
     cases = [
         case_clean_base_passes,
+        case_every_role_names_a_fleet_deck_group,
         case_decision_records_are_lint_findings,
         case_bash_over_150_lines_needs_the_allowlist,
         case_arm_boundary_cases_only_leave_retired,
