@@ -22,7 +22,8 @@
     "fabric-fresh": "bin/fabric-fresh",
     "fabric-branches": "bin/fabric-branches",
     "fabric-jobs": "bin/fabric-jobs",
-    "fabric-history": "bin/fabric-history"
+    "fabric-history": "bin/fabric-history",
+    "fabric-secret-run": "bin/fabric-secret-run"
   },
   "replaces": {
     "_comment": "A command's earlier target, which bootstrap recognises as a link it made and moves to the current one; without it an account keeps the old link, the allow rule is withheld (user-settings.py) and every use asks. The GZCoord commands were Node shims until their Python entry points.",
@@ -32,6 +33,7 @@
   },
   "not_allowed": {
     "fabric-lease": "runs whatever command follows `--`: an allow rule for it would allow every command, so it asks as any command does",
+    "fabric-secret-run": "runs whatever command follows `--`, with the agent's own secrets in its environment: an allow rule would allow every command, so it asks as any command does",
     "fabric-host": "`run` executes any command on a host as any account (the operator's instrument): allowing it would allow everything"
   }
 }

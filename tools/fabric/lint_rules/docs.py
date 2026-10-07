@@ -612,14 +612,17 @@ def review_lens_findings(root: str) -> list[str]:
 def key_lineage_findings(root: str) -> list[str]:
     """ADR-038 §5 rule 2: every committed agent key is the one its
     lineage records and carries its parent's certification. Read by
-    tools/fabric/secret_store.py in a throwaway keyring. No keys committed
-    yet is clean; a host without gpg is said, not passed silently."""
+    tools/fabric/secretstore/lineage.py in a throwaway keyring: a module of
+    the standard library alone, fenced from contributors, so that no
+    contributor change makes this answer clean (review of #106). No keys
+    committed yet is clean; a host without gpg is said, not passed silently."""
     if not os.path.isdir(os.path.join(root, "identities", "keys")):
         return []
     if not shutil.which("gpg"):
         return ["identities/keys/: gpg is not installed here, so no key's lineage could be checked"]
-    spec = importlib.util.spec_from_file_location("fabric_secret_store",
-                                                  os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "secret_store.py"))
+    spec = importlib.util.spec_from_file_location(
+        "fabric_secret_lineage",
+        os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "secretstore", "lineage.py"))
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod.verify(root)
