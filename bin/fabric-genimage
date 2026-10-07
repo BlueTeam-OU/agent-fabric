@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# bin/fabric-genimage — generate an image with OpenAI's image API and save
+# it as a PNG. The path is the contract (commands.json names it, and
+# projects call it); the work and its rules are in
+# tools/fabric/genimage.py. Bash builtins only, to find it; reached through
+# a symlink in ~/.local/bin, which no builtin resolves, so Python does: the
+# real path of this file, the module beside its bin/.
+# The fleet's pinned Python (runtime/python.json, ADR-040), one per host;
+# AGENT_FABRIC_PYTHON points elsewhere for a test or a host without it.
+py="${AGENT_FABRIC_PYTHON:-/usr/local/bin/fabric-python}"
+[[ -x "$py" ]] || { echo "fabric-genimage: the fleet's pinned Python is not installed at $py; as root: /usr/bin/python3 <agent-fabric>/tools/fabric/python_pin.py install" >&2; exit 127; }
+exec "$py" -I -c 'import os, runpy, sys
+real = os.path.realpath(sys.argv[1])
+module = os.path.join(os.path.dirname(os.path.dirname(real)), "tools", "fabric", "genimage.py")
+sys.argv = [module] + sys.argv[2:]
+runpy.run_path(module, run_name="__main__")' "${BASH_SOURCE[0]}" "$@"
