@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
-"""agent-fabric's own arm.json (projects/agent-fabric/integration/gh/arm.json):
-arm.sh refused the fabric itself while it had none ("the security boundary
-cannot be judged", python-dev-01 on #110). It loads, its cases are boundary,
-prose and translations are not, and no role but the owner waives it."""
+"""The projects' arm.json files (projects/<id>/integration/gh/arm.json):
+arm.sh refused a project with none ("the security boundary cannot be
+judged": agent-fabric itself on #110, the gateway on its #5). Each loads,
+its cases are boundary, and the paths each says are not boundary are not;
+no role but the owner waives agent-fabric's or the gateway's."""
 from __future__ import annotations
 
+import glob
 import os
 import sys
 
@@ -37,7 +39,6 @@ def main() -> int:
         check(f"{f}: not boundary", not boundary(f))
     check("no classes", classes == {})
     check("no role waives the boundary: the owner arms it", waiver is None)
-    import glob
     for cfg in sorted(glob.glob(os.path.join(HERE, "projects", "*", "integration", "gh", "arm.json"))):
         rel = os.path.relpath(cfg, HERE)
         try:
@@ -45,6 +46,17 @@ def main() -> int:
             check(f"{rel} loads, its cases boundary", True)
         except Exception as e:  # noqa: BLE001 - the case says which and why
             check(f"{rel} loads, its cases boundary ({type(e).__name__}: {e})", False)
+    gw = os.path.join(HERE, "projects", "agent-fabric-gateway", "integration", "gh", "arm.json")
+    gp, ge, _, gw_waiver = arm.load_config(gw)
+
+    def gw_boundary(f: str) -> bool:
+        return not (ge and ge.search(f)) and bool(gp.search(f))
+    for f in ("crates/test-support/src/lib.rs", "tests/anthropic-passthrough/tests/stream.rs",
+              "fixtures/anthropic/count_tokens/request.json", "xtask/src/main.rs",
+              "architecture/roadmap/BOTTOM-UP-IMPLEMENTATION-PLAN.md", "architecture/adr/ADR-003-x.md",
+              ".agent-fabric/taxonomy.json", "README.md"):
+        check(f"gateway {f}: not boundary", not gw_boundary(f))
+    check("gateway: no role waives the boundary", gw_waiver is None)
     print(f"\n{'all passed' if not fails else str(fails) + ' FAILED'}")
     return 1 if fails else 0
 

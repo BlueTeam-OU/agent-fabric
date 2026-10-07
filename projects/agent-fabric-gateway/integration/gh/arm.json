@@ -1,8 +1,8 @@
 {
-  "description": "agent-fabric-gateway's rules for runtime/github/arm.sh. boundary.paths: the gateway carries every session's credentials and traffic, so its boundary is the credential confinement and upstream transport (crates/backend/), the listener, admission and local authentication (crates/runtime/), the protocol parsers that read a harness's request (crates/protocol/), the wire and configuration contracts (architecture/contracts/, architecture/config/), the dependency and build surface (Cargo.toml at any depth, deny.toml, .cargo/config at any depth, rust-toolchain), CI (.github/), and words where the boundary is a file anywhere (secret, credential, token, auth, tls, crypt, sign, trust, parse, wire). The two crates rust-services-dev named for the first slice (crates/backend/http/, crates/runtime/gateway-runtime/) are cases. boundary.exempt is dropped first: Markdown outside the contracts, the decision records' prose under architecture/adr/, and .agent-fabric/. No classes. waiver_role is null: only the owner waives the boundary.",
+  "description": "agent-fabric-gateway's rules for runtime/github/arm.sh. boundary.paths: the gateway carries every session's credentials and traffic, so its boundary is the credential confinement and upstream transport (crates/backend/), the listener, admission and local authentication (crates/runtime/), the protocol parsers that read a harness's request (crates/protocol/), the plan's API and configuration, where credential references and bind restrictions are validated (crates/api/, crates/config/), observability, where redaction keeps a credential out of a log (crates/observability/), the binary roots (apps/), the wire contracts (architecture/contracts/), the dependency and build surface (Cargo.toml and Cargo.lock at any depth, deny.toml, .cargo/config at any depth, rust-toolchain), CI (.github/), and words where the boundary is a file anywhere (secret, credential, token, auth, tls, crypt, signing, trust, parse, wire). boundary.exempt is dropped first, but never for a Cargo.toml or Cargo.lock (a dependency is supply surface wherever it is declared): Markdown outside the contracts, the decision records' prose under architecture/adr/, .agent-fabric/, xtask/, tests/, fixtures/ and crates/test-support/. No classes. waiver_role is null: only the owner waives the boundary.",
   "boundary": {
-    "paths": "^crates/(backend|runtime|protocol)/|^architecture/(contracts|config)/|(^|/)Cargo\\.toml$|^deny\\.toml$|(^|/)\\.cargo/config(\\.toml)?$|^rust-toolchain(\\.toml)?$|^\\.github/|secret|credential|token|auth|tls|crypt|signing|trust|parse|wire",
-    "exempt": "^(?!architecture/(contracts|config)/).*\\.md$|^architecture/adr/|^\\.agent-fabric/",
+    "paths": "^crates/(backend|runtime|protocol|api|config|observability)/|^apps/|^architecture/contracts/|(^|/)Cargo\\.(toml|lock)$|^deny\\.toml$|(^|/)\\.cargo/config(\\.toml)?$|^rust-toolchain(\\.toml)?$|^\\.github/|secret|credential|token|auth|tls|crypt|signing|trust|parse|wire",
+    "exempt": "^(?!.*(^|/)Cargo\\.(toml|lock)$)(^(?!architecture/contracts/).*\\.md$|^architecture/adr/|^\\.agent-fabric/|^xtask/|^tests/|^fixtures/|^crates/test-support/)",
     "cases": [
       "crates/backend/http/src/lib.rs",
       "crates/runtime/gateway-runtime/src/lib.rs",
@@ -12,7 +12,14 @@
       "deny.toml",
       ".cargo/config.toml",
       ".github/workflows/ci.yml",
-      "architecture/contracts/session-plan.schema.json"
+      "architecture/contracts/session-plan.schema.json",
+      "crates/config/plan-config/src/lib.rs",
+      "crates/api/plan-api/src/lib.rs",
+      "crates/observability/telemetry/src/redact.rs",
+      "apps/gateway/src/main.rs",
+      "Cargo.lock",
+      "xtask/Cargo.toml",
+      "crates/test-support/Cargo.toml"
     ]
   },
   "waiver_role": null
