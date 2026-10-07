@@ -29,23 +29,31 @@ it.
 
 The value is read from stdin, so it never appears in argv or the process
 list. The producer is whatever makes the value without showing it: a
-provider's CLI that mints a token on stdout, a file the person left
-behind for you (`< path`, then delete the file). An empty stdin — a
+provider's CLI that mints a token on stdout, or a file the person left
+for you outside every working copy, mode 0600 (`< ~/name`, then delete
+the file) — never in a repository, where `git add -A` would stage it
+before you delete it. An empty stdin — a
 producer that failed — is refused, not stored as an empty secret.
 
-When a **person** has the value, they type it, not you. Give them:
+When a **person** has the value, they type it, not you. Ask them to
+run, in a terminal as your login (your tab in the fleet's terminal, or
+`moveto <your login>`):
 
 ```text
-! fabric-secrets store set NAME
+fabric-secrets store set NAME
 ```
 
-On a terminal it asks twice without echo. Never ask anyone to paste a
+On a terminal it asks twice without echo. Not through the session's
+`!` prefix: whether that gives the command a terminal is unverified,
+and without one the value is read from stdin. Never ask anyone to paste a
 value into the conversation; if one arrives there anyway, it is leaked —
 say so and ask for it to be rotated at its provider.
 
 `set` commits signed and pushes; setting an existing name replaces it.
-`NAME` is an environment-variable name (`SERPAPI_API_KEY`), chosen for
-the variable the consuming tool reads.
+`NAME` is an environment-variable name (`EXAMPLE_API_KEY`), chosen for
+the variable the consuming tool reads. A name the fabric manages is
+refused; `fabric-secrets status --json` lists the managed names it
+applies and your own under `own`.
 
 ## Use
 
@@ -61,15 +69,17 @@ never one that prints it (`echo`, `env`, a debug flag).
 `fabric-secret-run` asks each time: it runs whatever follows `--`, so no
 standing rule can allow it. That ask is the point, not an obstacle.
 
-Exit 2, with the name and never the value, means: a malformed, managed,
-absent or undecryptable name, or a registry it could not read — nothing
-ran. Any other status is the command's own.
+Exit 2 with a `fabric-secret-run:` line on stderr, naming the name and
+never the value, means nothing ran: a malformed, managed, absent or
+undecryptable name, or a registry it could not read. 126 and 127 mean
+the command could not be executed or was not found. Any other status —
+an exit 2 without that line included — is the command's own.
 
 ## See what you hold
 
 ```sh
 fabric-secrets store names        # every entry, names only
-fabric-secrets status             # sync state; your own names under "own"
+fabric-secrets status --json      # sync state; your own names under "own"
 ```
 
 There is no command that prints a value, and none is needed.

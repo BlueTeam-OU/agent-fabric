@@ -166,7 +166,8 @@ proof.
     `secrets-sync` is restarting the session. `fabric-ctl` waits for an
     answer as long as the operation's own budget (`runtime/control/ctl.mjs`):
     20 s by default, 5 s for `ping`, 60 s for `tokens`, 120 s for a drain,
-    240 s for `secrets-sync`, 300 s for `accounts`, and an upgrade's
+    240 s for `secrets-sync`, 300 s for `accounts`, 480 s for
+    `secrets-selftest`, and an upgrade's
     computed budget; `--timeout` overrides it (A 2026-09-27).
 13. `jobs` is an operator's read of an account's open jobs, and
     `jobs-add` an action that puts the owner's job on one login's list
