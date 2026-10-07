@@ -160,13 +160,22 @@ def _after_commit(store: str) -> None:
         git(store, "push", "-q", "origin", f"HEAD:{_branch(store)}")
 
 
-def stdin_value(allow_empty: bool) -> bytes:
+def stdin_value(allow_empty: bool, name: str = "the value") -> bytes:
     """A value from stdin, refused when it is empty and not meant to be: a
     pipe whose producer failed reaches here as nothing, and stored it reads
     "set" while the login now holds an empty token, which the launcher
     refuses at the next session (devex-tooling, 2026-10-01). One trailing
-    newline is not a value either."""
-    value = sys.stdin.buffer.read()
+    newline is not a value either. A terminal is asked twice without echo,
+    as the recovery passphrase is: read from a tty, the value was echoed
+    onto the screen and into its scrollback."""
+    if sys.stdin.isatty():
+        import getpass
+        first = getpass.getpass(f"{name} (not echoed): ")
+        if getpass.getpass("the same again: ") != first:
+            raise StoreError("the two entries differ; nothing written")
+        value = first.encode()
+    else:
+        value = sys.stdin.buffer.read()
     if not allow_empty and not _one_line_off(value):
         raise StoreError("no value on stdin — nothing written (an empty value on purpose: --empty)")
     return value
@@ -193,6 +202,35 @@ def set_entry(name: str, value: bytes, *, exact: bool = False) -> dict:
         _commit(store, f"agent {login()}: set {name}")
         _after_commit(store)
     return {"name": name, "changed": changed}
+
+
+def rm_entry(name: str) -> dict:
+    """The agent removes its own entry: env/NAME.gpg, committed signed as
+    set commits ("agent <login>: rm NAME") and pushed. History is not
+    rewritten — the value stays readable to this key in the store's past,
+    so a value that may have leaked is rotated at its provider, not removed.
+    An absent name changes nothing ("changed": False); an earlier failed
+    push is still caught up."""
+    store = store_dir()
+    key_of_store(store)
+    _check_name(name)
+    _require_clean(store)
+    _before_write(store)
+    rel = os.path.join("env", f"{name}.gpg")
+    tracked = git(store, "ls-files", "--error-unmatch", "--", rel, check=False).returncode == 0
+    if not tracked:
+        # Never committed: an entry no write path leaves (each stages what
+        # it writes), removed all the same so that "absent" is true.
+        try:
+            os.remove(os.path.join(store, rel))
+        except FileNotFoundError:
+            _push_if_ahead(store)
+            return {"name": name, "changed": False}
+        return {"name": name, "changed": True}
+    git(store, "rm", "-q", "--", rel)
+    _commit(store, f"agent {login()}: rm {name}")
+    _after_commit(store)
+    return {"name": name, "changed": True}
 
 
 def names(store: str | None = None) -> list[str]:

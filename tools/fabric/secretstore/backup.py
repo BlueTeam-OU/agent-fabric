@@ -45,7 +45,7 @@ def _proton(*args: str, check: bool = True) -> subprocess.CompletedProcess:
     exe = os.environ.get("PROTON_DRIVE_BIN") or shutil.which("proton-drive")
     if not exe:
         raise StoreError("the Proton Drive CLI is not installed (proton-drive in ~/.local/bin)")
-    r = subprocess.run([exe, *args], capture_output=True, env=env, timeout=600)
+    r = _run([exe, *args], env=env, timeout=600, check=False, label=f"proton-drive {' '.join(args[:2])}")
     if check and r.returncode != 0:
         lines = [l for l in (r.stderr or r.stdout).decode(errors="replace").splitlines() if l.strip()]
         why = (lines or [f"exit {r.returncode}"])[-1]
@@ -104,13 +104,15 @@ def _make_recovery_key(homedir: str, passphrase: str) -> tuple[str, str, str]:
     half and its protected private half, both armoured."""
     base = ["gpg", "--homedir", homedir, "--batch", "--pinentry-mode", "loopback", "--passphrase-fd", "0"]
     def run(*a: str) -> bytes:
-        return subprocess.run([*base, *a], input=passphrase.encode(), capture_output=True, check=True,
-                              env={**os.environ, "GNUPGHOME": homedir}).stdout
+        # Through the store's one boundary: a failure, or a gpg that cannot
+        # start, is a StoreError naming the operation, never a traceback.
+        return _run([*base, *a], stdin=passphrase.encode(), env={**os.environ, "GNUPGHOME": homedir},
+                    label=f"gpg {a[0]}").stdout
     run("--quick-gen-key", RECOVERY_UID, "ed25519", "cert", "never")
     fpr = fingerprints(homedir=homedir, secret=True)[0]
     run("--quick-add-key", fpr, "cv25519", "encr", "never")
-    info = subprocess.run(["gpg-connect-agent", "--homedir", homedir, "KEYINFO --list", "/bye"],
-                          capture_output=True, text=True, check=True).stdout.split("\n")
+    info = _run(["gpg-connect-agent", "--homedir", homedir, "KEYINFO --list", "/bye"],
+                label="gpg-connect-agent KEYINFO").stdout.decode().split("\n")
     # KEYINFO: S KEYINFO <grip> <type> <serial> <idstr> <cached> <protection> …; P is protected.
     marks = [l.split()[7] for l in info if l.startswith("S KEYINFO")]
     if len(marks) != 2 or set(marks) != {"P"}:

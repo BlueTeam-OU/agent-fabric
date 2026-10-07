@@ -174,8 +174,10 @@ tools read:
   both providers then report spend per key, i.e. per agent). A name the
   child holds is left alone unless `--replace`. Only names, statuses and
   fingerprints are printed.
-- Rotation of a shared value: `fabric-secrets store set NAME` in the
-  coordinator's own store (the value on stdin), then `fabric-secrets
+- Rotation of a shared value: `fabric-secrets store set --managed NAME`
+  in the coordinator's own store (the value on stdin; `--managed`
+  because the name is one the fabric manages, which `set` otherwise
+  refuses), then `fabric-secrets
   provision share all --name NAME --replace`, then `fabric-ctl all
   secrets-sync`. A value only one login holds: `fabric-secrets store put
   <login> NAME`, then `fabric-ctl <login> secrets-sync`.

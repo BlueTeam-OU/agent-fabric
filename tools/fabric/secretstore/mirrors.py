@@ -11,9 +11,10 @@ import shutil
 import tempfile
 from typing import TypedDict
 
+from . import lineage as _lineage
 from .core import (
+    FABRIC_ROOT,
     LOGIN_RE,
-    UID_DOMAIN,
     StoreError,
     NotInLineage,
     login,
@@ -28,10 +29,7 @@ from .core import (
     git,
 )
 from .keys import (
-    fingerprints,
     key_of_store,
-    KEY_USES,
-    _key_caps,
     export_key,
     _key_file_fingerprint,
     _key_agent_ids,
@@ -324,13 +322,7 @@ def take_bundle(text: str) -> dict:
 
 # ── the parent ────────────────────────────────────────────────────────
 def lineage(fabric: str | None = None) -> dict[str, LineageEntry]:
-    try:
-        with open(os.path.join(keys_dir(fabric), "lineage.json"), encoding="utf-8") as fh:
-            return json.load(fh)
-    except FileNotFoundError:
-        return {}
-    except ValueError as e:
-        raise StoreError(f"identities/keys/lineage.json is not JSON: {e}") from None
+    return _lineage.lineage(fabric or FABRIC_ROOT)
 
 
 def _write_lineage(doc: dict, fabric: str | None = None) -> None:
@@ -466,113 +458,6 @@ def rename(old: str, new: str, fabric: str | None = None) -> dict:
 
 
 def verify(fabric: str | None = None) -> list[str]:
-    """Every committed key against lineage.json, each on its own:
-    - lineage: keyed by agent id (a UUIDv7), each naming a login no other
-      agent has, a birth equal to its id's, exactly one root (parent
-      null), nobody its own parent, every chain reaching that root;
-    - `<id>.asc` holds exactly one primary key, the recorded one, with a
-      valid user id addressed to that agent id;
-    - a child's key carries a valid certification of that user id by its
-      PARENT's recorded key, read in a keyring holding only the child's
-      file and the parent's, so a certification found in another file, or
-      a swapped or doubled file, never passes.
-    Findings, one line each; [] is clean."""
-    doc, kd, findings = lineage(fabric), keys_dir(fabric), []
-    where = "identities/keys/lineage.json"
-    if not os.path.isdir(kd):
-        return []
-    if not isinstance(doc, dict):
-        return [f"{where}: not an object of agent id -> {{login, born, fingerprint, parent}}"]
-    for who in [w for w, r in doc.items() if not isinstance(r, dict)]:
-        findings.append(f"{where}: the entry for {who} is not an object")
-        del doc[who]
-    for who in [w for w in doc if not AGENT_ID_RE.match(w)]:
-        findings.append(f"{where}: {who} is not an agent id (a UUIDv7, ADR-039)")
-        del doc[who]
-    logins: dict[str, str] = {}
-    for who, rec in sorted(doc.items()):
-        name = rec.get("login")
-        if not isinstance(name, str) or not LOGIN_RE.match(name):
-            findings.append(f"{where}: {who} has no login")
-        elif name in logins:
-            findings.append(f"{where}: {who} and {logins[name]} both have the login {name}")
-        else:
-            logins[name] = who
-        if rec.get("born") != born_of(who):
-            findings.append(f"{where}: {who}'s born is not its id's time ({born_of(who)})")
-    files = {f[:-4] for f in os.listdir(kd) if f.endswith(".asc")}
-    for extra in sorted(files - set(doc)):
-        findings.append(f"identities/keys/{extra}.asc: no lineage.json entry")
-    roots = sorted(w for w, r in doc.items() if r.get("parent") is None)
-    if doc and len(roots) != 1:
-        findings.append(f"{where}: {len(roots)} roots ({', '.join(roots) or 'none'}); "
-                        "the chain has exactly one, the coordinator's key")
-    for who, rec in sorted(doc.items()):
-        parent = rec.get("parent")
-        if parent == who:
-            findings.append(f"{where}: {who} is its own parent")
-            continue
-        seen, at = {who}, parent
-        while at is not None:
-            if at in seen or at not in doc:
-                findings.append(f"{where}: {who}'s chain "
-                                + ("loops" if at in seen else f"names {at}, who has no entry") + "; it must reach the root")
-                break
-            seen.add(at)
-            at = (doc.get(at) or {}).get("parent")
-
-    def keyring_check(who: str, fpr: str, parent: str | None) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            os.chmod(tmp, 0o700)
-            try:
-                gpg("--import", os.path.join(kd, f"{who}.asc"), homedir=tmp, check=False)
-                held = fingerprints(homedir=tmp)
-                if held != [fpr]:
-                    findings.append(f"identities/keys/{who}.asc: holds {len(held)} key(s), "
-                                    f"{'not the recorded ' + fpr if fpr not in held else 'not only the recorded one'}")
-                    return
-                primary, subs = _key_caps(gpg("--with-colons", "--list-keys", fpr, homedir=tmp).stdout.decode())
-                lacking = [name for cap, _, _, name in KEY_USES if cap not in subs]
-                if lacking:
-                    findings.append(f"identities/keys/{who}.asc: no {', '.join(lacking)} subkey; "
-                                    "each use has its own key (ADR-038 rule 1)")
-                if set(primary) & {"e", "a"}:
-                    findings.append(f"identities/keys/{who}.asc: the primary key itself encrypts or authenticates; "
-                                    "it certifies, and each use is a subkey (ADR-038 rule 1)")
-                addr = f"<{who}@{UID_DOMAIN}>"
-                if parent is not None:
-                    pfpr = (doc.get(parent) or {}).get("fingerprint")
-                    if not pfpr or parent not in files:
-                        findings.append(f"identities/keys/{who}.asc: parent {parent} has no recorded, committed key")
-                        return
-                    gpg("--import", os.path.join(kd, f"{parent}.asc"), homedir=tmp, check=False)
-                    if pfpr not in fingerprints(homedir=tmp):
-                        findings.append(f"identities/keys/{parent}.asc: does not hold its recorded key")
-                        return
-                # Per user id: its validity, and the signatures made on it.
-                r = gpg("--with-colons", "--check-sigs", fpr, homedir=tmp, check=False)
-                on_id, has_id, certified = False, False, False
-                for l in r.stdout.decode().splitlines():
-                    f = l.split(":")
-                    if f[0] == "uid":
-                        on_id = f[1] not in ("r", "e", "i") and addr in f[9]
-                        has_id |= on_id
-                    elif f[0] in ("sub", "pub"):
-                        on_id = False
-                    elif f[0] == "sig" and on_id and parent is not None and f[1] == "!" and f[4] == pfpr[-16:]:
-                        certified = True
-                if not has_id:
-                    findings.append(f"identities/keys/{who}.asc: no valid user id addressed to {who}")
-                elif parent is not None and not certified:
-                    findings.append(f"identities/keys/{who}.asc: not certified by its parent {parent}'s key")
-            finally:
-                _run(["gpgconf", "--homedir", tmp, "--kill", "all"], check=False)
-
-    for who, rec in sorted(doc.items()):
-        if who not in files:
-            findings.append(f"{where}: {who} has no committed key")
-            continue
-        if rec.get("parent") == who:
-            continue
-        keyring_check(who, rec.get("fingerprint"), rec.get("parent"))
-    return findings
+    """Every committed key against lineage.json: lineage.py's verify, the
+    one the lint runs, on this fabric."""
+    return _lineage.verify(fabric or FABRIC_ROOT)

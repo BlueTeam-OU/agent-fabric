@@ -9,7 +9,7 @@ fabric-coordinator login, the parent, behind `fabric-secrets provision`.
     fabric-secrets provision share <login…|all> [--name NAME]... [--replace]
         the parent's own value of each shared name into each child's store
         where the child lacks it; --replace writes it anyway (a rotation:
-        `fabric-secrets store set NAME` first, then this, then
+        `fabric-secrets store set --managed NAME` first, then this, then
         `fabric-ctl all secrets-sync`)
     fabric-secrets provision issue-key openrouter|openai <login…> [--replace]
         a key of the login's own, minted with the parent's provisioning key

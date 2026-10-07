@@ -7,18 +7,17 @@ import pwd
 import re
 import subprocess
 
+from . import lineage as _lineage
+# Defined in lineage.py, which the lint loads alone and contributors may not
+# change; here so every part keeps importing them from core.
+from .lineage import LOGIN_RE, UID_DOMAIN, AGENT_ID_RE, StoreError, born_of  # noqa: F401
+
 
 # tools/fabric, as it was while this lived in secret_store.py: FABRIC_ROOT is
 # the checkout two levels above it.
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 FABRIC_ROOT = os.environ.get("AGENT_FABRIC_ROOT") or os.path.dirname(os.path.dirname(HERE))
 NAME_RE = re.compile(r"^[A-Z][A-Z0-9_]{0,63}$")
-LOGIN_RE = re.compile(r"^[a-z_][a-z0-9_-]{0,31}$")
-UID_DOMAIN = "agents.agent-fabric"
-
-
-class StoreError(Exception):
-    """A refusal or a failure; the message is the whole answer and never a value."""
 
 
 class NotInLineage(StoreError):
@@ -31,7 +30,6 @@ def login() -> str:
 
 
 # ── the agent id (ADR-039): a UUIDv7 whose timestamp is the birth ─────
-AGENT_ID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")
 REPO_PREFIX = "agent-fabric-secrets-"
 
 
@@ -45,12 +43,6 @@ def mint_agent_id(born_ms: int) -> str:
     v = (born_ms << 80) | (0x7 << 76) | ((r >> 62) & 0xFFF) << 64 | (0b10 << 62) | (r & ((1 << 62) - 1))
     h = f"{v:032x}"
     return f"{h[:8]}-{h[8:12]}-{h[12:16]}-{h[16:20]}-{h[20:]}"
-
-
-def born_of(agent_id: str) -> str:
-    import datetime
-    ms = int(agent_id.replace("-", "")[:12], 16)
-    return datetime.datetime.fromtimestamp(ms / 1000, datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
 
 
 def born_ms_of(stamp: str) -> int:
@@ -93,7 +85,7 @@ def children_dir() -> str:
 
 
 def keys_dir(fabric: str | None = None) -> str:
-    return os.path.join(fabric or FABRIC_ROOT, "identities", "keys")
+    return _lineage.keys_dir(fabric or FABRIC_ROOT)
 
 
 # What git itself clears when it enters another repository (git rev-parse
@@ -129,6 +121,10 @@ def _run(cmd: list[str], *, stdin: bytes | None = None, cwd: str | None = None,
         r = subprocess.run(cmd, input=stdin, capture_output=True, cwd=cwd, env=env, timeout=timeout)
     except subprocess.TimeoutExpired:
         raise StoreError(f"{what}: timed out after {timeout:g} s") from None
+    except OSError as e:
+        # gpg or git not installed, or not executable: an answer like any
+        # other failure, never a traceback (review of the own-secrets range, F2).
+        raise StoreError(f"{what}: {e.strerror}") from None
     if check and r.returncode != 0:
         raise _failure(what, r)
     return r
@@ -151,12 +147,13 @@ GPG_COMMANDS = {"--import", "--export", "--export-secret-keys", "--list-keys", "
                 "--quick-add-uid", "--quick-sign-key", "--gen-revoke", "--list-packets"}
 
 
-def gpg(*args: str, stdin: bytes | None = None, homedir: str | None = None, check: bool = True):
+def gpg(*args: str, stdin: bytes | None = None, homedir: str | None = None, check: bool = True,
+        timeout: float | None = None):
     cmd = ["gpg", "--batch", "--yes", "--no-tty", "--pinentry-mode", "loopback", "--passphrase", ""]
     if homedir:
         cmd += ["--homedir", homedir]
     op = next((a for a in args if a in GPG_COMMANDS), args[0] if args else "")
-    return _run(cmd + list(args), stdin=stdin, check=check, label=f"gpg {op}")
+    return _run(cmd + list(args), stdin=stdin, check=check, label=f"gpg {op}", timeout=timeout)
 
 
 def git(store: str, *args: str, check: bool = True):

@@ -9,7 +9,9 @@
     fabric-secrets store id-of LOGIN             the agent id lineage.json records for a login
                                                  (exit 3: no agent with that login)
     fabric-secrets store rename OLD NEW          a login renamed; its id, key and store stay
-    fabric-secrets store set NAME                the agent writes an entry (value on stdin)
+    fabric-secrets store set NAME [--managed]    the agent writes an entry (value on stdin; from a
+                                                 terminal, typed twice, not echoed)
+    fabric-secrets store rm NAME [--managed]     the agent removes an entry (a signed commit; absent: exit 0)
     fabric-secrets store export-key              the agent's PUBLIC key, armored (for its parent)
     fabric-secrets store push                    the store to its remote
     fabric-secrets store bundle                  this store, armored, for its parent (first contact)
@@ -46,6 +48,16 @@ browserpass open it: `.gpg-id` names the key, and each secret is
 `env/<NAME>.gpg`, its value on the first line. It is encrypted to the
 agent's key alone. Anyone holding the committed public key can add an
 entry, and only the agent can read one: the parent writes and never reads.
+
+AN AGENT'S OWN ENTRIES. set and rm take any name the fabric does not
+manage (secretstore/reserved.py); a managed one — what sync applies, the
+registry's agent_env, CLAUDE_* and FABRIC_* — is refused with who manages
+it, unless --managed says it is meant. --managed is intent, not a fence:
+the account holds its own key and could write any entry without this
+command; the flag stops a mistake, and the coordinator's rotation recipe
+(runtime/provisioning/README.md) and fabric-ctl keygen pass it. An own
+entry is used by bin/fabric-secret-run, one command at a time; sync never
+writes one anywhere. rm commits the removal; history is not rewritten.
 
 A key is an agent's when its public half is committed at
 `identities/keys/<agent id>.asc` with its parent's certification on the
@@ -147,10 +159,12 @@ from secretstore.entries import (  # noqa: E402
     init,
     stdin_value,
     set_entry,
+    rm_entry,
     names,
     pull,
     values,
 )
+from secretstore.reserved import RegistryUnreadable, reserved  # noqa: E402
 from secretstore.mirrors import (  # noqa: E402
     BUNDLE_BEGIN,
     BUNDLE_END,
@@ -252,15 +266,35 @@ def recovery_key_init(force: bool = False) -> dict:
     return {"fingerprint": fpr, "public": pub, "private": f"{PROTON_ROOT}/keys/{_recovery_key_name(fpr)}"}
 
 
+def _own_or_managed(name: str, managed: bool, what: str) -> None:
+    """set and rm take an own name, or a managed one with --managed; asked
+    before stdin is read, so a refusal never waits for a value."""
+    if managed or not NAME_RE.match(name):
+        return   # a malformed name is refused by the write path, as before
+    try:
+        who = reserved(name, FABRIC_ROOT)
+    except RegistryUnreadable as e:
+        raise StoreError(f"cannot tell whether {name} is managed ({e}); nothing {what}") from None
+    if who:
+        raise StoreError(f"{name} is managed by {who}; nothing {what} (--managed, when that is meant)")
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="fabric-secrets store", description="this agent's encrypted secrets (ADR-038)")
     sub = ap.add_subparsers(dest="cmd", required=True)
     i = sub.add_parser("init")
     i.add_argument("--remote")
     i.add_argument("--agent-id", help="the id the parent minted at enrolment (store-enroll.sh)")
+    managed_help = ("a name the fabric manages, on purpose — intent, not a fence: the rotation recipe "
+                    "(runtime/provisioning/README.md) and fabric-ctl keygen pass it")
     s = sub.add_parser("set")
     s.add_argument("name")
     s.add_argument("--empty", action="store_true", help="store an empty value on purpose")
+    s.add_argument("--managed", action="store_true", help=managed_help)
+    rme = sub.add_parser("rm", help="remove an entry; history is not rewritten, so a value that may have leaked "
+                                    "is rotated at its provider")
+    rme.add_argument("name")
+    rme.add_argument("--managed", action="store_true", help=managed_help)
     n = sub.add_parser("names")
     n.add_argument("--json", action="store_true")
     p = sub.add_parser("put")
@@ -341,13 +375,18 @@ def main(argv: list[str] | None = None) -> int:
             r = rename(args.old, args.new)
             print(f"agent {r['agent_id']}: now {r['login']}")
         elif args.cmd == "set":
-            r = set_entry(args.name, stdin_value(args.empty))
+            _own_or_managed(args.name, args.managed, "written")
+            r = set_entry(args.name, stdin_value(args.empty, args.name))
             print(f"{args.name}: {'set' if r['changed'] else 'unchanged'}")
+        elif args.cmd == "rm":
+            _own_or_managed(args.name, args.managed, "removed")
+            r = rm_entry(args.name)
+            print(f"{args.name}: {'removed' if r['changed'] else 'absent'}")
         elif args.cmd == "names":
             ns = names()
             print(json.dumps(ns) if args.json else "\n".join(ns) or "(no entries)")
         elif args.cmd == "put":
-            r = put(args.login, args.name, stdin_value(args.empty), store=args.store)
+            r = put(args.login, args.name, stdin_value(args.empty, args.name), store=args.store)
             print(f"{args.login} {args.name}: {'written' if r['changed'] else 'unchanged'}")
         elif args.cmd == "certify":
             if args.root == bool(args.login):
