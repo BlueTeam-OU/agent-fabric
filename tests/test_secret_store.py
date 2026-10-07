@@ -48,18 +48,6 @@ def main() -> int:
         # the scratch fabric's, sync its own checkout's, so this is a copy.
         os.makedirs(os.path.join(fabric, "projects"))
         shutil.copy(os.path.join(ROOT, "projects", "registry.json"), os.path.join(fabric, "projects", "registry.json"))
-        # The fabric is a checkout: a store's writers are read at its
-        # origin/main (ADR-042 rule 2), so what certify writes counts only
-        # once it is "merged" — committed here and published to origin/main.
-        fab_git = ["git", "-C", fabric, "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"]
-        subprocess.run(["git", "init", "-q", "-b", "main", fabric], check=True)
-
-        def publish() -> None:
-            subprocess.run(fab_git + ["add", "-A"], check=True)
-            subprocess.run(fab_git + ["commit", "-q", "--allow-empty", "-m", "identities"], check=True)
-            subprocess.run(fab_git + ["update-ref", "refs/remotes/origin/main", "HEAD"], check=True)
-        remote = os.path.join(tmp, "child-remote.git")
-        subprocess.run(["git", "init", "-q", "--bare", "-b", "main", remote], check=True)
 
         def role(name: str) -> dict:
             h = os.path.join(tmp, name)
@@ -70,6 +58,23 @@ def main() -> int:
                     "HOME": h, "GNUPGHOME": g, "AGENT_FABRIC_ROOT": fabric,
                     "AGENT_FABRIC_SECRET_STORE": os.path.join(h, "store"),
                     "GIT_CONFIG_GLOBAL": os.path.join(h, ".gitconfig")}
+
+        # Every git call runs in a role's env, the fixture's too: with the
+        # runner's HOME a global init.templateDir, core.hooksPath or signing
+        # setting would shape the scratch repositories.
+        fixture = role("fixture")
+        # The fabric is a checkout: a store's writers are read at its
+        # origin/main (ADR-042 rule 2), so what certify writes counts only
+        # once it is "merged" — committed here and published to origin/main.
+        fab_git = ["git", "-C", fabric, "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"]
+        subprocess.run(["git", "init", "-q", "-b", "main", fabric], check=True, env=fixture)
+
+        def publish() -> None:
+            subprocess.run(fab_git + ["add", "-A"], check=True, env=fixture)
+            subprocess.run(fab_git + ["commit", "-q", "--allow-empty", "-m", "identities"], check=True, env=fixture)
+            subprocess.run(fab_git + ["update-ref", "refs/remotes/origin/main", "HEAD"], check=True, env=fixture)
+        remote = os.path.join(tmp, "child-remote.git")
+        subprocess.run(["git", "init", "-q", "--bare", "-b", "main", remote], check=True, env=fixture)
 
         parent, child = role("parent"), role("child")
         sock = lambda env: subprocess.run(["gpgconf", "--list-dirs", "agent-socket"], env=env,
@@ -664,7 +669,7 @@ def main() -> int:
                   git_c("log", "-1", "--format=%s") == f"agent {me_login}: rm RM_ME"
                   and git_c("log", "-1", "--format=%G?") in ("G", "U"), git_c("log", "-1", "--format=%s %G?"))
             check("…pushed to the store's remote",
-                  subprocess.run(["git", "-C", remote, "log", "-1", "--format=%s", "main"], capture_output=True,
+                  subprocess.run(["git", "-C", remote, "log", "-1", "--format=%s", "main"], env=child, capture_output=True,
                                  text=True).stdout.strip() == f"agent {me_login}: rm RM_ME")
             check("…and history is not rewritten: the commit before still holds it",
                   git_c("cat-file", "-t", "HEAD~1:env/RM_ME.gpg") == "blob")
@@ -789,7 +794,7 @@ def main() -> int:
             # F4: the agent's own write reaches the remote, and a parent's put
             # afterwards merges with it; the child then reads both.
             remote_names = lambda: subprocess.run(["git", "--git-dir", remote, "ls-tree", "-r", "--name-only", "main"],
-                                                  capture_output=True, text=True).stdout
+                                                  env=child, capture_output=True, text=True).stdout
             check("F4: the agent's own set is pushed", "env/EMPTY_ONE.gpg" in remote_names(), remote_names())
             with open(os.path.join(mirror, ".gpg-id"), "w") as fh:   # undo the re-key case above
                 fh.write(child_fpr + "\n")
