@@ -191,11 +191,14 @@ with Doppler (ADR-038 §5 rule 8).
     kept by the harness hook `session-state.py` in the account's own
     state directory, and the account's control agent posts it as a
     `state` record (`sessions.mjs`) when what it would say changes, and
-    every ten minutes. The record names each live session's id, state
+    every ten minutes, on a state channel of its own (`config.json`
+    `state_channel`, ending in `:control`), so a burst of replies on the
+    control channel never buries it. The record names each live session's id, state
     and since when, and the binding's role and project; a session whose
     `claude` process is gone is left out. `fabric-ctl states` reads
     those records, sending no request; a record older than two
-    heartbeats reads as unknown. A display that shows the states
+    heartbeats reads as unknown, and `--follow` prints a row when it
+    changes or goes stale. A display that shows the states
     consumes `fabric-ctl states --follow --json` and never polls the
     accounts (A 2026-10-07).
 

@@ -97,6 +97,9 @@ export function controlConfig(env = process.env, file = path.join(HERE, 'config.
   return {
     relay_url: env.CLAUDE_BRIDGE_URL ?? own.relay_url ?? 'http://127.0.0.1:8765',
     channel: env.FABRIC_CONTROL_CHANNEL ?? own.channel ?? 'fabric:control',
+    // Session state rides its own channel (ADR-029 rule 16), named to end
+    // in :control like the control channel, so no inbox ever drains it.
+    state_channel: env.FABRIC_STATE_CHANNEL ?? own.state_channel ?? 'fabric:state:control',
     ttl_s: Number(own.ttl_s) > 0 ? Number(own.ttl_s) : 30,
   };
 }
@@ -321,7 +324,8 @@ export async function main(argv = process.argv.slice(2)) {
     setInterval(pressure.tick, SAMPLE_INTERVAL_MS).unref();
     // What the account's sessions are doing, posted when it changes
     // (sessions.mjs); first at start, so a restart re-says it.
-    const states = stateWatcher({ address: me.address, post, binding: who.binding });
+    const postState = content => call('/api/send', { method: 'POST', body: JSON.stringify({ channel: cfg.state_channel, sender: me.address, content: JSON.stringify(content) }) });
+    const states = stateWatcher({ address: me.address, post: postState, binding: who.binding });
     states.tick();
     setInterval(states.tick, STATE_POLL_MS).unref();
   }

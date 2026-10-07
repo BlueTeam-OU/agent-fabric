@@ -23,8 +23,9 @@
 //   fabric-ctl <login|all> local-prune              an ACTION: remove from those files the env entries that duplicate a
 //                                                   synced secret (ADR-038 rule 9), nothing else
 //   fabric-ctl <login|all> states [--follow] [--json]   what each account's sessions are doing (working,
-//                                                   blocked, idle), from the state records agentd posts (ADR-029
-//                                                   rule 16): no request sent; --follow streams each change
+//                                                   blocked, idle), from the state records agentd posts on the
+//                                                   state channel (ADR-029 rule 16): no request sent; --follow
+//                                                   prints each account's row when it changes or goes stale
 //   fabric-ctl keygen [--force]                     the operator's signing key: private half into this login's store,
 //                                                   public into the registry
 //
@@ -575,13 +576,18 @@ export async function main(argv = process.argv.slice(2), { registry, fetchImpl }
   return want.size || short() || refused || actionFailed ? 1 : 0;
 }
 
-// `states`: the state records agentd posts (runtime/control/sessions.mjs).
+// `states`: the state records agentd posts (runtime/control/sessions.mjs)
+// on the state channel, a channel of their own so a burst on the control
+// channel (a drain's hundreds of parts) never pushes them out of reach.
 // The snapshot is the newest record per expected address among the last
-// STATES_REPLAY on the channel; --follow then waits on the channel and
-// prints each new record for an expected address, one line, as it comes.
-// A record older than STATES_STALE_MS says the account's daemon has not
-// spoken for two heartbeats: its sessions are unknown, not idle. With
-// --json, one object per line — what a listener (the herdr bridge) reads.
+// STATES_REPLAY there. --follow then waits on the channel and prints an
+// account's row whenever it changes: a new record that says something
+// new, or a record that has aged past STATES_STALE_MS — the account's
+// daemon has not spoken for two heartbeats, so its sessions are unknown,
+// not what it last said. Each wait returns within a minute, so a row goes
+// unknown within a minute of its deadline. A lost cursor re-reads the
+// snapshot, never skipping what it anchors on. With --json, one object
+// per line — what a listener (the herdr bridge) reads.
 export const STATES_REPLAY = 500;
 export const STATES_STALE_MS = 2 * 10 * 60 * 1000;
 const RANK = { blocked: 3, working: 2, idle: 1 };
@@ -615,32 +621,57 @@ const printable = v => String(v).replace(/[\x00-\x1f\x7f-\x9f]/g, '?');
 export async function states(args, expected, { call, cfg, out = m => console.log(m), err = m => console.error(m), now = Date.now, sleep = ms => new Promise(r => setTimeout(r, ms)), forever = true }) {
   const q = o => new URLSearchParams(o).toString();
   const want = new Set(expected.map(e => e.address));
+  const channel = cfg.state_channel;
   const line = row => args.json ? JSON.stringify(row)
     : `${row.address.padEnd(32)} ${printable(row.state).padEnd(8)} ${printable(row.role ?? '-').padEnd(18)} ${row.sessions.length} session${row.sessions.length === 1 ? '' : 's'}${row.since ? `  since ${printable(row.since)}` : ''}${row.why ? `  (${row.why})` : ''}`;
-  let page;
-  try { page = await call(`/api/messages?${q({ channel: cfg.channel, limit: String(STATES_REPLAY), full: '1' })}`); }
-  catch (e) { err(`fabric-ctl: relay ${e.status ? `refused (HTTP ${e.status})` : `unreachable at ${cfg.relay_url}`}`); return 3; }
-  const rows_ = page.messages ?? [];
   const latest = new Map();
-  for (const rec of rows_) { const r = stateRecordOf(rec, want); if (r) latest.set(r.from, r); }
-  for (const e of expected) out(line(stateRow(e.address, latest.get(e.address), now())));
+  const shown = new Map();   // address → the row last printed, without its ts: a heartbeat that says nothing new prints nothing
+  const show = (address, force = false) => {
+    const row = stateRow(address, latest.get(address), now());
+    const { ts, ...said } = row;
+    const key = JSON.stringify(said);
+    if (!force && shown.get(address) === key) return;
+    shown.set(address, key);
+    out(line(row));
+  };
+  const take = rows => { for (const rec of rows) { if (!rec) continue; const r = stateRecordOf(rec, want); if (r) latest.set(r.from, r); } };
+  // The newest records on the channel, read into `latest`; the last id, or
+  // null on an empty channel.
+  const snapshot = async () => {
+    const page = await call(`/api/messages?${q({ channel, limit: String(STATES_REPLAY), full: '1' })}`);
+    const rows = Array.isArray(page?.messages) ? page.messages : [];
+    take(rows);
+    return rows.at(-1)?.id ?? null;
+  };
+  let last;
+  try { last = await snapshot(); }
+  catch (e) { err(`fabric-ctl: relay ${e.status ? `refused (HTTP ${e.status})` : `unreachable at ${cfg.relay_url}`}`); return 3; }
+  for (const e of expected) show(e.address, true);
   if (!args.follow) return [...want].every(a => latest.has(a)) ? 0 : 1;
-  let last = rows_.at(-1)?.id ?? null, down = false;
+  let down = false;
   do {
     // Only the relay calls are in the try: an outage is said as one, and
     // nothing a record holds can be mistaken for it.
-    let w;
+    let w = null;
     try {
-      if (!last) { const p = await call(`/api/messages?${q({ channel: cfg.channel, limit: '1' })}`); last = (p.messages ?? p).at(-1)?.id ?? null; if (!last) { await sleep(5000); continue; } }
-      w = await call(`/api/wait?${q({ channel: cfg.channel, since_id: last, timeout_seconds: '55', limit: '50', full: '1' })}`);
+      if (!last) last = await snapshot();
+      if (last) w = await call(`/api/wait?${q({ channel, since_id: last, timeout_seconds: '55', limit: '50', full: '1' })}`);
     } catch (e) {
       if (!down) { err(`fabric-ctl: relay unreachable at ${cfg.relay_url} (${e.message}) — retrying every 5 s`); down = true; }
       await sleep(5000);
       continue;
     }
     if (down) { err('fabric-ctl: relay is back'); down = false; }
-    if (w?.warning === 'since_id_not_found') { last = null; continue; }
-    for (const rec of Array.isArray(w?.messages) ? w.messages : []) { if (!rec) continue; last = rec.id ?? last; const r = stateRecordOf(rec, want); if (r) out(line(stateRow(r.from, r, now()))); }
+    if (w?.warning === 'since_id_not_found') last = null;
+    else {
+      const rows = Array.isArray(w?.messages) ? w.messages : [];
+      for (const rec of rows) if (rec?.id) last = rec.id;
+      take(rows);
+    }
+    // Every account, every turn: a record that arrived changes a row, and
+    // so does one that has only grown old.
+    for (const e of expected) show(e.address);
+    if (!last) await sleep(5000);   // an empty channel: nothing to wait after yet
   } while (forever);
   return 0;
 }

@@ -713,3 +713,30 @@ test('states: a forged record can mislead a row, never stop the table or reach t
   assert.deepEqual(lines, ['unknown', 'none']);
   assert.deepEqual(err, [], 'no outage said');
 });
+
+test('states --follow: a row goes unknown when its account falls silent, a heartbeat prints nothing, the re-anchor is read (review of #105)', async () => {
+  const { states, STATES_STALE_MS } = await import('../ctl.mjs');
+  let t = Date.parse('2026-10-07T12:00:00Z');
+  const st = (id, state, at = new Date(t).toISOString()) => ({ id, content: JSON.stringify({ v: 1, kind: 'state', from: 'h/a', ts: at, sessions: [{ session: 's', state, since: 'x' }] }) });
+  const paths = [];
+  const script = [
+    () => ({ messages: [st('1', 'working')] }),                       // snapshot
+    () => ({ messages: [st('2', 'working')] }),                       // a heartbeat: nothing new
+    () => { t += STATES_STALE_MS + 1000; return { messages: [] }; },  // silence past the deadline
+    () => ({ warning: 'since_id_not_found' }),                        // the cursor is lost
+    () => ({ messages: [st('5', 'blocked')] }),                       // the re-anchor holds the news
+    () => ({ messages: [] }),
+    () => ({ messages: [null, { content: 'x' }, { id: '6', content: '{}' }] }),  // odd replies the relay may give
+    () => null,
+  ];
+  const out = [], err = [];
+  let i = 0, stop;
+  const done = new Promise(r => { stop = r; });
+  const call = async p => { paths.push(p); if (i >= script.length) { stop(); return new Promise(() => {}); } return script[i++](); };
+  states({ json: true, follow: true }, [{ address: 'h/a' }], { call, cfg: { channel: 'fabric:control', state_channel: 'fabric:state:control', relay_url: 'x' }, out: m => out.push(JSON.parse(m).state), err: m => err.push(m), now: () => t, sleep: async () => {} });
+  await done;
+  assert.deepEqual(out, ['working', 'unknown', 'blocked'], 'the snapshot, the staleness, the re-anchored record; no line for the heartbeat or the odd replies');
+  assert.deepEqual(err, []);
+  assert.ok(paths.every(p => p.includes('channel=fabric%3Astate%3Acontrol')), `the state channel only: ${paths}`);
+  assert.ok(paths.some(p => p.includes('since_id=6')), 'an odd reply with an id still moves the cursor');
+});

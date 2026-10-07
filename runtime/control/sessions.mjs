@@ -5,7 +5,8 @@
 // <state>/session-state.json: per session id, working, blocked or idle,
 // since when, and the session's `claude` process with its start time.
 // agentd reads it every STATE_POLL_MS and posts a `state` record
-// (protocol.mjs) when what it would say differs from what it last said,
+// (protocol.mjs) on the state channel (config.json `state_channel`) when
+// what it would say differs from what it last said,
 // and again every STATE_HEARTBEAT_MS, so a listener that starts late, or
 // missed a record while the relay was down, converges without asking.
 //
