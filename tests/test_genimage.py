@@ -198,15 +198,25 @@ def main() -> int:
         # The key line and the key are read apart (CodeQL alert 53 on #110):
         # a key gone between the two reads is a refusal, never a request
         # sent with no key.
-        saved_resolve = genimage.resolve_key
-        genimage.resolve_key = lambda *a: ""
+        # …and the key sent is the one the key line named: .env.local's,
+        # gone between the reads while secrets.env still holds one, is a
+        # refusal, never secrets.env's key sent under ".env.local".
+        saved_local = genimage.env_local_key
+        reads = []
+
+        def local_then_gone(root: str) -> str:
+            reads.append(root)
+            return "l" if len(reads) == 1 else ""
+        genimage.env_local_key = local_then_gone
         try:
             fake = FakeOpener(200, image(b"png"))
-            rc, out, err = run(["p", "-o", "gone.png"], env=fixture_env(env_key="e"), opener=fake)
+            rc, out, err = run(["p", "-o", "gone.png"], env=fixture_env(sec="export OPENAI_API_KEY=s\n"), opener=fake)
         finally:
-            genimage.resolve_key = saved_resolve
-        check("a key that was there for the key line and is gone for the request: refused, nothing sent",
-              rc == 1 and "OPENAI_API_KEY (from the environment) is gone now" in err and not fake.requests, f"rc={rc}\n{err}")
+            genimage.env_local_key = saved_local
+        check("a key that was there for the key line and is gone for the request: refused, nothing sent, "
+              "never another source's key",
+              rc == 1 and "• key:    from .env.local" in out and "OPENAI_API_KEY (from .env.local) is gone now" in err
+              and not fake.requests, f"rc={rc}\n{out}{err}")
         check("K6 the last of two export lines is used",
               bearer(fixture_env(sec="export OPENAI_API_KEY=first\nexport OPENAI_API_KEY=second\n")) == "Bearer second")
         check(".env.local: export prefix, quotes stripped, # lines skipped, the first non-empty value wins",

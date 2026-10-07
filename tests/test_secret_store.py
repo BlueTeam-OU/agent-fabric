@@ -439,6 +439,30 @@ def main() -> int:
             check("…while the commit named is the last write: removed",
                   current.returncode == 0 and current.stdout.strip() == "GUARDED_ONE: removed"
                   and "GUARDED_ONE" not in run(child, "names").stdout, current.stdout + current.stderr)
+            # …and a write that reaches the store only through its remote
+            # (the agent on another host, a parent's put) is seen too: the
+            # check runs after rm's own fetch. Pushed, signed by the child,
+            # from a second clone of the remote.
+            run(child, "set", "GUARDED_TWO", stdin="first")
+            judged = subprocess.run(["git", "-C", cs, "log", "-1", "--format=%H", "--", "env/GUARDED_TWO.gpg"],
+                                    capture_output=True, text=True).stdout.strip()
+            other = os.path.join(tmp, "other-host")
+            subprocess.run(["git", "clone", "-q", remote, other], check=True, capture_output=True)
+            shutil.copy(os.path.join(cs, "env", "OWN_NOTE.gpg"), os.path.join(other, "env", "GUARDED_TWO.gpg"))
+            signing = subprocess.run([sys.executable, "-c", "import sys; sys.path.insert(0, sys.argv[1]); "
+                                      "from secretstore.keys import _signing_args; print('\\n'.join(_signing_args()))",
+                                      os.path.dirname(TOOL)], env=child, capture_output=True, text=True).stdout.split("\n")
+            subprocess.run(["git", "-C", other, "-c", "user.name=t", "-c", "user.email=t@t", *[a for a in signing if a],
+                            "commit", "-q", "-am", "agent on another host: set GUARDED_TWO"], env=child, check=True,
+                           capture_output=True)
+            subprocess.run(["git", "-C", other, "push", "-q", "origin", "HEAD:main"], env=child, check=True,
+                           capture_output=True)
+            remote_won = run(child, "rm", "GUARDED_TWO", "--expect-last", judged)
+            check("…a write that arrived only through the remote stops it too: refused, the entry kept",
+                  remote_won.returncode == 1 and "nothing removed" in remote_won.stderr
+                  and "GUARDED_TWO" in run(child, "names").stdout, remote_won.stdout + remote_won.stderr)
+            run(child, "rm", "GUARDED_TWO")
+            shutil.rmtree(other)
             # Two writers in one store at once (the own-secrets review, R2:
             # the agent's set beside its control agent's self-test). The first
             # is held between staging its entry and committing it (a

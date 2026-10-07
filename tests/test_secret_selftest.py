@@ -248,6 +248,16 @@ def main() -> int:
     spec.loader.exec_module(st)
     st.reserved = lambda name, root: None
     real_cmd = st._cmd
+    # The store is the fakes': no leftover is read or recorded in a real one,
+    # and a path that reaches for one fails here, loudly (review of #110).
+    st._remember_leftover = lambda: False
+    st._own_leftover = lambda: None
+    st._forget_leftover = lambda: None
+
+    def no_real_store():
+        raise AssertionError("the in-process cases reached for a real store")
+    st.store_dir = no_real_store
+
     # The leftover's rm is held to the recorded commit (--expect-last), so a
     # write that lands between the check and the rm is not removed.
     leftover_sha = "f" * 40
@@ -265,10 +275,8 @@ def main() -> int:
     check("the leftover's rm names the recorded commit (--expect-last)",
           seen_rm and seen_rm[0][-2:] == ["--expect-last", leftover_sha], seen_rm)
     st._cmd = real_cmd
-
-    # The store is the fakes': no leftover is read or recorded in a real one.
-    st._remember_leftover = lambda: False
     st._own_leftover = lambda: None
+
 
     # A timeout ends the command's whole group (the own-secrets review, R3):
     # the shim's python and the git it runs, not only the direct child. A

@@ -283,15 +283,20 @@ def secrets_key(home: str) -> tuple[str, bool]:
     return (value, False) if value else ("", True)
 
 
-def resolve_key(environ: dict[str, str], root: str, home: str) -> str:
-    """The key, first found wins; "" when there is none to use."""
-    if environ.get("OPENAI_API_KEY"):
-        return environ["OPENAI_API_KEY"]
-    return env_local_key(root) or secrets_key(home)[0]
+def resolve_key(source: str, environ: dict[str, str], root: str, home: str) -> str:
+    """The key from the one source _origin named, "" when that source holds
+    none now: what is sent is what the key line said (review of #110)."""
+    if source == "from the environment":
+        return environ.get("OPENAI_API_KEY") or ""
+    if source == "from .env.local":
+        return env_local_key(root)
+    if source == f"from {SECRETS_SHOWN}":
+        return secrets_key(home)[0]
+    return ""
 
 
 def _origin(environ: dict[str, str], root: str, home: str) -> str:
-    """What the key line says, in the same order as resolve_key; "present …
+    """What the key line says, the first source holding a value; "present …
     but unreadable" and "none found" are a refusal unless it is a dry run.
     Apart from resolve_key on purpose: what is printed is decided by which
     source holds a value, and never travels with the value itself
@@ -479,7 +484,7 @@ def main(argv: list[str], *, environ: dict[str, str] | None = None, cwd: str | N
         raise Fail(f"OPENAI_API_KEY {source} — run `fabric-secrets sync` again")
 
     payload = json.dumps(body, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
-    key = resolve_key(environ, root, home)
+    key = resolve_key(source, environ, root, home)
     if not key:
         raise Fail(f"OPENAI_API_KEY ({source}) is gone now — run it again")
     answer = post(opener or make_opener(), ENDPOINT, payload, key, timeout)
