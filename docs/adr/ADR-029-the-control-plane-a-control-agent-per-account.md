@@ -201,6 +201,14 @@ with Doppler (ADR-038 §5 rule 8).
     changes or goes stale. A display that shows the states
     consumes `fabric-ctl states --follow --json` and never polls the
     accounts (A 2026-10-07).
+17. `secrets-selftest` is an action that proves the account can add,
+    use and delete a secret of its own: it runs `fabric-secrets selftest
+    --json` as the login (`selftest.mjs`), which sets a canary name in
+    the account's own store, reads it through `fabric-secret-run`, and
+    removes it — two signed commits pushed to the store's remote. It
+    takes no arguments; the reply is the verdict (`pass` or `fail`) and
+    its steps, never the canary or its digest. One runs at a time per
+    account, a second is answered busy (A 2026-10-07).
 
 ## 6. Consequences
 
@@ -267,3 +275,4 @@ The body above reads current; each change's full note is in [history/ADR-029-ame
 | 2026-09-30 | Doppler is retired: the store holds what Doppler held | §5 rule 5 (the signing key's home), rule 14 withdrawn |
 | 2026-10-06 | Each account's settings.local.json on the control plane | §5 rule 15: `local`, a names-only read; `local-prune`, an action removing synced secrets from its `env` |
 | 2026-10-07 | Session state on the control channel | §5 rule 16: the session-state hook, agentd's `state` record on change and heartbeat, `fabric-ctl states [--follow]` |
+| 2026-10-07 | secrets-selftest proves an account's own secrets | §5 rule 17: the `secrets-selftest` action, a canary set, used through `fabric-secret-run` and removed in the account's own store |
