@@ -28,7 +28,7 @@ A conforming sender:
 
 - validates every message with a conforming parser (§18) before sending;
 - does not send a message that fails validation;
-- where the deployment prescribes how identifiers are minted (here UUIDv7, `gzmsg.mjs new-id`), does not send a message whose `MESSAGE-ID` or `IN-REPLY-TO` is not one — a malformed identifier is always a composition error, and it degrades quietly: the message reads correctly and the thread cannot be reconstructed.
+- where the deployment prescribes how identifiers are minted (here UUIDv7, `gzmsg new-id`), does not send a message whose `MESSAGE-ID` or `IN-REPLY-TO` is not one — a malformed identifier is always a composition error, and it degrades quietly: the message reads correctly and the thread cannot be reconstructed.
 
 ## Agent runtime
 
