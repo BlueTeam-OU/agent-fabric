@@ -145,23 +145,3 @@ def candidate_role_findings(root: str, catalog: dict[str, Any] | None,
                        f"{', '.join(sorted(bound[rid]))} binds it and {', '.join(logins)} holds it — "
                        "a proved role; drop `candidate`")
     return out
-
-
-def role_group_findings(catalog: dict[str, Any] | None) -> list[str]:
-    """Every role names one of the catalogue's `groups`: Fleet Deck lays
-    the agents out by it, and a role with none would land in a catch-all
-    the operator never asked for. Said in the change that adds the role,
-    not discovered on the console."""
-    if not catalog:
-        return []
-    groups = catalog.get("groups")
-    if not isinstance(groups, list) or not groups or not all(isinstance(g, str) and g for g in groups):
-        return ["identities/roles/catalog.json: `groups` is not a list of names — Fleet Deck has nothing to arrange the agents by"]
-    out: list[str] = []
-    for r in catalog.get("roles", []) or []:
-        if not isinstance(r, dict):
-            continue
-        if r.get("group") not in groups:
-            out.append(f"identities/roles/catalog.json: role {r.get('id')!r} has group {r.get('group')!r}, "
-                       f"not one of {groups}")
-    return out
