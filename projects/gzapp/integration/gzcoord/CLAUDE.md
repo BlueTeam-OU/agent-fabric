@@ -15,10 +15,10 @@ the sending session prints a validated GZCOORD/1 message in a fenced
 block and the person copies it into the receiving session's prompt
 (`communication/gzcoord/docs/HUMAN-RELAY-TRANSPORT.md`). Concretely:
 
-- **Do** validate every message with
-  `gzmsg`, and give every message a
-  `MESSAGE-ID` minted by `gzmsg new-id` — a UUIDv7, unique by
-  construction, no counter to seed or continue. Your address is
+- **Do** start every message from `gzcoord-compose <TYPE> … -o <file>`,
+  never a hand-typed header: it fills `FROM`, `ROLE`, `PROJECT` and
+  `REPOSITORY` from this session and mints the `MESSAGE-ID` (a UUIDv7,
+  `gzmsg new-id`), and `gzcoord-send` validates it before it leaves. Your address is
   `<host>/<login>`: the account this session runs under
   (`fabric-whoami` from the working copy), never the working copy's name.
   Put the role's **slug** in `ROLE` (`identities/roles/catalog.json` —

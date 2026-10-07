@@ -116,7 +116,7 @@ def main() -> int:
         os.makedirs(os.path.join(root, ".github", "workflows"))
         open(os.path.join(root, ".github", "workflows", "ci.yml"), "wb").write(b"jobs:\n  a: \xff\xfe\n")
         r = subprocess.run([sys.executable, TOOL, "--root", root], capture_output=True, text=True)
-    ok = r.returncode == 2 and "could not be read" in r.stderr
+    ok = r.returncode == 2 and "could not be read: .github/workflows/ci.yml (UnicodeDecodeError)" in r.stderr
     fails += not ok
     print(f"  {'ok  ' if ok else 'FAIL'} a workflow that is not UTF-8: exit 2, not checked, never a finding"
           + ("" if ok else f"\n        rc={r.returncode} {r.stderr[-200:]}"))

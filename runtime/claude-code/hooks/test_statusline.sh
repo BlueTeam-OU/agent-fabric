@@ -17,6 +17,9 @@ fail() { echo "  FAIL $1: $2" >&2; failures=$((failures + 1)); }
 # gh is mocked on PATH: MOCK_PR holds "<STATE> <number>" lines or nothing,
 # MOCK_GH_FAIL makes it exit 1; the cache lives under the sandbox so no
 # real cache is read or written, and a TTL of 0 means every call asks.
+# A GH_REPO in the caller's environment would name the repository for
+# every case and hide the origin reading the fork case tests.
+unset GH_REPO
 mkdir -p "$SANDBOX/bin"
 cat > "$SANDBOX/bin/gh" <<'GH'
 #!/usr/bin/env bash
