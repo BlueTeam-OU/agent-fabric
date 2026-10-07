@@ -1040,6 +1040,15 @@ def failures() -> None:
           r.rc == 0 and "  !  runtime/claude-code/commands.json unreadable — no command linked" in r.err.splitlines()
           and not os.path.isdir(e.lb) and "NOT written (above)." in r.lines[-2], r)
 
+    m = Account("replaces-malformed", wcs=False)
+    spec = json.load(open(f"{m.fr}/runtime/claude-code/commands.json"))
+    spec["replaces"]["gzmsg"] = "communication/gzcoord/scripts/gzmsg.mjs"
+    put(f"{m.fr}/runtime/claude-code/commands.json", json.dumps(spec))
+    r = bootstrap(m)
+    check("a malformed replaces entry: said on stderr, the rest linked",
+          r.rc == 0 and "  !  runtime/claude-code/commands.json: replaces['gzmsg'] is not a list of paths — "
+          "ignored; an old link of gzmsg stays" in r.err.splitlines() and os.path.islink(f"{m.lb}/fabric-whoami"), r)
+
     f = Account("readonly-bin", wcs=False)
     os.makedirs(f.lb)
     os.chmod(f.lb, 0o555)
