@@ -9,6 +9,7 @@ verification read-backs, and the orchestrator's usage, refusals, bounds
 and pipelines. Plain script: prints ok/FAIL, exit 1 on any failure."""
 from __future__ import annotations
 
+import hashlib
 import io
 import json
 import os
@@ -73,6 +74,27 @@ def main() -> int:
                              timeout=30).stdout
         check("a value carrying shell characters stays a value through the eval", got == "x';touch /tmp/pwned;'", got)
         check("no phase: the usage, exit 2", worker_args() == (2, w.USAGE) and worker_args("bogus")[0] == 2)
+        fp = "0123456789ab"
+        rc, out = worker_args("finish", "l", "r", "--claude-account", f"acct-one={fp}")
+        got = subprocess.run(["bash", "-c", out + 'printf "%s;" "${VERIFY_ACCOUNT[@]}"'],
+                             capture_output=True, text=True, timeout=30).stdout
+        check("finish: --claude-account <slug>=<fp12>, spaced or =, reaches the step-runner",
+              rc == 0 and got == f"--claude-account=acct-one={fp};"
+              and worker_args("finish", "l", "r", f"--claude-account=acct-one={fp}")[0] == 0, got)
+        rc, out = worker_args("finish", "l", "r", "--no-claude-account")
+        got = subprocess.run(["bash", "-c", out + 'printf "%s;" "${VERIFY_ACCOUNT[@]}"'],
+                             capture_output=True, text=True, timeout=30).stdout
+        check("…--no-claude-account too", rc == 0 and got == "--no-claude-account;", got)
+        rc, out = worker_args("finish", "l", "r")
+        got = subprocess.run(["bash", "-c", out + 'echo "${#VERIFY_ACCOUNT[@]}"'], capture_output=True, text=True,
+                             timeout=30).stdout
+        check("…neither: no flag", rc == 0 and got == "0\n", got)
+        check("…a value that is not <slug>=<12 hex> is refused before the eval",
+              all(worker_args("finish", "l", "r", "--claude-account", v)[0] == 2
+                  for v in ("acct-one", f"Acct={fp}", f"a';id;'={fp}", "a=0123456789AB", f"a={fp}0")))
+        check("…both together are refused", worker_args("finish", "l", "r", "--no-claude-account", "--claude-account",
+                                                        f"a={fp}")[0] == 2)
+        check("…and a missing value is exit 1", worker_args("finish", "l", "r", "--claude-account")[0] == 1)
         check("prepare with only a login: the login is an unknown argument (bash's shift 2 || true, kept)",
               worker_args("prepare", "x") == (2, "new-agent-worker: unknown argument x"))
         check("no login: said", worker_args("prepare") == (2, "new-agent-worker: no login"))
@@ -157,6 +179,16 @@ def main() -> int:
         c = w.closing("acct", "present", "template", "")
         check("…present ones said as present; no project, no clone name",
               "GPG secret key: the signing key's, present" in c and "a template token (plain-claude path ready)" in c and "moveto acct   then" in c)
+        c = w.closing("acct", "present", "applied", "", account="acct-one=0123456789ab")
+        check("an account named and applied: its slug and fingerprint", c.startswith("new-agent: done.")
+              and "- Claude account: acct-one (token 0123456789ab), applied (plain-claude path ready)" in c)
+        c = w.closing("acct", "present", "not-applied", "", account="acct-one=0123456789ab")
+        check("…named and not applied: not done, and how to apply it", c.startswith("new-agent: NOT done")
+              and "acct-one (token 0123456789ab) was assigned and is NOT applied" in c and "fabric-secrets sync" in c)
+        c = w.closing("acct", "present", "declined", "")
+        check("--no-claude-account: said, with how to assign one later", c.startswith("new-agent: done.")
+              and "not assigned (--no-claude-account: the broker path only); no template token" in c
+              and "bin/fabric-accounts assign acct" in c)
 
         print("the signing key's secret: the colon listing, judged as fabric-ctl keys judges it")
         listings = {
@@ -211,7 +243,7 @@ def main() -> int:
         SIGNING_SECRET = b"sec:u:255:22:AAAA1111BBBB2222:1700000000:::u:::scESC:::+::ed25519:::0:\n"
         SIGNING_STUB = b"sec:u:255:22:AAAA1111BBBB2222:1700000000:::u:::scESC:::#::ed25519:::0:\n"
 
-        def verify_with(answers: dict, projects: list[str]) -> tuple[str, str, list[str]]:
+        def verify_with(answers: dict, projects: list[str], **account) -> tuple[str, str, list[str]]:
             asked = []
 
             def fake_run(self, line, *, stderr=None):
@@ -222,7 +254,8 @@ def main() -> int:
             buf = io.BytesIO()
             wrapper = sys.stderr = io.TextIOWrapper(buf, encoding="utf-8")
             try:
-                text = w.verify(root, "acct", home, f"{tmp}/vbin/sudo", projects)
+                text, failed = w.verify(root, "acct", home, f"{tmp}/vbin/sudo", projects, **account)
+                text += failed
                 wrapper.flush()
                 said = buf.getvalue().decode()
             finally:
@@ -265,6 +298,26 @@ def main() -> int:
         put(f"{home}/.config/agent-fabric/secrets.env", "export CLAUDE_CODE_OAUTH_TOKEN='x'\n")
         text, _, _ = verify_with({}, [])
         check("…and a template token in the synced record is read through sudo", "a template token" in text)
+        tok_fp = hashlib.sha256(b"x").hexdigest()[:12]
+        text, _, _ = verify_with({}, [], account=f"acct-one={tok_fp}")
+        check("…an account named: its token's fingerprint compared, applied", "acct-one (token " + tok_fp + "), applied" in text
+              and "step failed" not in text, text)
+        text, _, _ = verify_with({}, [], account="acct-one=0123456789ab")
+        check("…another token applied: the step fails, both named by fingerprint, the value never",
+              f"not applied (expected 0123456789ab, token {tok_fp} in" in text and "'x'" not in text, text)
+        for body, what in (("", "no export line"), ("export CLAUDE_CODE_OAUTH_TOKEN='x'\nexport CLAUDE_CODE_OAUTH_TOKEN='x'\n",
+                                                    "two export lines"),
+                           ("export CLAUDE_CODE_OAUTH_TOKEN='x\n", "an unclosed quote")):
+            put(f"{home}/.config/agent-fabric/secrets.env", body)
+            text, _, _ = verify_with({}, [], account=f"acct-one={tok_fp}")
+            check(f"…{what}: no token, the step fails", "expected " + tok_fp + ", no token in" in text, text)
+        os.remove(f"{home}/.config/agent-fabric/secrets.env")
+        text, _, _ = verify_with({}, [], account=f"acct-one={tok_fp}")
+        check("…no secrets.env at all: no token, the step fails", "expected " + tok_fp + ", no token in" in text, text)
+        text, _, _ = verify_with({}, [], no_account=True)
+        check("…--no-claude-account: nothing compared, the closing says it", "not assigned (--no-claude-account" in text
+              and "step failed" not in text, text)
+        put(f"{home}/.config/agent-fabric/secrets.env", "export CLAUDE_CODE_OAUTH_TOKEN='x'\n")
         saved_path = os.environ["PATH"]
         os.environ["PATH"] = f"{tmp}/vbin:{saved_path}"
         try:
@@ -298,11 +351,21 @@ def main() -> int:
         r = shim("l", "r", "--host")
         check("a flag without its value: exit 1, one line, never a traceback",
               r.returncode == 1 and r.stderr == "new-agent: --host needs a value\n")
+        r = shim("l", "r")
+        check("no Claude account named: exit 2, both flags named",
+              r.returncode == 2 and r.stderr == na.NO_ACCOUNT_CHOICE + "\n")
+        r = shim("l", "r", "--no-claude-account", "--claude-account", "a")
+        check("…both: exit 2", r.returncode == 2 and r.stderr == na.NO_ACCOUNT_CHOICE + "\n")
+        r = shim("l", "r", "--claude-account")
+        check("…--claude-account without its value: exit 1, one line",
+              r.returncode == 1 and r.stderr == "new-agent: --claude-account needs a value\n")
         r = shim("l", "r", "--claude", "9.9")
         check("--claude 9.9 is not a version", r.returncode == 2 and "--claude takes stable, latest or a version" in r.stderr)
         check("values spaced or with =, flags anywhere",
-              na.parse(["--project=a", "l", "--host", "h", "r", "--project", "b", "--claude=latest"])
-              == {"dry": False, "login": "l", "role": "r", "projects": ["a", "b"], "claude": "latest", "host": "h"})
+              na.parse(["--project=a", "l", "--host", "h", "r", "--project", "b", "--claude=latest", "--claude-account=a-b"])
+              == {"dry": False, "login": "l", "role": "r", "projects": ["a", "b"], "claude": "latest", "host": "h",
+                  "claude-account": "a-b", "no-claude-account": False}
+              and na.parse(["l", "--claude-account", "a", "r"])["claude-account"] == "a")
 
         r = subprocess.run(["bash", SHIM, "--help"], capture_output=True, text=True, timeout=30,
                            env=clean_env(AGENT_FABRIC_PYTHON=f"{tmp}/no-python"))
@@ -332,7 +395,18 @@ if a[:1] == ["child-bundle"]:
     sys.exit(1 if os.path.exists("{fk}/bundle.fails") else 0)
 sys.exit(0)
 """)
-        secrets = put(f"{fk}/fabric-secrets", "#!/usr/bin/env bash\necho '[{\"status\": \"written\"}]'\n", 0o755)
+        # The parent's store: templates answer from $fk/templates, assign
+        # from $fk/assign (its rows, then its exit); provision writes.
+        secrets = put(f"{fk}/fabric-secrets", f"""#!/usr/bin/env bash
+echo "$*" >> {fk}/secrets.calls
+case "$1 $2" in
+  "store templates") cat {fk}/templates ;;
+  "store assign") head -1 {fk}/assign; exit "$(sed -n 2p {fk}/assign)" ;;
+  *) echo '[{{"status": "written"}}]' ;;
+esac
+""", 0o755)
+        put(f"{fk}/templates", '[{"account": "acct-one", "token_sha256_12": "0123456789ab"}]\n')
+        put(f"{fk}/assign", '[{"login": "new", "status": "written", "token_sha256_12": "0123456789ab"}]\n0\n')
         enroll = put(f"{fk}/store-enroll.sh", "#!/usr/bin/env bash\nexit 0\n", 0o755)
         reg = put(f"{fk}/registry.json", json.dumps({"projects": {"demo": {"remotes": ["https://h/o/d.git", "git@h:o/d.git"]}}}))
         hosts = put(f"{fk}/hosts.json", json.dumps({"hosts": {"here": {"ssh": None}, "far": {"ssh": "op@far"}},
@@ -344,7 +418,9 @@ sys.exit(0)
         na.ROOT = f"{fk}/root"
 
         def orchestrate(*argv, hosts_path=hosts):
-            for f in ("hx.calls", "taken"):
+            if not any(a.startswith("--claude-account") or a == "--no-claude-account" for a in argv):
+                argv = (*argv, "--claude-account", "acct-one")
+            for f in ("hx.calls", "taken", "secrets.calls"):
                 if os.path.exists(f"{fk}/{f}"):
                     os.remove(f"{fk}/{f}")
             saved_env = os.environ.get("AGENT_FABRIC_HOSTS_REGISTRY")
@@ -411,6 +487,53 @@ sys.exit(0)
             rc, msg, err, calls = orchestrate("new", "r")
             check("…one that exits 3 stops, named with its code", rc == 1 and "fabric-secrets sync as new (exit 3)" in msg)
             os.remove(f"{fk}/sync.rc")
+
+            def secrets_calls() -> str:
+                return open(f"{fk}/secrets.calls").read() if os.path.exists(f"{fk}/secrets.calls") else ""
+            rc, msg, err, calls = orchestrate("new", "r")
+            sc = secrets_calls().splitlines()
+            check("an account named: assigned after the keys, and finish told its slug and fingerprint",
+                  rc == 0 and sc[0] == "store templates --json" and sc[-1] == "store assign acct-one new --json"
+                  and sc[-2] == "provision issue-key openai new"
+                  and "finish new r --claude-account acct-one=0123456789ab" in calls
+                  and "Claude account: acct-one, written (token 0123456789ab)" in err, f"{sc}\n{calls}\n{err}")
+            rc, msg, err, calls = orchestrate("new", "r", "--claude-account", "other")
+            check("an unknown template: refused before the host is asked", rc == 1 and calls == ""
+                  and "'other' is not a template in this store" in msg, f"{msg}\n{calls}")
+            for body, said in (('[{"account": "acct-one", "token_sha256_12": null}]', "holds no CLAUDE_CODE_OAUTH_TOKEN"),
+                               ("not json", "templates could not be read"), ('{"account": "acct-one"}', "could not be read"),
+                               ('[{"account": "acct-one", "token_sha256_12": "zz"}]', "a fingerprint that is not one")):
+                put(f"{fk}/templates", body)
+                rc, msg, err, calls = orchestrate("new", "r", "--dry-run")
+                check(f"…templates answering {body[:24]!r}: refused before the host", rc == 1 and calls == ""
+                      and said in msg, f"{msg}\n{calls}")
+            put(f"{fk}/templates", '[{"account": "acct-one", "token_sha256_12": "0123456789ab"}]\n')
+            rc, msg, err, calls = orchestrate("new", "r", "--dry-run")
+            check("the dry run names the assignment and writes none", rc == 0
+                  and "would: fabric-secrets store assign acct-one new (token 0123456789ab)" in err
+                  and "store assign" not in secrets_calls(), err)
+            put(f"{fk}/assign", '[{"login": "new", "from": "none", "status": "failed", "reason": "no committed key"}]\n1\n')
+            rc, msg, err, calls = orchestrate("new", "r")
+            check("a failed assignment stops before the bundle, with the store's reason",
+                  rc == 1 and "store assign acct-one new: no committed key" in msg and not os.path.exists(f"{fk}/taken")
+                  and "finish" not in calls, msg)
+            for rows, code in (('[{"login": "new", "status": "written", "token_sha256_12": "0123456789ab"}]', 1),
+                               ("[]", 0), ("garbage", 0),
+                               ('[{"login": "new", "status": "written"}, {"login": "x", "status": "written"}]', 0)):
+                put(f"{fk}/assign", f"{rows}\n{code}\n")
+                rc, msg, err, calls = orchestrate("new", "r")
+                check(f"…so does an assignment answering {rows[:30]!r} with exit {code}",
+                      rc == 1 and "step failed: fabric-secrets store assign" in msg and "finish" not in calls, msg)
+            put(f"{fk}/assign", '[{"login": "new", "status": "unchanged", "token_sha256_12": "ffffffffffff"}]\n0\n')
+            rc, msg, err, calls = orchestrate("new", "r")
+            check("…and one that wrote another token than the one checked (the template changed)",
+                  rc == 1 and "wrote token ffffffffffff, not the 0123456789ab checked" in msg and "finish" not in calls, msg)
+            put(f"{fk}/assign", '[{"login": "new", "status": "unchanged", "token_sha256_12": "0123456789ab"}]\n0\n')
+            rc, msg, err, calls = orchestrate("new", "r")
+            check("an unchanged assignment (a re-run) goes on", rc == 0 and "acct-one, unchanged" in err, msg)
+            rc, msg, err, calls = orchestrate("new", "r", "--no-claude-account")
+            check("--no-claude-account: no template read, nothing assigned, finish told so",
+                  rc == 0 and "store" not in secrets_calls() and "finish new r --no-claude-account" in calls, calls)
         finally:
             na.HX, na.STORE, na.SECRETS, na.STORE_ENROLL, na.REGISTRY, na.ROOT = saved
 
@@ -554,7 +677,7 @@ sys.exit(0)
         started = f"{tmp}/hx-started"
         slow = put(f"{tmp}/slow-hx", f"#!/usr/bin/env bash\ntouch {started}\nexec sleep 60\n", 0o755)
         code = ("import sys; sys.path.insert(0, %r); import new_agent as na; na.HX = %r; na.ROOT = %r; "
-                "sys.exit(na.main(['l', 'r', '--host', 'here']))") % (tools, slow, f"{fk}/root")
+                "sys.exit(na.main(['l', 'r', '--host', 'here', '--no-claude-account']))") % (tools, slow, f"{fk}/root")
         p = subprocess.Popen([sys.executable, "-c", code], process_group=0, stdout=subprocess.DEVNULL,
                              stderr=subprocess.DEVNULL,
                              env=clean_env(TMPDIR=scratch, AGENT_FABRIC_HOSTS_REGISTRY=hosts))

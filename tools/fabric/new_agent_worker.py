@@ -15,11 +15,13 @@ imported from the fabric: tests/test_new_agent_cli.py runs it in a fixture fabri
     new_agent_worker.py claude-want <root> [<target>]
     new_agent_worker.py subids <login> <etc>       "have <start>:<count>" or "alloc <start>-<end>"
     new_agent_worker.py missing-keys <keys-file>   known_hosts on stdin; the lines it lacks
-    new_agent_worker.py verify <root> <login> <home> <sudo> [<project>…]   step 10 and the closing list
+    new_agent_worker.py verify <root> <login> <home> <sudo> [--claude-account=<slug>=<fp12> | --no-claude-account]
+                               [<project>…]   step 10 and the closing list; exit 1 when the account given is not applied
 
 CONTRACT of the worker, frozen from the bash (ADR-040 §5 rule 3), parsed
 here: `prepare|finish <login> <role> [--claude V] [--clone <id>=<remote>]…
-[--project <id>]… [--dry-run]` or `host-check <login>`; a missing phase:
+[--project <id>]… [--claude-account <slug>=<fp12> | --no-claude-account]
+[--dry-run]` or `host-check <login>`; a missing phase:
 USAGE, exit 2; an unknown argument, no login, no role: one line, exit 2;
 --claude without a value: exit 1. Exactly as the bash shifted: a phase
 with too few words keeps them, so `prepare <login>` reports the login as
@@ -29,6 +31,7 @@ Every message here is the worker's own (`new-agent: …`, or
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -43,6 +46,10 @@ VERSION = re.compile(r"[0-9]+\.[0-9]+\.[0-9]+")
 # Checked again here, whatever the caller checked: the value is spliced
 # into the string as_login evals.
 TARGET = re.compile(r"stable|latest|[0-9]+\.[0-9]+\.[0-9]+([-.][A-Za-z0-9.]+)?")
+# The Claude account finish verifies: a template's slug and its token's
+# fingerprint (sha256[:12]), as the orchestrator read them from its store.
+# Checked here too: the value is spliced into the string the worker evals.
+CLAUDE_ACCOUNT = re.compile(r"([a-z0-9][a-z0-9-]{0,62})=([0-9a-f]{12})")
 
 
 class Exit(Exception):
@@ -65,12 +72,24 @@ def args(argv: list[str]) -> str:
         rest = rest[1:] if rest else rest
     else:
         raise Exit(2, USAGE)
-    dry, claude, projects, remote = 0, "", [], {}
+    dry, claude, projects, remote, account, no_account = 0, "", [], {}, "", 0
     i = 0
     while i < len(rest):
         a = rest[i]
         if a == "--dry-run":
             dry = 1
+        elif a == "--no-claude-account":
+            no_account = 1
+        elif a == "--claude-account" or a.startswith("--claude-account="):
+            if a == "--claude-account":
+                if i + 1 >= len(rest):
+                    raise Exit(1, f"new-agent-worker: {a} needs a value")
+                i += 1
+                account = rest[i]
+            else:
+                account = a[len("--claude-account="):]
+            if not CLAUDE_ACCOUNT.fullmatch(account):
+                raise Exit(2, "new-agent-worker: --claude-account takes <slug>=<12 hex of its token's sha256>")
         elif a in ("--claude", "--clone", "--project"):
             if i + 1 >= len(rest):
                 raise Exit(1, f"new-agent-worker: {a} needs a value")
@@ -98,10 +117,15 @@ def args(argv: list[str]) -> str:
         raise Exit(2, "new-agent-worker: no login")
     if phase != "host-check" and not role:
         raise Exit(2, "new-agent-worker: no role")
+    if account and no_account:
+        raise Exit(2, "new-agent-worker: --claude-account and --no-claude-account together")
     q = shlex.quote
     lines = [f"PHASE={q(phase)}", f"LOGIN={q(login)}", f"ROLE={q(role)}", f"DRY={dry}",
              f"CLAUDE_TARGET={q(claude)}", "PROJECTS=(" + " ".join(q(p) for p in projects) + ")",
-             "declare -A REMOTE=(" + " ".join(f"[{q(k)}]={q(v)}" for k, v in remote.items()) + ")"]
+             "declare -A REMOTE=(" + " ".join(f"[{q(k)}]={q(v)}" for k, v in remote.items()) + ")",
+             # verify's own flags, whole: the step-runner passes them as they are.
+             "VERIFY_ACCOUNT=(" + (q(f"--claude-account={account}") if account else
+                                   "--no-claude-account" if no_account else "") + ")"]
     return "\n".join(lines) + "\n"
 
 
@@ -359,9 +383,13 @@ def prefixed(prefix: str, out: bytes, *, skip: int = 0) -> None:
     sys.stderr.buffer.flush()
 
 
-def verify(root: str, login: str, home: str, sudo: str, projects: list[str]) -> str:
+def verify(root: str, login: str, home: str, sudo: str, projects: list[str], *, account: str = "",
+           no_account: bool = False) -> tuple[str, str]:
     """Step 10: what the account can do now, read back as it, then the
-    list of what only a person can do. Nothing here changes the account."""
+    list of what only a person can do; and, when the run named a Claude
+    account (`<slug>=<fp12>`), the failure line if its token is not the one
+    applied ("" when it is, or when none was named). Nothing here changes
+    the account."""
     a = Account(login, home, sudo)
     first = projects[0] if projects else ""
     where = f"~/projects{'/' + first if first else ''}"
@@ -390,11 +418,40 @@ def verify(root: str, login: str, home: str, sudo: str, projects: list[str]) -> 
     # The control agent bootstrap enabled in the account's user manager
     # answers the coordinator from here on: one ping, as the operator.
     prefixed("   control plane: ", quiet_run([f"{root}/bin/fabric-ctl", login, "ping"], stderr=subprocess.STDOUT), skip=1)
-    has_template = run_bounded([*sudo.split(), "-n", "grep", "-q", "^export CLAUDE_CODE_OAUTH_TOKEN=",
-                                f"{home}/.config/agent-fabric/secrets.env"], stdin=subprocess.DEVNULL,
-                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                               timeout=READBACK_TIMEOUT_S).returncode == 0
-    return closing(login, signing, "template" if has_template else "no", first)
+    applied = applied_token(home, sudo)
+    if account:
+        slug, want = account.split("=", 1)
+        if applied == want:
+            return closing(login, signing, "applied", first, account=account), ""
+        got = "no token" if applied is None else f"token {applied}"
+        return (closing(login, signing, "not-applied", first, account=account),
+                f"new-agent: step failed: Claude account {slug}: CLAUDE_CODE_OAUTH_TOKEN not applied (expected {want}, "
+                f"{got} in {home}/.config/agent-fabric/secrets.env) — fabric-secrets sync as {login}, then re-run\n")
+    if no_account:
+        return closing(login, signing, "declined", first), ""
+    return closing(login, signing, "template" if applied is not None else "no", first), ""
+
+
+def applied_token(home: str, sudo: str) -> str | None:
+    """The fingerprint (sha256[:12]) of the CLAUDE_CODE_OAUTH_TOKEN the
+    account's sync applied, read as root, or None when there is none. The
+    value stays in this process and only its fingerprint leaves it, the
+    one fabric-secrets store templates prints. A line sync did not write
+    (two exports, or one that is not one shell word) is no answer, and
+    compares as no token."""
+    r = run_bounded([*sudo.split(), "-n", "sed", "-n", "s/^export CLAUDE_CODE_OAUTH_TOKEN=//p",
+                     f"{home}/.config/agent-fabric/secrets.env"], stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                    stderr=subprocess.DEVNULL, timeout=READBACK_TIMEOUT_S)
+    lines = r.stdout.decode("utf-8", "surrogateescape").splitlines()
+    if r.returncode != 0 or len(lines) != 1:
+        return None
+    try:
+        words = shlex.split(lines[0])
+    except ValueError:
+        return None
+    if len(words) != 1 or not words[0]:
+        return None
+    return hashlib.sha256(words[0].encode("utf-8", "surrogateescape")).hexdigest()[:12]
 
 
 def signs_with_secret(listing: str) -> bool:
@@ -413,7 +470,7 @@ def signs_with_secret(listing: str) -> bool:
     return False
 
 
-def closing(login: str, signing: str, creds: str, first: str) -> str:
+def closing(login: str, signing: str, creds: str, first: str, *, account: str = "") -> str:
     """What is left for a person, in a terminal. A Claude account for plain
     claude is a template's token, assigned into the login's store and synced
     into its secrets.env (docs/adr/ADR-031-claude-accounts-assigned-applied-
@@ -428,15 +485,26 @@ def closing(login: str, signing: str, creds: str, first: str) -> str:
                "sign. As the coordinator, in a terminal (the key has a passphrase):\n"
                f'       gpg --export-secret-keys "$(git config --get user.signingkey)" | sudo -u {login} gpg --batch --import\n'
                f"       sudo -u {login} bash -c \"echo '$(git config --get user.signingkey):6:' | gpg --import-ownertrust\"")
-    if creds == "template":
+    slug, _, fp = account.partition("=")
+    if creds == "applied":
+        claude = f"- Claude account: {slug} (token {fp}), applied (plain-claude path ready)"
+    elif creds == "not-applied":
+        claude = (f"- Claude account: {slug} (token {fp}) was assigned and is NOT applied — the launcher refuses a "
+                  f"plain-claude session until it is. As {login}: projects/agent-fabric/bin/fabric-secrets sync")
+    elif creds == "template":
         claude = "- Claude account: a template token (plain-claude path ready)"
     else:
-        claude = ("- Claude account: no template token — the launcher refuses a plain-claude session (--provider "
+        lead = "not assigned (--no-claude-account: the broker path only); " if creds == "declined" else ""
+        claude = (f"- Claude account: {lead}no template token — the launcher refuses a plain-claude session (--provider "
                   "anthropic) without one, its own /login included; the broker path does not need one.\n"
                   f"       As the coordinator: bin/fabric-accounts assign {login} <account> (docs/adr/ADR-031-claude-"
                   "accounts-assigned-applied-and-proved-by-signed-action.md). Never copy another login's "
                   ".credentials.json.")
-    return ("new-agent: done. Left for a person, in a terminal (nothing here can do them):\n"
+    # "done" only when nothing failed: a Claude account not applied is a
+    # failed step, said on the line after this list.
+    head = "new-agent: NOT done — the Claude account is not applied (below)." if creds == "not-applied" \
+        else "new-agent: done."
+    return (f"{head} Left for a person, in a terminal (nothing here can do them):\n"
             f"   {gpg}\n"
             f"   {claude}\n"
             "   - first launch (bootstrap has trusted its folders in Claude Code; no trust question):\n"
@@ -461,7 +529,22 @@ def main(argv: list[str]) -> int:
         elif cmd == "missing-keys" and len(rest) == 1:
             sys.stdout.write(missing_keys(rest[0], sys.stdin.read()))
         elif cmd == "verify" and len(rest) >= 4:
-            sys.stderr.write(verify(rest[0], rest[1], rest[2], rest[3], rest[4:]))
+            opts, projects = rest[4:], []
+            account, no_account = "", False
+            for a in opts:
+                if a.startswith("--claude-account=") and CLAUDE_ACCOUNT.fullmatch(a[len("--claude-account="):]):
+                    account = a[len("--claude-account="):]
+                elif a == "--no-claude-account":
+                    no_account = True
+                elif a.startswith("-"):
+                    print(f"new_agent_worker.py: verify: unknown argument {a}", file=sys.stderr)
+                    return 2
+                else:
+                    projects.append(a)
+            text, failed = verify(rest[0], rest[1], rest[2], rest[3], projects, account=account, no_account=no_account)
+            sys.stderr.write(text + failed)
+            if failed:
+                return 1
         else:
             print(f"new_agent_worker.py: no such call: {' '.join(argv)}", file=sys.stderr)
             return 2

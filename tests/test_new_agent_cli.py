@@ -10,6 +10,7 @@ for. Ported from runtime/provisioning/test_new-agent.sh (ADR-040 Wave 6),
 case for case. Plain script: prints ok/FAIL, exit 1 on any failure."""
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import pwd
@@ -22,6 +23,17 @@ import tempfile
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 HERE = os.path.join(ROOT, "runtime", "provisioning")
 LOGIN = pwd.getpwuid(os.geteuid()).pw_name
+# The fixture template's token and its fingerprint, as store templates prints it.
+TOKEN = "sk-ant-oat01-fixture-token"
+FP = hashlib.sha256(TOKEN.encode()).hexdigest()[:12]
+ACCOUNT_FLAGS = ("--claude-account", "--no-claude-account")
+
+
+def with_account(args: tuple[str, ...], default: tuple[str, ...]) -> list[str]:
+    """Every run names its Claude account (2026-10-07); a case that does
+    not is about something else and gets the default."""
+    named = any(a in ACCOUNT_FLAGS or a.startswith("--claude-account=") for a in args)
+    return [*args] if named or "--no-account-flag" in args else [*args, *default]
 
 # The fakes, as the bash suite wrote them: {SEQ}, {BIN}, {HOMES}, {CALLS},
 # {FAULT}, {SANDBOX} are filled in.
@@ -98,6 +110,20 @@ grep -qsxF "store-enroll" "{FAULT}" && { echo "store-enroll: injected failure" >
 # present, any other is written and remembered.
 PROVISION = r'''#!/usr/bin/env bash
 echo "secrets $*" >> "{CALLS}"
+# The parent's Claude templates (fabric-secrets store templates/assign): one
+# with a token, one without. assign writes the token into the child's
+# store, which the fakes keep in $SEQ/token for the account's sync to apply.
+if [[ "$1 $2" == "store templates" ]]; then
+  grep -qsxF "store templates" "{FAULT}" && { echo "store: injected failure" >&2; exit 1; }
+  echo '[{"account": "acct-one", "token_sha256_12": "{FP}"}, {"account": "acct-empty", "token_sha256_12": null}]'; exit 0
+fi
+if [[ "$1 $2" == "store assign" ]]; then
+  grep -qsxF "store assign" "{FAULT}" && { echo '[{"login": "'"$4"'", "from": "none", "status": "failed", "reason": "injected"}]'; exit 1; }
+  [[ "$3" == acct-one ]] || exit 9
+  st=written; [[ "$(cat "{SEQ}/token" 2>/dev/null)" == "{TOKEN}" ]] && st=unchanged
+  printf '%s' "{TOKEN}" > "{SEQ}/token"
+  echo '[{"login": "'"$4"'", "from": "none", "to": "acct-one", "status": "'"$st"'", "token_sha256_12": "{FP}"}]'; exit 0
+fi
 [[ "$1" == provision ]] || exit 9
 grep -qsxF "provision $2" "{FAULT}" && { echo "provision: injected failure" >&2; exit 1; }
 case "$2" in identity) names="AGENT_LOGIN AGENT_HOST" ;; share) names="GH_TOKEN SSH_PRIVATE_KEY" ;;
@@ -131,6 +157,12 @@ ACCOUNT_SECRETS = r'''#!/usr/bin/env bash
 echo "$*" >> "{SEQ}/account-calls"
 [[ "$*" == "store take-bundle" ]] && { grep -q "BEGIN AGENT-FABRIC STORE BUNDLE" || { echo "no bundle on stdin" >&2; exit 1; }; echo "taken"; exit 0; }
 grep -qsxF account-sync "{FAULT}" && { echo "fabric-secrets: the store names another login" >&2; exit 3; }
+# sync applies the token the store holds, as secrets.env's export line;
+# account-token makes it apply another one.
+if [[ "$1" == sync && -f "{SEQ}/token" ]]; then
+  t="$(cat "{SEQ}/token")"; grep -qsxF account-token "{FAULT}" && t="other-token"
+  for h in "{HOMES}"/*/; do mkdir -p "$h.config/agent-fabric"; printf "export CLAUDE_CODE_OAUTH_TOKEN='%s'\n" "$t" > "$h.config/agent-fabric/secrets.env"; done
+fi
 echo "fabric-secrets: OK"
 '''
 
@@ -194,7 +226,8 @@ def main() -> int:
         shim = f"{fab}/runtime/provisioning/new-agent.sh"
 
         def run(*args: str, **extra: str) -> tuple[int, str]:
-            r = subprocess.run(["bash", shim, *args], env={**base, "HOME": f"{sandbox}/home", **extra},
+            argv = [a for a in with_account(args, ("--no-claude-account",)) if a != "--no-account-flag"]
+            r = subprocess.run(["bash", shim, *argv], env={**base, "HOME": f"{sandbox}/home", **extra},
                                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=600)
             return r.returncode, r.stdout
 
@@ -211,6 +244,15 @@ def main() -> int:
         ok("an account placed on another host is not made again here", rc == 1 and "is placed on far-host" in out, out)
         rc, out = run("some-login", "backend-dev", "--host", "nowhere", "--dry-run")
         ok("an unregistered host is refused", rc == 1 and "unknown host 'nowhere'" in out, out)
+        rc, out = run("some-login", "backend-dev", "--dry-run", "--no-account-flag")
+        ok("no Claude account named: exit 2, both flags named, before anything runs",
+           rc == 2 and "--claude-account <slug>" in out and "--no-claude-account" in out and "host" not in out, out)
+        rc, out = run("some-login", "backend-dev", "--claude-account", "acct-one", "--no-claude-account", "--dry-run")
+        ok("…both named: exit 2", rc == 2 and "--claude-account <slug>" in out, out)
+        rc, out = run("some-login", "backend-dev", "--claude-account=Acct;x", "--dry-run")
+        ok("…a slug that is not one: exit 2", rc == 2 and "is not an account slug" in out, out)
+        rc, out = run("some-login", "backend-dev", "--claude-account=", "--dry-run")
+        ok("…an empty one is named, not taken for none: exit 2", rc == 2 and "is not an account slug" in out, out)
 
         print("new-agent: the dry run names every step and touches nothing")
         rc, out = run("zz-fixture-login", "backend-dev", "--project", "gzapp", "--project", "agent-fabric", "--dry-run")
@@ -282,7 +324,8 @@ def main() -> int:
         bin_, homes, fault, calls = f"{seq}/bin", f"{seq}/home", f"{seq}/fault", f"{seq}/calls"
         os.makedirs(bin_)
         os.makedirs(homes)
-        fill = {"{SEQ}": seq, "{BIN}": bin_, "{HOMES}": homes, "{CALLS}": calls, "{FAULT}": fault, "{SANDBOX}": sandbox}
+        fill = {"{SEQ}": seq, "{BIN}": bin_, "{HOMES}": homes, "{CALLS}": calls, "{FAULT}": fault, "{SANDBOX}": sandbox,
+                "{TOKEN}": TOKEN, "{FP}": FP}
 
         def filled(text: str) -> str:
             for k, v in fill.items():
@@ -338,13 +381,14 @@ def main() -> int:
                    "AGENT_FABRIC_RC_LOCAL_D": f"{sandbox}/persist/rcd", "AGENT_FABRIC_ETC": f"{sandbox}/persist/etc",
                    "AGENT_FABRIC_LOGINCTL": f"{bin_}/loginctl", "AGENT_FABRIC_LEASES": f"{sandbox}/persist/leases",
                    "AGENT_FABRIC_TMPFILES_D": f"{sandbox}/persist/tmpfiles.d"}
-            r = subprocess.run(["bash", shim, *args, *h], env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            argv = with_account(args, ("--claude-account", "acct-one"))
+            r = subprocess.run(["bash", shim, *argv, *h], env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                text=True, timeout=600)
             return r.returncode, r.stdout
 
         def reset_seq() -> None:
             shutil.rmtree(homes, ignore_errors=True)
-            for f in (f"{seq}/passwd", f"{seq}/enrolled", fault, f"{seq}/account-calls",
+            for f in (f"{seq}/passwd", f"{seq}/enrolled", fault, f"{seq}/account-calls", f"{seq}/token",
                       f"{sandbox}/persist/etc/subuid", f"{sandbox}/persist/etc/subgid"):
                 if os.path.exists(f):
                     os.remove(f)
@@ -380,6 +424,21 @@ def main() -> int:
             acc = [ln for ln in lines(f"{seq}/account-calls") if re.match(r"^(sync|relay_catchup)", ln)]
             ok("…then its inbox cursor moved to the newest message, after the sync, for its projects",
                acc[-2:] == ["sync --quiet --no-pull", "relay_catchup demo"], read(f"{seq}/account-calls"))
+            # The Claude account: checked before the account is made, its token
+            # written into the child's store after the keys and before the
+            # bundle, applied by the first sync, and its fingerprint compared.
+            c = lines(calls)
+            at = {k: next((i for i, ln in enumerate(c) if ln.startswith(k)), -1) for k in
+                  ("secrets store templates --json", "useradd", "secrets provision issue-key openai",
+                   "secrets store assign acct-one seq-login --json", "secret_store child-bundle")}
+            ok("the Claude account: templates read before useradd; assigned after the keys, before the bundle",
+               -1 not in at.values() and at["secrets store templates --json"] < at["useradd"]
+               and at["secrets provision issue-key openai"] < at["secrets store assign acct-one seq-login --json"]
+               < at["secret_store child-bundle"], f"{at}\n{read(calls)}")
+            ok("…the token present in secrets.env after the first sync, its fingerprint compared, and said",
+               f"export CLAUDE_CODE_OAUTH_TOKEN='{TOKEN}'" in read(f"{h}/.config/agent-fabric/secrets.env")
+               and f"Claude account: acct-one, written (token {FP})" in out
+               and f"- Claude account: acct-one (token {FP}), applied" in out and TOKEN not in out, out)
             if backend == "local":
                 # A parent without a store of its own cannot key a child: a
                 # stop, named, before any clone.
@@ -390,6 +449,29 @@ def main() -> int:
                    rcns == 1 and "store-enroll.sh --self first" in outns and not has(r"^store-enroll", read(calls))
                    and not os.path.isdir(f"{h}/projects/demo"), outns)
                 shutil.copy2(f"{seq}/tools/secret_store.py", f"{fab}/tools/fabric/")
+                for slug, said in (("no-such", "'no-such' is not a template in this store"),
+                                   ("acct-empty", "template acct-empty holds no CLAUDE_CODE_OAUTH_TOKEN yet")):
+                    reset_seq()
+                    rcu, outu = seq_run(backend, "seq-login", "backend-dev", "--claude-account", slug, "--project", "demo")
+                    ok(f"Claude account {slug}: refused before any account is made, nothing after it",
+                       rcu == 1 and said in outu and lines(calls)[:-1] == ["secrets store templates --json"]
+                       and not os.path.isdir(h), f"rc={rcu}\n{outu}\n{read(calls)}")
+                reset_seq()
+                put(fault, "store templates\n")
+                rcu, outu = seq_run(backend, "seq-login", "backend-dev", "--project", "demo", "--dry-run")
+                ok("…templates that cannot be read refuse, never skip the check, dry run included",
+                   rcu == 1 and "templates could not be read" in outu and not has(r"^useradd", read(calls)), outu)
+                reset_seq()
+                rcu, outu = seq_run(backend, "seq-login", "backend-dev", "--project", "demo", "--dry-run")
+                ok("the dry run names the assignment and its fingerprint, and writes nothing",
+                   rcu == 0 and f"would: fabric-secrets store assign acct-one seq-login (token {FP})" in outu
+                   and not has(r"^secrets store assign", read(calls)), outu)
+                reset_seq()
+                rcu, outu = seq_run(backend, "seq-login", "backend-dev", "--no-claude-account", "--project", "demo")
+                ok("--no-claude-account: nothing assigned, and the closing says so",
+                   rcu == 0 and not has(r"^secrets store", read(calls))
+                   and "- Claude account: not assigned (--no-claude-account: the broker path only)" in outu,
+                   f"rc={rcu}\n{outu}")
                 reset_seq()
                 rc, out = seq_run(backend, "seq-login", "backend-dev", "--project", "demo")   # the plain run the next checks read
             ok("the account is persisted: persist-accounts.sh through sudo, linger enabled",
@@ -459,8 +541,8 @@ def main() -> int:
                    f"rc={rc}\n{out}")
                 sh("git", "-C", f"{h}/projects/agent-fabric", "reset", "-q", "--hard", "origin/main")
 
-            for fault_name in ("useradd", "git", "store-enroll", "provision share", "provision issue-key", "child-bundle",
-                               "account-sync", "curl"):
+            for fault_name in ("useradd", "git", "store-enroll", "provision share", "provision issue-key", "store assign",
+                               "child-bundle", "account-sync", "account-token", "curl"):
                 reset_seq()
                 put(fault, fault_name + "\n")
                 rc, out = seq_run(backend, "seq-login", "backend-dev", "--project", "demo")
@@ -484,6 +566,14 @@ def main() -> int:
                        "its store did not reach seq-login as a bundle" in out
                        and not has(r"^sync", read(f"{seq}/account-calls")) and not os.path.isdir(f"{h}/projects/demo"),
                        out + read(f"{seq}/account-calls"))
+                elif fault_name == "store assign":
+                    ok("…named with the store's reason, and no hand-over, no clone after a failed assignment",
+                       "fabric-secrets store assign acct-one seq-login: injected" in out
+                       and "secret_store child-bundle" not in c and not os.path.isdir(f"{h}/projects/demo"), out + c)
+                elif fault_name == "account-token":
+                    ok("…an applied token other than the template's fails the verification, by fingerprint only",
+                       f"CLAUDE_CODE_OAUTH_TOKEN not applied (expected {FP}, token " in out
+                       and "is NOT applied" in out and "other-token" not in out and TOKEN not in out, out)
                 elif fault_name == "account-sync":
                     ok("…and a sync that exits 3 is named with its code, no clone after it",
                        "fabric-secrets sync as seq-login (exit 3)" in out and not os.path.isdir(f"{h}/projects/demo"), out)
