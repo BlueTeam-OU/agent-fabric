@@ -26,7 +26,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "f=\"$CLAUDE_PROJECT_DIR/communication/gzcoord/scripts/inbox.mjs\"; [ -f \"$f\" ] && node \"$f\"; true",
+            "command": "f=\"$CLAUDE_PROJECT_DIR/bin/gzcoord-inbox\"; [ -x \"$f\" ] && \"$f\"; true",
             "timeout": 60
           }
         ]

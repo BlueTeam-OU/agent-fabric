@@ -8,7 +8,7 @@ candidate evaluation is
 successor, and nothing in `communication/gzcoord/protocol/` changes for
 it. The values below (relay URL, channel, token location, runtime
 directory) are also in [`config.json`](config.json), which
-`communication/gzcoord/scripts/inbox.mjs` reads when the working copy
+`gzcoord-inbox` reads when the working copy
 resolves to project gzapp.
 
 **Identity on the relay.** The relay's own `sender` field and the
@@ -68,7 +68,7 @@ gitignored or not (until 2026-09-14 it sat in the hosting clone's
 `.gzcoord/`, and a directory rename stranded it once). The hosting duty
 is the **fabric-coordinator role's**: that role's session start is the
 activation of whatever hosts the relay — the `SessionStart` drain
-(`scripts/inbox.mjs`, "Receiving", below) brings the relay up before
+(`gzcoord-inbox`, "Receiving", below) brings the relay up before
 draining whenever this workspace hosts and the relay is not answering:
 the user unit below where bootstrap installed it, else a detached
 spawn. A client workspace has no `.gzcoord/venv`, skips
@@ -131,7 +131,7 @@ validation at the far end for no visible reason. Deliver from
 ## Receiving: the session is woken, and reads only what is its own
 
 The MCP tools are pull-only, but a session need not poll by hand.
-`$AGENT_FABRIC_ROOT/communication/gzcoord/scripts/inbox.mjs` does two things with one code path:
+`gzcoord-inbox` does two things with one code path:
 
 - **On every session start** it runs from the `SessionStart` hook in
   `.claude/settings.json` and drains what arrived while the session was
@@ -139,7 +139,7 @@ The MCP tools are pull-only, but a session need not poll by hand.
   address, so each start shows only what is new. The first drain in a
   clone shows the whole channel once — tens of kilobytes today — and
   never again.
-- **For the whole session**, it is the watch: `inbox.mjs --follow` under
+- **For the whole session**, it is the watch: `gzcoord-inbox --follow` under
   a `Monitor`, armed once at the session's first turn. `--follow` blocks
   for the life of the session, prints a delivery **for this session** the
   moment it lands — a broadcast, `TO` its address, or `TO-ROLE` its slug,
@@ -151,7 +151,7 @@ The MCP tools are pull-only, but a session need not poll by hand.
   caps at 30 min expires it there, and the session re-arms on the tool's
   expiry notice. Either way it is one process, the cursor is untouched
   between arms, and the retired shapes — hand-re-armed `--wait`, then a
-  `while true; do inbox.mjs --wait 1800 …; done` loop that printed a
+  `while true; do gzcoord-inbox --wait 1800 …; done` loop that printed a
   quiet-expiry line to filter every 30 minutes — are gone. A resume does
   not restore the watch (owner rule, 2026-09-13): re-arm first thing
   after one. The `gzcoord-receive` skill has the exact commands.
@@ -175,7 +175,7 @@ file, so it skips silently by design.
 
 ## The message id is still yours, not the relay's
 
-`MESSAGE-ID` is minted with `gzmsg.mjs new-id` — a UUIDv7 (RFC 9562):
+`MESSAGE-ID` is minted with `gzmsg new-id` — a UUIDv7 (RFC 9562):
 time-ordered, unique without coordination, no counter file, nothing to
 seed, nothing to collide. SPEC §7.2 says "opaque identifier"; the format
 is a deployment convention, not grammar. The sequential
@@ -204,7 +204,7 @@ deduplication inside the carrier. Correlation between agents stays
 
 - A `HELLO` written to `gzapp:gzcoord` came back to a *different*
   consumer id byte-for-byte identical, and revalidated with
-  `gzmsg.mjs validate`. Text passes through unaltered. (`HELLO` is
+  `gzmsg validate`. Text passes through unaltered. (`HELLO` is
   retired since, and `validate` now rejects one; who is running is
   presence, `fabric-ctl <login|all> presence`.)
 - Both the long-poll path and the fetch-by-id path return full content;
@@ -214,7 +214,7 @@ deduplication inside the carrier. Correlation between agents stays
 ## One consumer id per agent, and the raw API when MCP is not there
 
 The cursor key is the agent's **address**, `<host>/<login>` — exactly
-what `inbox.mjs` reads and acks as. A session that reaches the relay
+what `gzcoord-inbox` reads and acks as. A session that reaches the relay
 through the MCP tools with a bare login (or any other string) creates a
 second cursor for the same agent, and the next `SessionStart` drain
 replays everything that second cursor never acknowledged (seen

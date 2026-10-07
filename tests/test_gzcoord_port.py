@@ -190,7 +190,7 @@ def _():
             waits.clear()
             env = P.cmd_env(CLAUDE_BRIDGE_URL=stub.url, CLAUDE_BRIDGE_AUTH_TOKEN="tok", GZCOORD_CHANNEL="fixture:chan",
                             AGENT_FABRIC_HOLD_DIR=P.scratch("hold-"))
-            shim = subprocess.Popen(["node", P.INBOX_CMD, "--follow"], env=env, stdin=subprocess.DEVNULL,
+            shim = subprocess.Popen(["node", P.SHIM_INBOX, "--follow"], env=env, stdin=subprocess.DEVNULL,
                                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
             try:
                 deadline = time.monotonic() + 15
@@ -260,7 +260,7 @@ def _():
     os.chmod(fake, 0o700)
     for sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
         log = os.path.join(d, f"{sig.name}.log")
-        shim = subprocess.Popen(["node", P.INBOX_CMD, "--follow"], env={**os.environ, "AGENT_FABRIC_PYTHON": fake,
+        shim = subprocess.Popen(["node", P.SHIM_INBOX, "--follow"], env={**os.environ, "AGENT_FABRIC_PYTHON": fake,
                                 "FAKE_SIGNAL_LOG": log}, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                                 stderr=subprocess.DEVNULL, start_new_session=True)
         try:
@@ -307,7 +307,7 @@ def _():
                                    "MESSAGE-ID: 01a09fc1-0000-7000-8000-000000000005\nSUBJECT: s\n\nNOTES:\nA") [:-1]
                         + '\\ud800B\\n"')
     try:
-        r = subprocess.run(["node", P.INBOX_CMD, "--replay", "5"], env=_replay_env(stub), capture_output=True, timeout=30)
+        r = subprocess.run([P.INBOX_CMD, "--replay", "5"], env=_replay_env(stub), capture_output=True, timeout=30)
     finally:
         stub.close()
     eq(r.returncode, 0, r.stderr.decode("utf-8", "replace"))
@@ -324,7 +324,7 @@ def _():
     stub = _record_stub(json.dumps("[GZCOORD/1] INFO\nFROM: x/y\nROLE: backend-dev\nPROJECT: fixture\nBROADCAST: true\n"
                                    "MESSAGE-ID: 01a09fc1-0000-7000-8000-000000000005\nSUBJECT: s\n\nNOTES:\né → ✓\n"))
     try:
-        r = subprocess.run(["node", P.INBOX_CMD, "--replay", "5"], env=_replay_env(stub, LC_ALL=latin, LANG=latin),
+        r = subprocess.run([P.INBOX_CMD, "--replay", "5"], env=_replay_env(stub, LC_ALL=latin, LANG=latin),
                            capture_output=True, timeout=30)
     finally:
         stub.close()
@@ -421,7 +421,7 @@ def _():
     stub = P.Stub(lambda h, _m, path, _b: (seen.append((path, h.headers.get("Authorization"))),
                                            (200, '{"messages": []}') if path.startswith("/api/messages") else (200, "{}"))[1])
     try:
-        r = subprocess.run(["node", P.INBOX_CMD, "--history"], env=_replay_env(stub, CLAUDE_BRIDGE_AUTH_TOKEN=" tok\r\n"),
+        r = subprocess.run([P.INBOX_CMD, "--history"], env=_replay_env(stub, CLAUDE_BRIDGE_AUTH_TOKEN=" tok\r\n"),
                            capture_output=True, text=True, timeout=30)
         eq(r.returncode, 0, r.stderr)
         api = [a for p, a in seen if p.startswith("/api/")]
@@ -441,7 +441,7 @@ def _():
         with open(f, "w", encoding="utf-8") as fh:
             fh.write(f"[GZCOORD/1] INFO\nFROM: {me['host']}/{me['agent']}\nROLE: backend-dev\nPROJECT: fixture\n"
                      f"TO: {me['host']}/{me['agent']}\nSUBJECT: s\n\nNOTES:\nn\n")
-        r = subprocess.run(["node", P.SEND_CMD, f], env=env, capture_output=True, text=True, timeout=60)
+        r = subprocess.run([P.SEND_CMD, f], env=env, capture_output=True, text=True, timeout=60)
     finally:
         stub.close()
     eq(r.returncode, 1, r.stderr)
@@ -474,7 +474,7 @@ def _():
         env = _replay_env(refuse)
         home["dir"] = env["HOME"]
         try:
-            r = subprocess.run(["node", P.INBOX_CMD, "--follow"], env=env, capture_output=True, text=True, timeout=40)
+            r = subprocess.run([P.INBOX_CMD, "--follow"], env=env, capture_output=True, text=True, timeout=40)
         except subprocess.TimeoutExpired:
             raise Failed("--follow kept going: the refused token read as a relay that is down") from None
         eq(r.returncode, 4, r.stdout + r.stderr)
@@ -486,7 +486,7 @@ def _():
         with open(f, "w", encoding="utf-8") as fh:
             fh.write(f"[GZCOORD/1] INFO\nFROM: {me['host']}/{me['agent']}\nROLE: backend-dev\nPROJECT: fixture\n"
                      f"BROADCAST: true\nSUBJECT: s\n\nNOTES:\nn\n")
-        r = subprocess.run(["node", P.SEND_CMD, f], env={**env, "GZCOORD_JOURNAL": "off"}, capture_output=True, text=True,
+        r = subprocess.run([P.SEND_CMD, f], env={**env, "GZCOORD_JOURNAL": "off"}, capture_output=True, text=True,
                            timeout=60)
         eq(r.returncode, 3, r.stderr)
         ok("send: the relay token holds a line break or a NUL" in r.stderr and "HEAD" not in r.stderr, r.stderr)
@@ -577,6 +577,137 @@ def _():
     eq(after[:len(before)], before, "the ledger was rewritten")
     eq(after[len(before):].count(b"\n"), 1, "only the new line was added")
     eq([x for x in os.listdir(d) if x.startswith(".tmp-")], [], "a temporary was left beside it")
+
+# ── 6. the entry points: bin/gzcoord-inbox, bin/gzcoord-send, bin/gzmsg ─
+
+BIN = os.path.join(HERE, "bin")
+ENTRIES = ("gzcoord-inbox", "gzcoord-send", "gzmsg")
+
+
+def _links() -> str:
+    """A directory elsewhere with the entries linked as bootstrap links
+    commands into ~/.local/bin: the real path is found from the link."""
+    d = P.scratch("links-")
+    for name in ENTRIES:
+        os.symlink(os.path.join(BIN, name), os.path.join(d, name))
+    return d
+
+
+@case("each bin entry works through a symlink in another directory, from another working directory")
+def _():
+    links, cwd = _links(), P.scratch("cwd-")
+    env = {**P.cmd_env(), "GZCOORD_DEFAULT_LOCALE_ONLY": "1"}
+    run = lambda name, *args: subprocess.run([os.path.join(links, name), *args], env=env, cwd=cwd, capture_output=True,
+                                             text=True, timeout=60, stdin=subprocess.DEVNULL)
+    r = run("gzmsg", "new-id")
+    eq((r.returncode, r.stderr), (0, ""))
+    ok(len(r.stdout.strip()) == 36, r.stdout)
+    r = run("gzcoord-send")
+    eq((r.returncode, r.stderr), (1, "usage: gzcoord-send <file>|- [--dry-run] [--force]\n"))
+    r = run("gzcoord-inbox", "--replay")
+    eq((r.returncode, r.stderr), (1, "usage: gzcoord-inbox --replay <seq|message-id>\n"))
+
+
+@case("with the interpreter or the module unavailable each entry says one line and exits with its tool's status, never a trace")
+def _():
+    links = _links()
+    lone = P.scratch("lone-")  # an entry with no tools/ beside it: the module cannot load
+    os.makedirs(os.path.join(lone, "bin"))
+    for name in ENTRIES:
+        with open(os.path.join(BIN, name), encoding="utf-8") as src, open(os.path.join(lone, "bin", name), "w", encoding="utf-8") as dst:
+            dst.write(src.read())
+        os.chmod(os.path.join(lone, "bin", name), 0o755)
+    for name, status in (("gzcoord-inbox", 0), ("gzcoord-send", 1), ("gzmsg", 1)):
+        for how, path, env in (("no interpreter", os.path.join(links, name), {**os.environ, "AGENT_FABRIC_PYTHON": "/nonexistent/python"}),
+                               ("no module", os.path.join(lone, "bin", name), dict(os.environ))):
+            r = subprocess.run([path, "x"], env=env, capture_output=True, text=True, timeout=60, stdin=subprocess.DEVNULL)
+            eq(r.returncode, status, f"{name}, {how}: {r.stderr}")
+            eq(len(r.stderr.strip().split("\n")), 1, f"{name}, {how}: {r.stderr}")
+            ok("Traceback" not in r.stderr and r.stdout == "", f"{name}, {how}: {r.stderr}")
+
+
+@case("an entry started with no shim, or with a GZCOORD_SHIM_PID inherited from a shim up the tree, runs")
+def _():
+    for shim in (None, "1", "²"):
+        env = {k: v for k, v in os.environ.items() if k != "GZCOORD_SHIM_PID"}
+        if shim is not None:
+            env["GZCOORD_SHIM_PID"] = shim
+        r = subprocess.run([os.path.join(BIN, "gzmsg"), "new-id"], env=env, capture_output=True, text=True, timeout=60,
+                           stdin=subprocess.DEVNULL)
+        eq((r.returncode, r.stderr), (0, ""), f"GZCOORD_SHIM_PID={shim!r}")
+
+
+@case("AGENT_FABRIC_PYTHON naming a wrapper that execs the interpreter: the entry execs once and runs (review of #106)")
+def _():
+    real = os.path.realpath(os.environ.get("AGENT_FABRIC_PYTHON") or "/usr/local/bin/fabric-python")
+    if not os.access(real, os.X_OK):
+        real = sys.executable
+    d = P.scratch("wrapper-")
+    wrapper = os.path.join(d, "python")
+    with open(wrapper, "w", encoding="utf-8") as fh:
+        fh.write(f'#!/bin/sh\nexec "{real}" "$@"\n')
+    os.chmod(wrapper, 0o755)
+    env = {**os.environ, "AGENT_FABRIC_PYTHON": wrapper}
+    env.pop("GZCOORD_ENTRY_EXECED", None)
+    r = subprocess.run([os.path.join(BIN, "gzmsg"), "new-id"], env=env, capture_output=True, text=True, timeout=20,
+                       stdin=subprocess.DEVNULL)
+    eq((r.returncode, r.stderr), (0, ""))
+    ok(len(r.stdout.strip()) == 36, r.stdout)
+
+
+@case("a running `gzcoord-inbox --follow` is found by the session-start hook's watch detection, under the name it is linked as")
+def _():
+    waits: list[int] = []
+
+    def answer(_h, _method, path, _body):
+        if path.startswith("/api/wait"):
+            waits.append(1)
+            return None
+        return 200, json.dumps({"messages": []}) if path.startswith("/api/messages") else "{}"
+    stub = P.Stub(answer)
+    try:
+        d = P.scratch("claude-")
+        env = P.cmd_env(CLAUDE_BRIDGE_URL=stub.url, CLAUDE_BRIDGE_AUTH_TOKEN="tok", GZCOORD_CHANNEL="fixture:chan",
+                        AGENT_FABRIC_HOLD_DIR=P.scratch("hold-"), CMDLINE_OUT=os.path.join(d, "cmdline"),
+                        HOOK_PY=os.path.join(HERE, "runtime", "claude-code", "hooks", "session-start.py"),
+                        WATCH=os.path.join(_links(), "gzcoord-inbox"))
+        # A process named claude is what watch_running looks for above it
+        # (a script's comm is its file name; env would re-exec and rename it).
+        fake = os.path.join(d, "claude")
+        with open(fake, "w", encoding="utf-8") as fh:
+            fh.write('#!/bin/bash\n'
+                     'seen() { python3 -c \'import importlib.util as u, sys; s = u.spec_from_file_location("ss", sys.argv[1]); '
+                     'm = u.module_from_spec(s); s.loader.exec_module(m); print(m.watch_running())\' "$HOOK_PY"; }\n'
+                     'echo "before: $(seen)"\n'
+                     '"$WATCH" --follow >/dev/null 2>&1 & w=$!\n'
+                     'for _ in $(seq 50); do [ "$(seen)" = True ] && break; sleep 0.2; done\n'
+                     'echo "after: $(seen)"\n'
+                     'tr "\\0" " " < /proc/$w/cmdline > "$CMDLINE_OUT"\n'
+                     'kill $w; wait $w 2>/dev/null; exit 0\n')
+        os.chmod(fake, 0o755)
+        r = subprocess.run([fake], env=env, capture_output=True, text=True, timeout=60, stdin=subprocess.DEVNULL)
+        eq(r.stdout.split("\n")[:2], ["before: False", "after: True"], r.stdout + r.stderr)
+        with open(os.path.join(d, "cmdline"), encoding="utf-8") as fh:
+            cmdline = fh.read()
+        ok("gzcoord-inbox --follow" in cmdline, f"the process table reads {cmdline!r}")
+    finally:
+        stub.close()
+
+
+@case("the Node shims, kept for callers outside this repository, still run the same tools")
+def _():
+    env = {**P.cmd_env(), "GZCOORD_DEFAULT_LOCALE_ONLY": "1"}
+    r = subprocess.run(["node", os.path.join(P.SCRIPTS, "gzmsg.mjs"), "new-id"], env=env, capture_output=True, text=True,
+                       timeout=60, stdin=subprocess.DEVNULL)
+    eq((r.returncode, r.stderr), (0, ""))
+    ok(len(r.stdout.strip()) == 36, r.stdout)
+    for shim, usage, status in (("send.mjs", "usage: gzcoord-send <file>|- [--dry-run] [--force]\n", 1),
+                                ("inbox.mjs", "usage: gzcoord-inbox --replay <seq|message-id>\n", 1)):
+        args = ["--replay"] if shim == "inbox.mjs" else []
+        r = subprocess.run(["node", os.path.join(P.SCRIPTS, shim), *args], env=env, capture_output=True, text=True, timeout=60,
+                           stdin=subprocess.DEVNULL)
+        eq((r.returncode, r.stderr), (status, usage), shim)
+
 
 
 def main() -> int:

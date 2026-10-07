@@ -1641,12 +1641,20 @@ def case_a_contributor_entry_never_reaches_a_definition() -> None:
         assert findings() == [], "no contributor, nothing to say"
         got = findings({**good, "excluding": [e for e in excl if e != "tools/fabric/guards/"]})
         assert any("rule 'tools/' reaches tools/fabric/guards/" in f for f in got), got
+        # The rule modules lint.py loads are the coordinator's as lint.py is:
+        # a contributor entry that reaches them without excluding them is refused.
+        got = findings({**good, "excluding": [e for e in excl if e != "tools/fabric/lint_rules/"]})
+        assert any("rule 'tools/' reaches tools/fabric/lint_rules/" in f for f in got), got
+        assert "tools/fabric/lint_rules/" in lint.CONTRIBUTOR_NEVER
+        for loaded in ("tools/fabric/layout.py", "tools/fabric/workingcopy.py", "tools/fabric/adr.py"):
+            assert loaded in lint.CONTRIBUTOR_NEVER, f"{loaded} is loaded by lint by path: it is fenced like lint.py"
         got = findings({**good, "paths": good["paths"] + ["policies/"]})
         assert any("rule 'policies/' reaches policies/" in f for f in got), got
         # Review of #75: rules narrower than any sample file, each one a
         # definition or a guard.
         for narrow in ("identities/roles/python-dev/", "identities/roles/python-dev/charter.md",
                        "policies/githooks/commit-msg", "tools/fabric/guards/common.py",
+                       "tools/fabric/lint_rules/", "tools/fabric/lint_rules/docs.py",
                        "identities/roles/catalog.json", "routing/effort.json",
                        # Re-review of #75: what registers the hooks, the
                        # workspace prompt, the helper the runner sources.

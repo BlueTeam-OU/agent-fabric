@@ -1,9 +1,9 @@
 {
   "_comment": "Every fabric command a session is told to run, by the name it runs under. bootstrap.sh links each into ~/.local/bin (on every account's PATH) and user-settings.py allows each by a narrow `Bash(<name> *)` rule in the account's user settings, so neither the path nor the approval depends on where a session starts. A skill, a hook message or a project snippet names these, never `$AGENT_FABRIC_ROOT/...`: the harness asks before any command that carries a shell expansion, whatever the mode or the rules, and a Monitor re-armed every thirty minutes asked every time (the owner, 2026-09-26: no approval for any fabric script or executable). A new session-facing command is added here, in the same change that tells a session to run it. A command in `not_allowed` is linked like the others but gets no allow rule, with the reason beside it: a wrapper that runs another command would carry an approval for every command it can run.",
   "commands": {
-    "gzcoord-inbox": "communication/gzcoord/scripts/inbox.mjs",
-    "gzcoord-send": "communication/gzcoord/scripts/send.mjs",
-    "gzmsg": "communication/gzcoord/scripts/gzmsg.mjs",
+    "gzcoord-inbox": "bin/gzcoord-inbox",
+    "gzcoord-send": "bin/gzcoord-send",
+    "gzmsg": "bin/gzmsg",
     "fabric-accounts": "bin/fabric-accounts",
     "fabric-adr": "bin/fabric-adr",
     "fabric-ctl": "bin/fabric-ctl",
@@ -22,6 +22,12 @@
     "fabric-branches": "bin/fabric-branches",
     "fabric-jobs": "bin/fabric-jobs",
     "fabric-history": "bin/fabric-history"
+  },
+  "replaces": {
+    "_comment": "A command's earlier target, which bootstrap recognises as a link it made and moves to the current one; without it an account keeps the old link, the allow rule is withheld (user-settings.py) and every use asks. The GZCoord commands were Node shims until their Python entry points.",
+    "gzcoord-inbox": ["communication/gzcoord/scripts/inbox.mjs"],
+    "gzcoord-send": ["communication/gzcoord/scripts/send.mjs"],
+    "gzmsg": ["communication/gzcoord/scripts/gzmsg.mjs"]
   },
   "not_allowed": {
     "fabric-lease": "runs whatever command follows `--`: an allow rule for it would allow every command, so it asks as any command does",

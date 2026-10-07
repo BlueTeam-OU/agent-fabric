@@ -45,7 +45,7 @@ print around a message goes through one seam,
 `communication/gzcoord/scripts/i18n.mjs`, in the language of the login
 that runs them. The seam is inside the validator, not at the inbox's
 edge: `validate()`'s diagnostics are dictionary keys, so a refusal a
-holder reads from `send.mjs` or the `gzmsg` CLI while composing is in its
+holder reads from `gzcoord-send` or the `gzmsg` CLI while composing is in its
 language too. The message itself — its body, the metadata keys, the type
 names and `broadcast` — is never translated.
 

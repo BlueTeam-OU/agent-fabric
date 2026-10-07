@@ -32,7 +32,7 @@ carrying a `REQUEST:`, `ACCEPTANCE:` or `DELIVER-TO:` section — a
 finding to fix, a supply, a decision to record. `TO-ROLE` stays for what
 is not an assignment: an `INFO` or a `DECISION` every holder applies, a
 `QUESTION` to whoever holds the role. SPEC §13 states it as a MUST on
-the sender and a MUST-reject on the validator; `send.mjs` refuses such a
+the sender and a MUST-reject on the validator; `gzcoord-send` refuses such a
 message before it leaves.
 
 A sender that does not know which holder chooses by a fixed order and
@@ -67,7 +67,7 @@ remember.
    `DELIVER-TO:` section, is addressed with `TO` naming one login.
 2. A conforming validator rejects a `REQUEST` addressed `TO-ROLE` and any
    `TO-ROLE` message carrying one of those sections, naming the field at
-   fault (SPEC §13, §18); `gzmsg.mjs` does, and `send.mjs` validates as
+   fault (SPEC §13, §18); `gzmsg` does, and `gzcoord-send` validates as
    the last step before posting, so such a message is not sent.
 3. `TO-ROLE` is used only for what every holder applies or only the role
    decides: an `INFO`, a `DECISION`, a `QUESTION`.
@@ -92,7 +92,7 @@ remember.
 
 - The runtime still delivers `TO-ROLE` to every holder; §13's options
   stand for the messages that may still use it.
-- Before posting a `TO` or `TO-ROLE` message, `send.mjs` asks the
+- Before posting a `TO` or `TO-ROLE` message, `gzcoord-send` asks the
   control plane whether the addressee has a running session and, if not,
   says so and exits 4 unless `--force`; a `TO-ROLE` with no running
   holder reaches nobody now.

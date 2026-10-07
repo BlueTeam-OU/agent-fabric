@@ -14,7 +14,7 @@ message marks it read, and the account's first session sees only what
 comes after.
 
 Each project's integration (projects/<id>/integration/gzcoord/config.json)
-names its relay and channel, as communication/gzcoord/scripts/inbox.mjs
+names its relay and channel, as gzcoord-inbox
 reads them; CLAUDE_BRIDGE_URL and GZCOORD_CHANNEL override them there and
 here. The token is the account's own, from the file `fabric-secrets sync`
 writes; it is read in this process and never printed. A project with no
@@ -70,7 +70,7 @@ def main(argv: list[str]) -> int:
     for relay, channel in pairs:
         # The control channel carries the fleet's signed operations, never a
         # session's messages: an acknowledgement there would move this
-        # account's cursor on it (inbox.mjs and send.mjs refuse it too).
+        # account's cursor on it (gzcoord-inbox and gzcoord-send refuse it too).
         if is_control(channel):
             print(f"relay-catchup: {channel} is the control channel; not acknowledged there", file=sys.stderr)
             rc = 1

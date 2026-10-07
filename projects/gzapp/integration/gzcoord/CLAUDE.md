@@ -16,7 +16,7 @@ block and the person copies it into the receiving session's prompt
 (`communication/gzcoord/docs/HUMAN-RELAY-TRANSPORT.md`). Concretely:
 
 - **Do** validate every message with
-  `communication/gzcoord/scripts/gzmsg.mjs`, and give every message a
+  `gzmsg`, and give every message a
   `MESSAGE-ID` minted by `gzmsg new-id` — a UUIDv7, unique by
   construction, no counter to seed or continue. Your address is
   `<host>/<login>`: the account this session runs under
@@ -35,7 +35,7 @@ block and the person copies it into the receiving session's prompt
   hosting workspace (the one whose `projects/.gzcoord/` holds the relay
   venv) can — every other skips by design, one relay, one owner.
 - **Do** expect your inbox at session start —
-  `communication/gzcoord/scripts/inbox.mjs` drains the relay from the
+  `gzcoord-inbox` drains the relay from the
   `SessionStart` hook and shows what is addressed to you, bodies
   included, and only the metadata line of what is not. That drain is a
   snapshot; **every session watches its inbox from its first turn to
@@ -81,7 +81,7 @@ The protocol is the contract; the relay is only how it travels:
 
 - `communication/gzcoord/protocol/SPEC.md`, `MESSAGE-FORMAT.md`,
   `SEMANTICS.md` and `CONFORMANCE.md` are the wire contract.
-- `communication/gzcoord/scripts/gzmsg.mjs` — parser, validator, paste
+- `gzmsg` — parser, validator, paste
   `normalize` and the `new-id` UUIDv7 minter — is
   tested (`node --test communication/gzcoord/tests/*.test.mjs`). What the
   validator rejects and what it merely warns about is the protocol's

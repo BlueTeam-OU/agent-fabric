@@ -19,7 +19,7 @@ The stable logical identity is `host/instance`. A local filesystem path is never
 The `instance` half of the address is the AGENT: the login of the
 operating-system account the session runs under (`protocol/SPEC.md`
 §3.1). The one implementation is agent-fabric's `runtime/identity.py`;
-`scripts/gzmsg.mjs` asks it (`whoami()`) and falls back to the same
+`gzmsg` asks it (`whoami()`) and falls back to the same
 derivation (effective uid → login) when python is unavailable. The
 working copy the session runs in is never an input — a session launched
 from a directory named for another agent is still this login — and the
@@ -41,11 +41,11 @@ holds is its runtime binding (`$AGENT_FABRIC_STATE_DIR/agents/<login>/
 binding.json`), written by `tools/fabric/role.py` (`bin/fabric-role`, from a login shell) and read
 through `whoami()`; `role.name`/`specialties`/`capabilities` in local
 config follow the same source and are never authored independently of
-it. `scripts/gzmsg.mjs` loads the catalogue from agent-fabric (or a
+it. `gzmsg` loads the catalogue from agent-fabric (or a
 legacy `.roles/taxonomy.json` found by walking up from the working
 directory) and enforces both slug rules, warning when an address names
 a role other than the message's `ROLE`. A session's own identity
-(`scripts/inbox.mjs` `identity()`, which the control plane's presence
+(`gzcoord-inbox` `identity()`, which the control plane's presence
 also reads) derives the address from the login and host, the project
 from the binding, and the role from the binding, else from a slug the
 login carries — so the one spelling a peer can match is the default.

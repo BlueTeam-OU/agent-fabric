@@ -350,22 +350,23 @@ def test_binding_is_refused_inside_a_session(f: Fixture, tmp: str) -> None:
 def test_a_role_change_announces_nothing(f: Fixture, tmp: str) -> None:
     """Binding, changing or dropping a role posts nothing: who holds a role,
     and whether a session runs, is the control plane's to answer
-    (runtime/control/presence.mjs). A stub `node` records every send, so
-    "nothing" is what the relay would have seen."""
-    # Own fixture: the shared one has no gzcoord scripts and the stub node must not leak into other cases.
+    (runtime/control/presence.mjs). Stub `gzcoord-send` and `gzmsg` on PATH
+    record every send, so "nothing" is what the relay would have seen."""
+    # Own fixture: the shared one has no gzcoord entries and the stubs must not leak into other cases.
     own = os.path.join(tmp, "announce"); os.makedirs(own, exist_ok=True); f = Fixture(own)
-    scripts = os.path.join(f.root, "communication", "gzcoord", "scripts")
-    os.makedirs(scripts); open(os.path.join(scripts, "gzmsg.mjs"), "w").close(); open(os.path.join(scripts, "send.mjs"), "w").close()
-    log = os.path.join(own, "node.log"); bindir = os.path.join(own, "bin"); os.makedirs(bindir)
-    stub = r"""#!/usr/bin/env bash
-case "$*" in
-  *gzmsg.mjs\ new-id) echo 01a09fc1-0000-7000-8000-000000000009 ;;
-  *send.mjs\ -) body=$(cat); printf 'SEND %s\n' "$(printf '%s' "$body" | head -3 | tr '\n' ' ')" >> "$LOG"; echo 'sent seq 1' ;;
-esac
-"""
-    with open(os.path.join(bindir, "node"), "w", encoding="utf-8") as fh:
-        fh.write(stub)
-    os.chmod(os.path.join(bindir, "node"), 0o755)
+    # The logging stubs stand both on PATH and at the fabric's own bin/, so a
+    # send by absolute path ($AGENT_FABRIC_ROOT/bin/gzcoord-send) is caught too.
+    entries = os.path.join(f.root, "bin"); os.makedirs(entries)
+    log = os.path.join(own, "send.log"); bindir = os.path.join(own, "bin"); os.makedirs(bindir)
+    stubs = {
+        "gzmsg": 'case "$1" in new-id) echo 01a09fc1-0000-7000-8000-000000000009 ;; esac\n',
+        "gzcoord-send": 'body=$(cat); printf \'SEND %s\\n\' "$(printf \'%s\' "$body" | head -3 | tr \'\\n\' \' \')" >> "$LOG"; echo \'sent seq 1\'\n',
+    }
+    for name, body in stubs.items():
+        for d in (bindir, entries):
+            with open(os.path.join(d, name), "w", encoding="utf-8") as fh:
+                fh.write("#!/usr/bin/env bash\n" + body)
+            os.chmod(os.path.join(d, name), 0o755)
     f.env["PATH"] = bindir + os.pathsep + f.env["PATH"]; f.env["LOG"] = log
     assert f.run("backend-dev").returncode == 0
     assert f.run("flutter-dev").returncode == 0

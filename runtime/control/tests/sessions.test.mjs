@@ -105,3 +105,14 @@ test('a tick while a post is in flight does nothing', async () => {
 test('stateRecord leaves out a role and project it does not have', () => {
   assert.deepEqual(stateRecord('h/x', { sessions: [], role: null, project: null }, 't'), { v: 1, kind: 'state', from: 'h/x', ts: 't', sessions: [] });
 });
+
+test('agentd posts state records on the state channel, never the control channel', async () => {
+  const { statePoster, controlConfig } = await import('../agentd.mjs');
+  const sent = [];
+  const cfg = controlConfig({});
+  await statePoster(async (p, init) => { sent.push({ p, body: JSON.parse(init.body) }); return {}; }, cfg, 'h/x')({ v: 1, kind: 'state' });
+  assert.equal(sent[0].p, '/api/send');
+  assert.equal(sent[0].body.channel, 'fabric:state:control');
+  assert.notEqual(sent[0].body.channel, cfg.channel);
+  assert.equal(controlConfig({ FABRIC_STATE_CHANNEL: 't:state:control' }).state_channel, 't:state:control');
+});

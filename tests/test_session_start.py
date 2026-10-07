@@ -270,7 +270,7 @@ def test_hook_never_blocks(tmp: str) -> None:
 def test_hook_exports_the_control_plane_into_the_session_shell(tmp: str) -> None:
     """A SessionStart hook may append `export` lines to $CLAUDE_ENV_FILE;
     the harness sources them into every later Bash call. AGENT_FABRIC_ROOT
-    must be one of them — the integration docs run inbox.mjs through it,
+    must be one of them — the integration docs run gzcoord-inbox through it,
     and until 2026-09-14 it was set only for the hook's own child."""
     env_file = os.path.join(tmp, "claude-env")
     env = {**os.environ, "AGENT_FABRIC_STATE_DIR": os.path.join(tmp, "state"), "CLAUDE_ENV_FILE": env_file}
@@ -317,7 +317,7 @@ def test_hook_unsets_every_secret_in_the_session_shell(tmp: str) -> None:
 
 
 def test_hook_says_when_the_session_has_no_inbox_watch(tmp: str) -> None:
-    """Under a process named claude with no `inbox.mjs --follow` beneath it,
+    """Under a process named claude with no `gzcoord-inbox --follow` beneath it,
     the context says to arm the watch; with one beneath it, it does not."""
     state = os.path.join(tmp, "state")
     env = {**os.environ, "AGENT_FABRIC_ROOT": ROOT, "AGENT_FABRIC_STATE_DIR": state}
@@ -421,7 +421,8 @@ def test_bootstrap_writes_only_the_workspace_and_home_files(tmp: str) -> None:
     settings = json.load(open(os.path.join(projects, ".claude", "settings.json"), encoding="utf-8"))
     hooks = json.dumps(settings["hooks"])
     assert "session-start.sh" in hooks and "agent-dispatch-guard.sh" in hooks and root in hooks
-    assert "communication/gzcoord/scripts/inbox.mjs" in hooks, "the workspace drains the GZCoord inbox too"
+    assert "bin/gzcoord-inbox" in hooks and "scripts/inbox.mjs" not in hooks and "node " not in hooks, \
+        "the workspace drains the GZCoord inbox too, by the entry point"
     for event in ("PreToolUse", "UserPromptSubmit", "SessionEnd"):
         assert "plan-hold.sh" in json.dumps(settings["hooks"][event]), f"the plan hold follows the mode on {event}"
     assert "model-fallback-note.sh" in json.dumps(settings["hooks"]["PostModelSwitch"]), "an automatic fallback is announced to the session"

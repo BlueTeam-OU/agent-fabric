@@ -37,7 +37,7 @@ finding by **locator and class of problem, never its content**.
 ## 3. Alternatives Considered
 
 - **A content check on outgoing messages.** Rejected: nothing can tell
-  flagged text from any other; only the session can. `send.mjs` therefore
+  flagged text from any other; only the session can. `gzcoord-send` therefore
   carries a reminder, never a filter.
 - `switchModelsOnFlag: false` is the harness's own alternative (a pause
   with a choice); the sources do not record it being adopted or refused.
@@ -60,7 +60,7 @@ without anyone having to judge content they cannot see.
    memories — and that its next report says so.
 2. The hook leaves a marker per harness pid under
    `~/.cache/agent-fabric/fallback/`, swept like the plan-hold markers;
-   while it is live, `send.mjs` repeats the reminder on stderr.
+   while it is live, `gzcoord-send` repeats the reminder on stderr.
 3. `bin/fabric-status` reports the fallback as drift, with the models and
    the time.
 4. Writer's rule (`gzcoord-send`, beside "never a secret value"): after a

@@ -18,7 +18,7 @@
 # filters out of everything it sends anything that could be read as the
 # flagged category (a cybersecurity issue, most often), naming where a
 # finding is and what class of problem it is, never its content — and
-# that it now runs on a tier it was not launched with. A marker under the login's home lets send.mjs repeat the
+# that it now runs on a tier it was not launched with. A marker under the login's home lets gzcoord-send repeat the
 # reminder on stderr at the moment of sending, and bin/fabric-status say
 # the session fell back. The marker is per session (harness pid,
 # CLAUDE_PID) like the plan-hold marker, and swept the same way.

@@ -240,8 +240,8 @@ def _():
 
 
 def gzmsg_cli(*args: str) -> "subprocess.CompletedProcess[str]":
-    """The command at its contract's path: the .mjs, run as the suite ran it."""
-    return subprocess.run(["node", os.path.join(GZCOORD, "scripts", "gzmsg.mjs"), *args], capture_output=True,
+    """The command at its contract's path: bin/gzmsg, the name everything inside the fabric uses."""
+    return subprocess.run([os.path.join(os.path.dirname(os.path.dirname(GZCOORD)), "bin", "gzmsg"), *args], capture_output=True,
                           text=True, timeout=120, stdin=subprocess.DEVNULL)
 
 
@@ -670,7 +670,7 @@ def _():
     # variable's NAME. Valid — §7.2 keeps the id opaque — but said.
     unexpanded = validate(f"{head}MESSAGE-ID: $ID\n")
     eq(unexpanded["ok"], True, "the grammar admits any identifier")
-    ok("MESSAGE-ID is the literal $ID — the shell variable was not expanded; mint the id with gzmsg.mjs new-id and write"
+    ok("MESSAGE-ID is the literal $ID — the shell variable was not expanded; mint the id with gzmsg new-id and write"
        " its value" in unexpanded["warnings"], unexpanded["warnings"])
     odd = validate(f"{head}MESSAGE-ID: 01a09fc1-0000-7000-8000-000000000001\nIN-REPLY-TO: yesterday's message\n")
     ok(any(w.startswith("IN-REPLY-TO is yesterday's message, not an identifier this deployment mints") for w in odd["warnings"]),
@@ -1431,8 +1431,13 @@ def _():
 # ── cases that run a command beside a function: ported whole ─────────
 
 SCRIPTS = os.path.join(GZCOORD, "scripts")
-INBOX_CMD = os.path.join(SCRIPTS, "inbox.mjs")
-SEND_CMD = os.path.join(SCRIPTS, "send.mjs")
+BIN = os.path.join(os.path.dirname(os.path.dirname(GZCOORD)), "bin")
+INBOX_CMD = os.path.join(BIN, "gzcoord-inbox")
+SEND_CMD = os.path.join(BIN, "gzcoord-send")
+# The Node shims, kept for callers outside this repository until they are
+# retired (ADR-040 §7): run only by the cases that are about them.
+SHIM_INBOX = os.path.join(SCRIPTS, "inbox.mjs")
+SHIM_SEND = os.path.join(SCRIPTS, "send.mjs")
 AGENT_ID = "01a0f782-7e06-7dee-811f-0a860ed93bf3"
 
 
@@ -1568,7 +1573,7 @@ def follow_until(env: dict, done: Callable[[str], bool], seconds: float = 8.0) -
     """inbox --follow, read until `done(out)` or the time is up, then killed
     as the harness kills it (SIGKILL, the shim first)."""
     import time
-    child = subprocess.Popen(["node", INBOX_CMD, "--follow"], env=env, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+    child = subprocess.Popen([INBOX_CMD, "--follow"], env=env, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
                              stdin=subprocess.DEVNULL)
     os.set_blocking(child.stdout.fileno(), False)
     out, deadline = b"", time.monotonic() + seconds
@@ -1642,7 +1647,7 @@ def _():
     put_marker()
     env = cmd_env(AGENT_FABRIC_HOLD_DIR=hold, CLAUDE_BRIDGE_URL=stub.url, CLAUDE_BRIDGE_AUTH_TOKEN="tok",
                   GZCOORD_CHANNEL="fixture:chan")
-    child = subprocess.Popen(["node", INBOX_CMD, "--follow"], env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+    child = subprocess.Popen([INBOX_CMD, "--follow"], env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                              stdin=subprocess.DEVNULL)
     for fd in (child.stdout, child.stderr):
         os.set_blocking(fd.fileno(), False)
@@ -1668,13 +1673,13 @@ def _():
     ok(b"HELD-BODY" in out, "delivered once the marker was gone")
     # --held answers from the same marker
     put_marker()
-    h = subprocess.run(["node", INBOX_CMD, "--held"], env=env, capture_output=True, text=True, timeout=60)
+    h = subprocess.run([INBOX_CMD, "--held"], env=env, capture_output=True, text=True, timeout=60)
     eq(h.returncode, 0)
     ok(re.match(r"held: .* session plan \(pid \d+\)", h.stdout), h.stdout)
     os.unlink(marker)
     with open(os.path.join(hold, "4194304000.json"), "w", encoding="utf-8") as fh:
         json.dump({"session_id": "plan", "pid": 4194304000, "since": "T"}, fh)
-    n = subprocess.run(["node", INBOX_CMD, "--held"], env=env, capture_output=True, text=True, timeout=60)
+    n = subprocess.run([INBOX_CMD, "--held"], env=env, capture_output=True, text=True, timeout=60)
     eq(n.returncode, 1)
     ok(re.match(r"not held: 4194304000\.json: session 4194304000 is gone", n.stdout), n.stdout)
 
@@ -1705,13 +1710,13 @@ def _():
     try:
         env = cmd_env(CLAUDE_BRIDGE_URL=stub.url, CLAUDE_BRIDGE_AUTH_TOKEN="tok", GZCOORD_CHANNEL="fabric:control")
         for args in ([], ["--follow"], ["--wait", "1"]):
-            r = subprocess.run(["node", INBOX_CMD, *args], env=env, capture_output=True, text=True, timeout=10)
+            r = subprocess.run([INBOX_CMD, *args], env=env, capture_output=True, text=True, timeout=10)
             eq(r.returncode, 2, f"inbox {' '.join(args)}: exit {r.returncode}\n{r.stderr}")
             ok(re.search(r"control channel", r.stderr), r.stderr)
         f = os.path.join(env["HOME"], "m.txt")
         with open(f, "w", encoding="utf-8") as fh:
             fh.write(valid_message())
-        sres = subprocess.run(["node", SEND_CMD, f], env=env, capture_output=True, text=True, timeout=10)
+        sres = subprocess.run([SEND_CMD, f], env=env, capture_output=True, text=True, timeout=10)
     finally:
         stub.close()
     eq(sres.returncode, 2, f"send: exit {sres.returncode}\n{sres.stderr}")
