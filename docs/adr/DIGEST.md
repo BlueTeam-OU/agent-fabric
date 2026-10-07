@@ -194,7 +194,7 @@ its record disagree, the record wins. Look it up, never read it whole:
   flags every session it reaches; the fabric tells it at the switch (§2).
 - `model-fallback-note.sh` on `PostModelSwitch` (`source: "auto"`) names
   the models, the category and the stickiness; a per-pid marker makes
-  `send.mjs` repeat the reminder; `fabric-status` shows it as drift (§5
+  `gzcoord-send` repeat the reminder; `fabric-status` shows it as drift (§5
   rules 1–3).
 - After a flag a finding travels by locator and class, never content;
   a delivery that flags you is answered by locator (§5 rule 4).
@@ -495,7 +495,7 @@ its record disagree, the record wins. Look it up, never read it whole:
   `DELIVER-TO:` section, is addressed `TO` one login; `TO-ROLE` is for
   `INFO`, `DECISION`, `QUESTION` (§2, §5 rules
   1, 3).
-- The validator refuses the role-addressed shape and `send.mjs` does not
+- The validator refuses the role-addressed shape and `gzcoord-send` does not
   post it (§5 rule 2).
 - Not knowing the holder: the one on the path, else one running now,
   else the lowest-numbered — and say which rule chose (§5 rule 4).
@@ -635,7 +635,7 @@ its record disagree, the record wins. Look it up, never read it whole:
   table and binding — since when, role, project, planning; unreadable is
   unknown, never offline (§2, §5 rule 1). `presence` is the one public op
   (§5 rule 2).
-- `send.mjs` asks before a `TO` or `TO-ROLE` leaves: no session, silence
+- `gzcoord-send` asks before a `TO` or `TO-ROLE` leaves: no session, silence
   or an unplaced address exits 4 unless `--force`; a role passes when any
   holder runs; planning is a note, never a refusal (§5 rules 3–4).
 - The launcher and `fabric-role` announce nothing; the inbox acknowledges

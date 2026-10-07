@@ -113,7 +113,7 @@ proof.
    started by `bootstrap.sh`. The account lingers, so the unit runs from
    boot with no login and no session.
 2. The control channel is named in `runtime/control/config.json` and ends
-   in `:control`; `inbox.mjs` and `send.mjs` refuse such a channel with
+   in `:control`; `gzcoord-inbox` and `gzcoord-send` refuse such a channel with
    exit 2 before any request reaches the relay. Control records are never
    GZCOORD/1 messages.
 3. The op set is closed (`ops.mjs` `OPS`). No field of a request ever

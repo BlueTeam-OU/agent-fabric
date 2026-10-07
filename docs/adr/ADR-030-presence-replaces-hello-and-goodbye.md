@@ -38,7 +38,7 @@ rejects them (SPEC §8, §18).
 - **Anyone asks it.** `presence` is the one public op of the control
   plane: any placed account may run `fabric-ctl <login|all> presence`.
 - **The sender asks it.** Before a `TO` or `TO-ROLE` message leaves,
-  `send.mjs` asks whether the addressee has a session; the sender decides
+  `gzcoord-send` asks whether the addressee has a session; the sender decides
   what to do about the answer.
 - **A request dies with its session.** A request sent to a session that
   then ended is not read by the next one; the sender checks presence and
@@ -81,7 +81,7 @@ something asked once, when it matters.
    offline.
 2. `presence` is the only public op (`ops.mjs` `PUBLIC_OPS`, ADR-029 §5
    rule 4); every other op stays the operator's.
-3. Before posting a `TO` or `TO-ROLE` message, `send.mjs` asks presence.
+3. Before posting a `TO` or `TO-ROLE` message, `gzcoord-send` asks presence.
    An addressee with no session, a control agent that did not answer or
    could not tell, an address no host places, or a presence request that
    failed is named, nothing is sent, and it exits 4 — unless `--force`,
@@ -129,7 +129,7 @@ section number moves.
 
 ## 8. Decision Status
 
-Accepted: the launcher, `fabric-role`, the inbox, `send.mjs` and SPEC §5
+Accepted: the launcher, `fabric-role`, the inbox, `gzcoord-send` and SPEC §5
 carry it.
 
 ## References
