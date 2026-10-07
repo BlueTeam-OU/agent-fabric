@@ -304,16 +304,25 @@ def main() -> int:
               and "step failed" not in text, text)
         text, _, _ = verify_with({}, [], account="acct-one=0123456789ab")
         check("…another token applied: the step fails, both named by fingerprint, the value never",
-              f"not applied (expected 0123456789ab, token {tok_fp} in" in text and "'x'" not in text, text)
-        for body, what in (("", "no export line"), ("export CLAUDE_CODE_OAUTH_TOKEN='x'\nexport CLAUDE_CODE_OAUTH_TOKEN='x'\n",
-                                                    "two export lines"),
-                           ("export CLAUDE_CODE_OAUTH_TOKEN='x\n", "an unclosed quote")):
+              f"not applied (expected 0123456789ab; token {tok_fp} in" in text and "'x'" not in text
+              and "a re-run of new-agent reaches the store only once identities/keys/ is merged" in text, text)
+        text, _, _ = verify_with({}, [], no_account=True)
+        check("…--no-claude-account on an account that holds one: not assigned by this run, and the token it holds said",
+              f"not assigned by this run (--no-claude-account); a template token is already applied (token {tok_fp})" in text
+              and "no template token" not in text and "step failed" not in text, text)
+        unread = "could not be read as sync writes it"
+        for body, what, said in (("", "no export line", "; no token in"),
+                                 ("export CLAUDE_CODE_OAUTH_TOKEN='x'\nexport CLAUDE_CODE_OAUTH_TOKEN='x'\n", "two export lines",
+                                  unread),
+                                 ("export CLAUDE_CODE_OAUTH_TOKEN='x\n", "an unclosed quote", unread),
+                                 ("export CLAUDE_CODE_OAUTH_TOKEN=''\n", "an empty value", unread)):
             put(f"{home}/.config/agent-fabric/secrets.env", body)
             text, _, _ = verify_with({}, [], account=f"acct-one={tok_fp}")
-            check(f"…{what}: no token, the step fails", "expected " + tok_fp + ", no token in" in text, text)
+            check(f"…{what}: the step fails, said as {'absent' if 'no token' in said else 'unreadable, never absent'}",
+                  "expected " + tok_fp in text and said in text and "step failed" in text, text)
         os.remove(f"{home}/.config/agent-fabric/secrets.env")
         text, _, _ = verify_with({}, [], account=f"acct-one={tok_fp}")
-        check("…no secrets.env at all: no token, the step fails", "expected " + tok_fp + ", no token in" in text, text)
+        check("…no secrets.env at all: unreadable, the step fails", unread in text and "step failed" in text, text)
         text, _, _ = verify_with({}, [], no_account=True)
         check("…--no-claude-account: nothing compared, the closing says it", "not assigned (--no-claude-account" in text
               and "step failed" not in text, text)
@@ -519,7 +528,8 @@ esac
                   and "finish" not in calls, msg)
             for rows, code in (('[{"login": "new", "status": "written", "token_sha256_12": "0123456789ab"}]', 1),
                                ("[]", 0), ("garbage", 0),
-                               ('[{"login": "new", "status": "written"}, {"login": "x", "status": "written"}]', 0)):
+                               ('[{"login": "new", "status": "written"}, {"login": "x", "status": "written"}]', 0),
+                               ('[{"login": "x", "status": "written", "token_sha256_12": "0123456789ab"}]', 0)):
                 put(f"{fk}/assign", f"{rows}\n{code}\n")
                 rc, msg, err, calls = orchestrate("new", "r")
                 check(f"…so does an assignment answering {rows[:30]!r} with exit {code}",

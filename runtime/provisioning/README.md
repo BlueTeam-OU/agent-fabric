@@ -41,10 +41,16 @@ What a project needs beyond that is the project's to say —
 for each `--project`:
 
 ```sh
-runtime/provisioning/new-agent.sh <login> <role> [--host <id>] [--project <id>]... [--dry-run]
-runtime/provisioning/new-agent.sh <login> <role> --project <id> --project <id>
-runtime/provisioning/new-agent.sh <login> <role> --host <host-id> --project <id>   # on another host
+runtime/provisioning/new-agent.sh <login> <role> (--claude-account <slug> | --no-claude-account) [--host <id>] [--project <id>]... [--dry-run]
+runtime/provisioning/new-agent.sh <login> <role> --claude-account <slug> --project <id> --project <id>
+runtime/provisioning/new-agent.sh <login> <role> --claude-account <slug> --host <host-id> --project <id>   # on another host
+runtime/provisioning/new-agent.sh <login> <role> --no-claude-account --project <id>   # the broker path only
 ```
+
+The Claude account it starts on is a template in the coordinator's store
+(`bin/fabric-accounts templates`), checked before any account is made,
+its token written into the new store before the first sync, and its
+fingerprint compared in step 10 (ADR-031).
 
 Every step is `must` (a failure stops the run, named; nothing after it
 runs), `probe` (a question) or `best_effort` (one warning) —

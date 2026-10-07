@@ -552,7 +552,7 @@ def assign(s: Steps, login: str, slug: str, fp: str) -> None:
     except ValueError:
         rows = None
     row = rows[0] if isinstance(rows, list) and len(rows) == 1 and isinstance(rows[0], dict) else {}
-    if rc != 0 or row.get("status") not in ("written", "unchanged"):
+    if rc != 0 or row.get("status") not in ("written", "unchanged") or row.get("login") != login:
         s.tail(3)
         why = f": {row['reason']}" if isinstance(row.get("reason"), str) else f" (exit {rc})"
         die(f"step failed: fabric-secrets store assign {slug} {login}{why}; nothing after it ran")

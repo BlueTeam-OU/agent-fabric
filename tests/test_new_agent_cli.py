@@ -572,7 +572,7 @@ def main() -> int:
                        and "secret_store child-bundle" not in c and not os.path.isdir(f"{h}/projects/demo"), out + c)
                 elif fault_name == "account-token":
                     ok("…an applied token other than the template's fails the verification, by fingerprint only",
-                       f"CLAUDE_CODE_OAUTH_TOKEN not applied (expected {FP}, token " in out
+                       f"CLAUDE_CODE_OAUTH_TOKEN not applied (expected {FP}; token " in out
                        and "is NOT applied" in out and "other-token" not in out and TOKEN not in out, out)
                 elif fault_name == "account-sync":
                     ok("…and a sync that exits 3 is named with its code, no clone after it",

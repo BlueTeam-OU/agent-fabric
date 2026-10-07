@@ -419,38 +419,53 @@ def verify(root: str, login: str, home: str, sudo: str, projects: list[str], *, 
     # answers the coordinator from here on: one ping, as the operator.
     prefixed("   control plane: ", quiet_run([f"{root}/bin/fabric-ctl", login, "ping"], stderr=subprocess.STDOUT), skip=1)
     applied = applied_token(home, sudo)
+    env_file = f"{home}/.config/agent-fabric/secrets.env"
     if account:
         slug, want = account.split("=", 1)
         if applied == want:
             return closing(login, signing, "applied", first, account=account), ""
-        got = "no token" if applied is None else f"token {applied}"
+        got = (f"{env_file} could not be read as sync writes it (no file, no access, or not one export line)"
+               if applied is UNREADABLE else f"no token in {env_file}" if applied is None
+               else f"token {applied} in {env_file}")
+        # A re-run of new-agent cannot repair it before identities/keys/
+        # merges: take-bundle refuses every bundle after first contact
+        # until the agent's key is on main.
         return (closing(login, signing, "not-applied", first, account=account),
-                f"new-agent: step failed: Claude account {slug}: CLAUDE_CODE_OAUTH_TOKEN not applied (expected {want}, "
-                f"{got} in {home}/.config/agent-fabric/secrets.env) — fabric-secrets sync as {login}, then re-run\n")
+                f"new-agent: step failed: Claude account {slug}: CLAUDE_CODE_OAUTH_TOKEN not applied (expected {want}; "
+                f"{got}). As {login}: projects/agent-fabric/bin/fabric-secrets sync, then status; a re-run of new-agent "
+                "reaches the store only once identities/keys/ is merged\n")
+    held = applied if isinstance(applied, str) else ""
     if no_account:
-        return closing(login, signing, "declined", first), ""
-    return closing(login, signing, "template" if applied is not None else "no", first), ""
+        return closing(login, signing, "declined", first, account=f"={held}" if held else ""), ""
+    return closing(login, signing, "template" if held else "no", first), ""
 
 
-def applied_token(home: str, sudo: str) -> str | None:
+UNREADABLE = object()
+
+
+def applied_token(home: str, sudo: str) -> str | None | object:
     """The fingerprint (sha256[:12]) of the CLAUDE_CODE_OAUTH_TOKEN the
-    account's sync applied, read as root, or None when there is none. The
-    value stays in this process and only its fingerprint leaves it, the
-    one fabric-secrets store templates prints. A line sync did not write
-    (two exports, or one that is not one shell word) is no answer, and
-    compares as no token."""
+    account's sync applied, read as root; None when the file holds no such
+    line; UNREADABLE when there was no answer to read — no file, no
+    access, or a line sync does not write (two exports, or one that is not
+    one shell word). The value stays in this process and only its
+    fingerprint leaves it, the one fabric-secrets store templates prints."""
     r = run_bounded([*sudo.split(), "-n", "sed", "-n", "s/^export CLAUDE_CODE_OAUTH_TOKEN=//p",
                      f"{home}/.config/agent-fabric/secrets.env"], stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                     stderr=subprocess.DEVNULL, timeout=READBACK_TIMEOUT_S)
     lines = r.stdout.decode("utf-8", "surrogateescape").splitlines()
-    if r.returncode != 0 or len(lines) != 1:
+    if r.returncode != 0:
+        return UNREADABLE
+    if not lines:
         return None
+    if len(lines) != 1:
+        return UNREADABLE
     try:
         words = shlex.split(lines[0])
     except ValueError:
-        return None
+        return UNREADABLE
     if len(words) != 1 or not words[0]:
-        return None
+        return UNREADABLE
     return hashlib.sha256(words[0].encode("utf-8", "surrogateescape")).hexdigest()[:12]
 
 
@@ -491,6 +506,9 @@ def closing(login: str, signing: str, creds: str, first: str, *, account: str = 
     elif creds == "not-applied":
         claude = (f"- Claude account: {slug} (token {fp}) was assigned and is NOT applied — the launcher refuses a "
                   f"plain-claude session until it is. As {login}: projects/agent-fabric/bin/fabric-secrets sync")
+    elif creds == "declined" and fp:
+        claude = (f"- Claude account: not assigned by this run (--no-claude-account); a template token is already "
+                  f"applied (token {fp}), plain-claude path ready")
     elif creds == "template":
         claude = "- Claude account: a template token (plain-claude path ready)"
     else:
