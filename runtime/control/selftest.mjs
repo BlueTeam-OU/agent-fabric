@@ -27,6 +27,11 @@ export const SELFTEST_TIMEOUT_MS = 450000;
 export const SELFTEST_BUDGET_S = SELFTEST_TIMEOUT_MS / 1000 + 30;
 const defaultRoot = home => process.env.AGENT_FABRIC_ROOT ?? path.join(home, 'projects', 'agent-fabric');
 const lastLine = s => String(s ?? '').trim().split('\n').pop().slice(0, 200);
+// What the tool reports is relayed only as strings and booleans of bounded
+// size: a field of another type is no field, so no report can make the
+// reply fail to build (and agentd post nothing) or grow without bound.
+const str = (v, max) => typeof v === 'string' ? v.slice(0, max) : '';
+const MAX_STEPS = 16;
 
 let running = null;   // one self-test at a time per daemon: both would write the same name
 export function secretsSelftest(request, opts = {}) {
@@ -56,7 +61,8 @@ export async function secretsSelftestOnce(request, { home = os.homedir(), root =
   if (![0, 1].includes(code) || !report || !Array.isArray(report.steps)) {
     return { status: 'failed', reason: lastLine(err) || `fabric-secrets selftest exited ${code} with no report` };
   }
-  const steps = report.steps.map(s => ({ step: String(s?.step ?? '?').slice(0, 40), ok: s?.ok === true, reason: String(s?.reason ?? '').slice(0, 200) }));
+  if (report.steps.length > MAX_STEPS) return { status: 'failed', reason: `fabric-secrets selftest reported ${report.steps.length} steps, more than ${MAX_STEPS}` };
+  const steps = report.steps.map(s => ({ step: str(s?.step, 40) || '?', ok: s?.ok === true, reason: str(s?.reason, 200) }));
   const pass = code === 0 && report.status === 'pass' && steps.length > 0 && steps.every(s => s.ok);
-  return { status: pass ? 'pass' : 'fail', name: String(report.name ?? ''), steps };
+  return { status: pass ? 'pass' : 'fail', name: str(report.name, 64), steps };
 }

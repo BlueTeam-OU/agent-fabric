@@ -65,6 +65,15 @@ test('only step, ok and reason are relayed, each bounded: a field the tool added
   assert.ok(r.steps.every(s => Object.keys(s).join() === 'step,ok,reason' && s.reason.length === 200));
 });
 
+test('a hostile report still gets a reply: other types are no field, sizes and the step count are bounded', async () => {
+  const evil = { status: 'pass', name: { toString: 1 }, steps: [{ step: { toString: 1 }, ok: true, reason: { toString: 1 } }] };
+  const r = await secretsSelftestOnce({}, { root: fakeRoot(evil) });
+  assert.deepEqual(r, { status: 'pass', name: '', steps: [{ step: '?', ok: true, reason: '' }] });
+  assert.equal((await secretsSelftestOnce({}, { root: fakeRoot({ ...passing, name: 'N'.repeat(100000) }) })).name.length, 64);
+  const many = await secretsSelftestOnce({}, { root: fakeRoot({ ...passing, steps: Array(17).fill(passing.steps[0]) }) });
+  assert.equal(many.status, 'failed'); assert.match(many.reason, /17 steps, more than 16/);
+});
+
 test('it takes no arguments, and runs nothing when given some', async () => {
   const root = fakeRoot(passing);
   assert.deepEqual(await secretsSelftestOnce({ args: { name: 'X' } }, { root }), { status: 'refused', reason: 'secrets-selftest takes no arguments' });
