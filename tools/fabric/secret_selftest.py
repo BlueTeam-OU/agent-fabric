@@ -47,6 +47,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from secretstore.core import FABRIC_ROOT, StoreError, git, login, store_dir  # noqa: E402
 from secretstore.keys import key_of_store  # noqa: E402
+from secretstore.lock import LOCK_WAIT_ENV  # noqa: E402
 from secretstore.reserved import RegistryUnreadable, reserved  # noqa: E402
 
 NAME = "AF_SELFTEST_CANARY"
@@ -54,8 +55,13 @@ CHECKOUT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__fil
 SECRETS = os.path.join(CHECKOUT, "runtime", "provisioning", "secrets", "fabric-secrets")
 SECRET_RUN = os.path.join(CHECKOUT, "bin", "fabric-secret-run")
 # set and rm pull and push the store over the network. Seven commands at
-# most: runtime/control/selftest.mjs waits longer than all seven.
-STEP_TIMEOUT_S = 60
+# most (a leftover's rm, then names, set, run, rm, names, run), each
+# STEP_TIMEOUT_S and then STOP_GRACE_S: 7 x 60 = 420 s, under the 450 s
+# runtime/control/selftest.mjs waits. A command waits for the store's write
+# lock LOCK_WAIT_S at most, under its own bound, so a busy store is
+# reported as the refusal naming its holder, not as a timeout.
+STEP_TIMEOUT_S = 55
+LOCK_WAIT_S = 30
 # After SIGTERM, how long a timed-out command's group has to end before
 # SIGKILL: a set or rm killed mid-write releases the store's write lock
 # with its process, and its next run starts from a clean store or refuses.
@@ -75,7 +81,7 @@ def _cmd(args: list[str], stdin: str | None = None) -> tuple[int, str, str]:
     store after the step had been reported (the own-secrets review, R3)."""
     try:
         proc = subprocess.Popen(args, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                text=True, process_group=0)
+                                text=True, process_group=0, env={**os.environ, LOCK_WAIT_ENV: str(LOCK_WAIT_S)})
     except OSError as e:
         return 127, "", f"{os.path.basename(args[0])}: {e.strerror}"
     try:
@@ -107,7 +113,15 @@ def _stop_group(proc: subprocess.Popen) -> None:
             os.killpg(proc.pid, 0)
         except ProcessLookupError:
             break
-    proc.communicate()
+    # Bounded too: a descendant that left the group with a pipe still open
+    # would hold the read until selftest.mjs killed the whole run.
+    try:
+        proc.communicate(timeout=STOP_GRACE_S)
+    except subprocess.TimeoutExpired:
+        for pipe in (proc.stdin, proc.stdout, proc.stderr):
+            if pipe:
+                pipe.close()
+        proc.wait(timeout=STOP_GRACE_S)
 
 
 def _why(what: str, rc: int) -> str:
@@ -128,15 +142,28 @@ def _last_set_by_me(store: str) -> str | None:
     key of this store's own (VALIDSIG's primary is the store's key); else
     None. A git or gpg failure is a StoreError: no answer, not a "no"."""
     rel = f"env/{NAME}.gpg"
-    if git(store, "ls-files", "--error-unmatch", "--", rel, check=False).returncode != 0:
+    tracked = git(store, "ls-files", "--error-unmatch", "--", rel, check=False).returncode
+    if tracked == 1:
         return None
+    if tracked != 0:
+        raise StoreError(f"git ls-files exited {tracked}")
     sha, _, subject = git(store, "log", "-1", "--format=%H %s", "--", rel).stdout.decode().strip().partition(" ")
     if not sha or subject != f"agent {login()}: set {NAME}":
+        return None
+    # %G?: N no signature, B/X/Y/R a bad, expired or revoked one — each a
+    # "no"; E could not be checked (gpg missing, the key not in the
+    # keyring) — no answer; G/U a good one, whose key is read below.
+    state = git(store, "-c", "gpg.program=gpg", "log", "-1", "--format=%G?", sha).stdout.decode().strip()
+    if state not in ("N", "B", "X", "Y", "R", "G", "U"):
+        raise StoreError(f"the signature of {sha[:12]} could not be checked ({state or 'no answer'})")
+    if state not in ("G", "U"):
         return None
     r = git(store, "-c", "gpg.program=gpg", "verify-commit", "--raw", sha, check=False)
     valid = next((f for f in (line.split() for line in r.stderr.decode(errors="replace").splitlines())
                   if len(f) > 2 and f[:2] == ["[GNUPG:]", "VALIDSIG"]), None)
-    return sha if r.returncode == 0 and valid and valid[-1] == key_of_store(store) else None
+    if r.returncode != 0 or not valid:
+        raise StoreError(f"git verify-commit of {sha[:12]} disagreed with its signature state ({state})")
+    return sha if valid[-1] == key_of_store(store) else None
 
 
 def _remember_leftover() -> bool:

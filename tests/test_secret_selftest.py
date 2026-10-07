@@ -194,6 +194,28 @@ def main() -> int:
                   and git("rev-parse", "HEAD") == other, p.stdout + p.stderr)
             os.remove(mark)
             run([SHIM, "store", "rm", "AF_SELFTEST_CANARY"])
+            # …nor one with the selftest's subject, signed by another key this
+            # keyring holds (a good signature, not the store's key).
+            run(["gpg", "--batch", "--passphrase", "", "--quick-gen-key", "other <other@test.invalid>", "ed25519", "sign", "never"])
+            other_fpr = next(l.split(":")[9] for l in run(["gpg", "--with-colons", "--list-keys", "other@test.invalid"]).stdout.splitlines()
+                             if l.startswith("fpr:"))
+            shutil.copy(os.path.join(env_dir, "OWN_KEPT.gpg"), os.path.join(env_dir, "AF_SELFTEST_CANARY.gpg"))
+            git("add", "env/AF_SELFTEST_CANARY.gpg")
+            run(["git", "-C", store, "-c", "user.name=t", "-c", "user.email=t@t", "-c", f"user.signingkey={other_fpr}",
+                 "-c", "gpg.program=gpg", "commit", "-q", "-S", "-m", f"agent {me}: set AF_SELFTEST_CANARY"])
+            foreign = git("rev-parse", "HEAD")
+            check("…(that commit is there, with a good signature by the other key)",
+                  git("-c", "gpg.program=gpg", "log", "-1", "--format=%G? %GF") in (f"G {other_fpr}", f"U {other_fpr}"),
+                  git("-c", "gpg.program=gpg", "log", "-1", "--format=%G? %GF"))
+            with open(mark, "w", encoding="utf-8") as fh:
+                fh.write(foreign + "\n")
+            p = run([SHIM, "selftest", "--json"])
+            r = json.loads(p.stdout or "{}")
+            check("…nor one signed by another key in the keyring, named in the record: refused, untouched",
+                  p.returncode == 1 and [s["step"] for s in r.get("steps", [])] == ["precondition"]
+                  and git("rev-parse", "HEAD") == foreign, p.stdout + p.stderr)
+            git("reset", "-q", "--hard", "HEAD~1")
+            os.remove(mark)
         finally:
             subprocess.run(["gpgconf", "--homedir", gnupg, "--kill", "all"], capture_output=True, timeout=30)
 
@@ -202,6 +224,7 @@ def main() -> int:
     st = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(st)
     st.reserved = lambda name, root: None
+    real_cmd = st._cmd
     # The store is the fakes': no leftover is read or recorded in a real one.
     st._remember_leftover = lambda: False
     st._own_leftover = lambda: False
@@ -211,6 +234,7 @@ def main() -> int:
     # grandchild that ignores SIGTERM is killed after the grace.
     import time
     with tempfile.TemporaryDirectory() as gtmp:
+        bounds = st.STEP_TIMEOUT_S, st.STOP_GRACE_S
         st.STEP_TIMEOUT_S, st.STOP_GRACE_S = 1, 1
         for trap, what in (("", "a grandchild"), ("trap '' TERM; ", "a grandchild that ignores SIGTERM")):
             pidfile = os.path.join(gtmp, "pid")
@@ -231,7 +255,7 @@ def main() -> int:
                   and took < 20, f"{got} gone={gone} took={took:.1f}")
             if not gone:
                 os.kill(pid, 9)
-        st.STEP_TIMEOUT_S, st.STOP_GRACE_S = 60, 5
+        st.STEP_TIMEOUT_S, st.STOP_GRACE_S = bounds
     calls: list[list[str]] = []
 
     def fake(args, stdin=None):
@@ -286,6 +310,49 @@ def main() -> int:
     check("…an absent check refused otherwise: fixed text, not its stderr",
           r["steps"][-1]["reason"] == "fabric-secret-run refused the removed name, not as absent"
           and "another reason" not in json.dumps(r), r)
+    # A git or gpg that gives no answer is no answer, never "not a leftover"
+    # (review of #110, 2): a StoreError, which the run reports as such.
+    def git_answering(answers):
+        def fake_git(store, *args, check=True):
+            for key, (rc, out) in answers.items():
+                if key in args:
+                    if check and rc:
+                        raise st.StoreError(f"git {args[0]}: exit {rc}")
+                    return subprocess.CompletedProcess(args, rc, out.encode(), b"")
+            return subprocess.CompletedProcess(args, 0, b"", b"")
+        return fake_git
+    saved_git, saved_login = st.git, st.login
+    st.login = lambda: "me"
+    try:
+        for answers, what in (({"ls-files": (128, "")}, "ls-files exiting 128"),
+                              ({"--format=%H %s": (0, "abc agent me: set AF_SELFTEST_CANARY"), "--format=%G?": (0, "E")},
+                               "a signature gpg could not check (E)"),
+                              ({"--format=%H %s": (0, "abc agent me: set AF_SELFTEST_CANARY"), "--format=%G?": (0, "G"),
+                                "verify-commit": (1, "")}, "verify-commit failing on a good %G?")):
+            st.git = git_answering(answers)
+            try:
+                got = st._last_set_by_me("/nowhere")
+                check(f"…{what}: no answer, a StoreError", False, f"answered {got!r}")
+            except st.StoreError:
+                check(f"…{what}: no answer, a StoreError", True)
+    finally:
+        st.git, st.login = saved_git, saved_login
+    rm_fails = lambda args, stdin=None: (1, "", "") if "rm" in args else fake(args, stdin)  # noqa: E731
+    def unreadable():
+        raise st.StoreError("git ls-files exited 128")
+    st._remember_leftover = unreadable
+    st._cmd = rm_fails
+    r = st.selftest()
+    check("…and an rm that failed with no answer about the canary says so, and fails",
+          r["status"] == "fail" and "whether the canary is still committed could not be read"
+          in next(s for s in r["steps"] if s["step"] == "rm")["reason"], r)
+    # Each command waits for the store's lock less than its own bound.
+    env_seen = real_cmd(["sh", "-c", "printf %s \"$AGENT_FABRIC_STORE_LOCK_WAIT_S\""])
+    check("a command is told to wait for the store's write lock under its own bound",
+          env_seen[0] == 0 and env_seen[1] == str(st.LOCK_WAIT_S) and st.LOCK_WAIT_S < st.STEP_TIMEOUT_S, env_seen)
+    check("…and seven commands, each with its grace, fit the control agent's 450 s",
+          7 * (st.STEP_TIMEOUT_S + st.STOP_GRACE_S) < 450)
+
     print(f"\n{'FAILED' if fails else 'all passed'}")
     return 1 if fails else 0
 

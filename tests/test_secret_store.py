@@ -478,8 +478,23 @@ def main() -> int:
                                           env=child, cwd=tmp, capture_output=True, text=True, timeout=60)
                 except subprocess.TimeoutExpired:
                     held = subprocess.CompletedProcess([], 124, "still waiting after 60 s: the wait is not bounded", "")
+                # trust-base is a store write too (review of #110): it waits
+                # for the lock, here shortened through the environment.
+                short = {**child, "AGENT_FABRIC_STORE_LOCK_WAIT_S": "1"}
+                tb = run(short, "trust-base")
+                bad = run({**child, "AGENT_FABRIC_STORE_LOCK_WAIT_S": "soon"}, "set", "HELD_TWO", stdin="x")
             finally:
                 os.close(fd)
+            check("trust-base waits for the store's write lock, and refuses past the wait (shortened by the environment)",
+                  tb.returncode == 1 and "has held its lock for 1 s" in tb.stderr, tb.stdout + tb.stderr)
+            check("…a lock wait that is not a whole number of seconds is refused, nothing written",
+                  bad.returncode == 1 and "is not a whole number of seconds" in bad.stderr
+                  and not os.path.exists(os.path.join(cstore, "env", "HELD_TWO.gpg")), bad.stdout + bad.stderr)
+            capped = subprocess.run([sys.executable, "-c", "import sys; sys.path.insert(0, sys.argv[1]); "
+                                     "import secretstore.lock as l; print(l._wait_s())", os.path.dirname(TOOL)],
+                                    env={**child, "AGENT_FABRIC_STORE_LOCK_WAIT_S": "999"}, capture_output=True, text=True)
+            check("…and the environment only shortens the wait, never lengthens it",
+                  capped.stdout.strip() == "120", capped.stdout + capped.stderr)
             head1 = subprocess.run(["git", "-C", cstore, "rev-parse", "HEAD"], capture_output=True, text=True).stdout
             check("a write lock held past the wait: refused, its holder named, nothing written",
                   held.returncode == 1 and "has held its lock for 1 s" in held.stdout and f"pid {os.getpid()}" in held.stdout

@@ -9,7 +9,8 @@ steps: one rebased under the other's staged entry, or committed the
 other's half-written file (review of the own-secrets PR, R2).
 
 HOW: flock(2) on <store>/.git/agent-fabric-write.lock, waited for up to
-WRITE_LOCK_WAIT_S, then a refusal that names the holder's pid. The kernel
+WRITE_LOCK_WAIT_S (or less, AGENT_FABRIC_STORE_LOCK_WAIT_S), then a
+refusal that names the holder's pid. The kernel
 releases a flock when its holder dies, so there is no stale owner to find
 or break. The descriptor is close-on-exec: a gpg-agent or git daemon a
 write starts must not inherit it and hold the store after the writer is
@@ -30,10 +31,23 @@ import time
 from .core import StoreError
 
 WRITE_LOCK_WAIT_S = 120
+# A caller that is itself bounded (the self-test's steps) shortens the wait
+# below its own bound, so that it hears the refusal naming the holder, not
+# its own timeout. Only shortens: a longer value is the default.
+LOCK_WAIT_ENV = "AGENT_FABRIC_STORE_LOCK_WAIT_S"
 _POLL_S = 0.1
 LOCK_NAME = "agent-fabric-write.lock"
 # realpath of a store -> [descriptor or None, depth]
 _held: dict[str, list] = {}
+
+
+def _wait_s() -> int:
+    raw = os.environ.get(LOCK_WAIT_ENV)
+    if raw is None:
+        return WRITE_LOCK_WAIT_S
+    if not (raw.isascii() and raw.isdigit()) or int(raw) < 1:
+        raise StoreError(f"{LOCK_WAIT_ENV}={raw!r} is not a whole number of seconds; nothing written")
+    return min(int(raw), WRITE_LOCK_WAIT_S)
 
 
 def _key(store: str) -> str:
@@ -62,12 +76,13 @@ def write_lock(store: str):
             del _held[key]
         return
     path = os.path.join(git_dir, LOCK_NAME)
+    wait = _wait_s()
     try:
         fd = os.open(path, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)
     except OSError as e:
         raise StoreError(f"{path}: the store's write lock cannot be opened ({e.strerror}); nothing written") from None
     try:
-        deadline = time.monotonic() + WRITE_LOCK_WAIT_S
+        deadline = time.monotonic() + wait
         while True:
             try:
                 fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -76,7 +91,7 @@ def write_lock(store: str):
                 if e.errno not in (errno.EWOULDBLOCK, errno.EAGAIN):
                     raise StoreError(f"{path}: the store's write lock failed ({e.strerror}); nothing written") from None
                 if time.monotonic() >= deadline:
-                    raise StoreError(f"another write to {store} has held its lock for {WRITE_LOCK_WAIT_S} s "
+                    raise StoreError(f"another write to {store} has held its lock for {wait} s "
                                      f"(pid {_holder(fd)}, {path}); nothing written — retry when it is done") from None
                 time.sleep(_POLL_S)
         # The holder's pid, for the message a waiter gives up with; the
