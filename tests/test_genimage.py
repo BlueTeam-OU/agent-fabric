@@ -200,6 +200,15 @@ def main() -> int:
         check(".env.local: export prefix, quotes stripped, # lines skipped, the first non-empty value wins",
               bearer(keys(local="# OPENAI_API_KEY=commented\nOPENAI_API_KEY=\nexport OPENAI_API_KEY='quoted'\n"
                                 "OPENAI_API_KEY=later\n")) == "Bearer quoted")
+        for empty in ("", "''", '""'):
+            check(f"secrets.env: an empty value ({empty or 'nothing'}) is unreadable",
+                  "but unreadable" in cli(dry, keys(sec=f"export OPENAI_API_KEY={empty}\n"))[1])
+        env = keys()
+        os.makedirs(env_local)
+        rc, out, err = cli(dry, env)
+        check(".env.local that cannot be read: a line naming it, exit 1",
+              rc == 1 and err == "fabric-genimage: cannot read .env.local (EISDIR)\n", f"rc={rc}\n{err}")
+        os.rmdir(env_local)
         check("secrets.env: a word after the value is unreadable, never guessed",
               cli(dry, keys(sec="export OPENAI_API_KEY=abc def\n"))[1].count("but unreadable") == 1)
         canary = "sk-CANARY-from-secrets-0123456789"
@@ -235,6 +244,15 @@ def main() -> int:
              [], "fabric-genimage: API 429 (insufficient_quota)"),
             ("an error that is not an object", 400, json.dumps({"error": FRAG}), [], "fabric-genimage: API 400 (no error type)"),
             ("NaN is not JSON", 400, "NaN", [], "fabric-genimage: API 400 (unparseable body)"),
+            ("an error with neither type nor code", 401, json.dumps({"error": {"message": FRAG}}), [],
+             "fabric-genimage: API 401 (no error type)"),
+            ("a type that is not a string", 401, json.dumps({"error": {"type": 5}}), [],
+             "fabric-genimage: API 401 (other)"),
+            ("JSON nested past Python's recursion keeps the status", 401, "[" * 200000 + "]" * 200000, [],
+             "fabric-genimage: API 401 (no error type)"),
+            ("a leading BOM is dropped, as Node's text() does", 401,
+             "\ufeff" + json.dumps({"error": {"type": "invalid_request_error"}}), [],
+             "fabric-genimage: API 401 (invalid_request_error)"),
             ("a 3xx is a refusal", 302, "", [], "fabric-genimage: API 302 (unparseable body)"),
         )
         for label, status, body, wants, line in cases:
@@ -296,7 +314,8 @@ def main() -> int:
         print("no image data: nothing written")
         for label, body in (("a 2xx that is not JSON", b"<html>ok</html>"), ("no data", b"{}"),
                             ("b64_json that is not base64", b'{"data":[{"b64_json":"%%%"}]}'),
-                            ("an empty b64_json", b'{"data":[{"b64_json":""}]}')):
+                            ("an empty b64_json", b'{"data":[{"b64_json":""}]}'),
+                            ("JSON nested past Python's recursion", b"[" * 200000 + b"]" * 200000)):
             rc, out, err = run(["p", "-o", "none.png"], opener=FakeOpener(200, body))
             check(label, rc == 1 and err == "fabric-genimage: no image data in response\n"
                   and not os.path.exists(os.path.join(wc, "none.png")), f"rc={rc}\n{err}")

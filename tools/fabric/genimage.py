@@ -197,28 +197,33 @@ def wc_root(cwd: str, environ: dict[str, str]) -> str:
                     what="git rev-parse")
     except git.GitError as e:
         raise Fail(f"cannot find the working copy root ({e.reason})") from None
-    if r.returncode == 0 and r.stdout.strip():
-        return r.stdout.strip()
+    # Only git's own newline: a directory name may end in a space.
+    top = r.stdout.rstrip("\n")
+    if r.returncode == 0 and top:
+        return top
     if "not a git repository" in r.stderr:
         return cwd
     lines = [line for line in r.stderr.splitlines() if line.strip()]
     raise Fail(f"cannot find the working copy root ({lines[-1] if lines else f'git exit {r.returncode}'})")
 
 
-def _read_text(path: str) -> str | None:
+def _read_text(path: str, shown: str) -> str | None:
     # Node read these as UTF-8 and replaced what did not decode.
     try:
         with open(path, encoding="utf-8", errors="replace", newline="") as fh:
             return fh.read()
     except FileNotFoundError:
         return None
+    except OSError as e:
+        name = errno.errorcode.get(e.errno, type(e).__name__) if e.errno else type(e).__name__
+        raise Fail(f"cannot read {shown} ({name})") from None
 
 
 def env_local_key(root: str) -> str:
     """OPENAI_API_KEY from <root>/.env.local: the first line giving it a
     non-empty value, as a line fills the name only while it is unset or
     empty. Other names are not read."""
-    text = _read_text(os.path.join(root, ".env.local"))
+    text = _read_text(os.path.join(root, ".env.local"), ".env.local")
     found = ""
     for line in re.split(r"\r?\n", text or ""):
         # A "#" line never matches: the name must come first. The .mjs also
@@ -267,7 +272,7 @@ def shell_unquote(word: str) -> str | None:
 
 def secrets_key(home: str) -> tuple[str, bool]:
     """(value, unreadable) from the last `export OPENAI_API_KEY=` line."""
-    text = _read_text(os.path.join(home, SECRETS))
+    text = _read_text(os.path.join(home, SECRETS), SECRETS_SHOWN)
     if text is None:
         return "", False
     prefix = "export OPENAI_API_KEY="
@@ -292,6 +297,12 @@ def resolve_key(environ: dict[str, str], root: str, home: str) -> tuple[str, str
     return "", (f"present in {SECRETS_SHOWN} but unreadable" if unreadable else "none found")
 
 
+def _text(body: bytes) -> str:
+    """As Node's Response.text(): UTF-8, a leading BOM dropped, what does
+    not decode replaced."""
+    return body.decode("utf-8-sig", errors="replace")
+
+
 def _strict_json(text: str) -> Any:
     """JSON.parse's grammar: NaN and Infinity are not JSON."""
     def refuse(token: str) -> Any:
@@ -303,9 +314,13 @@ def error_kind(body: bytes, types: frozenset[str] = ERROR_TYPES, codes: frozense
     """What a refusal may say about itself. The lists are parameters so a
     test can show an sk- value is refused even when a list holds it."""
     try:
-        doc = _strict_json(body.decode("utf-8", errors="replace"))
+        doc = _strict_json(_text(body))
     except ValueError:
         return "unparseable body"
+    except RecursionError:
+        # JSON nested deeper than Python's recursion, which JSON.parse
+        # reads: JSON, but no type or code can be read from it.
+        return "no error type"
     error = doc.get("error") if isinstance(doc, dict) else None
 
     def listed(v: Any, known: frozenset[str]) -> str | None:
@@ -368,13 +383,13 @@ def post(opener: Any, url: str, payload: bytes, key: str, timeout: float) -> Ans
 
 def image_bytes(body: bytes) -> tuple[bytes, dict]:
     try:
-        doc = _strict_json(body.decode("utf-8", errors="replace"))
+        doc = _strict_json(_text(body))
         item = doc["data"][0]
         b64 = item["b64_json"]
         if not isinstance(b64, str) or not b64:
             raise TypeError
         return base64.b64decode(b64, validate=True), (doc, item)
-    except (ValueError, binascii.Error, KeyError, IndexError, TypeError):
+    except (ValueError, RecursionError, binascii.Error, KeyError, IndexError, TypeError):
         raise Fail("no image data in response") from None
 
 
