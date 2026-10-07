@@ -14,13 +14,14 @@ Do not create a nested Git repository, and do not vendor the subsystem.
    root `CLAUDE.md` (or reference it from the project rules if that
    repository already has a modular rules structure).
 2. Wire the `SessionStart` hook in gzapp's `.claude/settings.json` at
-   `node "$AGENT_FABRIC_ROOT/communication/gzcoord/scripts/inbox.mjs"`
-   (`agent-fabric/runtime/claude-code/bootstrap.sh` writes the workspace
-   copy with the path substituted; a project keeps its own for sessions
-   launched inside the working copy, resolved as
-   `$CLAUDE_PROJECT_DIR/../agent-fabric/…` — hook commands run before
-   the fabric hook has exported `AGENT_FABRIC_ROOT` into the session
-   shell, so a hook line never relies on the variable).
+   `f="$CLAUDE_PROJECT_DIR/../agent-fabric/communication/gzcoord/scripts/inbox.mjs"; [ -f "$f" ] && node "$f"; true`
+   — the inbox drain, as the workspace copy runs it
+   (`agent-fabric/runtime/claude-code/bootstrap.sh` writes that one with
+   the path substituted). A project keeps its own for sessions launched
+   inside the working copy, resolved from `$CLAUDE_PROJECT_DIR`: hook
+   commands run before the fabric hook has exported `AGENT_FABRIC_ROOT`
+   into the session shell, so a hook line never relies on the variable.
+   In a session's own shell the same drain is `gzcoord-inbox`.
    The same file wires the **inbox hold** (2026-09-16,
    `agent-fabric/docs/adr/ADR-022-the-session-lifecycle.md`): three hook groups
    running `agent-fabric/runtime/claude-code/hooks/plan-hold.sh` — on
