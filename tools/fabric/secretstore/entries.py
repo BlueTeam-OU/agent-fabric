@@ -9,7 +9,7 @@ import sys
 from .core import NAME_RE, UID_DOMAIN, StoreError, login, AGENT_ID_RE, own_agent_id, store_dir, _run, gpg, git
 from .keys import fingerprints, key_of_store, _ensure_use_subkeys, uid_of, _signing_args
 from .trust import _git_env, _commit, trusted_base, _full, _set_base, _verify_incoming, _taken
-from .lock import write_lock, require_write_lock
+from .lock import write_lock, require_write_lock, lock_wait_s
 
 
 def init(remote: str | None = None, agent_id: str | None = None) -> dict:
@@ -37,6 +37,7 @@ def init(remote: str | None = None, agent_id: str | None = None) -> dict:
     # A key made before the split gains the subkeys it lacks, and keeps its
     # fingerprint: its parent re-exports it at the next certification.
     added = _ensure_use_subkeys(fpr)
+    lock_wait_s()   # a malformed wait refuses before .git is made, as any write does
     os.makedirs(os.path.join(store, "env"), mode=0o700, exist_ok=True)
     if not os.path.isdir(os.path.join(store, ".git")):
         git(store, "init", "-q", "-b", "main")

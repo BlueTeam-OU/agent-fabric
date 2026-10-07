@@ -351,7 +351,7 @@ def main() -> int:
     check("a command is told to wait for the store's write lock under its own bound",
           env_seen[0] == 0 and env_seen[1] == str(st.LOCK_WAIT_S) and st.LOCK_WAIT_S < st.STEP_TIMEOUT_S, env_seen)
     check("…and seven commands, each with its grace, fit the control agent's 450 s",
-          7 * (st.STEP_TIMEOUT_S + st.STOP_GRACE_S) < 450)
+          7 * (st.STEP_TIMEOUT_S + st.STOP_GRACE_S + 2 * st.REAP_S) <= 420 < 450)
 
     print(f"\n{'FAILED' if fails else 'all passed'}")
     return 1 if fails else 0

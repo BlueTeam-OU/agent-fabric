@@ -41,7 +41,7 @@ LOCK_NAME = "agent-fabric-write.lock"
 _held: dict[str, list] = {}
 
 
-def _wait_s() -> int:
+def lock_wait_s() -> int:
     raw = os.environ.get(LOCK_WAIT_ENV)
     if raw is None:
         return WRITE_LOCK_WAIT_S
@@ -76,7 +76,7 @@ def write_lock(store: str):
             del _held[key]
         return
     path = os.path.join(git_dir, LOCK_NAME)
-    wait = _wait_s()
+    wait = lock_wait_s()
     try:
         fd = os.open(path, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)
     except OSError as e:

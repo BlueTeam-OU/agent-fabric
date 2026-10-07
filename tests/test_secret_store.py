@@ -491,10 +491,16 @@ def main() -> int:
                   bad.returncode == 1 and "is not a whole number of seconds" in bad.stderr
                   and not os.path.exists(os.path.join(cstore, "env", "HELD_TWO.gpg")), bad.stdout + bad.stderr)
             capped = subprocess.run([sys.executable, "-c", "import sys; sys.path.insert(0, sys.argv[1]); "
-                                     "import secretstore.lock as l; print(l._wait_s())", os.path.dirname(TOOL)],
+                                     "import secretstore.lock as l; print(l.lock_wait_s())", os.path.dirname(TOOL)],
                                     env={**child, "AGENT_FABRIC_STORE_LOCK_WAIT_S": "999"}, capture_output=True, text=True)
             check("…and the environment only shortens the wait, never lengthens it",
                   capped.stdout.strip() == "120", capped.stdout + capped.stderr)
+            fresh = os.path.join(tmp, "fresh-store")
+            pi = run({**child, "AGENT_FABRIC_SECRET_STORE": fresh, "AGENT_FABRIC_STORE_LOCK_WAIT_S": "0"},
+                     "init", "--agent-id", KID)
+            check("…and init refuses a malformed wait before it makes the store's .git",
+                  pi.returncode == 1 and "is not a whole number of seconds" in pi.stderr
+                  and not os.path.exists(os.path.join(fresh, ".git")), pi.stdout + pi.stderr)
             head1 = subprocess.run(["git", "-C", cstore, "rev-parse", "HEAD"], capture_output=True, text=True).stdout
             check("a write lock held past the wait: refused, its holder named, nothing written",
                   held.returncode == 1 and "has held its lock for 1 s" in held.stdout and f"pid {os.getpid()}" in held.stdout

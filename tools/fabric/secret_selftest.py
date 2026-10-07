@@ -56,12 +56,14 @@ SECRETS = os.path.join(CHECKOUT, "runtime", "provisioning", "secrets", "fabric-s
 SECRET_RUN = os.path.join(CHECKOUT, "bin", "fabric-secret-run")
 # set and rm pull and push the store over the network. Seven commands at
 # most (a leftover's rm, then names, set, run, rm, names, run), each
-# STEP_TIMEOUT_S and then STOP_GRACE_S: 7 x 60 = 420 s, under the 450 s
+# STEP_TIMEOUT_S, then STOP_GRACE_S, then REAP_S twice (the last read, the
+# last wait): 7 x 60 = 420 s, under the 450 s
 # runtime/control/selftest.mjs waits. A command waits for the store's write
 # lock LOCK_WAIT_S at most, under its own bound, so a busy store is
 # reported as the refusal naming its holder, not as a timeout.
-STEP_TIMEOUT_S = 55
+STEP_TIMEOUT_S = 53
 LOCK_WAIT_S = 30
+REAP_S = 1
 # After SIGTERM, how long a timed-out command's group has to end before
 # SIGKILL: a set or rm killed mid-write releases the store's write lock
 # with its process, and its next run starts from a clean store or refuses.
@@ -114,14 +116,19 @@ def _stop_group(proc: subprocess.Popen) -> None:
         except ProcessLookupError:
             break
     # Bounded too: a descendant that left the group with a pipe still open
-    # would hold the read until selftest.mjs killed the whole run.
+    # would hold the read until selftest.mjs killed the whole run. A leader
+    # still not reaped after SIGKILL (stuck in the kernel) is left to its
+    # parent's exit; the step reports its timeout either way.
     try:
-        proc.communicate(timeout=STOP_GRACE_S)
+        proc.communicate(timeout=REAP_S)
     except subprocess.TimeoutExpired:
         for pipe in (proc.stdin, proc.stdout, proc.stderr):
             if pipe:
                 pipe.close()
-        proc.wait(timeout=STOP_GRACE_S)
+        try:
+            proc.wait(timeout=REAP_S)
+        except subprocess.TimeoutExpired:
+            pass
 
 
 def _why(what: str, rc: int) -> str:
