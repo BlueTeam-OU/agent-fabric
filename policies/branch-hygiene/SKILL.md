@@ -1,6 +1,6 @@
 ---
 name: branch-hygiene
-description: "Local branch hygiene in a working copy: list every local branch and worktree against a freshly fetched origin/main, delete on your own what is wholly on main, and bring the rest to the person with its commits and pull request. Load it when the session-start context says \"branch sweep due\", when asked to clean up branches or worktrees, or before deleting any local branch."
+description: "Local branch hygiene in a working copy: list every local branch and worktree against the remote's freshly fetched default branch, delete on your own what is wholly on it, and bring the rest to the person with its commits and pull request. Load it when the session-start context says \"branch sweep due\", when asked to clean up branches or worktrees, or before deleting any local branch."
 ---
 
 # Local branch hygiene
@@ -17,7 +17,7 @@ Run it only when nothing is using the tree: no subagent dispatched on
 this working copy still running, no background job reading it (a suite, a
 build). If one is, wait for it. Do not switch branches for the sweep;
 `fabric-branches --sweep` refuses a working copy with uncommitted
-changes, and never touches the branch you are on or `main`.
+changes, and never touches the branch you are on or the default branch.
 
 ## 2. Report, then sweep
 
@@ -27,14 +27,23 @@ fabric-branches --sweep    # the same table, then the deletion
 ```
 
 Both fetch `origin` first with a plain `git fetch origin`. A refspec fetch
-does not move `origin/main`, and a stale `origin/main` makes merged work
+does not move the remote-tracking refs, and a stale one makes merged work
 look unmerged. If the fetch fails, the command stops. Do not count by
 hand against the old ref.
 
-The number beside each branch and worktree is how many of its commits
-are **not** on `origin/main`:
+What they count against is the remote's default branch: `origin/HEAD`,
+else the `default_branch` the project registry gives this working copy.
+A project's default can be `master`, so it is never guessed as `main`.
+When neither says, the command stops with exit 2 ("the default branch of
+origin is unknown") and counts nothing. `git remote set-head origin
+--auto` sets `origin/HEAD` from the remote; a clone of an empty
+repository, or an older git that does not set it on fetch, is the usual
+cause.
 
-- **0**: everything on it is on main. `--sweep` deletes it, re-counting
+The number beside each branch and worktree is how many of its commits
+are **not** on the default branch:
+
+- **0**: everything on it is on the default branch. `--sweep` deletes it, re-counting
   at deletion. A worktree at 0 is removed only when it has no changes
   (untracked files included), no ignored files (a `.env`, a build that
   removal would delete) and no lock, and is not the one you run in; the
