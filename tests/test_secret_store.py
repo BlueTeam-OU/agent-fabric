@@ -423,7 +423,8 @@ def main() -> int:
             # entry's last write, judged under the lock (review of #110, Codex P1).
             cs = child["AGENT_FABRIC_SECRET_STORE"]
             last_of = lambda: subprocess.run(["git", "-C", cs, "log", "-1", "--format=%H", "--",  # noqa: E731
-                                              "env/GUARDED_ONE.gpg"], capture_output=True, text=True).stdout.strip()
+                                              "env/GUARDED_ONE.gpg"], env=child, capture_output=True,
+                                             text=True).stdout.strip()
             run(child, "set", "GUARDED_ONE", stdin="first")
             first_write = last_of()
             run(child, "set", "GUARDED_ONE", stdin="written since")
@@ -445,9 +446,9 @@ def main() -> int:
             # from a second clone of the remote.
             run(child, "set", "GUARDED_TWO", stdin="first")
             judged = subprocess.run(["git", "-C", cs, "log", "-1", "--format=%H", "--", "env/GUARDED_TWO.gpg"],
-                                    capture_output=True, text=True).stdout.strip()
+                                    env=child, capture_output=True, text=True).stdout.strip()
             other = os.path.join(tmp, "other-host")
-            subprocess.run(["git", "clone", "-q", remote, other], check=True, capture_output=True)
+            subprocess.run(["git", "clone", "-q", remote, other], env=child, check=True, capture_output=True)
             shutil.copy(os.path.join(cs, "env", "OWN_NOTE.gpg"), os.path.join(other, "env", "GUARDED_TWO.gpg"))
             signing = subprocess.run([sys.executable, "-c", "import sys; sys.path.insert(0, sys.argv[1]); "
                                       "from secretstore.keys import _signing_args; print('\\n'.join(_signing_args()))",
@@ -490,15 +491,16 @@ def main() -> int:
             out1, err1 = first.stdout.read(), first.stderr.read()
             first.wait(timeout=300)
             os.remove(hook)
-            subjects = lambda *a: subprocess.run(["git", *a, "log", "--format=%s"], capture_output=True,  # noqa: E731
-                                                 text=True).stdout.splitlines()
+            subjects = lambda *a: subprocess.run(["git", *a, "log", "--format=%s"], env=child,  # noqa: E731
+                                                 capture_output=True, text=True).stdout.splitlines()
             local, pushed = subjects("-C", cstore), subjects("--git-dir", remote)
             check("two sets at once in one store: the second waits for the first's write lock, and both land, "
                   "each in its own commit, here and on the remote",
                   os.path.exists(mark) and first.returncode == 0 and second.returncode == 0
                   and sum(x.endswith(": set CONC_ONE") for x in local) == 1 and sum(x.endswith(": set CONC_TWO") for x in local) == 1
                   and sum(": set CONC_" in x for x in pushed) == 2
-                  and subprocess.run(["git", "-C", cstore, "show", "--name-only", "--format=", "HEAD"], capture_output=True,
+                  and subprocess.run(["git", "-C", cstore, "show", "--name-only", "--format=", "HEAD"], env=child,
+                                     capture_output=True,
                                      text=True).stdout.split() == ["env/CONC_TWO.gpg"],
                   f"{first.returncode} {out1} {err1[-300:]}\n{second.returncode} {out2} {err2[-300:]}\n{local[:4]}\n{pushed[:4]}")
             for name in ("CONC_ONE", "CONC_TWO"):
@@ -507,7 +509,8 @@ def main() -> int:
             # holder, and nothing is written.
             import fcntl
             lock_path = os.path.join(cstore, ".git", "agent-fabric-write.lock")
-            head0 = subprocess.run(["git", "-C", cstore, "rev-parse", "HEAD"], capture_output=True, text=True).stdout
+            head0 = subprocess.run(["git", "-C", cstore, "rev-parse", "HEAD"], env=child, capture_output=True,
+                                   text=True).stdout
             fd = os.open(lock_path, os.O_RDWR | os.O_CREAT, 0o600)
             try:
                 fcntl.flock(fd, fcntl.LOCK_EX)
@@ -553,7 +556,8 @@ def main() -> int:
                   pi.returncode == 1 and "is not a whole number of seconds" in pi.stderr
                   and not os.path.exists(os.path.join(fresh, ".git"))
                   and pk.returncode == 1 and "sec:" not in keys, pi.stdout + pi.stderr + pk.stderr + keys[:200])
-            head1 = subprocess.run(["git", "-C", cstore, "rev-parse", "HEAD"], capture_output=True, text=True).stdout
+            head1 = subprocess.run(["git", "-C", cstore, "rev-parse", "HEAD"], env=child, capture_output=True,
+                                   text=True).stdout
             check("a write lock held past the wait: refused, its holder named, nothing written",
                   held.returncode == 1 and "has held its lock for 1 s" in held.stdout and f"pid {os.getpid()}" in held.stdout
                   and head0 == head1 and not os.path.exists(os.path.join(cstore, "env", "HELD_ONE.gpg")),
