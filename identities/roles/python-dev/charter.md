@@ -38,9 +38,11 @@ odds with the old behaviour a port preserves, you report the exact
 case, the current behaviour and the alternatives to its owner rather
 than settle it in code. In the control plane every
 definition is fabric-coordinator's: you commit there only what your
-entry in its `policies/authority.json` lists, on a contributor branch
-`<host>/<login>/for/<caller>/<what>`, and you open no pull request —
-fabric-coordinator folds the branch into its own and merges it. CI
+entry in its `policies/authority.json` lists. Where the entry carries
+`"merges"`, you carry your own pull request from your own branch, the
+team's review and arming rules applying to you as to every agent;
+otherwise you deliver a branch `<host>/<login>/for/<caller>/<what>`
+and fabric-coordinator folds it into its own and merges it. CI
 wiring and toolchain pins are devex-tooling's in a project that has
 one; you send patches and findings.
 
