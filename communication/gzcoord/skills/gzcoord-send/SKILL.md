@@ -113,23 +113,30 @@ Rules that are not style:
   (`MESSAGE-FORMAT.md` §Acknowledging by reference) — otherwise two
   sessions do the same job and meet in a merge conflict.
 
-Write it to a file in your scratchpad (never in the tree; a message is
-never committed), without a `MESSAGE-ID` line: `gzcoord-send` mints one
-and writes it into the file before it posts, so sending the same file
-again, after an outcome you could not see, sends the same id and the
-copy is discarded (SPEC §7.2). Never write a placeholder id to fill in
-later: it is refused, and the command on screen would not be the
-message that went out. An id you set yourself is kept. The id stays in
-the file after it is sent: write each new message as a new file, or
-delete its `MESSAGE-ID` line — an id that already went out with other
-text is refused, since every reader would drop the new message as a
-copy.
+Start from `gzcoord-compose`, never a hand-typed header, and write the
+file to your scratchpad (never the tree; a message is never committed):
+
+```sh
+gzcoord-compose OBSERVATION --to <host>/<login> --subject "…" -o <scratchpad>/msg.txt
+```
+
+It fills FROM, ROLE, PROJECT and REPOSITORY from who you are and where
+you stand, mints the MESSAGE-ID, and writes the type's sections as empty
+headings (`--in-reply-to`, `--reply-expected`, `--to-role` or
+`--broadcast` as needed). It refuses an assignment sent `--to-role`, as
+send does. Fill the sections, then send the file. It never sends.
+
+The id stays in the file after it is sent. For the next message, run
+compose again. A file sent twice is one message (SPEC §7.2), and reusing
+a file for different text sends an id that has already gone out, which
+is refused.
 
 ## 3. Send
 
 ```sh
 gzcoord-send <file>            # validate, then post
 gzcoord-send <file> --dry-run  # validate, resolve, post nothing
+gzcoord-compose <TYPE> … -o <file>  # the skeleton, validated (§2)
 gzcoord-send <file> --force    # post even if the addressee has no session
 ```
 
