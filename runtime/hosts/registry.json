@@ -28,6 +28,8 @@
     "p2p-network-dev-01": "develop-qzapp",
     "language-culture-ru": "develop-qzapp",
     "python-dev-01": "develop-qzapp",
-    "rust-ui-dev-01": "develop-qzapp"
+    "rust-ui-dev-01": "develop-qzapp",
+    "p2p-network-dev-02": "develop-qzapp",
+    "rust-services-dev-01": "develop-qzapp"
   }
 }
