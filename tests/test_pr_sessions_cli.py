@@ -45,11 +45,6 @@ if a[:1] == ["pr"]:
             fh.write(a[a.index("--limit") + 1] + "\n")
     sys.stdout.write(open(os.path.join(d, "pr-list.json")).read())
     sys.exit(0)
-if a[:1] == ["repo"]:
-    if os.environ.get("GH_MOCK_REPOVIEW_FAIL"):
-        sys.exit(1)
-    print(os.environ.get("GH_MOCK_REPO", "gzapi-org/gzapp"))
-    sys.exit(0)
 if a[:1] == ["api"]:
     if os.environ.get("GH_MOCK_GRAPHQL_FAIL"):
         sys.exit(1)
@@ -120,6 +115,8 @@ def main() -> int:
         # must not decide a bot row through its own binding.
         base = {k: v for k, v in os.environ.items()
                 if not k.startswith(("GITHUB_", "AGENT_FABRIC_", "CLAUDE_", "ANTHROPIC_")) and k != "GIT_DIR"}
+        # The repository the mock serves (gh.this_repo never reads gh's default).
+        base["GH_REPO"] = "gzapi-org/gzapp"
         base.update(PATH=f"{sandbox}/bin:{base.get('PATH', '')}", GH_MOCK_DIR=fixtures,
                     AGENT_FABRIC_STATE_DIR=f"{sandbox}/state-none")
 
@@ -540,7 +537,7 @@ def main() -> int:
         check("/unresolved refuses to guess", rc == 2, out)
         check("says the lookup failed", "could not" in out, out)
         check("never claims there are none", "no PRs with unresolved review threads" not in out, out)
-        check("/unresolved refuses to guess without a repo", run("/all", "/unresolved", GH_MOCK_REPOVIEW_FAIL="1")[0] == 2)
+        check("/unresolved refuses to guess without a repo", run("/all", "/unresolved", GH_REPO="")[0] == 2)
 
         print("pr-sessions: a failed pr list is an invocation error")
         rc, out = run("/all", GH_MOCK_PRLIST_FAIL="1")

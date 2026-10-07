@@ -19,13 +19,17 @@ def step(lines: str) -> str:
     return f"jobs:\n  a:\n    steps:\n{lines}\n"
 
 
-def run(files: dict[str, str] | None) -> tuple[int, str]:
+def run(files: dict[str, str] | None, argv: list[str] | None = None) -> tuple[int, str]:
     with tempfile.TemporaryDirectory() as root:
         for rel, body in (files or {}).items():
             p = os.path.join(root, ".github", rel)
             os.makedirs(os.path.dirname(p), exist_ok=True)
             open(p, "w", encoding="utf-8").write(body)
-        r = subprocess.run([sys.executable, TOOL], env={**os.environ, "REPO_ROOT": root}, capture_output=True, text=True)
+        # REPO_ROOT names the planted tree unless the case passes its own argv.
+        env = {**os.environ, "REPO_ROOT": root} if argv is None else \
+            {k: v for k, v in os.environ.items() if k != "REPO_ROOT"}
+        args = [a.replace("{root}", root) for a in (argv or [])]
+        r = subprocess.run([sys.executable, TOOL, *args], env=env, capture_output=True, text=True)
         return r.returncode, r.stdout + r.stderr
 
 
@@ -93,6 +97,26 @@ def main() -> int:
     ok = "'(nothing)'" in out and "'with:'" not in out
     fails += not ok
     print(f"  {'ok  ' if ok else 'FAIL'} an empty list-item key reads (nothing), never its sibling" + ("" if ok else f"\n        {out[-300:]}"))
+    # Both project copies refuse two uses sharing one comment (devex-tooling,
+    # seq 16442): each pin here is well formed, so only that rule refuses.
+    two = step(f"      - {{name: a, uses: actions/checkout@{SHA}}} # v7.0.1\n"
+               f"      - {{uses: a/b@{SHA}, x: {{uses: c/d@{SHA}}}}} # v1.0.0")
+    got, out = run({"workflows/ci.yml": two})
+    ok = got == 1 and "2 third-party uses on one line share one version comment" in out
+    fails += not ok
+    print(f"  {'ok  ' if ok else 'FAIL'} two uses on one line: refused, named" + ("" if ok else f"\n        {out[-300:]}"))
+    good = {"workflows/ci.yml": step(f"      - uses: actions/checkout@{SHA} # v7.0.1")}
+    for want, label, argv, needle in [
+        (0, "--root <dir> names the tree", ["--root", "{root}"], "OK"),
+        (0, "--root=<dir> too", ["--root={root}"], "OK"),
+        (2, "--root without a value", ["--root"], "--root needs a value"),
+        (2, "any other argument", ["--nope"], "unexpected argument: --nope"),
+        (0, "--help prints the usage", ["--help"], "[--root <dir>]"),
+    ]:
+        got, out = run(good, argv)
+        ok = got == want and needle in out
+        fails += not ok
+        print(f"  {'ok  ' if ok else 'FAIL'} {label} (exit {got})" + ("" if ok else f"\n        {out[-300:]}"))
     print(f"\n{'FAILED' if fails else 'all passed'}")
     return 1 if fails else 0
 

@@ -569,8 +569,13 @@ class Bootstrap:
             # A command's earlier targets are links this fabric made too: an
             # account bootstrapped before a command moved keeps its old link
             # otherwise, and loses the command's allow rule (review of #106).
-            replaces = {k: v for k, v in (spec.get("replaces") or {}).items()
-                        if k != "_comment" and isinstance(v, list) and all(isinstance(x, str) for x in v)}
+            raw = {k: v for k, v in (spec.get("replaces") or {}).items() if k != "_comment"}
+            replaces = {k: v for k, v in raw.items() if isinstance(v, list) and all(isinstance(x, str) for x in v)}
+            # A malformed entry is said, never dropped silently: its command
+            # would keep its old link and lose its allow rule, unexplained.
+            for k in sorted(set(raw) - set(replaces)):
+                warn(f"  !  runtime/claude-code/commands.json: replaces[{k!r}] is not a list of paths — "
+                     f"ignored; an old link of {k} stays")
         except (OSError, ValueError, KeyError, TypeError, AttributeError):
             warn("  !  runtime/claude-code/commands.json unreadable — no command linked")
             self.failed += 1

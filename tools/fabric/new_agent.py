@@ -12,7 +12,8 @@ tests/test_new_agent_cli.py runs this in a fixture fabric that holds fakes of th
 tools it calls (ADR-040 rule 5's fixture departure).
 
 CONTRACT, frozen from the bash (ADR-040 §5 rule 3):
-  argv      <login> <role> [--host <id>] [--project <id>]...
+  argv      <login> <role> (--claude-account <slug> | --no-claude-account)
+            [--host <id>] [--project <id>]...
             [--claude VERSION|stable|latest] [--dry-run], each value
             spaced or with `=`, flags anywhere. -h/--help: HELP on stdout,
             exit 0 (the bash's header, lines 2-52, cut where it cut).
@@ -20,6 +21,9 @@ CONTRACT, frozen from the bash (ADR-040 §5 rule 3):
             exit 2 (USAGE for the last). A flag without its value: exit 1,
             one line (bash: "unbound variable"). --claude must be stable,
             latest or a version with an optional [-.]suffix of [A-Za-z0-9.].
+            Exactly one of --claude-account and --no-claude-account
+            (2026-10-07, the owner: the starting Claude account is part of
+            onboarding, so a re-run names it too): neither or both, exit 2.
   stdin     never read; the worker phases inherit it.
   env       AGENT_FABRIC_HOSTS_REGISTRY (default runtime/hosts/registry.json);
             everything else reaches the host executor, the worker and the
@@ -31,6 +35,16 @@ CONTRACT, frozen from the bash (ADR-040 §5 rule 3):
   exit      0 when every step ran (or a dry run planned them); 1 for a
             refusal or a failed step (`step failed: …`, nothing after it
             ran); 2 for usage; hostexec's own refusal of the host is 1.
+
+THE CLAUDE ACCOUNT (ADR-031; the owner, 2026-10-07). Assigned after new-agent
+by fabric-accounts, the token was written but the account's own sync
+refused it until identities/keys/ merged; new-agent's first sync (bundle,
+take-bundle, sync --no-pull) applies what the store holds before that. So
+the slug is checked against this login's templates before any account is
+made — unknown, tokenless or unreadable all refuse, never skip — the token
+is written by the same writer fabric-accounts uses (fabric-secrets store
+assign) before the bundle, and finish compares the applied token's
+fingerprint with the template's and fails on any other answer.
 
 Deliberate differences from the bash: a flag without its value is one
 line, not "unbound variable"; every step is bounded (STEP_TIMEOUT_S, the
@@ -95,8 +109,14 @@ STEP_TIMEOUT_S = 900
 # suffix may carry no quote, semicolon or other shell character — only
 # what a real pre-release or build tag holds (review of #34).
 CLAUDE_TARGET = re.compile(r"stable|latest|[0-9]+\.[0-9]+\.[0-9]+([-.][A-Za-z0-9.]+)?")
-USAGE = ("usage: new-agent.sh <login> <role> [--host <id>] [--project <id>]... [--claude VERSION|stable|latest] "
-         "[--dry-run]\n")
+# A template's slug as fabric-secrets store templates names it (its SLUG_RE);
+# the fingerprint, sha256[:12] of the token, as it answers it.
+SLUG = re.compile(r"[a-z0-9][a-z0-9-]{0,62}")
+FINGERPRINT = re.compile(r"[0-9a-f]{12}")
+USAGE = ("usage: new-agent.sh <login> <role> (--claude-account <slug> | --no-claude-account) [--host <id>] "
+         "[--project <id>]... [--claude VERSION|stable|latest] [--dry-run]\n")
+NO_ACCOUNT_CHOICE = ("new-agent: name the Claude account it starts on: --claude-account <slug> (bin/fabric-accounts "
+                     "templates), or --no-claude-account for the broker path only")
 HELP = """\
 runtime/provisioning/new-agent.sh — give a role its own account on this
 host: everything the control plane can do without a person at a
@@ -105,10 +125,16 @@ person can do. Run by a fabric-coordinator holder from its own login
 (the account steps go through sudo; the secrets step is the
 coordinator's as the account's parent, ADR-038).
 
-  runtime/provisioning/new-agent.sh <login> <role> [--host <id>] [--project <id>]... [--claude VERSION|stable|latest] [--dry-run]
+  runtime/provisioning/new-agent.sh <login> <role> (--claude-account <slug> | --no-claude-account) [--host <id>] [--project <id>]... [--claude VERSION|stable|latest] [--dry-run]
 
-  new-agent.sh <login> <role> --project <id> --project <id>
-  new-agent.sh <login> <role> --host <host-id> --project <id>      # on another host
+  new-agent.sh <login> <role> --claude-account <slug> --project <id> --project <id>
+  new-agent.sh <login> <role> --claude-account <slug> --host <host-id> --project <id>      # on another host
+  new-agent.sh <login> <role> --no-claude-account --project <id>   # the broker path only
+
+The Claude account it starts on is a template in this login's store
+(bin/fabric-accounts templates): checked before any account is made,
+its token written into the new store before the first sync, and its
+fingerprint compared in finish (ADR-031).
 
 TWO HALVES (review, 2026-09-16). This script is the ORCHESTRATOR: it
 runs on the coordinator's host and keeps what only the coordinator
@@ -167,11 +193,12 @@ def die(msg: str) -> "NoReturn":  # noqa: F821
 
 
 def parse(argv: list[str]) -> dict:
-    o = {"dry": False, "login": "", "role": "", "projects": [], "claude": "", "host": ""}
+    o = {"dry": False, "login": "", "role": "", "projects": [], "claude": "", "host": "", "claude-account": None,
+         "no-claude-account": False}
     i = 0
     while i < len(argv):
         a = argv[i]
-        if a in ("--host", "--claude", "--project"):
+        if a in ("--host", "--claude", "--project", "--claude-account"):
             if i + 1 >= len(argv):
                 raise Exit(1, f"new-agent: {a} needs a value")
             v = argv[i + 1]
@@ -180,7 +207,7 @@ def parse(argv: list[str]) -> dict:
                 o["projects"].append(v)
             else:
                 o[a[2:]] = v
-        elif a.startswith(("--host=", "--claude=", "--project=")):
+        elif a.startswith(("--host=", "--claude=", "--project=", "--claude-account=")):
             name, v = a[2:].split("=", 1)
             if name == "project":
                 o["projects"].append(v)
@@ -188,6 +215,8 @@ def parse(argv: list[str]) -> dict:
                 o[name] = v
         elif a == "--dry-run":
             o["dry"] = True
+        elif a == "--no-claude-account":
+            o["no-claude-account"] = True
         elif a in ("-h", "--help"):
             raise Exit(0, None)
         elif a.startswith("-"):
@@ -203,6 +232,12 @@ def parse(argv: list[str]) -> dict:
         raise Exit(2, USAGE.rstrip("\n"))
     if o["claude"] and not CLAUDE_TARGET.fullmatch(o["claude"]):
         raise Exit(2, "new-agent: --claude takes stable, latest or a version")
+    given = o["claude-account"] is not None
+    if given == o["no-claude-account"]:
+        raise Exit(2, NO_ACCOUNT_CHOICE)
+    if given and not SLUG.fullmatch(o["claude-account"]):
+        raise Exit(2, f"new-agent: --claude-account {o['claude-account']!r} is not an account slug (lowercase, digits, "
+                      "dashes; bin/fabric-accounts templates)")
     return o
 
 
@@ -371,7 +406,34 @@ def die_of(signum: int, _frame) -> None:
     os.kill(os.getpid(), signum)
 
 
+def claude_template(s: Steps, slug: str) -> str:
+    """The fingerprint of the template's token in this login's store, or a
+    refusal: an unknown slug, a template with no token, and a store that
+    did not answer are all refused here, before any account is made — the
+    same refusals as fabric-accounts assign (runtime/control/accounts.mjs)."""
+    rc, out = s.capture([SECRETS, "store", "templates", "--json"])
+    try:
+        rows = json.loads(out) if rc == 0 else None
+    except ValueError:
+        rows = None
+    if not isinstance(rows, list):
+        s.tail(3)
+        die(f"this login's Claude account templates could not be read (fabric-secrets store templates, exit {rc}); "
+            "nothing made")
+    t = next((r for r in rows if isinstance(r, dict) and r.get("account") == slug), None)
+    if t is None:
+        die(f"'{slug}' is not a template in this store (bin/fabric-accounts templates); nothing made")
+    fp = t.get("token_sha256_12")
+    if fp is None:
+        die(f"template {slug} holds no CLAUDE_CODE_OAUTH_TOKEN yet; nothing made")
+    if not isinstance(fp, str) or not FINGERPRINT.fullmatch(fp):
+        die(f"template {slug}: the store answered a fingerprint that is not one ({fp!r}); nothing made")
+    return fp
+
+
 def run_steps(o: dict, login: str, role: str, host: str, dry: bool, remote: dict, hosts_path: str, s: Steps) -> int:
+    slug = o["claude-account"]
+    fp = claude_template(s, slug) if slug else ""
     # ---- the host the account lives on ----------------------------------
     # Placement is the registry's: an account already placed is provisioned
     # there and nowhere else; a new account goes to --host, or to this host.
@@ -415,17 +477,20 @@ def run_steps(o: dict, login: str, role: str, host: str, dry: bool, remote: dict
         say(f"would: store-enroll.sh {login} --host {host} --born-now; provision identity, share, issue-key openrouter "
             f"and openai (each once); its store to {login} as a bundle; fabric-secrets sync --no-pull as {login}; its "
             "inbox cursor to the newest message")
+        say(f"would: fabric-secrets store assign {slug} {login} (token {fp}), before the bundle" if slug else
+            "would: assign no Claude account (--no-claude-account: the broker path only)")
     else:
-        secrets_step(s, login, host, o["projects"])
+        secrets_step(s, login, host, o["projects"], slug, fp)
 
     # ---- 6-10 on the host ---------------------------------------------------
     clones = [a for pid in o["projects"] for a in ("--clone", f"{pid}={remote[pid]}")]
-    if s.through([HX, host, "--", WORKER, "finish", login, role, *clones, *dry_arg]) != 0:
+    account = ["--claude-account", f"{slug}={fp}"] if slug else ["--no-claude-account"]
+    if s.through([HX, host, "--", WORKER, "finish", login, role, *clones, *account, *dry_arg]) != 0:
         die("the host half stopped (above); nothing after it ran")
     return 0
 
 
-def secrets_step(s: Steps, login: str, host: str, projects: list[str]) -> None:
+def secrets_step(s: Steps, login: str, host: str, projects: list[str], slug: str, fp: str) -> None:
     if s.capture([sys.executable, STORE, "export-key"])[0] != 0:
         die("this login has no store of its own, so it cannot be a parent: store-enroll.sh --self first; nothing after "
             "it ran")
@@ -448,6 +513,8 @@ def secrets_step(s: Steps, login: str, host: str, projects: list[str]) -> None:
     provision("shared names", "share", login)
     provision("OpenRouter key", "issue-key", "openrouter", login)
     provision("OpenAI key", "issue-key", "openai", login)
+    if slug:
+        assign(s, login, slug, fp)
     as_account = [HX, host, "--as", login, "--"]
     # The filled store reaches the account as a bundle: its SSH key is in
     # it, so it could not pull it (store-enroll's first contact). Then
@@ -472,6 +539,29 @@ def secrets_step(s: Steps, login: str, host: str, projects: list[str]) -> None:
         "copy and back up:")
     say(f"     bin/fabric-host {host} run --as {login} -- projects/agent-fabric/bin/fabric-secrets store recovery-copy")
     say("     bin/fabric-secrets store backup")
+
+
+def assign(s: Steps, login: str, slug: str, fp: str) -> None:
+    """The template's token into the child's store, by fabric-accounts'
+    own writer, before the bundle carries the store to the account: its
+    first sync applies it. assign prints every row and exits 1 when one
+    failed; a row other than this login's, or none, is no answer."""
+    rc, out = s.capture([SECRETS, "store", "assign", slug, login, "--json"])
+    try:
+        rows = json.loads(out)
+    except ValueError:
+        rows = None
+    row = rows[0] if isinstance(rows, list) and len(rows) == 1 and isinstance(rows[0], dict) else {}
+    if rc != 0 or row.get("status") not in ("written", "unchanged") or row.get("login") != login:
+        s.tail(3)
+        why = f": {row['reason']}" if isinstance(row.get("reason"), str) else f" (exit {rc})"
+        die(f"step failed: fabric-secrets store assign {slug} {login}{why}; nothing after it ran")
+    # The template is read twice, here and before the account was made; one
+    # replaced in between is not the account the run checked.
+    if row.get("token_sha256_12") != fp:
+        die(f"step failed: fabric-secrets store assign {slug} {login} wrote token {row.get('token_sha256_12')}, not the "
+            f"{fp} checked at the start (the template changed); nothing after it ran")
+    say(f"   Claude account: {slug}, {row['status']} (token {fp})")
 
 
 def main(argv: list[str]) -> int:

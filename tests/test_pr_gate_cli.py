@@ -27,8 +27,6 @@ line = " ".join(a)
 def load(name):
     with open(os.path.join(s, name)) as fh:
         return json.load(fh)
-if line.startswith("repo view"):
-    print("testorg/testrepo"); sys.exit(0)
 if line.startswith("pr list"):
     if os.path.exists(os.path.join(s, "prlist_fail")):
         sys.exit(1)
@@ -78,6 +76,9 @@ def main() -> int:
 
     base_env = {k: v for k, v in os.environ.items()
                 if not k.startswith(("GITHUB_", "AGENT_FABRIC_", "CLAUDE_", "ANTHROPIC_")) and k != "GIT_DIR"}
+    # The repository the mock serves, named as a session names it outside a
+    # GitHub clone: gh's default repository is never read (gh.this_repo).
+    base_env["GH_REPO"] = "testorg/testrepo"
 
     with tempfile.TemporaryDirectory() as sandbox:
         state, repo, origin = f"{sandbox}/state", f"{sandbox}/repo", f"{sandbox}/origin.git"

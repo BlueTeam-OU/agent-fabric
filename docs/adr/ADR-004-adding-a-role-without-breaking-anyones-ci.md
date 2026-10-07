@@ -44,8 +44,9 @@ A role is added in this order, and each step lands before the next begins:
    `memory/domains/<role>/`, system slices and the regenerated `INDEX.md`
    in the project.
 4. **The account**: `runtime/provisioning/new-agent.sh <login> <role>
-   --project <id>`, which prints what it leaves for a person (the signing
-   key, the credentials file, the first interactive launch) and persists
+   --claude-account <account> --project <id>` (or `--no-claude-account`
+   for the broker alone, ADR-031 rule 8), which prints what it leaves for
+   a person (the signing key, the first interactive launch) and persists
    the account across the host's reboot in the same run.
 
 ## 3. Alternatives Considered

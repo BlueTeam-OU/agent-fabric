@@ -88,7 +88,8 @@ fi
 # only: a role policies/authority.json names under `contributors` commits
 # the paths of its entry, on its own contributor branch
 # (<host>/<login>/for/<caller>/<what>), and fabric-coordinator folds and
-# merges it. contributors.py decides, here, in commit-msg and in CI. Only
+# merges it; an entry with "merges": true also commits on its own
+# <host>/<login>/<type>/<what> and merges its own pull request. contributors.py decides, here, in commit-msg and in CI. Only
 # exit 0 admits; exit 1 is its own refusal, said; anything else (3, not a
 # contributor; a fabric older than the module) falls to the refusal below.
 contributors="$FABRIC_ROOT/tools/fabric/guards/contributors.py"

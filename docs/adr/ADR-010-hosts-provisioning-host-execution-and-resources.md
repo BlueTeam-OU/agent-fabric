@@ -41,7 +41,7 @@ because `getent`, PAM, `/run/user`, rootless containers and the account's
 home are host-local. `bin/fabric-host` is the person's interface.
 
 **Provisioning is one idempotent command**, `new-agent.sh <login> <role>
-[--host] [--project]…`: the orchestrator keeps what only the coordinator
+(--claude-account <account> | --no-claude-account) [--host] [--project]…`: the orchestrator keeps what only the coordinator
 holds (the registries, its own store as every account's parent, API keys)
 (A 2026-09-30); the host half
 runs on the target through `hostexec`. Platform differences live in one

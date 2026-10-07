@@ -135,6 +135,16 @@ verdict comes back, and a session survives the move.
    request with `claude -p /usage`, caching the answer five minutes.
    `fabric-accounts list` prints signed-in state, email and expiry, never
    a token.
+8. A new login's starting account is chosen when it is made:
+   `new-agent.sh` takes `--claude-account <template>` or, for a login
+   that runs only through the broker, `--no-claude-account`, one of the
+   two required. The template is checked before any account is made; its
+   token is written into the child's store by the same writer as rule 2,
+   before the child's first sync, which applies it; the run ends with the
+   token's fingerprint read back from the child's synced record, and
+   fails when it is not there. An assignment made after `new-agent`
+   cannot be applied until the login's key is on main, which is why it
+   moved into the onboarding (A 2026-10-07).
 
 ## 6. Consequences
 
@@ -183,3 +193,4 @@ The body above reads current; each change's full note is in [history/ADR-031-ame
 | 2026-09-27 | A move without its sync | §5 rule 4 names `--no-sync`: no action is sent, and each changed login applies the move at its next sync |
 | 2026-09-29 | Templates and assignments on the coordinator's store | §5 rules 1–2: a template in the coordinator's store; assign writes into the login's store |
 | 2026-09-30 | Doppler is retired: the store holds what Doppler held | Scope, §2, §4, §5 rules 1, 2, 4 |
+| 2026-10-07 | The starting account is chosen at onboarding | §5 rule 8: `new-agent.sh --claude-account <template>` or `--no-claude-account`, written before the child's first sync and read back |

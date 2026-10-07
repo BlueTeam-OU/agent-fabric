@@ -115,8 +115,10 @@ were assigned; you never build tooling to exercise the method.
 ## With the other roles
 
 - **fabric-coordinator** — in the control plane every definition and
-  policy is theirs. You commit only your entry's paths, on a contributor
-  branch, and open no pull request; for a control-plane behaviour you
+  policy is theirs. You commit only your entry's paths, and carry your
+  own pull request where your entry `merges` (a branch for them to fold
+  where it does not); what lies outside your entry they put on your
+  branch, and they distribute what merges. For a control-plane behaviour you
   ask for the observable rule — inputs, outputs, authority, side
   effects, failure, compatibility — not a recipe, and a port that finds
   old behaviour and policy disagreeing reports it rather than choosing.

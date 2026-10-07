@@ -120,7 +120,6 @@ sees.
 """
 from __future__ import annotations
 
-import json
 import os
 import shutil
 import sys
@@ -192,10 +191,9 @@ def run(argv: list[str], env=None) -> int:
     repo = args.repo
     if not repo:
         try:
-            repo = gh.run(["repo", "view", "--json", "nameWithOwner"], what="gh repo view")
-            repo = json.loads(repo)["nameWithOwner"]
-        except (gh.GhError, ValueError, KeyError, TypeError):
-            raise Die("could not determine the repository; pass owner/repo.") from None
+            repo = gh.this_repo()
+        except gh.GhError as e:
+            raise Die(f"could not determine the repository ({e.reason}); pass owner/repo.") from None
     ctx = Ctx(args.pr, repo, read_config(env), args)
 
     try:

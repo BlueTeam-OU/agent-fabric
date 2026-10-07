@@ -136,7 +136,7 @@
       "note": "A Rust terminal multiplexer for coding agents; the owner opens one tab per agent account, each entered with moveto. Forked 2026-10-06 on the owner's word: a change general to herdr (a switch that turns its socket API off or limits it to the attached client) goes upstream to herdrdev/herdr as a pull request from this fork; everything the fabric needs of it (per-pane status from the control plane's presence, Fleet Deck's `fabric-deck`, which builds the workspace from the host registry, seeding a new host's first layout from the catalogue's groups; the layout is the operator's to arrange from then on (the name is the owner's, 2026-10-07), status for a pane whose agent runs as another login) stays in this fork. rust-ui-dev holds it beside InterWeave (the owner, 2026-10-06)."
     },
     "radicle-spike": {
-      "title": "radicle-spike — whether Radicle can carry the fleet's forge (a seed, mirrored repositories, replication and reachability measured)",
+      "title": "radicle-spike — whether Radicle can carry the fleet's forge (a local seed, agent-fabric mirrored, replication and reachability measured)",
       "remotes": [
         "git@github.com:gzapi-org/radicle-spike.git",
         "https://github.com/gzapi-org/radicle-spike"
@@ -146,7 +146,7 @@
       "memory": ".agent-fabric/memory",
       "integration": "projects/radicle-spike/integration",
       "license": "Apache-2.0",
-      "note": "A time-boxed spike, private, created 2026-10-07 on the owner's word: Radicle as a decentralized forge for the fleet (ADR-034's direction). p2p-network-dev holds it (p2p-network-dev-02): run a seed on the fleet's host, mirror the fabric's repositories to it, measure replication, reachability through NAT and what a Radicle-backed pull-request flow would need of the forge tools. Its findings come back to agent-fabric as a live check and a decision proposal; nothing here is adopted by the fleet until that decision is made."
+      "note": "A time-boxed spike, private, created 2026-10-07 on the owner's word: Radicle as a decentralized forge for the fleet (ADR-034's direction). p2p-network-dev holds it (p2p-network-dev-02): run a local seed on the fleet's host, never joined to the public Radicle network, mirror agent-fabric to it (any other repository only on the owner's word), measure replication, reachability through NAT and what a Radicle-backed pull-request flow would need of the forge tools. Its findings come back to agent-fabric as a live check and a decision proposal; nothing here is adopted by the fleet until that decision is made."
     }
   }
 }

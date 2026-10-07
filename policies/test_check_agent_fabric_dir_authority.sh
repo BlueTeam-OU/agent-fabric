@@ -41,7 +41,7 @@ commit_change() {  # $1 = path; $2 = full message (optional)
   git -C "$SANDBOX" add -A; git -C "$SANDBOX" commit -q -m "${2:-touch $1}"
 }
 run_guard() {
-  ( cd "$SANDBOX" && AGENT_FABRIC_ROOT=/nonexistent AGENT_FABRIC_CHARTER_BASE=base-ref GITHUB_BASE_REF= bash "$UNDER_TEST" 2>&1 )
+  ( cd "$SANDBOX" && AGENT_FABRIC_ROOT=/nonexistent AGENT_FABRIC_CHARTER_BASE=base-ref GITHUB_BASE_REF= GITHUB_HEAD_REF= bash "$UNDER_TEST" 2>&1 )
 }
 rc_of() { run_guard >/dev/null; echo $?; }
 DECLARED=$'drain\n\nFabric-Role: fabric-coordinator'

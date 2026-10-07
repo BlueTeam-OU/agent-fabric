@@ -31,6 +31,7 @@ fifty. Read the list's numbers first and each item alone (results.py).
 from __future__ import annotations
 
 import json
+import os
 import re
 import subprocess
 
@@ -61,6 +62,71 @@ class GhError(Exception):
         self.stdout = stdout
 
 
+# origin's URL on github.com: scp-like or with a scheme, `.git` optional.
+_ORIGIN = re.compile(r"^(?:[^@/:\s]+@github\.com:|(?:https|ssh|git)://(?:[^@/\s]+@)?github\.com/)"
+                     r"(?P<repo>[A-Za-z0-9._-]+/[A-Za-z0-9._-]+?)(?:\.git)?/?$")
+_REPO = re.compile(r"^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$")
+
+
+def this_repo(cwd: str | None = None) -> str:
+    """The repository this working copy's pull requests are in: GH_REPO
+    when set, else origin's on github.com. Never gh's default repository:
+    in a fork clone with an `upstream` remote gh may default to upstream,
+    and a review meant for the fork was posted on the upstream project's
+    public pull request of the same number (a managed fork, 2026-10-07)."""
+    env = os.environ.get("GH_REPO", "").strip()
+    if env:
+        if not _REPO.match(env):
+            raise GhError("this repository", f"GH_REPO is not <owner>/<repo>: {env!r}")
+        return env
+    try:
+        r = subprocess.run(["git", "remote", "get-url", "origin"], capture_output=True, text=True, timeout=30,
+                           cwd=cwd, stdin=subprocess.DEVNULL)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        raise GhError("this repository", f"git remote get-url origin: {e.__class__.__name__}") from None
+    m = _ORIGIN.match(r.stdout.strip()) if r.returncode == 0 else None
+    if not m:
+        # The URL itself is never echoed: it can carry a credential.
+        raise GhError("this repository", "origin is not a github.com repository here (set GH_REPO=<owner>/<repo> "
+                      "to name one); gh's default repository is never used")
+    return m.group("repo")
+
+
+# gh's subcommands that act on one repository, guessed from the git
+# remotes when none is named.
+_REPO_SCOPED = {"pr", "repo", "issue", "run", "workflow", "release", "secret", "variable", "label", "cache",
+                "ruleset", "browse", "attestation"}
+
+
+def _scoped(args: list[str]) -> bool:
+    """Whether gh would pick a repository for this call itself: a scoped
+    subcommand without --repo/-R, or an api path naming {owner}/{repo}."""
+    if any(a in ("--repo", "-R") or a.startswith("--repo=") for a in args):
+        return False
+    if args[:1] == ["api"]:
+        return any("{owner}" in a or "{repo}" in a for a in args[1:])
+    if args[:2] == ["repo", "view"] and len(args) > 2 and not args[2].startswith("-"):
+        return False
+    return bool(args) and args[0] in _REPO_SCOPED
+
+
+def _env(args: list[str], what: str) -> dict[str, str] | None:
+    """The environment for gh: GH_REPO pinned to this_repo(), so a command
+    that takes no --repo (gh pr view N, gh pr merge N, gh api's {owner}/
+    {repo}) targets this working copy's repository, never gh's default.
+    When nothing names one, a call gh would aim by guessing is refused: gh
+    ranks an `upstream` remote above origin, and outside a GitHub origin
+    that guess is the upstream project (review of the merges branch)."""
+    if os.environ.get("GH_REPO"):
+        return None
+    try:
+        return {**os.environ, "GH_REPO": this_repo()}
+    except GhError as e:
+        if _scoped(args):
+            raise GhError(what, e.reason) from None
+        return None
+
+
 def run(args: list[str], *, input: str | None = None, timeout: float = TIMEOUT_S, what: str | None = None) -> str:
     """`gh <args>`, its stdout; a failure is a GhError naming `what` (by
     default the first two words of the call)."""
@@ -69,7 +135,8 @@ def run(args: list[str], *, input: str | None = None, timeout: float = TIMEOUT_S
         # No input is an empty stdin, never the caller's: a gh that reads
         # stdin would otherwise wait on it for the whole bound.
         stdin = {"input": input} if input is not None else {"stdin": subprocess.DEVNULL}
-        r = subprocess.run(["gh", *args], capture_output=True, text=True, timeout=timeout, **stdin)
+        env = _env(args, what)
+        r = subprocess.run(["gh", *args], capture_output=True, text=True, timeout=timeout, env=env, **stdin)
     except FileNotFoundError:
         raise GhError(what, "gh is not installed") from None
     except subprocess.TimeoutExpired:

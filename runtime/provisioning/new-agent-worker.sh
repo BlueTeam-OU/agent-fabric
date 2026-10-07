@@ -7,7 +7,7 @@
 # rule 1): sudo, useradd and the installers here; its decisions, and why,
 # in tools/fabric/new_agent_worker.py, run by the pinned Python's fixed path.
 #   new-agent-worker.sh prepare <login> <role> [--claude V] [--dry-run]   0-4
-#   new-agent-worker.sh finish <login> <role> [--clone <id>=<remote>]... [--dry-run]   6-10
+#   new-agent-worker.sh finish <login> <role> [--clone <id>=<remote>]... [--claude-account <slug>=<fp12> | --no-claude-account] [--dry-run]   6-10
 #   new-agent-worker.sh host-check <login>   hostname -s, then whether the account exists
 # Every step is must, probe or best_effort (tests/test_new_agent_cli.py fails each must).
 set -uo pipefail
@@ -147,4 +147,4 @@ done
 # ---- 10. verify, and what is left for a person
 (( DRY )) && { say "dry run: nothing verified"; exit 0; }
 say "10. verification"
-"$PY" -I "$W" verify "$ROOT" "$LOGIN" "$HOME_DIR" "$SUDO" "${PROJECTS[@]+"${PROJECTS[@]}"}"
+"$PY" -I "$W" verify "$ROOT" "$LOGIN" "$HOME_DIR" "$SUDO" "${VERIFY_ACCOUNT[@]+"${VERIFY_ACCOUNT[@]}"}" "${PROJECTS[@]+"${PROJECTS[@]}"}"

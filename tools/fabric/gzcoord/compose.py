@@ -103,7 +103,6 @@ _BREAK = re.compile("[\r\n\v\f\x1c\x1d\x1e\x85\u2028\u2029]")
 # (https://, ssh://, git://, file:// is not a forge and is not matched).
 _REMOTE = (re.compile(r"^[^/@:\s]+@[^/:\s]+:(?P<path>[^\s]+)$", re.ASCII),
            re.compile(r"^(?:https?|ssh|git)://[^/\s]+/(?P<path>[^\s]+)$", re.ASCII))
-# Any scheme RFC 3986 admits, in any case: one git cannot use is printed too.
 _ORG_REPO = re.compile(r"^(?P<org>[A-Za-z0-9._-]+)/(?P<repo>[A-Za-z0-9._-]+?)(?:\.git)?/?$")
 
 

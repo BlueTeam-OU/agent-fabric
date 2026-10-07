@@ -71,3 +71,16 @@ guarded path shows its source; without a clean merge, the merge is
 judged against every parent. The blind review of agent-fabric #96 found
 the rename case and the `-s ours` fallback; both are closed in the same
 pull request.
+
+### Amendment 2026-10-07 — A contributor that merges its own pull request
+
+§5 rule 8 extended. The owner: "we should authorize python-dev to
+directly merge their work", approved on these terms: a per-role flag,
+python-dev only; its own blind review and gate; arming by the team's
+count rule; paths outside its entry supplied by the coordinator onto
+its branch; distribution kept by the coordinator, whose key signs it.
+The fold through the coordinator cost a round trip per delivery, and
+the CI fence already judged contributor commits against the base's
+entry, so the merge needs no coordinator in the loop. What CI could not
+yet refuse — a pull request opened by a contributor that does not
+merge, or from a supply branch — it now does.

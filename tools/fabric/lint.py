@@ -98,6 +98,7 @@ from fabric_lint_rules.locales import I18N_EXTRA_PATTERNS, I18N_SCHEMA_REL, LOCA
 from fabric_lint_rules.locales import LOCALE_FILE_OPTIONAL, LOCALE_FILE_RE, _i18n_key_re  # noqa: E402, F401
 from fabric_lint_rules.locales import i18n_default_dictionary_findings, i18n_dictionary_findings  # noqa: E402, F401
 from fabric_lint_rules.locales import locale_file_findings, locale_translation_findings  # noqa: E402, F401
+from fabric_lint_rules.locales import locale_alignment_findings  # noqa: E402, F401
 from fabric_lint_rules.locales import locale_worker_findings  # noqa: E402, F401
 from fabric_lint_rules.slices import CLASS_DIRS, flat_and_dir_findings, lint_slices  # noqa: E402, F401
 
@@ -354,11 +355,21 @@ def contributor_findings(root: str) -> list[str]:
         if raw:
             findings.append(f"identities/roles/catalog.json: unreadable ({e}), so no contributor's role can be checked")
     owner = (doc.get("role_definitions") or {}).get("role")
+    seen: set[str] = set()
     for i, e in enumerate(raw):
         role = e.get("role") if isinstance(e, dict) else None
-        if not isinstance(role, str) or role not in whole:
+        # Each entry judged on its own: a malformed one beside a whole entry
+        # of the same role was dropped by contributors_of and passed unsaid.
+        alone = co.contributors_of(json.dumps({"contributors": [e]}))
+        if isinstance(role, str) and role in seen:
+            findings.append(f"policies/authority.json: contributors[{i}] ({role}): a second entry for the role — "
+                            "one entry per role")
+            continue
+        if isinstance(role, str):
+            seen.add(role)
+        if not isinstance(role, str) or role not in alone:
             findings.append(f"policies/authority.json: contributors[{i}]: not a whole entry (a role, a non-empty "
-                            "list of paths, a list of exclusions) — it admits nothing")
+                            "list of paths, a list of exclusions, `merges` a boolean when present) — it admits nothing")
             continue
         where = f"policies/authority.json: contributors[{i}] ({role})"
         if role == owner:
@@ -576,6 +587,7 @@ def main() -> int:
         findings += locale_worker_findings(role, role_path)
         findings += locale_file_findings(role, role_path)
         findings += i18n_dictionary_findings(role, role_path)
+        findings += locale_alignment_findings(role, role_path)
         for rel in identity_slices[role]:
             klass = (parse_frontmatter(open(os.path.join(root, rel), encoding="utf-8").read()) or {}).get("class")
             if klass not in layout.IDENTITY_CLASSES:

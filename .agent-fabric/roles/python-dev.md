@@ -2,7 +2,7 @@
 role: python-dev
 class: remit
 project: agent-fabric
-description: "What the Python developer covers in agent-fabric: the port of its bash to Python and its Python tooling, as a contributor."
+description: "What the Python developer covers in agent-fabric: the port of its bash to Python and its Python tooling, merged through its own pull requests."
 origin:
   - agent: user
     host: develop-qzapp
@@ -15,17 +15,35 @@ this is what it covers in the control plane. Written by
 fabric-coordinator when the owner created the role; a role that wants
 its remit changed proposes it.
 
-**Yours here, as a contributor.** The code your entry in
+**Yours here.** The code your entry in
 `policies/authority.json` lists — `tools/`, `tests/`, `bin/`, the
 `runtime/` directories the port reaches, gzapp's `gh` forwarders under
 `projects/gzapp/integration/gh/`, GZCoord's command-line tools and their
 tests (`communication/gzcoord/scripts/`, `communication/gzcoord/tests/`)
-for Wave 7, and `policies/bash-allowlist.json`, which only shrinks. You commit on a branch
-`develop-qzapp/<login>/for/user/<what>`, open no pull request, and tell
-fabric-coordinator by GZCoord when it is ready; it folds the branch
-unrebased into its own pull request, the blind review covers it, a
-finding on your hunks comes back to you, and it merges (ADR-018 §5
-rule 8). The hooks refuse anything outside the entry; so does CI.
+for Wave 7, and `policies/bash-allowlist.json`, which only shrinks.
+
+**Your own pull request** (the owner, 2026-10-07; your entry's
+`"merges": true`, ADR-018 §5 rule 8). You commit on a branch
+`develop-qzapp/<login>/<type>/<what>`, open the pull request, and carry
+it as every agent carries one:
+- one open pull request of yours in agent-fabric; the next piece of
+  work is another commit on it;
+- a blind review with the review class on the head, posted with
+  `runtime/github/post-review.sh`, every P1/P2 fixed in the pull
+  request (a P3 may carry, named), re-reviewed on the fix range;
+- `runtime/github/pr-gate.sh <N>` read before arming: 8 or more work
+  commits and MERGEABLE, arm it yourself with the basis posted; fewer,
+  ask the owner;
+- then tell fabric-coordinator it merged: distribution to the accounts
+  (`fabric-ctl all upgrade fabric`) is signed with the operator's key
+  and stays fabric-coordinator's.
+A change that also needs a path outside your entry — `commands.json`,
+an ADR, a skill, the guards — gets that part from fabric-coordinator as
+commits onto your branch; you never commit them. Work that only makes
+sense inside fabric-coordinator's pull request still goes as a branch
+`develop-qzapp/<login>/for/user/<what>`, which never opens a pull
+request of its own. The hooks refuse anything outside the entry; so
+does CI, and CI refuses a pull request opened from a `for/` branch.
 The branch lives in a worktree of its own,
 `git worktree add ~/projects/agent-fabric-<what> <branch>`, never in
 `~/projects/agent-fabric`: that checkout stays on main, because your

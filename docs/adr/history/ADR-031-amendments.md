@@ -28,3 +28,12 @@ signing key live in the coordinator's store. The template is only the store entr
 and an assignment only the token put into the login's store; the
 Doppler reference and its dual write are gone from §2, §4 and rules 1,
 2 and 4.
+
+### Amendment 2026-10-07 — The starting account is chosen at onboarding
+
+§5 rule 8 added. The owner: "assigning the starting account should be
+part of the onboarding of the agent". Three agents made the same day
+were assigned with fabric-accounts afterwards; the token was written,
+and every sync refused it until their keys reached main, so none could
+start on plain Claude. new-agent's own first sync runs before that and
+applied the rest of their store, so the account goes in before it.

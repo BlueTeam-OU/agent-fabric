@@ -56,7 +56,10 @@ def main() -> int:
         os.chmod(gh, 0o755)
         env = {k: v for k, v in os.environ.items()
                if not k.startswith(("GITHUB_", "AGENT_FABRIC_", "CLAUDE_", "ANTHROPIC_")) and k != "GIT_DIR"}
-        env.update(PATH=f"{t}/bin{os.pathsep}{env.get('PATH', '')}", AGENT_FABRIC_STATE_DIR=f"{t}/state")
+        # The scratch origin is a local path: GH_REPO names the repository the
+        # fake gh serves, since gh's default is never used (gh.this_repo).
+        env.update(PATH=f"{t}/bin{os.pathsep}{env.get('PATH', '')}", AGENT_FABRIC_STATE_DIR=f"{t}/state",
+                   GH_REPO="o/r")
 
         def git(*args: str, cwd: str = wc, ok: bool = False) -> str:
             r = subprocess.run(["git", "-C", cwd, "-c", "user.name=t", "-c", "user.email=t@t",

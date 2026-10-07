@@ -61,7 +61,8 @@ and merged by `fabric-coordinator`. A contributor role — one
 `policies/authority.json` names under `contributors` — commits, in
 agent-fabric itself, the paths its entry lists and none it excludes, on
 a contributor branch of its own; `fabric-coordinator` folds that branch
-into its own pull request and merges it (A 2026-10-01). What a role *is*
+into its own pull request and merges it (A 2026-10-01), unless the entry
+`merges`, when the role carries its own pull request (A 2026-10-07). What a role *is*
 and what enforces the fence — identities, routing, policies but the bash
 allowlist, the protocol, the records, the guards and what they import or
 run — is never in an entry, and lint holds every entry to that.
@@ -157,7 +158,16 @@ record says so rather than claim otherwise.
    definition or the fence. The decision is
    `tools/fabric/guards/contributors.py`, one module for the hooks and
    CI. The contributor opens no pull request; the coordinator folds the
-   branch unrebased and merges (A 2026-10-01).
+   branch unrebased and merges (A 2026-10-01) — unless its entry carries
+   `"merges": true`. Such a role also commits on its own branch
+   `<host>/<login>/<type>/<what>` and opens, blind-reviews, arms by the
+   team's count rule and merges its own pull request within its entry;
+   what lies outside the entry reaches that pull request as the
+   coordinator's commits, and the coordinator distributes the merge. CI
+   refuses a pull request opened from a `for/` branch, and one in which
+   no commit declares the owner role unless every contributor role in it
+   merges; which login holds a role is never committed, so the declared
+   roles are judged (A 2026-10-07).
 
 ## 6. Consequences
 
@@ -225,3 +235,4 @@ The body above reads current; each change's full note is in [history/ADR-018-ame
 | 2026-10-01 | The fence's own code stays out; a guarded commit declares its binding | §2, §5 rule 8: the hooks read HEAD's entry; a typed role other than the binding is refused; the fence's own code is never in an entry; lint compares by prefix |
 | 2026-10-01 | CI judges a branch with main's guards | §5 rule 4, §6: CI's authority verdict is main's copy of the guards, run isolated before the branch's code; `tests/run.sh` keeps the branch's copy as the local check |
 | 2026-10-04 | A merge is judged on its own change | §5 rules 3–4: a merge's own change is what differs from the clean three-way merge of its parents, at the hooks and in CI; CI no longer skips merges |
+| 2026-10-07 | A contributor that merges its own pull request | §5 rule 8: an entry's `merges` lets its role open, review and merge its own pull request within its entry; CI refuses a pull request from a for/ branch, and a contributor-only one whose role does not merge |

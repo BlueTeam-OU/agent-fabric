@@ -1639,6 +1639,17 @@ def case_a_contributor_entry_never_reaches_a_definition() -> None:
         good = {"role": "python-dev", "paths": ["tools/", "tests/", "policies/bash-allowlist.json"], "excluding": excl}
         assert findings(good) == [], findings(good)
         assert findings() == [], "no contributor, nothing to say"
+        assert findings({**good, "merges": True}) == [], "a boolean merges is whole"
+        got = findings({**good, "merges": "yes"})
+        assert any("contributors[0]: not a whole entry" in f for f in got), got
+        # A malformed entry beside a whole one of the same role is still
+        # judged (review of the merges branch, F4), and a second entry is one.
+        got = findings({**good, "merges": True}, {**good, "merges": "yes"})
+        assert any("contributors[1] (python-dev): a second entry" in f for f in got), got
+        # The order `alone` exists for: the malformed entry first, a whole one
+        # after it, where the role's whole entry would have hidden it.
+        got = findings({**good, "merges": "yes"}, {**good, "merges": True})
+        assert any("contributors[0]: not a whole entry" in f for f in got), got
         got = findings({**good, "excluding": [e for e in excl if e != "tools/fabric/guards/"]})
         assert any("rule 'tools/' reaches tools/fabric/guards/" in f for f in got), got
         # The rule modules lint.py loads are the coordinator's as lint.py is:
@@ -1791,9 +1802,36 @@ def case_the_fabrics_own_claude_settings_are_the_workspace_template() -> None:
         assert lint.fabric_settings_findings(root), "a hand edit is a finding"
 
 
+def case_locales_carry_the_same_files() -> None:
+    """Every locale of a role carries what any other has; the dictionary
+    is matched by role, each named by its own tag (the owner, 2026-10-07)."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("fabric_lint_under_test", LINT)
+    lint = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(lint)
+    with tempfile.TemporaryDirectory() as root:
+        role = os.path.join(root, "role")
+        for suffix, tag in (("ru", "ru-RU"), ("ge", "ka-GE")):
+            write(os.path.join(role, "locale", suffix, "locale.json"), json.dumps({"tag": tag}))
+            write(os.path.join(role, "locale", suffix, "team.md"), "x")
+        write(os.path.join(role, "locale", "ru", "ru-RU.json"), "{}")
+        write(os.path.join(role, "locale", "ru", "brief.md"), "x")
+        got = lint.locale_alignment_findings("demo", role)
+        assert len(got) == 2 and all("/ge/" in g for g in got), got
+        assert any("dictionary" in g and "ru has" in g for g in got), got
+        assert any("brief.md" in g for g in got), got
+        write(os.path.join(role, "locale", "ge", "ka-GE.json"), "{}")
+        write(os.path.join(role, "locale", "ge", "brief.md"), "x")
+        assert lint.locale_alignment_findings("demo", role) == [], "aligned: clean"
+        write(os.path.join(role, "locale", "ge", "worker.md"), "x")
+        got = lint.locale_alignment_findings("demo", role)
+        assert got and "/ru/" in got[0] and "worker.md" in got[0], "either direction"
+
+
 def main() -> int:
     cases = [
         case_clean_base_passes,
+        case_locales_carry_the_same_files,
         case_decision_records_are_lint_findings,
         case_bash_over_150_lines_needs_the_allowlist,
         case_arm_boundary_cases_only_leave_retired,
