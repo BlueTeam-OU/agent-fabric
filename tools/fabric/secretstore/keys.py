@@ -7,20 +7,9 @@ import re
 import tempfile
 
 from .core import UID_DOMAIN, StoreError, AGENT_ID_RE, store_dir, _run, gpg
-
-
-def fingerprints(homedir: str | None = None, *, secret: bool = False, query: str | None = None) -> list[str]:
-    args = ["--with-colons", "--list-secret-keys" if secret else "--list-keys"] + ([query] if query else [])
-    r = gpg(*args, homedir=homedir, check=False)
-    out, prev = [], None
-    for line in r.stdout.decode().splitlines():
-        f = line.split(":")
-        if f[0] in ("pub", "sec"):
-            prev = f[0]
-        elif f[0] == "fpr" and prev:
-            out.append(f[9])
-            prev = None
-    return out
+# One key per use (ADR-038 rule 1), and the key lists: lineage.py's, which
+# verify reads inside the lint's fence.
+from .lineage import fingerprints, KEY_USES, _key_caps  # noqa: F401
 
 
 def key_of_store(store: str | None = None) -> str:
@@ -30,29 +19,6 @@ def key_of_store(store: str | None = None) -> str:
     except (OSError, IndexError):
         raise StoreError(f"no store at {store or store_dir()} (fabric-secrets store init)")
     return fpr
-
-
-# ── the agent, in its own account ─────────────────────────────────────
-# One key per use (ADR-038 rule 1): the primary certifies only, and each
-# use is its own subkey, so a leaked signing key never opens the store and
-# each can be rotated alone. The authentication subkey is the one an SSH
-# client can use through gpg-agent.
-KEY_USES = (("e", "cv25519", "encr", "encryption"), ("s", "ed25519", "sign", "signing"),
-            ("a", "ed25519", "auth", "authentication"))
-
-
-def _key_caps(colons: str) -> tuple[str, set[str]]:
-    """From `gpg --with-colons` output for one key: the primary's own
-    capabilities and those of its valid subkeys (revoked or expired ones
-    excluded)."""
-    primary, subs = "", set()
-    for l in colons.splitlines():
-        f = l.split(":")
-        if f[0] == "pub":
-            primary = "".join(c for c in f[11] if c.islower())
-        elif f[0] == "sub" and f[1] not in ("r", "e", "i"):
-            subs |= {c for c in f[11] if c.islower()}
-    return primary, subs
 
 
 def _ensure_use_subkeys(fpr: str) -> list[str]:
