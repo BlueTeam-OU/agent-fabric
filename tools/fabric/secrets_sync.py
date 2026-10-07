@@ -79,7 +79,7 @@ MARKER = "# agent-fabric secrets"
 # rm refuse exactly the names this applies or reports as known.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from secretstore.reserved import (  # noqa: E402
-    ENV_NAMES, GIT_NAMES, SSH_NAMES, IDENTITY_NAMES, STORE_ONLY, ALL_NAMES, RegistryUnreadable, registry_agent_env, reserved,
+    ENV_NAMES, GIT_NAMES, STORE_ONLY, ALL_NAMES, RegistryUnreadable, registry_agent_env, reserved,
 )
 USAGE = "usage: fabric-secrets sync [--force] [--json] [--quiet] [--no-pull] | status [--json] | store …"
 
