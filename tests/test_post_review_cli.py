@@ -108,6 +108,8 @@ def main() -> int:
         os.chmod(f"{sandbox}/bin/gh", 0o755)
         base = {k: v for k, v in os.environ.items()
                 if not k.startswith(("GITHUB_", "AGENT_FABRIC_", "CLAUDE_", "ANTHROPIC_")) and k != "GIT_DIR"}
+        # The repository the mock serves (gh.this_repo never reads gh's default).
+        base["GH_REPO"] = "gzapi-org/gzapp"
         base.update(PATH=f"{sandbox}/bin:{base.get('PATH', '')}", GH_STATE=state)
 
         def drop(name: str) -> None:

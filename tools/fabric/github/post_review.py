@@ -186,11 +186,9 @@ def run(argv: list[str], stdin) -> int:
         die("the review body is empty.")
 
     try:
-        repo = gh.run(["repo", "view", "--json", "nameWithOwner", "--jq", ".nameWithOwner"]).strip()
-    except gh.GhError:
-        repo = ""
-    if not repo:
-        die("could not resolve the repository (gh not authenticated?).")
+        repo = gh.this_repo()
+    except gh.GhError as e:
+        die(f"could not resolve the repository: {e.reason}.")
     try:
         meta = gh.pr_view(int(pr), ["number", "state", "headRefName", "headRefOid"])
     except (gh.GhError, ValueError):

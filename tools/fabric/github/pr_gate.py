@@ -576,11 +576,9 @@ def run(argv: list[str]) -> int:
             raise Usage(f"{tool} is required")
 
     try:
-        repo = gh.run(["repo", "view", "--json", "nameWithOwner", "--jq", ".nameWithOwner"]).strip()
-    except gh.GhError:
-        repo = ""
-    if not repo:
-        raise Usage("cannot read the repository (gh repo view failed)")
+        repo = gh.this_repo()
+    except gh.GhError as e:
+        raise Usage(f"cannot read the repository: {e.reason}") from None
     session = session_prefix()
 
     if inflight:

@@ -78,6 +78,9 @@ def main() -> int:
 
     base_env = {k: v for k, v in os.environ.items()
                 if not k.startswith(("GITHUB_", "AGENT_FABRIC_", "CLAUDE_", "ANTHROPIC_")) and k != "GIT_DIR"}
+    # The repository the mock serves, named as a session names it outside a
+    # GitHub clone: gh's default repository is never read (gh.this_repo).
+    base_env["GH_REPO"] = "testorg/testrepo"
 
     with tempfile.TemporaryDirectory() as sandbox:
         state, repo, origin = f"{sandbox}/state", f"{sandbox}/repo", f"{sandbox}/origin.git"

@@ -31,6 +31,8 @@ def main() -> int:
     print("a reply GitHub gave no answer to is never called rejected (review of #71)")
     import gh
     real = (gh.graphql, gh.run, pr_reply.local.toplevel, pr_reply.local.probe, pr_reply.local.remote_url)
+    # The repository is read through gh.this_repo, never gh repo view.
+    real_this_repo, gh.this_repo = gh.this_repo, (lambda cwd=None: "o/r")
     node = {"node": {"isResolved": False, "path": "a", "line": 1, "pullRequest": {
         "number": 7, "headRefName": "h/me/feat/x", "state": "OPEN", "repository": {"nameWithOwner": "o/r"}}}}
 
@@ -74,6 +76,7 @@ def main() -> int:
     finally:
         gh.graphql, gh.run, pr_reply.local.toplevel, pr_reply.local.probe, pr_reply.local.remote_url = \
             real[0], real_run, real[2], real[3], real[4]
+        gh.this_repo = real_this_repo
 
     print("--help and a usage error never wait on an open stdin (review of #71)")
     shim = os.path.join(HERE, "runtime", "github", "pr-reply.sh")

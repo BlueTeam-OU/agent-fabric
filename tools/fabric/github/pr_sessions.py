@@ -351,7 +351,7 @@ def lookup_threads(numbers: list[int]) -> dict | None:
     waiting on YOU. None is unknown — a failed call, and no repo context,
     which means no thread data, read alike."""
     try:
-        owner_repo = gh.run(["repo", "view", "--json", "nameWithOwner", "--jq", ".nameWithOwner"]).rstrip("\n")
+        owner_repo = gh.this_repo()
     except gh.GhError:
         owner_repo = ""
     if not owner_repo:

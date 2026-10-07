@@ -208,11 +208,9 @@ def run(argv: list[str], stdin) -> int:
     pr = node.get("pullRequest") or {}
     thread_repo = (pr.get("repository") or {}).get("nameWithOwner") or ""
     try:
-        here_repo = gh.run(["repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"]).strip()
-    except gh.GhError:
-        here_repo = ""
-    if not here_repo:
-        die("cannot determine the current repository (run inside a checkout).")
+        here_repo = gh.this_repo()
+    except gh.GhError as e:
+        die(f"cannot determine the current repository: {e.reason}.")
     if thread_repo != here_repo:
         die(f"thread {thread} belongs to {thread_repo}, not {here_repo}.")
     number, branch, state = pr.get("number"), pr.get("headRefName") or "", pr.get("state")

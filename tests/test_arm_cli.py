@@ -118,6 +118,8 @@ def main() -> int:
 
     base_env = {k: v for k, v in os.environ.items()
                 if not k.startswith(("GITHUB_", "AGENT_FABRIC_", "CLAUDE_", "ANTHROPIC_", "GZAPP_")) and k != "GIT_DIR"}
+    # The repository the mock serves (gh.this_repo never reads gh's default).
+    base_env["GH_REPO"] = "gzapi-org/gzapp"
 
     with tempfile.TemporaryDirectory() as sandbox:
         state, bindir = f"{sandbox}/state", f"{sandbox}/bin"
@@ -535,10 +537,10 @@ def main() -> int:
         check("dry run posts and arms nothing", "pr merge" not in calls() and "pr comment" not in calls(), calls())
         reset(); put("viewfail", "")
         rc, out = run("7", "--basis", "b"); check("unreadable PR: exit 2", rc == 2, out)
-        reset(); set_pr(me, "plain", ["docs/a.md"]); set_gate(9); put("badrepo", "")
-        rc, out = run("7", "--basis", "b")
-        check("an answer of a shape gh never gave (a repository with no owner): exit 2, never 1, nothing armed",
-              rc == 2 and "unexpected answer" in out and "pr merge" not in calls(), out)
+        reset(); set_pr(me, "plain", ["docs/a.md"]); set_gate(9)
+        rc, out = run("7", "--basis", "b", env={"GH_REPO": "noslash"})
+        check("a repository with no owner: exit 2, never 1, nothing armed",
+              rc == 2 and "cannot read the repository" in out and "pr merge" not in calls(), out)
 
         print("arm: another project's rules — InterWeave's arm.json, through the shim")
         iw = {"AGENT_FABRIC_ARM_CONFIG": IW_CONFIG}

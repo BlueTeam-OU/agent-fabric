@@ -207,6 +207,17 @@ def _gh_text(args: list[str]) -> str:
         return ""
 
 
+def _this_repo_view(field: str) -> str:
+    """One field of this working copy's repository, named explicitly:
+    `gh repo view` with no argument follows gh's default repository, which
+    in a fork clone can be upstream (gh.this_repo)."""
+    try:
+        repo = gh.this_repo()
+    except gh.GhError:
+        return ""
+    return _gh_text(["repo", "view", repo, "--json", field.split(".")[0], "-q", "." + field])
+
+
 def _in_period(row: dict, period: str) -> bool:
     """The row bills for the period. A row with no date counts: the filter
     excludes OTHER months, it does not demand a field older payloads lack."""
@@ -299,7 +310,7 @@ def check(opts: dict, env) -> tuple[int, str, dict]:
     if shutil.which("gh") is not None:
         # The working copy speaks for a run only in its own organisation: an
         # --org naming another owner asks about that owner's allowance.
-        copy_org = _gh_text(["repo", "view", "--json", "owner", "-q", ".owner.login"])
+        copy_org = _this_repo_view("owner.login")
         org = opts["org"] or copy_org
         if org:
             # THE CURRENT BILLING MONTH, and only it: after a rollover the
@@ -319,9 +330,9 @@ def check(opts: dict, env) -> tuple[int, str, dict]:
             # reviewed PR on "$87 billing as overage" while its run billed
             # 0 ms (2026-10-06). A visibility that cannot be read is
             # private, the conservative side.
-            public = org == copy_org and _gh_text(["repo", "view", "--json", "isPrivate", "-q", ".isPrivate"]) == "false"
+            public = org == copy_org and _this_repo_view("isPrivate") == "false"
             fields["public"] = public
-            me = _gh_text(["repo", "view", "--json", "name", "-q", ".name"])
+            me = _this_repo_view("name")
             try:
                 usage = gh.api(f"/organizations/{org}/settings/billing/usage?year={now.year}&month={now.month}")
             except gh.GhError:

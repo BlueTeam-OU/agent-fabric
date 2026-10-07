@@ -455,11 +455,9 @@ def arm(argv: list[str]) -> int:
     except (gh.GhError, ValueError):
         raise Unanswered(f"cannot read #{num} (gh pr view failed)") from None
     try:
-        repo = gh.run(["repo", "view", "--json", "nameWithOwner", "--jq", ".nameWithOwner"], what="gh repo view").strip()
-    except gh.GhError:
-        repo = ""
-    if not repo:
-        raise Unanswered("cannot read the repository (gh repo view failed)")
+        repo = gh.this_repo()
+    except gh.GhError as e:
+        raise Unanswered(f"cannot read the repository: {e.reason}") from None
     owner, name = repo.split("/", 1)
     state, branch = str(pr.get("state")), str(pr.get("headRefName") or "")
     head, title, body = str(pr.get("headRefOid") or ""), str(pr.get("title") or ""), str(pr.get("body") or "")

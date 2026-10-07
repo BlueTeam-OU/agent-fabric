@@ -108,6 +108,8 @@ def main() -> int:
         os.chmod(f"{bin_}/gh", 0o755)
         base = {k: v for k, v in os.environ.items()
                 if not k.startswith(("GITHUB_", "AGENT_FABRIC_", "CLAUDE_", "ANTHROPIC_")) and k != "GIT_DIR"}
+        # The repository the mock serves (gh.this_repo never reads gh's default).
+        base["GH_REPO"] = "gzapi-org/gzapp"
         base.update(PATH=f"{bin_}:{base.get('PATH', '')}", GH_MOCK_STATE=state)
 
         def thread_fixture(branch: str, resolved: bool, repo: str = "gzapi-org/gzapp") -> None:
@@ -167,8 +169,10 @@ def main() -> int:
         # REPOVIEW sits between the read and the reply: the repository check
         # runs on the thread it just read, and must happen BEFORE anything is
         # written.
-        check("read, check the repo, then reply, then resolve — in that order",
-              calls() == f"READ {THREAD_ID}\nREPOVIEW\nREPLY {THREAD_ID}\nRESOLVE {THREAD_ID}\n", calls())
+        # The repository check is in-process now (gh.this_repo: GH_REPO, else
+        # origin; never gh repo view), and refuses before any write.
+        check("read, then reply, then resolve — in that order",
+              calls() == f"READ {THREAD_ID}\nREPLY {THREAD_ID}\nRESOLVE {THREAD_ID}\n", calls())
 
         print("pr-reply: a trailing blank line survives to GitHub")
         # Reading the body back must not strip the bytes under test: a
@@ -452,7 +456,9 @@ def main() -> int:
         # Failing open here restores the whole hole: with no local repository
         # to compare, every foreign thread would match nothing and pass.
         thread_fixture(f"{me}/feat/thing", False)
-        rc, out = invoke("body", THREAD_ID, GH_MOCK_REPO_FAIL="1")
+        # No GH_REPO and a clone with no GitHub origin: nothing names the
+        # repository, and gh's default is never asked.
+        rc, out = invoke("body", THREAD_ID, GH_REPO="")
         check("exits 2", rc == 2, out)
         check("says it cannot tell", "cannot determine the current repository" in out, out)
         check("nothing was posted", "REPLY" not in calls(), calls())
