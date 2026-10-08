@@ -84,7 +84,7 @@ const secretsOf = (engine, env = process.env) => Object.fromEntries(SECRETS[engi
 // title, link, snippet — or an error the caller can read, never a secret.
 export async function search(engine, query, locale, { secrets = secretsOf(engine), fetchImpl = globalThis.fetch, count } = {}) {
   const missing = SECRETS[engine].find(n => !secrets[n]);
-  if (missing) return { isError: true, text: `no ${missing} in the synced secrets: bin/fabric-secrets sync, after it is in the store of this login` };
+  if (missing) return { isError: true, text: `no ${missing} in the synced secrets: fabric-secrets sync, after it is in the store of this login` };
   const { url, method } = request(engine, query, locale, { count, secrets });
   const headers = engine === 'brave' ? { Accept: 'application/json', 'X-Subscription-Token': secrets.BRAVE_SEARCH_API_KEY } : { Accept: 'application/json' };
   let r;

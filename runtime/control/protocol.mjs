@@ -66,11 +66,13 @@
  *                                       every live session; empty when none runs
  * @property {string} [role]             the account's bound role
  * @property {string} [project]          the binding's project
+ * @property {string} [last_session]     the binding's last session id (Fleet Deck: the id a resume brings back)
+ * @property {boolean} [resumable]       whether that session's transcript is on the account (fabric-resume resumes it while the directory it ran in still exists, else starts fresh)
  */
 
 export const ENVELOPE_KEYS = Object.freeze({
   request: Object.freeze({ required: ['v', 'kind', 'id', 'from', 'to', 'op', 'ts'], optional: ['ttl_s', 'days', 'args', 'sig'] }),
   reply: Object.freeze({ required: ['v', 'kind', 'id', 'in_reply_to', 'from', 'op', 'ts', 'ok'], optional: ['data'] }),
   up: Object.freeze({ required: ['v', 'kind', 'from', 'ts'], optional: [] }),
-  state: Object.freeze({ required: ['v', 'kind', 'from', 'ts', 'sessions'], optional: ['role', 'project'] }),
+  state: Object.freeze({ required: ['v', 'kind', 'from', 'ts', 'sessions'], optional: ['role', 'project', 'last_session', 'resumable'] }),
 });

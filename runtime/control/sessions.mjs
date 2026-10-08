@@ -16,10 +16,13 @@
 // session's own. The hook's file is never rewritten here; the hook owns it.
 //
 // What leaves the account is the session id, its state and since when,
-// and the binding's role and project: no path, no process id, nothing a
-// prompt holds.
+// the binding's role and project, and its last session's id with whether
+// its transcript is here (resumable), which Fleet Deck reads before it
+// re-enters a tab with `moveto <account> --resume`: no path, no process
+// id, nothing a prompt holds.
 
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { stateDir } from './upgrade.mjs';
 
@@ -53,13 +56,34 @@ export function readSessions(file, { proc = '/proc' } = {}) {
 /**
  * @returns {import('./protocol.mjs').State}
  */
-export function stateRecord(address, { sessions, role, project }, ts = new Date().toISOString()) {
-  return { v: 1, kind: 'state', from: address, ts, sessions, ...(role ? { role } : {}), ...(project ? { project } : {}) };
+export function stateRecord(address, { sessions, role, project, last_session, resumable }, ts = new Date().toISOString()) {
+  return { v: 1, kind: 'state', from: address, ts, sessions, ...(role ? { role } : {}), ...(project ? { project } : {}),
+    ...(last_session ? { last_session, resumable: resumable === true } : {}) };
 }
 
-function bound(file) {
-  try { const b = JSON.parse(fs.readFileSync(file, 'utf8')); return { role: b.role ?? null, project: b.project ?? null }; }
-  catch { return { role: null, project: null }; }
+// The harness's session id is a UUID; anything else in a binding is no
+// session, never a path. tools/fabric/resume.py's SESSION_RE is the same
+// pattern, and ctl.mjs checks a state record's last_session with this one.
+export const SESSION_ID = /^[A-Za-z0-9-]{8,64}$/;
+
+// Whether a session's transcript is on this account: the file
+// ~/.claude/projects/<launch dir>/<id>.jsonl that fabric-resume would hand
+// to --resume. Which directory is not said; only that one exists.
+export function transcriptExists(id, configDir = process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude')) {
+  if (!SESSION_ID.test(id ?? '')) return false;
+  const projects = path.join(configDir, 'projects');
+  let dirs;
+  try { dirs = fs.readdirSync(projects); } catch { return false; }
+  return dirs.some(d => fs.existsSync(path.join(projects, d, `${id}.jsonl`)));
+}
+
+function bound(file, configDir) {
+  try {
+    const b = JSON.parse(fs.readFileSync(file, 'utf8'));
+    const id = typeof b.session === 'string' && SESSION_ID.test(b.session) ? b.session : null;
+    return { role: b.role ?? null, project: b.project ?? null, last_session: id,
+      resumable: id ? transcriptExists(id, configDir) : false };
+  } catch { return { role: null, project: null, last_session: null, resumable: false }; }
 }
 
 // tick() never throws and never runs twice at once (setInterval does not
@@ -67,7 +91,7 @@ function bound(file) {
 // the next tick tries again; it is said once, not every two seconds — the
 // relay loop already reports the relay down.
 export function stateWatcher({ address, post, file = path.join(stateDir(), STATE_FILE), binding, proc = '/proc',
-  now = Date.now, heartbeatMs = STATE_HEARTBEAT_MS, log = m => console.error(m) }) {
+  now = Date.now, heartbeatMs = STATE_HEARTBEAT_MS, log = m => console.error(m), configDir }) {
   let lastKey = null, lastAt = 0, busy = false, failing = false;
   return {
     async tick() {
@@ -75,7 +99,8 @@ export function stateWatcher({ address, post, file = path.join(stateDir(), STATE
       busy = true;
       try {
         const now_ = now();
-        const said = { sessions: readSessions(file, { proc }), ...(binding ? bound(binding) : { role: null, project: null }) };
+        const said = { sessions: readSessions(file, { proc }),
+          ...(binding ? bound(binding, configDir) : { role: null, project: null, last_session: null, resumable: false }) };
         const key = JSON.stringify(said);
         if (key === lastKey && now_ - lastAt < heartbeatMs) return false;
         await post(stateRecord(address, said, new Date(now_).toISOString()));

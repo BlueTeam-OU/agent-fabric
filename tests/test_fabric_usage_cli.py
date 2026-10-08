@@ -119,7 +119,9 @@ def main() -> int:
         os.chmod(hx, 0o755)
         registry = os.path.join(t, "registry.json")
         with open(registry, "w", encoding="utf-8") as fh:
-            json.dump({"placement": {"ok-one": "h1", "down-one": "h2", "bare-one": "h1", "late-one": "h2"}}, fh)
+            # deck-human is a human login (ADR-044): never asked, never a row.
+            json.dump({"placement": {"ok-one": "h1", "down-one": "h2", "deck-human": "h1", "bare-one": "h1", "late-one": "h2"},
+                       "kinds": {"deck-human": "human"}}, fh)
         env = {k: v for k, v in os.environ.items()
                if not k.startswith(("GITHUB_", "AGENT_FABRIC_", "CLAUDE_", "ANTHROPIC_")) and k != "GIT_DIR"}
         env.update(AGENT_FABRIC_HOSTS_REGISTRY=registry, AGENT_FABRIC_HOSTEXEC=hx)
@@ -128,6 +130,9 @@ def main() -> int:
             r = subprocess.run([TOOL, *args], env=env, capture_output=True, text=True, timeout=60)
             return r.returncode, r.stdout, r.stderr
 
+        for named, why in (("deck-human", "is a human login (ADR-044)"), ("nobody", "is not a placed account")):
+            rc, out, err = usage(named)
+            check(f"{named} named: refused, exit 2, no table", rc == 2 and out == "" and why in err, f"rc={rc}\n{out}{err}")
         rc, out, err = usage()
         rows = out.splitlines()
         check("text: a header and every placement, in the registry's order, exit 0",

@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# bin/fabric-tools — the tools this working copy's project needs, checked
+# on this account (projects/registry.json `tools`). The path is the
+# contract (runtime/claude-code/commands.json);
+# the work and its reasons are in tools/fabric/tools_check.py.
+ROOT="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
+# The fleet's pinned Python (runtime/python.json, ADR-040), one per host;
+# AGENT_FABRIC_PYTHON points elsewhere for a test or a host without it.
+py="${AGENT_FABRIC_PYTHON:-/usr/local/bin/fabric-python}"
+[[ -x "$py" ]] || { echo "fabric-tools: the fleet's pinned Python is not installed at $py; as root: /usr/bin/python3 <agent-fabric>/tools/fabric/python_pin.py install" >&2; exit 127; }
+exec "$py" "$ROOT/tools/fabric/tools_check.py" "$@"

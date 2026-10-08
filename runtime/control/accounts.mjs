@@ -88,8 +88,12 @@ export async function main(argv = process.argv.slice(2), { home = os.homedir(), 
     const rest = argv.slice(1).filter(a => !['--no-sync', '--no-restart', '--force'].includes(a));
     if (rest.length < 2) { console.error(USAGE); return 2; }
     const account = rest.at(-1); const who = rest.slice(0, -1);
-    const placed = placements(registry).map(p => p.login);
+    // A human login has no Claude account (ADR-044 §5 rule 2): never assigned one.
+    const everyone = placements(registry);
+    const placed = everyone.filter(p => p.kind === 'agent').map(p => p.login);
     const logins = who.length === 1 && who[0] === 'all' ? placed : who;
+    const humans = logins.filter(l => everyone.some(p => p.login === l && p.kind === 'human'));
+    if (humans.length) { console.error(`fabric-accounts: a human login has no Claude account (ADR-044): ${humans.join(', ')}`); return 2; }
     const unknown = logins.filter(l => !placed.includes(l));
     if (unknown.length) { console.error(`fabric-accounts: not a placed account (runtime/hosts/registry.json): ${unknown.join(', ')}`); return 2; }
     // No way back to a login's own /login: the launcher refuses a session

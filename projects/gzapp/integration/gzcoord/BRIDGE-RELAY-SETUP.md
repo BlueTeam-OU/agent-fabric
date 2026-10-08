@@ -255,5 +255,5 @@ Still open:
   `secrets.env`, read by gzcoord-inbox and gzcoord-send, and handed by
   the launcher to the harness alone for the `.mcp.json` bridge entry
   (never exported to a shell since agent-fabric ADR-038 rule 9), from the
-  account's own store (`bin/fabric-secrets sync`); the
+  account's own store (`fabric-secrets sync`); the
   coordinator puts it in each store (`fabric-secrets provision share`).

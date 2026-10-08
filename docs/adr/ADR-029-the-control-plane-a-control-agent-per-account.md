@@ -195,7 +195,10 @@ with Doppler (ADR-038 §5 rule 8).
     every ten minutes, on a state channel of its own (`config.json`
     `state_channel`, ending in `:control`), so a burst of replies on the
     control channel never buries it. The record names each live session's id, state
-    and since when, and the binding's role and project; a session whose
+    and since when, the binding's role and project, and the binding's last
+    session id with whether its transcript is on the account (resumable),
+    which Fleet Deck reads before it re-enters a tab, never a path
+    (A 2026-10-08); a session whose
     `claude` process is gone is left out. `fabric-ctl states` reads
     those records, sending no request; a record older than two
     heartbeats reads as unknown, and `--follow` prints a row when it
@@ -277,3 +280,4 @@ The body above reads current; each change's full note is in [history/ADR-029-ame
 | 2026-10-06 | Each account's settings.local.json on the control plane | §5 rule 15: `local`, a names-only read; `local-prune`, an action removing synced secrets from its `env` |
 | 2026-10-07 | Session state on the control channel | §5 rule 16: the session-state hook, agentd's `state` record on change and heartbeat, `fabric-ctl states [--follow]` |
 | 2026-10-07 | secrets-selftest proves an account's own secrets | §5 rule 17: the `secrets-selftest` action, a canary set, used through `fabric-secret-run` and removed in the account's own store |
+| 2026-10-08 | The state record names the last session and whether it can be resumed | §5 rule 16: `last_session` and `resumable`, no path |

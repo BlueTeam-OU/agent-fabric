@@ -70,7 +70,7 @@ def main() -> int:
         old = time.time() - 3600
         os.utime(os.path.join(wc, ".git", "FETCH_HEAD"), (old, old))
         t0 = time.time()
-        fresh.note(p, state=state)
+        first = fresh.note(p, state=state)
         check("a stale fetch never holds the prompt", time.time() - t0 < 3, time.time() - t0)
         head = sh("rev-parse", "main", cwd=other).strip()
         for _ in range(100):
@@ -78,8 +78,11 @@ def main() -> int:
                 break
             time.sleep(0.1)
         check("…and the background fetch brought origin/main up", sh("rev-parse", "origin/main", cwd=wc).strip() == head)
-        line = fresh.note(p, state=state)
-        check("…so the next prompt says the new gap", line is not None and "lacks 1 commit(s)" in line, line)
+        # The fetch is detached: on a local remote it can land before the
+        # same prompt counts, and then that prompt says the gap. Either
+        # way it is said once, never twice and never not at all.
+        said = [x for x in (first, fresh.note(p, state=state)) if x is not None]
+        check("…so the new gap is said, exactly once", len(said) == 1 and "lacks 1 commit(s)" in said[0], said)
 
         # A linked worktree fetches into its own FETCH_HEAD: the throttle
         # reads that one, so a fresh worktree fetch starts no second fetch.

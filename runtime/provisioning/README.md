@@ -158,7 +158,7 @@ tools read:
 | `SSH_PRIVATE_KEY`, `SSH_PUBLIC_KEY` | `~/.ssh/id_ed25519(.pub)`, written only when absent (`--force` replaces) |
 | a project's `agent_env` names (`projects/registry.json`; gzapp: `GZAPP_PORT_OFFSET`) | written to `secrets.env` when the store has them, never reported missing; a name the registry also lists in `plain_env` — a per-login value that is not a secret, like the port offset — goes to `~/.config/agent-fabric/env.sh` too, the one file `~/.bashrc` sources. An unmarked name is treated as a secret |
 
-- `bin/fabric-secrets sync` (as the account) pulls and applies;
+- `fabric-secrets sync` (as the account) pulls and applies;
   `--no-pull` applies the copy as it is, once, right after `store
   take-bundle`; `status` reports presence, modes and ages — neither
   prints a value.

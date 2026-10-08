@@ -47,6 +47,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 | your job list; fabric-jobs; the next job and a fresh session | ADR-037 |
 | an agent's key and secrets; the store; provision; recovery; backup | ADR-038 |
 | the agent id; UUIDv7; renaming a login | ADR-039 |
+| a human login; identity kinds; the deck's operator | ADR-044 |
 | which language a tool is written in; the bash size limit and allowlist; porting a script; gh.py, git.py | ADR-040 |
 | your GZCoord history; the episodic journal; fabric-history | ADR-041 |
 | signed store commits; trusted base; trust-base; a refused store | ADR-042 |
@@ -616,8 +617,7 @@ its record disagree, the record wins. Look it up, never read it whole:
   operator's Ed25519 signature, fresh and strictly newer than the last
   (§5 rules 3–5).
 - Every reply arrives, gaps named, no secret; `fabric-ctl` exits 1 on
-  silence or a failed action; the drain files only verified bundles
-  (§5 rules 6–9). Reads are fenced, not proved (§6).
+  silence or a failed action (§5 rules 6–9). Reads are fenced (§6).
 - A 2026-09-27 — actions run beside the read loop, one per kind (§5 rule 12).
 - A 2026-09-27 — each operation's answer budget (§5 rule 12).
 - A 2026-09-28 — `jobs` and `jobs-add` carry the job list (§5 rule 13).
@@ -626,11 +626,11 @@ its record disagree, the record wins. Look it up, never read it whole:
   operator's store (§5 rule 5).
 - A 2026-10-06 — `local`, `local-prune`: settings.local.json (§5 rule 15).
 - A 2026-10-07 — session state on the control plane (§5 rule 16).
-- A 2026-10-07 — `secrets-selftest`: an own secret added, used, removed (§5 rule 17).
-- Keywords: control plane, agentd, fabric-ctl, control channel,
-  fabric:control, relay, ops, status, ping, keys, usage, recall, tokens,
-  drain, memory, signed, operator_key, keygen, linger, persist, session
-  state, herdr.
+- A 2026-10-07 — `secrets-selftest` (§5 rule 17).
+- A 2026-10-08 — the state record says what can be resumed (§5 rule 16).
+- Keywords: control plane, agentd, fabric-ctl, fabric:control, ops,
+  ping, keys, usage, recall, tokens, drain, operator_key, keygen,
+  linger, persist, status, memory, bundle, session state, herdr, resume.
 ### ADR-030 — Presence replaces HELLO and GOODBYE (Accepted)
 
 - Whether a session runs is the control agent's answer from its process
@@ -815,9 +815,9 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-09-30 — Doppler removed from the code; `provision` fills a child's store (§5 rules 3, 7–8; §7).
 - A 2026-10-01 — a new account's store travels as a bundle (§5 rule 5).
 - A 2026-10-06 — no shell holds a secret; env.sh holds plain values (§5 rule 9).
-- Keywords: secrets, key, GPG, pass, paperkey, backup, env.sh, bashrc,
-  identity, lineage, parent, custody, recovery, Doppler, migration,
-  provision, placement, P1.
+- A 2026-10-07 — the Doppler CLI stays (§6).
+- Keywords: secrets, GPG, pass, paperkey, env.sh, bashrc, lineage,
+  custody, Doppler, migration, provision, placement.
 ### ADR-039 — The agent id is a UUIDv7 minted at birth (Accepted)
 
 - Each agent has an id, a UUIDv7 whose time is its birth: an existing
@@ -914,3 +914,16 @@ its record disagree, the record wins. Look it up, never read it whole:
   rules 1 and 2 in force (§5 rule 6).
 - Keywords: mods, plugin, managed settings, allowManagedModsOnly,
   disableSideloadFlags, prependPlugins, sec-default, guard, redaction.
+
+### ADR-044 — Identity kinds: an agent and a human (Proposed)
+
+- A placed login is an `agent` or a `human` (`runtime/hosts/registry.json`
+  `kinds`); both are Linux logins with an agent id, a store and a
+  certified key (§5 rules 1–2).
+- A human runs no session, launcher or agentd and has no Claude account;
+  it holds the relay credential its reads and messages need, and no
+  control-plane signing key but the owner's own (§5 rules 2–3).
+- `fabric-ctl all` asks only agents; a human enters an account only by
+  moveto (§5 rules 4–5).
+- Keywords: identity, kind, human, operator, Fleet Deck, herdr, deck,
+  moveto, placement.

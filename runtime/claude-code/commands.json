@@ -24,6 +24,8 @@
     "fabric-jobs": "bin/fabric-jobs",
     "fabric-history": "bin/fabric-history",
     "fabric-secret-run": "bin/fabric-secret-run",
+    "fabric-resume": "bin/fabric-resume",
+    "fabric-tools": "bin/fabric-tools",
     "fabric-genimage": "bin/fabric-genimage"
   },
   "replaces": {
@@ -35,6 +37,7 @@
   "not_allowed": {
     "fabric-genimage": "every run spends on the OpenAI account (the owner, 2026-10-07): a person approves each one, so no session spends unattended",
     "fabric-lease": "runs whatever command follows `--`: an allow rule for it would allow every command, so it asks as any command does",
+    "fabric-resume": "starts a session: it is run in an account's shell by a person or by moveto --resume, never by a session, so no allow rule",
     "fabric-secret-run": "runs whatever command follows `--`, with the agent's own secrets in its environment: an allow rule would allow every command, so it asks as any command does",
     "fabric-host": "`run` executes any command on a host as any account (the operator's instrument): allowing it would allow everything"
   }

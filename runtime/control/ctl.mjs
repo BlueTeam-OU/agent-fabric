@@ -56,6 +56,7 @@ import crypto from 'node:crypto';
 import { OPS, PUBLIC_OPS } from './ops.mjs';
 import { controlConfig, newId, operatorAddresses, accountAddresses } from './agentd.mjs';
 import { checkJobArgs } from './jobs.mjs';
+import { SESSION_ID } from './sessions.mjs';
 
 // The commit `upgrade fabric` moves every account to: this checkout's
 // origin/main after a fetch, never its HEAD — a coordinator on a branch
@@ -81,9 +82,13 @@ export function buildRequest(args, { id, from, to, cfg, ts = new Date().toISOStr
            ...(args.op === 'secrets-sync' && (args.expect || args.restart) ? { args: { ...(args.expect ? { expect: args.expect } : {}), ...(args.restart ? { restart: true } : {}) } } : {}) };
 }
 
+// A placed login's kind (ADR-044): an agent runs agentd and answers; a
+// human runs none, so `all` never waits on one and naming one is refused.
 export function placements(registry = process.env.AGENT_FABRIC_HOSTS_REGISTRY ?? path.join(FABRIC_ROOT, 'runtime', 'hosts', 'registry.json')) {
   const d = JSON.parse(fs.readFileSync(registry, 'utf8'));
-  return Object.entries(d.placement ?? {}).map(([login, host]) => ({ login, host, address: `${host}/${login}` }));
+  const kinds = d.kinds ?? {};
+  return Object.entries(d.placement ?? {}).map(([login, host]) => ({ login, host, address: `${host}/${login}`,
+    kind: kinds[login] === 'human' ? 'human' : 'agent' }));
 }
 
 const jobArgs = a => ({ title: a.title ?? undefined, ...(a.topic !== null ? { topic: a.topic } : {}), ...(a.project !== null ? { project: a.project } : {}) });
@@ -496,22 +501,27 @@ export function table(op, rs) {
   return lines.join('\n');
 }
 
+// Who is asked: `all` is every agent, never a human, which has no control
+// agent to answer (ADR-044 rule 4); a name must be placed and an agent.
+export function targetsOf(targets, placed) {
+  if (targets.length === 1 && targets[0] === 'all') return { expected: placed.filter(p => p.kind === 'agent'), everyone: true };
+  const expected = [];
+  for (const t of targets) {
+    const p = placed.find(x => x.login === t);
+    if (!p) return { refused: `${t} is not a placed account (runtime/hosts/registry.json)` };
+    if (p.kind === 'human') return { refused: `${t} is a human login (ADR-044): no control agent answers for it` };
+    expected.push(p);
+  }
+  return { expected };
+}
+
 export async function main(argv = process.argv.slice(2), { registry, fetchImpl } = {}) {
   let args;
   try { args = parseArgs(argv); } catch (e) { console.error(`fabric-ctl: ${e.message}`); return 2; }
   if (args.help || (!args.targets.length && args.op !== 'keygen')) { console.error('usage: fabric-ctl <login|all> [status|usage|identity|keys|fabric|session|script|recall|host|disk|accounts|ping] [--json] [--timeout S]\n       fabric-ctl <login|all> tokens [--days N]\n       fabric-ctl <login|all> memory --out <dir>\n       fabric-ctl <login|all> upgrade claude [--version V]\n       fabric-ctl <login|all> upgrade fabric   (every account to this checkout\'s origin/main, then bootstrap)\n       fabric-ctl <login|all> secrets-sync [--expect SHA12] [--restart]\n       fabric-ctl <login|all> presence   (any placed account may ask)\n       fabric-ctl <login|all> jobs\n       fabric-ctl <login> jobs-add [--topic T] [--project P] [--] "<title>"\n       fabric-ctl <login|all> secrets-selftest\n       fabric-ctl <login|all> local\n       fabric-ctl <login|all> local-prune\n       fabric-ctl <login|all> states [--follow] [--json]\n       fabric-ctl keygen [--force]'); return args.help ? 0 : 2; }
   if (args.op === 'keygen') return keygen(args, { registry });
-  const all = placements(registry);
-  let expected;
-  if (args.targets.length === 1 && args.targets[0] === 'all') expected = all;
-  else {
-    expected = [];
-    for (const t of args.targets) {
-      const p = all.find(x => x.login === t);
-      if (!p) { console.error(`fabric-ctl: ${t} is not a placed account (runtime/hosts/registry.json)`); return 2; }
-      expected.push(p);
-    }
-  }
+  const { expected, everyone, refused: notAsked } = targetsOf(args.targets, placements(registry));
+  if (notAsked) { console.error(`fabric-ctl: ${notAsked}`); return 2; }
   const who = whoami();
   const me = gzIdentity(who);
   if (args.op === 'states') {
@@ -537,7 +547,7 @@ export async function main(argv = process.argv.slice(2), { registry, fetchImpl }
   // capped; how long this command waits for replies is --timeout, which
   // for a queued fleet upgrade is far longer — the last account replies
   // long after every account accepted.
-  let request = buildRequest(args, { id, from: me.address, to: expected === all ? '*' : expected.map(e => e.address), cfg });
+  let request = buildRequest(args, { id, from: me.address, to: everyone ? '*' : expected.map(e => e.address), cfg });
   // One command, one version: the coordinator's pin travels in the signed
   // request. Left to each account, an account that had not pulled the pin
   // bump would read its own older pin and answer `current` (review of #34).
@@ -616,7 +626,11 @@ export function stateRow(address, rec, now = Date.now()) {
   const sessions = Array.isArray(rec.sessions) ? rec.sessions : [];
   const top = sessions.reduce((a, s) => ((RANK[s.state] ?? 0) > (RANK[a?.state] ?? 0) ? s : a), null);
   return { address, ts: rec.ts, role: rec.role ?? null, project: rec.project ?? null, sessions,
-           state: stale ? 'unknown' : top ? top.state : 'none', since: top?.since ?? null, ...(stale ? { why: 'no record for two heartbeats' } : {}) };
+           state: stale ? 'unknown' : top ? top.state : 'none', since: top?.since ?? null,
+           // What the deck resumes (docs/fleet-deck/session-recovery.md): carried
+           // as agentd wrote it, absent when it wrote none.
+           ...(rec.last_session ? { last_session: rec.last_session, resumable: rec.resumable === true } : {}),
+           ...(stale ? { why: 'no record for two heartbeats' } : {}) };
 }
 
 // The channel takes any relay-token holder's post: a record is shown only
@@ -627,6 +641,7 @@ const OPT = v => v === undefined || v === null || STR(v);
 export function stateRecordOf(rec, want) {
   let r; try { r = JSON.parse(rec?.content); } catch { return null; }
   return r?.kind === 'state' && r.v === 1 && want.has(r.from) && STR(r.ts) && OPT(r.role) && OPT(r.project)
+    && (r.last_session === undefined || (STR(r.last_session) && SESSION_ID.test(r.last_session))) && (r.resumable === undefined || typeof r.resumable === 'boolean')
     && Array.isArray(r.sessions) && r.sessions.every(s => s && typeof s === 'object' && STR(s.session) && STR(s.state) && OPT(s.since)) ? r : null;
 }
 

@@ -202,7 +202,7 @@ journal `episodic.db`, a SQLite store written only by
 `gzcoord-sent.jsonl` and the append-only `journal-bypass.jsonl`, the
 record of every crossing made without the journal (ADR-003, ADR-041). The journal is local: a
 host lost is a journal lost, until a backup exists. An identity's secrets are in
-its own encrypted store (ADR-038), and `bin/fabric-secrets sync` puts
+its own encrypted store (ADR-038), and `fabric-secrets sync` puts
 them where the tools read them.
 
 ## Commands

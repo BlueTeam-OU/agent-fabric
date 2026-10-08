@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { scratch } from '../../../tests/scratch.mjs';
-import { alive, readSessions, stateRecord, stateWatcher } from '../sessions.mjs';
+import { alive, readSessions, stateRecord, stateWatcher, transcriptExists } from '../sessions.mjs';
 
 function fakeProc(dir, pid, start, comm = 'claude') {
   fs.mkdirSync(path.join(dir, String(pid)), { recursive: true });
@@ -115,4 +115,38 @@ test('agentd posts state records on the state channel, never the control channel
   assert.equal(sent[0].body.channel, 'fabric:state:control');
   assert.notEqual(sent[0].body.channel, cfg.channel);
   assert.equal(controlConfig({ FABRIC_STATE_CHANNEL: 't:state:control' }).state_channel, 't:state:control');
+});
+
+test('the record carries the last session id and whether it can be resumed, never where (Fleet Deck)', async () => {
+  const { d, proc, file, write } = setup();
+  const cfg = path.join(d, 'claude');
+  const id = '0f0e0d0c-1111-4222-8333-444455556666';
+  const binding = path.join(d, 'binding.json');
+  fs.writeFileSync(binding, JSON.stringify({ role: 'python-dev', project: 'agent-fabric', session: id,
+    working_copy: '/home/x/projects/private-wc' }));
+  write({});
+  const posts = [];
+  let t = 0;
+  const w = stateWatcher({ address: 'h/x', post: async r => { posts.push(r); }, file, binding, proc,
+    now: () => t, heartbeatMs: 60_000, log: () => {}, configDir: cfg });
+  await w.tick();
+  assert.equal(posts.at(-1).last_session, id);
+  assert.equal(posts.at(-1).resumable, false, 'no transcript yet');
+  fs.mkdirSync(path.join(cfg, 'projects', '-home-x-projects'), { recursive: true });
+  fs.writeFileSync(path.join(cfg, 'projects', '-home-x-projects', `${id}.jsonl`), '{}\n');
+  t = 1; await w.tick();
+  assert.equal(posts.at(-1).resumable, true, 'the transcript appeared: posted as a change');
+  assert.ok(!JSON.stringify(posts).includes('private-wc') && !JSON.stringify(posts).includes('-home-x-projects'),
+    'no path leaves the account');
+  // Planted where an unchecked id would reach it: projects/<dir>/../../etc/x.jsonl.
+  fs.mkdirSync(path.join(cfg, 'etc'), { recursive: true });
+  fs.writeFileSync(path.join(cfg, 'etc', 'x.jsonl'), '{}\n');
+  assert.equal(transcriptExists('../../etc/x', cfg), false, 'an id that is not one is never looked up');
+  for (const bad of ['../../etc/x', 'abc\u001b]0;t\u0007def', 42]) {
+    fs.writeFileSync(binding, JSON.stringify({ role: 'python-dev', project: 'agent-fabric', session: bad }));
+    t += 1; await w.tick();
+    assert.ok(!('last_session' in posts.at(-1)) && !('resumable' in posts.at(-1)), `a binding session ${JSON.stringify(bad)} is no session`);
+  }
+  assert.deepEqual(stateRecord('h/x', { sessions: [], role: null, project: null, last_session: null }, 't'),
+    { v: 1, kind: 'state', from: 'h/x', ts: 't', sessions: [] }, 'no last session: neither field');
 });

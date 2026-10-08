@@ -124,5 +124,17 @@
     "fingerprint": "3FB7CDE462F9E3221085313957A0DD0B9D322A0B",
     "login": "p2p-network-dev-02",
     "parent": "019bbe31-2fff-7a2f-9849-96bdf286e011"
+  },
+  "01a1181e-00d9-7754-9b26-445987f94160": {
+    "born": "2026-10-07T20:46:21.913Z",
+    "fingerprint": "056B3784EBCFE479815F5EC0E6870079585AEF8A",
+    "login": "language-culture-en",
+    "parent": "019bbe31-2fff-7a2f-9849-96bdf286e011"
+  },
+  "01a11a69-f363-7de9-b212-88785c3128e2": {
+    "born": "2026-10-08T07:28:33.635Z",
+    "fingerprint": "6DDB6BDF26A68A9122D2B31D702B514EB5729A1C",
+    "login": "python-dev-03",
+    "parent": "019bbe31-2fff-7a2f-9849-96bdf286e011"
   }
 }

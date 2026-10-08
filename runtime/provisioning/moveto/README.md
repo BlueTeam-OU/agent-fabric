@@ -10,6 +10,7 @@ moveto architect-cto-01 <clone>  # …in a named clone under it instead
 moveto --list                  # accounts that have at least one clone
 moveto <account> --list        # that account's clones
 moveto <account> --print       # resolve only — print path and title, spawn nothing
+moveto <account> [<clone>] --resume  # …and bring its last session back first (fabric-resume)
 ```
 
 `exit` returns to the shell you came from.

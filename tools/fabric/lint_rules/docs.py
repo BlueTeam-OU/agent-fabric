@@ -311,6 +311,83 @@ def check_durable_references(role: str, crossref: dict[str, Any]) -> list[str]:
     return findings
 
 
+def project_tools_findings(root: str) -> list[str]:
+    """projects/registry.json `tools` (bin/fabric-tools): each a name, a
+    proof that is a command line, a reason, where it lives (host or
+    account), roles the catalogue knows, optional a boolean. And no
+    fabric cleanup may remove a declared tool: runtime/claude-code/
+    retire-*.py's RETIRED names none, so a fabric change cannot take a
+    project's tool away again as it once took the Doppler CLI (the owner,
+    2026-10-07)."""
+    import ast
+    import glob
+    import shlex
+    out: list[str] = []
+    try:
+        projects = (json.load(open(os.path.join(root, "projects", "registry.json"), encoding="utf-8"))
+                    .get("projects") or {})
+    except (OSError, ValueError):
+        return out
+    try:
+        roles = {r["id"] for r in json.load(open(os.path.join(root, "identities", "roles", "catalog.json"),
+                                                 encoding="utf-8"))["roles"]}
+    except (OSError, ValueError, KeyError, TypeError):
+        roles = None
+    declared: set[str] = set()
+    for pid, entry in sorted(projects.items()):
+        tools = entry.get("tools")
+        if tools is None:
+            continue
+        where = f"projects/registry.json: {pid}.tools"
+        if not isinstance(tools, list):
+            out.append(f"{where}: not a list")
+            continue
+        for i, tool in enumerate(tools):
+            at = f"{where}[{i}]"
+            if not isinstance(tool, dict):
+                out.append(f"{at}: not an object")
+                continue
+            for key in ("name", "proof", "why"):
+                if not isinstance(tool.get(key), str) or not tool[key].strip():
+                    out.append(f"{at}: {key} missing")
+            if tool.get("where") not in ("host", "account"):
+                out.append(f"{at}: where is {tool.get('where')!r}; host or account")
+            if "optional" in tool and not isinstance(tool["optional"], bool):
+                out.append(f"{at}: optional is not a boolean")
+            if "roles" in tool and (not isinstance(tool["roles"], list) or (roles is not None
+                                    and any(r not in roles for r in tool["roles"]))):
+                out.append(f"{at}: roles must be catalogued role ids")
+            try:
+                argv0 = shlex.split(tool.get("proof") or "")[:1]
+            except ValueError:
+                argv0 = []
+                out.append(f"{at}: proof is not a command line")
+            for n in (tool.get("name"), *(os.path.basename(a) for a in argv0)):
+                if isinstance(n, str) and n:
+                    declared.add(n)
+    for script in sorted(glob.glob(os.path.join(root, "runtime", "claude-code", "retire-*.py"))):
+        try:
+            tree = ast.parse(open(script, encoding="utf-8").read())
+        except (OSError, SyntaxError):
+            continue
+        for node in ast.walk(tree):
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target] if isinstance(node, ast.AnnAssign) else []
+            if any(getattr(t, "id", "") == "RETIRED" for t in targets):
+                try:
+                    paths = ast.literal_eval(node.value)
+                except ValueError:
+                    # A computed RETIRED cannot be checked, so it is refused,
+                    # never skipped: the check is the reason it is a literal.
+                    out.append(f"{os.path.relpath(script, root)}: RETIRED is not a literal; the lint cannot see what it removes")
+                    continue
+                for path in paths:
+                    base = os.path.basename(str(path).rstrip("/")).lstrip(".")
+                    if base in declared:
+                        out.append(f"{os.path.relpath(script, root)}: RETIRED removes {path!r}, a tool a project "
+                                   "declares (projects/registry.json tools) — a fabric cleanup never takes one away")
+    return out
+
+
 def license_findings(root: str) -> list[str]:
     """This repository is one license, Apache-2.0, throughout — REUSE.toml
     assigns nothing else, and every identifier it does use has its text

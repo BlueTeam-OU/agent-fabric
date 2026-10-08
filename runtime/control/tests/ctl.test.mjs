@@ -9,7 +9,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import crypto from 'node:crypto';
 import zlib from 'node:zlib';
 import { scratch } from '../../../tests/scratch.mjs';
-import { parseArgs, rows, table, writeBundles, manifestAgent, partKey, keygen, originMain, signingKey, storeDir } from '../ctl.mjs';
+import { parseArgs, rows, table, writeBundles, manifestAgent, partKey, keygen, originMain, signingKey, storeDir, placements } from '../ctl.mjs';
 import { publicKeyFrom, privateKeyFrom, generateOperatorKey, verifyRequest, ACTION_TTL_MAX_S } from '../sign.mjs';
 import { pinnedVersion, UPGRADE_BUDGET_S, FABRIC_UPGRADE_BUDGET_S } from '../upgrade.mjs';
 import { FABRIC_ROOT, whoami } from '../gzcoord.mjs';
@@ -657,6 +657,18 @@ test('states: the newest state record per account, the state that most wants a p
   assert.equal(stateRow('h/d', { ts: new Date(now).toISOString(), sessions: [] }, now).state, 'none', 'no session: none, not unknown');
 });
 
+test('states carries last_session and resumable as agentd wrote them, and drops a record whose are forged', async () => {
+  const { stateRow, stateRecordOf } = await import('../ctl.mjs');
+  const now = Date.parse('2026-10-07T12:00:00Z');
+  const want = new Set(['h/a']);
+  const rec = extra => ({ content: JSON.stringify({ v: 1, kind: 'state', from: 'h/a', ts: '2026-10-07T11:59:00Z', sessions: [], ...extra }) });
+  const ok = stateRecordOf(rec({ last_session: '0f0e0d0c-1111-4222-8333-444455556666', resumable: true }), want);
+  assert.deepEqual([stateRow('h/a', ok, now).last_session, stateRow('h/a', ok, now).resumable], ['0f0e0d0c-1111-4222-8333-444455556666', true]);
+  assert.ok(!('last_session' in stateRow('h/a', stateRecordOf(rec({}), want), now)), 'none written, none shown');
+  for (const bad of [{ last_session: '../../etc/x' }, { last_session: 'abc\u001b]0;t\u0007def' }, { last_session: 7 }, { last_session: '0f0e0d0c-1111', resumable: 'yes' }])
+    assert.equal(stateRecordOf(rec(bad), want), null, JSON.stringify(bad));
+});
+
 test('states --follow prints each new record for an expected account, and survives a relay outage', async () => {
   const { states } = await import('../ctl.mjs');
   const now = Date.parse('2026-10-07T12:00:00Z');
@@ -760,4 +772,16 @@ test('states --follow: a row goes unknown while the relay itself is unreachable 
   await done;
   assert.deepEqual(out, ['working', 'unknown'], 'stale during the outage, not after it');
   assert.equal(err.length, 1, 'the outage is said once');
+});
+
+test('a human login (ADR-044) is placed with its kind; all asks only agents, and naming one is refused', async () => {
+  const f = path.join(scratch('reg-'), 'registry.json');
+  fs.writeFileSync(f, JSON.stringify({ hosts: { [H]: { operator: ME.agent } }, placement: { 'db-admin': H, 'deck-human': H },
+    kinds: { 'deck-human': 'human' } }));
+  assert.deepEqual(placements(f).map(p => [p.login, p.kind]), [['db-admin', 'agent'], ['deck-human', 'human']]);
+  const r = await run('http://127.0.0.1:9', f, ['deck-human', 'ping', '--timeout', '1']);
+  assert.equal(r.status, 2, r.err);
+  assert.match(r.err, /deck-human is a human login \(ADR-044\)/);
+  const { targetsOf } = await import('../ctl.mjs');
+  assert.deepEqual(targetsOf(['all'], placements(f)).expected.map(p => p.login), ['db-admin'], 'all asks the agent, never the human');
 });

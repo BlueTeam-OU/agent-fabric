@@ -1237,6 +1237,17 @@ def case_the_host_registry_is_one_host_per_id_and_placements_are_known() -> None
         write(reg, registry({"local": L}, {"a": "elsewhere"}))
         code, out = run_lint(fabric)
         assert code == 1 and "names host 'elsewhere', which is not registered" in out, f"an unknown placement passed:\n{out}"
+        # ADR-044: a placed login's kind is agent or human.
+        write(reg, json.dumps({"version": 1, "hosts": {"local": L}, "placement": {"a": "local", "deck": "local"},
+                               "kinds": {"deck": "human"}}))
+        code, out = run_lint(fabric)
+        assert code == 0, f"a human kind was refused:\n{out}"
+        write(reg, json.dumps({"version": 1, "hosts": {"local": L}, "placement": {"a": "local"}, "kinds": {"a": "robot"}}))
+        code, out = run_lint(fabric)
+        assert code == 1 and "'robot'" in out, f"a kind that is neither agent nor human passed:\n{out}"
+        write(reg, json.dumps({"version": 1, "hosts": {"local": L}, "placement": {"a": "local"}, "kinds": {"ghost": "human"}}))
+        code, out = run_lint(fabric)
+        assert code == 1 and "'ghost', which is not placed" in out, f"a kind for an unplaced login passed:\n{out}"
         write(reg, registry({"Bad_Host": L}, {}))
         code, out = run_lint(fabric)
         assert code == 1 and "Bad_Host" in out, f"an id that is not a short hostname passed:\n{out}"
@@ -1802,6 +1813,42 @@ def case_the_fabrics_own_claude_settings_are_the_workspace_template() -> None:
         assert lint.fabric_settings_findings(root), "a hand edit is a finding"
 
 
+def case_project_tools_are_declared_and_never_retired() -> None:
+    """projects/registry.json `tools` (bin/fabric-tools): each entry well formed,
+    and a fabric cleanup (runtime/claude-code/retire-*.py RETIRED) never names a
+    declared tool — the Doppler CLI was once taken from every account so."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("fabric_lint_under_test", LINT)
+    lint = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(lint)
+    with tempfile.TemporaryDirectory() as root:
+        write(os.path.join(root, "identities", "roles", "catalog.json"), json.dumps({"roles": [{"id": "flutter-dev"}]}))
+        good = {"name": "doppler", "proof": "doppler --version", "why": "w", "where": "host", "optional": True}
+
+        def findings(tools, retired=None, spelling="RETIRED = {!r}\n"):
+            write(os.path.join(root, "projects", "registry.json"),
+                  json.dumps({"projects": {"p": {"tools": tools}}}))
+            script = os.path.join(root, "runtime", "claude-code", "retire-x.py")
+            if retired is None:
+                if os.path.exists(script):
+                    os.remove(script)
+            else:
+                write(script, spelling.format(retired))
+            return lint.project_tools_findings(root)
+        assert findings([good]) == [], findings([good])
+        assert findings([{**good, "roles": ["flutter-dev"]}]) == []
+        got = findings([{"name": "x", "proof": "x '", "where": "moon", "roles": ["nobody"], "optional": "yes"}])
+        for needle in ("why missing", "where is 'moon'", "roles must be", "optional is not", "not a command line"):
+            assert any(needle in f for f in got), (needle, got)
+        assert findings([good], (".config/agent-fabric/secrets-source",)) == []
+        got = findings([good], (".doppler", ".local/bin/doppler"))
+        assert len(got) == 2 and all("a tool a project declares" in f for f in got), got
+        got = findings([good], (".doppler",), "RETIRED: tuple[str, ...] = {!r}\n")
+        assert len(got) == 1 and "a tool a project declares" in got[0], ("an annotated RETIRED is checked too", got)
+        got = findings([good], ".doppler", "BASE = ({!r},)\nRETIRED = BASE + ()\n")
+        assert len(got) == 1 and "not a literal" in got[0], ("a computed RETIRED is refused, never skipped", got)
+
+
 def case_locales_carry_the_same_files() -> None:
     """Every locale of a role carries what any other has; the dictionary
     is matched by role, each named by its own tag (the owner, 2026-10-07)."""
@@ -1864,6 +1911,7 @@ def main() -> int:
     cases = [
         case_clean_base_passes,
         case_locales_carry_the_same_files,
+        case_project_tools_are_declared_and_never_retired,
         case_the_source_locale_translates_nothing,
         case_decision_records_are_lint_findings,
         case_bash_over_150_lines_needs_the_allowlist,

@@ -205,11 +205,14 @@ sharing a machine.
 - **The identity key off the host:** only its subkeys kept online, the
   primary only in the recovery copy, once certifying no longer needs it
   there (the coordinator certifies children with its own).
-- **Doppler off the hosts:** each account's `~/.doppler` goes with the
-  upgrade that distributes its removal (`bootstrap.sh`); a token kept in
-  a desktop keyring stays there until the project is closed; the binary
-  under `/usr/local` is each host operator's to remove, and the project,
-  which revokes every token, the owner's to close.
+- **Doppler off the fabric, not off the hosts:** the upgrade removes only
+  what the fabric itself wrote (`~/.config/agent-fabric/secrets-source`).
+  The Doppler CLI and its config (`~/.doppler`, `~/.local/bin/doppler`)
+  stay: a managed project may keep its own application secrets there (gzapp
+  loads its local stack with `doppler run`, project `gzapp-backend`), and
+  the removal that took them from every account broke it (A 2026-10-07).
+  The fabric's own Doppler project, which revokes every token it issued, is
+  the owner's to close; a project's is that project's.
 - **Hardware-held keys,** if an agent's host offers one.
 - **Secrets out of the login's reach.** Rule 9 removes them from the
   environment only. A broker running as another account, handing one
@@ -241,3 +244,4 @@ The body above reads current; each change's full note is in [history/ADR-038-ame
 | 2026-09-30 | Doppler is removed: every account reads its own store, and a parent fills a child's with provision | Scope, §5 rules 3, 5, 7, 8; §7; §8 |
 | 2026-10-01 | A new account's store reaches it as a bundle | §5 rule 5: the first commit and the filled store travel as bundles through the parent; `sync --no-pull` once |
 | 2026-10-06 | No secret in a session's shell | Scope, §5 rules 7 and 9, §7: secrets.env is sourced by no shell, env.sh holds plain values, gh holds GH_TOKEN, the launcher and SessionStart keep the session's shell free of secrets |
+| 2026-10-07 | The fabric removes only its own Doppler leftover | §6: the upgrade removes only secrets-source; the Doppler CLI and its config stay for a project's use |

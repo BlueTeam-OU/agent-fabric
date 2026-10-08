@@ -63,6 +63,8 @@ USAGE = """\
 usage: moveto <account>             open a shell as <account>, in its workspace
                                    (~/projects: the place a session launches from)
        moveto <account> <clone>     …in that clone (~/projects/<clone>) instead
+       moveto <account> --resume    …and resume its last session there (fabric-resume),
+                                   or start a fresh one and say so; the shell follows
        moveto <account> --print     print the resolved path, spawn nothing
        moveto --list                accounts that have at least one clone: account, role, clones
        moveto <account> --list      that account's clones
@@ -209,10 +211,15 @@ def moveto(argv: list[str]) -> int:
     if argv[0] == "--list":
         list_all()
         return 0
-    account, target, print_only = argv[0], "", False
+    account, target, print_only, resume = argv[0], "", False, False
     for a in argv[1:]:
         if a == "--print":
             print_only = True
+        elif a == "--resume":
+            # Fleet Deck's re-entry (architect-cto's plan, 2026-10-07): the
+            # account's own launcher brings its session back; moveto only
+            # asks enter to run fabric-resume first, and gains no privilege.
+            resume = True
         elif a == "--list":
             listed = list_clones(account)
             if listed is None:
@@ -257,6 +264,8 @@ def moveto(argv: list[str]) -> int:
     if print_only:
         print(display_safe(path))
         print(f"title: {title}")
+        if resume:
+            print("then: fabric-resume")
         return 0
 
     print(f"moveto: {account} in {path}  (exit returns here)", file=sys.stderr, flush=True)
@@ -267,15 +276,16 @@ def moveto(argv: list[str]) -> int:
     # The entering shell is a separate script rather than an inline `bash -lc`,
     # so the process command line stays short. A terminal that titles from the
     # running command showed the whole inline script otherwise.
-    enter(account, path, title)
+    enter(account, path, title, resume)
 
 
-def enter(account: str, path: str, title: str) -> "NoReturn":  # noqa: F821
+def enter(account: str, path: str, title: str, resume: bool = False) -> "NoReturn":  # noqa: F821
     pipe = signal.SIG_IGN if os.environ.pop(PIPE_IGNORED_ENV, "") == "1" else signal.SIG_DFL
     signal.signal(signal.SIGPIPE, pipe)
+    tail = ["--resume"] if resume else []
     if account == me():
-        os.execv(MOVETO_ENTER, [MOVETO_ENTER, path, title])
-    os.execvp("sudo", ["sudo", "-n", "-u", account, "-H", MOVETO_ENTER, path, title])
+        os.execv(MOVETO_ENTER, [MOVETO_ENTER, path, title, *tail])
+    os.execvp("sudo", ["sudo", "-n", "-u", account, "-H", MOVETO_ENTER, path, title, *tail])
 
 
 def main(argv: list[str]) -> int:

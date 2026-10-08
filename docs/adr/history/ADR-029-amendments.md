@@ -86,3 +86,13 @@ how. The action is how the operator verifies it per account without a
 value ever leaving the account: the reply carries the steps and the
 verdict only. Delete is hygiene: what the store no longer holds is not
 used.
+
+### Amendment 2026-10-08 — The state record names the last session and whether it can be resumed
+
+§5 rule 16's record gains two fields. architect-cto's plan for Fleet
+Deck (milestone 1, session recovery; owner-asked, 2026-10-07): the deck
+re-enters an account's tab with `moveto <account> --resume`, and needs
+to know before it acts whether there is a session to bring back and,
+after, whether the same one came back. The plan asked for the working
+copy too; it stays off the record, which carries no path: fabric-resume
+finds the directory from the transcript itself.

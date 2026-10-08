@@ -510,7 +510,7 @@ test('inbox reports a refused token as a rotation, exit 4', async () => {
   const r = await new Promise(resolve => execFile(INBOX, ['--wait', '1'], { env, encoding: 'utf8' }, (e, out, err) => resolve({ code: e ? e.code : 0, err: String(err) })));
   server.closeAllConnections(); server.close();
   assert.equal(r.code, 4, r.err);
-  assert.match(r.err, /refused this token \(HTTP 401\) — it was rotated; run bin\/fabric-secrets sync/);
+  assert.match(r.err, /refused this token \(HTTP 401\) — it was rotated; run fabric-secrets sync/);
 });
 
 // --replay re-reads one message without a consumer id (the cursor does

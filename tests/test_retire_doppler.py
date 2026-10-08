@@ -35,15 +35,18 @@ def main() -> int:
         open(os.path.join(home, ".config", "agent-fabric", "secrets.env"), "w").write("# kept\n")
         env = {**os.environ, "HOME": home}
         p = subprocess.run([sys.executable, TOOL, "--dry-run"], env=env, capture_output=True, text=True)
-        check("a dry run names all three and removes nothing", p.returncode == 0 and "would remove" in p.stdout
+        check("a dry run names the fabric's leftover and removes nothing", p.returncode == 0 and "would remove" in p.stdout
               and os.path.exists(os.path.join(home, ".doppler")), p.stdout)
         p = subprocess.run([sys.executable, TOOL], env=env, capture_output=True, text=True)
-        check("the config and token, the CLI copy and the source file are removed",
+        check("the fabric's source file is removed",
               p.returncode == 0 and not any(os.path.lexists(os.path.join(home, x)) for x in r.RETIRED), p.stdout + p.stderr)
+        check("…the Doppler CLI and its config stay: a project uses them (gzapp's doppler run)",
+              os.path.exists(os.path.join(home, ".doppler", ".doppler.yaml"))
+              and os.path.exists(os.path.join(home, ".local", "bin", "doppler")))
         check("…and nothing else: the other commands and secrets.env stay",
               os.path.exists(os.path.join(home, ".local", "bin", "fabric-status"))
               and os.path.exists(os.path.join(home, ".config", "agent-fabric", "secrets.env")))
-        check("the line names what went, and no value", "~/.doppler" in p.stdout and "fixture" not in p.stdout, p.stdout)
+        check("the line names what went, and no value", "secrets-source" in p.stdout and "fixture" not in p.stdout, p.stdout)
         p = subprocess.run([sys.executable, TOOL], env=env, capture_output=True, text=True)
         check("a second run is silent: nothing left to remove", p.returncode == 0 and p.stdout == "", p.stdout)
     # bootstrap is Python behind its shim since its port (ADR-040 section 5

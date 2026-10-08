@@ -124,6 +124,9 @@ def main() -> int:
         check("resolves ~/projects — the place a session launches from", "/home/solo/projects\n", out)
         check_absent("not the clone", "/home/solo/projects/solo", out)
         check("title is the account", "title: solo", out)
+        st, out = mv("solo", "--resume", "--print")
+        check_status("--resume --print exits 0", 0, st)
+        check("--resume --print says the resume follows", "then: fabric-resume", out)
         listed = mv("solo", "--list")[1]
         check_absent("the workspace CLAUDE.md is not a clone", "CLAUDE.md", listed)
         check_absent("the agent-fabric checkout is not a clone", "agent-fabric", listed)
