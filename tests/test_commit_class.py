@@ -34,6 +34,22 @@ def main() -> int:
     check("_ref: owner/repo#N of another is x", cc._ref("gzapi-org/gzapp#53", "gzapi-org/agent-fabric") == "x")
     check("_ref: 'PR #918' is this repository's", cc._ref("PR #918", "gzapi-org/agent-fabric") == "918")
     check("_ref: without a repository only the number counts", cc._ref("gzapp#9", "") == "9")
+    # kind_of reads the trailer block only, as git and pr_gate do (#120 N1).
+    k = cc.kind_of
+    check("kind_of: a Kind: line in the prose declares nothing (the re-review's message)",
+          k("review fix (#5 F1): x\n\nKind: work\nand more prose") == "")
+    check("kind_of: the same commit through classify falls back to its subject, as pr_gate reads it",
+          cc.classify("a", "review fix (#5 F1): x", "", "5", "",
+                      k("review fix (#5 F1): x\n\nKind: work\nand more prose")) == "fix")
+    check("kind_of: the trailer block's Kind: is read",
+          k("subject\n\nbody prose\n\nKind: work\nFabric-Role: devex-tooling\n") == "work")
+    check("kind_of: a Kind: line in an earlier paragraph is not the block",
+          k("subject\n\nKind: review-fix\n\nFabric-Role: devex-tooling") == "")
+    check("kind_of: a continuation line keeps the block a block",
+          k("s\n\nAnswers: F1,\n  F2\nKind: review-fix") == "review-fix")
+    check("kind_of: two Kind: trailers, the last wins", k("s\n\nKind: work\nKind: review-fix") == "review-fix")
+    check("kind_of: a body of one paragraph that is the subject declares nothing", k("Kind of a subject") == "")
+    check("kind_of: an empty body declares nothing", k("") == "")
     check("revert_targets: git's own line, nothing else",
           cc.revert_targets("Revert x\n\nThis reverts commit abcdef1234.\nreverts commit 999") == ["abcdef1234"])
     tool = os.path.join(HERE, "tools", "fabric", "github", "commit_class.py")

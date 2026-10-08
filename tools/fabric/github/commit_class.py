@@ -112,9 +112,32 @@ def kind(value: str) -> str:
     return values[-1] if values and values[-1] in ("work", "review-fix") else ""
 
 
+TRAILER_LINE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9-]*:[ \t]*(.*)$")
+
+
 def kind_of(body: str) -> str:
-    """The declared kind in a commit message body, by its `Kind:` lines."""
-    return kind("\n".join(m.group(1) for m in re.finditer(r"^Kind:[ \t]*(.*)$", body, re.M | re.I)))
+    """The declared kind in a commit message, read where git reads it: the
+    trailer block, its final paragraph. A `Kind:` line in the prose above
+    declares nothing, as the hook's own test says, and pr_gate (which asks
+    git for %(trailers)) agrees — reading it anywhere made one commit work
+    here and a fix there (#120 re-review, N1).
+
+    The block is the last paragraph when EVERY line in it is `Key: value`
+    or a continuation (leading whitespace). Git also accepts a block that is
+    mostly trailers with some prose; such a block reads here as no
+    declaration, so the commit falls back to the rules before Kind:, never
+    to a kind git would not report. A subprocess per commit (git
+    interpret-trailers) was the exact alternative, and results.py
+    classifies whole histories."""
+    paragraphs = [p for p in re.split(r"\n[ \t]*\n", body.strip("\n")) if p.strip()]
+    if not paragraphs:
+        return ""
+    lines = paragraphs[-1].split("\n")
+    if not all(TRAILER_LINE.match(line) or (line[:1] in (" ", "\t") and line.strip()) for line in lines):
+        return ""
+    values = [m.group(1) for line in lines
+              if (m := re.match(r"^Kind:[ \t]*(.*)$", line, re.I))]
+    return kind("\n".join(values))
 
 
 def classify(parents: str, subject: str, answers: str = "", pr: str = "", repo: str = "", kind_value: str = "") -> str:

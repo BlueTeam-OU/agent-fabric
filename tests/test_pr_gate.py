@@ -128,6 +128,9 @@ def main() -> int:
         commit(2, "the guard reads the count from the file", "Kind: review-fix\nAnswers: F2")
         commit(3, "an undeclared plain commit")
         commit(4, "review F4: undeclared, read as before")
+        # Two Kind: trailers: git joins them with US in split_range's
+        # format, and the last one wins.
+        commit(6, "review fix (#7 F2): declared twice", "Kind: review-fix\nKind: work")
         undo = commit(5, "a change later undone", "Kind: work")
         git("revert", "--no-edit", undo)
         here = os.getcwd()
@@ -136,8 +139,8 @@ def main() -> int:
             c = pr_gate.split_range(7, "", f"{base}..HEAD")
         finally:
             os.chdir(here)
-        check(f"work 2, fix 2, netted 2 (got work {c['work']}, fix {c['fix']}, netted {c['netted']})",
-              (c["work"], c["fix"], c["netted"]) == (2, 2, 2))
+        check(f"work 3, fix 2, netted 2 (got work {c['work']}, fix {c['fix']}, netted {c['netted']})",
+              (c["work"], c["fix"], c["netted"]) == (3, 2, 2))
         check("the fixes are the declared one and the undeclared review subject",
               sorted(c["fix_subjects"]) == ["review F4: undeclared, read as before",
                                             "the guard reads the count from the file"])
