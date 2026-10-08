@@ -105,7 +105,7 @@ def parse(argv: list[str]) -> tuple[bool, list[str]] | None:
 
 
 def placements(registry: str) -> list[tuple[str, str]]:
-    """(login, host) for every placed agent, in the registry's order."""
+    """(login, host, kind) for every placement, in the registry's order."""
     if not os.path.isfile(registry):
         raise Refused(f"no host registry at {registry}")
     try:
@@ -116,8 +116,9 @@ def placements(registry: str) -> list[tuple[str, str]]:
         raise Refused(f"the host registry at {registry} cannot be read: {e}") from None
     if not isinstance(placement, dict) or not all(isinstance(h, str) for h in placement.values()):
         raise Refused(f"the host registry at {registry} has no placement map of login to host")
-    # A human login (ADR-044) has no Claude account to read.
-    return [(l, h) for l, h in placement.items() if not isinstance(kinds, dict) or kinds.get(l, "agent") == "agent"]
+    if not isinstance(kinds, dict):
+        kinds = {}
+    return [(l, h, kinds.get(l, "agent")) for l, h in placement.items()]
 
 
 def last_line(out: str) -> str:
@@ -188,6 +189,16 @@ def run(argv: list[str]) -> int:
         as_json, logins = parsed
         placed = placements(os.environ.get("AGENT_FABRIC_HOSTS_REGISTRY")
                             or os.path.join(ROOT, "runtime", "hosts", "registry.json"))
+        # A human login (ADR-044) has no Claude account: all leaves it out,
+        # and naming one, or a login not placed, is refused, never an empty
+        # table that reads as an answer.
+        kind = {l: k for l, _, k in placed}
+        for login in logins:
+            if login not in kind:
+                raise Refused(f"{login} is not a placed account (runtime/hosts/registry.json)")
+            if kind[login] != "agent":
+                raise Refused(f"{login} is a human login (ADR-044): it has no Claude account to read")
+        placed = [(l, h) for l, h, k in placed if k == "agent"]
     except Refused as e:
         say(str(e))
         return 2
