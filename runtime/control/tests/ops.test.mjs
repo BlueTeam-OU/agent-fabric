@@ -565,7 +565,7 @@ test('accounts: every observed account, one at a time; slugs that are not an acc
   assert.equal((await accounts(scratch('ctl-noaccounts-'))).status, 'none');
 });
 
-test('a login on a template: identity names the token by fingerprint, not the old account its ~/.claude.json keeps; usage points at the observer', async () => {
+test('a login on a template: identity names the token by fingerprint, not the old account its ~/.claude.json keeps; usage comes from an inference reply\'s headers, never the old sign-in', async () => {
   const h = home();
   const TEMPLATE = 'sk-ant-oat01-TEMPLATE-TOKEN-VALUE';
   fs.appendFileSync(path.join(h, '.config', 'agent-fabric', 'secrets.env'), `export CLAUDE_CODE_OAUTH_TOKEN='${TEMPLATE}'\n`);
@@ -573,9 +573,20 @@ test('a login on a template: identity names the token by fingerprint, not the ol
   const fp = crypto.createHash('sha256').update(TEMPLATE).digest('hex').slice(0, 12);
   assert.deepEqual(id.claude_account, { via: 'setup-token', token_sha256_12: fp, email: null, organization: null });
   assert.deepEqual(id.own_sign_in, { email: 'someone@example.org', organization: 'Example Org' }, 'the own sign-in is still said, as what it is');
-  let fetched = false;
-  assert.deepEqual(await usage(h, async () => { fetched = true; return { ok: true, json: async () => ({}) }; }), { status: 'setup-token', see: 'fabric-ctl <observer> accounts' });
-  assert.equal(fetched, false, 'the old sign-in\'s windows are another account\'s: not read');
+  const H = { 'anthropic-ratelimit-unified-5h-utilization': '0.08', 'anthropic-ratelimit-unified-5h-reset': '1791449400', 'anthropic-ratelimit-unified-5h-status': 'allowed',
+    'anthropic-ratelimit-unified-7d-utilization': '0.78', 'anthropic-ratelimit-unified-7d-reset': '1791460800', 'anthropic-ratelimit-unified-7d-status': 'allowed_warning' };
+  const seen = [];
+  const reply = (status, headers) => async (url, init) => { seen.push({ url, auth: init.headers.Authorization, body: JSON.parse(init.body) }); return { ok: status === 200, status, headers: new Headers(headers) }; };
+  const u = await usage(h, reply(200, H), 'https://usage.invalid', 'https://messages.invalid');
+  assert.deepEqual(u, { status: 'ok', via: 'setup-token', subscription: null,
+    five_hour: { utilization: 8, resets_at: '2026-10-08T08:50:00.000Z', status: 'allowed' },
+    seven_day: { utilization: 78, resets_at: '2026-10-08T12:00:00.000Z', status: 'allowed_warning' } });
+  assert.deepEqual(seen.map(x => [x.url, x.auth, x.body.max_tokens]), [['https://messages.invalid', `Bearer ${TEMPLATE}`, 1]],
+    'one inference call with the template token, one output token; the old sign-in\'s windows are another account\'s and are not read');
+  assert.equal((await usage(h, reply(429, H), 'u', 'm')).seven_day.utilization, 78, 'a full window answers 429 and is still a reading');
+  assert.deepEqual(await usage(h, reply(401, {}), 'u', 'm'), { status: 'read-failed', via: 'setup-token', http: 401 });
+  assert.deepEqual(await usage(h, async () => { throw new Error('ECONNREFUSED'); }, 'u', 'm'), { status: 'read-failed', via: 'setup-token' });
+  assert.ok(!JSON.stringify(u).includes(TEMPLATE), 'the template token leaked into the reading');
   assert.deepEqual(keys(h).find(k => k.name === 'CLAUDE_CODE_OAUTH_TOKEN'), { name: 'CLAUDE_CODE_OAUTH_TOKEN', present: true, sha256_12: fp });
   const s2 = JSON.stringify([id, keys(h)]);
   assert.ok(!s2.includes(TEMPLATE), 'the template token leaked'); assertNoSecret(id);

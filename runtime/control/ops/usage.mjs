@@ -9,14 +9,52 @@ import { syncedVar } from '../gzcoord.mjs';
 import { readJson, execFileP } from './util.mjs';
 
 export const USAGE_URL = 'https://api.anthropic.com/api/oauth/usage';
+export const MESSAGES_URL = 'https://api.anthropic.com/v1/messages';
 
+// A login on a template runs on its setup-token, which cannot read the
+// usage endpoint (HTTP 403, user:inference only) — but every inference
+// reply carries the account's windows in anthropic-ratelimit-unified-*
+// headers (docs/live-checks/2026-10-08-usage-from-inference-headers.md).
+// So the windows are read from one reply: the smallest model, one output
+// token, against the account's own allowance. The model is a pinned id,
+// not routing's: the probe must answer the same way whatever a class rides.
+export const PROBE_MODEL = 'claude-haiku-4-5-20251001';
+
+// The headers give a fraction and epoch seconds; the windows are reported
+// as the usage endpoint reports them, a percentage and an ISO time.
+export function windowsFromHeaders(get) {
+  // Number(null) is 0: an absent header must stay absent, never a reading of 0%.
+  const num = h => { const v = get(h); return typeof v === 'string' && v.trim() !== '' ? Number(v) : NaN; };
+  const win = k => {
+    const u = num(`anthropic-ratelimit-unified-${k}-utilization`);
+    const r = num(`anthropic-ratelimit-unified-${k}-reset`);
+    const status = get(`anthropic-ratelimit-unified-${k}-status`);
+    if (!Number.isFinite(u) && !Number.isFinite(r)) return null;
+    return { utilization: Number.isFinite(u) ? Math.round(u * 1000) / 10 : null,
+             resets_at: Number.isFinite(r) && r > 0 ? new Date(r * 1000).toISOString() : null,
+             ...(typeof status === 'string' && /^[a-z_]{1,32}$/.test(status) ? { status } : {}) };
+  };
+  return { five_hour: win('5h'), seven_day: win('7d') };
+}
+
+async function fromInference(tok, fetchFn, url) {
+  let r;
+  try {
+    r = await fetchFn(url, { method: 'POST', signal: AbortSignal.timeout(15000),
+      headers: { Authorization: `Bearer ${tok}`, 'anthropic-beta': 'oauth-2025-04-20', 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
+      body: JSON.stringify({ model: PROBE_MODEL, max_tokens: 1, messages: [{ role: 'user', content: '.' }] }) });
+  } catch { return { status: 'read-failed', via: 'setup-token' }; }
+  // A full window answers 429 and still names its windows: that is a reading.
+  const w = windowsFromHeaders(k => r.headers?.get?.(k) ?? null);
+  if (!w.five_hour && !w.seven_day) return { status: 'read-failed', via: 'setup-token', http: r.status };
+  return { status: 'ok', via: 'setup-token', ...w, subscription: null };
+}
 
 // The five-hour and seven-day windows, read with the account's own OAuth
 // token, which goes into one header and nowhere else.
-export async function usage(home = os.homedir(), fetchFn = globalThis.fetch, url = USAGE_URL) {
-  // A login on a template: its own sign-in's windows are another account's,
-  // and the setup-token cannot read any (HTTP 403, user:inference only).
-  if (syncedVar('CLAUDE_CODE_OAUTH_TOKEN', home)) return { status: 'setup-token', see: 'fabric-ctl <observer> accounts' };
+export async function usage(home = os.homedir(), fetchFn = globalThis.fetch, url = USAGE_URL, messagesUrl = MESSAGES_URL) {
+  const setup = syncedVar('CLAUDE_CODE_OAUTH_TOKEN', home);
+  if (setup) return fromInference(setup, fetchFn, messagesUrl);
   const creds = readJson(path.join(home, '.claude', '.credentials.json'));
   const tok = creds?.claudeAiOauth?.accessToken;
   if (!tok) return { status: 'no-credentials' };
