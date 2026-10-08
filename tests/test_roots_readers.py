@@ -48,6 +48,45 @@ def case_relay_reads_integrations_from_the_operator() -> None:
             assert "opproj" not in relay.integrated_projects()
 
 
+def case_install_agent_files_finds_the_locale_worker_in_the_operator() -> None:
+    import install_agent_files
+    with tempfile.TemporaryDirectory() as tmp:
+        engine, op = os.path.join(tmp, "engine"), os.path.join(tmp, "op")
+        rel = os.path.join("identities", "roles", "language-culture", "locale", "xx", "worker.md")
+        write(os.path.join(op, rel), "from the operator")
+        os.makedirs(engine)
+        for root_env, expect in ((operator(op), [b"from the operator"]), (unset_operator(), [])):
+            put = []
+            inst = install_agent_files.Installer("claude", True, root=engine)
+            inst.put = lambda dest, content: put.append(content)
+            with root_env:
+                inst.locale_worker(os.path.join(tmp, "home"), "language-culture", "xx")
+            assert put == expect, (put, expect)
+        write(os.path.join(engine, rel), "from the engine")
+        put = []
+        inst = install_agent_files.Installer("claude", True, root=engine)
+        inst.put = lambda dest, content: put.append(content)
+        with unset_operator():
+            inst.locale_worker(os.path.join(tmp, "home"), "language-culture", "xx")
+        assert put == [b"from the engine"], put
+
+
+def case_routing_reads_policy_and_profiles_from_the_operator() -> None:
+    import routing
+    with tempfile.TemporaryDirectory() as tmp:
+        op = os.path.join(tmp, "op")
+        write(os.path.join(op, "routing", "policies", "review-grade.json"), {"capability": "op-cap", "models": ["op/model"]})
+        write(os.path.join(op, "routing", "profiles.json"), {"version": 2, "defaults": {"op-provider": {}}})
+        with operator(op):
+            assert routing.load_review_grade()["capability"] == "op-cap"
+            assert "op-provider" in routing.load_profiles()["defaults"]
+        with unset_operator():
+            assert routing.load_review_grade()["capability"] == "code-review"
+            assert "op-provider" not in routing.load_profiles()["defaults"]
+            assert routing.load_review_grade(op)["capability"] == "op-cap"     # an explicit root still wins
+            assert routing.load_profiles(op)["defaults"].get("op-provider") == {}
+
+
 def main() -> int:
     cases = [v for k, v in globals().items() if k.startswith("case_")]
     failures = 0
