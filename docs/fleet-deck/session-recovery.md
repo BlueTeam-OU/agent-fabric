@@ -4,7 +4,8 @@ Fleet Deck is the terminal workspace (herdr, gzapi-org's fork) in which
 the owner watches every agent's tab and re-enters one. This note is the
 plan for its first milestone: when herdr's server stops, every pane
 process dies, and the tabs come back as bare shells; the deck must bring
-each tab back into its account with its session resumed. architect-cto
+each agent that was running back into its harness, resumed, and leave
+the others one key from activation (the owner, 2026-10-08). architect-cto
 drafted it with rust-ui-dev's measurement (2026-10-07); fabric-coordinator
 took it with the changes below. herdr's side is rust-ui-dev's; the
 control plane's is fabric-coordinator's.
@@ -49,8 +50,25 @@ control plane's is fabric-coordinator's.
    its sudo grant, and it reads the stream with its own relay
    credential. It holds no signing key for the control plane. An agent
    never runs the deck.
-5. **What the deck shows** per tab, in the deck's own output only (a
+5. **What comes back, and how it is activated.** A tab per agent,
+   labelled with its account, with three panes, each opened by moveto
+   as the account with a fixed mode, so no pane runs a person's text:
+   - **harness** (the largest): after a restart, `moveto <account>
+     --resume` when the account's newest state record from before the
+     restart listed a live session (working, idle or blocked), however
+     stale that record has become; otherwise `moveto <account> --wait`,
+     which shows one line and does `--resume` on Enter. An open shell
+     with no session is not a running agent: it comes back dormant. The
+     deck never activates a dormant harness itself.
+   - **shell**: `moveto <account>`, a plain shell as the account.
+   - **status**: `moveto <account> --watch`, the read-only `fabric-watch`
+     (the account's status, jobs and open pull requests).
+
+   A first activation with no launch on record takes the provider of
+   `routing/profiles.json` `launch_provider` for the account or its role.
+6. **What the deck shows** per tab, in the deck's own output only (a
    tab's label stays the bare account: the label is the mapping):
+   - dormant: the harness waits for Enter;
    - restoring: entered, no state yet;
    - resumed: the stream reports `last_session` working or idle;
    - fresh: fabric-resume found nothing to resume, and said so;
@@ -77,17 +95,22 @@ control plane's is fabric-coordinator's.
   `runtime/provisioning/moveto/install.sh`), the state record's
   `last_session` and `resumable`, the human identity kind (ADR-044) and
   provisioning a human login.
+- **python-dev** (agent-fabric): `moveto --wait` and `--watch`, and
+  `fabric-watch`; fabric-coordinator supplies the profile's
+  `launch_provider` and `fabric-resume`'s use of it.
 - **rust-ui-dev** (herdr): the deck's recovery loop (compare tabs with
-  `moveto --list` and the stream; re-enter every account tab that is a
-  bare shell; show the five states), and herd.py's retirement into the
-  deck.
+  `moveto --list` and the stream; give every account its three-pane tab;
+  restore the harness of each account that had a live session and leave
+  the rest dormant; show the six states), and herd.py's retirement into
+  the deck.
 
-Acceptance: stop and start herdr's server with every account tab
-holding a running session. The deck brings each tab back into its
-account with its session resumed (the stream shows the same
-`last_session` as before the stop), says fresh where there was no
-transcript and failed where the launcher failed, and leaves every other
-workspace untouched. Measured on an isolated server first, then on
+Acceptance: stop and start herdr's server with some account tabs
+holding a running session and some only a shell. The deck brings each
+running one back into its account with its session resumed (the stream
+shows the same `last_session` as before the stop), says fresh where
+there was no transcript and failed where the launcher failed, leaves
+every other harness dormant until Enter, opens every shell and status
+pane, and leaves every other workspace untouched. Measured on an isolated server first, then on
 develop-qzapp by the owner's run.
 
 ## Milestone 2, later
