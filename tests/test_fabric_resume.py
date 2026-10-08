@@ -4,7 +4,12 @@ binding's session resumed in the directory its transcript names; a fresh
 start said, in the working copy, when there is no session, no transcript
 or no directory; refused inside a session; the launcher run with the
 account's last provider (unless the caller names one), the caller's own
-arguments, then --resume <id> (or nothing)."""
+arguments, then --resume <id> (or nothing). Never a second session: any
+live session in the account's session state refuses a resume and a fresh
+start alike, a dead or reused pid does not, nor an entry with no process
+older than 20 min; resume.lock held by another
+process refuses, naming its pid, and the launcher it execs holds it;
+--print takes none."""
 from __future__ import annotations
 
 import json
@@ -12,10 +17,152 @@ import os
 import subprocess
 import sys
 import tempfile
+import time
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SHIM = os.path.join(HERE, "bin", "fabric-resume")
 SID = "0f0e0d0c-1111-4222-8333-444455556666"
+
+
+def start_of(pid: int) -> int:
+    raw = open(f"/proc/{pid}/stat").read()
+    return int(raw[raw.rindex(")") + 2:].split()[19])
+
+
+def never_second(check, run, bind, transcript, bdir: str, tmp: str, env: dict, session_dir: str) -> None:
+    """The refusal and the lock (docs/fleet-deck/tab-states.md)."""
+    states = os.path.join(bdir, "session-state.json")
+    lock = os.path.join(bdir, "resume.lock")
+    other = "aaaabbbb-1111-4222-8333-444455556666"
+
+    def sessions(doc) -> None:
+        with open(states, "w") as f:
+            f.write(doc if isinstance(doc, str) else json.dumps({"sessions": doc}))
+
+    os.makedirs(session_dir, exist_ok=True)
+    bind(SID)
+    transcript(session_dir)
+    sleeper = subprocess.Popen(["sleep", "300"])
+    try:
+        sessions({other: {"state": "working", "since": "x", "pid": sleeper.pid, "start": start_of(sleeper.pid)}})
+        r = run()
+        check("a live session that is not the binding's: a resume refused, exit 3, naming it",
+              r.returncode == 3 and f"refused: session {other} is alive" in r.stderr, (r.returncode, r.stderr))
+        bind(None)
+        r = run()
+        check("…and a fresh start refused alike", r.returncode == 3 and other in r.stderr, (r.returncode, r.stderr))
+        r = run("--print")
+        check("…said the same under --print", r.returncode == 3 and other in r.stderr and not r.stdout,
+              (r.returncode, r.stdout, r.stderr))
+        bind(SID)
+        sessions({other: {"state": "idle", "since": "x", "pid": sleeper.pid, "start": start_of(sleeper.pid) + 1}})
+        r = run("--print")
+        check("a pid alive with another start time is a reused pid: no session", r.returncode == 0, r.stderr)
+        def ago(minutes: int) -> str:
+            return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - minutes * 60))
+        sessions({other: {"state": "idle", "since": ago(5), "pid": None, "start": None}})
+        r = run("--print")
+        check("an entry that records no process, within 20 min of its since: counted", r.returncode == 3
+              and other in r.stderr, (r.returncode, r.stderr))
+        sessions({other: {"state": "idle", "since": ago(25)}})
+        r = run("--print")
+        check("…older than that: not counted, and said, naming it", r.returncode == 0
+              and f"session {other} records no process and its state is older than 20 min; not counted" in r.stderr,
+              (r.returncode, r.stderr))
+        sessions({other: {"state": "idle", "since": "x"}})
+        check("…a since that is not a time: not counted", run("--print").returncode == 0)
+        sessions({other: {"state": "gone-ish", "since": "x", "pid": sleeper.pid, "start": start_of(sleeper.pid)}})
+        check("an entry in no known state is no session", run("--print").returncode == 0)
+        for shape in ("[]", "{}", '{"sessions": []}'):
+            sessions(shape)
+            r = run("--print")
+            check(f"a session state of another shape ({shape}) refuses, never reads as none",
+                  r.returncode == 3 and "not the session-state hook's shape" in r.stderr, (r.returncode, r.stderr))
+        sessions("{torn")
+        r = run("--print")
+        check("a session state that cannot be read refuses: unknown is never none",
+              r.returncode == 3 and "cannot be read" in r.stderr, (r.returncode, r.stderr))
+    finally:
+        sleeper.kill()
+        sleeper.wait()
+    sessions({other: {"state": "working", "since": "x", "pid": sleeper.pid, "start": 1}})
+    r = run("--print")
+    check("a dead pid record does not count", r.returncode == 0 and "--resume" in r.stdout, (r.returncode, r.stderr))
+    os.remove(states)
+
+    # A child holds the lock as a running launcher would.
+    holder = subprocess.Popen([sys.executable, "-c", (
+        "import fcntl,os,sys\n"
+        "fd=os.open(sys.argv[1],os.O_RDWR|os.O_CREAT,0o600); fcntl.flock(fd,fcntl.LOCK_EX)\n"
+        "if sys.argv[2]=='pid': os.ftruncate(fd,0); os.write(fd,b'%d\\n'%os.getpid())\n"
+        "print('held',flush=True); sys.stdin.read()"), lock, "pid"],
+        stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
+    try:
+        holder.stdout.readline()
+        r = run()
+        check("a held lock refuses, exit 3, naming the holder's pid",
+              r.returncode == 3 and f"(pid {holder.pid})" in r.stderr, (r.returncode, r.stderr))
+        r = run("--print")
+        check("…said the same under --print, which takes none", r.returncode == 3 and f"pid {holder.pid}" in r.stderr,
+              (r.returncode, r.stderr))
+        r = run("--", "--print")
+        check("…and under the launcher's own --print", r.returncode == 3, (r.returncode, r.stderr))
+    finally:
+        holder.stdin.close()
+        holder.wait()
+    # The last holder's pid is still in the file, its process gone: the
+    # new holder has locked and not yet written.
+    gone = subprocess.Popen(["true"])
+    gone.wait()
+    with open(lock, "w") as f:
+        f.write(f"{gone.pid}\n")
+    holder = subprocess.Popen([sys.executable, "-c", (
+        "import fcntl,os,sys\n"
+        "fd=os.open(sys.argv[1],os.O_RDWR); fcntl.flock(fd,fcntl.LOCK_EX)\n"
+        "print('held',flush=True); sys.stdin.read()"), lock],
+        stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
+    try:
+        holder.stdout.readline()
+        r = run()
+        check("a lock held with no pid of its own in it yet: said so, never the last holder's",
+              r.returncode == 3 and "pid not yet written" in r.stderr and str(gone.pid) not in r.stderr, r.stderr)
+    finally:
+        holder.stdin.close()
+        holder.wait()
+
+    # The launcher it execs: is the descriptor open there, and locked?
+    seen = os.path.join(tmp, "lock-seen")
+    stub = os.path.join(tmp, "launch-lock")
+    with open(stub, "w") as f:
+        f.write(f"#!{sys.executable}\n" + (
+            "import fcntl,json,os,sys\n"
+            "lock=sys.argv[0] and os.environ['LOCK']\n"
+            "fds=[int(d) for d in os.listdir('/proc/self/fd') if os.path.realpath(f'/proc/self/fd/{d}')==lock]\n"
+            "locked,written=False,None\n"
+            "if os.path.exists(lock):\n"
+            "    probe=os.open(lock,os.O_RDONLY); written=open(lock).read().strip()\n"
+            "    try:\n        fcntl.flock(probe,fcntl.LOCK_EX|fcntl.LOCK_NB)\n"
+            "    except BlockingIOError:\n        locked=True\n"
+            "json.dump({'fds':fds,'locked':locked,'pid':os.getpid(),'written':written,"
+            "'args':sys.argv[1:]},open(os.environ['SEEN'],'w'))\n"))
+    os.chmod(stub, 0o755)
+    os.remove(lock)
+    r = run(AGENT_FABRIC_RESUME_LAUNCHER=stub, LOCK=os.path.realpath(lock), SEEN=seen)
+    got = json.load(open(seen)) if os.path.exists(seen) else {}
+    check("the exec'd launcher has the lock open and held, its own pid written",
+          r.returncode == 0 and len(got.get("fds", [])) == 1 and got.get("locked") is True
+          and got.get("written") == str(got.get("pid")), (r.returncode, r.stderr, got))
+    check("…and the lock goes with it", run("--print").returncode == 0)
+    os.remove(seen)
+    os.remove(lock)
+    r = run("--", "--print", AGENT_FABRIC_RESUME_LAUNCHER=stub, LOCK=os.path.realpath(lock), SEEN=seen)
+    got = json.load(open(seen)) if os.path.exists(seen) else {}
+    check("--print passed to the launcher: no lock taken", r.returncode == 0 and "--print" in got.get("args", [])
+          and not got.get("fds") and not os.path.exists(lock), (r.returncode, r.stderr, got))
+    r = run("--print")
+    check("--print: no lock taken", r.returncode == 0 and not os.path.exists(lock), (r.returncode, r.stderr))
+    if os.path.exists(seen):
+        os.remove(seen)
 
 
 def main() -> int:
@@ -113,6 +260,7 @@ def main() -> int:
             r = run("--print")
             check(f"a binding session {bad!r} is no session, never a path", "no session recorded" in r.stdout
                   and "--resume" not in r.stdout, r.stdout)
+        never_second(check, run, bind, transcript, bdir, tmp, env, os.path.join(tmp, "launched-from"))
         r = run("--print", CLAUDECODE="1")
         check("inside a session: refused, exit 2", r.returncode == 2 and "not inside a session" in r.stderr, r.stderr)
         r = run("--bogus")

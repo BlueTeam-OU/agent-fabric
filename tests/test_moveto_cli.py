@@ -127,6 +127,13 @@ def main() -> int:
         st, out = mv("solo", "--resume", "--print")
         check_status("--resume --print exits 0", 0, st)
         check("--resume --print says the resume follows", "then: fabric-resume", out)
+        st, out = mv("solo", "--wait", "--print")
+        check("--wait --print says the Enter and the resume follow", "then: Enter to activate, then fabric-resume", out)
+        st, out = mv("solo", "--print", "--watch")
+        check("--watch --print says the watch follows", "then: fabric-watch", out)
+        st, out = mv("solo", "--wait", "--watch", "--print")
+        check_status("two modes together: exit 1", 1, st)
+        check("…said", "moveto: one of --wait, --resume, --watch at a time", out)
         listed = mv("solo", "--list")[1]
         check_absent("the workspace CLAUDE.md is not a clone", "CLAUDE.md", listed)
         check_absent("the agent-fabric checkout is not a clone", "agent-fabric", listed)
@@ -295,6 +302,45 @@ def main() -> int:
         err = enter(PATH=f"{sandbox}/norevbin:{env['PATH']}")
         check("a count git cannot give is said as unknown, never as level",
               "commits beyond origin/main are unknown", err)
+
+        print("enter's modes: --wait waits for one Enter before anything runs; --watch runs fabric-watch")
+        log = f"{sandbox}/enter.log"
+        put(f"{sandbox}/logbin/git", f'#!/bin/sh\ncase " $* " in *" pull "*) echo pull >> "{log}" ;; esac\n'
+            f'exec {shutil.which("git")} "$@"\n', 0o755)
+        os.makedirs(f"{fab}/bin", exist_ok=True)
+        for tool in ("fabric-resume", "fabric-watch"):
+            put(f"{fab}/bin/{tool}", f'#!/bin/sh\necho "{tool} $#" >> "{log}"\n', 0o755)
+
+        def entered(mode: str, typed: str | None) -> tuple[str, str, str]:
+            """(the first stdout line, the log before any input, the log and stderr at the end)."""
+            if os.path.exists(log):
+                os.remove(log)
+            p = subprocess.Popen(["bash", os.path.join(SRC, "enter"), f"{eh}/projects", "t", mode],
+                                 env={**env, "HOME": eh, "XDG_CONFIG_HOME": f"{eh}/.config",
+                                      "PATH": f"{sandbox}/logbin:{env['PATH']}"},
+                                 stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            first = p.stdout.readline() if mode == "--wait" else ""
+            before = open(log).read() if os.path.exists(log) else ""
+            _, err = p.communicate(typed or "", timeout=120)
+            return first, before, (open(log).read() if os.path.exists(log) else "") + err
+        me_ = subprocess.run(["id", "-un"], stdout=subprocess.PIPE, text=True, check=True, timeout=10).stdout.strip()
+        first, before, after = entered("--wait", "anything typed\n")
+        check("--wait: its one line", f"{me_} - Enter to activate\n", first)
+        check_status("…and nothing has run before the Enter (no pull, no resume)", 0, len(before))
+        check("after Enter: the refresh, then exactly fabric-resume, with no argument",
+              "pull\nfabric-resume 0\n", after)
+        first, before, after = entered("--wait", None)
+        check("--wait, input ended first: a plain shell, said", "input ended before Enter; a plain shell", after)
+        check_absent("…and nothing resumed", "fabric-resume", after)
+        _, _, after = entered("--watch", None)
+        check("--watch: the refresh, then fabric-watch", "pull\nfabric-watch 0\n", after)
+        check_absent("…and no resume", "fabric-resume", after)
+        _, _, after = entered("--bogus", None)
+        check("an unknown mode: said, a plain shell", "unknown mode '--bogus'; a plain shell", after)
+        check_absent("…running nothing", "fabric-", after)
+        os.remove(f"{fab}/bin/fabric-watch")
+        _, _, after = entered("--watch", None)
+        check("--watch with no fabric-watch in the checkout: said", "no fabric-watch in", after)
 
     print(f"\ntest_moveto_cli: {'OK' if not fails else f'FAILED — {fails} check(s)'}")
     return 1 if fails else 0

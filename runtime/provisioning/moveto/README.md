@@ -11,9 +11,23 @@ moveto --list                  # accounts that have at least one clone
 moveto <account> --list        # that account's clones
 moveto <account> --print       # resolve only — print path and title, spawn nothing
 moveto <account> [<clone>] --resume  # …and bring its last session back first (fabric-resume)
+moveto <account> [<clone>] --wait    # "<account> - Enter to activate"; Enter does --resume
+moveto <account> [<clone>] --watch   # …and show its status first (fabric-watch), until q
 ```
 
 `exit` returns to the shell you came from.
+
+`--wait`, `--resume` and `--watch` are Fleet Deck's three pane modes
+(`docs/fleet-deck/tab-states.md`) and exclude one another: two of them
+together exit 1. Each reaches `enter` as its fixed last argument, where the
+deck reads it. `--wait` prints its one line **before** the refresh below,
+so the refresh is as fresh as the Enter; Enter then does exactly
+`--resume`, and input that ends first leaves a plain shell, said.
+`fabric-resume` refuses (exit 3, one line) while any session is alive on
+the account, or while another activation's launcher holds its
+`resume.lock`, so an Enter never starts a second session. `--watch` runs
+`fabric-watch`, read-only, after the refresh; `q` returns to the account's
+shell.
 
 Entering refreshes the account, best effort, before the shell opens: the
 fabric checkout is fast-forwarded (`git -C ~/projects/agent-fabric pull
