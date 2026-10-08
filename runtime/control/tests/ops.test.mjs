@@ -631,6 +631,14 @@ test('the read lock: a lock that cannot be read is a loud failure, not a permane
 });
 
 test('presence: a session is a claude process that is not the daemon\'s own child; since is its start; role and project are the binding\'s', () => {
+  // The binding's role is checked against the catalogue (instance data, ADR-045): the operator
+  // tree of this case is a copy of this checkout's, whatever AGENT_FABRIC_OPERATOR the run had.
+  const operator = scratch('presence-operator-');
+  fs.mkdirSync(path.join(operator, 'identities', 'roles'), { recursive: true });
+  fs.copyFileSync(new URL('../../../identities/roles/catalog.json', import.meta.url), path.join(operator, 'identities', 'roles', 'catalog.json'));
+  const savedOperator = process.env.AGENT_FABRIC_OPERATOR;
+  process.env.AGENT_FABRIC_OPERATOR = operator;
+  try {
   const proc = scratch('presence-proc-');
   fs.writeFileSync(path.join(proc, 'stat'), 'cpu  1 2 3\nbtime 1790000000\n');
   // stat after the comm: state ppid pgrp session tty tpgid flags minflt cminflt majflt cmajflt utime stime cutime cstime priority nice threads itrealvalue starttime
@@ -652,6 +660,9 @@ test('presence: a session is a claude process that is not the daemon\'s own chil
   assert.equal(presence({ proc, self: 999, exec: () => '100\n', who, binding, hold: () => ({ held: true }) }).planning, true, 'a held inbox is planning');
   assert.equal(presence({ proc, self: 999, exec: () => { const e = new Error('exit 1'); e.status = 1; throw e; }, who, binding, hold: () => ({ held: true }) }).planning, false, 'no session is never planning, whatever a stale marker says');
   assert.equal(presence({ proc, self: 999, exec: () => '100\n', who, binding, hold: () => { throw new Error('no hold dir'); } }).planning, false, 'an unreadable hold is not planning');
+  } finally {
+    if (savedOperator === undefined) delete process.env.AGENT_FABRIC_OPERATOR; else process.env.AGENT_FABRIC_OPERATOR = savedOperator;
+  }
 });
 
 test('collect(presence) answers under the presence key — the name fabric-ctl reads', async () => {

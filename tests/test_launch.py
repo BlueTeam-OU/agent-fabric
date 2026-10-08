@@ -524,7 +524,7 @@ def main() -> int:
         os.makedirs(copy)
         shutil.copytree(os.path.join(os.path.dirname(MODULE), "launcher"), f"{copy}/launcher",
                         ignore=shutil.ignore_patterns("__pycache__"))
-        for f in ("launch.py", "git.py"):
+        for f in ("launch.py", "git.py", "roots.py"):
             shutil.copy(os.path.join(os.path.dirname(MODULE), f), f"{copy}/{f}")
         code = ("import importlib.util, inspect, sys\n"
                 "def load(name, path):\n"

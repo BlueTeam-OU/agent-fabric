@@ -52,6 +52,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { whoami, FABRIC_ROOT, api, syncedToken, identity as gzIdentity, integrationConfig, inboxRoot, token as gzToken } from './gzcoord.mjs';
+import { hostsRegistry } from './roots.mjs';
 import { OPS, PUBLIC_OPS, collect, usage, accounts, accountSlugs, accountsDir, disk } from './ops.mjs';
 import { jobsAdd } from './jobs.mjs';
 import { poolAdd, poolList, poolClaim, poolHolder, roleFromStream } from './pool.mjs';
@@ -110,7 +111,7 @@ export function controlConfig(env = process.env, file = path.join(HERE, 'config.
 // again for every record, so a rotation committed to the registry counts
 // at the next pull. A host with no key, or a malformed one, has none — its
 // operator can still ask what an account reports, and can order nothing.
-export function operatorKeys(registry = process.env.AGENT_FABRIC_HOSTS_REGISTRY ?? path.join(FABRIC_ROOT, 'runtime', 'hosts', 'registry.json')) {
+export function operatorKeys(registry = hostsRegistry({ engine: FABRIC_ROOT, emptyIsSet: true })) {
   const out = new Map();
   try {
     const d = JSON.parse(fs.readFileSync(registry, 'utf8'));
@@ -120,7 +121,7 @@ export function operatorKeys(registry = process.env.AGENT_FABRIC_HOSTS_REGISTRY 
 }
 
 // The operators: <host>/<operator> for every host in the registry.
-export function operatorAddresses(registry = process.env.AGENT_FABRIC_HOSTS_REGISTRY ?? path.join(FABRIC_ROOT, 'runtime', 'hosts', 'registry.json')) {
+export function operatorAddresses(registry = hostsRegistry({ engine: FABRIC_ROOT, emptyIsSet: true })) {
   try {
     const d = JSON.parse(fs.readFileSync(registry, 'utf8'));
     return new Set(Object.entries(d.hosts ?? {}).map(([h, v]) => `${h}/${v.operator ?? 'user'}`));
@@ -129,7 +130,7 @@ export function operatorAddresses(registry = process.env.AGENT_FABRIC_HOSTS_REGI
 
 // Every placed account: <host>/<login> for each placement — who may ask a
 // public op (ops.mjs PUBLIC_OPS).
-export function accountAddresses(registry = process.env.AGENT_FABRIC_HOSTS_REGISTRY ?? path.join(FABRIC_ROOT, 'runtime', 'hosts', 'registry.json')) {
+export function accountAddresses(registry = hostsRegistry({ engine: FABRIC_ROOT, emptyIsSet: true })) {
   try {
     const d = JSON.parse(fs.readFileSync(registry, 'utf8'));
     return new Set(Object.entries(d.placement ?? {}).map(([login, host]) => `${host}/${login}`));

@@ -43,6 +43,7 @@ import sys
 from typing import Any, Callable
 
 from . import paths
+import roots  # noqa: E402
 from .jsvalues import string as js_string
 
 DEFAULT_LOCALE = "en-US"
@@ -115,7 +116,7 @@ def _pinned(env: dict) -> bool:
 
 
 def _locale_dir(me: dict, root: str) -> str:
-    return os.path.join(root, "identities", "roles", me["role"], "locale", suffix(me["agent"]))
+    return roots.locale_dir(me["role"], suffix(me["agent"]), root=root)
 
 
 # A suppressed locale is visible to its reader: a holder served English, and
@@ -143,7 +144,7 @@ def locale_reminder(me: dict | None, root: str | None = None, env: dict | None =
     Empty when there is none; silenced by the same switch as every line."""
     if not _bound(me):
         return ""
-    root = paths.fabric_root() if root is None else root
+    root = paths.operator_root() if root is None else root
     env = os.environ if env is None else env
     directory = _locale_dir(me, root)
     if _pinned(env):
@@ -161,7 +162,7 @@ def dictionary_path(me: dict | None, root: str | None = None, env: dict | None =
     """The dictionary file for this login, or None for the default locale."""
     if not _bound(me):
         return None
-    root = paths.fabric_root() if root is None else root
+    root = paths.operator_root() if root is None else root
     env = os.environ if env is None else env
     directory = _locale_dir(me, root)
     if _pinned(env):

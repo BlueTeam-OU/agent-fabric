@@ -341,11 +341,12 @@ def main() -> int:
             os.makedirs(os.path.join(fab, "projects"))
             json.dump({"projects": {"demo": {"agent_env": {"DEMO_PORT_OFFSET": "the login stack offset"}}}},
                       open(os.path.join(fab, "projects", "registry.json"), "w"))
+            # The instance data (the registry) is read from the operator root.
+            real_operator = os.environ.get("AGENT_FABRIC_OPERATOR")
+            os.environ["AGENT_FABRIC_OPERATOR"] = fab
             # Every fabric has a hosts registry; the login's kind is read there.
             os.makedirs(os.path.join(fab, "runtime", "hosts"))
             json.dump({"hosts": {}, "placement": {}}, open(os.path.join(fab, "runtime", "hosts", "registry.json"), "w"))
-            real_root = s.ROOT
-            s.ROOT = fab
             try:
                 store["values"] = fixture(ME)
                 rc, out = run(s.sync, False, False)
@@ -398,7 +399,10 @@ def main() -> int:
                 check("a store holding it is not unexpected, the registry naming it or not",
                       json.loads(out)["unexpected"] == [], out[:300])
             finally:
-                s.ROOT = real_root
+                if real_operator is None:
+                    del os.environ["AGENT_FABRIC_OPERATOR"]
+                else:
+                    os.environ["AGENT_FABRIC_OPERATOR"] = real_operator
 
             # write_private: a symlink or a looser file at the old fixed
             # temporary path is never written through, and nothing is left.

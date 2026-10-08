@@ -129,8 +129,8 @@ def main() -> int:
         def profiles(doc) -> None:
             with open(os.path.join(root, "routing", "profiles.json"), "w") as f:
                 f.write(doc if isinstance(doc, str) else json.dumps(doc))
-        real = resume.FABRIC
-        resume.FABRIC = root
+        real = os.environ.get("AGENT_FABRIC_OPERATOR")
+        os.environ["AGENT_FABRIC_OPERATOR"] = root
         try:
             profiles({"defaults": {"launch_provider": "openrouter"}, "roles": {"python-dev": {"launch_provider": "anthropic"}},
                       "agents": {"pd-x": {"launch_provider": "openrouter"}}})
@@ -157,7 +157,10 @@ def main() -> int:
                 check(f"a file of the wrong shape is none, never a traceback ({json.dumps(wrong)})",
                       resume.profile_provider("pd-x", "python-dev") is None)
         finally:
-            resume.FABRIC = real
+            if real is None:
+                os.environ.pop("AGENT_FABRIC_OPERATOR", None)
+            else:
+                os.environ["AGENT_FABRIC_OPERATOR"] = real
     print(f"\n{'all passed' if not fails else str(fails) + ' FAILED'}")
     return 1 if fails else 0
 

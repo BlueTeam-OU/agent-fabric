@@ -124,7 +124,6 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from secretstore.core import (  # noqa: E402
     HERE,
-    FABRIC_ROOT,
     NAME_RE,
     LOGIN_RE,
     UID_DOMAIN,
@@ -287,7 +286,7 @@ def _own_or_managed(name: str, managed: bool, what: str) -> None:
     if managed or not NAME_RE.match(name):
         return   # a malformed name is refused by the write path, as before
     try:
-        who = reserved(name, FABRIC_ROOT)
+        who = reserved(name)
     except RegistryUnreadable as e:
         raise StoreError(f"cannot tell whether {name} is managed ({e}); nothing {what}") from None
     if who:

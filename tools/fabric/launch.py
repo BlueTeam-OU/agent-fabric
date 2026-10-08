@@ -215,7 +215,7 @@ _spec.loader.exec_module(sys.modules["fabric_launcher"])
 # Every name the parts define, from here as before: the tests reach them as
 # launch.<name>, and patch launch.reexec and launch.launch, which stay here
 # with the functions that call them (restart, keep_fabric_current, main).
-from fabric_launcher.base import HERE, CODE_ROOT, _load, git, SELF, FETCH_TIMEOUT_S  # noqa: E402, F401
+from fabric_launcher.base import HERE, CODE_ROOT, _load, git, roots, SELF, FETCH_TIMEOUT_S  # noqa: E402, F401
 from fabric_launcher.base import ORI_AUTH_TIMEOUT_S, CLAUDE_VERSION_TIMEOUT_S  # noqa: E402, F401
 from fabric_launcher.base import INSTALL_TIMEOUT_S, HELPER_TIMEOUT_S, RESTART_WAIT_S  # noqa: E402, F401
 from fabric_launcher.base import OPENING, WAIT_TAIL, BROKER_ENV, SETUP_TOKEN, PROMPT_FLAGS  # noqa: E402, F401
@@ -481,7 +481,7 @@ def launch(argv: list[str]) -> int:
     # the build is stamped beside the capture's `build:`, so a build that
     # moved past it is visible — never a gate.
     suffix = pwd.getpwuid(os.getuid()).pw_name.rsplit("-", 1)[-1]
-    locale_dir = f"{fabric_root}/identities/roles/language-culture/locale/{suffix}"
+    locale_dir = roots.locale_dir("language-culture", suffix, engine=fabric_root, environ=env)
     prompt_flag = "--append-system-prompt-file"
     if role == "language-culture" and os.path.isfile(f"{locale_dir}/harness.md"):
         prompt_flag = "--system-prompt-file"

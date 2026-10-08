@@ -61,7 +61,8 @@ import os
 import re
 import sys
 
-ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__)))))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
+import roots  # noqa: E402
 FORM = r"(?:[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+#|[A-Za-z0-9_.-]+#|[A-Za-z0-9_.-]+\s+#|#)[0-9]+"
 LABEL = r"[A-Z]{1,2}-?[0-9]+"
 
@@ -71,7 +72,7 @@ def known_repos(registry: str | None = None) -> set[str]:
     name of each of its remotes, lower-cased. An unreadable registry names
     none."""
     try:
-        reg = json.load(open(registry or os.path.join(ROOT, "projects", "registry.json"), encoding="utf-8"))
+        reg = json.load(open(registry or roots.projects_registry(engine=roots.code_root()), encoding="utf-8"))
     except (OSError, ValueError):
         return set()
     names = set()

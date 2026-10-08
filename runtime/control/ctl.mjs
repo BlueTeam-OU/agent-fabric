@@ -50,6 +50,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { whoami, FABRIC_ROOT, api, syncedToken, identity as gzIdentity, integrationConfig, inboxRoot, token as gzToken } from './gzcoord.mjs';
+import { hostsRegistry } from './roots.mjs';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { ACTION_OPS, ACTION_TTL_MAX_S, signRequest, generateOperatorKey, publicKeyFrom } from './sign.mjs';
 import { PIECES, VERSION_RE, UPGRADE_BUDGET_S, FABRIC_UPGRADE_BUDGET_S, pinnedVersion } from './upgrade.mjs';
@@ -89,7 +90,7 @@ export function buildRequest(args, { id, from, to, cfg, ts = new Date().toISOStr
 
 // A placed login's kind (ADR-044): an agent runs agentd and answers; a
 // human runs none, so `all` never waits on one and naming one is refused.
-export function placements(registry = process.env.AGENT_FABRIC_HOSTS_REGISTRY ?? path.join(FABRIC_ROOT, 'runtime', 'hosts', 'registry.json')) {
+export function placements(registry = hostsRegistry({ engine: FABRIC_ROOT, emptyIsSet: true })) {
   const d = JSON.parse(fs.readFileSync(registry, 'utf8'));
   const kinds = d.kinds ?? {};
   return Object.entries(d.placement ?? {}).map(([login, host]) => ({ login, host, address: `${host}/${login}`,
@@ -783,7 +784,7 @@ export function signingKey({ store = storeDir(), run = spawnSync } = {}) {
 // `operator_key` in the registry, to commit like any other change. A key
 // already registered is kept unless --force: a rotation invalidates every
 // daemon's trust until the registry change is pulled.
-export function keygen(args, { registry = process.env.AGENT_FABRIC_HOSTS_REGISTRY ?? path.join(FABRIC_ROOT, 'runtime', 'hosts', 'registry.json'), exec = execFileSync, who = whoami() } = {}) {
+export function keygen(args, { registry = hostsRegistry({ engine: FABRIC_ROOT, emptyIsSet: true }), exec = execFileSync, who = whoami() } = {}) {
   const reg = JSON.parse(fs.readFileSync(registry, 'utf8'));
   const host = reg.hosts?.[who.host];
   if (!host || (host.operator ?? 'user') !== who.agent) { console.error(`fabric-ctl: ${who.host}/${who.agent} is not this host's operator in the registry; no key made`); return 2; }

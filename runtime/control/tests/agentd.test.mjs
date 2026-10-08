@@ -171,7 +171,12 @@ const request = over => JSON.stringify({ v: 1, kind: 'request', id: newId(), fro
 // GIT_CONFIG_PARAMETERS inject config the same way, and /etc/gitconfig
 // is kept out with GIT_CONFIG_NOSYSTEM.
 const POINTS_ELSEWHERE = /^(GIT_CONFIG.*|GIT_DIR|GIT_WORK_TREE|XDG_CONFIG_HOME|GNUPGHOME)$/;
-const ownEnv = () => ({ ...Object.fromEntries(Object.entries(process.env).filter(([k]) => !POINTS_ELSEWHERE.test(k))), GIT_CONFIG_NOSYSTEM: '1' });
+// The daemon reads the hosts registry from the operator root (ADR-045): a copy of this
+// checkout's own, so the cases answer the same whatever AGENT_FABRIC_OPERATOR the run had.
+const OPERATOR = scratch('agentd-operator-');
+fs.mkdirSync(path.join(OPERATOR, 'runtime', 'hosts'), { recursive: true });
+fs.copyFileSync(path.join(ROOT, 'runtime', 'hosts', 'registry.json'), path.join(OPERATOR, 'runtime', 'hosts', 'registry.json'));
+const ownEnv = () => ({ ...Object.fromEntries(Object.entries(process.env).filter(([k]) => !POINTS_ELSEWHERE.test(k))), AGENT_FABRIC_OPERATOR: OPERATOR, GIT_CONFIG_NOSYSTEM: '1' });
 // Asynchronous: the fake relay lives in this process, and a synchronous
 // spawn would block the event loop it answers from.
 function runOnce(url, env = {}) {
@@ -337,7 +342,7 @@ test('agentd --once: a memory request is answered with the report and then the b
   try {
     r.waiting().then(() => r.add('develop-qzapp/user', request({ op: 'memory' })));
     const out = await new Promise(resolve => {
-      const child = spawn('node', [AGENTD, '--once'], { env: { ...process.env, HOME: home, PATH: `${bin}:${process.env.PATH}`, CLAUDE_BRIDGE_URL: r.url(), FABRIC_CONTROL_CHANNEL: 'test:control' } });
+      const child = spawn('node', [AGENTD, '--once'], { env: { ...process.env, AGENT_FABRIC_OPERATOR: OPERATOR, HOME: home, PATH: `${bin}:${process.env.PATH}`, CLAUDE_BRIDGE_URL: r.url(), FABRIC_CONTROL_CHANNEL: 'test:control' } });
       let stderr = ''; child.stderr.on('data', d => { stderr += d; });
       const t = setTimeout(() => child.kill('SIGKILL'), 30000);
       child.on('close', status => { clearTimeout(t); resolve({ status, stderr }); });

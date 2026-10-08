@@ -12,8 +12,8 @@ import tempfile
 from typing import TypedDict
 
 from . import lineage as _lineage
+import roots  # noqa: E402
 from .core import (
-    FABRIC_ROOT,
     LOGIN_RE,
     StoreError,
     NotInLineage,
@@ -332,7 +332,7 @@ def take_bundle(text: str) -> dict:
 
 # ── the parent ────────────────────────────────────────────────────────
 def lineage(fabric: str | None = None) -> dict[str, LineageEntry]:
-    return _lineage.lineage(fabric or FABRIC_ROOT)
+    return _lineage.lineage(fabric or roots.operator_root())
 
 
 def _write_lineage(doc: dict, fabric: str | None = None) -> None:
@@ -471,4 +471,4 @@ def rename(old: str, new: str, fabric: str | None = None) -> dict:
 def verify(fabric: str | None = None) -> list[str]:
     """Every committed key against lineage.json: lineage.py's verify, the
     one the lint runs, on this fabric."""
-    return _lineage.verify(fabric or FABRIC_ROOT)
+    return _lineage.verify(fabric or roots.operator_root())

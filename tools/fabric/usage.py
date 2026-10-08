@@ -60,6 +60,9 @@ import subprocess
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+import roots  # noqa: E402
+
 ROOT = os.path.dirname(os.path.dirname(HERE))
 # A minute for curl's own bound (20 s) and the executor's sudo or ssh, twice.
 EXECUTOR_TIMEOUT_S = 120
@@ -187,8 +190,7 @@ def run(argv: list[str]) -> int:
         if parsed is None:
             return 0
         as_json, logins = parsed
-        placed = placements(os.environ.get("AGENT_FABRIC_HOSTS_REGISTRY")
-                            or os.path.join(ROOT, "runtime", "hosts", "registry.json"))
+        placed = placements(roots.hosts_registry(engine=ROOT))
         # A human login (ADR-044) has no Claude account: all leaves it out,
         # and naming one, or a login not placed, is refused, never an empty
         # table that reads as an answer.
