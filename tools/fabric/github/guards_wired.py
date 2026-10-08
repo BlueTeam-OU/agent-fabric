@@ -394,7 +394,13 @@ def command(segment: str) -> list[str]:
             i += 1
         elif os.path.basename(w) in PREFIXES:
             prefixed = True
-            i += 2 if os.path.basename(w) == "timeout" else 1
+            if os.path.basename(w) == "timeout":
+                # Its duration, unless an option comes first: then how
+                # many words it takes is unknown, and so is the command.
+                if i + 1 < len(ws) and ws[i + 1].startswith("-"):
+                    return [UNREADABLE]
+                i += 1
+            i += 1
         elif prefixed and w.startswith("-"):
             return [UNREADABLE]
         else:
