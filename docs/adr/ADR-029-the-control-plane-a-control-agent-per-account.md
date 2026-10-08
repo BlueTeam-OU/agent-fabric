@@ -46,9 +46,9 @@ sudo are in the loop.
   long-polls after it, so a restart never replays history, and a request
   posted while a daemon was down is not answered.
 - **Reads and actions.** A closed set of read ops reports the account;
-  actions change it (`upgrade`, `secrets-sync`) and are answered only
-  when signed by the operator's key — which actions exist and how each
-  behaves is ADR-009's.
+  actions change it (`sign.mjs` `ACTION_OPS`, the six rows marked
+  *action* below) and are answered only when signed by the operator's
+  key. One unsigned write exists, a pool claim (rule 4).
 
 | op | what the account answers |
 |---|---|
@@ -68,9 +68,15 @@ sudo are in the loop.
 | `accounts` | the Claude accounts this login observes and their usage windows (ADR-031) |
 | `jobs` | the account's open jobs (ADR-037) |
 | `local` | per working copy, the per-clone harness settings: env key names and which are synced secrets, permission rules by count — never a value (ADR-038) |
-| `tools` | the account's tools report: the tools each project needs that are missing, with the report's age, written by the daemon at start and hourly from `fabric-tools --all --json` |
+| `tools` | the account's tools report: every tool the bound role's projects declare, found or missing, with the report's age; written by the daemon from `fabric-tools --all --json` at start, hourly and after a rebind |
 | `pool-list` | a role's open pool of jobs, a public op (ADR-037) |
 | `pool-claim` | a claim of one pool job for the asker's own list, a public op, checked against the role the asker's own daemon reports (ADR-037) |
+| `upgrade` | *action*: the account to the pinned Claude Code or to the merged fabric (ADR-009) |
+| `secrets-sync` | *action*: the account's store projected where its tools read it (ADR-038) |
+| `jobs-add` | *action*: the owner's job on the account's list (rule 13, ADR-037) |
+| `local-prune` | *action*: per-clone settings entries that duplicate a synced secret, removed (rule 15) |
+| `secrets-selftest` | *action*: a canary through the account's store and back (rule 17) |
+| `pool-add` | *action*, on the pool's holder only: a job on a role's pool (ADR-037 rule 9) |
 | `status` | identity, usage, keys, fabric and session together |
 
 - **The coordinator's side** is `bin/fabric-ctl <login|all> <op>`: one
@@ -110,7 +116,8 @@ that read no home but the account's own. A closed op set with bounded
 arguments keeps a forged or malformed request from reaching a shell.
 The fence is honest about what it is: it stops accidents and bounds what
 a forged read can obtain to non-secret facts; only the actions carry a
-proof.
+proof, and the one unsigned write, a pool claim, is bounded to a job's
+claimant (rule 4).
 
 ## 5. Binding Rules
 
@@ -124,8 +131,8 @@ proof.
    GZCOORD/1 messages.
 3. The op set is closed (`ops.mjs` `OPS`). No field of a request ever
    reaches a shell. A read op takes no argument but `tokens`'s `days`, a
-   number capped at 90, and the pool's closed set (`pool.mjs`
-   `checkPoolArgs`: a role, a pool id, a topic, a working copy); an action takes only its own closed set of
+   number capped at 90, `pool-list`'s role and `pool-claim`'s pool id
+   (`pool.mjs`); an action takes only its own closed set of
    arguments (`upgrade.mjs`, `secrets.mjs` and `jobs.mjs` `checkArgs`,
    `checkJobArgs`).
 4. A daemon answers a request only when its `from` is a host operator's
@@ -135,7 +142,11 @@ proof.
    placed account's address; its `ts + ttl_s` is not past; and its id is
    not among the last 256 seen. An op is public only if its answer is
    nothing a relay-token holder could not already obtain by writing an
-   operator's address on an unsigned read.
+   operator's address on an unsigned read. `pool-claim` is the one public
+   op that writes: it sets one pool job's claimant to the asker, checked
+   against the role the asker's own daemon reports, and adds, removes or
+   reorders no job; a forged claim takes a job off the pool for a role's
+   holder, which `fabric-ctl <holder> pool-list` shows.
 5. An action (`sign.mjs` `ACTION_OPS`) is answered only when it carries
    an Ed25519 signature over its canonical form by the key the operator's
    host commits as `operator_key`; it lives at most 600 s, is refused

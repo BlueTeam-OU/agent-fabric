@@ -622,7 +622,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - Every reply arrives, gaps named, no secret; `fabric-ctl` exits 1 on
   silence or a failed action (§5 rules 6–9).
 - A 2026-09-27 — actions run beside the read loop, one per kind (§5 rule 12).
-- A 2026-09-27 — each operation's answer budget (§5 rule 12).
+- A 2026-09-27 — each op's answer budget (§5 rule 12).
 - A 2026-09-28 — `jobs` and `jobs-add` carry the job list (§5 rule 13).
 - A 2026-09-29 — `secrets-migrate`, Doppler to the store (§5 rule 14).
 - A 2026-09-30 — rule 14 withdrawn; signing key in the operator's
@@ -632,8 +632,9 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-10-07 — `secrets-selftest` (§5 rule 17).
 - A 2026-10-08 — the state record says what can be resumed (§5 rule 16).
 - A 2026-10-08 — op table matches ops.mjs; three public ops (§5 rule 4).
-- Keywords: control plane, agentd, fabric-ctl, ops, keys, usage,
-  tokens, drain, operator_key, linger, session state, resume, tools, pool.
+- Keywords: control plane, agentd, fabric-ctl, ops, ping, keys, usage,
+  recall, tokens, memory, bundle, drain, keygen, linger,
+  resume, tools, pool.
 ### ADR-030 — Presence replaces HELLO and GOODBYE (Accepted)
 
 - Whether a session runs is the control agent's answer from its process
