@@ -92,15 +92,16 @@ fi
 # measured, and pinned in tests/test_githooks_cli.py). Anything else
 # undeclared is refused with what to add. A merge commit is exempt (it
 # counts as a merge).
-# A merge being made has MERGE_HEAD; a merge being amended (--amend
-# --no-edit) has none, but HEAD is that merge and the message keeps its
-# subject: both are the merge, and exempt. A new commit on top of a merge
-# writes its own subject and declares its kind (review of #120, Codex).
+# A merge being made has MERGE_HEAD. A merge being amended has none: it is
+# told by HEAD being a merge and `--amend` in the argv of the git that runs
+# this hook (its parent; no other signal reaches a hook, and a subject match
+# also exempted `commit -C HEAD` on top of a merge, review of #120). An
+# unreadable argv exempts nothing.
 is_merge=0
 if [[ -f "$(git rev-parse --git-path MERGE_HEAD 2>/dev/null)" ]]; then
     is_merge=1
-elif [[ "$(git rev-list --parents -n 1 HEAD 2>/dev/null | wc -w)" -gt 2 \
-      && "$(printf '%s\n' "$body" | sed -n '1p')" == "$(git log -1 --format=%s HEAD 2>/dev/null)" ]]; then
+elif [[ "$(git rev-list --parents -n 1 HEAD 2>/dev/null | wc -w)" -gt 2 ]] \
+     && tr '\0' '\n' < "/proc/$PPID/cmdline" 2>/dev/null | grep -qx -- '--amend'; then
     is_merge=1
 fi
 if (( ! is_merge )); then

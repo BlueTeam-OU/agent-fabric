@@ -472,7 +472,13 @@ def run() -> None:
           rc == 0 and not has(r"^Kind:", msg()), f"rc={rc}\n{err}")
     check("a new commit on top of a merge still declares its kind",
           try_commit("src/a.txt", "after the merge", kind=False) == 1, f"admitted\n{err}")
+    check("…even one that reuses the merge's own subject (review of #120)",
+          try_commit("src/a.txt", "fold side", kind=False) == 1, f"admitted\n{err}")
+    rc = commit_rc("commit", "-q", "-C", "HEAD", kind=False)
+    check("…or its whole message (commit -C HEAD)", rc == 1, f"rc={rc}\n{err}")
     git("reset", "-q", "--hard")
+    rc = commit_rc("commit", "-q", "--amend", "-m", "fold side, reworded\n\nwrapped onto\na second line", kind=False)
+    check("a merge reworded by --amend is still the merge", rc == 0, f"rc={rc}\n{err}")
 
     # What git runs the hook for, measured on 2.56 and pinned here: a plain
     # `git revert` and a rebase's picks run none, so a branch made before
