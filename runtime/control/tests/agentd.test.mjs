@@ -522,3 +522,36 @@ test('agentd: the resident daemon samples memory pressure into its own state fro
     } finally { child.kill('SIGTERM'); await exited; }
   } finally { r.close(); }
 });
+
+test('agentd: the resident daemon writes the tools report at its start through the real bin/fabric-tools and answers it in tools; --once writes none', async () => {
+  const state = scratch('agentd-state-');
+  const report = path.join(state, 'agents', whoami().agent, 'tools.json');
+  // bin/fabric-tools execs AGENT_FABRIC_PYTHON (its documented override for a
+  // test): a fake interpreter, so no registry proof runs.
+  const doc = { projects: ['gzapp'], ok: false, tools: [{ project: 'gzapp', name: 'pnpm', status: 'missing', found: '', version: '11', where: 'account', optional: false, why: 'x' }] };
+  const py = path.join(scratch('agentd-py-'), 'python');
+  fs.writeFileSync(py, `#!/usr/bin/env bash\ncat <<'J'\n${JSON.stringify(doc)}\nJ\nexit 1\n`, { mode: 0o755 });
+  const env = { AGENT_FABRIC_STATE_DIR: state, AGENT_FABRIC_PYTHON: py };
+  const r = relay([]);
+  await r.listen();
+  try {
+    const once = await runOnce(r.url(), env);
+    assert.equal(once.status, 0, once.stderr);
+    assert.equal(fs.existsSync(report), false, '--once writes no report');
+    const waits = r.hits.filter(h => h.startsWith('/api/wait?')).length;
+    const child = spawn('node', [AGENTD], { env: { ...ownEnv(), HOME: scratchHome(), CLAUDE_BRIDGE_URL: r.url(), FABRIC_CONTROL_CHANNEL: 'test:control', ...env } });
+    let stderr = ''; child.stderr.on('data', d => { stderr += d; });
+    const exited = new Promise(res => child.on('close', res));
+    try {
+      const until = async (cond, what) => { const end = Date.now() + 15000; while (!cond()) { if (Date.now() > end) throw new Error(`${what}\n${stderr}`); await new Promise(res => setTimeout(res, 50)); } };
+      await until(() => fs.existsSync(report), 'no tools report was written at start');
+      assert.deepEqual(JSON.parse(fs.readFileSync(report, 'utf8')), doc);
+      await until(() => r.hits.filter(h => h.startsWith('/api/wait?')).length > waits, 'the daemon never waited');
+      r.add('develop-qzapp/user', request({ op: 'tools' }));
+      await until(() => replies(r).some(x => x.op === 'tools'), 'no tools reply');
+      const t = replies(r).find(x => x.op === 'tools').data.tools;
+      assert.equal(t.status, 'ok');
+      assert.deepEqual(t.tools, doc.tools);
+    } finally { child.kill('SIGTERM'); await exited; }
+  } finally { r.close(); }
+});

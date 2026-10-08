@@ -16,6 +16,7 @@
 //   fabric-ctl <login|all> presence                 whether each has a session, since when, as what — any
 //                                                   placed account may ask this one (ops.mjs PUBLIC_OPS)
 //   fabric-ctl <login|all> jobs                     each account's open jobs (bin/fabric-jobs; ADR-037)
+//   fabric-ctl <login|all> tools                    each account's missing required tools, per project (tools.mjs)
 //   fabric-ctl <login> jobs-add [--topic T] [--project P] [--priority P] [--] "<title>"   an ACTION: the owner's job on that
 //                                                   login's list, source `owner` (ADR-037 rule 4)
 //   fabric-ctl <holder> pool-add --role R [--topic T] [--project P] [--priority P] [--] "<title>"   an ACTION: a job
@@ -221,7 +222,7 @@ export function rows(expected, replies) {
     return { account: e.login, host: e.host, status: 'ok', op: r.op, latency_ms: r.latency_ms ?? null,
              email: d.identity?.claude_account?.email ?? (d.identity?.claude_account?.via === 'setup-token' ? `setup-token ${d.identity.claude_account.token_sha256_12}` : null), role: d.identity?.role ?? null,
              five_hour: d.usage?.five_hour ?? null, seven_day: d.usage?.seven_day ?? null, usage_status: d.usage?.status ?? null,
-             keys: d.keys ?? null, fabric: d.fabric ?? null, session: d.session ?? null, script: d.script ?? null, recall: d.recall ?? null, tokens: d.tokens ?? null, memory: d.memory ?? null, machine: d.host ?? null, disk: d.disk ?? null, accounts: d.accounts ?? null, upgrade: d.upgrade ?? null, secretsSync: d['secrets-sync'] ?? null, presence: d.presence ?? null, jobs: d.jobs ?? null, jobsAdd: d['jobs-add'] ?? null, poolAdd: d['pool-add'] ?? null, local: d.local ?? null, localPrune: d['local-prune'] ?? null, selftest: d['secrets-selftest'] ?? null, agentd: d.agentd ?? null };
+             keys: d.keys ?? null, fabric: d.fabric ?? null, session: d.session ?? null, script: d.script ?? null, recall: d.recall ?? null, tokens: d.tokens ?? null, memory: d.memory ?? null, machine: d.host ?? null, disk: d.disk ?? null, accounts: d.accounts ?? null, upgrade: d.upgrade ?? null, secretsSync: d['secrets-sync'] ?? null, presence: d.presence ?? null, jobs: d.jobs ?? null, tools: d.tools ?? null, jobsAdd: d['jobs-add'] ?? null, poolAdd: d['pool-add'] ?? null, local: d.local ?? null, localPrune: d['local-prune'] ?? null, selftest: d['secrets-selftest'] ?? null, agentd: d.agentd ?? null };
   });
 }
 
@@ -301,6 +302,20 @@ export function table(op, rs) {
       // What an account sent reaches this terminal escaped (esc), like every other table.
       r.jobs.jobs.forEach((j, i) => lines.push(esc(`${(i ? '' : r.account).padEnd(22)} ${String(j.id).padEnd(5)} ${String(j.state).padEnd(9)} ${String(j.priority === undefined ? 'normal' : j.priority ?? '?').padEnd(8)} ${String(j.project ?? '-').padEnd(14)} ${j.title}`
         + `${j.topic ? ` [${j.topic}]` : ''}${j.source !== 'self' ? ` (${j.source})` : ''}${j.blocked_on ? ` — on ${j.blocked_on}` : ''}`)));
+    }
+    return lines.join('\n');
+  }
+  if (op === 'tools') {
+    for (const r of rs) {
+      const t = r.tools;
+      if (r.status !== 'ok' || !t) { lines.push(`${r.account.padEnd(22)} ${r.status}`); continue; }
+      if (t.status === 'none') { lines.push(`${r.account.padEnd(22)} no report yet`); continue; }
+      if (t.status !== 'ok') { lines.push(`${r.account.padEnd(22)} tools ${esc(t.status)}${t.error ? `: ${esc(t.error)}` : ''}`); continue; }
+      const age = t.age_s < 120 ? `${t.age_s} s` : t.age_s < 7200 ? `${Math.round(t.age_s / 60)} min` : t.age_s < 172800 ? `${Math.round(t.age_s / 3600)} h` : `${Math.round(t.age_s / 86400)} days`;
+      const missing = t.tools.filter(x => x && x.status !== 'ok' && !x.optional);
+      if (!missing.length) { lines.push(`${r.account.padEnd(22)} nothing required is missing (report ${age} old)`); continue; }
+      missing.forEach((x, i) => lines.push(`${(i ? '' : r.account).padEnd(22)} ${esc(x.project).padEnd(14)} ${esc(x.name).padEnd(16)} ${esc(x.status).padEnd(8)} needs ${esc(x.version || 'any')}, ${esc(x.where || '?')}`
+        + (i === missing.length - 1 ? `  (report ${age} old)` : '')));
     }
     return lines.join('\n');
   }
@@ -546,7 +561,7 @@ export function targetsOf(targets, placed) {
 export async function main(argv = process.argv.slice(2), { registry, fetchImpl } = {}) {
   let args;
   try { args = parseArgs(argv); } catch (e) { console.error(`fabric-ctl: ${e.message}`); return 2; }
-  if (args.help || (!args.targets.length && args.op !== 'keygen')) { console.error('usage: fabric-ctl <login|all> [status|usage|identity|keys|fabric|session|script|recall|host|disk|accounts|ping] [--json] [--timeout S]\n       fabric-ctl <login|all> tokens [--days N]\n       fabric-ctl <login|all> memory --out <dir>\n       fabric-ctl <login|all> upgrade claude [--version V]\n       fabric-ctl <login|all> upgrade fabric   (every account to this checkout\'s origin/main, then bootstrap)\n       fabric-ctl <login|all> secrets-sync [--expect SHA12] [--restart]\n       fabric-ctl <login|all> presence   (any placed account may ask)\n       fabric-ctl <login|all> jobs\n       fabric-ctl <login> jobs-add [--topic T] [--project P] [--priority P] [--] "<title>"\n       fabric-ctl <holder> pool-add --role R [--topic T] [--project P] [--priority P] [--] "<title>"\n       fabric-ctl <login|all> secrets-selftest\n       fabric-ctl <login|all> local\n       fabric-ctl <login|all> local-prune\n       fabric-ctl <login|all> states [--follow] [--json]\n       fabric-ctl keygen [--force]'); return args.help ? 0 : 2; }
+  if (args.help || (!args.targets.length && args.op !== 'keygen')) { console.error('usage: fabric-ctl <login|all> [status|usage|identity|keys|fabric|session|script|recall|host|disk|accounts|ping] [--json] [--timeout S]\n       fabric-ctl <login|all> tokens [--days N]\n       fabric-ctl <login|all> memory --out <dir>\n       fabric-ctl <login|all> upgrade claude [--version V]\n       fabric-ctl <login|all> upgrade fabric   (every account to this checkout\'s origin/main, then bootstrap)\n       fabric-ctl <login|all> secrets-sync [--expect SHA12] [--restart]\n       fabric-ctl <login|all> presence   (any placed account may ask)\n       fabric-ctl <login|all> jobs\n       fabric-ctl <login|all> tools   (each account: its missing required tools, from its hourly report)\n       fabric-ctl <login> jobs-add [--topic T] [--project P] [--priority P] [--] "<title>"\n       fabric-ctl <holder> pool-add --role R [--topic T] [--project P] [--priority P] [--] "<title>"\n       fabric-ctl <login|all> secrets-selftest\n       fabric-ctl <login|all> local\n       fabric-ctl <login|all> local-prune\n       fabric-ctl <login|all> states [--follow] [--json]\n       fabric-ctl keygen [--force]'); return args.help ? 0 : 2; }
   if (args.op === 'keygen') return keygen(args, { registry });
   const { expected, everyone, refused: notAsked } = targetsOf(args.targets, placements(registry));
   if (notAsked) { console.error(`fabric-ctl: ${notAsked}`); return 2; }

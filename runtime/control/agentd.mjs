@@ -63,6 +63,7 @@ import { stateWatcher, STATE_POLL_MS } from './sessions.mjs';
 import { secretsSync } from './secrets.mjs';
 import { secretsSelftest } from './selftest.mjs';
 import { sampler, SAMPLE_INTERVAL_MS } from './pressure.mjs';
+import { startToolsReport } from './tools.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 export const SEEN_MAX = 256;
@@ -335,6 +336,10 @@ export async function main(argv = process.argv.slice(2)) {
     const keep = () => { if (!accountSlugs(accountsDir()).length) return; keeper.refresh().then(r => { for (const a of r.accounts ?? []) if (a.status !== 'ok') console.error(`agentd: account ${a.slug}: ${a.status}${a.error ? ` (${a.error})` : ''}`); }).catch(e => console.error(`agentd: accounts: ${e.message}`)); };
     setTimeout(keep, 30000).unref();
     setInterval(keep, ACCOUNTS_KEEPALIVE_MS).unref();
+    // The tools report (tools.mjs): at start, so a reboot or a new registry
+    // is answered at once, and every hour. The proofs run in the background
+    // and never delay a reply.
+    startToolsReport();
     // Only the resident daemon samples: a --once run would add a lone
     // sample with no minute behind it.
     const pressure = sampler();
