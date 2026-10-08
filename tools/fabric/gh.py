@@ -62,6 +62,23 @@ class GhError(Exception):
         self.stdout = stdout
 
 
+# `gh pr checks` with nothing to list prints no table and no JSON — not
+# even `[]` under --json — but this one line on stderr, and exits 1, the
+# code it also uses for a failing check. Measured on gh 2.87.3
+# (2026-10-09): "no required checks reported on the '<head>' branch" when
+# checks exist but none is required, "no checks reported on the '<head>'
+# branch" when the head has none at all, --required or not. Read as an
+# unreadable lookup, it made wait-merged give up on a PR that merged
+# minutes later (#128).
+_NO_CHECKS = re.compile(r"no (?:required )?checks reported on the '.*' branch")
+
+
+def no_checks_reported(e: GhError) -> bool:
+    """Whether a failed `gh pr checks` was gh's answer "there are none":
+    zero checks, a known answer, never an unknown one."""
+    return bool(_NO_CHECKS.fullmatch(e.reason))
+
+
 # origin's URL on github.com: scp-like or with a scheme, `.git` optional.
 _ORIGIN = re.compile(r"^(?:[^@/:\s]+@github\.com:|(?:https|ssh|git)://(?:[^@/\s]+@)?github\.com/)"
                      r"(?P<repo>[A-Za-z0-9._-]+/[A-Za-z0-9._-]+?)(?:\.git)?/?$")
