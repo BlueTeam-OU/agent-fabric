@@ -121,10 +121,12 @@ def main() -> int:
         os.makedirs(f"{fixture}/runtime")
         os.makedirs(f"{fixture}/tools/fabric")
         os.makedirs(f"{fixture}/projects")
-        for rel in ("runtime/identity.py", "tools/fabric/workingcopy.py", "tools/fabric/roots.py",
-                    "projects/registry.json"):
+        for rel in ("runtime/identity.py", "tools/fabric/workingcopy.py", "tools/fabric/roots.py"):
             with open(os.path.join(HERE, rel), encoding="utf-8") as src:
                 put(f"{fixture}/{rel}", src.read())
+        # Its own registry, never the live one (ADR-045 §5 rule 2): the launch
+        # starts in no project's working copy, so no project is needed.
+        put(f"{fixture}/projects/registry.json", json.dumps({"projects": {}}))
         login = pwd.getpwuid(os.getuid()).pw_name
         put(f"{state}/agents/{login}/binding.json", json.dumps({"agent": login, "role": "backend-dev"}))
         put(f"{tmp}/bin/ori", "#!/usr/bin/env bash\nexit 0\n", 0o755)

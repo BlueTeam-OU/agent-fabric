@@ -11,3 +11,9 @@ this frozen copy: `tests/test_routing.py` (every case built on
 `scratch_root`), `tests/test_model_profile.py`,
 `tests/test_launch_cli.py` and the dispatch guard's suite.
 `tests/test_routing.py` asserts the committed policy itself.
+
+`profiles.json` and `policies/review-grade.json` are the operator half
+(ADR-045 §5 rule 2: the routing overlay and the review grade are
+instance data), frozen on 2026-10-08 from the live files with the
+profile's roles and agents emptied, so `tests/test_launch_cli.py`
+builds its fixture fabric without reading the live ones.
