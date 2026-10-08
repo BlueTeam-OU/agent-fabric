@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { scratch } from '../../../tests/scratch.mjs';
-import { waitsFrom, readWaits, askHolder, placedAccounts, Unreadable, unsent, relayError, QUEUE_CALL_TIMEOUT_MS, boundCall } from '../queue.mjs';
+import { waitsFrom, readWaits, askHolder, placedAccounts, Unreadable, unsent, relayError, QUEUE_CALL_TIMEOUT_MS, QUEUE_BUDGET_MS, boundCall, relay } from '../queue.mjs';
 
 const A = '01a11a18-4728-7d8b-afd9-0edb2d30a59c', B = '01a11a19-0bea-70c7-b667-1e1e5a74dbe1';
 const rec = (from, waits_on, extra = {}) => ({ content: JSON.stringify({ v: 1, kind: 'state', from, ts: '2026-10-08T12:00:00Z', sessions: [], ...(waits_on ? { waits_on } : {}), ...extra }) });
@@ -68,6 +68,8 @@ function channel(onRequest) {
   return { rows, call };
 }
 const cfg = { channel: 'c:control', state_channel: 's:state:control', ttl_s: 30 };
+// The test process is no queue.mjs run: its budget is the test's to give.
+const ALWAYS = () => 1e9;
 
 test('askHolder: only the holder\'s reply to this request counts; a forged one is skipped', async () => {
   let sent;
@@ -75,7 +77,7 @@ test('askHolder: only the holder\'s reply to this request counts; a forged one i
     { v: 1, kind: 'reply', in_reply_to: req.id, from: 'h/forger', op: req.op, data: { 'pool-claim': { status: 'claimed', job: { id: 'p1' } } } },
     { v: 1, kind: 'reply', in_reply_to: 'other', from: 'h/user', op: req.op, data: { 'pool-claim': { status: 'claimed' } } },
     { v: 1, kind: 'reply', in_reply_to: req.id, from: 'h/user', op: req.op, data: { 'pool-claim': { status: 'refused', reason: 'no' } } }]; });
-  const got = await askHolder({ call, cfg, from: 'h/py', holder: 'h/user', op: 'pool-claim', args: { id: 'p1' }, waitMs: 2000 });
+  const got = await askHolder({ call, cfg, from: 'h/py', holder: 'h/user', op: 'pool-claim', args: { id: 'p1' }, waitMs: 2000, left: ALWAYS });
   assert.deepEqual(got, { status: 'refused', reason: 'no' });
   assert.deepEqual([sent.to, sent.from, sent.args, sent.kind, sent.op], [['h/user'], 'h/py', { id: 'p1' }, 'request', 'pool-claim']);
   assert.equal(sent.ttl_s, 2, 'the request lives as long as the asker waits, not the channel\'s 30 s');
@@ -84,10 +86,10 @@ test('askHolder: only the holder\'s reply to this request counts; a forged one i
 test('askHolder: a relay that fails after the request was posted says it was sent', async () => {
   let posted = false;
   const call = async (p, init) => { if (init?.method === 'POST') { posted = true; return { id: 'm1' }; } throw Object.assign(new Error('down'), { status: 502 }); };
-  await assert.rejects(askHolder({ call, cfg, from: 'h/py', holder: 'h/user', op: 'pool-claim', args: { id: 'p1' }, waitMs: 500 }), e => e.sent === true && e.status === 502);
+  await assert.rejects(askHolder({ call, cfg, from: 'h/py', holder: 'h/user', op: 'pool-claim', args: { id: 'p1' }, waitMs: 500, left: ALWAYS }), e => e.sent === true && e.status === 502);
   assert.ok(posted);
   const refused = async () => { throw Object.assign(new Error('no'), { status: 403 }); };
-  await assert.rejects(askHolder({ call: refused, cfg, from: 'h/py', holder: 'h/user', op: 'pool-claim', args: { id: 'p1' }, waitMs: 500 }), e => e.sent === undefined);
+  await assert.rejects(askHolder({ call: refused, cfg, from: 'h/py', holder: 'h/user', op: 'pool-claim', args: { id: 'p1' }, waitMs: 500, left: ALWAYS }), e => e.sent === undefined);
 });
 
 test('who is placed: an unreadable registry is an error, never nobody', () => {
@@ -102,7 +104,7 @@ test('who is placed: an unreadable registry is an error, never nobody', () => {
 
 test('askHolder: a holder that does not answer is null, never an answer', async () => {
   const { call } = channel(() => []);
-  assert.equal(await askHolder({ call, cfg, from: 'h/py', holder: 'h/user', op: 'pool-list', args: { role: 'python-dev' }, waitMs: 500 }), null);
+  assert.equal(await askHolder({ call, cfg, from: 'h/py', holder: 'h/user', op: 'pool-list', args: { role: 'python-dev' }, waitMs: 500, left: ALWAYS }), null);
 });
 
 test('unsent: only a refused or unconnected post certainly left nothing', () => {
@@ -114,14 +116,36 @@ test('unsent: only a refused or unconnected post certainly left nothing', () => 
   assert.equal(unsent({ timedOut: true, message: '/api/send -> no answer within 30 s' }), false, 'a timed-out post may have been stored');
 });
 
-test('each relay call is bounded under jobs.py\'s kill, so its own words reach the person', () => {
+test('the run has one budget under jobs.py\'s kill, and every call takes at most what is left', () => {
   const py = fs.readFileSync(new URL('../../../tools/fabric/jobs.py', import.meta.url), 'utf8');
   const outer = Number(py.match(/^QUEUE_TIMEOUT_S = (\d+)$/m)?.[1]);
-  assert.ok(outer > 0 && QUEUE_CALL_TIMEOUT_MS <= outer * 1000 / 2, `${QUEUE_CALL_TIMEOUT_MS} ms against ${outer} s`);
-  // And relay()'s calls carry it.
+  assert.ok(outer > 0 && QUEUE_BUDGET_MS <= outer * 1000 - 5000, `${QUEUE_BUDGET_MS} ms against ${outer} s, with room for node to start`);
+  assert.ok(QUEUE_CALL_TIMEOUT_MS <= QUEUE_BUDGET_MS);
   const seen = [];
-  boundCall('tok', { relay_url: 'http://r' }, (tok, p, opts) => seen.push(opts))('/api/send', { method: 'POST' });
-  assert.deepEqual(seen, [{ relayUrl: 'http://r', timeoutMs: QUEUE_CALL_TIMEOUT_MS, method: 'POST' }]);
+  const fake = (tok, p, opts) => seen.push(opts);
+  boundCall('tok', { relay_url: 'http://r' }, fake, ALWAYS)('/api/send', { method: 'POST' });
+  boundCall('tok', { relay_url: 'http://r' }, fake, () => 3000)('/x');
+  boundCall('tok', { relay_url: 'http://r' }, fake, () => -5)('/x');
+  assert.deepEqual(seen.map(o => o.timeoutMs), [QUEUE_CALL_TIMEOUT_MS, 3000, 1], 'a spent budget is a call that times out at once, never an unbounded one');
+  assert.deepEqual(seen[0], { relayUrl: 'http://r', timeoutMs: QUEUE_CALL_TIMEOUT_MS, method: 'POST' });
+});
+
+test('relay() itself: its calls go through the bound, with the token it resolved', () => {
+  const env = { HOME: process.env.HOME, CLAUDE_BRIDGE_AUTH_TOKEN: process.env.CLAUDE_BRIDGE_AUTH_TOKEN };
+  process.env.HOME = scratch('queue-home-'); process.env.CLAUDE_BRIDGE_AUTH_TOKEN = 'env-tok';
+  try {
+    const seen = [];
+    const r = relay({ agent: 'x', project: undefined }, { relay_url: 'http://r' }, { call: (tok, p, opts) => seen.push([tok, p, opts]), left: () => 4000 });
+    r.call('/api/messages?x=1');
+    assert.deepEqual(seen, [['env-tok', '/api/messages?x=1', { relayUrl: 'http://r', timeoutMs: 4000 }]]);
+  } finally { for (const [k, v] of Object.entries(env)) if (v === undefined) delete process.env[k]; else process.env[k] = v; }
+});
+
+test('askHolder: the wait ends when the run\'s budget does', async () => {
+  const asked = [];
+  const call = async (p, init) => { asked.push(init?.method ?? 'GET'); return init?.method === 'POST' ? { id: 'm1' } : { messages: [] }; };
+  assert.equal(await askHolder({ call, cfg, from: 'h/py', holder: 'h/user', op: 'pool-list', args: { role: 'python-dev' }, waitMs: 5000, left: () => 0 }), null);
+  assert.deepEqual(asked, ['POST'], 'posted, and no poll after the budget ran out');
 });
 
 test('relayError: a relay that did not answer is said as that, not as unreachable', () => {
