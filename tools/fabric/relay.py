@@ -16,10 +16,13 @@ from __future__ import annotations
 import json
 import os
 import shlex
+import sys
 import urllib.parse
 import urllib.request
 
-FABRIC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import roots  # noqa: E402
+
 TOKEN_NAME = "CLAUDE_BRIDGE_AUTH_TOKEN"
 TIMEOUT = 30
 # The relay's page bound for a listing (measured on Claude-Bridge 1.3.0,
@@ -28,12 +31,15 @@ PAGE = 500
 
 
 def config_path(project: str) -> str:
-    return os.path.join(FABRIC, "projects", project, "integration", "gzcoord", "config.json")
+    # A project's integration is the operator's; the checkout the code is in
+    # stands in for the operator when none is exported, as this module took
+    # its tree from its own location, never AGENT_FABRIC_ROOT.
+    return roots.project_integration(project, "gzcoord", "config.json", engine=roots.code_root())
 
 
 def integrated_projects() -> list[str]:
     """Every project the fabric holds a GZCoord integration for."""
-    root = os.path.join(FABRIC, "projects")
+    root = roots.projects_dir(engine=roots.code_root())
     return sorted(p for p in os.listdir(root) if os.path.isfile(config_path(p)))
 
 

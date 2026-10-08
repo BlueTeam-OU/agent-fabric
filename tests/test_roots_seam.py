@@ -37,7 +37,6 @@ EXEMPT = {
     "tools/fabric/adr.py": "fabric-coordinator's (authority.json excluding)",
     "tools/fabric/lint.py": "fabric-coordinator's (authority.json excluding)",
     "tools/fabric/routing.py": "fabric-coordinator's (authority.json excluding): routing/policies/review-grade.json",
-    "tools/fabric/relay.py": "fabric-coordinator's (authority.json excluding): projects/<id>/integration/gzcoord",
     "tools/fabric/install_agent_files.py": "fabric-coordinator's (authority.json excluding): locale files",
     "tools/fabric/secretstore/lineage.py": "fabric-coordinator's (authority.json excluding): keys_dir",
     "tools/fabric/secretstore/trust.py": "git-shows identities/keys/ from the keys' checkout (origin/main), a path inside that repository; moves with the keys (ADR-045 §6)",
