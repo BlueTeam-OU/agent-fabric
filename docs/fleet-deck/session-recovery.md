@@ -57,9 +57,9 @@ where this plan and that note differ, the note is right.
    labelled with its account, with three panes, each opened by moveto
    as the account with a fixed mode, so no pane runs a person's text:
    - **harness** (the largest): after a restart, `moveto <account>
-     --resume` when the account's newest state record from before the
-     restart listed a live session (working, idle or blocked), however
-     stale that record has become; otherwise `moveto <account> --wait`,
+     --resume` when the account's session was running before the restart,
+     as the deck recorded it (`tab-states.md`, `before`), not the stream's
+     newest record; otherwise `moveto <account> --wait`,
      which shows one line and does `--resume` on Enter. An open shell
      with no session is not a running agent: it comes back dormant. The
      deck never activates a dormant harness itself.
