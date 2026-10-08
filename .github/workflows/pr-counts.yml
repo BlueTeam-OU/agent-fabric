@@ -1,0 +1,65 @@
+name: pr-counts
+
+# The pull request's commit split, as a check whose NAME is the count
+# ("commits: 3 work, 1 fix"), so the owner sees it in the PR's checks
+# list whoever asks for the arming (the owner, 2026-10-08). The split is
+# the gate's own (tools/fabric/github/pr_gate.py count_commits, through
+# commit_class), read from the PR's head: the two agree unless the PR
+# itself changes how commits are classified, when this check shows the
+# PR's new rule. It informs: its conclusion is neutral and it is not a
+# required check.
+on:
+  pull_request:
+
+# Its own file, so the one job that writes to GitHub holds the one
+# permission it needs; ci.yml's jobs stay read-only.
+permissions:
+  contents: read
+  checks: write
+
+concurrency:
+  group: pr-counts-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  counts:
+    # A fork's or Dependabot's pull request runs with a read-only token, so
+    # the check cannot be written: the job is skipped there, never red.
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - name: The split, published as a check named by it
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          BASE: ${{ github.event.pull_request.base.ref }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          git fetch -q origin "$BASE"
+          name="$(python3 - <<'PY'
+          import os, sys
+          sys.path.insert(0, "tools/fabric/github")
+          import pr_gate
+          c = pr_gate.count_commits(int(os.environ["PR"]), os.environ["GH_REPO"], os.environ["BASE"], os.environ["HEAD_SHA"])
+          if c is None:
+              print("commits: unknown (the range could not be read)")
+          else:
+              extra = f", {c['merge']} merge" if c["merge"] else ""
+              extra += f", {c['netted']} netted" if c["netted"] else ""
+              print(f"commits: {c['work']} work, {c['fix']} fix{extra}")
+          PY
+          )"
+          echo "$name"
+          gh api "repos/$GH_REPO/check-runs" -f name="$name" -f head_sha="$HEAD_SHA" \
+            -f status=completed -f conclusion=neutral \
+            -f "output[title]=$name" \
+            -f "output[summary]=The split pr-gate.sh reads: review fixes are the commits commit_class counts as fix (an Answers: trailer or a review-naming subject)." >/dev/null

@@ -71,6 +71,23 @@ def main() -> int:
         r = run()
         check("freshness: a second run changes nothing", r.stdout.startswith("  =  "), r.stdout + r.stderr)
 
+        # The PR-counts guard (hooks/pr-counts.py) rides Stop: one entry, at
+        # this checkout's path, beside the account's own Stop hook and the
+        # session-state one; an old checkout's entry replaced.
+        counts = f'python3 "{HERE}/runtime/claude-code/hooks/pr-counts.py"'
+        doc = json.load(open(settings))
+        doc["hooks"]["Stop"] = doc["hooks"]["Stop"] + [
+            {"hooks": [{"type": "command", "command": 'python3 "/old/runtime/claude-code/hooks/pr-counts.py"'}]}]
+        write(doc)
+        r = run()
+        stops = [h["command"] for e in json.load(open(settings))["hooks"]["Stop"] for h in e["hooks"]]
+        check("pr-counts: one entry on Stop, this checkout's, the old one gone",
+              [c for c in stops if "pr-counts.py" in c] == [counts], stops)
+        check("pr-counts: the account's own Stop hook and session-state kept",
+              "stop.sh" in stops and HOOK in stops, stops)
+        r = run()
+        check("pr-counts: a second run changes nothing", r.stdout.startswith("  =  "), r.stdout + r.stderr)
+
         raw = '{"hooks": {"Notification": {"hooks": []}}}'
         with open(settings, "w") as f:
             f.write(raw)

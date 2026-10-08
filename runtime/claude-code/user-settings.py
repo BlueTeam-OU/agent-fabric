@@ -248,8 +248,39 @@ def with_freshness(hooks: dict) -> dict:
     return hooks
 
 
+# A reply that states a pull request's status carries its commit counts
+# (hooks/pr-counts.py), at user scope so every session of the account is
+# held to it (the owner, 2026-10-08). One Stop entry, by script name.
+PR_COUNTS = "pr-counts.py"
+
+
+def pr_counts_hook() -> dict:
+    return {"hooks": [{
+        "type": "command",
+        "command": f'python3 "{os.path.join(FABRIC_ROOT, "runtime", "claude-code", "hooks", PR_COUNTS)}"',
+        "timeout": 5}]}
+
+
+def with_one(hooks: dict, event: str, script: str, entry: dict) -> dict:
+    """`hooks` with exactly one entry for `script` on `event`, the current
+    one; every other entry kept as it was."""
+    hooks = dict(hooks) if isinstance(hooks, dict) else {}
+    kept = []
+    for e in hooks.get(event) or []:
+        if not isinstance(e, dict) or not isinstance(e.get("hooks"), list):
+            kept.append(e)
+            continue
+        mine = [h for h in e["hooks"] if not (isinstance(h, dict) and script in str(h.get("command", "")))]
+        if len(mine) == len(e["hooks"]):
+            kept.append(e)
+        elif mine:
+            kept.append({**e, "hooks": mine})
+    hooks[event] = kept + [entry]
+    return hooks
+
+
 def with_fabric_hooks(hooks: dict) -> dict:
-    return with_freshness(with_session_state(with_memory_check(hooks)))
+    return with_one(with_freshness(with_session_state(with_memory_check(hooks))), "Stop", PR_COUNTS, pr_counts_hook())
 
 
 # The environment override is for a test, which must never write the
