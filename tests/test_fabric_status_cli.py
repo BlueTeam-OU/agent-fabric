@@ -16,6 +16,7 @@ import subprocess
 import sys
 import tempfile
 from git_env import git_env, scrub_process_env  # noqa: E402 — tests/, the script's own directory
+scrub_process_env()
 
 # Every git this suite starts, fixture or under test, reads none of the
 # caller's ~/.gitconfig: set here, it reaches the calls that pass no env.
@@ -280,5 +281,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    scrub_process_env()
     sys.exit(main())

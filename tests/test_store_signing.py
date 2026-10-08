@@ -22,6 +22,8 @@ TOOL = os.path.join(ROOT, "tools", "fabric", "secret_store.py")
 SYNC = os.path.join(ROOT, "tools", "fabric", "secrets_sync.py")
 sys.path.insert(0, os.path.dirname(TOOL))
 import secret_store  # noqa: E402 — the id helpers, beside the CLI under test
+from git_env import scrub_process_env  # noqa: E402 — tests/, the script's own directory
+scrub_process_env()
 
 
 def main() -> int:

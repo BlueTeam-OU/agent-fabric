@@ -20,6 +20,7 @@ import sys
 import tempfile
 import time
 from git_env import git_env, scrub_process_env  # noqa: E402 — tests/, the script's own directory
+scrub_process_env()
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ENROLL = os.path.join(ROOT, "runtime", "provisioning", "secrets", "store-enroll.sh")
@@ -60,7 +61,7 @@ def main() -> int:
         def publish() -> None:
             for a in (["add", "-A"], ["commit", "-q", "--allow-empty", "-m", "identities"],
                       ["update-ref", "refs/remotes/origin/main", "HEAD"]):
-                subprocess.run(fab_git + a, check=True, timeout=30, capture_output=True)
+                subprocess.run(fab_git + a, check=True, timeout=30, capture_output=True, env=git_env())
         # The two homes are born apart: an id's time is its home's creation
         # to the millisecond, and two homes made in one millisecond could not
         # tell a child's birth read on its host from one read on the parent.
@@ -299,5 +300,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    scrub_process_env()
     sys.exit(main())

@@ -44,6 +44,7 @@ import subprocess
 import sys
 import tempfile
 from git_env import git_env, scrub_process_env  # noqa: E402 — tests/, the script's own directory
+scrub_process_env()
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
@@ -1935,5 +1936,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    scrub_process_env()
     sys.exit(main())

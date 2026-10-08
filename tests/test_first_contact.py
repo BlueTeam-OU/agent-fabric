@@ -21,6 +21,7 @@ import subprocess
 import sys
 import tempfile
 from git_env import git_env, scrub_process_env  # noqa: E402 — tests/, the script's own directory
+scrub_process_env()
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ENROLL = os.path.join(HERE, "runtime", "provisioning", "secrets", "store-enroll.sh")
@@ -74,12 +75,12 @@ def main() -> int:
         # origin/main (ADR-042 rule 2); what enrolment certifies counts once
         # it is published there, as a merged identities/keys/ PR is.
         fab_git = ["git", "-C", fab, "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"]
-        subprocess.run(["git", "init", "-q", "-b", "main", fab], check=True, env=BASE_ENV)
+        subprocess.run(["git", "init", "-q", "-b", "main", fab], check=True, env=git_env(BASE_ENV))
 
         def publish() -> None:
             for a in (["add", "-A"], ["commit", "-q", "--allow-empty", "-m", "identities"],
                       ["update-ref", "refs/remotes/origin/main", "HEAD"]):
-                subprocess.run(fab_git + a, check=True, env=BASE_ENV, capture_output=True)
+                subprocess.run(fab_git + a, check=True, env=git_env(BASE_ENV), capture_output=True)
         os.symlink(HERE, os.path.join(t, "kid", "projects", "agent-fabric"))
         with open(os.path.join(t, "hosts.json"), "w") as f:
             json.dump({"version": 1, "hosts": {"far-host": {"ssh": "op@far", "operator": "op", "fabric": fab}},
@@ -261,5 +262,4 @@ esac
 
 
 if __name__ == "__main__":
-    scrub_process_env()
     sys.exit(main())

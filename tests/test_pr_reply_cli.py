@@ -24,6 +24,7 @@ import subprocess
 import sys
 import tempfile
 from git_env import git_env, scrub_process_env  # noqa: E402 — tests/, the script's own directory
+scrub_process_env()
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 UNDER_TEST = os.path.join(ROOT, "runtime", "github", "pr-reply.sh")
@@ -474,5 +475,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    scrub_process_env()
     sys.exit(main())

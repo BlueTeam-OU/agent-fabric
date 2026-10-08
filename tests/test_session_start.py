@@ -16,6 +16,7 @@ import tempfile
 HERE = os.path.dirname(os.path.abspath(__file__))
 import socket
 from git_env import git_env, scrub_process_env  # noqa: E402 — tests/, the script's own directory
+scrub_process_env()
 HOST = socket.gethostname().split('.')[0]
 ROOT = os.path.dirname(HERE)
 HOOK = os.path.join(ROOT, "runtime", "claude-code", "hooks", "session-start.sh")
@@ -586,5 +587,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    scrub_process_env()
     sys.exit(main())

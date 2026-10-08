@@ -16,6 +16,7 @@ ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, os.path.join(ROOT, "tools", "fabric"))
 import adr  # noqa: E402
 from git_env import git_env, scrub_process_env  # noqa: E402 — tests/, the script's own directory
+scrub_process_env()
 
 ZERO = "docs/adr/ADR-000-the-enduring-organization.md"
 ONE = "docs/adr/ADR-001-decision-records.md"
@@ -539,5 +540,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    scrub_process_env()
     sys.exit(main())

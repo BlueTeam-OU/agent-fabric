@@ -17,6 +17,7 @@ sys.path.insert(0, os.path.join(HERE, "tools", "fabric"))
 import gh  # noqa: E402
 import git  # noqa: E402
 from git_env import git_env, scrub_process_env  # noqa: E402 — tests/, the script's own directory
+scrub_process_env()
 
 FAKE = r'''#!/usr/bin/env python3
 import json, os, sys, time
@@ -170,5 +171,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    scrub_process_env()
     sys.exit(main())
