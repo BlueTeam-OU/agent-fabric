@@ -96,7 +96,7 @@ RECOVERY_UID = f"agent-fabric recovery <recovery@{UID_DOMAIN}>"
 
 
 def recovery_pub(fabric: str | None = None) -> str:
-    return roots.recovery_key(fabric)
+    return roots.recovery_key(fabric or None)
 
 
 def _make_recovery_key(homedir: str, passphrase: str) -> tuple[str, str, str]:

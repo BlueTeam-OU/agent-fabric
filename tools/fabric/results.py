@@ -116,7 +116,7 @@ def main_commits(repo: str, since: dt.datetime) -> list[dict]:
 
 def registered_repos() -> list[str]:
     """owner/name of every project in projects/registry.json, from its first GitHub remote."""
-    with open(roots.projects_registry(), encoding="utf-8") as fh:
+    with open(roots.projects_registry(engine=roots.code_root()), encoding="utf-8") as fh:
         doc = json.load(fh)
     out = []
     for proj in (doc.get("projects") or {}).values():

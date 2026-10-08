@@ -102,7 +102,7 @@ def profile_provider(login: str, role: str | None) -> str | None:
     schema gives it (a hand-edited or unmerged checkout runs this without
     the lint), is none."""
     # A test points this at a fixture; nothing else sets it.
-    path = os.environ.get("AGENT_FABRIC_RESUME_PROFILES") or roots.routing_profiles()
+    path = os.environ.get("AGENT_FABRIC_RESUME_PROFILES") or roots.routing_profiles(engine=FABRIC)
     try:
         with open(path, encoding="utf-8") as fh:
             prof = json.load(fh)

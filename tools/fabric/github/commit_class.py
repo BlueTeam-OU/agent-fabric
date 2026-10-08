@@ -58,7 +58,7 @@ def known_repos(registry: str | None = None) -> set[str]:
     name of each of its remotes, lower-cased. An unreadable registry names
     none."""
     try:
-        reg = json.load(open(registry or roots.projects_registry(), encoding="utf-8"))
+        reg = json.load(open(registry or roots.projects_registry(engine=roots.code_root()), encoding="utf-8"))
     except (OSError, ValueError):
         return set()
     names = set()

@@ -41,10 +41,10 @@ class RegistryUnreadable(Exception):
     """projects/registry.json could not be read or is not a registry."""
 
 
-def registry_agent_env(root: str | None = None) -> dict[str, str]:
+def registry_agent_env(root: str | None = None, engine: str | None = None) -> dict[str, str]:
     """Every per-agent name the registry declares, with where: "agent_env"
     for the fabric-wide table, "projects.<id>.agent_env" for a project's."""
-    path = roots.projects_registry(root)
+    path = roots.projects_registry(root or None, engine=engine)
     try:
         with open(path, encoding="utf-8") as fh:
             reg = json.load(fh)
@@ -63,7 +63,7 @@ def registry_agent_env(root: str | None = None) -> dict[str, str]:
     return out
 
 
-def reserved(name: str, root: str | None = None) -> str | None:
+def reserved(name: str, root: str | None = None, engine: str | None = None) -> str | None:
     """Who manages NAME, as a phrase for a refusal; None when it is the
     agent's own. Raises RegistryUnreadable when that cannot be told."""
     if name in IDENTITY_NAMES or name in GIT_NAMES or name in SSH_NAMES:
@@ -75,7 +75,7 @@ def reserved(name: str, root: str | None = None) -> str | None:
     for prefix, who in PREFIXES.items():
         if name.startswith(prefix):
             return f"{who} (every {prefix} name)"
-    where = registry_agent_env(root).get(name)
+    where = registry_agent_env(root, engine).get(name)
     if where:
         return f"projects/registry.json ({where}) and fabric-secrets sync"
     return None

@@ -141,7 +141,7 @@ class Enrol:
     def __init__(self, *, dry: bool, born_now: bool, host_flag: str):
         env = os.environ
         self.dry, self.born_now, self.host_flag = dry, born_now, host_flag
-        self.hosts = roots.hosts_registry(environ=env)
+        self.hosts = roots.hosts_registry(environ=env, engine=ROOT)
         self.hx = env.get("AGENT_FABRIC_HOSTEXEC") or os.path.join(ROOT, "runtime", "hostexec", "hostexec")
         self.org = env.get("AGENT_FABRIC_SECRETS_ORG") or "gzapi-org"
         self.gh = env.get("GH") or "gh"

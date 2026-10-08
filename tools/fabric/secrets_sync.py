@@ -114,7 +114,7 @@ def project_agent_env(root: str | None = None) -> list[str]:
     stopped meaning anything once every clone was named after its project.
     Exported when the store has them; their absence is never a missing name."""
     try:
-        declared = registry_agent_env(root)
+        declared = registry_agent_env(root, ROOT)
     except RegistryUnreadable:
         return []
     # Fabric-wide names first (registry top-level agent_env), then each project's.
@@ -129,7 +129,7 @@ def own_and_unexpected(names, known: list[str], root: str | None = None) -> tupl
     own, unexpected = [], []
     for n in sorted(x for x in names if x not in known):
         try:
-            (unexpected if reserved(n, root) else own).append(n)
+            (unexpected if reserved(n, root, ROOT) else own).append(n)
         except RegistryUnreadable:
             unexpected.append(n)
     return own, unexpected
@@ -141,7 +141,7 @@ def plain_env_names(root: str | None = None) -> list[str]:
     a secret, read from secrets.env by the tool that needs it: a name nobody
     marked is never exported, so a new secret is safe by default."""
     try:
-        reg = json.load(open(roots.projects_registry(root), encoding="utf-8"))
+        reg = json.load(open(roots.projects_registry(root or None, engine=ROOT), encoding="utf-8"))
     except (OSError, ValueError):
         return []
     names: list[str] = []

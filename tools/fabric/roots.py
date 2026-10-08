@@ -10,8 +10,11 @@ this module is the one place that knows which is which, so a reader of
 instance data asks it and the later move is a change here.
 
     engine_root()    AGENT_FABRIC_ROOT when set (a test, a fixture, the
-                     launcher's exports — every tool already honoured
-                     it), else the checkout this file is in. Empty
+                     launcher's exports), else the checkout this file is
+                     in. Not every reader honoured it before this module:
+                     those that took their tree from their own location
+                     (results, usage, new_agent, resume, ...) pass
+                     `engine=code_root()` and keep doing so. Empty
                      counts as unset, as the Python readers took it;
                      `empty_is_set=True` is the one reader that took it
                      as set (gzcoord's paths.fabric_root, after
