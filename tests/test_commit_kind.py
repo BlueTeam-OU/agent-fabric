@@ -32,6 +32,14 @@ CASES = [
     (["git", "commit", "--fil", "--amend"], False, "...of an abbreviated --file"),
     (["git", "commit", "--no-edit", "--amend"], True, "a boolean option before --amend"),
     (["git", "--attr-source", "x", "commit", "--amend"], True, "a global option with a separate value"),
+    # The last of --amend and --no-amend wins, as git applies it: on a merge
+    # HEAD `--amend --no-am` makes a new one-parent commit on top (measured on
+    # git 2.56), which must declare its kind (review of #125, Codex thread).
+    (["git", "commit", "--amend", "--no-amend", "-m", "x"], False, "a later --no-amend negates"),
+    (["git", "commit", "--amend", "--no-am", "-m", "x"], False, "...as a unique prefix of it"),
+    (["git", "commit", "--no-amend", "--amend"], True, "a later --amend wins over --no-amend"),
+    (["git", "commit", "--no-verify", "--amend"], True, "--no-verify is its own option, not a negation"),
+    (["git", "commit", "--amend", "--", "--no-amend"], True, "a --no-amend pathspec after --"),
 ]
 
 

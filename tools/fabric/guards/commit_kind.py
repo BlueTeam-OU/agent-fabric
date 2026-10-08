@@ -16,8 +16,8 @@ merge, and a bare word match `commit -m --amend` (reviews of #120), so the
 argv is walked as git reads it: a long option is resolved by its unique
 prefix against git's own table, an option's value is skipped (`--mess
 --amend` is a message), `--` ends the options, and only --amend or a unique
-prefix of it counts (review of #125). An argv that cannot be
-read exempts nothing.
+prefix of it counts, unless a later --no-amend (or a prefix of it) negates it
+as git does (reviews of #125). An argv that cannot be read exempts nothing.
 
 git runs no commit-msg hook for `git revert`, for a rebase's picks (a
 conflict's `--continue` included) or for its squashes; a reword runs it
@@ -80,7 +80,11 @@ def resolve_long(word: str, options: list[str]) -> str | None:
 
 
 def is_amend(argv: list[str], options: list[str] | None = None) -> bool:
-    """Whether a git argv is `git … commit … --amend …`, read as git reads it."""
+    """Whether a git argv is `git … commit … --amend …`, read as git reads it:
+    the last of --amend and --no-amend (or a unique prefix of either) wins,
+    as git applies a later negation (review of #125)."""
+    table = options if options is not None else COMMIT_LONG_OPTIONS
+    amend = False
     i = 1
     while i < len(argv) and argv[i].startswith("-"):
         i += 2 if argv[i] in GLOBAL_WITH_VALUE else 1
@@ -90,13 +94,16 @@ def is_amend(argv: list[str], options: list[str] | None = None) -> bool:
     while i < len(argv):
         word = argv[i]
         if word == "--":
-            return False
+            break
         if word.startswith("--"):
             if "=" not in word:
-                option = resolve_long(word, options if options is not None else COMMIT_LONG_OPTIONS)
-                if option == "--amend":
-                    return True
-                if option and option.endswith("="):
+                option = resolve_long(word, table)
+                if option is None and word.startswith("--no-"):
+                    if resolve_long("--" + word[5:], table) == "--amend":
+                        amend = False
+                elif option == "--amend":
+                    amend = True
+                elif option and option.endswith("="):
                     i += 1
         elif word.startswith("-") and len(word) > 1:
             # A cluster such as -am: a short option that takes a value ends
@@ -107,7 +114,7 @@ def is_amend(argv: list[str], options: list[str] | None = None) -> bool:
                         i += 1
                     break
         i += 1
-    return False
+    return amend
 
 
 def parent_argv(pid: str) -> list[str] | None:
