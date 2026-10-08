@@ -70,10 +70,16 @@ closed stdout (`--print | head`) ends quietly with 141, as bash's SIGPIPE
 did. The helper processes run on this interpreter (the fleet's pin),
 where the bash ran whichever python3 PATH named. The session inherits
 descriptors 0-2 only (close_fds): the bash passed it every descriptor
-its caller left open, and no caller hands one on (fabric-lease closes its
-lock's before the command; moveto's shell, the control agent and
-fabric-fresh hold none), while a leaked pipe end would hold the caller's
-pipeline open for the session's life. AGENT_FABRIC_RESTART_WAIT_S that
+its caller left open, while a leaked pipe end would hold the caller's
+pipeline open for the session's life. One caller hands one on, to this
+process and never further: bin/fabric-resume's flock on
+<state>/resume.lock, inherited through its exec, which this launcher
+holds for its own life — its restart wait and the sessions it relaunches
+through the shim keep the same descriptor — so that no second activation
+starts while it runs (tools/fabric/resume.py). The harness never gets
+it, so a background child of a session cannot keep it past the launcher.
+Every other caller holds none (fabric-lease closes its lock's before the
+command; moveto's shell, the control agent and fabric-fresh hold none). AGENT_FABRIC_RESTART_WAIT_S that
 is not a number is said in one line before the resume is given up, where
 the bash printed a traceback.
 

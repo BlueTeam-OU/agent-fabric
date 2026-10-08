@@ -15,8 +15,36 @@ and says so: a resume that cannot happen is a fresh start said, never a
 failure (architect-cto's plan for Fleet Deck, 2026-10-07; the upgrade
 path's relaunch made first-class).
 
---print says what it would do, one line, and runs nothing. Exit codes: the
-launcher's when it runs; 2 inside a session or for a bad argument.
+NEVER A SECOND SESSION (docs/fleet-deck/tab-states.md, "What must hold
+whatever the deck does"). It refuses to start any session, resumed or
+fresh, while another one could be running on the account:
+  - it first takes <state>/resume.lock: flock, exclusive, non-blocking, on
+    a descriptor it opens itself and marks inheritable just before it
+    execs the launcher, which therefore holds it for its own life — its
+    restart wait and every session it relaunches — and never hands it to
+    the harness (the launcher's Popen keeps close_fds). The kernel drops it
+    when the launcher exits; there is no pid file to go stale. The pid is
+    written into the file once the lock is taken, and is the launcher's
+    too, since an exec keeps it. Held: refused, naming that pid, or
+    "pid not yet written" in the moment between the two;
+  - then the account's own session state, <state>/session-state.json, as
+    runtime/control/sessions.mjs counts it: an entry in a known state
+    whose recorded process is alive with its recorded start time, or that
+    records no process at all (nothing says it is gone). Any such session,
+    not only the binding's: the binding names the last session started,
+    and one from another terminal may be older. A file that exists and
+    cannot be read is refused too, never read as "no session".
+The lock closes the window the check alone leaves: a session enters the
+state only once it has started, so two activations seconds apart would
+both pass it. A person who runs the launcher by hand bypasses both.
+
+--print says what it would do, one line, and runs nothing; with --print,
+its own or one passed to the launcher after --, no lock is taken: the lock
+is read from /proc/locks, and a refusal is said as a real run says it.
+Exit codes: the launcher's when it runs; 2 inside a session or for a bad
+argument; 3 refused (a lock held, a session alive, its state unreadable),
+said in one `fabric-resume: refused: …` line on stderr; 1 when the lock
+cannot be taken for any other reason.
 
 It chooses resume or fresh, where, and the provider: the one the
 account last launched on (launch-provider.json), unless the arguments name
@@ -27,6 +55,8 @@ Model, effort and prompt stay the launcher's.
 """
 from __future__ import annotations
 
+import errno
+import fcntl
 import glob
 import json
 import os
@@ -47,6 +77,18 @@ SCAN_LINES = 50
 # The harness's session id; runtime/control/sessions.mjs SESSION_ID is the
 # same pattern. Anything else in a binding is no session, never a path.
 SESSION_RE = re.compile(r"^[A-Za-z0-9-]{8,64}$")
+
+
+LOCK_FILE = "resume.lock"
+SESSIONS_FILE = "session-state.json"
+# The hook's states (runtime/claude-code/hooks/session-state.py); an entry
+# in any other is not a session, as sessions.mjs's STATES has it.
+STATES = {"working", "blocked", "idle"}
+REFUSED = 3
+
+
+class Refused(Exception):
+    """`fabric-resume: refused: <message>`, exit REFUSED."""
 
 
 def say(msg: str) -> None:
@@ -132,6 +174,129 @@ def provider_args(extra: list[str], binding: dict | None = None) -> list[str]:
     return ["--provider", p] if p else []
 
 
+def alive(pid: object, start: object, proc: str = "/proc") -> bool:
+    """sessions.mjs's alive(): no recorded pid is alive, since nothing says
+    it is gone; a recorded one is alive while /proc has it with the
+    recorded start time (field 22), which tells a reused pid apart."""
+    # JSON's numbers are JavaScript's there: 12.0 is an integer.
+    pid, start = (int(v) if isinstance(v, float) and v.is_integer() else v for v in (pid, start))
+    if not isinstance(pid, int) or isinstance(pid, bool):
+        return True
+    try:
+        with open(f"{proc}/{pid}/stat", encoding="utf-8", errors="replace") as fh:
+            raw = fh.read()
+    except OSError:
+        return False
+    fields = raw[raw.rfind(")") + 2:].split(" ")
+    if not isinstance(start, int) or isinstance(start, bool):
+        return True
+    return len(fields) > 19 and fields[19] == str(start)
+
+
+def live_sessions(state: str, proc: str = "/proc") -> list[str]:
+    """The ids of the account's live sessions, sorted; Refused when the
+    file is there and cannot be read: unknown is never "none"."""
+    path = os.path.join(state, SESSIONS_FILE)
+    try:
+        with open(path, encoding="utf-8") as fh:
+            doc = json.load(fh)
+    except FileNotFoundError:
+        return []
+    except (OSError, ValueError) as exc:
+        raise Refused(f"cannot tell whether a session is alive: {path} cannot be read ({exc})") from None
+    sessions = doc.get("sessions") if isinstance(doc, dict) else None
+    if not isinstance(sessions, dict):
+        return []
+    return sorted(sid for sid, e in sessions.items()
+                  if isinstance(e, dict) and e.get("state") in STATES and alive(e.get("pid"), e.get("start"), proc))
+
+
+def holder(path: str) -> str:
+    try:
+        with open(path, encoding="utf-8", errors="replace") as fh:
+            pid = fh.read().strip()
+    except OSError:
+        pid = ""
+    return f"pid {pid}" if pid.isdigit() else "pid not yet written"
+
+
+def held_message(path: str) -> str:
+    return (f"another activation holds {path} ({holder(path)}): its launcher runs a session, or waits to "
+            "relaunch one")
+
+
+def lock_held(path: str, locks: str = "/proc/locks") -> bool:
+    """Whether any process holds a flock on path, read from /proc/locks
+    without taking one: --print must never stand in a real activation's
+    way, as a probe lock taken and dropped would for that instant."""
+    try:
+        st = os.stat(path)
+        with open(locks, encoding="ascii", errors="replace") as fh:
+            rows = fh.read().splitlines()
+    except FileNotFoundError:
+        return False
+    except OSError as exc:
+        raise Refused(f"cannot tell whether {path} is held: {exc}") from None
+    for row in rows:
+        f = row.split()
+        # "1: FLOCK  ADVISORY  WRITE 1234 fd:01:5678 0 EOF"; a waiter's row
+        # is "1: -> FLOCK …", and a waiter holds nothing.
+        if len(f) < 6 or f[1] != "FLOCK":
+            continue
+        try:
+            maj, mnr, ino = f[5].split(":")
+            dev, pid = os.makedev(int(maj, 16), int(mnr, 16)), int(f[4])
+            if int(ino) != st.st_ino:
+                continue
+        except ValueError:
+            continue
+        # The kernel names the superblock's device, which a btrfs
+        # subvolume's stat does not report: then the holder's own
+        # descriptors say whether it is this file (the holder is this
+        # account, so they are readable).
+        if dev == st.st_dev or holds_open(pid, st):
+            return True
+    return False
+
+
+def holds_open(pid: int, st: os.stat_result) -> bool:
+    try:
+        fds = os.listdir(f"/proc/{pid}/fd")
+    except OSError:
+        return False
+    for fd in fds:
+        try:
+            other = os.stat(f"/proc/{pid}/fd/{fd}")
+        except OSError:
+            continue
+        if (other.st_dev, other.st_ino) == (st.st_dev, st.st_ino):
+            return True
+    return False
+
+
+def take_lock(path: str) -> int:
+    """The open, locked descriptor (close-on-exec until main execs);
+    Refused when another holds it, OSError when it cannot be had."""
+    fd = os.open(path, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError as exc:
+        os.close(fd)
+        if exc.errno in (errno.EWOULDBLOCK, errno.EAGAIN):
+            raise Refused(held_message(path)) from None
+        raise
+    os.ftruncate(fd, 0)
+    os.pwrite(fd, f"{os.getpid()}\n".encode(), 0)
+    return fd
+
+
+def refuse_live(state: str) -> None:
+    live = live_sessions(state)
+    if live:
+        raise Refused(f"session {', '.join(live)} is alive on this account ({os.path.join(state, SESSIONS_FILE)}); "
+                      "not starting another")
+
+
 def plan() -> tuple[list[str], str, str]:
     """(launcher argv suffix, directory, the line that says it)."""
     binding = identity.read_binding(identity.current_agent())
@@ -169,6 +334,25 @@ def main(argv: list[str]) -> int:
         else:
             say(f"unexpected argument: {a}")
             return 2
+    state = identity.agent_state_dir()
+    lock_path = os.path.join(state, LOCK_FILE)
+    # The launcher's own --print starts nothing either.
+    dry = show or "--print" in extra
+    try:
+        if dry:
+            if lock_held(lock_path):
+                raise Refused(held_message(lock_path))
+            fd = None
+        else:
+            os.makedirs(state, mode=0o700, exist_ok=True)
+            fd = take_lock(lock_path)
+        refuse_live(state)
+    except Refused as exc:
+        say(f"refused: {exc}")
+        return REFUSED
+    except OSError as exc:
+        say(f"cannot take {lock_path}: {exc.strerror or exc}")
+        return 1
     suffix, cwd, line = plan()
     argv = [LAUNCHER, *provider_args(extra), *extra, *suffix]
     if show:
@@ -176,6 +360,10 @@ def main(argv: list[str]) -> int:
         return 0
     say(line)
     os.chdir(cwd)
+    if fd is not None:
+        # Python opens every descriptor close-on-exec (PEP 446): without
+        # this the lock would be dropped at the exec, silently.
+        os.set_inheritable(fd, True)
     os.execv(LAUNCHER, argv)
     return 0  # not reached
 
