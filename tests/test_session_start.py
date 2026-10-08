@@ -15,6 +15,7 @@ import tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 import socket
+from git_env import git_env, scrub_process_env  # noqa: E402 — tests/, the script's own directory
 HOST = socket.gethostname().split('.')[0]
 ROOT = os.path.dirname(HERE)
 HOOK = os.path.join(ROOT, "runtime", "claude-code", "hooks", "session-start.sh")
@@ -26,8 +27,8 @@ def id_un() -> str:
 
 def git_repo(path: str, remote: str) -> None:
     os.makedirs(path, exist_ok=True)
-    subprocess.run(["git", "init", "-q", "."], cwd=path, check=True)
-    subprocess.run(["git", "remote", "add", "origin", remote], cwd=path, check=True)
+    subprocess.run(["git", "init", "-q", "."], cwd=path, check=True, env=git_env())
+    subprocess.run(["git", "remote", "add", "origin", remote], cwd=path, check=True, env=git_env())
 
 
 def fabric_copy(tmp: str) -> str:
@@ -39,7 +40,7 @@ def fabric_copy(tmp: str) -> str:
     showed (devex-tooling, review of #89)."""
     root = os.path.join(tmp, "fabric", "agent-fabric")
     listed = subprocess.run(["git", "-C", ROOT, "ls-files", "-co", "--exclude-standard", "-z"],
-                            capture_output=True, check=True, timeout=60).stdout
+                            capture_output=True, check=True, timeout=60, env=git_env()).stdout
     for rel in filter(None, listed.decode("utf-8", "surrogateescape").split("\0")):
         src, dst = os.path.join(ROOT, rel), os.path.join(root, rel)
         if not os.path.lexists(src):
@@ -145,7 +146,7 @@ def test_hook_says_when_the_working_copy_trails_its_origin(tmp: str) -> None:
     state = os.path.join(tmp, "state"); os.makedirs(os.path.join(state, "agents", id_un()))
     env = {**os.environ, "AGENT_FABRIC_ROOT": ROOT, "AGENT_FABRIC_STATE_DIR": state}
     g = lambda cwd, *a: subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false", *a],
-                                      cwd=cwd, check=True, capture_output=True)
+                                      cwd=cwd, check=True, capture_output=True, env=git_env())
     origin = os.path.join(tmp, "origin.git"); g(tmp, "init", "-q", "--bare", "-b", "main", origin)
     wc = os.path.join(tmp, "gzapp"); g(tmp, "clone", "-q", origin, wc)
     g(wc, "commit", "-q", "--allow-empty", "-m", "base"); g(wc, "push", "-q", "origin", "HEAD:main")
@@ -166,7 +167,7 @@ def test_hook_says_when_the_branch_sweep_is_due(tmp: str) -> None:
     state = os.path.join(tmp, "state"); os.makedirs(os.path.join(state, "agents", id_un()))
     env = {**os.environ, "AGENT_FABRIC_ROOT": ROOT, "AGENT_FABRIC_STATE_DIR": state}
     g = lambda cwd, *a: subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false", *a],
-                                      cwd=cwd, check=True, capture_output=True)
+                                      cwd=cwd, check=True, capture_output=True, env=git_env())
     origin = os.path.join(tmp, "origin.git"); g(tmp, "init", "-q", "--bare", "-b", "main", origin)
     wc = os.path.join(tmp, "gzapp"); g(tmp, "clone", "-q", origin, wc)
     g(wc, "commit", "-q", "--allow-empty", "-m", "base"); g(wc, "push", "-q", "origin", "HEAD:main")
@@ -461,18 +462,17 @@ def test_bootstrap_writes_only_the_workspace_and_home_files(tmp: str) -> None:
     # A registered working copy beside the fabric gets the hooks — also
     # when it is a LINKED WORKTREE, whose .git is a file, not a directory.
     main_repo = os.path.join(tmp, "main-repo")
-    subprocess.run(["git", "init", "-q", "-b", "main", main_repo], check=True)
-    subprocess.run(["git", "-C", main_repo, "remote", "add", "origin", "git@github.com:gzapi-org/gzapp.git"], check=True)
-    gitenv = {**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t"}
+    subprocess.run(["git", "init", "-q", "-b", "main", main_repo], check=True, env=git_env())
+    subprocess.run(["git", "-C", main_repo, "remote", "add", "origin", "git@github.com:gzapi-org/gzapp.git"], check=True, env=git_env())
     open(os.path.join(main_repo, "seed"), "w").write("s\n")
-    subprocess.run(["git", "-C", main_repo, "add", "seed"], check=True)
-    subprocess.run(["git", "-C", main_repo, "-c", "commit.gpgsign=false", "commit", "-q", "-m", "seed"], check=True, env=gitenv)
+    subprocess.run(["git", "-C", main_repo, "add", "seed"], check=True, env=git_env())
+    subprocess.run(["git", "-C", main_repo, "-c", "commit.gpgsign=false", "commit", "-q", "-m", "seed"], check=True, env=git_env())
     linked = os.path.join(projects, "gzapp-linked")
-    subprocess.run(["git", "-C", main_repo, "worktree", "add", "-q", "--detach", linked, "HEAD"], check=True)
+    subprocess.run(["git", "-C", main_repo, "worktree", "add", "-q", "--detach", linked, "HEAD"], check=True, env=git_env())
     assert os.path.isfile(os.path.join(linked, ".git")), "a linked worktree's .git is a file"
     proc = subprocess.run(["bash", bootstrap, "--projects", projects], capture_output=True, text=True, env=env)
     assert proc.returncode == 0, proc.stdout + proc.stderr
-    hooks_path = subprocess.run(["git", "-C", linked, "config", "--get", "core.hooksPath"], capture_output=True, text=True).stdout.strip()
+    hooks_path = subprocess.run(["git", "-C", linked, "config", "--get", "core.hooksPath"], capture_output=True, text=True, env=git_env()).stdout.strip()
     assert hooks_path == os.path.join(root, "policies", "githooks"), f"the linked worktree got no hooks: {hooks_path!r}\n{proc.stdout}"
     # Idempotent: a second run changes nothing.
     proc = subprocess.run(["bash", bootstrap, "--projects", projects], capture_output=True, text=True, env=env)
@@ -548,7 +548,7 @@ def test_hook_says_the_job_list(tmp: str) -> None:
 
 def clone_config() -> str:
     return subprocess.run(["git", "-C", ROOT, "config", "--local", "--list"], capture_output=True, text=True,
-                          check=True, timeout=30).stdout
+                          check=True, timeout=30, env=git_env()).stdout
 
 
 def main() -> int:
@@ -586,4 +586,5 @@ def main() -> int:
 
 
 if __name__ == "__main__":
+    scrub_process_env()
     sys.exit(main())
