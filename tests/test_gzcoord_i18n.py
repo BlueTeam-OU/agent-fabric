@@ -421,7 +421,7 @@ def live_env(values: dict) -> tuple[str, dict, dict]:
     en = i18n.default_dictionary()
     with open(os.path.join(d, "xx-XX.json"), "w", encoding="utf-8") as fh:
         json.dump({k: values.get(k, f"ᲗᲐᲠᲒᲛᲐᲜᲘ {v}") for k, v in en.items()}, fh)
-    env = {**os.environ, "AGENT_FABRIC_ROOT": root, "AGENT_FABRIC_STATE_DIR": state}
+    env = {**os.environ, "AGENT_FABRIC_ROOT": root, "AGENT_FABRIC_OPERATOR": root, "AGENT_FABRIC_STATE_DIR": state}
     return root, {"agent": agent, "role": ROLE}, env
 
 
