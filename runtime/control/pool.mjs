@@ -21,7 +21,8 @@
 // A CLAIM is checked against the claimant's binding as ITS control agent
 // reports it — the role in its newest state record on the state channel
 // (sessions.mjs), never a role the request names (the owner, 2026-10-08).
-// No record from it within STATES_STALE_MS is a binding unknown, and the
+// No record from it within STATES_STALE_MS (or within the newest
+// STATES_REPLAY records, when they reach back less) is a binding unknown, and the
 // claim is refused. A job has one claimant: a claim of a job another
 // account holds is refused; the same account claiming again gets it again,
 // so a claimant whose own list could not take it can try once more.
@@ -138,10 +139,21 @@ export function roleFromStream({ call, cfg, now = Date.now }) {
     let page;
     try { page = await call(`/api/messages?${new URLSearchParams({ channel: cfg.state_channel, limit: String(STATES_REPLAY), full: '1' })}`); }
     catch (e) { return { error: `the state stream could not be read (${e.status ? `HTTP ${e.status}` : 'relay unreachable'})` }; }
-    let newest = null;
-    for (const rec of Array.isArray(page?.messages) ? page.messages : []) {
+    const rows = Array.isArray(page?.messages) ? page.messages : [];
+    let newest = null, oldest = NaN;
+    for (const rec of rows) {
       let r; try { r = JSON.parse(rec?.content); } catch { continue; }
-      if (r?.kind === 'state' && r.v === 1 && r.from === address && typeof r.ts === 'string') newest = r;
+      if (r?.kind !== 'state' || r.v !== 1 || typeof r.ts !== 'string') continue;
+      if (!(Date.parse(r.ts) >= oldest)) oldest = Date.parse(r.ts);
+      if (r.from === address) newest = r;
+    }
+    // The relay gives its newest STATES_REPLAY records and pages only
+    // forward: a full page that reaches back less than STATES_STALE_MS
+    // has not looked at the whole bound, and says so rather than that
+    // nothing came in it.
+    if (!newest && rows.length >= STATES_REPLAY && !(now() - oldest >= STATES_STALE_MS)) {
+      const span = Number.isFinite(oldest) ? `only ${Math.floor((now() - oldest) / 60000)} min` : 'an unknown span';
+      return { error: `the state stream's last ${rows.length} records reach back ${span} and none is from ${address}: its binding is unknown` };
     }
     if (!newest || !(now() - Date.parse(newest.ts) <= STATES_STALE_MS)) return { error: `no state record from ${address} in the last ${STATES_STALE_MS / 60000} min: its binding is unknown` };
     return typeof newest.role === 'string' && newest.role ? { role: newest.role } : { error: `${address} reports no bound role` };

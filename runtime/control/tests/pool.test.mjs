@@ -11,7 +11,7 @@ import { poolHolder, poolAdd, poolList, poolClaim, readPool, roleFromStream, che
 import { OPS, PUBLIC_OPS } from '../ops.mjs';
 import { ACTION_OPS, generateOperatorKey, signRequest, publicKeyFrom } from '../sign.mjs';
 import { accept, answer } from '../agentd.mjs';
-import { parseArgs, buildRequest, table, ACTION_OK } from '../ctl.mjs';
+import { parseArgs, buildRequest, table, ACTION_OK, STATES_REPLAY } from '../ctl.mjs';
 
 const HOLDER = 'h/user';
 const KNOWN = new Set(['python-dev', 'web-dev']);
@@ -137,6 +137,13 @@ test('the claimant\'s role: its newest state record, fresh, with a role', async 
   assert.match((await of([rec('h/a', 'python-dev', '2026-10-08T11:00:00Z')])('h/a')).error, /binding is unknown/, 'stale');
   assert.match((await of([rec('h/a', null)])('h/a')).error, /no bound role/);
   assert.match((await of([])('h/a')).error, /no state record from h\/a/);
+  // A full page whose oldest record is newer than the bound has not seen the whole of it.
+  const busy = Array.from({ length: STATES_REPLAY }, () => rec('h/b', 'db-admin', '2026-10-08T11:55:00Z'));
+  assert.match((await of(busy)('h/a')).error, /last 500 records reach back only 5 min and none is from h\/a/);
+  // Mid-page: the oldest by its own ts, not by the relay's order (clocks skew).
+  const covered = [...busy.slice(1, 250), rec('h/b', 'db-admin', '2026-10-08T11:30:00Z'), ...busy.slice(250)];
+  assert.match((await of(covered)('h/a')).error, /no state record from h\/a in the last 20 min/, 'a page that covers the bound');
+  assert.match((await of(busy.slice(1))('h/a')).error, /no state record from h\/a in the last 20 min/, 'a page short of full is the whole stream');
   const down = roleFromStream({ call: async () => { throw Object.assign(new Error('x'), { status: 503 }); }, cfg: { state_channel: 's' } });
   assert.match((await down('h/a')).error, /could not be read \(HTTP 503\)/);
 });
