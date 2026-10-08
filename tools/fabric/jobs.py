@@ -2,9 +2,10 @@
 """tools/fabric/jobs.py — the agent's own job list (agent-fabric ADR-037),
 behind bin/fabric-jobs.
 
-    fabric-jobs add "<title>" [--topic T] [--project P] [--working-copy W]
-    fabric-jobs add --request <MESSAGE-ID|seq> [--topic T] [--working-copy W]
+    fabric-jobs add "<title>" [--topic T] [--project P] [--working-copy W] [--priority P]
+    fabric-jobs add --request <MESSAGE-ID|seq> [--topic T] [--working-copy W] [--priority P]
     fabric-jobs list [--all] [--json]
+    fabric-jobs prio <id> <blocking|high|normal|low>
     fabric-jobs start <id>
     fabric-jobs block <id> "<on what>"
     fabric-jobs deliver <id> <artifact>...
@@ -30,8 +31,16 @@ it (ADR-037 rule 4). The automatic intake in the GZCoord send
 that path runs only under AGENT_FABRIC_JOBS_AUTO_INTAKE=1, which nothing
 sets (rule 5).
 
-`next` is the restart rule (ADR-022 rule 12). It compares the next job —
-the one named, or the oldest queued — with the job that last left
+A job has a priority (ADR-037 rule 7): blocking, high, normal or low;
+normal when none was set, and in a list written before priorities
+existed. A stored value outside the four is not read as normal: `next`
+refuses to order a queue it cannot rank, and names the job.
+
+`next` is the restart rule (ADR-022 rule 12). It never passes an active
+job, which is never preempted, and takes the job named, or the queued job
+of highest priority, the oldest first (the list's order is the order jobs
+were added); a blocked job keeps its place and is taken only by name. It
+compares that job with the job that last left
 `active`, or, when none has, with the directory it runs in:
 the same project, working copy and topic continue in this session; any
 difference is a fresh session, and `next` prints the one command that
@@ -74,6 +83,7 @@ class _JobKeys(TypedDict):
 class Job(_JobKeys, total=False):
     blocked_on: str
     reason: str
+    priority: str
 
 
 def _load(name: str, path: str):
@@ -88,6 +98,8 @@ identity = _load("fabric_identity", os.path.join(FABRIC_ROOT, "runtime", "identi
 STATES = ("queued", "active", "blocked", "delivered", "done", "dropped")
 OPEN = ("queued", "active", "blocked", "delivered")
 TERMINAL = ("done", "dropped")
+PRIORITIES = ("blocking", "high", "normal", "low")
+DEFAULT_PRIORITY = "normal"
 
 
 class Refused(Exception):
@@ -99,6 +111,24 @@ def find(doc: dict, job_id: str) -> Job:
         if job["id"] == job_id:
             return job
     raise Refused(f"no job {job_id} in this list (fabric-jobs list --all)")
+
+
+def stored_priority(job: dict) -> str | None:
+    """The job's priority as stored, `normal` when the key is absent; None
+    for a value that is none of the four — unknown, never a default."""
+    value = job.get("priority", DEFAULT_PRIORITY)
+    return value if value in PRIORITIES else None
+
+
+def queue_order(doc: dict) -> list[Job]:
+    """The queued jobs in the order `next` takes them: highest priority,
+    then the oldest."""
+    queued = [(i, j) for i, j in enumerate(doc["jobs"]) if j["state"] == "queued"]
+    for _, j in queued:
+        if stored_priority(j) is None:
+            raise Refused(f"{j['id']} has priority {j.get('priority')!r}, none of {', '.join(PRIORITIES)}: the queue "
+                          f"cannot be ordered; set it with fabric-jobs prio {j['id']} <priority>")
+    return [j for _, j in sorted(queued, key=lambda q: (PRIORITIES.index(stored_priority(q[1])), q[0]))]
 
 
 def active(doc: dict) -> Job | None:
@@ -158,7 +188,8 @@ def working_copy_of(project: str) -> str | None:
     return None
 
 
-def new_job(doc: dict, title: str, *, topic=None, project=None, working_copy=None, source=None) -> Job:
+def new_job(doc: dict, title: str, *, topic=None, project=None, working_copy=None, source=None,
+            priority=DEFAULT_PRIORITY) -> Job:
     # Control characters (C0, DEL, C1) would reach every terminal that
     # lists the job and the opening prompt of a fresh session. Tab, newline
     # and carriage return are whitespace, collapsed below as they always were
@@ -187,6 +218,7 @@ def new_job(doc: dict, title: str, *, topic=None, project=None, working_copy=Non
         # Never the current directory's checkout for another project's job.
         "working_copy": working_copy or (ctx.get("working_copy") if not project or own_project(ctx) == project else None),
         "state": "queued",
+        "priority": priority,
         "source": source or {"kind": "self"},
         "artifacts": [],
         "created": now,
@@ -222,7 +254,8 @@ def fetch_message(which: str) -> dict:
     return json.loads(p.stdout)
 
 
-def request_job(doc: dict, msg: dict, *, topic=None, project=None, working_copy=None, auto=False) -> Job | None:
+def request_job(doc: dict, msg: dict, *, topic=None, project=None, working_copy=None, auto=False,
+                priority=DEFAULT_PRIORITY) -> Job | None:
     meta = msg.get("metadata") or {}
     mid = meta.get("MESSAGE-ID") or str(msg.get("seq"))
     if auto and msg.get("type") != "REQUEST":
@@ -242,7 +275,7 @@ def request_job(doc: dict, msg: dict, *, topic=None, project=None, working_copy=
     source = {"kind": "request" if msg.get("type") == "REQUEST" else (msg.get("type") or "message").lower(),
               "message_id": mid, "from": meta.get("FROM") or msg.get("sender"), "seq": msg.get("seq")}
     return new_job(doc, meta.get("SUBJECT") or f"message {mid}", topic=topic, project=wanted,
-                   working_copy=working_copy, source=source)
+                   working_copy=working_copy, source=source, priority=priority)
 
 
 def decide(doc: dict, nxt: dict, here: dict) -> dict:
@@ -275,7 +308,7 @@ def line(job: dict) -> str:
         extra = f" — on {job['blocked_on']}"
     elif job.get("artifacts"):
         extra = f" — {', '.join(job['artifacts'])}"
-    return f"{job['id']:<5} {job['state']:<9} {where}{topic}: {job['title']}{extra}"
+    return f"{job['id']:<5} {job['state']:<9} {stored_priority(job) or '?':<8} {where}{topic}: {job['title']}{extra}"
 
 
 def show(job: dict) -> str:
@@ -287,6 +320,7 @@ def show(job: dict) -> str:
         origin += f" (message {src['message_id']})"
     rows = [
         ("job", job["id"]), ("title", job["title"]), ("state", job["state"]),
+        ("priority", stored_priority(job) or f"{job.get('priority')!r} (none of {', '.join(PRIORITIES)})"),
         ("project", job.get("project") or "-"), ("working copy", job.get("working_copy") or "-"),
         ("topic", job.get("topic") or "-"), ("source", origin),
         ("blocked on", job.get("blocked_on")), ("artifacts", ", ".join(job.get("artifacts") or []) or None),
@@ -330,9 +364,13 @@ def main(argv: list[str] | None = None) -> int:
     a.add_argument("--topic")
     a.add_argument("--project")
     a.add_argument("--working-copy")
+    a.add_argument("--priority", choices=PRIORITIES, default=DEFAULT_PRIORITY)
     ls = sub.add_parser("list", help="open jobs (--all: closed ones too)")
     ls.add_argument("--all", action="store_true")
     ls.add_argument("--json", action="store_true")
+    pr = sub.add_parser("prio", help="set a job's priority")
+    pr.add_argument("id")
+    pr.add_argument("priority", choices=PRIORITIES)
     for name in ("start", "done"):
         sub.add_parser(name).add_argument("id")
     b = sub.add_parser("block")
@@ -360,7 +398,8 @@ def main(argv: list[str] | None = None) -> int:
                 raise Refused("--request takes its title from the message; give one or the other")
             msg = fetch_message(args.request)
             job = mutate(lambda doc: request_job(doc, msg, topic=args.topic, project=args.project,
-                                                 working_copy=args.working_copy, auto=args.auto))
+                                                 working_copy=args.working_copy, auto=args.auto,
+                                                 priority=args.priority))
             if job:
                 print(f"added {line(job)}")
             elif args.auto:
@@ -370,7 +409,8 @@ def main(argv: list[str] | None = None) -> int:
                 raise Refused("add needs a title, or --request <MESSAGE-ID>")
             source = {"kind": "owner", "from": args.owner} if args.owner else None
             job = mutate(lambda doc: new_job(doc, args.title, topic=args.topic, project=args.project,
-                                             working_copy=args.working_copy, source=source))
+                                             working_copy=args.working_copy, source=source,
+                                             priority=args.priority))
             print(f"added {line(job)}")
             if not job.get("working_copy"):
                 print(f"  no working copy of {job.get('project') or 'its project'} found beside this one: "
@@ -404,7 +444,7 @@ def main(argv: list[str] | None = None) -> int:
                     if nxt["state"] not in ("queued", "blocked"):
                         raise Refused(f"{nxt['id']} is {nxt['state']}; next takes a queued or blocked job")
                 else:
-                    nxt = next((j for j in doc["jobs"] if j["state"] == "queued"), None)
+                    nxt = next(iter(queue_order(doc)), None)
                     if nxt is None:
                         raise Refused("no queued job; add one with fabric-jobs add")
                 verdict = decide(doc, nxt, here)
@@ -426,7 +466,12 @@ def main(argv: list[str] | None = None) -> int:
         else:
             def change(doc):
                 job = find(doc, args.id)
-                if args.cmd == "start":
+                if args.cmd == "prio":
+                    if job["state"] in TERMINAL:
+                        raise Refused(f"{job['id']} is {job['state']}; a closed job has no place in the queue")
+                    job["priority"] = args.priority
+                    job["updated"] = identity.now_iso()
+                elif args.cmd == "start":
                     transition(doc, job, "active")
                 elif args.cmd == "block":
                     transition(doc, job, "blocked", blocked_on=" ".join(args.on.split()), note=args.on)

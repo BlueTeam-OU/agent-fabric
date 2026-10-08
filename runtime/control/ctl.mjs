@@ -16,7 +16,7 @@
 //   fabric-ctl <login|all> presence                 whether each has a session, since when, as what — any
 //                                                   placed account may ask this one (ops.mjs PUBLIC_OPS)
 //   fabric-ctl <login|all> jobs                     each account's open jobs (bin/fabric-jobs; ADR-037)
-//   fabric-ctl <login> jobs-add [--topic T] [--project P] [--] "<title>"   an ACTION: the owner's job on that
+//   fabric-ctl <login> jobs-add [--topic T] [--project P] [--priority P] [--] "<title>"   an ACTION: the owner's job on that
 //                                                   login's list, source `owner` (ADR-037 rule 4)
 //   fabric-ctl <login|all> local                    each account's .claude/settings.local.json per working copy:
 //                                                   env key names (synced secrets marked), permission counts, other keys — never a value
@@ -91,10 +91,10 @@ export function placements(registry = process.env.AGENT_FABRIC_HOSTS_REGISTRY ??
     kind: kinds[login] === 'human' ? 'human' : 'agent' }));
 }
 
-const jobArgs = a => ({ title: a.title ?? undefined, ...(a.topic !== null ? { topic: a.topic } : {}), ...(a.project !== null ? { project: a.project } : {}) });
+const jobArgs = a => ({ title: a.title ?? undefined, ...(a.topic !== null ? { topic: a.topic } : {}), ...(a.project !== null ? { project: a.project } : {}), ...(a.priority !== null ? { priority: a.priority } : {}) });
 
 export function parseArgs(argv) {
-  const out = { targets: [], op: 'status', json: false, timeout: null, out: null, days: null, piece: null, version: null, force: false, expect: null, restart: false, title: null, topic: null, project: null, follow: false };
+  const out = { targets: [], op: 'status', json: false, timeout: null, out: null, days: null, piece: null, version: null, force: false, expect: null, restart: false, title: null, topic: null, project: null, priority: null, follow: false };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     // A jobs-add title that starts with a dash follows `--`, as for
@@ -118,6 +118,8 @@ export function parseArgs(argv) {
     else if (a.startsWith('--topic=')) out.topic = a.slice(8);
     else if (a === '--project') out.project = argv[++i];
     else if (a.startsWith('--project=')) out.project = a.slice(10);
+    else if (a === '--priority') out.priority = argv[++i];
+    else if (a.startsWith('--priority=')) out.priority = a.slice(11);
     else if (a === '-h' || a === '--help') out.help = true;
     else if (a.startsWith('--')) throw new Error(`unknown option ${a}`);
     else if (a === 'keygen' && !out.targets.length) out.op = 'keygen';
@@ -133,7 +135,7 @@ export function parseArgs(argv) {
   if ((out.expect !== null || out.restart) && out.op !== 'secrets-sync') throw new Error('--expect and --restart go with secrets-sync only');
   if (out.expect !== null && !/^[0-9a-f]{12}$/.test(out.expect)) throw new Error('--expect takes a 12-hex setup-token fingerprint (fabric-accounts templates)');
   if (out.days !== null && (out.op !== 'tokens' || !Number.isFinite(out.days) || out.days <= 0)) throw new Error('--days takes a positive number of days, with tokens only');
-  if ((out.topic !== null || out.project !== null) && out.op !== 'jobs-add') throw new Error('--topic and --project go with jobs-add only');
+  if ((out.topic !== null || out.project !== null || out.priority !== null) && out.op !== 'jobs-add') throw new Error('--topic, --project and --priority go with jobs-add only');
   if (out.follow && out.op !== 'states') throw new Error('--follow goes with states only');
   if (out.op === 'jobs-add') {
     const bad = checkJobArgs(jobArgs(out));
@@ -278,7 +280,7 @@ export function table(op, rs) {
       if (r.status !== 'ok' || !r.jobs) { lines.push(`${r.account.padEnd(22)} ${r.status}`); continue; }
       if (r.jobs.status !== 'ok') { lines.push(`${r.account.padEnd(22)} jobs ${r.jobs.status}${r.jobs.error ? `: ${r.jobs.error}` : ''}`); continue; }
       if (!r.jobs.jobs.length) { lines.push(`${r.account.padEnd(22)} no open jobs`); continue; }
-      r.jobs.jobs.forEach((j, i) => lines.push(`${(i ? '' : r.account).padEnd(22)} ${j.id.padEnd(5)} ${j.state.padEnd(9)} ${String(j.project ?? '-').padEnd(14)} ${j.title}`
+      r.jobs.jobs.forEach((j, i) => lines.push(`${(i ? '' : r.account).padEnd(22)} ${j.id.padEnd(5)} ${j.state.padEnd(9)} ${String(j.priority ?? 'normal').padEnd(8)} ${String(j.project ?? '-').padEnd(14)} ${j.title}`
         + `${j.topic ? ` [${j.topic}]` : ''}${j.source !== 'self' ? ` (${j.source})` : ''}${j.blocked_on ? ` — on ${j.blocked_on}` : ''}`));
     }
     return lines.join('\n');
@@ -518,7 +520,7 @@ export function targetsOf(targets, placed) {
 export async function main(argv = process.argv.slice(2), { registry, fetchImpl } = {}) {
   let args;
   try { args = parseArgs(argv); } catch (e) { console.error(`fabric-ctl: ${e.message}`); return 2; }
-  if (args.help || (!args.targets.length && args.op !== 'keygen')) { console.error('usage: fabric-ctl <login|all> [status|usage|identity|keys|fabric|session|script|recall|host|disk|accounts|ping] [--json] [--timeout S]\n       fabric-ctl <login|all> tokens [--days N]\n       fabric-ctl <login|all> memory --out <dir>\n       fabric-ctl <login|all> upgrade claude [--version V]\n       fabric-ctl <login|all> upgrade fabric   (every account to this checkout\'s origin/main, then bootstrap)\n       fabric-ctl <login|all> secrets-sync [--expect SHA12] [--restart]\n       fabric-ctl <login|all> presence   (any placed account may ask)\n       fabric-ctl <login|all> jobs\n       fabric-ctl <login> jobs-add [--topic T] [--project P] [--] "<title>"\n       fabric-ctl <login|all> secrets-selftest\n       fabric-ctl <login|all> local\n       fabric-ctl <login|all> local-prune\n       fabric-ctl <login|all> states [--follow] [--json]\n       fabric-ctl keygen [--force]'); return args.help ? 0 : 2; }
+  if (args.help || (!args.targets.length && args.op !== 'keygen')) { console.error('usage: fabric-ctl <login|all> [status|usage|identity|keys|fabric|session|script|recall|host|disk|accounts|ping] [--json] [--timeout S]\n       fabric-ctl <login|all> tokens [--days N]\n       fabric-ctl <login|all> memory --out <dir>\n       fabric-ctl <login|all> upgrade claude [--version V]\n       fabric-ctl <login|all> upgrade fabric   (every account to this checkout\'s origin/main, then bootstrap)\n       fabric-ctl <login|all> secrets-sync [--expect SHA12] [--restart]\n       fabric-ctl <login|all> presence   (any placed account may ask)\n       fabric-ctl <login|all> jobs\n       fabric-ctl <login> jobs-add [--topic T] [--project P] [--priority P] [--] "<title>"\n       fabric-ctl <login|all> secrets-selftest\n       fabric-ctl <login|all> local\n       fabric-ctl <login|all> local-prune\n       fabric-ctl <login|all> states [--follow] [--json]\n       fabric-ctl keygen [--force]'); return args.help ? 0 : 2; }
   if (args.op === 'keygen') return keygen(args, { registry });
   const { expected, everyone, refused: notAsked } = targetsOf(args.targets, placements(registry));
   if (notAsked) { console.error(`fabric-ctl: ${notAsked}`); return 2; }

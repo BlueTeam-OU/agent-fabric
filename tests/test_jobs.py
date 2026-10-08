@@ -194,6 +194,66 @@ def main() -> int:
         p = run("next", "j3")
         check("next refuses a closed job", p.returncode == 1 and "next takes a queued" in p.stderr, p.stderr)
 
+        # Priority (ADR-037 rule 7): the highest first, then the oldest; an
+        # active job is never passed; a blocked one keeps its place.
+        env["AGENT_FABRIC_STATE_DIR"] = os.path.join(tmp, "state-priority")
+        run("add", "old normal")
+        run("add", "low one", "--priority", "low")
+        run("add", "high one", "--priority", "high")
+        run("add", "second high", "--priority", "high")
+        run("add", "blocked blocker", "--priority", "blocking")
+        check("add --priority stores it; none given is normal",
+              [j.get("priority") for j in jobs()] == ["normal", "low", "high", "high", "blocking"], repr(jobs()))
+        run("start", "j5")
+        run("block", "j5", "a reply")
+        p = run("list")
+        check("list shows each job's priority", " high " in p.stdout and " low " in p.stdout, p.stdout)
+        p = run("next")
+        check("next takes the highest priority, not the oldest", p.returncode == 0 and p.stdout.startswith("j3 "),
+              p.stdout + p.stderr)
+        p = run("next")
+        check("the active job is never preempted, a blocking one notwithstanding", p.returncode == 1
+              and "j3 is still active" in p.stderr, p.stderr)
+        run("done", "j3")
+        p = run("next")
+        check("equal priority: the oldest first", p.stdout.startswith("j4 "), p.stdout + p.stderr)
+        run("done", "j4")
+        check("a blocked job keeps its place: it is not taken by next",
+              run("next").stdout.startswith("j1 ") and jobs()[4]["state"] == "blocked", repr(jobs()[4]))
+        run("done", "j1")
+        p = run("prio", "j2", "blocking")
+        check("prio sets a queued job's priority", p.returncode == 0 and jobs()[1]["priority"] == "blocking", p.stderr)
+        p = run("prio", "j1", "high")
+        check("prio refuses a closed job", p.returncode == 1 and "closed job" in p.stderr, p.stderr)
+        p = run("prio", "j2", "urgent")
+        check("prio takes only the four priorities", p.returncode == 2 and "invalid choice" in p.stderr, p.stderr)
+        p = run("add", "x", "--priority", "urgent")
+        check("add --priority takes only the four", p.returncode == 2 and len(jobs()) == 5, p.stderr)
+
+        # A list written before priorities reads normal; a value outside the
+        # four is unknown, never normal.
+        lst = os.path.join(tmp, "state-priority", "agents", os.listdir(os.path.join(tmp, "state-priority", "agents"))[0], "jobs.json")
+        with open(lst, encoding="utf-8") as fh:
+            doc = json.load(fh)
+        for j in doc["jobs"]:
+            j.pop("priority", None)
+        doc["jobs"][1]["state"] = "queued"
+        doc["jobs"].append({**doc["jobs"][1], "id": "j6", "title": "later", "priority": "high"})
+        with open(lst, "w", encoding="utf-8") as fh:
+            json.dump(doc, fh)
+        p = run("next")
+        check("an old list reads normal: a high job added after it goes first", p.stdout.startswith("j6 "), p.stdout + p.stderr)
+        run("done", "j6")
+        doc = json.loads(open(lst, encoding="utf-8").read())
+        doc["jobs"][1]["priority"] = "urgent"
+        with open(lst, "w", encoding="utf-8") as fh:
+            json.dump(doc, fh)
+        p = run("next")
+        check("an unknown stored priority refuses to order the queue, by name", p.returncode == 1
+              and "j2 has priority 'urgent'" in p.stderr and doc["jobs"][1]["state"] == "queued", p.stderr)
+        p = run("list")
+        check("list shows an unknown priority as '?'", p.returncode == 0 and "j2    queued    ? " in p.stdout, p.stdout)
+
         # add --request: the message read through the inbox's own replay,
         # against a fake relay; only what is addressed to this login.
         env["AGENT_FABRIC_STATE_DIR"] = os.path.join(tmp, "state-request")
