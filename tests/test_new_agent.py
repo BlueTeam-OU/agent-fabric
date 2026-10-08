@@ -313,6 +313,15 @@ def main() -> int:
                   'gpg --export-secret-keys "$(git config --get user.signingkey)" | sudo -u acct gpg --batch --import',
                   "sudo -u acct bash -c \"echo '$(git config --get user.signingkey):6:' | gpg --import-ownertrust\""])
 
+        check("…for an account on another host, both through bin/fabric-host, never a local sudo",
+              w.signing_key_lines("acct", "far") == [
+                  'gpg --export-secret-keys "$(git config --get user.signingkey)" | bin/fabric-host far run --as acct -- '
+                  'gpg --batch --import',
+                  'echo "$(git config --get user.signingkey):6:" | bin/fabric-host far run --as acct -- gpg --import-ownertrust'])
+        text, _, _ = verify_with({"gpg --list-secret-keys": b""}, [], via="far")
+        check("…and the closing prints those for an account reached via its host",
+              "bin/fabric-host far run --as acct -- gpg --batch --import" in text and "sudo -u acct" not in text, text)
+
         def verify_human_with(answers: dict) -> tuple[str, str, str, list[str]]:
             asked = []
 
@@ -451,8 +460,13 @@ def main() -> int:
         rc, out = worker_args("finish", "l", "r", "--no-claude-account", "--signing-key-next")
         check("…an agent's finish carries --signing-key-next to verify",
               rc == 0 and "HUMAN=0" in out and "VERIFY_ACCOUNT=(--no-claude-account --signing-key-next)" in out, out)
+        rc, out = worker_args("finish", "l", "r", "--no-claude-account", "--via-host", "far")
+        check("…and --via-host, the account's host id, as one of verify's flags",
+              rc == 0 and "VERIFY_ACCOUNT=(--no-claude-account --via-host=far)" in out, out)
+        rc, out = worker_args("finish", "l", "r", "--via-host", "far;id")
+        check("…a host id that is not one is refused: exit 2", rc == 2 and "--via-host takes" in out, out)
         for extra in (["--no-claude-account"], ["--claude-account", "a=0123456789ab"], ["--clone", "x=y"],
-                      ["--claude", "latest"], ["--signing-key-next"]):
+                      ["--claude", "latest"], ["--signing-key-next"], ["--via-host", "far"]):
             rc, out = worker_args("finish", "p", "--human", *extra)
             check(f"…and refuses --human with {extra[0]}: exit 2", rc == 2 and "--human takes no" in out, out)
 
@@ -509,6 +523,7 @@ esac
         na.ROOT = f"{fk}/root"
 
         signed: list[tuple[str, str]] = []
+        vias: list[str] = []
         saved_terminal, saved_signing = na.on_terminal, na.signing_key
 
         def orchestrate(*argv, hosts_path=hosts, terminal=False, signing_rc=0):
@@ -517,7 +532,8 @@ esac
             # Never the runner's own terminal: a case says whether there is one.
             na.on_terminal = lambda: terminal
             signed.clear()
-            na.signing_key = lambda login, host: signed.append((login, host)) or signing_rc
+            vias.clear()
+            na.signing_key = lambda login, host, via="": signed.append((login, host)) or vias.append(via) or signing_rc
             for f in ("hx.calls", "taken", "secrets.calls"):
                 if os.path.exists(f"{fk}/{f}"):
                     os.remove(f"{fk}/{f}")
@@ -643,6 +659,12 @@ esac
             check("a terminal: finish told the key follows, then step 11 for the account on its host",
                   rc == 0 and signed == [("new", "here")] and "finish new r --no-claude-account --signing-key-next" in calls,
                   f"{signed}\n{calls}")
+            check("…an account on this host: no --via-host, step 11's lines local", "--via-host" not in calls and vias == [""],
+                  calls)
+            rc, msg, err, calls = orchestrate("placed", "r", "--no-claude-account", terminal=True)
+            check("…one on another host: finish and step 11 told its host, for the hand-import lines",
+                  rc == 0 and "finish placed r --no-claude-account --signing-key-next --via-host far" in calls
+                  and signed == [("placed", "far")] and vias == ["far"], f"{calls}\n{vias}")
             rc, msg, err, calls = orchestrate("new", "r", "--no-claude-account", "--no-signing-key", terminal=True)
             check("…--no-signing-key: none, the lines printed as without a terminal",
                   rc == 0 and signed == [] and "--signing-key-next" not in calls, calls)
@@ -788,6 +810,12 @@ exec env GNUPGHOME="$home" "$@"
                   rc == 1 and "11. the signing key: FAILED — the import as new: gpg: import failed (injected)" in err
                   and "sudo -u new gpg --batch --import" in err and "gpg --import-ownertrust" in err
                   and not held(gB, fpr) and "--import-ownertrust" not in calls, f"rc={rc}\n{err}\n{calls}")
+            err = io.StringIO()
+            with redirect_stderr(err):
+                rc = na.signing_key("new", "here", via="far")
+            check("…the lines for an account on another host go through bin/fabric-host",
+                  rc == 1 and "bin/fabric-host far run --as new -- gpg --batch --import" in err.getvalue()
+                  and "sudo -u new" not in err.getvalue(), err.getvalue())
             os.remove(f"{fk}/import.fails")
             put(f"{fk}/sign.fails", "")
             rc, err, calls = step11()

@@ -41,12 +41,14 @@ AGENT_LOGIN is not this login — location and configuration never decide
 who an agent is, the login does. The names it REQUIRES are the login's
 kind's (runtime/hosts/registry.json `kinds`, ADR-044): every name above
 for an agent, only its identity and CLAUDE_BRIDGE_AUTH_TOKEN for a human
-(HUMAN_NAMES).
+(HUMAN_NAMES); an agent's names in a human's store are `withheld` — never
+applied, and status and sync fail on them.
 
 The contract (ADR-038 §5 rule 7), frozen when this moved from the bash
 heredoc and its Doppler reader retired: the exit codes — 0 applied, 1
 unreadable, 2 applied with required names missing (or gh refusing
-GH_TOKEN, or the login's kind unreadable), 3 the store names another login and nothing is applied; the JSON report's `error` and
+GH_TOKEN, the login's kind unreadable, or an agent's names withheld from a
+human), 3 the store names another login and nothing is applied; the JSON report's `error` and
 `missing`, which the control agent reads (runtime/control/secrets.mjs);
 the `--quiet` line on stderr, which moveto's shell entry shows. status
 exits 0 or 1; its JSON lists `refused` and `no_trusted_base` per store
@@ -149,6 +151,16 @@ def required_names() -> tuple[list[str], str | None]:
     if kind == "agent":
         return ALL_NAMES, None
     return ALL_NAMES, f"this login's kind could not be read ({path}: kinds is not a table of agent or human)"
+
+
+def withheld_names(required: list[str], held, optional: list[str]) -> list[str]:
+    """An agent's names in a human's store (ADR-044 rules 2-3: a human
+    holds what its work needs): never applied, and said, so status fails
+    where it would otherwise call the store complete (#118, Codex). For an
+    agent, none."""
+    if required is not HUMAN_NAMES:
+        return []
+    return [n for n in ALL_NAMES + optional if n in held and n not in HUMAN_NAMES]
 
 
 def own_and_unexpected(names, known: list[str], root: str | None = None) -> tuple[list[str], list[str]]:
@@ -505,7 +517,10 @@ def status(as_json: bool, quiet: bool = False) -> int:
         obj["missing"] = [n for n in required if n not in names]
         obj["optional"] = [n for n in optional if n in names]
         obj["own"], obj["unexpected"] = own_and_unexpected(names, known)
-        ok = not obj["missing"]
+        obj["withheld"] = withheld_names(required, names, optional)
+        ok = not obj["missing"] and not obj["withheld"]
+        if obj["withheld"]:
+            obj["error"] = f"a human login's store holds an agent's names: {', '.join(obj['withheld'])}"
     if kind_err:
         obj["error"] = f"{obj['error']}; {kind_err}" if obj.get("error") else kind_err
         ok = False
@@ -548,6 +563,8 @@ def sync(force: bool, as_json: bool, quiet: bool = False, pull: bool = True) -> 
         report(obj, as_json, quiet, False)
         return 1
     required, kind_err = required_names()
+    obj["withheld"] = withheld_names(required, values, optional)
+    values = {k: v for k, v in values.items() if k not in obj["withheld"]}
     obj["present"] = [n for n in required if n in values]
     obj["missing"] = [n for n in required if n not in values]
     obj["optional"] = [n for n in optional if n in values]
@@ -608,9 +625,12 @@ def sync(force: bool, as_json: bool, quiet: bool = False, pull: bool = True) -> 
                 write_private(ssh_key() + ".pub", values["SSH_PUBLIC_KEY"].rstrip("\n") + "\n", 0o644)
                 obj["applied"].append("SSH_PUBLIC_KEY")
     obj["local"] = local_state()
-    ok = not obj["missing"] and not gh_failed and not kind_err
+    ok = not obj["missing"] and not gh_failed and not kind_err and not obj["withheld"]
     if gh_failed:
         obj["error"] = f"applied, but gh does not hold the token: {gh_failed}"
+    if obj["withheld"]:
+        why = f"a human login's store holds an agent's names, not applied: {', '.join(obj['withheld'])}"
+        obj["error"] = f"{obj['error']}; {why}" if obj.get("error") else why
     if kind_err:
         obj["error"] = f"{obj['error']}; applied, but {kind_err}" if obj.get("error") else f"applied, but {kind_err}"
     report(obj, as_json, quiet, ok)

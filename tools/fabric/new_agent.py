@@ -550,7 +550,10 @@ def run_steps(o: dict, login: str, role: str, host: str, dry: bool, remote: dict
     clones = [a for pid in o["projects"] for a in ("--clone", f"{pid}={remote[pid]}")]
     account = [] if human else ["--claude-account", f"{slug}={fp}"] if slug else ["--no-claude-account"]
     nxt = ["--signing-key-next"] if signing_next and not dry else []
-    if s.through([HX, host, "--", WORKER, "finish", login, *who, *clones, *account, *nxt, *dry_arg]) != 0:
+    # The closing's hand-import lines run here, on the coordinator's host: an
+    # account on another reaches its gpg through fabric-host (#118, Codex).
+    via = ["--via-host", host] if host != local_host and not human else []
+    if s.through([HX, host, "--", WORKER, "finish", login, *who, *clones, *account, *nxt, *via, *dry_arg]) != 0:
         die("the host half stopped (above); nothing after it ran")
 
     # ---- 11. the signing key, with a person at the terminal -----------------
@@ -558,7 +561,7 @@ def run_steps(o: dict, login: str, role: str, host: str, dry: bool, remote: dict
         say(f"would: 11. export this login's signing key and import it as {login} (gpg's pinentry asks its "
             "passphrase), set its ownertrust, sign once as it")
     elif signing_next:
-        return signing_key(login, host)
+        return signing_key(login, host, via=host if host != local_host else "")
     return 0
 
 
@@ -699,7 +702,7 @@ def last_line(err, silent: str = "(gpg said nothing)") -> str:
     return lines[-1].strip() if lines else silent
 
 
-def signing_key(login: str, host: str) -> int:
+def signing_key(login: str, host: str, *, via: str = "") -> int:
     """11. The fleet's signing key into the account's keyring, with a person
     at this terminal: exported by this login's gpg and imported by the
     account's on a pipe, never a file; the passphrase is pinentry's
@@ -713,7 +716,7 @@ def signing_key(login: str, host: str) -> int:
     def failed(why: str) -> int:
         say(f"11. the signing key: FAILED — {why}")
         say("    by hand, as this login, in a terminal (the key has a passphrase):")
-        for line in signing_key_lines(login):
+        for line in signing_key_lines(login, via):
             print(f"new-agent: {line}", file=sys.stderr)
         return 1
 

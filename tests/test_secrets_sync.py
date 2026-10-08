@@ -290,6 +290,26 @@ def main() -> int:
                 rc, out = run(s.status, False)
                 check("a human without the relay credential: status exits 1, naming it",
                       rc == 1 and "missing: CLAUDE_BRIDGE_AUTH_TOKEN" in out, out)
+                # An agent's names in a human's store are withheld: never
+                # applied, and both sync and status fail on them (#118, Codex).
+                store["values"] = {**human, "GH_TOKEN": "ghp_FIXTUREGH", "SSH_PRIVATE_KEY": "fixture-private-key-material"}
+                os.remove(envf)
+                rc, out = run(s.sync, False, True)
+                body = open(envf).read()
+                check("a human whose store holds an agent's names: sync withholds them, exit 2, named",
+                      rc == 2 and json.loads(out)["withheld"] == ["GH_TOKEN", "SSH_PRIVATE_KEY"]
+                      and "GH_TOKEN" not in body and "CLAUDE_BRIDGE_AUTH_TOKEN" in body
+                      and "GH_TOKEN" not in json.loads(out)["applied"]
+                      and "holds an agent's names, not applied: GH_TOKEN, SSH_PRIVATE_KEY" in json.loads(out)["error"],
+                      out[:400])
+                rc, out = run(s.status, True)
+                check("…and status exits 1, naming them", rc == 1 and json.loads(out)["withheld"] == ["GH_TOKEN", "SSH_PRIVATE_KEY"],
+                      out[:300])
+                kinds({ME: "agent"})
+                store["values"] = fixture(ME)
+                rc, out = run(s.sync, False, True)
+                check("…while an agent's store withholds nothing (the control)",
+                      rc == 0 and json.loads(out)["withheld"] == [], out[:300])
                 store["values"] = fixture(ME)
                 for label, table in (("an unknown kind", {ME: "robot"}), ("a kinds that is not a table", ["x"])):
                     kinds(table)
