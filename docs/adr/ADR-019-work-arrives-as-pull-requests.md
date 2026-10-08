@@ -145,7 +145,7 @@ not on a pipe's exit status.
 7. No commit message or PR description carries `Co-authored-by:` or
    `Claude-Session:` as a trailer, a "Generated with Claude Code" footer or
    a session URL: `policies/githooks/commit-msg` refuses the message,
-   `policies/ban_generated_by_attribution.sh` checks every commit a branch
+   `tools/fabric/guards/ban_generated_by_attribution.py` checks every commit a branch
    adds and the PR description in CI and in `tests/run.sh`.
 8. agent-fabric's GitHub settings are the table in §6. A change to them
    is a change to this record, and `tools/fabric/github-repo-settings.sh`

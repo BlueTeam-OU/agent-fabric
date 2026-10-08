@@ -178,7 +178,7 @@ record says so rather than claim otherwise.
   |---|---|---|---|
   | no machine attribution | `commit-msg` | `tools/fabric/guards/ban_generated_by_attribution.py` (a CI step, and `tests/run.sh`) | `test_ban_generated_by_attribution_cli.py`, `tests/test_githooks_cli.py` |
   | read-only fence, `.agent-fabric/` | `pre-commit`, `commit-msg` | `tools/fabric/guards/agent_fabric_dir_authority.py`, main's copy run isolated (ci.yml); `tests/run.sh` the local check | `test_check_agent_fabric_dir_authority.sh`, `tests/test_githooks_cli.py` |
-  | the contributor carve-out | `pre-commit`, `commit-msg` (`contributors.py hook`) | `check_agent_fabric_dir_authority.sh`, main's copy, against the base's entry | `tests/test_contributors.py` |
+  | the contributor carve-out | `pre-commit`, `commit-msg` (`contributors.py hook`) | `tools/fabric/guards/agent_fabric_dir_authority.py`, main's copy, against the base's entry | `tests/test_contributors.py` |
   | decision records | `pre-commit` (`adr.py check` on the staged tree) | `fabric-adr range-check`, and `adr.py check` in lint | `tests/test_adr.py` |
   | charter authority by branch name | none | main's copy run isolated against `origin/main` (ci.yml); `tests/run.sh` the local check (A 2026-09-28) | `test_check_charter_authority_cli.py` |
   | no model pins in committed settings | none (the launcher refuses the same keys at launch) | not called here; gzapp's CI runs its own copy (`tools/checks/`) | `test_check_repo_settings_carry_no_model_pins.sh` |
