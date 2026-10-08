@@ -5,7 +5,8 @@
 # completion.bash and people run `moveto`); the work, its contract and
 # every reason for it are in moveto.py (ADR-040 §5 rule 4).
 #
-#   moveto <account> [<clone>] [--print] | moveto [<account>] --list | moveto --help
+#   moveto <account> [<clone>] [--print] [--wait|--resume|--watch]
+#   moveto [<account>] --list | moveto --help
 #
 # The module is beside this file in the repository and in share/moveto/ of
 # an installed copy, which has no checkout behind it.
