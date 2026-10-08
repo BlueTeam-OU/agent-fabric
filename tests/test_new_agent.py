@@ -13,6 +13,7 @@ import hashlib
 import io
 import json
 import os
+import shutil
 import signal
 import subprocess
 import sys
@@ -298,6 +299,57 @@ def main() -> int:
         put(f"{home}/.config/agent-fabric/secrets.env", "export CLAUDE_CODE_OAUTH_TOKEN='x'\n")
         text, _, _ = verify_with({}, [])
         check("…and a template token in the synced record is read through sudo", "a template token" in text)
+        # With a person at the terminal new-agent imports the key next (11):
+        # the closing says so, prints no hand-import lines, and is not "done".
+        text, _, _ = verify_with({"gpg --list-secret-keys": b""}, [], signing_next=True)
+        check("…absent with step 11 to follow: said, no lines to run by hand, not yet done",
+              "new-agent imports it next, on this terminal (11)" in text and "gpg --batch --import" not in text
+              and text.startswith("new-agent: 0-10 done; 11, the signing key, follows."), text)
+        text, _, _ = verify_with({"gpg --list-secret-keys": SIGNING_SECRET}, [], signing_next=True)
+        check("…present already: present and done, whatever follows", "the signing key's, present" in text
+              and text.startswith("new-agent: done."), text)
+        check("the two lines a person runs: the export piped into the account's import, and its ownertrust",
+              w.signing_key_lines("acct") == [
+                  'gpg --export-secret-keys "$(git config --get user.signingkey)" | sudo -u acct gpg --batch --import',
+                  "sudo -u acct bash -c \"echo '$(git config --get user.signingkey):6:' | gpg --import-ownertrust\""])
+
+        def verify_human_with(answers: dict) -> tuple[str, str, str, list[str]]:
+            asked = []
+
+            def fake_run(self, line, *, stderr=None):
+                asked.append(line)
+                return next((v for k, v in answers.items() if k in line), b"")
+            saved_run, saved_err = w.Account.run, sys.stderr
+            w.Account.run = fake_run
+            buf = io.BytesIO()
+            wrapper = sys.stderr = io.TextIOWrapper(buf, encoding="utf-8")
+            try:
+                text, failed = w.verify_human("person", home, f"{tmp}/vbin/sudo")
+                wrapper.flush()
+                said = buf.getvalue().decode()
+            finally:
+                w.Account.run, sys.stderr = saved_run, saved_err
+                wrapper.detach()
+            return text, failed, said, asked
+        well = {"status >/dev/null": b"status=0\n", "for p in": b"probed\n", "grep -E": b"OK\n"}
+        text, failed, said, asked = verify_human_with(well)
+        check("a human's verification: status OK, nothing of a session, done; the person's list names moveto's grant "
+              "and Fleet Deck", failed == "" and text.startswith("new-agent: done.") and "nothing of a session" in said
+              and "moveto's sudo grant" in text and "Fleet Deck, run as person" in text and "no signing key" in text
+              and not any("launch" in a or "gh auth" in a for a in asked), f"{text}{failed}{said}")
+        check("…its probe asks for every piece bootstrap, a binding and a launch would leave",
+              all(p in next(a for a in asked if "for p in" in a) for p in
+                  ("~/.claude/agents", "agent-fabric-agentd.service", "~/projects/CLAUDE.md", "binding.json",
+                   "~/.local/bin/claude")))
+        for label, change, why in (
+                ("status NOT OK", {"status >/dev/null": b"status=1\n"}, "fabric-secrets status as person is not OK (status=1)"),
+                ("status with no answer", {"status >/dev/null": b""}, "is not OK (no answer)"),
+                ("a session's pieces in its home", {"for p in": b"/h/.claude/agents\n/h/.config/systemd/user/x\nprobed\n"},
+                 "it holds a session's pieces, which a human never has (ADR-044 rule 2): /h/.claude/agents /h/.config"),
+                ("a probe that did not answer", {"for p in": b""}, "could not be read for a session's pieces")):
+            text, failed, said, _ = verify_human_with({**well, **change})
+            check(f"…{label}: a failed step, not done", failed.startswith("new-agent: step failed: ") and why in failed
+                  and text.startswith("new-agent: NOT done"), f"{text}{failed}")
         tok_fp = hashlib.sha256(b"x").hexdigest()[:12]
         text, _, _ = verify_with({}, [], account=f"acct-one={tok_fp}")
         check("…an account named: its token's fingerprint compared, applied", "acct-one (token " + tok_fp + "), applied" in text
@@ -373,8 +425,36 @@ def main() -> int:
         check("values spaced or with =, flags anywhere",
               na.parse(["--project=a", "l", "--host", "h", "r", "--project", "b", "--claude=latest", "--claude-account=a-b"])
               == {"dry": False, "login": "l", "role": "r", "projects": ["a", "b"], "claude": "latest", "host": "h",
-                  "claude-account": "a-b", "no-claude-account": False}
+                  "claude-account": "a-b", "no-claude-account": False, "human": False, "no-signing-key": False}
               and na.parse(["l", "--claude-account", "a", "r"])["claude-account"] == "a")
+        check("--no-signing-key is a flag of an agent's run",
+              na.parse(["l", "r", "--no-claude-account", "--no-signing-key"])["no-signing-key"] is True)
+        # A human login (ADR-044): its login and --host, nothing of a session.
+        check("--human: a login and no role", na.parse(["--human", "p", "--host=h"])
+              == {"dry": False, "login": "p", "role": "", "projects": [], "claude": "", "host": "h", "claude-account": None,
+                  "no-claude-account": False, "human": True, "no-signing-key": False})
+        for argv, said in ((["p", "r", "--human"], "a human login has no role"),
+                           (["p", "--human", "--claude-account", "a"], "--human takes --host and --dry-run only"),
+                           (["p", "--human", "--no-claude-account"], "--human takes --host and --dry-run only"),
+                           (["p", "--human", "--claude", "latest"], "--human takes --host and --dry-run only"),
+                           (["p", "--human", "--project", "demo"], "--human takes --host and --dry-run only"),
+                           (["--human"], "usage:")):
+            try:
+                na.parse(argv)
+                code, msg = 0, ""
+            except na.Exit as exc:
+                code, msg = exc.code, exc.msg or ""
+            check(f"--human refuses {' '.join(argv)}: exit 2", code == 2 and said in msg, f"{code} {msg}")
+        rc, out = worker_args("prepare", "p", "--human", "--dry-run")
+        check("the worker: prepare <login> --human sets HUMAN and no role, and verify is told",
+              rc == 0 and "HUMAN=1" in out and "ROLE=''" in out and "DRY=1" in out and "VERIFY_ACCOUNT=(--human)" in out, out)
+        rc, out = worker_args("finish", "l", "r", "--no-claude-account", "--signing-key-next")
+        check("…an agent's finish carries --signing-key-next to verify",
+              rc == 0 and "HUMAN=0" in out and "VERIFY_ACCOUNT=(--no-claude-account --signing-key-next)" in out, out)
+        for extra in (["--no-claude-account"], ["--claude-account", "a=0123456789ab"], ["--clone", "x=y"],
+                      ["--claude", "latest"], ["--signing-key-next"]):
+            rc, out = worker_args("finish", "p", "--human", *extra)
+            check(f"…and refuses --human with {extra[0]}: exit 2", rc == 2 and "--human takes no" in out, out)
 
         r = subprocess.run(["bash", SHIM, "--help"], capture_output=True, text=True, timeout=30,
                            env=clean_env(AGENT_FABRIC_PYTHON=f"{tmp}/no-python"))
@@ -411,6 +491,8 @@ echo "$*" >> {fk}/secrets.calls
 case "$1 $2" in
   "store templates") cat {fk}/templates ;;
   "store assign") head -1 {fk}/assign; exit "$(sed -n 2p {fk}/assign)" ;;
+  "provision share") st=written; [[ -e {fk}/share.skipped ]] && st=skipped
+                     echo '[{{"login": "'"$3"'", "name": "'"${{@: -1}}"'", "status": "'"$st"'"}}]' ;;
   *) echo '[{{"status": "written"}}]' ;;
 esac
 """, 0o755)
@@ -426,9 +508,16 @@ esac
         put(f"{fk}/root/identities/roles/r/charter.md", "x")
         na.ROOT = f"{fk}/root"
 
-        def orchestrate(*argv, hosts_path=hosts):
-            if not any(a.startswith("--claude-account") or a == "--no-claude-account" for a in argv):
+        signed: list[tuple[str, str]] = []
+        saved_terminal, saved_signing = na.on_terminal, na.signing_key
+
+        def orchestrate(*argv, hosts_path=hosts, terminal=False, signing_rc=0):
+            if not any(a.startswith("--claude-account") or a in ("--no-claude-account", "--human") for a in argv):
                 argv = (*argv, "--claude-account", "acct-one")
+            # Never the runner's own terminal: a case says whether there is one.
+            na.on_terminal = lambda: terminal
+            signed.clear()
+            na.signing_key = lambda login, host: signed.append((login, host)) or signing_rc
             for f in ("hx.calls", "taken", "secrets.calls"):
                 if os.path.exists(f"{fk}/{f}"):
                     os.remove(f"{fk}/{f}")
@@ -544,8 +633,165 @@ esac
             rc, msg, err, calls = orchestrate("new", "r", "--no-claude-account")
             check("--no-claude-account: no template read, nothing assigned, finish told so",
                   rc == 0 and "store" not in secrets_calls() and "finish new r --no-claude-account" in calls, calls)
+
+            # Step 11, the signing key: only with a person at the terminal, an
+            # agent, and no --no-signing-key; finish is told it follows.
+            rc, msg, err, calls = orchestrate("new", "r", "--no-claude-account")
+            check("no terminal: no step 11, finish prints the lines as before",
+                  rc == 0 and signed == [] and "--signing-key-next" not in calls, calls)
+            rc, msg, err, calls = orchestrate("new", "r", "--no-claude-account", terminal=True)
+            check("a terminal: finish told the key follows, then step 11 for the account on its host",
+                  rc == 0 and signed == [("new", "here")] and "finish new r --no-claude-account --signing-key-next" in calls,
+                  f"{signed}\n{calls}")
+            rc, msg, err, calls = orchestrate("new", "r", "--no-claude-account", "--no-signing-key", terminal=True)
+            check("…--no-signing-key: none, the lines printed as without a terminal",
+                  rc == 0 and signed == [] and "--signing-key-next" not in calls, calls)
+            rc, msg, err, calls = orchestrate("new", "r", "--no-claude-account", "--dry-run", terminal=True)
+            check("…a dry run names it and runs none",
+                  rc == 0 and signed == [] and "would: 11. export this login's signing key" in err, err)
+            rc, msg, err, calls = orchestrate("new", "r", "--no-claude-account", terminal=True, signing_rc=1)
+            check("…a step 11 that fails: new-agent exits 1, and 0-10 stayed done",
+                  rc == 1 and msg is None and "finish new r" in calls and signed == [("new", "here")], f"{rc} {msg}")
+
+            print("the orchestrator, a human login (ADR-044)")
+            humans = put(f"{fk}/humans.json", json.dumps({
+                "hosts": {"here": {"ssh": None}, "far": {"ssh": "op@far"}},
+                "placement": {"person": "far", "agentish": "here", "oddity": "here"},
+                "kinds": {"person": "human", "oddity": "robot"}}))
+            rc, msg, err, calls = orchestrate("person", "--human", hosts_path=humans, terminal=True)
+            sc = secrets_calls().splitlines()
+            check("a human: on its placement's host, prepare and finish --human, nothing of a session",
+                  rc == 0 and calls.startswith("--resolve far\n") and "prepare person --human\n" in calls
+                  and "finish person --human\n" in calls and "a human (ADR-044)" in err, f"{msg}\n{calls}\n{err}")
+            check("…its store: identity and the relay credential only — no template, no other name, no issued key",
+                  sc == ["provision identity person --host far", "provision share person --name CLAUDE_BRIDGE_AUTH_TOKEN"],
+                  sc)
+            check("…handed over and synced as itself, its inbox caught up on the fleet's channel",
+                  open(f"{fk}/taken").read().startswith("-----BEGIN")
+                  and "relay_catchup.py agent-fabric" in calls, calls)
+            check("…and never the signing key, terminal or not (ADR-044 rule 3)", signed == [] and "signing" not in calls,
+                  calls)
+            rc, msg, err, calls = orchestrate("person", "--human", "--dry-run", hosts_path=humans, terminal=True)
+            check("…its dry run plans the one shared name and no step 11",
+                  rc == 0 and "share CLAUDE_BRIDGE_AUTH_TOKEN only" in err and "would: 11" not in err
+                  and secrets_calls() == "", err)
+            put(f"{fk}/share.skipped", "")
+            rc, msg, err, calls = orchestrate("person", "--human", hosts_path=humans)
+            check("…a relay credential the parent cannot give (skipped): stopped before the hand-over, named",
+                  rc == 1 and "CLAUDE_BRIDGE_AUTH_TOKEN did not reach person's store" in msg
+                  and not os.path.exists(f"{fk}/taken") and "finish" not in calls, f"{msg}\n{calls}")
+            os.remove(f"{fk}/share.skipped")
+            for login, why in (("newcomer", "is not placed as a human"), ("agentish", "is not placed as a human"),
+                               ("oddity", "the kind of oddity cannot be read")):
+                rc, msg, err, calls = orchestrate(login, "--human", hosts_path=humans)
+                check(f"--human for {login}: refused before the host is asked", rc == 1 and why in (msg or "")
+                      and "--resolve" not in calls, f"{msg}\n{calls}")
+            rc, msg, err, calls = orchestrate("person", "r", "--no-claude-account", hosts_path=humans)
+            check("an agent's run on a human login: refused, nothing asked (ADR-044 rule 5)",
+                  rc == 1 and "person is a human login" in msg and "--resolve" not in calls, f"{msg}\n{calls}")
+            rc, msg, err, calls = orchestrate("agentish", "r", "--no-claude-account", hosts_path=humans)
+            check("…while a placed login kinds does not name is an agent (the control)", rc == 0, f"{msg}")
+            rc, msg, err, calls = orchestrate("person", "--human", hosts_path=put(f"{fk}/badkinds.json", json.dumps({
+                "hosts": {"far": {"ssh": "op@far"}}, "placement": {"person": "far"}, "kinds": ["person"]})))
+            check("…and a kinds that is not a table is no answer: refused", rc == 1 and "cannot be read" in msg, msg)
         finally:
             na.HX, na.STORE, na.SECRETS, na.STORE_ENROLL, na.REGISTRY, na.ROOT = saved
+            na.on_terminal, na.signing_key = saved_terminal, saved_signing
+
+        print("step 11, the signing key, between two scratch keyrings")
+        # The coordinator's keyring (gA) and the account's (gB), each its own
+        # GNUPGHOME under the scratch dir — never the runner's ~/.gnupg, whose
+        # agent a test would share (the GNUPGHOME default-agent trap). The
+        # account is reached through a fake host executor that runs the
+        # command after `--` with gB; a fault file fails one of its steps.
+        gA, gB, gEmpty = f"{tmp}/gA", f"{tmp}/gB", f"{tmp}/gE"
+        for d in (gA, gB, gEmpty):
+            os.makedirs(d, mode=0o700)
+        hxg = put(f"{fk}/hx-gpg", f"""#!/usr/bin/env bash
+echo "$*" >> {fk}/hxg.calls
+while [[ $1 != -- ]]; do shift; done; shift
+if [[ -e {fk}/import.fails && "$*" == *--import ]]; then cat >/dev/null; echo "gpg: import failed (injected)" >&2; exit 2; fi
+home={gB}; [[ -e {fk}/sign.fails && "$*" == *detach-sign* ]] && home={gEmpty}
+exec env GNUPGHOME="$home" "$@"
+""", 0o755)
+        gitconfig = f"{tmp}/coordinator.gitconfig"
+        gpg_env = {"GNUPGHOME": gA, "GIT_CONFIG_GLOBAL": gitconfig, "GIT_CONFIG_NOSYSTEM": "1", "GPG_TTY": ""}
+        saved_env = {k: os.environ.get(k) for k in gpg_env}
+        saved_hx, saved_root = na.HX, na.ROOT
+
+        def gpg(home: str, *argv: str, data: bytes | None = None) -> subprocess.CompletedProcess:
+            return subprocess.run(["gpg", "--homedir", home, "--batch", *argv], input=data, capture_output=True, timeout=120)
+
+        def step11() -> tuple[int, str, str]:
+            if os.path.exists(f"{fk}/hxg.calls"):
+                os.remove(f"{fk}/hxg.calls")
+            err = io.StringIO()
+            with redirect_stderr(err):
+                rc = na.signing_key("new", "here")
+            calls = open(f"{fk}/hxg.calls").read() if os.path.exists(f"{fk}/hxg.calls") else ""
+            return rc, err.getvalue(), calls
+
+        def held(home: str, fpr: str) -> bool:
+            r = gpg(home, "--list-secret-keys", "--with-colons", "--", fpr)
+            return r.returncode == 0 and w.signs_with_secret(r.stdout.decode())
+        try:
+            os.environ.update(gpg_env)
+            na.HX, na.ROOT = hxg, f"{fk}/root"
+            made = gpg(gA, "--pinentry-mode", "loopback", "--passphrase", "", "--quick-gen-key",
+                       "Fixture Signer <fixture@example.invalid>", "ed25519", "sign", "never")
+            listing = gpg(gA, "--list-secret-keys", "--with-colons").stdout.decode()
+            fpr = na.primary_fingerprint(listing)
+            check("fixture: a signing key in the coordinator's scratch keyring", made.returncode == 0 and len(fpr) == 40,
+                  made.stderr.decode())
+            put(gitconfig, f"[user]\n\tsigningkey = {fpr}\n")
+
+            rc, err, calls = step11()
+            trust = gpg(gB, "--export-ownertrust").stdout.decode()
+            check("imported and proved: the account's keyring holds the secret, trusted, and a signature was made as it",
+                  rc == 0 and held(gB, fpr) and f"{fpr}:6:" in trust
+                  and "imported, trusted, and a test signature made as new" in err
+                  and "--tty --as new -- " in calls and "--detach-sign" in calls, f"rc={rc}\n{err}\n{calls}\n{trust}")
+            rc, err, calls = step11()
+            check("a re-run: already there, said, nothing exported or imported again",
+                  rc == 0 and "already in new's keyring" in err and "--import" not in calls, f"{err}\n{calls}")
+
+            subprocess.run(["gpgconf", "--homedir", gB, "--kill", "all"], capture_output=True, timeout=60)
+            subprocess.run(["gpgconf", "--homedir", gB, "--remove-socketdir"], capture_output=True, timeout=60)
+            shutil.rmtree(gB)
+            os.makedirs(gB, mode=0o700)
+            put(f"{fk}/import.fails", "")
+            rc, err, calls = step11()
+            check("a failed import: exit 1, gpg's last line, and the two lines a person runs",
+                  rc == 1 and "11. the signing key: FAILED — the import as new: gpg: import failed (injected)" in err
+                  and "sudo -u new gpg --batch --import" in err and "gpg --import-ownertrust" in err
+                  and not held(gB, fpr) and "--import-ownertrust" not in calls, f"rc={rc}\n{err}\n{calls}")
+            os.remove(f"{fk}/import.fails")
+            put(f"{fk}/sign.fails", "")
+            rc, err, calls = step11()
+            check("a test signature that fails is a failed step, with gpg's line, though the import went in",
+                  rc == 1 and "FAILED — the test signature as new: " in err and "gpg:" in err.split("test signature as new: ")[1]
+                  and held(gB, fpr), f"rc={rc}\n{err}")
+            os.remove(f"{fk}/sign.fails")
+            put(gitconfig, "")
+            rc, err, calls = step11()
+            check("no user.signingkey here: exit 1, said, nothing asked of the account",
+                  rc == 1 and "names no user.signingkey" in err and calls == "", f"{err}\n{calls}")
+            put(gitconfig, "[user]\n\tsigningkey = 0000000000000000000000000000000000000000\n")
+            rc, err, calls = step11()
+            check("…a signing key this keyring does not hold: exit 1, said, nothing asked",
+                  rc == 1 and "holds no signing secret for 0000" in err and calls == "", f"{err}\n{calls}")
+        finally:
+            na.HX, na.ROOT = saved_hx, saved_root
+            for k, v in saved_env.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
+            # Each scratch keyring's agent, then its socket directory under
+            # /run/user, which gpg made for it: nothing left that was not found.
+            for d in (gA, gB, gEmpty):
+                subprocess.run(["gpgconf", "--homedir", d, "--kill", "all"], capture_output=True, timeout=60)
+                subprocess.run(["gpgconf", "--homedir", d, "--remove-socketdir"], capture_output=True, timeout=60)
 
         print("the orchestrator's steps")
         log = put(f"{tmp}/log", "")

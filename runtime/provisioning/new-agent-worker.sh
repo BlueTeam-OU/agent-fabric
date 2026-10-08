@@ -6,8 +6,8 @@
 # knows nothing of the account's secrets (ADR-038). A step-runner (ADR-040
 # rule 1): sudo, useradd and the installers here; its decisions, and why,
 # in tools/fabric/new_agent_worker.py, run by the pinned Python's fixed path.
-#   new-agent-worker.sh prepare <login> <role> [--claude V] [--dry-run]   0-4
-#   new-agent-worker.sh finish <login> <role> [--clone <id>=<remote>]... [--claude-account <slug>=<fp12> | --no-claude-account] [--dry-run]   6-10
+#   new-agent-worker.sh prepare <login> (<role> | --human) [--claude V] [--dry-run]   0-4 (a human, ADR-044: 0, 1, 4)
+#   new-agent-worker.sh finish <login> (<role> | --human) [--clone <id>=<remote>]... [--claude-account <slug>=<fp12> | --no-claude-account] [--signing-key-next] [--dry-run]   6-10 (a human: 10)
 #   new-agent-worker.sh host-check <login>   hostname -s, then whether the account exists
 # Every step is must, probe or best_effort (tests/test_new_agent_cli.py fails each must).
 set -uo pipefail
@@ -44,7 +44,7 @@ if [[ "$PHASE" == prepare ]]; then
     "$PY" -I "$W" audit "$PLATFORM_ID" "$PERSISTS_ACROSS_REBOOT" "$PKG_INSTALL_HINT" "${#FABRIC_HOST_TOOLS[@]}" "${missing_pkgs[@]+"${missing_pkgs[@]}"}"
     # ---- 1. the account, its subordinate ids, home 700, the shared cache, linger
     if getent passwd "$LOGIN" >/dev/null; then say "1. account $LOGIN exists"
-    else must $SUDO -n useradd -m -s /bin/bash -c "agent-fabric $ROLE" "$LOGIN"; say "1. account $LOGIN created"; fi
+    else must $SUDO -n useradd -m -s /bin/bash -c "agent-fabric ${ROLE:-human}" "$LOGIN"; say "1. account $LOGIN created"; fi
     HOME_DIR="$(getent passwd "$LOGIN" | cut -d: -f6)"; HOME_DIR="${HOME_DIR:-/home/$LOGIN}"
     plan="$("$PY" -I "$W" subids "$LOGIN" "${AGENT_FABRIC_ETC:-/etc}")" || die "the subordinate id plan for $LOGIN could not be made"
     case "$plan" in
@@ -59,7 +59,7 @@ if [[ "$PHASE" == prepare ]]; then
         best_effort $SUDO -n usermod -aG otscache "$LOGIN"; say "   otscache (the shared timestamp cache): joined"; fi
     # Survive the host's reboot: linger everywhere; on Qubes the record goes into the /rw snapshot (after the group join).
     must $SUDO -n bash "$ROOT/runtime/provisioning/persist-accounts.sh" "$LOGIN"; say "   persisted across reboot (linger$( (( PERSISTS_ACROSS_REBOOT )) || printf '; record snapshot under /rw' ))"
-    # ---- 2. the home skeleton, then claude and ori from their vendors' installers, as the account
+    if (( ! HUMAN )); then   # ---- 2. the home skeleton, then claude and ori from their vendors' installers, as the account; 2-3 never for a human (ADR-044 rule 2), to step 3's last fi
     must $SUDO -n -u "$LOGIN" mkdir -p "$HOME_DIR"/{projects,.ssh,.claude,.config/gh,.local/bin,.local/share/claude/versions}
     must $SUDO -n -u "$LOGIN" chmod 700 "$HOME_DIR/.ssh"
     must $SUDO -n chown "$LOGIN:$GROUP" "$HOME_DIR/.local" "$HOME_DIR/.local/bin" "$HOME_DIR/.local/share"
@@ -95,7 +95,7 @@ if [[ "$PHASE" == prepare ]]; then
     if [[ -z "$missing_keys" ]]; then say "3. github.com host keys trusted ($(grep -c . "$HOST_KEYS") published keys)"
     elif (( DRY )); then say "would: append GitHub's published host keys (runtime/provisioning/github-host-keys) to $HOME_DIR/.ssh/known_hosts"
     else must bash -c 'printf "%s\n" "$1" | '"$SUDO"' -n -u "$2" tee -a "$3/.ssh/known_hosts" >/dev/null' _ "$missing_keys" "$LOGIN" "$HOME_DIR"
-         must $SUDO -n -u "$LOGIN" chmod 600 "$HOME_DIR/.ssh/known_hosts"; say "3. github.com host keys trusted (from the committed published set)"; fi
+         must $SUDO -n -u "$LOGIN" chmod 600 "$HOME_DIR/.ssh/known_hosts"; say "3. github.com host keys trusted (from the committed published set)"; fi; fi
     # A clone already there is brought to origin/main, never left old (bootstrap and the launcher run from it), or refused off main.
     if ! $SUDO -n test -d "$HOME_DIR/projects/agent-fabric/.git"; then
         must as_login "git clone -q '${AGENT_FABRIC_CLONE_URL:-https://github.com/gzapi-org/agent-fabric.git}' ~/projects/agent-fabric"; say "4. agent-fabric cloned (https; the fabric is public)"
@@ -115,7 +115,7 @@ for pid in "${PROJECTS[@]+"${PROJECTS[@]}"}"; do
     if $SUDO -n test -d "$HOME_DIR/projects/$pid/.git"; then say "6. ~/projects/$pid present"
     else must as_login "git clone -q '${REMOTE[$pid]}' ~/projects/'$pid'"; say "6. $pid cloned from ${REMOTE[$pid]}"; fi
 done
-# ---- 7. bootstrap; 8. the role, bound from the first clone
+if (( ! HUMAN )); then   # ---- 7. bootstrap; 8. the role, bound from the first clone; 7-9 never for a human (ADR-044 rule 2), to step 9's done
 if (( DRY )); then say "would: as $LOGIN: bootstrap.sh"
 else
     as_login "~/projects/agent-fabric/runtime/claude-code/bootstrap.sh" >"$LOG" 2>&1 || { tail -5 "$LOG" >&2; die "step failed: bootstrap.sh as $LOGIN; nothing after it ran"; }
@@ -143,7 +143,7 @@ for pid in "${PROJECTS[@]+"${PROJECTS[@]}"}"; do
     elif probe $SUDO -n test -f "$wc/requirements.txt"; then
         probe $SUDO -n test -d "$wc/.venv" && say "9. $pid: .venv present" || { must as_login "cd ~/projects/'$pid' && python3 -m venv .venv && .venv/bin/pip install -q -r requirements.txt"; say "9. $pid: venv"; }
     fi
-done
+done; fi
 # ---- 10. verify, and what is left for a person
 (( DRY )) && { say "dry run: nothing verified"; exit 0; }
 say "10. verification"
