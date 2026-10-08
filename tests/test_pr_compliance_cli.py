@@ -54,7 +54,11 @@ if args[:2] == ["run", "list"]:
     b = opt("--branch")
     if b in read("runs_fail").split():
         print("gh: Server Error (HTTP 502)", file=sys.stderr); sys.exit(1)
-    print(json.dumps([{"databaseId": i} for i in range(json.loads(read("runs.json", "{}")).get(b, 0))])); sys.exit(0)
+    # A count is that many runs inside the fixtures' window; a list names
+    # each run's createdAt.
+    v = json.loads(read("runs.json", "{}")).get(b, 0)
+    at = v if isinstance(v, list) else ["2026-09-18T09:00:00Z"] * v
+    print(json.dumps([{"databaseId": i, "createdAt": c} for i, c in enumerate(at)])); sys.exit(0)
 if args[:1] == ["api"]:
     path = args[1]
     if path.startswith(R + "/branches?"):
@@ -182,7 +186,7 @@ def main() -> int:
         def pr(num: int, title: str, branch: str, mc: str, body: str = "plain", files: tuple = ("src/a.cs",),
                comments: tuple = ()) -> dict:
             return {"number": num, "title": title, "headRefName": branch, "baseRefName": "main",
-                    "mergedAt": "2026-09-18T10:00:00Z", "mergeCommit": {"oid": mc}, "body": body,
+                    "createdAt": "2026-09-17T10:00:00Z", "mergedAt": "2026-09-18T10:00:00Z", "mergeCommit": {"oid": mc}, "body": body,
                     "files": [{"path": f} for f in files], "comments": [{"body": c} for c in comments]}
 
         four = [pr(1, "two work and a review fix, no basis", "pr-1", mc1, files=("src/a.cs", "product/i18n/en-US.json")),
@@ -233,11 +237,14 @@ def main() -> int:
         one = next((r for r in d.get("prs", []) if r.get("number") == 1), {})
         check("per-PR fields", [one.get(k) for k in ("work_commits", "fix_commits", "exemption_stated", "i18n_only",
                                                        "under_floor_unstated")] == [2, 1, False, False, True], out["text"])
-        check("the keys are the bash's, in its order", list(d) == [
+        # The bash's keys, in its order, and the two the scoped count added
+        # (devex-tooling, 2026-10-08): each one beside the count it qualifies.
+        check("the keys are the bash's, in its order, with the lower-bound flags", list(d) == [
             "window_days", "since", "origin_fetched", "merged", "pull_request_runs", "under_floor_unstated", "i18n_only",
-            "supply_past_fold_by", "awaiting_supply", "prs"] and list(one) == [
-            "number", "title", "branch", "merged_at", "pull_request_runs", "work_commits", "fix_commits",
-            "merge_commits", "netted_commits", "commits_known", "exemption_stated", "bot", "i18n_only",
+            "supply_past_fold_by", "awaiting_supply", "prs"] and list(d["pull_request_runs"]) == [
+            "known", "total", "per_pr", "lower_bound", "over_target"] and list(one) == [
+            "number", "title", "branch", "merged_at", "pull_request_runs", "pull_request_runs_lower_bound", "work_commits",
+            "fix_commits", "merge_commits", "netted_commits", "commits_known", "exemption_stated", "bot", "i18n_only",
             "under_floor_unstated"] and d.get("window_days") == 3, out["stdout"][:400])
         check("--json is stdout alone, indented as jq printed it",
               out["stdout"].startswith('{\n  "window_days": 3,\n') and "git fetch" not in out["stdout"], out["stdout"][:200])
@@ -337,6 +344,29 @@ def main() -> int:
               [r["pull_request_runs"] for r in doc().get("prs", [])] == [None], out["text"])
         put("runs.json", json.dumps({"pr-1": 4, "pr-2": 2, "pr-3": 1}))
 
+        print("pr-compliance: a pull request's runs are its own: on its branch, while it was open")
+        reused = [dict(four[0], createdAt="2026-09-10T00:00:00Z", mergedAt="2026-09-11T00:00:00Z"),
+                  dict(four[3], createdAt="2026-09-17T00:00:00Z", mergedAt="2026-09-18T00:00:00Z")]
+        put("merged.json", json.dumps(reused))
+        put("runs.json", json.dumps({"pr-1": ["2026-09-10T01:00:00Z", "2026-09-17T01:00:00Z", "2026-09-17T02:00:00Z",
+                                              "2026-09-19T00:00:00Z", "2026-09-01T00:00:00Z"]}))
+        run("--days", "3", "--json")
+        check("two PRs on one branch name: one run and two, not five each",
+              [r["pull_request_runs"] for r in doc().get("prs", [])] == [1, 2], out["text"])
+        put("merged.json", json.dumps([dict(four[0], createdAt=None)]))
+        run("--days", "3", "--json")
+        check("no createdAt: no window, so an unknown count", [r["pull_request_runs"] for r in doc().get("prs", [])] == [None],
+              out["text"])
+        put("merged.json", json.dumps([four[0], four[1]]))
+        put("runs.json", json.dumps({"pr-1": 100, "pr-2": 2}))
+        run("--days", "3")
+        check("a full read is a lower bound in its row", line("  #1 ").split()[1] == "100+", out["text"])
+        has("…and in the aggregate", "pull_request runs per merged PR: ≥51 (target 2; ≥102 runs over 2 PR(s); over target: #1)\n")
+        run("--days", "3", "--json")
+        check("…and in --json", doc()["pull_request_runs"]["lower_bound"] is True
+              and [r["pull_request_runs_lower_bound"] for r in doc()["prs"]] == [True, False], out["text"])
+        put("runs.json", json.dumps({"pr-1": 4, "pr-2": 2, "pr-3": 1}))
+
         print("pr-compliance: the empty window is said; a failing gh is exit 2")
         put("merged.json", "[]")
         run("--days", "1")
@@ -382,6 +412,13 @@ def main() -> int:
         lacks("a null i18n_prefix drops the i18n line", "standalone i18n-only")
         check("…and the I18N column", line("  PR ").split() == ["PR", "RUNS", "COMMITS", "EXEMPT", "TITLE"], out["text"])
         check("the workflow asked is the project's", "--workflow build.yml" in open(os.path.join(state, "calls")).read())
+        quiet = {k: v for k, v in cfg.items() if k != "i18n_target_note"}
+        quiet_path = os.path.join(sandbox, "quiet.json")
+        with open(quiet_path, "w", encoding="utf-8") as fh:
+            json.dump(quiet, fh)
+        run("--days", "3", AGENT_FABRIC_COMPLIANCE_CONFIG=quiet_path)
+        has("a project with no i18n_target_note gets the count alone, never another's policy",
+            "standalone i18n-only PRs: 1 (#3)\n")
         run("--days", "3", AGENT_FABRIC_COMPLIANCE_CONFIG=os.path.join(sandbox, "none.json"))
         has("a project with no compliance.json: exit 2, before anything is read",
             f"pr-compliance: this project declares no compliance.json ({sandbox}/none.json)", rc=2)

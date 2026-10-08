@@ -8,8 +8,8 @@ A project that pays for its CI minutes sets targets that nothing else
 measures: how many pull_request CI runs a pull request pays before it
 lands (the open and the fold), whether one under the count rule's
 work-commit floor states the class of exemption that let it open, how
-many standalone i18n-only pull requests land (copy goes onto the
-caller's branch), and how many supply branches sit past their FOLD-BY.
+many standalone i18n-only pull requests land, and how many supply
+branches sit past their FOLD-BY.
 This prints them for a window of merged pull requests, and names every
 pull request behind each number so the number can be argued with.
 
@@ -20,7 +20,9 @@ is exit 2.
 
 For each pull request merged in the window:
   runs        pull_request runs of the project's workflow on its head
-              branch ("?" when they cannot be read — never zero)
+              branch created while it was open, createdAt to mergedAt
+              ("?" when they cannot be read — never zero; "N+" when the
+              read was full, a lower bound)
   work/fix    its commits over the base, classed as the gate classes
               them before arming (commit_class), a revert and the commit
               it reverts netted ("N netted" in the row, netted_commits in
@@ -66,14 +68,15 @@ as `origin_fetched` (true/false).
 #           command run as `bash <it> --json` instead of owed-supply in
 #           process (a project's forwarder maps its old name onto it).
 #   config  {workflow, i18n_prefix (null drops the I18N column and its
-#           line), floor (>= 1), runs_target (>= 0), exemption (a regex,
+#           line), i18n_target_note (optional, printed after the i18n
+#           count), floor (>= 1), runs_target (>= 0), exemption (a regex,
 #           matched case-insensitively), bot_prefix}; the printed
 #           "under <floor>" and "(target <runs_target>; …)" are its numbers.
 #   reads   the merged pull requests since now - N days (200 at most:
-#           number, title, headRefName, baseRefName, mergedAt,
+#           number, title, headRefName, baseRefName, createdAt, mergedAt,
 #           mergeCommit, body, files, comments); per pull request the
 #           workflow's pull_request runs on its head branch (100 at
-#           most); `git fetch -q origin`, once; per merge commit the split
+#           most), counted when created in [createdAt, mergedAt]; `git fetch -q origin`, once; per merge commit the split
 #           of <merge>^1..<merge>^2 (pr_gate.split_range).
 #   stdout  the lines below, verbatim; --json one object, indented two
 #           spaces as jq printed it.
@@ -169,8 +172,10 @@ def load_config(path: str) -> dict:
         cfg = {
             "workflow": doc["workflow"], "i18n_prefix": doc["i18n_prefix"], "floor": doc["floor"],
             "runs_target": doc["runs_target"], "exemption": re.compile(doc["exemption"], re.I),
-            "bot_prefix": doc["bot_prefix"],
+            "bot_prefix": doc["bot_prefix"], "i18n_target_note": doc.get("i18n_target_note"),
         }
+        if cfg["i18n_target_note"] is not None and not isinstance(cfg["i18n_target_note"], str):
+            raise TypeError("i18n_target_note is neither absent nor a string")
         for key in ("workflow", "bot_prefix"):
             if not (isinstance(cfg[key], str) and cfg[key]):
                 raise TypeError(f"{key} is not a non-empty string")
@@ -191,8 +196,8 @@ def load_config(path: str) -> dict:
 
 def merged_pull_requests(repo: str, since: str) -> list[dict]:
     try:
-        prs = gh.pr_list(["number", "title", "headRefName", "baseRefName", "mergedAt", "mergeCommit", "body", "files",
-                          "comments"], repo=repo, state="merged", search=f"merged:>={since}", limit=200)
+        prs = gh.pr_list(["number", "title", "headRefName", "baseRefName", "createdAt", "mergedAt", "mergeCommit",
+                          "body", "files", "comments"], repo=repo, state="merged", search=f"merged:>={since}", limit=200)
     except (gh.GhError, ValueError):
         raise Refusal("could not list merged pull requests") from None
     if not isinstance(prs, list) or not all(isinstance(p, dict) and type(p.get("number")) is int for p in prs):
@@ -200,21 +205,32 @@ def merged_pull_requests(repo: str, since: str) -> list[dict]:
     return prs
 
 
-def pull_request_runs(repo: str, workflow: str, branch: str) -> int | None:
-    """Runs outlive the branch the queue deletes, so a merged pull
-    request's count is still readable; one that cannot be read is None."""
-    # An empty --branch is no filter at all: gh would count the
-    # workflow's last hundred runs of every branch, a plausible number
-    # that is not this pull request's.
-    if not branch:
-        return None
+RUNS_READ = 100
+
+
+def pull_request_runs(repo: str, workflow: str, branch: str, opened: str, merged: str) -> tuple[int | None, bool]:
+    """This pull request's runs: on its head branch, created while it was
+    open. A branch name is not a pull request — an earlier one on the same
+    name, or a fork's `main`, counted into the row — so the count is
+    scoped to [opened, merged]. Runs outlive the branch the queue deletes,
+    so a merged pull request's count is still readable; one that cannot be
+    read is None. The second value: the read was full, so the count is a
+    lower bound."""
+    # An empty --branch is no filter at all, and no window is no scope:
+    # either would be a plausible number that is not this pull request's.
+    if not branch or not opened or not merged:
+        return None, False
     try:
         out = gh.run(["run", "list", "--repo", repo, "--workflow", workflow, "--event", "pull_request", "--branch",
-                      branch, "--limit", "100", "--json", "databaseId"], what="gh run list")
+                      branch, "--limit", str(RUNS_READ), "--json", "databaseId,createdAt"], what="gh run list")
         runs = json.loads(out)
     except (gh.GhError, ValueError):
-        return None
-    return len(runs) if isinstance(runs, list) else None
+        return None, False
+    if not isinstance(runs, list) or not all(isinstance(r, dict) and isinstance(r.get("createdAt"), str) for r in runs):
+        return None, False
+    # The runs API's timestamps and the pull request's are both UTC "Z",
+    # so they order as text.
+    return sum(1 for r in runs if opened <= r["createdAt"] <= merged), len(runs) >= RUNS_READ
 
 
 def fetch_origin() -> bool:
@@ -290,9 +306,11 @@ def row(p: dict, repo: str, cfg: dict) -> dict:
     paths = [f.get("path") if isinstance(f, dict) else None for f in files]
     i18n = bool(cfg["i18n_prefix"]) and len(paths) > 0 and all(
         isinstance(x, str) and x.startswith(cfg["i18n_prefix"]) for x in paths)
+    opened = p.get("createdAt") if isinstance(p.get("createdAt"), str) else ""
+    merged = p.get("mergedAt") if isinstance(p.get("mergedAt"), str) else ""
+    runs, saturated = pull_request_runs(repo, cfg["workflow"], branch, opened, merged)
     return {"number": num, "title": p.get("title") if isinstance(p.get("title"), str) else "", "branch": branch,
-            "merged_at": p.get("mergedAt") if isinstance(p.get("mergedAt"), str) else "",
-            "pull_request_runs": pull_request_runs(repo, cfg["workflow"], branch),
+            "merged_at": merged, "pull_request_runs": runs, "pull_request_runs_lower_bound": saturated,
             "work_commits": split["work"], "fix_commits": split["fix"], "merge_commits": split["merge"],
             "netted_commits": split["netted"], "commits_known": known, "exemption_stated": exempt, "bot": bot,
             "i18n_only": i18n,
@@ -314,6 +332,9 @@ def summary(rows: list[dict], days: int, since: str, fetched: bool, owed: dict, 
         "window_days": days, "since": since, "origin_fetched": fetched, "merged": len(rows),
         "pull_request_runs": {
             "known": len(counted), "total": sum(counted), "per_pr": per_pr(sum(counted), len(counted)),
+            # A full read clipped a row: the total and the mean are then
+            # at least these, never exactly.
+            "lower_bound": any(r["pull_request_runs_lower_bound"] for r in rows if r["pull_request_runs"] is not None),
             "over_target": [r["number"] for r in rows
                             if r["pull_request_runs"] is not None and r["pull_request_runs"] > cfg["runs_target"]]},
         "under_floor_unstated": [r["number"] for r in rows if r["under_floor_unstated"]],
@@ -353,7 +374,8 @@ def say(s: dict, repo: str, days_word: str, cfg: dict) -> None:
                        if r["commits_known"] else "unknown (fetch)")
             exempt = "bot" if r["bot"] else "n/a" if r["work_commits"] >= cfg["floor"] and r["commits_known"] \
                 else "stated" if r["exemption_stated"] else "NONE"
-            runs = "?" if r["pull_request_runs"] is None else str(r["pull_request_runs"])
+            runs = "?" if r["pull_request_runs"] is None else \
+                f"{r['pull_request_runs']}{'+' if r['pull_request_runs_lower_bound'] else ''}"
             cells.append([f"#{r['number']}", runs, commits, exempt] + (["ONLY" if r["i18n_only"] else "-"] if i18n else [])
                          + [r["title"][0:60]])
         # The COMMITS column is as wide as its widest cell: a fixed width
@@ -366,14 +388,16 @@ def say(s: dict, repo: str, days_word: str, cfg: dict) -> None:
             print(line.format(*c))
     print()
     runs = s["pull_request_runs"]
-    print(f"pull_request runs per merged PR: {'unknown' if runs['per_pr'] is None else runs['per_pr']}"
-          f" (target {cfg['runs_target']}; {runs['total']} runs over {runs['known']} PR(s); over target:"
+    ge = "≥" if runs["lower_bound"] else ""
+    print(f"pull_request runs per merged PR: {'unknown' if runs['per_pr'] is None else ge + str(runs['per_pr'])}"
+          f" (target {cfg['runs_target']}; {ge}{runs['total']} runs over {runs['known']} PR(s); over target:"
           f" {numbers(runs['over_target'])})")
     print(f"under {cfg['floor']} work commits with no exemption stated: {numbers(s['under_floor_unstated'])}")
     if i18n:
         only = s["i18n_only"]
         named = f" ({numbers(only)})" if only else ""
-        print(f"standalone i18n-only PRs: {len(only)}{named} (target 0 — copy goes onto the caller's branch)")
+        note = f" {cfg['i18n_target_note']}" if cfg["i18n_target_note"] else ""
+        print(f"standalone i18n-only PRs: {len(only)}{named}{note}")
     past = s["supply_past_fold_by"]
     print(f"supply branches past the default FOLD-BY: {' '.join(past) if past else 'none'}")
     print(f"open PRs awaiting a AWAITING-SUPPLY: {numbers(s['awaiting_supply'])}")

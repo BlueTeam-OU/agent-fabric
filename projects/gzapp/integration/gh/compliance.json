@@ -5,5 +5,6 @@
   "floor": 8,
   "runs_target": 2,
   "exemption": "count rule|owner.?s word|arming basis|basis for (the )?arm|urgen|finding on the queued|dequeue|exemption",
-  "bot_prefix": "dependabot/"
+  "bot_prefix": "dependabot/",
+  "i18n_target_note": "(target 0 — copy goes onto the caller's branch)"
 }
