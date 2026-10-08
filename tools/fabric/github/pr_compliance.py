@@ -63,8 +63,8 @@ as `origin_fetched` (true/false).
 #           unknown option '<x>' (try --help)", exit 2.
 #   env     GH_REPO (through gh.this_repo); AGENT_FABRIC_COMPLIANCE_CONFIG
 #           (a compliance.json used instead of the project's);
-#           AGENT_FABRIC_ROOT (the fabric whose projects/ holds it, as
-#           arm reads it); AGENT_FABRIC_OWED_SUPPLY, a TEST SEAM only — a
+#           AGENT_FABRIC_OPERATOR, else AGENT_FABRIC_ROOT (the tree whose
+#           projects/ holds it, as arm reads it); AGENT_FABRIC_OWED_SUPPLY, a TEST SEAM only — a
 #           command run as `bash <it> --json` instead of owed-supply in
 #           process (a project's forwarder maps its old name onto it).
 #   config  {workflow, i18n_prefix (null drops the I18N column and its
@@ -110,9 +110,9 @@ HERE = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
 import gh  # noqa: E402
 import git  # noqa: E402
+import roots  # noqa: E402
 from github import local, owed_supply, pr_gate  # noqa: E402
 
-FABRIC = os.path.dirname(os.path.dirname(os.path.dirname(HERE)))
 OWED_SUPPLY_TIMEOUT_S = 600
 _SURROGATE = re.compile("[\ud800-\udfff]")
 
@@ -157,8 +157,7 @@ def config_path() -> str:
         pid = workingcopy.resolve(top).get("project")
     except (Exception, SystemExit):   # a marker naming nothing the registry knows exits
         pid = None
-    fabric = os.environ.get("AGENT_FABRIC_ROOT") or FABRIC
-    return os.path.join(fabric, "projects", pid, "integration", "gh", "compliance.json") if pid else ""
+    return roots.project_integration(pid, "gh", "compliance.json") if pid else ""
 
 
 def load_config(path: str) -> dict:

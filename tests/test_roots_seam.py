@@ -308,6 +308,28 @@ def case_recovery_key_and_keys_dir_follow_the_operator_root() -> None:
         assert core.keys_dir() == os.path.join(tmp, "op", "identities", "keys")
 
 
+def case_a_projects_gh_config_is_found_in_the_operator_tree() -> None:
+    sys.path.insert(0, os.path.join(ROOT, "tools", "fabric"))
+    import workingcopy
+    from github import cli_root, local, pr_compliance
+    real_resolve, real_toplevel = workingcopy.resolve, local.toplevel
+    workingcopy.resolve = lambda *_a, **_k: {"project": "proj"}
+    local.toplevel = lambda: "/somewhere"
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            op = operator_fixture(tmp)
+            gh = os.path.join(op, "projects", "proj", "integration", "gh")
+            os.makedirs(gh)
+            for name in ("semantic.json", "compliance.json"):
+                with open(os.path.join(gh, name), "w", encoding="utf-8") as fh:
+                    fh.write("{}")
+            with operator(op):
+                assert cli_root.project_config("/somewhere", "semantic.json", "AGENT_FABRIC_X") == os.path.join(gh, "semantic.json")
+                assert pr_compliance.config_path() == os.path.join(gh, "compliance.json")
+    finally:
+        workingcopy.resolve, local.toplevel = real_resolve, real_toplevel
+
+
 def main() -> int:
     cases = [v for k, v in globals().items() if k.startswith("case_")]
     failures = 0

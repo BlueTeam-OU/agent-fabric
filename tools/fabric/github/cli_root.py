@@ -6,8 +6,10 @@ from __future__ import annotations
 
 import os
 import subprocess
+import sys
 
-FABRIC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__)))))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
+import roots  # noqa: E402
 
 
 class Refused(Exception):
@@ -55,6 +57,5 @@ def project_config(root: str, filename: str, setting: str) -> str:
         pid = None
     if not pid:
         return ""
-    fabric = os.environ.get("AGENT_FABRIC_ROOT") or FABRIC
-    path = os.path.join(fabric, "projects", pid, "integration", "gh", filename)
+    path = roots.project_integration(pid, "gh", filename)
     return path if os.path.exists(path) else ""
