@@ -121,6 +121,11 @@ def main() -> int:
         rc, out, err = run(tree(GUARD, "      - run: true; echo bash tools/checks/ban_a.sh\n"
                                        "      - run: bash tools/checks/run_suite.sh tools/checks/test_ban_a.sh\n"))
         check("nor does one an echo prints mid-line", rc == 1 and "whatever they contain:\n        ban_a.sh\n" in out, out)
+        for line in ("if true; then echo bash tools/checks/ban_a.sh; fi", "for x in a; do echo tools/checks/ban_a.sh; done",
+                     "true \\\" ; true # bash tools/checks/ban_a.sh"):
+            rc, out, err = run(tree(GUARD, f"      - run: {line}\n"
+                                           "      - run: bash tools/checks/run_suite.sh tools/checks/test_ban_a.sh\n"))
+            check(f"not run: {line}", rc == 1 and "whatever they contain:\n        ban_a.sh\n" in out, out)
         rc, out, err = run(tree(GUARD, "      - run: X=\"a #b\" Y=c#d bash tools/checks/ban_a.sh # x\n"
                                        "      - run: bash tools/checks/run_suite.sh tools/checks/test_ban_a.sh\n"))
         check("a # inside quotes, or one that does not start a word, cuts nothing", rc == 0, out + err)
@@ -134,6 +139,10 @@ def main() -> int:
                                             "bash tools/checks/run_suite.sh \"$t\"\n"))
         check("…and a runner after the done, handed the last $t, is not in the loop", rc == 1 and "bare" not in err and
               "run without tools/checks/run_suite.sh" in out, out)
+        rc, out, err = run(tree(gh, WIRED + loop.format(body="            bash \"$t\"\n            bash tools/checks/run_suite.sh"
+                                                                 " \"$t\"\n", after="")))
+        check("a loop that also runs $t bare is bare, however it wraps it too",
+              rc == 1 and "        for t in tools/gh/test_*.sh; do\n" in out, out)
         rc, out, err = run(tree(gh, WIRED + loop.format(body="            PATH=x bash tools/checks/run_suite.sh \"${t}\"\n",
                                                         after="")))
         check("a loop handing ${t} to the runner is wrapped", rc == 0, out + err)

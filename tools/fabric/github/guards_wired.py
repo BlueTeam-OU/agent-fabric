@@ -340,13 +340,31 @@ def _literal(rel: str) -> re.Pattern:
 FOR_HEAD = re.compile(r"\bfor\s+([A-Za-z_]\w*)\s+in\s")
 
 
+# Words that open a compound command before the command itself.
+KEYWORDS = {"then", "do", "else", "elif", "if", "while", "until", "{", "(", "!", "time"}
+
+
+def command_word(segment: str) -> str:
+    """The command a segment runs: past its leading keywords and VAR=value
+    assignments."""
+    for word in segment.split():
+        if word in KEYWORDS or re.fullmatch(r"[A-Za-z_]\w*=\S*", word):
+            continue
+        return word
+    return ""
+
+
 def strip_comment(line: str) -> str:
     """The line without its shell comment: a # that starts a word, outside
     quotes. `true # bash tools/checks/x.sh` runs nothing of x; a # inside
     ${#arr} or a quoted string is no comment."""
-    quote = ""
+    quote, escaped = "", False
     for i, c in enumerate(line):
-        if quote:
+        if escaped:
+            escaped = False
+        elif c == "\\" and quote != "'":
+            escaped = True
+        elif quote:
             if c == quote:
                 quote = ""
         elif c in "'\"":
@@ -370,9 +388,9 @@ class Runs:
         for sep in ("&&", "||", ";", "|"):
             text = text.replace(sep, "\n")
         self.segments = text.split("\n")
-        # ...and an echo, wherever on the line, prints a name it does not
-        # run.
-        self.executed = [s for s in self.segments if not s.lstrip().startswith("echo ")]
+        # ...and an echo prints a name it does not run, also behind a
+        # keyword (`then echo …`, `do echo …`).
+        self.executed = [s for s in self.segments if not command_word(s) == "echo"]
         self.runner = re.escape(os.path.basename(runner))
         self.loops = self._loops()
 
@@ -400,8 +418,14 @@ class Runs:
                     break
                 j += 1
             var = re.escape(m.group(1))
-            hands = re.compile(r"(^|[\s/])" + self.runner + r"\s+[\"']?\$(\{" + var + r"\}|" + var + r"\b)")
-            wrapped = any(hands.search(b) for b in body)
+            ref = r"[\"']?\$(\{" + var + r"\}|" + var + r"\b)"
+            hands = re.compile(r"(^|[\s/])" + self.runner + r"\s+" + ref)
+            # ...and never also runs it bare: `bash "$t"` beside a wrapped
+            # run of the same $t is a bare run all the same.
+            segments = [s for b in body for s in re.split(r"&&|\|\||;|\|", b)]
+            bare_run = any(command_word(s) in ("bash", "sh") and re.search(r"(^|\s)(bash|sh)\s+" + ref, s)
+                           or re.fullmatch(ref, command_word(s) or "-") for s in segments)
+            wrapped = any(hands.search(b) for b in body) and not bare_run
             loops.append((line.strip(), globs, wrapped))
             i = j + 1
         return loops
@@ -417,7 +441,7 @@ class Runs:
         lit = _literal(rel)
         wrapped = re.compile(r"(^|\s)\S*" + self.runner + r"\s+\S*" + re.escape(rel) + r"(\s|$)")
         heads = {g for _h, gs, _w in self.loops for g in gs}
-        for seg in self.segments:
+        for seg in self.executed:
             if lit.search(seg) and not wrapped.search(seg):
                 return True
             for g in _globs(seg):
