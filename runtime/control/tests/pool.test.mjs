@@ -144,8 +144,13 @@ test('the claimant\'s role: its newest state record, fresh, with a role', async 
   const covered = [...busy.slice(1, 250), rec('h/b', 'db-admin', '2026-10-08T11:30:00Z'), ...busy.slice(250)];
   assert.match((await of(covered)('h/a')).error, /no state record from h\/a in the last 20 min/, 'a page that covers the bound');
   assert.match((await of(busy.slice(1))('h/a')).error, /no state record from h\/a in the last 20 min/, 'a page short of full is the whole stream');
+  // A ts that does not parse, after the oldest: the span is still the oldest's.
+  const garbled = [...covered.slice(0, 300), rec('h/b', 'db-admin', 'garbage'), ...covered.slice(301)];
+  assert.match((await of(garbled)('h/a')).error, /no state record from h\/a in the last 20 min/, 'an unparseable ts says nothing of the span');
   const down = roleFromStream({ call: async () => { throw Object.assign(new Error('x'), { status: 503 }); }, cfg: { state_channel: 's' } });
-  assert.match((await down('h/a')).error, /could not be read \(HTTP 503\)/);
+  assert.match((await down('h/a')).error, /could not be read \(the relay refused \(HTTP 503\)\)/);
+  const silent = roleFromStream({ call: async () => { throw Object.assign(new Error('x -> no answer within 30 s'), { timedOut: true }); }, cfg: { state_channel: 's', relay_url: 'http://r' } });
+  assert.match((await silent('h/a')).error, /the relay at http:\/\/r did not answer/, 'never said as unreachable');
 });
 
 test('agentd: a placed account may ask pool-list and pool-claim unsigned; pool-add needs the operator\'s signature', () => {

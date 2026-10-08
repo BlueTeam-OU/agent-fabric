@@ -20,14 +20,15 @@
 //             block is real in its jobs.json whether or not its agentd
 //             runs); the age is for the reader to see the doubt.
 //     exit    0 read; 2 usage; 3 not readable — no token, the relay
-//             unreachable or refusing — with {"error": "<one line>"} on stdout
+//             unreachable, refusing or not answering — with {"error": "<one line>"} on stdout
 //
 //   node runtime/control/queue.mjs pool-list [<role>]     (default: this login's bound role)
 //   node runtime/control/queue.mjs pool-claim <pool id>
 //     stdout  {"holder": "<address>", "answer": {"status": "ok"|"claimed"|"refused", …}}
 //             — the holder's answer as pool.mjs gives it; a refusal is an answer
-//     exit    0 answered; 2 usage; 3 no token, the relay unreachable or
-//             refusing, or no answer within FABRIC_QUEUE_WAIT_MS (10 s) —
+//     exit    0 answered; 2 usage; 3 no token, the relay unreachable,
+//             refusing or not answering a call within QUEUE_CALL_TIMEOUT_MS,
+//             or no answer from the holder within FABRIC_QUEUE_WAIT_MS (10 s) —
 //             "sent": true when the request was posted before that, false
 //             only where nothing left for certain (no token, a refused or
 //             unconnected post), absent when it is unknown — a claim
@@ -47,7 +48,7 @@
 import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
 import path from 'node:path';
-import { FABRIC_ROOT, whoami, api, syncedToken, integrationConfig, inboxRoot, token as gzToken, identity as gzIdentity } from './gzcoord.mjs';
+import { FABRIC_ROOT, whoami, api, syncedToken, integrationConfig, inboxRoot, token as gzToken, identity as gzIdentity, relayFailure } from './gzcoord.mjs';
 import { hostsRegistry } from './roots.mjs';
 import { controlConfig, newId } from './agentd.mjs';
 import { poolHolder, POOL_ID, ROLE_SLUG } from './pool.mjs';
@@ -80,12 +81,18 @@ export async function readWaits({ call, cfg, placed }) {
   return waitsFrom(Array.isArray(page?.messages) ? page.messages : [], placed);
 }
 
+// Each relay call's bound here: well under tools/fabric/jobs.py's
+// QUEUE_TIMEOUT_S (30 s, counted from node's start), so a relay that does
+// not answer is said by this side, not cut off by that one. No call here
+// is a long poll.
+export const QUEUE_CALL_TIMEOUT_MS = 15000;
+
 // The relay as this login reaches it, or Unreadable saying why not.
 export function relay(who = whoami(), cfg = controlConfig()) {
   const gz = integrationConfig(who.project);
   const tok = gzToken(inboxRoot(who), gz.configured ? gz : undefined) ?? syncedToken();
   if (!tok) throw new Unreadable('no CLAUDE_BRIDGE_AUTH_TOKEN (fabric-secrets sync)');
-  return { who, cfg, call: (p, init) => api(tok, p, { relayUrl: cfg.relay_url, ...init }) };
+  return { who, cfg, call: (p, init) => api(tok, p, { relayUrl: cfg.relay_url, timeoutMs: QUEUE_CALL_TIMEOUT_MS, ...init }) };
 }
 
 // Who is placed, read here rather than through agentd's accountAddresses,
@@ -100,8 +107,7 @@ export function placedAccounts(registry = hostsRegistry({ engine: FABRIC_ROOT, e
 
 export function relayError(e, cfg) {
   if (e instanceof Unreadable) return e.message;
-  if (e?.timedOut) return `the relay at ${cfg.relay_url} did not answer (${e.message.split(' -> ').at(-1)})`;
-  return e?.status ? `the relay refused (HTTP ${e.status})` : `the relay is unreachable at ${cfg.relay_url}`;
+  return relayFailure(e, cfg.relay_url);
 }
 
 export const QUEUE_WAIT_MS = Number(process.env.FABRIC_QUEUE_WAIT_MS) > 0 ? Number(process.env.FABRIC_QUEUE_WAIT_MS) : 10000;

@@ -39,7 +39,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { FABRIC_ROOT, loadTaxonomy } from './gzcoord.mjs';
+import { FABRIC_ROOT, loadTaxonomy, relayFailure } from './gzcoord.mjs';
 import { hostsRegistry, roleCatalog } from './roots.mjs';
 import { checkJobArgs, PRIORITIES } from './jobs.mjs';
 import { stateDir } from './upgrade.mjs';
@@ -138,13 +138,14 @@ export function roleFromStream({ call, cfg, now = Date.now }) {
   return async address => {
     let page;
     try { page = await call(`/api/messages?${new URLSearchParams({ channel: cfg.state_channel, limit: String(STATES_REPLAY), full: '1' })}`); }
-    catch (e) { return { error: `the state stream could not be read (${e.status ? `HTTP ${e.status}` : 'relay unreachable'})` }; }
+    catch (e) { return { error: `the state stream could not be read (${relayFailure(e, cfg.relay_url)})` }; }
     const rows = Array.isArray(page?.messages) ? page.messages : [];
     let newest = null, oldest = NaN;
     for (const rec of rows) {
       let r; try { r = JSON.parse(rec?.content); } catch { continue; }
       if (r?.kind !== 'state' || r.v !== 1 || typeof r.ts !== 'string') continue;
-      if (!(Date.parse(r.ts) >= oldest)) oldest = Date.parse(r.ts);
+      const t = Date.parse(r.ts);
+      if (Number.isFinite(t) && !(t >= oldest)) oldest = t;   // a ts that does not parse says nothing of the span
       if (r.from === address) newest = r;
     }
     // The relay gives its newest STATES_REPLAY records and pages only

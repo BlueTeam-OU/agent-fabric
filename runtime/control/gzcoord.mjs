@@ -162,6 +162,15 @@ export function integrationConfig(project, env = process.env, t = en()) {
            reason: t('config.not-configured', {
              what: project ? t('config.for-project', { project }) : t('config.for-working-copy'), where }) };
 }
+// What became of a relay call, for a person: one wording for every site
+// that reports a final outcome, so a call that got no answer (and may
+// have been stored) is never said as one that could not connect.
+export function relayFailure(e, relayUrl) {
+  if (e?.timedOut) return `the relay at ${relayUrl} did not answer (${String(e.message).split(' -> ').at(-1)})`;
+  if (e?.status) return `the relay refused (HTTP ${e.status})`;
+  return `the relay is unreachable at ${relayUrl}`;
+}
+
 // Default for a caller that passes no relayUrl to api().
 const RELAY = process.env.CLAUDE_BRIDGE_URL ?? 'http://127.0.0.1:8765';
 
@@ -244,7 +253,8 @@ export async function api(tok, pathAndQuery, { relayUrl = RELAY, timeoutMs = api
     if (!r.ok) { const e = new Error(`${pathAndQuery} -> HTTP ${r.status}`); e.status = r.status; throw e; }
     return await r.json();
   } catch (e) {
-    if (e?.name !== 'TimeoutError') throw e;
+    // A caller's own signal is its own bound: its error is not ours to name.
+    if (e?.name !== 'TimeoutError' || init.signal) throw e;
     // No status and no connection code: a post that timed out may have
     // been stored, and queue.mjs's unsent() reads it as unknown.
     const t = new Error(`${pathAndQuery} -> no answer within ${timeoutMs / 1000} s`); t.timedOut = true; throw t;

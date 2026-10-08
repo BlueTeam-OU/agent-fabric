@@ -14,7 +14,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { scratch } from '../../../tests/scratch.mjs';
-import { whoami, FABRIC_ROOT, findTaxonomy, loadTaxonomy, identity, integrationConfig, inboxRoot, token, syncedToken, syncedVar, shellWord, api, apiTimeoutMs, API_TIMEOUT_MS, holdStatus } from '../gzcoord.mjs';
+import { whoami, FABRIC_ROOT, findTaxonomy, loadTaxonomy, identity, integrationConfig, inboxRoot, token, syncedToken, syncedVar, shellWord, api, apiTimeoutMs, API_TIMEOUT_MS, relayFailure, holdStatus } from '../gzcoord.mjs';
 
 const CATALOG = fileURLToPath(new URL('../../../identities/roles/catalog.json', import.meta.url));
 const taxonomy = loadTaxonomy(CATALOG);
@@ -318,6 +318,15 @@ test('api sends the bearer token and JSON, a refusal throws with its status, and
   assert.equal(apiTimeoutMs('/api/messages?channel=c'), API_TIMEOUT_MS);
   assert.equal(apiTimeoutMs('/api/wait?channel=c&timeout_seconds=55'), API_TIMEOUT_MS + 55000);
   assert.equal(apiTimeoutMs('/api/wait?timeout_seconds=nope'), API_TIMEOUT_MS);
+  // A caller's own signal is its bound: its error is passed on, never said as ours.
+  await assert.rejects(api('tok', '/silent', { relayUrl, signal: AbortSignal.timeout(200) }),
+    e => e.name === 'TimeoutError' && e.timedOut === undefined);
+});
+
+test('relayFailure: no answer, a refusal and no connection are three things', () => {
+  assert.equal(relayFailure({ timedOut: true, message: '/api/send -> no answer within 30 s' }, 'http://r'), 'the relay at http://r did not answer (no answer within 30 s)');
+  assert.equal(relayFailure({ status: 503 }, 'http://r'), 'the relay refused (HTTP 503)');
+  assert.equal(relayFailure(Object.assign(new Error('fetch failed'), { cause: { code: 'ECONNREFUSED' } }), 'http://r'), 'the relay is unreachable at http://r');
 });
 
 // The point of this module: the Node that stays Node — the control plane

@@ -277,6 +277,8 @@ def new_job(doc: dict, title: str, *, topic=None, project=None, working_copy=Non
 
 INBOX = os.path.join(FABRIC_ROOT, "bin", "gzcoord-inbox")
 QUEUE = os.path.join(FABRIC_ROOT, "runtime", "control", "queue.mjs")
+# queue.mjs bounds each relay call well under this (QUEUE_CALL_TIMEOUT_MS), so a
+# relay that does not answer is said in its words before this kills node.
 QUEUE_TIMEOUT_S = 30
 
 

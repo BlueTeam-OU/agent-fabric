@@ -49,7 +49,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { whoami, FABRIC_ROOT, api, syncedToken, identity as gzIdentity, integrationConfig, inboxRoot, token as gzToken } from './gzcoord.mjs';
+import { whoami, FABRIC_ROOT, api, syncedToken, identity as gzIdentity, integrationConfig, inboxRoot, token as gzToken, relayFailure } from './gzcoord.mjs';
 import { hostsRegistry } from './roots.mjs';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { ACTION_OPS, ACTION_TTL_MAX_S, signRequest, generateOperatorKey, publicKeyFrom } from './sign.mjs';
@@ -594,7 +594,7 @@ export async function main(argv = process.argv.slice(2), { registry, fetchImpl }
   }
   let sent;
   try { sent = await call('/api/send', { method: 'POST', body: JSON.stringify({ channel: cfg.channel, sender: me.address, content: JSON.stringify(request) }) }); }
-  catch (e) { console.error(`fabric-ctl: relay ${e.status ? `refused (HTTP ${e.status})` : `unreachable at ${cfg.relay_url}`}`); return 3; }
+  catch (e) { console.error(`fabric-ctl: ${relayFailure(e, cfg.relay_url)}`); return 3; }
   const t0 = Date.now();
   const replies = []; const parts = {};
   const want = new Set(expected.map(e => e.address));   // no reply yet
@@ -709,7 +709,7 @@ export async function states(args, expected, { call, cfg, out = m => console.log
   };
   let last;
   try { last = await snapshot(); }
-  catch (e) { err(`fabric-ctl: relay ${e.status ? `refused (HTTP ${e.status})` : `unreachable at ${cfg.relay_url}`}`); return 3; }
+  catch (e) { err(`fabric-ctl: ${relayFailure(e, cfg.relay_url)}`); return 3; }
   for (const e of expected) show(e.address, true);
   if (!args.follow) return [...want].every(a => latest.has(a)) ? 0 : 1;
   let down = false;

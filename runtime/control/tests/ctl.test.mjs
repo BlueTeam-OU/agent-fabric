@@ -789,3 +789,21 @@ test('a human login (ADR-044) is placed with its kind; all asks only agents, and
   const { targetsOf } = await import('../ctl.mjs');
   assert.deepEqual(targetsOf(['all'], placements(f)).expected.map(p => p.login), ['db-admin'], 'all asks the agent, never the human');
 });
+
+// One wording for what became of a relay call (gzcoord.mjs relayFailure):
+// a refusal, and a relay nobody listens on, on the request's send and on
+// states' snapshot.
+test('a relay that refuses or is not there is said in relayFailure\'s words', async () => {
+  const server = http.createServer((req, res) => { res.statusCode = 401; res.end('{}'); });
+  await new Promise(r => server.listen(0, '127.0.0.1', r));
+  const url = `http://127.0.0.1:${server.address().port}`;
+  const reg = registryFile();
+  try {
+    const sent = await run(url, reg, ['db-admin', 'ping', '--timeout', '1']);
+    assert.equal(sent.status, 3, sent.err); assert.match(sent.err, /fabric-ctl: the relay refused \(HTTP 401\)/);
+    const snap = await run(url, reg, ['db-admin', 'states']);
+    assert.equal(snap.status, 3, snap.err); assert.match(snap.err, /fabric-ctl: the relay refused \(HTTP 401\)/);
+  } finally { server.closeAllConnections(); server.close(); }
+  const dead = await run(url, reg, ['db-admin', 'ping', '--timeout', '1']);
+  assert.equal(dead.status, 3, dead.err); assert.match(dead.err, new RegExp(`fabric-ctl: the relay is unreachable at ${url}`));
+});
