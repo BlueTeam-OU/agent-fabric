@@ -105,6 +105,35 @@ def case_adr_reads_records_and_the_registry_from_the_operator() -> None:
             assert adr.adr_dir(op) == os.path.join(op, "docs", "adr")      # --root still names the tree
 
 
+def case_workingcopy_reads_the_operators_registry_and_arm_follows() -> None:
+    import subprocess
+    import workingcopy
+    from github import arm, local
+    with tempfile.TemporaryDirectory() as tmp:
+        op = os.path.join(tmp, "op")
+        write(os.path.join(op, "projects", "registry.json"), {"version": 1, "projects": {"opproj": {"remotes": ["git@github.com:op-org/op-repo.git"]}}})
+        # a working copy beside the "checkout", with a memory dir and a marker naming the operator's project
+        checkout, sibling = os.path.join(tmp, "checkout"), os.path.join(tmp, "sibling")
+        os.makedirs(checkout)
+        write(os.path.join(sibling, ".agent-fabric", "memory", "keep"), "")
+        write(os.path.join(sibling, workingcopy.MARKER), "opproj")
+        subprocess.run(["git", "-C", sibling, "init", "-q"], check=True)
+        with operator(op):
+            assert "opproj" in workingcopy.load_registry()["projects"]
+            assert workingcopy.sibling_working_copies(checkout) == {"opproj": sibling}
+            real = local.toplevel
+            local.toplevel = lambda: sibling
+            try:
+                assert arm.config_path() == os.path.join(op, "projects", "opproj", "integration", "gh", "arm.json")
+            finally:
+                local.toplevel = real
+        with unset_operator():
+            assert "opproj" not in workingcopy.load_registry()["projects"]
+            assert "agent-fabric" in workingcopy.load_registry()["projects"]
+            # an explicit path is still read as given
+            assert "opproj" in workingcopy.load_registry(os.path.join(op, "projects", "registry.json"))["projects"]
+
+
 def main() -> int:
     cases = [v for k, v in globals().items() if k.startswith("case_")]
     failures = 0
