@@ -12,6 +12,7 @@ command reads env/<NAME>.gpg as it stands, with no pull."""
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import shutil
 import signal
@@ -49,7 +50,11 @@ def main() -> int:
         for d in (gnupg, other_gnupg):
             os.makedirs(d, mode=0o700)
         os.makedirs(os.path.join(fabric, "projects"))
-        shutil.copy(os.path.join(ROOT, "projects", "registry.json"), os.path.join(fabric, "projects", "registry.json"))
+        # A fixture registry, never the live one (ADR-045 §5 rule 2): its one
+        # agent_env name is one the live registry lacks, so a run that read
+        # the checkout's registry could not refuse it.
+        with open(os.path.join(fabric, "projects", "registry.json"), "w", encoding="utf-8") as fh:
+            json.dump({"version": 1, "agent_env": {"FIXTURE_ENV_KEY": "a fixture's managed name"}, "projects": {}}, fh)
         os.makedirs(os.path.join(store, "env"), mode=0o700)
         env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": home, "GNUPGHOME": gnupg, "LANG": "C.UTF-8",
                "AGENT_FABRIC_ROOT": fabric, "AGENT_FABRIC_SECRET_STORE": store, "AGENT_FABRIC_PYTHON": sys.executable}
@@ -94,7 +99,7 @@ def main() -> int:
                     ("an entry this key cannot decrypt", ["FOREIGN"], "FOREIGN: could not be decrypted"),
                     ("a managed name, though present", ["OWN_A,GH_TOKEN"], "GH_TOKEN is managed by"),
                     ("a CLAUDE_ name", ["CLAUDE_ANY"], "CLAUDE_ANY is managed by"),
-                    ("a registry agent_env name", ["OPENAI_API_KEY"], "OPENAI_API_KEY is managed by"),
+                    ("a registry agent_env name", ["FIXTURE_ENV_KEY"], "FIXTURE_ENV_KEY is managed by"),
                     ("a value with a NUL byte", ["WITH_NUL"], "WITH_NUL: holds a NUL byte"),
                     ("a malformed name", ["own_a"], "'own_a' is not a secret name")):
                 p = run(*args, "--", *touch)

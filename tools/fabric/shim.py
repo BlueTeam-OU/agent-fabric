@@ -76,7 +76,16 @@ import urllib.request
 
 HERE = os.path.dirname(os.path.realpath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
-SHIMS_DIR = os.path.join(ROOT, "routing", "shims")
+sys.path.insert(0, HERE)
+import roots  # noqa: E402
+
+# ENGINE data (ADR-045 §5 rule 2): a shim is a model family's
+# compatibility delta on OpenRouter, the same for every operator — a
+# routing default, beside routing/shims.json, which tools/fabric/routing.py
+# reads from the engine root too; an operator's choice of models is
+# routing/profiles.json. So the engine root (AGENT_FABRIC_ROOT, else this
+# checkout), never the operator's tree.
+SHIMS_DIR = os.path.join(roots.engine_root(), "routing", "shims")
 API = "https://openrouter.ai/api/v1"
 
 # The six-step task: enough tool calls, enough context (the launcher alone
@@ -153,11 +162,17 @@ def source_dir(slug: str) -> str:
     return os.path.join(SHIMS_DIR, slug)
 
 
+def shown(path: str) -> str:
+    """A source path as a person reads it: relative to the engine tree the
+    sources are in (SHIMS_DIR's routing/..), not to this code's checkout."""
+    return os.path.relpath(path, os.path.dirname(os.path.dirname(SHIMS_DIR)))
+
+
 def read_source(slug: str) -> tuple[str, dict]:
     d = source_dir(slug)
     prompt_path, config_path = os.path.join(d, "system_prompt.md"), os.path.join(d, "config.json")
     if not os.path.isfile(prompt_path):
-        die(f"no source for {slug!r}: {os.path.relpath(prompt_path, ROOT)} is missing (shim.py pull {slug}, or write it).")
+        die(f"no source for {slug!r}: {shown(prompt_path)} is missing (shim.py pull {slug}, or write it).")
     with open(prompt_path, encoding="utf-8") as fh:
         prompt = fh.read()
     config: dict = {}
@@ -175,7 +190,7 @@ def write_source(slug: str, prompt: str, config: dict) -> list[str]:
         p = os.path.join(d, name)
         with open(p, "w", encoding="utf-8") as fh:
             fh.write(text)
-        paths.append(os.path.relpath(p, ROOT))
+        paths.append(shown(p))
     return paths
 
 

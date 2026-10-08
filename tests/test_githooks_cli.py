@@ -33,6 +33,8 @@ HOOKS = os.path.abspath(os.environ.get("GITHOOKS_DIR") or os.path.join(HERE, "po
 if not os.path.isfile(os.path.join(HOOKS, "pre-commit")):
     sys.exit(f"test: hooks not found at {HOOKS}")
 FABRIC = os.path.normpath(os.path.join(HOOKS, "..", ".."))
+sys.path.insert(0, os.path.join(HERE, "tests"))
+from instance_fixtures import write_registry  # noqa: E402
 
 T = tempfile.mkdtemp(prefix="test_githooks_cli.")
 STATE = f"{T}/state"
@@ -224,7 +226,7 @@ def run() -> None:
     shutil.copy2(f"{FABRIC}/tools/fabric/roots.py", f"{REPO}/tools/fabric/")   # adr.py reads its tree through roots (ADR-045)
     for d in ("adr", "live-checks"):
         shutil.copytree(f"{FABRIC}/docs/{d}", f"{REPO}/docs/{d}", dirs_exist_ok=True)
-    shutil.copy2(f"{FABRIC}/projects/registry.json", f"{REPO}/projects/")
+    write_registry(f"{REPO}/projects")   # the fixture's, never the live one (ADR-045 §5 rule 2)
     git("add", "-A"); git("-c", "core.hooksPath=/dev/null", "commit", "-qm", "records in place")
     check("a consistent change to docs/adr/ commits",
           try_commit("docs/adr/DIGEST.md", "a note in the digest") == 0, f"a consistent records change was refused\n{err}")
