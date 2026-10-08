@@ -91,7 +91,8 @@ def main() -> int:
             check("a live marker is found", bool(m) and m["from_model"] == "x")
             check("…and said as drift with both models", "fell back from x to y at t" in (status.fallback_drift_line(m) or ""))
             check("no marker, no line", status.fallback_drift_line(None) is None)
-            put(os.path.join(fb, "a.json"), json.dumps({"pid": 2 ** 22 - 5}))
+            # 2**22 - 5 can be live where pid_max is 2**22; no pid reaches 2**22.
+            put(os.path.join(fb, "a.json"), json.dumps({"pid": 2 ** 22 + 1}))
             check("a dead pid is not a fallback", status.fallback_marker(env) is None)
             put(os.path.join(fb, "a.json"), json.dumps({"pid": 0}))
             check("pid 0 is not a fallback", status.fallback_marker(env) is None)
