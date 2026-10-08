@@ -49,12 +49,26 @@ control plane's is fabric-coordinator's.
    its sudo grant, and it reads the stream with its own relay
    credential. It holds no signing key for the control plane. An agent
    never runs the deck.
-5. **What the deck shows** per tab:
+5. **What the deck shows** per tab, in the deck's own output only (a
+   tab's label stays the bare account: the label is the mapping):
    - restoring: entered, no state yet;
    - resumed: the stream reports `last_session` working or idle;
    - fresh: fabric-resume found nothing to resume, and said so;
-   - failed: moveto or the launcher exited (the pane's last line);
-   - stale: no record newer than two heartbeats.
+   - failed: moveto or fabric-resume exited with no session reported, or
+     restoring lasted longer than `RESTORE_WAIT_S` (120 s, the upgrade's
+     stop budget plus a launcher start; a deck constant the owner may
+     change). The pane's last line says why;
+   - stale: the account has no record in the stream, or its newest is
+     older than two heartbeats (the stream posts on every change and
+     every ten minutes, so age alone is meaningful only past that).
+
+   The record's two fields are `last_session` (a string, the binding's
+   session id) and `resumable` (a boolean, true when that session's
+   transcript is on the account). No working copy or other path is in the
+   record: the deck re-enters with `moveto <account> --resume`, and
+   fabric-resume reads the directory from the transcript and prints
+   resume or fresh. With the fields absent (an older agentd), the deck
+   re-enters regardless and fabric-resume decides.
 
 ## Milestone 1
 
