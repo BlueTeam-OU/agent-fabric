@@ -34,12 +34,32 @@ test('jobs is an operator read, jobs-add a signed action; neither is public', ()
 test('jobs-add takes a closed set of plain arguments', () => {
   assert.equal(checkJobArgs({ title: 'ship it' }), null);
   assert.equal(checkJobArgs({ title: 'ship it', topic: 'drain', project: 'gzapp' }), null);
-  assert.match(checkJobArgs({ title: 'x', command: 'rm' }), /only title, topic and project/);
+  assert.match(checkJobArgs({ title: 'x', command: 'rm' }), /only title, topic, project and priority/);
   assert.match(checkJobArgs({ title: '' }), /title is one line/);
   assert.match(checkJobArgs({ title: 'a\nb' }), /title is one line/);
   assert.match(checkJobArgs({ title: 'x'.repeat(301) }), /title is one line/);
   assert.match(checkJobArgs({ title: 'x', project: '../etc' }), /registry id/);
   assert.match(checkJobArgs(undefined), /takes \{ title/);
+  assert.equal(checkJobArgs({ title: 'x', priority: 'blocking' }), null);
+  assert.match(checkJobArgs({ title: 'x', priority: 'urgent' }), /priority is one of blocking, high, normal, low/);
+});
+
+test('jobs: a priority stored as null is unknown, never normal; an absent one is normal', async () => {
+  const exec = async () => JSON.stringify([{ id: 'j1', state: 'queued', title: 'a', priority: null }, { id: 'j2', state: 'queued', title: 'b' }]);
+  const got = await jobs({ exec });
+  assert.deepEqual(got.jobs.map(j => j.priority), [null, 'normal']);
+});
+
+test('jobs-add carries a priority to the list, and jobs reads it; a job without one reads normal', async () => {
+  const a = account();
+  try {
+    const r = await jobsAdd({ from: 'h/op', to: ['h/a'], args: { title: 'first', priority: 'high' } }, { home: a.home, root: ROOT });
+    assert.equal(r.status, 'added', JSON.stringify(r));
+    assert.match(r.job, /^j1 +queued +high /);
+    await jobsAdd({ from: 'h/op', to: ['h/a'], args: { title: 'second' } }, { home: a.home, root: ROOT });
+    const got = await jobs({ home: a.home, root: ROOT });
+    assert.deepEqual(got.jobs.map(j => j.priority), ['high', 'normal']);
+  } finally { a.done(); }
 });
 
 test('jobs-add puts the owner\'s job on the list; jobs reads it back without its log', async () => {
@@ -74,21 +94,26 @@ test('fabric-ctl: jobs-add names one login, and its title is the word after it',
   assert.deepEqual([a.op, a.title, a.topic, a.targets], ['jobs-add', 'fix it', 'drain', ['backend-dev-01']]);
   assert.throws(() => parseArgs(['all', 'jobs-add', 'fix it']), /names one login/);
   assert.throws(() => parseArgs(['backend-dev-01', 'jobs-add']), /title is one line/);
-  assert.throws(() => parseArgs(['backend-dev-01', 'status', '--topic', 'x']), /jobs-add only/);
+  assert.throws(() => parseArgs(['backend-dev-01', 'status', '--topic', 'x']), /jobs-add and pool-add only/);
+  assert.equal(parseArgs(['backend-dev-01', 'jobs-add', 'fix it', '--priority', 'blocking']).priority, 'blocking');
+  assert.throws(() => parseArgs(['backend-dev-01', 'jobs-add', 'fix it', '--priority', 'urgent']), /priority is one of/);
+  assert.throws(() => parseArgs(['backend-dev-01', 'status', '--priority', 'high']), /jobs-add and pool-add only/);
 });
 
 test('fabric-ctl: the jobs table, one row per job, the account named once', () => {
   const out = table('jobs', [
     { account: 'backend-dev-01', status: 'ok', jobs: { status: 'ok', jobs: [
       { id: 'j1', state: 'active', project: 'gzapp', title: 'drain', topic: 'memory', source: 'self' },
-      { id: 'j2', state: 'blocked', project: 'gzapp', title: 'wait', source: 'owner', blocked_on: 'a review' }] } },
+      { id: 'j2', state: 'blocked', project: 'gzapp', title: 'wait', source: 'owner', blocked_on: 'a review', priority: 'high' },
+      { id: 'j3', state: 'queued', project: 'gzapp', title: 'red\u001b[31m', source: 'self', priority: null }] } },
     { account: 'web-dev-01', status: 'ok', jobs: { status: 'ok', jobs: [] } },
     { account: 'db-admin', status: 'silent' }]);
   const lines = out.split('\n');
-  assert.match(lines[0], /^backend-dev-01 +j1 +active +gzapp +drain \[memory\]$/);
-  assert.match(lines[1], /^ +j2 +blocked +gzapp +wait \(owner\) — on a review$/);
-  assert.match(lines[2], /^web-dev-01 +no open jobs$/);
-  assert.match(lines[3], /^db-admin +silent$/);
+  assert.match(lines[0], /^backend-dev-01 +j1 +active +normal +gzapp +drain \[memory\]$/);
+  assert.match(lines[1], /^ +j2 +blocked +high +gzapp +wait \(owner\) — on a review$/);
+  assert.match(lines[2], /^ +j3 +queued +\? +gzapp +red\\x1b\[31m$/, 'a stored null is unknown; an account\'s text is escaped');
+  assert.match(lines[3], /^web-dev-01 +no open jobs$/);
+  assert.match(lines[4], /^db-admin +silent$/);
 });
 
 test('the jobs tool the ops run exists where they look for it', () => {

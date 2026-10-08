@@ -16,12 +16,21 @@ imported from the fabric: tests/test_new_agent_cli.py runs it in a fixture fabri
     new_agent_worker.py subids <login> <etc>       "have <start>:<count>" or "alloc <start>-<end>"
     new_agent_worker.py missing-keys <keys-file>   known_hosts on stdin; the lines it lacks
     new_agent_worker.py verify <root> <login> <home> <sudo> [--claude-account=<slug>=<fp12> | --no-claude-account]
-                               [<project>…]   step 10 and the closing list; exit 1 when the account given is not applied
+                               [--signing-key-next] [--via-host=<id>] [<project>…]   step 10 and the closing list; exit 1 when the
+                               account given is not applied
+    new_agent_worker.py verify <root> <login> <home> <sudo> --human   step 10 for a human login (ADR-044): its
+                               status OK and nothing of a session; exit 1 otherwise
 
 CONTRACT of the worker, frozen from the bash (ADR-040 §5 rule 3), parsed
 here: `prepare|finish <login> <role> [--claude V] [--clone <id>=<remote>]…
 [--project <id>]… [--claude-account <slug>=<fp12> | --no-claude-account]
-[--dry-run]` or `host-check <login>`; a missing phase:
+[--signing-key-next] [--via-host <id>] [--dry-run]` or `host-check <login>`; or, for a human
+login (ADR-044), `prepare|finish <login> --human [--dry-run]`, where any of
+the others is exit 2. --signing-key-next (finish): the orchestrator imports
+the signing key after this phase, so the closing says it follows rather
+than print the lines a person runs. --via-host (finish): the account is on
+another host than the coordinator's, so the closing's lines reach it through
+bin/fabric-host <id>, never a local sudo. A missing phase:
 USAGE, exit 2; an unknown argument, no login, no role: one line, exit 2;
 --claude without a value: exit 1. Exactly as the bash shifted: a phase
 with too few words keeps them, so `prepare <login>` reports the login as
@@ -50,6 +59,9 @@ TARGET = re.compile(r"stable|latest|[0-9]+\.[0-9]+\.[0-9]+([-.][A-Za-z0-9.]+)?")
 # fingerprint (sha256[:12]), as the orchestrator read them from its store.
 # Checked here too: the value is spliced into the string the worker evals.
 CLAUDE_ACCOUNT = re.compile(r"([a-z0-9][a-z0-9-]{0,62})=([0-9a-f]{12})")
+# The registry id of the host an account is reached on from the coordinator's
+# (--via-host): printed in the closing's lines, so a name and nothing else.
+HOST_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9.-]{0,62}")
 
 
 class Exit(Exception):
@@ -63,8 +75,10 @@ def args(argv: list[str]) -> str:
     phase = argv[0] if argv else ""
     rest = argv[1:]
     login = rest[0] if rest else ""
-    role = ""
-    if phase in ("prepare", "finish"):
+    role, human = "", 0
+    if phase in ("prepare", "finish") and rest[1:2] == ["--human"]:
+        human, rest = 1, rest[2:]
+    elif phase in ("prepare", "finish"):
         role = rest[1] if len(rest) > 1 else ""
         # `shift 2 || true`: with fewer than two words bash shifts none.
         rest = rest[2:] if len(rest) >= 2 else rest
@@ -72,7 +86,7 @@ def args(argv: list[str]) -> str:
         rest = rest[1:] if rest else rest
     else:
         raise Exit(2, USAGE)
-    dry, claude, projects, remote, account, no_account = 0, "", [], {}, "", 0
+    dry, claude, projects, remote, account, no_account, signing_next, via = 0, "", [], {}, "", 0, 0, ""
     i = 0
     while i < len(rest):
         a = rest[i]
@@ -80,6 +94,18 @@ def args(argv: list[str]) -> str:
             dry = 1
         elif a == "--no-claude-account":
             no_account = 1
+        elif a == "--signing-key-next":
+            signing_next = 1
+        elif a == "--via-host" or a.startswith("--via-host="):
+            if a == "--via-host":
+                if i + 1 >= len(rest):
+                    raise Exit(1, f"new-agent-worker: {a} needs a value")
+                i += 1
+                via = rest[i]
+            else:
+                via = a[len("--via-host="):]
+            if not HOST_ID.fullmatch(via):
+                raise Exit(2, "new-agent-worker: --via-host takes a host's registry id")
         elif a == "--claude-account" or a.startswith("--claude-account="):
             if a == "--claude-account":
                 if i + 1 >= len(rest):
@@ -115,17 +141,21 @@ def args(argv: list[str]) -> str:
         i += 1
     if not login:
         raise Exit(2, "new-agent-worker: no login")
-    if phase != "host-check" and not role:
+    if phase != "host-check" and not role and not human:
         raise Exit(2, "new-agent-worker: no role")
     if account and no_account:
         raise Exit(2, "new-agent-worker: --claude-account and --no-claude-account together")
+    if human and (account or no_account or claude or projects or signing_next or via):
+        raise Exit(2, "new-agent-worker: --human takes no Claude account, claude, project or signing key (ADR-044)")
     q = shlex.quote
-    lines = [f"PHASE={q(phase)}", f"LOGIN={q(login)}", f"ROLE={q(role)}", f"DRY={dry}",
+    # verify's own flags, whole: the step-runner passes them as they are.
+    verify_flags = ([f"--claude-account={account}"] if account else ["--no-claude-account"] if no_account else []) \
+        + (["--signing-key-next"] if signing_next else []) + ([f"--via-host={via}"] if via else []) \
+        + (["--human"] if human else [])
+    lines = [f"PHASE={q(phase)}", f"LOGIN={q(login)}", f"ROLE={q(role)}", f"HUMAN={human}", f"DRY={dry}",
              f"CLAUDE_TARGET={q(claude)}", "PROJECTS=(" + " ".join(q(p) for p in projects) + ")",
              "declare -A REMOTE=(" + " ".join(f"[{q(k)}]={q(v)}" for k, v in remote.items()) + ")",
-             # verify's own flags, whole: the step-runner passes them as they are.
-             "VERIFY_ACCOUNT=(" + (q(f"--claude-account={account}") if account else
-                                   "--no-claude-account" if no_account else "") + ")"]
+             "VERIFY_ACCOUNT=(" + " ".join(q(f) for f in verify_flags) + ")"]
     return "\n".join(lines) + "\n"
 
 
@@ -324,14 +354,14 @@ def stop_tree(proc: subprocess.Popen) -> None:
         print(f"new-agent:    {proc.args[0]}: could not be signalled (another account's): pid {unreached}", file=sys.stderr)
 
 
-def run_bounded(cmd: list[str], *, timeout: float, **popen) -> subprocess.CompletedProcess:
-    """subprocess.run(cmd, timeout=…), the timeout ending the command's
-    whole process tree (stop_tree) before TimeoutExpired is raised. The
-    exception carries the bound the call was given: before 3.13, the one
-    communicate() raises holds what was left of it."""
+def run_bounded(cmd: list[str], *, timeout: float, input: bytes | None = None, **popen) -> subprocess.CompletedProcess:
+    """subprocess.run(cmd, input=…, timeout=…), the timeout ending the
+    command's whole process tree (stop_tree) before TimeoutExpired is
+    raised. The exception carries the bound the call was given: before
+    3.13, the one communicate() raises holds what was left of it."""
     with subprocess.Popen(cmd, **popen) as proc:
         try:
-            out, err = proc.communicate(timeout=timeout)
+            out, err = proc.communicate(input, timeout=timeout)
         except subprocess.TimeoutExpired:
             stop_tree(proc)
             raise subprocess.TimeoutExpired(cmd, timeout) from None
@@ -384,7 +414,7 @@ def prefixed(prefix: str, out: bytes, *, skip: int = 0) -> None:
 
 
 def verify(root: str, login: str, home: str, sudo: str, projects: list[str], *, account: str = "",
-           no_account: bool = False) -> tuple[str, str]:
+           no_account: bool = False, signing_next: bool = False, via: str = "") -> tuple[str, str]:
     """Step 10: what the account can do now, read back as it, then the
     list of what only a person can do; and, when the run named a Claude
     account (`<slug>=<fp12>`), the failure line if its token is not the one
@@ -411,7 +441,10 @@ def verify(root: str, login: str, home: str, sudo: str, projects: list[str], *, 
     listing = a.run('k="$(git config --global user.signingkey)"; [ -n "$k" ] && '
                     'out="$(gpg --list-secret-keys --with-colons -- "$k")" && printf "%s\\n" "$out"',
                     stderr=subprocess.DEVNULL).decode("utf-8", "replace")
-    signing = "present" if signs_with_secret(listing) else "absent"
+    signing = "present" if signs_with_secret(listing) else "next" if signing_next else "absent"
+
+    def close(*a, **k) -> str:
+        return closing(*a, via=via, **k)
     for prov in ("anthropic", "openrouter"):
         prefixed(f"   launch ({prov}): ", a.run(f"cd {where} && ~/projects/agent-fabric/runtime/openrouter/launch "
                                                   f"--provider {prov} --print 2>&1 | grep -E '^launch:|resolved profile' | head -1"))
@@ -423,21 +456,21 @@ def verify(root: str, login: str, home: str, sudo: str, projects: list[str], *, 
     if account:
         slug, want = account.split("=", 1)
         if applied == want:
-            return closing(login, signing, "applied", first, account=account), ""
+            return close(login, signing, "applied", first, account=account), ""
         got = (f"{env_file} could not be read as sync writes it (no file, no access, or not one export line)"
                if applied is UNREADABLE else f"no token in {env_file}" if applied is None
                else f"token {applied} in {env_file}")
         # A re-run of new-agent cannot repair it before identities/keys/
         # merges: take-bundle refuses every bundle after first contact
         # until the agent's key is on main.
-        return (closing(login, signing, "not-applied", first, account=account),
+        return (close(login, signing, "not-applied", first, account=account),
                 f"new-agent: step failed: Claude account {slug}: CLAUDE_CODE_OAUTH_TOKEN not applied (expected {want}; "
                 f"{got}). As {login}: projects/agent-fabric/bin/fabric-secrets sync, then status; a re-run of new-agent "
                 "reaches the store only once identities/keys/ is merged\n")
     held = applied if isinstance(applied, str) else ""
     if no_account:
-        return closing(login, signing, "declined", first, account=f"={held}" if held else ""), ""
-    return closing(login, signing, "template" if held else "no", first), ""
+        return close(login, signing, "declined", first, account=f"={held}" if held else ""), ""
+    return close(login, signing, "template" if held else "no", first), ""
 
 
 UNREADABLE = object()
@@ -485,7 +518,62 @@ def signs_with_secret(listing: str) -> bool:
     return False
 
 
-def closing(login: str, signing: str, creds: str, first: str, *, account: str = "") -> str:
+def signing_key_lines(login: str, via: str = "") -> list[str]:
+    """The two lines a person runs, as the coordinator, to give an account
+    the fleet's signing key: the closing's when new-agent does not import
+    it, and step 11's when its import failed. An account on another host
+    (`via`, its registry id) is reached through bin/fabric-host, which
+    carries stdin: a local `sudo -u` there would name a login this host
+    does not have, or another account of the same name (#118, Codex)."""
+    if via:
+        to = f"bin/fabric-host {via} run --as {login} --"
+        return [f'gpg --export-secret-keys "$(git config --get user.signingkey)" | {to} gpg --batch --import',
+                f'echo "$(git config --get user.signingkey):6:" | {to} gpg --import-ownertrust']
+    return [f'gpg --export-secret-keys "$(git config --get user.signingkey)" | sudo -u {login} gpg --batch --import',
+            f"sudo -u {login} bash -c \"echo '$(git config --get user.signingkey):6:' | gpg --import-ownertrust\""]
+
+
+# What bootstrap, a role binding or a session would leave in an account
+# (tools/fabric/bootstrap.py's list, the binding, the launcher's claude):
+# none of it is a human's (ADR-044 rule 2). The last line says the probe
+# ran to its end, so a shell that did not answer is never "none".
+SESSION_PIECES = ("~/.claude/agents ~/.claude/settings.json ~/.claude/hooks ~/.claude/skills ~/projects/CLAUDE.md "
+                  "~/projects/.claude ~/.config/systemd/user/agent-fabric-agentd.service ~/.local/bin/claude ~/.local/bin/ori "
+                  "~/.local/state/agent-fabric/agents/*/binding.json")
+PIECES_PROBE = f'for p in {SESSION_PIECES}; do [ -e "$p" ] && printf "%s\\n" "$p"; done; echo probed'
+
+
+def verify_human(login: str, home: str, sudo: str) -> tuple[str, str]:
+    """Step 10 for a human login (ADR-044): its store applied as the kind
+    requires (fabric-secrets status, which reads the kind from the login's
+    own clone), and nothing of a session in its home. Each read-back that
+    gets no answer is a failure, never a pass."""
+    a = Account(login, home, sudo)
+    prefixed("   ", a.run("~/projects/agent-fabric/bin/fabric-secrets status 2>&1 | grep -E 'missing|OK|NOT OK'"))
+    status = a.run("~/projects/agent-fabric/bin/fabric-secrets status >/dev/null 2>&1; echo \"status=$?\"")
+    said = status.decode("utf-8", "replace").strip()
+    pieces = a.run(PIECES_PROBE).decode("utf-8", "surrogateescape").splitlines()
+    problems = []
+    if said != "status=0":
+        problems.append(f"fabric-secrets status as {login} is not OK ({said or 'no answer'}): is runtime/hosts/registry.json "
+                        f"kinds[{login}] = human on its clone's main?")
+    if pieces[-1:] != ["probed"]:
+        problems.append(f"its home could not be read for a session's pieces (no answer as {login})")
+    elif pieces[:-1]:
+        problems.append(f"it holds a session's pieces, which a human never has (ADR-044 rule 2): {' '.join(pieces[:-1])}")
+    else:
+        print("new-agent:    nothing of a session: no agent files, hooks, agentd unit, claude or role binding",
+              file=sys.stderr)
+    head = "new-agent: NOT done (below)." if problems else "new-agent: done."
+    text = (f"{head} Left for a person, in a terminal (nothing here can do them):\n"
+            "   - moveto's sudo grant for it: the host's operator gives it, never new-agent (ADR-044 rule 5; "
+            "runtime/provisioning/moveto/)\n"
+            f"   - Fleet Deck, run as {login} (docs/fleet-deck/session-recovery.md)\n"
+            "   - no signing key: a human holds none for the control plane (ADR-044 rule 3)\n")
+    return text, "".join(f"new-agent: step failed: {p}\n" for p in problems)
+
+
+def closing(login: str, signing: str, creds: str, first: str, *, account: str = "", via: str = "") -> str:
     """What is left for a person, in a terminal. A Claude account for plain
     claude is a template's token, assigned into the login's store and synced
     into its secrets.env (docs/adr/ADR-031-claude-accounts-assigned-applied-
@@ -495,11 +583,12 @@ def closing(login: str, signing: str, creds: str, first: str, *, account: str = 
     the other out."""
     if signing == "present":
         gpg = "- GPG secret key: the signing key's, present"
+    elif signing == "next":
+        gpg = "- GPG secret key: the signing key's is not here yet; new-agent imports it next, on this terminal (11)"
     else:
         gpg = ("- GPG secret key: the signing key's is NOT in this account's keyring — commits will fail to "
                "sign. As the coordinator, in a terminal (the key has a passphrase):\n"
-               f'       gpg --export-secret-keys "$(git config --get user.signingkey)" | sudo -u {login} gpg --batch --import\n'
-               f"       sudo -u {login} bash -c \"echo '$(git config --get user.signingkey):6:' | gpg --import-ownertrust\"")
+               + "\n".join(f"       {line}" for line in signing_key_lines(login, via)))
     slug, _, fp = account.partition("=")
     if creds == "applied":
         claude = f"- Claude account: {slug} (token {fp}), applied (plain-claude path ready)"
@@ -521,7 +610,7 @@ def closing(login: str, signing: str, creds: str, first: str, *, account: str = 
     # "done" only when nothing failed: a Claude account not applied is a
     # failed step, said on the line after this list.
     head = "new-agent: NOT done — the Claude account is not applied (below)." if creds == "not-applied" \
-        else "new-agent: done."
+        else "new-agent: 0-10 done; 11, the signing key, follows." if signing == "next" else "new-agent: done."
     return (f"{head} Left for a person, in a terminal (nothing here can do them):\n"
             f"   {gpg}\n"
             f"   {claude}\n"
@@ -548,18 +637,29 @@ def main(argv: list[str]) -> int:
             sys.stdout.write(missing_keys(rest[0], sys.stdin.read()))
         elif cmd == "verify" and len(rest) >= 4:
             opts, projects = rest[4:], []
-            account, no_account = "", False
+            account, no_account, signing_next, human, via = "", False, False, False, ""
             for a in opts:
                 if a.startswith("--claude-account=") and CLAUDE_ACCOUNT.fullmatch(a[len("--claude-account="):]):
                     account = a[len("--claude-account="):]
                 elif a == "--no-claude-account":
                     no_account = True
+                elif a == "--signing-key-next":
+                    signing_next = True
+                elif a == "--human":
+                    human = True
+                elif a.startswith("--via-host=") and HOST_ID.fullmatch(a[len("--via-host="):]):
+                    via = a[len("--via-host="):]
                 elif a.startswith("-"):
                     print(f"new_agent_worker.py: verify: unknown argument {a}", file=sys.stderr)
                     return 2
                 else:
                     projects.append(a)
-            text, failed = verify(rest[0], rest[1], rest[2], rest[3], projects, account=account, no_account=no_account)
+            if human and (projects or account or no_account or signing_next or via):
+                print("new_agent_worker.py: verify: --human takes nothing else", file=sys.stderr)
+                return 2
+            text, failed = verify_human(rest[1], rest[2], rest[3]) if human else \
+                verify(rest[0], rest[1], rest[2], rest[3], projects, account=account, no_account=no_account,
+                       signing_next=signing_next, via=via)
             sys.stderr.write(text + failed)
             if failed:
                 return 1

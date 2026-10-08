@@ -23,10 +23,14 @@ def message(kind: str, to: str, mid: str, subject: str, project: str = "fixture"
             f"MESSAGE-ID: 01a09fc1-0000-7000-8000-00000000000{mid}\nSUBJECT: {subject}\n\nREQUEST:\nplease\n")
 
 
-def fake_relay(records: list[dict]) -> http.server.HTTPServer:
+def fake_relay(records: list[dict], state: list[dict] | None = None) -> http.server.HTTPServer:
+    """The relay's history: `records` on every channel but the state
+    channel, which serves `state` (the control plane's state records)."""
     class Handler(http.server.BaseHTTPRequestHandler):
         def do_GET(self):
-            body = json.dumps({"messages": records} if self.path.startswith("/api/messages") else {"ok": True}).encode()
+            on_state = "channel=t%3Astate%3Acontrol" in self.path
+            rows = (state or []) if on_state else records
+            body = json.dumps({"messages": rows} if self.path.startswith("/api/messages") else {"ok": True}).encode()
             self.send_response(200)
             self.send_header("content-type", "application/json")
             self.send_header("content-length", str(len(body)))
@@ -40,6 +44,50 @@ def fake_relay(records: list[dict]) -> http.server.HTTPServer:
     return server
 
 
+def fake_holder(answer) -> http.server.HTTPServer:
+    """A relay whose control channel has a pool holder behind it: each
+    request posted there gets `answer(request)` as the reply's data[op],
+    from the request's `to`; None posts no reply (a holder that is silent)."""
+    rows: list[dict] = []
+    asked: list[dict] = []
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def reply(self, doc) -> None:
+            body = json.dumps(doc).encode()
+            self.send_response(200)
+            self.send_header("content-type", "application/json")
+            self.send_header("content-length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def do_POST(self):
+            sent = json.loads(self.rfile.read(int(self.headers["content-length"])))
+            rows.append({"id": f"m{len(rows) + 1}", "content": sent["content"]})
+            mine = rows[-1]["id"]
+            req = json.loads(sent["content"])
+            if sent["channel"] == "t:control" and req.get("kind") == "request":
+                asked.append(req)
+                data = answer(req)
+                if data is not None:
+                    rows.append({"id": f"m{len(rows) + 1}", "content": json.dumps(
+                        {"v": 1, "kind": "reply", "id": "r", "in_reply_to": req["id"], "from": req["to"][0],
+                         "op": req["op"], "ts": "t", "ok": True, "data": {req["op"]: data}})})
+            self.reply({"id": mine})
+
+        def do_GET(self):
+            since = self.path.split("since_id=")[1].split("&")[0] if "since_id=" in self.path else None
+            ids = [r["id"] for r in rows]
+            after = rows[ids.index(since) + 1:] if since in ids else rows
+            self.reply({"messages": after if "channel=t%3Acontrol" in self.path else []})
+
+        def log_message(self, *a):
+            pass
+    server = http.server.HTTPServer(("127.0.0.1", 0), Handler)
+    server.asked = asked  # type: ignore[attr-defined]
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    return server
+
+
 def main() -> int:
     fails = 0
 
@@ -49,7 +97,25 @@ def main() -> int:
         fails += not good
 
     with tempfile.TemporaryDirectory() as tmp:
-        env = {**os.environ, "AGENT_FABRIC_STATE_DIR": os.path.join(tmp, "state"), "AGENT_FABRIC_ROOT": ROOT}
+        # No case reaches the login's own relay, token or registry: a
+        # closed port, a scratch home and a scratch placement until a case
+        # starts its fake relay.
+        home = os.path.join(tmp, "home")
+        os.makedirs(home)
+        dead = socket.socket()
+        dead.bind(("127.0.0.1", 0))
+        dead_url = f"http://127.0.0.1:{dead.getsockname()[1]}"
+        dead.close()
+        login = subprocess.run(["id", "-un"], capture_output=True, text=True).stdout.strip()
+        host = socket.gethostname().split(".")[0]
+        registry = os.path.join(tmp, "registry.json")
+        with open(registry, "w", encoding="utf-8") as fh:
+            json.dump({"version": 1, "hosts": {host: {"operator": "user"}},
+                       "placement": {login: host, "waiter": host, "user": host}}, fh)
+        env = {**os.environ, "AGENT_FABRIC_STATE_DIR": os.path.join(tmp, "state"), "AGENT_FABRIC_ROOT": ROOT,
+               "HOME": home, "CLAUDE_BRIDGE_URL": dead_url, "CLAUDE_BRIDGE_AUTH_TOKEN": "tok",
+               "AGENT_FABRIC_HOSTS_REGISTRY": registry, "FABRIC_STATE_CHANNEL": "t:state:control",
+               "FABRIC_CONTROL_CHANNEL": "t:control"}
         repo_a, repo_b = os.path.join(tmp, "alpha"), os.path.join(tmp, "beta")
         for r in (repo_a, repo_b):
             os.makedirs(r)
@@ -80,6 +146,22 @@ def main() -> int:
         p = run("block", "j1", "a review of the PR")
         check("block records what it waits on", p.returncode == 0 and jobs()[0]["blocked_on"] == "a review of the PR",
               p.stdout + p.stderr)
+        mid = "01a11a18-4728-7d8b-afd9-0edb2d30a59c"
+        p = run("block", "j1", "--on-request", mid.upper())
+        check("block --on-request keeps the message id as waits_on", p.returncode == 0
+              and jobs()[0].get("waits_on") == mid and jobs()[0]["blocked_on"] == f"request {mid}", p.stderr + repr(jobs()[0]))
+        p = run("block", "j1", "--on-request", "17")
+        check("--on-request refuses what is not a MESSAGE-ID, and keeps the list", p.returncode == 1
+              and "takes a MESSAGE-ID" in p.stderr and jobs()[0].get("waits_on") == mid, p.stderr)
+        p = run("block", "j1", "a review again")
+        check("blocked on something else: the request is no longer waited on", p.returncode == 0
+              and "waits_on" not in jobs()[0], repr(jobs()[0]))
+        p = run("block", "j1")
+        check("block with nothing to wait on is refused", p.returncode == 1 and "waits on" in p.stderr, p.stderr)
+        run("block", "j1", "--on-request", mid)
+        run("start", "j1")
+        check("leaving blocked drops waits_on", "waits_on" not in jobs()[0], repr(jobs()[0]))
+        run("block", "j1", "a review of the PR")
         run("start", "j2")
         p = run("deliver", "j2", "org/repo#12", "abc1234")
         check("deliver names its artifacts", jobs()[1]["state"] == "delivered"
@@ -132,8 +214,6 @@ def main() -> int:
         # A binding names a project; an unregistered checkout falls back to
         # it in resolve_context, and must still never pass for that project.
         env["AGENT_FABRIC_STATE_DIR"] = os.path.join(tmp, "state-bound")
-        login = subprocess.run(["id", "-un"], capture_output=True, text=True).stdout.strip()
-        host = socket.gethostname().split(".")[0]
         os.makedirs(os.path.join(tmp, "state-bound", "agents", login))
         with open(os.path.join(tmp, "state-bound", "agents", login, "binding.json"), "w", encoding="utf-8") as fh:
             json.dump({"agent": login, "host": host, "role": "backend-dev", "project": "gzapp"}, fh)
@@ -194,6 +274,66 @@ def main() -> int:
         p = run("next", "j3")
         check("next refuses a closed job", p.returncode == 1 and "next takes a queued" in p.stderr, p.stderr)
 
+        # Priority (ADR-037 rule 7): the highest first, then the oldest; an
+        # active job is never passed; a blocked one keeps its place.
+        env["AGENT_FABRIC_STATE_DIR"] = os.path.join(tmp, "state-priority")
+        run("add", "old normal")
+        run("add", "low one", "--priority", "low")
+        run("add", "high one", "--priority", "high")
+        run("add", "second high", "--priority", "high")
+        run("add", "blocked blocker", "--priority", "blocking")
+        check("add --priority stores it; none given is normal",
+              [j.get("priority") for j in jobs()] == ["normal", "low", "high", "high", "blocking"], repr(jobs()))
+        run("start", "j5")
+        run("block", "j5", "a reply")
+        p = run("list")
+        check("list shows each job's priority", " high " in p.stdout and " low " in p.stdout, p.stdout)
+        p = run("next")
+        check("next takes the highest priority, not the oldest", p.returncode == 0 and p.stdout.startswith("j3 "),
+              p.stdout + p.stderr)
+        p = run("next")
+        check("the active job is never preempted, a blocking one notwithstanding", p.returncode == 1
+              and "j3 is still active" in p.stderr, p.stderr)
+        run("done", "j3")
+        p = run("next")
+        check("equal priority: the oldest first", p.stdout.startswith("j4 "), p.stdout + p.stderr)
+        run("done", "j4")
+        check("a blocked job keeps its place: it is not taken by next",
+              run("next").stdout.startswith("j1 ") and jobs()[4]["state"] == "blocked", repr(jobs()[4]))
+        run("done", "j1")
+        p = run("prio", "j2", "blocking")
+        check("prio sets a queued job's priority", p.returncode == 0 and jobs()[1]["priority"] == "blocking", p.stderr)
+        p = run("prio", "j1", "high")
+        check("prio refuses a closed job", p.returncode == 1 and "closed job" in p.stderr, p.stderr)
+        p = run("prio", "j2", "urgent")
+        check("prio takes only the four priorities", p.returncode == 2 and "invalid choice" in p.stderr, p.stderr)
+        p = run("add", "x", "--priority", "urgent")
+        check("add --priority takes only the four", p.returncode == 2 and len(jobs()) == 5, p.stderr)
+
+        # A list written before priorities reads normal; a value outside the
+        # four is unknown, never normal.
+        lst = os.path.join(tmp, "state-priority", "agents", os.listdir(os.path.join(tmp, "state-priority", "agents"))[0], "jobs.json")
+        with open(lst, encoding="utf-8") as fh:
+            doc = json.load(fh)
+        for j in doc["jobs"]:
+            j.pop("priority", None)
+        doc["jobs"][1]["state"] = "queued"
+        doc["jobs"].append({**doc["jobs"][1], "id": "j6", "title": "later", "priority": "high"})
+        with open(lst, "w", encoding="utf-8") as fh:
+            json.dump(doc, fh)
+        p = run("next")
+        check("an old list reads normal: a high job added after it goes first", p.stdout.startswith("j6 "), p.stdout + p.stderr)
+        run("done", "j6")
+        doc = json.loads(open(lst, encoding="utf-8").read())
+        doc["jobs"][1]["priority"] = "urgent"
+        with open(lst, "w", encoding="utf-8") as fh:
+            json.dump(doc, fh)
+        p = run("next")
+        check("an unknown stored priority refuses to order the queue, by name", p.returncode == 1
+              and "j2 has priority 'urgent'" in p.stderr and doc["jobs"][1]["state"] == "queued", p.stderr)
+        p = run("list")
+        check("list shows an unknown priority as '?'", p.returncode == 0 and "j2    queued    ? " in p.stdout, p.stdout)
+
         # add --request: the message read through the inbox's own replay,
         # against a fake relay; only what is addressed to this login.
         env["AGENT_FABRIC_STATE_DIR"] = os.path.join(tmp, "state-request")
@@ -204,10 +344,8 @@ def main() -> int:
             {"seq": 13, "id": "r13", "ts": "T", "sender": "other-host/sender", "content": message("INFO", me, "c", "just news")},
             {"seq": 14, "id": "r14", "ts": "T", "sender": "other-host/sender", "content": message("REQUEST", me, "d", "elsewhere", "another")},
         ])
-        home = os.path.join(tmp, "home")
-        os.makedirs(home)
-        env.update({"HOME": home, "CLAUDE_BRIDGE_URL": f"http://127.0.0.1:{relay.server_address[1]}",
-                    "CLAUDE_BRIDGE_AUTH_TOKEN": "tok", "GZCOORD_CHANNEL": "fixture:chan"})
+        env.update({"CLAUDE_BRIDGE_URL": f"http://127.0.0.1:{relay.server_address[1]}",
+                    "GZCOORD_CHANNEL": "fixture:chan"})
         try:
             p = run("add", "--request", "01a09fc1-0000-7000-8000-00000000000a", "--topic", "thing")
             check("a request outside its project's working copy asks for one", p.returncode == 1
@@ -244,6 +382,210 @@ def main() -> int:
         finally:
             relay.shutdown()
             relay.server_close()
+
+        # Blocking, derived (ADR-037 rule 8): a queued job whose request an
+        # account waits on ranks blocking, its stored priority kept.
+        env["AGENT_FABRIC_STATE_DIR"] = os.path.join(tmp, "state-waits")
+        env["CLAUDE_BRIDGE_URL"] = dead_url
+        waited, other = "01a11a18-4728-7d8b-afd9-0edb2d30a59c", "01a11a19-0bea-70c7-b667-1e1e5a74dbe1"
+        run("add", "high and not waited", "--priority", "high")
+        run("add", "low but waited", "--priority", "low")
+        run("add", "plain")
+        lst = os.path.join(tmp, "state-waits", "agents", login, "jobs.json")
+        doc = json.loads(open(lst, encoding="utf-8").read())
+        doc["jobs"][1]["source"] = {"kind": "request", "message_id": waited, "from": f"{host}/waiter", "seq": 1}
+        doc["jobs"][2]["source"] = {"kind": "request", "message_id": other, "from": f"{host}/waiter", "seq": 2}
+        with open(lst, "w", encoding="utf-8") as fh:
+            json.dump(doc, fh)
+        p = run("list")
+        check("stream down: list says so and shows stored priorities", p.returncode == 0
+              and "state stream could not be read" in p.stderr and "stored priorities decide" in p.stderr
+              and "ranks blocking" not in p.stdout, p.stdout + p.stderr)
+
+        def state_rec(frm: str, waits_on, ts: str = "2026-10-08T10:00:00Z", i: int = 0) -> dict:
+            rec = {"v": 1, "kind": "state", "from": frm, "ts": ts, "sessions": []}
+            if waits_on is not None:
+                rec["waits_on"] = waits_on
+            return {"id": f"s{i}", "seq": i, "ts": ts, "sender": frm, "content": json.dumps(rec)}
+        relay = fake_relay([], [
+            state_rec(f"{host}/waiter", [other], i=1),             # older: superseded below
+            state_rec(f"{host}/waiter", [waited], i=2),
+            state_rec("elsewhere/unplaced", [other], i=3),         # no placed address: skipped
+            state_rec(f"{host}/user", ["not-an-id"], i=4),         # not agentd's shape: skipped
+        ])
+        env["CLAUDE_BRIDGE_URL"] = f"http://127.0.0.1:{relay.server_address[1]}"
+        try:
+            p = run("list")
+            row = next((x for x in p.stdout.splitlines() if x.startswith("j2 ")), "")
+            check("a waited request ranks blocking, its stored priority shown, and the waiter named",
+                  p.returncode == 0 and " low " in row and f"ranks blocking: {host}/waiter waits on it" in row
+                  and not p.stderr, p.stdout + p.stderr)
+            check("only the newest record of an account counts; an unplaced or malformed one is skipped",
+                  "ranks blocking" not in next((x for x in p.stdout.splitlines() if x.startswith("j3 ")), "x"), p.stdout)
+            got = json.loads(run("list", "--json").stdout)
+            check("list --json gives both priorities and the waiters", [(j["priority"], j["effective_priority"], j["waited_by"]) for j in got]
+                  == [("high", "high", []), ("low", "blocking", [f"{host}/waiter"]), ("normal", "normal", [])], repr(got))
+            p = subprocess.run([JOBS, "list"], cwd=repo_a, capture_output=True, text=True,
+                               env={**env, "AGENT_FABRIC_HOSTS_REGISTRY": os.path.join(tmp, "no-registry.json")})
+            check("an unreadable hosts registry is said, never read as nobody waiting", p.returncode == 0
+                  and "the hosts registry cannot be read" in p.stderr and "ranks blocking" not in p.stdout, p.stderr)
+            got = json.loads(run("list", "--json", "--stored").stdout)
+            check("--stored reads no stream", got[1]["effective_priority"] == "low", repr(got[1]))
+            p = run("next")
+            check("next takes the effectively blocking job before a high one, and says why", p.returncode == 0
+                  and p.stdout.startswith("j2 ") and f"ranked blocking: {host}/waiter waits on its request (stored low)" in p.stdout,
+                  p.stdout + p.stderr)
+            check("its stored priority stays", jobs()[1]["priority"] == "low", repr(jobs()[1]))
+        finally:
+            relay.shutdown()
+            relay.server_close()
+        run("done", "j2")
+        env["CLAUDE_BRIDGE_URL"] = dead_url
+        p = run("next")
+        check("stream down: next says so and takes the stored order", p.returncode == 0 and p.stdout.startswith("j1 ")
+              and "stored priorities decide" in p.stderr, p.stdout + p.stderr)
+        env["AGENT_FABRIC_STATE_DIR"] = os.path.join(tmp, "state-nowait")
+        run("add", "a plain job")
+        p = run("list")
+        check("no queued job from a message: the stream is not read, nothing said", p.returncode == 0 and not p.stderr,
+              p.stderr)
+
+        # The role's pool (ADR-037 rule 9), through queue.mjs against a fake
+        # holder: list, claim onto this list, next's offer.
+        env["AGENT_FABRIC_STATE_DIR"] = os.path.join(tmp, "state-pool")
+        os.makedirs(os.path.join(tmp, "state-pool", "agents", login))
+        with open(os.path.join(tmp, "state-pool", "agents", login, "binding.json"), "w", encoding="utf-8") as fh:
+            json.dump({"agent": login, "host": host, "role": "python-dev"}, fh)
+        env["FABRIC_QUEUE_WAIT_MS"] = "1500"
+        pool_jobs = [{"id": "p2", "role": "python-dev", "title": "port the launcher", "topic": "launcher",
+                      "project": None, "priority": "high", "created": "t"},
+                     {"id": "p1", "role": "python-dev", "title": "older normal", "topic": None, "project": None,
+                      "priority": "normal", "created": "t"}]
+
+        claims: set[str] = set()   # what this holder has recorded: a repeat claim comes back with again
+
+        def holder(req: dict):
+            if req["op"] == "pool-list":
+                return {"status": "ok", "role": req["args"]["role"],
+                        "jobs": pool_jobs if req["args"]["role"] == "python-dev" else []}
+            if req["args"]["id"] == "p9":
+                return {"status": "refused", "reason": "p9 is claimed by h/other (t)"}
+            if req["args"]["id"] == "p8":
+                return None
+            if req["args"]["id"] == "p7":
+                return {"status": "claimed", "job": {**pool_jobs[0], "id": "p7", "title": "bad\x1b[2J title"}}
+            if req["args"]["id"] == "p6":
+                return {"status": "claimed", "job": {"title": "no id"}}
+            if req["args"]["id"] == "p5":
+                return {"status": "claimed", "job": {**pool_jobs[0], "id": "p5", "priority": "urgent"}}
+            if req["args"]["id"] == "p4":
+                return {"status": "claimed", "job": {**pool_jobs[0], "id": "p3"}}
+            if req["args"]["id"] == "p3":
+                return {"status": "claimed", "job": {**pool_jobs[0], "id": "p3", "title": "landed fresh"}}
+            again = req["args"]["id"] in claims
+            claims.add(req["args"]["id"])
+            return {"status": "claimed", "job": next(j for j in pool_jobs if j["id"] == req["args"]["id"]),
+                    **({"again": True} if again else {})}
+        relay = fake_holder(holder)
+        env["CLAUDE_BRIDGE_URL"] = f"http://127.0.0.1:{relay.server_address[1]}"
+        try:
+            p = run("next")
+            check("nothing queued: next offers the bound role's first pool job, and claims nothing", p.returncode == 1
+                  and "the python-dev pool offers p2" in p.stderr and "fabric-jobs pool-claim p2" in p.stderr
+                  and not jobs(), p.stderr)
+            check("the list asked for the bound role, of the one host's operator",
+                  relay.asked[-1]["args"] == {"role": "python-dev"} and relay.asked[-1]["to"] == [f"{host}/user"]
+                  and relay.asked[-1]["from"] == f"{host}/{login}", repr(relay.asked[-1]))
+            p = run("pool-list")
+            check("pool-list prints the pool in the holder's order", p.returncode == 0
+                  and p.stdout.splitlines()[0].startswith("p2    high     python-dev [launcher]: port the launcher"),
+                  p.stdout + p.stderr)
+            p = run("pool-list", "--role", "web-dev")
+            check("an empty pool is said", p.returncode == 0 and p.stdout.strip() == "the web-dev pool is empty", p.stdout)
+            p = run("pool-claim", "p2")
+            got = jobs()
+            check("a claim lands the job on this list, queued, source pool, its priority kept", p.returncode == 0
+                  and p.stdout.startswith("claimed j1 ") and got[0]["state"] == "queued" and got[0]["priority"] == "high"
+                  and got[0]["topic"] == "launcher"
+                  and got[0]["source"] == {"kind": "pool", "pool_id": "p2", "from": f"{host}/user"}, p.stdout + p.stderr + repr(got))
+            check("the claim request names only the id, never a role", relay.asked[-1]["args"] == {"id": "p2"},
+                  repr(relay.asked[-1]))
+            p = run("pool-claim", "p2")
+            check("claimed again: already listed, not a second job", p.returncode == 0 and "already listed j1" in p.stdout
+                  and len(jobs()) == 1, p.stdout + p.stderr)
+            claims.clear()   # the holder's pool file recreated: p2 is a new job under an old id
+            p = run("pool-claim", "p2")
+            check("a first claim is a new job, even where an open job holds the same holder's id", p.returncode == 0
+                  and p.stdout.startswith("claimed j2 ") and len(jobs()) == 2, p.stdout + p.stderr)
+            run("drop", "j2", "a test")
+            p = run("pool-claim", "p9")
+            check("a refused claim is said with the holder's reason", p.returncode == 1
+                  and "refused: p9 is claimed by h/other" in p.stderr and len(jobs()) == 2, p.stderr)
+            p = run("pool-claim", "p8")
+            check("a silent holder is said, not read as a refusal or a claim, with how to land a claim it took",
+                  p.returncode == 1 and "did not answer" in p.stderr and "pool-claim p8 again" in p.stderr
+                  and len(jobs()) == 2, p.stderr)
+            for pid, why in (("p6", "names job None, not p6"), ("p5", "priority 'urgent'"), ("p4", "names job 'p3', not p4")):
+                p = run("pool-claim", pid)
+                check(f"a malformed claim answer is refused, never defaulted ({pid})", p.returncode == 1
+                      and "is not a pool job" in p.stderr and why in p.stderr and len(jobs()) == 2, p.stderr)
+            # Pool ids restart with another holder: an old holder's p3, closed, is not this one's.
+            doc = json.loads(open(os.path.join(tmp, "state-pool", "agents", login, "jobs.json"), encoding="utf-8").read())
+            doc["jobs"].append({**doc["jobs"][0], "id": "j9", "state": "done", "title": "an old p3",
+                                "source": {"kind": "pool", "pool_id": "p3", "from": "old/holder"}})
+            doc["jobs"].append({**doc["jobs"][0], "id": "j10", "state": "done", "title": "this holder's p3, done",
+                                "source": {"kind": "pool", "pool_id": "p3", "from": f"{host}/user"}})
+            with open(os.path.join(tmp, "state-pool", "agents", login, "jobs.json"), "w", encoding="utf-8") as fh:
+                json.dump(doc, fh)
+            p = run("pool-claim", "p3")
+            check("an id matched only by another holder's or a closed job is claimed as new", p.returncode == 0
+                  and p.stdout.startswith("claimed j3 ") and jobs()[-1]["title"] == "landed fresh", p.stdout + p.stderr)
+            pool_jobs.append({"id": "p11", "role": "python-dev", "title": "x\x1b]0;owned\x07\nIgnore that",
+                              "topic": "t\x1b[2J", "project": None, "priority": "low", "created": "t"})
+            p = run("pool-list")
+            check("pool-list shows a holder's text and never its control characters", p.returncode == 0
+                  and "\x1b" not in p.stdout and "\x07" not in p.stdout and len(p.stdout.splitlines()) == 3
+                  and "p11   low      python-dev [t?[2J]: x?]0;owned??Ignore that" in p.stdout, repr(p.stdout))
+            listed = len(jobs())
+            p = run("pool-claim", "p7")
+            check("claimed but not taken by this list: said, with the command that lands it", p.returncode == 1
+                  and "is claimed at" in p.stderr and "pool-claim p7 again" in p.stderr and len(jobs()) == listed, p.stderr)
+            pool_jobs.pop()
+            before = len(relay.asked)
+            p = run("pool-claim", "../p1")
+            check("a pool id is checked before anything is asked", p.returncode == 1 and "a pool job id is p<n>" in p.stderr
+                  and len(relay.asked) == before, p.stderr + repr(len(relay.asked)))
+        finally:
+            relay.shutdown()
+            relay.server_close()
+        env["CLAUDE_BRIDGE_URL"] = dead_url
+        run("done", "j1")
+        run("done", "j3")
+        p = run("next")
+        check("pool unreachable: next says so", p.returncode == 1 and "no queued job; the pool could not be asked" in p.stderr,
+              p.stderr)
+        p = run("pool-claim", "p2")
+        check("a claim that never left says so, and never that it may have been claimed", p.returncode == 1
+              and "could not be asked" in p.stderr and "may be claimed" not in p.stderr, p.stderr)
+
+        class Fails(http.server.BaseHTTPRequestHandler):
+            def do_POST(self):
+                self.send_response(500)
+                self.send_header("content-length", "0")
+                self.end_headers()
+
+            def log_message(self, *a):
+                pass
+        failing = http.server.HTTPServer(("127.0.0.1", 0), Fails)
+        threading.Thread(target=failing.serve_forever, daemon=True).start()
+        try:
+            p = subprocess.run([JOBS, "pool-claim", "p2"], cwd=repo_a, capture_output=True, text=True,
+                               env={**env, "CLAUDE_BRIDGE_URL": f"http://127.0.0.1:{failing.server_address[1]}"})
+            check("a post that failed after it may have been written is unknown: said with how to land it",
+                  p.returncode == 1 and "HTTP 500" in p.stderr and "pool-claim p2 again" in p.stderr, p.stderr)
+        finally:
+            failing.shutdown()
+            failing.server_close()
 
         state = os.path.join(tmp, "state", "agents")
         login = os.listdir(state)[0]

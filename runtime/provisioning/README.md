@@ -41,7 +41,8 @@ What a project needs beyond that is the project's to say —
 for each `--project`:
 
 ```sh
-runtime/provisioning/new-agent.sh <login> <role> (--claude-account <slug> | --no-claude-account) [--host <id>] [--project <id>]... [--dry-run]
+runtime/provisioning/new-agent.sh <login> <role> (--claude-account <slug> | --no-claude-account) [--host <id>] [--project <id>]... [--no-signing-key] [--dry-run]
+runtime/provisioning/new-agent.sh <login> --human [--host <id>] [--dry-run]   # a person's login (ADR-044)
 runtime/provisioning/new-agent.sh <login> <role> --claude-account <slug> --project <id> --project <id>
 runtime/provisioning/new-agent.sh <login> <role> --claude-account <slug> --host <host-id> --project <id>   # on another host
 runtime/provisioning/new-agent.sh <login> <role> --no-claude-account --project <id>   # the broker path only
@@ -84,12 +85,28 @@ project's lockfile declares (pnpm under `~/.local`, `pnpm install`,
 `npm ci`, a venv); then verification (`fabric-secrets status`, `gh`, SSH
 to every origin, the git identity, `launch --print` on both providers)
 and the short list of what only a person at a terminal can do: the GPG
-secret key (a passphrase prompt), `~/.claude/.credentials.json` for the
+secret key (a passphrase prompt; on a terminal new-agent does it itself
+as its last step, 11 — the coordinator's gpg exports the key its git
+config signs with, the account's imports it on a pipe, pinentry asks the
+passphrase, the ownertrust is set and a test signature as the account
+proves it; without a terminal, or with `--no-signing-key`, the two lines
+are printed), `~/.claude/.credentials.json` for the
 plain-claude path (a credential copy a classifier refuses an agent), and
 the workspace-trust dialog at the first interactive launch. It was
 written on 2026-09-15 after two accounts walked by hand came out short —
 a missing binary, a root-owned `~/.local/bin`, an untrusted host key, no
 toolchain, and a `fill-from` that copied the coordinator's admin keys.
+
+A **human login** (agent-fabric ADR-044) — a person's, such as the one
+Fleet Deck runs on — is placed with `kinds` `human` in
+`runtime/hosts/registry.json` (merged) **before** `new-agent.sh <login>
+--human`: the kind decides what `fabric-secrets status` requires of it,
+and its clone reads it there. The run makes the account, its fabric
+clone, its key and store with its identity and `CLAUDE_BRIDGE_AUTH_TOKEN`
+only, the hand-over and first sync, and its inbox cursor; then verifies
+its status and that nothing of a session is in its home. No claude or
+ori, no SSH host keys, no bootstrap, no role, no Claude account, no
+issued key, no signing key; moveto's sudo grant is the host operator's.
 
 What the steps are, when done by hand:
 

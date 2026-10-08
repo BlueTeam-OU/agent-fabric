@@ -36,13 +36,19 @@ writes
                                          program (strings; the key material
                                          stays in the keyring)
     ~/.ssh/id_ed25519(.pub)              only when absent; --force replaces
-and refuses when the store's AGENT_LOGIN is not this login — location and
-configuration never decide who an agent is, the login does.
+It applies whatever the store holds, and refuses when the store's
+AGENT_LOGIN is not this login — location and configuration never decide
+who an agent is, the login does. The names it REQUIRES are the login's
+kind's (runtime/hosts/registry.json `kinds`, ADR-044): every name above
+for an agent, only its identity and CLAUDE_BRIDGE_AUTH_TOKEN for a human
+(HUMAN_NAMES); an agent's names in a human's store are `withheld` — never
+applied, and status and sync fail on them.
 
 The contract (ADR-038 §5 rule 7), frozen when this moved from the bash
 heredoc and its Doppler reader retired: the exit codes — 0 applied, 1
 unreadable, 2 applied with required names missing (or gh refusing
-GH_TOKEN), 3 the store names another login and nothing is applied; the JSON report's `error` and
+GH_TOKEN, the login's kind unreadable, or an agent's names withheld from a
+human), 3 the store names another login and nothing is applied; the JSON report's `error` and
 `missing`, which the control agent reads (runtime/control/secrets.mjs);
 the `--quiet` line on stderr, which moveto's shell entry shows. status
 exits 0 or 1; its JSON lists `refused` and `no_trusted_base` per store
@@ -118,6 +124,43 @@ def project_agent_env(root: str | None = None) -> list[str]:
         return []
     # Fabric-wide names first (registry top-level agent_env), then each project's.
     return [n for n in declared if n not in ENV_NAMES and n not in STORE_ONLY]
+
+
+# What a human login's work needs (ADR-044 rule 3): who it is, and the
+# relay credential its reads and its messages use. No session, so none of
+# an agent's keys, git identity or SSH key.
+HUMAN_NAMES = ["AGENT_LOGIN", "AGENT_HOST", "CLAUDE_BRIDGE_AUTH_TOKEN"]
+
+
+def required_names() -> tuple[list[str], str | None]:
+    """The names this login's store must hold, by its kind in the hosts
+    registry (ADR-044 rule 1: a login `kinds` does not name is an agent).
+    A registry that cannot be read, or a kind that is neither, is no
+    answer: the agent's names are judged, and the error is said, so a
+    human is never taken for an agent quietly, nor the reverse."""
+    path = os.environ.get("AGENT_FABRIC_HOSTS_REGISTRY") or os.path.join(ROOT, "runtime", "hosts", "registry.json")
+    try:
+        with open(path, encoding="utf-8") as fh:
+            reg = json.load(fh)
+    except (OSError, ValueError) as e:
+        return ALL_NAMES, f"this login's kind could not be read ({path}: {e.__class__.__name__})"
+    kinds = (reg.get("kinds") or {}) if isinstance(reg, dict) else None
+    kind = kinds.get(login(), "agent") if isinstance(kinds, dict) else None
+    if kind == "human":
+        return HUMAN_NAMES, None
+    if kind == "agent":
+        return ALL_NAMES, None
+    return ALL_NAMES, f"this login's kind could not be read ({path}: kinds is not a table of agent or human)"
+
+
+def withheld_names(required: list[str], held, optional: list[str]) -> list[str]:
+    """An agent's names in a human's store (ADR-044 rules 2-3: a human
+    holds what its work needs): never applied, and said, so status fails
+    where it would otherwise call the store complete (#118, Codex). For an
+    agent, none."""
+    if required is not HUMAN_NAMES:
+        return []
+    return [n for n in ALL_NAMES + optional if n in held and n not in HUMAN_NAMES]
 
 
 def own_and_unexpected(names, known: list[str], root: str | None = None) -> tuple[list[str], list[str]]:
@@ -464,16 +507,23 @@ def status(as_json: bool, quiet: bool = False) -> int:
     known = ALL_NAMES + optional + STORE_ONLY
     obj = {"login": login(), "source": "store", "store": store_path(), "local": local_state()}
     names, err = fetch_names()
+    required, kind_err = required_names()
     ok = True
     if err:
         obj["error"] = err
         ok = False
     else:
-        obj["present"] = [n for n in ALL_NAMES if n in names]
-        obj["missing"] = [n for n in ALL_NAMES if n not in names]
+        obj["present"] = [n for n in required if n in names]
+        obj["missing"] = [n for n in required if n not in names]
         obj["optional"] = [n for n in optional if n in names]
         obj["own"], obj["unexpected"] = own_and_unexpected(names, known)
-        ok = not obj["missing"]
+        obj["withheld"] = withheld_names(required, names, optional)
+        ok = not obj["missing"] and not obj["withheld"]
+        if obj["withheld"]:
+            obj["error"] = f"a human login's store holds an agent's names: {', '.join(obj['withheld'])}"
+    if kind_err:
+        obj["error"] = f"{obj['error']}; {kind_err}" if obj.get("error") else kind_err
+        ok = False
     # A refused commit is a security event (ADR-042 rule 5): said here until
     # the store is repaired, whatever else is well. So is a store with no
     # trusted base, which refuses everything it is given; and so is not
@@ -512,8 +562,11 @@ def sync(force: bool, as_json: bool, quiet: bool = False, pull: bool = True) -> 
         obj["local"] = local_state()
         report(obj, as_json, quiet, False)
         return 1
-    obj["present"] = [n for n in ALL_NAMES if n in values]
-    obj["missing"] = [n for n in ALL_NAMES if n not in values]
+    required, kind_err = required_names()
+    obj["withheld"] = withheld_names(required, values, optional)
+    values = {k: v for k, v in values.items() if k not in obj["withheld"]}
+    obj["present"] = [n for n in required if n in values]
+    obj["missing"] = [n for n in required if n not in values]
     obj["optional"] = [n for n in optional if n in values]
     obj["own"], obj["unexpected"] = own_and_unexpected(held, known)
     obj["values_sha256"] = values_digest(values, known)
@@ -572,9 +625,14 @@ def sync(force: bool, as_json: bool, quiet: bool = False, pull: bool = True) -> 
                 write_private(ssh_key() + ".pub", values["SSH_PUBLIC_KEY"].rstrip("\n") + "\n", 0o644)
                 obj["applied"].append("SSH_PUBLIC_KEY")
     obj["local"] = local_state()
-    ok = not obj["missing"] and not gh_failed
+    ok = not obj["missing"] and not gh_failed and not kind_err and not obj["withheld"]
     if gh_failed:
         obj["error"] = f"applied, but gh does not hold the token: {gh_failed}"
+    if obj["withheld"]:
+        why = f"a human login's store holds an agent's names, not applied: {', '.join(obj['withheld'])}"
+        obj["error"] = f"{obj['error']}; {why}" if obj.get("error") else why
+    if kind_err:
+        obj["error"] = f"{obj['error']}; applied, but {kind_err}" if obj.get("error") else f"applied, but {kind_err}"
     report(obj, as_json, quiet, ok)
     return 0 if ok else 2
 

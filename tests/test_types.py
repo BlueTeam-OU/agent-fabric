@@ -197,11 +197,11 @@ def _():
     run("add", "second")
     run("add", "third")
     run("start", "j1")
-    run("block", "j1", "a reply")
+    run("block", "j1", "--on-request", "01a111d3-7e46-744b-8159-5131b5598f4d", "a reply")
     run("start", "j2")
     run("deliver", "j2", "branch x@abc")
     run("drop", "j3", "not needed")
-    run("add", "fourth")
+    run("add", "fourth", "--priority", "high")
     run("start", "j4")
     run("done", "j4")
     with open(os.path.join(state, "agents", jobs_login(), "jobs.json"), encoding="utf-8") as fh:
