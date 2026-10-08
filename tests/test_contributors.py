@@ -39,6 +39,10 @@ AUTHORITY = {"role_definitions": {"role": "fabric-coordinator", "holders": []}, 
 
 
 def sh(cwd: str, *args: str, env: dict[str, str] | None = None, check: bool = True) -> subprocess.CompletedProcess:
+    # A commit through the hooks declares its kind (commit-msg's Kind: rule),
+    # so a refusal these cases expect is the guard's, never the missing trailer.
+    if args[:1] == ("commit",) and "-m" in args:
+        args = ("commit", "--trailer", "Kind: work", *args[1:])
     return subprocess.run(["git", *args], cwd=cwd, env=env or GIT_ENV, check=check, capture_output=True,
                           text=True, timeout=60)
 
