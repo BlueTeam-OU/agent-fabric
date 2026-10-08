@@ -450,6 +450,20 @@ def run(argv: list[str], env=None) -> int:
         return 2
     if opts is None:
         return 0
+    doc = report(opts, env)
+    code, line = doc["exit"], doc["reason"]
+    if code == 2:
+        print(f"actions-health: {line}", file=sys.stderr)
+    if opts["json"]:
+        # Every number in it went through finite(): nothing here can fail.
+        print(json.dumps(doc, ensure_ascii=False, allow_nan=False))
+    elif code != 2 and not opts["quiet"]:
+        print(line)
+    return code
+
+
+def report(opts: dict, env) -> dict:
+    """The --json object: what wait-merged reads in process."""
     page: dict = {}
     try:
         code, line, fields = check(opts, env, page)
@@ -459,18 +473,11 @@ def run(argv: list[str], env=None) -> int:
         code, line, fields = 2, f"could not decide ({type(e).__name__}: {e}) — health unknown", dict(page)
     verdict = {0: "ok", 1: "degraded"}.get(code) or ("invalid" if fields is None else "unknown")
     fields = fields or {}
-    if code == 2:
-        print(f"actions-health: {line}", file=sys.stderr)
-    if opts["json"]:
-        doc = {"exit": code, "verdict": verdict, "reason": line}
-        for key in ("public", "period", "private_minutes", "private_net", "own_net", "included", "remaining",
-                    "status", "incident"):
-            doc[key] = fields.get(key)
-        # Every number in it went through finite(): nothing here can fail.
-        print(json.dumps(doc, ensure_ascii=False, allow_nan=False))
-    elif code != 2 and not opts["quiet"]:
-        print(line)
-    return code
+    doc = {"exit": code, "verdict": verdict, "reason": line}
+    for key in ("public", "period", "private_minutes", "private_net", "own_net", "included", "remaining",
+                "status", "incident"):
+        doc[key] = fields.get(key)
+    return doc
 
 
 def main() -> int:
