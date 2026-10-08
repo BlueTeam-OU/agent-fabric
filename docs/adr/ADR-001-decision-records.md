@@ -151,7 +151,7 @@ Accepted: the owner armed the pull request that introduces it
 ## References
 
 - `tools/fabric/adr.py` — check, index, new, amend, lookup, range-check.
-- `tests/test_adr.py`, `policies/check_adr_amendment.sh`.
+- `tests/test_adr.py`; `fabric-adr range-check` (`bin/fabric-adr`), which replaces `policies/check_adr_amendment.sh`.
 - gzapp's ADR-075 (documentation history model) and its
   `tools/validate_adr_index/`, the engine this one follows.
 - ADR-000, the pillars every record names.

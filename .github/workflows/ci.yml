@@ -115,7 +115,7 @@ jobs:
         run: sudo apt-get install -y --no-install-recommends paperkey
       - name: no machine attribution in commits or the PR description
         if: matrix.section == 'bash'
-        run: bash policies/ban_generated_by_attribution.sh
+        run: python3 tools/fabric/guards/ban_generated_by_attribution.py
       - name: the ${{ matrix.section }} suites
         run: bash tests/run.sh ${{ matrix.section }}
 

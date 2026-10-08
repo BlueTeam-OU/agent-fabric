@@ -4,7 +4,7 @@
 **Status:** Accepted
 **Ratified:** owner, 2026-09-27, by arming agent-fabric #52 (ratification by merge, the owner's rule of 2026-09-27)
 **Decision Makers:** the owner; drafted by fabric-coordinator
-**Scope:** identities/prompt/team.md (the PR rules every session reads); runtime/github/pr-gate.sh, runtime/github/commit-class.sh, runtime/github/pr-review-status.sh; policies/ban_generated_by_attribution.sh and policies/githooks/commit-msg; .github/workflows/ci.yml; tools/fabric/github-repo-settings.sh and the GitHub-side settings of gzapi-org/agent-fabric
+**Scope:** identities/prompt/team.md (the PR rules every session reads); runtime/github/pr-gate.sh, runtime/github/commit-class.sh, runtime/github/pr-review-status.sh; tools/fabric/guards/ban_generated_by_attribution.py and policies/githooks/commit-msg; .github/workflows/ci.yml; tools/fabric/github-repo-settings.sh and the GitHub-side settings of gzapi-org/agent-fabric
 **Pillar:** P3
 
 ## 1. Context and Problem
@@ -67,8 +67,12 @@ part it covers.
   day: a finding on the queued PR itself and an urgent fix are
   real exceptions.
 - **Counting all commits.** Rejected: review fixes would push a PR over
-  the band for being reviewed; they are excluded by an `Answers:` trailer
-  or, without one, by the subject's shape (`commit-class.sh`).
+  the band for being reviewed; they are excluded by their `Kind:`
+  declaration (`commit-class.sh`).
+- **Reading the kind from the subject.** Replaced: a fix without
+  the trailer read as work, a "findings" commit as a fix, and a
+  conventional `fix:` names a project's bug fix, which is work; the
+  author declares the kind instead, and the hook refuses forgetting it.
 - **Trusting the harness settings alone for attribution.** Rejected: the
   setting reaches an account only through its last bootstrap (ADR-008),
   so the commit-time and CI guards stay.
@@ -99,11 +103,22 @@ not on a pipe's exit status.
    PR's description: a finding on the queued PR itself (prefer dequeuing
    and fixing on the same head), and a fix that must land now (a
    user-visible or CI-blocking defect).
-3. Work commits are counted by `runtime/github/commit-class.sh`: a merge
-   is a merge; a commit with an `Answers: <labels>` trailer is a review
-   fix; without one, a subject that names a review and says it answers one
-   is a fix; a revert and the commit it reverts, both in the range, count
-   in no column; everything else is work.
+3. Every commit declares its kind in a `Kind:` trailer: `work`, or
+   `review-fix` with the `Answers: <labels or thread>` it answers. The
+   `commit-msg` hook stamps `review-fix` on a commit that carries
+   `Answers:` alone and `work` on a hand-committed revert, and refuses
+   any other commit without the trailer; a merge declares nothing
+   (A 2026-10-08). Work commits are counted by
+   `runtime/github/commit-class.sh` from the declaration: a merge is a
+   merge; `Kind: work` is work; `Kind: review-fix` is a fix, unless what
+   it answers is another pull request's review, when it is this one's
+   work; a revert and the commit it reverts, both in the range, count in
+   no column. The hook is the rule's only check until the branches opened
+   before it have merged: a commit that reaches a branch without the
+   hook is not refused in CI yet. A commit with no `Kind:` (made before
+   the rule, or without the hook) is read as before: an `Answers:` trailer is a review fix; a
+   subject that names a review and says it answers one is a fix;
+   everything else is work.
 4. Eight or more work commits: arm once the gate is met, without the
    owner's word, a security-boundary change and over sixteen too
    (A 2026-10-05). Under eight: ask the
@@ -208,3 +223,4 @@ The body above reads current; each change's full note is in [history/ADR-019-ame
 | 2026-10-05 | Eight or more arm without the owner's word, over sixteen too | §1, §5 rule 4: the owner's rulings of 2026-10-05; sixteen is batch-size advice only |
 | 2026-10-05 | One required check | §5 rule 6, §6, §7: the ruleset requires CI's aggregate job `ci-ok` alone, in place of eleven per-leg names; the topics join the settings |
 | 2026-10-06 | One open pull request per agent and repository | title, §2, §5 rule 2, §8: the limit is per repository; a branch in another repository is never addable |
+| 2026-10-08 | Every commit declares its kind | §5 rule 3, §7: a `Kind:` trailer (`work` or `review-fix`) the commit-msg hook requires; the count reads it before the subject |

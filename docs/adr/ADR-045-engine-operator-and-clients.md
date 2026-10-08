@@ -56,7 +56,7 @@ Switching client is context, never identity, and needs no relaunch.
 
 ## 5. Binding Rules
 
-1. Engine code reads instance data only through `roots` (to be created as `tools/fabric/roots.py` and `runtime/control/roots.mjs`). `engine_root()` is the code's own location. `operator_root()` is `AGENT_FABRIC_OPERATOR` when set, else the engine root. Lint refuses an engine module that joins an instance path itself.
+1. Engine code reads instance data only through `roots` (to be created as `tools/fabric/roots.py` and `runtime/control/roots.mjs`). `engine_root()` is the code's own location; until stage 4 it honours `AGENT_FABRIC_ROOT` when set, which every wrapper and fixture sets and which names that same location in production, and instance fixtures use `AGENT_FABRIC_OPERATOR`, never `AGENT_FABRIC_ROOT`. `operator_root()` is `AGENT_FABRIC_OPERATOR` when set, else the engine root. Lint refuses an engine module that joins an instance path itself.
 2. Instance data is: the hosts and projects registries, `identities/keys/`, the role catalogue and the roles as adapted, `policies/*.json`, the routing overlays (`routing/profiles.json`), `memory/`, the organization's decision records, and `docs/live-checks/`. The engine keeps the code, the schemas, the templates, the routing defaults, the guards and the engine's records.
 3. Engine tests read instance fixtures, never the live instance files, and the suite passes with `AGENT_FABRIC_OPERATOR` unset and set.
 4. Decision-record numbers are frozen: no record is renumbered. A mixed record stays in the engine. Its organization-specific rules move out by amendment, into an operator record that cites it.
@@ -95,3 +95,11 @@ Rule 4 holds today: no record has been renumbered.
 - ADR-001 (the records and their numbering), ADR-011 (a project's pin of the fabric), ADR-013 and ADR-014 (the memory corpus and its drain), ADR-038 and ADR-039 (keys, stores, the agent id), ADR-044 (identity kinds).
 - `tools/fabric/layout.py`, `tools/fabric/workingcopy.py`, `runtime/control/gzcoord.mjs`: today's readers of instance data.
 - `tools/fabric/lint_rules/docs.py` `project_name_findings`: the boundary lint the seam's rule extends.
+
+## Amendments
+
+The body above reads current; each change's full note is in [history/ADR-045-amendments.md](history/ADR-045-amendments.md).
+
+| Date | Amendment | Effect |
+|---|---|---|
+| 2026-10-08 | The engine root honours AGENT_FABRIC_ROOT until stage 4 | §5 rule 1: a transition while wrappers and fixtures set it; instance fixtures use AGENT_FABRIC_OPERATOR |

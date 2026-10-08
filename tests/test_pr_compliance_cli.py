@@ -280,9 +280,9 @@ def main() -> int:
         asked: list[tuple] = []
         real = commit_class.classify
 
-        def spy(parents: str, subject: str, answers: str = "", num: str = "", repo_: str = "") -> str:
+        def spy(parents: str, subject: str, answers: str = "", num: str = "", repo_: str = "", kind: str = "") -> str:
             asked.append((subject, num, repo_))
-            return real(parents, subject, answers, num, repo_)
+            return real(parents, subject, answers, num, repo_, kind)
         commit_class.classify = spy
         cwd = os.getcwd()
         saved_env = dict(os.environ)

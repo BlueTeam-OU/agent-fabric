@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """runtime/claude-code/hooks/pr-counts.py: a reply that states a pull
-request's status without "(N work, M fix)" is sent back once; a reply with
-the counts, with no status, or with the PR only inside fenced code passes;
+request's status without "N work, M fix" (parentheses optional) is sent
+back once; a reply with the counts, with no status, or with the PR only
+inside fenced code passes;
 a reply the hook is already continuing passes whatever it says."""
 from __future__ import annotations
 

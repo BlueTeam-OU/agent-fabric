@@ -1,0 +1,23 @@
+{
+  "required": ["architecture/adr"],
+  "families": [
+    {
+      "dir": "architecture/adr",
+      "pattern": "^([0-9]{4})-.*\\.md$",
+      "message": "duplicate ADR number {number} — two files claim it.",
+      "advice": "Renumber YOUR document to the next free number and re-propagate the index."
+    }
+  ],
+  "amendments": {
+    "files": [
+      {"dir": "architecture/adr", "pattern": "^[0-9]{4}-.*\\.md$"}
+    ],
+    "heading": "^#{2,4} .*[Aa]mendment",
+    "advice": "Disambiguate the newer heading; do not rewrite the one that landed first."
+  },
+  "footer": [
+    "Semantic collision(s): {hits} — a textually-clean merge does NOT clear these.",
+    "These are parallel-session numbering races (CLAUDE.md §Concurrent sessions):",
+    "renumber the entry that has NOT yet reached origin/main; never rewrite landed work."
+  ]
+}

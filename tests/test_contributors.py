@@ -39,6 +39,10 @@ AUTHORITY = {"role_definitions": {"role": "fabric-coordinator", "holders": []}, 
 
 
 def sh(cwd: str, *args: str, env: dict[str, str] | None = None, check: bool = True) -> subprocess.CompletedProcess:
+    # A commit through the hooks declares its kind (commit-msg's Kind: rule),
+    # so a refusal these cases expect is the guard's, never the missing trailer.
+    if args[:1] == ("commit",) and "-m" in args:
+        args = ("commit", "--trailer", "Kind: work", *args[1:])
     return subprocess.run(["git", *args], cwd=cwd, env=env or GIT_ENV, check=check, capture_output=True,
                           text=True, timeout=60)
 
@@ -108,6 +112,12 @@ def main() -> int:
           pr(text, f"h/{LOGIN}/feat/x", ["python-dev"], owner) is not None)
     check("a contributor's own, with merges: admitted", pr(merging, f"h/{LOGIN}/feat/x", ["python-dev"], owner) is None)
     check("no declared role (Dependabot): not judged here", pr(text, "dependabot/github_actions/a/b", [], owner) is None)
+    two = json.dumps({**AUTHORITY, "contributors": [{**ENTRY, "merges": True},
+                                                   {"role": "devex-tooling", "paths": ["tools/gh/"]}]})
+    check("a merging role folds a non-merging role's supply: admitted",
+          pr(two, f"h/{LOGIN}/feat/x", ["python-dev", "devex-tooling"], owner) is None)
+    check("the non-merging role alone: refused, naming it",
+          "devex-tooling does not merge" in (pr(two, f"h/{LOGIN}/feat/x", ["devex-tooling"], owner) or ""))
 
     tmp = tempfile.mkdtemp(prefix="contributors-")
     try:
