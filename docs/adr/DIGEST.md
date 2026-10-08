@@ -950,5 +950,6 @@ its record disagree, the record wins. Look it up, never read it whole:
   rules move out by amendment (§5 rule 4).
 - A working copy's client comes from remote, project and client list,
   never the GitHub org; switching client is context (§5 rules 5–6).
+- A 2026-10-08 — until stage 4 the engine root honours AGENT_FABRIC_ROOT; instance fixtures use AGENT_FABRIC_OPERATOR (§5 rule 1).
 - Keywords: split, engine, operator, client, engagement, roots, open
   source, publish, instance data, Blueteam, Gzapi.
