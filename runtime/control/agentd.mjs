@@ -339,7 +339,7 @@ export async function main(argv = process.argv.slice(2)) {
     // The tools report (tools.mjs): at start, so a reboot or a new registry
     // is answered at once, and every hour. The proofs run in the background
     // and never delay a reply.
-    startToolsReport();
+    startToolsReport({ bindingFile: who.binding });
     // Only the resident daemon samples: a --once run would add a lone
     // sample with no minute behind it.
     const pressure = sampler();

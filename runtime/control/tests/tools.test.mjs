@@ -140,6 +140,32 @@ test('startToolsReport refreshes at once and then every hour, on a timer that do
   assert.equal(unref, 1);
 });
 
+test('a changed binding refreshes the report at once, and again if a run was in flight', async () => {
+  const timers = [];
+  let mtime = 1, runs = 0, release;
+  const gate = new Promise(r => { release = r; });
+  const keeper = toolsKeeper({ run: async () => { runs++; if (runs === 2) await gate; return { doc: DOC }; }, file: path.join(scratch('tools-state-'), 'tools.json'), ...quiet() });
+  startToolsReport({ keeper, bindingFile: 'b', stat: () => mtime, setTimer: (fn, ms) => { timers.push({ fn, ms }); return {}; } });
+  await keeper.refresh();
+  assert.equal(runs, 1);
+  const watch = timers.find(t => t.ms === 30 * 1000);
+  assert.ok(watch, 'the binding is watched every 30 s');
+  watch.fn();
+  assert.equal(runs, 1, 'an unchanged binding runs nothing');
+  mtime = 2;
+  watch.fn();
+  await Promise.resolve();
+  assert.equal(runs, 2, 'a changed binding runs now');
+  mtime = 3;
+  watch.fn(); watch.fn();                // changed again while the run is in flight
+  release();
+  await keeper.refreshAgain();
+  assert.equal(runs, 3, 'one more run after the one in flight, however many changes');
+  mtime = null;
+  watch.fn();
+  assert.equal(runs, 3, 'an unreadable binding is no change');
+});
+
 test('the tools op: none yet, the report with its age, and an unreadable one named', async () => {
   const dir = scratch('tools-state-');
   assert.deepEqual(await tools({ dir }), { status: 'none' });

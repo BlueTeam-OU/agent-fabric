@@ -30,6 +30,7 @@ const execFileP = promisify(execFile);
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 export const TOOLS_REPORT = 'tools.json';
 export const TOOLS_INTERVAL_MS = 3600 * 1000;
+export const BINDING_POLL_MS = 30 * 1000;
 // The proofs run one after another at 15 s each at worst, so this holds sixty
 // of them; the registry declares sixteen. A registry past that would time every
 // run out and keep the first report for ever, with one log line.
@@ -96,15 +97,32 @@ export function toolsKeeper({ run = () => runTools(), file = reportFile(), log =
     if (!said.has(r.error)) { said.add(r.error); log(`agentd: tools report not refreshed, the previous one stays: ${r.error}`); }
     return { status: 'kept', error: r.error };
   };
-  return { refresh: () => (running ??= once().finally(() => { running = null; })) };
+  const refresh = () => (running ??= once().finally(() => { running = null; }));
+  // A run already in flight began under the binding that has since changed,
+  // so its answer is stale on arrival: wait for it, then run once more (the
+  // callers waiting meanwhile join that one more run: refresh is single-flight).
+  const refreshAgain = () => (running ? running.then(refresh) : refresh());
+  return { refresh, refreshAgain };
 }
 
 // At start and then every `every` ms. The timer is unref'd: the report is
 // never a reason for the daemon to stay up.
-export function startToolsReport({ keeper = toolsKeeper(), every = TOOLS_INTERVAL_MS, setTimer = setInterval } = {}) {
+export function startToolsReport({ keeper = toolsKeeper(), every = TOOLS_INTERVAL_MS, setTimer = setInterval,
+                                   bindingFile = null, watchEvery = BINDING_POLL_MS, stat = f => fs.statSync(f).mtimeMs } = {}) {
   keeper.refresh();
-  const t = setTimer(() => keeper.refresh(), every);
-  t?.unref?.();
+  setTimer(() => keeper.refresh(), every)?.unref?.();
+  // `fabric-tools --all` keeps the tools of the account's bound role only, and
+  // a rebind (fabric-role bind, then a relaunch) does not restart the daemon:
+  // the next session would start on the previous role's report for up to an
+  // hour. The binding file's mtime is the signal; an unreadable one is no change.
+  if (bindingFile) {
+    const mtime = () => { try { return stat(bindingFile); } catch { return null; } };
+    let seen = mtime();
+    setTimer(() => {
+      const now = mtime();
+      if (now !== null && now !== seen) { seen = now; keeper.refreshAgain(); }
+    }, watchEvery)?.unref?.();
+  }
   return keeper;
 }
 
