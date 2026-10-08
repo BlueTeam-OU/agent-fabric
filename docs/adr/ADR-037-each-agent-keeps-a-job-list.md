@@ -106,7 +106,31 @@ Why these choices:
    off. Turning it on is an amendment of this record.
 6. The owner reads every agent's open jobs with
    `fabric-ctl <login|all> jobs`, an operator's op. Peers see each other's
-   presence, not each other's lists.
+   presence, not each other's lists; the message ids an agent's blocked
+   jobs wait on (rule 8) are not a list (A 2026-10-08).
+7. A job has a priority, `blocking`, `high`, `normal` or `low`, `normal`
+   when none is set and in a list written before priorities existed.
+   `fabric-jobs next` takes the queued job of highest effective priority,
+   then the oldest. It never preempts the active job, which it still
+   refuses to pass, and a blocked job keeps its place (A 2026-10-08).
+8. A job blocked on a request names it (`fabric-jobs block <id>
+   --on-request <MESSAGE-ID>`), and the account's state record carries
+   those message ids as `waits_on`. A queued job whose request is in any
+   account's `waits_on` ranks as `blocking`; its stored priority stays,
+   and `list` shows both and names the waiting address. With the state
+   stream unreachable, stored priorities decide and the tool says so
+   (A 2026-10-08).
+9. A role has an open pool, held by the coordinator's control agent, so
+   that one process orders every claim. A job is added to it by a signed
+   action; a placed agent lists its role's pool and claims a job from it.
+   The claim is checked against the claimant's binding as its control
+   agent reports it, never a role the request names, and a job has one
+   claimant: the claim lands it on the claimant's own list. `next`, with
+   nothing queued, offers the pool's job of highest priority, oldest
+   first, and says so (A 2026-10-08).
+10. When a job is done, delivered or dropped, the agent runs `fabric-jobs
+    next` before anything else, and it ends a session idle only when its
+    own list and its role's pool hold nothing it can take (A 2026-10-08).
 
 ## 6. Consequences
 
@@ -126,8 +150,7 @@ Why these choices:
 - **Turning the request intake on.** An undertaking REPLY would add the
   request as a queued job. The owed-requests view ADR-024 §6 names would
   then follow from request-sourced jobs.
-- **Priorities or due dates** would earn a field when a list is observed
-  to need them.
+- **Due dates** would earn a field when a list is observed to need them.
 
 ## 8. Decision Status
 
@@ -139,3 +162,11 @@ Accepted and in force.
 - ADR-022 — rule 10, `fabric-fresh`; rule 12, the restart rule.
 - ADR-024 — cooperating on requests; §6, the owed-requests list not built.
 - ADR-029 — the control plane's ops and signed actions.
+
+## Amendments
+
+The body above reads current; each change's full note is in [history/ADR-037-amendments.md](history/ADR-037-amendments.md).
+
+| Date | Amendment | Effect |
+|---|---|---|
+| 2026-10-08 | Priority, blocking derived, a role pool, and taking the next job | §5 rule 6 widened; rules 7–10 added; §7 priorities no longer future |
