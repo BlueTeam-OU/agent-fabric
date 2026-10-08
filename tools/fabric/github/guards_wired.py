@@ -16,11 +16,12 @@ What is checked, for each directory the project's guards.json names:
      the exemption list names it;
   3. every test_* in those directories, and every other test_*.sh in
      the tree, is run by some workflow;
-  4. every workflow command that runs a bash self-test runs it through
-     the project's runner (run_suite.sh): run bare, a suite whose
-     assertion calls an undefined helper passes. A bare run is not
-     excused by a wrapped one elsewhere, nor on the same line; a
-     for-loop over self-tests is read to its done.
+  4. every workflow command that runs a bash self-test of those
+     directories runs it through the project's runner (run_suite.sh):
+     run bare, a suite whose assertion calls an undefined helper
+     passes. A bare run is not excused by a wrapped one elsewhere, nor
+     on the same line; a for-loop over self-tests must hand its loop
+     variable to the runner before its done.
 
 What counts as RUN: a path in the text a workflow executes — a run:
 value, one line or a block — as any argument, directly or through a
@@ -267,7 +268,7 @@ def package_commands(root: str, workflows: str, excludes: set[str]) -> list[str]
                     text = fh.read()
             except (OSError, ValueError) as e:
                 raise Refused(f"could not read the workflow run commands: {path}: {_why(e)}") from None
-            code = "\n".join(l for l in text.split("\n") if not l.lstrip().startswith("#"))
+            code = "\n".join(strip_comment(l) for l in text.split("\n"))
             bound = loop_bindings(code, matrix_values(code))
             for line in code.split("\n"):
                 for token, script in PNPM.findall(line):
@@ -336,7 +337,23 @@ def _literal(rel: str) -> re.Pattern:
     return re.compile(r"(^|\s)\S*" + re.escape(rel) + r"(\s|$)")
 
 
-FOR_HEAD = re.compile(r"\bfor\s+[A-Za-z_]\w*\s+in\s")
+FOR_HEAD = re.compile(r"\bfor\s+([A-Za-z_]\w*)\s+in\s")
+
+
+def strip_comment(line: str) -> str:
+    """The line without its shell comment: a # that starts a word, outside
+    quotes. `true # bash tools/checks/x.sh` runs nothing of x; a # inside
+    ${#arr} or a quoted string is no comment."""
+    quote = ""
+    for i, c in enumerate(line):
+        if quote:
+            if c == quote:
+                quote = ""
+        elif c in "'\"":
+            quote = c
+        elif c == "#" and (i == 0 or line[i - 1].isspace()):
+            return line[:i]
+    return line
 DONE = re.compile(r"(^|[;\s])done([;\s]|$)")
 
 
@@ -344,14 +361,18 @@ class Runs:
     """The run text, read once: the guard asks dozens of names of it."""
 
     def __init__(self, commands: list[str], runner: str):
-        self.lines = commands
+        # Only what runs: a comment after a command runs nothing.
+        self.lines = [strip_comment(l) for l in commands]
         # Every command of every line on a line of its own, for the
         # per-segment rule: a second command after ;, &&, || or | does
         # not excuse the first.
-        text = "\n".join(commands)
+        text = "\n".join(self.lines)
         for sep in ("&&", "||", ";", "|"):
             text = text.replace(sep, "\n")
         self.segments = text.split("\n")
+        # ...and an echo, wherever on the line, prints a name it does not
+        # run.
+        self.executed = [s for s in self.segments if not s.lstrip().startswith("echo ")]
         self.runner = re.escape(os.path.basename(runner))
         self.loops = self._loops()
 
@@ -367,20 +388,27 @@ class Runs:
             if not globs:
                 i += 1
                 continue
+            # The body is what lies between the head and its done, and the
+            # runner must be handed the loop's own variable there: a runner
+            # elsewhere in it, or after the done, runs some other suite.
             body, j = [], i
             while j < len(self.lines):
-                body.append(self.lines[j])
-                if DONE.search(self.lines[j] if j > i else self.lines[j][m.start():]):
+                text = self.lines[j] if j > i else self.lines[j][m.end():]
+                end = DONE.search(text)
+                body.append(text[:end.start()] if end else text)
+                if end:
                     break
                 j += 1
-            wrapped = any(re.search(self.runner, b) for b in body)
+            var = re.escape(m.group(1))
+            hands = re.compile(r"(^|[\s/])" + self.runner + r"\s+[\"']?\$(\{" + var + r"\}|" + var + r"\b)")
+            wrapped = any(hands.search(b) for b in body)
             loops.append((line.strip(), globs, wrapped))
             i = j + 1
         return loops
 
     def wired(self, rel: str) -> bool:
         lit = _literal(rel)
-        return any(lit.search(l) or any(glob_matches(g, rel) for g in _globs(l)) for l in self.lines)
+        return any(lit.search(s) or any(glob_matches(g, rel) for g in _globs(s)) for s in self.executed)
 
     def bare(self, rel: str) -> bool:
         """Run, somewhere, without the runner: a literal on a segment that

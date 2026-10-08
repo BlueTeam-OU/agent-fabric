@@ -114,6 +114,30 @@ def main() -> int:
                                        "      - run: bash tools/checks/run_suite.sh tools/checks/test_ban_a.sh\n"))
         check("an echo inside a run: block runs nothing", rc == 1 and "whatever they contain:\n        ban_a.sh\n" in out, out)
 
+        rc, out, err = run(tree(GUARD, "      - run: true # bash tools/checks/ban_a.sh\n"
+                                       "      - run: bash tools/checks/run_suite.sh tools/checks/test_ban_a.sh\n"))
+        check("a path after a command's # comment runs nothing", rc == 1 and "whatever they contain:\n        ban_a.sh\n" in out,
+              out)
+        rc, out, err = run(tree(GUARD, "      - run: true; echo bash tools/checks/ban_a.sh\n"
+                                       "      - run: bash tools/checks/run_suite.sh tools/checks/test_ban_a.sh\n"))
+        check("nor does one an echo prints mid-line", rc == 1 and "whatever they contain:\n        ban_a.sh\n" in out, out)
+        rc, out, err = run(tree(GUARD, "      - run: X=\"a #b\" Y=c#d bash tools/checks/ban_a.sh # x\n"
+                                       "      - run: bash tools/checks/run_suite.sh tools/checks/test_ban_a.sh\n"))
+        check("a # inside quotes, or one that does not start a word, cuts nothing", rc == 0, out + err)
+        loop = "      - run: |\n          for t in tools/gh/test_*.sh; do\n{body}          done{after}\n"
+        gh = {**GUARD, "tools/gh/x.sh": "", "tools/gh/test_x.sh": ""}
+        rc, out, err = run(tree(gh, WIRED + loop.format(body="            bash \"$t\"\n            bash tools/checks/run_suite.sh"
+                                                                 " other.sh\n", after="")))
+        check("a loop whose runner runs some other suite still runs its own bare",
+              rc == 1 and "        for t in tools/gh/test_*.sh; do\n" in out, out)
+        rc, out, err = run(tree(gh, WIRED + "      - run: for t in tools/gh/test_*.sh; do bash \"$t\"; done; "
+                                            "bash tools/checks/run_suite.sh \"$t\"\n"))
+        check("…and a runner after the done, handed the last $t, is not in the loop", rc == 1 and "bare" not in err and
+              "run without tools/checks/run_suite.sh" in out, out)
+        rc, out, err = run(tree(gh, WIRED + loop.format(body="            PATH=x bash tools/checks/run_suite.sh \"${t}\"\n",
+                                                        after="")))
+        check("a loop handing ${t} to the runner is wrapped", rc == 0, out + err)
+
         print("guards_wired: self-tests of any extension")
         rc, out, err = run(tree({"tools/checks/ban_a.sh": "", "tools/checks/test_ban_a.py": ""},
                                 "      - run: bash tools/checks/ban_a.sh\n"))
