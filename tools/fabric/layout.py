@@ -422,12 +422,15 @@ def link_rel(path: str, project: str | None = None) -> str:
     # A file in the operator's tree is linked as its place in this checkout
     # would be: an index's links and the fabric's own labels (`identities/...`)
     # read the same whichever tree holds it, and fabric_path() finds it again
-    # (until stage 4 both are reached through the one sibling prefix).
+    # (until stage 4 both are reached through the one sibling prefix). Not
+    # when that tree is the project's own working copy: its slices are linked
+    # from where it stands, like any project's (re-review of #125).
+    base = os.path.abspath(project_link_root(project)) if project else fabric
     for side in fabric_sides():
         if os.path.commonpath([path, side]) == side:
-            path = os.path.join(fabric, os.path.relpath(path, side))
+            if os.path.abspath(side) != base:
+                path = os.path.join(fabric, os.path.relpath(path, side))
             break
-    base = project_link_root(project) if project else fabric
     # The fabric first, when it is not the base itself: a checkout of the
     # fabric may sit INSIDE the working copy (CI checks it out under the
     # workspace), and a fabric slice is still reached through the sibling

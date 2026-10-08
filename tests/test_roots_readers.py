@@ -212,6 +212,47 @@ def case_fabric_labels_do_not_depend_on_the_checkouts_name() -> None:
         layout.FABRIC_ROOT = saved
 
 
+def case_a_project_whose_working_copy_is_the_operator_links_its_own_slices() -> None:
+    """A project registered at the operator's root links its own slices from
+    where it stands; only another project reaches the operator's files through
+    the sibling prefix (re-review of #125, P3 1)."""
+    import layout
+    with tempfile.TemporaryDirectory() as tmp:
+        op = os.path.join(tmp, "op")
+        slice_ = os.path.join(op, ".agent-fabric", "memory", "fabric-coordinator", "x.md")
+        write(slice_, "x")
+        write(os.path.join(op, "projects", "registry.json"), {"projects": {"opproj": {}, "other": {}}})
+        try:
+            layout.set_working_copy("opproj", op)
+            layout.set_working_copy("other", os.path.join(tmp, "other"))
+            with operator(op):
+                assert layout.link_rel(slice_, "opproj") == ".agent-fabric/memory/fabric-coordinator/x.md"
+                assert layout.link_rel(slice_, "other") == \
+                    f"{layout.FABRIC_LINK_PREFIX}/.agent-fabric/memory/fabric-coordinator/x.md"
+        finally:
+            layout.set_working_copy("opproj", None)
+            layout.set_working_copy("other", None)
+
+
+def case_lint_reads_role_files_only_the_operator_holds() -> None:
+    """Lint over an engine that holds no role files, with this checkout as the
+    operator: the identity slices and the locales' sources are read from the
+    operator's tree (re-review of #125, P3 2). What stays is what an engine
+    must hold itself: the prompt templates and the harness text."""
+    import subprocess
+    base = {k: v for k, v in os.environ.items() if k not in ("AGENT_FABRIC_ROOT", "AGENT_FABRIC_OPERATOR")}
+    with tempfile.TemporaryDirectory() as engine:
+        os.makedirs(os.path.join(engine, "identities"))
+        r = subprocess.run([sys.executable, os.path.join(ROOT, "tools", "fabric", "lint.py"), "--fabric", engine,
+                            "--no-siblings"], capture_output=True, text=True, timeout=300,
+                           env={**base, "AGENT_FABRIC_OPERATOR": ROOT})
+        out = r.stdout + r.stderr
+        assert "Traceback" not in out, out[-1500:]
+        assert "identities/roles/" not in "".join(l for l in out.splitlines(keepends=True) if "does not exist" in l
+                                                  and "its source identities/roles/" in l), out[-1500:]
+        assert "identities/prompt/header.md: missing" in out, out[-1500:]   # the control: the engine's own gap
+
+
 def main() -> int:
     cases = [v for k, v in globals().items() if k.startswith("case_")]
     failures = 0
