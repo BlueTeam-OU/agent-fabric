@@ -800,7 +800,9 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-10-08 — priority (blocking, high, normal, low) orders `next`,
   never preempting; a job others wait on ranks blocking via the state
   stream's `waits_on`; a role pool with one claimant; after a job ends,
-  take the next (§5 rules 7–10); rules 7–9 not yet built (§8).
+  take the next (§5 rules 7–10).
+- A 2026-10-09 — a waiter whose state record is stale still ranks the
+  job blocking, said stale with the record's age (§5 rule 8).
 - Keywords: job, to-do, jobs.json, fabric-jobs, next, topic, fresh
   session, restart, fabric-fresh --job, working copy, intake, priority,
   blocking, pool, claim, P3.
