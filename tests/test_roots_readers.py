@@ -87,6 +87,24 @@ def case_routing_reads_policy_and_profiles_from_the_operator() -> None:
             assert routing.load_profiles(op)["defaults"].get("op-provider") == {}
 
 
+def case_adr_reads_records_and_the_registry_from_the_operator() -> None:
+    import adr
+    with tempfile.TemporaryDirectory() as tmp:
+        op = os.path.join(tmp, "op")
+        write(os.path.join(op, "docs", "adr", "DIGEST.md"), "| Topic | Record |\n|---|---|\n| opdigest | ADR-000 |\n\n### ADR-000 x\n")
+        write(os.path.join(op, "projects", "registry.json"), {"projects": {"opproj": {}, "agent-fabric": {}}})
+        with operator(op):
+            assert adr.adr_dir() == os.path.join(op, "docs", "adr")
+            assert "opdigest" in adr.cmd_lookup(None, [])[0]
+            assert adr.foreign_projects(None) == {"opproj"}
+            assert adr.tree(None) == op
+        with unset_operator():
+            assert adr.adr_dir() == os.path.join(ROOT, "docs", "adr")
+            assert "opproj" not in adr.foreign_projects(None)
+            assert adr.check() == []
+            assert adr.adr_dir(op) == os.path.join(op, "docs", "adr")      # --root still names the tree
+
+
 def main() -> int:
     cases = [v for k, v in globals().items() if k.startswith("case_")]
     failures = 0

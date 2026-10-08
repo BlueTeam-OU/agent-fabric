@@ -34,7 +34,6 @@ EXEMPT = {
     "runtime/control/roots.mjs": "the seam itself",
     "tools/fabric/layout.py": "fabric-coordinator's (authority.json excluding)",
     "tools/fabric/workingcopy.py": "fabric-coordinator's (authority.json excluding)",
-    "tools/fabric/adr.py": "fabric-coordinator's (authority.json excluding)",
     "tools/fabric/lint.py": "fabric-coordinator's (authority.json excluding)",
     "tools/fabric/secretstore/lineage.py": "fabric-coordinator's (authority.json excluding): keys_dir",
     "tools/fabric/secretstore/trust.py": "git-shows identities/keys/ from the keys' checkout (origin/main), a path inside that repository; moves with the keys (ADR-045 §6)",
