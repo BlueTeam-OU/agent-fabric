@@ -41,7 +41,9 @@ in its wave, whichever comes first.
 
 A port keeps the script's contract and its path. The path becomes a
 shim until every caller, in the fabric and in the managed projects, has
-moved.
+moved; then the shim is retired, and what people and agents run is a
+bare command. Shell that must run before the pinned Python exists stays
+shell.
 
 ## 3. Alternatives Considered
 
@@ -124,6 +126,21 @@ serve as the parity oracle for each port, unchanged.
    `tools/fabric/git.py`: a body is passed on stdin or in a file, never
    interpolated; every call is bounded and names its operation in its
    error; JSON is parsed in Python, never with `jq`.
+7. A fabric command is run by its bare name on `PATH`, never by a
+   script path: a skill, a doc, a workflow, a hook message or a GZCoord
+   message names `fabric-pr gate`, not `runtime/github/pr-gate.sh`
+   (A 2026-10-08). A shim is retired in four steps: the bare command is
+   added beside it; every caller moves, the managed projects' forwarders
+   last; the old path says on stderr which command replaces it, for one
+   release; it is deleted once every managed project's `fabric-ref` is
+   past the move. A CI-only script is called through its module. Never
+   migrated, and kept as shell: what runs before the pinned Python
+   exists or says how to install it — the host and account provisioning
+   chain (`runtime/provisioning/platform/`, `new-agent.sh` and its
+   worker, `persist-accounts.sh`, `rename-working-copy.sh`), the host
+   executor, `bootstrap.sh`, `moveto`, and the `bin/` entry points,
+   whose few lines of shell print the install command when the pin is
+   absent — and the git hooks and the suite runners (rule 1).
 
 ## 6. Consequences
 
@@ -174,3 +191,4 @@ The body above reads current; each change's full note is in [history/ADR-040-ame
 | 2026-10-01 | One pinned Python, 3.13, installed per host | §2, §5 rules 1 and 4: `runtime/python.json`, `python_pin.py`, `fabric-python`; shims run it; CI installs it |
 | 2026-10-01 | A fixture may copy the modules of the scripts it copies | §5 rule 5: a third departure for the oracle, files added and no assertion changed |
 | 2026-10-04 | Wave 7: GZCoord's command-line tools move to Python | §7: send, inbox and gzmsg port together, the control plane's imports split out first, the protocol suite the oracle |
+| 2026-10-08 | Shims retire; commands run by bare name | §2, §5 rule 7: a caller names the command on PATH; a shim retires in four steps once its callers move; shell before the pinned Python stays shell |

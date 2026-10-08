@@ -862,14 +862,14 @@ its record disagree, the record wins. Look it up, never read it whole:
   3–5).
 - GitHub and git go through `gh.py` and `git.py`: bodies on stdin or a
   file, bounded calls named in their errors, JSON in Python (§5 rule 6).
-- A 2026-10-01 — the oracle's assertions stay; its gh mock may learn
-  gh.py's transport (still passing the bash original), and a case
-  reading the source reads the module.
+- A 2026-10-01 — the oracle's assertions stay; its gh mock and source
+  reads may follow the port (§5 rule 5).
 - A 2026-10-01 — one pinned Python, 3.13, as fabric-python per host; shims run it (§5 rules 1, 4).
 - A 2026-10-01 — a fixture may copy the modules of the scripts it copies; no assertion changes (§5 rule 5).
-- A 2026-10-04 — Wave 7: send, inbox and gzmsg to Python together; the control plane's imports split out first (§7).
+- A 2026-10-04 — Wave 7: GZCoord's tools to Python together (§7).
+- A 2026-10-08 — commands by bare name; shims retire; pre-Python shell stays (§5 rule 7).
 - Keywords: Python, bash, shell, port, allowlist, lint, shim, wave, gh,
-  git, 150 lines, P1.
+  git, 150 lines, P1, bare command, fabric-pr, deprecated path.
 
 ### ADR-041 — Agent-local episodic history: exact messages kept above the transport (Accepted)
 
