@@ -19,6 +19,7 @@ import pwd
 import subprocess
 import sys
 import tempfile
+from git_env import git_env, scrub_process_env  # noqa: E402 — tests/, the script's own directory
 
 # Every git this suite starts, fixture or under test, reads none of the
 # caller's ~/.gitconfig: set here, it reaches the calls that pass no env.
@@ -102,7 +103,7 @@ def main() -> int:
         clone, state = f"{sandbox}/{clone_name}", f"{sandbox}/state"
         for d in (clone, f"{sandbox}/bin", state):
             os.makedirs(d)
-        subprocess.run(["git", "-C", clone, "init", "-q"], check=True, timeout=30, stderr=subprocess.DEVNULL)
+        subprocess.run(["git", "-C", clone, "init", "-q"], check=True, timeout=30, stderr=subprocess.DEVNULL, env=git_env())
         with open(f"{sandbox}/bin/gh", "w", encoding="utf-8") as fh:
             fh.write(GH_MOCK)
         os.chmod(f"{sandbox}/bin/gh", 0o755)
@@ -341,4 +342,5 @@ def main() -> int:
 
 
 if __name__ == "__main__":
+    scrub_process_env()
     sys.exit(main())
