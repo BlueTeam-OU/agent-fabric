@@ -11,10 +11,11 @@ on Stop, so it runs for every session of the account.
 
 On Stop it reads the reply the session is about to end on
 (`last_assistant_message`). A pull request (`#123`, `owner/repo#123`)
-named on a line with a status word (arm, merge, ready, mergeable, queued,
-gate, open, waiting, …) must carry `(N work, M fix)` after it on its line,
-before the next PR, at least once in the reply; fenced and inline code are not read, and a
-number that is an issue, a step, an item or a colour is not a PR. When a
+named on a line with a status word (arm, merge, ready, unarmed, queued,
+gate, open, waiting, …) must carry `N work, M fix` (parentheses optional)
+after it on its line, before the next PR, at least once in the reply;
+fenced and inline code are not read, and a number that is an issue, a
+step, an item or a colour is not a PR. When a
 pull request lacks them, the reply is blocked once with the reason: the
 session adds the counts from runtime/github/pr-gate.sh and answers again. `stop_hook_active` (the session is already continuing
 because of a stop hook) lets the second answer through whatever it says:
@@ -41,9 +42,10 @@ NOT_A_PR_WORDS = frozenset(("issue", "issues", "step", "steps", "item", "items",
                             "line", "rule", "row", "seq", "round"))
 STATUS_RE = re.compile(r"\b(?:arm|armed|arming|unarmed|merge|merged|mergeable|ready|queued|gate|waiting|"
                        r"your word|auto-merge|open|opened)\b", re.I)
-# A PR's counts are the first "(W work, F fix" after it on its line, before
-# the next PR: emphasis, a colon or a table's cells may come between.
-# Parenthesised or not: team.md's own example is "#215 is unarmed: 6 work, 2 fix".
+# A PR's counts are "W work, F fix", parenthesised or not (team.md's own
+# example is "#215 is unarmed: 6 work, 2 fix"), anywhere after it on its
+# line and before the next PR: emphasis, a colon or a table's cells may come
+# between.
 COUNTS_RE = re.compile(r"\b\d{1,4}\s+work\s*,\s*\d{1,4}\s+fix\b", re.I)
 CODE_SPAN_RE = re.compile(r"`[^`\n]*`")
 FENCE_RE = re.compile(r"^\s*(`{3,}|~{3,})")
