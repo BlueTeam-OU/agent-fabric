@@ -16,13 +16,14 @@ quietly relies on — makes a result the runner's, not the test's.
 
 Two layers, because a tool under test may need a global config of its own
 (secrets_sync writes `git config --global` into the scratch HOME its test
-gives it):
+gives it, and the store suites hand their roles a scratch global config):
 - scrub_process_env() drops the inherited GIT_* from this process's
-  environment and turns the system config off, so every child inherits
-  that, a call with no env= included. It runs at import, right after the
-  imports: a suite that pins GIT_CONFIG_GLOBAL for its tools at module
-  level sets it after the scrub, and keeps it. Otherwise the global
-  config stays whatever HOME a test hands a tool.
+  environment and turns the system and the global config off
+  (GIT_CONFIG_GLOBAL at nothing: without it git reads $HOME/.gitconfig,
+  the runner's), so every child inherits that, a call with no env=
+  included. It runs at import, right after the imports. A test that
+  hands a tool a scratch global config sets GIT_CONFIG_GLOBAL in the env
+  it gives that tool (the store suites' roles do).
 - git_env() is for the test's own git calls: no global config either, no
   global ignore or attributes file (XDG_CONFIG_HOME at nothing), and a
   fixed identity, so a commit never depends on the runner's user.name.
@@ -46,6 +47,7 @@ def scrub_process_env() -> None:
     for k in [k for k in os.environ if _inherited(k)]:
         del os.environ[k]
     os.environ["GIT_CONFIG_NOSYSTEM"] = "1"
+    os.environ["GIT_CONFIG_GLOBAL"] = os.devnull
 
 
 def git_env(base: Mapping[str, str] | None = None) -> dict[str, str]:
