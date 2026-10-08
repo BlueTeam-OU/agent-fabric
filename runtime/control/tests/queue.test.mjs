@@ -2,7 +2,10 @@
 // (queue.mjs): the waits read from the state stream.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { waitsFrom, readWaits, askHolder } from '../queue.mjs';
+import fs from 'node:fs';
+import path from 'node:path';
+import { scratch } from '../../../tests/scratch.mjs';
+import { waitsFrom, readWaits, askHolder, placedAccounts, Unreadable } from '../queue.mjs';
 
 const A = '01a11a18-4728-7d8b-afd9-0edb2d30a59c', B = '01a11a19-0bea-70c7-b667-1e1e5a74dbe1';
 const rec = (from, waits_on, extra = {}) => ({ content: JSON.stringify({ v: 1, kind: 'state', from, ts: 't', sessions: [], ...(waits_on ? { waits_on } : {}), ...extra }) });
@@ -60,6 +63,17 @@ test('askHolder: only the holder\'s reply to this request counts; a forged one i
   const got = await askHolder({ call, cfg, from: 'h/py', holder: 'h/user', op: 'pool-claim', args: { id: 'p1' }, waitMs: 2000 });
   assert.deepEqual(got, { status: 'refused', reason: 'no' });
   assert.deepEqual([sent.to, sent.from, sent.args, sent.kind, sent.op], [['h/user'], 'h/py', { id: 'p1' }, 'request', 'pool-claim']);
+  assert.equal(sent.ttl_s, 2, 'the request lives as long as the asker waits, not the channel\'s 30 s');
+});
+
+test('who is placed: an unreadable registry is an error, never nobody', () => {
+  const d = scratch('queue-reg-');
+  const reg = path.join(d, 'registry.json');
+  assert.throws(() => placedAccounts(reg), Unreadable);
+  fs.writeFileSync(reg, '{broken'); assert.throws(() => placedAccounts(reg), /cannot be read/);
+  fs.writeFileSync(reg, '{}'); assert.throws(() => placedAccounts(reg), /no placement/);
+  fs.writeFileSync(reg, JSON.stringify({ placement: { a: 'h', b: 'k' } }));
+  assert.deepEqual([...placedAccounts(reg)], ['h/a', 'k/b']);
 });
 
 test('askHolder: a holder that does not answer is null, never an answer', async () => {

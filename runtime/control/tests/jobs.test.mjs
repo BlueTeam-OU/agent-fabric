@@ -44,6 +44,12 @@ test('jobs-add takes a closed set of plain arguments', () => {
   assert.match(checkJobArgs({ title: 'x', priority: 'urgent' }), /priority is one of blocking, high, normal, low/);
 });
 
+test('jobs: a priority stored as null is unknown, never normal; an absent one is normal', async () => {
+  const exec = async () => JSON.stringify([{ id: 'j1', state: 'queued', title: 'a', priority: null }, { id: 'j2', state: 'queued', title: 'b' }]);
+  const got = await jobs({ exec });
+  assert.deepEqual(got.jobs.map(j => j.priority), [null, 'normal']);
+});
+
 test('jobs-add carries a priority to the list, and jobs reads it; a job without one reads normal', async () => {
   const a = account();
   try {
@@ -98,14 +104,16 @@ test('fabric-ctl: the jobs table, one row per job, the account named once', () =
   const out = table('jobs', [
     { account: 'backend-dev-01', status: 'ok', jobs: { status: 'ok', jobs: [
       { id: 'j1', state: 'active', project: 'gzapp', title: 'drain', topic: 'memory', source: 'self' },
-      { id: 'j2', state: 'blocked', project: 'gzapp', title: 'wait', source: 'owner', blocked_on: 'a review', priority: 'high' }] } },
+      { id: 'j2', state: 'blocked', project: 'gzapp', title: 'wait', source: 'owner', blocked_on: 'a review', priority: 'high' },
+      { id: 'j3', state: 'queued', project: 'gzapp', title: 'red\u001b[31m', source: 'self', priority: null }] } },
     { account: 'web-dev-01', status: 'ok', jobs: { status: 'ok', jobs: [] } },
     { account: 'db-admin', status: 'silent' }]);
   const lines = out.split('\n');
   assert.match(lines[0], /^backend-dev-01 +j1 +active +normal +gzapp +drain \[memory\]$/);
   assert.match(lines[1], /^ +j2 +blocked +high +gzapp +wait \(owner\) — on a review$/);
-  assert.match(lines[2], /^web-dev-01 +no open jobs$/);
-  assert.match(lines[3], /^db-admin +silent$/);
+  assert.match(lines[2], /^ +j3 +queued +\? +gzapp +red\\x1b\[31m$/, 'a stored null is unknown; an account\'s text is escaped');
+  assert.match(lines[3], /^web-dev-01 +no open jobs$/);
+  assert.match(lines[4], /^db-admin +silent$/);
 });
 
 test('the jobs tool the ops run exists where they look for it', () => {

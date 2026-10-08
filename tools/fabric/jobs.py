@@ -302,13 +302,13 @@ def pool_offer() -> str:
         return f"{e} (fabric-jobs add, or fabric-jobs pool-list --role <role>)"
     answer = said["answer"]
     if answer.get("status") != "ok":
-        return f"the pool: {said['holder']} refused ({answer.get('reason') or answer.get('status')})"
+        return f"the pool: {said['holder']} refused ({printable(answer.get('reason') or answer.get('status'))})"
     jobs = answer.get("jobs") or []
     if not jobs:
-        return f"the {answer.get('role')} pool is empty too"
+        return f"the {printable(answer.get('role'))} pool is empty too"
     first = jobs[0]
-    return (f"the {answer.get('role')} pool offers {pool_line(first)}\n"
-            f"  claim it with fabric-jobs pool-claim {first.get('id')}, then fabric-jobs next")
+    return (f"the {printable(answer.get('role'))} pool offers {pool_line(first)}\n"
+            f"  claim it with fabric-jobs pool-claim {printable(first.get('id'))}, then fabric-jobs next")
 
 
 def ask_queue(*argv: str) -> dict:
@@ -332,23 +332,57 @@ def ask_queue(*argv: str) -> dict:
     return said
 
 
-def pool_job(doc: dict, said: dict, holder: str, *, topic=None, working_copy=None) -> tuple[Job, bool]:
-    """The claimed job on this list: (job, added); a pool id already
-    listed is that job, never a second one."""
-    pid = said.get("id")
-    listed = next((j for j in doc["jobs"] if (j.get("source") or {}).get("pool_id") == pid), None)
+PROJECT_SLUG = re.compile(r"[a-z0-9][a-z0-9-]{0,62}", re.ASCII)   # runtime/control/jobs.mjs PROJECT_SLUG
+
+
+def claimed_job(answer: dict, asked: str) -> dict:
+    """The job a holder's claim answer carries, held to the shape pool.mjs
+    sends; anything else is refused before the list is touched — a reply
+    on the relay is any token holder's post, and a missing field never
+    becomes a default."""
+    job = answer.get("job")
+    bad = None
+    if not isinstance(job, dict) or job.get("id") != asked:
+        bad = f"it names job {job.get('id') if isinstance(job, dict) else None!r}, not {asked}"
+    elif not isinstance(job.get("title"), str) or not job["title"].strip():
+        bad = "it carries no title"
+    elif job.get("priority") not in PRIORITIES:
+        bad = f"its priority {job.get('priority')!r} is none of {', '.join(PRIORITIES)}"
+    elif job.get("topic") is not None and not isinstance(job.get("topic"), str):
+        bad = "its topic is not text"
+    elif job.get("project") is not None and not (isinstance(job["project"], str) and PROJECT_SLUG.fullmatch(job["project"])):
+        bad = "its project is not a registry id"
+    if bad:
+        raise Refused(f"the holder's answer to the claim of {asked} is not a pool job: {bad}")
+    return job
+
+
+def pool_job(doc: dict, job: dict, holder: str, *, again: bool, topic=None, working_copy=None) -> tuple[Job, bool]:
+    """The claimed job on this list: (job, added). The same holder's job,
+    still open — or in any state, when the holder says this claimant held
+    it already — is that job, never a second one. Pool ids restart with a
+    new holder or a new pool file, so an id alone names nothing."""
+    listed = next((j for j in doc["jobs"]
+                   if (j.get("source") or {}).get("kind") == "pool" and j["source"].get("from") == holder
+                   and j["source"].get("pool_id") == job["id"] and (again or j["state"] in OPEN)), None)
     if listed:
         return listed, False
-    priority = said.get("priority") if said.get("priority") in PRIORITIES else DEFAULT_PRIORITY
-    return new_job(doc, str(said.get("title") or f"pool job {pid}"), topic=topic or said.get("topic"),
-                   project=said.get("project"), working_copy=working_copy,
-                   source={"kind": "pool", "pool_id": pid, "from": holder}, priority=priority), True
+    return new_job(doc, job["title"], topic=topic or job.get("topic"), project=job.get("project"),
+                   working_copy=working_copy, source={"kind": "pool", "pool_id": job["id"], "from": holder},
+                   priority=job["priority"]), True
+
+
+def printable(value) -> str:
+    """A holder's text as one line a terminal shows and never obeys:
+    C0, DEL and C1 (U+009B is a CSI) as '?', whitespace collapsed."""
+    return " ".join("".join("?" if ord(c) < 32 or 127 <= ord(c) < 160 else c for c in str(value)).split())
 
 
 def pool_line(job: dict) -> str:
-    topic = f" [{job['topic']}]" if job.get("topic") else ""
-    where = f" {job['project']}" if job.get("project") else ""
-    return f"{job.get('id', '?'):<5} {job.get('priority', '?'):<8} {job.get('role', '?')}{where}{topic}: {job.get('title', '')}"
+    topic = f" [{printable(job['topic'])}]" if job.get("topic") else ""
+    where = f" {printable(job['project'])}" if job.get("project") else ""
+    return (f"{printable(job.get('id', '?')):<5} {printable(job.get('priority', '?')):<8} "
+            f"{printable(job.get('role', '?'))}{where}{topic}: {printable(job.get('title', ''))}")
 
 
 def message_of(job: dict) -> str | None:
@@ -581,23 +615,30 @@ def main(argv: list[str] | None = None) -> int:
             said = ask_pool("pool-list", *([args.role] if args.role else []))
             answer = said["answer"]
             if answer.get("status") != "ok":
-                raise Refused(f"{said['holder']} refused: {answer.get('reason') or answer.get('status')}")
+                raise Refused(f"{said['holder']} refused: {printable(answer.get('reason') or answer.get('status'))}")
             if args.json:
                 print(json.dumps(answer, ensure_ascii=False, indent=2))
             elif not answer.get("jobs"):
-                print(f"the {answer.get('role')} pool is empty")
+                print(f"the {printable(answer.get('role'))} pool is empty")
             else:
                 print("\n".join(pool_line(j) for j in answer["jobs"]))
         elif args.cmd == "pool-claim":
             if not POOL_ID.fullmatch(args.id):
                 raise Refused(f"a pool job id is p<n> (fabric-jobs pool-list), not {args.id!r}")
-            said = ask_pool("pool-claim", args.id)
-            answer, holder = said["answer"], said["holder"]
-            if answer.get("status") != "claimed" or not isinstance(answer.get("job"), dict):
-                raise Refused(f"{holder} refused: {answer.get('reason') or answer.get('status')}")
             try:
-                job, added = mutate(lambda doc: pool_job(doc, answer["job"], holder, topic=args.topic,
-                                                         working_copy=args.working_copy))
+                said = ask_pool("pool-claim", args.id)
+            except Refused as e:
+                # Sent and unanswered is not unsent: the holder may have
+                # recorded it, and the same claim again hands it back.
+                raise Refused(f"{e}; if the claim reached the holder, {args.id} may be claimed for you — "
+                              f"fabric-jobs pool-claim {args.id} again lands it or says whose it is")
+            answer, holder = said["answer"], said["holder"]
+            if answer.get("status") != "claimed":
+                raise Refused(f"{holder} refused: {printable(answer.get('reason') or answer.get('status'))}")
+            claimed = claimed_job(answer, args.id)
+            try:
+                job, added = mutate(lambda doc: pool_job(doc, claimed, holder, again=answer.get("again") is True,
+                                                         topic=args.topic, working_copy=args.working_copy))
             except Refused as e:
                 raise Refused(f"{args.id} is claimed at {holder}, but this list did not take it ({e}); "
                               f"fix that and run fabric-jobs pool-claim {args.id} again — it is yours")

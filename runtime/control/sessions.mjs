@@ -64,15 +64,16 @@ export function readSessions(file, { proc = '/proc' } = {}) {
 /**
  * The message ids this login's blocked jobs wait on, sorted, from its job
  * list (agents/<login>/jobs.json, written by runtime/identity.py and only
- * read here). An unreadable list waits on nothing it can name.
- * @returns {string[]}
+ * read here). No list waits on nothing; a list that cannot be read is
+ * null — unknown, which the watcher never says as "nothing".
+ * @returns {string[] | null}
  */
 export function waitsOn(file) {
   if (!file) return [];
   let doc;
-  try { doc = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return []; }
-  const jobs = Array.isArray(doc?.jobs) ? doc.jobs : [];
-  const ids = jobs.filter(j => j && j.state === 'blocked' && typeof j.waits_on === 'string' && MESSAGE_ID.test(j.waits_on)).map(j => j.waits_on);
+  try { doc = JSON.parse(fs.readFileSync(file, 'utf8')); } catch (e) { return e?.code === 'ENOENT' ? [] : null; }
+  if (!doc || !Array.isArray(doc.jobs)) return null;
+  const ids = doc.jobs.filter(j => j && j.state === 'blocked' && typeof j.waits_on === 'string' && MESSAGE_ID.test(j.waits_on)).map(j => j.waits_on);
   return [...new Set(ids)].sort().slice(0, WAITS_ON_MAX);
 }
 
@@ -115,7 +116,16 @@ function bound(file, configDir) {
 // relay loop already reports the relay down.
 export function stateWatcher({ address, post, file = path.join(stateDir(), STATE_FILE), binding, jobs = null, proc = '/proc',
   now = Date.now, heartbeatMs = STATE_HEARTBEAT_MS, log = m => console.error(m), configDir }) {
-  let lastKey = null, lastAt = 0, busy = false, failing = false;
+  let lastKey = null, lastAt = 0, busy = false, failing = false, lastWaits = [], unreadable = false;
+  // An unreadable list keeps what was last said, and is said once: identity.py
+  // replaces the file whole, so this is a broken file, not a torn write.
+  const waitsNow = () => {
+    const w = waitsOn(jobs);
+    if (w === null) { if (!unreadable) log(`agentd: the job list ${jobs} cannot be read; waits_on kept as last said`); unreadable = true; return lastWaits; }
+    if (unreadable) { log('agentd: the job list is readable again'); unreadable = false; }
+    lastWaits = w;
+    return w;
+  };
   return {
     async tick() {
       if (busy) return false;
@@ -124,7 +134,7 @@ export function stateWatcher({ address, post, file = path.join(stateDir(), STATE
         const now_ = now();
         const said = { sessions: readSessions(file, { proc }),
           ...(binding ? bound(binding, configDir) : { role: null, project: null, last_session: null, resumable: false }),
-          waits_on: waitsOn(jobs) };
+          waits_on: waitsNow() };
         const key = JSON.stringify(said);
         if (key === lastKey && now_ - lastAt < heartbeatMs) return false;
         await post(stateRecord(address, said, new Date(now_).toISOString()));

@@ -36,7 +36,7 @@ export async function jobs({ home = os.homedir(), root = defaultRoot(home), exec
   const r = await exec('python3', [jobsPy(root), 'list', '--json', '--stored'], { encoding: 'utf8', timeout: JOBS_TIMEOUT_MS, env: { ...process.env, AGENT_FABRIC_ROOT: root } });
   const list = JSON.parse(typeof r === 'string' ? r : r.stdout);
   // The log stays on the account: the owner reads where each job is, not its history.
-  return { status: 'ok', jobs: list.map(j => ({ id: j.id, state: j.state, title: j.title, project: j.project ?? null, topic: j.topic ?? null, priority: j.priority ?? 'normal',
+  return { status: 'ok', jobs: list.map(j => ({ id: j.id, state: j.state, title: j.title, project: j.project ?? null, topic: j.topic ?? null, priority: 'priority' in j ? j.priority : 'normal',
                                                  source: j.source?.kind ?? 'self', blocked_on: j.blocked_on ?? null, artifacts: j.artifacts ?? [], updated: j.updated ?? null })) };
 }
 

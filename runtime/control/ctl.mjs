@@ -297,8 +297,9 @@ export function table(op, rs) {
       if (r.status !== 'ok' || !r.jobs) { lines.push(`${r.account.padEnd(22)} ${r.status}`); continue; }
       if (r.jobs.status !== 'ok') { lines.push(`${r.account.padEnd(22)} jobs ${r.jobs.status}${r.jobs.error ? `: ${r.jobs.error}` : ''}`); continue; }
       if (!r.jobs.jobs.length) { lines.push(`${r.account.padEnd(22)} no open jobs`); continue; }
-      r.jobs.jobs.forEach((j, i) => lines.push(`${(i ? '' : r.account).padEnd(22)} ${j.id.padEnd(5)} ${j.state.padEnd(9)} ${String(j.priority ?? 'normal').padEnd(8)} ${String(j.project ?? '-').padEnd(14)} ${j.title}`
-        + `${j.topic ? ` [${j.topic}]` : ''}${j.source !== 'self' ? ` (${j.source})` : ''}${j.blocked_on ? ` — on ${j.blocked_on}` : ''}`));
+      // What an account sent reaches this terminal escaped (esc), like every other table.
+      r.jobs.jobs.forEach((j, i) => lines.push(esc(`${(i ? '' : r.account).padEnd(22)} ${String(j.id).padEnd(5)} ${String(j.state).padEnd(9)} ${String(j.priority === undefined ? 'normal' : j.priority ?? '?').padEnd(8)} ${String(j.project ?? '-').padEnd(14)} ${j.title}`
+        + `${j.topic ? ` [${j.topic}]` : ''}${j.source !== 'self' ? ` (${j.source})` : ''}${j.blocked_on ? ` — on ${j.blocked_on}` : ''}`)));
     }
     return lines.join('\n');
   }

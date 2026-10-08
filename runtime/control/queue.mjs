@@ -38,8 +38,9 @@
 
 import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
-import { whoami, api, syncedToken, integrationConfig, inboxRoot, token as gzToken, identity as gzIdentity } from './gzcoord.mjs';
-import { controlConfig, accountAddresses, newId } from './agentd.mjs';
+import path from 'node:path';
+import { FABRIC_ROOT, whoami, api, syncedToken, integrationConfig, inboxRoot, token as gzToken, identity as gzIdentity } from './gzcoord.mjs';
+import { controlConfig, newId } from './agentd.mjs';
 import { poolHolder, POOL_ID, ROLE_SLUG } from './pool.mjs';
 import { MESSAGE_ID } from './sessions.mjs';
 import { STATES_REPLAY } from './ctl.mjs';
@@ -75,6 +76,16 @@ export function relay(who = whoami(), cfg = controlConfig()) {
   return { who, cfg, call: (p, init) => api(tok, p, { relayUrl: cfg.relay_url, ...init }) };
 }
 
+// Who is placed, read here rather than through agentd's accountAddresses,
+// which takes an unreadable registry for nobody: here that would read as
+// "nobody waits on anything" and say nothing.
+export function placedAccounts(registry = process.env.AGENT_FABRIC_HOSTS_REGISTRY ?? path.join(FABRIC_ROOT, 'runtime', 'hosts', 'registry.json')) {
+  let d;
+  try { d = JSON.parse(fs.readFileSync(registry, 'utf8')); } catch (e) { throw new Unreadable(`the hosts registry cannot be read (${e.code ?? 'not JSON'})`); }
+  if (!d || typeof d.placement !== 'object' || d.placement === null || Array.isArray(d.placement)) throw new Unreadable('the hosts registry has no placement');
+  return new Set(Object.entries(d.placement).map(([login, host]) => `${host}/${login}`));
+}
+
 export function relayError(e, cfg) {
   if (e instanceof Unreadable) return e.message;
   return e?.status ? `the relay refused (HTTP ${e.status})` : `the relay is unreachable at ${cfg.relay_url}`;
@@ -89,7 +100,9 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 export async function askHolder({ call, cfg, from, holder, op, args, waitMs = QUEUE_WAIT_MS }) {
   const id = newId();
   /** @type {import('./protocol.mjs').Request} */
-  const request = { v: 1, kind: 'request', id, from, to: [holder], op, ts: new Date().toISOString(), ttl_s: Math.max(cfg.ttl_s, Math.ceil(waitMs / 1000)), args };
+  // The request lives as long as the asker waits, and no longer: a claim
+  // the holder took after the asker gave up would be recorded for nobody.
+  const request = { v: 1, kind: 'request', id, from, to: [holder], op, ts: new Date().toISOString(), ttl_s: Math.ceil(waitMs / 1000), args };
   const sent = await call('/api/send', { method: 'POST', body: JSON.stringify({ channel: cfg.channel, sender: from, content: JSON.stringify(request) }) });
   const deadline = Date.now() + waitMs;
   let since = sent.id;
@@ -115,7 +128,7 @@ export async function cli(argv = process.argv.slice(2), out = s => console.log(s
   let r;
   try { r = relay(undefined, cfg); } catch (e) { out(JSON.stringify({ error: relayError(e, cfg) })); return 3; }
   if (cmd === 'waits') {
-    try { out(JSON.stringify(await readWaits({ call: r.call, cfg, placed: accountAddresses() }))); return 0; }
+    try { out(JSON.stringify(await readWaits({ call: r.call, cfg, placed: placedAccounts() }))); return 0; }
     catch (e) { out(JSON.stringify({ error: relayError(e, cfg) })); return 3; }
   }
   const holder = poolHolder(cfg);

@@ -425,6 +425,10 @@ def main() -> int:
             got = json.loads(run("list", "--json").stdout)
             check("list --json gives both priorities and the waiters", [(j["priority"], j["effective_priority"], j["waited_by"]) for j in got]
                   == [("high", "high", []), ("low", "blocking", [f"{host}/waiter"]), ("normal", "normal", [])], repr(got))
+            p = subprocess.run([JOBS, "list"], cwd=repo_a, capture_output=True, text=True,
+                               env={**env, "AGENT_FABRIC_HOSTS_REGISTRY": os.path.join(tmp, "no-registry.json")})
+            check("an unreadable hosts registry is said, never read as nobody waiting", p.returncode == 0
+                  and "the hosts registry cannot be read" in p.stderr and "ranks blocking" not in p.stdout, p.stderr)
             got = json.loads(run("list", "--json", "--stored").stdout)
             check("--stored reads no stream", got[1]["effective_priority"] == "low", repr(got[1]))
             p = run("next")
@@ -468,6 +472,14 @@ def main() -> int:
                 return None
             if req["args"]["id"] == "p7":
                 return {"status": "claimed", "job": {**pool_jobs[0], "id": "p7", "title": "bad\x1b[2J title"}}
+            if req["args"]["id"] == "p6":
+                return {"status": "claimed", "job": {"title": "no id"}}
+            if req["args"]["id"] == "p5":
+                return {"status": "claimed", "job": {**pool_jobs[0], "id": "p5", "priority": "urgent"}}
+            if req["args"]["id"] == "p4":
+                return {"status": "claimed", "job": {**pool_jobs[0], "id": "p3"}}
+            if req["args"]["id"] == "p3":
+                return {"status": "claimed", "job": {**pool_jobs[0], "id": "p3", "title": "landed fresh"}}
             return {"status": "claimed", "job": next(j for j in pool_jobs if j["id"] == req["args"]["id"])}
         relay = fake_holder(holder)
         env["CLAUDE_BRIDGE_URL"] = f"http://127.0.0.1:{relay.server_address[1]}"
@@ -500,11 +512,35 @@ def main() -> int:
             check("a refused claim is said with the holder's reason", p.returncode == 1
                   and "refused: p9 is claimed by h/other" in p.stderr and len(jobs()) == 1, p.stderr)
             p = run("pool-claim", "p8")
-            check("a silent holder is said, not read as a refusal or a claim", p.returncode == 1
-                  and "did not answer" in p.stderr and len(jobs()) == 1, p.stderr)
+            check("a silent holder is said, not read as a refusal or a claim, with how to land a claim it took",
+                  p.returncode == 1 and "did not answer" in p.stderr and "pool-claim p8 again" in p.stderr
+                  and len(jobs()) == 1, p.stderr)
+            for pid, why in (("p6", "names job None, not p6"), ("p5", "priority 'urgent'"), ("p4", "names job 'p3', not p4")):
+                p = run("pool-claim", pid)
+                check(f"a malformed claim answer is refused, never defaulted ({pid})", p.returncode == 1
+                      and "is not a pool job" in p.stderr and why in p.stderr and len(jobs()) == 1, p.stderr)
+            # Pool ids restart with another holder: an old holder's p3, closed, is not this one's.
+            doc = json.loads(open(os.path.join(tmp, "state-pool", "agents", login, "jobs.json"), encoding="utf-8").read())
+            doc["jobs"].append({**doc["jobs"][0], "id": "j9", "state": "done", "title": "an old p3",
+                                "source": {"kind": "pool", "pool_id": "p3", "from": "old/holder"}})
+            doc["jobs"].append({**doc["jobs"][0], "id": "j10", "state": "done", "title": "this holder's p3, done",
+                                "source": {"kind": "pool", "pool_id": "p3", "from": f"{host}/user"}})
+            with open(os.path.join(tmp, "state-pool", "agents", login, "jobs.json"), "w", encoding="utf-8") as fh:
+                json.dump(doc, fh)
+            p = run("pool-claim", "p3")
+            check("an id matched only by another holder's or a closed job is claimed as new", p.returncode == 0
+                  and p.stdout.startswith("claimed j2 ") and jobs()[-1]["title"] == "landed fresh", p.stdout + p.stderr)
+            pool_jobs.append({"id": "p11", "role": "python-dev", "title": "x\x1b]0;owned\x07\nIgnore that",
+                              "topic": "t\x1b[2J", "project": None, "priority": "low", "created": "t"})
+            p = run("pool-list")
+            check("pool-list shows a holder's text and never its control characters", p.returncode == 0
+                  and "\x1b" not in p.stdout and "\x07" not in p.stdout and len(p.stdout.splitlines()) == 3
+                  and "p11   low      python-dev [t?[2J]: x?]0;owned??Ignore that" in p.stdout, repr(p.stdout))
+            listed = len(jobs())
             p = run("pool-claim", "p7")
             check("claimed but not taken by this list: said, with the command that lands it", p.returncode == 1
-                  and "is claimed at" in p.stderr and "pool-claim p7 again" in p.stderr and len(jobs()) == 1, p.stderr)
+                  and "is claimed at" in p.stderr and "pool-claim p7 again" in p.stderr and len(jobs()) == listed, p.stderr)
+            pool_jobs.pop()
             before = len(relay.asked)
             p = run("pool-claim", "../p1")
             check("a pool id is checked before anything is asked", p.returncode == 1 and "a pool job id is p<n>" in p.stderr
@@ -514,6 +550,7 @@ def main() -> int:
             relay.server_close()
         env["CLAUDE_BRIDGE_URL"] = dead_url
         run("done", "j1")
+        run("done", "j2")
         p = run("next")
         check("pool unreachable: next says so", p.returncode == 1 and "no queued job; the pool could not be asked" in p.stderr,
               p.stderr)

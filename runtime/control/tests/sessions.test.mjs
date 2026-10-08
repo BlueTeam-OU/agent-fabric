@@ -107,7 +107,8 @@ test('waits_on: the message ids of blocked jobs only, sorted, never a title', as
   const jobs = path.join(d, 'jobs.json');
   const A = '01a11a18-4728-7d8b-afd9-0edb2d30a59c', B = '01a11a19-0bea-70c7-b667-1e1e5a74dbe1';
   assert.deepEqual(waitsOn(jobs), [], 'no list: none');
-  fs.writeFileSync(jobs, '{broken'); assert.deepEqual(waitsOn(jobs), [], 'unreadable: none');
+  fs.writeFileSync(jobs, '{broken'); assert.equal(waitsOn(jobs), null, 'unreadable: unknown, never none');
+  fs.writeFileSync(jobs, '{"jobs": 3}'); assert.equal(waitsOn(jobs), null, 'not a job list: unknown');
   fs.writeFileSync(jobs, JSON.stringify({ jobs: [
     { id: 'j1', state: 'blocked', title: 'secret title', waits_on: B },
     { id: 'j2', state: 'blocked', title: 'x', waits_on: A },
@@ -125,6 +126,24 @@ test('waits_on: the message ids of blocked jobs only, sorted, never a title', as
   fs.writeFileSync(jobs, JSON.stringify({ jobs: [{ id: 'j1', state: 'active', title: 'x', waits_on: B }] }));
   t = 1; assert.equal(await w.tick(), true, 'a job unblocked is a change');
   assert.ok(!('waits_on' in posts.at(-1)), 'waiting on nothing: the key is absent');
+});
+
+test('an unreadable job list keeps the waits_on last said, and is logged once', async () => {
+  const { d, proc, file } = setup();
+  const jobs = path.join(d, 'jobs.json');
+  const A = '01a11a18-4728-7d8b-afd9-0edb2d30a59c';
+  fs.writeFileSync(jobs, JSON.stringify({ jobs: [{ id: 'j1', state: 'blocked', title: 'x', waits_on: A }] }));
+  const posts = [], logs = [];
+  let t = 0;
+  const w = stateWatcher({ address: 'h/x', post: async r => { posts.push(r); }, file, jobs, proc, now: () => t, heartbeatMs: 60_000, log: m => logs.push(m) });
+  await w.tick();
+  fs.writeFileSync(jobs, '{broken');
+  t = 61_000; await w.tick(); t = 122_000; await w.tick();
+  assert.deepEqual(posts.map(p => p.waits_on), [[A], [A], [A]], 'never said as waiting on nothing');
+  assert.equal(logs.filter(m => m.includes('cannot be read')).length, 1);
+  fs.rmSync(jobs);
+  t = 123_000; assert.equal(await w.tick(), true);
+  assert.ok(!('waits_on' in posts.at(-1)), 'no list at all waits on nothing');
 });
 
 test('stateRecord leaves out a role and project it does not have', () => {
