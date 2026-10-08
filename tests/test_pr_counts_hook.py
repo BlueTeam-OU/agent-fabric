@@ -60,6 +60,12 @@ def main() -> int:
         check(f"{label} is not a PR status: passes", out is None, out)
     rc, out = reply("#1 (2 work, 0 fix) and #2 are ready to merge")
     check("one count excuses only its own PR", out and "of #2 without" in out["reason"], out)
+    rc, out = reply("#1 and #2 (2 work, 0 fix) are ready")
+    check("counts after a later PR do not excuse the earlier one", out and "of #1 without" in out["reason"], out)
+    rc, out = reply("#215 is unarmed.")
+    check("'unarmed' is a status (team.md's own word): blocked", out and "#215" in out["reason"], out)
+    rc, out = reply("#215 is unarmed: 6 work, 2 fix")
+    check("team.md's own example, counts without parentheses: passes", out is None, out)
     rc, out = reply("#12_bar is merged")
     check("a number glued to a word by _ is not a PR", out is None, out)
     for text in ("**#115** is merged.", "|#115|merged|", "Merged: **#115**", "—#115 is open",

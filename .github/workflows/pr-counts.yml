@@ -23,6 +23,9 @@ concurrency:
 
 jobs:
   counts:
+    # A fork's or Dependabot's pull request runs with a read-only token, so
+    # the check cannot be written: the job is skipped there, never red.
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

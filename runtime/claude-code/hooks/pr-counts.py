@@ -39,12 +39,12 @@ PREFIX = 120
 OWNER_REPO_RE = re.compile(r"[\w.-]{1,60}/[\w.-]{1,60}")
 NOT_A_PR_WORDS = frozenset(("issue", "issues", "step", "steps", "item", "items", "no", "no.", "number",
                             "line", "rule", "row", "seq", "round"))
-STATUS_RE = re.compile(r"\b(?:arm|armed|arming|merge|merged|mergeable|ready|queued|gate|waiting|"
+STATUS_RE = re.compile(r"\b(?:arm|armed|arming|unarmed|merge|merged|mergeable|ready|queued|gate|waiting|"
                        r"your word|auto-merge|open|opened)\b", re.I)
-# The owner's format, right after the number: "#N (W work, F fix".
 # A PR's counts are the first "(W work, F fix" after it on its line, before
 # the next PR: emphasis, a colon or a table's cells may come between.
-COUNTS_RE = re.compile(r"\(\s*\d{1,4}\s+work\s*,\s*\d{1,4}\s+fix\b", re.I)
+# Parenthesised or not: team.md's own example is "#215 is unarmed: 6 work, 2 fix".
+COUNTS_RE = re.compile(r"\b\d{1,4}\s+work\s*,\s*\d{1,4}\s+fix\b", re.I)
 CODE_SPAN_RE = re.compile(r"`[^`\n]*`")
 FENCE_RE = re.compile(r"^\s*(`{3,}|~{3,})")
 MAX_CHARS = 200_000
@@ -96,9 +96,9 @@ def pr_ref(line: str, m: re.Match) -> str | None:
 
 
 def missing(text: str) -> list[str]:
-    """The pull requests whose status a line states with no "(W work, F fix)"
-    right after them, unless the same pull request carries its counts
-    somewhere in the reply."""
+    """The pull requests whose status a line states with no "W work, F fix"
+    after them on their line, before the next PR, unless the same pull
+    request carries its counts somewhere in the reply."""
     stated: dict[str, None] = {}   # insertion-ordered, constant-time membership
     counted: set[str] = set()
     for line in prose_lines(text):
