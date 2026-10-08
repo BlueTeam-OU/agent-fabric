@@ -75,7 +75,10 @@ export async function usage(home = os.homedir(), fetchFn = globalThis.fetch, url
 // with /login and held by this observer alone — a refresh token has one
 // holder, or the first refresh signs the others out. The fleet's working
 // sessions run on each account's one-year setup-token, which is
-// `user:inference` only and so cannot read these windows
+// `user:inference` only: the usage endpoint refuses it, and usage() above
+// reads its five-hour and seven-day windows from the headers of an
+// inference call it pays for. A sign-in here reads the account's whole
+// report, the per-model weekly meter included, with no model call
 // (docs/adr/ADR-031-claude-accounts-assigned-applied-and-proved-by-signed-action.md).
 //
 // The read is the harness's own `/usage`, run headless: no model call
