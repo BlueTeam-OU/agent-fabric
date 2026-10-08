@@ -105,6 +105,43 @@ def main() -> int:
         check("inside a session: refused, exit 2", r.returncode == 2 and "not inside a session" in r.stderr, r.stderr)
         r = run("--bogus")
         check("an unknown argument: exit 2", r.returncode == 2, r.stderr)
+
+        # A first launch (no launch-provider.json): the profile's
+        # launch_provider, the agent's layer before the role's before the
+        # defaults'; an unknown value or an unreadable file is none.
+        sys.path.insert(0, os.path.join(HERE, "tools", "fabric"))
+        import resume
+        root = os.path.join(tmp, "fabric")
+        os.makedirs(os.path.join(root, "routing"))
+
+        def profiles(doc) -> None:
+            with open(os.path.join(root, "routing", "profiles.json"), "w") as f:
+                f.write(doc if isinstance(doc, str) else json.dumps(doc))
+        real = resume.FABRIC
+        resume.FABRIC = root
+        try:
+            profiles({"defaults": {"launch_provider": "openrouter"}, "roles": {"python-dev": {"launch_provider": "anthropic"}},
+                      "agents": {"pd-x": {"launch_provider": "openrouter"}}})
+            check("the agent's layer first", resume.profile_provider("pd-x", "python-dev") == "openrouter")
+            check("…then the role's", resume.profile_provider("pd-y", "python-dev") == "anthropic")
+            check("…then the defaults'", resume.profile_provider("pd-y", "web-dev") == "openrouter")
+            last, who = resume.install_agent_files.last_launch_provider, resume.identity.current_agent
+            try:
+                resume.identity.current_agent = lambda: "pd-x"
+                resume.install_agent_files.last_launch_provider = lambda: None
+                check("a first launch takes the profile's provider",
+                      resume.provider_args([], {"role": "python-dev"}) == ["--provider", "openrouter"])
+                resume.install_agent_files.last_launch_provider = lambda: "anthropic"
+                check("…a recorded launch wins over it", resume.provider_args([], {"role": "python-dev"}) == ["--provider", "anthropic"])
+                check("…and the caller's --provider over both", resume.provider_args(["--provider", "x"], {}) == [])
+            finally:
+                resume.install_agent_files.last_launch_provider, resume.identity.current_agent = last, who
+            profiles({"defaults": {}, "agents": {"pd-x": {"launch_provider": "moon"}}})
+            check("an unknown provider is none", resume.profile_provider("pd-x", None) is None)
+            profiles("not json")
+            check("an unreadable file is none", resume.profile_provider("pd-x", None) is None)
+        finally:
+            resume.FABRIC = real
     print(f"\n{'all passed' if not fails else str(fails) + ' FAILED'}")
     return 1 if fails else 0
 
