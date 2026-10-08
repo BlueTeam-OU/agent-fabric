@@ -10,10 +10,12 @@ CONTRACT, frozen from the bash (ADR-040 §5 rule 3):
   argv      none, -h or --help: USAGE on stdout, exit 0.
             --list: one line per account (uid 1000-65533, in `sort`'s
             order) that has at least one clone: account, role, clones.
-            <account> [<clone>] [--print] [--list], options in any order
-            after the account; --list there prints that account's clones,
-            one per line, and stops; an unknown option, a second clone or
-            a clone that is not one path segment: exit 1.
+            <account> [<clone>] [--print] [--list] [--wait|--resume|--watch],
+            options in any order after the account; --list there prints
+            that account's clones, one per line, and stops; an unknown
+            option, a second clone, a clone that is not one path segment,
+            or two different modes: exit 1. A mode is handed to enter as
+            its last argument, a fixed word (Fleet Deck reads it there).
   stdin     never read; the entered shell inherits it.
   env       PATH (getent, sudo, find, test, cat and sort are found there,
             as the bash found them — the suite's mocks rely on it);
@@ -22,7 +24,8 @@ CONTRACT, frozen from the bash (ADR-040 §5 rule 3):
   signals   the entered shell gets SIGPIPE as the caller gave it to the
             shim, as the bash's exec passed it on: Python ignores it at
             start-up, and an exec keeps an ignored signal ignored.
-  stdout    USAGE, the --list lines, or --print's path and `title: …`.
+  stdout    USAGE, the --list lines, or --print's path, `title: …` and,
+            with a mode, `then: …`.
   stderr    `moveto: …` for a refusal, and one line naming the account and
             directory before the shell is entered.
   exit      0; 1 for every refusal; otherwise the entered shell's (exec).
@@ -65,6 +68,9 @@ usage: moveto <account>             open a shell as <account>, in its workspace
        moveto <account> <clone>     …in that clone (~/projects/<clone>) instead
        moveto <account> --resume    …and resume its last session there (fabric-resume),
                                    or start a fresh one and say so; the shell follows
+       moveto <account> --wait      …say "<account> - Enter to activate", then on Enter
+                                   refresh and do exactly --resume; end of input: a shell
+       moveto <account> --watch     …and show its status (fabric-watch) until q; the shell follows
        moveto <account> --print     print the resolved path, spawn nothing
        moveto --list                accounts that have at least one clone: account, role, clones
        moveto <account> --list      that account's clones
@@ -73,6 +79,8 @@ Sudo here comes from the `qubes` group and role accounts are not in it, so
 this runs from an account that has sudo (`user`). From a role account, `exit`
 returns to the shell you came from.
 """
+# What each mode has enter do, as --print says it.
+MODES = {"--wait": "Enter to activate, then fabric-resume", "--resume": "fabric-resume", "--watch": "fabric-watch"}
 ROLE_LINE = re.compile(r'.*"role": *"([^"]*)".*')
 
 
@@ -211,15 +219,18 @@ def moveto(argv: list[str]) -> int:
     if argv[0] == "--list":
         list_all()
         return 0
-    account, target, print_only, resume = argv[0], "", False, False
+    account, target, print_only, mode = argv[0], "", False, ""
     for a in argv[1:]:
         if a == "--print":
             print_only = True
-        elif a == "--resume":
-            # Fleet Deck's re-entry (architect-cto's plan, 2026-10-07): the
-            # account's own launcher brings its session back; moveto only
-            # asks enter to run fabric-resume first, and gains no privilege.
-            resume = True
+        elif a in MODES:
+            # Fleet Deck's modes (architect-cto's plan, 2026-10-07;
+            # docs/fleet-deck/tab-states.md): the account's own tools do
+            # the work; moveto only tells enter which, and gains no
+            # privilege. One pane does one thing.
+            if mode and mode != a:
+                die(f"one of {', '.join(MODES)} at a time")
+            mode = a
         elif a == "--list":
             listed = list_clones(account)
             if listed is None:
@@ -264,8 +275,8 @@ def moveto(argv: list[str]) -> int:
     if print_only:
         print(display_safe(path))
         print(f"title: {title}")
-        if resume:
-            print("then: fabric-resume")
+        if mode:
+            print(f"then: {MODES[mode]}")
         return 0
 
     print(f"moveto: {account} in {path}  (exit returns here)", file=sys.stderr, flush=True)
@@ -276,13 +287,13 @@ def moveto(argv: list[str]) -> int:
     # The entering shell is a separate script rather than an inline `bash -lc`,
     # so the process command line stays short. A terminal that titles from the
     # running command showed the whole inline script otherwise.
-    enter(account, path, title, resume)
+    enter(account, path, title, mode)
 
 
-def enter(account: str, path: str, title: str, resume: bool = False) -> "NoReturn":  # noqa: F821
+def enter(account: str, path: str, title: str, mode: str = "") -> "NoReturn":  # noqa: F821
     pipe = signal.SIG_IGN if os.environ.pop(PIPE_IGNORED_ENV, "") == "1" else signal.SIG_DFL
     signal.signal(signal.SIGPIPE, pipe)
-    tail = ["--resume"] if resume else []
+    tail = [mode] if mode in MODES else []
     if account == me():
         os.execv(MOVETO_ENTER, [MOVETO_ENTER, path, title, *tail])
     os.execvp("sudo", ["sudo", "-n", "-u", account, "-H", MOVETO_ENTER, path, title, *tail])

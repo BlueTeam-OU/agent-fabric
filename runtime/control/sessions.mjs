@@ -13,7 +13,14 @@
 // A session whose process is gone is left out: a kill or a crash never
 // sends SessionEnd, and an entry that outlived its process would read as
 // a session forever idle. The start time tells a reused pid from the
-// session's own. The hook's file is never rewritten here; the hook owns it.
+// session's own. An entry that records no process (the hook ran outside
+// a harness: a probe, never a real session, which always has its claude
+// ancestor) is believed only within NO_PROCESS_FRESH_MS of its `since`,
+// and said once when it is left out: nothing ever removes it, and kept
+// for good it would read as a live session forever — and
+// tools/fabric/resume.py, which counts sessions this way, would refuse
+// every activation of the account (fabric-coordinator, 2026-10-08). The
+// hook's file is never rewritten here; the hook owns it.
 //
 // What leaves the account is the session id, its state and since when,
 // the binding's role and project, and its last session's id with whether
@@ -33,30 +40,45 @@ import { stateDir } from './upgrade.mjs';
 export const STATE_FILE = 'session-state.json';
 export const STATE_POLL_MS = 2000;
 export const STATE_HEARTBEAT_MS = 10 * 60 * 1000;
+// Two heartbeats: the window in which a listener still trusts a state
+// record (ctl.mjs STATES_STALE_MS). resume.py's NO_PROCESS_FRESH_S is the same.
+export const NO_PROCESS_FRESH_MS = 2 * STATE_HEARTBEAT_MS;
 const STATES = new Set(['working', 'blocked', 'idle']);
 // A GZCoord MESSAGE-ID (a UUID, as gzmsg mints it); tools/fabric/jobs.py
 // stores waits_on only in this shape. The cap keeps a record a record.
 export const MESSAGE_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 export const WAITS_ON_MAX = 64;
 
+/** Whether an entry that records no process is still believed: within
+ * NO_PROCESS_FRESH_MS of its `since`. A `since` that is not a time is not. */
+export function freshWithoutProcess(since, now = Date.now()) {
+  const t = Date.parse(typeof since === 'string' ? since : '');
+  return Number.isFinite(t) && now - t <= NO_PROCESS_FRESH_MS;
+}
+
 /** Whether the process the hook recorded is still the session's own. */
-export function alive(pid, start, proc = '/proc') {
-  // An entry the hook wrote outside a harness names no process: it is
-  // kept, since nothing says it is gone.
-  if (!Number.isInteger(pid)) return true;
+export function alive(pid, start, proc = '/proc', { since, now = Date.now() } = {}) {
+  if (!Number.isInteger(pid)) return freshWithoutProcess(since, now);
   let raw;
   try { raw = fs.readFileSync(path.join(proc, String(pid), 'stat'), 'utf8'); } catch { return false; }
   const rest = raw.slice(raw.lastIndexOf(')') + 2).split(' ');
   return !Number.isInteger(start) || Number(rest[19]) === start;
 }
 
-/** The sessions the file names whose process lives, sorted by id. */
-export function readSessions(file, { proc = '/proc' } = {}) {
+/** The sessions the file names whose process lives, sorted by id;
+ * onStale(id) for each one left out because it records no process and
+ * is older than NO_PROCESS_FRESH_MS. */
+export function readSessions(file, { proc = '/proc', now = Date.now(), onStale = () => {} } = {}) {
   let doc;
   try { doc = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return []; }
   const sessions = doc && typeof doc.sessions === 'object' && !Array.isArray(doc.sessions) ? doc.sessions : {};
   return Object.entries(sessions)
-    .filter(([, s]) => s && STATES.has(s.state) && alive(s.pid, s.start, proc))
+    .filter(([id, s]) => {
+      if (!s || !STATES.has(s.state)) return false;
+      if (alive(s.pid, s.start, proc, { since: s.since, now })) return true;
+      if (!Number.isInteger(s.pid)) onStale(id);
+      return false;
+    })
     .map(([session, s]) => ({ session, state: s.state, since: String(s.since ?? '') }))
     .sort((a, b) => (a.session < b.session ? -1 : a.session > b.session ? 1 : 0));
 }
@@ -117,6 +139,12 @@ function bound(file, configDir) {
 export function stateWatcher({ address, post, file = path.join(stateDir(), STATE_FILE), binding, jobs = null, proc = '/proc',
   now = Date.now, heartbeatMs = STATE_HEARTBEAT_MS, log = m => console.error(m), configDir }) {
   let lastKey = null, lastAt = 0, busy = false, failing = false, lastWaits = [], unreadable = false;
+  const saidStale = new Set();
+  const onStale = id => {
+    if (saidStale.has(id)) return;
+    saidStale.add(id);
+    log(`agentd: session ${id} records no process and its state is older than ${NO_PROCESS_FRESH_MS / 60000} min; left out`);
+  };
   // An unreadable list keeps what was last said, and is said once: identity.py
   // replaces the file whole, so this is a broken file, not a torn write.
   const waitsNow = () => {
@@ -132,7 +160,7 @@ export function stateWatcher({ address, post, file = path.join(stateDir(), STATE
       busy = true;
       try {
         const now_ = now();
-        const said = { sessions: readSessions(file, { proc }),
+        const said = { sessions: readSessions(file, { proc, now: now_, onStale }),
           ...(binding ? bound(binding, configDir) : { role: null, project: null, last_session: null, resumable: false }),
           waits_on: waitsNow() };
         const key = JSON.stringify(said);

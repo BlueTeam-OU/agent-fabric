@@ -18,6 +18,7 @@
     "fabric-secrets": "bin/fabric-secrets",
     "fabric-status": "bin/fabric-status",
     "fabric-usage": "bin/fabric-usage",
+    "fabric-watch": "bin/fabric-watch",
     "fabric-whoami": "bin/fabric-whoami",
     "fabric-fresh": "bin/fabric-fresh",
     "fabric-branches": "bin/fabric-branches",
@@ -38,6 +39,7 @@
     "fabric-genimage": "every run spends on the OpenAI account (the owner, 2026-10-07): a person approves each one, so no session spends unattended",
     "fabric-lease": "runs whatever command follows `--`: an allow rule for it would allow every command, so it asks as any command does",
     "fabric-resume": "starts a session: it is run in an account's shell by a person or by moveto --resume, never by a session, so no allow rule",
+    "fabric-watch": "a status pane's loop until q, started by moveto --watch in an account's pane, never by a session: an allow rule would let a session hang on it",
     "fabric-secret-run": "runs whatever command follows `--`, with the agent's own secrets in its environment: an allow rule would allow every command, so it asks as any command does",
     "fabric-host": "`run` executes any command on a host as any account (the operator's instrument): allowing it would allow everything"
   }

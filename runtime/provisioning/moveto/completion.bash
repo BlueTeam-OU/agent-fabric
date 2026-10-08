@@ -4,7 +4,7 @@
 # before /usr/share). Nothing to source by hand.
 #
 #   moveto <TAB>                 the accounts placed on this host
-#   moveto <account> <TAB>       that account's clones, and --print / --list / --resume
+#   moveto <account> <TAB>       that account's clones, and --print / --list / --resume / --wait / --watch
 #   moveto --<TAB>               --list, --print
 #
 # The accounts come from the host registry (runtime/hosts/registry.json:
@@ -39,7 +39,7 @@ _moveto() {
         fi
     elif (( COMP_CWORD == 2 )) && [[ "$prev" != -* ]]; then
         if [[ "$cur" == -* ]]; then
-            mapfile -t COMPREPLY < <(compgen -W "--print --list --resume" -- "$cur")
+            mapfile -t COMPREPLY < <(compgen -W "--print --list --resume --wait --watch" -- "$cur")
         else
             mapfile -t COMPREPLY < <(compgen -W "$(moveto "$prev" --list 2>/dev/null | tr '\n' ' ')" -- "$cur")
         fi

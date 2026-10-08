@@ -151,6 +151,38 @@ def main() -> int:
             check("--resume: the same sudo, enter told --resume as its third argument, nothing else",
                   calls == [("execvp", "sudo", ["sudo", "-n", "-u", "acct", "-H", mv.MOVETO_ENTER, "/h/acct/projects",
                                                 "acct", "--resume"])], str(calls))
+            for mode in ("--wait", "--watch"):
+                calls.clear()
+                try:
+                    with redirect_stdout(io.StringIO()), open(os.devnull, "w") as null:
+                        sys.stderr, saved_err = null, sys.stderr
+                        try:
+                            mv.moveto(["acct", mode, mode])
+                        finally:
+                            sys.stderr = saved_err
+                except SystemExit:
+                    pass
+                check(f"{mode} (twice is once): enter told {mode} as its last argument, nothing else",
+                      calls == [("execvp", "sudo", ["sudo", "-n", "-u", "acct", "-H", mv.MOVETO_ENTER,
+                                                    "/h/acct/projects", "acct", mode])], str(calls))
+            for pair in (("--wait", "--resume"), ("--watch", "--wait"), ("--resume", "--watch")):
+                calls.clear()
+                # The exec mock raises SystemExit(0): a pair let through
+                # must fail this check, not end the script green.
+                try:
+                    with redirect_stdout(io.StringIO()), open(os.devnull, "w") as null:
+                        sys.stderr, saved_err = null, sys.stderr
+                        try:
+                            mv.moveto(["acct", *pair])
+                        finally:
+                            sys.stderr = saved_err
+                    refused = ""
+                except mv.Refused as exc:
+                    refused = str(exc)
+                except SystemExit:
+                    refused = ""
+                check(f"{' '.join(pair)}: refused, nothing entered", "one of --wait, --resume, --watch" in refused and not calls,
+                      (refused, calls))
         finally:
             mv.os.execv, mv.os.execvp, mv.me, mv.command, mv.run_as, mv.home_of, mv.list_clones = saved
             signal.signal(signal.SIGPIPE, saved_pipe)
