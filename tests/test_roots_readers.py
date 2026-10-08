@@ -156,6 +156,22 @@ def case_layout_places_memory_roles_and_registry_in_the_operator() -> None:
             assert "opproj" not in layout.project_ids()
 
 
+def case_lint_reads_catalogue_and_authority_from_the_operator() -> None:
+    import lint
+    with tempfile.TemporaryDirectory() as tmp:
+        op, engine = os.path.join(tmp, "op"), os.path.join(tmp, "engine")
+        os.makedirs(engine)
+        write(os.path.join(op, "identities", "roles", "catalog.json"), {"roles": [{"id": "op-role"}]})
+        write(os.path.join(op, "policies", "authority.json"), {"contributors": "not a list"})
+        with operator(op):
+            assert lint._catalog_roles(engine) == {"op-role"}
+            assert lint.contributor_findings(engine) == ["policies/authority.json: `contributors` is not a list"]
+        with unset_operator():
+            assert lint._catalog_roles(engine) is None          # the engine tree given holds no catalogue
+            assert lint.contributor_findings(engine) == []
+            assert "op-role" not in lint._catalog_roles(ROOT)
+
+
 def main() -> int:
     cases = [v for k, v in globals().items() if k.startswith("case_")]
     failures = 0
