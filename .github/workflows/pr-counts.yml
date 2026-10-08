@@ -62,4 +62,4 @@ jobs:
           gh api "repos/$GH_REPO/check-runs" -f name="$name" -f head_sha="$HEAD_SHA" \
             -f status=completed -f conclusion=neutral \
             -f "output[title]=$name" \
-            -f "output[summary]=The split pr-gate.sh reads: review fixes are the commits commit_class counts as fix (an Answers: trailer or a review-naming subject)." >/dev/null
+            -f "output[summary]=The split pr-gate.sh reads: review fixes are the commits commit_class counts as fix (Kind: review-fix; on a commit with no Kind:, an Answers: trailer or a review-naming subject)." >/dev/null

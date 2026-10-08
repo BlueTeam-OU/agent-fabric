@@ -184,6 +184,13 @@ so explicitly and do not claim it succeeded. Commit messages are short,
 specific and scoped to the actual change; completed work is never left
 uncommitted. Work reaches `main` as a pull request (ADR-019).
 
+**Every commit declares its kind in its trailers**, because a PR is
+armed by its count of work commits: `Kind: work` for new work, a bug
+fix of the project, docs or a record; `Answers: <finding labels or
+thread>` for a commit that answers a review of its PR, which the
+`commit-msg` hook stamps `Kind: review-fix`. A commit with neither is
+refused; a merge declares nothing (ADR-019 §5 rule 3).
+
 **The repo authors its own history: no machine attribution, anywhere.**
 No `Co-authored-by:` trailer, no `Claude-Session:` trailer, no session URL
 and no "Generated with Claude Code" footer — not in a commit message, and
