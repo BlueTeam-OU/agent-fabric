@@ -61,15 +61,16 @@ def main() -> int:
         for d in (home, os.path.join(state, "agents", ME), repo, bindir):
             os.makedirs(d)
         with open(os.path.join(state, "agents", ME, "binding.json"), "w", encoding="utf-8") as fh:
-            json.dump({"role": "python-dev", "project": "agent-fabric"}, fh)
+            json.dump({"role": "fixture-only-role", "project": "agent-fabric"}, fh)
         link = os.path.join(bindir, "gzcoord-compose")
         os.symlink(BIN, link)
         # The operator's tree is a fixture (ADR-045 §5 rule 3): a catalogue of
-        # the one role the cases name, never the live one.
+        # the one role the cases name, which no live catalogue holds, so a
+        # compose that read the live one could not resolve ROLE.
         operator = os.path.join(sandbox, "operator")
         os.makedirs(os.path.join(operator, "identities", "roles"))
         with open(os.path.join(operator, "identities", "roles", "catalog.json"), "w", encoding="utf-8") as fh:
-            json.dump({"roles": [{"id": "python-dev", "title": "Python developer"}]}, fh)
+            json.dump({"roles": [{"id": "fixture-only-role", "title": "A role only this fixture holds"}]}, fh)
         env = {"PATH": "/usr/bin:/bin", "HOME": home, "LANG": "C.UTF-8", "GIT_CONFIG_NOSYSTEM": "1",
                "AGENT_FABRIC_ROOT": ROOT, "AGENT_FABRIC_OPERATOR": operator, "AGENT_FABRIC_STATE_DIR": state,
                "AGENT_FABRIC_PYTHON": sys.executable}
@@ -118,7 +119,7 @@ def main() -> int:
                                "--in-reply-to", "01a114e1-1e0f-7aa3-8d0c-57b519a35533", "--reply-expected", "no")
         h = header(out)
         check("FROM is this login's address", h.get("FROM", "").endswith("/" + ME), json.dumps(h))
-        check("ROLE and PROJECT are the binding's", h.get("ROLE") == "python-dev" and h.get("PROJECT") == "agent-fabric",
+        check("ROLE and PROJECT are the binding's", h.get("ROLE") == "fixture-only-role" and h.get("PROJECT") == "agent-fabric",
               json.dumps(h))
         check("REPOSITORY is origin's <org>/<repo>", h.get("REPOSITORY") == "acme-org/widgets", json.dumps(h))
         check("TO, IN-REPLY-TO, REPLY-EXPECTED and SUBJECT as given",
@@ -134,11 +135,11 @@ def main() -> int:
 
         print("toward a role")
         for mtype in ("OBSERVATION", "REVIEW", "HANDOFF"):
-            rc, out, err = compose(mtype, "--to-role", "python-dev", "--subject", "s")
+            rc, out, err = compose(mtype, "--to-role", "fixture-only-role", "--subject", "s")
             want = [n for n in TABLE[mtype] if n != "REQUEST"] + ["REFERENCES"]
             check(f"{mtype}: REQUEST: left out, and it validates filled",
                   rc == 0 and sections(out) == want and validate(filled(out))[0] == 0, f"rc={rc}\n{out}{err}")
-        rc, out, err = compose("REQUEST", "--to-role", "python-dev", "--subject", "s")
+        rc, out, err = compose("REQUEST", "--to-role", "fixture-only-role", "--subject", "s")
         reason = EN("validate.request-to-role")
         check("a REQUEST toward a role: exit 2, the validator's reason, nothing on stdout",
               rc == 2 and reason in err and out == "", f"rc={rc}\nout={out}\nerr={err}\nwant={reason}")
@@ -202,7 +203,7 @@ def main() -> int:
         rc, _, err = compose("INFO", "--broadcast", "--subject", "s", "-o", dangling)
         check("a dangling link is refused, its target never created",
               rc == 1 and not os.path.exists(os.path.join(sandbox, "made-through-link")), err)
-        rc, _, err = compose("REQUEST", "--to-role", "python-dev", "--subject", "s",
+        rc, _, err = compose("REQUEST", "--to-role", "fixture-only-role", "--subject", "s",
                              "-o", os.path.join(sandbox, "refused.txt"))
         check("an invalid message writes no file", rc == 2 and not os.path.exists(os.path.join(sandbox, "refused.txt")),
               err)

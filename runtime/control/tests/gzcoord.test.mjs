@@ -16,21 +16,24 @@ import { fileURLToPath } from 'node:url';
 import { scratch } from '../../../tests/scratch.mjs';
 import { whoami, FABRIC_ROOT, findTaxonomy, loadTaxonomy, identity, integrationConfig, inboxRoot, token, syncedToken, syncedVar, shellWord, api, apiTimeoutMs, API_TIMEOUT_MS, relayFailure, holdStatus } from '../gzcoord.mjs';
 
-const CATALOG = fileURLToPath(new URL('../../../identities/roles/catalog.json', import.meta.url));
+// The catalogue and the gzapp integration are instance data (ADR-045 §5 rule 3): read from an
+// operator tree of the test's own, a copy of the fixture's (never this checkout's live files),
+// whatever AGENT_FABRIC_OPERATOR the run had.
+const FIXTURE = fileURLToPath(new URL('../../../tests/fixtures/gzcoord-operator/', import.meta.url));
+const CATALOG = path.join(FIXTURE, 'identities', 'roles', 'catalog.json');
 const taxonomy = loadTaxonomy(CATALOG);
 const login = os.userInfo().username;
-// The catalogue and the gzapp integration are instance data (ADR-045): read from an operator
-// tree of the test's own, a copy of this checkout's, whatever AGENT_FABRIC_OPERATOR the run had.
 const OPERATOR = scratch('gzcoord-operator-');
 for (const rel of ['identities/roles/catalog.json', 'projects/gzapp/integration/gzcoord/config.json']) {
   fs.mkdirSync(path.dirname(path.join(OPERATOR, rel)), { recursive: true });
-  fs.copyFileSync(fileURLToPath(new URL(`../../../${rel}`, import.meta.url)), path.join(OPERATOR, rel));
+  fs.copyFileSync(path.join(FIXTURE, rel), path.join(OPERATOR, rel));
 }
 process.env.AGENT_FABRIC_OPERATOR = OPERATOR;
 
 test('FABRIC_ROOT is the checkout this module sits in, and the catalogue is found under it', () => {
   assert.equal(FABRIC_ROOT, process.env.AGENT_FABRIC_ROOT ?? path.resolve(import.meta.dirname, '..', '..', '..'));
-  assert.ok(findTaxonomy().endsWith('/identities/roles/catalog.json'));
+  assert.equal(findTaxonomy(), path.join(OPERATOR, 'identities', 'roles', 'catalog.json'));
+  assert.ok(loadTaxonomy(findTaxonomy()).roles.has('fixture-only-role'), 'the operator\'s catalogue, not the live one');
   assert.equal(taxonomy.path, CATALOG);
   assert.ok(taxonomy.roles.has('python-dev'));
   const empty = path.join(scratch('catalog-'), 'catalog.json');

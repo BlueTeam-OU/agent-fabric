@@ -34,7 +34,6 @@ def lint_inputs(out: str) -> None:
     """The committed inputs lint wants beyond what the assembler writes:
     the real schemas, and the launch-prompt sections (identities/prompt/,
     checked by name)."""
-    import shutil
     if os.path.isdir(SCHEMA_DIR):
         shutil.copytree(SCHEMA_DIR, os.path.join(out, "identities", "schemas"), dirs_exist_ok=True)
     if os.path.isdir(PROMPT_DIR):

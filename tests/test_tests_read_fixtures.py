@@ -39,6 +39,14 @@ DELIBERATE = {
     "tests/test_fabric_status.py": "bin/fabric-status is off the committed bash allowlist: a fact of this tree",
 }
 PENDING = "not yet on fixtures (request 01a11d15)"
+
+# Read the live instance files in a way no source scan follows — a whole
+# directory of the checkout copied or linked into a fixture — so the scan
+# cannot hold them; reviewed by hand, and moved like the rest (review of #128).
+UNSCANNABLE = {
+    "tests/test_model_profile.py": "links every top-level entry of the checkout and copies routing/: reads routing/profiles.json",
+    "tests/test_routing.py": "copies the checkout's routing/: reads routing/profiles.json and routing/policies/",
+}
 ALLOWED = {**DELIBERATE, **{f"tests/{f}": PENDING for f in (
     "test_arm_cli.py", "test_arm_fabric_config.py", "test_guards_wired.py", "test_gzcoord_i18n.py",
     "test_launch_prompt.py", "test_lint.py", "test_new_agent_cli.py", "test_pr_compliance_cli.py",
@@ -56,7 +64,14 @@ TEST_SEQUENCES = tuple(s for s in SEQUENCES if s != ("docs", "adr"))
 def instance(parts: list[str]) -> str | None:
     """The instance path these root-relative components reach, or None. It
     begins at the root: tests/fixtures/<x>/identities/... is a fixture."""
-    parts = [p for s in parts for p in s.split("/") if p not in ("", ".", "..")]
+    norm: list[str] = []
+    for p in (p for s in parts for p in s.split("/") if p not in ("", ".")):
+        if p == "..":
+            if norm:
+                norm.pop()                # x/.. is where it started; above the root stays the root
+        else:
+            norm.append(p)
+    parts = norm
     head = parts[1:] if parts[:1] == ["runtime"] else parts       # runtime/hosts/registry.json
     for a, b in TEST_SEQUENCES:
         if head[:1] == [a] and b in head[1:]:
@@ -68,51 +83,84 @@ def instance(parts: list[str]) -> str | None:
     return None
 
 
-def into_tests(value: ast.AST) -> bool:
-    """A join whose first component after its root is tests/."""
-    return isinstance(value, ast.Call) and getattr(value.func, "attr", "") == "join" and len(value.args) > 1 \
-        and isinstance(value.args[1], ast.Constant) and value.args[1].value == "tests"
+Parts = list  # root-relative path components; "{x}" for one the scan cannot read
 
 
-def checkout_names(tree: ast.Module) -> set[str]:
-    names: set[str] = set()
+def resolve(node: ast.AST, names: dict[str, Parts]) -> Parts | None:
+    """The checkout-relative path an expression names, or None when it is not
+    built on the checkout's root: __file__ itself, a name bound from it, and
+    joins, dirname/abspath/normpath and pathlib's / and .parent over those."""
+    if isinstance(node, ast.Name):
+        return [] if node.id == "__file__" else names.get(node.id)
+    if isinstance(node, ast.Attribute):
+        if node.attr in ("parent", "resolve") or isinstance(node.value, ast.Call):
+            return resolve(node.value, names)
+        return None
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Div):
+        base = resolve(node.left, names)
+        if base is None:
+            return None
+        r = node.right
+        return base + ([r.value] if isinstance(r, ast.Constant) and isinstance(r.value, str) else ["{x}"])
+    if isinstance(node, ast.Call):
+        fn = getattr(node.func, "attr", getattr(node.func, "id", ""))
+        if fn in ("join", "joinpath") and node.args:
+            base = resolve(node.args[0], names) if fn == "join" else resolve(node.func.value, names)
+            rest = node.args[1:] if fn == "join" else node.args
+            if base is None:
+                return None
+            return base + [a.value if isinstance(a, ast.Constant) and isinstance(a.value, str) else "{x}" for a in rest]
+        if fn in ("dirname", "abspath", "normpath", "realpath", "Path", "resolve") and node.args:
+            return resolve(node.args[0], names)
+        if fn == "resolve" and isinstance(node.func, ast.Attribute):
+            return resolve(node.func.value, names)
+        return None
+    return None
+
+
+def checkout_names(tree: ast.Module) -> dict[str, Parts]:
+    """Every name the file binds — module, function, annotated or not — to a
+    path on the checkout's root, with that path's components."""
+    names: dict[str, Parts] = {}
     changed = True
     while changed:
         changed = False
-        for n in tree.body:
-            if not isinstance(n, ast.Assign):
+        for n in ast.walk(tree):
+            if isinstance(n, ast.Assign):
+                targets, value = n.targets, n.value
+            elif isinstance(n, ast.AnnAssign) and n.value is not None:
+                targets, value = [n.target], n.value
+            else:
                 continue
-            used = "__file__" in ast.unparse(n.value) or any(isinstance(x, ast.Name) and x.id in names for x in ast.walk(n.value))
-            if used and into_tests(n.value):
-                continue                       # FIXTURES = join(ROOT, "tests", ...) is a fixture's place, not the root
-            for t in n.targets if used else ():
-                for x in ast.walk(t):
-                    if isinstance(x, ast.Name) and x.id not in names:
-                        names.add(x.id)
-                        changed = True
+            parts = resolve(value, names)
+            if parts is None:
+                continue
+            for t in targets:
+                if isinstance(t, ast.Name) and names.get(t.id) != parts and t.id not in names:
+                    names[t.id] = parts
+                    changed = True
     return names
 
 
 def findings(src: str) -> list[tuple[int, str]]:
     tree = ast.parse(src)
-    roots = checkout_names(tree)
-
-    def on_checkout(node: ast.AST) -> bool:
-        return (isinstance(node, ast.Name) and node.id in roots) or "__file__" in ast.unparse(node)
-
+    names = checkout_names(tree)
     found = []
     for n in ast.walk(tree):
-        if isinstance(n, ast.Call) and getattr(n.func, "attr", getattr(n.func, "id", "")) in ("join", "joinpath", "Path") \
-                and n.args and on_checkout(n.args[0]):
-            what = instance([a.value for a in n.args[1:] if isinstance(a, ast.Constant) and isinstance(a.value, str)])
-            if what:
-                found.append((n.lineno, what))
-        elif isinstance(n, ast.JoinedStr) and n.values and isinstance(n.values[0], ast.FormattedValue) \
-                and on_checkout(n.values[0].value):
-            rest = "".join(v.value if isinstance(v, ast.Constant) else "/{x}/" for v in n.values[1:])
-            what = instance([rest])
-            if what:
-                found.append((n.lineno, what))
+        parts = None
+        if isinstance(n, ast.Call) and getattr(n.func, "attr", getattr(n.func, "id", "")) in ("join", "joinpath"):
+            parts = resolve(n, names)
+        elif isinstance(n, ast.BinOp) and isinstance(n.op, ast.Div):
+            parts = resolve(n, names)
+        elif isinstance(n, ast.JoinedStr) and n.values and isinstance(n.values[0], ast.FormattedValue):
+            base = resolve(n.values[0].value, names)
+            if base is not None:
+                parts = base + ["".join(v.value if isinstance(v, ast.Constant) else "/{x}/" for v in n.values[1:])]
+        if parts is None or parts[:1] == ["tests"]:
+            continue                                   # not the checkout's, or a fixture under tests/
+        what = instance(parts)
+        if what:
+            found.append((n.lineno, what))
     return sorted(set(found))
 
 
@@ -128,7 +176,7 @@ def scanned() -> list[str]:
 def case_no_test_reads_the_live_instance_files() -> None:
     bad = []
     for rel in scanned():
-        if rel in ALLOWED:
+        if rel in ALLOWED or rel in UNSCANNABLE:
             continue
         with open(os.path.join(ROOT, rel), encoding="utf-8") as fh:
             bad += [f"{rel}:{ln}: {what}" for ln, what in findings(fh.read())]
@@ -157,8 +205,17 @@ def case_the_scan_sees_each_form() -> None:
            'd = os.path.join(ROOT, "policies", "hygiene.json")\n'
            'e = os.path.join(os.path.dirname(__file__), "..", "routing", "profiles.json")\n'
            'f = os.path.join(ROOT, "memory", "domains")\n'
-           'g = f"{ROOT}/projects/{pid}/integration/gh/arm.json"\n')
-    assert {ln for ln, _ in findings(src)} == {5, 6, 7, 8, 9, 10, 11}, findings(src)
+           'g = f"{ROOT}/projects/{pid}/integration/gh/arm.json"\n'
+           'PROJ = os.path.join(ROOT, "projects")\n'
+           'h = os.path.join(PROJ, "registry.json")\n'
+           'from pathlib import Path\n'
+           'i = Path(__file__).resolve().parent.parent / "identities" / "roles" / "catalog.json"\n'
+           'R2: str = os.path.dirname(os.path.abspath(__file__))\n'
+           'j = os.path.join(R2, "policies", "auto-mode.json")\n'
+           'def f():\n'
+           '    local = os.path.dirname(os.path.dirname(__file__))\n'
+           '    return os.path.join(local, "runtime", "hosts", "registry.json")\n')
+    assert {ln for ln, _ in findings(src)} == {5, 6, 7, 8, 9, 10, 11, 13, 15, 17, 20}, findings(src)
 
 
 def case_the_scan_leaves_fixtures_and_engine_files_alone() -> None:

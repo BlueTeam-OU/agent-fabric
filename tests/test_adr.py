@@ -135,6 +135,9 @@ def case_citations_resolve_but_another_projects_are_not_ours(tmp: str) -> None:
     root = fixture(os.path.join(tmp, "b"))
     edit(root, ONE, "## 6. Consequences", "## 6. Consequences\n\nLike gzapp's ADR-944 and gzapp ADR-059.\n")
     assert adr.check(root) == [], "a citation named with another registered project is that project's"
+    root = fixture(os.path.join(tmp, "c"))
+    edit(root, ONE, "## 6. Consequences", "## 6. Consequences\n\nLike fixture-proj's ADR-944.\n")
+    assert adr.check(root) == [], "the registry read is the fixture tree's: fixture-proj is in no live one"
 
 
 def amend(root: str, date: str = "2026-09-28", title: str = "a rule moved") -> None:

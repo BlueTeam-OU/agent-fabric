@@ -552,6 +552,10 @@ def _():
     eq(gzmsg.slug_of("legacy-clone-2", taxonomy), None)
     eq(gzmsg.slug_of("web-developer", taxonomy), None)   # token match, not substring
     ok(gzmsg.find_taxonomy(os.path.dirname(os.path.abspath(__file__))).endswith("/identities/roles/catalog.json"))
+    # The catalogue is the operator's, through roots: the fixture's own role,
+    # which no live catalogue holds, is there; the engine root's would not be.
+    eq(gzmsg.find_taxonomy(), os.path.join(OPERATOR, "identities", "roles", "catalog.json"))
+    ok("fixture-only-role" in gzmsg.load_taxonomy(gzmsg.find_taxonomy()).roles)
 
 
 # A fixture for the derivation cases: a throwaway agent-fabric STATE directory
