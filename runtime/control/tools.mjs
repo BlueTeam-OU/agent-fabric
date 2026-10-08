@@ -105,8 +105,8 @@ export function toolsKeeper({ run = () => runTools(), file = reportFile(), log =
   return { refresh, refreshAgain };
 }
 
-// At start and then every `every` ms. The timer is unref'd: the report is
-// never a reason for the daemon to stay up.
+// At start, then every `every` ms, and when the binding file changes. The
+// timers are unref'd: the report is never a reason for the daemon to stay up.
 export function startToolsReport({ keeper = toolsKeeper(), every = TOOLS_INTERVAL_MS, setTimer = setInterval,
                                    bindingFile = null, watchEvery = BINDING_POLL_MS, stat = f => fs.statSync(f).mtimeMs } = {}) {
   keeper.refresh();
