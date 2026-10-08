@@ -332,7 +332,9 @@ def ask_queue(*argv: str) -> dict:
     except subprocess.TimeoutExpired:
         raise Unreachable(f"no answer within {QUEUE_TIMEOUT_S} s")
     except OSError as e:
-        raise Unreachable(f"node could not run ({e.strerror or e})")
+        # node never started, so queue.mjs posted nothing: a claim that never
+        # left is said without how to land it.
+        raise Unreachable(f"node could not run ({e.strerror or e})", sent=False)
     try:
         said = json.loads((p.stdout or "").strip().splitlines()[-1])
     except (ValueError, IndexError):

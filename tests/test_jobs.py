@@ -567,6 +567,18 @@ def main() -> int:
         p = run("pool-claim", "p2")
         check("a claim that never left says so, and never that it may have been claimed", p.returncode == 1
               and "could not be asked" in p.stderr and "may be claimed" not in p.stderr, p.stderr)
+        # Every command of the run's PATH but node: queue.mjs never starts.
+        nonode = os.path.join(tmp, "nonode")
+        os.makedirs(nonode)
+        for d in env["PATH"].split(os.pathsep):
+            for name in (os.listdir(d) if os.path.isdir(d) else []):
+                f = os.path.join(d, name)
+                if name != "node" and os.access(f, os.X_OK) and not os.path.lexists(os.path.join(nonode, name)):
+                    os.symlink(f, os.path.join(nonode, name))
+        p = subprocess.run([JOBS, "pool-claim", "p2"], cwd=repo_a, capture_output=True, text=True,
+                           env={**env, "PATH": nonode})
+        check("node unable to start: a claim that never left, never 'may be claimed'", p.returncode == 1
+              and "node could not run" in p.stderr and "may be claimed" not in p.stderr, p.stderr)
 
         class Fails(http.server.BaseHTTPRequestHandler):
             def do_POST(self):
