@@ -121,7 +121,8 @@ def main() -> int:
         os.makedirs(f"{fixture}/runtime")
         os.makedirs(f"{fixture}/tools/fabric")
         os.makedirs(f"{fixture}/projects")
-        for rel in ("runtime/identity.py", "tools/fabric/workingcopy.py", "projects/registry.json"):
+        for rel in ("runtime/identity.py", "tools/fabric/workingcopy.py", "tools/fabric/roots.py",
+                    "projects/registry.json"):
             with open(os.path.join(HERE, rel), encoding="utf-8") as src:
                 put(f"{fixture}/{rel}", src.read())
         login = pwd.getpwuid(os.getuid()).pw_name
