@@ -36,14 +36,15 @@ import sys
 # quadratic on a line of dashes, review of #117).
 NUM_RE = re.compile(r"#(\d{1,5})(?!\d)")
 PREFIX = 120
-OWNER_REPO_RE = re.compile(r"([\w.-]{1,60}/[\w.-]{1,60})$")
-NOT_A_PR_RE = re.compile(r"\b(?:issue|issues|step|steps|item|items|no|number|line|rule|row|seq|round)\s*$", re.I)
+OWNER_REPO_RE = re.compile(r"[\w.-]{1,60}/[\w.-]{1,60}")
+NOT_A_PR_WORDS = frozenset(("issue", "issues", "step", "steps", "item", "items", "no", "no.", "number",
+                            "line", "rule", "row", "seq", "round"))
 STATUS_RE = re.compile(r"\b(?:arm|armed|arming|merge|merged|mergeable|ready|queued|gate|waiting|"
                        r"your word|auto-merge|open|opened)\b", re.I)
 # The owner's format, right after the number: "#N (W work, F fix".
 COUNTS_AFTER_RE = re.compile(r"\s*\(\s*\d{1,4}\s+work\s*,\s*\d{1,4}\s+fix\b", re.I)
 CODE_SPAN_RE = re.compile(r"`[^`\n]*`")
-FENCE_RE = re.compile(r"^\s{0,3}(`{3,}|~{3,})")
+FENCE_RE = re.compile(r"^\s*(`{3,}|~{3,})")
 MAX_CHARS = 200_000
 
 
@@ -65,21 +66,27 @@ def prose_lines(text: str):
 
 def pr_ref(line: str, m: re.Match) -> str | None:
     """The pull request `#N` names, as written (`#N` or `owner/repo#N`), or
-    None when the number is not a pull request: a hex colour, a step or an
-    issue, or glued to a word."""
+    None when the number is not a pull request: an issue, a step or an item
+    (by the word before it), a colour (six digits: NUM_RE stops at five),
+    or a number glued to a word. Only the token right before `#` is looked
+    at, so each `#N` costs a constant: a reply dense with numbers stays far
+    inside the hook's timeout."""
     before = line[max(0, m.start() - PREFIX):m.start()]
-    if before and not before[-1].isspace() and before[-1] not in "([,;:'\"" and not before[-1].isalnum():
-        if before[-1] != "/" and not OWNER_REPO_RE.search(before):
-            return None
-    if NOT_A_PR_RE.search(before):
-        return None
     after = line[m.end():m.end() + 1]
     if after and (after.isalnum() or after == "_"):
         return None
-    repo = OWNER_REPO_RE.search(before)
-    if before and before[-1].isalnum() and not repo:
+    glued = before[-1:] if before else ""
+    repo = ""
+    if glued and (glued.isalnum() or glued in "_.-/"):
+        token = before.split()[-1] if before.split() else ""
+        token = token.lstrip("*_|([{<'\"`~>")
+        if not OWNER_REPO_RE.fullmatch(token):
+            return None
+        repo = token
+    words = before.split()
+    if words and words[-1].lower().strip("*_:") in NOT_A_PR_WORDS:
         return None
-    return (repo.group(1) if repo else "") + m.group(0)
+    return repo + m.group(0)
 
 
 def missing(text: str) -> list[str]:

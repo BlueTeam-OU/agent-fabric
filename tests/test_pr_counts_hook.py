@@ -53,12 +53,17 @@ def main() -> int:
           out and "#115" in out["reason"] and "#116" not in out["reason"], out)
     for text, label in (("Issue #45 is still open.", "an issue"), ("Step #2 is ready.", "a step"),
                         ("the colour #123456 when the panel is open", "a colour"),
-                        ("`#115` merged", "inline code"), ("~~~\n#5 is merged\n~~~", "a tilde fence"),
-                        ("````\n```\n#5 merged\n```\n````", "a backtick line inside a longer fence")):
+                        ("`gh pr merge #115` then merged", "inline code"), ("~~~\n#5 is merged\n~~~", "a tilde fence"),
+                        ("````\n```\n#5 merged\n```\n````", "a backtick line inside a longer fence"),
+                        ("1. Merged:\n    ```\n    #5 merged\n    ```", "a fence indented under a list item")):
         rc, out = reply(text)
         check(f"{label} is not a PR status: passes", out is None, out)
     rc, out = reply("#1 (2 work, 0 fix) and #2 are ready to merge")
-    check("one count excuses only its own PR", out and "#2" in out["reason"] and "#1 " not in out["reason"], out)
+    check("one count excuses only its own PR", out and "of #2 without" in out["reason"], out)
+    for text in ("**#115** is merged.", "|#115|merged|", "Merged: **#115**", "—#115 is open"):
+        rc, out = reply(text)
+        check(f"a PR in emphasis, a tight cell or after a dash is still a PR: {text!r}",
+              out is not None and "#115" in out["reason"], out)
     rc, out = reply("#115 (10 work, 2 fix) is open.\n#115 is ready to merge.")
     check("a PR counted once in the reply passes on every line", out is None, out)
     for line in ("merge " + "-" * 200000, "merge " + "a." * 100000):
@@ -66,6 +71,11 @@ def main() -> int:
         reply(line)
         check(f"a {len(line)}-character run of separators is read in under a second", time.monotonic() - t0 < 1,
               time.monotonic() - t0)
+    dense = "merge " + "#1 " * 66000
+    t0 = time.monotonic()
+    reply(dense)
+    check("a reply dense with #N (66,000 of them) is read in under a second", time.monotonic() - t0 < 1,
+          time.monotonic() - t0)
     big = ("word " * 50 + "#1 " * 20 + "\n") * 2000
     t0 = time.monotonic()
     rc, out = reply(big + "#9 is armed.")
