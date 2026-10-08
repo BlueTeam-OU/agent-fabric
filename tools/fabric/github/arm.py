@@ -26,9 +26,11 @@ nothing wrote a false record.
             (fabric-ctl, run as a program: <it> <login> presence
             --json), AGENT_FABRIC_ROOT
   stdout    `arm: ` lines — what each gate found, and the watcher line
+            (none for a PR that merged on the arming)
   stderr    `arm: REFUSED #N — <why>` on a refusal; `arm: <why>` when a
             question could not be answered, or on a usage error
-  exit      0 armed (or, with --dry-run, would arm); 1 refused — the
+  exit      0 armed, queued, or merged on the arming (or, with
+            --dry-run, would arm); 1 refused — the
             reason is the last line; 2 gh / pr-gate / pr-review-status /
             the project's arm.json / the relay / fabric-ctl could not
             answer, or usage
@@ -622,21 +624,39 @@ def arm(argv: list[str]) -> int:
         raise Unanswered(f"gh pr merge --auto failed on #{num}") from None
     # A green PR goes STRAIGHT INTO THE QUEUE on arming, and a queued PR
     # reads autoMergeRequest null — exactly like an unarmed one (a managed project's PR
-    # #881). So the read-back is the queue entry OR the arming.
+    # #881). So the read-back is the queue entry OR the arming. On a
+    # repository with no queue, gh merges a PR whose checks are already
+    # green at once, and a merged PR reads both null too (agent-fabric
+    # #118 read 'idle', exit 2, already merged): MERGED on the head the
+    # gates read is the arming done, not a question.
+    # `merged` is its own flag, never a value of `armed`: a state read
+    # back lowercased would otherwise stand for the merge it is not.
+    merged, armed = False, "unknown"
     try:
         d = gh.graphql("query($o:String!,$n:String!,$num:Int!){repository(owner:$o,name:$n){pullRequest(number:$num)"
-                       "{autoMergeRequest{enabledAt} mergeQueueEntry{position}}}}", o=owner, n=name, num=int(num))
+                       "{state headRefOid autoMergeRequest{enabledAt} mergeQueueEntry{position}}}}",
+                       o=owner, n=name, num=int(num))
         p = d["repository"]["pullRequest"]
-        armed = (f"queued at {p['mergeQueueEntry']['position']}" if p.get("mergeQueueEntry")
-                 else "armed" if p.get("autoMergeRequest") else "idle")
+        state, read_head = p["state"], str(p["headRefOid"])
+        if state == "MERGED" and read_head == head:
+            merged = True
+        elif state == "MERGED":
+            armed = f"merged at {read_head[:8]}, not {head[:8]}"
+        elif state != "OPEN":
+            armed = f"state {state}"
+        else:
+            armed = (f"queued at {p['mergeQueueEntry']['position']}" if p.get("mergeQueueEntry")
+                     else "armed" if p.get("autoMergeRequest") else "idle")
     except (gh.GhError, KeyError, TypeError):
         armed = "unknown"
+    if merged:
+        say(f"MERGED #{num} ({title}) — merged on the arming, checks already green; basis posted.")
+        return 0
     if armed not in ("armed",) and not armed.startswith("queued"):
         raise Unanswered(f"#{num} reads '{armed}' after gh pr merge --auto — check gh pr view {num}")
     say(f"ARMED #{num} ({title}) — {armed}; basis posted.")
     say(f"now, in the session: tools/gh/wait-merged.sh {num} &")
     return 0
-
 
 def main(argv: list[str]) -> int:
     try:
