@@ -32,6 +32,15 @@ CASES: list[tuple[str, list[tuple[str, str, str, str, str, str]]]] = [
         ("fix", "aaa", "pr-gate: address the blind review of #878", "", "", ""),
         ("fix", "aaa", "review fixes: the three nits on the README", "", "", ""),
         ("fix", "aaa", "tests: the re-review findings on 8c4ae884", "", "", ""),
+        # "findings" alone is a report, not an answer (a spike PR's count);
+        # with a review word, an answer word or a label it stays a fix.
+        ("work", "aaa", "Findings for question 1: a seed on the fleet's host", "", "", ""),
+        ("work", "aaa", "Make the install atomic and the findings match the code", "", "", ""),
+        ("work", "aaa", "spike: the nits of the old harness, written down", "", "", ""),
+        ("fix", "aaa", "review findings F1-F3: the seed refuses a stale socket", "", "", ""),
+        ("fix", "aaa", "address the findings on the install", "", "", ""),
+        ("fix", "aaa", "findings F2: the probe exits 3", "", "", ""),
+        ("fix", "aaa", "review nits on the README", "", "", ""),
         ("fix", "aaa", "docs(advertiser): the venue edit rows name 3.1.0 (#861 F6)", "", "", ""),
         ("work", "aaa", "docs(advertiser): the venue edit rows name 3.1.0 (F6)", "", "", ""),
     ]),
@@ -178,6 +187,33 @@ def main() -> int:
             have = next(classes)
             on = f" on {repo}#{pr}" if repo else (f" on #{pr}" if pr else "")
             check(f"{want}{on}: {subject}{f' [Answers: {answers}]' if answers else ''}", have == want, f"got {have}")
+
+    # The Kind: declaration (ADR-019 §5 rule 3), as a sixth argument. Every
+    # row passes all six, so a shim that dropped the last fails the rows
+    # that turn on it; the first rows are the misreads that made the rule.
+    print("commit-class: the Kind: declaration outranks the subject and Answers:")
+    kinds = [
+        ("work", "aaa", "review fix (#5 F1): a fix-shaped subject", "", "5", AF, "work"),
+        ("work", "aaa", "plain subject", "F3", "5", AF, "work"),
+        ("fix", "aaa", "the guard reads the count from the file", "", "5", AF, "review-fix"),
+        ("fix", "aaa", "Findings for question 1: a seed", "", "", "", "Review-Fix "),
+        ("work", "aaa", "Findings for question 1: a seed", "", "", "", ""),
+        ("fix", "aaa", "review F4: no declaration reads as before", "", "", "", ""),
+        ("work", "aaa", "an unknown value is no declaration", "", "", "", "chore"),
+        ("fix", "aaa", "the last of several values wins", "", "", "", "work\x1freview-fix"),
+        ("work", "aaa", "the last of several values wins", "", "", "", "review-fix\x1fwork"),
+        # The hook stamps review-fix on any commit with Answers:; one that
+        # answers ANOTHER PR's review is still this PR's work.
+        ("work", "aaa", "answers the earlier PR", "#53 F2", "60", AF, "review-fix"),
+        ("merge", "aaa bbb", "Merge origin/main", "", "", "", "work"),
+    ]
+    r = sourced("while IFS=$'\\x1e' read -r p s a n o k; do "
+                'commit_class "$p" "$s" "$a" "$n" "$o" "$k" </dev/null || echo "exit $?"; done',
+                "".join("\x1e".join(case[1:]) + "\n" for case in kinds))
+    got = r.stdout.splitlines() + [""] * len(kinds)
+    for (want, _p, subject, answers, pr, _o, k), have in zip(kinds, got):
+        check(f"{want} [Kind: {k!r}{f', Answers: {answers}' if answers else ''}{f', #{pr}' if pr else ''}]: {subject}",
+              have == want, f"got {have!r}\n{r.stderr}")
 
     print("commit-class: revert_targets reads git's own line, nothing else")
     sha = "0123456789abcdef0123456789abcdef01234567"
