@@ -1,0 +1,42 @@
+{
+  "dirs": [
+    {"dir": "tools/checks", "role": "guard", "members": "^(ban|check|scan)_.*\\.sh$", "names": "basename"},
+    {"dir": "tools/gh", "role": "script", "members": "\\.sh$"}
+  ],
+  "exempt_file": "tools/checks/selftest_exempt.txt",
+  "exempt_excuses_wiring": false,
+  "runner": "tools/checks/run_suite.sh",
+  "package_scripts": "pnpm",
+  "tree_excludes": [".git", "node_modules", ".claude/worktrees"],
+  "report": "grouped",
+  "text": {
+    "unwired": [
+      "FAIL: {n} guard(s) are referenced by no workflow —",
+      "      they can never fail a build, whatever they contain:"
+    ],
+    "unwired_tests": [
+      "FAIL: {n} self-test(s) are referenced by no workflow —",
+      "      the guard is checked in CI but its self-test is not, so a",
+      "      guard that silently stopped detecting anything would still pass:"
+    ],
+    "bare": [
+      "FAIL: {n} self-test(s) are run without tools/checks/run_suite.sh —",
+      "      run bare, an assertion calling an undefined helper passes",
+      "      silently. Invoke them as: bash tools/checks/run_suite.sh <suite>"
+    ],
+    "untested": [
+      "FAIL: {n} guard(s) have no test_<name>.sh and are not",
+      "      listed in {exempt_name}:"
+    ],
+    "footer": [
+      "Two ways to green: (a) wire it up — add a step to the relevant",
+      "workflow (guard AND self-test are separate steps), and write the",
+      "missing test_<name>.sh covering the clean case plus each failure",
+      "mode the guard's header claims; or (b) the guard is obsolete —",
+      "then DELETE it, do not leave it in the tree unreferenced. Adding",
+      "a name to {exempt_name} is a loosening, not a fix:",
+      "that list exists for four historical guards and must only shrink."
+    ],
+    "ok": "check_guards_are_wired: OK — {guards} guard(s) wired into a workflow; {exempt} awaiting a self-test (exempt, must shrink)."
+  }
+}

@@ -164,7 +164,7 @@
       "memory": ".agent-fabric/memory",
       "integration": "projects/radicle-spike/integration",
       "license": "Apache-2.0",
-      "note": "A time-boxed spike, private, created 2026-10-07 on the owner's word: Radicle as a decentralized forge for the fleet (ADR-034's direction). p2p-network-dev holds it (p2p-network-dev-02): run a local seed on the fleet's host, never joined to the public Radicle network, mirror agent-fabric to it (any other repository only on the owner's word), measure replication, reachability through NAT and what a Radicle-backed pull-request flow would need of the forge tools. Its findings come back to agent-fabric as a live check and a decision proposal; nothing here is adopted by the fleet until that decision is made."
+      "note": "A time-boxed spike, private, created 2026-10-07 on the owner's word: Radicle as a decentralized forge for the fleet (ADR-034's direction). p2p-network-dev holds it (p2p-network-dev-02): run a local seed on the fleet's host, never joined to the public Radicle network, mirror agent-fabric to it (any other repository only on the owner's word), measure replication, reachability through NAT and what a Radicle-backed pull-request flow would need of the forge tools. Its findings came back (findings/00-summary.md: adopt for replication, not yet as the forge). On stand-by since 2026-10-08 (the owner): adoption waits for Radicle 2.0.0, whose breaking change would otherwise mean migrating twice; nothing runs for it meanwhile, and p2p-network-dev-02 works on InterWeave. Nothing here is adopted by the fleet until a decision on 2.0 is made."
     }
   }
 }

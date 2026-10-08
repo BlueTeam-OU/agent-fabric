@@ -22,7 +22,7 @@ python3 tools/fabric/adr.py new <slug> "<Title>"          # next number, from th
 python3 tools/fabric/adr.py amend --date YYYY-MM-DD <n> "<Title>"   # history note + table row
 python3 tools/fabric/adr.py index --write                 # index.json and the README table
 python3 tools/fabric/adr.py check                         # every rule below that a tool can see
-python3 tools/fabric/adr.py range-check <base> <head>     # each commit's body edits are recorded
+fabric-adr range-check                                    # each commit's body edits are recorded (origin/main..HEAD)
 ```
 
 `check` runs in the commit hook, CI and the suite; `range-check` in CI

@@ -53,7 +53,8 @@ def classify(subject: str, body: str, pr: int, repo: str, parents: int = 1) -> s
     """The one classifier (tools/fabric/github/commit_class.py): work, fix or merge.
     A merge is told by its parents, as pr-gate tells it, never by its words."""
     answers = "\n".join(m.group(1) for m in re.finditer(r"^Answers:\s*(.*)$", body, re.M))
-    return commit_class.classify(" ".join(["p"] * max(parents, 1)), subject, answers, str(pr), repo)
+    return commit_class.classify(" ".join(["p"] * max(parents, 1)), subject, answers, str(pr), repo,
+                                 commit_class.kind_of(body))
 
 
 def judge(pr: dict, later: list[dict], now: dt.datetime, window_days: int, cls=classify, repo: str = "") -> dict:

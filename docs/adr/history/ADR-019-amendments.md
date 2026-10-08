@@ -56,3 +56,26 @@ so it is never addable to the open one, and the coordinator had kept a
 fabric PR and project PRs open together throughout. team.md said so in
 agent-fabric #104; this record follows it, as the two moved together
 when "sixteen work commits" replaced "the band's ceiling".
+
+
+### Amendment 2026-10-08 — Every commit declares its kind
+
+Rule 3 guessed a commit's kind: an `Answers:` trailer meant a review fix,
+and without one the subject's words decided. Two sessions reported the
+same PR counts wrong on 2026-10-08 — their review fixes lacked the
+trailer and read as work, and commits named after the "findings" they
+addressed read as fixes — and the owner, deciding whether to arm, found
+the marking "not well defined". The conventional `fix:` prefix could not
+serve: in gzapp it names a bug fix of the project, which is work. So the
+author declares the kind in a `Kind:` trailer, `work` or `review-fix`
+(with its `Answers:`), and the `commit-msg` hook every managed checkout
+runs refuses a commit without it, stamping the two cases it can tell for
+certain (an `Answers:` trailer, git's own revert message). The counter
+reads the declaration first and the old reading only for a commit that
+has none, so the history before the rule keeps its count. A review fix
+that answers another pull request's review stays work in its own
+pull request, as before (devex-tooling's classifier keeps the rule it
+was written for). The CI half of the guard waits for the branches
+opened before the rule: a refusing check now would turn each of them
+red.
+

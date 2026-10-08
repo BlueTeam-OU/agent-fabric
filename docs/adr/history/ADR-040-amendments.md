@@ -97,3 +97,17 @@ is what those cases pin, and the port keeps it. The wire grammar is
 frozen; nothing here changes what a message is. The locale dictionaries
 stay the JSON they are, read by the Python as they were by the Node.
 
+
+### Amendment 2026-10-08 — Shims retire; commands run by bare name
+
+Rule 4 kept a ported script's path as a shim "until every forwarder and
+caller is repointed", and nothing ever repointed them: a week after the
+last wave, 57 shell files still ran a Python module, the fabric named
+`pr-gate.sh` in 25 places, and the managed projects' `tools/gh/*.sh`
+forwarded to those shims, two layers deep. The owner asked for them to
+be phased out, and to leave alone what has to run before Python is
+installed. Rule 7 names the end state (a bare command on `PATH`), the
+four steps a shim takes to retire, and the scripts that stay shell
+because they run before the pinned interpreter exists or are what tells
+a person how to install it.
+

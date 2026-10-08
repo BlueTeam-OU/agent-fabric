@@ -7,8 +7,9 @@
     adr.py amend <NNN> "<title>"       the history note stub and the table row (the DIGEST bullet is yours)
     adr.py lookup [<word>...]          DIGEST entries mentioning every word; none: the table
                                        of which record answers what (fabric-adr lookup)
-    adr.py range-check <base> [<head>] | <base>..<head>
-                                       each commit that edits an ADR's body records it
+    adr.py range-check [<base> [<head>] | <base>..<head>]
+                                       each commit that edits an ADR's body records it;
+                                       no range: CI's base..head, else origin/main..HEAD (fabric-adr range-check)
 
 The engine is the first managed project's (its documentation history
 model, recorded in its own ADRs), with what
@@ -571,6 +572,35 @@ def amendment_rows(text: str) -> list[tuple[str, str]]:
     return rows
 
 
+def default_range(root: str) -> tuple[str, str] | None:
+    """The range CI or a person means when none is given, in the order
+    policies/check_adr_amendment.sh chose it: the pull request's or the
+    merge group's own base and head from the GitHub event, when both are
+    present here; else AGENT_FABRIC_ADR_BASE, origin/$GITHUB_BASE_REF,
+    origin/main or main, against HEAD. None when no base resolves: the
+    check is then not enforced, and says so."""
+    def has(ref: str) -> bool:
+        return subprocess.run(["git", "-C", root, "rev-parse", "--verify", "-q", f"{ref}^{{commit}}"],
+                              capture_output=True).returncode == 0
+    event = os.environ.get("GITHUB_EVENT_PATH", "")
+    if event and os.access(event, os.R_OK):
+        try:
+            with open(event, encoding="utf-8") as f:
+                ev = json.load(f)
+            pr, mg = ev.get("pull_request") or {}, ev.get("merge_group") or {}
+            b = (pr.get("base") or {}).get("sha") or mg.get("base_sha")
+            h = (pr.get("head") or {}).get("sha") or mg.get("head_sha")
+            if b and h and has(b) and has(h):
+                return b, h
+        except (OSError, ValueError, AttributeError):
+            pass
+    base_ref = os.environ.get("GITHUB_BASE_REF", "")
+    for c in (os.environ.get("AGENT_FABRIC_ADR_BASE", ""), f"origin/{base_ref}" if base_ref else "", "origin/main", "main"):
+        if c and has(c):
+            return c, "HEAD"
+    return None
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="adr.py", description=__doc__.split("\n\n")[0])
     ap.add_argument("--root", default=ROOT)
@@ -580,7 +610,7 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("new"); p.add_argument("slug"); p.add_argument("title")
     p = sub.add_parser("amend"); p.add_argument("number"); p.add_argument("title"); p.add_argument("--date", required=True)
     p = sub.add_parser("lookup"); p.add_argument("words", nargs="*")
-    p = sub.add_parser("range-check"); p.add_argument("base"); p.add_argument("head", nargs="?")
+    p = sub.add_parser("range-check"); p.add_argument("base", nargs="?"); p.add_argument("head", nargs="?")
     a = ap.parse_args(argv)
     if a.cmd == "check":
         f = check(a.root)
@@ -600,6 +630,13 @@ def main(argv: list[str] | None = None) -> int:
         hits = cmd_lookup(a.root, a.words)
         print("\n\n".join(hits) if hits else "adr: no DIGEST entry mentions all of that"); return 0 if hits else 1
     if a.cmd == "range-check":
+        if a.base is None:
+            if not os.path.isdir(os.path.join(a.root, ADR_DIR)):
+                print("adr range-check: no docs/adr/ — nothing to check"); return 0
+            found = default_range(a.root)
+            if found is None:
+                print("adr range-check: no base to compare with — not enforced"); return 0
+            a.base, a.head = found
         # "A..B" is how git spells a range, and how people type one: taken
         # as base and head. It crashed git rev-list as "A..B..HEAD".
         if ".." in a.base:

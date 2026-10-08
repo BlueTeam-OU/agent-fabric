@@ -137,16 +137,20 @@ def new_repo() -> None:
     git("-c", "core.hooksPath=/dev/null", "commit", "-qm", "base")
 
 
-def commit_rc(*args: str) -> int:
+def commit_rc(*args: str, kind: bool = True) -> int:
+    """A commit declares its kind (commit-msg's Kind: rule) unless the case
+    is about that rule itself (kind=False)."""
     global err
+    if kind and args[:1] == ("commit",):
+        args = ("commit", "--trailer", "Kind: work", *args[1:])
     rc, _, err = git(*args, state=True)
     return rc
 
 
-def try_commit(rel: str, message: str) -> int:
+def try_commit(rel: str, message: str, kind: bool = True) -> int:
     put(rel, "more\n", "a")
     git("add", "-A")
-    return commit_rc("commit", "-q", "-m", message)
+    return commit_rc("commit", "-q", "-m", message, kind=kind)
 
 
 def has(pattern: str, text: str) -> bool:
@@ -425,6 +429,79 @@ def run() -> None:
     bind("fabric-coordinator"); new_repo()
     check("Co-authored-by is still refused",
           try_commit("src/a.txt", "x\n\nCo-authored-by: Someone <s@e>") == 1, "ban lost")
+
+    section("every commit declares its kind; pr-gate reads it instead of the subject")
+    bind("backend-dev"); new_repo()
+    check("a commit with no Kind: is refused, naming the trailer to add",
+          try_commit("src/a.txt", "fix: a real bug", kind=False) == 1 and "Kind: work" in err, f"admitted\n{err}")
+    check("Kind: work is admitted and kept as typed",
+          try_commit("src/a.txt", "fix: a real bug\n\nKind: work", kind=False) == 0
+          and has(r"^Kind: work$", msg()), f"rc/msg\n{err}\n{msg()}")
+    check("lower-cased or differently cased, the kind is read the same",
+          try_commit("src/a.txt", "x\n\nkind: Work", kind=False) == 0, f"refused\n{err}")
+    check("an Answers: trailer alone is stamped Kind: review-fix",
+          try_commit("src/a.txt", "Address the review\n\nAnswers: P2-1", kind=False) == 0
+          and has(r"^Kind: review-fix$", msg()) and has(r"^Answers: P2-1$", msg()), f"{err}\n{msg()}")
+    check("Kind: review-fix without Answers: is refused, naming Answers:",
+          try_commit("src/a.txt", "a fix\n\nKind: review-fix", kind=False) == 1 and "Answers:" in err, f"admitted\n{err}")
+    check("an unknown kind is refused",
+          try_commit("src/a.txt", "x\n\nKind: findings", kind=False) == 1, f"admitted\n{err}")
+    # Each value is exactly "work" once read: only the trailer block's
+    # parse makes them nothing, so reading the whole body would admit them.
+    check("a 'Kind:' line in the body, not the trailers, declares nothing",
+          try_commit("src/a.txt", "x\n\nKind: work\nand more prose", kind=False) == 1, f"admitted\n{err}")
+    check("…nor one followed by a closing paragraph",
+          try_commit("src/a.txt", "x\n\nKind: work\n\nA closing prose paragraph.", kind=False) == 1, f"admitted\n{err}")
+    check("the key is read in any case, as git reads trailer keys",
+          try_commit("src/a.txt", "x\n\nKIND: work", kind=False) == 0, f"refused\n{err}")
+    git("reset", "-q", "--hard")  # the refused commits above left their change staged
+    first = git("rev-parse", "HEAD")[1].strip()
+    # git revert itself runs no commit-msg hook (git 2.56, measured); its
+    # --no-commit form, committed by hand, does.
+    git("revert", "--no-commit", first)
+    rc = commit_rc("commit", "-q", "--no-edit", kind=False)
+    check("git's own revert message, committed by hand, is stamped Kind: work",
+          rc == 0 and has(r"^Kind: work$", msg()), f"rc={rc}\n{err}\n{msg()}")
+    git("checkout", "-q", "-b", "side")
+    try_commit("src/b.txt", "side work")
+    git("checkout", "-q", "-")
+    rc = commit_rc("merge", "-q", "--no-ff", "-m", "fold side", "side", kind=False)
+    check("a merge commit needs no Kind:", rc == 0 and not has(r"^Kind:", msg()), f"rc={rc}\n{err}")
+    rc = commit_rc("commit", "-q", "--amend", "--no-edit", kind=False)
+    check("…nor the same merge amended, when MERGE_HEAD is gone (Codex on #120)",
+          rc == 0 and not has(r"^Kind:", msg()), f"rc={rc}\n{err}")
+    check("a new commit on top of a merge still declares its kind",
+          try_commit("src/a.txt", "after the merge", kind=False) == 1, f"admitted\n{err}")
+    check("…even one that reuses the merge's own subject (review of #120)",
+          try_commit("src/a.txt", "fold side", kind=False) == 1, f"admitted\n{err}")
+    rc = commit_rc("commit", "-q", "-C", "HEAD", kind=False)
+    check("…or its whole message (commit -C HEAD)", rc == 1, f"rc={rc}\n{err}")
+    git("reset", "-q", "--hard")
+    rc = commit_rc("commit", "-q", "--amend", "-m", "fold side, reworded\n\nwrapped onto\na second line", kind=False)
+    check("a merge reworded by --amend is still the merge", rc == 0, f"rc={rc}\n{err}")
+
+    # What git runs the hook for, measured on 2.56 and pinned here: a plain
+    # `git revert` and a rebase's picks run none, so a branch made before
+    # the rule rebases as it is; a reword runs it, and its message declares.
+    rc = commit_rc("revert", "--no-edit", "HEAD~1", kind=False)
+    check("a plain git revert runs no commit-msg hook (committed, no Kind: stamped)",
+          rc == 0 and not has(r"^Kind:", msg()), f"rc={rc}\n{err}\n{msg()}")
+    git("checkout", "-q", "-b", "old")
+    put("src/a.txt", "old side\n")
+    git("add", "-A"); git("-c", "core.hooksPath=/dev/null", "commit", "-qm", "made before the rule")
+    git("checkout", "-q", "-")
+    try_commit("src/a.txt", "main moves")
+    git("checkout", "-q", "old")
+    git("rebase", "-q", "-")
+    put("src/a.txt", "resolved\n"); git("add", "src/a.txt")
+    rc, _, err = git("-c", "core.editor=true", "rebase", "--continue", state=True)
+    check("a rebase continued after a conflict runs no commit-msg hook: an undeclared commit lands",
+          rc == 0 and not has(r"^Kind:", msg()), f"rc={rc}\n{err}")
+    rc, _, err = git("-c", "sequence.editor=sed -i s/^pick/reword/", "-c", "core.editor=true",
+                     "rebase", "-q", "-i", "HEAD~1", state=True)
+    check("a reword runs it: an undeclared message is refused, naming the trailer",
+          rc != 0 and "Kind: work" in err, f"rc={rc}\n{err}")
+    git("rebase", "--abort")
 
     print()
     section("in a managed project, its own docs/adr/ is its own")

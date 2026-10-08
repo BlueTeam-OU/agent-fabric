@@ -80,6 +80,55 @@ except Exception: print("fabric-coordinator")' "$FABRIC_ROOT/policies/authority.
         exit 1
     fi
 fi
+# EVERY commit declares its KIND, which pr-gate and the PR count check
+# read instead of guessing from the subject (the owner, 2026-10-08: fixes
+# without the trailer read as work, "findings" read as fixes): `Kind: work`
+# or `Kind: review-fix`, a review fix also naming what it answers
+# (`Answers: <labels or thread>`). An Answers: trailer alone is stamped
+# review-fix, and git's own revert line work. git runs no commit-msg hook
+# for `git revert` or for a rebase's picks, a conflict's `--continue`
+# included, so a branch made before the rule rebases as it is; a reword or
+# a squash does run it, and its new message declares the kind (both
+# measured, and pinned in tests/test_githooks_cli.py). Anything else
+# undeclared is refused with what to add. A merge commit is exempt (it
+# counts as a merge).
+# A merge being made has MERGE_HEAD. A merge being amended has none: it is
+# told by HEAD being a merge and `--amend` in the argv of the git that runs
+# this hook (its parent; no other signal reaches a hook, and a subject match
+# also exempted `commit -C HEAD` on top of a merge, review of #120). An
+# unreadable argv exempts nothing.
+is_merge=0
+if [[ -f "$(git rev-parse --git-path MERGE_HEAD 2>/dev/null)" ]]; then
+    is_merge=1
+elif [[ "$(git rev-list --parents -n 1 HEAD 2>/dev/null | wc -w)" -gt 2 ]] \
+     && tr '\0' '\n' < "/proc/$PPID/cmdline" 2>/dev/null | grep -qx -- '--amend'; then
+    is_merge=1
+fi
+if (( ! is_merge )); then
+    trailers="$(git interpret-trailers --parse "$msg" 2>/dev/null)"
+    kind="$(printf '%s\n' "$trailers" | sed -n 's/^[Kk][Ii][Nn][Dd]:[[:space:]]*//p' | tail -1 | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')"
+    answers="$(printf '%s\n' "$trailers" | grep -ci '^answers:')"
+    if [[ -z "$kind" ]]; then
+        if (( answers > 0 )); then kind=review-fix
+        elif printf '%s\n' "$body" | grep -q '^This reverts commit [0-9a-f]\{7,40\}'; then kind=work
+        fi
+        [[ -n "$kind" ]] && git interpret-trailers --in-place --trailer "Kind: $kind" "$msg"
+    fi
+    case "$kind" in
+        work) ;;
+        review-fix) if (( answers == 0 )); then
+                echo "commit-msg: Kind: review-fix needs the review it answers: add 'Answers: <labels or thread>'." >&2; exit 1
+            fi ;;
+        *) cat >&2 <<'MSG'
+commit-msg: every commit declares its kind in its trailers (the last paragraph):
+  Kind: work                    new work, a bug fix of the project, docs, a record
+  Answers: <labels or thread>   a commit answering a review of this PR (Kind: review-fix is added)
+pr-gate.sh and the PR's count check read it; nothing guesses from the subject.
+MSG
+            exit 1 ;;
+    esac
+fi
+
 # EVERY commit declares the role the account held when it was made — not
 # only a guarded one. Every account commits under one git author, so the
 # author line says nothing about the lane; the branch name says it once,

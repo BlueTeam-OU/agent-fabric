@@ -206,16 +206,27 @@ def count_commits(num: int, repo: str, base: str, head: str) -> dict | None:
     if not succeeds("cat-file", "-e", f"{head}^{{commit}}") \
             or not succeeds("rev-parse", "--verify", "-q", f"origin/{base}^{{commit}}"):
         return None
-    r = git.run(".", "log", "--format=%H%x09%P%x09%s%x09%(trailers:key=Answers,valueonly,unfold,separator=%x20)",
-                f"origin/{base}..{head}", check=False)
+    return split_range(num, repo, f"origin/{base}..{head}")
+
+
+def split_range(num: int, repo: str, rev_range: str) -> dict:
+    """The work / fix / merge / netted split of a range of PR #num's
+    commits — the gate's before arming, and pr-compliance's after the
+    merge (<merge>^1..<merge>^2), so the band is measured as it was
+    applied."""
+    # Kind: values joined by US (0x1f), never a tab or a newline, so the
+    # line stays one record; commit_class.kind takes the last of them.
+    r = git.run(".", "log", "--format=%H%x09%P%x09%s%x09%(trailers:key=Answers,valueonly,unfold,separator=%x20)"
+                "%x09%(trailers:key=Kind,valueonly,unfold,separator=%x1f)",
+                rev_range, check=False)
     shas, cls, subj = [], {}, {}
     for line in r.stdout.splitlines():
-        fields = line.split("\t", 3) + [""] * 3
-        sha, parents, subject, answers = fields[:4]
+        fields = line.split("\t", 4) + [""] * 4
+        sha, parents, subject, answers, kind = fields[:5]
         if not sha:
             continue
         shas.append(sha)
-        cls[sha] = commit_class.classify(parents, subject, answers, str(num), repo)
+        cls[sha] = commit_class.classify(parents, subject, answers, str(num), repo, kind)
         subj[sha] = subject
     # Two passes: classify each commit, then net out every revert whose
     # partner is in the range — the pair changes nothing and counts

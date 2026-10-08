@@ -26,7 +26,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 | writing a SKILL.md; dates and PR numbers in skills; skill-creator | ADR-016 |
 | live checks; read-back; evidence; a prompt change before pushing | ADR-017 |
 | who may commit here; Fabric-Role; the hooks; the locale carve-out; what a guard is | ADR-018 |
-| opening, counting and arming a PR; pr-gate; Co-authored-by; GitHub settings | ADR-019 |
+| opening, counting and arming a PR; pr-gate; Kind: trailer; Co-authored-by; GitHub settings | ADR-019 |
 | the blind review; code-review dispatch; post-review; what counts as coverage | ADR-020 |
 | scratch a suite leaves; TMPDIR; containers after a test; cleaning caches | ADR-021 |
 | the inbox watch at start; auto mode; plan mode holds the inbox; planning in presence | ADR-022 |
@@ -388,18 +388,18 @@ its record disagree, the record wins. Look it up, never read it whole:
 ### ADR-018 — Authority: one writer role per surface; a guard is hook + CI + suite; the read-only fence (Accepted)
 
 - Authority attaches to roles and policy files, never to logins or
-  directories; holding a role gives nothing over its definition (§2).
+  directories (§2).
 - agent-fabric, and `.agent-fabric/` in every project, is committed only
   by a session bound to `fabric-coordinator`: the hooks fence it, CI
   reads the `Fabric-Role:` trailer (§5 rules 1–4).
 - Every commit carries its role as a trailer; a clean fold passes
   (§5 rules 2–3). A locale's holder commits its translations (§5 rule 5).
 - A contributor role (`authority.json` `contributors`) commits its
-  entry's paths on its own branch (§5 rule 8).
-- A guard is a commit-time check, a CI check on every added commit and a
-  planted suite case (§5 rule 6); a proposal is a message, or a
+  entry's paths (§5 rule 8).
+- A guard is a hook, a CI check per added commit and a planted suite
+  case (§5 rule 6); a proposal is a message, or a
   contributor's branch (§5 rule 7).
-- The tripwires read the base's `authority.json` (§6).
+- Tripwires read the base's `authority.json` (§6).
 - A 2026-09-28 — the charter tripwire runs in CI.
 - A 2026-09-30 — the stores are this role's (References).
 - A 2026-10-01 — the contributor carve-out (§5 rules 7–8).
@@ -407,6 +407,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-10-01 — CI runs main's guards (§5 rule 4).
 - A 2026-10-04 — a merge is judged on its own change (§5 rules 3–4).
 - A 2026-10-07 — an entry that `merges` opens its own PR (§5 rule 8).
+- A 2026-10-08 — and may fold another's supply (§5 rule 8).
 - Keywords: Fabric-Role, pre-commit, commit-msg,
   locale carve-out, contributor, merges.
 
@@ -415,24 +416,25 @@ its record disagree, the record wins. Look it up, never read it whole:
 - Every change reaches `main` through a PR (§2, §5 rule 1, §6).
 - One open PR per agent and repository; the next work is another commit while the
   branch is addable; two stated exceptions (§5 rule 2).
-- Work commits exclude review fixes (`Answers:` trailer, else the
-  subject; `commit-class.sh`): 8 or more arm at the gate, a security
-  boundary too, under 8 ask the owner; 16 is the batch size advised
-  (§5 rules 3–4).
+- Work commits exclude review fixes, by each commit's `Kind:` trailer
+  (§5 rule 3); 8 or more arm at the gate, under 8 ask the owner (§5
+  rule 4).
 - Arm only on `pr-gate.sh`'s `MERGEABLE`, read first, with no open P1/P2;
   on agent-fabric arming is the merge (§5 rules 5–6).
 - No `Co-authored-by:`/`Claude-Session:` trailer, footer or session URL
-  in commits or PR descriptions (§5 rule 7). GitHub settings: §6.
-- A 2026-10-04 — `main` is protected: a ruleset requires a pull request,
-  the CI checks and signed commits; auto-merge waits for green (§5 rule 6).
+  (§5 rule 7). GitHub settings: §6.
+- A 2026-10-04 — `main`'s ruleset requires a PR, the CI checks and
+  signed commits; auto-merge waits (§5 rule 6).
 - A 2026-10-05 — the ruleset requires CI's aggregate check `ci-ok` alone
   (§5 rule 6).
 - A 2026-10-05 — eight or more work commits arm on the gate alone, a
   security boundary and over sixteen included (§5 rule 4).
 - A 2026-10-06 — one open PR per agent and repository (§5 rule 2).
+- A 2026-10-08 — every commit declares its `Kind:`; the commit-msg
+  hook refuses one without it (§5 rule 3).
 - Keywords: pull request, PR, arm, merge, band, work commits, Answers,
-  pr-gate, MERGEABLE, one open PR, attribution, Co-authored-by, CodeQL,
-  repository settings, auto-merge.
+  Kind, pr-gate, MERGEABLE, one open PR, attribution, Co-authored-by,
+  CodeQL, repository settings, auto-merge.
 
 ### ADR-020 — The review class is the review (Accepted)
 
@@ -860,14 +862,14 @@ its record disagree, the record wins. Look it up, never read it whole:
   3–5).
 - GitHub and git go through `gh.py` and `git.py`: bodies on stdin or a
   file, bounded calls named in their errors, JSON in Python (§5 rule 6).
-- A 2026-10-01 — the oracle's assertions stay; its gh mock may learn
-  gh.py's transport (still passing the bash original), and a case
-  reading the source reads the module.
+- A 2026-10-01 — the oracle's assertions stay; its gh mock and source
+  reads may follow the port (§5 rule 5).
 - A 2026-10-01 — one pinned Python, 3.13, as fabric-python per host; shims run it (§5 rules 1, 4).
 - A 2026-10-01 — a fixture may copy the modules of the scripts it copies; no assertion changes (§5 rule 5).
-- A 2026-10-04 — Wave 7: send, inbox and gzmsg to Python together; the control plane's imports split out first (§7).
+- A 2026-10-04 — Wave 7: GZCoord's tools to Python together (§7).
+- A 2026-10-08 — commands by bare name; shims retire; pre-Python shell stays (§5 rule 7).
 - Keywords: Python, bash, shell, port, allowlist, lint, shim, wave, gh,
-  git, 150 lines, P1.
+  git, 150 lines, P1, bare command, fabric-pr, deprecated path.
 
 ### ADR-041 — Agent-local episodic history: exact messages kept above the transport (Accepted)
 
@@ -948,5 +950,6 @@ its record disagree, the record wins. Look it up, never read it whole:
   rules move out by amendment (§5 rule 4).
 - A working copy's client comes from remote, project and client list,
   never the GitHub org; switching client is context (§5 rules 5–6).
+- A 2026-10-08 — until stage 4 the engine root honours AGENT_FABRIC_ROOT; instance fixtures use AGENT_FABRIC_OPERATOR (§5 rule 1).
 - Keywords: split, engine, operator, client, engagement, roots, open
   source, publish, instance data, Blueteam, Gzapi.

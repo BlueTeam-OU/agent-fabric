@@ -1,0 +1,24 @@
+{
+  "dirs": [
+    {"dir": "tools/checks", "role": "guard", "members": "\\.(sh|py)$"},
+    {"dir": "tools/ci", "role": "ci", "members": "\\.(sh|py)$"},
+    {"dir": "tools/gh", "role": "script", "members": "\\.(sh|py)$"},
+    {"dir": "tools/host/android", "role": "script", "members": "\\.(sh|py)$"}
+  ],
+  "exempt_file": "tools/checks/selftest_exempt.txt",
+  "exempt_required": false,
+  "exempt_excuses_wiring": true,
+  "runner": "tools/checks/run_suite.sh",
+  "package_scripts": null,
+  "tree_excludes": [".git", "node_modules", ".claude/worktrees", "target"],
+  "report": "lines",
+  "text": {
+    "member_unwired": "{path}: no workflow runs it — it cannot fail a pull request",
+    "member_untested": "{path}: no self-test beside it (add {dir}/test_{stem}.sh, or exempt it)",
+    "test_unwired": "{path}: no workflow runs it — the suite passes locally and gates nothing",
+    "test_bare": "{path}: a workflow runs it without tools/checks/run_suite.sh",
+    "loop_bare": "a workflow loop over self-tests runs them without tools/checks/run_suite.sh: {loop}",
+    "summary": "\ncheck_guards_are_wired: {n} unreachable or untested guard(s), or a bare self-test loop.",
+    "ok": "check_guards_are_wired: OK — every guard is wired to a workflow and self-tested."
+  }
+}

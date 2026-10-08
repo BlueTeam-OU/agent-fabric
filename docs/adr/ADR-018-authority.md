@@ -165,9 +165,10 @@ record says so rather than claim otherwise.
    what lies outside the entry reaches that pull request as the
    coordinator's commits, and the coordinator distributes the merge. CI
    refuses a pull request opened from a `for/` branch, and one in which
-   no commit declares the owner role unless every contributor role in it
-   merges; which login holds a role is never committed, so the declared
-   roles are judged (A 2026-10-07).
+   no commit declares the owner role unless a contributor role in it
+   merges its own work, which may fold another contributor's supply as
+   the coordinator does; which login holds a role is never committed, so
+   the declared roles are judged (A 2026-10-08).
 
 ## 6. Consequences
 
@@ -175,10 +176,10 @@ record says so rather than claim otherwise.
 
   | guard | commit time | CI on the branch | suite |
   |---|---|---|---|
-  | no machine attribution | `commit-msg` | `ban_generated_by_attribution.sh` (a CI step, and `tests/run.sh`) | `test_ban_generated_by_attribution_cli.py`, `tests/test_githooks_cli.py` |
-  | read-only fence, `.agent-fabric/` | `pre-commit`, `commit-msg` | `check_agent_fabric_dir_authority.sh`, main's copy run isolated (ci.yml); `tests/run.sh` the local check | `test_check_agent_fabric_dir_authority.sh`, `tests/test_githooks_cli.py` |
+  | no machine attribution | `commit-msg` | `tools/fabric/guards/ban_generated_by_attribution.py` (a CI step, and `tests/run.sh`) | `test_ban_generated_by_attribution_cli.py`, `tests/test_githooks_cli.py` |
+  | read-only fence, `.agent-fabric/` | `pre-commit`, `commit-msg` | `tools/fabric/guards/agent_fabric_dir_authority.py`, main's copy run isolated (ci.yml); `tests/run.sh` the local check | `test_check_agent_fabric_dir_authority.sh`, `tests/test_githooks_cli.py` |
   | the contributor carve-out | `pre-commit`, `commit-msg` (`contributors.py hook`) | `check_agent_fabric_dir_authority.sh`, main's copy, against the base's entry | `tests/test_contributors.py` |
-  | decision records | `pre-commit` (`adr.py check` on the staged tree) | `check_adr_amendment.sh`, and `adr.py check` in lint | `tests/test_adr.py` |
+  | decision records | `pre-commit` (`adr.py check` on the staged tree) | `fabric-adr range-check`, and `adr.py check` in lint | `tests/test_adr.py` |
   | charter authority by branch name | none | main's copy run isolated against `origin/main` (ci.yml); `tests/run.sh` the local check (A 2026-09-28) | `test_check_charter_authority_cli.py` |
   | no model pins in committed settings | none (the launcher refuses the same keys at launch) | not called here; gzapp's CI runs its own copy (`tools/checks/`) | `test_check_repo_settings_carry_no_model_pins.sh` |
 
@@ -236,3 +237,4 @@ The body above reads current; each change's full note is in [history/ADR-018-ame
 | 2026-10-01 | CI judges a branch with main's guards | §5 rule 4, §6: CI's authority verdict is main's copy of the guards, run isolated before the branch's code; `tests/run.sh` keeps the branch's copy as the local check |
 | 2026-10-04 | A merge is judged on its own change | §5 rules 3–4: a merge's own change is what differs from the clean three-way merge of its parents, at the hooks and in CI; CI no longer skips merges |
 | 2026-10-07 | A contributor that merges its own pull request | §5 rule 8: an entry's `merges` lets its role open, review and merge its own pull request within its entry; CI refuses a pull request from a for/ branch, and a contributor-only one whose role does not merge |
+| 2026-10-08 | A role that merges its own work may fold another contributor's supply | §5 rule 8: a PR with no owner-role commit passes when a role in it merges its own work |

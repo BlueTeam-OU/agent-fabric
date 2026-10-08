@@ -158,6 +158,10 @@ def main() -> int:
         except Exception:  # noqa: BLE001 — a state oddity must not cost the session its project layer
             pass
         try:
+            lines += tools_line(ctx["project"], identity.agent_state_dir(ctx["agent"]))
+        except Exception:  # noqa: BLE001 — a report oddity must not cost the session its start
+            pass
+        try:
             lines += jobs_line(identity.read_jobs(ctx["agent"]), ctx["working_copy"])
         except (Exception, SystemExit):  # noqa: BLE001 — a job list it cannot read must not cost the session its start
             pass
@@ -228,6 +232,39 @@ def sweep_due(working_copy: str | None, state_dir: str, now: float | None = None
     return [f"agent-fabric: branch sweep due in this working copy ({since}) — when nothing is running on the tree, "
             f"run `fabric-branches --sweep`: it deletes the local branches and worktrees wholly on the default branch and "
             f"reports the rest, which you bring to the person (the branch-hygiene skill)."]
+
+
+TOOLS_REPORT = "tools.json"
+TOOLS_STALE_S = 2 * 86400
+
+
+def tools_line(project: str | None, state_dir: str, now: float | None = None) -> list[str]:
+    """One line naming the required tools this project declares and this
+    account lacks (projects/registry.json `tools`), read from the report
+    the control agent writes with `fabric-tools --all --json`. The proofs
+    are not run here: a session start must not wait on a dozen commands.
+    No report, an unreadable one, or nothing missing: nothing said."""
+    if not project:
+        return []
+    path = os.path.join(state_dir, TOOLS_REPORT)
+    try:
+        with open(path, encoding="utf-8") as fh:
+            doc = json.load(fh)
+        age = (now if now is not None else time.time()) - os.stat(path).st_mtime
+    except (OSError, ValueError):
+        return []
+    rows = doc.get("tools") if isinstance(doc, dict) else None
+    if not isinstance(rows, list):
+        return []
+    missing = [r for r in rows if isinstance(r, dict) and r.get("project") == project
+               and r.get("status") != "ok" and not r.get("optional")]
+    if not missing:
+        return []
+    names = ", ".join(f"{r.get('name')} ({r.get('status')}, needs {r.get('version') or 'any'}, {r.get('where') or '?'})"
+                      for r in missing)
+    stale = f"; the report is {int(age // 86400)} days old" if age > TOOLS_STALE_S else ""
+    return [f"agent-fabric: {project} needs tools this account lacks: {names}{stale}. `fabric-tools` checks them again; "
+            f"a host tool is the owner's to install, an account tool is said to the owner, never installed by a session."]
 
 
 def jobs_line(doc: dict, working_copy: str | None) -> list[str]:
