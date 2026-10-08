@@ -6,7 +6,9 @@ docs/live-checks/2026-09-16-openrouter-presets.md; nothing here talks to
 it (OPENROUTER_API_KEY is unset and HOME is a sandbox for every case)."""
 from __future__ import annotations
 
+import contextlib
 import importlib.util
+import io
 import json
 import os
 import sys
@@ -30,12 +32,17 @@ def test_the_key_is_required_and_read_from_the_synced_file(tmp: str) -> None:
     """No shell exports the key since sync stopped sourcing secrets.env
     (ADR-038 rule 9): the account's own file is where it is."""
     os.environ.pop("OPENROUTER_API_KEY", None)
+    err = io.StringIO()
     try:
-        shim.api_key()
+        with contextlib.redirect_stderr(err):
+            shim.api_key()
     except SystemExit:
         pass
     else:
         raise AssertionError("api_key() returned with no key in the environment or the file")
+    # The command a person runs is on every account's PATH; bin/ is a path
+    # relative to a checkout they may not be in.
+    assert "(fabric-secrets sync)" in err.getvalue() and "bin/" not in err.getvalue(), err.getvalue()
     f = os.path.join(tmp, ".config", "agent-fabric", "secrets.env")
     os.makedirs(os.path.dirname(f), exist_ok=True)
     with open(f, "w") as fh:

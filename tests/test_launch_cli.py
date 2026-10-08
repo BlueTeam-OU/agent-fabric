@@ -785,6 +785,9 @@ def main() -> int:
               "the login's synced record has none" in out, grep("(?i)oauth|synced", out))
         check("…and the launch is refused: no session on a login's own /login",
               rc == 1 and "no long-lived Claude sign-in" in out and not has(r"^CLAUDE-OAUTH-SHA:", out), f"rc={rc}\n{out}")
+        check("…its hint naming the commands on PATH, not a checkout's bin/",
+              "(fabric-accounts assign " in out and "then fabric-secrets sync here" in out and "bin/fabric-" not in out,
+              grep("fabric-", out))
         put(sec, "export CLAUDE_CODE_OAUTH_TOKEN='a-login-access-token'\n")
         rc, out = run("--provider", "anthropic", "--version")
         check("a token not of a setup-token's shape is refused too", rc == 1 and "no long-lived Claude sign-in" in out,
