@@ -20,6 +20,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+from git_env import git_env, scrub_process_env  # noqa: E402 — tests/, the script's own directory
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ENROLL = os.path.join(HERE, "runtime", "provisioning", "secrets", "store-enroll.sh")
@@ -143,7 +144,7 @@ esac
         publish()
         check("with --born-now the enrolment completes", r.returncode == 0 and bool(kid_id), r.stderr)
         repo = os.path.join(remotes, f"agent-fabric-secrets-{kid_id}.git")
-        shown = subprocess.run(["git", "--git-dir", repo, "show", "main:.agent-id"], capture_output=True, text=True)
+        shown = subprocess.run(["git", "--git-dir", repo, "show", "main:.agent-id"], capture_output=True, text=True, env=git_env())
         check("…its first commit reached its repository through the parent", shown.stdout.strip() == kid_id, shown.stderr)
         mirror = os.path.join(t, "parent", ".local", "share", "agent-fabric", "children", kid_id)
         check("…and the parent holds the mirror", os.path.isdir(os.path.join(mirror, ".git")))
@@ -241,12 +242,12 @@ esac
         # that head was refused as non-fast-forward.
         r = parent("python3", STORE, "put", "kid", "AFTER_TAKE", stdin="fixture\n")
         check("…a put the account has not taken yet", r.returncode == 0, r.stderr)
-        remote_head = subprocess.run(["git", "--git-dir", repo, "rev-parse", "main"], capture_output=True, text=True).stdout
+        remote_head = subprocess.run(["git", "--git-dir", repo, "rev-parse", "main"], capture_output=True, text=True, env=git_env()).stdout
         shutil.rmtree(mirror)
         r = parent(ENROLL, "kid", "--born-now")
         r2 = parent(ENROLL, "kid", "--born-now")
-        heads = (subprocess.run(["git", "--git-dir", repo, "rev-parse", "main"], capture_output=True, text=True).stdout,
-                 subprocess.run(["git", "-C", mirror, "rev-parse", "HEAD"], capture_output=True, text=True).stdout)
+        heads = (subprocess.run(["git", "--git-dir", repo, "rev-parse", "main"], capture_output=True, text=True, env=git_env()).stdout,
+                 subprocess.run(["git", "-C", mirror, "rev-parse", "HEAD"], capture_output=True, text=True, env=git_env()).stdout)
         check("a re-run rebuilds the mirror at the remote's head, the parent's puts kept, and converges",
               r.returncode == 0 and r2.returncode == 0 and heads == (remote_head, remote_head) and remote_head.strip(),
               (r.stderr, r2.stderr, remote_head, heads))
@@ -260,4 +261,5 @@ esac
 
 
 if __name__ == "__main__":
+    scrub_process_env()
     sys.exit(main())
