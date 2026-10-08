@@ -15,6 +15,7 @@ import re
 import subprocess
 import sys
 import tempfile
+from git_env import git_env, scrub_process_env  # noqa: E402 — tests/, the script's own directory
 
 # Every git this suite starts, fixture or under test, reads none of the
 # caller's ~/.gitconfig: set here, it reaches the calls that pass no env.
@@ -197,9 +198,9 @@ def main() -> int:
 
         print("fabric-status: memories written and not yet drained")
         wc = f"{sandbox}/gzapp"
-        subprocess.run(["git", "init", "-q", wc], check=True, timeout=30)
+        subprocess.run(["git", "init", "-q", wc], check=True, timeout=30, env=git_env())
         subprocess.run(["git", "-C", wc, "remote", "add", "origin", "git@github.com:gzapi-org/gzapp.git"],
-                       check=True, timeout=30)
+                       check=True, timeout=30, env=git_env())
         # The harness's spelling: every non-alphanumeric is a dash.
         mem = f"{sandbox}/home/.claude/projects/{re.sub(r'[^A-Za-z0-9]', '-', wc)}/memory"
         report = f"{wc}/.agent-fabric/memory/last-drain-report.json"
@@ -279,4 +280,5 @@ def main() -> int:
 
 
 if __name__ == "__main__":
+    scrub_process_env()
     sys.exit(main())
