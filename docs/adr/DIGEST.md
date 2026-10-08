@@ -616,8 +616,7 @@ its record disagree, the record wins. Look it up, never read it whole:
   operator's Ed25519 signature, fresh and strictly newer than the last
   (§5 rules 3–5).
 - Every reply arrives, gaps named, no secret; `fabric-ctl` exits 1 on
-  silence or a failed action; the drain files only verified bundles
-  (§5 rules 6–9). Reads are fenced, not proved (§6).
+  silence or a failed action (§5 rules 6–9). Reads are fenced (§6).
 - A 2026-09-27 — actions run beside the read loop, one per kind (§5 rule 12).
 - A 2026-09-27 — each operation's answer budget (§5 rule 12).
 - A 2026-09-28 — `jobs` and `jobs-add` carry the job list (§5 rule 13).
@@ -626,11 +625,11 @@ its record disagree, the record wins. Look it up, never read it whole:
   operator's store (§5 rule 5).
 - A 2026-10-06 — `local`, `local-prune`: settings.local.json (§5 rule 15).
 - A 2026-10-07 — session state on the control plane (§5 rule 16).
-- A 2026-10-07 — `secrets-selftest`: an own secret added, used, removed (§5 rule 17).
-- Keywords: control plane, agentd, fabric-ctl, control channel,
-  fabric:control, relay, ops, status, ping, keys, usage, recall, tokens,
-  drain, memory, signed, operator_key, keygen, linger, persist, session
-  state, herdr.
+- A 2026-10-07 — `secrets-selftest` (§5 rule 17).
+- A 2026-10-08 — the state record says what can be resumed (§5 rule 16).
+- Keywords: control plane, agentd, fabric-ctl, fabric:control, ops,
+  ping, keys, usage, recall, tokens, drain, operator_key, keygen,
+  linger, persist, status, memory, bundle, session state, herdr, resume.
 ### ADR-030 — Presence replaces HELLO and GOODBYE (Accepted)
 
 - Whether a session runs is the control agent's answer from its process
