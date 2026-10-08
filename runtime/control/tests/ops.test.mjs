@@ -844,5 +844,12 @@ test('collect script: the op asks whether its holder is the source locale', asyn
   const home = scratch('src-home-'); fs.mkdirSync(path.join(home, '.claude', 'projects'), { recursive: true });
   const ask = async who => (await collect('script', { home, who, root: FABRIC_ROOT })).script.notes;
   assert.deepEqual(await ask({ role: 'language-culture', agent: 'language-culture-en' }), { status: 'not measured', reason: 'the source locale' });
+  // No transcript directory at all (a new account): no records, and the notes still said.
+  const bare = scratch('src-bare-');
+  const none = (await collect('script', { home: bare, who: { role: 'language-culture', agent: 'language-culture-en' }, root: FABRIC_ROOT })).script;
+  assert.equal(none.status, 'no-records'); assert.deepEqual(none.notes, { status: 'not measured', reason: 'the source locale' });
+  const nd = path.join(bare, 'notes'); fs.mkdirSync(nd); fs.writeFileSync(path.join(nd, 'd.md'), 'მოთხოვნა: გადათარგმნილი მოთხოვნა ქართულად, სრული აბზაცი.\n');
+  const other = script(bare, { notes: nd, langid: () => ({ status: 'unavailable' }) });
+  assert.equal(other.status, 'no-records'); assert.equal(other.notes.status, 'ok', 'any holder\'s notes, with or without transcripts');
   assert.equal((await ask({ role: 'language-culture', agent: 'language-culture-ge' })).status, 'none');
 });

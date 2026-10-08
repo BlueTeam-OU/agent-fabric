@@ -254,7 +254,7 @@ export function script(home = os.homedir(), { hours = 24, limit = 5, now = Date.
         if (now - st.mtimeMs <= hours * 3600000) files.push({ f, mtime: st.mtimeMs });
       }
     }
-  } catch { return { status: 'no-records' }; }
+  } catch { /* no transcript directory: no files, and the notes are still said below */ }
   files.sort((a, b) => b.mtime - a.mtime); files = files.slice(0, limit);
   // The notes: every file under the notes directory touched in the window,
   // its paragraphs binned like thinking blocks.
