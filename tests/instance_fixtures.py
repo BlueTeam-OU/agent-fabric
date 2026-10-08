@@ -27,10 +27,13 @@ def write_registry(directory: str, doc: dict = ADR_REGISTRY) -> str:
 
 # ADR-045 §5 rule 2's instance data, as paths in a fabric tree: what a test
 # that builds a fabric from the checkout (git archive HEAD) takes out before
-# writing the fixtures its case needs.
-INSTANCE_PATHS = ("projects/registry.json", "runtime/hosts/registry.json", "identities/roles/catalog.json",
+# writing the fixtures its case needs. The roles (catalogue and roles as
+# adapted) and the decision records go whole: rule 2 counts the
+# organization's records as instance data, and until §6 splits them from
+# the engine's, a test that needs one writes it.
+INSTANCE_PATHS = ("projects/registry.json", "runtime/hosts/registry.json", "identities/roles",
                   "identities/keys", "identities/recovery.asc", "routing/profiles.json", "routing/policies",
-                  "memory", "docs/live-checks")
+                  "memory", "docs/live-checks", "docs/adr")
 
 
 def strip_instance(tree: str) -> None:

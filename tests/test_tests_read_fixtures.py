@@ -104,13 +104,14 @@ def resolve(node: ast.AST, names: dict[str, Parts]) -> Parts | None:
         return base + ([r.value] if isinstance(r, ast.Constant) and isinstance(r.value, str) else ["{x}"])
     if isinstance(node, ast.Call):
         fn = getattr(node.func, "attr", getattr(node.func, "id", ""))
-        if fn in ("join", "joinpath") and node.args:
-            base = resolve(node.args[0], names) if fn == "join" else resolve(node.func.value, names)
-            rest = node.args[1:] if fn == "join" else node.args
+        if fn in ("join", "joinpath", "Path", "PurePath") and node.args:
+            # Path(ROOT, "a", "b") joins as join() does; .joinpath(...) on a path.
+            base = resolve(node.func.value, names) if fn == "joinpath" else resolve(node.args[0], names)
+            rest = node.args if fn == "joinpath" else node.args[1:]
             if base is None:
                 return None
             return base + [a.value if isinstance(a, ast.Constant) and isinstance(a.value, str) else "{x}" for a in rest]
-        if fn in ("dirname", "abspath", "normpath", "realpath", "Path", "resolve") and node.args:
+        if fn in ("dirname", "abspath", "normpath", "realpath", "resolve") and node.args:
             return resolve(node.args[0], names)
         if fn == "resolve" and isinstance(node.func, ast.Attribute):
             return resolve(node.func.value, names)
@@ -148,7 +149,7 @@ def findings(src: str) -> list[tuple[int, str]]:
     found = []
     for n in ast.walk(tree):
         parts = None
-        if isinstance(n, ast.Call) and getattr(n.func, "attr", getattr(n.func, "id", "")) in ("join", "joinpath"):
+        if isinstance(n, ast.Call) and getattr(n.func, "attr", getattr(n.func, "id", "")) in ("join", "joinpath", "Path", "PurePath"):
             parts = resolve(n, names)
         elif isinstance(n, ast.BinOp) and isinstance(n.op, ast.Div):
             parts = resolve(n, names)
@@ -185,6 +186,8 @@ def case_no_test_reads_the_live_instance_files() -> None:
 
 
 def case_an_allowance_that_no_longer_applies_is_removed() -> None:
+    gone = [rel for rel in UNSCANNABLE if not os.path.isfile(os.path.join(ROOT, rel))]
+    assert not gone, "named unscannable, but no such file: " + ", ".join(gone)
     stale = []
     for rel, why in ALLOWED.items():
         with open(os.path.join(ROOT, rel), encoding="utf-8") as fh:
@@ -214,8 +217,10 @@ def case_the_scan_sees_each_form() -> None:
            'j = os.path.join(R2, "policies", "auto-mode.json")\n'
            'def f():\n'
            '    local = os.path.dirname(os.path.dirname(__file__))\n'
-           '    return os.path.join(local, "runtime", "hosts", "registry.json")\n')
-    assert {ln for ln, _ in findings(src)} == {5, 6, 7, 8, 9, 10, 11, 13, 15, 17, 20}, findings(src)
+           '    return os.path.join(local, "runtime", "hosts", "registry.json")\n'
+           'k = Path(ROOT, "policies", "auto-mode.json")\n'
+           'm = Path(ROOT, "policies") / "x.json"\n')
+    assert {ln for ln, _ in findings(src)} == {5, 6, 7, 8, 9, 10, 11, 13, 15, 17, 20, 21, 22}, findings(src)
 
 
 def case_the_scan_leaves_fixtures_and_engine_files_alone() -> None:
