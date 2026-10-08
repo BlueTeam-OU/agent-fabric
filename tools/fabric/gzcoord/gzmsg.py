@@ -417,7 +417,7 @@ def recorded_role(taxonomy: Taxonomy | None, me: Whoami | None = None) -> RoleRe
 
 
 def find_taxonomy(_from: str | None = None) -> str | None:
-    """agent-fabric's identities/roles/catalog.json, under the fabric root."""
+    """agent-fabric's identities/roles/catalog.json, under the operator root."""
     f = roots.role_catalog(root=paths.operator_root())
     return f if os.path.exists(f) else None
 
