@@ -242,6 +242,18 @@ def main() -> int:
     code, text, _, _ = watch(Fake(c, ["OPEN:CLEAN"], arming=["queued", "idle"], merge_group=evicted()), c)
     check("a failed merge_group run during the watch is an eviction, not a re-arm",
           code == 6 and "EVICTED #429" in text and text.endswith("https://gh.test/run/1"), text)
+    check("…its green checks explained in the project's words (gzapp's eviction_note)",
+          "auto-merge was dropped. The pr's own checks are green because that run is detector-bypassed and builds every"
+          " surface, including ones this diff never touched. Fix it, THEN re-arm: " in text, text)
+    with tempfile.TemporaryDirectory() as d:
+        bare = os.path.join(d, "arm.json")
+        with open(bare, "w") as fh:
+            json.dump({"arm_command": "x/arm.sh"}, fh)
+        c = Clock()
+        code, text, _, _ = watch(Fake(c, ["OPEN:CLEAN"], arming=["queued", "idle"], merge_group=evicted()), c,
+                                 env={"AGENT_FABRIC_ARM_CONFIG": bare})
+    check("a project with no eviction_note gets no sentence, never a generic one",
+          code == 6 and "auto-merge was dropped. Fix it, THEN re-arm: https://gh.test/run/1" in text, text)
     for label, runs in (("a successful queue run", evicted("success")),
                         ("a failure from before the watch", evicted(at="2026-10-07T00:00:00Z")),
                         ("another pr's failure", evicted(pr="4290"))):

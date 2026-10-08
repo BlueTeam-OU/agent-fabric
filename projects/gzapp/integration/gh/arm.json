@@ -20,5 +20,6 @@
     "docs-only": "^(docs/|\\.claude/skills/|README\\.md$|[^/]+\\.md$|.*/README\\.md$|.*/CLAUDE\\.md$)",
     "single-check tooling": "^(tools/|\\.github/|Makefile$|infra/local/|\\.claude/)"
   },
-  "arm_command": "tools/gh/arm.sh"
+  "arm_command": "tools/gh/arm.sh",
+  "eviction_note": "The pr's own checks are green because that run is detector-bypassed and builds every surface, including ones this diff never touched."
 }

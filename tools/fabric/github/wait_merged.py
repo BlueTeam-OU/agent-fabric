@@ -43,7 +43,9 @@ errors still go to stderr; they are not results.
 
 The repository is GH_REPO, else this working copy's origin on
 github.com. The project's arm command, which the lines that say to arm
-name, is its arm.json's arm_command.
+name, is its arm.json's arm_command; the eviction line explains the
+evicted PR's green checks only in the project's words, its
+eviction_note.
 
 Exit codes:
   0  merged
@@ -219,16 +221,30 @@ def parse_args(argv: list[str]) -> dict | None:
     return {"pr": pr, "interval": int(interval), "timeout": int(timeout), "quiet": quiet, "idle_reads": int(idle)}
 
 
-def arm_command() -> str:
-    """The project's arm forwarder, which the lines that say to arm name:
-    its arm.json's arm_command. Read leniently — a hint is not worth a
-    refusal — so without one the lines name it in words."""
+def _arm_json(key: str):
+    """One key of the project's arm.json, read leniently — a hint is not
+    worth a refusal — None when it cannot be read."""
     try:
         with open(arm.config_path(), encoding="utf-8") as fh:
-            cmd = json.load(fh).get("arm_command")
+            return json.load(fh).get(key)
     except (OSError, ValueError, AttributeError, TypeError):
-        cmd = None
+        return None
+
+
+def arm_command() -> str:
+    """The project's arm forwarder, which the lines that say to arm name:
+    its arm.json's arm_command; without one the lines name it in words."""
+    cmd = _arm_json("arm_command")
     return cmd if isinstance(cmd, str) and cmd else "the project's arm.sh"
+
+
+def eviction_note() -> str:
+    """Why the evicted PR's own checks read green, in the project's words
+    (arm.json eviction_note): it depends on how that project's CI builds a
+    merge_group run. A project that says nothing gets no sentence, never a
+    generic one that would be wrong for it."""
+    note = _arm_json("eviction_note")
+    return note if isinstance(note, str) else ""
 
 
 # ── the watch ────────────────────────────────────────────────────────
@@ -238,6 +254,7 @@ class Watch:
         self.pr, self.repo, self.quiet = opts["pr"], repo, opts["quiet"]
         self.interval, self.timeout, self.idle_threshold = opts["interval"], opts["timeout"], opts["idle_reads"]
         self.arm = arm_command()
+        self.eviction_note = eviction_note()
         # THE DEADLINE IS WALL-CLOCK, not a count of the naps taken: whole
         # seconds since the watch began, as bash's SECONDS counted, so it
         # covers everything the watch does, API latency included. An
@@ -473,10 +490,9 @@ class Watch:
                             # FIRST; re-arming into it repeats it.
                             qb = self.queue_build_failed()
                             if qb:
+                                note = f"{self.eviction_note} " if self.eviction_note else ""
                                 raise Verdict(6, f"STALLED — the merge queue EVICTED #{pr}: its merge_group build "
-                                                 "failed and auto-merge was dropped. The pr's own checks are green "
-                                                 "because that run is detector-bypassed and builds every surface, "
-                                                 "including ones this diff never touched. Fix it, THEN re-arm: "
+                                                 f"failed and auto-merge was dropped. {note}Fix it, THEN re-arm: "
                                                  f"{qb}")
                             raise Verdict(6, "STALLED — auto-merge was armed when this watch began and is no longer, "
                                              f"and #{pr} has read neither queued nor armed on {idle_reads} consecutive"
