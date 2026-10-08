@@ -446,8 +446,14 @@ def run() -> None:
           try_commit("src/a.txt", "a fix\n\nKind: review-fix", kind=False) == 1 and "Answers:" in err, f"admitted\n{err}")
     check("an unknown kind is refused",
           try_commit("src/a.txt", "x\n\nKind: findings", kind=False) == 1, f"admitted\n{err}")
+    # Each value is exactly "work" once read: only the trailer block's
+    # parse makes them nothing, so reading the whole body would admit them.
     check("a 'Kind:' line in the body, not the trailers, declares nothing",
-          try_commit("src/a.txt", "x\n\nKind: work is what this was\nand more prose", kind=False) == 1, f"admitted\n{err}")
+          try_commit("src/a.txt", "x\n\nKind: work\nand more prose", kind=False) == 1, f"admitted\n{err}")
+    check("…nor one followed by a closing paragraph",
+          try_commit("src/a.txt", "x\n\nKind: work\n\nA closing prose paragraph.", kind=False) == 1, f"admitted\n{err}")
+    check("the key is read in any case, as git reads trailer keys",
+          try_commit("src/a.txt", "x\n\nKIND: work", kind=False) == 0, f"refused\n{err}")
     git("reset", "-q", "--hard")  # the refused commits above left their change staged
     first = git("rev-parse", "HEAD")[1].strip()
     # git revert itself runs no commit-msg hook (git 2.56, measured); its
@@ -461,6 +467,29 @@ def run() -> None:
     git("checkout", "-q", "-")
     rc = commit_rc("merge", "-q", "--no-ff", "-m", "fold side", "side", kind=False)
     check("a merge commit needs no Kind:", rc == 0 and not has(r"^Kind:", msg()), f"rc={rc}\n{err}")
+
+    # What git runs the hook for, measured on 2.56 and pinned here: a plain
+    # `git revert` and a rebase's picks run none, so a branch made before
+    # the rule rebases as it is; a reword runs it, and its message declares.
+    rc = commit_rc("revert", "--no-edit", "HEAD~1", kind=False)
+    check("a plain git revert runs no commit-msg hook (committed, no Kind: stamped)",
+          rc == 0 and not has(r"^Kind:", msg()), f"rc={rc}\n{err}\n{msg()}")
+    git("checkout", "-q", "-b", "old")
+    put("src/a.txt", "old side\n")
+    git("add", "-A"); git("-c", "core.hooksPath=/dev/null", "commit", "-qm", "made before the rule")
+    git("checkout", "-q", "-")
+    try_commit("src/a.txt", "main moves")
+    git("checkout", "-q", "old")
+    git("rebase", "-q", "-")
+    put("src/a.txt", "resolved\n"); git("add", "src/a.txt")
+    rc, _, err = git("-c", "core.editor=true", "rebase", "--continue", state=True)
+    check("a rebase continued after a conflict runs no commit-msg hook: an undeclared commit lands",
+          rc == 0 and not has(r"^Kind:", msg()), f"rc={rc}\n{err}")
+    rc, _, err = git("-c", "sequence.editor=sed -i s/^pick/reword/", "-c", "core.editor=true",
+                     "rebase", "-q", "-i", "HEAD~1", state=True)
+    check("a reword runs it: an undeclared message is refused, naming the trailer",
+          rc != 0 and "Kind: work" in err, f"rc={rc}\n{err}")
+    git("rebase", "--abort")
 
     print()
     section("in a managed project, its own docs/adr/ is its own")
