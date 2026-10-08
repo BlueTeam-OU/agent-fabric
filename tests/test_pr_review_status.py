@@ -187,6 +187,50 @@ def main() -> int:
     check("the exit-8 table survives the error", e.stdout == "a\tpass\n")
     check("the pass count reads \\spass\\s per line", [bool(rs.PASS_LINE.search(l)) for l in ("a / b\tpass\t1s", "a / b\tfail\t1s", "password")] == [True, False, False])
 
+    # ── fetch_extras: a checks lookup that printed no table is unknown ──
+    # Each answer is gh's as measured on 2.87.3 (2026-10-09); only the
+    # "no checks reported" one, and a table, are counts.
+    table = "a / b\tpass\t1s\thttps://x\nc / d\tfail\t2s\thttps://y\n"
+    answers = [
+        ("exit 0, a table", table, None, (1, 1)),
+        ("exit 1 with its table (a failing check)", table, gh.GhError("gh pr checks 77", "exit 1", None, False, table, "", 1), (1, 1)),
+        ("exit 8 with its table (a pending check)", table, gh.GhError("gh pr checks 77", "exit 8", None, False, table, "", 8), (1, 1)),
+        ("gh's 'no checks reported' is zero", "",
+         gh.GhError("gh pr checks 77", "x", None, False, "", "no checks reported on the 'mine/branch' branch\n", 1), (0, 0)),
+        ("an HTTP 502 is unknown", "",
+         gh.GhError("gh pr checks 77", "HTTP 502", 502, True, "", "HTTP 502: Bad Gateway (https://api.github.com/graphql)\n", 1), (None, None)),
+        ("a timeout is unknown", "", gh.GhError("gh pr checks 77", "no answer within 60 s", transient=True), (None, None)),
+        ("exit 1, no table, another line, is unknown", "",
+         gh.GhError("gh pr checks 77", "x", None, False, "", "could not find pull request\n", 1), (None, None)),
+        ("exit 8 with no table is unknown", "", gh.GhError("gh pr checks 77", "exit 8", None, False, "", "", 8), (None, None)),
+        ("gh not installed is unknown", "", gh.GhError("gh pr checks 77", "gh is not installed"), (None, None)),
+    ]
+    real_run, real_graphql = gh.run, gh.graphql
+    try:
+        gh.graphql = lambda *a, **k: {"repository": {"pullRequest": {"reviewThreads": {"nodes": [], "pageInfo": {}}}}}
+        for label, stdout, raised, want in answers:
+            def fake_run(args, *, input=None, timeout=gh.TIMEOUT_S, what=None, stdout=stdout, raised=raised):
+                assert args[:2] == ["pr", "checks"], args
+                if raised is not None:
+                    raise raised
+                return stdout
+            gh.run = fake_run
+            x = rs.fetch_extras(ctx)
+            check(f"checks: {label} (got {x.checks_pass!r}, {x.checks_other!r})", (x.checks_pass, x.checks_other) == want and x.unresolved == 0)
+    finally:
+        gh.run, gh.graphql = real_run, real_graphql
+    nochecks = rs.Extras([], 0, None, None)
+    doc = json.loads(rs.render_json(ctx, rs.Probe(head=HEAD), nochecks, "", ""))
+    check("unknown checks are null in --json, never 0", doc["checks"] == {"pass": None, "other": None})
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        rs.render_text(ctx, rs.Probe(head=HEAD), nochecks)
+    check("unknown checks read 'unknown' in the report", "  checks              : unknown\n" in buf.getvalue())
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        rs.render_text(ctx, rs.Probe(head=HEAD), rs.Extras([], 0, 0, 0))
+    check("...and a real zero reads as one", "  checks              : 0 pass, 0 other\n" in buf.getvalue())
+
     print(f"\n{'FAILED' if fails else 'all passed'}")
     return 1 if fails else 0
 
