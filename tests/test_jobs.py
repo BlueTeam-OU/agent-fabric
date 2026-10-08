@@ -11,6 +11,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+from git_env import git_env, scrub_process_env  # noqa: E402 — tests/, the script's own directory
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 JOBS = os.path.join(ROOT, "bin", "fabric-jobs")
@@ -51,7 +52,7 @@ def main() -> int:
         repo_a, repo_b = os.path.join(tmp, "alpha"), os.path.join(tmp, "beta")
         for r in (repo_a, repo_b):
             os.makedirs(r)
-            subprocess.run(["git", "init", "-q", r], check=True)
+            subprocess.run(["git", "init", "-q", r], check=True, env=git_env())
 
         def run(*argv: str, cwd: str = repo_a) -> subprocess.CompletedProcess:
             return subprocess.run([JOBS, *argv], cwd=cwd, env=env, capture_output=True, text=True)
@@ -117,8 +118,8 @@ def main() -> int:
         # --project finds this login's checkout of the project beside the
         # working copy it runs in — never the current one for another project.
         gz = os.path.join(tmp, "gzapp-copy")
-        subprocess.run(["git", "init", "-q", gz], check=True)
-        subprocess.run(["git", "-C", gz, "remote", "add", "origin", "git@github.com:gzapi-org/gzapp.git"], check=True)
+        subprocess.run(["git", "init", "-q", gz], check=True, env=git_env())
+        subprocess.run(["git", "-C", gz, "remote", "add", "origin", "git@github.com:gzapi-org/gzapp.git"], check=True, env=git_env())
         env["AGENT_FABRIC_STATE_DIR"] = os.path.join(tmp, "state-project")
         p = run("add", "a gzapp job", "--project", "gzapp")
         check("--project finds the project's checkout beside this one",
@@ -136,7 +137,7 @@ def main() -> int:
         with open(os.path.join(tmp, "state-bound", "agents", login, "binding.json"), "w", encoding="utf-8") as fh:
             json.dump({"agent": login, "host": host, "role": "backend-dev", "project": "gzapp"}, fh)
         unreg = os.path.join(tmp, "aaa-unregistered")   # sorts before gzapp-copy
-        subprocess.run(["git", "init", "-q", unreg], check=True)
+        subprocess.run(["git", "init", "-q", unreg], check=True, env=git_env())
         p = run("add", "a gzapp job", "--project", "gzapp", cwd=unreg)
         check("the bound project's job skips an unregistered checkout, the current one included",
               p.returncode == 0 and jobs()[0]["working_copy"] == gz, p.stderr + repr(jobs()))
@@ -253,4 +254,5 @@ def main() -> int:
 
 
 if __name__ == "__main__":
+    scrub_process_env()
     sys.exit(main())
