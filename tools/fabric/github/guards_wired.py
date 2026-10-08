@@ -70,6 +70,10 @@ Exit codes:
 #   stderr  "check_guards_are_wired: <why>", exit 2; the lines form's
 #           summary.
 #   exit    0, 1, 2 as --help says.
+# PINNED LIMIT (devex-tooling, 2026-10-08): the runner rule covers the
+# configured directories only, as both copies did; the whole-tree rule
+# checks wiring alone. A bash self-test elsewhere run bare passes here.
+# Widening it waits on the projects' own bare suites being wired first.
 from __future__ import annotations
 
 import json
