@@ -1,5 +1,5 @@
 #!/bin/bash -l
-# Entered by `moveto`. argv: <dir> <title>
+# Entered by `moveto`. argv: <dir> <title> [--resume]
 #
 # A separate file, not an inline `bash -lc '...'`: the inline form put the
 # whole script on the process command line, and a terminal that titles from
@@ -58,5 +58,13 @@ fi
 # OSC 1 = icon/tab name, OSC 2 = window title. Explicit beats OSC 0, which
 # means "both" and is honoured inconsistently.
 printf '\033]1;%s\007\033]2;%s\007' "$MOVETO_TITLE" "$MOVETO_TITLE"
+
+# --resume (moveto <account> --resume, Fleet Deck's re-entry): the
+# account's last session comes back first, as a child of this shell's
+# start, through its own launcher (bin/fabric-resume), which says when it
+# starts fresh instead; when that session ends, the shell follows.
+if [ "${3:-}" = "--resume" ] && [ -x "$fabric/bin/fabric-resume" ]; then
+    "$fabric/bin/fabric-resume" || echo "moveto: fabric-resume exited $?" >&2
+fi
 
 exec bash --rcfile /usr/local/share/moveto/rc -i

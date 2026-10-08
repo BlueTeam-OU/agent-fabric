@@ -137,6 +137,20 @@ def main() -> int:
             check("this account: enter itself, no sudo", calls == [("execv", mv.MOVETO_ENTER, [mv.MOVETO_ENTER,
                                                                                                "/h/acct/projects/c1", "acct"])],
                   str(calls))
+            calls.clear()
+            mv.me = lambda: "op"
+            try:
+                with redirect_stdout(io.StringIO()), open(os.devnull, "w") as null:
+                    sys.stderr, saved_err = null, sys.stderr
+                    try:
+                        mv.moveto(["acct", "--resume"])
+                    finally:
+                        sys.stderr = saved_err
+            except SystemExit:
+                pass
+            check("--resume: the same sudo, enter told --resume as its third argument, nothing else",
+                  calls == [("execvp", "sudo", ["sudo", "-n", "-u", "acct", "-H", mv.MOVETO_ENTER, "/h/acct/projects",
+                                                "acct", "--resume"])], str(calls))
         finally:
             mv.os.execv, mv.os.execvp, mv.me, mv.command, mv.run_as, mv.home_of, mv.list_clones = saved
             signal.signal(signal.SIGPIPE, saved_pipe)
