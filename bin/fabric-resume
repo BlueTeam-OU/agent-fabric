@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# bin/fabric-resume — bring this account's last session back in its own
+# shell (after `moveto <account> --resume`), or start a fresh one and say
+# so. The path is the contract (runtime/claude-code/commands.json, moveto);
+# the work and its reasons are in tools/fabric/resume.py.
+ROOT="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
+# The fleet's pinned Python (runtime/python.json, ADR-040), one per host;
+# AGENT_FABRIC_PYTHON points elsewhere for a test or a host without it.
+py="${AGENT_FABRIC_PYTHON:-/usr/local/bin/fabric-python}"
+[[ -x "$py" ]] || { echo "fabric-resume: the fleet's pinned Python is not installed at $py; as root: /usr/bin/python3 <agent-fabric>/tools/fabric/python_pin.py install" >&2; exit 127; }
+exec "$py" "$ROOT/tools/fabric/resume.py" "$@"
