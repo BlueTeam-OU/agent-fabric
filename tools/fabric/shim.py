@@ -76,7 +76,16 @@ import urllib.request
 
 HERE = os.path.dirname(os.path.realpath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
-SHIMS_DIR = os.path.join(ROOT, "routing", "shims")
+sys.path.insert(0, HERE)
+import roots  # noqa: E402
+
+# ENGINE data (ADR-045 §5 rule 2): a shim is a model family's
+# compatibility delta on OpenRouter, the same for every operator — a
+# routing default, beside routing/shims.json, which tools/fabric/routing.py
+# reads from the engine root too; an operator's choice of models is
+# routing/profiles.json. So the engine root (AGENT_FABRIC_ROOT, else this
+# checkout), never the operator's tree.
+SHIMS_DIR = os.path.join(roots.engine_root(), "routing", "shims")
 API = "https://openrouter.ai/api/v1"
 
 # The six-step task: enough tool calls, enough context (the launcher alone

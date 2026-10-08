@@ -26,6 +26,19 @@ def test_sources_round_trip(tmp: str) -> None:
     assert prompt == "# delta\n\nFollow the harness.\n" and config == {"provider": {"allow_fallbacks": False, "only": ["x"]}}
 
 
+def test_sources_are_engine_data(tmp: str) -> None:
+    """ADR-045: a shim is a routing default, read from the engine root
+    (AGENT_FABRIC_ROOT) like routing/shims.json, never the operator's tree."""
+    import subprocess
+    probe = ("import importlib.util as u; s = u.spec_from_file_location('s', %r); "
+             "m = u.module_from_spec(s); s.loader.exec_module(m); print(m.SHIMS_DIR)") % os.path.join(ROOT, "tools", "fabric", "shim.py")
+    env = {k: v for k, v in os.environ.items() if not k.startswith("AGENT_FABRIC_")}
+    got = subprocess.run([sys.executable, "-c", probe], capture_output=True, text=True, timeout=60, check=True,
+                         env={**env, "AGENT_FABRIC_ROOT": os.path.join(tmp, "engine"),
+                              "AGENT_FABRIC_OPERATOR": os.path.join(tmp, "operator")}).stdout.strip()
+    assert got == os.path.join(tmp, "engine", "routing", "shims"), got
+
+
 def test_the_key_is_required_and_read_from_the_synced_file(tmp: str) -> None:
     """No shell exports the key since sync stopped sourcing secrets.env
     (ADR-038 rule 9): the account's own file is where it is."""
@@ -119,7 +132,7 @@ def test_verdict_from_a_recorded_transcript(tmp: str) -> None:
 
 
 def main() -> int:
-    cases = [test_sources_round_trip, test_the_key_is_required_and_read_from_the_synced_file,
+    cases = [test_sources_round_trip, test_sources_are_engine_data, test_the_key_is_required_and_read_from_the_synced_file,
              test_diff_is_empty_when_live_matches_source, test_push_sends_system_and_provider_and_nothing_else,
              test_verdict_from_a_recorded_transcript]
     failures = 0
