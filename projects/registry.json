@@ -75,6 +75,11 @@
       "default_branch": "main",
       "taxonomy": ".agent-fabric/taxonomy.json",
       "memory": ".agent-fabric/memory",
+      "tools": [
+        {"name": "git", "proof": "git --version", "version": "2.x", "why": "every repository operation", "where": "host"},
+        {"name": "gh", "proof": "gh --version", "version": "2.x", "why": "the pull-request flow", "where": "host"},
+        {"name": "python3", "proof": "python3 --version", "version": "3.x", "why": "kutaisi_shop_transit.py and its requirements.txt", "where": "host"}
+      ],
       "integration": null,
       "license": "LicenseRef-kutaisi-shop-transit-Proprietary",
       "note": "A private repository whose tree carries no license file: all rights reserved by default. One role, domain-transit; its working copy is that account's (moved there 2026-09-15)."
