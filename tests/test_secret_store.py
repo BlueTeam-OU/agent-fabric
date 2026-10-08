@@ -50,6 +50,9 @@ def main() -> int:
         # the scratch fabric's, sync its own checkout's, so this is a copy.
         os.makedirs(os.path.join(fabric, "projects"))
         shutil.copy(os.path.join(ROOT, "projects", "registry.json"), os.path.join(fabric, "projects", "registry.json"))
+        # sync judges a login by its kind in the hosts registry, instance data read from the operator root
+        os.makedirs(os.path.join(fabric, "runtime", "hosts"))
+        shutil.copy(os.path.join(ROOT, "runtime", "hosts", "registry.json"), os.path.join(fabric, "runtime", "hosts", "registry.json"))
 
         def role(name: str) -> dict:
             h = os.path.join(tmp, name)
