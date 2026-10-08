@@ -149,10 +149,10 @@ def main() -> int:
         print("guards_wired: the whole tree")
         rc, out, err = run(tree({**GUARD, "apps/x/test_y.sh": "", "node_modules/p/test_z.sh": "",
                                  ".hidden/test_h.sh": "", "tools/checks/sub/test_s.sh": ""}, WIRED))
-        check("a test_*.sh elsewhere, unwired, is reported by path; node_modules, hidden dirs and the checked"
-              " directories' own subdirectories are not walked",
-              rc == 1 and "        apps/x/test_y.sh\n" in out and "test_z" not in out and "test_h" not in out
-              and "test_s" not in out, out)
+        check("a test_*.sh elsewhere, unwired, is reported by path, one under a checked directory's subdirectory"
+              " too; node_modules and hidden dirs are not walked",
+              rc == 1 and "        apps/x/test_y.sh\n" in out and "        tools/checks/sub/test_s.sh\n" in out
+              and "test_z" not in out and "test_h" not in out, out)
         rc, out, err = run(tree({"tools/checks/a.sh": "", "tools/checks/test_a.sh": "", "target/c/test_v.sh": ""},
                                 "      - run: bash tools/checks/a.sh\n      - run: bash tools/checks/run_suite.sh"
                                 " tools/checks/test_a.sh\n"), lines_cfg)
@@ -197,8 +197,37 @@ def main() -> int:
         with open(os.path.join(root, ".github", "workflows", "deep", "x.yml"), "wb") as fh:
             fh.write(b"      - run: bash \xff\n")
         rc, out, err = run(root)
-        check("a workflow that is not UTF-8 is exit 2, never a verdict",
-              (rc, out, err) == (2, "", "check_guards_are_wired: could not read the workflow run commands.\n"), out + err)
+        check("a workflow that is not UTF-8 is exit 2, named, never a verdict",
+              rc == 2 and out == "" and err.startswith("check_guards_are_wired: could not read the workflow run commands: "
+                                                       f"{root}/.github/workflows/deep/x.yml: "), out + err)
+        os.remove(os.path.join(root, ".github", "workflows", "deep", "x.yml"))
+        locked = os.path.join(root, ".github", "workflows", "ci.yml")
+        os.chmod(locked, 0)
+        try:
+            rc, out, err = run(root)
+        finally:
+            os.chmod(locked, 0o644)
+        check("one that cannot be opened likewise: its guards are never reported unwired",
+              rc == 2 and out == "" and err == "check_guards_are_wired: could not read the workflow run commands: "
+                                                f"{locked}: Permission denied\n", out + err)
+        os.chmod(locked, 0)
+        try:
+            rc, out, err = run(root, lines_cfg)
+        finally:
+            os.chmod(locked, 0o644)
+        check("…with no package-script hop to read it a second time, too",
+              rc == 2 and out == "" and err == "check_guards_are_wired: could not read the workflow run commands: "
+                                                f"{locked}: Permission denied\n", out + err)
+        os.makedirs(os.path.join(root, "apps", "p"))
+        with open(os.path.join(root, "apps", "p", "package.json"), "w") as fh:
+            fh.write("{ not json")
+        rc, out, err = run(root)
+        check("a package.json that does not parse, with the pnpm hop on, is exit 2, named",
+              rc == 2 and out == "" and err.startswith(f"check_guards_are_wired: could not read package scripts: {root}/apps/p/"
+                                                       "package.json: "), out + err)
+        rc, out, err = run(tree(GUARD, WIRED + "      - run: ls tools/[z-a]* tools/checks/[\\]x\n"))
+        check("a bracket no shell could expand wires nothing and raises nothing", rc == 0 and "Traceback" not in err,
+              out + err)
         empty = os.path.join(sandbox, "empty")
         os.makedirs(empty)
         rc, out, err = run(empty)

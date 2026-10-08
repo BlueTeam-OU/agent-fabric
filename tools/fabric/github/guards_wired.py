@@ -122,6 +122,10 @@ def exemptions(path: str) -> list[str]:
 
 # ── what the workflows run ───────────────────────────────────────────
 
+def _why(e: Exception) -> str:
+    return e.strerror if isinstance(e, OSError) and e.strerror else str(e)
+
+
 RUN_KEY = re.compile(r'^(\s*)(?:-\s+)?run:\s*(.*)$')
 
 
@@ -138,11 +142,14 @@ def run_commands(workflows: str) -> list[str]:
         for name in sorted(files):
             if not name.endswith((".yml", ".yaml")):
                 continue
+            path = os.path.join(dirpath, name)
             try:
-                with open(os.path.join(dirpath, name), encoding="utf-8") as fh:
+                with open(path, encoding="utf-8") as fh:
                     lines = fh.read().split("\n")
-            except OSError:
-                continue
+            except (OSError, ValueError) as e:
+                # Skipped, its steps would read as "never run": the
+                # verdict this check exists to give, fabricated.
+                raise Refused(f"could not read the workflow run commands: {path}: {_why(e)}") from None
             i = 0
             while i < len(lines):
                 m = RUN_KEY.match(lines[i])
@@ -237,11 +244,12 @@ def package_commands(root: str, workflows: str, excludes: set[str]) -> list[str]
         dirnames[:] = sorted(d for d in dirnames if d not in excludes)
         if "package.json" not in files:
             continue
+        path = os.path.join(dirpath, "package.json")
         try:
-            with open(os.path.join(dirpath, "package.json"), encoding="utf-8") as fh:
+            with open(path, encoding="utf-8") as fh:
                 doc = json.load(fh)
-        except (OSError, ValueError):
-            continue
+        except (OSError, ValueError) as e:
+            raise Refused(f"could not read package scripts: {path}: {_why(e)}") from None
         name, scripts = doc.get("name"), doc.get("scripts")
         if isinstance(name, str) and isinstance(scripts, dict):
             by_name[name] = (os.path.relpath(dirpath, root), scripts)
@@ -251,11 +259,12 @@ def package_commands(root: str, workflows: str, excludes: set[str]) -> list[str]
         for fn in sorted(files):
             if not fn.endswith((".yml", ".yaml")):
                 continue
+            path = os.path.join(dirpath, fn)
             try:
-                with open(os.path.join(dirpath, fn), encoding="utf-8") as fh:
+                with open(path, encoding="utf-8") as fh:
                     text = fh.read()
-            except OSError:
-                continue
+            except (OSError, ValueError) as e:
+                raise Refused(f"could not read the workflow run commands: {path}: {_why(e)}") from None
             code = "\n".join(l for l in text.split("\n") if not l.lstrip().startswith("#"))
             bound = loop_bindings(code, matrix_values(code))
             for line in code.split("\n"):
@@ -297,7 +306,13 @@ def glob_regex(pattern: str) -> re.Pattern:
         else:
             out.append(re.escape(c))
         i += 1
-    return re.compile("".join(out))
+    try:
+        return re.compile("".join(out))
+    except re.error:
+        # Not a pattern bash could expand either ([z-a]): it names
+        # nothing, so it wires nothing — never a traceback that reads as
+        # a finding.
+        return re.compile(r"(?!)")
 
 
 def _globs(line: str) -> list[str]:
@@ -421,15 +436,9 @@ def check(root: str, cfg: dict) -> dict:
     # the run text", so a failed read would surface as "these guards can
     # never fail a build", fabricated. An EMPTY one is fine: a workflow
     # whose steps all echo legitimately runs nothing.
-    try:
-        commands = run_commands(workflows)
-    except ValueError:
-        raise Refused("could not read the workflow run commands.") from None
+    commands = run_commands(workflows)
     if cfg["package_scripts"]:
-        try:
-            commands += package_commands(root, workflows, set(os.path.basename(e) for e in cfg["tree_excludes"]))
-        except ValueError:
-            raise Refused("could not read package scripts.") from None
+        commands += package_commands(root, workflows, set(os.path.basename(e) for e in cfg["tree_excludes"]))
     runs = Runs(commands, cfg["runner"])
 
     def is_exempt(rel: str) -> bool:
@@ -476,8 +485,10 @@ def check(root: str, cfg: dict) -> dict:
         dirnames[:] = sorted((n for n in dirnames if not n.startswith(".")
                               and not _excluded(os.path.normpath(os.path.join(reldir, n)), cfg["tree_excludes"])),
                              key=os.fsencode)
-        here = os.path.normpath(reldir)
-        if any(here == s or here.startswith(s + os.sep) for s in scanned):
+        # A configured directory's own files are its listing's; a
+        # subdirectory of it is the tree's like any other, or a self-test
+        # put one level down would be the invisible one.
+        if os.path.normpath(reldir) in scanned:
             continue
         for name in sorted(files, key=os.fsencode):
             if name.startswith("test_") and name.endswith(".sh"):
