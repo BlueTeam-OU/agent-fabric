@@ -132,11 +132,20 @@ def classify(parents: str, subject: str, answers: str = "", pr: str = "", repo: 
     # (review of #71).
     # The label stays case-sensitive there, as everywhere: "post-review v2"
     # is a version, not a finding (re-review of #71).
-    if (re.search(r"(?:^|[^A-Za-z])(?:re-review|(?<![A-Za-z]-)review'?s?|findings?|nits?)(?:[^A-Za-z]|$)", subject, re.I)
-            or re.search(rf"[A-Za-z]-(?i:reviews?'?s?)\s+{LABEL}(?:[^A-Za-z0-9]|$)", subject)) and (
-            re.search(r"(?:^|[^A-Za-z])(?:fix(?:es|ed)?|address(?:es|ed|ing)?|answer(?:s|ed)?|round|re-review|nits?|findings?)(?:[^A-Za-z0-9]|$)|#[0-9]+",
-                      subject, re.I)
-            or re.search(rf"(?:^|[^A-Za-z0-9]){LABEL}(?:-[0-9]+)?(?:[^A-Za-z0-9]|$)", subject)):
+    #
+    # "findings" and "nits" are one side or the other, never both: with a
+    # review word they are the answer ("review nits", "the re-review
+    # findings on 8c4ae884"), and with an answer word they are the review
+    # ("address the findings"); alone they are work — "Findings for
+    # question 1: a seed on the fleet's host" is a spike reporting what it
+    # found, and read as its own answer it moved a spike PR's count.
+    review = (re.search(r"(?:^|[^A-Za-z])(?:re-review|(?<![A-Za-z]-)review'?s?)(?:[^A-Za-z]|$)", subject, re.I)
+              or re.search(rf"[A-Za-z]-(?i:reviews?'?s?)\s+{LABEL}(?:[^A-Za-z0-9]|$)", subject))
+    finding = re.search(r"(?:^|[^A-Za-z])(?:findings?|nits?)(?:[^A-Za-z0-9]|$)", subject, re.I)
+    answer = (re.search(r"(?:^|[^A-Za-z])(?:fix(?:es|ed)?|address(?:es|ed|ing)?|answer(?:s|ed)?|round|re-review)(?:[^A-Za-z0-9]|$)|#[0-9]+",
+                        subject, re.I)
+              or re.search(rf"(?:^|[^A-Za-z0-9]){LABEL}(?:-[0-9]+)?(?:[^A-Za-z0-9]|$)", subject))
+    if (review and (answer or finding)) or (finding and answer):
         return "fix"
     # No review word: a finding label of the narrow F/G/N/P shape WITH a #PR
     # is the supplier's "(#861 F6)"; the wide shape stays out here so

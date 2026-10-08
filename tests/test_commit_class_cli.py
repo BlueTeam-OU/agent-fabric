@@ -32,6 +32,15 @@ CASES: list[tuple[str, list[tuple[str, str, str, str, str, str]]]] = [
         ("fix", "aaa", "pr-gate: address the blind review of #878", "", "", ""),
         ("fix", "aaa", "review fixes: the three nits on the README", "", "", ""),
         ("fix", "aaa", "tests: the re-review findings on 8c4ae884", "", "", ""),
+        # "findings" alone is a report, not an answer (a spike PR's count);
+        # with a review word, an answer word or a label it stays a fix.
+        ("work", "aaa", "Findings for question 1: a seed on the fleet's host", "", "", ""),
+        ("work", "aaa", "Make the install atomic and the findings match the code", "", "", ""),
+        ("work", "aaa", "spike: the nits of the old harness, written down", "", "", ""),
+        ("fix", "aaa", "review findings F1-F3: the seed refuses a stale socket", "", "", ""),
+        ("fix", "aaa", "address the findings on the install", "", "", ""),
+        ("fix", "aaa", "findings F2: the probe exits 3", "", "", ""),
+        ("fix", "aaa", "review nits on the README", "", "", ""),
         ("fix", "aaa", "docs(advertiser): the venue edit rows name 3.1.0 (#861 F6)", "", "", ""),
         ("work", "aaa", "docs(advertiser): the venue edit rows name 3.1.0 (F6)", "", "", ""),
     ]),
