@@ -26,7 +26,9 @@ What is checked, for each directory the project's guards.json names:
 What counts as RUN: a path in the text a workflow executes — a run:
 value, one line or a block — as any argument, directly or through a
 wrapper, or matched by a glob there (tools/gh/test_*.sh). A name in a
-comment, a commented-out command, a `name:` label or an echo does not.
+comment, a commented-out command, a `name:` label or an echo does not,
+nor does one behind a command this cannot read with certainty (a
+prefix's option: `env -u X …`): unknown is reported, never passed.
 With package_scripts, a `pnpm --filter <pkg> <script>` a workflow runs
 reaches that package script's body, one hop, the filter resolved through
 a for-loop over a matrix.
@@ -341,16 +343,20 @@ def _literal(rel: str) -> re.Pattern:
 FOR_HEAD = re.compile(r"\bfor\s+([A-Za-z_]\w*)\s+in\s")
 
 
-def _runs_bare(cmd: list[str], ref: set[str]) -> bool:
-    """The command runs the loop's suite itself: `"$t"`, `./"$t"`, or
-    bash/sh with it as the script, flags before it or not."""
+def _runs_bare(segment: str, ref: set[str], runner: str) -> bool:
+    """The segment runs the loop's suite without the runner: `"$t"`,
+    `./"$t"`, or bash/sh with $t among its arguments and no runner there.
+    A command this cannot read that names $t counts as bare: unknown is
+    never a pass."""
+    cmd = command(segment)
     if not cmd:
         return False
+    if cmd == [UNREADABLE]:
+        return any(r in segment for r in ref)
     if cmd[0] in ref or (cmd[0].startswith("./") and cmd[0][2:] in ref):
         return True
     if os.path.basename(cmd[0]) in ("bash", "sh"):
-        script = next((a for a in cmd[1:] if not a.startswith("-")), "")
-        return script in ref
+        return any(a in ref for a in cmd[1:]) and not any(os.path.basename(a) == runner for a in cmd[1:])
     return False
 
 
@@ -358,8 +364,13 @@ def _runs_bare(cmd: list[str], ref: set[str]) -> bool:
 KEYWORDS = {"then", "do", "else", "elif", "if", "while", "until", "{", "(", "!", "time"}
 
 
-# Words that run the word after them as the command.
-PREFIXES = {"env", "command", "builtin", "exec", "nohup"}
+# Words that run the word after them as the command (by basename:
+# /usr/bin/env is env); timeout's first argument is its duration.
+PREFIXES = {"env", "command", "builtin", "exec", "nohup", "timeout"}
+# What command() answers for a command it cannot read with certainty —
+# an option to a prefix, whose argument count it does not know. It is
+# never "echo" and never a path, so nothing behind it counts as run.
+UNREADABLE = "\0unreadable"
 
 
 def words(segment: str) -> list[str]:
@@ -373,12 +384,21 @@ def words(segment: str) -> list[str]:
 
 def command(segment: str) -> list[str]:
     """The command a segment runs and its arguments: past its leading
-    keywords, VAR=value assignments and prefixes (env, command, exec…)."""
-    ws = words(segment)
-    for i, w in enumerate(ws):
-        if w in KEYWORDS or w in PREFIXES or re.fullmatch(r"[A-Za-z_]\w*=.*", w, re.S):
-            continue
-        return ws[i:]
+    keywords, VAR=value assignments and prefixes (env, command, exec…).
+    [UNREADABLE] when a prefix carries an option: what it runs then
+    depends on an argument count this does not know."""
+    ws, i, prefixed = words(segment), 0, False
+    while i < len(ws):
+        w = ws[i]
+        if w in KEYWORDS or re.fullmatch(r"[A-Za-z_]\w*=.*", w, re.S):
+            i += 1
+        elif os.path.basename(w) in PREFIXES:
+            prefixed = True
+            i += 2 if os.path.basename(w) == "timeout" else 1
+        elif prefixed and w.startswith("-"):
+            return [UNREADABLE]
+        else:
+            return ws[i:]
     return []
 
 
@@ -423,7 +443,8 @@ class Runs:
         self.segments = text.split("\n")
         # ...and an echo prints a name it does not run, also behind a
         # keyword (`then echo …`, `do echo …`).
-        self.executed = [s for s in self.segments if not command_word(s) == "echo"]
+        self.executed = [s for s in self.segments if command_word(s) not in ("echo", UNREADABLE)]
+        self.runner_path = runner
         self.runner = re.escape(os.path.basename(runner))
         self.loops = self._loops()
 
@@ -457,7 +478,7 @@ class Runs:
             # run of the same $t is a bare run all the same.
             segments = [s for b in body for s in re.split(r"&&|\|\||;|\|", b)]
             loop_ref = {"$" + m.group(1), "${" + m.group(1) + "}"}
-            bare_run = any(_runs_bare(command(s), loop_ref) for s in segments)
+            bare_run = any(_runs_bare(s, loop_ref, os.path.basename(self.runner_path)) for s in segments)
             wrapped = any(hands.search(b) for b in body) and not bare_run
             loops.append((line.strip(), globs, wrapped))
             i = j + 1
