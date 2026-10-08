@@ -71,13 +71,13 @@ if [[ "$what" == all || "$what" == bash ]]; then
     # local check. CI's verdict is main's copy, run isolated in a step before
     # this script (ci.yml), since a contributor's tests and modules run here
     # first (docs/live-checks/2026-10-01-guard-shadowing.md).
-    run ".agent-fabric/ authority (this branch)" env AGENT_FABRIC_CHARTER_BASE=origin/main bash policies/check_agent_fabric_dir_authority.sh
-    run "charter authority (this branch)" env AGENT_FABRIC_CHARTER_BASE=origin/main bash policies/check_charter_authority.sh
-    run ".agent-fabric/ authority guard" bash runtime/github/run-suite.sh policies/test_check_agent_fabric_dir_authority.sh
-    run "no-model-pins guard" bash runtime/github/run-suite.sh policies/test_check_repo_settings_carry_no_model_pins.sh
+    run ".agent-fabric/ authority (this branch)" env AGENT_FABRIC_CHARTER_BASE=origin/main python3 tools/fabric/guards/agent_fabric_dir_authority.py
+    run "charter authority (this branch)" env AGENT_FABRIC_CHARTER_BASE=origin/main python3 tools/fabric/guards/charter_authority.py "$PWD"
+    run ".agent-fabric/ authority guard" python3 tools/fabric/github/run_suite.py policies/test_check_agent_fabric_dir_authority.sh
+    run "no-model-pins guard" python3 tools/fabric/github/run_suite.py policies/test_check_repo_settings_carry_no_model_pins.sh
     run "actions pinned by SHA (this tree)" python3 policies/check_actions_pinned_by_sha.py
-    run "attribution (this branch)" env AGENT_FABRIC_ATTRIBUTION_BASE=origin/main bash policies/ban_generated_by_attribution.sh
-    run "decision-record amendments (this branch)" env AGENT_FABRIC_ADR_BASE=origin/main bin/fabric-adr range-check
+    run "attribution (this branch)" env AGENT_FABRIC_ATTRIBUTION_BASE=origin/main python3 tools/fabric/guards/ban_generated_by_attribution.py
+    run "decision-record amendments (this branch)" env AGENT_FABRIC_ADR_BASE=origin/main python3 tools/fabric/adr.py range-check
     run "leak check (what a run left behind)" bash tests/test_leak-check.sh
     run "status line" bash runtime/claude-code/hooks/test_statusline.sh
     run "language identification (the detector venv)" bash runtime/langid/test_install.sh
