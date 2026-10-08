@@ -26,6 +26,9 @@ control plane's is fabric-coordinator's.
 
 ## The decisions
 
+The exact behaviour of an agent's tab, state by state, is `tab-states.md`;
+where this plan and that note differ, the note is right.
+
 1. **The control plane owns which session belongs in which tab**, by
    account. herdr keeps the layout only (tab, label = account, cwd); the
    deck keeps no session ids and rebuilds the tab-to-account mapping
