@@ -65,9 +65,12 @@ function bindingFile(agent) {
     ?? path.join(process.env.XDG_STATE_HOME ?? path.join(os.homedir(), '.local', 'state'), 'agent-fabric');
   return path.join(base, 'agents', agent, 'binding.json');
 }
+export const WHOAMI_TIMEOUT_MS = 15000;
 export function whoami() {
   const script = path.join(FABRIC_ROOT, 'runtime', 'identity.py');
-  const r = spawnSync('python3', [script, '--json'], { encoding: 'utf8' });
+  // Bounded like every relay call: a hung identity.py takes the fallback
+  // below, which says it is one (fallback: true), rather than holding the caller.
+  const r = spawnSync('python3', [script, '--json'], { encoding: 'utf8', timeout: WHOAMI_TIMEOUT_MS });
   if (r.status === 0) { try { const me = JSON.parse(r.stdout); me.binding = bindingFile(me.agent); return me; } catch { /* fall through */ } }
   const agent = os.userInfo().username;
   let binding = {};
@@ -220,13 +223,32 @@ export function identity(me = whoami(), taxonomy) {
   return { address: `${host}/${instance}`, instance, slug, project: me.project, ...(recorded.error ? { roleError: recorded.error } : {}) };
 }
 
-export async function api(tok, pathAndQuery, { relayUrl = RELAY, ...init } = {}) {
-  const r = await fetch(`${relayUrl}${pathAndQuery}`, {
-    ...init,
-    headers: { Authorization: `Bearer ${tok}`, 'Content-Type': 'application/json', ...(init.headers ?? {}) },
-  });
-  if (!r.ok) { const e = new Error(`${pathAndQuery} -> HTTP ${r.status}`); e.status = r.status; throw e; }
-  return r.json();
+// A relay that accepts the connection and never answers would otherwise
+// hold the caller for good: a CLI never returns, and agentd's loop stops
+// reading requests. The bound covers the body too, and adds whatever the
+// request itself asks the relay to wait (/api/wait's timeout_seconds), so
+// a long poll is never cut short; a caller's own signal replaces it.
+export const API_TIMEOUT_MS = 30000;
+export function apiTimeoutMs(pathAndQuery) {
+  const waits = Number(new URLSearchParams(pathAndQuery.split('?')[1] ?? '').get('timeout_seconds'));
+  return API_TIMEOUT_MS + (Number.isFinite(waits) && waits > 0 ? waits * 1000 : 0);
+}
+
+export async function api(tok, pathAndQuery, { relayUrl = RELAY, timeoutMs = apiTimeoutMs(pathAndQuery), ...init } = {}) {
+  try {
+    const r = await fetch(`${relayUrl}${pathAndQuery}`, {
+      ...init,
+      signal: init.signal ?? AbortSignal.timeout(timeoutMs),
+      headers: { Authorization: `Bearer ${tok}`, 'Content-Type': 'application/json', ...(init.headers ?? {}) },
+    });
+    if (!r.ok) { const e = new Error(`${pathAndQuery} -> HTTP ${r.status}`); e.status = r.status; throw e; }
+    return await r.json();
+  } catch (e) {
+    if (e?.name !== 'TimeoutError') throw e;
+    // No status and no connection code: a post that timed out may have
+    // been stored, and queue.mjs's unsent() reads it as unknown.
+    const t = new Error(`${pathAndQuery} -> no answer within ${timeoutMs / 1000} s`); t.timedOut = true; throw t;
+  }
 }
 
 // One `export NAME=value` line of the synced secrets file, unquoted, or

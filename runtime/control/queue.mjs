@@ -92,6 +92,7 @@ export function placedAccounts(registry = hostsRegistry({ engine: FABRIC_ROOT, e
 
 export function relayError(e, cfg) {
   if (e instanceof Unreadable) return e.message;
+  if (e?.timedOut) return `the relay at ${cfg.relay_url} did not answer (${e.message.split(' -> ').at(-1)})`;
   return e?.status ? `the relay refused (HTTP ${e.status})` : `the relay is unreachable at ${cfg.relay_url}`;
 }
 

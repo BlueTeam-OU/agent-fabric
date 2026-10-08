@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { scratch } from '../../../tests/scratch.mjs';
-import { waitsFrom, readWaits, askHolder, placedAccounts, Unreadable, unsent } from '../queue.mjs';
+import { waitsFrom, readWaits, askHolder, placedAccounts, Unreadable, unsent, relayError } from '../queue.mjs';
 
 const A = '01a11a18-4728-7d8b-afd9-0edb2d30a59c', B = '01a11a19-0bea-70c7-b667-1e1e5a74dbe1';
 const rec = (from, waits_on, extra = {}) => ({ content: JSON.stringify({ v: 1, kind: 'state', from, ts: 't', sessions: [], ...(waits_on ? { waits_on } : {}), ...extra }) });
@@ -96,4 +96,13 @@ test('unsent: only a refused or unconnected post certainly left nothing', () => 
   assert.equal(unsent({ status: 502 }), false, 'a 5xx may come after the write');
   assert.equal(unsent({ cause: { code: 'ECONNRESET' } }), false, 'a reset may come after the write');
   assert.equal(unsent(new Error('x')), false);
+  assert.equal(unsent({ timedOut: true, message: '/api/send -> no answer within 30 s' }), false, 'a timed-out post may have been stored');
+});
+
+test('relayError: a relay that did not answer is said as that, not as unreachable', () => {
+  const cfg = { relay_url: 'http://r' };
+  assert.equal(relayError({ timedOut: true, message: '/api/send -> no answer within 30 s' }, cfg),
+    'the relay at http://r did not answer (no answer within 30 s)');
+  assert.equal(relayError({ status: 401 }, cfg), 'the relay refused (HTTP 401)');
+  assert.equal(relayError(new Error('x'), cfg), 'the relay is unreachable at http://r');
 });
