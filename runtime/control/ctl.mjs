@@ -56,6 +56,7 @@ import crypto from 'node:crypto';
 import { OPS, PUBLIC_OPS } from './ops.mjs';
 import { controlConfig, newId, operatorAddresses, accountAddresses } from './agentd.mjs';
 import { checkJobArgs } from './jobs.mjs';
+import { SESSION_ID } from './sessions.mjs';
 
 // The commit `upgrade fabric` moves every account to: this checkout's
 // origin/main after a fetch, never its HEAD — a coordinator on a branch
@@ -622,7 +623,11 @@ export function stateRow(address, rec, now = Date.now()) {
   const sessions = Array.isArray(rec.sessions) ? rec.sessions : [];
   const top = sessions.reduce((a, s) => ((RANK[s.state] ?? 0) > (RANK[a?.state] ?? 0) ? s : a), null);
   return { address, ts: rec.ts, role: rec.role ?? null, project: rec.project ?? null, sessions,
-           state: stale ? 'unknown' : top ? top.state : 'none', since: top?.since ?? null, ...(stale ? { why: 'no record for two heartbeats' } : {}) };
+           state: stale ? 'unknown' : top ? top.state : 'none', since: top?.since ?? null,
+           // What the deck resumes (docs/fleet-deck/session-recovery.md): carried
+           // as agentd wrote it, absent when it wrote none.
+           ...(rec.last_session ? { last_session: rec.last_session, resumable: rec.resumable === true } : {}),
+           ...(stale ? { why: 'no record for two heartbeats' } : {}) };
 }
 
 // The channel takes any relay-token holder's post: a record is shown only
@@ -633,6 +638,7 @@ const OPT = v => v === undefined || v === null || STR(v);
 export function stateRecordOf(rec, want) {
   let r; try { r = JSON.parse(rec?.content); } catch { return null; }
   return r?.kind === 'state' && r.v === 1 && want.has(r.from) && STR(r.ts) && OPT(r.role) && OPT(r.project)
+    && (r.last_session === undefined || (STR(r.last_session) && SESSION_ID.test(r.last_session))) && (r.resumable === undefined || typeof r.resumable === 'boolean')
     && Array.isArray(r.sessions) && r.sessions.every(s => s && typeof s === 'object' && STR(s.session) && STR(s.state) && OPT(s.since)) ? r : null;
 }
 

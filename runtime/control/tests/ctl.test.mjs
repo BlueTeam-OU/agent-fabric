@@ -657,6 +657,18 @@ test('states: the newest state record per account, the state that most wants a p
   assert.equal(stateRow('h/d', { ts: new Date(now).toISOString(), sessions: [] }, now).state, 'none', 'no session: none, not unknown');
 });
 
+test('states carries last_session and resumable as agentd wrote them, and drops a record whose are forged', async () => {
+  const { stateRow, stateRecordOf } = await import('../ctl.mjs');
+  const now = Date.parse('2026-10-07T12:00:00Z');
+  const want = new Set(['h/a']);
+  const rec = extra => ({ content: JSON.stringify({ v: 1, kind: 'state', from: 'h/a', ts: '2026-10-07T11:59:00Z', sessions: [], ...extra }) });
+  const ok = stateRecordOf(rec({ last_session: '0f0e0d0c-1111-4222-8333-444455556666', resumable: true }), want);
+  assert.deepEqual([stateRow('h/a', ok, now).last_session, stateRow('h/a', ok, now).resumable], ['0f0e0d0c-1111-4222-8333-444455556666', true]);
+  assert.ok(!('last_session' in stateRow('h/a', stateRecordOf(rec({}), want), now)), 'none written, none shown');
+  for (const bad of [{ last_session: '../../etc/x' }, { last_session: 'abc\u001b]0;t\u0007def' }, { last_session: 7 }, { last_session: '0f0e0d0c-1111', resumable: 'yes' }])
+    assert.equal(stateRecordOf(rec(bad), want), null, JSON.stringify(bad));
+});
+
 test('states --follow prints each new record for an expected account, and survives a relay outage', async () => {
   const { states } = await import('../ctl.mjs');
   const now = Date.parse('2026-10-07T12:00:00Z');

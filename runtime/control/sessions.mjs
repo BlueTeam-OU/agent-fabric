@@ -61,7 +61,10 @@ export function stateRecord(address, { sessions, role, project, last_session, re
     ...(last_session ? { last_session, resumable: resumable === true } : {}) };
 }
 
-const SESSION_ID = /^[A-Za-z0-9-]{8,64}$/;
+// The harness's session id is a UUID; anything else in a binding is no
+// session, never a path. tools/fabric/resume.py's SESSION_RE is the same
+// pattern, and ctl.mjs checks a state record's last_session with this one.
+export const SESSION_ID = /^[A-Za-z0-9-]{8,64}$/;
 
 // Whether a session's transcript is on this account: the file
 // ~/.claude/projects/<launch dir>/<id>.jsonl that fabric-resume would hand

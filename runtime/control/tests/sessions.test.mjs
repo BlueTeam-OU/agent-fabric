@@ -138,7 +138,15 @@ test('the record carries the last session id and whether it can be resumed, neve
   assert.equal(posts.at(-1).resumable, true, 'the transcript appeared: posted as a change');
   assert.ok(!JSON.stringify(posts).includes('private-wc') && !JSON.stringify(posts).includes('-home-x-projects'),
     'no path leaves the account');
-  assert.equal(transcriptExists('../../etc', cfg), false, 'an id that is not one is never looked up');
+  // Planted where an unchecked id would reach it: projects/<dir>/../../etc/x.jsonl.
+  fs.mkdirSync(path.join(cfg, 'etc'), { recursive: true });
+  fs.writeFileSync(path.join(cfg, 'etc', 'x.jsonl'), '{}\n');
+  assert.equal(transcriptExists('../../etc/x', cfg), false, 'an id that is not one is never looked up');
+  for (const bad of ['../../etc/x', 'abc\u001b]0;t\u0007def', 42]) {
+    fs.writeFileSync(binding, JSON.stringify({ role: 'python-dev', project: 'agent-fabric', session: bad }));
+    t += 1; await w.tick();
+    assert.ok(!('last_session' in posts.at(-1)) && !('resumable' in posts.at(-1)), `a binding session ${JSON.stringify(bad)} is no session`);
+  }
   assert.deepEqual(stateRecord('h/x', { sessions: [], role: null, project: null, last_session: null }, 't'),
     { v: 1, kind: 'state', from: 'h/x', ts: 't', sessions: [] }, 'no last session: neither field');
 });

@@ -67,7 +67,7 @@
  * @property {string} [role]             the account's bound role
  * @property {string} [project]          the binding's project
  * @property {string} [last_session]     the binding's last session id (Fleet Deck: the id a resume brings back)
- * @property {boolean} [resumable]       whether that session's transcript is on the account (fabric-resume can resume it)
+ * @property {boolean} [resumable]       whether that session's transcript is on the account (fabric-resume resumes it while the directory it ran in still exists, else starts fresh)
  */
 
 export const ENVELOPE_KEYS = Object.freeze({
