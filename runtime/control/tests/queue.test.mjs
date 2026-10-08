@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { scratch } from '../../../tests/scratch.mjs';
-import { waitsFrom, readWaits, askHolder, placedAccounts, Unreadable } from '../queue.mjs';
+import { waitsFrom, readWaits, askHolder, placedAccounts, Unreadable, unsent } from '../queue.mjs';
 
 const A = '01a11a18-4728-7d8b-afd9-0edb2d30a59c', B = '01a11a19-0bea-70c7-b667-1e1e5a74dbe1';
 const rec = (from, waits_on, extra = {}) => ({ content: JSON.stringify({ v: 1, kind: 'state', from, ts: 't', sessions: [], ...(waits_on ? { waits_on } : {}), ...extra }) });
@@ -88,4 +88,12 @@ test('who is placed: an unreadable registry is an error, never nobody', () => {
 test('askHolder: a holder that does not answer is null, never an answer', async () => {
   const { call } = channel(() => []);
   assert.equal(await askHolder({ call, cfg, from: 'h/py', holder: 'h/user', op: 'pool-list', args: { role: 'python-dev' }, waitMs: 500 }), null);
+});
+
+test('unsent: only a refused or unconnected post certainly left nothing', () => {
+  assert.equal(unsent({ status: 403 }), true);
+  assert.equal(unsent({ cause: { code: 'ECONNREFUSED' } }), true);
+  assert.equal(unsent({ status: 502 }), false, 'a 5xx may come after the write');
+  assert.equal(unsent({ cause: { code: 'ECONNRESET' } }), false, 'a reset may come after the write');
+  assert.equal(unsent(new Error('x')), false);
 });

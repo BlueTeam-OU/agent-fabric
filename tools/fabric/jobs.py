@@ -279,9 +279,11 @@ QUEUE_TIMEOUT_S = 30
 
 class Unreachable(Exception):
     """The control plane did not answer; the message says why, and `sent`
-    whether a request left this account before it went quiet."""
+    whether a request left this account before it went quiet: True, False
+    only where queue.mjs knows nothing left, None when nobody knows (a
+    timeout, an answer that is not its JSON)."""
 
-    def __init__(self, message: str, sent: bool = False):
+    def __init__(self, message: str, sent: bool | None = None):
         super().__init__(message)
         self.sent = sent
 
@@ -296,7 +298,9 @@ def ask_pool(*argv: str) -> dict:
     try:
         said = ask_queue(*argv)
     except Unreachable as e:
-        raise (Unanswered if e.sent else Refused)(f"the pool could not be asked: {e}")
+        # Unknown is not unsent: only a request known never to have left
+        # is said without how to land a claim the holder may have taken.
+        raise (Refused if e.sent is False else Unanswered)(f"the pool could not be asked: {e}")
     if not isinstance(said.get("answer"), dict) or not isinstance(said.get("holder"), str):
         raise Refused("the pool's answer is not one")
     return said
@@ -337,7 +341,9 @@ def ask_queue(*argv: str) -> dict:
         why = ((p.stderr or "").strip().splitlines() or [f"exit {p.returncode}"])[-1][:160]
         raise Unreachable(f"no answer ({why})")
     if p.returncode != 0:
-        raise Unreachable(str(said.get("error") or f"exit {p.returncode}")[:160], sent=said.get("sent") is True)
+        sent = said.get("sent")
+        raise Unreachable(str(said.get("error") or f"exit {p.returncode}")[:160],
+                          sent=sent if isinstance(sent, bool) else None)
     return said
 
 

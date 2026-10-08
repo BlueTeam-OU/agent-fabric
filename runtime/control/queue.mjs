@@ -23,10 +23,12 @@
 //             — the holder's answer as pool.mjs gives it; a refusal is an answer
 //     exit    0 answered; 2 usage; 3 no token, the relay unreachable or
 //             refusing, or no answer within FABRIC_QUEUE_WAIT_MS (10 s) —
-//             "sent": true when the request was posted before that, since
-//             a claim unanswered may still have landed at the holder, and a
-//             second claim by the same account gets it again; 4 no account
-//             holds the pool, or this login has no bound role to list
+//             "sent": true when the request was posted before that, false
+//             only where nothing left for certain (no token, a refused or
+//             unconnected post), absent when it is unknown — a claim
+//             unanswered may still have landed at the holder, and a second
+//             claim by the same account gets it again; 4 no account holds
+//             the pool, or this login has no bound role to list (sent: false)
 //
 //   env       CLAUDE_BRIDGE_URL, FABRIC_CONTROL_CHANNEL, FABRIC_STATE_CHANNEL
 //             (controlConfig), AGENT_FABRIC_HOSTS_REGISTRY (who is placed,
@@ -98,6 +100,11 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 // One request to the holder, its one reply's data[op], or null when none
 // came within waitMs. The request carries only what the op reads: a role
 // for a list, an id for a claim — never the claimant's role.
+// Whether a failed post certainly left nothing at the relay: refused with
+// a 4xx, or never connected. Anything else (a reset, a 5xx after the write)
+// is unknown, and said as such by leaving `sent` out.
+export const unsent = e => (Number.isInteger(e?.status) && e.status >= 400 && e.status < 500) || e?.cause?.code === 'ECONNREFUSED';
+
 export async function askHolder({ call, cfg, from, holder, op, args, waitMs = QUEUE_WAIT_MS }) {
   const id = newId();
   /** @type {import('./protocol.mjs').Request} */
@@ -129,19 +136,19 @@ export async function cli(argv = process.argv.slice(2), out = s => console.log(s
       || (cmd === 'pool-claim' && !POOL_ID.test(arg ?? '')) || (cmd === 'pool-list' && arg !== undefined && !ROLE_SLUG.test(arg))) { console.error(usage); return 2; }
   const cfg = controlConfig();
   let r;
-  try { r = relay(undefined, cfg); } catch (e) { out(JSON.stringify({ error: relayError(e, cfg) })); return 3; }
+  try { r = relay(undefined, cfg); } catch (e) { out(JSON.stringify({ error: relayError(e, cfg), sent: false })); return 3; }
   if (cmd === 'waits') {
     try { out(JSON.stringify(await readWaits({ call: r.call, cfg, placed: placedAccounts() }))); return 0; }
     catch (e) { out(JSON.stringify({ error: relayError(e, cfg) })); return 3; }
   }
   const holder = poolHolder(cfg);
-  if (!holder) { out(JSON.stringify({ error: 'no account holds the pool: several hosts and no pool_holder in runtime/control/config.json' })); return 4; }
+  if (!holder) { out(JSON.stringify({ error: 'no account holds the pool: several hosts and no pool_holder in runtime/control/config.json', sent: false })); return 4; }
   const me = gzIdentity(r.who);
   const role = cmd === 'pool-list' ? (arg ?? r.who.role) : undefined;
-  if (cmd === 'pool-list' && !(typeof role === 'string' && ROLE_SLUG.test(role))) { out(JSON.stringify({ error: 'this login has no bound role: name the role whose pool to list' })); return 4; }
+  if (cmd === 'pool-list' && !(typeof role === 'string' && ROLE_SLUG.test(role))) { out(JSON.stringify({ error: 'this login has no bound role: name the role whose pool to list', sent: false })); return 4; }
   let answer;
   try { answer = await askHolder({ call: r.call, cfg, from: me.address, holder, op: cmd, args: cmd === 'pool-list' ? { role } : { id: arg } }); }
-  catch (e) { out(JSON.stringify({ error: relayError(e, cfg), holder, ...(e?.sent ? { sent: true } : {}) })); return 3; }
+  catch (e) { out(JSON.stringify({ error: relayError(e, cfg), holder, ...(e?.sent ? { sent: true } : unsent(e) ? { sent: false } : {}) })); return 3; }
   if (!answer) { out(JSON.stringify({ error: `${holder} did not answer within ${QUEUE_WAIT_MS / 1000} s`, holder, sent: true })); return 3; }
   out(JSON.stringify({ holder, answer }));
   return 0;

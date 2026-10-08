@@ -568,6 +568,25 @@ def main() -> int:
         check("a claim that never left says so, and never that it may have been claimed", p.returncode == 1
               and "could not be asked" in p.stderr and "may be claimed" not in p.stderr, p.stderr)
 
+        class Fails(http.server.BaseHTTPRequestHandler):
+            def do_POST(self):
+                self.send_response(500)
+                self.send_header("content-length", "0")
+                self.end_headers()
+
+            def log_message(self, *a):
+                pass
+        failing = http.server.HTTPServer(("127.0.0.1", 0), Fails)
+        threading.Thread(target=failing.serve_forever, daemon=True).start()
+        try:
+            p = subprocess.run([JOBS, "pool-claim", "p2"], cwd=repo_a, capture_output=True, text=True,
+                               env={**env, "CLAUDE_BRIDGE_URL": f"http://127.0.0.1:{failing.server_address[1]}"})
+            check("a post that failed after it may have been written is unknown: said with how to land it",
+                  p.returncode == 1 and "HTTP 500" in p.stderr and "pool-claim p2 again" in p.stderr, p.stderr)
+        finally:
+            failing.shutdown()
+            failing.server_close()
+
         state = os.path.join(tmp, "state", "agents")
         login = os.listdir(state)[0]
         with open(os.path.join(state, login, "jobs.json"), encoding="utf-8") as fh:
