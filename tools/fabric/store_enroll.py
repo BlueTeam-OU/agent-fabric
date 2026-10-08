@@ -49,6 +49,8 @@ import tempfile
 
 HERE = os.path.dirname(os.path.realpath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
+sys.path.insert(0, HERE)
+import roots  # noqa: E402
 STORE = os.path.join(HERE, "secret_store.py")
 # The account's own fabric checkout, relative to ITS home (the worker
 # starts there); the parent's checkout is not readable to it.
@@ -139,7 +141,7 @@ class Enrol:
     def __init__(self, *, dry: bool, born_now: bool, host_flag: str):
         env = os.environ
         self.dry, self.born_now, self.host_flag = dry, born_now, host_flag
-        self.hosts = env.get("AGENT_FABRIC_HOSTS_REGISTRY") or os.path.join(ROOT, "runtime", "hosts", "registry.json")
+        self.hosts = roots.hosts_registry(environ=env)
         self.hx = env.get("AGENT_FABRIC_HOSTEXEC") or os.path.join(ROOT, "runtime", "hostexec", "hostexec")
         self.org = env.get("AGENT_FABRIC_SECRETS_ORG") or "gzapi-org"
         self.gh = env.get("GH") or "gh"

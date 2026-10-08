@@ -45,7 +45,8 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from secretstore.core import FABRIC_ROOT, StoreError, git, login, store_dir  # noqa: E402
+import roots  # noqa: E402
+from secretstore.core import StoreError, git, login, store_dir  # noqa: E402
 from secretstore.keys import key_of_store  # noqa: E402
 from secretstore.lock import LOCK_WAIT_ENV  # noqa: E402
 from secretstore.reserved import RegistryUnreadable, reserved  # noqa: E402
@@ -239,7 +240,7 @@ def selftest() -> dict:
         return {"status": "pass" if all(s["ok"] for s in steps) else "fail", "name": NAME, "steps": steps}
 
     try:
-        who = reserved(NAME, FABRIC_ROOT)
+        who = reserved(NAME, roots.operator_root())
         held = _names()
     except (RegistryUnreadable, RuntimeError) as e:
         step("precondition", False, str(e))

@@ -78,6 +78,7 @@ MARKER = "# agent-fabric secrets"
 # The names, and which are reserved, are secretstore/reserved.py's: set and
 # rm refuse exactly the names this applies or reports as known.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import roots  # noqa: E402
 from secretstore.reserved import (  # noqa: E402
     ENV_NAMES, GIT_NAMES, STORE_ONLY, ALL_NAMES, RegistryUnreadable, registry_agent_env, reserved,
 )
@@ -113,7 +114,7 @@ def project_agent_env(root: str | None = None) -> list[str]:
     stopped meaning anything once every clone was named after its project.
     Exported when the store has them; their absence is never a missing name."""
     try:
-        declared = registry_agent_env(root or ROOT)
+        declared = registry_agent_env(root)
     except RegistryUnreadable:
         return []
     # Fabric-wide names first (registry top-level agent_env), then each project's.
@@ -128,7 +129,7 @@ def own_and_unexpected(names, known: list[str], root: str | None = None) -> tupl
     own, unexpected = [], []
     for n in sorted(x for x in names if x not in known):
         try:
-            (unexpected if reserved(n, root or ROOT) else own).append(n)
+            (unexpected if reserved(n, root) else own).append(n)
         except RegistryUnreadable:
             unexpected.append(n)
     return own, unexpected
@@ -140,7 +141,7 @@ def plain_env_names(root: str | None = None) -> list[str]:
     a secret, read from secrets.env by the tool that needs it: a name nobody
     marked is never exported, so a new secret is safe by default."""
     try:
-        reg = json.load(open(os.path.join(root or ROOT, "projects", "registry.json"), encoding="utf-8"))
+        reg = json.load(open(roots.projects_registry(root), encoding="utf-8"))
     except (OSError, ValueError):
         return []
     names: list[str] = []

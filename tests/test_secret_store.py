@@ -60,7 +60,7 @@ def main() -> int:
             # git call here at the hook's repository, not the scratch one. The
             # machine's /etc/gitconfig is no part of a scratch role either.
             return {**{k: v for k, v in os.environ.items() if k != "CLAUDECODE" and not k.startswith("GIT_")},
-                    "HOME": h, "GNUPGHOME": g, "AGENT_FABRIC_ROOT": fabric,
+                    "HOME": h, "GNUPGHOME": g, "AGENT_FABRIC_ROOT": fabric, "AGENT_FABRIC_OPERATOR": fabric,
                     "AGENT_FABRIC_SECRET_STORE": os.path.join(h, "store"),
                     "GIT_CONFIG_GLOBAL": os.path.join(h, ".gitconfig"), "GIT_CONFIG_NOSYSTEM": "1"}
 
@@ -652,7 +652,7 @@ def main() -> int:
             hang.stdin.close(); hang.stdout.close(); hang.stderr.close()
             check("a managed name is refused with stdin still open: before any value is read",
                   hrc == 1 and "GH_TOKEN is managed by" in herr, f"{hrc} {herr}")
-            noreg = {**child, "AGENT_FABRIC_ROOT": os.path.join(tmp, "no-fabric")}
+            noreg = {**child, "AGENT_FABRIC_ROOT": os.path.join(tmp, "no-fabric"), "AGENT_FABRIC_OPERATOR": os.path.join(tmp, "no-fabric")}
             p = run(noreg, "set", "OWN_UNKNOWN", stdin="x")
             check("a registry that cannot be read refuses an own name too: unknown is not own",
                   p.returncode == 1 and "cannot tell whether OWN_UNKNOWN is managed" in p.stderr, p.stderr)

@@ -14,7 +14,8 @@ refuses rather than take a name it cannot classify (the coordinator's P2,
 from __future__ import annotations
 
 import json
-import os
+
+import roots
 
 ENV_NAMES = ["OPENROUTER_API_KEY", "GH_TOKEN", "CLAUDE_BRIDGE_AUTH_TOKEN"]
 GIT_NAMES = {"GIT_USER_NAME": "user.name", "GIT_USER_EMAIL": "user.email",
@@ -40,10 +41,10 @@ class RegistryUnreadable(Exception):
     """projects/registry.json could not be read or is not a registry."""
 
 
-def registry_agent_env(root: str) -> dict[str, str]:
+def registry_agent_env(root: str | None = None) -> dict[str, str]:
     """Every per-agent name the registry declares, with where: "agent_env"
     for the fabric-wide table, "projects.<id>.agent_env" for a project's."""
-    path = os.path.join(root, "projects", "registry.json")
+    path = roots.projects_registry(root)
     try:
         with open(path, encoding="utf-8") as fh:
             reg = json.load(fh)
@@ -62,7 +63,7 @@ def registry_agent_env(root: str) -> dict[str, str]:
     return out
 
 
-def reserved(name: str, root: str) -> str | None:
+def reserved(name: str, root: str | None = None) -> str | None:
     """Who manages NAME, as a phrase for a refusal; None when it is the
     agent's own. Raises RegistryUnreadable when that cannot be told."""
     if name in IDENTITY_NAMES or name in GIT_NAMES or name in SSH_NAMES:

@@ -9,8 +9,8 @@ import shutil
 import subprocess
 import tempfile
 
+import roots  # noqa: E402
 from .core import (
-    FABRIC_ROOT,
     UID_DOMAIN,
     StoreError,
     login,
@@ -96,7 +96,7 @@ RECOVERY_UID = f"agent-fabric recovery <recovery@{UID_DOMAIN}>"
 
 
 def recovery_pub(fabric: str | None = None) -> str:
-    return os.path.join(fabric or FABRIC_ROOT, "identities", "recovery.asc")
+    return roots.recovery_key(fabric)
 
 
 def _make_recovery_key(homedir: str, passphrase: str) -> tuple[str, str, str]:

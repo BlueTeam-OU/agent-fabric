@@ -9,8 +9,8 @@ import re
 import tempfile
 from typing import TypedDict
 
+import roots  # noqa: E402
 from .core import (
-    FABRIC_ROOT,
     UID_DOMAIN,
     StoreError,
     login,
@@ -204,7 +204,7 @@ def _carries_pgp_signature(store: str, commit: str) -> bool:
 def _main_show(rel: str, fabric: str | None = None) -> bytes | None:
     """A file as the fabric's origin/main has it; None when main has no such
     file. A checkout with no origin/main is an error, never a fallback."""
-    root = fabric or FABRIC_ROOT
+    root = fabric or roots.operator_root()
     if _run(["git", "-C", root, "rev-parse", "-q", "--verify", "refs/remotes/origin/main"], check=False).returncode:
         raise StoreError(f"{root} has no origin/main to read the store's writers from: fetch the fabric")
     r = _run(["git", "-C", root, "show", f"refs/remotes/origin/main:{rel}"], check=False)

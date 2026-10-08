@@ -7,16 +7,15 @@ import pwd
 import re
 import subprocess
 
+import roots  # noqa: E402
 from . import lineage as _lineage
 # Defined in lineage.py, which the lint loads alone and contributors may not
 # change; here so every part keeps importing them from core.
 from .lineage import LOGIN_RE, UID_DOMAIN, AGENT_ID_RE, StoreError, born_of  # noqa: F401
 
 
-# tools/fabric, as it was while this lived in secret_store.py: FABRIC_ROOT is
-# the checkout two levels above it.
+# tools/fabric, as it was while this lived in secret_store.py.
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-FABRIC_ROOT = os.environ.get("AGENT_FABRIC_ROOT") or os.path.dirname(os.path.dirname(HERE))
 NAME_RE = re.compile(r"^[A-Z][A-Z0-9_]{0,63}$")
 
 
@@ -85,7 +84,7 @@ def children_dir() -> str:
 
 
 def keys_dir(fabric: str | None = None) -> str:
-    return _lineage.keys_dir(fabric or FABRIC_ROOT)
+    return _lineage.keys_dir(fabric or roots.operator_root())
 
 
 # What git itself clears when it enters another repository (git rev-parse
