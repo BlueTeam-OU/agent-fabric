@@ -4,7 +4,7 @@ review fix": merge, fix or work (ADR-019's count rule, ADR-040's first
 Wave 1 port). runtime/github/commit-class.sh is its shim, sourced by
 pr-gate.sh and the managed projects' forwarders; results.py imports it.
 
-    commit_class.py class <parents> <subject> [<answers>] [<pr>] [<owner/repo>]
+    commit_class.py class <parents> <subject> [<answers>] [<pr>] [<owner/repo>] [<kind>]
                                           prints merge | fix | work
     commit_class.py revert-targets        the shas a commit body (stdin) reverts
 
@@ -12,7 +12,9 @@ CONTRACT, frozen from the bash (ADR-040 §5 rule 3): the arguments above, in
 that order, the optional ones may be empty; one word on stdout; exit 0.
 <parents> is the space-separated parent list (git log %P); <answers> the
 value of the commit's `Answers:` trailer (git log
-%(trailers:key=Answers,valueonly)).
+%(trailers:key=Answers,valueonly)); <kind> the value of its `Kind:` trailer
+(the last when there are several). <kind> came last so every older caller's
+argv still means what it meant.
 
 WHY EACH RULE (carried from the bash, which recorded the incidents):
 
@@ -32,6 +34,18 @@ carries it is a review fix whatever its subject says. A fix commit whose
 subject names no review at all ("db: 0055's guard was too broad and
 stopped the file re-applying") read as work on #892, 18 > 16, and the
 ceiling refused a PR that held 15. Any non-empty value counts.
+
+THE DECLARATION, `Kind: work | review-fix`, outranks everything below
+(ADR-019 §5 rule 3): the commit-msg hook asks every commit for it, after
+two sessions' counts were misread the same day — review fixes with no
+Answers: read as work, "findings" commits read as fixes. Kind: work is
+work, whatever the subject says. Kind: review-fix is a fix, EXCEPT where
+the rule for the PR being counted says the commit answers another PR's
+review: the hook stamps review-fix on any commit with Answers:, and a
+follow-up PR's commit answering #53's findings is that PR's own work —
+the declaration says what the commit is, not whose band it falls in. A
+missing, empty or unknown value (an older commit, one made without the
+hook) is read exactly as before.
 
 A finding LABEL is one or two capitals, an optional dash, digits, an
 optional -digits: F4, P3, N12, G1, PE-6, PR-1, P3-1. The first shape was
@@ -90,9 +104,25 @@ def _ref(ref: str, here: str) -> str:
     return n
 
 
-def classify(parents: str, subject: str, answers: str = "", pr: str = "", repo: str = "") -> str:
+def kind(value: str) -> str:
+    """A `Kind:` value as the hook reads it: the LAST of several (one per
+    line, or as git joins them), case-insensitive, surrounding space
+    ignored. Anything but work or review-fix is no declaration: ""."""
+    values = [v.strip().lower() for v in re.split(r"[\n\x1f]", value) if v.strip()]
+    return values[-1] if values and values[-1] in ("work", "review-fix") else ""
+
+
+def kind_of(body: str) -> str:
+    """The declared kind in a commit message body, by its `Kind:` lines."""
+    return kind("\n".join(m.group(1) for m in re.finditer(r"^Kind:[ \t]*(.*)$", body, re.M | re.I)))
+
+
+def classify(parents: str, subject: str, answers: str = "", pr: str = "", repo: str = "", kind_value: str = "") -> str:
     if " " in parents.strip():
         return "merge"
+    declared = kind(kind_value)
+    if declared == "work":
+        return "work"
     # With the PR being counted: a commit whose subject or Answers: names
     # pull requests, none of them this one, answers ANOTHER PR's review — a
     # follow-up's own work, which the band counts. Read as a fix it moved a
@@ -114,6 +144,8 @@ def classify(parents: str, subject: str, answers: str = "", pr: str = "", repo: 
         refs = {_ref(r, repo) for r in found if r}
         if refs and str(pr) not in refs:
             return "work"
+    if declared == "review-fix":
+        return "fix"
     if answers.strip():
         return "fix"
     # A subject that OPENS with the review word AS THE SCOPE — "review: …",
@@ -165,14 +197,14 @@ def revert_targets(body: str) -> list[str]:
 
 
 def main(argv: list[str]) -> int:
-    if argv[:1] == ["class"] and 3 <= len(argv) <= 6:
+    if argv[:1] == ["class"] and 3 <= len(argv) <= 7:
         print(classify(*argv[1:]))
         return 0
     if argv == ["revert-targets"]:
         for sha in revert_targets(sys.stdin.read()):
             print(sha)
         return 0
-    print("usage: commit_class.py class <parents> <subject> [<answers>] [<pr>] [<owner/repo>] | revert-targets", file=sys.stderr)
+    print("usage: commit_class.py class <parents> <subject> [<answers>] [<pr>] [<owner/repo>] [<kind>] | revert-targets", file=sys.stderr)
     return 2
 
 

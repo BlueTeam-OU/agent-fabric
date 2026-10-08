@@ -6,7 +6,9 @@ tests only at 6, 9 and 17."""
 from __future__ import annotations
 
 import os
+import subprocess
 import sys
+import tempfile
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(HERE, "tools", "fabric"))
@@ -99,6 +101,46 @@ def main() -> int:
               and "unresolved thread" in pr_gate.verdict(1, "main", False, None, st, "head reviewed", []))
     finally:
         gh.graphql = real
+
+
+    # The Kind: declaration reaches the classifier through split_range's
+    # own git log, in a real range: each row's subject would read the
+    # other way without it, and a revert pair declared work still nets.
+    print("split_range reads the Kind: trailer")
+    with tempfile.TemporaryDirectory() as repo:
+        env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+        env.update(GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_NOSYSTEM="1", GIT_AUTHOR_NAME="t",
+                   GIT_AUTHOR_EMAIL="t@t", GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="t@t")
+
+        def git(*args: str) -> str:
+            return subprocess.run(["git", *args], cwd=repo, env=env, check=True, capture_output=True,
+                                  text=True).stdout.strip()
+
+        def commit(n: int, *msg: str) -> str:
+            open(os.path.join(repo, f"f{n}"), "w").write(str(n))
+            git("add", "-A")
+            git("commit", "-q", *[a for m in msg for a in ("-m", m)])
+            return git("rev-parse", "HEAD")
+
+        git("init", "-q", "-b", "main")
+        base = commit(0, "base")
+        commit(1, "review fix (#7 F1): the probe exits 3", "Kind: work")
+        commit(2, "the guard reads the count from the file", "Kind: review-fix\nAnswers: F2")
+        commit(3, "an undeclared plain commit")
+        commit(4, "review F4: undeclared, read as before")
+        undo = commit(5, "a change later undone", "Kind: work")
+        git("revert", "--no-edit", undo)
+        here = os.getcwd()
+        os.chdir(repo)
+        try:
+            c = pr_gate.split_range(7, "", f"{base}..HEAD")
+        finally:
+            os.chdir(here)
+        check(f"work 2, fix 2, netted 2 (got work {c['work']}, fix {c['fix']}, netted {c['netted']})",
+              (c["work"], c["fix"], c["netted"]) == (2, 2, 2))
+        check("the fixes are the declared one and the undeclared review subject",
+              sorted(c["fix_subjects"]) == ["review F4: undeclared, read as before",
+                                            "the guard reads the count from the file"])
 
     print(f"\n{'FAILED' if fails else 'all passed'}")
     return 1 if fails else 0
