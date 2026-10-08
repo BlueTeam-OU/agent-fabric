@@ -32,7 +32,7 @@ ACCOUNT_FLAGS = ("--claude-account", "--no-claude-account")
 def with_account(args: tuple[str, ...], default: tuple[str, ...]) -> list[str]:
     """Every run names its Claude account (2026-10-07); a case that does
     not is about something else and gets the default."""
-    named = any(a in ACCOUNT_FLAGS or a.startswith("--claude-account=") for a in args)
+    named = any(a in ACCOUNT_FLAGS or a.startswith("--claude-account=") or a == "--human" for a in args)
     return [*args] if named or "--no-account-flag" in args else [*args, *default]
 
 # The fakes, as the bash suite wrote them: {SEQ}, {BIN}, {HOMES}, {CALLS},
@@ -126,7 +126,7 @@ if [[ "$1 $2" == "store assign" ]]; then
 fi
 [[ "$1" == provision ]] || exit 9
 grep -qsxF "provision $2" "{FAULT}" && { echo "provision: injected failure" >&2; exit 1; }
-case "$2" in identity) names="AGENT_LOGIN AGENT_HOST" ;; share) names="GH_TOKEN SSH_PRIVATE_KEY" ;;
+case "$2" in identity) names="AGENT_LOGIN AGENT_HOST" ;; share) names="GH_TOKEN SSH_PRIVATE_KEY"; [[ "$4" == --name ]] && names="$5" ;;
   issue-key) [[ "$3" == openrouter ]] && names=OPENROUTER_API_KEY || names=OPENAI_API_KEY ;; esac
 python3 - "{SEQ}/enrolled" $names <<'PY'
 import json, sys
@@ -221,7 +221,8 @@ def main() -> int:
         put(hosts, json.dumps({"version": 1, "hosts": {
             local: {"platform": "fedora-qubes", "ssh": None, "operator": LOGIN, "fabric": fab},
             "far-host": {"platform": "debian", "ssh": "op@far.example", "operator": "op", "fabric": fab}},
-            "placement": {"placed-elsewhere": "far-host"}}))
+            "placement": {"placed-elsewhere": "far-host", "human-here": local, "human-far": "far-host"},
+            "kinds": {"human-here": "human", "human-far": "human"}}))
         base["AGENT_FABRIC_HOSTS_REGISTRY"] = hosts
         shim = f"{fab}/runtime/provisioning/new-agent.sh"
 
@@ -581,6 +582,61 @@ def main() -> int:
                 rc, out = seq_run(backend, "seq-login", "backend-dev", "--project", "demo")
                 ok(f"…and the re-run after '{fault_name}' converges",
                    rc == 0 and os.path.isdir(f"{h}/projects/demo/node_modules"), f"rc={rc}\n{out}\n{read(calls)}")
+
+        # ---- a human login (ADR-044): the account, its key, store and relay
+        # credential, its fabric clone; nothing of a session, on both backends.
+        rc, out = run("human-here", "--human", "--dry-run")
+        ok("a human's dry run: the account and the fabric clone, no installer, no bootstrap, no role",
+           rc == 0 and "useradd" in out and "git clone -q 'https://github.com/gzapi-org/agent-fabric.git'" in out
+           and "install.sh" not in out and "bootstrap.sh" not in out and "fabric-role bind" not in out
+           and "8. role" not in out, f"rc={rc}\n{out}")
+        rc, out = run("human-here", "backend-dev", "--no-claude-account", "--dry-run")
+        ok("an agent's run on a login placed as a human is refused", rc == 1 and "human-here is a human login" in out, out)
+        rc, out = run("zz-fixture-login", "--human", "--dry-run")
+        ok("--human for a login not placed as one is refused, nothing made",
+           rc == 1 and "is not placed as a human" in out and "useradd" not in out, out)
+        for backend, login in (("local", "human-here"), ("ssh", "human-far")):
+            print(f"new-agent: a human login on the {backend} backend")
+            put(ssh_log, "")
+            reset_seq()
+            hh = f"{homes}/{login}"
+            rc, out = seq_run(backend, login, "--human")
+            c, acc = read(calls), lines(f"{seq}/account-calls")
+            ok("the whole sequence exits 0, said as a human's", rc == 0 and "a human (ADR-044)" in out
+               and "10. verification" in out and "new-agent: done." in out, f"rc={rc}\n{out}")
+            ok("…the account made, its fabric cloned; no claude, ori, ~/.claude, ~/.ssh or ~/.config/gh",
+               has(rf"^useradd {login}$", c) and os.path.isdir(f"{hh}/projects/agent-fabric/.git")
+               and not os.path.exists(f"{hh}/.local/bin/claude") and not os.path.exists(f"{hh}/.local/bin/ori")
+               and not os.path.exists(f"{hh}/.claude") and not os.path.exists(f"{hh}/.ssh") and not os.path.exists(f"{hh}/.config/gh")
+               and not has(r"^curl", c), f"{out}\n{c}")
+            ok("…its key and store: identity and the relay credential only, no template, assignment or issued key",
+               has(rf"^store-enroll {login} --host", c) and has(rf"^secrets provision identity {login} --host", c)
+               and has(rf"^secrets provision share {login} --name CLAUDE_BRIDGE_AUTH_TOKEN$", c)
+               and not has(r"^secrets (provision issue-key|store templates|store assign)", c), c)
+            ok("…its store handed over and synced as itself, its inbox caught up on the fleet's channel",
+               acc[:3] == ["store take-bundle", "sync --quiet --no-pull", "relay_catchup agent-fabric"], "\n".join(acc))
+            ok("…no bootstrap, no role bound, no toolchain; verified as a human, its person's list named",
+               "7. bootstrap run" not in out and "8. role" not in out and "9. " not in out
+               and "nothing of a session" in out and "status" in acc and "Fleet Deck, run as " + login in out
+               and "moveto's sudo grant" in out, out)
+            if backend == "ssh":
+                log = read(ssh_log)
+                ok("ssh: prepare and finish went to the far host's worker with --human",
+                   f"new-agent-worker.sh prepare {login} --human" in log and f"new-agent-worker.sh finish {login} --human" in log,
+                   log)
+            rc, out = seq_run(backend, login, "--human")
+            ok("a second run converges", rc == 0 and f"1. account {login} exists" in out and not has(r"^useradd", read(calls)),
+               f"rc={rc}\n{out}")
+            os.makedirs(f"{hh}/.claude/agents")
+            rc, out = seq_run(backend, login, "--human")
+            ok("…and a human holding an agent's files fails its verification, naming them",
+               rc == 1 and "a session's pieces" in out and ".claude/agents" in out and "NOT done" in out, f"rc={rc}\n{out}")
+            shutil.rmtree(f"{hh}/.claude")
+            put(fault, "provision share\n")
+            rc, out = seq_run(backend, login, "--human")
+            ok("…a failed share stops it before the hand-over, named", rc == 1 and "step failed" in out
+               and "new-agent: done" not in out, f"rc={rc}\n{out}")
+            os.remove(fault)
 
     print(f"\ntest_new_agent_cli: {'OK' if not fails else f'FAILED — {fails} check(s)'}")
     return 1 if fails else 0

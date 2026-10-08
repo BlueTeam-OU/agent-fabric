@@ -2,16 +2,20 @@
 """tools/fabric/jobs.py — the agent's own job list (agent-fabric ADR-037),
 behind bin/fabric-jobs.
 
-    fabric-jobs add "<title>" [--topic T] [--project P] [--working-copy W]
-    fabric-jobs add --request <MESSAGE-ID|seq> [--topic T] [--working-copy W]
-    fabric-jobs list [--all] [--json]
+    fabric-jobs add "<title>" [--topic T] [--project P] [--working-copy W] [--priority P]
+    fabric-jobs add --request <MESSAGE-ID|seq> [--topic T] [--working-copy W] [--priority P]
+    fabric-jobs list [--all] [--json] [--stored]
+    fabric-jobs prio <id> <blocking|high|normal|low>
     fabric-jobs start <id>
     fabric-jobs block <id> "<on what>"
+    fabric-jobs block <id> --on-request <MESSAGE-ID> ["<on what>"]
     fabric-jobs deliver <id> <artifact>...
     fabric-jobs done <id>
     fabric-jobs drop <id> "<why>"
     fabric-jobs show <id> [--json]
     fabric-jobs next [<id>] [--json]
+    fabric-jobs pool-list [--role R] [--json]
+    fabric-jobs pool-claim <pool id> [--topic T] [--working-copy W]
 
 The list is agents/<login>/jobs.json, read and written only through
 runtime/identity.py, under the agent lock. A job's project and working
@@ -30,8 +34,44 @@ it (ADR-037 rule 4). The automatic intake in the GZCoord send
 that path runs only under AGENT_FABRIC_JOBS_AUTO_INTAKE=1, which nothing
 sets (rule 5).
 
-`next` is the restart rule (ADR-022 rule 12). It compares the next job —
-the one named, or the oldest queued — with the job that last left
+A job has a priority (ADR-037 rule 7): blocking, high, normal or low;
+normal when none was set, and in a list written before priorities
+existed. A stored value outside the four is not read as normal: `next`
+refuses to order a queue it cannot rank, and names the job.
+
+A job blocked on a request names it (`block --on-request`, rule 8): the
+message id is kept as `waits_on`, and this account's control agent says it
+in its state record (runtime/control/sessions.mjs) while the job stays
+blocked, so the job that request asked for ranks blocking wherever it is
+queued. Leaving `blocked` drops it: an id kept on a job that no longer
+waits would be said by nobody, and read as a wait by a person.
+
+The other half: a queued job whose source message is in any account's
+waits_on ranks blocking, its stored priority kept. `list` and `next` read
+the state stream for it through runtime/control/queue.mjs (the control
+plane's shapes stay in Node) — only when a queued job came from a message,
+since nothing else can match — and `list` shows both priorities and the
+address that waits. A stream that cannot be read leaves stored priorities
+to decide, and is said on stderr; it never fails the command. `--stored`
+skips the stream (the control agent's `jobs` op, which answers in
+seconds).
+
+A role has an open pool (rule 9), held by one control agent
+(runtime/control/pool.mjs). `pool-list` lists the bound role's (or
+--role's) unclaimed jobs, highest priority first; `pool-claim` asks the
+holder for one — the holder checks the role this login's own control
+agent reports — and puts the job it gets on this list as queued, source
+`pool`. A claim the holder recorded but this list could not take is said
+with the command that lands it: the same login claiming again gets the job
+again, and a job already on the list by its pool id is not added twice.
+With nothing queued, `next` offers the pool's first job and says so; it
+claims nothing.
+
+`next` is the restart rule (ADR-022 rule 12). It never passes an active
+job, which is never preempted, and takes the job named, or the queued job
+of highest priority, the oldest first (the list's order is the order jobs
+were added); a blocked job keeps its place and is taken only by name. It
+compares that job with the job that last left
 `active`, or, when none has, with the directory it runs in:
 the same project, working copy and topic continue in this session; any
 difference is a fresh session, and `next` prints the one command that
@@ -45,6 +85,7 @@ import argparse
 import importlib.util
 import json
 import os
+import re
 import subprocess
 import sys
 from typing import Any, TypedDict
@@ -74,6 +115,8 @@ class _JobKeys(TypedDict):
 class Job(_JobKeys, total=False):
     blocked_on: str
     reason: str
+    priority: str
+    waits_on: str
 
 
 def _load(name: str, path: str):
@@ -88,10 +131,20 @@ identity = _load("fabric_identity", os.path.join(FABRIC_ROOT, "runtime", "identi
 STATES = ("queued", "active", "blocked", "delivered", "done", "dropped")
 OPEN = ("queued", "active", "blocked", "delivered")
 TERMINAL = ("done", "dropped")
+# A GZCoord MESSAGE-ID as gzmsg mints it; runtime/control/sessions.mjs
+# MESSAGE_ID says only ids of this shape, so a relay seq is refused here.
+MESSAGE_ID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", re.ASCII)
+POOL_ID = re.compile(r"p[1-9][0-9]{0,8}", re.ASCII)   # runtime/control/pool.mjs POOL_ID
+PRIORITIES = ("blocking", "high", "normal", "low")
+DEFAULT_PRIORITY = "normal"
 
 
 class Refused(Exception):
     """A change the list does not allow; the message is the whole answer."""
+
+
+class NothingQueued(Refused):
+    """`next` found no queued job; the pool is asked after the lock is let go."""
 
 
 def find(doc: dict, job_id: str) -> Job:
@@ -99,6 +152,24 @@ def find(doc: dict, job_id: str) -> Job:
         if job["id"] == job_id:
             return job
     raise Refused(f"no job {job_id} in this list (fabric-jobs list --all)")
+
+
+def stored_priority(job: dict) -> str | None:
+    """The job's priority as stored, `normal` when the key is absent; None
+    for a value that is none of the four — unknown, never a default."""
+    value = job.get("priority", DEFAULT_PRIORITY)
+    return value if value in PRIORITIES else None
+
+
+def queue_order(doc: dict, waits: dict[str, list[str]] | None = None) -> list[Job]:
+    """The queued jobs in the order `next` takes them: highest effective
+    priority, then the oldest."""
+    queued = [(i, j) for i, j in enumerate(doc["jobs"]) if j["state"] == "queued"]
+    for _, j in queued:
+        if stored_priority(j) is None:
+            raise Refused(f"{j['id']} has priority {j.get('priority')!r}, none of {', '.join(PRIORITIES)}: the queue "
+                          f"cannot be ordered; set it with fabric-jobs prio {j['id']} <priority>")
+    return [j for _, j in sorted(queued, key=lambda q: (PRIORITIES.index(effective_priority(q[1], waits)), q[0]))]
 
 
 def active(doc: dict) -> Job | None:
@@ -116,6 +187,8 @@ def transition(doc: dict, job: dict, state: str, **fields) -> None:
     if job["state"] == "active" and state != "active":
         # The job that just left `active` is what `next` compares against.
         doc["last"] = job["id"]
+    if state != "blocked":
+        job.pop("waits_on", None)
     now = identity.now_iso()
     job["state"] = state
     job["updated"] = now
@@ -158,7 +231,8 @@ def working_copy_of(project: str) -> str | None:
     return None
 
 
-def new_job(doc: dict, title: str, *, topic=None, project=None, working_copy=None, source=None) -> Job:
+def new_job(doc: dict, title: str, *, topic=None, project=None, working_copy=None, source=None,
+            priority=DEFAULT_PRIORITY) -> Job:
     # Control characters (C0, DEL, C1) would reach every terminal that
     # lists the job and the opening prompt of a fresh session. Tab, newline
     # and carriage return are whitespace, collapsed below as they always were
@@ -187,6 +261,7 @@ def new_job(doc: dict, title: str, *, topic=None, project=None, working_copy=Non
         # Never the current directory's checkout for another project's job.
         "working_copy": working_copy or (ctx.get("working_copy") if not project or own_project(ctx) == project else None),
         "state": "queued",
+        "priority": priority,
         "source": source or {"kind": "self"},
         "artifacts": [],
         "created": now,
@@ -198,6 +273,162 @@ def new_job(doc: dict, title: str, *, topic=None, project=None, working_copy=Non
 
 
 INBOX = os.path.join(FABRIC_ROOT, "bin", "gzcoord-inbox")
+QUEUE = os.path.join(FABRIC_ROOT, "runtime", "control", "queue.mjs")
+QUEUE_TIMEOUT_S = 30
+
+
+class Unreachable(Exception):
+    """The control plane did not answer; the message says why, and `sent`
+    whether a request left this account before it went quiet: True, False
+    only where queue.mjs knows nothing left, None when nobody knows (a
+    timeout, an answer that is not its JSON)."""
+
+    def __init__(self, message: str, sent: bool | None = None):
+        super().__init__(message)
+        self.sent = sent
+
+
+class Unanswered(Refused):
+    """A request reached the relay and its answer did not come back."""
+
+
+def ask_pool(*argv: str) -> dict:
+    """{holder, answer} from the pool's holder, or Refused saying why there
+    is none: a pool not reached is never an empty one."""
+    try:
+        said = ask_queue(*argv)
+    except Unreachable as e:
+        # Unknown is not unsent: only a request known never to have left
+        # is said without how to land a claim the holder may have taken.
+        raise (Refused if e.sent is False else Unanswered)(f"the pool could not be asked: {e}")
+    if not isinstance(said.get("answer"), dict) or not isinstance(said.get("holder"), str):
+        raise Refused("the pool's answer is not one")
+    return said
+
+
+def pool_offer() -> str:
+    """What `next` says when nothing is queued: the pool's first job for
+    the bound role, that the pool is empty, or that it could not be read."""
+    try:
+        said = ask_pool("pool-list")
+    except Refused as e:
+        return f"{e} (fabric-jobs add, or fabric-jobs pool-list --role <role>)"
+    answer = said["answer"]
+    if answer.get("status") != "ok":
+        return f"the pool: {said['holder']} refused ({printable(answer.get('reason') or answer.get('status'))})"
+    jobs = answer.get("jobs") or []
+    if not jobs:
+        return f"the {printable(answer.get('role'))} pool is empty too"
+    first = jobs[0]
+    return (f"the {printable(answer.get('role'))} pool offers {pool_line(first)}\n"
+            f"  claim it with fabric-jobs pool-claim {printable(first.get('id'))}, then fabric-jobs next")
+
+
+def ask_queue(*argv: str) -> dict:
+    """runtime/control/queue.mjs's answer, or Unreachable: a timeout, a
+    missing node and an answer that is not its JSON are each said."""
+    try:
+        p = subprocess.run(["node", QUEUE, *argv], capture_output=True, text=True, timeout=QUEUE_TIMEOUT_S)
+    except subprocess.TimeoutExpired:
+        raise Unreachable(f"no answer within {QUEUE_TIMEOUT_S} s")
+    except OSError as e:
+        raise Unreachable(f"node could not run ({e.strerror or e})")
+    try:
+        said = json.loads((p.stdout or "").strip().splitlines()[-1])
+    except (ValueError, IndexError):
+        said = None
+    if not isinstance(said, dict):
+        why = ((p.stderr or "").strip().splitlines() or [f"exit {p.returncode}"])[-1][:160]
+        raise Unreachable(f"no answer ({why})")
+    if p.returncode != 0:
+        sent = said.get("sent")
+        raise Unreachable(str(said.get("error") or f"exit {p.returncode}")[:160],
+                          sent=sent if isinstance(sent, bool) else None)
+    return said
+
+
+PROJECT_SLUG = re.compile(r"[a-z0-9][a-z0-9-]{0,62}", re.ASCII)   # runtime/control/jobs.mjs PROJECT_SLUG
+
+
+def claimed_job(answer: dict, asked: str) -> dict:
+    """The job a holder's claim answer carries, held to the shape pool.mjs
+    sends; anything else is refused before the list is touched — a reply
+    on the relay is any token holder's post, and a missing field never
+    becomes a default."""
+    job = answer.get("job")
+    bad = None
+    if not isinstance(job, dict) or job.get("id") != asked:
+        bad = f"it names job {job.get('id') if isinstance(job, dict) else None!r}, not {asked}"
+    elif not isinstance(job.get("title"), str) or not job["title"].strip():
+        bad = "it carries no title"
+    elif job.get("priority") not in PRIORITIES:
+        bad = f"its priority {job.get('priority')!r} is none of {', '.join(PRIORITIES)}"
+    elif job.get("topic") is not None and not isinstance(job.get("topic"), str):
+        bad = "its topic is not text"
+    elif job.get("project") is not None and not (isinstance(job["project"], str) and PROJECT_SLUG.fullmatch(job["project"])):
+        bad = "its project is not a registry id"
+    if bad:
+        raise Refused(f"the holder's answer to the claim of {asked} is not a pool job: {bad}")
+    return job
+
+
+def pool_job(doc: dict, job: dict, holder: str, *, again: bool, topic=None, working_copy=None) -> tuple[Job, bool]:
+    """The claimed job on this list: (job, added). Only a claim the holder
+    says this claimant held already (`again`) can be a job listed before —
+    the same holder's, by pool id, in any state; a first claim is always a
+    new job, since pool ids restart with a new holder or a new pool file
+    and an id alone names nothing."""
+    listed = next((j for j in doc["jobs"]
+                   if (j.get("source") or {}).get("kind") == "pool" and j["source"].get("from") == holder
+                   and j["source"].get("pool_id") == job["id"]), None) if again else None
+    if listed:
+        return listed, False
+    return new_job(doc, job["title"], topic=topic or job.get("topic"), project=job.get("project"),
+                   working_copy=working_copy, source={"kind": "pool", "pool_id": job["id"], "from": holder},
+                   priority=job["priority"]), True
+
+
+def printable(value) -> str:
+    """A holder's text as one line a terminal shows and never obeys:
+    C0, DEL and C1 (U+009B is a CSI) as '?', whitespace collapsed."""
+    return " ".join("".join("?" if ord(c) < 32 or 127 <= ord(c) < 160 else c for c in str(value)).split())
+
+
+def pool_line(job: dict) -> str:
+    topic = f" [{printable(job['topic'])}]" if job.get("topic") else ""
+    where = f" {printable(job['project'])}" if job.get("project") else ""
+    return (f"{printable(job.get('id', '?')):<5} {printable(job.get('priority', '?')):<8} "
+            f"{printable(job.get('role', '?'))}{where}{topic}: {printable(job.get('title', ''))}")
+
+
+def message_of(job: dict) -> str | None:
+    return (job.get("source") or {}).get("message_id")
+
+
+def stream_waits(doc: dict, *, stored: bool = False) -> dict[str, list[str]] | None:
+    """{message id: [waiting address, ...]} from the state stream; {} when no
+    queued job came from a message (nothing could match), None when the
+    stream could not be read — said here, once, and stored priorities decide."""
+    if stored or not any(j["state"] == "queued" and message_of(j) for j in doc["jobs"]):
+        return {}
+    try:
+        waits = ask_queue("waits").get("waits")
+    except Unreachable as e:
+        print(f"fabric-jobs: the state stream could not be read ({e}): stored priorities decide", file=sys.stderr)
+        return None
+    if not isinstance(waits, dict):
+        print("fabric-jobs: the state stream's answer has no waits: stored priorities decide", file=sys.stderr)
+        return None
+    return {str(k): [str(a) for a in v] for k, v in waits.items() if isinstance(v, list)}
+
+
+def waiters(job: dict, waits: dict[str, list[str]] | None) -> list[str]:
+    """Who waits on this queued job's request; only a queued job ranks by it."""
+    return list((waits or {}).get(message_of(job) or "", [])) if job["state"] == "queued" else []
+
+
+def effective_priority(job: dict, waits: dict[str, list[str]] | None) -> str | None:
+    return "blocking" if waiters(job, waits) else stored_priority(job)
 
 
 def fetch_message(which: str) -> dict:
@@ -222,7 +453,8 @@ def fetch_message(which: str) -> dict:
     return json.loads(p.stdout)
 
 
-def request_job(doc: dict, msg: dict, *, topic=None, project=None, working_copy=None, auto=False) -> Job | None:
+def request_job(doc: dict, msg: dict, *, topic=None, project=None, working_copy=None, auto=False,
+                priority=DEFAULT_PRIORITY) -> Job | None:
     meta = msg.get("metadata") or {}
     mid = meta.get("MESSAGE-ID") or str(msg.get("seq"))
     if auto and msg.get("type") != "REQUEST":
@@ -242,7 +474,7 @@ def request_job(doc: dict, msg: dict, *, topic=None, project=None, working_copy=
     source = {"kind": "request" if msg.get("type") == "REQUEST" else (msg.get("type") or "message").lower(),
               "message_id": mid, "from": meta.get("FROM") or msg.get("sender"), "seq": msg.get("seq")}
     return new_job(doc, meta.get("SUBJECT") or f"message {mid}", topic=topic, project=wanted,
-                   working_copy=working_copy, source=source)
+                   working_copy=working_copy, source=source, priority=priority)
 
 
 def decide(doc: dict, nxt: dict, here: dict) -> dict:
@@ -267,7 +499,7 @@ def decide(doc: dict, nxt: dict, here: dict) -> dict:
     return {"job": nxt["id"], "against": against, "fresh": bool(differs), "differs": differs, "caveat": caveat}
 
 
-def line(job: dict) -> str:
+def line(job: dict, waits: dict[str, list[str]] | None = None) -> str:
     where = job.get("project") or os.path.basename(job.get("working_copy") or "") or "(no project)"
     topic = f" [{job['topic']}]" if job.get("topic") else ""
     extra = ""
@@ -275,7 +507,10 @@ def line(job: dict) -> str:
         extra = f" — on {job['blocked_on']}"
     elif job.get("artifacts"):
         extra = f" — {', '.join(job['artifacts'])}"
-    return f"{job['id']:<5} {job['state']:<9} {where}{topic}: {job['title']}{extra}"
+    who = waiters(job, waits)
+    if who and stored_priority(job) != "blocking":
+        extra += f" — ranks blocking: {', '.join(who)} {'waits' if len(who) == 1 else 'wait'} on it"
+    return f"{job['id']:<5} {job['state']:<9} {stored_priority(job) or '?':<8} {where}{topic}: {job['title']}{extra}"
 
 
 def show(job: dict) -> str:
@@ -287,6 +522,7 @@ def show(job: dict) -> str:
         origin += f" (message {src['message_id']})"
     rows = [
         ("job", job["id"]), ("title", job["title"]), ("state", job["state"]),
+        ("priority", stored_priority(job) or f"{job.get('priority')!r} (none of {', '.join(PRIORITIES)})"),
         ("project", job.get("project") or "-"), ("working copy", job.get("working_copy") or "-"),
         ("topic", job.get("topic") or "-"), ("source", origin),
         ("blocked on", job.get("blocked_on")), ("artifacts", ", ".join(job.get("artifacts") or []) or None),
@@ -330,14 +566,20 @@ def main(argv: list[str] | None = None) -> int:
     a.add_argument("--topic")
     a.add_argument("--project")
     a.add_argument("--working-copy")
+    a.add_argument("--priority", choices=PRIORITIES, default=DEFAULT_PRIORITY)
     ls = sub.add_parser("list", help="open jobs (--all: closed ones too)")
     ls.add_argument("--all", action="store_true")
     ls.add_argument("--json", action="store_true")
+    ls.add_argument("--stored", action="store_true", help="stored priorities only; the state stream is not read")
+    pr = sub.add_parser("prio", help="set a job's priority")
+    pr.add_argument("id")
+    pr.add_argument("priority", choices=PRIORITIES)
     for name in ("start", "done"):
         sub.add_parser(name).add_argument("id")
     b = sub.add_parser("block")
     b.add_argument("id")
-    b.add_argument("on")
+    b.add_argument("on", nargs="?")
+    b.add_argument("--on-request", metavar="MESSAGE-ID", help="the GZCoord request this job waits on")
     d = sub.add_parser("deliver")
     d.add_argument("id")
     d.add_argument("artifacts", nargs="+")
@@ -352,6 +594,13 @@ def main(argv: list[str] | None = None) -> int:
     n = sub.add_parser("next", help="start the next job and say whether it needs a fresh session")
     n.add_argument("id", nargs="?")
     n.add_argument("--json", action="store_true")
+    pl = sub.add_parser("pool-list", help="the open jobs of a role's pool (default: the bound role)")
+    pl.add_argument("--role")
+    pl.add_argument("--json", action="store_true")
+    pc = sub.add_parser("pool-claim", help="claim a pool job; it lands on this list, queued")
+    pc.add_argument("id")
+    pc.add_argument("--topic")
+    pc.add_argument("--working-copy")
     args = ap.parse_args(argv)
 
     try:
@@ -360,7 +609,8 @@ def main(argv: list[str] | None = None) -> int:
                 raise Refused("--request takes its title from the message; give one or the other")
             msg = fetch_message(args.request)
             job = mutate(lambda doc: request_job(doc, msg, topic=args.topic, project=args.project,
-                                                 working_copy=args.working_copy, auto=args.auto))
+                                                 working_copy=args.working_copy, auto=args.auto,
+                                                 priority=args.priority))
             if job:
                 print(f"added {line(job)}")
             elif args.auto:
@@ -370,21 +620,58 @@ def main(argv: list[str] | None = None) -> int:
                 raise Refused("add needs a title, or --request <MESSAGE-ID>")
             source = {"kind": "owner", "from": args.owner} if args.owner else None
             job = mutate(lambda doc: new_job(doc, args.title, topic=args.topic, project=args.project,
-                                             working_copy=args.working_copy, source=source))
+                                             working_copy=args.working_copy, source=source,
+                                             priority=args.priority))
             print(f"added {line(job)}")
             if not job.get("working_copy"):
                 print(f"  no working copy of {job.get('project') or 'its project'} found beside this one: "
                       f"fabric-jobs next compares it by project only; re-add it with --working-copy to fix",
                       file=sys.stderr)
+        elif args.cmd == "pool-list":
+            said = ask_pool("pool-list", *([args.role] if args.role else []))
+            answer = said["answer"]
+            if answer.get("status") != "ok":
+                raise Refused(f"{said['holder']} refused: {printable(answer.get('reason') or answer.get('status'))}")
+            if args.json:
+                print(json.dumps(answer, ensure_ascii=False, indent=2))
+            elif not answer.get("jobs"):
+                print(f"the {printable(answer.get('role'))} pool is empty")
+            else:
+                print("\n".join(pool_line(j) for j in answer["jobs"]))
+        elif args.cmd == "pool-claim":
+            if not POOL_ID.fullmatch(args.id):
+                raise Refused(f"a pool job id is p<n> (fabric-jobs pool-list), not {args.id!r}")
+            try:
+                said = ask_pool("pool-claim", args.id)
+            except Unanswered as e:
+                # Sent and unanswered is not unsent: the holder may have
+                # recorded it, and the same claim again hands it back.
+                raise Refused(f"{e}; if the claim reached the holder, {args.id} may be claimed for you — "
+                              f"fabric-jobs pool-claim {args.id} again lands it or says whose it is")
+            answer, holder = said["answer"], said["holder"]
+            if answer.get("status") != "claimed":
+                raise Refused(f"{holder} refused: {printable(answer.get('reason') or answer.get('status'))}")
+            claimed = claimed_job(answer, args.id)
+            try:
+                job, added = mutate(lambda doc: pool_job(doc, claimed, holder, again=answer.get("again") is True,
+                                                         topic=args.topic, working_copy=args.working_copy))
+            except Refused as e:
+                raise Refused(f"{args.id} is claimed at {holder}, but this list did not take it ({e}); "
+                              f"fix that and run fabric-jobs pool-claim {args.id} again — it is yours")
+            print(f"{'claimed' if added else 'already listed'} {line(job)}")
         elif args.cmd == "list":
             doc = identity.read_jobs()
             jobs = [j for j in doc["jobs"] if args.all or j["state"] in OPEN]
+            waits = stream_waits(doc, stored=args.stored)
             if args.json:
-                print(json.dumps(jobs, ensure_ascii=False, indent=2))
+                # The effective rank is the reader's, never stored: it is only
+                # as true as the stream it was read from.
+                print(json.dumps([{**j, "effective_priority": effective_priority(j, waits),
+                                   "waited_by": waiters(j, waits)} for j in jobs], ensure_ascii=False, indent=2))
             elif not jobs:
                 print("no open jobs" if not args.all else "no jobs")
             else:
-                print("\n".join(line(j) for j in jobs))
+                print("\n".join(line(j, waits) for j in jobs))
         elif args.cmd == "show":
             job = find(identity.read_jobs(), args.id)
             if args.field:
@@ -393,6 +680,9 @@ def main(argv: list[str] | None = None) -> int:
                 print(json.dumps(job, ensure_ascii=False, indent=2) if args.json else summary(job) if args.line else show(job))
         elif args.cmd == "next":
             here = identity.resolve_context()
+            # Read before the lock: the stream is a relay call, and the list's
+            # lock is every writer's.
+            waits = {} if args.id else stream_waits(identity.read_jobs())
 
             def pick(doc):
                 current = active(doc)
@@ -404,17 +694,24 @@ def main(argv: list[str] | None = None) -> int:
                     if nxt["state"] not in ("queued", "blocked"):
                         raise Refused(f"{nxt['id']} is {nxt['state']}; next takes a queued or blocked job")
                 else:
-                    nxt = next((j for j in doc["jobs"] if j["state"] == "queued"), None)
+                    nxt = next(iter(queue_order(doc, waits)), None)
                     if nxt is None:
-                        raise Refused("no queued job; add one with fabric-jobs add")
+                        raise NothingQueued("no queued job")
                 verdict = decide(doc, nxt, here)
+                who = waiters(nxt, waits)
                 transition(doc, nxt, "active")
-                return verdict, dict(nxt)
-            verdict, job = mutate(pick)
+                return verdict, dict(nxt), who
+            try:
+                verdict, job, who = mutate(pick)
+            except NothingQueued:
+                raise Refused(f"no queued job; {pool_offer()}")
             if args.json:
                 print(json.dumps(verdict, ensure_ascii=False, indent=2))
             else:
                 print(line(job))
+                if who and stored_priority(job) != "blocking":
+                    print(f"  ranked blocking: {', '.join(who)} {'waits' if len(who) == 1 else 'wait'} on its request "
+                          f"(stored {stored_priority(job)})")
                 if verdict["fresh"]:
                     print(f"fresh session: against {verdict['against']}, {'; '.join(verdict['differs'])}.")
                     print(f"  run: fabric-fresh --job {job['id']}")
@@ -426,10 +723,25 @@ def main(argv: list[str] | None = None) -> int:
         else:
             def change(doc):
                 job = find(doc, args.id)
-                if args.cmd == "start":
+                if args.cmd == "prio":
+                    if job["state"] in TERMINAL:
+                        raise Refused(f"{job['id']} is {job['state']}; a closed job has no place in the queue")
+                    job["priority"] = args.priority
+                    job["updated"] = identity.now_iso()
+                elif args.cmd == "start":
                     transition(doc, job, "active")
                 elif args.cmd == "block":
-                    transition(doc, job, "blocked", blocked_on=" ".join(args.on.split()), note=args.on)
+                    mid = args.on_request.strip().lower() if args.on_request is not None else None
+                    if mid is not None and not MESSAGE_ID.fullmatch(mid):
+                        raise Refused(f"--on-request takes a MESSAGE-ID (a UUID), not {args.on_request!r}")
+                    if not (args.on or "").strip() and mid is None:
+                        raise Refused("block needs what the job waits on, or --on-request <MESSAGE-ID>")
+                    on = " ".join(args.on.split()) if (args.on or "").strip() else f"request {mid}"
+                    transition(doc, job, "blocked", blocked_on=on, note=on)
+                    if mid is None:
+                        job.pop("waits_on", None)
+                    else:
+                        job["waits_on"] = mid
                 elif args.cmd == "deliver":
                     arts = list(dict.fromkeys((job.get("artifacts") or []) + args.artifacts))
                     transition(doc, job, "delivered", artifacts=arts)

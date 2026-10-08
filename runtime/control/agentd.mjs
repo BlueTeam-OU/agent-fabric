@@ -55,6 +55,7 @@ import { whoami, FABRIC_ROOT, api, syncedToken, identity as gzIdentity, integrat
 import { hostsRegistry } from './roots.mjs';
 import { OPS, PUBLIC_OPS, collect, usage, accounts, accountSlugs, accountsDir, disk } from './ops.mjs';
 import { jobsAdd } from './jobs.mjs';
+import { poolAdd, poolList, poolClaim, poolHolder, roleFromStream } from './pool.mjs';
 import { localPrune } from './local.mjs';
 import { ACTION_OPS, ACTION_TTL_MAX_S, publicKeyFrom, verifyRequest } from './sign.mjs';
 import { upgrade, stateDir } from './upgrade.mjs';
@@ -263,6 +264,9 @@ export async function answer(request, ctx) {
   const data = request.op === 'ping' ? {} : request.op === 'upgrade' ? { upgrade: await upgrade(request, { me: ctx.me.address, ...ctx.upgradeOpts }) }
     : request.op === 'secrets-sync' ? { 'secrets-sync': await secretsSync(request, { me: ctx.me.address, ...ctx.secretsOpts }) }
     : request.op === 'jobs-add' ? { 'jobs-add': await jobsAdd(request, { home: ctx.home, root: ctx.root, ...(ctx.jobsOpts ?? {}) }) }
+    : request.op === 'pool-add' ? { 'pool-add': poolAdd(request, { me: ctx.me.address, holder: poolHolder(controlConfig()), ...(ctx.poolOpts ?? {}) }) }
+    : request.op === 'pool-list' ? { 'pool-list': poolList(request, { me: ctx.me.address, holder: poolHolder(controlConfig()), ...(ctx.poolOpts ?? {}) }) }
+    : request.op === 'pool-claim' ? { 'pool-claim': await poolClaim(request, { me: ctx.me.address, holder: poolHolder(controlConfig()), ...(ctx.poolOpts ?? {}) }) }
     : request.op === 'local-prune' ? { 'local-prune': await localPrune(request, { home: ctx.home, root: ctx.root }) }
     : request.op === 'secrets-selftest' ? { 'secrets-selftest': await secretsSelftest(request, { home: ctx.home, root: ctx.root, ...(ctx.selftestOpts ?? {}) }) }
     : await collect(request.op, Number.isFinite(days) && days > 0 ? { ...ctx, days: Math.min(days, 90) } : ctx);
@@ -312,6 +316,8 @@ export async function main(argv = process.argv.slice(2)) {
     }
   };
   const post = content => call('/api/send', { method: 'POST', body: JSON.stringify({ channel: cfg.channel, sender: me.address, content: JSON.stringify(content) }) });
+  // A claimant's role is what its own control agent last said on the state channel.
+  ctx.poolOpts = { roleOf: roleFromStream({ call, cfg }) };
 
   let last = null, down = false;
   const prime = async () => {
@@ -336,7 +342,8 @@ export async function main(argv = process.argv.slice(2)) {
     setInterval(pressure.tick, SAMPLE_INTERVAL_MS).unref();
     // What the account's sessions are doing, posted when it changes
     // (sessions.mjs); first at start, so a restart re-says it.
-    const states = stateWatcher({ address: me.address, post: statePoster(call, cfg, me.address), binding: who.binding });
+    const states = stateWatcher({ address: me.address, post: statePoster(call, cfg, me.address), binding: who.binding,
+      jobs: path.join(stateDir(), 'jobs.json') });
     states.tick();
     setInterval(states.tick, STATE_POLL_MS).unref();
   }

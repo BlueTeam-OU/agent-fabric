@@ -14,7 +14,8 @@ tools it calls (ADR-040 rule 5's fixture departure).
 CONTRACT, frozen from the bash (ADR-040 §5 rule 3):
   argv      <login> <role> (--claude-account <slug> | --no-claude-account)
             [--host <id>] [--project <id>]...
-            [--claude VERSION|stable|latest] [--dry-run], each value
+            [--claude VERSION|stable|latest] [--no-signing-key] [--dry-run],
+            or <login> --human [--host <id>] [--dry-run]; each value
             spaced or with `=`, flags anywhere. -h/--help: HELP on stdout,
             exit 0 (the bash's header, lines 2-52, cut where it cut).
             An unknown flag, a third positional or a missing login/role:
@@ -24,7 +25,11 @@ CONTRACT, frozen from the bash (ADR-040 §5 rule 3):
             Exactly one of --claude-account and --no-claude-account
             (2026-10-07, the owner: the starting Claude account is part of
             onboarding, so a re-run names it too): neither or both, exit 2.
-  stdin     never read; the worker phases inherit it.
+            --human (ADR-044): no role, and none of --claude-account,
+            --no-claude-account, --claude, --project: exit 2.
+  stdin     never read by this process; the worker phases and step 11's
+            gpg inherit it (pinentry asks there). Step 11 runs only when
+            stdin and stdout are both terminals.
   env       AGENT_FABRIC_HOSTS_REGISTRY (default runtime/hosts/registry.json);
             everything else reaches the host executor, the worker and the
             store tools as found.
@@ -34,7 +39,31 @@ CONTRACT, frozen from the bash (ADR-040 §5 rule 3):
             catch-up print, each line indented three spaces.
   exit      0 when every step ran (or a dry run planned them); 1 for a
             refusal or a failed step (`step failed: …`, nothing after it
-            ran); 2 for usage; hostexec's own refusal of the host is 1.
+            ran; step 11, the last, fails alone: 0-10 stay done); 2 for
+            usage; hostexec's own refusal of the host is 1.
+
+A HUMAN LOGIN (ADR-044; the coordinator's request of 2026-10-08). A
+person's login is an identity of the fleet with a kind, `human`, in
+runtime/hosts/registry.json: it has an account, a key its parent
+certifies, a store and the relay credential, and nothing of a session —
+no claude or ori, no SSH host keys, no bootstrap (agent files, hooks,
+agentd), no role, no Claude account, no issued key. It is placed and its
+kind recorded BEFORE the run, never by it: the kind decides what
+fabric-secrets status requires of the login, and the login's own clone is
+what status reads, so a run that came first would end NOT OK. A --human
+run on a login the registry does not hold as a human is refused, and so
+is an agent run on one it does (ADR-044 rule 5: neither becomes the
+other). moveto's sudo grant is the host operator's to give.
+
+THE SIGNING KEY, step 11 (the coordinator's request of 2026-10-08: two
+agents in two days started unable to sign). The fleet's commit-signing
+key is shared (the owner's choice). On a terminal, an agent's last step
+imports it: this login's gpg exports the key its git config signs with
+and the account's gpg imports it on a pipe — the passphrase is asked by
+gpg's own pinentry, never read, echoed or passed here — its ownertrust is
+set, and a test signature as the account proves it. Without a terminal,
+or with --no-signing-key, the closing prints the two lines a person runs.
+A human never gets it (ADR-044 rule 3).
 
 THE CLAUDE ACCOUNT (ADR-031; the owner, 2026-10-07). Assigned after new-agent
 by fabric-accounts, the token was written but the account's own sync
@@ -94,7 +123,7 @@ HERE = os.path.dirname(os.path.realpath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
 sys.path.insert(0, HERE)
 import roots  # noqa: E402
-from new_agent_worker import run_bounded, stop_tree  # noqa: E402
+from new_agent_worker import run_bounded, signing_key_lines, signs_with_secret, stop_tree  # noqa: E402
 SECRETS = os.path.join(ROOT, "runtime", "provisioning", "secrets", "fabric-secrets")
 STORE_ENROLL = os.path.join(ROOT, "runtime", "provisioning", "secrets", "store-enroll.sh")
 STORE = os.path.join(ROOT, "tools", "fabric", "secret_store.py")
@@ -114,7 +143,8 @@ CLAUDE_TARGET = re.compile(r"stable|latest|[0-9]+\.[0-9]+\.[0-9]+([-.][A-Za-z0-9
 SLUG = re.compile(r"[a-z0-9][a-z0-9-]{0,62}")
 FINGERPRINT = re.compile(r"[0-9a-f]{12}")
 USAGE = ("usage: new-agent.sh <login> <role> (--claude-account <slug> | --no-claude-account) [--host <id>] "
-         "[--project <id>]... [--claude VERSION|stable|latest] [--dry-run]\n")
+         "[--project <id>]... [--claude VERSION|stable|latest] [--no-signing-key] [--dry-run]\n"
+         "       new-agent.sh <login> --human [--host <id>] [--dry-run]\n")
 NO_ACCOUNT_CHOICE = ("new-agent: name the Claude account it starts on: --claude-account <slug> (bin/fabric-accounts "
                      "templates), or --no-claude-account for the broker path only")
 HELP = """\
@@ -125,11 +155,17 @@ person can do. Run by a fabric-coordinator holder from its own login
 (the account steps go through sudo; the secrets step is the
 coordinator's as the account's parent, ADR-038).
 
-  runtime/provisioning/new-agent.sh <login> <role> (--claude-account <slug> | --no-claude-account) [--host <id>] [--project <id>]... [--claude VERSION|stable|latest] [--dry-run]
+  runtime/provisioning/new-agent.sh <login> <role> (--claude-account <slug> | --no-claude-account) [--host <id>] [--project <id>]... [--claude VERSION|stable|latest] [--no-signing-key] [--dry-run]
+  runtime/provisioning/new-agent.sh <login> --human [--host <id>] [--dry-run]
 
   new-agent.sh <login> <role> --claude-account <slug> --project <id> --project <id>
   new-agent.sh <login> <role> --claude-account <slug> --host <host-id> --project <id>      # on another host
   new-agent.sh <login> <role> --no-claude-account --project <id>   # the broker path only
+  new-agent.sh <login> --human     # a person's login (ADR-044): placed with kinds "human" first
+
+On a terminal, an agent's last step imports the fleet's signing key
+(gpg's pinentry asks its passphrase); without one, or with
+--no-signing-key, the closing prints the two lines a person runs.
 
 The Claude account it starts on is a template in this login's store
 (bin/fabric-accounts templates): checked before any account is made,
@@ -194,7 +230,7 @@ def die(msg: str) -> "NoReturn":  # noqa: F821
 
 def parse(argv: list[str]) -> dict:
     o = {"dry": False, "login": "", "role": "", "projects": [], "claude": "", "host": "", "claude-account": None,
-         "no-claude-account": False}
+         "no-claude-account": False, "human": False, "no-signing-key": False}
     i = 0
     while i < len(argv):
         a = argv[i]
@@ -215,8 +251,8 @@ def parse(argv: list[str]) -> dict:
                 o[name] = v
         elif a == "--dry-run":
             o["dry"] = True
-        elif a == "--no-claude-account":
-            o["no-claude-account"] = True
+        elif a in ("--no-claude-account", "--human", "--no-signing-key"):
+            o[a[2:]] = True
         elif a in ("-h", "--help"):
             raise Exit(0, None)
         elif a.startswith("-"):
@@ -228,6 +264,15 @@ def parse(argv: list[str]) -> dict:
         else:
             raise Exit(2, f"new-agent: unexpected argument {a}")
         i += 1
+    if o["human"]:
+        if o["role"]:
+            raise Exit(2, f"new-agent: a human login has no role (ADR-044): new-agent.sh {o['login']} --human")
+        if o["claude-account"] is not None or o["no-claude-account"] or o["claude"] or o["projects"]:
+            raise Exit(2, "new-agent: --human takes --host and --dry-run only: a human has no Claude account, no claude "
+                          "and no project clones (ADR-044)")
+        if not o["login"]:
+            raise Exit(2, USAGE.rstrip("\n"))
+        return o
     if not (o["login"] and o["role"]):
         raise Exit(2, USAGE.rstrip("\n"))
     if o["claude"] and not CLAUDE_TARGET.fullmatch(o["claude"]):
@@ -365,7 +410,7 @@ def new_agent(argv: list[str]) -> int:
         die("run this as the fabric-coordinator login, not root: the account's store is filled from yours.")
 
     # ---- what is asked for must exist in the fabric ---------------------
-    if not os.path.isfile(os.path.join(roots.role_dir(role, engine=ROOT), "charter.md")):
+    if not o["human"] and not os.path.isfile(os.path.join(roots.role_dir(role, engine=ROOT), "charter.md")):
         die(f"no role '{role}' under identities/roles/ (bin/fabric-role list).")
     remote = {}
     for pid in o["projects"]:
@@ -432,6 +477,7 @@ def claude_template(s: Steps, slug: str) -> str:
 
 
 def run_steps(o: dict, login: str, role: str, host: str, dry: bool, remote: dict, hosts_path: str, s: Steps) -> int:
+    human = o["human"]
     slug = o["claude-account"]
     fp = claude_template(s, slug) if slug else ""
     # ---- the host the account lives on ----------------------------------
@@ -439,6 +485,13 @@ def run_steps(o: dict, login: str, role: str, host: str, dry: bool, remote: dict
     # there and nowhere else; a new account goes to --host, or to this host.
     reg = hosts_registry(hosts_path)
     placed = str((reg.get("placement") or {}).get(login, ""))
+    kind = login_kind(reg, login, hosts_path)
+    if human and not (placed and kind == "human"):
+        die(f"{login} is not placed as a human: add \"{login}\": \"<host>\" to placement and \"{login}\": \"human\" to "
+            "kinds in runtime/hosts/registry.json, merged, first — its clone reads its kind there (ADR-044); nothing made")
+    if not human and kind == "human":
+        die(f"{login} is a human login (runtime/hosts/registry.json kinds): new-agent.sh {login} --human; an agent's "
+            "pieces are never made for it (ADR-044 rule 5)")
     local_host = next((h for h, e in (reg.get("hosts") or {}).items() if isinstance(e, dict) and e.get("ssh") is None), "")
     if placed and host and placed != host:
         die(f"{login} is placed on {placed} (runtime/hosts/registry.json); --host {host} would make a second account of "
@@ -456,15 +509,22 @@ def run_steps(o: dict, login: str, role: str, host: str, dry: bool, remote: dict
     reported = check.split("\n", 1)[0]
     if reported != host:
         die(f"host {host} answers as '{reported}'; the registry id is the host's short hostname (bin/fabric-host {host} check)")
-    say(f"host {host}{' (this host)' if host == local_host else ' (over ssh)'}; account {login}, role {role}")
+    say(f"host {host}{' (this host)' if host == local_host else ' (over ssh)'}; account {login}, "
+        + ("a human (ADR-044)" if human else f"role {role}"))
+    if human:
+        say("a human: steps 0, 1 and 4 on the host, 5, then 10; no claude, ori, SSH host keys, bootstrap, role, "
+            "toolchain or signing key (ADR-044)")
     if not placed:
         say(f"placement: add \"{login}\": \"{host}\" to runtime/hosts/registry.json placement (bin/fabric-status on the "
             "account reports drift until it is there)")
     dry_arg = ["--dry-run"] if dry else []
+    who = ["--human"] if human else [role]
+    # Step 11 needs a person at a terminal: pinentry asks there.
+    signing_next = not human and not o["no-signing-key"] and on_terminal()
 
     # ---- 0-4 on the host ---------------------------------------------------
     claude = ["--claude", o["claude"]] if o["claude"] else []
-    if s.through([HX, host, "--", WORKER, "prepare", login, role, *claude, *dry_arg]) != 0:
+    if s.through([HX, host, "--", WORKER, "prepare", login, *who, *claude, *dry_arg]) != 0:
         die("the host half stopped (above); nothing after it ran")
 
     # ---- 5. the account's key, store and secrets (ADR-038) ------------------
@@ -473,46 +533,97 @@ def run_steps(o: dict, login: str, role: str, host: str, dry: bool, remote: dict
     # login cannot read back. Every piece is idempotent: store-enroll keeps a
     # key and id already made, and provision leaves a name the store holds
     # alone (a key is minted once; a second run must not mint again).
-    if dry:
+    if dry and human:
+        say(f"would: store-enroll.sh {login} --host {host} --born-now; provision identity, and share "
+            f"{HUMAN_SHARED} only (a human: no other name, no issued key); its store to {login} as a bundle; "
+            f"fabric-secrets sync --no-pull as {login}; its inbox cursor to the newest message")
+    elif dry:
         say(f"would: store-enroll.sh {login} --host {host} --born-now; provision identity, share, issue-key openrouter "
             f"and openai (each once); its store to {login} as a bundle; fabric-secrets sync --no-pull as {login}; its "
             "inbox cursor to the newest message")
         say(f"would: fabric-secrets store assign {slug} {login} (token {fp}), before the bundle" if slug else
             "would: assign no Claude account (--no-claude-account: the broker path only)")
     else:
-        secrets_step(s, login, host, o["projects"], slug, fp)
+        secrets_step(s, login, host, o["projects"], slug, fp, human=human)
 
     # ---- 6-10 on the host ---------------------------------------------------
     clones = [a for pid in o["projects"] for a in ("--clone", f"{pid}={remote[pid]}")]
-    account = ["--claude-account", f"{slug}={fp}"] if slug else ["--no-claude-account"]
-    if s.through([HX, host, "--", WORKER, "finish", login, role, *clones, *account, *dry_arg]) != 0:
+    account = [] if human else ["--claude-account", f"{slug}={fp}"] if slug else ["--no-claude-account"]
+    nxt = ["--signing-key-next"] if signing_next and not dry else []
+    # The closing's hand-import lines run here, on the coordinator's host: an
+    # account on another reaches its gpg through fabric-host (#118, Codex).
+    via = ["--via-host", host] if host != local_host and not human else []
+    if s.through([HX, host, "--", WORKER, "finish", login, *who, *clones, *account, *nxt, *via, *dry_arg]) != 0:
         die("the host half stopped (above); nothing after it ran")
+
+    # ---- 11. the signing key, with a person at the terminal -----------------
+    if dry and signing_next:
+        say(f"would: 11. export this login's signing key and import it as {login} (gpg's pinentry asks its "
+            "passphrase), set its ownertrust, sign once as it")
+    elif signing_next:
+        return signing_key(login, host, via=host if host != local_host else "")
     return 0
 
 
-def secrets_step(s: Steps, login: str, host: str, projects: list[str], slug: str, fp: str) -> None:
+def on_terminal() -> bool:
+    """A person at this terminal: stdin and stdout both one."""
+    return os.isatty(0) and os.isatty(1)
+
+
+def login_kind(reg: dict, login: str, path: str) -> str:
+    """The login's kind (ADR-044 rule 1): `kinds` names a human; a login it
+    does not name is an agent. A kinds that is not a table, or a kind that
+    is neither, is refused: the run would make the wrong pieces."""
+    kinds = reg.get("kinds") or {}
+    kind = kinds.get(login, "agent") if isinstance(kinds, dict) else None
+    if kind not in ("agent", "human"):
+        die(f"{path}: the kind of {login} cannot be read (kinds is a table of agent or human); nothing made")
+    return kind
+
+
+# The one shared name a human's work needs: its reads of the state stream
+# and its messages (ADR-044 rule 3). provision share's allowlist holds it.
+HUMAN_SHARED = "CLAUDE_BRIDGE_AUTH_TOKEN"
+# A human has no projects to name its channel; the fleet's channel is the
+# control plane's (projects/agent-fabric/integration/gzcoord).
+HUMAN_CHANNEL_PROJECT = "agent-fabric"
+
+
+def secrets_step(s: Steps, login: str, host: str, projects: list[str], slug: str, fp: str, *,
+                 human: bool = False) -> None:
     if s.capture([sys.executable, STORE, "export-key"])[0] != 0:
         die("this login has no store of its own, so it cannot be a parent: store-enroll.sh --self first; nothing after "
             "it ran")
     if s.indented([STORE_ENROLL, login, "--host", host, "--born-now"])[0] != 0:
         die(f"step failed: store-enroll.sh {login}; nothing after it ran")
 
-    def provision(label: str, *args: str) -> None:
-        """One line per run, statuses only."""
+    def provision(label: str, *args: str) -> list:
+        """One line per run, statuses only; the rows, [] when unreadable."""
         rc, rows = s.capture([SECRETS, "provision", *args])
         if rc != 0:
             s.tail(3)
             die(f"step failed: fabric-secrets provision {' '.join(args)}; nothing after it ran")
         try:
-            counts = collections.Counter(r["status"] for r in json.loads(rows))
+            parsed = json.loads(rows)
+            counts = collections.Counter(r["status"] for r in parsed)
             summary = ", ".join(f"{v} {k}" for k, v in sorted(counts.items())) or "nothing to do"
         except (ValueError, TypeError, KeyError):
-            summary = ""
+            parsed, summary = [], ""
         say(f"   {label}: {summary}")
+        return parsed if isinstance(parsed, list) else []
     provision("identity", "identity", login, "--host", host)
-    provision("shared names", "share", login)
-    provision("OpenRouter key", "issue-key", "openrouter", login)
-    provision("OpenAI key", "issue-key", "openai", login)
+    if human:
+        # The one name is the human's whole use of its store: a row that is
+        # not written or present (the parent lacks it, or no row) stops here.
+        rows = provision("relay credential", "share", login, "--name", HUMAN_SHARED)
+        if not any(isinstance(r, dict) and r.get("name") == HUMAN_SHARED and r.get("status") in ("written", "present")
+                   for r in rows):
+            die(f"step failed: {HUMAN_SHARED} did not reach {login}'s store (above); nothing after it ran")
+        projects = [HUMAN_CHANNEL_PROJECT]
+    else:
+        provision("shared names", "share", login)
+        provision("OpenRouter key", "issue-key", "openrouter", login)
+        provision("OpenAI key", "issue-key", "openai", login)
     if slug:
         assign(s, login, slug, fp)
     as_account = [HX, host, "--as", login, "--"]
@@ -562,6 +673,135 @@ def assign(s: Steps, login: str, slug: str, fp: str) -> None:
         die(f"step failed: fabric-secrets store assign {slug} {login} wrote token {row.get('token_sha256_12')}, not the "
             f"{fp} checked at the start (the template changed); nothing after it ran")
     say(f"   Claude account: {slug}, {row['status']} (token {fp})")
+
+
+# What the account's shell runs for the test signature: its terminal
+# named for pinentry before the pipe takes stdin, then one detached
+# signature of a fixed line, thrown away. The key is "$1", never spliced.
+SIGN_TEST = ('t="$(tty)" || t=""; printf "%s\\n" "new-agent: a test signature" '
+             '| GPG_TTY="$t" gpg --batch --local-user "$1" --detach-sign >/dev/null')
+TERM_VALUE = re.compile(r"[A-Za-z0-9._+-]{1,64}")
+
+
+def primary_fingerprint(listing: str) -> str:
+    """The primary key's fingerprint in a `--with-colons` secret listing:
+    the first fpr record after the first sec record; "" when there is none."""
+    seen_sec = False
+    for line in listing.splitlines():
+        f = line.split(":")
+        if f[0] == "sec":
+            seen_sec = True
+        elif f[0] == "fpr" and seen_sec and len(f) > 9 and re.fullmatch(r"[0-9A-F]{40,64}", f[9]):
+            return f[9]
+    return ""
+
+
+def last_line(err, silent: str = "(gpg said nothing)") -> str:
+    err.seek(0)
+    lines = [ln for ln in err.read().decode("utf-8", "replace").splitlines() if ln.strip()]
+    return lines[-1].strip() if lines else silent
+
+
+def signing_key(login: str, host: str, *, via: str = "") -> int:
+    """11. The fleet's signing key into the account's keyring, with a person
+    at this terminal: exported by this login's gpg and imported by the
+    account's on a pipe, never a file; the passphrase is pinentry's
+    (GPG_TTY names this terminal for it), never read, echoed or passed
+    here. Its ownertrust set, then proved by a signature made as the
+    account — on every run: a key already there skips only the import, so
+    a re-run repairs an ownertrust an earlier run did not set and proves
+    the key again (#118 review, F2). A failure is said with gpg's last line
+    and the two lines a person runs; 0-10 stay done, and this step alone
+    exits 1."""
+    def failed(why: str) -> int:
+        say(f"11. the signing key: FAILED — {why}")
+        say("    by hand, as this login, in a terminal (the key has a passphrase):")
+        for line in signing_key_lines(login, via):
+            print(f"new-agent: {line}", file=sys.stderr)
+        return 1
+
+    def ask(cmd: list[str], *, stdin=subprocess.DEVNULL, data: bytes | None = None, env=None,
+            stdout=subprocess.PIPE, silent: str = "(gpg said nothing)") -> tuple[int, str]:
+        with tempfile.TemporaryFile() as err:
+            try:
+                r = run_bounded(cmd, stdin=subprocess.PIPE if data is not None else stdin, input=data,
+                                stdout=stdout, stderr=err, env=env, timeout=STEP_TIMEOUT_S)
+            except subprocess.TimeoutExpired:
+                return 124, f"no answer within {STEP_TIMEOUT_S} s"
+            except OSError as exc:
+                return 127, f"{cmd[0]}: {exc.strerror or exc}"
+            if r.returncode != 0:
+                return r.returncode, last_line(err, silent)
+            return 0, r.stdout.decode("utf-8", "replace") if r.stdout is not None else ""
+
+    sys.stderr.flush()
+    rc, key = ask(["git", "-C", ROOT, "config", "--get", "user.signingkey"])
+    key = key.strip() if rc == 0 else ""
+    if not key:
+        return failed("this login's git config names no user.signingkey")
+    rc, listing = ask(["gpg", "--list-secret-keys", "--with-colons", "--", key])
+    fpr = primary_fingerprint(listing) if rc == 0 and signs_with_secret(listing) else ""
+    if not fpr:
+        return failed(f"this login's keyring holds no signing secret for {key}" + ("" if rc == 0 else f": {listing}"))
+    as_account = [HX, host, "--as", login, "--"]
+    rc, theirs = ask([*as_account, "gpg", "--list-secret-keys", "--with-colons", "--", fpr])
+    if rc == 0 and signs_with_secret(theirs):
+        say(f"11. the signing key {fpr[-16:]}: already in {login}'s keyring; its ownertrust and a test signature follow")
+    else:
+        why = import_key(login, fpr, as_account)
+        if why:
+            return failed(why)
+    rc, why = ask([*as_account, "gpg", "--batch", "--import-ownertrust"], data=f"{fpr}:6:\n".encode())
+    if rc != 0:
+        return failed(f"its ownertrust as {login}: {why}")
+    term = os.environ.get("TERM", "")
+    term_env = ["env", f"TERM={term}"] if TERM_VALUE.fullmatch(term) else []
+    sys.stderr.flush()
+    # stdout is the person's terminal, never a pipe: over ssh (`hostexec
+    # --tty` is `ssh -t`) the remote pty — the one pinentry draws on, and
+    # gpg's stderr with it — comes back on ssh's stdout, and a captured
+    # stdout hid the prompt (#118 review, F1). So on that backend gpg's
+    # words are on the terminal, not in the stderr file.
+    rc, why = ask([HX, host, "--tty", "--as", login, "--", *term_env, "sh", "-c", SIGN_TEST, "_", fpr], stdin=None,
+                  stdout=None, silent="gpg's words are above, on the terminal")
+    if rc != 0:
+        return failed(f"the test signature as {login}: {why}")
+    say(f"11. the signing key: in {login}'s keyring, trusted, and a test signature made as it — done.")
+    return 0
+
+
+def import_key(login: str, fpr: str, as_account: list[str]) -> str:
+    """The export here piped into the import as the account; "" when both
+    exited 0, else what failed, with gpg's last line."""
+    say(f"11. the signing key {fpr[-16:]}: exported here, imported as {login}; gpg's pinentry asks for its passphrase")
+    env = dict(os.environ)
+    if not env.get("GPG_TTY") and os.isatty(0):
+        env["GPG_TTY"] = os.ttyname(0)
+    with tempfile.TemporaryFile() as exp_err, tempfile.TemporaryFile() as imp_err:
+        exp = subprocess.Popen(["gpg", "--export-secret-keys", "--", fpr], stdout=subprocess.PIPE, stderr=exp_err, env=env)
+        try:
+            imp = subprocess.Popen([*as_account, "gpg", "--batch", "--import"], stdin=exp.stdout,
+                                   stdout=subprocess.DEVNULL, stderr=imp_err)
+        except OSError as exc:
+            stop_tree(exp)
+            return f"import as {login}: {exc.strerror or exc}"
+        finally:
+            exp.stdout.close()
+        try:
+            imp.wait(timeout=STEP_TIMEOUT_S)
+            exp.wait(timeout=60)
+        except subprocess.TimeoutExpired:
+            for p in (exp, imp):
+                if p.poll() is None:
+                    stop_tree(p)
+            return f"the export or the import gave no answer within {STEP_TIMEOUT_S} s"
+        # The export first: an import that read nothing says so, and the
+        # export's own line is the cause.
+        if exp.returncode != 0:
+            return f"the export here: {last_line(exp_err)}"
+        if imp.returncode != 0:
+            return f"the import as {login}: {last_line(imp_err)}"
+    return ""
 
 
 def main(argv: list[str]) -> int:
