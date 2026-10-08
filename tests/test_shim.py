@@ -18,10 +18,10 @@ shim = importlib.util.module_from_spec(spec); spec.loader.exec_module(shim)
 
 
 def test_sources_round_trip(tmp: str) -> None:
-    shim.SHIMS_DIR = os.path.join(tmp, "shims")
+    shim.SHIMS_DIR = os.path.join(tmp, "engine", "routing", "shims")
     paths = shim.write_source("acme2claude-shim", "# delta\n\nFollow the harness.", {"provider": {"allow_fallbacks": False, "only": ["x"]}})
-    assert paths == ["routing/shims/acme2claude-shim/system_prompt.md", "routing/shims/acme2claude-shim/config.json"] or \
-        all(p.endswith(("system_prompt.md", "config.json")) for p in paths), paths
+    # Said relative to the engine tree the sources are in, wherever this code runs from.
+    assert paths == ["routing/shims/acme2claude-shim/system_prompt.md", "routing/shims/acme2claude-shim/config.json"], paths
     prompt, config = shim.read_source("acme2claude-shim")
     assert prompt == "# delta\n\nFollow the harness.\n" and config == {"provider": {"allow_fallbacks": False, "only": ["x"]}}
 

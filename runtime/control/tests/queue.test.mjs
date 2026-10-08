@@ -116,7 +116,7 @@ test('unsent: only a refused or unconnected post certainly left nothing', () => 
   assert.equal(unsent({ timedOut: true, message: '/api/send -> no answer within 30 s' }), false, 'a timed-out post may have been stored');
 });
 
-test('the run has one budget under jobs.py\'s kill, and every call takes at most what is left', () => {
+test('the run has one budget under jobs.py\'s kill, and every call takes at most what is left', async () => {
   const py = fs.readFileSync(new URL('../../../tools/fabric/jobs.py', import.meta.url), 'utf8');
   const outer = Number(py.match(/^QUEUE_TIMEOUT_S = (\d+)$/m)?.[1]);
   assert.ok(outer > 0 && QUEUE_BUDGET_MS <= outer * 1000 - 5000, `${QUEUE_BUDGET_MS} ms against ${outer} s, with room for node to start`);
@@ -125,9 +125,12 @@ test('the run has one budget under jobs.py\'s kill, and every call takes at most
   const fake = (tok, p, opts) => seen.push(opts);
   boundCall('tok', { relay_url: 'http://r' }, fake, ALWAYS)('/api/send', { method: 'POST' });
   boundCall('tok', { relay_url: 'http://r' }, fake, () => 3000)('/x');
-  boundCall('tok', { relay_url: 'http://r' }, fake, () => -5)('/x');
-  assert.deepEqual(seen.map(o => o.timeoutMs), [QUEUE_CALL_TIMEOUT_MS, 3000, 1], 'a spent budget is a call that times out at once, never an unbounded one');
+  assert.deepEqual(seen.map(o => o.timeoutMs), [QUEUE_CALL_TIMEOUT_MS, 3000]);
   assert.deepEqual(seen[0], { relayUrl: 'http://r', timeoutMs: QUEUE_CALL_TIMEOUT_MS, method: 'POST' });
+  // A spent budget asks nothing, and says so: certainly unsent, never the relay's silence.
+  await assert.rejects(boundCall('tok', { relay_url: 'http://r' }, fake, () => 0)('/api/send?x=1', { method: 'POST' }),
+    e => e.budgetSpent === true && unsent(e) && relayError(e, { relay_url: 'http://r' }) === "/api/send: not asked, this run's 25 s budget is spent");
+  assert.equal(seen.length, 2, 'no call made');
 });
 
 test('relay() itself: its calls go through the bound, with the token it resolved', () => {
@@ -141,11 +144,17 @@ test('relay() itself: its calls go through the bound, with the token it resolved
   } finally { for (const [k, v] of Object.entries(env)) if (v === undefined) delete process.env[k]; else process.env[k] = v; }
 });
 
-test('askHolder: the wait ends when the run\'s budget does', async () => {
+test('askHolder: the wait is the run\'s budget when that is shorter, and the request lives no longer', async () => {
   const asked = [];
-  const call = async (p, init) => { asked.push(init?.method ?? 'GET'); return init?.method === 'POST' ? { id: 'm1' } : { messages: [] }; };
-  assert.equal(await askHolder({ call, cfg, from: 'h/py', holder: 'h/user', op: 'pool-list', args: { role: 'python-dev' }, waitMs: 5000, left: () => 0 }), null);
-  assert.deepEqual(asked, ['POST'], 'posted, and no poll after the budget ran out');
+  const call = async (p, init) => { asked.push(init?.method ? JSON.parse(JSON.parse(init.body).content) : 'GET'); return init?.method === 'POST' ? { id: 'm1' } : { messages: [] }; };
+  let left = 1200;
+  assert.equal(await askHolder({ call, cfg, from: 'h/py', holder: 'h/user', op: 'pool-list', args: { role: 'python-dev' }, waitMs: 10000, left: () => left }), null);
+  assert.equal(asked[0].ttl_s, 2, 'ttl from the shortened wait, not waitMs');
+  // Spent before the post: nothing is posted, and it is said as the budget, unsent.
+  asked.length = 0; left = 0;
+  await assert.rejects(askHolder({ call, cfg, from: 'h/py', holder: 'h/user', op: 'pool-list', args: { role: 'python-dev' }, waitMs: 5000, left: () => left }),
+    e => e.budgetSpent === true && unsent(e));
+  assert.deepEqual(asked, [], 'nothing posted');
 });
 
 test('relayError: a relay that did not answer is said as that, not as unreachable', () => {

@@ -105,10 +105,15 @@ export function relay(who = whoami(), cfg = controlConfig(), { call = api, left 
   return { who, cfg, call: boundCall(tok, cfg, call, left) };
 }
 
-// At least 1 ms: a spent budget is a call that times out at once, said as
-// no answer, never one made without a bound.
-export const boundCall = (tok, cfg, call = api, left = budgetLeft) => (p, init) =>
-  call(tok, p, { relayUrl: cfg.relay_url, timeoutMs: Math.max(1, Math.min(QUEUE_CALL_TIMEOUT_MS, left())), ...init });
+// A spent budget asks nothing: the call is not made, so nothing left this
+// account, and the run's budget is named, never the relay (review of #128).
+export const budgetSpent = p => Object.assign(
+  new Error(`${String(p).split('?')[0]}: not asked, this run's ${QUEUE_BUDGET_MS / 1000} s budget is spent`), { budgetSpent: true });
+export const boundCall = (tok, cfg, call = api, left = budgetLeft) => async (p, init) => {
+  const ms = Math.min(QUEUE_CALL_TIMEOUT_MS, left());
+  if (!(ms > 0)) throw budgetSpent(p);
+  return call(tok, p, { relayUrl: cfg.relay_url, timeoutMs: ms, ...init });
+};
 
 // Who is placed, read here rather than through agentd's accountAddresses,
 // which takes an unreadable registry for nobody: here that would read as
@@ -122,6 +127,7 @@ export function placedAccounts(registry = hostsRegistry({ engine: FABRIC_ROOT, e
 
 export function relayError(e, cfg) {
   if (e instanceof Unreadable) return e.message;
+  if (e?.budgetSpent) return e.message;
   return relayFailure(e, cfg.relay_url);
 }
 
@@ -134,17 +140,20 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 // Whether a failed post certainly left nothing at the relay: refused with
 // a 4xx, or never connected. Anything else (a reset, a 5xx after the write)
 // is unknown, and said as such by leaving `sent` out.
-export const unsent = e => (Number.isInteger(e?.status) && e.status >= 400 && e.status < 500) || e?.cause?.code === 'ECONNREFUSED';
+export const unsent = e => e?.budgetSpent === true || (Number.isInteger(e?.status) && e.status >= 400 && e.status < 500) || e?.cause?.code === 'ECONNREFUSED';
 
 export async function askHolder({ call, cfg, from, holder, op, args, waitMs = QUEUE_WAIT_MS, left = budgetLeft }) {
   const id = newId();
+  // The wait, fixed once before anything is posted: waitMs, or what the run's
+  // budget has left when that is less.
+  const wait = Math.min(waitMs, left());
+  if (!(wait > 0)) throw budgetSpent('/api/send');
   /** @type {import('./protocol.mjs').Request} */
   // The request lives as long as the asker waits, and no longer: a claim
   // the holder took after the asker gave up would be recorded for nobody.
-  const request = { v: 1, kind: 'request', id, from, to: [holder], op, ts: new Date().toISOString(), ttl_s: Math.ceil(waitMs / 1000), args };
+  const request = { v: 1, kind: 'request', id, from, to: [holder], op, ts: new Date().toISOString(), ttl_s: Math.ceil(wait / 1000), args };
   const sent = await call('/api/send', { method: 'POST', body: JSON.stringify({ channel: cfg.channel, sender: from, content: JSON.stringify(request) }) });
-  // The wait ends at waitMs, or sooner when the run's budget does.
-  const deadline = Date.now() + Math.min(waitMs, left());
+  const deadline = Date.now() + Math.min(wait, left());
   let since = sent.id;
   while (Date.now() < deadline) {
     let page;
