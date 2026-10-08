@@ -60,7 +60,8 @@ def main() -> int:
         check(f"{label} is not a PR status: passes", out is None, out)
     rc, out = reply("#1 (2 work, 0 fix) and #2 are ready to merge")
     check("one count excuses only its own PR", out and "of #2 without" in out["reason"], out)
-    for text in ("**#115** is merged.", "|#115|merged|", "Merged: **#115**", "—#115 is open"):
+    for text in ("**#115** is merged.", "|#115|merged|", "Merged: **#115**", "—#115 is open",
+                 "_#115_ is merged.", "merged -#115"):
         rc, out = reply(text)
         check(f"a PR in emphasis, a tight cell or after a dash is still a PR: {text!r}",
               out is not None and "#115" in out["reason"], out)
@@ -71,6 +72,17 @@ def main() -> int:
         reply(line)
         check(f"a {len(line)}-character run of separators is read in under a second", time.monotonic() - t0 < 1,
               time.monotonic() - t0)
+    for text in ("**#115** (3 work, 0 fix) is ready.", "|#115| (3 work, 0 fix) merged",
+                 "PR **#115** (3 work, 0 fix) is ready.\n**#115** is merged."):
+        rc, out = reply(text)
+        check(f"counts after closing emphasis or a bar pass: {text!r}", out is None, out)
+    rc, out = reply("```a``` #5 merged\n#6 merged")
+    check("a one-line ```code``` span is not a fence: the next line is read", out and "#6" in out["reason"], out)
+    distinct = "merge " + " ".join(f"#{i}" for i in range(1, 30000))
+    t0 = time.monotonic()
+    reply(distinct)
+    check("30,000 distinct PR numbers on a status line are read in under a second", time.monotonic() - t0 < 1,
+          time.monotonic() - t0)
     dense = "merge " + "#1 " * 66000
     t0 = time.monotonic()
     reply(dense)

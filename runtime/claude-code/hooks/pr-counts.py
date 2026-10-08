@@ -42,7 +42,8 @@ NOT_A_PR_WORDS = frozenset(("issue", "issues", "step", "steps", "item", "items",
 STATUS_RE = re.compile(r"\b(?:arm|armed|arming|merge|merged|mergeable|ready|queued|gate|waiting|"
                        r"your word|auto-merge|open|opened)\b", re.I)
 # The owner's format, right after the number: "#N (W work, F fix".
-COUNTS_AFTER_RE = re.compile(r"\s*\(\s*\d{1,4}\s+work\s*,\s*\d{1,4}\s+fix\b", re.I)
+# Closing emphasis or a table bar may sit between the number and its counts.
+COUNTS_AFTER_RE = re.compile(r"[*_~|`]{0,4}\s*\(\s*\d{1,4}\s+work\s*,\s*\d{1,4}\s+fix\b", re.I)
 CODE_SPAN_RE = re.compile(r"`[^`\n]*`")
 FENCE_RE = re.compile(r"^\s*(`{3,}|~{3,})")
 MAX_CHARS = 200_000
@@ -58,7 +59,9 @@ def prose_lines(text: str):
             if m and m.group(1)[0] == fence[0] and len(m.group(1)) >= len(fence) and not line.strip()[len(m.group(1)):]:
                 fence = ""
             continue
-        if m:
+        # A backtick run with another backtick later on the line is a code
+        # span (```a```), not a fence: CommonMark forbids one in the info string.
+        if m and not (m.group(1)[0] == "`" and "`" in line.strip()[len(m.group(1)):]):
             fence = m.group(1)
             continue
         yield CODE_SPAN_RE.sub(" ", line)
@@ -69,18 +72,18 @@ def pr_ref(line: str, m: re.Match) -> str | None:
     None when the number is not a pull request: an issue, a step or an item
     (by the word before it), a colour (six digits: NUM_RE stops at five),
     or a number glued to a word. Only the token right before `#` is looked
-    at, so each `#N` costs a constant: a reply dense with numbers stays far
-    inside the hook's timeout."""
+    at, so each `#N` costs a constant (missing() keeps the rest linear)."""
     before = line[max(0, m.start() - PREFIX):m.start()]
     after = line[m.end():m.end() + 1]
-    if after and (after.isalnum() or after == "_"):
+    if after and after.isalnum():
         return None
     glued = before[-1:] if before else ""
     repo = ""
     if glued and (glued.isalnum() or glued in "_.-/"):
         token = before.split()[-1] if before.split() else ""
-        token = token.lstrip("*_|([{<'\"`~>")
-        if not OWNER_REPO_RE.fullmatch(token):
+        token = token.lstrip("*_|([{<'\"`~>-")
+        # Only markup before # (_#115_, -#115): a plain PR.
+        if token and not OWNER_REPO_RE.fullmatch(token):
             return None
         repo = token
     words = before.split()
@@ -93,7 +96,7 @@ def missing(text: str) -> list[str]:
     """The pull requests whose status a line states with no "(W work, F fix)"
     right after them, unless the same pull request carries its counts
     somewhere in the reply."""
-    stated: list[str] = []
+    stated: dict[str, None] = {}   # insertion-ordered, constant-time membership
     counted: set[str] = set()
     for line in prose_lines(text):
         status = bool(STATUS_RE.search(line))
@@ -103,8 +106,8 @@ def missing(text: str) -> list[str]:
                 continue
             if COUNTS_AFTER_RE.match(line, m.end()):
                 counted.add(ref)
-            elif status and ref not in stated:
-                stated.append(ref)
+            elif status:
+                stated.setdefault(ref, None)
     return [r for r in stated if r not in counted]
 
 
