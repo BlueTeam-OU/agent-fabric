@@ -38,12 +38,14 @@ if line.startswith("api repos/gzapi-org/gzapp/pulls/7/files") and "--paginate --
 if line == "api graphql --input -":
     sys.stdin.read()
     p = {"state": "OPEN", "headRefOid": pr["headRefOid"], "autoMergeRequest": None, "mergeQueueEntry": None}
+    if has("pushed"): p["headRefOid"] = "0123456789abcdef0123456789abcdef01234567"
     if has("closed"): p["state"] = "CLOSED"
     elif has("merged"):
         p["state"] = "MERGED"
         p["headRefOid"] = open(os.path.join(s, "merged")).read() or p["headRefOid"]
     elif has("queued"): p["mergeQueueEntry"] = {"position": 2}
     elif has("armed"): p["autoMergeRequest"] = {"enabledAt": "x"}
+    if has("nohead"): del p["headRefOid"]
     print(json.dumps({"data": {"repository": {"pullRequest": p}}})); sys.exit(0)
 if line.startswith("pr view "):
     if has("viewfail"): sys.exit(1)
@@ -139,7 +141,7 @@ def main() -> int:
                 fh.write(text)
 
         def reset() -> None:
-            for n in ("calls", "armed", "queued", "merged", "closed", "noarm", "viewfail", "blind", "independent", "unresolved", "no_blind_field",
+            for n in ("calls", "armed", "queued", "merged", "closed", "noarm", "nohead", "pushed", "viewfail", "blind", "independent", "unresolved", "no_blind_field",
                       "waiver.out", "waiver_rc", "presence.out", "ctl_rc"):
                 if os.path.exists(f"{state}/{n}"):
                     os.remove(f"{state}/{n}")
@@ -537,7 +539,7 @@ def main() -> int:
         reset(); put("merged", "")
         rc, out = run("7", "--basis", "b")
         check("a PR merged on the arming, on the head the gates read: exit 0, said merged",
-              rc == 0 and "MERGED #7" in out and "merged on the arming" in out, out)
+              rc == 0 and "MERGED #7" in out and "merged on head abcdef01" in out, out)
         check("…with no watcher line, since nothing is left to wait for", "wait-merged" not in out, out)
         reset(); put("merged", "0123456789abcdef0123456789abcdef01234567")
         rc, out = run("7", "--basis", "b")
@@ -545,6 +547,16 @@ def main() -> int:
               rc == 2 and "merged at 01234567, not abcdef01" in out and "MERGED #7" not in out, out)
         reset(); put("closed", "")
         rc, out = run("7", "--basis", "b"); check("closed after the arming: exit 2, said closed", rc == 2 and "reads 'state CLOSED'" in out, out)
+        reset(); put("merged", ""); put("nohead", "")
+        rc, out = run("7", "--basis", "b")
+        check("merged with no head in the answer: exit 2, 'unknown', never merged",
+              rc == 2 and "reads 'unknown'" in out and "MERGED #7" not in out, out)
+        for flag in ("armed", "queued"):
+            reset(); put("pushed", "")
+            if flag == "queued": put("queued", "")
+            rc, out = run("7", "--basis", "b")
+            check(f"{flag} on another head than the gates read: exit 2, the two heads named",
+                  rc == 2 and "open at 01234567, not abcdef01" in out and "ARMED #7" not in out, out)
         reset(); put("noarm", "")
         rc, out = run("7", "--basis", "b")
         check("open, neither armed nor queued after gh pr merge --auto: exit 2, 'idle'",

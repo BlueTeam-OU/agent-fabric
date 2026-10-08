@@ -628,7 +628,8 @@ def arm(argv: list[str]) -> int:
     # repository with no queue, gh merges a PR whose checks are already
     # green at once, and a merged PR reads both null too (agent-fabric
     # #118 read 'idle', exit 2, already merged): MERGED on the head the
-    # gates read is the arming done, not a question.
+    # gates read is the arming done, not a question. Every exit 0 is on
+    # that head: an armed or queued PR read on another one is not.
     # `merged` is its own flag, never a value of `armed`: a state read
     # back lowercased would otherwise stand for the merge it is not.
     merged, armed = False, "unknown"
@@ -644,19 +645,22 @@ def arm(argv: list[str]) -> int:
             armed = f"merged at {read_head[:8]}, not {head[:8]}"
         elif state != "OPEN":
             armed = f"state {state}"
+        elif read_head != head:
+            armed = f"open at {read_head[:8]}, not {head[:8]}"
         else:
             armed = (f"queued at {p['mergeQueueEntry']['position']}" if p.get("mergeQueueEntry")
                      else "armed" if p.get("autoMergeRequest") else "idle")
     except (gh.GhError, KeyError, TypeError):
         armed = "unknown"
     if merged:
-        say(f"MERGED #{num} ({title}) — merged on the arming, checks already green; basis posted.")
+        say(f"MERGED #{num} ({title}) — read back merged on head {head[:8]} after the arming; basis posted.")
         return 0
     if armed not in ("armed",) and not armed.startswith("queued"):
         raise Unanswered(f"#{num} reads '{armed}' after gh pr merge --auto — check gh pr view {num}")
     say(f"ARMED #{num} ({title}) — {armed}; basis posted.")
     say(f"now, in the session: tools/gh/wait-merged.sh {num} &")
     return 0
+
 
 def main(argv: list[str]) -> int:
     try:
