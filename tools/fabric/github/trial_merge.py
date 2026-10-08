@@ -58,6 +58,7 @@ HERE = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
 import git  # noqa: E402
 import gh  # noqa: E402
+import roots  # noqa: E402
 
 HELP = """Do these branches combine? Merge them, in the order given, onto the
 base in a throwaway worktree, optionally run the project's own check
@@ -523,7 +524,7 @@ def project_trial_config(top: str, fabric: str) -> str:
         pid = workingcopy.resolve(top).get("project")
     except (Exception, SystemExit):   # a marker naming nothing the registry knows exits: no project, no check
         pid = None
-    return os.path.join(fabric, "projects", pid, "integration", "gh", "trial.json") if pid else ""
+    return roots.project_integration(pid, "gh", "trial.json", engine=fabric) if pid else ""
 
 
 def run(argv: list[str]) -> int:

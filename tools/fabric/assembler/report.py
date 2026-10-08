@@ -7,6 +7,7 @@ import json
 import os
 import sys
 from typing import Any
+import roots
 from assembler.core import layout, Run, in_report, hygiene_substitute
 from assembler.slices import merge_reports, scan_collisions, drop_held
 
@@ -42,7 +43,9 @@ def report(run: Run) -> int:
     # warning survive a drain with an empty delta for that slice — a valid and
     # expected outcome — instead of going quiet while both sections sit there.
     collisions = scan_collisions([
-        os.path.join(layout.FABRIC_ROOT, "memory", "domains"),
+        # Where layout.py writes the domain slices (its FABRIC_ROOT, --fabric): a collision
+        # is looked for where the drain puts them. layout.py is not yet on roots.
+        roots.memory_dir("domains", root=layout.FABRIC_ROOT),
         layout.project_memory_root(run.project),
         layout.shared_dir(),
     ], functools.partial(in_report, run))

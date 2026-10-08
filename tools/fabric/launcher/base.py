@@ -27,6 +27,7 @@ def _load(name: str, path: str):
 # launched, which in the suite is a fixture beside this code, and a
 # directory on sys.path would answer for its imports.
 git = _load("fabric_git", os.path.join(HERE, "git.py"))
+roots = _load("fabric_roots", os.path.join(HERE, "roots.py"))
 
 
 # The launcher's shim by absolute path: every re-exec (launch.py's reexec) runs it again, and

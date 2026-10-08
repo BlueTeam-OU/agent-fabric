@@ -93,8 +93,8 @@ import threading
 HERE = os.path.dirname(os.path.realpath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
 sys.path.insert(0, HERE)
+import roots  # noqa: E402
 from new_agent_worker import run_bounded, stop_tree  # noqa: E402
-REGISTRY = os.path.join(ROOT, "projects", "registry.json")
 SECRETS = os.path.join(ROOT, "runtime", "provisioning", "secrets", "fabric-secrets")
 STORE_ENROLL = os.path.join(ROOT, "runtime", "provisioning", "secrets", "store-enroll.sh")
 STORE = os.path.join(ROOT, "tools", "fabric", "secret_store.py")
@@ -245,7 +245,7 @@ def project_remote(pid: str) -> str | None:
     """The registry's SSH remote for a project (its first remote when it
     names none), or None when the registry does not hold it."""
     try:
-        with open(REGISTRY, encoding="utf-8") as fh:
+        with open(roots.projects_registry(), encoding="utf-8") as fh:
             p = (json.load(fh).get("projects") or {}).get(pid)
         if not p:
             return None
@@ -365,7 +365,7 @@ def new_agent(argv: list[str]) -> int:
         die("run this as the fabric-coordinator login, not root: the account's store is filled from yours.")
 
     # ---- what is asked for must exist in the fabric ---------------------
-    if not os.path.isfile(os.path.join(ROOT, "identities", "roles", role, "charter.md")):
+    if not os.path.isfile(os.path.join(roots.role_dir(role), "charter.md")):
         die(f"no role '{role}' under identities/roles/ (bin/fabric-role list).")
     remote = {}
     for pid in o["projects"]:
@@ -374,7 +374,7 @@ def new_agent(argv: list[str]) -> int:
             die(f"project '{pid}' is not in projects/registry.json — register it first.")
         remote[pid] = r
 
-    hosts_path = os.environ.get("AGENT_FABRIC_HOSTS_REGISTRY") or os.path.join(ROOT, "runtime", "hosts", "registry.json")
+    hosts_path = roots.hosts_registry()
     with tempfile.NamedTemporaryFile(prefix="new-agent-", suffix=".log", delete=False) as fh:
         log = fh.name
     LOGS.append(log)

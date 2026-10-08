@@ -49,6 +49,8 @@ import pwd
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+import roots  # noqa: E402
 
 HELP = """\
 Ask the corpus what it knows about an artifact.
@@ -240,10 +242,10 @@ def project_roots(root: str, memory: str) -> list[str]:
             say("query: HOME is not set, so the binding is not read")
     if state:
         wcs += binding_working_copy(state)
-    roots = subdirs(f"{memory}/projects")
-    roots += [f"{wc}/.agent-fabric/memory" for wc in sort_u([w for w in wcs if w.strip(" \t")])
+    found = subdirs(f"{memory}/projects")
+    found += [f"{wc}/.agent-fabric/memory" for wc in sort_u([w for w in wcs if w.strip(" \t")])
               if os.path.isdir(f"{wc}/.agent-fabric/memory")]
-    return roots
+    return found
 
 
 def crossrefs(root: str, memory: str) -> list[str]:
@@ -343,8 +345,8 @@ def cmd_obs(root: str, memory: str, h: str) -> None:
 
 
 def run(argv: list[str]) -> None:
-    root = os.environ.get("AGENT_FABRIC_ROOT") or os.path.dirname(os.path.dirname(HERE))
-    memory = f"{root}/memory"
+    root = roots.engine_root()
+    memory = roots.memory_dir()
     if not os.path.isdir(memory):
         raise Failure(f"query: no corpus at {memory}")
     cmd = argv[0] if argv else ""

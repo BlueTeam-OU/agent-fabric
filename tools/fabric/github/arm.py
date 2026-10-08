@@ -107,6 +107,7 @@ import sys
 HERE = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
 import gh  # noqa: E402
+import roots  # noqa: E402
 from github import local, pr_gate  # noqa: E402
 
 FABRIC = os.path.dirname(os.path.dirname(os.path.dirname(HERE)))
@@ -223,8 +224,7 @@ def config_path() -> str:
         pid = workingcopy.resolve(top).get("project")
     except (Exception, SystemExit):   # a marker naming nothing the registry knows exits
         pid = None
-    fabric = os.environ.get("AGENT_FABRIC_ROOT") or FABRIC
-    return os.path.join(fabric, "projects", pid, "integration", "gh", "arm.json") if pid else ""
+    return roots.project_integration(pid, "gh", "arm.json") if pid else ""
 
 
 def load_config(path: str) -> tuple[re.Pattern, re.Pattern | None, dict[str, re.Pattern], str | None]:
@@ -315,7 +315,7 @@ def waiver_role_checked(role: str | None) -> str:
     if not role:
         raise Unanswered("a boundary waiver was asked, and this project's arm.json names no waiver_role — nobody"
                          " can be checked as holding it")
-    catalog = os.path.join(os.environ.get("AGENT_FABRIC_ROOT") or FABRIC, "identities", "roles", "catalog.json")
+    catalog = roots.role_catalog()
     try:
         with open(catalog, encoding="utf-8") as fh:
             roles = {r.get("id") for r in json.load(fh).get("roles", []) if isinstance(r, dict)}

@@ -65,6 +65,8 @@ import sys
 from urllib.parse import urlsplit
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import roots  # noqa: E402
 
 PIN_VARS = ("ANTHROPIC_DEFAULT_HAIKU_MODEL", "ANTHROPIC_DEFAULT_SONNET_MODEL",
             "ANTHROPIC_DEFAULT_OPUS_MODEL", "ANTHROPIC_DEFAULT_FABLE_MODEL")
@@ -244,7 +246,7 @@ def placement_of(ctx, root, environ=None):
     placement = None
     placement_drift = None
     try:
-        with open(environ.get("AGENT_FABRIC_HOSTS_REGISTRY") or os.path.join(root, "runtime", "hosts", "registry.json"), encoding="utf-8") as fh:
+        with open(roots.hosts_registry(environ=environ, engine=root), encoding="utf-8") as fh:
             reg = json.load(fh)
         placement = (reg.get("placement") or {}).get(ctx["agent"])
         if placement and placement != ctx["host"]:

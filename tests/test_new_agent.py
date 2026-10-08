@@ -417,11 +417,13 @@ esac
         put(f"{fk}/templates", '[{"account": "acct-one", "token_sha256_12": "0123456789ab"}]\n')
         put(f"{fk}/assign", '[{"login": "new", "status": "written", "token_sha256_12": "0123456789ab"}]\n0\n')
         enroll = put(f"{fk}/store-enroll.sh", "#!/usr/bin/env bash\nexit 0\n", 0o755)
-        reg = put(f"{fk}/registry.json", json.dumps({"projects": {"demo": {"remotes": ["https://h/o/d.git", "git@h:o/d.git"]}}}))
+        reg = put(f"{fk}/root/projects/registry.json", json.dumps({"projects": {"demo": {"remotes": ["https://h/o/d.git", "git@h:o/d.git"]}}}))
         hosts = put(f"{fk}/hosts.json", json.dumps({"hosts": {"here": {"ssh": None}, "far": {"ssh": "op@far"}},
                                                     "placement": {"placed": "far"}}))
-        saved = (na.HX, na.STORE, na.SECRETS, na.STORE_ENROLL, na.REGISTRY, na.ROOT)
-        na.HX, na.STORE, na.SECRETS, na.STORE_ENROLL, na.REGISTRY = hx, store, secrets, enroll, reg
+        saved = (na.HX, na.STORE, na.SECRETS, na.STORE_ENROLL, na.ROOT, os.environ.get("AGENT_FABRIC_OPERATOR"))
+        na.HX, na.STORE, na.SECRETS, na.STORE_ENROLL = hx, store, secrets, enroll
+        # The instance data (registry, roles) is the operator root's.
+        os.environ["AGENT_FABRIC_OPERATOR"] = f"{fk}/root"
         os.makedirs(f"{fk}/root/identities/roles/r")
         put(f"{fk}/root/identities/roles/r/charter.md", "x")
         na.ROOT = f"{fk}/root"
@@ -545,7 +547,11 @@ esac
             check("--no-claude-account: no template read, nothing assigned, finish told so",
                   rc == 0 and "store" not in secrets_calls() and "finish new r --no-claude-account" in calls, calls)
         finally:
-            na.HX, na.STORE, na.SECRETS, na.STORE_ENROLL, na.REGISTRY, na.ROOT = saved
+            na.HX, na.STORE, na.SECRETS, na.STORE_ENROLL, na.ROOT = saved[:5]
+            if saved[5] is None:
+                os.environ.pop("AGENT_FABRIC_OPERATOR", None)
+            else:
+                os.environ["AGENT_FABRIC_OPERATOR"] = saved[5]
 
         print("the orchestrator's steps")
         log = put(f"{tmp}/log", "")
@@ -690,7 +696,8 @@ esac
                 "sys.exit(na.main(['l', 'r', '--host', 'here', '--no-claude-account']))") % (tools, slow, f"{fk}/root")
         p = subprocess.Popen([sys.executable, "-c", code], process_group=0, stdout=subprocess.DEVNULL,
                              stderr=subprocess.DEVNULL,
-                             env=clean_env(TMPDIR=scratch, AGENT_FABRIC_HOSTS_REGISTRY=hosts))
+                             env=clean_env(TMPDIR=scratch, AGENT_FABRIC_HOSTS_REGISTRY=hosts,
+                                           AGENT_FABRIC_OPERATOR=f"{fk}/root"))
         deadline = time.monotonic() + 30
         while not os.path.exists(started) and time.monotonic() < deadline and p.poll() is None:
             time.sleep(0.05)
