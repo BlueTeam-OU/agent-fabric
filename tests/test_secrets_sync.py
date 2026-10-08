@@ -67,13 +67,14 @@ def main() -> int:
         return rc, out.getvalue() + err.getvalue()
 
     saved = {k: os.environ.get(k) for k in ("HOME", "GIT_CONFIG_GLOBAL", "GIT_CONFIG_NOSYSTEM", "AGENT_FABRIC_GH",
-                                             "GH_CONFIG_DIR", "XDG_CONFIG_HOME", "FAKE_GH_LOGIN_EXIT")}
+                                             "GH_CONFIG_DIR", "XDG_CONFIG_HOME", "FAKE_GH_LOGIN_EXIT",
+                                             "AGENT_FABRIC_HOSTS_REGISTRY")}
     with tempfile.TemporaryDirectory() as tmp:
         os.environ["HOME"] = tmp
         # Never the real gh: it follows XDG_CONFIG_HOME and the keyring, not
         # HOME (it once read the runner's token from here).
         os.environ["AGENT_FABRIC_GH"] = FAKE_GH
-        for k in ("GH_CONFIG_DIR", "XDG_CONFIG_HOME", "FAKE_GH_LOGIN_EXIT"):
+        for k in ("GH_CONFIG_DIR", "XDG_CONFIG_HOME", "FAKE_GH_LOGIN_EXIT", "AGENT_FABRIC_HOSTS_REGISTRY"):
             os.environ.pop(k, None)
         os.environ.pop("GIT_CONFIG_GLOBAL", None)
         os.environ["GIT_CONFIG_NOSYSTEM"] = "1"
@@ -261,6 +262,53 @@ def main() -> int:
             check("--quiet with a name missing says so in one line, exit 2",
                   rc == 2 and out == "fabric-secrets: missing in the store: GH_TOKEN\n", repr(out))
 
+            # The names required are the login's kind's (ADR-044): a human
+            # holds who it is and the relay credential, nothing of a session.
+            hosts = os.path.join(tmp, "hosts.json")
+            human = {k: v for k, v in fixture(ME).items() if k in ("AGENT_LOGIN", "AGENT_HOST", "CLAUDE_BRIDGE_AUTH_TOKEN")}
+
+            def kinds(table: object) -> None:
+                with open(hosts, "w", encoding="utf-8") as fh:
+                    json.dump({"hosts": {}, "placement": {ME: "h"}, **({} if table is None else {"kinds": table})}, fh)
+            os.environ["AGENT_FABRIC_HOSTS_REGISTRY"] = hosts
+            real_verification = s.fetch_verification
+            s.fetch_verification = lambda: ([], [], None)
+            try:
+                store["values"] = human
+                kinds(None)
+                rc, out = run(s.status, True)
+                check("control: a login kinds does not name is an agent, and a human's store is missing its names",
+                      rc == 1 and "GH_TOKEN" in json.loads(out)["missing"], out[:300])
+                kinds({ME: "human"})
+                rc, out = run(s.sync, False, True)
+                check("a human: sync applies its three names, exit 0, nothing missing",
+                      rc == 0 and json.loads(out)["missing"] == [] and "CLAUDE_BRIDGE_AUTH_TOKEN" in json.loads(out)["applied"],
+                      out[:300])
+                rc, out = run(s.status, False)
+                check("…and status is OK for it", rc == 0 and "missing: (none)" in out and "  OK" in out, out)
+                store["values"] = {k: v for k, v in human.items() if k != "CLAUDE_BRIDGE_AUTH_TOKEN"}
+                rc, out = run(s.status, False)
+                check("a human without the relay credential: status exits 1, naming it",
+                      rc == 1 and "missing: CLAUDE_BRIDGE_AUTH_TOKEN" in out, out)
+                store["values"] = fixture(ME)
+                for label, table in (("an unknown kind", {ME: "robot"}), ("a kinds that is not a table", ["x"])):
+                    kinds(table)
+                    rc, out = run(s.status, True)
+                    check(f"{label}: status exits 1, the kind said unreadable, never taken for an agent",
+                          rc == 1 and "kind could not be read" in json.loads(out).get("error", ""), out[:300])
+                os.remove(hosts)
+                rc, out = run(s.status, True)
+                check("no hosts registry: status exits 1, said", rc == 1 and "kind could not be read" in json.loads(out)["error"],
+                      out[:300])
+                rc, out = run(s.sync, False, True)
+                check("…and sync applies, then exits 2 with it",
+                      rc == 2 and json.loads(out)["error"].startswith("applied, but this login's kind could not be read")
+                      and "GH_TOKEN" in json.loads(out)["applied"], out[:300])
+            finally:
+                s.fetch_verification = real_verification
+                os.environ.pop("AGENT_FABRIC_HOSTS_REGISTRY", None)
+                store["values"] = fixture(ME)
+
             store["error"] = "store: git pull: could not reach the remote"
             rc, out = run(s.sync, False, True)
             check("an unreadable store: exit 1, the error in the JSON report the control agent reads",
@@ -273,6 +321,9 @@ def main() -> int:
             os.makedirs(os.path.join(fab, "projects"))
             json.dump({"projects": {"demo": {"agent_env": {"DEMO_PORT_OFFSET": "the login stack offset"}}}},
                       open(os.path.join(fab, "projects", "registry.json"), "w"))
+            # Every fabric has a hosts registry; the login's kind is read there.
+            os.makedirs(os.path.join(fab, "runtime", "hosts"))
+            json.dump({"hosts": {}, "placement": {}}, open(os.path.join(fab, "runtime", "hosts", "registry.json"), "w"))
             real_root = s.ROOT
             s.ROOT = fab
             try:
