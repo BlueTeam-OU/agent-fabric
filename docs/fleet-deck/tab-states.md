@@ -14,7 +14,7 @@ This note is the contract for:
 |---|---|---|
 | **pane** | herdr: the tab and its panes; a pane that is gone was closed by a person or its shell ended (herdr keeps neither the exit code nor the pane) | whether the harness pane exists |
 | **foreground** | herdr `pane process-info`: the pane's foreground processes and their argv | moveto running in the pane (its outer `sudo`), or the operator's bare shell (moveto ended, with whatever code) |
-| **harness here** | the descendants of the pane's foreground `sudo`, walked through `/proc/<pid>/stat` parent links (readable across logins on this host) | whether a harness (`launch.py` or `claude`) runs under this pane's moveto. Not the pane's foreground: sudo runs the account in a pty of its own (`use_pty`), so the harness is never in the pane's foreground group |
+| **harness here** | the descendants of the pane's foreground `sudo`, walked through `/proc/<pid>/stat` parent links (readable across logins on this host: `/proc` is mounted without `hidepid`, read back by rust-ui-dev) | whether a harness (`launch.py` or `claude`) runs under this pane's moveto. Not the pane's foreground: sudo runs the account in a pty of its own (`use_pty`), so the harness is never in the pane's foreground group |
 | **mode** | the foreground's argv: moveto hands off to `sudo … enter <dir> <title> [--wait|--resume|--watch]`, so the mode is its last argument; the deck reads it there, never from the screen, and so recovers it after its own restart | what the pane was asked to do |
 | **live** | the state stream, the account's newest record: `sessions[]` | how many sessions are alive on the account, wherever they run, each `working`, `idle` or `blocked` |
 | **record age** | the same record's `ts` | fresh (within two heartbeats, 20 min) or stale |
@@ -31,10 +31,10 @@ Two observations decide a pane's state: whether moveto runs in it (**foreground*
 |---|---|---|
 | `ABSENT` | no harness pane for a placed agent | (nothing; it is created at the next `restore`) |
 | `RUNNING(s)` | moveto in the foreground and **harness here**; `s` is the account's state that most wants a person (blocked, then working, then idle) | `s` |
-| `STARTING` | a `--resume` the deck itself started in this run of the deck, no harness here yet, for less than `RESTORE_WAIT_S` (120 s) | restoring |
+| `STARTING` | a `--resume` the deck itself started in this run of the deck, no harness here yet, `live` = 0, for less than `RESTORE_WAIT_S` (120 s). It takes precedence over `IDLE` while those hold | restoring |
 | `ELSEWHERE` | moveto in the foreground, no harness here, `live` ≥ 1 | running elsewhere |
 | `IDLE` | moveto in the foreground, no harness here, `live` = 0: waiting for Enter (`--wait`), or the account's shell after a session ended. The deck does not tell the two apart and needs not: each behaves the same on every event | dormant, or shell when the deck saw a session end in this pane |
-| `FAILED` | an `IDLE` the deck re-armed after a failure: a `--resume` past `RESTORE_WAIT_S` with no harness, or moveto ending before any harness appeared. It behaves as `IDLE` on every event; only the display differs | failed (moveto's last lines in the pane say why) |
+| `FAILED` | a pane whose last activation produced no harness: a `--resume` past `RESTORE_WAIT_S`, or a `--wait` or `--resume` moveto that ended before any harness appeared, with `live` = 0. It behaves as `IDLE` on every event until a `harness-up`; only the display differs | failed (moveto's last lines in the pane say why) |
 | `STALE` | the account's newest record is older than two heartbeats | stale (overrides the display, never a decision) |
 
 **Re-arm, defined once.** To re-arm a harness pane is to start a fixed moveto command (`--wait`, `--resume`, or plain) in it while the pane is at the **operator's bare shell**, which is the deck's own shell and not an account's. The deck never re-arms while moveto is in the foreground: that would type into, or kill, what runs as the account. A pane that needs another mode while moveto runs keeps it until moveto ends.
@@ -44,7 +44,7 @@ Two observations decide a pane's state: whether moveto runs in it (**foreground*
 | event | source |
 |---|---|
 | `enter` | a person presses Enter in an `IDLE` pane armed `--wait`. moveto reads it; the deck sees only what it starts (`harness-up`) |
-| `harness-up` / `harness-down` | the process walk: a harness appears under, or disappears from, this pane's moveto |
+| `harness-up` / `harness-down` | the process walk, run on every stream event and every 2 s: a harness appears under, or disappears from, this pane's moveto. A `harness-up` within one stream poll of a `session-up` is the same session |
 | `session-up` / `session-down` | the stream: `live` goes from 0 to ≥ 1, or from ≥ 1 to 0 |
 | `moveto-ended` | herdr: the pane's foreground is back at the operator's bare shell (moveto ended, any code) |
 | `pane-gone` | herdr: the pane is no longer listed (a person closed it, or the operator's shell in it ended; the same to the deck) |
@@ -61,11 +61,15 @@ Two observations decide a pane's state: whether moveto runs in it (**foreground*
 | `IDLE`, `FAILED` | `session-up` without `harness-up` | `ELSEWHERE` | report only; re-arm nothing (moveto is in the foreground). An Enter in this pane is stopped by `fabric-resume`'s refusal (below) |
 | `ELSEWHERE` | `session-down` | `IDLE` | report only; the pane keeps whatever moveto it holds |
 | `RUNNING` | `harness-down` | `ELSEWHERE` if `live` ≥ 1, else `IDLE` (shown as shell) | report it; re-arm nothing: the account's shell is still in the pane |
-| `STARTING` | `timeout` | `FAILED` | report failed; the `--resume` stays in the foreground, and the deck starts nothing more |
-| any with moveto | `moveto-ended` before any `harness-up` since it was armed | `FAILED` | re-arm `--wait`; show failed |
-| any with moveto | `moveto-ended` after a `harness-up` | `IDLE` | re-arm `--wait` if `live` = 0, plain if `live` ≥ 1 (in which case the state is `ELSEWHERE`) |
+| `STARTING` | `session-up` without `harness-up` | `ELSEWHERE` | report only: a session started elsewhere in the window, and this pane's `fabric-resume` refuses beside it |
+| `STARTING` | `timeout` | `FAILED` | report failed; nothing is re-armed (moveto, by then the account's shell, still runs); the deck starts nothing more |
+| any with moveto | `moveto-ended`, `live` ≥ 1 | `ELSEWHERE` | re-arm plain |
+| any with moveto | `moveto-ended`, `live` = 0, the pane armed `--wait` or `--resume` and no `harness-up` since | `FAILED` | re-arm `--wait` |
+| any with moveto | `moveto-ended`, `live` = 0, otherwise (a session ended, or a plain shell was left) | `IDLE` | re-arm `--wait` |
 | any | `pane-gone` (harness) | `ABSENT` until the next `restore` | nothing: the person chose the layout |
 | shell or status pane | `pane-gone` | (no change) | re-created only at the next `restore` |
+
+**Moveto in the foreground** is moveto's or `enter`'s process, or the `sudo` moveto hands off to; a pane for the deck's own login has no `sudo`, and its harness is then in the pane's own process tree, which the walk covers the same way.
 
 **After a deck restart, or a reconnect, a surviving pane is classified, never re-armed.** With moveto in the foreground, it is `RUNNING` if harness here, else `ELSEWHERE` or `IDLE` by `live`. Its mode comes from the foreground's argv: the last argument of moveto's `sudo … enter` hand-off. That mode does not change after Enter, so it is never used to tell `IDLE` from anything. Only a pane at the operator's bare shell, or a missing one, goes through the restore decision.
 
@@ -87,7 +91,7 @@ The shell and status panes always come back live (`moveto <account>`, `moveto <a
 
 Not yet built: python-dev builds `moveto --wait`, `moveto --watch` and the refusal below, in its activation PR. Until they are on main, the deck builds against stand-ins and arms no pane with them.
 
-- **No second session.** This is required before the deck arms any pane `--wait` or `--resume`: the deck cannot re-arm a pane whose moveto runs, so an Enter in an `ELSEWHERE` pane reaches `fabric-resume`. `fabric-resume` refuses to resume when the binding's session is alive on the account, read from the account's own session state as `runtime/control/sessions.mjs` counts it (a recorded pid alive with its start time), never from the stream, and says so. A deck mistake, or Enter pressed in two panes, never starts a duplicate.
+- **No second session.** This is required before the deck arms any pane `--wait` or `--resume`: the deck cannot re-arm a pane whose moveto runs, so an Enter in an `ELSEWHERE` pane reaches `fabric-resume`. `fabric-resume` refuses to start any session, resumed or fresh, while any session is alive on the account, and says which. Alive is read from the account's own session state as `runtime/control/sessions.mjs` counts it (a recorded pid alive with its start time), never from the stream. It is any session, not only the binding's: the binding names the last session started, and a session from another terminal may be older. A deck mistake, or Enter pressed in two panes, never starts a duplicate.
 - **One Enter, one activation.** moveto `--wait` reads one line, then does exactly `--resume`. End of input gives a plain shell, said.
 - **The mode stays readable.** moveto's hand-off keeps the mode as the last argument of `sudo … enter`, so the deck can read it from the foreground's argv.
 - **Nothing types into an account.** The deck starts a fixed moveto command (`--wait`, `--resume`, `--watch`, plain) only in its own bare shell, never while moveto runs (re-arm, above). No pane receives a person's text from the deck.
@@ -95,4 +99,4 @@ Not yet built: python-dev builds `moveto --wait`, `moveto --watch` and the refus
 ## Open questions
 
 - **A harness pane closed by hand:** `ABSENT` until the next restore, or re-created dormant on the deck's next pass? The default is "until restore", as with the other panes: the deck does not fight a layout a person chose.
-- **`FAILED`:** re-armed `--wait`, so one Enter retries; the deck never retries on its own. An automatic retry would hide a launcher that keeps failing.
+- **`FAILED`:** when moveto ended, the pane is re-armed `--wait`, so one Enter retries; after a timeout it holds the account's shell. The deck never retries on its own: an automatic retry would hide a launcher that keeps failing.
