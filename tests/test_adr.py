@@ -17,6 +17,7 @@ ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, os.path.join(ROOT, "tools", "fabric"))
 import adr  # noqa: E402
 from git_env import git_env, scrub_process_env  # noqa: E402 — tests/, the script's own directory
+from instance_fixtures import write_registry  # noqa: E402
 scrub_process_env()
 
 ZERO = "docs/adr/ADR-000-the-enduring-organization.md"
@@ -32,8 +33,7 @@ def fixture(tmp: str) -> str:
         src, dst = os.path.join(ROOT, ev), os.path.join(root, ev)
         os.makedirs(os.path.dirname(dst), exist_ok=True)
         (shutil.copytree if os.path.isdir(src) else shutil.copy)(src, dst)
-    os.makedirs(os.path.join(root, "projects"))
-    shutil.copy(os.path.join(ROOT, "projects", "registry.json"), os.path.join(root, "projects", "registry.json"))
+    write_registry(os.path.join(root, "projects"))   # the fixture's, never the live one
     return root
 
 
@@ -50,7 +50,10 @@ def only(root: str, needle: str) -> None:
 
 
 def case_the_real_records_are_clean(tmp: str) -> None:
-    assert adr.check(ROOT) == [], adr.check(ROOT)
+    # The real records, copied with their Evidence, checked against the
+    # fixture registry rather than the live one (ADR-045 §5 rule 3).
+    root = fixture(tmp)
+    assert adr.check(root) == [], adr.check(root)
 
 
 def case_index_is_generated_and_a_stale_one_fails(tmp: str) -> None:
@@ -132,6 +135,9 @@ def case_citations_resolve_but_another_projects_are_not_ours(tmp: str) -> None:
     root = fixture(os.path.join(tmp, "b"))
     edit(root, ONE, "## 6. Consequences", "## 6. Consequences\n\nLike gzapp's ADR-944 and gzapp ADR-059.\n")
     assert adr.check(root) == [], "a citation named with another registered project is that project's"
+    root = fixture(os.path.join(tmp, "c"))
+    edit(root, ONE, "## 6. Consequences", "## 6. Consequences\n\nLike fixture-proj's ADR-944.\n")
+    assert adr.check(root) == [], "the registry read is the fixture tree's: fixture-proj is in no live one"
 
 
 def amend(root: str, date: str = "2026-09-28", title: str = "a rule moved") -> None:

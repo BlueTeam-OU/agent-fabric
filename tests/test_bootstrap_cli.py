@@ -33,6 +33,8 @@ import sys
 import tempfile
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(HERE, "tests"))
+from instance_fixtures import strip_instance  # noqa: E402
 SCRIPT = os.path.abspath(os.environ.get("BOOTSTRAP") or os.path.join(HERE, "runtime", "claude-code", "bootstrap.sh"))
 if not os.path.isfile(SCRIPT):
     sys.exit(f"test: script under test not found at {SCRIPT}")
@@ -198,13 +200,18 @@ REGISTRY = {
 
 
 def make_pristine(script: str) -> str:
-    """The fabric as a fresh checkout: HEAD's tree, the script under test in
-    its place, a registry of neutral fixture projects, one commit."""
+    """The fabric as a fresh checkout: HEAD's engine, the script under test in
+    its place, a registry of neutral fixture projects and an auto-mode
+    policy of its own (what bootstrap reads of the operator's data), one
+    commit."""
     d = f"{T}/pristine/agent-fabric"
     os.makedirs(d)
     arch = subprocess.run(["git", "-C", HERE, "archive", "HEAD"], capture_output=True, check=True,
                           env={"PATH": "/usr/bin:/bin", "HOME": f"{T}/git-home", "GIT_CONFIG_NOSYSTEM": "1"}).stdout
     subprocess.run(["tar", "-x", "-C", d], input=arch, check=True)
+    # HEAD's engine, never its instance data (ADR-045 §5 rule 3): taken out
+    # here, and the fixtures this suite's runs read written below.
+    strip_instance(d)
     shutil.copyfile(script, f"{d}/runtime/claude-code/bootstrap.sh")
     os.chmod(f"{d}/runtime/claude-code/bootstrap.sh", 0o755)
     # The port's module beside the script under test, from the same tree
@@ -237,6 +244,8 @@ def make_pristine(script: str) -> str:
         "    subprocess.run(['git', '-C', store, 'config', 'agent-fabric.trustedbase', 'HEAD'], check=True)\n"
         "sys.exit(rc)\n")
     put(f"{d}/projects/registry.json", json.dumps(REGISTRY, indent=2) + "\n")
+    put(f"{d}/policies/auto-mode.json", json.dumps({"environment": {"Organization": "a fixture organization"},
+                                                     "allow": [], "soft_deny": [], "hard_deny": []}) + "\n")
     git("init", "-q", d)
     git("-C", d, "add", "-A")
     git("-C", d, "commit", "-q", "-m", "fixture")

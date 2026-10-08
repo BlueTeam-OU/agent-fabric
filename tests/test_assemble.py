@@ -34,7 +34,6 @@ def lint_inputs(out: str) -> None:
     """The committed inputs lint wants beyond what the assembler writes:
     the real schemas, and the launch-prompt sections (identities/prompt/,
     checked by name)."""
-    import shutil
     if os.path.isdir(SCHEMA_DIR):
         shutil.copytree(SCHEMA_DIR, os.path.join(out, "identities", "schemas"), dirs_exist_ok=True)
     if os.path.isdir(PROMPT_DIR):
@@ -1615,21 +1614,24 @@ def test_a_banned_term_in_title_or_topic_is_redacted_too_and_a_person_becomes_th
     """The first drain that met this: the city sat in the TITLE, the body
     check passed, the written slice failed lint. Every text field is
     substituted, the topic that names the file included; a person's name
-    (the fabric's own list, policies/hygiene.json) becomes the role it
-    names, and lint accepts what the assembler wrote."""
+    (the operator's list, policies/hygiene.json: here a fixture, never the
+    live one) becomes the role it names, and lint accepts what the
+    assembler wrote."""
     drain, claims_dir, out = build(tmp, {"alpha": claims("alpha", [
         {"class": "workflow", "topic": "clean", "title": "Clean", "body": "fine", "evidence": ["h1"]},
         {"class": "workflow", "topic": "springfield-seed", "title": "The Springfield seed drops names",
-         "body": "Andrea Benetton asked twice; Andrea caught it in the Springfield seed.", "evidence": ["h2"]},
+         "body": "Robin Fixture asked twice; Robin caught it in the Springfield seed.", "evidence": ["h2"]},
     ])})
     os.makedirs(os.path.join(out, "policies"), exist_ok=True)
-    shutil.copy(os.path.join(ROOT, "policies", "hygiene.json"), os.path.join(out, "policies", "hygiene.json"))
+    with open(os.path.join(out, "policies", "hygiene.json"), "w", encoding="utf-8") as fh:
+        json.dump({"description": "fixture", "patterns": [{"pattern": r"\bRobin(\s+Fixture)?\b",
+                   "label": "person's name -- refer to the CEO by role", "refer_as": "the CEO"}]}, fh)
     proc = run_assemble(drain, claims_dir, out)
     assert proc.returncode == 0, proc.stderr
     files = sorted(os.listdir(proj(out, "alpha", "workflow")))
     assert files == ["clean.md", "redacted-seed.md"], files
     text = read(proj(out, "alpha", "workflow", "redacted-seed.md"))
-    assert "Springfield" not in text and "Andrea" not in text, text
+    assert "Springfield" not in text and "Robin" not in text, text
     assert "The [redacted] seed drops names" in text, text
     assert "The CEO asked twice; the CEO caught it in the [redacted] seed." in text, text
     report = json.loads(read(report_path(out)))

@@ -18,12 +18,25 @@ shim = importlib.util.module_from_spec(spec); spec.loader.exec_module(shim)
 
 
 def test_sources_round_trip(tmp: str) -> None:
-    shim.SHIMS_DIR = os.path.join(tmp, "shims")
+    shim.SHIMS_DIR = os.path.join(tmp, "engine", "routing", "shims")
     paths = shim.write_source("acme2claude-shim", "# delta\n\nFollow the harness.", {"provider": {"allow_fallbacks": False, "only": ["x"]}})
-    assert paths == ["routing/shims/acme2claude-shim/system_prompt.md", "routing/shims/acme2claude-shim/config.json"] or \
-        all(p.endswith(("system_prompt.md", "config.json")) for p in paths), paths
+    # Said relative to the engine tree the sources are in, wherever this code runs from.
+    assert paths == ["routing/shims/acme2claude-shim/system_prompt.md", "routing/shims/acme2claude-shim/config.json"], paths
     prompt, config = shim.read_source("acme2claude-shim")
     assert prompt == "# delta\n\nFollow the harness.\n" and config == {"provider": {"allow_fallbacks": False, "only": ["x"]}}
+
+
+def test_sources_are_engine_data(tmp: str) -> None:
+    """ADR-045: a shim is a routing default, read from the engine root
+    (AGENT_FABRIC_ROOT) like routing/shims.json, never the operator's tree."""
+    import subprocess
+    probe = ("import importlib.util as u; s = u.spec_from_file_location('s', %r); "
+             "m = u.module_from_spec(s); s.loader.exec_module(m); print(m.SHIMS_DIR)") % os.path.join(ROOT, "tools", "fabric", "shim.py")
+    env = {k: v for k, v in os.environ.items() if not k.startswith("AGENT_FABRIC_")}
+    got = subprocess.run([sys.executable, "-c", probe], capture_output=True, text=True, timeout=60, check=True,
+                         env={**env, "AGENT_FABRIC_ROOT": os.path.join(tmp, "engine"),
+                              "AGENT_FABRIC_OPERATOR": os.path.join(tmp, "operator")}).stdout.strip()
+    assert got == os.path.join(tmp, "engine", "routing", "shims"), got
 
 
 def test_the_key_is_required_and_read_from_the_synced_file(tmp: str) -> None:
@@ -119,7 +132,7 @@ def test_verdict_from_a_recorded_transcript(tmp: str) -> None:
 
 
 def main() -> int:
-    cases = [test_sources_round_trip, test_the_key_is_required_and_read_from_the_synced_file,
+    cases = [test_sources_round_trip, test_sources_are_engine_data, test_the_key_is_required_and_read_from_the_synced_file,
              test_diff_is_empty_when_live_matches_source, test_push_sends_system_and_provider_and_nothing_else,
              test_verdict_from_a_recorded_transcript]
     failures = 0
