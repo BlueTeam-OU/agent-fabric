@@ -76,10 +76,16 @@ base (agent-fabric.trustedbase in its .git/config, set by `trust-base` or
 a new store's init, moved forward by each verified fetch). A refusal names
 the commit and why, applies nothing, and is kept beside the store for
 `fabric-secrets status` and `fabric-ctl keys` until a verified fetch
-succeeds. First contact, before a new agent's keys reach main, is the one
-exception, on both sides and only through a bundle: seed-child records the
-child's first bundle as its mirror's base, and the child's first
-take-bundle records its parent's (once).
+succeeds. One stop is no refusal: a commit whose object carries a PGP
+signature in its hash's header (gpgsig, or gpgsig-sha256 in a sha256
+store) while verify-commit printed no gpg status at all — gpg never ran
+(no usable TMPDIR, no gpg) — stops the operation, "could not be
+verified", nothing applied and nothing kept. Any other commit with no
+valid signature, a forged or unreadable header included, is refused
+"not signed" as before. First contact, before a new agent's keys reach
+main, is the one exception, on both sides and only through a bundle:
+seed-child records the child's first bundle as its mirror's base, and the
+child's first take-bundle records its parent's (once).
 
 ONE WRITER PER STORE (the own-secrets review, R2). Every write to a store —
 set, rm, pull, init, put, assign, take-bundle, push, a recovery copy, a
