@@ -12,6 +12,7 @@ import { memorySlug } from '../ops.mjs';
 import { ENVELOPE_KEYS } from '../protocol.mjs';
 import { answer, upRecord } from '../agentd.mjs';
 import { askPresence } from '../presence.mjs';
+import { askHolder } from '../queue.mjs';
 import { stateRecord } from '../sessions.mjs';
 import { signRequest, generateOperatorKey } from '../sign.mjs';
 import { buildRequest, parseArgs } from '../ctl.mjs';
@@ -52,6 +53,15 @@ test('the request presence sends is a Request; a signed one too', async () => {
   const request = JSON.parse(posts[0].content);
   holds(request, 'request', 'presence request');
   holds(signRequest(request, generateOperatorKey().privateKeySpec), 'request', 'a signed request');
+});
+
+test('the requests fabric-jobs sends the pool\'s holder are Requests', async () => {
+  for (const [op, args] of [['pool-list', { role: 'python-dev' }], ['pool-claim', { id: 'p1' }]]) {
+    const posts = [];
+    const call = async (p, init) => { if (p === '/api/send') { posts.push(JSON.parse(init.body)); return { id: 'm1' }; } return { messages: [] }; };
+    await askHolder({ call, cfg: { channel: 'fabric:control', ttl_s: 30 }, from: 'h/py', holder: 'h/user', op, args, waitMs: 50 });
+    holds(JSON.parse(posts[0].content), 'request', `${op} request`);
+  }
 });
 
 test('what agentd posts when it comes up is an Up', () => {

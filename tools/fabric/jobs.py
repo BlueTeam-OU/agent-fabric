@@ -14,6 +14,8 @@ behind bin/fabric-jobs.
     fabric-jobs drop <id> "<why>"
     fabric-jobs show <id> [--json]
     fabric-jobs next [<id>] [--json]
+    fabric-jobs pool-list [--role R] [--json]
+    fabric-jobs pool-claim <pool id> [--topic T] [--working-copy W]
 
 The list is agents/<login>/jobs.json, read and written only through
 runtime/identity.py, under the agent lock. A job's project and working
@@ -53,6 +55,17 @@ address that waits. A stream that cannot be read leaves stored priorities
 to decide, and is said on stderr; it never fails the command. `--stored`
 skips the stream (the control agent's `jobs` op, which answers in
 seconds).
+
+A role has an open pool (rule 9), held by one control agent
+(runtime/control/pool.mjs). `pool-list` lists the bound role's (or
+--role's) unclaimed jobs, highest priority first; `pool-claim` asks the
+holder for one — the holder checks the role this login's own control
+agent reports — and puts the job it gets on this list as queued, source
+`pool`. A claim the holder recorded but this list could not take is said
+with the command that lands it: the same login claiming again gets the job
+again, and a job already on the list by its pool id is not added twice.
+With nothing queued, `next` offers the pool's first job and says so; it
+claims nothing.
 
 `next` is the restart rule (ADR-022 rule 12). It never passes an active
 job, which is never preempted, and takes the job named, or the queued job
@@ -121,12 +134,17 @@ TERMINAL = ("done", "dropped")
 # A GZCoord MESSAGE-ID as gzmsg mints it; runtime/control/sessions.mjs
 # MESSAGE_ID says only ids of this shape, so a relay seq is refused here.
 MESSAGE_ID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", re.ASCII)
+POOL_ID = re.compile(r"p[1-9][0-9]{0,8}", re.ASCII)   # runtime/control/pool.mjs POOL_ID
 PRIORITIES = ("blocking", "high", "normal", "low")
 DEFAULT_PRIORITY = "normal"
 
 
 class Refused(Exception):
     """A change the list does not allow; the message is the whole answer."""
+
+
+class NothingQueued(Refused):
+    """`next` found no queued job; the pool is asked after the lock is let go."""
 
 
 def find(doc: dict, job_id: str) -> Job:
@@ -263,6 +281,36 @@ class Unreachable(Exception):
     """The control plane did not answer; the message says why."""
 
 
+def ask_pool(*argv: str) -> dict:
+    """{holder, answer} from the pool's holder, or Refused saying why there
+    is none: a pool not reached is never an empty one."""
+    try:
+        said = ask_queue(*argv)
+    except Unreachable as e:
+        raise Refused(f"the pool could not be asked: {e}")
+    if not isinstance(said.get("answer"), dict) or not isinstance(said.get("holder"), str):
+        raise Refused("the pool's answer is not one")
+    return said
+
+
+def pool_offer() -> str:
+    """What `next` says when nothing is queued: the pool's first job for
+    the bound role, that the pool is empty, or that it could not be read."""
+    try:
+        said = ask_pool("pool-list")
+    except Refused as e:
+        return f"{e} (fabric-jobs add, or fabric-jobs pool-list --role <role>)"
+    answer = said["answer"]
+    if answer.get("status") != "ok":
+        return f"the pool: {said['holder']} refused ({answer.get('reason') or answer.get('status')})"
+    jobs = answer.get("jobs") or []
+    if not jobs:
+        return f"the {answer.get('role')} pool is empty too"
+    first = jobs[0]
+    return (f"the {answer.get('role')} pool offers {pool_line(first)}\n"
+            f"  claim it with fabric-jobs pool-claim {first.get('id')}, then fabric-jobs next")
+
+
 def ask_queue(*argv: str) -> dict:
     """runtime/control/queue.mjs's answer, or Unreachable: a timeout, a
     missing node and an answer that is not its JSON are each said."""
@@ -282,6 +330,25 @@ def ask_queue(*argv: str) -> dict:
     if p.returncode != 0:
         raise Unreachable(str(said.get("error") or f"exit {p.returncode}")[:160])
     return said
+
+
+def pool_job(doc: dict, said: dict, holder: str, *, topic=None, working_copy=None) -> tuple[Job, bool]:
+    """The claimed job on this list: (job, added); a pool id already
+    listed is that job, never a second one."""
+    pid = said.get("id")
+    listed = next((j for j in doc["jobs"] if (j.get("source") or {}).get("pool_id") == pid), None)
+    if listed:
+        return listed, False
+    priority = said.get("priority") if said.get("priority") in PRIORITIES else DEFAULT_PRIORITY
+    return new_job(doc, str(said.get("title") or f"pool job {pid}"), topic=topic or said.get("topic"),
+                   project=said.get("project"), working_copy=working_copy,
+                   source={"kind": "pool", "pool_id": pid, "from": holder}, priority=priority), True
+
+
+def pool_line(job: dict) -> str:
+    topic = f" [{job['topic']}]" if job.get("topic") else ""
+    where = f" {job['project']}" if job.get("project") else ""
+    return f"{job.get('id', '?'):<5} {job.get('priority', '?'):<8} {job.get('role', '?')}{where}{topic}: {job.get('title', '')}"
 
 
 def message_of(job: dict) -> str | None:
@@ -477,6 +544,13 @@ def main(argv: list[str] | None = None) -> int:
     n = sub.add_parser("next", help="start the next job and say whether it needs a fresh session")
     n.add_argument("id", nargs="?")
     n.add_argument("--json", action="store_true")
+    pl = sub.add_parser("pool-list", help="the open jobs of a role's pool (default: the bound role)")
+    pl.add_argument("--role")
+    pl.add_argument("--json", action="store_true")
+    pc = sub.add_parser("pool-claim", help="claim a pool job; it lands on this list, queued")
+    pc.add_argument("id")
+    pc.add_argument("--topic")
+    pc.add_argument("--working-copy")
     args = ap.parse_args(argv)
 
     try:
@@ -503,6 +577,31 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"  no working copy of {job.get('project') or 'its project'} found beside this one: "
                       f"fabric-jobs next compares it by project only; re-add it with --working-copy to fix",
                       file=sys.stderr)
+        elif args.cmd == "pool-list":
+            said = ask_pool("pool-list", *([args.role] if args.role else []))
+            answer = said["answer"]
+            if answer.get("status") != "ok":
+                raise Refused(f"{said['holder']} refused: {answer.get('reason') or answer.get('status')}")
+            if args.json:
+                print(json.dumps(answer, ensure_ascii=False, indent=2))
+            elif not answer.get("jobs"):
+                print(f"the {answer.get('role')} pool is empty")
+            else:
+                print("\n".join(pool_line(j) for j in answer["jobs"]))
+        elif args.cmd == "pool-claim":
+            if not POOL_ID.fullmatch(args.id):
+                raise Refused(f"a pool job id is p<n> (fabric-jobs pool-list), not {args.id!r}")
+            said = ask_pool("pool-claim", args.id)
+            answer, holder = said["answer"], said["holder"]
+            if answer.get("status") != "claimed" or not isinstance(answer.get("job"), dict):
+                raise Refused(f"{holder} refused: {answer.get('reason') or answer.get('status')}")
+            try:
+                job, added = mutate(lambda doc: pool_job(doc, answer["job"], holder, topic=args.topic,
+                                                         working_copy=args.working_copy))
+            except Refused as e:
+                raise Refused(f"{args.id} is claimed at {holder}, but this list did not take it ({e}); "
+                              f"fix that and run fabric-jobs pool-claim {args.id} again — it is yours")
+            print(f"{'claimed' if added else 'already listed'} {line(job)}")
         elif args.cmd == "list":
             doc = identity.read_jobs()
             jobs = [j for j in doc["jobs"] if args.all or j["state"] in OPEN]
@@ -540,12 +639,15 @@ def main(argv: list[str] | None = None) -> int:
                 else:
                     nxt = next(iter(queue_order(doc, waits)), None)
                     if nxt is None:
-                        raise Refused("no queued job; add one with fabric-jobs add")
+                        raise NothingQueued("no queued job")
                 verdict = decide(doc, nxt, here)
                 who = waiters(nxt, waits)
                 transition(doc, nxt, "active")
                 return verdict, dict(nxt), who
-            verdict, job, who = mutate(pick)
+            try:
+                verdict, job, who = mutate(pick)
+            except NothingQueued:
+                raise Refused(f"no queued job; {pool_offer()}")
             if args.json:
                 print(json.dumps(verdict, ensure_ascii=False, indent=2))
             else:

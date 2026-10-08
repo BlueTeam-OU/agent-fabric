@@ -44,6 +44,50 @@ def fake_relay(records: list[dict], state: list[dict] | None = None) -> http.ser
     return server
 
 
+def fake_holder(answer) -> http.server.HTTPServer:
+    """A relay whose control channel has a pool holder behind it: each
+    request posted there gets `answer(request)` as the reply's data[op],
+    from the request's `to`; None posts no reply (a holder that is silent)."""
+    rows: list[dict] = []
+    asked: list[dict] = []
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def reply(self, doc) -> None:
+            body = json.dumps(doc).encode()
+            self.send_response(200)
+            self.send_header("content-type", "application/json")
+            self.send_header("content-length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def do_POST(self):
+            sent = json.loads(self.rfile.read(int(self.headers["content-length"])))
+            rows.append({"id": f"m{len(rows) + 1}", "content": sent["content"]})
+            mine = rows[-1]["id"]
+            req = json.loads(sent["content"])
+            if sent["channel"] == "t:control" and req.get("kind") == "request":
+                asked.append(req)
+                data = answer(req)
+                if data is not None:
+                    rows.append({"id": f"m{len(rows) + 1}", "content": json.dumps(
+                        {"v": 1, "kind": "reply", "id": "r", "in_reply_to": req["id"], "from": req["to"][0],
+                         "op": req["op"], "ts": "t", "ok": True, "data": {req["op"]: data}})})
+            self.reply({"id": mine})
+
+        def do_GET(self):
+            since = self.path.split("since_id=")[1].split("&")[0] if "since_id=" in self.path else None
+            ids = [r["id"] for r in rows]
+            after = rows[ids.index(since) + 1:] if since in ids else rows
+            self.reply({"messages": after if "channel=t%3Acontrol" in self.path else []})
+
+        def log_message(self, *a):
+            pass
+    server = http.server.HTTPServer(("127.0.0.1", 0), Handler)
+    server.asked = asked  # type: ignore[attr-defined]
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    return server
+
+
 def main() -> int:
     fails = 0
 
@@ -400,6 +444,78 @@ def main() -> int:
         run("add", "a plain job")
         p = run("list")
         check("no queued job from a message: the stream is not read, nothing said", p.returncode == 0 and not p.stderr,
+              p.stderr)
+
+        # The role's pool (ADR-037 rule 9), through queue.mjs against a fake
+        # holder: list, claim onto this list, next's offer.
+        env["AGENT_FABRIC_STATE_DIR"] = os.path.join(tmp, "state-pool")
+        os.makedirs(os.path.join(tmp, "state-pool", "agents", login))
+        with open(os.path.join(tmp, "state-pool", "agents", login, "binding.json"), "w", encoding="utf-8") as fh:
+            json.dump({"agent": login, "host": host, "role": "python-dev"}, fh)
+        env["FABRIC_QUEUE_WAIT_MS"] = "1500"
+        pool_jobs = [{"id": "p2", "role": "python-dev", "title": "port the launcher", "topic": "launcher",
+                      "project": None, "priority": "high", "created": "t"},
+                     {"id": "p1", "role": "python-dev", "title": "older normal", "topic": None, "project": None,
+                      "priority": "normal", "created": "t"}]
+
+        def holder(req: dict):
+            if req["op"] == "pool-list":
+                return {"status": "ok", "role": req["args"]["role"],
+                        "jobs": pool_jobs if req["args"]["role"] == "python-dev" else []}
+            if req["args"]["id"] == "p9":
+                return {"status": "refused", "reason": "p9 is claimed by h/other (t)"}
+            if req["args"]["id"] == "p8":
+                return None
+            if req["args"]["id"] == "p7":
+                return {"status": "claimed", "job": {**pool_jobs[0], "id": "p7", "title": "bad\x1b[2J title"}}
+            return {"status": "claimed", "job": next(j for j in pool_jobs if j["id"] == req["args"]["id"])}
+        relay = fake_holder(holder)
+        env["CLAUDE_BRIDGE_URL"] = f"http://127.0.0.1:{relay.server_address[1]}"
+        try:
+            p = run("next")
+            check("nothing queued: next offers the bound role's first pool job, and claims nothing", p.returncode == 1
+                  and "the python-dev pool offers p2" in p.stderr and "fabric-jobs pool-claim p2" in p.stderr
+                  and not jobs(), p.stderr)
+            check("the list asked for the bound role, of the one host's operator",
+                  relay.asked[-1]["args"] == {"role": "python-dev"} and relay.asked[-1]["to"] == [f"{host}/user"]
+                  and relay.asked[-1]["from"] == f"{host}/{login}", repr(relay.asked[-1]))
+            p = run("pool-list")
+            check("pool-list prints the pool in the holder's order", p.returncode == 0
+                  and p.stdout.splitlines()[0].startswith("p2    high     python-dev [launcher]: port the launcher"),
+                  p.stdout + p.stderr)
+            p = run("pool-list", "--role", "web-dev")
+            check("an empty pool is said", p.returncode == 0 and p.stdout.strip() == "the web-dev pool is empty", p.stdout)
+            p = run("pool-claim", "p2")
+            got = jobs()
+            check("a claim lands the job on this list, queued, source pool, its priority kept", p.returncode == 0
+                  and p.stdout.startswith("claimed j1 ") and got[0]["state"] == "queued" and got[0]["priority"] == "high"
+                  and got[0]["topic"] == "launcher"
+                  and got[0]["source"] == {"kind": "pool", "pool_id": "p2", "from": f"{host}/user"}, p.stdout + p.stderr + repr(got))
+            check("the claim request names only the id, never a role", relay.asked[-1]["args"] == {"id": "p2"},
+                  repr(relay.asked[-1]))
+            p = run("pool-claim", "p2")
+            check("claimed again: already listed, not a second job", p.returncode == 0 and "already listed j1" in p.stdout
+                  and len(jobs()) == 1, p.stdout + p.stderr)
+            p = run("pool-claim", "p9")
+            check("a refused claim is said with the holder's reason", p.returncode == 1
+                  and "refused: p9 is claimed by h/other" in p.stderr and len(jobs()) == 1, p.stderr)
+            p = run("pool-claim", "p8")
+            check("a silent holder is said, not read as a refusal or a claim", p.returncode == 1
+                  and "did not answer" in p.stderr and len(jobs()) == 1, p.stderr)
+            p = run("pool-claim", "p7")
+            check("claimed but not taken by this list: said, with the command that lands it", p.returncode == 1
+                  and "is claimed at" in p.stderr and "pool-claim p7 again" in p.stderr and len(jobs()) == 1, p.stderr)
+            before = len(relay.asked)
+            p = run("pool-claim", "../p1")
+            check("a pool id is checked before anything is asked", p.returncode == 1 and "a pool job id is p<n>" in p.stderr
+                  and len(relay.asked) == before, p.stderr + repr(len(relay.asked)))
+        finally:
+            relay.shutdown()
+            relay.server_close()
+        env["CLAUDE_BRIDGE_URL"] = dead_url
+        run("done", "j1")
+        p = run("next")
+        check("pool unreachable: next says so", p.returncode == 1 and "no queued job; the pool could not be asked" in p.stderr,
               p.stderr)
 
         state = os.path.join(tmp, "state", "agents")

@@ -2,7 +2,7 @@
 // (queue.mjs): the waits read from the state stream.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { waitsFrom, readWaits } from '../queue.mjs';
+import { waitsFrom, readWaits, askHolder } from '../queue.mjs';
 
 const A = '01a11a18-4728-7d8b-afd9-0edb2d30a59c', B = '01a11a19-0bea-70c7-b667-1e1e5a74dbe1';
 const rec = (from, waits_on, extra = {}) => ({ content: JSON.stringify({ v: 1, kind: 'state', from, ts: 't', sessions: [], ...(waits_on ? { waits_on } : {}), ...extra }) });
@@ -31,4 +31,38 @@ test('readWaits reads the state channel, never the control channel', async () =>
     cfg: { channel: 'c:control', state_channel: 's:state:control' }, placed: new Set(['h/a']) });
   assert.match(asked[0], /channel=s%3Astate%3Acontrol/);
   assert.deepEqual(got.waits, { [A]: ['h/a'] });
+});
+
+// A relay with one channel: what is posted, and replies a test appends.
+function channel(onRequest) {
+  const rows = [];
+  const call = async (p, init) => {
+    if (init?.method === 'POST') {
+      const body = JSON.parse(init.body);
+      rows.push({ id: `m${rows.length + 1}`, content: body.content });
+      const id = rows.at(-1).id;
+      for (const reply of onRequest(JSON.parse(body.content))) rows.push({ id: `m${rows.length + 1}`, content: JSON.stringify(reply) });
+      return { id };
+    }
+    const since = new URLSearchParams(p.split('?')[1]).get('since_id');
+    return { messages: rows.slice(rows.findIndex(r => r.id === since) + 1) };
+  };
+  return { rows, call };
+}
+const cfg = { channel: 'c:control', state_channel: 's:state:control', ttl_s: 30 };
+
+test('askHolder: only the holder\'s reply to this request counts; a forged one is skipped', async () => {
+  let sent;
+  const { call } = channel(req => { sent = req; return [
+    { v: 1, kind: 'reply', in_reply_to: req.id, from: 'h/forger', op: req.op, data: { 'pool-claim': { status: 'claimed', job: { id: 'p1' } } } },
+    { v: 1, kind: 'reply', in_reply_to: 'other', from: 'h/user', op: req.op, data: { 'pool-claim': { status: 'claimed' } } },
+    { v: 1, kind: 'reply', in_reply_to: req.id, from: 'h/user', op: req.op, data: { 'pool-claim': { status: 'refused', reason: 'no' } } }]; });
+  const got = await askHolder({ call, cfg, from: 'h/py', holder: 'h/user', op: 'pool-claim', args: { id: 'p1' }, waitMs: 2000 });
+  assert.deepEqual(got, { status: 'refused', reason: 'no' });
+  assert.deepEqual([sent.to, sent.from, sent.args, sent.kind, sent.op], [['h/user'], 'h/py', { id: 'p1' }, 'request', 'pool-claim']);
+});
+
+test('askHolder: a holder that does not answer is null, never an answer', async () => {
+  const { call } = channel(() => []);
+  assert.equal(await askHolder({ call, cfg, from: 'h/py', holder: 'h/user', op: 'pool-list', args: { role: 'python-dev' }, waitMs: 500 }), null);
 });

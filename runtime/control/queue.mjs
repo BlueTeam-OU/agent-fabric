@@ -1,6 +1,7 @@
 // runtime/control/queue.mjs — what bin/fabric-jobs asks of the control
 // plane to order a queue (agent-fabric ADR-037 rules 8 and 9): which
-// requests some account waits on, read from the state stream.
+// requests some account waits on, read from the state stream; and the
+// role's pool, asked of the control agent that holds it (pool.mjs).
 //
 // THE CLI, for tools/fabric/jobs.py: the control plane's channels, record
 // shapes and relay client stay in Node, one implementation, as for
@@ -16,8 +17,19 @@
 //     exit    0 read; 2 usage; 3 not readable — no token, the relay
 //             unreachable or refusing — with {"error": "<one line>"} on stdout
 //
-//   env       CLAUDE_BRIDGE_URL, FABRIC_STATE_CHANNEL (controlConfig),
-//             AGENT_FABRIC_HOSTS_REGISTRY (who is placed)
+//   node runtime/control/queue.mjs pool-list [<role>]     (default: this login's bound role)
+//   node runtime/control/queue.mjs pool-claim <pool id>
+//     stdout  {"holder": "<address>", "answer": {"status": "ok"|"claimed"|"refused", …}}
+//             — the holder's answer as pool.mjs gives it; a refusal is an answer
+//     exit    0 answered; 2 usage; 3 no token, the relay unreachable or
+//             refusing, or no answer within FABRIC_QUEUE_WAIT_MS (10 s) —
+//             a claim unanswered may still have landed at the holder, and a
+//             second claim by the same account gets it again; 4 no account
+//             holds the pool, or this login has no bound role to list
+//
+//   env       CLAUDE_BRIDGE_URL, FABRIC_CONTROL_CHANNEL, FABRIC_STATE_CHANNEL
+//             (controlConfig), AGENT_FABRIC_HOSTS_REGISTRY (who is placed,
+//             who holds the pool), FABRIC_QUEUE_WAIT_MS
 //
 // A state record is any relay-token holder's post: one that does not have
 // the shape agentd writes, or comes from no placed address, is skipped. A
@@ -26,8 +38,9 @@
 
 import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
-import { whoami, api, syncedToken, integrationConfig, inboxRoot, token as gzToken } from './gzcoord.mjs';
-import { controlConfig, accountAddresses } from './agentd.mjs';
+import { whoami, api, syncedToken, integrationConfig, inboxRoot, token as gzToken, identity as gzIdentity } from './gzcoord.mjs';
+import { controlConfig, accountAddresses, newId } from './agentd.mjs';
+import { poolHolder, POOL_ID, ROLE_SLUG } from './pool.mjs';
 import { MESSAGE_ID } from './sessions.mjs';
 import { STATES_REPLAY } from './ctl.mjs';
 
@@ -67,17 +80,55 @@ export function relayError(e, cfg) {
   return e?.status ? `the relay refused (HTTP ${e.status})` : `the relay is unreachable at ${cfg.relay_url}`;
 }
 
-export async function cli(argv = process.argv.slice(2), out = s => console.log(s)) {
-  if (argv.length !== 1 || argv[0] !== 'waits') { console.error('usage: queue.mjs waits'); return 2; }
-  const cfg = controlConfig();
-  try {
-    const { call } = relay(undefined, cfg);
-    out(JSON.stringify(await readWaits({ call, cfg, placed: accountAddresses() })));
-    return 0;
-  } catch (e) {
-    out(JSON.stringify({ error: relayError(e, cfg) }));
-    return 3;
+export const QUEUE_WAIT_MS = Number(process.env.FABRIC_QUEUE_WAIT_MS) > 0 ? Number(process.env.FABRIC_QUEUE_WAIT_MS) : 10000;
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+// One request to the holder, its one reply's data[op], or null when none
+// came within waitMs. The request carries only what the op reads: a role
+// for a list, an id for a claim — never the claimant's role.
+export async function askHolder({ call, cfg, from, holder, op, args, waitMs = QUEUE_WAIT_MS }) {
+  const id = newId();
+  /** @type {import('./protocol.mjs').Request} */
+  const request = { v: 1, kind: 'request', id, from, to: [holder], op, ts: new Date().toISOString(), ttl_s: Math.max(cfg.ttl_s, Math.ceil(waitMs / 1000)), args };
+  const sent = await call('/api/send', { method: 'POST', body: JSON.stringify({ channel: cfg.channel, sender: from, content: JSON.stringify(request) }) });
+  const deadline = Date.now() + waitMs;
+  let since = sent.id;
+  while (Date.now() < deadline) {
+    const page = await call(`/api/messages?${new URLSearchParams({ channel: cfg.channel, since_id: since, limit: '500', full: '1' })}`);
+    for (const rec of page?.messages ?? []) {
+      since = rec.id;
+      let r; try { r = JSON.parse(rec.content); } catch { continue; }
+      // Only the holder's reply to this request: anyone may post on the channel.
+      if (r?.kind === 'reply' && r.in_reply_to === id && r.from === holder && r.data?.[op] && typeof r.data[op].status === 'string') return r.data[op];
+    }
+    await sleep(400);
   }
+  return null;
+}
+
+export async function cli(argv = process.argv.slice(2), out = s => console.log(s)) {
+  const [cmd, arg, ...rest] = argv;
+  const usage = 'usage: queue.mjs waits | pool-list [<role>] | pool-claim <pool id>';
+  if (rest.length || !['waits', 'pool-list', 'pool-claim'].includes(cmd) || (cmd === 'waits' && arg !== undefined)
+      || (cmd === 'pool-claim' && !POOL_ID.test(arg ?? '')) || (cmd === 'pool-list' && arg !== undefined && !ROLE_SLUG.test(arg))) { console.error(usage); return 2; }
+  const cfg = controlConfig();
+  let r;
+  try { r = relay(undefined, cfg); } catch (e) { out(JSON.stringify({ error: relayError(e, cfg) })); return 3; }
+  if (cmd === 'waits') {
+    try { out(JSON.stringify(await readWaits({ call: r.call, cfg, placed: accountAddresses() }))); return 0; }
+    catch (e) { out(JSON.stringify({ error: relayError(e, cfg) })); return 3; }
+  }
+  const holder = poolHolder(cfg);
+  if (!holder) { out(JSON.stringify({ error: 'no account holds the pool: several hosts and no pool_holder in runtime/control/config.json' })); return 4; }
+  const me = gzIdentity(r.who);
+  const role = cmd === 'pool-list' ? (arg ?? r.who.role) : undefined;
+  if (cmd === 'pool-list' && !(typeof role === 'string' && ROLE_SLUG.test(role))) { out(JSON.stringify({ error: 'this login has no bound role: name the role whose pool to list' })); return 4; }
+  let answer;
+  try { answer = await askHolder({ call: r.call, cfg, from: me.address, holder, op: cmd, args: cmd === 'pool-list' ? { role } : { id: arg } }); }
+  catch (e) { out(JSON.stringify({ error: relayError(e, cfg), holder })); return 3; }
+  if (!answer) { out(JSON.stringify({ error: `${holder} did not answer within ${QUEUE_WAIT_MS / 1000} s`, holder })); return 3; }
+  out(JSON.stringify({ holder, answer }));
+  return 0;
 }
 
 if (process.argv[1] && fs.realpathSync(process.argv[1]) === fileURLToPath(import.meta.url))
