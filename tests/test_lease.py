@@ -20,6 +20,7 @@ import time
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(HERE, "tools", "fabric"))
 import lease  # noqa: E402
+from git_env import git_env, scrub_process_env  # noqa: E402 — tests/, the script's own directory
 
 SHIM = os.path.join(HERE, "bin", "fabric-lease")
 MODULE = os.path.join(HERE, "tools", "fabric", "lease.py")
@@ -165,7 +166,7 @@ def main() -> int:
         py.wait(timeout=TIMEOUT)
 
         original = os.path.join(scratch, "fabric-lease.orig")
-        git = subprocess.run(["git", "-C", HERE, "show", f"{BASH_ORIGINAL}:bin/fabric-lease"], capture_output=True, timeout=TIMEOUT)
+        git = subprocess.run(["git", "-C", HERE, "show", f"{BASH_ORIGINAL}:bin/fabric-lease"], capture_output=True, timeout=TIMEOUT, env=git_env())
         if git.returncode != 0 or not git.stdout.startswith(b"#!/usr/bin/env bash"):
             check(f"the original bash is readable from {BASH_ORIGINAL} (a shallow clone lacks it)", False, git.stderr.decode()[:200])
         else:
@@ -435,4 +436,5 @@ def main() -> int:
 
 
 if __name__ == "__main__":
+    scrub_process_env()
     sys.exit(main())
