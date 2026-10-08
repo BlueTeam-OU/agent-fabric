@@ -8,6 +8,8 @@ import crypto from 'node:crypto';
 import zlib from 'node:zlib';
 import { execFileSync } from 'node:child_process';
 import { scratch } from '../../../tests/scratch.mjs';
+import { sourceLocale, SOURCE_TAG } from '../ops/activity.mjs';
+import { FABRIC_ROOT } from '../gzcoord.mjs';
 import { identity, usage, keys, fabric, session, host, script, recall, recallKind, scriptCounts, notesDir, workerTranscripts, languages, langidCmd, memoryDirs, memorySlug, memory, tokens, equivalent, TOKEN_RATIOS, collect, KEY_NAMES, OPS, MEMORY_PART_BYTES, accounts, readAccount, parseUsageReport, accountsDir, accountSlugs, takeReadLock, presence, signingSecret, SIGNING_ROW, storeRefusal, STORE_ROW, disk, DISK_TIMEOUT_MS, DISK_MAX_BUFFER } from '../ops.mjs';
 // A fence for any presence() a test forgets to give a hold: never the
 // runner's own ~/.cache/agent-fabric/hold (review of #49).
@@ -133,6 +135,10 @@ test('script: letters by script, thinking and text apart, from the account\'s ow
   const withNotes = script(h, { notes: nd, langid: fakeLang });
   assert.deepEqual(withNotes.notes.language, { status: 'ok', paragraphs: 3, unreliable: 0, shares: { ka: 100 }, dominant: { ka: 3 } }, 'every note paragraph reaches the detector');
   assert.equal(withNotes.notes.status, 'ok'); assert.equal(withNotes.notes.files, 1);
+  // The source locale's notes are not measured (ADR-027 §2).
+  const src = script(h, { notes: nd, langid: () => { throw new Error('read'); }, source: true });
+  assert.deepEqual(src.notes, { status: 'not measured', reason: 'the source locale' });
+  assert.deepEqual(src.thinking, withNotes.thinking, 'the transcript is measured as for any holder');
   assert.deepEqual(withNotes.notes.blocks, { only: 2, mixed: 0, latin: 1, empty: 0 }, JSON.stringify(withNotes.notes));
   assert.ok(withNotes.notes.georgian > withNotes.notes.latin);
   assert.ok(!JSON.stringify(withNotes).includes('მოთხოვნა'), 'no note text leaves');
@@ -818,3 +824,32 @@ test('disk: records outside the home named; unreadable paths counted, the first 
   ]);
 });
 
+test('sourceLocale: a language-culture holder whose locale.json carries the source tag', () => {
+  const root = scratch('src-locale-');
+  const put = (suffix, body) => { const d = path.join(root, 'identities', 'roles', 'language-culture', 'locale', suffix); fs.mkdirSync(d, { recursive: true }); fs.writeFileSync(path.join(d, 'locale.json'), body); };
+  put('en', JSON.stringify({ tag: SOURCE_TAG })); put('ge', JSON.stringify({ tag: 'ka-GE' })); put('xx', '{broken');
+  assert.equal(sourceLocale({ role: 'language-culture', agent: 'language-culture-en' }, { root }), true);
+  assert.equal(sourceLocale({ role: 'language-culture', agent: 'language-culture-ge' }, { root }), false);
+  assert.equal(sourceLocale({ role: 'python-dev', agent: 'language-culture-en' }, { root }), false, 'the role bound, not the login name');
+  assert.equal(sourceLocale({ role: 'language-culture', agent: 'language-culture-xx' }, { root }), false, 'unreadable: measured, as before');
+  assert.equal(sourceLocale({ role: 'language-culture', agent: 'language-culture-zz' }, { root }), false, 'no locale');
+  // The tag lint holds the locales to (one source of the rule, two languages).
+  const lint = fs.readFileSync(path.join(FABRIC_ROOT, 'tools', 'fabric', 'lint_rules', 'locales.py'), 'utf8');
+  assert.match(lint, new RegExp(`^SOURCE_TAG = "${SOURCE_TAG}"$`, 'm'));
+  // The fleet's own en locale is the source.
+  assert.equal(sourceLocale({ role: 'language-culture', agent: 'language-culture-en' }, { root: FABRIC_ROOT }), true);
+});
+
+test('collect script: the op asks whether its holder is the source locale', async () => {
+  const home = scratch('src-home-'); fs.mkdirSync(path.join(home, '.claude', 'projects'), { recursive: true });
+  const ask = async who => (await collect('script', { home, who, root: FABRIC_ROOT })).script.notes;
+  assert.deepEqual(await ask({ role: 'language-culture', agent: 'language-culture-en' }), { status: 'not measured', reason: 'the source locale' });
+  // No transcript directory at all (a new account): no records, and the notes still said.
+  const bare = scratch('src-bare-');
+  const none = (await collect('script', { home: bare, who: { role: 'language-culture', agent: 'language-culture-en' }, root: FABRIC_ROOT })).script;
+  assert.equal(none.status, 'no-records'); assert.deepEqual(none.notes, { status: 'not measured', reason: 'the source locale' });
+  const nd = path.join(bare, 'notes'); fs.mkdirSync(nd); fs.writeFileSync(path.join(nd, 'd.md'), 'მოთხოვნა: გადათარგმნილი მოთხოვნა ქართულად, სრული აბზაცი.\n');
+  const other = script(bare, { notes: nd, langid: () => ({ status: 'unavailable' }) });
+  assert.equal(other.status, 'no-records'); assert.equal(other.notes.status, 'ok', 'any holder\'s notes, with or without transcripts');
+  assert.equal((await ask({ role: 'language-culture', agent: 'language-culture-ge' })).status, 'none');
+});

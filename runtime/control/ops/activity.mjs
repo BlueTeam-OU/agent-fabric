@@ -6,6 +6,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
+import { localeDir } from '../roots.mjs';
+import { whoami } from '../gzcoord.mjs';
 
 
 // Which SCRIPT the account writes in — the signature of the language it
@@ -222,7 +224,23 @@ export function notesDir(home = os.homedir(), env = process.env, login = (() => 
   return path.join(env.XDG_STATE_HOME ?? path.join(home, '.local', 'state'), 'agent-fabric', 'agents', login, 'notes');
 }
 
-export function script(home = os.homedir(), { hours = 24, limit = 5, now = Date.now(), notes = notesDir(home), langid = languages } = {}) {
+// THE SOURCE LOCALE. A holder of the fleet's own language translates
+// nothing, and its notes are English by design: they are not measured by
+// script (ADR-027 §2, A 2026-10-07), so the op says that instead of
+// counts that would read as a measurement. The source is the locale whose
+// locale.json carries lint's SOURCE_TAG (tools/fabric/lint_rules/locales.py);
+// the holder's locale is the suffix after its login's last dash, as i18n
+// reads it. A locale.json that cannot be read is not the source: measured,
+// as before this rule.
+export const SOURCE_TAG = 'en-US';
+export function sourceLocale(who = whoami(), o = {}) {   // unset: per request, so a rebind shows
+  if (who?.role !== 'language-culture' || typeof who.agent !== 'string') return false;
+  const suffix = who.agent.slice(who.agent.lastIndexOf('-') + 1);
+  try { return JSON.parse(fs.readFileSync(path.join(localeDir('language-culture', suffix, o), 'locale.json'), 'utf8'))?.tag === SOURCE_TAG; }
+  catch { return false; }
+}
+
+export function script(home = os.homedir(), { hours = 24, limit = 5, now = Date.now(), notes = notesDir(home), langid = languages, source = false } = {}) {
   const root = path.join(home, '.claude', 'projects');
   let files = [];
   try {
@@ -236,12 +254,12 @@ export function script(home = os.homedir(), { hours = 24, limit = 5, now = Date.
         if (now - st.mtimeMs <= hours * 3600000) files.push({ f, mtime: st.mtimeMs });
       }
     }
-  } catch { return { status: 'no-records' }; }
+  } catch { /* no transcript directory: no files, and the notes are still said below */ }
   files.sort((a, b) => b.mtime - a.mtime); files = files.slice(0, limit);
   // The notes: every file under the notes directory touched in the window,
   // its paragraphs binned like thinking blocks.
   const noteCounts = {}; const noteBlocks = { only: 0, mixed: 0, latin: 0, empty: 0 }; let noteFiles = 0; const noteParas = [];
-  try {
+  if (!source) try {
     for (const n of fs.readdirSync(notes)) {
       const f = path.join(notes, n);
       let st; try { st = fs.statSync(f); } catch { continue; }
@@ -251,7 +269,7 @@ export function script(home = os.homedir(), { hours = 24, limit = 5, now = Date.
       paragraphs(body, noteCounts, noteBlocks, noteParas);
     }
   } catch { /* no notes directory: reported as none */ }
-  const notesOut = noteFiles ? { status: 'ok', files: noteFiles, ...shares(noteCounts), blocks: noteBlocks, language: langid(noteParas, { home }) } : { status: 'none', dir: notes };
+  const notesOut = source ? { status: 'not measured', reason: 'the source locale' } : noteFiles ? { status: 'ok', files: noteFiles, ...shares(noteCounts), blocks: noteBlocks, language: langid(noteParas, { home }) } : { status: 'none', dir: notes };
   if (!files.length) return { status: 'no-records', hours, notes: notesOut };
   const thinking = {}, text = {}; let turns = 0;
   const blocks = { only: 0, mixed: 0, latin: 0, empty: 0 };

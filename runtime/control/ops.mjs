@@ -20,7 +20,7 @@ import { identity, fabric, session, presence } from './ops/identity.mjs';
 import { usage, accounts, tokens } from './ops/usage.mjs';
 import { keys, storeRefusal, signingSecret } from './ops/keys.mjs';
 import { host, disk } from './ops/host.mjs';
-import { recall, script } from './ops/activity.mjs';
+import { recall, script, sourceLocale } from './ops/activity.mjs';
 import { memory } from './ops/memory.mjs';
 import { local } from './local.mjs';
 import { tools } from './tools.mjs';
@@ -57,7 +57,7 @@ export async function collect(op, ctx = {}) {
     if (name === 'fabric') return guard(name, () => fabric(ctx.root, ctx.exec));
     if (name === 'session') return guard(name, () => session(ctx.uid, ctx.exec));
     if (name === 'presence') return guard(name, () => presence(ctx.presenceOpts));
-    if (name === 'script') return guard(name, () => script(ctx.home));
+    if (name === 'script') return guard(name, () => script(ctx.home, { source: sourceLocale(ctx.who, { root: ctx.root }) }));
     if (name === 'recall') return guard(name, () => recall(ctx.home));
     if (name === 'tokens') return guard(name, () => tokens(ctx.home, ctx.days ? { days: ctx.days } : {}));
     if (name === 'memory') return guard(name, () => memory(ctx.home, { exec: ctx.exec, all: true }));

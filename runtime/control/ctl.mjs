@@ -50,7 +50,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { whoami, FABRIC_ROOT, api, syncedToken, identity as gzIdentity, integrationConfig, inboxRoot, token as gzToken } from './gzcoord.mjs';
+import { whoami, FABRIC_ROOT, api, syncedToken, identity as gzIdentity, integrationConfig, inboxRoot, token as gzToken, relayFailure } from './gzcoord.mjs';
 import { hostsRegistry } from './roots.mjs';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { ACTION_OPS, ACTION_TTL_MAX_S, signRequest, generateOperatorKey, publicKeyFrom } from './sign.mjs';
@@ -408,7 +408,7 @@ export function table(op, rs) {
     const fmt = sh => !sh || !sh.letters ? '-' : Object.entries(sh).filter(([k, v]) => typeof v === 'number' && k !== 'letters' && k !== 'files').slice(0, 3).map(([k, v]) => `${k} ${v}%`).join(', ') + ` (${sh.letters} letters)`;
     const bins = b => !b ? '-' : `${b.only} only / ${b.mixed} mixed / ${b.latin} latin`;
     const lang = l => !l ? '' : l.status !== 'ok' ? ' — lang unavailable' : !l.paragraphs ? '' : ' — lang ' + (Object.entries(l.shares).slice(0, 3).map(([k, v]) => `${k} ${v}%`).join(', ') || '-') + (l.unreliable ? ` (${l.unreliable} unreliable)` : '');
-    const notes = n => !n || n.status !== 'ok' ? 'none' : `${n.files} file(s): ${bins(n.blocks)}${lang(n.language)} — ${fmt(n)}`;
+    const notes = n => n?.status === 'not measured' ? `not measured: ${n.reason}` : !n || n.status !== 'ok' ? 'none' : `${n.files} file(s): ${bins(n.blocks)}${lang(n.language)} — ${fmt(n)}`;
     // The workers: the locale worker's input (the bridge's leak signal) and its answers, paragraphs by script.
     const workers = w => !w || w.status !== 'ok' ? '-' : `${w.files} file(s): in ${bins(w.input.blocks)}${lang(w.input.language)} / out ${bins(w.text.blocks)}${lang(w.text.language)}`;
     lines.push(`${'account'.padEnd(22)} ${'status'.padEnd(10)} ${'notes (the signature: paragraphs by script)'.padEnd(70)} ${'turns'.padStart(5)}  ${'text, by script'.padEnd(44)} ${'thinking (stored text only)'.padEnd(40)} workers (input / answers)`);
@@ -610,7 +610,7 @@ export async function main(argv = process.argv.slice(2), { registry, fetchImpl }
   }
   let sent;
   try { sent = await call('/api/send', { method: 'POST', body: JSON.stringify({ channel: cfg.channel, sender: me.address, content: JSON.stringify(request) }) }); }
-  catch (e) { console.error(`fabric-ctl: relay ${e.status ? `refused (HTTP ${e.status})` : `unreachable at ${cfg.relay_url}`}`); return 3; }
+  catch (e) { console.error(`fabric-ctl: ${relayFailure(e, cfg.relay_url)}`); return 3; }
   const t0 = Date.now();
   const replies = []; const parts = {};
   const want = new Set(expected.map(e => e.address));   // no reply yet
@@ -725,7 +725,7 @@ export async function states(args, expected, { call, cfg, out = m => console.log
   };
   let last;
   try { last = await snapshot(); }
-  catch (e) { err(`fabric-ctl: relay ${e.status ? `refused (HTTP ${e.status})` : `unreachable at ${cfg.relay_url}`}`); return 3; }
+  catch (e) { err(`fabric-ctl: ${relayFailure(e, cfg.relay_url)}`); return 3; }
   for (const e of expected) show(e.address, true);
   if (!args.follow) return [...want].every(a => latest.has(a)) ? 0 : 1;
   let down = false;

@@ -53,6 +53,8 @@ test('rows and table: an answered account and a silent one', () => {
   assert.match(withNotesLang, /1 file\(s\): 2 only \/ 0 mixed \/ 0 latin — lang ka 100% — georgian 100%/);
   const none = table('script', rows(expected, [{ kind: 'reply', from: 'h/db-admin', op: 'script', data: { script: { ...sc, workers: { status: 'none', other_subagents: 0 } } } }]));
   assert.match(none, /db-admin\s+ok\s+none.*unreadable\s+-\s*$/m);
+  const source = table('script', rows(expected, [{ kind: 'reply', from: 'h/db-admin', op: 'script', data: { script: { ...sc, notes: { status: 'not measured', reason: 'the source locale' } } } }]));
+  assert.match(source, /db-admin\s+ok\s+not measured: the source locale\s/, 'never "none", which reads as no notes');
 });
 
 test('keys table: held keys, whether git signs, and a refused store said in full (ADR-042 rule 5)', () => {
@@ -336,10 +338,12 @@ test('fabric-ctl all usage: two of three answer — table, a no-answer row, exit
     r.rows.length = 0;   // the earlier runs' records
     const clear = () => { if (r.rows.some(x => x.content.includes('"request"'))) { r.rows.length = 0; return; } setTimeout(clear, 20); };
     setTimeout(clear, 20);
-    const t0 = Date.now();
     const lost = await run(r.url(), reg, ['db-admin', 'ping', '--timeout', '5']);
-    assert.ok(Date.now() - t0 < 4000, 'ended before the timeout');
-    assert.equal(lost.status, 1); assert.match(lost.err, /history cleared/);
+    // Ended early, read from the run's own words rather than the clock (a
+    // loaded host failed a 4 s bound): a run that kept reading after the
+    // warning would see it again every half second until the timeout.
+    assert.equal(lost.status, 1);
+    assert.equal(lost.err.match(/history cleared/g)?.length, 1, lost.err);
   } finally { done = true; r.close(); }
 });
 
@@ -784,4 +788,22 @@ test('a human login (ADR-044) is placed with its kind; all asks only agents, and
   assert.match(r.err, /deck-human is a human login \(ADR-044\)/);
   const { targetsOf } = await import('../ctl.mjs');
   assert.deepEqual(targetsOf(['all'], placements(f)).expected.map(p => p.login), ['db-admin'], 'all asks the agent, never the human');
+});
+
+// One wording for what became of a relay call (gzcoord.mjs relayFailure):
+// a refusal, and a relay nobody listens on, on the request's send and on
+// states' snapshot.
+test('a relay that refuses or is not there is said in relayFailure\'s words', async () => {
+  const server = http.createServer((req, res) => { res.statusCode = 401; res.end('{}'); });
+  await new Promise(r => server.listen(0, '127.0.0.1', r));
+  const url = `http://127.0.0.1:${server.address().port}`;
+  const reg = registryFile();
+  try {
+    const sent = await run(url, reg, ['db-admin', 'ping', '--timeout', '1']);
+    assert.equal(sent.status, 3, sent.err); assert.match(sent.err, /fabric-ctl: the relay refused \(HTTP 401\)/);
+    const snap = await run(url, reg, ['db-admin', 'states']);
+    assert.equal(snap.status, 3, snap.err); assert.match(snap.err, /fabric-ctl: the relay refused \(HTTP 401\)/);
+  } finally { server.closeAllConnections(); server.close(); }
+  const dead = await run(url, reg, ['db-admin', 'ping', '--timeout', '1']);
+  assert.equal(dead.status, 3, dead.err); assert.match(dead.err, new RegExp(`fabric-ctl: the relay is unreachable at ${url}`));
 });

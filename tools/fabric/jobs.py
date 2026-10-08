@@ -52,7 +52,10 @@ the state stream for it through runtime/control/queue.mjs (the control
 plane's shapes stay in Node) — only when a queued job came from a message,
 since nothing else can match — and `list` shows both priorities and the
 address that waits. A stream that cannot be read leaves stored priorities
-to decide, and is said on stderr; it never fails the command. `--stored`
+to decide, and is said on stderr; it never fails the command. A waiter
+whose state record is older than the stream's bound still counts (rule
+8: the block is in its jobs.json whether or not its agentd runs), and is
+named with the record's age and said stale. `--stored`
 skips the stream (the control agent's `jobs` op, which answers in
 seconds).
 
@@ -274,6 +277,8 @@ def new_job(doc: dict, title: str, *, topic=None, project=None, working_copy=Non
 
 INBOX = os.path.join(FABRIC_ROOT, "bin", "gzcoord-inbox")
 QUEUE = os.path.join(FABRIC_ROOT, "runtime", "control", "queue.mjs")
+# queue.mjs bounds each relay call well under this (QUEUE_CALL_TIMEOUT_MS), so a
+# relay that does not answer is said in its words before this kills node.
 QUEUE_TIMEOUT_S = 30
 
 
@@ -332,7 +337,9 @@ def ask_queue(*argv: str) -> dict:
     except subprocess.TimeoutExpired:
         raise Unreachable(f"no answer within {QUEUE_TIMEOUT_S} s")
     except OSError as e:
-        raise Unreachable(f"node could not run ({e.strerror or e})")
+        # node never started, so queue.mjs posted nothing: a claim that never
+        # left is said without how to land it.
+        raise Unreachable(f"node could not run ({e.strerror or e})", sent=False)
     try:
         said = json.loads((p.stdout or "").strip().splitlines()[-1])
     except (ValueError, IndexError):
@@ -405,21 +412,45 @@ def message_of(job: dict) -> str | None:
     return (job.get("source") or {}).get("message_id")
 
 
-def stream_waits(doc: dict, *, stored: bool = False) -> dict[str, list[str]] | None:
-    """{message id: [waiting address, ...]} from the state stream; {} when no
-    queued job came from a message (nothing could match), None when the
-    stream could not be read — said here, once, and stored priorities decide."""
+# A waiting address whose state record is older than the stream's bound:
+# its age in seconds, None when the record's time could not be read.
+Stale = dict[str, int | None]
+
+
+def stream_waits(doc: dict, *, stored: bool = False) -> tuple[dict[str, list[str]] | None, Stale]:
+    """({message id: [waiting address, ...]}, stale waiters) from the state
+    stream; ({}, {}) when no queued job came from a message (nothing could
+    match), (None, {}) when the stream could not be read — said here, once,
+    and stored priorities decide."""
     if stored or not any(j["state"] == "queued" and message_of(j) for j in doc["jobs"]):
-        return {}
+        return {}, {}
     try:
-        waits = ask_queue("waits").get("waits")
+        said = ask_queue("waits")
     except Unreachable as e:
         print(f"fabric-jobs: the state stream could not be read ({e}): stored priorities decide", file=sys.stderr)
-        return None
+        return None, {}
+    waits = said.get("waits")
     if not isinstance(waits, dict):
         print("fabric-jobs: the state stream's answer has no waits: stored priorities decide", file=sys.stderr)
-        return None
-    return {str(k): [str(a) for a in v] for k, v in waits.items() if isinstance(v, list)}
+        return None, {}
+    stale = said.get("stale")
+    if not isinstance(stale, dict):
+        # The ranking stands; what is unknown is only how old each wait is.
+        print("fabric-jobs: the state stream's answer has no record ages: a waiter's age is unknown", file=sys.stderr)
+        stale = {}
+    ages: Stale = {str(a): (v if isinstance(v, int) and not isinstance(v, bool) and v >= 0 else None)
+                   for a, v in stale.items()}
+    return {str(k): [str(a) for a in v] for k, v in waits.items() if isinstance(v, list)}, ages
+
+
+def named(who: list[str], stale: Stale | None) -> str:
+    """The waiters, each stale one with its record's age."""
+    def one(a: str) -> str:
+        if a not in (stale or {}):
+            return a
+        age = (stale or {})[a]
+        return f"{a} (state record {'of unknown age' if age is None else f'{age // 60} min old'}: stale)"
+    return ", ".join(one(a) for a in who)
 
 
 def waiters(job: dict, waits: dict[str, list[str]] | None) -> list[str]:
@@ -499,7 +530,7 @@ def decide(doc: dict, nxt: dict, here: dict) -> dict:
     return {"job": nxt["id"], "against": against, "fresh": bool(differs), "differs": differs, "caveat": caveat}
 
 
-def line(job: dict, waits: dict[str, list[str]] | None = None) -> str:
+def line(job: dict, waits: dict[str, list[str]] | None = None, stale: Stale | None = None) -> str:
     where = job.get("project") or os.path.basename(job.get("working_copy") or "") or "(no project)"
     topic = f" [{job['topic']}]" if job.get("topic") else ""
     extra = ""
@@ -509,7 +540,7 @@ def line(job: dict, waits: dict[str, list[str]] | None = None) -> str:
         extra = f" — {', '.join(job['artifacts'])}"
     who = waiters(job, waits)
     if who and stored_priority(job) != "blocking":
-        extra += f" — ranks blocking: {', '.join(who)} {'waits' if len(who) == 1 else 'wait'} on it"
+        extra += f" — ranks blocking: {named(who, stale)} {'waits' if len(who) == 1 else 'wait'} on it"
     return f"{job['id']:<5} {job['state']:<9} {stored_priority(job) or '?':<8} {where}{topic}: {job['title']}{extra}"
 
 
@@ -662,16 +693,18 @@ def main(argv: list[str] | None = None) -> int:
         elif args.cmd == "list":
             doc = identity.read_jobs()
             jobs = [j for j in doc["jobs"] if args.all or j["state"] in OPEN]
-            waits = stream_waits(doc, stored=args.stored)
+            waits, stale = stream_waits(doc, stored=args.stored)
             if args.json:
                 # The effective rank is the reader's, never stored: it is only
                 # as true as the stream it was read from.
                 print(json.dumps([{**j, "effective_priority": effective_priority(j, waits),
-                                   "waited_by": waiters(j, waits)} for j in jobs], ensure_ascii=False, indent=2))
+                                   "waited_by": waiters(j, waits),
+                                   "stale_waiters": {a: stale[a] for a in waiters(j, waits) if a in stale}}
+                                  for j in jobs], ensure_ascii=False, indent=2))
             elif not jobs:
                 print("no open jobs" if not args.all else "no jobs")
             else:
-                print("\n".join(line(j, waits) for j in jobs))
+                print("\n".join(line(j, waits, stale) for j in jobs))
         elif args.cmd == "show":
             job = find(identity.read_jobs(), args.id)
             if args.field:
@@ -682,7 +715,7 @@ def main(argv: list[str] | None = None) -> int:
             here = identity.resolve_context()
             # Read before the lock: the stream is a relay call, and the list's
             # lock is every writer's.
-            waits = {} if args.id else stream_waits(identity.read_jobs())
+            waits, stale = ({}, {}) if args.id else stream_waits(identity.read_jobs())
 
             def pick(doc):
                 current = active(doc)
@@ -710,7 +743,7 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 print(line(job))
                 if who and stored_priority(job) != "blocking":
-                    print(f"  ranked blocking: {', '.join(who)} {'waits' if len(who) == 1 else 'wait'} on its request "
+                    print(f"  ranked blocking: {named(who, stale)} {'waits' if len(who) == 1 else 'wait'} on its request "
                           f"(stored {stored_priority(job)})")
                 if verdict["fresh"]:
                     print(f"fresh session: against {verdict['against']}, {'; '.join(verdict['differs'])}.")

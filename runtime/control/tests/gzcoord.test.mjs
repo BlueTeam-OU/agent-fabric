@@ -14,7 +14,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { scratch } from '../../../tests/scratch.mjs';
-import { whoami, FABRIC_ROOT, findTaxonomy, loadTaxonomy, identity, integrationConfig, inboxRoot, token, syncedToken, syncedVar, shellWord, api, holdStatus } from '../gzcoord.mjs';
+import { whoami, FABRIC_ROOT, findTaxonomy, loadTaxonomy, identity, integrationConfig, inboxRoot, token, syncedToken, syncedVar, shellWord, api, apiTimeoutMs, API_TIMEOUT_MS, relayFailure, holdStatus } from '../gzcoord.mjs';
 
 const CATALOG = fileURLToPath(new URL('../../../identities/roles/catalog.json', import.meta.url));
 const taxonomy = loadTaxonomy(CATALOG);
@@ -291,23 +291,43 @@ test('token: the synced file, then the environment, then the working copy, then 
   }
 });
 
-test('api sends the bearer token and JSON, and a refusal throws with its status', async () => {
+// The test's own timeout makes an unbounded fetch a failure, never a hung run.
+test('api sends the bearer token and JSON, a refusal throws with its status, and a silent relay times out', { timeout: 20000 }, async t => {
   const seen = [];
   const server = http.createServer((req, res) => {
     let body = ''; req.on('data', c => body += c); req.on('end', () => {
       seen.push({ url: req.url, method: req.method, auth: req.headers.authorization, type: req.headers['content-type'], body });
       res.setHeader('connection', 'close'); res.setHeader('content-type', 'application/json');
       if (req.url === '/refused') { res.statusCode = 401; res.end('{}'); return; }
+      if (req.url === '/silent') return;   // the connection held, never an answer
       res.end(JSON.stringify({ ok: true }));
     });
   });
   await new Promise(r => server.listen(0, '127.0.0.1', r));
+  // after(), not finally: it runs when the test times out too, and frees
+  // the held connection so the run ends.
+  t.after(() => { server.closeAllConnections(); server.close(); });
   const relayUrl = `http://127.0.0.1:${server.address().port}`;
-  try {
-    assert.deepEqual(await api('tok', '/api/x?a=1', { relayUrl, method: 'POST', body: '{"k":1}' }), { ok: true });
-    assert.deepEqual(seen[0], { url: '/api/x?a=1', method: 'POST', auth: 'Bearer tok', type: 'application/json', body: '{"k":1}' });
-    await assert.rejects(api('tok', '/refused', { relayUrl }), e => e.status === 401 && e.message === '/refused -> HTTP 401');
-  } finally { server.closeAllConnections(); server.close(); }
+  assert.deepEqual(await api('tok', '/api/x?a=1', { relayUrl, method: 'POST', body: '{"k":1}' }), { ok: true });
+  assert.deepEqual(seen[0], { url: '/api/x?a=1', method: 'POST', auth: 'Bearer tok', type: 'application/json', body: '{"k":1}' });
+  await assert.rejects(api('tok', '/refused', { relayUrl }), e => e.status === 401 && e.message === '/refused -> HTTP 401');
+  // A relay that never answers is an error within the bound, not a hang.
+  await assert.rejects(api('tok', '/silent', { relayUrl, timeoutMs: 200 }),
+    e => e.timedOut === true && e.status === undefined && e.message === '/silent -> no answer within 0.2 s');
+  // The bound outlasts the wait a long poll asks of the relay.
+  assert.equal(apiTimeoutMs('/api/messages?channel=c'), API_TIMEOUT_MS);
+  assert.equal(apiTimeoutMs('/api/wait?channel=c&timeout_seconds=55'), API_TIMEOUT_MS + 55000);
+  assert.equal(apiTimeoutMs('/api/wait?timeout_seconds=nope'), API_TIMEOUT_MS);
+  // A caller's own signal is its bound: its error is passed on, never said as ours.
+  await assert.rejects(api('tok', '/silent', { relayUrl, signal: AbortSignal.timeout(200) }),
+    e => e.name === 'TimeoutError' && e.timedOut === undefined);
+});
+
+test('relayFailure: no answer, a refusal and no connection are three things', () => {
+  assert.equal(relayFailure({ timedOut: true, message: '/api/send -> no answer within 30 s' }, 'http://r'), 'the relay at http://r did not answer (no answer within 30 s)');
+  assert.equal(relayFailure({ status: 503 }, 'http://r'), 'the relay refused (HTTP 503)');
+  assert.equal(relayFailure(new DOMException('x', 'TimeoutError'), 'http://r'), "the relay at http://r did not answer within the caller's bound", 'a caller\'s own timeout is no answer too');
+  assert.equal(relayFailure(Object.assign(new Error('fetch failed'), { cause: { code: 'ECONNREFUSED' } }), 'http://r'), 'the relay is unreachable at http://r');
 });
 
 // The point of this module: the Node that stays Node — the control plane

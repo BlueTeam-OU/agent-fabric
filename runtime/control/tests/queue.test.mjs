@@ -5,10 +5,11 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { scratch } from '../../../tests/scratch.mjs';
-import { waitsFrom, readWaits, askHolder, placedAccounts, Unreadable, unsent } from '../queue.mjs';
+import { waitsFrom, readWaits, askHolder, placedAccounts, Unreadable, unsent, relayError, QUEUE_CALL_TIMEOUT_MS, boundCall } from '../queue.mjs';
 
 const A = '01a11a18-4728-7d8b-afd9-0edb2d30a59c', B = '01a11a19-0bea-70c7-b667-1e1e5a74dbe1';
-const rec = (from, waits_on, extra = {}) => ({ content: JSON.stringify({ v: 1, kind: 'state', from, ts: 't', sessions: [], ...(waits_on ? { waits_on } : {}), ...extra }) });
+const rec = (from, waits_on, extra = {}) => ({ content: JSON.stringify({ v: 1, kind: 'state', from, ts: '2026-10-08T12:00:00Z', sessions: [], ...(waits_on ? { waits_on } : {}), ...extra }) });
+const NOW = Date.parse('2026-10-08T12:05:00Z');
 
 test('waits: each placed account\'s newest record, its message ids, the waiters sorted', () => {
   const placed = new Set(['h/b', 'h/a', 'h/c']);
@@ -20,12 +21,26 @@ test('waits: each placed account\'s newest record, its message ids, the waiters 
     rec('x/unplaced', [B]),                // not placed: skipped
     { content: '{broken' },
     rec('h/c', [B], { kind: 'reply' }),
-  ], placed);
-  assert.deepEqual(got, { waits: { [B]: ['h/a'], [A]: ['h/b'] }, accounts: 2 });
+  ], placed, NOW);
+  assert.deepEqual(got, { waits: { [B]: ['h/a'], [A]: ['h/b'] }, accounts: 2, stale: {} });
+});
+
+test('a waiter whose record is older than the bound still waits, and is named stale with its age (ADR-037 rule 8)', () => {
+  const placed = new Set(['h/a', 'h/b', 'h/c', 'h/d']);
+  const got = waitsFrom([
+    rec('h/a', [A], { ts: '2026-10-08T11:00:00Z' }),   // an hour old
+    rec('h/b', [A]),                                  // five minutes: fresh
+    rec('h/c', null, { ts: '2026-10-08T09:00:00Z' }),  // old, but waits on nothing
+    rec('h/d', [B], { ts: 'yesterday' }),             // a ts that does not parse: age unknown
+  ], placed, NOW);
+  assert.deepEqual(got.waits, { [A]: ['h/a', 'h/b'], [B]: ['h/d'] }, 'counted all the same');
+  assert.deepEqual(got.stale, { 'h/a': 3900, 'h/d': null });
+  // The bound itself is fresh: exactly STATES_STALE_MS old is not stale.
+  assert.deepEqual(waitsFrom([rec('h/a', [A], { ts: '2026-10-08T11:45:00Z' })], placed, NOW).stale, {});
 });
 
 test('a record without waits_on waits on nothing, and replaces an older one that did', () => {
-  assert.deepEqual(waitsFrom([rec('h/a', [A]), rec('h/a', null)], new Set(['h/a'])), { waits: {}, accounts: 1 });
+  assert.deepEqual(waitsFrom([rec('h/a', [A]), rec('h/a', null)], new Set(['h/a']), NOW), { waits: {}, accounts: 1, stale: {} });
 });
 
 test('readWaits reads the state channel, never the control channel', async () => {
@@ -96,4 +111,23 @@ test('unsent: only a refused or unconnected post certainly left nothing', () => 
   assert.equal(unsent({ status: 502 }), false, 'a 5xx may come after the write');
   assert.equal(unsent({ cause: { code: 'ECONNRESET' } }), false, 'a reset may come after the write');
   assert.equal(unsent(new Error('x')), false);
+  assert.equal(unsent({ timedOut: true, message: '/api/send -> no answer within 30 s' }), false, 'a timed-out post may have been stored');
+});
+
+test('each relay call is bounded under jobs.py\'s kill, so its own words reach the person', () => {
+  const py = fs.readFileSync(new URL('../../../tools/fabric/jobs.py', import.meta.url), 'utf8');
+  const outer = Number(py.match(/^QUEUE_TIMEOUT_S = (\d+)$/m)?.[1]);
+  assert.ok(outer > 0 && QUEUE_CALL_TIMEOUT_MS <= outer * 1000 / 2, `${QUEUE_CALL_TIMEOUT_MS} ms against ${outer} s`);
+  // And relay()'s calls carry it.
+  const seen = [];
+  boundCall('tok', { relay_url: 'http://r' }, (tok, p, opts) => seen.push(opts))('/api/send', { method: 'POST' });
+  assert.deepEqual(seen, [{ relayUrl: 'http://r', timeoutMs: QUEUE_CALL_TIMEOUT_MS, method: 'POST' }]);
+});
+
+test('relayError: a relay that did not answer is said as that, not as unreachable', () => {
+  const cfg = { relay_url: 'http://r' };
+  assert.equal(relayError({ timedOut: true, message: '/api/send -> no answer within 30 s' }, cfg),
+    'the relay at http://r did not answer (no answer within 30 s)');
+  assert.equal(relayError({ status: 401 }, cfg), 'the relay refused (HTTP 401)');
+  assert.equal(relayError(new Error('x'), cfg), 'the relay is unreachable at http://r');
 });
