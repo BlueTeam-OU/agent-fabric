@@ -210,6 +210,11 @@ def main() -> int:
     check("5 unreadable checks lookups in a row are exit 2", code == 2 and text == "UNREADABLE — 5 checks lookups"
           " failed in a row; giving up", text)
     check("each is said with its count", "could not read #429 checks (5/5)" in err, err)
+    # The oracle never reads the reset (a mutation removing it survived it).
+    c = Clock()
+    code, text, _, _ = watch(Fake(c, ["OPEN:BLOCKED"] * 9 + ["MERGED"], checks=[None] * 4 + [[]] + [None] * 4 + [[]]),
+                             c, interval=1, timeout=600)
+    check("a readable checks lookup resets the run of 5", code == 0, text)
 
     # ── the idle-read stall ──────────────────────────────────────────
     print("wait_merged: arming lost mid-watch")
