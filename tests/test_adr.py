@@ -124,10 +124,10 @@ def case_evidence_must_exist(tmp: str) -> None:
 
 def case_citations_resolve_but_another_projects_are_not_ours(tmp: str) -> None:
     root = fixture(tmp)
-    edit(root, ONE, "## 6. Consequences", "## 6. Consequences\n\nSee ADR-044.\n")
-    only(root, "cites ADR-044, which does not exist")
+    edit(root, ONE, "## 6. Consequences", "## 6. Consequences\n\nSee ADR-944.\n")
+    only(root, "cites ADR-944, which does not exist")
     root = fixture(os.path.join(tmp, "b"))
-    edit(root, ONE, "## 6. Consequences", "## 6. Consequences\n\nLike gzapp's ADR-044 and gzapp ADR-059.\n")
+    edit(root, ONE, "## 6. Consequences", "## 6. Consequences\n\nLike gzapp's ADR-944 and gzapp ADR-059.\n")
     assert adr.check(root) == [], "a citation named with another registered project is that project's"
 
 
