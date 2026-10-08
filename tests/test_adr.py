@@ -5,6 +5,7 @@ the run leaves nothing behind (run.sh's
 leak check)."""
 from __future__ import annotations
 
+import json
 import os
 import re
 import shutil
@@ -398,6 +399,38 @@ def case_range_check_takes_a_git_range_and_refuses_a_bad_one(tmp: str) -> None:
     assert r.returncode == 2 and "not both" in r.stderr, r.stderr
     r = cli("..HEAD")
     assert r.returncode == 2 and "no base" in r.stderr, r.stderr
+
+
+def case_range_check_with_no_range_chooses_the_base_as_ci_does(tmp: str) -> None:
+    """`fabric-adr range-check` with no range (ADR-040 rule 7: the command
+    replaces policies/check_adr_amendment.sh): the GitHub event's own base
+    and head first, then AGENT_FABRIC_ADR_BASE, origin/$GITHUB_BASE_REF,
+    origin/main, main; with none, it says the check is not enforced."""
+    root = fixture(tmp)
+    base = commit_base(root)
+    git(root, "checkout", "-q", "-b", "feat")
+    edit(root, ONE, "Cheaper, but it keeps", "Cheaper, yet it keeps")
+    git(root, "commit", "-qa", msg="an unrecorded body edit")
+    tool = os.path.join(ROOT, "tools", "fabric", "adr.py")
+    clean = {k: v for k, v in os.environ.items() if k not in ("GITHUB_EVENT_PATH", "GITHUB_BASE_REF", "AGENT_FABRIC_ADR_BASE")}
+
+    def cli(**env: str) -> subprocess.CompletedProcess:
+        return subprocess.run([sys.executable, tool, "--root", root, "range-check"], capture_output=True, text=True,
+                              env={**clean, **git_env(), **env})
+    r = cli()
+    assert r.returncode == 1 and "unrecorded" in r.stdout, f"main as the base: {r.stdout}{r.stderr}"
+    git(root, "branch", "-q", "mark")
+    r = cli(AGENT_FABRIC_ADR_BASE="mark")
+    assert r.returncode == 0 and "clean" in r.stdout, f"AGENT_FABRIC_ADR_BASE ignored: {r.stdout}{r.stderr}"
+    head = subprocess.run(["git", "-C", root, "rev-parse", "HEAD"], capture_output=True, text=True, env=git_env()).stdout.strip()
+    event = os.path.join(tmp, "event.json")
+    with open(event, "w", encoding="utf-8") as f:
+        json.dump({"pull_request": {"base": {"sha": base}, "head": {"sha": head}}}, f)
+    r = cli(GITHUB_EVENT_PATH=event, AGENT_FABRIC_ADR_BASE="mark")
+    assert r.returncode == 1 and "unrecorded" in r.stdout, f"the event's base did not win: {r.stdout}{r.stderr}"
+    git(root, "branch", "-q", "-m", "main", "trunk")
+    r = cli()
+    assert r.returncode == 0 and "not enforced" in r.stdout, f"no base: {r.stdout}{r.stderr}"
 
 
 def case_range_check_counts_only_new_amendment_rows(tmp: str) -> None:
