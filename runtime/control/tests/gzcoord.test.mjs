@@ -19,6 +19,14 @@ import { whoami, FABRIC_ROOT, findTaxonomy, loadTaxonomy, identity, integrationC
 const CATALOG = fileURLToPath(new URL('../../../identities/roles/catalog.json', import.meta.url));
 const taxonomy = loadTaxonomy(CATALOG);
 const login = os.userInfo().username;
+// The catalogue and the gzapp integration are instance data (ADR-045): read from an operator
+// tree of the test's own, a copy of this checkout's, whatever AGENT_FABRIC_OPERATOR the run had.
+const OPERATOR = scratch('gzcoord-operator-');
+for (const rel of ['identities/roles/catalog.json', 'projects/gzapp/integration/gzcoord/config.json']) {
+  fs.mkdirSync(path.dirname(path.join(OPERATOR, rel)), { recursive: true });
+  fs.copyFileSync(fileURLToPath(new URL(`../../../${rel}`, import.meta.url)), path.join(OPERATOR, rel));
+}
+process.env.AGENT_FABRIC_OPERATOR = OPERATOR;
 
 test('FABRIC_ROOT is the checkout this module sits in, and the catalogue is found under it', () => {
   assert.equal(FABRIC_ROOT, process.env.AGENT_FABRIC_ROOT ?? path.resolve(import.meta.dirname, '..', '..', '..'));

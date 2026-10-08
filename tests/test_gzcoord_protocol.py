@@ -35,6 +35,17 @@ CASES: list[tuple[str, Callable[[], None]]] = []
 # Every scratch directory a case makes, removed when the run ends.
 SCRATCH: list[str] = []
 
+# The protocol is held against the organization's own catalogue and the gzapp
+# integration, which are instance data (ADR-045): the cases read them from an
+# operator tree of their own, a copy of this checkout's, so the result is the
+# same whatever AGENT_FABRIC_OPERATOR the run was started with.
+OPERATOR = tempfile.mkdtemp(prefix="gzcoord-operator-")
+SCRATCH.append(OPERATOR)
+for _rel in ("identities/roles/catalog.json", "projects/gzapp/integration/gzcoord/config.json"):
+    os.makedirs(os.path.dirname(os.path.join(OPERATOR, _rel)), exist_ok=True)
+    shutil.copy(os.path.join(HERE, _rel), os.path.join(OPERATOR, _rel))
+os.environ["AGENT_FABRIC_OPERATOR"] = OPERATOR
+
 
 def case(name: str) -> Callable:
     def add(fn: Callable[[], None]) -> Callable[[], None]:
