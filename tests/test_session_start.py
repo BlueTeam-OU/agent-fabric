@@ -552,6 +552,38 @@ def clone_config() -> str:
                           check=True, timeout=30, env=git_env()).stdout
 
 
+def test_hook_says_missing_tools(tmp: str) -> None:
+    """The control agent's tools report (fabric-tools --all --json) is read,
+    never re-run: a required tool missing for this project is named, an
+    optional one, another project's, an ok one and no report are silent, and
+    a report older than two days says its age."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("session_start_hook",
+                                                  os.path.join(ROOT, "runtime", "claude-code", "hooks", "session-start.py"))
+    hook = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(hook)
+    state = os.path.join(tmp, "state"); os.makedirs(state)
+    assert hook.tools_line("gzapp", state) == [], "no report: nothing said"
+    rows = [{"project": "gzapp", "name": "pnpm", "status": "missing", "version": "11.6.0", "where": "account", "optional": False},
+            {"project": "gzapp", "name": "doppler", "status": "missing", "version": "", "where": "account", "optional": True},
+            {"project": "gzapp", "name": "git", "status": "ok", "version": "", "where": "host", "optional": False},
+            {"project": "interweave", "name": "cargo", "status": "missing", "version": "", "where": "account", "optional": False}]
+    path = os.path.join(state, "tools.json")
+    with open(path, "w", encoding="utf-8") as fh:
+        json.dump({"projects": ["gzapp", "interweave"], "tools": rows, "ok": False}, fh)
+    line = hook.tools_line("gzapp", state)
+    assert len(line) == 1 and "pnpm (missing, needs 11.6.0, account)" in line[0], line
+    assert "doppler" not in line[0] and "git" not in line[0] and "cargo" not in line[0], line
+    assert "days old" not in line[0], line
+    old = os.stat(path).st_mtime - 3 * 86400
+    os.utime(path, (old, old))
+    assert "the report is 3 days old" in hook.tools_line("gzapp", state)[0]
+    assert hook.tools_line(None, state) == [] and hook.tools_line("dcs", state) == []
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write("not json")
+    assert hook.tools_line("gzapp", state) == [], "an unreadable report: nothing said"
+
+
 def main() -> int:
     cases = [test_hook_records_context_not_identity, test_a_subagent_start_never_rebinds_the_login,
              test_hook_gives_the_project_layer_from_the_working_copy,
@@ -564,6 +596,7 @@ def main() -> int:
              test_hook_says_when_the_session_has_no_inbox_watch,
              test_hook_says_when_the_branch_sweep_is_due,
              test_hook_says_the_job_list,
+             test_hook_says_missing_tools,
              test_bootstrap_restarts_the_control_agent_unless_its_caller_is_the_control_agent,
              test_bootstrap_writes_only_the_workspace_and_home_files]
     # The clone running the suite is not a fixture: whatever the cases do,
