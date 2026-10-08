@@ -331,7 +331,9 @@ def main() -> int:
         # A dead run's leftovers — its worktree, pid and output files — are
         # swept by the next run.
         os.makedirs(f"{scratch}/trial-merge.DEAD01")
-        write(f"{scratch}/trial-merge.DEAD01.pid", "999999\n")
+        # Never assigned on Linux, whose pids stay below 2**22; 999999 can
+        # be live where pids have passed a million (2026-10-09).
+        write(f"{scratch}/trial-merge.DEAD01.pid", f"{2**22 + 1}\n")
         write(f"{scratch}/trial-merge.DEAD01.out", "old\n")
         run("h/a/one")
         check("a dead run's worktree, pid and output file are swept by the next run", not os.listdir(scratch),
