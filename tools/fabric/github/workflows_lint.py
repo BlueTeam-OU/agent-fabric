@@ -66,6 +66,10 @@ import subprocess
 import sys
 import tempfile
 
+HERE = os.path.dirname(os.path.realpath(__file__))
+sys.path.insert(0, os.path.dirname(HERE))
+from github.cli_root import Refused, parse_root, toplevel  # noqa: E402
+
 PROG = "check_workflows_lint"
 # The pins. Bump version and digest together; the digest is the release
 # asset's (GitHub shows it on the release page; `sha256sum` the download).
@@ -78,10 +82,6 @@ PINS = {
 DOWNLOAD_TIMEOUT_S = 600
 TOOL_TIMEOUT_S = 600
 SHELLCHECK_HINT = "dnf install ShellCheck / apt-get install shellcheck"
-
-
-class Refused(Exception):
-    """Could not check: the message is the stderr line after "<me>: "."""
 
 
 class Interrupted(BaseException):
@@ -198,33 +198,6 @@ def _unlink(path: str) -> None:
         pass
 
 
-def parse(argv: list[str]) -> str | None:
-    """The --root given, "" for none; None when --help was asked."""
-    root, i = "", 0
-    while i < len(argv):
-        a = argv[i]
-        if a in ("-h", "--help"):
-            return None
-        if a == "--root":
-            if i + 1 >= len(argv):
-                raise Refused("--root needs a value")
-            root, i = argv[i + 1], i + 2
-            continue
-        raise Refused(f"unexpected argument: {a}")
-    return root
-
-
-def toplevel() -> str:
-    try:
-        r = subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True, timeout=30,
-                           stdin=subprocess.DEVNULL)
-    except (OSError, subprocess.TimeoutExpired):
-        r = None
-    if r is None or r.returncode != 0 or not r.stdout.strip():
-        raise Refused("not in a git working copy; pass --root <dir>")
-    return r.stdout.strip()
-
-
 def run_tool(label: str, argv: list[str], root: str) -> int:
     try:
         return subprocess.run(argv, cwd=root, stdin=subprocess.DEVNULL, timeout=TOOL_TIMEOUT_S).returncode
@@ -286,7 +259,7 @@ def main() -> int:
     for stream in (sys.stdout, sys.stderr):
         stream.reconfigure(encoding="utf-8")
     try:
-        root = parse(sys.argv[1:])
+        root = parse_root(sys.argv[1:])
         if root is None:
             print(__doc__.strip("\n"))
             return 0
