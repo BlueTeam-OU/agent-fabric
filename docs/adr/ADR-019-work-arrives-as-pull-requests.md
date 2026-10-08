@@ -113,7 +113,9 @@ not on a pipe's exit status.
    merge; `Kind: work` is work; `Kind: review-fix` is a fix, unless what
    it answers is another pull request's review, when it is this one's
    work, except a pull request folded into this one (closed unmerged,
-   its head inside this range), whose review fixes are fixes here; a revert and the commit it reverts, both in the range, count in
+   its head inside this range), whose review fixes are fixes here (the
+   counter's reading of a fold is not yet built: until it is, the PR's
+   description names the folded PR and its fixes); a revert and the commit it reverts, both in the range, count in
    no column. The hook is the rule's only check until the branches opened
    before it have merged: a commit that reaches a branch without the
    hook is not refused in CI yet. A commit with no `Kind:` (made before
