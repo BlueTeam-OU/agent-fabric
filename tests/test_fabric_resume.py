@@ -73,6 +73,11 @@ def never_second(check, run, bind, transcript, bdir: str, tmp: str, env: dict, s
         check("…a since that is not a time: not counted", run("--print").returncode == 0)
         sessions({other: {"state": "gone-ish", "since": "x", "pid": sleeper.pid, "start": start_of(sleeper.pid)}})
         check("an entry in no known state is no session", run("--print").returncode == 0)
+        for shape in ("[]", "{}", '{"sessions": []}'):
+            sessions(shape)
+            r = run("--print")
+            check(f"a session state of another shape ({shape}) refuses, never reads as none",
+                  r.returncode == 3 and "not the session-state hook's shape" in r.stderr, (r.returncode, r.stderr))
         sessions("{torn")
         r = run("--print")
         check("a session state that cannot be read refuses: unknown is never none",
@@ -105,8 +110,12 @@ def never_second(check, run, bind, transcript, bdir: str, tmp: str, env: dict, s
     finally:
         holder.stdin.close()
         holder.wait()
-    with open(lock, "w"):
-        pass
+    # The last holder's pid is still in the file, its process gone: the
+    # new holder has locked and not yet written.
+    gone = subprocess.Popen(["true"])
+    gone.wait()
+    with open(lock, "w") as f:
+        f.write(f"{gone.pid}\n")
     holder = subprocess.Popen([sys.executable, "-c", (
         "import fcntl,os,sys\n"
         "fd=os.open(sys.argv[1],os.O_RDWR); fcntl.flock(fd,fcntl.LOCK_EX)\n"
@@ -115,8 +124,8 @@ def never_second(check, run, bind, transcript, bdir: str, tmp: str, env: dict, s
     try:
         holder.stdout.readline()
         r = run()
-        check("a lock held with no pid in it yet: said so", r.returncode == 3 and "pid not yet written" in r.stderr,
-              r.stderr)
+        check("a lock held with no pid of its own in it yet: said so, never the last holder's",
+              r.returncode == 3 and "pid not yet written" in r.stderr and str(gone.pid) not in r.stderr, r.stderr)
     finally:
         holder.stdin.close()
         holder.wait()

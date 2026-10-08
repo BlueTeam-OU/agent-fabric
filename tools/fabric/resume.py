@@ -231,7 +231,9 @@ def live_sessions(state: str, proc: str = "/proc", now: float | None = None) -> 
         raise Refused(f"cannot tell whether a session is alive: {path} cannot be read ({exc})") from None
     sessions = doc.get("sessions") if isinstance(doc, dict) else None
     if not isinstance(sessions, dict):
-        return []
+        # The hook writes {"sessions": {…}} and nothing else: another shape
+        # is unknown, never "no session".
+        raise Refused(f"cannot tell whether a session is alive: {path} is not the session-state hook's shape")
     live = []
     for sid, e in sorted(sessions.items()):
         if not isinstance(e, dict) or e.get("state") not in STATES:
@@ -248,12 +250,16 @@ def live_sessions(state: str, proc: str = "/proc", now: float | None = None) -> 
 
 
 def holder(path: str) -> str:
+    """The pid in the lock file, believed only when /proc/locks shows that
+    pid holding it: a holder that has locked and not yet written still
+    finds the last, exited holder's pid in the file."""
     try:
         with open(path, encoding="utf-8", errors="replace") as fh:
             pid = fh.read().strip()
-    except OSError:
-        pid = ""
-    return f"pid {pid}" if pid.isdigit() else "pid not yet written"
+        holding = lock_holders(path)
+    except (OSError, Refused):
+        pid, holding = "", set()
+    return f"pid {pid}" if pid.isdigit() and int(pid) in holding else "pid not yet written"
 
 
 def held_message(path: str) -> str:
@@ -265,14 +271,20 @@ def lock_held(path: str, locks: str = "/proc/locks") -> bool:
     """Whether any process holds a flock on path, read from /proc/locks
     without taking one: --print must never stand in a real activation's
     way, as a probe lock taken and dropped would for that instant."""
+    return bool(lock_holders(path, locks))
+
+
+def lock_holders(path: str, locks: str = "/proc/locks") -> set[int]:
+    """The pids /proc/locks names as holding a flock on path."""
     try:
         st = os.stat(path)
         with open(locks, encoding="ascii", errors="replace") as fh:
             rows = fh.read().splitlines()
     except FileNotFoundError:
-        return False
+        return set()
     except OSError as exc:
         raise Refused(f"cannot tell whether {path} is held: {exc}") from None
+    pids = set()
     for row in rows:
         f = row.split()
         # "1: FLOCK  ADVISORY  WRITE 1234 fd:01:5678 0 EOF"; a waiter's row
@@ -291,8 +303,8 @@ def lock_held(path: str, locks: str = "/proc/locks") -> bool:
         # descriptors say whether it is this file (the holder is this
         # account, so they are readable).
         if dev == st.st_dev or holds_open(pid, st):
-            return True
-    return False
+            pids.add(pid)
+    return pids
 
 
 def holds_open(pid: int, st: os.stat_result) -> bool:
