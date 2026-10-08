@@ -31,6 +31,8 @@ const brokenTree = (contents) => {
     for (const f of fs.readdirSync(path.join(FABRIC, from)))
       if (fs.statSync(path.join(FABRIC, from, f)).isFile()) fs.copyFileSync(path.join(FABRIC, from, f), path.join(to, f));
   }
+  // roots.py, which the modules read the instance data's paths from.
+  fs.copyFileSync(path.join(FABRIC, 'tools', 'fabric', 'roots.py'), path.join(dir, 'tools', 'fabric', 'roots.py'));
   // The modules' subpackages too (gzcoord/inbox_parts/): a module whose
   // parts were left behind does not import, and the case would fail on a
   // missing module, never on the dictionary it means to break.

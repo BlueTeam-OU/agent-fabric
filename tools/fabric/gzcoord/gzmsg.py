@@ -11,8 +11,9 @@ CONTRACT, frozen from the Node:
             value or given twice, or a second positional: `gzmsg <cmd>:
             <why>` on stderr, exit 2, before anything is read. An unknown
             command: the usage line on stderr, exit 2.
-  env       AGENT_FABRIC_ROOT (where identities/roles/catalog.json and
-            runtime/identity.py are read), AGENT_FABRIC_STATE_DIR /
+  env       AGENT_FABRIC_OPERATOR, else AGENT_FABRIC_ROOT (where
+            identities/roles/catalog.json is read), AGENT_FABRIC_ROOT
+            (where runtime/identity.py is read), AGENT_FABRIC_STATE_DIR /
             XDG_STATE_HOME (the binding's directory), and i18n's
             GZCOORD_DEFAULT_LOCALE_ONLY
   stdout    validate: `valid GZCOORD/1 message`; normalize: the normalized
@@ -47,6 +48,7 @@ from bisect import bisect_right
 from typing import Any, TypedDict
 
 from . import i18n, paths
+import roots  # noqa: E402
 from .jsvalues import JS_SPACE
 from ._widths import EMOJI, ZERO
 
@@ -415,8 +417,8 @@ def recorded_role(taxonomy: Taxonomy | None, me: Whoami | None = None) -> RoleRe
 
 
 def find_taxonomy(_from: str | None = None) -> str | None:
-    """agent-fabric's identities/roles/catalog.json, under the fabric root."""
-    f = os.path.join(paths.fabric_root(), "identities", "roles", "catalog.json")
+    """agent-fabric's identities/roles/catalog.json, under the operator root."""
+    f = roots.role_catalog(root=paths.operator_root())
     return f if os.path.exists(f) else None
 
 

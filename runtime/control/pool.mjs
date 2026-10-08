@@ -39,6 +39,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { FABRIC_ROOT, loadTaxonomy } from './gzcoord.mjs';
+import { hostsRegistry, roleCatalog } from './roots.mjs';
 import { checkJobArgs, PRIORITIES } from './jobs.mjs';
 import { stateDir } from './upgrade.mjs';
 import { STATES_REPLAY, STATES_STALE_MS } from './ctl.mjs';
@@ -46,7 +47,7 @@ import { STATES_REPLAY, STATES_STALE_MS } from './ctl.mjs';
 export const POOL_FILE = 'pool.json';
 export const POOL_ID = /^p[1-9][0-9]{0,8}$/;
 export const ROLE_SLUG = /^[a-z][a-z0-9-]{0,62}$/;
-const defaultRegistry = () => process.env.AGENT_FABRIC_HOSTS_REGISTRY ?? path.join(FABRIC_ROOT, 'runtime', 'hosts', 'registry.json');
+const defaultRegistry = () => hostsRegistry({ engine: FABRIC_ROOT, emptyIsSet: true });
 
 /** The address that holds the pool, or null when none can be named. */
 export function poolHolder(cfg = {}, registry = defaultRegistry()) {
@@ -80,7 +81,7 @@ function writePool(file, doc) {
 export const byPriority = (a, b) => (PRIORITIES.indexOf(a.priority) - PRIORITIES.indexOf(b.priority)) || (a.seq - b.seq);
 const shown = j => ({ id: j.id, role: j.role, title: j.title, topic: j.topic, project: j.project, priority: j.priority, created: j.created });
 
-export function roles(catalog = path.join(FABRIC_ROOT, 'identities', 'roles', 'catalog.json')) {
+export function roles(catalog = roleCatalog({ engine: FABRIC_ROOT })) {
   try { return new Set(loadTaxonomy(catalog).roles.keys()); } catch { return null; }
 }
 

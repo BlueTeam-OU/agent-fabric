@@ -8,6 +8,7 @@ import subprocess
 from typing import Any
 from .. import i18n
 from .. import paths
+import roots  # noqa: E402
 from ..gzmsg import en
 
 
@@ -33,7 +34,7 @@ def integration_config(project: str | None, env: dict | None = None, t: i18n.Pri
     that project's channel with its token file."""
     env = os.environ if env is None else env
     t = t or en()
-    file = os.path.join(paths.fabric_root(), "projects", project, "integration", "gzcoord", "config.json") if project else None
+    file = roots.project_integration(project, "gzcoord", "config.json", root=paths.operator_root()) if project else None
     if file:
         try:
             with open(file, encoding="utf-8") as fh:

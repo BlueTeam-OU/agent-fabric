@@ -513,11 +513,13 @@ esac
         put(f"{fk}/templates", '[{"account": "acct-one", "token_sha256_12": "0123456789ab"}]\n')
         put(f"{fk}/assign", '[{"login": "new", "status": "written", "token_sha256_12": "0123456789ab"}]\n0\n')
         enroll = put(f"{fk}/store-enroll.sh", "#!/usr/bin/env bash\nexit 0\n", 0o755)
-        reg = put(f"{fk}/registry.json", json.dumps({"projects": {"demo": {"remotes": ["https://h/o/d.git", "git@h:o/d.git"]}}}))
+        reg = put(f"{fk}/root/projects/registry.json", json.dumps({"projects": {"demo": {"remotes": ["https://h/o/d.git", "git@h:o/d.git"]}}}))
         hosts = put(f"{fk}/hosts.json", json.dumps({"hosts": {"here": {"ssh": None}, "far": {"ssh": "op@far"}},
                                                     "placement": {"placed": "far"}}))
-        saved = (na.HX, na.STORE, na.SECRETS, na.STORE_ENROLL, na.REGISTRY, na.ROOT)
-        na.HX, na.STORE, na.SECRETS, na.STORE_ENROLL, na.REGISTRY = hx, store, secrets, enroll, reg
+        saved = (na.HX, na.STORE, na.SECRETS, na.STORE_ENROLL, na.ROOT, os.environ.get("AGENT_FABRIC_OPERATOR"))
+        na.HX, na.STORE, na.SECRETS, na.STORE_ENROLL = hx, store, secrets, enroll
+        # The instance data (registry, roles) is the operator root's.
+        os.environ["AGENT_FABRIC_OPERATOR"] = f"{fk}/root"
         os.makedirs(f"{fk}/root/identities/roles/r")
         put(f"{fk}/root/identities/roles/r/charter.md", "x")
         na.ROOT = f"{fk}/root"
@@ -717,7 +719,11 @@ esac
                 "hosts": {"far": {"ssh": "op@far"}}, "placement": {"person": "far"}, "kinds": ["person"]})))
             check("…and a kinds that is not a table is no answer: refused", rc == 1 and "cannot be read" in msg, msg)
         finally:
-            na.HX, na.STORE, na.SECRETS, na.STORE_ENROLL, na.REGISTRY, na.ROOT = saved
+            na.HX, na.STORE, na.SECRETS, na.STORE_ENROLL, na.ROOT = saved[:5]
+            if saved[5] is None:
+                os.environ.pop("AGENT_FABRIC_OPERATOR", None)
+            else:
+                os.environ["AGENT_FABRIC_OPERATOR"] = saved[5]
             na.on_terminal, na.signing_key = saved_terminal, saved_signing
 
         print("step 11, the signing key, between two scratch keyrings")
@@ -987,7 +993,8 @@ exec env GNUPGHOME="$home" "$@"
                 "sys.exit(na.main(['l', 'r', '--host', 'here', '--no-claude-account']))") % (tools, slow, f"{fk}/root")
         p = subprocess.Popen([sys.executable, "-c", code], process_group=0, stdout=subprocess.DEVNULL,
                              stderr=subprocess.DEVNULL,
-                             env=clean_env(TMPDIR=scratch, AGENT_FABRIC_HOSTS_REGISTRY=hosts))
+                             env=clean_env(TMPDIR=scratch, AGENT_FABRIC_HOSTS_REGISTRY=hosts,
+                                           AGENT_FABRIC_OPERATOR=f"{fk}/root"))
         deadline = time.monotonic() + 30
         while not os.path.exists(started) and time.monotonic() < deadline and p.poll() is None:
             time.sleep(0.05)

@@ -40,6 +40,7 @@ import urllib.request
 
 HERE = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, HERE)
+import roots  # noqa: E402
 import secret_store as ss  # noqa: E402
 
 SHARED_NAMES = ["GH_TOKEN", "CLAUDE_BRIDGE_AUTH_TOKEN",
@@ -52,7 +53,7 @@ TIMEOUT_S = 30
 def placed_logins() -> list[str]:
     """Every placed agent: a human login (ADR-044) holds only what its work
     needs, so `all` never shares an agent's credentials or mints a key into it."""
-    reg = os.environ.get("AGENT_FABRIC_HOSTS_REGISTRY") or os.path.join(ss.FABRIC_ROOT, "runtime", "hosts", "registry.json")
+    reg = roots.hosts_registry()
     with open(reg, encoding="utf-8") as f:
         data = json.load(f)
     kinds = data.get("kinds") or {}

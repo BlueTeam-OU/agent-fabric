@@ -37,7 +37,8 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from secretstore.core import FABRIC_ROOT, NAME_RE, StoreError, gpg, store_dir  # noqa: E402
+import roots  # noqa: E402
+from secretstore.core import NAME_RE, StoreError, gpg, store_dir  # noqa: E402
 from secretstore.reserved import RegistryUnreadable, reserved  # noqa: E402
 
 USAGE = "usage: fabric-secret-run NAME[,NAME...] -- <command> [args...]"
@@ -111,7 +112,7 @@ def run(argv: list[str]) -> int:
         if os.path.isdir(exe) or not os.access(exe, os.X_OK):
             print(f"fabric-secret-run: {cmd[0]}: not executable", file=sys.stderr)
             return 126
-        values = decrypt(names, store_dir(), FABRIC_ROOT)
+        values = decrypt(names, store_dir(), roots.operator_root())
     except Refused as e:
         print(f"fabric-secret-run: {e}", file=sys.stderr)
         return 2

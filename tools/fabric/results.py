@@ -41,6 +41,7 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 import gh  # noqa: E402
+import roots  # noqa: E402
 from github import commit_class  # noqa: E402
 from github.post_review import REVIEW_MARKER  # noqa: E402
 BAND_FLOOR = 8                                       # ADR-019: fewer work commits, the owner arms
@@ -116,7 +117,7 @@ def main_commits(repo: str, since: dt.datetime) -> list[dict]:
 
 def registered_repos() -> list[str]:
     """owner/name of every project in projects/registry.json, from its first GitHub remote."""
-    with open(os.path.join(ROOT, "projects", "registry.json"), encoding="utf-8") as fh:
+    with open(roots.projects_registry(engine=roots.code_root()), encoding="utf-8") as fh:
         doc = json.load(fh)
     out = []
     for proj in (doc.get("projects") or {}).values():

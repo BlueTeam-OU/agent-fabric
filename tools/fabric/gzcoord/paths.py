@@ -15,14 +15,24 @@ CHECKOUT = os.path.dirname(os.path.dirname(os.path.dirname(_HERE)))
 # is found from the code, never from AGENT_FABRIC_ROOT.
 GZCOORD_DIR = os.path.join(CHECKOUT, "communication", "gzcoord")
 
+sys.path.insert(0, os.path.dirname(_HERE))
+import roots  # noqa: E402
+
 
 def fabric_root() -> str:
     """AGENT_FABRIC_ROOT when set (a test, a fixture, a session that
-    exported it), else the checkout this code is in — the root the roles,
-    the catalogue and the projects' integrations are read under. Set but
+    exported it), else the checkout this code is in — the engine's tree.
+    The roles, the catalogue and the projects' integrations are read under
+    operator_root(). Set but
     empty is set, as `??` read it in paths.mjs: the port keeps what the
     Node did, and an empty root names nothing found."""
-    return os.environ.get("AGENT_FABRIC_ROOT", CHECKOUT)
+    return roots.engine_root(empty_is_set=True)
+
+
+def operator_root() -> str:
+    """Where the roles, the catalogue and the projects' integrations are
+    read under: AGENT_FABRIC_OPERATOR when exported, else fabric_root()."""
+    return roots.operator_root(empty_is_set=True)
 
 
 def identity():

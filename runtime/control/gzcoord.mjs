@@ -25,12 +25,11 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { engineRoot, roleCatalog, projectIntegration } from './roots.mjs';
 
-// The agent-fabric checkout this runtime belongs to.
-// fileURLToPath, not URL.pathname: .pathname keeps the percent-encoding
-// of a checkout path with a space in it and names a file nothing has.
-export const FABRIC_ROOT =
-  process.env.AGENT_FABRIC_ROOT ?? fileURLToPath(new URL('../../', import.meta.url)).replace(/\/$/, '');
+// The agent-fabric checkout this runtime belongs to (roots.mjs: AGENT_FABRIC_ROOT, set but
+// empty is set, else the code's own location).
+export const FABRIC_ROOT = engineRoot({ emptyIsSet: true });
 
 // The default dictionary, read once, lazily, and never throwing: an
 // unreadable one degrades to key-named lines, said once on stderr, which
@@ -110,7 +109,7 @@ function recordedRole(taxonomy, me = whoami()) {
   return { role: me.role, file };
 }
 export function findTaxonomy(_from = process.cwd()) {
-  const fabric = path.join(FABRIC_ROOT, 'identities', 'roles', 'catalog.json');
+  const fabric = roleCatalog({ engine: FABRIC_ROOT });
   return fs.existsSync(fabric) ? fabric : undefined;
 }
 // The slug an instance name carries, as a whole run of hyphen-separated
@@ -144,7 +143,7 @@ function relayRuntimeDir(cfg, workspace = WORKSPACE) {
   return path.resolve(workspace, cfg.relay_runtime_dir ?? '.gzcoord');
 }
 export function integrationConfig(project, env = process.env, t = en()) {
-  const file = project ? path.join(FABRIC_ROOT, 'projects', project, 'integration', 'gzcoord', 'config.json') : null;
+  const file = project ? projectIntegration(project, ['gzcoord', 'config.json'], { engine: FABRIC_ROOT }) : null;
   if (file) {
     try {
       const own = JSON.parse(fs.readFileSync(file, 'utf8'));
