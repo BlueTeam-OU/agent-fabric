@@ -394,7 +394,7 @@ export async function main(argv = process.argv.slice(2)) {
       if (once) { await Promise.allSettled([...inflight]); return 0; }
     } catch (e) {
       if (once) await Promise.allSettled([...inflight]);   // every exit of --once, not only the clean one
-      if (e.status === 401 || e.status === 403) { console.error(`agentd: the relay refused this token (HTTP ${e.status}); rotated? run bin/fabric-secrets sync`); if (once) return 4; }
+      if (e.status === 401 || e.status === 403) { console.error(`agentd: the relay refused this token (HTTP ${e.status}); rotated? run fabric-secrets sync`); if (once) return 4; }
       else if (!down) { console.error(`agentd: relay unreachable at ${cfg.relay_url} (${e.message}) — retrying every 30 s`); down = true; }
       if (once) return 1;
       await new Promise(r => setTimeout(r, 30000));
