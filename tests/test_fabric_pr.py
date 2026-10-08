@@ -134,6 +134,27 @@ def main() -> int:
     check("arm's other readers are their own program alone, with no fabric-pr verb in front",
           arm.program("AGENT_FABRIC_CTL", "/d/fabric-ctl") == ["/d/fabric-ctl"]
           and arm.program("AGENT_FABRIC_GZCOORD_INBOX", "/d/gzcoord-inbox") == ["/d/gzcoord-inbox"])
+    # The call sites, where F1 broke: verify_waiver with no override set.
+    import json
+    heads: list[list[str]] = []
+    waiver = {"addressed": True, "type": "DECISION", "sender": "h/other",
+              "metadata": {"MESSAGE-ID": "m", "TO": "h/me", "FROM": "h/other", "WAIVES": "o/r#1@abcdef01"}}
+
+    def fake_reader(head: list[str], args: list[str], timeout: int = 600) -> tuple[int, str]:
+        heads.append(head)
+        return (0, json.dumps(waiver)) if len(heads) == 1 else (2, "")
+
+    real_reader, real_role = arm.run_reader, arm.waiver_role_checked
+    arm.run_reader, arm.waiver_role_checked = fake_reader, lambda role: role or ""
+    try:
+        try:
+            arm.verify_waiver("w", "1", "o/r", "abcdef0123", "h/me", "any-role", lambda msg: Exception(msg))
+        except Exception:
+            pass  # the presence read answers nothing; only the heads it was asked with matter
+    finally:
+        arm.run_reader, arm.waiver_role_checked = real_reader, real_role
+    check("verify_waiver reads the relay with gzcoord-inbox alone and the presence with fabric-ctl alone",
+          heads == [[f"{ROOT}/bin/gzcoord-inbox"], [f"{ROOT}/bin/fabric-ctl"]], heads)
     os.environ["AGENT_FABRIC_CTL"] = "/x/ctl"
     check("...and an override replaces the default", arm.program("AGENT_FABRIC_CTL", "/d/fabric-ctl") == ["/x/ctl"])
     os.environ["AGENT_FABRIC_PR_GATE"] = os.environ["AGENT_FABRIC_PR_REVIEW_STATUS"] = "/x/mock"
