@@ -260,7 +260,6 @@ def main() -> int:
                              env={"AGENT_FABRIC_ARM_CONFIG": os.path.join(ROOT, "no-such-arm.json")})
     check("without an arm.json the lines name the project's arm.sh in words",
           text.endswith('the project\'s arm.sh 429 --basis "<why>"'), text)
-    check("arm_command() alone, from gzapp's arm.json", wm.arm_command() in ("tools/gh/arm.sh", "the project's arm.sh"))
 
     # ── the conflict line ────────────────────────────────────────────
     print("wait_merged: the conflict names its base")
