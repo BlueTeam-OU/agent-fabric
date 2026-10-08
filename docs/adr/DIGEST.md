@@ -48,6 +48,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 | an agent's key and secrets; the store; provision; recovery; backup | ADR-038 |
 | the agent id; UUIDv7; renaming a login | ADR-039 |
 | a human login; identity kinds; the deck's operator | ADR-044 |
+| the engine/operator/client split; roots; publishing the engine | ADR-045 |
 | which language a tool is written in; the bash size limit and allowlist; porting a script; gh.py, git.py | ADR-040 |
 | your GZCoord history; the episodic journal; fabric-history | ADR-041 |
 | signed store commits; trusted base; trust-base; a refused store | ADR-042 |
@@ -927,3 +928,19 @@ its record disagree, the record wins. Look it up, never read it whole:
   moveto (§5 rules 4–5).
 - Keywords: identity, kind, human, operator, Fleet Deck, herdr, deck,
   moveto, placement.
+
+### ADR-045 — Engine, operator and clients (Proposed)
+
+- Three layers: the engine (agent-fabric, to be published), the
+  operator's private repository (hosts, keys, roles as adapted,
+  policies, corpus, rulings, clients) and each client's engagement
+  (§2).
+- Engine code reads instance data only through `roots`; the operator
+  root is `AGENT_FABRIC_OPERATOR`, else the engine's own tree; tests
+  read fixtures (§5 rules 1–3).
+- Record numbers are frozen; a mixed record stays, its organization's
+  rules move out by amendment (§5 rule 4).
+- A working copy's client comes from remote, project and client list,
+  never the GitHub org; switching client is context (§5 rules 5–6).
+- Keywords: split, engine, operator, client, engagement, roots, open
+  source, publish, instance data, Blueteam, Gzapi.
