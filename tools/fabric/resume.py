@@ -30,7 +30,10 @@ fresh, while another one could be running on the account:
   - then the account's own session state, <state>/session-state.json, as
     runtime/control/sessions.mjs counts it: an entry in a known state
     whose recorded process is alive with its recorded start time, or that
-    records no process at all (nothing says it is gone). Any such session,
+    records no process and entered its state within NO_PROCESS_FRESH_S
+    (two heartbeats, 20 min); one older than that is a probe's (a real
+    session always has its claude ancestor), which nothing removes, so it
+    is not counted, and said, naming it. Any such session,
     not only the binding's: the binding names the last session started,
     and one from another terminal may be older. A file that exists and
     cannot be read is refused too, never read as "no session".
@@ -55,6 +58,7 @@ Model, effort and prompt stay the launcher's.
 """
 from __future__ import annotations
 
+import datetime as dt
 import errno
 import fcntl
 import glob
@@ -63,6 +67,7 @@ import os
 import re
 import stat
 import sys
+import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 FABRIC = os.path.dirname(os.path.dirname(HERE))
@@ -85,6 +90,8 @@ SESSIONS_FILE = "session-state.json"
 # in any other is not a session, as sessions.mjs's STATES has it.
 STATES = {"working", "blocked", "idle"}
 REFUSED = 3
+# runtime/control/sessions.mjs NO_PROCESS_FRESH_MS: two heartbeats.
+NO_PROCESS_FRESH_S = 2 * 10 * 60
 
 
 class Refused(Exception):
@@ -174,14 +181,31 @@ def provider_args(extra: list[str], binding: dict | None = None) -> list[str]:
     return ["--provider", p] if p else []
 
 
+def as_int(v: object) -> object:
+    """JSON's numbers as sessions.mjs reads them: 12.0 is an integer."""
+    return int(v) if isinstance(v, float) and v.is_integer() else v
+
+
+def records_process(pid: object) -> bool:
+    pid = as_int(pid)
+    return isinstance(pid, int) and not isinstance(pid, bool)
+
+
+def fresh_without_process(since: object, now: float) -> bool:
+    """sessions.mjs's freshWithoutProcess(): within NO_PROCESS_FRESH_S of
+    `since`; a since that is not a time is not."""
+    try:
+        t = dt.datetime.fromisoformat(since).timestamp() if isinstance(since, str) else None
+    except ValueError:
+        t = None
+    return t is not None and now - t <= NO_PROCESS_FRESH_S
+
+
 def alive(pid: object, start: object, proc: str = "/proc") -> bool:
-    """sessions.mjs's alive(): no recorded pid is alive, since nothing says
-    it is gone; a recorded one is alive while /proc has it with the
-    recorded start time (field 22), which tells a reused pid apart."""
-    # JSON's numbers are JavaScript's there: 12.0 is an integer.
-    pid, start = (int(v) if isinstance(v, float) and v.is_integer() else v for v in (pid, start))
-    if not isinstance(pid, int) or isinstance(pid, bool):
-        return True
+    """sessions.mjs's alive() for an entry that records a process: alive
+    while /proc has it with the recorded start time (field 22), which tells
+    a reused pid apart."""
+    pid, start = as_int(pid), as_int(start)
     try:
         with open(f"{proc}/{pid}/stat", encoding="utf-8", errors="replace") as fh:
             raw = fh.read()
@@ -193,9 +217,10 @@ def alive(pid: object, start: object, proc: str = "/proc") -> bool:
     return len(fields) > 19 and fields[19] == str(start)
 
 
-def live_sessions(state: str, proc: str = "/proc") -> list[str]:
+def live_sessions(state: str, proc: str = "/proc", now: float | None = None) -> list[str]:
     """The ids of the account's live sessions, sorted; Refused when the
     file is there and cannot be read: unknown is never "none"."""
+    now = time.time() if now is None else now
     path = os.path.join(state, SESSIONS_FILE)
     try:
         with open(path, encoding="utf-8") as fh:
@@ -207,8 +232,19 @@ def live_sessions(state: str, proc: str = "/proc") -> list[str]:
     sessions = doc.get("sessions") if isinstance(doc, dict) else None
     if not isinstance(sessions, dict):
         return []
-    return sorted(sid for sid, e in sessions.items()
-                  if isinstance(e, dict) and e.get("state") in STATES and alive(e.get("pid"), e.get("start"), proc))
+    live = []
+    for sid, e in sorted(sessions.items()):
+        if not isinstance(e, dict) or e.get("state") not in STATES:
+            continue
+        if records_process(e.get("pid")):
+            if alive(e.get("pid"), e.get("start"), proc):
+                live.append(sid)
+        elif fresh_without_process(e.get("since"), now):
+            live.append(sid)
+        else:
+            say(f"session {sid} records no process and its state is older than {NO_PROCESS_FRESH_S // 60} min; "
+                "not counted")
+    return live
 
 
 def holder(path: str) -> str:

@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { scratch } from '../../../tests/scratch.mjs';
-import { alive, readSessions, stateRecord, stateWatcher, transcriptExists, waitsOn } from '../sessions.mjs';
+import { alive, NO_PROCESS_FRESH_MS, readSessions, stateRecord, stateWatcher, transcriptExists, waitsOn } from '../sessions.mjs';
 
 function fakeProc(dir, pid, start, comm = 'claude') {
   fs.mkdirSync(path.join(dir, String(pid)), { recursive: true });
@@ -31,7 +31,32 @@ test('a process is alive only while it is the one the hook recorded', () => {
   assert.equal(alive(100, 5001, proc), false, 'a reused pid is not the session');
   assert.equal(alive(200, 6000, proc), true, 'a comm with a parenthesis');
   assert.equal(alive(300, 1, proc), false, 'a gone process');
-  assert.equal(alive(null, null, proc), true, 'no process recorded: kept');
+  const now = Date.parse('2026-10-08T12:00:00Z');
+  assert.equal(alive(null, null, proc, { since: '2026-10-08T11:45:00Z', now }), true, 'no process recorded, fresh: kept');
+  assert.equal(alive(null, null, proc, { since: new Date(now - NO_PROCESS_FRESH_MS).toISOString(), now }), true,
+    '…to the edge of two heartbeats');
+  assert.equal(alive(null, null, proc, { since: new Date(now - NO_PROCESS_FRESH_MS - 1000).toISOString(), now }), false,
+    'no process recorded, older than two heartbeats: not believed');
+  assert.equal(alive(null, null, proc, { since: 'never', now }), false, 'a since that is not a time: not believed');
+});
+
+test('an entry with no process is left out once stale, and the watcher says so once, naming it', async () => {
+  const { proc, file, write } = setup();
+  const now = Date.parse('2026-10-08T12:00:00Z');
+  write({
+    probe: { state: 'idle', since: '2026-10-08T11:00:00Z', pid: null, start: null },
+    young: { state: 'idle', since: '2026-10-08T11:59:00Z' },
+  });
+  const stale = [];
+  assert.deepEqual(readSessions(file, { proc, now, onStale: id => stale.push(id) }),
+    [{ session: 'young', state: 'idle', since: '2026-10-08T11:59:00Z' }]);
+  assert.deepEqual(stale, ['probe']);
+  const logs = [];
+  let t = now;
+  const w = stateWatcher({ address: 'h/x', post: async () => {}, file, proc, now: () => t, heartbeatMs: 1, log: m => logs.push(m) });
+  await w.tick(); t += 5; await w.tick();
+  assert.deepEqual(logs.filter(m => m.includes('probe')),
+    ['agentd: session probe records no process and its state is older than 20 min; left out']);
 });
 
 test('readSessions keeps live sessions in a known state, sorted, without the process', () => {

@@ -6,7 +6,8 @@ or no directory; refused inside a session; the launcher run with the
 account's last provider (unless the caller names one), the caller's own
 arguments, then --resume <id> (or nothing). Never a second session: any
 live session in the account's session state refuses a resume and a fresh
-start alike, a dead or reused pid does not; resume.lock held by another
+start alike, a dead or reused pid does not, nor an entry with no process
+older than 20 min; resume.lock held by another
 process refuses, naming its pid, and the launcher it execs holds it;
 --print takes none."""
 from __future__ import annotations
@@ -16,6 +17,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import time
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SHIM = os.path.join(HERE, "bin", "fabric-resume")
@@ -56,9 +58,19 @@ def never_second(check, run, bind, transcript, bdir: str, tmp: str, env: dict, s
         sessions({other: {"state": "idle", "since": "x", "pid": sleeper.pid, "start": start_of(sleeper.pid) + 1}})
         r = run("--print")
         check("a pid alive with another start time is a reused pid: no session", r.returncode == 0, r.stderr)
-        sessions({other: {"state": "idle", "since": "x"}})
+        def ago(minutes: int) -> str:
+            return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - minutes * 60))
+        sessions({other: {"state": "idle", "since": ago(5), "pid": None, "start": None}})
         r = run("--print")
-        check("an entry that records no process counts, as sessions.mjs counts it", r.returncode == 3, r.stderr)
+        check("an entry that records no process, within 20 min of its since: counted", r.returncode == 3
+              and other in r.stderr, (r.returncode, r.stderr))
+        sessions({other: {"state": "idle", "since": ago(25)}})
+        r = run("--print")
+        check("…older than that: not counted, and said, naming it", r.returncode == 0
+              and f"session {other} records no process and its state is older than 20 min; not counted" in r.stderr,
+              (r.returncode, r.stderr))
+        sessions({other: {"state": "idle", "since": "x"}})
+        check("…a since that is not a time: not counted", run("--print").returncode == 0)
         sessions({other: {"state": "gone-ish", "since": "x", "pid": sleeper.pid, "start": start_of(sleeper.pid)}})
         check("an entry in no known state is no session", run("--print").returncode == 0)
         sessions("{torn")
