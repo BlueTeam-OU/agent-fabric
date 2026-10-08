@@ -15,6 +15,7 @@ import tempfile
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, os.path.join(ROOT, "tools", "fabric"))
 import adr  # noqa: E402
+from git_env import git_env, scrub_process_env  # noqa: E402 — tests/, the script's own directory
 
 ZERO = "docs/adr/ADR-000-the-enduring-organization.md"
 ONE = "docs/adr/ADR-001-decision-records.md"
@@ -225,7 +226,7 @@ def case_lookup_reads_the_digest(tmp: str) -> None:
 
 
 def git(cwd: str, *a: str, msg: str | None = None) -> None:
-    env = {**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t"}
+    env = git_env()
     subprocess.run(["git", "-C", cwd, *a] + (["-m", msg] if msg else []), check=True, capture_output=True, env=env)
 
 
@@ -234,7 +235,7 @@ def case_range_check_refuses_an_unrecorded_body_edit(tmp: str) -> None:
     git(root, "init", "-q", "-b", "main")
     git(root, "config", "core.hooksPath", "/dev/null")
     git(root, "add", "-A"); git(root, "commit", "-q", msg="base")
-    base = subprocess.run(["git", "-C", root, "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
+    base = subprocess.run(["git", "-C", root, "rev-parse", "HEAD"], capture_output=True, text=True, env=git_env()).stdout.strip()
     edit(root, ONE, "Cheaper, but it keeps", "Cheaper, yet it keeps")
     git(root, "commit", "-qa", msg="reword")
     f = adr.range_check(root, base)
@@ -244,7 +245,7 @@ def case_range_check_refuses_an_unrecorded_body_edit(tmp: str) -> None:
     root2 = fixture(os.path.join(tmp, "b"))
     git(root2, "init", "-q", "-b", "main"); git(root2, "config", "core.hooksPath", "/dev/null")
     git(root2, "add", "-A"); git(root2, "commit", "-q", msg="base")
-    base2 = subprocess.run(["git", "-C", root2, "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
+    base2 = subprocess.run(["git", "-C", root2, "rev-parse", "HEAD"], capture_output=True, text=True, env=git_env()).stdout.strip()
     amend(root2)
     edit(root2, ONE, "Cheaper, but it keeps", "Cheaper, yet it keeps")
     git(root2, "add", "-A"); git(root2, "commit", "-q", msg="amend ADR-001")
@@ -375,7 +376,7 @@ def case_digest_orphan_and_readme_markers(tmp: str) -> None:
 def commit_base(root: str) -> str:
     git(root, "init", "-q", "-b", "main"); git(root, "config", "core.hooksPath", "/dev/null")
     git(root, "add", "-A"); git(root, "commit", "-q", msg="base")
-    return subprocess.run(["git", "-C", root, "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
+    return subprocess.run(["git", "-C", root, "rev-parse", "HEAD"], capture_output=True, text=True, env=git_env()).stdout.strip()
 
 
 def case_range_check_takes_a_git_range_and_refuses_a_bad_one(tmp: str) -> None:
@@ -385,7 +386,7 @@ def case_range_check_takes_a_git_range_and_refuses_a_bad_one(tmp: str) -> None:
     root = fixture(tmp)
     git(root, "init", "-q", "-b", "main"); git(root, "config", "core.hooksPath", "/dev/null")
     git(root, "add", "-A"); git(root, "commit", "-q", msg="base")
-    base = subprocess.run(["git", "-C", root, "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
+    base = subprocess.run(["git", "-C", root, "rev-parse", "HEAD"], capture_output=True, text=True, env=git_env()).stdout.strip()
     tool = os.path.join(ROOT, "tools", "fabric", "adr.py")
     cli = lambda *a: subprocess.run([sys.executable, tool, "--root", root, "range-check", *a], capture_output=True, text=True)  # noqa: E731
     r = cli(f"{base}..HEAD")
@@ -465,7 +466,7 @@ def case_range_check_on_a_base_without_records(tmp: str) -> None:
     git(root, "init", "-q", "-b", "main"); git(root, "config", "core.hooksPath", "/dev/null")
     open(os.path.join(root, "README"), "w").write("x\n")
     git(root, "add", "-A"); git(root, "commit", "-q", msg="before any record")
-    base = subprocess.run(["git", "-C", root, "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
+    base = subprocess.run(["git", "-C", root, "rev-parse", "HEAD"], capture_output=True, text=True, env=git_env()).stdout.strip()
     shutil.copytree(os.path.join(ROOT, "docs", "adr"), os.path.join(root, "docs", "adr"))
     git(root, "add", "-A"); git(root, "commit", "-q", msg="the records arrive")
     edit(root, ONE, "Cheaper, but it keeps", "Cheaper, yet it keeps")
@@ -538,4 +539,5 @@ def main() -> int:
 
 
 if __name__ == "__main__":
+    scrub_process_env()
     sys.exit(main())
