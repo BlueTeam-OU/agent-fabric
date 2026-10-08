@@ -4,8 +4,10 @@ name: pr-counts
 # ("commits: 3 work, 1 fix"), so the owner sees it in the PR's checks
 # list whoever asks for the arming (the owner, 2026-10-08). The split is
 # the gate's own (tools/fabric/github/pr_gate.py count_commits, through
-# commit_class), so this check and pr-gate.sh never disagree. It informs:
-# its conclusion is neutral and it is not a required check.
+# commit_class), read from the PR's head: the two agree unless the PR
+# itself changes how commits are classified, when this check shows the
+# PR's new rule. It informs: its conclusion is neutral and it is not a
+# required check.
 on:
   pull_request:
 

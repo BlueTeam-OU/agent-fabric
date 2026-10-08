@@ -48,9 +48,24 @@ def main() -> int:
     check("already continuing because of a stop hook: passes, never a loop", out is None, out)
     rc, out = run("not json")
     check("an unreadable payload: passes, exit 0", rc == 0 and out is None, (rc, out))
-    rc, out = reply("| #115 | merged | 10 work |\n#116 is open (7 work, 1 fix).")
+    rc, out = reply("| #115 | merged | 10 work |\n#116 (7 work, 1 fix) is open.")
     check("a table row with a status and no '(N work, M fix)': blocked; the counted line passes",
           out and "#115" in out["reason"] and "#116" not in out["reason"], out)
+    for text, label in (("Issue #45 is still open.", "an issue"), ("Step #2 is ready.", "a step"),
+                        ("the colour #123456 when the panel is open", "a colour"),
+                        ("`#115` merged", "inline code"), ("~~~\n#5 is merged\n~~~", "a tilde fence"),
+                        ("````\n```\n#5 merged\n```\n````", "a backtick line inside a longer fence")):
+        rc, out = reply(text)
+        check(f"{label} is not a PR status: passes", out is None, out)
+    rc, out = reply("#1 (2 work, 0 fix) and #2 are ready to merge")
+    check("one count excuses only its own PR", out and "#2" in out["reason"] and "#1 " not in out["reason"], out)
+    rc, out = reply("#115 (10 work, 2 fix) is open.\n#115 is ready to merge.")
+    check("a PR counted once in the reply passes on every line", out is None, out)
+    for line in ("merge " + "-" * 200000, "merge " + "a." * 100000):
+        t0 = time.monotonic()
+        reply(line)
+        check(f"a {len(line)}-character run of separators is read in under a second", time.monotonic() - t0 < 1,
+              time.monotonic() - t0)
     big = ("word " * 50 + "#1 " * 20 + "\n") * 2000
     t0 = time.monotonic()
     rc, out = reply(big + "#9 is armed.")

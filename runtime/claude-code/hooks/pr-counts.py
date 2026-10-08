@@ -10,16 +10,17 @@ irritating"). Registered at user scope (runtime/claude-code/user-settings.py)
 on Stop, so it runs for every session of the account.
 
 On Stop it reads the reply the session is about to end on
-(`last_assistant_message`). A line that names a pull request (`#123`,
-`owner/repo#123`) beside a status word (arm, merge, ready, mergeable,
-queued, gate, open, waiting, …) must also carry `(N work, M fix)`; fenced
-code is not read. When a line does not, the reply is blocked once with
-the reason: the session adds the counts from runtime/github/pr-gate.sh
-and answers again. `stop_hook_active` (the session is already continuing
+(`last_assistant_message`). A pull request (`#123`, `owner/repo#123`)
+named on a line with a status word (arm, merge, ready, mergeable, queued,
+gate, open, waiting, …) must carry `(N work, M fix)` right after it, at
+least once in the reply; fenced and inline code are not read, and a
+number that is an issue, a step, an item or a colour is not a PR. When a
+pull request lacks them, the reply is blocked once with the reason: the
+session adds the counts from runtime/github/pr-gate.sh and answers again. `stop_hook_active` (the session is already continuing
 because of a stop hook) lets the second answer through whatever it says:
 the guard asks once, and never holds a session in a loop.
 
-The patterns are linear (no nested quantifiers): a hook past its timeout
+Every pattern runs in linear time (see NUM_RE): a hook past its timeout
 does not refuse, it only costs the session time. Anything unexpected
 lets the reply through; the guard never stands in a session's way.
 """
@@ -29,27 +30,75 @@ import json
 import re
 import sys
 
-PR_RE = re.compile(r"(?<![\w/])(?:[\w.-]+/)?[\w.-]*#(\d{1,6})\b")
+# Every pattern is linear: `#N` is found on its own, and what may precede it
+# is read from at most PREFIX characters before it, so no match can start
+# at every character of a long run (an earlier "[\w.-]+/)?[\w.-]*#" was
+# quadratic on a line of dashes, review of #117).
+NUM_RE = re.compile(r"#(\d{1,5})(?!\d)")
+PREFIX = 120
+OWNER_REPO_RE = re.compile(r"([\w.-]{1,60}/[\w.-]{1,60})$")
+NOT_A_PR_RE = re.compile(r"\b(?:issue|issues|step|steps|item|items|no|number|line|rule|row|seq|round)\s*$", re.I)
 STATUS_RE = re.compile(r"\b(?:arm|armed|arming|merge|merged|mergeable|ready|queued|gate|waiting|"
                        r"your word|auto-merge|open|opened)\b", re.I)
-COUNTS_RE = re.compile(r"\(\s*\d+\s+work\s*,\s*\d+\s+fix\b", re.I)
+# The owner's format, right after the number: "#N (W work, F fix".
+COUNTS_AFTER_RE = re.compile(r"\s*\(\s*\d{1,4}\s+work\s*,\s*\d{1,4}\s+fix\b", re.I)
+CODE_SPAN_RE = re.compile(r"`[^`\n]*`")
+FENCE_RE = re.compile(r"^\s{0,3}(`{3,}|~{3,})")
 MAX_CHARS = 200_000
 
 
-def missing(text: str) -> list[str]:
-    """The pull-request numbers named on a status line that carries no counts."""
-    out: list[str] = []
-    in_fence = False
+def prose_lines(text: str):
+    """The lines outside fenced code, inline code spans removed. A fence
+    closes only on the character that opened it, at least as long."""
+    fence = ""
     for line in text[:MAX_CHARS].splitlines():
-        if line.lstrip().startswith("```"):
-            in_fence = not in_fence
+        m = FENCE_RE.match(line)
+        if fence:
+            if m and m.group(1)[0] == fence[0] and len(m.group(1)) >= len(fence) and not line.strip()[len(m.group(1)):]:
+                fence = ""
             continue
-        if in_fence or not STATUS_RE.search(line) or COUNTS_RE.search(line):
+        if m:
+            fence = m.group(1)
             continue
-        for m in PR_RE.finditer(line):
-            if m.group(0) not in out:
-                out.append(m.group(0))
-    return out
+        yield CODE_SPAN_RE.sub(" ", line)
+
+
+def pr_ref(line: str, m: re.Match) -> str | None:
+    """The pull request `#N` names, as written (`#N` or `owner/repo#N`), or
+    None when the number is not a pull request: a hex colour, a step or an
+    issue, or glued to a word."""
+    before = line[max(0, m.start() - PREFIX):m.start()]
+    if before and not before[-1].isspace() and before[-1] not in "([,;:'\"" and not before[-1].isalnum():
+        if before[-1] != "/" and not OWNER_REPO_RE.search(before):
+            return None
+    if NOT_A_PR_RE.search(before):
+        return None
+    after = line[m.end():m.end() + 1]
+    if after and (after.isalnum() or after == "_"):
+        return None
+    repo = OWNER_REPO_RE.search(before)
+    if before and before[-1].isalnum() and not repo:
+        return None
+    return (repo.group(1) if repo else "") + m.group(0)
+
+
+def missing(text: str) -> list[str]:
+    """The pull requests whose status a line states with no "(W work, F fix)"
+    right after them, unless the same pull request carries its counts
+    somewhere in the reply."""
+    stated: list[str] = []
+    counted: set[str] = set()
+    for line in prose_lines(text):
+        status = bool(STATUS_RE.search(line))
+        for m in NUM_RE.finditer(line):
+            ref = pr_ref(line, m)
+            if ref is None:
+                continue
+            if COUNTS_AFTER_RE.match(line, m.end()):
+                counted.add(ref)
+            elif status and ref not in stated:
+                stated.append(ref)
+    return [r for r in stated if r not in counted]
 
 
 def main() -> int:
