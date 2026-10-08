@@ -18,24 +18,34 @@ path's relaunch made first-class).
 --print says what it would do, one line, and runs nothing. Exit codes: the
 launcher's when it runs; 2 inside a session or for a bad argument.
 
-The launcher decides everything else (provider, model, effort, prompt):
-this only chooses resume or fresh, and where.
+It chooses resume or fresh, where, and the provider: the one the
+account last launched on (launch-provider.json), unless the arguments name
+one. The launcher's own default is a fixed provider, not the account's, so
+a resume without it would come back on another provider's models and bill.
+Model, effort and prompt stay the launcher's.
 """
 from __future__ import annotations
 
 import glob
 import json
 import os
+import re
+import stat
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 FABRIC = os.path.dirname(os.path.dirname(HERE))
 sys.path.insert(0, os.path.join(FABRIC, "runtime"))
+sys.path.insert(0, HERE)
 import identity  # noqa: E402
+import install_agent_files  # noqa: E402
 
 # A test points this at a stub; nothing else sets it.
 LAUNCHER = os.environ.get("AGENT_FABRIC_RESUME_LAUNCHER") or os.path.join(FABRIC, "runtime", "openrouter", "launch")
 SCAN_LINES = 50
+# The harness's session id; runtime/control/sessions.mjs SESSION_ID is the
+# same pattern. Anything else in a binding is no session, never a path.
+SESSION_RE = re.compile(r"^[A-Za-z0-9-]{8,64}$")
 
 
 def say(msg: str) -> None:
@@ -48,9 +58,8 @@ def projects_dir() -> str:
 
 
 def transcript_of(session: str) -> str | None:
-    """The session's transcript, wherever its launch directory put it. The
-    id is a UUID the harness wrote; anything else is no session."""
-    if not session or not all(c.isalnum() or c == "-" for c in session):
+    """The session's transcript, wherever its launch directory put it."""
+    if not SESSION_RE.match(session):
         return None
     found = sorted(glob.glob(os.path.join(projects_dir(), "*", f"{session}.jsonl")),
                    key=lambda p: os.stat(p).st_mtime, reverse=True)
@@ -74,18 +83,37 @@ def cwd_of(transcript: str) -> str | None:
     return None
 
 
+def own_dir(path: str) -> bool:
+    """A directory this account owns: the resumed session loads its
+    CLAUDE.md and settings, so one another login made (a recreated /tmp
+    path) is no place to resume in."""
+    try:
+        st = os.stat(path)
+    except OSError:
+        return False
+    return stat.S_ISDIR(st.st_mode) and st.st_uid == os.getuid()
+
+
+def provider_args(extra: list[str]) -> list[str]:
+    if any(a == "--provider" or a.startswith("--provider=") for a in extra):
+        return []
+    p = install_agent_files.last_launch_provider()
+    return ["--provider", p] if p else []
+
+
 def plan() -> tuple[list[str], str, str]:
     """(launcher argv suffix, directory, the line that says it)."""
     binding = identity.read_binding(identity.current_agent())
-    session = str(binding.get("session") or "")
+    session = binding.get("session")
+    session = session if isinstance(session, str) and SESSION_RE.match(session) else ""
     working_copy = str(binding.get("working_copy") or os.path.expanduser("~/projects"))
     transcript = transcript_of(session)
     cwd = cwd_of(transcript) if transcript else None
-    if transcript and cwd and os.path.isdir(cwd):
+    if transcript and cwd and own_dir(cwd):
         return ["--resume", session], cwd, f"resuming session {session} in {cwd}"
     why = ("no session recorded" if not session else
            f"no transcript of session {session}" if not transcript else
-           f"session {session}'s directory is gone")
+           f"session {session}'s directory is gone, or not this account's")
     start = working_copy if os.path.isdir(working_copy) else os.path.expanduser("~")
     return [], start, f"{why}; starting fresh in {start}"
 
@@ -111,12 +139,13 @@ def main(argv: list[str]) -> int:
             say(f"unexpected argument: {a}")
             return 2
     suffix, cwd, line = plan()
+    argv = [LAUNCHER, *provider_args(extra), *extra, *suffix]
     if show:
-        print(line)
+        print(f"{line}: {' '.join(argv[1:]) or '(no arguments)'}")
         return 0
     say(line)
     os.chdir(cwd)
-    os.execv(LAUNCHER, [LAUNCHER, *extra, *suffix])
+    os.execv(LAUNCHER, argv)
     return 0  # not reached
 
 

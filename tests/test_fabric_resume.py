@@ -2,8 +2,9 @@
 """bin/fabric-resume (tools/fabric/resume.py) in a scratch account: the
 binding's session resumed in the directory its transcript names; a fresh
 start said, in the working copy, when there is no session, no transcript
-or no directory; refused inside a session; the launcher run with exactly
---resume <id> (or nothing) after the caller's own arguments."""
+or no directory; refused inside a session; the launcher run with the
+account's last provider (unless the caller names one), the caller's own
+arguments, then --resume <id> (or nothing)."""
 from __future__ import annotations
 
 import json
@@ -63,7 +64,16 @@ def main() -> int:
         transcript(session_dir)
         r = run("--print")
         check("a session with its transcript: resumed where it ran", r.returncode == 0
-              and r.stdout.strip() == f"resuming session {SID} in {session_dir}", r.stdout + r.stderr)
+              and r.stdout.strip() == f"resuming session {SID} in {session_dir}: --resume {SID}", r.stdout + r.stderr)
+        with open(os.path.join(bdir, "launch-provider.json"), "w") as f:
+            json.dump({"provider": "anthropic"}, f)
+        run()
+        line = open(ran).read().strip() if os.path.exists(ran) else ""
+        check("…on the provider the account last launched on, not the launcher's default",
+              line == f"{session_dir}|--provider anthropic --resume {SID}", line)
+        r = run("--", "--provider=openrouter")
+        line = open(ran).read().strip() if os.path.exists(ran) else ""
+        check("…unless the caller names one", line == f"{session_dir}|--provider=openrouter --resume {SID}", line)
         r = run("--", "--provider", "anthropic")
         line = open(ran).read().strip() if os.path.exists(ran) else ""
         check("…the launcher runs there, the caller's arguments first, then --resume <id>",
@@ -72,19 +82,25 @@ def main() -> int:
         os.rmdir(session_dir)
         r = run("--print")
         check("its directory gone: a fresh start in the working copy, said",
-              f"directory is gone; starting fresh in {wc}" in r.stdout, r.stdout)
+              f"directory is gone, or not this account's; starting fresh in {wc}" in r.stdout, r.stdout)
         os.remove(os.path.join(cfg, "projects", "-slug", f"{SID}.jsonl"))
         r = run("--print")
         check("no transcript: a fresh start, said", f"no transcript of session {SID}" in r.stdout, r.stdout)
         os.remove(ran)
         r = run()
         line = open(ran).read().strip() if os.path.exists(ran) else ""
-        check("…and the launcher runs with no --resume, in the working copy", line == f"{wc}|", line)
+        check("…and the launcher runs with no --resume, in the working copy", line == f"{wc}|--provider anthropic", line)
         bind(None)
         check("no session recorded: a fresh start, said", "no session recorded" in run("--print").stdout)
-        bind("../../etc/passwd")
-        check("a session id that is not one: no transcript is looked up",
-              "no transcript of session" in run("--print").stdout)
+        # Planted where an unchecked id would reach: projects/-slug/../../etc/x.jsonl.
+        os.makedirs(os.path.join(cfg, "etc"))
+        with open(os.path.join(cfg, "etc", "x.jsonl"), "w") as f:
+            f.write(json.dumps({"type": "user", "cwd": wc}) + "\n")
+        for bad in ("../../etc/x", "abc\x1b]0;t\x07def", 42):
+            bind(bad)  # type: ignore[arg-type]
+            r = run("--print")
+            check(f"a binding session {bad!r} is no session, never a path", "no session recorded" in r.stdout
+                  and "--resume" not in r.stdout, r.stdout)
         r = run("--print", CLAUDECODE="1")
         check("inside a session: refused, exit 2", r.returncode == 2 and "not inside a session" in r.stderr, r.stderr)
         r = run("--bogus")
