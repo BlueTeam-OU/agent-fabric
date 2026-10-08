@@ -511,6 +511,12 @@ def run() -> None:
     check("a reword runs it: an undeclared message is refused, naming the trailer",
           rc != 0 and "Kind: work" in err, f"rc={rc}\n{err}")
     git("rebase", "--abort")
+    put("src/a.txt", "one more\n", "a")
+    git("add", "-A"); git("-c", "core.hooksPath=/dev/null", "commit", "-qm", "also before the rule")
+    rc, _, err = git("-c", "sequence.editor=sed -i 2s/^pick/squash/", "-c", "core.editor=true",
+                     "rebase", "-q", "-i", "HEAD~2", state=True)
+    check("a squash runs none (measured): undeclared commits squash into an undeclared one",
+          rc == 0 and not has(r"^Kind:", msg()), f"rc={rc}\n{err}")
 
     print()
     section("in a managed project, its own docs/adr/ is its own")

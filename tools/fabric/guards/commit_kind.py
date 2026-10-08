@@ -17,9 +17,10 @@ argv is walked as git reads it: an option's value is skipped, `--` ends the
 options, and a unique prefix of `--amend` counts. An argv that cannot be
 read exempts nothing.
 
-git runs no commit-msg hook for `git revert` or for a rebase's picks, a
-conflict's `--continue` included; a reword or a squash runs it (measured,
-pinned in tests/test_githooks_cli.py).
+git runs no commit-msg hook for `git revert`, for a rebase's picks (a
+conflict's `--continue` included) or for its squashes; a reword runs it
+(git 2.56, measured and pinned in tests/test_githooks_cli.py). A squash of
+undeclared commits therefore lands undeclared and is counted the old way.
 """
 from __future__ import annotations
 
