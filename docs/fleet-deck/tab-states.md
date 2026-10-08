@@ -18,7 +18,7 @@ This note is the contract for:
 | **mode** | the foreground's argv: moveto hands off to `sudo … enter <dir> <title> [--wait|--resume|--watch]`, so the mode is its last argument; the deck reads it there, never from the screen, and so recovers it after its own restart | what the pane was asked to do |
 | **live** | the state stream, the account's newest record: `sessions[]` | how many sessions are alive on the account, wherever they run, each `working`, `idle` or `blocked` |
 | **record age** | the same record's `ts` | fresh (within two heartbeats, 20 min) or stale |
-| **before** | the deck's own record of the last state it showed for the account, written on every change; with none (a first run), the newest stream record within two heartbeats that listed a live session | whether a session was alive before the restart. Not the stream's newest record: the sessions that die with herdr post their `live` = 0 before a restarting deck reads it |
+| **before** | the deck's own record of the last state it showed for the account, written on every change while herdr is connected and the account's harness pane exists, and frozen from the moment either is lost until the next `restore`; with none (a first run), the newest stream record within two heartbeats that listed a live session | whether a session was alive before the restart. Not the stream's newest record: the sessions that die with herdr post their `live` = 0 before a restarting deck reads it |
 | **resumable** | the record's `last_session` and `resumable` | whether `fabric-resume` will resume or start fresh |
 
 **`live` counts sessions on the account, not in the pane.** A session started from another terminal shows in `live` while the deck's harness pane holds no session. The machine therefore keeps "a session runs here" and "a session runs on the account" apart (`ELSEWHERE`).
@@ -85,7 +85,7 @@ At `restore`, for each placed agent whose harness pane is `ABSENT`, or is at the
 
 The shell and status panes always come back live (`moveto <account>`, `moveto <account> --watch`).
 
-`before` is written when the deck shows a state, and is read only at `restore`. A deck that outlives herdr's server sees its panes go, then reconnects: that reconnect is a `restore`, with `before` as last shown before the loss.
+`before` is written when the deck shows a state, and is read only at `restore`. It freezes when the deck loses herdr's server or the account's harness pane, and stays frozen until the next `restore`: the `session-down` that follows a lost pane, about one poll later, is the restart's effect and never overwrites the evidence that a session was running. A deck that outlives herdr's server sees its panes go, then reconnects: that reconnect is a `restore`, with the frozen `before`.
 
 ## What must hold whatever the deck does (fabric side)
 
