@@ -414,13 +414,13 @@ its record disagree, the record wins. Look it up, never read it whole:
 ### ADR-019 — Work arrives as pull requests: one open PR per agent and repository, 8 or more work commits to arm, the gate read before arming, no machine attribution, repository settings (Accepted)
 
 - Every change reaches `main` through a PR (§2, §5 rule 1, §6).
-- One open PR per agent and repository; the next work is another commit while the
-  branch is addable; two stated exceptions (§5 rule 2).
+- One open PR per agent and repository; next work is another commit;
+  two exceptions (§5 rule 2).
 - Work commits exclude review fixes, by each commit's `Kind:` trailer
   (§5 rule 3); 8 or more arm at the gate, under 8 ask the owner (§5
   rule 4).
-- Arm only on `pr-gate.sh`'s `MERGEABLE`, read first, with no open P1/P2;
-  on agent-fabric arming is the merge (§5 rules 5–6).
+- Arm only on `pr-gate.sh`'s `MERGEABLE`, with no open P1/P2 (§5
+  rules 5–6).
 - No `Co-authored-by:`/`Claude-Session:` trailer, footer or session URL
   (§5 rule 7). GitHub settings: §6.
 - A 2026-10-04 — `main`'s ruleset requires a PR, the CI checks and
@@ -432,9 +432,9 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-10-06 — one open PR per agent and repository (§5 rule 2).
 - A 2026-10-08 — every commit declares its `Kind:`; the commit-msg
   hook refuses one without it (§5 rule 3).
-- Keywords: pull request, PR, arm, merge, band, work commits, Answers,
-  Kind, pr-gate, MERGEABLE, one open PR, attribution, Co-authored-by,
-  CodeQL, repository settings, auto-merge.
+- A 2026-10-08 — a folded PR's review fixes are fixes (§5 rule 3).
+- Keywords: PR, arm, merge, work commits, Answers, Kind, fold, pr-gate,
+  MERGEABLE, attribution, Co-authored-by, repository settings.
 
 ### ADR-020 — The review class is the review (Accepted)
 

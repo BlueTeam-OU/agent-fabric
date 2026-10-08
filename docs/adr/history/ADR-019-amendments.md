@@ -79,3 +79,13 @@ was written for). The CI half of the guard waits for the branches
 opened before the rule: a refusing check now would turn each of them
 red.
 
+
+### Amendment 2026-10-08 — A folded pull request's review fixes are fixes
+
+gateway#10 was folded into gateway#11 (the owner asked why the two were
+separate) and #10's two review fixes counted as #11's work: the rule that
+a fix answering another PR's review is follow-up work could not tell a
+merged PR's follow-up from a fold. rust-services-dev measured it (8 work
+read where 6 was right, at the arm-without-asking threshold). A PR closed
+unmerged whose head lies inside this range was folded in; its review
+fixes are fixes here. The reading needs no convention in the description.
