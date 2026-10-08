@@ -17,8 +17,9 @@ This note is the contract for:
 | **harness here** | the descendants of the pane's foreground `sudo`, walked through `/proc/<pid>/stat` parent links (readable across logins on this host: `/proc` is mounted without `hidepid`, read back by rust-ui-dev) | whether a harness (`launch.py` or `claude`) runs under this pane's moveto. Not the pane's foreground: sudo runs the account in a pty of its own (`use_pty`), so the harness is never in the pane's foreground group |
 | **mode** | the foreground's argv: moveto hands off to `sudo … enter <dir> <title> [--wait|--resume|--watch]`, so the mode is its last argument; the deck reads it there, never from the screen, and so recovers it after its own restart | what the pane was asked to do |
 | **live** | the state stream, the account's newest record: `sessions[]` | how many sessions are alive on the account, wherever they run, each `working`, `idle` or `blocked` |
+| **server** | herdr's server instance: its pid and start time, read from the server's socket peer (`SO_PEERCRED`) and `/proc/<pid>/stat` | whether two answers came from one server run. A change of instance between two requests is a `herdr-lost`, even when no request failed |
 | **record age** | the same record's `ts` | fresh (within two heartbeats, 20 min) or stale |
-| **before** | the deck's own record, persisted, of whether the account's session was running, meaning `live` ≥ 1 (wherever it ran). A rise is written at once. A fall is written only on positive evidence that herdr stayed up: a herdr request that succeeded at or after the fall plus `SETTLE_S` (5 s). A fall seen while herdr is lost, or before the `restore` that ends a loss has decided, never settles. A pending fall is persisted with its time, so a deck that stops within the window settles it at its next start only if herdr's server has run since before that time; with none (a first run), the newest stream record within two heartbeats that listed a live session | whether a session was alive before the restart. Not the stream's newest record: the sessions that die with herdr post their `live` = 0 before a restarting deck reads it |
+| **before** | the deck's own record, persisted, of whether the account's session was running, meaning `live` ≥ 1 (wherever it ran). A rise is written at once. A fall is written only on positive evidence that herdr stayed up: a herdr request answered by the same server instance that was running at the fall (**server**), at or after the fall plus `SETTLE_S` (5 s). A rise cancels a pending fall. A fall seen while herdr is lost, or before the `restore` that ends a loss has decided, never settles. A pending fall is persisted with its time, so a deck that stops within the window settles it at its next start only if herdr's server has run since before that time; with none (a first run), the newest stream record within two heartbeats that listed a live session | whether a session was alive before the restart. Not the stream's newest record: the sessions that die with herdr post their `live` = 0 before a restarting deck reads it |
 | **resumable** | the record's `last_session` and `resumable` | whether `fabric-resume` will resume or start fresh |
 
 **`live` counts sessions on the account, not in the pane.** A session started from another terminal shows in `live` while the deck's harness pane holds no session. The machine therefore keeps "a session runs here" and "a session runs on the account" apart (`ELSEWHERE`).
@@ -49,7 +50,7 @@ Two observations decide a pane's state: whether moveto runs in it (**foreground*
 | `moveto-ended` | herdr: the pane's foreground is back at the operator's bare shell (moveto ended, any code) |
 | `pane-gone` | herdr: the pane is no longer listed (a person closed it, or the operator's shell in it ended; the same to the deck) |
 | `timeout` | `RESTORE_WAIT_S` elapsed in `STARTING` |
-| `herdr-lost` | the deck's connection to herdr's server fails or closes. No fall of `before` settles until the `restore` that ends the loss has decided; falls pending at the loss, or seen during it, are discarded |
+| `herdr-lost` | the deck's connection to herdr's server fails or closes, or a request is answered by a different server instance than the one before. No fall of `before` settles until the `restore` that ends the loss has decided; falls pending at the loss, or seen during it, are discarded |
 | `restore` | the deck starts, or reconnects to a herdr server it had lost |
 | `stale` / `fresh` | the record's age crosses two heartbeats, either way |
 
@@ -86,9 +87,12 @@ At `restore`, for each placed agent whose harness pane is `ABSENT`, or is at the
 
 The shell and status panes always come back live (`moveto <account>`, `moveto <account> --watch`).
 
-`before` is read only at `restore`, and written as the signals table says. A fall settles only on a herdr request that succeeded `SETTLE_S` after it, so when herdr's server stops, no fall settles, whatever order the deck sees the harness end, `session-down`, the panes go and the socket fail, and however late it notices: the evidence that a session ran survives to the reconnect. A person who closes a running harness pane, or exits the session, leaves herdr up: the deck's next request settles the fall, and the next `restore` does not bring that session back.
+`before` is read only at `restore`, and written as the signals table says. A fall settles only on a herdr request that succeeded `SETTLE_S` after it, so when herdr's server stops, no fall settles, whatever order the deck sees the harness end, `session-down`, the panes go and the socket fail, and however late it notices: the evidence that a session ran survives to the reconnect. A person who closes a running harness pane, or exits the session, leaves herdr up: the deck's first request to the same server at least `SETTLE_S` later settles the fall, and the next `restore` does not bring that session back.
 
-Two limits, stated rather than solved: a person who ends a session within `SETTLE_S` of herdr being lost has it resumed at the next restore; and at a host shutdown, harnesses stopped more than `SETTLE_S` before herdr settle as ended and are not resumed after boot. A deck that outlives herdr's server sees its panes go, then reconnects: that reconnect is a `restore`.
+Three limits, stated rather than solved:
+- a person who ends a session within `SETTLE_S` of herdr being lost has it resumed at the next restore;
+- at a host shutdown, harnesses stopped more than `SETTLE_S` before herdr settle as ended and are not resumed after boot;
+- a person who ends a session, then the deck stops within `SETTLE_S` and herdr's server restarts before the deck starts again: the pending fall never settles, and that session is resumed. A deck that outlives herdr's server sees its panes go, then reconnects: that reconnect is a `restore`.
 
 ## What must hold whatever the deck does (fabric side)
 
