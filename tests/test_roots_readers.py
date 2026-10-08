@@ -191,6 +191,27 @@ def case_lint_with_an_operator_copy_says_what_it_says_without_one() -> None:
             f"with the operator: rc {over.returncode}\n{over.stdout[-600:]}\nwithout: rc {plain.returncode}\n{plain.stdout[-300:]}"
 
 
+def case_fabric_labels_do_not_depend_on_the_checkouts_name() -> None:
+    """With an operator exported, a fabric-side slice is labelled relative to
+    the tree it lies in, and fabric_path() finds it there, whatever the engine
+    checkout is called (review of #125: labels became ../agent-fabric/... and
+    lint opened them through the engine checkout's sibling name)."""
+    from lint_rules.slices import lint_slices
+    from lint_rules import base as rules_base
+    layout = rules_base.layout   # the rules load their own copy of layout.py by path
+    role = "fabric-coordinator"
+    saved = layout.FABRIC_ROOT
+    try:
+        layout.FABRIC_ROOT = "/nonexistent/checkout-under-another-name"
+        with operator(ROOT):
+            labels = lint_slices(os.path.join(ROOT, "identities", "roles", role), f"identities/roles/{role}",
+                                 None, [], {}, {})
+            assert labels and all(l.startswith(f"identities/roles/{role}/") for l in labels), labels
+            assert all(os.path.isfile(layout.fabric_path(l)) for l in labels), labels
+    finally:
+        layout.FABRIC_ROOT = saved
+
+
 def main() -> int:
     cases = [v for k, v in globals().items() if k.startswith("case_")]
     failures = 0

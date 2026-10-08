@@ -418,16 +418,22 @@ def link_rel(path: str, project: str | None = None) -> str:
     fabric-side path seen from a project's repository is linked through the
     sibling checkout (`../agent-fabric/...`)."""
     path = os.path.abspath(path)
-    base = project_link_root(project) if project else FABRIC_ROOT
+    fabric = os.path.abspath(FABRIC_ROOT)
+    # A file in the operator's tree is linked as its place in this checkout
+    # would be: an index's links and the fabric's own labels (`identities/...`)
+    # read the same whichever tree holds it, and fabric_path() finds it again
+    # (until stage 4 both are reached through the one sibling prefix).
+    for side in fabric_sides():
+        if os.path.commonpath([path, side]) == side:
+            path = os.path.join(fabric, os.path.relpath(path, side))
+            break
+    base = project_link_root(project) if project else fabric
     # The fabric first, when it is not the base itself: a checkout of the
     # fabric may sit INSIDE the working copy (CI checks it out under the
     # workspace), and a fabric slice is still reached through the sibling
     # prefix, never through wherever this run happened to put the checkout.
-    for fabric in fabric_sides():
-        if base != fabric and os.path.commonpath([path, fabric]) == fabric:
-            return os.path.join(FABRIC_LINK_PREFIX, os.path.relpath(path, fabric))
-    if os.path.commonpath([path, base]) == base:
-        return os.path.relpath(path, base)
+    if base != fabric and os.path.commonpath([path, fabric]) == fabric:
+        return os.path.join(FABRIC_LINK_PREFIX, os.path.relpath(path, fabric))
     return os.path.relpath(path, base)
 
 
@@ -442,6 +448,14 @@ def resolve_link(link: str, project: str | None = None) -> str:
                     os.path.join(sides[0], rel))
     base = project_link_root(project) if project else FABRIC_ROOT
     return os.path.join(base, link)
+
+
+def fabric_path(rel: str) -> str:
+    """The file a fabric-relative path (link_rel's label for the fabric's own
+    view) names: in the operator's tree when it is there, else this checkout's."""
+    sides = fabric_sides()
+    return next((os.path.join(t, rel) for t in sides if os.path.exists(os.path.join(t, rel))),
+                os.path.join(sides[0], rel))
 
 
 def root_rel(path: str) -> str:

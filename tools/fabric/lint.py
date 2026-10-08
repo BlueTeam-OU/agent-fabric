@@ -592,7 +592,7 @@ def main() -> int:
         findings += i18n_dictionary_findings(role, role_path)
         findings += locale_alignment_findings(role, role_path)
         for rel in identity_slices[role]:
-            klass = (parse_frontmatter(open(os.path.join(root, rel), encoding="utf-8").read()) or {}).get("class")
+            klass = (parse_frontmatter(open(layout.fabric_path(rel), encoding="utf-8").read()) or {}).get("class")
             if klass not in layout.IDENTITY_CLASSES:
                 findings.append(f"{rel}: class {klass!r} is knowledge, not identity — it belongs under memory/")
     for role in known_roles - set(role_ids):
@@ -635,7 +635,7 @@ def main() -> int:
             findings += flat_and_dir_findings(rbase, label)
             slices = lint_slices(rbase, label, template_schema, findings, shared_owner_count, descriptions, pid)
             # Fabric-side slices as THIS project's index links them.
-            fabric_side = {layout.link_rel(os.path.join(root, r), pid): r
+            fabric_side = {layout.link_rel(layout.fabric_path(r), pid): r
                            for r in domain_slices.get(role, []) + identity_slices.get(role, [])}
             expected = list(slices) + list(fabric_side)
             indexed_domains.add(role)

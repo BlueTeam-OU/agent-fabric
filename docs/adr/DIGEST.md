@@ -432,7 +432,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-10-06 — one open PR per agent and repository (§5 rule 2).
 - A 2026-10-08 — every commit declares its `Kind:`; the commit-msg
   hook refuses one without it (§5 rule 3).
-- A 2026-10-08 — a folded PR's review fixes are fixes (§5 rule 3).
+- A 2026-10-08 — a folded PR's review fixes are fixes (counter not yet built; §5 rule 3).
 - Keywords: PR, arm, merge, work commits, Answers, Kind, fold, pr-gate,
   MERGEABLE, attribution, Co-authored-by, repository settings.
 
