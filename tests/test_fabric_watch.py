@@ -49,6 +49,7 @@ def main() -> int:
         env.update(HOME=home, AGENT_FABRIC_ROOT=root, AGENT_FABRIC_PYTHON=sys.executable,
                    GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_NOSYSTEM="1")
         origins = {"ssh-wc": "git@github.com:o/a.git", "https-wc": "https://github.com/o/b",
+                   "ssh-wc2": "https://github.com/O/A.git/",
                    "quiet": "git@github.com:o/quiet.git", "elsewhere": "git@gitlab.com:o/c.git",
                    "lookalike": "https://github.com.evil.example/o/d"}
         for name, url in origins.items():
@@ -76,6 +77,8 @@ def main() -> int:
         check("…none asked of an origin elsewhere, or a host that only starts with github.com",
               "elsewhere" not in out and "lookalike" not in out, out)
         check("…and a working copy with none open is left out", "quiet" not in out, out)
+        check("…and a second clone of one repository, however its origin is spelt, is not asked again",
+              "ssh-wc2" not in out, out)
 
         put(f"{root}/bin/fabric-status", "#!/bin/sh\necho 'half a status'\necho 'routing: broken' >&2\nexit 3\n")
         os.remove(f"{root}/bin/fabric-jobs")
@@ -101,7 +104,7 @@ def main() -> int:
     saved = watch.pulls, watch.run
     screens = []
     try:
-        def fake_pulls(root: str, projects: str) -> str:
+        def fake_pulls(root: str, projects: str, stop=lambda: False) -> str:
             asked["prs"] += 1
             return "prs"
 
@@ -118,6 +121,19 @@ def main() -> int:
         rc = watch.watch("/r", "/p", 30.0, 300.0, False, clock=lambda: t[0], wait=fake_wait, out=io.StringIO())
         check("twelve screens 30 s apart: status read on each", rc == 0 and asked["status"] == 12, asked)
         check("…pull requests at 0 s and 300 s only", asked["prs"] == 2, asked)
+        watch.pulls = saved[0]
+        stopped = io.StringIO()
+        saved_wc = watch.working_copies
+        watch.working_copies = lambda projects: ["/a", "/b"]
+        try:
+            # q is already typed: every wait answers it. Without the look
+            # between working copies, one screen is drawn before it is read.
+            rc = watch.watch("/r", "/p", 30.0, 300.0, False, clock=lambda: 0.0, wait=lambda s: True,
+                             out=stopped)
+        finally:
+            watch.working_copies = saved_wc
+        check("q while the pull requests are read: leaves before the first pr-gate, no screen",
+              rc == 0 and stopped.getvalue() == "", stopped.getvalue())
     finally:
         watch.pulls, watch.run = saved
 
@@ -127,6 +143,11 @@ def main() -> int:
         os.close(wfd)
         check(label, watch.wait_for_q(5.0, rfd) is True)
         os.close(rfd)
+    rfd, wfd = os.pipe()
+    os.write(wfd, b"q")
+    check("a wait of 0 still reads a q already typed", watch.wait_for_q(0, rfd) is True)
+    os.close(rfd)
+    os.close(wfd)
     rfd, wfd = os.pipe()
     os.write(wfd, b"x")
     check("another key alone: the wait runs out", watch.wait_for_q(0.2, rfd) is False)

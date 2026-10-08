@@ -11,6 +11,8 @@ CONTRACT:
             300, at least 60), --once, -h/--help; anything else, or a
             value that is not a finite number: usage on stderr, exit 2.
   stdin     a key at a time: q (or Q) leaves; input that ends leaves too.
+            While the pull requests are read it is looked at between
+            working copies, so q waits for one pr-gate at most.
             On a terminal it is put in cbreak mode and restored on the way
             out. --once never reads it.
   env       AGENT_FABRIC_ROOT, the fabric whose commands it runs (the shim
@@ -21,10 +23,10 @@ CONTRACT:
             failed:
               status         bin/fabric-status
               jobs           bin/fabric-jobs list
-              pull requests  runtime/github/pr-gate.sh, run in each
-                             working copy under ~/projects whose origin is
-                             on GitHub; one that has none of this
-                             account's open is left out
+              pull requests  runtime/github/pr-gate.sh, run in one
+                             working copy per GitHub repository under
+                             ~/projects (the first by name); one that has
+                             none of this account's open is left out
             The first two are local and are read every --every seconds; the
             pull requests ask GitHub, so they are read every --prs-every
             seconds and shown from the last read in between, with its age.
@@ -95,13 +97,21 @@ def run(argv: list[str], cwd: str | None = None) -> str:
     return out or f"({name}: nothing)"
 
 
+def repo_of(url: str) -> str:
+    """owner/name of a GitHub origin, however it is spelt."""
+    path = GITHUB.sub("", url.strip()).rstrip("/")
+    return (path[:-4] if path.endswith(".git") else path).lower()
+
+
 def working_copies(projects: str) -> list[str]:
-    """Each working copy under projects/ whose origin is on GitHub, by name."""
+    """One working copy per GitHub repository under projects/, the first
+    by name: pr-gate lists the account's PRs of the repository, so a
+    second clone of it would show the same block and ask GitHub again."""
     try:
         names = sorted(os.listdir(projects))
     except OSError:
         return []
-    found = []
+    found, seen = [], set()
     for name in names:
         path = os.path.join(projects, name)
         # .git is a file in a linked worktree.
@@ -112,15 +122,20 @@ def working_copies(projects: str) -> list[str]:
                                capture_output=True, text=True, timeout=TIMEOUT_S)
         except (OSError, subprocess.TimeoutExpired):
             continue
-        if r.returncode == 0 and GITHUB.match(r.stdout.strip()):
+        if r.returncode == 0 and GITHUB.match(r.stdout.strip()) and repo_of(r.stdout) not in seen:
+            seen.add(repo_of(r.stdout))
             found.append(path)
     return found
 
 
-def pulls(root: str, projects: str) -> str:
+def pulls(root: str, projects: str, stop: Callable[[], bool] = lambda: False) -> str | None:
+    """The pull-request block; None when stop() says to leave, which is
+    asked between working copies, so q waits at most for one pr-gate."""
     gate = os.path.join(root, "runtime", "github", "pr-gate.sh")
     blocks = []
     for wc in working_copies(projects):
+        if stop():
+            return None
         out = run([gate], cwd=wc)
         if out.startswith(NONE_OPEN):
             continue
@@ -146,13 +161,15 @@ def wait_for_q(seconds: float, fd: int = 0) -> bool:
     """True when q was typed, or input ended, within the wait. os.read, not
     sys.stdin: a buffered read after select may wait for more than a key."""
     end = time.monotonic() + seconds
-    while (left := end - time.monotonic()) > 0:
-        ready, _, _ = select.select([fd], [], [], left)
+    while True:
+        # At least one look, so a wait of 0 still reads a key already typed.
+        ready, _, _ = select.select([fd], [], [], max(0.0, end - time.monotonic()))
         if ready:
             ch = os.read(fd, 1)
             if ch in (b"q", b"Q", b""):
                 return True
-    return False
+        elif time.monotonic() >= end:
+            return False
 
 
 def watch(root: str, projects: str, every: float, prs_every: float, once: bool,
@@ -161,7 +178,10 @@ def watch(root: str, projects: str, every: float, prs_every: float, once: bool,
     prs, prs_at = "", None
     while True:
         if prs_at is None or clock() - prs_at >= prs_every:
-            prs, prs_at = pulls(root, projects), clock()
+            read = pulls(root, projects, stop=(lambda: False) if once else (lambda: wait(0)))
+            if read is None:
+                return 0
+            prs, prs_at = read, clock()
         status = run([os.path.join(root, "bin", "fabric-status")])
         jobs = run([os.path.join(root, "bin", "fabric-jobs"), "list"])
         draw(screen(status, jobs, prs, clock() - prs_at, time.strftime("%H:%M:%S")), clear=not once, out=out)
