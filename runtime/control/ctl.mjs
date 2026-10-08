@@ -81,9 +81,13 @@ export function buildRequest(args, { id, from, to, cfg, ts = new Date().toISOStr
            ...(args.op === 'secrets-sync' && (args.expect || args.restart) ? { args: { ...(args.expect ? { expect: args.expect } : {}), ...(args.restart ? { restart: true } : {}) } } : {}) };
 }
 
+// A placed login's kind (ADR-044): an agent runs agentd and answers; a
+// human runs none, so `all` never waits on one and naming one is refused.
 export function placements(registry = process.env.AGENT_FABRIC_HOSTS_REGISTRY ?? path.join(FABRIC_ROOT, 'runtime', 'hosts', 'registry.json')) {
   const d = JSON.parse(fs.readFileSync(registry, 'utf8'));
-  return Object.entries(d.placement ?? {}).map(([login, host]) => ({ login, host, address: `${host}/${login}` }));
+  const kinds = d.kinds ?? {};
+  return Object.entries(d.placement ?? {}).map(([login, host]) => ({ login, host, address: `${host}/${login}`,
+    kind: kinds[login] === 'human' ? 'human' : 'agent' }));
 }
 
 const jobArgs = a => ({ title: a.title ?? undefined, ...(a.topic !== null ? { topic: a.topic } : {}), ...(a.project !== null ? { project: a.project } : {}) });
@@ -501,14 +505,16 @@ export async function main(argv = process.argv.slice(2), { registry, fetchImpl }
   try { args = parseArgs(argv); } catch (e) { console.error(`fabric-ctl: ${e.message}`); return 2; }
   if (args.help || (!args.targets.length && args.op !== 'keygen')) { console.error('usage: fabric-ctl <login|all> [status|usage|identity|keys|fabric|session|script|recall|host|disk|accounts|ping] [--json] [--timeout S]\n       fabric-ctl <login|all> tokens [--days N]\n       fabric-ctl <login|all> memory --out <dir>\n       fabric-ctl <login|all> upgrade claude [--version V]\n       fabric-ctl <login|all> upgrade fabric   (every account to this checkout\'s origin/main, then bootstrap)\n       fabric-ctl <login|all> secrets-sync [--expect SHA12] [--restart]\n       fabric-ctl <login|all> presence   (any placed account may ask)\n       fabric-ctl <login|all> jobs\n       fabric-ctl <login> jobs-add [--topic T] [--project P] [--] "<title>"\n       fabric-ctl <login|all> secrets-selftest\n       fabric-ctl <login|all> local\n       fabric-ctl <login|all> local-prune\n       fabric-ctl <login|all> states [--follow] [--json]\n       fabric-ctl keygen [--force]'); return args.help ? 0 : 2; }
   if (args.op === 'keygen') return keygen(args, { registry });
-  const all = placements(registry);
+  const placed = placements(registry);
+  const all = placed.filter(p => p.kind === 'agent');
   let expected;
   if (args.targets.length === 1 && args.targets[0] === 'all') expected = all;
   else {
     expected = [];
     for (const t of args.targets) {
-      const p = all.find(x => x.login === t);
+      const p = placed.find(x => x.login === t);
       if (!p) { console.error(`fabric-ctl: ${t} is not a placed account (runtime/hosts/registry.json)`); return 2; }
+      if (p.kind === 'human') { console.error(`fabric-ctl: ${t} is a human login (ADR-044): no control agent answers for it`); return 2; }
       expected.push(p);
     }
   }

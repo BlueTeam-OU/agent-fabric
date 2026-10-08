@@ -109,9 +109,20 @@ def host_registry_findings(root: str) -> list[str]:
         if dest in seen:
             findings.append(f"{where}: hosts {seen[dest]} and {hid} share the ssh destination {dest!r}; one destination is one host")
         seen[dest] = hid
-    for login, hid in sorted((reg.get("placement") or {}).items()):
+    placement = reg.get("placement") or {}
+    for login, hid in sorted(placement.items()):
         if hid not in hosts:
             findings.append(f"{where}: placement of {login!r} names host {hid!r}, which is not registered")
+    # A login's kind (ADR-044 §5 rule 1): human or agent, and only for a placed login.
+    kinds = reg.get("kinds", {})
+    if not isinstance(kinds, dict):
+        findings.append(f"{where}: kinds is not an object of login -> kind")
+        kinds = {}
+    for login, kind in sorted(kinds.items()):
+        if kind not in ("agent", "human"):
+            findings.append(f"{where}: kinds[{login!r}] is {kind!r}; a kind is agent or human")
+        if login not in placement:
+            findings.append(f"{where}: kinds names {login!r}, which is not placed")
     return findings
 
 

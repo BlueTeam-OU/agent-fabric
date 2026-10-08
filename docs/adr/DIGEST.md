@@ -47,6 +47,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 | your job list; fabric-jobs; the next job and a fresh session | ADR-037 |
 | an agent's key and secrets; the store; provision; recovery; backup | ADR-038 |
 | the agent id; UUIDv7; renaming a login | ADR-039 |
+| a human login; identity kinds; the deck's operator | ADR-044 |
 | which language a tool is written in; the bash size limit and allowlist; porting a script; gh.py, git.py | ADR-040 |
 | your GZCoord history; the episodic journal; fabric-history | ADR-041 |
 | signed store commits; trusted base; trust-base; a refused store | ADR-042 |
@@ -912,3 +913,16 @@ its record disagree, the record wins. Look it up, never read it whole:
   rules 1 and 2 in force (§5 rule 6).
 - Keywords: mods, plugin, managed settings, allowManagedModsOnly,
   disableSideloadFlags, prependPlugins, sec-default, guard, redaction.
+
+### ADR-044 — Identity kinds: an agent and a human (Proposed)
+
+- A placed login is an `agent` or a `human` (`runtime/hosts/registry.json`
+  `kinds`); both are Linux logins with an agent id, a store and a
+  certified key (§5 rules 1–2).
+- A human runs no session, launcher or agentd and has no Claude account;
+  it holds the relay credential its reads and messages need, and no
+  control-plane signing key but the owner's own (§5 rules 2–3).
+- `fabric-ctl all` asks only agents; a human enters an account only by
+  moveto (§5 rules 4–5).
+- Keywords: identity, kind, human, operator, Fleet Deck, herdr, deck,
+  moveto, placement.

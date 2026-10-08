@@ -396,6 +396,15 @@
       "date": "2026-10-04",
       "pillar": "P1",
       "amendments": 0
+    },
+    {
+      "number": "044",
+      "file": "ADR-044-identity-kinds-agent-and-human.md",
+      "title": "Identity kinds: an agent and a human",
+      "status": "Proposed",
+      "date": "2026-10-08",
+      "pillar": "P1",
+      "amendments": 0
     }
   ]
 }

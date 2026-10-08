@@ -1237,6 +1237,17 @@ def case_the_host_registry_is_one_host_per_id_and_placements_are_known() -> None
         write(reg, registry({"local": L}, {"a": "elsewhere"}))
         code, out = run_lint(fabric)
         assert code == 1 and "names host 'elsewhere', which is not registered" in out, f"an unknown placement passed:\n{out}"
+        # ADR-044: a placed login's kind is agent or human.
+        write(reg, json.dumps({"version": 1, "hosts": {"local": L}, "placement": {"a": "local", "deck": "local"},
+                               "kinds": {"deck": "human"}}))
+        code, out = run_lint(fabric)
+        assert code == 0, f"a human kind was refused:\n{out}"
+        write(reg, json.dumps({"version": 1, "hosts": {"local": L}, "placement": {"a": "local"}, "kinds": {"a": "robot"}}))
+        code, out = run_lint(fabric)
+        assert code == 1 and "'robot'" in out, f"a kind that is neither agent nor human passed:\n{out}"
+        write(reg, json.dumps({"version": 1, "hosts": {"local": L}, "placement": {"a": "local"}, "kinds": {"ghost": "human"}}))
+        code, out = run_lint(fabric)
+        assert code == 1 and "'ghost', which is not placed" in out, f"a kind for an unplaced login passed:\n{out}"
         write(reg, registry({"Bad_Host": L}, {}))
         code, out = run_lint(fabric)
         assert code == 1 and "Bad_Host" in out, f"an id that is not a short hostname passed:\n{out}"

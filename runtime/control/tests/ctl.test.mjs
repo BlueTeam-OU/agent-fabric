@@ -9,7 +9,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import crypto from 'node:crypto';
 import zlib from 'node:zlib';
 import { scratch } from '../../../tests/scratch.mjs';
-import { parseArgs, rows, table, writeBundles, manifestAgent, partKey, keygen, originMain, signingKey, storeDir } from '../ctl.mjs';
+import { parseArgs, rows, table, writeBundles, manifestAgent, partKey, keygen, originMain, signingKey, storeDir, placements } from '../ctl.mjs';
 import { publicKeyFrom, privateKeyFrom, generateOperatorKey, verifyRequest, ACTION_TTL_MAX_S } from '../sign.mjs';
 import { pinnedVersion, UPGRADE_BUDGET_S, FABRIC_UPGRADE_BUDGET_S } from '../upgrade.mjs';
 import { FABRIC_ROOT, whoami } from '../gzcoord.mjs';
@@ -760,4 +760,14 @@ test('states --follow: a row goes unknown while the relay itself is unreachable 
   await done;
   assert.deepEqual(out, ['working', 'unknown'], 'stale during the outage, not after it');
   assert.equal(err.length, 1, 'the outage is said once');
+});
+
+test('a human login (ADR-044) is placed with its kind; all asks only agents, and naming one is refused', async () => {
+  const f = path.join(scratch('reg-'), 'registry.json');
+  fs.writeFileSync(f, JSON.stringify({ hosts: { [H]: { operator: ME.agent } }, placement: { 'db-admin': H, 'deck-human': H },
+    kinds: { 'deck-human': 'human' } }));
+  assert.deepEqual(placements(f).map(p => [p.login, p.kind]), [['db-admin', 'agent'], ['deck-human', 'human']]);
+  const r = await run('http://127.0.0.1:9', f, ['deck-human', 'ping', '--timeout', '1']);
+  assert.equal(r.status, 2, r.err);
+  assert.match(r.err, /deck-human is a human login \(ADR-044\)/);
 });

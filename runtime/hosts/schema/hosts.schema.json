@@ -75,6 +75,16 @@
         "type": "string",
         "pattern": "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$"
       }
+    },
+    "kinds": {
+      "description": "A placed login's kind when it is not an agent (ADR-044): human. A login not named here is an agent.",
+      "type": "object",
+      "additionalProperties": {
+        "enum": [
+          "agent",
+          "human"
+        ]
+      }
     }
   }
 }
