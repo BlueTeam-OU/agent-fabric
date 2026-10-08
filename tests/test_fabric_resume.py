@@ -11,7 +11,6 @@ process refuses, naming its pid, and the launcher it execs holds it;
 --print takes none."""
 from __future__ import annotations
 
-import fcntl
 import json
 import os
 import subprocess
