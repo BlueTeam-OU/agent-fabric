@@ -58,13 +58,19 @@ sudo are in the loop.
 | `keys` | each synced key's name, presence and a twelve-hex-digit sha256 prefix, and whether the key git signs with has a usable secret in the keyring — never a value |
 | `fabric` | head, branch, distance behind `origin/main`, dirty |
 | `session` | Claude processes as the login; whether one is planning |
-| `presence` | whether a session is running — the one public op (ADR-030) |
+| `presence` | whether a session is running, a public op (ADR-030) |
 | `host` | load, memory and swap, block devices, held leases, the largest processes — the same numbers from every daemon on a host, collapsed by host (ADR-010) |
+| `disk` | what the account's home holds, by its largest directories, one bounded scan shared by the requests that arrive while it runs |
 | `script` | the letters of the notes, the visible text, stored thinking and the locale worker's transcripts, by script and language, counts only (ADR-027) |
 | `recall` | which corpus paths the account's sessions read over 24 h — index, slice, charter — paths and counts only |
 | `tokens` | the login's own spend per model over a window, direct-path and broker models summed apart; the only place a login's share of a Claude account can be read |
 | `memory` | the drain: the account's own harvest, in bundles (rule 9) |
 | `accounts` | the Claude accounts this login observes and their usage windows (ADR-031) |
+| `jobs` | the account's open jobs (ADR-037) |
+| `local` | per working copy, the per-clone harness settings: env key names and which are synced secrets, permission rules by count — never a value (ADR-038) |
+| `tools` | the account's tools report: the tools each project needs that are missing, with the report's age, written by the daemon at start and hourly from `fabric-tools --all --json` |
+| `pool-list` | a role's open pool of jobs, a public op (ADR-037) |
+| `pool-claim` | a claim of one pool job for the asker's own list, a public op, checked against the role the asker's own daemon reports (ADR-037) |
 | `status` | identity, usage, keys, fabric and session together |
 
 - **The coordinator's side** is `bin/fabric-ctl <login|all> <op>`: one
@@ -118,12 +124,14 @@ proof.
    GZCOORD/1 messages.
 3. The op set is closed (`ops.mjs` `OPS`). No field of a request ever
    reaches a shell. A read op takes no argument but `tokens`'s `days`, a
-   number capped at 90; an action takes only its own closed set of
+   number capped at 90, and the pool's closed set (`pool.mjs`
+   `checkPoolArgs`: a role, a pool id, a topic, a working copy); an action takes only its own closed set of
    arguments (`upgrade.mjs`, `secrets.mjs` and `jobs.mjs` `checkArgs`,
    `checkJobArgs`).
 4. A daemon answers a request only when its `from` is a host operator's
    address as `runtime/hosts/registry.json` places it — re-read for every
-   record — or, for a public op (`PUBLIC_OPS`, `presence` alone), any
+   record — or, for a public op (`PUBLIC_OPS`: `presence`, `pool-list` and
+   `pool-claim`), any
    placed account's address; its `ts + ttl_s` is not past; and its id is
    not among the last 256 seen. An op is public only if its answer is
    nothing a relay-token holder could not already obtain by writing an
@@ -281,3 +289,4 @@ The body above reads current; each change's full note is in [history/ADR-029-ame
 | 2026-10-07 | Session state on the control channel | §5 rule 16: the session-state hook, agentd's `state` record on change and heartbeat, `fabric-ctl states [--follow]` |
 | 2026-10-07 | secrets-selftest proves an account's own secrets | §5 rule 17: the `secrets-selftest` action, a canary set, used through `fabric-secret-run` and removed in the account's own store |
 | 2026-10-08 | The state record names the last session and whether it can be resumed | §5 rule 16: `last_session` and `resumable`, no path |
+| 2026-10-08 | The op table follows ops.mjs: disk, jobs, local, the pool and tools; three public ops | §2 table, §5 rules 3 and 4: rows for the read ops added since; the pool's arguments; `presence`, `pool-list` and `pool-claim` public |

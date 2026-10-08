@@ -96,3 +96,15 @@ to know before it acts whether there is a session to bring back and,
 after, whether the same one came back. The plan asked for the working
 copy too; it stays off the record, which carries no path: fabric-resume
 finds the directory from the transcript itself.
+
+### Amendment 2026-10-08 — The op table follows ops.mjs: disk, jobs, local, the pool and tools; three public ops
+
+The table had fallen behind `ops.mjs`: `disk`, `jobs`, `local` and the
+pool's ops were added by later PRs (ADR-037, ADR-038) without a row here,
+and python-dev-03's #123 adds `tools`, which it found unrecorded. Rule 4
+still said `presence` was the only public op after ADR-037 rule 9 made a
+role's pool listable and claimable by any placed account, for itself; a
+pool claim is checked against the role the claimant's own daemon reports,
+so it names nothing a relay-token holder could not already read. The
+actions (`ACTION_OPS`: upgrade, secrets-sync, jobs-add, local-prune,
+secrets-selftest, pool-add) are ADR-009's and the records that added them.
