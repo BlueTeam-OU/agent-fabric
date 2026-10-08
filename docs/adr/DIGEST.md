@@ -429,7 +429,7 @@ its record disagree, the record wins. Look it up, never read it whole:
   (§5 rule 6).
 - A 2026-10-05 — eight or more work commits arm on the gate alone, a
   security boundary and over sixteen included (§5 rule 4).
-- A 2026-10-06 — one open PR per repository (§5 rule 2).
+- A 2026-10-06 — one open PR per agent and repository (§5 rule 2).
 - A 2026-10-08 — every commit declares its `Kind:`; the commit-msg
   hook refuses one without it (§5 rule 3).
 - Keywords: pull request, PR, arm, merge, band, work commits, Answers,

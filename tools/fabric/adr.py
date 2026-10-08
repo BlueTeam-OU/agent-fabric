@@ -7,8 +7,9 @@
     adr.py amend <NNN> "<title>"       the history note stub and the table row (the DIGEST bullet is yours)
     adr.py lookup [<word>...]          DIGEST entries mentioning every word; none: the table
                                        of which record answers what (fabric-adr lookup)
-    adr.py range-check <base> [<head>] | <base>..<head>
-                                       each commit that edits an ADR's body records it
+    adr.py range-check [<base> [<head>] | <base>..<head>]
+                                       each commit that edits an ADR's body records it;
+                                       no range: CI's base..head, else origin/main..HEAD (fabric-adr range-check)
 
 The engine is the first managed project's (its documentation history
 model, recorded in its own ADRs), with what

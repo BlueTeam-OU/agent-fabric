@@ -4,7 +4,7 @@
 **Status:** Accepted
 **Ratified:** owner, 2026-09-27, by arming agent-fabric #52 (ratification by merge, the owner's rule of 2026-09-27)
 **Decision Makers:** the owner; drafted by fabric-coordinator
-**Scope:** identities/prompt/team.md (the PR rules every session reads); runtime/github/pr-gate.sh, runtime/github/commit-class.sh, runtime/github/pr-review-status.sh; policies/ban_generated_by_attribution.sh and policies/githooks/commit-msg; .github/workflows/ci.yml; tools/fabric/github-repo-settings.sh and the GitHub-side settings of gzapi-org/agent-fabric
+**Scope:** identities/prompt/team.md (the PR rules every session reads); runtime/github/pr-gate.sh, runtime/github/commit-class.sh, runtime/github/pr-review-status.sh; tools/fabric/guards/ban_generated_by_attribution.py and policies/githooks/commit-msg; .github/workflows/ci.yml; tools/fabric/github-repo-settings.sh and the GitHub-side settings of gzapi-org/agent-fabric
 **Pillar:** P3
 
 ## 1. Context and Problem
@@ -110,9 +110,13 @@ not on a pipe's exit status.
    any other commit without the trailer; a merge declares nothing
    (A 2026-10-08). Work commits are counted by
    `runtime/github/commit-class.sh` from the declaration: a merge is a
-   merge; a revert and the commit it reverts, both in the range, count in
-   no column. A commit with no `Kind:` (made before the rule, or without
-   the hook) is read as before: an `Answers:` trailer is a review fix; a
+   merge; `Kind: work` is work; `Kind: review-fix` is a fix, unless what
+   it answers is another pull request's review, when it is this one's
+   work; a revert and the commit it reverts, both in the range, count in
+   no column. The hook is the rule's only check until the branches opened
+   before it have merged: a commit that reaches a branch without the
+   hook is not refused in CI yet. A commit with no `Kind:` (made before
+   the rule, or without the hook) is read as before: an `Answers:` trailer is a review fix; a
    subject that names a review and says it answers one is a fix;
    everything else is work.
 4. Eight or more work commits: arm once the gate is met, without the
