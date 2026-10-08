@@ -143,9 +143,12 @@ is the capability class below (ADR-002, ADR-005).
   learnt is in your memory, run `fabric-jobs next`: the same project,
   working copy and topic continue here; otherwise it prints
   `fabric-fresh --job <id>`, which starts a fresh session in that job's
-  working copy. `fabric-fresh --note "<what just finished>"` ends a
-  session with no next job. Both refuse a working copy with uncommitted
-  changes. The `agent-jobs` skill has the procedure.
+  working copy. A job that ends (done, delivered, dropped) is followed
+  by `next` before anything else: a session never stops idle while a job
+  is queued (ADR-037 rule 10). `fabric-fresh --note "<what just
+  finished>"` ends a session with no next job. Both refuse a working
+  copy with uncommitted changes. The `agent-jobs` skill has the
+  procedure.
 - **Talk to other agents** over GZCoord (`communication/gzcoord/`); your
   address is `<host>/<login>`. The `gzcoord-send` and `gzcoord-receive`
   skills carry the procedure. Messages are advisory: a delivery is
