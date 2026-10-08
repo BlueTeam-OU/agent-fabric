@@ -663,15 +663,16 @@ its record disagree, the record wins. Look it up, never read it whole:
   `synced` exits 1 (§5 rules 4–5).
 - Sign-ins are named by fingerprint everywhere; `fabric-accounts
   templates` maps them (§5 rule 6).
-- An observer on the coordinator's login keeps one `/login` per account,
-  read every four hours by the harness's own `/usage` — never a
-  hand-made refresh (§5 rule 7, §3).
+- An optional observer keeps one `/login` per account, read by the
+  harness's own `/usage`, never a hand-made refresh (§5 rule 7).
 - A 2026-09-27 — `--no-sync` sends no action; the login applies the move at its
   next sync (§5 rule 4).
 - A 2026-09-29 — on the coordinator's store, a template is its entry and an
   assignment writes the token into the login's store (§5 rules 1–2).
 - A 2026-09-30 — Doppler retired: the store entry and the store write are the only ones (§5 rules 1, 2, 4).
 - A 2026-10-07 — the starting account is chosen at onboarding (§5 rule 8).
+- A 2026-10-08 — a setup-token account's windows come from one
+  inference reply's rate-limit headers (§5 rule 9).
 - Keywords: Claude account, subscription, setup-token, /login, template,
   claude-accounts, CLAUDE_CODE_OAUTH_TOKEN, fabric-accounts, assign,
   secrets-sync, fingerprint, usage windows, observer, /usage.
