@@ -27,6 +27,8 @@ import pwd
 import subprocess
 import sys
 import tempfile
+from git_env import git_env, scrub_process_env  # noqa: E402 — tests/, the script's own directory
+scrub_process_env()
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 UNDER_TEST = os.path.join(ROOT, "runtime", "github", "pr-sessions.sh")
@@ -107,7 +109,7 @@ def main() -> int:
         clone, fixtures = f"{sandbox}/{clone_name}", f"{sandbox}/fixtures"
         for d in (clone, f"{sandbox}/bin", fixtures, f"{sandbox}/state-none"):
             os.makedirs(d)
-        subprocess.run(["git", "-C", clone, "init", "-q"], check=True, timeout=30, stderr=subprocess.DEVNULL)
+        subprocess.run(["git", "-C", clone, "init", "-q"], check=True, timeout=30, stderr=subprocess.DEVNULL, env=git_env())
         with open(f"{sandbox}/bin/gh", "w", encoding="utf-8") as fh:
             fh.write(GH_MOCK.replace("{python}", sys.executable, 1))
         os.chmod(f"{sandbox}/bin/gh", 0o755)
@@ -256,11 +258,11 @@ def main() -> int:
         # A clone named after its repository is every login's default clone:
         # its name is no session's, and an older branch under it is not mine.
         subprocess.run(["git", "-C", clone, "remote", "add", "origin", f"git@example.com:org/{clone_name}.git"],
-                       check=True, timeout=30)
+                       check=True, timeout=30, env=git_env())
         write("pr-list.json", [{"number": 733, "state": "OPEN", "isDraft": False,
                                 "headRefName": f"{host}/{clone_name}/fix/under-the-repo-name", "updatedAt": ago(hours=1)}])
         check("a branch named for the repository is no session's", "#733" not in run("--no-threads")[1])
-        subprocess.run(["git", "-C", clone, "remote", "remove", "origin"], check=True, timeout=30)
+        subprocess.run(["git", "-C", clone, "remote", "remove", "origin"], check=True, timeout=30, env=git_env())
         default_pr_list()
 
         print("pr-sessions: pool filters")

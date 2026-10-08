@@ -28,6 +28,8 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TOOL = os.path.join(ROOT, "tools", "fabric", "secret_store.py")
 sys.path.insert(0, os.path.dirname(TOOL))
 import secret_store  # noqa: E402 — the id helpers, beside the CLI under test
+from git_env import scrub_process_env  # noqa: E402 — tests/, the script's own directory
+scrub_process_env()
 SECRET = "s3cr3t-value-never-printed"
 
 

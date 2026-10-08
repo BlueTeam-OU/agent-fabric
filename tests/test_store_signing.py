@@ -22,6 +22,8 @@ TOOL = os.path.join(ROOT, "tools", "fabric", "secret_store.py")
 SYNC = os.path.join(ROOT, "tools", "fabric", "secrets_sync.py")
 sys.path.insert(0, os.path.dirname(TOOL))
 import secret_store  # noqa: E402 — the id helpers, beside the CLI under test
+from git_env import scrub_process_env  # noqa: E402 — tests/, the script's own directory
+scrub_process_env()
 
 
 def main() -> int:
@@ -40,25 +42,34 @@ def main() -> int:
         # set asks the registry which names are managed (secretstore/reserved.py).
         os.makedirs(os.path.join(fabric, "projects"))
         shutil.copy(os.path.join(ROOT, "projects", "registry.json"), os.path.join(fabric, "projects", "registry.json"))
-        fab_git = ["git", "-C", fabric, "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"]
-        subprocess.run(["git", "init", "-q", "-b", "main", fabric], check=True)
-
-        def publish() -> None:
-            """What certify wrote, merged: the fabric's origin/main moves."""
-            for a in (["add", "-A"], ["commit", "-q", "--allow-empty", "-m", "identities"],
-                      ["update-ref", "refs/remotes/origin/main", "HEAD"]):
-                subprocess.run(fab_git + a, check=True, capture_output=True)
-        remote = os.path.join(tmp, "child-remote.git")
-        subprocess.run(["git", "init", "-q", "--bare", "-b", "main", remote], check=True)
 
         def role(name: str) -> dict:
             h, g = os.path.join(tmp, name), os.path.join(tmp, f"{name}-gnupg")
             os.makedirs(h)
             os.makedirs(g, mode=0o700)
             gnupgs.append(g)
-            return {**{k: v for k, v in os.environ.items() if not k.startswith(("AGENT_FABRIC_", "GITHUB_", "CLAUDE"))},
+            # No inherited GIT_* (a hook's GIT_DIR would aim every git call
+            # here at its repository) and no machine /etc/gitconfig: a scratch
+            # role reads only its own git config.
+            return {**{k: v for k, v in os.environ.items() if not k.startswith(("AGENT_FABRIC_", "GITHUB_", "CLAUDE", "GIT_"))},
                     "HOME": h, "GNUPGHOME": g, "AGENT_FABRIC_ROOT": fabric,
-                    "AGENT_FABRIC_SECRET_STORE": os.path.join(h, "store"), "GIT_CONFIG_GLOBAL": os.path.join(h, ".gitconfig")}
+                    "AGENT_FABRIC_SECRET_STORE": os.path.join(h, "store"), "GIT_CONFIG_GLOBAL": os.path.join(h, ".gitconfig"),
+                    "GIT_CONFIG_NOSYSTEM": "1"}
+
+        # The scratch repositories are built in a role's env too, never the
+        # runner's: its global init.templateDir or core.hooksPath would
+        # shape them.
+        fixture = role("fixture")
+        fab_git = ["git", "-C", fabric, "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"]
+        subprocess.run(["git", "init", "-q", "-b", "main", fabric], check=True, env=fixture)
+
+        def publish() -> None:
+            """What certify wrote, merged: the fabric's origin/main moves."""
+            for a in (["add", "-A"], ["commit", "-q", "--allow-empty", "-m", "identities"],
+                      ["update-ref", "refs/remotes/origin/main", "HEAD"]):
+                subprocess.run(fab_git + a, check=True, capture_output=True, env=fixture)
+        remote = os.path.join(tmp, "child-remote.git")
+        subprocess.run(["git", "init", "-q", "--bare", "-b", "main", remote], check=True, env=fixture)
 
         parent, child, stranger = role("parent"), role("child"), role("stranger")
 
@@ -335,7 +346,7 @@ def main() -> int:
         nstore = nkid["AGENT_FABRIC_SECRET_STORE"]
         run(nkid, "init", "--agent-id", new_id)
         p = run(nkid, "bundle")
-        subprocess.run(["git", "init", "-q", "--bare", "-b", "main", os.path.join(tmp, "new-remote.git")], check=True)
+        subprocess.run(["git", "init", "-q", "--bare", "-b", "main", os.path.join(tmp, "new-remote.git")], check=True, env=fixture)
         sc = subprocess.run([sys.executable, TOOL, "seed-child", new_id, "--remote",
                              os.path.join(tmp, "new-remote.git")], env=parent, input=p.stdout, capture_output=True, text=True)
         nmirror = os.path.join(tmp, "parent", ".local", "share", "agent-fabric", "children", new_id)
@@ -405,7 +416,7 @@ def main() -> int:
             return before
 
         def unforge(remote_repo: str, head: str) -> None:
-            subprocess.run(["git", "-C", remote_repo, "update-ref", "refs/heads/main", head], check=True)
+            subprocess.run(["git", "-C", remote_repo, "update-ref", "refs/heads/main", head], check=True, env=fixture)
 
         # F5, and the refusal's temporary name: store push takes the remote
         # only as a verified fast-forward; a directory where the old fixed
@@ -522,7 +533,7 @@ def main() -> int:
 
         # A risk: writers not known yet is no refusal. late is on no main.
         late_remote = os.path.join(tmp, "late-remote.git")
-        subprocess.run(["git", "init", "-q", "--bare", "-b", "main", late_remote], check=True)
+        subprocess.run(["git", "init", "-q", "--bare", "-b", "main", late_remote], check=True, env=fixture)
         git(late, lstore, "remote", "add", "origin", late_remote)
         git(late, lstore, "push", "-q", "origin", "HEAD:main")
         forge_on(late_remote, late)
@@ -535,13 +546,13 @@ def main() -> int:
         # bundle: the mirror is rebuilt from the verified remote, the bundle's
         # unsigned commit refused, nothing pushed.
         new_remote = os.path.join(tmp, "new-remote.git")
-        rhead = subprocess.run(["git", "-C", new_remote, "rev-parse", "main"], capture_output=True, text=True).stdout.strip()
+        rhead = subprocess.run(["git", "-C", new_remote, "rev-parse", "main"], env=fixture, capture_output=True, text=True).stdout.strip()
         shutil.rmtree(nmirror)
         p = subprocess.run([sys.executable, TOOL, "seed-child", new_id, "--remote", new_remote],
                            env=parent, input=forged_bundle(nstore, nkid), capture_output=True, text=True)
         check("a deleted mirror of a child on main takes no base from a bundle: its unsigned commit refused, nothing pushed",
               p.returncode == 1 and "refused: not signed" in p.stderr
-              and subprocess.run(["git", "-C", new_remote, "rev-parse", "main"], capture_output=True, text=True).stdout.strip()
+              and subprocess.run(["git", "-C", new_remote, "rev-parse", "main"], env=fixture, capture_output=True, text=True).stdout.strip()
               == rhead, p.stderr)
         check("…the mirror rebuilt from the child's remote, verified from the root, its base that head",
               git(parent, nmirror, "config", "--get", "agent-fabric.trustedbase").stdout.strip() == rhead

@@ -19,6 +19,8 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from git_env import git_env, scrub_process_env  # noqa: E402 — tests/, the script's own directory
+scrub_process_env()
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
@@ -75,8 +77,7 @@ def build_fabric(root: str) -> None:
 
 def build_workspace(ws: str, remote: str | None = "git@example.com:org/demo.git") -> None:
     os.makedirs(ws, exist_ok=True)
-    env = {**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t",
-           "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t"}
+    env = git_env()
     if remote and not os.path.exists(os.path.join(ws, ".git")):
         subprocess.run(["git", "init", "-q", "."], cwd=ws, env=env, check=True)
         subprocess.run(["git", "remote", "add", "origin", remote], cwd=ws, env=env, check=True)
@@ -192,7 +193,7 @@ def test_role_changes_agent_does_not(f: Fixture) -> None:
 
 
 def test_nothing_committed_is_written(f: Fixture) -> None:
-    proc = subprocess.run(["git", "status", "--porcelain"], cwd=f.ws, capture_output=True, text=True)
+    proc = subprocess.run(["git", "status", "--porcelain"], cwd=f.ws, capture_output=True, text=True, env=git_env())
     tracked_dirty = [l for l in proc.stdout.splitlines() if not l.startswith("??")]
     assert not tracked_dirty, proc.stdout
     assert not os.path.exists(os.path.join(f.root, "memory", "role-history.jsonl"))
@@ -385,8 +386,7 @@ def test_activation_works_inside_a_linked_worktree(f: Fixture, tmp: str) -> None
     the common dir git actually reads."""
     main_repo = os.path.join(tmp, "main-repo")
     os.makedirs(main_repo)
-    env = {**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t",
-           "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t"}
+    env = git_env()
     git = lambda *a, cwd=main_repo: subprocess.run(["git", "-c", "commit.gpgsign=false", *a], cwd=cwd, capture_output=True, text=True, env=env)  # noqa: E731
     git("init", "-q", ".")
     with open(os.path.join(main_repo, "seed.txt"), "w", encoding="utf-8") as fh:
@@ -398,7 +398,7 @@ def test_activation_works_inside_a_linked_worktree(f: Fixture, tmp: str) -> None
     proc = f.run("flutter-dev", "--force", workspace=linked)
     assert proc.returncode == 0, proc.stdout + proc.stderr
     resolved = subprocess.run(["git", "rev-parse", "--git-path", "info/exclude"], cwd=linked,
-                              capture_output=True, text=True).stdout.strip()
+                              capture_output=True, text=True, env=git_env()).stdout.strip()
     target = resolved if os.path.isabs(resolved) else os.path.join(linked, resolved)
     with open(target, encoding="utf-8") as fh:
         assert ".claude/skills/widget-testing" in fh.read()

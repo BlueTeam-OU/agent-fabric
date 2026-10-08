@@ -9,6 +9,8 @@ import os
 import subprocess
 import sys
 import tempfile
+from git_env import git_env, scrub_process_env  # noqa: E402 — tests/, the script's own directory
+scrub_process_env()
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 HOOK = os.path.join(ROOT, "runtime", "claude-code", "hooks", "memory-write-check.py")
@@ -82,7 +84,7 @@ def main() -> int:
         # reaches the harvester's own sys.exit and nothing earlier.
         broken = os.path.join(tmp, "broken-fabric")
         os.makedirs(broken)
-        archive = subprocess.run(["git", "-C", ROOT, "archive", "HEAD"], capture_output=True, check=True).stdout
+        archive = subprocess.run(["git", "-C", ROOT, "archive", "HEAD"], capture_output=True, check=True, env=git_env()).stdout
         subprocess.run(["tar", "-x", "-C", broken], input=archive, check=True)
         os.remove(os.path.join(broken, "identities", "schemas", "claims.schema.json"))
         for f in ("runtime/claude-code/hooks/memory-write-check.py",):

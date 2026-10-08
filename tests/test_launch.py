@@ -24,6 +24,8 @@ from contextlib import redirect_stderr, redirect_stdout
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(HERE, "tools", "fabric"))
 import launch  # noqa: E402
+from git_env import git_env, scrub_process_env  # noqa: E402 — tests/, the script's own directory
+scrub_process_env()
 
 SHIM = os.path.join(HERE, "runtime", "openrouter", "launch")
 MODULE = os.path.join(HERE, "tools", "fabric", "launch.py")
@@ -137,7 +139,7 @@ def main() -> int:
         repo, other = f"{tmp}/repo", f"{tmp}/other"
         for d in (repo, other):
             os.makedirs(d)
-            subprocess.run(["git", "init", "-q", d], check=True, timeout=30)
+            subprocess.run(["git", "init", "-q", d], check=True, timeout=30, env=git_env())
         os.makedirs(f"{repo}/sub")
         saved = dict(os.environ)
         os.environ.clear()

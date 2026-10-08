@@ -19,6 +19,8 @@ import subprocess
 import sys
 import tempfile
 import time
+from git_env import git_env, scrub_process_env  # noqa: E402 — tests/, the script's own directory
+scrub_process_env()
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ENROLL = os.path.join(ROOT, "runtime", "provisioning", "secrets", "store-enroll.sh")
@@ -54,12 +56,12 @@ def main() -> int:
         # origin/main (ADR-042 rule 2); what enrolment certifies counts once
         # published there, as a merged identities/keys/ PR is.
         fab_git = ["git", "-C", fab, "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"]
-        subprocess.run(["git", "init", "-q", "-b", "main", fab], check=True, timeout=30, capture_output=True)
+        subprocess.run(["git", "init", "-q", "-b", "main", fab], check=True, timeout=30, capture_output=True, env=git_env())
 
         def publish() -> None:
             for a in (["add", "-A"], ["commit", "-q", "--allow-empty", "-m", "identities"],
                       ["update-ref", "refs/remotes/origin/main", "HEAD"]):
-                subprocess.run(fab_git + a, check=True, timeout=30, capture_output=True)
+                subprocess.run(fab_git + a, check=True, timeout=30, capture_output=True, env=git_env())
         # The two homes are born apart: an id's time is its home's creation
         # to the millisecond, and two homes made in one millisecond could not
         # tell a child's birth read on its host from one read on the parent.
@@ -230,16 +232,16 @@ def main() -> int:
         check("a re-run after the parent's put takes it and converges, never pushing the account's older head",
               rc == 0 and "GH_TOKEN" in subprocess.run(["git", "--git-dir", f"{t}/remotes/agent-fabric-secrets-{kid}.git", "ls-tree",
                                                          "-r", "--name-only", "main"], stdout=subprocess.PIPE, text=True,
-                                                        timeout=60).stdout, f"rc={rc}\n{out}")
+                                                        timeout=60, env=git_env()).stdout, f"rc={rc}\n{out}")
         # A mirror that cannot be brought up to date fails the enrolment: a
         # stale mirror read as current is the parent's wrong view of the
         # store (#63's carried items). The second run above is the control.
         mirror = f"{t}/parent/.local/share/agent-fabric/children/{kid}"
         url = subprocess.run(["git", "-C", mirror, "remote", "get-url", "origin"], stdout=subprocess.PIPE,
-                             text=True, timeout=60, check=True).stdout.strip()
-        subprocess.run(["git", "-C", mirror, "remote", "set-url", "origin", f"{t}/remotes/gone.git"], timeout=60, check=True)
+                             text=True, timeout=60, check=True, env=git_env()).stdout.strip()
+        subprocess.run(["git", "-C", mirror, "remote", "set-url", "origin", f"{t}/remotes/gone.git"], timeout=60, check=True, env=git_env())
         rc, out = P(ENROLL, "kid")
-        subprocess.run(["git", "-C", mirror, "remote", "set-url", "origin", url], timeout=60, check=True)
+        subprocess.run(["git", "-C", mirror, "remote", "set-url", "origin", url], timeout=60, check=True, env=git_env())
         check("a mirror that cannot be brought up to date is a failure, not a note",
               rc == 1 and "kid: its mirror could not be brought up to date" in out
               and not re.search(r"kid: agent .*mirrored", out), f"rc={rc}\n{out}")
@@ -255,7 +257,7 @@ def main() -> int:
         os.remove(f"{pr}/hooks/pre-receive")
         rc2, out2 = store("assign", "work", "kid")
         tree = subprocess.run(["git", "--git-dir", pr, "ls-tree", "-r", "--name-only", "main"], stdout=subprocess.PIPE,
-                              stderr=subprocess.DEVNULL, text=True, timeout=60).stdout
+                              stderr=subprocess.DEVNULL, text=True, timeout=60, env=git_env()).stdout
         check("a retried assign pushes the record a failed push left behind",
               f"env/CLAUDE_ASSIGNED_{kid.replace('-', '').upper()}.gpg" in tree.split("\n") and rc == 1 and rc2 == 0,
               f"rc={rc}/{rc2}\n{out}\n{out2}")

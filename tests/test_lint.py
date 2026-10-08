@@ -43,6 +43,8 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from git_env import git_env, scrub_process_env  # noqa: E402 — tests/, the script's own directory
+scrub_process_env()
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
@@ -400,8 +402,8 @@ def case_a_sibling_working_copy_is_linted_unasked() -> None:
         _write_license_layout(fabric, {"version": 1, "projects": {
             "agent-fabric": {"license": "Apache-2.0", "remotes": ["git@github.com:gzapi-org/agent-fabric.git"]},
             "demo": {"license": "Apache-2.0", "remotes": ["git@example.com:org/demo.git"]}}}, REUSE_OK)
-        subprocess.run(["git", "-C", wc, "init", "-q"], check=True)
-        subprocess.run(["git", "-C", wc, "remote", "add", "origin", "git@example.com:org/demo.git"], check=True)
+        subprocess.run(["git", "-C", wc, "init", "-q"], check=True, env=git_env())
+        subprocess.run(["git", "-C", wc, "remote", "add", "origin", "git@example.com:org/demo.git"], check=True, env=git_env())
         proc = subprocess.run([sys.executable, LINT, "--fabric", fabric], capture_output=True, text=True)
         assert proc.returncode != 0 and "STALE WORDING" in proc.stdout + proc.stderr, f"the sibling's drifted index passed unasked:\n{proc.stdout}{proc.stderr}"
         proc = subprocess.run([sys.executable, LINT, "--fabric", fabric, "--no-siblings"], capture_output=True, text=True)
@@ -1402,8 +1404,8 @@ def case_a_cited_fabric_document_must_resolve() -> None:
               "# a project's docs/scratchpad/decision.md is an example\n")
         write(os.path.join(fabric, "communication", "gzcoord", "README.md"), "see docs/RELAY.md beside me\n")
         write(os.path.join(fabric, "docs", "live-checks", "2026-09-17-x.md"), "cites docs/also-gone.md\n")
-        subprocess.run(["git", "-C", fabric, "init", "-q"], check=True)
-        subprocess.run(["git", "-C", fabric, "add", "-A"], check=True)
+        subprocess.run(["git", "-C", fabric, "init", "-q"], check=True, env=git_env())
+        subprocess.run(["git", "-C", fabric, "add", "-A"], check=True, env=git_env())
         code, out = run_lint(fabric)
         assert "tools/fabric/cites.py: cites docs/gone.md, which does not exist" in out, out
         assert "tools/fabric/cites.py: cites agent-fabric ADR-042, which does not exist" in out, out
@@ -1422,7 +1424,7 @@ def case_arm_boundary_cases_only_leave_retired() -> None:
     lint = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(lint)
     with tempfile.TemporaryDirectory() as root:
-        g = lambda *a: subprocess.run(["git", "-C", root, *a], check=True, capture_output=True)
+        g = lambda *a: subprocess.run(["git", "-C", root, *a], check=True, capture_output=True, env=git_env())
         rel = os.path.join("projects", "demo", "integration", "gh", "arm.json")
         def arm(cases, retired=None, paths="^src/|key", exempt="^docs/", changes=None, waiver_role=None):
             b = {"paths": paths, "exempt": exempt, "cases": cases}
@@ -1589,7 +1591,7 @@ def case_bash_over_150_lines_needs_the_allowlist() -> None:
     lint = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(lint)
     with tempfile.TemporaryDirectory() as root:
-        g = lambda *a: subprocess.run(["git", "-C", root, *a], check=True, capture_output=True)
+        g = lambda *a: subprocess.run(["git", "-C", root, *a], check=True, capture_output=True, env=git_env())
         long = "#!/usr/bin/env bash\n" + "echo x\n" * 151
         write(os.path.join(root, "bin", "long-tool"), long)                 # by shebang
         write(os.path.join(root, "runtime", "long.sh"), "echo y\n" * 160)   # by extension
@@ -1754,7 +1756,7 @@ def case_the_fallback_validator_agrees_with_jsonschema() -> None:
             assert v.is_valid(good) and not v.is_valid(bad), ("jsonschema disagrees with the case", schema)
     assert set(k for schema, _, _ in cases for k in schema) <= lint.SCHEMA_KEYWORDS
     with tempfile.TemporaryDirectory() as root:
-        g = lambda *a: subprocess.run(["git", "-C", root, *a], check=True, capture_output=True)
+        g = lambda *a: subprocess.run(["git", "-C", root, *a], check=True, capture_output=True, env=git_env())
         write(os.path.join(root, "x.schema.json"),
               json.dumps({"type": "object", "properties": {"n": {"type": "integer", "multipleOf": 2}}}))
         g("init", "-q")
