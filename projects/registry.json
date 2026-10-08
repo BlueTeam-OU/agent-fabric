@@ -179,8 +179,10 @@
       ]
     },
     "herdr": {
-      "title": "herdr — gzapi-org's fork of herdrdev/herdr, the base of Fleet Deck, the operator's console over the fleet",
+      "title": "herdr — agent-fabric-herdr, gzapi-org's public fork of herdrdev/herdr (renamed from gzapi-org/herdr on 2026-10-08; the old spellings stay listed for clones not yet re-pointed), the base of Fleet Deck, the operator's console over the fleet",
       "remotes": [
+        "git@github.com:gzapi-org/agent-fabric-herdr.git",
+        "https://github.com/gzapi-org/agent-fabric-herdr",
         "git@github.com:gzapi-org/herdr.git",
         "https://github.com/gzapi-org/herdr"
       ],
