@@ -53,6 +53,8 @@ test('rows and table: an answered account and a silent one', () => {
   assert.match(withNotesLang, /1 file\(s\): 2 only \/ 0 mixed \/ 0 latin — lang ka 100% — georgian 100%/);
   const none = table('script', rows(expected, [{ kind: 'reply', from: 'h/db-admin', op: 'script', data: { script: { ...sc, workers: { status: 'none', other_subagents: 0 } } } }]));
   assert.match(none, /db-admin\s+ok\s+none.*unreadable\s+-\s*$/m);
+  const source = table('script', rows(expected, [{ kind: 'reply', from: 'h/db-admin', op: 'script', data: { script: { ...sc, notes: { status: 'not measured', reason: 'the source locale' } } } }]));
+  assert.match(source, /db-admin\s+ok\s+not measured: the source locale\s/, 'never "none", which reads as no notes');
 });
 
 test('keys table: held keys, whether git signs, and a refused store said in full (ADR-042 rule 5)', () => {
