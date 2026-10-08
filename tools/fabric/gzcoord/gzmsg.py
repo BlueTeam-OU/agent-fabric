@@ -11,8 +11,9 @@ CONTRACT, frozen from the Node:
             value or given twice, or a second positional: `gzmsg <cmd>:
             <why>` on stderr, exit 2, before anything is read. An unknown
             command: the usage line on stderr, exit 2.
-  env       AGENT_FABRIC_ROOT (where identities/roles/catalog.json and
-            runtime/identity.py are read), AGENT_FABRIC_STATE_DIR /
+  env       AGENT_FABRIC_OPERATOR, else AGENT_FABRIC_ROOT (where
+            identities/roles/catalog.json is read), AGENT_FABRIC_ROOT
+            (where runtime/identity.py is read), AGENT_FABRIC_STATE_DIR /
             XDG_STATE_HOME (the binding's directory), and i18n's
             GZCOORD_DEFAULT_LOCALE_ONLY
   stdout    validate: `valid GZCOORD/1 message`; normalize: the normalized

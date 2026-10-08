@@ -21,8 +21,9 @@ import roots  # noqa: E402
 
 def fabric_root() -> str:
     """AGENT_FABRIC_ROOT when set (a test, a fixture, a session that
-    exported it), else the checkout this code is in — the root the roles,
-    the catalogue and the projects' integrations are read under. Set but
+    exported it), else the checkout this code is in — the engine's tree.
+    The roles, the catalogue and the projects' integrations are read under
+    operator_root(). Set but
     empty is set, as `??` read it in paths.mjs: the port keeps what the
     Node did, and an empty root names nothing found."""
     return roots.engine_root(empty_is_set=True)

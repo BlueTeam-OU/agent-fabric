@@ -229,6 +229,33 @@ def case_the_role_catalogue_readers_follow_the_operator_root() -> None:
         assert gzmsg.find_taxonomy() == os.path.join(tmp, "operator", "identities", "roles", "catalog.json")
 
 
+def case_enrol_i18n_and_query_follow_the_operator_root() -> None:
+    sys.path.insert(0, os.path.join(ROOT, "tools", "fabric"))
+    import store_enroll
+    from gzcoord import i18n
+    with tempfile.TemporaryDirectory() as tmp:
+        op = operator_fixture(tmp)
+        os.makedirs(os.path.join(op, "memory", "domains"))
+        locale = os.path.join(op, "identities", "roles", "op-role", "locale", "xx")
+        os.makedirs(locale)
+        with open(os.path.join(locale, "locale.json"), "w", encoding="utf-8") as fh:
+            fh.write('{"reminder": "from the operator"}')
+        with operator(op):
+            assert store_enroll.Enrol(dry=True, born_now=False, host_flag="").hosts == os.path.join(op, "runtime", "hosts", "registry.json")
+            assert i18n.locale_reminder({"role": "op-role", "agent": "agent-xx", "binding": "b"}, env={}) == "from the operator"
+            import query
+            query.run(["roles"])           # the operator's (empty) corpus is found
+        bare = os.path.join(tmp, "bare")
+        os.makedirs(bare)
+        with operator(bare):
+            try:
+                query.run(["roles"])
+            except query.Failure as e:
+                assert os.path.join(bare, "memory") in str(e), str(e)
+            else:
+                raise AssertionError("a corpus-less operator root was answered from the engine's memory/")
+
+
 def main() -> int:
     cases = [v for k, v in globals().items() if k.startswith("case_")]
     failures = 0

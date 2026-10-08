@@ -6,7 +6,8 @@ CONTRACT, frozen from the bash (ADR-040 §5 rule 3):
   argv      <PR number | branch>... [--base <ref>] [--check] [--json] [-h|--help]
             options and refs may be mixed; `--base` takes the next argument
             whatever it looks like, and refuses an empty one
-  env       AGENT_FABRIC_ROOT (where projects/ and bin/fabric-lease are),
+  env       AGENT_FABRIC_OPERATOR (where projects/ is, default AGENT_FABRIC_ROOT),
+            AGENT_FABRIC_ROOT (where bin/fabric-lease is),
             TMPDIR (where the worktree goes, /tmp when unset or empty),
             AGENT_FABRIC_TRIAL_CONFIG (a trial.json used instead of the
             project's), AGENT_FABRIC_TRIAL_MIN_FREE_KB (default 1048576)
