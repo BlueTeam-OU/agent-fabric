@@ -43,6 +43,7 @@ import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
 import path from 'node:path';
 import { FABRIC_ROOT, whoami, api, syncedToken, integrationConfig, inboxRoot, token as gzToken, identity as gzIdentity } from './gzcoord.mjs';
+import { hostsRegistry } from './roots.mjs';
 import { controlConfig, newId } from './agentd.mjs';
 import { poolHolder, POOL_ID, ROLE_SLUG } from './pool.mjs';
 import { MESSAGE_ID } from './sessions.mjs';
@@ -82,7 +83,7 @@ export function relay(who = whoami(), cfg = controlConfig()) {
 // Who is placed, read here rather than through agentd's accountAddresses,
 // which takes an unreadable registry for nobody: here that would read as
 // "nobody waits on anything" and say nothing.
-export function placedAccounts(registry = process.env.AGENT_FABRIC_HOSTS_REGISTRY ?? path.join(FABRIC_ROOT, 'runtime', 'hosts', 'registry.json')) {
+export function placedAccounts(registry = hostsRegistry({ engine: FABRIC_ROOT, emptyIsSet: true })) {
   let d;
   try { d = JSON.parse(fs.readFileSync(registry, 'utf8')); } catch (e) { throw new Unreadable(`the hosts registry cannot be read (${e.code ?? 'not JSON'})`); }
   if (!d || typeof d.placement !== 'object' || d.placement === null || Array.isArray(d.placement)) throw new Unreadable('the hosts registry has no placement');

@@ -139,7 +139,7 @@ def required_names() -> tuple[list[str], str | None]:
     A registry that cannot be read, or a kind that is neither, is no
     answer: the agent's names are judged, and the error is said, so a
     human is never taken for an agent quietly, nor the reverse."""
-    path = os.environ.get("AGENT_FABRIC_HOSTS_REGISTRY") or os.path.join(ROOT, "runtime", "hosts", "registry.json")
+    path = roots.hosts_registry(engine=ROOT)
     try:
         with open(path, encoding="utf-8") as fh:
             reg = json.load(fh)
