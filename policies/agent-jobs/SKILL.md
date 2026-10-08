@@ -83,9 +83,12 @@ first. A blocked job keeps its place and is taken only by name. A
 blocking job reaches you the next time you ask, never in the middle of
 another.
 
-**Nothing queued: your role's pool.** With your own list empty, `next`
-offers the first job in your role's open pool and claims nothing. Take
-it if you can:
+**Nothing queued: your role's pool.** With no queued job on your list
+(blocked and delivered ones do not count), `next` starts nothing and
+exits 1, saying what your role's open pool holds: its first job, that
+it is empty too, or that it could not be asked (an unreachable pool is
+never reported as an empty one). It claims nothing. Take an offered
+job if you can:
 
 ```sh
 fabric-jobs pool-list                  # your bound role's unclaimed jobs, highest priority first
@@ -97,7 +100,9 @@ A claim is checked against the role your own control agent reports, and
 a job another agent claimed is refused. If a claim was recorded but your
 list could not take it, the message gives the command to run again.
 Pool jobs are added by the owner (`fabric-ctl <holder> pool-add --role
-<role> "<title>"`); you do not add to a pool.
+<role> [--priority P] "<title>"`), as the owner adds a job to one
+agent's list (`fabric-ctl <login> jobs-add [--priority P] "<title>"`);
+you do not add to a pool.
 
 It starts the job and compares it with the job that just ended:
 
