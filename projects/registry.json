@@ -43,7 +43,7 @@
         {"name": "flutter", "proof": "flutter --version", "version": "3.47.3", "why": "the Flutter apps and their launchers", "where": "host", "roles": ["flutter-dev", "devex-tooling"]},
         {"name": "java", "proof": "java -version", "version": "any JDK", "why": "flutter build apk", "where": "host", "roles": ["flutter-dev"]},
         {"name": "shellcheck", "proof": "shellcheck --version", "version": "any", "why": "devex-tooling's checks", "where": "host", "roles": ["devex-tooling"]},
-        {"name": "doppler", "proof": "doppler --version", "version": "any", "why": "optional: seeds the dev provider keys (doppler run -- make seed-secrets); make up works without it", "where": "host", "optional": true}
+        {"name": "doppler", "proof": "doppler --version", "version": "any", "why": "optional: seeds the dev provider keys (doppler run -- make seed-secrets); make up works without it. In the AppVM only, never the template, and only in the accounts that work on gzapp (the owner, 2026-10-08)", "where": "account", "optional": true}
       ]
     },
     "agent-fabric": {
