@@ -122,7 +122,8 @@ def main() -> int:
                                        "      - run: bash tools/checks/run_suite.sh tools/checks/test_ban_a.sh\n"))
         check("nor does one an echo prints mid-line", rc == 1 and "whatever they contain:\n        ban_a.sh\n" in out, out)
         for line in ("if true; then echo bash tools/checks/ban_a.sh; fi", "for x in a; do echo tools/checks/ban_a.sh; done",
-                     "true \\\" ; true # bash tools/checks/ban_a.sh"):
+                     "true \\\" ; true # bash tools/checks/ban_a.sh", "X=\"a b\" echo bash tools/checks/ban_a.sh",
+                     "env echo tools/checks/ban_a.sh"):
             rc, out, err = run(tree(GUARD, f"      - run: {line}\n"
                                            "      - run: bash tools/checks/run_suite.sh tools/checks/test_ban_a.sh\n"))
             check(f"not run: {line}", rc == 1 and "whatever they contain:\n        ban_a.sh\n" in out, out)
@@ -143,6 +144,11 @@ def main() -> int:
                                                                  " \"$t\"\n", after="")))
         check("a loop that also runs $t bare is bare, however it wraps it too",
               rc == 1 and "        for t in tools/gh/test_*.sh; do\n" in out, out)
+        for bare in ('"$t"', './"$t"', 'bash -e "${t}"'):
+            rc, out, err = run(tree(gh, WIRED + loop.format(body=f"            {bare}\n            bash tools/checks/run_suite.sh"
+                                                                 " \"$t\"\n", after="")))
+            check(f"…so is one that runs {bare} beside it", rc == 1 and "        for t in tools/gh/test_*.sh; do\n" in out,
+                  out)
         rc, out, err = run(tree(gh, WIRED + loop.format(body="            PATH=x bash tools/checks/run_suite.sh \"${t}\"\n",
                                                         after="")))
         check("a loop handing ${t} to the runner is wrapped", rc == 0, out + err)

@@ -73,6 +73,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shlex
 import sys
 
 HERE = os.path.dirname(os.path.realpath(__file__))
@@ -340,18 +341,50 @@ def _literal(rel: str) -> re.Pattern:
 FOR_HEAD = re.compile(r"\bfor\s+([A-Za-z_]\w*)\s+in\s")
 
 
+def _runs_bare(cmd: list[str], ref: set[str]) -> bool:
+    """The command runs the loop's suite itself: `"$t"`, `./"$t"`, or
+    bash/sh with it as the script, flags before it or not."""
+    if not cmd:
+        return False
+    if cmd[0] in ref or (cmd[0].startswith("./") and cmd[0][2:] in ref):
+        return True
+    if os.path.basename(cmd[0]) in ("bash", "sh"):
+        script = next((a for a in cmd[1:] if not a.startswith("-")), "")
+        return script in ref
+    return False
+
+
 # Words that open a compound command before the command itself.
 KEYWORDS = {"then", "do", "else", "elif", "if", "while", "until", "{", "(", "!", "time"}
 
 
-def command_word(segment: str) -> str:
-    """The command a segment runs: past its leading keywords and VAR=value
-    assignments."""
-    for word in segment.split():
-        if word in KEYWORDS or re.fullmatch(r"[A-Za-z_]\w*=\S*", word):
+# Words that run the word after them as the command.
+PREFIXES = {"env", "command", "builtin", "exec", "nohup"}
+
+
+def words(segment: str) -> list[str]:
+    """A segment's words as the shell splits and unquotes them; a segment
+    shlex cannot read (an unclosed quote) splits on whitespace."""
+    try:
+        return shlex.split(segment, comments=False)
+    except ValueError:
+        return segment.split()
+
+
+def command(segment: str) -> list[str]:
+    """The command a segment runs and its arguments: past its leading
+    keywords, VAR=value assignments and prefixes (env, command, exec…)."""
+    ws = words(segment)
+    for i, w in enumerate(ws):
+        if w in KEYWORDS or w in PREFIXES or re.fullmatch(r"[A-Za-z_]\w*=.*", w, re.S):
             continue
-        return word
-    return ""
+        return ws[i:]
+    return []
+
+
+def command_word(segment: str) -> str:
+    cmd = command(segment)
+    return cmd[0] if cmd else ""
 
 
 def strip_comment(line: str) -> str:
@@ -423,8 +456,8 @@ class Runs:
             # ...and never also runs it bare: `bash "$t"` beside a wrapped
             # run of the same $t is a bare run all the same.
             segments = [s for b in body for s in re.split(r"&&|\|\||;|\|", b)]
-            bare_run = any(command_word(s) in ("bash", "sh") and re.search(r"(^|\s)(bash|sh)\s+" + ref, s)
-                           or re.fullmatch(ref, command_word(s) or "-") for s in segments)
+            loop_ref = {"$" + m.group(1), "${" + m.group(1) + "}"}
+            bare_run = any(_runs_bare(command(s), loop_ref) for s in segments)
             wrapped = any(hands.search(b) for b in body) and not bare_run
             loops.append((line.strip(), globs, wrapped))
             i = j + 1
