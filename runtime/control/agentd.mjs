@@ -40,8 +40,8 @@
 // ledger in the account's fabric state), and no more than a minute in
 // its future. A read op takes no argument but `tokens`'s `days` (a number
 // capped at 90), pool-list's `role` and pool-claim's `id`; an action takes
-// only its closed set (upgrade.mjs, secrets.mjs, jobs.mjs and pool.mjs
-// checkArgs). No field of a
+// only its closed set (checkArgs in upgrade.mjs and secrets.mjs,
+// checkJobArgs in jobs.mjs, checkPoolArgs in pool.mjs). No field of a
 // request ever reaches a shell; the answer carries no secret (ops.mjs).
 //
 // Every reply arrives: a section that cannot be read says so inline.
