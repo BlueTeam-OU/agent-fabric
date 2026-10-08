@@ -204,6 +204,8 @@ def main() -> int:
          gh.GhError("gh pr checks 77", "x", None, False, "", "could not find pull request\n", 1), (None, None)),
         ("exit 8 with no table is unknown", "", gh.GhError("gh pr checks 77", "exit 8", None, False, "", "", 8), (None, None)),
         ("gh not installed is unknown", "", gh.GhError("gh pr checks 77", "gh is not installed"), (None, None)),
+        ("a table on another exit code is unknown", "", gh.GhError("gh pr checks 77", "exit 2", None, False, table, "", 2), (None, None)),
+        ("exit 1 with only a blank line is unknown", "", gh.GhError("gh pr checks 77", "exit 1", None, False, "\n", "", 1), (None, None)),
     ]
     real_run, real_graphql = gh.run, gh.graphql
     try:

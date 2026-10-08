@@ -61,7 +61,8 @@ bash's own carry no script path or line number here. `gh` calls are bounded (gh.
 not, and the checks are asked once where the bash asked twice. A checks
 lookup that failed with no table (a 502, a timeout) is "unknown" (null in
 --json), where the bash's `grep -c` counted 0 pass, 0 other; gh's own "no
-checks reported" is still 0 (gh.no_checks_reported).
+checks reported" is still 0 (gh.no_checks_reported). HELP's --json line
+says so, the one place it is not the bash's text.
 
 WHY (carried from the bash header): two GitHub behaviours make the obvious
 reading wrong, and both bit this repo.
