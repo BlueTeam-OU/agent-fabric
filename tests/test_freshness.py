@@ -119,6 +119,13 @@ def main() -> int:
         check("no origin/HEAD, default master: the gap is said against origin/master",
               line is not None and "lacks 1 commit(s) of origin/master" in line, line)
 
+        # origin/HEAD naming a branch the remote deleted: the fallback is read,
+        # never silence (carried from #111's review).
+        sh("symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/gone", cwd=mclone)
+        line = fresh.note({"cwd": mclone, "session_id": "s5"}, state=state)
+        check("a dangling origin/HEAD falls back to origin/master",
+              line is not None and "lacks 1 commit(s) of origin/master" in line, line)
+
         nogit = os.path.join(tmp, "plain")
         os.makedirs(nogit)
         check("no git working copy: nothing", fresh.note({"cwd": nogit, "session_id": "s1"}, state=state) is None)

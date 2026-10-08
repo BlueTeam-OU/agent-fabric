@@ -36,7 +36,10 @@ import sys
 import time
 
 FETCH_EVERY_S = 600
-GIT_TIMEOUT_S = 5
+# At most six local git calls run in a prompt (the fallback refs
+# included), inside the hook's 15 s budget (user-settings.py): a hook past
+# its timeout says nothing at all. Each is a local read, milliseconds.
+GIT_TIMEOUT_S = 2
 FETCH_TIMEOUT_S = 120
 SESSION_RE = re.compile(r"^[A-Za-z0-9._-]{1,128}$")
 
@@ -86,6 +89,9 @@ def note(payload: dict, now: float | None = None, state: str | None = None) -> s
     # it); then the first of main and master that exists, else nothing is
     # said: a missing ref must never read as "current" (#111 review).
     ref = git(top, "symbolic-ref", "-q", "--short", "refs/remotes/origin/HEAD").stdout.strip()
+    # origin/HEAD may also name a branch the remote has since deleted.
+    if ref and git(top, "rev-parse", "--verify", "--quiet", f"refs/remotes/{ref}").returncode != 0:
+        ref = ""
     if not ref:
         ref = next((c for c in ("origin/main", "origin/master")
                     if git(top, "rev-parse", "--verify", "--quiet", f"refs/remotes/{c}").returncode == 0), "")
