@@ -35,7 +35,6 @@ def locale_translation_findings(role: str, role_path: str, template_schema: dict
     base = os.path.join(role_path, LOCALE_DIRNAME)
     if not os.path.isdir(base):
         return out
-    root = layout.FABRIC_ROOT
     for suffix in sorted(os.listdir(base)):
         for name, (source_rel, klass, budget_key, with_schema) in LOCALE_TRANSLATIONS.items():
             path = os.path.join(base, suffix, f"{name}.md")
@@ -44,7 +43,9 @@ def locale_translation_findings(role: str, role_path: str, template_schema: dict
             rel = f"identities/roles/{role}/{LOCALE_DIRNAME}/{suffix}/{name}.md"
             source_rel = source_rel.replace("{role}", role)
             lagging = False
-            source = os.path.join(root, source_rel)
+            # A role's charter and brief are the operator's, the prompt templates
+            # the engine's: fabric_path looks in the operator's tree first.
+            source = layout.fabric_path(source_rel)
             with open(path, encoding="utf-8") as fh:
                 text = fh.read()
             meta = parse_frontmatter(text)

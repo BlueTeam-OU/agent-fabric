@@ -56,7 +56,15 @@
       "taxonomy": ".agent-fabric/taxonomy.json",
       "memory": ".agent-fabric/memory",
       "integration": null,
-      "license": "Apache-2.0"
+      "license": "Apache-2.0",
+      "tools": [
+        {"name": "git", "proof": "git --version", "version": "2.x", "why": "every repository operation", "where": "host"},
+        {"name": "gh", "proof": "gh --version", "version": "2.x", "why": "the pull-request flow (fabric-pr and the project's tools/gh)", "where": "host"},
+        {"name": "fabric-python", "proof": "fabric-python --version", "version": "3.13", "why": "the pinned interpreter every fabric tool runs on (runtime/python.json)", "where": "host"},
+        {"name": "node", "proof": "node --version", "version": "20 or newer", "why": "GZCoord's Node side and the control plane's tests", "where": "host"},
+        {"name": "gpg", "proof": "gpg --version", "version": "2.x", "why": "each account's own secrets store (ADR-038)", "where": "host"},
+        {"name": "shellcheck", "proof": "shellcheck --version", "why": "tests/static.sh's check of every tracked shell script", "where": "host", "optional": true}
+      ]
     },
     "kutaisi-shop-transit": {
       "title": "Kutaisi shop-to-transit matching (OSM shops against bus/marshrutka lines)",
@@ -67,6 +75,11 @@
       "default_branch": "main",
       "taxonomy": ".agent-fabric/taxonomy.json",
       "memory": ".agent-fabric/memory",
+      "tools": [
+        {"name": "git", "proof": "git --version", "version": "2.x", "why": "every repository operation", "where": "host"},
+        {"name": "gh", "proof": "gh --version", "version": "2.x", "why": "the pull-request flow", "where": "host"},
+        {"name": "python3", "proof": "python3 --version", "version": "3.x", "why": "kutaisi_shop_transit.py and its requirements.txt", "where": "host"}
+      ],
       "integration": null,
       "license": "LicenseRef-kutaisi-shop-transit-Proprietary",
       "note": "A private repository whose tree carries no license file: all rights reserved by default. One role, domain-transit; its working copy is that account's (moved there 2026-09-15)."
@@ -84,7 +97,13 @@
       "memory": ".agent-fabric/memory",
       "integration": "projects/gzapi.ge/integration",
       "license": "LicenseRef-gzapi-ge-Proprietary",
-      "note": "Static Astro site, vision-level by rule, ka/en. The brand's source of truth: where a deck and the site disagree on a token or a phrase, the site wins (owner, 2026-09-15). One role, brand-comms. A private repository whose tree carries no license file: all rights reserved by default. Moved to gzapi-org on 2026-09-16; the andreabenetton spellings stay listed for clones not yet re-pointed."
+      "note": "Static Astro site, vision-level by rule, ka/en. The brand's source of truth: where a deck and the site disagree on a token or a phrase, the site wins (owner, 2026-09-15). One role, brand-comms. A private repository whose tree carries no license file: all rights reserved by default. Moved to gzapi-org on 2026-09-16; the andreabenetton spellings stay listed for clones not yet re-pointed.",
+      "tools": [
+        {"name": "git", "proof": "git --version", "version": "2.x", "why": "every repository operation", "where": "host"},
+        {"name": "gh", "proof": "gh --version", "version": "2.x", "why": "the pull-request flow (fabric-pr and the project's tools/gh)", "where": "host"},
+        {"name": "node", "proof": "node --version", "version": "20 or newer", "why": "the Astro site build", "where": "host"},
+        {"name": "pnpm", "proof": "pnpm --version", "why": "the site's package manager (pnpm-lock.yaml)", "where": "host"}
+      ]
     },
     "gzapi.brand": {
       "title": "gzapi.brand — the brand's source of authority",
@@ -97,7 +116,11 @@
       "memory": ".agent-fabric/memory",
       "integration": "projects/gzapi.brand/integration",
       "license": "LicenseRef-gzapi-brand-Proprietary",
-      "note": "Names, claims by audience, the brand subset of the design tokens, the asset register and the decision records; no code, no build. The brand's source of authority since the owner's decision of 2026-09-17 (brand/decisions/0001), superseding the 2026-09-15 ruling that gzapi.ge was: the site, the decks and the product's shared web tokens copy the brand subset at a pinned commit and record it. One role, brand-comms; the owner decides, brand-comms proposes. A private repository whose tree carries no licence file; registered by fabric-coordinator on 2026-09-17."
+      "note": "Names, claims by audience, the brand subset of the design tokens, the asset register and the decision records; no code, no build. The brand's source of authority since the owner's decision of 2026-09-17 (brand/decisions/0001), superseding the 2026-09-15 ruling that gzapi.ge was: the site, the decks and the product's shared web tokens copy the brand subset at a pinned commit and record it. One role, brand-comms; the owner decides, brand-comms proposes. A private repository whose tree carries no licence file; registered by fabric-coordinator on 2026-09-17.",
+      "tools": [
+        {"name": "git", "proof": "git --version", "version": "2.x", "why": "every repository operation", "where": "host"},
+        {"name": "gh", "proof": "gh --version", "version": "2.x", "why": "the pull-request flow (fabric-pr and the project's tools/gh)", "where": "host"}
+      ]
     },
     "gzapp.decks": {
       "title": "gzapp.decks — brand presentation decks (Marp)",
@@ -112,7 +135,13 @@
       "memory": ".agent-fabric/memory",
       "integration": "projects/gzapp.decks/integration",
       "license": "LicenseRef-gzapp-decks-Proprietary",
-      "note": "Marp decks under one brand theme whose tokens are vendored from gzapi.ge (the source of truth); bilingual, an asset register every image has a row in, PDFs as versioned build output. One role, brand-comms. A private repository whose tree carries no license file: all rights reserved by default; the vendored fonts are OFL-1.1. Moved to gzapi-org on 2026-09-16; the andreabenetton spellings stay listed for clones not yet re-pointed."
+      "note": "Marp decks under one brand theme whose tokens are vendored from gzapi.ge (the source of truth); bilingual, an asset register every image has a row in, PDFs as versioned build output. One role, brand-comms. A private repository whose tree carries no license file: all rights reserved by default; the vendored fonts are OFL-1.1. Moved to gzapi-org on 2026-09-16; the andreabenetton spellings stay listed for clones not yet re-pointed.",
+      "tools": [
+        {"name": "git", "proof": "git --version", "version": "2.x", "why": "every repository operation", "where": "host"},
+        {"name": "gh", "proof": "gh --version", "version": "2.x", "why": "the pull-request flow (fabric-pr and the project's tools/gh)", "where": "host"},
+        {"name": "node", "proof": "node --version", "version": "20 or newer", "why": "the Marp CLI that builds the decks (npm install)", "where": "host"},
+        {"name": "npm", "proof": "npm --version", "why": "installs the Marp CLI locally", "where": "host"}
+      ]
     },
     "interweave": {
       "title": "InterWeave — peer-to-peer transport for Claude Code Channels and first-party clients",
@@ -125,7 +154,15 @@
       "memory": ".agent-fabric/memory",
       "integration": "projects/interweave/integration",
       "license": "Apache-2.0",
-      "note": "A Rust workspace on libp2p: one PeerId, many EndpointIds, signed GossipSub broadcast, a directed protocol, replaceable discovery, Kademlia, AutoNAT v2 / Circuit Relay v2 / DCUtR. Worked by the owner's own login until 2026-09-17, when the CEO made it a managed project with one new role, p2p-network-dev (the code), architect-cto holding its decision records and stage gates, devex-tooling its CI. Its merge queue stays on (the owner, 2026-09-17)."
+      "note": "A Rust workspace on libp2p: one PeerId, many EndpointIds, signed GossipSub broadcast, a directed protocol, replaceable discovery, Kademlia, AutoNAT v2 / Circuit Relay v2 / DCUtR. Worked by the owner's own login until 2026-09-17, when the CEO made it a managed project with one new role, p2p-network-dev (the code), architect-cto holding its decision records and stage gates, devex-tooling its CI. Its merge queue stays on (the owner, 2026-09-17).",
+      "tools": [
+        {"name": "git", "proof": "git --version", "version": "2.x", "why": "every repository operation", "where": "host"},
+        {"name": "gh", "proof": "gh --version", "version": "2.x", "why": "the pull-request flow (fabric-pr and the project's tools/gh)", "where": "host"},
+        {"name": "rustup", "proof": "rustup --version", "version": "per rust-toolchain.toml", "why": "the toolchain InterWeave's rust-toolchain.toml pins, installed by rustup on first use", "where": "account", "roles": ["p2p-network-dev", "rust-ui-dev", "devex-tooling"]},
+        {"name": "cargo-deny", "proof": "cargo deny --version", "why": "CI's dependency policy (deny.toml), run before a push that changes the graph", "where": "account", "roles": ["p2p-network-dev", "rust-ui-dev", "devex-tooling"]},
+        {"name": "cargo-machete", "proof": "cargo machete --version", "why": "CI's unused-dependency check", "where": "account", "optional": true, "roles": ["p2p-network-dev", "rust-ui-dev", "devex-tooling"]},
+        {"name": "Xvfb", "proof": "Xvfb -help", "why": "the desktop end-to-end tests of the human client run headless", "where": "host", "optional": true, "roles": ["rust-ui-dev"]}
+      ]
     },
     "agent-fabric-gateway": {
       "title": "agent-fabric-gateway — the Rust data plane the fabric's sessions reach their models through",
@@ -138,11 +175,19 @@
       "memory": ".agent-fabric/memory",
       "integration": "projects/agent-fabric-gateway/integration",
       "license": "Apache-2.0",
-      "note": "The fabric is the control plane (identity, roles, capability policy, model selection); the gateway accepts harness-native API traffic, executes the route it is given and adapts only where it must (its ADR-001, ADR-014). Designed by the owner's own sessions until 2026-09-24, when the owner put the whole repository under fabric-coordinator; since 2026-10-07 rust-services-dev holds its Rust workspace (apps, crates, tests, fixtures, spikes, packaging, xtask), and fabric-coordinator keeps the control/data boundary: its decision records, architecture/, CI, tools/ and the operating files (CLAUDE.md, README.md and .agent-fabric/)."
+      "note": "The fabric is the control plane (identity, roles, capability policy, model selection); the gateway accepts harness-native API traffic, executes the route it is given and adapts only where it must (its ADR-001, ADR-014). Designed by the owner's own sessions until 2026-09-24, when the owner put the whole repository under fabric-coordinator; since 2026-10-07 rust-services-dev holds its Rust workspace (apps, crates, tests, fixtures, spikes, packaging, xtask), and fabric-coordinator keeps the control/data boundary: its decision records, architecture/, CI, tools/ and the operating files (CLAUDE.md, README.md and .agent-fabric/).",
+      "tools": [
+        {"name": "git", "proof": "git --version", "version": "2.x", "why": "every repository operation", "where": "host"},
+        {"name": "gh", "proof": "gh --version", "version": "2.x", "why": "the pull-request flow (fabric-pr and the project's tools/gh)", "where": "host"},
+        {"name": "rustup", "proof": "rustup --version", "version": "per rust-toolchain.toml", "why": "the toolchain the gateway's rust-toolchain.toml pins, installed by rustup on first use", "where": "account", "roles": ["rust-services-dev", "devex-tooling"]},
+        {"name": "cargo-deny", "proof": "cargo deny --version", "why": "CI's dependency policy over the committed Cargo.lock (deny.toml)", "where": "account", "roles": ["rust-services-dev", "devex-tooling"]}
+      ]
     },
     "herdr": {
-      "title": "herdr — gzapi-org's fork of herdrdev/herdr, the base of Fleet Deck, the operator's console over the fleet",
+      "title": "herdr — agent-fabric-herdr, gzapi-org's public fork of herdrdev/herdr (renamed from gzapi-org/herdr on 2026-10-08; the old spellings stay listed for clones not yet re-pointed), the base of Fleet Deck, the operator's console over the fleet",
       "remotes": [
+        "git@github.com:gzapi-org/agent-fabric-herdr.git",
+        "https://github.com/gzapi-org/agent-fabric-herdr",
         "git@github.com:gzapi-org/herdr.git",
         "https://github.com/gzapi-org/herdr"
       ],
@@ -151,7 +196,12 @@
       "memory": ".agent-fabric/memory",
       "integration": "projects/herdr/integration",
       "license": "Apache-2.0",
-      "note": "A Rust terminal multiplexer for coding agents; the owner opens one tab per agent account, each entered with moveto. Forked 2026-10-06 on the owner's word: a change general to herdr (a switch that turns its socket API off or limits it to the attached client) goes upstream to herdrdev/herdr as a pull request from this fork; everything the fabric needs of it (per-pane status from the control plane's presence, Fleet Deck's `fabric-deck`, which builds the workspace from the host registry, seeding a new host's first layout from the catalogue's groups; the layout is the operator's to arrange from then on (the name is the owner's, 2026-10-07), status for a pane whose agent runs as another login) stays in this fork. rust-ui-dev holds it beside InterWeave (the owner, 2026-10-06)."
+      "note": "A Rust terminal multiplexer for coding agents; the owner opens one tab per agent account, each entered with moveto. Forked 2026-10-06 on the owner's word: a change general to herdr (a switch that turns its socket API off or limits it to the attached client) goes upstream to herdrdev/herdr as a pull request from this fork; everything the fabric needs of it (per-pane status from the control plane's presence, Fleet Deck's `fabric-deck`, which builds the workspace from the host registry, seeding a new host's first layout from the catalogue's groups; the layout is the operator's to arrange from then on (the name is the owner's, 2026-10-07), status for a pane whose agent runs as another login) stays in this fork. rust-ui-dev holds it beside InterWeave (the owner, 2026-10-06).",
+      "tools": [
+        {"name": "git", "proof": "git --version", "version": "2.x", "why": "every repository operation", "where": "host"},
+        {"name": "gh", "proof": "gh --version", "version": "2.x", "why": "the pull-request flow (fabric-pr and the project's tools/gh)", "where": "host"},
+        {"name": "rustup", "proof": "rustup --version", "version": "per rust-toolchain.toml", "why": "the toolchain herdr's rust-toolchain.toml pins, installed by rustup on first use", "where": "account", "roles": ["rust-ui-dev", "devex-tooling"]}
+      ]
     },
     "radicle-spike": {
       "title": "radicle-spike — whether Radicle can carry the fleet's forge (a local seed, agent-fabric mirrored, replication and reachability measured)",
@@ -164,7 +214,12 @@
       "memory": ".agent-fabric/memory",
       "integration": "projects/radicle-spike/integration",
       "license": "Apache-2.0",
-      "note": "A time-boxed spike, private, created 2026-10-07 on the owner's word: Radicle as a decentralized forge for the fleet (ADR-034's direction). p2p-network-dev holds it (p2p-network-dev-02): run a local seed on the fleet's host, never joined to the public Radicle network, mirror agent-fabric to it (any other repository only on the owner's word), measure replication, reachability through NAT and what a Radicle-backed pull-request flow would need of the forge tools. Its findings came back (findings/00-summary.md: adopt for replication, not yet as the forge). On stand-by since 2026-10-08 (the owner): adoption waits for Radicle 2.0.0, whose breaking change would otherwise mean migrating twice; nothing runs for it meanwhile, and p2p-network-dev-02 works on InterWeave. Nothing here is adopted by the fleet until a decision on 2.0 is made."
+      "note": "A time-boxed spike, private, created 2026-10-07 on the owner's word: Radicle as a decentralized forge for the fleet (ADR-034's direction). p2p-network-dev holds it (p2p-network-dev-02): run a local seed on the fleet's host, never joined to the public Radicle network, mirror agent-fabric to it (any other repository only on the owner's word), measure replication, reachability through NAT and what a Radicle-backed pull-request flow would need of the forge tools. Its findings came back (findings/00-summary.md: adopt for replication, not yet as the forge). On stand-by since 2026-10-08 (the owner): adoption waits for Radicle 2.0.0, whose breaking change would otherwise mean migrating twice; nothing runs for it meanwhile, and p2p-network-dev-02 works on InterWeave. Nothing here is adopted by the fleet until a decision on 2.0 is made.",
+      "tools": [
+        {"name": "git", "proof": "git --version", "version": "2.x", "why": "every repository operation", "where": "host"},
+        {"name": "gh", "proof": "gh --version", "version": "2.x", "why": "the pull-request flow (fabric-pr and the project's tools/gh)", "where": "host"},
+        {"name": "rad", "proof": "rad --version", "why": "the spike's local seed, on stand-by until Radicle 2.0.0", "where": "account", "optional": true, "roles": ["p2p-network-dev"]}
+      ]
     }
   }
 }

@@ -32,14 +32,7 @@ SKIP_PARTS = ("/tests/", "/__pycache__/", "/claude-code/", "/lint_rules/", "/gua
 EXEMPT = {
     "tools/fabric/roots.py": "the seam itself",
     "runtime/control/roots.mjs": "the seam itself",
-    "tools/fabric/layout.py": "fabric-coordinator's (authority.json excluding)",
-    "tools/fabric/workingcopy.py": "fabric-coordinator's (authority.json excluding)",
-    "tools/fabric/adr.py": "fabric-coordinator's (authority.json excluding)",
-    "tools/fabric/lint.py": "fabric-coordinator's (authority.json excluding)",
-    "tools/fabric/routing.py": "fabric-coordinator's (authority.json excluding): routing/policies/review-grade.json",
-    "tools/fabric/relay.py": "fabric-coordinator's (authority.json excluding): projects/<id>/integration/gzcoord",
-    "tools/fabric/install_agent_files.py": "fabric-coordinator's (authority.json excluding): locale files",
-    "tools/fabric/secretstore/lineage.py": "fabric-coordinator's (authority.json excluding): keys_dir",
+    "tools/fabric/secretstore/lineage.py": "keys_dir(fabric) takes the tree to check; the module is stdlib-only by fence (tests/test_lineage_fence.py), so it cannot import roots; core.keys_dir passes the operator root",
     "tools/fabric/secretstore/trust.py": "git-shows identities/keys/ from the keys' checkout (origin/main), a path inside that repository; moves with the keys (ADR-045 §6)",
     "bin/fabric-host": "bash: reads the registry before any Python runs",
 }

@@ -48,6 +48,9 @@ import re
 import sys
 from typing import Any
 
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import roots  # noqa: E402
+
 FABRIC_ROOT = os.environ.get("AGENT_FABRIC_ROOT") or os.path.dirname(
     os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
 
@@ -273,7 +276,7 @@ def load_shims(root: str | None = None) -> list[dict[str, Any]]:
 
 
 def load_review_grade(root: str | None = None) -> dict[str, Any]:
-    path = os.path.join(routing_dir(root), "policies", "review-grade.json")
+    path = roots.routing_policy("review-grade.json", root or None, engine=FABRIC_ROOT)
     return _load(path) if os.path.exists(path) else {"capability": "code-review", "models": []}
 
 
@@ -315,7 +318,7 @@ def effort_for(capability: str, provider: str, model: str | None, role: str | No
 
 
 def load_profiles(root: str | None = None) -> dict[str, Any]:
-    path = os.path.join(routing_dir(root), "profiles.json")
+    path = roots.routing_profiles(root or None, engine=FABRIC_ROOT)
     return _load(path) if os.path.exists(path) else {"version": 2, "defaults": {}}
 
 

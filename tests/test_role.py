@@ -70,7 +70,7 @@ def build_fabric(root: str) -> None:
                 fh.write("---\ndescription: x\n---\n\nbody\n")
     # The real modules, reachable from the fixture root.
     for rel in ("tools/fabric/layout.py", "tools/fabric/workingcopy.py", "tools/fabric/role.py",
-                "runtime/identity.py"):
+                "tools/fabric/roots.py", "runtime/identity.py"):
         os.makedirs(os.path.dirname(os.path.join(root, rel)), exist_ok=True)
         shutil.copy2(os.path.join(ROOT, rel), os.path.join(root, rel))
 
