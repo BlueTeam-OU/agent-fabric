@@ -19,5 +19,6 @@
   "classes": {
     "docs-only": "^(docs/|\\.claude/skills/|README\\.md$|[^/]+\\.md$|.*/README\\.md$|.*/CLAUDE\\.md$)",
     "single-check tooling": "^(tools/|\\.github/|Makefile$|infra/local/|\\.claude/)"
-  }
+  },
+  "arm_command": "tools/gh/arm.sh"
 }
