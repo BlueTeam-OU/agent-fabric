@@ -17,7 +17,7 @@ This note is the contract for:
 | **mode** | the foreground's argv: moveto hands off to `sudo … enter <dir> <title> [--wait|--resume|--watch]`, so the mode is its last argument; the deck reads it there, never from the screen, and so recovers it after its own restart | what the pane was asked to do |
 | **live** | the state stream, the account's newest record: `sessions[]` | how many sessions are alive on the account, wherever they run, each `working`, `idle` or `blocked` |
 | **record age** | the same record's `ts` | fresh (within two heartbeats, 20 min) or stale |
-| **before** | the account's newest record from before the deck's restore (the restore snapshot) | whether a session was alive when the deck or the host went down |
+| **before** | the deck's own record of the last state it showed for the account, written on every change; with none (a first run), the newest stream record within two heartbeats that listed a live session | whether a session was alive before the restart. Not the stream's newest record: the sessions that die with herdr post their `live` = 0 before a restarting deck reads it |
 | **resumable** | the record's `last_session` and `resumable` | whether `fabric-resume` will resume or start fresh |
 
 **`live` counts sessions on the account, not in the pane.** A session started from another terminal shows in `live` while the deck's harness pane holds no session. The machine therefore keeps "a session runs here" and "a session runs on the account" apart (`ELSEWHERE`).
@@ -55,31 +55,37 @@ This note is the contract for:
 | from | event | to | the deck does |
 |---|---|---|---|
 | `ABSENT` | `restore` | see **The restore decision** | create the tab: harness, shell and status panes |
-| `DORMANT` | `session-up` | `RUNNING` when the pane's foreground processes include the harness (the launcher or `claude`), else `ELSEWHERE` | report it. The deck cannot see Enter, but it sees what Enter started: the harness runs in the pane's terminal, in its foreground. Whether `process-info` lists another account's processes is to be read back live before the deck relies on it; until then the deck reports `ELSEWHERE` |
+| `DORMANT` | `session-up` | `RUNNING` when the pane's foreground processes include the harness (the launcher or `claude`), else `ELSEWHERE` | report it; on `ELSEWHERE`, re-arm the pane as a plain shell, so its Enter cannot start a second session. The deck cannot see Enter, but it sees what Enter started: the harness runs in the pane's terminal, in its foreground. Whether `process-info` lists another account's processes is to be read back live before the deck relies on it; until then the deck reports `ELSEWHERE` |
 | `DORMANT` | `moveto-ended` before any `session-up` | `FAILED` | re-arm `--wait`; show failed |
 | `STARTING` | `session-up` | `RUNNING` | report the state to the panel |
 | `STARTING` | `timeout`, or `moveto-ended` | `FAILED` | re-arm `--wait`; show failed; never start another session by itself |
 | `RUNNING` | `session-down` with the pane alive | `SHELL` | report shell |
-| `RUNNING` | `moveto-ended` | `DORMANT` if `live` = 0, `ELSEWHERE` if not | re-arm the pane with `--wait`; only a restore resumes |
+| `RUNNING` | `moveto-ended` | `DORMANT` if `live` = 0, `ELSEWHERE` if not | re-arm the pane with `--wait` (`DORMANT`) or as a plain shell (`ELSEWHERE`); only a restore resumes |
 | `SHELL` | the person relaunches in the pane, then `session-up` | `RUNNING` | report it |
 | `SHELL` | `moveto-ended` | `DORMANT` | re-arm the pane with `--wait` |
-| `ELSEWHERE` | `session-down` | `DORMANT` | nothing; it is already waiting |
+| `ELSEWHERE` | `session-down` | `DORMANT` | re-arm the harness pane with `--wait` (it held a plain shell while the session ran elsewhere) |
+| `ELSEWHERE` | `session-up` in this pane (a person launched in its shell) | `RUNNING` | report it; the account then runs two sessions, by the person's choice |
 | `FAILED` | `session-up` (the person pressed Enter in the re-armed pane) | `RUNNING` | report it |
 | any | `pane-gone` (harness) | `ABSENT` until the next `restore` | nothing: the person chose the layout |
 | shell or status pane | `pane-gone` | (no change) | re-created only at the next `restore` |
 
 ## The restore decision
 
-At `restore`, for each placed agent whose harness pane is `ABSENT`, or is at the operator's bare shell, the deck takes `before` (the snapshot) and `live` (a record no older than the restore itself, waited for up to one poll):
-- **`live` ≥ 1:** `ELSEWHERE`. The session survived (the deck or herdr restarted, not the host, or it runs in another terminal). The harness pane comes back `--wait`, and no second session is started.
+At `restore`, for each placed agent whose harness pane is `ABSENT`, or is at the operator's bare shell, the deck takes `before` and `live`.
+
+`live` is the account's newest record once the deck has waited one poll (`STATE_POLL_MS` plus a margin, 5 s) for the changes the restart caused, and only when that record is fresh (within two heartbeats). The control agent posts on every change and on a ten-minute heartbeat, so a record from before the restore is current when nothing has changed since. With no fresh record (the host is still starting, or the account's control agent is down), the deck waits up to `RESTORE_WAIT_S` for one, then decides `DORMANT`. An unknown `live` never leads to `--resume`.
+
+- **`live` ≥ 1:** `ELSEWHERE`. The session survived (the deck or herdr restarted, not the host, or it runs in another terminal). The harness pane comes back as a plain `moveto` shell, never `--wait`: Enter must not start a second session.
 - **`live` = 0, `before` had a session:** `STARTING` in mode `--resume`. It was running and died with the restart, so it comes back. A stale `before` counts: a host restart is exactly when records go stale.
-- **`live` = 0, `before` had none, or no record at all:** `DORMANT`, mode `--wait`.
+- **`live` = 0, `before` had none, or no fresh record:** `DORMANT`, mode `--wait`.
 
 The shell and status panes always come back live (`moveto <account>`, `moveto <account> --watch`).
 
 After a deck-only restart, herdr and its panes survive. A harness pane with moveto in the foreground is classified from its argv's mode and the stream, and re-armed with nothing. Only a pane at the operator's bare shell, or a missing one, goes through the decision above.
 
 ## What must hold whatever the deck does (fabric side)
+
+Not yet built: python-dev builds `moveto --wait`, `moveto --watch` and the refusal below, in its activation PR. Until they are on main, the deck builds against stand-ins and arms no pane with them.
 
 - **No second session.** `fabric-resume` refuses to resume when the binding's session is alive on the account (`sessions[]` lists it), and says so. A deck mistake, or Enter pressed in two panes, never starts a duplicate.
 - **One Enter, one activation.** moveto `--wait` reads one line, then does exactly `--resume`. End of input gives a plain shell, said.
