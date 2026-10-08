@@ -299,6 +299,20 @@ def _json(doc: dict, compact: bool) -> str:
     return json.dumps(clean(doc), ensure_ascii=False, indent=2)
 
 
+def measure(repo: str, days: int | None = None) -> dict:
+    """What --json prints, plus the default branch the split was read
+    against — None when there is no supply branch, which reads no default
+    branch at all. pr-compliance calls this; a Refusal is the run failing."""
+    branches = supply_branches(repo)
+    prs = open_pull_requests(repo)
+    waiting = awaiting(prs)
+    if not branches:
+        return {"owed": [], "landed": [], "awaiting": waiting, "default_branch": None}
+    base = default_branch(repo)
+    owed, landed = classify(repo, branches, prs, base, days, int(time.time()))
+    return {"owed": owed, "landed": landed, "awaiting": waiting, "default_branch": base}
+
+
 def run(argv: list[str]) -> int:
     parsed = parse_args(argv)
     if parsed is None:
@@ -312,19 +326,15 @@ def run(argv: list[str]) -> int:
     except gh.GhError as e:
         raise Refusal(f"cannot read the repository: {e.reason}") from None
 
-    branches = supply_branches(repo)
-    prs = open_pull_requests(repo)
-    waiting = awaiting(prs)
-    if not branches:
+    m = measure(repo, days)
+    owed, landed, waiting, base = m["owed"], m["landed"], m["awaiting"], m["default_branch"]
+    if base is None:
         if as_json:
             print(_json({"owed": [], "landed": [], "awaiting": waiting}, compact=True))
         else:
             print(f"owed-supply: no supply branches on {repo} (nothing of the shape <host>/<login>/for/<login>/<what>).")
             say_awaiting(waiting)
         return 0
-
-    base = default_branch(repo)
-    owed, landed = classify(repo, branches, prs, base, days, int(time.time()))
     if as_json:
         print(_json({"owed": owed, "landed": landed, "awaiting": waiting}, compact=False))
         return 0
