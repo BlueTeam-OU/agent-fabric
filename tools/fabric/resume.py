@@ -38,6 +38,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 FABRIC = os.path.dirname(os.path.dirname(HERE))
 sys.path.insert(0, os.path.join(FABRIC, "runtime"))
 sys.path.insert(0, HERE)
+import roots  # noqa: E402
 import identity  # noqa: E402
 import install_agent_files  # noqa: E402
 
@@ -101,7 +102,7 @@ def profile_provider(login: str, role: str | None) -> str | None:
     schema gives it (a hand-edited or unmerged checkout runs this without
     the lint), is none."""
     # A test points this at a fixture; nothing else sets it.
-    path = os.environ.get("AGENT_FABRIC_RESUME_PROFILES") or os.path.join(FABRIC, "routing", "profiles.json")
+    path = os.environ.get("AGENT_FABRIC_RESUME_PROFILES") or roots.routing_profiles()
     try:
         with open(path, encoding="utf-8") as fh:
             prof = json.load(fh)
