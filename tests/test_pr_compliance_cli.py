@@ -329,6 +329,14 @@ def main() -> int:
         check("…and --json carries bot per PR",
               [(r["number"], r["bot"]) for r in doc().get("prs", [])] == [(6, True), (7, False)], out["text"])
 
+        print("pr-compliance: a pull request with no head branch is an unknown count, never the unfiltered one")
+        put("merged.json", json.dumps([dict(four[0], headRefName="")]))
+        put("runs.json", json.dumps({"": 7}))
+        run("--days", "3", "--json")
+        check("no headRefName: null, where gh would have counted 7 unfiltered runs",
+              [r["pull_request_runs"] for r in doc().get("prs", [])] == [None], out["text"])
+        put("runs.json", json.dumps({"pr-1": 4, "pr-2": 2, "pr-3": 1}))
+
         print("pr-compliance: the empty window is said; a failing gh is exit 2")
         put("merged.json", "[]")
         run("--days", "1")

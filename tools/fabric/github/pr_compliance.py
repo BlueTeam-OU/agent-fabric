@@ -203,6 +203,11 @@ def merged_pull_requests(repo: str, since: str) -> list[dict]:
 def pull_request_runs(repo: str, workflow: str, branch: str) -> int | None:
     """Runs outlive the branch the queue deletes, so a merged pull
     request's count is still readable; one that cannot be read is None."""
+    # An empty --branch is no filter at all: gh would count the
+    # workflow's last hundred runs of every branch, a plausible number
+    # that is not this pull request's.
+    if not branch:
+        return None
     try:
         out = gh.run(["run", "list", "--repo", repo, "--workflow", workflow, "--event", "pull_request", "--branch",
                       branch, "--limit", "100", "--json", "databaseId"], what="gh run list")
