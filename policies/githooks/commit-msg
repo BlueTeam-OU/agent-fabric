@@ -92,7 +92,18 @@ fi
 # measured, and pinned in tests/test_githooks_cli.py). Anything else
 # undeclared is refused with what to add. A merge commit is exempt (it
 # counts as a merge).
-if [[ ! -f "$(git rev-parse --git-path MERGE_HEAD 2>/dev/null)" ]]; then
+# A merge being made has MERGE_HEAD; a merge being amended (--amend
+# --no-edit) has none, but HEAD is that merge and the message keeps its
+# subject: both are the merge, and exempt. A new commit on top of a merge
+# writes its own subject and declares its kind (review of #120, Codex).
+is_merge=0
+if [[ -f "$(git rev-parse --git-path MERGE_HEAD 2>/dev/null)" ]]; then
+    is_merge=1
+elif [[ "$(git rev-list --parents -n 1 HEAD 2>/dev/null | wc -w)" -gt 2 \
+      && "$(printf '%s\n' "$body" | sed -n '1p')" == "$(git log -1 --format=%s HEAD 2>/dev/null)" ]]; then
+    is_merge=1
+fi
+if (( ! is_merge )); then
     trailers="$(git interpret-trailers --parse "$msg" 2>/dev/null)"
     kind="$(printf '%s\n' "$trailers" | sed -n 's/^[Kk][Ii][Nn][Dd]:[[:space:]]*//p' | tail -1 | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')"
     answers="$(printf '%s\n' "$trailers" | grep -ci '^answers:')"

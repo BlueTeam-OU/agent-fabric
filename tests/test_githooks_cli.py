@@ -467,6 +467,12 @@ def run() -> None:
     git("checkout", "-q", "-")
     rc = commit_rc("merge", "-q", "--no-ff", "-m", "fold side", "side", kind=False)
     check("a merge commit needs no Kind:", rc == 0 and not has(r"^Kind:", msg()), f"rc={rc}\n{err}")
+    rc = commit_rc("commit", "-q", "--amend", "--no-edit", kind=False)
+    check("…nor the same merge amended, when MERGE_HEAD is gone (Codex on #120)",
+          rc == 0 and not has(r"^Kind:", msg()), f"rc={rc}\n{err}")
+    check("a new commit on top of a merge still declares its kind",
+          try_commit("src/a.txt", "after the merge", kind=False) == 1, f"admitted\n{err}")
+    git("reset", "-q", "--hard")
 
     # What git runs the hook for, measured on 2.56 and pinned here: a plain
     # `git revert` and a rebase's picks run none, so a branch made before
