@@ -388,18 +388,18 @@ its record disagree, the record wins. Look it up, never read it whole:
 ### ADR-018 — Authority: one writer role per surface; a guard is hook + CI + suite; the read-only fence (Accepted)
 
 - Authority attaches to roles and policy files, never to logins or
-  directories; holding a role gives nothing over its definition (§2).
+  directories (§2).
 - agent-fabric, and `.agent-fabric/` in every project, is committed only
   by a session bound to `fabric-coordinator`: the hooks fence it, CI
   reads the `Fabric-Role:` trailer (§5 rules 1–4).
 - Every commit carries its role as a trailer; a clean fold passes
   (§5 rules 2–3). A locale's holder commits its translations (§5 rule 5).
 - A contributor role (`authority.json` `contributors`) commits its
-  entry's paths on its own branch (§5 rule 8).
-- A guard is a commit-time check, a CI check on every added commit and a
-  planted suite case (§5 rule 6); a proposal is a message, or a
+  entry's paths (§5 rule 8).
+- A guard is a hook, a CI check per added commit and a planted suite
+  case (§5 rule 6); a proposal is a message, or a
   contributor's branch (§5 rule 7).
-- The tripwires read the base's `authority.json` (§6).
+- Tripwires read the base's `authority.json` (§6).
 - A 2026-09-28 — the charter tripwire runs in CI.
 - A 2026-09-30 — the stores are this role's (References).
 - A 2026-10-01 — the contributor carve-out (§5 rules 7–8).
@@ -407,6 +407,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-10-01 — CI runs main's guards (§5 rule 4).
 - A 2026-10-04 — a merge is judged on its own change (§5 rules 3–4).
 - A 2026-10-07 — an entry that `merges` opens its own PR (§5 rule 8).
+- A 2026-10-08 — and may fold another's supply (§5 rule 8).
 - Keywords: Fabric-Role, pre-commit, commit-msg,
   locale carve-out, contributor, merges.
 

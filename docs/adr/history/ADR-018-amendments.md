@@ -84,3 +84,7 @@ the CI fence already judged contributor commits against the base's
 entry, so the merge needs no coordinator in the loop. What CI could not
 yet refuse — a pull request opened by a contributor that does not
 merge, or from a supply branch — it now does.
+
+### Amendment 2026-10-08 — A role that merges its own work may fold another contributor's supply
+
+python-dev-02's #116 folded devex-tooling's InterWeave configs, as the coordinator had routed them, and CI refused it: only a PR with an owner-role commit could carry a non-merging contributor's supply. A role whose entry merges already opens, reviews and merges its own pull request; it may now fold another contributor's supply as the coordinator does, being the one that merges. Each commit is still held to its own entry by the path check. The guard (tools/fabric/guards/contributors.py pull_request_problem) and its tests change with this rule.

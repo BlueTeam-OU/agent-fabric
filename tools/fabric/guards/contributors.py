@@ -110,8 +110,8 @@ def pull_request_problem(authority_text: str, head_ref: str, declared: list[str]
     """CI's half of the pull-request rule. A supply branch
     `<host>/<login>/for/<caller>/<what>` is folded, never opened as a pull
     request. A pull request in which no commit declares the owner role is
-    a contributor's own, and each contributor role in it must merge its own
-    work. Which login holds which role is runtime state, never committed,
+    a contributor's own: it passes when a role in it merges its own work
+    (the folder), and otherwise each contributor role in it must. Which login holds which role is runtime state, never committed,
     so the commits' declared roles are what is judged: a tripwire, like the
     trailer it reads."""
     parts = head_ref.split("/")
@@ -121,10 +121,18 @@ def pull_request_problem(authority_text: str, head_ref: str, declared: list[str]
     if not declared or owner_role in declared:
         return None
     entries = contributors_of(authority_text)
+    # A role that merges its own work may fold another contributor's supply
+    # into its pull request, as the owner role does: the folder is the one
+    # that merges (a project's configs folded into python-dev's #116 were
+    # refused when only the owner could fold). Each commit is still held to
+    # its own entry by the path check.
+    if any(r in entries and entries[r]["merges"] for r in declared):
+        return None
     others = sorted({r for r in declared if r in entries and not entries[r]["merges"]})
     if others:
-        return (f"no commit declares {owner_role}, and {', '.join(others)} does not merge its own work "
-                "(policies/authority.json `merges`): deliver a supply branch for the caller to fold")
+        return (f"no commit declares {owner_role} or a role that merges its own work, and {', '.join(others)} "
+                "does not merge its own work (policies/authority.json `merges`): deliver a supply branch for "
+                "a caller that merges to fold")
     return None
 
 
