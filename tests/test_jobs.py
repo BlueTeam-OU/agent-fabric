@@ -3,9 +3,11 @@
 command and a scratch state directory — never the login's own list."""
 from __future__ import annotations
 
+import datetime
 import http.server
 import json
 import os
+import re
 import socket
 import subprocess
 import sys
@@ -402,17 +404,24 @@ def main() -> int:
               and "state stream could not be read" in p.stderr and "stored priorities decide" in p.stderr
               and "ranks blocking" not in p.stdout, p.stdout + p.stderr)
 
-        def state_rec(frm: str, waits_on, ts: str = "2026-10-08T10:00:00Z", i: int = 0) -> dict:
+        # queue.mjs reads the record's age against the real clock: a minute
+        # old is fresh, two hours old is past its 20-minute bound.
+        def ago(minutes: int) -> str:
+            return (datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(minutes=minutes)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+        def state_rec(frm: str, waits_on, ts: str | None = None, i: int = 0) -> dict:
+            ts = ts or ago(1)
             rec = {"v": 1, "kind": "state", "from": frm, "ts": ts, "sessions": []}
             if waits_on is not None:
                 rec["waits_on"] = waits_on
             return {"id": f"s{i}", "seq": i, "ts": ts, "sender": frm, "content": json.dumps(rec)}
-        relay = fake_relay([], [
+        state_rows = [
             state_rec(f"{host}/waiter", [other], i=1),             # older: superseded below
             state_rec(f"{host}/waiter", [waited], i=2),
             state_rec("elsewhere/unplaced", [other], i=3),         # no placed address: skipped
             state_rec(f"{host}/user", ["not-an-id"], i=4),         # not agentd's shape: skipped
-        ])
+        ]
+        relay = fake_relay([], state_rows)
         env["CLAUDE_BRIDGE_URL"] = f"http://127.0.0.1:{relay.server_address[1]}"
         try:
             p = run("list")
@@ -436,10 +445,34 @@ def main() -> int:
                   and p.stdout.startswith("j2 ") and f"ranked blocking: {host}/waiter waits on its request (stored low)" in p.stdout,
                   p.stdout + p.stderr)
             check("its stored priority stays", jobs()[1]["priority"] == "low", repr(jobs()[1]))
+            # A waiter whose record is past the bound still ranks the job
+            # blocking (rule 8), named with the record's age and said stale.
+            state_rows.append(state_rec(f"{host}/user", [other], ts=ago(120), i=5))
+            p = run("list")
+            row = next((x for x in p.stdout.splitlines() if x.startswith("j3 ")), "")
+            check("a stale waiter still ranks the job blocking, named with its record's age",
+                  p.returncode == 0 and re.search(rf"ranks blocking: {re.escape(host)}/user \(state record 12[01] min old: stale\) waits on it$", row)
+                  is not None and not p.stderr, p.stdout + p.stderr)
+            got = json.loads(run("list", "--json").stdout)
+            j3 = next(j for j in got if j["id"] == "j3")
+            check("list --json carries the stale waiter's age in seconds", j3["effective_priority"] == "blocking"
+                  and set(j3["stale_waiters"]) == {f"{host}/user"} and 7200 <= j3["stale_waiters"][f"{host}/user"] < 7300
+                  and next(j for j in got if j["id"] == "j2")["stale_waiters"] == {}, repr(j3))
+            run("done", "j2")
+            p = run("next")
+            check("next names a stale waiter the same way", p.returncode == 0 and p.stdout.startswith("j3 ")
+                  and re.search(rf"ranked blocking: {re.escape(host)}/user \(state record 12[01] min old: stale\) waits on its request",
+                                p.stdout) is not None, p.stdout + p.stderr)
+            run("done", "j3")
+            # A queued job from a message again, so the stream is read below.
+            run("add", "from a message again")
+            doc = json.loads(open(lst, encoding="utf-8").read())
+            doc["jobs"][-1]["source"] = {"kind": "request", "message_id": other, "from": f"{host}/waiter", "seq": 3}
+            with open(lst, "w", encoding="utf-8") as fh:
+                json.dump(doc, fh)
         finally:
             relay.shutdown()
             relay.server_close()
-        run("done", "j2")
         env["CLAUDE_BRIDGE_URL"] = dead_url
         p = run("next")
         check("stream down: next says so and takes the stored order", p.returncode == 0 and p.stdout.startswith("j1 ")

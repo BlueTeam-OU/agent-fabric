@@ -10,10 +10,15 @@
 // resolves its own: the token never crosses a pipe or an argv.
 //
 //   node runtime/control/queue.mjs waits
-//     stdout  {"waits": {"<message id>": ["<host>/<login>", …]}, "accounts": <n records read>}
+//     stdout  {"waits": {"<message id>": ["<host>/<login>", …]}, "accounts": <n records read>,
+//              "stale": {"<host>/<login>": <age in s, or null when its ts does not parse>, …}}
 //             — for every placed account's newest state record among the
 //             last STATES_REPLAY on the state channel, the message ids its
-//             blocked jobs wait on (sessions.mjs waits_on)
+//             blocked jobs wait on (sessions.mjs waits_on); `stale` names
+//             each waiting account whose record is older than
+//             STATES_STALE_MS. Its waits still count (ADR-037 rule 8: the
+//             block is real in its jobs.json whether or not its agentd
+//             runs); the age is for the reader to see the doubt.
 //     exit    0 read; 2 usage; 3 not readable — no token, the relay
 //             unreachable or refusing — with {"error": "<one line>"} on stdout
 //
@@ -47,12 +52,12 @@ import { hostsRegistry } from './roots.mjs';
 import { controlConfig, newId } from './agentd.mjs';
 import { poolHolder, POOL_ID, ROLE_SLUG } from './pool.mjs';
 import { MESSAGE_ID } from './sessions.mjs';
-import { STATES_REPLAY } from './ctl.mjs';
+import { STATES_REPLAY, STATES_STALE_MS } from './ctl.mjs';
 
 export class Unreadable extends Error {}
 
 /** The message ids each placed account waits on: { id: [address, …] }. */
-export function waitsFrom(rows, placed) {
+export function waitsFrom(rows, placed, now = Date.now()) {
   const newest = new Map();
   for (const rec of rows) {
     let r; try { r = JSON.parse(rec?.content); } catch { continue; }
@@ -61,10 +66,13 @@ export function waitsFrom(rows, placed) {
     // The channel's order is the relay's; a record later on it is newer.
     newest.set(r.from, r);
   }
-  const waits = {};
-  for (const [from, r] of [...newest].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)))
+  const waits = {}, stale = {};
+  for (const [from, r] of [...newest].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) {
     for (const m of r.waits_on ?? []) (waits[m] ??= []).push(from);
-  return { waits, accounts: newest.size };
+    const age = now - Date.parse(r.ts);
+    if (r.waits_on?.length && !(age <= STATES_STALE_MS)) stale[from] = Number.isFinite(age) ? Math.floor(age / 1000) : null;
+  }
+  return { waits, accounts: newest.size, stale };
 }
 
 export async function readWaits({ call, cfg, placed }) {

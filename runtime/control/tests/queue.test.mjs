@@ -8,7 +8,8 @@ import { scratch } from '../../../tests/scratch.mjs';
 import { waitsFrom, readWaits, askHolder, placedAccounts, Unreadable, unsent, relayError } from '../queue.mjs';
 
 const A = '01a11a18-4728-7d8b-afd9-0edb2d30a59c', B = '01a11a19-0bea-70c7-b667-1e1e5a74dbe1';
-const rec = (from, waits_on, extra = {}) => ({ content: JSON.stringify({ v: 1, kind: 'state', from, ts: 't', sessions: [], ...(waits_on ? { waits_on } : {}), ...extra }) });
+const rec = (from, waits_on, extra = {}) => ({ content: JSON.stringify({ v: 1, kind: 'state', from, ts: '2026-10-08T12:00:00Z', sessions: [], ...(waits_on ? { waits_on } : {}), ...extra }) });
+const NOW = Date.parse('2026-10-08T12:05:00Z');
 
 test('waits: each placed account\'s newest record, its message ids, the waiters sorted', () => {
   const placed = new Set(['h/b', 'h/a', 'h/c']);
@@ -20,12 +21,26 @@ test('waits: each placed account\'s newest record, its message ids, the waiters 
     rec('x/unplaced', [B]),                // not placed: skipped
     { content: '{broken' },
     rec('h/c', [B], { kind: 'reply' }),
-  ], placed);
-  assert.deepEqual(got, { waits: { [B]: ['h/a'], [A]: ['h/b'] }, accounts: 2 });
+  ], placed, NOW);
+  assert.deepEqual(got, { waits: { [B]: ['h/a'], [A]: ['h/b'] }, accounts: 2, stale: {} });
+});
+
+test('a waiter whose record is older than the bound still waits, and is named stale with its age (ADR-037 rule 8)', () => {
+  const placed = new Set(['h/a', 'h/b', 'h/c', 'h/d']);
+  const got = waitsFrom([
+    rec('h/a', [A], { ts: '2026-10-08T11:00:00Z' }),   // an hour old
+    rec('h/b', [A]),                                  // five minutes: fresh
+    rec('h/c', null, { ts: '2026-10-08T09:00:00Z' }),  // old, but waits on nothing
+    rec('h/d', [B], { ts: 'yesterday' }),             // a ts that does not parse: age unknown
+  ], placed, NOW);
+  assert.deepEqual(got.waits, { [A]: ['h/a', 'h/b'], [B]: ['h/d'] }, 'counted all the same');
+  assert.deepEqual(got.stale, { 'h/a': 3900, 'h/d': null });
+  // The bound itself is fresh: exactly STATES_STALE_MS old is not stale.
+  assert.deepEqual(waitsFrom([rec('h/a', [A], { ts: '2026-10-08T11:45:00Z' })], placed, NOW).stale, {});
 });
 
 test('a record without waits_on waits on nothing, and replaces an older one that did', () => {
-  assert.deepEqual(waitsFrom([rec('h/a', [A]), rec('h/a', null)], new Set(['h/a'])), { waits: {}, accounts: 1 });
+  assert.deepEqual(waitsFrom([rec('h/a', [A]), rec('h/a', null)], new Set(['h/a']), NOW), { waits: {}, accounts: 1, stale: {} });
 });
 
 test('readWaits reads the state channel, never the control channel', async () => {
