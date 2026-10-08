@@ -782,4 +782,6 @@ test('a human login (ADR-044) is placed with its kind; all asks only agents, and
   const r = await run('http://127.0.0.1:9', f, ['deck-human', 'ping', '--timeout', '1']);
   assert.equal(r.status, 2, r.err);
   assert.match(r.err, /deck-human is a human login \(ADR-044\)/);
+  const { targetsOf } = await import('../ctl.mjs');
+  assert.deepEqual(targetsOf(['all'], placements(f)).expected.map(p => p.login), ['db-admin'], 'all asks the agent, never the human');
 });

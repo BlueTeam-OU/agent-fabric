@@ -114,6 +114,19 @@ function placedRegistry() {
   return f;
 }
 
+test('assign: a human login (ADR-044) is never given a Claude account, named or under all', async () => {
+  const d = fakeStore();
+  const registry = path.join(scratch('assign-reg-'), 'registry.json');
+  fs.writeFileSync(registry, JSON.stringify({ hosts: { h: { operator: 'user' } }, placement: { 'db-admin': 'h', 'deck-human': 'h' }, kinds: { 'deck-human': 'human' } }));
+  const named = await capture(() => main(['assign', 'deck-human', 'claude-b'], { home: scratch('assign-home-'), env: {}, exec: d.exec, registry, spawn: () => assert.fail('no sync') }));
+  assert.equal(named.code, 2); assert.match(named.err, /a human login has no Claude account \(ADR-044\): deck-human/);
+  let synced;
+  const all = await capture(() => main(['assign', 'all', 'claude-b'], { home: scratch('assign-home-'), env: {}, exec: d.exec, registry, spawn: (bin, args) => { synced = args; return { status: 0 }; } }));
+  assert.equal(all.code, 0, all.err + all.out);
+  assert.ok(d.on['db-admin'] === 'claude-b' && !('deck-human' in d.on), 'all is every agent, not the human');
+  assert.ok(!synced.includes('deck-human'));
+});
+
 test('templates: each template in the store by fingerprint; one without a token is not a clean answer; no value is printed', async () => {
   const d = fakeStore();
   const r = await capture(() => main(['templates'], { home: scratch('accounts-tpl-'), env: {}, exec: d.exec }));

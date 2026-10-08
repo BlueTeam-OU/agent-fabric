@@ -50,8 +50,13 @@ TIMEOUT_S = 30
 
 
 def placed_logins() -> list[str]:
+    """Every placed agent: a human login (ADR-044) holds only what its work
+    needs, so `all` never shares an agent's credentials or mints a key into it."""
     reg = os.environ.get("AGENT_FABRIC_HOSTS_REGISTRY") or os.path.join(ss.FABRIC_ROOT, "runtime", "hosts", "registry.json")
-    return sorted((json.load(open(reg, encoding="utf-8")).get("placement") or {}))
+    with open(reg, encoding="utf-8") as f:
+        data = json.load(f)
+    kinds = data.get("kinds") or {}
+    return sorted(l for l in (data.get("placement") or {}) if kinds.get(l, "agent") == "agent")
 
 
 def child_names(who: str) -> tuple[str, str, list[str]]:

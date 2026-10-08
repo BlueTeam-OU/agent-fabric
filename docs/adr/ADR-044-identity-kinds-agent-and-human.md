@@ -71,9 +71,11 @@ visible as one: in messages, in presence, in a review's provenance.
 3. A human's store holds the relay credential the deck's reads and its
    messages need. It holds the control plane's signing key only when the
    owner gives it to the owner's own login.
-4. `fabric-ctl all` asks only agents: a human has no agentd to answer.
-   A human is named in what fabric-ctl prints as a human, never as a
-   silent account.
+4. A fleet-wide `all` (fabric-ctl, fabric-accounts, fabric-usage,
+   fabric-secrets provision) means every agent and leaves a human out:
+   a human has no agentd to answer, no Claude account and none of an
+   agent's credentials. Naming a human where only an agent can answer
+   is refused with that reason, never reported as a silent account.
 5. A human login enters an agent's account only with `moveto` and the
    host's sudo grant for it; it never becomes an agent's role account,
    and no agent becomes a human's (ADR-010 rule 12).

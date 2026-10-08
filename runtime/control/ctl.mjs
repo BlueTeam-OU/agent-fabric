@@ -501,24 +501,27 @@ export function table(op, rs) {
   return lines.join('\n');
 }
 
+// Who is asked: `all` is every agent, never a human, which has no control
+// agent to answer (ADR-044 rule 4); a name must be placed and an agent.
+export function targetsOf(targets, placed) {
+  if (targets.length === 1 && targets[0] === 'all') return { expected: placed.filter(p => p.kind === 'agent'), everyone: true };
+  const expected = [];
+  for (const t of targets) {
+    const p = placed.find(x => x.login === t);
+    if (!p) return { refused: `${t} is not a placed account (runtime/hosts/registry.json)` };
+    if (p.kind === 'human') return { refused: `${t} is a human login (ADR-044): no control agent answers for it` };
+    expected.push(p);
+  }
+  return { expected };
+}
+
 export async function main(argv = process.argv.slice(2), { registry, fetchImpl } = {}) {
   let args;
   try { args = parseArgs(argv); } catch (e) { console.error(`fabric-ctl: ${e.message}`); return 2; }
   if (args.help || (!args.targets.length && args.op !== 'keygen')) { console.error('usage: fabric-ctl <login|all> [status|usage|identity|keys|fabric|session|script|recall|host|disk|accounts|ping] [--json] [--timeout S]\n       fabric-ctl <login|all> tokens [--days N]\n       fabric-ctl <login|all> memory --out <dir>\n       fabric-ctl <login|all> upgrade claude [--version V]\n       fabric-ctl <login|all> upgrade fabric   (every account to this checkout\'s origin/main, then bootstrap)\n       fabric-ctl <login|all> secrets-sync [--expect SHA12] [--restart]\n       fabric-ctl <login|all> presence   (any placed account may ask)\n       fabric-ctl <login|all> jobs\n       fabric-ctl <login> jobs-add [--topic T] [--project P] [--] "<title>"\n       fabric-ctl <login|all> secrets-selftest\n       fabric-ctl <login|all> local\n       fabric-ctl <login|all> local-prune\n       fabric-ctl <login|all> states [--follow] [--json]\n       fabric-ctl keygen [--force]'); return args.help ? 0 : 2; }
   if (args.op === 'keygen') return keygen(args, { registry });
-  const placed = placements(registry);
-  const all = placed.filter(p => p.kind === 'agent');
-  let expected;
-  if (args.targets.length === 1 && args.targets[0] === 'all') expected = all;
-  else {
-    expected = [];
-    for (const t of args.targets) {
-      const p = placed.find(x => x.login === t);
-      if (!p) { console.error(`fabric-ctl: ${t} is not a placed account (runtime/hosts/registry.json)`); return 2; }
-      if (p.kind === 'human') { console.error(`fabric-ctl: ${t} is a human login (ADR-044): no control agent answers for it`); return 2; }
-      expected.push(p);
-    }
-  }
+  const { expected, everyone, refused: notAsked } = targetsOf(args.targets, placements(registry));
+  if (notAsked) { console.error(`fabric-ctl: ${notAsked}`); return 2; }
   const who = whoami();
   const me = gzIdentity(who);
   if (args.op === 'states') {
@@ -544,7 +547,7 @@ export async function main(argv = process.argv.slice(2), { registry, fetchImpl }
   // capped; how long this command waits for replies is --timeout, which
   // for a queued fleet upgrade is far longer — the last account replies
   // long after every account accepted.
-  let request = buildRequest(args, { id, from: me.address, to: expected === all ? '*' : expected.map(e => e.address), cfg });
+  let request = buildRequest(args, { id, from: me.address, to: everyone ? '*' : expected.map(e => e.address), cfg });
   // One command, one version: the coordinator's pin travels in the signed
   // request. Left to each account, an account that had not pulled the pin
   // bump would read its own older pin and answer `current` (review of #34).

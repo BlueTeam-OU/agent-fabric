@@ -105,17 +105,19 @@ def parse(argv: list[str]) -> tuple[bool, list[str]] | None:
 
 
 def placements(registry: str) -> list[tuple[str, str]]:
-    """(login, host) for every placement, in the registry's order."""
+    """(login, host) for every placed agent, in the registry's order."""
     if not os.path.isfile(registry):
         raise Refused(f"no host registry at {registry}")
     try:
         with open(registry, encoding="utf-8") as fh:
-            placement = json.load(fh).get("placement")
+            data = json.load(fh)
+        placement, kinds = data.get("placement"), data.get("kinds") or {}
     except (OSError, ValueError, AttributeError) as e:
         raise Refused(f"the host registry at {registry} cannot be read: {e}") from None
     if not isinstance(placement, dict) or not all(isinstance(h, str) for h in placement.values()):
         raise Refused(f"the host registry at {registry} has no placement map of login to host")
-    return list(placement.items())
+    # A human login (ADR-044) has no Claude account to read.
+    return [(l, h) for l, h in placement.items() if not isinstance(kinds, dict) or kinds.get(l, "agent") == "agent"]
 
 
 def last_line(out: str) -> str:
