@@ -371,9 +371,14 @@ def project_tools_findings(root: str) -> list[str]:
         except (OSError, SyntaxError):
             continue
         for node in ast.walk(tree):
-            targets = node.targets if isinstance(node, ast.Assign) else [node.target] if isinstance(node, ast.AnnAssign) else []
+            targets = (node.targets if isinstance(node, ast.Assign)
+                       else [node.target] if isinstance(node, (ast.AnnAssign, ast.AugAssign)) else [])
             if any(getattr(t, "id", "") == "RETIRED" for t in targets):
                 try:
+                    # An augmented RETIRED += (...) adds to what the lint
+                    # cannot see whole: it is refused as computed.
+                    if isinstance(node, ast.AugAssign):
+                        raise ValueError("augmented")
                     paths = ast.literal_eval(node.value)
                 except ValueError:
                     # A computed RETIRED cannot be checked, so it is refused,

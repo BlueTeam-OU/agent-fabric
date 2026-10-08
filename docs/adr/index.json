@@ -287,7 +287,7 @@
       "status": "Accepted",
       "date": "2026-09-24",
       "pillar": "P5",
-      "amendments": 4
+      "amendments": 5
     },
     {
       "number": "032",
@@ -341,7 +341,7 @@
       "status": "Accepted",
       "date": "2026-09-28",
       "pillar": "P3",
-      "amendments": 0
+      "amendments": 1
     },
     {
       "number": "038",
@@ -401,6 +401,15 @@
       "number": "044",
       "file": "ADR-044-identity-kinds-agent-and-human.md",
       "title": "Identity kinds: an agent and a human",
+      "status": "Proposed",
+      "date": "2026-10-08",
+      "pillar": "P1",
+      "amendments": 0
+    },
+    {
+      "number": "045",
+      "file": "ADR-045-engine-operator-and-clients.md",
+      "title": "Engine, operator and clients",
       "status": "Proposed",
       "date": "2026-10-08",
       "pillar": "P1",

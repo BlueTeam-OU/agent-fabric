@@ -27,7 +27,7 @@ The two kinds of Claude Code token differ, as measured on 2026-09-24
 | scopes | `user:inference`, `profile`, `mcp_servers`, `plugins`, `sessions:claude_code`, `file_upload` | `user:inference` only |
 | lifetime | 8 hours, renewed by the harness with a refresh token | one year, no renewal |
 | holders | one | any number, at once |
-| reads usage | yes | no (HTTP 403) |
+| reads usage | yes | not the usage endpoint (HTTP 403); its windows ride every inference reply's headers (A 2026-10-08) |
 
 On 2026-09-25 the coordinator moved eleven logins between accounts with a
 host-execution loop, and the owner ruled that a move is done by the
@@ -51,10 +51,12 @@ mechanisms, because the two tokens can do different things.**
   `secrets-sync` action with the template's fingerprint: each account
   syncs its own secrets, proves the synced token is the template's, and
   resumes a running session on it.
-- **An observer reads the windows.** The coordinator's login holds one
-  `/login` sign-in per account in a config directory of its own, used for
-  nothing else; its control agent reads each with the harness's own
-  headless `/usage`, which renews the sign-in and makes no model call.
+- **Each account reads its own windows.** Every inference reply to a
+  setup-token carries the account's five-hour and seven-day windows in
+  its rate-limit headers; a login's control agent makes one one-token
+  call on its own token and reports them. The observer's `/login`
+  sign-ins stay optional: they add the per-model meters and need no
+  model call (A 2026-10-08).
 
 The credentials themselves — each login's own store, values never
 printed — are ADR-012's and ADR-038's; the signed action is ADR-009's
@@ -86,9 +88,9 @@ and ADR-029's.
 A setup-token is exactly what a working session needs — inference, for a
 year, shareable — and nothing more, so a login's account is one entry
 of its store, and a move is a reviewed, fingerprinted change rather than a
-browser session per login. The observer keeps the one thing a
-setup-token cannot do — reading usage — on sign-ins nothing else uses,
-renewed by the harness the official way. The account applying and
+browser session per login. The windows need no second credential: the
+token's own replies carry them, at the cost of one output token per
+reading (A 2026-10-08). The account applying and
 proving its own move is P5's point: the check is the account's, the
 verdict comes back, and a session survives the move.
 
@@ -134,7 +136,7 @@ verdict comes back, and a session survives the move.
    nothing else; the control agent reads each every four hours and on
    request with `claude -p /usage`, caching the answer five minutes.
    `fabric-accounts list` prints signed-in state, email and expiry, never
-   a token.
+   a token. These sign-ins are optional (A 2026-10-08).
 8. A new login's starting account is chosen when it is made:
    `new-agent.sh` takes `--claude-account <template>` or, for a login
    that runs only through the broker, `--no-claude-account`, one of the
@@ -145,6 +147,12 @@ verdict comes back, and a session survives the move.
    fails when it is not there. An assignment made after `new-agent`
    cannot be applied until the login's key is on main, which is why it
    moved into the onboarding (A 2026-10-07).
+9. A login on a setup-token reads its account's windows from one
+   inference reply: `max_tokens` 1, a pinned small model, its own token in
+   the one header; the `anthropic-ratelimit-unified-5h-*` and `-7d-*`
+   headers become the utilisation as a percentage, the reset as an ISO
+   time and the window's status, an absent header absent, never 0. The
+   token never enters a reply (A 2026-10-08).
 
 ## 6. Consequences
 
@@ -158,8 +166,11 @@ verdict comes back, and a session survives the move.
   account spends off the fleet's hosts is not visible.
 - An account holds several valid setup-tokens at once; revoking one is
   claude.ai → Settings → Claude Code.
-- The observer is one login on one host: when its sign-ins lapse or its
-  control agent is down, the windows are unread until it is back.
+- Each reading of a setup-token account spends one output token of
+  that account, and `fabric-ctl status` includes one; when a login's
+  control agent is down, its account's windows can be read by hand
+  through another login on the same account (`fabric-ctl <login> usage`):
+  nothing falls back on its own (A 2026-10-08).
 
 ## 7. Future Evolution
 
@@ -194,3 +205,4 @@ The body above reads current; each change's full note is in [history/ADR-031-ame
 | 2026-09-29 | Templates and assignments on the coordinator's store | §5 rules 1–2: a template in the coordinator's store; assign writes into the login's store |
 | 2026-09-30 | Doppler is retired: the store holds what Doppler held | Scope, §2, §4, §5 rules 1, 2, 4 |
 | 2026-10-07 | The starting account is chosen at onboarding | §5 rule 8: `new-agent.sh --claude-account <template>` or `--no-claude-account`, written before the child's first sync and read back |
+| 2026-10-08 | A setup-token account's windows read from an inference reply | §2, §4, §6 and the table; rule 7's sign-ins optional; rule 9 added |

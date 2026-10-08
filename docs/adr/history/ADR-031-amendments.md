@@ -37,3 +37,7 @@ were assigned with fabric-accounts afterwards; the token was written,
 and every sync refused it until their keys reached main, so none could
 start on plain Claude. new-agent's own first sync runs before that and
 applied the rest of their store, so the account goes in before it.
+
+### Amendment 2026-10-08 — A setup-token account's windows read from an inference reply
+
+Every account had moved onto a setup-token, and the observer's sign-ins had lapsed, so `fabric-ctl all usage` showed no figure at all; the owner asked for the weekly allowances. A one-token call with each template's token came back with the full `anthropic-ratelimit-unified-*` set: utilisation, reset and status for both windows, different per account (docs/live-checks/2026-10-08-usage-from-inference-headers.md). The control agent's usage op now reads those headers for a setup-token account; the observer's `/usage` sign-ins remain for the per-model meters and are no longer needed for the windows. The `fabric-usage` path through the host executor still reports `setup-token` and is a carried item.

@@ -21,6 +21,15 @@
         }
       },
       "notes": "The architect's main conversation runs on Fable 5.1, the top tier, not the coding tier's model (the owner, 2026-09-24). Only the model moves: its effort is the session's, routing/effort.json's medium, as every class's is since 2026-09-25; its code-plan subagents run on the column's model, Opus 5.5, at the same level."
+    },
+    "python-dev-03": {
+      "providers": {
+        "anthropic": {
+          "session": "claude-sonnet-5-5"
+        }
+      },
+      "launch_provider": "anthropic",
+      "notes": "The Sonnet pilot (the owner, 2026-10-08): python-dev-03's session runs on Sonnet 5.5 while its code-high, code-plan and review classes stay on the column's models; its blind-review findings per work commit are compared with python-dev-01's and -02's on Opus (docs/live-checks/2026-10-08-python-dev-sonnet-pilot.md) before the role's default changes."
     }
   }
 }

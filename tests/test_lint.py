@@ -1849,6 +1849,8 @@ def case_project_tools_are_declared_and_never_retired() -> None:
         assert len(got) == 1 and "a tool a project declares" in got[0], ("an annotated RETIRED is checked too", got)
         got = findings([good], ".doppler", "BASE = ({!r},)\nRETIRED = BASE + ()\n")
         assert len(got) == 1 and "not a literal" in got[0], ("a computed RETIRED is refused, never skipped", got)
+        got = findings([good], ".doppler", "RETIRED = ()\nRETIRED += ({!r},)\n")
+        assert any("not a literal" in f for f in got), ("an augmented RETIRED is refused, never skipped", got)
 
 
 def case_locales_carry_the_same_files() -> None:

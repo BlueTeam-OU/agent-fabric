@@ -32,6 +32,6 @@ The control: the two accounts answered with different figures and different 7-da
 - **The control agent's `usage` op reads a setup-token account from these headers** (`runtime/control/ops/usage.mjs`).
   - One one-token call, against the account's own allowance.
   - The utilisation is reported as the usage endpoint reports it, a percentage, with the reset as an ISO time and the window's status beside it.
-  - A 429 still carries the headers, so a full window is a reading, not a failure.
+  - A reply of any status that carries the headers is read, so a full window (expected to answer 429) would still be a reading.
 - **The probe model is a pinned id, not routing's.** The probe must not change with what a class rides.
-- **Not measured:** whether the headers come back on a model other than Haiku 4.5, and whether they count a one-token call differently from a session's.
+- **Not measured:** whether a 429 for a full window carries the headers (none of the accounts was full), whether the headers come back on a model other than Haiku 4.5, and whether they count a one-token call differently from a session's.

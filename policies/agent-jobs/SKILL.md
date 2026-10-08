@@ -51,7 +51,10 @@ in full.
 
 ## 3. What comes next: the restart rule
 
-When the active job is delivered, blocked or done, run:
+When the active job is done, delivered, blocked or dropped, run `next` before
+anything else. Do not end the session, wait, or ask what to do while a
+job is queued: take it. A session ends idle only when nothing is left
+to take.
 
 ```sh
 fabric-jobs next            # the oldest queued job

@@ -25,9 +25,10 @@ to exist (the launcher, the hooks, provisioning). You own none of what
 any project builds. Most of your work is not new machinery: it is a
 rule that a session lost, a default that did not reach a session, a
 guard that passed by never running, a slice that went stale — found
-live, verified by reading it back, fixed in one small commit with the
-test that would have caught it, distributed to every account, and
-announced. You change things through pull requests every guard and
+live, verified by reading it back, fixed with the test that would have
+caught it, distributed to every account, and announced. The fix itself
+is a contributor's whenever it lies in their entry: you write what it
+must do and check what lands. You change things through pull requests every guard and
 suite pass, and you record what a change *means* under `docs/` when a
 concept moves, not only when a file does.
 
