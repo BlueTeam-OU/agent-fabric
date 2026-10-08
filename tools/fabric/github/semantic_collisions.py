@@ -67,29 +67,16 @@ import sys
 
 HERE = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
-from github.cli_root import Refused, parse_root, toplevel  # noqa: E402
+from github.cli_root import Refused, parse_root, project_config, toplevel  # noqa: E402
 
 PROG = "scan_semantic_collisions"
-FABRIC = os.path.dirname(os.path.dirname(os.path.dirname(HERE)))
 SETTING = "AGENT_FABRIC_COLLISIONS_CONFIG"
 # head -3 of the duplicated headings, as both copies cut it.
 HEADINGS_SHOWN = 3
 
 
 def config_path(root: str) -> str:
-    explicit = os.environ.get(SETTING, "")
-    if explicit:
-        return explicit
-    try:
-        import workingcopy
-        pid = workingcopy.resolve(root).get("project")
-    except (Exception, SystemExit):   # a marker naming nothing the registry knows exits
-        pid = None
-    if not pid:
-        return ""
-    fabric = os.environ.get("AGENT_FABRIC_ROOT") or FABRIC
-    path = os.path.join(fabric, "projects", pid, "integration", "gh", "collisions.json")
-    return path if os.path.exists(path) else ""
+    return project_config(root, "collisions.json", SETTING)
 
 
 def load_config(path: str, root: str) -> dict:
