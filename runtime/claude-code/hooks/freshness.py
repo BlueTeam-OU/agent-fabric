@@ -36,10 +36,11 @@ import sys
 import time
 
 FETCH_EVERY_S = 600
-# At most six local git calls run in a prompt (the fallback refs
-# included), inside the hook's 15 s budget (user-settings.py): a hook past
-# its timeout says nothing at all. Each is a local read, milliseconds.
-GIT_TIMEOUT_S = 2
+# At most eight local git calls run in a prompt (the dangling-ref check
+# and both fallback refs included), inside the hook's 15 s budget
+# (user-settings.py) with room for Python's start: a hook past its timeout
+# says nothing at all. Each is a local read, milliseconds.
+GIT_TIMEOUT_S = 1.5
 FETCH_TIMEOUT_S = 120
 SESSION_RE = re.compile(r"^[A-Za-z0-9._-]{1,128}$")
 

@@ -65,8 +65,11 @@ import roots  # noqa: E402
 # The project-side directory, and how a project's INDEX.md reaches back
 # into this repository.
 PROJECT_DIRNAME = ".agent-fabric"
-# Spelled as one string so it reads as the project's own memory, not the operator's corpus.
-PROJECT_MEMORY_SUBDIR = f"{PROJECT_DIRNAME}{os.sep}memory"
+# The literal rather than PROJECT_DIRNAME: the seam scan
+# (tests/test_roots_seam.py) tells a project's own .agent-fabric/ tree
+# from the operator's corpus by that literal in the join. Both name the
+# same directory.
+PROJECT_MEMORY_SUBDIR = os.path.join(".agent-fabric", "memory")
 PROJECT_ROLES_SUBDIR = os.path.join(PROJECT_DIRNAME, "roles")
 FABRIC_LINK_PREFIX = "../agent-fabric"
 FABRIC_PROJECT_ID = "agent-fabric"

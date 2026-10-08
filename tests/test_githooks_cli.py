@@ -221,6 +221,7 @@ def run() -> None:
     for d in ("tools/fabric", "docs", "projects"):
         os.makedirs(f"{REPO}/{d}", exist_ok=True)
     shutil.copy2(f"{FABRIC}/tools/fabric/adr.py", f"{REPO}/tools/fabric/")
+    shutil.copy2(f"{FABRIC}/tools/fabric/roots.py", f"{REPO}/tools/fabric/")   # adr.py reads its tree through roots (ADR-045)
     for d in ("adr", "live-checks"):
         shutil.copytree(f"{FABRIC}/docs/{d}", f"{REPO}/docs/{d}", dirs_exist_ok=True)
     shutil.copy2(f"{FABRIC}/projects/registry.json", f"{REPO}/projects/")
