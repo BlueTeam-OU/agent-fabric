@@ -12,8 +12,8 @@ on Stop, so it runs for every session of the account.
 On Stop it reads the reply the session is about to end on
 (`last_assistant_message`). A pull request (`#123`, `owner/repo#123`)
 named on a line with a status word (arm, merge, ready, mergeable, queued,
-gate, open, waiting, …) must carry `(N work, M fix)` right after it, at
-least once in the reply; fenced and inline code are not read, and a
+gate, open, waiting, …) must carry `(N work, M fix)` after it on its line,
+before the next PR, at least once in the reply; fenced and inline code are not read, and a
 number that is an issue, a step, an item or a colour is not a PR. When a
 pull request lacks them, the reply is blocked once with the reason: the
 session adds the counts from runtime/github/pr-gate.sh and answers again. `stop_hook_active` (the session is already continuing
@@ -42,8 +42,9 @@ NOT_A_PR_WORDS = frozenset(("issue", "issues", "step", "steps", "item", "items",
 STATUS_RE = re.compile(r"\b(?:arm|armed|arming|merge|merged|mergeable|ready|queued|gate|waiting|"
                        r"your word|auto-merge|open|opened)\b", re.I)
 # The owner's format, right after the number: "#N (W work, F fix".
-# Closing emphasis or a table bar may sit between the number and its counts.
-COUNTS_AFTER_RE = re.compile(r"[*_~|`]{0,4}\s*\(\s*\d{1,4}\s+work\s*,\s*\d{1,4}\s+fix\b", re.I)
+# A PR's counts are the first "(W work, F fix" after it on its line, before
+# the next PR: emphasis, a colon or a table's cells may come between.
+COUNTS_RE = re.compile(r"\(\s*\d{1,4}\s+work\s*,\s*\d{1,4}\s+fix\b", re.I)
 CODE_SPAN_RE = re.compile(r"`[^`\n]*`")
 FENCE_RE = re.compile(r"^\s*(`{3,}|~{3,})")
 MAX_CHARS = 200_000
@@ -74,8 +75,10 @@ def pr_ref(line: str, m: re.Match) -> str | None:
     or a number glued to a word. Only the token right before `#` is looked
     at, so each `#N` costs a constant (missing() keeps the rest linear)."""
     before = line[max(0, m.start() - PREFIX):m.start()]
-    after = line[m.end():m.end() + 1]
-    if after and after.isalnum():
+    after = line[m.end():m.end() + 2]
+    # A word character glued after the number makes it not a PR, except a
+    # closing emphasis underscore (_#115_), which no word character follows.
+    if after[:1].isalnum() or (after[:1] == "_" and after[1:2].isalnum()):
         return None
     glued = before[-1:] if before else ""
     repo = ""
@@ -100,11 +103,10 @@ def missing(text: str) -> list[str]:
     counted: set[str] = set()
     for line in prose_lines(text):
         status = bool(STATUS_RE.search(line))
-        for m in NUM_RE.finditer(line):
-            ref = pr_ref(line, m)
-            if ref is None:
-                continue
-            if COUNTS_AFTER_RE.match(line, m.end()):
+        refs = [(m, r) for m in NUM_RE.finditer(line) if (r := pr_ref(line, m)) is not None]
+        for i, (m, ref) in enumerate(refs):
+            end = refs[i + 1][0].start() if i + 1 < len(refs) else len(line)
+            if COUNTS_RE.search(line, m.end(), end):
                 counted.add(ref)
             elif status:
                 stated.setdefault(ref, None)

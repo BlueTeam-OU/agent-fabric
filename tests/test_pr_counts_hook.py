@@ -60,6 +60,8 @@ def main() -> int:
         check(f"{label} is not a PR status: passes", out is None, out)
     rc, out = reply("#1 (2 work, 0 fix) and #2 are ready to merge")
     check("one count excuses only its own PR", out and "of #2 without" in out["reason"], out)
+    rc, out = reply("#12_bar is merged")
+    check("a number glued to a word by _ is not a PR", out is None, out)
     for text in ("**#115** is merged.", "|#115|merged|", "Merged: **#115**", "—#115 is open",
                  "_#115_ is merged.", "merged -#115"):
         rc, out = reply(text)
@@ -73,6 +75,7 @@ def main() -> int:
         check(f"a {len(line)}-character run of separators is read in under a second", time.monotonic() - t0 < 1,
               time.monotonic() - t0)
     for text in ("**#115** (3 work, 0 fix) is ready.", "|#115| (3 work, 0 fix) merged",
+                 "| #115 | (3 work, 0 fix) | merged |", "**#115**: (3 work, 0 fix) ready",
                  "PR **#115** (3 work, 0 fix) is ready.\n**#115** is merged."):
         rc, out = reply(text)
         check(f"counts after closing emphasis or a bar pass: {text!r}", out is None, out)
