@@ -23,6 +23,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from git_env import git_env, scrub_process_env  # noqa: E402 — tests/, the script's own directory
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 UNDER_TEST = os.path.join(ROOT, "runtime", "github", "pr-reply.sh")
@@ -96,7 +97,7 @@ def main() -> int:
         clone, state, bin_ = f"{sandbox}/{clone_name}", f"{sandbox}/state", f"{sandbox}/bin"
         for d in (clone, state, bin_):
             os.makedirs(d)
-        subprocess.run(["git", "-C", clone, "init", "-q"], check=True, timeout=30, stderr=subprocess.DEVNULL)
+        subprocess.run(["git", "-C", clone, "init", "-q"], check=True, timeout=30, stderr=subprocess.DEVNULL, env=git_env())
         with open(f"{bin_}/gh", "w", encoding="utf-8") as fh:
             fh.write(GH_MOCK.replace("{python}", sys.executable, 1))
         os.chmod(f"{bin_}/gh", 0o755)
@@ -222,12 +223,12 @@ def main() -> int:
         # ~/projects/<repo> is every login's default clone: its name taken
         # for a session made an older branch under it "mine" in every one.
         subprocess.run(["git", "-C", clone, "remote", "add", "origin", f"git@example.com:org/{clone_name}.git"],
-                       check=True, timeout=30)
+                       check=True, timeout=30, env=git_env())
         thread_fixture(f"{host}/{clone_name}/fix/mine-under-the-old-name", False)
         rc, out = invoke("Verified against main; obsolete.", THREAD_ID)
         check("refused: the repository's own name is no session's", rc == 2, out)
         check("nothing posted on the old branch", "REPLY" not in calls(), calls())
-        subprocess.run(["git", "-C", clone, "remote", "remove", "origin"], check=True, timeout=30)
+        subprocess.run(["git", "-C", clone, "remote", "remove", "origin"], check=True, timeout=30, env=git_env())
 
         print("pr-reply: an older branch named for another working copy is another session's")
         thread_fixture(f"{host}/legacy-old/fix/theirs", False)
@@ -473,4 +474,5 @@ def main() -> int:
 
 
 if __name__ == "__main__":
+    scrub_process_env()
     sys.exit(main())
