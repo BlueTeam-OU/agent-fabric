@@ -336,10 +336,12 @@ test('fabric-ctl all usage: two of three answer — table, a no-answer row, exit
     r.rows.length = 0;   // the earlier runs' records
     const clear = () => { if (r.rows.some(x => x.content.includes('"request"'))) { r.rows.length = 0; return; } setTimeout(clear, 20); };
     setTimeout(clear, 20);
-    const t0 = Date.now();
     const lost = await run(r.url(), reg, ['db-admin', 'ping', '--timeout', '5']);
-    assert.ok(Date.now() - t0 < 4000, 'ended before the timeout');
-    assert.equal(lost.status, 1); assert.match(lost.err, /history cleared/);
+    // Ended early, read from the run's own words rather than the clock (a
+    // loaded host failed a 4 s bound): a run that kept reading after the
+    // warning would see it again every half second until the timeout.
+    assert.equal(lost.status, 1);
+    assert.equal(lost.err.match(/history cleared/g)?.length, 1, lost.err);
   } finally { done = true; r.close(); }
 });
 
