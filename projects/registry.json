@@ -26,6 +26,24 @@
       },
       "plain_env": [
         "GZAPP_PORT_OFFSET"
+      ],
+      "tools": [
+        {"name": "git", "proof": "git --version", "version": "2.x", "why": "every repository operation", "where": "host"},
+        {"name": "gh", "proof": "gh --version", "version": "2.x", "why": "tools/gh and the merge flow", "where": "host"},
+        {"name": "dotnet", "proof": "dotnet --version", "version": "10.0.x", "why": "the backend build and tests, Gzapp.Migrate", "where": "host"},
+        {"name": "node", "proof": "node --version", "version": "22", "why": "the web apps and the validators", "where": "host"},
+        {"name": "pnpm", "proof": "pnpm --version", "version": "11.6.0", "why": "the web workspace (package.json packageManager)", "where": "account"},
+        {"name": "podman", "proof": "podman --version", "version": "5.x", "why": "the local stack (make up) and Testcontainers; rootless", "where": "host"},
+        {"name": "podman-compose", "proof": "podman compose version", "version": "any", "why": "the local stack's compose files", "where": "host"},
+        {"name": "make", "proof": "make --version", "version": "4.x", "why": "every stack target", "where": "host"},
+        {"name": "jq", "proof": "jq --version", "version": "1.6+", "why": "tools/gh and tools/checks", "where": "host"},
+        {"name": "pyyaml", "proof": "python3 -c 'import yaml, jsonschema'", "version": "any", "why": "check_docs_integrity and the contract tooling", "where": "host"},
+        {"name": "curl", "proof": "curl --version", "version": "any", "why": "actions-health and the tool fetches", "where": "host"},
+        {"name": "fabric-python", "proof": "/usr/local/bin/fabric-python --version", "version": "runtime/python.json", "why": "every forwarder into agent-fabric", "where": "host"},
+        {"name": "flutter", "proof": "flutter --version", "version": "3.47.3", "why": "the Flutter apps and their launchers", "where": "host", "roles": ["flutter-dev", "devex-tooling"]},
+        {"name": "java", "proof": "java -version", "version": "any JDK", "why": "flutter build apk", "where": "host", "roles": ["flutter-dev"]},
+        {"name": "shellcheck", "proof": "shellcheck --version", "version": "any", "why": "devex-tooling's checks", "where": "host", "roles": ["devex-tooling"]},
+        {"name": "doppler", "proof": "doppler --version", "version": "any", "why": "optional: seeds the dev provider keys (doppler run -- make seed-secrets); make up works without it", "where": "host", "optional": true}
       ]
     },
     "agent-fabric": {

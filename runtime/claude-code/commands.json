@@ -25,6 +25,7 @@
     "fabric-history": "bin/fabric-history",
     "fabric-secret-run": "bin/fabric-secret-run",
     "fabric-resume": "bin/fabric-resume",
+    "fabric-tools": "bin/fabric-tools",
     "fabric-genimage": "bin/fabric-genimage"
   },
   "replaces": {
