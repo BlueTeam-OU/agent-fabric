@@ -512,7 +512,7 @@ def signing_key_lines(login: str) -> list[str]:
 # none of it is a human's (ADR-044 rule 2). The last line says the probe
 # ran to its end, so a shell that did not answer is never "none".
 SESSION_PIECES = ("~/.claude/agents ~/.claude/settings.json ~/.claude/hooks ~/.claude/skills ~/projects/CLAUDE.md "
-                  "~/projects/.claude ~/.config/systemd/user/agent-fabric-agentd.service ~/.local/bin/claude "
+                  "~/projects/.claude ~/.config/systemd/user/agent-fabric-agentd.service ~/.local/bin/claude ~/.local/bin/ori "
                   "~/.local/state/agent-fabric/agents/*/binding.json")
 PIECES_PROBE = f'for p in {SESSION_PIECES}; do [ -e "$p" ] && printf "%s\\n" "$p"; done; echo probed'
 

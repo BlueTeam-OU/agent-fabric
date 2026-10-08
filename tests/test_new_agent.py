@@ -340,7 +340,7 @@ def main() -> int:
         check("…its probe asks for every piece bootstrap, a binding and a launch would leave",
               all(p in next(a for a in asked if "for p in" in a) for p in
                   ("~/.claude/agents", "agent-fabric-agentd.service", "~/projects/CLAUDE.md", "binding.json",
-                   "~/.local/bin/claude")))
+                   "~/.local/bin/claude", "~/.local/bin/ori")))
         for label, change, why in (
                 ("status NOT OK", {"status >/dev/null": b"status=1\n"}, "fabric-secrets status as person is not OK (status=1)"),
                 ("status with no answer", {"status >/dev/null": b""}, "is not OK (no answer)"),
@@ -749,11 +749,34 @@ exec env GNUPGHOME="$home" "$@"
             trust = gpg(gB, "--export-ownertrust").stdout.decode()
             check("imported and proved: the account's keyring holds the secret, trusted, and a signature was made as it",
                   rc == 0 and held(gB, fpr) and f"{fpr}:6:" in trust
-                  and "imported, trusted, and a test signature made as new" in err
+                  and "in new's keyring, trusted, and a test signature made as it — done" in err
                   and "--tty --as new -- " in calls and "--detach-sign" in calls, f"rc={rc}\n{err}\n{calls}\n{trust}")
+            # The signature's stdout is the person's terminal, never a pipe:
+            # over ssh -t pinentry's prompt comes back there (#118 review, F1).
+            seen: list = []
+            real_bounded = na.run_bounded
+
+            def recording(cmd, **kw):
+                seen.append((cmd, kw.get("stdout", "unset")))
+                return real_bounded(cmd, **kw)
+            na.run_bounded = recording
+            try:
+                rc, err, calls = step11()
+            finally:
+                na.run_bounded = real_bounded
+            imports = [ln for ln in calls.splitlines() if ln.endswith("gpg --batch --import")]
+            check("a re-run: already there, nothing exported or imported again, its ownertrust and signature again",
+                  rc == 0 and "already in new's keyring" in err and imports == [] and "--import-ownertrust" in calls
+                  and "--detach-sign" in calls and "— done" in err, f"{err}\n{calls}")
+            check("…the test signature runs with its stdout on the terminal, never captured",
+                  [out for cmd, out in seen if "--tty" in cmd] == [None], seen)
+            # An ownertrust an earlier run did not set is repaired by the next
+            # one, never reported done from the secret alone (#118 review, F2).
+            gpg(gB, "--import-ownertrust", data=f"{fpr}:2:\n".encode())
+            lost = f"{fpr}:6:" not in gpg(gB, "--export-ownertrust").stdout.decode()
             rc, err, calls = step11()
-            check("a re-run: already there, said, nothing exported or imported again",
-                  rc == 0 and "already in new's keyring" in err and "--import" not in calls, f"{err}\n{calls}")
+            check("a re-run after an ownertrust was lost: set again, proved, done",
+                  lost and rc == 0 and f"{fpr}:6:" in gpg(gB, "--export-ownertrust").stdout.decode(), f"{err}\n{calls}")
 
             subprocess.run(["gpgconf", "--homedir", gB, "--kill", "all"], capture_output=True, timeout=60)
             subprocess.run(["gpgconf", "--homedir", gB, "--remove-socketdir"], capture_output=True, timeout=60)

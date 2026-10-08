@@ -693,10 +693,10 @@ def primary_fingerprint(listing: str) -> str:
     return ""
 
 
-def last_line(err) -> str:
+def last_line(err, silent: str = "(gpg said nothing)") -> str:
     err.seek(0)
     lines = [ln for ln in err.read().decode("utf-8", "replace").splitlines() if ln.strip()]
-    return lines[-1].strip() if lines else "(gpg said nothing)"
+    return lines[-1].strip() if lines else silent
 
 
 def signing_key(login: str, host: str) -> int:
@@ -705,8 +705,11 @@ def signing_key(login: str, host: str) -> int:
     account's on a pipe, never a file; the passphrase is pinentry's
     (GPG_TTY names this terminal for it), never read, echoed or passed
     here. Its ownertrust set, then proved by a signature made as the
-    account. A failure is said with gpg's last line and the two lines a
-    person runs; 0-10 stay done, and this step alone exits 1."""
+    account — on every run: a key already there skips only the import, so
+    a re-run repairs an ownertrust an earlier run did not set and proves
+    the key again (#118 review, F2). A failure is said with gpg's last line
+    and the two lines a person runs; 0-10 stay done, and this step alone
+    exits 1."""
     def failed(why: str) -> int:
         say(f"11. the signing key: FAILED — {why}")
         say("    by hand, as this login, in a terminal (the key has a passphrase):")
@@ -714,16 +717,19 @@ def signing_key(login: str, host: str) -> int:
             print(f"new-agent: {line}", file=sys.stderr)
         return 1
 
-    def ask(cmd: list[str], *, stdin=subprocess.DEVNULL, data: bytes | None = None, env=None) -> tuple[int, str]:
+    def ask(cmd: list[str], *, stdin=subprocess.DEVNULL, data: bytes | None = None, env=None,
+            stdout=subprocess.PIPE, silent: str = "(gpg said nothing)") -> tuple[int, str]:
         with tempfile.TemporaryFile() as err:
             try:
                 r = run_bounded(cmd, stdin=subprocess.PIPE if data is not None else stdin, input=data,
-                                stdout=subprocess.PIPE, stderr=err, env=env, timeout=STEP_TIMEOUT_S)
+                                stdout=stdout, stderr=err, env=env, timeout=STEP_TIMEOUT_S)
             except subprocess.TimeoutExpired:
                 return 124, f"no answer within {STEP_TIMEOUT_S} s"
             except OSError as exc:
                 return 127, f"{cmd[0]}: {exc.strerror or exc}"
-            return r.returncode, (r.stdout.decode("utf-8", "replace") if r.returncode == 0 else last_line(err))
+            if r.returncode != 0:
+                return r.returncode, last_line(err, silent)
+            return 0, r.stdout.decode("utf-8", "replace") if r.stdout is not None else ""
 
     sys.stderr.flush()
     rc, key = ask(["git", "-C", ROOT, "config", "--get", "user.signingkey"])
@@ -737,9 +743,33 @@ def signing_key(login: str, host: str) -> int:
     as_account = [HX, host, "--as", login, "--"]
     rc, theirs = ask([*as_account, "gpg", "--list-secret-keys", "--with-colons", "--", fpr])
     if rc == 0 and signs_with_secret(theirs):
-        say(f"11. the signing key {fpr[-16:]}: already in {login}'s keyring — done.")
-        return 0
+        say(f"11. the signing key {fpr[-16:]}: already in {login}'s keyring; its ownertrust and a test signature follow")
+    else:
+        why = import_key(login, fpr, as_account)
+        if why:
+            return failed(why)
+    rc, why = ask([*as_account, "gpg", "--batch", "--import-ownertrust"], data=f"{fpr}:6:\n".encode())
+    if rc != 0:
+        return failed(f"its ownertrust as {login}: {why}")
+    term = os.environ.get("TERM", "")
+    term_env = ["env", f"TERM={term}"] if TERM_VALUE.fullmatch(term) else []
+    sys.stderr.flush()
+    # stdout is the person's terminal, never a pipe: over ssh (`hostexec
+    # --tty` is `ssh -t`) the remote pty — the one pinentry draws on, and
+    # gpg's stderr with it — comes back on ssh's stdout, and a captured
+    # stdout hid the prompt (#118 review, F1). So on that backend gpg's
+    # words are on the terminal, not in the stderr file.
+    rc, why = ask([HX, host, "--tty", "--as", login, "--", *term_env, "sh", "-c", SIGN_TEST, "_", fpr], stdin=None,
+                  stdout=None, silent="gpg's words are above, on the terminal")
+    if rc != 0:
+        return failed(f"the test signature as {login}: {why}")
+    say(f"11. the signing key: in {login}'s keyring, trusted, and a test signature made as it — done.")
+    return 0
 
+
+def import_key(login: str, fpr: str, as_account: list[str]) -> str:
+    """The export here piped into the import as the account; "" when both
+    exited 0, else what failed, with gpg's last line."""
     say(f"11. the signing key {fpr[-16:]}: exported here, imported as {login}; gpg's pinentry asks for its passphrase")
     env = dict(os.environ)
     if not env.get("GPG_TTY") and os.isatty(0):
@@ -751,7 +781,7 @@ def signing_key(login: str, host: str) -> int:
                                    stdout=subprocess.DEVNULL, stderr=imp_err)
         except OSError as exc:
             stop_tree(exp)
-            return failed(f"import as {login}: {exc.strerror or exc}")
+            return f"import as {login}: {exc.strerror or exc}"
         finally:
             exp.stdout.close()
         try:
@@ -761,24 +791,14 @@ def signing_key(login: str, host: str) -> int:
             for p in (exp, imp):
                 if p.poll() is None:
                     stop_tree(p)
-            return failed(f"the export or the import gave no answer within {STEP_TIMEOUT_S} s")
+            return f"the export or the import gave no answer within {STEP_TIMEOUT_S} s"
         # The export first: an import that read nothing says so, and the
         # export's own line is the cause.
         if exp.returncode != 0:
-            return failed(f"the export here: {last_line(exp_err)}")
+            return f"the export here: {last_line(exp_err)}"
         if imp.returncode != 0:
-            return failed(f"the import as {login}: {last_line(imp_err)}")
-    rc, why = ask([*as_account, "gpg", "--batch", "--import-ownertrust"], data=f"{fpr}:6:\n".encode())
-    if rc != 0:
-        return failed(f"its ownertrust as {login}: {why}")
-    term = os.environ.get("TERM", "")
-    term_env = ["env", f"TERM={term}"] if TERM_VALUE.fullmatch(term) else []
-    sys.stderr.flush()
-    rc, why = ask([HX, host, "--tty", "--as", login, "--", *term_env, "sh", "-c", SIGN_TEST, "_", fpr], stdin=None)
-    if rc != 0:
-        return failed(f"the test signature as {login}: {why}")
-    say(f"11. the signing key: imported, trusted, and a test signature made as {login} — done.")
-    return 0
+            return f"the import as {login}: {last_line(imp_err)}"
+    return ""
 
 
 def main(argv: list[str]) -> int:
