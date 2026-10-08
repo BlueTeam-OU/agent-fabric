@@ -335,7 +335,8 @@ export async function main(argv = process.argv.slice(2)) {
     setInterval(pressure.tick, SAMPLE_INTERVAL_MS).unref();
     // What the account's sessions are doing, posted when it changes
     // (sessions.mjs); first at start, so a restart re-says it.
-    const states = stateWatcher({ address: me.address, post: statePoster(call, cfg, me.address), binding: who.binding });
+    const states = stateWatcher({ address: me.address, post: statePoster(call, cfg, me.address), binding: who.binding,
+      jobs: path.join(stateDir(), 'jobs.json') });
     states.tick();
     setInterval(states.tick, STATE_POLL_MS).unref();
   }

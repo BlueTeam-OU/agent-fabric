@@ -19,7 +19,11 @@
 // the binding's role and project, and its last session's id with whether
 // its transcript is here (resumable), which Fleet Deck reads before it
 // re-enters a tab with `moveto <account> --resume`: no path, no process
-// id, nothing a prompt holds.
+// id, nothing a prompt holds. And `waits_on`, present when any: the
+// GZCoord message ids this login's blocked jobs wait on (`fabric-jobs
+// block <id> --on-request`), so that whoever holds the job a message asked
+// for ranks it blocking (ADR-037 rule 8). Message ids only, never a title
+// or a job id: peers see presence, not lists (rule 6).
 
 import fs from 'node:fs';
 import os from 'node:os';
@@ -30,6 +34,10 @@ export const STATE_FILE = 'session-state.json';
 export const STATE_POLL_MS = 2000;
 export const STATE_HEARTBEAT_MS = 10 * 60 * 1000;
 const STATES = new Set(['working', 'blocked', 'idle']);
+// A GZCoord MESSAGE-ID (a UUID, as gzmsg mints it); tools/fabric/jobs.py
+// stores waits_on only in this shape. The cap keeps a record a record.
+export const MESSAGE_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+export const WAITS_ON_MAX = 64;
 
 /** Whether the process the hook recorded is still the session's own. */
 export function alive(pid, start, proc = '/proc') {
@@ -54,11 +62,26 @@ export function readSessions(file, { proc = '/proc' } = {}) {
 }
 
 /**
+ * The message ids this login's blocked jobs wait on, sorted, from its job
+ * list (agents/<login>/jobs.json, written by runtime/identity.py and only
+ * read here). An unreadable list waits on nothing it can name.
+ * @returns {string[]}
+ */
+export function waitsOn(file) {
+  if (!file) return [];
+  let doc;
+  try { doc = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return []; }
+  const jobs = Array.isArray(doc?.jobs) ? doc.jobs : [];
+  const ids = jobs.filter(j => j && j.state === 'blocked' && typeof j.waits_on === 'string' && MESSAGE_ID.test(j.waits_on)).map(j => j.waits_on);
+  return [...new Set(ids)].sort().slice(0, WAITS_ON_MAX);
+}
+
+/**
  * @returns {import('./protocol.mjs').State}
  */
-export function stateRecord(address, { sessions, role, project, last_session, resumable }, ts = new Date().toISOString()) {
+export function stateRecord(address, { sessions, role, project, last_session, resumable, waits_on }, ts = new Date().toISOString()) {
   return { v: 1, kind: 'state', from: address, ts, sessions, ...(role ? { role } : {}), ...(project ? { project } : {}),
-    ...(last_session ? { last_session, resumable: resumable === true } : {}) };
+    ...(last_session ? { last_session, resumable: resumable === true } : {}), ...(waits_on?.length ? { waits_on } : {}) };
 }
 
 // The harness's session id is a UUID; anything else in a binding is no
@@ -90,7 +113,7 @@ function bound(file, configDir) {
 // wait for a post). A post that fails leaves the last record unchanged, so
 // the next tick tries again; it is said once, not every two seconds — the
 // relay loop already reports the relay down.
-export function stateWatcher({ address, post, file = path.join(stateDir(), STATE_FILE), binding, proc = '/proc',
+export function stateWatcher({ address, post, file = path.join(stateDir(), STATE_FILE), binding, jobs = null, proc = '/proc',
   now = Date.now, heartbeatMs = STATE_HEARTBEAT_MS, log = m => console.error(m), configDir }) {
   let lastKey = null, lastAt = 0, busy = false, failing = false;
   return {
@@ -100,7 +123,8 @@ export function stateWatcher({ address, post, file = path.join(stateDir(), STATE
       try {
         const now_ = now();
         const said = { sessions: readSessions(file, { proc }),
-          ...(binding ? bound(binding, configDir) : { role: null, project: null, last_session: null, resumable: false }) };
+          ...(binding ? bound(binding, configDir) : { role: null, project: null, last_session: null, resumable: false }),
+          waits_on: waitsOn(jobs) };
         const key = JSON.stringify(said);
         if (key === lastKey && now_ - lastAt < heartbeatMs) return false;
         await post(stateRecord(address, said, new Date(now_).toISOString()));

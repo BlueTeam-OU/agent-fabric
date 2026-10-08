@@ -80,6 +80,22 @@ def main() -> int:
         p = run("block", "j1", "a review of the PR")
         check("block records what it waits on", p.returncode == 0 and jobs()[0]["blocked_on"] == "a review of the PR",
               p.stdout + p.stderr)
+        mid = "01a11a18-4728-7d8b-afd9-0edb2d30a59c"
+        p = run("block", "j1", "--on-request", mid.upper())
+        check("block --on-request keeps the message id as waits_on", p.returncode == 0
+              and jobs()[0].get("waits_on") == mid and jobs()[0]["blocked_on"] == f"request {mid}", p.stderr + repr(jobs()[0]))
+        p = run("block", "j1", "--on-request", "17")
+        check("--on-request refuses what is not a MESSAGE-ID, and keeps the list", p.returncode == 1
+              and "takes a MESSAGE-ID" in p.stderr and jobs()[0].get("waits_on") == mid, p.stderr)
+        p = run("block", "j1", "a review again")
+        check("blocked on something else: the request is no longer waited on", p.returncode == 0
+              and "waits_on" not in jobs()[0], repr(jobs()[0]))
+        p = run("block", "j1")
+        check("block with nothing to wait on is refused", p.returncode == 1 and "waits on" in p.stderr, p.stderr)
+        run("block", "j1", "--on-request", mid)
+        run("start", "j1")
+        check("leaving blocked drops waits_on", "waits_on" not in jobs()[0], repr(jobs()[0]))
+        run("block", "j1", "a review of the PR")
         run("start", "j2")
         p = run("deliver", "j2", "org/repo#12", "abc1234")
         check("deliver names its artifacts", jobs()[1]["state"] == "delivered"

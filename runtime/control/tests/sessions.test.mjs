@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { scratch } from '../../../tests/scratch.mjs';
-import { alive, readSessions, stateRecord, stateWatcher, transcriptExists } from '../sessions.mjs';
+import { alive, readSessions, stateRecord, stateWatcher, transcriptExists, waitsOn } from '../sessions.mjs';
 
 function fakeProc(dir, pid, start, comm = 'claude') {
   fs.mkdirSync(path.join(dir, String(pid)), { recursive: true });
@@ -100,6 +100,31 @@ test('a tick while a post is in flight does nothing', async () => {
   assert.equal(await w.tick(), false);
   release(); assert.equal(await first, true);
   assert.equal(calls, 1);
+});
+
+test('waits_on: the message ids of blocked jobs only, sorted, never a title', async () => {
+  const { d, proc, file } = setup();
+  const jobs = path.join(d, 'jobs.json');
+  const A = '01a11a18-4728-7d8b-afd9-0edb2d30a59c', B = '01a11a19-0bea-70c7-b667-1e1e5a74dbe1';
+  assert.deepEqual(waitsOn(jobs), [], 'no list: none');
+  fs.writeFileSync(jobs, '{broken'); assert.deepEqual(waitsOn(jobs), [], 'unreadable: none');
+  fs.writeFileSync(jobs, JSON.stringify({ jobs: [
+    { id: 'j1', state: 'blocked', title: 'secret title', waits_on: B },
+    { id: 'j2', state: 'blocked', title: 'x', waits_on: A },
+    { id: 'j3', state: 'queued', title: 'x', waits_on: '01a11a20-0000-7000-8000-000000000000' },
+    { id: 'j4', state: 'blocked', title: 'x', waits_on: 'not an id; rm -rf' },
+    { id: 'j5', state: 'blocked', title: 'x', blocked_on: 'a reply' },
+    { id: 'j6', state: 'blocked', title: 'x', waits_on: A }] }));
+  assert.deepEqual(waitsOn(jobs), [A, B], 'blocked, well-formed, de-duplicated, sorted');
+  const posts = [];
+  let t = 0;
+  const w = stateWatcher({ address: 'h/x', post: async r => { posts.push(r); }, file, jobs, proc, now: () => t, heartbeatMs: 60_000, log: () => {} });
+  await w.tick();
+  assert.deepEqual(posts.at(-1).waits_on, [A, B]);
+  assert.ok(!JSON.stringify(posts).includes('secret title') && !JSON.stringify(posts).includes('"j1"'), 'no title, no job id');
+  fs.writeFileSync(jobs, JSON.stringify({ jobs: [{ id: 'j1', state: 'active', title: 'x', waits_on: B }] }));
+  t = 1; assert.equal(await w.tick(), true, 'a job unblocked is a change');
+  assert.ok(!('waits_on' in posts.at(-1)), 'waiting on nothing: the key is absent');
 });
 
 test('stateRecord leaves out a role and project it does not have', () => {

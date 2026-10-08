@@ -8,6 +8,7 @@ behind bin/fabric-jobs.
     fabric-jobs prio <id> <blocking|high|normal|low>
     fabric-jobs start <id>
     fabric-jobs block <id> "<on what>"
+    fabric-jobs block <id> --on-request <MESSAGE-ID> ["<on what>"]
     fabric-jobs deliver <id> <artifact>...
     fabric-jobs done <id>
     fabric-jobs drop <id> "<why>"
@@ -36,6 +37,13 @@ normal when none was set, and in a list written before priorities
 existed. A stored value outside the four is not read as normal: `next`
 refuses to order a queue it cannot rank, and names the job.
 
+A job blocked on a request names it (`block --on-request`, rule 8): the
+message id is kept as `waits_on`, and this account's control agent says it
+in its state record (runtime/control/sessions.mjs) while the job stays
+blocked, so the job that request asked for ranks blocking wherever it is
+queued. Leaving `blocked` drops it: an id kept on a job that no longer
+waits would be said by nobody, and read as a wait by a person.
+
 `next` is the restart rule (ADR-022 rule 12). It never passes an active
 job, which is never preempted, and takes the job named, or the queued job
 of highest priority, the oldest first (the list's order is the order jobs
@@ -54,6 +62,7 @@ import argparse
 import importlib.util
 import json
 import os
+import re
 import subprocess
 import sys
 from typing import Any, TypedDict
@@ -84,6 +93,7 @@ class Job(_JobKeys, total=False):
     blocked_on: str
     reason: str
     priority: str
+    waits_on: str
 
 
 def _load(name: str, path: str):
@@ -98,6 +108,9 @@ identity = _load("fabric_identity", os.path.join(FABRIC_ROOT, "runtime", "identi
 STATES = ("queued", "active", "blocked", "delivered", "done", "dropped")
 OPEN = ("queued", "active", "blocked", "delivered")
 TERMINAL = ("done", "dropped")
+# A GZCoord MESSAGE-ID as gzmsg mints it; runtime/control/sessions.mjs
+# MESSAGE_ID says only ids of this shape, so a relay seq is refused here.
+MESSAGE_ID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", re.ASCII)
 PRIORITIES = ("blocking", "high", "normal", "low")
 DEFAULT_PRIORITY = "normal"
 
@@ -146,6 +159,8 @@ def transition(doc: dict, job: dict, state: str, **fields) -> None:
     if job["state"] == "active" and state != "active":
         # The job that just left `active` is what `next` compares against.
         doc["last"] = job["id"]
+    if state != "blocked":
+        job.pop("waits_on", None)
     now = identity.now_iso()
     job["state"] = state
     job["updated"] = now
@@ -375,7 +390,8 @@ def main(argv: list[str] | None = None) -> int:
         sub.add_parser(name).add_argument("id")
     b = sub.add_parser("block")
     b.add_argument("id")
-    b.add_argument("on")
+    b.add_argument("on", nargs="?")
+    b.add_argument("--on-request", metavar="MESSAGE-ID", help="the GZCoord request this job waits on")
     d = sub.add_parser("deliver")
     d.add_argument("id")
     d.add_argument("artifacts", nargs="+")
@@ -474,7 +490,17 @@ def main(argv: list[str] | None = None) -> int:
                 elif args.cmd == "start":
                     transition(doc, job, "active")
                 elif args.cmd == "block":
-                    transition(doc, job, "blocked", blocked_on=" ".join(args.on.split()), note=args.on)
+                    mid = args.on_request.strip().lower() if args.on_request is not None else None
+                    if mid is not None and not MESSAGE_ID.fullmatch(mid):
+                        raise Refused(f"--on-request takes a MESSAGE-ID (a UUID), not {args.on_request!r}")
+                    if not (args.on or "").strip() and mid is None:
+                        raise Refused("block needs what the job waits on, or --on-request <MESSAGE-ID>")
+                    on = " ".join(args.on.split()) if (args.on or "").strip() else f"request {mid}"
+                    transition(doc, job, "blocked", blocked_on=on, note=on)
+                    if mid is None:
+                        job.pop("waits_on", None)
+                    else:
+                        job["waits_on"] = mid
                 elif args.cmd == "deliver":
                     arts = list(dict.fromkeys((job.get("artifacts") or []) + args.artifacts))
                     transition(doc, job, "delivered", artifacts=arts)

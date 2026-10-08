@@ -61,6 +61,7 @@ test('what agentd posts when it comes up is an Up', () => {
 test('what agentd posts about its sessions is a State, with and without a binding', () => {
   holds(stateRecord('h/db-admin', { sessions: [{ session: 's', state: 'idle', since: 't' }], role: 'db-admin', project: 'gzapp' }), 'state', 'state');
   holds(stateRecord('h/db-admin', { sessions: [], role: null, project: null }), 'state', 'unbound state');
+  holds(stateRecord('h/db-admin', { sessions: [], role: 'db-admin', waits_on: ['01a11a18-4728-7d8b-afd9-0edb2d30a59c'] }), 'state', 'waiting state');
 });
 
 test('the request fabric-ctl sends is a Request, for every op shape it builds', () => {
