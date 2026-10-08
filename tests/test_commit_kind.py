@@ -28,6 +28,10 @@ CASES = [
     (["git", "-C", "commit", "status", "--amend"], False, "another subcommand"),
     (["git", "commit", "--a"], False, "an ambiguous prefix"),
     (["git"], False, "no subcommand"),
+    (["git", "commit", "--mess", "--amend"], False, "--amend as the value of an abbreviated --message (review of #125)"),
+    (["git", "commit", "--fil", "--amend"], False, "...of an abbreviated --file"),
+    (["git", "commit", "--no-edit", "--amend"], True, "a boolean option before --amend"),
+    (["git", "--attr-source", "x", "commit", "--amend"], True, "a global option with a separate value"),
 ]
 
 

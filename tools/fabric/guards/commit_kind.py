@@ -13,8 +13,10 @@ is exempt: one being made has MERGE_HEAD; one being amended has none, and is
 told by HEAD being a merge and `--amend` among the options of the git that
 runs the hook. A matched subject also exempted `commit -C HEAD` on top of a
 merge, and a bare word match `commit -m --amend` (reviews of #120), so the
-argv is walked as git reads it: an option's value is skipped, `--` ends the
-options, and a unique prefix of `--amend` counts. An argv that cannot be
+argv is walked as git reads it: a long option is resolved by its unique
+prefix against git's own table, an option's value is skipped (`--mess
+--amend` is a message), `--` ends the options, and only --amend or a unique
+prefix of it counts (review of #125). An argv that cannot be
 read exempts nothing.
 
 git runs no commit-msg hook for `git revert`, for a rebase's picks (a
@@ -30,14 +32,21 @@ import sys
 
 # git's own options before the subcommand that take their value as the next
 # word (`git -C <path> commit`, `git -c k=v commit`).
-GLOBAL_WITH_VALUE = {"-C", "-c", "--git-dir", "--work-tree", "--namespace", "--config-env", "--super-prefix"}
-# git commit's options whose value may be the next word.
-COMMIT_LONG_WITH_VALUE = {"--message", "--file", "--reedit-message", "--reuse-message", "--template", "--author",
-                          "--date", "--cleanup", "--trailer", "--fixup", "--squash", "--pathspec-from-file"}
+GLOBAL_WITH_VALUE = {"-C", "-c", "--git-dir", "--work-tree", "--namespace", "--config-env", "--super-prefix",
+                     "--attr-source"}
+# git commit's long options, as `git commit --git-completion-helper` lists
+# them on 2.56 (a trailing "=" marks one whose value may be the next word).
+# git accepts any unique prefix of a long option (`--mess` is --message), so
+# a word is resolved against the table before it is judged: a value-taking
+# option's next word is its value, never an option. The installed git's own
+# table is read when it can be; this copy is the fallback.
+COMMIT_LONG_OPTIONS = (
+    "--quiet --verbose --file= --author= --date= --message= --reedit-message= --reuse-message= --fixup= "
+    "--squash= --reset-author --trailer= --signoff --template= --edit --cleanup= --status --gpg-sign --all "
+    "--include --interactive --patch --unified= --inter-hunk-context= --only --no-verify --dry-run --short "
+    "--branch --ahead-behind --porcelain --long --null --amend --no-post-rewrite --untracked-files "
+    "--pathspec-from-file= --pathspec-file-nul --verify --post-rewrite").split()
 COMMIT_SHORT_WITH_VALUE = set("mFcCt")
-# Every unique prefix of --amend among git commit's long options: no other
-# long option of git commit begins with "--am".
-AMEND = {"--am", "--ame", "--amen", "--amend"}
 REVERT_RE = re.compile(r"^This reverts commit [0-9a-f]{7,40}", re.M)
 
 REFUSAL = """commit-msg: every commit declares its kind in its trailers (the last paragraph):
@@ -46,7 +55,31 @@ REFUSAL = """commit-msg: every commit declares its kind in its trailers (the las
 pr-gate.sh and the PR's count check read it; nothing guesses from the subject."""
 
 
-def is_amend(argv: list[str]) -> bool:
+def commit_options() -> list[str]:
+    """git commit's long options as the installed git lists them, else the
+    copy above. Negations (`--no-…`) are left out: none takes a value, and
+    none is --amend."""
+    try:
+        out = subprocess.run(["git", "commit", "--git-completion-helper"], capture_output=True, text=True,
+                             timeout=5).stdout.split()
+    except (OSError, subprocess.SubprocessError):
+        out = []
+    found = [w for w in out if w.startswith("--") and w != "--" and not w.startswith("--no-")]
+    return found or COMMIT_LONG_OPTIONS
+
+
+def resolve_long(word: str, options: list[str]) -> str | None:
+    """The long option a word names, as git resolves a unique prefix: the
+    option with its "=" if it takes a value, or None when the word names no
+    option or several."""
+    exact = [o for o in options if o.rstrip("=") == word]
+    if exact:
+        return exact[0]
+    found = [o for o in options if o.rstrip("=").startswith(word)]
+    return found[0] if len(found) == 1 else None
+
+
+def is_amend(argv: list[str], options: list[str] | None = None) -> bool:
     """Whether a git argv is `git … commit … --amend …`, read as git reads it."""
     i = 1
     while i < len(argv) and argv[i].startswith("-"):
@@ -59,10 +92,12 @@ def is_amend(argv: list[str]) -> bool:
         if word == "--":
             return False
         if word.startswith("--"):
-            if word in AMEND:
-                return True
-            if word in COMMIT_LONG_WITH_VALUE:
-                i += 1
+            if "=" not in word:
+                option = resolve_long(word, options if options is not None else COMMIT_LONG_OPTIONS)
+                if option == "--amend":
+                    return True
+                if option and option.endswith("="):
+                    i += 1
         elif word.startswith("-") and len(word) > 1:
             # A cluster such as -am: a short option that takes a value ends
             # it, with the value attached or as the next word.
@@ -99,7 +134,7 @@ def is_merge(pid: str) -> bool:
     if len(git("rev-list", "--parents", "-n", "1", "HEAD").stdout.split()) <= 2:
         return False
     argv = parent_argv(pid)
-    return argv is not None and is_amend(argv)
+    return argv is not None and is_amend(argv, commit_options())
 
 
 def check(msg_path: str, pid: str) -> int:
