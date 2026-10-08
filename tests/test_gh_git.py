@@ -16,6 +16,7 @@ HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(HERE, "tools", "fabric"))
 import gh  # noqa: E402
 import git  # noqa: E402
+from git_env import git_env, scrub_process_env  # noqa: E402 — tests/, the script's own directory
 
 FAKE = r'''#!/usr/bin/env python3
 import json, os, sys, time
@@ -142,7 +143,7 @@ def main() -> int:
                     os.environ[k] = v
 
         repo = os.path.join(tmp, "repo")
-        subprocess.run(["git", "init", "-q", "-b", "main", repo], check=True)
+        subprocess.run(["git", "init", "-q", "-b", "main", repo], check=True, env=git_env())
         open(os.path.join(repo, "f"), "w").write("x\n")
         git.run(repo, "add", "f")
         git.run(repo, "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false", "commit", "-qm", "one")
@@ -169,4 +170,5 @@ def main() -> int:
 
 
 if __name__ == "__main__":
+    scrub_process_env()
     sys.exit(main())
