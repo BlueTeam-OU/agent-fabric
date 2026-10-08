@@ -94,7 +94,8 @@ export async function readWaits({ call, cfg, placed }) {
 export const QUEUE_CALL_TIMEOUT_MS = 15000;
 export const QUEUE_BUDGET_MS = 25000;
 const budgetEnd = performance.timeOrigin + QUEUE_BUDGET_MS;
-export const budgetLeft = (now = Date.now()) => budgetEnd - now;
+// Whole milliseconds: performance.timeOrigin carries a fraction.
+export const budgetLeft = (now = Date.now()) => Math.floor(budgetEnd - now);
 
 // The relay as this login reaches it, or Unreadable saying why not.
 // `api` is a parameter so a test can see what each call is given.

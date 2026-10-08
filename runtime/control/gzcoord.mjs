@@ -248,7 +248,9 @@ export async function api(tok, pathAndQuery, { relayUrl = RELAY, timeoutMs = api
   try {
     const r = await fetch(`${relayUrl}${pathAndQuery}`, {
       ...init,
-      signal: init.signal ?? AbortSignal.timeout(timeoutMs),
+      // Whole milliseconds: AbortSignal.timeout throws a RangeError on a
+      // fraction, which a bound worked out from a clock can be (review of #128).
+      signal: init.signal ?? AbortSignal.timeout(Math.max(1, Math.ceil(timeoutMs))),
       headers: { Authorization: `Bearer ${tok}`, 'Content-Type': 'application/json', ...(init.headers ?? {}) },
     });
     if (!r.ok) { const e = new Error(`${pathAndQuery} -> HTTP ${r.status}`); e.status = r.status; throw e; }

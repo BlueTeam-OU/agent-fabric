@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { scratch } from '../../../tests/scratch.mjs';
-import { waitsFrom, readWaits, askHolder, placedAccounts, Unreadable, unsent, relayError, QUEUE_CALL_TIMEOUT_MS, QUEUE_BUDGET_MS, boundCall, relay } from '../queue.mjs';
+import { waitsFrom, readWaits, askHolder, placedAccounts, Unreadable, unsent, relayError, QUEUE_CALL_TIMEOUT_MS, QUEUE_BUDGET_MS, boundCall, relay, budgetLeft } from '../queue.mjs';
 
 const A = '01a11a18-4728-7d8b-afd9-0edb2d30a59c', B = '01a11a19-0bea-70c7-b667-1e1e5a74dbe1';
 const rec = (from, waits_on, extra = {}) => ({ content: JSON.stringify({ v: 1, kind: 'state', from, ts: '2026-10-08T12:00:00Z', sessions: [], ...(waits_on ? { waits_on } : {}), ...extra }) });
@@ -126,6 +126,7 @@ test('the run has one budget under jobs.py\'s kill, and every call takes at most
   boundCall('tok', { relay_url: 'http://r' }, fake, ALWAYS)('/api/send', { method: 'POST' });
   boundCall('tok', { relay_url: 'http://r' }, fake, () => 3000)('/x');
   assert.deepEqual(seen.map(o => o.timeoutMs), [QUEUE_CALL_TIMEOUT_MS, 3000]);
+  assert.ok(Number.isInteger(budgetLeft()), 'the budget is whole milliseconds, though timeOrigin is not');
   assert.deepEqual(seen[0], { relayUrl: 'http://r', timeoutMs: QUEUE_CALL_TIMEOUT_MS, method: 'POST' });
   // A spent budget asks nothing, and says so: certainly unsent, never the relay's silence.
   await assert.rejects(boundCall('tok', { relay_url: 'http://r' }, fake, () => 0)('/api/send?x=1', { method: 'POST' }),

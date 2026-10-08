@@ -331,6 +331,8 @@ test('api sends the bearer token and JSON, a refusal throws with its status, and
   // A relay that never answers is an error within the bound, not a hang.
   await assert.rejects(api('tok', '/silent', { relayUrl, timeoutMs: 200 }),
     e => e.timedOut === true && e.status === undefined && e.message === '/silent -> no answer within 0.2 s');
+  // A bound with a fraction (one worked out from a clock) is a timeout too, never a RangeError.
+  await assert.rejects(api('tok', '/silent', { relayUrl, timeoutMs: 200.5 }), e => e.timedOut === true);
   // The bound outlasts the wait a long poll asks of the relay.
   assert.equal(apiTimeoutMs('/api/messages?channel=c'), API_TIMEOUT_MS);
   assert.equal(apiTimeoutMs('/api/wait?channel=c&timeout_seconds=55'), API_TIMEOUT_MS + 55000);
