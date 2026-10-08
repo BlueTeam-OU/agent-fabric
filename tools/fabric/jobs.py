@@ -4,7 +4,7 @@ behind bin/fabric-jobs.
 
     fabric-jobs add "<title>" [--topic T] [--project P] [--working-copy W] [--priority P]
     fabric-jobs add --request <MESSAGE-ID|seq> [--topic T] [--working-copy W] [--priority P]
-    fabric-jobs list [--all] [--json]
+    fabric-jobs list [--all] [--json] [--stored]
     fabric-jobs prio <id> <blocking|high|normal|low>
     fabric-jobs start <id>
     fabric-jobs block <id> "<on what>"
@@ -43,6 +43,16 @@ in its state record (runtime/control/sessions.mjs) while the job stays
 blocked, so the job that request asked for ranks blocking wherever it is
 queued. Leaving `blocked` drops it: an id kept on a job that no longer
 waits would be said by nobody, and read as a wait by a person.
+
+The other half: a queued job whose source message is in any account's
+waits_on ranks blocking, its stored priority kept. `list` and `next` read
+the state stream for it through runtime/control/queue.mjs (the control
+plane's shapes stay in Node) — only when a queued job came from a message,
+since nothing else can match — and `list` shows both priorities and the
+address that waits. A stream that cannot be read leaves stored priorities
+to decide, and is said on stderr; it never fails the command. `--stored`
+skips the stream (the control agent's `jobs` op, which answers in
+seconds).
 
 `next` is the restart rule (ADR-022 rule 12). It never passes an active
 job, which is never preempted, and takes the job named, or the queued job
@@ -133,15 +143,15 @@ def stored_priority(job: dict) -> str | None:
     return value if value in PRIORITIES else None
 
 
-def queue_order(doc: dict) -> list[Job]:
-    """The queued jobs in the order `next` takes them: highest priority,
-    then the oldest."""
+def queue_order(doc: dict, waits: dict[str, list[str]] | None = None) -> list[Job]:
+    """The queued jobs in the order `next` takes them: highest effective
+    priority, then the oldest."""
     queued = [(i, j) for i, j in enumerate(doc["jobs"]) if j["state"] == "queued"]
     for _, j in queued:
         if stored_priority(j) is None:
             raise Refused(f"{j['id']} has priority {j.get('priority')!r}, none of {', '.join(PRIORITIES)}: the queue "
                           f"cannot be ordered; set it with fabric-jobs prio {j['id']} <priority>")
-    return [j for _, j in sorted(queued, key=lambda q: (PRIORITIES.index(stored_priority(q[1])), q[0]))]
+    return [j for _, j in sorted(queued, key=lambda q: (PRIORITIES.index(effective_priority(q[1], waits)), q[0]))]
 
 
 def active(doc: dict) -> Job | None:
@@ -245,6 +255,63 @@ def new_job(doc: dict, title: str, *, topic=None, project=None, working_copy=Non
 
 
 INBOX = os.path.join(FABRIC_ROOT, "bin", "gzcoord-inbox")
+QUEUE = os.path.join(FABRIC_ROOT, "runtime", "control", "queue.mjs")
+QUEUE_TIMEOUT_S = 30
+
+
+class Unreachable(Exception):
+    """The control plane did not answer; the message says why."""
+
+
+def ask_queue(*argv: str) -> dict:
+    """runtime/control/queue.mjs's answer, or Unreachable: a timeout, a
+    missing node and an answer that is not its JSON are each said."""
+    try:
+        p = subprocess.run(["node", QUEUE, *argv], capture_output=True, text=True, timeout=QUEUE_TIMEOUT_S)
+    except subprocess.TimeoutExpired:
+        raise Unreachable(f"no answer within {QUEUE_TIMEOUT_S} s")
+    except OSError as e:
+        raise Unreachable(f"node could not run ({e.strerror or e})")
+    try:
+        said = json.loads((p.stdout or "").strip().splitlines()[-1])
+    except (ValueError, IndexError):
+        said = None
+    if not isinstance(said, dict):
+        why = ((p.stderr or "").strip().splitlines() or [f"exit {p.returncode}"])[-1][:160]
+        raise Unreachable(f"no answer ({why})")
+    if p.returncode != 0:
+        raise Unreachable(str(said.get("error") or f"exit {p.returncode}")[:160])
+    return said
+
+
+def message_of(job: dict) -> str | None:
+    return (job.get("source") or {}).get("message_id")
+
+
+def stream_waits(doc: dict, *, stored: bool = False) -> dict[str, list[str]] | None:
+    """{message id: [waiting address, ...]} from the state stream; {} when no
+    queued job came from a message (nothing could match), None when the
+    stream could not be read — said here, once, and stored priorities decide."""
+    if stored or not any(j["state"] == "queued" and message_of(j) for j in doc["jobs"]):
+        return {}
+    try:
+        waits = ask_queue("waits").get("waits")
+    except Unreachable as e:
+        print(f"fabric-jobs: the state stream could not be read ({e}): stored priorities decide", file=sys.stderr)
+        return None
+    if not isinstance(waits, dict):
+        print("fabric-jobs: the state stream's answer has no waits: stored priorities decide", file=sys.stderr)
+        return None
+    return {str(k): [str(a) for a in v] for k, v in waits.items() if isinstance(v, list)}
+
+
+def waiters(job: dict, waits: dict[str, list[str]] | None) -> list[str]:
+    """Who waits on this queued job's request; only a queued job ranks by it."""
+    return list((waits or {}).get(message_of(job) or "", [])) if job["state"] == "queued" else []
+
+
+def effective_priority(job: dict, waits: dict[str, list[str]] | None) -> str | None:
+    return "blocking" if waiters(job, waits) else stored_priority(job)
 
 
 def fetch_message(which: str) -> dict:
@@ -315,7 +382,7 @@ def decide(doc: dict, nxt: dict, here: dict) -> dict:
     return {"job": nxt["id"], "against": against, "fresh": bool(differs), "differs": differs, "caveat": caveat}
 
 
-def line(job: dict) -> str:
+def line(job: dict, waits: dict[str, list[str]] | None = None) -> str:
     where = job.get("project") or os.path.basename(job.get("working_copy") or "") or "(no project)"
     topic = f" [{job['topic']}]" if job.get("topic") else ""
     extra = ""
@@ -323,6 +390,9 @@ def line(job: dict) -> str:
         extra = f" — on {job['blocked_on']}"
     elif job.get("artifacts"):
         extra = f" — {', '.join(job['artifacts'])}"
+    who = waiters(job, waits)
+    if who and stored_priority(job) != "blocking":
+        extra += f" — ranks blocking: {', '.join(who)} {'waits' if len(who) == 1 else 'wait'} on it"
     return f"{job['id']:<5} {job['state']:<9} {stored_priority(job) or '?':<8} {where}{topic}: {job['title']}{extra}"
 
 
@@ -383,6 +453,7 @@ def main(argv: list[str] | None = None) -> int:
     ls = sub.add_parser("list", help="open jobs (--all: closed ones too)")
     ls.add_argument("--all", action="store_true")
     ls.add_argument("--json", action="store_true")
+    ls.add_argument("--stored", action="store_true", help="stored priorities only; the state stream is not read")
     pr = sub.add_parser("prio", help="set a job's priority")
     pr.add_argument("id")
     pr.add_argument("priority", choices=PRIORITIES)
@@ -435,12 +506,16 @@ def main(argv: list[str] | None = None) -> int:
         elif args.cmd == "list":
             doc = identity.read_jobs()
             jobs = [j for j in doc["jobs"] if args.all or j["state"] in OPEN]
+            waits = stream_waits(doc, stored=args.stored)
             if args.json:
-                print(json.dumps(jobs, ensure_ascii=False, indent=2))
+                # The effective rank is the reader's, never stored: it is only
+                # as true as the stream it was read from.
+                print(json.dumps([{**j, "effective_priority": effective_priority(j, waits),
+                                   "waited_by": waiters(j, waits)} for j in jobs], ensure_ascii=False, indent=2))
             elif not jobs:
                 print("no open jobs" if not args.all else "no jobs")
             else:
-                print("\n".join(line(j) for j in jobs))
+                print("\n".join(line(j, waits) for j in jobs))
         elif args.cmd == "show":
             job = find(identity.read_jobs(), args.id)
             if args.field:
@@ -449,6 +524,9 @@ def main(argv: list[str] | None = None) -> int:
                 print(json.dumps(job, ensure_ascii=False, indent=2) if args.json else summary(job) if args.line else show(job))
         elif args.cmd == "next":
             here = identity.resolve_context()
+            # Read before the lock: the stream is a relay call, and the list's
+            # lock is every writer's.
+            waits = {} if args.id else stream_waits(identity.read_jobs())
 
             def pick(doc):
                 current = active(doc)
@@ -460,17 +538,21 @@ def main(argv: list[str] | None = None) -> int:
                     if nxt["state"] not in ("queued", "blocked"):
                         raise Refused(f"{nxt['id']} is {nxt['state']}; next takes a queued or blocked job")
                 else:
-                    nxt = next(iter(queue_order(doc)), None)
+                    nxt = next(iter(queue_order(doc, waits)), None)
                     if nxt is None:
                         raise Refused("no queued job; add one with fabric-jobs add")
                 verdict = decide(doc, nxt, here)
+                who = waiters(nxt, waits)
                 transition(doc, nxt, "active")
-                return verdict, dict(nxt)
-            verdict, job = mutate(pick)
+                return verdict, dict(nxt), who
+            verdict, job, who = mutate(pick)
             if args.json:
                 print(json.dumps(verdict, ensure_ascii=False, indent=2))
             else:
                 print(line(job))
+                if who and stored_priority(job) != "blocking":
+                    print(f"  ranked blocking: {', '.join(who)} {'waits' if len(who) == 1 else 'wait'} on its request "
+                          f"(stored {stored_priority(job)})")
                 if verdict["fresh"]:
                     print(f"fresh session: against {verdict['against']}, {'; '.join(verdict['differs'])}.")
                     print(f"  run: fabric-fresh --job {job['id']}")

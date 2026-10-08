@@ -23,10 +23,14 @@ def message(kind: str, to: str, mid: str, subject: str, project: str = "fixture"
             f"MESSAGE-ID: 01a09fc1-0000-7000-8000-00000000000{mid}\nSUBJECT: {subject}\n\nREQUEST:\nplease\n")
 
 
-def fake_relay(records: list[dict]) -> http.server.HTTPServer:
+def fake_relay(records: list[dict], state: list[dict] | None = None) -> http.server.HTTPServer:
+    """The relay's history: `records` on every channel but the state
+    channel, which serves `state` (the control plane's state records)."""
     class Handler(http.server.BaseHTTPRequestHandler):
         def do_GET(self):
-            body = json.dumps({"messages": records} if self.path.startswith("/api/messages") else {"ok": True}).encode()
+            on_state = "channel=t%3Astate%3Acontrol" in self.path
+            rows = (state or []) if on_state else records
+            body = json.dumps({"messages": rows} if self.path.startswith("/api/messages") else {"ok": True}).encode()
             self.send_response(200)
             self.send_header("content-type", "application/json")
             self.send_header("content-length", str(len(body)))
@@ -49,7 +53,25 @@ def main() -> int:
         fails += not good
 
     with tempfile.TemporaryDirectory() as tmp:
-        env = {**os.environ, "AGENT_FABRIC_STATE_DIR": os.path.join(tmp, "state"), "AGENT_FABRIC_ROOT": ROOT}
+        # No case reaches the login's own relay, token or registry: a
+        # closed port, a scratch home and a scratch placement until a case
+        # starts its fake relay.
+        home = os.path.join(tmp, "home")
+        os.makedirs(home)
+        dead = socket.socket()
+        dead.bind(("127.0.0.1", 0))
+        dead_url = f"http://127.0.0.1:{dead.getsockname()[1]}"
+        dead.close()
+        login = subprocess.run(["id", "-un"], capture_output=True, text=True).stdout.strip()
+        host = socket.gethostname().split(".")[0]
+        registry = os.path.join(tmp, "registry.json")
+        with open(registry, "w", encoding="utf-8") as fh:
+            json.dump({"version": 1, "hosts": {host: {"operator": "user"}},
+                       "placement": {login: host, "waiter": host, "user": host}}, fh)
+        env = {**os.environ, "AGENT_FABRIC_STATE_DIR": os.path.join(tmp, "state"), "AGENT_FABRIC_ROOT": ROOT,
+               "HOME": home, "CLAUDE_BRIDGE_URL": dead_url, "CLAUDE_BRIDGE_AUTH_TOKEN": "tok",
+               "AGENT_FABRIC_HOSTS_REGISTRY": registry, "FABRIC_STATE_CHANNEL": "t:state:control",
+               "FABRIC_CONTROL_CHANNEL": "t:control"}
         repo_a, repo_b = os.path.join(tmp, "alpha"), os.path.join(tmp, "beta")
         for r in (repo_a, repo_b):
             os.makedirs(r)
@@ -148,8 +170,6 @@ def main() -> int:
         # A binding names a project; an unregistered checkout falls back to
         # it in resolve_context, and must still never pass for that project.
         env["AGENT_FABRIC_STATE_DIR"] = os.path.join(tmp, "state-bound")
-        login = subprocess.run(["id", "-un"], capture_output=True, text=True).stdout.strip()
-        host = socket.gethostname().split(".")[0]
         os.makedirs(os.path.join(tmp, "state-bound", "agents", login))
         with open(os.path.join(tmp, "state-bound", "agents", login, "binding.json"), "w", encoding="utf-8") as fh:
             json.dump({"agent": login, "host": host, "role": "backend-dev", "project": "gzapp"}, fh)
@@ -280,10 +300,8 @@ def main() -> int:
             {"seq": 13, "id": "r13", "ts": "T", "sender": "other-host/sender", "content": message("INFO", me, "c", "just news")},
             {"seq": 14, "id": "r14", "ts": "T", "sender": "other-host/sender", "content": message("REQUEST", me, "d", "elsewhere", "another")},
         ])
-        home = os.path.join(tmp, "home")
-        os.makedirs(home)
-        env.update({"HOME": home, "CLAUDE_BRIDGE_URL": f"http://127.0.0.1:{relay.server_address[1]}",
-                    "CLAUDE_BRIDGE_AUTH_TOKEN": "tok", "GZCOORD_CHANNEL": "fixture:chan"})
+        env.update({"CLAUDE_BRIDGE_URL": f"http://127.0.0.1:{relay.server_address[1]}",
+                    "GZCOORD_CHANNEL": "fixture:chan"})
         try:
             p = run("add", "--request", "01a09fc1-0000-7000-8000-00000000000a", "--topic", "thing")
             check("a request outside its project's working copy asks for one", p.returncode == 1
@@ -320,6 +338,69 @@ def main() -> int:
         finally:
             relay.shutdown()
             relay.server_close()
+
+        # Blocking, derived (ADR-037 rule 8): a queued job whose request an
+        # account waits on ranks blocking, its stored priority kept.
+        env["AGENT_FABRIC_STATE_DIR"] = os.path.join(tmp, "state-waits")
+        env["CLAUDE_BRIDGE_URL"] = dead_url
+        waited, other = "01a11a18-4728-7d8b-afd9-0edb2d30a59c", "01a11a19-0bea-70c7-b667-1e1e5a74dbe1"
+        run("add", "high and not waited", "--priority", "high")
+        run("add", "low but waited", "--priority", "low")
+        run("add", "plain")
+        lst = os.path.join(tmp, "state-waits", "agents", login, "jobs.json")
+        doc = json.loads(open(lst, encoding="utf-8").read())
+        doc["jobs"][1]["source"] = {"kind": "request", "message_id": waited, "from": f"{host}/waiter", "seq": 1}
+        doc["jobs"][2]["source"] = {"kind": "request", "message_id": other, "from": f"{host}/waiter", "seq": 2}
+        with open(lst, "w", encoding="utf-8") as fh:
+            json.dump(doc, fh)
+        p = run("list")
+        check("stream down: list says so and shows stored priorities", p.returncode == 0
+              and "state stream could not be read" in p.stderr and "stored priorities decide" in p.stderr
+              and "ranks blocking" not in p.stdout, p.stdout + p.stderr)
+
+        def state_rec(frm: str, waits_on, ts: str = "2026-10-08T10:00:00Z", i: int = 0) -> dict:
+            rec = {"v": 1, "kind": "state", "from": frm, "ts": ts, "sessions": []}
+            if waits_on is not None:
+                rec["waits_on"] = waits_on
+            return {"id": f"s{i}", "seq": i, "ts": ts, "sender": frm, "content": json.dumps(rec)}
+        relay = fake_relay([], [
+            state_rec(f"{host}/waiter", [other], i=1),             # older: superseded below
+            state_rec(f"{host}/waiter", [waited], i=2),
+            state_rec("elsewhere/unplaced", [other], i=3),         # no placed address: skipped
+            state_rec(f"{host}/user", ["not-an-id"], i=4),         # not agentd's shape: skipped
+        ])
+        env["CLAUDE_BRIDGE_URL"] = f"http://127.0.0.1:{relay.server_address[1]}"
+        try:
+            p = run("list")
+            row = next((x for x in p.stdout.splitlines() if x.startswith("j2 ")), "")
+            check("a waited request ranks blocking, its stored priority shown, and the waiter named",
+                  p.returncode == 0 and " low " in row and f"ranks blocking: {host}/waiter waits on it" in row
+                  and not p.stderr, p.stdout + p.stderr)
+            check("only the newest record of an account counts; an unplaced or malformed one is skipped",
+                  "ranks blocking" not in next((x for x in p.stdout.splitlines() if x.startswith("j3 ")), "x"), p.stdout)
+            got = json.loads(run("list", "--json").stdout)
+            check("list --json gives both priorities and the waiters", [(j["priority"], j["effective_priority"], j["waited_by"]) for j in got]
+                  == [("high", "high", []), ("low", "blocking", [f"{host}/waiter"]), ("normal", "normal", [])], repr(got))
+            got = json.loads(run("list", "--json", "--stored").stdout)
+            check("--stored reads no stream", got[1]["effective_priority"] == "low", repr(got[1]))
+            p = run("next")
+            check("next takes the effectively blocking job before a high one, and says why", p.returncode == 0
+                  and p.stdout.startswith("j2 ") and f"ranked blocking: {host}/waiter waits on its request (stored low)" in p.stdout,
+                  p.stdout + p.stderr)
+            check("its stored priority stays", jobs()[1]["priority"] == "low", repr(jobs()[1]))
+        finally:
+            relay.shutdown()
+            relay.server_close()
+        run("done", "j2")
+        env["CLAUDE_BRIDGE_URL"] = dead_url
+        p = run("next")
+        check("stream down: next says so and takes the stored order", p.returncode == 0 and p.stdout.startswith("j1 ")
+              and "stored priorities decide" in p.stderr, p.stdout + p.stderr)
+        env["AGENT_FABRIC_STATE_DIR"] = os.path.join(tmp, "state-nowait")
+        run("add", "a plain job")
+        p = run("list")
+        check("no queued job from a message: the stream is not read, nothing said", p.returncode == 0 and not p.stderr,
+              p.stderr)
 
         state = os.path.join(tmp, "state", "agents")
         login = os.listdir(state)[0]

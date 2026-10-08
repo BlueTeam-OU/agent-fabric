@@ -31,7 +31,9 @@ const defaultRoot = home => process.env.AGENT_FABRIC_ROOT ?? path.join(home, 'pr
 const plain = s => typeof s === 'string' && !/[\u0000-\u001f\u007f-\u009f]/.test(s);
 
 export async function jobs({ home = os.homedir(), root = defaultRoot(home), exec = execFileP } = {}) {
-  const r = await exec('python3', [jobsPy(root), 'list', '--json'], { encoding: 'utf8', timeout: JOBS_TIMEOUT_MS, env: { ...process.env, AGENT_FABRIC_ROOT: root } });
+  // --stored: the operator reads what the list holds, and the daemon
+  // answers in seconds, never behind a read of the state stream.
+  const r = await exec('python3', [jobsPy(root), 'list', '--json', '--stored'], { encoding: 'utf8', timeout: JOBS_TIMEOUT_MS, env: { ...process.env, AGENT_FABRIC_ROOT: root } });
   const list = JSON.parse(typeof r === 'string' ? r : r.stdout);
   // The log stays on the account: the owner reads where each job is, not its history.
   return { status: 'ok', jobs: list.map(j => ({ id: j.id, state: j.state, title: j.title, project: j.project ?? null, topic: j.topic ?? null, priority: j.priority ?? 'normal',
