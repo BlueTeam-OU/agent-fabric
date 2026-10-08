@@ -134,6 +134,28 @@ def case_workingcopy_reads_the_operators_registry_and_arm_follows() -> None:
             assert "opproj" in workingcopy.load_registry(os.path.join(op, "projects", "registry.json"))["projects"]
 
 
+def case_layout_places_memory_roles_and_registry_in_the_operator() -> None:
+    import layout
+    with tempfile.TemporaryDirectory() as tmp:
+        op = os.path.join(tmp, "op")
+        write(os.path.join(op, "projects", "registry.json"), {"projects": {"opproj": {}}})
+        write(os.path.join(op, "policies", "hygiene.json"), {})
+        with operator(op):
+            assert layout.project_ids() == ["opproj"]
+            assert layout.roles_dir() == os.path.join(op, "identities", "roles")
+            assert layout.catalog_path() == os.path.join(op, "identities", "roles", "catalog.json")
+            assert layout.domain_dir("d") == os.path.join(op, "memory", "domains", "d")
+            assert layout.shared_dir() == os.path.join(op, "memory", "shared")
+            assert layout.agent_memory_dir("a") == os.path.join(op, "memory", "agents", "a")
+            assert layout.project_taxonomy_path("opproj") is None
+            write(os.path.join(op, "projects", "opproj", "taxonomy.json"), {})
+            assert layout.project_taxonomy_path("opproj") == os.path.join(op, "projects", "opproj", "taxonomy.json")
+        with unset_operator():
+            assert layout.roles_dir() == os.path.join(layout.FABRIC_ROOT, "identities", "roles")
+            assert layout.domain_dir("d") == os.path.join(layout.FABRIC_ROOT, "memory", "domains", "d")
+            assert "opproj" not in layout.project_ids()
+
+
 def main() -> int:
     cases = [v for k, v in globals().items() if k.startswith("case_")]
     failures = 0

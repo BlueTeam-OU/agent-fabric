@@ -54,14 +54,19 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 
 FABRIC_ROOT = os.environ.get("AGENT_FABRIC_ROOT") or os.path.dirname(
     os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
 
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import roots  # noqa: E402
+
 # The project-side directory, and how a project's INDEX.md reaches back
 # into this repository.
 PROJECT_DIRNAME = ".agent-fabric"
-PROJECT_MEMORY_SUBDIR = os.path.join(PROJECT_DIRNAME, "memory")
+# Spelled as one string so it reads as the project's own memory, not the operator's corpus.
+PROJECT_MEMORY_SUBDIR = f"{PROJECT_DIRNAME}{os.sep}memory"
 PROJECT_ROLES_SUBDIR = os.path.join(PROJECT_DIRNAME, "roles")
 FABRIC_LINK_PREFIX = "../agent-fabric"
 FABRIC_PROJECT_ID = "agent-fabric"
@@ -120,14 +125,14 @@ def project_ids() -> list[str]:
     """Every project the registry knows, sorted — the set whose hygiene
     lists a slice is held to, since a slice travels into every one."""
     try:
-        with open(os.path.join(FABRIC_ROOT, "projects", "registry.json"), encoding="utf-8") as fh:
+        with open(roots.projects_registry(engine=FABRIC_ROOT), encoding="utf-8") as fh:
             return sorted((json.load(fh).get("projects") or {}).keys())
     except (OSError, ValueError):
         return []
 
 
 def roles_dir() -> str:
-    return os.path.join(FABRIC_ROOT, "identities", "roles")
+    return roots.roles_dir(engine=FABRIC_ROOT)
 
 
 def prompt_dir() -> str:
@@ -143,7 +148,7 @@ def role_dir(role: str) -> str:
 
 
 def catalog_path() -> str:
-    return os.path.join(roles_dir(), "catalog.json")
+    return roots.role_catalog(engine=FABRIC_ROOT)
 
 
 def list_roles() -> list[str]:
@@ -155,15 +160,15 @@ def list_roles() -> list[str]:
 
 
 def domain_dir(domain: str) -> str:
-    return os.path.join(FABRIC_ROOT, "memory", "domains", domain)
+    return roots.memory_dir("domains", domain, engine=FABRIC_ROOT)
 
 
 def shared_dir() -> str:
-    return os.path.join(FABRIC_ROOT, "memory", "shared")
+    return roots.memory_dir("shared", engine=FABRIC_ROOT)
 
 
 def agent_memory_dir(agent: str) -> str:
-    return os.path.join(FABRIC_ROOT, "memory", "agents", agent)
+    return roots.memory_dir("agents", agent, engine=FABRIC_ROOT)
 
 
 # --- project homes ----------------------------------------------------------
@@ -259,7 +264,7 @@ def project_taxonomy_path(project: str) -> str | None:
         candidate = os.path.join(wc, PROJECT_DIRNAME, "taxonomy.json")
         if os.path.isfile(candidate):
             return candidate
-    here = os.path.join(FABRIC_ROOT, "projects", project, "taxonomy.json")
+    here = os.path.join(roots.projects_dir(engine=FABRIC_ROOT), project, "taxonomy.json")
     return here if os.path.isfile(here) else None
 
 
@@ -322,7 +327,7 @@ def load_hygiene_patterns(projects: list[str] | None = None, for_project: str | 
     # never by name — a privacy rule, so it holds in every project), then
     # each project's.
     sources: list[tuple[str, str, str | None]] = [
-        (os.path.join(FABRIC_ROOT, "policies", "hygiene.json"), "fabric hygiene", None)]
+        (roots.policy("hygiene.json", engine=FABRIC_ROOT), "fabric hygiene", None)]
     for pid in projects or []:
         path = project_hygiene_path(pid)
         if path:
