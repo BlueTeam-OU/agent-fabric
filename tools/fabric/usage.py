@@ -31,8 +31,7 @@ the fallback for a host whose daemons are down.
 # The contract the port keeps (ADR-040 Wave 3, from bin/fabric-usage):
 #   - argv: --json anywhere; -h/--help prints the docstring's first six
 #     lines, exit 0, where it is met; any other `--…` is exit 2 there;
-#     everything else is a login to keep (a login no placement has is
-#     simply not shown).
+#     everything else is a login to keep.
 #   - the rows in the registry's placement order; the header line in text
 #     mode only; a status row (setup-token, no-credentials, read-failed,
 #     unreadable, executor-failed) for every account that has no numbers;
@@ -40,7 +39,10 @@ the fallback for a host whose daemons are down.
 #   - the remote read is the shell text in READ, run as `sh -c` by the
 #     executor as the account: it never leaves the account's own process,
 #     and its token never reaches this one.
-# Changed, and said in j31's delivery: a registry that cannot be read as
+# Changed, and said in j31's delivery and on #114: a named login that no
+# placement has, or that the registry's kinds call a human (ADR-044), is
+# exit 2 naming the registry read (the bash left it out of the table,
+# which then read as an answer); a registry that cannot be read as
 # a placement map is exit 2 (the bash printed an empty table, which its
 # own header promises never to do); jq is no longer needed on this host
 # (the remote read still uses jq and curl, as before); an executor that
@@ -107,7 +109,7 @@ def parse(argv: list[str]) -> tuple[bool, list[str]] | None:
     return as_json, logins
 
 
-def placements(registry: str) -> list[tuple[str, str]]:
+def placements(registry: str) -> list[tuple[str, str, str]]:
     """(login, host, kind) for every placement, in the registry's order."""
     if not os.path.isfile(registry):
         raise Refused(f"no host registry at {registry}")
@@ -190,14 +192,15 @@ def run(argv: list[str]) -> int:
         if parsed is None:
             return 0
         as_json, logins = parsed
-        placed = placements(roots.hosts_registry(engine=ROOT))
+        registry = roots.hosts_registry(engine=ROOT)
+        placed = placements(registry)
         # A human login (ADR-044) has no Claude account: all leaves it out,
         # and naming one, or a login not placed, is refused, never an empty
         # table that reads as an answer.
         kind = {l: k for l, _, k in placed}
         for login in logins:
             if login not in kind:
-                raise Refused(f"{login} is not a placed account (runtime/hosts/registry.json)")
+                raise Refused(f"{login} is not a placed account ({registry})")
             if kind[login] != "agent":
                 raise Refused(f"{login} is a human login (ADR-044): it has no Claude account to read")
         placed = [(l, h) for l, h, k in placed if k == "agent"]

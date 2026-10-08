@@ -130,9 +130,12 @@ def main() -> int:
             r = subprocess.run([TOOL, *args], env=env, capture_output=True, text=True, timeout=60)
             return r.returncode, r.stdout, r.stderr
 
-        for named, why in (("deck-human", "is a human login (ADR-044)"), ("nobody", "is not a placed account")):
-            rc, out, err = usage(named)
-            check(f"{named} named: refused, exit 2, no table", rc == 2 and out == "" and why in err, f"rc={rc}\n{out}{err}")
+        # The unplaced refusal names the registry it read, not the default path.
+        for named, why in (("deck-human", "is a human login (ADR-044)"), ("nobody", f"is not a placed account ({registry})")):
+            for mode in ((), ("--json",)):
+                rc, out, err = usage(*mode, named)
+                check(f"{named} named{' with --json' if mode else ''}: refused, exit 2, no table",
+                      rc == 2 and out == "" and why in err, f"rc={rc}\n{out}{err}")
         rc, out, err = usage()
         rows = out.splitlines()
         check("text: a header and every placement, in the registry's order, exit 0",
