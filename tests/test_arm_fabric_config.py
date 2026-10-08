@@ -3,7 +3,8 @@
 arm.sh refused a project with none ("the security boundary cannot be
 judged": agent-fabric itself on #110, the gateway on its #5). Each loads,
 its cases are boundary, and the paths each says are not boundary are not;
-no role but the owner waives agent-fabric's or the gateway's."""
+no role but the owner waives agent-fabric's, the gateway's or
+radicle-spike's (whose PRs could not be armed without one, 2026-10-08)."""
 from __future__ import annotations
 
 import glob
@@ -59,6 +60,16 @@ def main() -> int:
               ".agent-fabric/taxonomy.json", "README.md"):
         check(f"gateway {f}: not boundary", not gw_boundary(f))
     check("gateway: no role waives the boundary", gw_waiver is None)
+    rs = os.path.join(HERE, "projects", "radicle-spike", "integration", "gh", "arm.json")
+    rp, re_, _, rs_waiver = arm.load_config(rs)
+
+    def rs_boundary(f: str) -> bool:
+        return not (re_ and re_.search(f)) and bool(rp.search(f))
+    # The findings are prose about the seed and its keys: a word the patterns
+    # select, exempt as Markdown.
+    for f in ("findings/01-seed-on-host.md", "findings/02-key-and-trust.md", ".agent-fabric/taxonomy.json", "README.md"):
+        check(f"radicle-spike {f}: not boundary", not rs_boundary(f))
+    check("radicle-spike: no role waives the boundary", rs_waiver is None)
     print(f"\n{'all passed' if not fails else str(fails) + ' FAILED'}")
     return 1 if fails else 0
 

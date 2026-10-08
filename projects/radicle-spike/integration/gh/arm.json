@@ -1,0 +1,17 @@
+{
+  "description": "radicle-spike's rules for runtime/github/arm.sh. boundary.paths: the spike installs, configures and confines a network daemon (a Radicle seed) on a shared host, so its boundary is what installs, starts and fences it (scripts/), its configuration, unit and the release signers it trusts (seed/), the tests that prove the fences (tests/), CI (.github/), and words where the boundary is a file anywhere (secret, credential, token, key, auth, signer, trust, seed, unit, service, sudo). boundary.exempt is dropped first: Markdown, which is the findings' and the records' prose, and .agent-fabric/. No classes. waiver_role is null: only the owner waives the boundary.",
+  "boundary": {
+    "paths": "^scripts/|^seed/|^tests/|^\\.github/|secret|credential|token|key|auth|signer|trust|seed|unit|service|sudo",
+    "exempt": "\\.md$|^\\.agent-fabric/",
+    "cases": [
+      "scripts/install.sh",
+      "scripts/seed-run.sh",
+      "seed/config.json",
+      "seed/radicle-spike-seed.service",
+      "seed/release-signers",
+      "tests/rad-home-guard.sh",
+      ".github/workflows/ci.yml"
+    ]
+  },
+  "waiver_role": null
+}
