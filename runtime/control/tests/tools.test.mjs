@@ -52,6 +52,10 @@ test('runTools: runs the account\'s bin/fabric-tools by argv; exit 1 is an answe
   assert.match((await runTools({ root: fakeRoot('echo "bad registry" >&2; exit 2') })).error, /exited 2/);
   assert.match((await runTools({ root: fakeRoot('sleep 30'), timeoutMs: 200 })).error, /did not finish within 0.2 s/);
   assert.match((await runTools({ root: scratch('tools-empty-') })).error, /could not run \(ENOENT\)/);
+  // A process the kernel killed is not the bound being too small.
+  const killed = (await runTools({ root: fakeRoot('kill -9 $$') })).error;
+  assert.match(killed, /killed by SIGKILL/);
+  assert.ok(!/did not finish/.test(killed), killed);
 });
 
 test('the keeper writes the report atomically and leaves no temporary file', async () => {
@@ -90,6 +94,15 @@ test('a failed run keeps the previous report and says so once per cause; a succe
   next = { error: 'fabric-tools exited 2' };
   await k.refresh();
   assert.equal(said.length, 3, 'after a success the same failure is news again');
+});
+
+test('a cause alternating with another is still said once, until a run succeeds', async () => {
+  const file = path.join(scratch('tools-state-'), 'tools.json');
+  const { said, log } = quiet();
+  let next = { error: 'A' };
+  const k = toolsKeeper({ run: async () => next, file, log });
+  for (const e of ['A', 'B', 'A', 'B']) { next = { error: e }; await k.refresh(); }
+  assert.equal(said.length, 2, said.join('|'));
 });
 
 test('a run that throws, or a report that cannot be written, is a kept report too', async () => {
@@ -176,4 +189,17 @@ test('fabric-ctl: what an account put in a tools row cannot move the operator\'s
   const out = table('tools', [{ account: 'a', status: 'ok', tools: { status: 'ok', age_s: 5, ok: false, tools: [evil] } }]);
   assert.ok(!/[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/.test(out), JSON.stringify(out));
   assert.ok(out.includes('\\x1b') && out.includes('\\x9b'));
+});
+
+test('fabric-ctl: a malformed tools reply from one account is that account\'s row, not the table\'s end', () => {
+  const ok = { status: 'ok', age_s: 5, ok: true, tools: [] };
+  const out = table('tools', [
+    { account: 'a', status: 'ok', tools: { status: 'ok', age_s: 5 } },
+    { account: 'b', status: 'ok', tools: { ...ok, age_s: '\r\u000b\f\n5' } },
+    { account: 'c', status: 'ok', tools: ok }]);
+  const lines = out.split('\n');
+  assert.equal(lines.length, 3, JSON.stringify(out));
+  assert.match(lines[0], /^a +tools: malformed reply$/);
+  assert.match(lines[1], /^b +tools: malformed reply$/);
+  assert.match(lines[2], /^c +nothing required is missing \(report 5 s old\)$/);
 });

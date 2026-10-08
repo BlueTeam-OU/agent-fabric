@@ -30,8 +30,10 @@ const execFileP = promisify(execFile);
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 export const TOOLS_REPORT = 'tools.json';
 export const TOOLS_INTERVAL_MS = 3600 * 1000;
-// A dozen proofs at 15 s each, run one after another, plus the interpreter's start.
-export const TOOLS_RUN_TIMEOUT_MS = 5 * 60 * 1000;
+// The proofs run one after another at 15 s each at worst, so this holds sixty
+// of them; the registry declares sixteen. A registry past that would time every
+// run out and keep the first report for ever, with one log line.
+export const TOOLS_RUN_TIMEOUT_MS = 15 * 60 * 1000;
 const MAX_BUFFER = 4 * 1024 * 1024;
 
 const defaultRoot = () => path.resolve(HERE, '..', '..');
@@ -57,7 +59,10 @@ export async function runTools({ root = defaultRoot(), exec = execFileP, home = 
     const r = await exec(path.join(root, 'bin', 'fabric-tools'), ['--all', '--json'], { encoding: 'utf8', timeout: timeoutMs, maxBuffer: MAX_BUFFER, cwd: home });
     return parseRun(0, typeof r === 'string' ? r : r.stdout);
   } catch (e) {
-    if (e?.killed || e?.signal) return { error: `fabric-tools did not finish within ${timeoutMs / 1000} s` };
+    // execFile ends a run that outlives its timeout with SIGTERM; any other
+    // signal (the OOM killer's SIGKILL) is not the bound being too small.
+    if (e?.killed && e.signal === 'SIGTERM') return { error: `fabric-tools did not finish within ${timeoutMs / 1000} s` };
+    if (e?.signal) return { error: `fabric-tools was killed by ${e.signal}` };
     if (typeof e?.code === 'number') return parseRun(e.code, String(e.stdout ?? ''));
     return { error: `fabric-tools could not run (${e?.code ?? e?.message})` };
   }
@@ -77,17 +82,18 @@ export function writeReport(file, doc) {
   }
 }
 
-// One run at a time; a failure is said once until the cause changes or a run succeeds.
+// One run at a time; a failure is said once per distinct cause until a run succeeds.
 export function toolsKeeper({ run = () => runTools(), file = reportFile(), log = m => console.error(m) } = {}) {
-  let running = null, said = null;
+  let running = null;
+  const said = new Set();
   const once = async () => {
     let r;
     try { r = await run(); } catch (e) { r = { error: String(e?.message ?? e) }; }
     if (r.doc) {
-      try { writeReport(file, r.doc); said = null; return { status: 'written' }; }
+      try { writeReport(file, r.doc); said.clear(); return { status: 'written' }; }
       catch (e) { r = { error: `the report could not be written (${e.code ?? e.message})` }; }
     }
-    if (said !== r.error) { said = r.error; log(`agentd: tools report not refreshed, the previous one stays: ${r.error}`); }
+    if (!said.has(r.error)) { said.add(r.error); log(`agentd: tools report not refreshed, the previous one stays: ${r.error}`); }
     return { status: 'kept', error: r.error };
   };
   return { refresh: () => (running ??= once().finally(() => { running = null; })) };

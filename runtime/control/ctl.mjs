@@ -311,6 +311,7 @@ export function table(op, rs) {
       if (r.status !== 'ok' || !t) { lines.push(`${r.account.padEnd(22)} ${r.status}`); continue; }
       if (t.status === 'none') { lines.push(`${r.account.padEnd(22)} no report yet`); continue; }
       if (t.status !== 'ok') { lines.push(`${r.account.padEnd(22)} tools ${esc(t.status)}${t.error ? `: ${esc(t.error)}` : ''}`); continue; }
+      if (!Array.isArray(t.tools) || !Number.isFinite(t.age_s)) { lines.push(`${r.account.padEnd(22)} tools: malformed reply`); continue; }
       const age = t.age_s < 120 ? `${t.age_s} s` : t.age_s < 7200 ? `${Math.round(t.age_s / 60)} min` : t.age_s < 172800 ? `${Math.round(t.age_s / 3600)} h` : `${Math.round(t.age_s / 86400)} days`;
       const missing = t.tools.filter(x => x && x.status !== 'ok' && !x.optional);
       if (!missing.length) { lines.push(`${r.account.padEnd(22)} nothing required is missing (report ${age} old)`); continue; }
