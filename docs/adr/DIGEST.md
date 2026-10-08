@@ -895,6 +895,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-10-04 — writers read at origin/main; the trusted base explicit:
   bootstrap's once-only migration, or first contact through the
   enrolment bundle; a store with no base refuses (§5 rules 2, 4).
+- A 2026-10-07 — a commit gpg could not judge stops, unrecorded (§5 rule 5).
 - Keywords: store, signing, signature, verify, forged entry, lineage,
   pass, bundle, take-bundle, writer, trust-base, trusted base.
 

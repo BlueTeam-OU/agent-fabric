@@ -186,6 +186,21 @@ def _no_base(store: str) -> StoreError:
                       "fabric-secrets store trust-base, once, at the head it holds")
 
 
+def _carries_pgp_signature(store: str, commit: str) -> bool:
+    """Whether the commit object holds PGP armour in the signature header
+    git verifies for this store's hash (gpgsig for sha1, gpgsig-sha256 for
+    sha256). Read from the object, never from verify-commit's silence: it
+    is silent both for an unsigned commit and when it could not run. Any
+    other header — the other hash's, other armour, text in no PGP format —
+    is refused even when gpg could not run: git signs a commit only with
+    PGP SIGNATURE armour, so nothing a writer made is lost."""
+    fmt = git(store, "rev-parse", "--show-object-format").stdout.strip()
+    name = {b"sha1": b"gpgsig ", b"sha256": b"gpgsig-sha256 "}.get(fmt)
+    raw = git(store, "cat-file", "commit", commit).stdout
+    headers = raw.split(b"\n\n", 1)[0].split(b"\n")
+    return name is not None and any(h.startswith(name + b"-----BEGIN PGP SIGNATURE-----") for h in headers)
+
+
 def _main_show(rel: str, fabric: str | None = None) -> bytes | None:
     """A file as the fabric's origin/main has it; None when main has no such
     file. A checkout with no origin/main is an error, never a fallback."""
@@ -374,20 +389,44 @@ def _verify_incoming(store: str, tip: str, agent_id: str | None = None, fabric: 
             for key in allowed.values():
                 gpg("--import", stdin=key, homedir=tmp)
             subkeys = _signing_subkeys(tmp)
-            env = {**os.environ, "GNUPGHOME": tmp}
+            # git's own lines in C, so the cut below finds "fatal:"/"error:"
+            # under any locale (LANGUAGE=de says "Fehler:"); gpg's [GNUPG:]
+            # status lines are never translated.
+            env = {**{k: v for k, v in os.environ.items() if k != "LANGUAGE"}, "GNUPGHOME": tmp, "LC_ALL": "C"}
             for c in revs:
                 r = _run(["git", "-C", store, "-c", "gpg.program=gpg", "verify-commit", "--raw", c], env=env, check=False)
-                status = [l.split() for l in r.stderr.decode(errors="replace").splitlines() if l.startswith("[GNUPG:] ")]
+                # The same stderr carries git's own error after gpg's status,
+                # and "bad/incompatible signature" quotes the header, newlines
+                # and all: whoever pushes the commit writes that text, a
+                # "[GNUPG:] VALIDSIG <a writer's public fingerprints>" or a
+                # REVKEYSIG choosing the refusal's reason included. So status
+                # is read only above git's first own line, and a VALIDSIG
+                # counts only when verify-commit succeeded.
+                lines = r.stderr.decode(errors="replace").splitlines()
+                gits = next((i for i, l in enumerate(lines) if l.startswith(("fatal:", "error:"))), len(lines))
+                status = [l.split() for l in lines[:gits] if l.startswith("[GNUPG:] ")]
                 tags = {f[1] for f in status if len(f) > 1}
-                valid = next((f for f in status if len(f) > 2 and f[1] == "VALIDSIG"), None)
+                valid = next((f for f in status if len(f) > 2 and f[1] == "VALIDSIG"), None) if r.returncode == 0 else None
                 if tags & {"EXPKEYSIG", "REVKEYSIG", "BADSIG", "EXPSIG"}:
                     bad = sorted(tags & {"EXPKEYSIG", "REVKEYSIG", "BADSIG", "EXPSIG"})[0]
                     raise refuse(c, {"BADSIG": "its signature does not verify", "EXPSIG": "its signature has expired",
                                      "EXPKEYSIG": "signed by an expired key", "REVKEYSIG": "signed by a revoked key"}[bad])
-                if not valid:
+                if not valid and tags & {"ERRSIG", "NO_PUBKEY"}:
                     raise refuse(c, "signed by a key that is no writer of this store on the fabric's main "
-                                    "(a new or rotated key not yet merged: fetch the fabric)" if "ERRSIG" in tags
-                                    or "NO_PUBKEY" in tags else "not signed")
+                                    "(a new or rotated key not yet merged: fetch the fabric)")
+                if not status and _carries_pgp_signature(store, c):
+                    # A PGP signature git would hand to gpg, and not one
+                    # status line: gpg never ran (no usable TMPDIR, no gpg,
+                    # a full disk). Fail closed, but nothing was shown wrong
+                    # with the commit, so no refusal is recorded, as for
+                    # unknown writers above (fabric-coordinator,
+                    # 01a117f0-1fff). Junk inside the armour makes gpg run
+                    # and say NODATA: status, so that is refused below.
+                    said = _failure("git verify-commit", r).args[0]
+                    said = "".join(ch if ch.isprintable() else "?" for ch in said)
+                    raise StoreError(f"commit {c[:12]} could not be verified ({said}); nothing applied")
+                if not valid:
+                    raise refuse(c, "not signed")
                 signer, primary = valid[2], valid[-1]
                 # Defence in depth, not dead code: gpg already refuses a
                 # signature by a key that is no signing key of its primary,
