@@ -112,14 +112,15 @@ Why these choices:
    when none is set and in a list written before priorities existed.
    `fabric-jobs next` takes the queued job of highest effective priority,
    then the oldest. It never preempts the active job, which it still
-   refuses to pass, and a blocked job keeps its place (A 2026-10-08).
+   refuses to pass, and a blocked job keeps its place. Not yet built:
+   python-dev builds it against this rule (A 2026-10-08).
 8. A job blocked on a request names it (`fabric-jobs block <id>
    --on-request <MESSAGE-ID>`), and the account's state record carries
    those message ids as `waits_on`. A queued job whose request is in any
    account's `waits_on` ranks as `blocking`; its stored priority stays,
    and `list` shows both and names the waiting address. With the state
-   stream unreachable, stored priorities decide and the tool says so
-   (A 2026-10-08).
+   stream unreachable, stored priorities decide and the tool says so.
+   Not yet built (A 2026-10-08).
 9. A role has an open pool, held by the coordinator's control agent, so
    that one process orders every claim. A job is added to it by a signed
    action; a placed agent lists its role's pool and claims a job from it.
@@ -127,10 +128,11 @@ Why these choices:
    agent reports it, never a role the request names, and a job has one
    claimant: the claim lands it on the claimant's own list. `next`, with
    nothing queued, offers the pool's job of highest priority, oldest
-   first, and says so (A 2026-10-08).
-10. When a job is done, delivered or dropped, the agent runs `fabric-jobs
-    next` before anything else, and it ends a session idle only when its
-    own list and its role's pool hold nothing it can take (A 2026-10-08).
+   first, and says so. Not yet built (A 2026-10-08).
+10. When a job is done, delivered, blocked or dropped, the agent runs
+    `fabric-jobs next` before anything else, and it ends a session idle
+    only when nothing is left it can take: its own list today, and its
+    role's pool once rule 9 is built (A 2026-10-08).
 
 ## 6. Consequences
 
@@ -154,7 +156,9 @@ Why these choices:
 
 ## 8. Decision Status
 
-Accepted and in force.
+Accepted and in force. Rules 7–9 are decided and not yet built: python-dev
+builds them against this text, and until they land `next` takes the
+oldest queued job and no pool exists.
 
 ## References
 

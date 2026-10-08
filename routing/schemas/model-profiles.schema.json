@@ -48,7 +48,7 @@
           }
         },
         "launch_provider": {
-          "description": "The provider a launch uses when it names none and the account has no launch on record (launch-provider.json): fabric-resume's first launch, as Fleet Deck makes it. A recorded launch, or an explicit --provider, always wins. Absent in every layer: the launcher's own default.",
+          "description": "The provider fabric-resume launches on when it is given none and the account has no launch on record (launch-provider.json): a first activation from Fleet Deck. A recorded launch, or an explicit --provider, always wins; the launcher run directly keeps its own default. Nearest layer first: the agent's, the role's, the defaults'.",
           "enum": [
             "anthropic",
             "openrouter"

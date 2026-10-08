@@ -65,12 +65,14 @@ control plane's is fabric-coordinator's.
      (the account's status, jobs and open pull requests).
 
    A first activation with no launch on record takes the provider of
-   `routing/profiles.json` `launch_provider` for the account or its role.
+   `routing/profiles.json` `launch_provider` for the account, its role or
+   the defaults.
 6. **What the deck shows** per tab, in the deck's own output only (a
    tab's label stays the bare account: the label is the mapping):
    - dormant: the harness waits for Enter;
    - restoring: entered, no state yet;
-   - resumed: the stream reports `last_session` working or idle;
+   - resumed: the stream reports a live session (its `sessions[]` state
+     working, idle or blocked) for the account;
    - fresh: fabric-resume found nothing to resume, and said so;
    - failed: moveto or fabric-resume exited with no session reported, or
      restoring lasted longer than `RESTORE_WAIT_S` (120 s, the upgrade's

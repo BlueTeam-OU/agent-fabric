@@ -51,8 +51,14 @@ def main() -> int:
         os.chmod(stub, 0o755)
         env = {k: v for k, v in os.environ.items() if k not in ("CLAUDECODE", "CLAUDE_CONFIG_DIR")
                and not k.startswith(("AGENT_FABRIC_", "GITHUB_"))}
+        # The live routing/profiles.json names a launch_provider for some
+        # logins: the subprocess runs read a fixture with none, so the result
+        # never depends on which login runs the suite (review of the branch).
+        noprof = os.path.join(tmp, "profiles-none.json")
+        with open(noprof, "w") as f:
+            json.dump({"version": 1, "defaults": {}}, f)
         env.update(AGENT_FABRIC_STATE_DIR=state, CLAUDE_CONFIG_DIR=cfg, AGENT_FABRIC_RESUME_LAUNCHER=stub,
-                   AGENT_FABRIC_PYTHON=sys.executable)
+                   AGENT_FABRIC_PYTHON=sys.executable, AGENT_FABRIC_RESUME_PROFILES=noprof)
 
         def run(*args: str, **extra: str) -> subprocess.CompletedProcess:
             return subprocess.run(["bash", SHIM, *args], env={**env, **extra}, capture_output=True, text=True,
@@ -65,6 +71,12 @@ def main() -> int:
         r = run("--print")
         check("a session with its transcript: resumed where it ran", r.returncode == 0
               and r.stdout.strip() == f"resuming session {SID} in {session_dir}: --resume {SID}", r.stdout + r.stderr)
+        withprof = os.path.join(tmp, "profiles-role.json")
+        with open(withprof, "w") as f:
+            json.dump({"version": 1, "defaults": {}, "roles": {"python-dev": {"launch_provider": "openrouter"}}}, f)
+        r = run("--print", AGENT_FABRIC_RESUME_PROFILES=withprof)
+        check("no launch on record: the profile's launch_provider for the binding's role",
+              r.stdout.strip().endswith(f": --provider openrouter --resume {SID}"), r.stdout + r.stderr)
         with open(os.path.join(bdir, "launch-provider.json"), "w") as f:
             json.dump({"provider": "anthropic"}, f)
         run()
@@ -140,6 +152,10 @@ def main() -> int:
             check("an unknown provider is none", resume.profile_provider("pd-x", None) is None)
             profiles("not json")
             check("an unreadable file is none", resume.profile_provider("pd-x", None) is None)
+            for wrong in ([], {"agents": ["pd-x"]}, {"roles": "python-dev", "defaults": 3}):
+                profiles(wrong)
+                check(f"a file of the wrong shape is none, never a traceback ({json.dumps(wrong)})",
+                      resume.profile_provider("pd-x", "python-dev") is None)
         finally:
             resume.FABRIC = real
     print(f"\n{'all passed' if not fails else str(fails) + ' FAILED'}")

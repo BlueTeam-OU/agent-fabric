@@ -793,14 +793,14 @@ its record disagree, the record wins. Look it up, never read it whole:
   jobs-add`); a GZCoord request becomes a job only when its receiver adds
   it — the automatic intake is built and inactive (§5 rules 4–5).
 - The owner reads every list with `fabric-ctl <login|all> jobs` (§5
-  rule 6). Waits on the owner's acceptance (§8).
+  rule 6).
 - A 2026-10-08 — priority (blocking, high, normal, low) orders `next`,
   never preempting; a job others wait on ranks blocking via the state
   stream's `waits_on`; a role pool with one claimant; after a job ends,
-  take the next (§5 rules 7–10).
+  take the next (§5 rules 7–10); rules 7–9 not yet built (§8).
 - Keywords: job, to-do, jobs.json, fabric-jobs, next, topic, fresh
   session, restart, fabric-fresh --job, working copy, intake, priority,
-  blocking, pool, claim, P3, proposed.
+  blocking, pool, claim, P3.
 
 ### ADR-038 — Each agent owns its key and its secrets (Accepted)
 

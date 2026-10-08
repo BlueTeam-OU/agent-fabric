@@ -3,7 +3,7 @@
 **Date:** 2026-10-08
 **Status:** Proposed
 **Decision Makers:** the owner (the three layers and the open engine); drafted by fabric-coordinator
-**Scope:** what agent-fabric holds and what moves out of it: the engine (this repository, to be published), the operator repository of the company that runs the agents, and each client's engagement; the seam that lets one engine read either (`tools/fabric/roots.py`, `runtime/control/roots.mjs`); how a working copy resolves to its client; decision-record numbering across the split
+**Scope:** what agent-fabric holds and what moves out of it: the engine (this repository, to be published), the operator repository of the company that runs the agents, and each client's engagement; the seam that lets one engine read either (`roots`, to be created by stage 2 as `tools/fabric/roots.py` and `runtime/control/roots.mjs`); how a working copy resolves to its client; decision-record numbering across the split
 **Pillar:** P1
 
 ## 1. Context and Problem
@@ -56,7 +56,7 @@ Switching client is context, never identity, and needs no relaunch.
 
 ## 5. Binding Rules
 
-1. Engine code reads instance data only through `roots` (`tools/fabric/roots.py`, `runtime/control/roots.mjs`). `engine_root()` is the code's own location. `operator_root()` is `AGENT_FABRIC_OPERATOR` when set, else the engine root. Lint refuses an engine module that joins an instance path itself.
+1. Engine code reads instance data only through `roots` (to be created as `tools/fabric/roots.py` and `runtime/control/roots.mjs`). `engine_root()` is the code's own location. `operator_root()` is `AGENT_FABRIC_OPERATOR` when set, else the engine root. Lint refuses an engine module that joins an instance path itself.
 2. Instance data is: the hosts and projects registries, `identities/keys/`, the role catalogue and the roles as adapted, `policies/*.json`, the routing overlays (`routing/profiles.json`), `memory/`, the organization's decision records, and `docs/live-checks/`. The engine keeps the code, the schemas, the templates, the routing defaults, the guards and the engine's records.
 3. Engine tests read instance fixtures, never the live instance files, and the suite passes with `AGENT_FABRIC_OPERATOR` unset and set.
 4. Decision-record numbers are frozen: no record is renumbered. A mixed record stays in the engine. Its organization-specific rules move out by amendment, into an operator record that cites it.
@@ -83,7 +83,12 @@ When the forge the fleet is evaluating offers a merge-queue equivalent, each com
 
 ## 8. Decision Status
 
-Proposed. It is accepted when the owner merges the pull request that carries it. The seam (rule 1) is built against it meanwhile, behaviour-preserving, by python-dev.
+Proposed. It is accepted when the owner merges the pull request that carries it. None of its rules is built yet:
+- rules 1 and 3, the seam and the tests on fixtures, are being built against it, behaviour-preserving, by python-dev; rule 1's lint is fabric-coordinator's, after the seam;
+- rule 2's list is applied by the extraction stage;
+- rules 5 and 6, client resolution and the drain's refusal, come with the client stage.
+
+Rule 4 holds today: no record has been renumbered.
 
 ## References
 

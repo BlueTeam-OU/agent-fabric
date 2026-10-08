@@ -21,7 +21,7 @@ launcher's when it runs; 2 inside a session or for a bad argument.
 It chooses resume or fresh, where, and the provider: the one the
 account last launched on (launch-provider.json), unless the arguments name
 one; for an account that never launched, routing/profiles.json's
-launch_provider for it or its role. The launcher's own default is a fixed provider, not the account's, so
+launch_provider for it, its role or the defaults. The launcher's own default is a fixed provider, not the account's, so
 a resume without it would come back on another provider's models and bill.
 Model, effort and prompt stay the launcher's.
 """
@@ -97,13 +97,21 @@ def own_dir(path: str) -> bool:
 
 def profile_provider(login: str, role: str | None) -> str | None:
     """routing/profiles.json's launch_provider, nearest layer first: the
-    agent's, the role's, the defaults'. Unreadable is none."""
+    agent's, the role's, the defaults'. Unreadable, or not the shape the
+    schema gives it (a hand-edited or unmerged checkout runs this without
+    the lint), is none."""
+    # A test points this at a fixture; nothing else sets it.
+    path = os.environ.get("AGENT_FABRIC_RESUME_PROFILES") or os.path.join(FABRIC, "routing", "profiles.json")
     try:
-        with open(os.path.join(FABRIC, "routing", "profiles.json"), encoding="utf-8") as fh:
+        with open(path, encoding="utf-8") as fh:
             prof = json.load(fh)
     except (OSError, ValueError):
         return None
-    layers = [(prof.get("agents") or {}).get(login), (prof.get("roles") or {}).get(role or ""), prof.get("defaults")]
+    if not isinstance(prof, dict):
+        return None
+    agents, roles = prof.get("agents"), prof.get("roles")
+    layers = [agents.get(login) if isinstance(agents, dict) else None,
+              roles.get(role or "") if isinstance(roles, dict) else None, prof.get("defaults")]
     for layer in layers:
         p = layer.get("launch_provider") if isinstance(layer, dict) else None
         if p in install_agent_files.PROVIDERS:

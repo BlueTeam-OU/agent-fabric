@@ -137,12 +137,6 @@ verdict comes back, and a session survives the move.
    request with `claude -p /usage`, caching the answer five minutes.
    `fabric-accounts list` prints signed-in state, email and expiry, never
    a token. These sign-ins are optional (A 2026-10-08).
-9. A login on a setup-token reads its account's windows from one
-   inference reply: `max_tokens` 1, a pinned small model, its own token in
-   the one header; the `anthropic-ratelimit-unified-5h-*` and `-7d-*`
-   headers become the utilisation as a percentage, the reset as an ISO
-   time and the window's status, an absent header absent, never 0. The
-   token never enters a reply (A 2026-10-08).
 8. A new login's starting account is chosen when it is made:
    `new-agent.sh` takes `--claude-account <template>` or, for a login
    that runs only through the broker, `--no-claude-account`, one of the
@@ -153,6 +147,12 @@ verdict comes back, and a session survives the move.
    fails when it is not there. An assignment made after `new-agent`
    cannot be applied until the login's key is on main, which is why it
    moved into the onboarding (A 2026-10-07).
+9. A login on a setup-token reads its account's windows from one
+   inference reply: `max_tokens` 1, a pinned small model, its own token in
+   the one header; the `anthropic-ratelimit-unified-5h-*` and `-7d-*`
+   headers become the utilisation as a percentage, the reset as an ISO
+   time and the window's status, an absent header absent, never 0. The
+   token never enters a reply (A 2026-10-08).
 
 ## 6. Consequences
 
@@ -168,8 +168,9 @@ verdict comes back, and a session survives the move.
   claude.ai → Settings → Claude Code.
 - Each reading of a setup-token account spends one output token of
   that account, and `fabric-ctl status` includes one; when a login's
-  control agent is down, its account's windows are read through another
-  login on the same account (A 2026-10-08).
+  control agent is down, its account's windows can be read by hand
+  through another login on the same account (`fabric-ctl <login> usage`):
+  nothing falls back on its own (A 2026-10-08).
 
 ## 7. Future Evolution
 
