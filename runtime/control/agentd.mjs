@@ -23,10 +23,11 @@
 //
 // THE FENCE, v1. A request is answered only when its `from` is a host
 // operator's address as runtime/hosts/registry.json places it — except a
-// PUBLIC op (ops.mjs PUBLIC_OPS: `presence`), answered for any placed
+// PUBLIC op (ops.mjs PUBLIC_OPS: `presence`, `pool-list` and `pool-claim`), answered for any placed
 // <host>/<login>, since every sender needs it and a relay-token holder
 // could already get it by forging an operator's `from` on an unsigned
-// read op — read
+// read op (pool-claim is the one unsigned op that writes: one field, the
+// claimant, ADR-029 §5 rule 4) — read
 // again for every record, so a pull that changes the registry counts at
 // once, and the identity section asks whoami() per request, so a rebind
 // shows without a restart (review, 2026-09-17) — (a claim,
@@ -38,8 +39,9 @@
 // and must be newer than the last action accepted from that operator (a
 // ledger in the account's fabric state), and no more than a minute in
 // its future. A read op takes no argument but `tokens`'s `days` (a number
-// capped at 90); an action takes only its closed set (upgrade.mjs,
-// secrets.mjs and jobs.mjs checkArgs). No field of a
+// capped at 90), pool-list's `role` and pool-claim's `id`; an action takes
+// only its closed set (checkArgs in upgrade.mjs and secrets.mjs,
+// checkJobArgs in jobs.mjs, checkPoolArgs in pool.mjs). No field of a
 // request ever reaches a shell; the answer carries no secret (ops.mjs).
 //
 // Every reply arrives: a section that cannot be read says so inline.
@@ -63,6 +65,7 @@ import { stateWatcher, STATE_POLL_MS } from './sessions.mjs';
 import { secretsSync } from './secrets.mjs';
 import { secretsSelftest } from './selftest.mjs';
 import { sampler, SAMPLE_INTERVAL_MS } from './pressure.mjs';
+import { startToolsReport } from './tools.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 export const SEEN_MAX = 256;
@@ -335,6 +338,10 @@ export async function main(argv = process.argv.slice(2)) {
     const keep = () => { if (!accountSlugs(accountsDir()).length) return; keeper.refresh().then(r => { for (const a of r.accounts ?? []) if (a.status !== 'ok') console.error(`agentd: account ${a.slug}: ${a.status}${a.error ? ` (${a.error})` : ''}`); }).catch(e => console.error(`agentd: accounts: ${e.message}`)); };
     setTimeout(keep, 30000).unref();
     setInterval(keep, ACCOUNTS_KEEPALIVE_MS).unref();
+    // The tools report (tools.mjs): at start, so a reboot or a new registry
+    // is answered at once, every hour, and when the role binding changes. The proofs run in the background
+    // and never delay a reply.
+    startToolsReport({ bindingFile: who.binding });
     // Only the resident daemon samples: a --once run would add a lone
     // sample with no minute behind it.
     const pressure = sampler();
