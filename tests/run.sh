@@ -77,7 +77,7 @@ if [[ "$what" == all || "$what" == bash ]]; then
     run "no-model-pins guard" bash runtime/github/run-suite.sh policies/test_check_repo_settings_carry_no_model_pins.sh
     run "actions pinned by SHA (this tree)" python3 policies/check_actions_pinned_by_sha.py
     run "attribution (this branch)" env AGENT_FABRIC_ATTRIBUTION_BASE=origin/main bash policies/ban_generated_by_attribution.sh
-    run "decision-record amendments (this branch)" env AGENT_FABRIC_ADR_BASE=origin/main bash policies/check_adr_amendment.sh
+    run "decision-record amendments (this branch)" env AGENT_FABRIC_ADR_BASE=origin/main bin/fabric-adr range-check
     run "leak check (what a run left behind)" bash tests/test_leak-check.sh
     run "status line" bash runtime/claude-code/hooks/test_statusline.sh
     run "language identification (the detector venv)" bash runtime/langid/test_install.sh
