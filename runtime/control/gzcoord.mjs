@@ -167,6 +167,7 @@ export function integrationConfig(project, env = process.env, t = en()) {
 // have been stored) is never said as one that could not connect.
 export function relayFailure(e, relayUrl) {
   if (e?.timedOut) return `the relay at ${relayUrl} did not answer (${String(e.message).split(' -> ').at(-1)})`;
+  if (e?.name === 'TimeoutError') return `the relay at ${relayUrl} did not answer within the caller's bound`;
   if (e?.status) return `the relay refused (HTTP ${e.status})`;
   return `the relay is unreachable at ${relayUrl}`;
 }

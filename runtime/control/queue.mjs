@@ -92,8 +92,10 @@ export function relay(who = whoami(), cfg = controlConfig()) {
   const gz = integrationConfig(who.project);
   const tok = gzToken(inboxRoot(who), gz.configured ? gz : undefined) ?? syncedToken();
   if (!tok) throw new Unreadable('no CLAUDE_BRIDGE_AUTH_TOKEN (fabric-secrets sync)');
-  return { who, cfg, call: (p, init) => api(tok, p, { relayUrl: cfg.relay_url, timeoutMs: QUEUE_CALL_TIMEOUT_MS, ...init }) };
+  return { who, cfg, call: boundCall(tok, cfg) };
 }
+
+export const boundCall = (tok, cfg, call = api) => (p, init) => call(tok, p, { relayUrl: cfg.relay_url, timeoutMs: QUEUE_CALL_TIMEOUT_MS, ...init });
 
 // Who is placed, read here rather than through agentd's accountAddresses,
 // which takes an unreadable registry for nobody: here that would read as

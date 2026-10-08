@@ -326,6 +326,7 @@ test('api sends the bearer token and JSON, a refusal throws with its status, and
 test('relayFailure: no answer, a refusal and no connection are three things', () => {
   assert.equal(relayFailure({ timedOut: true, message: '/api/send -> no answer within 30 s' }, 'http://r'), 'the relay at http://r did not answer (no answer within 30 s)');
   assert.equal(relayFailure({ status: 503 }, 'http://r'), 'the relay refused (HTTP 503)');
+  assert.equal(relayFailure(new DOMException('x', 'TimeoutError'), 'http://r'), "the relay at http://r did not answer within the caller's bound", 'a caller\'s own timeout is no answer too');
   assert.equal(relayFailure(Object.assign(new Error('fetch failed'), { cause: { code: 'ECONNREFUSED' } }), 'http://r'), 'the relay is unreachable at http://r');
 });
 

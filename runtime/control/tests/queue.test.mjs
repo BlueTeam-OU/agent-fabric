@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { scratch } from '../../../tests/scratch.mjs';
-import { waitsFrom, readWaits, askHolder, placedAccounts, Unreadable, unsent, relayError, QUEUE_CALL_TIMEOUT_MS } from '../queue.mjs';
+import { waitsFrom, readWaits, askHolder, placedAccounts, Unreadable, unsent, relayError, QUEUE_CALL_TIMEOUT_MS, boundCall } from '../queue.mjs';
 
 const A = '01a11a18-4728-7d8b-afd9-0edb2d30a59c', B = '01a11a19-0bea-70c7-b667-1e1e5a74dbe1';
 const rec = (from, waits_on, extra = {}) => ({ content: JSON.stringify({ v: 1, kind: 'state', from, ts: '2026-10-08T12:00:00Z', sessions: [], ...(waits_on ? { waits_on } : {}), ...extra }) });
@@ -118,6 +118,10 @@ test('each relay call is bounded under jobs.py\'s kill, so its own words reach t
   const py = fs.readFileSync(new URL('../../../tools/fabric/jobs.py', import.meta.url), 'utf8');
   const outer = Number(py.match(/^QUEUE_TIMEOUT_S = (\d+)$/m)?.[1]);
   assert.ok(outer > 0 && QUEUE_CALL_TIMEOUT_MS <= outer * 1000 / 2, `${QUEUE_CALL_TIMEOUT_MS} ms against ${outer} s`);
+  // And relay()'s calls carry it.
+  const seen = [];
+  boundCall('tok', { relay_url: 'http://r' }, (tok, p, opts) => seen.push(opts))('/api/send', { method: 'POST' });
+  assert.deepEqual(seen, [{ relayUrl: 'http://r', timeoutMs: QUEUE_CALL_TIMEOUT_MS, method: 'POST' }]);
 });
 
 test('relayError: a relay that did not answer is said as that, not as unreachable', () => {
