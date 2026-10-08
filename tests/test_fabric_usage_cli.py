@@ -104,6 +104,10 @@ def main() -> int:
         check("…one one-token call to the messages endpoint, on the pinned probe model",
               "https://api.anthropic.com/v1/messages" in argv.split("\n") and "/api/oauth/usage" not in argv
               and '"max_tokens":1' in argv and '"model":"claude-haiku-4-5-20251001"' in argv, argv)
+        # The fake answers whatever the flags; real curl with -f would turn
+        # a full window's 429 into a failure, so no -f may be among them.
+        check("…without -f: a reply of any status is read",
+              not any(re.fullmatch(r"-[A-Za-z]*f[A-Za-z]*|--fail.*", w) for w in argv.split("\n")), argv)
         check("…its setup-token on curl's stdin as the one header, never in its argv",
               "sk-ant-" not in argv and stdin == "Authorization: Bearer sk-ant-oat01-TEMPLATE\n"
               and "@-" in argv.split("\n"), f"argv: {argv!r}\nstdin: {stdin!r}")
@@ -116,6 +120,11 @@ def main() -> int:
               out == reading and sent()[1] == "Authorization: Bearer sk-ant-oat01-BARE\n", f"{out!r} {sent()[1]!r}")
         put(reply, headers.format(code=429))
         check("a full window's 429 that names its windows is a reading", run() == reading)
+        put(reply, "HTTP/2 200\r\nanthropic-ratelimit-unified-5h-utilization:\r\n"
+                   "anthropic-ratelimit-unified-7d-utilization: abc\r\nanthropic-ratelimit-unified-7d-reset: soon\r\n\r\n")
+        out = run()
+        check("window headers with no number in them are read-failed, as usage.mjs reads them",
+              out == "via-setup-token\tread-failed", f"{out!r}")
         put(reply, "HTTP/2 401\r\ncontent-type: application/json\r\n\r\n")
         out = run()
         check("a reply that names no window is read-failed, never a 0%",

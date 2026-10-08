@@ -44,9 +44,9 @@ the fallback for a host whose daemons are down.
 #     and its token never reaches this one.
 # Changed, and said in j31's delivery and on #114: a named login that no
 # placement has, or that the registry's kinds call a human (ADR-044), is
-# exit 2 naming the registry read (the bash left it out of the table,
-# which then read as an answer); a registry that cannot be read as
-# a placement map is exit 2 (the bash printed an empty table, which its
+# exit 2, the unplaced one naming the registry read (the bash left it
+# out of the table, which then read as an answer); a registry that
+# cannot be read as a placement map is exit 2 (the bash printed an empty table, which its
 # own header promises never to do); jq is no longer needed on this host
 # (the remote read still uses jq and curl, as before); an executor that
 # has not answered within EXECUTOR_TIMEOUT_S is `executor-failed` (the
@@ -90,8 +90,10 @@ STATUSES = ("no-credentials", "read-failed", "unreadable", "executor-failed")
 # one-token inference reply, as runtime/control/ops/usage.mjs reads them
 # (docs/live-checks/2026-10-08-usage-from-inference-headers.md): the
 # fraction as a percentage to a tenth, the epoch reset as UTC minutes. A
-# reply of any status that names a window is a reading (a full window
-# answers 429), which is why curl has no -f. The token is taken from
+# reply of any status with a number in a window header is a reading (a
+# full window answers 429), which is why curl has no -f; a reply with
+# none, the headers absent or not numbers, is read-failed, as usage.mjs
+# reads it. The token is taken from
 # secrets.env as fabric-secrets sync writes it, bare or single-quoted
 # (shlex.quote of a token); secrets.env is never sourced, which would
 # put every secret in the shell. The model is usage.mjs's pinned probe.
@@ -104,8 +106,9 @@ function pct(x) { return x ~ /^[0-9]+(\.[0-9]+)?$/ ? int(x * 1000 + 0.5) / 10 : 
 function at(x,  c, t) { if (x !~ /^[1-9][0-9]*$/) return "-"; c = "date -u -d @" x " +%Y-%m-%dT%H:%M"; t = "-"; c | getline t; close(c); return t }
 { i = index($0, ":"); if (i) { k = tolower(substr($0, 1, i - 1)); v = substr($0, i + 1); gsub(/^[ \t]+|[ \t]+$/, "", v); h[k] = v } }
 END { p = "anthropic-ratelimit-unified-"
-  if (!((p "5h-utilization") in h || (p "5h-reset") in h || (p "7d-utilization") in h || (p "7d-reset") in h)) { printf "via-setup-token\tread-failed\n"; exit }
-  printf "via-setup-token\t-\t%s\t%s\t%s\t%s\n", pct(h[p "5h-utilization"]), at(h[p "5h-reset"]), pct(h[p "7d-utilization"]), at(h[p "7d-reset"]) }'
+  u5 = pct(h[p "5h-utilization"]); r5 = at(h[p "5h-reset"]); u7 = pct(h[p "7d-utilization"]); r7 = at(h[p "7d-reset"])
+  if (u5 r5 u7 r7 == "----") { printf "via-setup-token\tread-failed\n"; exit }
+  printf "via-setup-token\t-\t%s\t%s\t%s\t%s\n", u5, r5, u7, r7 }'
 exit 0
 fi
 f="$HOME/.claude/.credentials.json"
