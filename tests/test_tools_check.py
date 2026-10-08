@@ -63,12 +63,12 @@ def main() -> int:
         rc, out = run("--project", "demo", "--role", "python-dev", "--json")
         doc = json.loads(out)
         check("a required tool missing: exit 1, ok false", rc == 1 and doc["ok"] is False, (rc, doc["ok"]))
-        rc, out = run("--project", "bare")
+        rc, out = run("--project", "bare", "--role", "python-dev")
         check("a project that declares none: exit 0, said", rc == 0 and "declares no tools" in out, (rc, out))
         rc, _ = run("--project", "nosuch")
         check("an unknown project: exit 2", rc == 2)
         REG["projects"]["demo"]["tools"] = [t for t in REG["projects"]["demo"]["tools"] if t["name"] in ("present", "maybe")]
-        rc, _ = run("--project", "demo")
+        rc, _ = run("--project", "demo", "--role", "python-dev")
         check("only an optional tool missing: exit 0", rc == 0, rc)
     finally:
         tc.registry = real

@@ -1825,7 +1825,7 @@ def case_project_tools_are_declared_and_never_retired() -> None:
         write(os.path.join(root, "identities", "roles", "catalog.json"), json.dumps({"roles": [{"id": "flutter-dev"}]}))
         good = {"name": "doppler", "proof": "doppler --version", "why": "w", "where": "host", "optional": True}
 
-        def findings(tools, retired=None):
+        def findings(tools, retired=None, spelling="RETIRED = {!r}\n"):
             write(os.path.join(root, "projects", "registry.json"),
                   json.dumps({"projects": {"p": {"tools": tools}}}))
             script = os.path.join(root, "runtime", "claude-code", "retire-x.py")
@@ -1833,7 +1833,7 @@ def case_project_tools_are_declared_and_never_retired() -> None:
                 if os.path.exists(script):
                     os.remove(script)
             else:
-                write(script, f"RETIRED = {retired!r}\n")
+                write(script, spelling.format(retired))
             return lint.project_tools_findings(root)
         assert findings([good]) == [], findings([good])
         assert findings([{**good, "roles": ["flutter-dev"]}]) == []
@@ -1843,6 +1843,10 @@ def case_project_tools_are_declared_and_never_retired() -> None:
         assert findings([good], (".config/agent-fabric/secrets-source",)) == []
         got = findings([good], (".doppler", ".local/bin/doppler"))
         assert len(got) == 2 and all("a tool a project declares" in f for f in got), got
+        got = findings([good], (".doppler",), "RETIRED: tuple[str, ...] = {!r}\n")
+        assert len(got) == 1 and "a tool a project declares" in got[0], ("an annotated RETIRED is checked too", got)
+        got = findings([good], ".doppler", "BASE = ({!r},)\nRETIRED = BASE + ()\n")
+        assert len(got) == 1 and "not a literal" in got[0], ("a computed RETIRED is refused, never skipped", got)
 
 
 def case_locales_carry_the_same_files() -> None:

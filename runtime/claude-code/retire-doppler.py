@@ -2,10 +2,10 @@
 """runtime/claude-code/retire-doppler.py [--dry-run] — what Doppler left in
 this account, removed: the source file the migration wrote, which nothing
 reads (ADR-038). The Doppler CLI and its config (~/.doppler) stay: a
-project may use them for its own secrets. bootstrap.sh runs it, so the upgrade that brings
-the fabric without Doppler also takes it off each account.
+project may use them for its own secrets (projects/registry.json tools),
+so neither is removed here, and the lint refuses a RETIRED entry naming a
+declared tool. bootstrap.sh runs it on every upgrade.
 
-The binary under /usr/local is the host's, removed there by its operator.
 A token kept in the desktop keyring stays there: ~/.doppler holds only a
 pointer to it. Removing a file here revokes no token at Doppler; closing
 the project does, for all of them. No `doppler logout` here: that is a

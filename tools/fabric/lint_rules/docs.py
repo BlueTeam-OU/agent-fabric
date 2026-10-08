@@ -371,10 +371,14 @@ def project_tools_findings(root: str) -> list[str]:
         except (OSError, SyntaxError):
             continue
         for node in ast.walk(tree):
-            if isinstance(node, ast.Assign) and any(getattr(t, "id", "") == "RETIRED" for t in node.targets):
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target] if isinstance(node, ast.AnnAssign) else []
+            if any(getattr(t, "id", "") == "RETIRED" for t in targets):
                 try:
                     paths = ast.literal_eval(node.value)
                 except ValueError:
+                    # A computed RETIRED cannot be checked, so it is refused,
+                    # never skipped: the check is the reason it is a literal.
+                    out.append(f"{os.path.relpath(script, root)}: RETIRED is not a literal; the lint cannot see what it removes")
                     continue
                 for path in paths:
                     base = os.path.basename(str(path).rstrip("/")).lstrip(".")
