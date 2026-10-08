@@ -260,9 +260,14 @@ def load_config(path: str) -> tuple[re.Pattern, re.Pattern | None, dict[str, re.
 
 # ── readers run as programs: the seams the oracle mocks ──────────────
 
-def program(env: str, verb: str) -> list[str]:
-    """The reader's argv head: the env override, a program of its own, or
-    this checkout's `fabric-pr <verb>` (ADR-040 §5 rule 7)."""
+def program(env: str, default: str) -> list[str]:
+    """A reader that is a program of its own: the env override, else the default path."""
+    return [os.environ.get(env) or default]
+
+
+def fabric_pr(env: str, verb: str) -> list[str]:
+    """A reader that is a `fabric-pr` verb of this checkout (ADR-040 §5
+    rule 7), or the env override, which stays one program."""
     return [os.environ[env]] if os.environ.get(env) else [os.path.join(FABRIC, "bin", "fabric-pr"), verb]
 
 
@@ -524,7 +529,7 @@ def arm(argv: list[str]) -> int:
             waived_by = f"Boundary gate waived by {login} ({mid}): {no_boundary}."
             say(f"boundary gate WAIVED by {login}, {waiver_role} ({mid}): {no_boundary}")
         else:
-            rc, out = run_reader(program("AGENT_FABRIC_PR_REVIEW_STATUS", "review-status"),
+            rc, out = run_reader(fabric_pr("AGENT_FABRIC_PR_REVIEW_STATUS", "review-status"),
                                  [num, "-q", "--json"])
             if rc == 2:
                 raise Unanswered(f"pr-review-status could not answer for #{num} (exit 2)")
@@ -558,7 +563,7 @@ def arm(argv: list[str]) -> int:
             boundary_unwaived = True
 
     # 5. the count rule, from pr-gate's classifier
-    rc, out = run_reader(program("AGENT_FABRIC_PR_GATE", "gate"), ["--json", num])
+    rc, out = run_reader(fabric_pr("AGENT_FABRIC_PR_GATE", "gate"), ["--json", num])
     try:
         row = json.loads(out)[0] if rc == 0 else None
     except (ValueError, IndexError, KeyError, TypeError):

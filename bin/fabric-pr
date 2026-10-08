@@ -30,6 +30,9 @@ case "$verb" in
   *) echo "fabric-pr: unknown verb '$verb'; verbs: ${verbs// /, }" >&2; exit 2 ;;
 esac
 shift
+# readlink and dirname are not builtins: with them missing ROOT collapses
+# to "/", and the failure would be a file not found under it.
+[[ -d "$ROOT/tools/fabric/github" ]] || { echo "fabric-pr: cannot locate the checkout (readlink or dirname missing from PATH?)" >&2; exit 127; }
 # The fleet's pinned Python (runtime/python.json, ADR-040), one per host;
 # AGENT_FABRIC_PYTHON points elsewhere for a test or a host without it.
 py="${AGENT_FABRIC_PYTHON:-/usr/local/bin/fabric-python}"

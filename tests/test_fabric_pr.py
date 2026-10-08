@@ -85,6 +85,12 @@ def main() -> int:
         check("no pinned Python: exit 127 with the install command, even for a verb",
               r.returncode == 127 and "pinned Python is not installed" in r.stderr and "python_pin.py install" in r.stderr
               and r.stdout == "", (r.stdout, r.stderr, r.returncode))
+        for b in ("fabric-pr", "fabric-query"):
+            r = subprocess.run(["/bin/bash", f"{fake}/bin/{b}", "gate"], capture_output=True, text=True, timeout=60,
+                               env={"PATH": "/nonexistent", "AGENT_FABRIC_PYTHON": sys.executable})
+            check(f"{b} without readlink/dirname on PATH: 127 naming the checkout, not a file under /",
+                  r.returncode == 127 and f"{b}: cannot locate the checkout" in r.stderr and "//" not in r.stderr,
+                  (r.stderr, r.returncode))
         r = run([pr, "bogus"], {"AGENT_FABRIC_PYTHON": f"{tmp}/absent"})
         check("an unknown verb is 2 before Python is looked for", r.returncode == 2, r.returncode)
         r = run([pr, "gate"], {"AGENT_FABRIC_ROOT": "/elsewhere"})
@@ -120,12 +126,19 @@ def main() -> int:
     check("pr_gate reads the review with `fabric-pr review-status`",
           pr_gate.review_reader() == [f"{ROOT}/bin/fabric-pr", "review-status"], pr_gate.review_reader())
     check("arm reads the gate with `fabric-pr gate`",
-          arm.program("AGENT_FABRIC_PR_GATE", "gate") == [f"{ROOT}/bin/fabric-pr", "gate"])
+          arm.fabric_pr("AGENT_FABRIC_PR_GATE", "gate") == [f"{ROOT}/bin/fabric-pr", "gate"])
     check("arm reads the review with `fabric-pr review-status`",
-          arm.program("AGENT_FABRIC_PR_REVIEW_STATUS", "review-status") == [f"{ROOT}/bin/fabric-pr", "review-status"])
+          arm.fabric_pr("AGENT_FABRIC_PR_REVIEW_STATUS", "review-status") == [f"{ROOT}/bin/fabric-pr", "review-status"])
+    for name in ("AGENT_FABRIC_CTL", "AGENT_FABRIC_GZCOORD_INBOX"):
+        os.environ.pop(name, None)
+    check("arm's other readers are their own program alone, with no fabric-pr verb in front",
+          arm.program("AGENT_FABRIC_CTL", "/d/fabric-ctl") == ["/d/fabric-ctl"]
+          and arm.program("AGENT_FABRIC_GZCOORD_INBOX", "/d/gzcoord-inbox") == ["/d/gzcoord-inbox"])
+    os.environ["AGENT_FABRIC_CTL"] = "/x/ctl"
+    check("...and an override replaces the default", arm.program("AGENT_FABRIC_CTL", "/d/fabric-ctl") == ["/x/ctl"])
     os.environ["AGENT_FABRIC_PR_GATE"] = os.environ["AGENT_FABRIC_PR_REVIEW_STATUS"] = "/x/mock"
     check("an override is one program, as before",
-          pr_gate.review_reader() == ["/x/mock"] and arm.program("AGENT_FABRIC_PR_GATE", "gate") == ["/x/mock"])
+          pr_gate.review_reader() == ["/x/mock"] and arm.fabric_pr("AGENT_FABRIC_PR_GATE", "gate") == ["/x/mock"])
 
     with tempfile.TemporaryDirectory(prefix="test_fabric_pr.reader.") as tmp:
         reader = f"{tmp}/fabric-pr"
