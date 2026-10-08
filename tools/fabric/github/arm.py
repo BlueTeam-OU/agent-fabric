@@ -29,11 +29,12 @@ nothing wrote a false record.
             (none for a PR that merged on the arming)
   stderr    `arm: REFUSED #N — <why>` on a refusal; `arm: <why>` when a
             question could not be answered, or on a usage error
-  exit      0 armed, queued, or merged on the arming (or, with
-            --dry-run, would arm); 1 refused — the
+  exit      0 read back armed, queued or merged, each on the head the
+            gates read (or, with --dry-run, would arm); 1 refused — the
             reason is the last line; 2 gh / pr-gate / pr-review-status /
             the project's arm.json / the relay / fabric-ctl could not
-            answer, or usage
+            answer, the read-back is idle, closed or on another head,
+            or usage
 
 THE WAIVER:
 the security-boundary gate is waived only on a message from the holder
