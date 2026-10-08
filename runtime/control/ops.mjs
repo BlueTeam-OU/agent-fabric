@@ -32,14 +32,15 @@ export { scriptCounts, langidCmd, languages, recallKind, recall, notesDir, scrip
 export { MEMORY_PART_BYTES, memorySlug, memoryDirs, memory } from './ops/memory.mjs';
 
 
-export const OPS = ['ping', 'identity', 'usage', 'keys', 'fabric', 'session', 'script', 'recall', 'tokens', 'memory', 'host', 'disk', 'accounts', 'upgrade', 'secrets-sync', 'status', 'presence', 'jobs', 'jobs-add', 'local', 'local-prune', 'secrets-selftest'];
+export const OPS = ['ping', 'identity', 'usage', 'keys', 'fabric', 'session', 'script', 'recall', 'tokens', 'memory', 'host', 'disk', 'accounts', 'upgrade', 'secrets-sync', 'status', 'presence', 'jobs', 'jobs-add', 'local', 'local-prune', 'secrets-selftest', 'pool-add', 'pool-list', 'pool-claim'];
 
 // Answered for any placed account, not only an operator: whether a session
 // is running is what every sender needs before it writes to one, and it
 // names nothing a relay reader could not already infer (the owner,
 // 2026-09-25: presence moves from HELLO/GOODBYE, now retired, to the
-// control plane).
-export const PUBLIC_OPS = ['presence'];
+// control plane). And a role's pool (pool.mjs, ADR-037 rule 9): every
+// placed agent lists its role's pool and claims from it, for itself.
+export const PUBLIC_OPS = ['presence', 'pool-list', 'pool-claim'];
 
 
 // Everything, for `status`; the sections a request names, otherwise.

@@ -88,10 +88,10 @@ test('fabric-ctl: jobs-add names one login, and its title is the word after it',
   assert.deepEqual([a.op, a.title, a.topic, a.targets], ['jobs-add', 'fix it', 'drain', ['backend-dev-01']]);
   assert.throws(() => parseArgs(['all', 'jobs-add', 'fix it']), /names one login/);
   assert.throws(() => parseArgs(['backend-dev-01', 'jobs-add']), /title is one line/);
-  assert.throws(() => parseArgs(['backend-dev-01', 'status', '--topic', 'x']), /jobs-add only/);
+  assert.throws(() => parseArgs(['backend-dev-01', 'status', '--topic', 'x']), /jobs-add and pool-add only/);
   assert.equal(parseArgs(['backend-dev-01', 'jobs-add', 'fix it', '--priority', 'blocking']).priority, 'blocking');
   assert.throws(() => parseArgs(['backend-dev-01', 'jobs-add', 'fix it', '--priority', 'urgent']), /priority is one of/);
-  assert.throws(() => parseArgs(['backend-dev-01', 'status', '--priority', 'high']), /jobs-add only/);
+  assert.throws(() => parseArgs(['backend-dev-01', 'status', '--priority', 'high']), /jobs-add and pool-add only/);
 });
 
 test('fabric-ctl: the jobs table, one row per job, the account named once', () => {
