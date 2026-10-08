@@ -45,12 +45,15 @@ HARNESS_PLACEHOLDER = "{memory_dir}"
 def adr_findings(root: str | None = None) -> list[str]:
     """docs/adr/: tools/fabric/adr.py's check, as lint findings (agent-fabric
     ADR-001). Absent in a fixture fabric that has no records, which is fine."""
-    root = root or layout.FABRIC_ROOT
-    if not os.path.isdir(os.path.join(root, "docs", "adr")):
-        return []
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     import adr  # noqa: E402 — a sibling module, loaded only when there are records
-    return [f"adr: {f}" for f in adr.check(root)]
+    import roots  # noqa: E402
+    # The records are instance data (ADR-045 rule 2): the operator's tree
+    # when one is exported, else the fabric this lint was handed.
+    tree = roots.operator_root(engine=root or layout.FABRIC_ROOT)
+    if not os.path.isdir(roots.adr_dir(root=tree)):
+        return []
+    return [f"adr: {f}" for f in adr.check(tree)]
 
 
 # A path to one of the fabric's own documents, cited from any tracked text
