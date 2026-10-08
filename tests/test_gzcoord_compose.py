@@ -64,8 +64,14 @@ def main() -> int:
             json.dump({"role": "python-dev", "project": "agent-fabric"}, fh)
         link = os.path.join(bindir, "gzcoord-compose")
         os.symlink(BIN, link)
+        # The operator's tree is a fixture (ADR-045 §5 rule 3): a catalogue of
+        # the one role the cases name, never the live one.
+        operator = os.path.join(sandbox, "operator")
+        os.makedirs(os.path.join(operator, "identities", "roles"))
+        with open(os.path.join(operator, "identities", "roles", "catalog.json"), "w", encoding="utf-8") as fh:
+            json.dump({"roles": [{"id": "python-dev", "title": "Python developer"}]}, fh)
         env = {"PATH": "/usr/bin:/bin", "HOME": home, "LANG": "C.UTF-8", "GIT_CONFIG_NOSYSTEM": "1",
-               "AGENT_FABRIC_ROOT": ROOT, "AGENT_FABRIC_STATE_DIR": state,
+               "AGENT_FABRIC_ROOT": ROOT, "AGENT_FABRIC_OPERATOR": operator, "AGENT_FABRIC_STATE_DIR": state,
                "AGENT_FABRIC_PYTHON": sys.executable}
 
         def git(*a: str) -> None:
@@ -256,7 +262,8 @@ def main() -> int:
         with open(os.path.join(bare_state, "agents", ME, "binding.json"), "w", encoding="utf-8") as fh:
             json.dump({"project": "agent-fabric"}, fh)
         rc, out, err = compose("INFO", "--broadcast", "--subject", "s",
-                               run_env={**env, "AGENT_FABRIC_ROOT": bare, "AGENT_FABRIC_STATE_DIR": bare_state})
+                               run_env={**env, "AGENT_FABRIC_ROOT": bare, "AGENT_FABRIC_OPERATOR": bare,
+                                        "AGENT_FABRIC_STATE_DIR": bare_state})
         check("exit 2, the validator's missing-ROLE reason, nothing on stdout",
               rc == 2 and EN("validate.missing", {"key": "ROLE"}) in err and out == "", f"rc={rc}\n{out}{err}")
 

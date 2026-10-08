@@ -27,7 +27,10 @@ from gzcoord import gzmsg, inbox, send  # noqa: E402
 from gzcoord import jsvalues  # noqa: E402
 
 GZCOORD = os.path.join(HERE, "communication", "gzcoord")
-CATALOG = os.path.join(HERE, "identities", "roles", "catalog.json")
+# The operator's instance data is a fixture tree (ADR-045 §5 rule 3), never
+# this checkout's live catalogue or integration.
+FIXTURE_OPERATOR = os.path.join(HERE, "tests", "fixtures", "gzcoord-operator")
+CATALOG = os.path.join(FIXTURE_OPERATOR, "identities", "roles", "catalog.json")
 taxonomy = gzmsg.load_taxonomy(CATALOG)
 validate, parse = gzmsg.validate, gzmsg.parse
 
@@ -35,15 +38,15 @@ CASES: list[tuple[str, Callable[[], None]]] = []
 # Every scratch directory a case makes, removed when the run ends.
 SCRATCH: list[str] = []
 
-# The protocol is held against the organization's own catalogue and the gzapp
-# integration, which are instance data (ADR-045): the cases read them from an
-# operator tree of their own, a copy of this checkout's, so the result is the
-# same whatever AGENT_FABRIC_OPERATOR the run was started with.
+# The protocol is held against a catalogue and the gzapp integration, which
+# are instance data (ADR-045): the cases read them from an operator tree of
+# their own, a copy of the fixture's, so the result is the same whatever
+# AGENT_FABRIC_OPERATOR the run was started with.
 OPERATOR = tempfile.mkdtemp(prefix="gzcoord-operator-")
 SCRATCH.append(OPERATOR)
 for _rel in ("identities/roles/catalog.json", "projects/gzapp/integration/gzcoord/config.json"):
     os.makedirs(os.path.dirname(os.path.join(OPERATOR, _rel)), exist_ok=True)
-    shutil.copy(os.path.join(HERE, _rel), os.path.join(OPERATOR, _rel))
+    shutil.copy(os.path.join(FIXTURE_OPERATOR, _rel), os.path.join(OPERATOR, _rel))
 os.environ["AGENT_FABRIC_OPERATOR"] = OPERATOR
 
 
