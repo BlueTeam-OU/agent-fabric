@@ -225,6 +225,12 @@ def main() -> int:
         check("a package.json that does not parse, with the pnpm hop on, is exit 2, named",
               rc == 2 and out == "" and err.startswith(f"check_guards_are_wired: could not read package scripts: {root}/apps/p/"
                                                        "package.json: "), out + err)
+        with open(os.path.join(root, "apps", "p", "package.json"), "w") as fh:
+            fh.write("[]")
+        rc, out, err = run(root)
+        check("…and one that parses but is no object, likewise, never a traceback",
+              (rc, out, err) == (2, "", f"check_guards_are_wired: could not read package scripts: {root}/apps/p/package.json:"
+                                        " not a JSON object\n"), out + err)
         rc, out, err = run(tree(GUARD, WIRED + "      - run: ls tools/[z-a]* tools/checks/[\\]x\n"))
         check("a bracket no shell could expand wires nothing and raises nothing", rc == 0 and "Traceback" not in err,
               out + err)

@@ -250,6 +250,8 @@ def package_commands(root: str, workflows: str, excludes: set[str]) -> list[str]
                 doc = json.load(fh)
         except (OSError, ValueError) as e:
             raise Refused(f"could not read package scripts: {path}: {_why(e)}") from None
+        if not isinstance(doc, dict):
+            raise Refused(f"could not read package scripts: {path}: not a JSON object")
         name, scripts = doc.get("name"), doc.get("scripts")
         if isinstance(name, str) and isinstance(scripts, dict):
             by_name[name] = (os.path.relpath(dirpath, root), scripts)
