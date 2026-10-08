@@ -23,6 +23,7 @@
 //             — the holder's answer as pool.mjs gives it; a refusal is an answer
 //     exit    0 answered; 2 usage; 3 no token, the relay unreachable or
 //             refusing, or no answer within FABRIC_QUEUE_WAIT_MS (10 s) —
+//             "sent": true when the request was posted before that, since
 //             a claim unanswered may still have landed at the holder, and a
 //             second claim by the same account gets it again; 4 no account
 //             holds the pool, or this login has no bound role to list
@@ -107,7 +108,9 @@ export async function askHolder({ call, cfg, from, holder, op, args, waitMs = QU
   const deadline = Date.now() + waitMs;
   let since = sent.id;
   while (Date.now() < deadline) {
-    const page = await call(`/api/messages?${new URLSearchParams({ channel: cfg.channel, since_id: since, limit: '500', full: '1' })}`);
+    let page;
+    try { page = await call(`/api/messages?${new URLSearchParams({ channel: cfg.channel, since_id: since, limit: '500', full: '1' })}`); }
+    catch (e) { e.sent = true; throw e; }
     for (const rec of page?.messages ?? []) {
       since = rec.id;
       let r; try { r = JSON.parse(rec.content); } catch { continue; }
@@ -138,8 +141,8 @@ export async function cli(argv = process.argv.slice(2), out = s => console.log(s
   if (cmd === 'pool-list' && !(typeof role === 'string' && ROLE_SLUG.test(role))) { out(JSON.stringify({ error: 'this login has no bound role: name the role whose pool to list' })); return 4; }
   let answer;
   try { answer = await askHolder({ call: r.call, cfg, from: me.address, holder, op: cmd, args: cmd === 'pool-list' ? { role } : { id: arg } }); }
-  catch (e) { out(JSON.stringify({ error: relayError(e, cfg), holder })); return 3; }
-  if (!answer) { out(JSON.stringify({ error: `${holder} did not answer within ${QUEUE_WAIT_MS / 1000} s`, holder })); return 3; }
+  catch (e) { out(JSON.stringify({ error: relayError(e, cfg), holder, ...(e?.sent ? { sent: true } : {}) })); return 3; }
+  if (!answer) { out(JSON.stringify({ error: `${holder} did not answer within ${QUEUE_WAIT_MS / 1000} s`, holder, sent: true })); return 3; }
   out(JSON.stringify({ holder, answer }));
   return 0;
 }

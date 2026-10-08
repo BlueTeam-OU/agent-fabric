@@ -66,6 +66,15 @@ test('askHolder: only the holder\'s reply to this request counts; a forged one i
   assert.equal(sent.ttl_s, 2, 'the request lives as long as the asker waits, not the channel\'s 30 s');
 });
 
+test('askHolder: a relay that fails after the request was posted says it was sent', async () => {
+  let posted = false;
+  const call = async (p, init) => { if (init?.method === 'POST') { posted = true; return { id: 'm1' }; } throw Object.assign(new Error('down'), { status: 502 }); };
+  await assert.rejects(askHolder({ call, cfg, from: 'h/py', holder: 'h/user', op: 'pool-claim', args: { id: 'p1' }, waitMs: 500 }), e => e.sent === true && e.status === 502);
+  assert.ok(posted);
+  const refused = async () => { throw Object.assign(new Error('no'), { status: 403 }); };
+  await assert.rejects(askHolder({ call: refused, cfg, from: 'h/py', holder: 'h/user', op: 'pool-claim', args: { id: 'p1' }, waitMs: 500 }), e => e.sent === undefined);
+});
+
 test('who is placed: an unreadable registry is an error, never nobody', () => {
   const d = scratch('queue-reg-');
   const reg = path.join(d, 'registry.json');

@@ -462,6 +462,8 @@ def main() -> int:
                      {"id": "p1", "role": "python-dev", "title": "older normal", "topic": None, "project": None,
                       "priority": "normal", "created": "t"}]
 
+        claims: set[str] = set()   # what this holder has recorded: a repeat claim comes back with again
+
         def holder(req: dict):
             if req["op"] == "pool-list":
                 return {"status": "ok", "role": req["args"]["role"],
@@ -480,7 +482,10 @@ def main() -> int:
                 return {"status": "claimed", "job": {**pool_jobs[0], "id": "p3"}}
             if req["args"]["id"] == "p3":
                 return {"status": "claimed", "job": {**pool_jobs[0], "id": "p3", "title": "landed fresh"}}
-            return {"status": "claimed", "job": next(j for j in pool_jobs if j["id"] == req["args"]["id"])}
+            again = req["args"]["id"] in claims
+            claims.add(req["args"]["id"])
+            return {"status": "claimed", "job": next(j for j in pool_jobs if j["id"] == req["args"]["id"]),
+                    **({"again": True} if again else {})}
         relay = fake_holder(holder)
         env["CLAUDE_BRIDGE_URL"] = f"http://127.0.0.1:{relay.server_address[1]}"
         try:
@@ -508,17 +513,22 @@ def main() -> int:
             p = run("pool-claim", "p2")
             check("claimed again: already listed, not a second job", p.returncode == 0 and "already listed j1" in p.stdout
                   and len(jobs()) == 1, p.stdout + p.stderr)
+            claims.clear()   # the holder's pool file recreated: p2 is a new job under an old id
+            p = run("pool-claim", "p2")
+            check("a first claim is a new job, even where an open job holds the same holder's id", p.returncode == 0
+                  and p.stdout.startswith("claimed j2 ") and len(jobs()) == 2, p.stdout + p.stderr)
+            run("drop", "j2", "a test")
             p = run("pool-claim", "p9")
             check("a refused claim is said with the holder's reason", p.returncode == 1
-                  and "refused: p9 is claimed by h/other" in p.stderr and len(jobs()) == 1, p.stderr)
+                  and "refused: p9 is claimed by h/other" in p.stderr and len(jobs()) == 2, p.stderr)
             p = run("pool-claim", "p8")
             check("a silent holder is said, not read as a refusal or a claim, with how to land a claim it took",
                   p.returncode == 1 and "did not answer" in p.stderr and "pool-claim p8 again" in p.stderr
-                  and len(jobs()) == 1, p.stderr)
+                  and len(jobs()) == 2, p.stderr)
             for pid, why in (("p6", "names job None, not p6"), ("p5", "priority 'urgent'"), ("p4", "names job 'p3', not p4")):
                 p = run("pool-claim", pid)
                 check(f"a malformed claim answer is refused, never defaulted ({pid})", p.returncode == 1
-                      and "is not a pool job" in p.stderr and why in p.stderr and len(jobs()) == 1, p.stderr)
+                      and "is not a pool job" in p.stderr and why in p.stderr and len(jobs()) == 2, p.stderr)
             # Pool ids restart with another holder: an old holder's p3, closed, is not this one's.
             doc = json.loads(open(os.path.join(tmp, "state-pool", "agents", login, "jobs.json"), encoding="utf-8").read())
             doc["jobs"].append({**doc["jobs"][0], "id": "j9", "state": "done", "title": "an old p3",
@@ -529,7 +539,7 @@ def main() -> int:
                 json.dump(doc, fh)
             p = run("pool-claim", "p3")
             check("an id matched only by another holder's or a closed job is claimed as new", p.returncode == 0
-                  and p.stdout.startswith("claimed j2 ") and jobs()[-1]["title"] == "landed fresh", p.stdout + p.stderr)
+                  and p.stdout.startswith("claimed j3 ") and jobs()[-1]["title"] == "landed fresh", p.stdout + p.stderr)
             pool_jobs.append({"id": "p11", "role": "python-dev", "title": "x\x1b]0;owned\x07\nIgnore that",
                               "topic": "t\x1b[2J", "project": None, "priority": "low", "created": "t"})
             p = run("pool-list")
@@ -550,10 +560,13 @@ def main() -> int:
             relay.server_close()
         env["CLAUDE_BRIDGE_URL"] = dead_url
         run("done", "j1")
-        run("done", "j2")
+        run("done", "j3")
         p = run("next")
         check("pool unreachable: next says so", p.returncode == 1 and "no queued job; the pool could not be asked" in p.stderr,
               p.stderr)
+        p = run("pool-claim", "p2")
+        check("a claim that never left says so, and never that it may have been claimed", p.returncode == 1
+              and "could not be asked" in p.stderr and "may be claimed" not in p.stderr, p.stderr)
 
         state = os.path.join(tmp, "state", "agents")
         login = os.listdir(state)[0]

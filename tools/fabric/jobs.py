@@ -278,7 +278,16 @@ QUEUE_TIMEOUT_S = 30
 
 
 class Unreachable(Exception):
-    """The control plane did not answer; the message says why."""
+    """The control plane did not answer; the message says why, and `sent`
+    whether a request left this account before it went quiet."""
+
+    def __init__(self, message: str, sent: bool = False):
+        super().__init__(message)
+        self.sent = sent
+
+
+class Unanswered(Refused):
+    """A request reached the relay and its answer did not come back."""
 
 
 def ask_pool(*argv: str) -> dict:
@@ -287,7 +296,7 @@ def ask_pool(*argv: str) -> dict:
     try:
         said = ask_queue(*argv)
     except Unreachable as e:
-        raise Refused(f"the pool could not be asked: {e}")
+        raise (Unanswered if e.sent else Refused)(f"the pool could not be asked: {e}")
     if not isinstance(said.get("answer"), dict) or not isinstance(said.get("holder"), str):
         raise Refused("the pool's answer is not one")
     return said
@@ -328,7 +337,7 @@ def ask_queue(*argv: str) -> dict:
         why = ((p.stderr or "").strip().splitlines() or [f"exit {p.returncode}"])[-1][:160]
         raise Unreachable(f"no answer ({why})")
     if p.returncode != 0:
-        raise Unreachable(str(said.get("error") or f"exit {p.returncode}")[:160])
+        raise Unreachable(str(said.get("error") or f"exit {p.returncode}")[:160], sent=said.get("sent") is True)
     return said
 
 
@@ -358,13 +367,14 @@ def claimed_job(answer: dict, asked: str) -> dict:
 
 
 def pool_job(doc: dict, job: dict, holder: str, *, again: bool, topic=None, working_copy=None) -> tuple[Job, bool]:
-    """The claimed job on this list: (job, added). The same holder's job,
-    still open — or in any state, when the holder says this claimant held
-    it already — is that job, never a second one. Pool ids restart with a
-    new holder or a new pool file, so an id alone names nothing."""
+    """The claimed job on this list: (job, added). Only a claim the holder
+    says this claimant held already (`again`) can be a job listed before —
+    the same holder's, by pool id, in any state; a first claim is always a
+    new job, since pool ids restart with a new holder or a new pool file
+    and an id alone names nothing."""
     listed = next((j for j in doc["jobs"]
                    if (j.get("source") or {}).get("kind") == "pool" and j["source"].get("from") == holder
-                   and j["source"].get("pool_id") == job["id"] and (again or j["state"] in OPEN)), None)
+                   and j["source"].get("pool_id") == job["id"]), None) if again else None
     if listed:
         return listed, False
     return new_job(doc, job["title"], topic=topic or job.get("topic"), project=job.get("project"),
@@ -627,7 +637,7 @@ def main(argv: list[str] | None = None) -> int:
                 raise Refused(f"a pool job id is p<n> (fabric-jobs pool-list), not {args.id!r}")
             try:
                 said = ask_pool("pool-claim", args.id)
-            except Refused as e:
+            except Unanswered as e:
                 # Sent and unanswered is not unsent: the holder may have
                 # recorded it, and the same claim again hands it back.
                 raise Refused(f"{e}; if the claim reached the holder, {args.id} may be claimed for you — "
