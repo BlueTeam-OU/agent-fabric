@@ -13,7 +13,8 @@ This note is the contract for:
 | signal | source | what it says |
 |---|---|---|
 | **pane** | herdr: the tab and its panes; a pane that is gone was closed by a person or its shell ended (herdr keeps neither the exit code nor the pane) | whether the harness pane exists |
-| **foreground** | herdr `pane process-info`: the pane's foreground processes and their argv | moveto running in the pane, the harness running under it, or the operator's bare shell (moveto ended, with whatever code) |
+| **foreground** | herdr `pane process-info`: the pane's foreground processes and their argv | moveto running in the pane (its outer `sudo`), or the operator's bare shell (moveto ended, with whatever code) |
+| **harness here** | the descendants of the pane's foreground `sudo`, walked through `/proc/<pid>/stat` parent links (readable across logins on this host) | whether a harness (`launch.py` or `claude`) runs under this pane's moveto. Not the pane's foreground: sudo runs the account in a pty of its own (`use_pty`), so the harness is never in the pane's foreground group |
 | **mode** | the foreground's argv: moveto hands off to `sudo … enter <dir> <title> [--wait|--resume|--watch]`, so the mode is its last argument; the deck reads it there, never from the screen, and so recovers it after its own restart | what the pane was asked to do |
 | **live** | the state stream, the account's newest record: `sessions[]` | how many sessions are alive on the account, wherever they run, each `working`, `idle` or `blocked` |
 | **record age** | the same record's `ts` | fresh (within two heartbeats, 20 min) or stale |
@@ -55,7 +56,7 @@ This note is the contract for:
 | from | event | to | the deck does |
 |---|---|---|---|
 | `ABSENT` | `restore` | see **The restore decision** | create the tab: harness, shell and status panes |
-| `DORMANT` | `session-up` | `RUNNING` when the pane's foreground processes include the harness (the launcher or `claude`), else `ELSEWHERE` | report it; on `ELSEWHERE`, re-arm the pane as a plain shell, so its Enter cannot start a second session. The deck cannot see Enter, but it sees what Enter started: the harness runs in the pane's terminal, in its foreground. Whether `process-info` lists another account's processes is to be read back live before the deck relies on it; until then the deck reports `ELSEWHERE` |
+| `DORMANT` | `session-up` | `RUNNING` when **harness here**, else `ELSEWHERE` | report it; on `ELSEWHERE`, re-arm the pane as a plain shell, so its Enter cannot start a second session. The deck cannot see Enter, but it sees what Enter started, among the processes under this pane's moveto |
 | `DORMANT` | `moveto-ended` before any `session-up` | `FAILED` | re-arm `--wait`; show failed |
 | `STARTING` | `session-up` | `RUNNING` | report the state to the panel |
 | `STARTING` | `timeout`, or `moveto-ended` | `FAILED` | re-arm `--wait`; show failed; never start another session by itself |
