@@ -65,6 +65,20 @@ const withFixture = (state, fn) => {
 };
 const bound = (role) => JSON.stringify({ agent: login, host: 'h', role, updated_at: 'x' });
 
+// The fake interpreter answers, but only after 3 s: with the bound,
+// whoami() has given up and taken the marked fallback; without it, the
+// late answer comes back as the identity. One process, so the kill at
+// the bound leaves nothing running.
+test('whoami: a hung identity.py takes the marked fallback within the bound', () => {
+  const bin = scratch('whoami-bin-');
+  fs.writeFileSync(path.join(bin, 'python3'), '#!/usr/bin/env node\nsetTimeout(() => console.log(JSON.stringify({ agent: "late" })), 3000);\n', { mode: 0o755 });
+  const saved = process.env.PATH; process.env.PATH = `${bin}:${saved}`;
+  try {
+    const me = whoami({ timeoutMs: 300 });
+    assert.equal(me.fallback, true); assert.equal(me.agent, os.userInfo().username);
+  } finally { process.env.PATH = saved; }
+});
+
 test('whoami: the agent is the effective login, never the directory', () => {
   const me = whoami();
   assert.equal(me.agent, login);
