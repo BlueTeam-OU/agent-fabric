@@ -33,6 +33,13 @@ if mode == "nochecks":
     sys.stderr.write("no required checks reported on the 'dev/it's-a/branch' branch\n"); sys.exit(1)
 if mode == "nochecks-on-stdout":
     print("no required checks reported on the 'x' branch"); sys.exit(1)
+if mode == "nochecks-after-502":
+    sys.stderr.write("gh: Bad Gateway (HTTP 502)\nno required checks reported on the 'x' branch\n"); sys.exit(1)
+if mode == "nochecks-beside-json":
+    print(json.dumps([{"name": "ci", "bucket": "fail"}]))
+    sys.stderr.write("no required checks reported on the 'x' branch\n"); sys.exit(1)
+if mode == "nochecks-exit-8":
+    sys.stderr.write("no required checks reported on the 'x' branch\n"); sys.exit(8)
 if mode == "failing":
     print(json.dumps([{"name": "ci", "bucket": "fail"}])); sys.exit(1)
 if mode == "hang":
@@ -138,8 +145,11 @@ def main() -> int:
                 check("a 502 is transient: a retry could help", e.status == 502 and e.transient, (e.status, e.transient))
             # gh pr checks says "there are none" as its only stderr line,
             # exit 1, nothing on stdout (measured on gh 2.87.3, 2026-10-09).
+            # The whole answer, not its last line: anything else beside it
+            # is not "none" (review of #129).
             for mode, want in (("nochecks", True), ("nochecks-on-stdout", False), ("failing", False),
-                               ("502", False)):
+                               ("502", False), ("nochecks-after-502", False), ("nochecks-beside-json", False),
+                               ("nochecks-exit-8", False)):
                 os.environ["FAKE_GH_MODE"] = mode
                 try:
                     gh.run(["pr", "checks", "7", "--required", "--json", "name,bucket", "--repo", "o/r"])

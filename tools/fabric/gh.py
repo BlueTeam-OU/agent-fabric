@@ -53,13 +53,14 @@ class GhError(Exception):
     (`transient`: a read may be retried, a write may have landed). `stdout`
     is what gh printed before it failed: `gh pr checks` exits 8 while a
     check is pending and 1 while one fails, and prints its table either
-    way."""
+    way. `stderr` and `code` are gh's whole stderr and exit status, when gh
+    ran and exited."""
 
     def __init__(self, what: str, reason: str, status: int | None = None, transient: bool = False,
-                 stdout: str = ""):
+                 stdout: str = "", stderr: str = "", code: int | None = None):
         super().__init__(f"{what}: {reason}")
         self.what, self.reason, self.status, self.transient = what, reason, status, transient
-        self.stdout = stdout
+        self.stdout, self.stderr, self.code = stdout, stderr, code
 
 
 # `gh pr checks` with nothing to list prints no table and no JSON — not
@@ -69,14 +70,18 @@ class GhError(Exception):
 # checks exist but none is required, "no checks reported on the '<head>'
 # branch" when the head has none at all, --required or not. Read as an
 # unreadable lookup, it made wait-merged give up on a PR that merged
-# minutes later (#128).
+# minutes later (#128). The WHOLE answer is matched — exit 1, stdout
+# empty, that line and nothing else on stderr — because a false match
+# turns an unknown into "none": a failing check's JSON dropped, an HTTP
+# error read as an empty list (review of #129). So GH_DEBUG's extra lines
+# read as unreadable, the loud direction.
 _NO_CHECKS = re.compile(r"no (?:required )?checks reported on the '.*' branch")
 
 
 def no_checks_reported(e: GhError) -> bool:
     """Whether a failed `gh pr checks` was gh's answer "there are none":
     zero checks, a known answer, never an unknown one."""
-    return bool(_NO_CHECKS.fullmatch(e.reason))
+    return e.code == 1 and not e.stdout.strip() and bool(_NO_CHECKS.fullmatch(e.stderr.strip()))
 
 
 # origin's URL on github.com: scp-like or with a scheme, `.git` optional.
@@ -179,7 +184,7 @@ def run(args: list[str], *, input: str | None = None, timeout: float = TIMEOUT_S
         low = r.stderr.lower()
         transient = status is not None and (status >= 500 or status == 429) \
             or "rate limit" in low or any(t in low for t in NETWORK_FAILURES)
-        raise GhError(what, lines[-1], status, transient, r.stdout)
+        raise GhError(what, lines[-1], status, transient, r.stdout, r.stderr, r.returncode)
     return r.stdout
 
 
