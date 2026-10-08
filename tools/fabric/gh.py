@@ -68,7 +68,9 @@ _ORIGIN = re.compile(r"^(?:[^@/:\s]+@github\.com:|(?:https|ssh|git)://(?:[^@/\s]
 _REPO = re.compile(r"^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$")
 # What gh takes after --repo/-R: [HOST/]OWNER/REPO (a GitHub Enterprise
 # host included); naming the host names the repository too (#111 review).
-_SELECTOR = re.compile(r"^([A-Za-z0-9.-]+\.[A-Za-z]{2,}/)?[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$")
+# gh reads the first of three parts as the host whatever it is, so a
+# dotless one (an internal name, localhost:8080) names it as well (#114).
+_SELECTOR = re.compile(r"^([A-Za-z0-9.-]+(:[0-9]+)?/)?[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$")
 _ITEM_URL = re.compile(r"^https://github\.com/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+/(pull|issues)/\d+/?$")
 
 
@@ -102,6 +104,20 @@ _REPO_SCOPED = {"pr", "repo", "issue", "run", "workflow", "release", "secret", "
                 "ruleset", "browse", "attestation"}
 
 
+def _a_value(args: list[str], i: int) -> bool:
+    """Whether args[i] may be the value of the option before it, as gh's
+    flag parser takes the next word for any flag that is not a boolean
+    and has no `=`: `--body -Ro/r` is a body, not a selector (#114). gh's
+    booleans are not listed here, so a selector right after one (`--web
+    -R o/r`) reads as unnamed too: refused only where GH_REPO cannot be
+    pinned, and named by putting it first or by GH_REPO."""
+    if i == 0:
+        return False
+    before = args[i - 1]
+    return before.startswith("-") and before not in ("-", "--") and "=" not in before \
+        and not (before.startswith("-R") and len(before) > 2)
+
+
 def _scoped(args: list[str]) -> bool:
     """Whether gh would pick a repository for this call itself: a scoped
     subcommand without --repo/-R, or an api path naming {owner}/{repo}."""
@@ -111,13 +127,15 @@ def _scoped(args: list[str]) -> bool:
     # "-R…" inside a flag's value (a body, a title) names nothing (review
     # of the carried-109 branch, F1).
     for i, a in enumerate(args):
+        if _a_value(args, i):
+            continue
         value = (args[i + 1] if i + 1 < len(args) else "") if a in ("--repo", "-R") \
             else a[len("--repo="):] if a.startswith("--repo=") else a[2:] if a.startswith("-R") else None
         if value is not None and _SELECTOR.match(value):
             return False
     if args[:1] == ["api"]:
         return any("{owner}" in a or "{repo}" in a for a in args[1:])
-    if args[:1] == ["repo"] and len(args) > 2 and _REPO.match(args[2]):
+    if args[:1] == ["repo"] and len(args) > 2 and not _a_value(args, 2) and _SELECTOR.match(args[2]):
         return False
     if args[:1] in (["pr"], ["issue"]) and len(args) > 2 and _ITEM_URL.match(args[2]):
         return False
