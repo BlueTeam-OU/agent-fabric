@@ -145,7 +145,7 @@ FINGERPRINT = re.compile(r"[0-9a-f]{12}")
 USAGE = ("usage: new-agent.sh <login> <role> (--claude-account <slug> | --no-claude-account) [--host <id>] "
          "[--project <id>]... [--claude VERSION|stable|latest] [--no-signing-key] [--dry-run]\n"
          "       new-agent.sh <login> --human [--host <id>] [--dry-run]\n")
-NO_ACCOUNT_CHOICE = ("new-agent: name the Claude account it starts on: --claude-account <slug> (bin/fabric-accounts "
+NO_ACCOUNT_CHOICE = ("new-agent: name the Claude account it starts on: --claude-account <slug> (fabric-accounts "
                      "templates), or --no-claude-account for the broker path only")
 HELP = """\
 runtime/provisioning/new-agent.sh — give a role its own account on this

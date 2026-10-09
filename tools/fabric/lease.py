@@ -496,7 +496,7 @@ def run(argv: list[str]) -> int:
     # action it is rather than a command the caller cannot run.
     if not os.path.isdir(leases):
         refuse(2, "nodir", f"no lease directory at {leases} — it is made at boot by the fabric's "
-               "provisioning; ask the host's operator (fabric-coordinator) to run bin/fabric-host <host> persist")
+               "provisioning; ask the host's operator (fabric-coordinator) to run fabric-host <host> persist")
     path = os.path.join(leases, a.name)
     # 0666 so a later holder, another login, can record itself; a file that
     # exists with tighter modes (made by hand) still locks, and the record is

@@ -180,7 +180,7 @@ def claude_sign_in(sign_env, sign_file, environ=None):
     environ = os.environ if environ is None else environ
     tok, source = (sign_env, "CLAUDE_CODE_OAUTH_TOKEN in this session") if sign_env else (sign_file, "the login's synced record")
     if tok:
-        return f"setup-token {fp12(tok)} ({source}; bin/fabric-accounts templates names its account)"
+        return f"setup-token {fp12(tok)} ({source}; fabric-accounts templates names its account)"
     cfg = environ.get("CLAUDE_CONFIG_DIR")
     prof = os.path.join(cfg, ".claude.json") if cfg else os.path.join(os.path.expanduser("~"), ".claude.json")
     try:
@@ -497,7 +497,7 @@ def render(report, base):
     provider, path = report["api"]["provider"], report["api"]["path"]
     jobs, undrained, moveto = report["jobs"], report["undrained_memories"], report["host_tools"]["moveto"]
     p(f"agent        {report['agent']}@{report['host']}")
-    p(f"role         {report['role'] or '(none — bin/fabric-role bind <role>, from a login shell)'}")
+    p(f"role         {report['role'] or '(none — fabric-role bind <role>, from a login shell)'}")
     if report["launched_role"]:
         p(f"launched as  {report['launched_role']}    prompt {report['launch_prompt_digest'] or '(no digest stamped)'}")
     for d in report["drift"] or []:
@@ -532,7 +532,7 @@ def render(report, base):
     p(f"credentials  {report['api']['credentials'] if isinstance(report['api']['credentials'], str) else ', '.join(f'{k}: set' for k in report['api']['credentials'])}")
     p(f"claude sign-in {report['api']['claude_sign_in']}" + ("" if provider == "anthropic" and not base else f"  (plain claude's; this session goes to {path} and uses neither)"))
     p("")
-    p(f"capabilities on {provider} (bin/fabric-model list for every choice, per provider, with its source):")
+    p(f"capabilities on {provider} (fabric-model list for every choice, per provider, with its source):")
     for k, v in report["capabilities"].items():
         p(f"  {k:12} {v}")
     checks = report["routing_check"]
