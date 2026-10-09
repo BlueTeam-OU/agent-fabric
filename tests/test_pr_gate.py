@@ -82,6 +82,7 @@ def main() -> int:
 
         first = {"repository": {"pullRequest": {
             "mergeStateStatus": "CLEAN", "mergeable": "MERGEABLE", "mergeQueueEntry": None, "autoMergeRequest": None,
+            "headRefOid": "H",
             "statusCheckRollup": {"contexts": {"nodes": [{"name": "a", "status": "COMPLETED", "conclusion": "SUCCESS"}]}},
             "reviewThreads": {"nodes": [node(True)] * 100, "pageInfo": {"hasNextPage": True, "endCursor": "1"}}}}}
 
@@ -95,9 +96,9 @@ def main() -> int:
                     "nodes": rest, "pageInfo": {"hasNextPage": False, "endCursor": None}}}}}
             return fake
         gh.graphql = gate([node(False)])
-        check("pr-gate counts an unresolved thread on the second page", pr_gate.gate_state("o/r", 1)["unresolved"] == "1")
+        check("pr-gate counts an unresolved thread on the second page", pr_gate.gate_state("o/r", 1, "H")["unresolved"] == "1")
         gh.graphql = gate(gh.GhError("gh api graphql", "no answer", transient=True))
-        st = pr_gate.gate_state("o/r", 1)
+        st = pr_gate.gate_state("o/r", 1, "H")
         check("a second page that cannot be read: ?, which blocks", st["unresolved"] == "?"
               and "unresolved thread" in pr_gate.verdict(1, "main", False, None, st, "head reviewed", []))
 
@@ -135,11 +136,11 @@ def main() -> int:
                 return {"repository": {"pullRequest": pr}}
             return fake
         gh.graphql = rollup([], more=False)
-        check("one page of green checks: green", pr_gate.gate_state("o/r", 1)["checks"] == "green")
+        check("one page of green checks: green", pr_gate.gate_state("o/r", 1, "H")["checks"] == "green")
         gh.graphql = rollup([[ok] * 100, [red]])
-        check("a red check on the third page: red, named", pr_gate.gate_state("o/r", 1)["checks"] == "red:late")
+        check("a red check on the third page: red, named", pr_gate.gate_state("o/r", 1, "H")["checks"] == "red:late")
         gh.graphql = rollup([[ok, {"name": "slow", "status": "IN_PROGRESS", "conclusion": None}]])
-        check("a running check on the second page: pending", pr_gate.gate_state("o/r", 1)["checks"] == "pending:1")
+        check("a running check on the second page: pending", pr_gate.gate_state("o/r", 1, "H")["checks"] == "pending:1")
         for label, rest in (("a page that cannot be read", gh.GhError("gh api graphql", "HTTP 502", 502, True)),
                             ("a page with no cursor to the next", "no-cursor"),
                             ("past the page cap", [[ok]] * (pr_gate.CONTEXT_PAGES + 1)),
@@ -153,7 +154,7 @@ def main() -> int:
                 gh.graphql = rest_fake
             else:
                 gh.graphql = rollup(rest)
-            st = pr_gate.gate_state("o/r", 1)
+            st = pr_gate.gate_state("o/r", 1, "H")
             check(f"{label}: checks ?, which blocks", st["checks"] == "?"
                   and "the checks could not all be read" in pr_gate.verdict(1, "main", False, None, st, "head reviewed", []))
         # The cases above reach a later page; these fail on the way to it.
@@ -167,11 +168,11 @@ def main() -> int:
                     d["repository"]["pullRequest"]["statusCheckRollup"]["contexts"]["nodes"] = {"name": "x"}
                     return d
             gh.graphql = fake
-            st = pr_gate.gate_state("o/r", 1)
+            st = pr_gate.gate_state("o/r", 1, "H")
             check(f"{label}: checks ?, which blocks", st["checks"] == "?"
                   and "the checks could not all be read" in pr_gate.verdict(1, "main", False, None, st, "head reviewed", []))
         gh.graphql = rollup([[red]])
-        check("the same head on every page: read", pr_gate.gate_state("o/r", 1)["checks"] == "red:late")
+        check("the same head on every page: read", pr_gate.gate_state("o/r", 1, "H")["checks"] == "red:late")
 
         def threads_no_cursor(query, **kw):
             assert "mergeStateStatus" in query, "a thread page was asked with no cursor"
@@ -179,10 +180,26 @@ def main() -> int:
             d["repository"]["pullRequest"]["reviewThreads"] = {"nodes": [node(True)] * 100,
                                                                "pageInfo": {"hasNextPage": True, "endCursor": None}}
             return d
+        check("listed: null is none, a list is itself, anything else unreadable",
+              pr_gate.listed(None) == [] and pr_gate.listed([1]) == [1]
+              and all(pr_gate.listed(v) is None for v in ({}, "", {"a": 1}, "x", 0)))
+        for label, shape in (("an empty dict", {}), ("an empty string", "")):
+            def fake(query, shape=shape, **kw):
+                d = rollup([], more=False)(query, **kw)
+                d["repository"]["pullRequest"]["statusCheckRollup"]["contexts"]["nodes"] = shape
+                d["repository"]["pullRequest"]["reviewThreads"]["nodes"] = shape
+                return d
+            gh.graphql = fake
+            st = pr_gate.gate_state("o/r", 1, "H")
+            check(f"a first page of {label}: checks and threads ?", st["checks"] == "?" and st["unresolved"] == "?")
+        gh.graphql = rollup([], more=False)
+        check("the checks of another head than the row's: ?", pr_gate.gate_state("o/r", 1, "other")["checks"] == "?")
+        check("no head to compare: ?", pr_gate.gate_state("o/r", 1, "")["checks"] == "?")
         gh.graphql = threads_no_cursor
-        check("threads: a next page with no cursor is ?, never page one again", pr_gate.gate_state("o/r", 1)["unresolved"] == "?")
-        st = dict(st, checks="green")
-        check("...and green does not", "BLOCKED" not in pr_gate.verdict(1, "main", False, None, st, "head reviewed", []))
+        check("threads: a next page with no cursor is ?, never page one again", pr_gate.gate_state("o/r", 1, "H")["unresolved"] == "?")
+        gh.graphql = rollup([], more=False)
+        st = pr_gate.gate_state("o/r", 1, "H")
+        check("...and green does not", st["checks"] == "green" and "BLOCKED" not in pr_gate.verdict(1, "main", False, None, st, "head reviewed", []))
     finally:
         gh.graphql = real
 

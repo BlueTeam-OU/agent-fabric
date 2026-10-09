@@ -302,7 +302,17 @@ def check_contexts(owner: str, name: str, num: int, after: str | None, head: str
     raise ValueError(f"more than {CONTEXT_PAGES * 100} checks")
 
 
-def gate_state(repo: str, num: int) -> dict | None:
+def listed(nodes) -> list | None:
+    """A GraphQL connection's nodes: a list, null (none), or — anything
+    else — None, unreadable, never zero."""
+    if nodes is None:
+        return []
+    return nodes if isinstance(nodes, list) else None
+
+
+def gate_state(repo: str, num: int, head: str) -> dict | None:
+    """The gate's reading of the PR, its checks those of `head`, the head
+    its row reports: a push since the PR list was read makes them "?"."""
     owner, name = repo.split("/", 1)
     try:
         pr = (gh.graphql(GATE_QUERY, owner=owner, name=name, number=num).get("repository") or {}).get("pullRequest")
@@ -311,20 +321,20 @@ def gate_state(repo: str, num: int) -> dict | None:
     if not isinstance(pr, dict):
         return None
     contexts = (pr.get("statusCheckRollup") or {}).get("contexts") or {}
-    first = contexts.get("nodes") or []
-    nodes: list[dict] | None = [n for n in first if isinstance(n, dict)] if isinstance(first, list) else None
+    first = listed(contexts.get("nodes"))
+    nodes: list[dict] | None = None if first is None else [n for n in first if isinstance(n, dict)]
+    if not head or pr.get("headRefOid") != head:
+        nodes = None
     if nodes is not None and (contexts.get("pageInfo") or {}).get("hasNextPage"):
         try:
-            head = pr.get("headRefOid")
-            nodes = nodes + check_contexts(owner, name, num, contexts["pageInfo"].get("endCursor"),
-                                           head if isinstance(head, str) else "")
+            nodes = nodes + check_contexts(owner, name, num, contexts["pageInfo"].get("endCursor"), head)
         except (gh.GhError, ValueError, TypeError, KeyError, AttributeError):
             nodes = None
     checks = "?" if nodes is None else checks_of(nodes)
     page = pr.get("reviewThreads") or {}
-    threads = page.get("nodes") or []
+    threads = listed(page.get("nodes"))
     info = page.get("pageInfo") or {}
-    if info.get("hasNextPage"):
+    if threads is not None and info.get("hasNextPage"):
         # Past the first 100 the count was short and read as whole (review
         # of #71): the rest are read page by page, and a rest that cannot be
         # read makes the count unknown, which blocks like any count but 0.
@@ -705,7 +715,7 @@ def run(argv: list[str]) -> int:
         num, head, base = p.get("number"), jq_str(p.get("headRefOid")), jq_str(p.get("baseRefName"))
         branch = jq_str(p.get("headRefName"))
         commits = count_commits(num, repo, base, head) if fetched else None
-        st = gate_state(repo, num)
+        st = gate_state(repo, num, head)
         if st is None:
             note(f"could not read pull request #{num} from GitHub (the graphql read failed); nothing is invented — "
                  "run again.")
