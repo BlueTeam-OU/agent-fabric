@@ -94,9 +94,12 @@ def test_blueteam_projects_resolve_under_both_github_orgs() -> None:
     """The move from gzapi-org to BlueTeam-OU: a clone keeps its project
     whichever name its origin carries. The old name stays first, because
     new_agent.py clones from the first git@ remote and results.py reads the
-    first GitHub one, and the new name exists only once a repository moves."""
+    first GitHub one, and the new name exists only once a repository moves.
+    The operator's own registry on purpose: the fact is about its data."""
     import json
-    with open(os.path.join(ROOT, "projects", "registry.json"), encoding="utf-8") as fh:
+    roots_spec = importlib.util.spec_from_file_location("fabric_roots", os.path.join(ROOT, "tools", "fabric", "roots.py"))
+    roots = importlib.util.module_from_spec(roots_spec); roots_spec.loader.exec_module(roots)
+    with open(roots.projects_registry(engine=ROOT), encoding="utf-8") as fh:
         registry = json.load(fh)
     for pid, repo in (("agent-fabric", "agent-fabric"), ("agent-fabric-gateway", "agent-fabric-gateway"),
                       ("herdr", "agent-fabric-herdr"), ("radicle-spike", "radicle-spike")):
