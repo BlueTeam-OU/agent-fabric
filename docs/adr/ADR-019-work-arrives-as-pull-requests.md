@@ -135,7 +135,10 @@ not on a pipe's exit status.
    draft and no unfolded supply. The verdict does not read the review's
    findings; the session also has no open P1 or P2 finding before it arms
    (`identities/prompt/team.md`). Arming is a separate command, run on a
-   verdict read — never chained behind the gate's own run.
+   verdict read — never chained behind the gate's own run. An arming
+   holds for the head it was made on: a push after it takes auto-merge
+   off (`.github/workflows/disarm-on-push.yml`, which says so on the PR),
+   and the new head is armed again only through the gate.
 6. What arming is depends on the repository. agent-fabric's `main` is
    held by a ruleset (`tools/fabric/github-ruleset-main.json`): a pull
    request, CI's aggregate check `ci-ok` and signed commits are required,
@@ -230,3 +233,4 @@ The body above reads current; each change's full note is in [history/ADR-019-ame
 | 2026-10-08 | Every commit declares its kind | §5 rule 3, §7: a `Kind:` trailer (`work` or `review-fix`) the commit-msg hook requires; the count reads it before the subject |
 | 2026-10-08 | A folded pull request's review fixes are fixes | §5 rule 3: a PR closed unmerged with its head inside this range was folded in; its review fixes count as fixes here, not as follow-up work |
 | 2026-10-09 | results.py reads a folded PR's review fixes | §5 rule 3: the after-the-fact split reads a fold too; the PR description's interim naming of a folded PR's fixes is withdrawn |
+| 2026-10-09 | A push after the arming takes auto-merge off | §5 rule 5: an arming holds for its head; `.github/workflows/disarm-on-push.yml` takes auto-merge off an arming older than a push and comments |

@@ -426,19 +426,18 @@ its record disagree, the record wins. Look it up, never read it whole:
   rules 5–6).
 - No `Co-authored-by:`/`Claude-Session:` trailer, footer or session URL
   (§5 rule 7). GitHub settings: §6.
-- A 2026-10-04 — `main`'s ruleset requires a PR, the CI checks and
-  signed commits; auto-merge waits (§5 rule 6).
+- A 2026-10-04 — `main`'s ruleset: a PR, CI, signed commits (§5 rule 6).
 - A 2026-10-05 — the ruleset requires CI's aggregate check `ci-ok` alone
   (§5 rule 6).
-- A 2026-10-05 — eight or more work commits arm on the gate alone, a
-  security boundary and over sixteen included (§5 rule 4).
-- A 2026-10-06 — one open PR per agent and repository (§5 rule 2).
+- A 2026-10-05 — 8+ work commits arm on the gate alone, a boundary
+  and over 16 included (§5 rule 4).
+- A 2026-10-06 — one open PR at a time (§5 rule 2).
 - A 2026-10-08 — every commit declares its `Kind:`; the commit-msg
   hook refuses one without it (§5 rule 3).
 - A 2026-10-08 — a folded PR's review fixes are fixes (§5 rule 3).
 - A 2026-10-09 — results.py reads a fold too (§5 rule 3).
-- Keywords: work commits, Answers, Kind, fold, pr-gate, MERGEABLE,
-  attribution, repository settings.
+- A 2026-10-09 — a push after the arming disarms it (§5 rule 5).
+- Keywords: Answers, Kind, fold, pr-gate, ruleset.
 
 ### ADR-020 — The review class is the review (Accepted)
 
