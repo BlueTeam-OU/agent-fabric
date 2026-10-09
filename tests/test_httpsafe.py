@@ -60,7 +60,8 @@ def main() -> int:
                     self.wfile.write(b"{}")
                     return
                 self.send_response(302)
-                self.send_header("Location", location)
+                # {port} is this server's own, for a redirect that changes only the scheme.
+                self.send_header("Location", location.replace("{port}", str(self.server.server_port)))
                 self.end_headers()
 
             def log_message(self, *a):
@@ -94,6 +95,18 @@ def main() -> int:
         check("none: even a same-host redirect is refused", False)
     except urllib.error.HTTPError as e:
         check("none: even a same-host redirect is refused", e.code == 302 and not seen, seen)
+    for label, location in (("another port", f"http://127.0.0.1:{target.server_port}/stolen"),
+                            ("another scheme, the same host and port", "https://127.0.0.1:{port}/stolen"),
+                            ("a port that is no number", "http://127.0.0.1:abc/stolen")):
+        r = redirector(location)
+        seen.clear()
+        try:
+            get(httpsafe.opener(proxies=False, redirects="same-origin"), f"http://127.0.0.1:{r.server_port}/")
+            check(f"same-origin: {label} is refused", False)
+        except urllib.error.HTTPError as e:
+            check(f"same-origin: {label} is another origin, an HTTPError, never followed", e.code == 302 and not seen, seen)
+        r.shutdown()
+        r.server_close()
     for bad in ("all", "", None):
         try:
             httpsafe.opener(proxies=False, redirects=bad)
@@ -117,7 +130,7 @@ def main() -> int:
             c.sendall(b"HTTP/1.1 502 x\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
             c.close()
     threading.Thread(target=proxy, daemon=True).start()
-    saved = {k: os.environ.get(k) for k in ("http_proxy", "HTTP_PROXY", "no_proxy", "NO_PROXY")}
+    saved = {k: os.environ.get(k) for k in ("http_proxy", "HTTP_PROXY", "https_proxy", "HTTPS_PROXY", "no_proxy", "NO_PROXY")}
     try:
         for k in saved:
             os.environ.pop(k, None)
@@ -127,10 +140,31 @@ def main() -> int:
         def leaked() -> bool:
             return any(b"not-a-real-credential" in d for d in caught)
         try:
-            get(httpsafe.opener(proxies=True, redirects="none"), f"http://relay.invalid:{target.server_port}/x")
+            get(urllib.request.build_opener(), f"http://relay.invalid:{target.server_port}/x")
         except urllib.error.HTTPError:
             pass
-        check("control: proxies=True goes through http_proxy, the header to the proxy", leaked(), caught)
+        check("control: urllib's default opener sends an http:// request through http_proxy, the header in clear",
+              leaked(), caught)
+        caught.clear()
+        seen.clear()
+        get(httpsafe.opener(proxies=True, redirects="none"), relay_url + "/plain").read()
+        check("proxies=True: never the http proxy, which would carry the header in clear",
+              not caught and seen == [("/plain", SECRET)], (caught, seen))
+        os.environ["https_proxy"] = os.environ["http_proxy"]
+        try:
+            get(httpsafe.opener(proxies=True, redirects="none"), "https://api.invalid/x")
+        except (urllib.error.URLError, OSError):
+            pass
+        connect = [d for d in caught if d.startswith(b"CONNECT ")]
+        check("proxies=True: the https proxy by CONNECT, which carries no Authorization",
+              connect and not leaked(), caught)
+        caught.clear()
+        try:
+            get(httpsafe.opener(proxies=False, redirects="none"), "https://127.0.0.1:1/x")
+        except (urllib.error.URLError, OSError):
+            pass
+        check("proxies=False: not the https proxy either", not caught, caught)
+        del os.environ["https_proxy"]
         caught.clear()
         seen.clear()
         get(httpsafe.opener(proxies=False, redirects="none"), relay_url + "/direct").read()
@@ -154,6 +188,16 @@ def main() -> int:
                 os.environ[k] = v
 
     print("the API callers")
+    for name, mod in (("shim", shim), ("store_provision", store_provision)):
+        seen.clear()
+        get(mod.OPENER, f"http://127.0.0.1:{same.server_port}/").read()
+        check(f"{name}: a same-origin redirect is followed (a renamed resource)", seen == [("/landed", SECRET)], seen)
+        ph = [h for h in mod.OPENER.handlers if isinstance(h, urllib.request.ProxyHandler)]
+        want = {k: v for k, v in urllib.request.getproxies().items() if k in ("https", "no")}
+        # A ProxyHandler with no proxies registers nothing, so urllib keeps
+        # none in handlers: no handler is no proxy.
+        check(f"{name}: the environment's https proxy, never its http one",
+              (ph[0].proxies if ph else {}) == want and len(ph) <= 1, [h.proxies for h in ph])
     for name, op in (("shim", shim.OPENER), ("store_provision", store_provision.OPENER)):
         seen.clear()
         try:

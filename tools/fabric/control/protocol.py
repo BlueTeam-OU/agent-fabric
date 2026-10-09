@@ -15,11 +15,11 @@ CONTRACT, frozen from protocol.mjs:
                               keys to ENVELOPE_KEYS and ENVELOPE_KEYS to
                               Node's, so neither drifts
 
-The typed dicts take the functional form because `from` is a Python
-keyword, and each splits its optional keys into a total=False base
-rather than NotRequired[...]: under `from __future__ import annotations`
-a NotRequired annotation is never evaluated and the key silently counts
-as required.
+Each typed dict is built from two functional-form halves, because
+`from` is a Python keyword: its required keys, and its optional ones in
+a total=False half, joined as the bases of the class a reader sees —
+never NotRequired[...], which under `from __future__ import annotations`
+is never evaluated, so the key silently counts as required.
 """
 from __future__ import annotations
 
@@ -43,13 +43,22 @@ ENVELOPE_KEYS = MappingProxyType({
 # of agentd's OPS; `ts` ISO 8601 UTC. An action op is signed (`sig`,
 # control/sign.py) and lives at most sign.ACTION_TTL_MAX_S.
 _RequestOptional = TypedDict("_RequestOptional", {"ttl_s": float, "days": float, "args": dict, "sig": str}, total=False)
-Request = TypedDict("Request", {"v": int, "kind": str, "id": str, "from": str, "to": object, "op": str, "ts": str})
+_RequestRequired = TypedDict("_RequestRequired", {"v": int, "kind": str, "id": str, "from": str, "to": object, "op": str,
+                                                  "ts": str})
+
+
+class Request(_RequestRequired, _RequestOptional):
+    pass
 
 # A reply: one account's answer to one request; a memory reply is
 # followed by more replies, each carrying one part.
 _ReplyOptional = TypedDict("_ReplyOptional", {"data": dict}, total=False)
-Reply = TypedDict("Reply", {"v": int, "kind": str, "id": str, "in_reply_to": str, "from": str, "op": str, "ts": str,
-                            "ok": bool})
+_ReplyRequired = TypedDict("_ReplyRequired", {"v": int, "kind": str, "id": str, "in_reply_to": str, "from": str, "op": str,
+                                              "ts": str, "ok": bool})
+
+
+class Reply(_ReplyRequired, _ReplyOptional):
+    pass
 
 # Up: what agentd posts once when it starts, so ctl can tell a restart.
 Up = TypedDict("Up", {"v": int, "kind": str, "from": str, "ts": str})
@@ -61,9 +70,11 @@ Up = TypedDict("Up", {"v": int, "kind": str, "from": str, "ts": str})
 # jobs wait on (ADR-037 rule 8).
 _StateOptional = TypedDict("_StateOptional", {"role": str, "project": str, "last_session": str, "resumable": bool,
                                               "waits_on": list}, total=False)
-State = TypedDict("State", {"v": int, "kind": str, "from": str, "ts": str, "sessions": list})
+_StateRequired = TypedDict("_StateRequired", {"v": int, "kind": str, "from": str, "ts": str, "sessions": list})
 
-# Each kind's typed dicts, the required keys' and the optional keys', for
-# the test that holds them to ENVELOPE_KEYS.
-TYPES = MappingProxyType({"request": (Request, _RequestOptional), "reply": (Reply, _ReplyOptional),
-                          "up": (Up, None), "state": (State, _StateOptional)})
+
+class State(_StateRequired, _StateOptional):
+    pass
+
+# Each kind's typed dict, for the test that holds it to ENVELOPE_KEYS.
+TYPES = MappingProxyType({"request": Request, "reply": Reply, "up": Up, "state": State})

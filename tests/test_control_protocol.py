@@ -48,13 +48,11 @@ def main() -> int:
     node = json.loads(r.stdout) if r.returncode == 0 else None
     mine = {k: {"required": list(v["required"]), "optional": list(v["optional"])} for k, v in protocol.ENVELOPE_KEYS.items()}
     check("ENVELOPE_KEYS is Node's, kind for kind, key for key, in order", mine == node, (mine, node, r.stderr[-300:]))
-    for kind, (required, optional) in protocol.TYPES.items():
+    for kind, typed in protocol.TYPES.items():
         want = protocol.ENVELOPE_KEYS[kind]
-        got_required = set(required.__required_keys__)
-        got_optional = set(optional.__optional_keys__) if optional is not None else set()
-        check(f"the {kind} typed dicts declare its keys, required and optional apart",
-              got_required == set(want["required"]) and not required.__optional_keys__
-              and got_optional == set(want["optional"]) and (optional is None or not optional.__required_keys__),
+        got_required, got_optional = set(typed.__required_keys__), set(typed.__optional_keys__)
+        check(f"the {kind} typed dict declares its keys, required and optional apart",
+              got_required == set(want["required"]) and got_optional == set(want["optional"]),
               (sorted(got_required), sorted(got_optional)))
     check("ENVELOPE_KEYS cannot be changed by a caller",
           all(isinstance(v["required"], tuple) and isinstance(v["optional"], tuple) for v in protocol.ENVELOPE_KEYS.values()))
