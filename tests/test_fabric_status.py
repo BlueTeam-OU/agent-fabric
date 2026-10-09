@@ -8,6 +8,7 @@ import hashlib
 import json
 import os
 import pwd
+import shutil
 import socket
 import subprocess
 import sys
@@ -296,6 +297,31 @@ def main() -> int:
         check("the journal is reported: none yet, then counted, and another agent's named",
               before["status"] == "none" and after["status"] == "ok" and after["detail"].startswith("1 episode(s)")
               and foreign["status"] == "foreign")
+        # The control agent's implementation: read from the installed unit,
+        # against a fixture selector, never the checkout's.
+        fx = os.path.join(sb, "agentd-fabric")
+        os.makedirs(os.path.join(fx, "tools", "fabric"))
+        shutil.copyfile(os.path.join(HERE, "tools", "fabric", "agentd_unit.py"), os.path.join(fx, "tools", "fabric", "agentd_unit.py"))
+        put(os.path.join(fx, "runtime", "control", "agentd.json"), json.dumps({"default": "node", "python": ["py-login"]}))
+        xdg = os.path.join(sb, "agentd-xdg")
+        unit = os.path.join(xdg, "systemd", "user", "agent-fabric-agentd.service")
+        with open(os.path.join(HERE, "runtime", "control", "agent-fabric-agentd.service"), encoding="utf-8") as fh:
+            node_unit = fh.read()
+        none = status.agentd_implementation(fx, "py-login", {"XDG_CONFIG_HOME": xdg})
+        put(unit, node_unit)
+        node = status.agentd_implementation(fx, "node-login", {"XDG_CONFIG_HOME": xdg})
+        drift = status.agentd_implementation(fx, "py-login", {"XDG_CONFIG_HOME": xdg})
+        put(unit, node_unit.replace("ExecStart=/usr/bin/env node %h/projects/agent-fabric/runtime/control/agentd.mjs",
+                                    "ExecStart=/usr/local/bin/fabric-python %h/projects/agent-fabric/tools/fabric/control/agentd.py"))
+        python = status.agentd_implementation(fx, "py-login", {"XDG_CONFIG_HOME": xdg})
+        put(os.path.join(fx, "runtime", "control", "agentd.json"), "{broken")
+        unsound = status.agentd_implementation(fx, "py-login", {"XDG_CONFIG_HOME": xdg})
+        check("the control agent's implementation: none, node, drift from the selector, python, and an unsound selector said",
+              none["status"] == "none" and node["status"] == "node" and drift["status"] == "drift"
+              and "selects python" in drift["detail"] and python["status"] == "python"
+              and unsound["status"] == "python" and "is not JSON" in unsound["detail"])
+        human = status.render({**json.loads(b.stdout), "host_tools": {"moveto": {"installed": False}, "agentd": python}}, None)
+        check("…and its line in the human report", f"agentd       {python['detail']}" in human)
         drifted = subprocess.run(["bash", SHIM], env={**env, "AGENT_FABRIC_LAUNCH_ROLE": "backend-dev", "AGENT_FABRIC_LAUNCH_PROMPT_DIGEST": "sha256:0",
                                       "AGENT_FABRIC_LAUNCH_PROVIDER": "anthropic", "AGENT_FABRIC_LAUNCH_SESSION_MODEL": "claude-sonnet-5"},
                                  capture_output=True, text=True, timeout=120, stdin=subprocess.DEVNULL, cwd=sb).stdout
