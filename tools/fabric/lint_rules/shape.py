@@ -109,6 +109,17 @@ def host_registry_findings(root: str) -> list[str]:
         if dest in seen:
             findings.append(f"{where}: hosts {seen[dest]} and {hid} share the ssh destination {dest!r}; one destination is one host")
         seen[dest] = hid
+    # Two hosts pinned at one sshd address would put two hosts' keys on one
+    # known_hosts pattern, and ssh would accept either for both (ADR-048).
+    at: dict[str, str] = {}
+    for hid, e in sorted(hosts.items()):
+        sshd = e.get("sshd")
+        if not isinstance(sshd, dict):
+            continue
+        addr = f"{sshd.get('address')}:{sshd.get('port')}"
+        if addr in at:
+            findings.append(f"{where}: hosts {at[addr]} and {hid} share the sshd address {addr}; one known_hosts pattern is one host")
+        at[addr] = hid
     placement = reg.get("placement") or {}
     for login, hid in sorted(placement.items()):
         if hid not in hosts:
