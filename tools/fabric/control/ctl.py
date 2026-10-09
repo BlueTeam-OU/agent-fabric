@@ -1486,7 +1486,7 @@ def _int(v: Any) -> float:
 # minute and an unreachable relay is retried every five seconds, so a row goes
 # unknown within a minute of its deadline, whether or not the relay answers. A
 # lost cursor re-reads the snapshot, never skipping what it anchors on. With
-# --json, one object per line — what a listener (the herdr bridge) reads.
+# --json, one object per line — what a listening program reads.
 
 STATES_REPLAY = 500
 STATES_STALE_MS = 2 * 10 * 60 * 1000

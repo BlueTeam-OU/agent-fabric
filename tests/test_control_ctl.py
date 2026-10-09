@@ -154,10 +154,10 @@ class Tables(unittest.TestCase):
                          "the largest home first, then the failed and the silent")
         self.assertRegex(t[1], r"^beta\s+ok\s+50\.0G\s+projects 45\.0G\s+40\.0G\s+projects/a/target 30\.0G, projects/b/target 10\.0G, projects/c/target 2M, \+1$")
         self.assertRegex(t[2], r"^alpha\s+ok\s+2\.0G\s+\.cache 1\.0G\s+0K\s+-$")
-        self.assertTrue(any(re.match(r"^gamma\s+partial\s+3M", l) for l in t) and any(re.match(r"^\s+home entries: du exit 1, partial$", l) for l in t),
+        self.assertTrue(any(re.match(r"^gamma\s+partial\s+3M", l) for l in t) and any(re.fullmatch(r"\s+home entries: du exit 1, partial", l) for l in t),
                         "a partial row says why under it")
-        self.assertTrue(any(re.match(r"^delta\s+failed\s+/home/delta could not be listed \(EACCES\)$", l) for l in t))
-        self.assertTrue(any(re.match(r"^quiet\s+no answer$", l) for l in t), "an account that did not answer is a row")
+        self.assertTrue(any(re.fullmatch(r"delta\s+failed\s+/home/delta could not be listed \(EACCES\)", l) for l in t))
+        self.assertTrue(any(re.fullmatch(r"quiet\s+no answer", l) for l in t), "an account that did not answer is a row")
         self.assertEqual(len(rs[1]["disk"]["targets"]), 4, "--json carries every target/, the table the first three")
         self.assertEqual(ctl.parse_args(["all", "disk"])["timeout"], 200, "a whole home takes a while: disk waits longer than a status")
 
