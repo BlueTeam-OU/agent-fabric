@@ -21,6 +21,13 @@ sys.path.insert(0, HERE)
 import git_env  # noqa: E402
 import stripped_run  # noqa: E402
 
+READS_HISTORY = """import subprocess
+kind = subprocess.run(["git", "cat-file", "-t", "{sha}"], capture_output=True, text=True, timeout=60)
+assert kind.stdout.strip() == "commit", ("the tree's old commit is unreadable", kind.stderr)
+head = subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True, text=True, timeout=60).stdout.strip()
+assert head, "no HEAD"
+"""
+
 READS_LIVE = """import json, os
 root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 with open(os.path.join(root, "projects", "registry.json")) as fh:
@@ -94,6 +101,9 @@ def main() -> int:
         for argv in (["git", "init", "-q"], ["git", "add", "-A"],
                      ["git", "commit", "-q", "--no-verify", "-m", "t"]):
             subprocess.run(argv, cwd=tree, env=env, capture_output=True, timeout=60, check=True)
+        first = subprocess.run(["git", "rev-parse", "HEAD"], cwd=tree, env=env, capture_output=True, text=True, timeout=60,
+                               check=True).stdout.strip()
+        write(tree, "tests/test_reads_history.py", READS_HISTORY.format(sha=first))
         # Untracked, not ignored: uncommitted work is what is run.
         write(tree, "tests/test_reads_fixture.py", READS_FIXTURE)
         write(tree, "tests/test_hangs.py", HANGS.format(marks=marks))
@@ -108,6 +118,12 @@ def main() -> int:
             code = stripped_run.run(tree, ["tests/test_reads_live.py", "tests/test_reads_fixture.py"], out=lines.append)
         finally:
             del os.environ["AGENT_FABRIC_ROOT"]
+        r = subprocess.run([sys.executable, "-B", "tests/test_reads_history.py"], cwd=tree, capture_output=True, text=True, timeout=60)
+        check("control: a test that reads an old commit passes on the tree itself", r.returncode == 0, r.stderr[-300:])
+        history: list[str] = []
+        stripped_run.run(tree, ["tests/test_reads_history.py"], out=history.append)
+        check("the copy keeps the tree's history: an old commit is readable from it",
+              history == ["tests/test_reads_history.py: ok"], history)
         check("a test that reads the live registry fails on the stripped copy", "tests/test_reads_live.py: FAILED (exit 1)" in lines, lines)
         check("...said with its failing line", any("AssertionError" in ln or "FileNotFoundError" in ln for ln in lines), lines)
         check("an untracked test that builds its own fixture passes, no session or git variable reaching it, signing off",
