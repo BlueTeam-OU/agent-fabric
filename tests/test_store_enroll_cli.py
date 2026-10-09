@@ -204,6 +204,8 @@ def main() -> int:
         publish()   # the child's keys PR, merged
         check("the child gets its key and store, and is certified",
               rc == 0 and re.search(r"kid: agent [0-9a-f-]{36}, key certified", out) is not None, f"rc={rc}\n{out}")
+        check("…its recovery-copy hint names fabric-host bare", "its recovery copy: fabric-host far-host run --as kid" in out
+              and "bin/fabric-host" not in out, out)
         check("…every account step went through the host executor to its placed host",
               "hostexec far-host --as kid" in read(calls), read(calls))
         kid = lid("kid")

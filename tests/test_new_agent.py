@@ -175,7 +175,7 @@ def main() -> int:
         print("the closing list")
         c = w.closing("acct", "absent", "no", "demo")
         check("no GPG key and no template: both named, with the commands, and the first launch in the first project",
-              "GPG secret key: the signing key's is NOT" in c and "sudo -u acct gpg --batch --import" in c and "bin/fabric-accounts assign acct" in c
+              "GPG secret key: the signing key's is NOT" in c and "sudo -u acct gpg --batch --import" in c and "fabric-accounts assign acct" in c and "bin/fabric-accounts" not in c
               and "moveto acct demo   then" in c and c.startswith("new-agent: done."))
         c = w.closing("acct", "present", "template", "")
         check("…present ones said as present; no project, no clone name",
@@ -189,7 +189,7 @@ def main() -> int:
         c = w.closing("acct", "present", "declined", "")
         check("--no-claude-account: said, with how to assign one later", c.startswith("new-agent: done.")
               and "not assigned (--no-claude-account: the broker path only); no template token" in c
-              and "bin/fabric-accounts assign acct" in c)
+              and "fabric-accounts assign acct" in c and "bin/fabric-accounts" not in c)
 
         print("the signing key's secret: the colon listing, judged as fabric-ctl keys judges it")
         listings = {
@@ -313,14 +313,14 @@ def main() -> int:
                   'gpg --export-secret-keys "$(git config --get user.signingkey)" | sudo -u acct gpg --batch --import',
                   "sudo -u acct bash -c \"echo '$(git config --get user.signingkey):6:' | gpg --import-ownertrust\""])
 
-        check("…for an account on another host, both through bin/fabric-host, never a local sudo",
+        check("…for an account on another host, both through fabric-host, never a local sudo",
               w.signing_key_lines("acct", "far") == [
-                  'gpg --export-secret-keys "$(git config --get user.signingkey)" | bin/fabric-host far run --as acct -- '
+                  'gpg --export-secret-keys "$(git config --get user.signingkey)" | fabric-host far run --as acct -- '
                   'gpg --batch --import',
-                  'echo "$(git config --get user.signingkey):6:" | bin/fabric-host far run --as acct -- gpg --import-ownertrust'])
+                  'echo "$(git config --get user.signingkey):6:" | fabric-host far run --as acct -- gpg --import-ownertrust'])
         text, _, _ = verify_with({"gpg --list-secret-keys": b""}, [], via="far")
         check("…and the closing prints those for an account reached via its host",
-              "bin/fabric-host far run --as acct -- gpg --batch --import" in text and "sudo -u acct" not in text, text)
+              "fabric-host far run --as acct -- gpg --batch --import" in text and "sudo -u acct" not in text and "bin/fabric-host" not in text, text)
 
         def verify_human_with(answers: dict) -> tuple[str, str, str, list[str]]:
             asked = []
@@ -426,6 +426,8 @@ def main() -> int:
               r.returncode == 2 and r.stderr == na.NO_ACCOUNT_CHOICE + "\n")
         r = shim("l", "r", "--no-claude-account", "--claude-account", "a")
         check("…both: exit 2", r.returncode == 2 and r.stderr == na.NO_ACCOUNT_CHOICE + "\n")
+        check("…and the choice names fabric-accounts bare", "(fabric-accounts templates)" in na.NO_ACCOUNT_CHOICE
+              and "bin/" not in na.NO_ACCOUNT_CHOICE)
         r = shim("l", "r", "--claude-account")
         check("…--claude-account without its value: exit 1, one line",
               r.returncode == 1 and r.stderr == "new-agent: --claude-account needs a value\n")
@@ -819,8 +821,8 @@ exec env GNUPGHOME="$home" "$@"
             err = io.StringIO()
             with redirect_stderr(err):
                 rc = na.signing_key("new", "here", via="far")
-            check("…the lines for an account on another host go through bin/fabric-host",
-                  rc == 1 and "bin/fabric-host far run --as new -- gpg --batch --import" in err.getvalue()
+            check("…the lines for an account on another host go through fabric-host",
+                  rc == 1 and "fabric-host far run --as new -- gpg --batch --import" in err.getvalue() and "bin/fabric-host" not in err.getvalue()
                   and "sudo -u new" not in err.getvalue(), err.getvalue())
             os.remove(f"{fk}/import.fails")
             put(f"{fk}/sign.fails", "")

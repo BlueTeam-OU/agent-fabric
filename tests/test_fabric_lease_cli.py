@@ -294,6 +294,7 @@ def main() -> int:
             # whatever the prose above it says.
             out = lease("x", "--", "true", leases=f"{sandbox}/absent")[1]
             check("no lease directory: reason=nodir, last", last(out) == "fabric-lease: reason=nodir", out)
+            check("…and its hint names fabric-host bare", "to run fabric-host <host> persist" in out and "bin/fabric-host" not in out, out)
             out = lease("heavy", "--need-mem", "4096", "--", "true", AGENT_FABRIC_MEMINFO=meminfo)[1]
             check("short of memory: reason=memory, last", last(out) == "fabric-lease: reason=memory", out)
             h = hold("heavy", "--label", "backend-test", "--", "sh", "-c", "echo started; sleep 20")

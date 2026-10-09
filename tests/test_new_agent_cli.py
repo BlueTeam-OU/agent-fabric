@@ -239,7 +239,8 @@ def main() -> int:
         rc, out = run()
         ok("no arguments: usage, exit 2", rc == 2 and has(r"^usage:", out), out)
         rc, out = run("some-login", "no-such-role", "--dry-run")
-        ok("an unknown role is refused before anything runs", rc == 1 and "no role 'no-such-role'" in out, out)
+        ok("an unknown role is refused before anything runs", rc == 1 and "no role 'no-such-role'" in out
+                                                                       and "(fabric-role list)" in out and "bin/fabric-role" not in out, out)
         rc, out = run("some-login", "backend-dev", "--project", "not-registered", "--dry-run")
         ok("an unregistered project is refused", rc == 1 and "not in projects/registry.json" in out, out)
         rc, out = run("some-login", "backend-dev", "--bogus", "--dry-run")

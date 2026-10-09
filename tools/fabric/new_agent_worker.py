@@ -522,11 +522,11 @@ def signing_key_lines(login: str, via: str = "") -> list[str]:
     """The two lines a person runs, as the coordinator, to give an account
     the fleet's signing key: the closing's when new-agent does not import
     it, and step 11's when its import failed. An account on another host
-    (`via`, its registry id) is reached through bin/fabric-host, which
+    (`via`, its registry id) is reached through fabric-host, which
     carries stdin: a local `sudo -u` there would name a login this host
     does not have, or another account of the same name (#118, Codex)."""
     if via:
-        to = f"bin/fabric-host {via} run --as {login} --"
+        to = f"fabric-host {via} run --as {login} --"
         return [f'gpg --export-secret-keys "$(git config --get user.signingkey)" | {to} gpg --batch --import',
                 f'echo "$(git config --get user.signingkey):6:" | {to} gpg --import-ownertrust']
     return [f'gpg --export-secret-keys "$(git config --get user.signingkey)" | sudo -u {login} gpg --batch --import',
@@ -604,7 +604,7 @@ def closing(login: str, signing: str, creds: str, first: str, *, account: str = 
         lead = "not assigned (--no-claude-account: the broker path only); " if creds == "declined" else ""
         claude = (f"- Claude account: {lead}no template token — the launcher refuses a plain-claude session (--provider "
                   "anthropic) without one, its own /login included; the broker path does not need one.\n"
-                  f"       As the coordinator: bin/fabric-accounts assign {login} <account> (docs/adr/ADR-031-claude-"
+                  f"       As the coordinator: fabric-accounts assign {login} <account> (docs/adr/ADR-031-claude-"
                   "accounts-assigned-applied-and-proved-by-signed-action.md). Never copy another login's "
                   ".credentials.json.")
     # "done" only when nothing failed: a Claude account not applied is a
