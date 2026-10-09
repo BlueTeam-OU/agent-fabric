@@ -113,3 +113,7 @@ rule. A pool claim is public and writes the claimant into the holder's
 pool: the one unsigned write, accepted when ADR-037 rule 9 was decided
 (the owner, 2026-10-08: the agent's own list, then the role's pool) and
 bounded here to one field. Review of #123.
+
+### Amendment 2026-10-09 — pool-add's checker named; a forged claim is seen in the holder's pool file
+
+#123's re-review (python-dev-03's PR, three P3s left on this record's text) found that rule 3 named no checker for `pool-add`'s arguments, though `pool.mjs` `checkPoolArgs` is it; that rule 4 sent a reader to `pool-list` to see a forged claim, though `pool-list` filters claimed jobs out (pool.mjs `poolList`), so the claimant is seen only in the holder's `pool.json`; and that the Scope line and the digest's keywords lagged the files and words a reader searches for. All three are corrected here; no rule's substance changes.
