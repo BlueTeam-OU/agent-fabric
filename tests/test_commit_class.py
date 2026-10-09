@@ -149,6 +149,35 @@ def folds(check, tool: str) -> None:
                 got = cc.classify("p", "x", "#10 F1", "11", "o/r", "review-fix", cc.Folds("o/r", head, cwd=shallow))
             check("a shallow clone cannot answer — work, said", got == "work" and "#10 could not be read" in err.getvalue(),
                   (got, err.getvalue()))
+            # A shallow clone that HAS #10's head and the counted head, with
+            # the path between them cut at the boundary: merge-base answers
+            # no, which only a full clone may be believed on.
+            git("branch", "keep-10", folded_head)
+            cut = os.path.join(tmp, "cut")
+            subprocess.run(["git", "clone", "-q", "--depth", "1", "--no-single-branch", f"file://{repo}", cut],
+                           env=env, check=True)
+            err = io.StringIO()
+            with redirect_stderr(err):
+                got = cc.classify("p", "x", "#10 F1", "11", "o/r", "review-fix", cc.Folds("o/r", head, cwd=cut))
+            check("shallow, the head check says no — work, the PR named unread",
+                  got == "work" and "#10 could not be read" in err.getvalue() and "shallow" in err.getvalue(),
+                  (got, err.getvalue()))
+            # The base check, by its answers: the head check says yes, the
+            # base check no; believed from a full clone, not a shallow one.
+            real_ok, real_out = cc.git.ok, cc.git.out
+            try:
+                cc.git.ok = lambda cwd, *a, **k: a[-1] == head   # inside head, outside the base
+                for shallow_answer, want in (("false", "fix"), ("true", "work")):
+                    cc.git.out = lambda cwd, *a, _s=shallow_answer, **k: _s
+                    err = io.StringIO()
+                    with redirect_stderr(err):
+                        got = cc.classify("p", "x", "#10 F1", "11", "o/r", "review-fix",
+                                          cc.Folds("o/r", head, base="b"))
+                    check(f"the base check says no in a {'shallow' if shallow_answer == 'true' else 'full'} clone — {want}",
+                          got == want and (("#10 could not be read" in err.getvalue()) == (want == "work")),
+                          (got, err.getvalue()))
+            finally:
+                cc.git.ok, cc.git.out = real_ok, real_out
             got, err = cls("#14 F1")
             check("an open PR — work", got == "work" and err == "", (got, err))
             # Folded into an EARLIER PR that has merged: #10's head is inside

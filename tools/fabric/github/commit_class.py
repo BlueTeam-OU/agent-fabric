@@ -171,11 +171,23 @@ class Folds:
     def __init__(self, repo: str, head: str, cwd: str = ".", timeout: float = 30, base: str = ""):
         self.repo, self.head, self.base, self.cwd, self.timeout = repo, head, base, cwd, timeout
         self._seen: dict[str, bool] = {}
+        self._is_full: bool | None = None
 
     def __call__(self, n: str) -> bool:
         if n not in self._seen:
             self._seen[n] = self._look(n)
         return self._seen[n]
+
+    def _full(self) -> bool:
+        """Whether this clone holds the whole history, asked once; a clone
+        that cannot say is not taken to be full."""
+        if self._is_full is None:
+            try:
+                self._is_full = git.out(self.cwd, "rev-parse", "--is-shallow-repository",
+                                        timeout=self.timeout) == "false"
+            except git.GitError:
+                self._is_full = False
+        return self._is_full
 
     def _unread(self, n: str, why: str) -> bool:
         print(f"commit-class: #{n} could not be read ({why}); its review's fixes count as work here", file=sys.stderr)
@@ -196,10 +208,19 @@ class Folds:
         if not isinstance(oid, str) or not re.fullmatch(r"[0-9a-f]{7,64}", oid):
             return self._unread(n, "no head sha")
         try:
+            # A YES from merge-base --is-ancestor is a path git walked, true
+            # in any clone. A NO is only as good as the history behind it:
+            # in a shallow clone the walk stops at the boundary and answers
+            # no for a commit that lies beyond it. So a no — for the head
+            # or the base — is trusted only from a full clone; a shallow
+            # one cannot place the PR, which is read as unread (work, named).
             if not git.ok(self.cwd, "merge-base", "--is-ancestor", oid, self.head, timeout=self.timeout):
-                return False
-            return not (self.base and git.ok(self.cwd, "merge-base", "--is-ancestor", oid, self.base,
-                                             timeout=self.timeout))
+                return False if self._full() else self._unread(n, "a shallow clone cannot rule out its head")
+            if not self.base:
+                return True
+            if git.ok(self.cwd, "merge-base", "--is-ancestor", oid, self.base, timeout=self.timeout):
+                return False   # folded into an earlier PR, already in the base
+            return True if self._full() else self._unread(n, "a shallow clone cannot rule its head out of the base")
         except git.GitError as e:
             # A head this clone does not have is no ancestor of one it has,
             # when the clone holds the whole history — a closed PR that was
