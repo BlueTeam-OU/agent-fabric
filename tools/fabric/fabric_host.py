@@ -40,6 +40,9 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
 HX = os.path.join(ROOT, "runtime", "hostexec", "hostexec")
 USAGE_SUBCOMMANDS = "list | check | run | moveto | rename | persist | drain"
+# The bash had no bound on `check`; a host that answers nothing for this long is unreachable (ssh BatchMode's own connect
+# attempts end well before it).
+CHECK_TIMEOUT_S = 300
 
 
 class Refused(Exception):
@@ -151,7 +154,7 @@ def check(host: str, registry: str) -> int:
     import subprocess
     try:
         r = subprocess.run([HX, host, "--", "hostname", "-s"], capture_output=False, stdout=subprocess.PIPE, text=True,
-                           stdin=subprocess.DEVNULL, timeout=120)
+                           stdin=subprocess.DEVNULL, timeout=CHECK_TIMEOUT_S)
     except (OSError, subprocess.TimeoutExpired):
         r = None
     if r is None or r.returncode != 0:

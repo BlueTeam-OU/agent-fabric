@@ -213,7 +213,7 @@ def main() -> int:
         # Ported to Python (ADR-040 Wave 9): a broken interpreter is no longer a step this file can
         # tell from the program failing, so the two cases that used one say what they meant directly.
         rc, out = run_with({"AGENT_FABRIC_HOSTS_REGISTRY": os.path.join(sandbox, "no-such-registry.json")}, (), FH, "--help")
-        check("--help does not wait on the registry", rc == 0 and "fabric-host list" in out, f"rc={rc}\n{out}")
+        check("--help prints the synopsis and exits 0 (its registry is not read)", rc == 0 and "fabric-host list" in out, f"rc={rc}\n{out}")
         notjson = os.path.join(sandbox, "not-json.json")
         with open(notjson, "w", encoding="utf-8") as fh:
             fh.write("{")

@@ -10,8 +10,8 @@ boundary between the coordinator and the machines the agents live on.
 Two backends, chosen by the registry, never by the caller:
 
   local   the host this checkout is on (`ssh: null`): the command goes
-          straight to runtime/hostexec/worker — today's direct sudo
-          and filesystem access, unchanged.
+          to the worker (tools/fabric/hostworker.py, run in this
+          process) — today's direct sudo and filesystem access, unchanged.
   ssh     any other host: `ssh -o BatchMode=yes <ssh destination> --
           <fabric>/runtime/hostexec/worker ...`, the SAME worker on
           the target, as its operator, who holds sudo there. getent,
@@ -48,7 +48,6 @@ import shlex
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
-WORKER = os.path.join(ROOT, "runtime", "hostexec", "worker")
 
 
 class Refused(Exception):

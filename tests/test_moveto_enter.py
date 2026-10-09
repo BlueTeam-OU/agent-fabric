@@ -8,6 +8,7 @@ Plain script: prints ok/FAIL, exit 1 on any failure."""
 from __future__ import annotations
 
 import os
+import signal
 import subprocess
 import sys
 import tempfile
@@ -61,6 +62,61 @@ def main() -> int:
               "input ended before Enter; a plain shell, nothing activated" in r.stderr, r.stderr)
         who = subprocess.run(["id", "-un"], capture_output=True, text=True, timeout=10).stdout.strip()
         check("the one line is the login and 'Enter to activate'", f"{who} - Enter to activate\n" in r.stdout, r.stdout)
+
+    print("signals and git's stderr during the refresh")
+    with tempfile.TemporaryDirectory() as tmp:
+        home2 = os.path.join(tmp, "home")
+        fabric = os.path.join(home2, "projects", "agent-fabric")
+        os.makedirs(os.path.join(fabric, "bin"))
+        fakebin = os.path.join(tmp, "bin")
+        os.makedirs(fakebin)
+        marker = os.path.join(tmp, "pulled")
+        with open(os.path.join(fakebin, "git"), "w") as fh:
+            fh.write('#!/bin/sh\ncase "$*" in\n *rev-parse*) echo "warning: noise on stderr" >&2; echo true ;;\n'
+                     f' *" pull "*) sleep 2; touch {marker} ;;\n *rev-list*) echo "warning: noise" >&2; echo 0 ;;\nesac\n')
+        os.chmod(os.path.join(fakebin, "git"), 0o755)
+        env2 = {**env, "HOME": home2, "PATH": f"{fakebin}:/usr/bin:/bin"}
+
+        def start(*args: str) -> subprocess.Popen:
+            return subprocess.Popen([sys.executable, "-I", MOVETO, "--enter", home2, "t", *args], env=env2, stdin=subprocess.PIPE,
+                                    stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, start_new_session=True)
+        p = start()
+        time.sleep(1)
+        os.killpg(p.pid, signal.SIGINT)
+        out, err = p.communicate("echo REACHED\nexit\n", timeout=60)
+        check("Ctrl-C during the pull does not end the entry: the pull finishes and the shell opens",
+              p.returncode == 0 and "REACHED" in out and os.path.exists(marker) and "Traceback" not in err, (p.returncode, out[-120:], err[-300:]))
+        check("a warning on git's stderr is not git's answer: the refresh ran (rev-parse said true, the pull ran)", os.path.exists(marker))
+        check("...and a clone level with origin is not reported unknown for a warning", "unknown" not in err, err)
+        with open(os.path.join(fabric, "bin", "fabric-watch"), "w") as fh:
+            fh.write(f"#!/bin/sh\ntrap 'echo watch-got-int; exit 0' INT\ntouch {tmp}/watching\nsleep 5 &\nwait $!\n")
+        os.chmod(os.path.join(fabric, "bin", "fabric-watch"), 0o755)
+        os.remove(marker)
+        with open(os.path.join(fakebin, "git"), "w") as fh:
+            fh.write('#!/bin/sh\ncase "$*" in *rev-parse*) echo true ;; *rev-list*) echo 0 ;; esac\n')
+        p = start("--watch")
+        for _ in range(100):
+            if os.path.exists(os.path.join(tmp, "watching")):
+                break
+            time.sleep(0.1)
+        os.killpg(p.pid, signal.SIGINT)
+        out, err = p.communicate("echo REACHED\nexit\n", timeout=60)
+        check("Ctrl-C under --watch is the tool's: it quits, and the shell follows",
+              p.returncode == 0 and "watch-got-int" in out and "REACHED" in out and "Traceback" not in err, (p.returncode, out[-120:], err[-300:]))
+        with open(os.path.join(fabric, "bin", "fabric-resume"), "w") as fh:
+            fh.write("#!/bin/sh\nkill -TERM $$\n")
+        os.chmod(os.path.join(fabric, "bin", "fabric-resume"), 0o755)
+        p = start("--resume")
+        out, err = p.communicate("exit\n", timeout=60)
+        check("a tool killed by a signal is reported as the shell's $? said it (128 + the signal)", "fabric-resume exited 143" in err, err)
+        p = start("--wait")
+        p.stdout.readline()
+        os.kill(p.pid, signal.SIGINT)
+        out, err = p.communicate(timeout=60)
+        check("Ctrl-C at the --wait prompt ends the entry (130), as it ended the bash script", p.returncode == 130 and "Traceback" not in err, (p.returncode, err[-200:]))
+        p = start("--wait")
+        out, err = p.communicate("\necho AFTER-THE-ENTER\nexit\n", timeout=60)
+        check("--wait takes one line and leaves the rest of the input for the shell that follows", "AFTER-THE-ENTER" in out, (out[-200:], err[-200:]))
 
     print("git's reason line")
     check("the first error line wins", moveto.pull_reason("hint: x\nfatal: Not possible to fast-forward\nlast", 1) == "fatal: Not possible to fast-forward")

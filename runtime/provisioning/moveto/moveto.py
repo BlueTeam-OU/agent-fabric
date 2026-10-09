@@ -314,13 +314,15 @@ ENTER_RC = "/usr/local/share/moveto/rc"
 PULL_TIMEOUT_S, BOOTSTRAP_TIMEOUT_S, SECRETS_TIMEOUT_S = 30, 30, 20
 
 
-def run_bounded(argv: list[str], timeout: int, *, capture: bool = False, quiet: bool = False) -> tuple[int, str]:
+def run_bounded(argv: list[str], timeout: int, *, capture: bool = False, quiet: bool = False, merge: bool = True) -> tuple[int, str]:
     """(status, merged stdout+stderr when `capture`) of a command in a group of
     its own, killed with its children when it runs out: status 124, as the
-    coreutils `timeout` said it. A command that cannot start is 127."""
+    coreutils `timeout` said it. A command that cannot start is 127. With
+    `capture`, stderr is merged into the text unless `merge` is off (then it
+    is discarded: a git warning must not be read as git's answer)."""
     out = subprocess.PIPE if capture else (subprocess.DEVNULL if quiet else None)
     try:
-        proc = subprocess.Popen(argv, stdin=None, stdout=out, stderr=subprocess.STDOUT if capture else (subprocess.DEVNULL if quiet else None),
+        proc = subprocess.Popen(argv, stdin=None, stdout=out, stderr=(subprocess.STDOUT if merge else subprocess.DEVNULL) if capture else (subprocess.DEVNULL if quiet else None),
                                 text=True, errors="replace", start_new_session=True)
     except OSError:
         return 127, ""
@@ -363,7 +365,7 @@ def refresh_fabric(fabric: str) -> None:
     behind — fast-forward it); bootstrap, which installs from that checkout and
     is idempotent; the account's secrets, from its own store, before the shell
     sources them."""
-    rc, inside = run_bounded(["git", "-C", fabric, "rev-parse", "--is-inside-work-tree"], TIMEOUT_S, capture=True)
+    rc, inside = run_bounded(["git", "-C", fabric, "rev-parse", "--is-inside-work-tree"], TIMEOUT_S, capture=True, merge=False)
     if rc == 0 and inside.strip() == "true":
         rc, pulled = run_bounded(["git", "-C", fabric, "pull", "-q", "--ff-only", "origin", "main"], PULL_TIMEOUT_S, capture=True)
         if rc != 0:
@@ -373,7 +375,7 @@ def refresh_fabric(fabric: str) -> None:
             # origin/main, so commits nobody merged stayed in force unsaid
             # (review of #80). A count git cannot give is said as unknown,
             # never read as zero.
-            code, counted = run_bounded(["git", "-C", fabric, "rev-list", "--count", "origin/main..HEAD"], TIMEOUT_S, capture=True)
+            code, counted = run_bounded(["git", "-C", fabric, "rev-list", "--count", "origin/main..HEAD"], TIMEOUT_S, capture=True, merge=False)
             ahead = counted.strip() if code == 0 else ""
             if not ahead.isascii() or not ahead.isdigit():
                 print("moveto: agent-fabric's commits beyond origin/main are unknown; using it as is", file=sys.stderr)
@@ -385,6 +387,22 @@ def refresh_fabric(fabric: str) -> None:
     secrets = os.path.join(fabric, "bin", "fabric-secrets")
     if os.access(secrets, os.X_OK):
         run_bounded([secrets, "sync", "--quiet"], SECRETS_TIMEOUT_S)    # best effort: its status is not the entry's
+
+
+def read_line_unbuffered(fd: int) -> bytes:
+    """One line from `fd` a byte at a time, as the shell's `read -r` reads a pipe: nothing past
+    the newline is taken from the shell that follows. b'' or a partial line is end of input."""
+    out = b""
+    while True:
+        try:
+            c = os.read(fd, 1)
+        except InterruptedError:
+            continue
+        if not c:
+            return out
+        out += c
+        if c == b"\n":
+            return out
 
 
 def enter_main(argv: list[str]) -> int:
@@ -416,11 +434,15 @@ def enter_main(argv: list[str]) -> int:
     if mode == "--wait":
         sys.stdout.write(f"{me()} - Enter to activate\n")
         sys.stdout.flush()
-        if sys.stdin.readline().endswith("\n"):
+        if read_line_unbuffered(0).endswith(b"\n"):
             mode = "--resume"
         else:
             print("moveto: input ended before Enter; a plain shell, nothing activated", file=sys.stderr)
             mode = ""
+    # From here: Ctrl-C while the account refreshes or its tool runs is the tool's (fabric-watch quits on
+    # it), never the entry's: the bash carried on to the shell when a foreground child took the
+    # SIGINT. A Python handler, not SIG_IGN: it is reset to the default in every child.
+    signal.signal(signal.SIGINT, lambda *_: None)
     sys.stdout.flush()
     fabric = os.path.join(os.environ.get("HOME", ""), "projects", "agent-fabric")
     refresh_fabric(fabric)
@@ -439,11 +461,11 @@ def enter_main(argv: list[str]) -> int:
         except OSError:
             status = 126
         if status != 0:
-            print(f"moveto: {tool} exited {status}", file=sys.stderr)
+            print(f"moveto: {tool} exited {128 - status if status < 0 else status}", file=sys.stderr)   # the shell's $?
     elif tool:
         print(f"moveto: no {tool} in {fabric}; nothing run", file=sys.stderr)
     sys.stderr.flush()
-    signal.signal(signal.SIGPIPE, signal.SIG_DFL)
+    signal.signal(signal.SIGPIPE, signal.SIG_DFL)      # SIGINT's Python handler is reset by the exec itself
     os.execvp("bash", ["bash", "--rcfile", ENTER_RC, "-i"])
 
 
@@ -463,6 +485,8 @@ def main(argv: list[str]) -> int:
     except BrokenPipeError:
         os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
         return 141
+    except KeyboardInterrupt:
+        return 130      # Ctrl-C at the --wait prompt ends the entry, as it ended the bash script
     except OSError as exc:
         print(f"moveto: {exc.filename or MOVETO_ENTER}: {exc.strerror or exc}", file=sys.stderr)
         return 126
