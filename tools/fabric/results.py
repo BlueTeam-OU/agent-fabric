@@ -49,15 +49,24 @@ GREEN = {"SUCCESS", "SKIPPED", "NEUTRAL"}
 OWNER_CORRECTION = re.compile(r"\(owner\b", re.I)
 
 
-def classify(subject: str, body: str, pr: int, repo: str, parents: int = 1) -> str:
+def classify(subject: str, body: str, pr: int, repo: str, parents: int = 1, folded=None) -> str:
     """The one classifier (tools/fabric/github/commit_class.py): work, fix or merge.
-    A merge is told by its parents, as pr-gate tells it, never by its words."""
+    A merge is told by its parents, as pr-gate tells it, never by its words;
+    `folded` (commit_class.Folds) reads a folded PR's review fix as a fix."""
     answers = "\n".join(m.group(1) for m in re.finditer(r"^Answers:\s*(.*)$", body, re.M))
     return commit_class.classify(" ".join(["p"] * max(parents, 1)), subject, answers, str(pr), repo,
-                                 commit_class.kind_of(body))
+                                 commit_class.kind_of(body), folded)
 
 
-def judge(pr: dict, later: list[dict], now: dt.datetime, window_days: int, cls=classify, repo: str = "") -> dict:
+def folds_of(repo: str, head: str):
+    """The fold lookup for one PR's split, as pr_gate.split_range passes
+    it: against the PR's own head, its ancestry asked of GitHub, since the
+    repository need not be this clone."""
+    return commit_class.Folds(repo, head, ancestor=commit_class.on_github(repo)) if repo and head else None
+
+
+def judge(pr: dict, later: list[dict], now: dt.datetime, window_days: int, cls=classify, repo: str = "",
+          folds=folds_of) -> dict:
     """One merged PR against the commits on main after its merge.
     `later` holds {sha, subject, body, when} for main's commits inside the window."""
     n, head = pr["number"], pr["headRefOid"]
@@ -71,7 +80,9 @@ def judge(pr: dict, later: list[dict], now: dt.datetime, window_days: int, cls=c
                        for sha in own if sha) for c in later)
     naming = re.compile(rf"#{n}\b")
     fixed = [c["sha"][:7] for c in later if naming.search(c["subject"]) and cls(c["subject"], c["body"], n, repo) == "fix"]
-    classes = [cls(c["messageHeadline"], c.get("messageBody") or "", n, repo, c.get("parents", 1)) for c in pr.get("commits") or []]
+    folded = folds(repo, head)
+    classes = [cls(c["messageHeadline"], c.get("messageBody") or "", n, repo, c.get("parents", 1), folded)
+               for c in pr.get("commits") or []]
     work, fix = classes.count("work"), classes.count("fix")
     pending = now < merged + dt.timedelta(days=window_days)
     ok = reviewed and green and not reverted and not fixed

@@ -58,6 +58,7 @@ def main() -> int:
     r = subprocess.run([sys.executable, tool, "class", "a b", "anything"], capture_output=True, text=True)
     check("the CLI prints one word", r.stdout == "merge\n", r.stdout)
     folds(check, tool)
+    on_github(check)
     print(f"\n{'FAILED' if fails else 'all passed'}")
     return 1 if fails else 0
 
@@ -196,6 +197,52 @@ def folds(check, tool: str) -> None:
             os.environ.clear()
             os.environ.update(saved_env)
 
+
+
+
+def on_github(check) -> None:
+    """Folds' ancestry asked of GitHub: each compare answer as measured
+    (2026-10-09), and every other one unread, never "no"."""
+    import io
+    from contextlib import redirect_stderr
+    import gh
+    real_api, real_view = gh.api, gh.pr_view
+    asked: list[str] = []
+
+    def answering(answer):
+        def api(path, **kw):
+            asked.append(path)
+            if isinstance(answer, Exception):
+                raise answer
+            return answer
+        return api
+    try:
+        for status, want in (("ahead", True), ("identical", True), ("behind", False), ("diverged", False)):
+            gh.api = answering({"status": status, "ahead_by": 1})
+            check(f"on_github: {status} is {want}", cc.on_github("o/r")("a" * 40, "b" * 40) is want)
+        check("on_github: asks compare <oid>...<head> of the repository, one commit a page",
+              asked[-1] == f"repos/o/r/compare/{'a' * 40}...{'b' * 40}?per_page=1", asked[-1])
+        for label, answer in (("a 404", gh.GhError("gh api GET repos/o/r/compare", "Not Found", 404)),
+                              ("no status", {"message": "x"}), ("an unknown status", {"status": "sideways"}),
+                              ("not an object", ["x"]), ("not JSON", ValueError("x"))):
+            gh.api = answering(answer)
+            try:
+                cc.on_github("o/r")("a" * 40, "b" * 40)
+                check(f"on_github: {label} raises", False)
+            except gh.GhError:
+                check(f"on_github: {label} raises, never no", True)
+        gh.pr_view = lambda n, fields, **kw: {"state": "CLOSED", "mergedAt": None, "headRefOid": "a" * 40}
+        gh.api = answering({"status": "ahead"})
+        look = cc.Folds("o/r", "b" * 40, cwd="/nonexistent", ancestor=cc.on_github("o/r"))
+        check("Folds with GitHub's ancestry: a fold, no clone asked", look("10") is True)
+        gh.api = answering(gh.GhError("gh api GET repos/o/r/compare", "Not Found", 404))
+        err = io.StringIO()
+        with redirect_stderr(err):
+            got = cc.Folds("o/r", "b" * 40, cwd="/nonexistent", ancestor=cc.on_github("o/r"))("10")
+        check("...an unread ancestry is no, said", got is False and "#10 could not be read (Not Found)" in err.getvalue(),
+              err.getvalue())
+    finally:
+        gh.api, gh.pr_view = real_api, real_view
 
 if __name__ == "__main__":
     sys.exit(main())

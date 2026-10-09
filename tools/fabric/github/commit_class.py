@@ -162,8 +162,12 @@ class Folds:
     unreadable PR or ancestry is "no" (the follow-up reading), said on
     stderr once."""
 
-    def __init__(self, repo: str, head: str, cwd: str = ".", timeout: float = 30):
+    def __init__(self, repo: str, head: str, cwd: str = ".", timeout: float = 30,
+                 ancestor: Callable[[str, str], bool] | None = None):
         self.repo, self.head, self.cwd, self.timeout = repo, head, cwd, timeout
+        # Without a clone of <repo> to ask (results.py reads every registered
+        # repository through GitHub), ancestry is asked of `ancestor`.
+        self.ancestor = ancestor
         self._seen: dict[str, bool] = {}
 
     def __call__(self, n: str) -> bool:
@@ -189,6 +193,11 @@ class Folds:
         oid = pr.get("headRefOid")
         if not isinstance(oid, str) or not re.fullmatch(r"[0-9a-f]{7,64}", oid):
             return self._unread(n, "no head sha")
+        if self.ancestor is not None:
+            try:
+                return self.ancestor(oid, self.head)
+            except gh.GhError as e:
+                return self._unread(n, e.reason)
         try:
             return git.ok(self.cwd, "merge-base", "--is-ancestor", oid, self.head, timeout=self.timeout)
         except git.GitError as e:
@@ -204,6 +213,26 @@ class Folds:
             except git.GitError:
                 pass
             return self._unread(n, e.reason)
+
+
+def on_github(repo: str, timeout: float = 30) -> Callable[[str, str], bool]:
+    """Folds' ancestry asked of GitHub's compare: whether <oid> is an
+    ancestor of <head> in <repo>. Measured 2026-10-09: "ahead" or
+    "identical" is yes, "behind" or "diverged" no; a sha GitHub lacks is
+    HTTP 404, and that, or any other answer, is a GhError — unread, never
+    "no"."""
+    def ancestor(oid: str, head: str) -> bool:
+        try:
+            doc = gh.api(f"repos/{repo}/compare/{oid}...{head}?per_page=1", timeout=timeout)
+        except ValueError:
+            raise gh.GhError("gh api compare", "the answer is not JSON", transient=True) from None
+        status = doc.get("status") if isinstance(doc, dict) else None
+        if status in ("ahead", "identical"):
+            return True
+        if status in ("behind", "diverged"):
+            return False
+        raise gh.GhError("gh api compare", f"no ancestry in the answer (status {status!r})")
+    return ancestor
 
 
 def classify(parents: str, subject: str, answers: str = "", pr: str = "", repo: str = "", kind_value: str = "",
