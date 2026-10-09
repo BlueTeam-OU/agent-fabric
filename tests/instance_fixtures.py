@@ -92,3 +92,16 @@ def write_routing_overlay(routing_dir: str) -> None:
     engine routing directory copied with ROUTING_OPERATOR_IGNORE."""
     shutil.copy2(os.path.join(_ROUTING_FIXTURE, "profiles.json"), os.path.join(routing_dir, "profiles.json"))
     shutil.copytree(os.path.join(_ROUTING_FIXTURE, "policies"), os.path.join(routing_dir, "policies"))
+
+
+def write_gzcoord_integrations(operator: str, projects: dict[str, tuple[str, str]]) -> str:
+    """An operator tree (AGENT_FABRIC_OPERATOR) holding each project's
+    projects/<id>/integration/gzcoord/config.json with its (relay_url,
+    channel); the tree's path. The live ones are the operator's, absent from
+    a checkout without its instance data."""
+    for pid, (relay_url, channel) in projects.items():
+        d = os.path.join(operator, "projects", pid, "integration", "gzcoord")
+        os.makedirs(d, exist_ok=True)
+        with open(os.path.join(d, "config.json"), "w", encoding="utf-8") as fh:
+            json.dump({"relay_url": relay_url, "channel": channel}, fh)
+    return operator

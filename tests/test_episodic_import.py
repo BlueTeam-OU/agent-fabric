@@ -22,6 +22,8 @@ import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from urllib.parse import parse_qs, urlparse
 
+from instance_fixtures import write_gzcoord_integrations
+
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TOOL = os.path.join(HERE, "tools", "fabric", "episodic.py")
 sys.path.insert(0, os.path.join(HERE, "tools", "fabric"))
@@ -159,7 +161,10 @@ def main() -> int:
         with open(os.path.join(store, ".agent-id"), "w") as f:
             f.write(AGENT + "\n")
         env = {k: v for k, v in os.environ.items() if not k.startswith(STRIP)}
-        env.update(HOME=home, AGENT_FABRIC_STATE_DIR=state_root, AGENT_FABRIC_SECRET_STORE=store, CLAUDE_BRIDGE_URL=url)
+        # The integration the cases name is the fixture operator's, never the checkout's.
+        operator = write_gzcoord_integrations(os.path.join(home, "operator"), {"agent-fabric": (url, "gzapp:gzcoord")})
+        env.update(HOME=home, AGENT_FABRIC_STATE_DIR=state_root, AGENT_FABRIC_SECRET_STORE=store, CLAUDE_BRIDGE_URL=url,
+                   AGENT_FABRIC_OPERATOR=operator)
         os.environ.update(AGENT_FABRIC_STATE_DIR=state_root, AGENT_FABRIC_SECRET_STORE=store)
         import episodic as ep
         import episodic_import as ei

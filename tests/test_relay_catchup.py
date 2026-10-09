@@ -15,6 +15,8 @@ import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from urllib.parse import parse_qs, urlparse
 
+from instance_fixtures import write_gzcoord_integrations
+
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TOOL = os.path.join(HERE, "tools", "fabric", "relay_catchup.py")
 TOKEN = "fixture-relay-token-not-a-secret"
@@ -63,7 +65,10 @@ def main() -> int:
     url = f"http://127.0.0.1:{server.server_address[1]}"
     with tempfile.TemporaryDirectory() as home:
         env = {k: v for k, v in os.environ.items() if not k.startswith(("AGENT_FABRIC_", "GITHUB_", "GZCOORD_", "CLAUDE_BRIDGE_"))}
-        env.update(HOME=home, CLAUDE_BRIDGE_URL=url)
+        # The integrations the cases name are the fixture operator's, never the checkout's.
+        operator = write_gzcoord_integrations(os.path.join(home, "operator"),
+                                              {"agent-fabric": (url, "gzapp:gzcoord"), "interweave": (url, "gzapp:gzcoord")})
+        env.update(HOME=home, CLAUDE_BRIDGE_URL=url, AGENT_FABRIC_OPERATOR=operator)
 
         def run(*projects: str) -> subprocess.CompletedProcess:
             Relay.calls.clear()
