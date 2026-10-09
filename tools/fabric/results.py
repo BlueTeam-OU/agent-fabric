@@ -218,14 +218,14 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--days", type=int, default=14,
                     help="the period's length: PRs merged between DAYS+WINDOW and WINDOW days ago, whose windows have closed")
     ap.add_argument("--window", type=int, default=14, help="days after a merge in which a revert or a fix unverifies it")
-    ap.add_argument("--repo", action="append", help="owner/name; may repeat (default gzapi-org/agent-fabric)")
+    ap.add_argument("--repo", action="append", help="owner/name; may repeat (default BlueTeam-OU/agent-fabric)")
     ap.add_argument("--all", action="store_true", help="every registered project, and the spend divided by their results")
     ap.add_argument("--json", action="store_true")
     ap.add_argument("--no-tokens", action="store_true", help="skip the control plane's token read")
     a = ap.parse_args(argv)
     now = dt.datetime.now(dt.timezone.utc)
     since, end = closed_period(now, a.days, a.window)
-    repos = registered_repos() if a.all else (a.repo or ["gzapi-org/agent-fabric"])
+    repos = registered_repos() if a.all else (a.repo or ["BlueTeam-OU/agent-fabric"])
     rows = []
     try:
         read = {repo: (main_commits(repo, since), merged_prs(repo, since)) for repo in repos}

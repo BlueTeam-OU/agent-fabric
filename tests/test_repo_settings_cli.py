@@ -108,7 +108,7 @@ def main() -> int:
         rc, out, err, calls = settings(GH_RULESET_PAGES=json.dumps([[{"id": 3, "name": "other"}]]))
         last = calls[-1] if calls else {}
         check("no ruleset of that name: created; no repository named: the default one",
-              rc == 0 and last.get("method") == "POST" and last.get("path") == "repos/gzapi-org/agent-fabric/rulesets"
+              rc == 0 and last.get("method") == "POST" and last.get("path") == "repos/BlueTeam-OU/agent-fabric/rulesets"
               and last.get("body") == ruleset, f"rc={rc}\n{err}{json.dumps(calls)[-400:]}")
 
         rc, out, err, calls = settings("o/r", GH_FAIL="PUT repos/o/r/topics")

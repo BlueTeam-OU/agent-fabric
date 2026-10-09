@@ -111,7 +111,7 @@ issued key, no signing key; moveto's sudo grant is the host operator's.
 What the steps are, when done by hand:
 
 1. **Clone agent-fabric** beside the working copies:
-   `git clone git@github.com:gzapi-org/agent-fabric.git ~/projects/agent-fabric`.
+   `git clone git@github.com:BlueTeam-OU/agent-fabric.git ~/projects/agent-fabric`.
 2. **Run bootstrap** as the account:
    `~/projects/agent-fabric/runtime/claude-code/bootstrap.sh`. It writes
    the workspace `CLAUDE.md` and `.claude/settings.json`, installs
