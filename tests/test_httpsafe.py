@@ -15,6 +15,7 @@ import urllib.request
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(HERE, "tools", "fabric"))
 import httpsafe  # noqa: E402
+import relay  # noqa: E402
 import shim  # noqa: E402
 import store_provision  # noqa: E402
 
@@ -134,6 +135,16 @@ def main() -> int:
         seen.clear()
         get(httpsafe.opener(proxies=False, redirects="none"), relay_url + "/direct").read()
         check("proxies=False: the environment's proxy is never asked", not caught and seen == [("/direct", SECRET)], (caught, seen))
+        seen.clear()
+        relay.call(relay_url, "not-a-real-credential", "/api/x")
+        check("relay.call: straight to the relay, never through http_proxy", not caught and seen == [("/api/x", SECRET)],
+              (caught, seen))
+        seen.clear()
+        try:
+            relay.call(f"http://127.0.0.1:{away.server_port}", "not-a-real-credential", "/api/x")
+            check("relay.call: a redirect is an error", False)
+        except urllib.error.HTTPError as e:
+            check("relay.call: a redirect is an error, the token never followed", e.code == 302 and not seen, seen)
     finally:
         lsock.close()
         for k, v in saved.items():
