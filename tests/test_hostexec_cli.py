@@ -174,6 +174,11 @@ def main() -> int:
               "/usr/local/bin/fabric-python -I @fabric/tools/fabric/provisioning/rename_working_copy.py zz-far-login old new --dry-run" in log(sshlog),
               log(sshlog))
         clear(sshlog)
+        run(FH, "far-host", "persist", merge=True)
+        check("persist: the target's own persist_accounts.py, as root, on its pinned Python, for every placement there",
+              "sudo -n /usr/local/bin/fabric-python -I @fabric/tools/fabric/provisioning/persist_accounts.py zz-far-login" in log(sshlog),
+              log(sshlog))
+        clear(sshlog)
         run(FH, "far-host", "drain", "zz-far-login", "--dry-run", merge=True)
         check("drain: the account's own harvest, as the account, bundle to stdout",
               "--as zz-far-login -- python3 @fabric/tools/fabric/harvest_memory.py --bundle - --dry-run" in log(sshlog),
