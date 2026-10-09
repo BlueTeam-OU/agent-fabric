@@ -99,13 +99,18 @@ def main() -> int:
           and isinstance(js.json_parse("9007199254740992"), int))
     deep = "[" * 60000 + "]" * 60000
     read_by_node = node("try { JSON.parse(input); return true; } catch { return false; }", deep)
-    try:
-        js.json_parse(deep)
-        read_here = True
-    except ValueError:
-        read_here = False
-    check("the named gap: well-formed JSON 60,000 deep is read by Node and refused here, a ValueError, never a RecursionError",
-          read_by_node is True and read_here is False, (read_by_node, read_here))
+    # Where Python's reader stops is its stack's size, which a runner sets
+    # (an unlimited one reads a million levels): measured on 8 MiB, the
+    # default, in a child whose limit is set before it starts.
+    import resource
+    soft, hard = resource.getrlimit(resource.RLIMIT_STACK)
+    eight = 8 << 20 if hard == resource.RLIM_INFINITY else min(8 << 20, hard)
+    r = subprocess.run([sys.executable, "-c", "import sys; sys.path.insert(0, sys.argv[1]); from control import js\n"
+                        "try:\n    js.json_parse(sys.stdin.read()); print('read')\nexcept ValueError:\n    print('ValueError')",
+                        os.path.join(HERE, "tools", "fabric")], input=deep, capture_output=True, text=True, timeout=120,
+                       preexec_fn=lambda: resource.setrlimit(resource.RLIMIT_STACK, (eight, hard)))
+    check("the named gap: JSON 60,000 deep is read by Node, and on an 8 MiB stack refused here as a ValueError, never a RecursionError",
+          read_by_node is True and r.returncode == 0 and r.stdout.strip() == "ValueError", (read_by_node, r.returncode, r.stdout, r.stderr[-300:]))
 
     pairs = [["k", v] for v in ["fabric:control", "a b", "~*-._!'()", "\u00e9\U0001F600", "a&b=c", "%", "+", "\u2028", ""]]
     pairs += [[f"k{i}", "".join(rnd.choice("  !'()*+-._~=&%/:?#\u00e9") for _ in range(6))] for i in range(500)]
