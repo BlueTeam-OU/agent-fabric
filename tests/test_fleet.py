@@ -490,10 +490,15 @@ class RunProgram(unittest.TestCase):
         self.assertLess(time.monotonic() - began, 20)
         with open(pidfile) as fh:
             pid = int(fh.read())
-        for _ in range(50):
+        def alive() -> bool:
+            # A killed process nobody reaps (a container's init does not) stays a zombie, and kill(pid, 0) still finds it.
             try:
-                os.kill(pid, 0)
-            except ProcessLookupError:
+                with open(f"/proc/{pid}/stat") as fh:
+                    return fh.read().rsplit(")", 1)[1].split()[0] != "Z"
+            except FileNotFoundError:
+                return False
+        for _ in range(50):
+            if not alive():
                 break
             time.sleep(0.1)
         else:
