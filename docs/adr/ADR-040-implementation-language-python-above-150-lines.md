@@ -141,10 +141,13 @@ serve as the parity oracle for each port, unchanged.
    executor, `bootstrap.sh`, `moveto`, and the `bin/` entry points,
    whose few lines of shell print the install command when the pin is
    absent — and the git hooks and the suite runners (rule 1).
-8. No new fabric code is written in Node. The remaining Node (the
-   control plane until Wave 8's cutover, the locale search server) takes
-   fixes where it is; new behaviour of the control plane is written in
-   the Python package and is live from the cutover (A 2026-10-09).
+8. No new fabric code is written in Node. Wave 7's carve-out kept
+   existing Node code as it was; it never admitted new modules into it,
+   and none is admitted now. Node not yet ported (the control plane until
+   Wave 8's cutover, the locale search server, the shims that hand over
+   to Python, the Node test suites and their helpers) takes fixes and
+   test cases where it is; new behaviour of the control plane is written
+   in the Python package (A 2026-10-09).
 
 ## 6. Consequences
 
@@ -180,26 +183,55 @@ it a reason to move.
   cases case for case; nothing runs it until the cutover. The Node tests
   stay the oracle until then.
 - **The wire does not change.** Envelopes (`protocol.mjs`), op names,
-  their arguments and replies, and the signature bytes are frozen. A
+  their arguments and replies, and the signed bytes are frozen: the
+  payload's serialisation is Node's `JSON.stringify` to the byte
+  (non-ASCII unescaped, integers without a fraction, no spaces), which
+  Python's `json.dumps` does not give by default. So is the state the
+  agent keeps on disk, which the Python agent takes over on the same
+  account: the action ledger (its replay floor), the pool and its
+  claims, the pressure ring, the tools report and the restart marker. A
   parity suite runs every op and action through both implementations
-  against the same fixture homes and compares the replies. The fleet
-  upgrades one account at a time, so a Python `fabric-ctl` must be
-  answered by a Node control agent and the other way round.
-- **Ed25519 through the host's `openssl`** (`pkeyutl -rawin`): measured
-  byte-identical with Node (docs/live-checks/2026-10-09-ed25519-through-openssl.md).
-  A key is never on a command line.
+  against the same fixture homes, non-ASCII strings and numbers among
+  the arguments and the persisted files among the fixtures, and compares
+  the replies and the files. The fleet changes one account at a time, so
+  a Python `fabric-ctl` must be answered by a Node control agent and the
+  other way round.
+- **Which agent answers is visible.** The `fabric` op's reply names its
+  implementation (`node` or `python`), added to the Node agent before
+  the freeze: the one new behaviour Wave 8 gives the Node, because
+  nothing else on a frozen wire can tell the two apart.
+- **Ed25519 through the host's `openssl`** (`pkeyutl -rawin`): the
+  primitive agrees with Node's byte for byte
+  (docs/live-checks/2026-10-09-ed25519-through-openssl.md); the payload
+  serialisation, the key formats and the key's path into openssl are
+  the port's first checks. A key is never on a command line. `openssl`
+  3 and the pinned `fabric-python` join the host contract that
+  provisioning installs and audits, and every host is checked for both
+  before its accounts switch.
 - **The cross-language helpers go.** `fabric-jobs` reads the state stream
   itself, not through `queue.mjs`, and `roots.mjs` goes with the last Node
   caller of `roots.py`'s twin.
-- **The cutover** switches `bin/fabric-ctl`, `bin/fabric-accounts` and
-  the control agent's unit together, one account first under a live
-  read-back, then the fleet through `fabric-ctl all upgrade fabric`; the
-  Node code is deleted once every account reports the Python agent.
+- **The cutover.** `bin/fabric-ctl` and `bin/fabric-accounts` switch
+  fleet-wide when the cutover merges, since the launcher pulls main on
+  every launch; that is safe because the wire is the same. The control
+  agent's unit switches per account, because only a bootstrap rewrites
+  it and a launcher's pull does not: one account first under a live
+  read-back, then the fleet through `fabric-ctl all upgrade fabric`.
+  The Node code is deleted only when every account's `fabric` op names
+  `python`; deleted earlier, an account whose unit still starts the Node
+  agent loses it and goes dark to the very upgrade that would fix it.
+- **New wire behaviour waits.** An op, or an argument of an action, that
+  only the Python agent knows is refused by every Node agent, whose
+  arguments are a closed set (ADR-029 rule 3). New control-plane
+  behaviour is written in the package from now on (rule 8) and enabled
+  on the wire only once the Node code is deleted; until then it is
+  outside the parity suite.
 
 ## 8. Decision Status
 
-Accepted and in force. Wave 1, the GitHub toolkit, follows; the
-allowlist holds the rest, each entry with its wave.
+Accepted and in force. Waves 0 to 7 are done (the bash allowlist is
+empty, GZCoord's command-line tools run Python behind their `.mjs`
+shims); Wave 8, the control plane, is in progress.
 
 ## References
 

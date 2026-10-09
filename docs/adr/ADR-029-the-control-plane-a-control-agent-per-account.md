@@ -4,7 +4,7 @@
 **Status:** Accepted
 **Ratified:** owner, 2026-09-27, by arming agent-fabric #53 (ratification by merge, the owner's rule of 2026-09-27)
 **Decision Makers:** the owner; drafted by fabric-coordinator
-**Scope:** runtime/control/, every module and the unit file, and from ADR-040 Wave 8's cutover its Python package tools/fabric/control/; bin/fabric-ctl; the control channel's refusal in communication/gzcoord/scripts/inbox.mjs and send.mjs; the unit's installation in runtime/claude-code/bootstrap.sh; account persistence (runtime/provisioning/persist-accounts.sh, runtime/provisioning/platform/qubes/agent-fabric-accounts.rc); the fallbacks bin/fabric-usage and bin/fabric-host
+**Scope:** runtime/control/, every module and the unit file, and its Python package tools/fabric/control/ from its creation (ADR-040 Wave 8); bin/fabric-ctl; the control channel's refusal in GZCoord's inbox and send tools; the unit's installation in tools/fabric/bootstrap.py; tools/fabric/local_settings.py (rule 15) and runtime/claude-code/hooks/session-state.py (rule 16); account persistence (runtime/provisioning/persist-accounts.sh, runtime/provisioning/platform/qubes/agent-fabric-accounts.rc); the fallbacks bin/fabric-usage and bin/fabric-host
 **Pillar:** P5
 **Evidence:** docs/live-checks/2026-09-17-control-plane.md
 
@@ -303,4 +303,4 @@ The body above reads current; each change's full note is in [history/ADR-029-ame
 | 2026-10-08 | The state record names the last session and whether it can be resumed | §5 rule 16: `last_session` and `resumable`, no path |
 | 2026-10-08 | The op table follows ops.mjs: disk, jobs, local, the pool and tools; three public ops | §2 table, §5 rules 3 and 4: rows for the read ops added since; the pool's arguments; `presence`, `pool-list` and `pool-claim` public |
 | 2026-10-09 | pool-add's checker named; a forged claim is seen in the holder's pool file | §5 rule 3 names `checkPoolArgs`; rule 4: `pool-list` shows unclaimed jobs only, so a claim is seen in the holder's `pool.json`; the Scope line names pool.mjs, tools.mjs and sessions.mjs |
-| 2026-10-09 | Scope: all of runtime/control/, and its Python package from Wave 8 | Scope line: the directory as a whole rather than a list that lagged it, and tools/fabric/control/ once Wave 8 cuts over |
+| 2026-10-09 | Scope: all of runtime/control/, and its Python package from Wave 8 | Scope line: the directory as a whole rather than a list that lagged it; tools/fabric/control/ from its creation; the unit's installation in bootstrap.py; local_settings.py and session-state.py, which rules 15 and 16 name |

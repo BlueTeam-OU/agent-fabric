@@ -619,20 +619,20 @@ its record disagree, the record wins. Look it up, never read it whole:
   while it is down is lost (§2, §5 rules 1–2).
 - A closed op set; no request field reaches a shell; actions carry the
   operator's fresh Ed25519 signature, newer than the last (§5 rules 3–5).
-- Replies carry no secret, gaps named; silence or a failure exits 1
+- Replies carry no secret; a gap is named; silence exits 1
   (§5 rules 6–9).
 - A 2026-09-27 — actions run beside the read loop (§5 rule 12).
 - A 2026-09-27 — each op's answer budget (§5 rule 12).
 - A 2026-09-28 — `jobs` and `jobs-add` carry the job list (§5 rule 13).
 - A 2026-09-29 — `secrets-migrate` (§5 rule 14).
 - A 2026-09-30 — rule 14 withdrawn; signing key in the operator's store (§5 rule 5).
-- A 2026-10-06 — `local`, `local-prune` (§5 rule 15).
-- A 2026-10-07 — session state (§5 rule 16).
-- A 2026-10-07 — `secrets-selftest` (§5 rule 17).
+- A 2026-10-06 — local, local-prune (§5 rule 15).
+- A 2026-10-07 — session state (rule 16).
+- A 2026-10-07 — secrets-selftest (§5 rule 17).
 - A 2026-10-08 — resumable state in the state record (§5 rule 16).
 - A 2026-10-08 — the op table; three public ops (§5 rule 4).
-- A 2026-10-09 — a forged claim shows in pool.json (§5 rule 4).
-- A 2026-10-09 — Scope: all of runtime/control/.
+- A 2026-10-09 — a forged claim shows in the holder's pool.json (§5 rule 4).
+- A 2026-10-09 — Scope: runtime/control/.
 - Keywords: control plane, agentd, fabric-ctl, ops, ping, keys, usage,
   recall, tokens, memory, bundle, drain, keygen, linger, operator_key,
   herdr, persist, status, resume, tools, pool.
