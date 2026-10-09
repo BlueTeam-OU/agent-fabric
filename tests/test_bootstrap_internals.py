@@ -522,6 +522,24 @@ def agentd_selector(T: str) -> None:
             finally:
                 s.close()
 
+        # The placement check also covers an unlisted login when the default is python.
+        for name, placed in (("agentd-default-python-elsewhere", "some-other-host"),
+                             ("agentd-default-python-here", here)):
+            s, projects, root = account(name, json.dumps({"default": "python", "python": []}), placed)
+            try:
+                b = bootstrap.Bootstrap(projects, False, root)
+                _, out, err = quiet(b.control_agent)
+                if placed == here:
+                    check("default python, unlisted login placed here: python runs",
+                          "runs python" in out and not err and b.failed == 0, (out, err))
+                else:
+                    check("default python, unlisted login placed elsewhere: the Node unit, one warning naming the placement",
+                          open(unit_path(), "rb").read() == template and b.failed == 0
+                          and "python not used" in err and "placed on" in err and err.count("\n") == 1
+                          and "runs python" not in out, (out, err))
+            finally:
+                s.close()
+
         # The fallback unit is enabled all the same.
         s, projects, root = account("agentd-elsewhere-enabled", json.dumps({"default": "node", "python": [me]}), "some-other-host")
         try:
