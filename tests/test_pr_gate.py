@@ -6,6 +6,7 @@ tests only at 6, 9 and 17."""
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -99,6 +100,61 @@ def main() -> int:
         st = pr_gate.gate_state("o/r", 1)
         check("a second page that cannot be read: ?, which blocks", st["unresolved"] == "?"
               and "unresolved thread" in pr_gate.verdict(1, "main", False, None, st, "head reviewed", []))
+
+        print("checks past the first 100")
+        ok = {"name": "ok", "status": "COMPLETED", "conclusion": "SUCCESS"}
+        red = {"name": "late", "status": "COMPLETED", "conclusion": "FAILURE"}
+
+        def rollup(rest, more=True):
+            """GATE_QUERY's answer with 100 green checks and, when `more`, a
+            next page; CONTEXTS_QUERY's pages are `rest` (a list of pages,
+            or an exception). Like GitHub, it answers pageInfo only to a
+            query whose contexts ask for it."""
+            def fake(query, **kw):
+                asks = re.search(r"contexts\(first: 100(, after: \$after)?\) \{ pageInfo \{ hasNextPage endCursor \}", query)
+                if "mergeStateStatus" in query:
+                    if not asks:
+                        return {"repository": {"pullRequest": {
+                            "mergeStateStatus": "CLEAN", "mergeable": "MERGEABLE", "mergeQueueEntry": None,
+                            "autoMergeRequest": None, "reviewThreads": {"nodes": [], "pageInfo": {"hasNextPage": False}},
+                            "statusCheckRollup": {"contexts": {"nodes": [ok] * 100}}}}}
+                    return {"repository": {"pullRequest": {
+                        "mergeStateStatus": "CLEAN", "mergeable": "MERGEABLE", "mergeQueueEntry": None,
+                        "autoMergeRequest": None, "reviewThreads": {"nodes": [], "pageInfo": {"hasNextPage": False}},
+                        "statusCheckRollup": {"contexts": {"nodes": [ok] * 100,
+                                                           "pageInfo": {"hasNextPage": more, "endCursor": "0" if more else None}}}}}}
+                assert asks and asks.group(1) and kw.get("after") is not None, (query, kw)
+                if isinstance(rest, Exception):
+                    raise rest
+                i = int(kw["after"])
+                last = i == len(rest) - 1
+                return {"repository": {"pullRequest": {"statusCheckRollup": {"contexts": {
+                    "nodes": rest[i], "pageInfo": {"hasNextPage": not last, "endCursor": None if last else str(i + 1)}}}}}}
+            return fake
+        gh.graphql = rollup([], more=False)
+        check("one page of green checks: green", pr_gate.gate_state("o/r", 1)["checks"] == "green")
+        gh.graphql = rollup([[ok] * 100, [red]])
+        check("a red check on the third page: red, named", pr_gate.gate_state("o/r", 1)["checks"] == "red:late")
+        gh.graphql = rollup([[ok, {"name": "slow", "status": "IN_PROGRESS", "conclusion": None}]])
+        check("a running check on the second page: pending", pr_gate.gate_state("o/r", 1)["checks"] == "pending:1")
+        for label, rest in (("a page that cannot be read", gh.GhError("gh api graphql", "HTTP 502", 502, True)),
+                            ("a page with no cursor to the next", "no-cursor"),
+                            ("past the page cap", [[ok]] * (pr_gate.CONTEXT_PAGES + 1)),
+                            ("a malformed page", [None])):
+            if rest == "no-cursor":
+                def rest_fake(query, **kw):
+                    if "mergeStateStatus" in query:
+                        return rollup([])(query, **kw)
+                    return {"repository": {"pullRequest": {"statusCheckRollup": {"contexts": {
+                        "nodes": [ok], "pageInfo": {"hasNextPage": True, "endCursor": None}}}}}}
+                gh.graphql = rest_fake
+            else:
+                gh.graphql = rollup(rest)
+            st = pr_gate.gate_state("o/r", 1)
+            check(f"{label}: checks ?, which blocks", st["checks"] == "?"
+                  and "the checks could not all be read" in pr_gate.verdict(1, "main", False, None, st, "head reviewed", []))
+        st = dict(st, checks="green")
+        check("...and green does not", "BLOCKED" not in pr_gate.verdict(1, "main", False, None, st, "head reviewed", []))
     finally:
         gh.graphql = real
 
