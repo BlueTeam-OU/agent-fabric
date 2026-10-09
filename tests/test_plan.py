@@ -308,6 +308,29 @@ def _():
               and "Notes:\n- s3: after review" in out, out)
 
 
+@case("the plan store: 0700 directory, 0600 files, an unmade plan is refused and leaves no file")
+def _():
+    with world() as w:
+        w.run("new", "p", "t")
+        d = plan.identity.plans_dir()
+        check(oct(os.stat(d).st_mode & 0o777) == "0o700" and oct(os.stat(os.path.join(d, "p.json")).st_mode & 0o777) == "0o600",
+              (oct(os.stat(d).st_mode), oct(os.stat(os.path.join(d, "p.json")).st_mode)))
+        try:
+            plan.identity.update_plan("never", lambda doc: None)
+        except SystemExit as e:
+            check("never" in str(e.code), e.code)
+        else:
+            check(False, "no refusal for a plan nothing made")
+        check(not os.path.exists(os.path.join(d, "never.json")), "a null document was written")
+        check(plan.identity.list_plans()[0]["id"] == "p" and len(plan.identity.list_plans()) == 1)
+        for bad in ("../x", "A", "a/b", ""):
+            try:
+                plan.identity.plan_path(bad)
+            except SystemExit:
+                continue
+            check(False, f"{bad!r} named a path")
+
+
 # ── the readers behind the module ───────────────────────────────────
 
 class Run:
