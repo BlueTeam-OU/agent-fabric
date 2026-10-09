@@ -21,7 +21,7 @@ import tempfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TOOL = [os.path.join(ROOT, "bin", "fabric-pr"), "compliance"]
-GZAPP_CONFIG = os.path.join(ROOT, "projects", "gzapp", "integration", "gh", "compliance.json")
+GZAPP_CONFIG = os.path.join(ROOT, "tests", "fixtures", "gzapp-gh", "compliance.json")
 REPO = "gzapi-org/gzapp"
 
 # gh as gh.py calls it. State in $MOCK_STATE: merged.json (gh pr list

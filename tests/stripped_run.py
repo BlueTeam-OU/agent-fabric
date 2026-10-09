@@ -34,9 +34,12 @@ cleanup stops it; nothing short of a /proc sweep finds it, and the copy
 it lived in is gone.
 
 stdout: one line per file, "<file>: ok" or "<file>: FAILED (exit <n>)"
-followed by its failing lines. Exit 0 all passed, 1 any failed, 2 the run
-could not be made or not cleaned up (no tree, not a git work tree, a file
-not in it, a copy that could not be removed).
+followed by its failing lines. A file in KNOWN_RED reads the operator's own
+data on purpose (tests/test_tests_read_fixtures.py STRIPPED_RED says why):
+red on a stripped copy is its answer, said as "<file>: red, deliberate — <why>"
+and not counted; the same file passing is "ok". Exit 0 all passed, 1 any
+failed, 2 the run could not be made or not cleaned up (no tree, not a git
+work tree, a file not in it, a copy that could not be removed).
 """
 from __future__ import annotations
 
@@ -54,6 +57,11 @@ import git_env  # noqa: E402
 import instance_fixtures  # noqa: E402
 
 TIMEOUT_S = 900
+KNOWN_RED: dict[str, str] = {}
+try:
+    from test_tests_read_fixtures import STRIPPED_RED as KNOWN_RED  # noqa: E402,F811
+except ImportError:
+    pass          # a tree without the guard: every red is a failure
 NOT_CI = re.compile(r"(AGENT_FABRIC_|GITHUB_|CLAUDE|ANTHROPIC_)")
 # tests/run.sh's: no sandbox signs, whatever the caller's git config says.
 NO_SIGNING = {"GIT_CONFIG_COUNT": "2", "GIT_CONFIG_KEY_0": "commit.gpgsign", "GIT_CONFIG_VALUE_0": "false",
@@ -169,6 +177,8 @@ def run(tree: str, files: list[str], out=print) -> int:
             code, text = run_one([sys.executable, "-B", f], d, env)
             if code == 0:
                 out(f"{f}: ok")
+            elif f in KNOWN_RED:
+                out(f"{f}: red, deliberate — {KNOWN_RED[f]}")
             else:
                 failed += 1
                 out(f"{f}: FAILED (exit {code})")

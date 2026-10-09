@@ -1,0 +1,25 @@
+{
+  "description": "gzapp's rules for fabric-pr arm, moved from gzapp's tools/gh/arm.sh. boundary.paths is gzapp CLAUDE.md §A security-boundary change in path form, matched case-insensitively (the backend spells Auth/, the clients auth/): migrations; auth / JWT / scope; the device registry and provisioning; retention and erasure; Regime 3 — driver positions, the driver directory and roster, shifts, consent; Regime 4B — journeys and the passenger session credential; per-class stripping. gzapp #886's review found the first list missing Gzapp.Admin/Drivers/ and every client auth/. boundary.exempt is dropped first: documentation, i18n, the local stack, the memory slices and the tooling are not on the list (a wording PR on ADR-054 says regime in its filename, #886 re-review). The classes are the two gzapp CLAUDE.md §5 lets arm under 8 without asking: docs-only never takes product/i18n/ (an i18n sweep asks under the plain rule) nor .claude/settings.json, which wires the guards and is tooling (#894 review F1). Declared by devex-tooling. waiver_role: a --no-boundary waiver is a DECISION or REPLY from a login holding architect-cto, sent TO the arming session, carrying WAIVES: <owner/repo>#<n>@<head sha> (the owner's ruling, 2026-10-04: the waiver moves from the owner's approval to architect-cto's).",
+  "boundary": {
+    "paths": "^infra/db/migrations/|/auth/|jwt|/identity/|/deviceregistry/|/devices/|/devicesession/|/devicereadings/|/registration/|provision|/retention/|erasure|/positions/|/driverpositions/|/drivers/|/driverstaff/|/shifts/|/consent/|/journeys/|passengersessioncredentials|regime|stripping|serializ|authoriz|scope",
+    "exempt": "^(docs/|product/i18n/|infra/local/|\\.agent-fabric/|tools/|\\.claude/|\\.github/)",
+    "cases": [
+      "infra/db/migrations/0053_x.sql",
+      "apps/backend_dotnet/src/Gzapp.Infrastructure/Auth/DriverIdentity.cs",
+      "apps/backend_dotnet/src/Gzapp.Admin/Drivers/AdminDriverDirectoryRepository.cs",
+      "packages/web-shared/src/auth/refresh.ts",
+      "apps/backend_dotnet/src/Gzapp.Persistence/Consent/ConsentRepository.cs",
+      "apps/backend_dotnet/src/Gzapp.Persistence/DriverPositions/Store.cs"
+    ],
+    "changes": {
+      "2026-10-04 waiver_role architect-cto": "the boundary gate is waived only by a holder of architect-cto, with a WAIVES message arm.py checks (#92; devex-tooling's request, relay seq 11665)"
+    }
+  },
+  "waiver_role": "architect-cto",
+  "classes": {
+    "docs-only": "^(docs/|\\.claude/skills/|README\\.md$|[^/]+\\.md$|.*/README\\.md$|.*/CLAUDE\\.md$)",
+    "single-check tooling": "^(tools/|\\.github/|Makefile$|infra/local/|\\.claude/)"
+  },
+  "arm_command": "tools/gh/arm.sh",
+  "eviction_note": "The pr's own checks are green because that run is detector-bypassed and builds every surface, including ones this diff never touched."
+}

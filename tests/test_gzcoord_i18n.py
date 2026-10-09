@@ -82,10 +82,25 @@ def _():
     eq(i18n.suffix("user"), "user")
 
 
+def locale_root() -> str:
+    """An operator tree whose language-culture role has two locales as the
+    live ones read: a tag, and the owner's reminder in the locale (instance
+    data, so a copy of the shape: the cases below read this, not the checkout's)."""
+    root = scratch("locales-")
+    for s, tag, reminder in (("ge", "ka-GE", " - იფიქრე ქართულად"), ("ru", "ru-RU", " - Думай по-русски")):
+        d = os.path.join(root, "identities", "roles", "language-culture", "locale", s)
+        os.makedirs(d)
+        with open(os.path.join(d, "locale.json"), "w", encoding="utf-8") as fh:
+            json.dump({"tag": tag, "reminder": reminder}, fh, ensure_ascii=False)
+    return root
+
+
 @case("the suffix names its tag in locale.json — ge is Georgian, not German")
 def _():
+    root = locale_root()
+
     def d(s: str) -> str:
-        return os.path.join(FABRIC, "identities", "roles", "language-culture", "locale", s)
+        return os.path.join(root, "identities", "roles", "language-culture", "locale", s)
     eq(i18n.locale_tag(d("ge")), "ka-GE")
     eq(i18n.locale_tag(d("ru")), "ru-RU")
     eq(i18n.locale_tag(d("nothing-here")), None)
@@ -272,10 +287,12 @@ def _():
        "a locale that declares none")
 
 
-@case("the reminder each real locale carries is the owner's, in that locale")
+@case("the reminder a locale carries is the owner's, in that locale")
 def _():
+    root = locale_root()
+
     def of(s: str) -> str:
-        return i18n.locale_reminder({"agent": f"language-culture-{s}", "role": "language-culture"}, FABRIC, {})
+        return i18n.locale_reminder({"agent": f"language-culture-{s}", "role": "language-culture"}, root, {})
     for s in ("ge", "ru"):
         ok(of(s) != "", f"{s} carries one")
         ok(of(s).startswith(" - "), f"{s} appends to the head line")
