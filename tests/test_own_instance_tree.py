@@ -2,21 +2,24 @@
 """A test that builds the fabric tree it runs a tool on owns that tree's
 instance data (agent-fabric ADR-045 rule 3): it starts without the runner's
 AGENT_FABRIC_OPERATOR, which would outrank the tree the tool is handed
-(tools/fabric/roots.py) and make the tool read the operator's data instead of
-the fixture's. A suite that names AGENT_FABRIC_ROOT, hands a tool a tree as
---fabric or --root, or is named in EXTRA builds or points at such a tree, so each one either calls own_instance_tree() as a module-level statement
-before any definition runs, or names AGENT_FABRIC_OPERATOR itself (it sets or
-clears it for the cases that mean one). The rule is discovered, not listed: a
-suite added tomorrow that names AGENT_FABRIC_ROOT is held to it. Running every
-suite with an operator exported costs most of the suite's run (lint and
-assemble alone take minutes), so this holds the cheap half, and the
-whole-suite run with an operator exported is the check that found the class
-(see the PR that added this). Plain script."""
+(tools/fabric/roots.py) and make the tool read, or write, the operator's data
+instead of the fixture's. A suite that names AGENT_FABRIC_ROOT, hands a tool a
+tree as --fabric or --root, or is named in EXTRA builds or points at such a
+tree, so each one either calls own_instance_tree() as a module-level statement
+before the entry guard, or names AGENT_FABRIC_OPERATOR itself (it sets or
+clears it for the cases that mean one). The rule is discovered, with EXTRA for
+what a scan cannot see (a tree handed in-process, or built by a helper): a
+suite added tomorrow that hands a tool a tree the usual ways is held to it.
+Running every suite with an operator exported costs most of the suite's run
+(lint and assemble alone take minutes), so this holds the cheap half, and the
+whole-suite run with an operator exported is the check that found the class.
+Plain script."""
 from __future__ import annotations
 
 import ast
 import glob
 import os
+import re
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -51,6 +54,7 @@ EXTRA = {
     "test_assemble.py": "builds a fabric under a temporary directory and runs assemble.py and lint.py on it",
     "test_assemble_seams.py": "the same, through test_assemble's helpers",
     "test_fleet.py": "builds placements and registries under a temporary directory for fleet.py",
+    "test_hosts_registry.py": "builds a fabric under a temporary directory and calls lint.host_registry_findings on it in-process",
 }
 
 
@@ -88,12 +92,13 @@ def main() -> int:
         with open(path, encoding="utf-8") as fh:
             src = fh.read()
         name = os.path.basename(path)
-        hands_a_tree = "AGENT_FABRIC_ROOT" in src or '"--fabric"' in src or '"--root"' in src or name in EXTRA
+        hands_a_tree = "AGENT_FABRIC_ROOT" in src or re.search(r"""["']--(fabric|root)["']""", src) or name in EXTRA
         if not hands_a_tree or "AGENT_FABRIC_OPERATOR" in src or name in NOT_PYTHON_DEVS:
             continue
         held += 1
         check(f"{os.path.basename(path)} starts without the runner's operator", starts_without_operator(src),
-              "it names AGENT_FABRIC_ROOT, so it calls own_instance_tree() before any definition (tests/instance_fixtures.py)")
+              "it hands a tool a tree (AGENT_FABRIC_ROOT, --fabric, --root, or EXTRA), so it calls own_instance_tree() "
+              "before any definition (tests/instance_fixtures.py)")
     check("the scan found suites to hold", held >= 25, held)
     print(f"\n{'FAILED' if fails else 'all passed'}")
     return 1 if fails else 0
