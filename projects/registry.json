@@ -207,7 +207,7 @@
     },
     "herdr": {
       "client": "blueteam",
-      "title": "herdr — agent-fabric-herdr, gzapi-org's public fork of herdrdev/herdr (renamed from gzapi-org/herdr on 2026-10-08; the old spellings stay listed for clones not yet re-pointed), the base of Fleet Deck, the operator's console over the fleet",
+      "title": "herdr — agent-fabric-herdr, BlueTeam-OU's public fork of herdrdev/herdr (renamed from gzapi-org/herdr on 2026-10-08, moved from gzapi-org on 2026-10-09; the old names are its moved_from), the base of Fleet Deck, the operator's console over the fleet",
       "remotes": [
         "git@github.com:BlueTeam-OU/agent-fabric-herdr.git",
         "https://github.com/BlueTeam-OU/agent-fabric-herdr",

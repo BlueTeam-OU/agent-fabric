@@ -92,10 +92,10 @@ def test_project_matching_uses_the_canonical_form() -> None:
 
 def test_blueteam_projects_resolve_under_both_github_orgs() -> None:
     """The move from gzapi-org to BlueTeam-OU: a clone keeps its project
-    whichever name its origin carries. The old name stays first, because
-    new_agent.py clones from the first git@ remote and results.py reads the
-    first GitHub one: since the move (2026-10-09) the new name is first and
-    the old ones are listed as moved_from, which bootstrap re-points.
+    whichever name its origin carries. Since the move (2026-10-09) the new
+    name is first, which new_agent.py (the first git@ remote) and results.py
+    (the first GitHub one) take, and the old ones are listed as moved_from,
+    which bootstrap re-points.
     The operator's own registry on purpose: the fact is about its data."""
     import json
     roots_spec = importlib.util.spec_from_file_location("fabric_roots", os.path.join(ROOT, "tools", "fabric", "roots.py"))

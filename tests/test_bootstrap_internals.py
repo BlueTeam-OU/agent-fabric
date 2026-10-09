@@ -259,6 +259,27 @@ def moved_origin_repointed(T: str) -> None:
         b = bootstrap.Bootstrap(projects, False, root)
         _, out, _ = quiet(b.working_copy_hooks)
         check("a second run re-points nothing", "(moved)" not in out, out)
+        # One copy that cannot be re-pointed is that copy's failure, and the others go on.
+        gamma = os.path.join(projects, "gamma")
+        git("init", "-q", gamma)
+        git("-C", gamma, "remote", "add", "origin", "https://github.com/Old-Org/alpha")
+        git("-C", gamma, "config", "--add", "remote.origin.url", "https://github.com/Old-Org/alpha")
+        git("-C", alpha, "remote", "set-url", "origin", "https://github.com/Old-Org/alpha")
+        b = bootstrap.Bootstrap(projects, False, root)
+        _, out, err = quiet(b.working_copy_hooks)
+        check("…said on stderr, counted, and the copy beside it still re-pointed",
+              "origin not re-pointed" in err and b.failed == 1 and origin(alpha) == "https://github.com/new-org/alpha", (out, err, b.failed))
+        # No current remote of the origin's scheme: left as it is, never switched to the other scheme.
+        git("-C", alpha, "remote", "set-url", "origin", "git@github.com:Old-Org/alpha.git")
+        put(os.path.join(root, "projects", "registry.json"), json.dumps({"version": 1, "projects": {
+            "agent-fabric": {"remotes": ["git@github.com:new-org/agent-fabric.git"]},
+            "alpha": {"remotes": ["https://github.com/new-org/alpha", "git@github.com:Old-Org/alpha.git"],
+                      "moved_from": ["git@github.com:Old-Org/alpha.git"]}}}))
+        b = bootstrap.Bootstrap(projects, False, root)
+        _, out, err = quiet(b.working_copy_hooks)
+        check("…no other scheme put in its place: left, said and counted",
+              origin(alpha) == "git@github.com:Old-Org/alpha.git" and "no current ssh remote" in err and b.failed >= 1,
+              (origin(alpha), err))
     finally:
         s.close()
 

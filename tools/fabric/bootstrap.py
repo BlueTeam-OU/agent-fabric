@@ -672,12 +672,23 @@ class Bootstrap:
         scheme = (workingcopy.parse_remote(origin) or {}).get("scheme")
         current = [u for u in entry.get("remotes") or []
                    if workingcopy.canonical_remote(u) not in moved]
-        target = next((u for u in current if (workingcopy.parse_remote(u) or {}).get("scheme") == scheme),
-                      current[0] if current else None)
+        # Same scheme or none: an ssh clone set to https (or back) would start
+        # asking for credentials it never needed.
+        target = next((u for u in current if (workingcopy.parse_remote(u) or {}).get("scheme") == scheme), None)
         if not target:
+            warn(f"  !  {wc} ({pid}): origin {origin} names a moved repository, and the registry lists no "
+                 f"current {scheme} remote for it; left as it is")
+            self.failed += 1
             return
         if not self.dry_run:
-            self.git_set(wc, "remote.origin.url", target)
+            try:
+                self.git_set(wc, "remote.origin.url", target)
+            except Stop as e:
+                # One copy that cannot be re-pointed (an origin with two url values,
+                # a locked config) is that copy's failure; the run goes on.
+                warn(f"  !  {wc} ({pid}): origin not re-pointed ({e.message}); left as it is")
+                self.failed += 1
+                return
         say(f"  +  {wc} ({pid}): origin {origin} -> {target} (moved)")
         self.changed += 1
 
@@ -697,10 +708,10 @@ class Bootstrap:
                 self.repoint(self.root, self_pid, registry)
         except SystemExit as e:
             warn(f"  !  {self.root}: {e.code}; its origin left as it is")
-        except Stop:
-            raise
+            self.failed += 1
         except Exception as e:  # noqa: BLE001 — the checkout's origin is best effort, said
             warn(f"  !  {self.root}: origin not checked ({type(e).__name__}: {e})")
+            self.failed += 1
         try:
             names = [n for n in os.listdir(self.projects)
                      if not n.startswith(".") and os.path.isdir(os.path.join(self.projects, n))]
