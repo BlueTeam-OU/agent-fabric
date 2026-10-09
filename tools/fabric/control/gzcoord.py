@@ -211,11 +211,12 @@ def api(tok: str, path_and_query: str, relay_url: str | None = None, method: str
         raise ApiError(f"{path_and_query} -> {e}") from None
     finally:
         timer.cancel()
+        owned = conn.sock      # read before close(), which sets it to None
         conn.close()
         for sock in live:
             # A socket that never became the connection's (a TLS handshake
             # that failed) is closed here, not left to the collector.
-            if sock is not conn.sock:
+            if sock is not owned:
                 sock.close()
     if fired.is_set():
         raise late
