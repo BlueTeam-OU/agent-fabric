@@ -50,11 +50,13 @@ hook) is read exactly as before.
 
 A FOLD is the exception to that other-PR rule (ADR-019 §5 rule 3,
 amended 2026-10-08): a PR closed unmerged whose head lies inside the
-counted head was folded in — merged unrebased into this branch, then
-closed — and its review fixes are fixes here. gateway#10 folded into #11
-read 8 work where 6 was right. Telling a fold from a follow-up needs
-GitHub (state) and git (ancestry), so it is asked only with <head>, once
-per PR named (Folds). A PR that cannot be read keeps the reading from
+counted range, <base>..<head>, was folded in — merged unrebased into this
+branch, then closed — and its review fixes are fixes here. gateway#10
+folded into #11 read 8 work where 6 was right. A head already inside the
+base was folded into an earlier PR, and a follow-up answering it is work.
+Telling a fold from a follow-up needs GitHub (state) and git (ancestry),
+so it is asked only with <head> (and the range's <base> where the caller
+has it), once per PR named (Folds). A PR that cannot be read keeps the reading from
 before the amendment, work, and says so on stderr, so the session
 counting sees which commits it could not place.
 
@@ -240,7 +242,7 @@ def classify(parents: str, subject: str, answers: str = "", pr: str = "", repo: 
         found += [m.group(0) for m in re.finditer(FORM, answers)]
         refs = {_ref(r, repo) for r in found if r}
         if refs and str(pr) not in refs:
-            # Every PR named folded into this head: its review's fixes are
+            # Every PR named folded into this range: its review's fixes are
             # this PR's fixes. Another repository's ("x") is never a fold.
             if folded is not None and "x" not in refs and all(folded(n) for n in sorted(refs)):
                 return "fix"
