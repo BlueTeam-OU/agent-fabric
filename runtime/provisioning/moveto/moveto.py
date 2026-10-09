@@ -9,7 +9,10 @@ installed copy runs with no checkout behind it.
 CONTRACT, frozen from the bash (ADR-040 §5 rule 3):
   argv      none, -h or --help: USAGE on stdout, exit 0.
             --list: one line per account (uid 1000-65533, in `sort`'s
-            order) that has at least one clone: account, role, clones.
+            order) whose projects/ holds a clone or the control-plane
+            checkout: account, role, then what projects/ holds, agent-fabric
+            included (it is no clone to enter: `moveto <account> --list`
+            does not name it).
             <account> [<clone>] [--print] [--list] [--wait|--resume|--watch],
             options in any order after the account; --list there prints
             that account's clones, one per line, and stops; an unknown
@@ -83,7 +86,7 @@ usage: moveto <account>             open a shell as <account>, in its workspace
                                    refresh and do exactly --resume; end of input: a shell
        moveto <account> --watch     …and show its status (fabric-watch) until q; the shell follows
        moveto <account> --print     print the resolved path, spawn nothing
-       moveto --list                accounts that have at least one clone: account, role, clones
+       moveto --list                accounts with a clone or the agent-fabric checkout: account, role, what ~/projects holds
        moveto <account> --list      that account's clones
 
 Sudo here comes from the `qubes` group and role accounts are not in it, so
@@ -173,7 +176,8 @@ def list_clones(account: str, control_plane: bool = False) -> tuple[list[str], s
     # A clone is a DIRECTORY, and not the control plane: ~/projects also
     # holds the workspace CLAUDE.md that bootstrap.sh writes and the
     # agent-fabric checkout beside the clones, and neither is a place to
-    # work a project from.
+    # work a project from. `control_plane` is for `moveto --list` alone, which
+    # names the checkout so that an account holding nothing else is listed.
     skip = [] if control_plane else ["!", "-name", CONTROL_PLANE_DIR]
     _, out = run_as(account, "find", projects, "-mindepth", "1", "-maxdepth", "1", "-type", "d", "!", "-name", ".*",
                     *skip, "-print0")

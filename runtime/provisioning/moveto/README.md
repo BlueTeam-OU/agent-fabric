@@ -7,7 +7,7 @@ title set to the session.
 ```
 moveto architect-cto-01        # shell as that account, in ~/projects
 moveto architect-cto-01 <clone>  # …in a named clone under it instead
-moveto --list                  # accounts that have at least one clone
+moveto --list                  # accounts with a clone or the agent-fabric checkout
 moveto <account> --list        # that account's clones
 moveto <account> --print       # resolve only — print path and title, spawn nothing
 moveto <account> [<clone>] --resume  # …and bring its last session back first (fabric-resume)
