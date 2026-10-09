@@ -1692,6 +1692,53 @@ def case_a_dollar_anchored_pattern_is_not_called_with_match() -> None:
         assert all("fullmatch" in f for f in got), got
 
 
+def case_a_dollar_anchored_pattern_in_every_shape_and_scope() -> None:
+    """Review of #140: an f-string pattern, an inline re.compile(...).match,
+    a class attribute through self., cls. and the class's name, and a
+    function's own pattern are findings; a parameter or another local that
+    shares a pattern's name elsewhere is not."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("fabric_lint_under_test", LINT)
+    lint = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(lint)
+    with tempfile.TemporaryDirectory() as root:
+        g = lambda *a: subprocess.run(["git", "-C", root, *a], check=True, capture_output=True, env=git_env())
+        write(os.path.join(root, "tools", "shapes.py"),
+              "import re\n"
+              "K = 'x'\n"
+              "F = re.compile(rf\"^{K}:(.*)$\")\n"                 # line 3
+              "class C:\n"
+              "    PAT = re.compile(r\"^y$\")\n"                    # line 5
+              "    def m(self, s):\n"
+              "        return self.PAT.match(s)\n"                    # line 7
+              "    @classmethod\n"
+              "    def n(cls, s):\n"
+              "        return cls.PAT.match(s) or C.PAT.match(s)\n"  # line 10
+              "def f(s):\n"
+              "    pat = re.compile(r\"^z$\")\n"
+              "    return (F.match(s), re.compile(r\"^w$\").match(s), pat.match(s),\n"  # line 13
+              "            re.match(rf\"^{K}:(.*)$\", s))\n")    # line 14
+        write(os.path.join(root, "tools", "scopes.py"),
+              "import re\n"
+              "pat = re.compile(r\"^a$\")\n"
+              "def g(pat, s):\n"
+              "    return pat.match(s)\n"                  # a parameter, not the module's pattern
+              "def h(s):\n"
+              "    pat = re.compile(r\"^a\\Z\")\n"
+              "    return pat.match(s)\n"                  # a local that is not a $-pattern
+              "def k(s):\n"
+              "    q = re.compile(r\"^a$\")\n"
+              "    return q.fullmatch(s), re.compile(rf\"^{s}$\", re.M).match(s)\n")
+        g("init", "-q", "-b", "main")
+        g("add", "-A")
+        got = lint.regex_dollar_findings(root)
+        lines = [f.split(" ")[0] for f in got]
+        want = ["tools/shapes.py:7:", "tools/shapes.py:10:", "tools/shapes.py:10:", "tools/shapes.py:13:", "tools/shapes.py:13:",
+                "tools/shapes.py:13:", "tools/shapes.py:14:"]
+        assert sorted(lines) == sorted(want), got
+        assert not any(f.startswith("tools/scopes.py") for f in got), got
+
+
 def case_a_dollar_anchored_pattern_is_followed_across_imports() -> None:
     """The pattern is bound in one file and called with .match in another:
     through `from m import NAME`, `import m` then `m.NAME`, a re-export, a
@@ -2069,6 +2116,7 @@ def main() -> int:
         case_review_lenses_are_named_described_and_bounded,
         case_a_dollar_anchored_pattern_is_not_called_with_match,
         case_a_dollar_anchored_pattern_is_followed_across_imports,
+        case_a_dollar_anchored_pattern_in_every_shape_and_scope,
         case_a_contributor_entry_never_reaches_a_definition,
         case_the_fallback_validator_agrees_with_jsonschema,
         case_the_python_pin_is_checkable_and_what_ci_runs,
