@@ -22,8 +22,10 @@ Python control plane must judge a request exactly as the Node one does
                    3.13.15 (the pinned interpreter) near 10,000, at the
                    interpreter's fixed C recursion limit, on a stack of
                    1.5 MiB or more; on a smaller stack (1 MiB, or a
-                   thread's) that depth crashes the process, SIGSEGV,
-                   before the limit can raise. 3.14.7 stops where its
+                   thread given one by threading.stack_size) that depth
+                   crashes the process, SIGSEGV, before the limit can
+                   raise. A plain thread on glibc reads as deep as the
+                   main thread (9,998 on 3.13.15, 52,153 on 3.14.7). 3.14.7 stops where its
                    stack ends, near 52,000 on the default 8 MiB, never
                    on an unlimited one. 3.12 (CI) is not measured; its
                    leg runs the test. A record past the stop is refused

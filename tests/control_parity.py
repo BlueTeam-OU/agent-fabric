@@ -152,7 +152,7 @@ def _side(cmd: list[str], payload: dict, env: dict, cwd: str) -> list[str]:
             parsed = json.loads(a) if isinstance(a, str) else None
         except ValueError:
             parsed = None
-        if not (isinstance(parsed, dict) and ("value" in parsed or parsed.get("threw") is True)):
+        if not (isinstance(parsed, dict) and (("value" in parsed and isinstance(parsed.get("files"), dict)) or parsed.get("threw") is True)):
             raise RuntimeError(f"{cmd[0]} answered case {i} with {a!r:.200}, not an answer object")
     return answers
 
