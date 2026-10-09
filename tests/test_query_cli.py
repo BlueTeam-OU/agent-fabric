@@ -431,9 +431,26 @@ def main() -> int:
     expect("WORKING_COPY alone", 0, wc_c_ops, "")
 
     print("query: the root defaults to the script's own checkout")
-    run("roles", AGENT_FABRIC_STATE_DIR=f"{T}/nostate")
-    check("without AGENT_FABRIC_ROOT: this checkout's memory/ is the corpus",
-          rc == 0 and out.split("\n", 1)[0] == "project/role                 project  domain   citations", f"rc={rc} {err}")
+    # A checkout the test builds: the CLI's own directory (so the default
+    # root is the copy, wherever CLI came from) beside a memory/ of one
+    # fixture role that no live corpus holds.
+    cli_dir = os.path.dirname(CLI)
+    copy_cli_dir = f"{T}/copy/tools/fabric"
+    os.makedirs(copy_cli_dir)
+    for name in os.listdir(cli_dir):
+        if os.path.isfile(f"{cli_dir}/{name}"):
+            shutil.copy2(f"{cli_dir}/{name}", copy_cli_dir)
+    xref(f"{T}/copy/memory/projects/fixtureproj/fixturerole/crossref.json", "fixturerole",
+         '{"adrs": {"ADR-001": {"observations": [], "slices": ["lesson:a"]}}}')
+    cli = os.path.join(copy_cli_dir, os.path.basename(CLI))
+    e = clean_env()
+    e["AGENT_FABRIC_STATE_DIR"] = f"{T}/nostate"
+    p = subprocess.run([cli, "roles"], env=e, capture_output=True, timeout=60)
+    got, errs = p.stdout.decode("utf-8", "surrogateescape"), p.stderr.decode("utf-8", "surrogateescape")
+    lines = got.split("\n")
+    check("without AGENT_FABRIC_ROOT: the checkout's own memory/ is the corpus",
+          p.returncode == 0 and lines[0] == "project/role                 project  domain   citations"
+          and lines[1].startswith("fixtureproj/fixturerole") and lines[2:] == [""], f"rc={p.returncode} {got!r} {errs}")
 
     if fails:
         print(f"test_query_cli: {fails} FAILED")
