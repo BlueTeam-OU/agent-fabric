@@ -34,7 +34,7 @@ import tempfile
 HERE = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
 import gh  # noqa: E402
-from github import local  # noqa: E402
+from github import common, local  # noqa: E402
 
 REVIEW_MARKER = "<!-- agent-fabric-review v1 -->"
 
@@ -288,17 +288,9 @@ are judged before they are answered; the judgement follows in the PR.
     return 0
 
 
-def read_body() -> str | None:
-    """The body, read only once the arguments are known to need it: read
-    first, `--help` or a usage error with an open stdin waited on it (the
-    bash read it after parsing). Bytes, decoded here: invalid UTF-8 becomes
-    U+FFFD, never a lone surrogate that JSON cannot carry to GitHub."""
-    return None if sys.stdin.isatty() else sys.stdin.buffer.read().decode("utf-8", "replace")
-
-
 def main() -> int:
     try:
-        return run(sys.argv[1:], read_body)
+        return run(sys.argv[1:], common.read_body)
     except Refused as e:
         say(f"post-review: {e}")
         return 2

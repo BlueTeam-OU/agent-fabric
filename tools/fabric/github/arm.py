@@ -111,7 +111,7 @@ HERE = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
 import gh  # noqa: E402
 import roots  # noqa: E402
-from github import local, pr_gate  # noqa: E402
+from github import common, pr_gate  # noqa: E402
 
 FABRIC = os.path.dirname(os.path.dirname(os.path.dirname(HERE)))
 
@@ -215,18 +215,7 @@ def head_lines(lines: list[str], n: int = 3) -> str:
 # ── the project's rules ──────────────────────────────────────────────
 
 def config_path() -> str:
-    explicit = os.environ.get("AGENT_FABRIC_ARM_CONFIG", "")
-    if explicit:
-        return explicit
-    top = local.toplevel()
-    if not top:
-        return ""
-    try:
-        import workingcopy
-        pid = workingcopy.resolve(top).get("project")
-    except (Exception, SystemExit):   # a marker naming nothing the registry knows exits
-        pid = None
-    return roots.project_integration(pid, "gh", "arm.json") if pid else ""
+    return common.project_config_path("AGENT_FABRIC_ARM_CONFIG", "arm.json")
 
 
 def load_config(path: str) -> tuple[re.Pattern, re.Pattern | None, dict[str, re.Pattern], str | None]:
