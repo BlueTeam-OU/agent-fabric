@@ -73,13 +73,25 @@ def main() -> int:
     try:
         gh.graphql = paged([[node(True)] * 100, [node(False)] * 3])
         check("two pages read whole", len(prs.review_threads("o", "r", 1)) == 103)
-        for label, page in (("a string", "abc"), ("a dict", {"a": 1}), ("a list holding a non-object", [node(True), 1])):
+        for label, page in (("a string", "abc"), ("a dict", {"a": 1}), ("a list holding a non-object", [node(True), 1]),
+                            ("an empty string", ""), ("an empty dict", {})):
             gh.graphql = paged([[node(True)] * 100, page])
             try:
                 prs.review_threads("o", "r", 1)
                 check(f"a thread page of {label}: raised", False)
             except TypeError:
                 check(f"a thread page of {label}: raised, never counted", True)
+        gh.graphql = paged([[node(True)] * 100, None])
+        check("a thread page whose nodes are null is none, not unreadable", len(prs.review_threads("o", "r", 1)) == 100)
+
+        def thread_info(query, **kw):
+            return {"repository": {"pullRequest": {"reviewThreads": {"nodes": [node(False)], "pageInfo": "x"}}}}
+        gh.graphql = thread_info
+        try:
+            prs.review_threads("o", "r", 1)
+            check("a thread page whose pageInfo is not an object: raised", False)
+        except TypeError:
+            check("a thread page whose pageInfo is not an object: raised, never the last page", True)
         gh.graphql = paged([[node(True)]] * (prs.THREAD_PAGES + 1))
         try:
             prs.review_threads("o", "r", 1)
@@ -211,15 +223,33 @@ def main() -> int:
             return d
         gh.graphql = headless
         check("no head to compare, on either side: ?", pr_gate.gate_state("o/r", 1, "")["checks"] == "?")
-        for label, field, value in (("a rollup that is not an object", "statusCheckRollup", "x"),
-                                    ("threads that are not an object", "reviewThreads", [1])):
-            def bad(query, field=field, value=value, **kw):
+        def shaped(*path_value):
+            """GATE_QUERY's one-page answer with the value at each path replaced."""
+            def fake(query, **kw):
                 d = rollup([], more=False)(query, **kw)
-                d["repository"]["pullRequest"][field] = value
+                for path, value in path_value:
+                    at = d["repository"]["pullRequest"]
+                    for key in path[:-1]:
+                        at = at[key]
+                    at[path[-1]] = value
                 return d
-            gh.graphql = bad
+            return fake
+        for label, path, value, column in (
+                ("a rollup that is not an object", ("statusCheckRollup",), "x", "checks"),
+                ("contexts that are not an object", ("statusCheckRollup", "contexts"), "x", "checks"),
+                ("a contexts pageInfo that is not an object", ("statusCheckRollup", "contexts", "pageInfo"), "x", "checks"),
+                ("threads that are not an object", ("reviewThreads",), [1], "unresolved"),
+                ("a threads pageInfo that is not an object", ("reviewThreads", "pageInfo"), "x", "unresolved")):
+            gh.graphql = shaped((path, value))
             st = pr_gate.gate_state("o/r", 1, "H")
-            check(f"{label}: ?, not a traceback", st[{"statusCheckRollup": "checks", "reviewThreads": "unresolved"}[field]] == "?")
+            check(f"{label}: ?, not a traceback nor a count", st[column] == "?")
+        gh.graphql = shaped((("statusCheckRollup", "contexts", "pageInfo"), None), (("reviewThreads", "pageInfo"), None))
+        st = pr_gate.gate_state("o/r", 1, "H")
+        check("a null pageInfo is no next page", st["checks"] == "green" and st["unresolved"] == "0")
+        gh.graphql = shaped((("mergeQueueEntry",), "x"))
+        check("a queue entry that is not an object: the PR unreadable, not a traceback", pr_gate.gate_state("o/r", 1, "H") is None)
+        gh.graphql = lambda query, **kw: {"repository": "x"}
+        check("a repository that is not an object: the PR unreadable, not a traceback", pr_gate.gate_state("o/r", 1, "H") is None)
         gh.graphql = threads_no_cursor
         check("threads: a next page with no cursor is ?, never page one again", pr_gate.gate_state("o/r", 1, "H")["unresolved"] == "?")
         gh.graphql = rollup([], more=False)

@@ -39,6 +39,7 @@ sys.path.insert(0, os.path.dirname(HERE))
 import gh  # noqa: E402
 import git  # noqa: E402
 from github import commit_class, local, pr_review_status  # noqa: E402
+from github.review_status.base import listed, obj  # noqa: E402
 
 FABRIC = os.path.dirname(os.path.dirname(os.path.dirname(HERE)))
 
@@ -296,30 +297,13 @@ def check_contexts(owner: str, name: str, num: int, after: str | None, head: str
         if more is None:
             raise TypeError("a page of checks that is not a list of objects")
         nodes += more
-        info = page.get("pageInfo") or {}
+        info = obj(page.get("pageInfo"))
+        if info is None:
+            raise TypeError("a page of checks whose pageInfo is not an object")
         if not info.get("hasNextPage"):
             return nodes
         after = info.get("endCursor")
     raise ValueError(f"more than {CONTEXT_PAGES * 100} checks")
-
-
-def listed(nodes) -> list[dict] | None:
-    """A GraphQL connection's nodes: a list of objects, null (none), or —
-    anything else, a non-object element included — None, unreadable,
-    never zero."""
-    if nodes is None:
-        return []
-    if isinstance(nodes, list) and all(isinstance(n, dict) for n in nodes):
-        return nodes
-    return None
-
-
-def obj(value) -> dict | None:
-    """A GraphQL object field: an object, null (an empty one), or —
-    anything else — None, unreadable."""
-    if value is None:
-        return {}
-    return value if isinstance(value, dict) else None
 
 
 def gate_state(repo: str, num: int, head: str) -> dict | None:
@@ -327,25 +311,34 @@ def gate_state(repo: str, num: int, head: str) -> dict | None:
     its row reports: a push since the PR list was read makes them "?"."""
     owner, name = repo.split("/", 1)
     try:
-        pr = (gh.graphql(GATE_QUERY, owner=owner, name=name, number=num).get("repository") or {}).get("pullRequest")
+        repository = obj(gh.graphql(GATE_QUERY, owner=owner, name=name, number=num).get("repository"))
     except (gh.GhError, ValueError):
         return None
-    if not isinstance(pr, dict):
+    pr = repository.get("pullRequest") if repository is not None else None
+    # The queue position is read, not counted: one that cannot be read
+    # leaves no verdict to give, so the PR is unreadable as a whole.
+    queued = obj(pr.get("mergeQueueEntry")) if isinstance(pr, dict) else None
+    if not isinstance(pr, dict) or queued is None:
         return None
     rollup = obj(pr.get("statusCheckRollup"))
     contexts = obj(rollup.get("contexts")) if rollup is not None else None
     nodes = listed(contexts.get("nodes")) if contexts is not None else None
+    cinfo = obj(contexts.get("pageInfo")) if contexts is not None else None
+    if cinfo is None:
+        nodes = None
     if not head or pr.get("headRefOid") != head:
         nodes = None
-    if nodes is not None and (obj(contexts.get("pageInfo")) or {}).get("hasNextPage"):
+    if nodes is not None and cinfo.get("hasNextPage"):
         try:
-            nodes = nodes + check_contexts(owner, name, num, contexts["pageInfo"].get("endCursor"), head)
+            nodes = nodes + check_contexts(owner, name, num, cinfo.get("endCursor"), head)
         except (gh.GhError, ValueError, TypeError, KeyError, AttributeError):
             nodes = None
     checks = "?" if nodes is None else checks_of(nodes)
     page = obj(pr.get("reviewThreads"))
     threads = listed(page.get("nodes")) if page is not None else None
-    info = (obj(page.get("pageInfo")) if page is not None else None) or {}
+    info = obj(page.get("pageInfo")) if page is not None else None
+    if info is None:
+        threads = None
     if threads is not None and info.get("hasNextPage"):
         # Past the first 100 the count was short and read as whole (review
         # of #71): the rest are read page by page, and a rest that cannot be
@@ -358,7 +351,7 @@ def gate_state(repo: str, num: int, head: str) -> dict | None:
             threads = threads + pr_review_status.review_threads(owner, name, num, after=info.get("endCursor"))
         except (gh.GhError, ValueError, TypeError, KeyError, AttributeError):
             threads = None
-    queue = alt((pr.get("mergeQueueEntry") or {}).get("position"))
+    queue = alt(queued.get("position"))
     return {
         "unresolved": "?" if threads is None else
                       str(sum(1 for t in threads if not alt(t.get("isResolved")))),

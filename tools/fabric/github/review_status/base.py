@@ -1,4 +1,5 @@
-"""tools/fabric/github/review_status/base.py — the command's name, its refusal, its two streams and jq's way of printing values.
+"""tools/fabric/github/review_status/base.py — the command's name, its refusal, its two streams, jq's way of printing values,
+and the one rule GraphQL answers are read by (listed, obj; pr_gate reads by it too).
 A part of tools/fabric/github/pr_review_status.py, whose docstring is the contract."""
 from __future__ import annotations
 
@@ -55,3 +56,26 @@ def jkey(v):
 
 def login_of(row: dict):
     return (row.get("user") or {}).get("login")
+
+
+# GitHub's GraphQL answers, read by one rule: null is none (an empty list,
+# an empty object), a value of the expected shape is itself, anything else
+# is unreadable (None) — never a count of what could be read. A string's
+# characters or a dict's keys taken as items once read as zero threads.
+def listed(nodes) -> list[dict] | None:
+    """A GraphQL connection's nodes: a list of objects, null (none), or —
+    anything else, a non-object element included — None, unreadable,
+    never zero."""
+    if nodes is None:
+        return []
+    if isinstance(nodes, list) and all(isinstance(n, dict) for n in nodes):
+        return nodes
+    return None
+
+
+def obj(value) -> dict | None:
+    """A GraphQL object field: an object, null (an empty one), or —
+    anything else — None, unreadable."""
+    if value is None:
+        return {}
+    return value if isinstance(value, dict) else None
