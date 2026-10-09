@@ -81,8 +81,14 @@ def main() -> int:
         # Never the real gh: it follows XDG_CONFIG_HOME and the keyring, not
         # HOME (it once read the runner's token from here).
         os.environ["AGENT_FABRIC_GH"] = FAKE_GH
-        for k in ("GH_CONFIG_DIR", "XDG_CONFIG_HOME", "FAKE_GH_LOGIN_EXIT", "AGENT_FABRIC_HOSTS_REGISTRY"):
+        for k in ("GH_CONFIG_DIR", "XDG_CONFIG_HOME", "FAKE_GH_LOGIN_EXIT"):
             os.environ.pop(k, None)
+        # The login's kind is read from a hosts registry: this fixture's, never the
+        # checkout's (the operator's, absent from a checkout without its instance data).
+        base_hosts = os.path.join(tmp, "base-hosts.json")
+        with open(base_hosts, "w", encoding="utf-8") as fh:
+            json.dump({"hosts": {}, "placement": {ME: "h"}}, fh)
+        os.environ["AGENT_FABRIC_HOSTS_REGISTRY"] = base_hosts
         os.environ.pop("GIT_CONFIG_GLOBAL", None)
         os.environ["GIT_CONFIG_NOSYSTEM"] = "1"
         git = lambda k: subprocess.run(["git", "config", "--global", "--get", k], capture_output=True, text=True).stdout.strip()
@@ -333,7 +339,7 @@ def main() -> int:
                       and "GH_TOKEN" in json.loads(out)["applied"], out[:300])
             finally:
                 s.fetch_verification = real_verification
-                os.environ.pop("AGENT_FABRIC_HOSTS_REGISTRY", None)
+                os.environ["AGENT_FABRIC_HOSTS_REGISTRY"] = base_hosts
                 store["values"] = fixture(ME)
 
             store["error"] = "store: git pull: could not reach the remote"

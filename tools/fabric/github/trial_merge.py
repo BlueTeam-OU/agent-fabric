@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """tools/fabric/github/trial_merge.py — do these branches combine? (ADR-040
-Wave 1; runtime/github/trial-merge.sh is its shim.)
+Wave 1; `fabric-pr trial-merge` runs it; the runtime/github shim is deprecated.)
 
 CONTRACT, frozen from the bash (ADR-040 §5 rule 3):
   argv      <PR number | branch>... [--base <ref>] [--check] [--json] [-h|--help]
@@ -106,7 +106,7 @@ results, and --check says so. A fresh worktree has no build cache, so a
 compiled check starts cold.
 
 Usage:
-  runtime/github/trial-merge.sh <PR number | branch>... [--base <ref>] [--check] [--json]
+  fabric-pr trial-merge <PR number | branch>... [--base <ref>] [--check] [--json]
 
 Exit codes:
   0  combines (and, with --check, the check passed)

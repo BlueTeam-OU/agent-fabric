@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""runtime/github/arm.sh with gh, pr-gate and pr-review-status mocked on
+"""fabric-pr arm with gh, pr-gate and pr-review-status mocked on
 PATH: each gate has a case that trips it and one that passes; the arming
 path posts the basis (on stdin) and runs gh pr merge --auto exactly once,
 and a dry run posts and runs nothing. Ported from gzapp's
@@ -17,7 +17,7 @@ import tempfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 GZAPP = os.path.join(ROOT, "projects", "gzapp", "integration", "gh", "arm.sh")
-SHIM = os.path.join(ROOT, "runtime", "github", "arm.sh")
+SHIM = os.path.join(ROOT, "bin", "fabric-pr")
 IW_CONFIG = os.path.join(ROOT, "projects", "interweave", "integration", "gh", "arm.json")
 
 GH_MOCK = r'''#!/usr/bin/env python3
@@ -173,7 +173,7 @@ def main() -> int:
                 e.update(AGENT_FABRIC_PR_GATE=e.pop("GZAPP_PR_GATE"), AGENT_FABRIC_PR_SESSION=e.pop("GZAPP_PR_SESSION"),
                          AGENT_FABRIC_PR_REVIEW_STATUS=e.pop("GZAPP_PR_REVIEW_STATUS"))
             e.update(env or {})
-            r = subprocess.run(["bash", script, *args], env=e, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            r = subprocess.run(([script, "arm"] if script == SHIM else ["bash", script]) + list(args), env=e, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                stdin=subprocess.DEVNULL, text=True, timeout=120, cwd=cwd)
             return r.returncode, r.stdout
 
@@ -530,7 +530,7 @@ def main() -> int:
               calls().count(f"pr merge 7 --merge --auto --match-head-commit {HEAD}") == 1, calls())
         check("the basis comment carries the count and the head, on stdin",
               "pr comment 7 --body Arming basis: nine work commits at the review gate — 9 work commits, head abcdef01." in calls(), calls())
-        check("prints the watcher line for the session", "tools/gh/wait-merged.sh 7 &" in out, out)
+        check("prints the watcher line for the session", "fabric-pr wait-merged 7 &" in out, out)
         reset(); put("queued", "")
         rc, out = run("7", "--basis", "b")
         check("a PR that went straight into the queue reads as armed", rc == 0 and "queued at 2" in out, out)

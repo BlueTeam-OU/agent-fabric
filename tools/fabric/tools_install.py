@@ -171,6 +171,9 @@ def exit_on_sigterm() -> None:
     Python's default would exit without running it. The caller turns
     Terminated into the exit status."""
     def stop(signum: int, frame: object) -> None:
+        # One-shot: a later signal, inside the handler that turns this one
+        # into an exit status or after it, would raise where nothing catches.
+        signal.signal(signal.SIGTERM, signal.SIG_IGN)
         raise Terminated(128 + signum)
     signal.signal(signal.SIGTERM, stop)
 

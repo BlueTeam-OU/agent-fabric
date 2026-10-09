@@ -18,6 +18,8 @@ import sys
 import tempfile
 import time
 
+import instance_fixtures  # noqa: E402 — tests/, this script's own directory
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 TOOL = os.path.join(ROOT, "tools", "fabric", "model_profile.py")
@@ -28,9 +30,12 @@ class Fixture:
         self.state = os.path.join(tmp, "state")
         self.claude = os.path.join(tmp, "claude")
         os.makedirs(self.claude)
-        # The real tree, except that its committed roles/agents layers are
-        # emptied: one of them may name the login running this suite, and
-        # the cases assert what the defaults and the local layer resolve to.
+        # The real tree, except that the operator half of routing (the
+        # profiles overlay and the review grade) is the fixture's, never the
+        # live files: its roles/agents layers are empty (one of the live ones
+        # may name the login running this suite; the cases assert what the
+        # defaults and the local layer resolve to) and a checkout without
+        # its instance data (tests/stripped_run.py) passes too.
         # runtime/claude-code is copied, not linked: the installer finds its
         # root by readlink -f on itself, so through a link it would resolve
         # from the real routing. .git is left out, so git at the fixture root
@@ -46,15 +51,13 @@ class Fixture:
                 os.symlink(os.path.join(ROOT, "runtime", name), os.path.join(root, "runtime", name))
         shutil.copytree(os.path.join(ROOT, "runtime", "claude-code"), os.path.join(root, "runtime", "claude-code"),
                         ignore=shutil.ignore_patterns("__pycache__"))
-        shutil.copytree(os.path.join(ROOT, "routing"), os.path.join(root, "routing"))
+        shutil.copytree(os.path.join(ROOT, "routing"), os.path.join(root, "routing"),
+                        ignore=shutil.ignore_patterns(*instance_fixtures.ROUTING_OPERATOR_IGNORE))
         # Classes that differ, so a case can tell which one answered: the
         # committed column has two models and one level for five classes.
         for name in ("capabilities.json", "effort.json"):
             shutil.copy2(os.path.join(HERE, "fixtures", "routing-distinct", name), os.path.join(root, "routing", name))
-        profiles = os.path.join(root, "routing", "profiles.json")
-        doc = json.load(open(profiles, encoding="utf-8"))
-        doc["roles"], doc["agents"] = {}, {}
-        json.dump(doc, open(profiles, "w", encoding="utf-8"), indent=2)
+        instance_fixtures.write_routing_overlay(os.path.join(root, "routing"))
         self.env = {**os.environ, "AGENT_FABRIC_ROOT": root, "AGENT_FABRIC_STATE_DIR": self.state,
                     "CLAUDE_CONFIG_DIR": self.claude}
         self.env.pop("AGENT_FABRIC_LAUNCH_PROVIDER", None)  # an unlaunched session, whatever the runner is

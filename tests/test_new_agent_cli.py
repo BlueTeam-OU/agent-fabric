@@ -442,6 +442,9 @@ def main() -> int:
                and has(r"^secrets provision identity seq-login --host", read(calls))
                and has(r"^secrets provision share seq-login", read(calls))
                and "5. its key made and certified, its store filled and synced" in out, read(calls) + out)
+            ok("5: the closing names the recovery copy and the backup by the bare command",
+               f"     fabric-host {where} run --as seq-login -- projects/agent-fabric/bin/fabric-secrets store recovery-copy" in out
+               and "     fabric-secrets store backup" in out and "     bin/fabric-" not in out, out)
             # A new account has no key to pull with: its filled store reaches
             # it as a bundle, then a sync without a pull.
             acc = [ln for ln in lines(f"{seq}/account-calls") if re.match(r"^(store take-bundle|sync)", ln)]

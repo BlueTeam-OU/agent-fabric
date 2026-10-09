@@ -20,6 +20,7 @@ VERBS = {"gate": ("pr_gate", "pr-gate"), "review-status": ("pr_review_status", "
          "arm": ("arm", "arm"), "sessions": ("pr_sessions", "pr-sessions"),
          "trial-merge": ("trial_merge", "trial-merge"), "wait-merged": ("wait_merged", "wait-merged"),
          "owed-supply": ("owed_supply", "owed-supply"), "compliance": ("pr_compliance", "pr-compliance")}
+DEPRECATED = "deprecated: use fabric-pr {}\n"
 LIST = ", ".join(VERBS)
 FAKE = ('import os, sys\n'
         'print("module=%s argv=%r" % (os.path.basename(__file__), sys.argv[1:]))\n'
@@ -109,8 +110,9 @@ def main() -> int:
     for verb, (_, old) in VERBS.items():
         new = run([f"{ROOT}/bin/fabric-pr", verb, "--help"])
         was = run([f"{ROOT}/runtime/github/{old}.sh", "--help"])
-        check(f"{verb} --help is {old}.sh --help, byte for byte, same status and stderr",
-              (new.stdout, new.stderr, new.returncode) == (was.stdout, was.stderr, was.returncode)
+        # ADR-040 §5 rule 7 step 3: the shim says it is deprecated on stderr and is otherwise the verb.
+        check(f"{verb} --help is {old}.sh --help, byte for byte, same status; the shim adds one stderr line",
+              (new.stdout, DEPRECATED.format(verb) + new.stderr, new.returncode) == (was.stdout, was.stderr, was.returncode)
               and new.returncode in (0, 2) and new.stdout + new.stderr != "", (new.returncode, was.returncode, new.stderr[:200]))
     new = run([f"{ROOT}/bin/fabric-query", "--help"])
     was = run([f"{ROOT}/tools/fabric/query.sh", "--help"])

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """tools/fabric/github/pr_gate.py — my open pull requests: how many commits,
 and what stands between each and main (ADR-040 Wave 1;
-runtime/github/pr-gate.sh is its shim, and the managed projects'
+`fabric-pr gate` runs it; the runtime/github shim is deprecated, and the managed projects'
 tools/gh/pr-gate.sh forward to that path). --in-flight and --overlap were
 pr-gate-inflight.sh, sourced by the bash; they are in_flight() here.
 
@@ -47,9 +47,9 @@ HELP = """My open pull requests: how many commits, and what stands between each
 and main.
 
 THE QUESTION IT ANSWERS. "Show my open PRs, how many commits, is it
-mergeable?" needed four tools and a head count by hand: pr-sessions.sh
+mergeable?" needed four tools and a head count by hand: fabric-pr sessions
 for the list, git rev-list for the commits, gh pr checks for the
-checks, pr-review-status.sh for the review, and the owner's arming rule
+checks, fabric-pr review-status for the review, and the owner's arming rule
 applied on top — eight or more WORK commits arm at the gate, a security
 boundary too; under eight the owner is asked;
 sixteen is batch-size advice for the next batch, never a block. One line
@@ -81,7 +81,7 @@ WHAT A ROW SAYS
          check has reported (seconds after a push); ? when they could
          not all be read, which blocks
   review whether a review — an independent one, or the review class's blind review — covers the CURRENT head
-         (pr-review-status.sh's reading)
+         (fabric-pr review-status's reading)
   verdict one of:
     MERGEABLE — arm (8–16 work commits, gate met: post the basis, arm)
     MERGEABLE — ask the owner (under 8 work commits, gate met)
@@ -94,12 +94,12 @@ WHAT A ROW SAYS
   A pull request given by number that is not OPEN is said and skipped.
 
 Usage:
-  tools/gh/pr-gate.sh              # every open PR of this session (branch prefix <host>/<login>/)
-  tools/gh/pr-gate.sh 861 877      # these PRs, whoever opened them
-  tools/gh/pr-gate.sh --all        # every open PR in the repository
-  tools/gh/pr-gate.sh --json       # rows as data
-  tools/gh/pr-gate.sh --in-flight [--path <prefix>]...   # every job in flight
-  tools/gh/pr-gate.sh --overlap <PR number | branch>     # what shares its paths
+  fabric-pr gate              # every open PR of this session (branch prefix <host>/<login>/)
+  fabric-pr gate 861 877      # these PRs, whoever opened them
+  fabric-pr gate --all        # every open PR in the repository
+  fabric-pr gate --json       # rows as data
+  fabric-pr gate --in-flight [--path <prefix>]...   # every job in flight
+  fabric-pr gate --overlap <PR number | branch>     # what shares its paths
 
 IN FLIGHT. Before assigning a job, starting one, or relying on another
 agent's branch, the question is what already exists; a job waiting for
@@ -114,7 +114,7 @@ merge base with the base (what it changes, not what anyone declared).
 --path keeps the rows changing something under a prefix; --overlap keeps
 the rows sharing a changed path with the named PR or branch, and lists
 the shared paths. It reserves nothing: a row says "this exists", and
-"shares paths" is not "conflicts" -- trial-merge.sh answers that.
+"shares paths" is not "conflicts" -- fabric-pr trial-merge answers that.
 
 Exit codes:
   0  listed
@@ -122,7 +122,7 @@ Exit codes:
      also a failed fetch, said first -- the rows are what origin last showed)
 
 Environment (the self-test):
-  AGENT_FABRIC_PR_REVIEW_STATUS   path of pr-review-status.sh (default beside this script)
+  AGENT_FABRIC_PR_REVIEW_STATUS   a program run instead of the review reader (default: this checkout's fabric-pr review-status)
   AGENT_FABRIC_PR_SESSION         the <host>/<login> prefix (default: fabric-whoami)"""
 
 PR_FIELDS = ["number", "title", "headRefName", "headRefOid", "baseRefName", "state", "isDraft", "body"]
@@ -416,8 +416,8 @@ def review_of_head(reader: list[str], num: int) -> str:
 
 def awaiting_supply(body: str) -> list[str]:
     """An AWAITING-SUPPLY line in the body with no range line for that
-    login: supply asked for and not folded (the reading owed-supply.sh
-    and arm.sh share; #886 review F3 — the skill said this was read here
+    login: supply asked for and not folded (the reading fabric-pr owed-supply
+    and fabric-pr arm share; #886 review F3 — the skill said this was read here
     and it was not). The login is matched literally: jq put it into the
     pattern raw."""
     logins = []

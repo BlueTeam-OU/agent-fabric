@@ -224,8 +224,10 @@ def run() -> None:
         os.makedirs(f"{REPO}/{d}", exist_ok=True)
     shutil.copy2(f"{FABRIC}/tools/fabric/adr.py", f"{REPO}/tools/fabric/")
     shutil.copy2(f"{FABRIC}/tools/fabric/roots.py", f"{REPO}/tools/fabric/")   # adr.py reads its tree through roots (ADR-045)
-    for d in ("adr", "live-checks"):
-        shutil.copytree(f"{FABRIC}/docs/{d}", f"{REPO}/docs/{d}", dirs_exist_ok=True)
+    # A two-record corpus of the fixtures' own (tests/fixtures/adr-mini), never the organization's
+    # records, which a checkout without its instance data lacks; live-checks stay empty.
+    shutil.copytree(f"{FABRIC}/tests/fixtures/adr-mini/docs/adr", f"{REPO}/docs/adr", dirs_exist_ok=True)
+    os.makedirs(f"{REPO}/docs/live-checks", exist_ok=True)
     write_registry(f"{REPO}/projects")   # the fixture's, never the live one (ADR-045 §5 rule 2)
     git("add", "-A"); git("-c", "core.hooksPath=/dev/null", "commit", "-qm", "records in place")
     check("a consistent change to docs/adr/ commits",

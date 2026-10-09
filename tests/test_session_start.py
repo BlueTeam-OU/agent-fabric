@@ -16,6 +16,7 @@ import tempfile
 HERE = os.path.dirname(os.path.abspath(__file__))
 import socket
 from git_env import git_env, scrub_process_env  # noqa: E402 — tests/, the script's own directory
+from instance_fixtures import write_operator_policy, write_operator_projects, write_registry  # noqa: E402
 scrub_process_env()
 HOST = socket.gethostname().split('.')[0]
 ROOT = os.path.dirname(HERE)
@@ -59,6 +60,14 @@ def fabric_copy(tmp: str) -> str:
     return root
 
 
+def operator(tmp: str) -> str:
+    """The projects the hook matches a working copy's remote against: a
+    fixture registry with an id the live one lacks (tests/instance_fixtures.py),
+    so a reader of the live projects/registry.json finds no project."""
+    return write_operator_projects(os.path.join(tmp, "operator"),
+                                   {"fixture-proj": ["git@example.org:fixture-org/fixture-proj.git"]})
+
+
 def run_hook(payload: dict, env: dict) -> subprocess.CompletedProcess:
     return subprocess.run(["bash", HOOK], input=json.dumps(payload), capture_output=True, text=True, env=env)
 
@@ -74,8 +83,8 @@ def context_of(proc: subprocess.CompletedProcess) -> str:
 def test_hook_records_context_not_identity(tmp: str) -> None:
     state = os.path.join(tmp, "state")
     wc = os.path.join(tmp, "legacy-clone-2")
-    git_repo(wc, "git@github.com:gzapi-org/gzapp.git")
-    env = {**os.environ, "AGENT_FABRIC_ROOT": ROOT, "AGENT_FABRIC_STATE_DIR": state,
+    git_repo(wc, "git@example.org:fixture-org/fixture-proj.git")
+    env = {**os.environ, "AGENT_FABRIC_ROOT": ROOT, "AGENT_FABRIC_STATE_DIR": state, "AGENT_FABRIC_OPERATOR": operator(tmp),
            "USER": "architect01", "LOGNAME": "architect01"}
     # A pre-existing binding with a role: the hook must keep it.
     os.makedirs(os.path.join(state, "agents", id_un()))
@@ -85,10 +94,10 @@ def test_hook_records_context_not_identity(tmp: str) -> None:
     assert proc.returncode == 0, proc.stderr
     ctx = context_of(proc)
     assert ctx.splitlines()[0].startswith(f"agent-fabric: agent={id_un()}"), ctx
-    assert "project=gzapp" in ctx and "role=architect-cto" in ctx, ctx
+    assert "project=fixture-proj" in ctx and "role=architect-cto" in ctx, ctx
     b = json.load(open(os.path.join(state, "agents", id_un(), "binding.json"), encoding="utf-8"))
     assert b["agent"] == id_un() and b["role"] == "architect-cto"
-    assert b["project"] == "gzapp" and b["working_copy"] == wc and b["session"] == "sess-123", b
+    assert b["project"] == "fixture-proj" and b["working_copy"] == wc and b["session"] == "sess-123", b
 
 
 def test_hook_gives_the_project_layer_from_the_working_copy(tmp: str) -> None:
@@ -97,23 +106,23 @@ def test_hook_gives_the_project_layer_from_the_working_copy(tmp: str) -> None:
     the working copy lacks is said in one line, and outside a working
     copy there is no project layer at all."""
     state = os.path.join(tmp, "state")
-    wc = os.path.join(tmp, "gzapp")
-    git_repo(wc, "git@github.com:gzapi-org/gzapp.git")
+    wc = os.path.join(tmp, "fixture-proj")
+    git_repo(wc, "git@example.org:fixture-org/fixture-proj.git")
     os.makedirs(os.path.join(state, "agents", id_un()))
     with open(os.path.join(state, "agents", id_un(), "binding.json"), "w", encoding="utf-8") as fh:
         json.dump({"agent": id_un(), "host": HOST, "role": "db-admin", "updated_at": "x"}, fh)
-    env = {**os.environ, "AGENT_FABRIC_ROOT": ROOT, "AGENT_FABRIC_STATE_DIR": state}
+    env = {**os.environ, "AGENT_FABRIC_ROOT": ROOT, "AGENT_FABRIC_STATE_DIR": state, "AGENT_FABRIC_OPERATOR": operator(tmp)}
     ctx = context_of(run_hook({"cwd": wc}, env))
     assert "has no remit for db-admin" in ctx and "no distilled knowledge for db-admin" in ctx, ctx
     os.makedirs(os.path.join(wc, ".agent-fabric", "roles"))
     os.makedirs(os.path.join(wc, ".agent-fabric", "memory", "db-admin"))
     with open(os.path.join(wc, ".agent-fabric", "roles", "db-admin.md"), "w", encoding="utf-8") as fh:
-        fh.write("---\nrole: db-admin\nclass: remit\nproject: gzapp\n---\n\n# db-admin — remit in gzapp\n\nREMIT-BODY-LINE: migrations under infra/db/.\n")
+        fh.write("---\nrole: db-admin\nclass: remit\nproject: fixture-proj\n---\n\n# db-admin — remit in fixture-proj\n\nREMIT-BODY-LINE: migrations under infra/db/.\n")
     with open(os.path.join(wc, ".agent-fabric", "memory", "db-admin", "INDEX.md"), "w", encoding="utf-8") as fh:
         fh.write("# index\n")
     ctx = context_of(run_hook({"cwd": wc}, env))
     assert "REMIT-BODY-LINE" in ctx and "class: remit" not in ctx, ctx
-    assert "# db-admin — remit in gzapp (.agent-fabric/roles/db-admin.md)" in ctx, ctx
+    assert "# db-admin — remit in fixture-proj (.agent-fabric/roles/db-admin.md)" in ctx, ctx
     assert ".agent-fabric/memory/db-admin/INDEX.md lists every slice" in ctx and "nothing else now" in ctx, ctx
     parent = os.path.join(tmp, "projects"); os.makedirs(parent)
     ctx = context_of(run_hook({"cwd": parent}, env))
@@ -399,6 +408,20 @@ def test_bootstrap_writes_only_the_workspace_and_home_files(tmp: str) -> None:
     # The units follow XDG_CONFIG_HOME, which a CI runner sets to its real
     # config directory: the scratch home's is the one under test.
     env["XDG_CONFIG_HOME"] = os.path.join(home, ".config")
+    # The operator's auto-mode policy, which the account's settings are built from:
+    # a fixture, never the checkout's (absent from one without its instance data).
+    env["AGENT_FABRIC_OPERATOR"] = write_operator_policy(tmp)
+    # autoMode is written only when the harness says its defaults (`claude auto-mode defaults`): a stand-in
+    # that does, so the case holds on a runner with no Claude Code as on an account that has one.
+    fake_claude = os.path.join(tmp, "claude")
+    with open(fake_claude, "w", encoding="utf-8") as fh:
+        fh.write("#!/bin/sh\n[ \"$1 $2\" = 'auto-mode defaults' ] || exit 3\n"
+                 "echo '{\"environment\": [\"**Organization**: None configured\"], \"allow\": [], \"soft_deny\": [], \"hard_deny\": []}'\n")
+    os.chmod(fake_claude, 0o755)
+    env["AGENT_FABRIC_CLAUDE"] = fake_claude
+    # bootstrap.py reads the registry from the fabric it runs in (the scratch copy), not the operator.
+    write_registry(os.path.join(root, "projects"), {"projects": {"fixture-proj": {
+        "remotes": ["git@example.org:fixture-org/fixture-proj.git"]}}})
     # A folder in the workspace that is not a registered working copy: never trusted.
     stray = os.path.join(projects, "not-a-project"); os.makedirs(stray)
     proc = subprocess.run(["bash", bootstrap, "--projects", projects, "--dry-run"], capture_output=True, text=True, env=env)
@@ -445,7 +468,9 @@ def test_bootstrap_writes_only_the_workspace_and_home_files(tmp: str) -> None:
     for name, rel in cmds["commands"].items():
         link = os.path.join(home, ".local", "bin", name)
         assert os.path.islink(link) and os.readlink(link) == os.path.join(root, rel), (name, link)
-    allow = json.load(open(os.path.join(home, ".claude", "settings.json"), encoding="utf-8"))["permissions"]["allow"]
+    written = json.load(open(os.path.join(home, ".claude", "settings.json"), encoding="utf-8"))
+    assert "the fixture operator" in json.dumps(written), "the account's settings carry the operator's policy: the fixture's, not the checkout's"
+    allow = written["permissions"]["allow"]
     assert "Bash(gzcoord-inbox *)" in allow and "Bash(fabric-status *)" in allow, allow
     assert not any(f"Bash({n} *)" in allow for n in cmds["not_allowed"]), allow
     # A file at a command's name that the fabric did not make is the
@@ -464,11 +489,11 @@ def test_bootstrap_writes_only_the_workspace_and_home_files(tmp: str) -> None:
     # when it is a LINKED WORKTREE, whose .git is a file, not a directory.
     main_repo = os.path.join(tmp, "main-repo")
     subprocess.run(["git", "init", "-q", "-b", "main", main_repo], check=True, env=git_env())
-    subprocess.run(["git", "-C", main_repo, "remote", "add", "origin", "git@github.com:gzapi-org/gzapp.git"], check=True, env=git_env())
+    subprocess.run(["git", "-C", main_repo, "remote", "add", "origin", "git@example.org:fixture-org/fixture-proj.git"], check=True, env=git_env())
     open(os.path.join(main_repo, "seed"), "w").write("s\n")
     subprocess.run(["git", "-C", main_repo, "add", "seed"], check=True, env=git_env())
     subprocess.run(["git", "-C", main_repo, "-c", "commit.gpgsign=false", "commit", "-q", "-m", "seed"], check=True, env=git_env())
-    linked = os.path.join(projects, "gzapp-linked")
+    linked = os.path.join(projects, "fixture-proj-linked")
     subprocess.run(["git", "-C", main_repo, "worktree", "add", "-q", "--detach", linked, "HEAD"], check=True, env=git_env())
     assert os.path.isfile(os.path.join(linked, ".git")), "a linked worktree's .git is a file"
     proc = subprocess.run(["bash", bootstrap, "--projects", projects], capture_output=True, text=True, env=env)

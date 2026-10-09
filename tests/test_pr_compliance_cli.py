@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""runtime/github/pr-compliance.sh, through the shim with gh mocked on PATH
+"""fabric-pr compliance, through the shim with gh mocked on PATH
 and a scratch git history whose merge commits carry each pull request's
 commits on their second parent. Ported case for case from a managed
 project's tools/gh/test_pr-compliance.sh (its script the oracle, ADR-040
@@ -20,7 +20,7 @@ import sys
 import tempfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-TOOL = os.path.join(ROOT, "runtime", "github", "pr-compliance.sh")
+TOOL = [os.path.join(ROOT, "bin", "fabric-pr"), "compliance"]
 GZAPP_CONFIG = os.path.join(ROOT, "projects", "gzapp", "integration", "gh", "compliance.json")
 REPO = "gzapi-org/gzapp"
 
@@ -145,7 +145,7 @@ def main() -> int:
             # Builtins only: PATH holds no cat.
             fh.write(STUB)
         os.chmod(stub, 0o755)
-        for tool in ("bash", "git"):
+        for tool in ("bash", "git", "dirname", "readlink"):
             os.symlink(shutil.which(tool), os.path.join(bin_, tool))
         # PATH is the sandbox alone (bash, git, the mock gh): no jq.
         base = dict(genv, PATH=bin_, MOCK_STATE=state, GH_REPO=REPO, AGENT_FABRIC_COMPLIANCE_CONFIG=GZAPP_CONFIG,
@@ -164,7 +164,7 @@ def main() -> int:
 
         def run(*args: str, unset: tuple[str, ...] = (), **env: str) -> None:
             e = {k: v for k, v in dict(base, **env).items() if k not in unset}
-            r = subprocess.run([TOOL, *args], env=e, cwd=repo, capture_output=True, text=True, timeout=300)
+            r = subprocess.run([*TOOL, *args], env=e, cwd=repo, capture_output=True, text=True, timeout=300)
             out.update(text=r.stdout + r.stderr, rc=r.returncode, stdout=r.stdout, stderr=r.stderr)
 
         def doc() -> dict:
@@ -396,7 +396,7 @@ def main() -> int:
         has("an unknown option is refused", "pr-compliance: unknown option '--bogus' (try --help)", rc=2)
         run("--help")
         check("--help is the docstring, naming no project's literals",
-              out["rc"] == 0 and out["stdout"].startswith("runtime/github/pr-compliance.sh [--days N] [--json]")
+              out["rc"] == 0 and out["stdout"].startswith("fabric-pr compliance [--days N] [--json]")
               and "compliance.json" in out["stdout"] and "product/i18n" not in out["stdout"]
               and "#886" not in out["stdout"], out["text"])
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # bin/fabric-host — the coordinator's door to the hosts the agents live on.
 #
-#   fabric-host list                                  hosts and placements (runtime/hosts/registry.json)
+#   fabric-host list                                  hosts and placements (the hosts registry, found by tools/fabric/roots.py)
 #   fabric-host <host> check                          the host answers as the id it is registered under
 #   fabric-host <host> run [--as <login>] [--tty] -- <cmd>...   one command there (runtime/hostexec/hostexec)
 #   fabric-host <host> moveto <login> [<clone>]       an interactive shell as that account, in its workspace
@@ -20,7 +20,6 @@
 # on the TARGET host, wherever its operator keeps it. ADR-010.
 set -uo pipefail
 ROOT="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
-REGISTRY="${AGENT_FABRIC_HOSTS_REGISTRY:-$ROOT/runtime/hosts/registry.json}"
 HX="$ROOT/runtime/hostexec/hostexec"
 die() { printf 'fabric-host: %s\n' "$*" >&2; exit "${2:-2}"; }
 usage() { sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//'; }
@@ -30,8 +29,18 @@ usage() { sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//'; }
 # AGENT_FABRIC_PYTHON points elsewhere for a test or a host without it.
 py="${AGENT_FABRIC_PYTHON:-/usr/local/bin/fabric-python}"
 [[ -x "$py" ]] || { echo "fabric-host: the fleet's pinned Python is not installed at $py; as root: /usr/bin/python3 <agent-fabric>/tools/fabric/python_pin.py install" >&2; exit 127; }
+case "$1" in -h|--help) usage; exit 0 ;; esac
+# Where the registry is — AGENT_FABRIC_HOSTS_REGISTRY, else the operator's
+# tree — is roots.py's to say (ADR-045), not this checkout's: a separate
+# operator keeps its hosts there. With no operator it is THIS checkout's,
+# whatever AGENT_FABRIC_ROOT (every session exports one) names: hence
+# engine=code_root(). An answer roots cannot give is a refusal, never the
+# checkout's own file. It is exported so hostexec, which keeps its own
+# shell default, reads the same registry when this runs it.
+REGISTRY="$("$py" -I -c 'import sys; sys.path.insert(0, sys.argv[1]); import roots; print(roots.hosts_registry(engine=roots.code_root()))' "$ROOT/tools/fabric")" \
+    && [[ -n "$REGISTRY" ]] || die "cannot resolve the hosts registry (tools/fabric/roots.py failed; see above)" 1
+export AGENT_FABRIC_HOSTS_REGISTRY="$REGISTRY"
 case "$1" in
-    -h|--help) usage; exit 0 ;;
     list)
         "$py" -I - "$REGISTRY" <<'PY'
 import json, sys
@@ -54,7 +63,7 @@ case "$sub" in
     check)
         reported="$("$HX" "$host" -- hostname -s)" || die "$host: unreachable, or the worker did not run (see above)" 1
         if [[ "$reported" == "$host" ]]; then echo "host $host: answers as $host"; exit 0; fi
-        die "$host answers as '$reported': the registry id is the host's short hostname, and this one is not; fix runtime/hosts/registry.json or the host's name before placing an account there" 1 ;;
+        die "$host answers as '$reported': the registry id is the host's short hostname, and this one is not; fix $REGISTRY or the host's name before placing an account there" 1 ;;
     run)
         exec "$HX" "$host" "$@" ;;
     moveto)

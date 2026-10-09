@@ -167,19 +167,26 @@ def _():
         holds(r, trust.BaseRecord, "bases")
 
 
-@case("secretstore: every agent in the committed lineage is a LineageEntry")
+@case("secretstore: every agent in a lineage file is a LineageEntry")
 def _():
-    doc = mirrors.lineage(HERE)
-    if not doc:
-        raise Failed("identities/keys/lineage.json holds no agent")
+    # What certify() writes for a root and for a child, through the one
+    # builder it uses, so an entry written tomorrow is held as well. The file
+    # is a scratch fabric's: the committed one is the operator's, read by
+    # lint's key-lineage rule, and absent from a checkout without its instance data.
+    # Lint does not reject a key the type does not declare, so an undeclared key in the
+    # committed file is no longer held anywhere; what certify() writes still is.
+    root = "01a111d3-7e46-744b-8159-5131b5598f4d"
+    child = "01a111d3-e2a5-7817-8019-35e185dcad48"
+    fabric = scratch()
+    mirrors._write_lineage({root: mirrors.lineage_entry(root, "user", "A" * 40, None),
+                            child: mirrors.lineage_entry(child, "dev-01", "B" * 40, root)}, fabric)
+    doc = mirrors.lineage(fabric)
+    if set(doc) != {root, child}:
+        raise Failed(f"the lineage file read back holds {sorted(doc)}")
     for aid, entry in doc.items():
         holds(entry, mirrors.LineageEntry, f"lineage[{aid}]")
-    # What certify() writes for a root and for a child, through the one
-    # builder it uses, so an entry written tomorrow is held as well.
-    root = "01a111d3-7e46-744b-8159-5131b5598f4d"
     holds(mirrors.lineage_entry(root, "user", "A" * 40, None), mirrors.LineageEntry, "a root's entry")
-    holds(mirrors.lineage_entry("01a111d3-e2a5-7817-8019-35e185dcad48", "dev-01", "B" * 40, root),
-          mirrors.LineageEntry, "a child's entry")
+    holds(mirrors.lineage_entry(child, "dev-01", "B" * 40, root), mirrors.LineageEntry, "a child's entry")
 
 
 @case("every job fabric-jobs writes, through each state it can take, is a Job")

@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """tools/fabric/github/pr_review_status.py — has THE HEAD of this PR been
 reviewed, by a reviewer other than the author or by the review class's
-blind review? (ADR-040 Wave 1; runtime/github/pr-review-status.sh is its
-shim, and the managed projects' tools/gh/pr-review-status.sh forward to that
+blind review? (ADR-040 Wave 1; `fabric-pr review-status` runs it; the runtime/github
+shim is deprecated, and the managed projects' tools/gh/pr-review-status.sh forward to that
 path. Lifted from the first managed project's tools/gh/ on 2026-09-19; it is
 general to every managed project.)
 
@@ -86,7 +86,7 @@ WHAT COUNTS. Three buckets, reported on their own lines:
       association NONE). Every session pushes as one account, so this is a
       person, not another session; anyone else's review is listed as "not
       trusted" and is not coverage;
-  blind reviews — the review class's reviews, posted by post-review.sh as
+  blind reviews — the review class's reviews, posted by fabric-pr post-review as
       review objects whose FIRST LINE is REVIEW_MARKER, BY the account the
       sessions push as — the PR author, or one named in
       AGENT_FABRIC_REVIEW_POSTERS: the fabric's review of every PR,
@@ -211,7 +211,7 @@ def run(argv: list[str], env=None) -> int:
     interval = bash_int(args.interval)
     deadline = ctx.seconds() + wait
     # A single failed lookup is a blip, not a verdict; only a run of them
-    # means the PR is genuinely unreadable. Same tolerance as wait-merged.sh.
+    # means the PR is genuinely unreadable. Same tolerance as fabric-pr wait-merged.
     failures = 0
     p: Probe | None = None
     while True:
@@ -275,7 +275,7 @@ def run(argv: list[str], env=None) -> int:
 
         if not wait > 0:
             break
-        # Clamp the nap to what is left, exactly as wait-merged.sh does.
+        # Clamp the nap to what is left, exactly as fabric-pr wait-merged does.
         # Breaking whenever a WHOLE interval no longer fits made `--wait`
         # mean "the last deadline a full interval lands on": `--wait 10s`
         # against the default 30s interval polled once and exited on the

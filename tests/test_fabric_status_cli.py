@@ -12,11 +12,12 @@ import json
 import os
 import pwd
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
 from git_env import git_env, scrub_process_env  # noqa: E402 — tests/, the script's own directory
-from instance_fixtures import write_registry  # noqa: E402
+from instance_fixtures import ROUTING_OPERATOR_IGNORE, write_registry, write_routing_overlay  # noqa: E402
 scrub_process_env()
 
 # Every git this suite starts, fixture or under test, reads none of the
@@ -73,10 +74,28 @@ def main() -> int:
         os.makedirs(f"{sandbox}/home")
         base = {k: v for k, v in os.environ.items()
                 if not k.startswith(("GITHUB_", "AGENT_FABRIC_", "CLAUDE_", "ANTHROPIC_")) and k not in ("GIT_DIR", "CLAUDECODE")}
-        base.update(HOME=f"{sandbox}/home", AGENT_FABRIC_STATE_DIR=state, AGENT_FABRIC_HOSTS_REGISTRY=placed)
+        # The routing it resolves is the engine's with the fixture's operator
+        # half (profiles overlay, review grade), never the checkout's live
+        # files: a checkout without its instance data must pass too. bin/
+        # and tools/ are copied, not linked: status.py takes its root from its
+        # own realpath, which through a link is the checkout.
+        fabric = f"{sandbox}/fabric"
+        os.makedirs(fabric)
+        for name in os.listdir(ROOT):
+            if name not in ("routing", "bin", "tools", ".git"):
+                os.symlink(os.path.join(ROOT, name), os.path.join(fabric, name))
+        for name in ("bin", "tools"):
+            shutil.copytree(f"{ROOT}/{name}", f"{fabric}/{name}", symlinks=True, ignore=shutil.ignore_patterns("__pycache__"))
+        shutil.copytree(f"{ROOT}/routing", f"{fabric}/routing", ignore=shutil.ignore_patterns(*ROUTING_OPERATOR_IGNORE))
+        # FABRIC_STATUS names a script elsewhere: it keeps its own tree, and
+        # with it that tree's operator files, whatever the fixture holds.
+        command = CMD if os.environ.get("FABRIC_STATUS") else f"{fabric}/bin/fabric-status"
+        write_routing_overlay(f"{fabric}/routing")
+        base.update(HOME=f"{sandbox}/home", AGENT_FABRIC_STATE_DIR=state, AGENT_FABRIC_HOSTS_REGISTRY=placed,
+                    AGENT_FABRIC_ROOT=fabric)
 
         def status(*mode: str, cwd: str | None = None, **env: str) -> str:
-            r = subprocess.run(["bash", CMD, *mode], env={**base, **env}, cwd=cwd, stdout=subprocess.PIPE,
+            r = subprocess.run(["bash", command, *mode], env={**base, **env}, cwd=cwd, stdout=subprocess.PIPE,
                                stderr=subprocess.STDOUT, text=True, errors="replace", timeout=120)
             return r.stdout
 
