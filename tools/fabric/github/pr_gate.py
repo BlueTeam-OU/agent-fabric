@@ -12,7 +12,8 @@ CONTRACT, frozen from the bash (ADR-040 §5 rule 3):
             program), AGENT_FABRIC_PR_SESSION (<host>/<login>),
             AGENT_FABRIC_ROOT, AGENT_FABRIC_PR_BASE (--in-flight's base)
   stdout    the rows (three to five lines each), or with --json the rows
-            as data; --in-flight a header and one line per branch, or an
+            as data (a MERGED row carries "state" and the split only: no
+            check, review, thread or arming key); --in-flight a header and one line per branch, or an
             object with its rows
   stderr    every `pr-gate: ` note — a skipped number, a failed fetch,
             the 500-PR cap, a refusal
@@ -231,9 +232,9 @@ def merged_commits(num: int, repo: str, merge_commit: str) -> dict | None:
     base and second its head, as the gate splits them before arming — or
     the band measured after the merge is not the band applied before it
     (pr-compliance's measure and this gate's merged row share it). None
-    when the clone cannot answer: no merge commit (a squash or rebase
-    merge leaves none to count from), one never fetched, or one with no
-    second parent."""
+    when the clone cannot answer: no merge commit recorded, one never
+    fetched, or one with no second parent (a squash or rebase merge leaves
+    a plain commit as GitHub's mergeCommit, so it lands here too)."""
     if not merge_commit:
         return None
     try:
@@ -523,7 +524,8 @@ def merged_row(p: dict, repo: str, fetched: bool, session: str) -> dict:
         "netted_subjects": commits["netted_subjects"] if known else [],
         "commits_known": known,
         "verdict": "MERGED — not at any gate" + ("" if known else "; its commits cannot be counted "
-                                                 "(no merge commit in this clone: a squash or rebase merge, or not fetched)"),
+                                                 "(this clone has no two-parent merge commit for it: a squash or rebase merge, "
+                                                 "a commit not fetched, or a failed fetch)"),
     }
 
 
@@ -548,13 +550,7 @@ def commits_text(row: dict) -> str:
 def render(row: dict) -> str:
     if row.get("state") == "MERGED":
         return render_merged(row)
-    if row["commits_known"]:
-        total = row["work_commits"] + row["fix_commits"] + row["merge_commits"] + row["netted_commits"]
-        netted = f", {row['netted_commits']} netted by a revert" if row["netted_commits"] > 0 else ""
-        commits = (f"{total} ({row['work_commits']} work, {row['fix_commits']} fix, {row['merge_commits']} merge"
-                   f"{netted})")
-    else:
-        commits = "unknown (fetch)"
+    commits = commits_text(row)
     queue = f"  queue={row['queue_position']}" if row["queue_position"] != "" else ""
     out = (f"#{row['number']}  {row['owner']}{' (me)' if row['mine'] else ''}  commits={commits}  "
            f"checks={row['checks']}  review={row['review']}  threads={row['unresolved_threads']}  "

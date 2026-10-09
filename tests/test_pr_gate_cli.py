@@ -318,6 +318,11 @@ def main() -> int:
               and "MERGED — not at any gate" in out and not has(r"^#40.*checks=", out) and has(r"^#43", out), f"rc={rc}\n{out}")
         check("a closed-unmerged PR given by number is said and skipped, never gated",
               "#41 is CLOSED — not at any gate; skipped" in out and not has(r"^#41", out), f"rc={rc}\n{out}")
+        put("graphql_fail", "")
+        rc, out = run("40")
+        check("a MERGED row reads nothing from GitHub's graphql: it answers while that read fails",
+              rc == 0 and has(r"^#40 .*state=MERGED", out), f"rc={rc}\n{out}")
+        drop("graphql_fail")
         rc, out = run("42abc")
         check("a non-numeric argument is a usage error, not a silently dropped PR", rc == 2, f"rc={rc}\n{out}")
         rc, out = run("999")
