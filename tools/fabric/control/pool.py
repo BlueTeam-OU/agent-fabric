@@ -134,19 +134,24 @@ def _write_pool(file: str, doc: dict) -> None:
     tmp = f"{file}.{os.getpid()}.tmp"
     data = (js.stringify(doc, indent=2) + "\n").encode("utf-8")
     fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    done = False
     try:
-        # Every byte, or an error: one os.write() may write part of it (a
-        # full disk, a file-size limit) and return, and a short pool renamed
-        # over the good one loses every claim (review of d441507c, F1).
-        view = memoryview(data)
-        while view:
-            view = view[os.write(fd, view):]
-    except OSError:
-        os.close(fd)
-        os.unlink(tmp)
-        raise
-    os.close(fd)
-    os.replace(tmp, file)
+        try:
+            # Every byte, or an error: one os.write() may write part of it (a
+            # full disk, a file-size limit) and return, and a short pool
+            # renamed over the good one loses every claim (review of d441507c, F1).
+            view = memoryview(data)
+            while view:
+                view = view[os.write(fd, view):]
+        finally:
+            os.close(fd)
+        os.replace(tmp, file)
+        done = True
+    finally:
+        # However the write ends — an error, an interrupt — no temporary
+        # file is left beside the pool.
+        if not done and os.path.exists(tmp):
+            os.unlink(tmp)
 
 
 def _index(priority) -> int:
@@ -160,12 +165,16 @@ def _by_priority(a: dict, b: dict) -> float:
     sa, sb = a.get("seq"), b.get("seq")
     if isinstance(sa, (int, float)) and isinstance(sb, (int, float)) and not isinstance(sa, bool) and not isinstance(sb, bool):
         return sa - sb
-    return 0     # Node's a.seq - b.seq is NaN, which sort takes as equal
+    # Equal: as Node takes a seq that a.seq - b.seq reads as NaN (absent, an
+    # object, a word). Node also coerces null, a boolean or a numeric
+    # string, which pool.mjs never writes; here any seq that is not a
+    # number is equal.
+    return 0
 
 
 # The pool's order is the queue's (tools/fabric/jobs.py queue_order):
-# highest priority, then the oldest — Node's comparator, so a job without a
-# numeric seq is "equal", never a TypeError; sorted() is stable as
+# highest priority, then the oldest — Node's comparator, never a
+# TypeError on a seq that is not a number; sorted() is stable as
 # Array.prototype.sort is.
 by_priority = functools.cmp_to_key(_by_priority)
 
