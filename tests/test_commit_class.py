@@ -282,6 +282,14 @@ def on_github(check) -> None:
         gh.api = answering({"status": "ahead"})
         look = cc.Folds("o/r", "b" * 40, cwd="/nonexistent", ancestor=cc.on_github("o/r"))
         check("Folds with GitHub's ancestry: a fold, no clone asked", look("10") is True)
+        # With a base too: the head inside the base was folded into an
+        # earlier PR, so not here; inside the head alone, here.
+        gh.api = lambda path, **kw: {"status": "ahead"}
+        check("Folds with GitHub's ancestry and a base that holds the head: not folded here",
+              cc.Folds("o/r", "b" * 40, cwd="/nonexistent", base="m" * 40 + "^1", ancestor=cc.on_github("o/r"))("10") is False)
+        gh.api = lambda path, **kw: {"status": "ahead" if path.endswith("b" * 40 + "?per_page=1") else "diverged"}
+        check("...and a base that does not: folded here",
+              cc.Folds("o/r", "b" * 40, cwd="/nonexistent", base="m" * 40 + "^1", ancestor=cc.on_github("o/r"))("10") is True)
         gh.api = answering(gh.GhError("gh api GET repos/o/r/compare", "Not Found", 404))
         err = io.StringIO()
         with redirect_stderr(err):
