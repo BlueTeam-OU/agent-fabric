@@ -162,7 +162,7 @@ def main() -> int:
             f.write(AGENT + "\n")
         env = {k: v for k, v in os.environ.items() if not k.startswith(STRIP)}
         # The integration the cases name is the fixture operator's, never the checkout's.
-        operator = write_gzcoord_integrations(os.path.join(home, "operator"), {"agent-fabric": (url, "gzapp:gzcoord")})
+        operator = write_gzcoord_integrations(os.path.join(home, "operator"), {"fixture-proj": (url, "fixture:chan")})
         env.update(HOME=home, AGENT_FABRIC_STATE_DIR=state_root, AGENT_FABRIC_SECRET_STORE=store, CLAUDE_BRIDGE_URL=url,
                    AGENT_FABRIC_OPERATOR=operator)
         os.environ.update(AGENT_FABRIC_STATE_DIR=state_root, AGENT_FABRIC_SECRET_STORE=store)
@@ -184,7 +184,7 @@ def main() -> int:
             return subprocess.run([sys.executable, TOOL, "gzcoord-import", *a], env=e or env, capture_output=True,
                                   text=True, timeout=120)
 
-        r = run("agent-fabric")
+        r = run("fixture-proj")
         check("no token: exit 1, said, nothing asked of the relay",
               r.returncode == 1 and "fabric-secrets sync first" in r.stderr and not Relay.calls, (r.returncode, r.stderr))
         os.makedirs(os.path.join(home, ".config", "agent-fabric"))
@@ -220,7 +220,7 @@ def main() -> int:
 
         print("a relay that fails part way")
         Relay.fail_after = 2
-        r = run("agent-fabric")
+        r = run("fixture-proj")
         Relay.fail_after = None
         rep = json.load(open(report_path))
         conn = ep.connect()
@@ -230,7 +230,7 @@ def main() -> int:
         conn.close()
 
         print("the import")
-        r = run("agent-fabric")
+        r = run("fixture-proj")
         out = r.stdout + r.stderr
         check("exit 0", r.returncode == 0, out)
         gets = [c for c in Relay.calls if c[0] == "GET"]
@@ -309,7 +309,7 @@ def main() -> int:
         check("ledger: the missing, the other hash and the other seq are each reported",
               led == {"not_in_ledger": ["sent-2", "forged-1", "sent-6"], "hash_differs": ["sent-3"], "seq_differs": ["sent-4"]}, led)
         check("the report: the last seq, complete", rep["complete"] is True
-              and rep["channels"]["gzapp:gzcoord"]["last_seq"] == 100 + len(RECORDS), rep["channels"])
+              and rep["channels"]["fixture:chan"]["last_seq"] == 100 + len(RECORDS), rep["channels"])
         raw = open(report_path).read()
         check("no message content in the report (positive control: its ids are there)",
               not re.search(r"BODY-\d", raw) and "SUBJECT" not in raw and "role-left-1" in raw, raw[:300])
@@ -319,13 +319,13 @@ def main() -> int:
         mark = conn.execute("SELECT gzcoord_imported_at, gzcoord_import_seqs FROM meta").fetchone()
         check("the meta marker: when, and the last seq per channel",
               mark[0] and list(json.loads(mark[1]).values()) == [100 + len(RECORDS)]
-              and list(json.loads(mark[1]))[0].endswith(" gzapp:gzcoord"), tuple(mark))
+              and list(json.loads(mark[1]))[0].endswith(" fixture:chan"), tuple(mark))
         before = sorted((r["id"], r["direction"], r["message_id"], r["content_hash"], r["state"], r["carrier_seq"])
                         for r in conn.execute("SELECT * FROM episodes"))
         conn.close()
 
         print("again")
-        r = run("agent-fabric")
+        r = run("fixture-proj")
         conn = ep.connect()
         after = sorted((r[0], r[1], r[2], r[3], r[4], r[5]) for r in conn.execute(
             "SELECT id, direction, message_id, content_hash, state, carrier_seq FROM episodes"))
@@ -334,32 +334,32 @@ def main() -> int:
         check("…counted as already kept", c2["outbound"] == 0 and c2["outbound_same"] == 4 and c2["inbound_written"] == 0
               and c2["inbound_same"] == 6 and not conn.execute("SELECT COUNT(*) FROM conflicts").fetchone()[0], c2)
         conn.close()
-        r = run("--if-needed", "agent-fabric")
+        r = run("--if-needed", "fixture-proj")
         check("--if-needed after a complete import asks nothing of the relay (positive control: a run without it does)",
               r.returncode == 0 and "already imported" in r.stdout and not Relay.calls, (r.stdout, Relay.calls))
         # The marker is per relay and channel: a channel no complete run
         # covered is still imported (review of #84).
-        r = run("--if-needed", "agent-fabric", e={**env, "GZCOORD_CHANNEL": "gzapp:elsewhere"})
+        r = run("--if-needed", "fixture-proj", e={**env, "GZCOORD_CHANNEL": "gzapp:elsewhere"})
         check("--if-needed on a channel the marker does not cover asks the relay for it",
               r.returncode == 0 and any(c[0] == "GET" and c[2].get("channel") == "gzapp:elsewhere" for c in Relay.calls),
               (r.stdout, r.stderr, Relay.calls[:2]))
         conn = ep.connect()
         good = conn.execute("SELECT gzcoord_import_seqs FROM meta").fetchone()[0]
         conn.execute("UPDATE meta SET gzcoord_import_seqs='{not json'")
-        r = run("--if-needed", "agent-fabric")
+        r = run("--if-needed", "fixture-proj")
         check("an unparsable import marker is refused, never read as none: exit 1, one line naming the file and "
               "the column, nothing asked", r.returncode == 1 and r.stderr.count("\n") == 1 and ep.db_path() in r.stderr
               and "gzcoord_import_seqs" in r.stderr and not Relay.calls, (r.returncode, r.stderr, Relay.calls[:2]))
         conn.execute("UPDATE meta SET gzcoord_import_seqs='[]'")
-        r = run("--if-needed", "agent-fabric")
+        r = run("--if-needed", "fixture-proj")
         check("…a marker that is JSON but no object, the same", r.returncode == 1 and "gzcoord_import_seqs" in r.stderr
               and not Relay.calls, (r.returncode, r.stderr))
         conn.execute("UPDATE meta SET gzcoord_import_seqs=''")
-        r = run("--if-needed", "agent-fabric")
+        r = run("--if-needed", "fixture-proj")
         check("…an empty marker, the same: only NULL means never imported (#97's review)",
               r.returncode == 1 and "gzcoord_import_seqs" in r.stderr and not Relay.calls, (r.returncode, r.stderr))
         conn.execute("UPDATE meta SET gzcoord_import_seqs=?", (good,))
-        r = run("--if-needed", "agent-fabric")
+        r = run("--if-needed", "fixture-proj")
         check("…positive control: the marker back, --if-needed reads it", r.returncode == 0
               and "already imported" in r.stdout, (r.returncode, r.stderr))
         conn.close()
@@ -369,7 +369,7 @@ def main() -> int:
                                "content": msg("to-me-1", "BODY-X", to=ME)})
         Relay.messages.append({"id": "relay-x2", "seq": 901, "timestamp": DAY.format(27), "sender": ME,
                                "content": msg("sent-1", "BODY-Y", frm=ME, to=OTHER)})
-        r = run("agent-fabric")
+        r = run("fixture-proj")
         conn = ep.connect()
         c3 = json.load(open(report_path))["counts"]
         kept = conn.execute("SELECT content FROM episodes WHERE message_id IN ('to-me-1', 'sent-1') ORDER BY message_id").fetchall()
@@ -439,16 +439,16 @@ def main() -> int:
             kconn.close()
 
         print("refusals")
-        r = run("agent-fabric", e={**env, "GZCOORD_CHANNEL": "fabric:control"})
+        r = run("fixture-proj", e={**env, "GZCOORD_CHANNEL": "fabric:control"})
         check("a control channel is refused before any request", r.returncode == 2 and "control" in r.stderr
               and not Relay.calls, (r.returncode, r.stderr))
-        r = run("agent-fabric", e={**env, "GZCOORD_CHANNEL": "gzapp:gzcoord"})
+        r = run("fixture-proj", e={**env, "GZCOORD_CHANNEL": "fixture:chan"})
         check("…positive control: the same override to an application channel runs", r.returncode == 0 and Relay.calls)
         other = os.path.join(tmp, "other-store")
         os.makedirs(other)
         with open(os.path.join(other, ".agent-id"), "w") as f:
             f.write(AGENT_B + "\n")
-        r = run("agent-fabric", e={**env, "AGENT_FABRIC_SECRET_STORE": other})
+        r = run("fixture-proj", e={**env, "AGENT_FABRIC_SECRET_STORE": other})
         check("another agent's journal is refused, before the relay is asked",
               r.returncode == 1 and "belongs to agent" in r.stderr and not Relay.calls, r.stderr)
         r = run("no-such-project")
