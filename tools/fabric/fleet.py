@@ -162,10 +162,6 @@ def json_lines(text: str) -> list[dict]:
 
 # ── the sources ─────────────────────────────────────────────────────
 
-def target_of(agents: list[Agent], everyone: int) -> str:
-    return "all" if len(agents) == everyone else agents[0].login
-
-
 CTL_META = {"account", "host", "status", "op", "latency_ms", "agentd"}
 
 
@@ -177,24 +173,23 @@ def ctl_source(op: str, extra: tuple[str, ...] = ()) -> Source:
         tail = list(extra)
         if op == "tokens" and ctx.days is not None:
             tail += ["--days", str(ctx.days)]
+        # fabric-ctl takes one target or `all`: one agent asked is that
+        # login's call; any larger subset is read as `all`, one relay round
+        # trip, and the rows of the others are dropped by the caller.
+        target = agents[0].login if len(agents) == 1 and len(placed_logins(ctx)) > 1 else "all"
+        p = call(ctx, [os.path.join(ctx.root, "bin", "fabric-ctl"), target, op, "--json", "--timeout", str(CTL_TIMEOUT_S), *tail])
+        rows = json_lines(p.stdout)
+        if not rows:
+            raise SourceError(f"fabric-ctl {op}: {last_line(p.stderr) or f'exit {p.returncode}, no rows'}")
         out: dict[str, Any] = {}
-        # One call per agent when a subset is asked: fabric-ctl takes one
-        # target or `all`, and `all` for a subset would read the fleet.
-        subset = len(agents) < len(placed_logins(ctx))
-        for chunk in ([[a] for a in agents] if subset else [agents]):
-            target = chunk[0].login if subset else "all"
-            p = call(ctx, [os.path.join(ctx.root, "bin", "fabric-ctl"), target, op, "--json", "--timeout", str(CTL_TIMEOUT_S), *tail])
-            rows = json_lines(p.stdout)
-            if not rows:
-                raise SourceError(f"fabric-ctl {op}: {last_line(p.stderr) or f'exit {p.returncode}, no rows'}")
-            for row in rows:
-                login = row.get("account")
-                if not isinstance(login, str):
-                    continue
-                if row.get("status") != "ok":
-                    out[login] = Failed(str(row.get("status") or "no status"))
-                else:
-                    out[login] = {k: v for k, v in row.items() if k not in CTL_META and v is not None}
+        for row in rows:
+            login = row.get("account")
+            if not isinstance(login, str):
+                continue
+            if row.get("status") != "ok":
+                out[login] = Failed(str(row.get("status") or "no status"))
+            else:
+                out[login] = {k: v for k, v in row.items() if k not in CTL_META and v is not None}
         return out
     return Source(f"op:{op}", read)
 
@@ -464,7 +459,9 @@ def fetch(sections: list[str] | None = None, agent: str | None = None, max_age: 
         raise FleetError(f"{agent} is not a placed account (runtime/hosts/registry.json)")
     agents = [placed[agent]] if agent else list(placed.values())
     if ctx is None:
-        ctx = Ctx(root=root, ssh_hosts=ssh_hosts(root), run=run_program, days=days)
+        ctx = Ctx(root=root, ssh_hosts=ssh_hosts(root), run=run_program)
+    if days is not None:
+        ctx.days = days
     directory, why = cache_dir(ctx.env)
     answers: dict[str, dict[str, dict]] = {}
     with concurrent.futures.ThreadPoolExecutor(max_workers=len(names)) as pool:
