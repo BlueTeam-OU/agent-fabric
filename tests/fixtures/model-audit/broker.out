@@ -1,0 +1,30 @@
+== provider variables in this session's environment ==
+  ANTHROPIC_AUTH_TOKEN = <set, 15 chars>
+  ANTHROPIC_BASE_URL = https://openrouter.ai
+  ANTHROPIC_DEFAULT_HAIKU_MODEL = z-ai/glm-5.3-flash@preset/glm2claude-shim
+  ANTHROPIC_DEFAULT_OPUS_MODEL = deepseek/deepseek-v4-pro-0813
+  ANTHROPIC_DEFAULT_SONNET_MODEL = z-ai/glm-5.2
+  CLAUDE_CODE_EFFORT_LEVEL = medium
+  CLAUDE_CODE_SUBAGENT_MODEL = x/y
+
+== the launcher's stamp (runtime/openrouter/launch) ==
+  profile : broker
+  agent   : python-dev-01
+  session : deepseek/deepseek-v4-pro-0813
+
+== the four alias pins (ANTHROPIC_DEFAULT_*) ==
+  haiku      z-ai/glm-5.3-flash@preset/glm2claude-shim
+  sonnet     z-ai/glm-5.2
+  opus       deepseek/deepseek-v4-pro-0813
+  fable      <unset — harness default>
+
+== how to read back what was actually SERVED ==
+  This session is routed through OpenRouter. After a request:
+    GET https://openrouter.ai/api/v1/generation?id=<generation id>
+  ...or the Activity page; response 'model'/'provider' name the model
+  that ACTUALLY served the request. Configured and served can differ
+  (router fallback); the response is the ground truth.
+
+  The durable path: OTel claude_code.llm_request (model, agent.name)
+  against local Tempo — per-request, per-agent, no transcript parsing.
+  (The transcript JSONL is documented as internal; do not parse it.)
