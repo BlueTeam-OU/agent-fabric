@@ -675,8 +675,8 @@ class Bootstrap:
             if wc == self.root or not self.is_work_tree(wc):
                 continue
             try:
-                # the fabric this bootstrap runs in (tests/test_session_start.py), not the operator's
-                registry = workingcopy.load_registry(roots.projects_registry(root=self.root))
+                # the fabric this bootstrap runs in, outranked by an exported operator, as every reader of the registry
+                registry = workingcopy.load_registry(roots.projects_registry(engine=self.root))
                 pid = workingcopy.resolve(wc, registry).get("project") or ""
             except SystemExit as e:
                 warn(f"  !  {wc}: {e.code}; its hooksPath and trust left as they are")

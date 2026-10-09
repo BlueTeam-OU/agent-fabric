@@ -21,6 +21,13 @@ _wc_spec.loader.exec_module(workingcopy)
 _roots_spec.loader.exec_module(roots)
 
 
+def lint_environ() -> dict[str, str]:
+    """The environment a rule hands roots: an exported operator still outranks
+    the tree the lint was given, but AGENT_FABRIC_HOSTS_REGISTRY, a one-file
+    override for the daemons, never changes what the lint reads."""
+    return {k: v for k, v in os.environ.items() if k != roots.ENV_HOSTS_REGISTRY}
+
+
 FRONTMATTER_RE = re.compile(r"^---\n(.*?)\n---\n", re.S)
 
 

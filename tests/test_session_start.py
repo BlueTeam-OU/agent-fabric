@@ -419,8 +419,8 @@ def test_bootstrap_writes_only_the_workspace_and_home_files(tmp: str) -> None:
                  "echo '{\"environment\": [\"**Organization**: None configured\"], \"allow\": [], \"soft_deny\": [], \"hard_deny\": []}'\n")
     os.chmod(fake_claude, 0o755)
     env["AGENT_FABRIC_CLAUDE"] = fake_claude
-    # bootstrap.py reads the registry from the fabric it runs in (the scratch copy), not the operator.
-    write_registry(os.path.join(root, "projects"), {"projects": {"fixture-proj": {
+    # bootstrap.py reads the registry as every reader does: the exported operator's.
+    write_registry(os.path.join(env["AGENT_FABRIC_OPERATOR"], "projects"), {"projects": {"fixture-proj": {
         "remotes": ["git@example.org:fixture-org/fixture-proj.git"]}}})
     # A folder in the workspace that is not a registered working copy: never trusted.
     stray = os.path.join(projects, "not-a-project"); os.makedirs(stray)

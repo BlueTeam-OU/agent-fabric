@@ -173,7 +173,9 @@ def owner_role_of(top: str, env: dict[str, str], base: str) -> str:
         shown = git.run(top, "show", f"{base}:policies/authority.json", check=False)
         role = common.role_of(shown.stdout) if shown.returncode == 0 else None
         return role or common.DEFAULT_ROLE
-    for f in (roots.policy("authority.json", root=env.get("AGENT_FABRIC_ROOT") or os.path.join(top, "..", "agent-fabric")),):
+    # The guard's own environment, so an exported operator's authority.json is the one read.
+    for f in (roots.policy("authority.json", environ=env,
+                           engine=env.get("AGENT_FABRIC_ROOT") or os.path.join(top, "..", "agent-fabric")),):
         if not os.path.isfile(f):
             continue
         try:
