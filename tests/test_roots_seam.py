@@ -28,7 +28,7 @@ SEQUENCES = (
 )
 SINGLE = ("policies", "memory")           # one component after a root: policies/<x>, memory/<x>
 SCANNED_DIRS = ("tools", "runtime", "communication/gzcoord/scripts", "projects/gzapp/integration/gh", "bin")
-SKIP_PARTS = ("/tests/", "/__pycache__/", "/claude-code/", "/lint_rules/", "/guards/")
+SKIP_PARTS = ("/tests/", "/__pycache__/", "/claude-code/")
 
 # path -> why it does not go through roots yet
 EXEMPT = {
@@ -114,6 +114,14 @@ def case_no_engine_module_joins_an_instance_path_itself() -> None:
             src = fh.read()
         bad += [f"{rel}:{ln}: {what}" for ln, what in findings(rel, src)]
     assert not bad, "instance paths joined outside roots:\n  " + "\n  ".join(bad)
+
+
+def case_the_scan_sees_the_lint_rules_and_the_guards() -> None:
+    """The rules and guards read instance data too (the arm.json scan, the
+    key lineage); a scan that skips them cannot tell a join from the seam."""
+    seen = set(sources())
+    for rel in ("tools/fabric/lint_rules/docs.py", "tools/fabric/guards/common.py"):
+        assert rel in seen, f"{rel} is outside the scan"
 
 
 def case_an_exemption_that_no_longer_applies_is_removed() -> None:
