@@ -20,6 +20,8 @@ ROOT = os.path.dirname(HERE)
 sys.path.insert(0, os.path.join(ROOT, "tools", "fabric"))
 import instance_fixtures  # noqa: E402 — tests/, this script's own directory
 import routing  # noqa: E402
+from instance_fixtures import own_instance_tree  # noqa: E402 — tests/, the script's own directory
+own_instance_tree()
 
 GLM_SHIM = "@preset/glm2claude-shim"
 
