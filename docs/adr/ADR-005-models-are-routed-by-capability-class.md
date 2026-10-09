@@ -57,7 +57,8 @@ The current mapping:
   `code-medium` is `claude-sonnet-5-5`; `code-high`, `code-plan` and the
   review class are `claude-opus-5-5`, and so is the default session
   (A 2026-09-29);
-  `architect-cto-01`'s session is `claude-fable-5-1` (an agent layer).
+  `architect-cto-01`'s session is `claude-fable-5-1` (an agent layer), and
+  the python-dev role's is `claude-sonnet-5-5` (a role layer) (A 2026-10-09).
   `anthropic/claude-opus-5-5` is admitted to review-grade without the
   `[1m]` marker (Opus 5.5's context is natively 1M). The aliases stay:
   they are how the harness spells a class; `haiku` binds to Haiku 5.5,
@@ -183,3 +184,4 @@ The body above reads current; each change's full note is in [history/ADR-005-ame
 |---|---|---|
 | 2026-09-29 | code-low and code-medium are Sonnet 5.5 on plain claude | §2 the current mapping: the two lower classes on `claude-sonnet-5-5` |
 | 2026-10-07 | code-low is Haiku 5.5 on plain claude | §1, §2 the current mapping: `code-low` on `claude-haiku-5-5`, `haiku` binds to it |
+| 2026-10-09 | python-dev's session is Sonnet 5.5, a role layer | §2's current mapping names `roles.python-dev`'s Sonnet 5.5 session beside architect-cto-01's agent layer |
