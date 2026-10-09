@@ -644,6 +644,74 @@ class UpgradeFabric(unittest.TestCase):
 class PortAdditions(unittest.TestCase):
     """What the Node suite could not say: the port's own seams."""
 
+    def test_a_number_or_a_list_that_prints_as_a_sha_is_the_nodes_answer_a_refusal_never_a_raise(self):
+        big = 1111111111111111111111111111111111111111.0   # what a 40-digit JSON literal parses to
+        self.assertEqual(U.js_string(big), "1.1111111111111112e+39")
+        self.assertEqual(U.js_string(1e-7), "1e-7")
+        self.assertEqual(U.js_string(2.0), "2")
+        self.assertEqual(U.js_string(2.5), "2.5")
+        self.assertIsNone(U.check_args({"piece": "fabric", "commit": ["a" * 40]}), "a one-element list prints as its element")
+        self.assertRegex(U.check_args({"piece": "fabric", "commit": big}), r"full 40-hex sha")
+        f = FabricFx(self)
+        r = U.upgrade_fabric({"id": "r", "from": "h/u", "args": {"piece": "fabric", "commit": [f.head()]}}, **f.opts())
+        self.assertEqual(r["status"], "current", "a one-element list that prints as the sha is the sha, as `${commit}` was")
+
+    def test_a_program_that_fails_without_output_says_command_failed_with_its_argv(self):
+        e = subprocess.CalledProcessError(1, ["false", "-x"])
+        self.assertEqual(U.last_line(e), "Command failed: false -x")
+        self.assertEqual(U.last_line(subprocess.TimeoutExpired(["slow", "a"], 5)), "Command failed: slow a")
+        f = Fx(self)
+        inner = f.run
+
+        def run(cmd, **kw):
+            if len(cmd) > 1 and cmd[1] == "install":
+                raise subprocess.CalledProcessError(2, cmd)
+            return inner(cmd, **kw)
+        r = U.upgrade_once(req(), **f.opts(sessions=[], me="h/db-admin", run=run))
+        self.assertRegex(r["reason"], r"^claude install 2\.1\.281: Command failed: .*claude install 2\.1\.281$")
+
+        def pgrep(argv):
+            raise subprocess.CalledProcessError(2, argv)
+        r = U.upgrade_once(req(), **f.opts(me="h/db-admin", pgrep=pgrep))
+        self.assertRegex(r["reason"], r"\(pgrep: Command failed: pgrep -u \d+ -x claude\)")
+
+        def missing(argv):
+            raise FileNotFoundError(2, "No such file", "pgrep")
+        r = U.upgrade_once(req(), **f.opts(me="h/db-admin", pgrep=missing))
+        self.assertRegex(r["reason"], r"\(pgrep: spawnSync pgrep ENOENT\)")
+
+    def test_a_settings_refresh_that_times_out_names_python3_and_its_arguments_as_the_node_did(self):
+        f = Fx(self)
+        inner = f.run
+
+        def run(cmd, **kw):
+            if cmd[0] == sys.executable:
+                raise subprocess.TimeoutExpired(cmd, kw["timeout"])
+            return inner(cmd, **kw)
+        r = U.upgrade_once(req(), **f.opts(sessions=[], me="h/db-admin", run=run))
+        self.assertEqual(r["status"], "upgraded")
+        said = f"Command failed: python3 {os.path.join(f.root, 'runtime', 'claude-code', 'user-settings.py')} {os.path.join(f.home, '.claude', 'settings.json')}"
+        self.assertEqual(r["settings"], f"not refreshed: {said[:160]}", "the line is cut at 160, as the Node cut it")
+
+    def test_a_head_that_cannot_be_read_back_keeps_the_nodes_key_order(self):
+        f = FabricFx(self)
+        target = f.advance("two")
+
+        def run(cmd, **kw):
+            if "rev-parse" in cmd and "--short" in cmd and f.head() == target:
+                raise failed(cmd, code=128, err="fatal: cannot read")
+            return U.default_run(cmd, **kw)
+        r = U.upgrade_fabric(freq(target), **f.opts(run=run))
+        self.assertEqual(list(r), ["status", "piece", "from", "reason", "restart_daemon"])
+        self.assertRegex(r["reason"], r"moved, but HEAD could not be read back: fatal: cannot read; not bootstrapped")
+
+    def test_a_request_without_an_id_writes_a_marker_without_request_id_as_json_stringify_does(self):
+        f = Fx(self)
+        up = [True]
+        U.upgrade_once({"from": "h/user", "args": {"piece": "claude"}}, **f.opts(sessions=[9], kill=lambda *_a: up.__setitem__(0, False), alive=lambda _p: up[0],
+                                                                               sleep=lambda _s: None, me="h/x"))
+        self.assertNotIn("request_id", marker(f))
+
     def test_the_names_other_control_modules_reach_resolve_without_fakes(self):
         from control import secrets
         self.assertIs(secrets.upgrade(), U)
@@ -694,7 +762,7 @@ class PortAdditions(unittest.TestCase):
         os.makedirs(os.path.join(fake, "bin"))
         script = os.path.join(fake, "bin", "fabric-lease")
         with open(script, "w") as fh:
-            fh.write("#!/bin/sh\nsleep 30\n")
+            fh.write("#!/bin/sh\nexec sleep 30\n")
         os.chmod(script, 0o755)
         saved = U.LEASE_GRACE_S
         U.LEASE_GRACE_S = 1

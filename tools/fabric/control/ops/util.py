@@ -34,8 +34,8 @@ if FABRIC_TOOLS not in sys.path:
 
 def state_dir() -> str:
     """This login's fabric state directory, as runtime/identity.py resolves
-    it (upgrade.mjs's stateDir mirrors it). Until control/upgrade.py exports
-    its own, this is the one place that asks."""
+    it (upgrade.mjs's stateDir mirrors it). control/upgrade.py's state_dir
+    is the form that takes the home, environment and login explicitly."""
     spec = importlib.util.spec_from_file_location(
         "fabric_runtime_identity", os.path.join(os.path.dirname(os.path.dirname(FABRIC_TOOLS)), "runtime", "identity.py"))
     assert spec is not None and spec.loader is not None

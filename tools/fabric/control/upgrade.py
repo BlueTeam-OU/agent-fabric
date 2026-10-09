@@ -54,6 +54,15 @@ WHERE THE PORT DIFFERS ON PURPOSE
     LEASE_GRACE_S: a fabric-lease that never answers is a refused lease, not
     an upgrade that never replies.
   * The lease holder's stdout and stderr pipes are closed on release.
+  * An empty AGENT_FABRIC_ROOT counts as unset (roots.engine_root does the
+    same), where the Node's `??` kept the empty string and read a pin from
+    the working directory.
+
+KNOWN LIMIT. The interlock with secrets-sync is a check and then a set
+(`upgrade_running()` then `restart_in_flight(True)` in secrets.py): safe
+while agentd runs one action at a time, as the Node's single thread did. A
+daemon that runs actions on threads needs one locked test-and-set; that is
+the cutover's to decide, since agentd's loop is its.
 """
 from __future__ import annotations
 
@@ -118,12 +127,20 @@ def last_line(e: Any) -> str:
     """The line that says what went wrong is the LAST one a failed command
     wrote; a subprocess error's message starts with the command line, which
     is all the first run's rows showed."""
-    message = getattr(e, "message", None) or (str(e) if isinstance(e, BaseException) else None)
+    message = getattr(e, "message", None) or _command_failed(e) or (str(e) if isinstance(e, BaseException) else None)
     for s in (getattr(e, "stderr", None), getattr(e, "stdout", None), message):
         lines = [x.strip() for x in util.decode(s).split("\n") if x.strip()]
         if lines:
             return lines[-1]
     return "no output"
+
+
+def _command_failed(e: Any) -> str | None:
+    """execFile's message for a program that exited non-zero or timed out:
+    `Command failed: <argv>` — the last line a failure with no output has."""
+    if isinstance(e, (subprocess.CalledProcessError, subprocess.TimeoutExpired)) and e.cmd:
+        return "Command failed: " + (e.cmd if isinstance(e.cmd, str) else " ".join(map(str, e.cmd)))
+    return None
 
 
 def _first_line(e: BaseException, cmd: list[str], limit: int) -> str:
@@ -138,8 +155,11 @@ def js_string(v: Any) -> str:
         return "null"
     if isinstance(v, bool):
         return "true" if v else "false"
-    if isinstance(v, float) and v.is_integer():
-        return str(int(v))
+    if isinstance(v, float):
+        if v.is_integer() and abs(v) < 1e21:
+            return str(int(v))
+        # Number::toString writes 1e+21 and up, and below 1e-6, with an exponent without leading zeros.
+        return re.sub(r"e([+-])0*(\d)", r"e\1\2", repr(v))
     if isinstance(v, dict):
         return "[object Object]"
     if isinstance(v, list):
@@ -301,6 +321,13 @@ def write_marker(directory: str, marker: dict) -> None:
     os.replace(tmp, f)
 
 
+def _pgrep_said(e: BaseException) -> str:
+    """The first line of execFileSync's message for a pgrep that failed:
+    `Command failed: pgrep -u … -x claude`, `spawnSync pgrep ENOENT`."""
+    said = util.node_error(e, list(getattr(e, "cmd", None) or ["pgrep"]))
+    return "spawnSync " + said[len("spawn "):] if said.startswith("spawn ") else said
+
+
 def _pgrep(argv: list[str]) -> str:
     return util.decode(subprocess.run(argv, capture_output=True, check=True, timeout=PGREP_TIMEOUT_S, stdin=subprocess.DEVNULL).stdout)
 
@@ -450,7 +477,7 @@ def upgrade_once(request: dict, *, home: str | None = None, root: str | None = N
 
     def pids_failed(e: BaseException) -> dict:
         return {"status": "failed", "piece": "claude", "from": from_, "to": target,
-                "reason": f"could not tell whether a session is running (pgrep: {util.node_error(e, ['pgrep'])[:120]}); nothing installed"}
+                "reason": f"could not tell whether a session is running (pgrep: {_pgrep_said(e)[:120]}); nothing installed"}
     try:
         pids = read_pids()
     except (subprocess.SubprocessError, OSError) as e:
@@ -479,7 +506,8 @@ def upgrade_once(request: dict, *, home: str | None = None, root: str | None = N
 
 def _install_held(request, directory, bin, run, kill, alive, sleep, now, clock, stop_wait_ms, from_, target, pids, own, root, home) -> dict:  # noqa: A002
     stop = bool(pids) and not own
-    marker = {"request_id": request.get("id"), "requested_at": iso(now()), "piece": "claude", "from": from_, "to": target,
+    # JSON.stringify drops a key whose value is undefined: a request with no id has no request_id.
+    marker = {**({"request_id": request["id"]} if "id" in request else {}), "requested_at": iso(now()), "piece": "claude", "from": from_, "to": target,
               "pids": pids, "status": "pending"}
     if stop:
         write_marker(directory, marker)
@@ -526,7 +554,7 @@ def _install_held(request, directory, bin, run, kill, alive, sleep, now, clock, 
             refused = next((ln for ln in util.decode(getattr(r, "stderr", None)).split("\n") if ln.startswith("  !  ")), None)
             settings = f"not refreshed: {refused[5:165]}" if refused else "refreshed"
         except (subprocess.SubprocessError, OSError) as e:
-            settings = f"not refreshed: {_failure_line(e, [script])[:160]}"
+            settings = f"not refreshed: {_failure_line(e, [script]).replace(sys.executable, 'python3', 1)[:160]}"   # the message names `python3`, as the Node's did
     if stop:
         write_marker(directory, {**marker, "status": "done" if ok else "failed", "installed": installed,
                                  **({"reason": reason} if reason else {}), "finished_at": iso(now())})
@@ -538,7 +566,7 @@ def _install_held(request, directory, bin, run, kill, alive, sleep, now, clock, 
 def _failure_line(e: BaseException, cmd: list[str]) -> str:
     """lastLine for a failed program; one that could not start has no output,
     so it says what Node's spawn error said."""
-    if isinstance(e, subprocess.CalledProcessError):
+    if isinstance(e, (subprocess.CalledProcessError, subprocess.TimeoutExpired)):
         return last_line(e)
     return util.node_error(e, cmd)
 
@@ -587,7 +615,7 @@ def upgrade_fabric(request: dict, *, home: str | None = None, root: str | None =
     bad = check_args(args)
     if bad:
         return {"status": "refused", "reason": bad}
-    target = args["commit"]
+    target = js_string(_get(args, "commit"))   # a one-element list or a number that passed the check is the sha it prints as
 
     def git(*a: str) -> str:
         r = run(["git", "-C", root, *a], timeout=FABRIC_GIT_TIMEOUT_MS / 1000, check=True, capture_output=True, stdin=subprocess.DEVNULL)
@@ -643,8 +671,8 @@ def upgrade_fabric(request: dict, *, home: str | None = None, root: str | None =
     try:
         to = git("rev-parse", "--short", "HEAD")
     except (subprocess.SubprocessError, OSError) as e:
-        return {"status": "failed", "piece": "fabric", "from": from_, "restart_daemon": True,
-                "reason": f"moved, but HEAD could not be read back: {_failure_line(e, ['git'])[:160]}; not bootstrapped"}
+        return {"status": "failed", "piece": "fabric", "from": from_,
+                "reason": f"moved, but HEAD could not be read back: {_failure_line(e, ['git'])[:160]}; not bootstrapped", "restart_daemon": True}
     pids: list[int] | None
     try:
         pids = list(sessions) if sessions is not None else session_pids(run=pgrep)
