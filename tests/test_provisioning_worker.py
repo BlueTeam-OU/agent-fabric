@@ -176,8 +176,17 @@ def main() -> int:
     with mock.patch.object(subprocess, "run", spy):
         out = make_worker().as_login_out(["git", "x"])
     check("a read-back keeps stderr out of the value", out == "main\n" and seen.get("stderr") == subprocess.DEVNULL, str(seen))
+    got: list = []
+
+    def fetch(argv, **kw):
+        got.append(list(argv))
+        return subprocess.CompletedProcess(argv, 0, stdout="#!/bin/sh\n", stderr="")
+    with mock.patch.object(subprocess, "run", fetch):
+        w = make_worker()
+        worker.vendor_install(w, "https://example.invalid/install.sh", [])
     check("the download is not run in a login shell (a profile's stdout would become the vendor's script)",
-          "-lc" in make_worker().as_login_argv(["x"]) and "-lc" not in make_worker().as_login_argv(["x"], login_shell=False))
+          "curl" in got[0] and "-c" in got[0] and "-lc" not in got[0], str(got[0]))
+    check("…while the vendor's script itself runs in one", "-lc" in got[1] and "bash" in got[1], str(got[1:]))
     with mock.patch.object(subprocess, "run", recorder([], lambda argv: OSError("gone"))), redirect_stderr(io.StringIO()) as e2:
         make_worker().best_effort(["soft"])
     check("best_effort: a command that cannot start is a warning too", "warning: soft failed; continuing" in e2.getvalue())
