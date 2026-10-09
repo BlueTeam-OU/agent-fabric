@@ -18,8 +18,11 @@ the worker names one:
 **The fabric's host contract** — the commands its hooks, scripts and
 provisioning call, whatever the platform:
 `bash sudo ssh getent pgrep timeout flock stat sha256sum cmp useradd
-usermod shred install curl python3 node npm git gh jq gpg paperkey`
+usermod shred install curl python3 node npm git gh jq gpg paperkey openssl`
 (`paperkey` prints an agent's key for the owner's paper backup, ADR-038)
+(`openssl` signs and verifies the control plane's requests in its Python
+port, `tools/fabric/control/sign.py`, ADR-040; plain Fedora, Debian and
+Ubuntu images ship without it)
 (`usermod
 --add-subuids` needs shadow-utils 4.9 or later: Fedora 35+, Debian 12+) (`cmp` is
 what bootstrap's idempotence rests on; a Fedora container without

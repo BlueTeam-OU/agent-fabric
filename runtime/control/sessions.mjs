@@ -48,6 +48,10 @@ const STATES = new Set(['working', 'blocked', 'idle']);
 // stores waits_on only in this shape. The cap keeps a record a record.
 export const MESSAGE_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 export const WAITS_ON_MAX = 64;
+// Bytes that are not UTF-8 make a file unreadable, as the Python port
+// reads them, never a session or an id with U+FFFD in it; a leading BOM is
+// kept (ignoreBOM), so JSON.parse refuses it as Python's reader does.
+const utf8 = buf => new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(buf);
 
 /** Whether an entry that records no process is still believed: within
  * NO_PROCESS_FRESH_MS of its `since`. A `since` that is not a time is not. */
@@ -67,11 +71,16 @@ export function alive(pid, start, proc = '/proc', { since, now = Date.now() } = 
 
 /** The sessions the file names whose process lives, sorted by id;
  * onStale(id) for each one left out because it records no process and
- * is older than NO_PROCESS_FRESH_MS. */
+ * is older than NO_PROCESS_FRESH_MS. No file is none ([]): no session has
+ * written one. A file that is there but cannot be read or parsed, or is
+ * not {"sessions": {...}}, is null — unknown, never none (j5, decided by
+ * fabric-coordinator 2026-10-09; tools/fabric/control/sessions.py and
+ * tools/fabric/resume.py read it so too). */
 export function readSessions(file, { proc = '/proc', now = Date.now(), onStale = () => {} } = {}) {
   let doc;
-  try { doc = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return []; }
-  const sessions = doc && typeof doc.sessions === 'object' && !Array.isArray(doc.sessions) ? doc.sessions : {};
+  try { doc = JSON.parse(utf8(fs.readFileSync(file))); } catch (e) { return e?.code === 'ENOENT' ? [] : null; }
+  if (!doc || typeof doc.sessions !== 'object' || doc.sessions === null || Array.isArray(doc.sessions)) return null;
+  const sessions = doc.sessions;
   return Object.entries(sessions)
     .filter(([id, s]) => {
       if (!s || !STATES.has(s.state)) return false;
@@ -93,7 +102,7 @@ export function readSessions(file, { proc = '/proc', now = Date.now(), onStale =
 export function waitsOn(file) {
   if (!file) return [];
   let doc;
-  try { doc = JSON.parse(fs.readFileSync(file, 'utf8')); } catch (e) { return e?.code === 'ENOENT' ? [] : null; }
+  try { doc = JSON.parse(utf8(fs.readFileSync(file))); } catch (e) { return e?.code === 'ENOENT' ? [] : null; }
   if (!doc || !Array.isArray(doc.jobs)) return null;
   const ids = doc.jobs.filter(j => j && j.state === 'blocked' && typeof j.waits_on === 'string' && MESSAGE_ID.test(j.waits_on)).map(j => j.waits_on);
   return [...new Set(ids)].sort().slice(0, WAITS_ON_MAX);
@@ -125,7 +134,7 @@ export function transcriptExists(id, configDir = process.env.CLAUDE_CONFIG_DIR |
 
 function bound(file, configDir) {
   try {
-    const b = JSON.parse(fs.readFileSync(file, 'utf8'));
+    const b = JSON.parse(utf8(fs.readFileSync(file)));
     const id = typeof b.session === 'string' && SESSION_ID.test(b.session) ? b.session : null;
     return { role: b.role ?? null, project: b.project ?? null, last_session: id,
       resumable: id ? transcriptExists(id, configDir) : false };
@@ -138,7 +147,7 @@ function bound(file, configDir) {
 // relay loop already reports the relay down.
 export function stateWatcher({ address, post, file = path.join(stateDir(), STATE_FILE), binding, jobs = null, proc = '/proc',
   now = Date.now, heartbeatMs = STATE_HEARTBEAT_MS, log = m => console.error(m), configDir }) {
-  let lastKey = null, lastAt = 0, busy = false, failing = false, lastWaits = [], unreadable = false;
+  let lastKey = null, lastAt = 0, busy = false, failing = false, lastWaits = [], unreadable = false, sessionsUnknown = false;
   const saidStale = new Set();
   const onStale = id => {
     if (saidStale.has(id)) return;
@@ -160,7 +169,18 @@ export function stateWatcher({ address, post, file = path.join(stateDir(), STATE
       busy = true;
       try {
         const now_ = now();
-        const said = { sessions: readSessions(file, { proc, now: now_, onStale }),
+        const sessions = readSessions(file, { proc, now: now_, onStale });
+        // Unknown: no record is posted (none would be a wrong "none", and
+        // "unreadable" on the wire waits until this Node is deleted, ADR-040
+        // §7); the last one stands, to go stale at the listener, and the
+        // first readable tick posts at once.
+        if (sessions === null) {
+          if (!sessionsUnknown) log(`${file} cannot be read; no state posted until it reads again`);
+          sessionsUnknown = true; lastKey = null;
+          return false;
+        }
+        if (sessionsUnknown) { log(`${file} is readable again`); sessionsUnknown = false; }
+        const said = { sessions,
           ...(binding ? bound(binding, configDir) : { role: null, project: null, last_session: null, resumable: false }),
           waits_on: waitsNow() };
         const key = JSON.stringify(said);

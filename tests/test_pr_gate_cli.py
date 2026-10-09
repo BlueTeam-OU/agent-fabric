@@ -40,7 +40,16 @@ if line.startswith("pr view"):
 if "graphql" in line:
     if os.path.exists(os.path.join(s, "graphql_fail")):
         sys.exit(1)
-    print(open(os.path.join(s, "graphql.json")).read()); sys.exit(0)
+    # Like GitHub, headRefOid is the asked PR's head, and only when the
+    # query asks for it; state/graphql_head is a push since the PR list.
+    req = json.load(sys.stdin)
+    doc = load("graphql.json")
+    if "headRefOid" in req["query"]:
+        moved = os.path.join(s, "graphql_head")
+        head = open(moved).read().strip() if os.path.exists(moved) else next(
+            (pr.get("headRefOid") for pr in load("prs.json") if pr.get("number") == req["variables"].get("number")), None)
+        doc["data"]["repository"]["pullRequest"]["headRefOid"] = head
+    print(json.dumps(doc)); sys.exit(0)
 print("mock gh: unhandled " + line, file=sys.stderr); sys.exit(1)
 '''
 
@@ -232,6 +241,12 @@ def main() -> int:
         graphql("MERGEABLE", 0, False, None, PENDING)
         out = run()[1]
         check("a running check: pending, BLOCKED", "checks=pending:1" in out and "1 check(s) pending" in out, out)
+        graphql("MERGEABLE", 0, False, None, GREEN)
+        put("graphql_head", "f" * 40)
+        out = run()[1]
+        drop("graphql_head")
+        check("a push since the PR list: the checks are another head's, ?, BLOCKED",
+              "checks=?" in out and "the checks could not all be read" in out, out)
         graphql("MERGEABLE", 2, False, None, GREEN)
         out = run()[1]
         check("unresolved threads block", "threads=2" in out and "2 unresolved thread(s)" in out, out)
