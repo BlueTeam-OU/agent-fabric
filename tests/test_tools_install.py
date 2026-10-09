@@ -308,6 +308,24 @@ def main() -> int:
         check("SIGTERM during the working-copy scan stops the run: 143, nothing fetched or written",
               seen and rc == 128 + signal.SIGTERM and not fetched and listing(home) == [], (seen, rc, fetched, listing(home)))
 
+        print("the SIGTERM handler is one-shot")
+        before = signal.getsignal(signal.SIGTERM)
+        tools_install.exit_on_sigterm()
+        try:
+            os.kill(os.getpid(), signal.SIGTERM)
+            first = False
+        except tools_install.Terminated as t:
+            first = t.code == 128 + signal.SIGTERM
+        try:
+            os.kill(os.getpid(), signal.SIGTERM)
+            second_raised = False
+        except tools_install.Terminated:
+            second_raised = True
+        finally:
+            signal.signal(signal.SIGTERM, before)
+        check("the first SIGTERM raises Terminated(143)", first)
+        check("a second one does not: nothing outside the one handler can catch it", not second_raised)
+
         print("a SIGTERM outside main's own try is still 143")
         real_main = tools_check.main
         tools_check.main = lambda argv: (_ for _ in ()).throw(tools_install.Terminated(143))
