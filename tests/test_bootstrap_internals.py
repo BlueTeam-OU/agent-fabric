@@ -167,7 +167,7 @@ def role_command_dry_run(T: str) -> None:
         b = bootstrap.Bootstrap(projects, True, root)
         r, out, _ = quiet(b.retire_role_command)
         check("kept, said as would remove, not counted",
-              os.path.isfile(role) and out == f"  -  {role} (would remove: /role is retired, use bin/fabric-role)\n"
+              os.path.isfile(role) and out == f"  -  {role} (would remove: /role is retired, use fabric-role)\n"
               and b.changed == 0, out)
     finally:
         s.close()

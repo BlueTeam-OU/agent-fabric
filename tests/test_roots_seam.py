@@ -16,6 +16,8 @@ import sys
 import tempfile
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+sys.path.insert(0, os.path.join(ROOT, "tests"))
+from instance_fixtures import code_tree, write_secrets_instance  # noqa: E402
 
 # Path components that, joined, are instance data (ADR-045 rule 2).
 SEQUENCES = (
@@ -270,7 +272,7 @@ class engine_env:
 
 def case_readers_that_took_their_own_tree_ignore_agent_fabric_root() -> None:
     """With no operator, results, commit_class, new_agent, store_enroll and the
-    secrets_sync reserved-name check read the checkout the code is in, as they did
+    secrets_sync reserved-name check read the tree the code is in, as they did
     before roots, though AGENT_FABRIC_ROOT names a tree holding nothing."""
     sys.path.insert(0, os.path.join(ROOT, "tools", "fabric"))
     import new_agent
@@ -278,19 +280,23 @@ def case_readers_that_took_their_own_tree_ignore_agent_fabric_root() -> None:
     import secrets_sync
     import store_enroll
     from github import commit_class
-    with tempfile.TemporaryDirectory() as empty, engine_env(empty):
-        assert results.registered_repos(), "results read AGENT_FABRIC_ROOT"
-        assert "agent-fabric" in commit_class.known_repos(), "commit_class read AGENT_FABRIC_ROOT"
-        assert new_agent.project_remote("agent-fabric"), "new_agent read AGENT_FABRIC_ROOT"
-        assert store_enroll.Enrol(dry=True, born_now=False, host_flag="").hosts == os.path.join(ROOT, "runtime", "hosts", "registry.json")
-        # an unreadable registry is [] for both, so the checkout's own declarations are the control
-        assert "GZAPP_PORT_OFFSET" in secrets_sync.project_agent_env(), "secrets_sync read AGENT_FABRIC_ROOT"
-        assert "GZAPP_PORT_OFFSET" in secrets_sync.plain_env_names(), "secrets_sync read AGENT_FABRIC_ROOT"
-        try:
-            from secretstore import reserved
-            reserved.registry_agent_env(engine=secrets_sync.ROOT)
-        except reserved.RegistryUnreadable as e:
-            raise AssertionError(f"secrets_sync's registry was not the checkout's: {e}") from None
+    with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as empty:
+        code = os.path.join(tmp, "code")
+        write_secrets_instance(code)
+        with code_tree(code, results, new_agent, store_enroll, secrets_sync), engine_env(empty):
+            assert results.registered_repos() == ["fixture-org/agent-fabric", "fixture-org/fixture-proj", "fixture-org/gzapp"], \
+                "results read AGENT_FABRIC_ROOT"
+            assert "fixture-proj" in commit_class.known_repos(), "commit_class read AGENT_FABRIC_ROOT"
+            assert new_agent.project_remote("fixture-proj"), "new_agent read AGENT_FABRIC_ROOT"
+            assert store_enroll.Enrol(dry=True, born_now=False, host_flag="").hosts == os.path.join(code, "runtime", "hosts", "registry.json")
+            # an unreadable registry is [] for both, so the code tree's own declarations are the control
+            assert "GZAPP_PORT_OFFSET" in secrets_sync.project_agent_env(), "secrets_sync read AGENT_FABRIC_ROOT"
+            assert "GZAPP_PORT_OFFSET" in secrets_sync.plain_env_names(), "secrets_sync read AGENT_FABRIC_ROOT"
+            try:
+                from secretstore import reserved
+                reserved.registry_agent_env(engine=secrets_sync.ROOT)
+            except reserved.RegistryUnreadable as e:
+                raise AssertionError(f"secrets_sync's registry was not the code tree's: {e}") from None
 
 
 def case_recovery_key_and_keys_dir_follow_the_operator_root() -> None:

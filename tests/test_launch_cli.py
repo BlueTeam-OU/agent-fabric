@@ -230,6 +230,8 @@ def main() -> int:
         check("exits 0", rc == 0, out)
         check("the label is role/agent, agent = login",
               f"resolved profile for backend-dev/{LOGIN} (agent {LOGIN}, role backend-dev, provider openrouter)" in out, out)
+        check("the hint to see every choice names fabric-model bare",
+              "; fabric-model list --provider openrouter shows every choice" in out and "bin/fabric-model" not in out, out)
         check("default session (the top tier, with its family shim)",
               "session : deepseek/deepseek-v4-pro-0813@preset/deepseek2claude-shim" in out, out)
         check("code-low -> glm-5.3-flash + shim -> haiku alias",
@@ -306,8 +308,8 @@ def main() -> int:
         mkfabric()
         rm(f"{agent_dir}/binding.json")
         rc, out = run("--print")
-        check("no binding: refused, names bin/fabric-role",
-              rc == 1 and "no active role binding" in out and "bin/fabric-role bind" in out, out)
+        check("no binding: refused, names fabric-role by its bare name",
+              rc == 1 and "no active role binding" in out and "fabric-role bind" in out and "bin/fabric-role" not in out, out)
         mkfabric()
         binding(None)
         check("binding with no role: refused", run("--print")[0] == 1)

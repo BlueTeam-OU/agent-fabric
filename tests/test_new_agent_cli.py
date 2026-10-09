@@ -22,6 +22,8 @@ import tempfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 HERE = os.path.join(ROOT, "runtime", "provisioning")
+sys.path.insert(0, os.path.join(ROOT, "tests"))
+from instance_fixtures import SECRETS_REGISTRY, write_json  # noqa: E402
 LOGIN = pwd.getpwuid(os.geteuid()).pw_name
 # The fixture template's token and its fingerprint, as store templates prints it.
 TOKEN = "sk-ant-oat01-fixture-token"
@@ -198,15 +200,16 @@ def main() -> int:
             except OSError:
                 return ""
 
-        # A fixture fabric: the real roles and registry, a fake claude to
+        # A fixture fabric: its own role and registry, a fake claude to
         # copy from; a fixture copies the modules of the scripts it copies
         # (ADR-040 §5 rule 5).
         fab = f"{sandbox}/fabric"
         for d in ("runtime/provisioning/secrets", "projects", "runtime/claude-code", "tools/fabric"):
             os.makedirs(f"{fab}/{d}")
         os.makedirs(f"{sandbox}/home/.local/bin")
-        shutil.copytree(f"{ROOT}/identities/roles", f"{fab}/identities/roles")
-        shutil.copy(f"{ROOT}/projects/registry.json", f"{fab}/projects/")
+        # The role the cases ask for, and the registry's projects; the remotes are the fixture's.
+        put(f"{fab}/identities/roles/backend-dev/charter.md", "# backend-dev\n")
+        write_json(f"{fab}/projects/registry.json", SECRETS_REGISTRY)
         for f in ("new-agent.sh", "new-agent-worker.sh", "persist-accounts.sh", "github-host-keys"):
             shutil.copy2(f"{HERE}/{f}", f"{fab}/runtime/provisioning/")
         shutil.copytree(f"{ROOT}/runtime/hostexec", f"{fab}/runtime/hostexec", symlinks=True)
@@ -236,7 +239,8 @@ def main() -> int:
         rc, out = run()
         ok("no arguments: usage, exit 2", rc == 2 and has(r"^usage:", out), out)
         rc, out = run("some-login", "no-such-role", "--dry-run")
-        ok("an unknown role is refused before anything runs", rc == 1 and "no role 'no-such-role'" in out, out)
+        ok("an unknown role is refused before anything runs", rc == 1 and "no role 'no-such-role'" in out
+                                                                       and "(fabric-role list)" in out and "bin/fabric-role" not in out, out)
         rc, out = run("some-login", "backend-dev", "--project", "not-registered", "--dry-run")
         ok("an unregistered project is refused", rc == 1 and "not in projects/registry.json" in out, out)
         rc, out = run("some-login", "backend-dev", "--bogus", "--dry-run")
@@ -251,7 +255,8 @@ def main() -> int:
         rc, out = run("some-login", "backend-dev", "--claude-account", "acct-one", "--no-claude-account", "--dry-run")
         ok("…both named: exit 2", rc == 2 and "--claude-account <slug>" in out, out)
         rc, out = run("some-login", "backend-dev", "--claude-account=Acct;x", "--dry-run")
-        ok("…a slug that is not one: exit 2", rc == 2 and "is not an account slug" in out, out)
+        ok("…a slug that is not one: exit 2, and the refusal names fabric-accounts bare",
+           rc == 2 and "is not an account slug" in out and "; fabric-accounts templates)" in out and "bin/fabric-" not in out, out)
         rc, out = run("some-login", "backend-dev", "--claude-account=", "--dry-run")
         ok("…an empty one is named, not taken for none: exit 2", rc == 2 and "is not an account slug" in out, out)
 
@@ -262,7 +267,7 @@ def main() -> int:
                      "curl -fsSL https://openrouter.ai/labs/ori/install.sh | bash", "append GitHub's published host keys",
                      "git clone -q 'https://github.com/gzapi-org/agent-fabric.git'", "store-enroll.sh zz-fixture-login --host",
                      "provision identity, share, issue-key openrouter and openai",
-                     "git clone -q 'git@github.com:gzapi-org/gzapp.git'", "bootstrap.sh", "fabric-role bind 'backend-dev'"):
+                     "git clone -q 'git@github.com:fixture-org/gzapp.git'", "bootstrap.sh", "fabric-role bind 'backend-dev'"):
             ok(f"plans: {step}", step in out, out)
         ok("…and verifies nothing", "dry run: nothing verified" in out, out)
         ok("no account was created", subprocess.run(["getent", "passwd", "zz-fixture-login"], stdout=subprocess.DEVNULL,
@@ -286,7 +291,8 @@ def main() -> int:
         ok("the Debian profile names the missing tool's package and apt-get",
            has(r"^new-agent: 0\. debian: this host lacks .*gh.*: sudo apt-get install", out_deb), out_deb)
         ok("the host is named, and a missing placement is asked for",
-           has(rf"^new-agent: host {re.escape(local)} \(this host\)", out) and 'placement: add "zz-fixture-login"' in out,
+           has(rf"^new-agent: host {re.escape(local)} \(this host\)", out) and 'placement: add "zz-fixture-login"' in out
+           and "(fabric-status on the" in out and "bin/fabric-status" not in out,
            out)
         rc, out = run("some-login", "backend-dev", "--claude", "9.9", "--dry-run")
         ok("--claude takes stable, latest or a full version", rc == 2, out)

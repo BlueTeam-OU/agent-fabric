@@ -25,6 +25,67 @@ def write_registry(directory: str, doc: dict = ADR_REGISTRY) -> str:
     return path
 
 
+# A projects registry for the tests that classify secret names or look a
+# project's remote up: what secretstore/reserved.py, secrets_sync.py,
+# new_agent.py, results.py and commit_class.py read from it, and no more.
+# Names are the managed ones the cases assert on (OPENAI_API_KEY, the gzapp
+# port offset); fixture-proj is in no live registry, so a reader that took
+# the live one finds neither it nor its remote.
+SECRETS_REGISTRY = {
+    "version": 1,
+    "agent_env": {"OPENAI_API_KEY": "a fixture key, one per login",
+                  "OPENROUTER_API_KEY": "a fixture key, one per login",
+                  "CLAUDE_CODE_OAUTH_TOKEN": "the Claude account's token, a fixture",
+                  "FABRIC_CONTROL_SIGNING_KEY": "the operator's signing key, store only"},
+    "projects": {
+        "gzapp": {"remotes": ["git@github.com:fixture-org/gzapp.git", "https://github.com/fixture-org/gzapp"],
+                  "agent_env": {"GZAPP_PORT_OFFSET": "the login stack's port offset"},
+                  "plain_env": ["GZAPP_PORT_OFFSET"]},
+        "agent-fabric": {"remotes": ["git@github.com:fixture-org/agent-fabric.git",
+                                     "https://github.com/fixture-org/agent-fabric"]},
+        "fixture-proj": {"remotes": ["git@github.com:fixture-org/fixture-proj.git"]},
+    },
+}
+
+# A hosts registry: one host, one placed login, the logins' kinds as ADR-044
+# reads them (a login `kinds` does not name is an agent).
+HOSTS_REGISTRY = {"version": 1, "hosts": {}, "placement": {"fixture-login": "fixture-host"}, "kinds": {}}
+
+
+def write_json(path: str, doc: dict) -> str:
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as fh:
+        json.dump(doc, fh)
+    return path
+
+
+def write_secrets_instance(tree: str) -> None:
+    """SECRETS_REGISTRY and HOSTS_REGISTRY at their places in an operator
+    or fabric tree."""
+    write_json(os.path.join(tree, "projects", "registry.json"), SECRETS_REGISTRY)
+    write_json(os.path.join(tree, "runtime", "hosts", "registry.json"), HOSTS_REGISTRY)
+
+
+class code_tree:
+    """The tree a reader takes as the checkout the code is in: each keeps it
+    in a module global (new_agent, store_enroll, secrets_sync, adr; results
+    and commit_class ask roots) or in roots. A fixture stands in for it, so a case reads no live file and
+    still tells that tree from the one AGENT_FABRIC_ROOT names. Needs
+    tools/fabric on sys.path."""
+    def __init__(self, tree: str, *modules, attr: str = "ROOT"):
+        self.tree, self.modules, self.attr = tree, modules, attr
+
+    def __enter__(self):
+        import roots
+        self.saved = [(m, self.attr, getattr(m, self.attr)) for m in self.modules] + [(roots, "_CODE_ROOT", roots._CODE_ROOT)]
+        for m, name, _ in self.saved:
+            setattr(m, name, self.tree)
+
+    def __exit__(self, *exc):
+        for m, name, value in self.saved:
+            setattr(m, name, value)
+
+
 def write_operator_projects(operator: str, projects: dict[str, list[str]]) -> str:
     """An operator tree (AGENT_FABRIC_OPERATOR) whose projects/registry.json
     registers `projects`, each id with its remotes; the tree's path."""

@@ -29,6 +29,7 @@ TOOL = os.path.join(ROOT, "tools", "fabric", "secret_store.py")
 sys.path.insert(0, os.path.dirname(TOOL))
 import secret_store  # noqa: E402 — the id helpers, beside the CLI under test
 from git_env import scrub_process_env  # noqa: E402 — tests/, the script's own directory
+from instance_fixtures import write_secrets_instance  # noqa: E402
 scrub_process_env()
 SECRET = "s3cr3t-value-never-printed"
 
@@ -46,13 +47,10 @@ def main() -> int:
     with tempfile.TemporaryDirectory() as tmp:
         fabric = os.path.join(tmp, "fabric")
         os.makedirs(os.path.join(fabric, "identities", "keys"))
-        # Which names are managed is read from the registry: the store reads
-        # the scratch fabric's, sync its own checkout's, so this is a copy.
-        os.makedirs(os.path.join(fabric, "projects"))
-        shutil.copy(os.path.join(ROOT, "projects", "registry.json"), os.path.join(fabric, "projects", "registry.json"))
-        # sync judges a login by its kind in the hosts registry, instance data read from the operator root
-        os.makedirs(os.path.join(fabric, "runtime", "hosts"))
-        shutil.copy(os.path.join(ROOT, "runtime", "hosts", "registry.json"), os.path.join(fabric, "runtime", "hosts", "registry.json"))
+        # Which names are managed is read from the registry, and sync judges a
+        # login by its kind in the hosts registry: instance data, read from
+        # the operator root, which is this scratch fabric.
+        write_secrets_instance(fabric)
 
         def role(name: str) -> dict:
             h = os.path.join(tmp, name)

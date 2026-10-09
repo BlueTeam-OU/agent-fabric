@@ -24,6 +24,8 @@ spec = importlib.util.spec_from_file_location("secrets_sync", TOOL)
 s = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(s)
 
+from instance_fixtures import write_secrets_instance  # noqa: E402 — tests/, the script's own directory
+
 ME = pwd.getpwuid(os.getuid()).pw_name
 
 
@@ -68,9 +70,14 @@ def main() -> int:
 
     saved = {k: os.environ.get(k) for k in ("HOME", "GIT_CONFIG_GLOBAL", "GIT_CONFIG_NOSYSTEM", "AGENT_FABRIC_GH",
                                              "GH_CONFIG_DIR", "XDG_CONFIG_HOME", "FAKE_GH_LOGIN_EXIT",
-                                             "AGENT_FABRIC_HOSTS_REGISTRY")}
+                                             "AGENT_FABRIC_HOSTS_REGISTRY", "AGENT_FABRIC_OPERATOR", "AGENT_FABRIC_ROOT")}
     with tempfile.TemporaryDirectory() as tmp:
         os.environ["HOME"] = tmp
+        # The registries are instance data, read from the operator root: this
+        # fixture's, never the checkout's (cases below set their own).
+        write_secrets_instance(os.path.join(tmp, "operator"))
+        os.environ["AGENT_FABRIC_OPERATOR"] = os.path.join(tmp, "operator")
+        os.environ.pop("AGENT_FABRIC_ROOT", None)
         # Never the real gh: it follows XDG_CONFIG_HOME and the keyring, not
         # HOME (it once read the runner's token from here).
         os.environ["AGENT_FABRIC_GH"] = FAKE_GH

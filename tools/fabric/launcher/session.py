@@ -63,7 +63,7 @@ def print_report(d: dict, routing, *, label: str, agent: str, role: str, provide
     if skipped:
         print(f"  (the merged session {skipped} is not an Anthropic model; the {s['source']} layer's is used "
               "on plain claude)")
-    print(f"  (from the {s['source']} layer; bin/fabric-model list --provider {provider} shows every choice with "
+    print(f"  (from the {s['source']} layer; fabric-model list --provider {provider} shows every choice with "
           "its source)")
     if effective_session != session:
         print(f"  (overridden by --model on the command line: {effective_session})")

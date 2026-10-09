@@ -145,7 +145,7 @@ FINGERPRINT = re.compile(r"[0-9a-f]{12}")
 USAGE = ("usage: new-agent.sh <login> <role> (--claude-account <slug> | --no-claude-account) [--host <id>] "
          "[--project <id>]... [--claude VERSION|stable|latest] [--no-signing-key] [--dry-run]\n"
          "       new-agent.sh <login> --human [--host <id>] [--dry-run]\n")
-NO_ACCOUNT_CHOICE = ("new-agent: name the Claude account it starts on: --claude-account <slug> (bin/fabric-accounts "
+NO_ACCOUNT_CHOICE = ("new-agent: name the Claude account it starts on: --claude-account <slug> (fabric-accounts "
                      "templates), or --no-claude-account for the broker path only")
 HELP = """\
 runtime/provisioning/new-agent.sh — give a role its own account on this
@@ -168,7 +168,7 @@ On a terminal, an agent's last step imports the fleet's signing key
 --no-signing-key, the closing prints the two lines a person runs.
 
 The Claude account it starts on is a template in this login's store
-(bin/fabric-accounts templates): checked before any account is made,
+(fabric-accounts templates): checked before any account is made,
 its token written into the new store before the first sync, and its
 fingerprint compared in finish (ADR-031).
 
@@ -282,7 +282,7 @@ def parse(argv: list[str]) -> dict:
         raise Exit(2, NO_ACCOUNT_CHOICE)
     if given and not SLUG.fullmatch(o["claude-account"]):
         raise Exit(2, f"new-agent: --claude-account {o['claude-account']!r} is not an account slug (lowercase, digits, "
-                      "dashes; bin/fabric-accounts templates)")
+                      "dashes; fabric-accounts templates)")
     return o
 
 
@@ -411,7 +411,7 @@ def new_agent(argv: list[str]) -> int:
 
     # ---- what is asked for must exist in the fabric ---------------------
     if not o["human"] and not os.path.isfile(os.path.join(roots.role_dir(role, engine=ROOT), "charter.md")):
-        die(f"no role '{role}' under identities/roles/ (bin/fabric-role list).")
+        die(f"no role '{role}' under identities/roles/ (fabric-role list).")
     remote = {}
     for pid in o["projects"]:
         r = project_remote(pid)
@@ -467,7 +467,7 @@ def claude_template(s: Steps, slug: str) -> str:
             "nothing made")
     t = next((r for r in rows if isinstance(r, dict) and r.get("account") == slug), None)
     if t is None:
-        die(f"'{slug}' is not a template in this store (bin/fabric-accounts templates); nothing made")
+        die(f"'{slug}' is not a template in this store (fabric-accounts templates); nothing made")
     fp = t.get("token_sha256_12")
     if fp is None:
         die(f"template {slug} holds no CLAUDE_CODE_OAUTH_TOKEN yet; nothing made")
@@ -508,14 +508,14 @@ def run_steps(o: dict, login: str, role: str, host: str, dry: bool, remote: dict
         die(f"host {host}: unreachable, or its worker did not run")
     reported = check.split("\n", 1)[0]
     if reported != host:
-        die(f"host {host} answers as '{reported}'; the registry id is the host's short hostname (bin/fabric-host {host} check)")
+        die(f"host {host} answers as '{reported}'; the registry id is the host's short hostname (fabric-host {host} check)")
     say(f"host {host}{' (this host)' if host == local_host else ' (over ssh)'}; account {login}, "
         + ("a human (ADR-044)" if human else f"role {role}"))
     if human:
         say("a human: steps 0, 1 and 4 on the host, 5, then 10; no claude, ori, SSH host keys, bootstrap, role, "
             "toolchain or signing key (ADR-044)")
     if not placed:
-        say(f"placement: add \"{login}\": \"{host}\" to runtime/hosts/registry.json placement (bin/fabric-status on the "
+        say(f"placement: add \"{login}\": \"{host}\" to runtime/hosts/registry.json placement (fabric-status on the "
             "account reports drift until it is there)")
     dry_arg = ["--dry-run"] if dry else []
     who = ["--human"] if human else [role]
@@ -648,8 +648,8 @@ def secrets_step(s: Steps, login: str, host: str, projects: list[str], slug: str
         say("   its inbox cursor was not moved (above); its first session reads the channel's backlog")
     say("5. its key made and certified, its store filled and synced; commit identities/keys/, then write its recovery "
         "copy and back up:")
-    say(f"     bin/fabric-host {host} run --as {login} -- projects/agent-fabric/bin/fabric-secrets store recovery-copy")
-    say("     bin/fabric-secrets store backup")
+    say(f"     fabric-host {host} run --as {login} -- projects/agent-fabric/bin/fabric-secrets store recovery-copy")
+    say("     fabric-secrets store backup")
 
 
 def assign(s: Steps, login: str, slug: str, fp: str) -> None:

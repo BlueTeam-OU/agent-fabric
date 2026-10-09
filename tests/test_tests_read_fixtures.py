@@ -32,29 +32,31 @@ from test_roots_seam import SEQUENCES  # noqa: E402
 
 SCANNED = ("tests", "communication/gzcoord/tests")
 
-# file -> why it still reads the live tree. The first two check a fact of
+# file -> why it still reads the live tree. The first three check a fact of
 # the operator's real data on purpose. The rest are not yet moved to
-# fixtures (fabric-coordinator's request 01a11d15-2dc2-7cc9-8e7b-770a36dcf895
-# gives them to python-dev-02) and leave this list as they move; it only
-# shrinks.
+# fixtures (fabric-coordinator's request 01a11d15-2dc2-7cc9-8e7b-770a36dcf895)
+# and leave this list as they move; it only shrinks.
 DELIBERATE = {
     "tests/test_hosts_registry.py": "the committed operator key parses as the daemons read it: the operator's own data",
     "tests/test_fabric_status.py": "bin/fabric-status is off the committed bash allowlist: a fact of this tree",
+    "tests/test_launch_prompt.py": "every role of the real catalogue renders under the prompt ceiling: the operator's own roles",
 }
 PENDING = "not yet on fixtures (request 01a11d15)"
 
 # Read the live instance files in a way no source scan follows — a whole
-# directory of the checkout copied or linked into a fixture — so the scan
-# cannot hold them; reviewed by hand, and moved like the rest (review of #128).
+# directory of the checkout copied or linked into a fixture, a path assembled
+# in a loop, a root handed to a tool — so the scan cannot hold them; reviewed
+# by hand, and moved like the rest (review of #128). A deliberate case stays.
 UNSCANNABLE = {
     "tests/test_model_profile.py": "links every top-level entry of the checkout and copies routing/: reads routing/profiles.json",
     "tests/test_routing.py": "copies the checkout's routing/: reads routing/profiles.json and routing/policies/",
+    "tests/test_roots_readers.py": "two cases on purpose: lint over a copy of the operator's data prints what it prints without one, "
+                                   "and lint reads the role files an engine lacks from the operator (the checkout)",
+    "tests/test_types.py": "the committed identities/keys/lineage.json holds only LineageEntry values: a fact of the operator's data",
 }
 ALLOWED = {**DELIBERATE, **{f"tests/{f}": PENDING for f in (
     "test_arm_cli.py", "test_arm_fabric_config.py", "test_guards_wired.py", "test_gzcoord_i18n.py",
-    "test_launch_prompt.py", "test_lint.py", "test_new_agent_cli.py", "test_pr_compliance_cli.py",
-    "test_roots_readers.py", "test_roots_seam.py", "test_secret_selftest.py", "test_secret_store.py",
-    "test_semantic_collisions.py", "test_session_commands.py", "test_store_signing.py",
+    "test_pr_compliance_cli.py", "test_semantic_collisions.py", "test_session_commands.py",
     "test_user_settings_auto_mode.py", "test_wait_merged.py")}}
 
 

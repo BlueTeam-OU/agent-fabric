@@ -194,11 +194,11 @@ def main() -> int:
             }
             lines = status.render(report, "")
             check("the minimal report, line for line", lines == [
-                "agent        a@h", "role         (none — bin/fabric-role bind <role>, from a login shell)",
+                "agent        a@h", "role         (none — fabric-role bind <role>, from a login shell)",
                 "project      (none)    working copy  (none)", "session      (unknown)    binding updated -",
                 "jobs         none active; 0 queued, 0 blocked, 0 delivered  (fabric-jobs list)", "", "api          vanilla claude", "session model m",
                 "pins         none (harness defaults)", "credentials  none visible in the environment", "claude sign-in own /login (none recorded)", "",
-                "capabilities on anthropic (bin/fabric-model list for every choice, per provider, with its source):",
+                "capabilities on anthropic (fabric-model list for every choice, per provider, with its source):",
                 "  code-low     haiku", "routing      clean", "control plane /r"])
             report.update(launched_role="r", drift=["d1", "d2"], undrained_memories={"drainable": 1, "no_roles_class": 2, "since": "the last drain", "dir": "/m"},
                           session_effort={"asked": "high", "reported": "high", "launched": None}, routing_check=["f1", "f2"])

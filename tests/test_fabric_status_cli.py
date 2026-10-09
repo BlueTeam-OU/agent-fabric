@@ -256,7 +256,7 @@ def main() -> int:
         fp = hashlib.sha256(tpl.encode()).hexdigest()[:12]
         out = status(HOME=h, CLAUDE_CODE_OAUTH_TOKEN=tpl)
         check("a template token outranks the own sign-in and is named by fingerprint, not by the old account",
-              has(rf"^claude sign-in setup-token {fp} \(CLAUDE_CODE_OAUTH_TOKEN", out)
+              has(rf"^claude sign-in setup-token {fp} \(CLAUDE_CODE_OAUTH_TOKEN in this session; fabric-accounts templates names", out)
               and "someone@example.org" not in out, signin(out))
         check("the token itself is never printed", tpl not in out)
         # The shape that occurs: the launcher removed the variable from a

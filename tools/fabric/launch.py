@@ -150,7 +150,7 @@ override layer is where a cheap-reviewer experiment would sneak in.
 The coding classes are not gated.
 
 REFUSES, fail-closed, before spawning anything:
-  - no runtime binding for this agent      -> "bin/fabric-role bind first"
+  - no runtime binding for this agent      -> "fabric-role bind first"
   - pass-through args carrying --system-prompt, --system-prompt-file,
     --append-system-prompt or --append-system-prompt-file: the role's
     prompt is the launcher's, and claude refuses two of them anyway
@@ -395,7 +395,7 @@ def launch(argv: list[str]) -> int:
     if not role:
         die(f"agent '{agent}' has no active role binding ({state_dir}/binding.json).\n"
             "  The launcher resolves the profile and the system prompt from the agent's\n"
-            "  role. From a login shell run: bin/fabric-role bind <role>; then re-run.")
+            "  role. From a login shell run: fabric-role bind <role>; then re-run.")
     require_files(capabilities, aliases)
     if provider == "openrouter":
         if not shutil.which("ori"):

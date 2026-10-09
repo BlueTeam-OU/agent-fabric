@@ -330,7 +330,7 @@ class Enrol:
                 return False
         if not self.mirror(login, aid, url):
             return False
-        say(f"{login}: agent {aid}, key certified, store at {url}, mirrored; its recovery copy: bin/fabric-host {host} "
+        say(f"{login}: agent {aid}, key certified, store at {url}, mirrored; its recovery copy: fabric-host {host} "
             f"run --as {login} -- {ACCOUNT_SECRETS} store recovery-copy")
         return True
 

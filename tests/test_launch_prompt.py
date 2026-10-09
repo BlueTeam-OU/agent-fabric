@@ -114,7 +114,7 @@ def case_no_binding_is_a_failure_naming_fabric_role() -> None:
         f = Fixture(tmp)
         f.bind(None)
         r = f.run("--print")
-        assert r.returncode == 1 and "bin/fabric-role bind" in r.stderr, r.stderr
+        assert r.returncode == 1 and "(fabric-role bind" in r.stderr and "bin/fabric-role" not in r.stderr, r.stderr
 
 
 def case_out_writes_the_file_and_prints_its_digest() -> None:

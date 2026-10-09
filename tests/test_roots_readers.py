@@ -14,6 +14,7 @@ import tempfile
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, os.path.join(ROOT, "tools", "fabric"))
 sys.path.insert(0, os.path.join(ROOT, "tests"))
+from instance_fixtures import code_tree  # noqa: E402
 from test_roots_seam import operator  # noqa: E402
 
 
@@ -98,10 +99,13 @@ def case_adr_reads_records_and_the_registry_from_the_operator() -> None:
             assert "opdigest" in adr.cmd_lookup(None, [])[0]
             assert adr.foreign_projects(None) == {"opproj"}
             assert adr.tree(None) == op
-        with unset_operator():
-            assert adr.adr_dir() == os.path.join(ROOT, "docs", "adr")
-            assert "opproj" not in adr.foreign_projects(None)
-            assert adr.check() == []
+        # No operator: the tree the code is in, here a fixture that holds a project of its own.
+        eng = os.path.join(tmp, "engine")
+        write(os.path.join(eng, "projects", "registry.json"), {"projects": {"engproj": {}, "agent-fabric": {}}})
+        with code_tree(eng, adr), unset_operator():
+            assert adr.adr_dir() == os.path.join(eng, "docs", "adr")
+            assert adr.foreign_projects(None) == {"engproj"}
+            assert adr.check() == [f"{adr.ADR_DIR}: missing"]                # the records are read from the same default tree
             assert adr.adr_dir(op) == os.path.join(op, "docs", "adr")      # --root still names the tree
 
 
@@ -127,9 +131,11 @@ def case_workingcopy_reads_the_operators_registry_and_arm_follows() -> None:
                 assert arm.config_path() == os.path.join(op, "projects", "opproj", "integration", "gh", "arm.json")
             finally:
                 local.toplevel = real
-        with unset_operator():
+        eng = os.path.join(tmp, "engine")
+        write(os.path.join(eng, "projects", "registry.json"), {"projects": {"engproj": {}}})
+        with code_tree(eng, workingcopy, attr="FABRIC_ROOT"), unset_operator():
             assert "opproj" not in workingcopy.load_registry()["projects"]
-            assert "agent-fabric" in workingcopy.load_registry()["projects"]
+            assert "engproj" in workingcopy.load_registry()["projects"]
             # an explicit path is still read as given
             assert "opproj" in workingcopy.load_registry(os.path.join(op, "projects", "registry.json"))["projects"]
 
@@ -169,7 +175,8 @@ def case_lint_reads_catalogue_and_authority_from_the_operator() -> None:
         with unset_operator():
             assert lint._catalog_roles(engine) is None          # the engine tree given holds no catalogue
             assert lint.contributor_findings(engine) == []
-            assert "op-role" not in lint._catalog_roles(ROOT)
+            write(os.path.join(engine, "identities", "roles", "catalog.json"), {"roles": [{"id": "engine-role"}]})
+            assert lint._catalog_roles(engine) == {"engine-role"}   # the control: the engine's own catalogue, not the operator's
 
 
 def case_lint_with_an_operator_copy_says_what_it_says_without_one() -> None:
@@ -199,12 +206,16 @@ def case_fabric_labels_do_not_depend_on_the_checkouts_name() -> None:
     from lint_rules.slices import lint_slices
     from lint_rules import base as rules_base
     layout = rules_base.layout   # the rules load their own copy of layout.py by path
-    role = "fabric-coordinator"
+    role = "fixture-role"
     saved = layout.FABRIC_ROOT
     try:
         layout.FABRIC_ROOT = "/nonexistent/checkout-under-another-name"
-        with operator(ROOT):
-            labels = lint_slices(os.path.join(ROOT, "identities", "roles", role), f"identities/roles/{role}",
+        with tempfile.TemporaryDirectory() as op, operator(op):
+            for name in ("charter.md", "brief.md"):
+                os.makedirs(os.path.join(op, "identities", "roles", role), exist_ok=True)
+                with open(os.path.join(op, "identities", "roles", role, name), "w", encoding="utf-8") as fh:
+                    fh.write(f"# {name}\n")
+            labels = lint_slices(os.path.join(op, "identities", "roles", role), f"identities/roles/{role}",
                                  None, [], {}, {})
             assert labels and all(l.startswith(f"identities/roles/{role}/") for l in labels), labels
             assert all(os.path.isfile(layout.fabric_path(l)) for l in labels), labels
