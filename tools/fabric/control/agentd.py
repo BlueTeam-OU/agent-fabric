@@ -271,9 +271,12 @@ def operator_keys(registry: str | None = None) -> dict[str, bytes]:
     d = _registry(registry)
     for h, v in _entries(d.get("hosts") if isinstance(d, dict) else None):
         if v is None:
-            return {}   # `v.operator_key` throws on null, inside the Node's try: no keys at all
+            return out   # `v.operator_key` throws on null inside the Node's try, which keeps the keys read before it
         spec = v.get("operator_key") if isinstance(v, dict) else None
-        key = public_key_from(spec) if spec is not None else None
+        try:
+            key = public_key_from(spec) if spec is not None else None
+        except Exception:  # noqa: BLE001 — openssl missing or too slow is the Node's null: the operator has no usable key
+            key = None
         if key:
             op = v.get("operator") if isinstance(v, dict) else None
             out[f"{h}/{js.string(op) if op is not None else 'user'}"] = key
@@ -328,11 +331,13 @@ def action_ledger(file: str | None = None) -> ActionLedger:
     return ActionLedger(file)
 
 
-def accept(rec: dict, *, me: dict, operators: set, accounts: set | None = None, keys: dict | None = None, ttl_s: float,
+def accept(rec: dict, *, me: dict, operators: set, accounts: set | None = None, keys: dict | Callable[[], dict] | None = None, ttl_s: float,
            seen: set, now: float | None = None, action_floor: Callable[[str], float] = lambda _from: 0) -> dict:
     """Is this record a request this agent answers? The reason when not, for
     the log; never an error, never a reply."""
     accounts = set() if accounts is None else accounts
+    # `keys` is a mapping or a function giving one: parsing a key starts
+    # openssl, which only an action's signature check needs.
     keys = {} if keys is None else keys
     now = time.time() * 1000 if now is None else now
     try:
@@ -363,7 +368,7 @@ def accept(rec: dict, *, me: dict, operators: set, accounts: set | None = None, 
     short = js.slice(js.string(sender), 40)
     # An action is ordered, not asked: only a signature by the operator's
     # own key (control/sign.py) proves the operator sent it.
-    if action and not verify_request(r, keys.get(sender)):
+    if action and not verify_request(r, (keys() if callable(keys) else keys).get(sender)):
         return {"ok": False, "why": f"{op}: not signed by {short}'s key"}
     from control.sessions import date_parse
     ts = date_parse(js.string(r.get("ts", js.UNDEFINED)))
@@ -750,8 +755,9 @@ def main(argv: list[str] | None = None) -> int:
         states = sessions.StateWatcher(address=me["address"], post=state_poster(call, cfg, me["address"]),
                                        file=os.path.join(state_dir(), sessions.STATE_FILE), binding=who.get("binding"),
                                        jobs=os.path.join(state_dir(), "jobs.json"))
-        states.tick()
-        Ticker("session state", states.tick, sessions.STATE_POLL_MS / 1000, first_s=sessions.STATE_POLL_MS / 1000).start()
+        # First at start, in its own thread: the Node did not await it, and a
+        # relay that is down must not hold the read loop's start behind the post.
+        Ticker("session state", states.tick, sessions.STATE_POLL_MS / 1000).start()
 
     def beside(rec: dict, ledgered: bool) -> None:
         """An action can take minutes (a session to stop, an install): run
@@ -802,10 +808,16 @@ def main(argv: list[str] | None = None) -> int:
             if isinstance(page, dict) and page.get("warning") == "since_id_not_found":
                 state["last"] = None
                 continue
-            rows = page.get("messages") if isinstance(page, dict) and isinstance(page.get("messages"), list) else []
+            # The Node's `page.messages ?? []` then `for…of`: a page that is no
+            # object, or whose messages are no array, is a failed read.
+            if not isinstance(page, dict):
+                raise TypeError("the relay's page is not an object")
+            rows = [] if page.get("messages") is None else page["messages"]
+            if not isinstance(rows, list):
+                raise TypeError("the relay's messages are not an array")
             for rec in rows:
                 state["last"] = rec.get("id")
-                a = accept(rec, me=me, operators=operator_addresses(), accounts=account_addresses(), keys=operator_keys(),
+                a = accept(rec, me=me, operators=operator_addresses(), accounts=account_addresses(), keys=operator_keys,
                            ttl_s=cfg["ttl_s"], seen=seen, action_floor=ledger.floor)
                 if not a["ok"]:
                     if a["why"] not in QUIET:
@@ -817,13 +829,18 @@ def main(argv: list[str] | None = None) -> int:
                     # Recorded before it runs, so a replay posted while it runs is refused
                     # too; a ledger that cannot be written refuses the action BY NAME —
                     # raised here it read as "relay unreachable" and the action vanished.
-                    try:
-                        ledger.record(request["from"], a["ts"])
-                    except Exception as e:  # noqa: BLE001
-                        _stderr(f"agentd: {request['op']} for {request['from']} refused: the action ledger could not be written ({_code(e)})")
-                        continue
-                    _stderr(f"agentd: started {request['op']} for {request['from']} ({request['id'][:8]})")
-                    beside(a, True)
+                    # Under the leaver's lock from the ledger to the running set: a
+                    # restart asked for meanwhile comes before the record or waits
+                    # for the action, never between (a recorded action that never
+                    # ran is refused as a replay when posted again).
+                    with leave.lock:
+                        try:
+                            ledger.record(request["from"], a["ts"])
+                        except Exception as e:  # noqa: BLE001
+                            _stderr(f"agentd: {request['op']} for {request['from']} refused: the action ledger could not be written ({_code(e)})")
+                            continue
+                        _stderr(f"agentd: started {request['op']} for {request['from']} ({request['id'][:8]})")
+                        beside(a, True)
                     continue
                 if request["op"] in BESIDE_LOOP_OPS:
                     beside(a, False)

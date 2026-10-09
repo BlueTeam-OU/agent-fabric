@@ -84,6 +84,7 @@ class FakeRelay:
         self.hits: list[str] = []
         self.lock = threading.Lock()
         self.closed = threading.Event()
+        self.wait_answer = None   # a page /api/wait answers with, whatever the channel holds
         for sender, content in initial:
             self.add(sender, content)
         relay = self
@@ -116,6 +117,8 @@ class FakeRelay:
                             a = self._after(since)
                             return self._json({"messages": [], "warning": "since_id_not_found"} if a is None else {"messages": a[:limit]})
                         return self._json({"messages": relay.rows[-limit:]})
+                if u.path == "/api/wait" and relay.wait_answer is not None:
+                    return self._json(relay.wait_answer)
                 if u.path == "/api/wait":
                     deadline = time.monotonic() + float(q.get("timeout_seconds") or 1)
                     while not relay.closed.is_set():
@@ -368,6 +371,31 @@ class Pieces(Scratch):
         self.assertEqual(agentd.account_addresses(reg), {"a/x", "b/y"})
         self.assertEqual(agentd.operator_keys(reg), {"b/boss": sign.public_key_from(key["publicKeySpec"])})
         self.assertEqual(agentd.operator_keys("/nonexistent"), {})
+
+    def test_port_the_registry_keys_keep_those_read_before_a_null_host_and_skip_a_key_openssl_cannot_read(self):
+        key = sign.generate_operator_key()
+        reg = os.path.join(self.scratch(), "registry.json")
+        with open(reg, "w", encoding="utf-8") as fh:
+            fh.write('{"hosts": {"b": {"operator": "boss", "operator_key": %s}, "n": null, "c": {"operator_key": %s}}}'
+                     % (json.dumps(key["publicKeySpec"]), json.dumps(key["publicKeySpec"])))
+        self.assertEqual(list(agentd.operator_keys(reg)), ["b/boss"], "the Node's partial map: what was read before the null")
+        from unittest import mock
+        with mock.patch.object(agentd, "public_key_from", side_effect=sign.SignError("openssl missing")):
+            self.assertEqual(agentd.operator_keys(reg), {}, "a key openssl cannot parse is no key, never an error that stops the reads")
+
+    def test_port_keys_are_parsed_only_for_an_action_that_passed_the_sender_check(self):
+        calls = []
+
+        def keys():
+            calls.append(1)
+            return {}
+        kw = dict(me=ME, operators=OPERATORS, ttl_s=30, seen=agentd.Seen(), keys=keys)
+        agentd.accept(req(), **kw)
+        agentd.accept({"content": "junk"}, **kw)
+        agentd.accept(req(**{"from": "nobody/x", "op": "upgrade"}), **kw)
+        self.assertEqual(calls, [], "no openssl for a read, junk or a stranger")
+        agentd.accept(req(op="upgrade", args={"piece": "claude"}), **kw)
+        self.assertEqual(calls, [1])
 
     def test_port_the_ledger_remembers_the_newest_per_sender_privately_and_leaves_no_temporary_file(self):
         d = self.scratch()
@@ -802,6 +830,14 @@ class Wire(Daemon):
         self.assertEqual(out.status, 1, out.stderr)
         self.assertRegex(out.stderr, rf"agentd: relay unreachable at http://127\.0\.0\.1:{s} \(.*\) — retrying every 30 s\n$")
 
+    def test_port_a_relay_page_that_is_no_array_is_a_failed_read_as_in_the_node(self):
+        for page in ({"messages": {}}, ["x"], {"messages": "abc"}):
+            r = self.with_relay([(SELF, request(op="ping", id="primer"))])
+            r.wait_answer = page
+            out = self.run_once(r.url())
+            self.assertEqual(out.status, 1, (page, out.stderr))
+            self.assertIn("agentd: relay unreachable at", out.stderr)
+
     def test_port_self_prints_the_status_without_a_relay(self):
         p = subprocess.run([sys.executable, AGENTD, "--self"], env=self.env("http://127.0.0.1:9"), capture_output=True, text=True, timeout=60, check=False)
         self.assertEqual(p.returncode, 0, p.stderr)
@@ -962,16 +998,38 @@ class Resident(Daemon):
         self.assertNotIn(("test:control", "state"), channels, "a state record never rides the control channel")
 
 
-    def test_port_a_pull_that_changes_a_loaded_source_ends_the_daemon_for_systemd_after_the_quiet_period(self):
-        # A scratch copy of the code root would be needed to change a source
-        # in place; the unit test above proves the watcher, this proves the
-        # wiring: SIGTERM is not caught (the process ends where it is).
+    def test_port_sigterm_is_not_caught_the_process_ends_where_it_is(self):
         r = self.with_relay()
         d = self.start(r.url())
         self.until(lambda: r.waits() > 0, "the daemon never waited", d)
         d.send_signal(signal.SIGTERM)
         d.communicate(timeout=20)
         self.assertEqual(d.returncode, -signal.SIGTERM, "default disposition: ends where it is, as the Node did")
+
+    def test_port_a_pull_that_changes_a_loaded_source_ends_the_daemon_for_systemd_after_the_quiet_period(self):
+        # The daemon runs from a scratch copy of the code, so a "pull" is a
+        # write to a file it has loaded.
+        tree = self.scratch("agentd-tree-")
+        for d in ("tools", "runtime", "communication", "identities", "bin", "projects"):
+            if os.path.isdir(os.path.join(HERE, d)):
+                shutil.copytree(os.path.join(HERE, d), os.path.join(tree, d), ignore=shutil.ignore_patterns("__pycache__", "node_modules"))
+        r = self.with_relay()
+        env = self.env(r.url())
+        d = subprocess.Popen([sys.executable, os.path.join(tree, "tools", "fabric", "control", "agentd.py")], env=env, stdin=subprocess.DEVNULL,
+                             stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, start_new_session=True)
+        self.addCleanup(self._stop, d)
+        self.until(lambda: r.waits() > 0, "the daemon never waited", d)
+        with open(os.path.join(tree, "tools", "fabric", "control", "sessions.py"), "a") as fh:
+            fh.write("\n# a pull\n")
+        t0 = time.monotonic()
+        try:
+            _out, err = d.communicate(timeout=30)
+        except subprocess.TimeoutExpired:
+            self.fail("the daemon did not leave for new code")
+        self.assertEqual(d.returncode, 0, err)
+        self.assertIn("agentd: source changed; exiting for systemd to restart on the new code", err)
+        self.assertGreaterEqual(time.monotonic() - t0, 1.5, "after the quiet period")
+
 
 
 if __name__ == "__main__":
