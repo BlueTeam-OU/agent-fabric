@@ -165,5 +165,16 @@ def main(argv: list[str]) -> int:
     return 1 if bad else 0
 
 
+def entry(argv: list[str]) -> int:
+    """main(), with the one SIGTERM that lands outside its own try (on its
+    return path, say) still the exit status 143. Later signals are ignored
+    by the handler, so none can reach here."""
+    import tools_install
+    try:
+        return main(argv)
+    except tools_install.Terminated as t:
+        return t.code
+
+
 if __name__ == "__main__":
-    sys.exit(main(sys.argv[1:]))
+    sys.exit(entry(sys.argv[1:]))

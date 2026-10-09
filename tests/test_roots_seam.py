@@ -36,7 +36,6 @@ EXEMPT = {
     "runtime/control/roots.mjs": "the seam itself",
     "tools/fabric/secretstore/lineage.py": "keys_dir(fabric) takes the tree to check; the module is stdlib-only by fence (tests/test_lineage_fence.py), so it cannot import roots; core.keys_dir passes the operator root",
     "tools/fabric/secretstore/trust.py": "git-shows identities/keys/ from the keys' checkout (origin/main), a path inside that repository; moves with the keys (ADR-045 §6)",
-    "bin/fabric-host": "bash: reads the registry before any Python runs",
 }
 
 # Spelled as plain strings handed to git (`git show origin/main:identities/keys/…`), which no
