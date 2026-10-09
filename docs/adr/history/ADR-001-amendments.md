@@ -68,3 +68,7 @@ sections), so they stay. What changes is how they are read:
 
 The two entries over the budget, ADR-029 and ADR-038, were tightened;
 ADR-038's was also stale about paper recovery.
+
+### Amendment 2026-10-09 — An exception to a direction covers what exists
+
+The owner, 2026-10-09: "If a direction is set a carve out means for past." ADR-040's Wave 7 amendment (2026-10-04) set Python as the direction and said the control plane "stays Node". The owner read that as keeping existing code; the fabric's sessions read it as leave to keep developing there, and eight new Node modules were added to the control plane in five days, one helper among them called from Python across the language line. Nothing in the records said which reading was meant. Rule 12 makes the owner's the default for every record: an exception keeps the past, and new work follows the direction unless the exception says otherwise in words. ADR-040 rule 8 applies it to Node.
