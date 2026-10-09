@@ -81,7 +81,7 @@ import subprocess
 import sys
 from typing import Any, Callable
 
-from . import bypass, gzmsg, i18n, inbox, paths
+from . import bypass, gzmsg, i18n, inbox, intake, paths
 from . import jsvalues as js
 
 
@@ -611,7 +611,29 @@ def main(argv: list[str]) -> int:
             how = f"stopped by {intake['signal']} after 20 s" if intake.get("signal") else f"exit {intake.get('status')}"
             sys.stderr.write(f"fabric-jobs: the job intake of {msg['metadata']['IN-REPLY-TO']} did not complete ({how});"
                              f" add it with fabric-jobs add --request\n")
+    queue_request(msg, who)
     return 0
+
+
+def queue_request(msg: dict, who: dict) -> None:
+    """A REQUEST to a login, sent by its host's operator, goes on that
+    login's job list too (intake.py): it reaches a session whose watch has
+    lapsed at its next start. The post has succeeded: nothing here fails it."""
+    meta = msg.get("metadata") or {}
+    if msg.get("type") != "REQUEST" or "/" not in str(meta.get("TO", "")):
+        return
+    try:
+        with open(paths.roots.hosts_registry(), encoding="utf-8") as fh:
+            hosts = json.load(fh)
+        if not isinstance(hosts, dict):
+            raise ValueError("not a registry")
+    except (OSError, ValueError) as e:
+        sys.stderr.write(f"gzcoord: REQUEST {meta.get('MESSAGE-ID')} was not queued on {meta['TO']}'s list: "
+                         f"the hosts registry could not be read ({e.__class__.__name__})\n")
+        return
+    job = intake.queue_for_addressee(msg, sender=who["agent"], hosts=hosts)
+    if job:
+        print(f"queued as {job} on {meta['TO']}'s job list", file=sys.stderr)
 
 
 def run(argv: list[str]) -> int:

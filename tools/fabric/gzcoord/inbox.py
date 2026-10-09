@@ -75,7 +75,7 @@ import time
 import urllib.parse
 from typing import Any, Callable
 
-from . import bypass, gzmsg, i18n
+from . import bypass, gzmsg, i18n, intake
 from . import jsvalues as js
 from .gzmsg import en  # noqa: F401 — send.py calls inbox.en()
 
@@ -159,6 +159,14 @@ class _Exit(Exception):
 def _arg_after(argv: list[str], flag: str) -> Any:
     i = argv.index(flag) if flag in argv else -1
     return (argv[i + 1] if i + 1 < len(argv) else js.UNDEFINED) if i >= 0 else None
+
+
+def with_queued(shown: str, classified: list[dict], me: dict) -> str:
+    """A delivery, and below it a line for each REQUEST to this login it put
+    on the job list (intake.py). After the journal and the acknowledgement:
+    a job the list could not take is a line on stderr, never an unshown message."""
+    lines = intake.queue_received(classified, me)
+    return shown + "".join(f"\n{x}" for x in lines)
 
 
 def main(argv: list[str]) -> int:
@@ -337,7 +345,8 @@ def main(argv: list[str]) -> int:
             if r["delivered"]:
                 cause["reason"] = None
                 mark_retransmissions(r["classified"], fetch_recent)
-                print(render(r, me, channel, taxonomy, cap=NOTIFICATION_CAP, t=t, reminder=reminder), flush=True)
+                print(with_queued(render(r, me, channel, taxonomy, cap=NOTIFICATION_CAP, t=t, reminder=reminder),
+                                  r["classified"], me), flush=True)
 
     try:
         res = with_fresh_token(lambda _tk: wait_loop(fetch_page, ack, wait_total, mine_fn, keywords, me["address"],
@@ -357,7 +366,7 @@ def main(argv: list[str]) -> int:
     if not res["delivered"]:
         return 0
     mark_retransmissions(res["classified"], fetch_recent)
-    print(render(res, me, channel, taxonomy, t=t, reminder=reminder))
+    print(with_queued(render(res, me, channel, taxonomy, t=t, reminder=reminder), res["classified"], me))
     # The cursor is already past everything shown: wait_loop acknowledges
     # every slice it sees, delivered or passed.
     return 0
