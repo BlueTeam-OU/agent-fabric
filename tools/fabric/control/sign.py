@@ -56,6 +56,8 @@ PRIVATE_PREFIX = "ed25519-pkcs8:"   # one line: the store's entry is read as its
 
 TIMEOUT_S = 10
 VERIFIED = "Signature Verified Successfully"
+MAX_BLOB = 4096           # a key or a signature, a few dozen bytes; a pipe holds 64 KiB
+SIG_BYTES = 64            # every Ed25519 signature
 NOT_VERIFIED = "Signature Verification Failure"
 
 
@@ -134,13 +136,54 @@ def _utf16_key(k: str) -> bytes:
 
 def canonical(value) -> str:
     """sign.mjs canonical(): arrays in order, objects with their keys
-    sorted at every depth, scalars as JSON.stringify writes them."""
-    if isinstance(value, list):
-        return "[" + ",".join(canonical(v) for v in value) + "]"
-    if isinstance(value, dict):
-        if not all(isinstance(k, str) for k in value):
-            raise TypeError("canonical: an object's keys are strings")
-        return "{" + ",".join(f"{js_string(k)}:{canonical(value[k])}" for k in sorted(value, key=_utf16_key)) + "}"
+    sorted at every depth, scalars as JSON.stringify writes them.
+
+    Built with a stack of its own, not by recursion: a request off the
+    relay may nest deeper than Python's recursion limit (about 500 here,
+    two frames a level), which Node's canonical builds without trouble,
+    and a RecursionError out of verify_request is no verdict (review of
+    73f35649, F2). A container met again inside itself is a cycle — no
+    JSON value has one — and a ValueError, never an endless build."""
+    out: list[str] = []
+    open_ids: set[int] = set()
+    todo: list = [("value", value)]
+    while todo:
+        what, item = todo.pop()
+        if what == "text":
+            out.append(item)
+            continue
+        if what == "close":
+            open_ids.discard(item)
+            continue
+        if isinstance(item, (list, dict)):
+            if id(item) in open_ids:
+                raise ValueError("canonical: a value that contains itself")
+            open_ids.add(id(item))
+            todo.append(("close", id(item)))
+            if isinstance(item, list):
+                todo.append(("text", "]"))
+                for i in range(len(item) - 1, -1, -1):
+                    todo.append(("value", item[i]))
+                    if i:
+                        todo.append(("text", ","))
+                todo.append(("text", "["))
+            else:
+                if not all(isinstance(k, str) for k in item):
+                    raise TypeError("canonical: an object's keys are strings")
+                keys = sorted(item, key=_utf16_key)
+                todo.append(("text", "}"))
+                for i in range(len(keys) - 1, -1, -1):
+                    todo.append(("value", item[keys[i]]))
+                    todo.append(("text", js_string(keys[i]) + ":"))
+                    if i:
+                        todo.append(("text", ","))
+                todo.append(("text", "{"))
+            continue
+        out.append(_scalar(item))
+    return "".join(out)
+
+
+def _scalar(value) -> str:
     if value is None:
         return "null"
     if value is True:
@@ -171,8 +214,12 @@ def node_b64decode(text: str) -> bytes:
     `=`, and a last lone sextet dropped. Python's b64decode differs on
     each (it refuses or reads past them), so a key or a signature Node
     reads one way would be read another here."""
+    # Node reads a string for base64 by the low byte of each UTF-16 code
+    # unit: "Ł" (U+0141) is "A", and U+DE00 of a surrogate pair is "=",
+    # which ends it (review of 73f35649, F3, measured on Node 22.22.2).
+    units = text.encode("utf-16-le", "surrogatepass")
     bits, nbits, out = 0, 0, bytearray()
-    for c in text:
+    for c in map(chr, units[0::2]):
         if c == "=":
             break
         v = _B64.get(c)
@@ -193,12 +240,16 @@ def _run(args: list[str], *, data: bytes | None = None, fds: dict[int, bytes] | 
     reads as /dev/fd/<that pipe>, its placeholder `{fd<n>}` in args
     replaced; `message` goes in a 0600 file named by `{message}`."""
     pipes, opened = {}, []
+    for blob in (fds or {}).values():
+        # Written before the child exists, so a blob that fills a pipe
+        # (64 KiB) would block for good, the timeout never reached: the
+        # callers bound what they pass far below it (review of 73f35649, F1).
+        if len(blob) > MAX_BLOB:
+            raise ValueError(f"a {len(blob)}-byte blob for openssl: at most {MAX_BLOB}")
     try:
         for name, blob in (fds or {}).items():
             r, w = os.pipe()
             opened += [r, w]
-            # The blobs are a key or a signature, a few dozen bytes: far
-            # below a pipe's buffer, so the write never blocks.
             os.write(w, blob)
             os.close(w)
             opened.remove(w)
@@ -228,7 +279,12 @@ def _key_from(spec, prefix: str, public: bool) -> bytes | None:
     if not isinstance(spec, str) or not spec.startswith(prefix):
         return None
     der = node_b64decode(spec[len(prefix):])
-    r = _run(["pkey", *(["-pubin"] if public else []), "-inform", "DER", "-in", "{fd0}", "-noout", "-text"], fds={0: der})
+    if len(der) > MAX_BLOB:
+        return None
+    # -passin pass: (empty, no secret): an encrypted key is refused, never
+    # a passphrase prompt on the terminal that waits out the timeout.
+    r = _run(["pkey", *(["-pubin"] if public else []), "-inform", "DER", "-in", "{fd0}", "-passin", "pass:",
+              "-noout", "-text"], fds={0: der})
     want = "ED25519 Public-Key:" if public else "ED25519 Private-Key:"
     if r.returncode != 0 or not r.stdout.decode("utf-8", "replace").startswith(want):
         return None
@@ -247,7 +303,7 @@ def sign_request(request: dict, private_spec) -> dict:
     key = private_key_from(private_spec)
     if key is None:
         raise ValueError("not an operator signing key (ed25519-pkcs8:<base64>)")
-    r = _run(["pkeyutl", "-sign", "-rawin", "-keyform", "DER", "-inkey", "{fd0}", "-in", "{message}"],
+    r = _run(["pkeyutl", "-sign", "-rawin", "-keyform", "DER", "-inkey", "{fd0}", "-passin", "pass:", "-in", "{message}"],
              fds={0: key}, message=payload(request))
     if r.returncode != 0 or len(r.stdout) != 64:
         raise SignError(f"openssl pkeyutl -sign: exit {r.returncode}, {len(r.stdout)} bytes: "
@@ -265,8 +321,18 @@ def verify_request(request, public_key: bytes | None) -> bool:
     if not isinstance(sig, str) or not sig:
         return False
     raw = node_b64decode(sig)
+    if len(raw) != SIG_BYTES:
+        # Node's verify says false to any other length; asking openssl
+        # would also write an unbounded relay value into a pipe.
+        return False
+    try:
+        message = payload(request)
+    except (TypeError, ValueError):
+        # Node's canonical throws on what it cannot build, and its verify
+        # catches that as false.
+        return False
     r = _run(["pkeyutl", "-verify", "-rawin", "-pubin", "-keyform", "DER", "-inkey", "{fd0}", "-in", "{message}",
-              "-sigfile", "{fd1}"], fds={0: public_key, 1: raw}, message=payload(request))
+              "-sigfile", "{fd1}"], fds={0: public_key, 1: raw}, message=message)
     said = r.stdout.decode("utf-8", "replace").strip()
     if r.returncode == 0 and said == VERIFIED:
         return True

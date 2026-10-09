@@ -16,6 +16,7 @@ import base64
 import json
 import os
 import random
+import shutil
 import struct
 import subprocess
 import sys
@@ -124,7 +125,7 @@ def main() -> int:
     check(f"js_number equals JSON.stringify on {len(finite)} random doubles", not bad, bad[:5])
 
     print("across the languages: one wire")
-    args = {"piece": "claude", "note": "ünï ✓ 😀 ", "n": 5, "f": 0.1, "big": 12345678901234567890, "nested": {"z": [1, {"y": "\ud800"}]}}
+    args = {"piece": "claude", "note": "ünï ✓ 😀\u2028", "n": 5, "f": 0.1, "big": 12345678901234567890, "nested": {"z": [1, {"y": "\ud800"}]}}
     py_signed = sign.sign_request(base(args=args), k["privateKeySpec"])
     nv = node("return sign.verifyRequest(input[0], sign.publicKeyFrom(input[1]));", [py_signed, k["publicKeySpec"]])
     check("a request signed here, non-ASCII and numbers among its arguments, is verified by Node", nv is True, nv)
@@ -144,8 +145,82 @@ def main() -> int:
     check("base64 is read as Node's Buffer.from reads it",
           [sign.node_b64decode(s).hex() for s in junk] == node("return input.map(s => Buffer.from(s, 'base64').toString('hex'));", junk))
 
+    print("what the relay can send (review of 73f35649)")
+    import time
+    t0 = time.monotonic()
+    huge = {**signed, "sig": base64.b64encode(b"x" * 70000).decode()}
+    check("a sig far longer than 64 bytes is False at once, never a blocked pipe",
+          sign.verify_request(huge, pub) is False and time.monotonic() - t0 < 5, time.monotonic() - t0)
+    check("63 and 65 bytes are False too",
+          all(sign.verify_request({**signed, "sig": base64.b64encode(b"x" * n).decode()}, pub) is False for n in (63, 65)))
+    deep: object = "leaf"
+    for _ in range(3000):
+        deep = [deep]
+    try:
+        text = sign.canonical(deep)
+        check("canonical builds a value nested 3000 deep, as Node's does", text == "[" * 3000 + '"leaf"' + "]" * 3000)
+    except RecursionError:
+        check("canonical builds a value nested 3000 deep, as Node's does", False, "RecursionError")
+    check("a deep request is a verdict, never a RecursionError",
+          sign.verify_request({**signed, "args": deep}, pub) is False)
+    deep_signed = sign.sign_request(base(args=deep), k["privateKeySpec"])
+    check("...and one signed that deep verifies", sign.verify_request(deep_signed, pub) is True)
+    want = node("return sign.canonical(JSON.parse(input));", json.dumps([[[[{"b": [1, {"d": 2, "c": [[]]}], "a": {}}]]]]))
+    check("the stack builds what Node's recursion builds", sign.canonical([[[[{"b": [1, {"d": 2, "c": [[]]}], "a": {}}]]]]) == want, want)
+    loop: list = []
+    loop.append(loop)
+    try:
+        sign.canonical(loop)
+        check("a value that contains itself is refused", False)
+    except ValueError:
+        check("a value that contains itself is refused, never an endless build", True)
+    check("...and is False in verify_request, as Node's catch makes it", sign.verify_request({**signed, "args": loop}, pub) is False)
+    shared = [1]
+    check("the same list twice, not inside itself, is no cycle", sign.canonical({"a": shared, "b": shared}) == '{"a":[1],"b":[1]}')
+    wide = ["QUJD" + chr(0x1F600) + "RA", chr(0x141) + "AAA", "QUJD" + chr(0x141) * 2, "QU" + chr(0x100) + "JD", "QUJD" + chr(0xD800)]
+    check("base64 beyond Latin-1 is read by the low byte of each code unit, as Node reads it",
+          [sign.node_b64decode(w).hex() for w in wide] == node("return input.map(s => Buffer.from(s, 'base64').toString('hex'));", wide),
+          [sign.node_b64decode(w).hex() for w in wide])
+    enc = subprocess.run(["openssl", "pkcs8", "-topk8", "-inform", "DER", "-outform", "DER", "-v2", "aes-256-cbc", "-passout", "pass:x"],
+                         input=sign.private_key_from(k["privateKeySpec"]), capture_output=True, timeout=30, check=True).stdout
+    t0 = time.monotonic()
+    check("an encrypted key is no key, and asks for no passphrase",
+          sign.private_key_from("ed25519-pkcs8:" + base64.b64encode(enc).decode()) is None and time.monotonic() - t0 < 5,
+          time.monotonic() - t0)
+    # On a terminal, an encrypted key must still be no key and ask nothing:
+    # a child on a pseudo-terminal of its own (its controlling tty, which
+    # openssl's prompt opens), answered by nobody.
+    import pty
+    import select
+    spec = "ed25519-pkcs8:" + base64.b64encode(enc).decode()
+    pid, fd = pty.fork()
+    if pid == 0:
+        try:
+            os._exit(0 if sign.private_key_from(spec) is None else 3)
+        except BaseException:
+            os._exit(4)
+    deadline, status = time.monotonic() + 8, None
+    while time.monotonic() < deadline:
+        select.select([fd], [], [], 0.2)
+        try:
+            os.read(fd, 4096)
+        except OSError:
+            pass
+        done, st = os.waitpid(pid, os.WNOHANG)
+        if done:
+            status = os.waitstatus_to_exitcode(st)
+            break
+    if status is None:
+        os.kill(pid, 9)
+        os.waitpid(pid, 0)
+    os.close(fd)
+    check("...on a terminal too: no passphrase prompt waits out the bound", status == 0, status)
+    check("a key spec longer than any key is none, never a blocked pipe",
+          sign.public_key_from("ed25519:" + base64.b64encode(b"x" * 70000).decode()) is None)
+
     print("openssl's failures are not verdicts")
     saved = os.environ.get("PATH", "")
+    SLEEP = shutil.which("sleep")
     with tempfile.TemporaryDirectory() as d:
         fake = os.path.join(d, "openssl")
         with open(fake, "w") as fh:
@@ -158,6 +233,18 @@ def main() -> int:
                 check("an answer that is neither verdict: SignError", False)
             except sign.SignError as e:
                 check("an answer that is neither verdict: SignError, never False", "something else" in str(e), str(e))
+            with open(fake, "w") as fh:
+                fh.write(f"#!/bin/sh\nexec {SLEEP} 30\n")
+            saved_timeout, sign.TIMEOUT_S = sign.TIMEOUT_S, 0.5
+            try:
+                t0 = time.monotonic()
+                sign.verify_request(signed, pub)
+                check("an openssl that never answers: SignError", False)
+            except sign.SignError as e:
+                check("an openssl that never answers: SignError within the bound, never False",
+                      "no answer within" in str(e) and time.monotonic() - t0 < 5, (str(e), time.monotonic() - t0))
+            finally:
+                sign.TIMEOUT_S = saved_timeout
             os.remove(fake)
             try:
                 sign.verify_request(signed, pub)
