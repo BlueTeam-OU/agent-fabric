@@ -23,7 +23,7 @@ agent-fabric contains agent infrastructure
 
 ## Five minutes: from an account to a working agent
 
-A Linux host with `git`, `python3` (3.12 or newer), `node` (20 or newer)
+A Linux host with `git`, `python3` (3.13 or newer), `node` (20 or newer)
 and `gh`. One Linux account per agent. A parent directory, here
 `~/projects/`, that holds this repository beside the project checkouts it
 manages. Every step below runs as the agent's own login.
@@ -242,9 +242,9 @@ tests/run.sh static     # bash -n over every script, shellcheck (errors), ruff (
 ```
 
 CI (`.github/workflows/ci.yml`) runs the static checks once and the whole
-of `tests/run.sh` on Python 3.12, 3.13 and 3.14 with Node 22, and once
-more on Python 3.12 with Node 20 — the oldest interpreters the tools
-promise to run on — and the static, python and bash suites in a Fedora
+of `tests/run.sh` on Python 3.13 with Node 20 and on 3.14 with Node 22 —
+the oldest interpreters the tools promise to run on, and the newest a
+host ships — and the static, python and bash suites in a Fedora
 and a Debian container that install the fabric's host contract from the
 platform profile's own package map (`runtime/provisioning/platform/`),
 so the map is proven by being used. Locally a missing shellcheck or ruff

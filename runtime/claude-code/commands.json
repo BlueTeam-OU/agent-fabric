@@ -30,6 +30,7 @@
     "fabric-genimage": "bin/fabric-genimage",
     "fabric-pr": "bin/fabric-pr",
     "fabric-query": "bin/fabric-query",
+    "fabric-fleet": "bin/fabric-fleet",
     "fabric-plan": "bin/fabric-plan"
   },
   "replaces": {
