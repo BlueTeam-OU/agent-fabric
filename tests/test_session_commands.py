@@ -118,6 +118,7 @@ def test_the_watch_the_hook_prescribes_is_a_bare_command() -> None:
 
 def main() -> int:
     cases = [
+        test_the_projects_session_texts_are_among_those_read,
         test_every_command_is_an_executable_with_a_shebang,
         test_every_script_runs_through_its_link,
         test_a_wrapper_that_runs_another_command_is_never_allowed,
