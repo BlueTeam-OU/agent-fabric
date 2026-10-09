@@ -206,6 +206,14 @@ def main() -> int:
     check("an infinite wait gives ttl_s null, as JSON.stringify writes Infinity, never an overflow",
           sent and '"ttl_s":null' in json.loads(sent[0])["content"], sent)
 
+    import subprocess
+    script = os.path.join(HERE, "tools", "fabric", "control", "presence.py")
+    if not os.path.exists(os.path.join(HERE, "tools", "fabric", "control", "agentd.py")):
+        r = subprocess.run([sys.executable, script, "check"], input=ok_req, capture_output=True, text=True, timeout=60,
+                           env={"PATH": os.environ.get("PATH", ""), "LANG": "C.UTF-8"})
+        check("before agentd's port, the script says so: exit 6, one JSON line, the token never in it",
+              r.returncode == 6 and "agentd's port" in json.loads(r.stdout)["error"] and "SECRET-SHAPE" not in r.stdout + r.stderr, (r.stdout, r.stderr[-200:]))
+
     class Refused(Exception):
         status = 401
     code, out, _ = run(["check"], ok_req, lambda *a, **k: (_ for _ in ()).throw(Refused("/api/send -> HTTP 401\nmore")))

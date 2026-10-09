@@ -253,6 +253,28 @@ def main() -> int:
                 else:
                     os.environ[k] = v
 
+    print("the script itself, as jobs.py would run it")
+    import subprocess
+    script = os.path.join(HERE, "tools", "fabric", "control", "queue.py")
+    agentd_here = os.path.exists(os.path.join(HERE, "tools", "fabric", "control", "agentd.py"))
+    with tempfile.TemporaryDirectory() as home:
+        r = subprocess.run([sys.executable, script, "waits"], capture_output=True, text=True, timeout=60,
+                           env={"PATH": os.environ.get("PATH", ""), "HOME": home, "LANG": "C.UTF-8"})
+    if agentd_here:
+        check("with agentd's port in the tree, the script runs (no token here: exit 3, sent false)",
+              r.returncode == 3 and json.loads(r.stdout).get("sent") is False, (r.returncode, r.stdout, r.stderr[-300:]))
+    else:
+        check("before agentd's port, the script says so: exit 3, sent false, never an import traceback",
+              r.returncode == 3 and json.loads(r.stdout) == {"error": "the CLI needs tools/fabric/control/agentd.py (control_config, new_id), "
+                                                                   "agentd's port, which is not in this tree yet", "sent": False}, (r.stdout, r.stderr[-300:]))
+    # As a script runs: its directory first on sys.path. After the module ran,
+    # `import queue` must find the standard library's, not this file.
+    probe = subprocess.run([sys.executable, "-c", f"import sys, runpy; sys.path[0] = {os.path.dirname(script)!r}; sys.argv = ['queue.py', 'nope'];"
+                            f" runpy.run_path({script!r}, run_name='probe'); import queue as q; print(q.__file__)"],
+                           capture_output=True, text=True, timeout=60)
+    check("run as a script, its directory no longer shadows the standard library's queue",
+          probe.returncode == 0 and probe.stdout.strip() and "tools/fabric/control" not in probe.stdout, (probe.stdout, probe.stderr[-300:]))
+
     print("queue.test.mjs: relayError")
     c = {"relay_url": "http://r"}
     check("no answer", cq.relay_error(cg.ApiError("/api/send -> no answer within 30 s", timed_out=True), c) == "the relay at http://r did not answer (no answer within 30 s)")

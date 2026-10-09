@@ -29,7 +29,8 @@ CONTRACT, frozen from presence.mjs:
 The control plane's own pieces this reads — the channel's config, the
 placed and operator addresses, a new id — are agentd's (control_config,
 account_addresses, operator_addresses, new_id), taken as parameters and
-imported only by the CLI.
+imported only by the CLI; until agentd's port is in the tree the CLI
+answers a well-formed request with exit 6 and an {"error"} saying so.
 
 Requests, pages and replies are read as JavaScript read them, since a
 Node sender and a Python one must check alike: the query as
@@ -178,7 +179,12 @@ def cli(argv: list[str] | None = None, stdin=None, ask=check_addressees, agentd=
         print('presence: stdin needs {"metadata": {...}, "from": "<host>/<login>", "token": "<relay token>"}', file=err)
         return 2
     if agentd is None:
-        from control import agentd   # agentd's port: control_config, account_addresses, operator_addresses, new_id
+        try:
+            from control import agentd   # agentd's port: control_config, account_addresses, operator_addresses, new_id
+        except ImportError:
+            print(_compact({"error": "the CLI needs tools/fabric/control/agentd.py (control_config, account_addresses, "
+                                     "operator_addresses, new_id), agentd's port, which is not in this tree yet", "status": None}), file=out)
+            return 6
     try:
         answer = ask(req["metadata"], from_=req["from"], token=req["token"], placed=list(agentd.account_addresses()),
                      operators=list(agentd.operator_addresses()), cfg=agentd.control_config(), new_id=agentd.new_id)

@@ -22,7 +22,10 @@ from the process's start (performance.timeOrigin); for the CLI the two
 are milliseconds apart. This login's identity and relay token are
 resolved here, as agentd resolves its own: the token never crosses a
 pipe or an argv. agentd's config and id (control_config, new_id) are
-parameters, imported by the CLI from agentd's port.
+parameters, imported by the CLI from agentd's port; until that port is
+in the tree the CLI answers every valid command with exit 3 and
+{"error": "the CLI needs tools/fabric/control/agentd.py …", "sent":
+false} — nothing asked, nothing sent.
 
 A state record is any relay-token holder's post: one without agentd's
 shape, or from no placed address, is skipped. A forged one can make a job
@@ -36,7 +39,13 @@ import os
 import sys
 import time
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
+# Run as a script, this file's own directory leads sys.path and would
+# shadow the standard library's `queue` for any module that imports it
+# (concurrent.futures, logging.handlers): it is replaced by tools/fabric.
+if sys.path and os.path.realpath(sys.path[0] or ".") == os.path.dirname(os.path.realpath(__file__)):
+    sys.path[0] = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+else:
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
 import roots  # noqa: E402
 from control import gzcoord, js  # noqa: E402
 from control.pool import POOL_ID, ROLE_SLUG, STATES_REPLAY, STATES_STALE_MS, pool_holder  # noqa: E402
@@ -211,8 +220,16 @@ def ask_holder(*, call, cfg: dict, from_: str, holder: str, op: str, args: dict,
     return None
 
 
+class NoAgentd(Exception):
+    """agentd's port (control_config, new_id) is not in this tree yet."""
+
+
 def _agentd():
-    from control import agentd   # agentd's port: control_config, new_id
+    try:
+        from control import agentd   # agentd's port: control_config, new_id
+    except ImportError:
+        raise NoAgentd("the CLI needs tools/fabric/control/agentd.py (control_config, new_id), "
+                       "agentd's port, which is not in this tree yet") from None
     return agentd
 
 
@@ -227,7 +244,11 @@ def cli(argv: list[str] | None = None, out=print, err=lambda m: print(m, file=sy
             or (cmd == "pool-claim" and not POOL_ID.fullmatch(arg or "")) or (cmd == "pool-list" and arg is not None and not ROLE_SLUG.fullmatch(arg))):
         err(usage)
         return 2
-    agentd = agentd or _agentd()
+    try:
+        agentd = agentd or _agentd()
+    except NoAgentd as e:
+        out(js.stringify({"error": str(e), "sent": False}))
+        return 3
     cfg = agentd.control_config()
     try:
         r = relay(who, cfg, call=call)
