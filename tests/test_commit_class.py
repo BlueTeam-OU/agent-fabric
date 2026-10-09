@@ -57,8 +57,144 @@ def main() -> int:
     check("the CLI refuses too few arguments as usage (exit 2)", r.returncode == 2 and "usage" in r.stderr, r.stderr)
     r = subprocess.run([sys.executable, tool, "class", "a b", "anything"], capture_output=True, text=True)
     check("the CLI prints one word", r.stdout == "merge\n", r.stdout)
+    folds(check, tool)
     print(f"\n{'FAILED' if fails else 'all passed'}")
     return 1 if fails else 0
+
+
+# A fake gh on PATH: `gh pr view <n> --json … --repo <r>` prints
+# <dir>/pr-<n>.json, or fails as gh does on a PR it cannot read; every call
+# is logged, so a second ask of the same PR shows. Never the real gh.
+FAKE_GH = """#!/bin/sh
+printf '%s\\n' "$*" >> "$FAKE_GH_DIR/calls"
+[ "$1 $2" = "pr view" ] && [ -f "$FAKE_GH_DIR/pr-$3.json" ] && exec cat "$FAKE_GH_DIR/pr-$3.json"
+echo "GraphQL: Could not resolve to a PullRequest with the number of $3. (HTTP 404)" >&2
+exit 1
+"""
+
+
+def folds(check, tool: str) -> None:
+    """ADR-019 §5 rule 3, amended: a PR closed unmerged whose head lies
+    inside the counted head was folded in, and its review fixes are fixes
+    (gateway#10 into #11, 8 work where 6 was right)."""
+    print("a folded PR's review fixes are fixes")
+    with tempfile.TemporaryDirectory() as tmp:
+        repo, ghdir = os.path.join(tmp, "repo"), os.path.join(tmp, "gh")
+        os.makedirs(os.path.join(ghdir, "bin"))
+        open(os.path.join(ghdir, "calls"), "w").close()
+        fake = os.path.join(ghdir, "bin", "gh")
+        open(fake, "w").write(FAKE_GH)
+        os.chmod(fake, 0o755)
+        env = {k: v for k, v in os.environ.items() if not k.startswith(("GIT_", "GH_", "AGENT_FABRIC_", "GITHUB_"))}
+        env.update(GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_NOSYSTEM="1", GIT_AUTHOR_NAME="t",
+                   GIT_AUTHOR_EMAIL="t@t", GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="t@t",
+                   PATH=f"{ghdir}/bin:{env.get('PATH', '')}", FAKE_GH_DIR=ghdir)
+
+        def git(*args: str) -> str:
+            return subprocess.run(["git", "-C", repo, *args], env=env, check=True, capture_output=True,
+                                  text=True).stdout.strip()
+
+        def commit(msg: str) -> str:
+            git("commit", "-q", "--allow-empty", "-m", msg)
+            return git("rev-parse", "HEAD")
+
+        def pr(n: int, state: str, head: str, merged: bool = False) -> None:
+            json.dump({"state": state, "headRefOid": head, "mergedAt": "2026-10-08T12:00:00Z" if merged else None},
+                      open(os.path.join(ghdir, f"pr-{n}.json"), "w"))
+
+        os.makedirs(repo)
+        git("init", "-q", "-b", "main")
+        commit("base")
+        git("checkout", "-q", "-b", "side")
+        aside = commit("a closed PR's head, never folded")
+        git("checkout", "-q", "main")
+        folded_head = commit("#10's review fix")
+        head = commit("#11's own work")
+        pr(10, "CLOSED", folded_head)                 # the fold
+        pr(9, "MERGED", folded_head, merged=True)     # a follow-up's predecessor
+        pr(12, "CLOSED", aside)                       # closed, not inside
+        pr(13, "CLOSED", "1234567890abcdef1234567890abcdef12345678")  # a head this clone never had
+        pr(14, "OPEN", folded_head)                   # open: not folded
+
+        saved_env, here = dict(os.environ), os.getcwd()
+        os.environ.clear()
+        os.environ.update(env)
+        os.chdir(repo)
+        try:
+            import io
+            from contextlib import redirect_stderr
+
+            def cls(answers: str, n: str = "11", look=None, subject: str = "x", kind: str = "review-fix"):
+                err = io.StringIO()
+                with redirect_stderr(err):
+                    got = cc.classify("p", subject, answers, n, "o/r", kind, look or cc.Folds("o/r", head))
+                return got, err.getvalue()
+
+            got, err = cls("review of #10, F1")
+            check("a fold: closed, unmerged, head inside — a fix", got == "fix", (got, err))
+            check("…and nothing said", err == "", err)
+            got, _ = cls("", subject="review of #10: the probe exits 3", kind="")
+            check("a fold named only in the subject, undeclared — a fix", got == "fix", got)
+            got, err = cls("#9 F2")
+            check("a follow-up: #9 merged — work", got == "work" and err == "", (got, err))
+            got, err = cls("#12 F1")
+            check("closed but its head not inside — work", got == "work" and err == "", (got, err))
+            got, err = cls("#13 F1")
+            check("closed, its head not in this full clone — work, nothing said", got == "work" and err == "",
+                  (got, err))
+            shallow = os.path.join(tmp, "shallow")
+            subprocess.run(["git", "clone", "-q", "--depth", "1", f"file://{repo}", shallow], env=env, check=True)
+            err = io.StringIO()
+            with redirect_stderr(err):
+                got = cc.classify("p", "x", "#10 F1", "11", "o/r", "review-fix", cc.Folds("o/r", head, cwd=shallow))
+            check("a shallow clone cannot answer — work, said", got == "work" and "#10 could not be read" in err.getvalue(),
+                  (got, err.getvalue()))
+            got, err = cls("#14 F1")
+            check("an open PR — work", got == "work" and err == "", (got, err))
+            got, err = cls("#77 F1")
+            check("a lookup failure — work (the reading before the amendment)", got == "work", got)
+            check("…said on stderr, naming the PR", "#77 could not be read" in err and "HTTP 404" in err, err)
+            open(os.path.join(ghdir, "pr-78.json"), "w").write("not json")
+            got, err = cls("#78 F1")
+            check("an answer that is not JSON — work, said", got == "work" and "#78 could not be read" in err,
+                  (got, err))
+            got, _ = cls("#10 F1, #9 F2")
+            check("a fold and a follow-up named together — work: every PR named must be a fold",
+                  got == "work", got)
+            got, _ = cls("gzapi-org/gzapp#10 F1")
+            check("another repository's #10 is never a fold", got == "work", got)
+            got, _ = cls("#10 F1", kind="work")
+            check("Kind: work stays work, folded or not", got == "work", got)
+            got, _ = cls("#10 F1", n="")
+            check("without the PR being counted the rule does not ask", got == "fix", got)
+
+            open(os.path.join(ghdir, "calls"), "w").close()
+            look = cc.Folds("o/r", head)
+            for answers in ("#10 F1", "#10 F2", "review of #10, F3", "#77 F1", "#77 F2"):
+                cls(answers, look=look)
+            calls = open(os.path.join(ghdir, "calls")).read().splitlines()
+            check("one gh call per distinct PR named, a failed one included",
+                  sorted(c.split()[2] for c in calls) == ["10", "77"], calls)
+            check("…each asking that repository for state, mergedAt and the head",
+                  all("--repo o/r" in c and "state,mergedAt,headRefOid" in c for c in calls), calls)
+
+            open(os.path.join(ghdir, "calls"), "w").close()
+            asked: list[str] = []
+            got, _ = cls("#11 F1", look=lambda n: asked.append(n) or True)
+            check("a commit answering this PR's own review is a fix and asks nothing", got == "fix" and not asked,
+                  (got, asked))
+            r = subprocess.run([sys.executable, tool, "class", "p", "x", "#10 F1", "11", "o/r", "review-fix", head],
+                               capture_output=True, text=True, env=env)
+            check("the CLI reads a fold with <head>, the eighth argument", r.stdout == "fix\n", (r.stdout, r.stderr))
+            r = subprocess.run([sys.executable, tool, "class", "p", "x", "#10 F1", "11", "o/r", "review-fix"],
+                               capture_output=True, text=True, env=env)
+            check("…and without it reads as before, work, asking nothing",
+                  r.stdout == "work\n" and open(os.path.join(ghdir, "calls")).read().count("10") == 1,
+                  (r.stdout, r.stderr))
+        finally:
+            os.chdir(here)
+            os.environ.clear()
+            os.environ.update(saved_env)
 
 
 if __name__ == "__main__":

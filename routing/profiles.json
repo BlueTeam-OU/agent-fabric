@@ -12,7 +12,16 @@
     },
     "notes": "The session model is the main agent's, per provider: DeepSeek V4 Pro on the broker — the top tier, so the main conversation runs on the strongest admissible broker model (the owner, 2026-09-19; Sonnet 5 until then) — and Opus 5.5 on plain claude (the owner, 2026-09-24; Opus 5 from 2026-09-15). Its effort is routed (routing/effort.json), because Opus 5.5 defaults to medium where Opus 5 defaulted to high (docs/live-checks/2026-09-23-opus-5-5.md). the capability classes come from routing/capabilities.json unless a layer overrides one."
   },
-  "roles": {},
+  "roles": {
+    "python-dev": {
+      "providers": {
+        "anthropic": {
+          "session": "claude-sonnet-5-5"
+        }
+      },
+      "notes": "python-dev's session runs on Sonnet 5.5 (the owner, 2026-10-08, after the pilot: docs/live-checks/2026-10-08-python-dev-sonnet-pilot.md); its code-high, code-plan and review classes stay on the column's models."
+    }
+  },
   "agents": {
     "architect-cto-01": {
       "providers": {
@@ -23,13 +32,8 @@
       "notes": "The architect's main conversation runs on Fable 5.1, the top tier, not the coding tier's model (the owner, 2026-09-24). Only the model moves: its effort is the session's, routing/effort.json's medium, as every class's is since 2026-09-25; its code-plan subagents run on the column's model, Opus 5.5, at the same level."
     },
     "python-dev-03": {
-      "providers": {
-        "anthropic": {
-          "session": "claude-sonnet-5-5"
-        }
-      },
       "launch_provider": "anthropic",
-      "notes": "The Sonnet pilot (the owner, 2026-10-08): python-dev-03's session runs on Sonnet 5.5 while its code-high, code-plan and review classes stay on the column's models; its blind-review findings per work commit are compared with python-dev-01's and -02's on Opus (docs/live-checks/2026-10-08-python-dev-sonnet-pilot.md) before the role's default changes."
+      "notes": "The Sonnet pilot's account (the owner, 2026-10-08); its session model is now the python-dev role's (roles.python-dev). launch_provider stays: fabric-resume reads it on a first launch."
     }
   }
 }

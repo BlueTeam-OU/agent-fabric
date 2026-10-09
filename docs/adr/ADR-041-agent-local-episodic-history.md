@@ -125,7 +125,14 @@ a message for the agent and two per send, and no prompt tokens.
 
 The harness's conversation turns join the same journal once their hook
 contract is measured. A lifecycle summary on resume, full-text indexing,
-or a resident writer process are each added only on a measured need. A
+or a resident writer process are each added only on a measured need.
+When a resume does read the journal, it reads the session's working
+events (files edited, decisions, errors, the last request) and fetches
+what a query names, ranked, never the whole record: no per-turn
+injection (ADR-036). If full-text indexing is built, the recipe to
+measure first is SQLite FTS5 with a stemmed and a trigram index, their
+ranked lists fused by reciprocal rank, snippets cut around the matched
+terms (A 2026-10-09). A
 carrier that keeps no history makes the journal the only record; that is
 the case this is for.
 
@@ -154,3 +161,4 @@ The body above reads current; each change's full note is in [history/ADR-041-ame
 |---|---|---|
 | 2026-10-05 | `GZCOORD_JOURNAL=off` is a recorded break-glass | §5 rule 10: every bypassed crossing appends an audit line first, or is refused |
 | 2026-10-06 | A bypassed send records its outcome | §5 rule 10: a second line after the post, accepted, failed or unknown; a failed line only when the post provably never reached the relay |
+| 2026-10-09 | What a resume reads from the journal, and how it is ranked | §7: a resume fetches the session's working events by query, ranked, never the whole record; the full-text recipe to measure first is FTS5 stemmed + trigram fused by reciprocal rank, with snippets |

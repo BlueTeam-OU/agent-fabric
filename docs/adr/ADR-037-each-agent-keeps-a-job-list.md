@@ -119,7 +119,10 @@ Why these choices:
    account's `waits_on` ranks as `blocking`; its stored priority stays,
    and `list` shows both and names the waiting address. With the state
    stream unreachable, stored priorities decide and the tool says so
-   (A 2026-10-08).
+   (A 2026-10-08). A waiter whose state record is older than the
+   stream's bound still counts: its block is in its own job list whether
+   or not its control agent runs; `list` names it with the record's age
+   and says it is stale (A 2026-10-09).
 9. A role has an open pool, held by the coordinator's control agent, so
    that one process orders every claim. A job is added to it by a signed
    action; a placed agent lists its role's pool and claims a job from it.
@@ -171,3 +174,4 @@ The body above reads current; each change's full note is in [history/ADR-037-ame
 | Date | Amendment | Effect |
 |---|---|---|
 | 2026-10-08 | Priority, blocking derived, a role pool, and taking the next job | §5 rule 6 widened; rules 7–10 added; §7 priorities no longer future |
+| 2026-10-09 | A stale waiter still counts | §5 rule 8: a waiter whose state record is past the stream's bound still ranks the job blocking, named with the record's age as stale |
