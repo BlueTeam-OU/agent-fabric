@@ -1324,6 +1324,29 @@ def case_the_host_registry_is_one_host_per_id_and_placements_are_known() -> None
         assert code == 1 and "role" in out, f"a role in a host entry passed (placement is never identity):\n{out}"
 
 
+def case_the_agentd_selector_is_sound_and_names_placed_logins() -> None:
+    L = {"platform": "fedora-qubes", "ssh": None, "operator": "op", "fabric": "~/projects/agent-fabric"}
+    with tempfile.TemporaryDirectory() as root:
+        fabric = make_base(root)
+        write(os.path.join(fabric, "runtime", "hosts", "registry.json"),
+              json.dumps({"version": 1, "hosts": {"local": L}, "placement": {"a": "local"}}))
+        sel = os.path.join(fabric, "runtime", "control", "agentd.json")
+        code, out = run_lint(fabric)
+        assert code == 0, f"no selector at all was refused:\n{out}"
+        write(sel, json.dumps({"description": "d", "default": "node", "python": ["a"]}))
+        code, out = run_lint(fabric)
+        assert code == 0, f"a sound selector was refused:\n{out}"
+        for doc, want in (({"default": "node", "python": [], "node": ["a"]}, "unknown key 'node'"),
+                          ({"default": "deno", "python": []}, "default is 'deno'"),
+                          ({"default": "node", "python": ["ghost"]}, "python names 'ghost', which runtime/hosts/registry.json does not place")):
+            write(sel, json.dumps(doc))
+            code, out = run_lint(fabric)
+            assert code == 1 and want in out, f"{doc} passed:\n{out}"
+        write(sel, "{broken")
+        code, out = run_lint(fabric)
+        assert code == 1 and "agentd.json: does not parse" in out, f"a selector that is not JSON passed:\n{out}"
+
+
 def case_a_managed_projects_name_stays_out_of_generic_files() -> None:
     """A project id from the registry in a role skill, the provisioning,
     a tool or the GZCoord runtime is a finding; the fabric's own remote,
@@ -2343,6 +2366,7 @@ def main() -> int:
         case_the_class_list_a_reader_sees_is_the_real_one,
         case_a_skill_carries_rules_not_occasions,
         case_the_host_registry_is_one_host_per_id_and_placements_are_known,
+        case_the_agentd_selector_is_sound_and_names_placed_logins,
         case_a_bound_and_held_role_is_not_a_candidate,
         case_a_managed_projects_name_stays_out_of_generic_files,
         case_review_lenses_are_named_described_and_bounded,

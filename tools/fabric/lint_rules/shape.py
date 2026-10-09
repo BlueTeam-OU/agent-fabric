@@ -126,6 +126,34 @@ def host_registry_findings(root: str) -> list[str]:
     return findings
 
 
+def agentd_selector_findings(root: str) -> list[str]:
+    """runtime/control/agentd.json (ADR-040 Wave 8, s7): bootstrap refuses an
+    unsound selector at every account, so it is refused here first, where
+    one commit can fix it; and a listed login that is placed nowhere is a
+    cutover no account will ever run — a misspelling, or a login gone."""
+    import agentd_unit  # tools/fabric, on the path lint.py set
+    where = agentd_unit.SELECTOR_REL
+    try:
+        doc = json.load(open(os.path.join(root, where), encoding="utf-8"))
+    except FileNotFoundError:
+        return []
+    except (OSError, ValueError) as exc:
+        return [f"{where}: does not parse ({exc})"]
+    findings = [f"{where}: {p}" for p in agentd_unit.problems(doc)]
+    if findings:
+        return findings
+    # An unreadable registry is host_registry_findings'.
+    try:
+        placement = json.load(open(roots.hosts_registry(engine=root, environ=lint_environ()),
+                                   encoding="utf-8")).get("placement") or {}
+    except (OSError, ValueError, AttributeError):
+        return findings
+    for login in doc.get("python", []):
+        if login not in placement:
+            findings.append(f"{where}: python names {login!r}, which runtime/hosts/registry.json does not place")
+    return findings
+
+
 def candidate_role_findings(root: str, catalog: dict[str, Any] | None,
                             taxonomy_roles: dict[str, set[str]]) -> list[str]:
     """`candidate: true` in the catalogue means the role has not yet proved
