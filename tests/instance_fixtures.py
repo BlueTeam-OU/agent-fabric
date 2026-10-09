@@ -25,6 +25,14 @@ def write_registry(directory: str, doc: dict = ADR_REGISTRY) -> str:
     return path
 
 
+def write_operator_projects(operator: str, projects: dict[str, list[str]]) -> str:
+    """An operator tree (AGENT_FABRIC_OPERATOR) whose projects/registry.json
+    registers `projects`, each id with its remotes; the tree's path."""
+    write_registry(os.path.join(operator, "projects"),
+                   {"projects": {pid: {"remotes": remotes} for pid, remotes in projects.items()}})
+    return operator
+
+
 # ADR-045 §5 rule 2's instance data, as paths in a fabric tree: what a test
 # that builds a fabric from the checkout (git archive HEAD) takes out before
 # writing the fixtures its case needs. The roles (catalogue and roles as

@@ -10,8 +10,12 @@ any failure."""
 from __future__ import annotations
 
 import os
+import atexit
 import subprocess
 import sys
+import tempfile
+
+from instance_fixtures import write_operator_projects  # noqa: E402 — tests/, the script's own directory
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SHIM = os.path.abspath(os.environ.get("COMMIT_CLASS") or os.path.join(ROOT, "runtime", "github", "commit-class.sh"))
@@ -143,6 +147,10 @@ CASES: list[tuple[str, list[tuple[str, str, str, str, str, str]]]] = [
         # registered one, like the spaced form: "PR#53" is this
         # repository's number.
         ("work", "aaa", "review of gzapp#53: the fix", "", "53", AF),
+        # A word only the fixture registry holds: the live registry does not
+        # know it, so a reader of that file takes "fixture-proj#53" for this
+        # repository's own number.
+        ("work", "aaa", "review of fixture-proj#53: the fix", "", "53", AF),
         ("fix", "aaa", "review of agent-fabric#53: the fix", "", "53", AF),
         ("fix", "aaa", "review F1: the guard", "PR#53 F1", "53", AF),
         ("fix", "aaa", "review F1: the guard", "PR-#53 F1", "53", AF),
@@ -163,6 +171,14 @@ def main() -> int:
 
     env = {k: v for k, v in os.environ.items()
            if not k.startswith(("GITHUB_", "AGENT_FABRIC_", "CLAUDE_", "ANTHROPIC_"))}
+    # The registry the classifier tells a repository's name from a bare word
+    # by: a fixture in the test's own directory, never the checkout's.
+    scratch = tempfile.TemporaryDirectory()
+    atexit.register(scratch.cleanup)
+    env["AGENT_FABRIC_OPERATOR"] = write_operator_projects(
+        os.path.join(scratch.name, "operator"),
+        {"agent-fabric": ["git@github.com:gzapi-org/agent-fabric.git"], "gzapp": ["git@github.com:gzapi-org/gzapp.git"],
+         "fixture-proj": ["git@example.org:fixture-org/fixture-proj.git"]})
 
     def sourced(script: str, stdin: str = "") -> subprocess.CompletedProcess[str]:
         return subprocess.run(["bash", "-c", f'. "$1"; {script}', "_", SHIM], input=stdin, env=env,
