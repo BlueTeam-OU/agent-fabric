@@ -33,7 +33,6 @@ reached through `upgrade()` so this module imports without it.
 """
 from __future__ import annotations
 
-import json
 import os
 import re
 import signal
@@ -162,7 +161,7 @@ def secrets_sync_once(
         return {"status": "failed", "reason": str(e)}
     report: dict = {}
     try:
-        parsed = json.loads(out)
+        parsed = util.loads(out)
         report = parsed if isinstance(parsed, dict) else {}
     except ValueError:
         pass   # the reason below says so
@@ -184,6 +183,8 @@ def secrets_sync_once(
         return fail("the synced record holds no token; nothing stopped")
     try:
         running = sessions if sessions is not None else upgrade().session_pids(**({"run": pgrep} if pgrep else {}))
+    except ImportError:
+        raise   # control.upgrade not there is not a pgrep that failed
     except Exception as e:  # noqa: BLE001 — pgrep missing, timed out or unreadable all mean "cannot tell"
         why = f"could not tell whether a session is running (pgrep: {util.node_error(e, ['pgrep'])[:120]})"
         if restart:

@@ -6,7 +6,6 @@ from __future__ import annotations
 import base64
 import gzip
 import hashlib
-import json
 import os
 import re
 import subprocess
@@ -143,7 +142,7 @@ def memory(home: str | None = None, root: str | None = None, run: Callable[..., 
 
 def _report(stderr: str) -> dict | None:
     try:
-        j = json.loads(stderr)
+        j = util.loads(stderr)
     except ValueError:
         return None
     if not isinstance(j, dict):

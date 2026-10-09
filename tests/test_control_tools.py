@@ -67,6 +67,8 @@ class Contract(Base):
         self.assertRegex(T.parse_run(0, json.dumps({"ok": True}))["error"], r"without projects, tools and ok")
         for nan in ('{"projects": [], "tools": [], "ok": NaN}', '{"projects": [], "tools": [Infinity], "ok": true}'):
             self.assertRegex(T.parse_run(0, nan)["error"], r"no JSON document", "JSON.parse refuses NaN and Infinity")
+        self.assertRegex(T.parse_run(0, "[" * 100000)["error"], r"no JSON document", "nested past the stack is a bad document")
+        self.assertEqual(T.parse_install(1, "[" * 100000)["status"], "failed")
         self.assertRegex(T.parse_run(0, "[1]")["error"], r"without projects, tools and ok")
         self.assertRegex(T.parse_run(0, json.dumps({**DOC, "ok": "true"}))["error"], r"without projects, tools and ok", "ok is a boolean or it is not there")
 

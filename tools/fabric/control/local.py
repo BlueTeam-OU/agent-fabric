@@ -17,7 +17,6 @@ failure of `local-prune` is its reply.
 """
 from __future__ import annotations
 
-import json
 import os
 import subprocess
 import sys
@@ -43,7 +42,7 @@ def _run(sub: str, home: str | None = None, root: str | None = None, run: Callab
     root = _default_root(home) if root is None else root
     r = run([sys.executable, _tool(root), sub, "--home", home], capture_output=True, text=True, errors="replace",
             timeout=LOCAL_TIMEOUT_S, check=True, stdin=subprocess.DEVNULL)
-    return json.loads(r.stdout)
+    return util.loads(r.stdout)
 
 
 def local(**opts: Any) -> Any:
@@ -64,6 +63,6 @@ def local_prune(request: Any, **opts: Any) -> dict:
     try:
         return _run("prune", **opts)
     except (subprocess.SubprocessError, OSError, ValueError) as e:
-        said = getattr(e, "stderr", None) or ""
+        said = util.decode(getattr(e, "stderr", None))
         why = said if said else (util.node_error(e, ["python3", "local_settings.py", "prune"]) if isinstance(e, (subprocess.SubprocessError, OSError)) else str(e))
         return {"status": "failed", "reason": gzmsg.js_trim(why).split("\n")[-1][:200]}

@@ -141,6 +141,15 @@ class Sampler(Base):
             self.assertRegex(logs3[0], r"cannot keep the ring \(EACCES\)")
             self.assertEqual(len(P.read_ring(kept)), 2, "the day already sampled is still there")
 
+    def test_a_ring_the_parser_cannot_take_is_moved_aside_and_sampling_goes_on(self):
+        file = os.path.join(self.scratch("pressure-deep-"), "memory-pressure.json")
+        with open(file, "w", encoding="utf-8") as fh:
+            fh.write("[" * 100000)
+        logs: list[str] = []
+        P.sampler(file=file, proc=self.proc(), now=lambda: T0, log=logs.append).tick()
+        self.assertTrue(os.path.exists(f"{file}.unreadable"))
+        self.assertEqual(len(P.read_ring(file)), 1)
+
     def test_a_failed_write_leaves_the_previous_ring_whole_and_no_temporary_file(self):
         file = os.path.join(self.scratch("pressure-atomic-"), "memory-pressure.json")
         s = P.sampler(file=file, proc=self.proc(), now=lambda: T0, log=lambda m: None)
@@ -165,6 +174,12 @@ class ReadRing(Base):
                 fh.write(bad)
             with self.assertRaises(P.BadRing, msg=f"refused: {bad}"):
                 P.read_ring(os.path.join(d, "r.json"))
+        for bad in ("[" * 100000, f'[{{"ts": "{at(0)}", "some_avg10": {"9" * 400}, "full_avg10": 1, "mem_available_mb": 1}}]'):
+            with open(os.path.join(d, "r.json"), "w", encoding="utf-8") as fh:
+                fh.write(bad)
+            with self.assertRaises(P.BadRing, msg="a document the parser or the number check cannot take is a bad ring"):
+                P.read_ring(os.path.join(d, "r.json"))
+            self.assertEqual(P.memory_pressure(os.path.join(d, "r.json"))["status"], "failed")
         with open(os.path.join(d, "r.json"), "w", encoding="utf-8") as fh:
             fh.write(f"[{good}]")
         self.assertEqual(len(P.read_ring(os.path.join(d, "r.json"))), 1, "control: a good ring is read")

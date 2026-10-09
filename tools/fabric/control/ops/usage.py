@@ -4,6 +4,7 @@ extractor here keeps."""
 from __future__ import annotations
 
 import errno
+import http.client
 import json
 import os
 import re
@@ -108,7 +109,7 @@ def _from_inference(tok: str, fetch: Fetch, url: str) -> dict:
                            "anthropic-version": "2023-06-01", "content-type": "application/json"},
                   body=json.dumps({"model": PROBE_MODEL, "max_tokens": 1,
                                    "messages": [{"role": "user", "content": "."}]}, separators=(",", ":")).encode())
-    except (OSError, ValueError):
+    except (OSError, ValueError, http.client.HTTPException):
         return {"status": "read-failed", "via": "setup-token"}
     # A full window answers 429 and still names its windows: that is a reading.
     w = windows_from_headers(lambda k: r.headers.get(k))
@@ -132,12 +133,12 @@ def usage(home: str | None = None, fetch: Fetch = http_fetch, url: str = USAGE_U
     try:
         r = fetch(url, headers={"Authorization": f"Bearer {js.string(tok)}", "anthropic-beta": "oauth-2025-04-20"},
                   timeout=HTTP_TIMEOUT_S)
-    except (OSError, ValueError):
+    except (OSError, ValueError, http.client.HTTPException):
         return {"status": "read-failed"}
     if not r.ok:
         return {"status": "read-failed", "http": r.status}
     try:
-        u = json.loads(r.body)
+        u = util.loads(r.body)
     except ValueError:
         return {"status": "unreadable"}
 
@@ -278,7 +279,7 @@ def parse_usage_report(stdout: str) -> dict:
     """The /usage events, reduced to fixed keys. `limits` are the server's
     meters in its order: session, weekly_all, weekly_scoped (per model)."""
     try:
-        events = json.loads(stdout)
+        events = util.loads(stdout)
     except ValueError:
         return {"status": "unreadable"}
     if not isinstance(events, list):
@@ -441,7 +442,7 @@ def tokens(home: str | None = None, days: float = TOKENS_DAYS, now: float | None
             if '"assistant"' not in line or '"usage"' not in line:
                 continue
             try:
-                d = json.loads(line)
+                d = util.loads(line)
             except ValueError:
                 continue
             if js.get(d, "type") != "assistant":

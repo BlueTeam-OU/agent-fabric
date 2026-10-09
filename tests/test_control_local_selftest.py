@@ -104,6 +104,10 @@ class Local(Base):
             raise FileNotFoundError(2, "No such file", cmd[0])
         self.assertEqual(L.local_prune({}, home="/h", root="/r", run=gone)["status"], "failed")
 
+        def slow(cmd, **kw):   # TimeoutExpired.stderr is bytes even where the run asked for text
+            raise subprocess.TimeoutExpired(cmd, 15, output=b"", stderr=b"working\nlocal_settings: still reading\n")
+        self.assertEqual(L.local_prune({}, home="/h", root="/r", run=slow), {"status": "failed", "reason": "local_settings: still reading"})
+
         def not_json(cmd, **kw):
             return subprocess.CompletedProcess(cmd, 0, "not json", "")
         self.assertEqual(L.local_prune({}, home="/h", root="/r", run=not_json)["status"], "failed", "output that is not JSON is a failure, not an invented ok")

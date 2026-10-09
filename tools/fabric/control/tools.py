@@ -26,7 +26,6 @@ the daemon's: ToolsKeeper gives it refresh() and refresh_again().
 from __future__ import annotations
 
 import errno
-import json
 import os
 import re
 import signal
@@ -63,7 +62,7 @@ def parse_run(code: int, stdout: str) -> dict:
     if code not in (0, 1):
         return {"error": f"fabric-tools exited {code}"}
     try:
-        doc = json.loads(stdout, parse_constant=util.reject_constant)
+        doc = util.loads(stdout)
     except ValueError:
         return {"error": "fabric-tools --json printed no JSON document"}
     if (not isinstance(doc, dict) or not isinstance(doc.get("projects"), list) or not isinstance(doc.get("tools"), list)
@@ -194,7 +193,7 @@ def tools(directory: str | None = None, now: Callable[[], float] = lambda: time.
     except OSError as e:
         return {"status": "failed", "error": f"{TOOLS_REPORT}: {errno.errorcode.get(e.errno or 0) or e}"}
     try:
-        doc = json.loads(text, parse_constant=util.reject_constant)
+        doc = util.loads(text)
     except ValueError:
         return {"status": "failed", "error": f"{TOOLS_REPORT} is not JSON"}
     if not util.truthy(doc) or not isinstance(doc.get("tools") if isinstance(doc, dict) else None, list):
@@ -221,7 +220,7 @@ def parse_install(code: int, stdout: str) -> dict:
     exit status, or names a status it never gives, is not an answer. Only the
     keys the account sent as strings are in the reply, each cut at 300."""
     try:
-        doc = json.loads(stdout, parse_constant=util.reject_constant)
+        doc = util.loads(stdout)
     except ValueError:
         return {"status": "failed", "reason": f"fabric-tools --install exited {code} and printed no verdict"}
     status = doc.get("status") if isinstance(doc, dict) else None

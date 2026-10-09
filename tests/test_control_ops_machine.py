@@ -134,6 +134,15 @@ class Host(Base):
         self.assertEqual((bare["leases"], bare["top_rss"]), ([], []), "not a Xen guest, no lease directory, no ps: null and empty, never a throw")
         self.assertIn("host", ops.OPS)
 
+    def test_a_lease_naming_a_non_finite_pid_is_a_row_with_no_pid_not_a_failed_section(self):
+        leases = self.scratch("leases-")
+        for i, pid in enumerate(("Infinity", "-Infinity", "1e400", "NaN", "0")):
+            write(os.path.join(leases, f"l{i}"), f"me {pid} 2026-10-09T00:00:00Z l{i}\n")
+        held = lambda cmd, **kw: subprocess.CompletedProcess(cmd, 1)  # noqa: E731
+        h = ops.host(proc="/nonexistent", sys="/nonexistent", leases=leases, run=held, cpus=1)
+        self.assertEqual([x["pid"] for x in h["leases"]], [None] * 5)
+        self.assertEqual(ops.collect("host", {"host_opts": {"proc": "/nonexistent", "sys": "/nonexistent", "leases": leases, "run": held, "cpus": 1}, "pressure_opts": {"file": os.path.join(leases, "none")}})["host"]["status"], "ok")
+
     def test_a_flock_that_cannot_run_or_hangs_is_not_a_held_lease(self):
         leases = self.scratch("leases-")
         write(os.path.join(leases, "one"), "u 1 t one\n")
@@ -268,6 +277,8 @@ class Accounts(Base):
         msg = "Failed to refresh OAuth token: another Claude Code process is refreshing it"
         self.assertEqual(ops.parse_usage_report(json.dumps([{"type": "result", "is_error": True, "result": msg}])), {"status": "failed", "error": msg})
         self.assertEqual(ops.parse_usage_report("not json")["status"], "unreadable")
+        self.assertEqual(ops.parse_usage_report('[{"type": "assistant", "usage_report": {"rate_limits": {"limits": [{"kind": "s", "percent": NaN}]}}}]')["status"], "unreadable", "JSON.parse refuses NaN")
+        self.assertEqual(ops.parse_usage_report("[" * 100000)["status"], "unreadable", "a document nested past the stack is a bad document")
         odd = ops.parse_usage_report(json.dumps([{"type": "assistant", "usage_report": {"rate_limits": {"limits": [{"kind": "session", "percent": "11"}, {"kind": "x", "percent": True}]}}}]))
         self.assertEqual([lim["percent"] for lim in odd["limits"]], [None, None], "a percent that is not a number is unknown, not 11 and not 1")
         self.assertEqual(ops.parse_usage_report(json.dumps([{"type": "result", "is_error": False}]))["status"], "no-report", "a success without the report is said, not read as zero usage")

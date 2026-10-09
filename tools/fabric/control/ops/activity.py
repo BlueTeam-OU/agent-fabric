@@ -167,7 +167,7 @@ def languages(paragraphs: list[str], home: str | None = None, root: str | None =
         said = gzmsg.js_trim(util.decode(getattr(e, "stderr", None)) or str(e))
         return {"status": "unavailable", "why": said.split("\n")[-1][:160]}
     try:
-        verdicts = json.loads(out)
+        verdicts = util.loads(out)
     except ValueError:
         return {"status": "unavailable", "why": "the detector answered something that is not JSON"}
     if not isinstance(verdicts, list) or len(verdicts) != len(judged):
@@ -314,7 +314,7 @@ def recall(home: str | None = None, hours: float = 24, now: float | None = None)
             if '"assistant"' not in line:
                 continue
             try:
-                d = json.loads(line)
+                d = util.loads(line)
             except ValueError:
                 continue
             if js.get(d, "type") != "assistant":
@@ -452,7 +452,7 @@ def script(home: str | None = None, hours: float = 24, limit: int = 5, now: floa
             if '"assistant"' not in line:
                 continue
             try:
-                d = json.loads(line)
+                d = util.loads(line)
             except ValueError:
                 continue
             if js.get(d, "type") != "assistant":
@@ -526,7 +526,7 @@ def worker_transcripts(files: list[str], hours: float = 24, now: float | None = 
             n += 1
             for line in body.split("\n"):
                 try:
-                    d = json.loads(line)
+                    d = util.loads(line)
                 except ValueError:
                     continue
                 c = js.get(js.get(d, "message"), "content")

@@ -18,7 +18,6 @@ PSI and a calm machine are different answers.
 from __future__ import annotations
 
 import errno
-import json
 import math
 import os
 import re
@@ -61,7 +60,12 @@ def sample(proc: str = "/proc", now: Callable[[], float] = _now_ms) -> dict:
 
 
 def _finite(v: Any) -> bool:
-    return isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v)
+    if not isinstance(v, (int, float)) or isinstance(v, bool):
+        return False
+    try:
+        return math.isfinite(v)
+    except OverflowError:
+        return False   # an integer past a double: the Node's JSON.parse read it as Infinity
 
 
 def _is_sample(s: Any) -> bool:
@@ -71,10 +75,6 @@ def _is_sample(s: Any) -> bool:
 
 class BadRing(Exception):
     """What the file holds is wrong, as against a file that could not be read."""
-
-
-def _no_constants(name: str) -> Any:
-    raise ValueError(f"{name} is not JSON")   # JSON.parse refuses NaN and Infinity; json.loads would take them
 
 
 def read_ring(file: str | None = None) -> list[dict] | None:
@@ -88,7 +88,7 @@ def read_ring(file: str | None = None) -> list[dict] | None:
     except FileNotFoundError:
         return None
     try:
-        ring = json.loads(text, parse_constant=_no_constants)
+        ring = util.loads(text)
     except ValueError:
         raise BadRing(f"{file}: not JSON") from None
     if not isinstance(ring, list) or not all(_is_sample(s) for s in ring):

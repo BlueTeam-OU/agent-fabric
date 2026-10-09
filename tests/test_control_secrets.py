@@ -238,6 +238,13 @@ class SecretsSync(unittest.TestCase):
         r2 = pg.sync({"id": "x", "from": "h/user", "args": {"restart": True}}, me="h/db-admin", kill=no_kill)
         self.assertEqual(r2["status"], "failed")
         self.assertRegex(r2["reason"], r"could not tell whether a session is running \(pgrep: .*EACCES.*\); nothing restarted")
+        missing = Fixture(self)
+
+        def no_module():
+            raise ImportError("No module named 'control.upgrade'")
+        missing.up.session_pids = lambda **kw: no_module()
+        with self.assertRaises(ImportError):
+            missing.sync({"id": "x", "from": "h/user", "args": {"restart": True}}, me="h/db-admin")
         quiet = Fixture(self)
         quiet.up.session_pids = eacces
         r2b = quiet.sync({"id": "x", "from": "h/user"}, me="h/db-admin")

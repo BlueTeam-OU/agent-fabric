@@ -15,7 +15,6 @@ running on this account.
 """
 from __future__ import annotations
 
-import json
 import os
 import subprocess
 import threading
@@ -83,7 +82,7 @@ def secrets_selftest_once(request: Any, home: str | None = None, root: str | Non
     except (subprocess.SubprocessError, OSError) as e:
         return {"status": "failed", "reason": f"fabric-secrets selftest: {_last_line(util.node_error(e, cmd))}"}
     try:
-        report = json.loads(out)
+        report = util.loads(out)
     except ValueError:
         report = None   # said below
     # 0 is pass, 1 fail; anything else, or no report, is a test not run.

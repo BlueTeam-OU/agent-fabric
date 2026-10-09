@@ -3,7 +3,6 @@ A part of the ops package, whose __init__.py is the contract every
 extractor here keeps."""
 from __future__ import annotations
 
-import json
 import os
 import re
 import subprocess
@@ -53,12 +52,12 @@ def _read_refusal(store: str, kept: str | None = None) -> dict | None:
     kept: where a child's mirror's refusal is kept once a refused rebuild
     removed the mirror — beside it, `<id>.refusal.json` (secret_store.py)."""
     try:
-        r = json.loads(_read_text(os.path.join(store, ".git", REFUSAL_FILE)))
+        r = util.loads(_read_text(os.path.join(store, ".git", REFUSAL_FILE)))
     except FileNotFoundError:
         if not kept:
             return None
         try:
-            r = json.loads(_read_text(kept))
+            r = util.loads(_read_text(kept))
         except FileNotFoundError:
             return None
         except (OSError, ValueError):

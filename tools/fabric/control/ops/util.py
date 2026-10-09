@@ -48,7 +48,7 @@ def read_json(file: str) -> Any:
     """The file's JSON, or None for a file that is absent or not JSON."""
     try:
         with open(file, encoding="utf-8") as fh:
-            return json.load(fh)
+            return loads(fh.read())
     except (OSError, ValueError):
         return None
 
@@ -157,6 +157,16 @@ def js_round(x: float) -> float | int:
     if not math.isfinite(x):
         return x
     return math.floor(x + 0.5)
+
+
+def loads(text: str | bytes) -> Any:
+    """JSON.parse: NaN and Infinity are refused, and a document nested past
+    the interpreter's stack is a ValueError like any other bad one, never a
+    RecursionError that no caller of a parse expects."""
+    try:
+        return json.loads(text, parse_constant=reject_constant)
+    except RecursionError:
+        raise ValueError("JSON nested too deeply") from None
 
 
 def reject_constant(name: str) -> Any:

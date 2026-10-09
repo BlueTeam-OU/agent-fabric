@@ -127,7 +127,7 @@ def list_lines(directory: str, now_ms: float | None = None) -> list[str]:
 def _store(args: list[str], run: Callable[..., Any], root: str) -> Any:
     r = run([os.path.join(root, "bin", "fabric-secrets"), "store", *args, "--json"],
             capture_output=True, timeout=STORE_TIMEOUT_S, check=True, stdin=subprocess.DEVNULL)
-    return json.loads(util.decode(r.stdout))
+    return util.loads(util.decode(r.stdout))
 
 
 def store_templates(run: Callable[..., Any] = subprocess.run, root: str | None = None) -> list[dict]:
@@ -141,7 +141,7 @@ def store_assign(logins: Sequence[str], account: str, run: Callable[..., Any] = 
     except subprocess.CalledProcessError as e:
         # assign exits 1 when a row failed and still prints every row.
         try:
-            return json.loads(util.decode(e.stdout))
+            return util.loads(util.decode(e.stdout))
         except ValueError:
             reason = (util.decode(e.stderr).strip().split("\n") or [""])[-1][:160]
             return [{"login": login, "status": "failed", "reason": reason} for login in logins]

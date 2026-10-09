@@ -9,6 +9,7 @@ of the Python ops' injection points (a `run` called as subprocess.run is, a
 from __future__ import annotations
 
 import base64
+import http.client
 import hashlib
 import json
 import os
@@ -142,6 +143,12 @@ class Usage(Base):
         self.assertEqual((seen[0][1]["Authorization"], seen[0][1]["anthropic-beta"]), (f"Bearer {ACCESS}", "oauth-2025-04-20"))
         self.assert_no_secret(u)
         self.assertEqual(ops.usage(h, fetch=lambda *a, **k: usage_mod.Response(401)), {"status": "read-failed", "http": 401})
+        inf = b'{"five_hour": {"utilization": Infinity, "resets_at": "x"}}'
+        self.assertEqual(ops.usage(h, fetch=lambda *a, **k: usage_mod.Response(200, {}, inf)), {"status": "unreadable"}, "JSON.parse refuses Infinity")
+
+        def torn(*_a, **_k):
+            raise http.client.IncompleteRead(b"")
+        self.assertEqual(ops.usage(h, fetch=torn), {"status": "read-failed"}, "a reply cut short is no answer, not a failed section")
 
         def refused(*_a, **_k):
             raise ConnectionRefusedError("ECONNREFUSED")

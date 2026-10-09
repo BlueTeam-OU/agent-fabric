@@ -21,6 +21,11 @@ port differs, it is listed here:
   - memory: a harvest that failed with nothing on stderr says why
     (a timeout, a missing interpreter), where the Node said "".
   - Every subprocess has a timeout, presence's pgrep included.
+  - Every JSON parse refuses NaN, Infinity and a document nested past the
+    stack, as JSON.parse did (a ValueError, handled where a bad document is).
+  - tools reads the login's own state directory, not ctx["home"]'s: they
+    are the same in production.
+  - fabric-accounts login runs the harness with no timeout: a person is in it.
   - The read lock is created complete (pid written, then linked into place):
     a held lock is never empty. One naming no pid is stale after 5 s.
   - status: the sections' keys come in request order; the Node put each in
