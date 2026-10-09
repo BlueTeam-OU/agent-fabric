@@ -98,7 +98,7 @@ if [[ "$PHASE" == prepare ]]; then
          must $SUDO -n -u "$LOGIN" chmod 600 "$HOME_DIR/.ssh/known_hosts"; say "3. github.com host keys trusted (from the committed published set)"; fi; fi
     # A clone already there is brought to origin/main, never left old (bootstrap and the launcher run from it), or refused off main.
     if ! $SUDO -n test -d "$HOME_DIR/projects/agent-fabric/.git"; then
-        must as_login "git clone -q '${AGENT_FABRIC_CLONE_URL:-https://github.com/gzapi-org/agent-fabric.git}' ~/projects/agent-fabric"; say "4. agent-fabric cloned (https; the fabric is public)"
+        must as_login "git clone -q '${AGENT_FABRIC_CLONE_URL:-https://github.com/BlueTeam-OU/agent-fabric.git}' ~/projects/agent-fabric"; say "4. agent-fabric cloned (https; the fabric is public)"
     else
         branch="$(as_login 'git -C ~/projects/agent-fabric symbolic-ref -q --short HEAD' 2>/dev/null)"
         [[ "$branch" == main ]] || die "step failed: ~/projects/agent-fabric is on ${branch:-a detached HEAD}, not main; bring it to main as $LOGIN, then re-run; nothing after it ran"

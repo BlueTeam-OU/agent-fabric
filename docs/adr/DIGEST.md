@@ -53,6 +53,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 | your GZCoord history; the episodic journal; fabric-history | ADR-041 |
 | signed store commits; trusted base; trust-base; a refused store | ADR-042 |
 | Claude Code mods; managed settings; where the guards live; the fleet's own mods | ADR-043 |
+| the operator over ssh; sshd; enter-ssh; host keys; known_hosts; fabric-ssh-hosts | ADR-048 |
 
 ### ADR-000 — The enduring organization (Accepted)
 
@@ -996,3 +997,22 @@ its record disagree, the record wins. Look it up, never read it whole:
   (§5 rule 3); the step is linked when its job is queued (§5 rule 4).
 - A decided plan is exported into its record or pull request (§5 rule 5).
 - Keywords: plan, step, Gantt, dependency, fabric-plan, roadmap.
+
+### ADR-048 — The operator reaches agent accounts over ssh (Proposed)
+
+- The deck's panes enter an account over ssh to 127.0.0.1: keys only, no
+  forwarding, no tunnel, `AllowUsers` the placed logins (§5 rule 1).
+- Keys only from root-owned `/etc/ssh/authorized_keys/%u`; one operator
+  key, passphrase, forced to a root-owned installed `enter-ssh` with
+  `restrict`, never a checkout's (§5 rules 2–3).
+- `enter-ssh` takes one of `--wait`, `--watch`, `shell`, `--resume`, runs
+  `enter` in a login shell, refuses anything else with exit 2 (§5 rule 4).
+- Host keys pinned in the registry's `sshd`, read on the host;
+  `fabric-ssh-hosts` generates `known_hosts` and checks the pin; never
+  ssh-keyscan (§5 rule 5).
+- Qubes, two phases: the package in the TemplateVM, sshd disabled there;
+  the AppVM stages config and host keys (made once) under /rw/config, and
+  rc.local restores them, runs `sshd -t`, then sshd at boot (§5 rule 6). sudo stays
+  break-glass; agents' own ssh keys stay future (§5 rules 7–8).
+- Keywords: ssh, sshd, operator, Fleet Deck, moveto, enter-ssh, forced
+  command, authorized_keys, host key, known_hosts, Qubes, rc.local.

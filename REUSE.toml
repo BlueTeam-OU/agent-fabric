@@ -8,7 +8,7 @@
 version = 1
 SPDX-PackageName = "agent-fabric"
 SPDX-PackageSupplier = "Andrea Benetton"
-SPDX-PackageDownloadLocation = "https://github.com/gzapi-org/agent-fabric"
+SPDX-PackageDownloadLocation = "https://github.com/BlueTeam-OU/agent-fabric"
 
 [[annotations]]
 path = ["**"]
