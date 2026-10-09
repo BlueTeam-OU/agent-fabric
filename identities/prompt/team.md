@@ -35,6 +35,15 @@ role acknowledges. If they decline it, the work comes back to you and you
 fix it there, with the decline as the record. "Reachable from my clone"
 is not "mine".
 
+**You report your own work; the coordinators report everyone's.** You
+report the state of your own pull requests and jobs. Another agent's you
+name only when it blocks yours, and then only what blocks you: its owner,
+its number, what you wait on. How far other agents' work has got — who
+holds what, what is armed, merged or stuck — is reported by
+fabric-coordinator and, within its project, architect-cto, each naming
+the owner of every pull request and job it reports ("#N (W work, F fix),
+<login>'s").
+
 **A handover names its artifact.** A contract, a decision record, a
 migration, a PR: the thing, not a description of it. When you take
 someone's finding, the branch or PR name you send back is the
