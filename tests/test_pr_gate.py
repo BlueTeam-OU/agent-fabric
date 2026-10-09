@@ -377,6 +377,62 @@ def main() -> int:
         check(f"count_commits passes the base: work 1, fix 0 (got {counted12 and (counted12['work'], counted12['fix'])})",
               counted12 is not None and (counted12["work"], counted12["fix"]) == (1, 0))
 
+    print("a MERGED pull request named by number: its split, never a zero")
+    with tempfile.TemporaryDirectory() as repo:
+        env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+        env.update(GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_NOSYSTEM="1", GIT_AUTHOR_NAME="t",
+                   GIT_AUTHOR_EMAIL="t@t", GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="t@t")
+
+        def git(*args: str) -> str:
+            return subprocess.run(["git", *args], cwd=repo, env=env, check=True, capture_output=True,
+                                  text=True).stdout.strip()
+
+        def commit(n: int, *msg: str) -> str:
+            open(os.path.join(repo, f"f{n}"), "w").write(str(n))
+            git("add", "-A")
+            git("commit", "-q", *[a for m in msg for a in ("-m", m)])
+            return git("rev-parse", "HEAD")
+
+        git("init", "-q", "-b", "main")
+        commit(0, "base")
+        git("checkout", "-q", "-b", "h/l/feat/x")
+        commit(1, "first piece", "Kind: work")
+        commit(2, "second piece", "Kind: work")
+        commit(3, "answer a finding", "Answers: F1")
+        git("checkout", "-q", "main")
+        commit(4, "main moves on")
+        git("merge", "-q", "--no-ff", "-m", "Merge pull request #9 from h/l/feat/x", "h/l/feat/x")
+        merge, plain = git("rev-parse", "HEAD"), git("rev-parse", "HEAD~1")
+        pr = {"number": 9, "title": "the feature", "headRefName": "h/l/feat/x", "headRefOid": "f" * 40,
+              "state": "MERGED", "mergeCommit": {"oid": merge}}
+        here = os.getcwd()
+        os.chdir(repo)
+        try:
+            from github import pr_compliance
+            row = pr_gate.merged_row(pr, "o/r", True, "h/l")
+            same = pr_compliance.commit_split(9, "o/r", merge)
+            squashed = pr_gate.merged_row(dict(pr, mergeCommit=None), "o/r", True, "h/l")
+            single_parent = pr_gate.merged_row(dict(pr, mergeCommit={"oid": plain}), "o/r", True, "h/l")
+            unfetched = pr_gate.merged_row(dict(pr, mergeCommit={"oid": "a" * 40}), "o/r", True, "h/l")
+            no_fetch = pr_gate.merged_row(pr, "o/r", False, "h/l")
+        finally:
+            os.chdir(here)
+        check(f"2 work, 1 fix, 0 merge over <merge>^1..<merge>^2 (got {row['work_commits']}, {row['fix_commits']}, "
+              f"{row['merge_commits']})", (row["work_commits"], row["fix_commits"], row["merge_commits"]) == (2, 1, 0))
+        check("the row is pr-compliance's split for the same PR",
+              same is not None and (same["work"], same["fix"], same["merge"], same["netted"])
+              == (row["work_commits"], row["fix_commits"], row["merge_commits"], row["netted_commits"]))
+        text = pr_gate.render(row)
+        check("rendered as one row marked MERGED and not at any gate",
+              "commits=3 (2 work, 1 fix, 0 merge)" in text and "state=MERGED" in text
+              and text.endswith("MERGED — not at any gate") and "(me)" in text)
+        check("it is mine, by its branch prefix", row["mine"] is True)
+        for label, r in (("no merge commit", squashed), ("a commit with one parent", single_parent),
+                         ("a merge commit this clone never fetched", unfetched), ("a failed fetch", no_fetch)):
+            check(f"{label}: cannot be counted, not a zero",
+                  r["commits_known"] is False and r["work_commits"] is None and r["fix_commits"] is None
+                  and "commits=cannot be counted" in pr_gate.render(r) and "0 work" not in pr_gate.render(r))
+
     print(f"\n{'FAILED' if fails else 'all passed'}")
     return 1 if fails else 0
 

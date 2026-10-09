@@ -248,21 +248,8 @@ def fetch_origin() -> bool:
 
 
 def commit_split(num: int, repo: str, merge_commit: str) -> dict | None:
-    """The pull request's own commits, first parent the base and second its
-    head, split as the gate splits them before arming — or the band
-    measured after the merge is not the band applied before it. None when
-    the clone cannot answer: no merge commit, one never fetched, or one
-    with no second parent."""
-    if not merge_commit:
-        return None
-    try:
-        if not git.ok(".", "cat-file", "-e", f"{merge_commit}^{{commit}}") \
-                or not git.ok(".", "rev-parse", "--verify", "-q", f"{merge_commit}^2"):
-            return None
-    except git.GitError:
-        return None
-    return pr_gate.split_range(num, repo, f"{merge_commit}^1..{merge_commit}^2", f"{merge_commit}^2",
-                               f"{merge_commit}^1")
+    """pr_gate.merged_commits, the one place a merged PR's split is read."""
+    return pr_gate.merged_commits(num, repo, merge_commit)
 
 
 def supply(repo: str) -> dict:
