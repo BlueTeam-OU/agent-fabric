@@ -110,8 +110,7 @@ HERE = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
 import gh  # noqa: E402
 import git  # noqa: E402
-import roots  # noqa: E402
-from github import local, owed_supply, pr_gate  # noqa: E402
+from github import common, owed_supply, pr_gate  # noqa: E402
 
 OWED_SUPPLY_TIMEOUT_S = 600
 _SURROGATE = re.compile("[\ud800-\udfff]")
@@ -146,18 +145,7 @@ def parse_args(argv: list[str]) -> tuple[int, str, bool] | None:
 # ── the project's numbers ────────────────────────────────────────────
 
 def config_path() -> str:
-    explicit = os.environ.get("AGENT_FABRIC_COMPLIANCE_CONFIG", "")
-    if explicit:
-        return explicit
-    top = local.toplevel()
-    if not top:
-        return ""
-    try:
-        import workingcopy
-        pid = workingcopy.resolve(top).get("project")
-    except (Exception, SystemExit):   # a marker naming nothing the registry knows exits
-        pid = None
-    return roots.project_integration(pid, "gh", "compliance.json") if pid else ""
+    return common.project_config_path("AGENT_FABRIC_COMPLIANCE_CONFIG", "compliance.json")
 
 
 def load_config(path: str) -> dict:

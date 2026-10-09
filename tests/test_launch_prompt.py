@@ -21,6 +21,8 @@ import socket
 HOST = socket.gethostname().split('.')[0]
 ROOT = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
 import pwd
+from instance_fixtures import own_instance_tree  # noqa: E402 — tests/, the script's own directory
+own_instance_tree()
 LOGIN = pwd.getpwuid(os.geteuid()).pw_name   # the agent is the login, never $USER (unset in a container)
 
 

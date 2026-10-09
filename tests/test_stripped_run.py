@@ -20,6 +20,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import git_env  # noqa: E402
 import stripped_run  # noqa: E402
+from instance_fixtures import own_instance_tree  # noqa: E402 — tests/, the script's own directory
+own_instance_tree()
 
 READS_HISTORY = """import subprocess
 kind = subprocess.run(["git", "cat-file", "-t", "{sha}"], capture_output=True, text=True, timeout=60)

@@ -18,6 +18,8 @@ sys.path.insert(0, os.path.join(ROOT, "tools", "fabric"))
 import adr  # noqa: E402
 from git_env import git_env, scrub_process_env  # noqa: E402 — tests/, the script's own directory
 from instance_fixtures import write_registry  # noqa: E402
+from instance_fixtures import own_instance_tree  # noqa: E402 — tests/, the script's own directory
+own_instance_tree()
 scrub_process_env()
 
 ZERO = "docs/adr/ADR-000-the-enduring-organization.md"

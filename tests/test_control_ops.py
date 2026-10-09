@@ -27,6 +27,8 @@ from control import ops  # noqa: E402
 import control.ops.keys  # noqa: E402,F401 — the package re-exports functions of the same names, so the modules come from sys.modules
 import control.ops.usage  # noqa: E402,F401
 from control.ops import util  # noqa: E402
+from instance_fixtures import own_instance_tree  # noqa: E402 — tests/, the script's own directory
+own_instance_tree()
 
 keys_mod, usage_mod = sys.modules["control.ops.keys"], sys.modules["control.ops.usage"]
 
@@ -583,6 +585,7 @@ class Memory(Base):
         self.assertTrue(all(len(p) == 1000 or i == len(ok["_parts"]) - 1 for i, p in enumerate(ok["_parts"])))
         raw = base64.b64decode("".join(ok["_parts"]))
         self.assertEqual(zlib.decompress(raw, 31), tar, "the parts reassemble to the tar")
+        self.assertEqual(raw[:10].hex(), "1f8b0800000000000203", "the header is zlib.gzipSync's (OS = Unix), so both daemons post the same bytes")
         from unittest import mock
         with mock.patch("time.time", return_value=time.time() + 86400):
             later = ops.memory("/home/x", root="/r", run=lambda c, **k: subprocess.CompletedProcess(c, 0, tar, json.dumps(report).encode()), dirs=[dirs[0]], all=True, part_bytes=1000)["bundles"][0]["_parts"]

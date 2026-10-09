@@ -8,6 +8,8 @@ import os
 import subprocess
 import sys
 import tempfile
+from instance_fixtures import own_instance_tree  # noqa: E402 — tests/, the script's own directory
+own_instance_tree()
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TOOL = os.path.join(ROOT, "policies", "check_actions_pinned_by_sha.py")
