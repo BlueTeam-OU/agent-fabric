@@ -102,7 +102,7 @@ def write_secrets_instance(tree: str) -> None:
 
 class code_tree:
     """The tree a reader takes as the checkout the code is in: each keeps it
-    in a module global (new_agent, store_enroll, secrets_sync, adr; results
+    in a module global (provisioning.config, store_enroll, secrets_sync, adr; results
     and commit_class ask roots) or in roots. A fixture stands in for it, so a case reads no live file and
     still tells that tree from the one AGENT_FABRIC_ROOT names. Needs
     tools/fabric on sys.path."""

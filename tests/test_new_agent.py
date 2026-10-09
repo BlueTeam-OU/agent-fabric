@@ -25,6 +25,7 @@ from contextlib import redirect_stderr
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(HERE, "tools", "fabric"))
 import new_agent as na  # noqa: E402
+from provisioning import config as cfg, new_agent_args as nargs, signing, steps as steps_mod  # noqa: E402
 from provisioning import bounded, host_steps as hs, verify as vf, worker_args as wa  # noqa: E402
 
 SHIM = os.path.join(HERE, "runtime", "provisioning", "new-agent.sh")
@@ -403,10 +404,10 @@ def main() -> int:
             return subprocess.run(["bash", SHIM, *args], capture_output=True, text=True, timeout=60,
                                   env=clean_env(AGENT_FABRIC_PYTHON=sys.executable, **env))
         r = shim("--help")
-        check("--help: the header, on stdout, exit 0", r.returncode == 0 and r.stdout == na.HELP and
+        check("--help: the header, on stdout, exit 0", r.returncode == 0 and r.stdout == nargs.HELP and
               r.stdout.startswith("runtime/provisioning/new-agent.sh — give a role its own account"))
         r = shim()
-        check("no login or role: the usage line, exit 2", r.returncode == 2 and r.stderr == na.USAGE)
+        check("no login or role: the usage line, exit 2", r.returncode == 2 and r.stderr == nargs.USAGE)
         r = shim("l", "r", "x")
         check("a third positional: exit 2, named", r.returncode == 2 and r.stderr == "new-agent: unexpected argument x\n")
         r = shim("l", "r", "--host")
@@ -414,25 +415,25 @@ def main() -> int:
               r.returncode == 1 and r.stderr == "new-agent: --host needs a value\n")
         r = shim("l", "r")
         check("no Claude account named: exit 2, both flags named",
-              r.returncode == 2 and r.stderr == na.NO_ACCOUNT_CHOICE + "\n")
+              r.returncode == 2 and r.stderr == nargs.NO_ACCOUNT_CHOICE + "\n")
         r = shim("l", "r", "--no-claude-account", "--claude-account", "a")
-        check("…both: exit 2", r.returncode == 2 and r.stderr == na.NO_ACCOUNT_CHOICE + "\n")
-        check("…and the choice names fabric-accounts bare", "(fabric-accounts templates)" in na.NO_ACCOUNT_CHOICE
-              and "bin/" not in na.NO_ACCOUNT_CHOICE)
+        check("…both: exit 2", r.returncode == 2 and r.stderr == nargs.NO_ACCOUNT_CHOICE + "\n")
+        check("…and the choice names fabric-accounts bare", "(fabric-accounts templates)" in nargs.NO_ACCOUNT_CHOICE
+              and "bin/" not in nargs.NO_ACCOUNT_CHOICE)
         r = shim("l", "r", "--claude-account")
         check("…--claude-account without its value: exit 1, one line",
               r.returncode == 1 and r.stderr == "new-agent: --claude-account needs a value\n")
         r = shim("l", "r", "--claude", "9.9")
         check("--claude 9.9 is not a version", r.returncode == 2 and "--claude takes stable, latest or a version" in r.stderr)
         check("values spaced or with =, flags anywhere",
-              na.parse(["--project=a", "l", "--host", "h", "r", "--project", "b", "--claude=latest", "--claude-account=a-b"])
+              nargs.parse(["--project=a", "l", "--host", "h", "r", "--project", "b", "--claude=latest", "--claude-account=a-b"])
               == {"dry": False, "login": "l", "role": "r", "projects": ["a", "b"], "claude": "latest", "host": "h",
                   "claude-account": "a-b", "no-claude-account": False, "human": False, "no-signing-key": False}
-              and na.parse(["l", "--claude-account", "a", "r"])["claude-account"] == "a")
+              and nargs.parse(["l", "--claude-account", "a", "r"])["claude-account"] == "a")
         check("--no-signing-key is a flag of an agent's run",
-              na.parse(["l", "r", "--no-claude-account", "--no-signing-key"])["no-signing-key"] is True)
+              nargs.parse(["l", "r", "--no-claude-account", "--no-signing-key"])["no-signing-key"] is True)
         # A human login (ADR-044): its login and --host, nothing of a session.
-        check("--human: a login and no role", na.parse(["--human", "p", "--host=h"])
+        check("--human: a login and no role", nargs.parse(["--human", "p", "--host=h"])
               == {"dry": False, "login": "p", "role": "", "projects": [], "claude": "", "host": "h", "claude-account": None,
                   "no-claude-account": False, "human": True, "no-signing-key": False})
         for argv, said in ((["p", "r", "--human"], "a human login has no role"),
@@ -442,9 +443,9 @@ def main() -> int:
                            (["p", "--human", "--project", "demo"], "--human takes --host and --dry-run only"),
                            (["--human"], "usage:")):
             try:
-                na.parse(argv)
+                nargs.parse(argv)
                 code, msg = 0, ""
-            except na.Exit as exc:
+            except nargs.Exit as exc:
                 code, msg = exc.code, exc.msg or ""
             check(f"--human refuses {' '.join(argv)}: exit 2", code == 2 and said in msg, f"{code} {msg}")
         rc, got = worker_args("prepare", "p", "--human", "--dry-run")
@@ -508,13 +509,13 @@ esac
         reg = put(f"{fk}/root/projects/registry.json", json.dumps({"projects": {"demo": {"remotes": ["https://h/o/d.git", "git@h:o/d.git"]}}}))
         hosts = put(f"{fk}/hosts.json", json.dumps({"hosts": {"here": {"ssh": None}, "far": {"ssh": "op@far"}},
                                                     "placement": {"placed": "far"}}))
-        saved = (na.HX, na.STORE, na.SECRETS, na.STORE_ENROLL, na.ROOT, os.environ.get("AGENT_FABRIC_OPERATOR"))
-        na.HX, na.STORE, na.SECRETS, na.STORE_ENROLL = hx, store, secrets, enroll
+        saved = (cfg.HX, cfg.STORE, cfg.SECRETS, cfg.STORE_ENROLL, cfg.ROOT, os.environ.get("AGENT_FABRIC_OPERATOR"))
+        cfg.HX, cfg.STORE, cfg.SECRETS, cfg.STORE_ENROLL = hx, store, secrets, enroll
         # The instance data (registry, roles) is the operator root's.
         os.environ["AGENT_FABRIC_OPERATOR"] = f"{fk}/root"
         os.makedirs(f"{fk}/root/identities/roles/r")
         put(f"{fk}/root/identities/roles/r/charter.md", "x")
-        na.ROOT = f"{fk}/root"
+        cfg.ROOT = f"{fk}/root"
 
         signed: list[tuple[str, str]] = []
         vias: list[str] = []
@@ -538,7 +539,7 @@ esac
                 with redirect_stderr(err):
                     rc = na.new_agent(list(argv))
                     msg = None
-            except na.Exit as exc:
+            except nargs.Exit as exc:
                 rc, msg = exc.code, exc.msg
             finally:
                 if saved_env is None:
@@ -713,7 +714,7 @@ esac
                 "hosts": {"far": {"ssh": "op@far"}}, "placement": {"person": "far"}, "kinds": ["person"]})))
             check("…and a kinds that is not a table is no answer: refused", rc == 1 and "cannot be read" in msg, msg)
         finally:
-            na.HX, na.STORE, na.SECRETS, na.STORE_ENROLL, na.ROOT = saved[:5]
+            cfg.HX, cfg.STORE, cfg.SECRETS, cfg.STORE_ENROLL, cfg.ROOT = saved[:5]
             if saved[5] is None:
                 os.environ.pop("AGENT_FABRIC_OPERATOR", None)
             else:
@@ -739,7 +740,7 @@ exec env GNUPGHOME="$home" "$@"
         gitconfig = f"{tmp}/coordinator.gitconfig"
         gpg_env = {"GNUPGHOME": gA, "GIT_CONFIG_GLOBAL": gitconfig, "GIT_CONFIG_NOSYSTEM": "1", "GPG_TTY": ""}
         saved_env = {k: os.environ.get(k) for k in gpg_env}
-        saved_hx, saved_root = na.HX, na.ROOT
+        saved_hx, saved_root = cfg.HX, cfg.ROOT
 
         def gpg(home: str, *argv: str, data: bytes | None = None) -> subprocess.CompletedProcess:
             return subprocess.run(["gpg", "--homedir", home, "--batch", *argv], input=data, capture_output=True, timeout=120)
@@ -758,11 +759,11 @@ exec env GNUPGHOME="$home" "$@"
             return r.returncode == 0 and vf.signs_with_secret(r.stdout.decode())
         try:
             os.environ.update(gpg_env)
-            na.HX, na.ROOT = hxg, f"{fk}/root"
+            cfg.HX, cfg.ROOT = hxg, f"{fk}/root"
             made = gpg(gA, "--pinentry-mode", "loopback", "--passphrase", "", "--quick-gen-key",
                        "Fixture Signer <fixture@example.invalid>", "ed25519", "sign", "never")
             listing = gpg(gA, "--list-secret-keys", "--with-colons").stdout.decode()
-            fpr = na.primary_fingerprint(listing)
+            fpr = signing.primary_fingerprint(listing)
             check("fixture: a signing key in the coordinator's scratch keyring", made.returncode == 0 and len(fpr) == 40,
                   made.stderr.decode())
             put(gitconfig, f"[user]\n\tsigningkey = {fpr}\n")
@@ -776,16 +777,16 @@ exec env GNUPGHOME="$home" "$@"
             # The signature's stdout is the person's terminal, never a pipe:
             # over ssh -t pinentry's prompt comes back there (#118 review, F1).
             seen: list = []
-            real_bounded = na.run_bounded
+            real_bounded = signing.run_bounded
 
             def recording(cmd, **kw):
                 seen.append((cmd, kw.get("stdout", "unset")))
                 return real_bounded(cmd, **kw)
-            na.run_bounded = recording
+            signing.run_bounded = recording
             try:
                 rc, err, calls = step11()
             finally:
-                na.run_bounded = real_bounded
+                signing.run_bounded = real_bounded
             imports = [ln for ln in calls.splitlines() if ln.endswith("gpg --batch --import")]
             check("a re-run: already there, nothing exported or imported again, its ownertrust and signature again",
                   rc == 0 and "already in new's keyring" in err and imports == [] and "--import-ownertrust" in calls
@@ -832,7 +833,7 @@ exec env GNUPGHOME="$home" "$@"
             check("…a signing key this keyring does not hold: exit 1, said, nothing asked",
                   rc == 1 and "holds no signing secret for 0000" in err and calls == "", f"{err}\n{calls}")
         finally:
-            na.HX, na.ROOT = saved_hx, saved_root
+            cfg.HX, cfg.ROOT = saved_hx, saved_root
             for k, v in saved_env.items():
                 if v is None:
                     os.environ.pop(k, None)
@@ -846,22 +847,22 @@ exec env GNUPGHOME="$home" "$@"
 
         print("the orchestrator's steps")
         log = put(f"{tmp}/log", "")
-        s = na.Steps(log)
-        r = subprocess.run([sys.executable, "-c", "import sys; sys.path.insert(0, %r); import new_agent as na; "
-                            "print(na.Steps.indented(['bash', '-c', 'echo bundle; echo first-err >&2; exit 3'], "
+        s = steps_mod.Steps(log)
+        r = subprocess.run([sys.executable, "-c", "import sys; sys.path.insert(0, %r); from provisioning import steps; "
+                            "print(steps.Steps.indented(['bash', '-c', 'echo bundle; echo first-err >&2; exit 3'], "
                             "['bash', '-c', 'cat; echo last-err >&2; exit 5']))" % os.path.join(HERE, "tools", "fabric")],
                            capture_output=True, text=True, timeout=60)
         check("a pipeline's statuses, each its own, as PIPESTATUS gave them", r.stdout.strip() == "[3, 5]")
         check("…the last command's stderr merged and every line indented; the first's stderr left as it was",
               r.stderr.splitlines() == ["first-err", "   bundle", "   last-err"]
               or sorted(r.stderr.splitlines()) == sorted(["first-err", "   bundle", "   last-err"]), r.stderr)
-        saved_timeout = na.STEP_TIMEOUT_S
+        saved_timeout = cfg.STEP_TIMEOUT_S
         t0 = time.monotonic()
         with redirect_stderr(io.StringIO()):
-            statuses = na.Steps.indented(["sleep", "60"], timeout=1)
+            statuses = steps_mod.Steps.indented(["sleep", "60"], timeout=1)
         took = time.monotonic() - t0
         check("a pipeline that hangs is killed at its bound and fails", statuses == [124] and took < 10, f"{statuses} {took:.1f}")
-        na.STEP_TIMEOUT_S = saved_timeout
+        cfg.STEP_TIMEOUT_S = saved_timeout
         rc, out = s.capture(["bash", "-c", "echo out; echo to-the-log >&2; exit 4"])
         check("a captured step: its stdout, its stderr kept in the log for the failure",
               (rc, out) == (4, "out") and "to-the-log" in open(log).read())
@@ -904,7 +905,7 @@ exec env GNUPGHOME="$home" "$@"
         os.remove(tree)
         bounded.STOP_GRACE_S = 0.5
         try:
-            rc, _ = na.Steps(log).capture(wrapper, timeout=1)
+            rc, _ = steps_mod.Steps(log).capture(wrapper, timeout=1)
         finally:
             bounded.STOP_GRACE_S = saved_bounds[1]
         check("…and so does a coordinator step", rc == 124 and gone(tree), str(rc))
@@ -983,7 +984,7 @@ exec env GNUPGHOME="$home" "$@"
         os.makedirs(scratch)
         started = f"{tmp}/hx-started"
         slow = put(f"{tmp}/slow-hx", f"#!/usr/bin/env bash\ntouch {started}\nexec sleep 60\n", 0o755)
-        code = ("import sys; sys.path.insert(0, %r); import new_agent as na; na.HX = %r; na.ROOT = %r; "
+        code = ("import sys; sys.path.insert(0, %r); import new_agent as na; from provisioning import config as cfg; cfg.HX = %r; cfg.ROOT = %r; "
                 "sys.exit(na.main(['l', 'r', '--host', 'here', '--no-claude-account']))") % (tools, slow, f"{fk}/root")
         p = subprocess.Popen([sys.executable, "-c", code], process_group=0, stdout=subprocess.DEVNULL,
                              stderr=subprocess.DEVNULL,

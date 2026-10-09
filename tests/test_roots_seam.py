@@ -286,13 +286,14 @@ def case_readers_that_took_their_own_tree_ignore_agent_fabric_root() -> None:
     sys.path.insert(0, os.path.join(ROOT, "tools", "fabric"))
     import new_agent
     import results
+    from provisioning import config
     import secrets_sync
     import store_enroll
     from github import commit_class
     with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as empty:
         code = os.path.join(tmp, "code")
         write_secrets_instance(code)
-        with code_tree(code, results, new_agent, store_enroll, secrets_sync), engine_env(empty):
+        with code_tree(code, results, config, store_enroll, secrets_sync), engine_env(empty):
             assert results.registered_repos() == ["fixture-org/agent-fabric", "fixture-org/fixture-proj", "fixture-org/gzapp"], \
                 "results read AGENT_FABRIC_ROOT"
             assert "fixture-proj" in commit_class.known_repos(), "commit_class read AGENT_FABRIC_ROOT"
