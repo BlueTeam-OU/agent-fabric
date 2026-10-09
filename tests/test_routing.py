@@ -408,8 +408,9 @@ def test_each_provider_validates_a_reference_through_its_adapter(tmp: str) -> No
 
 
 def test_composite_is_derived_not_stored() -> None:
-    for path in (os.path.join(ROOT, "routing", "capabilities.json"), os.path.join(FIXTURE, "profiles.json"),
-                 os.path.join(ROOT, "routing", "shims.json")):
+    # profiles.json is the operator's, judged by lint's profiles section: a
+    # scan of the frozen fixture copy here could never fail.
+    for path in (os.path.join(ROOT, "routing", "capabilities.json"), os.path.join(ROOT, "routing", "shims.json")):
         text = open(path, encoding="utf-8").read()
         assert "@preset/glm2claude-shim" not in text or path.endswith("shims.json"), \
             f"{path} carries a composite; the shim belongs only in shims.json"

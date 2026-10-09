@@ -87,6 +87,8 @@ def main() -> int:
         for name in ("bin", "tools"):
             shutil.copytree(f"{ROOT}/{name}", f"{fabric}/{name}", symlinks=True, ignore=shutil.ignore_patterns("__pycache__"))
         shutil.copytree(f"{ROOT}/routing", f"{fabric}/routing", ignore=shutil.ignore_patterns(*ROUTING_OPERATOR_IGNORE))
+        # FABRIC_STATUS names a script elsewhere: it keeps its own tree, and
+        # with it that tree's operator files, whatever the fixture holds.
         command = CMD if os.environ.get("FABRIC_STATUS") else f"{fabric}/bin/fabric-status"
         write_routing_overlay(f"{fabric}/routing")
         base.update(HOME=f"{sandbox}/home", AGENT_FABRIC_STATE_DIR=state, AGENT_FABRIC_HOSTS_REGISTRY=placed,
