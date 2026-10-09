@@ -32,6 +32,11 @@ BASE = {"targets": [], "op": "status", "json": False, "timeout": 20, "out": None
         "expect": None, "restart": False, "title": None, "topic": None, "project": None, "priority": None, "role": None, "follow": False, "tool": None}
 
 
+def raw_controls(text: str, keep: str = "\n") -> list[str]:
+    """The C0 and C1 control characters in text, but those in `keep`: what a terminal would act on."""
+    return [c for c in text if (ord(c) < 32 or 0x7F <= ord(c) <= 0x9F) and c not in keep]
+
+
 def base(**over):
     return {**BASE, **over}
 
@@ -132,7 +137,7 @@ class Tables(unittest.TestCase):
             reply("beta", "keys", {"keys": [{"name": "X\u001b[2J", "present": False},
                                             {"name": "store commits verified", "present": False,
                                              "refused": {"commit": "ab\u009bc", "at": "T\u0007", "reason": "git: \u001b]0;pwned\u0007"}}]})]))
-        self.assertIsNone(re.search("[\u0000-\u0009\u000b-\u001f\u007f-\u009f]", t), repr(t))
+        self.assertEqual(raw_controls(t), [], repr(t))
         self.assertTrue("REFUSED ab\\x9bc at T\\x07: git: \\x1b]0;pwned\\x07" in t and "absent: X\\x1b[2J" in t, repr(t))
 
     def test_disk_table_one_row_per_account_the_largest_home_first_partial_failed_and_silent_are_rows(self):
@@ -169,14 +174,14 @@ class Tables(unittest.TestCase):
             reply("mid", "disk", {"disk": {"status": "ok", "total_kb": 5, "largest": [{"name": "evil\u001b[2Jname", "kb": 5}],
                                            "targets": [{"path": "projects/x\u009b/target", "kb": 1}], "targets_kb": 1}})])).split("\n")
         self.assertEqual([re.split(r"\s+", l)[0] for l in t[1:]], ["mid", "zzz-failed", "aaa-quiet"], "ok, then failed, then silent")
-        self.assertTrue("evil\\x1b[2Jname" in t[1] and "projects/x\\x9b/target" in t[1] and not re.search("[\u0000-\u001f\u007f-\u009f]", "".join(t)), repr(t))
+        self.assertTrue("evil\\x1b[2Jname" in t[1] and "projects/x\\x9b/target" in t[1] and not raw_controls("".join(t), keep=""), repr(t))
         self.assertIn("no\\x07bell", t[2])
 
     def test_disk_table_a_status_and_a_size_are_the_accounts_too_escaped_and_a_size_that_is_no_number_is_not_formatted(self):
         t = ctl.table("disk", ctl.rows(placed("odd"), [
             reply("odd", "disk", {"disk": {"status": "ok\u001b[2J", "total_kb": "9\u0007", "largest": [{"name": "n", "kb": "x\u009b"}],
                                            "targets": [{"path": "p", "kb": 1}], "targets_kb": 2048}})]))
-        self.assertIsNone(re.search("[\u0000-\u0009\u000b-\u001f\u007f-\u009f]", t), repr(t))
+        self.assertEqual(raw_controls(t), [], repr(t))
         self.assertTrue("ok\\x1b[2J" in t and "9\\x07" in t and "n x\\x9b" in t and " 2M " in t, repr(t))
 
     def test_host_table_one_row_per_host_from_whichever_answered_first_a_silent_host_is_a_row_leases_and_largest_under_it(self):
@@ -1243,7 +1248,7 @@ class States(unittest.TestCase):
         self.assertEqual(rc, 1)
         self.assertEqual(len(out), 2, "every account has its row")
         self.assertRegex(out[0], r"unknown", "a malformed record is no record")
-        self.assertIsNone(re.search("[\x00-\x1f\x7f]", "".join(out)), f"no control character reaches the terminal: {out!r}")
+        self.assertEqual(raw_controls("".join(out), keep=""), [], f"no control character reaches the terminal: {out!r}")
         # --follow: a forged record is skipped, never read as a relay outage.
         err: list = []
         lines: list = []
