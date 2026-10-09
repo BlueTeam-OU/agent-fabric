@@ -179,15 +179,14 @@ CASES.append({"name": "the table of an op with no replies at all, for every op",
               "py": "return [m.table(op, m.rows(input['expected'], [])) for op in input['ops']]"})
 
 
-# Every table over a corpus of forged replies: each scalar of every reply of every
-# op, one at a time, replaced by a value of another kind. Where the Node prints a
+# Every table over a corpus of forged replies: each field of every reply of every
+# op, scalar or container, one at a time, replaced by a value of another kind. Where the Node prints a
 # table (it refuses some shapes with a TypeError), so does Python, the same one.
-FUZZ_VARIANTS = [None, "", 0, 1.5, True, "x", "\u001b[2J"]
+FUZZ_VARIANTS = [None, "", 0, 5, 1.5, True, "x", "\u001b[2J", [], {}, ["x"], {"a": 1}, [5], [None], [{}]]
 
 
 def _leaves(obj, path=()):
-    if not isinstance(obj, (dict, list)):
-        yield path
+    yield path
     if isinstance(obj, dict):
         for k, v in obj.items():
             yield from _leaves(v, path + (k,))
@@ -201,8 +200,13 @@ def fuzz_mutations():
     for op, replies in ROWS.items():
         for ri, r in enumerate(replies):
             for path in _leaves(r["data"]):
-                if path:
-                    out += [[op, ri, list(path), v] for v in FUZZ_VARIANTS]
+                if not path:
+                    continue
+                # A string or an array in place of a refusal record: the Node reads
+                # `.at` off it and prints String.prototype.at's source ("function at()
+                # { [native code] }"); that is JavaScript's, not the contract.
+                quirk = op == "keys" and ("refused" in path or "mirrors" in path)
+                out += [[op, ri, list(path), v] for v in FUZZ_VARIANTS if not (quirk and isinstance(v, (str, list)))]
     return out
 
 

@@ -18,6 +18,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 import unittest
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -254,6 +255,40 @@ def tar_with(manifest: dict, filler: int = 1200) -> bytes:
     return bytes(h) + body + bytes((512 - len(body) % 512) % 512) + os.urandom(filler)
 
 
+class Js(unittest.TestCase):
+    def test_to_fixed_rounds_half_up_and_keeps_the_sign_of_a_negative_that_rounds_to_zero(self):
+        for v, d, want in ((2.5, 0, "3"), (0.5, 0, "1"), (1.005, 2, "1.00"), (-0.4, 0, "-0"), (-0.004, 2, "-0.00"), (-0.0, 0, "0"), (-2.5, 0, "-3"), (1e21, 2, "1e+21"), (0, 2, "0.00")):
+            self.assertEqual(ctl.to_fixed(v, d), want, (v, d))
+
+    def test_basename_ignores_a_trailing_separator(self):
+        self.assertEqual([ctl.js_basename(p) for p in ("/h/a/gzapp", "/h/a/gzapp/", "/h/a/gzapp//", "/", "gzapp")], ["gzapp", "gzapp", "gzapp", "", "gzapp"])
+
+    def test_agentd_reads_a_malformed_registry_and_config_as_the_node_does(self):
+        from control import agentd
+        d = tempfile.mkdtemp(prefix="agentd-")
+        self.addCleanup(lambda: __import__("shutil").rmtree(d, ignore_errors=True))
+
+        def reg(obj) -> str:
+            f = os.path.join(d, f"r{len(os.listdir(d))}.json")
+            with open(f, "w") as fh:
+                json.dump(obj, fh)
+            return f
+        self.assertEqual(agentd.operator_addresses(reg({"hosts": {"h": {"operator": "op"}, "k": {}, "m": "x"}})), {"h/op", "k/user", "m/user"})
+        self.assertEqual(agentd.operator_addresses(reg({"hosts": {"h": {"operator": "op"}, "k": None}})), set(), "a null host entry throws inside the Node's try: nobody")
+        self.assertEqual(agentd.operator_addresses(reg({"hosts": [{"operator": "op"}]})), {"0/op"})
+        self.assertEqual(agentd.operator_addresses(reg([])), set())
+        self.assertEqual(agentd.account_addresses(reg({"placement": {"a": "h", "b": "k"}})), {"h/a", "k/b"})
+        self.assertEqual(agentd.account_addresses(reg({"placement": ["h"]})), {"h/0"})
+        self.assertEqual(agentd.account_addresses(os.path.join(d, "absent.json")), set())
+        cfg = agentd.control_config({}, reg({"relay_url": "http://r", "ttl_s": "45", "channel": None}))
+        self.assertEqual((cfg["relay_url"], cfg["ttl_s"], cfg["channel"]), ("http://r", 45, "fabric:control"))
+        self.assertEqual(agentd.control_config({"CLAUDE_BRIDGE_URL": ""}, reg({"relay_url": "http://r"}))["relay_url"], "", "set and empty is a value, as `??` has it")
+        self.assertEqual(agentd.control_config({}, reg({"ttl_s": 0}))["ttl_s"], 30)
+        self.assertEqual(agentd.control_config({}, reg([1]))["ttl_s"], 30)
+        with self.assertRaises(TypeError):
+            agentd.control_config({}, reg(None))
+
+
 class Bundles(unittest.TestCase):
     def scratch(self, prefix: str) -> str:
         d = tempfile.mkdtemp(prefix=prefix)
@@ -293,6 +328,45 @@ class Bundles(unittest.TestCase):
         ctl.write_bundles(out, placed("db-admin"), replies, parts)
         self.assertEqual(replies[0]["data"]["memory"]["bundles"][0]["status"], "incomplete")
         self.assertFalse(os.path.exists(os.path.join(out, "db-admin", "gzapp.tar")))
+
+    def test_write_bundles_forged_parts_and_bundles_are_statuses_never_a_crash(self):
+        out = self.scratch("drain-forged-")
+        tar = tar_with({"format": "agent-fabric-drain/1", "agent": "db-admin", "host": "h"})
+        b64 = base64.b64encode(gzip.compress(tar)).decode()
+        unpadded = b64.rstrip("=")
+        sha = hashlib.sha256(tar).hexdigest()
+
+        def b(slug, **over):
+            return {"slug": slug, "working_copy": f"/h/db-admin/projects/{slug}", "files": 1, "status": "ok", "sha256": sha, "parts": 1, **over}
+        replies = [{"from": "h/db-admin", "data": {"memory": {"status": "ok", "bundles": [
+            b("mixed", parts=2), b("plain"), "x", 5, b("bool", parts=True), b("slash", working_copy="/h/db-admin/projects/slash/"), b("unpadded")]}}}]
+
+        def part(slug, n, chunk, parts=1):
+            return {"slug": slug, "part": n, "parts": parts, "chunk": chunk}
+        parts = {"h/db-admin": {
+            "k1": part("mixed", 1, b64[:5], 2), "k2": part("mixed", "2", b64[5:], 2), "k3": 5, "k4": part("plain", 1, b64),
+            "k5": part("bool", True, b64), "k6": part("slash", 1, b64), "k7": part("unpadded", 1, unpadded)}}
+        ctl.write_bundles(out, placed("db-admin"), replies, parts)
+        st = {x["slug"]: x["status"] for x in replies[0]["data"]["memory"]["bundles"] if isinstance(x, dict)}
+        self.assertEqual(st["mixed"], "incomplete", "parts numbered 1 and \"2\" are not 1 and 2")
+        self.assertEqual(st["bool"], "incomplete", "true is not part 1, nor a count of 1")
+        self.assertEqual((st["slash"], st["unpadded"]), ("ok", "ok"))
+        self.assertEqual(sorted(os.listdir(os.path.join(out, "db-admin"))), ["plain.tar", "slash.tar", "unpadded.tar"], "a trailing separator does not name a bundle .tar; base64 without its padding is read")
+
+    def test_write_bundles_parts_are_ordered_by_number_not_by_text(self):
+        out = self.scratch("drain-ten-")
+        tar = tar_with({"format": "agent-fabric-drain/1", "agent": "db-admin", "host": "h"}, 6000)
+        b64 = base64.b64encode(gzip.compress(tar)).decode()
+        size = -(-len(b64) // 10)
+        chunks = [b64[i * size:(i + 1) * size] for i in range(10)]
+        replies = [{"from": "h/db-admin", "data": {"memory": {"status": "ok", "bundles": [
+            {"slug": "s", "working_copy": "/h/db-admin/projects/gzapp", "files": 1, "status": "ok", "sha256": hashlib.sha256(tar).hexdigest(), "parts": 10}]}}}]
+        order = [10, 2, 9, 1, 3, 8, 4, 7, 5, 6]   # on the wire, as text they sort 1, 10, 2, 3, ...
+        parts = {"h/db-admin": {ctl.part_key("h/db-admin", {"slug": "s", "part": n}): {"slug": "s", "part": n, "parts": 10, "chunk": chunks[n - 1]} for n in order}}
+        ctl.write_bundles(out, placed("db-admin"), replies, parts)
+        self.assertEqual(replies[0]["data"]["memory"]["bundles"][0]["status"], "ok")
+        with open(os.path.join(out, "db-admin", "gzapp.tar"), "rb") as fh:
+            self.assertEqual(fh.read(), tar)
 
     def test_write_bundles_makes_every_directory_it_creates_private(self):
         base = self.scratch("drain-new-")
@@ -578,6 +652,35 @@ class Commands(unittest.TestCase):
         # warning would see it again every half second until the timeout.
         self.assertEqual(lost.returncode, 1)
         self.assertEqual(len(re.findall(r"history cleared", lost.stderr)), 1, lost.stderr)
+
+    def test_a_forged_reply_cannot_stop_the_run_or_the_table(self):
+        r = self.relay
+        reg = registry_file(self)
+
+        def respond(rid: str) -> None:
+            def raw(obj: dict) -> None:
+                r.add("anyone", json.dumps({"v": 1, "kind": "reply", "in_reply_to": rid, **obj}))
+            raw({"data": {"part": {"slug": "s", "part": 1, "parts": 1, "chunk": "x"}}})                # no `from`
+            raw({"from": ["h/a"], "data": {"part": {"slug": "s", "part": 1}}})                         # an unhashable `from`
+            raw({"from": {"a": 1}, "op": "ping", "data": {}})
+            raw({"from": 5, "op": "ping", "data": {}})
+            r.add("anyone", "not json at all")                                                          # a record that is no JSON
+            r.add("anyone", json.dumps([1, 2]))                                                         # JSON that is no object
+            reply_record(r, f"{H}/db-admin", rid, "ping", {})
+        a = Answering(r, respond)
+        self.addCleanup(a.stop)
+        out = run_ctl(self, r.url(), reg, ["db-admin", "ping", "--timeout", "3"])
+        self.assertEqual(out.returncode, 0, out.stderr + out.stdout)
+        self.assertRegex(out.stdout, r"db-admin\s+ok")
+
+    def test_a_reply_without_op_has_no_op_in_its_json_row(self):
+        r = self.relay
+        reg = registry_file(self)
+        a = Answering(r, lambda rid: r.add(f"{H}/db-admin", json.dumps({"v": 1, "kind": "reply", "in_reply_to": rid, "from": f"{H}/db-admin", "data": {}})))
+        self.addCleanup(a.stop)
+        out = run_ctl(self, r.url(), reg, ["db-admin", "ping", "--json", "--timeout", "3"])
+        self.assertEqual(out.returncode, 0, out.stderr)
+        self.assertNotIn("op", json.loads(out.stdout.strip()))
 
     def test_a_reply_from_an_account_that_was_not_asked_is_not_an_answer(self):
         r = self.relay
@@ -1100,6 +1203,21 @@ class States(unittest.TestCase):
         self.assertEqual(len(err), 2, f"down once and back once, however many calls failed: {err}")
         self.assertIn("limit=500", seen[6], f"after the warning the next call is the snapshot, not a wait: {seen}")
         self.assertNotIn("since_id", seen[6])
+
+    def test_states_through_main_marks_an_old_record_unknown(self):
+        # The clock main passes counts seconds; states compares milliseconds. Every other states test hands its own clock in.
+        r = Relay()
+        self.addCleanup(r.close)
+        old = {"v": 1, "kind": "state", "from": f"{H}/db-admin", "ts": "2020-01-01T00:00:00Z", "sessions": [{"session": "s", "state": "working", "since": "x"}]}
+        fresh = {"v": 1, "kind": "state", "from": f"{H}/web-dev-01", "ts": iso(time.time() * 1000), "sessions": [{"session": "s", "state": "working", "since": "x"}]}
+        r.add(f"{H}/db-admin", json.dumps(old))
+        r.add(f"{H}/web-dev-01", json.dumps(fresh))
+        out = run_ctl(self, r.url(), registry_file(self), ["db-admin", "web-dev-01", "states", "--json"], {"FABRIC_STATE_CHANNEL": "any"})
+        self.assertEqual(out.returncode, 0, out.stderr)
+        rows = {json.loads(l)["address"]: json.loads(l) for l in out.stdout.strip().split("\n")}
+        self.assertEqual(rows[f"{H}/db-admin"]["state"], "unknown")
+        self.assertEqual(rows[f"{H}/db-admin"]["why"], "no record for two heartbeats")
+        self.assertEqual(rows[f"{H}/web-dev-01"]["state"], "working")
 
     def test_states_takes_follow_and_follow_goes_with_nothing_else(self):
         self.assertEqual(ctl.parse_args(["all", "states", "--follow", "--json"])["op"], "states")

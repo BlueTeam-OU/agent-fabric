@@ -56,6 +56,7 @@ from __future__ import annotations
 import base64
 import binascii
 import decimal
+import functools
 import gzip
 import hashlib
 import math
@@ -140,7 +141,7 @@ def to_fixed(x: Any, digits: int) -> str:
         return js.string(x)
     q = decimal.Decimal(10) ** -digits
     out = format(decimal.Decimal(abs(x)).quantize(q, rounding=decimal.ROUND_HALF_UP), "f")
-    return ("-" if x < 0 and float(out) != 0 else "") + out
+    return ("-" if x < 0 else "") + out   # the spec prefixes "-" for any x < 0, so (-0.4).toFixed(0) is "-0"
 
 
 _CONTROL = re.compile("[\u0000-\u001f\u007f-\u009f]")
@@ -160,6 +161,21 @@ def dig(obj: Any, *path: str) -> Any:
             return UNDEFINED
         obj = obj[key]
     return obj
+
+
+def first(v: Any) -> Any:
+    """v?.[0]: an array's first element, a string's first character."""
+    return v[0] if isinstance(v, (list, str)) and len(v) else None
+
+
+def jlen(v: Any) -> Any:
+    """v.length: an array's or string's, undefined for the rest."""
+    return len(v) if isinstance(v, (list, str)) else UNDEFINED
+
+
+def is_empty(v: Any) -> bool:
+    """`!v.length`: true for anything without a length, as undefined is falsy."""
+    return not (isinstance(v, (list, str)) and len(v) > 0)
 
 
 def nullish(v: Any, default: Any = None) -> Any:
@@ -436,15 +452,15 @@ def write_bundles(out: str, expected: list[dict], replies: list[dict], parts: di
         got = list(parts.get(e["address"], {}).values())
         bundles = dig(r, "data", "memory", "bundles")
         for b in bundles if isinstance(bundles, list) else []:
-            if b.get("status") != "ok":
+            if not isinstance(b, dict) or b.get("status") != "ok":
                 continue
-            mine = sorted((p for p in got if p.get("slug") == b.get("slug")), key=lambda p: p.get("part"))
-            if len(mine) != b.get("parts") or any(p.get("part") != i + 1 for i, p in enumerate(mine)):
+            mine = sorted((p for p in got if js_eq(dig(p, "slug"), nullish_undefined(b.get("slug")))), key=functools.cmp_to_key(by_part))
+            if not js_eq(len(mine), b.get("parts", UNDEFINED)) or any(not js_eq(dig(p, "part"), i + 1) for i, p in enumerate(mine)):
                 b["written"] = None
                 b["status"] = "incomplete"
                 continue
             try:
-                tar = gzip_decompress(base64.b64decode("".join(p["chunk"] for p in mine), validate=False))
+                tar = gzip_decompress(_b64decode("".join("" if dig(p, "chunk") in (None, UNDEFINED) else S(p["chunk"]) for p in mine)))
             except (zlib.error, binascii.Error, OSError, EOFError, KeyError, TypeError):
                 b["status"] = "unreadable"
                 continue
@@ -463,7 +479,7 @@ def write_bundles(out: str, expected: list[dict], replies: list[dict], parts: di
             os.chmod(d, 0o700)
             # The projects root's own memory is filed under the fabric checkout
             # too (memory_dirs): its tar is named apart from the checkout's own.
-            file = os.path.join(d, f"{os.path.basename(b['working_copy'])}{'-projects-root' if js.truthy(b.get('projects_root')) else ''}.tar")
+            file = os.path.join(d, f"{js_basename(b['working_copy'])}{'-projects-root' if js.truthy(b.get('projects_root')) else ''}.tar")
             if file in written_now:
                 b["written"] = None
                 b["status"] = "duplicate-target"
@@ -474,6 +490,27 @@ def write_bundles(out: str, expected: list[dict], replies: list[dict], parts: di
             with os.fdopen(fd, "wb") as fh:
                 fh.write(tar)
             b["written"] = file
+
+
+def nullish_undefined(v: Any) -> Any:
+    return v
+
+
+def js_eq(a: Any, b: Any) -> bool:
+    """a === b for JSON values: no coercion (true is not 1, "1" is not 1)."""
+    if a is UNDEFINED or b is UNDEFINED:
+        return a is b
+    if isinstance(a, bool) or isinstance(b, bool):
+        return isinstance(a, bool) and isinstance(b, bool) and a == b
+    if isinstance(a, (int, float)) and isinstance(b, (int, float)):
+        return a == b
+    return type(a) is type(b) and a == b
+
+
+def by_part(x: Any, y: Any) -> int:
+    """sort((x, y) => x.part - y.part): a NaN difference leaves the order as it was."""
+    d = _js_sub(dig(x, "part"), dig(y, "part"))
+    return 0 if d == 0 or math.isnan(d) else -1 if d < 0 else 1
 
 
 def mkdir_private(path: str) -> None:
@@ -491,8 +528,21 @@ def mkdir_private(path: str) -> None:
             pass
 
 
+def _b64decode(text: str) -> bytes:
+    """Buffer.from(text, 'base64'): unpadded input is read, characters outside
+    the alphabet are skipped."""
+    cleaned = re.sub(r"[^A-Za-z0-9+/]", "", text.replace("-", "+").replace("_", "/"))
+    return base64.b64decode(cleaned + "=" * (-len(cleaned) % 4))
+
+
+def js_basename(p: Any) -> str:
+    """path.basename: a trailing separator does not make the name empty."""
+    return os.path.basename(S(p).rstrip("/"))   # a non-string is written as String() does, where the Node threw
+
+
 def gzip_decompress(data: bytes) -> bytes:
-    """zlib.gunzipSync: one gzip member, trailing garbage refused."""
+    """zlib.gunzipSync: members back to back and zero padding after them are
+    read, any other trailing byte is refused, as gzip.decompress does."""
     return gzip.decompress(data)
 
 
@@ -516,7 +566,7 @@ def rows(expected: list[dict], replies: list[dict]) -> list[dict]:
         email = dig(acct, "email")
         if email is UNDEFINED or email is None:
             email = f"setup-token {S(dig(d, 'identity', 'claude_account', 'token_sha256_12'))}" if dig(acct, "via") == "setup-token" else None
-        out.append({"account": e["login"], "host": e["host"], "status": "ok", "op": r.get("op"), "latency_ms": nullish(r.get("latency_ms"), None),
+        out.append({"account": e["login"], "host": e["host"], "status": "ok", "op": r["op"] if "op" in r else UNDEFINED, "latency_ms": nullish(r.get("latency_ms"), None),
                     "email": email, "role": g("identity", "role"),
                     "five_hour": g("usage", "five_hour"), "seven_day": g("usage", "seven_day"), "usage_status": g("usage", "status"),
                     "keys": g("keys"), "fabric": g("fabric"), "session": g("session"), "script": g("script"), "recall": g("recall"),
@@ -610,9 +660,9 @@ def pressure_text(answers: list) -> str:
             p = next((x for x in answers if T(x)), None)
         if p is None:
             return "-"
-        if p.get("status") == "none":
+        if dig(p, "status") == "none":
             return "no samples yet"
-        return f"{esc(p.get('status', UNDEFINED))}{': ' + esc(p['error']) if T(p.get('error')) else ''}"
+        return f"{esc(dig(p, 'status'))}{': ' + esc(p['error']) if T(dig(p, 'error')) else ''}"
     lasts = nullish(dig(best, "last"), [])
     last = ", ".join(f"{hhmm(dig(x, 'ts'))} {N(dig(x, 'some_avg10'))}/{N(dig(x, 'full_avg10'))} {N(dig(x, 'mem_available_mb'))} MB" for x in lasts) or "-"
     h = nullish(dig(best, "hour"), {})
@@ -678,23 +728,23 @@ def _table_local(op: str, rs: list) -> list[str]:
         if op == "local-prune" and not T(dig(u, "files")):
             lines.append(trim_end(f"{pad_end(r['account'], 22)} {pad_end('', 18)} {esc(dig(u, 'status'))}  {esc(nullish(dig(u, 'reason'), ''))}"))
             continue
-        files = u["files"]
-        if not files:
+        files = dig(u, "files")
+        if is_empty(files):
             lines.append(f"{pad_end(r['account'], 22)} {pad_end('-', 18)} none")
             continue
         for i, f in enumerate(files):
             head = f"{pad_end('' if i else r['account'], 22)} {pad_end(esc(dig(f, 'working_copy')), 18)} {pad_end(esc(dig(f, 'status')), 10)}"
             if op == "local-prune":
                 removed = dig(f, "removed")
-                shown = " ".join(esc(x) for x in removed) if T(removed) and removed else ""
+                shown = " ".join(esc(x) for x in removed) if not is_empty(removed) else ""
                 lines.append(trim_end(f"{head} {shown or esc(nullish(dig(f, 'reason'), ''))}"))
                 continue
             if dig(f, "status") != "ok":
                 lines.append(trim_end(head))
                 continue
-            env = " ".join(f"{esc(n)}{'*' if n in dig(f, 'secrets') else ''}" for n in f["env"]) if f["env"] else "-"
-            p = f["permissions"]
-            other = " ".join(esc(k) for k in f["keys"]) if f["keys"] else "-"
+            env = "-" if is_empty(dig(f, "env")) else " ".join(f"{esc(n)}{'*' if n in dig(f, 'secrets') else ''}" for n in f["env"])
+            p = dig(f, "permissions")
+            other = "-" if is_empty(dig(f, "keys")) else " ".join(esc(k) for k in f["keys"])
             lines.append(f"{head} {env}  allow {S(dig(p, 'allow'))}/deny {S(dig(p, 'deny'))}/ask {S(dig(p, 'ask'))}  {other}")
     return lines
 
@@ -708,8 +758,8 @@ def _table_jobs(rs: list) -> list[str]:
         if dig(r.get("jobs"), "status") != "ok":
             lines.append(f"{pad_end(r['account'], 22)} jobs {S(dig(r['jobs'], 'status'))}{': ' + S(r['jobs']['error']) if T(dig(r['jobs'], 'error')) else ''}")
             continue
-        jobs = r.get("jobs")["jobs"]
-        if not jobs:
+        jobs = r.get("jobs").get("jobs") if isinstance(r.get("jobs"), dict) else UNDEFINED
+        if is_empty(jobs):
             lines.append(f"{pad_end(r['account'], 22)} no open jobs")
             continue
         # What an account sent reaches this terminal escaped (esc), like every other table.
@@ -905,16 +955,16 @@ def _table_memory(rs: list) -> list[str]:
             lines.append(_row(r))
             continue
         mem = r.get("memory")
-        if mem is not None and dig(mem, "status") != "ok":
+        if T(mem) and dig(mem, "status") != "ok":
             lines.append(f"{pad_end(r['account'], 22)} {pad_end('ok', 10)} memory {S(dig(mem, 'status'))}{': ' + S(mem['error']) if T(dig(mem, 'error')) else ''}")
             continue
         bs = nullish(dig(mem, "bundles"), [])
-        if not bs:
+        if is_empty(bs):
             lines.append(f"{pad_end(r['account'], 22)} {pad_end('ok', 10)} no memory")
             continue
         for b in bs:
             rep_ = dig(b, "report")
-            rep = (f"{S(dig(rep_, 'claims'))} claim(s), {S(len(rep_['needs_rendering']))} need rendering, {S(len(rep_['skipped_no_roles_class']))} skipped"
+            rep = (f"{S(dig(rep_, 'claims'))} claim(s), {S(jlen(dig(rep_, 'needs_rendering')))} need rendering, {S(jlen(dig(rep_, 'skipped_no_roles_class')))} skipped"
                    if T(rep_) else "no report")
             status = dig(b, "status")
             if status == "harvest-failed":
@@ -924,7 +974,7 @@ def _table_memory(rs: list) -> list[str]:
             else:
                 why = ""
             wc = dig(b, "working_copy")
-            name = (os.path.basename(S(wc)) + (" (projects root)" if T(dig(b, "projects_root")) else "")) if T(wc) else S(dig(b, "slug"))
+            name = (js_basename(wc) + (" (projects root)" if T(dig(b, "projects_root")) else "")) if T(wc) else S(dig(b, "slug"))
             written = dig(b, "written")
             lines.append(trim_end(f"{pad_end(r['account'], 22)} {pad_end('ok', 10)} {pad_end(name, 24)} {S(dig(b, 'files'))} memories  {S(status)}{why}"
                                   f"{' -> ' + S(written) if T(written) else ''}  {rep if status == 'ok' else ''}"))
@@ -1009,7 +1059,7 @@ def _table_recall(rs: list) -> list[str]:
         if not T(c) or dig(c, "status") != "ok":
             lines.append(f"{pad_end(r['account'], 22)} {pad_end('ok', 10)} {S(nullish(dig(c, 'status'), '-'))}")
             continue
-        t0 = dig(c, "top", 0) if False else (c["top"][0] if isinstance(dig(c, "top"), list) and c["top"] else None)
+        t0 = first(dig(c, "top"))
         most = f"{S(dig(t0, 'path'))} ({S(dig(t0, 'reads'))})" if T(t0) else "-"
         lines.append(f"{pad_end(r['account'], 22)} {pad_end('ok', 10)} {pad_start(S(dig(c, 'sessions')), 8)} {pad_start(S(dig(c, 'sessions_without_recall')), 9)} "
                      f"{pad_start(S(dig(c, 'turns')), 6)}  {pad_start(S(dig(c, 'index')), 5)} {pad_start(S(dig(c, 'slice')), 5)} {pad_start(S(dig(c, 'search')), 6)} "
@@ -1124,7 +1174,6 @@ def _table_disk(rs: list) -> list[str]:
 
     def size(r: dict) -> float:
         return r.get("disk")["total_kb"] if rank(r) == 0 else 0
-    import functools
 
     def cmp(a: dict, b: dict) -> int:
         ra, rb = rank(a), rank(b)
@@ -1144,8 +1193,7 @@ def _table_disk(rs: list) -> list[str]:
         if dig(d, "status") == "failed":
             lines.append(trim_end(f"{pad_end(r['account'], 22)} {pad_end('failed', 8)} {esc(nullish(dig(d, 'error'), ''))}"))
             continue
-        largest = dig(d, "largest")
-        l0 = largest[0] if isinstance(largest, list) and largest else None
+        l0 = first(dig(d, "largest"))
         top = f"{esc(dig(l0, 'name'))} {H(dig(l0, 'kb'))}" if T(l0) else "-"
         targets = nullish(dig(d, "targets"), [])
         shown = ", ".join(f"{esc(dig(t, 'path'))} {H(dig(t, 'kb'))}" for t in targets[:3]) + (f", +{len(targets) - 3}" if len(targets) > 3 else "")
@@ -1215,7 +1263,6 @@ def _table_tokens(rs: list) -> list[str]:
         return dig(r["tokens"], "broker", key)
     lines = [f"{pad_end('account', 22)} {pad_end('status', 10)} {pad_end('claude account', 30)} {pad_start('share', 6)}  {pad_start('claude equiv', 12)} "
              f"{pad_start('requests', 8)} {pad_start('cache read', 10)} {pad_start('output', 8)}  {pad_start('broker equiv', 12)} {pad_start('requests', 8)}  top model ({S(days)} days)"]
-    import functools
     for email, group in sorted(by_account.items(), key=lambda kv: collate(kv[0])):
         total: Any = 0
         for r in group:
@@ -1354,7 +1401,9 @@ def main(argv: list[str] | None = None, *, registry: str | None = None, call: Ca
     me = {"address": f"{who['host']}/{who['agent']}"}
     cfg = agentd.control_config()
     gz = integration_config(who.get("project"))
-    tok = token or gz_token(inbox_root(who), gz if gz.get("configured") else None) or synced_token()
+    tok = token if token is not None else gz_token(inbox_root(who), gz if gz.get("configured") else None)
+    if tok is None:
+        tok = synced_token()   # `??`: a token that is empty is a token, and refused as one
     api_call = call or (lambda p, **init: api(tok, p, relay_url=cfg["relay_url"], **init))
     if args["op"] == "states":
         # A read of the channel, not a request: no daemon is asked and none
@@ -1362,7 +1411,8 @@ def main(argv: list[str] | None = None, *, registry: str | None = None, call: Ca
         if not tok:
             err("fabric-ctl: no CLAUDE_BRIDGE_AUTH_TOKEN (fabric-secrets sync)")
             return 3
-        return states(args, expected, call=api_call, cfg=cfg, out=out, err=err, now=now, sleep=sleep)
+        # states reads milliseconds (Date.now, Date.parse); this clock counts seconds.
+        return states(args, expected, call=api_call, cfg=cfg, out=out, err=err, now=lambda: now() * 1000, sleep=sleep)
     # What the daemons will answer: an operator anything, a placed account a public op (agentd accept()).
     if me["address"] not in agentd.operator_addresses(registry) and not (args["op"] in PUBLIC_OPS and me["address"] in agentd.account_addresses(registry)):
         err(f"fabric-ctl: {me['address']} is not a host operator in runtime/hosts/registry.json — no agent would answer; not sent")
@@ -1423,26 +1473,32 @@ def main(argv: list[str] | None = None, *, registry: str | None = None, call: Ca
         if dig(page, "warning") == "since_id_not_found":
             err("fabric-ctl: the relay no longer holds the request (history cleared); the replies cannot be read")
             break
-        for rec in nullish(dig(page, "messages"), []):
-            since = rec["id"]
+        messages = dig(page, "messages")
+        for rec in messages if isinstance(messages, list) else []:
+            if not isinstance(rec, dict):
+                continue
+            if "id" in rec:
+                since = rec["id"]
             try:
                 r = js.json_parse(rec["content"])
             except (ValueError, KeyError, TypeError):
                 continue
             if dig(r, "kind") != "reply" or dig(r, "in_reply_to") != rid:
                 continue
+            frm = dig(r, "from")
             if T(dig(r, "data", "part")):
                 # Distinct parts, keyed by slug and number, the first record for a key winning:
                 # a replayed or duplicated part neither completes a reply early nor breaks its reassembly.
-                m = parts.setdefault(r["from"], {})
-                k = part_key(r["from"], r["data"]["part"])
+                part = r["data"]["part"]
+                m = parts.setdefault(S(frm), {})
+                k = part_key(frm, part)
                 if k not in m:
-                    m[k] = r["data"]["part"]
+                    m[k] = part
                 continue
-            if r.get("from") in want:
+            if isinstance(frm, str) and frm in want:
                 r["latency_ms"] = int((now() - t0) * 1000)
                 replies.append(r)
-                want.discard(r["from"])
+                want.discard(frm)
         if want or short():
             sleep(0.5)
     refused = 0
@@ -1452,8 +1508,9 @@ def main(argv: list[str] | None = None, *, registry: str | None = None, call: Ca
             mem = dig(r, "data", "memory")
             if T(mem) and dig(mem, "status") != "ok":
                 refused += 1
-            for b in nullish(dig(mem, "bundles"), []):
-                if b.get("status") not in ("ok", "no-working-copy"):
+            bundles = dig(mem, "bundles")
+            for b in bundles if isinstance(bundles, list) else []:
+                if dig(b, "status") not in ("ok", "no-working-copy"):
                     refused += 1
     rs = rows(expected, replies)
     if args["json"]:

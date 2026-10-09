@@ -56,8 +56,12 @@ def control_config(env: dict[str, str] | None = None, file: str | None = None) -
             own = js.json_parse(fh.read())
     except (OSError, ValueError):
         pass   # defaults below
+    if own is None:
+        # `null` parses: the Node reads `own.relay_url` outside its try and
+        # throws. A config that says nothing at all is a defect to see.
+        raise TypeError("runtime/control/config.json is null: it holds an object or nothing")
     if not isinstance(own, dict):
-        own = {}
+        own = {}   # another JSON value has no such keys, and the defaults apply as they do there
 
     def pick(name: str, key: str, default: str) -> Any:
         if name in env:
@@ -87,17 +91,26 @@ def _registry(registry: str | None) -> Any:
         return None
 
 
+def _entries(o: Any) -> list[tuple[str, Any]]:
+    """Object.entries(o): an array's elements are keyed by their index."""
+    if isinstance(o, dict):
+        return [(k, o[k]) for k in js.keys(o)]
+    if isinstance(o, list):
+        return [(str(i), v) for i, v in enumerate(o)]
+    return []
+
+
 def operator_addresses(registry: str | None = None) -> set[str]:
     d = _registry(registry)
-    hosts = d.get("hosts") if isinstance(d, dict) else None
-    if not isinstance(hosts, dict):
-        return set()
-    return {f"{h}/{js.string(v.get('operator')) if isinstance(v, dict) and v.get('operator') is not None else 'user'}" for h, v in hosts.items()}
+    out = set()
+    for h, v in _entries(d.get("hosts") if isinstance(d, dict) else None):
+        if v is None:
+            return set()   # `v.operator` throws on null, inside the Node's try: nobody
+        op = v.get("operator") if isinstance(v, dict) else None
+        out.add(f"{h}/{js.string(op) if op is not None else 'user'}")
+    return out
 
 
 def account_addresses(registry: str | None = None) -> set[str]:
     d = _registry(registry)
-    placement = d.get("placement") if isinstance(d, dict) else None
-    if not isinstance(placement, dict):
-        return set()
-    return {f"{js.string(host)}/{login}" for login, host in placement.items()}
+    return {f"{js.string(host)}/{login}" for login, host in _entries(d.get("placement") if isinstance(d, dict) else None)}
