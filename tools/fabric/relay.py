@@ -21,6 +21,7 @@ import urllib.parse
 import urllib.request
 
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import httpsafe  # noqa: E402
 import roots  # noqa: E402
 
 TOKEN_NAME = "CLAUDE_BRIDGE_AUTH_TOKEN"
@@ -79,14 +80,19 @@ def own_token(home: str) -> str | None:
     return None
 
 
+OPENER = httpsafe.opener(proxies=False, redirects="none")
+
+
 def call(relay: str, tok: str, path: str, body: dict | None = None, timeout: float = TIMEOUT):
     """GET answers JSON, which is read; a POST's answer is the status alone —
     the ack landed whatever its body says (review of #77). urllib's errors
-    are OSErrors and name the status, never the header the token is in."""
+    are OSErrors and name the status, never the header the token is in.
+    The relay is reached directly, never through the environment's proxy,
+    and a redirect is an error, never followed with the token (httpsafe)."""
     req = urllib.request.Request(relay + path, data=None if body is None else json.dumps(body).encode(),
                                  headers={"Authorization": f"Bearer {tok}", "Content-Type": "application/json"},
                                  method="GET" if body is None else "POST")
-    with urllib.request.urlopen(req, timeout=timeout) as r:
+    with OPENER.open(req, timeout=timeout) as r:
         return json.load(r) if body is None else None
 
 
