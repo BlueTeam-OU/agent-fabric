@@ -41,8 +41,10 @@ WHO = {"agent": "db-admin", "host": "develop-qzapp", "role": "db-admin", "projec
 DAY = 86400000
 
 
-def fp(v: str) -> str:
-    return util.sha12(v)   # util.sha12 itself is pinned to a known answer in test_a_fingerprint_is_twelve_hex_of_sha256
+# Fingerprints are literals (sha256sum of the fixture, first twelve digits), never computed by the code under test
+# or by hashlib here: a change to what util.sha12 hashes then fails the tests that expect it.
+TEMPLATE_FP = "752845b14925"
+OPENROUTER_FP = "eb9c6584ec5e"
 
 
 def iso(ms: float) -> str:
@@ -86,6 +88,8 @@ def done(out: str = "", err: str = "", rc: int = 0) -> subprocess.CompletedProce
 class Fingerprint(unittest.TestCase):
     def test_a_fingerprint_is_twelve_hex_of_sha256(self):
         self.assertEqual(util.sha12("abc"), "ba7816bf8f01", "the first twelve digits of the published SHA-256 of 'abc'")
+        self.assertEqual(util.sha12("sk-ant-oat01-TEMPLATE-TOKEN-VALUE"), TEMPLATE_FP)
+        self.assertEqual(util.sha12(" Ab é-0123456789abcdef "), "a3fafcbf4e06", "mixed case, whitespace, non-ASCII and longer than 16: none of it is changed before the hash")
 
 
 class Identity(Base):
@@ -103,7 +107,7 @@ class Identity(Base):
         template = "sk-ant-oat01-TEMPLATE-TOKEN-VALUE"
         write(os.path.join(h, ".config", "agent-fabric", "secrets.env"), f"export CLAUDE_CODE_OAUTH_TOKEN='{template}'\n", "a")
         i = ops.identity(h, WHO)
-        self.assertEqual(i["claude_account"], {"via": "setup-token", "token_sha256_12": fp(template), "email": None, "organization": None})
+        self.assertEqual(i["claude_account"], {"via": "setup-token", "token_sha256_12": TEMPLATE_FP, "email": None, "organization": None})
         self.assertEqual(i["own_sign_in"], {"email": "someone@example.org", "organization": "Example Org"}, "the own sign-in is still said, as what it is")
         self.assertEqual(list(i)[-2:], ["own_sign_in", "credentials_present"])
         hd = {"anthropic-ratelimit-unified-5h-utilization": "0.08", "anthropic-ratelimit-unified-5h-reset": "1791449400", "anthropic-ratelimit-unified-5h-status": "allowed",
@@ -128,7 +132,7 @@ class Identity(Base):
             raise ConnectionRefusedError("ECONNREFUSED")
         self.assertEqual(ops.usage(h, fetch=refused, url="u", messages_url="m"), {"status": "read-failed", "via": "setup-token"})
         self.assertNotIn(template, json.dumps(u), "the template token leaked into the reading")
-        self.assertEqual([k for k in ops.keys(h) if k["name"] == "CLAUDE_CODE_OAUTH_TOKEN"], [{"name": "CLAUDE_CODE_OAUTH_TOKEN", "present": True, "sha256_12": fp(template)}])
+        self.assertEqual([k for k in ops.keys(h) if k["name"] == "CLAUDE_CODE_OAUTH_TOKEN"], [{"name": "CLAUDE_CODE_OAUTH_TOKEN", "present": True, "sha256_12": TEMPLATE_FP}])
         self.assertNotIn(template, json.dumps([i, ops.keys(h)]))
         self.assert_no_secret(i)
 
@@ -200,7 +204,7 @@ class SigningAndKeys(Base):
         k = ops.keys(h)
         self.assertEqual([x["name"] for x in k], ops.KEY_NAMES)
         orr = next(x for x in k if x["name"] == "OPENROUTER_API_KEY")
-        self.assertEqual((orr["present"], orr["sha256_12"]), (True, fp(FIXTURE_ENV["OPENROUTER_API_KEY"])))
+        self.assertEqual((orr["present"], orr["sha256_12"]), (True, OPENROUTER_FP))
         self.assertEqual(next(x for x in k if x["name"] == "OPENAI_API_KEY"), {"name": "OPENAI_API_KEY", "present": False})
         self.assert_no_secret(k)
         self.assertEqual([x["present"] for x in ops.keys("/nonexistent")], [False] * len(ops.KEY_NAMES))
