@@ -99,6 +99,32 @@ def marker(f: Fx) -> dict:
 
 
 class UpgradeClaude(unittest.TestCase):
+    def test_the_state_directory_is_the_overrides_then_xdg_then_the_home(self):
+        self.assertEqual(U.state_dir("/h", {}, "u"), "/h/.local/state/agent-fabric/agents/u")
+        self.assertEqual(U.state_dir("/h", {"XDG_STATE_HOME": "/x/"}, "u"), "/x/agent-fabric/agents/u")
+        self.assertEqual(U.state_dir("/h", {"XDG_STATE_HOME": ""}, "u"), "/h/.local/state/agent-fabric/agents/u")
+        self.assertEqual(U.state_dir("/h", {"AGENT_FABRIC_STATE_DIR": "/s/a/../b", "XDG_STATE_HOME": "/x"}, "u"), "/s/b/agents/u")
+        self.assertEqual(U.state_dir("/h", {"AGENT_FABRIC_STATE_DIR": "", "XDG_STATE_HOME": "/x"}, "u"), "/x/agent-fabric/agents/u")
+
+    def test_sessions_are_read_again_under_the_lease_because_the_wait_can_outlast_one(self):
+        f = Fx(self)
+        sessions: list[int] = []
+        up = [True]
+        stopped: list[int] = []
+
+        def lease():
+            sessions.append(4242)   # a session started while this account queued for its turn
+            return f.lease()
+        r = U.upgrade_once(req(), **f.opts(sessions=sessions, lease=lease, kill=lambda p, _s: (stopped.append(p), up.__setitem__(0, False)),
+                                           alive=lambda _p: up[0], sleep=lambda _s: None, me="h/db-admin"))
+        self.assertEqual((r["status"], r["session"], stopped), ("upgraded", "restarting", [4242]))
+        self.assertEqual(marker(f)["pids"], [4242])
+
+    def test_a_failed_install_does_not_refresh_the_settings(self):
+        f = Fx(self, install_fails=True)
+        U.upgrade_once(req(), **f.opts(sessions=[], me="h/db-admin"))
+        self.assertFalse(any(c.startswith("user-settings") for c in f.calls), f.calls)
+
     def test_at_the_pin_nothing_is_installed_and_no_session_is_touched(self):
         f = Fx(self, installed="2.1.281")
         r = U.upgrade_once(req(), **f.opts(sessions=[111], kill=no_kill, me="h/db-admin"))
@@ -172,6 +198,15 @@ class UpgradeClaude(unittest.TestCase):
         r = U.upgrade_once(req(args={"piece": "claude", "version": "2.1.279"}), **g.opts(sessions=[]))
         self.assertEqual(r["to"], "2.1.279")
         self.assertEqual(U.pinned_version(g.root), "2.1.281")
+        for ok in ("1234.1234.123456", "0.0.0"):
+            self.assertIsNone(U.check_args({"piece": "claude", "version": ok}), ok)
+        for bad in ("12345.1.1", "1.12345.1", "1.1.1234567", "1.1", "a.b.c", "1.1.1.1"):
+            self.assertRegex(U.check_args({"piece": "claude", "version": bad}), r"digits", bad)
+        for body, want in (('{"claude": "x"}', None), ('{"claude": "2.1.281\\n"}', None), ('{"claude": 2}', None), ("[]", None), ("not json", None), ('{"claude": "9.9.9"}', "9.9.9")):
+            h = Fx(self, pin=None)
+            with open(os.path.join(h.root, "runtime", "claude-code", "harness.json"), "w") as fh:
+                fh.write(body)
+            self.assertEqual(U.pinned_version(h.root), want, body)
 
     def test_one_upgrade_at_a_time(self):
         slow = Fx(self)
@@ -259,7 +294,9 @@ class UpgradeClaude(unittest.TestCase):
         self.assertEqual((cm.exception.code, cm.exception.reason), (U.LEASE_HELD, "timeout"), "a second holder waits its time, then is refused — the reason as data")
         self.assertRegex(cm.exception.line, r"still held")
         self.assertGreaterEqual(time.monotonic() - began, 0.9)
+        began = time.monotonic()
         h.release()
+        self.assertLess(time.monotonic() - began, 5, "release closes the holder's stdin; it does not wait for the holder to give up")
         U.hold_lease(HERE).release()
         os.environ["AGENT_FABRIC_LEASES"] = os.path.join(tempfile.mkdtemp(prefix="upgrade-nolease-"), "absent")
         with self.assertRaises(U.LeaseRefused) as nd:
@@ -471,6 +508,10 @@ class UpgradeFabric(unittest.TestCase):
         git(f.root, "switch", "-q", "-c", "h/someone/locale")
         git(f.root, "push", "-q", "-u", "origin", "h/someone/locale")
         target = f.advance("two")
+        with open(os.path.join(f.root, "scratch.txt"), "w") as fh:
+            fh.write("uncommitted")
+        self.assertRegex(U.upgrade_fabric(freq(target), **f.opts())["reason"], r"find whose work it is", "uncommitted work: not known safe")
+        os.unlink(os.path.join(f.root, "scratch.txt"))
         before = f.head()
         r = U.upgrade_fabric(freq(target), **f.opts())
         self.assertEqual(r["status"], "refused")
