@@ -11,6 +11,7 @@
   },
   "projects": {
     "gzapp": {
+      "client": "gzapi",
       "title": "GZAPP transit platform",
       "remotes": [
         "git@github.com:gzapi-org/gzapp.git",
@@ -49,6 +50,7 @@
       ]
     },
     "agent-fabric": {
+      "client": "blueteam",
       "title": "agent-fabric, the control plane itself",
       "remotes": [
         "git@github.com:gzapi-org/agent-fabric.git",
@@ -69,6 +71,7 @@
       ]
     },
     "kutaisi-shop-transit": {
+      "client": "personal",
       "title": "Kutaisi shop-to-transit matching (OSM shops against bus/marshrutka lines)",
       "remotes": [
         "git@github.com:andreabenetton/kutaisi-shop-transit.git",
@@ -87,6 +90,7 @@
       "note": "A private repository whose tree carries no license file: all rights reserved by default. One role, domain-transit; its working copy is that account's (moved there 2026-09-15)."
     },
     "gzapi.ge": {
+      "client": "gzapi",
       "title": "gzapi.ge — the company website (Gzapi LLC)",
       "remotes": [
         "git@github.com:gzapi-org/gzapi.ge.git",
@@ -108,6 +112,7 @@
       ]
     },
     "gzapi.brand": {
+      "client": "gzapi",
       "title": "gzapi.brand — the brand's source of authority",
       "remotes": [
         "git@github.com:gzapi-org/gzapi.brand.git",
@@ -125,6 +130,7 @@
       ]
     },
     "gzapp.decks": {
+      "client": "gzapi",
       "title": "gzapp.decks — brand presentation decks (Marp)",
       "remotes": [
         "git@github.com:gzapi-org/gzapp.decks.git",
@@ -146,6 +152,7 @@
       ]
     },
     "interweave": {
+      "client": "gzapi",
       "title": "InterWeave — peer-to-peer transport for Claude Code Channels and first-party clients",
       "remotes": [
         "git@github.com:gzapi-org/InterWeave.git",
@@ -167,6 +174,7 @@
       ]
     },
     "agent-fabric-gateway": {
+      "client": "blueteam",
       "title": "agent-fabric-gateway — the Rust data plane the fabric's sessions reach their models through",
       "remotes": [
         "git@github.com:gzapi-org/agent-fabric-gateway.git",
@@ -186,6 +194,7 @@
       ]
     },
     "herdr": {
+      "client": "blueteam",
       "title": "herdr — agent-fabric-herdr, gzapi-org's public fork of herdrdev/herdr (renamed from gzapi-org/herdr on 2026-10-08; the old spellings stay listed for clones not yet re-pointed), the base of Fleet Deck, the operator's console over the fleet",
       "remotes": [
         "git@github.com:gzapi-org/agent-fabric-herdr.git",
@@ -206,6 +215,7 @@
       ]
     },
     "radicle-spike": {
+      "client": "blueteam",
       "title": "radicle-spike — whether Radicle can carry the fleet's forge (a local seed, agent-fabric mirrored, replication and reachability measured)",
       "remotes": [
         "git@github.com:gzapi-org/radicle-spike.git",
