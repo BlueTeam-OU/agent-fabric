@@ -85,14 +85,26 @@ def main() -> int:
             if self.path == "/silent":
                 time.sleep(3)   # the connection held, no answer within the caller's bound
                 return
-            if self.path == "/trickle":
-                self.send_response(200)
-                self.send_header("Content-Type", "application/json")
+            if self.path in ("/trickle", "/trickle-head"):
+                head = b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 400\r\n\r\n"
+                body = b'{"ok":' + b" " * 393 + b"true}"
+                if self.path == "/trickle":
+                    self.wfile.write(head)
+                    out = body
+                else:
+                    out = head + body
+                try:
+                    for c in out:    # a byte every 0.1 s: 40 s of it, far past any bound here
+                        self.wfile.write(bytes([c]))
+                        self.wfile.flush()
+                        time.sleep(0.1)
+                except OSError:
+                    pass
+                return
+            if self.path == "/moved":
+                self.send_response(302)
+                self.send_header("Location", f"http://127.0.0.1:{self.server.server_port}/landed")
                 self.end_headers()
-                for c in b'{"ok":true}':
-                    self.wfile.write(bytes([c]))
-                    self.wfile.flush()
-                    time.sleep(0.15)
                 return
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
@@ -128,20 +140,58 @@ def main() -> int:
                 check(f"a silent relay is no answer within {said} s, never a hang",
                       e.timed_out is True and e.status is None and str(e) == f"/silent -> no answer within {said} s"
                       and time.monotonic() - t0 < 2, (str(e), e.timed_out, time.monotonic() - t0))
-        t0 = time.monotonic()
+        for path, what in (("/trickle", "its body"), ("/trickle-head", "its status line and headers")):
+            t0 = time.monotonic()
+            try:
+                cg.api("tok", path, relay_url=relay_url, timeout_s=0.5)
+                check(f"a relay that trickles {what} is held to the bound", False)
+            except cg.ApiError as e:
+                took = time.monotonic() - t0
+                check(f"a relay that trickles {what} is held to the bound, never longer",
+                      e.timed_out is True and 0.45 < took < 1.0, took)
+        seen.clear()
         try:
-            cg.api("tok", "/trickle", relay_url=relay_url, timeout_s=0.5)
-            check("a relay that trickles its body is held to the bound", False)
+            cg.api("tok", "/moved", relay_url=relay_url)
+            check("a redirect is an answer, never followed", False)
         except cg.ApiError as e:
-            check("a relay that trickles its body is held to the bound, body included",
-                  e.timed_out is True and time.monotonic() - t0 < 2, time.monotonic() - t0)
+            check("a redirect is an answer, never followed: ApiError 302, the target never asked",
+                  e.status == 302 and [x["url"] for x in seen] == ["/moved"], (e.status, seen))
+        import socket as _socket
+        lsock = _socket.socket()
+        lsock.bind(("127.0.0.1", 0))
+        lsock.listen(1)
+        lsock.settimeout(0.2)
+        saved_proxy = {k: os.environ.get(k) for k in ("http_proxy", "HTTP_PROXY", "no_proxy", "NO_PROXY")}
+        try:
+            for k in saved_proxy:
+                os.environ.pop(k, None)
+            os.environ["http_proxy"] = f"http://127.0.0.1:{lsock.getsockname()[1]}"
+            seen.clear()
+            got = cg.api("tok", "/api/direct", relay_url=relay_url)
+            try:
+                lsock.accept()
+                proxied = True
+            except OSError:
+                proxied = False
+            check("the relay directly, never the environment's proxy", got == {"ok": True} and not proxied
+                  and [x["url"] for x in seen] == ["/api/direct"], (proxied, seen))
+        finally:
+            lsock.close()
+            for k, v in saved_proxy.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
         check("the bound outlasts the wait a long poll asks",
               cg.api_timeout_s("/api/messages?channel=c") == cg.API_TIMEOUT_S
               and cg.api_timeout_s("/api/wait?channel=c&timeout_seconds=55") == cg.API_TIMEOUT_S + 55
               and cg.api_timeout_s("/api/wait?timeout_seconds=nope") == cg.API_TIMEOUT_S)
         probe = ["/api/messages?channel=c", "/api/wait?channel=c&timeout_seconds=55", "/api/wait?timeout_seconds=nope",
                  "/x?timeout_seconds=-5", "/x?timeout_seconds=1e3", "/x?timeout_seconds=", "/x?timeout_seconds=%2010",
-                 "/x?timeout_seconds=Infinity", "/x?timeout_seconds=3&timeout_seconds=9", "/x"]
+                 "/x?timeout_seconds=Infinity", "/x?timeout_seconds=3&timeout_seconds=9", "/x",
+                 "/x?timeout_seconds=0x10", "/x?timeout_seconds=0b11", "/x?timeout_seconds=1_0", "/x?timeout_seconds=5?y=1",
+                 "/x?timeout_seconds=%EF%BB%BF5", "/x?timeout_seconds=%D9%A1%D9%A0", "/x?timeout_seconds=%1C5",
+                 "/x?timeout_seconds=+5", "/x?timeout_seconds=%205%20", "/x?a=1?timeout_seconds=5"]
         r = subprocess.run(["node", "--input-type=module", "-e",
                             f"import fs from 'node:fs'; import {{apiTimeoutMs}} from '{GZCOORD_MJS}'; "
                             "process.stdout.write(JSON.stringify(JSON.parse(fs.readFileSync(0, 'utf8')).map(apiTimeoutMs)))"],

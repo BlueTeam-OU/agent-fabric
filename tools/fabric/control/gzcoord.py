@@ -25,34 +25,37 @@ THE CONTROL PLANE'S API differs from the GZCoord tools' (inbox.mjs's
 never answers would hold a CLI for good and stop agentd reading
 requests. So a call is bounded at API_TIMEOUT_S plus whatever the
 request asks the relay to wait (/api/wait's timeout_seconds), body
-included; a non-2xx answer is ApiError with its status; no answer in
-the bound is ApiError(timed_out=True) — a post that timed out may have
-been stored, and the queue reads it as unknown. It opens through
-httpsafe: the relay directly, never a proxy, no redirect followed.
+included; a non-2xx answer is ApiError with its status, a 3xx too (no
+redirect is followed); no answer in the bound is ApiError(timed_out=True)
+— a post that timed out may have been stored, and the queue reads it as
+unknown. It is http.client, not urllib: the relay directly, never a
+proxy from the environment, and a timer that shuts the socket at the
+deadline, so the bound holds whatever the relay trickles, headers and
+body alike (review of e04c5593, F1).
 
 WHAT IS NOT NODE'S: api takes its bound in seconds (timeout_s), not
 milliseconds, and no abort signal: Python has none, so a caller with a
-bound of its own passes it as timeout_s. urllib bounds each socket
-operation, not the call,
-so the bound is a deadline checked between reads of the body: a relay
-that trickles a byte a second can hold one call up to the bound plus one
-socket timeout, never longer.
+bound of its own passes it as timeout_s; API_TIMEOUT_MS is API_TIMEOUT_S.
+WHOAMI_TIMEOUT_MS has no counterpart: Node ran `python3 identity.py`
+under it, and the GZCoord tools import identity.py in this process,
+which starts nothing to bound. The bound does not cover resolving a
+relay's host name (getaddrinfo cannot be cut short); the relays the
+projects configure are addresses, not names.
 """
 from __future__ import annotations
 
+import http.client
 import json
 import math
 import os
 import shlex
 import socket
 import sys
-import time
-import urllib.error
+import threading
 import urllib.parse
-import urllib.request
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
-import httpsafe  # noqa: E402
+from control import js  # noqa: E402
 from control.sign import js_number  # noqa: E402
 from gzcoord import gzmsg, paths  # noqa: E402
 from gzcoord.inbox_parts.config import default_relay, inbox_root, integration_config  # noqa: E402, F401
@@ -65,7 +68,6 @@ find_taxonomy = gzmsg.find_taxonomy
 FABRIC_ROOT = paths.fabric_root()
 
 API_TIMEOUT_S = 30
-_OPENER = httpsafe.opener(proxies=False, redirects="none")
 
 
 class ApiError(Exception):
@@ -93,14 +95,14 @@ def relay_failure(e: BaseException, relay_url: str) -> str:
 
 def api_timeout_s(path_and_query: str) -> float:
     """API_TIMEOUT_S plus the request's own timeout_seconds, when it asks
-    the relay to wait: a long poll is never cut short. Read as Node's
-    Number(): the first value, a finite number above zero, else nothing."""
-    query = path_and_query.split("?", 1)[1] if "?" in path_and_query else ""
+    the relay to wait: a long poll is never cut short. Read as Node read
+    it: the query is the text between the first `?` and the next (Node's
+    split('?')[1]), its first timeout_seconds through URLSearchParams,
+    then Number() — a finite number above zero, else nothing."""
+    parts = path_and_query.split("?")
+    query = parts[1] if len(parts) > 1 else ""
     raw = urllib.parse.parse_qs(query, keep_blank_values=True).get("timeout_seconds", [None])[0]
-    try:
-        waits = float(raw.strip()) if raw is not None and raw.strip() else 0.0
-    except ValueError:
-        waits = 0.0
+    waits = js.number(raw) if raw is not None else math.nan
     return API_TIMEOUT_S + (waits if math.isfinite(waits) and waits > 0 else 0.0)
 
 
@@ -111,32 +113,48 @@ def api(tok: str, path_and_query: str, relay_url: str | None = None, method: str
     relay_url = default_relay() if relay_url is None else relay_url
     bound = api_timeout_s(path_and_query) if timeout_s is None else timeout_s
     tok = checked_token(tok)
-    req = urllib.request.Request(f"{relay_url}{path_and_query}", method=method,
-                                 data=None if body is None else body.encode("utf-8"),
-                                 headers={"Authorization": f"Bearer {tok}", "Content-Type": "application/json",
-                                          **(headers or {})})
-    deadline = time.monotonic() + bound
     # The bound is said as Node said timeoutMs / 1000, a JavaScript number.
     late = ApiError(f"{path_and_query} -> no answer within {js_number(bound)} s", timed_out=True)
+    u = urllib.parse.urlsplit(f"{relay_url}{path_and_query}")
+    if u.scheme not in ("http", "https") or not u.hostname:
+        raise ApiError(f"{path_and_query} -> not an http(s) relay: {relay_url}")
+    conn_class = http.client.HTTPSConnection if u.scheme == "https" else http.client.HTTPConnection
+    conn = conn_class(u.hostname, u.port, timeout=max(0.001, bound))
+    fired = threading.Event()
+
+    def cut():
+        # The deadline, whatever phase the call is in: a read blocked on a
+        # relay that trickles returns once the socket is shut.
+        fired.set()
+        sock = conn.sock
+        if sock is not None:
+            try:
+                sock.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
+    timer = threading.Timer(max(0.001, bound), cut)
+    timer.daemon = True
+    timer.start()
+    target = u.path or "/"
+    if u.query:
+        target += "?" + u.query
     try:
-        with _OPENER.open(req, timeout=max(0.001, bound)) as r:
-            chunks = []
-            while True:
-                if time.monotonic() > deadline:
-                    raise late
-                chunk = r.read(65536)
-                if not chunk:
-                    break
-                chunks.append(chunk)
-    except urllib.error.HTTPError as e:
-        raise ApiError(f"{path_and_query} -> HTTP {e.code}", status=e.code) from None
-    except (TimeoutError, socket.timeout):
-        raise late from None
-    except urllib.error.URLError as e:
-        if isinstance(e.reason, (TimeoutError, socket.timeout)):
+        conn.request(method, target, body=None if body is None else body.encode("utf-8"),
+                     headers={"Authorization": f"Bearer {tok}", "Content-Type": "application/json", **(headers or {})})
+        resp = conn.getresponse()
+        data = resp.read()
+    except (OSError, http.client.HTTPException) as e:
+        if fired.is_set() or isinstance(e, TimeoutError):
             raise late from None
-        raise ApiError(f"{path_and_query} -> {e.reason}") from None
-    return json.loads(b"".join(chunks).decode("utf-8"))
+        raise ApiError(f"{path_and_query} -> {e}") from None
+    finally:
+        timer.cancel()
+        conn.close()
+    if fired.is_set():
+        raise late
+    if not 200 <= resp.status < 300:
+        raise ApiError(f"{path_and_query} -> HTTP {resp.status}", status=resp.status)
+    return json.loads(data.decode("utf-8"))
 
 
 def shell_word(text: str) -> str | None:
