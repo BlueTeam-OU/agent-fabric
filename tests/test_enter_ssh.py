@@ -53,6 +53,9 @@ def write_conf(tmp: str, text: str | None) -> None:
         return
     with open(conf, "w", encoding="utf-8") as fh:
         fh.write(text)
+    # The mode enter-ssh demands, set here rather than left to the runner's
+    # umask: a CI container's 000 makes the file group-writable, and refused.
+    os.chmod(conf, 0o644)
 
 
 def setup(tmp: str) -> None:
