@@ -215,8 +215,8 @@ def node_b64decode(text: str) -> bytes:
     each (it refuses or reads past them), so a key or a signature Node
     reads one way would be read another here."""
     # Node reads a string for base64 by the low byte of each UTF-16 code
-    # unit: "Ł" (U+0141) is "A", and U+DE00 of a surrogate pair is "=",
-    # which ends it (review of 73f35649, F3, measured on Node 22.22.2).
+    # unit: U+0141 is "A", and the high surrogate U+D83D (of U+1F600) is
+    # "=", which ends it (review of 73f35649, F3, measured on Node 22.22.2).
     units = text.encode("utf-16-le", "surrogatepass")
     bits, nbits, out = 0, 0, bytearray()
     for c in map(chr, units[0::2]):
