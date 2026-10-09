@@ -8,8 +8,8 @@ useradd and the vendors' installers run here as argument lists, never a
 shell string. Ported from runtime/provisioning/new-agent-worker.sh (off
 shell); the entry on the path is a few lines that find the pinned Python
 (runtime/provisioning/new-agent-worker.sh), and what it must decide is asked
-of tools/fabric/new_agent_worker.py (its arguments, the claude version, the
-subordinate id range, the host keys an account lacks, the verification).
+of its siblings here (worker_args: its arguments; host_steps: the claude version,
+the subordinate id range, the host keys an account lacks; verify: the read-back).
 
     worker.py prepare <login> (<role> | --human) [--claude V] [--dry-run]    0-4 (a human, ADR-044: 0, 1, 4)
     worker.py finish  <login> (<role> | --human) [--clone <id>=<remote>]... [--claude-account <slug>=<fp12> |
@@ -49,8 +49,7 @@ HERE = os.path.dirname(os.path.realpath(__file__))
 TOOLS = os.path.dirname(HERE)
 sys.path.insert(0, TOOLS)
 import roots  # noqa: E402
-from provisioning import host_platform  # noqa: E402
-import new_agent_worker as nw  # noqa: E402
+from provisioning import host_platform, host_steps as hs, verify as vf, worker_args as wa  # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(TOOLS))
 PY = "/usr/local/bin/fabric-python"
@@ -70,7 +69,7 @@ def _log(text: str) -> None:
 
 @dataclass
 class Worker:
-    a: "nw.WorkerArgs"
+    a: "wa.WorkerArgs"
     root: str = ROOT
     sudo: list[str] = field(default_factory=lambda: ["sudo"])
     env: Mapping[str, str] = field(default_factory=lambda: os.environ)
@@ -227,7 +226,7 @@ def prepare(w: Worker) -> int:
         floor = ".".join(str(n) for n in host_platform.FABRIC_HOST_PYTHON_MIN)
         w.die(f"this host's python3 ({version}) is older than {floor}, the fabric's floor (ADR-040 rule 1); "
               "install a newer python3, then rerun")
-    _log(nw.audit(prof.id, "1" if prof.persists_across_reboot else "0", prof.pkg_install_hint,
+    _log(hs.audit(prof.id, "1" if prof.persists_across_reboot else "0", prof.pkg_install_hint,
                   str(len(host_platform.FABRIC_HOST_TOOLS)), missing))
     # ---- 1. the account, its subordinate ids, home 700, the shared cache, linger
     if w.account_exists():
@@ -237,7 +236,7 @@ def prepare(w: Worker) -> int:
         w.say(f"1. account {login} created")
     w.settle_home()
     try:
-        plan = nw.subids(login, etc).rstrip("\n")
+        plan = hs.subids(login, etc).rstrip("\n")
     except (OSError, ValueError):
         w.die(f"the subordinate id plan for {login} could not be made")
     if plan.startswith("have "):
@@ -275,7 +274,7 @@ def install_claude_and_ori(w: Worker) -> None:
         "projects", ".ssh", ".claude", ".config/gh", ".local/bin", ".local/share/claude/versions"))])
     w.must([*w.sudo, "-n", "-u", login, "chmod", "700", os.path.join(h, ".ssh")])
     w.must([*w.sudo, "-n", "chown", f"{login}:{w.group}", *(os.path.join(h, d) for d in (".local", ".local/bin", ".local/share"))])
-    want = nw.claude_want(w.root, a.claude)
+    want = hs.claude_want(w.root, a.claude)
     resolved = want
     if want == "latest":
         got = subprocess.run(["curl", "-fsSL", "-m", "20", "https://downloads.claude.ai/claude-code-releases/latest"],
@@ -321,7 +320,7 @@ def trust_github_host_keys(w: Worker) -> None:
     held = subprocess.run([*w.sudo, "-n", "cat", known], capture_output=True, text=True, timeout=PROBE_TIMEOUT_S)
     try:
         # A known_hosts not there yet (a new account) holds no key: every published one is missing.
-        missing = nw.missing_keys(host_keys, held.stdout if held.returncode == 0 else "")
+        missing = hs.missing_keys(host_keys, held.stdout if held.returncode == 0 else "")
     except OSError:
         w.die(f"step failed: the host keys {w.a.login} lacks could not be read; nothing after it ran")
     if not missing.strip("\n"):
@@ -469,9 +468,9 @@ def verify(w: Worker) -> int:
     a = w.a
     sudo = " ".join(w.sudo)
     if a.human:
-        text, failed = nw.verify_human(a.login, w.home, sudo)
+        text, failed = vf.verify_human(a.login, w.home, sudo)
     else:
-        text, failed = nw.verify(w.root, a.login, w.home, sudo, a.projects, account=a.account, no_account=a.no_account,
+        text, failed = vf.verify(w.root, a.login, w.home, sudo, a.projects, account=a.account, no_account=a.no_account,
                                  signing_next=a.signing_next, via=a.via)
     _log(text + failed)
     return 1 if failed else 0
@@ -485,13 +484,13 @@ def main(argv: list[str] | None = None, environ: Mapping[str, str] | None = None
     for stream in (sys.stdout, sys.stderr):
         stream.reconfigure(encoding="utf-8", errors="surrogateescape")
     try:
-        args = nw.parse_args(argv)
-    except nw.Exit as exc:
+        args = wa.parse_args(argv)
+    except wa.Exit as exc:
         print(exc.msg, file=sys.stderr)
         return exc.code
     try:
         if args.phase == "host-check":
-            sys.stdout.write(nw.host_check(args.login))
+            sys.stdout.write(hs.host_check(args.login))
             return 0
         w = Worker(args, ROOT, shlex.split(env.get("SUDO") or "sudo"), env)
         w.settle_home()
@@ -502,7 +501,7 @@ def main(argv: list[str] | None = None, environ: Mapping[str, str] | None = None
         return prepare(w) if args.phase == "prepare" else finish(w)
     except Stop as stop:
         return stop.code
-    except nw.Exit as exc:
+    except wa.Exit as exc:
         print(exc.msg, file=sys.stderr)
         return exc.code
     # A question that got no answer is not a "no": the step is neither done nor failed by a guess.

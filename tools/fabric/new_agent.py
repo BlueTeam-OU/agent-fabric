@@ -123,7 +123,8 @@ HERE = os.path.dirname(os.path.realpath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
 sys.path.insert(0, HERE)
 import roots  # noqa: E402
-from new_agent_worker import run_bounded, signing_key_lines, signs_with_secret, stop_tree  # noqa: E402
+from provisioning.bounded import run_bounded, stop_tree  # noqa: E402
+from provisioning.verify import signing_key_lines, signs_with_secret  # noqa: E402
 SECRETS = os.path.join(ROOT, "runtime", "provisioning", "secrets", "fabric-secrets")
 STORE_ENROLL = os.path.join(ROOT, "runtime", "provisioning", "secrets", "store-enroll.sh")
 STORE = os.path.join(ROOT, "tools", "fabric", "secret_store.py")
