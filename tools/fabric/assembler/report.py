@@ -198,7 +198,7 @@ def report(run: Run) -> int:
     if run.empty_crossrefs:
         print("\nCROSSREF EMPTY (written with no entry: no observation behind the role's slices "
               "cites an artifact in this drain's references.json, and none was carried; "
-              "query.sh answers nothing from it):", file=sys.stderr)
+              "fabric-query answers nothing from it):", file=sys.stderr)
         for note in run.empty_crossrefs:
             print(f"  {note}", file=sys.stderr)
     if collisions:

@@ -186,12 +186,12 @@ def fixtures() -> None:
 
 HELP = """Ask the corpus what it knows about an artifact.
 
-  tools/fabric/query.sh adr ADR-054       # who learned from it, where it landed
-  tools/fabric/query.sh pr 428
-  tools/fabric/query.sh migration 0007
-  tools/fabric/query.sh file apps/status_web
-  tools/fabric/query.sh obs <content-hash>
-  tools/fabric/query.sh roles             # what roles exist, per project, and how big they are
+  fabric-query adr ADR-054       # who learned from it, where it landed
+  fabric-query pr 428
+  fabric-query migration 0007
+  fabric-query file apps/status_web
+  fabric-query obs <content-hash>
+  fabric-query roles             # what roles exist, per project, and how big they are
 
 The citation graph is small — thousands of edges — so it lives in the
 committed JSON the assembler writes (<working copy>/.agent-fabric/memory/

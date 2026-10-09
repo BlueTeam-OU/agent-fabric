@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """tools/fabric/query.py — ask the corpus what it knows about an artifact
-(ADR-040 Wave 3; query.sh is its shim: `query.sh adr|pr|commit|file <key>`,
-`query.sh obs <hash>`, `query.sh roles`).
+(ADR-040 Wave 3; `fabric-query` runs it, tools/fabric/query.sh is its
+deprecated shim: `fabric-query adr|pr|commit|file <key>`,
+`fabric-query obs <hash>`, `fabric-query roles`).
 
 CONTRACT (ADR-040 §5 rule 3):
   argv    adr|arch|pr|commit|contract|error|migration|file <key> (each also
@@ -55,12 +56,12 @@ import roots  # noqa: E402
 HELP = """\
 Ask the corpus what it knows about an artifact.
 
-  tools/fabric/query.sh adr ADR-054       # who learned from it, where it landed
-  tools/fabric/query.sh pr 428
-  tools/fabric/query.sh migration 0007
-  tools/fabric/query.sh file apps/status_web
-  tools/fabric/query.sh obs <content-hash>
-  tools/fabric/query.sh roles             # what roles exist, per project, and how big they are
+  fabric-query adr ADR-054       # who learned from it, where it landed
+  fabric-query pr 428
+  fabric-query migration 0007
+  fabric-query file apps/status_web
+  fabric-query obs <content-hash>
+  fabric-query roles             # what roles exist, per project, and how big they are
 
 The citation graph is small — thousands of edges — so it lives in the
 committed JSON the assembler writes (<working copy>/.agent-fabric/memory/
