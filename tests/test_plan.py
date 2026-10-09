@@ -428,6 +428,29 @@ def _():
             check("hosts registry could not be read" in str(e), str(e))
 
 
+@case("the default runner is the process-group killer: a timeout leaves no grandchild running")
+def _():
+    check(plan.FleetReader().run is plan.bounded_run)
+    import time
+    with tempfile.TemporaryDirectory() as tmp:
+        pidfile = os.path.join(tmp, "pid")
+        try:
+            plan.bounded_run(["sh", "-c", f"sleep 30 & echo $! > {pidfile}; wait"], timeout=1)
+        except subprocess.TimeoutExpired:
+            pass
+        else:
+            check(False, "no timeout")
+        pid = int(open(pidfile, encoding="utf-8").read())
+        for _ in range(50):
+            try:
+                os.kill(pid, 0)
+            except ProcessLookupError:
+                return
+            time.sleep(0.1)
+        os.kill(pid, 9)
+        check(False, "the grandchild outlived the timeout")
+
+
 def main() -> int:
     fails = 0
     for name, fn in CASES:
