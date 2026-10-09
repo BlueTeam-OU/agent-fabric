@@ -129,8 +129,8 @@ def main() -> int:
         for f in ("pre-commit", "commit-msg", "guarded-change.sh", "locale-carve-out.sh"):
             shutil.copy(os.path.join(HERE, "policies", "githooks", f), os.path.join(fab, "policies", "githooks"))
         shutil.copy(os.path.join(HERE, "runtime", "identity.py"), os.path.join(fab, "runtime"))
-        shutil.copy(os.path.join(HERE, "tools", "fabric", "guards", "contributors.py"),
-                    os.path.join(fab, "tools", "fabric", "guards"))
+        for g in ("contributors.py", "commit_kind.py"):
+            shutil.copy(os.path.join(HERE, "tools", "fabric", "guards", g), os.path.join(fab, "tools", "fabric", "guards"))
         with open(os.path.join(fab, "policies", "authority.json"), "w") as f:
             json.dump(AUTHORITY, f)
         for p in ("src/a.py", "tools/a.py", "bin/fabric-x"):

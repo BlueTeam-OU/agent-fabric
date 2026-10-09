@@ -32,4 +32,18 @@ The question is whether the session's own judgement on Sonnet 5.5 produces work 
 
 ## Results
 
-Not yet measured.
+First measurement, 2026-10-08, from the posted blind reviews and Codex threads of three PRs (read by a read-only agent from the PRs, not from the authors' accounts):
+
+| | #119 roots seam (python-dev-03, Sonnet) | #116 forge scripts (python-dev-02, Opus) | #118 human login + job queue (python-dev-01, Opus) |
+|---|---|---|---|
+| Work commits at the first review | 6 | 13 | 2, then 5 when the queue was added |
+| P1+P2 in the first blind round | 2 | 2 | 1, then 3 |
+| ... per work commit | 0.33 | 0.15 | 0.5, then 0.6 |
+| Rounds until no P1 or P2 is open | 2 | 4 (9 to a round with nothing on the change) | 1 and 1 (3 and 4 to the last P3) |
+| Review-fix commits | 4 | 12 | 6 |
+| Codex threads | none | 4, labelled P2 | 3: two labelled P1, one P2 |
+| A fix round that opened a new finding | no (one P3 flaw in a fix) | yes: four P3s in successive fixes of one shell-line parser | yes: P3s in successive fixes of the claim-outcome hint |
+
+What it shows: on the deciding measures (P1+P2 per work commit in the first round, rounds until none is open), #119 sits inside the range the two Opus PRs span; on the others it does better than both: the fewest fix commits, no Codex thread, and no fix round that opened something new. CI failures after the first push, listed under what is measured, were not read for this first measurement. What it does not show: the three PRs are of different kinds (a refactor across readers, a parser-heavy port, a security-relevant provisioning change plus a new protocol), so the comparison is of one PR each; and #119 is not yet merged, so its last rounds after the merge with main are still to come.
+
+By the rule above, python-dev-03's numbers are within the range. The role default moves to Sonnet when #119 merges with no new P1 or P2, on the owner's word, since it relaunches python-dev-01 and -02 on another model; until then python-dev-03 stays on Sonnet for its next PRs (the tools report and `fabric-pr`), which are the second measurement if the owner wants one.

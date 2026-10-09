@@ -16,21 +16,24 @@ import { fileURLToPath } from 'node:url';
 import { scratch } from '../../../tests/scratch.mjs';
 import { whoami, FABRIC_ROOT, findTaxonomy, loadTaxonomy, identity, integrationConfig, inboxRoot, token, syncedToken, syncedVar, shellWord, api, apiTimeoutMs, API_TIMEOUT_MS, relayFailure, holdStatus } from '../gzcoord.mjs';
 
-const CATALOG = fileURLToPath(new URL('../../../identities/roles/catalog.json', import.meta.url));
+// The catalogue and the gzapp integration are instance data (ADR-045 §5 rule 3): read from an
+// operator tree of the test's own, a copy of the fixture's (never this checkout's live files),
+// whatever AGENT_FABRIC_OPERATOR the run had.
+const FIXTURE = fileURLToPath(new URL('../../../tests/fixtures/gzcoord-operator/', import.meta.url));
+const CATALOG = path.join(FIXTURE, 'identities', 'roles', 'catalog.json');
 const taxonomy = loadTaxonomy(CATALOG);
 const login = os.userInfo().username;
-// The catalogue and the gzapp integration are instance data (ADR-045): read from an operator
-// tree of the test's own, a copy of this checkout's, whatever AGENT_FABRIC_OPERATOR the run had.
 const OPERATOR = scratch('gzcoord-operator-');
 for (const rel of ['identities/roles/catalog.json', 'projects/gzapp/integration/gzcoord/config.json']) {
   fs.mkdirSync(path.dirname(path.join(OPERATOR, rel)), { recursive: true });
-  fs.copyFileSync(fileURLToPath(new URL(`../../../${rel}`, import.meta.url)), path.join(OPERATOR, rel));
+  fs.copyFileSync(path.join(FIXTURE, rel), path.join(OPERATOR, rel));
 }
 process.env.AGENT_FABRIC_OPERATOR = OPERATOR;
 
 test('FABRIC_ROOT is the checkout this module sits in, and the catalogue is found under it', () => {
   assert.equal(FABRIC_ROOT, process.env.AGENT_FABRIC_ROOT ?? path.resolve(import.meta.dirname, '..', '..', '..'));
-  assert.ok(findTaxonomy().endsWith('/identities/roles/catalog.json'));
+  assert.equal(findTaxonomy(), path.join(OPERATOR, 'identities', 'roles', 'catalog.json'));
+  assert.ok(loadTaxonomy(findTaxonomy()).roles.has('fixture-only-role'), 'the operator\'s catalogue, not the live one');
   assert.equal(taxonomy.path, CATALOG);
   assert.ok(taxonomy.roles.has('python-dev'));
   const empty = path.join(scratch('catalog-'), 'catalog.json');
@@ -64,6 +67,20 @@ const withFixture = (state, fn) => {
   }
 };
 const bound = (role) => JSON.stringify({ agent: login, host: 'h', role, updated_at: 'x' });
+
+// The fake interpreter answers, but only after 3 s: with the bound,
+// whoami() has given up and taken the marked fallback; without it, the
+// late answer comes back as the identity. One process, so the kill at
+// the bound leaves nothing running.
+test('whoami: a hung identity.py takes the marked fallback within the bound', () => {
+  const bin = scratch('whoami-bin-');
+  fs.writeFileSync(path.join(bin, 'python3'), '#!/usr/bin/env node\nsetTimeout(() => console.log(JSON.stringify({ agent: "late" })), 3000);\n', { mode: 0o755 });
+  const saved = process.env.PATH; process.env.PATH = `${bin}:${saved}`;
+  try {
+    const me = whoami({ timeoutMs: 300 });
+    assert.equal(me.fallback, true); assert.equal(me.agent, os.userInfo().username);
+  } finally { process.env.PATH = saved; }
+});
 
 test('whoami: the agent is the effective login, never the directory', () => {
   const me = whoami();
@@ -314,6 +331,8 @@ test('api sends the bearer token and JSON, a refusal throws with its status, and
   // A relay that never answers is an error within the bound, not a hang.
   await assert.rejects(api('tok', '/silent', { relayUrl, timeoutMs: 200 }),
     e => e.timedOut === true && e.status === undefined && e.message === '/silent -> no answer within 0.2 s');
+  // A bound with a fraction (one worked out from a clock) is a timeout too, never a RangeError.
+  await assert.rejects(api('tok', '/silent', { relayUrl, timeoutMs: 200.5 }), e => e.timedOut === true);
   // The bound outlasts the wait a long poll asks of the relay.
   assert.equal(apiTimeoutMs('/api/messages?channel=c'), API_TIMEOUT_MS);
   assert.equal(apiTimeoutMs('/api/wait?channel=c&timeout_seconds=55'), API_TIMEOUT_MS + 55000);

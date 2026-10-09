@@ -34,7 +34,7 @@ class Fixture:
     def __init__(self, tmp: str, role: str = "backend-dev", brief: bool = True):
         self.root = os.path.join(tmp, "fabric")
         self.state = os.path.join(tmp, "state")
-        for rel in ("tools/fabric/layout.py", "tools/fabric/workingcopy.py",
+        for rel in ("tools/fabric/layout.py", "tools/fabric/workingcopy.py", "tools/fabric/roots.py",
                     "tools/fabric/launch_prompt.py", "runtime/identity.py"):
             os.makedirs(os.path.dirname(os.path.join(self.root, rel)), exist_ok=True)
             shutil.copy2(os.path.join(ROOT, rel), os.path.join(self.root, rel))

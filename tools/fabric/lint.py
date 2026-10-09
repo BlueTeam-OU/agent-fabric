@@ -63,6 +63,8 @@ _spec = importlib.util.spec_from_file_location(
     submodule_search_locations=[os.path.join(os.path.dirname(os.path.realpath(__file__)), "lint_rules")])
 sys.modules["fabric_lint_rules"] = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(sys.modules["fabric_lint_rules"])
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import roots  # noqa: E402
 # Every name the parts define, from here as before: tests and the memory-write
 # hook reach them as lint.<name>.
 from fabric_lint_rules.base import layout, workingcopy  # noqa: E402, F401
@@ -119,7 +121,7 @@ def _catalog_roles(root: str) -> set[str] | None:
     """The catalogue's role ids; None when it cannot be read, so the
     finding names the catalogue, not the role (review of #92)."""
     try:
-        with open(os.path.join(root, "identities", "roles", "catalog.json"), encoding="utf-8") as f:
+        with open(roots.role_catalog(engine=root), encoding="utf-8") as f:
             return {r["id"] for r in json.load(f).get("roles", [])}
     except (OSError, ValueError, KeyError, TypeError, AttributeError):
         return None
@@ -248,7 +250,7 @@ def arm_boundary_findings(root: str, base_ref: str = "origin/main") -> list[str]
         now = {r for r in _tracked(root) if re.fullmatch(r"projects/[^/]+/integration/gh/arm\.json", r)}
         removed = sorted(before - now)
         try:
-            with open(os.path.join(root, "projects", "registry.json"), encoding="utf-8") as fh:
+            with open(roots.projects_registry(engine=root), encoding="utf-8") as fh:
                 registered = set((json.load(fh).get("projects") or {}))
         except (OSError, ValueError, AttributeError) as e:
             # Unknown is not "no project": an unreadable registry would
@@ -329,7 +331,7 @@ def contributor_findings(root: str) -> list[str]:
     (contributors.py drops a half-written one, which then admits nothing —
     said here rather than found at a refused commit), names a catalogued role
     other than the owner, and reaches nothing in CONTRIBUTOR_NEVER."""
-    path = os.path.join(root, "policies", "authority.json")
+    path = roots.policy("authority.json", engine=root)
     try:
         text = open(path, encoding="utf-8").read()
         doc = json.loads(text)
@@ -348,7 +350,7 @@ def contributor_findings(root: str) -> list[str]:
     findings = []
     catalogued: set[str] | None
     try:
-        catalogued = {r["id"] for r in json.load(open(os.path.join(root, "identities", "roles", "catalog.json"),
+        catalogued = {r["id"] for r in json.load(open(roots.role_catalog(engine=root),
                                                         encoding="utf-8"))["roles"]}
     except (OSError, ValueError, KeyError, TypeError) as e:
         catalogued = None
@@ -466,7 +468,7 @@ def main() -> int:
     # yet moved, under projects/<id>/ here. Judged for every project whose
     # taxonomy this run can reach.
     taxonomy_schema = load_schema(root, os.path.join("projects", "schemas"), "taxonomy")
-    projects_root = os.path.join(root, "projects")
+    projects_root = roots.projects_dir(engine=root)
     project_ids: list[str] = []
     taxonomy_roles: dict[str, set[str]] = {}   # project id -> the roles its taxonomy binds
     registry_ids: list[str] = []
@@ -483,7 +485,7 @@ def main() -> int:
             if not tax_path:
                 continue
             project_ids.append(pid)
-            where = (f"projects/{pid}/taxonomy.json" if tax_path.startswith(root)
+            where = (f"projects/{pid}/taxonomy.json" if tax_path.startswith(roots.operator_root(engine=root))
                      else f"{pid}:{layout.PROJECT_DIRNAME}/taxonomy.json")
             wc_root = layout.working_copy_for(pid)
             if wc_root:
@@ -548,7 +550,7 @@ def main() -> int:
 
     # --- routing profiles --------------------------------------------------
     profiles_schema = load_schema(root, os.path.join("routing", "schemas"), "model-profiles")
-    profiles_path = os.path.join(root, "routing", "profiles.json")
+    profiles_path = roots.routing_profiles(engine=root)
     if profiles_schema and os.path.exists(profiles_path):
         profiles = load_json(profiles_path, "routing/profiles.json", findings)
         if profiles is not None:
@@ -590,7 +592,7 @@ def main() -> int:
         findings += i18n_dictionary_findings(role, role_path)
         findings += locale_alignment_findings(role, role_path)
         for rel in identity_slices[role]:
-            klass = (parse_frontmatter(open(os.path.join(root, rel), encoding="utf-8").read()) or {}).get("class")
+            klass = (parse_frontmatter(open(layout.fabric_path(rel), encoding="utf-8").read()) or {}).get("class")
             if klass not in layout.IDENTITY_CLASSES:
                 findings.append(f"{rel}: class {klass!r} is knowledge, not identity — it belongs under memory/")
     for role in known_roles - set(role_ids):
@@ -598,7 +600,7 @@ def main() -> int:
 
     # --- domain memory -----------------------------------------------------
     domain_slices: dict[str, list[str]] = {}
-    domains_root = os.path.join(root, "memory", "domains")
+    domains_root = roots.memory_dir("domains", engine=root)
     if os.path.isdir(domains_root):
         for domain in sorted(os.listdir(domains_root)):
             base = os.path.join(domains_root, domain)
@@ -633,7 +635,7 @@ def main() -> int:
             findings += flat_and_dir_findings(rbase, label)
             slices = lint_slices(rbase, label, template_schema, findings, shared_owner_count, descriptions, pid)
             # Fabric-side slices as THIS project's index links them.
-            fabric_side = {layout.link_rel(os.path.join(root, r), pid): r
+            fabric_side = {layout.link_rel(layout.fabric_path(r), pid): r
                            for r in domain_slices.get(role, []) + identity_slices.get(role, [])}
             expected = list(slices) + list(fabric_side)
             indexed_domains.add(role)

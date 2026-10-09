@@ -112,7 +112,10 @@ not on a pipe's exit status.
    `runtime/github/commit-class.sh` from the declaration: a merge is a
    merge; `Kind: work` is work; `Kind: review-fix` is a fix, unless what
    it answers is another pull request's review, when it is this one's
-   work; a revert and the commit it reverts, both in the range, count in
+   work, except a pull request folded into this one (closed unmerged,
+   its head inside this range), whose review fixes are fixes here (the
+   counter's reading of a fold is not yet built: until it is, the PR's
+   description names the folded PR and its fixes); a revert and the commit it reverts, both in the range, count in
    no column. The hook is the rule's only check until the branches opened
    before it have merged: a commit that reaches a branch without the
    hook is not refused in CI yet. A commit with no `Kind:` (made before
@@ -145,7 +148,7 @@ not on a pipe's exit status.
 7. No commit message or PR description carries `Co-authored-by:` or
    `Claude-Session:` as a trailer, a "Generated with Claude Code" footer or
    a session URL: `policies/githooks/commit-msg` refuses the message,
-   `policies/ban_generated_by_attribution.sh` checks every commit a branch
+   `tools/fabric/guards/ban_generated_by_attribution.py` checks every commit a branch
    adds and the PR description in CI and in `tests/run.sh`.
 8. agent-fabric's GitHub settings are the table in §6. A change to them
    is a change to this record, and `tools/fabric/github-repo-settings.sh`
@@ -224,3 +227,4 @@ The body above reads current; each change's full note is in [history/ADR-019-ame
 | 2026-10-05 | One required check | §5 rule 6, §6, §7: the ruleset requires CI's aggregate job `ci-ok` alone, in place of eleven per-leg names; the topics join the settings |
 | 2026-10-06 | One open pull request per agent and repository | title, §2, §5 rule 2, §8: the limit is per repository; a branch in another repository is never addable |
 | 2026-10-08 | Every commit declares its kind | §5 rule 3, §7: a `Kind:` trailer (`work` or `review-fix`) the commit-msg hook requires; the count reads it before the subject |
+| 2026-10-08 | A folded pull request's review fixes are fixes | §5 rule 3: a PR closed unmerged with its head inside this range was folded in; its review fixes count as fixes here, not as follow-up work |

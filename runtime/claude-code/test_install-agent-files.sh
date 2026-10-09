@@ -25,7 +25,7 @@ python3 -c 'import json, sys; d = json.load(open(sys.argv[1])); d["roles"], d["a
 cp "$REAL_ROOT/runtime/claude-code/aliases.json" "$REAL_ROOT/runtime/claude-code/install-agent-files.sh" "$FABRIC/runtime/claude-code/"
 cp -r "$REAL_ROOT/runtime/claude-code/agents" "$FABRIC/runtime/claude-code/agents"
 cp "$REAL_ROOT/runtime/identity.py" "$FABRIC/runtime/"
-cp "$REAL_ROOT/tools/fabric/routing.py" "$REAL_ROOT/tools/fabric/workingcopy.py" "$REAL_ROOT/tools/fabric/layout.py" "$REAL_ROOT/tools/fabric/install_agent_files.py" "$REAL_ROOT/tools/fabric/fabric_writes.py" "$FABRIC/tools/fabric/"
+cp "$REAL_ROOT/tools/fabric/routing.py" "$REAL_ROOT/tools/fabric/workingcopy.py" "$REAL_ROOT/tools/fabric/layout.py" "$REAL_ROOT/tools/fabric/install_agent_files.py" "$REAL_ROOT/tools/fabric/fabric_writes.py" "$REAL_ROOT/tools/fabric/roots.py" "$FABRIC/tools/fabric/"
 bind() { printf '{"agent":"%s","host":"%s","role":"%s","updated_at":"x"}\n' "$LOGIN" "$(hostname -s)" "$1" > "$STATE/agents/$LOGIN/binding.json"; }
 WORKER="$FABRIC/identities/roles/language-culture/locale/$SUFFIX/worker.md"
 mkdir -p "$(dirname "$WORKER")"

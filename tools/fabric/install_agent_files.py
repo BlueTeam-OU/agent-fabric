@@ -86,6 +86,7 @@ import tempfile
 FABRIC_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 import fabric_writes  # noqa: E402
+import roots  # noqa: E402
 
 CLASS_FILES = ("code-low.md", "code-medium.md", "code-high.md", "code-plan.md", "code-review.md")
 MARKER = b"agent-fabric"
@@ -293,7 +294,7 @@ class Installer:
         # hand-written `effort:` in its source (one writer, as for the classes),
         # so a level here would need a routed home first: the absence is a
         # decision, not an oversight (re-review of 2026-09-23).
-        src = os.path.join(self.root, "identities", "roles", "language-culture", "locale", suffix, "worker.md")
+        src = os.path.join(roots.locale_dir("language-culture", suffix, engine=self.root), "worker.md")
         dest = os.path.join(claude_home, "agents", "locale-worker.md")
         if role == "language-culture" and os.path.isfile(src):
             self.put(dest, _read(src))
@@ -308,7 +309,7 @@ class Installer:
         # language-culture login whose locale has a locale.json; removed — by the
         # server path in its args — from any other. The key it needs is synced,
         # never written here (docs/adr/ADR-027-language-and-culture-shape-the-work-the-bridge.md §5 rule 13).
-        locale_file = os.path.join(self.root, "identities", "roles", "language-culture", "locale", suffix, "locale.json")
+        locale_file = os.path.join(roots.locale_dir("language-culture", suffix, engine=self.root), "locale.json")
         claude_json = os.path.join(os.environ.get("CLAUDE_CONFIG_DIR") or home(), ".claude.json")
         mcp = os.path.join(self.root, "runtime", "mcp", "websearch-locale")
         flags = ["--dry-run"] if self.dry_run else []

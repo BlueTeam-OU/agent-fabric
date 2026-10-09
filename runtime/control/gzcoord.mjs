@@ -66,11 +66,11 @@ function bindingFile(agent) {
   return path.join(base, 'agents', agent, 'binding.json');
 }
 export const WHOAMI_TIMEOUT_MS = 15000;
-export function whoami() {
+export function whoami({ timeoutMs = WHOAMI_TIMEOUT_MS } = {}) {
   const script = path.join(FABRIC_ROOT, 'runtime', 'identity.py');
   // Bounded like every relay call: a hung identity.py takes the fallback
   // below, which says it is one (fallback: true), rather than holding the caller.
-  const r = spawnSync('python3', [script, '--json'], { encoding: 'utf8', timeout: WHOAMI_TIMEOUT_MS });
+  const r = spawnSync('python3', [script, '--json'], { encoding: 'utf8', timeout: timeoutMs });
   if (r.status === 0) { try { const me = JSON.parse(r.stdout); me.binding = bindingFile(me.agent); return me; } catch { /* fall through */ } }
   const agent = os.userInfo().username;
   let binding = {};
@@ -248,7 +248,9 @@ export async function api(tok, pathAndQuery, { relayUrl = RELAY, timeoutMs = api
   try {
     const r = await fetch(`${relayUrl}${pathAndQuery}`, {
       ...init,
-      signal: init.signal ?? AbortSignal.timeout(timeoutMs),
+      // Whole milliseconds: AbortSignal.timeout throws a RangeError on a
+      // fraction, which a bound worked out from a clock can be (review of #128).
+      signal: init.signal ?? AbortSignal.timeout(Math.max(1, Math.ceil(timeoutMs))),
       headers: { Authorization: `Bearer ${tok}`, 'Content-Type': 'application/json', ...(init.headers ?? {}) },
     });
     if (!r.ok) { const e = new Error(`${pathAndQuery} -> HTTP ${r.status}`); e.status = r.status; throw e; }

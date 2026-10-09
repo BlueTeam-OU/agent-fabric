@@ -161,10 +161,13 @@ def main() -> int:
             rm(fabric, state, repo)
             for d in ("runtime/openrouter", "runtime/claude-code", "tools/fabric", "projects", "runtime/mcp"):
                 os.makedirs(f"{fabric}/{d}")
-            shutil.copytree(f"{ROOT}/routing", f"{fabric}/routing")
-            d = json.loads(read(f"{fabric}/routing/profiles.json"))
-            d["roles"], d["agents"] = {}, {}
-            put(f"{fabric}/routing/profiles.json", json.dumps(d, indent=2))
+            # The engine's routing (capabilities, shims, schemas); the
+            # operator's half — the profile overlay and the review grade —
+            # from the frozen fixture, never the live files (ADR-045 §5 rule 2).
+            shutil.copytree(f"{ROOT}/routing", f"{fabric}/routing",
+                            ignore=lambda d, names: {"profiles.json", "policies"} & set(names) if d == f"{ROOT}/routing" else set())
+            shutil.copy(f"{ROOT}/tests/fixtures/routing-distinct/profiles.json", f"{fabric}/routing/")
+            shutil.copytree(f"{ROOT}/tests/fixtures/routing-distinct/policies", f"{fabric}/routing/policies")
             # Classes that differ, so a case can tell which one an export or
             # an agent file came from.
             for f in ("capabilities.json", "effort.json"):
@@ -186,7 +189,7 @@ def main() -> int:
             put(f"{fabric}/identities/roles/backend-dev/charter.md",
                 '---\nrole: backend-dev\nclass: charter\ndescription: "x"\ntier: 1\ndistilled_at: 2026-09-15\n---\n\n'
                 "# backend-dev — charter\n\nFIXTURE-CHARTER-LINE: the backend that owns meaning.\n")
-            shutil.copy(f"{ROOT}/projects/registry.json", f"{fabric}/projects/")
+            put(f"{fabric}/projects/registry.json", json.dumps({"projects": {}}))   # its own, never the live one
             binding()
             os.makedirs(repo)
             subprocess.run(["git", "init", "-q", repo], env=base, check=True, timeout=30)

@@ -1,0 +1,17 @@
+{
+  "version": 2,
+  "description": "Frozen 2026-10-08 from routing/profiles.json's defaults, roles and agents emptied: the operator layer (ADR-045 §5 rule 2) a launcher test reads, never the live one.",
+  "defaults": {
+    "providers": {
+      "openrouter": {
+        "session": "deepseek/deepseek-v4-pro-0813"
+      },
+      "anthropic": {
+        "session": "claude-opus-5-5"
+      }
+    },
+    "notes": "The session model is the main agent's, per provider: DeepSeek V4 Pro on the broker — the top tier, so the main conversation runs on the strongest admissible broker model (the owner, 2026-09-19; Sonnet 5 until then) — and Opus 5.5 on plain claude (the owner, 2026-09-24; Opus 5 from 2026-09-15). Its effort is routed (routing/effort.json), because Opus 5.5 defaults to medium where Opus 5 defaulted to high (docs/live-checks/2026-09-23-opus-5-5.md). the capability classes come from routing/capabilities.json unless a layer overrides one."
+  },
+  "roles": {},
+  "agents": {}
+}

@@ -42,7 +42,11 @@ import subprocess
 import sys
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-ADR_DIR = os.path.join("docs", "adr")
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import roots  # noqa: E402
+
+# A label in findings and the path git is asked about; never joined to a root.
+ADR_DIR = "docs/adr"
 FILE_RE = re.compile(r"^ADR-(\d{3})-([a-z0-9]+(?:-[a-z0-9]+)*)\.md$")
 H1_RE = re.compile(r"^# ADR-(\d{3}) — (.+?)\s*$")
 FIELD_RE = re.compile(r"^\*\*([A-Za-z ]+):\*\*\s*(.*?)\s*$")
@@ -76,7 +80,7 @@ def foreign_projects(root: str) -> set[str]:
     """The ids projects/registry.json knows, but this one: a citation named
     with one of them ("<project>'s ADR-075") is that project's, not ours."""
     try:
-        ids = set((json.load(open(os.path.join(root, "projects", "registry.json"), encoding="utf-8")).get("projects") or {}).keys())
+        ids = set((json.load(open(roots.projects_registry(root, engine=ROOT), encoding="utf-8")).get("projects") or {}).keys())
     except (OSError, ValueError):
         ids = set()
     return {i.lower() for i in ids} - {"agent-fabric"}
@@ -101,8 +105,16 @@ def within(root: str, rel: str) -> bool:
     return os.path.realpath(os.path.join(root, rel)).startswith(real_root + os.sep)
 
 
-def adr_dir(root: str) -> str:
-    return os.path.join(root, ADR_DIR)
+def adr_dir(root: str | None = None) -> str:
+    """The decision records are the organization's (ADR-045 rule 2): no root
+    given, they are the operator's; a root a tool was handed is the tree it means."""
+    return roots.adr_dir(root, engine=ROOT)
+
+
+def tree(root: str | None) -> str:
+    """The repository the records live in: what their Evidence paths and their
+    history are relative to."""
+    return root or roots.operator_root(engine=ROOT)
 
 
 # Who decided and when are the header's (Date, Decision Makers, Ratified)
@@ -189,7 +201,7 @@ def status_word(status: str) -> str:
     return status.split()[0] if status else ""
 
 
-def pillars(root: str) -> list[str]:
+def pillars(root: str | None) -> list[str]:
     """ADR-000 §5's table is the only list of pillars (agent-fabric ADR-001)."""
     d = adr_dir(root)
     zero = [f for f in os.listdir(d) if f.startswith("ADR-000-")] if os.path.isdir(d) else []
@@ -212,7 +224,7 @@ def history_notes(path: str) -> list[tuple[str, str]]:
     return out
 
 
-def load(root: str) -> tuple[list[dict], list[str]]:
+def load(root: str | None) -> tuple[list[dict], list[str]]:
     d = adr_dir(root)
     findings: list[str] = []
     adrs = []
@@ -231,7 +243,7 @@ def load(root: str) -> tuple[list[dict], list[str]]:
     return adrs, findings
 
 
-def index_rows(root: str, adrs: list[dict]) -> list[dict]:
+def index_rows(root: str | None, adrs: list[dict]) -> list[dict]:
     rows = []
     for a in adrs:
         hist = os.path.join(adr_dir(root), "history", f"ADR-{a['number']}-amendments.md")
@@ -268,7 +280,7 @@ def replace_table(readme: str, table: str) -> str | None:
     return head + table + tail
 
 
-def check(root: str = ROOT) -> list[str]:
+def check(root: str | None = None) -> list[str]:
     d = adr_dir(root)
     adrs, findings = load(root)
     if not adrs:
@@ -322,9 +334,9 @@ def check(root: str = ROOT) -> list[str]:
                 if p != "all" and p not in pill:
                     findings.append(f"{rel(a)}: **Pillar:** {p} is not in ADR-000 §5 ({', '.join(pill)})")
         for ev in [x.strip() for x in f.get("Evidence", "").split(",") if x.strip()]:
-            if not within(root, ev):
+            if not within(tree(root), ev):
                 findings.append(f"{rel(a)}: **Evidence:** {ev} is not a path inside the repository")
-            elif not os.path.exists(os.path.join(root, ev)):
+            elif not os.path.exists(os.path.join(tree(root), ev)):
                 findings.append(f"{rel(a)}: **Evidence:** {ev} does not exist")
         secs = [s for s in a["sections"] if s != "Amendments"]
         if secs != list(SECTIONS):
@@ -429,7 +441,7 @@ def check(root: str = ROOT) -> list[str]:
     return findings
 
 
-def write_index(root: str = ROOT) -> None:
+def write_index(root: str | None = None) -> None:
     adrs, _ = load(root)
     rows = index_rows(root, adrs)
     d = adr_dir(root)
@@ -443,7 +455,7 @@ def write_index(root: str = ROOT) -> None:
         fh.write(new)
 
 
-def cmd_new(root: str, slug: str, title: str) -> str:
+def cmd_new(root: str | None, slug: str, title: str) -> str:
     if not re.match(r"^[a-z0-9]+(?:-[a-z0-9]+)*$", slug):
         raise SystemExit("adr: the slug is lowercase-kebab")
     adrs, _ = load(root)
@@ -456,7 +468,7 @@ def cmd_new(root: str, slug: str, title: str) -> str:
     return path
 
 
-def cmd_amend(root: str, num: str, title: str, date: str) -> None:
+def cmd_amend(root: str | None, num: str, title: str, date: str) -> None:
     num = f"{int(num):03d}"
     d = adr_dir(root)
     main = [f for f in os.listdir(d) if f.startswith(f"ADR-{num}-")]
@@ -479,7 +491,7 @@ def cmd_amend(root: str, num: str, title: str, date: str) -> None:
     print(f"adr: amended ADR-{num} — edit §1–§8 in place, fill the note and the Effect cell, add '- A {date} — …' to its DIGEST entry, then adr.py index --write")
 
 
-def cmd_lookup(root: str, words: list[str]) -> list[str]:
+def cmd_lookup(root: str | None, words: list[str]) -> list[str]:
     text = read(os.path.join(adr_dir(root), "DIGEST.md"))
     if not words:
         # The table of which record answers what: the part of the DIGEST a
@@ -603,7 +615,7 @@ def default_range(root: str) -> tuple[str, str] | None:
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="adr.py", description=__doc__.split("\n\n")[0])
-    ap.add_argument("--root", default=ROOT)
+    ap.add_argument("--root", default=None)
     sub = ap.add_subparsers(dest="cmd", required=True)
     sub.add_parser("check")
     p = sub.add_parser("index"); p.add_argument("--write", action="store_true", required=True)
@@ -631,9 +643,9 @@ def main(argv: list[str] | None = None) -> int:
         print("\n\n".join(hits) if hits else "adr: no DIGEST entry mentions all of that"); return 0 if hits else 1
     if a.cmd == "range-check":
         if a.base is None:
-            if not os.path.isdir(os.path.join(a.root, ADR_DIR)):
+            if not os.path.isdir(adr_dir(a.root)):
                 print("adr range-check: no docs/adr/ — nothing to check"); return 0
-            found = default_range(a.root)
+            found = default_range(tree(a.root))
             if found is None:
                 print("adr range-check: no base to compare with — not enforced"); return 0
             a.base, a.head = found
@@ -651,7 +663,7 @@ def main(argv: list[str] | None = None) -> int:
             return 2
         a.head = a.head or "HEAD"
         try:
-            f = range_check(a.root, a.base, a.head)
+            f = range_check(tree(a.root), a.base, a.head)
         except subprocess.CalledProcessError as e:
             print(f"adr range-check: git could not read {a.base}..{a.head}: {(e.stderr or '').strip()[-200:]}", file=sys.stderr)
             return 2

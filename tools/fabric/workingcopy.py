@@ -19,7 +19,11 @@ import json
 import os
 import re
 import subprocess
+import sys
 from typing import Any
+
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import roots  # noqa: E402
 
 FABRIC_ROOT = os.environ.get("AGENT_FABRIC_ROOT") or os.path.dirname(
     os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
@@ -117,7 +121,7 @@ def normalize_remote(url: str) -> str:
 
 
 def load_registry(path: str | None = None) -> dict[str, Any]:
-    path = path or os.path.join(FABRIC_ROOT, "projects", "registry.json")
+    path = path or roots.projects_registry(engine=FABRIC_ROOT)
     if not os.path.exists(path):
         return {"version": 1, "projects": {}}
     with open(path, encoding="utf-8") as fh:
@@ -172,7 +176,7 @@ if __name__ == "__main__":
     import sys
     print(json.dumps(resolve(sys.argv[1] if len(sys.argv) > 1 else os.getcwd()), indent=2, sort_keys=True))
 
-def sibling_working_copies(root: str, project_dirname: str = ".agent-fabric", fabric_project_id: str = "agent-fabric") -> dict[str, str]:
+def sibling_working_copies(root: str, fabric_project_id: str = "agent-fabric") -> dict[str, str]:
     """Registered projects whose working copy sits beside this checkout
     (the workspace layout: projects/<clone>/ for each), with a
     .agent-fabric/memory/ to lint. Keyed by project id. Shared by lint
@@ -180,14 +184,16 @@ def sibling_working_copies(root: str, project_dirname: str = ".agent-fabric", fa
     every fabric run must see, the hygiene lists included."""
     out: dict[str, str] = {}
     parent = os.path.dirname(os.path.abspath(root))
-    registry = load_registry(os.path.join(root, "projects", "registry.json"))
+    registry = load_registry(roots.projects_registry(engine=root))
     try:
         names = sorted(os.listdir(parent))
     except OSError:
         return out
     for name in names:
         path = os.path.join(parent, name)
-        if path == os.path.abspath(root) or not os.path.isdir(os.path.join(path, project_dirname, "memory")):
+        # The project's own tree, never the operator's corpus: roots does not
+        # resolve it, and an operator's move must not move it.
+        if path == os.path.abspath(root) or not os.path.isdir(os.path.join(path, ".agent-fabric", "memory")):
             continue
         pid = resolve(path, registry).get("project")
         if pid and pid != fabric_project_id and pid not in out:

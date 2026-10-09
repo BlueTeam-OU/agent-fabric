@@ -120,6 +120,8 @@ SLOT = re.compile(r"^\*\*(.+?)\*\*:")
 
 
 FABRIC_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.join(FABRIC_ROOT, "tools", "fabric"))
+import roots  # noqa: E402
 
 STATUS_LINE = {"type": "command",
                "command": f'bash "{os.path.join(FABRIC_ROOT, "runtime", "claude-code", "hooks", "statusline.sh")}"'}
@@ -284,8 +286,10 @@ def with_fabric_hooks(hooks: dict) -> dict:
 
 
 # The environment override is for a test, which must never write the
-# checkout's own policy (re-review of #74).
-AUTO_MODE_POLICY = os.environ.get("AGENT_FABRIC_AUTO_MODE_POLICY") or os.path.join(FABRIC_ROOT, "policies", "auto-mode.json")
+# checkout's own policy (re-review of #74). Otherwise the policy is
+# instance data (ADR-045 §5 rule 2), read from the operator's tree
+# (AGENT_FABRIC_OPERATOR, else this checkout) through roots.
+AUTO_MODE_POLICY = os.environ.get("AGENT_FABRIC_AUTO_MODE_POLICY") or roots.policy("auto-mode.json", engine=FABRIC_ROOT)
 
 
 def auto_mode_defaults() -> dict | None:

@@ -54,14 +54,22 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 
 FABRIC_ROOT = os.environ.get("AGENT_FABRIC_ROOT") or os.path.dirname(
     os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
 
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import roots  # noqa: E402
+
 # The project-side directory, and how a project's INDEX.md reaches back
 # into this repository.
 PROJECT_DIRNAME = ".agent-fabric"
-PROJECT_MEMORY_SUBDIR = os.path.join(PROJECT_DIRNAME, "memory")
+# The literal rather than PROJECT_DIRNAME: the seam scan
+# (tests/test_roots_seam.py) tells a project's own .agent-fabric/ tree
+# from the operator's corpus by that literal in the join. Both name the
+# same directory.
+PROJECT_MEMORY_SUBDIR = os.path.join(".agent-fabric", "memory")
 PROJECT_ROLES_SUBDIR = os.path.join(PROJECT_DIRNAME, "roles")
 FABRIC_LINK_PREFIX = "../agent-fabric"
 FABRIC_PROJECT_ID = "agent-fabric"
@@ -120,14 +128,14 @@ def project_ids() -> list[str]:
     """Every project the registry knows, sorted — the set whose hygiene
     lists a slice is held to, since a slice travels into every one."""
     try:
-        with open(os.path.join(FABRIC_ROOT, "projects", "registry.json"), encoding="utf-8") as fh:
+        with open(roots.projects_registry(engine=FABRIC_ROOT), encoding="utf-8") as fh:
             return sorted((json.load(fh).get("projects") or {}).keys())
     except (OSError, ValueError):
         return []
 
 
 def roles_dir() -> str:
-    return os.path.join(FABRIC_ROOT, "identities", "roles")
+    return roots.roles_dir(engine=FABRIC_ROOT)
 
 
 def prompt_dir() -> str:
@@ -143,7 +151,7 @@ def role_dir(role: str) -> str:
 
 
 def catalog_path() -> str:
-    return os.path.join(roles_dir(), "catalog.json")
+    return roots.role_catalog(engine=FABRIC_ROOT)
 
 
 def list_roles() -> list[str]:
@@ -155,15 +163,15 @@ def list_roles() -> list[str]:
 
 
 def domain_dir(domain: str) -> str:
-    return os.path.join(FABRIC_ROOT, "memory", "domains", domain)
+    return roots.memory_dir("domains", domain, engine=FABRIC_ROOT)
 
 
 def shared_dir() -> str:
-    return os.path.join(FABRIC_ROOT, "memory", "shared")
+    return roots.memory_dir("shared", engine=FABRIC_ROOT)
 
 
 def agent_memory_dir(agent: str) -> str:
-    return os.path.join(FABRIC_ROOT, "memory", "agents", agent)
+    return roots.memory_dir("agents", agent, engine=FABRIC_ROOT)
 
 
 # --- project homes ----------------------------------------------------------
@@ -259,7 +267,7 @@ def project_taxonomy_path(project: str) -> str | None:
         candidate = os.path.join(wc, PROJECT_DIRNAME, "taxonomy.json")
         if os.path.isfile(candidate):
             return candidate
-    here = os.path.join(FABRIC_ROOT, "projects", project, "taxonomy.json")
+    here = os.path.join(roots.projects_dir(engine=FABRIC_ROOT), project, "taxonomy.json")
     return here if os.path.isfile(here) else None
 
 
@@ -322,7 +330,7 @@ def load_hygiene_patterns(projects: list[str] | None = None, for_project: str | 
     # never by name — a privacy rule, so it holds in every project), then
     # each project's.
     sources: list[tuple[str, str, str | None]] = [
-        (os.path.join(FABRIC_ROOT, "policies", "hygiene.json"), "fabric hygiene", None)]
+        (roots.policy("hygiene.json", engine=FABRIC_ROOT), "fabric hygiene", None)]
     for pid in projects or []:
         path = project_hygiene_path(pid)
         if path:
@@ -395,34 +403,72 @@ def shared_home(klass: str, project: str | None = None) -> str:
     return os.path.join(project_memory_root(project), "shared")
 
 
+def fabric_sides() -> list[str]:
+    """The trees an index reaches through `../agent-fabric/`: the operator's
+    (instance data: slices, charters, briefs; ADR-045 rule 2) first, then
+    this checkout. One tree until an operator is exported, and until stage 4
+    both are named by the one sibling prefix."""
+    engine = os.path.abspath(FABRIC_ROOT)
+    operator = os.path.abspath(roots.operator_root(engine=engine))
+    return [operator] if operator == engine else [operator, engine]
+
+
 def link_rel(path: str, project: str | None = None) -> str:
     """A path as an index writes it. Relative to the project's link root; a
     fabric-side path seen from a project's repository is linked through the
     sibling checkout (`../agent-fabric/...`)."""
     path = os.path.abspath(path)
-    base = project_link_root(project) if project else FABRIC_ROOT
     fabric = os.path.abspath(FABRIC_ROOT)
+    # A file in the operator's tree is linked as its place in this checkout
+    # would be: an index's links and the fabric's own labels (`identities/...`)
+    # read the same whichever tree holds it, and fabric_path() finds it again
+    # (until stage 4 both are reached through the one sibling prefix). Not
+    # when that tree is the project's own working copy: its slices are linked
+    # from where it stands, like any project's (re-review of #125).
+    base = os.path.abspath(project_link_root(project)) if project else fabric
+    for side in fabric_sides():
+        if os.path.commonpath([path, side]) == side:
+            if os.path.abspath(side) != base:
+                path = os.path.join(fabric, os.path.relpath(path, side))
+            break
     # The fabric first, when it is not the base itself: a checkout of the
     # fabric may sit INSIDE the working copy (CI checks it out under the
     # workspace), and a fabric slice is still reached through the sibling
     # prefix, never through wherever this run happened to put the checkout.
     if base != fabric and os.path.commonpath([path, fabric]) == fabric:
         return os.path.join(FABRIC_LINK_PREFIX, os.path.relpath(path, fabric))
-    if os.path.commonpath([path, base]) == base:
-        return os.path.relpath(path, base)
     return os.path.relpath(path, base)
 
 
 def resolve_link(link: str, project: str | None = None) -> str:
     """The absolute path an index link denotes (the inverse of link_rel)."""
     if link.startswith(FABRIC_LINK_PREFIX + "/"):
-        return os.path.join(FABRIC_ROOT, link[len(FABRIC_LINK_PREFIX) + 1:])
+        rel = link[len(FABRIC_LINK_PREFIX) + 1:]
+        sides = fabric_sides()
+        # The operator's tree holds what an index links to; a file found only
+        # in the engine's (a template) is the engine's.
+        return next((os.path.join(t, rel) for t in sides if os.path.exists(os.path.join(t, rel))),
+                    os.path.join(sides[0], rel))
     base = project_link_root(project) if project else FABRIC_ROOT
     return os.path.join(base, link)
 
 
+def fabric_path(rel: str) -> str:
+    """The file a fabric-relative path (link_rel's label for the fabric's own
+    view) names: in the operator's tree when it is there, else this checkout's."""
+    sides = fabric_sides()
+    return next((os.path.join(t, rel) for t in sides if os.path.exists(os.path.join(t, rel))),
+                os.path.join(sides[0], rel))
+
+
 def root_rel(path: str) -> str:
-    """A fabric-side path relative to this checkout (lint labels, provenance)."""
+    """A fabric-side path relative to the tree it lies in (lint labels,
+    provenance): the operator's or this checkout's, so a label reads the same
+    whichever holds the file."""
+    path = os.path.abspath(path)
+    for tree in fabric_sides():
+        if os.path.commonpath([path, tree]) == tree:
+            return os.path.relpath(path, tree)
     return os.path.relpath(path, FABRIC_ROOT)
 
 

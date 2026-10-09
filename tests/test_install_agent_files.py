@@ -77,7 +77,8 @@ def main() -> int:
             for d in (home, cfg, os.path.join(root, "tools", "fabric"), os.path.join(root, "runtime", "mcp", "websearch-locale")):
                 os.makedirs(d)
             shutil.copy(MODULE, os.path.join(root, "tools", "fabric", "install_agent_files.py"))
-            shutil.copy(os.path.join(os.path.dirname(MODULE), "fabric_writes.py"), os.path.join(root, "tools", "fabric"))
+            for sibling in ("fabric_writes.py", "roots.py"):
+                shutil.copy(os.path.join(os.path.dirname(MODULE), sibling), os.path.join(root, "tools", "fabric"))
             shutil.copytree(AGENTS, os.path.join(root, "runtime", "claude-code", "agents"))
             for rel, body in (("tools/fabric/routing.py", ROUTING_STUB), ("runtime/identity.py", IDENTITY_STUB),
                               ("runtime/mcp/websearch-locale/install.py", INSTALL_STUB)):

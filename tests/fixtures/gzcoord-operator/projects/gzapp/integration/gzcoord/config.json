@@ -1,0 +1,7 @@
+{
+  "description": "Fixture: gzapp's GZCoord integration as the protocol suite reads it (relay, channel, token file, runtime dir); never the live file.",
+  "relay_url": "http://127.0.0.1:8765",
+  "channel": "gzapp:gzcoord",
+  "token_env_file": "infra/local/.env.local",
+  "relay_runtime_dir": ".gzcoord"
+}

@@ -33,6 +33,8 @@ HOOKS = os.path.abspath(os.environ.get("GITHOOKS_DIR") or os.path.join(HERE, "po
 if not os.path.isfile(os.path.join(HOOKS, "pre-commit")):
     sys.exit(f"test: hooks not found at {HOOKS}")
 FABRIC = os.path.normpath(os.path.join(HOOKS, "..", ".."))
+sys.path.insert(0, os.path.join(HERE, "tests"))
+from instance_fixtures import write_registry  # noqa: E402
 
 T = tempfile.mkdtemp(prefix="test_githooks_cli.")
 STATE = f"{T}/state"
@@ -205,6 +207,8 @@ def run() -> None:
     for name in ("pre-commit", "commit-msg", "guarded-change.sh", "locale-carve-out.sh"):
         shutil.copy2(f"{HOOKS}/{name}", f"{REPO}/policies/githooks/")
     shutil.copy2(f"{FABRIC}/runtime/identity.py", f"{REPO}/runtime/")   # the hooks read the binding through their own fabric's resolver
+    os.makedirs(f"{REPO}/tools/fabric/guards")
+    shutil.copy2(f"{FABRIC}/tools/fabric/guards/commit_kind.py", f"{REPO}/tools/fabric/guards/")   # commit-msg's Kind rule
     git("config", "core.hooksPath", f"{REPO}/policies/githooks")
     git("add", "-A"); git("-c", "core.hooksPath=/dev/null", "commit", "-qm", "hooks in place")
     check("backend-dev bound: a code change in the fabric is refused",
@@ -219,9 +223,10 @@ def run() -> None:
     for d in ("tools/fabric", "docs", "projects"):
         os.makedirs(f"{REPO}/{d}", exist_ok=True)
     shutil.copy2(f"{FABRIC}/tools/fabric/adr.py", f"{REPO}/tools/fabric/")
+    shutil.copy2(f"{FABRIC}/tools/fabric/roots.py", f"{REPO}/tools/fabric/")   # adr.py reads its tree through roots (ADR-045)
     for d in ("adr", "live-checks"):
         shutil.copytree(f"{FABRIC}/docs/{d}", f"{REPO}/docs/{d}", dirs_exist_ok=True)
-    shutil.copy2(f"{FABRIC}/projects/registry.json", f"{REPO}/projects/")
+    write_registry(f"{REPO}/projects")   # the fixture's, never the live one (ADR-045 §5 rule 2)
     git("add", "-A"); git("-c", "core.hooksPath=/dev/null", "commit", "-qm", "records in place")
     check("a consistent change to docs/adr/ commits",
           try_commit("docs/adr/DIGEST.md", "a note in the digest") == 0, f"a consistent records change was refused\n{err}")
@@ -479,6 +484,13 @@ def run() -> None:
     git("reset", "-q", "--hard")
     rc = commit_rc("commit", "-q", "--amend", "-m", "fold side, reworded\n\nwrapped onto\na second line", kind=False)
     check("a merge reworded by --amend is still the merge", rc == 0, f"rc={rc}\n{err}")
+    rc = commit_rc("commit", "-q", "--amen", "--no-edit", kind=False)
+    check("…and by an abbreviated --amen, as git accepts it", rc == 0, f"rc={rc}\n{err}")
+    put("src/a.txt", "more\n", "a"); git("add", "-A")
+    rc = commit_rc("commit", "-q", "-m", "--amend", kind=False)
+    check("a message that reads --amend is not an amend: a new commit on a merge is refused (review of #120)",
+          rc == 1 and "Kind: work" in err, f"rc={rc}\n{err}")
+    git("reset", "-q", "--hard")
 
     # What git runs the hook for, measured on 2.56 and pinned here: a plain
     # `git revert` and a rebase's picks run none, so a branch made before
@@ -502,6 +514,12 @@ def run() -> None:
     check("a reword runs it: an undeclared message is refused, naming the trailer",
           rc != 0 and "Kind: work" in err, f"rc={rc}\n{err}")
     git("rebase", "--abort")
+    put("src/a.txt", "one more\n", "a")
+    git("add", "-A"); git("-c", "core.hooksPath=/dev/null", "commit", "-qm", "also before the rule")
+    rc, _, err = git("-c", "sequence.editor=sed -i 2s/^pick/squash/", "-c", "core.editor=true",
+                     "rebase", "-q", "-i", "HEAD~2", state=True)
+    check("a squash runs none (measured): undeclared commits squash into an undeclared one",
+          rc == 0 and not has(r"^Kind:", msg()), f"rc={rc}\n{err}")
 
     print()
     section("in a managed project, its own docs/adr/ is its own")
