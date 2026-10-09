@@ -79,7 +79,10 @@ def main() -> int:
 
         def start(*args: str) -> subprocess.Popen:
             return subprocess.Popen([sys.executable, "-I", MOVETO, "--enter", home2, "t", *args], env=env2, stdin=subprocess.PIPE,
-                                    stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, start_new_session=True)
+                                    stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, start_new_session=True,
+                                    # A runner started in the background has SIGINT ignored, which every child inherits: the
+                                    # cases that send Ctrl-C start the entry with the default, as a terminal's job has.
+                                    preexec_fn=lambda: signal.signal(signal.SIGINT, signal.SIG_DFL))
         p = start()
         for _ in range(300):          # the pull has started: the interpreter is up and the handler installed
             if os.path.exists(os.path.join(tmp, "pulling")):
