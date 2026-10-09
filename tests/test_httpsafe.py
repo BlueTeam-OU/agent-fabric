@@ -5,6 +5,7 @@ own default, which does leak, so a pass means the guard did the work."""
 from __future__ import annotations
 
 import http.server
+import importlib
 import os
 import socket
 import sys
@@ -130,7 +131,8 @@ def main() -> int:
             c.sendall(b"HTTP/1.1 502 x\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
             c.close()
     threading.Thread(target=proxy, daemon=True).start()
-    saved = {k: os.environ.get(k) for k in ("http_proxy", "HTTP_PROXY", "https_proxy", "HTTPS_PROXY", "no_proxy", "NO_PROXY")}
+    saved = {k: os.environ.get(k) for k in ("http_proxy", "HTTP_PROXY", "https_proxy", "HTTPS_PROXY", "all_proxy", "ALL_PROXY",
+                                            "no_proxy", "NO_PROXY")}
     try:
         for k in saved:
             os.environ.pop(k, None)
@@ -192,12 +194,27 @@ def main() -> int:
         seen.clear()
         get(mod.OPENER, f"http://127.0.0.1:{same.server_port}/").read()
         check(f"{name}: a same-origin redirect is followed (a renamed resource)", seen == [("/landed", SECRET)], seen)
-        ph = [h for h in mod.OPENER.handlers if isinstance(h, urllib.request.ProxyHandler)]
-        want = {k: v for k, v in urllib.request.getproxies().items() if k in ("https", "no")}
-        # A ProxyHandler with no proxies registers nothing, so urllib keeps
-        # none in handlers: no handler is no proxy.
-        check(f"{name}: the environment's https proxy, never its http one",
-              (ph[0].proxies if ph else {}) == want and len(ph) <= 1, [h.proxies for h in ph])
+    # OPENER is built at import from the environment of that moment: plant
+    # an https proxy (and an http one, the decoy) and import them afresh.
+    planted = {k: os.environ.get(k) for k in ("http_proxy", "HTTP_PROXY", "https_proxy", "HTTPS_PROXY", "all_proxy",
+                                              "ALL_PROXY", "no_proxy", "NO_PROXY")}
+    try:
+        for k in planted:
+            os.environ.pop(k, None)
+        os.environ.update({"https_proxy": "http://proxy.invalid:3128", "http_proxy": "http://decoy.invalid:3128"})
+        for name, mod in (("shim", shim), ("store_provision", store_provision)):
+            fresh = importlib.reload(mod)
+            ph = [h for h in fresh.OPENER.handlers if isinstance(h, urllib.request.ProxyHandler)]
+            check(f"{name}: the environment's https proxy kept, its http one never",
+                  len(ph) == 1 and ph[0].proxies == {"https": "http://proxy.invalid:3128"}, [h.proxies for h in ph])
+    finally:
+        for k, v in planted.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+        importlib.reload(shim)
+        importlib.reload(store_provision)
     for name, op in (("shim", shim.OPENER), ("store_provision", store_provision.OPENER)):
         seen.clear()
         try:
