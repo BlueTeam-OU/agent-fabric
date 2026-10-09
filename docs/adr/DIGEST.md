@@ -923,8 +923,11 @@ its record disagree, the record wins. Look it up, never read it whole:
   (§5 rules 3–4).
 - The Claude Code pin moves to 2.1.287 or later only after every host reports
   rules 1 and 2 in force (§5 rule 6).
+- A 2026-10-09 — a mod or MCP server that runs code passes the fleet's
+  guards as a Bash call would, or is refused at review (§5 rule 8).
 - Keywords: mods, plugin, managed settings, allowManagedModsOnly,
-  disableSideloadFlags, prependPlugins, sec-default, guard, redaction.
+  disableSideloadFlags, prependPlugins, sec-default, guard, redaction,
+  MCP server, sandbox.
 
 ### ADR-044 — Identity kinds: an agent and a human (Proposed)
 
