@@ -101,6 +101,18 @@ def main() -> int:
                 except OSError:
                     pass
                 return
+            if self.path == "/big":
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(b'{"id": 9007199254740993}')
+                return
+            if self.path == "/nan":
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(b'{"x": NaN}')
+                return
             if self.path == "/moved":
                 self.send_response(302)
                 self.send_header("Location", f"http://127.0.0.1:{self.server.server_port}/landed")
@@ -149,6 +161,14 @@ def main() -> int:
                 took = time.monotonic() - t0
                 check(f"a relay that trickles {what} is held to the bound, never longer",
                       e.timed_out is True and 0.45 < took < 1.0, took)
+        got = cg.api("tok", "/big", relay_url=relay_url)
+        check("the relay's JSON is read as JSON.parse reads it: an integer past 2**53 is a double",
+              got == {"id": 9007199254740992.0} and isinstance(got["id"], float), got)
+        try:
+            cg.api("tok", "/nan", relay_url=relay_url)
+            check("...and NaN is no JSON", False)
+        except ValueError:
+            check("...and NaN is no JSON", True)
         seen.clear()
         try:
             cg.api("tok", "/moved", relay_url=relay_url)
@@ -286,8 +306,20 @@ def main() -> int:
             conn_.close()
         mute.close()
 
-    ctx = cg.tls_context()
     import ssl as _ssl
+    real_default = _ssl.create_default_context
+
+    def weak(*a, **k):
+        c = real_default(*a, **k)
+        c.minimum_version = _ssl.TLSVersion.TLSv1
+        return c
+    _ssl.create_default_context = weak
+    try:
+        check("the TLS 1.2 floor is tls_context's own, whatever the default gives",
+              cg.tls_context().minimum_version == _ssl.TLSVersion.TLSv1_2)
+    finally:
+        _ssl.create_default_context = real_default
+    ctx = cg.tls_context()
     check("an https relay is never below TLS 1.2, and its certificate and host name are checked",
           ctx.minimum_version >= _ssl.TLSVersion.TLSv1_2 and ctx.verify_mode == _ssl.CERT_REQUIRED and ctx.check_hostname is True)
 

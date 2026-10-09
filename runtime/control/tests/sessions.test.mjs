@@ -133,6 +133,11 @@ test('an unreadable session state posts nothing, logs once each way, and posts a
   assert.ok(posts.every(p => Array.isArray(p.sessions)), 'nothing on the wire but a list');
   fs.writeFileSync(file, Buffer.from('{"sessions": {"a": {"state": "idle", "since": "x\xff"}}}', 'latin1'));
   assert.equal(readSessions(file, { proc }), null, 'bytes that are not UTF-8: unreadable, as the Python reader reads them');
+  fs.writeFileSync(file, Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from('{"sessions": {}}')]));
+  assert.equal(readSessions(file, { proc }), null, 'a leading BOM: unreadable, as the Python reader reads it');
+  const jobsFile = path.join(path.dirname(file), 'jobs-bad.json');
+  fs.writeFileSync(jobsFile, Buffer.from('{"jobs": [{"state": "blocked", "title": "\xff"}]}', 'latin1'));
+  assert.equal(waitsOn(jobsFile), null, 'a job list that is not UTF-8: unknown');
 });
 
 test('a failed post is retried on the next tick and said once', async () => {

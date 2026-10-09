@@ -106,6 +106,13 @@ def main() -> int:
         with open(file, "wb") as fh:
             fh.write(b'{"sessions": {"a": {"state": "idle", "since": "x\xff"}}}')
         check("bytes that are not UTF-8: unknown, as Node's fatal decode reads them", cs.read_sessions(file, proc=proc) is None)
+        with open(file, "wb") as fh:
+            fh.write(b'\xef\xbb\xbf{"sessions": {}}')
+        check("a leading BOM: unknown, as Node's decode keeping it reads it", cs.read_sessions(file, proc=proc) is None)
+        bad_jobs = os.path.join(d, "jobs-bad.json")
+        with open(bad_jobs, "wb") as fh:
+            fh.write(b'{"jobs": [{"state": "blocked", "title": "\xff"}]}')
+        check("a job list that is not UTF-8: unknown", cs.waits_on(bad_jobs) is None)
         os.remove(file)
         os.mkdir(file)
         check("a directory where the file should be (a read error, not absent): unknown", cs.read_sessions(file, proc=proc) is None)

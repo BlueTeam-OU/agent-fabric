@@ -49,8 +49,9 @@ const STATES = new Set(['working', 'blocked', 'idle']);
 export const MESSAGE_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 export const WAITS_ON_MAX = 64;
 // Bytes that are not UTF-8 make a file unreadable, as the Python port
-// reads them, never a session or an id with U+FFFD in it.
-const utf8 = buf => new TextDecoder('utf-8', { fatal: true }).decode(buf);
+// reads them, never a session or an id with U+FFFD in it; a leading BOM is
+// kept (ignoreBOM), so JSON.parse refuses it as Python's reader does.
+const utf8 = buf => new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(buf);
 
 /** Whether an entry that records no process is still believed: within
  * NO_PROCESS_FRESH_MS of its `since`. A `since` that is not a time is not. */
