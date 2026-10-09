@@ -1003,7 +1003,8 @@ its record disagree, the record wins. Look it up, never read it whole:
 - The deck's panes enter an account over ssh to 127.0.0.1: keys only, no
   forwarding, no tunnel, `AllowUsers` the placed logins (§5 rule 1).
 - Keys only from root-owned `/etc/ssh/authorized_keys/%u`; one operator
-  key, passphrase, forced `enter-ssh` with `restrict` (§5 rules 2–3).
+  key, passphrase, forced to a root-owned installed `enter-ssh` with
+  `restrict`, never a checkout's (§5 rules 2–3).
 - `enter-ssh` takes one of `--wait`, `--watch`, `shell`, `--resume`, runs
   `enter` in a login shell, refuses anything else with exit 2 (§5 rule 4).
 - Host keys pinned in the registry's `sshd`, read on the host;

@@ -45,15 +45,30 @@ def run(tmp: str, request: str | None) -> subprocess.CompletedProcess[str]:
                           stdin=subprocess.DEVNULL, timeout=30)
 
 
+def write_conf(tmp: str, text: str | None) -> None:
+    conf = os.path.join(tmp, "bin", "enter-ssh.conf")
+    if text is None:
+        if os.path.exists(conf):
+            os.remove(conf)
+        return
+    with open(conf, "w", encoding="utf-8") as fh:
+        fh.write(text)
+
+
 def setup(tmp: str) -> None:
     bindir = os.path.join(tmp, "bin")
     home = os.path.join(tmp, "home")
     os.makedirs(bindir)
     os.makedirs(os.path.join(home, "projects"))
     shutil.copy2(UNDER_TEST, os.path.join(bindir, "enter-ssh"))
-    with open(os.path.join(bindir, "enter"), "w", encoding="utf-8") as fh:
-        fh.write(FAKE_ENTER)
-    os.chmod(os.path.join(bindir, "enter"), 0o755)
+    # The fake enter is NOT beside enter-ssh: only the conf line may name it.
+    share = os.path.join(tmp, "share")
+    os.makedirs(share)
+    for d in (share, bindir):
+        with open(os.path.join(d, "enter"), "w", encoding="utf-8") as fh:
+            fh.write(FAKE_ENTER if d == share else "#!/bin/sh\necho SIBLING-ENTER-RAN\n")
+        os.chmod(os.path.join(d, "enter"), 0o755)
+    write_conf(tmp, os.path.join(share, "enter") + "\n")
     with open(os.path.join(home, ".bash_profile"), "w", encoding="utf-8") as fh:
         fh.write('[ -f "$HOME/.bashrc" ] && . "$HOME/.bashrc"\n')
     with open(os.path.join(home, ".bashrc"), "w", encoding="utf-8") as fh:
@@ -86,6 +101,13 @@ def main() -> int:
             check(f"refuses {label}: exit 2, the one fixed line on stderr (the request never echoed), enter not run",
                   r.returncode == 2 and r.stdout == "" and r.stderr == REFUSAL,
                   f"rc={r.returncode} stdout={r.stdout!r} stderr={r.stderr!r}")
+        for label, conf in (("no conf", None), ("an empty conf", ""), ("a relative path", "share/enter\n"),
+                            ("a missing enter", os.path.join(tmp, "nowhere", "enter") + "\n")):
+            write_conf(tmp, conf)
+            r = run(tmp, "--watch")
+            check(f"{label}: exit 1, one line, no enter run (never the sibling)",
+                  r.returncode == 1 and r.stdout == "" and len(r.stderr.splitlines()) == 1
+                  and r.stderr.startswith("enter-ssh: no installed enter"), f"rc={r.returncode} {r.stdout!r} {r.stderr!r}")
     print(f"\n{'all passed' if not fails else f'{fails} failed'}")
     return 1 if fails else 0
 

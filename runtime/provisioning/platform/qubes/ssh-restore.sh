@@ -4,7 +4,7 @@
 # rules 1-2, 6). ssh-operator.sh copies this file into the staging
 # directory as restore.sh, root-owned, and the /rw/config/rc.local block
 # runs that copy at every boot: root never runs a file from a checkout a
-# login can write. It also runs it once at provisioning when sshd is there.
+# login can write. ssh-operator.sh also runs it once, sshd there or not.
 #
 # Every boot of a Qubes AppVM brings /etc back from the template, so
 # everything is written each time, never "only if missing". sshd is not
@@ -13,10 +13,20 @@
 set -euo pipefail
 S="${AGENT_FABRIC_SSH_STAGE:-/rw/config/agent-fabric-ssh}"
 ETC="${AGENT_FABRIC_SSH_ETC:-/etc/ssh}"
+LIBEXEC="${AGENT_FABRIC_SSH_LIBEXEC:-/usr/local/libexec/agent-fabric}"
 say() { echo "agent-fabric-ssh: $*" >&2; }
+# The forced command and its conf: /usr/local persists on Qubes, but a copy
+# gone or changed there (by hand, or a /rw/usrlocal restore) is put back from
+# the staged one, root-owned, so every key's command= runs what was staged.
+install -d -m 0755 -o root -g root "$LIBEXEC"
+for f in enter-ssh:0755 enter-ssh.conf:0644; do
+    [[ -f "$S/${f%:*}" ]] || continue
+    cmp -s "$S/${f%:*}" "$LIBEXEC/${f%:*}" || install -m "${f#*:}" -o root -g root "$S/${f%:*}" "$LIBEXEC/${f%:*}"
+    chown root:root "$LIBEXEC/${f%:*}"; chmod "${f#*:}" "$LIBEXEC/${f%:*}"
+done
 sshd=$(command -v sshd || echo /usr/sbin/sshd)
 if [[ ! -x "$sshd" ]]; then
-    say "sshd is not installed (ssh-template.sh in the TemplateVM); nothing restored"
+    say "sshd is not installed (ssh-template.sh in the TemplateVM); enter-ssh installed, sshd left alone"
     exit 0
 fi
 [[ -f "$S/50-agent-fabric.conf" ]] || { say "nothing staged in $S; run ssh-operator.sh"; exit 1; }

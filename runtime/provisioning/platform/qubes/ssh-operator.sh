@@ -10,8 +10,10 @@
 #   1. now, sshd installed or not: stage everything under
 #      /rw/config/agent-fabric-ssh/ (root-only, persists) — the drop-in, one
 #      authorized_keys file per placed login, this AppVM's host keys (made
-#      once, never regenerated) and restore.sh — and install the boot block
-#      in /rw/config/rc.local; when sshd is already here, apply it now too;
+#      once, never regenerated), enter-ssh with its conf, and restore.sh —
+#      install enter-ssh root-owned in /usr/local/libexec/agent-fabric/ (on
+#      Qubes /usr/local persists, in /rw/usrlocal) and the boot block in
+#      /rw/config/rc.local; when sshd is already here, apply it now too;
 #   2. at every boot the block runs restore.sh: /etc/ssh from the staging
 #      copy, `sshd -t`, then sshd.
 # On a platform whose /etc persists there is no boot block: phase 2 runs now.
@@ -24,12 +26,17 @@ S="${AGENT_FABRIC_SSH_STAGE:-/rw/config/agent-fabric-ssh}"
 RC_LOCAL="${AGENT_FABRIC_RC_LOCAL:-/rw/config/rc.local}"
 REGISTRY="${AGENT_FABRIC_HOSTS_REGISTRY:-$fabric/runtime/hosts/registry.json}"
 host="${AGENT_FABRIC_SSH_HOST:-$(hostname -s)}"
+LIBEXEC="${AGENT_FABRIC_SSH_LIBEXEC:-/usr/local/libexec/agent-fabric}"
+ENTER="${AGENT_FABRIC_MOVETO_ENTER:-/usr/local/share/moveto/enter}"
 
 dry=0
 if [[ "${1:-}" == --dry-run ]]; then dry=1; shift; fi
 [[ $# -eq 1 ]] || { echo "usage: ssh-operator.sh [--dry-run] <operator-key.pub>" >&2; exit 2; }
 pub="$1"
 if (( !dry )) && [[ $EUID -ne 0 ]]; then echo "ssh-operator.sh: run as root (sudo); --dry-run needs none" >&2; exit 1; fi
+# The forced command runs moveto's root-owned installed enter, never a
+# checkout's, which its account could rewrite (ADR-048 §4).
+[[ -x "$ENTER" ]] || { echo "ssh-operator.sh: no $ENTER; install moveto first (runtime/provisioning/moveto/install.sh)" >&2; exit 1; }
 
 # One key, `<type> <base64> [comment]`, no options of its own: the options
 # are ours (command=…,restrict), and a pasted line carrying its own would
@@ -86,11 +93,10 @@ AuthorizedKeysFile /etc/ssh/authorized_keys/%u
 AllowUsers ${logins[*]}
 EOF
 
-# Each login's forced command is its own checkout's enter-ssh (ADR-048 §4).
+# Every login's forced command is the one root-owned enter-ssh (ADR-048 §4).
 for login in "${logins[@]}"; do
-    home="$(getent passwd "$login" | cut -d: -f6)" || home=""
-    if [[ -z "$home" ]]; then echo "ssh-operator.sh: $login is placed here but has no account; no keys file" >&2; continue; fi
-    put 0644 "$S/authorized_keys/$login" <<<"command=\"$home/projects/agent-fabric/runtime/provisioning/moveto/enter-ssh\",restrict $opkey"
+    getent passwd "$login" >/dev/null || { echo "ssh-operator.sh: $login is placed here but has no account; no keys file" >&2; continue; }
+    put 0644 "$S/authorized_keys/$login" <<<"command=\"$LIBEXEC/enter-ssh\",restrict $opkey"
 done
 for f in "$S/authorized_keys"/*; do
     [[ -e "$f" ]] || continue
@@ -112,6 +118,10 @@ for t in ed25519 ecdsa rsa; do
     fi
 done
 run install -m 0755 -o root -g root "$here/ssh-restore.sh" "$S/restore.sh"
+# Staged, then installed into $LIBEXEC by restore.sh, which runs now and at
+# every boot, sshd or not, and puts it back whenever /usr/local's copy differs.
+run install -m 0755 -o root -g root "$fabric/runtime/provisioning/moveto/enter-ssh" "$S/enter-ssh"
+put 0644 "$S/enter-ssh.conf" <<<"$ENTER"
 
 sshd_here=0; command -v sshd >/dev/null 2>&1 || [[ -x /usr/sbin/sshd ]] && sshd_here=1
 if (( qubes )); then
@@ -120,12 +130,8 @@ if (( qubes )); then
     { if [[ -f "$RC_LOCAL" ]]; then sed "/^$begin\$/,/^$end\$/d" "$RC_LOCAL"; else echo '#!/bin/sh'; fi
       printf '%s\n%s\n%s\n' "$begin" "[ -x $S/restore.sh ] && $S/restore.sh" "$end"; } | put 0755 "$RC_LOCAL"
 fi
-if (( sshd_here )); then
-    run "$S/restore.sh"
-elif (( !qubes )); then
-    echo "ssh-operator.sh: sshd is not installed; install openssh-server, then re-run" >&2; exit 1
-fi
-
+(( sshd_here || qubes )) || { echo "ssh-operator.sh: sshd is not installed; install openssh-server, then re-run" >&2; exit 1; }
+run "$S/restore.sh"
 echo
 echo "Pin these in runtime/hosts/registry.json, hosts.$host.sshd (the coordinator commits it):"
 if (( dry )); then echo "    (the host keys are made on a real run)"; else

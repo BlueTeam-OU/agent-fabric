@@ -2,25 +2,35 @@
 # The operator key's forced command (agent-fabric ADR-048 §5 rules 3-4):
 # sshd runs this, whatever the client asked, as the account the key is for,
 # with the request in SSH_ORIGINAL_COMMAND. It accepts one of four exact
-# words and enters the account through `enter`, beside this file.
+# words and enters the account through moveto's installed `enter`.
 #
-# Bash, not Python: a dozen lines that exec bash and then `enter` (bash),
-# and it must work in an account before the pinned interpreter is there.
+# Installed root-owned by ssh-operator.sh at /usr/local/libexec/agent-fabric/,
+# never run from a checkout: an agent could rewrite its own checkout's copy
+# and so what the operator's terminal shows and what is typed into it.
+# Which `enter` it runs is the one line of enter-ssh.conf beside it, also
+# root-owned (/usr/local/share/moveto/enter, moveto's install.sh). A file,
+# not an environment variable: sshd passes the client's environment only
+# where AcceptEnv allows, but a file the client cannot touch needs no such
+# argument. A test installs a copy beside its own conf.
+#
+# Bash, not Python: a few lines that exec bash and then `enter` (bash), and
+# it must work in an account before the pinned interpreter is there.
 #
 # The comparison is of the whole string against literal words, so a second
 # word, a space, `;`, `$(...)` or a newline is simply not one of them;
-# nothing here parses. The request is never echoed back: it is the
-# client's text. The word reaches `enter` as a positional parameter of the
-# login shell, never inside its command string, and the login shell
-# (`bash -l`) makes `--resume` start after the account's ~/.bash_profile
-# and ~/.bashrc, which sudo's moveto path skipped.
+# nothing here parses, and the client's text is never echoed. The word
+# reaches `enter` as a positional parameter of a login shell, never inside
+# its command string, so `--resume` starts after ~/.bash_profile and
+# ~/.bashrc, which sudo's moveto path skipped.
 set -u
 case "${SSH_ORIGINAL_COMMAND-}" in
     --wait|--watch|--resume) mode=("$SSH_ORIGINAL_COMMAND") ;;
     shell) mode=() ;;
     *) echo "enter-ssh: refused; ask for exactly one of --wait, --watch, shell, --resume" >&2; exit 2 ;;
 esac
-enter="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/enter"
+conf="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/enter-ssh.conf"
+enter="$(head -n 1 "$conf" 2>/dev/null)"
+[[ "$enter" == /* && -x "$enter" ]] || { echo "enter-ssh: no installed enter named in $conf; nothing run" >&2; exit 1; }
 # enter's arguments are moveto's: the workspace and the pane's title.
 # shellcheck disable=SC2016  # $0 and $@ are the inner shell's, by design
 exec bash -lc 'exec "$0" "$@"' "$enter" "$HOME/projects" "$(id -un)" "${mode[@]}"
