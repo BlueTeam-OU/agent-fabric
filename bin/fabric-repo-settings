@@ -2,7 +2,7 @@
 # bin/fabric-repo-settings — reapply this repository's GitHub-side settings
 # (docs/adr/ADR-019-work-arrives-as-pull-requests.md §6):
 #
-#   fabric-repo-settings [owner/repo]          # default: gzapi-org/agent-fabric
+#   fabric-repo-settings [owner/repo]          # default: BlueTeam-OU/agent-fabric
 #   fabric-repo-settings --show [owner/repo]
 #
 # The full account is in tools/fabric/github/repo_settings.py (ADR-040 §5 rule 7).

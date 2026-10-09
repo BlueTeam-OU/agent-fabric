@@ -83,7 +83,7 @@ status you state carries its counts ("#215 is unarmed: 6 work, 2 fix").
 the next piece of work is another commit on it if the branch is still
 addable, and otherwise it waits for the merge: implement, test and
 commit locally on a branch off `origin/main`, push and open when the
-merge lands. "Different concerns" are commit boundaries, not PR boundaries; documentation of a
+merge lands. "Different concerns", "different apps", "different root causes" are commit boundaries, not PR boundaries; documentation of a
 thing belongs in the PR that adds the thing. A branch stops being
 addable when the next piece depends on something being *merged*, the
 branch is already queued or merged, it touches a slow or flaky surface
