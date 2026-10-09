@@ -17,6 +17,8 @@
 //                                                   placed account may ask this one (ops.mjs PUBLIC_OPS)
 //   fabric-ctl <login|all> jobs                     each account's open jobs (bin/fabric-jobs; ADR-037)
 //   fabric-ctl <login|all> tools                    each account's missing required tools, per project (tools.mjs)
+//   fabric-ctl <login|all> tools-install <tool>      an ACTION: the account installs the tool its registry pin names (tools/fabric/tools_install.py),
+//                                                    only where a working copy of a project that declares it exists; the verdict per account
 //   fabric-ctl <login> jobs-add [--topic T] [--project P] [--priority P] [--] "<title>"   an ACTION: the owner's job on that
 //                                                   login's list, source `owner` (ADR-037 rule 4)
 //   fabric-ctl <holder> pool-add --role R [--topic T] [--project P] [--priority P] [--] "<title>"   an ACTION: a job
@@ -61,6 +63,7 @@ import crypto from 'node:crypto';
 import { OPS, PUBLIC_OPS } from './ops.mjs';
 import { controlConfig, newId, operatorAddresses, accountAddresses } from './agentd.mjs';
 import { checkJobArgs } from './jobs.mjs';
+import { TOOL_NAME, TOOLS_INSTALL_BUDGET_S } from './tools.mjs';
 import { checkPoolArgs, poolHolder } from './pool.mjs';
 import { SESSION_ID } from './sessions.mjs';
 
@@ -85,6 +88,7 @@ export function buildRequest(args, { id, from, to, cfg, ts = new Date().toISOStr
   return { v: 1, kind: 'request', id, from, to, op: args.op, ts, ttl_s: Math.min(ACTION_OPS.includes(args.op) ? ACTION_TTL_MAX_S : Infinity, Math.max(cfg.ttl_s, Math.ceil(args.timeout))), ...(args.days ? { days: args.days } : {}),
            ...(args.op === 'upgrade' ? { args: args.piece === 'fabric' ? { piece: 'fabric', commit: commit() } : { piece: args.piece, version: args.version ?? version() } } : {}),
            ...(args.op === 'jobs-add' ? { args: jobArgs(args) } : {}),
+           ...(args.op === 'tools-install' ? { args: { tool: args.tool } } : {}),
            ...(args.op === 'pool-add' ? { args: { role: args.role ?? undefined, ...jobArgs(args) } } : {}),
            ...(args.op === 'secrets-sync' && (args.expect || args.restart) ? { args: { ...(args.expect ? { expect: args.expect } : {}), ...(args.restart ? { restart: true } : {}) } } : {}) };
 }
@@ -101,7 +105,7 @@ export function placements(registry = hostsRegistry({ engine: FABRIC_ROOT, empty
 const jobArgs = a => ({ title: a.title ?? undefined, ...(a.topic !== null ? { topic: a.topic } : {}), ...(a.project !== null ? { project: a.project } : {}), ...(a.priority !== null ? { priority: a.priority } : {}) });
 
 export function parseArgs(argv) {
-  const out = { targets: [], op: 'status', json: false, timeout: null, out: null, days: null, piece: null, version: null, force: false, expect: null, restart: false, title: null, topic: null, project: null, priority: null, role: null, follow: false };
+  const out = { targets: [], op: 'status', json: false, timeout: null, out: null, days: null, piece: null, version: null, force: false, expect: null, restart: false, title: null, topic: null, project: null, priority: null, role: null, follow: false, tool: null };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     // A jobs-add title that starts with a dash follows `--`, as for
@@ -133,12 +137,13 @@ export function parseArgs(argv) {
     else if (a === '-h' || a === '--help') out.help = true;
     else if (a.startsWith('--')) throw new Error(`unknown option ${a}`);
     else if (a === 'keygen' && !out.targets.length) out.op = 'keygen';
+    else if (out.op === 'tools-install' && out.tool === null) out.tool = a;   // the word after `tools-install` is the tool, never a login
     else if (out.op === 'upgrade' && out.piece === null) out.piece = a;   // the word after `upgrade` is the piece, never a login
     else if (titled && out.title === null) out.title = a;  // the word after `jobs-add` or `pool-add` is the title, never a login
     else if ((OPS.includes(a) || a === 'states') && out.targets.length) out.op = a;
     else out.targets.push(a);
   }
-  if (out.timeout === null) out.timeout = out.op === 'ping' ? 5 : out.op === 'memory' ? 120 : out.op === 'tokens' ? 60 : out.op === 'accounts' ? 300 : out.op === 'disk' ? 200 : out.op === 'upgrade' ? (out.piece === 'fabric' ? FABRIC_UPGRADE_BUDGET_S : UPGRADE_BUDGET_S) : out.op === 'secrets-sync' ? 240 : out.op === 'secrets-selftest' ? SELFTEST_BUDGET_S : 20;
+  if (out.timeout === null) out.timeout = out.op === 'ping' ? 5 : out.op === 'memory' ? 120 : out.op === 'tokens' ? 60 : out.op === 'accounts' ? 300 : out.op === 'disk' ? 200 : out.op === 'upgrade' ? (out.piece === 'fabric' ? FABRIC_UPGRADE_BUDGET_S : UPGRADE_BUDGET_S) : out.op === 'secrets-sync' ? 240 : out.op === 'tools-install' ? TOOLS_INSTALL_BUDGET_S : out.op === 'secrets-selftest' ? SELFTEST_BUDGET_S : 20;
   if (out.op === 'upgrade' && !PIECES.includes(out.piece)) throw new Error(`upgrade takes a piece: ${PIECES.join(', ')}`);
   if (out.version !== null && (out.op !== 'upgrade' || !VERSION_RE.test(out.version))) throw new Error('--version takes digits.digits.digits, with upgrade only');
   if (out.version !== null && out.piece === 'fabric') throw new Error('upgrade fabric takes no --version: it moves every account to this checkout\'s origin/main');
@@ -155,6 +160,7 @@ export function parseArgs(argv) {
     if (bad) throw new Error(`pool-add: ${bad}`);
     if (out.targets.length !== 1 || out.targets[0] === 'all') throw new Error('pool-add names the one login that holds the pool');
   }
+  if (out.op === 'tools-install' && (out.tool === null || !TOOL_NAME.test(out.tool))) throw new Error('tools-install takes a tool name: fabric-ctl <login|all> tools-install <tool>');
   if (out.follow && out.op !== 'states') throw new Error('--follow goes with states only');
   if (out.op === 'jobs-add') {
     const bad = checkJobArgs(jobArgs(out));
@@ -222,14 +228,14 @@ export function rows(expected, replies) {
     return { account: e.login, host: e.host, status: 'ok', op: r.op, latency_ms: r.latency_ms ?? null,
              email: d.identity?.claude_account?.email ?? (d.identity?.claude_account?.via === 'setup-token' ? `setup-token ${d.identity.claude_account.token_sha256_12}` : null), role: d.identity?.role ?? null,
              five_hour: d.usage?.five_hour ?? null, seven_day: d.usage?.seven_day ?? null, usage_status: d.usage?.status ?? null,
-             keys: d.keys ?? null, fabric: d.fabric ?? null, session: d.session ?? null, script: d.script ?? null, recall: d.recall ?? null, tokens: d.tokens ?? null, memory: d.memory ?? null, machine: d.host ?? null, disk: d.disk ?? null, accounts: d.accounts ?? null, upgrade: d.upgrade ?? null, secretsSync: d['secrets-sync'] ?? null, presence: d.presence ?? null, jobs: d.jobs ?? null, tools: d.tools ?? null, jobsAdd: d['jobs-add'] ?? null, poolAdd: d['pool-add'] ?? null, local: d.local ?? null, localPrune: d['local-prune'] ?? null, selftest: d['secrets-selftest'] ?? null, agentd: d.agentd ?? null };
+             keys: d.keys ?? null, fabric: d.fabric ?? null, session: d.session ?? null, script: d.script ?? null, recall: d.recall ?? null, tokens: d.tokens ?? null, memory: d.memory ?? null, machine: d.host ?? null, disk: d.disk ?? null, accounts: d.accounts ?? null, upgrade: d.upgrade ?? null, secretsSync: d['secrets-sync'] ?? null, presence: d.presence ?? null, jobs: d.jobs ?? null, tools: d.tools ?? null, jobsAdd: d['jobs-add'] ?? null, toolsInstall: d['tools-install'] ?? null, poolAdd: d['pool-add'] ?? null, local: d.local ?? null, localPrune: d['local-prune'] ?? null, selftest: d['secrets-selftest'] ?? null, agentd: d.agentd ?? null };
   });
 }
 
 const pct = w => (w && w.utilization != null) ? `${Number(w.utilization).toFixed(0).padStart(3)}%` : '   -';
 const at = w => (w && w.resets_at) ? String(w.resets_at).slice(0, 16) : '-';
 // What counts as success for each action; anything else fails the run.
-export const ACTION_OK = { upgrade: ['current', 'upgraded'], 'secrets-sync': ['synced'], 'jobs-add': ['added'], 'local-prune': ['pruned', 'clean'], 'secrets-selftest': ['pass'], 'pool-add': ['added'] };
+export const ACTION_OK = { upgrade: ['current', 'upgraded'], 'secrets-sync': ['synced'], 'jobs-add': ['added'], 'local-prune': ['pruned', 'clean'], 'secrets-selftest': ['pass'], 'pool-add': ['added'], 'tools-install': ['installed', 'current', 'skipped'] };
 
 // What an account sent, printed in the operator's terminal: its C0 and C1
 // control characters are shown escaped, never sent to the terminal (review
@@ -317,6 +323,13 @@ export function table(op, rs) {
       if (!missing.length) { lines.push(`${r.account.padEnd(22)} nothing required is missing (report ${age} old)`); continue; }
       missing.forEach((x, i) => lines.push(`${(i ? '' : r.account).padEnd(22)} ${esc(x.project).padEnd(14)} ${esc(x.name).padEnd(16)} ${esc(x.status).padEnd(8)} needs ${esc(x.version || 'any')}, ${esc(x.where || '?')}`
         + (i === missing.length - 1 ? `  (report ${age} old)` : '')));
+    }
+    return lines.join('\n');
+  }
+  if (op === 'tools-install') {
+    for (const r of rs) {
+      const u = r.toolsInstall;
+      lines.push(esc(`${r.account.padEnd(22)} ${r.status !== 'ok' || !u ? r.status : `${u.status.padEnd(9)} ${u.tool ?? ''} ${u.version ?? ''}${u.reason ? ` ${u.reason}` : ''}`}`.trimEnd()));
     }
     return lines.join('\n');
   }
@@ -562,7 +575,7 @@ export function targetsOf(targets, placed) {
 export async function main(argv = process.argv.slice(2), { registry, fetchImpl } = {}) {
   let args;
   try { args = parseArgs(argv); } catch (e) { console.error(`fabric-ctl: ${e.message}`); return 2; }
-  if (args.help || (!args.targets.length && args.op !== 'keygen')) { console.error('usage: fabric-ctl <login|all> [status|usage|identity|keys|fabric|session|script|recall|host|disk|accounts|ping] [--json] [--timeout S]\n       fabric-ctl <login|all> tokens [--days N]\n       fabric-ctl <login|all> memory --out <dir>\n       fabric-ctl <login|all> upgrade claude [--version V]\n       fabric-ctl <login|all> upgrade fabric   (every account to this checkout\'s origin/main, then bootstrap)\n       fabric-ctl <login|all> secrets-sync [--expect SHA12] [--restart]\n       fabric-ctl <login|all> presence   (any placed account may ask)\n       fabric-ctl <login|all> jobs\n       fabric-ctl <login|all> tools   (each account: its missing required tools, from its hourly report)\n       fabric-ctl <login> jobs-add [--topic T] [--project P] [--priority P] [--] "<title>"\n       fabric-ctl <holder> pool-add --role R [--topic T] [--project P] [--priority P] [--] "<title>"\n       fabric-ctl <login|all> secrets-selftest\n       fabric-ctl <login|all> local\n       fabric-ctl <login|all> local-prune\n       fabric-ctl <login|all> states [--follow] [--json]\n       fabric-ctl keygen [--force]'); return args.help ? 0 : 2; }
+  if (args.help || (!args.targets.length && args.op !== 'keygen')) { console.error('usage: fabric-ctl <login|all> [status|usage|identity|keys|fabric|session|script|recall|host|disk|accounts|ping] [--json] [--timeout S]\n       fabric-ctl <login|all> tokens [--days N]\n       fabric-ctl <login|all> memory --out <dir>\n       fabric-ctl <login|all> upgrade claude [--version V]\n       fabric-ctl <login|all> upgrade fabric   (every account to this checkout\'s origin/main, then bootstrap)\n       fabric-ctl <login|all> secrets-sync [--expect SHA12] [--restart]\n       fabric-ctl <login|all> presence   (any placed account may ask)\n       fabric-ctl <login|all> jobs\n       fabric-ctl <login|all> tools   (each account: its missing required tools, from its hourly report)\n       fabric-ctl <login|all> tools-install <tool>   (an action: install the tool its registry pin names, on the accounts with a working copy of a project that declares it)\n       fabric-ctl <login> jobs-add [--topic T] [--project P] [--priority P] [--] "<title>"\n       fabric-ctl <holder> pool-add --role R [--topic T] [--project P] [--priority P] [--] "<title>"\n       fabric-ctl <login|all> secrets-selftest\n       fabric-ctl <login|all> local\n       fabric-ctl <login|all> local-prune\n       fabric-ctl <login|all> states [--follow] [--json]\n       fabric-ctl keygen [--force]'); return args.help ? 0 : 2; }
   if (args.op === 'keygen') return keygen(args, { registry });
   const { expected, everyone, refused: notAsked } = targetsOf(args.targets, placements(registry));
   if (notAsked) { console.error(`fabric-ctl: ${notAsked}`); return 2; }
