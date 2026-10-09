@@ -142,14 +142,8 @@ def _days_from_civil(y: int, m: int, d: int) -> int:
 
 
 def _is_integer(v) -> bool:
-    """Number.isInteger(v) on a JSON value: 5.0 is one, true is not, and
-    neither is a number past the largest double (Infinity in JavaScript)."""
-    if not isinstance(v, (int, float)) or isinstance(v, bool):
-        return False
-    try:
-        return float(v).is_integer()
-    except OverflowError:
-        return False
+    """Number.isInteger(v) on a JSON value (control/js)."""
+    return js.is_integer(v)
 
 
 def fresh_without_process(since, now_ms: float) -> bool:

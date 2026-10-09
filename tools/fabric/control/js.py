@@ -23,7 +23,12 @@ Python control plane must judge a request exactly as the Node one does
                    Node's own limits are its stack, not a rule (its
                    JSON.stringify overflows near 4,000), so they are not
                    copied.
-  stringify(v)     JSON.stringify(v): compact, a lone surrogate escaped
+  is_integer(v)    Number.isInteger(v) on a JSON value: 5.0 is one, true
+                   is not, nor anything past the largest double
+  stringify(v, indent=None)
+                   JSON.stringify(v, null, indent): compact, or pretty
+                   with `indent` spaces as JavaScript lays it out ("[]"
+                   and "{}" stay empty); a lone surrogate escaped
                    (json.dumps(ensure_ascii=False) writes it raw, and it
                    cannot be encoded), NaN and the infinities as null,
                    UNDEFINED dropped from an object
@@ -159,7 +164,18 @@ def json_parse(s: str):
         raise ValueError("nested too deep to read") from None
 
 
-def stringify(value) -> str:
+def is_integer(v) -> bool:
+    if not isinstance(v, (int, float)) or isinstance(v, bool):
+        return False
+    try:
+        return float(v).is_integer()
+    except OverflowError:
+        return False
+
+
+def stringify(value, indent: int | None = None) -> str:
+    if indent:
+        return _pretty(value, " " * indent)
     from control.sign import js_number, js_string
     out: list[str] = []
     todo: list = [("value", value)]
@@ -208,6 +224,35 @@ def well_formed(s: str) -> str:
     # Through UTF-16 code units, so a pair held as two code points is one
     # character, as JavaScript holds it, and only a lone half is replaced.
     return s.encode("utf-16-le", "surrogatepass").decode("utf-16-le", "replace")
+
+
+def _pretty(value, step: str) -> str:
+    # Recursive: a pretty file is the fabric's own state (pool.json), a few
+    # levels deep, never a relay value.
+    from control.sign import js_number, js_string
+
+    def walk(v, pad: str) -> str:
+        if isinstance(v, list):
+            if not v:
+                return "[]"
+            inner = pad + step
+            return "[\n" + ",\n".join(inner + ("null" if x is UNDEFINED else walk(x, inner)) for x in v) + "\n" + pad + "]"
+        if isinstance(v, dict):
+            ks = [k for k in keys(v) if v[k] is not UNDEFINED]
+            if not ks:
+                return "{}"
+            inner = pad + step
+            return "{\n" + ",\n".join(f"{inner}{js_string(k)}: {walk(v[k], inner)}" for k in ks) + "\n" + pad + "}"
+        if v is None:
+            return "null"
+        if v is True or v is False:
+            return "true" if v else "false"
+        if isinstance(v, str):
+            return js_string(v)
+        if isinstance(v, (int, float)):
+            return js_number(v)
+        raise TypeError(f"stringify: {type(v).__name__} is not a JSON value")
+    return walk(value, "")
 
 
 def iso_now() -> str:
