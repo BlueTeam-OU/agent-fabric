@@ -90,10 +90,34 @@ def test_project_matching_uses_the_canonical_form() -> None:
     assert wc.project_for_remote("demo", registry) is None, "a bare word matches nothing"
 
 
+def test_a_hanging_git_reads_as_no_repository_within_the_bound() -> None:
+    """A git that never answers is cut at GIT_TIMEOUT_S and _git says None,
+    so a stalled filesystem cannot hold a session start or a scan."""
+    import tempfile
+    import time
+    with tempfile.TemporaryDirectory() as tmp:
+        fake = os.path.join(tmp, "git")
+        with open(fake, "w") as fh:
+            fh.write("#!/bin/sh\nexec sleep 30\n")
+        os.chmod(fake, 0o755)
+        saved_path, saved_bound = os.environ.get("PATH", ""), wc.GIT_TIMEOUT_S
+        os.environ["PATH"] = tmp + os.pathsep + saved_path
+        wc.GIT_TIMEOUT_S = 1
+        try:
+            started = time.monotonic()
+            got = wc._git(["rev-parse", "--show-toplevel"], tmp)
+            took = time.monotonic() - started
+        finally:
+            os.environ["PATH"], wc.GIT_TIMEOUT_S = saved_path, saved_bound
+        assert got is None, got
+        assert took < 10, f"took {took:.1f} s"
+
+
 def main() -> int:
     cases = [test_the_shapes_git_accepts_parse_to_one_structure, test_what_is_not_a_network_remote_parses_to_nothing,
              test_scp_syntax_follows_gits_own_rule, test_canonical_ignores_scheme_and_user_keeps_port_and_host_case_folds,
-             test_path_case_is_host_specific, test_project_matching_uses_the_canonical_form]
+             test_path_case_is_host_specific, test_project_matching_uses_the_canonical_form,
+             test_a_hanging_git_reads_as_no_repository_within_the_bound]
     failures = 0
     for case in cases:
         try:

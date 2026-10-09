@@ -94,6 +94,8 @@ its record disagree, the record wins. Look it up, never read it whole:
   incident (§5 rule 11).
 - A 2026-09-29 — the DIGEST is looked up (`fabric-adr lookup`), never read whole;
   each entry is at most 250 words (§2).
+- A 2026-10-09 — an exception keeps the past; new work follows the
+  direction unless the exception admits it in words (§5 rule 12).
 - Keywords: ADR, amendment, supersede, ratify, index, digest, rationale.
 
 ### ADR-002 — Role, login and model are kept apart (Accepted)
@@ -169,6 +171,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-09-29 — `code-low` and `code-medium` on plain claude are
   `claude-sonnet-5-5`, read back live before the change (§2).
 - A 2026-10-07 — code-low is Haiku 5.5 on plain claude (§2).
+- A 2026-10-09 — python-dev's session is Sonnet 5.5, a role layer (§2).
 - Keywords: model, routing, capability class, alias, provider, OpenRouter,
   broker, review-grade, shim, preset, Opus 5.5, Sonnet 5.5, DeepSeek, GLM, profile.
 
@@ -618,19 +621,20 @@ its record disagree, the record wins. Look it up, never read it whole:
   while it is down is lost (§2, §5 rules 1–2).
 - A closed op set; no request field reaches a shell; actions carry the
   operator's fresh Ed25519 signature, newer than the last (§5 rules 3–5).
-- Replies carry no secret, gaps named; silence or a failure exits 1
+- Replies carry no secret; a gap is named; silence exits 1
   (§5 rules 6–9).
 - A 2026-09-27 — actions run beside the read loop (§5 rule 12).
 - A 2026-09-27 — each op's answer budget (§5 rule 12).
 - A 2026-09-28 — `jobs` and `jobs-add` carry the job list (§5 rule 13).
 - A 2026-09-29 — `secrets-migrate` (§5 rule 14).
 - A 2026-09-30 — rule 14 withdrawn; signing key in the operator's store (§5 rule 5).
-- A 2026-10-06 — `local`, `local-prune` (§5 rule 15).
-- A 2026-10-07 — session state (§5 rule 16).
-- A 2026-10-07 — `secrets-selftest` (§5 rule 17).
+- A 2026-10-06 — local, local-prune (§5 rule 15).
+- A 2026-10-07 — session state (rule 16).
+- A 2026-10-07 — secrets-selftest (§5 rule 17).
 - A 2026-10-08 — resumable state in the state record (§5 rule 16).
 - A 2026-10-08 — the op table; three public ops (§5 rule 4).
-- A 2026-10-09 — a forged pool claim shows in the holder's pool.json (§5 rule 4).
+- A 2026-10-09 — a forged claim shows in the holder's pool.json (§5 rule 4).
+- A 2026-10-09 — Scope: runtime/control/.
 - Keywords: control plane, agentd, fabric-ctl, ops, ping, keys, usage,
   recall, tokens, memory, bundle, drain, keygen, linger, operator_key,
   herdr, persist, status, resume, tools, pool.
@@ -851,27 +855,26 @@ its record disagree, the record wins. Look it up, never read it whole:
 
 ### ADR-040 — Implementation language: Python above 150 lines (Accepted)
 
-- New fabric tooling is Python, standard library only, valid on 3.12+
-  and run on the pinned `fabric-python` (`runtime/python.json`); bash stays
-  for shims, forwarders, hook entry points, the suite runners and
-  sudo/ssh/installer step-runners (§5 rule 1).
+- New fabric tooling is Python, standard library only, on the pinned
+  `fabric-python`; bash stays for shims, forwarders, hook entry points,
+  the suite runners and step-runners (§5 rule 1).
 - Lint refuses a tracked bash script over 150 lines not named in
   `policies/bash-allowlist.json`; each entry names its wave, and the
   list only shrinks (§5 rule 2).
-- A port freezes the contract (argv, environment, stdout/stderr, exit
-  codes, help) in the module's header, keeps the path as a shim, runs the
-  old bash test unchanged as the oracle, and removes the entry (§5 rules
-  3–5).
-- GitHub and git go through `gh.py` and `git.py`: bodies on stdin or a
-  file, bounded calls named in their errors, JSON in Python (§5 rule 6).
+- A port freezes the contract in the module's header, keeps the path as
+  a shim, runs the old test unchanged as the oracle (§5 rules 3–5).
+- GitHub and git go through `gh.py` and `git.py` (§5 rule 6).
 - A 2026-10-01 — the oracle's assertions stay; its gh mock and source
   reads may follow the port (§5 rule 5).
 - A 2026-10-01 — one pinned Python, 3.13, as fabric-python per host; shims run it (§5 rules 1, 4).
-- A 2026-10-01 — a fixture may copy the modules of the scripts it copies; no assertion changes (§5 rule 5).
+- A 2026-10-01 — a fixture may copy the modules its scripts load (§5 rule 5).
 - A 2026-10-04 — Wave 7: GZCoord's tools to Python together (§7).
 - A 2026-10-08 — commands by bare name; shims retire; pre-Python shell stays (§5 rule 7).
+- A 2026-10-09 — Wave 8: the control plane to Python, wire frozen, cut
+  over once; no new Node (§5 rule 8).
 - Keywords: Python, bash, shell, port, allowlist, lint, shim, wave, gh,
-  git, 150 lines, P1, bare command, fabric-pr, deprecated path.
+  git, 150 lines, P1, bare command, fabric-pr, deprecated path, Node,
+  control plane, openssl, Ed25519.
 
 ### ADR-041 — Agent-local episodic history: exact messages kept above the transport (Accepted)
 
@@ -891,6 +894,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-10-09 — a resume fetches working events by query, ranked;
   FTS5 stemmed + trigram fused by reciprocal rank is the recipe to
   measure first (§7).
+- A 2026-10-09 — reading working events needs rules 2 and 8 amended (§7).
 - Keywords: episodic, history, journal, GZCoord, carrier, transport,
   relay, InterWeave, fabric-history, backfill.
 
@@ -928,6 +932,7 @@ its record disagree, the record wins. Look it up, never read it whole:
   rules 1 and 2 in force (§5 rule 6).
 - A 2026-10-09 — a mod or MCP server that runs code passes the fleet's
   guards as a Bash call would, or is refused at review (§5 rule 8).
+- A 2026-10-09 — rule 8's gate: the managed MCP allowlist, versions pinned.
 - Keywords: mods, plugin, managed settings, allowManagedModsOnly,
   disableSideloadFlags, prependPlugins, sec-default, guard, redaction,
   MCP server, sandbox.

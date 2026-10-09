@@ -125,6 +125,11 @@ check, and nothing making ratification visible.
     an incident, best by citing its commit or live check. A date inside a
     path or code span and the engine's `(A …)` and `(Amendment …)` marks
     stay. `adr.py check` refuses any other date in §2 to §8 (A 2026-09-27).
+12. An exception to a direction (a carve-out, a part that "stays", a
+    grandfathered case) covers what exists when it is written: it keeps
+    the past as it is. New work follows the direction. An exception
+    admits new work only if it says so in words, and a reader who finds
+    no such words reads it as covering the past only (A 2026-10-09).
 
 ## 6. Consequences
 
@@ -166,3 +171,4 @@ The body above reads current; each change's full note is in [history/ADR-001-ame
 | 2026-09-27 | No inline attributions | §5 rule 10 added: no parenthetical attribution in a record's body or DIGEST entry; `adr.py check` refuses one |
 | 2026-09-27 | A record reads current | §5 rule 11 added: no date in §2–§8, §1 may date an incident; rule 10 loses its dated example; §8 undated |
 | 2026-09-29 | The DIGEST is looked up, never read whole, and each entry has a word budget | §2: `fabric-adr lookup`; a 250-word entry budget in `adr.py check` |
+| 2026-10-09 | An exception to a direction covers what exists | §5 rule 12 added: a carve-out keeps the past as it is; new work follows the direction unless the exception admits it in words |

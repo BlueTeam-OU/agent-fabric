@@ -31,4 +31,8 @@ its contributor branch, reviewed there.
 
 ### Amendment 2026-10-09 — What a resume reads from the journal, and how it is ranked
 
-The owner asked for an analysis of a context-saving MCP server (2026-10-09). It rebuilds a session's working state after compaction from an event log of edits, decisions and errors, retrieved by relevance rather than dumped, and ranks text with two FTS5 indexes (stemmed and trigram) fused by reciprocal rank. That is the shape this record's P5 (conversation turns) and P7 (a resume capsule) were left to find on a measured need. §7 now says what a resume reads and the ranking recipe to measure first; nothing is built, and the measured-need condition stands.
+The owner asked for an analysis of a context-saving MCP server (2026-10-09). It rebuilds a session's working state after compaction from an event log of edits, decisions and errors, retrieved by relevance rather than dumped, and ranks text with two FTS5 indexes (stemmed and trigram) fused by reciprocal rank. That is the shape §7's conversation turns and lifecycle summary on resume were left to find on a measured need. §7 now says what a resume reads and the ranking recipe to measure first; nothing is built, and the measured-need condition stands.
+
+### Amendment 2026-10-09 — A resume that reads working events needs rules 2 and 8 amended first
+
+The blind review of the merged §7 sentence found it admitted what binding rules keep out: rule 2 lets only GZCoord application messages into the journal, and rule 8 lets nothing from it into a session automatically, while the sentence had a resume read files edited, decisions and errors into one. §7 now says that reading them needs both rules amended first. The note above no longer cites labels this record does not have.

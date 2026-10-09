@@ -30,9 +30,17 @@ FABRIC_ROOT = os.environ.get("AGENT_FABRIC_ROOT") or os.path.dirname(
 MARKER = ".agent-fabric-project"
 
 
+# A git that hangs (a stalled filesystem, a lock held elsewhere) must not
+# hold a session start or a control-plane scan: a timeout falls into the
+# SubprocessError clause and reads as "not a repository" (python-dev-03,
+# from the review of #126's tools-install scan).
+GIT_TIMEOUT_S = 30
+
+
 def _git(args: list[str], cwd: str) -> str | None:
     try:
-        out = subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True, check=True).stdout
+        out = subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True, check=True,
+                             timeout=GIT_TIMEOUT_S).stdout
     except (OSError, subprocess.SubprocessError):
         return None
     return out.strip() or None

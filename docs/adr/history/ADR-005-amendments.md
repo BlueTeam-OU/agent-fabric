@@ -21,3 +21,7 @@ be anthropic default code-low". The id and the effort were read back
 through the `haiku` alias at medium, a near spelling and a control were
 refused, and unlike Haiku 4.5 it takes an effort level, so routing's
 no-effort row narrowed to Haiku 4.x. code-medium stays on Sonnet 5.5.
+
+### Amendment 2026-10-09 — python-dev's session is Sonnet 5.5, a role layer
+
+The owner made Sonnet 5.5 python-dev's session model after the pilot (2026-10-08, docs/live-checks/2026-10-08-python-dev-sonnet-pilot.md); #130 put it in `routing/profiles.json` as a role layer. §2 lists the exceptions to the default session, and did not name this one (#130's blind review, F4). The capability classes are unchanged.

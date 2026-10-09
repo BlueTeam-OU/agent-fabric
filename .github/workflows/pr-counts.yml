@@ -12,10 +12,15 @@ on:
   pull_request:
 
 # Its own file, so the one job that writes to GitHub holds the one
-# permission it needs; ci.yml's jobs stay read-only.
+# permission it needs; ci.yml's jobs stay read-only. pull-requests: read
+# is for the fold lookup: a review fix answering another PR counts as a
+# fix only when that PR was folded into this one, and commit_class reads
+# the folded PR's state and head through gh (ADR-019 rule 3). Without it
+# the lookup fails and the commit reads as work.
 permissions:
   contents: read
   checks: write
+  pull-requests: read
 
 concurrency:
   group: pr-counts-${{ github.event.pull_request.number }}
