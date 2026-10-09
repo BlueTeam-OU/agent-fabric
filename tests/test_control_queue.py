@@ -274,6 +274,31 @@ def main() -> int:
                            capture_output=True, text=True, timeout=60)
     check("run as a script, its directory no longer shadows the standard library's queue",
           probe.returncode == 0 and probe.stdout.strip() and "tools/fabric/control" not in probe.stdout, (probe.stdout, probe.stderr[-300:]))
+    for name in ("gzcoord", "jobs", "pool", "presence", "sessions"):
+        other = os.path.join(os.path.dirname(script), f"{name}.py")
+        probe = subprocess.run([sys.executable, "-c", f"import sys, runpy; sys.path[0] = {os.path.dirname(other)!r}; sys.argv = [{name + '.py'!r}];"
+                                f" runpy.run_path({other!r}, run_name='probe'); import queue as q; print(q.__file__)"],
+                               capture_output=True, text=True, timeout=60)
+        check(f"run as a script, {name}.py's directory never shadows the standard library's queue either",
+              probe.returncode == 0 and probe.stdout.strip() and "tools/fabric/control" not in probe.stdout, (probe.stdout, probe.stderr[-300:]))
+    # An agentd.py that is there but fails its own import is a defect, said
+    # as it is, never "not in this tree yet": a scratch copy of tools/fabric.
+    import shutil
+    with tempfile.TemporaryDirectory() as tmp:
+        fabric = os.path.join(tmp, "fabric")
+        shutil.copytree(os.path.join(HERE, "tools", "fabric"), fabric, ignore=shutil.ignore_patterns("__pycache__"))
+        with open(os.path.join(fabric, "control", "agentd.py"), "w", encoding="utf-8") as fh:
+            fh.write("import control_agentd_missing_dependency\n")
+        env = {"PATH": os.environ.get("PATH", ""), "HOME": tmp, "LANG": "C.UTF-8", "PYTHONDONTWRITEBYTECODE": "1"}
+        r = subprocess.run([sys.executable, os.path.join(fabric, "control", "queue.py"), "waits"], capture_output=True, text=True, timeout=60, env=env)
+        check("an agentd.py that fails its import is said as its own error, never as agentd's port missing",
+              r.returncode == 3 and "control_agentd_missing_dependency" in r.stdout and "not in this tree yet" not in r.stdout, (r.stdout, r.stderr[-300:]))
+        req = json.dumps({"metadata": {}, "from": "h/u", "token": "t"})
+        r = subprocess.run([sys.executable, os.path.join(fabric, "control", "presence.py"), "check"], input=req, capture_output=True, text=True,
+                           timeout=60, env=env)
+        check("presence: an agentd.py that fails its import is its own {error} line, never agentd's port missing",
+              r.returncode == 6 and "control_agentd_missing_dependency" in json.loads(r.stdout)["error"] and "not in this tree yet" not in r.stdout,
+              (r.returncode, r.stdout, r.stderr[-300:]))
 
     print("queue.test.mjs: relayError")
     c = {"relay_url": "http://r"}

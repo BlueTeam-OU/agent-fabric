@@ -62,7 +62,12 @@ import sys
 from datetime import datetime, timezone
 from typing import Callable
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
+# Run as a script, this directory would lead sys.path and its queue.py
+# shadow the standard library's for any module importing it: replaced.
+if sys.path and os.path.realpath(sys.path[0] or ".") == os.path.dirname(os.path.realpath(__file__)):
+    sys.path[0] = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+else:
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
 import roots  # noqa: E402
 from control import gzcoord, js  # noqa: E402
 from control.jobs import PRIORITIES, check_job_args  # noqa: E402

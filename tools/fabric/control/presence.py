@@ -45,7 +45,12 @@ import os
 import sys
 import time
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
+# Run as a script, this directory would lead sys.path and its queue.py
+# shadow the standard library's for any module importing it: replaced.
+if sys.path and os.path.realpath(sys.path[0] or ".") == os.path.dirname(os.path.realpath(__file__)):
+    sys.path[0] = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+else:
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
 from control import gzcoord, js  # noqa: E402
 
 _env_wait = js.number(os.environ["GZCOORD_PRESENCE_WAIT_MS"]) if "GZCOORD_PRESENCE_WAIT_MS" in os.environ else math.nan
@@ -179,12 +184,13 @@ def cli(argv: list[str] | None = None, stdin=None, ask=check_addressees, agentd=
         print('presence: stdin needs {"metadata": {...}, "from": "<host>/<login>", "token": "<relay token>"}', file=err)
         return 2
     if agentd is None:
-        try:
-            from control import agentd   # agentd's port: control_config, account_addresses, operator_addresses, new_id
-        except ImportError:
+        # Only an absent agentd.py is "not here yet": one that fails its own
+        # import is a defect, and its traceback is what a person needs.
+        if not os.path.exists(os.path.join(os.path.dirname(os.path.realpath(__file__)), "agentd.py")):
             print(_compact({"error": "the CLI needs tools/fabric/control/agentd.py (control_config, account_addresses, "
                                      "operator_addresses, new_id), agentd's port, which is not in this tree yet", "status": None}), file=out)
             return 6
+        from control import agentd   # agentd's port: control_config, account_addresses, operator_addresses, new_id
     try:
         answer = ask(req["metadata"], from_=req["from"], token=req["token"], placed=list(agentd.account_addresses()),
                      operators=list(agentd.operator_addresses()), cfg=agentd.control_config(), new_id=agentd.new_id)

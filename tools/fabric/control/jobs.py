@@ -50,7 +50,12 @@ import subprocess
 import sys
 from typing import Callable
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
+# Run as a script, this directory would lead sys.path and its queue.py
+# shadow the standard library's for any module importing it: replaced.
+if sys.path and os.path.realpath(sys.path[0] or ".") == os.path.dirname(os.path.realpath(__file__)):
+    sys.path[0] = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+else:
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
 from control import js  # noqa: E402
 
 JOBS_TIMEOUT_S = 15

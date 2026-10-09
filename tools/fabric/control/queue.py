@@ -225,11 +225,12 @@ class NoAgentd(Exception):
 
 
 def _agentd():
-    try:
-        from control import agentd   # agentd's port: control_config, new_id
-    except ImportError:
+    # Only an absent agentd.py is "not here yet": one that fails its own
+    # import is a defect, and its traceback is what a person needs.
+    if not os.path.exists(os.path.join(os.path.dirname(os.path.realpath(__file__)), "agentd.py")):
         raise NoAgentd("the CLI needs tools/fabric/control/agentd.py (control_config, new_id), "
-                       "agentd's port, which is not in this tree yet") from None
+                       "agentd's port, which is not in this tree yet")
+    from control import agentd   # agentd's port: control_config, new_id
     return agentd
 
 
