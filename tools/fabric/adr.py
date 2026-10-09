@@ -88,7 +88,7 @@ def foreign_projects(root: str) -> set[str]:
 
 def real_date(value: str) -> bool:
     """YYYY-MM-DD and a day that exists (2026-13-45 is not one)."""
-    if not DATE_RE.match(value):
+    if not DATE_RE.fullmatch(value):
         return False
     try:
         datetime.date.fromisoformat(value)
@@ -175,7 +175,7 @@ def parse_adr(path: str) -> dict:
     in_amend = False
     for ln in lines:
         if out["h1"] is None:
-            m = H1_RE.match(ln)
+            m = H1_RE.fullmatch(ln)
             if m:
                 out["h1"] = (m.group(1), m.group(2))
                 continue
@@ -185,13 +185,13 @@ def parse_adr(path: str) -> dict:
             in_amend = name == "Amendments"
             continue
         if not out["sections"]:
-            m = FIELD_RE.match(ln)
+            m = FIELD_RE.fullmatch(ln)
             if m:
                 out["fields"][m.group(1)] = m.group(2)
         if ANY_AMENDMENT_HEADING.match(ln):
             out["stray_amendment"] = True
         if in_amend:
-            m = ROW_RE.match(ln)
+            m = ROW_RE.fullmatch(ln)
             if m and not set(m.group(1)) <= {"-"}:
                 out["rows"].append((m.group(1), m.group(2)))
     return out
@@ -216,7 +216,7 @@ def pillars(root: str | None) -> list[str]:
 def history_notes(path: str) -> list[tuple[str, str]]:
     out = []
     for ln in read(path).split("\n"):
-        m = AMENDMENT_RE.match(ln)
+        m = AMENDMENT_RE.fullmatch(ln)
         if m:
             out.append((m.group(1), m.group(2)))
         elif ANY_AMENDMENT_HEADING.match(ln):
@@ -233,7 +233,7 @@ def load(root: str | None) -> tuple[list[dict], list[str]]:
     for f in sorted(os.listdir(d)):
         if not f.startswith("ADR-") or f == "ADR-TEMPLATE.md":
             continue
-        m = FILE_RE.match(f)
+        m = FILE_RE.fullmatch(f)
         if not m:
             findings.append(f"{ADR_DIR}/{f}: not named ADR-NNN-lowercase-kebab.md")
             continue
@@ -315,7 +315,7 @@ def check(root: str | None = None) -> list[str]:
             findings.append(f"{rel(a)}: **Status:** begins with {sw!r}, not one of {', '.join(STATUSES)}")
         if sw == "Accepted":
             rat = f.get("Ratified", "")
-            m = RATIFIED_RE.match(rat)
+            m = RATIFIED_RE.fullmatch(rat)
             if m and not real_date(m.group(1)):
                 findings.append(f"{rel(a)}: **Ratified:** {m.group(1)!r} is not a date")
             if not m:
@@ -408,7 +408,7 @@ def check(root: str | None = None) -> list[str]:
         entries: dict[str, dict] = {}
         cur = None
         for ln in read(dp).split("\n"):
-            m = DIGEST_RE.match(ln)
+            m = DIGEST_RE.fullmatch(ln)
             if m:
                 cur = m.group(1)
                 entries[cur] = {"title": m.group(2), "status": m.group(3), "dates": [], "words": len(ln.split())}
@@ -526,7 +526,7 @@ def range_check(root: str, base: str, head: str = "HEAD") -> list[str]:
     # A base with no docs/adr/ at all (the branch that introduces the
     # records) has no records: every one in the branch is new.
     listed = subprocess.run(["git", "-C", root, "ls-tree", "--name-only", f"{base}:{ADR_DIR}"], capture_output=True, text=True)
-    at_base = {m.group(1) for f in listed.stdout.split() if (m := FILE_RE.match(f))} if listed.returncode == 0 else set()
+    at_base = {m.group(1) for f in listed.stdout.split() if (m := FILE_RE.fullmatch(f))} if listed.returncode == 0 else set()
     for sha in git("rev-list", "--reverse", "--no-merges", f"{base}..{head}").split():
         # The trailer excuses a record's body edit only; a source is checked
         # whatever the message says (review of #51).
@@ -536,14 +536,14 @@ def range_check(root: str, base: str, head: str = "HEAD") -> list[str]:
         # add of the same record number: pair them, and judge the pair like
         # a rename (re-review of #50).
         deleted = {m.group(1): e[1] for e in entries if e[0][:1] == "D" and len(e) == 2
-                   and os.path.dirname(e[1]) == ADR_DIR and (m := FILE_RE.match(os.path.basename(e[1])))}
+                   and os.path.dirname(e[1]) == ADR_DIR and (m := FILE_RE.fullmatch(os.path.basename(e[1])))}
         for parts in entries:
             kind = parts[0][:1]
             if kind == "M" and len(parts) == 2:
                 old, new_path = parts[1], parts[1]
             elif kind == "R" and len(parts) == 3:
                 old, new_path = parts[1], parts[2]
-            elif kind == "A" and len(parts) == 2 and os.path.dirname(parts[1]) == ADR_DIR and (m := FILE_RE.match(os.path.basename(parts[1]))) and m.group(1) in deleted:
+            elif kind == "A" and len(parts) == 2 and os.path.dirname(parts[1]) == ADR_DIR and (m := FILE_RE.fullmatch(os.path.basename(parts[1]))) and m.group(1) in deleted:
                 old, new_path = deleted[m.group(1)], parts[1]
             elif kind == "D" and len(parts) == 2 and parts[1].startswith(f"{ADR_DIR}/sources/"):
                 findings.append(f"{sha[:8]}: deletes {parts[1]}, a verbatim source, which is never removed")
@@ -555,7 +555,7 @@ def range_check(root: str, base: str, head: str = "HEAD") -> list[str]:
             if new_path.startswith(f"{ADR_DIR}/sources/") or old.startswith(f"{ADR_DIR}/sources/"):
                 findings.append(f"{sha[:8]}: edits {old}, a verbatim source, which is never edited")
                 continue
-            m = FILE_RE.match(os.path.basename(new_path))
+            m = FILE_RE.fullmatch(os.path.basename(new_path))
             if os.path.dirname(new_path) != ADR_DIR or not m or m.group(1) not in at_base:
                 continue
             before = git("show", f"{sha}^:{old}")
@@ -578,7 +578,7 @@ def amendment_rows(text: str) -> list[tuple[str, str]]:
         if ln.startswith("## "):
             inside = ln[3:].strip() == "Amendments"
             continue
-        m = ROW_RE.match(ln) if inside else None
+        m = ROW_RE.fullmatch(ln) if inside else None
         if m:
             rows.append((m.group(1), m.group(2)))
     return rows

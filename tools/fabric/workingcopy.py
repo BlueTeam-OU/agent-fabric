@@ -87,7 +87,7 @@ def parse_remote(url: str) -> dict[str, Any] | None:
             return None                      # file:// and any URL without a host are local
         scheme = m.group("scheme").lower()
     elif "/" not in u.split(":", 1)[0] and ":" in u:
-        m = _SCP_RE.match(u)                 # git's rule: scp-like only when no slash precedes the first colon
+        m = _SCP_RE.fullmatch(u)                 # git's rule: scp-like only when no slash precedes the first colon
         if not m:
             return None
         scheme = "ssh"

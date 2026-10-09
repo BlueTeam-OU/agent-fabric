@@ -9,6 +9,7 @@ cannot disagree."""
 from __future__ import annotations
 
 import ast
+import json
 import os
 import subprocess
 import sys
@@ -59,6 +60,17 @@ def main() -> int:
             fh.write('{"not-an-id": {}}')
         check("…and its verify is the store's: one finding, the same from both",
               lineage.verify(tmp) == secret_store.verify(tmp) == mirrors.verify(tmp) != [], lineage.verify(tmp))
+
+    with tempfile.TemporaryDirectory() as tmp:
+        os.makedirs(os.path.join(tmp, "identities", "keys"))
+        aid = "0190a1b2-c3d4-7e5f-8a6b-0123456789ab"
+        for label, doc, needle in (
+                ("an agent id with a trailing newline", {aid + "\n": {"login": "bob"}}, "is not an agent id"),
+                ("a login with a trailing newline", {aid: {"login": "bob\n"}}, "has no login")):
+            with open(os.path.join(tmp, "identities", "keys", "lineage.json"), "w") as fh:
+                json.dump(doc, fh)
+            got = lineage.verify(tmp)
+            check(f"{label} is refused", any(needle in f for f in got), got)
 
     for name, here in (("StoreError", core.StoreError), ("AGENT_ID_RE", core.AGENT_ID_RE), ("LOGIN_RE", core.LOGIN_RE),
                        ("UID_DOMAIN", core.UID_DOMAIN), ("born_of", core.born_of), ("fingerprints", keys.fingerprints),

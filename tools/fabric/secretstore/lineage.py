@@ -137,13 +137,13 @@ def verify(fabric: str) -> list[str]:
     for who in [w for w, r in doc.items() if not isinstance(r, dict)]:
         findings.append(f"{where}: the entry for {who} is not an object")
         del doc[who]
-    for who in [w for w in doc if not AGENT_ID_RE.match(w)]:
+    for who in [w for w in doc if not AGENT_ID_RE.fullmatch(w)]:
         findings.append(f"{where}: {who} is not an agent id (a UUIDv7, ADR-039)")
         del doc[who]
     logins: dict[str, str] = {}
     for who, rec in sorted(doc.items()):
         name = rec.get("login")
-        if not isinstance(name, str) or not LOGIN_RE.match(name):
+        if not isinstance(name, str) or not LOGIN_RE.fullmatch(name):
             findings.append(f"{where}: {who} has no login")
         elif name in logins:
             findings.append(f"{where}: {who} and {logins[name]} both have the login {name}")

@@ -473,6 +473,26 @@ def test_check_refuses_a_preset_as_a_model(tmp: str) -> None:
     assert any("preset" in f for f in findings), findings
 
 
+def test_a_trailing_newline_does_not_make_a_model_id_or_a_preset(tmp: str) -> None:
+    """`$` matches before a final newline; the committed JSON files carry
+    arbitrary strings, so "x/y\\n" must read as the malformed id it is."""
+    root = scratch_root(tmp)
+    path = os.path.join(root, "routing", "policies", "review-grade.json")
+    d = json.load(open(path, encoding="utf-8"))
+    d["models"].append("z-ai/glm-5.3\n")
+    json.dump(d, open(path, "w", encoding="utf-8"))
+    findings = routing.check(root)
+    assert any("is not a model id" in f for f in findings), findings
+    root2 = scratch_root(os.path.join(tmp, "b"))
+    path = os.path.join(root2, "routing", "shims.json")
+    d = json.load(open(path, encoding="utf-8"))
+    d["shims"].append({"family": "acme/*", "shim": "@preset/acme2claude-shim\n", "harness": "claude-code",
+                       "tested": "never", "note": "a fixture"})
+    json.dump(d, open(path, "w", encoding="utf-8"))
+    findings = routing.check(root2)
+    assert any("is not a preset reference" in f for f in findings), findings
+
+
 def test_every_shim_has_its_source_under_version_control(tmp: str) -> None:
     """A shim is an OpenRouter preset; its text lives in routing/shims/<slug>/
     so it can be diffed, rebuilt and pushed (tools/fabric/shim.py). An entry
@@ -553,6 +573,7 @@ def main() -> int:
         test_a_layer_is_validated_in_its_provider_vocabulary,
         test_review_grade_gate_is_on_review_only,
         test_check_refuses_a_preset_as_a_model,
+        test_a_trailing_newline_does_not_make_a_model_id_or_a_preset,
         test_every_shim_has_its_source_under_version_control,
         test_every_class_rides_an_alias_and_only_the_review_class_shares,
         test_real_files_are_clean,

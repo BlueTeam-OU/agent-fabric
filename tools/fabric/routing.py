@@ -325,7 +325,7 @@ def load_profiles(root: str | None = None) -> dict[str, Any]:
 def shim_for(model: str, shims: list[dict[str, Any]], harness: str = "claude-code") -> str | None:
     """The shim a model's family needs for `harness`, or None. A bare
     `@preset/...` is already a preset and gets nothing attached."""
-    if not model or PRESET.match(model):
+    if not model or PRESET.fullmatch(model):
         return None
     for entry in shims:
         if entry.get("harness", "claude-code") != harness:
@@ -659,7 +659,7 @@ def check(root: str | None = None) -> list[str]:
             if klass not in (prov.get("models") or {}):
                 findings.append(f"capabilities.json: providers.{name} binds no model to {klass!r}")
     for entry in load_shims(root):
-        if not PRESET.match(entry.get("shim") or ""):
+        if not PRESET.fullmatch(entry.get("shim") or ""):
             findings.append(f"shims.json: {entry.get('family')!r} -> {entry.get('shim')!r} is not a preset reference")
         else:
             # A shim's text is under version control (routing/shims/<slug>/,
@@ -674,7 +674,7 @@ def check(root: str | None = None) -> list[str]:
     if grade.get("capability") not in classes:
         findings.append(f"review-grade.json: gates unknown capability {grade.get('capability')!r}")
     for model in grade.get("models") or []:
-        if not MODEL_ID.match(model):
+        if not MODEL_ID.fullmatch(model):
             findings.append(f"review-grade.json: {model!r} is not a model id")
     # The review class must be review-grade wherever the fabric names its
     # model: on every model-id provider, and on the harness provider when
