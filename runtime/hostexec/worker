@@ -1,66 +1,14 @@
 #!/usr/bin/env bash
-# runtime/hostexec/worker — run one command on THIS host, as this login
-# or as another account. The half of the host executor that stands on
-# the target: `hostexec` runs it directly for the host it is on, and over
-# ssh for every other, so the same lines do the same thing wherever the
-# account lives.
+# runtime/hostexec/worker — run one command on THIS host, as this login or
+# as another account: the half of the host executor that stands on the
+# target. The path is the contract (hostexec runs it directly and over ssh);
+# the work, its contract and every reason for it are in
+# tools/fabric/hostworker.py (ADR-040 §5 rule 4).
 #
 #   worker [--as <login>] [--cwd <dir>] -- <cmd> [args...]
 #
-# As the operator (no --as, or --as the caller's own login): the command
-# runs as is, in the caller's environment. As another account: through
-# sudo, with a clean environment — HOME from the passwd entry, a fixed
-# PATH plus the account's ~/.local/bin, cwd its home (or --cwd) — the
-# idiom every provisioning tool used inline until 2026-09-16
-# (the retired Doppler enrolment, new-agent.sh as_login,
-# rename-working-copy.sh as); one place now. stdin, stdout,
-# stderr and the exit status are the command's: a token piped in and a
-# bundle streamed out pass through untouched and never appear in argv.
-#
-# An argument beginning `@fabric/` names a path under a fabric checkout
-# on THIS host: the operator's (the one this worker sits in) when the
-# command runs as the operator, the ACCOUNT's own (~/projects/
-# agent-fabric, which provisioning clones first) when it runs as another
-# account — the operator's home is not readable to it. The caller need
-# not know where either is, and nothing expands ~ on the far side.
-#
-# $SUDO names the sudo to use (a test puts a fake here); the real one is
-# `sudo -n`: a password prompt is a failure, never a wait.
-set -uo pipefail
-ROOT="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../.." && pwd)"
-as=""; cwd=""
-while (( $# )); do
-    case "$1" in
-        --as) as="$2"; shift 2 ;;
-        --as=*) as="${1#--as=}"; shift ;;
-        --cwd) cwd="$2"; shift 2 ;;
-        --cwd=*) cwd="${1#--cwd=}"; shift ;;
-        --) shift; break ;;
-        -h|--help) sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
-        *) echo "worker: unknown argument $1 (the command comes after --)" >&2; exit 2 ;;
-    esac
-done
-(( $# )) || { echo "worker: no command after --" >&2; exit 2; }
-me="$(id -un)"
-if [[ -z "$as" || "$as" == "$me" ]]; then
-    cmd=(); for a in "$@"; do cmd+=("${a/#@fabric\//$ROOT/}"); done; set -- "${cmd[@]}"
-    [[ -n "$cwd" ]] && { cd "$cwd" || exit 1; }
-    exec "$@"
-fi
-home="$(getent passwd "$as" | cut -d: -f6)"
-[[ -n "$home" ]] || { echo "worker: no such login on $(hostname -s): $as" >&2; exit 2; }
-# The account's home is 700: whether its checkout exists is checked from
-# inside its own shell, not from the operator's view of the path.
-fabric="$home/projects/agent-fabric"; needs_fabric=0
-cmd=(); for a in "$@"; do [[ "$a" == @fabric/* ]] && needs_fabric=1; cmd+=("${a/#@fabric\//$fabric/}"); done; set -- "${cmd[@]}"
-SUDO="${SUDO:-sudo}"
-# The command is handed to the account's shell as ARGUMENTS ("$@"), never
-# re-parsed: a value with a space or a quote reaches it whole.
-# AGENT_FABRIC_PATH carries the same PATH for a command that opens a LOGIN
-# shell (bash -l): Debian's /etc/profile assigns PATH outright for a
-# non-root login, so the value set here would be gone by the time the
-# command runs; the command restores it with
-# `export PATH="$AGENT_FABRIC_PATH:$PATH"`.
-exec $SUDO -n -u "$as" -H env -i HOME="$home" PATH="/usr/local/bin:/usr/bin:/bin:$home/.local/bin" AGENT_FABRIC_PATH="/usr/local/bin:/usr/bin:/bin:$home/.local/bin" \
-    bash -c 'if [ "$1" = 1 ] && [ ! -d "$2" ]; then echo "worker: $(id -un) has no fabric checkout at $2 on $(hostname -s) (provision it first)" >&2; exit 2; fi
-             cd "${3:-$HOME}" && shift 3 && exec "$@"' -- "$needs_fabric" "$fabric" "$cwd" "$@"
+# The fleet's pinned Python (runtime/python.json, ADR-040), one per host;
+# AGENT_FABRIC_PYTHON points elsewhere for a test or a host without it.
+py="${AGENT_FABRIC_PYTHON:-/usr/local/bin/fabric-python}"
+[[ -x "$py" ]] || { echo "worker: the fleet's pinned Python is not installed at $py; as root: /usr/bin/python3 <agent-fabric>/tools/fabric/python_pin.py install" >&2; exit 127; }
+exec "$py" -I "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../../tools/fabric/hostworker.py" "$@"

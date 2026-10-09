@@ -24,6 +24,8 @@ STORE_TOOL = os.path.join(ROOT, "tools", "fabric", "secret_store.py")
 sys.path.insert(0, os.path.dirname(STORE_TOOL))
 import secret_store  # noqa: E402 — the id helpers
 from instance_fixtures import write_secrets_instance  # noqa: E402 — tests/, the script's own directory
+from instance_fixtures import own_instance_tree  # noqa: E402 — tests/, the script's own directory
+own_instance_tree()
 
 
 def main() -> int:

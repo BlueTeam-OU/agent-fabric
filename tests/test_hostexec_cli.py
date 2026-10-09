@@ -215,21 +215,24 @@ def main() -> int:
         rc, out = run_with({"AGENT_FABRIC_OPERATOR": op_tree}, ("AGENT_FABRIC_HOSTS_REGISTRY",), FH, "op-only-host", "run", "--", "echo", "via-operator")
         check("hostexec, run by fabric-host, reads the same registry", rc == 0 and out.strip() == "via-operator", f"rc={rc}\n{out}")
         rc, out = run_with({"AGENT_FABRIC_OPERATOR": op_tree}, ("AGENT_FABRIC_HOSTS_REGISTRY",), HX_E, "op-only-host", "--", "echo", "direct")
-        check("…whereas hostexec alone keeps its own default (it is the host executor and stays shell)",
+        check("…whereas hostexec alone keeps its own default (it is the host executor and does not consult roots.py)",
               rc == 2 and "unknown host 'op-only-host'" in out, f"rc={rc}\n{out}")
-        put("broken-python", "#!/bin/sh\nexit 1\n")
         _, plain = run_with({}, ("AGENT_FABRIC_HOSTS_REGISTRY", "AGENT_FABRIC_OPERATOR", "AGENT_FABRIC_ROOT"), FH_E, "list")
         for label, tree in (("an empty tree", os.path.join(sandbox, "nothing")), ("another clone with a registry of its own", op_tree)):
             os.makedirs(tree, exist_ok=True)
             rc, out = run_with({"AGENT_FABRIC_ROOT": tree}, ("AGENT_FABRIC_HOSTS_REGISTRY", "AGENT_FABRIC_OPERATOR"), FH_E, "list")
             check(f"AGENT_FABRIC_ROOT naming {label} does not move the registry (every session exports one)",
                   rc == 0 and out == plain and "op-only-host" not in out, f"rc={rc}\n{out}")
-        rc, out = run_with({"AGENT_FABRIC_PYTHON": os.path.join(bin_, "broken-python")}, (), FH, "--help")
-        check("--help does not wait on the registry or the interpreter beyond its presence", rc == 0 and "fabric-host list" in out, f"rc={rc}\n{out}")
-        broken = os.path.join(bin_, "broken-python")
-        rc, out = run_with({"AGENT_FABRIC_PYTHON": broken}, (), FH, "list")
-        check("a roots.py that cannot answer is a refusal, never the checkout's file",
-              rc == 1 and "cannot resolve the hosts registry" in out and "far-host" not in out, f"rc={rc}\n{out}")
+        # Ported to Python (ADR-040 Wave 9): a broken interpreter is no longer a step this file can
+        # tell from the program failing, so the two cases that used one say what they meant directly.
+        rc, out = run_with({"AGENT_FABRIC_HOSTS_REGISTRY": os.path.join(sandbox, "no-such-registry.json")}, (), FH, "--help")
+        check("--help prints the synopsis and exits 0 (its registry is not read)", rc == 0 and "fabric-host list" in out, f"rc={rc}\n{out}")
+        notjson = os.path.join(sandbox, "not-json.json")
+        with open(notjson, "w", encoding="utf-8") as fh:
+            fh.write("{")
+        rc, out = run_with({"AGENT_FABRIC_HOSTS_REGISTRY": notjson}, (), FH, "list")
+        check("a registry that cannot be read is a refusal, one line, never the checkout's file",
+              rc == 1 and "is unreadable" in out and "Traceback" not in out and "far-host" not in out, f"rc={rc}\n{out}")
         rc, out = run_with({"AGENT_FABRIC_PYTHON": os.path.join(sandbox, "absent")}, (), FH, "list")
         check("no pinned Python: 127 with the install command", rc == 127 and "python_pin.py install" in out, f"rc={rc}\n{out}")
 

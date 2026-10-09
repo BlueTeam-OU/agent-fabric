@@ -117,7 +117,7 @@ test('unsent: only a refused or unconnected post certainly left nothing', () => 
 });
 
 test('the run has one budget under jobs.py\'s kill, and every call takes at most what is left', async () => {
-  const py = fs.readFileSync(new URL('../../../tools/fabric/jobs.py', import.meta.url), 'utf8');
+  const py = fs.readFileSync(new URL('../../../tools/fabric/jobsparts/queue.py', import.meta.url), 'utf8');
   const outer = Number(py.match(/^QUEUE_TIMEOUT_S = (\d+)$/m)?.[1]);
   assert.ok(outer > 0 && QUEUE_BUDGET_MS <= outer * 1000 - 5000, `${QUEUE_BUDGET_MS} ms against ${outer} s, with room for node to start`);
   assert.ok(QUEUE_CALL_TIMEOUT_MS <= QUEUE_BUDGET_MS);

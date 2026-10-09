@@ -21,6 +21,8 @@ import subprocess
 import sys
 import tempfile
 import time
+from instance_fixtures import own_instance_tree  # noqa: E402 — tests/, the script's own directory
+own_instance_tree()
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 HERE = os.path.join(ROOT, "runtime", "openrouter")
@@ -183,6 +185,7 @@ def main() -> int:
             for f in ("routing.py", "workingcopy.py", "jobs.py", "layout.py", "launch_prompt.py",
                       "install_agent_files.py", "fabric_writes.py", "roots.py"):
                 shutil.copy2(f"{ROOT}/tools/fabric/{f}", f"{fabric}/tools/fabric/")
+            shutil.copytree(f"{ROOT}/tools/fabric/jobsparts", f"{fabric}/tools/fabric/jobsparts", ignore=shutil.ignore_patterns("__pycache__"))   # jobs.py's parts
             # The role's system prompt: the assembler, the shared sections and
             # a fixture charter for the bound role (no brief: the placeholder).
             shutil.copytree(f"{ROOT}/identities/prompt", f"{fabric}/identities/prompt")

@@ -10,6 +10,8 @@ import subprocess
 import sys
 import tempfile
 from git_env import git_env, scrub_process_env  # noqa: E402 — tests/, the script's own directory
+from instance_fixtures import own_instance_tree  # noqa: E402 — tests/, the script's own directory
+own_instance_tree()
 scrub_process_env()
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
