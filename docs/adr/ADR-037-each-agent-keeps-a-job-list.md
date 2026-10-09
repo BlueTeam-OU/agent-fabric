@@ -46,8 +46,10 @@ that job's working copy, with the job in its opening prompt.
 one, through the control plane. A session sees its own list at start,
 and a warning when its active job belongs in another working copy.
 
-**Requests between agents.** A GZCoord request becomes a job only when its
-receiver adds it. The automatic intake is built but not activated.
+**Requests between agents.** A GZCoord request addressed to a login is to be
+queued on its list when it is delivered (rule 11). That intake is decided and
+not yet built; until it is, the receiver adds the request itself, and an
+operator who sends one also adds it with `jobs-add`.
 
 ## 3. Alternatives Considered
 
@@ -103,7 +105,7 @@ Why these choices:
    a REQUEST addressed to this login and not yet listed. A REPLY says
    whether it undertakes the request in prose, so the intake cannot tell
    an undertaking from a decline: that, with the owner's choice, keeps it
-   off. Turning it on is an amendment of this record.
+   off. Rule 11's intake on delivery replaces it once built.
 6. The owner reads every agent's open jobs with
    `fabric-ctl <login|all> jobs`, an operator's op. Peers see each other's
    presence, not each other's lists; the message ids an agent's blocked
@@ -136,7 +138,8 @@ Why these choices:
     only when nothing is left it can take, on its own list or in its
     role's pool (A 2026-10-08).
 11. A `REQUEST` addressed `TO` a login is a job on that login's list,
-    queued without anyone remembering to put it there: the receiver's
+    queued without anyone remembering to put it there (decided, not yet
+    built; until it is, the receiver adds it): the receiver's
     inbox queues it when it delivers it, once per `MESSAGE-ID`, with the
     id as the job's request; a sender that is the host's operator also
     adds it through the control plane's `jobs-add`, so a session whose

@@ -439,7 +439,7 @@ a `DECISION`, a `QUESTION` to whoever holds it.
 When you do not know which holder, choose in this order and say in the
 body which rule chose: (1) the holder whose pushed branch, with a pull
 request or without one, already touches the path —
-`fabric-pr gate` --in-flight --path <prefix>` lists every branch not
+`fabric-pr gate --in-flight --path <prefix>` lists every branch not
 yet merged, by owner (`--all` lists open PRs only, and misses a branch
 waiting for its PR); (2) the holder
 with a session running now — in agent-fabric, `fabric-ctl all presence`

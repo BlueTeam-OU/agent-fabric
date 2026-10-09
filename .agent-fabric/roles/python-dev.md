@@ -31,7 +31,7 @@ it as every agent carries one:
 - a blind review with the review class on the head, posted with
   `fabric-pr post-review`, every P1/P2 fixed in the pull
   request (a P3 may carry, named), re-reviewed on the fix range;
-- `fabric-pr gate` <N>` read before arming: 8 or more work
+- `fabric-pr gate <N>` read before arming: 8 or more work
   commits and MERGEABLE, arm it yourself with the basis posted; fewer,
   ask the owner;
 - then tell fabric-coordinator it merged: distribution to the accounts

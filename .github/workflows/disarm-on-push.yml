@@ -5,7 +5,7 @@ name: disarm-on-push
 # checks pass: a push after the arming (a fold, a conflict merge, a late
 # fix) would land unreviewed. GitHub keeps auto-merge across a push from
 # anyone with write access, so this job takes it off and says why; the
-# arming is done again on the new head, through arm.sh, once it is
+# arming is done again on the new head, through fabric-pr arm, once it is
 # reviewed. Seen live on #134 (2026-10-09): a conflict merge with new
 # code sat armed until it was disarmed by hand.
 on:
@@ -56,6 +56,6 @@ jobs:
           fi
           gh api graphql -f query='mutation($id:ID!){disablePullRequestAutoMerge(input:{pullRequestId:$id}){clientMutationId}}' \
             -f id="$node" >/dev/null
-          body="Auto-merge taken off: the head moved from ${BEFORE:0:8} to ${AFTER:0:8} after the arming (armed $armed_on). A pull request is armed on a reviewed head (ADR-019); review the new range, then arm again with arm.sh."
+          body="Auto-merge taken off: the head moved from ${BEFORE:0:8} to ${AFTER:0:8} after the arming (armed $armed_on). A pull request is armed on a reviewed head (ADR-019); review the new range, then arm again with fabric-pr arm."
           gh api "repos/$GH_REPO/issues/$PR/comments" -f body="$body" >/dev/null
           echo "$body"
