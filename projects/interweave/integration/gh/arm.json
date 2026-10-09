@@ -35,5 +35,6 @@
       "2026-10-04 waiver_role architect-cto": "the boundary gate is waived only by a holder of architect-cto, with a WAIVES message arm.py checks (#92; devex-tooling's request, relay seq 11665)"
     }
   },
-  "waiver_role": "architect-cto"
+  "waiver_role": "architect-cto",
+  "arm_command": "tools/gh/arm.sh"
 }

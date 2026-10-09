@@ -408,8 +408,9 @@ def no_review_coming(p: Probe) -> bool:
 class Extras:
     threads: list
     unresolved: int | None
-    checks_pass: int
-    checks_other: int
+    # None is "unknown", as `unresolved` is: the checks could not be read.
+    checks_pass: int | None
+    checks_other: int | None
 
 
 def fetch_extras(ctx: "Ctx") -> Extras:
@@ -427,11 +428,19 @@ def fetch_extras(ctx: "Ctx") -> Extras:
     except (gh.GhError, ValueError, TypeError, KeyError, AttributeError):
         threads, unresolved = [], None
     # `gh pr checks` exits 8 while a check is pending and 1 while one fails,
-    # and prints its table either way: the count reads what it printed.
+    # and prints its table either way: the count reads what it printed. A
+    # failure that printed no table is unknown — a 502 or a timeout read as
+    # "0 pass, 0 other" looked like a head with no checks — except gh's own
+    # "no checks reported", which is a real zero (gh.no_checks_reported).
     try:
         table = gh.run(["pr", "checks", ctx.pr, "--repo", ctx.repo], what=f"gh pr checks {ctx.pr}")
     except gh.GhError as e:
-        table = e.stdout
+        if gh.no_checks_reported(e):
+            table = ""
+        elif e.code in (1, 8) and e.stdout.strip():
+            table = e.stdout
+        else:
+            return Extras(threads, unresolved, None, None)
     rows = table.split("\n")
     if rows and rows[-1] == "":
         rows.pop()

@@ -4,7 +4,7 @@ review fix": merge, fix or work (ADR-019's count rule, ADR-040's first
 Wave 1 port). runtime/github/commit-class.sh is its shim, sourced by
 pr-gate.sh and the managed projects' forwarders; results.py imports it.
 
-    commit_class.py class <parents> <subject> [<answers>] [<pr>] [<owner/repo>] [<kind>]
+    commit_class.py class <parents> <subject> [<answers>] [<pr>] [<owner/repo>] [<kind>] [<head>]
                                           prints merge | fix | work
     commit_class.py revert-targets        the shas a commit body (stdin) reverts
 
@@ -13,8 +13,9 @@ that order, the optional ones may be empty; one word on stdout; exit 0.
 <parents> is the space-separated parent list (git log %P); <answers> the
 value of the commit's `Answers:` trailer (git log
 %(trailers:key=Answers,valueonly)); <kind> the value of its `Kind:` trailer
-(the last when there are several). <kind> came last so every older caller's
-argv still means what it meant.
+(the last when there are several); <head> the counted PR's head, which
+lets a fold be read (below). <kind> and <head> came last so every older
+caller's argv still means what it meant.
 
 WHY EACH RULE (carried from the bash, which recorded the incidents):
 
@@ -47,6 +48,16 @@ the declaration says what the commit is, not whose band it falls in. A
 missing, empty or unknown value (an older commit, one made without the
 hook) is read exactly as before.
 
+A FOLD is the exception to that other-PR rule (ADR-019 §5 rule 3,
+amended 2026-10-08): a PR closed unmerged whose head lies inside the
+counted head was folded in — merged unrebased into this branch, then
+closed — and its review fixes are fixes here. gateway#10 folded into #11
+read 8 work where 6 was right. Telling a fold from a follow-up needs
+GitHub (state) and git (ancestry), so it is asked only with <head>, once
+per PR named (Folds). A PR that cannot be read keeps the reading from
+before the amendment, work, and says so on stderr, so the session
+counting sees which commits it could not place.
+
 A finding LABEL is one or two capitals, an optional dash, digits, an
 optional -digits: F4, P3, N12, G1, PE-6, PR-1, P3-1. The first shape was
 [FNP][0-9]+ and read "review PE-6:" and "review PR-1:" as WORK — four on
@@ -60,8 +71,11 @@ import json
 import os
 import re
 import sys
+from typing import Callable
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
+import gh  # noqa: E402
+import git  # noqa: E402
 import roots  # noqa: E402
 FORM = r"(?:[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+#|[A-Za-z0-9_.-]+#|[A-Za-z0-9_.-]+\s+#|#)[0-9]+"
 LABEL = r"[A-Z]{1,2}-?[0-9]+"
@@ -141,7 +155,59 @@ def kind_of(body: str) -> str:
     return kind("\n".join(values))
 
 
-def classify(parents: str, subject: str, answers: str = "", pr: str = "", repo: str = "", kind_value: str = "") -> str:
+class Folds:
+    """Whether PR <n> was folded into <head>: closed, not merged, and its
+    head an ancestor of <head>. Asked once per PR number — a range names
+    the same PR in every fix of its review, and each ask is a gh call. An
+    unreadable PR or ancestry is "no" (the follow-up reading), said on
+    stderr once."""
+
+    def __init__(self, repo: str, head: str, cwd: str = ".", timeout: float = 30):
+        self.repo, self.head, self.cwd, self.timeout = repo, head, cwd, timeout
+        self._seen: dict[str, bool] = {}
+
+    def __call__(self, n: str) -> bool:
+        if n not in self._seen:
+            self._seen[n] = self._look(n)
+        return self._seen[n]
+
+    def _unread(self, n: str, why: str) -> bool:
+        print(f"commit-class: #{n} could not be read ({why}); its review's fixes count as work here", file=sys.stderr)
+        return False
+
+    def _look(self, n: str) -> bool:
+        try:
+            pr = gh.pr_view(int(n), ["state", "mergedAt", "headRefOid"], repo=self.repo or None, timeout=self.timeout)
+        except gh.GhError as e:
+            return self._unread(n, str(e))
+        except ValueError:
+            return self._unread(n, "gh's answer is not JSON")
+        if not isinstance(pr, dict):
+            return self._unread(n, "gh's answer is not an object")
+        if pr.get("state") != "CLOSED" or pr.get("mergedAt"):
+            return False
+        oid = pr.get("headRefOid")
+        if not isinstance(oid, str) or not re.fullmatch(r"[0-9a-f]{7,64}", oid):
+            return self._unread(n, "no head sha")
+        try:
+            return git.ok(self.cwd, "merge-base", "--is-ancestor", oid, self.head, timeout=self.timeout)
+        except git.GitError as e:
+            # A head this clone does not have is no ancestor of one it has,
+            # when the clone holds the whole history — a closed PR that was
+            # never folded is the usual case, and says nothing. A shallow
+            # clone, or a counted head it lacks, cannot answer.
+            try:
+                if git.ok(self.cwd, "rev-parse", "--verify", "-q", f"{self.head}^{{commit}}", timeout=self.timeout) \
+                        and git.out(self.cwd, "rev-parse", "--is-shallow-repository", timeout=self.timeout) == "false" \
+                        and not git.ok(self.cwd, "rev-parse", "--verify", "-q", f"{oid}^{{commit}}", timeout=self.timeout):
+                    return False
+            except git.GitError:
+                pass
+            return self._unread(n, e.reason)
+
+
+def classify(parents: str, subject: str, answers: str = "", pr: str = "", repo: str = "", kind_value: str = "",
+             folded: Callable[[str], bool] | None = None) -> str:
     if " " in parents.strip():
         return "merge"
     declared = kind(kind_value)
@@ -167,6 +233,10 @@ def classify(parents: str, subject: str, answers: str = "", pr: str = "", repo: 
         found += [m.group(0) for m in re.finditer(FORM, answers)]
         refs = {_ref(r, repo) for r in found if r}
         if refs and str(pr) not in refs:
+            # Every PR named folded into this head: its review's fixes are
+            # this PR's fixes. Another repository's ("x") is never a fold.
+            if folded is not None and "x" not in refs and all(folded(n) for n in sorted(refs)):
+                return "fix"
             return "work"
     if declared == "review-fix":
         return "fix"
@@ -221,14 +291,18 @@ def revert_targets(body: str) -> list[str]:
 
 
 def main(argv: list[str]) -> int:
-    if argv[:1] == ["class"] and 3 <= len(argv) <= 7:
-        print(classify(*argv[1:]))
+    if argv[:1] == ["class"] and 3 <= len(argv) <= 8:
+        args = argv[1:] + [""] * (8 - len(argv))
+        parents, subject, answers, pr, repo, kind_value, head = args[:7]
+        folded = Folds(repo, head) if pr and head else None
+        print(classify(parents, subject, answers, pr, repo, kind_value, folded))
         return 0
     if argv == ["revert-targets"]:
         for sha in revert_targets(sys.stdin.read()):
             print(sha)
         return 0
-    print("usage: commit_class.py class <parents> <subject> [<answers>] [<pr>] [<owner/repo>] [<kind>] | revert-targets", file=sys.stderr)
+    print("usage: commit_class.py class <parents> <subject> [<answers>] [<pr>] [<owner/repo>] [<kind>] [<head>]"
+          " | revert-targets", file=sys.stderr)
     return 2
 
 

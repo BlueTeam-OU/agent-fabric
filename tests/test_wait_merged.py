@@ -49,8 +49,10 @@ class Clock:
 
 class Fake:
     """gh as wait_merged calls it, scripted per poll like the oracle's mock:
-    a view is "STATE[:MERGESTATE]" or "FAIL"; a checks answer is a list, or
-    None for an unreadable one; an arming answer is a word, "unknown" a
+    a view is "STATE[:MERGESTATE]" or "FAIL"; a checks answer is a list,
+    None for an unreadable one, a string: gh's whole stderr, exit 1 and
+    nothing on stdout, or a (list, string) pair: that list's JSON on stdout
+    beside that stderr, exit 1; an arming answer is a word, "unknown" a
     failed probe. The last of each list repeats."""
 
     def __init__(self, clock: Clock, views, checks=None, arming=("queued",), base="main", latency=0.0,
@@ -91,6 +93,10 @@ class Fake:
         answer = self._at(self.checks, self.n_view - 1)
         if answer is None:
             raise gh.GhError("gh pr checks", "HTTP 502", stdout="")
+        if isinstance(answer, str):
+            raise gh.GhError("gh pr checks", answer.splitlines()[-1], stdout="", stderr=answer + "\n", code=1)
+        if isinstance(answer, tuple):
+            raise gh.GhError("gh pr checks", answer[1], stdout=json.dumps(answer[0]), stderr=answer[1] + "\n", code=1)
         return json.dumps(answer)
 
     def api(self, path, **kw):
@@ -215,6 +221,33 @@ def main() -> int:
     code, text, _, _ = watch(Fake(c, ["OPEN:BLOCKED"] * 9 + ["MERGED"], checks=[None] * 4 + [[]] + [None] * 4 + [[]]),
                              c, interval=1, timeout=600)
     check("a readable checks lookup resets the run of 5", code == 0, text)
+
+    # gh says "there are none" as an error line, not as [] (#128's watch
+    # gave up on it after five polls and the PR merged minutes later).
+    for said in ("no required checks reported on the 'develop-qzapp/x/fix/y' branch",
+                 "no checks reported on the 'it's' branch"):
+        c = Clock()
+        code, text, err, _ = watch(Fake(c, ["OPEN:BLOCKED"] * 8 + ["MERGED"], checks=[said]), c, interval=1,
+                                   timeout=600)
+        check(f"{said[:30]!r}… is zero checks, not unreadable: the watch sees the merge",
+              code == 0 and "could not read" not in err, f"{code} {text} {err}")
+    c = Clock()
+    code, text, _, _ = watch(Fake(c, ["OPEN:BLOCKED"], checks=["no required checks reported on the 'x' branch"],
+                                  runs=0), c, interval=1, timeout=600)
+    check("…so it feeds the missing-run diagnosis like []", code == 6 and "no workflow run exists" in text, text)
+    for said in ("HTTP 502", "error: no required checks reported on the 'x' branch",
+                 "no required checks reported on the 'x' branch, and more",
+                 "gh: Bad Gateway (HTTP 502)\nno required checks reported on the 'x' branch"):
+        c = Clock()
+        code, text, _, _ = watch(Fake(c, ["OPEN:BLOCKED"], checks=[said]), c, interval=1, timeout=600)
+        check(f"any other stderr is unreadable ({said[:40]!r})", code == 2 and text.startswith("UNREADABLE — 5 checks"),
+              text)
+    c = Clock()
+    code, text, _, _ = watch(Fake(c, ["OPEN:BLOCKED"], checks=[([{"name": "ci", "bucket": "fail"}],
+                                                                 "no required checks reported on the 'x' branch")]),
+                             c, interval=1, timeout=600)
+    check("JSON on stdout beside the line is still read: its failing check blocks",
+          code == 5 and text == "BLOCKED — these required checks failed: ci", text)
 
     # ── the idle-read stall ──────────────────────────────────────────
     print("wait_merged: arming lost mid-watch")

@@ -53,13 +53,35 @@ class GhError(Exception):
     (`transient`: a read may be retried, a write may have landed). `stdout`
     is what gh printed before it failed: `gh pr checks` exits 8 while a
     check is pending and 1 while one fails, and prints its table either
-    way."""
+    way. `stderr` and `code` are gh's whole stderr and exit status, when gh
+    ran and exited."""
 
     def __init__(self, what: str, reason: str, status: int | None = None, transient: bool = False,
-                 stdout: str = ""):
+                 stdout: str = "", stderr: str = "", code: int | None = None):
         super().__init__(f"{what}: {reason}")
         self.what, self.reason, self.status, self.transient = what, reason, status, transient
-        self.stdout = stdout
+        self.stdout, self.stderr, self.code = stdout, stderr, code
+
+
+# `gh pr checks` with nothing to list prints no table and no JSON — not
+# even `[]` under --json — but this one line on stderr, and exits 1, the
+# code it also uses for a failing check. Measured on gh 2.87.3
+# (2026-10-09): "no required checks reported on the '<head>' branch" when
+# checks exist but none is required, "no checks reported on the '<head>'
+# branch" when the head has none at all, --required or not. Read as an
+# unreadable lookup, it made wait-merged give up on a PR that merged
+# minutes later (#128). The WHOLE answer is matched — exit 1, stdout
+# empty, that line and nothing else on stderr — because a false match
+# turns an unknown into "none": a failing check's JSON dropped, an HTTP
+# error read as an empty list (review of #129). So GH_DEBUG's extra lines
+# read as unreadable, the loud direction.
+_NO_CHECKS = re.compile(r"no (?:required )?checks reported on the '.*' branch")
+
+
+def no_checks_reported(e: GhError) -> bool:
+    """Whether a failed `gh pr checks` was gh's answer "there are none":
+    zero checks, a known answer, never an unknown one."""
+    return e.code == 1 and not e.stdout.strip() and bool(_NO_CHECKS.fullmatch(e.stderr.strip()))
 
 
 # origin's URL on github.com: scp-like or with a scheme, `.git` optional.
@@ -68,7 +90,9 @@ _ORIGIN = re.compile(r"^(?:[^@/:\s]+@github\.com:|(?:https|ssh|git)://(?:[^@/\s]
 _REPO = re.compile(r"^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$")
 # What gh takes after --repo/-R: [HOST/]OWNER/REPO (a GitHub Enterprise
 # host included); naming the host names the repository too (#111 review).
-_SELECTOR = re.compile(r"^([A-Za-z0-9.-]+\.[A-Za-z]{2,}/)?[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$")
+# gh reads the first of three parts as the host whatever it is, so a
+# dotless one (an internal name, localhost:8080) names it as well (#114).
+_SELECTOR = re.compile(r"^([A-Za-z0-9.-]+(:[0-9]+)?/)?[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$")
 _ITEM_URL = re.compile(r"^https://github\.com/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+/(pull|issues)/\d+/?$")
 
 
@@ -102,6 +126,20 @@ _REPO_SCOPED = {"pr", "repo", "issue", "run", "workflow", "release", "secret", "
                 "ruleset", "browse", "attestation"}
 
 
+def _a_value(args: list[str], i: int) -> bool:
+    """Whether args[i] may be the value of the option before it, as gh's
+    flag parser takes the next word for any flag that is not a boolean
+    and has no `=`: `--body -Ro/r` is a body, not a selector (#114). gh's
+    booleans are not listed here, so a selector right after one (`--web
+    -R o/r`) reads as unnamed too: refused only where GH_REPO cannot be
+    pinned, and named by putting it first or by GH_REPO."""
+    if i == 0:
+        return False
+    before = args[i - 1]
+    return before.startswith("-") and before not in ("-", "--") and "=" not in before \
+        and not (before.startswith("-R") and len(before) > 2)
+
+
 def _scoped(args: list[str]) -> bool:
     """Whether gh would pick a repository for this call itself: a scoped
     subcommand without --repo/-R, or an api path naming {owner}/{repo}."""
@@ -111,13 +149,15 @@ def _scoped(args: list[str]) -> bool:
     # "-R…" inside a flag's value (a body, a title) names nothing (review
     # of the carried-109 branch, F1).
     for i, a in enumerate(args):
+        if _a_value(args, i):
+            continue
         value = (args[i + 1] if i + 1 < len(args) else "") if a in ("--repo", "-R") \
             else a[len("--repo="):] if a.startswith("--repo=") else a[2:] if a.startswith("-R") else None
         if value is not None and _SELECTOR.match(value):
             return False
     if args[:1] == ["api"]:
         return any("{owner}" in a or "{repo}" in a for a in args[1:])
-    if args[:1] == ["repo"] and len(args) > 2 and _REPO.match(args[2]):
+    if args[:1] == ["repo"] and len(args) > 2 and not _a_value(args, 2) and _SELECTOR.match(args[2]):
         return False
     if args[:1] in (["pr"], ["issue"]) and len(args) > 2 and _ITEM_URL.match(args[2]):
         return False
@@ -162,7 +202,7 @@ def run(args: list[str], *, input: str | None = None, timeout: float = TIMEOUT_S
         low = r.stderr.lower()
         transient = status is not None and (status >= 500 or status == 429) \
             or "rate limit" in low or any(t in low for t in NETWORK_FAILURES)
-        raise GhError(what, lines[-1], status, transient, r.stdout)
+        raise GhError(what, lines[-1], status, transient, r.stdout, r.stderr, r.returncode)
     return r.stdout
 
 

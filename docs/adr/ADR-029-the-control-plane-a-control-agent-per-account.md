@@ -4,7 +4,7 @@
 **Status:** Accepted
 **Ratified:** owner, 2026-09-27, by arming agent-fabric #53 (ratification by merge, the owner's rule of 2026-09-27)
 **Decision Makers:** the owner; drafted by fabric-coordinator
-**Scope:** runtime/control/ (agentd.mjs, ops.mjs, ctl.mjs, sign.mjs, upgrade.mjs, config.json, agent-fabric-agentd.service); bin/fabric-ctl; the control channel's refusal in communication/gzcoord/scripts/inbox.mjs and send.mjs; the unit's installation in runtime/claude-code/bootstrap.sh; account persistence (runtime/provisioning/persist-accounts.sh, runtime/provisioning/platform/qubes/agent-fabric-accounts.rc); the fallbacks bin/fabric-usage and bin/fabric-host
+**Scope:** runtime/control/ (agentd.mjs, ops.mjs, ctl.mjs, sign.mjs, upgrade.mjs, pool.mjs, tools.mjs, sessions.mjs, config.json, agent-fabric-agentd.service); bin/fabric-ctl; the control channel's refusal in communication/gzcoord/scripts/inbox.mjs and send.mjs; the unit's installation in runtime/claude-code/bootstrap.sh; account persistence (runtime/provisioning/persist-accounts.sh, runtime/provisioning/platform/qubes/agent-fabric-accounts.rc); the fallbacks bin/fabric-usage and bin/fabric-host
 **Pillar:** P5
 **Evidence:** docs/live-checks/2026-09-17-control-plane.md
 
@@ -134,7 +134,7 @@ claimant (rule 4).
    number capped at 90, `pool-list`'s role and `pool-claim`'s pool id
    (`pool.mjs`); an action takes only its own closed set of
    arguments (`upgrade.mjs`, `secrets.mjs` and `jobs.mjs` `checkArgs`,
-   `checkJobArgs`).
+   `checkJobArgs`, and `pool.mjs` `checkPoolArgs` for `pool-add`).
 4. A daemon answers a request only when its `from` is a host operator's
    address as `runtime/hosts/registry.json` places it — re-read for every
    record — or, for a public op (`PUBLIC_OPS`: `presence`, `pool-list` and
@@ -146,7 +146,8 @@ claimant (rule 4).
    op that writes: it sets one pool job's claimant to the asker, checked
    against the role the asker's own daemon reports, and adds, removes or
    reorders no job; a forged claim takes a job off the pool for a role's
-   holder, which `fabric-ctl <holder> pool-list` shows.
+   holder. `pool-list` shows unclaimed jobs only, so the claim and its
+   claimant are seen in the pool holder's `pool.json`.
 5. An action (`sign.mjs` `ACTION_OPS`) is answered only when it carries
    an Ed25519 signature over its canonical form by the key the operator's
    host commits as `operator_key`; it lives at most 600 s, is refused
@@ -301,3 +302,4 @@ The body above reads current; each change's full note is in [history/ADR-029-ame
 | 2026-10-07 | secrets-selftest proves an account's own secrets | §5 rule 17: the `secrets-selftest` action, a canary set, used through `fabric-secret-run` and removed in the account's own store |
 | 2026-10-08 | The state record names the last session and whether it can be resumed | §5 rule 16: `last_session` and `resumable`, no path |
 | 2026-10-08 | The op table follows ops.mjs: disk, jobs, local, the pool and tools; three public ops | §2 table, §5 rules 3 and 4: rows for the read ops added since; the pool's arguments; `presence`, `pool-list` and `pool-claim` public |
+| 2026-10-09 | pool-add's checker named; a forged claim is seen in the holder's pool file | §5 rule 3 names `checkPoolArgs`; rule 4: `pool-list` shows unclaimed jobs only, so a claim is seen in the holder's `pool.json`; the Scope line names pool.mjs, tools.mjs and sessions.mjs |

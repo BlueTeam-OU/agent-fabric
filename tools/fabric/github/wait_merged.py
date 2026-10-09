@@ -563,11 +563,14 @@ class Watch:
         """REQUIRED checks only, through `gh pr checks` — an optional check
         that fails does not stop the queue, and `bucket` normalises check
         runs and legacy statuses alike. gh exits non-zero while one fails or
-        pends: that is an answer, so its stdout is read either way."""
+        pends: that is an answer, so its stdout is read either way. With none
+        reported it prints no JSON at all, and that is an answer too: []."""
         args = ["pr", "checks", self.pr, "--required", "--json", "name,bucket", "--repo", self.repo]
         try:
             out = gh.run(args, what="gh pr checks")
         except gh.GhError as e:
+            if gh.no_checks_reported(e):
+                return []
             out = e.stdout
         try:
             return json.loads(out)

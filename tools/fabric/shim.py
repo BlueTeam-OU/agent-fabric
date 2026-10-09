@@ -139,7 +139,7 @@ def api_key() -> str:
     except (OSError, ValueError):
         key = None
     if not key:
-        die("no OPENROUTER_API_KEY in ~/.config/agent-fabric/secrets.env (bin/fabric-secrets sync).")
+        die("no OPENROUTER_API_KEY in ~/.config/agent-fabric/secrets.env (fabric-secrets sync).")
     return key
 
 

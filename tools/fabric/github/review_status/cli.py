@@ -93,7 +93,8 @@ Options:
                          {count, rows}, marked_by_others, not_trusted,
                          no_review_coming ({cause, reason} or null),
                          verdicts, unresolved_threads (null when the
-                         lookup failed), checks {pass, other}
+                         lookup failed), checks {pass, other} (both
+                         null when the lookup failed)
   -h, --help             this text
 
 Durations take an optional unit — 90, 90s, 10m, 2h. A bare number is

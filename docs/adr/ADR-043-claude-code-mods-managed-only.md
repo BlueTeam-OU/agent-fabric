@@ -43,6 +43,7 @@ A managed hook that runs a script from a login's own checkout is no stronger tha
 5. Any other mod a session or an agent wants is a proposal to fabric-coordinator: reviewed with `claude plugin validate` (its `hooks:` and `calls:` named in the pull request) and the blind review, then installed under rules 3 and 6.
 6. The Claude Code pin in `harness.json` moves to 2.1.287 or later only after `fabric-ctl all` reports, on every host, that rules 1 and 2 are in force. That means a session started with `--plugin-dir` on a test mod refuses it, and a guard's managed hook answers.
 7. Before `disableSideloadFlags` is set on a host, a live read-back confirms that nothing the launcher or a role's profile passes is a flag it rejects (`--plugin-dir`, `--plugin-url`, `--agents`, `--mcp-config`), recorded under `docs/live-checks/`.
+8. A mod or MCP server that executes code or a shell command on a session's behalf is admitted under rule 5 only if every such execution passes the fleet's guards as a Bash call would. The managed `PreToolUse` hooks see the harness's own tools, not what a server runs inside its process, so a server that runs code unguarded is refused at review, whatever it saves the session. A child process is not a sandbox unless it is shown to be one (its environment, files and network named) (A 2026-10-09).
 
 ## 6. Consequences
 
@@ -65,3 +66,11 @@ Accepted by the owner's merge of agent-fabric #97, which carried it. Not yet in 
 - Claude Code documentation: Mods overview (`/docs/en/plugins/mods/overview`); Manage mods for your organization (`/docs/en/plugins/mods/admin`).
 - `runtime/claude-code/workspace/settings.json` (the guards as project-settings hooks today); `runtime/claude-code/harness.json` (the pin).
 - ADR-005 and ADR-020 (dispatch and review guards), ADR-018 (authority), ADR-040 (the pinned interpreter, installed by the operator).
+
+## Amendments
+
+The body above reads current; each change's full note is in [history/ADR-043-amendments.md](history/ADR-043-amendments.md).
+
+| Date | Amendment | Effect |
+|---|---|---|
+| 2026-10-09 | A mod or MCP server that runs code passes the fleet's guards | §5 rule 8 added: code or shell a mod or MCP server executes for a session must pass the fleet's guards as a Bash call would; a server that runs it unguarded is refused at review; a child process is not taken for a sandbox |
