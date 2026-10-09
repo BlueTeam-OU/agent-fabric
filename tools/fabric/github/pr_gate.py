@@ -292,9 +292,10 @@ def check_contexts(owner: str, name: str, num: int, after: str | None, head: str
         if not head or pr["headRefOid"] != head:
             raise ValueError("the head moved while its checks were read")
         page = pr["statusCheckRollup"]["contexts"]
-        if not isinstance(page["nodes"], list):
-            raise TypeError("a page of checks that is not a list")
-        nodes += [n for n in page["nodes"] if isinstance(n, dict)]
+        more = listed(page["nodes"])
+        if more is None:
+            raise TypeError("a page of checks that is not a list of objects")
+        nodes += more
         info = page.get("pageInfo") or {}
         if not info.get("hasNextPage"):
             return nodes
@@ -302,12 +303,23 @@ def check_contexts(owner: str, name: str, num: int, after: str | None, head: str
     raise ValueError(f"more than {CONTEXT_PAGES * 100} checks")
 
 
-def listed(nodes) -> list | None:
-    """A GraphQL connection's nodes: a list, null (none), or — anything
-    else — None, unreadable, never zero."""
+def listed(nodes) -> list[dict] | None:
+    """A GraphQL connection's nodes: a list of objects, null (none), or —
+    anything else, a non-object element included — None, unreadable,
+    never zero."""
     if nodes is None:
         return []
-    return nodes if isinstance(nodes, list) else None
+    if isinstance(nodes, list) and all(isinstance(n, dict) for n in nodes):
+        return nodes
+    return None
+
+
+def obj(value) -> dict | None:
+    """A GraphQL object field: an object, null (an empty one), or —
+    anything else — None, unreadable."""
+    if value is None:
+        return {}
+    return value if isinstance(value, dict) else None
 
 
 def gate_state(repo: str, num: int, head: str) -> dict | None:
@@ -320,20 +332,20 @@ def gate_state(repo: str, num: int, head: str) -> dict | None:
         return None
     if not isinstance(pr, dict):
         return None
-    contexts = (pr.get("statusCheckRollup") or {}).get("contexts") or {}
-    first = listed(contexts.get("nodes"))
-    nodes: list[dict] | None = None if first is None else [n for n in first if isinstance(n, dict)]
+    rollup = obj(pr.get("statusCheckRollup"))
+    contexts = obj(rollup.get("contexts")) if rollup is not None else None
+    nodes = listed(contexts.get("nodes")) if contexts is not None else None
     if not head or pr.get("headRefOid") != head:
         nodes = None
-    if nodes is not None and (contexts.get("pageInfo") or {}).get("hasNextPage"):
+    if nodes is not None and (obj(contexts.get("pageInfo")) or {}).get("hasNextPage"):
         try:
             nodes = nodes + check_contexts(owner, name, num, contexts["pageInfo"].get("endCursor"), head)
         except (gh.GhError, ValueError, TypeError, KeyError, AttributeError):
             nodes = None
     checks = "?" if nodes is None else checks_of(nodes)
-    page = pr.get("reviewThreads") or {}
-    threads = listed(page.get("nodes"))
-    info = page.get("pageInfo") or {}
+    page = obj(pr.get("reviewThreads"))
+    threads = listed(page.get("nodes")) if page is not None else None
+    info = (obj(page.get("pageInfo")) if page is not None else None) or {}
     if threads is not None and info.get("hasNextPage"):
         # Past the first 100 the count was short and read as whole (review
         # of #71): the rest are read page by page, and a rest that cannot be
@@ -349,7 +361,7 @@ def gate_state(repo: str, num: int, head: str) -> dict | None:
     queue = alt((pr.get("mergeQueueEntry") or {}).get("position"))
     return {
         "unresolved": "?" if threads is None else
-                      str(sum(1 for t in threads if isinstance(t, dict) and not alt(t.get("isResolved")))),
+                      str(sum(1 for t in threads if not alt(t.get("isResolved")))),
         "armed": "yes" if pr.get("autoMergeRequest") is not None else "no",
         "queue": "" if queue is None else jq_str(queue),
         "mstate": jq_str(alt(pr.get("mergeStateStatus"), "?")),

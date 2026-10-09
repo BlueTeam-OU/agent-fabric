@@ -49,6 +49,10 @@ def review_threads(owner: str, name: str, pr: int, after: str | None = None) -> 
     for _ in range(THREAD_PAGES):
         data = gh.graphql(THREADS_QUERY, owner=owner, name=name, pr=pr, after=after)
         page = data["repository"]["pullRequest"]["reviewThreads"]
+        # `+=` would take a string's characters, or a dict's keys, as
+        # threads, and every one of them would count as resolved.
+        if not isinstance(page["nodes"], list) or not all(isinstance(t, dict) for t in page["nodes"]):
+            raise TypeError("a page of review threads that is not a list of objects")
         nodes += page["nodes"]
         info = page.get("pageInfo") or {}
         if not info.get("hasNextPage"):

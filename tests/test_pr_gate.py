@@ -73,6 +73,13 @@ def main() -> int:
     try:
         gh.graphql = paged([[node(True)] * 100, [node(False)] * 3])
         check("two pages read whole", len(prs.review_threads("o", "r", 1)) == 103)
+        for label, page in (("a string", "abc"), ("a dict", {"a": 1}), ("a list holding a non-object", [node(True), 1])):
+            gh.graphql = paged([[node(True)] * 100, page])
+            try:
+                prs.review_threads("o", "r", 1)
+                check(f"a thread page of {label}: raised", False)
+            except TypeError:
+                check(f"a thread page of {label}: raised, never counted", True)
         gh.graphql = paged([[node(True)]] * (prs.THREAD_PAGES + 1))
         try:
             prs.review_threads("o", "r", 1)
@@ -144,7 +151,8 @@ def main() -> int:
         for label, rest in (("a page that cannot be read", gh.GhError("gh api graphql", "HTTP 502", 502, True)),
                             ("a page with no cursor to the next", "no-cursor"),
                             ("past the page cap", [[ok]] * (pr_gate.CONTEXT_PAGES + 1)),
-                            ("a malformed page", [None])):
+                            ("a malformed page", ["x"]),
+                            ("a page holding a non-object", [[ok, 1]])):
             if rest == "no-cursor":
                 def rest_fake(query, **kw):
                     if "mergeStateStatus" in query:
@@ -180,10 +188,13 @@ def main() -> int:
             d["repository"]["pullRequest"]["reviewThreads"] = {"nodes": [node(True)] * 100,
                                                                "pageInfo": {"hasNextPage": True, "endCursor": None}}
             return d
-        check("listed: null is none, a list is itself, anything else unreadable",
-              pr_gate.listed(None) == [] and pr_gate.listed([1]) == [1]
-              and all(pr_gate.listed(v) is None for v in ({}, "", {"a": 1}, "x", 0)))
-        for label, shape in (("an empty dict", {}), ("an empty string", "")):
+        check("listed: null is none, a list of objects is itself, anything else unreadable",
+              pr_gate.listed(None) == [] and pr_gate.listed([{"a": 1}]) == [{"a": 1}] and pr_gate.listed([]) == []
+              and all(pr_gate.listed(v) is None for v in ({}, "", {"a": 1}, "x", 0, [1], [{"a": 1}, None])))
+        check("obj: null is empty, an object is itself, anything else unreadable",
+              pr_gate.obj(None) == {} and pr_gate.obj({"a": 1}) == {"a": 1}
+              and all(pr_gate.obj(v) is None for v in ("", "x", [], [1], 0)))
+        for label, shape in (("an empty dict", {}), ("an empty string", ""), ("a list holding a non-object", [1])):
             def fake(query, shape=shape, **kw):
                 d = rollup([], more=False)(query, **kw)
                 d["repository"]["pullRequest"]["statusCheckRollup"]["contexts"]["nodes"] = shape
@@ -194,7 +205,21 @@ def main() -> int:
             check(f"a first page of {label}: checks and threads ?", st["checks"] == "?" and st["unresolved"] == "?")
         gh.graphql = rollup([], more=False)
         check("the checks of another head than the row's: ?", pr_gate.gate_state("o/r", 1, "other")["checks"] == "?")
-        check("no head to compare: ?", pr_gate.gate_state("o/r", 1, "")["checks"] == "?")
+        def headless(query, **kw):
+            d = rollup([], more=False)(query, **kw)
+            d["repository"]["pullRequest"]["headRefOid"] = ""
+            return d
+        gh.graphql = headless
+        check("no head to compare, on either side: ?", pr_gate.gate_state("o/r", 1, "")["checks"] == "?")
+        for label, field, value in (("a rollup that is not an object", "statusCheckRollup", "x"),
+                                    ("threads that are not an object", "reviewThreads", [1])):
+            def bad(query, field=field, value=value, **kw):
+                d = rollup([], more=False)(query, **kw)
+                d["repository"]["pullRequest"][field] = value
+                return d
+            gh.graphql = bad
+            st = pr_gate.gate_state("o/r", 1, "H")
+            check(f"{label}: ?, not a traceback", st[{"statusCheckRollup": "checks", "reviewThreads": "unresolved"}[field]] == "?")
         gh.graphql = threads_no_cursor
         check("threads: a next page with no cursor is ?, never page one again", pr_gate.gate_state("o/r", 1, "H")["unresolved"] == "?")
         gh.graphql = rollup([], more=False)
