@@ -146,7 +146,7 @@ def main() -> int:
     check("a timed-out post may have been stored", cq.unsent(cg.ApiError("/api/send -> no answer within 30 s", timed_out=True)) is False)
 
     print("queue.test.mjs: the run's budget")
-    with open(os.path.join(HERE, "tools", "fabric", "jobs.py"), encoding="utf-8") as fh:
+    with open(os.path.join(HERE, "tools", "fabric", "jobsparts", "queue.py"), encoding="utf-8") as fh:   # jobs.py's queue part
         m = re.search(r"^QUEUE_TIMEOUT_S = (\d+)$", fh.read(), re.M)
     outer = int(m.group(1)) if m else 0
     check("one budget under jobs.py's kill, with room to start", outer > 0 and cq.QUEUE_BUDGET_MS <= outer * 1000 - 5000 and cq.QUEUE_CALL_TIMEOUT_MS <= cq.QUEUE_BUDGET_MS)
