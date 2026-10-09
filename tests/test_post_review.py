@@ -67,9 +67,11 @@ def main() -> int:
         gh.run = real_run
 
     print("a PR payload with a head but no branch refuses before the lane guard")
-    real_view, real_run = gh.pr_view, gh.run
+    real_view, real_run, real_repo = gh.pr_view, gh.run, os.environ.get("GH_REPO")
     gh.pr_view = lambda n, fields, **kw: {"number": n, "state": "OPEN", "headRefOid": "abc"}
     gh.run = lambda args, **kw: "o/r\n"
+    # The repository is named, never read from the checkout's origin (a copy without a remote has none).
+    os.environ["GH_REPO"] = "o/r"
     try:
         post_review.run(["552"], "findings")
         check("refused", False)
@@ -77,6 +79,10 @@ def main() -> int:
         check("refused, naming the branch", "head branch" in str(e))
     finally:
         gh.pr_view, gh.run = real_view, real_run
+        if real_repo is None:
+            os.environ.pop("GH_REPO", None)
+        else:
+            os.environ["GH_REPO"] = real_repo
 
     print("--help and a usage error never wait on an open stdin (review of #71)")
     shim = os.path.join(HERE, "runtime", "github", "post-review.sh")

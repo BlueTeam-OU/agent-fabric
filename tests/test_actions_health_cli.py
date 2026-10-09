@@ -104,7 +104,9 @@ def main() -> int:
         # these pass or fail with the shell that launched them.
         base = {k: v for k, v in os.environ.items()
                 if not k.startswith(("GITHUB_", "AGENT_FABRIC_", "CLAUDE_", "ANTHROPIC_", "GH_")) and k != "GIT_DIR"}
-        base.update(PATH=bin_ + os.pathsep + os.environ.get("PATH", ""), MOCK_STATE=state)
+        # The repository is named, never read from the checkout's origin: a copy
+        # of the tree without a remote (tests/stripped_run.py) has none.
+        base.update(PATH=bin_ + os.pathsep + os.environ.get("PATH", ""), MOCK_STATE=state, GH_REPO="testorg/openrepo")
         if os.environ.get("AGENT_FABRIC_PYTHON"):
             base["AGENT_FABRIC_PYTHON"] = os.environ["AGENT_FABRIC_PYTHON"]
         out = {"text": "", "rc": -1}

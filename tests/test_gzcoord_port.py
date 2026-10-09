@@ -286,7 +286,11 @@ def _():
     eq(r.returncode, 0, r.stderr)
     runtime = r.stdout.strip()
     ok(runtime.startswith(os.path.realpath(tempfile.gettempdir())) or runtime.startswith(tempfile.gettempdir()), runtime)
-    ok(not runtime.startswith(os.path.dirname(os.path.realpath(HERE)) + os.sep), f"the checkout's workspace: {runtime}")
+    # The checkout's relay runtime is <workspace>/.gzcoord, exactly: a scratch directory may sit
+    # inside the workspace (tests/stripped_run.py puts its TMPDIR beside the tree).
+    hosted = os.path.join(os.path.dirname(os.path.realpath(HERE)), ".gzcoord")
+    ok(os.path.realpath(runtime) != hosted and not os.path.realpath(runtime).startswith(hosted + os.sep),
+       f"the checkout's workspace: {runtime}")
 
 
 # ── 5. the port's own departures ─────────────────────────────────────

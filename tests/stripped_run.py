@@ -11,8 +11,11 @@ until the suite was run on a stripped copy (fabric-coordinator's request
 
 The copy is the tree's files as git lists them, tracked and untracked but
 not ignored, so uncommitted work is what is run; instance_fixtures.
-strip_instance removes the instance data; the copy is made a one-commit git
-repository, as a checkout is. A test file is named by its path in the tree
+strip_instance removes the instance data; the copy is made a git repository
+whose HEAD is one commit of those files and whose objects hold the tree's
+history, as a checkout's do (a port's test reads the old script from it).
+Old commits still hold the instance data: a test that reads it through
+`git show` passes here, and no test may. A test file is named by its path in the tree
 (relative, or absolute inside it) and runs from the COPY: one outside the
 tree, or not in the copy (an ignored file), is refused, never run where it
 lies, which would read the live data and pass.
@@ -89,9 +92,16 @@ def copy_tree(tree: str, dest: str) -> None:
             shutil.copy2(src, dst)
 
 
-def make_repo(dest: str) -> None:
+def make_repo(dest: str, tree: str) -> None:
     env = git_env.git_env(ci_env(dict(os.environ)))
-    for argv in (["git", "init", "-q"], ["git", "add", "-A"], ["git", "commit", "-q", "--no-verify", "-m", "stripped"]):
+    subprocess.run(["git", "init", "-q"], cwd=dest, env=env, capture_output=True, timeout=120, check=True)
+    # A checkout has its history; a test may read an old commit's file (the
+    # oracle of a port). The tree's commits are fetched, not checked out: the
+    # copy's own HEAD is one commit of the stripped files. A tree with no commit yet has none to fetch.
+    has_head = subprocess.run(["git", "-C", tree, "rev-parse", "--verify", "-q", "HEAD"], env=env, capture_output=True, timeout=120)
+    if has_head.returncode == 0:
+        subprocess.run(["git", "fetch", "-q", "--no-tags", tree, "HEAD"], cwd=dest, env=env, capture_output=True, timeout=600, check=True)
+    for argv in (["git", "add", "-A"], ["git", "commit", "-q", "--no-verify", "-m", "stripped"]):
         subprocess.run(argv, cwd=dest, env=env, capture_output=True, timeout=120, check=True)
 
 
@@ -152,7 +162,7 @@ def run(tree: str, files: list[str], out=print) -> int:
                   if os.path.commonpath([os.path.realpath(os.path.join(d, f)), d]) != d or not os.path.isfile(os.path.join(d, f))]
         if absent:
             raise NotRunnable(f"not in the copy (ignored by git, or instance data): {', '.join(absent)}")
-        make_repo(d)
+        make_repo(d, tree)
         env = {**ci_env(dict(os.environ)), "TMPDIR": tmp}
         failed = 0
         for f in files:
