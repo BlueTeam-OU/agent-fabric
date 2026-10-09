@@ -104,7 +104,7 @@ def this_repo(cwd: str | None = None) -> str:
     public pull request of the same number (a managed fork, 2026-10-07)."""
     env = os.environ.get("GH_REPO", "").strip()
     if env:
-        if not _REPO.match(env):
+        if not _REPO.fullmatch(env):
             raise GhError("this repository", f"GH_REPO is not <owner>/<repo>: {env!r}")
         return env
     try:
@@ -112,7 +112,7 @@ def this_repo(cwd: str | None = None) -> str:
                            cwd=cwd, stdin=subprocess.DEVNULL)
     except (OSError, subprocess.TimeoutExpired) as e:
         raise GhError("this repository", f"git remote get-url origin: {e.__class__.__name__}") from None
-    m = _ORIGIN.match(r.stdout.strip()) if r.returncode == 0 else None
+    m = _ORIGIN.fullmatch(r.stdout.strip()) if r.returncode == 0 else None
     if not m:
         # The URL itself is never echoed: it can carry a credential.
         raise GhError("this repository", "origin is not a github.com repository here (set GH_REPO=<owner>/<repo> "
@@ -153,13 +153,13 @@ def _scoped(args: list[str]) -> bool:
             continue
         value = (args[i + 1] if i + 1 < len(args) else "") if a in ("--repo", "-R") \
             else a[len("--repo="):] if a.startswith("--repo=") else a[2:] if a.startswith("-R") else None
-        if value is not None and _SELECTOR.match(value):
+        if value is not None and _SELECTOR.fullmatch(value):
             return False
     if args[:1] == ["api"]:
         return any("{owner}" in a or "{repo}" in a for a in args[1:])
-    if args[:1] == ["repo"] and len(args) > 2 and not _a_value(args, 2) and _SELECTOR.match(args[2]):
+    if args[:1] == ["repo"] and len(args) > 2 and not _a_value(args, 2) and _SELECTOR.fullmatch(args[2]):
         return False
-    if args[:1] in (["pr"], ["issue"]) and len(args) > 2 and _ITEM_URL.match(args[2]):
+    if args[:1] in (["pr"], ["issue"]) and len(args) > 2 and _ITEM_URL.fullmatch(args[2]):
         return False
     return bool(args) and args[0] in _REPO_SCOPED
 

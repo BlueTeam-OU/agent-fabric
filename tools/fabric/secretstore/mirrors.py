@@ -206,7 +206,7 @@ def seed_child(agent_id: str, remote: str, text: str) -> dict:
     """The parent takes a new child's first commit, as its mirror, and
     pushes it to the child's repository with the parent's own access. The
     bundle must name the agent the parent minted."""
-    if not AGENT_ID_RE.match(agent_id):
+    if not AGENT_ID_RE.fullmatch(agent_id):
         raise StoreError(f"{agent_id!r} is not an agent id")
     mirror = os.path.join(children_dir(), agent_id)
     with _mirror_lock(agent_id), tempfile.TemporaryDirectory() as tmp:
@@ -346,11 +346,11 @@ def _write_lineage(doc: dict, fabric: str | None = None) -> None:
 def resolve(who: str, doc: dict | None = None, fabric: str | None = None) -> tuple[str, dict]:
     """An agent named by its id or by its current login -> (id, record)."""
     doc = lineage(fabric) if doc is None else doc
-    if AGENT_ID_RE.match(who):
+    if AGENT_ID_RE.fullmatch(who):
         if who not in doc:
             raise NotInLineage(f"agent {who} is not in identities/keys/lineage.json")
         return who, doc[who]
-    if not LOGIN_RE.match(who):
+    if not LOGIN_RE.fullmatch(who):
         raise StoreError(f"{who!r} is neither a login nor an agent id")
     hits = [(a, r) for a, r in doc.items() if isinstance(r, dict) and r.get("login") == who]
     if not hits:
@@ -435,7 +435,7 @@ def certify(child: str | None, key_file: str | None, fabric: str | None = None) 
         with open(os.path.join(kd, f"{my_id}.asc"), "w", encoding="utf-8") as fh:
             fh.write(export_key(my_fpr))
         return {"login": me, "agent_id": my_id, "fingerprint": my_fpr, "parent": None}
-    if not LOGIN_RE.match(child) or child == me:
+    if not LOGIN_RE.fullmatch(child) or child == me:
         raise StoreError(f"{child!r} is not another login")
     fpr = _key_file_fingerprint(key_file)
     ids = _key_agent_ids(key_file)
@@ -459,13 +459,13 @@ def rename(old: str, new: str, fabric: str | None = None) -> dict:
     and its repository keep their names (ADR-039)."""
     doc = lineage(fabric)
     aid, rec = resolve(old, doc)
-    if not LOGIN_RE.match(new):
+    if not LOGIN_RE.fullmatch(new):
         raise StoreError(f"{new!r} is not a login")
     if any(isinstance(r, dict) and r.get("login") == new for r in doc.values()):
         raise StoreError(f"the login {new} is already an agent's")
     rec["login"] = new
     _write_lineage(doc, fabric)
-    return {"agent_id": aid, "from": old if not AGENT_ID_RE.match(old) else None, "login": new}
+    return {"agent_id": aid, "from": old if not AGENT_ID_RE.fullmatch(old) else None, "login": new}
 
 
 def verify(fabric: str | None = None) -> list[str]:

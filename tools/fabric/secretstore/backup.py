@@ -173,7 +173,7 @@ def _stores() -> dict[str, str]:
     try:
         for child in sorted(os.listdir(children_dir())):
             d = os.path.join(children_dir(), child)
-            if os.path.isdir(os.path.join(d, ".git")) and AGENT_ID_RE.match(child):
+            if os.path.isdir(os.path.join(d, ".git")) and AGENT_ID_RE.fullmatch(child):
                 out[child] = d
     except FileNotFoundError:
         pass

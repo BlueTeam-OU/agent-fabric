@@ -164,7 +164,7 @@ def trailer_values(body: str, key: str) -> list[str]:
     if not paragraphs:
         return []
     lines = paragraphs[-1].split("\n")
-    if not all(TRAILER_LINE.match(line) or (line[:1] in (" ", "\t") and line.strip()) for line in lines):
+    if not all(TRAILER_LINE.fullmatch(line) or (line[:1] in (" ", "\t") and line.strip()) for line in lines):
         return []
     values: list[str] = []
     current = None
@@ -173,7 +173,7 @@ def trailer_values(body: str, key: str) -> list[str]:
             if current is not None:
                 values[current] = f"{values[current]} {line.strip()}".strip()
             continue
-        m = re.match(rf"^{re.escape(key)}:[ \t]*(.*)$", line, re.I)
+        m = re.fullmatch(rf"^{re.escape(key)}:[ \t]*(.*)$", line, re.I)
         current = len(values) if m else None
         if m:
             values.append(m.group(1).strip())

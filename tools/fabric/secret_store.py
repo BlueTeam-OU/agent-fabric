@@ -283,7 +283,7 @@ def recovery_key_init(force: bool = False) -> dict:
 def _own_or_managed(name: str, managed: bool, what: str) -> None:
     """set and rm take an own name, or a managed one with --managed; asked
     before stdin is read, so a refusal never waits for a value."""
-    if managed or not NAME_RE.match(name):
+    if managed or not NAME_RE.fullmatch(name):
         return   # a malformed name is refused by the write path, as before
     try:
         who = reserved(name)
