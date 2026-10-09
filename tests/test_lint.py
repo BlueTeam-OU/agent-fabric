@@ -44,6 +44,7 @@ import subprocess
 import sys
 import tempfile
 from git_env import git_env, scrub_process_env  # noqa: E402 — tests/, the script's own directory
+from instance_fixtures import with_client, write_clients  # noqa: E402
 scrub_process_env()
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -1080,8 +1081,14 @@ def case_model_profiles_schema_is_enforced() -> None:
         assert "routing/profiles.json" in out, f"the file went unnamed:\n{out}"
 
 
-def _write_license_layout(fabric: str, registry: dict, reuse_toml: str, licenses: tuple = ("Apache-2.0",)) -> None:
+def _write_license_layout(fabric: str, registry: dict, reuse_toml: str, licenses: tuple = ("Apache-2.0",),
+                          clients: bool = True) -> None:
+    """`clients=False` writes the registry as given, for a case that judges
+    the clients themselves."""
     os.makedirs(os.path.join(fabric, "projects"), exist_ok=True)
+    if clients:
+        write_clients(os.path.join(fabric, "projects"))
+        registry = with_client(registry)
     with open(os.path.join(fabric, "projects", "registry.json"), "w", encoding="utf-8") as fh:
         json.dump(registry, fh)
     with open(os.path.join(fabric, "REUSE.toml"), "w", encoding="utf-8") as fh:
@@ -1137,12 +1144,12 @@ def case_the_repository_is_one_license() -> None:
 def case_every_project_names_a_defined_client() -> None:
     """ADR-045 §5 rule 5: a working copy resolves remote -> project ->
     client, so a project's client must be one projects/clients.json
-    defines; a tree with neither predates clients and is not judged."""
+    defines. A tree is judged whenever its registry has projects."""
     registry = {"projects": {"agent-fabric": {"license": "Apache-2.0", "client": "self"},
                              PROJECT: {"license": "Apache-2.0", "client": "acme"}}}
     with tempfile.TemporaryDirectory() as root:
         fabric = make_base(root)
-        _write_license_layout(fabric, registry, REUSE_OK)
+        _write_license_layout(fabric, registry, REUSE_OK, clients=False)
         write(os.path.join(fabric, "projects", "clients.json"),
               json.dumps({"version": 1, "clients": {"self": {}, "acme": {}}}))
         code, out = run_lint(fabric)
@@ -1154,9 +1161,21 @@ def case_every_project_names_a_defined_client() -> None:
         code, out = run_lint(fabric)
         assert code == 1 and "names client 'self'" in out, f"a deleted clients.json passed:\n{out}"
         _write_license_layout(fabric, {"projects": {"agent-fabric": {"license": "Apache-2.0", "client": "self"},
-                                                    PROJECT: {"license": "Apache-2.0"}}}, REUSE_OK)
+                                                    PROJECT: {"license": "Apache-2.0"}}}, REUSE_OK, clients=False)
         code, out = run_lint(fabric)
         assert code == 1 and "project 'demo' names no client" in out, f"a project with no client passed:\n{out}"
+
+
+def case_a_registry_with_projects_and_no_clients_is_a_finding() -> None:
+    """Deleting clients.json and every client field must not pass lint
+    (ADR-045 §5 rule 5)."""
+    with tempfile.TemporaryDirectory() as root:
+        fabric = make_base(root)
+        _write_license_layout(fabric, {"projects": {"agent-fabric": {"license": "Apache-2.0"},
+                                                    PROJECT: {"license": "Apache-2.0"}}}, REUSE_OK, clients=False)
+        assert not os.path.exists(os.path.join(fabric, "projects", "clients.json"))
+        code, out = run_lint(fabric)
+        assert code == 1 and "project 'demo' names no client" in out, f"a clientless registry passed:\n{out}"
 
 
 def case_the_class_list_a_reader_sees_is_the_real_one() -> None:
@@ -2264,6 +2283,7 @@ def main() -> int:
         case_model_profiles_schema_is_enforced,
         case_the_repository_is_one_license,
         case_every_project_names_a_defined_client,
+        case_a_registry_with_projects_and_no_clients_is_a_finding,
         case_the_class_list_a_reader_sees_is_the_real_one,
         case_a_skill_carries_rules_not_occasions,
         case_the_host_registry_is_one_host_per_id_and_placements_are_known,

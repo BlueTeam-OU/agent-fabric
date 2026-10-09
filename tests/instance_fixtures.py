@@ -16,12 +16,33 @@ import shutil
 ADR_REGISTRY = {"projects": {"agent-fabric": {}, "gzapp": {}, "fixture-proj": {}}}
 
 
+# Lint judges every registry with projects (ADR-045 §5 rule 5): each names a
+# client that clients.json beside it defines. A fixture registry gets this one.
+FIXTURE_CLIENT = "fixture-client"
+
+
+def with_client(doc: dict) -> dict:
+    """`doc` with FIXTURE_CLIENT on each project that names no client."""
+    projects = doc.get("projects")
+    if not isinstance(projects, dict):
+        return doc
+    return {**doc, "projects": {pid: ({"client": FIXTURE_CLIENT, **e} if isinstance(e, dict) else e)
+                                for pid, e in projects.items()}}
+
+
+def write_clients(directory: str) -> str:
+    """<directory>/clients.json defining FIXTURE_CLIENT; its path."""
+    return write_json(os.path.join(directory, "clients.json"), {"version": 1, "clients": {FIXTURE_CLIENT: {}}})
+
+
 def write_registry(directory: str, doc: dict = ADR_REGISTRY) -> str:
-    """<directory>/registry.json holding `doc`; its path."""
+    """<directory>/registry.json holding `doc` with a client on each project,
+    and the clients.json that defines it; the registry's path."""
     os.makedirs(directory, exist_ok=True)
     path = os.path.join(directory, "registry.json")
     with open(path, "w", encoding="utf-8") as fh:
-        json.dump(doc, fh)
+        json.dump(with_client(doc), fh)
+    write_clients(directory)
     return path
 
 
@@ -62,7 +83,7 @@ def write_json(path: str, doc: dict) -> str:
 def write_secrets_instance(tree: str) -> None:
     """SECRETS_REGISTRY and HOSTS_REGISTRY at their places in an operator
     or fabric tree."""
-    write_json(os.path.join(tree, "projects", "registry.json"), SECRETS_REGISTRY)
+    write_registry(os.path.join(tree, "projects"), SECRETS_REGISTRY)
     write_json(os.path.join(tree, "runtime", "hosts", "registry.json"), HOSTS_REGISTRY)
 
 
