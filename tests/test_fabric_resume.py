@@ -320,6 +320,19 @@ def main() -> int:
                 os.environ.pop("AGENT_FABRIC_OPERATOR", None)
             else:
                 os.environ["AGENT_FABRIC_OPERATOR"] = real
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "tools", "fabric"))
+    import resume as resume_mod
+    # A transcript planted under the very name a `$` match lets through, so
+    # only matching the id whole keeps it from being found.
+    with tempfile.TemporaryDirectory(prefix="test_fabric_resume.nl.") as cfgdir:
+        os.makedirs(os.path.join(cfgdir, "projects", "wc"))
+        with open(os.path.join(cfgdir, "projects", "wc", "abcdefgh\n.jsonl"), "w") as fh:
+            fh.write("{}\n")
+        with open(os.path.join(cfgdir, "projects", "wc", "abcdefgh.jsonl"), "w") as fh:
+            fh.write("{}\n")
+        with mock.patch.dict(os.environ, {"CLAUDE_CONFIG_DIR": cfgdir}):
+            check("a session id with a trailing newline is no session id, its planted transcript never found",
+                  resume_mod.transcript_of("abcdefgh\n") is None and resume_mod.transcript_of("abcdefgh") is not None)
     print(f"\n{'all passed' if not fails else str(fails) + ' FAILED'}")
     return 1 if fails else 0
 

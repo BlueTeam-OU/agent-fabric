@@ -62,7 +62,14 @@ test('an entry with no process is left out once stale, and the watcher says so o
 test('readSessions keeps live sessions in a known state, sorted, without the process', () => {
   const { proc, file, write } = setup();
   assert.deepEqual(readSessions(file, { proc }), [], 'no file: none');
-  fs.writeFileSync(file, '{broken'); assert.deepEqual(readSessions(file, { proc }), [], 'unreadable: none');
+  fs.writeFileSync(file, '{broken'); assert.equal(readSessions(file, { proc }), null, 'unreadable: unknown, never none');
+  for (const text of ['[]', 'null', '7', '{}', '{"sessions": []}', '{"sessions": null}', '{"sessions": "x"}']) {
+    fs.writeFileSync(file, text); assert.equal(readSessions(file, { proc }), null, `${text}: not a session state, unknown`);
+  }
+  fs.writeFileSync(file, '{"sessions": {}}'); assert.deepEqual(readSessions(file, { proc }), [], 'an empty one: none');
+  fs.rmSync(file); fs.mkdirSync(file);
+  assert.equal(readSessions(file, { proc }), null, 'a directory where the file should be: a read error, unknown');
+  fs.rmdirSync(file);
   write({
     b: { state: 'working', since: 't1', pid: 100, start: 5000 },
     a: { state: 'blocked', since: 't2', pid: 200, start: 6000 },
@@ -102,6 +109,35 @@ test('the watcher posts at start, on a change, and on the heartbeat; nothing in 
   const said = JSON.stringify(posts);
   assert.ok(!said.includes('private-wc') && !said.includes('31337') && !said.includes('"pid"') && !said.includes('"start"') && !said.includes('5000'),
     'no path, no binding field but role and project, no process id or start time');
+});
+
+test('an unreadable session state posts nothing, logs once each way, and posts at once when it reads again', async () => {
+  const { proc, file, write } = setup();
+  write({});
+  const posts = [], logs = [];
+  let t = 0;
+  const w = stateWatcher({ address: 'h/x', post: async r => { posts.push(r); }, file, proc, now: () => t, heartbeatMs: 60_000, log: m => logs.push(m) });
+  assert.equal(await w.tick(), true);
+  fs.writeFileSync(file, '{broken');
+  t += 2000; assert.equal(await w.tick(), false, 'unknown: nothing posted, never a wrong none');
+  t += 61_000; assert.equal(await w.tick(), false, 'nor on the heartbeat: the last record goes stale at the listener');
+  assert.equal(posts.length, 1);
+  write({});
+  t += 1000; assert.equal(await w.tick(), true, 'readable again: posted at once, though nothing changed');
+  assert.deepEqual(logs, [`${file} cannot be read; no state posted until it reads again`, `${file} is readable again`]);
+  fs.writeFileSync(file, '{broken');
+  t += 1000; assert.equal(await w.tick(), false);
+  write({});
+  t += 1000; assert.equal(await w.tick(), true, 'readable again 2 s later, inside the heartbeat, the same as last said: posted at once');
+  assert.equal(posts.length, 3);
+  assert.ok(posts.every(p => Array.isArray(p.sessions)), 'nothing on the wire but a list');
+  fs.writeFileSync(file, Buffer.from('{"sessions": {"a": {"state": "idle", "since": "x\xff"}}}', 'latin1'));
+  assert.equal(readSessions(file, { proc }), null, 'bytes that are not UTF-8: unreadable, as the Python reader reads them');
+  fs.writeFileSync(file, Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from('{"sessions": {}}')]));
+  assert.equal(readSessions(file, { proc }), null, 'a leading BOM: unreadable, as the Python reader reads it');
+  const jobsFile = path.join(path.dirname(file), 'jobs-bad.json');
+  fs.writeFileSync(jobsFile, Buffer.from('{"jobs": [{"state": "blocked", "title": "\xff"}]}', 'latin1'));
+  assert.equal(waitsOn(jobsFile), null, 'a job list that is not UTF-8: unknown');
 });
 
 test('a failed post is retried on the next tick and said once', async () => {
@@ -216,6 +252,9 @@ test('the record carries the last session id and whether it can be resumed, neve
     t += 1; await w.tick();
     assert.ok(!('last_session' in posts.at(-1)) && !('resumable' in posts.at(-1)), `a binding session ${JSON.stringify(bad)} is no session`);
   }
+  fs.writeFileSync(binding, Buffer.from('{"role": "python-dev\xff", "project": "agent-fabric"}', 'latin1'));
+  t += 1; await w.tick();
+  assert.ok(!('role' in posts.at(-1)) && !('project' in posts.at(-1)), 'a binding that is not UTF-8 binds nothing, as the Python reader reads it');
   assert.deepEqual(stateRecord('h/x', { sessions: [], role: null, project: null, last_session: null }, 't'),
     { v: 1, kind: 'state', from: 'h/x', ts: 't', sessions: [] }, 'no last session: neither field');
 });

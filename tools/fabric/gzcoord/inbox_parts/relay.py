@@ -11,6 +11,8 @@ import time
 import urllib.error
 import urllib.request
 from typing import Any
+
+import httpsafe
 from .. import i18n
 from ..gzmsg import en
 from .config import default_relay
@@ -101,15 +103,10 @@ class RelayError(Exception):
 API_TIMEOUT = 300
 
 
-class _NoRedirect(urllib.request.HTTPRedirectHandler):
-    def redirect_request(self, *_a, **_k):  # noqa: ANN002 — the stdlib's signature
-        return None   # a 3xx is then an HTTPError: an answer that is not 2xx
-
-
 # The relay is called directly and nowhere else: urllib, unlike the Node's
 # fetch, would go through http_proxy/https_proxy from the environment and
 # follow a redirect with the Authorization header to whatever host it names.
-_OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}), _NoRedirect())
+_OPENER = httpsafe.opener(proxies=False, redirects="none")
 
 
 def api(tok: str, path_and_query: str, relay_url: str | None = None, method: str = "GET", body: str | None = None,
