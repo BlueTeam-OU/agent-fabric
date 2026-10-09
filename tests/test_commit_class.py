@@ -59,6 +59,15 @@ def main() -> int:
     check("the CLI prints one word", r.stdout == "merge\n", r.stdout)
     folds(check, tool)
     on_github(check)
+    a = cc.answers_of
+    check("answers_of: the trailer block's Answers:", a("prose\n\nAnswers: #10 F1\nKind: review-fix") == "#10 F1")
+    check("answers_of: an Answers: line in the prose above the block answers nothing",
+          a("Answers: #10 F1\n\nsome prose after.") == "" and a("Answers: #10 F1\n\nprose\n\nKind: work") == "")
+    check("answers_of: a continuation is unfolded with one space, as git's unfold",
+          a("s\n\nAnswers: F1,\n  F2\nKind: review-fix") == "F1, F2")
+    check("answers_of: two Answers: trailers joined by a space, as pr-gate's separator",
+          a("s\n\nAnswers: F1\nanswers: F2") == "F1 F2")
+    check("answers_of: a block with prose in it declares nothing", a("s\n\nAnswers: F1\nnot a trailer") == "")
     print(f"\n{'FAILED' if fails else 'all passed'}")
     return 1 if fails else 0
 
@@ -224,7 +233,7 @@ def on_github(check) -> None:
               asked[-1] == f"repos/o/r/compare/{'a' * 40}...{'b' * 40}?per_page=1", asked[-1])
         for label, answer in (("a 404", gh.GhError("gh api GET repos/o/r/compare", "Not Found", 404)),
                               ("no status", {"message": "x"}), ("an unknown status", {"status": "sideways"}),
-                              ("not an object", ["x"]), ("not JSON", ValueError("x"))):
+                              ("not an object", ["x"]), ("an empty answer", None)):
             gh.api = answering(answer)
             try:
                 cc.on_github("o/r")("a" * 40, "b" * 40)
@@ -239,7 +248,8 @@ def on_github(check) -> None:
         err = io.StringIO()
         with redirect_stderr(err):
             got = cc.Folds("o/r", "b" * 40, cwd="/nonexistent", ancestor=cc.on_github("o/r"))("10")
-        check("...an unread ancestry is no, said", got is False and "#10 could not be read (Not Found)" in err.getvalue(),
+        check("...an unread ancestry is no, said with the repository and the call",
+              got is False and "o/r#10 could not be read (gh api GET repos/o/r/compare: Not Found)" in err.getvalue(),
               err.getvalue())
     finally:
         gh.api, gh.pr_view = real_api, real_view

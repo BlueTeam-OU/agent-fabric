@@ -144,15 +144,38 @@ def kind_of(body: str) -> str:
     to a kind git would not report. A subprocess per commit (git
     interpret-trailers) was the exact alternative, and results.py
     classifies whole histories."""
+    return kind("\n".join(trailer_values(body, "Kind")))
+
+
+def answers_of(body: str) -> str:
+    """The `Answers:` values of a commit message, as pr_gate asks git for
+    them (%(trailers:key=Answers,valueonly,unfold,separator=%x20)): from
+    the trailer block only, unfolded, joined by a space. A line in the
+    prose above answers nothing there, so it answers nothing here."""
+    return " ".join(trailer_values(body, "Answers"))
+
+
+def trailer_values(body: str, key: str) -> list[str]:
+    """Each value of trailer <key> (any case) in the block kind_of
+    describes, a continuation line unfolded onto it with one space."""
     paragraphs = [p for p in re.split(r"\n[ \t]*\n", body.strip("\n")) if p.strip()]
     if not paragraphs:
-        return ""
+        return []
     lines = paragraphs[-1].split("\n")
     if not all(TRAILER_LINE.match(line) or (line[:1] in (" ", "\t") and line.strip()) for line in lines):
-        return ""
-    values = [m.group(1) for line in lines
-              if (m := re.match(r"^Kind:[ \t]*(.*)$", line, re.I))]
-    return kind("\n".join(values))
+        return []
+    values: list[str] = []
+    current = None
+    for line in lines:
+        if line[:1] in (" ", "\t"):
+            if current is not None:
+                values[current] = f"{values[current]} {line.strip()}".strip()
+            continue
+        m = re.match(rf"^{re.escape(key)}:[ \t]*(.*)$", line, re.I)
+        current = len(values) if m else None
+        if m:
+            values.append(m.group(1).strip())
+    return values
 
 
 class Folds:
@@ -176,7 +199,9 @@ class Folds:
         return self._seen[n]
 
     def _unread(self, n: str, why: str) -> bool:
-        print(f"commit-class: #{n} could not be read ({why}); its review's fixes count as work here", file=sys.stderr)
+        # The repository is named: results.py reads several in one run.
+        where = f"{self.repo}#{n}" if self.repo else f"#{n}"
+        print(f"commit-class: {where} could not be read ({why}); its review's fixes count as work here", file=sys.stderr)
         return False
 
     def _look(self, n: str) -> bool:
@@ -197,7 +222,7 @@ class Folds:
             try:
                 return self.ancestor(oid, self.head)
             except gh.GhError as e:
-                return self._unread(n, e.reason)
+                return self._unread(n, str(e))
         try:
             return git.ok(self.cwd, "merge-base", "--is-ancestor", oid, self.head, timeout=self.timeout)
         except git.GitError as e:
@@ -222,10 +247,7 @@ def on_github(repo: str, timeout: float = 30) -> Callable[[str, str], bool]:
     HTTP 404, and that, or any other answer, is a GhError — unread, never
     "no"."""
     def ancestor(oid: str, head: str) -> bool:
-        try:
-            doc = gh.api(f"repos/{repo}/compare/{oid}...{head}?per_page=1", timeout=timeout)
-        except ValueError:
-            raise gh.GhError("gh api compare", "the answer is not JSON", transient=True) from None
+        doc = gh.api(f"repos/{repo}/compare/{oid}...{head}?per_page=1", timeout=timeout)
         status = doc.get("status") if isinstance(doc, dict) else None
         if status in ("ahead", "identical"):
             return True

@@ -188,7 +188,7 @@ else:
           and js["summary"]["period"] == "2026-08-01..2026-08-31", (asked, seen, js["summary"]["period"]))
     # The split reads folds: #10 was folded into #7, so a commit answering
     # #10's review is a fix in #7's split, as pr_gate.split_range counts it.
-    fix10 = {"oid": "c" * 40, "messageHeadline": "x: the bound", "messageBody": "Answers: #10 F1\n\nKind: review-fix"}
+    fix10 = {"oid": "c" * 40, "messageHeadline": "x: the bound", "messageBody": "Answers: #10 F1\nKind: review-fix"}
     asked = []
 
     def folds(repo, head):
@@ -202,8 +202,21 @@ else:
     r = results.judge(pr(commits=[fix10]), [], NOW, 14, repo="o/r", folds=lambda repo, head: None)
     check("...as without a fold lookup", (r["work"], r["fix"]) == (1, 0), r)
     f = results.folds_of("o/r", HEAD)
-    check("folds_of: the PR's head, its ancestry asked of GitHub, not of this clone",
-          f is not None and f.repo == "o/r" and f.head == HEAD and f.ancestor is not None, f)
+    import gh
+    real_api, paths = gh.api, []
+    try:
+        gh.api = lambda path, **kw: paths.append(path) or {"status": "ahead"}
+        asked_ok = f is not None and f.ancestor("c" * 40, HEAD) is True
+    finally:
+        gh.api = real_api
+    check("folds_of: the PR's head, its ancestry asked of GitHub for this repository, not of this clone",
+          f is not None and f.repo == "o/r" and f.head == HEAD and asked_ok
+          and paths == [f"repos/o/r/compare/{'c' * 40}...{HEAD}?per_page=1"], paths)
+    # The answers are the trailer block's, as pr-gate asks git for them:
+    # prose above the block answers nothing in either tool.
+    prose = {"oid": "d" * 40, "messageHeadline": "x: the bound", "messageBody": "Answers: #10 F1\n\nsome prose after."}
+    r = results.judge(pr(commits=[prose]), [], NOW, 14, repo="o/r", folds=lambda repo, head: lambda n: True)
+    check("an Answers: line in the prose answers nothing: work", (r["work"], r["fix"]) == (1, 0), r)
     check("folds_of: no repository or no head, no lookup", results.folds_of("", HEAD) is None and results.folds_of("o/r", "") is None)
     print(f"\n{'FAILED' if fails else 'all passed'}")
     return 1 if fails else 0
