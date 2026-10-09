@@ -16,6 +16,10 @@ import subprocess
 import sys
 import tempfile
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from instance_fixtures import own_instance_tree  # noqa: E402 — tests/, this script's own directory
+
+own_instance_tree()      # the runner's operator would outrank the tree the tool is handed
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 JOBS = os.path.join(ROOT, "tools", "fabric", "jobs.py")
 PARTS = os.path.join(ROOT, "tools", "fabric", "jobsparts")
