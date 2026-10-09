@@ -40,6 +40,9 @@ CACHE  $XDG_RUNTIME_DIR/fabric-fleet/<section>.json, 0600 in a 0700
   once both write whole files and the later one wins; the loser's entries
   are re-read next time. No XDG_RUNTIME_DIR means no cache, not /tmp.
 
+SIDE EFFECT  `prs` runs pr-gate --in-flight, which does `git fetch --prune
+  origin` in this checkout (at most once per TTL).
+
 NEVER read: /proc/*/environ, cmdline, transcripts (fleet_proc.py).
 """
 from __future__ import annotations
@@ -48,6 +51,7 @@ import concurrent.futures
 import datetime as dt
 import json
 import os
+import signal
 import stat
 import subprocess
 import sys
@@ -96,6 +100,15 @@ class Failed:
     why: str
 
 
+class _Declined:
+    """A source's answer for an agent that is not its to answer (another
+    host's /proc): not a failure, and not worth a word in the why."""
+
+
+DECLINED = _Declined()
+HUMAN = "human login: no control agent and no jobs of its own (ADR-044)"
+
+
 @dataclass
 class Ctx:
     root: str
@@ -125,9 +138,22 @@ class Section:
 # ── running things ──────────────────────────────────────────────────
 
 def run_program(argv: list[str], *, timeout: float, cwd: str | None = None, env: dict[str, str] | None = None) -> subprocess.CompletedProcess:
-    """An argument list, a timeout, stdin closed: the callers read the result."""
-    return subprocess.run(argv, capture_output=True, text=True, timeout=timeout, cwd=cwd, env=env,
-                          stdin=subprocess.DEVNULL, check=False)
+    """An argument list, a timeout, stdin closed: the callers read the result.
+    Its own process group, killed whole on a timeout: pr-gate's git and gh,
+    and the executor's ssh, are grandchildren that `subprocess.run`'s kill
+    of the direct child would leave running."""
+    p = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, cwd=cwd, env=env,
+                         stdin=subprocess.DEVNULL, start_new_session=True)
+    try:
+        out, err = p.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(p.pid, signal.SIGKILL)
+        except OSError:
+            p.kill()   # a member we may not signal (a sudo'd child): the leader at least
+        p.communicate()
+        raise
+    return subprocess.CompletedProcess(argv, p.returncode, out, err)
 
 
 def call(ctx: Ctx, argv: list[str], timeout: float = CALL_TIMEOUT_S, cwd: str | None = None) -> subprocess.CompletedProcess:
@@ -163,48 +189,78 @@ def json_lines(text: str) -> list[dict]:
 # ── the sources ─────────────────────────────────────────────────────
 
 CTL_META = {"account", "host", "status", "op", "latency_ms", "agentd"}
+# fabric-ctl's row says `ok` whenever the control agent replied at all; the
+# op's own result is inside it, under a key that is the op's name except for
+# these two (ctl.mjs rows()). An op that threw is {status: 'failed', error}
+# there; `read-failed` and `unreadable` are usage's and the tokens reader's
+# own words for the same thing. Every other status (partial, none,
+# no-records, not-signed-in…) is an answer and stays in `data` for the
+# reader to judge.
+PAYLOAD_KEY = {"host": "machine", "usage": "usage_status"}
+FAILED_STATUSES = frozenset({"failed", "read-failed", "unreadable"})
 
 
-def ctl_source(op: str, extra: tuple[str, ...] = ()) -> Source:
+def op_failure(row: dict, op: str) -> str | None:
+    payload = row.get(PAYLOAD_KEY.get(op, op))
+    if payload is None:
+        return f"the control agent answered without a {op} result (an agentd that does not know the op, or a failed read)"
+    status = payload if isinstance(payload, str) else payload.get("status") if isinstance(payload, dict) else None
+    if status in FAILED_STATUSES:
+        error = payload.get("error") if isinstance(payload, dict) else None
+        return f"{op} {status}" + (f": {error}" if error else "")
+    return None
+
+
+def split_humans(agents: list[Agent]) -> tuple[dict[str, Any], list[Agent]]:
+    """A human login has no control agent (ADR-044): fabric-ctl drops it from
+    `all` and refuses it by name, so it is said here instead of asked."""
+    return {a.login: Failed(HUMAN) for a in agents if a.kind == "human"}, [a for a in agents if a.kind != "human"]
+
+
+def agent_count(ctx: Ctx) -> int:
+    return sum(1 for a in load_placements(ctx.root).values() if a.kind != "human")
+
+
+def ctl_source(op: str) -> Source:
     """`fabric-ctl <target> <op> --json`: one row per account. The data is
-    every key the control agent filled in; a row that is not `ok` is that
-    agent's failure."""
+    every key the control agent filled in; a row that is not `ok`, or whose
+    op result failed or is missing, is that agent's failure."""
     def read(ctx: Ctx, agents: list[Agent]) -> dict[str, Any]:
-        tail = list(extra)
-        if op == "tokens" and ctx.days is not None:
-            tail += ["--days", str(ctx.days)]
+        out, rest = split_humans(agents)
+        if not rest:
+            return out
+        tail = ["--days", str(ctx.days)] if op == "tokens" and ctx.days is not None else []
         # fabric-ctl takes one target or `all`: one agent asked is that
         # login's call; any larger subset is read as `all`, one relay round
-        # trip, and the rows of the others are dropped by the caller.
-        target = agents[0].login if len(agents) == 1 and len(placed_logins(ctx)) > 1 else "all"
+        # trip, and the rows of the others are not used.
+        target = rest[0].login if len(rest) == 1 and agent_count(ctx) > 1 else "all"
         p = call(ctx, [os.path.join(ctx.root, "bin", "fabric-ctl"), target, op, "--json", "--timeout", str(CTL_TIMEOUT_S), *tail])
         rows = json_lines(p.stdout)
         if not rows:
             raise SourceError(f"fabric-ctl {op}: {last_line(p.stderr) or f'exit {p.returncode}, no rows'}")
-        out: dict[str, Any] = {}
         for row in rows:
             login = row.get("account")
             if not isinstance(login, str):
                 continue
             if row.get("status") != "ok":
                 out[login] = Failed(str(row.get("status") or "no status"))
+            elif (why := op_failure(row, op)) is not None:
+                out[login] = Failed(why)
             else:
                 out[login] = {k: v for k, v in row.items() if k not in CTL_META and v is not None}
         return out
     return Source(f"op:{op}", read)
 
 
-def placed_logins(ctx: Ctx) -> list[str]:
-    return sorted(load_placements(ctx.root))
-
-
 def states_read(ctx: Ctx, agents: list[Agent]) -> dict[str, Any]:
     # `states` rows are keyed by address, not account, and carry no status.
+    out, rest = split_humans(agents)
+    if not rest:
+        return out
     p = call(ctx, [os.path.join(ctx.root, "bin", "fabric-ctl"), "all", "states", "--json", "--timeout", str(CTL_TIMEOUT_S)])
     rows = json_lines(p.stdout)
     if not rows:
         raise SourceError(f"fabric-ctl states: {last_line(p.stderr) or f'exit {p.returncode}, no rows'}")
-    out: dict[str, Any] = {}
     for row in rows:
         address = row.get("address")
         if isinstance(address, str) and "/" in address:
@@ -218,30 +274,36 @@ def python_of(ctx: Ctx) -> str:
 
 def proc_source(label: str, remote: bool) -> Source:
     def read(ctx: Ctx, agents: list[Agent]) -> dict[str, Any]:
-        out: dict[str, Any] = {}
+        out: dict[str, Any] = {a.login: DECLINED for a in agents}
         by_host: dict[str, list[Agent]] = {}
         for a in agents:
             if (a.host in ctx.ssh_hosts or a.host != ctx.here) == remote:
                 by_host.setdefault(a.host, []).append(a)
-        for host, group in by_host.items():
+
+        def one(host: str, group: list[Agent]) -> dict[str, Any]:
+            logins = [a.login for a in group]
             if not remote:
                 # In-process: this host's /proc is read by the code that is asking.
-                answered = ctx.sample([a.login for a in group], host=host)["agents"]
-                for a in group:
-                    out[a.login] = answered[a.login] if a.login in answered else Failed(f"{host} has no account {a.login}")
-                continue
-            argv = [os.path.join(ctx.root, "bin", "fabric-host"), host, "run", "--", python_of(ctx),
-                    "@fabric/tools/fabric/fleet_proc.py", "--json"]
-            for a in group:
-                argv += ["--login", a.login]
-            p = call(ctx, argv, timeout=60)
-            try:
-                doc = json.loads(p.stdout)
-                answered = doc["agents"]
-            except (ValueError, KeyError, TypeError):
-                raise SourceError(f"fleet_proc on {host}: {last_line(p.stderr) or f'exit {p.returncode}, no answer'}") from None
-            for a in group:
-                out[a.login] = answered[a.login] if a.login in answered else Failed(f"{host} has no account {a.login}")
+                answered = ctx.sample(logins, host=host)["agents"]
+            else:
+                argv = [os.path.join(ctx.root, "bin", "fabric-host"), host, "run", "--", python_of(ctx),
+                        "@fabric/tools/fabric/fleet_proc.py", "--json"]
+                for login in logins:
+                    argv += ["--login", login]
+                try:
+                    p = call(ctx, argv, timeout=60)
+                    answered = json.loads(p.stdout)["agents"]
+                except SourceError as e:
+                    return {l: Failed(f"{host}: {e}") for l in logins}
+                except (ValueError, KeyError, TypeError):
+                    return {l: Failed(f"fleet_proc on {host}: {last_line(p.stderr) or f'exit {p.returncode}, no answer'}") for l in logins}
+            return {l: answered[l] if l in answered else Failed(f"{host} has no account {l}") for l in logins}
+        # One host at a time would make a hung one cost every other its
+        # 60 s; each host's failure is its own agents' and no one else's.
+        if by_host:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=len(by_host)) as pool:
+                for answers in pool.map(lambda kv: one(*kv), by_host.items()):
+                    out.update(answers)
         return out
     return Source(label, read)
 
@@ -267,6 +329,8 @@ def prs_read(ctx: Ctx, agents: list[Agent]) -> dict[str, Any]:
 
 def closed_jobs_read(ctx: Ctx, agents: list[Agent]) -> dict[str, Any]:
     def one(a: Agent) -> Any:
+        if a.kind == "human":
+            return Failed(HUMAN)
         try:
             p = call(ctx, [os.path.join(ctx.root, "bin", "fabric-host"), a.host, "run", "--as", a.login, "--",
                            "fabric-jobs", "list", "--all", "--json"], timeout=60)
@@ -406,7 +470,9 @@ def read_section(ctx: Ctx, section: Section, agents: list[Agent]) -> dict[str, d
         still = []
         for a in pending:
             got = answers.get(a.login)
-            if isinstance(got, dict):
+            if got is DECLINED:
+                still.append(a)
+            elif isinstance(got, dict):
                 records[a.login] = {"status": "ok", "src": source.label, "at": stamp(ctx.clock()), "data": got}
             else:
                 whys[a.login].append(f"{source.label}: {got.why if isinstance(got, Failed) else 'no row for this agent'}")
@@ -418,10 +484,17 @@ def read_section(ctx: Ctx, section: Section, agents: list[Agent]) -> dict[str, d
     return records
 
 
+def cache_name(ctx: Ctx, section: Section) -> str:
+    # The window is part of what was asked: a 7-day answer is not a 30-day one.
+    # days is an int the command line validated, so the name is safe.
+    return f"{section.name}-{ctx.days}" if section.name == "tokens" and ctx.days is not None else section.name
+
+
 def fetch_section(ctx: Ctx, section: Section, agents: list[Agent], max_age: float | None, directory: str | None) -> dict[str, dict]:
     limit = section.ttl if max_age is None else max_age
     now = ctx.clock()
-    entries = cache_read(directory, section.name)
+    name = cache_name(ctx, section)
+    entries = cache_read(directory, name)
     out: dict[str, dict] = {}
     stale = []
     for a in agents:
@@ -441,7 +514,7 @@ def fetch_section(ctx: Ctx, section: Section, agents: list[Agent], max_age: floa
                 kept.pop(login, None)
         if kept != entries:
             try:
-                cache_write(directory, section.name, kept)
+                cache_write(directory, name, kept)
             except OSError:
                 pass   # a cache that cannot be written is a slower answer, not a wrong one
     return out
@@ -544,6 +617,8 @@ def main(argv: list[str]) -> int:
         return usage("--json is required")
     if spec is not None and not expand(spec):
         return usage("--section names no section")
+    if days is not None and "tokens" not in (expand(spec) if spec is not None else DEFAULT_SECTIONS):
+        return usage("--days applies to the tokens section: name it with --section")
     try:
         doc = fetch(expand(spec) if spec is not None else None, agent, max_age, days=days)
     except FleetError as e:

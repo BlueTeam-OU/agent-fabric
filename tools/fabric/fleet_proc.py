@@ -114,10 +114,11 @@ def sample(uids: set[int], proc: str = "/proc") -> Sample:
     return s
 
 
-def cpu_pct(first: dict[int, int], second: dict[int, int], seconds: float, clk_tck: int) -> float:
-    """100 = one core busy for the whole interval. Only pids in both samples."""
+def cpu_pct(first: dict[int, int], second: dict[int, int], seconds: float, clk_tck: int) -> float | None:
+    """100 = one core busy for the whole interval. Only pids in both samples.
+    None when no time passed: an unmeasured rate is not an idle agent."""
     if seconds <= 0:
-        return 0.0
+        return None
     used = sum(max(0, second[p] - first[p]) for p in first.keys() & second.keys())
     return round(100.0 * used / clk_tck / seconds, 1)
 

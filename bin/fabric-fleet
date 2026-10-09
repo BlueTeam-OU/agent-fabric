@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 # bin/fabric-fleet — the fleet's data on demand, one JSON record per placed
-# agent (Fleet Deck). The path is the contract (runtime/claude-code/commands.json);
-# the work and its reasons are in tools/fabric/fleet.py and fleet_proc.py.
+# agent (Fleet Deck). The work and its reasons are in tools/fabric/fleet.py and fleet_proc.py.
 ROOT="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
 # The fleet's pinned Python (runtime/python.json, ADR-040), one per host;
 # AGENT_FABRIC_PYTHON points elsewhere for a test or a host without it.

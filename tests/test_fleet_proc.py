@@ -109,7 +109,7 @@ class Sampling(unittest.TestCase):
     def test_cpu_counts_only_processes_seen_in_both_samples(self):
         self.assertEqual(fp.cpu_pct({1: 100, 2: 50}, {1: 200, 3: 9999}, 2.0, 100), 50.0)   # pid 1: 100 ticks/2 s at 100 Hz
         self.assertEqual(fp.cpu_pct({1: 100}, {1: 90}, 1.0, 100), 0.0, "a counter that went down is not negative CPU")
-        self.assertEqual(fp.cpu_pct({1: 0}, {1: 5}, 0, 100), 0.0)
+        self.assertIsNone(fp.cpu_pct({1: 0}, {1: 5}, 0, 100), "no time passed: unmeasured, not idle")
 
     def test_collect_rate_comes_from_two_samples_and_the_clock_between_them(self):
         t = Tree(self)

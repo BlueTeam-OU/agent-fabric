@@ -33,10 +33,17 @@ def done(out: str = "", err: str = "", rc: int = 0) -> subprocess.CompletedProce
     return subprocess.CompletedProcess([], rc, out, err)
 
 
-def ctl_rows(op: str, logins=("a", "b", "c", "hum"), **per) -> str:
+def ctl_rows(op: str, logins=("a", "b", "c"), **per) -> str:
+    """What fabric-ctl --json prints for an op: the op's result under its key
+    (`machine` for host, the flattened usage_status for usage), and no row for
+    a human login (ctl.mjs drops it from `all`)."""
     rows = []
     for login in logins:
-        row = {"account": login, "host": "x", "status": "ok", "op": op, "latency_ms": 5, op: {"login": login}, "agentd": {"pid": 1}}
+        row = {"account": login, "host": "x", "status": "ok", "op": op, "latency_ms": 5, "agentd": {"pid": 1}}
+        if op == "usage":
+            row["usage_status"] = "ok"
+        else:
+            row["machine" if op == "host" else op] = {"login": login}
         row.update(per.get(login, {}))
         rows.append(json.dumps(row))
     return "\n".join(rows) + "\n"
@@ -45,13 +52,13 @@ def ctl_rows(op: str, logins=("a", "b", "c", "hum"), **per) -> str:
 class Fleet:
     """A fixture root with a registry, a fake clock, a recording fake runner."""
 
-    def __init__(self, test: unittest.TestCase, handlers=None, xdg: bool = True):
+    def __init__(self, test: unittest.TestCase, handlers=None, xdg: bool = True, registry=None):
         self.test = test
         self.dir = tempfile.mkdtemp(prefix="fleet-test-")
         test.addCleanup(lambda: __import__("shutil").rmtree(self.dir, ignore_errors=True))
         os.makedirs(os.path.join(self.dir, "root", "runtime", "hosts"))
         with open(os.path.join(self.dir, "root", "runtime", "hosts", "registry.json"), "w") as fh:
-            json.dump(REGISTRY, fh)
+            json.dump(registry or REGISTRY, fh)
         self.root = os.path.join(self.dir, "root")
         self.xdg = os.path.join(self.dir, "xdg")
         os.makedirs(self.xdg, mode=0o700)
@@ -105,8 +112,11 @@ class Records(unittest.TestCase):
         for a in doc["agents"]:
             for name in ("jobs", "presence", "proc"):
                 r = a["sections"][name]
+                if a["login"] == "hum" and name != "proc":
+                    self.assertEqual((r["status"], r["why"]), ("failed", "op:" + name + ": " + fleet.HUMAN))
+                    continue
                 self.assertEqual(r["status"], "ok", (a["login"], name, r))
-                self.assertRegex(r["at"], r"^2027-|^20\d\d-\d\d-\d\dT\d\d:\d\d:\d\dZ$")
+                self.assertRegex(r["at"], r"^20\d\d-\d\d-\d\dT\d\d:\d\d:\d\dZ$")
         self.assertEqual(rec(doc, "a", "jobs")["src"], "op:jobs")
         self.assertEqual(rec(doc, "a", "jobs")["data"], {"jobs": {"login": "a"}})   # meta keys (account, status, agentd…) are not data
 
@@ -149,11 +159,14 @@ class Records(unittest.TestCase):
         self.assertEqual(rec(doc, "a", "states")["data"], {"state": "idle", "sessions": []})
         self.assertEqual(rec(doc, "c", "states")["status"], "failed")
         self.assertIn("no row for this agent", rec(doc, "c", "states")["why"])
+        self.assertIn(fleet.HUMAN, rec(doc, "hum", "states")["why"])
 
 
 class Failures(unittest.TestCase):
     def failed_everywhere(self, doc, section, why):
         for a in doc["agents"]:
+            if a["kind"] == "human":
+                continue   # said as a human, not as the failure (HumanLogins)
             r = a["sections"][section]
             self.assertEqual(r["status"], "failed", (a["login"], r))
             self.assertIn(why, r["why"])
@@ -175,15 +188,15 @@ class Failures(unittest.TestCase):
         self.assertEqual(len(doc["agents"]), 4, "no agent goes absent")
 
     def test_one_agent_that_did_not_answer_is_that_agents_failure_only(self):
-        f = Fleet(self, {("fabric-ctl", "jobs"): done(ctl_rows("jobs", b={"status": "no answer"}, hum={"status": "ok"}))})
+        f = Fleet(self, {("fabric-ctl", "jobs"): done(ctl_rows("jobs", b={"status": "no answer"}))})
         doc = f.fetch(["jobs"])
-        self.assertEqual([rec(doc, l, "jobs")["status"] for l in ("a", "b", "c", "hum")], ["ok", "failed", "ok", "ok"])
+        self.assertEqual([rec(doc, l, "jobs")["status"] for l in ("a", "b", "c")], ["ok", "failed", "ok"])
         self.assertIn("no answer", rec(doc, "b", "jobs")["why"])
 
     def test_a_failing_section_leaves_the_others_whole(self):
         f = Fleet(self, {("fabric-ctl", "jobs"): done("", "boom\n", 2), ("fabric-ctl", "presence"): done(ctl_rows("presence"))})
         doc = f.fetch(["jobs", "presence"])
-        self.assertTrue(all(a["sections"]["presence"]["status"] == "ok" for a in doc["agents"]))
+        self.assertTrue(all(rec(doc, l, "presence")["status"] == "ok" for l in ("a", "b", "c")))
         self.assertTrue(all(a["sections"]["jobs"]["status"] == "failed" for a in doc["agents"]))
 
     def test_a_source_that_raises_unexpectedly_is_a_failed_record_naming_it(self):
@@ -221,6 +234,76 @@ class Failures(unittest.TestCase):
         f = Fleet(self)
         f.handlers[("fabric-host", "h2")] = done("not json", "ssh: connect refused\n", 255)
         self.assertIn("ssh: connect refused", rec(f.fetch(["proc"]), "c", "proc")["why"])
+
+
+class OpResults(unittest.TestCase):
+    def row(self, **kw):
+        return json.dumps({"account": "a", "host": "x", "status": "ok", "op": "jobs", "agentd": {}, **kw}) + "\n"
+
+    def why(self, op, text, agent="a"):
+        f = Fleet(self, {("fabric-ctl", op): done(text)})
+        r = rec(f.fetch([op], agent=agent), agent, op)
+        return r["status"], r.get("why")
+
+    def test_an_op_that_threw_inside_the_control_agent_is_that_agents_failure(self):
+        st, why = self.why("jobs", self.row(jobs={"status": "failed", "error": "EACCES jobs.json"}))
+        self.assertEqual((st, why), ("failed", "op:jobs: jobs failed: EACCES jobs.json"))
+
+    def test_a_missing_result_is_a_failure_not_empty_data(self):
+        st, why = self.why("jobs", self.row(jobs=None))
+        self.assertEqual(st, "failed")
+        self.assertIn("answered without a jobs result", why)
+
+    def test_usage_and_host_are_judged_by_the_keys_ctl_flattens_them_to(self):
+        self.assertEqual(self.why("usage", self.row(op="usage", usage_status="read-failed"))[0], "failed")
+        self.assertEqual(self.why("usage", self.row(op="usage", usage_status=None))[0], "failed")
+        self.assertEqual(self.why("host", self.row(op="host", machine={"status": "failed", "error": "x"}))[0], "failed")
+        self.assertEqual(self.why("host", self.row(op="host", machine=None))[0], "failed")
+
+    def test_other_statuses_are_answers_left_for_the_reader(self):
+        for op, kw in (("host", {"machine": {"status": "partial"}}), ("accounts", {"accounts": {"status": "none"}}),
+                       ("tokens", {"tokens": {"status": "no-records"}}), ("usage", {"usage_status": "not-signed-in"})):
+            f = Fleet(self, {("fabric-ctl", op): done(self.row(op=op, **kw))})
+            r = rec(f.fetch([op], agent="a"), "a", op)
+            self.assertEqual(r["status"], "ok", (op, r))
+
+    def test_a_failed_result_is_not_cached_as_a_success(self):
+        f = Fleet(self, {("fabric-ctl", "jobs"): done(self.row(jobs={"status": "failed"}))})
+        f.fetch(["jobs"], agent="a")
+        f.fetch(["jobs"], agent="a")
+        self.assertEqual(len(f.ctl_calls("jobs")), 2)
+
+
+class HumanLogins(unittest.TestCase):
+    def test_a_human_is_said_so_and_never_asked_of_a_control_agent(self):
+        f = Fleet(self, ctl_handlers(jobs=True, presence=True))
+        doc = f.fetch(["jobs", "presence", "states"], agent="hum")
+        for n in ("jobs", "presence", "states"):
+            self.assertIn(fleet.HUMAN, rec(doc, "hum", n)["why"])
+        self.assertEqual(f.calls, [], "fabric-ctl refuses a human by name; it is not called")
+
+    def test_a_single_agent_ask_among_humans_still_targets_that_login(self):
+        f = Fleet(self, ctl_handlers(jobs=True))
+        f.fetch(["jobs"], agent="a")
+        self.assertEqual(f.ctl_calls("jobs")[0][1], "a")
+
+
+class TwoRemoteHosts(unittest.TestCase):
+    REG = {"hosts": {"h1": {"ssh": None}, "h2": {"ssh": "op@h2"}, "h3": {"ssh": "op@h3"}},
+           "placement": {"a": "h1", "c": "h2", "d": "h3"}}
+
+    def test_one_host_down_fails_its_own_agents_only_and_without_noise(self):
+        def host(argv):
+            if argv[1] == "h3":
+                raise subprocess.TimeoutExpired("fabric-host", 60)
+            return done(json.dumps({"agents": {"c": {"uid": 3, "cpu_pct": 0.0, "rss_kb": 5, "swap_kb": 0, "procs": 1}}}))
+        f = Fleet(self, {"fabric-host": host}, registry=self.REG)
+        ctx = f.ctx()
+        ctx.ssh_hosts = frozenset({"h2", "h3"})
+        doc = fleet.fetch(["proc"], root=f.root, ctx=ctx)
+        self.assertEqual([rec(doc, l, "proc")["status"] for l in ("a", "c", "d")], ["ok", "ok", "failed"])
+        self.assertEqual(rec(doc, "d", "proc")["why"], "hostexec: h3: fabric-host did not answer within 60 s")
+        self.assertEqual(rec(doc, "c", "proc")["src"], "hostexec")
 
 
 class Prs(unittest.TestCase):
@@ -307,7 +390,7 @@ class Cache(unittest.TestCase):
         doc = self.f.fetch(["jobs"])
         self.assertEqual([c[1] for c in self.f.ctl_calls("jobs")], ["a", "all"], "the three others in one call")
         self.assertEqual(len(doc["agents"]), 4)
-        self.assertTrue(all(a["sections"]["jobs"]["status"] == "ok" for a in doc["agents"]))
+        self.assertTrue(all(rec(doc, l, "jobs")["status"] == "ok" for l in ("a", "b", "c")))
 
     def test_a_failure_is_never_cached(self):
         f = Fleet(self, {("fabric-ctl", "jobs"): done("", "down\n", 2)})
@@ -329,7 +412,7 @@ class Cache(unittest.TestCase):
             with open(path, "w") as fh:
                 fh.write(junk)
             n = len(self.f.ctl_calls("jobs"))
-            self.assertEqual(self.f.fetch(["jobs"])["agents"][0]["sections"]["jobs"]["status"], "ok")
+            self.assertEqual(rec(self.f.fetch(["jobs"]), "a", "jobs")["status"], "ok")
             self.assertEqual(len(self.f.ctl_calls("jobs")), n + 1, junk)
 
     def test_without_a_runtime_dir_there_is_no_cache_and_the_answer_says_so(self):
@@ -362,6 +445,44 @@ class Cache(unittest.TestCase):
         self.assertFalse(self.f.fetch(["jobs"])["cache"]["usable"])
 
 
+class Tokens(unittest.TestCase):
+    def test_a_window_is_part_of_what_was_cached(self):
+        f = Fleet(self, ctl_handlers(tokens=True))
+        f.fetch(["tokens"], days=7)
+        f.fetch(["tokens"], days=7)
+        self.assertEqual(len(f.ctl_calls("tokens")), 1)
+        f.fetch(["tokens"], days=30)
+        self.assertEqual(len(f.ctl_calls("tokens")), 2)
+        argv = f.ctl_calls("tokens")[1]
+        self.assertEqual(argv[argv.index("--days"):argv.index("--days") + 2], ["--days", "30"])
+        self.assertEqual(sorted(os.listdir(os.path.join(f.xdg, "fabric-fleet"))), ["tokens-30.json", "tokens-7.json"])
+
+
+class RunProgram(unittest.TestCase):
+    def test_a_timeout_kills_the_children_the_program_started_too(self):
+        d = tempfile.mkdtemp(prefix="fleet-run-")
+        self.addCleanup(lambda: __import__("shutil").rmtree(d, ignore_errors=True))
+        pidfile = os.path.join(d, "pid")
+        with self.assertRaises(subprocess.TimeoutExpired):
+            fleet.run_program(["sh", "-c", f"sleep 60 & echo $! > {pidfile}; wait"], timeout=1)
+        with open(pidfile) as fh:
+            pid = int(fh.read())
+        import time as _t
+        for _ in range(50):
+            try:
+                os.kill(pid, 0)
+            except ProcessLookupError:
+                break
+            _t.sleep(0.1)
+        else:
+            os.kill(pid, 9)
+            self.fail("the grandchild outlived the timeout")
+
+    def test_a_finished_program_returns_its_streams_and_status(self):
+        p = fleet.run_program(["sh", "-c", "echo out; echo err >&2; exit 3"], timeout=10)
+        self.assertEqual((p.returncode, p.stdout, p.stderr), (3, "out\n", "err\n"))
+
+
 class Command(unittest.TestCase):
     def main(self, *argv, fetcher=None):
         out, err = io.StringIO(), io.StringIO()
@@ -379,7 +500,9 @@ class Command(unittest.TestCase):
         for args, word in (([], "--json is required"), (["--json", "--max-age", "x"], "needs a number"),
                            (["--json", "--max-age", "-1"], "out of range"), (["--json", "--days", "0"], "out of range"),
                            (["--json", "--agent"], "needs a value"), (["--json", "--section", ","], "names no section"),
-                           (["--json", "--wat"], "unknown argument")):
+                           (["--json", "--wat"], "unknown argument"),
+                           (["--json", "--days", "3"], "--days applies to the tokens section"),
+                           (["--json", "--days", "3", "--section", "jobs"], "--days applies to the tokens section")):
             rc, out, err = self.main(*args)
             self.assertEqual((rc, out), (2, ""), args)
             self.assertEqual(len(err.strip().splitlines()), 1, args)
@@ -391,10 +514,10 @@ class Command(unittest.TestCase):
         def fake(sections, agent, max_age, days=None):
             seen.update(sections=sections, agent=agent, max_age=max_age, days=days)
             return {"schema": 1, "agents": []}
-        rc, out, _ = self.main("--json", "--agent", "a", "--section", "C0,jobs", "--max-age", "7", "--days", "2", fetcher=fake)
+        rc, out, _ = self.main("--json", "--agent", "a", "--section", "C0,jobs,tokens", "--max-age", "7", "--days", "2", fetcher=fake)
         self.assertEqual(rc, 0)
         self.assertEqual(json.loads(out), {"schema": 1, "agents": []})
-        self.assertEqual(seen, {"sections": ["proc", "states", "presence", "jobs"], "agent": "a", "max_age": 7.0, "days": 2})
+        self.assertEqual(seen, {"sections": ["proc", "states", "presence", "jobs", "tokens"], "agent": "a", "max_age": 7.0, "days": 2})
 
     def test_an_unknown_agent_or_section_is_a_usage_refusal(self):
         f = Fleet(self)
