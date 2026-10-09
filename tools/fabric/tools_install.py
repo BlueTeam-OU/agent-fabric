@@ -24,8 +24,9 @@ The verdict, one per run:
              owner, 2026-10-08) — nothing was looked up, fetched or written
   failed     the fetch, the hash, the unpacking or the proof said no;
              whatever was already installed is untouched
-  refused    the request names no installable tool, or the projects that
-             declare it disagree about the pin
+  refused    the request names no installable tool, a declaring project's
+             pin cannot be acted on, or the projects that declare it
+             disagree about the pin or the proof
 
 Exit codes (fabric-tools): 0 current, installed or skipped; 1 failed;
 2 refused or a bad argument.
@@ -40,7 +41,6 @@ import re
 import shlex
 import signal
 import subprocess
-import sys
 import tarfile
 import urllib.error
 import urllib.request
@@ -156,12 +156,23 @@ def unpack(body: bytes, member: str | None) -> bytes:
         raise ValueError(f"the asset is not a readable .tar.gz ({e})") from None
 
 
+class Terminated(BaseException):
+    """SIGTERM, as an exception. Not SystemExit: the working-copy scan
+    catches SystemExit from a bad marker and goes on, which would spend the
+    one signal the control agent sends and let the run outlive its bound."""
+
+    def __init__(self, code: int) -> None:
+        super().__init__(code)
+        self.code = code
+
+
 def exit_on_sigterm() -> None:
     """SIGTERM ends the run through `finally`, so the bound the control agent
     puts on it (or a stopped unit) leaves no executable temporary behind;
-    Python's default would exit without running it."""
+    Python's default would exit without running it. The caller turns
+    Terminated into the exit status."""
     def stop(signum: int, frame: object) -> None:
-        sys.exit(128 + signum)
+        raise Terminated(128 + signum)
     signal.signal(signal.SIGTERM, stop)
 
 
@@ -174,7 +185,7 @@ def sweep_temporaries(bindir: str, tool: str) -> None:
     except OSError:
         return
     for name in names:
-        m = re.fullmatch(r"\." + re.escape(tool) + r"\.(\d+)\.tmp", name)
+        m = re.fullmatch(r"\." + re.escape(tool) + r"\.(\d{1,7})\.tmp", name)
         if not m:
             continue
         try:
@@ -229,7 +240,8 @@ def install(tool: str, *, reg: dict, home: str, projects_dir: str | None = None,
     try:
         body = fetch(pin["url"])
     except (OSError, ValueError, http.client.HTTPException) as e:
-        return {"status": "failed", "tool": tool, "reason": f"fetch: {getattr(e, 'reason', None) or e!r}"}
+        reason = getattr(e, "reason", None)
+        return {"status": "failed", "tool": tool, "reason": f"fetch: {reason if reason else repr(e)}"}
     if hashlib.sha256(body).hexdigest() != pin["sha256"]:
         return {"status": "failed", "tool": tool, "reason": "the asset's sha256 is not the pinned one; nothing was unpacked or placed"}
     try:

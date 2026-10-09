@@ -123,7 +123,11 @@ def main(argv: list[str]) -> int:
             return 2
         import tools_install
         tools_install.exit_on_sigterm()
-        verdict = tools_install.install(install_tool, reg=reg, home=os.path.expanduser("~"))
+        try:
+            verdict = tools_install.install(install_tool, reg=reg, home=os.path.expanduser("~"))
+        except tools_install.Terminated as t:
+            print(f"fabric-tools: {install_tool} install stopped by SIGTERM", file=sys.stderr)
+            return t.code
         if as_json:
             print(json.dumps(verdict, indent=2))
         else:

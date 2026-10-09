@@ -258,27 +258,52 @@ def main() -> int:
         bindir = os.path.join(home, ".local", "bin")
         open(os.path.join(bindir, f".faketool.{dead}.tmp"), "w").close()
         r = run(home, reg, serving(SCRIPT))
+        open(os.path.join(os.path.join(home, ".local", "bin"), ".faketool.2147483648.tmp"), "w").close()
+        huge = os.path.join(home, ".local", "bin", ".faketool.2147483648.tmp")
+        check("a pid-shaped name past any pid does not crash the sweep, and is not a temporary of ours",
+              tools_install.sweep_temporaries(os.path.join(home, ".local", "bin"), "faketool") is None and os.path.exists(huge))
+        os.unlink(huge)
         check("an install sweeps what a killed run left", r["status"] == "installed" and listing(home) == ["faketool"], (r, listing(home)))
 
-        print("SIGTERM during the proof leaves no temporary")
-        home = account("pa")
-        slow = b"#!/bin/sh\nsleep 30\n"
-        driver = ("import sys, json; sys.path.insert(0, sys.argv[1]); import tools_install, tools_check\n"
-                  "tools_install.exit_on_sigterm()\n"
-                  "reg = json.loads(sys.argv[3])\n"
-                  "tools_install.install('faketool', reg=reg, home=sys.argv[2], fetch=lambda u: bytes.fromhex(sys.argv[4]))\n")
+        print("SIGTERM, through fabric-tools --install itself")
         import json
-        proc = subprocess.Popen([sys.executable, "-c", driver, os.path.join(ROOT, "tools", "fabric"), home,
-                                 json.dumps(registry(("pa", entry(slow)))), slow.hex()],
-                                env={**os.environ, "PATH": f"{home}/.local/bin:{saved_path}"}, stdin=subprocess.DEVNULL)
-        deadline = time.time() + 30
-        while time.time() < deadline and not any(n.endswith(".tmp") for n in listing(home)):
-            time.sleep(0.05)
-        saw_tmp = any(n.endswith(".tmp") for n in listing(home))
-        proc.send_signal(signal.SIGTERM)
-        rc = proc.wait(timeout=30)
-        check("the temporary existed while the proof ran (positive control)", saw_tmp, listing(home))
-        check("after SIGTERM: exit 143, no temporary, nothing installed", rc == 128 + signal.SIGTERM and listing(home) == [], (rc, listing(home)))
+        slow = b"#!/bin/sh\nsleep 30\n"
+        driver = ("import sys, json, time; sys.path.insert(0, sys.argv[1]); import tools_install, tools_check, workingcopy\n"
+                  "reg = json.loads(sys.argv[2]); home = sys.argv[3]\n"
+                  "tools_check.registry = lambda: reg\n"
+                  "if sys.argv[5] == 'scan': workingcopy.toplevel = lambda p: time.sleep(30)\n"
+                  "def fetch(u):\n"
+                  "    open(home + '/fetched', 'w').close(); return bytes.fromhex(sys.argv[4])\n"
+                  "orig = tools_install.install\n"
+                  "tools_install.install = lambda *a, **k: orig(*a, fetch=fetch, **k)\n"
+                  "sys.exit(tools_check.main(['--install', 'faketool']))\n")
+
+        def terminated(at: str, home: str) -> tuple[int, bool, bool]:
+            """(exit status, a temporary was seen, anything was fetched)."""
+            proc = subprocess.Popen([sys.executable, "-c", driver, os.path.join(ROOT, "tools", "fabric"),
+                                     json.dumps(registry(("pa", entry(slow)))), home, slow.hex(), at],
+                                    env={**os.environ, "HOME": home, "PATH": f"{home}/.local/bin:{saved_path}"},
+                                    stdin=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            seen = False
+            deadline = time.time() + 30
+            while time.time() < deadline:
+                if at == "proof" and any(n.endswith(".tmp") for n in listing(home)):
+                    seen = True
+                    break
+                if at == "scan" and time.time() > deadline - 29:   # the scan sleeps from the first directory on
+                    break
+                time.sleep(0.05)
+            proc.send_signal(signal.SIGTERM)
+            rc = proc.wait(timeout=30)
+            return rc, seen, os.path.exists(os.path.join(home, "fetched"))
+        home = account("pa")
+        rc, seen, fetched = terminated("proof", home)
+        check("the temporary existed while the proof ran (positive control)", seen and fetched, (seen, fetched))
+        check("after SIGTERM in the proof: exit 143, no temporary, nothing installed", rc == 128 + signal.SIGTERM and listing(home) == [], (rc, listing(home)))
+        home = account("pa")
+        rc, seen, fetched = terminated("scan", home)
+        check("SIGTERM during the working-copy scan stops the run: 143, nothing fetched or written",
+              rc == 128 + signal.SIGTERM and not fetched and listing(home) == [], (rc, fetched, listing(home)))
 
         print("fabric-tools --install arms the SIGTERM exit before it works")
         probe = ("import sys, signal; sys.path.insert(0, sys.argv[1]); import tools_check, tools_install\n"
