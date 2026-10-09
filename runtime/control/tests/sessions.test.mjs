@@ -62,7 +62,14 @@ test('an entry with no process is left out once stale, and the watcher says so o
 test('readSessions keeps live sessions in a known state, sorted, without the process', () => {
   const { proc, file, write } = setup();
   assert.deepEqual(readSessions(file, { proc }), [], 'no file: none');
-  fs.writeFileSync(file, '{broken'); assert.deepEqual(readSessions(file, { proc }), [], 'unreadable: none');
+  fs.writeFileSync(file, '{broken'); assert.equal(readSessions(file, { proc }), null, 'unreadable: unknown, never none');
+  for (const text of ['[]', 'null', '7', '{}', '{"sessions": []}', '{"sessions": null}', '{"sessions": "x"}']) {
+    fs.writeFileSync(file, text); assert.equal(readSessions(file, { proc }), null, `${text}: not a session state, unknown`);
+  }
+  fs.writeFileSync(file, '{"sessions": {}}'); assert.deepEqual(readSessions(file, { proc }), [], 'an empty one: none');
+  fs.rmSync(file); fs.mkdirSync(file);
+  assert.equal(readSessions(file, { proc }), null, 'a directory where the file should be: a read error, unknown');
+  fs.rmdirSync(file);
   write({
     b: { state: 'working', since: 't1', pid: 100, start: 5000 },
     a: { state: 'blocked', since: 't2', pid: 200, start: 6000 },
@@ -102,6 +109,23 @@ test('the watcher posts at start, on a change, and on the heartbeat; nothing in 
   const said = JSON.stringify(posts);
   assert.ok(!said.includes('private-wc') && !said.includes('31337') && !said.includes('"pid"') && !said.includes('"start"') && !said.includes('5000'),
     'no path, no binding field but role and project, no process id or start time');
+});
+
+test('an unreadable session state posts nothing, logs once each way, and posts at once when it reads again', async () => {
+  const { proc, file, write } = setup();
+  write({});
+  const posts = [], logs = [];
+  let t = 0;
+  const w = stateWatcher({ address: 'h/x', post: async r => { posts.push(r); }, file, proc, now: () => t, heartbeatMs: 60_000, log: m => logs.push(m) });
+  assert.equal(await w.tick(), true);
+  fs.writeFileSync(file, '{broken');
+  t += 2000; assert.equal(await w.tick(), false, 'unknown: nothing posted, never a wrong none');
+  t += 61_000; assert.equal(await w.tick(), false, 'nor on the heartbeat: the last record goes stale at the listener');
+  assert.equal(posts.length, 1);
+  write({});
+  t += 1000; assert.equal(await w.tick(), true, 'readable again: posted at once, though nothing changed');
+  assert.deepEqual(logs, [`${file} cannot be read; no state posted until it reads again`, `${file} is readable again`]);
+  assert.ok(posts.every(p => Array.isArray(p.sessions)), 'nothing on the wire but a list');
 });
 
 test('a failed post is retried on the next tick and said once', async () => {
