@@ -26,7 +26,10 @@
 # word, a space, `;`, `$(...)` or a newline is simply not one of them;
 # nothing here parses, and the client's text is never echoed. The word
 # reaches `enter` as a positional parameter of a login shell, never inside
-# its command string; sudo's moveto path skipped the login files.
+# its command string. The sudo path logs in too (enter is `#!/bin/bash -l`);
+# over ssh the account is entered as itself, without sudo's environment
+# reset, and login processing runs twice (enter-ssh's bash -lc, then
+# enter's bash -l), which is harmless.
 set -u
 # Owner of enter-ssh.conf and of the enter it names. A constant, not a
 # variable: tests/test_enter_ssh.py rewrites this line with sed in its
