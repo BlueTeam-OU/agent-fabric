@@ -111,3 +111,7 @@ four steps a shim takes to retire, and the scripts that stay shell
 because they run before the pinned interpreter exists or are what tells
 a person how to install it.
 
+
+### Amendment 2026-10-09 — Wave 8: the control plane moves to Python
+
+The owner's decision, 2026-10-09: "B, use agents you have to convert", choosing, after seeing new `.mjs` modules appear, to move the control plane to Python rather than only fence new Node out of it. Wave 7 (2026-10-04) had kept the control plane in Node because it was self-contained and tested; since then it gained eight modules and a Node helper that Python's `fabric-jobs` calls across the language line (`queue.mjs`), the seam Wave 7 removed from GZCoord. The port is built beside the Node control plane with the wire frozen, because the fleet upgrades one account at a time and a mixed fleet must keep answering. Ed25519 is the one capability the standard library lacks; the host's openssl gives byte-identical signatures (docs/live-checks/2026-10-09-ed25519-through-openssl.md). Rule 8 stops new Node meanwhile. The locale search server stays Node: no change asks for it yet.

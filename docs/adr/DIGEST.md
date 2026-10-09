@@ -850,27 +850,26 @@ its record disagree, the record wins. Look it up, never read it whole:
 
 ### ADR-040 — Implementation language: Python above 150 lines (Accepted)
 
-- New fabric tooling is Python, standard library only, valid on 3.12+
-  and run on the pinned `fabric-python` (`runtime/python.json`); bash stays
-  for shims, forwarders, hook entry points, the suite runners and
-  sudo/ssh/installer step-runners (§5 rule 1).
+- New fabric tooling is Python, standard library only, on the pinned
+  `fabric-python`; bash stays for shims, forwarders, hook entry points,
+  the suite runners and step-runners (§5 rule 1).
 - Lint refuses a tracked bash script over 150 lines not named in
   `policies/bash-allowlist.json`; each entry names its wave, and the
   list only shrinks (§5 rule 2).
-- A port freezes the contract (argv, environment, stdout/stderr, exit
-  codes, help) in the module's header, keeps the path as a shim, runs the
-  old bash test unchanged as the oracle, and removes the entry (§5 rules
-  3–5).
-- GitHub and git go through `gh.py` and `git.py`: bodies on stdin or a
-  file, bounded calls named in their errors, JSON in Python (§5 rule 6).
+- A port freezes the contract in the module's header, keeps the path as
+  a shim, runs the old test unchanged as the oracle (§5 rules 3–5).
+- GitHub and git go through `gh.py` and `git.py` (§5 rule 6).
 - A 2026-10-01 — the oracle's assertions stay; its gh mock and source
   reads may follow the port (§5 rule 5).
 - A 2026-10-01 — one pinned Python, 3.13, as fabric-python per host; shims run it (§5 rules 1, 4).
-- A 2026-10-01 — a fixture may copy the modules of the scripts it copies; no assertion changes (§5 rule 5).
+- A 2026-10-01 — a fixture may copy the modules its scripts load (§5 rule 5).
 - A 2026-10-04 — Wave 7: GZCoord's tools to Python together (§7).
 - A 2026-10-08 — commands by bare name; shims retire; pre-Python shell stays (§5 rule 7).
+- A 2026-10-09 — Wave 8: the control plane to Python, wire frozen, cut
+  over once; no new Node (§5 rule 8).
 - Keywords: Python, bash, shell, port, allowlist, lint, shim, wave, gh,
-  git, 150 lines, P1, bare command, fabric-pr, deprecated path.
+  git, 150 lines, P1, bare command, fabric-pr, deprecated path, Node,
+  control plane, openssl, Ed25519.
 
 ### ADR-041 — Agent-local episodic history: exact messages kept above the transport (Accepted)
 

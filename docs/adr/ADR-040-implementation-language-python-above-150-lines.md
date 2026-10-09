@@ -141,6 +141,10 @@ serve as the parity oracle for each port, unchanged.
    executor, `bootstrap.sh`, `moveto`, and the `bin/` entry points,
    whose few lines of shell print the install command when the pin is
    absent — and the git hooks and the suite runners (rule 1).
+8. No new fabric code is written in Node. The remaining Node (the
+   control plane until Wave 8's cutover, the locale search server) takes
+   fixes where it is; new behaviour of the control plane is written in
+   the Python package and is live from the cutover (A 2026-10-09).
 
 ## 6. Consequences
 
@@ -160,13 +164,37 @@ production script.
 
 Wave 7 is not bash: GZCoord's command-line tools, `gzmsg.mjs`,
 `send.mjs` and `inbox.mjs` with the `i18n.mjs` they read, move to Python
-together (A 2026-10-04). The rest of the fabric's Node, the control
-plane and the locale search server, stays Node. Their contract is
-frozen and their paths stay as shims, as for any port. The functions the
+together (A 2026-10-04). Their contract is frozen and their paths stay
+as shims, as for any port. The functions the
 control plane imports from them first move unchanged into one Node
 module of its own. The CLI cases of the protocol suite run unchanged
 against the shims; its unit cases are ported case for case; the two
 validators agree on every message of the suite before the Node one goes.
+
+Wave 8 moves the control plane (`runtime/control/`: the control agent,
+`fabric-ctl`, `fabric-accounts` and every module they load) to Python
+(A 2026-10-09). The locale search server stays Node until a change gives
+it a reason to move.
+- **Built beside, cut over once.** The Python control plane is a package
+  under `tools/fabric/control/`, each Node module ported with its unit
+  cases case for case; nothing runs it until the cutover. The Node tests
+  stay the oracle until then.
+- **The wire does not change.** Envelopes (`protocol.mjs`), op names,
+  their arguments and replies, and the signature bytes are frozen. A
+  parity suite runs every op and action through both implementations
+  against the same fixture homes and compares the replies. The fleet
+  upgrades one account at a time, so a Python `fabric-ctl` must be
+  answered by a Node control agent and the other way round.
+- **Ed25519 through the host's `openssl`** (`pkeyutl -rawin`): measured
+  byte-identical with Node (docs/live-checks/2026-10-09-ed25519-through-openssl.md).
+  A key is never on a command line.
+- **The cross-language helpers go.** `fabric-jobs` reads the state stream
+  itself, not through `queue.mjs`, and `roots.mjs` goes with the last Node
+  caller of `roots.py`'s twin.
+- **The cutover** switches `bin/fabric-ctl`, `bin/fabric-accounts` and
+  the control agent's unit together, one account first under a live
+  read-back, then the fleet through `fabric-ctl all upgrade fabric`; the
+  Node code is deleted once every account reports the Python agent.
 
 ## 8. Decision Status
 
@@ -192,3 +220,4 @@ The body above reads current; each change's full note is in [history/ADR-040-ame
 | 2026-10-01 | A fixture may copy the modules of the scripts it copies | §5 rule 5: a third departure for the oracle, files added and no assertion changed |
 | 2026-10-04 | Wave 7: GZCoord's command-line tools move to Python | §7: send, inbox and gzmsg port together, the control plane's imports split out first, the protocol suite the oracle |
 | 2026-10-08 | Shims retire; commands run by bare name | §2, §5 rule 7: a caller names the command on PATH; a shim retires in four steps once its callers move; shell before the pinned Python stays shell |
+| 2026-10-09 | Wave 8: the control plane moves to Python | §5 waves: the control plane (`runtime/control/`) is built beside in Python, wire frozen, Ed25519 through openssl, cut over once; Wave 7's carve-out of the control plane withdrawn; rule 8 added: no new fabric code in Node |
