@@ -271,7 +271,9 @@ def main() -> int:
         driver = ("import sys, json, time; sys.path.insert(0, sys.argv[1]); import tools_install, tools_check, workingcopy\n"
                   "reg = json.loads(sys.argv[2]); home = sys.argv[3]\n"
                   "tools_check.registry = lambda: reg\n"
-                  "if sys.argv[5] == 'scan': workingcopy.toplevel = lambda p: time.sleep(30)\n"
+                  "def hang(p):\n"
+                  "    open(home + '/scanning', 'w').close(); time.sleep(30)\n"
+                  "if sys.argv[5] == 'scan': workingcopy.toplevel = hang\n"
                   "def fetch(u):\n"
                   "    open(home + '/fetched', 'w').close(); return bytes.fromhex(sys.argv[4])\n"
                   "orig = tools_install.install\n"
@@ -290,7 +292,8 @@ def main() -> int:
                 if at == "proof" and any(n.endswith(".tmp") for n in listing(home)):
                     seen = True
                     break
-                if at == "scan" and time.time() > deadline - 29:   # the scan sleeps from the first directory on
+                if at == "scan" and os.path.exists(os.path.join(home, "scanning")):
+                    seen = True
                     break
                 time.sleep(0.05)
             proc.send_signal(signal.SIGTERM)
@@ -303,7 +306,7 @@ def main() -> int:
         home = account("pa")
         rc, seen, fetched = terminated("scan", home)
         check("SIGTERM during the working-copy scan stops the run: 143, nothing fetched or written",
-              rc == 128 + signal.SIGTERM and not fetched and listing(home) == [], (rc, fetched, listing(home)))
+              seen and rc == 128 + signal.SIGTERM and not fetched and listing(home) == [], (seen, rc, fetched, listing(home)))
 
         print("fabric-tools --install arms the SIGTERM exit before it works")
         probe = ("import sys, signal; sys.path.insert(0, sys.argv[1]); import tools_check, tools_install\n"

@@ -122,17 +122,19 @@ def main(argv: list[str]) -> int:
             print("fabric-tools: --install goes with --json only", file=sys.stderr)
             return 2
         import tools_install
-        tools_install.exit_on_sigterm()
         try:
+            # Armed inside the try, and the verdict printed inside it: a
+            # SIGTERM in the gaps around install() is still exit 143.
+            tools_install.exit_on_sigterm()
             verdict = tools_install.install(install_tool, reg=reg, home=os.path.expanduser("~"))
+            if as_json:
+                print(json.dumps(verdict, indent=2))
+            else:
+                print(f"fabric-tools: {install_tool} {verdict['status']}"
+                      + "".join(f"  {verdict[k]}" for k in ("version", "path", "reason") if verdict.get(k)))
         except tools_install.Terminated as t:
             print(f"fabric-tools: {install_tool} install stopped by SIGTERM", file=sys.stderr)
             return t.code
-        if as_json:
-            print(json.dumps(verdict, indent=2))
-        else:
-            print(f"fabric-tools: {install_tool} {verdict['status']}"
-                  + "".join(f"  {verdict[k]}" for k in ("version", "path", "reason") if verdict.get(k)))
         return {"failed": 1, "refused": 2}.get(verdict["status"], 0)
     known = reg.get("projects", {})
     if every:
