@@ -281,6 +281,11 @@ def main() -> int:
             conn_.close()
         mute.close()
 
+    ctx = cg.tls_context()
+    import ssl as _ssl
+    check("an https relay is never below TLS 1.2, and its certificate and host name are checked",
+          ctx.minimum_version >= _ssl.TLSVersion.TLSv1_2 and ctx.verify_mode == _ssl.CERT_REQUIRED and ctx.check_hostname is True)
+
     print("gzcoord.test.mjs: relayFailure")
     check("no answer", cg.relay_failure(cg.ApiError("/api/send -> no answer within 30 s", timed_out=True), "http://r")
           == "the relay at http://r did not answer (no answer within 30 s)")

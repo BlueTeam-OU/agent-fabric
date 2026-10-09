@@ -108,6 +108,14 @@ def api_timeout_s(path_and_query: str) -> float:
     return API_TIMEOUT_S + (waits if math.isfinite(waits) and waits > 0 else 0.0)
 
 
+def tls_context() -> ssl.SSLContext:
+    """An https relay's: the system's trust and host name check, never below
+    TLS 1.2 whatever this Python's default is (code scanning, #132)."""
+    ctx = ssl.create_default_context()
+    ctx.minimum_version = ssl.TLSVersion.TLSv1_2
+    return ctx
+
+
 def api(tok: str, path_and_query: str, relay_url: str | None = None, method: str = "GET", body: str | None = None,
         timeout_s: float | None = None, headers: dict | None = None):
     """One relay call, its JSON answer. The token goes in a header only
@@ -183,7 +191,7 @@ def api(tok: str, path_and_query: str, relay_url: str | None = None, method: str
         else:
             raise err or OSError(f"no address for {u.hostname}")
         if u.scheme == "https":
-            tls = ssl.create_default_context().wrap_socket(sock, server_hostname=u.hostname, do_handshake_on_connect=False)
+            tls = tls_context().wrap_socket(sock, server_hostname=u.hostname, do_handshake_on_connect=False)
             use(tls)
             tls.settimeout(remaining())
             tls.do_handshake()
