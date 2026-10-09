@@ -18,6 +18,7 @@ import subprocess
 import sys
 import tempfile
 import time
+from unittest import mock
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SHIM = os.path.join(HERE, "bin", "fabric-resume")
@@ -271,6 +272,16 @@ def main() -> int:
         # defaults'; an unknown value or an unreadable file is none.
         sys.path.insert(0, os.path.join(HERE, "tools", "fabric"))
         import resume
+
+        # own_dir: a directory another uid owns is no place to resume in.
+        # Another owner cannot be made without root, so the uid this
+        # process claims is moved instead.
+        check("own_dir: a directory this account owns", resume.own_dir(tmp))
+        with mock.patch.object(resume.os, "getuid", lambda: os.stat(tmp).st_uid + 1):
+            check("…not one another uid owns", not resume.own_dir(tmp))
+        check("…not a file", not resume.own_dir(os.path.join(bdir, "binding.json")))
+        check("…not a path that is gone", not resume.own_dir(os.path.join(tmp, "gone")))
+
         root = os.path.join(tmp, "fabric")
         os.makedirs(os.path.join(root, "routing"))
 

@@ -87,6 +87,7 @@ test('the request fabric-ctl sends is a Request, for every op shape it builds', 
     ['all', 'secrets-sync', '--restart'],
     ['all', 'secrets-sync', '--expect', 'abcdef012345'],
     ['all', 'secrets-selftest'],
+    ['all', 'tools-install', 'doppler'],
   ];
   for (const argv of shapes) {
     const r = build(argv);

@@ -432,7 +432,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-10-06 — one open PR per agent and repository (§5 rule 2).
 - A 2026-10-08 — every commit declares its `Kind:`; the commit-msg
   hook refuses one without it (§5 rule 3).
-- A 2026-10-08 — a folded PR's review fixes are fixes (counter not yet built; §5 rule 3).
+- A 2026-10-08 — a folded PR's review fixes are fixes (the gate reads it, results.py not yet; §5 rule 3).
 - Keywords: PR, arm, merge, work commits, Answers, Kind, fold, pr-gate,
   MERGEABLE, attribution, Co-authored-by, repository settings.
 
@@ -613,28 +613,27 @@ its record disagree, the record wins. Look it up, never read it whole:
 
 ### ADR-029 — The control plane: a control agent per account answers signed actions over the relay (Accepted)
 
-- Every account runs `agentd.mjs` under a lingering user unit, session or
-  not, answering on the relay's `fabric:control` channel; no cursor, so a
-  request made while it is down is lost (§2, §5 rules 1–2).
-- A closed op set, no request field reaches a shell; actions need the
-  operator's Ed25519 signature, fresh and strictly newer than the last
-  (§5 rules 3–5).
-- Every reply arrives, gaps named, no secret; `fabric-ctl` exits 1 on
-  silence or a failed action (§5 rules 6–9).
-- A 2026-09-27 — actions run beside the read loop, one per kind (§5 rule 12).
+- Every account runs `agentd.mjs` under a lingering user unit, answering
+  on the relay's `fabric:control` channel; no cursor, so a request made
+  while it is down is lost (§2, §5 rules 1–2).
+- A closed op set; no request field reaches a shell; actions carry the
+  operator's fresh Ed25519 signature, newer than the last (§5 rules 3–5).
+- Replies carry no secret, gaps named; silence or a failure exits 1
+  (§5 rules 6–9).
+- A 2026-09-27 — actions run beside the read loop (§5 rule 12).
 - A 2026-09-27 — each op's answer budget (§5 rule 12).
 - A 2026-09-28 — `jobs` and `jobs-add` carry the job list (§5 rule 13).
-- A 2026-09-29 — `secrets-migrate`, Doppler to the store (§5 rule 14).
-- A 2026-09-30 — rule 14 withdrawn; signing key in the operator's
-  store (§5 rule 5).
-- A 2026-10-06 — `local`, `local-prune`: settings.local.json (§5 rule 15).
-- A 2026-10-07 — session state on the control plane (§5 rule 16).
+- A 2026-09-29 — `secrets-migrate` (§5 rule 14).
+- A 2026-09-30 — rule 14 withdrawn; signing key in the operator's store (§5 rule 5).
+- A 2026-10-06 — `local`, `local-prune` (§5 rule 15).
+- A 2026-10-07 — session state (§5 rule 16).
 - A 2026-10-07 — `secrets-selftest` (§5 rule 17).
-- A 2026-10-08 — the state record says what can be resumed (§5 rule 16).
-- A 2026-10-08 — op table matches ops.mjs; three public ops (§5 rule 4).
+- A 2026-10-08 — resumable state in the state record (§5 rule 16).
+- A 2026-10-08 — the op table; three public ops (§5 rule 4).
+- A 2026-10-09 — a forged pool claim shows in the holder's pool.json (§5 rule 4).
 - Keywords: control plane, agentd, fabric-ctl, ops, ping, keys, usage,
-  recall, tokens, memory, bundle, drain, keygen, linger,
-  resume, tools, pool.
+  recall, tokens, memory, bundle, drain, keygen, linger, operator_key,
+  herdr, persist, status, resume, tools, pool.
 ### ADR-030 — Presence replaces HELLO and GOODBYE (Accepted)
 
 - Whether a session runs is the control agent's answer from its process
@@ -800,7 +799,9 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-10-08 — priority (blocking, high, normal, low) orders `next`,
   never preempting; a job others wait on ranks blocking via the state
   stream's `waits_on`; a role pool with one claimant; after a job ends,
-  take the next (§5 rules 7–10); rules 7–9 not yet built (§8).
+  take the next (§5 rules 7–10).
+- A 2026-10-09 — a waiter whose state record is stale still ranks the
+  job blocking, said stale with the record's age (§5 rule 8).
 - Keywords: job, to-do, jobs.json, fabric-jobs, next, topic, fresh
   session, restart, fabric-fresh --job, working copy, intake, priority,
   blocking, pool, claim, P3.
@@ -887,6 +888,9 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-10-05 — `GZCOORD_JOURNAL=off` is a recorded break-glass: each
   bypassed crossing appends an audit line first, or is refused (§5 rule 10).
 - A 2026-10-06 — a bypassed send's second line records its outcome (§5 rule 10).
+- A 2026-10-09 — a resume fetches working events by query, ranked;
+  FTS5 stemmed + trigram fused by reciprocal rank is the recipe to
+  measure first (§7).
 - Keywords: episodic, history, journal, GZCoord, carrier, transport,
   relay, InterWeave, fabric-history, backfill.
 
@@ -922,8 +926,11 @@ its record disagree, the record wins. Look it up, never read it whole:
   (§5 rules 3–4).
 - The Claude Code pin moves to 2.1.287 or later only after every host reports
   rules 1 and 2 in force (§5 rule 6).
+- A 2026-10-09 — a mod or MCP server that runs code passes the fleet's
+  guards as a Bash call would, or is refused at review (§5 rule 8).
 - Keywords: mods, plugin, managed settings, allowManagedModsOnly,
-  disableSideloadFlags, prependPlugins, sec-default, guard, redaction.
+  disableSideloadFlags, prependPlugins, sec-default, guard, redaction,
+  MCP server, sandbox.
 
 ### ADR-044 — Identity kinds: an agent and a human (Proposed)
 

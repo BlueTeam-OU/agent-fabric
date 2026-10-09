@@ -93,10 +93,27 @@ def main() -> int:
             check("…a call on no repository runs", gh.run(["api", "user"]) == "unset")
             check("…-Rowner/repo as one word names it", gh.run(["pr", "view", "3", "-Ro/r"]) == "unset")
             check("…a host-qualified selector names it", gh.run(["pr", "view", "3", "-R", "github.example.com/o/r"]) == "unset")
+            def names(*args: str) -> bool:
+                """The call runs, GH_REPO left unpinned: it named its repository."""
+                try:
+                    return gh.run(list(args)) == "unset"
+                except gh.GhError:
+                    return False
+            check("…a dotless host names it", names("pr", "view", "3", "-R", "ghe/o/r")
+                  and names("pr", "view", "3", "--repo=localhost:8080/o/r"))
             check("…gh repo <verb> <owner>/<repo> names it", gh.run(["repo", "view", "o/r"]) == "unset")
+            check("…gh repo <verb> <host>/<owner>/<repo> too", names("repo", "view", "github.example.com/o/r")
+                  and names("repo", "view", "ghe/o/r"))
+            check("…a selector after a flag's value still names it", names("pr", "checks", "3", "--json", "name", "--repo", "o/r"))
             check("…a pull request's URL names it", gh.run(["pr", "view", "https://github.com/o/r/pull/3"]) == "unset")
             for label, args in (("a URL inside a body", ["pr", "comment", "5", "--body", "https://github.com/o/r/pull/9 fixes it"]),
-                                ("a -R… flag value", ["pr", "view", "3", "--body-file", "-R"])):
+                                ("a -R… flag value", ["pr", "view", "3", "--body-file", "-R"]),
+                                # gh takes the word after a value flag as its value, dash or not.
+                                ("a flag value that is literally -R<owner>/<repo>", ["pr", "create", "--body", "-Ro/r"]),
+                                ("or --repo=<owner>/<repo> as a value", ["pr", "create", "--title", "--repo=o/r"]),
+                                ("or --repo as a value, its word then a positional", ["pr", "create", "--body", "--repo", "o/r"]),
+                                ("gh repo <verb> with a flag's value where the repository goes",
+                                 ["repo", "--json", "o/r"])):
                 try:
                     gh.run(args)
                     check(f"…{label} names nothing: refused", False)

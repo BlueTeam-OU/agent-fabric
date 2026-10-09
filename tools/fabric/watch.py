@@ -23,7 +23,7 @@ CONTRACT:
             failed:
               status         bin/fabric-status
               jobs           bin/fabric-jobs list
-              pull requests  runtime/github/pr-gate.sh, run in one
+              pull requests  bin/fabric-pr gate, run in one
                              working copy per GitHub repository under
                              ~/projects (the first by name); one that has
                              none of this account's open is left out
@@ -131,12 +131,12 @@ def working_copies(projects: str) -> list[str]:
 def pulls(root: str, projects: str, stop: Callable[[], bool] = lambda: False) -> str | None:
     """The pull-request block; None when stop() says to leave, which is
     asked between working copies, so q waits at most for one pr-gate."""
-    gate = os.path.join(root, "runtime", "github", "pr-gate.sh")
+    gate = [os.path.join(root, "bin", "fabric-pr"), "gate"]
     blocks = []
     for wc in working_copies(projects):
         if stop():
             return None
-        out = run([gate], cwd=wc)
+        out = run(gate, cwd=wc)
         if out.startswith(NONE_OPEN):
             continue
         blocks.append(f"[{os.path.basename(wc)}]\n{out}")

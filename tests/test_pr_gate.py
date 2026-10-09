@@ -301,6 +301,56 @@ def main() -> int:
               sorted(c["fix_subjects"]) == ["review F4: undeclared, read as before",
                                             "the guard reads the count from the file"])
 
+    # A fold reaches the classifier through split_range's <head>: #10 was
+    # merged unrebased into this branch and closed, so its review fix is
+    # #11's fix; without the head the range reads as before. gh is a fake
+    # on PATH that knows only #10.
+    print("split_range reads a folded PR's review fixes as fixes")
+    with tempfile.TemporaryDirectory() as tmp:
+        repo = os.path.join(tmp, "repo")
+        os.makedirs(os.path.join(tmp, "bin"))
+        env = {k: v for k, v in os.environ.items() if not k.startswith(("GIT_", "GH_"))}
+        env.update(GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_NOSYSTEM="1", GIT_AUTHOR_NAME="t",
+                   GIT_AUTHOR_EMAIL="t@t", GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="t@t",
+                   PATH=f"{tmp}/bin:{env.get('PATH', '')}")
+
+        def git(*args: str) -> str:
+            return subprocess.run(["git", "-C", repo, *args], env=env, check=True, capture_output=True,
+                                  text=True).stdout.strip()
+
+        os.makedirs(repo)
+        git("init", "-q", "-b", "main")
+        git("commit", "-q", "--allow-empty", "-m", "base")
+        base = git("rev-parse", "HEAD")
+        git("checkout", "-q", "-b", "pr-10")
+        git("commit", "-q", "--allow-empty", "-m", "#10's work", "-m", "Kind: work")
+        git("commit", "-q", "--allow-empty", "-m", "review fix (#10 F1): the probe exits 3",
+            "-m", "Kind: review-fix\nAnswers: #10 F1")
+        folded = git("rev-parse", "HEAD")
+        git("checkout", "-q", "-b", "pr-11", "main")
+        git("commit", "-q", "--allow-empty", "-m", "#11's work", "-m", "Kind: work")
+        git("merge", "-q", "--no-ff", "--no-edit", "pr-10")
+        head = git("rev-parse", "HEAD")
+        fake = os.path.join(tmp, "bin", "gh")
+        open(fake, "w").write("#!/bin/sh\n[ \"$3\" = 10 ] && exec echo '{\"state\": \"CLOSED\", \"mergedAt\": null, "
+                              f"\"headRefOid\": \"{folded}\"}}'\nexit 1\n")
+        os.chmod(fake, 0o755)
+        saved, here = dict(os.environ), os.getcwd()
+        os.environ.clear()
+        os.environ.update(env)
+        os.chdir(repo)
+        try:
+            c = pr_gate.split_range(11, "o/r", f"{base}..{head}", head)
+            before = pr_gate.split_range(11, "o/r", f"{base}..{head}")
+        finally:
+            os.chdir(here)
+            os.environ.clear()
+            os.environ.update(saved)
+        check(f"with the head: work 2, fix 1, merge 1 (got {c['work']}, {c['fix']}, {c['merge']})",
+              (c["work"], c["fix"], c["merge"]) == (2, 1, 1))
+        check(f"without it: work 3, fix 0 — the follow-up reading (got {before['work']}, {before['fix']})",
+              (before["work"], before["fix"]) == (3, 0))
+
     print(f"\n{'FAILED' if fails else 'all passed'}")
     return 1 if fails else 0
 

@@ -40,8 +40,8 @@ def main() -> int:
         root, home = os.path.join(tmp, "fabric"), os.path.join(tmp, "home")
         put(f"{root}/bin/fabric-status", "#!/bin/sh\necho 'agent: pd-x'\n")
         put(f"{root}/bin/fabric-jobs", f"#!/bin/sh\n[ \"$*\" = list ] || exit 9\nprintf '%s\\n' '{TITLE}'\n")
-        put(f"{root}/runtime/github/pr-gate.sh",
-            '#!/bin/sh\ncase "${PWD##*/}" in\n'
+        put(f"{root}/bin/fabric-pr",
+            '#!/bin/sh\n[ "$*" = gate ] || exit 9\ncase "${PWD##*/}" in\n'
             '  quiet) echo "pr-gate: no open pull request from h/pd-x on o/quiet (branch prefix h/pd-x/)." ;;\n'
             '  *) echo "#7 pd-x (me) commits=3 in ${PWD##*/}" ;;\nesac\n')
         env = {k: v for k, v in os.environ.items() if not k.startswith(("AGENT_FABRIC_", "GITHUB_", "GIT_"))

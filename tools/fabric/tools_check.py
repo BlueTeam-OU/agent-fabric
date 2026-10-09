@@ -3,6 +3,7 @@
 on this account, behind bin/fabric-tools.
 
     fabric-tools [--project P | --all] [--role R] [--json]
+    fabric-tools --install TOOL [--json]
 
 Each project in projects/registry.json may list `tools`: a name, the
 command that proves the tool is there (`proof`), the version it expects,
@@ -20,6 +21,12 @@ The project is the working copy's (`--project` names one, `--all` every
 project); the role is the account's bound role (`--role` names one).
 Each proof runs with a timeout, its first output line kept as what was
 found; nothing it prints is otherwise reported.
+
+`--install TOOL` installs an `account` tool whose registry entry carries
+an `install` pin into this account's ~/.local/bin, only on an account with
+a working copy of a project that declares it (tools_install.py has the
+whole account). Its exit codes: 0 current, installed or skipped; 1 failed;
+2 refused.
 
 Exit codes: 0 every required tool is there; 1 a required tool is
 missing or its proof failed; 2 a bad argument or registry.
@@ -89,7 +96,7 @@ def check(projects: list[str], role: str | None, reg: dict) -> list[dict]:
 
 
 def main(argv: list[str]) -> int:
-    project, every, role, as_json = None, False, None, False
+    project, every, role, as_json, install_tool = None, False, None, False, None
     args = list(argv)
     while args:
         a = args.pop(0)
@@ -101,6 +108,8 @@ def main(argv: list[str]) -> int:
             role = args.pop(0)
         elif a == "--json":
             as_json = True
+        elif a == "--install" and args:
+            install_tool = args.pop(0)
         elif a in ("-h", "--help"):
             print(__doc__.strip())
             return 0
@@ -108,6 +117,25 @@ def main(argv: list[str]) -> int:
             print(f"fabric-tools: unexpected argument: {a}", file=sys.stderr)
             return 2
     reg = registry()
+    if install_tool is not None:
+        if project or every or role:
+            print("fabric-tools: --install goes with --json only", file=sys.stderr)
+            return 2
+        import tools_install
+        try:
+            # Armed inside the try, and the verdict printed inside it: a
+            # SIGTERM in the gaps around install() is still exit 143.
+            tools_install.exit_on_sigterm()
+            verdict = tools_install.install(install_tool, reg=reg, home=os.path.expanduser("~"))
+            if as_json:
+                print(json.dumps(verdict, indent=2))
+            else:
+                print(f"fabric-tools: {install_tool} {verdict['status']}"
+                      + "".join(f"  {verdict[k]}" for k in ("version", "path", "reason") if verdict.get(k)))
+        except tools_install.Terminated as t:
+            print(f"fabric-tools: {install_tool} install stopped by SIGTERM", file=sys.stderr)
+            return t.code
+        return {"failed": 1, "refused": 2}.get(verdict["status"], 0)
     known = reg.get("projects", {})
     if every:
         projects = sorted(known)

@@ -19,9 +19,12 @@ table was made by hand, and only the coordinator's login can make it).
 An account with no credentials file, or whose read fails, gets one
 line saying so; the table is never silently short. An account running
 on a Claude-account template (CLAUDE_CODE_OAUTH_TOKEN in its synced
-secrets.env) is `setup-token`: its own sign-in, if any, is another
-account's, and the setup-token cannot read usage — the observer's
-`fabric-ctl <observer> accounts` has those windows (docs/adr/ADR-031-claude-accounts-assigned-applied-and-proved-by-signed-action.md).
+secrets.env) shows `(setup-token)` for its email: its own sign-in, if
+any, is another account's, and the setup-token cannot read the usage
+endpoint, so its windows are read from the headers of one one-token
+inference reply, against that account's allowance — each run costs
+such an account one call (docs/live-checks/2026-10-08-usage-from-inference-headers.md,
+docs/adr/ADR-031-claude-accounts-assigned-applied-and-proved-by-signed-action.md).
 
 Superseded for everyday use by `bin/fabric-ctl all usage`, which asks
 each account's control agent over the relay (docs/adr/ADR-029-the-control-plane-a-control-agent-per-account.md):
@@ -31,17 +34,19 @@ the fallback for a host whose daemons are down.
 # The contract the port keeps (ADR-040 Wave 3, from bin/fabric-usage):
 #   - argv: --json anywhere; -h/--help prints the docstring's first six
 #     lines, exit 0, where it is met; any other `--…` is exit 2 there;
-#     everything else is a login to keep (a login no placement has is
-#     simply not shown).
+#     everything else is a login to keep.
 #   - the rows in the registry's placement order; the header line in text
-#     mode only; a status row (setup-token, no-credentials, read-failed,
-#     unreadable, executor-failed) for every account that has no numbers;
+#     mode only; a status row (no-credentials, read-failed, unreadable,
+#     executor-failed) for every account that has no numbers;
 #     exit 0 once the table is out.
 #   - the remote read is the shell text in READ, run as `sh -c` by the
 #     executor as the account: it never leaves the account's own process,
 #     and its token never reaches this one.
-# Changed, and said in j31's delivery: a registry that cannot be read as
-# a placement map is exit 2 (the bash printed an empty table, which its
+# Changed, and said in j31's delivery and on #114: a named login that no
+# placement has, or that the registry's kinds call a human (ADR-044), is
+# exit 2, the unplaced one naming the registry read (the bash left it
+# out of the table, which then read as an answer); a registry that
+# cannot be read as a placement map is exit 2 (the bash printed an empty table, which its
 # own header promises never to do); jq is no longer needed on this host
 # (the remote read still uses jq and curl, as before); an executor that
 # has not answered within EXECUTOR_TIMEOUT_S is `executor-failed` (the
@@ -49,7 +54,11 @@ the fallback for a host whose daemons are down.
 # the account ends at curl's own 20 s bound); an executor that exits
 # non-zero is `executor-failed` whatever it printed (the bash read its
 # last line as the account's numbers); AGENT_FABRIC_HOSTEXEC names
-# another executor, as store_enroll.py reads it, for a test.
+# another executor, as store_enroll.py reads it, for a test. On #114's
+# review (fabric-coordinator REQUEST 01a11a18, item 2): a setup-token
+# account is no longer the status `setup-token` but a reading, its JSON
+# row carrying "via": "setup-token" and a null email, as usage.mjs reads
+# it for fabric-ctl.
 from __future__ import annotations
 
 import json
@@ -66,7 +75,7 @@ import roots  # noqa: E402
 ROOT = os.path.dirname(os.path.dirname(HERE))
 # A minute for curl's own bound (20 s) and the executor's sudo or ssh, twice.
 EXECUTOR_TIMEOUT_S = 120
-STATUSES = ("no-credentials", "read-failed", "unreadable", "executor-failed", "setup-token")
+STATUSES = ("no-credentials", "read-failed", "unreadable", "executor-failed")
 
 # The read, as the account. One line of tab-separated fields on stdout:
 # email, five-hour %, five-hour reset, seven-day %, seven-day reset — or
@@ -74,7 +83,34 @@ STATUSES = ("no-credentials", "read-failed", "unreadable", "executor-failed", "s
 # reaches curl as a header on its stdin (-H @-), never in its argv: an
 # argument is readable by every account on the host in /proc/<pid>/cmdline
 # for as long as curl runs (review of j31; the bash had it in argv).
-READ = r"""grep -Eq "^export CLAUDE_CODE_OAUTH_TOKEN=[^'\"[:space:]]|^export CLAUDE_CODE_OAUTH_TOKEN='[^']" "$HOME/.config/agent-fabric/secrets.env" 2>/dev/null && { printf 'setup-token\n'; exit 0; }
+#
+# A login on a template runs on its setup-token, which the usage endpoint
+# refuses (user:inference only); its line is prefixed with SETUP_TOKEN and
+# its windows come from the anthropic-ratelimit-unified-* headers of one
+# one-token inference reply, as runtime/control/ops/usage.mjs reads them
+# (docs/live-checks/2026-10-08-usage-from-inference-headers.md): the
+# fraction as a percentage to a tenth, the epoch reset as UTC minutes. A
+# reply of any status with a number in a window header is a reading (a
+# full window answers 429), which is why curl has no -f; a reply with
+# none, the headers absent or not numbers, is read-failed, as usage.mjs
+# reads it. The token is taken from
+# secrets.env as fabric-secrets sync writes it, bare or single-quoted
+# (shlex.quote of a token); secrets.env is never sourced, which would
+# put every secret in the shell. The model is usage.mjs's pinned probe.
+SETUP_TOKEN = "via-setup-token"
+READ = r"""s="$HOME/.config/agent-fabric/secrets.env"
+if grep -Eq "^export CLAUDE_CODE_OAUTH_TOKEN=[^'\"[:space:]]|^export CLAUDE_CODE_OAUTH_TOKEN='[^']" "$s" 2>/dev/null; then
+h="$(sed -n -e "s/^export CLAUDE_CODE_OAUTH_TOKEN='\([^']*\)'.*/\1/p" -e "s/^export CLAUDE_CODE_OAUTH_TOKEN=\([^'\"[:space:]]*\).*/\1/p" "$s" | sed -n '1s/^/Authorization: Bearer /p' | curl -sS --max-time 20 -o /dev/null -D - -H @- -H "anthropic-beta: oauth-2025-04-20" -H "anthropic-version: 2023-06-01" -H "content-type: application/json" --data-binary '{"model":"claude-haiku-4-5-20251001","max_tokens":1,"messages":[{"role":"user","content":"."}]}' https://api.anthropic.com/v1/messages 2>/dev/null)" || { printf 'via-setup-token\tread-failed\n'; exit 0; }
+printf '%s\n' "$h" | tr -d '\r' | awk '
+function pct(x) { return x ~ /^[0-9]+(\.[0-9]+)?$/ ? int(x * 1000 + 0.5) / 10 : "-" }
+function at(x,  c, t) { if (x !~ /^[1-9][0-9]*$/) return "-"; c = "date -u -d @" x " +%Y-%m-%dT%H:%M"; t = "-"; c | getline t; close(c); return t }
+{ i = index($0, ":"); if (i) { k = tolower(substr($0, 1, i - 1)); v = substr($0, i + 1); gsub(/^[ \t]+|[ \t]+$/, "", v); h[k] = v } }
+END { p = "anthropic-ratelimit-unified-"
+  u5 = pct(h[p "5h-utilization"]); r5 = at(h[p "5h-reset"]); u7 = pct(h[p "7d-utilization"]); r7 = at(h[p "7d-reset"])
+  if (u5 r5 u7 r7 == "----") { printf "via-setup-token\tread-failed\n"; exit }
+  printf "via-setup-token\t-\t%s\t%s\t%s\t%s\n", u5, r5, u7, r7 }'
+exit 0
+fi
 f="$HOME/.claude/.credentials.json"
 [ -s "$f" ] || { printf 'no-credentials\n'; exit 0; }
 email="$(jq -r '.oauthAccount.emailAddress // "-"' "$HOME/.claude.json" 2>/dev/null || echo -)"
@@ -107,7 +143,7 @@ def parse(argv: list[str]) -> tuple[bool, list[str]] | None:
     return as_json, logins
 
 
-def placements(registry: str) -> list[tuple[str, str]]:
+def placements(registry: str) -> list[tuple[str, str, str]]:
     """(login, host, kind) for every placement, in the registry's order."""
     if not os.path.isfile(registry):
         raise Refused(f"no host registry at {registry}")
@@ -168,16 +204,21 @@ def read_account(hx: str, host: str, login: str) -> str:
 
 
 def row(login: str, host: str, line: str, as_json: bool) -> str:
-    a, b, c, d, e = fields(line or "executor-failed")
+    via, sep, rest = (line or "executor-failed").partition("\t")
+    if via == SETUP_TOKEN:
+        line, extra, shown = rest, {"via": "setup-token"}, "(setup-token)"
+    else:
+        line, extra, shown = via + sep + rest, {}, None
+    a, b, c, d, e = fields(line)
     if a in STATUSES:
         if as_json:
-            return _dumps({"account": login, "host": host, "status": a, "email": b or None})
-        return f"{login:<22} {b or '-':<34} {a}"
+            return _dumps({"account": login, "host": host, "status": a, "email": b or None, **extra})
+        return f"{login:<22} {shown or b or '-':<34} {a}"
     if as_json:
-        return _dumps({"account": login, "host": host, "status": "ok", "email": a,
+        return _dumps({"account": login, "host": host, "status": "ok", "email": None if shown else a, **extra,
                        "five_hour": {"utilization": number(b), "resets_at": c},
                        "seven_day": {"utilization": number(d), "resets_at": e}})
-    return f"{login:<22} {a:<34} {b:>7}%  {c:<16} {d:>7}%  {e:<16}"
+    return f"{login:<22} {shown or a:<34} {b:>7}%  {c:<16} {d:>7}%  {e:<16}"
 
 
 def _dumps(doc: dict) -> str:
@@ -190,14 +231,15 @@ def run(argv: list[str]) -> int:
         if parsed is None:
             return 0
         as_json, logins = parsed
-        placed = placements(roots.hosts_registry(engine=ROOT))
+        registry = roots.hosts_registry(engine=ROOT)
+        placed = placements(registry)
         # A human login (ADR-044) has no Claude account: all leaves it out,
         # and naming one, or a login not placed, is refused, never an empty
         # table that reads as an answer.
         kind = {l: k for l, _, k in placed}
         for login in logins:
             if login not in kind:
-                raise Refused(f"{login} is not a placed account (runtime/hosts/registry.json)")
+                raise Refused(f"{login} is not a placed account ({registry})")
             if kind[login] != "agent":
                 raise Refused(f"{login} is a human login (ADR-044): it has no Claude account to read")
         placed = [(l, h) for l, h, k in placed if k == "agent"]

@@ -220,14 +220,16 @@ def count_commits(num: int, repo: str, base: str, head: str) -> dict | None:
     if not succeeds("cat-file", "-e", f"{head}^{{commit}}") \
             or not succeeds("rev-parse", "--verify", "-q", f"origin/{base}^{{commit}}"):
         return None
-    return split_range(num, repo, f"origin/{base}..{head}")
+    return split_range(num, repo, f"origin/{base}..{head}", head)
 
 
-def split_range(num: int, repo: str, rev_range: str) -> dict:
+def split_range(num: int, repo: str, rev_range: str, head: str = "") -> dict:
     """The work / fix / merge / netted split of a range of PR #num's
     commits — the gate's before arming, and pr-compliance's after the
     merge (<merge>^1..<merge>^2), so the band is measured as it was
-    applied."""
+    applied. <head> is the range's tip: with it, a PR folded into it is
+    read as one (commit_class.Folds), once per PR the range names."""
+    folded = commit_class.Folds(repo, head) if head else None
     # Kind: values joined by US (0x1f), never a tab or a newline, so the
     # line stays one record; commit_class.kind takes the last of them.
     r = git.run(".", "log", "--format=%H%x09%P%x09%s%x09%(trailers:key=Answers,valueonly,unfold,separator=%x20)"
@@ -240,7 +242,7 @@ def split_range(num: int, repo: str, rev_range: str) -> dict:
         if not sha:
             continue
         shas.append(sha)
-        cls[sha] = commit_class.classify(parents, subject, answers, str(num), repo, kind)
+        cls[sha] = commit_class.classify(parents, subject, answers, str(num), repo, kind, folded)
         subj[sha] = subject
     # Two passes: classify each commit, then net out every revert whose
     # partner is in the range — the pair changes nothing and counts
@@ -378,12 +380,20 @@ def checks_of(nodes: list[dict]) -> str:
     return "green"
 
 
-def review_of_head(reader: str, num: int) -> str:
+def review_reader() -> list[str]:
+    """The review reader's argv head: AGENT_FABRIC_PR_REVIEW_STATUS, a
+    program of its own, else this checkout's `fabric-pr review-status`."""
+    if os.environ.get("AGENT_FABRIC_PR_REVIEW_STATUS"):
+        return [os.environ["AGENT_FABRIC_PR_REVIEW_STATUS"]]
+    return [os.path.join(FABRIC, "bin", "fabric-pr"), "review-status"]
+
+
+def review_of_head(reader: list[str], num: int) -> str:
     """pr-review-status's reading of the current head. A reader that
     cannot run is "?", like one that could not read the PR — the bash
     read a missing reader as "none"."""
     try:
-        r = subprocess.run([reader, str(num)], capture_output=True, text=True, timeout=300,
+        r = subprocess.run([*reader, str(num)], capture_output=True, text=True, timeout=300,
                            stdin=subprocess.DEVNULL)
     except (OSError, subprocess.TimeoutExpired):
         return "?"
@@ -713,8 +723,7 @@ def run(argv: list[str]) -> int:
     fetched = succeeds("fetch", "-q", "origin")
     if not fetched:
         note("git fetch origin failed — the base is stale, so no commit count is trusted (commits unknown)")
-    reader = os.environ.get("AGENT_FABRIC_PR_REVIEW_STATUS") or os.path.join(FABRIC, "runtime", "github",
-                                                                              "pr-review-status.sh")
+    reader = review_reader()
     rows = []
     for p in prs:
         num, head, base = p.get("number"), jq_str(p.get("headRefOid")), jq_str(p.get("baseRefName"))

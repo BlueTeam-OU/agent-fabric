@@ -114,7 +114,6 @@ import roots  # noqa: E402
 from github import local, pr_gate  # noqa: E402
 
 FABRIC = os.path.dirname(os.path.dirname(os.path.dirname(HERE)))
-RUNTIME = os.path.join(FABRIC, "runtime", "github")
 
 HELP = """Arm auto-merge on a PR — with the gates the project puts before the
 arming applied by the tool, not by memory.
@@ -261,13 +260,20 @@ def load_config(path: str) -> tuple[re.Pattern, re.Pattern | None, dict[str, re.
 
 # ── readers run as programs: the seams the oracle mocks ──────────────
 
-def program(env: str, default: str) -> str:
-    return os.environ.get(env) or default
+def program(env: str, default: str) -> list[str]:
+    """A reader that is a program of its own: the env override, else the default path."""
+    return [os.environ.get(env) or default]
 
 
-def run_reader(path: str, args: list[str], timeout: int = 600) -> tuple[int, str]:
+def fabric_pr(env: str, verb: str) -> list[str]:
+    """A reader that is a `fabric-pr` verb of this checkout (ADR-040 §5
+    rule 7), or the env override, which stays one program."""
+    return [os.environ[env]] if os.environ.get(env) else [os.path.join(FABRIC, "bin", "fabric-pr"), verb]
+
+
+def run_reader(head: list[str], args: list[str], timeout: int = 600) -> tuple[int, str]:
     try:
-        r = subprocess.run([path, *args], capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=timeout)
+        r = subprocess.run([*head, *args], capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=timeout)
     except OSError:
         return 127, ""
     except subprocess.TimeoutExpired:
@@ -523,7 +529,7 @@ def arm(argv: list[str]) -> int:
             waived_by = f"Boundary gate waived by {login} ({mid}): {no_boundary}."
             say(f"boundary gate WAIVED by {login}, {waiver_role} ({mid}): {no_boundary}")
         else:
-            rc, out = run_reader(program("AGENT_FABRIC_PR_REVIEW_STATUS", os.path.join(RUNTIME, "pr-review-status.sh")),
+            rc, out = run_reader(fabric_pr("AGENT_FABRIC_PR_REVIEW_STATUS", "review-status"),
                                  [num, "-q", "--json"])
             if rc == 2:
                 raise Unanswered(f"pr-review-status could not answer for #{num} (exit 2)")
@@ -557,7 +563,7 @@ def arm(argv: list[str]) -> int:
             boundary_unwaived = True
 
     # 5. the count rule, from pr-gate's classifier
-    rc, out = run_reader(program("AGENT_FABRIC_PR_GATE", os.path.join(RUNTIME, "pr-gate.sh")), ["--json", num])
+    rc, out = run_reader(fabric_pr("AGENT_FABRIC_PR_GATE", "gate"), ["--json", num])
     try:
         row = json.loads(out)[0] if rc == 0 else None
     except (ValueError, IndexError, KeyError, TypeError):
