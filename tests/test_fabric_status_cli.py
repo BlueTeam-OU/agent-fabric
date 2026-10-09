@@ -16,6 +16,7 @@ import subprocess
 import sys
 import tempfile
 from git_env import git_env, scrub_process_env  # noqa: E402 — tests/, the script's own directory
+from instance_fixtures import write_registry  # noqa: E402
 scrub_process_env()
 
 # Every git this suite starts, fixture or under test, reads none of the
@@ -200,8 +201,14 @@ def main() -> int:
         print("fabric-status: memories written and not yet drained")
         wc = f"{sandbox}/gzapp"
         subprocess.run(["git", "init", "-q", wc], check=True, timeout=30, env=git_env())
-        subprocess.run(["git", "-C", wc, "remote", "add", "origin", "git@github.com:gzapi-org/gzapp.git"],
+        subprocess.run(["git", "-C", wc, "remote", "add", "origin", "git@github.com:fixture-org/fixture-wc.git"],
                        check=True, timeout=30, env=git_env())
+        # The count runs only in a registered project's working copy; the
+        # operator tree is a fixture naming fixture-wc, a project no live
+        # registry holds, so a status reading the live registry finds none.
+        operator = f"{sandbox}/operator"
+        write_registry(f"{operator}/projects", {"version": 1, "projects": {
+            "fixture-wc": {"remotes": ["git@github.com:fixture-org/fixture-wc.git"]}}})
         # The harness's spelling: every non-alphanumeric is a dash.
         mem = f"{sandbox}/home/.claude/projects/{re.sub(r'[^A-Za-z0-9]', '-', wc)}/memory"
         report = f"{wc}/.agent-fabric/memory/last-drain-report.json"
@@ -209,12 +216,12 @@ def main() -> int:
         put(f"{mem}/a.md", "---\nname: a\ndescription: d\nmetadata:\n  type: project\n  roles_class: solution\n---\nfact\n")
         put(f"{mem}/b.md", "---\nname: b\ndescription: d\nmetadata:\n  type: user\n---\nmine\n")
         put(f"{mem}/MEMORY.md", "# index\n")
-        out = status(cwd=wc)
+        out = status(cwd=wc, AGENT_FABRIC_OPERATOR=operator)
         check("counts drainable and private memories newer than the watermark; MEMORY.md is not a memory",
               has(r"^memory       1 drainable \(roles_class set\) and 1 private \(none\) written since the last drain",
                   out), out)
         os.remove(report)
-        out = status(cwd=wc)
+        out = status(cwd=wc, AGENT_FABRIC_OPERATOR=operator)
         check("no report: counted since ever, said so", "written since ever (no drain report)" in out, out)
         out = status(cwd=sandbox)
         check("outside a working copy: no memory line", not has(r"^memory ", out), out)

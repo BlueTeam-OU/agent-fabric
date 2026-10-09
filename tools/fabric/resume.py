@@ -82,7 +82,9 @@ LAUNCHER = os.environ.get("AGENT_FABRIC_RESUME_LAUNCHER") or os.path.join(FABRIC
 SCAN_LINES = 50
 # The harness's session id; runtime/control/sessions.mjs SESSION_ID is the
 # same pattern. Anything else in a binding is no session, never a path.
-SESSION_RE = re.compile(r"^[A-Za-z0-9-]{8,64}$")
+# Matched whole (fullmatch): `$` would take a trailing newline, and a
+# session id is a path component (re-review of #132).
+SESSION_RE = re.compile(r"[A-Za-z0-9-]{8,64}")
 
 
 LOCK_FILE = "resume.lock"
@@ -110,7 +112,7 @@ def projects_dir() -> str:
 
 def transcript_of(session: str) -> str | None:
     """The session's transcript, wherever its launch directory put it."""
-    if not SESSION_RE.match(session):
+    if not SESSION_RE.fullmatch(session):
         return None
     found = sorted(glob.glob(os.path.join(projects_dir(), "*", f"{session}.jsonl")),
                    key=lambda p: os.stat(p).st_mtime, reverse=True)
@@ -350,7 +352,7 @@ def plan() -> tuple[list[str], str, str]:
     """(launcher argv suffix, directory, the line that says it)."""
     binding = identity.read_binding(identity.current_agent())
     session = binding.get("session")
-    session = session if isinstance(session, str) and SESSION_RE.match(session) else ""
+    session = session if isinstance(session, str) and SESSION_RE.fullmatch(session) else ""
     working_copy = str(binding.get("working_copy") or os.path.expanduser("~/projects"))
     transcript = transcript_of(session)
     cwd = cwd_of(transcript) if transcript else None

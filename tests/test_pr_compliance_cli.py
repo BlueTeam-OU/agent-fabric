@@ -278,11 +278,13 @@ def main() -> int:
         # The classifier pr_gate imports, the one the split calls.
         commit_class = pr_compliance.pr_gate.commit_class
         asked: list[tuple] = []
+        looks: list = []
         real = commit_class.classify
 
         def spy(parents: str, subject: str, answers: str = "", num: str = "", repo_: str = "", kind: str = "",
                 folded=None) -> str:
             asked.append((subject, num, repo_))
+            looks.append(folded)
             return real(parents, subject, answers, num, repo_, kind, folded)
         commit_class.classify = spy
         cwd = os.getcwd()
@@ -300,6 +302,12 @@ def main() -> int:
         check("…each of #1's three commits was classed with PR 1 and the repository",
               sorted(asked) == sorted([("feat: one", "1", REPO), ("feat: two", "1", REPO),
                                        ("review F1: the nit", "1", REPO)]), repr(asked))
+        # The range is <merge>^1..<merge>^2: fold reading needs that head and
+        # that base, or it is silently off and every count above still holds.
+        check("…with fold reading on <merge>^2 over the base <merge>^1",
+              bool(looks) and all(isinstance(f, commit_class.Folds) and f.head == f"{mc1}^2"
+                                  and f.base == f"{mc1}^1" for f in looks),
+              repr([(getattr(f, "head", f), getattr(f, "base", None)) for f in looks]))
 
         print("pr-compliance: an unfetched merge commit is 'unknown', not a crash or a zero")
         gone = dict(four[0], mergeCommit={"oid": "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef"})

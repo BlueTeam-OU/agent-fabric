@@ -70,6 +70,7 @@ if __name__ == "__main__":
     sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 
 import git  # noqa: E402
+import httpsafe  # noqa: E402
 
 ENDPOINT = "https://api.openai.com/v1/images/generations"
 TIMEOUT_S = 300
@@ -353,13 +354,8 @@ def error_kind(body: bytes, types: frozenset[str] = ERROR_TYPES, codes: frozense
     return "/".join(parts) or "no error type"
 
 
-class _NoRedirect(urllib.request.HTTPRedirectHandler):
-    def redirect_request(self, req, fp, code, msg, headers, newurl):  # type: ignore[override]
-        return None
-
-
 def make_opener() -> urllib.request.OpenerDirector:
-    return urllib.request.build_opener(urllib.request.ProxyHandler({}), _NoRedirect())
+    return httpsafe.opener(proxies=False, redirects="none")
 
 
 @dataclass

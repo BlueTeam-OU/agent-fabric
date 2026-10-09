@@ -43,7 +43,9 @@
         {"name": "flutter", "proof": "flutter --version", "version": "3.47.3", "why": "the Flutter apps and their launchers", "where": "host", "roles": ["flutter-dev", "devex-tooling"]},
         {"name": "java", "proof": "java -version", "version": "any JDK", "why": "flutter build apk", "where": "host", "roles": ["flutter-dev"]},
         {"name": "shellcheck", "proof": "shellcheck --version", "version": "any", "why": "devex-tooling's checks", "where": "host", "roles": ["devex-tooling"]},
-        {"name": "doppler", "proof": "doppler --version", "version": "any", "why": "optional: seeds the dev provider keys (doppler run -- make seed-secrets); make up works without it. In the AppVM only, never the template, and only in the accounts that work on gzapp (the owner, 2026-10-08)", "where": "account", "optional": true}
+        {"name": "doppler", "proof": "doppler --version", "version": "any", "why": "optional: seeds the dev provider keys (doppler run -- make seed-secrets); make up works without it. In the AppVM only, never the template, and only in the accounts that work on gzapp (the owner, 2026-10-08)", "where": "account", "optional": true,
+         "install": {"version": "3.77.0", "url": "https://github.com/DopplerHQ/cli/releases/download/3.77.0/doppler_3.77.0_linux_amd64.tar.gz",
+                     "sha256": "92587cb89c2ff82fc2ddec2b2a9f275ff320994a44e16cd9310b55a429a82084", "member": "doppler"}}
       ]
     },
     "agent-fabric": {

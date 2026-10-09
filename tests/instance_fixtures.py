@@ -86,6 +86,14 @@ class code_tree:
             setattr(m, name, value)
 
 
+def write_operator_projects(operator: str, projects: dict[str, list[str]]) -> str:
+    """An operator tree (AGENT_FABRIC_OPERATOR) whose projects/registry.json
+    registers `projects`, each id with its remotes; the tree's path."""
+    write_registry(os.path.join(operator, "projects"),
+                   {"projects": {pid: {"remotes": remotes} for pid, remotes in projects.items()}})
+    return operator
+
+
 # ADR-045 §5 rule 2's instance data, as paths in a fabric tree: what a test
 # that builds a fabric from the checkout (git archive HEAD) takes out before
 # writing the fixtures its case needs. The roles (catalogue and roles as
@@ -113,3 +121,20 @@ def strip_instance(tree: str) -> None:
         integration = os.path.join(tree, "projects", proj, "integration")
         if os.path.isdir(integration):
             shutil.rmtree(integration)
+
+
+# A policies/auto-mode.json for a reader of the operator's policy
+# (runtime/claude-code/user-settings.py, through tools/fabric/roots.py). The
+# Organization text is in no live policy: a reader of the checkout's file
+# writes another one.
+AUTO_MODE_POLICY = {"environment": {"Organization": "the fixture operator"}, "allow": [], "soft_deny": [], "hard_deny": []}
+
+
+def write_operator_policy(tmp: str, doc: dict = AUTO_MODE_POLICY) -> str:
+    """<tmp>/operator/policies/auto-mode.json holding `doc`; the operator
+    tree, for AGENT_FABRIC_OPERATOR."""
+    operator = os.path.join(tmp, "operator")
+    os.makedirs(os.path.join(operator, "policies"), exist_ok=True)
+    with open(os.path.join(operator, "policies", "auto-mode.json"), "w", encoding="utf-8") as fh:
+        json.dump(doc, fh)
+    return operator

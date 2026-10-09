@@ -6,7 +6,7 @@
 # tools/fabric/github/commit_class.py (ADR-040 §5 rule 4: a sourced script's
 # shim defines the same functions, each calling Python).
 #
-#   commit_class <parents> <subject> [<answers>] [<pr>] [<owner/repo>] [<kind>] [<head>]   → prints merge | fix | work
+#   commit_class <parents> <subject> [<answers>] [<pr>] [<owner/repo>] [<kind>] [<head>] [<base>]   → prints merge | fix | work
 #   revert_targets                                                                 stdin: a commit body → the shas it reverts
 _COMMIT_CLASS_PY="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)/tools/fabric/github/commit_class.py"
 # The fleet's pinned Python (runtime/python.json, ADR-040), one per host;

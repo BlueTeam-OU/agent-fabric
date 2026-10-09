@@ -6,6 +6,7 @@ tests only at 6, 9 and 17."""
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -72,6 +73,25 @@ def main() -> int:
     try:
         gh.graphql = paged([[node(True)] * 100, [node(False)] * 3])
         check("two pages read whole", len(prs.review_threads("o", "r", 1)) == 103)
+        for label, page in (("a string", "abc"), ("a dict", {"a": 1}), ("a list holding a non-object", [node(True), 1]),
+                            ("an empty string", ""), ("an empty dict", {})):
+            gh.graphql = paged([[node(True)] * 100, page])
+            try:
+                prs.review_threads("o", "r", 1)
+                check(f"a thread page of {label}: raised", False)
+            except TypeError:
+                check(f"a thread page of {label}: raised, never counted", True)
+        gh.graphql = paged([[node(True)] * 100, None])
+        check("a thread page whose nodes are null is none, not unreadable", len(prs.review_threads("o", "r", 1)) == 100)
+
+        def thread_info(query, **kw):
+            return {"repository": {"pullRequest": {"reviewThreads": {"nodes": [node(False)], "pageInfo": "x"}}}}
+        gh.graphql = thread_info
+        try:
+            prs.review_threads("o", "r", 1)
+            check("a thread page whose pageInfo is not an object: raised", False)
+        except TypeError:
+            check("a thread page whose pageInfo is not an object: raised, never the last page", True)
         gh.graphql = paged([[node(True)]] * (prs.THREAD_PAGES + 1))
         try:
             prs.review_threads("o", "r", 1)
@@ -81,6 +101,7 @@ def main() -> int:
 
         first = {"repository": {"pullRequest": {
             "mergeStateStatus": "CLEAN", "mergeable": "MERGEABLE", "mergeQueueEntry": None, "autoMergeRequest": None,
+            "headRefOid": "H",
             "statusCheckRollup": {"contexts": {"nodes": [{"name": "a", "status": "COMPLETED", "conclusion": "SUCCESS"}]}},
             "reviewThreads": {"nodes": [node(True)] * 100, "pageInfo": {"hasNextPage": True, "endCursor": "1"}}}}}
 
@@ -94,11 +115,146 @@ def main() -> int:
                     "nodes": rest, "pageInfo": {"hasNextPage": False, "endCursor": None}}}}}
             return fake
         gh.graphql = gate([node(False)])
-        check("pr-gate counts an unresolved thread on the second page", pr_gate.gate_state("o/r", 1)["unresolved"] == "1")
+        check("pr-gate counts an unresolved thread on the second page", pr_gate.gate_state("o/r", 1, "H")["unresolved"] == "1")
         gh.graphql = gate(gh.GhError("gh api graphql", "no answer", transient=True))
-        st = pr_gate.gate_state("o/r", 1)
+        st = pr_gate.gate_state("o/r", 1, "H")
         check("a second page that cannot be read: ?, which blocks", st["unresolved"] == "?"
               and "unresolved thread" in pr_gate.verdict(1, "main", False, None, st, "head reviewed", []))
+
+        print("checks past the first 100")
+        ok = {"name": "ok", "status": "COMPLETED", "conclusion": "SUCCESS"}
+        red = {"name": "late", "status": "COMPLETED", "conclusion": "FAILURE"}
+
+        def rollup(rest, more=True, cursor="0", head="H"):
+            """GATE_QUERY's answer with 100 green checks and, when `more`, a
+            next page; CONTEXTS_QUERY's pages are `rest` (a list of pages,
+            or an exception). Like GitHub, it answers pageInfo only to a
+            query whose contexts ask for it."""
+            def fake(query, **kw):
+                asks = re.search(r"contexts\(first: 100(, after: \$after)?\) \{ pageInfo \{ hasNextPage endCursor \}", query)
+                if "mergeStateStatus" in query:
+                    if not asks:
+                        return {"repository": {"pullRequest": {
+                            "mergeStateStatus": "CLEAN", "mergeable": "MERGEABLE", "mergeQueueEntry": None,
+                            "autoMergeRequest": None, "reviewThreads": {"nodes": [], "pageInfo": {"hasNextPage": False}},
+                            "statusCheckRollup": {"contexts": {"nodes": [ok] * 100}}}}}
+                    return {"repository": {"pullRequest": {
+                        "mergeStateStatus": "CLEAN", "mergeable": "MERGEABLE", "mergeQueueEntry": None, "headRefOid": "H",
+                        "autoMergeRequest": None, "reviewThreads": {"nodes": [], "pageInfo": {"hasNextPage": False}},
+                        "statusCheckRollup": {"contexts": {"nodes": [ok] * 100,
+                                                           "pageInfo": {"hasNextPage": more, "endCursor": cursor if more else None}}}}}}
+                assert asks and asks.group(1) and kw.get("after") is not None, (query, kw)
+                if isinstance(rest, Exception):
+                    raise rest
+                i = int(kw["after"])
+                last = i == len(rest) - 1
+                pr = {"statusCheckRollup": {"contexts": {
+                    "nodes": rest[i], "pageInfo": {"hasNextPage": not last, "endCursor": None if last else str(i + 1)}}}}
+                if re.search(r"pullRequest\(number: \$number\) \{\s+headRefOid\b", query):
+                    pr["headRefOid"] = head
+                return {"repository": {"pullRequest": pr}}
+            return fake
+        gh.graphql = rollup([], more=False)
+        check("one page of green checks: green", pr_gate.gate_state("o/r", 1, "H")["checks"] == "green")
+        gh.graphql = rollup([[ok] * 100, [red]])
+        check("a red check on the third page: red, named", pr_gate.gate_state("o/r", 1, "H")["checks"] == "red:late")
+        gh.graphql = rollup([[ok, {"name": "slow", "status": "IN_PROGRESS", "conclusion": None}]])
+        check("a running check on the second page: pending", pr_gate.gate_state("o/r", 1, "H")["checks"] == "pending:1")
+        for label, rest in (("a page that cannot be read", gh.GhError("gh api graphql", "HTTP 502", 502, True)),
+                            ("a page with no cursor to the next", "no-cursor"),
+                            ("past the page cap", [[ok]] * (pr_gate.CONTEXT_PAGES + 1)),
+                            ("a malformed page", ["x"]),
+                            ("a page holding a non-object", [[ok, 1]])):
+            if rest == "no-cursor":
+                def rest_fake(query, **kw):
+                    if "mergeStateStatus" in query:
+                        return rollup([])(query, **kw)
+                    return {"repository": {"pullRequest": {"headRefOid": "H", "statusCheckRollup": {"contexts": {
+                        "nodes": [ok], "pageInfo": {"hasNextPage": True, "endCursor": None}}}}}}
+                gh.graphql = rest_fake
+            else:
+                gh.graphql = rollup(rest)
+            st = pr_gate.gate_state("o/r", 1, "H")
+            check(f"{label}: checks ?, which blocks", st["checks"] == "?"
+                  and "the checks could not all be read" in pr_gate.verdict(1, "main", False, None, st, "head reviewed", []))
+        # The cases above reach a later page; these fail on the way to it.
+        for label, fake in (("a first page with no cursor to the next", rollup([[ok]], cursor=None)),
+                            ("a head that moved between the pages", rollup([[ok]], head="other")),
+                            ("a later page whose nodes are not a list", rollup([{"name": "x"}])),
+                            ("a first page whose nodes are not a list", None)):
+            if fake is None:
+                def fake(query, **kw):
+                    d = rollup([], more=False)(query, **kw)
+                    d["repository"]["pullRequest"]["statusCheckRollup"]["contexts"]["nodes"] = {"name": "x"}
+                    return d
+            gh.graphql = fake
+            st = pr_gate.gate_state("o/r", 1, "H")
+            check(f"{label}: checks ?, which blocks", st["checks"] == "?"
+                  and "the checks could not all be read" in pr_gate.verdict(1, "main", False, None, st, "head reviewed", []))
+        gh.graphql = rollup([[red]])
+        check("the same head on every page: read", pr_gate.gate_state("o/r", 1, "H")["checks"] == "red:late")
+
+        def threads_no_cursor(query, **kw):
+            assert "mergeStateStatus" in query, "a thread page was asked with no cursor"
+            d = rollup([], more=False)(query, **kw)
+            d["repository"]["pullRequest"]["reviewThreads"] = {"nodes": [node(True)] * 100,
+                                                               "pageInfo": {"hasNextPage": True, "endCursor": None}}
+            return d
+        check("listed: null is none, a list of objects is itself, anything else unreadable",
+              pr_gate.listed(None) == [] and pr_gate.listed([{"a": 1}]) == [{"a": 1}] and pr_gate.listed([]) == []
+              and all(pr_gate.listed(v) is None for v in ({}, "", {"a": 1}, "x", 0, [1], [{"a": 1}, None])))
+        check("obj: null is empty, an object is itself, anything else unreadable",
+              pr_gate.obj(None) == {} and pr_gate.obj({"a": 1}) == {"a": 1}
+              and all(pr_gate.obj(v) is None for v in ("", "x", [], [1], 0)))
+        for label, shape in (("an empty dict", {}), ("an empty string", ""), ("a list holding a non-object", [1])):
+            def fake(query, shape=shape, **kw):
+                d = rollup([], more=False)(query, **kw)
+                d["repository"]["pullRequest"]["statusCheckRollup"]["contexts"]["nodes"] = shape
+                d["repository"]["pullRequest"]["reviewThreads"]["nodes"] = shape
+                return d
+            gh.graphql = fake
+            st = pr_gate.gate_state("o/r", 1, "H")
+            check(f"a first page of {label}: checks and threads ?", st["checks"] == "?" and st["unresolved"] == "?")
+        gh.graphql = rollup([], more=False)
+        check("the checks of another head than the row's: ?", pr_gate.gate_state("o/r", 1, "other")["checks"] == "?")
+        def headless(query, **kw):
+            d = rollup([], more=False)(query, **kw)
+            d["repository"]["pullRequest"]["headRefOid"] = ""
+            return d
+        gh.graphql = headless
+        check("no head to compare, on either side: ?", pr_gate.gate_state("o/r", 1, "")["checks"] == "?")
+        def shaped(*path_value):
+            """GATE_QUERY's one-page answer with the value at each path replaced."""
+            def fake(query, **kw):
+                d = rollup([], more=False)(query, **kw)
+                for path, value in path_value:
+                    at = d["repository"]["pullRequest"]
+                    for key in path[:-1]:
+                        at = at[key]
+                    at[path[-1]] = value
+                return d
+            return fake
+        for label, path, value, column in (
+                ("a rollup that is not an object", ("statusCheckRollup",), "x", "checks"),
+                ("contexts that are not an object", ("statusCheckRollup", "contexts"), "x", "checks"),
+                ("a contexts pageInfo that is not an object", ("statusCheckRollup", "contexts", "pageInfo"), "x", "checks"),
+                ("threads that are not an object", ("reviewThreads",), [1], "unresolved"),
+                ("a threads pageInfo that is not an object", ("reviewThreads", "pageInfo"), "x", "unresolved")):
+            gh.graphql = shaped((path, value))
+            st = pr_gate.gate_state("o/r", 1, "H")
+            check(f"{label}: ?, not a traceback nor a count", st[column] == "?")
+        gh.graphql = shaped((("statusCheckRollup", "contexts", "pageInfo"), None), (("reviewThreads", "pageInfo"), None))
+        st = pr_gate.gate_state("o/r", 1, "H")
+        check("a null pageInfo is no next page", st["checks"] == "green" and st["unresolved"] == "0")
+        gh.graphql = shaped((("mergeQueueEntry",), "x"))
+        check("a queue entry that is not an object: the PR unreadable, not a traceback", pr_gate.gate_state("o/r", 1, "H") is None)
+        gh.graphql = lambda query, **kw: {"repository": "x"}
+        check("a repository that is not an object: the PR unreadable, not a traceback", pr_gate.gate_state("o/r", 1, "H") is None)
+        gh.graphql = threads_no_cursor
+        check("threads: a next page with no cursor is ?, never page one again", pr_gate.gate_state("o/r", 1, "H")["unresolved"] == "?")
+        gh.graphql = rollup([], more=False)
+        st = pr_gate.gate_state("o/r", 1, "H")
+        check("...and green does not", st["checks"] == "green" and "BLOCKED" not in pr_gate.verdict(1, "main", False, None, st, "head reviewed", []))
     finally:
         gh.graphql = real
 
@@ -183,9 +339,25 @@ def main() -> int:
         os.environ.clear()
         os.environ.update(env)
         os.chdir(repo)
+        # #11 merged carrying the fold; #12 answers #10 again on top of it.
+        # #10's head is now inside #12's base, so the answer is #12's work
+        # (ADR-019 rule 3: "its head inside this range").
+        git("checkout", "-q", "main")
+        git("merge", "-q", "--no-ff", "--no-edit", "pr-11")
+        main2 = git("rev-parse", "HEAD")
+        git("checkout", "-q", "-b", "pr-12")
+        git("commit", "-q", "--allow-empty", "-m", "follow-up (#10 F2): the probe names its host",
+            "-m", "Kind: review-fix\nAnswers: #10 F2")
+        head12 = git("rev-parse", "HEAD")
         try:
             c = pr_gate.split_range(11, "o/r", f"{base}..{head}", head)
             before = pr_gate.split_range(11, "o/r", f"{base}..{head}")
+            git("update-ref", "refs/remotes/origin/main", base)
+            counted = pr_gate.count_commits(11, "o/r", "main", head)
+            later = pr_gate.split_range(12, "o/r", f"{main2}..{head12}", head12, main2)
+            unbased = pr_gate.split_range(12, "o/r", f"{main2}..{head12}", head12)
+            git("update-ref", "refs/remotes/origin/main", main2)
+            counted12 = pr_gate.count_commits(12, "o/r", "main", head12)
         finally:
             os.chdir(here)
             os.environ.clear()
@@ -194,6 +366,16 @@ def main() -> int:
               (c["work"], c["fix"], c["merge"]) == (2, 1, 1))
         check(f"without it: work 3, fix 0 — the follow-up reading (got {before['work']}, {before['fix']})",
               (before["work"], before["fix"]) == (3, 0))
+        # count_commits must hand split_range the head and the base, or fold
+        # reading is silently off and every split above still passes.
+        check(f"count_commits reads the fold: work 2, fix 1 (got {counted and (counted['work'], counted['fix'])})",
+              counted is not None and (counted["work"], counted["fix"]) == (2, 1))
+        check(f"a fold already in the base: #12's answer is work 1, fix 0 (got {later['work']}, {later['fix']})",
+              (later["work"], later["fix"]) == (1, 0))
+        check(f"…the reading the base corrects: fix 1 without it (got {unbased['work']}, {unbased['fix']})",
+              (unbased["work"], unbased["fix"]) == (0, 1))
+        check(f"count_commits passes the base: work 1, fix 0 (got {counted12 and (counted12['work'], counted12['fix'])})",
+              counted12 is not None and (counted12["work"], counted12["fix"]) == (1, 0))
 
     print(f"\n{'FAILED' if fails else 'all passed'}")
     return 1 if fails else 0

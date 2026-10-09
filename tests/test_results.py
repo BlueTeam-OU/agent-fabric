@@ -24,7 +24,7 @@ def pr(**kw) -> dict:
     return base
 
 
-def cls(subject: str, body: str, n: int, repo: str, parents: int = 1) -> str:
+def cls(subject: str, body: str, n: int, repo: str, parents: int = 1, folded=None) -> str:
     if parents > 1:
         return "merge"
     return "fix" if subject.startswith("review fix") else "work"
@@ -186,6 +186,53 @@ else:
     check("main: the period is closed_period's, and both reads get its since",
           asked == [(30, 14)] and sorted(seen) == [("main_commits", since), ("merged_prs", since)]
           and js["summary"]["period"] == "2026-08-01..2026-08-31", (asked, seen, js["summary"]["period"]))
+    # The split reads folds: #10 was folded into #7, so a commit answering
+    # #10's review is a fix in #7's split, as pr_gate.split_range counts it.
+    fix10 = {"oid": "c" * 40, "messageHeadline": "x: the bound", "messageBody": "Answers: #10 F1\nKind: review-fix"}
+    asked = []
+
+    def folds(repo, head, merge):
+        asked.append((repo, head, merge))
+        return lambda n: n == "10"
+    r = results.judge(pr(commits=[fix10]), [], NOW, 14, repo="o/r", folds=folds)
+    check("a folded PR's review fix is a fix in the split", (r["work"], r["fix"]) == (0, 1), r)
+    check("...the folds asked of this PR's repository, head and merge commit", asked == [("o/r", HEAD, "m" * 40)], asked)
+    r = results.judge(pr(commits=[fix10]), [], NOW, 14, repo="o/r", folds=lambda repo, head, merge: lambda n: False)
+    check("...and one not folded stays work", (r["work"], r["fix"]) == (1, 0), r)
+    r = results.judge(pr(commits=[fix10]), [], NOW, 14, repo="o/r", folds=lambda repo, head, merge: None)
+    check("...as without a fold lookup", (r["work"], r["fix"]) == (1, 0), r)
+    f = results.folds_of("o/r", HEAD, "m" * 40)
+    import gh
+    real_api, real_view, paths = gh.api, gh.pr_view, []
+    try:
+        gh.api = lambda path, **kw: paths.append(path) or {"status": "ahead"}
+        asked_ok = f is not None and f.ancestor("c" * 40, HEAD) is True
+        check("folds_of: the PR's head, its ancestry asked of GitHub for this repository, not of this clone",
+              f is not None and f.repo == "o/r" and f.head == HEAD and asked_ok
+              and paths == [f"repos/o/r/compare/{'c' * 40}...{HEAD}?per_page=1"], paths)
+        check("...and the base the merge commit's first parent, as pr_compliance passes it", f is not None and f.base == "m" * 40 + "^1", f and f.base)
+        # #10 was folded into an EARLIER PR: its head is in this PR's head and
+        # in the base too. A fix answering it is work here, as the gate says.
+        h10 = "e" * 40
+        gh.pr_view = lambda n, fields, **kw: {"state": "CLOSED", "mergedAt": None, "headRefOid": h10}
+        paths.clear()
+        gh.api = lambda path, **kw: paths.append(path) or {"status": "ahead"}
+        r = results.judge(pr(commits=[fix10]), [], NOW, 14, repo="o/r")
+        check("a fix answering a PR already folded into the base is work, as pr_compliance counts it",
+              (r["work"], r["fix"]) == (1, 0) and f"repos/o/r/compare/{h10}...{'m' * 40}^1?per_page=1" in paths, (r, paths))
+        paths.clear()
+        gh.api = lambda path, **kw: paths.append(path) or {"status": "ahead" if path.endswith(f"{HEAD}?per_page=1") else "diverged"}
+        r = results.judge(pr(commits=[fix10]), [], NOW, 14, repo="o/r")
+        check("...and one folded into this PR alone (in its head, not the base) is a fix", (r["work"], r["fix"]) == (0, 1), (r, paths))
+    finally:
+        gh.api, gh.pr_view = real_api, real_view
+    # The answers are the trailer block's, as pr-gate asks git for them:
+    # prose above the block answers nothing in either tool.
+    prose = {"oid": "d" * 40, "messageHeadline": "x: the bound", "messageBody": "Answers: #10 F1\n\nsome prose after."}
+    r = results.judge(pr(commits=[prose]), [], NOW, 14, repo="o/r", folds=lambda repo, head, merge: lambda n: True)
+    check("an Answers: line in the prose answers nothing: work", (r["work"], r["fix"]) == (1, 0), r)
+    check("folds_of: no repository, head or merge commit, no lookup",
+          results.folds_of("", HEAD, "m" * 40) is None and results.folds_of("o/r", "", "m" * 40) is None and results.folds_of("o/r", HEAD) is None)
     print(f"\n{'FAILED' if fails else 'all passed'}")
     return 1 if fails else 0
 

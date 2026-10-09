@@ -4,7 +4,7 @@ review fix": merge, fix or work (ADR-019's count rule, ADR-040's first
 Wave 1 port). runtime/github/commit-class.sh is its shim, sourced by
 pr-gate.sh and the managed projects' forwarders; results.py imports it.
 
-    commit_class.py class <parents> <subject> [<answers>] [<pr>] [<owner/repo>] [<kind>] [<head>]
+    commit_class.py class <parents> <subject> [<answers>] [<pr>] [<owner/repo>] [<kind>] [<head>] [<base>]
                                           prints merge | fix | work
     commit_class.py revert-targets        the shas a commit body (stdin) reverts
 
@@ -50,11 +50,13 @@ hook) is read exactly as before.
 
 A FOLD is the exception to that other-PR rule (ADR-019 §5 rule 3,
 amended 2026-10-08): a PR closed unmerged whose head lies inside the
-counted head was folded in — merged unrebased into this branch, then
-closed — and its review fixes are fixes here. gateway#10 folded into #11
-read 8 work where 6 was right. Telling a fold from a follow-up needs
-GitHub (state) and git (ancestry), so it is asked only with <head>, once
-per PR named (Folds). A PR that cannot be read keeps the reading from
+counted range, <base>..<head>, was folded in — merged unrebased into this
+branch, then closed — and its review fixes are fixes here. gateway#10
+folded into #11 read 8 work where 6 was right. A head already inside the
+base was folded into an earlier PR, and a follow-up answering it is work.
+Telling a fold from a follow-up needs GitHub (state) and git (ancestry),
+so it is asked only with <head> (and the range's <base> where the caller
+has it), once per PR named (Folds). A PR that cannot be read keeps the reading from
 before the amendment, work, and says so on stderr, so the session
 counting sees which commits it could not place.
 
@@ -144,35 +146,80 @@ def kind_of(body: str) -> str:
     to a kind git would not report. A subprocess per commit (git
     interpret-trailers) was the exact alternative, and results.py
     classifies whole histories."""
+    return kind("\n".join(trailer_values(body, "Kind")))
+
+
+def answers_of(body: str) -> str:
+    """The `Answers:` values of a commit message, as pr_gate asks git for
+    them (%(trailers:key=Answers,valueonly,unfold,separator=%x20)): from
+    the trailer block only, unfolded, joined by a space. A line in the
+    prose above answers nothing there, so it answers nothing here."""
+    return " ".join(trailer_values(body, "Answers"))
+
+
+def trailer_values(body: str, key: str) -> list[str]:
+    """Each value of trailer <key> (any case) in the block kind_of
+    describes, a continuation line unfolded onto it with one space."""
     paragraphs = [p for p in re.split(r"\n[ \t]*\n", body.strip("\n")) if p.strip()]
     if not paragraphs:
-        return ""
+        return []
     lines = paragraphs[-1].split("\n")
     if not all(TRAILER_LINE.match(line) or (line[:1] in (" ", "\t") and line.strip()) for line in lines):
-        return ""
-    values = [m.group(1) for line in lines
-              if (m := re.match(r"^Kind:[ \t]*(.*)$", line, re.I))]
-    return kind("\n".join(values))
+        return []
+    values: list[str] = []
+    current = None
+    for line in lines:
+        if line[:1] in (" ", "\t"):
+            if current is not None:
+                values[current] = f"{values[current]} {line.strip()}".strip()
+            continue
+        m = re.match(rf"^{re.escape(key)}:[ \t]*(.*)$", line, re.I)
+        current = len(values) if m else None
+        if m:
+            values.append(m.group(1).strip())
+    return values
 
 
 class Folds:
-    """Whether PR <n> was folded into <head>: closed, not merged, and its
-    head an ancestor of <head>. Asked once per PR number — a range names
+    """Whether PR <n> was folded into this range: closed, not merged, and
+    its head inside <base>..<head> — an ancestor of <head> and, with a
+    <base>, not of it. A PR folded into an EARLIER PR that has since
+    merged has its head inside the base, and a later follow-up answering
+    it is work here (ADR-019 rule 3, "its head inside this range").
+    Asked once per PR number — a range names
     the same PR in every fix of its review, and each ask is a gh call. An
     unreadable PR or ancestry is "no" (the follow-up reading), said on
     stderr once."""
 
-    def __init__(self, repo: str, head: str, cwd: str = ".", timeout: float = 30):
-        self.repo, self.head, self.cwd, self.timeout = repo, head, cwd, timeout
+    def __init__(self, repo: str, head: str, cwd: str = ".", timeout: float = 30, base: str = "",
+                 ancestor: Callable[[str, str], bool] | None = None):
+        self.repo, self.head, self.base, self.cwd, self.timeout = repo, head, base, cwd, timeout
+        # Without a clone of <repo> to ask (results.py reads every registered
+        # repository through GitHub), ancestry is asked of `ancestor`.
+        self.ancestor = ancestor
         self._seen: dict[str, bool] = {}
+        self._is_full: bool | None = None
 
     def __call__(self, n: str) -> bool:
         if n not in self._seen:
             self._seen[n] = self._look(n)
         return self._seen[n]
 
+    def _full(self) -> bool:
+        """Whether this clone holds the whole history, asked once; a clone
+        that cannot say is not taken to be full."""
+        if self._is_full is None:
+            try:
+                self._is_full = git.out(self.cwd, "rev-parse", "--is-shallow-repository",
+                                        timeout=self.timeout) == "false"
+            except git.GitError:
+                self._is_full = False
+        return self._is_full
+
     def _unread(self, n: str, why: str) -> bool:
-        print(f"commit-class: #{n} could not be read ({why}); its review's fixes count as work here", file=sys.stderr)
+        # The repository is named: results.py reads several in one run.
+        where = f"{self.repo}#{n}" if self.repo else f"#{n}"
+        print(f"commit-class: {where} could not be read ({why}); its review's fixes count as work here", file=sys.stderr)
         return False
 
     def _look(self, n: str) -> bool:
@@ -189,8 +236,29 @@ class Folds:
         oid = pr.get("headRefOid")
         if not isinstance(oid, str) or not re.fullmatch(r"[0-9a-f]{7,64}", oid):
             return self._unread(n, "no head sha")
+        if self.ancestor is not None:
+            # The same range rule as the clone's below: inside base..head.
+            # GitHub's history is whole, so its no needs no shallow check.
+            try:
+                if not self.ancestor(oid, self.head):
+                    return False
+                return not (self.base and self.ancestor(oid, self.base))
+            except gh.GhError as e:
+                return self._unread(n, str(e))
         try:
-            return git.ok(self.cwd, "merge-base", "--is-ancestor", oid, self.head, timeout=self.timeout)
+            # A YES from merge-base --is-ancestor is a path git walked, true
+            # in any clone. A NO is only as good as the history behind it:
+            # in a shallow clone the walk stops at the boundary and answers
+            # no for a commit that lies beyond it. So a no — for the head
+            # or the base — is trusted only from a full clone; a shallow
+            # one cannot place the PR, which is read as unread (work, named).
+            if not git.ok(self.cwd, "merge-base", "--is-ancestor", oid, self.head, timeout=self.timeout):
+                return False if self._full() else self._unread(n, "a shallow clone cannot rule out its head")
+            if not self.base:
+                return True
+            if git.ok(self.cwd, "merge-base", "--is-ancestor", oid, self.base, timeout=self.timeout):
+                return False   # folded into an earlier PR, already in the base
+            return True if self._full() else self._unread(n, "a shallow clone cannot rule its head out of the base")
         except git.GitError as e:
             # A head this clone does not have is no ancestor of one it has,
             # when the clone holds the whole history — a closed PR that was
@@ -204,6 +272,23 @@ class Folds:
             except git.GitError:
                 pass
             return self._unread(n, e.reason)
+
+
+def on_github(repo: str, timeout: float = 30) -> Callable[[str, str], bool]:
+    """Folds' ancestry asked of GitHub's compare: whether <oid> is an
+    ancestor of <head> in <repo>. Measured 2026-10-09: "ahead" or
+    "identical" is yes, "behind" or "diverged" no; a sha GitHub lacks is
+    HTTP 404, and that, or any other answer, is a GhError — unread, never
+    "no"."""
+    def ancestor(oid: str, head: str) -> bool:
+        doc = gh.api(f"repos/{repo}/compare/{oid}...{head}?per_page=1", timeout=timeout)
+        status = doc.get("status") if isinstance(doc, dict) else None
+        if status in ("ahead", "identical"):
+            return True
+        if status in ("behind", "diverged"):
+            return False
+        raise gh.GhError("gh api compare", f"no ancestry in the answer (status {status!r})")
+    return ancestor
 
 
 def classify(parents: str, subject: str, answers: str = "", pr: str = "", repo: str = "", kind_value: str = "",
@@ -233,7 +318,7 @@ def classify(parents: str, subject: str, answers: str = "", pr: str = "", repo: 
         found += [m.group(0) for m in re.finditer(FORM, answers)]
         refs = {_ref(r, repo) for r in found if r}
         if refs and str(pr) not in refs:
-            # Every PR named folded into this head: its review's fixes are
+            # Every PR named folded into this range: its review's fixes are
             # this PR's fixes. Another repository's ("x") is never a fold.
             if folded is not None and "x" not in refs and all(folded(n) for n in sorted(refs)):
                 return "fix"
@@ -291,17 +376,17 @@ def revert_targets(body: str) -> list[str]:
 
 
 def main(argv: list[str]) -> int:
-    if argv[:1] == ["class"] and 3 <= len(argv) <= 8:
-        args = argv[1:] + [""] * (8 - len(argv))
-        parents, subject, answers, pr, repo, kind_value, head = args[:7]
-        folded = Folds(repo, head) if pr and head else None
+    if argv[:1] == ["class"] and 3 <= len(argv) <= 9:
+        args = argv[1:] + [""] * (9 - len(argv))
+        parents, subject, answers, pr, repo, kind_value, head, base = args[:8]
+        folded = Folds(repo, head, base=base) if pr and head else None
         print(classify(parents, subject, answers, pr, repo, kind_value, folded))
         return 0
     if argv == ["revert-targets"]:
         for sha in revert_targets(sys.stdin.read()):
             print(sha)
         return 0
-    print("usage: commit_class.py class <parents> <subject> [<answers>] [<pr>] [<owner/repo>] [<kind>] [<head>]"
+    print("usage: commit_class.py class <parents> <subject> [<answers>] [<pr>] [<owner/repo>] [<kind>] [<head>] [<base>]"
           " | revert-targets", file=sys.stderr)
     return 2
 

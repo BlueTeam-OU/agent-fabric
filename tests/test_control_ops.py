@@ -397,6 +397,7 @@ class Script(Base):
         put("en", json.dumps({"tag": ops.activity.SOURCE_TAG}))
         put("ge", json.dumps({"tag": "ka-GE"}))
         put("xx", "{broken")
+        put("zq", json.dumps({"tag": ops.activity.SOURCE_TAG}))  # a suffix no live locale has: the fixture, not the checkout, answers
         sl = lambda who, r=root: ops.source_locale(who, root=r)  # noqa: E731
         self.assertIs(sl({"role": "language-culture", "agent": "language-culture-en"}), True)
         self.assertIs(sl({"role": "language-culture", "agent": "language-culture-ge"}), False)
@@ -405,18 +406,21 @@ class Script(Base):
         self.assertIs(sl({"role": "language-culture", "agent": "language-culture-zz"}), False, "no locale")
         with open(os.path.join(HERE, "tools", "fabric", "lint_rules", "locales.py"), encoding="utf-8") as fh:
             self.assertRegex(fh.read(), rf'(?m)^SOURCE_TAG = "{ops.activity.SOURCE_TAG}"$')
-        self.assertIs(sl({"role": "language-culture", "agent": "language-culture-en"}, HERE), True, "the fleet's own en locale is the source")
+        self.assertIs(sl({"role": "language-culture", "agent": "language-culture-zq"}), True, "a locale whose locale.json carries the source tag")
 
     def test_collect_script_asks_whether_its_holder_is_the_source_locale(self):
         home = self.scratch("src-home-")
         os.makedirs(os.path.join(home, ".claude", "projects"))
+        root = self.scratch("src-root-")
+        for suffix, tag in (("zq", ops.activity.SOURCE_TAG), ("ge", "ka-GE")):
+            write(os.path.join(root, "identities", "roles", "language-culture", "locale", suffix, "locale.json"), json.dumps({"tag": tag}))
 
         def ask(who, h=home):
-            return ops.collect("script", {"home": h, "who": who, "root": HERE})["script"]["notes"]
-        en = {"role": "language-culture", "agent": "language-culture-en"}
+            return ops.collect("script", {"home": h, "who": who, "root": root})["script"]["notes"]
+        en = {"role": "language-culture", "agent": "language-culture-zq"}
         self.assertEqual(ask(en), {"status": "not measured", "reason": "the source locale"})
         bare = self.scratch("src-bare-")
-        none = ops.collect("script", {"home": bare, "who": en, "root": HERE})["script"]
+        none = ops.collect("script", {"home": bare, "who": en, "root": root})["script"]
         self.assertEqual(none["status"], "no-records")
         self.assertEqual(none["notes"], {"status": "not measured", "reason": "the source locale"})
         nd = os.path.join(bare, "notes")

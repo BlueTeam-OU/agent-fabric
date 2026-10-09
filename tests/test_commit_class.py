@@ -58,6 +58,16 @@ def main() -> int:
     r = subprocess.run([sys.executable, tool, "class", "a b", "anything"], capture_output=True, text=True)
     check("the CLI prints one word", r.stdout == "merge\n", r.stdout)
     folds(check, tool)
+    on_github(check)
+    a = cc.answers_of
+    check("answers_of: the trailer block's Answers:", a("prose\n\nAnswers: #10 F1\nKind: review-fix") == "#10 F1")
+    check("answers_of: an Answers: line in the prose above the block answers nothing",
+          a("Answers: #10 F1\n\nsome prose after.") == "" and a("Answers: #10 F1\n\nprose\n\nKind: work") == "")
+    check("answers_of: a continuation is unfolded with one space, as git's unfold",
+          a("s\n\nAnswers: F1,\n  F2\nKind: review-fix") == "F1, F2")
+    check("answers_of: two Answers: trailers joined by a space, as pr-gate's separator",
+          a("s\n\nAnswers: F1\nanswers: F2") == "F1 F2")
+    check("answers_of: a block with prose in it declares nothing", a("s\n\nAnswers: F1\nnot a trailer") == "")
     print(f"\n{'FAILED' if fails else 'all passed'}")
     return 1 if fails else 0
 
@@ -149,8 +159,43 @@ def folds(check, tool: str) -> None:
                 got = cc.classify("p", "x", "#10 F1", "11", "o/r", "review-fix", cc.Folds("o/r", head, cwd=shallow))
             check("a shallow clone cannot answer — work, said", got == "work" and "#10 could not be read" in err.getvalue(),
                   (got, err.getvalue()))
+            # A shallow clone that HAS #10's head and the counted head, with
+            # the path between them cut at the boundary: merge-base answers
+            # no, which only a full clone may be believed on.
+            git("branch", "keep-10", folded_head)
+            cut = os.path.join(tmp, "cut")
+            subprocess.run(["git", "clone", "-q", "--depth", "1", "--no-single-branch", f"file://{repo}", cut],
+                           env=env, check=True)
+            err = io.StringIO()
+            with redirect_stderr(err):
+                got = cc.classify("p", "x", "#10 F1", "11", "o/r", "review-fix", cc.Folds("o/r", head, cwd=cut))
+            check("shallow, the head check says no — work, the PR named unread",
+                  got == "work" and "#10 could not be read" in err.getvalue() and "shallow" in err.getvalue(),
+                  (got, err.getvalue()))
+            # The base check, by its answers: the head check says yes, the
+            # base check no; believed from a full clone, not a shallow one.
+            real_ok, real_out = cc.git.ok, cc.git.out
+            try:
+                cc.git.ok = lambda cwd, *a, **k: a[-1] == head   # inside head, outside the base
+                for shallow_answer, want in (("false", "fix"), ("true", "work")):
+                    cc.git.out = lambda cwd, *a, _s=shallow_answer, **k: _s
+                    err = io.StringIO()
+                    with redirect_stderr(err):
+                        got = cc.classify("p", "x", "#10 F1", "11", "o/r", "review-fix",
+                                          cc.Folds("o/r", head, base="b"))
+                    check(f"the base check says no in a {'shallow' if shallow_answer == 'true' else 'full'} clone — {want}",
+                          got == want and (("#10 could not be read" in err.getvalue()) == (want == "work")),
+                          (got, err.getvalue()))
+            finally:
+                cc.git.ok, cc.git.out = real_ok, real_out
             got, err = cls("#14 F1")
             check("an open PR — work", got == "work" and err == "", (got, err))
+            # Folded into an EARLIER PR that has merged: #10's head is inside
+            # the base too, and a follow-up answering it is this range's work.
+            got, err = cls("#10 F1", look=cc.Folds("o/r", head, base=folded_head))
+            check("a fold whose head is already in the base — work", got == "work" and err == "", (got, err))
+            got, err = cls("#10 F1", look=cc.Folds("o/r", head, base=git("rev-list", "--max-parents=0", "HEAD")))
+            check("…and with a base below it, a fix", got == "fix" and err == "", (got, err))
             got, err = cls("#77 F1")
             check("a lookup failure — work (the reading before the amendment)", got == "work", got)
             check("…said on stderr, naming the PR", "#77 could not be read" in err and "HTTP 404" in err, err)
@@ -191,11 +236,69 @@ def folds(check, tool: str) -> None:
             check("…and without it reads as before, work, asking nothing",
                   r.stdout == "work\n" and open(os.path.join(ghdir, "calls")).read().count("10") == 1,
                   (r.stdout, r.stderr))
+            r2 = subprocess.run([sys.executable, tool, "class", "p", "x", "#10 F1", "11", "o/r", "review-fix", head,
+                                 folded_head], capture_output=True, text=True, env=env)
+            check("the CLI takes the range's base, the ninth argument", r2.stdout == "work\n", (r2.stdout, r2.stderr))
         finally:
             os.chdir(here)
             os.environ.clear()
             os.environ.update(saved_env)
 
+
+
+
+def on_github(check) -> None:
+    """Folds' ancestry asked of GitHub: each compare answer as measured
+    (2026-10-09), and every other one unread, never "no"."""
+    import io
+    from contextlib import redirect_stderr
+    import gh
+    real_api, real_view = gh.api, gh.pr_view
+    asked: list[str] = []
+
+    def answering(answer):
+        def api(path, **kw):
+            asked.append(path)
+            if isinstance(answer, Exception):
+                raise answer
+            return answer
+        return api
+    try:
+        for status, want in (("ahead", True), ("identical", True), ("behind", False), ("diverged", False)):
+            gh.api = answering({"status": status, "ahead_by": 1})
+            check(f"on_github: {status} is {want}", cc.on_github("o/r")("a" * 40, "b" * 40) is want)
+        check("on_github: asks compare <oid>...<head> of the repository, one commit a page",
+              asked[-1] == f"repos/o/r/compare/{'a' * 40}...{'b' * 40}?per_page=1", asked[-1])
+        for label, answer in (("a 404", gh.GhError("gh api GET repos/o/r/compare", "Not Found", 404)),
+                              ("no status", {"message": "x"}), ("an unknown status", {"status": "sideways"}),
+                              ("not an object", ["x"]), ("an empty answer", None)):
+            gh.api = answering(answer)
+            try:
+                cc.on_github("o/r")("a" * 40, "b" * 40)
+                check(f"on_github: {label} raises", False)
+            except gh.GhError:
+                check(f"on_github: {label} raises, never no", True)
+        gh.pr_view = lambda n, fields, **kw: {"state": "CLOSED", "mergedAt": None, "headRefOid": "a" * 40}
+        gh.api = answering({"status": "ahead"})
+        look = cc.Folds("o/r", "b" * 40, cwd="/nonexistent", ancestor=cc.on_github("o/r"))
+        check("Folds with GitHub's ancestry: a fold, no clone asked", look("10") is True)
+        # With a base too: the head inside the base was folded into an
+        # earlier PR, so not here; inside the head alone, here.
+        gh.api = lambda path, **kw: {"status": "ahead"}
+        check("Folds with GitHub's ancestry and a base that holds the head: not folded here",
+              cc.Folds("o/r", "b" * 40, cwd="/nonexistent", base="m" * 40 + "^1", ancestor=cc.on_github("o/r"))("10") is False)
+        gh.api = lambda path, **kw: {"status": "ahead" if path.endswith("b" * 40 + "?per_page=1") else "diverged"}
+        check("...and a base that does not: folded here",
+              cc.Folds("o/r", "b" * 40, cwd="/nonexistent", base="m" * 40 + "^1", ancestor=cc.on_github("o/r"))("10") is True)
+        gh.api = answering(gh.GhError("gh api GET repos/o/r/compare", "Not Found", 404))
+        err = io.StringIO()
+        with redirect_stderr(err):
+            got = cc.Folds("o/r", "b" * 40, cwd="/nonexistent", ancestor=cc.on_github("o/r"))("10")
+        check("...an unread ancestry is no, said with the repository and the call",
+              got is False and "o/r#10 could not be read (gh api GET repos/o/r/compare: Not Found)" in err.getvalue(),
+              err.getvalue())
+    finally:
+        gh.api, gh.pr_view = real_api, real_view
 
 if __name__ == "__main__":
     sys.exit(main())

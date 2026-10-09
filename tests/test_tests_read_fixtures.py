@@ -15,8 +15,11 @@ What a source scan cannot see, and this one does not claim to: a path
 assembled in a loop from a tuple of strings, a whole directory copied
 (shutil.copytree(ROOT/routing) carries routing/profiles.json), and a tool
 run with AGENT_FABRIC_ROOT at the checkout that reads instance data itself.
-Those are found by running the suite on a copy of the tree with the
-instance files moved aside, as the request's acceptance does."""
+Those are found by running the files on a copy of the tree with the
+instance data removed, as the request's acceptance does:
+tests/stripped_run.py <tree> <test file>... (seven files it found read the
+registry, a role, memory/ or the auto-mode policy through the tools they
+run, none of which this scan could flag)."""
 from __future__ import annotations
 
 import ast
