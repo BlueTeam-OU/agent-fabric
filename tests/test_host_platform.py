@@ -2,7 +2,8 @@
 """tools/fabric/provisioning/host_platform.py: the detection and the package
 lists the platform/*.sh scripts held (their differential check against the
 shell, 0 differences over all four platforms and the unknown one, is the
-source of the literal lists below). Plain script: prints ok/FAIL, exit 1
+source of the literal lists below; while the shell stays for CI's bare
+container and ssh-operator.sh, the last case here keeps the two together). Plain script: prints ok/FAIL, exit 1
 on any failure."""
 from __future__ import annotations
 
@@ -63,6 +64,12 @@ def main() -> int:
         for name, want in (("fedora", FEDORA), ("fedora-qubes", FEDORA), ("debian", DEBIAN), ("debian-qubes", DEBIAN)):
             r = subprocess.run([sys.executable, "-I", TOOL, "packages", name], capture_output=True, text=True, timeout=60)
             check(f"{name}: the sorted list, one per line", r.returncode == 0 and r.stdout.split("\n")[:-1] == want, r.stdout + r.stderr)
+        for name in ("fedora", "fedora-qubes", "debian", "debian-qubes"):
+            sh = subprocess.run(["bash", os.path.join(HERE, "runtime", "provisioning", "platform", "packages.sh"), name],
+                                capture_output=True, text=True, timeout=60, env={"PATH": os.environ.get("PATH", "")})
+            py = subprocess.run([sys.executable, "-I", TOOL, "packages", name], capture_output=True, text=True, timeout=60)
+            check(f"{name}: the shell CI still asks (packages.sh, before any Python exists there) prints the same list",
+                  sh.returncode == 0 and sh.stdout == py.stdout, sh.stdout + sh.stderr)
         r = subprocess.run([sys.executable, "-I", TOOL, "packages", "nope"], capture_output=True, text=True, timeout=60)
         check("an unknown platform: exit 2, nothing on stdout, the choices on stderr",
               r.returncode == 2 and r.stdout == "" and "unknown platform" in r.stderr and "debian-qubes" in r.stderr, r.stderr)
