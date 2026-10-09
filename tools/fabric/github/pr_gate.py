@@ -12,8 +12,10 @@ CONTRACT, frozen from the bash (ADR-040 §5 rule 3):
             program), AGENT_FABRIC_PR_SESSION (<host>/<login>),
             AGENT_FABRIC_ROOT, AGENT_FABRIC_PR_BASE (--in-flight's base)
   stdout    the rows (three to five lines each), or with --json the rows
-            as data (a MERGED row carries "state" and the split only: no
-            check, review, thread or arming key); --in-flight a header and one line per branch, or an
+            as data (a MERGED row is identity, "state", the split and the
+            verdict only: none of the open row's checks, review,
+            unresolved_threads, armed, queue_position, merge_state, draft
+            or awaiting_supply); --in-flight a header and one line per branch, or an
             object with its rows
   stderr    every `pr-gate: ` note — a skipped number, a failed fetch,
             the 500-PR cap, a refusal
