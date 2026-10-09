@@ -360,6 +360,11 @@ def main() -> int:
             for k, v in fill.items():
                 text = text.replace(k, v)
             return text
+        # A fleet host's python3 meets the floor (detect.sh FABRIC_HOST_PYTHON_MIN);
+        # /usr/bin/python3 of a CI runner may not, so the fake host offers the
+        # interpreter running this test, which CI's matrix sets (3.13, 3.14).
+        if not os.path.exists(f"{bin_}/python3"):
+            os.symlink(sys.executable, f"{bin_}/python3")
         seq_env = {**base, "PATH": f"{bin_}:/usr/bin:/bin"}
 
         def sh(*argv: str, cwd: str | None = None) -> None:
