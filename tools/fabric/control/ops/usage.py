@@ -4,6 +4,7 @@ extractor here keeps."""
 from __future__ import annotations
 
 import errno
+import fcntl
 import http.client
 import json
 import os
@@ -217,6 +218,22 @@ def take_read_lock(directory: str, pid: int | None = None) -> Callable[[], None]
     pid = os.getpid() if pid is None else pid
     f = os.path.join(directory, ".fabric-read.lock")
     tmp = f"{f}.{os.getpid()}.{threading.get_ident()}.tmp"
+    # The examine-and-take-over below is a read, a decision and an unlink: two
+    # takers that both saw the same stale holder would each unlink, the second
+    # deleting the lock the first had just installed, and both would read. The
+    # guard is a kernel lock (flock), held for those few calls only, so it has
+    # no stale owner to find; it serialises Python readers, threads included. A
+    # Node daemon beside this one does not take it (its own takeover has the
+    # same shape).
+    guard = os.open(f"{f}.guard", os.O_RDWR | os.O_CREAT, 0o600)
+    try:
+        fcntl.flock(guard, fcntl.LOCK_EX)
+        return _take(f, tmp, pid)
+    finally:
+        os.close(guard)
+
+
+def _take(f: str, tmp: str, pid: int) -> Callable[[], None] | None:
     fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as fh:
@@ -412,7 +429,10 @@ def transcripts(root: str) -> list[tuple[str, str]] | None:
 
 
 def _num0(v: Any) -> float | int:
-    n = js.number(v) if not isinstance(v, (dict, list)) else float("nan")
+    try:
+        n = js.number(v) if not isinstance(v, (dict, list)) else float("nan")
+    except OverflowError:
+        return 0   # an integer past a double: Infinity to the Node, and not finite is 0 here
     return util.whole(n) if n == n and n not in (float("inf"), float("-inf")) else 0
 
 

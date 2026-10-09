@@ -160,7 +160,7 @@ def _leases(leases: str, run: Callable[..., Any]) -> list[dict]:
             # The job the holder named with --label: "<name> (<job>)" at the end.
             label = LEASE_LABEL.search(rec)
             n_pid = js.number(pid)
-            rows.append({"name": n, "holder": login or None, "pid": int(n_pid) if math.isfinite(n_pid) and n_pid != 0 else None,
+            rows.append({"name": n, "holder": login or None, "pid": util.whole(n_pid) if math.isfinite(n_pid) and n_pid != 0 else None,
                          "since": since or None, "label": label.group(1) if label else None})
         finally:
             os.close(fd)

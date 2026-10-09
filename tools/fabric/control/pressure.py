@@ -96,6 +96,17 @@ def read_ring(file: str | None = None) -> list[dict] | None:
     return ring
 
 
+def _write_all(fd: int, data: bytes) -> None:
+    """os.write may take a prefix (a nearly full disk): the rest is written, or
+    the write fails, but a prefix is never what gets published."""
+    view = memoryview(data)
+    while view:
+        n = os.write(fd, view)
+        if n <= 0:
+            raise OSError(errno.EIO, "write made no progress")
+        view = view[n:]
+
+
 def _write_ring(file: str, ring: list[dict]) -> None:
     """Whole or not at all, and durable: a freeze mid-write must not cost the
     ring, and the minutes before a freeze are what it is for — so the data
@@ -108,7 +119,7 @@ def _write_ring(file: str, ring: list[dict]) -> None:
     try:
         fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
         try:
-            os.write(fd, (util.js_json(ring) + "\n").encode("utf-8"))
+            _write_all(fd, (util.js_json(ring) + "\n").encode("utf-8"))
             os.fsync(fd)
         finally:
             os.close(fd)

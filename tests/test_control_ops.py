@@ -34,8 +34,8 @@ keys_mod, usage_mod = sys.modules["control.ops.keys"], sys.modules["control.ops.
 _HOLD = tempfile.TemporaryDirectory(prefix="ops-hold-")
 os.environ["AGENT_FABRIC_HOLD_DIR"] = _HOLD.name
 
-SECRETS = {"OPENROUTER_API_KEY": "sk-or-v1-abcdefghijklmnopqrstuvwxyz0123456789", "GH_TOKEN": "ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789",
-           "CLAUDE_BRIDGE_AUTH_TOKEN": "bridge-token-value-1234567890"}
+FIXTURE_ENV = {"OPENROUTER_API_KEY": "fixture-or-0123456789abcdefghij", "GH_TOKEN": "fixture-gh-ABCDEFGHIJ0123456789",
+           "CLAUDE_BRIDGE_AUTH_TOKEN": "fixture-bridge-1234567890"}
 ACCESS = "oauth-access-token-value-XYZ"
 WHO = {"agent": "db-admin", "host": "develop-qzapp", "role": "db-admin", "project": "gzapp", "working_copy": "/home/db-admin/projects/gzapp"}
 DAY = 86400000
@@ -68,14 +68,14 @@ class Base(unittest.TestCase):
 
     def home(self) -> str:
         h = self.scratch("ctl-home-")
-        write(os.path.join(h, ".config", "agent-fabric", "secrets.env"), "".join(f"export {k}='{v}'\n" for k, v in SECRETS.items()))
+        write(os.path.join(h, ".config", "agent-fabric", "secrets.env"), "".join(f"export {k}='{v}'\n" for k, v in FIXTURE_ENV.items()))
         write(os.path.join(h, ".claude", ".credentials.json"), json.dumps({"claudeAiOauth": {"accessToken": ACCESS, "refreshToken": "refresh-XYZ", "subscriptionType": "max"}}))
         write(os.path.join(h, ".claude.json"), json.dumps({"oauthAccount": {"emailAddress": "someone@example.org", "organizationName": "Example Org", "accountUuid": "u-1"}}))
         return h
 
     def assert_no_secret(self, obj) -> None:
         s = json.dumps(obj)
-        for v in (*SECRETS.values(), ACCESS, "refresh-XYZ"):
+        for v in (*FIXTURE_ENV.values(), ACCESS, "refresh-XYZ"):
             self.assertNotIn(v, s, f"a secret value leaked into the output: {v[:6]}…")
 
 
@@ -195,7 +195,7 @@ class SigningAndKeys(Base):
         k = ops.keys(h)
         self.assertEqual([x["name"] for x in k], ops.KEY_NAMES)
         orr = next(x for x in k if x["name"] == "OPENROUTER_API_KEY")
-        self.assertEqual((orr["present"], orr["sha256_12"]), (True, fp(SECRETS["OPENROUTER_API_KEY"])))
+        self.assertEqual((orr["present"], orr["sha256_12"]), (True, fp(FIXTURE_ENV["OPENROUTER_API_KEY"])))
         self.assertEqual(next(x for x in k if x["name"] == "OPENAI_API_KEY"), {"name": "OPENAI_API_KEY", "present": False})
         self.assert_no_secret(k)
         self.assertEqual([x["present"] for x in ops.keys("/nonexistent")], [False] * len(ops.KEY_NAMES))
@@ -602,6 +602,11 @@ class Memory(Base):
 
 
 class Languages(Base):
+    def test_a_token_count_past_a_double_is_zero_not_a_failed_section(self):
+        self.assertEqual(usage_mod._num0("9" * 400), 0)
+        self.assertEqual(usage_mod._num0(int("9" * 400)), 0)
+        self.assertEqual(usage_mod._num0(12), 12)
+
     def test_a_detector_percent_that_is_not_a_number_does_not_fail_the_section(self):
         h = self.scratch("lang-nan-")
         write(ops.langid_cmd(h, "/r")[0], "")

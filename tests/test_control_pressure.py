@@ -150,6 +150,24 @@ class Sampler(Base):
         self.assertTrue(os.path.exists(f"{file}.unreadable"))
         self.assertEqual(len(P.read_ring(file)), 1)
 
+    def test_a_short_write_is_completed_never_published_as_a_prefix(self):
+        file = os.path.join(self.scratch("pressure-short-"), "memory-pressure.json")
+        real = os.write
+        calls: list[int] = []
+
+        def three_at_a_time(fd, data):
+            calls.append(1)
+            return real(fd, bytes(data[:3]))
+        with mock.patch.object(os, "write", three_at_a_time):
+            P.sampler(file=file, proc=self.proc(), now=lambda: T0, log=lambda m: None).tick()
+        self.assertGreater(len(calls), 3, "the buffer went out in pieces")
+        self.assertEqual(len(P.read_ring(file)), 1, "and the published ring is whole")
+        with mock.patch.object(os, "write", lambda fd, data: 0):
+            logs: list[str] = []
+            P.sampler(file=file, proc=self.proc(), now=lambda: T0 + 1, log=logs.append).tick()
+        self.assertRegex(logs[0], r"cannot keep the ring \(EIO\)", "a write that makes no progress fails, it does not spin")
+        self.assertEqual(len(P.read_ring(file)), 1, "the previous ring stays")
+
     def test_a_failed_write_leaves_the_previous_ring_whole_and_no_temporary_file(self):
         file = os.path.join(self.scratch("pressure-atomic-"), "memory-pressure.json")
         s = P.sampler(file=file, proc=self.proc(), now=lambda: T0, log=lambda m: None)

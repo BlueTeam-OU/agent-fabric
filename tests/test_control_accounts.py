@@ -79,7 +79,7 @@ class ListAndLogin(Base):
 
     def test_describe_does_not_invent_an_expiry(self):
         d = os.path.join(self.tmp(), "claude-x")
-        for stored, expect in ((None, (None, None)), ("soon", (None, None)), (1e30, (None, None)), (0, ("1970-01-01T00:00:00.000Z", True))):
+        for stored, expect in ((10 ** 400, (None, None)), (-(10 ** 400), (None, None)), (None, (None, None)), ("soon", (None, None)), (1e30, (None, None)), (0, ("1970-01-01T00:00:00.000Z", True))):
             sign_in(d, stored)
             r = A.describe(d, 1000)
             self.assertEqual((r["expires_at"], r["expired"]), expect, stored)

@@ -12,6 +12,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import types
 import unittest
 
@@ -141,6 +142,8 @@ class Host(Base):
         held = lambda cmd, **kw: subprocess.CompletedProcess(cmd, 1)  # noqa: E731
         h = ops.host(proc="/nonexistent", sys="/nonexistent", leases=leases, run=held, cpus=1)
         self.assertEqual([x["pid"] for x in h["leases"]], [None] * 5)
+        write(os.path.join(leases, "l9"), "me 1.5 2026-10-09T00:00:00Z l9\n")
+        self.assertEqual(ops.host(proc="/nonexistent", sys="/nonexistent", leases=leases, run=held, cpus=1)["leases"][-1]["pid"], 1.5, "a fractional pid is sent as the Node sent it")
         self.assertEqual(ops.collect("host", {"host_opts": {"proc": "/nonexistent", "sys": "/nonexistent", "leases": leases, "run": held, "cpus": 1}, "pressure_opts": {"file": os.path.join(leases, "none")}})["host"]["status"], "ok")
 
     def test_a_flock_that_cannot_run_or_hangs_is_not_a_held_lease(self):
@@ -399,6 +402,40 @@ class Accounts(Base):
         os.unlink(lock)
         ops.take_read_lock(acct, 7)()
         self.assertFalse(os.path.exists(lock))
+
+    def test_two_takers_of_one_stale_lock_never_both_hold_it(self):
+        # Both see the same dead holder; without the guard the second unlinks the first's fresh lock.
+        h, d = account_home(self, {"claude-a": True})
+        acct = os.path.join(d, "claude-a")
+        lock = os.path.join(acct, ".fabric-read.lock")
+        both = 0
+        real_alive = usage_mod._alive
+        from unittest import mock
+        patch = mock.patch.object(usage_mod, "_alive", lambda p: 5000 <= p < 5008 or real_alive(p))   # the takers' pids are made up: live ones
+        patch.start()
+        self.addCleanup(patch.stop)
+        for round_ in range(150):
+            write(lock, "999999999\n")
+            barrier = threading.Barrier(8)
+            got: list = []
+
+            def taker(i):
+                barrier.wait()
+                got.append(ops.take_read_lock(acct, 5000 + i))
+            ts = [threading.Thread(target=taker, args=(i,)) for i in range(8)]
+            for t in ts:
+                t.start()
+            for t in ts:
+                t.join()
+            holders = [r for r in got if r]
+            both += len(holders) > 1
+            with open(lock, encoding="utf-8") as fh:
+                named = fh.read().strip()
+            self.assertEqual(len(holders), 1, f"round {round_}: {len(holders)} readers hold one account")
+            for r in holders:
+                r()
+            self.assertFalse(os.path.exists(lock), f"round {round_}: {named} left a lock behind")
+        self.assertEqual(both, 0)
 
     def test_the_read_lock_is_released_when_the_read_fails_before_the_harness_starts(self):
         h, d = account_home(self, {"claude-a": True})

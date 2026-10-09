@@ -67,7 +67,10 @@ def _js_number(v: Any) -> float:
     if isinstance(v, bool):
         return float(v)
     if isinstance(v, (int, float)):
-        return float(v)
+        try:
+            return float(v)
+        except OverflowError:
+            return float("inf") if v > 0 else float("-inf")   # an integer past a double, as JSON.parse read it
     if isinstance(v, str):
         try:
             return float(v.strip()) if v.strip() else 0.0
