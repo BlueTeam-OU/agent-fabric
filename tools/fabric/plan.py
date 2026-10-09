@@ -192,8 +192,10 @@ def find_job(reader: Any, cache: dict, login: str, job_id: str) -> dict:
     raise Unreadable(f"{job_id} is on neither the open nor the closed list of {login}")
 
 
-def derive(plan: dict, reader: Any) -> list[dict]:
-    """The plan's steps, each with `state` and, for waiting and unknown, `reason` (ADR-047 rule 3)."""
+def derive(plan: dict, reader: Any, jobs: dict | None = None) -> list[dict]:
+    """The plan's steps, each with `state` and, for waiting and unknown, `reason` (ADR-047 rule 3).
+    A caller that wants the jobs' rows (fleet.py reads their logs) passes a dict and gets
+    step id -> the row the state was read from, for every step whose job could be read."""
     cache: dict = {}
     out: list[dict] = []
     done: set[str] = set()
@@ -206,6 +208,8 @@ def derive(plan: dict, reader: Any) -> list[dict]:
                 if not m:
                     raise Unreadable(f"the link {link!r} is not <login>:<job-id>")
                 row = find_job(reader, cache, m.group(1), m.group(2))
+                if jobs is not None:
+                    jobs[step["id"]] = row
                 state = row.get("state")
                 if state not in JOB_STATES:
                     raise Unreadable(f"{link} has a state this tool does not know ({str(state)[:40]!r})")

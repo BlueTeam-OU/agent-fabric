@@ -39,10 +39,31 @@ TIMEOUTS  each cost class has its own bound on the program that reads it:
   C2      30   120     1800 s
   C3      60   180     7200 s
 
+FLEET SECTIONS  `plans` and `prs_unplaced` are about the fleet, not an agent:
+  each is one record, {status, src, at, data|why} (stale as above), under
+  its own name at the top of the document and in no agent's "sections".
+  plans.data = {login, plans: [{id, title, status, created_at, steps: [{id,
+  title, owner, depends_on, job, state, reason, started, finished,
+  est_days}]}]}: the plans of the login that runs this (the coordinator's
+  files; another login has none), steps in the plan's order, `state` what
+  fabric-plan says (planned, waiting, unknown, or the job's), `started` the
+  first time the job was active and `finished` the last time it was done,
+  dropped or delivered, from its log (null where it never was).
+  prs_unplaced.data = {prs: [...rows of prs...], fetch_ok, prs_ok, base,
+  gate_ok}: the PRs whose owner is no placed account. Asking for `prs`
+  adds it; `plans` is named only.
+  prs rows (per agent and unplaced): pr, number, repo (<org>/<name> of this
+  checkout's origin; the other projects' repositories are not read), branch,
+  ahead, last_commit, paths_total from pr-gate --in-flight, and fabric-pr
+  gate --json's own title, head, work_commits, fix_commits, checks, review,
+  unresolved_threads, armed, queue_position, draft, verdict; the gate fields
+  are null with `gate_ok` false and `gate_why` when the gate could not be
+  read. closed_jobs.data adds done_total (state done only) to closed_total.
+
 SECTIONS, by cost class (the TTL is how long a cached answer is reused)
   C0 proc 5 s · states 5 s · presence 10 s
   C1 jobs 30 s · usage 60 s · host 60 s · fabric 60 s
-  C2 prs 120 s · closed_jobs 300 s · accounts 120 s
+  C2 prs 120 s · prs_unplaced 120 s · plans 120 s · closed_jobs 300 s · accounts 120 s
   C3 tokens 600 s · disk 600 s     only when named: they walk disks/logs
   A section's `sources` are tried in order and the first that answers wins;
   Stage 2's control-plane ops replace a source here without changing the
@@ -76,6 +97,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -117,6 +139,11 @@ class Agent:
         return f"{self.host}/{self.login}"
 
 
+# What a fleet-scope section is asked for and cached under: one pseudo-agent,
+# so the same read, cache and stale rules serve it.
+FLEET = Agent("*", "", "fleet")
+
+
 @dataclass
 class Failed:
     """One agent a source answered for, but with a failure of its own."""
@@ -144,6 +171,24 @@ class Ctx:
     ctl_s: float = CTL_TIMEOUT_S      # set per section by read_section: its cost class's
     call_s: float = CALL_TIMEOUT_S
     env: dict[str, str] = field(default_factory=lambda: dict(os.environ))
+    memo: dict = field(default_factory=dict)         # what two sections of one fetch read once between them
+    memo_lock: threading.Lock = field(default_factory=threading.Lock)
+
+    def once(self, key: str, read: Callable[[], Any]) -> Any:
+        """`read()` once per fetch, its value or its exception given to every
+        section that asks: prs and prs_unplaced read the same gate rows."""
+        with self.memo_lock:
+            slot = self.memo.setdefault(key, [threading.Lock(), None])
+        with slot[0]:
+            if slot[1] is None:
+                try:
+                    slot[1] = (True, read())
+                except Exception as e:  # noqa: BLE001 — handed on to each asker, who judges it
+                    slot[1] = (False, e)
+        ok, value = slot[1]
+        if not ok:
+            raise value
+        return value
 
 
 @dataclass(frozen=True)
@@ -158,6 +203,7 @@ class Section:
     cost: str
     ttl: int
     sources: tuple[Source, ...]
+    scope: str = "agent"        # "fleet": one record for the whole fleet, under its name at the top of the document
 
     @property
     def ctl_s(self) -> float:
@@ -352,23 +398,138 @@ def proc_source(label: str, remote: bool) -> Source:
     return Source(label, read)
 
 
-def prs_read(ctx: Ctx, agents: list[Agent]) -> dict[str, Any]:
+PR_ROW_KEYS = ("pr", "branch", "ahead", "last_commit", "paths_total")
+# fabric-pr gate --json's own names, passed through as it prints them.
+GATE_KEYS = ("title", "head", "work_commits", "fix_commits", "checks", "review", "unresolved_threads", "armed",
+             "queue_position", "draft", "verdict")
+
+
+def origin_repo(ctx: Ctx) -> str | None:
+    """<org>/<name> of this checkout's origin, or None when it cannot be told."""
+    try:
+        p = call(ctx, ["git", "-C", ctx.root, "remote", "get-url", "origin"], timeout=ctx.ctl_s)
+    except SourceError:
+        return None
+    url = p.stdout.strip() if p.returncode == 0 else ""
+    tail = url.removesuffix(".git").replace(":", "/").split("/")
+    return "/".join(tail[-2:]) if len(tail) >= 2 and all(tail[-2:]) else None
+
+
+def pr_rows(ctx: Ctx) -> dict:
+    """Every PR of this checkout's repository, once per fetch: pr-gate's
+    in-flight rows (what changed, how far ahead) joined with `fabric-pr gate
+    --all --json` (where each is at the gate) by PR number. When the gate
+    could not be read the rows carry the in-flight fields alone and say so
+    (`gate_ok` false, `gate_why`): unknown stays unknown."""
     p = call(ctx, [os.path.join(ctx.root, "runtime", "github", "pr-gate.sh"), "--in-flight", "--json"], cwd=ctx.root)
     try:
         doc = json.loads(p.stdout)
         rows = doc["rows"]
     except (ValueError, KeyError, TypeError):
         raise SourceError(f"pr-gate: {last_line(p.stderr) or f'exit {p.returncode}, no answer'}") from None
-    mine: dict[str, list[dict]] = {a.login: [] for a in agents}
+    gate: dict[Any, dict] = {}
+    gate_why = None
+    try:
+        g = call(ctx, [os.path.join(ctx.root, "bin", "fabric-pr"), "gate", "--all", "--json"], cwd=ctx.root)
+        listed = json.loads(g.stdout)
+        if not isinstance(listed, list):
+            raise ValueError("not a list")
+        gate = {r.get("number"): r for r in listed if isinstance(r, dict)}
+    except SourceError as e:
+        gate_why = str(e)
+    except ValueError:
+        gate_why = f"fabric-pr gate: {last_line(g.stderr) or f'exit {g.returncode}, unreadable output'}"
+    repo = origin_repo(ctx)
+    out, seen = [], set()
     for r in rows:
-        owner = r.get("owner", "")
-        login = owner.split("/", 1)[1] if "/" in owner else ""   # the ref is <host>/<login>/<type>/<what>
-        if login in mine:
-            mine[login].append({k: r.get(k) for k in ("pr", "branch", "ahead", "last_commit", "paths_total")})
+        if not isinstance(r, dict):
+            continue
+        n = r.get("pr")
+        gr = gate.get(n, {}) if isinstance(n, int) else {}
+        seen.add(n)
+        out.append({**{k: r.get(k) for k in PR_ROW_KEYS}, "number": n if isinstance(n, int) else None, "repo": repo,
+                    **{k: gr.get(k) for k in GATE_KEYS}, "owner": r.get("owner", "") or gr.get("owner", "")})
+    for n, gr in gate.items():
+        if n not in seen:     # an open PR the in-flight listing did not carry: still at its gate
+            out.append({**{k: None for k in PR_ROW_KEYS}, "pr": n, "number": n, "branch": gr.get("branch"), "repo": repo,
+                        **{k: gr.get(k) for k in GATE_KEYS}, "owner": gr.get("owner", "")})
+    return {"rows": out, "fetch_ok": doc.get("fetch_ok"), "prs_ok": doc.get("prs_ok"), "base": doc.get("base"),
+            "gate_ok": gate_why is None, **({"gate_why": gate_why} if gate_why else {})}
+
+
+def pr_meta(doc: dict) -> dict:
     # fetch_ok/prs_ok false mean the rows are the last fetch's / "PR unknown":
     # the answer is still the best there is, said as it is.
-    return {a.login: {"prs": mine[a.login], "fetch_ok": doc.get("fetch_ok"), "prs_ok": doc.get("prs_ok"), "base": doc.get("base")}
-            for a in agents}
+    return {k: doc[k] for k in ("fetch_ok", "prs_ok", "base", "gate_ok", "gate_why") if k in doc}
+
+
+def owner_login(row: dict) -> str:
+    owner = row.get("owner") or ""
+    return owner.split("/", 1)[1] if "/" in owner else ""   # the ref is <host>/<login>/<type>/<what>
+
+
+def prs_read(ctx: Ctx, agents: list[Agent]) -> dict[str, Any]:
+    doc = ctx.once("pr_rows", lambda: pr_rows(ctx))
+    mine: dict[str, list[dict]] = {a.login: [] for a in agents}
+    for r in doc["rows"]:
+        if owner_login(r) in mine:
+            mine[owner_login(r)].append({k: v for k, v in r.items() if k != "owner"})
+    return {a.login: {"prs": mine[a.login], **pr_meta(doc)} for a in agents}
+
+
+def prs_unplaced_read(ctx: Ctx, _agents: list[Agent]) -> dict[str, Any]:
+    """The PRs whose owner is no placed account (a dependabot branch, a
+    stranger's, a ref that does not name one): kept, never dropped."""
+    doc = ctx.once("pr_rows", lambda: pr_rows(ctx))
+    placed = load_placements(ctx.root)
+    rows = [r for r in doc["rows"] if owner_login(r) not in placed]
+    return {FLEET.login: {"prs": rows, **pr_meta(doc)}}
+
+
+# ── plans ───────────────────────────────────────────────────────────
+
+DONE_LIKE = ("done", "dropped", "delivered")
+
+
+def log_times(row: dict | None) -> tuple[str | None, str | None]:
+    """(started, finished) from a job's log: the first time it was active,
+    the last time it was done, dropped or delivered; None where it never was."""
+    log = row.get("log") if isinstance(row, dict) else None
+    if not isinstance(log, list):
+        return None, None
+    entries = [e for e in log if isinstance(e, dict) and isinstance(e.get("at"), str)]
+    started = next((e["at"] for e in entries if e.get("state") == "active"), None)
+    finished = next((e["at"] for e in reversed(entries) if e.get("state") in DONE_LIKE), None)
+    return started, finished
+
+
+def plans_read(ctx: Ctx, _agents: list[Agent]) -> dict[str, Any]:
+    """The plans of the login that runs this, as fabric-plan shows them (a
+    step's state is its job's, read now: ADR-047 rule 3), each step with
+    when its job started and finished. The plan files are the running
+    coordinator's state, written only through identity.update_plan, and
+    this reads them without fabric-plan's role check: the deck is run by
+    the operator's login, which holds them. Another login has none, and
+    `login` says whose they are."""
+    import plan as plan_mod       # loads runtime/identity.py: only a fleet-scope section needs it
+    reader = plan_mod.FleetReader(run=lambda argv, timeout: ctx.run(argv, timeout=timeout, cwd=None, env=ctx.env))
+    try:
+        stored = plan_mod.identity.list_plans()
+    except SystemExit as e:         # identity's way of refusing an unreadable plan file
+        raise SourceError(str(e)) from None
+    plans = []
+    for pl in stored:
+        rows: dict[str, dict] = {}
+        steps = plan_mod.derive(pl, reader, rows)
+        out = []
+        for s in steps:
+            started, finished = log_times(rows.get(s["id"]))
+            out.append({"id": s["id"], "title": s.get("title"), "owner": s.get("owner"), "depends_on": s.get("depends_on", []),
+                        "job": s.get("job"), "state": s["state"], "reason": s.get("reason"),
+                        "started": started, "finished": finished, "est_days": s.get("est_days")})
+        plans.append({"id": pl.get("id"), "title": pl.get("title"), "status": pl.get("status"), "created_at": pl.get("created_at"),
+                      "steps": out})
+    return {FLEET.login: {"login": plan_mod.identity.current_agent(), "plans": plans}}
 
 
 def closed_jobs_read(ctx: Ctx, agents: list[Agent]) -> dict[str, Any]:
@@ -390,7 +551,7 @@ def closed_jobs_read(ctx: Ctx, agents: list[Agent]) -> dict[str, Any]:
             return Failed(f"fabric-jobs on {a.host} as {a.login}: unreadable output")
         closed = sorted((j for j in jobs if isinstance(j, dict) and j.get("state") in ("done", "dropped")),
                         key=lambda j: str(j.get("updated", "")), reverse=True)
-        return {"closed_total": len(closed),
+        return {"closed_total": len(closed), "done_total": sum(1 for j in closed if j.get("state") == "done"),
                 "closed": [{k: j.get(k) for k in ("id", "title", "state", "topic", "project", "updated")} for j in closed[:CLOSED_CAP]]}
     with concurrent.futures.ThreadPoolExecutor(max_workers=min(HOST_RUN_WORKERS, max(1, len(agents)))) as pool:
         return dict(zip((a.login for a in agents), pool.map(one, agents)))
@@ -405,12 +566,15 @@ SECTIONS: dict[str, Section] = {s.name: s for s in (
     Section("host", "C1", 60, (ctl_source("host"),)),
     Section("fabric", "C1", 60, (ctl_source("fabric"),)),
     Section("prs", "C2", 120, (Source("pr-gate", prs_read),)),
+    Section("prs_unplaced", "C2", 120, (Source("pr-gate", prs_unplaced_read),), scope="fleet"),
+    Section("plans", "C2", 120, (Source("fabric-plan", plans_read),), scope="fleet"),
     Section("closed_jobs", "C2", 300, (Source("hostexec", closed_jobs_read),)),
     Section("accounts", "C2", 120, (ctl_source("accounts"),)),
     Section("tokens", "C3", 600, (ctl_source("tokens"),)),
     Section("disk", "C3", 600, (ctl_source("disk"),)),
 )}
-DEFAULT_SECTIONS = [n for n, s in SECTIONS.items() if s.cost != "C3"]
+# plans is named, not default: it asks the control agents for every linked job.
+DEFAULT_SECTIONS = [n for n, s in SECTIONS.items() if s.cost != "C3" and n != "plans"]
 
 
 # ── the registry ────────────────────────────────────────────────────
@@ -583,6 +747,8 @@ def fetch(sections: list[str] | None = None, agent: str | None = None, max_age: 
     for n in names:
         if n not in SECTIONS:
             raise FleetError(f"no section {n} (sections: {', '.join(SECTIONS)})")
+    if "prs" in names and "prs_unplaced" not in names:
+        names.append("prs_unplaced")      # the PRs of no placed account ride with the placed ones
     root = root or roots.engine_root()
     placed = load_placements(root)
     if agent is not None and agent not in placed:
@@ -595,12 +761,17 @@ def fetch(sections: list[str] | None = None, agent: str | None = None, max_age: 
     directory, why = cache_dir(ctx.env)
     answers: dict[str, dict[str, dict]] = {}
     with concurrent.futures.ThreadPoolExecutor(max_workers=len(names)) as pool:
-        futures = {n: pool.submit(fetch_section, ctx, SECTIONS[n], agents, max_age, directory) for n in names}
+        futures = {n: pool.submit(fetch_section, ctx, SECTIONS[n], [FLEET] if SECTIONS[n].scope == "fleet" else agents, max_age, directory)
+                   for n in names}
         for n, f in futures.items():
             answers[n] = f.result()
+    per_agent = [n for n in names if SECTIONS[n].scope == "agent"]
     doc: dict[str, Any] = {"schema": SCHEMA, "at": stamp(ctx.clock()), "sections": names, "agents": [
         {"login": a.login, "host": a.host, "address": a.address, "kind": a.kind,
-         "sections": {n: answers[n][a.login] for n in names}} for a in agents]}
+         "sections": {n: answers[n][a.login] for n in per_agent}} for a in agents]}
+    for n in names:
+        if SECTIONS[n].scope == "fleet":
+            doc[n] = answers[n][FLEET.login]
     if directory is None:
         doc["cache"] = {"usable": False, "why": why}
     return doc

@@ -330,28 +330,237 @@ class TwoRemoteHosts(unittest.TestCase):
         self.assertEqual([rec(doc, l, "proc")["status"] for l in ("a", "c", "d")], ["ok", "ok", "failed"])
 
 
+GATE_ROW = {"title": "t", "head": "abc12345", "work_commits": 3, "fix_commits": 1, "checks": "green", "review": "head reviewed",
+            "unresolved_threads": "0", "armed": "no", "queue_position": "", "draft": False, "verdict": "MERGEABLE — ask the owner"}
+
+
+def gate_row(number, owner, branch, **kw):
+    return {"number": number, "owner": owner, "branch": branch, **GATE_ROW, **kw}
+
+
+def inflight(*rows, **kw):
+    return done(json.dumps({"base": "origin/main", "fetch_ok": True, "prs_ok": True, "rows": list(rows), **kw}))
+
+
+def pr_handlers(inflight_out, gate_out=(), origin="git@github.com:BlueTeam-OU/agent-fabric.git\n"):
+    return {"pr-gate.sh": inflight_out, "fabric-pr": done(json.dumps(list(gate_out))) if isinstance(gate_out, (list, tuple)) else gate_out,
+            "git": done(origin)}
+
+
 class Prs(unittest.TestCase):
     def test_rows_belong_to_the_owner_the_ref_names_and_others_are_ignored(self):
-        doc = {"base": "origin/main", "fetch_ok": True, "prs_ok": True, "rows": [
+        f = Fleet(self, pr_handlers(inflight(
             {"owner": "h1/a", "branch": "h1/a/feat/x", "pr": 7, "ahead": 3, "last_commit": "t", "paths_total": 2, "paths": ["p"]},
             {"owner": "h1/a", "branch": "h1/a/feat/y", "pr": "none", "ahead": 1, "last_commit": "t", "paths_total": 1},
-            {"owner": "unattributed", "branch": "stray", "pr": 9}]}
-        f = Fleet(self, {"pr-gate.sh": done(json.dumps(doc))})
+            {"owner": "unattributed", "branch": "stray", "pr": 9})))
         out = f.fetch(["prs"])
         self.assertEqual([p["pr"] for p in rec(out, "a", "prs")["data"]["prs"]], [7, "none"])
         self.assertNotIn("paths", rec(out, "a", "prs")["data"]["prs"][0])
         self.assertEqual(rec(out, "b", "prs")["data"]["prs"], [])
         self.assertEqual(f.calls[0][1:], ["--in-flight", "--json"])
 
+    def test_a_row_carries_the_gates_own_fields_the_number_and_the_repo(self):
+        f = Fleet(self, pr_handlers(
+            inflight({"owner": "h1/a", "branch": "h1/a/feat/x", "pr": 7, "ahead": 3, "last_commit": "t", "paths_total": 2}),
+            [gate_row(7, "h1/a", "h1/a/feat/x", title="the title", work_commits=8)]))
+        row = rec(f.fetch(["prs"]), "a", "prs")["data"]["prs"][0]
+        self.assertEqual({k: row[k] for k in ("pr", "number", "repo", "branch", "ahead", "title", "head", "work_commits", "fix_commits",
+                                              "checks", "review", "unresolved_threads", "armed", "queue_position", "draft", "verdict")},
+                         {"pr": 7, "number": 7, "repo": "BlueTeam-OU/agent-fabric", "branch": "h1/a/feat/x", "ahead": 3, "title": "the title",
+                          "head": "abc12345", "work_commits": 8, "fix_commits": 1, "checks": "green", "review": "head reviewed",
+                          "unresolved_threads": "0", "armed": "no", "queue_position": "", "draft": False,
+                          "verdict": "MERGEABLE — ask the owner"})
+        self.assertNotIn("owner", row)
+        self.assertEqual(f.calls[1][1:], ["gate", "--all", "--json"])
+
+    def test_the_repo_is_read_from_the_origin_in_either_url_form_or_is_unknown(self):
+        for origin, want in (("https://github.com/BlueTeam-OU/agent-fabric.git\n", "BlueTeam-OU/agent-fabric"),
+                             ("git@github.com:o/r\n", "o/r"), ("nonsense\n", None), ("", None)):
+            f = Fleet(self, pr_handlers(inflight({"owner": "h1/a", "branch": "b", "pr": 7}), origin=origin))
+            self.assertEqual(rec(f.fetch(["prs"]), "a", "prs")["data"]["prs"][0]["repo"], want, origin)
+        f = Fleet(self, {**pr_handlers(inflight({"owner": "h1/a", "branch": "b", "pr": 7})), "git": done("", "fatal\n", 128)})
+        self.assertIsNone(rec(f.fetch(["prs"]), "a", "prs")["data"]["prs"][0]["repo"])
+
+    def test_a_pr_the_in_flight_listing_lacks_is_still_there_at_its_gate(self):
+        f = Fleet(self, pr_handlers(inflight(), [gate_row(8, "h1/b", "h1/b/feat/z", verdict="BLOCKED: x")]))
+        row = rec(f.fetch(["prs"]), "b", "prs")["data"]["prs"][0]
+        self.assertEqual((row["number"], row["branch"], row["verdict"], row["ahead"], row["paths_total"]), (8, "h1/b/feat/z", "BLOCKED: x", None, None))
+
+    def test_a_gate_that_could_not_be_read_leaves_the_gate_fields_null_and_says_so(self):
+        for gate in (done("", "gh: no\n", 1), done("not json"), "missing"):
+            h = pr_handlers(inflight({"owner": "h1/a", "branch": "b", "pr": 7, "ahead": 2}))
+            if gate == "missing":
+                del h["fabric-pr"]
+                h["fabric-pr"] = lambda argv: (_ for _ in ()).throw(FileNotFoundError("fabric-pr"))
+            else:
+                h["fabric-pr"] = gate
+            data = rec(Fleet(self, h).fetch(["prs"]), "a", "prs")["data"]
+            self.assertIs(data["gate_ok"], False)
+            self.assertTrue(data["gate_why"])
+            row = data["prs"][0]
+            self.assertEqual((row["pr"], row["ahead"], row["verdict"], row["checks"], row["title"]), (7, 2, None, None, None), gate)
+
+    def test_a_pr_of_no_placed_account_is_kept_at_the_top_never_dropped(self):
+        f = Fleet(self, pr_handlers(
+            inflight({"owner": "h1/a", "branch": "h1/a/feat/x", "pr": 7}, {"owner": "", "branch": "dependabot/pip/x", "pr": 9, "ahead": 1},
+                     {"owner": "h9/ghost", "branch": "h9/ghost/feat/q", "pr": 10}),
+            [gate_row(7, "h1/a", "h1/a/feat/x"), gate_row(9, "", "dependabot/pip/x"), gate_row(10, "h9/ghost", "h9/ghost/feat/q")]))
+        doc = f.fetch(["prs"])
+        un = doc["prs_unplaced"]
+        self.assertEqual((un["status"], un["src"]), ("ok", "pr-gate"))
+        self.assertEqual(sorted(r["number"] for r in un["data"]["prs"]), [9, 10])
+        self.assertEqual([p["number"] for p in rec(doc, "a", "prs")["data"]["prs"]], [7])
+        self.assertTrue(all("prs_unplaced" not in a["sections"] for a in doc["agents"]), "a fleet section is not an agent's")
+        self.assertIn("prs_unplaced", doc["sections"])
+        self.assertEqual(len(f.ctl_calls("x")), 0)
+        self.assertEqual(len([c for c in f.calls if os.path.basename(c[0]) == "pr-gate.sh"]), 1, "one read serves both sections")
+
+    def test_asking_for_unplaced_alone_works_and_asking_for_prs_adds_it(self):
+        f = Fleet(self, pr_handlers(inflight({"owner": "", "branch": "stray", "pr": 3}), [gate_row(3, "", "stray")]))
+        doc = f.fetch(["prs_unplaced"])
+        self.assertEqual(doc["sections"], ["prs_unplaced"])
+        self.assertEqual([r["number"] for r in doc["prs_unplaced"]["data"]["prs"]], [3])
+        self.assertTrue(all(a["sections"] == {} for a in doc["agents"]))
+
+    def test_the_in_flight_failure_is_that_sections_failure_for_every_agent_and_the_unplaced_list(self):
+        f = Fleet(self, pr_handlers(done("", "pr-gate: the base origin/main is not in this clone\n", 2)))
+        doc = f.fetch(["prs"])
+        self.assertIn("the base origin/main is not in this clone", rec(doc, "a", "prs")["why"])
+        self.assertEqual(doc["prs_unplaced"]["status"], "failed")
+
     def test_partial_gate_exit_with_rows_is_an_answer_that_says_what_it_lacked(self):
         doc = {"base": "origin/main", "fetch_ok": False, "prs_ok": True, "rows": []}
-        f = Fleet(self, {"pr-gate.sh": done(json.dumps(doc), "pr-gate: git fetch origin failed\n", 2)})
+        f = Fleet(self, pr_handlers(done(json.dumps(doc), "pr-gate: git fetch origin failed\n", 2)))
         data = rec(f.fetch(["prs"]), "a", "prs")["data"]
         self.assertEqual((data["fetch_ok"], data["prs"]), (False, []))
 
     def test_no_output_is_failed_with_the_gate_stderr(self):
-        f = Fleet(self, {"pr-gate.sh": done("", "pr-gate: the base origin/main is not in this clone\n", 2)})
+        f = Fleet(self, pr_handlers(done("", "pr-gate: the base origin/main is not in this clone\n", 2)))
         self.assertIn("the base origin/main is not in this clone", rec(f.fetch(["prs"]), "a", "prs")["why"])
+
+
+def ctl_jobs(rows_by_login):
+    """What `fabric-ctl <login> jobs --json` prints for one account."""
+    def handler(argv):
+        login = argv[1]
+        if login not in rows_by_login:
+            return done(json.dumps({"account": login, "status": "no answer"}) + "\n", "", 1)
+        return done(json.dumps({"account": login, "status": "ok", "jobs": {"status": "ok", "jobs": rows_by_login[login]}}) + "\n")
+    return handler
+
+
+def job(job_id, state, *log):
+    return {"id": job_id, "state": state, "title": job_id, "log": [{"at": at, "state": s} for at, s in log]}
+
+
+class Plans(unittest.TestCase):
+    """A fleet-scope section: the plans of the login that runs the deck, each
+    step with its job's state and the times its job's log gives."""
+
+    def setUp(self):
+        import plan as plan_mod
+        self.plan = plan_mod
+        self.f = Fleet(self, {})
+        self.state = os.path.join(self.f.dir, "state")
+        os.makedirs(self.state)
+        saved = {k: os.environ.get(k) for k in ("AGENT_FABRIC_STATE_DIR", "AGENT_FABRIC_HOSTS_REGISTRY")}
+        os.environ["AGENT_FABRIC_STATE_DIR"] = self.state
+        os.environ["AGENT_FABRIC_HOSTS_REGISTRY"] = os.path.join(self.f.root, "runtime", "hosts", "registry.json")
+        self.addCleanup(lambda: [os.environ.pop(k, None) if v is None else os.environ.__setitem__(k, v) for k, v in saved.items()])
+        self.me = plan_mod.identity.current_agent()
+
+    def write_plan(self, plan_id, steps, **kw):
+        d = os.path.join(self.state, "agents", self.me, "plans")
+        os.makedirs(d, exist_ok=True)
+        with open(os.path.join(d, f"{plan_id}.json"), "w") as fh:
+            json.dump({"id": plan_id, "title": f"title of {plan_id}", "created_at": "2026-10-09T10:00:00Z", "status": "open", "steps": steps, **kw}, fh)
+
+    @staticmethod
+    def break_plan(directory):
+        with open(os.path.join(directory, "p1.json"), "w") as fh:
+            fh.write("{broken")
+
+    def fetch(self, handlers, **kw):
+        self.f.handlers = handlers
+        return self.f.fetch(["plans"], **kw)
+
+    def test_steps_carry_their_jobs_state_and_the_times_its_log_gives(self):
+        self.write_plan("p1", [
+            {"id": "s1", "title": "first", "owner": "a", "depends_on": [], "job": "a:j1", "est_days": 2},
+            {"id": "s2", "title": "second", "owner": "b", "depends_on": ["s1"], "job": "b:j2"},
+            {"id": "s3", "title": "third", "owner": "a", "depends_on": ["s2"], "job": None},
+            {"id": "s4", "title": "fourth", "owner": "c", "depends_on": [], "job": None}])
+        doc = self.fetch({("fabric-ctl", "jobs"): ctl_jobs({
+            "a": [job("j1", "done", ("2026-10-08T10:00:00Z", "queued"), ("2026-10-08T11:00:00Z", "active"), ("2026-10-08T12:00:00Z", "delivered"),
+                      ("2026-10-08T13:00:00Z", "done"))],
+            "b": [job("j2", "active", ("2026-10-09T09:00:00Z", "queued"), ("2026-10-09T09:30:00Z", "active"))]})})
+        r = doc["plans"]
+        self.assertEqual((r["status"], r["src"]), ("ok", "fabric-plan"))
+        self.assertEqual(r["data"]["login"], self.me)
+        (pl,) = r["data"]["plans"]
+        self.assertEqual({k: pl[k] for k in ("id", "title", "status", "created_at")},
+                         {"id": "p1", "title": "title of p1", "status": "open", "created_at": "2026-10-09T10:00:00Z"})
+        steps = {s["id"]: s for s in pl["steps"]}
+        self.assertEqual([s["id"] for s in pl["steps"]], ["s1", "s2", "s3", "s4"], "in the plan's order")
+        self.assertEqual((steps["s1"]["state"], steps["s1"]["started"], steps["s1"]["finished"], steps["s1"]["est_days"]),
+                         ("done", "2026-10-08T11:00:00Z", "2026-10-08T13:00:00Z", 2))
+        self.assertEqual((steps["s2"]["state"], steps["s2"]["started"], steps["s2"]["finished"], steps["s2"]["est_days"]),
+                         ("active", "2026-10-09T09:30:00Z", None, None))
+        self.assertEqual((steps["s3"]["state"], steps["s3"]["reason"], steps["s3"]["started"]), ("waiting", "waits for s2", None))
+        self.assertEqual((steps["s4"]["state"], steps["s4"]["job"]), ("planned", None))
+        self.assertEqual(sorted(steps["s1"]), ["depends_on", "est_days", "finished", "id", "job", "owner", "reason", "started", "state", "title"])
+        self.assertEqual(steps["s2"]["depends_on"], ["s1"])
+
+    def test_a_job_that_cannot_be_read_is_unknown_with_its_reason_and_no_times(self):
+        self.write_plan("p1", [{"id": "s1", "title": "t", "owner": "a", "depends_on": [], "job": "a:j1"}])
+        doc = self.fetch({("fabric-ctl", "jobs"): ctl_jobs({}), "fabric-host": done("", "no\n", 1)})
+        (s,) = doc["plans"]["data"]["plans"][0]["steps"]
+        self.assertEqual((s["state"], s["started"], s["finished"]), ("unknown", None, None))
+        self.assertIn("a:j1", s["reason"] + "a:j1")
+        self.assertTrue(s["reason"])
+
+    def test_a_fleet_section_is_at_the_top_of_the_document_and_in_no_agents_record(self):
+        self.write_plan("p1", [])
+        doc = self.fetch({})
+        self.assertEqual(doc["sections"], ["plans"])
+        self.assertTrue(all(a["sections"] == {} for a in doc["agents"]))
+        self.assertEqual(doc["plans"]["data"]["plans"][0]["steps"], [])
+
+    def test_plans_are_named_not_default(self):
+        self.assertNotIn("plans", fleet.DEFAULT_SECTIONS)
+        self.assertIn("prs_unplaced", fleet.DEFAULT_SECTIONS)
+        self.assertEqual(fleet.expand("C2"), ["prs", "prs_unplaced", "plans", "closed_jobs", "accounts"])
+
+    def test_a_login_with_no_plans_answers_an_empty_list_and_says_whose(self):
+        doc = self.fetch({})
+        self.assertEqual((doc["plans"]["status"], doc["plans"]["data"]), ("ok", {"login": self.me, "plans": []}))
+
+    def test_an_unreadable_plan_file_is_the_sections_failure_naming_it(self):
+        d = os.path.join(self.state, "agents", self.me, "plans")
+        os.makedirs(d)
+        self.break_plan(d)
+        r = self.fetch({})["plans"]
+        self.assertEqual(r["status"], "failed")
+        self.assertIn("p1.json", r["why"])
+
+    def test_a_failed_refresh_shows_the_last_plans_as_stale(self):
+        self.write_plan("p1", [])
+        self.fetch({})
+        d = os.path.join(self.state, "agents", self.me, "plans")
+        self.break_plan(d)
+        self.f.t += 300
+        r = self.f.fetch(["plans"])["plans"]
+        self.assertEqual((r["status"], r["age_s"], r["data"]["plans"][0]["id"]), ("stale", 300, "p1"))
+        self.assertIn("p1.json", r["why"])
+
+    def test_log_times_first_active_and_last_done_dropped_or_delivered(self):
+        lt = fleet.log_times
+        self.assertEqual(lt(job("j", "done", ("t1", "queued"), ("t2", "active"), ("t3", "blocked"), ("t4", "active"), ("t5", "delivered"), ("t6", "done"))), ("t2", "t6"))
+        self.assertEqual(lt(job("j", "dropped", ("t1", "queued"), ("t2", "dropped"))), (None, "t2"))
+        self.assertEqual(lt(job("j", "delivered", ("t1", "active"), ("t2", "delivered"))), ("t1", "t2"))
+        self.assertEqual(lt(job("j", "queued", ("t1", "queued"))), (None, None))
+        for odd in (None, {}, {"log": "x"}, {"log": [None, {"state": "active"}, {"at": 5, "state": "done"}]}):
+            self.assertEqual(lt(odd), (None, None), odd)
 
 
 class ClosedJobs(unittest.TestCase):
@@ -367,6 +576,7 @@ class ClosedJobs(unittest.TestCase):
         d = rec(out, "a", "closed_jobs")["data"]
         self.assertEqual((d["closed_total"], len(d["closed"]), d["closed"][0]["id"]), (26, 20, "d"))
         self.assertNotIn("o", [j["id"] for j in d["closed"]])
+        self.assertEqual(d["done_total"], 25, "done alone: the dropped one is in closed_total, not here")
         self.assertEqual(rec(out, "b", "closed_jobs")["status"], "failed")
         self.assertIn("sudo: a password is required", rec(out, "b", "closed_jobs")["why"])
         call = next(c for c in f.calls if "--as" in c)
@@ -399,9 +609,12 @@ class Timeouts(unittest.TestCase):
         states = {("fabric-ctl", "states"): done(json.dumps({"address": "h1/a", "sessions": []}) + "\n")}
         ctl, bound = self.bounds("states", states)
         self.assertEqual((ctl, bound), ([fleet.COST_CLASSES["C0"][0]], [fleet.COST_CLASSES["C0"][1]]))
-        gate = {"pr-gate.sh": done(json.dumps({"rows": [], "fetch_ok": True, "prs_ok": True, "base": "main"}))}
-        _, bound = self.bounds("prs", gate)
-        self.assertEqual(bound, [fleet.COST_CLASSES["C2"][1]])
+        gate = {"pr-gate.sh": done(json.dumps({"rows": [], "fetch_ok": True, "prs_ok": True, "base": "main"})),
+                "fabric-pr": done("[]"), "git": done("git@github.com:o/r.git\n")}
+        f = Fleet(self, gate)
+        f.fetch(["prs"])
+        by_program = {os.path.basename(c[0]): b for c, b in zip(f.calls, f.timeouts)}
+        self.assertEqual((by_program["pr-gate.sh"], by_program["fabric-pr"]), (fleet.COST_CLASSES["C2"][1],) * 2)
         jobs = {"fabric-host": done("[]")}
         _, bound = self.bounds("closed_jobs", jobs)
         self.assertEqual(set(bound), {fleet.COST_CLASSES["C2"][1]})
