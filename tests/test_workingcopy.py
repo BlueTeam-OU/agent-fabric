@@ -92,9 +92,10 @@ def test_project_matching_uses_the_canonical_form() -> None:
 
 def test_blueteam_projects_resolve_under_both_github_orgs() -> None:
     """The move from gzapi-org to BlueTeam-OU: a clone keeps its project
-    whichever name its origin carries. The old name stays first, because
-    new_agent.py clones from the first git@ remote and results.py reads the
-    first GitHub one, and the new name exists only once a repository moves.
+    whichever name its origin carries. Since the move (2026-10-09) the new
+    name is first, which new_agent.py (the first git@ remote) and results.py
+    (the first GitHub one) take, and the old ones are listed as moved_from,
+    which bootstrap re-points.
     The operator's own registry on purpose: the fact is about its data."""
     import json
     roots_spec = importlib.util.spec_from_file_location("fabric_roots", os.path.join(ROOT, "tools", "fabric", "roots.py"))
@@ -106,7 +107,9 @@ def test_blueteam_projects_resolve_under_both_github_orgs() -> None:
         for url in (f"git@github.com:gzapi-org/{repo}.git", f"https://github.com/BlueTeam-OU/{repo}",
                     f"git@github.com:blueteam-ou/{repo}.git"):
             assert wc.project_for_remote(url, registry) == pid, (url, pid)
-        assert registry["projects"][pid]["remotes"][0].startswith("git@github.com:gzapi-org/"), pid
+        entry = registry["projects"][pid]
+        assert entry["remotes"][0].startswith("git@github.com:BlueTeam-OU/"), pid
+        assert all(u in entry["remotes"] for u in entry["moved_from"]), pid
 
 
 def test_a_hanging_git_reads_as_no_repository_within_the_bound() -> None:
