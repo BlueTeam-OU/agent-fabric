@@ -283,7 +283,7 @@ def case_a_persons_name_is_refused_everywhere() -> None:
     with tempfile.TemporaryDirectory() as root:
         fabric = make_base(root)
         os.makedirs(os.path.join(fabric, "policies"), exist_ok=True)
-        # The list's shape and the finding's wording are lint.py's; the name is a fixture's.
+        # Lint prints the pattern's label as written: the fixture's label carries the advice, and the name is a fixture's.
         write(os.path.join(fabric, "policies", "hygiene.json"), json.dumps({"patterns": [
             {"pattern": "\\bAda(\\s+Fixture)?\\b", "label": "person's name -- refer to the CEO by role", "refer_as": "the CEO"}]}))
         write(dom(fabric, "domain", "named.md"), SLICE.replace("A claim with provenance.", "Ada Fixture asked for it; Ada caught the workaround."))

@@ -105,6 +105,7 @@ def case_adr_reads_records_and_the_registry_from_the_operator() -> None:
         with code_tree(eng, adr), unset_operator():
             assert adr.adr_dir() == os.path.join(eng, "docs", "adr")
             assert adr.foreign_projects(None) == {"engproj"}
+            assert adr.check() == [f"{adr.ADR_DIR}: missing"]                # the records are read from the same default tree
             assert adr.adr_dir(op) == os.path.join(op, "docs", "adr")      # --root still names the tree
 
 
