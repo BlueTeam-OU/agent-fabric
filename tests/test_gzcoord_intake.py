@@ -412,6 +412,34 @@ def _():
         stub.close()
 
 
+@case("inbox --follow: the watch shows `queued as jN` below a delivered REQUEST to this login, and the job is on the list once")
+def _():
+    mine = me_address()
+    served = [False]
+
+    def answer(_h, _method, path, _body):
+        if path == "/status":
+            return 200, "{}"
+        if path.startswith("/api/wait"):
+            if not served[0]:
+                served[0] = True
+                return 200, json.dumps({"messages": [{"seq": 5, "id": "r5", "ts": "T", "sender": "host-a/user",
+                                                      "content": request_text(mine, "host-a/user")}], "next_cursor": "c"})
+            return None
+        return 200, "{}"
+    stub = P.Stub(answer)
+    try:
+        with command_env(CLAUDE_BRIDGE_URL=stub.url) as state:
+            out = P.follow_until(dict(os.environ), lambda text: "queued as" in text)
+            check(f"queued as j1: a subject (REQUEST {MID})" in out and "do it" in out and out.index("do it") < out.index("queued as"), out)
+            found = [os.path.join(d, f) for d, _, fs in os.walk(state) for f in fs if f == "jobs.json"]
+            check(len(found) == 1, found)
+            doc = json.load(open(found[0], encoding="utf-8"))
+            check(len(doc["jobs"]) == 1 and doc["jobs"][0]["source"]["message_id"] == MID, doc)
+    finally:
+        stub.close()
+
+
 @case("send main: a REQUEST posted by the host operator asks the control plane, a deduplicated resend too (the list check spares the duplicate)")
 def _():
     mine = me_address()

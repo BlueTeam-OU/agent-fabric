@@ -29,7 +29,8 @@
     "fabric-tools": "bin/fabric-tools",
     "fabric-genimage": "bin/fabric-genimage",
     "fabric-pr": "bin/fabric-pr",
-    "fabric-query": "bin/fabric-query"
+    "fabric-query": "bin/fabric-query",
+    "fabric-plan": "bin/fabric-plan"
   },
   "replaces": {
     "_comment": "A command's earlier target, which bootstrap recognises as a link it made and moves to the current one; without it an account keeps the old link, the allow rule is withheld (user-settings.py) and every use asks. The GZCoord commands were Node shims until their Python entry points.",

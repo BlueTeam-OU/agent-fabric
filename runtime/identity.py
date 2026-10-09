@@ -46,6 +46,7 @@ import importlib.util
 import json
 import os
 import pwd
+import re
 import socket
 import sys
 import tempfile
@@ -302,6 +303,67 @@ def update_jobs(mutate, agent: str | None = None) -> dict:
         path = jobs_path(agent)
         os.makedirs(os.path.dirname(path), exist_ok=True)
         atomic_write(path, json.dumps(new, ensure_ascii=False, indent=2, sort_keys=True) + "\n")
+        return new
+
+
+# Plans the coordinator keeps (agent-fabric ADR-047): one file per plan in
+# the agent's own state, written only here, under the agent lock.
+PLAN_ID = re.compile(r"[a-z0-9][a-z0-9-]{0,62}", re.ASCII)
+
+
+def plans_dir(agent: str | None = None) -> str:
+    return os.path.join(agent_state_dir(agent), "plans")
+
+
+def plan_path(plan_id: str, agent: str | None = None) -> str:
+    """agents/<login>/plans/<id>.json. The id is a slug: it names a file."""
+    if not isinstance(plan_id, str) or not PLAN_ID.fullmatch(plan_id):
+        raise SystemExit(f"identity: {plan_id!r} is not a plan id (lowercase letters, digits and dashes, at most 63)")
+    return os.path.join(plans_dir(agent), plan_id + ".json")
+
+
+def read_plan(plan_id: str, agent: str | None = None) -> dict | None:
+    """The plan, or None when none has that id."""
+    path = plan_path(plan_id, agent)
+    try:
+        with open(path, encoding="utf-8") as fh:
+            data = json.load(fh)
+    except FileNotFoundError:
+        return None
+    except ValueError as exc:
+        raise SystemExit(f"identity: {path} is not valid JSON ({exc})")
+    if not isinstance(data, dict) or not isinstance(data.get("steps"), list):
+        raise SystemExit(f"identity: {path} is not a plan")
+    return data
+
+
+def list_plans(agent: str | None = None) -> list[dict]:
+    """Every plan of the agent, by id."""
+    try:
+        names = sorted(n[:-5] for n in os.listdir(plans_dir(agent)) if n.endswith(".json"))
+    except FileNotFoundError:
+        return []
+    return [p for p in (read_plan(n, agent) for n in names if PLAN_ID.fullmatch(n)) if p is not None]
+
+
+def update_plan(plan_id: str, mutate, agent: str | None = None) -> dict:
+    """Read-modify-write of one plan under the agent lock, as update_jobs.
+    `mutate(doc)` gets the plan, or None when there is none yet, and edits it
+    in place or returns the plan to keep; a SystemExit it raises leaves the
+    file as it was. Nothing to keep (no plan, and mutate returned none) is
+    refused, never written: a file holding null would read as no plan.
+    The directory and the file are private (0700, 0600), as the state is."""
+    agent = agent or current_agent()
+    with agent_lock(agent):
+        doc = read_plan(plan_id, agent)
+        new = mutate(doc)
+        if new is None:
+            new = doc
+        if not isinstance(new, dict):
+            raise SystemExit(f"identity: plan {plan_id!r}: nothing to write (no plan, and none was made)")
+        path = plan_path(plan_id, agent)
+        os.makedirs(os.path.dirname(path), mode=0o700, exist_ok=True)
+        atomic_write(path, json.dumps(new, ensure_ascii=False, indent=2, sort_keys=True) + "\n", mode=0o600)
         return new
 
 

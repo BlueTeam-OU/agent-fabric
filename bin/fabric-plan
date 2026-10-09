@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# bin/fabric-plan — the coordinator's plans as data: steps with an owner and
+# the steps they wait for, each linked to the job queued for it
+# (agent-fabric ADR-047).
+#
+#   fabric-plan new <id> <title>
+#   fabric-plan step add <plan> <title> --owner <login> [--after s1,s2] [--est-days N]
+#   fabric-plan link <plan> <step> <login>:<job>
+#   fabric-plan show [<plan>] [--json]
+#   fabric-plan export <plan>
+#
+# The full account is in tools/fabric/plan.py.
+set -uo pipefail
+ROOT="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
+export AGENT_FABRIC_ROOT="${AGENT_FABRIC_ROOT:-$ROOT}"
+# The fleet's pinned Python (runtime/python.json, ADR-040), one per host;
+# AGENT_FABRIC_PYTHON points elsewhere for a test or a host without it.
+py="${AGENT_FABRIC_PYTHON:-/usr/local/bin/fabric-python}"
+[[ -x "$py" ]] || { echo "fabric-plan: the fleet's pinned Python is not installed at $py; as root: /usr/bin/python3 <agent-fabric>/tools/fabric/python_pin.py install" >&2; exit 127; }
+exec "$py" "$ROOT/tools/fabric/plan.py" "$@"
