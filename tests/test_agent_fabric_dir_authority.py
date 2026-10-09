@@ -17,6 +17,8 @@ HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(HERE, "tools", "fabric"))
 from guards import agent_fabric_dir_authority as da  # noqa: E402
 from guards import common  # noqa: E402
+from instance_fixtures import own_instance_tree  # noqa: E402 — tests/, the script's own directory
+own_instance_tree()
 
 # Nothing of the runner's or the session's own: CI sets GITHUB_HEAD_REF and
 # GITHUB_BASE_REF on a pull request, a launched session sets
