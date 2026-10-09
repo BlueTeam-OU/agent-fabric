@@ -1,0 +1,42 @@
+{
+ "none": {},
+ "broker": {
+  "ANTHROPIC_BASE_URL": "https://openrouter.ai/api",
+  "ANTHROPIC_AUTH_TOKEN": "sk-or-v1-SECRET",
+  "ANTHROPIC_API_KEY": "",
+  "ANTHROPIC_DEFAULT_HAIKU_MODEL": "z-ai/glm-5.3-flash@preset/glm2claude-shim",
+  "ANTHROPIC_DEFAULT_SONNET_MODEL": "z-ai/glm-5.2",
+  "ANTHROPIC_DEFAULT_OPUS_MODEL": "deepseek/deepseek-v4-pro-0813",
+  "CLAUDE_CODE_SUBAGENT_MODEL": "x/y",
+  "CLAUDE_CODE_EFFORT_LEVEL": "medium",
+  "AGENT_FABRIC_LAUNCH_SESSION_MODEL": "deepseek/deepseek-v4-pro-0813",
+  "AGENT_FABRIC_LAUNCH_PROFILE": "broker",
+  "AGENT_FABRIC_LAUNCH_AGENT": "python-dev-01",
+  "CLAUDE_CODE_OTHER": "ignored"
+ },
+ "hostile": {
+  "ANTHROPIC_BASE_URL": "HTTPS://user:pw@OPENROUTER.AI:8443/p?api_key=SECRET#frag",
+  "ANTHROPIC_CUSTOM_HEADERS": "Authorization: Bearer SECRET\nANTHROPIC_MODEL=leaked",
+  "ANTHROPIC_MODEL": "m\nANTHROPIC_DEFAULT_OPUS_MODEL=spoof",
+  "ANTHROPIC_FOUNDRY_API_KEY": "é€漢字"
+ },
+ "lookalike": {
+  "ANTHROPIC_BASE_URL": "https://evil.example/openrouter.ai?x=1",
+  "ANTHROPIC_SMALL_FAST_MODEL": "fast"
+ },
+ "notaurl": {
+  "ANTHROPIC_BASE_URL": "not a url at all with secret",
+  "ANTHROPIC_DEFAULT_FABLE_MODEL": "claude-opus-5-5"
+ },
+ "badport": {
+  "ANTHROPIC_BASE_URL": "http://host:notaport/x"
+ },
+ "sorted": {
+  "ANTHROPIC_MODEL": "a",
+  "ANTHROPIC_DEFAULT_OPUS_MODEL": "b",
+  "ANTHROPIC_AUTH_TOKEN": "c",
+  "ANTHROPIC_SMALL_FAST_MODEL": "d",
+  "ANTHROPIC_ZZ": "e",
+  "ANTHROPIC_AA": "f"
+ }
+}

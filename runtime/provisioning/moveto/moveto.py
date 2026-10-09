@@ -37,6 +37,17 @@ locale calls a control (C0, DEL, C1, U+2028/U+2029) whatever the locale,
 where bash in the C locale stripped C0 and DEL only; every command it runs
 is bounded (TIMEOUT_S), and one that runs out reads as that command failing.
 
+ENTER (`moveto.py --enter <dir> <title> [--wait|--resume|--watch]`, run by
+the stub `enter` that moveto hands off to, under a login shell): the account's
+side of the entry, ported from the bash `enter`. argv is exactly that, the mode
+a fixed word and always last (Fleet Deck reads it from the `sudo … enter`
+hand-off). It sets the tab title, waits for one Enter under --wait, refreshes
+the account (fast-forward agent-fabric, bootstrap, the secrets: each best
+effort, a problem said in one line, the shell still opens), runs fabric-resume
+or fabric-watch for the mode, and becomes `bash --rcfile …/rc -i`. exit 1 when
+<dir> cannot be entered, 2 for a missing argument; otherwise the shell's.
+`--enter` first is the only argument this adds; no account can be named so.
+
 Sudo on this host is granted through the `qubes` group, which the role
 accounts are NOT in. So this works FROM an account with sudo (`user`)
 TO a role account, and not the other way: `exit` is the way back.
@@ -299,6 +310,166 @@ def enter(account: str, path: str, title: str, mode: str = "") -> "NoReturn":  #
     os.execvp("sudo", ["sudo", "-n", "-u", account, "-H", MOVETO_ENTER, path, title, *tail])
 
 
+ENTER_RC = "/usr/local/share/moveto/rc"
+PULL_TIMEOUT_S, BOOTSTRAP_TIMEOUT_S, SECRETS_TIMEOUT_S = 30, 30, 20
+
+
+def run_bounded(argv: list[str], timeout: int, *, capture: bool = False, quiet: bool = False, merge: bool = True) -> tuple[int, str]:
+    """(status, the text when `capture`) of a command in a group of
+    its own, killed with its children when it runs out: status 124, as the
+    coreutils `timeout` said it. A command that cannot start is 127. With
+    `capture`, stderr is merged into the text unless `merge` is off (then it
+    is discarded: a git warning must not be read as git's answer)."""
+    out = subprocess.PIPE if capture else (subprocess.DEVNULL if quiet else None)
+    try:
+        proc = subprocess.Popen(argv, stdin=None, stdout=out, stderr=(subprocess.STDOUT if merge else subprocess.DEVNULL) if capture else (subprocess.DEVNULL if quiet else None),
+                                text=True, errors="replace", start_new_session=True)
+    except OSError:
+        return 127, ""
+    try:
+        text, _ = proc.communicate(timeout=timeout)
+        return proc.returncode, text or ""
+    except subprocess.TimeoutExpired:
+        for sig in (signal.SIGTERM, signal.SIGKILL):
+            try:
+                os.killpg(proc.pid, sig)
+            except (ProcessLookupError, PermissionError):
+                break
+            try:
+                text, _ = proc.communicate(timeout=5)
+                return 124, text or ""
+            except subprocess.TimeoutExpired:
+                continue
+        return 124, ""
+
+
+def pull_reason(output: str, rc: int) -> str:
+    """git's first error line names the cause ("ssh: Could not resolve
+    hostname", "fatal: Not possible to fast-forward"); its last is often
+    boilerplate. A hung network writes nothing before the timeout: then the
+    status says it."""
+    for line in output.splitlines():
+        if line.startswith(("fatal:", "error:", "ssh:")):
+            return line
+    last = output.rstrip("\n").rsplit("\n", 1)[-1]
+    if last:
+        return last
+    return "git pull timed out after 30 s" if rc == 124 else f"git pull exit {rc}"
+
+
+def refresh_fabric(fabric: str) -> None:
+    """Entering an account is its refresh point. Three things, each best effort
+    — offline or unenrolled, what is there stands, the shell still opens, and
+    only a problem is worth one line: the control plane (agent-fabric is
+    read-only for every role but the coordinator, so this clone can only be
+    behind — fast-forward it); bootstrap, which installs from that checkout and
+    is idempotent; the account's secrets, from its own store, before the shell
+    sources them."""
+    rc, inside = run_bounded(["git", "-C", fabric, "rev-parse", "--is-inside-work-tree"], TIMEOUT_S, capture=True, merge=False)
+    if rc == 0 and inside.strip() == "true":
+        rc, pulled = run_bounded(["git", "-C", fabric, "pull", "-q", "--ff-only", "origin", "main"], PULL_TIMEOUT_S, capture=True)
+        if rc != 0:
+            print(f"moveto: agent-fabric not fast-forwarded ({pull_reason(pulled, rc)}); using it as is", file=sys.stderr)
+        else:
+            # --ff-only succeeds without a word on a clone that is AHEAD of
+            # origin/main, so commits nobody merged stayed in force unsaid
+            # (review of #80). A count git cannot give is said as unknown,
+            # never read as zero.
+            code, counted = run_bounded(["git", "-C", fabric, "rev-list", "--count", "origin/main..HEAD"], TIMEOUT_S, capture=True, merge=False)
+            ahead = counted.strip() if code == 0 else ""
+            if not ahead.isascii() or not ahead.isdigit():
+                print("moveto: agent-fabric's commits beyond origin/main are unknown; using it as is", file=sys.stderr)
+            elif ahead != "0":
+                print(f"moveto: agent-fabric is {ahead} commit(s) ahead of origin/main, which only a merge changes; using it as is", file=sys.stderr)
+        rc, _ = run_bounded(["bash", os.path.join(fabric, "runtime", "claude-code", "bootstrap.sh")], BOOTSTRAP_TIMEOUT_S, quiet=True)
+        if rc != 0:
+            print("moveto: bootstrap did not complete; run it by hand", file=sys.stderr)
+    secrets = os.path.join(fabric, "bin", "fabric-secrets")
+    if os.access(secrets, os.X_OK):
+        run_bounded([secrets, "sync", "--quiet"], SECRETS_TIMEOUT_S)    # best effort: its status is not the entry's
+
+
+def read_line_unbuffered(fd: int) -> bytes:
+    """One line from `fd` a byte at a time, as the shell's `read -r` reads a pipe: nothing past
+    the newline is taken from the shell that follows. b'' or a partial line is end of input."""
+    out = b""
+    while True:
+        try:
+            c = os.read(fd, 1)
+        except InterruptedError:
+            continue
+        if not c:
+            return out
+        out += c
+        if c == b"\n":
+            return out
+
+
+def enter_main(argv: list[str]) -> int:
+    if not argv:
+        print("moveto: enter needs <dir> <title> [mode]", file=sys.stderr)
+        return 2
+    directory, title = argv[0], argv[1] if len(argv) > 1 else ""
+    mode = argv[2] if len(argv) > 2 else ""
+    try:
+        os.chdir(directory)
+    except OSError as exc:
+        print(f"moveto: cd {directory}: {exc.strerror}", file=sys.stderr)
+        return 1
+    os.environ["MOVETO_TITLE"] = title
+    if mode not in ("", *MODES):
+        print(f"moveto: unknown mode '{mode}'; a plain shell", file=sys.stderr)
+        mode = ""
+    # Set the title NOW, before the refresh and before any wait: a pane armed
+    # --wait sits here, and PROMPT_COMMAND alone would leave the terminal
+    # showing whatever it had while this was starting up. OSC 1 = icon/tab
+    # name, OSC 2 = window title. Explicit beats OSC 0, which means "both" and
+    # is honoured inconsistently.
+    sys.stdout.write(f"\033]1;{title}\007\033]2;{title}\007")
+    # --wait (Fleet Deck's dormant pane): one line, then one Enter does exactly
+    # --resume. The line comes BEFORE the refresh, so the pull, the bootstrap
+    # and the secrets are as fresh as the Enter, not as the pane. The line
+    # read is discarded whatever it holds; input that ends first is a plain
+    # shell, said.
+    if mode == "--wait":
+        sys.stdout.write(f"{me()} - Enter to activate\n")
+        sys.stdout.flush()
+        if read_line_unbuffered(0).endswith(b"\n"):
+            mode = "--resume"
+        else:
+            print("moveto: input ended before Enter; a plain shell, nothing activated", file=sys.stderr)
+            mode = ""
+    # From here: Ctrl-C while the account refreshes or its tool runs is the tool's (fabric-watch quits on
+    # it), never the entry's: the bash carried on to the shell when a foreground child took the
+    # SIGINT. A Python handler, not SIG_IGN: it is reset to the default in every child.
+    if signal.getsignal(signal.SIGINT) is not signal.SIG_IGN:    # an inherited ignore stays one, in the children too
+        signal.signal(signal.SIGINT, lambda *_: None)
+    sys.stdout.flush()
+    fabric = os.path.join(os.environ.get("HOME", ""), "projects", "agent-fabric")
+    refresh_fabric(fabric)
+    # --resume (Fleet Deck's re-entry): the account's last session comes back
+    # first, as a child of this shell's start, through its own launcher
+    # (bin/fabric-resume), which says when it starts fresh instead, and
+    # refuses when a session already runs; when that session ends, the shell
+    # follows. --watch (the deck's status pane): bin/fabric-watch, read-only,
+    # until q; then the account's shell. A checkout older than either (its pull
+    # failed): the pane says nothing ran, never a silent plain shell.
+    tool = {"--resume": "fabric-resume", "--watch": "fabric-watch"}.get(mode, "")
+    path = os.path.join(fabric, "bin", tool)
+    if tool and os.access(path, os.X_OK):
+        try:
+            status = subprocess.run([path], timeout=None).returncode
+        except OSError:
+            status = 126
+        if status != 0:
+            print(f"moveto: {tool} exited {128 - status if status < 0 else status}", file=sys.stderr)   # the shell's $?
+    elif tool:
+        print(f"moveto: no {tool} in {fabric}; nothing run", file=sys.stderr)
+    sys.stderr.flush()
+    signal.signal(signal.SIGPIPE, signal.SIG_DFL)      # SIGINT's Python handler is reset by the exec itself
+    os.execvp("bash", ["bash", "--rcfile", ENTER_RC, "-i"])
+
+
 def main(argv: list[str]) -> int:
     for stream in (sys.stdout, sys.stderr):
         stream.reconfigure(encoding="utf-8", errors="surrogateescape")
@@ -306,7 +477,7 @@ def main(argv: list[str]) -> int:
     # flushed inside the try, so a reader that went away is exit 141, not
     # an exec failure or an error at interpreter shutdown.
     try:
-        rc = moveto(argv)
+        rc = enter_main(argv[1:]) if argv[:1] == ["--enter"] else moveto(argv)
         sys.stdout.flush()
         return rc
     except Refused as exc:
@@ -315,6 +486,8 @@ def main(argv: list[str]) -> int:
     except BrokenPipeError:
         os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
         return 141
+    except KeyboardInterrupt:
+        return 130      # Ctrl-C at the --wait prompt ends the entry, as it ended the bash script
     except OSError as exc:
         print(f"moveto: {exc.filename or MOVETO_ENTER}: {exc.strerror or exc}", file=sys.stderr)
         return 126

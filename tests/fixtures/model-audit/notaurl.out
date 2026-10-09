@@ -1,0 +1,22 @@
+== provider variables in this session's environment ==
+  ANTHROPIC_BASE_URL = <set, 28 chars>
+  ANTHROPIC_DEFAULT_FABLE_MODEL = claude-opus-5-5
+
+== the launcher's stamp (runtime/openrouter/launch) ==
+  not launched via runtime/openrouter/launch — the session model is the harness
+  default or a settings-scope "model" key, and is not visible from the
+  environment. /status inside the session shows it.
+
+== the four alias pins (ANTHROPIC_DEFAULT_*) ==
+  haiku      <unset — harness default>
+  sonnet     <unset — harness default>
+  opus       <unset — harness default>
+  fable      claude-opus-5-5
+
+== how to read back what was actually SERVED ==
+  ANTHROPIC_BASE_URL does not name OpenRouter in this environment —
+  this reads as a vanilla Anthropic-routed session.
+
+  The durable path: OTel claude_code.llm_request (model, agent.name)
+  against local Tempo — per-request, per-agent, no transcript parsing.
+  (The transcript JSONL is documented as internal; do not parse it.)

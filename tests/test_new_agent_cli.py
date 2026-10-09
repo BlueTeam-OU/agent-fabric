@@ -215,7 +215,8 @@ def main() -> int:
         shutil.copytree(f"{ROOT}/runtime/hostexec", f"{fab}/runtime/hostexec", symlinks=True)
         shutil.copytree(f"{HERE}/platform", f"{fab}/runtime/provisioning/platform", symlinks=True)
         shutil.copy(f"{ROOT}/runtime/claude-code/harness.json", f"{fab}/runtime/claude-code/")
-        for f in ("new_agent.py", "new_agent_worker.py", "roots.py"):
+        # hostexec and the worker are shims for their modules (ADR-040 §5 rule 5).
+        for f in ("new_agent.py", "new_agent_worker.py", "roots.py", "hostexec.py", "hostworker.py"):
             shutil.copy2(f"{ROOT}/tools/fabric/{f}", f"{fab}/tools/fabric/")
         put(f"{sandbox}/home/.local/bin/claude", "#!/bin/sh\necho fake\n", 0o755)
         # The host registry the orchestrator reads: this host (direct) and a
