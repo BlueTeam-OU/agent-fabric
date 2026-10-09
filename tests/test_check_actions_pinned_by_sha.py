@@ -132,6 +132,23 @@ def main() -> int:
         ok = got == want and needle in out
         fails += not ok
         print(f"  {'ok  ' if ok else 'FAIL'} {label} (exit {got})" + ("" if ok else f"\n        {out[-300:]}"))
+    # `$` matches before a final newline; judge() takes whole values, so a
+    # pin or comment with one trailing "\n" is a different, unpinned string.
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("pinned_under_test", TOOL)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    for label, ref, comment in [
+        ("a SHA plus a newline", f"actions/checkout@{SHA}\n", "v7.0.1"),
+        ("a docker digest plus a newline", f"docker://a@sha256:{DIGEST}\n", ""),
+        ("a version comment plus a newline", f"actions/checkout@{SHA}", "v7.0.1\n"),
+    ]:
+        ok = mod.judge(ref, comment) is not None
+        fails += not ok
+        print(f"  {'ok  ' if ok else 'FAIL'} {label} is refused")
+    ok = mod.judge(f"actions/checkout@{SHA}", "v7.0.1") is None
+    fails += not ok
+    print(f"  {'ok  ' if ok else 'FAIL'} the same pin without the newline passes")
     print(f"\n{'FAILED' if fails else 'all passed'}")
     return 1 if fails else 0
 

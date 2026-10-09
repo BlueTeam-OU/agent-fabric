@@ -69,7 +69,7 @@ def note(payload: dict, now: float | None = None, state: str | None = None) -> s
     now = time.time() if now is None else now
     cwd = payload.get("cwd")
     session = str(payload.get("session_id") or "")
-    if not isinstance(cwd, str) or not os.path.isdir(cwd) or not SESSION_RE.match(session):
+    if not isinstance(cwd, str) or not os.path.isdir(cwd) or not SESSION_RE.fullmatch(session):
         return None
     # --git-path, not the common dir: a linked worktree's fetch writes its
     # own FETCH_HEAD, so the common one would throttle on another checkout.
