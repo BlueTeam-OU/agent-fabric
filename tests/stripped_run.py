@@ -12,40 +12,67 @@ until the suite was run on a stripped copy (fabric-coordinator's request
 The copy is the tree's files as git lists them, tracked and untracked but
 not ignored, so uncommitted work is what is run; instance_fixtures.
 strip_instance removes the instance data; the copy is made a one-commit git
-repository, as a checkout is. Each file runs with the caller's environment
-less what CI does not have (AGENT_FABRIC_*, GITHUB_*, CLAUDE*, ANTHROPIC_*,
-GIT_DIR), its cwd the copy, its TMPDIR a directory beside the copy (what
-a test leaves there is not the caller's), under a timeout. Both are
-removed however the run ends.
+repository, as a checkout is. A test file is named by its path in the tree
+(relative, or absolute inside it) and runs from the COPY: one outside the
+tree, or not in the copy (an ignored file), is refused, never run where it
+lies, which would read the live data and pass.
+
+Each file runs with the caller's environment less what CI does not have
+(AGENT_FABRIC_*, GITHUB_*, CLAUDE*, ANTHROPIC_*) and less every inherited
+GIT_* (a hook's GIT_INDEX_FILE or GIT_WORK_TREE would aim git at the
+caller's repository; tests/git_env.py), with signing pinned off as
+tests/run.sh pins it; its cwd the copy, its TMPDIR a directory beside it,
+in a process group of its own, under a timeout. The group is killed when
+the file ends or times out, and SIGTERM or SIGHUP end the run as an exit
+does, so the copy and what the tests left are removed however it ends.
 
 stdout: one line per file, "<file>: ok" or "<file>: FAILED (exit <n>)"
 followed by its failing lines. Exit 0 all passed, 1 any failed, 2 the run
-could not be made (no tree, not a git work tree, a file not in it).
+could not be made or not cleaned up (no tree, not a git work tree, a file
+not in it, a copy that could not be removed).
 """
 from __future__ import annotations
 
 import os
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
+import git_env  # noqa: E402
 import instance_fixtures  # noqa: E402
 
 TIMEOUT_S = 900
 NOT_CI = re.compile(r"(AGENT_FABRIC_|GITHUB_|CLAUDE|ANTHROPIC_)")
+# tests/run.sh's: no sandbox signs, whatever the caller's git config says.
+NO_SIGNING = {"GIT_CONFIG_COUNT": "2", "GIT_CONFIG_KEY_0": "commit.gpgsign", "GIT_CONFIG_VALUE_0": "false",
+              "GIT_CONFIG_KEY_1": "tag.gpgsign", "GIT_CONFIG_VALUE_1": "false"}
+
+
+class NotRunnable(Exception):
+    """The run cannot be made as asked: said, exit 2."""
 
 
 def ci_env(environ: dict[str, str]) -> dict[str, str]:
-    return {k: v for k, v in environ.items() if not NOT_CI.match(k) and k != "GIT_DIR"}
+    env = {k: v for k, v in environ.items() if not NOT_CI.match(k) and not k.startswith("GIT_")}
+    return {**env, **NO_SIGNING}
+
+
+def in_tree(top: str, f: str) -> str:
+    """`f` as a path relative to `top`, or NotRunnable when it is not in it."""
+    p = os.path.realpath(f if os.path.isabs(f) else os.path.join(top, f))
+    if os.path.commonpath([p, top]) != top or not os.path.isfile(p):
+        raise NotRunnable(f"not a file in {top}: {f}")
+    return os.path.relpath(p, top)
 
 
 def copy_tree(tree: str, dest: str) -> None:
     listed = subprocess.run(["git", "-C", tree, "ls-files", "-z", "-co", "--exclude-standard"],
-                            capture_output=True, timeout=120, check=True).stdout
+                            env=git_env.git_env(ci_env(dict(os.environ))), capture_output=True, timeout=120, check=True).stdout
     for rel in (p.decode("utf-8", "surrogateescape") for p in listed.split(b"\0") if p):
         src = os.path.join(tree, rel)
         if not os.path.lexists(src):
@@ -59,30 +86,53 @@ def copy_tree(tree: str, dest: str) -> None:
 
 
 def make_repo(dest: str) -> None:
-    env = {**ci_env(dict(os.environ)), "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}
-    for argv in (["git", "init", "-q"], ["git", "add", "-A"],
-                 ["git", "-c", "user.name=stripped", "-c", "user.email=stripped@invalid", "-c", "commit.gpgsign=false",
-                  "commit", "-q", "--no-verify", "-m", "stripped"]):
+    env = git_env.git_env(ci_env(dict(os.environ)))
+    for argv in (["git", "init", "-q"], ["git", "add", "-A"], ["git", "commit", "-q", "--no-verify", "-m", "stripped"]):
         subprocess.run(argv, cwd=dest, env=env, capture_output=True, timeout=120, check=True)
 
 
+def _kill_group(proc: subprocess.Popen) -> None:
+    try:
+        os.killpg(proc.pid, signal.SIGKILL)
+    except (ProcessLookupError, PermissionError):
+        pass                              # the group is already gone
+
+
+def run_one(argv: list[str], cwd: str, env: dict[str, str]) -> tuple[int | str, str]:
+    proc = subprocess.Popen(argv, cwd=cwd, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                            text=True, errors="replace", start_new_session=True)
+    try:
+        out, _ = proc.communicate(timeout=TIMEOUT_S)
+        return proc.returncode, out
+    except subprocess.TimeoutExpired:
+        _kill_group(proc)
+        out, _ = proc.communicate()
+        return "timeout", (out or "") + f"\nno answer within {TIMEOUT_S} s"
+    finally:
+        # A grandchild the file left running holds the copy: never past here.
+        _kill_group(proc)
+        if proc.poll() is None:
+            proc.kill()
+            proc.wait()
+
+
 def run(tree: str, files: list[str], out=print) -> int:
-    with tempfile.TemporaryDirectory(prefix="stripped.") as base:
+    base = tempfile.mkdtemp(prefix="stripped.")
+    try:
         d, tmp = os.path.join(base, "tree"), os.path.join(base, "tmp")
         os.makedirs(d)
         os.makedirs(tmp)
-        env = {**ci_env(dict(os.environ)), "TMPDIR": tmp}
         copy_tree(tree, d)
         instance_fixtures.strip_instance(d)
+        absent = [f for f in files
+                  if os.path.commonpath([os.path.realpath(os.path.join(d, f)), d]) != d or not os.path.isfile(os.path.join(d, f))]
+        if absent:
+            raise NotRunnable(f"not in the copy (ignored by git, or instance data): {', '.join(absent)}")
         make_repo(d)
+        env = {**ci_env(dict(os.environ)), "TMPDIR": tmp}
         failed = 0
         for f in files:
-            try:
-                r = subprocess.run([sys.executable, "-B", f], cwd=d, env=env,
-                                   capture_output=True, text=True, errors="replace", timeout=TIMEOUT_S)
-                code, text = r.returncode, r.stdout + r.stderr
-            except subprocess.TimeoutExpired:
-                code, text = "timeout", f"no answer within {TIMEOUT_S} s"
+            code, text = run_one([sys.executable, "-B", f], d, env)
             if code == 0:
                 out(f"{f}: ok")
             else:
@@ -91,27 +141,35 @@ def run(tree: str, files: list[str], out=print) -> int:
                 for line in [ln for ln in text.splitlines() if "FAIL" in ln or "Error" in ln][:12] or text.splitlines()[-5:]:
                     out(f"    {line}")
         return 1 if failed else 0
+    finally:
+        shutil.rmtree(base)
+
+
+def _as_exit(signum, _frame):
+    raise SystemExit(128 + signum)
 
 
 def main(argv: list[str]) -> int:
     if len(argv) < 2:
         print("usage: stripped_run.py <tree> <test file>...", file=sys.stderr)
         return 2
-    tree, files = os.path.abspath(argv[0]), argv[1:]
+    tree = os.path.abspath(argv[0])
     try:
-        top = subprocess.run(["git", "-C", tree, "rev-parse", "--show-toplevel"], capture_output=True, text=True,
-                             timeout=30, check=True).stdout.strip()
+        top = os.path.realpath(subprocess.run(["git", "-C", tree, "rev-parse", "--show-toplevel"], capture_output=True,
+                                              text=True, env=git_env.git_env(ci_env(dict(os.environ))),
+                                              timeout=30, check=True).stdout.strip())
     except (OSError, subprocess.SubprocessError):
         print(f"stripped_run: {tree} is not a git work tree", file=sys.stderr)
         return 2
-    missing = [f for f in files if not os.path.isfile(os.path.join(top, f))]
-    if missing:
-        print(f"stripped_run: not in {top}: {', '.join(missing)}", file=sys.stderr)
-        return 2
+    for sig in (signal.SIGTERM, signal.SIGHUP):
+        signal.signal(sig, _as_exit)
     try:
-        return run(top, files)
+        return run(top, [in_tree(top, f) for f in argv[1:]])
+    except NotRunnable as e:
+        print(f"stripped_run: {e}", file=sys.stderr)
+        return 2
     except (OSError, subprocess.SubprocessError) as e:
-        print(f"stripped_run: the stripped copy could not be made: {e}", file=sys.stderr)
+        print(f"stripped_run: the stripped copy could not be made or removed: {e}", file=sys.stderr)
         return 2
 
 
