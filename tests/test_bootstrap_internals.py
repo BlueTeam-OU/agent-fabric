@@ -224,6 +224,45 @@ def checkout_among_working_copies(T: str) -> None:
         s.close()
 
 
+def moved_origin_repointed(T: str) -> None:
+    print("step 5a: an origin naming a moved_from remote takes the current one")
+    s = Scratch(T, "moved")
+    try:
+        projects, root = fabric(s, remote="git@github.com:old-org/agent-fabric.git")
+        put(os.path.join(root, "projects", "registry.json"), json.dumps({"version": 1, "projects": {
+            "agent-fabric": {"remotes": ["git@github.com:new-org/agent-fabric.git", "https://github.com/new-org/agent-fabric",
+                                         "git@github.com:old-org/agent-fabric.git", "https://github.com/old-org/agent-fabric"],
+                             "moved_from": ["git@github.com:old-org/agent-fabric.git", "https://github.com/old-org/agent-fabric"]},
+            "alpha": {"remotes": ["git@github.com:new-org/alpha.git", "https://github.com/new-org/alpha",
+                                  "https://github.com/Old-Org/alpha"],
+                      "moved_from": ["https://github.com/Old-Org/alpha"]},
+            "beta": {"remotes": ["git@github.com:example-org/beta.git", "git@github.com:someone/beta.git"]}}}))
+        alpha, beta = os.path.join(projects, "alpha"), os.path.join(projects, "beta")
+        for wc, url in ((alpha, "https://github.com/old-org/ALPHA.git"), (beta, "git@github.com:someone/beta.git")):
+            git("init", "-q", wc)
+            git("-C", wc, "remote", "add", "origin", url)
+        origin = lambda wc: subprocess.run(["git", "-C", wc, "config", "--get", "remote.origin.url"],
+                                           capture_output=True, text=True).stdout.strip()
+        b = bootstrap.Bootstrap(projects, True, root)
+        _, out, _ = quiet(b.working_copy_hooks)
+        check("a dry run says both re-points and writes neither",
+              "origin git@github.com:old-org/agent-fabric.git -> git@github.com:new-org/agent-fabric.git (moved)" in out
+              and "origin https://github.com/old-org/ALPHA.git -> https://github.com/new-org/alpha (moved)" in out
+              and origin(root) == "git@github.com:old-org/agent-fabric.git", out)
+        b = bootstrap.Bootstrap(projects, False, root)
+        _, out, _ = quiet(b.working_copy_hooks)
+        check("the checkout and a working copy follow, each keeping its scheme; case does not hide a move",
+              origin(root) == "git@github.com:new-org/agent-fabric.git" and origin(alpha) == "https://github.com/new-org/alpha",
+              (origin(root), origin(alpha)))
+        check("a second listed remote that is not moved_from is left alone",
+              origin(beta) == "git@github.com:someone/beta.git", origin(beta))
+        b = bootstrap.Bootstrap(projects, False, root)
+        _, out, _ = quiet(b.working_copy_hooks)
+        check("a second run re-points nothing", "(moved)" not in out, out)
+    finally:
+        s.close()
+
+
 def work_tree_answer(T: str) -> None:
     print("step 5: git's own answer for a work tree")
     s = Scratch(T, "worktree")
@@ -318,7 +357,7 @@ def main() -> int:
     try:
         for case in (glob_order, workspace_settings_not_an_object, role_command_dry_run, agent_files_failure,
                      commands_unreadable,
-                     checkout_among_working_copies, work_tree_answer, user_manager, relay_holder, journal_bound):
+                     checkout_among_working_copies, moved_origin_repointed, work_tree_answer, user_manager, relay_holder, journal_bound):
             case(T)
     finally:
         shutil.rmtree(T, ignore_errors=True)
