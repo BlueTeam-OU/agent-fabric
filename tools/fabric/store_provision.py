@@ -40,6 +40,7 @@ import urllib.request
 
 HERE = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, HERE)
+import httpsafe  # noqa: E402
 import roots  # noqa: E402
 import secret_store as ss  # noqa: E402
 
@@ -115,11 +116,16 @@ def share(logins: list[str], names: list[str] | None = None, *, replace: bool = 
     return rows
 
 
+# The token goes to the host it was given for only: a same-origin redirect
+# (a renamed resource) is followed, any other is an error (httpsafe).
+OPENER = httpsafe.opener(proxies=True, redirects="same-origin")
+
+
 def _http(method: str, url: str, token: str, body: dict | None = None) -> dict:
     req = urllib.request.Request(url, method=method, data=json.dumps(body).encode() if body is not None else None,
                                  headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"})
     try:
-        with urllib.request.urlopen(req, timeout=TIMEOUT_S) as resp:
+        with OPENER.open(req, timeout=TIMEOUT_S) as resp:
             raw = resp.read()
     except urllib.error.HTTPError as e:
         raise ss.StoreError(f"{method} {url.split('/v1/', 1)[-1]} refused ({e.code}): {e.read()[:160].decode(errors='replace')}")

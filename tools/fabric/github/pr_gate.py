@@ -39,6 +39,7 @@ sys.path.insert(0, os.path.dirname(HERE))
 import gh  # noqa: E402
 import git  # noqa: E402
 from github import commit_class, local, pr_review_status  # noqa: E402
+from github.review_status.base import listed, obj  # noqa: E402
 
 FABRIC = os.path.dirname(os.path.dirname(os.path.dirname(HERE)))
 
@@ -55,7 +56,7 @@ sixteen is batch-size advice for the next batch, never a block. One line
 per PR now carries all of it, and a verdict.
 
 WHAT A ROW SAYS
-  #N  <owner> [(me)]  commits=T (W work, F fix, M merge[, R netted by a revert])  checks=<green|red:<names>|pending:<k>>
+  #N  <owner> [(me)]  commits=T (W work, F fix, M merge[, R netted by a revert])  checks=<green|red:<names>|pending:<k>|none-yet|?>
       review=<head reviewed|NOT on head|none>  threads=<u>  armed=<yes|no>
       queue=<pos>  verdict
 
@@ -77,7 +78,8 @@ WHAT A ROW SAYS
          the split can be checked; commit-class.sh is the classifier)
   checks green when every reported check passed; red names the failed
          ones; pending counts the ones still running; none-yet when no
-         check has reported (seconds after a push)
+         check has reported (seconds after a push); ? when they could
+         not all be read, which blocks
   review whether a review — an independent one, or the review class's blind review — covers the CURRENT head
          (pr-review-status.sh's reading)
   verdict one of:
@@ -87,6 +89,7 @@ WHAT A ROW SAYS
     MERGEABLE — commits unknown (the base is not fetched; count by hand)
     ARMED and clear / ARMED but held: <what> / QUEUED — nothing to do
     BLOCKED: <what> — a draft, red checks, pending checks, no check yet,
+    checks unread,
     no review of the head, unresolved threads, a conflict
   A pull request given by number that is not OPEN is said and skipped.
 
@@ -127,13 +130,24 @@ LIST_CAP = 500
 INFLIGHT_PATHS_CAP = 200   # a row's paths as data; the total is always given
 GATE_QUERY = """query($owner: String!, $name: String!, $number: Int!) {
   repository(owner: $owner, name: $name) { pullRequest(number: $number) {
-    mergeStateStatus mergeable
+    mergeStateStatus mergeable headRefOid
     reviewThreads(first: 100) { nodes { isResolved } pageInfo { hasNextPage endCursor } }
     mergeQueueEntry { position state }
     autoMergeRequest { enabledAt }
-    statusCheckRollup { contexts(first: 100) { nodes {
+    statusCheckRollup { contexts(first: 100) { pageInfo { hasNextPage endCursor } nodes {
       ... on CheckRun { name status conclusion }
       ... on StatusContext { context state } } } } } } }"""
+# The rest of the checks past GATE_QUERY's first 100. Read whole or not at
+# all: a red check on page two read as "green" would let a PR be armed.
+# headRefOid is asked again because the rollup is the CURRENT head's: a
+# push between the pages would splice two heads' checks into one answer.
+CONTEXTS_QUERY = """query($owner: String!, $name: String!, $number: Int!, $after: String) {
+  repository(owner: $owner, name: $name) { pullRequest(number: $number) {
+    headRefOid
+    statusCheckRollup { contexts(first: 100, after: $after) { pageInfo { hasNextPage endCursor } nodes {
+      ... on CheckRun { name status conclusion }
+      ... on StatusContext { context state } } } } } } }"""
+CONTEXT_PAGES = 50
 RED = re.compile(r"FAILURE|ERROR|TIMED_OUT|CANCELLED|ACTION_REQUIRED|STARTUP_FAILURE")
 RUNNING_STATUS = re.compile(r"IN_PROGRESS|QUEUED|PENDING|WAITING|REQUESTED")
 RUNNING_STATE = re.compile(r"PENDING|EXPECTED")
@@ -266,50 +280,104 @@ def split_range(num: int, repo: str, rev_range: str, head: str = "") -> dict:
 
 # ── checks, threads, arming, queue, merge state ─────────────────────
 
-def gate_state(repo: str, num: int) -> dict | None:
+def check_contexts(owner: str, name: str, num: int, after: str | None, head: str) -> list[dict]:
+    """The check contexts of the PR's `head` from `after` on, page by page.
+    Raises gh.GhError (or a lookup error on a malformed answer) when any
+    page cannot be read, and ValueError for a continuation with no cursor
+    (GitHub reads a null `after` as the first page, so it would be counted
+    twice), a head that moved, or more than CONTEXT_PAGES pages."""
+    nodes: list[dict] = []
+    for _ in range(CONTEXT_PAGES):
+        if not after:
+            raise ValueError("a next page of checks with no cursor")
+        data = gh.graphql(CONTEXTS_QUERY, owner=owner, name=name, number=num, after=after)
+        pr = data["repository"]["pullRequest"]
+        if not head or pr["headRefOid"] != head:
+            raise ValueError("the head moved while its checks were read")
+        page = pr["statusCheckRollup"]["contexts"]
+        more = listed(page["nodes"])
+        if more is None:
+            raise TypeError("a page of checks that is not a list of objects")
+        nodes += more
+        info = obj(page.get("pageInfo"))
+        if info is None:
+            raise TypeError("a page of checks whose pageInfo is not an object")
+        if not info.get("hasNextPage"):
+            return nodes
+        after = info.get("endCursor")
+    raise ValueError(f"more than {CONTEXT_PAGES * 100} checks")
+
+
+def gate_state(repo: str, num: int, head: str) -> dict | None:
+    """The gate's reading of the PR, its checks those of `head`, the head
+    its row reports: a push since the PR list was read makes them "?"."""
     owner, name = repo.split("/", 1)
     try:
-        pr = (gh.graphql(GATE_QUERY, owner=owner, name=name, number=num).get("repository") or {}).get("pullRequest")
+        repository = obj(gh.graphql(GATE_QUERY, owner=owner, name=name, number=num).get("repository"))
     except (gh.GhError, ValueError):
         return None
-    if not isinstance(pr, dict):
+    pr = repository.get("pullRequest") if repository is not None else None
+    # The queue position is read, not counted: one that cannot be read
+    # leaves no verdict to give, so the PR is unreadable as a whole.
+    queued = obj(pr.get("mergeQueueEntry")) if isinstance(pr, dict) else None
+    if not isinstance(pr, dict) or queued is None:
         return None
-    nodes = [n for n in (((pr.get("statusCheckRollup") or {}).get("contexts") or {}).get("nodes") or [])
-             if isinstance(n, dict)]
-    red = [jq_str(alt(n.get("name"), n.get("context"))) if alt(n.get("name"), n.get("context")) is not None else ""
-           for n in nodes if RED.search(str(alt(n.get("conclusion"), n.get("state"), "")))]
-    pending = sum(1 for n in nodes
-                  if (RUNNING_STATUS.search(str(alt(n.get("status"), ""))) or RUNNING_STATE.search(str(alt(n.get("state"), ""))))
-                  and alt(n.get("conclusion"), "") == "")
-    if red:
-        checks = "red:" + ",".join(red)
-    elif pending:
-        checks = f"pending:{pending}"
-    elif not nodes:
-        checks = "none-yet"
-    else:
-        checks = "green"
-    page = pr.get("reviewThreads") or {}
-    threads = page.get("nodes") or []
-    info = page.get("pageInfo") or {}
-    if info.get("hasNextPage"):
+    rollup = obj(pr.get("statusCheckRollup"))
+    contexts = obj(rollup.get("contexts")) if rollup is not None else None
+    nodes = listed(contexts.get("nodes")) if contexts is not None else None
+    cinfo = obj(contexts.get("pageInfo")) if contexts is not None else None
+    if cinfo is None:
+        nodes = None
+    if not head or pr.get("headRefOid") != head:
+        nodes = None
+    if nodes is not None and cinfo.get("hasNextPage"):
+        try:
+            nodes = nodes + check_contexts(owner, name, num, cinfo.get("endCursor"), head)
+        except (gh.GhError, ValueError, TypeError, KeyError, AttributeError):
+            nodes = None
+    checks = "?" if nodes is None else checks_of(nodes)
+    page = obj(pr.get("reviewThreads"))
+    threads = listed(page.get("nodes")) if page is not None else None
+    info = obj(page.get("pageInfo")) if page is not None else None
+    if info is None:
+        threads = None
+    if threads is not None and info.get("hasNextPage"):
         # Past the first 100 the count was short and read as whole (review
         # of #71): the rest are read page by page, and a rest that cannot be
         # read makes the count unknown, which blocks like any count but 0.
+        # A null cursor is not a continuation: review_threads would start
+        # again at the first page and count it twice.
         try:
+            if not info.get("endCursor"):
+                raise ValueError("a next page of review threads with no cursor")
             threads = threads + pr_review_status.review_threads(owner, name, num, after=info.get("endCursor"))
         except (gh.GhError, ValueError, TypeError, KeyError, AttributeError):
             threads = None
-    queue = alt((pr.get("mergeQueueEntry") or {}).get("position"))
+    queue = alt(queued.get("position"))
     return {
         "unresolved": "?" if threads is None else
-                      str(sum(1 for t in threads if isinstance(t, dict) and not alt(t.get("isResolved")))),
+                      str(sum(1 for t in threads if not alt(t.get("isResolved")))),
         "armed": "yes" if pr.get("autoMergeRequest") is not None else "no",
         "queue": "" if queue is None else jq_str(queue),
         "mstate": jq_str(alt(pr.get("mergeStateStatus"), "?")),
         "mergeable": jq_str(alt(pr.get("mergeable"), "?")),
         "checks": checks,
     }
+
+
+def checks_of(nodes: list[dict]) -> str:
+    red = [jq_str(alt(n.get("name"), n.get("context"))) if alt(n.get("name"), n.get("context")) is not None else ""
+           for n in nodes if RED.search(str(alt(n.get("conclusion"), n.get("state"), "")))]
+    pending = sum(1 for n in nodes
+                  if (RUNNING_STATUS.search(str(alt(n.get("status"), ""))) or RUNNING_STATE.search(str(alt(n.get("state"), ""))))
+                  and alt(n.get("conclusion"), "") == "")
+    if red:
+        return "red:" + ",".join(red)
+    if pending:
+        return f"pending:{pending}"
+    if not nodes:
+        return "none-yet"
+    return "green"
 
 
 def review_reader() -> list[str]:
@@ -373,6 +441,8 @@ def verdict(num: int, base: str, draft: bool, commits: dict | None, st: dict, re
         blocks.append(f"{checks[8:]} check(s) pending")
     if checks == "none-yet":
         blocks.append("no check has reported yet (seconds after a push, or nothing runs on this PR)")
+    if checks == "?":
+        blocks.append("the checks could not all be read")
     if review != "head reviewed":
         blocks.append(f"no review of the head ({review})")
     if st["unresolved"] != "0":
@@ -659,7 +729,7 @@ def run(argv: list[str]) -> int:
         num, head, base = p.get("number"), jq_str(p.get("headRefOid")), jq_str(p.get("baseRefName"))
         branch = jq_str(p.get("headRefName"))
         commits = count_commits(num, repo, base, head) if fetched else None
-        st = gate_state(repo, num)
+        st = gate_state(repo, num, head)
         if st is None:
             note(f"could not read pull request #{num} from GitHub (the graphql read failed); nothing is invented — "
                  "run again.")

@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 import gh
-from github.review_status.base import jstr, jkey
+from github.review_status.base import jstr, jkey, listed, obj
 from github.review_status.verdicts import PASS_LINE, Buckets, classify, verdicts_of, newest, refusal_of, request_of, head_covered
 
 if TYPE_CHECKING:
@@ -49,8 +49,10 @@ def review_threads(owner: str, name: str, pr: int, after: str | None = None) -> 
     for _ in range(THREAD_PAGES):
         data = gh.graphql(THREADS_QUERY, owner=owner, name=name, pr=pr, after=after)
         page = data["repository"]["pullRequest"]["reviewThreads"]
-        nodes += page["nodes"]
-        info = page.get("pageInfo") or {}
+        more, info = listed(page["nodes"]), obj(page.get("pageInfo"))
+        if more is None or info is None:
+            raise TypeError("a page of review threads that is not a list of objects with its pageInfo")
+        nodes += more
         if not info.get("hasNextPage"):
             return nodes
         after = info.get("endCursor")

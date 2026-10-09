@@ -92,7 +92,7 @@ from .inbox_parts.config import ControlChannel, assert_not_control_channel, git_
 from .inbox_parts.config import inbox_root  # noqa: F401
 from .inbox_parts.tokens import synced_var, TokenRefused, checked_token, synced_token, token  # noqa: F401
 from .inbox_parts.tokens import _token, identity, for_me  # noqa: F401
-from .inbox_parts.relay import _relay_up, ensure_relay, RelayError, API_TIMEOUT, _NoRedirect  # noqa: F401
+from .inbox_parts.relay import _relay_up, ensure_relay, RelayError, API_TIMEOUT  # noqa: F401
 from .inbox_parts.relay import _OPENER, api, explain_relay_error  # noqa: F401
 from .inbox_parts.records import _records, _when, one_line, _parse_quiet, replay, HISTORY_WINDOW  # noqa: F401
 from .inbox_parts.records import history, RETRANSMISSION_LOOKUP_MS, mark_retransmissions  # noqa: F401

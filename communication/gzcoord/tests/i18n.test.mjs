@@ -31,8 +31,13 @@ const brokenTree = (contents) => {
     for (const f of fs.readdirSync(path.join(FABRIC, from)))
       if (fs.statSync(path.join(FABRIC, from, f)).isFile()) fs.copyFileSync(path.join(FABRIC, from, f), path.join(to, f));
   }
-  // roots.py, which the modules read the instance data's paths from.
-  fs.copyFileSync(path.join(FABRIC, 'tools', 'fabric', 'roots.py'), path.join(dir, 'tools', 'fabric', 'roots.py'));
+  // Every top-level module of tools/fabric, which the modules import as
+  // siblings (roots, httpsafe, git): a list of the ones imported today went
+  // stale the day relay.py took httpsafe, and the case failed on a missing
+  // module, never on the dictionary.
+  for (const f of fs.readdirSync(path.join(FABRIC, 'tools', 'fabric')))
+    if (f.endsWith('.py') && fs.statSync(path.join(FABRIC, 'tools', 'fabric', f)).isFile())
+      fs.copyFileSync(path.join(FABRIC, 'tools', 'fabric', f), path.join(dir, 'tools', 'fabric', f));
   // The modules' subpackages too (gzcoord/inbox_parts/): a module whose
   // parts were left behind does not import, and the case would fail on a
   // missing module, never on the dictionary it means to break.
