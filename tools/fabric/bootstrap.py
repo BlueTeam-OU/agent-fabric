@@ -858,7 +858,10 @@ class Bootstrap:
         if login() in doc.get("python", []):
             here = socket.gethostname().split(".")[0]
             try:
-                with open(os.path.join(self.root, "runtime", "hosts", "registry.json"), encoding="utf-8") as fh:
+                # The registry as every reader resolves it (an exported operator outranks the checkout);
+                # its one-file override is the daemons', never bootstrap's.
+                env = {k: v for k, v in os.environ.items() if k != roots.ENV_HOSTS_REGISTRY}
+                with open(roots.hosts_registry(engine=self.root, environ=env), encoding="utf-8") as fh:
                     placed = json.load(fh).get("placement", {}).get(login())
             except (OSError, ValueError, AttributeError) as e:
                 return f"runtime/hosts/registry.json cannot be read for the placement ({type(e).__name__})"

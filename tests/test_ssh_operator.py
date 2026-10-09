@@ -60,7 +60,7 @@ def main() -> int:
         check("a dry run exits 0", r.returncode == 0, r.stderr)
         for s in SETTINGS:
             check(f"the drop-in says {s}", f"    {s}\n" in out, out)
-        check("AllowUsers names exactly the logins placed on this host", f"    AllowUsers ghost-login-x {ME}\n" in out, out)
+        check("AllowUsers names exactly the logins placed on this host", f"    AllowUsers {' '.join(sorted(['ghost-login-x', ME]))}\n" in out, out)
         want = f'command="{LIBEXEC}/enter-ssh",restrict,pty {OPKEY}'
         check("the login's keys file forces the root-owned installed enter-ssh, restricted with a pty, the comment dropped",
               f"authorized_keys/{ME} (0644):\n    {want}\n" in out, out)
