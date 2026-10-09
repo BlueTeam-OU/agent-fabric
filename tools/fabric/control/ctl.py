@@ -66,7 +66,16 @@ import time
 import zlib
 from typing import Any, Callable
 
-from control import js
+_HERE = os.path.dirname(os.path.realpath(__file__))
+# Run as a script, sys.path[0] is control/, whose secrets.py and tools.py would
+# shadow the standard library's and the fabric's own: tools/fabric goes first
+# instead, as control/gzcoord.py does for the same reason.
+if sys.path and os.path.realpath(sys.path[0] or ".") == _HERE:
+    sys.path[0] = os.path.dirname(_HERE)
+elif os.path.dirname(_HERE) not in sys.path:
+    sys.path.insert(0, os.path.dirname(_HERE))
+
+from control import js  # noqa: E402
 from control.gzcoord import FABRIC_ROOT, api, inbox_root, integration_config, relay_failure, synced_token, token as gz_token, whoami as gz_whoami
 from control.ops import OPS, PUBLIC_OPS
 from control.pool import check_pool_args, pool_holder
@@ -551,7 +560,7 @@ def j(*items: Any) -> str:
 
 def pct(w: Any) -> str:
     u = dig(w, "utilization")
-    return pad_start(to_fixed(number_of(u), 0), 3) if T(w) and u is not UNDEFINED and u is not None else "   -"
+    return f"{pad_start(to_fixed(number_of(u), 0), 3)}%" if T(w) and u is not UNDEFINED and u is not None else "   -"
 
 
 def at(w: Any) -> str:
@@ -606,7 +615,7 @@ def _unless(r: dict, u: Any) -> bool:
 def _table_selftest(rs: list) -> list[str]:
     lines = [f"{pad_end('account', 22)} {pad_end('status', 8)} steps"]
     for r in rs:
-        u = r["selftest"]
+        u = r.get("selftest")
         if _unless(r, u):
             lines.append(_row(r))
             continue
@@ -621,7 +630,7 @@ def _table_selftest(rs: list) -> list[str]:
 def _table_secrets_sync(rs: list) -> list[str]:
     lines = [f"{pad_end('account', 22)} {pad_end('status', 10)} {pad_end('claude sign-in', 34)} {pad_end('session', 28)} reason"]
     for r in rs:
-        u = r["secretsSync"]
+        u = r.get("secretsSync")
         if _unless(r, u):
             lines.append(_row(r))
             continue
@@ -639,7 +648,7 @@ def _table_local(op: str, rs: list) -> list[str]:
     # Names and counts only: the reply never carries a value.
     lines = [f"{pad_end('account', 22)} {pad_end('working copy', 18)} {pad_end('status', 10)} {'env (secrets marked *)  permissions  other keys' if op == 'local' else 'removed / reason'}"]
     for r in rs:
-        u = r["local"] if op == "local" else r["localPrune"]
+        u = r.get("local") if op == "local" else r.get("localPrune")
         if _unless(r, u):
             lines.append(_row(r))
             continue
@@ -673,13 +682,13 @@ def _table_local(op: str, rs: list) -> list[str]:
 def _table_jobs(rs: list) -> list[str]:
     lines: list[str] = []
     for r in rs:
-        if _unless(r, r["jobs"]):
+        if _unless(r, r.get("jobs")):
             lines.append(_row(r))
             continue
-        if dig(r["jobs"], "status") != "ok":
+        if dig(r.get("jobs"), "status") != "ok":
             lines.append(f"{pad_end(r['account'], 22)} jobs {S(dig(r['jobs'], 'status'))}{': ' + S(r['jobs']['error']) if T(dig(r['jobs'], 'error')) else ''}")
             continue
-        jobs = r["jobs"]["jobs"]
+        jobs = r.get("jobs")["jobs"]
         if not jobs:
             lines.append(f"{pad_end(r['account'], 22)} no open jobs")
             continue
@@ -712,7 +721,7 @@ def _finite(v: Any) -> bool:
 def _table_tools(rs: list) -> list[str]:
     lines: list[str] = []
     for r in rs:
-        t = r["tools"]
+        t = r.get("tools")
         if _unless(r, t):
             lines.append(_row(r))
             continue
@@ -740,7 +749,7 @@ def _table_tools(rs: list) -> list[str]:
 def _table_tools_install(rs: list) -> list[str]:
     lines = []
     for r in rs:
-        u = r["toolsInstall"]
+        u = r.get("toolsInstall")
         body = r["status"] if _unless(r, u) else f"{pad_end(S(dig(u, 'status')), 9)} {S(nullish(dig(u, 'tool'), ''))} {S(nullish(dig(u, 'version'), ''))}{' ' + S(u['reason']) if T(dig(u, 'reason')) else ''}"
         lines.append(esc(trim_end(f"{pad_end(r['account'], 22)} {body}")))
     return lines
@@ -749,7 +758,7 @@ def _table_tools_install(rs: list) -> list[str]:
 def _table_jobs_add(rs: list) -> list[str]:
     lines = []
     for r in rs:
-        u = r["jobsAdd"]
+        u = r.get("jobsAdd")
         body = r["status"] if _unless(r, u) else f"{S(dig(u, 'status'))}  {S(nullish(dig(u, 'job'), nullish(dig(u, 'reason'), '')))}"
         lines.append(trim_end(f"{pad_end(r['account'], 22)} {body}"))
         if T(dig(u, "warning")):
@@ -760,7 +769,7 @@ def _table_jobs_add(rs: list) -> list[str]:
 def _table_pool_add(rs: list) -> list[str]:
     lines = []
     for r in rs:
-        u = r["poolAdd"]
+        u = r.get("poolAdd")
         if _unless(r, u):
             body = r["status"]
         elif dig(u, "status") == "added":
@@ -775,7 +784,7 @@ def _table_pool_add(rs: list) -> list[str]:
 def _table_presence(rs: list) -> list[str]:
     lines = [f"{pad_end('account', 22)} {pad_end('session', 12)} {pad_end('since (UTC)', 20)} {pad_end('role', 20)} project"]
     for r in rs:
-        p = r["presence"]
+        p = r.get("presence")
         if _unless(r, p):
             lines.append(_row(r))
             continue
@@ -805,7 +814,7 @@ def _gt1(v: Any) -> bool:
 def _table_upgrade(rs: list) -> list[str]:
     lines = [f"{pad_end('account', 22)} {pad_end('status', 10)} {pad_end('from → to', 22)} {pad_end('session', 26)} reason"]
     for r in rs:
-        u = r["upgrade"]
+        u = r.get("upgrade")
         if _unless(r, u):
             lines.append(_row(r))
             continue
@@ -840,7 +849,7 @@ def _table_accounts(rs: list) -> list[str]:
             lines.append(f"{pad_end('-', 34)} {pad_end(r['status'], 14)} ({r['account']})")
             continue
         answered += 1
-        acc = r["accounts"]
+        acc = r.get("accounts")
         if not T(acc) or dig(acc, "status") == "none":
             continue
         if dig(acc, "status") != "ok":
@@ -864,7 +873,7 @@ def _table_accounts(rs: list) -> list[str]:
 def _table_ping(rs: list) -> list[str]:
     lines = [f"{pad_end('account', 22)} {pad_end('status', 10)} latency"]
     for r in rs:
-        lat = r["latency_ms"]
+        lat = r.get("latency_ms")
         lines.append(trim_end(f"{pad_end(r['account'], 22)} {pad_end(r['status'], 10)} {S(lat) + ' ms' if lat is not None else ''}"))
     return lines
 
@@ -875,7 +884,7 @@ def _table_memory(rs: list) -> list[str]:
         if r["status"] != "ok":
             lines.append(_row(r))
             continue
-        mem = r["memory"]
+        mem = r.get("memory")
         if mem is not None and dig(mem, "status") != "ok":
             lines.append(f"{pad_end(r['account'], 22)} {pad_end('ok', 10)} memory {S(dig(mem, 'status'))}{': ' + S(mem['error']) if T(dig(mem, 'error')) else ''}")
             continue
@@ -948,7 +957,7 @@ def _table_script(rs: list) -> list[str]:
         if r["status"] != "ok":
             lines.append(_row(r))
             continue
-        s = top(r["script"])
+        s = top(r.get("script"))
         if s is None:
             lines.append(f"{pad_end(r['account'], 22)} {pad_end('ok', 10)} {pad_end(notes(dig(r['script'], 'notes')), 70)} {S(nullish(dig(r['script'], 'status'), '-'))}")
             continue
@@ -969,7 +978,7 @@ def _table_recall(rs: list) -> list[str]:
         if r["status"] != "ok":
             lines.append(_row(r))
             continue
-        c = r["recall"]
+        c = r.get("recall")
         if not T(c) or dig(c, "status") != "ok":
             lines.append(f"{pad_end(r['account'], 22)} {pad_end('ok', 10)} {S(nullish(dig(c, 'status'), '-'))}")
             continue
@@ -995,7 +1004,7 @@ def _table_host(rs: list) -> list[str]:
     lines = [f"{pad_end('host', 16)} {pad_end('answered', 9)} {pad_end('load 1/5/15', 17)} {pad_start('cpus', 4)}  {pad_end('mem avail/total MB', 19)} "
              f"{pad_start('swap free', 9)}  {pad_end('balloon cur/max MB', 19)} disks"]
     for host, group in sorted(by_host.items(), key=lambda kv: collate(S(kv[0]))):
-        oks = [r for r in group if r["status"] == "ok" and dig(r["machine"], "status") == "ok"]
+        oks = [r for r in group if r["status"] == "ok" and dig(r.get("machine"), "status") == "ok"]
         answered = f"{sum(1 for r in group if r['status'] == 'ok')}/{len(group)}"
         if not oks:
             # Every account failed or stayed silent: the failure text, then each account's own line.
@@ -1007,7 +1016,7 @@ def _table_host(rs: list) -> list[str]:
             continue
         # The balloon's static-max is xenstore's, readable by the operator's
         # login and not by an account's: the row that has it speaks for the host.
-        pick = next((r for r in oks if nullish(dig(r["machine"], "balloon_mb", "static_max"), None) is not None), oks[0])
+        pick = next((r for r in oks if nullish(dig(r.get("machine"), "balloon_mb", "static_max"), None) is not None), oks[0])
         m = pick["machine"]
         loadavg = dig(m, "loadavg")
         load = " ".join(to_fixed(number_of(x), 2) for x in loadavg) if T(loadavg) else "-"
@@ -1041,7 +1050,7 @@ def _table_keys(rs: list) -> list[str]:
     # follow, by name. Never a value.
     lines = [f"{pad_end('account', 22)} {pad_end('status', 10)} {pad_end('keys', 8)} {pad_end('signing', 8)} store"]
     for r in rs:
-        keys = r["keys"]
+        keys = r.get("keys")
         if r["status"] != "ok" or not isinstance(keys, list):
             lines.append(f"{pad_end(r['account'], 22)} {r['status'] if r['status'] != 'ok' else 'ok         keys ' + S(nullish(dig(keys, 'status'), '-'))}")
             continue
@@ -1083,11 +1092,11 @@ def _table_disk(rs: list) -> list[str]:
     lines = [f"{pad_end('account', 22)} {pad_end('status', 8)} {pad_start('total', 7)}  {pad_end('largest entry', 28)} {pad_start('target/', 7)}  target/ directories"]
 
     def rank(r: dict) -> int:
-        d = r["disk"]
+        d = r.get("disk")
         return 2 if r["status"] != "ok" or not T(d) else 1 if dig(d, "status") == "failed" or dig(d, "total_kb") is None else 0
 
     def size(r: dict) -> float:
-        return r["disk"]["total_kb"] if rank(r) == 0 else 0
+        return r.get("disk")["total_kb"] if rank(r) == 0 else 0
     import functools
 
     def cmp(a: dict, b: dict) -> int:
@@ -1101,7 +1110,7 @@ def _table_disk(rs: list) -> list[str]:
         ca, cb = collate(a["account"]), collate(b["account"])
         return -1 if ca < cb else 1 if ca > cb else 0
     for r in sorted(rs, key=functools.cmp_to_key(cmp)):
-        d = r["disk"]
+        d = r.get("disk")
         if _unless(r, d):
             lines.append(_row(r))
             continue
@@ -1134,17 +1143,17 @@ def _table_tokens(rs: list) -> list[str]:
     def M(n: Any) -> str:
         n = number_of(n) if not isinstance(n, (int, float)) or isinstance(n, bool) else n
         return (f"{to_fixed(n / 1e9, 2)}G" if n >= 1e9 else f"{to_fixed(n / 1e6, 1)}M" if n >= 1e6 else f"{to_fixed(n / 1e3, 0)}k" if n >= 1e3 else S(n))
-    oks = [r for r in rs if r["status"] == "ok" and dig(r["tokens"], "status") == "ok"]
+    oks = [r for r in rs if r["status"] == "ok" and dig(r.get("tokens"), "status") == "ok"]
     days = nullish(dig(oks[0]["tokens"], "days"), "-") if oks else "-"
     by_account: dict[str, list] = {}
     for r in oks:
-        by_account.setdefault(S(nullish(r["email"], "(no Claude account)")), []).append(r)
+        by_account.setdefault(S(nullish(r.get("email"), "(no Claude account)")), []).append(r)
     lines = [f"{pad_end('account', 22)} {pad_end('status', 10)} {pad_end('claude account', 30)} {pad_start('share', 6)}  {pad_start('claude equiv', 12)} "
              f"{pad_start('requests', 8)} {pad_start('cache read', 10)} {pad_start('output', 8)}  {pad_start('broker equiv', 12)} {pad_start('requests', 8)}  top model ({S(days)} days)"]
     for email, group in sorted(by_account.items(), key=lambda kv: collate(kv[0])):
-        total = sum(r["tokens"]["claude"]["equiv"] for r in group)
-        for r in sorted(group, key=lambda r: -r["tokens"]["claude"]["equiv"]):
-            t = r["tokens"]
+        total = sum(r.get("tokens")["claude"]["equiv"] for r in group)
+        for r in sorted(group, key=lambda r: -r.get("tokens")["claude"]["equiv"]):
+            t = r.get("tokens")
             models = _entries(t["models"])
             top = models[0] if models else None
             share = f"{pad_start(to_fixed(100 * t['claude']['equiv'] / total, 0), 5)}%" if total else "     -"
@@ -1155,7 +1164,7 @@ def _table_tokens(rs: list) -> list[str]:
             lines.append(f"{pad_end('', 22)} {pad_end('', 10)} {pad_end('= ' + email, 30)} {pad_start(' 100%', 6)}  {pad_start(M(total), 12)} "
                          f"{pad_start(S(sum(r['tokens']['claude']['requests'] for r in group)), 8)}")
     for r in rs:
-        if not (r["status"] == "ok" and dig(r["tokens"], "status") == "ok"):
+        if not (r["status"] == "ok" and dig(r.get("tokens"), "status") == "ok"):
             lines.append(f"{pad_end(r['account'], 22)} {r['status'] if r['status'] != 'ok' else 'ok         ' + pad_end(S(nullish(r['email'], '-')), 30) + ' tokens ' + S(nullish(dig(r['tokens'], 'status'), '-'))}")
     return lines
 
@@ -1167,13 +1176,13 @@ def _table_status(rs: list) -> list[str]:
         if r["status"] != "ok":
             lines.append(_row(r))
             continue
-        fb = r["fabric"]
+        fb = r.get("fabric")
         if dig(fb, "status") == "ok":
             fab = f"{S(fb['head'])}{' (' + S(fb['behind']) + ' behind)' if T(dig(fb, 'behind')) else ''}{' dirty' if T(dig(fb, 'dirty')) else ''}"
         else:
             fab = S(nullish(dig(fb, "status"), "-"))
         usage = (f"{pct(r['five_hour'])}  {pad_end(at(r['five_hour']), 16)} {pct(r['seven_day'])}  {pad_end(at(r['seven_day']), 16)}"
-                 if r["usage_status"] == "ok" else pad_end(S(nullish(r["usage_status"], "-")), 42))
+                 if r.get("usage_status") == "ok" else pad_end(S(nullish(r.get("usage_status"), "-")), 42))
         lines.append(f"{pad_end(r['account'], 22)} {pad_end('ok', 10)} {pad_end(S(nullish(r['email'], '-')), 30)} {usage} {pad_end(S(nullish(r['role'], '-')), 18)} {fab}")
     return lines
 
