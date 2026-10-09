@@ -252,10 +252,10 @@ def parse_memory(path: str) -> dict[str, Any] | None:
     for line in head.split("\n"):
         if not line.strip():
             continue
-        if re.match(r"^\S+:\s*$", line):
+        if re.fullmatch(r"^\S+:\s*$", line):
             section = line.split(":")[0].strip()
             continue
-        km = re.match(r"^\s*([A-Za-z_][A-Za-z0-9_-]*):\s*(.*)$", line)
+        km = re.fullmatch(r"^\s*([A-Za-z_][A-Za-z0-9_-]*):\s*(.*)$", line)
         if not km:
             continue
         key, value = km.group(1), scalar(km.group(2))

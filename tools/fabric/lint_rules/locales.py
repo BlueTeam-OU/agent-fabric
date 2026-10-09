@@ -121,7 +121,7 @@ def locale_worker_findings(role: str, role_path: str) -> list[str]:
             continue
         fields: dict[str, str] = {}
         for line in m.group(1).splitlines():
-            km = re.match(r"^([A-Za-z_][A-Za-z0-9_-]*):\s*(.*)$", line)
+            km = re.fullmatch(r"^([A-Za-z_][A-Za-z0-9_-]*):\s*(.*)$", line)
             if km:
                 fields[km.group(1)] = km.group(2).strip()
         if fields.get("name") != "locale-worker":

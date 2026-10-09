@@ -50,7 +50,7 @@ def born_ms_of(stamp: str) -> int:
     import datetime
     if stamp == "now":
         return int(datetime.datetime.now(datetime.timezone.utc).timestamp() * 1000)
-    m = re.match(r"^(\d{4}-\d\d-\d\d)[ T](\d\d:\d\d:\d\d)(?:\.(\d+))?\s*(Z|[+-]\d\d:?\d\d)?$", stamp.strip())
+    m = re.fullmatch(r"^(\d{4}-\d\d-\d\d)[ T](\d\d:\d\d:\d\d)(?:\.(\d+))?\s*(Z|[+-]\d\d:?\d\d)?$", stamp.strip())
     if not m:
         raise StoreError(f"{stamp!r} is not a birth time (the home's creation time is unknown here: name one)")
     frac = (m.group(3) or "0")[:6].ljust(6, "0")

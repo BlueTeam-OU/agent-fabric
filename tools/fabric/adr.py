@@ -378,7 +378,7 @@ def check(root: str | None = None) -> list[str]:
     hdir = os.path.join(d, "history")
     if os.path.isdir(hdir):
         for f in sorted(os.listdir(hdir)):
-            m = re.match(r"^ADR-(\d{3})-amendments\.md$", f)
+            m = re.fullmatch(r"^ADR-(\d{3})-amendments\.md$", f)
             if not m or m.group(1) not in known:
                 findings.append(f"{ADR_DIR}/history/{f}: belongs to no ADR")
             elif not history_notes(os.path.join(hdir, f)):
@@ -456,7 +456,7 @@ def write_index(root: str | None = None) -> None:
 
 
 def cmd_new(root: str | None, slug: str, title: str) -> str:
-    if not re.match(r"^[a-z0-9]+(?:-[a-z0-9]+)*$", slug):
+    if not re.fullmatch(r"^[a-z0-9]+(?:-[a-z0-9]+)*$", slug):
         raise SystemExit("adr: the slug is lowercase-kebab")
     adrs, _ = load(root)
     n = max((int(a["number"]) for a in adrs), default=-1) + 1

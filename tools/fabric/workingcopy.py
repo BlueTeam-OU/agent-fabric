@@ -82,7 +82,7 @@ def parse_remote(url: str) -> dict[str, Any] | None:
     a trailing slash and a trailing `.git` removed and its case KEPT."""
     u = url.strip()
     if "://" in u:
-        m = _URL_RE.match(u)
+        m = _URL_RE.fullmatch(u)
         if not m or m.group("scheme").lower() == "file":
             return None                      # file:// and any URL without a host are local
         scheme = m.group("scheme").lower()
@@ -92,7 +92,7 @@ def parse_remote(url: str) -> dict[str, Any] | None:
             return None
         scheme = "ssh"
     else:
-        m = _BARE_RE.match(u)
+        m = _BARE_RE.fullmatch(u)
         if not m:
             return None
         scheme = None
