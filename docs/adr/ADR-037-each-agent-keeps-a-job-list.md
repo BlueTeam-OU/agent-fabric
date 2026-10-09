@@ -143,6 +143,8 @@ Why these choices:
     watch has lapsed meets it at its next start. A failure to queue
     never fails the delivery or the post, and says so. A job the login
     will not do is dropped with its reason and answered (A 2026-10-09).
+    A job may be a step of a coordinator's plan (ADR-047); the link is
+    held in the plan, and the job gains no field (A 2026-10-09).
 
 ## 6. Consequences
 
@@ -186,3 +188,4 @@ The body above reads current; each change's full note is in [history/ADR-037-ame
 | 2026-10-08 | Priority, blocking derived, a role pool, and taking the next job | §5 rule 6 widened; rules 7–10 added; §7 priorities no longer future |
 | 2026-10-09 | A stale waiter still counts | §5 rule 8: a waiter whose state record is past the stream's bound still ranks the job blocking, named with the record's age as stale |
 | 2026-10-09 | A REQUEST to a login is queued on its list | §5 rule 11 added: the inbox queues a delivered REQUEST, the operator's send adds it by jobs-add; §7's intake item replaced by what remains |
+| 2026-10-09 | A job may be a plan's step | §5 rule 11: a job may be a step of a coordinator's plan, linked in the plan; no job field (ADR-047) |

@@ -242,7 +242,7 @@
       "status": "Accepted",
       "date": "2026-09-27",
       "pillar": "P3",
-      "amendments": 0
+      "amendments": 1
     },
     {
       "number": "027",
@@ -269,7 +269,7 @@
       "status": "Accepted",
       "date": "2026-09-17",
       "pillar": "P5",
-      "amendments": 13
+      "amendments": 14
     },
     {
       "number": "030",
@@ -341,7 +341,7 @@
       "status": "Accepted",
       "date": "2026-09-28",
       "pillar": "P3",
-      "amendments": 3
+      "amendments": 4
     },
     {
       "number": "038",
@@ -414,6 +414,24 @@
       "date": "2026-10-08",
       "pillar": "P1",
       "amendments": 1
+    },
+    {
+      "number": "046",
+      "file": "ADR-046-fleet-views-read-on-demand.md",
+      "title": "Fleet views: the fleet's state read on demand, read-only",
+      "status": "Proposed",
+      "date": "2026-10-09",
+      "pillar": "P1",
+      "amendments": 0
+    },
+    {
+      "number": "047",
+      "file": "ADR-047-plans-kept-by-the-coordinator.md",
+      "title": "Plans: steps the coordinator keeps, each linked to a job",
+      "status": "Proposed",
+      "date": "2026-10-09",
+      "pillar": "P1",
+      "amendments": 0
     }
   ]
 }

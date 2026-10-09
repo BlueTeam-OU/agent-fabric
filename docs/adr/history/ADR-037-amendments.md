@@ -20,3 +20,7 @@ Rule 8 said a queued job others wait on ranks blocking, but not what happens whe
 ### Amendment 2026-10-09 — A REQUEST to a login is queued on its list
 
 On 2026-10-09 python-dev-03 held three REQUESTs from the coordinator for an hour with an empty job list; the owner pointed at the list, and the jobs, added by hand, were what the session would meet. §7 had kept the intake for later, keyed on an undertaking REPLY; a login that has not yet read a request sends none, so the intake is keyed on delivery instead, and the operator's send adds the job through the existing jobs-add action for a session whose watch has lapsed. No wire changes: a request id on jobs-add waits for ADR-040 §7. The owner approved it the same day, from the reading of "loops, graphs & harnesses" (enforce over document). python-dev-02 builds the tools (REQUEST 01a11f64).
+
+### Amendment 2026-10-09 — A job may be a plan's step
+
+ADR-047 has the coordinator keep plans whose steps are jobs on agents' lists. The link lives in the plan, so no agent's job and no frozen operation changes; a step given at dispatch waits for the wire to allow new arguments.

@@ -125,3 +125,7 @@ bounded here to one field. Review of #123.
 ### Amendment 2026-10-09 — tools-install installs a pinned account tool
 
 python-dev-03's #126 (merged 2026-10-09) added `tools-install` to `OPS`, a signed action that runs `fabric-tools --install <tool> --json` as the account and carries its verdict back; the record had no row for it, rule 3 named no checker for its argument, and rule 12 listed neither its answer budget nor `disk`'s, though `ctl.mjs` has both. The row, the checker and the two budgets are added; the action decides nothing about which account gets a tool — `tools_install.py` installs only on an account with a working copy of a project that declares it, so the Doppler CLI stays off every other account (the owner, 2026-10-08). The first pin, Doppler 3.77.0, is `projects/registry.json`'s, its sha256 taken from the release's `checksums.txt` and matched against the asset.
+
+### Amendment 2026-10-09 — Fleet views read through fleet.py, with two Stage 1 bridges
+
+ADR-046's fleet views read closed jobs, which no operation returns until after the Wave 8 cutover (ADR-040 §7). Until then they read them through the host executor, the sudo fallback this record keeps for a host whose control agents are down, read-only and named in every value; `jobs --all` replaces it.
