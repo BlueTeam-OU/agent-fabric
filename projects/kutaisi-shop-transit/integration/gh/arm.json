@@ -1,0 +1,15 @@
+{
+  "description": "kutaisi-shop-transit's rules for runtime/github/arm.sh. The repository is one Python script that queries a public map API and writes tables and map pages. boundary.paths: the script, which runs on the operator's machine and fetches over the network (every .py), the dependency list that decides what it installs (requirements*.txt), the generated map pages, which embed a script loaded from a third-party CDN and are opened in a browser (output/*.html), the ignore file that keeps the virtual environment and caches out of a commit (.gitignore), harness wiring and CI should it grow them (.claude/, .mcp.json, .github/), and words where the boundary is a file anywhere (secret, credential, token, key, auth). boundary.exempt is dropped first: Markdown, which is the README and the summary's prose, and .agent-fabric/. The CSV and GeoJSON outputs are data, not on the list. No classes. waiver_role is null: only the owner waives the boundary.",
+  "boundary": {
+    "paths": "^\\.claude/|^\\.mcp\\.json$|^\\.github/|^\\.gitignore$|\\.py$|(^|/)requirements[^/]*\\.txt$|^output/.*\\.html?$|secret|credential|token|key|auth",
+    "exempt": "\\.md$|^\\.agent-fabric/",
+    "cases": [
+      "kutaisi_shop_transit.py",
+      "requirements.txt",
+      ".gitignore",
+      "output/shops_transit_map.html",
+      "output/shops_transit_map_categories.html"
+    ]
+  },
+  "waiver_role": null
+}

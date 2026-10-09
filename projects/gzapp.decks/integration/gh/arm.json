@@ -1,0 +1,21 @@
+{
+  "description": "gzapp.decks' rules for runtime/github/arm.sh. boundary.paths: the repository builds decks and documents with Node scripts and a Marp engine that runs on the operator's machine and calls a provider with a key, so its boundary is the scripts that build, bump, release and generate images (scripts/), the package manifest and lockfile that decide what installs and runs (package.json, package-lock.json), the Marp configuration, which loads the theme and enables raw HTML and local files in the export browser (.marprc.yml), the shared theme the engine loads (theme/), the harness wiring (.claude/: settings, hooks and the commands that run the build, the release and the image generation), the environment template and the ignore file that keeps .env.local out of a commit (.env*, .gitignore), CI (.github/), and words where the boundary is a file anywhere (secret, credential, token, key, auth). boundary.exempt is dropped first, but never under .claude/, scripts/ or theme/: Markdown prose (a command file under .claude/ is not prose, it is what the harness runs), .agent-fabric/, and the deck and document folders' content, their assets/ and i18n/ dictionaries. No classes. waiver_role is null: only the owner waives the boundary.",
+  "boundary": {
+    "paths": "^\\.claude/|^\\.mcp\\.json$|^\\.marprc(\\.ya?ml|\\.json|\\.js)?$|^\\.env|^\\.gitignore$|^\\.github/|(^|/)package(-lock)?\\.json$|^scripts/|^theme/|secret|credential|token|key|auth",
+    "exempt": "^(?!(\\.claude|scripts|theme)/)(.*\\.md$|\\.agent-fabric/|[^/]+/(assets|i18n)/)",
+    "cases": [
+      ".claude/settings.json",
+      ".claude/commands/deck-release.md",
+      ".claude/commands/gen-image.md",
+      ".marprc.yml",
+      "package.json",
+      "package-lock.json",
+      "scripts/build.mjs",
+      "scripts/release.mjs",
+      "theme/gzapp.css",
+      ".env.example",
+      ".gitignore"
+    ]
+  },
+  "waiver_role": null
+}
