@@ -47,6 +47,26 @@ def masked(text: str) -> str:
     return text
 
 
+def memory_replies(replies):
+    return [json.loads(r) for r in replies if json.loads(r)["op"] == "memory"]
+
+
+def memory_view(replies):
+    """What a memory answer says that does not depend on the zlib that
+    deflated it: the bundle's report, sizes of the tar, the tar itself
+    reassembled from the parts, and every record but the compressed bytes
+    (the Python and the Node of a runner may link different zlib builds, and
+    the byte count and the parts' split follow the stream)."""
+    import base64
+    import zlib
+    first, parts = replies[0], replies[1:]
+    tar = zlib.decompress(base64.b64decode("".join(p["data"]["part"]["chunk"] for p in parts)), 47)
+    bundles = [{k: v for k, v in b.items() if k not in ("gzip_bytes", "parts")} for b in first["data"]["memory"]["bundles"]]
+    return {"bundles": bundles, "tar": tar,
+            "records": [masked(json.dumps({k: v for k, v in r.items() if k != "data"}, separators=(",", ":"))) for r in replies[:1]],
+            "part_keys": sorted({tuple(p["data"]["part"]) for p in parts})}
+
+
 class Parity(Daemon):
     def batch(self, key) -> list[tuple[str, str]]:
         """Fixed ids, so each side's record is the same bytes."""
@@ -149,7 +169,11 @@ class Parity(Daemon):
         self.assertGreater(len(node_acts), 3, "the actions were answered")
         self.assertEqual(len(py_plain), len(node_plain))
         for i, (a, b) in enumerate(zip(node_plain, py_plain)):
+            if json.loads(a)["op"] == "memory":
+                continue   # below: the deflate stream is zlib's, which differs between zlib builds
             self.assertEqual(masked(b), masked(a), f"reply {i}: {json.loads(a).get('op')}")
+        self.assertEqual(len(memory_replies(node_plain)), len(memory_replies(py_plain)), "the same number of memory records")
+        self.assertEqual(*[memory_view(rs) for rs in (memory_replies(py_plain), memory_replies(node_plain))])
         self.assertEqual(sorted(py_acts), sorted(node_acts))
         for rid, a in node_acts.items():
             self.assertEqual(masked(py_acts[rid]), masked(a), f"action {rid}: {json.loads(a).get('op')}")

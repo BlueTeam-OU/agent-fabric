@@ -37,6 +37,7 @@ from control import agentd, gzcoord, sign  # noqa: E402
 from control.ops import memory_slug  # noqa: E402
 
 AGENTD = os.path.join(HERE, "tools", "fabric", "control", "agentd.py")
+REGISTRY = {"hosts": {"develop-qzapp": {"operator": "user"}}, "placement": {"backend-dev-01": "develop-qzapp", "db-admin": "develop-qzapp"}}
 ME = {"address": "develop-qzapp/db-admin"}
 OPERATORS = {"develop-qzapp/user"}
 WHO = gzcoord.whoami()
@@ -201,12 +202,12 @@ class Daemon(Scratch):
     """The real agentd.py as a subprocess, in an environment this class builds."""
 
     def setUp(self):
-        # The registry the daemon reads is the operator root's (ADR-045): a copy
-        # of this checkout's own, so the cases answer the same whatever
-        # AGENT_FABRIC_OPERATOR the run had.
+        # The registry the daemon reads is the operator root's (ADR-045): a
+        # fixture, never the checkout's own instance file.
         self.operator = self.scratch("agentd-operator-")
         os.makedirs(os.path.join(self.operator, "runtime", "hosts"))
-        shutil.copy(os.path.join(HERE, "runtime", "hosts", "registry.json"), os.path.join(self.operator, "runtime", "hosts", "registry.json"))
+        with open(os.path.join(self.operator, "runtime", "hosts", "registry.json"), "w", encoding="utf-8") as fh:
+            json.dump(REGISTRY, fh)
 
     def home(self) -> str:
         h = self.scratch("agentd-home-")
@@ -354,8 +355,10 @@ def gzcoord_ts(text: str) -> int:
 
 class Pieces(Scratch):
     def test_operator_addresses_and_control_config_read_the_fabrics_own_files(self):
-        ops = agentd.operator_addresses(os.path.join(HERE, "runtime", "hosts", "registry.json"))
-        self.assertIn("develop-qzapp/user", ops)
+        reg = os.path.join(self.scratch(), "registry.json")
+        with open(reg, "w", encoding="utf-8") as fh:
+            json.dump(REGISTRY, fh)
+        self.assertEqual(agentd.operator_addresses(reg), {"develop-qzapp/user"})
         self.assertEqual(agentd.operator_addresses("/nonexistent"), set())
         c = agentd.control_config({})
         self.assertEqual((c["channel"], c["ttl_s"]), ("fabric:control", 30))
@@ -641,7 +644,7 @@ class Wire(Daemon):
         self.assertTrue([h for h in r.hits if h.startswith("/api/messages?") and "limit=1" in h], "primed from the newest record")
         self.assertTrue([h for h in r.hits if h.startswith("/api/wait?") and "since_id=id-1" in h], "waited after it")
         self.assertRegex(out.stderr, r"agentd: answered ping for develop-qzapp/user \([0-9a-f]{8}\)")
-        self.assertRegex(out.stderr, r"agentd: develop-qzapp/\S+ on test:control at http://127\.0\.0\.1:\d+; operators: .*develop-qzapp/user")
+        self.assertRegex(out.stderr, rf"agentd: {SELF} on test:control at http://127\.0\.0\.1:\d+; operators: develop-qzapp/user\n")
 
     def test_once_a_request_from_a_non_operator_an_unknown_op_and_an_expired_one_get_no_reply_keys_carry_no_value(self):
         r = self.with_relay([("develop-qzapp/user", request(op="ping", id="primer"))])
