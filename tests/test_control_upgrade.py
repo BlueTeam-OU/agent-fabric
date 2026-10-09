@@ -648,6 +648,9 @@ class PortAdditions(unittest.TestCase):
         big = 1111111111111111111111111111111111111111.0   # what a 40-digit JSON literal parses to
         self.assertEqual(U.js_string(big), "1.1111111111111112e+39")
         self.assertEqual(U.js_string(1e-7), "1e-7")
+        self.assertEqual(U.js_string(1e-5), "0.00001", "JavaScript writes an exponent only below 1e-6")
+        self.assertEqual(U.js_string(10 ** 39), "1e+39", "a 40-digit integer a plain json.loads left an int is the double Node read")
+        self.assertRegex(U.check_args({"piece": "fabric", "commit": 10 ** 39}), r"full 40-hex sha")
         self.assertEqual(U.js_string(2.0), "2")
         self.assertEqual(U.js_string(2.5), "2.5")
         self.assertIsNone(U.check_args({"piece": "fabric", "commit": ["a" * 40]}), "a one-element list prints as its element")

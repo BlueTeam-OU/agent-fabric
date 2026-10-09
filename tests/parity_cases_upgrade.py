@@ -9,7 +9,7 @@ ARGS = [None, "x", 5, [], [1], {}, {"piece": "claude"}, {"piece": "fabric"}, {"p
         {"piece": "fabric", "commit": "a" * 40 + "\n"}, {"piece": "fabric", "commit": 12345}, {"piece": "fabric", "commit": "a" * 40, "version": "1.1.1"},
         {"piece": "fabric", "commit": "a" * 40, "version": None}, {"piece": "fabric"}, {"piece": "fabric", "commit": None},
         {"piece": "fabric", "commit": ["a" * 40]}, {"piece": "fabric", "commit": ["a" * 40, "b"]}, {"piece": "fabric", "commit": 1.1111111111111112e+39},
-        {"piece": "fabric", "commit": 1e-7}, {"piece": "claude", "version": 2.5}, {"piece": "claude", "version": [2]}, {"piece": "claude", "version": {}}]
+        {"piece": "fabric", "commit": 1e-7}, {"piece": "claude", "version": 2.5}, {"piece": 1e-5}, {"piece": 1e-6}, {"piece": 123456789.5}, {"piece": -0.0}, {"piece": "claude", "version": [2]}, {"piece": "claude", "version": {}}]
 PINS = ['{"claude": "2.1.281"}', '{"claude": "2.1.281\\n"}', '{"claude": null}', '{"claude": 2}', '{"claude": "x"}', '{}', '[]', 'null', '"2.1.281"',
         'not json', '', '{"claude": "0.0.0"}', '{"claude": "99999.1.1"}']
 STATES = [[None, {}, "u"], ["/h", {}, "u"], ["/h", {"XDG_STATE_HOME": "/x/"}, "u"], ["/h", {"XDG_STATE_HOME": ""}, "u"], ["/h", {"XDG_STATE_HOME": "/x//y/../z"}, "u2"],

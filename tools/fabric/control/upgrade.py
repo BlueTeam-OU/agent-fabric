@@ -79,6 +79,7 @@ import time
 from datetime import datetime, timezone
 from typing import Any, Callable
 
+from control import js
 from control.ops import util
 from control.ops.usage import claude_bin
 
@@ -148,23 +149,9 @@ def _first_line(e: BaseException, cmd: list[str], limit: int) -> str:
 
 
 def js_string(v: Any) -> str:
-    """JavaScript's String(v), for the few shapes a request can carry."""
-    if v is _MISSING:
-        return "undefined"
-    if v is None:
-        return "null"
-    if isinstance(v, bool):
-        return "true" if v else "false"
-    if isinstance(v, float):
-        if v.is_integer() and abs(v) < 1e21:
-            return str(int(v))
-        # Number::toString writes 1e+21 and up, and below 1e-6, with an exponent without leading zeros.
-        return re.sub(r"e([+-])0*(\d)", r"e\1\2", repr(v))
-    if isinstance(v, dict):
-        return "[object Object]"
-    if isinstance(v, list):
-        return ",".join("" if x is None else js_string(x) for x in v)
-    return str(v)
+    """JavaScript's String(v) (control/js.py), with the key a request did not
+    carry written as `undefined`."""
+    return "undefined" if v is _MISSING else js.string(v)
 
 
 def _get(args: Any, key: str) -> Any:
