@@ -1787,6 +1787,43 @@ def case_a_dollar_anchored_pattern_in_nested_scopes() -> None:
         assert [f.split(" ")[0] for f in got] == ["tools/nested.py:6:"], got
 
 
+def case_a_dollar_anchored_pattern_through_classes_and_rebinding() -> None:
+    """Review of #143: a pattern a class inherits from a base class of the
+    module is followed (self. and the subclass's name); a class body's
+    names, an if inside it included, are the class's and never the
+    module's; a pattern bound in an if of a class body is recorded; a later
+    module-level binding to something else ends a name's pattern."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("fabric_lint_under_test", LINT)
+    lint = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(lint)
+    with tempfile.TemporaryDirectory() as root:
+        g = lambda *a: subprocess.run(["git", "-C", root, *a], check=True, capture_output=True, env=git_env())
+        write(os.path.join(root, "tools", "classes.py"),
+              "import re\n"
+              "class A:\n"
+              "    PAT = re.compile(r\"^a$\")\n"
+              "class B(A):\n"
+              "    def m(self, s):\n"
+              "        return self.PAT.match(s)\n"     # line 6: inherited, a finding
+              "x = B.PAT.match('a')\n"                 # line 7: inherited through the subclass's name
+              "class D:\n"
+              "    N = re.compile(r\"^n$\")\n"
+              "    if True:\n"
+              "        R = re.compile(r\"^r$\")\n"
+              "    def m(self, s):\n"
+              "        return self.R.match(s)\n"       # line 13: a pattern in the class body's if
+              "y = N.match('n')\n"                     # line 14: D.N is not a module name
+              "z = R.match('r')\n"                     # line 15: nor is D.R
+              "S = re.compile(r\"^s$\")\n"
+              "S = re.compile(r\"^s\\Z\")\n"
+              "w = S.match('s')\n")                    # line 18: S was rebound; no finding
+        g("init", "-q", "-b", "main")
+        g("add", "-A")
+        got = lint.regex_dollar_findings(root)
+        assert [f.split(" ")[0] for f in got] == ["tools/classes.py:6:", "tools/classes.py:7:", "tools/classes.py:13:"], got
+
+
 def case_a_dollar_anchored_pattern_is_followed_across_imports() -> None:
     """The pattern is bound in one file and called with .match in another:
     through `from m import NAME`, `import m` then `m.NAME`, a re-export, a
@@ -2166,6 +2203,7 @@ def main() -> int:
         case_a_dollar_anchored_pattern_is_followed_across_imports,
         case_a_dollar_anchored_pattern_in_every_shape_and_scope,
         case_a_dollar_anchored_pattern_in_nested_scopes,
+        case_a_dollar_anchored_pattern_through_classes_and_rebinding,
         case_a_contributor_entry_never_reaches_a_definition,
         case_the_fallback_validator_agrees_with_jsonschema,
         case_the_python_pin_is_checkable_and_what_ci_runs,

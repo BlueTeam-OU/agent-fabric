@@ -106,7 +106,7 @@ serve as the parity oracle for each port, unchanged.
    - what `fabric-host` runs on another host, which may not have the pin
      yet;
    - the suite runners, which run the interpreter CI's matrix sets, to
-     prove 3.13 and newer (A 2026-10-01);
+     prove 3.13 and newer (A 2026-10-09);
    - the Node scripts that run fabric Python — GZCoord's `gzmsg.mjs`
      (whoami) and `send.mjs` (job intake), and the control agent's
      `jobs.mjs`, `ops.mjs` and `upgrade.mjs` — which keep it until they

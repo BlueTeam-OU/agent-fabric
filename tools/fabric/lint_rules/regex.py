@@ -86,13 +86,16 @@ class _Module:
     binding counts in that function."""
 
     def __init__(self, tree: ast.AST):
-        # (call, the function's own pattern bindings, the names it rebinds otherwise)
+        # (call, the patterns in force in its function, the names that hide
+        # the module's there, the class whose methods resolve self./cls.)
         self.matches: list[tuple[ast.Call, dict[str, int], frozenset[str], str | None]] = []
         self.bound: dict[str, int] = {}
         # (class, X) for `X = re.compile(...)` in that class's body: self.X /
         # cls.X in its methods, Class.X anywhere in the module
         self.class_bound: dict[tuple[str, str], int] = {}
         self.class_names = {n.name for n in ast.walk(tree) if isinstance(n, ast.ClassDef)}
+        # a class's bases that are classes of this module, for inherited patterns
+        self.class_bases: dict[str, list[str]] = {}
         # asname -> (level, module, name) for `from module import name`
         self.froms: dict[str, tuple[int, str, str]] = {}
         # asname -> dotted module for `import module`
@@ -135,11 +138,16 @@ class _Module:
                 self._scope(child, child, inner_local, inner_hidden, cls)
                 continue
             if isinstance(child, ast.ClassDef):
-                for stmt in child.body:
+                self.class_bases[child.name] = [b.id for b in child.bases if isinstance(b, ast.Name)]
+                # the class body's own statements, an if or a try inside it
+                # included, not the methods or classes nested in it
+                for stmt in _own_statements(child):
                     for names, value in _assigned(stmt):
-                        if _is_dollar_compile(value):
-                            for n in names:
+                        for n in names:
+                            if _is_dollar_compile(value):
                                 self.class_bound[(child.name, n)] = stmt.lineno
+                            else:
+                                self.class_bound.pop((child.name, n), None)
                 # a class body's names are its attributes, not the module's
                 self._scope(child, fn, local, hidden, child.name, in_class_body=True)
                 continue
@@ -148,7 +156,13 @@ class _Module:
                     if _is_dollar_compile(value):
                         for n in names:
                             self.bound[n] = child.lineno
-                    elif isinstance(value, ast.Name):
+                        continue
+                    # a later binding to anything else ends the pattern's
+                    # (statements are visited in source order)
+                    for n in names:
+                        self.bound.pop(n, None)
+                        self.aliases.pop(n, None)
+                    if isinstance(value, ast.Name):
                         for n in names:
                             self.aliases[n] = (value.id,)
                     elif isinstance(value, ast.Attribute) and isinstance(value.value, ast.Name):
@@ -156,7 +170,22 @@ class _Module:
                             self.aliases[n] = (value.value.id, value.attr)
             if isinstance(child, ast.Call) and isinstance(child.func, ast.Attribute) and child.func.attr == "match":
                 self.matches.append((child, local, hidden, cls))
-            self._scope(child, fn, local, hidden, cls, in_class_body and not isinstance(child, ast.stmt))
+            # an if, a try or a with in a class body is still the class body
+            self._scope(child, fn, local, hidden, cls, in_class_body)
+
+
+    def class_pattern(self, cls: str, attr: str, seen: frozenset = frozenset()) -> int | None:
+        """The line of `attr`'s $-pattern in `cls`, or in a base class of
+        this module it inherits from (review of #143)."""
+        if cls in seen:
+            return None
+        if (cls, attr) in self.class_bound:
+            return self.class_bound[(cls, attr)]
+        for base in self.class_bases.get(cls, []):
+            line = self.class_pattern(base, attr, seen | {cls})
+            if line:
+                return line
+        return None
 
 
 class _Resolver:
@@ -275,7 +304,7 @@ def regex_dollar_findings(root: str) -> list[str]:
                 name = f"{target.value.id}.{target.attr}"
                 owner = cls if target.value.id in ("self", "cls") else target.value.id
                 if target.value.id in ("self", "cls") or target.value.id in mod.class_names:
-                    line = mod.class_bound.get((owner, target.attr)) if owner else None
+                    line = mod.class_pattern(owner, target.attr) if owner else None
                     hit = (rel, line) if line else None
                 else:
                     hit = resolver.attribute(rel, target.value.id, target.attr)

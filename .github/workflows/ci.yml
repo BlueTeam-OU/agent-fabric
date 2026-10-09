@@ -170,6 +170,7 @@ jobs:
           . runtime/provisioning/platform/detect.sh
           [ "$PLATFORM_ID" = "${{ matrix.platform }}" ] || { echo "detected $PLATFORM_ID, expected ${{ matrix.platform }}"; exit 1; }
           for t in "${FABRIC_HOST_TOOLS[@]}"; do command -v "$t" >/dev/null || { echo "missing after install: $t"; exit 1; }; done
+          host_python_ok || { echo "the platform's python3 is older than $FABRIC_HOST_PYTHON_MIN"; exit 1; }
       - name: the suites, as an unprivileged login (a host never runs the fabric as root)
         run: |
           set -e

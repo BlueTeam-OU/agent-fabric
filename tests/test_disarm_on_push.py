@@ -3,7 +3,7 @@
 workflow as it is and run under bash against a fake gh on PATH, so the
 case and the workflow cannot drift apart. A push takes auto-merge off
 only an arming older than the push; an unarmed PR and an arming of the
-new head are left alone. Also the trigger and the one write permission.
+new head are left alone. Also the trigger and the two write permissions.
 Plain script: prints ok/FAIL, exit 1 on any failure."""
 from __future__ import annotations
 
