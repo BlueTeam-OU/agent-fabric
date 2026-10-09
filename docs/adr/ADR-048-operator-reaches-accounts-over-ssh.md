@@ -66,8 +66,7 @@ forwarding, the agent, X11, user-rc and the pty for that key even if the
 server configuration were loosened, and `pty` gives back the one the panes
 need. Accepting four exact words, compared whole,
 leaves no parsing to get wrong. The argument reaches `enter` as a
-positional parameter of a login shell, so it is never shell text, and the
-login shell makes `--resume` run after the account's own start-up files.
+positional parameter of a login shell, so it is never shell text.
 
 The forced command, and the `enter` it runs, are root-owned installed
 copies, never an account's checkout, which is the agent's to write.
@@ -81,12 +80,13 @@ reaches it, and a test installs its own copy beside its own conf. Without
 moveto installed the provisioning refuses; it never falls back to a
 checkout's `enter`.
 
-What this guarantees is that the operator's key can only open one of the
-four modes through the installed `enter`, which the account cannot change.
-What then runs inside the account, its login files and its checkout's
-bootstrap, is the account's, as on the sudo path, so a pane shows what the
-account makes it show. The operator treats an agent's pane as that
-agent's, never as a trusted channel.
+The account's login files (`~/.bash_profile`, `~/.bashrc`) run first, in
+the login shell, before `enter`, and may replace it. What the root-owned
+pair guarantees is only that the operator's key opens one of the four
+modes through that login shell; the pane then shows what the account makes
+it show, as on the sudo path, and so does its checkout's bootstrap. The
+operator treats an agent's pane as that agent's, never as a trusted
+channel.
 
 Loopback-only listening keeps the single-host deployment unreachable from
 the network: the fence is the address, then `AllowUsers`, then the key,

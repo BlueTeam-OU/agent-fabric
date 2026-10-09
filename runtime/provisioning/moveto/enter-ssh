@@ -4,14 +4,14 @@
 # with the request in SSH_ORIGINAL_COMMAND. It accepts one of four exact
 # words and enters the account through moveto's installed `enter`.
 #
-# What this guarantees: enter-ssh and enter-ssh.conf are root-owned, so the
-# operator's key can only open one of the four modes, through the installed
-# `enter`, and the account cannot change that (never run from a checkout,
-# which the account could rewrite). It does not vouch for what then runs
-# inside the account: its login files and its checkout's bootstrap are the
-# account's, as on the sudo path, so a pane shows what the account makes it
-# show. The operator treats an agent's pane as that agent's, never as a
-# trusted channel.
+# What this guarantees: the account's login files (~/.bash_profile,
+# ~/.bashrc) run FIRST, in the login shell, before `enter`, and may replace
+# it. enter-ssh and enter-ssh.conf are root-owned (never run from a
+# checkout, which the account could rewrite), so all that pair guarantees is
+# that the operator's key opens one of the four modes through that login
+# shell. What then runs is the account's, as on the sudo path, so a pane
+# shows what the account makes it show. The operator treats an agent's pane
+# as that agent's, never as a trusted channel.
 #
 # Which `enter` it runs is the one line of enter-ssh.conf beside it
 # (/usr/local/share/moveto/enter, moveto's install.sh). A file, not an
@@ -26,8 +26,7 @@
 # word, a space, `;`, `$(...)` or a newline is simply not one of them;
 # nothing here parses, and the client's text is never echoed. The word
 # reaches `enter` as a positional parameter of a login shell, never inside
-# its command string, so `--resume` starts after ~/.bash_profile and
-# ~/.bashrc, which sudo's moveto path skipped.
+# its command string; sudo's moveto path skipped the login files.
 set -u
 # Owner of enter-ssh.conf and of the enter it names. A constant, not a
 # variable: tests/test_enter_ssh.py rewrites this line with sed in its
