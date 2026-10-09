@@ -11,8 +11,11 @@ until the suite was run on a stripped copy (fabric-coordinator's request
 
 The copy is the tree's files as git lists them, tracked and untracked but
 not ignored, so uncommitted work is what is run; instance_fixtures.
-strip_instance removes the instance data; the copy is made a one-commit git
-repository, as a checkout is. A test file is named by its path in the tree
+strip_instance removes the instance data; the copy is made a git repository
+whose HEAD is one commit of those files and whose objects hold the tree's
+history, as a checkout's do (a port's test reads the old script from it).
+Old commits still hold the instance data: a test that reads it through
+`git show` passes here, and no test may. A test file is named by its path in the tree
 (relative, or absolute inside it) and runs from the COPY: one outside the
 tree, or not in the copy (an ignored file), is refused, never run where it
 lies, which would read the live data and pass.

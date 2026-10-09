@@ -173,6 +173,8 @@ def _():
     # builder it uses, so an entry written tomorrow is held as well. The file
     # is a scratch fabric's: the committed one is the operator's, read by
     # lint's key-lineage rule, and absent from a checkout without its instance data.
+    # Lint does not reject a key the type does not declare, so an undeclared key in the
+    # committed file is no longer held anywhere; what certify() writes still is.
     root = "01a111d3-7e46-744b-8159-5131b5598f4d"
     child = "01a111d3-e2a5-7817-8019-35e185dcad48"
     fabric = scratch()

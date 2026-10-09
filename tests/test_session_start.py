@@ -460,7 +460,9 @@ def test_bootstrap_writes_only_the_workspace_and_home_files(tmp: str) -> None:
     for name, rel in cmds["commands"].items():
         link = os.path.join(home, ".local", "bin", name)
         assert os.path.islink(link) and os.readlink(link) == os.path.join(root, rel), (name, link)
-    allow = json.load(open(os.path.join(home, ".claude", "settings.json"), encoding="utf-8"))["permissions"]["allow"]
+    written = json.load(open(os.path.join(home, ".claude", "settings.json"), encoding="utf-8"))
+    assert "the fixture operator" in json.dumps(written), "the account's settings carry the operator's policy: the fixture's, not the checkout's"
+    allow = written["permissions"]["allow"]
     assert "Bash(gzcoord-inbox *)" in allow and "Bash(fabric-status *)" in allow, allow
     assert not any(f"Bash({n} *)" in allow for n in cmds["not_allowed"]), allow
     # A file at a command's name that the fabric did not make is the
