@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -16,12 +17,26 @@ import tempfile
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 WORKFLOW = os.path.join(ROOT, ".github", "workflows", "disarm-on-push.yml")
 
-# The fake answers the query with the arming time it is given and logs
-# every call, so a case reads what was mutated and what was posted.
+# The fake answers the query as GitHub's GraphQL API does — a document of
+# the fields asked for, null for a field the API does not have — and
+# applies the script's own --jq to it with jq, so a query or jq that names
+# the wrong field reads "not armed" here as it would live (review of #140,
+# P2 8). It logs every call, so a case reads what was mutated and posted.
 FAKE_GH = r"""#!/usr/bin/env bash
 printf '%s\n' "$*" >> "$GH_LOG"
-case "$*" in
-  *"query("*) printf 'PR_NODE %s\n' "${FAKE_ENABLED_AT:--}" ;;
+q=""; jqx=""; prev=""
+for a in "$@"; do
+  case "$prev" in -f) case "$a" in query=*) q="${a#query=}" ;; esac ;; --jq) jqx="$a" ;; esac
+  prev="$a"
+done
+case "$q" in
+  *"query("*)
+    if [[ "$q" == *"autoMergeRequest{enabledAt}"* && -n "${FAKE_ENABLED_AT:-}" ]]; then
+      doc='{"data":{"repository":{"pullRequest":{"id":"PR_NODE","autoMergeRequest":{"enabledAt":"'"$FAKE_ENABLED_AT"'"}}}}}'
+    else
+      doc='{"data":{"repository":{"pullRequest":{"id":"PR_NODE","autoMergeRequest":null}}}}'
+    fi
+    if [[ -n "$jqx" ]]; then printf '%s' "$doc" | jq -r "$jqx"; else printf '%s\n' "$doc"; fi ;;
   *) : ;;
 esac
 """
@@ -59,6 +74,9 @@ def run(enabled_at: str | None, pushed_at: str = "2026-10-09T06:10:00Z") -> tupl
 
 
 def main() -> int:
+    if not shutil.which("jq"):
+        print("  FAIL jq is not on PATH: the fake gh applies the workflow's --jq with it")
+        return 1
     print("disarm-on-push: not armed, nothing taken off")
     rc, out, calls = run(None)
     check("exit 0", rc == 0, out)
@@ -84,8 +102,10 @@ def main() -> int:
     check("pull-requests: write and contents: read, nothing else",
           perms is not None and sorted(perms.group(1).split()) == sorted(["contents:", "read", "pull-requests:", "write"]),
           perms.group(1) if perms else "no permissions block")
-    check("skipped for a fork and for Dependabot", "head.repo.full_name == github.repository" in text
-          and "dependabot[bot]" in text)
+    want_if = ("github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]'"
+               " && github.event.pull_request.user.login != 'dependabot[bot]'")
+    check("skipped for a fork, a push by Dependabot and a Dependabot pull request (the whole if:)",
+          f"    if: {want_if}\n" in text, re.search(r"\n    if: .*", text).group(0) if re.search(r"\n    if: .*", text) else "no if:")
 
     print("all passed" if not failures else f"{failures} failed")
     return 1 if failures else 0
