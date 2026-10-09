@@ -77,6 +77,7 @@ import urllib.request
 HERE = os.path.dirname(os.path.realpath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
 sys.path.insert(0, HERE)
+import httpsafe  # noqa: E402
 import roots  # noqa: E402
 
 # ENGINE data (ADR-045 §5 rule 2): a shim is a model family's
@@ -143,6 +144,12 @@ def api_key() -> str:
     return key
 
 
+# The API key goes to OpenRouter's host only: a redirect elsewhere is an
+# error, never followed with the key; proxies as urllib reads them (https,
+# so a CONNECT shows the proxy no header).
+OPENER = httpsafe.opener(proxies=True, redirects="same-origin")
+
+
 def call(method: str, path: str, body: dict | None = None) -> dict:
     req = urllib.request.Request(API + path, method=method,
                                  data=json.dumps(body).encode() if body is not None else None,
@@ -150,7 +157,7 @@ def call(method: str, path: str, body: dict | None = None) -> dict:
                                           "HTTP-Referer": "https://github.com/gzapi-org/agent-fabric",
                                           "X-Title": "agent-fabric shim.py"})
     try:
-        with urllib.request.urlopen(req, timeout=60) as resp:
+        with OPENER.open(req, timeout=60) as resp:
             return json.load(resp)
     except urllib.error.HTTPError as exc:
         detail = exc.read()[:400].decode(errors="replace")
@@ -280,7 +287,7 @@ def generation(gen_id: str) -> dict:
         req = urllib.request.Request(f"{API}/generation?id={gen_id}",
                                      headers={"Authorization": f"Bearer {api_key()}"})
         try:
-            with urllib.request.urlopen(req, timeout=30) as resp:
+            with OPENER.open(req, timeout=30) as resp:
                 return json.load(resp).get("data") or {}
         except urllib.error.HTTPError as exc:
             if exc.code != 404:
