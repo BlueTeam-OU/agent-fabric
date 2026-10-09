@@ -1741,6 +1741,52 @@ def case_a_dollar_anchored_pattern_in_every_shape_and_scope() -> None:
         assert not any(f.startswith("tools/scopes.py") for f in got), got
 
 
+def case_a_dollar_anchored_pattern_in_nested_scopes() -> None:
+    """Re-review of #140: a closure's pattern is a finding; an enclosing
+    function's parameter hides the module's pattern in a nested one; a
+    nested function's binding is not its enclosing function's; a class's
+    pattern is its own, not another class's; a class body's names are not
+    the module's."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("fabric_lint_under_test", LINT)
+    lint = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(lint)
+    with tempfile.TemporaryDirectory() as root:
+        g = lambda *a: subprocess.run(["git", "-C", root, *a], check=True, capture_output=True, env=git_env())
+        write(os.path.join(root, "tools", "nested.py"),
+              "import re\n"
+              "M = re.compile(r\"^m$\")\n"
+              "def outer(s):\n"
+              "    P = re.compile(r\"^p$\")\n"
+              "    def inner(t):\n"
+              "        return P.match(t)\n"            # line 6: a closure, a finding
+              "    return inner(s)\n"
+              "def shadow(M):\n"
+              "    def inner(t):\n"
+              "        return M.match(t)\n"            # line 10: the outer parameter, not the module's M
+              "    return inner\n"
+              "def leak(s):\n"
+              "    def inner(t):\n"
+              "        Q = re.compile(r\"^q$\")\n"
+              "        return Q.fullmatch(t)\n"
+              "    Q = re.compile(r\"^q\\Z\")\n"
+              "    return Q.match(s)\n"                # line 17: leak's own Q is no $-pattern
+              "class A:\n"
+              "    PAT = re.compile(r\"^a$\")\n"
+              "class B:\n"
+              "    PAT = re.compile(r\"^b\\Z\")\n"
+              "    def m(self, s):\n"
+              "        return self.PAT.match(s)\n"     # line 23: B's PAT, not A's
+              "class D:\n"
+              "    N = re.compile(r\"^n$\")\n"
+              "def use(s, N):\n"
+              "    return N.match(s)\n")             # line 27: a parameter; D.N is no module name
+        g("init", "-q", "-b", "main")
+        g("add", "-A")
+        got = lint.regex_dollar_findings(root)
+        assert [f.split(" ")[0] for f in got] == ["tools/nested.py:6:"], got
+
+
 def case_a_dollar_anchored_pattern_is_followed_across_imports() -> None:
     """The pattern is bound in one file and called with .match in another:
     through `from m import NAME`, `import m` then `m.NAME`, a re-export, a
@@ -2119,6 +2165,7 @@ def main() -> int:
         case_a_dollar_anchored_pattern_is_not_called_with_match,
         case_a_dollar_anchored_pattern_is_followed_across_imports,
         case_a_dollar_anchored_pattern_in_every_shape_and_scope,
+        case_a_dollar_anchored_pattern_in_nested_scopes,
         case_a_contributor_entry_never_reaches_a_definition,
         case_the_fallback_validator_agrees_with_jsonschema,
         case_the_python_pin_is_checkable_and_what_ci_runs,

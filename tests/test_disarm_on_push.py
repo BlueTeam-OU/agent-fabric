@@ -31,10 +31,12 @@ for a in "$@"; do
 done
 case "$q" in
   *"query("*)
+    # Each field only when the query asks for it, as GitHub answers.
+    id='null'; [[ "$q" == *"pullRequest(number:\$n){id "* ]] && id='"PR_NODE"'
     if [[ "$q" == *"autoMergeRequest{enabledAt}"* && -n "${FAKE_ENABLED_AT:-}" ]]; then
-      doc='{"data":{"repository":{"pullRequest":{"id":"PR_NODE","autoMergeRequest":{"enabledAt":"'"$FAKE_ENABLED_AT"'"}}}}}'
+      doc='{"data":{"repository":{"pullRequest":{"id":'"$id"',"autoMergeRequest":{"enabledAt":"'"$FAKE_ENABLED_AT"'"}}}}}'
     else
-      doc='{"data":{"repository":{"pullRequest":{"id":"PR_NODE","autoMergeRequest":null}}}}'
+      doc='{"data":{"repository":{"pullRequest":{"id":'"$id"',"autoMergeRequest":null}}}}'
     fi
     if [[ -n "$jqx" ]]; then printf '%s' "$doc" | jq -r "$jqx"; else printf '%s\n' "$doc"; fi ;;
   *) : ;;

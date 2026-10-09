@@ -61,6 +61,17 @@ def _assigned(node: ast.AST) -> list[tuple[list[str], ast.AST]]:
     return []
 
 
+def _own_statements(fn: ast.AST):
+    """The nodes of a function's own body, not crossing into the
+    functions, lambdas and classes nested in it."""
+    stack = list(ast.iter_child_nodes(fn))
+    while stack:
+        node = stack.pop()
+        yield node
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda, ast.ClassDef)):
+            stack.extend(ast.iter_child_nodes(node))
+
+
 def _is_dollar_compile(value: ast.AST) -> bool:
     return _is_re_call(value, "compile") and _literal_dollar_pattern(value, 1)
 
@@ -76,10 +87,11 @@ class _Module:
 
     def __init__(self, tree: ast.AST):
         # (call, the function's own pattern bindings, the names it rebinds otherwise)
-        self.matches: list[tuple[ast.Call, dict[str, int], frozenset[str]]] = []
+        self.matches: list[tuple[ast.Call, dict[str, int], frozenset[str], str | None]] = []
         self.bound: dict[str, int] = {}
-        # `X = re.compile(...)` in a class body, for self.X / cls.X / Class.X
-        self.class_bound: dict[str, int] = {}
+        # (class, X) for `X = re.compile(...)` in that class's body: self.X /
+        # cls.X in its methods, Class.X anywhere in the module
+        self.class_bound: dict[tuple[str, str], int] = {}
         self.class_names = {n.name for n in ast.walk(tree) if isinstance(n, ast.ClassDef)}
         # asname -> (level, module, name) for `from module import name`
         self.froms: dict[str, tuple[int, str, str]] = {}
@@ -99,32 +111,39 @@ class _Module:
                         self.imports[a.asname or a.name] = a.name
 
 
-    def _scope(self, node: ast.AST, fn: ast.AST | None, local: dict[str, int], hidden: frozenset[str]) -> None:
-        """Walk one scope: the module's (fn None) or a function's, with the
-        names that function binds; a nested function starts its own."""
+    def _scope(self, node: ast.AST, fn: ast.AST | None, local: dict[str, int], hidden: frozenset[str],
+               cls: str | None = None, in_class_body: bool = False) -> None:
+        """Walk one scope: the module's (fn None), a class body's, or a
+        function's, with the names in force there. A nested function sees
+        its enclosing function's patterns and hidden names (a closure), and
+        its own bindings stop at the functions nested in it. `cls` is the
+        class whose methods resolve self. and cls."""
         for child in ast.iter_child_nodes(node):
             if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
                 params = {a.arg for a in ast.walk(child.args) if isinstance(a, ast.arg)}
                 own: dict[str, int] = {}
                 others: set[str] = set(params)
-                for sub in ast.walk(child):
+                for sub in _own_statements(child):
                     for names, value in _assigned(sub):
                         for n in names:
                             if _is_dollar_compile(value):
                                 own[n] = sub.lineno
                             else:
                                 others.add(n)
-                self._scope(child, child, own, frozenset(others - set(own)))
+                inner_local = {k: v for k, v in local.items() if k not in others} | own
+                inner_hidden = frozenset((set(hidden) | others) - set(own))
+                self._scope(child, child, inner_local, inner_hidden, cls)
                 continue
             if isinstance(child, ast.ClassDef):
                 for stmt in child.body:
                     for names, value in _assigned(stmt):
                         if _is_dollar_compile(value):
                             for n in names:
-                                self.class_bound[n] = stmt.lineno
-                self._scope(child, fn, local, hidden)
+                                self.class_bound[(child.name, n)] = stmt.lineno
+                # a class body's names are its attributes, not the module's
+                self._scope(child, fn, local, hidden, child.name, in_class_body=True)
                 continue
-            if fn is None:
+            if fn is None and not in_class_body:
                 for names, value in _assigned(child):
                     if _is_dollar_compile(value):
                         for n in names:
@@ -136,8 +155,8 @@ class _Module:
                         for n in names:
                             self.aliases[n] = (value.value.id, value.attr)
             if isinstance(child, ast.Call) and isinstance(child.func, ast.Attribute) and child.func.attr == "match":
-                self.matches.append((child, local, hidden))
-            self._scope(child, fn, local, hidden)
+                self.matches.append((child, local, hidden, cls))
+            self._scope(child, fn, local, hidden, cls, in_class_body and not isinstance(child, ast.stmt))
 
 
 class _Resolver:
@@ -238,7 +257,7 @@ def regex_dollar_findings(root: str) -> list[str]:
         if mod is None:
             continue
         found: list[tuple[int, str]] = []
-        for node, local, hidden in mod.matches:
+        for node, local, hidden, cls in mod.matches:
             if _is_re_call(node, "match") and _literal_dollar_pattern(node, 2):
                 found.append((node.lineno, f"{rel}:{node.lineno}: re.match with a pattern ending in `$` accepts one trailing newline "
                                 "— use re.fullmatch (or end the pattern in \\Z)"))
@@ -254,8 +273,10 @@ def regex_dollar_findings(root: str) -> list[str]:
                     hit = resolver.pattern(rel, name)
             elif isinstance(target, ast.Attribute) and isinstance(target.value, ast.Name):
                 name = f"{target.value.id}.{target.attr}"
+                owner = cls if target.value.id in ("self", "cls") else target.value.id
                 if target.value.id in ("self", "cls") or target.value.id in mod.class_names:
-                    hit = (rel, mod.class_bound[target.attr]) if target.attr in mod.class_bound else None
+                    line = mod.class_bound.get((owner, target.attr)) if owner else None
+                    hit = (rel, line) if line else None
                 else:
                     hit = resolver.attribute(rel, target.value.id, target.attr)
             if hit:
