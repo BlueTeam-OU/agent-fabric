@@ -66,7 +66,7 @@ def own_agent_id(store: str | None = None) -> str | None:
             aid = fh.read().strip()
     except FileNotFoundError:
         return None
-    if not AGENT_ID_RE.match(aid):
+    if not AGENT_ID_RE.fullmatch(aid):
         raise StoreError(f"the store's .agent-id is not an agent id: {aid[:40]!r}")
     return aid
 

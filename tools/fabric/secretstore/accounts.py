@@ -21,7 +21,7 @@ SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,62}$")
 
 
 def _slug_name(slug: str) -> str:
-    if not SLUG_RE.match(slug):
+    if not SLUG_RE.fullmatch(slug):
         raise StoreError(f"{slug!r} is not an account slug (lowercase, digits, dashes)")
     return TEMPLATE_PREFIX + slug.upper().replace("-", "_")
 

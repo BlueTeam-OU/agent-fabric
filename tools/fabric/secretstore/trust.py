@@ -290,10 +290,10 @@ def _mirror_ids(*, kept: bool = False) -> list[str]:
     an empty answer: status would read clean on it (review of #94)."""
     try:
         names = os.listdir(children_dir())
-        ids = {n for n in names if AGENT_ID_RE.match(n)}
+        ids = {n for n in names if AGENT_ID_RE.fullmatch(n)}
         if kept:
             ids |= {n[:-len(".refusal.json")] for n in names
-                    if n.endswith(".refusal.json") and AGENT_ID_RE.match(n[:-len(".refusal.json")])}
+                    if n.endswith(".refusal.json") and AGENT_ID_RE.fullmatch(n[:-len(".refusal.json")])}
         return sorted(ids)
     except FileNotFoundError:
         return []

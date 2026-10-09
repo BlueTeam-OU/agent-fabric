@@ -96,6 +96,6 @@ def _key_agent_ids(key_file: str) -> list[str]:
         f = l.split(":")
         if f[0] == "uid" and f[1] not in ("r", "e", "i"):
             m = re.search(r"<([0-9a-f-]{36})@" + re.escape(UID_DOMAIN) + ">", f[9])
-            if m and AGENT_ID_RE.match(m.group(1)):
+            if m and AGENT_ID_RE.fullmatch(m.group(1)):
                 ids.append(m.group(1))
     return ids

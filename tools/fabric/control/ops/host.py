@@ -220,7 +220,7 @@ def disk(home: str | None = None, run: Callable[..., Any] = util.run_bounded, ti
         # What du could not read is not in the total: say how much, and where to
         # look first. A rootless podman's volumes are owned by a sub-UID, so a
         # home that runs containers has some.
-        unread = [m.group(1) for ln in said.split("\n") if (m := re.match(r"^du: cannot (?:read directory|access) (.*): [^:]*$", ln))]
+        unread = [m.group(1) for ln in said.split("\n") if (m := re.fullmatch(r"^du: cannot (?:read directory|access) (.*): [^:]*$", ln))]
         if unread:
             errors.append(f"{what}: {len(unread)} path{'' if len(unread) == 1 else 's'} du could not read, not counted; the first: {unread[0]}")
         sizes: dict[str, int] = {}

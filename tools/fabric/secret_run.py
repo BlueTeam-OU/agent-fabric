@@ -61,7 +61,7 @@ def parse(argv: list[str]) -> tuple[list[str], list[str]]:
         raise Refused(USAGE)
     names = []
     for n in argv[0].split(","):
-        if not NAME_RE.match(n):
+        if not NAME_RE.fullmatch(n):
             raise Refused(f"{n!r} is not a secret name (UPPER_SNAKE, as an environment variable); nothing run")
         if n not in names:
             names.append(n)
