@@ -207,11 +207,15 @@ def main() -> int:
         reg = os.path.join(d, "registry.json")
         with open(reg, "w") as fh:
             json.dump({"hosts": {"h": {"operator": "user"}}, "placement": {"a": "h", "py": "h"}}, fh)
-        saved = {k: os.environ.get(k) for k in ("HOME", "CLAUDE_BRIDGE_AUTH_TOKEN")}
+        saved = {k: os.environ.get(k) for k in ("HOME", "CLAUDE_BRIDGE_AUTH_TOKEN", "AGENT_FABRIC_ROOT")}
 
-        def run(argv, call=None, token="tok", who=None, wait_ms=300):
+        def run(argv, call=None, token="tok", who=None, wait_ms=300, ws=None):
             lines, errs = [], []
             os.environ["HOME"] = d
+            # The token's last home is <workspace>/.gzcoord/bridge-token, the
+            # workspace being the directory the fabric root sits in: on the
+            # hosting account that is a real token, and "no token" read it.
+            os.environ["AGENT_FABRIC_ROOT"] = os.path.join(ws or os.path.join(d, "empty-ws"), "fabric")
             if token:
                 os.environ["CLAUDE_BRIDGE_AUTH_TOKEN"] = token
             else:
@@ -225,6 +229,13 @@ def main() -> int:
                 check(f"usage {bad}: exit 2, nothing on stdout", code == 2 and not out and errs and errs[0].startswith("usage:"))
             code, out, _ = run(["waits"], token=None)
             check("no token: exit 3, sent false", code == 3 and out == [{"error": "no CLAUDE_BRIDGE_AUTH_TOKEN (fabric-secrets sync)", "sent": False}], out)
+            hosted = os.path.join(d, "hosted-ws")
+            os.makedirs(os.path.join(hosted, ".gzcoord"))
+            with open(os.path.join(hosted, ".gzcoord", "bridge-token"), "w") as fh:
+                fh.write("hosted-tok\n")
+            code, out, _ = run(["waits"], token=None, ws=hosted)
+            check("no token in the environment, a bridge-token in the workspace: that is the token (the control for the case above)",
+                  code == 0 and out[0]["accounts"] == 0, out)
             code, out, _ = run(["waits"], call=lambda tok, p, **kw: {"messages": [rec("h/a", [A])]})
             check("waits: exit 0, the waits of the placed (its old record named stale, by the real clock)",
                   code == 0 and out[0]["waits"] == {A: ["h/a"]} and out[0]["accounts"] == 1 and list(out[0]["stale"]) == ["h/a"], out)
