@@ -829,7 +829,7 @@ class Bootstrap:
             raw = _read(template)
         except OSError as e:
             raise Stop(1, f"bootstrap: install: cannot read {template}: {e.strerror or e}") from None
-        impl, why = "node", ""
+        impl, why, unit = "node", "", raw
         try:
             doc = agentd_unit.load(self.root)
             impl = agentd_unit.implementation(doc, login())
@@ -837,11 +837,15 @@ class Bootstrap:
                 why = self.python_refusal(doc)
                 if why:
                     impl = "node"
+            if impl == "python":
+                # Inside the try: a template with no or two ExecStart= lines
+                # (ValueError) or non-UTF-8 bytes (UnicodeDecodeError, also a
+                # ValueError) falls back to the Node unit like any other refusal.
+                unit = agentd_unit.unit_text(raw.decode("utf-8"), impl).encode("utf-8")
         except ValueError as e:
-            why = str(e)
+            impl, unit, why = "node", raw, str(e)
         if why:
             warn(f"  !  {UNIT}: python not used, the Node unit written: {why}")
-        unit = raw if impl == "node" else agentd_unit.unit_text(raw.decode("utf-8"), impl).encode("utf-8")
         # Said in a dry run, and whenever the unit is not the one every account
         # had before the cutover; a node run's lines stay as they were.
         if self.dry_run or impl != "node":

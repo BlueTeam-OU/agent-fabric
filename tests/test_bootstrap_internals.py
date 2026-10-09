@@ -502,6 +502,26 @@ def agentd_selector(T: str) -> None:
             finally:
                 s.close()
 
+        # A template the python swap cannot read falls back to Node with one
+        # warning; the template is written as it is, as every account had it.
+        bad_templates = (
+            ("agentd-no-execstart", b"[Unit]\nDescription=x\n", "0 ExecStart lines"),
+            ("agentd-two-execstart", b"[Service]\nExecStart=/a\nExecStart=/b\n", "2 ExecStart lines"),
+            ("agentd-not-utf8", b"[Service]\nExecStart=/a\n# \xff\xfe\n", "utf-8"))
+        for name, body, why in bad_templates:
+            s, projects, root = account(name, json.dumps({"default": "node", "python": [me]}))
+            try:
+                with open(os.path.join(root, "runtime", "control", f"{bootstrap.UNIT}.service"), "wb") as fh:
+                    fh.write(body)
+                b = bootstrap.Bootstrap(projects, False, root)
+                _, out, err = quiet(b.control_agent)
+                check(f"a template with {why}: the Node unit written, one warning, no traceback, not a failure",
+                      open(unit_path(), "rb").read() == body and b.failed == 0
+                      and "python not used" in err and why in err and err.count("\n") == 1
+                      and "Traceback" not in err and "runs python" not in out, (out, err))
+            finally:
+                s.close()
+
         # The fallback unit is enabled all the same.
         s, projects, root = account("agentd-elsewhere-enabled", json.dumps({"default": "node", "python": [me]}), "some-other-host")
         try:
