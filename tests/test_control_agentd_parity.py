@@ -19,10 +19,8 @@ from __future__ import annotations
 import json
 import os
 import re
-import shutil
 import subprocess
 import sys
-import tempfile
 import threading
 import time
 import unittest
@@ -30,7 +28,7 @@ import unittest
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(HERE, "tests"))
 sys.path.insert(0, os.path.join(HERE, "tools", "fabric"))
-from test_control_agentd import AGENTD, SELF, WHO, Daemon, executable, iso, request_body  # noqa: E402
+from test_control_agentd import AGENTD, SELF, WHO, Daemon, iso, request_body  # noqa: E402
 from control import sign  # noqa: E402
 
 AGENTD_MJS = os.path.join(HERE, "runtime", "control", "agentd.mjs")
