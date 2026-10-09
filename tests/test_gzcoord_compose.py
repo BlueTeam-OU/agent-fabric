@@ -101,7 +101,7 @@ def main() -> int:
             return r.returncode, r.stdout + r.stderr
 
         def filled(text: str) -> str:
-            return "\n".join(line + "\nx" if SECTION.match(line) and i else line
+            return "\n".join(line + "\nx" if SECTION.fullmatch(line) and i else line
                              for i, line in enumerate(text.split("\n")))
 
         print("each type: its sections, then REFERENCES:; filled, it validates")

@@ -233,7 +233,7 @@ def env_local_key(root: str) -> str:
     for line in re.split(r"\r?\n", text or ""):
         # A "#" line never matches: the name must come first. The .mjs also
         # tested for "#", a check no line could reach.
-        m = _ENV_LINE.match(line)
+        m = _ENV_LINE.fullmatch(line)
         if not m or m.group(1) != "OPENAI_API_KEY" or found:
             continue
         found = _QUOTED.sub(r"\2", m.group(2))

@@ -132,6 +132,8 @@ def test_every_refusal_names_its_field(tmp: str) -> None:
         "both range and diff": ({**ok, "diff": os.path.join(tmp, "x.diff")}, "range / diff: exactly one"),
         "neither range nor diff": ({k: v for k, v in ok.items() if k != "range"}, "range / diff: exactly one"),
         "bad range": ({**ok, "range": "main HEAD"}, "range: 'main HEAD' is not base..head"),
+        "range with a trailing newline": ({**ok, "range": "main..HEAD\n"}, "is not base..head"),
+        "lens with a trailing newline": ({**ok, "lenses": ["general\n"]}, "is not a lens name"),
         "no repository": ({k: v for k, v in ok.items() if k != "repository"}, "repository: required"),
         "not a working copy": ({**ok, "repository": tmp}, "is not a git working copy"),
         "unknown lens": ({**ok, "lenses": ["general", "vibes"]}, "lenses: 'vibes' is not a lens"),

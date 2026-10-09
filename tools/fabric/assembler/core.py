@@ -198,7 +198,7 @@ def yaml_scalar(value: Any) -> str:
         or re.search(r"[\n\r\t]", text)
         or text.strip() != text
         or text == ""
-        or YAML_AMBIGUOUS.match(text)
+        or YAML_AMBIGUOUS.fullmatch(text)
     ):
         return json.dumps(text, ensure_ascii=False)
     return text

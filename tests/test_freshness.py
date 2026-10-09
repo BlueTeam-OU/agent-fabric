@@ -134,6 +134,8 @@ def main() -> int:
         check("no origin: nothing", fresh.note({"cwd": lone, "session_id": "s1"}, state=state) is None)
         check("a session id that is not a name: nothing",
               fresh.note({"cwd": wc, "session_id": "../x"}, state=state) is None)
+        check("a session id with a trailing newline: nothing",
+              fresh.note({"cwd": wc, "session_id": "s1\n"}, state=state) is None)
         r = subprocess.run([sys.executable, HOOK], input="not json", capture_output=True, text=True, timeout=30)
         check("a payload that is not JSON: exit 0, nothing printed", r.returncode == 0 and not r.stdout and not r.stderr)
     print(f"\n{'all passed' if not fails else str(fails) + ' FAILED'}")

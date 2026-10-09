@@ -99,14 +99,14 @@ def judge(ref: str, comment: str) -> str | None:
     """The reason a use fails, or None when it is pinned (or exempt)."""
     if ref.startswith("docker://"):
         if "@sha256:" in ref:
-            return None if DIGEST_RE.match(ref.rsplit("@sha256:", 1)[1]) else "a sha256 digest is 64 hex characters"
+            return None if DIGEST_RE.fullmatch(ref.rsplit("@sha256:", 1)[1]) else "a sha256 digest is 64 hex characters"
         return "a docker action is pinned by @sha256: digest, not by tag"
     if "@" not in ref:
         return "names no ref at all — it runs the default branch"
     at = ref.rsplit("@", 1)[1]
-    if not SHA_RE.match(at):
+    if not SHA_RE.fullmatch(at):
         return f"is pinned to '{at}', which its owner can move — pin the 40-character commit SHA"
-    if not VERSION_RE.match(comment):
+    if not VERSION_RE.fullmatch(comment):
         return "carries no '# vX.Y.Z' comment on its line — the release a reader needs, rewritten with the pin"
     return None
 

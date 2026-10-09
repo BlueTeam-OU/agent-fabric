@@ -22,7 +22,7 @@ def synced_var(name: str, home: str | None = None) -> str | None:
         return None
     pattern = re.compile(f"^export {re.escape(name)}=(.*)$")
     for line in lines:
-        m = pattern.match(line)
+        m = pattern.fullmatch(line)
         if not m:
             continue
         v = gzmsg.js_trim(m.group(1))

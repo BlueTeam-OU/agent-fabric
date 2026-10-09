@@ -50,7 +50,7 @@ def born_ms_of(stamp: str) -> int:
     import datetime
     if stamp == "now":
         return int(datetime.datetime.now(datetime.timezone.utc).timestamp() * 1000)
-    m = re.match(r"^(\d{4}-\d\d-\d\d)[ T](\d\d:\d\d:\d\d)(?:\.(\d+))?\s*(Z|[+-]\d\d:?\d\d)?$", stamp.strip())
+    m = re.fullmatch(r"^(\d{4}-\d\d-\d\d)[ T](\d\d:\d\d:\d\d)(?:\.(\d+))?\s*(Z|[+-]\d\d:?\d\d)?$", stamp.strip())
     if not m:
         raise StoreError(f"{stamp!r} is not a birth time (the home's creation time is unknown here: name one)")
     frac = (m.group(3) or "0")[:6].ljust(6, "0")
@@ -66,7 +66,7 @@ def own_agent_id(store: str | None = None) -> str | None:
             aid = fh.read().strip()
     except FileNotFoundError:
         return None
-    if not AGENT_ID_RE.match(aid):
+    if not AGENT_ID_RE.fullmatch(aid):
         raise StoreError(f"the store's .agent-id is not an agent id: {aid[:40]!r}")
     return aid
 

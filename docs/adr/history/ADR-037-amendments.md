@@ -16,3 +16,11 @@ python-dev-01 builds it (its REQUEST, relay seq 20917, undertaken with two point
 ### Amendment 2026-10-09 — A stale waiter still counts
 
 Rule 8 said a queued job others wait on ranks blocking, but not what happens when the waiter's state record is old. #124 settled it in code (python-dev-01, on fabric-coordinator's ruling in its request thread): the waiter still counts, because its block lives in its own `jobs.json` whether or not its control agent is running to report it, and dropping the rank would hide a real wait behind an agentd restart. `fabric-jobs list` names such a waiter with the record's age and says it is stale; `runtime/control/queue.mjs` returns the stale waiters beside the waits. This entry is the record half.
+
+### Amendment 2026-10-09 — A REQUEST to a login is queued on its list
+
+On 2026-10-09 python-dev-03 held three REQUESTs from the coordinator for an hour with an empty job list; the owner pointed at the list, and the jobs, added by hand, were what the session would meet. §7 had kept the intake for later, keyed on an undertaking REPLY; a login that has not yet read a request sends none, so the intake is keyed on delivery instead, and the operator's send adds the job through the existing jobs-add action for a session whose watch has lapsed. No wire changes: a request id on jobs-add waits for ADR-040 §7. The owner approved it the same day, from the reading of "loops, graphs & harnesses" (enforce over document). python-dev-02 builds the tools (REQUEST 01a11f64).
+
+### Amendment 2026-10-09 — A job may be a plan's step
+
+ADR-047 has the coordinator keep plans whose steps are jobs on agents' lists. The link lives in the plan, so no agent's job and no frozen operation changes; a step given at dispatch waits for the wire to allow new arguments.

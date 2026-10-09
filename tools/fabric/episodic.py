@@ -144,12 +144,12 @@ def parse_header(text: str) -> tuple[str, dict[str, str]]:
     marker; a repeated key keeps its last value. Validating is gzcoord-send's
     and the reader's job."""
     lines = text.lstrip("\ufeff").replace("\r\n", "\n").split("\n")
-    m = _FIRST.match(lines[0] if lines else "")
+    m = _FIRST.fullmatch(lines[0] if lines else "")
     if not m:
         raise JournalError("not a GZCOORD/1 message")
     meta: dict[str, str] = {}
     for line in lines[1:]:
-        if _SECTION.match(line):
+        if _SECTION.fullmatch(line):
             break
         k = _KEY.match(line)
         if k:

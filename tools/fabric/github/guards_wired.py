@@ -160,7 +160,7 @@ def run_commands(workflows: str) -> list[str]:
                 raise Refused(f"could not read the workflow run commands: {path}: {_why(e)}") from None
             i = 0
             while i < len(lines):
-                m = RUN_KEY.match(lines[i])
+                m = RUN_KEY.fullmatch(lines[i])
                 if not m:
                     i += 1
                     continue
@@ -191,7 +191,7 @@ def matrix_values(text: str) -> dict[str, set[str]]:
     lines = text.split("\n")
     i = 0
     while i < len(lines):
-        m = re.match(r"^(\s*)matrix:\s*$", lines[i])
+        m = re.fullmatch(r"^(\s*)matrix:\s*$", lines[i])
         if not m:
             i += 1
             continue
@@ -201,8 +201,8 @@ def matrix_values(text: str) -> dict[str, set[str]]:
             line = lines[i]
             if line.strip() and not line.lstrip().startswith("#") and len(line) - len(line.lstrip()) <= indent:
                 break
-            kv = re.match(r"^\s*(?:-\s+)?([A-Za-z_][\w-]*):\s*(.*?)\s*$", line)
-            if kv and re.match(r"^[|>][+-]?$", kv.group(2)):
+            kv = re.fullmatch(r"^\s*(?:-\s+)?([A-Za-z_][\w-]*):\s*(.*?)\s*$", line)
+            if kv and re.fullmatch(r"^[|>][+-]?$", kv.group(2)):
                 own = len(line) - len(line.lstrip())
                 j = i + 1
                 while j < len(lines) and (not lines[j].strip() or len(lines[j]) - len(lines[j].lstrip()) > own):
@@ -212,7 +212,7 @@ def matrix_values(text: str) -> dict[str, set[str]]:
                 values.setdefault(kv.group(1), set()).update(re.sub(r"[\[\],'\"]", " ", kv.group(2)).split())
             elif kv:
                 j = i + 1
-                while j < len(lines) and re.match(r"^\s*-\s+[^:\s][^:]*$", lines[j]):
+                while j < len(lines) and re.fullmatch(r"^\s*-\s+[^:\s][^:]*$", lines[j]):
                     values.setdefault(kv.group(1), set()).update(re.sub(r"['\"]", "", lines[j].split("-", 1)[1]).split())
                     j += 1
             i += 1
@@ -279,7 +279,7 @@ def package_commands(root: str, workflows: str, excludes: set[str]) -> list[str]
             bound = loop_bindings(code, matrix_values(code))
             for line in code.split("\n"):
                 for token, script in PNPM.findall(line):
-                    m = re.match(r"^[\"']?\$\{?(\w+)\}?[\"']?$", token)
+                    m = re.fullmatch(r"^[\"']?\$\{?(\w+)\}?[\"']?$", token)
                     for pkg in (bound.get(m.group(1), set()) if m else {token.strip("\"'")}):
                         invoked.add((pkg, script))
     out = []

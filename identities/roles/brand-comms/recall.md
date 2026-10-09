@@ -31,9 +31,9 @@ memory — it resolves against git and the forge, and it outlives any
 session:
 
 ```sh
-tools/fabric/query.sh commit <sha>      # which slices a commit taught
-tools/fabric/query.sh file <needle>     # which slices cite a file
-tools/fabric/query.sh obs <hash>        # one observation, forward and back
+fabric-query commit <sha>      # which slices a commit taught
+fabric-query file <needle>     # which slices cite a file
+fabric-query obs <hash>        # one observation, forward and back
 ```
 
 A slice that disagrees with the tree is wrong, not the tree; write the

@@ -102,7 +102,9 @@ agents' private context.
    memory.
 4. The number is never a target for any agent, never compared between
    agents, and never a reason to withhold a question from the owner; a
-   session that needs the owner's word asks for it.
+   session that needs the owner's word asks for it. A view that sets
+   agents' resources or job counts side by side (ADR-046 rule 7) compares
+   no number of this rule (A 2026-10-09).
 
 ## 6. Consequences
 
@@ -135,6 +137,14 @@ Accepted and in force.
 - ADR-000 §5, P3 (Today, Direction) and P7 (Direction).
 - ADR-001 (§5 rule 2), ADR-014 (contested claims), ADR-019 (the band and the gate), ADR-020
   (the review), ADR-024 (carrying the owner's word).
-- `runtime/github/commit-class.sh`, `runtime/github/pr-review-status.sh`,
-  `runtime/github/pr-gate.sh`; `memory/RUBRIC.md` ("Telemetry, not
+- `runtime/github/commit-class.sh`, `fabric-pr review-status`,
+  `fabric-pr gate`; `memory/RUBRIC.md` ("Telemetry, not
   quotas").
+
+## Amendments
+
+The body above reads current; each change's full note is in [history/ADR-026-amendments.md](history/ADR-026-amendments.md).
+
+| Date | Amendment | Effect |
+|---|---|---|
+| 2026-10-09 | Comparing agents' resources is not ranking their work | §5 rule 4: the rule covers the verified-work number only; resources and job counts may be shown side by side (ADR-046) |

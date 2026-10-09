@@ -17,7 +17,7 @@ after it on its line, before the next PR, at least once in the reply;
 fenced and inline code are not read, and a number that is an issue, a
 step, an item or a colour is not a PR. When a
 pull request lacks them, the reply is blocked once with the reason: the
-session adds the counts from runtime/github/pr-gate.sh and answers again. `stop_hook_active` (the session is already continuing
+session adds the counts from fabric-pr gate and answers again. `stop_hook_active` (the session is already continuing
 because of a stop hook) lets the second answer through whatever it says:
 the guard asks once, and never holds a session in a loop.
 
@@ -128,7 +128,7 @@ def main() -> int:
             print(json.dumps({"decision": "block", "reason": (
                 f"Your reply states the status of {', '.join(prs)} without its commit counts. The owner decides "
                 "whether to arm from what you say: give each as \"#N (W work, F fix)\", read from "
-                "runtime/github/pr-gate.sh (or the project's tools/gh/pr-gate.sh), and answer again.")}))
+                "fabric-pr gate in that project's working copy, and answer again.")}))
     except Exception:  # noqa: BLE001 - a guard on prose never stands in a session's way
         pass
     return 0

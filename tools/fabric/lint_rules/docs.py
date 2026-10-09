@@ -182,7 +182,7 @@ def fabric_ref_findings(pid: str, wc: str) -> list[str]:
     lines = text.split("\n")
     if len(lines) != 2 or lines[1] != "":
         return [f"{where}: must be exactly one line ending in a newline"]
-    if not FABRIC_REF_RE.match(lines[0]):
+    if not FABRIC_REF_RE.fullmatch(lines[0]):
         return [f"{where}: {lines[0]!r} is not a full lowercase commit id (40 hex)"]
     return []
 
@@ -681,7 +681,7 @@ def review_lens_findings(root: str) -> list[str]:
         meta = dict(line.split(":", 1) for line in m.group(1).split("\n") if ":" in line)
         meta = {k.strip(): v.strip() for k, v in meta.items()}
         stem = fn[:-3]
-        if meta.get("name") != stem or not LENS_NAME_RE.match(stem):
+        if meta.get("name") != stem or not LENS_NAME_RE.fullmatch(stem):
             findings.append(f"{rel}: name {meta.get('name')!r} must equal the filename and be a lowercase slug")
         desc = meta.get("description", "")
         if not desc or len(desc) > LENS_DESCRIPTION_CAP:

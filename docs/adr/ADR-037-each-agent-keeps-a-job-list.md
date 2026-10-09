@@ -46,8 +46,10 @@ that job's working copy, with the job in its opening prompt.
 one, through the control plane. A session sees its own list at start,
 and a warning when its active job belongs in another working copy.
 
-**Requests between agents.** A GZCoord request becomes a job only when its
-receiver adds it. The automatic intake is built but not activated.
+**Requests between agents.** A GZCoord request addressed to a login is to be
+queued on its list when it is delivered (rule 11). That intake is decided and
+not yet built; until it is, the receiver adds the request itself, and an
+operator who sends one also adds it with `jobs-add`.
 
 ## 3. Alternatives Considered
 
@@ -103,7 +105,7 @@ Why these choices:
    a REQUEST addressed to this login and not yet listed. A REPLY says
    whether it undertakes the request in prose, so the intake cannot tell
    an undertaking from a decline: that, with the owner's choice, keeps it
-   off. Turning it on is an amendment of this record.
+   off. Rule 11's intake on delivery replaces it once built.
 6. The owner reads every agent's open jobs with
    `fabric-ctl <login|all> jobs`, an operator's op. Peers see each other's
    presence, not each other's lists; the message ids an agent's blocked
@@ -135,6 +137,17 @@ Why these choices:
     `fabric-jobs next` before anything else, and it ends a session idle
     only when nothing is left it can take, on its own list or in its
     role's pool (A 2026-10-08).
+11. A `REQUEST` addressed `TO` a login is a job on that login's list,
+    queued without anyone remembering to put it there (decided, not yet
+    built; until it is, the receiver adds it): the receiver's
+    inbox queues it when it delivers it, once per `MESSAGE-ID`, with the
+    id as the job's request; a sender that is the host's operator also
+    adds it through the control plane's `jobs-add`, so a session whose
+    watch has lapsed meets it at its next start. A failure to queue
+    never fails the delivery or the post, and says so. A job the login
+    will not do is dropped with its reason and answered (A 2026-10-09).
+    A job may be a step of a coordinator's plan (ADR-047); the link is
+    held in the plan, and the job gains no field (A 2026-10-09).
 
 ## 6. Consequences
 
@@ -151,9 +164,11 @@ Why these choices:
 
 ## 7. Future Evolution
 
-- **Turning the request intake on.** An undertaking REPLY would add the
-  request as a queued job. The owed-requests view ADR-024 §6 names would
-  then follow from request-sourced jobs.
+- **The owed-requests view** ADR-024 §6 names can follow from
+  request-sourced jobs (rule 11).
+- **A request id on `jobs-add`**, so the operator's job and the inbox's
+  are one by field rather than by the id in a title, waits for the
+  control plane's Node deletion (ADR-040 §7).
 - **Due dates** would earn a field when a list is observed to need them.
 
 ## 8. Decision Status
@@ -175,3 +190,5 @@ The body above reads current; each change's full note is in [history/ADR-037-ame
 |---|---|---|
 | 2026-10-08 | Priority, blocking derived, a role pool, and taking the next job | §5 rule 6 widened; rules 7–10 added; §7 priorities no longer future |
 | 2026-10-09 | A stale waiter still counts | §5 rule 8: a waiter whose state record is past the stream's bound still ranks the job blocking, named with the record's age as stale |
+| 2026-10-09 | A REQUEST to a login is queued on its list | §5 rule 11 added: the inbox queues a delivered REQUEST, the operator's send adds it by jobs-add; §7's intake item replaced by what remains |
+| 2026-10-09 | A job may be a plan's step | §5 rule 11: a job may be a step of a coordinator's plan, linked in the plan; no job field (ADR-047) |

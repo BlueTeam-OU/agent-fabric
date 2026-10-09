@@ -23,7 +23,7 @@ def init(remote: str | None = None, agent_id: str | None = None) -> dict:
     if held and agent_id and held != agent_id:
         raise StoreError(f"this store is agent {held}; an agent id is never replaced")
     aid = held or agent_id
-    if not aid or not AGENT_ID_RE.match(aid):
+    if not aid or not AGENT_ID_RE.fullmatch(aid):
         raise StoreError("no agent id: the parent mints it at enrolment (store-enroll.sh), and init takes --agent-id")
     uid = uid_of(aid, me)
     gpg_id = os.path.join(store, ".gpg-id")
@@ -83,7 +83,7 @@ def _require_clean(store: str) -> None:
 
 
 def _check_name(name: str) -> None:
-    if not NAME_RE.match(name):
+    if not NAME_RE.fullmatch(name):
         raise StoreError(f"{name!r} is not a secret name (UPPER_SNAKE, as an environment variable)")
 
 
@@ -255,7 +255,7 @@ def rm_entry(name: str, *, expect_last: str | None = None) -> dict:
 def names(store: str | None = None) -> list[str]:
     d = os.path.join(store or store_dir(), "env")
     try:
-        return sorted(f[:-4] for f in os.listdir(d) if f.endswith(".gpg") and NAME_RE.match(f[:-4]))
+        return sorted(f[:-4] for f in os.listdir(d) if f.endswith(".gpg") and NAME_RE.fullmatch(f[:-4]))
     except FileNotFoundError:
         return []
 

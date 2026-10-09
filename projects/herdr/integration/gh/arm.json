@@ -1,0 +1,29 @@
+{
+  "description": "herdr's rules for fabric-pr arm. herdr is a public fork of a Rust terminal multiplexer and the operator's console: it runs the operator's shell sessions, speaks a socket API, and ships binaries that users install by piping a script. boundary.paths: CI, release and deploy workflows and their owner lists (.github/), the git hooks (.githooks/), the dependency and build surface (Cargo.toml and Cargo.lock at any depth, build.rs, .cargo/, rust-toolchain.toml, clippy.toml, the Nix flake and nix/, justfile), every script that builds, releases, vendors, packages or tests an installer (scripts/, packaging/), the installers and the release manifests they download from (distribution/install.*, distribution/latest.json, distribution/preview.json), the vendored third-party code, which is supply surface (vendor/), the harness and editor wiring that can load code or instructions (.claude/, .mcp.json, .agents/, .pi/, .zed/), and words where the boundary is a file anywhere (secret, credential, token, auth, signing, trust, api key, private key). The bare word key is not on it: a terminal's keyboard handling is its product, not its trust. boundary.exempt is dropped first, but never under .github/, .claude/, .agents/ or .pi/ (a skill or a command file is what the harness runs, not prose): Markdown and MDX prose, the documentation tree docs/, and .agent-fabric/. No classes. waiver_role is null: only the owner waives the boundary.",
+  "boundary": {
+    "paths": "^\\.github/|^\\.githooks/|^\\.cargo/|(^|/)Cargo\\.(toml|lock)$|(^|/)build\\.rs$|^rust-toolchain(\\.toml)?$|^clippy\\.toml$|^flake\\.(nix|lock)$|^nix/|^justfile$|^scripts/|^packaging/|^distribution/(install\\.|latest\\.json$|preview\\.json$)|^vendor/|^\\.claude/|^\\.mcp\\.json$|^\\.agents/|^\\.pi/|^\\.zed/|secret|credential|token|auth|signing|trust|api[-_]?key|private[-_]?key",
+    "exempt": "^(?!(\\.github|\\.claude|\\.agents|\\.pi)/)(.*\\.mdx?$|docs/|\\.agent-fabric/)",
+    "cases": [
+      ".github/workflows/release.yml",
+      ".github/workflows/ci.yml",
+      ".github/MAINTAINERS",
+      "Cargo.toml",
+      "Cargo.lock",
+      "build.rs",
+      ".cargo/config.toml",
+      "rust-toolchain.toml",
+      "flake.nix",
+      "justfile",
+      "scripts/release.py",
+      "scripts/build_vendored_libghostty_vt.sh",
+      "distribution/install.sh",
+      "distribution/latest.json",
+      "vendor/portable-pty/Cargo.toml",
+      "crates/ghostty-vt/build.rs",
+      ".githooks/pre-commit",
+      ".agents/skills/triage/SKILL.md",
+      ".pi/extensions/github-issues-autocomplete/package.json"
+    ]
+  },
+  "waiver_role": null
+}

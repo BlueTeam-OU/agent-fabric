@@ -268,7 +268,7 @@ def validate(req: dict, lenses_dir: str | None = None) -> list[str]:
     rng, diff = req.get("range"), req.get("diff")
     if bool(rng) == bool(diff):
         problems.append("range / diff: exactly one — a base..head range, or a diff file in the scratchpad")
-    if isinstance(rng, str) and rng and not RANGE_RE.match(rng):
+    if isinstance(rng, str) and rng and not RANGE_RE.fullmatch(rng):
         problems.append(f"range: {rng!r} is not base..head")
     if isinstance(diff, str) and diff and not os.path.isfile(diff):
         problems.append(f"diff: {diff} does not exist")
@@ -284,7 +284,7 @@ def validate(req: dict, lenses_dir: str | None = None) -> list[str]:
         problems.append("objective: required on a review — one line, what must be true of the system")
     known = lenses(lenses_dir)
     for name in req.get("lenses") or []:
-        if not isinstance(name, str) or not LENS_NAME_RE.match(name or ""):
+        if not isinstance(name, str) or not LENS_NAME_RE.fullmatch(name or ""):
             problems.append(f"lenses: {name!r} is not a lens name")
         elif name not in known:
             problems.append(f"lenses: {name!r} is not a lens (fabric-review lenses: {', '.join(sorted(known)) or 'none'})")

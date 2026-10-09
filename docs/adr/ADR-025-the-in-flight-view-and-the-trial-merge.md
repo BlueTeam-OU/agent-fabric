@@ -4,7 +4,7 @@
 **Status:** Accepted
 **Ratified:** owner, 2026-09-27, by arming agent-fabric #52 (ratification by merge, the owner's rule of 2026-09-27)
 **Decision Makers:** the owner; drafted by fabric-coordinator
-**Scope:** runtime/github/pr-gate.sh (`--in-flight`, `--overlap`, `--path`) and runtime/github/trial-merge.sh, shims of tools/fabric/github/pr_gate.py and trial_merge.py (ADR-040); projects/gzapp/integration/gh/trial.json (a project's declared check); tests/test_pr_gate_cli.py, tests/test_trial_merge_cli.py
+**Scope:** fabric-pr gate (`--in-flight`, `--overlap`, `--path`) and fabric-pr trial-merge, shims of tools/fabric/github/pr_gate.py and trial_merge.py (ADR-040); projects/gzapp/integration/gh/trial.json (a project's declared check); tests/test_pr_gate_cli.py, tests/test_trial_merge_cli.py
 **Pillar:** P3
 **Evidence:** docs/live-checks/2026-09-26-in-flight-and-trial-merge.md
 
@@ -126,7 +126,7 @@ Accepted and in force: both tools (d1a136a, cd33e0c, d9eef83).
 
 ## References
 
-- `runtime/github/pr-gate.sh` (help: IN FLIGHT) and `runtime/github/trial-merge.sh`,
+- `fabric-pr gate` (help: IN FLIGHT) and `fabric-pr trial-merge`,
   shims of `tools/fabric/github/pr_gate.py` (`in_flight`) and `trial_merge.py`; `tests/test_pr_gate_cli.py`,
   `tests/test_trial_merge_cli.py`.
 - `projects/gzapp/integration/gh/trial.json`.

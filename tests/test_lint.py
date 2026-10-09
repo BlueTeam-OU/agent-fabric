@@ -1582,6 +1582,31 @@ def case_arm_boundary_cases_only_leave_retired() -> None:
         assert lint.arm_boundary_findings(root, base_ref="no-such-ref") == [], "…and nothing without a base"
 
 
+def case_every_registered_project_declares_an_arm_json() -> None:
+    """A project in projects/registry.json with no arm.json is a finding
+    naming it: arm.sh would refuse every PR of it."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("fabric_lint_under_test", LINT)
+    lint = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(lint)
+    with tempfile.TemporaryDirectory() as root:
+        g = lambda *a: subprocess.run(["git", "-C", root, *a], check=True, capture_output=True, env=git_env())
+        g("init", "-q", "-b", "main")
+        write(os.path.join(root, "projects", "registry.json"),
+              json.dumps({"projects": {"has": {}, "lacks": {}}}))
+        write(os.path.join(root, "projects", "has", "integration", "gh", "arm.json"), "{}")
+        g("add", "-A")
+        got = lint.arm_declared_findings(root)
+        assert len(got) == 1 and "'lacks'" in got[0] and "'has'" not in got[0], ("one project lacks one", got)
+        write(os.path.join(root, "projects", "lacks", "integration", "gh", "arm.json"), "{}")
+        assert any("'lacks'" in f for f in lint.arm_declared_findings(root)), \
+            "an untracked arm.json is not declared: lint reads what is tracked"
+        g("add", "-A")
+        assert lint.arm_declared_findings(root) == [], "every project has one: no finding"
+        write(os.path.join(root, "projects", "registry.json"), "{ not json")
+        assert lint.arm_declared_findings(root) == [], "an unreadable registry is reported elsewhere"
+
+
 def case_bash_over_150_lines_needs_the_allowlist() -> None:
     """ADR-040 §5 rule 2: a tracked bash script over 150 lines is a finding
     unless the allowlist names it; an entry whose script is gone or short
@@ -1629,6 +1654,126 @@ def case_bash_over_150_lines_needs_the_allowlist() -> None:
               json.dumps({"scripts": {"runtime/long.sh": 1}}))
         got = lint.bash_size_findings(root, base_ref="base")
         assert not any("is added" in f for f in got), f"an entry the fork point had is not an addition: {got}"
+
+
+def case_a_dollar_anchored_pattern_is_not_called_with_match() -> None:
+    """`$` also matches before one final newline, so `.match` accepts
+    "abc\n"; .fullmatch does not. The rule reads each tracked .py file."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("fabric_lint_under_test", LINT)
+    lint = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(lint)
+    with tempfile.TemporaryDirectory() as root:
+        g = lambda *a: subprocess.run(["git", "-C", root, *a], check=True, capture_output=True, env=git_env())
+        write(os.path.join(root, "tools", "bad.py"),
+              "import re\n"
+              "A = re.compile(r\"^[a-z]+$\")\n"            # line 2
+              "B: re.Pattern = re.compile(r'^x$', re.I)\n"  # line 3
+              "def f(s):\n"
+              "    if A.match(s) or B.match(s):\n"            # line 5
+              "        return re.match(r'^y$', s)\n")         # line 6
+        write(os.path.join(root, "tools", "good.py"),
+              "import re\n"
+              "A = re.compile(r\"^[a-z]+$\")\n"
+              "M = re.compile(r\"^[a-z]+$\", re.M)\n"
+              "N = re.compile(r\"(?m)^[a-z]+$\")\n"
+              "L = re.compile(r\"^[a-z]+\\$\")\n"        # an escaped dollar is a literal
+              "Z = re.compile(r\"^[a-z]+\\Z\")\n"
+              "P = re.compile(r\"^[a-z]+\")\n"
+              "def f(s):\n"
+              "    return (A.fullmatch(s), M.match(s), N.match(s), L.match(s), Z.match(s), P.match(s), A.search(s),\n"
+              "            re.match(r'^y', s), re.match(r'^y$', s, re.M), re.fullmatch(r'^y$', s))\n")
+        write(os.path.join(root, "tools", "notes.txt"), "A.match(s) and re.match(r'^y$', s)\n")
+        g("init", "-q", "-b", "main")
+        g("add", "-A")
+        got = lint.regex_dollar_findings(root)
+        assert [f.split(" ")[0] for f in got] == ["tools/bad.py:5:", "tools/bad.py:5:", "tools/bad.py:6:"], got
+        assert any("A.match" in f and "line 2" in f for f in got) and any("B.match" in f and "line 3" in f for f in got), got
+        assert all("fullmatch" in f for f in got), got
+
+
+def case_a_dollar_anchored_pattern_in_every_shape_and_scope() -> None:
+    """Review of #140: an f-string pattern, an inline re.compile(...).match,
+    a class attribute through self., cls. and the class's name, and a
+    function's own pattern are findings; a parameter or another local that
+    shares a pattern's name elsewhere is not."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("fabric_lint_under_test", LINT)
+    lint = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(lint)
+    with tempfile.TemporaryDirectory() as root:
+        g = lambda *a: subprocess.run(["git", "-C", root, *a], check=True, capture_output=True, env=git_env())
+        write(os.path.join(root, "tools", "shapes.py"),
+              "import re\n"
+              "K = 'x'\n"
+              "F = re.compile(rf\"^{K}:(.*)$\")\n"                 # line 3
+              "class C:\n"
+              "    PAT = re.compile(r\"^y$\")\n"                    # line 5
+              "    def m(self, s):\n"
+              "        return self.PAT.match(s)\n"                    # line 7
+              "    @classmethod\n"
+              "    def n(cls, s):\n"
+              "        return cls.PAT.match(s) or C.PAT.match(s)\n"  # line 10
+              "def f(s):\n"
+              "    pat = re.compile(r\"^z$\")\n"
+              "    return (F.match(s), re.compile(r\"^w$\").match(s), pat.match(s),\n"  # line 13
+              "            re.match(rf\"^{K}:(.*)$\", s))\n")    # line 14
+        write(os.path.join(root, "tools", "scopes.py"),
+              "import re\n"
+              "pat = re.compile(r\"^a$\")\n"
+              "def g(pat, s):\n"
+              "    return pat.match(s)\n"                  # a parameter, not the module's pattern
+              "def h(s):\n"
+              "    pat = re.compile(r\"^a\\Z\")\n"
+              "    return pat.match(s)\n"                  # a local that is not a $-pattern
+              "def k(s):\n"
+              "    q = re.compile(r\"^a$\")\n"
+              "    return q.fullmatch(s), re.compile(rf\"^{s}$\", re.M).match(s)\n")
+        g("init", "-q", "-b", "main")
+        g("add", "-A")
+        got = lint.regex_dollar_findings(root)
+        lines = [f.split(" ")[0] for f in got]
+        want = ["tools/shapes.py:7:", "tools/shapes.py:10:", "tools/shapes.py:10:", "tools/shapes.py:13:", "tools/shapes.py:13:",
+                "tools/shapes.py:13:", "tools/shapes.py:14:"]
+        assert sorted(lines) == sorted(want), got
+        assert not any(f.startswith("tools/scopes.py") for f in got), got
+
+
+def case_a_dollar_anchored_pattern_is_followed_across_imports() -> None:
+    """The pattern is bound in one file and called with .match in another:
+    through `from m import NAME`, `import m` then `m.NAME`, a re-export, a
+    relative import in a package. Imports that lead nowhere are skipped."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("fabric_lint_under_test", LINT)
+    lint = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(lint)
+    with tempfile.TemporaryDirectory() as root:
+        g = lambda *a: subprocess.run(["git", "-C", root, *a], check=True, capture_output=True, env=git_env())
+        t = lambda *p: os.path.join(root, "tools", *p)
+        write(t("defs.py"), "import re\nIDENT = re.compile(r'^[a-z]+$')\nSAFE = re.compile(r'^[a-z]+\\Z')\n")
+        write(t("hop.py"), "from defs import IDENT, SAFE\n")
+        write(t("bad_from.py"), "from defs import IDENT\ndef f(s):\n    return IDENT.match(s)\n")        # line 3
+        write(t("bad_attr.py"), "import sys, os\nsys.path.insert(0, os.path.dirname(__file__))\nimport defs\n"
+                                "def f(s):\n    return defs.IDENT.match(s)\n")                              # line 5
+        write(t("bad_hop.py"), "from hop import IDENT as I\ndef f(s):\n    return I.match(s)\n")          # line 3
+        write(t("bad_alias.py"), "import defs\nX = defs.IDENT\ndef f(s):\n    return X.match(s)\n")      # line 4
+        write(t("pkg", "__init__.py"), "")
+        write(t("pkg", "pat.py"), "import re\nP = re.compile(r'^x$')\n")
+        write(t("pkg", "core.py"), "from .pat import P\n")
+        write(t("pkg", "use.py"), "from .core import P\nfrom . import pat as _pat\n"
+                                  "def f(s):\n    return P.match(s), _pat.P.match(s)\n")                   # line 4, twice
+        write(t("good.py"), "import defs, nowhere, os\nfrom defs import SAFE\nfrom hop import SAFE as S2\n"
+                            "from missing import IDENT\nfrom os import path\nfrom . import nothing\n"
+                            "def f(s):\n    return (SAFE.match(s), S2.match(s), defs.SAFE.match(s), IDENT.match(s),\n"
+                            "            defs.IDENT.fullmatch(s), nowhere.X.match(s), os.path.match(s), path.match(s))\n")
+        g("init", "-q", "-b", "main")
+        g("add", "-A")
+        got = lint.regex_dollar_findings(root)
+        assert [f.split(" ")[0] for f in got] == [
+            "tools/bad_alias.py:4:", "tools/bad_attr.py:5:", "tools/bad_from.py:3:", "tools/bad_hop.py:3:",
+            "tools/pkg/use.py:4:", "tools/pkg/use.py:4:"], got
+        assert any("IDENT" in f and "tools/defs.py:2" in f for f in got), got
+        assert sum("tools/pkg/pat.py:2" in f for f in got) == 2, got
 
 
 def case_a_contributor_entry_never_reaches_a_definition() -> None:
@@ -1920,6 +2065,7 @@ def main() -> int:
         case_decision_records_are_lint_findings,
         case_bash_over_150_lines_needs_the_allowlist,
         case_arm_boundary_cases_only_leave_retired,
+        case_every_registered_project_declares_an_arm_json,
         case_a_cited_fabric_document_must_resolve,
         case_a_committed_agent_key_needs_its_lineage,
         case_a_committed_agent_source_may_not_pin_effort,
@@ -1968,6 +2114,9 @@ def main() -> int:
         case_a_bound_and_held_role_is_not_a_candidate,
         case_a_managed_projects_name_stays_out_of_generic_files,
         case_review_lenses_are_named_described_and_bounded,
+        case_a_dollar_anchored_pattern_is_not_called_with_match,
+        case_a_dollar_anchored_pattern_is_followed_across_imports,
+        case_a_dollar_anchored_pattern_in_every_shape_and_scope,
         case_a_contributor_entry_never_reaches_a_definition,
         case_the_fallback_validator_agrees_with_jsonschema,
         case_the_python_pin_is_checkable_and_what_ci_runs,

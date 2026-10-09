@@ -4,7 +4,7 @@
 **Status:** Accepted
 **Ratified:** owner, 2026-09-27, by arming agent-fabric #52 (ratification by merge, the owner's rule of 2026-09-27)
 **Decision Makers:** the owner; drafted by fabric-coordinator
-**Scope:** memory/ (README.md, RUBRIC.md, domains/, shared/, agents/); every managed project's .agent-fabric/memory/; tools/fabric/layout.py, tools/fabric/harvest_memory.py, tools/fabric/assemble.py, runtime/claude-code/hooks/memory-write-check.py, tools/fabric/lint.py, tools/fabric/query.sh; identities/schemas/claims.schema.json; identities/prompt/memory.md; policies/hygiene.json; runtime/control/ctl.mjs (the `memory` op); bin/fabric-status (the undrained count)
+**Scope:** memory/ (README.md, RUBRIC.md, domains/, shared/, agents/); every managed project's .agent-fabric/memory/; tools/fabric/layout.py, tools/fabric/harvest_memory.py, tools/fabric/assemble.py, runtime/claude-code/hooks/memory-write-check.py, tools/fabric/lint.py, fabric-query; identities/schemas/claims.schema.json; identities/prompt/memory.md; policies/hygiene.json; runtime/control/ctl.mjs (the `memory` op); bin/fabric-status (the undrained count)
 **Pillar:** P2
 
 ## 1. Context and Problem
@@ -261,7 +261,7 @@ the manual.
   `identities/prompt/memory.md`.
 - `tools/fabric/layout.py`, `tools/fabric/harvest_memory.py`,
   `tools/fabric/assemble.py`, `tools/fabric/lint.py` (`lint_slices`, the
-  index and shared checks), `tools/fabric/query.sh`,
+  index and shared checks), `fabric-query`,
   `identities/schemas/claims.schema.json`.
 - `tests/test_harvest_memory.py`, `tests/test_assemble.py`,
   `tests/test_lint.py`.

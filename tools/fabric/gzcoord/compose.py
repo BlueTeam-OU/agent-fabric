@@ -169,9 +169,9 @@ def origin_repository(cwd: str) -> tuple[str | None, str | None]:
         return None, (lines[-1] if lines else f"git remote get-url origin: exit {r.returncode}")
     url = r.stdout.strip()
     for shape in _REMOTE:
-        m = shape.match(url)
+        m = shape.fullmatch(url)
         if m:
-            path = _ORG_REPO.match(m.group("path"))
+            path = _ORG_REPO.fullmatch(m.group("path"))
             if path:
                 return f"{path.group('org')}/{path.group('repo')}", None
     # The URL is never echoed: a remote can carry a credential in more

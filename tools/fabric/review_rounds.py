@@ -104,7 +104,7 @@ def save(pr: str, rnd: str, report: str, repo: str) -> str:
 def newest_round(repo: str, pr: str) -> str:
     d = rounds_dir(repo, pr)
     try:
-        found = [(int(m.group(1)), n) for n in os.listdir(d) if (m := ROUND_RE.match(n))]
+        found = [(int(m.group(1)), n) for n in os.listdir(d) if (m := ROUND_RE.fullmatch(n))]
     except FileNotFoundError:
         found = []
     if not found:

@@ -426,18 +426,18 @@ its record disagree, the record wins. Look it up, never read it whole:
   rules 5–6).
 - No `Co-authored-by:`/`Claude-Session:` trailer, footer or session URL
   (§5 rule 7). GitHub settings: §6.
-- A 2026-10-04 — `main`'s ruleset requires a PR, the CI checks and
-  signed commits; auto-merge waits (§5 rule 6).
+- A 2026-10-04 — `main`'s ruleset: a PR, CI, signed commits (§5 rule 6).
 - A 2026-10-05 — the ruleset requires CI's aggregate check `ci-ok` alone
   (§5 rule 6).
-- A 2026-10-05 — eight or more work commits arm on the gate alone, a
-  security boundary and over sixteen included (§5 rule 4).
-- A 2026-10-06 — one open PR per agent and repository (§5 rule 2).
+- A 2026-10-05 — 8+ work commits arm on the gate alone, a boundary
+  and over 16 included (§5 rule 4).
+- A 2026-10-06 — one open PR at a time (§5 rule 2).
 - A 2026-10-08 — every commit declares its `Kind:`; the commit-msg
   hook refuses one without it (§5 rule 3).
-- A 2026-10-08 — a folded PR's review fixes are fixes (the gate reads it, results.py not yet; §5 rule 3).
-- Keywords: PR, arm, merge, work commits, Answers, Kind, fold, pr-gate,
-  MERGEABLE, attribution, Co-authored-by, repository settings.
+- A 2026-10-08 — a folded PR's review fixes are fixes (§5 rule 3).
+- A 2026-10-09 — results.py reads a fold too (§5 rule 3).
+- A 2026-10-09 — a push after the arming disarms it (§5 rule 5).
+- Keywords: Answers, Kind, fold, pr-gate, ruleset.
 
 ### ADR-020 — The review class is the review (Accepted)
 
@@ -561,6 +561,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - Read only from artifacts — never message bodies beyond the
   `OWNER-WORD` marker, transcripts or memory (§5 rule 3). No counter
   exists (§6). Waits on the owner's acceptance (§8).
+- A 2026-10-09 — resources side by side are not a ranking (§5 rule 4).
 - Keywords: progress, supervision, verified result, measure, metric,
   owner, OWNER-WORD, autonomy, mandate, proposed.
 
@@ -623,22 +624,22 @@ its record disagree, the record wins. Look it up, never read it whole:
   operator's fresh Ed25519 signature, newer than the last (§5 rules 3–5).
 - Replies carry no secret; a gap is named; silence or a failure exits 1
   (§5 rules 6–9).
-- A 2026-09-27 — actions run beside the read loop (§5 rule 12).
+- A 2026-09-27 — actions beside the read loop (§5 rule 12).
 - A 2026-09-27 — each op's answer budget (§5 rule 12).
 - A 2026-09-28 — `jobs`, `jobs-add` (§5 rule 13).
-- A 2026-09-29 — `secrets-migrate` (§5 rule 14).
+- A 2026-09-29 — secrets-migrate (§5 rule 14).
 - A 2026-09-30 — rule 14 withdrawn; signing key in the operator's store (§5 rule 5).
 - A 2026-10-06 — local, local-prune (§5 rule 15).
 - A 2026-10-07 — session state (rule 16).
 - A 2026-10-07 — secrets-selftest (§5 rule 17).
-- A 2026-10-08 — resumable state in the state record (§5 rule 16).
+- A 2026-10-08 — resumable state (§5 rule 16).
 - A 2026-10-08 — the op table; three public ops (§5 rule 4).
 - A 2026-10-09 — a forged claim shows in pool.json (§5 rule 4).
 - A 2026-10-09 — Scope: runtime/control/.
 - A 2026-10-09 — `tools-install` (§5 rules 3, 12).
+- A 2026-10-09 — views' closed-job read (§2).
 - Keywords: agentd, fabric-ctl, ops, ping, keys, usage, recall, tokens,
-  memory, bundle, drain, keygen, operator_key, herdr, status, resume,
-  tools, pool.
+  memory, bundle, drain, keygen, operator_key, herdr, status, resume.
 ### ADR-030 — Presence replaces HELLO and GOODBYE (Accepted)
 
 - Whether a session runs is the control agent's answer from its process
@@ -807,6 +808,8 @@ its record disagree, the record wins. Look it up, never read it whole:
   take the next (§5 rules 7–10).
 - A 2026-10-09 — a waiter whose state record is stale still ranks the
   job blocking, said stale with the record's age (§5 rule 8).
+- A 2026-10-09 — a REQUEST to a login is queued on its list (§5 rule 11).
+- A 2026-10-09 — a job may be a plan's step (§5 rule 11).
 - Keywords: job, to-do, jobs.json, fabric-jobs, next, topic, fresh
   session, restart, fabric-fresh --job, working copy, intake, priority,
   blocking, pool, claim, P3.
@@ -968,3 +971,27 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-10-08 — until stage 4 the engine root honours AGENT_FABRIC_ROOT; instance fixtures use AGENT_FABRIC_OPERATOR (§5 rule 1).
 - Keywords: split, engine, operator, client, engagement, roots, open
   source, publish, instance data, Blueteam, Gzapi.
+
+### ADR-046 — Fleet views: the fleet's state read on demand, read-only (Proposed)
+
+- `tools/fabric/fleet.py` is the one reader for the views: a record per
+  account, each value with its source and time; a failed section is a
+  value, never a missing account (§5 rule 1).
+- Sections by cost class, a shared 0600 cache (§5 rule 2).
+- A view fetches on open and while focused, and only reads: no herdr
+  socket, no signed action, no environment or transcript (§5 rules 3–4).
+- Two named bridges until the cutover: `/proc` resources, closed jobs
+  through the host executor (§5 rules 5–6).
+- Comparisons show resources and counts, never verified work (§5 rule 7).
+- Keywords: Fleet Deck, herdr, view, dashboard, resources, CPU, memory,
+  comparison, on demand, fabric-fleet, Gantt.
+
+### ADR-047 — Plans: steps the coordinator keeps, each linked to a job (Proposed)
+
+- A plan's steps have an owner, dependencies and a linked job, kept in
+  the coordinator's state (§5 rule 1); `fabric-plan` runs for the
+  coordinator only (§5 rule 2).
+- A step's state is its job's; without one it is planned or waiting
+  (§5 rule 3); the step is linked when its job is queued (§5 rule 4).
+- A decided plan is exported into its record or pull request (§5 rule 5).
+- Keywords: plan, step, Gantt, dependency, fabric-plan, roadmap.

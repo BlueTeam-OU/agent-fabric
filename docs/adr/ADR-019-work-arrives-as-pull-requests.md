@@ -4,7 +4,7 @@
 **Status:** Accepted
 **Ratified:** owner, 2026-09-27, by arming agent-fabric #52 (ratification by merge, the owner's rule of 2026-09-27)
 **Decision Makers:** the owner; drafted by fabric-coordinator
-**Scope:** identities/prompt/team.md (the PR rules every session reads); runtime/github/pr-gate.sh, runtime/github/commit-class.sh, runtime/github/pr-review-status.sh; tools/fabric/guards/ban_generated_by_attribution.py and policies/githooks/commit-msg; .github/workflows/ci.yml; tools/fabric/github-repo-settings.sh and the GitHub-side settings of gzapi-org/agent-fabric
+**Scope:** identities/prompt/team.md (the PR rules every session reads); fabric-pr gate, runtime/github/commit-class.sh, fabric-pr review-status; tools/fabric/guards/ban_generated_by_attribution.py and policies/githooks/commit-msg; .github/workflows/ci.yml; tools/fabric/github-repo-settings.sh and the GitHub-side settings of gzapi-org/agent-fabric
 **Pillar:** P3
 
 ## 1. Context and Problem
@@ -113,10 +113,10 @@ not on a pipe's exit status.
    merge; `Kind: work` is work; `Kind: review-fix` is a fix, unless what
    it answers is another pull request's review, when it is this one's
    work, except a pull request folded into this one (closed unmerged,
-   its head inside this range), whose review fixes are fixes here (pr-gate
-   and the compliance check read a fold from the PR's head; the
-   after-the-fact split in `tools/fabric/results.py` does not yet, and
-   until it does the PR's description names the folded PR and its fixes); a revert and the commit it reverts, both in the range, count in
+   its head inside this range), whose review fixes are fixes here (pr-gate,
+   the compliance check and the after-the-fact split in
+   `tools/fabric/results.py` read a fold from the PR's head, the
+   last through GitHub's compare API); a revert and the commit it reverts, both in the range, count in
    no column. The hook is the rule's only check until the branches opened
    before it have merged: a commit that reaches a branch without the
    hook is not refused in CI yet. A commit with no `Kind:` (made before
@@ -129,13 +129,16 @@ not on a pipe's exit status.
    owner, who arms. Sixteen is the size a batch is opened at; a PR over
    it is armed on the gate all the same, and the count is advice for the
    next batch.
-5. The gate is `runtime/github/pr-gate.sh`'s verdict for the PR, read
+5. The gate is `fabric-pr gate`'s verdict for the PR, read
    before arming: `MERGEABLE` needs checks green, a review on the current
    head (`pr-review-status.sh`), no unresolved thread, no conflict, no
    draft and no unfolded supply. The verdict does not read the review's
    findings; the session also has no open P1 or P2 finding before it arms
    (`identities/prompt/team.md`). Arming is a separate command, run on a
-   verdict read — never chained behind the gate's own run.
+   verdict read — never chained behind the gate's own run. An arming
+   holds for the head it was made on: a push after it takes auto-merge
+   off (`.github/workflows/disarm-on-push.yml`, which says so on the PR),
+   and the new head is armed again only through the gate.
 6. What arming is depends on the repository. agent-fabric's `main` is
    held by a ruleset (`tools/fabric/github-ruleset-main.json`): a pull
    request, CI's aggregate check `ci-ok` and signed commits are required,
@@ -145,7 +148,7 @@ not on a pipe's exit status.
    is made from the one GitHub account every session uses, and a PR that
    introduces a new direction is merged only on the owner's word (ADR-001
    §5 rule 2). A managed project with a merge queue is armed with its own
-   `tools/gh/arm.sh`.
+   `fabric-pr arm`.
 7. No commit message or PR description carries `Co-authored-by:` or
    `Claude-Session:` as a trailer, a "Generated with Claude Code" footer or
    a session URL: `policies/githooks/commit-msg` refuses the message,
@@ -208,8 +211,8 @@ stub pointing here.
 
 - `identities/prompt/team.md` (the band, one open PR, the gate's
   conditions), `CLAUDE.md` §"Git discipline".
-- `runtime/github/pr-gate.sh`, `runtime/github/commit-class.sh`,
-  `runtime/github/pr-review-status.sh`, and their tests.
+- `fabric-pr gate`, `runtime/github/commit-class.sh`,
+  `fabric-pr review-status`, and their tests.
 - `policies/ban_generated_by_attribution.sh`, `policies/githooks/commit-msg`.
 - `tools/fabric/github-repo-settings.sh`, `.github/workflows/ci.yml`.
 - `.agent-fabric/memory/fabric-coordinator/workflow/pr-band-accumulate.md`,
@@ -229,3 +232,5 @@ The body above reads current; each change's full note is in [history/ADR-019-ame
 | 2026-10-06 | One open pull request per agent and repository | title, §2, §5 rule 2, §8: the limit is per repository; a branch in another repository is never addable |
 | 2026-10-08 | Every commit declares its kind | §5 rule 3, §7: a `Kind:` trailer (`work` or `review-fix`) the commit-msg hook requires; the count reads it before the subject |
 | 2026-10-08 | A folded pull request's review fixes are fixes | §5 rule 3: a PR closed unmerged with its head inside this range was folded in; its review fixes count as fixes here, not as follow-up work |
+| 2026-10-09 | results.py reads a folded PR's review fixes | §5 rule 3: the after-the-fact split reads a fold too; the PR description's interim naming of a folded PR's fixes is withdrawn |
+| 2026-10-09 | A push after the arming takes auto-merge off | §5 rule 5: an arming holds for its head; `.github/workflows/disarm-on-push.yml` takes auto-merge off an arming older than a push and comments |

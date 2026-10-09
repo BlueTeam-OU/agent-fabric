@@ -93,6 +93,7 @@ from fabric_lint_rules.schema import SCHEMA_KEYWORDS, _SCHEMA_MAPS, _json_equal,
 from fabric_lint_rules.schema import _structural_check, fabric_settings_findings, load_json  # noqa: E402, F401
 from fabric_lint_rules.schema import load_schema, model_profile_findings, python_pin_findings  # noqa: E402, F401
 from fabric_lint_rules.schema import schema_keyword_findings, validate_json  # noqa: E402, F401
+from fabric_lint_rules.regex import regex_dollar_findings  # noqa: E402, F401
 from fabric_lint_rules.shape import BASH_LINE_LIMIT, BASH_SHEBANG, _is_bash, bash_size_findings  # noqa: E402, F401
 from fabric_lint_rules.shape import candidate_role_findings, host_registry_findings  # noqa: E402, F401
 from fabric_lint_rules.locales import AGENT_FRONTMATTER_RE, I18N_CONTROL_RE, I18N_DEFAULT_REL  # noqa: E402, F401
@@ -128,7 +129,7 @@ def _catalog_roles(root: str) -> set[str] | None:
 
 
 def arm_boundary_findings(root: str, base_ref: str = "origin/main") -> list[str]:
-    """A project's arm.json (runtime/github/arm.sh's rules) names, beside
+    """A project's arm.json (fabric-pr arm's rules) names, beside
     its boundary patterns, the cases that MUST stay boundary: each case is
     a path the patterns match and the exemptions do not, and a case the
     branch forked with leaves only into boundary.retired, with why and
@@ -266,6 +267,30 @@ def arm_boundary_findings(root: str, base_ref: str = "origin/main") -> list[str]
                 findings.append(f"{rel}: deleted while projects/registry.json still names {project!r}; a project's arm "
                                 "rules leave only with the project (its boundary, cases and records go with the file)")
     return findings
+
+
+def arm_declared_findings(root: str) -> list[str]:
+    """Every project in projects/registry.json has an arm.json. Without one
+    fabric-pr arm refuses to arm any PR of the project ("the security
+    boundary cannot be judged"), which a project learns only when its first
+    PR is ready; arm_boundary_findings above checks the files that exist and
+    never sees the one that was not written."""
+    try:
+        with open(roots.projects_registry(engine=root), encoding="utf-8") as fh:
+            registered = sorted((json.load(fh).get("projects") or {}))
+    except (OSError, ValueError, AttributeError):
+        # An unreadable registry is host_registry_findings' and the
+        # registry's own checks' to report; naming every project missing
+        # from a registry nobody could read would bury that.
+        return []
+    tracked = _tracked(root)
+    if not tracked:
+        return []   # not a git checkout: nothing is tracked, so absence proves nothing
+    declared = {r.split("/")[1] for r in tracked
+                if re.fullmatch(r"projects/[^/]+/integration/gh/arm\.json", r)}
+    return [f"projects/registry.json: project {p!r} has no projects/{p}/integration/gh/arm.json; "
+            "fabric-pr arm refuses to arm a PR of a project whose security boundary it cannot read"
+            for p in registered if p not in declared]
 
 # What a role IS, never a contributor's to commit (ADR-018 §5 rule 8): a rule
 # ending in "/" is a directory, any other one file, as in an entry. The
@@ -529,7 +554,9 @@ def main() -> int:
 
     # --- bash over 150 lines only where the allowlist says (ADR-040) ---------
     findings += bash_size_findings(root)
+    findings += regex_dollar_findings(root)
     findings += arm_boundary_findings(root)
+    findings += arm_declared_findings(root)
 
     # --- a session started in this clone gets the workspace's hooks ---------
     findings += fabric_settings_findings(root)
@@ -664,7 +691,7 @@ def main() -> int:
             #     - [`path`](path) — description
             index_described: dict[str, str] = {}
             for line in index_text.splitlines():
-                m = re.match(r"^- \[`([^`]+)`\]\(([^)]+)\) — (.*)$", line)
+                m = re.fullmatch(r"^- \[`([^`]+)`\]\(([^)]+)\) — (.*)$", line)
                 if m and m.group(1) == m.group(2):
                     index_described[m.group(2)] = m.group(3).strip()
             for rel in sorted(expected):

@@ -1,5 +1,5 @@
 {
-  "description": "gzapp's trial check for runtime/github/trial-merge.sh --check: every tools/checks guard on the combined tree (about 52 s in a fresh worktree, one throwaway PostGIS container, removed on exit). No lease: the default takes none, and TRIAL=full's backend-test takes the host lease itself, so the tool must not wrap it in a second. The verdict line is the kind (make exits 2 for any failed recipe); before gzapp #943 lands the target, the line is missing and the result reads unavailable. Declared by devex-tooling, relay seq 6076.",
+  "description": "gzapp's trial check for fabric-pr trial-merge --check: every tools/checks guard on the combined tree (about 52 s in a fresh worktree, one throwaway PostGIS container, removed on exit). No lease: the default takes none, and TRIAL=full's backend-test takes the host lease itself, so the tool must not wrap it in a second. The verdict line is the kind (make exits 2 for any failed recipe); before gzapp #943 lands the target, the line is missing and the result reads unavailable. Declared by devex-tooling, relay seq 6076.",
   "check": ["make", "trial-check"],
   "timeout_s": 600,
   "verdict": "^trial-check: (PASS|FAIL|UNAVAILABLE)"

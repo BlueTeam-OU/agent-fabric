@@ -89,3 +89,11 @@ merged PR's follow-up from a fold. rust-services-dev measured it (8 work
 read where 6 was right, at the arm-without-asking threshold). A PR closed
 unmerged whose head lies inside this range was folded in; its review
 fixes are fixes here. Once the counter reads it, it needs no convention in the description. The counter's half (commit_class) is devex-tooling's and was not yet built when the rule was recorded; review of #125 found the record ahead of it, and the rule now says so.
+
+### Amendment 2026-10-09 — results.py reads a folded PR's review fixes
+
+python-dev-01's #132 (merged 2026-10-09) made `tools/fabric/results.py` pass `commit_class.Folds` for each merged pull request, asking ancestry of GitHub's compare API since results reads every registered repository and not one clone (d64ca04f), and read `Answers:` from the trailer block as pr-gate does (62ab655b). Rule 3's interim clause — that results did not read a fold yet, so a PR's description named the folded PR and its fixes — is withdrawn; the three counters read a fold alike.
+
+### Amendment 2026-10-09 — A push after the arming takes auto-merge off
+
+On #134 (2026-10-09) the gate was met and the owner's word given, then a conflict with main was resolved by a merge that put new code on the head; auto-merge stayed on, so the unreviewed resolution would have merged once checks passed, and was disarmed by hand. GitHub keeps auto-merge across a push from anyone with write access. The owner approved the guard (2026-10-09, from the reading of "loops, graphs & harnesses": a check that runs instead of a rule that is remembered). The workflow reads the arming time when it runs and leaves an arming made at or after the push, which is an arming of the new head; tests/test_disarm_on_push.py runs the workflow's own script against a fake gh.

@@ -86,7 +86,8 @@ sudo are in the loop.
 
 The sudo paths stay as fallbacks for a host whose control agents are
 down: `bin/fabric-usage` for the usage windows, `bin/fabric-host <host>
-drain <login>` for a drain.
+drain <login>` for a drain; and, until the operations that replace them
+exist, the fleet views' read of closed jobs (ADR-046 rule 5).
 
 ## 3. Alternatives Considered
 
@@ -309,3 +310,4 @@ The body above reads current; each change's full note is in [history/ADR-029-ame
 | 2026-10-09 | pool-add's checker named; a forged claim is seen in the holder's pool file | §5 rule 3 names `checkPoolArgs`; rule 4: `pool-list` shows unclaimed jobs only, so a claim is seen in the holder's `pool.json`; the Scope line names pool.mjs, tools.mjs and sessions.mjs |
 | 2026-10-09 | Scope: all of runtime/control/, and its Python package from Wave 8 | Scope line: the directory as a whole rather than a list that lagged it; tools/fabric/control/ from its creation; the unit's installation in bootstrap.py; local_settings.py and session-state.py, which rules 15 and 16 name |
 | 2026-10-09 | tools-install installs a pinned account tool | §2 table: the `tools-install` row; §5 rule 3: its one argument, checked by `TOOL_NAME`; rule 12: the `disk` and `tools-install` budgets |
+| 2026-10-09 | Fleet views read through fleet.py, with two Stage 1 bridges | §2: the host executor's read of closed jobs is a named fallback for the fleet views until `jobs --all` exists (ADR-046) |

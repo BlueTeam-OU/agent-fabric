@@ -169,6 +169,6 @@ per-case citations remain in its history.
   `MESSAGE-FORMAT.md` (the two sections in Scope).
 - `identities/prompt/team.md` ("A request is an agreement between
   agents"); `communication/gzcoord/skills/gzcoord-receive/SKILL.md`.
-- `runtime/github/pr-gate.sh` (`--in-flight`, `--overlap`),
-  `runtime/github/trial-merge.sh`.
+- `fabric-pr gate` (`--in-flight`, `--overlap`),
+  `fabric-pr trial-merge`.
 - ADR-000 (P3), ADR-001, ADR-023.
