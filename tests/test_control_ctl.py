@@ -294,6 +294,60 @@ class Js(unittest.TestCase):
             agentd.control_config({}, reg(None))
 
 
+class Forged(unittest.TestCase):
+    def test_a_number_or_a_null_where_an_array_is_read_is_an_empty_one_never_a_stop(self):
+        exp = placed("a")
+        cases = {
+            "disk": ({"status": "ok", "total_kb": 5, "largest": [{"name": "n", "kb": 1}], "targets": 5, "errors": 5, "targets_kb": 1}, r"^a\s+ok\s+5K\s+n 1K\s+1K\s+-$"),
+            "host": ({"status": "ok", "cpus": 2, "loadavg": 5, "mem_mb": None, "disk": 5, "leases": 5, "top_rss": 5, "memory_pressure": {"status": "ok", "last": 5, "hour": {"samples": 1}}}, r"^h\s+1/1\s+2\s+-"),
+            "accounts": ({"status": "ok", "accounts": 5}, r"no Claude account is observed"),
+            "secrets-selftest": ({"status": "pass", "steps": None}, r"^a\s+pass\s*$"),
+        }
+        for op, (data, pattern) in cases.items():
+            key = {"host": "host", "accounts": "accounts", "disk": "disk", "secrets-selftest": "secrets-selftest"}[op]
+            table = ctl.table(op, ctl.rows(exp if op != "host" else [{"login": "a", "host": "h", "address": "h/a"}], [
+                {"from": "h/a" if op == "host" else "h/a", "op": op, "data": {key: data}}]))
+            self.assertRegex(table, re.compile(pattern, re.M), (op, table))
+        local = ctl.table("local", ctl.rows(exp, [reply("a", "local", {"local": {"status": "ok", "files": [
+            {"working_copy": "w", "status": "ok", "env": ["A"], "secrets": None, "permissions": {"allow": 1, "deny": 0, "ask": 0}, "keys": []}]}})]))
+        self.assertRegex(local, r"w\s+ok\s+A  allow 1/deny 0/ask 0  -")
+        limits = ctl.table("accounts", ctl.rows(exp, [reply("a", "accounts", {"accounts": {"status": "ok", "accounts": [{"slug": "s", "status": "ok", "limits": 5}]}})]))
+        self.assertRegex(limits, re.compile(r"^s\s+ok\s+-\s+-\s+-", re.M))
+
+    def test_a_memory_reply_whose_bundles_are_not_an_array_is_a_refused_drain(self):
+        for bundles, want in (("x", 1), ("xyz", 3), ({}, 1), (5, 1), (None, 0), ([], 0)):
+            out = tempfile.mkdtemp(prefix="drain-shape-")
+            self.addCleanup(lambda d=out: __import__("shutil").rmtree(d, ignore_errors=True))
+            replies = [{"from": "h/a", "data": {"memory": {"status": "ok", "bundles": bundles}}}]
+            r = Relay()
+            self.addCleanup(r.close)
+            reg = registry_file(self)
+            a = Answering(r, lambda rid, bundles=bundles: reply_record(r, f"{H}/db-admin", rid, "memory", {"memory": {"status": "ok", "bundles": bundles}, "parts": 0}))
+            self.addCleanup(a.stop)
+            res = run_ctl(self, r.url(), reg, ["db-admin", "memory", "--out", out, "--timeout", "3"])
+            self.assertEqual(res.returncode, 1 if want else 0, (bundles, res.stdout, res.stderr))
+            self.assertEqual(len(replies), 1)
+
+    def test_base64_is_read_as_buffer_from_reads_it(self):
+        self.assertEqual(ctl._b64decode("YWI=YWI="), b"ab", "decoding stops at the first =")
+        self.assertEqual(ctl._b64decode("YWJj"), b"abc")
+        self.assertEqual(ctl._b64decode("YWJjA"), b"abc", "one stray character is not a byte")
+        self.assertEqual(ctl._b64decode("YW Jj\n"), b"abc", "whitespace is skipped")
+        self.assertEqual(ctl._b64decode("YWI"), b"ab", "no padding")
+        self.assertEqual(ctl._b64decode("-_-_"), ctl._b64decode("+/+/"), "the URL alphabet too")
+
+    def test_a_bundle_without_a_slug_is_matched_by_the_parts_that_have_none(self):
+        d = tempfile.mkdtemp(prefix="drain-slug-")
+        self.addCleanup(lambda: __import__("shutil").rmtree(d, ignore_errors=True))
+        tar = tar_with({"format": "agent-fabric-drain/1", "agent": "db-admin", "host": "h"})
+        b64 = base64.b64encode(gzip.compress(tar)).decode()
+        replies = [{"from": "h/db-admin", "data": {"memory": {"status": "ok", "bundles": [
+            {"working_copy": "/h/db-admin/projects/gzapp", "files": 1, "status": "ok", "sha256": hashlib.sha256(tar).hexdigest(), "parts": 1}]}}}]
+        parts = {"h/db-admin": {ctl.part_key("h/db-admin", {"part": 1}): {"part": 1, "parts": 1, "chunk": b64}}}
+        ctl.write_bundles(d, placed("db-admin"), replies, parts)
+        self.assertEqual(replies[0]["data"]["memory"]["bundles"][0]["status"], "ok")
+
+
 class Bundles(unittest.TestCase):
     def scratch(self, prefix: str) -> str:
         d = tempfile.mkdtemp(prefix=prefix)

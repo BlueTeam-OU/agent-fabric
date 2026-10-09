@@ -210,7 +210,7 @@ def fuzz_mutations():
     return out
 
 
-CASES.append({"name": "every table over replies with each scalar replaced by a value of another kind", "module": "ctl", "lenient_node_throw": True,
+CASES.append({"name": "every table over replies with each field replaced by a value of another kind", "module": "ctl", "lenient_node_throw": True,
               "input": {"rows": ROWS, "expected": EXPECTED, "mutations": fuzz_mutations()},
               "node": "const crypto = await import('node:crypto');"
                       "const put = (o, path, v) => { for (const k of path.slice(0, -1)) o = o[k]; o[path.at(-1)] = v; };"

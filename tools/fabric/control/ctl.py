@@ -50,6 +50,19 @@ WHERE THE PORT DIFFERS ON PURPOSE
     differs for text ICU orders by script, accent or punctuation class.
   * The drain's bundles are written with the mode set before the bytes
     (os.open with 0600), not written and then chmod-ed.
+  * A forged reply must not stop the table, where the Node throws on some
+    shapes (an array read from a number or a null; a part or a bundle that
+    is not an object): such a field reads as empty, a part or bundle that is
+    not an object is skipped, a working_copy that is not text is written as
+    String() writes it, and a memory reply whose bundles are not an array
+    counts as a refused drain (exit 1), as it does there. The parity cases
+    compare every table the Node prints and leave to Python what the Node
+    refuses.
+  * What is JavaScript's own and not a contract is not copied: a string or
+    an array standing for a key's refusal record prints String.prototype.at's
+    source in the Node (excluded from the corpus).
+  * A relay record without an id leaves the cursor where it was (the Node
+    sets it to undefined, and the next read says the history is gone).
 """
 from __future__ import annotations
 
@@ -171,6 +184,13 @@ def first(v: Any) -> Any:
 def jlen(v: Any) -> Any:
     """v.length: an array's or string's, undefined for the rest."""
     return len(v) if isinstance(v, (list, str)) else UNDEFINED
+
+
+def arr(v: Any) -> list:
+    """A list to walk: what an account sent where an array is read, a string's
+    characters (for...of walks them; map and find throw there, and nothing is
+    owed to a throw), or nothing. A forged reply must not stop the table."""
+    return v if isinstance(v, list) else list(v) if isinstance(v, str) else []
 
 
 def is_empty(v: Any) -> bool:
@@ -454,7 +474,7 @@ def write_bundles(out: str, expected: list[dict], replies: list[dict], parts: di
         for b in bundles if isinstance(bundles, list) else []:
             if not isinstance(b, dict) or b.get("status") != "ok":
                 continue
-            mine = sorted((p for p in got if js_eq(dig(p, "slug"), nullish_undefined(b.get("slug")))), key=functools.cmp_to_key(by_part))
+            mine = sorted((p for p in got if js_eq(dig(p, "slug"), b.get("slug", UNDEFINED))), key=functools.cmp_to_key(by_part))
             if not js_eq(len(mine), b.get("parts", UNDEFINED)) or any(not js_eq(dig(p, "part"), i + 1) for i, p in enumerate(mine)):
                 b["written"] = None
                 b["status"] = "incomplete"
@@ -492,10 +512,6 @@ def write_bundles(out: str, expected: list[dict], replies: list[dict], parts: di
             b["written"] = file
 
 
-def nullish_undefined(v: Any) -> Any:
-    return v
-
-
 def js_eq(a: Any, b: Any) -> bool:
     """a === b for JSON values: no coercion (true is not 1, "1" is not 1)."""
     if a is UNDEFINED or b is UNDEFINED:
@@ -531,7 +547,9 @@ def mkdir_private(path: str) -> None:
 def _b64decode(text: str) -> bytes:
     """Buffer.from(text, 'base64'): unpadded input is read, characters outside
     the alphabet are skipped."""
-    cleaned = re.sub(r"[^A-Za-z0-9+/]", "", text.replace("-", "+").replace("_", "/"))
+    cleaned = re.sub(r"[^A-Za-z0-9+/]", "", text.split("=", 1)[0].replace("-", "+").replace("_", "/"))   # decoding stops at the first "="
+    if len(cleaned) % 4 == 1:
+        cleaned = cleaned[:-1]   # one character is not a byte: dropped, as the Node drops it
     return base64.b64decode(cleaned + "=" * (-len(cleaned) % 4))
 
 
@@ -663,7 +681,7 @@ def pressure_text(answers: list) -> str:
         if dig(p, "status") == "none":
             return "no samples yet"
         return f"{esc(dig(p, 'status'))}{': ' + esc(p['error']) if T(dig(p, 'error')) else ''}"
-    lasts = nullish(dig(best, "last"), [])
+    lasts = arr(dig(best, "last"))
     last = ", ".join(f"{hhmm(dig(x, 'ts'))} {N(dig(x, 'some_avg10'))}/{N(dig(x, 'full_avg10'))} {N(dig(x, 'mem_available_mb'))} MB" for x in lasts) or "-"
     h = nullish(dig(best, "hour"), {})
 
@@ -689,7 +707,7 @@ def _table_selftest(rs: list) -> list[str]:
         if _unless(r, u):
             lines.append(_row(r))
             continue
-        steps_ = nullish(dig(u, "steps"), [])
+        steps_ = arr(dig(u, "steps"))
         steps = ", ".join(f"{esc(dig(s, 'step'))} {'ok' if T(dig(s, 'ok')) else 'FAIL'}" for s in steps_)
         failed = next((s for s in steps_ if not T(dig(s, "ok"))), None)
         why = nullish(dig(failed, "reason"), nullish(dig(u, "reason"), nullish(dig(u, "note"), "")))
@@ -712,6 +730,11 @@ def _table_secrets_sync(rs: list) -> list[str]:
         lines.append(trim_end(f"{pad_end(r['account'], 22)} {pad_end(S(nullish(dig(u, 'status'), 'no status')), 10)} {pad_end(si, 34)} "
                               f"{pad_end(S(nullish(dig(u, 'session'), '-')), 28)} {S(tail)}"))
     return lines
+
+
+def secrets_of(f: Any) -> Any:
+    v = dig(f, "secrets")
+    return v if isinstance(v, (list, str)) else []
 
 
 def _table_local(op: str, rs: list) -> list[str]:
@@ -742,7 +765,7 @@ def _table_local(op: str, rs: list) -> list[str]:
             if dig(f, "status") != "ok":
                 lines.append(trim_end(head))
                 continue
-            env = "-" if is_empty(dig(f, "env")) else " ".join(f"{esc(n)}{'*' if n in dig(f, 'secrets') else ''}" for n in f["env"])
+            env = "-" if is_empty(dig(f, "env")) else " ".join(f"{esc(n)}{'*' if n in secrets_of(f) else ''}" for n in f["env"])
             p = dig(f, "permissions")
             other = "-" if is_empty(dig(f, "keys")) else " ".join(esc(k) for k in f["keys"])
             lines.append(f"{head} {env}  allow {S(dig(p, 'allow'))}/deny {S(dig(p, 'deny'))}/ask {S(dig(p, 'ask'))}  {other}")
@@ -907,7 +930,7 @@ def _table_accounts(rs: list) -> list[str]:
     # One row per observed CLAUDE account, not per login: only the observer's
     # daemon has any; the rest answer `none` and are not rows.
     def meter(a: Any, kind: str) -> str:
-        l = next((x for x in nullish(dig(a, "limits"), []) if dig(x, "kind") == kind), None)
+        l = next((x for x in arr(dig(a, "limits")) if dig(x, "kind") == kind), None)
         if l is None:
             return "   -"
         return f"{pad_start(S(nullish(dig(l, 'percent'), '-')), 3)}% {usub(S(nullish(dig(l, 'resets_at'), '-')), 0, 16)}"
@@ -926,9 +949,9 @@ def _table_accounts(rs: list) -> list[str]:
             lines.append(trim_end(f"{pad_end('-', 34)} {pad_end(S(dig(acc, 'status')), 14)} {S(nullish(dig(acc, 'error'), ''))}") + f"  ({r['account']})")
             n += 1
             continue
-        for a in nullish(dig(acc, "accounts"), []):
+        for a in arr(dig(acc, "accounts")):
             n += 1
-            scoped = next((x for x in nullish(dig(a, "limits"), []) if dig(x, "kind") == "weekly_scoped"), None)
+            scoped = next((x for x in arr(dig(a, "limits")) if dig(x, "kind") == "weekly_scoped"), None)
             sc = f"{meter(a, 'weekly_scoped')}{' ' + S(scoped['model']) if T(dig(scoped, 'model')) else ''}" if scoped is not None else "   -"
             who = nullish(dig(a, "email"), dig(a, "slug"))
             lines.append(f"{pad_end(S(who), 34)} {pad_end(S(dig(a, 'status')), 14)} {pad_end(meter(a, 'session'), 22)} {pad_end(meter(a, 'weekly_all'), 22)} "
@@ -1096,21 +1119,21 @@ def _table_host(rs: list) -> list[str]:
         pick = next((r for r in oks if nullish(dig(r.get("machine"), "balloon_mb", "static_max"), None) is not None), oks[0])
         m = pick["machine"]
         loadavg = dig(m, "loadavg")
-        load = " ".join(to_fixed(number_of(x), 2) for x in loadavg) if T(loadavg) else "-"
+        load = " ".join(to_fixed(number_of(x), 2) for x in arr(loadavg)) if T(loadavg) else "-"
         mm = dig(m, "mem_mb")
         mem = f"{_G(dig(mm, 'available'))}/{_G(dig(mm, 'total'))}" if T(mm) else "-"
         swap = _G(dig(mm, "swap_free")) if T(mm) else "-"
         bb = dig(m, "balloon_mb")
         bal = f"{_G(dig(bb, 'current'))}/{_G(dig(bb, 'static_max'))}" if T(bb) else "none"
-        disks = ", ".join(f"{S(dig(d, 'mount'))} {S(dig(d, 'avail_gb'))}G free ({S(dig(d, 'use_pct'))}%)" for d in nullish(dig(m, "disk"), [])) or "-"
+        disks = ", ".join(f"{S(dig(d, 'mount'))} {S(dig(d, 'avail_gb'))}G free ({S(dig(d, 'use_pct'))}%)" for d in arr(dig(m, "disk"))) or "-"
         lines.append(f"{pad_end(host, 16)} {pad_end(answered, 9)} {pad_end(load, 17)} {pad_start(_G(dig(m, 'cpus')), 4)}  {pad_end(mem, 19)} {pad_start(swap, 9)}  {pad_end(bal, 19)} {disks}")
 
         def lease(l: Any) -> str:
             since = dig(l, "since")
             return (f"{S(dig(l, 'name'))}{' (' + S(l['label']) + ')' if T(dig(l, 'label')) else ''}: {S(nullish(dig(l, 'holder'), '?'))}"
                     f"{' pid ' + S(l['pid']) if T(dig(l, 'pid')) else ''}{' since ' + usub(S(since), 11, 16) + 'Z' if T(since) else ''}")
-        leases = "; ".join(lease(l) for l in nullish(dig(m, "leases"), [])) or "none"
-        top = ", ".join(f"{S(dig(p, 'comm'))} {S(dig(p, 'user'))} {S(dig(p, 'rss_mb'))} MB" for p in nullish(dig(m, "top_rss"), [])[:5]) or "-"
+        leases = "; ".join(lease(l) for l in arr(dig(m, "leases"))) or "none"
+        top = ", ".join(f"{S(dig(p, 'comm'))} {S(dig(p, 'user'))} {S(dig(p, 'rss_mb'))} MB" for p in arr(dig(m, "top_rss"))[:5]) or "-"
         lines.append(f"{pad_end('', 16)} {pad_end('', 9)} leases: {leases}")
         lines.append(f"{pad_end('', 16)} {pad_end('', 9)} largest: {top}")
         lines.append(f"{pad_end('', 16)} {pad_end('', 9)} memory: {pressure_text([dig(r['machine'], 'memory_pressure') for r in oks])}")
@@ -1195,11 +1218,11 @@ def _table_disk(rs: list) -> list[str]:
             continue
         l0 = first(dig(d, "largest"))
         top = f"{esc(dig(l0, 'name'))} {H(dig(l0, 'kb'))}" if T(l0) else "-"
-        targets = nullish(dig(d, "targets"), [])
+        targets = arr(dig(d, "targets"))
         shown = ", ".join(f"{esc(dig(t, 'path'))} {H(dig(t, 'kb'))}" for t in targets[:3]) + (f", +{len(targets) - 3}" if len(targets) > 3 else "")
         lines.append(trim_end(f"{pad_end(r['account'], 22)} {pad_end(esc(dig(d, 'status')), 8)} {pad_start(H(dig(d, 'total_kb')), 7)}  {pad_end(top, 28)} "
                               f"{pad_start(H(dig(d, 'targets_kb')), 7)}  {shown or '-'}"))
-        for e in nullish(dig(d, "errors"), []):
+        for e in arr(dig(d, "errors")):
             lines.append(f"{pad_end('', 22)} {pad_end('', 8)} {esc(e)}")
     return lines
 
@@ -1509,9 +1532,12 @@ def main(argv: list[str] | None = None, *, registry: str | None = None, call: Ca
             if T(mem) and dig(mem, "status") != "ok":
                 refused += 1
             bundles = dig(mem, "bundles")
-            for b in bundles if isinstance(bundles, list) else []:
-                if dig(b, "status") not in ("ok", "no-working-copy"):
-                    refused += 1
+            if isinstance(bundles, list):
+                refused += sum(1 for b in bundles if dig(b, "status") not in ("ok", "no-working-copy"))
+            elif bundles is not UNDEFINED and bundles is not None:
+                # The Node walks a string's characters, each one a bundle with no status, and
+                # throws on anything else: either way the drain is not a success.
+                refused += len(bundles) if isinstance(bundles, str) else 1
     rs = rows(expected, replies)
     if args["json"]:
         for r in rs:
