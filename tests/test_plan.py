@@ -331,6 +331,39 @@ def _():
             check(False, f"{bad!r} named a path")
 
 
+@case("a human login is never a step's owner or link, and its account is never entered")
+def _():
+    with world() as w:
+        with open(w.hosts, "w", encoding="utf-8") as fh:
+            json.dump({**HOSTS, "placement": {**HOSTS["placement"], "me": "host-a"}, "kinds": {"me": "human"}}, fh)
+        w.run("new", "p", "t")
+        rc, _, err = w.run("step", "add", "p", "t", "--owner", "me")
+        check(rc == 1 and "human login" in err and len(plan.identity.read_plan("p")["steps"]) == 0, err)
+        w.run("step", "add", "p", "t", "--owner", "dev-01")
+        rc, _, err = w.run("link", "p", "s1", "me:j1")
+        check(rc == 1 and "human login" in err and plan.identity.read_plan("p")["steps"][0]["job"] is None, err)
+        run = Run()
+        try:
+            plan.FleetReader(run=run).closed_jobs("me")
+        except plan.Unreadable as e:
+            check("human login" in str(e) and run.calls == [], (str(e), run.calls))
+        else:
+            check(False, "a human's closed list was asked")
+        check(w.run("link", "p", "s1", "dev-02:j1")[0] == 0, "the control: an agent links")
+
+
+@case("text from other accounts is shown, never obeyed: a reason and an export cell carry no control character")
+def _():
+    with world() as w:
+        make(w, ("a", "dev-01", "", "dev-01:j1"))
+        evil = "boom\x1b]0;owned\x07\n| x | y |\x9b31m"
+        rc, out, _ = w.run("show", "p", reader=Reader(open_down={"dev-01": evil}, closed_down={"dev-01": evil}))
+        check(rc == 0 and all(ord(c) >= 32 and not 127 <= ord(c) < 160 for c in out.replace("\n", "")) and out.count("\n") == 2, repr(out))
+        rc, out, _ = w.run("export", "p", reader=Reader(open_down={"dev-01": evil}, closed_down={"dev-01": evil}))
+        rows = [l for l in out.splitlines() if l.startswith("| s1 ")]
+        check(rc == 0 and len(rows) == 1 and not any(c in out for c in "\x1b\x07\x9b"), repr(out))
+
+
 # ── the readers behind the module ───────────────────────────────────
 
 class Run:
@@ -338,7 +371,8 @@ class Run:
         self.answers, self.calls = list(answers), []
 
     def __call__(self, argv: list[str], **kw: Any) -> Any:
-        self.calls.append(argv)
+        self.calls.append([os.path.basename(argv[0]), *argv[1:]])
+        check(kw.get("timeout") == plan.CALL_TIMEOUT_S, "a bounded call")
         a = self.answers.pop(0)
         if isinstance(a, BaseException):
             raise a
@@ -354,12 +388,16 @@ def ctl_row(status: str = "ok", jobs: Any = None) -> str:
 def _():
     run = Run(ctl_row("ok", {"status": "ok", "jobs": [job(1, "active")]}))
     r = plan.FleetReader(run=run)
-    check(r.open_jobs("dev-01") == [job(1, "active")] and run.calls == [["fabric-ctl", "dev-01", "jobs", "--json"]], run.calls)
+    check(r.open_jobs("dev-01") == [job(1, "active")]
+          and run.calls == [["fabric-ctl", "dev-01", "jobs", "--json", "--timeout", "20"]], run.calls)
     for answer, why in ((ctl_row("offline"), "control agent: offline"),
                         (ctl_row("ok", {"status": "error", "error": "no lock"}), "jobs: error (no lock)"),
                         (ctl_row("ok", {"status": "ok", "jobs": "x"}), "answered something else"),
                         ("not json\n", "answered something else"), ("", "answered something else"),
                         (("", 2), "exited 2: stderr text"),
+                        ((ctl_row("no answer"), 1), "control agent: no answer"),
+                        ((ctl_row("ok", {"status": "ok", "jobs": []}), 1), "exited 1"),
+                        ((ctl_row("ok", {"status": "error", "error": "bad\x1b]0;x\x07\nline"}), 0), "(bad?]0;x??line)"),
                         (subprocess.TimeoutExpired("c", 60), "did not answer in 60 s"),
                         (FileNotFoundError(2, "No such file or directory"), "could not run: No such file or directory")):
         try:

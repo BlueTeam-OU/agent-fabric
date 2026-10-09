@@ -49,6 +49,7 @@ import roots  # noqa: E402
 FABRIC_ROOT = os.environ.get("AGENT_FABRIC_ROOT") or os.path.dirname(os.path.dirname(HERE))
 ROLE = "fabric-coordinator"
 CALL_TIMEOUT_S = 60
+CTL_TIMEOUT_S = 20          # fabric-ctl's own wait for the control agents' replies, as fleet.py
 
 LOGIN = re.compile(r"[a-z_][a-z0-9_-]{0,31}", re.ASCII)
 STEP_ID = re.compile(r"s[1-9][0-9]{0,3}", re.ASCII)
@@ -78,60 +79,94 @@ class Unreadable(Exception):
 
 # ── reading the jobs ────────────────────────────────────────────────
 
+def printable(value: Any) -> str:
+    """Text from another account as one line a terminal shows and never
+    obeys: C0, DEL and C1 (U+009B is a CSI) as '?', whitespace collapsed."""
+    return " ".join("".join("?" if ord(c) < 32 or 127 <= ord(c) < 160 else c for c in str(value)).split())
+
+
+def bounded_run(argv: list[str], *, timeout: float) -> subprocess.CompletedProcess:
+    """fleet.py's runner: an argument list, a timeout, stdin closed, and the
+    whole process group killed on a timeout (the executor's ssh and sudo are
+    grandchildren that subprocess.run's kill of the child leaves running)."""
+    import fleet
+    return fleet.run_program(argv, timeout=timeout)
+
+
+def hosts_registry() -> dict:
+    with open(roots.hosts_registry(), encoding="utf-8") as fh:
+        reg = json.load(fh)
+    if not isinstance(reg, dict):
+        raise ValueError("not a registry")
+    return reg
+
+
 class FleetReader:
-    """The two sources of a job's state. `run` is subprocess.run's shape,
-    for a test to fake the commands and nothing else."""
+    """The two sources of a job's state. `run(argv, timeout=)` returns a
+    CompletedProcess; a test fakes it and nothing else."""
 
-    def __init__(self, run: Callable[..., Any] = subprocess.run, hosts_path: str | None = None):
+    def __init__(self, run: Callable[..., Any] = bounded_run):
         self.run = run
-        self.hosts_path = hosts_path
 
-    def _ask(self, argv: list[str], what: str) -> str:
+    def _ask(self, argv: list[str], what: str) -> subprocess.CompletedProcess:
         try:
-            r = self.run(argv, capture_output=True, text=True, timeout=CALL_TIMEOUT_S)
+            return self.run(argv, timeout=CALL_TIMEOUT_S)
         except subprocess.TimeoutExpired:
             raise Unreadable(f"{what} did not answer in {CALL_TIMEOUT_S} s") from None
         except OSError as e:
-            raise Unreadable(f"{what} could not run: {e.strerror or e}") from None
-        if r.returncode != 0:
-            said = ((r.stderr or "") + (r.stdout or "")).strip().splitlines()
-            raise Unreadable(f"{what} exited {r.returncode}" + (f": {said[-1][:160]}" if said else ""))
-        return r.stdout or ""
+            raise Unreadable(f"{what} could not run: {printable(e.strerror or e)}") from None
+
+    @staticmethod
+    def _exit(r: subprocess.CompletedProcess, what: str) -> Unreadable:
+        said = ((r.stderr or "") + (r.stdout or "")).strip().splitlines()
+        return Unreadable(f"{what} exited {r.returncode}" + (f": {printable(said[-1])[:160]}" if said else ""))
 
     def open_jobs(self, login: str) -> list[dict]:
-        out = self._ask(["fabric-ctl", login, "jobs", "--json"], f"fabric-ctl {login} jobs")
+        what = f"fabric-ctl {login} jobs"
+        r = self._ask([os.path.join(FABRIC_ROOT, "bin", "fabric-ctl"), login, "jobs", "--json", "--timeout", str(CTL_TIMEOUT_S)], what)
+        # fabric-ctl exits 1 with the account's row printed when it did not answer: the row says why.
         try:
-            rows = [json.loads(line) for line in out.splitlines() if line.strip()]
+            rows = [json.loads(line) for line in (r.stdout or "").splitlines() if line.strip()]
             row = rows[0]
             if row.get("status") != "ok":
-                raise Unreadable(f"{login}'s control agent: {row.get('status')}")
+                raise Unreadable(f"{login}'s control agent: {printable(row.get('status'))}")
             jobs = row.get("jobs") or {}
             if jobs.get("status") != "ok":
-                raise Unreadable(f"{login}'s jobs: {jobs.get('status')}" + (f" ({jobs['error']})" if jobs.get("error") else ""))
+                raise Unreadable(f"{login}'s jobs: {printable(jobs.get('status'))}"
+                                 + (f" ({printable(jobs['error'])[:160]})" if jobs.get("error") else ""))
             listed = jobs.get("jobs")
             if not isinstance(listed, list):
                 raise ValueError("no job list")
-            return listed
-        except (ValueError, IndexError, AttributeError, TypeError) as e:
-            raise Unreadable(f"fabric-ctl {login} jobs answered something else ({e.__class__.__name__})") from None
+        except (ValueError, IndexError, AttributeError, TypeError):
+            if r.returncode != 0:
+                raise self._exit(r, what) from None
+            raise Unreadable(f"{what} answered something else") from None
+        if r.returncode != 0:
+            raise self._exit(r, what)
+        return listed
 
     def closed_jobs(self, login: str) -> list[dict]:
         try:
-            with open(self.hosts_path or roots.hosts_registry(), encoding="utf-8") as fh:
-                host = ((json.load(fh).get("placement") or {})).get(login)
-        except (OSError, ValueError, AttributeError) as e:
+            reg = hosts_registry()
+        except (OSError, ValueError) as e:
             raise Unreadable(f"the hosts registry could not be read ({e.__class__.__name__})") from None
+        if (reg.get("kinds") or {}).get(login) == "human":
+            raise Unreadable(f"{login} is a human login: no agent enters a human's account (ADR-010 rule 12)")
+        host = (reg.get("placement") or {}).get(login)
         if not host:
             raise Unreadable(f"{login} is placed on no host")
-        out = self._ask(["fabric-host", host, "run", "--as", login, "--", "fabric-jobs", "list", "--all", "--json"],
-                        f"fabric-host {host} run --as {login} fabric-jobs list")
+        what = f"fabric-host {host} run --as {login} fabric-jobs list"
+        r = self._ask([os.path.join(FABRIC_ROOT, "bin", "fabric-host"), host, "run", "--as", login, "--",
+                       "fabric-jobs", "list", "--all", "--json"], what)
+        if r.returncode != 0:
+            raise self._exit(r, what)
         try:
-            listed = json.loads(out)
+            listed = json.loads(r.stdout or "")
             if not isinstance(listed, list):
                 raise ValueError("not a list")
             return listed
-        except ValueError as e:
-            raise Unreadable(f"fabric-jobs list on {host} answered something else ({e.__class__.__name__})") from None
+        except ValueError:
+            raise Unreadable(f"{what} answered something else") from None
 
 
 def find_job(reader: Any, cache: dict, login: str, job_id: str) -> dict:
@@ -201,16 +236,18 @@ def clean_title(text: str) -> str:
 
 
 def placed(login: str) -> None:
-    """The login is one the hosts registry places: a typo would link to a list nobody reads."""
+    """The login is one the hosts registry places, and an agent's: a typo would
+    link to a list nobody reads, and no agent enters a human's account."""
     if not LOGIN.fullmatch(login):
         raise Refused(f"{login!r} is not a login")
     try:
-        with open(roots.hosts_registry(), encoding="utf-8") as fh:
-            placement = json.load(fh).get("placement") or {}
-    except (OSError, ValueError, AttributeError) as e:
+        reg = hosts_registry()
+    except (OSError, ValueError) as e:
         raise Refused(f"the hosts registry could not be read ({e.__class__.__name__}): cannot tell whether {login} is placed") from None
-    if login not in placement:
+    if login not in (reg.get("placement") or {}):
         raise Refused(f"{login} is placed on no host (runtime/hosts/registry.json)")
+    if (reg.get("kinds") or {}).get(login) == "human":
+        raise Refused(f"{login} is a human login: a step is an agent's job (ADR-044)")
 
 
 def get_plan(plan_id: str) -> dict:
@@ -292,7 +329,7 @@ def cmd_link(a: argparse.Namespace) -> int:
 
 def render_step(s: dict) -> str:
     where = f"{s['owner']}" + (f" -> {s['job']}" if s.get("job") else "")
-    tail = f"  ({s['reason']})" if s.get("reason") else ""
+    tail = f"  ({printable(s['reason'])})" if s.get("reason") else ""
     return f"  {s['id']:<5}{s['state']:<10}{where:<34}{s['title']}{tail}"
 
 
@@ -328,7 +365,7 @@ def cmd_export(a: argparse.Namespace, reader: Any) -> int:
     for s in steps:
         cells = [s["id"], s["title"], s["owner"], s.get("job") or "", ", ".join(s.get("depends_on", [])),
                  str(s.get("est_days", "")), s["state"] + (f" ({s['reason']})" if s.get("reason") else "")]
-        lines.append("| " + " | ".join(c.replace("|", "\\|") for c in cells) + " |")
+        lines.append("| " + " | ".join(printable(c).replace("|", "\\|") for c in cells) + " |")
     notes = [f"- {s['id']}: {s['note']}" for s in steps if s.get("note")]
     if notes:
         lines += ["", "Notes:", *notes]
