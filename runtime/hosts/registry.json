@@ -7,7 +7,16 @@
       "ssh": null,
       "operator": "user",
       "fabric": "~/projects/agent-fabric",
-      "operator_key": "ed25519:MCowBQYDK2VwAyEALKVPvfSMWb0A3zDgwxoldrPv5ZwzhMdRWqczeY8VW1U="
+      "operator_key": "ed25519:MCowBQYDK2VwAyEALKVPvfSMWb0A3zDgwxoldrPv5ZwzhMdRWqczeY8VW1U=",
+      "sshd": {
+        "address": "127.0.0.1",
+        "port": 22,
+        "host_keys": [
+          "ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBGJ0xyFK+tvueCOVYJd5LrUfLJV53W7fBIomTYkPtS8r9hmRHp57Cg0AqiZ/cd4rdAbh7L1ckSldStEWhrVX51I=",
+          "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIIMjtjjzyt2EyD5L9B6KWqoAjBMkQyVPjRhlTdj9TNvf",
+          "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQCxlp0uY0OtDcWFvNgBtwj1+D7f6l+y99jeju2x++Lb/Q/Sf/gs1MGU5t27ecn702VOdF3aUhsADKoDT3yoX8LRIHwZzPmeZtAE4fPd4sT/VoMiHNJQ9KQqUQQzkqdISWF/JdpDIhKNW8+QU5fz4zUGEUXdnxTrEG3uV3MQ1PrJXnZlT8uE9iPeYpbIYw37Hx7GC3awtcR85T2XcUlFzl10ANnYSc6alnMPqK3dLOYEnwY/IJHXVE2yqlO6AV/eJkGadkcHko68YHLi5pVWo4KnESGlcVdSApnwvpKObhQyFSkCt5+ns74kdsDtrsWCX5ZVIBsiYtrwj45kckEHuOLHlqOMf2DMb4joZ6lKqAR9tTtfBrwCj2QvN0fSkbc1NzZtBAwmP3Yf3dGxOT5CwSnjuQrolidLJ1QH+Zv2Y5k1wYY+khIPZQN+kM7YWcKYp3vazrzl88QThypgYWn3dmHEv11QirUItszHWGsK75Om50v3zK/fwTcNHJADrZKrIVc="
+        ]
+      }
     }
   },
   "placement": {
