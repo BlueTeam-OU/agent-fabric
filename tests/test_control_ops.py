@@ -27,6 +27,8 @@ from control import ops  # noqa: E402
 import control.ops.keys  # noqa: E402,F401 — the package re-exports functions of the same names, so the modules come from sys.modules
 import control.ops.usage  # noqa: E402,F401
 from control.ops import util  # noqa: E402
+from instance_fixtures import own_instance_tree  # noqa: E402 — tests/, the script's own directory
+own_instance_tree()
 
 keys_mod, usage_mod = sys.modules["control.ops.keys"], sys.modules["control.ops.usage"]
 

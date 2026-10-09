@@ -21,6 +21,8 @@ import subprocess
 import sys
 import tempfile
 import time
+from instance_fixtures import own_instance_tree  # noqa: E402 — tests/, the script's own directory
+own_instance_tree()
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 HERE = os.path.join(ROOT, "runtime", "openrouter")

@@ -22,6 +22,8 @@ from contextlib import redirect_stderr, redirect_stdout
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(HERE, "tools", "fabric"))
 import fleet  # noqa: E402
+from instance_fixtures import own_instance_tree  # noqa: E402 — tests/, the script's own directory
+own_instance_tree()
 
 REGISTRY = {
     "hosts": {"h1": {"ssh": None, "platform": "linux", "operator": "op"}, "h2": {"ssh": "op@h2", "platform": "linux", "operator": "op"}},

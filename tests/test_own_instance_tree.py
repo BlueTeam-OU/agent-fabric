@@ -1,0 +1,108 @@
+#!/usr/bin/env python3
+"""A test that builds the fabric tree it runs a tool on owns that tree's
+instance data (agent-fabric ADR-045 rule 3): it starts without the runner's
+AGENT_FABRIC_OPERATOR, which would outrank the tree the tool is handed
+(tools/fabric/roots.py) and make the tool read, or write, the operator's data
+instead of the fixture's. A suite that names AGENT_FABRIC_ROOT, hands a tool a
+tree as --fabric or --root, or is named in EXTRA builds or points at such a
+tree, so each one either calls own_instance_tree() as a module-level statement
+before the entry guard, or names AGENT_FABRIC_OPERATOR itself (it sets or
+clears it for the cases that mean one). The rule is discovered, with EXTRA for
+what a scan cannot see (a tree handed in-process, or built by a helper): a
+suite added tomorrow that hands a tool a tree the usual ways is held to it.
+Running every suite with an operator exported costs most of the suite's run
+(lint and assemble alone take minutes), so this holds the cheap half, and the
+whole-suite run with an operator exported is the check that found the class.
+Plain script."""
+from __future__ import annotations
+
+import ast
+import glob
+import os
+import re
+import sys
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+from instance_fixtures import own_instance_tree  # noqa: E402
+
+
+def starts_without_operator(src: str) -> bool:
+    """own_instance_tree() is a statement of the module itself (not of a function or an
+    `if __name__` block) and comes before the first function, class or entry guard."""
+    for node in ast.parse(src).body:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            return False
+        # The entry guard ends the module's setup; an `if` before it (a missing-file exit) is setup.
+        if isinstance(node, ast.If) and any(isinstance(n, ast.Name) and n.id == "__name__" for n in ast.walk(node.test)):
+            return False
+        if (isinstance(node, ast.Expr) and isinstance(node.value, ast.Call)
+                and isinstance(node.value.func, ast.Name) and node.value.func.id == "own_instance_tree"):
+            return True
+    return False
+
+
+# Suites of the guards' authority (policies/authority.json: not python-dev's entry,
+# fabric-coordinator's): they set AGENT_FABRIC_ROOT to a tree they build, and are
+# left to the owner of those guards to start without the operator.
+NOT_PYTHON_DEVS = ("test_agent_fabric_dir_authority.py", "test_charter_authority.py", "test_contributors.py")
+
+
+# Suites that build a tree they run a tool on without naming AGENT_FABRIC_ROOT or handing
+# it over as --fabric/--root: each says how.
+EXTRA = {
+    "test_assemble.py": "builds a fabric under a temporary directory and runs assemble.py and lint.py on it",
+    "test_assemble_seams.py": "the same, through test_assemble's helpers",
+    "test_fleet.py": "builds placements and registries under a temporary directory for fleet.py",
+    "test_hosts_registry.py": "builds a fabric under a temporary directory and calls lint.host_registry_findings on it in-process",
+}
+
+
+def main() -> int:
+    fails = 0
+
+    def check(label: str, good: bool, detail: object = "") -> None:
+        nonlocal fails
+        print(f"  {'ok  ' if good else 'FAIL'} {label}" + ("" if good else f": {detail}"))
+        fails += not good
+
+    saved = os.environ.get("AGENT_FABRIC_OPERATOR")
+    try:
+        os.environ["AGENT_FABRIC_OPERATOR"] = "/nonexistent/operator"
+        own_instance_tree()
+        check("the helper drops an exported operator", "AGENT_FABRIC_OPERATOR" not in os.environ)
+        own_instance_tree()
+        check("…and is fine with none", "AGENT_FABRIC_OPERATOR" not in os.environ)
+    finally:
+        if saved is None:
+            os.environ.pop("AGENT_FABRIC_OPERATOR", None)
+        else:
+            os.environ["AGENT_FABRIC_OPERATOR"] = saved
+
+    ok_src = "import os\nfrom instance_fixtures import own_instance_tree\nown_instance_tree()\n\ndef main():\n    pass\n"
+    check("positive control: the call before any definition is accepted", starts_without_operator(ok_src))
+    for label, src in (("after a definition", "def main():\n    pass\n\nown_instance_tree()\n"),
+                       ("inside the entry guard", "def main():\n    pass\n\nif __name__ == '__main__':\n    own_instance_tree()\n"),
+                       ("inside a function", "def setup():\n    own_instance_tree()\n"),
+                       ("absent", "import os\n\ndef main():\n    pass\n")):
+        check(f"negative control: the call {label} is refused", not starts_without_operator(src))
+
+    held = 0
+    for path in sorted(glob.glob(os.path.join(HERE, "test_*.py"))):
+        with open(path, encoding="utf-8") as fh:
+            src = fh.read()
+        name = os.path.basename(path)
+        hands_a_tree = "AGENT_FABRIC_ROOT" in src or re.search(r"""["']--(fabric|root)["']""", src) or name in EXTRA
+        if not hands_a_tree or "AGENT_FABRIC_OPERATOR" in src or name in NOT_PYTHON_DEVS:
+            continue
+        held += 1
+        check(f"{os.path.basename(path)} starts without the runner's operator", starts_without_operator(src),
+              "it hands a tool a tree (AGENT_FABRIC_ROOT, --fabric, --root, or EXTRA), so it calls own_instance_tree() "
+              "before any definition (tests/instance_fixtures.py)")
+    check("the scan found suites to hold", held >= 25, held)
+    print(f"\n{'FAILED' if fails else 'all passed'}")
+    return 1 if fails else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

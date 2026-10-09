@@ -19,6 +19,8 @@ import tempfile
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import test_assemble as ta  # noqa: E402
+from instance_fixtures import own_instance_tree  # noqa: E402 — tests/, the script's own directory
+own_instance_tree()
 
 LONG = "A heading that runs on " + "and on " * 40 + "past every cue an index can show"
 
