@@ -892,6 +892,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-10-09 — a resume fetches working events by query, ranked;
   FTS5 stemmed + trigram fused by reciprocal rank is the recipe to
   measure first (§7).
+- A 2026-10-09 — reading working events needs rules 2 and 8 amended (§7).
 - Keywords: episodic, history, journal, GZCoord, carrier, transport,
   relay, InterWeave, fabric-history, backfill.
 
@@ -929,6 +930,7 @@ its record disagree, the record wins. Look it up, never read it whole:
   rules 1 and 2 in force (§5 rule 6).
 - A 2026-10-09 — a mod or MCP server that runs code passes the fleet's
   guards as a Bash call would, or is refused at review (§5 rule 8).
+- A 2026-10-09 — rule 8's gate: the managed MCP allowlist, versions pinned.
 - Keywords: mods, plugin, managed settings, allowManagedModsOnly,
   disableSideloadFlags, prependPlugins, sec-default, guard, redaction,
   MCP server, sandbox.
