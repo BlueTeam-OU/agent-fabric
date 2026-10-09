@@ -1009,8 +1009,9 @@ its record disagree, the record wins. Look it up, never read it whole:
 - Host keys pinned in the registry's `sshd`, read on the host;
   `fabric-ssh-hosts` generates `known_hosts` and checks the pin; never
   ssh-keyscan (§5 rule 5).
-- Qubes: package in the TemplateVM, configuration and host keys saved
-  under /rw/config and restored at boot (§5 rule 6). sudo stays
+- Qubes, two phases: the package in the TemplateVM, sshd disabled there;
+  the AppVM stages config and host keys (made once) under /rw/config, and
+  rc.local restores them, runs `sshd -t`, then sshd at boot (§5 rule 6). sudo stays
   break-glass; agents' own ssh keys stay future (§5 rules 7–8).
 - Keywords: ssh, sshd, operator, Fleet Deck, moveto, enter-ssh, forced
   command, authorized_keys, host key, known_hosts, Qubes, rc.local.
