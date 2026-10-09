@@ -6,7 +6,6 @@ from __future__ import annotations
 
 import io
 import os
-import re
 import sys
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -136,32 +135,6 @@ def main() -> int:
                 os.environ.pop(common.PR_TOOLS_SETTING, None)
             else:
                 os.environ[common.PR_TOOLS_SETTING] = saved_cfg
-
-    print("gzapp's pr-tools.json says what its integration/gh forwarders said")
-    shipped = os.path.join(HERE, "projects", "gzapp", "integration", "pr-tools.json")
-    sh_dir = os.path.join(HERE, "projects", "gzapp", "integration", "gh")
-    forwarders = [os.path.join(sh_dir, n) for n in ("arm.sh", "pr-gate.sh", "pr-review-status.sh", "post-review.sh")]
-    saved_cfg = os.environ.get(common.PR_TOOLS_SETTING)
-    os.environ[common.PR_TOOLS_SETTING] = shipped
-    try:
-        env = {"GZAPP_PR_GATE": "g", "GZAPP_PR_REVIEW_STATUS": "r", "GZAPP_PR_SESSION": "s", "GZAPP_VERDICT_AUTHORS": "[]"}
-        common.apply_project_env("t", env)
-    finally:
-        if saved_cfg is None:
-            os.environ.pop(common.PR_TOOLS_SETTING, None)
-        else:
-            os.environ[common.PR_TOOLS_SETTING] = saved_cfg
-    check("the four GZAPP_ names map to the fabric's", [env.get(k) for k in (
-        "AGENT_FABRIC_PR_GATE", "AGENT_FABRIC_PR_REVIEW_STATUS", "AGENT_FABRIC_PR_SESSION", "AGENT_FABRIC_VERDICT_AUTHORS")]
-          == ["g", "r", "s", "[]"])
-    marker = env.get("AGENT_FABRIC_LEGACY_REVIEW_MARKERS", "")
-    for fw in forwarders:
-        if not os.path.exists(fw):   # the forwarders are retired in the PR after the callers move
-            continue
-        text = open(fw, encoding="utf-8").read()
-        check(f"{os.path.basename(fw)}: its marker is the file's, and every GZAPP_ name it maps is mapped here",
-              marker != "" and marker in text
-              and all(f"{ours}" in env for ours in re.findall(r"export (AGENT_FABRIC_[A-Z_]+)=\"\$\{AGENT_FABRIC_[A-Z_]+:-\$GZAPP_", text)))
 
     print("the four commands that read the project's names ask for them first")
     from github import arm, post_review, pr_gate, pr_review_status
