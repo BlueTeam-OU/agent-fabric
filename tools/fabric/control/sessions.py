@@ -32,11 +32,14 @@ owner 2026-10-09; python-dev-02's contract, INFO 01a11e4c and
 01a11e4e-f664): new behaviour, not Node's. read_sessions answers [] when
 the file is absent (none), and None — unknown — when it is there but
 cannot be read, parsed, or is not {"sessions": {...}}, as resume.py's
-live_sessions reads it. The watcher then posts sessions: "unreadable",
-the string, so a reader that knows only the list drops the record and
-reads unknown, never "no sessions"; it logs once when the file goes
-unreadable and once when it reads again. (Node's sessions.mjs read
-both as [].)
+live_sessions reads it. While it is unknown the watcher posts NO state
+record, and logs once when the file goes unreadable and once when it
+reads again: a listener keeps the last good record and reads it unknown
+at STATES_STALE_MS, never a wrong "no sessions" — and nothing a Node
+reader cannot read. (Node's sessions.mjs read both as [] and posted it.)
+Saying "unreadable" on the wire is new wire behaviour, and waits until
+the Node is deleted (ADR-040 §7; fabric-coordinator REPLY 01a11ec9-b9e8,
+2026-10-09): then it is its own change, with ctl's reader for it.
 
 WHAT IS NOT NODE'S, beyond that: `since` is read as ECMAScript's own
 date-time format (Date.parse's ISO form: a date, a time with its offset
@@ -74,7 +77,6 @@ WAITS_ON_MAX = 64
 # The harness's session id is a UUID; anything else in a binding is no
 # session, never a path. resume.py's SESSION_RE is the same pattern.
 SESSION_ID = re.compile(r"[A-Za-z0-9-]{8,64}")   # matched whole
-UNREADABLE = "unreadable"
 
 _ISO = re.compile(r"(?P<y>[+-]\d{6}|\d{4})(?:-(?P<mo>\d\d)(?:-(?P<d>\d\d))?)?"
                   r"(?:[Tt](?P<h>\d\d):(?P<mi>\d\d)(?::(?P<s>\d\d)(?:\.(?P<ms>\d+))?)?(?P<z>[Zz]|[+-]\d\d:\d\d)?)?")
@@ -214,8 +216,7 @@ def waits_on(file: str | None) -> list | None:
 
 
 def state_record(address: str, said: dict, ts: str | None = None) -> dict:
-    """A State envelope (control/protocol.py). sessions is the list, or
-    UNREADABLE when the file could not be read (j5)."""
+    """A State envelope (control/protocol.py)."""
     ts = js.iso_now() if ts is None else ts
     rec = {"v": 1, "kind": "state", "from": address, "ts": ts, "sessions": said["sessions"]}
     if js.truthy(said.get("role")):
@@ -301,9 +302,12 @@ class StateWatcher:
         s = read_sessions(self.file, proc=self.proc, now_ms=now_ms, on_stale=self._on_stale)
         if s is None:
             if not self.sessions_unreadable:
-                self.log(f"{self.file} cannot be read; its sessions said as unreadable")
+                self.log(f"{self.file} cannot be read; no state posted until it reads again")
             self.sessions_unreadable = True
-            return UNREADABLE
+            # The listener's record goes stale meanwhile: the first readable
+            # tick posts at once, whether or not anything changed.
+            self.last_key = None
+            return None
         if self.sessions_unreadable:
             self.log(f"{self.file} is readable again")
             self.sessions_unreadable = False
@@ -315,7 +319,12 @@ class StateWatcher:
         self.busy = True
         try:
             now_ms = self.now()
-            said = {"sessions": self._sessions_now(now_ms),
+            sessions = self._sessions_now(now_ms)
+            if sessions is None:
+                # Unknown: nothing is said, and the last record stands, to go
+                # stale at the listener; the next readable tick posts.
+                return False
+            said = {"sessions": sessions,
                     **(_bound(self.binding, self.config_dir) if self.binding else
                        {"role": None, "project": None, "last_session": None, "resumable": False}),
                     "waits_on": self._waits_now()}
