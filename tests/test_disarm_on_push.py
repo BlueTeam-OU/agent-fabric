@@ -101,8 +101,8 @@ def main() -> int:
     text = open(WORKFLOW).read()
     check("on a pull request's synchronize only", re.search(r"pull_request:\n\s+types: \[synchronize\]", text) is not None)
     perms = re.search(r"\npermissions:\n((?:  .*\n)+)", text)
-    check("pull-requests: write and contents: read, nothing else",
-          perms is not None and sorted(perms.group(1).split()) == sorted(["contents:", "read", "pull-requests:", "write"]),
+    check("pull-requests: write and contents: write (disabling auto-merge needs both), nothing else",
+          perms is not None and sorted(perms.group(1).split()) == sorted(["contents:", "write", "pull-requests:", "write"]),
           perms.group(1) if perms else "no permissions block")
     want_if = ("github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]'"
                " && github.event.pull_request.user.login != 'dependabot[bot]'")
