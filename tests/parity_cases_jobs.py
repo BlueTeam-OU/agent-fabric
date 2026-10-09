@@ -4,9 +4,9 @@ jobs-add and jobs run the real tools/fabric/jobs.py in each side's fixture home.
 jobs.py adds to the list of the login it runs as, which is the runner's
 (home["self"]), never a fixture account: the login is the euid's, and no
 environment makes it another. Its list is under the fixture's state dir,
-and is compared as stored, but for the times each side wrote it at.
-The bytes are not: jobs.py stamps the wall clock, which a subprocess's
-caller cannot set."""
+and is compared parsed, with the keys created, updated, at and
+updated_at masked; never as bytes (`files`), because jobs.py stamps the
+wall clock, which a subprocess's caller cannot set."""
 CASES = [
     {"name": "check_job_args on what a request may carry", "module": "jobs",
      "input": [None, {"title": "x"}, {"title": "x", "extra": 1}, {"title": ""}, {"title": "a\nb"}, {"title": "x" * 301},

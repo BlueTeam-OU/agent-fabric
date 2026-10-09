@@ -60,8 +60,14 @@ def main() -> int:
         check("a side that exits non-zero is an error", "exit 3" in side("import sys; sys.exit(3)"))
         check("a side that answers fewer cases is an error", "answered 1 of 2" in side("print('[\"{}\"]')"))
         # Two characters: a string as long as the cases, which only the list check refuses.
-        check("a side that answers no list is an error", "of 2" in side("print('\"ab\"')"))
-        check("a side that answers every case is read", side("print('[\"{}\", \"{}\"]')") == "no error")
+        check("a side that answers no list is an error, said as such", "str, not a list" in side("print('\"ab\"')"))
+        check("...a number too, never a TypeError", "int, not a list" in side("print('5')"))
+        check("a side that answers no JSON is an error, said as such", "answered no JSON" in side("print('nope')"))
+        check("...nothing at all too", "answered no JSON" in side("pass"))
+        for bad in ("[5, 6]", "[null, null]", '["{}", "{}"]', '["5", "5"]', '["{\\"value\\": 1}", "{}"]', '["{\\"threw\\": false}", "{}"]'):
+            check(f"a side whose answers are not answer objects is an error: {bad}", "case 0 with" in side(f"print({bad!r})"), side(f"print({bad!r})"))
+        ok = '["{\\"value\\": 1, \\"files\\": {}}", "{\\"threw\\": true, \\"why\\": \\"x\\"}"]'
+        check("a side that answers every case is read", side(f"print({ok!r})") == "no error", side(f"print({ok!r})"))
     print(f"\n{'FAILED' if fails else 'all passed'}")
     return 1 if fails else 0
 

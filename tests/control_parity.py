@@ -136,9 +136,24 @@ def _side(cmd: list[str], payload: dict, env: dict, cwd: str) -> list[str]:
     r = subprocess.run(cmd, input=json.dumps(payload), capture_output=True, encoding="utf-8", env=env, cwd=cwd, timeout=TIMEOUT_S)
     if r.returncode != 0:
         raise RuntimeError(f"{cmd[0]} could not run the cases (exit {r.returncode}): {r.stderr.strip()[-400:]}")
-    answers = json.loads(r.stdout)
-    if not isinstance(answers, list) or len(answers) != len(payload["cases"]):
+    try:
+        answers = json.loads(r.stdout)
+    except ValueError:
+        raise RuntimeError(f"{cmd[0]} answered no JSON: {r.stdout.strip()[:200]!r}") from None
+    if not isinstance(answers, list):
+        raise RuntimeError(f"{cmd[0]} answered {type(answers).__name__}, not a list of answers")
+    if len(answers) != len(payload["cases"]):
         raise RuntimeError(f"{cmd[0]} answered {len(answers)} of {len(payload['cases'])} cases")
+    for i, a in enumerate(answers):
+        # Each is a case's answer as its side wrote it: an object holding
+        # `value` (with `files`) or `threw`. Anything else, the same on both
+        # sides, would compare equal and pass.
+        try:
+            parsed = json.loads(a) if isinstance(a, str) else None
+        except ValueError:
+            parsed = None
+        if not (isinstance(parsed, dict) and (("value" in parsed and isinstance(parsed.get("files"), dict)) or parsed.get("threw") is True)):
+            raise RuntimeError(f"{cmd[0]} answered case {i} with {a!r:.200}, not an answer object")
     return answers
 
 

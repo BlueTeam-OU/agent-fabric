@@ -12,6 +12,8 @@ import subprocess
 import sys
 import tempfile
 
+from instance_fixtures import write_operator_policy
+
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SCRIPT = os.path.join(HERE, "runtime", "claude-code", "user-settings.py")
 HOOK = f'python3 "{HERE}/runtime/claude-code/hooks/session-state.py"'
@@ -32,7 +34,8 @@ def main() -> int:
             f.write('#!/bin/sh\necho \'{"environment": [], "allow": [], "soft_deny": [], "hard_deny": []}\'\n')
         os.chmod(fake, 0o755)
         env = {k: v for k, v in os.environ.items() if not k.startswith(("GITHUB_", "AGENT_FABRIC_"))}
-        env.update(AGENT_FABRIC_CLAUDE=fake, AGENT_FABRIC_LOCAL_BIN=os.path.join(tmp, "bin"))
+        env.update(AGENT_FABRIC_CLAUDE=fake, AGENT_FABRIC_LOCAL_BIN=os.path.join(tmp, "bin"),
+                   AGENT_FABRIC_OPERATOR=write_operator_policy(tmp))
         settings = os.path.join(tmp, "settings.json")
 
         def run():
@@ -48,6 +51,11 @@ def main() -> int:
         hooks = json.load(open(settings))["hooks"]
         cmds = {ev: [h["command"] for e in hooks.get(ev, []) for h in e["hooks"]] for ev in EVENTS}
         check("written", r.returncode == 0 and r.stdout.startswith("  +  "), r.stdout + r.stderr)
+        # The fixture's Organization text is in no live policy: a reader of
+        # this checkout's policies/auto-mode.json would write another.
+        check("the operator tree's policy is the one written",
+              (json.load(open(settings)).get("autoMode") or {}).get("environment", [""])[0]
+              == "**Organization**: the fixture operator", r.stderr)
         check("one entry on each of the seven events, at this checkout's path",
               all([c for c in cmds[ev] if "session-state.py" in c] == [HOOK] for ev in EVENTS), cmds)
         check("the account's own Stop hook kept", "stop.sh" in cmds["Stop"], cmds["Stop"])
