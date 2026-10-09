@@ -1,7 +1,8 @@
 """tools/fabric/control/accounts.py — the Claude accounts this login observes
 (ops `accounts`; ADR-031). Run as the observing login, in practice the
-coordinator's. The port of runtime/control/accounts.mjs (ADR-040 Wave 8);
-bin/fabric-accounts is the shim.
+coordinator's. The port of runtime/control/accounts.mjs (ADR-040 Wave 8). Run from tools/fabric as
+`python3 -m control.accounts`, which bin/fabric-accounts will run at the
+cutover; until then the shim still runs the Node.
 
   fabric-accounts login <account>   sign one Claude account in, once: opens the harness
                                     in that account's own config directory; /login in the

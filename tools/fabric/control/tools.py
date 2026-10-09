@@ -61,7 +61,7 @@ def parse_run(code: int, stdout: str) -> dict:
     if code not in (0, 1):
         return {"error": f"fabric-tools exited {code}"}
     try:
-        doc = json.loads(stdout)
+        doc = json.loads(stdout, parse_constant=util.reject_constant)
     except ValueError:
         return {"error": "fabric-tools --json printed no JSON document"}
     if (not isinstance(doc, dict) or not isinstance(doc.get("projects"), list) or not isinstance(doc.get("tools"), list)
@@ -192,7 +192,7 @@ def tools(directory: str | None = None, now: Callable[[], float] = lambda: time.
     except OSError as e:
         return {"status": "failed", "error": f"{TOOLS_REPORT}: {errno.errorcode.get(e.errno or 0) or e}"}
     try:
-        doc = json.loads(text)
+        doc = json.loads(text, parse_constant=util.reject_constant)
     except ValueError:
         return {"status": "failed", "error": f"{TOOLS_REPORT} is not JSON"}
     if not util.truthy(doc) or not isinstance(doc.get("tools") if isinstance(doc, dict) else None, list):

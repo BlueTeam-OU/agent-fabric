@@ -8,6 +8,7 @@ import json
 import os
 import re
 import subprocess
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -169,6 +170,7 @@ def usage(home: str | None = None, fetch: Fetch = http_fetch, url: str = USAGE_U
 # Claude Code. `claude auth status` is not a keep-alive: it starts a
 # refresh, exits, and leaves a lock the next run trips on until the
 # harness calls it stale (60 s).
+STALE_EMPTY_S = 5
 ACCOUNTS_TIMEOUT_MS = 120000
 
 ACCOUNTS_MAX_BYTES = 4 * 1024 * 1024
@@ -202,40 +204,60 @@ def take_read_lock(directory: str, pid: int | None = None) -> Callable[[], None]
     """One reader per account across PROCESSES, not only inside the daemon: a
     person's `fabric-accounts read` beside the keeper would start a second
     harness on the same config directory, and the loser fails on the
-    refresh lock. O_EXCL on a file naming the holder's pid; a holder that
-    is gone (a killed read) does not keep the account. Only a positive pid
-    is a holder: the Node signalled pid 0 — its own process group — for an
-    empty file (a crash between create and write) and kept the account busy
-    for good. Raises OSError for a failure that is not the race."""
+    refresh lock. The lock is created complete — the pid written to a file
+    of our own, then linked into place, EEXIST being the busy answer — so a
+    held lock is never empty and a second reader cannot mistake a holder
+    between create and write for a crash. A holder that is gone (a killed
+    read) does not keep the account. A lock naming no positive pid is stale
+    only once it is older than STALE_EMPTY_S: the Node wrote its lock in two
+    steps, so a Node daemon beside this one can be between them. (The Node
+    signalled pid 0 — its own process group — for an empty file and kept the
+    account busy for good.) Raises OSError for a failure that is not the race."""
     pid = os.getpid() if pid is None else pid
     f = os.path.join(directory, ".fabric-read.lock")
-    for _ in range(2):
-        try:
-            fd = os.open(f, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-        except FileExistsError:
-            try:
-                with open(f, encoding="utf-8", errors="replace") as fh:
-                    text = fh.read().strip()
-            except FileNotFoundError:
-                continue   # released between our attempt and this read: try again; anything else is loud
-            holder = int(text) if text.isascii() and text.isdigit() else 0
-            if holder > 0 and _alive(holder) and holder != pid:
-                return None
-            try:
-                os.unlink(f)
-            except OSError:
-                pass   # raced
-            continue
+    tmp = f"{f}.{os.getpid()}.{threading.get_ident()}.tmp"
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    try:
         with os.fdopen(fd, "w", encoding="utf-8") as fh:
             fh.write(f"{pid}\n")
-
-        def release() -> None:
+        for _ in range(2):
             try:
-                os.unlink(f)
-            except OSError:
-                pass   # gone
-        return release
-    return None
+                os.link(tmp, f)
+            except FileExistsError:
+                try:
+                    with open(f, encoding="utf-8", errors="replace") as fh:
+                        text = fh.read().strip()
+                    age = time.time() - os.stat(f).st_mtime
+                except FileNotFoundError:
+                    continue   # released between our attempt and this read: try again; anything else is loud
+                holder = int(text) if text.isascii() and text.isdigit() else 0
+                if holder > 0:
+                    if _alive(holder) and holder != pid:
+                        return None
+                elif age < STALE_EMPTY_S:
+                    return None
+                try:
+                    os.unlink(f)
+                except OSError:
+                    pass   # raced
+                continue
+
+            def release() -> None:
+                # Only a lock that still names us: after a takeover the file is another reader's.
+                try:
+                    with open(f, encoding="utf-8", errors="replace") as fh:
+                        if fh.read().strip() != str(pid):
+                            return
+                    os.unlink(f)
+                except OSError:
+                    pass   # gone
+            return release
+        return None
+    finally:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
 
 
 def account_slugs(directory: str) -> list[str]:

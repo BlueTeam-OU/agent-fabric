@@ -595,6 +595,14 @@ class Memory(Base):
 
 
 class Languages(Base):
+    def test_a_detector_percent_that_is_not_a_number_does_not_fail_the_section(self):
+        h = self.scratch("lang-nan-")
+        write(ops.langid_cmd(h, "/r")[0], "")
+        run = lambda c, **k: subprocess.CompletedProcess(c, 0, json.dumps([[True, 90, [["en", "x"]]]]).encode(), b"")  # noqa: E731
+        lg = ops.languages(["An English paragraph long enough to be judged here"], home=h, root="/r", run=run)
+        self.assertEqual((lg["status"], lg["shares"], lg["dominant"]), ("ok", lg["shares"], {"en": 1}))
+        self.assertEqual(util.js_json(lg["shares"]), '{"en":null}', "NaN is null on the wire, as JSON.stringify wrote it")
+
     def test_cld2_judges_only_paragraphs_of_twenty_letters_shares_weighted_by_letters_no_venv_is_unavailable(self):
         h = self.scratch("lang-home-")
         self.assertEqual(ops.languages(["ქართული აბზაცი საკმაოდ გრძელი"], home=h)["status"], "unavailable")

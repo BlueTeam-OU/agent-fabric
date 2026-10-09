@@ -21,6 +21,14 @@ port differs, it is listed here:
   - memory: a harvest that failed with nothing on stderr says why
     (a timeout, a missing interpreter), where the Node said "".
   - Every subprocess has a timeout, presence's pgrep included.
+  - The read lock is created complete (pid written, then linked into place):
+    a held lock is never empty. One naming no pid is stale after 5 s.
+  - status: the sections' keys come in request order; the Node put each in
+    as its section finished, so a synchronous one (session) came early.
+  - disk: the two du scans run one after the other (the Node ran them
+    together), so its worst case is twice the bound.
+  - secrets-sync: `expect` must be a string of 12 hex digits; the Node also
+    took a number or a list whose String() was one.
 
 A section that cannot be read says so inline ({status: ...}) rather than
 raising: a reply always arrives, and its gaps are named.

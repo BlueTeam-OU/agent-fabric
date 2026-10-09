@@ -153,10 +153,16 @@ class SecretsSync(unittest.TestCase):
         self.assertEqual(r["status"], "failed")
         self.assertIn(f"holds setup-token {fp(other)}, not the expected {fp(TPL)}; nothing restarted", r["reason"])
         self.assertFalse(os.path.exists(g.up.marker_path(g.dir)))
-        for args in ({"expect": "XYZ"}, {"restart": "yes"}, {"config": "agents_other"}, [], {"expect": None}):
+        for args in ({"expect": "XYZ"}, {"restart": "yes"}, {"config": "agents_other"}, [], {"expect": None}, None, {"expect": 123456789012}):
             h = Fixture(self)
             self.assertEqual(h.sync({"id": "x", "args": args}, sessions=[])["status"], "refused", args)
             self.assertEqual(h.calls, [])
+
+    def test_args_absent_is_nothing_args_null_is_refused(self):
+        f = Fixture(self)
+        self.assertEqual(f.sync({"id": "x"}, sessions=[])["status"], "synced")
+        self.assertEqual(f.sync({"id": "x", "args": None}, sessions=[]), {"status": "refused", "reason": "secrets-sync takes { expect, restart }"})
+        self.assertEqual(len(f.calls), 1, "the refused request ran nothing")
 
     def test_a_template_with_no_token_fails_an_expect(self):
         f = Fixture(self, writes=None)

@@ -131,7 +131,7 @@ _LONE_SURROGATE = re.compile("[\ud800-\udfff]")
 
 def _wholes(v: Any) -> Any:
     if isinstance(v, float):
-        return whole(v)
+        return None if not math.isfinite(v) else whole(v)   # JSON.stringify writes NaN and Infinity as null
     if isinstance(v, dict):
         return {k: _wholes(x) for k, x in v.items()}
     if isinstance(v, list):
@@ -151,9 +151,17 @@ def js_json(v: Any, indent: int | None = None) -> str:
     return _LONE_SURROGATE.sub(lambda m: f"\\u{ord(m.group(0)):04x}", text)
 
 
-def js_round(x: float) -> int:
-    """Math.round: halves go up, where Python's round() goes to even."""
+def js_round(x: float) -> float | int:
+    """Math.round: halves go up, where Python's round() goes to even; NaN and
+    the infinities come back as they are, as Math.round returned them."""
+    if not math.isfinite(x):
+        return x
     return math.floor(x + 0.5)
+
+
+def reject_constant(name: str) -> Any:
+    """json.loads' parse_constant for what JSON.parse refuses: NaN, Infinity."""
+    raise ValueError(f"{name} is not JSON")
 
 
 def _feed(pipe: Any, data: bytes) -> None:

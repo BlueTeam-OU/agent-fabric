@@ -61,6 +61,8 @@ class Contract(Base):
         self.assertRegex(T.parse_run(127, "")["error"], r"exited 127")
         self.assertRegex(T.parse_run(0, "not json")["error"], r"no JSON document")
         self.assertRegex(T.parse_run(0, json.dumps({"ok": True}))["error"], r"without projects, tools and ok")
+        for nan in ('{"projects": [], "tools": [], "ok": NaN}', '{"projects": [], "tools": [Infinity], "ok": true}'):
+            self.assertRegex(T.parse_run(0, nan)["error"], r"no JSON document", "JSON.parse refuses NaN and Infinity")
         self.assertRegex(T.parse_run(0, "[1]")["error"], r"without projects, tools and ok")
         self.assertRegex(T.parse_run(0, json.dumps({**DOC, "ok": "true"}))["error"], r"without projects, tools and ok", "ok is a boolean or it is not there")
 
@@ -148,6 +150,13 @@ class Keeper(Base):
         self.assertRegex(r["error"], r"could not be written")
         self.assertEqual(os.listdir(d), ["tools.json"], "no temporary file left behind")
 
+    def test_a_non_finite_number_in_a_document_is_written_as_null_as_json_stringify_wrote_it(self):
+        file = os.path.join(self.scratch("tools-state-"), "tools.json")
+        bad = {**DOC, "tools": [{"name": "x", "version": float("nan")}]}
+        self.assertEqual(T.ToolsKeeper(run=lambda: {"doc": bad}, file=file, log=lambda m: None).refresh(), {"status": "written"})
+        with open(file, encoding="utf-8") as fh:
+            self.assertIsNone(json.load(fh)["tools"][0]["version"])
+
     def test_two_refreshes_that_overlap_share_one_run(self):
         runs = [0]
         gate, started = threading.Event(), threading.Event()
@@ -209,6 +218,9 @@ class Op(Base):
         with open(T.report_file(d), "w", encoding="utf-8") as fh:
             fh.write("{}")
         self.assertRegex(T.tools(d)["error"], r"holds no tools list")
+        with open(T.report_file(d), "w", encoding="utf-8") as fh:
+            fh.write('{"tools": [], "x": NaN}')
+        self.assertEqual(T.tools(d), {"status": "failed", "error": "tools.json is not JSON"})
 
     def test_the_persisted_report_is_the_documents_own_bytes_in_meaning(self):
         d = self.scratch("tools-state-")

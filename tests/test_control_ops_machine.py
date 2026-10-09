@@ -351,15 +351,43 @@ class Accounts(Base):
         self.assertEqual(ops.accounts_dir("/home/x", {"AGENT_FABRIC_STATE_DIR": "/srv/state"}), "/srv/state/accounts")
         self.assertEqual(ops.accounts_dir("/home/x", {"XDG_STATE_HOME": "/xdg"}), "/xdg/agent-fabric/accounts")
 
-    def test_an_empty_or_unparsable_lock_is_stale_not_a_permanent_busy(self):
-        # The Node signalled pid 0 (its own process group) for an empty file and kept the account busy for good.
+    def test_a_lock_naming_no_pid_is_busy_while_fresh_and_stale_when_old_never_a_permanent_busy(self):
+        # The Node signalled pid 0 (its own process group) for an empty file and kept the account busy for good;
+        # a Node daemon beside this one can be between its create and its write, so a fresh one is a holder.
         h, d = account_home(self, {"claude-a": True})
         acct = os.path.join(d, "claude-a")
+        lock = os.path.join(acct, ".fabric-read.lock")
         for body in ("", "\n", "not a pid\n", "0\n", "-5\n"):
-            write(os.path.join(acct, ".fabric-read.lock"), body)
+            write(lock, body)
+            self.assertIsNone(ops.take_read_lock(acct), f"fresh {body!r}: its writer may be mid-write")
+            old = os.stat(lock).st_mtime - 60
+            os.utime(lock, (old, old))
             release = ops.take_read_lock(acct)
-            self.assertTrue(release, repr(body))
+            self.assertTrue(release, f"old {body!r}")
             release()
+
+    def test_a_held_lock_is_never_empty_and_a_release_removes_only_its_own(self):
+        h, d = account_home(self, {"claude-a": True})
+        acct = os.path.join(d, "claude-a")
+        lock = os.path.join(acct, ".fabric-read.lock")
+        seen: list[str] = []
+        real = os.link
+
+        def spy(src, dst, *a, **k):
+            seen.append(open(src, encoding="utf-8").read())   # what the lock holds the moment it exists
+            return real(src, dst, *a, **k)
+        from unittest import mock
+        with mock.patch.object(os, "link", spy):
+            release = ops.take_read_lock(acct, 4242)
+        self.assertEqual(seen, ["4242\n"])
+        self.assertEqual(os.listdir(acct).count(".fabric-read.lock"), 1)
+        self.assertEqual([n for n in os.listdir(acct) if n.endswith(".tmp")], [], "no temporary file is left")
+        write(lock, f"{os.getppid()}\n")   # a takeover: the file is another reader's now
+        release()
+        self.assertTrue(os.path.exists(lock), "a release never removes a lock that names someone else")
+        os.unlink(lock)
+        ops.take_read_lock(acct, 7)()
+        self.assertFalse(os.path.exists(lock))
 
     def test_the_read_lock_is_released_when_the_read_fails_before_the_harness_starts(self):
         h, d = account_home(self, {"claude-a": True})

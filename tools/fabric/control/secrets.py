@@ -64,8 +64,6 @@ def upgrade() -> Any:
 
 
 def check_args(args: Any) -> str | None:
-    if args is None:
-        return None
     if not isinstance(args, dict):
         return "secrets-sync takes { expect, restart }"
     extra = [k for k in args if k not in _ARG_KEYS]
@@ -152,12 +150,12 @@ def secrets_sync_once(
     home = os.path.expanduser("~") if home is None else home
     root = root or os.environ.get("AGENT_FABRIC_ROOT") or os.path.join(home, "projects", "agent-fabric")
     now = now or (lambda: datetime.now(timezone.utc))
-    args = request.get("args")
+    args = request["args"] if "args" in request else {}   # present and null is refused, absent is nothing
     bad = check_args(args)
     if bad:
         return {"status": "refused", "reason": bad}
-    expect = (args or {}).get("expect")
-    restart = (args or {}).get("restart", False)
+    expect = args.get("expect")
+    restart = args.get("restart", False)
     try:
         code, out = _sync_run(root, run)
     except _NotRun as e:
