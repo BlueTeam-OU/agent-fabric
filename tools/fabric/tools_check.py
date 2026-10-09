@@ -165,5 +165,15 @@ def main(argv: list[str]) -> int:
     return 1 if bad else 0
 
 
+def entry(argv: list[str]) -> int:
+    """main(), with a SIGTERM that lands after its own try (the return, a
+    second signal during the stop message) still the exit status 143."""
+    import tools_install
+    try:
+        return main(argv)
+    except tools_install.Terminated as t:
+        return t.code
+
+
 if __name__ == "__main__":
-    sys.exit(main(sys.argv[1:]))
+    sys.exit(entry(sys.argv[1:]))

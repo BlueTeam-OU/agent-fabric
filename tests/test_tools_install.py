@@ -25,7 +25,7 @@ scrub_process_env()
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "tools", "fabric"))
-import tools_check  # noqa: E402,F401
+import tools_check  # noqa: E402
 import tools_install  # noqa: E402
 
 URL = "https://example.invalid/faketool_1.2.3_linux_amd64"
@@ -307,6 +307,19 @@ def main() -> int:
         rc, seen, fetched = terminated("scan", home)
         check("SIGTERM during the working-copy scan stops the run: 143, nothing fetched or written",
               seen and rc == 128 + signal.SIGTERM and not fetched and listing(home) == [], (seen, rc, fetched, listing(home)))
+
+        print("a SIGTERM outside main's own try is still 143")
+        real_main = tools_check.main
+        tools_check.main = lambda argv: (_ for _ in ()).throw(tools_install.Terminated(143))
+        try:
+            check("entry turns a Terminated that escaped main into its exit status", tools_check.entry(["--install", "x"]) == 143)
+        finally:
+            tools_check.main = real_main
+        tools_check.main = lambda argv: 7
+        try:
+            check("...and passes any other status through (positive control)", tools_check.entry([]) == 7)
+        finally:
+            tools_check.main = real_main
 
         print("fabric-tools --install arms the SIGTERM exit before it works")
         probe = ("import sys, signal; sys.path.insert(0, sys.argv[1]); import tools_check, tools_install\n"
