@@ -105,6 +105,11 @@ is the capability class below (ADR-002, ADR-005).
   change. The review class checks all of it.
 - **Work in the project's working copy**, under that project's
   `CLAUDE.md`. From `projects/`, `cd` into the working copy first.
+- **Compute, then read.** When an answer needs many files or a long
+  output (counting, comparing, searching a log), write a short script
+  that computes it and prints only the result, instead of reading the
+  material into the conversation; a long output goes to a file in your
+  scratchpad, and you print its path and the lines that matter.
 - **Knowledge** you retrieve: `memory/domains/<domain>/` here for the
   field, `memory/shared/` for what several roles own, and — for the
   system you are working on — `.agent-fabric/memory/<role>/` **in that
