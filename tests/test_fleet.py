@@ -15,6 +15,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
 
@@ -277,8 +278,9 @@ class OpResults(unittest.TestCase):
 class HumanLogins(unittest.TestCase):
     def test_a_human_is_said_so_and_never_asked_of_a_control_agent(self):
         f = Fleet(self, ctl_handlers(jobs=True, presence=True))
-        doc = f.fetch(["jobs", "presence", "states"], agent="hum")
-        for n in ("jobs", "presence", "states"):
+        f.handlers["fabric-host"] = done("[]")   # a jobs file that would answer, if asked
+        doc = f.fetch(["jobs", "presence", "states", "closed_jobs"], agent="hum")
+        for n in ("jobs", "presence", "states", "closed_jobs"):
             self.assertIn(fleet.HUMAN, rec(doc, "hum", n)["why"])
         self.assertEqual(f.calls, [], "fabric-ctl refuses a human by name; it is not called")
 
@@ -463,17 +465,19 @@ class RunProgram(unittest.TestCase):
         d = tempfile.mkdtemp(prefix="fleet-run-")
         self.addCleanup(lambda: __import__("shutil").rmtree(d, ignore_errors=True))
         pidfile = os.path.join(d, "pid")
+        began = time.monotonic()
         with self.assertRaises(subprocess.TimeoutExpired):
             fleet.run_program(["sh", "-c", f"sleep 60 & echo $! > {pidfile}; wait"], timeout=1)
+        # A survivor holding the pipe open would keep communicate() waiting for it.
+        self.assertLess(time.monotonic() - began, 20)
         with open(pidfile) as fh:
             pid = int(fh.read())
-        import time as _t
         for _ in range(50):
             try:
                 os.kill(pid, 0)
             except ProcessLookupError:
                 break
-            _t.sleep(0.1)
+            time.sleep(0.1)
         else:
             os.kill(pid, 9)
             self.fail("the grandchild outlived the timeout")

@@ -151,7 +151,10 @@ def run_program(argv: list[str], *, timeout: float, cwd: str | None = None, env:
             os.killpg(p.pid, signal.SIGKILL)
         except OSError:
             p.kill()   # a member we may not signal (a sudo'd child): the leader at least
-        p.communicate()
+        try:
+            p.communicate(timeout=5)   # a survivor holding the pipes must not hold us
+        except subprocess.TimeoutExpired:
+            pass
         raise
     return subprocess.CompletedProcess(argv, p.returncode, out, err)
 
