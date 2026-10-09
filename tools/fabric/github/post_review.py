@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """tools/fabric/github/post_review.py — post THE review of a PR, the review
 class's blind review, as a marked review object (ADR-040 Wave 1;
-runtime/github/post-review.sh is its shim, and the managed projects'
+`fabric-pr post-review` runs it; the runtime/github shim is deprecated, and the managed projects'
 tools/gh/post-review.sh forward to that path).
 
 CONTRACT, frozen from the bash (ADR-040 §5 rule 3):
@@ -49,7 +49,7 @@ bucket both as "self reviews … not coverage". Prose attribution drifts
 claim guessed from prose is worse than none. So every review this
 script posts is a REVIEW OBJECT (never an issue comment, which is not
 a review) and carries REVIEW_MARKER (below) as its first line, the
-exact string pr-review-status.sh tests for.
+exact string fabric-pr review-status tests for.
 
 The review class is the review. There is no automated reviewer it
 stands in for: the fabric dispatches a blind reviewer for every PR
@@ -57,11 +57,11 @@ stands in for: the fabric dispatches a blind reviewer for every PR
 and this is how that review reaches the PR and the gate.
 
 Usage:
-  post-review.sh <pr> [options]   # body on stdin
+  fabric-pr post-review <pr> [options]   # body on stdin
 
-  post-review.sh 552 <<'EOF'
+  fabric-pr post-review 552 <<'EOF'
   Found a P1 in the ownership guard: a four-segment branch typed
-  `Fix/` was classified unowned, so pr-reply.sh would post to it.
+  `Fix/` was classified unowned, so fabric-pr reply would post to it.
   EOF
 
 Options:
@@ -70,7 +70,7 @@ Options:
   -h, --help
 
 The body arrives on STDIN and is never interpolated into a command
-line — the same rule, and the same reason, as pr-reply.sh: a body
+line — the same rule, and the same reason, as fabric-pr reply: a body
 quoting `backticks` or $vars passed through `-f body="…"` is expanded
 by the shell before gh sees it, and that has already posted a mangled
 comment in this repo.
@@ -284,7 +284,7 @@ are judged before they are answered; the judgement follows in the PR.
     if not url:
         die("GitHub accepted the request but returned no review URL — treat as NOT posted.")
     print(f"posted review: {url}")
-    print("  marked so pr-review-status.sh counts it as the review of this head.")
+    print("  marked so fabric-pr review-status counts it as the review of this head.")
     return 0
 
 

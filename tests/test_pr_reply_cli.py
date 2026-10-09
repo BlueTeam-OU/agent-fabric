@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""runtime/github/pr-reply.sh, driven through the real script with a
+"""fabric-pr reply, driven through the real script with a
 mocked `gh`. Ported from runtime/github/test_pr-reply.sh (ADR-040 Wave 6),
 case for case.
 
@@ -27,7 +27,7 @@ from git_env import git_env, scrub_process_env  # noqa: E402 — tests/, the scr
 scrub_process_env()
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-UNDER_TEST = os.path.join(ROOT, "runtime", "github", "pr-reply.sh")
+UNDER_TEST = [os.path.join(ROOT, "bin", "fabric-pr"), "reply"]
 THREAD_ID = "PRRT_kwDOtest123"
 
 # The mock gh speaks the transport tools/fabric/gh.py uses: the query and
@@ -137,7 +137,7 @@ def main() -> int:
             e = {**base, "AGENT_FABRIC_STATE_DIR": role_dir, **env}
             if path is not None:
                 e = {"PATH": path, "GH_MOCK_STATE": state}
-            r = subprocess.run(["bash", UNDER_TEST, *args], cwd=cwd, env=e,
+            r = subprocess.run([*UNDER_TEST, *args], cwd=cwd, env=e,
                                input=body.encode() if isinstance(body, str) else body,
                                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=60)
             return r.returncode, r.stdout.decode("utf-8", "replace")
@@ -415,7 +415,7 @@ def main() -> int:
         # since reverting the preflight leaves every other assertion green.
         thread_fixture(f"{me}/feat/thing", False)
         with tempfile.TemporaryDirectory() as strip:
-            for b in ("bash", "env", "cat", "cut", "basename", "sed", "grep", "mktemp", "rm"):
+            for b in ("bash", "env", "cat", "cut", "basename", "sed", "grep", "mktemp", "rm", "dirname", "readlink"):
                 src = shutil.which(b)
                 if src:
                     os.symlink(src, f"{strip}/{b}")

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""runtime/github/post-review.sh, driven through the real script with a
+"""fabric-pr post-review, driven through the real script with a
 mocked `gh` on PATH. Ported from runtime/github/test_post-review.sh
 (ADR-040 Wave 6), case for case.
 
@@ -26,8 +26,8 @@ scrub_process_env()
 # caller's ~/.gitconfig: set here, it reaches the calls that pass no env.
 os.environ["GIT_CONFIG_GLOBAL"] = os.devnull
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-UNDER_TEST = os.path.abspath(os.environ.get("POST_REVIEW") or os.path.join(ROOT, "runtime", "github", "post-review.sh"))
-if not os.path.isfile(UNDER_TEST):
+UNDER_TEST = ["bash", os.path.abspath(os.environ["POST_REVIEW"])] if os.environ.get("POST_REVIEW") else [os.path.join(ROOT, "bin", "fabric-pr"), "post-review"]
+if not os.path.isfile(UNDER_TEST[1] if UNDER_TEST[0] == "bash" else UNDER_TEST[0]):
     sys.exit(f"test: script under test not found at {UNDER_TEST}")
 # Both ends of the marker contract are Python modules; the scripts are
 # their shims, run as the paths every caller uses.
@@ -143,7 +143,7 @@ def main() -> int:
                 env["AGENT_FABRIC_LAUNCH_ROLE"] = case["launch_role"]
             if case.get("fake_role"):
                 env["FAKE_ROLE"] = case["fake_role"]
-            r = subprocess.run(["timeout", "20", "bash", UNDER_TEST, *args], cwd=clone, env=env, input=body,
+            r = subprocess.run(["timeout", "20", *UNDER_TEST, *args], cwd=clone, env=env, input=body,
                                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=60)
             return r.returncode, r.stdout
 
