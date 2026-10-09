@@ -306,6 +306,7 @@ def _():
     a = plan.render_step({"id": "s1", "state": "active", "owner": "dev-01", "job": "dev-01:j4", "title": "T"})
     b = plan.render_step({"id": "s2", "state": "planned", "owner": "dev-02", "job": None, "title": "T"})
     check(a.index("T") == b.index("T"), (a, b))      # short refs still line up
+    check(b == "  s2   planned   " + "dev-02".ljust(33) + " T", repr(b))     # the layout: 2, 5, 10, 33, one space
 
 
 @case("export is markdown: a table of the steps with their states, and the notes")
