@@ -42,7 +42,7 @@ import shlex
 import shutil
 import subprocess
 import sys
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 
 HERE = os.path.dirname(os.path.realpath(__file__))
