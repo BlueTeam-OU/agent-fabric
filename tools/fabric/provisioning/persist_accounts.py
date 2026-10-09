@@ -50,7 +50,6 @@ from __future__ import annotations
 import filecmp
 import fcntl
 import os
-import pwd
 import shutil
 import subprocess
 import sys
@@ -126,10 +125,12 @@ def _put_line(snap: str, name: str, login: str, line: str) -> None:
 
 
 def _account_exists(login: str, etc: str) -> bool:
+    """`getent passwd` as a command (a test fakes it on PATH, and a directory service answers it), else the records."""
     try:
-        pwd.getpwnam(login)
-        return True
-    except KeyError:
+        if subprocess.run(["getent", "passwd", login], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                          timeout=LOGINCTL_TIMEOUT_S).returncode == 0:
+            return True
+    except (OSError, subprocess.TimeoutExpired):
         pass
     return any(ln.startswith(login + ":") for ln in _lines(os.path.join(etc, "passwd")))
 

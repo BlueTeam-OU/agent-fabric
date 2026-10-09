@@ -49,6 +49,7 @@ import signal
 import subprocess
 import sys
 import time
+from dataclasses import dataclass
 
 USAGE = "usage: new-agent-worker.sh prepare|finish <login> <role> ... | host-check <login> [--project <id>]..."
 VERSION = re.compile(r"[0-9]+\.[0-9]+\.[0-9]+")
@@ -70,14 +71,36 @@ class Exit(Exception):
         self.code, self.msg = code, msg
 
 
-def args(argv: list[str]) -> str:
-    """The worker's variables as bash assignments, every value quoted."""
+@dataclass
+class WorkerArgs:
+    """What the worker was asked, parsed once (the bash text of `args` is rendered from it)."""
+    phase: str
+    login: str
+    role: str
+    human: bool
+    dry: bool
+    claude: str
+    projects: list[str]
+    remote: dict[str, str]
+    account: str
+    no_account: bool
+    signing_next: bool
+    via: str
+
+    def verify_flags(self) -> list[str]:
+        """verify's own flags, whole."""
+        return ([f"--claude-account={self.account}"] if self.account else ["--no-claude-account"] if self.no_account else []) \
+            + (["--signing-key-next"] if self.signing_next else []) + ([f"--via-host={self.via}"] if self.via else []) \
+            + (["--human"] if self.human else [])
+
+
+def parse_args(argv: list[str]) -> WorkerArgs:
     phase = argv[0] if argv else ""
     rest = argv[1:]
     login = rest[0] if rest else ""
-    role, human = "", 0
+    role, human = "", False
     if phase in ("prepare", "finish") and rest[1:2] == ["--human"]:
-        human, rest = 1, rest[2:]
+        human, rest = True, rest[2:]
     elif phase in ("prepare", "finish"):
         role = rest[1] if len(rest) > 1 else ""
         # `shift 2 || true`: with fewer than two words bash shifts none.
@@ -86,16 +109,16 @@ def args(argv: list[str]) -> str:
         rest = rest[1:] if rest else rest
     else:
         raise Exit(2, USAGE)
-    dry, claude, projects, remote, account, no_account, signing_next, via = 0, "", [], {}, "", 0, 0, ""
+    dry, claude, projects, remote, account, no_account, signing_next, via = False, "", [], {}, "", False, False, ""
     i = 0
     while i < len(rest):
         a = rest[i]
         if a == "--dry-run":
-            dry = 1
+            dry = True
         elif a == "--no-claude-account":
-            no_account = 1
+            no_account = True
         elif a == "--signing-key-next":
-            signing_next = 1
+            signing_next = True
         elif a == "--via-host" or a.startswith("--via-host="):
             if a == "--via-host":
                 if i + 1 >= len(rest):
@@ -147,15 +170,17 @@ def args(argv: list[str]) -> str:
         raise Exit(2, "new-agent-worker: --claude-account and --no-claude-account together")
     if human and (account or no_account or claude or projects or signing_next or via):
         raise Exit(2, "new-agent-worker: --human takes no Claude account, claude, project or signing key (ADR-044)")
+    return WorkerArgs(phase, login, role, human, dry, claude, projects, remote, account, no_account, signing_next, via)
+
+
+def args(argv: list[str]) -> str:
+    """The worker's variables as bash assignments, every value quoted."""
+    w = parse_args(argv)
     q = shlex.quote
-    # verify's own flags, whole: the step-runner passes them as they are.
-    verify_flags = ([f"--claude-account={account}"] if account else ["--no-claude-account"] if no_account else []) \
-        + (["--signing-key-next"] if signing_next else []) + ([f"--via-host={via}"] if via else []) \
-        + (["--human"] if human else [])
-    lines = [f"PHASE={q(phase)}", f"LOGIN={q(login)}", f"ROLE={q(role)}", f"HUMAN={human}", f"DRY={dry}",
-             f"CLAUDE_TARGET={q(claude)}", "PROJECTS=(" + " ".join(q(p) for p in projects) + ")",
-             "declare -A REMOTE=(" + " ".join(f"[{q(k)}]={q(v)}" for k, v in remote.items()) + ")",
-             "VERIFY_ACCOUNT=(" + " ".join(q(f) for f in verify_flags) + ")"]
+    lines = [f"PHASE={q(w.phase)}", f"LOGIN={q(w.login)}", f"ROLE={q(w.role)}", f"HUMAN={int(w.human)}", f"DRY={int(w.dry)}",
+             f"CLAUDE_TARGET={q(w.claude)}", "PROJECTS=(" + " ".join(q(p) for p in w.projects) + ")",
+             "declare -A REMOTE=(" + " ".join(f"[{q(k)}]={q(v)}" for k, v in w.remote.items()) + ")",
+             "VERIFY_ACCOUNT=(" + " ".join(q(f) for f in w.verify_flags()) + ")"]
     return "\n".join(lines) + "\n"
 
 
