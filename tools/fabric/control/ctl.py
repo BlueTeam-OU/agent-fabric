@@ -42,11 +42,12 @@ WHERE THE PORT DIFFERS ON PURPOSE
   * A message an exception carries (an unreadable registry, a JSON parse
     error) is the language's own, as the Node's was: only that it is one
     line on stderr with exit 1 is the contract.
-  * Sorting by name (hosts, Claude accounts, disk rows) compares by
-    str.casefold then the string itself, where Node's localeCompare
-    applies ICU's collation. The two agree for what logins and hosts are
-    allowed to be (lowercase letters, digits, `.`, `_`, `-`); they differ
-    for other text, which a registry does not hold.
+  * Sorting by name (hosts, Claude accounts, disk rows) uses `collate`, a
+    key close to ICU's root collation, which Node's localeCompare applies:
+    control characters ignorable, case after letters (lower first), the
+    rest by code point. It agrees for what logins, hosts and e-mail
+    addresses are made of (lowercase letters, digits, `.`, `-`, `@`); it
+    differs for text ICU orders by script, accent or punctuation class.
   * The drain's bundles are written with the mode set before the bytes
     (os.open with 0600), not written and then chmod-ed.
 """
@@ -166,8 +167,12 @@ def nullish(v: Any, default: Any = None) -> Any:
     return default if v is None or v is UNDEFINED else v
 
 
-def collate(s: str) -> tuple[str, str]:
-    return (s.casefold(), s)
+def collate(s: str) -> tuple[str, str, str]:
+    """A sort key close to ICU's root collation, which Node's localeCompare
+    applies: control characters are ignorable, case differs only after letters
+    do (lower before upper), and the rest is by code point."""
+    plain = _CONTROL.sub("", s)
+    return (plain.casefold(), plain.swapcase(), s)
 
 
 # ── the request ─────────────────────────────────────────────────────
@@ -454,7 +459,7 @@ def write_bundles(out: str, expected: list[dict], replies: list[dict], parts: di
             # mkdir's mode and a file's apply only on creation: a directory or a
             # tar left by an earlier drain keeps its mode unless set again.
             d = os.path.join(out, e["login"])
-            os.makedirs(d, mode=0o700, exist_ok=True)
+            mkdir_private(d)
             os.chmod(d, 0o700)
             # The projects root's own memory is filed under the fabric checkout
             # too (memory_dirs): its tar is named apart from the checkout's own.
@@ -469,6 +474,21 @@ def write_bundles(out: str, expected: list[dict], replies: list[dict], parts: di
             with os.fdopen(fd, "wb") as fh:
                 fh.write(tar)
             b["written"] = file
+
+
+def mkdir_private(path: str) -> None:
+    """mkdir -p whose every created directory is 0700, as Node's recursive
+    mkdir with a mode makes them; os.makedirs gives only the last one its mode."""
+    missing = []
+    p = os.path.abspath(path)
+    while not os.path.isdir(p):
+        missing.append(p)
+        p = os.path.dirname(p)
+    for d in reversed(missing):
+        try:
+            os.mkdir(d, 0o700)
+        except FileExistsError:
+            pass
 
 
 def gzip_decompress(data: bytes) -> bytes:
@@ -495,7 +515,7 @@ def rows(expected: list[dict], replies: list[dict]) -> list[dict]:
         acct = dig(d, "identity", "claude_account")
         email = dig(acct, "email")
         if email is UNDEFINED or email is None:
-            email = f"setup-token {dig(d, 'identity', 'claude_account', 'token_sha256_12')}" if dig(acct, "via") == "setup-token" else None
+            email = f"setup-token {S(dig(d, 'identity', 'claude_account', 'token_sha256_12'))}" if dig(acct, "via") == "setup-token" else None
         out.append({"account": e["login"], "host": e["host"], "status": "ok", "op": r.get("op"), "latency_ms": nullish(r.get("latency_ms"), None),
                     "email": email, "role": g("identity", "role"),
                     "five_hour": g("usage", "five_hour"), "seven_day": g("usage", "seven_day"), "usage_status": g("usage", "status"),
@@ -637,8 +657,8 @@ def _table_secrets_sync(rs: list) -> list[str]:
         cs = dig(u, "claude_sign_in")
         si = f"setup-token {S(dig(cs, 'token_sha256_12'))}" if dig(cs, "via") == "setup-token" else S(nullish(dig(cs, "via"), "-"))
         missing = dig(u, "missing")
-        tail = nullish(dig(u, "reason"), nullish(dig(u, "note"), f"missing in the store: {S(missing)}" if T(missing) and not isinstance(missing, list)
-                                                else (f"missing in the store: {', '.join(S(x) for x in missing)}" if T(missing) else "")))
+        tail = nullish(dig(u, "reason"), nullish(dig(u, "note"), f"missing in the store: {', '.join('' if x is None else S(x) for x in missing)}" if T(missing) and isinstance(missing, list)
+                                                else (f"missing in the store: {S(missing)}" if T(missing) else "")))
         lines.append(trim_end(f"{pad_end(r['account'], 22)} {pad_end(S(nullish(dig(u, 'status'), 'no status')), 10)} {pad_end(si, 34)} "
                               f"{pad_end(S(nullish(dig(u, 'session'), '-')), 28)} {S(tail)}"))
     return lines
@@ -912,7 +932,14 @@ def _table_memory(rs: list) -> list[str]:
 
 
 def _entries(o: Any) -> list[tuple[str, Any]]:
-    return [(k, o[k]) for k in js.keys(o)] if isinstance(o, dict) else []
+    """Object.entries(o): a string is its characters, an array its elements."""
+    if isinstance(o, dict):
+        return [(k, o[k]) for k in js.keys(o)]
+    if isinstance(o, str):
+        return [(str(i), c) for i, c in enumerate(o)]
+    if isinstance(o, list):
+        return [(str(i), v) for i, v in enumerate(o)]
+    return []
 
 
 def _table_script(rs: list) -> list[str]:
@@ -1093,7 +1120,7 @@ def _table_disk(rs: list) -> list[str]:
 
     def rank(r: dict) -> int:
         d = r.get("disk")
-        return 2 if r["status"] != "ok" or not T(d) else 1 if dig(d, "status") == "failed" or dig(d, "total_kb") is None else 0
+        return 2 if r["status"] != "ok" or not T(d) else 1 if dig(d, "status") == "failed" or nullish(dig(d, "total_kb")) is None else 0
 
     def size(r: dict) -> float:
         return r.get("disk")["total_kb"] if rank(r) == 0 else 0
@@ -1129,10 +1156,37 @@ def _table_disk(rs: list) -> list[str]:
     return lines
 
 
-def _js_sub(a: Any, b: Any) -> Any:
-    """a - b as JavaScript subtracts: a non-number is NaN."""
-    ok = lambda v: isinstance(v, (int, float)) and not isinstance(v, bool)  # noqa: E731
-    return a - b if ok(a) and ok(b) else math.nan
+def to_number(v: Any) -> float:
+    """ToNumber for a JSON value: undefined is NaN, null 0, true 1, a string
+    as Number() reads it, an array or object as Number(String(v))."""
+    if v is UNDEFINED:
+        return math.nan
+    return number_of(v)
+
+
+def _js_sub(a: Any, b: Any) -> float:
+    return to_number(a) - to_number(b)
+
+
+def js_add(a: Any, b: Any) -> Any:
+    """a + b as JavaScript adds JSON values: a string, array or object on
+    either side concatenates (their String()), otherwise the numbers add."""
+    if any(isinstance(x, (str, list, dict)) for x in (a, b)):
+        return S(a) + S(b)
+    return to_number(a) + to_number(b)
+
+
+def js_div(a: float, b: float) -> float:
+    """a / b for doubles: x/0 is Infinity (or NaN for 0/0), never an error."""
+    if b == 0:
+        return math.nan if a == 0 or math.isnan(a) else math.copysign(math.inf, a) * math.copysign(1.0, b)
+    return a / b
+
+
+def js_ge(a: Any, b: float) -> bool:
+    """a >= b for a number b: a string a is read as a number, NaN is never >=."""
+    n = to_number(a)
+    return not math.isnan(n) and n >= b
 
 
 def _table_tokens(rs: list) -> list[str]:
@@ -1141,31 +1195,54 @@ def _table_tokens(rs: list) -> list[str]:
     # meter counts what this host cannot see, so the shares are of the
     # visible spend. The broker column is the login's own key, no share.
     def M(n: Any) -> str:
-        n = number_of(n) if not isinstance(n, (int, float)) or isinstance(n, bool) else n
-        return (f"{to_fixed(n / 1e9, 2)}G" if n >= 1e9 else f"{to_fixed(n / 1e6, 1)}M" if n >= 1e6 else f"{to_fixed(n / 1e3, 0)}k" if n >= 1e3 else S(n))
+        if js_ge(n, 1e9):
+            return f"{to_fixed(to_number(n) / 1e9, 2)}G"
+        if js_ge(n, 1e6):
+            return f"{to_fixed(to_number(n) / 1e6, 1)}M"
+        if js_ge(n, 1e3):
+            return f"{to_fixed(to_number(n) / 1e3, 0)}k"
+        return S(n)
     oks = [r for r in rs if r["status"] == "ok" and dig(r.get("tokens"), "status") == "ok"]
     days = nullish(dig(oks[0]["tokens"], "days"), "-") if oks else "-"
     by_account: dict[str, list] = {}
     for r in oks:
-        by_account.setdefault(S(nullish(r.get("email"), "(no Claude account)")), []).append(r)
+        by_account.setdefault(S(nullish(r["email"], "(no Claude account)")), []).append(r)
+
+    def claude(r: dict, key: str) -> Any:
+        return dig(r["tokens"], "claude", key)
+
+    def broker(r: dict, key: str) -> Any:
+        return dig(r["tokens"], "broker", key)
     lines = [f"{pad_end('account', 22)} {pad_end('status', 10)} {pad_end('claude account', 30)} {pad_start('share', 6)}  {pad_start('claude equiv', 12)} "
              f"{pad_start('requests', 8)} {pad_start('cache read', 10)} {pad_start('output', 8)}  {pad_start('broker equiv', 12)} {pad_start('requests', 8)}  top model ({S(days)} days)"]
+    import functools
     for email, group in sorted(by_account.items(), key=lambda kv: collate(kv[0])):
-        total = sum(r.get("tokens")["claude"]["equiv"] for r in group)
-        for r in sorted(group, key=lambda r: -r.get("tokens")["claude"]["equiv"]):
-            t = r.get("tokens")
-            models = _entries(t["models"])
+        total: Any = 0
+        for r in group:
+            total = js_add(total, claude(r, "equiv"))
+
+        def by_equiv(a: dict, b: dict) -> int:
+            d = _js_sub(claude(b, "equiv"), claude(a, "equiv"))
+            return 0 if d == 0 or math.isnan(d) else -1 if d < 0 else 1
+        group.sort(key=functools.cmp_to_key(by_equiv))   # in place, as the Node's sort is: the sum line below reads the sorted order
+        for r in group:
+            models = _entries(dig(r["tokens"], "models"))
             top = models[0] if models else None
-            share = f"{pad_start(to_fixed(100 * t['claude']['equiv'] / total, 0), 5)}%" if total else "     -"
-            lines.append(trim_end(f"{pad_end(r['account'], 22)} {pad_end('ok', 10)} {pad_end(email, 30)} {share}  {pad_start(M(t['claude']['equiv']), 12)} "
-                                  f"{pad_start(S(t['claude']['requests']), 8)} {pad_start(M(t['claude']['cache_read']), 10)} {pad_start(M(t['claude']['output']), 8)}  "
-                                  f"{pad_start(M(t['broker']['equiv']), 12)} {pad_start(S(t['broker']['requests']), 8)}  {top[0] + ' ' + M(top[1]['equiv']) if top else '-'}"))
+            if T(total):
+                share = f"{pad_start(to_fixed(js_div(100 * to_number(claude(r, 'equiv')), to_number(total)), 0), 5)}%"
+            else:
+                share = "     -"
+            lines.append(trim_end(f"{pad_end(r['account'], 22)} {pad_end('ok', 10)} {pad_end(email, 30)} {share}  {pad_start(M(claude(r, 'equiv')), 12)} "
+                                  f"{pad_start(S(claude(r, 'requests')), 8)} {pad_start(M(claude(r, 'cache_read')), 10)} {pad_start(M(claude(r, 'output')), 8)}  "
+                                  f"{pad_start(M(broker(r, 'equiv')), 12)} {pad_start(S(broker(r, 'requests')), 8)}  {top[0] + ' ' + M(dig(top[1], 'equiv')) if top else '-'}"))
         if len(group) > 1:
-            lines.append(f"{pad_end('', 22)} {pad_end('', 10)} {pad_end('= ' + email, 30)} {pad_start(' 100%', 6)}  {pad_start(M(total), 12)} "
-                         f"{pad_start(S(sum(r['tokens']['claude']['requests'] for r in group)), 8)}")
+            requests: Any = 0
+            for r in group:
+                requests = js_add(requests, claude(r, "requests"))
+            lines.append(f"{pad_end('', 22)} {pad_end('', 10)} {pad_end('= ' + email, 30)} {pad_start(' 100%', 6)}  {pad_start(M(total), 12)} {pad_start(S(requests), 8)}")
     for r in rs:
         if not (r["status"] == "ok" and dig(r.get("tokens"), "status") == "ok"):
-            lines.append(f"{pad_end(r['account'], 22)} {r['status'] if r['status'] != 'ok' else 'ok         ' + pad_end(S(nullish(r['email'], '-')), 30) + ' tokens ' + S(nullish(dig(r['tokens'], 'status'), '-'))}")
+            lines.append(f"{pad_end(r['account'], 22)} {r['status'] if r['status'] != 'ok' else 'ok         ' + pad_end(S(nullish(r['email'], '-')), 30) + ' tokens ' + S(nullish(dig(r.get('tokens'), 'status'), '-'))}")
     return lines
 
 

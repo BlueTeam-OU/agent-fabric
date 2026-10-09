@@ -283,6 +283,19 @@ class Bundles(unittest.TestCase):
         self.assertEqual((again["status"], again["written"]), ("duplicate-target", None))
         self.assertEqual(sorted(os.listdir(os.path.join(out, "db-admin"))), ["agent-fabric-projects-root.tar", "agent-fabric.tar"])
 
+    def test_write_bundles_makes_every_directory_it_creates_private(self):
+        base = self.scratch("drain-new-")
+        out = os.path.join(base, "not", "yet", "there")
+        tar = tar_with({"format": "agent-fabric-drain/1", "agent": "db-admin", "host": "h"})
+        b64 = base64.b64encode(gzip.compress(tar)).decode()
+        replies = [{"from": "h/db-admin", "data": {"memory": {"status": "ok", "bundles": [
+            {"slug": "s", "working_copy": "/h/db-admin/projects/gzapp", "files": 1, "status": "ok", "sha256": hashlib.sha256(tar).hexdigest(), "parts": 1}]}}}]
+        parts = {"h/db-admin": {ctl.part_key("h/db-admin", {"slug": "s", "part": 1}): {"slug": "s", "part": 1, "parts": 1, "chunk": b64}}}
+        ctl.write_bundles(out, placed("db-admin"), replies, parts)
+        self.assertEqual(replies[0]["data"]["memory"]["bundles"][0]["status"], "ok")
+        for d in (os.path.join(base, "not"), os.path.join(base, "not", "yet"), out, os.path.join(out, "db-admin")):
+            self.assertEqual(stat.S_IMODE(os.stat(d).st_mode), 0o700, d)   # a drain is other people's memory: no directory of it is group- or world-readable
+
     def test_write_bundles_reassembly_and_the_three_ways_a_bundle_is_refused(self):
         out = self.scratch("drain-out-")
         tar = tar_with({"format": "agent-fabric-drain/1", "agent": "db-admin", "host": "h"})

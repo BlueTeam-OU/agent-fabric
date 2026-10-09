@@ -40,10 +40,18 @@ def main() -> int:
          "node": "(await import('node:fs')).writeFileSync(home.root + '/f', Buffer.from([0xff])); return 0;",
          "py": "open(home['root'] + '/f', 'wb').write(b'\\xef\\xbf\\xbd')\nreturn 0"},
     ]
+    planted += [
+        {"name": "lenient: a compared element differs", "module": "sign", "input": None, "lenient_node_throw": True,
+         "node": "return ['a', { threw: 'x' }];", "py": "return ['b', 'z']"},
+        {"name": "lenient: node refused everything", "module": "sign", "input": None, "lenient_node_throw": True,
+         "node": "return [{ threw: 'x' }];", "py": "return ['z']"},
+    ]
     failed = {d[0]: d[3] for d in control_parity.compare(planted)}
     for c in planted:
         check(f"control found: {c['name']}", c["name"] in failed, failed)
-    positive = [{"name": "both throw, expected", "module": "sign", "input": None, "node": "throw new Error('x');", "py": "raise ValueError('x')", "error": True},
+    positive = [{"name": "lenient: only the refused element is forgiven", "module": "sign", "input": None, "lenient_node_throw": True,
+                 "node": "return ['a', { threw: 'x' }, 'c'];", "py": "return ['a', 'anything', 'c']"},
+                {"name": "both throw, expected", "module": "sign", "input": None, "node": "throw new Error('x');", "py": "raise ValueError('x')", "error": True},
                 {"name": "same bytes", "module": "sign", "input": None, "files": ["f", "absent"],
                  "node": "(await import('node:fs')).writeFileSync(home.root + '/f', 'a\\r\\n\\u00e9'); return 0;",
                  "py": "open(home['root'] + '/f', 'wb').write('a\\r\\n\\u00e9'.encode())\nreturn 0"}]
