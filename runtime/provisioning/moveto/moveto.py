@@ -160,8 +160,10 @@ def sort_z(items: list[bytes]) -> list[bytes]:
 # contain spaces and newlines, and a newline through a pipe cannot be told from
 # a separator. The state says why the list is empty, because "never
 # provisioned", "cannot read" and "no clone yet" need different answers.
-def list_clones(account: str) -> tuple[list[str], str] | None:
-    """(clones, state), or None for no such account."""
+def list_clones(account: str, control_plane: bool = False) -> tuple[list[str], str] | None:
+    """(clones, state), or None for no such account. `control_plane` counts the
+    agent-fabric checkout among them: for `moveto --list`, which says which accounts
+    exist and Fleet Deck makes a tab of; never for naming a clone to enter."""
     home = home_of(account)
     if not home:
         return None
@@ -172,8 +174,9 @@ def list_clones(account: str) -> tuple[list[str], str] | None:
     # holds the workspace CLAUDE.md that bootstrap.sh writes and the
     # agent-fabric checkout beside the clones, and neither is a place to
     # work a project from.
+    skip = [] if control_plane else ["!", "-name", CONTROL_PLANE_DIR]
     _, out = run_as(account, "find", projects, "-mindepth", "1", "-maxdepth", "1", "-type", "d", "!", "-name", ".*",
-                    "!", "-name", CONTROL_PLANE_DIR, "-print0")
+                    *skip, "-print0")
     clones = [text(e).rsplit("/", 1)[-1] for e in sort_z([e for e in out.split(b"\0") if e])]
     return clones, "" if clones else "empty"
 
@@ -216,7 +219,10 @@ def list_all() -> None:
         if len(f) > 2 and re.fullmatch(r"-?\d+", f[2]) and 1000 <= int(f[2]) < 65534 and f[0]:
             users.append(f[0].encode("utf-8", "surrogateescape"))
     for u in (text(b) for b in sort_z(users)):
-        listed = list_clones(u)
+        # An account whose projects/ holds only the control-plane checkout is listed, with
+        # agent-fabric among its clones: python-dev-01 holds nothing else, and Fleet Deck
+        # builds no tab for an account this leaves out. One with no projects/, or nothing in it, stays out.
+        listed = list_clones(u, control_plane=True)
         if listed is None or not listed[0]:
             continue
         line = " ".join(display_safe(c) for c in listed[0])
