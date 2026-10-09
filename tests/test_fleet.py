@@ -121,6 +121,16 @@ class Records(unittest.TestCase):
         self.assertEqual(argv[-2:], ["--login", "c"])
         self.assertIn("@fabric/tools/fabric/fleet_proc.py", argv)
 
+    def test_a_host_is_read_in_process_only_when_it_is_this_one_and_has_no_ssh(self):
+        answer = done(json.dumps({"agents": {l: {"uid": 1, "cpu_pct": 0.0, "rss_kb": 1, "swap_kb": 0, "procs": 1} for l in ("a", "b", "c", "hum")}}))
+        for here, ssh, srcs in (("h9", {"h2"}, {"hostexec"}), ("h1", {"h1", "h2"}, {"hostexec"})):
+            f = Fleet(self, {"fabric-host": answer})
+            ctx = f.ctx()
+            ctx.here, ctx.ssh_hosts = here, frozenset(ssh)
+            doc = fleet.fetch(["proc"], root=f.root, ctx=ctx)
+            self.assertEqual({rec(doc, l, "proc")["src"] for l in ("a", "b", "c", "hum")}, srcs, (here, ssh))
+            self.assertEqual(f.sampled, [])
+
     def test_default_sections_leave_out_the_expensive_class(self):
         self.assertNotIn("tokens", fleet.DEFAULT_SECTIONS)
         self.assertNotIn("disk", fleet.DEFAULT_SECTIONS)
@@ -281,6 +291,8 @@ class Cache(unittest.TestCase):
         self.assertEqual(len(self.f.ctl_calls("jobs")), 1)
         self.f.fetch(["jobs"], max_age=0)
         self.assertEqual(len(self.f.ctl_calls("jobs")), 2)
+        self.f.fetch(["jobs"], max_age=0)
+        self.assertEqual(len(self.f.ctl_calls("jobs")), 3, "zero forces a read even in the same instant")
 
     def test_the_cached_record_keeps_its_original_at(self):
         first = self.f.fetch(["jobs"])
@@ -327,6 +339,16 @@ class Cache(unittest.TestCase):
         self.assertEqual(len(f.ctl_calls("jobs")), 2)
         self.assertEqual(a["cache"], {"usable": False, "why": "XDG_RUNTIME_DIR is not set"})
         self.assertNotIn("cache", self.f.fetch(["jobs"]))
+
+    def test_a_cache_directory_of_another_user_is_refused(self):
+        self.f.fetch(["jobs"])
+        real = os.geteuid
+        os.geteuid = lambda: real() + 1
+        try:
+            doc = self.f.fetch(["jobs"], max_age=0)
+        finally:
+            os.geteuid = real
+        self.assertFalse(doc["cache"]["usable"])
 
     def test_a_linked_or_open_cache_directory_is_refused(self):
         target = os.path.join(self.f.dir, "elsewhere")
