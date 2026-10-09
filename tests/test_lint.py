@@ -1667,6 +1667,43 @@ def case_a_dollar_anchored_pattern_is_not_called_with_match() -> None:
         assert all("fullmatch" in f for f in got), got
 
 
+def case_a_dollar_anchored_pattern_is_followed_across_imports() -> None:
+    """The pattern is bound in one file and called with .match in another:
+    through `from m import NAME`, `import m` then `m.NAME`, a re-export, a
+    relative import in a package. Imports that lead nowhere are skipped."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("fabric_lint_under_test", LINT)
+    lint = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(lint)
+    with tempfile.TemporaryDirectory() as root:
+        g = lambda *a: subprocess.run(["git", "-C", root, *a], check=True, capture_output=True, env=git_env())
+        t = lambda *p: os.path.join(root, "tools", *p)
+        write(t("defs.py"), "import re\nIDENT = re.compile(r'^[a-z]+$')\nSAFE = re.compile(r'^[a-z]+\\Z')\n")
+        write(t("hop.py"), "from defs import IDENT, SAFE\n")
+        write(t("bad_from.py"), "from defs import IDENT\ndef f(s):\n    return IDENT.match(s)\n")        # line 3
+        write(t("bad_attr.py"), "import sys, os\nsys.path.insert(0, os.path.dirname(__file__))\nimport defs\n"
+                                "def f(s):\n    return defs.IDENT.match(s)\n")                              # line 5
+        write(t("bad_hop.py"), "from hop import IDENT as I\ndef f(s):\n    return I.match(s)\n")          # line 3
+        write(t("bad_alias.py"), "import defs\nX = defs.IDENT\ndef f(s):\n    return X.match(s)\n")      # line 4
+        write(t("pkg", "__init__.py"), "")
+        write(t("pkg", "pat.py"), "import re\nP = re.compile(r'^x$')\n")
+        write(t("pkg", "core.py"), "from .pat import P\n")
+        write(t("pkg", "use.py"), "from .core import P\nfrom . import pat as _pat\n"
+                                  "def f(s):\n    return P.match(s), _pat.P.match(s)\n")                   # line 4, twice
+        write(t("good.py"), "import defs, nowhere, os\nfrom defs import SAFE\nfrom hop import SAFE as S2\n"
+                            "from missing import IDENT\nfrom os import path\nfrom . import nothing\n"
+                            "def f(s):\n    return (SAFE.match(s), S2.match(s), defs.SAFE.match(s), IDENT.match(s),\n"
+                            "            defs.IDENT.fullmatch(s), nowhere.X.match(s), os.path.match(s), path.match(s))\n")
+        g("init", "-q", "-b", "main")
+        g("add", "-A")
+        got = lint.regex_dollar_findings(root)
+        assert [f.split(" ")[0] for f in got] == [
+            "tools/bad_alias.py:4:", "tools/bad_attr.py:5:", "tools/bad_from.py:3:", "tools/bad_hop.py:3:",
+            "tools/pkg/use.py:4:", "tools/pkg/use.py:4:"], got
+        assert any("IDENT" in f and "tools/defs.py:2" in f for f in got), got
+        assert sum("tools/pkg/pat.py:2" in f for f in got) == 2, got
+
+
 def case_a_contributor_entry_never_reaches_a_definition() -> None:
     """ADR-018 §5 rule 8: a contributor's entry names a catalogued role, is
     whole, and admits nothing that defines a role — however broad its
@@ -2005,6 +2042,7 @@ def main() -> int:
         case_a_managed_projects_name_stays_out_of_generic_files,
         case_review_lenses_are_named_described_and_bounded,
         case_a_dollar_anchored_pattern_is_not_called_with_match,
+        case_a_dollar_anchored_pattern_is_followed_across_imports,
         case_a_contributor_entry_never_reaches_a_definition,
         case_the_fallback_validator_agrees_with_jsonschema,
         case_the_python_pin_is_checkable_and_what_ci_runs,
