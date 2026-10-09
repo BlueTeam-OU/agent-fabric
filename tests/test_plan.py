@@ -297,6 +297,17 @@ def _():
         check(rc == 1 and "no plan 'nope'" in err, err)
 
 
+@case("show keeps a space between a column-wide owner and job and the title, whatever the width")
+def _():
+    for owner_len in (5, 10, 14, 16, 17, 30):
+        step = {"id": "s1", "state": "active", "owner": "o" * owner_len, "job": "o" * owner_len + ":j11", "title": "control/upgrade.py"}
+        line = plan.render_step(step)
+        check(" control/upgrade.py" in line and "j11control" not in line, (owner_len, line))
+    a = plan.render_step({"id": "s1", "state": "active", "owner": "dev-01", "job": "dev-01:j4", "title": "T"})
+    b = plan.render_step({"id": "s2", "state": "planned", "owner": "dev-02", "job": None, "title": "T"})
+    check(a.index("T") == b.index("T"), (a, b))      # short refs still line up
+
+
 @case("export is markdown: a table of the steps with their states, and the notes")
 def _():
     with world() as w:
