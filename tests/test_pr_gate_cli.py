@@ -219,6 +219,25 @@ def main() -> int:
               and "driver review" not in fixline, out)
         check("another session's PR is not listed by default", not has(r"^#43", out), out)
 
+        print("a project's pr-tools.json names its own variables for the fabric's")
+        tools_cfg = os.path.join(sandbox, "pr-tools.json")
+        with open(tools_cfg, "w", encoding="utf-8") as fh:
+            json.dump({"env_aliases": {"T_PROJECT_SESSION": "AGENT_FABRIC_PR_SESSION"}}, fh)
+
+        def run_as_project(config: str | None) -> str:
+            env = {**base_env, "MOCK_STATE": state, "PATH": f"{sandbox}/bin:{base_env.get('PATH', '')}",
+                   "AGENT_FABRIC_PR_REVIEW_STATUS": f"{sandbox}/bin/pr-review-status.sh",
+                   "T_PROJECT_SESSION": "develop-qzapp/me"}
+            if config:
+                env["AGENT_FABRIC_PR_TOOLS_CONFIG"] = config
+            r = subprocess.run([*UNDER_TEST], cwd=repo, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                               text=True, timeout=300)
+            return r.stdout
+        check("the project's session variable selects this session's PRs through its pr-tools.json",
+              has(r"^#42  develop-qzapp/me \(me\)  commits=", run_as_project(tools_cfg)))
+        check("…and without that file it selects nothing: the control that shows the alias did it",
+              not has(r"^#42", run_as_project(None)))
+
         print("the verdicts")
         check("green, reviewed head, 0 threads, under 8: ask the owner",
               "MERGEABLE — ask the owner (6 work commits < 8), then arm" in out, out)

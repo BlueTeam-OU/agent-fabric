@@ -289,6 +289,7 @@ are judged before they are answered; the judgement follows in the PR.
 
 
 def main() -> int:
+    common.apply_project_env("post-review")
     try:
         return run(sys.argv[1:], common.read_body)
     except Refused as e:

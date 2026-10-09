@@ -111,7 +111,7 @@ HERE = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
 import gh  # noqa: E402
 import roots  # noqa: E402
-from github import pr_gate  # noqa: E402
+from github import common, pr_gate  # noqa: E402
 # The rules' names stay importable from here, where the oracle and callers
 # reach them as arm.<name>.
 from github.arm_rules import (  # noqa: E402, F401
@@ -587,6 +587,7 @@ def arm(argv: list[str]) -> int:
 
 
 def main(argv: list[str]) -> int:
+    common.apply_project_env("arm")
     try:
         return arm(argv)
     except Refused as e:

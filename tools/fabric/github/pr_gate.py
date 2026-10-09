@@ -40,7 +40,7 @@ HERE = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
 import gh  # noqa: E402
 import git  # noqa: E402
-from github import commit_class, local, pr_review_status  # noqa: E402, F401  (commit_class: the unit suite reaches it here)
+from github import commit_class, common, local, pr_review_status  # noqa: E402, F401  (commit_class: the unit suite reaches it here)
 from github.review_status.base import listed, obj  # noqa: E402
 # What was split out of this module stays importable from here: the unit
 # suite, pr_compliance and the other callers reach it as pr_gate.<name>.
@@ -589,6 +589,7 @@ def run(argv: list[str]) -> int:
 
 
 def main() -> int:
+    common.apply_project_env("pr-gate")
     try:
         return run(sys.argv[1:])
     except Usage as e:

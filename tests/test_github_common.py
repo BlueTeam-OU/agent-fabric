@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import io
 import os
+import re
 import sys
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -75,6 +76,110 @@ def main() -> int:
         for k, v in saved.items():
             if v is not None:
                 os.environ[k] = v
+
+    print("apply_project_env (pr-tools.json)")
+    import json
+    import tempfile
+    with tempfile.TemporaryDirectory(prefix="test_github_common.") as tmp:
+        cfg = os.path.join(tmp, "pr-tools.json")
+
+        def write(doc) -> None:
+            with open(cfg, "w", encoding="utf-8") as fh:
+                fh.write(doc if isinstance(doc, str) else json.dumps(doc))
+
+        saved_cfg = os.environ.get(common.PR_TOOLS_SETTING)
+        os.environ[common.PR_TOOLS_SETTING] = cfg
+        full = {"description": "d", "env_aliases": {"T_THEIRS": "T_OURS", "T_OTHER": "T_OTHERS"},
+                "legacy_review_markers": ["<!-- old v1 -->", "<!-- older v1 -->"]}
+        try:
+            write(full)
+            env = {"T_THEIRS": "mine", "T_OTHER": "x", "T_OTHERS": "kept"}
+            common.apply_project_env("t", env)
+            check("an alias fills the fabric's name when it is unset", env["T_OURS"] == "mine")
+            check("…and never overrides one that is set", env["T_OTHERS"] == "kept")
+            check("legacy markers become the default, one per line",
+                  env["AGENT_FABRIC_LEGACY_REVIEW_MARKERS"] == "<!-- old v1 -->\n<!-- older v1 -->")
+            env = {"T_THEIRS": "mine", "T_OURS": "", "AGENT_FABRIC_LEGACY_REVIEW_MARKERS": ""}
+            common.apply_project_env("t", env)
+            check("an empty fabric name is unset, as bash's ${A:-$B} read it",
+                  env["T_OURS"] == "mine" and env["AGENT_FABRIC_LEGACY_REVIEW_MARKERS"].startswith("<!-- old"))
+            env = {"T_THEIRS": "", "AGENT_FABRIC_LEGACY_REVIEW_MARKERS": "<!-- mine -->"}
+            common.apply_project_env("t", env)
+            check("an empty project name sets nothing; a set marker list is kept",
+                  "T_OURS" not in env and env["AGENT_FABRIC_LEGACY_REVIEW_MARKERS"] == "<!-- mine -->")
+            os.remove(cfg)
+            env = {"T_THEIRS": "mine"}
+            common.apply_project_env("t", env)
+            check("no file: neither aliases nor markers", env == {"T_THEIRS": "mine"})
+            for label, bad in (("not JSON", "{"), ("not an object", "[]"), ("an unknown key", {"env_alias": {}}),
+                               ("aliases not names", {"env_aliases": {"A B": "C"}}),
+                               ("aliases not strings", {"env_aliases": {"A": 1}}),
+                               ("markers not a list", {"legacy_review_markers": "x"}),
+                               ("an empty marker", {"legacy_review_markers": [""]}),
+                               ("a multi-line marker", {"legacy_review_markers": ["a\nb"]})):
+                write(bad)
+                env = {"T_THEIRS": "mine"}
+                err = io.StringIO()
+                real_err, sys.stderr = sys.stderr, err
+                try:
+                    common.apply_project_env("tool", env)
+                    code = None
+                except SystemExit as e:
+                    code = e.code
+                finally:
+                    sys.stderr = real_err
+                check(f"a file that is {label}: exit 2, the tool and file named, nothing applied",
+                      code == 2 and err.getvalue().startswith(f"tool: {cfg} is not a usable pr-tools.json")
+                      and env == {"T_THEIRS": "mine"})
+        finally:
+            if saved_cfg is None:
+                os.environ.pop(common.PR_TOOLS_SETTING, None)
+            else:
+                os.environ[common.PR_TOOLS_SETTING] = saved_cfg
+
+    print("gzapp's pr-tools.json says what its integration/gh forwarders said")
+    shipped = os.path.join(HERE, "projects", "gzapp", "integration", "pr-tools.json")
+    sh_dir = os.path.join(HERE, "projects", "gzapp", "integration", "gh")
+    forwarders = [os.path.join(sh_dir, n) for n in ("arm.sh", "pr-gate.sh", "pr-review-status.sh", "post-review.sh")]
+    saved_cfg = os.environ.get(common.PR_TOOLS_SETTING)
+    os.environ[common.PR_TOOLS_SETTING] = shipped
+    try:
+        env = {"GZAPP_PR_GATE": "g", "GZAPP_PR_REVIEW_STATUS": "r", "GZAPP_PR_SESSION": "s", "GZAPP_VERDICT_AUTHORS": "[]"}
+        common.apply_project_env("t", env)
+    finally:
+        if saved_cfg is None:
+            os.environ.pop(common.PR_TOOLS_SETTING, None)
+        else:
+            os.environ[common.PR_TOOLS_SETTING] = saved_cfg
+    check("the four GZAPP_ names map to the fabric's", [env.get(k) for k in (
+        "AGENT_FABRIC_PR_GATE", "AGENT_FABRIC_PR_REVIEW_STATUS", "AGENT_FABRIC_PR_SESSION", "AGENT_FABRIC_VERDICT_AUTHORS")]
+          == ["g", "r", "s", "[]"])
+    marker = env.get("AGENT_FABRIC_LEGACY_REVIEW_MARKERS", "")
+    for fw in forwarders:
+        if not os.path.exists(fw):   # the forwarders are retired in the PR after the callers move
+            continue
+        text = open(fw, encoding="utf-8").read()
+        check(f"{os.path.basename(fw)}: its marker is the file's, and every GZAPP_ name it maps is mapped here",
+              marker != "" and marker in text
+              and all(f"{ours}" in env for ours in re.findall(r"export (AGENT_FABRIC_[A-Z_]+)=\"\$\{AGENT_FABRIC_[A-Z_]+:-\$GZAPP_", text)))
+
+    print("the four commands that read the project's names ask for them first")
+    from github import arm, post_review, pr_gate, pr_review_status
+    asked: list[str] = []
+    seen: list[tuple[str, int, list[str]]] = []
+    real_apply, real_argv, real_out = common.apply_project_env, sys.argv, sys.stdout
+    common.apply_project_env = lambda prog, environ=None: asked.append(prog)
+    try:
+        for prog, call in (("pr-gate", pr_gate.main), ("pr-review-status", pr_review_status.main),
+                           ("post-review", post_review.main), ("arm", lambda: arm.main(["--help"]))):
+            sys.argv, sys.stdout = [prog, "--help"], io.StringIO()
+            asked.clear()
+            rc = call()
+            seen.append((prog, rc, list(asked)))
+    finally:
+        common.apply_project_env, sys.argv, sys.stdout = real_apply, real_argv, real_out
+    for prog, rc, names in seen:
+        check(f"{prog} --help: exit 0, and it asked under {prog!r} (got {rc}, {names})", rc == 0 and names == [prog])
 
     print(f"\n{'FAILED' if fails else 'all passed'}")
     return 1 if fails else 0
