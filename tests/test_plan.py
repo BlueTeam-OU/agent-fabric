@@ -381,6 +381,20 @@ def _():
         check(rc == 0 and len(rows) == 1 and not any(c in out for c in "\x1b\x07\x9b"), repr(out))
 
 
+@case("export escapes the markup in a reason from another account: it never renders as a link, a tag or a code span")
+def _():
+    with world() as w:
+        make(w, ("a", "dev-01", "", "dev-01:j1"))
+        reason = "see [x](http://e.example) <b>bold</b> `c` *i* _u_ & more"
+        rc, out, _ = w.run("export", "p", reader=Reader(open_down={"dev-01": reason}, closed_down={"dev-01": reason}))
+        row = [l for l in out.splitlines() if l.startswith("| s1 ")][0]
+        check(rc == 0 and "see \\[x\\](http://e.example) \\<b\\>bold\\</b\\> \\`c\\` \\*i\\* \\_u\\_ \\& more" in row, row)
+        rc, out, _ = w.run("export", "p", reader=Reader(open_down={"dev-01": "a | b"}, closed_down={"dev-01": "a | b"}))
+        row = [l for l in out.splitlines() if l.startswith("| s1 ")][0]
+        check("a \\| b" in row and "\\\\|" not in row and row.count("|") - row.count("\\|") == 8, row)   # the pipe escaped once; seven cells
+        check(plan.md_text("a\nc") == "a?c", plan.md_text("a\nc"))
+
+
 # ── the readers behind the module ───────────────────────────────────
 
 class Run:

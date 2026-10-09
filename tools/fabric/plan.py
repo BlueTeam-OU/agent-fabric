@@ -327,6 +327,15 @@ def cmd_link(a: argparse.Namespace) -> int:
     return 0
 
 
+_MD_META = re.compile(r"([\\`*_\[\]<>&])")
+
+
+def md_text(value: Any) -> str:
+    """Text from another account for a markdown cell: one line, and its markup
+    characters escaped, so a reason never renders as a link, a tag or a table."""
+    return _MD_META.sub(r"\\\1", printable(value))
+
+
 def render_step(s: dict) -> str:
     where = f"{s['owner']}" + (f" -> {s['job']}" if s.get("job") else "")
     tail = f"  ({printable(s['reason'])})" if s.get("reason") else ""
@@ -364,7 +373,7 @@ def cmd_export(a: argparse.Namespace, reader: Any) -> int:
              "| Step | Title | Owner | Job | After | Est. days | State |", "|---|---|---|---|---|---|---|"]
     for s in steps:
         cells = [s["id"], s["title"], s["owner"], s.get("job") or "", ", ".join(s.get("depends_on", [])),
-                 str(s.get("est_days", "")), s["state"] + (f" ({s['reason']})" if s.get("reason") else "")]
+                 str(s.get("est_days", "")), s["state"] + (f" ({md_text(s['reason'])})" if s.get("reason") else "")]
         lines.append("| " + " | ".join(printable(c).replace("|", "\\|") for c in cells) + " |")
     notes = [f"- {s['id']}: {s['note']}" for s in steps if s.get("note")]
     if notes:
