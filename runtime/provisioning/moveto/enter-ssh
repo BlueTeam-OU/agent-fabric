@@ -4,13 +4,19 @@
 # with the request in SSH_ORIGINAL_COMMAND. It accepts one of four exact
 # words and enters the account through moveto's installed `enter`.
 #
-# Installed root-owned by ssh-operator.sh at /usr/local/libexec/agent-fabric/,
-# never run from a checkout: an agent could rewrite its own checkout's copy
-# and so what the operator's terminal shows and what is typed into it.
-# Which `enter` it runs is the one line of enter-ssh.conf beside it, also
-# root-owned (/usr/local/share/moveto/enter, moveto's install.sh). A file,
-# not an environment variable: sshd passes the client's environment only
-# where AcceptEnv allows, but a file the client cannot touch needs no such
+# What this guarantees: enter-ssh and enter-ssh.conf are root-owned, so the
+# operator's key can only open one of the four modes, through the installed
+# `enter`, and the account cannot change that (never run from a checkout,
+# which the account could rewrite). It does not vouch for what then runs
+# inside the account: its login files and its checkout's bootstrap are the
+# account's, as on the sudo path, so a pane shows what the account makes it
+# show. The operator treats an agent's pane as that agent's, never as a
+# trusted channel.
+#
+# Which `enter` it runs is the one line of enter-ssh.conf beside it
+# (/usr/local/share/moveto/enter, moveto's install.sh). A file, not an
+# environment variable: sshd passes the client's environment only where
+# AcceptEnv allows, but a file the client cannot touch needs no such
 # argument. A test installs a copy beside its own conf.
 #
 # Bash, not Python: a few lines that exec bash and then `enter` (bash), and
@@ -23,6 +29,10 @@
 # its command string, so `--resume` starts after ~/.bash_profile and
 # ~/.bashrc, which sudo's moveto path skipped.
 set -u
+# Owner of enter-ssh.conf and of the enter it names. A constant, not a
+# variable: tests/test_enter_ssh.py rewrites this line with sed in its
+# installed copy, since a test cannot make files root-owned.
+EXPECTED_OWNER_UID=0
 case "${SSH_ORIGINAL_COMMAND-}" in
     --wait|--watch|--resume) mode=("$SSH_ORIGINAL_COMMAND") ;;
     shell) mode=() ;;
@@ -31,6 +41,14 @@ esac
 conf="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/enter-ssh.conf"
 enter="$(head -n 1 "$conf" 2>/dev/null)"
 [[ "$enter" == /* && -x "$enter" ]] || { echo "enter-ssh: no installed enter named in $conf; nothing run" >&2; exit 1; }
+# Refused unless root-owned and not group- or other-writable: a conf or enter
+# the account could rewrite would make the fence above empty.
+for f in "$conf" "$enter"; do
+    read -r owner perm < <(stat -c '%u %a' "$f" 2>/dev/null) || owner=""
+    if [[ "$owner" != "$EXPECTED_OWNER_UID" || $(( 8#${perm:-777} & 8#022 )) -ne 0 ]]; then
+        echo "enter-ssh: $f is not owned by root and closed to group and others; nothing run" >&2; exit 1
+    fi
+done
 # enter's arguments are moveto's: the workspace and the pane's title.
 # shellcheck disable=SC2016  # $0 and $@ are the inner shell's, by design
 exec bash -lc 'exec "$0" "$@"' "$enter" "$HOME/projects" "$(id -un)" "${mode[@]}"

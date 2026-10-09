@@ -60,7 +60,12 @@ def setup(tmp: str) -> None:
     home = os.path.join(tmp, "home")
     os.makedirs(bindir)
     os.makedirs(os.path.join(home, "projects"))
-    shutil.copy2(UNDER_TEST, os.path.join(bindir, "enter-ssh"))
+    # enter-ssh insists its conf and enter are owned by uid 0, and a test
+    # cannot make files root-owned: the installed copy has the constant at its
+    # top rewritten with sed to the test's uid. Everything else is verbatim.
+    dst = os.path.join(bindir, "enter-ssh")
+    shutil.copy2(UNDER_TEST, dst)
+    subprocess.run(["sed", "-i", f"s/^EXPECTED_OWNER_UID=0$/EXPECTED_OWNER_UID={os.getuid()}/", dst], check=True)
     # The fake enter is NOT beside enter-ssh: only the conf line may name it.
     share = os.path.join(tmp, "share")
     os.makedirs(share)
@@ -108,6 +113,24 @@ def main() -> int:
             check(f"{label}: exit 1, one line, no enter run (never the sibling)",
                   r.returncode == 1 and r.stdout == "" and len(r.stderr.splitlines()) == 1
                   and r.stderr.startswith("enter-ssh: no installed enter"), f"rc={r.returncode} {r.stdout!r} {r.stderr!r}")
+        # The mode fence (the owner uid is rewritten in setup, see there).
+        write_conf(tmp, os.path.join(tmp, "share", "enter") + "\n")
+        conf = os.path.join(tmp, "bin", "enter-ssh.conf")
+        enter = os.path.join(tmp, "share", "enter")
+        for label, path, mode in (("a group-writable conf", conf, 0o664), ("an other-writable conf", conf, 0o602),
+                                  ("a group-writable enter", enter, 0o775), ("an other-writable enter", enter, 0o757)):
+            os.chmod(path, mode)
+            r = run(tmp, "--watch")
+            check(f"{label}: exit 1, one line, no enter run",
+                  r.returncode == 1 and r.stdout == "" and len(r.stderr.splitlines()) == 1
+                  and "not owned by root" in r.stderr, f"rc={r.returncode} {r.stdout!r} {r.stderr!r}")
+            os.chmod(path, 0o644 if path == conf else 0o755)
+        r = run(tmp, "--watch")
+        check("closed to group and others again: runs", r.returncode == 0, f"rc={r.returncode} {r.stderr!r}")
+        shutil.copy2(UNDER_TEST, os.path.join(tmp, "bin", "enter-ssh"))  # verbatim: expects owner uid 0
+        r = run(tmp, "--watch")
+        check("owned by the test user, not root: refused, as for the real script",
+              r.returncode == 1 and "not owned by root" in r.stderr and r.stdout == "", f"rc={r.returncode} {r.stderr!r}")
     print(f"\n{'all passed' if not fails else f'{fails} failed'}")
     return 1 if fails else 0
 

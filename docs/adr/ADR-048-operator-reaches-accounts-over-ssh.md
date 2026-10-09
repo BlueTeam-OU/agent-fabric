@@ -62,23 +62,31 @@ everything else is saved under `/rw/config` and restored at boot.
 A forced command in a root-owned `authorized_keys` file is the fence ssh
 gives per key: whatever the client asks, sshd runs that command, with the
 request in `SSH_ORIGINAL_COMMAND`, and `restrict` turns off every
-forwarding and the agent, X11 and user-rc for that key even if the server
-configuration were loosened. Accepting four exact words, compared whole,
+forwarding, the agent, X11, user-rc and the pty for that key even if the
+server configuration were loosened, and `pty` gives back the one the panes
+need. Accepting four exact words, compared whole,
 leaves no parsing to get wrong. The argument reaches `enter` as a
 positional parameter of a login shell, so it is never shell text, and the
 login shell makes `--resume` run after the account's own start-up files.
 
 The forced command, and the `enter` it runs, are root-owned installed
-copies, never an account's checkout. A checkout is the agent's to write:
-an `enter-ssh` or `enter` there could be rewritten to show the operator a
-spoofed terminal or to capture what the operator types into the pane.
-So `enter-ssh` is installed `root:root 0755` in
+copies, never an account's checkout, which is the agent's to write.
+`enter-ssh` is installed `root:root 0755` in
 `/usr/local/libexec/agent-fabric/`, and it runs the `enter` named by the
-one line of the root-owned `enter-ssh.conf` beside it — moveto's
-installed `/usr/local/share/moveto/enter` (`install.sh`). A file, not an
-environment variable, names it: nothing a client sends reaches it, and a
-test installs its own copy beside its own conf. Without moveto installed
-the provisioning refuses; it never falls back to a checkout's `enter`.
+one line of the root-owned `enter-ssh.conf` beside it, moveto's
+installed `/usr/local/share/moveto/enter` (`install.sh`); it refuses to
+run unless both are owned by root and not writable by group or others. A
+file, not an environment variable, names it: nothing a client sends
+reaches it, and a test installs its own copy beside its own conf. Without
+moveto installed the provisioning refuses; it never falls back to a
+checkout's `enter`.
+
+What this guarantees is that the operator's key can only open one of the
+four modes through the installed `enter`, which the account cannot change.
+What then runs inside the account, its login files and its checkout's
+bootstrap, is the account's, as on the sudo path, so a pane shows what the
+account makes it show. The operator treats an agent's pane as that
+agent's, never as a trusted channel.
 
 Loopback-only listening keeps the single-host deployment unreachable from
 the network: the fence is the address, then `AllowUsers`, then the key,
