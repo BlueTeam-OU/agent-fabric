@@ -166,8 +166,9 @@ def main(argv: list[str]) -> int:
 
 
 def entry(argv: list[str]) -> int:
-    """main(), with a SIGTERM that lands after its own try (the return, a
-    second signal during the stop message) still the exit status 143."""
+    """main(), with the one SIGTERM that lands outside its own try (on its
+    return path, say) still the exit status 143. Later signals are ignored
+    by the handler, so none can reach here."""
     import tools_install
     try:
         return main(argv)
