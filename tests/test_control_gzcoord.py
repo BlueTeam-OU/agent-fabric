@@ -323,6 +323,16 @@ def main() -> int:
     check("an https relay is never below TLS 1.2, and its certificate and host name are checked",
           ctx.minimum_version >= _ssl.TLSVersion.TLSv1_2 and ctx.verify_mode == _ssl.CERT_REQUIRED and ctx.check_hostname is True)
 
+    closed = _s.socket()
+    closed.bind(("127.0.0.1", 0))
+    port = closed.getsockname()[1]
+    closed.close()      # bound, then closed: nothing listens there
+    try:
+        cg.api("tok", "/x", relay_url=f"http://127.0.0.1:{port}", timeout_s=2)
+        check("a connect refused is said so", False)
+    except cg.ApiError as e:
+        check("a connect refused is said so: certainly nothing was sent", e.connection_refused is True and not e.timed_out and e.status is None, str(e))
+
     print("gzcoord.test.mjs: relayFailure")
     check("no answer", cg.relay_failure(cg.ApiError("/api/send -> no answer within 30 s", timed_out=True), "http://r")
           == "the relay at http://r did not answer (no answer within 30 s)")

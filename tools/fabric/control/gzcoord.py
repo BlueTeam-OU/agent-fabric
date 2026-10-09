@@ -74,11 +74,12 @@ API_TIMEOUT_S = 30
 class ApiError(Exception):
     """A relay call that failed: `status` when the relay answered non-2xx,
     `timed_out` when it did not answer within the bound (the call may
-    have been stored)."""
+    have been stored), `connection_refused` when no connection was made
+    at all (Node's ECONNREFUSED: certainly nothing was sent)."""
 
-    def __init__(self, message: str, status: int | None = None, timed_out: bool = False):
+    def __init__(self, message: str, status: int | None = None, timed_out: bool = False, connection_refused: bool = False):
         super().__init__(message)
-        self.status, self.timed_out = status, timed_out
+        self.status, self.timed_out, self.connection_refused = status, timed_out, connection_refused
 
 
 def relay_failure(e: BaseException, relay_url: str) -> str:
@@ -217,7 +218,7 @@ def api(tok: str, path_and_query: str, relay_url: str | None = None, method: str
     except (OSError, http.client.HTTPException) as e:
         if fired.is_set() or isinstance(e, TimeoutError):
             raise late from None
-        raise ApiError(f"{path_and_query} -> {e}") from None
+        raise ApiError(f"{path_and_query} -> {e}", connection_refused=isinstance(e, ConnectionRefusedError)) from None
     finally:
         timer.cancel()
         owned = conn.sock      # read before close(), which sets it to None
