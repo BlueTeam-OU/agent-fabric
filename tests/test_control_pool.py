@@ -77,7 +77,7 @@ def main() -> int:
         check("a priority of the list", "priority is one of" in add({"role": "python-dev", "title": "x", "priority": "urgent"})["reason"])
         check("a role at all", "role is a catalogue id" in add({"title": "x"})["reason"])
         check("a catalogue that cannot be read", "catalogue cannot be read" in cp.check_pool_args({"role": "python-dev", "title": "x"}, None))
-        check("a refused add writes nothing", cp.read_pool(file)["jobs"] == [])
+        check("a refused add writes nothing, not even an empty pool", not os.path.exists(file))
         r = add({"role": "python-dev", "title": "  port   the thing ", "priority": "high", "topic": "port"})
         check("an add", r.get("status") == "added", r)
         check("...its id, role, squashed title, priority, topic",
@@ -85,6 +85,10 @@ def main() -> int:
         check("ids in order", add({"role": "web-dev", "title": "y"})["job"]["id"] == "p2")
         check("no priority is normal", cp.read_pool(file)["jobs"][1]["priority"] == "normal")
         check("the file is 0600", os.stat(file).st_mode & 0o777 == 0o600)
+        before = os.stat(file).st_ino
+        add({"role": "python-dev", "title": "z"})
+        check("a write replaces the file whole (a new inode, by rename), no temporary file left",
+              os.stat(file).st_ino != before and [f for f in os.listdir(d) if f.endswith(".tmp")] == [])
 
         print("pool.test.mjs: pool-add only on the holder")
         req = {"from": HOLDER, "to": ["h/other"], "args": {"role": "python-dev", "title": "x"}}
@@ -172,6 +176,46 @@ def main() -> int:
             check("a directory where the pool should be: cannot be read", False)
         except cp.PoolError as e:
             check("a directory where the pool should be: cannot be read (EISDIR)", "cannot be read (EISDIR)" in str(e), str(e))
+
+    print("what pool.mjs never writes, and a full disk (review of d441507c)")
+    with tempfile.TemporaryDirectory() as d:
+        file, add = fresh(d)
+        add({"role": "python-dev", "title": "kept"})
+        good = open(file, "rb").read()
+        script = ("import resource, sys; sys.path.insert(0, sys.argv[1]); from control import pool as cp; "
+                  "resource.setrlimit(resource.RLIMIT_FSIZE, (300, 300)); "
+                  "r = cp.pool_add({'from': 'h/user', 'to': ['h/user'], 'args': {'role': 'python-dev', 'title': 'x' * 200}}, "
+                  "me='h/user', holder='h/user', file=sys.argv[2], known={'python-dev'}); print(r['status'])")
+        r = subprocess.run([sys.executable, "-c", script, os.path.join(HERE, "tools", "fabric"), file], capture_output=True, text=True, timeout=60)
+        check("a write the disk cannot take is refused, the old pool kept whole, no temporary file left",
+              r.stdout.strip() == "refused" and open(file, "rb").read() == good and [f for f in os.listdir(d) if f.endswith(".tmp")] == [],
+              (r.stdout, r.stderr[-300:]))
+        with open(file, "w") as fh:
+            json.dump({"seq": 2, "jobs": [{"id": "p1", "seq": 1, "role": "python-dev", "priority": "normal", "claimed": None},
+                                          {"id": "p2", "role": "python-dev", "priority": "normal", "claimed": None}]}, fh)
+        got = cp.pool_list({"from": "h/a", "args": {"role": "python-dev"}}, me=HOLDER, holder=HOLDER, file=file)
+        check("a job without a numeric seq sorts as Node's comparator takes it (equal), never a TypeError",
+              got["status"] == "ok" and [j["id"] for j in got["jobs"]] == ["p1", "p2"], got)
+        with open(file, "w") as fh:
+            json.dump({"seq": 1, "jobs": [None, {"id": "p2", "seq": 2, "role": "python-dev", "claimed": None}]}, fh)
+        check("a job that is not an object: the pool is refused, never a claim around it",
+              "not a pool" in cp.pool_claim({"from": "h/a", "args": {"id": "p2"}}, me=HOLDER, holder=HOLDER, file=file,
+                                            role_of=roles({"h/a": "python-dev"}))["reason"])
+        reg = os.path.join(d, "reg.json")
+        for doc in ({"hosts": {"h": None}}, {"hosts": ["x"]}, {"hosts": "a"}):
+            with open(reg, "w") as fh:
+                json.dump(doc, fh)
+            check(f"a registry {json.dumps(doc)} names no holder, never guessed", cp.pool_holder({}, reg) is None)
+        here = os.getcwd()
+        os.chdir(d)
+        try:
+            r = cp.pool_add({"from": HOLDER, "to": [HOLDER], "args": {"role": "python-dev", "title": "rel"}}, me=HOLDER, holder=HOLDER,
+                            file="pool-rel.json", known=KNOWN)
+            check("a pool named by a relative path is written there, as Node's path.dirname gives '.'", r["status"] == "added", r)
+        finally:
+            os.chdir(here)
+    got = cp.role_from_stream(call=lambda p: (_ for _ in ()).throw(RuntimeError("boom")), cfg={})("h/a")
+    check("a config without state_channel, a call failing any way: an answer, never an exception", "could not be read" in got.get("error", ""), got)
 
     print("pool.test.mjs: the claimant's role from the state stream")
     now = 1791460800000.0   # 2026-10-08T12:00:00Z

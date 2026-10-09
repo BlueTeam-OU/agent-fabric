@@ -46,11 +46,16 @@ STATES_STALE_MS, ctl.mjs's, which this module states at their values
 until ctl's port holds them. A write that fails is refused with
 Python's text of the error (Node said "EACCES: permission denied, open
 '…'"; Python "[Errno 13] Permission denied: '…'"). The file is read as
-UTF-8 with bad bytes replaced, as Node's 'utf8' reads it.
+UTF-8 with bad bytes replaced, as Node's 'utf8' reads it. A pool or a
+registry of a shape Node never writes is refused or names no holder
+here: a job that is not an object (Node threw reading it), hosts that
+is not an object or a host that is not one (Node named "0/user" for a
+list, and threw for a null host).
 """
 from __future__ import annotations
 
 import errno
+import functools
 import os
 import re
 import sys
@@ -89,11 +94,14 @@ def pool_holder(cfg: dict | None = None, registry: str | None = None) -> str | N
         with open(_default_registry() if registry is None else registry, encoding="utf-8", errors="replace") as fh:
             doc = js.json_parse(fh.read())
         hosts = doc.get("hosts") if isinstance(doc, dict) else None
-        hosts = hosts if isinstance(hosts, dict) else {}
-        names = js.keys(hosts)
-        if len(names) != 1:
+        # A registry Node never writes (hosts not an object, a host that is
+        # not one) names no holder here: never guessed.
+        if not isinstance(hosts, dict):
             return None
-        op = hosts[names[0]].get("operator") if isinstance(hosts[names[0]], dict) else None
+        names = js.keys(hosts)
+        if len(names) != 1 or not isinstance(hosts[names[0]], dict):
+            return None
+        op = hosts[names[0]].get("operator")
         return f"{names[0]}/{js.string('user' if op is None else op)}"
     except (OSError, ValueError, AttributeError):
         return None
@@ -112,19 +120,32 @@ def read_pool(file: str) -> dict:
         doc = js.json_parse(raw)
     except ValueError:
         raise PoolError("the pool file is not JSON") from None
-    if not isinstance(doc, dict) or not isinstance(doc.get("jobs"), list) or not js.is_integer(doc.get("seq")):
+    if (not isinstance(doc, dict) or not isinstance(doc.get("jobs"), list) or not js.is_integer(doc.get("seq"))
+            or not all(isinstance(j, dict) for j in doc["jobs"])):
+        # A job that is not an object: Node's ops threw reading it ("Cannot
+        # read properties of null"), a refusal too; here it is said once.
         raise PoolError("the pool file is not a pool")
     return doc
 
 
 def _write_pool(file: str, doc: dict) -> None:
-    os.makedirs(os.path.dirname(file), exist_ok=True)
+    # dirname of a bare name is "", which Node's path.dirname gives as ".".
+    os.makedirs(os.path.dirname(file) or ".", exist_ok=True)
     tmp = f"{file}.{os.getpid()}.tmp"
+    data = (js.stringify(doc, indent=2) + "\n").encode("utf-8")
     fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     try:
-        os.write(fd, (js.stringify(doc, indent=2) + "\n").encode("utf-8"))
-    finally:
+        # Every byte, or an error: one os.write() may write part of it (a
+        # full disk, a file-size limit) and return, and a short pool renamed
+        # over the good one loses every claim (review of d441507c, F1).
+        view = memoryview(data)
+        while view:
+            view = view[os.write(fd, view):]
+    except OSError:
         os.close(fd)
+        os.unlink(tmp)
+        raise
+    os.close(fd)
     os.replace(tmp, file)
 
 
@@ -132,11 +153,21 @@ def _index(priority) -> int:
     return PRIORITIES.index(priority) if isinstance(priority, str) and priority in PRIORITIES else -1
 
 
-def by_priority(job: dict):
-    """The pool's order is the queue's (tools/fabric/jobs.py queue_order):
-    highest priority, then the oldest; a sort key for sorted(), which is
-    stable as Array.prototype.sort is."""
-    return (_index(job.get("priority")), job.get("seq"))
+def _by_priority(a: dict, b: dict) -> float:
+    d = _index(a.get("priority")) - _index(b.get("priority"))
+    if d:
+        return d
+    sa, sb = a.get("seq"), b.get("seq")
+    if isinstance(sa, (int, float)) and isinstance(sb, (int, float)) and not isinstance(sa, bool) and not isinstance(sb, bool):
+        return sa - sb
+    return 0     # Node's a.seq - b.seq is NaN, which sort takes as equal
+
+
+# The pool's order is the queue's (tools/fabric/jobs.py queue_order):
+# highest priority, then the oldest — Node's comparator, so a job without a
+# numeric seq is "equal", never a TypeError; sorted() is stable as
+# Array.prototype.sort is.
+by_priority = functools.cmp_to_key(_by_priority)
 
 
 def _shown(j: dict) -> dict:
@@ -236,8 +267,9 @@ def role_from_stream(*, call, cfg: dict, now: Callable[[], float] = lambda: date
     the state channel: {"role"} or {"error"}."""
     def role_of(address: str) -> dict:
         try:
-            page = call("/api/messages?" + js.search_params({"channel": cfg["state_channel"], "limit": js.string(STATES_REPLAY), "full": "1"}))
-        except (gzcoord.ApiError, OSError, ValueError) as e:
+            page = call("/api/messages?" + js.search_params({"channel": cfg.get("state_channel", js.UNDEFINED),
+                                                             "limit": js.string(STATES_REPLAY), "full": "1"}))
+        except Exception as e:  # noqa: BLE001 — pool.mjs's catch: any failure of the call is an answer
             return {"error": f"the state stream could not be read ({gzcoord.relay_failure(e, cfg.get('relay_url'))})"}
         rows = page.get("messages") if isinstance(page, dict) and isinstance(page.get("messages"), list) else []
         newest, oldest = None, float("nan")

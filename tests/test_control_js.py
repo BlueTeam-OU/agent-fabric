@@ -73,6 +73,10 @@ def main() -> int:
                  '{"n":12345678901234567890}', '[[[[{}]]]]']
     diff("stringify(json_parse(t)) is JSON.stringify(JSON.parse(t))", doc_texts,
          [js.stringify(js.json_parse(t)) for t in doc_texts], node("return input.map(t => JSON.stringify(JSON.parse(t)));", doc_texts))
+    pretty = ['{}', '[]', '{"a":{},"b":[],"c":[[],{}]}', '{"2":1,"1":[1,2.5,-0,1e21,1e-7]}', '"\\ud800"', '{"__proto__":1,"4294967295":2,"4294967294":3}',
+              '[1e400]', '{"x":{"y":{"z":[null,true,false,"\\u00e9"]}}}']
+    diff("stringify(v, 2) is JSON.stringify(v, null, 2)", pretty, [js.stringify(js.json_parse(t), indent=2) for t in pretty],
+         node("return input.map(t => JSON.stringify(JSON.parse(t), null, 2));", pretty))
     check("stringify writes NaN and the infinities as null, drops UNDEFINED from an object, writes it null in a list",
           js.stringify([math.nan, math.inf, {"a": js.UNDEFINED, "b": 1}, js.UNDEFINED]) == '[null,null,{"b":1},null]')
     check("stringify writes a lone surrogate escaped, so the text encodes", js.stringify("a\ud800").encode("utf-8") == b'"a\\ud800"')
