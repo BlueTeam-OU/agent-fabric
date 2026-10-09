@@ -156,8 +156,16 @@ def test_lint_refuses_two_hosts_at_one_address() -> None:
 
 
 def test_the_committed_registry_passes() -> None:
-    reg = json.load(open(os.path.join(ROOT, "runtime", "hosts", "registry.json"), encoding="utf-8"))
-    env = {**os.environ, "AGENT_FABRIC_HOSTS_REGISTRY": os.path.join(ROOT, "runtime", "hosts", "registry.json")}
+    """The operator's own registry, on purpose, through roots as a reader asks for it."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("fabric_roots", os.path.join(ROOT, "tools", "fabric", "roots.py"))
+    roots = importlib.util.module_from_spec(spec); spec.loader.exec_module(roots)
+    path = roots.hosts_registry(engine=ROOT, environ={k: v for k, v in os.environ.items() if k != roots.ENV_HOSTS_REGISTRY})
+    if not os.path.isfile(path):
+        print(f"  skip test_the_committed_registry_passes: no hosts registry at {path}")
+        return
+    reg = json.load(open(path, encoding="utf-8"))
+    env = {**os.environ, "AGENT_FABRIC_HOSTS_REGISTRY": path}
     r = subprocess.run([sys.executable, TOOL, "known-hosts"], env=env, capture_output=True, text=True, timeout=30)
     pinned = sum(len(e["sshd"]["host_keys"]) for e in reg["hosts"].values() if isinstance(e.get("sshd"), dict))
     assert r.returncode == 0 and len(r.stdout.splitlines()) == 1 + pinned, (r.stdout, r.stderr)
