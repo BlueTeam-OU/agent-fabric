@@ -630,7 +630,8 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-10-07 — `secrets-selftest` (§5 rule 17).
 - A 2026-10-08 — resumable state in the state record (§5 rule 16).
 - A 2026-10-08 — the op table; three public ops (§5 rule 4).
-- A 2026-10-09 — a forged pool claim shows in the holder's pool.json (§5 rule 4).
+- A 2026-10-09 — a forged claim shows in pool.json (§5 rule 4).
+- A 2026-10-09 — Scope: all of runtime/control/.
 - Keywords: control plane, agentd, fabric-ctl, ops, ping, keys, usage,
   recall, tokens, memory, bundle, drain, keygen, linger, operator_key,
   herdr, persist, status, resume, tools, pool.

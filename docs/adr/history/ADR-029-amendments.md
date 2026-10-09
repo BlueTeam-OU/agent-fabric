@@ -117,3 +117,7 @@ bounded here to one field. Review of #123.
 ### Amendment 2026-10-09 — pool-add's checker named; a forged claim is seen in the holder's pool file
 
 #123's re-review (python-dev-03's PR, three P3s left on this record's text) found that rule 3 named no checker for `pool-add`'s arguments, though `pool.mjs` `checkPoolArgs` is it; that rule 4 sent a reader to `pool-list` to see a forged claim, though `pool-list` filters claimed jobs out (pool.mjs `poolList`), so the claimant is seen only in the holder's `pool.json`; and that the Scope line and the digest's keywords lagged the files and words a reader searches for. All three are corrected here; no rule's substance changes.
+
+### Amendment 2026-10-09 — Scope: all of runtime/control/, and its Python package from Wave 8
+
+#130's blind review found the Scope line, completed the same day, still missing jobs.mjs, secrets.mjs, local.mjs and selftest.mjs, which the rules name. A file list lags the directory it lists, and ADR-040 Wave 8 (the owner, 2026-10-09) replaces every module with a Python one. The Scope now names the directory and, from the cutover, its Python package.
