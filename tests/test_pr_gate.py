@@ -339,9 +339,25 @@ def main() -> int:
         os.environ.clear()
         os.environ.update(env)
         os.chdir(repo)
+        # #11 merged carrying the fold; #12 answers #10 again on top of it.
+        # #10's head is now inside #12's base, so the answer is #12's work
+        # (ADR-019 rule 3: "its head inside this range").
+        git("checkout", "-q", "main")
+        git("merge", "-q", "--no-ff", "--no-edit", "pr-11")
+        main2 = git("rev-parse", "HEAD")
+        git("checkout", "-q", "-b", "pr-12")
+        git("commit", "-q", "--allow-empty", "-m", "follow-up (#10 F2): the probe names its host",
+            "-m", "Kind: review-fix\nAnswers: #10 F2")
+        head12 = git("rev-parse", "HEAD")
         try:
             c = pr_gate.split_range(11, "o/r", f"{base}..{head}", head)
             before = pr_gate.split_range(11, "o/r", f"{base}..{head}")
+            git("update-ref", "refs/remotes/origin/main", base)
+            counted = pr_gate.count_commits(11, "o/r", "main", head)
+            later = pr_gate.split_range(12, "o/r", f"{main2}..{head12}", head12, main2)
+            unbased = pr_gate.split_range(12, "o/r", f"{main2}..{head12}", head12)
+            git("update-ref", "refs/remotes/origin/main", main2)
+            counted12 = pr_gate.count_commits(12, "o/r", "main", head12)
         finally:
             os.chdir(here)
             os.environ.clear()
@@ -350,6 +366,16 @@ def main() -> int:
               (c["work"], c["fix"], c["merge"]) == (2, 1, 1))
         check(f"without it: work 3, fix 0 — the follow-up reading (got {before['work']}, {before['fix']})",
               (before["work"], before["fix"]) == (3, 0))
+        # count_commits must hand split_range the head and the base, or fold
+        # reading is silently off and every split above still passes.
+        check(f"count_commits reads the fold: work 2, fix 1 (got {counted and (counted['work'], counted['fix'])})",
+              counted is not None and (counted["work"], counted["fix"]) == (2, 1))
+        check(f"a fold already in the base: #12's answer is work 1, fix 0 (got {later['work']}, {later['fix']})",
+              (later["work"], later["fix"]) == (1, 0))
+        check(f"…the reading the base corrects: fix 1 without it (got {unbased['work']}, {unbased['fix']})",
+              (unbased["work"], unbased["fix"]) == (0, 1))
+        check(f"count_commits passes the base: work 1, fix 0 (got {counted12 and (counted12['work'], counted12['fix'])})",
+              counted12 is not None and (counted12["work"], counted12["fix"]) == (1, 0))
 
     print(f"\n{'FAILED' if fails else 'all passed'}")
     return 1 if fails else 0

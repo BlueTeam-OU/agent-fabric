@@ -121,3 +121,7 @@ bounded here to one field. Review of #123.
 ### Amendment 2026-10-09 — Scope: all of runtime/control/, and its Python package from Wave 8
 
 #130's blind review found the Scope line, completed the same day, still missing jobs.mjs, secrets.mjs, local.mjs and selftest.mjs, which the rules name. A file list lags the directory it lists, and ADR-040 Wave 8 (the owner, 2026-10-09) replaces every module with a Python one. The Scope now names the directory and, from the cutover, its Python package.
+
+### Amendment 2026-10-09 — tools-install installs a pinned account tool
+
+python-dev-03's #126 (merged 2026-10-09) added `tools-install` to `OPS`, a signed action that runs `fabric-tools --install <tool> --json` as the account and carries its verdict back; the record had no row for it, rule 3 named no checker for its argument, and rule 12 listed neither its answer budget nor `disk`'s, though `ctl.mjs` has both. The row, the checker and the two budgets are added; the action decides nothing about which account gets a tool — `tools_install.py` installs only on an account with a working copy of a project that declares it, so the Doppler CLI stays off every other account (the owner, 2026-10-08). The first pin, Doppler 3.77.0, is `projects/registry.json`'s, its sha256 taken from the release's `checksums.txt` and matched against the asset.

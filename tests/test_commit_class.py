@@ -159,8 +159,43 @@ def folds(check, tool: str) -> None:
                 got = cc.classify("p", "x", "#10 F1", "11", "o/r", "review-fix", cc.Folds("o/r", head, cwd=shallow))
             check("a shallow clone cannot answer — work, said", got == "work" and "#10 could not be read" in err.getvalue(),
                   (got, err.getvalue()))
+            # A shallow clone that HAS #10's head and the counted head, with
+            # the path between them cut at the boundary: merge-base answers
+            # no, which only a full clone may be believed on.
+            git("branch", "keep-10", folded_head)
+            cut = os.path.join(tmp, "cut")
+            subprocess.run(["git", "clone", "-q", "--depth", "1", "--no-single-branch", f"file://{repo}", cut],
+                           env=env, check=True)
+            err = io.StringIO()
+            with redirect_stderr(err):
+                got = cc.classify("p", "x", "#10 F1", "11", "o/r", "review-fix", cc.Folds("o/r", head, cwd=cut))
+            check("shallow, the head check says no — work, the PR named unread",
+                  got == "work" and "#10 could not be read" in err.getvalue() and "shallow" in err.getvalue(),
+                  (got, err.getvalue()))
+            # The base check, by its answers: the head check says yes, the
+            # base check no; believed from a full clone, not a shallow one.
+            real_ok, real_out = cc.git.ok, cc.git.out
+            try:
+                cc.git.ok = lambda cwd, *a, **k: a[-1] == head   # inside head, outside the base
+                for shallow_answer, want in (("false", "fix"), ("true", "work")):
+                    cc.git.out = lambda cwd, *a, _s=shallow_answer, **k: _s
+                    err = io.StringIO()
+                    with redirect_stderr(err):
+                        got = cc.classify("p", "x", "#10 F1", "11", "o/r", "review-fix",
+                                          cc.Folds("o/r", head, base="b"))
+                    check(f"the base check says no in a {'shallow' if shallow_answer == 'true' else 'full'} clone — {want}",
+                          got == want and (("#10 could not be read" in err.getvalue()) == (want == "work")),
+                          (got, err.getvalue()))
+            finally:
+                cc.git.ok, cc.git.out = real_ok, real_out
             got, err = cls("#14 F1")
             check("an open PR — work", got == "work" and err == "", (got, err))
+            # Folded into an EARLIER PR that has merged: #10's head is inside
+            # the base too, and a follow-up answering it is this range's work.
+            got, err = cls("#10 F1", look=cc.Folds("o/r", head, base=folded_head))
+            check("a fold whose head is already in the base — work", got == "work" and err == "", (got, err))
+            got, err = cls("#10 F1", look=cc.Folds("o/r", head, base=git("rev-list", "--max-parents=0", "HEAD")))
+            check("…and with a base below it, a fix", got == "fix" and err == "", (got, err))
             got, err = cls("#77 F1")
             check("a lookup failure — work (the reading before the amendment)", got == "work", got)
             check("…said on stderr, naming the PR", "#77 could not be read" in err and "HTTP 404" in err, err)
@@ -201,6 +236,9 @@ def folds(check, tool: str) -> None:
             check("…and without it reads as before, work, asking nothing",
                   r.stdout == "work\n" and open(os.path.join(ghdir, "calls")).read().count("10") == 1,
                   (r.stdout, r.stderr))
+            r2 = subprocess.run([sys.executable, tool, "class", "p", "x", "#10 F1", "11", "o/r", "review-fix", head,
+                                 folded_head], capture_output=True, text=True, env=env)
+            check("the CLI takes the range's base, the ninth argument", r2.stdout == "work\n", (r2.stdout, r2.stderr))
         finally:
             os.chdir(here)
             os.environ.clear()
@@ -244,6 +282,14 @@ def on_github(check) -> None:
         gh.api = answering({"status": "ahead"})
         look = cc.Folds("o/r", "b" * 40, cwd="/nonexistent", ancestor=cc.on_github("o/r"))
         check("Folds with GitHub's ancestry: a fold, no clone asked", look("10") is True)
+        # With a base too: the head inside the base was folded into an
+        # earlier PR, so not here; inside the head alone, here.
+        gh.api = lambda path, **kw: {"status": "ahead"}
+        check("Folds with GitHub's ancestry and a base that holds the head: not folded here",
+              cc.Folds("o/r", "b" * 40, cwd="/nonexistent", base="m" * 40 + "^1", ancestor=cc.on_github("o/r"))("10") is False)
+        gh.api = lambda path, **kw: {"status": "ahead" if path.endswith("b" * 40 + "?per_page=1") else "diverged"}
+        check("...and a base that does not: folded here",
+              cc.Folds("o/r", "b" * 40, cwd="/nonexistent", base="m" * 40 + "^1", ancestor=cc.on_github("o/r"))("10") is True)
         gh.api = answering(gh.GhError("gh api GET repos/o/r/compare", "Not Found", 404))
         err = io.StringIO()
         with redirect_stderr(err):

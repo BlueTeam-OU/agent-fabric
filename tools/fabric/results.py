@@ -58,11 +58,17 @@ def classify(subject: str, body: str, pr: int, repo: str, parents: int = 1, fold
                                  commit_class.kind_of(body), folded)
 
 
-def folds_of(repo: str, head: str):
-    """The fold lookup for one PR's split, as pr_gate.split_range passes
-    it: against the PR's own head, its ancestry asked of GitHub, since the
-    repository need not be this clone."""
-    return commit_class.Folds(repo, head, ancestor=commit_class.on_github(repo)) if repo and head else None
+def folds_of(repo: str, head: str, merge: str = ""):
+    """The fold lookup for one merged PR's split, as pr_compliance passes
+    it to pr_gate.split_range: against the PR's own head, with the base
+    <merge>^1, so a PR already folded into an earlier one (its head in the
+    base) leaves a fix answering it as work, as the gate counts it. Its
+    ancestry is asked of GitHub, whose compare reads <merge>^1 as git does,
+    since the repository need not be this clone. Without a merge commit
+    there is no base to hold the range to, and no lookup: every fold reads
+    as none, as Folds reads one it cannot place."""
+    return (commit_class.Folds(repo, head, base=f"{merge}^1", ancestor=commit_class.on_github(repo))
+            if repo and head and merge else None)
 
 
 def judge(pr: dict, later: list[dict], now: dt.datetime, window_days: int, cls=classify, repo: str = "",
@@ -80,7 +86,7 @@ def judge(pr: dict, later: list[dict], now: dt.datetime, window_days: int, cls=c
                        for sha in own if sha) for c in later)
     naming = re.compile(rf"#{n}\b")
     fixed = [c["sha"][:7] for c in later if naming.search(c["subject"]) and cls(c["subject"], c["body"], n, repo) == "fix"]
-    folded = folds(repo, head)
+    folded = folds(repo, head, (pr.get("mergeCommit") or {}).get("oid") or "")
     classes = [cls(c["messageHeadline"], c.get("messageBody") or "", n, repo, c.get("parents", 1), folded)
                for c in pr.get("commits") or []]
     work, fix = classes.count("work"), classes.count("fix")

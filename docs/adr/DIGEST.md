@@ -621,11 +621,11 @@ its record disagree, the record wins. Look it up, never read it whole:
   while it is down is lost (§2, §5 rules 1–2).
 - A closed op set; no request field reaches a shell; actions carry the
   operator's fresh Ed25519 signature, newer than the last (§5 rules 3–5).
-- Replies carry no secret; a gap is named; silence exits 1
+- Replies carry no secret; a gap is named; silence or a failure exits 1
   (§5 rules 6–9).
 - A 2026-09-27 — actions run beside the read loop (§5 rule 12).
 - A 2026-09-27 — each op's answer budget (§5 rule 12).
-- A 2026-09-28 — `jobs` and `jobs-add` carry the job list (§5 rule 13).
+- A 2026-09-28 — `jobs`, `jobs-add` (§5 rule 13).
 - A 2026-09-29 — `secrets-migrate` (§5 rule 14).
 - A 2026-09-30 — rule 14 withdrawn; signing key in the operator's store (§5 rule 5).
 - A 2026-10-06 — local, local-prune (§5 rule 15).
@@ -633,11 +633,12 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-10-07 — secrets-selftest (§5 rule 17).
 - A 2026-10-08 — resumable state in the state record (§5 rule 16).
 - A 2026-10-08 — the op table; three public ops (§5 rule 4).
-- A 2026-10-09 — a forged claim shows in the holder's pool.json (§5 rule 4).
+- A 2026-10-09 — a forged claim shows in pool.json (§5 rule 4).
 - A 2026-10-09 — Scope: runtime/control/.
-- Keywords: control plane, agentd, fabric-ctl, ops, ping, keys, usage,
-  recall, tokens, memory, bundle, drain, keygen, linger, operator_key,
-  herdr, persist, status, resume, tools, pool.
+- A 2026-10-09 — `tools-install` (§5 rules 3, 12).
+- Keywords: agentd, fabric-ctl, ops, ping, keys, usage, recall, tokens,
+  memory, bundle, drain, keygen, operator_key, herdr, status, resume,
+  tools, pool.
 ### ADR-030 — Presence replaces HELLO and GOODBYE (Accepted)
 
 - Whether a session runs is the control agent's answer from its process
@@ -862,12 +863,13 @@ its record disagree, the record wins. Look it up, never read it whole:
   `policies/bash-allowlist.json`; each entry names its wave, and the
   list only shrinks (§5 rule 2).
 - A port freezes the contract in the module's header, keeps the path as
-  a shim, runs the old test unchanged as the oracle (§5 rules 3–5).
+  a shim, runs the old test unchanged as the oracle, and removes the
+  entry (§5 rules 3–5).
 - GitHub and git go through `gh.py` and `git.py` (§5 rule 6).
 - A 2026-10-01 — the oracle's assertions stay; its gh mock and source
   reads may follow the port (§5 rule 5).
 - A 2026-10-01 — one pinned Python, 3.13, as fabric-python per host; shims run it (§5 rules 1, 4).
-- A 2026-10-01 — a fixture may copy the modules its scripts load (§5 rule 5).
+- A 2026-10-01 — a fixture may copy the modules its scripts load; no assertion changes (§5 rule 5).
 - A 2026-10-04 — Wave 7: GZCoord's tools to Python together (§7).
 - A 2026-10-08 — commands by bare name; shims retire; pre-Python shell stays (§5 rule 7).
 - A 2026-10-09 — Wave 8: the control plane to Python, wire frozen, cut

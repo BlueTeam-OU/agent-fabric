@@ -220,16 +220,18 @@ def count_commits(num: int, repo: str, base: str, head: str) -> dict | None:
     if not succeeds("cat-file", "-e", f"{head}^{{commit}}") \
             or not succeeds("rev-parse", "--verify", "-q", f"origin/{base}^{{commit}}"):
         return None
-    return split_range(num, repo, f"origin/{base}..{head}", head)
+    return split_range(num, repo, f"origin/{base}..{head}", head, f"origin/{base}")
 
 
-def split_range(num: int, repo: str, rev_range: str, head: str = "") -> dict:
+def split_range(num: int, repo: str, rev_range: str, head: str = "", base: str = "") -> dict:
     """The work / fix / merge / netted split of a range of PR #num's
     commits — the gate's before arming, and pr-compliance's after the
     merge (<merge>^1..<merge>^2), so the band is measured as it was
     applied. <head> is the range's tip: with it, a PR folded into it is
-    read as one (commit_class.Folds), once per PR the range names."""
-    folded = commit_class.Folds(repo, head) if head else None
+    read as one (commit_class.Folds), once per PR the range names; <base>
+    is the range's base, and a PR whose head is already in it was folded
+    into an earlier PR, not this one."""
+    folded = commit_class.Folds(repo, head, base=base) if head else None
     # Kind: values joined by US (0x1f), never a tab or a newline, so the
     # line stays one record; commit_class.kind takes the last of them.
     r = git.run(".", "log", "--format=%H%x09%P%x09%s%x09%(trailers:key=Answers,valueonly,unfold,separator=%x20)"
