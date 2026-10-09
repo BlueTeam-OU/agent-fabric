@@ -16,6 +16,9 @@ ok()  { PASS=$((PASS+1)); printf '  ✓ %s\n' "$1"; }
 bad() { FAIL=$((FAIL+1)); printf '  ✗ %s\n' "$1"; [[ -n "${2:-}" ]] && printf '%s\n' "$2" | sed 's/^/      /' | head -6; }
 SANDBOX="$(mktemp -d)"; trap 'rm -rf "$SANDBOX"' EXIT
 export HOME="$SANDBOX/home"; mkdir -p "$HOME"; unset CLAUDE_CONFIG_DIR   # never the caller's real config
+# The fixture fabric is the whole tree it reads: an exported operator would
+# outrank it (ADR-045 §5 rule 3) and send the reads to data this suite did not build.
+unset AGENT_FABRIC_OPERATOR
 FABRIC="$SANDBOX/fabric"; STATE="$SANDBOX/state"
 mkdir -p "$FABRIC/runtime/claude-code" "$FABRIC/tools/fabric" "$FABRIC/runtime" "$STATE/agents/$LOGIN"
 cp -r "$REAL_ROOT/routing" "$FABRIC/routing"

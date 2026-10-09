@@ -1,7 +1,8 @@
 # ADR-045 — Engine, operator and clients
 
 **Date:** 2026-10-08
-**Status:** Proposed
+**Status:** Accepted
+**Ratified:** owner, 2026-10-09, in the coordinator's session ("accept adr 045"), carried by the pull request that marks it Accepted
 **Decision Makers:** the owner (the three layers and the open engine); drafted by fabric-coordinator
 **Scope:** what agent-fabric holds and what moves out of it: the engine (this repository, to be published), the operator repository of the company that runs the agents, and each client's engagement; the seam that lets one engine read either (`roots`, to be created by stage 2 as `tools/fabric/roots.py` and `runtime/control/roots.mjs`); how a working copy resolves to its client; decision-record numbering across the split
 **Pillar:** P1
@@ -83,10 +84,11 @@ When the forge the fleet is evaluating offers a merge-queue equivalent, each com
 
 ## 8. Decision Status
 
-Proposed. It is accepted when the owner merges the pull request that carries it. None of its rules is built yet:
-- rules 1 and 3, the seam and the tests on fixtures, are being built against it, behaviour-preserving, by python-dev; rule 1's lint is fabric-coordinator's, after the seam;
+Accepted; the inventory rule 2 applies is `docs/split/inventory.md`. Built so far:
+- rule 1's seam exists (`tools/fabric/roots.py`, `runtime/control/roots.mjs`) and part of the readers use it; the rest move in stage 2, then its lint;
+- rule 3: most tests read fixtures (`tests/stripped_run.py` runs a file on a copy without the instance files); nothing runs it on a schedule yet, so a test that reads the live tree again is caught by `tests/test_tests_read_fixtures.py`'s scan, not by a stripped run;
 - rule 2's list is applied by the extraction stage;
-- rules 5 and 6, client resolution and the drain's refusal, come with the client stage.
+- rule 5's data: `projects/clients.json` and a `client` on every project, which lint holds to each other; nothing resolves a working copy's client yet, and rule 6, the drain's refusal, comes with that.
 
 Rule 4 holds today: no record has been renumbered.
 

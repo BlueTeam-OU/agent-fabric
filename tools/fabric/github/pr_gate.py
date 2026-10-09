@@ -12,7 +12,10 @@ CONTRACT, frozen from the bash (ADR-040 §5 rule 3):
             program), AGENT_FABRIC_PR_SESSION (<host>/<login>),
             AGENT_FABRIC_ROOT, AGENT_FABRIC_PR_BASE (--in-flight's base)
   stdout    the rows (three to five lines each), or with --json the rows
-            as data; --in-flight a header and one line per branch, or an
+            as data (a MERGED row is identity, "state", the split and the
+            verdict only: none of the open row's checks, review,
+            unresolved_threads, armed, queue_position, merge_state, draft
+            or awaiting_supply); --in-flight a header and one line per branch, or an
             object with its rows
   stderr    every `pr-gate: ` note — a skipped number, a failed fetch,
             the 500-PR cap, a refusal
@@ -91,7 +94,10 @@ WHAT A ROW SAYS
     BLOCKED: <what> — a draft, red checks, pending checks, no check yet,
     checks unread,
     no review of the head, unresolved threads, a conflict
-  A pull request given by number that is not OPEN is said and skipped.
+  A pull request given by number that is MERGED is one row: its commit split
+  over <merge>^1..<merge>^2 (as pr-compliance reads it), marked MERGED and
+  "not at any gate"; with no merge commit to count from it says the commits
+  cannot be counted, never a zero. One that is CLOSED unmerged is said and skipped.
 
 Usage:
   fabric-pr gate              # every open PR of this session (branch prefix <host>/<login>/)
@@ -125,7 +131,7 @@ Environment (the self-test):
   AGENT_FABRIC_PR_REVIEW_STATUS   a program run instead of the review reader (default: this checkout's fabric-pr review-status)
   AGENT_FABRIC_PR_SESSION         the <host>/<login> prefix (default: fabric-whoami)"""
 
-PR_FIELDS = ["number", "title", "headRefName", "headRefOid", "baseRefName", "state", "isDraft", "body"]
+PR_FIELDS = ["number", "title", "headRefName", "headRefOid", "baseRefName", "state", "isDraft", "body", "mergeCommit"]
 LIST_CAP = 500
 INFLIGHT_PATHS_CAP = 200   # a row's paths as data; the total is always given
 GATE_QUERY = """query($owner: String!, $name: String!, $number: Int!) {
@@ -221,6 +227,26 @@ def count_commits(num: int, repo: str, base: str, head: str) -> dict | None:
             or not succeeds("rev-parse", "--verify", "-q", f"origin/{base}^{{commit}}"):
         return None
     return split_range(num, repo, f"origin/{base}..{head}", head, f"origin/{base}")
+
+
+def merged_commits(num: int, repo: str, merge_commit: str) -> dict | None:
+    """The split of a MERGED pull request's own commits, first parent the
+    base and second its head, as the gate splits them before arming — or
+    the band measured after the merge is not the band applied before it
+    (pr-compliance's measure and this gate's merged row share it). None
+    when the clone cannot answer: no merge commit recorded, one never
+    fetched, or one with no second parent (a squash or rebase merge leaves
+    a plain commit as GitHub's mergeCommit, so it lands here too)."""
+    if not merge_commit:
+        return None
+    try:
+        if not git.ok(".", "cat-file", "-e", f"{merge_commit}^{{commit}}") \
+                or not git.ok(".", "rev-parse", "--verify", "-q", f"{merge_commit}^2"):
+            return None
+    except git.GitError:
+        return None
+    return split_range(num, repo, f"{merge_commit}^1..{merge_commit}^2", f"{merge_commit}^2",
+                       f"{merge_commit}^1")
 
 
 def split_range(num: int, repo: str, rev_range: str, head: str = "", base: str = "") -> dict:
@@ -478,14 +504,55 @@ def owner_of(branch: str) -> str:
     return "/".join(p[:2]) if len(p) >= 3 else p[0]
 
 
+def merged_row(p: dict, repo: str, fetched: bool, session: str) -> dict:
+    """A MERGED pull request named by number: its split and nothing else
+    (no check, review or thread is read), so a landing is reported with
+    the counts the arming rule used. A split the clone cannot give is
+    unknown, never a zero."""
+    num, branch = p.get("number"), jq_str(p.get("headRefName"))
+    mc = p.get("mergeCommit")
+    oid = mc.get("oid") if isinstance(mc, dict) else None
+    commits = merged_commits(num, repo, oid) if fetched and isinstance(oid, str) else None
+    known = commits is not None
+    owner = owner_of(branch)
+    return {
+        "number": num, "title": p.get("title"), "branch": branch, "owner": owner, "mine": owner == session,
+        "state": "MERGED", "head": jq_str(p.get("headRefOid"))[:8],
+        "work_commits": commits["work"] if known else None,
+        "fix_commits": commits["fix"] if known else None,
+        "fix_subjects": commits["fix_subjects"] if known else [],
+        "merge_commits": commits["merge"] if known else None,
+        "netted_commits": commits["netted"] if known else None,
+        "netted_subjects": commits["netted_subjects"] if known else [],
+        "commits_known": known,
+        "verdict": "MERGED — not at any gate" + ("" if known else "; its commits cannot be counted "
+                                                 "(this clone has no two-parent merge commit for it: a squash or rebase merge, "
+                                                 "a commit not fetched, or a failed fetch)"),
+    }
+
+
+def render_merged(row: dict) -> str:
+    out = (f"#{row['number']}  {row['owner']}{' (me)' if row['mine'] else ''}  commits={commits_text(row)}  "
+           f"state=MERGED\n      {jq_str(row['title'])[0:88]}")
+    if row["fix_subjects"]:
+        out += "\n      counted as fix: " + "; ".join(f'"{s[0:60]}"' for s in row["fix_subjects"])
+    if row["netted_subjects"]:
+        out += "\n      netted by a revert: " + "; ".join(f'"{s[0:60]}"' for s in row["netted_subjects"])
+    return out + f"\n      {row['verdict']}"
+
+
+def commits_text(row: dict) -> str:
+    if not row["commits_known"]:
+        return "cannot be counted" if row.get("state") == "MERGED" else "unknown (fetch)"
+    total = row["work_commits"] + row["fix_commits"] + row["merge_commits"] + row["netted_commits"]
+    netted = f", {row['netted_commits']} netted by a revert" if row["netted_commits"] > 0 else ""
+    return f"{total} ({row['work_commits']} work, {row['fix_commits']} fix, {row['merge_commits']} merge{netted})"
+
+
 def render(row: dict) -> str:
-    if row["commits_known"]:
-        total = row["work_commits"] + row["fix_commits"] + row["merge_commits"] + row["netted_commits"]
-        netted = f", {row['netted_commits']} netted by a revert" if row["netted_commits"] > 0 else ""
-        commits = (f"{total} ({row['work_commits']} work, {row['fix_commits']} fix, {row['merge_commits']} merge"
-                   f"{netted})")
-    else:
-        commits = "unknown (fetch)"
+    if row.get("state") == "MERGED":
+        return render_merged(row)
+    commits = commits_text(row)
     queue = f"  queue={row['queue_position']}" if row["queue_position"] != "" else ""
     out = (f"#{row['number']}  {row['owner']}{' (me)' if row['mine'] else ''}  commits={commits}  "
            f"checks={row['checks']}  review={row['review']}  threads={row['unresolved_threads']}  "
@@ -693,7 +760,7 @@ def run(argv: list[str]) -> int:
             except (gh.GhError, ValueError):
                 note(f"#{n} is not a pull request of {repo} (or gh could not read it)")
                 continue
-            if one.get("state") != "OPEN":
+            if one.get("state") not in ("OPEN", "MERGED"):
                 note(f"#{n} is {jq_str(one.get('state'))} — not at any gate; skipped.")
                 continue
             prs.append(one)
@@ -728,6 +795,9 @@ def run(argv: list[str]) -> int:
     reader = review_reader()
     rows = []
     for p in prs:
+        if p.get("state") == "MERGED":
+            rows.append(merged_row(p, repo, fetched, session))
+            continue
         num, head, base = p.get("number"), jq_str(p.get("headRefOid")), jq_str(p.get("baseRefName"))
         branch = jq_str(p.get("headRefName"))
         commits = count_commits(num, repo, base, head) if fetched else None

@@ -42,6 +42,7 @@ The instance data (the lists are the owner's, 2026-10-07):
     routing/profiles.json         (the overlays; capabilities stay engine)
     memory/
     docs/adr/
+    docs/live-checks/
     identities/keys/
 """
 from __future__ import annotations
@@ -162,3 +163,7 @@ def memory_dir(*parts: str, root: str | None = None, environ: Mapping[str, str] 
 
 def adr_dir(root: str | None = None, environ: Mapping[str, str] | None = None, engine: str | None = None) -> str:
     return _under(root, environ, engine, "docs", "adr")
+
+
+def live_checks_dir(root: str | None = None, environ: Mapping[str, str] | None = None, engine: str | None = None) -> str:
+    return _under(root, environ, engine, "docs", "live-checks")

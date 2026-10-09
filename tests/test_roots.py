@@ -113,6 +113,16 @@ def case_the_environment_read_is_the_one_given_not_the_process_s() -> None:
             os.environ["AGENT_FABRIC_OPERATOR"] = saved
 
 
+def case_live_checks_dir_is_python_only_and_follows_the_operator_root() -> None:
+    # Not in HELPERS: those are compared with the Node twin (runtime/control/roots.mjs),
+    # which has no live-checks reader and is not changed here.
+    assert roots.live_checks_dir(environ={"AGENT_FABRIC_OPERATOR": O, "AGENT_FABRIC_ROOT": E}) == J(O, "docs", "live-checks")
+    assert roots.live_checks_dir(environ={"AGENT_FABRIC_ROOT": E}) == J(E, "docs", "live-checks")
+    assert roots.live_checks_dir(root="/x", environ={"AGENT_FABRIC_OPERATOR": O}) == J("/x", "docs", "live-checks")
+    assert roots.live_checks_dir(environ={"AGENT_FABRIC_OPERATOR": O}, engine="/g") == J(O, "docs", "live-checks")
+    assert roots.live_checks_dir(environ={}, engine="/g") == J("/g", "docs", "live-checks")
+
+
 def case_the_node_twin_answers_as_the_python_does() -> None:
     names = [n for n, _, _ in HELPERS]
     script = """

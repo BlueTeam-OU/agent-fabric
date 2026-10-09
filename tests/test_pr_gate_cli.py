@@ -307,11 +307,22 @@ def main() -> int:
         out = run("43")[1]
         check("a number lists that PR whoever opened it", has(r"^#43", out) and not has(r"^#42", out), out)
         put("closed.json", json.dumps([{"number": 40, "title": "old", "headRefName": "develop-qzapp/me/fix/old",
-                                        "headRefOid": "0" * 40, "baseRefName": "main", "state": "MERGED"}]))
-        rc, out = run("40", "43")
-        check("a merged PR given by number is said and skipped, never gated",
-              rc == 0 and "#40 is MERGED — not at any gate; skipped" in out and not has(r"^#40", out)
-              and has(r"^#43", out), f"rc={rc}\n{out}")
+                                        "headRefOid": "0" * 40, "baseRefName": "main", "state": "MERGED"},
+                                       {"number": 41, "title": "dropped", "headRefName": "develop-qzapp/me/fix/dropped",
+                                        "headRefOid": "0" * 40, "baseRefName": "main", "state": "CLOSED"}]))
+        rc, out = run("40", "41", "43")
+        # Owner's decision of 2026-10-09 (request 01a12005): a merged PR is a row of its own, so a
+        # landing is reported with counts; a closed-unmerged one is skipped as before.
+        check("a merged PR given by number is one MERGED row, never gated; with no merge commit its commits cannot be counted",
+              rc == 0 and has(r"^#40  develop-qzapp/me \(me\)  commits=cannot be counted  state=MERGED", out)
+              and "MERGED — not at any gate" in out and not has(r"^#40.*checks=", out) and has(r"^#43", out), f"rc={rc}\n{out}")
+        check("a closed-unmerged PR given by number is said and skipped, never gated",
+              "#41 is CLOSED — not at any gate; skipped" in out and not has(r"^#41", out), f"rc={rc}\n{out}")
+        put("graphql_fail", "")
+        rc, out = run("40")
+        check("a MERGED row reads nothing from GitHub's graphql: it answers while that read fails",
+              rc == 0 and has(r"^#40 .*state=MERGED", out), f"rc={rc}\n{out}")
+        drop("graphql_fail")
         rc, out = run("42abc")
         check("a non-numeric argument is a usage error, not a silently dropped PR", rc == 2, f"rc={rc}\n{out}")
         rc, out = run("999")

@@ -93,6 +93,7 @@ import sys
 HERE = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
 import git  # noqa: E402
+import roots  # noqa: E402
 from guards import common, contributors  # noqa: E402
 from guards.common import Refused, err, say  # noqa: E402
 
@@ -157,7 +158,7 @@ def is_fabric_itself(top: str, base: str) -> bool:
     tree alone, as the bash did, a branch that deleted the file narrowed the
     check to .agent-fabric/** and its other commits passed with no trailer
     (review of #72). A git that cannot say reads as the stricter scope."""
-    if os.path.isfile(os.path.join(top, "policies", "authority.json")):
+    if os.path.isfile(roots.policy("authority.json", root=top)):
         return True
     try:
         r = git.run(top, "cat-file", "-e", f"{base}:policies/authority.json", check=False)
@@ -172,8 +173,9 @@ def owner_role_of(top: str, env: dict[str, str], base: str) -> str:
         shown = git.run(top, "show", f"{base}:policies/authority.json", check=False)
         role = common.role_of(shown.stdout) if shown.returncode == 0 else None
         return role or common.DEFAULT_ROLE
-    for f in (os.path.join(env.get("AGENT_FABRIC_ROOT") or os.path.join(top, "..", "agent-fabric"),
-                           "policies", "authority.json"),):
+    # The guard's own environment, so an exported operator's authority.json is the one read.
+    for f in (roots.policy("authority.json", environ=env,
+                           engine=env.get("AGENT_FABRIC_ROOT") or os.path.join(top, "..", "agent-fabric")),):
         if not os.path.isfile(f):
             continue
         try:

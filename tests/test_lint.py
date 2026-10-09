@@ -1136,6 +1136,31 @@ def case_the_repository_is_one_license() -> None:
         assert code == 1 and "lives in the project's repository" in out, f"project knowledge here passed:\n{out}"
 
 
+def case_every_project_names_a_defined_client() -> None:
+    """ADR-045 §5 rule 5: a working copy resolves remote -> project ->
+    client, so a project's client must be one projects/clients.json
+    defines; a tree with neither predates clients and is not judged."""
+    registry = {"projects": {"agent-fabric": {"license": "Apache-2.0", "client": "self"},
+                             PROJECT: {"license": "Apache-2.0", "client": "acme"}}}
+    with tempfile.TemporaryDirectory() as root:
+        fabric = make_base(root)
+        _write_license_layout(fabric, registry, REUSE_OK)
+        write(os.path.join(fabric, "projects", "clients.json"),
+              json.dumps({"version": 1, "clients": {"self": {}, "acme": {}}}))
+        code, out = run_lint(fabric)
+        assert code == 0, f"defined clients were refused:\n{out}"
+        write(os.path.join(fabric, "projects", "clients.json"), json.dumps({"version": 1, "clients": {"self": {}}}))
+        code, out = run_lint(fabric)
+        assert code == 1 and "names client 'acme', which projects/clients.json does not define" in out, out
+        os.remove(os.path.join(fabric, "projects", "clients.json"))
+        code, out = run_lint(fabric)
+        assert code == 1 and "names client 'self'" in out, f"a deleted clients.json passed:\n{out}"
+        _write_license_layout(fabric, {"projects": {"agent-fabric": {"license": "Apache-2.0", "client": "self"},
+                                                    PROJECT: {"license": "Apache-2.0"}}}, REUSE_OK)
+        code, out = run_lint(fabric)
+        assert code == 1 and "project 'demo' names no client" in out, f"a project with no client passed:\n{out}"
+
+
 def case_the_class_list_a_reader_sees_is_the_real_one() -> None:
     """README.md and CLAUDE.md spell out the capability classes; each list
     must be exactly what routing/capabilities.json defines. The README
@@ -2240,6 +2265,7 @@ def main() -> int:
         case_model_profiles_unknown_role_is_refused,
         case_model_profiles_schema_is_enforced,
         case_the_repository_is_one_license,
+        case_every_project_names_a_defined_client,
         case_the_class_list_a_reader_sees_is_the_real_one,
         case_a_skill_carries_rules_not_occasions,
         case_the_host_registry_is_one_host_per_id_and_placements_are_known,
