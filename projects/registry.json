@@ -53,10 +53,14 @@
       "client": "blueteam",
       "title": "agent-fabric, the control plane itself",
       "remotes": [
-        "git@github.com:gzapi-org/agent-fabric.git",
-        "https://github.com/gzapi-org/agent-fabric",
         "git@github.com:BlueTeam-OU/agent-fabric.git",
-        "https://github.com/BlueTeam-OU/agent-fabric"
+        "https://github.com/BlueTeam-OU/agent-fabric",
+        "git@github.com:gzapi-org/agent-fabric.git",
+        "https://github.com/gzapi-org/agent-fabric"
+      ],
+      "moved_from": [
+        "git@github.com:gzapi-org/agent-fabric.git",
+        "https://github.com/gzapi-org/agent-fabric"
       ],
       "default_branch": "main",
       "taxonomy": ".agent-fabric/taxonomy.json",
@@ -179,10 +183,14 @@
       "client": "blueteam",
       "title": "agent-fabric-gateway — the Rust data plane the fabric's sessions reach their models through",
       "remotes": [
-        "git@github.com:gzapi-org/agent-fabric-gateway.git",
-        "https://github.com/gzapi-org/agent-fabric-gateway",
         "git@github.com:BlueTeam-OU/agent-fabric-gateway.git",
-        "https://github.com/BlueTeam-OU/agent-fabric-gateway"
+        "https://github.com/BlueTeam-OU/agent-fabric-gateway",
+        "git@github.com:gzapi-org/agent-fabric-gateway.git",
+        "https://github.com/gzapi-org/agent-fabric-gateway"
+      ],
+      "moved_from": [
+        "git@github.com:gzapi-org/agent-fabric-gateway.git",
+        "https://github.com/gzapi-org/agent-fabric-gateway"
       ],
       "default_branch": "main",
       "taxonomy": ".agent-fabric/taxonomy.json",
@@ -199,14 +207,20 @@
     },
     "herdr": {
       "client": "blueteam",
-      "title": "herdr — agent-fabric-herdr, gzapi-org's public fork of herdrdev/herdr (renamed from gzapi-org/herdr on 2026-10-08; the old spellings stay listed for clones not yet re-pointed), the base of Fleet Deck, the operator's console over the fleet",
+      "title": "herdr — agent-fabric-herdr, BlueTeam-OU's public fork of herdrdev/herdr (renamed from gzapi-org/herdr on 2026-10-08, moved from gzapi-org on 2026-10-09; the old names are its moved_from), the base of Fleet Deck, the operator's console over the fleet",
       "remotes": [
+        "git@github.com:BlueTeam-OU/agent-fabric-herdr.git",
+        "https://github.com/BlueTeam-OU/agent-fabric-herdr",
         "git@github.com:gzapi-org/agent-fabric-herdr.git",
         "https://github.com/gzapi-org/agent-fabric-herdr",
         "git@github.com:gzapi-org/herdr.git",
-        "https://github.com/gzapi-org/herdr",
-        "git@github.com:BlueTeam-OU/agent-fabric-herdr.git",
-        "https://github.com/BlueTeam-OU/agent-fabric-herdr"
+        "https://github.com/gzapi-org/herdr"
+      ],
+      "moved_from": [
+        "git@github.com:gzapi-org/agent-fabric-herdr.git",
+        "https://github.com/gzapi-org/agent-fabric-herdr",
+        "git@github.com:gzapi-org/herdr.git",
+        "https://github.com/gzapi-org/herdr"
       ],
       "default_branch": "master",
       "taxonomy": ".agent-fabric/taxonomy.json",
@@ -224,10 +238,14 @@
       "client": "blueteam",
       "title": "radicle-spike — whether Radicle can carry the fleet's forge (a local seed, agent-fabric mirrored, replication and reachability measured)",
       "remotes": [
-        "git@github.com:gzapi-org/radicle-spike.git",
-        "https://github.com/gzapi-org/radicle-spike",
         "git@github.com:BlueTeam-OU/radicle-spike.git",
-        "https://github.com/BlueTeam-OU/radicle-spike"
+        "https://github.com/BlueTeam-OU/radicle-spike",
+        "git@github.com:gzapi-org/radicle-spike.git",
+        "https://github.com/gzapi-org/radicle-spike"
+      ],
+      "moved_from": [
+        "git@github.com:gzapi-org/radicle-spike.git",
+        "https://github.com/gzapi-org/radicle-spike"
       ],
       "default_branch": "main",
       "taxonomy": ".agent-fabric/taxonomy.json",

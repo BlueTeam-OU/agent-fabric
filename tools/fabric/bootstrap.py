@@ -656,6 +656,42 @@ class Bootstrap:
         else:
             say(f"  =  {self.root}: core.hooksPath = {HOOKS_REL}")
 
+    def repoint(self, wc: str, pid: str, registry: dict) -> None:
+        # 5a. A repository that moved (projects/registry.json `moved_from`, the
+        #     names it had) is fetched and read through GitHub's redirect, but an
+        #     API write through the old name fails with HTTP 307 (2026-10-09:
+        #     four repositories went from gzapi-org to BlueTeam-OU). An origin
+        #     naming a moved_from remote takes the project's current remote of
+        #     the same scheme, so every account's clone follows on its upgrade
+        #     and no session has to rewrite a remote itself.
+        entry = (registry.get("projects") or {}).get(pid) or {}
+        moved = {workingcopy.canonical_remote(u) for u in entry.get("moved_from") or []}
+        origin = self.git_get(wc, "remote.origin.url")
+        if not origin or workingcopy.canonical_remote(origin) not in moved - {None}:
+            return
+        scheme = (workingcopy.parse_remote(origin) or {}).get("scheme")
+        current = [u for u in entry.get("remotes") or []
+                   if workingcopy.canonical_remote(u) not in moved]
+        # Same scheme or none: an ssh clone set to https (or back) would start
+        # asking for credentials it never needed.
+        target = next((u for u in current if (workingcopy.parse_remote(u) or {}).get("scheme") == scheme), None)
+        if not target:
+            warn(f"  !  {wc} ({pid}): origin {origin} names a moved repository, and the registry lists no "
+                 f"current {scheme} remote for it; left as it is")
+            self.failed += 1
+            return
+        if not self.dry_run:
+            try:
+                self.git_set(wc, "remote.origin.url", target)
+            except Stop as e:
+                # One copy that cannot be re-pointed (an origin with two url values,
+                # a locked config) is that copy's failure; the run goes on.
+                warn(f"  !  {wc} ({pid}): origin not re-pointed ({e.message}); left as it is")
+                self.failed += 1
+                return
+        say(f"  +  {wc} ({pid}): origin {origin} -> {target} (moved)")
+        self.changed += 1
+
     def working_copy_hooks(self) -> list[str]:
         # 5. The same hooks in every registered working copy beside this checkout:
         #    they carry the attribution ban and the .agent-fabric/ fence (only a
@@ -665,6 +701,17 @@ class Bootstrap:
         hooks_abs = os.path.join(self.root, HOOKS_REL)
         own_common = self.common_dir(self.root)
         trusted = [self.projects, self.root]
+        try:
+            registry = workingcopy.load_registry(roots.projects_registry(engine=self.root))
+            self_pid = workingcopy.resolve(self.root, registry).get("project") or ""
+            if self_pid:
+                self.repoint(self.root, self_pid, registry)
+        except SystemExit as e:
+            warn(f"  !  {self.root}: {e.code}; its origin left as it is")
+            self.failed += 1
+        except Exception as e:  # noqa: BLE001 — the checkout's origin is best effort, said
+            warn(f"  !  {self.root}: origin not checked ({type(e).__name__}: {e})")
+            self.failed += 1
         try:
             names = [n for n in os.listdir(self.projects)
                      if not n.startswith(".") and os.path.isdir(os.path.join(self.projects, n))]
@@ -688,6 +735,7 @@ class Bootstrap:
                 continue
             if not pid:
                 continue
+            self.repoint(wc, pid, registry)
             trusted.append(wc)
             # A linked worktree of this checkout (a contributor's branch, as
             # python-dev's remit has it) shares the checkout's config: an
