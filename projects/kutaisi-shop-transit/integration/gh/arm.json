@@ -8,7 +8,8 @@
       "requirements.txt",
       ".gitignore",
       "output/shops_transit_map.html",
-      "output/shops_transit_map_categories.html"
+      "output/shops_transit_map_categories.html",
+      ".claude/commands/run.md"
     ]
   },
   "waiver_role": null

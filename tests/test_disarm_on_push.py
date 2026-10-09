@@ -3,7 +3,7 @@
 workflow as it is and run under bash against a fake gh on PATH, so the
 case and the workflow cannot drift apart. A push takes auto-merge off
 only an arming older than the push; an unarmed PR and an arming of the
-new head are left alone. Also the trigger and the one write permission.
+new head are left alone. Also the trigger and the two write permissions.
 Plain script: prints ok/FAIL, exit 1 on any failure."""
 from __future__ import annotations
 
@@ -31,10 +31,12 @@ for a in "$@"; do
 done
 case "$q" in
   *"query("*)
+    # Each field only when the query asks for it, as GitHub answers.
+    id='null'; [[ "$q" == *"pullRequest(number:\$n){id "* ]] && id='"PR_NODE"'
     if [[ "$q" == *"autoMergeRequest{enabledAt}"* && -n "${FAKE_ENABLED_AT:-}" ]]; then
-      doc='{"data":{"repository":{"pullRequest":{"id":"PR_NODE","autoMergeRequest":{"enabledAt":"'"$FAKE_ENABLED_AT"'"}}}}}'
+      doc='{"data":{"repository":{"pullRequest":{"id":'"$id"',"autoMergeRequest":{"enabledAt":"'"$FAKE_ENABLED_AT"'"}}}}}'
     else
-      doc='{"data":{"repository":{"pullRequest":{"id":"PR_NODE","autoMergeRequest":null}}}}'
+      doc='{"data":{"repository":{"pullRequest":{"id":'"$id"',"autoMergeRequest":null}}}}'
     fi
     if [[ -n "$jqx" ]]; then printf '%s' "$doc" | jq -r "$jqx"; else printf '%s\n' "$doc"; fi ;;
   *) : ;;
@@ -99,8 +101,8 @@ def main() -> int:
     text = open(WORKFLOW).read()
     check("on a pull request's synchronize only", re.search(r"pull_request:\n\s+types: \[synchronize\]", text) is not None)
     perms = re.search(r"\npermissions:\n((?:  .*\n)+)", text)
-    check("pull-requests: write and contents: read, nothing else",
-          perms is not None and sorted(perms.group(1).split()) == sorted(["contents:", "read", "pull-requests:", "write"]),
+    check("pull-requests: write and contents: write (disabling auto-merge needs both), nothing else",
+          perms is not None and sorted(perms.group(1).split()) == sorted(["contents:", "write", "pull-requests:", "write"]),
           perms.group(1) if perms else "no permissions block")
     want_if = ("github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]'"
                " && github.event.pull_request.user.login != 'dependabot[bot]'")

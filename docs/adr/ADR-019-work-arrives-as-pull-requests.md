@@ -184,7 +184,7 @@ not on a pipe's exit status.
   `tests/run.sh`, `policies/`); CodeQL's default setup and secret scanning
   are the GitHub-side exceptions, and `github-repo-settings.sh` sets
   neither. The check names a PR reports are per matrix leg —
-  `guards-and-suites (python, 3.12, 22)` and its siblings, `static`,
+  `guards-and-suites (python, 3.13, 20)` and its siblings, `static`,
   `platform-smoke (…)`, cut by GitHub past a length — so the ruleset
   requires only `ci-ok`, the job that needs them all, and a leg renamed
   or added changes nothing there.

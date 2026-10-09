@@ -12,8 +12,13 @@ on:
   pull_request:
     types: [synchronize]
 
+# Auto-merge is a write to the pull request's merge, so the token needs
+# contents: write as well: with pull-requests: write alone GitHub refuses
+# disablePullRequestAutoMerge ("Resource not accessible by integration",
+# live on #139, 2026-10-09). The job writes nothing else: one mutation and
+# one comment.
 permissions:
-  contents: read
+  contents: write
   pull-requests: write
 
 concurrency:
