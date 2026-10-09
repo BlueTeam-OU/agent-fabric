@@ -200,6 +200,7 @@ import os
 import pwd
 import re
 import shutil
+import socket
 import stat
 import subprocess
 import sys
@@ -797,8 +798,6 @@ class Bootstrap:
         #    Restart= brings it back).
         before = self.changed
         unit = self.agentd_unit()
-        if unit is None:
-            return
         self.put(os.path.join(self.units, f"{UNIT}.service"), unit)
         if self.dry_run:
             return
@@ -817,32 +816,55 @@ class Bootstrap:
                 run_quiet(["systemctl", "--user", "restart", UNIT])
         say(f"  *  {UNIT}: {answer(['systemctl', '--user', 'is-active', UNIT])} (systemctl --user status {UNIT})")
 
-    def agentd_unit(self) -> bytes | None:
-        """The control agent's unit for this login, as the selector says; None
-        when it cannot be decided, said on stderr and counted NOT written.
-        Refusing leaves whatever unit the account has: a guess would be a
-        unit that may not start, and an account without its control agent is
-        one the coordinator can no longer reach to repair it."""
+    def agentd_unit(self) -> bytes:
+        """The control agent's unit for this login, as the selector says.
+        Python only when everything it needs is here: a sound selector, the
+        pinned interpreter, and, for a login the selector lists, that login
+        placed on this host. Anything less writes the Node unit exactly as
+        every account had it, with one warning line saying why: a unit that
+        may not start would leave the account without the control agent the
+        coordinator reaches it by, and this is not a failure of the run."""
         template = self.src(f"runtime/control/{UNIT}.service")
         try:
             raw = _read(template)
         except OSError as e:
             raise Stop(1, f"bootstrap: install: cannot read {template}: {e.strerror or e}") from None
+        impl, why = "node", ""
         try:
-            impl = agentd_unit.implementation(agentd_unit.load(self.root), login())
-            unit = raw if impl == "node" else agentd_unit.unit_text(raw.decode("utf-8"), impl).encode("utf-8")
-            if impl == "python" and not os.access(agentd_unit.FABRIC_PYTHON, os.X_OK):
-                raise ValueError(f"python selected, and {agentd_unit.FABRIC_PYTHON} is not here "
-                                 "(as root: tools/fabric/python_pin.py install)")
-        except (ValueError, UnicodeDecodeError) as e:
-            warn(f"  !  {UNIT}: {e} — the unit left as it is")
-            self.failed += 1
-            return None
+            doc = agentd_unit.load(self.root)
+            impl = agentd_unit.implementation(doc, login())
+            if impl == "python":
+                why = self.python_refusal(doc)
+                if why:
+                    impl = "node"
+        except ValueError as e:
+            why = str(e)
+        if why:
+            warn(f"  !  {UNIT}: python not used, the Node unit written: {why}")
+        unit = raw if impl == "node" else agentd_unit.unit_text(raw.decode("utf-8"), impl).encode("utf-8")
         # Said in a dry run, and whenever the unit is not the one every account
         # had before the cutover; a node run's lines stay as they were.
         if self.dry_run or impl != "node":
             say(f"  *  {UNIT}.service runs {impl} ({agentd_unit.SELECTOR_REL})")
         return unit
+
+    def python_refusal(self, doc: dict) -> str:
+        """Why python cannot run here; "" when it can. The placement check
+        applies to a login the selector lists: its entry means that account
+        on the host it was provisioned on, and the same login name may exist
+        on another host that has not been cut over."""
+        if not os.access(agentd_unit.FABRIC_PYTHON, os.X_OK):
+            return f"{agentd_unit.FABRIC_PYTHON} is not executable (as root: tools/fabric/python_pin.py install)"
+        if login() in doc.get("python", []):
+            here = socket.gethostname().split(".")[0]
+            try:
+                with open(os.path.join(self.root, "runtime", "hosts", "registry.json"), encoding="utf-8") as fh:
+                    placed = json.load(fh).get("placement", {}).get(login())
+            except (OSError, ValueError, AttributeError) as e:
+                return f"runtime/hosts/registry.json cannot be read for the placement ({type(e).__name__})"
+            if placed != here:
+                return f"{login()} is placed on {placed!r} in runtime/hosts/registry.json, this host is {here!r}"
+        return ""
 
     def relay(self) -> None:
         # 6b. The GZCoord relay as a user unit — ONLY on the account that hosts
