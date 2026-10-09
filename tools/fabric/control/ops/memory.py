@@ -28,6 +28,9 @@ from . import util
 # (harvest_memory.CREDENTIAL_PATTERNS), so no secret reaches the channel;
 # a memory directory with no working copy beside it, or with two, is
 # named and left where it is.
+# The harness keeps an account's per-project memory in <slug>/memory under its own
+# projects directory: the account's, not the operator's instance data (roots.py).
+HARNESS_MEMORY = "memory"
 MEMORY_PART_BYTES = 90 * 1024
 HARVEST_TIMEOUT_S = 120
 HARVEST_MAX_BYTES = 64 * 1024 * 1024
@@ -77,7 +80,7 @@ def memory_dirs(home: str | None = None, projects_dir: str | None = None, fabric
     fabric_here = os.path.isdir(fabric)
     out: list[dict] = []
     for slug in slugs:
-        memory = os.path.join(root, slug, "memory")
+        memory = os.path.join(root, slug, HARNESS_MEMORY)
         try:
             n = len([f for f in os.listdir(memory) if f.endswith(".md") and f != "MEMORY.md"])
         except OSError:

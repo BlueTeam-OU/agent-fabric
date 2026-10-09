@@ -8,7 +8,6 @@ from __future__ import annotations
 import errno
 import json
 import os
-import shutil
 import subprocess
 import sys
 import tempfile
@@ -469,10 +468,10 @@ class Accounts(Base):
 class Presence(Base):
     def test_a_session_is_a_claude_process_that_is_not_the_daemons_own_child(self):
         # The binding's role is checked against the catalogue (instance data, ADR-045): the operator
-        # tree of this case is a copy of this checkout's, whatever AGENT_FABRIC_OPERATOR the run had.
+        # tree of this case is a catalogue of its own, whatever AGENT_FABRIC_OPERATOR the run had.
         operator = self.scratch("presence-operator-")
-        os.makedirs(os.path.join(operator, "identities", "roles"))
-        shutil.copyfile(os.path.join(HERE, "identities", "roles", "catalog.json"), os.path.join(operator, "identities", "roles", "catalog.json"))
+        write(os.path.join(operator, "identities", "roles", "catalog.json"), json.dumps(
+            {"version": 1, "roles": [{"id": "web-dev", "title": "Web developer"}, {"id": "db-admin", "title": "DB admin"}]}))
         saved = os.environ.get("AGENT_FABRIC_OPERATOR")
         os.environ["AGENT_FABRIC_OPERATOR"] = operator
         self.addCleanup(lambda: os.environ.__setitem__("AGENT_FABRIC_OPERATOR", saved) if saved is not None else os.environ.pop("AGENT_FABRIC_OPERATOR", None))

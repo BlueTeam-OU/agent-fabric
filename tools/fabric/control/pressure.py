@@ -49,7 +49,7 @@ def sample(proc: str = "/proc", now: Callable[[], float] = _now_ms) -> dict:
                 return fh.read()
         except OSError:
             return None
-    psi = read(os.path.join("pressure", "memory"))
+    psi = read("pressure/memory")   # the kernel's /proc/pressure/memory, not instance data
 
     def avg10(kind: str) -> float | int | None:
         m = re.search(rf"^{kind} avg10=(\d+(?:\.\d+)?) ", psi, re.M | re.A) if psi else None
