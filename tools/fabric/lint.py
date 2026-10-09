@@ -142,7 +142,9 @@ def arm_boundary_findings(root: str, base_ref: str = "origin/main") -> list[str]
     for rel in sorted(r for r in _tracked(root)
                       if re.fullmatch(r"projects/[^/]+/integration/gh/arm\.json", r)):
         try:
-            doc = json.load(open(os.path.join(root, rel), encoding="utf-8"))
+            # The tracked list names the project; its integration/ is instance data (ADR-045).
+            project = rel.split("/")[1]
+            doc = json.load(open(roots.project_integration(project, "gh", "arm.json", engine=root), encoding="utf-8"))
             b = doc["boundary"]
             paths = re.compile(b["paths"], re.I)
             exempt = re.compile(b["exempt"]) if b.get("exempt") else None

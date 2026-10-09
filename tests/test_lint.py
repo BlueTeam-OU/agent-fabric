@@ -1673,6 +1673,40 @@ def case_every_registered_project_declares_an_arm_json() -> None:
         assert lint.arm_declared_findings(root) == [], "an unreadable registry is reported elsewhere"
 
 
+def case_instance_files_are_read_from_the_operator_tree() -> None:
+    """An exported AGENT_FABRIC_OPERATOR outranks the engine tree for a
+    project's arm.json and for the committed keys (ADR-045)."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("fabric_lint_under_test", LINT)
+    lint = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(lint)
+    from fabric_lint_rules import docs
+    with tempfile.TemporaryDirectory() as root:
+        engine, operator = os.path.join(root, "engine"), os.path.join(root, "operator")
+        g = lambda *a: subprocess.run(["git", "-C", engine, *a], check=True, capture_output=True, env=git_env())
+        good = json.dumps({"boundary": {"paths": "^src/", "exempt": "^docs/", "cases": ["src/a.rs"]}})
+        write(os.path.join(engine, "projects", "demo", "integration", "gh", "arm.json"), good)
+        g("init", "-q", "-b", "main")
+        g("add", "-A")
+        write(os.path.join(operator, "projects", "demo", "integration", "gh", "arm.json"), "{}")
+        write(os.path.join(operator, "identities", "keys", "lineage.json"), "[]")
+        saved = os.environ.get("AGENT_FABRIC_OPERATOR")
+        try:
+            os.environ.pop("AGENT_FABRIC_OPERATOR", None)
+            assert lint.arm_boundary_findings(engine, base_ref="no-such-ref") == [], "the engine's own arm.json is usable"
+            os.environ["AGENT_FABRIC_OPERATOR"] = operator
+            got = lint.arm_boundary_findings(engine, base_ref="no-such-ref")
+            assert any("not a usable arm.json" in f for f in got), ("the operator's arm.json was not the one read", got)
+            if shutil.which("gpg"):
+                got = docs.key_lineage_findings(engine)
+                assert any("lineage.json" in f for f in got), ("the operator's keys were not the ones verified", got)
+        finally:
+            if saved is None:
+                os.environ.pop("AGENT_FABRIC_OPERATOR", None)
+            else:
+                os.environ["AGENT_FABRIC_OPERATOR"] = saved
+
+
 def case_bash_over_150_lines_needs_the_allowlist() -> None:
     """ADR-040 §5 rule 2: a tracked bash script over 150 lines is a finding
     unless the allowlist names it; an entry whose script is gone or short
@@ -2269,6 +2303,7 @@ def main() -> int:
         case_fabric_ref_is_one_full_commit_id,
         case_quoted_description_round_trips,
         case_the_callers_operator_is_not_part_of_a_fixture,
+        case_instance_files_are_read_from_the_operator_tree,
         case_payload_is_exempt,
         case_hygiene_still_runs_over_payload,
         case_secrets_are_refused_by_shape,

@@ -742,4 +742,5 @@ def key_lineage_findings(root: str) -> list[str]:
         os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "secretstore", "lineage.py"))
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
-    return mod.verify(root)
+    # Keys are instance data (ADR-045): verify takes the tree that holds identities/keys.
+    return mod.verify(roots.operator_root(engine=root))
