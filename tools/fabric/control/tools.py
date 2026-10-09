@@ -17,7 +17,8 @@ that says how old it is beats none, and a missing tool must not look
 present because a later run could not look. The failure is logged once
 per distinct cause, not every hour.
 
-`tools` is an operator read like `jobs`: not public.
+`tools` is an operator read like `jobs`: not public. `tools-install` is a
+signed action, below.
 
 The timers (at start, every hour, on a change of the binding file) are
 the daemon's: ToolsKeeper gives it refresh() and refresh_again().
@@ -27,6 +28,7 @@ from __future__ import annotations
 import errno
 import json
 import os
+import re
 import signal
 import subprocess
 import sys
@@ -198,3 +200,58 @@ def tools(directory: str | None = None, now: Callable[[], float] = lambda: time.
     if not util.truthy(doc) or not isinstance(doc.get("tools") if isinstance(doc, dict) else None, list):
         return {"status": "failed", "error": f"{TOOLS_REPORT} holds no tools list"}
     return {"status": "ok", "age_s": max(0, util.js_round((now() - at) / 1000)), "ok": doc.get("ok") is True, "tools": doc["tools"]}
+
+
+# `tools-install <tool>`, a signed action: the account installs the tool a
+# project pins for it (tools/fabric/tools_install.py has the rules: the
+# pin, the hash, the proof, the working copy that makes it this account's
+# to have). The control agent only runs it and carries the verdict back;
+# it decides nothing about which account gets what, so the Doppler CLI
+# stays off every account the registry does not name it for.
+TOOL_NAME = re.compile(r"[a-z0-9][a-z0-9._-]{0,63}")
+INSTALL_TIMEOUT_MS = 5 * 60 * 1000
+# The operator waits past the account's own bound, so a hung fetch is the account's verdict, not a silence.
+TOOLS_INSTALL_BUDGET_S = INSTALL_TIMEOUT_MS // 1000 + 30
+_INSTALL_STATUS = {"installed": 0, "current": 0, "skipped": 0, "failed": 1, "refused": 2}
+
+
+def parse_install(code: int, stdout: str) -> dict:
+    """A verdict is fabric-tools' document or nothing: exit 1 and 2 carry one on
+    stdout (failed, refused), and a document whose status disagrees with the
+    exit status, or names a status it never gives, is not an answer. Only the
+    keys the account sent as strings are in the reply, each cut at 300."""
+    try:
+        doc = json.loads(stdout, parse_constant=util.reject_constant)
+    except ValueError:
+        return {"status": "failed", "reason": f"fabric-tools --install exited {code} and printed no verdict"}
+    status = doc.get("status") if isinstance(doc, dict) else None
+    if not isinstance(status, str) or _INSTALL_STATUS.get(status) != code:
+        return {"status": "failed", "reason": f"fabric-tools --install exited {code} with a verdict that does not agree"}
+    out: dict[str, Any] = {"status": status}
+    for k in ("tool", "version", "path", "reason"):
+        if isinstance(doc.get(k), str):
+            out[k] = doc[k][:300]
+    return out
+
+
+def tools_install(request: Any, root: str | None = None, run: Callable[..., Any] = util.run_bounded,
+                  home: str | None = None, timeout_ms: int = INSTALL_TIMEOUT_MS) -> dict:
+    root = _CODE_ROOT if root is None else root
+    home = os.path.expanduser("~") if home is None else home
+    a = request.get("args") if isinstance(request, dict) else None
+    if not (isinstance(a, dict) and list(a) == ["tool"] and isinstance(a["tool"], str) and TOOL_NAME.fullmatch(a["tool"])):
+        return {"status": "refused", "reason": "tools-install takes one argument, a tool name"}
+    try:
+        r = run([os.path.join(root, "bin", "fabric-tools"), "--install", a["tool"], "--json"], cwd=home,
+                env={**os.environ, "HOME": home}, timeout=timeout_ms / 1000, max_bytes=MAX_BUFFER)
+        return parse_install(0, util.decode(r.stdout))
+    except subprocess.TimeoutExpired:
+        return {"status": "failed", "reason": f"fabric-tools --install did not finish within {util.whole(timeout_ms / 1000)} s"}
+    except util.OutputOverflow:
+        return {"status": "failed", "reason": f"fabric-tools --install printed more than {MAX_BUFFER // 1048576} MiB"}
+    except subprocess.CalledProcessError as e:
+        if e.returncode < 0:
+            return {"status": "failed", "reason": f"fabric-tools --install was killed by {signal.Signals(-e.returncode).name}"}
+        return parse_install(e.returncode, util.decode(e.output))
+    except OSError as e:
+        return {"status": "failed", "reason": f"fabric-tools could not run ({errno.errorcode.get(e.errno or 0) or e})"}

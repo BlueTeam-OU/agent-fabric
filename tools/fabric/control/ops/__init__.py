@@ -53,7 +53,7 @@ from .activity import (script_counts, langid_cmd, languages, recall_kind, recall
 from .memory import MEMORY_PART_BYTES, memory_slug, memory_dirs, memory  # noqa: F401
 
 OPS = ["ping", "identity", "usage", "keys", "fabric", "session", "script", "recall", "tokens", "memory", "host", "disk",
-       "accounts", "upgrade", "secrets-sync", "status", "presence", "jobs", "jobs-add", "tools", "local", "local-prune",
+       "accounts", "upgrade", "secrets-sync", "status", "presence", "jobs", "jobs-add", "tools", "tools-install", "local", "local-prune",
        "secrets-selftest", "pool-add", "pool-list", "pool-claim"]
 
 # Answered for any placed account, not only an operator: whether a session

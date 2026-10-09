@@ -42,6 +42,10 @@ class Base(unittest.TestCase):
         os.chmod(f, 0o755)
         return root
 
+    def read(self, file: str) -> str:
+        with open(file, encoding="utf-8") as fh:
+            return fh.read()
+
     def quiet(self):
         said: list[str] = []
         return said, said.append
@@ -112,11 +116,11 @@ class Keeper(Base):
         nxt: list[dict] = [{"doc": DOC}]
         k = T.ToolsKeeper(run=lambda: nxt[0], file=file, log=log)
         k.refresh()
-        before = open(file, encoding="utf-8").read()
+        before = self.read(file)
         nxt[0] = {"error": "fabric-tools exited 127"}
         self.assertEqual(k.refresh(), {"status": "kept", "error": "fabric-tools exited 127"})
         k.refresh()
-        self.assertEqual(open(file, encoding="utf-8").read(), before, "the old report stays")
+        self.assertEqual(self.read(file), before, "the old report stays")
         self.assertEqual(len(said), 1, said)
         nxt[0] = {"error": "fabric-tools exited 2"}
         k.refresh()
@@ -237,6 +241,90 @@ class Op(Base):
         r = ops.collect("tools", {"tools_opts": {"directory": d}})
         self.assertEqual(r["tools"]["status"], "ok")
         self.assertEqual(list(r), ["tools"])
+
+
+def verdict(status, **extra):
+    return json.dumps({"status": status, "tool": "doppler", **extra})
+
+
+REQ = {"op": "tools-install", "args": {"tool": "doppler"}}
+
+
+class Install(Base):
+    """`tools-install <tool>` (control/tools.py), a port of
+    runtime/control/tests/tools-install.test.mjs less agentd's answer() and
+    fabric-ctl's argument parsing and table (their ports')."""
+
+    def fake_root(self, code: int, out: str) -> str:
+        root = self.scratch("tools-install-root-")
+        os.makedirs(os.path.join(root, "bin"))
+        f = os.path.join(root, "bin", "fabric-tools")
+        with open(f, "w", encoding="utf-8") as fh:
+            fh.write(f"#!/usr/bin/env bash\nprintf '%s\\n' \"$HOME $*\" > \"{root}/called\"\ncat <<'EOF2'\n{out}\nEOF2\nexit {code}\n")
+        os.chmod(f, 0o755)
+        return root
+
+    def test_it_is_an_operator_action_in_ops_and_not_public_bounded_inside_the_action_ttl(self):
+        self.assertIn("tools-install", ops.OPS)
+        self.assertNotIn("tools-install", ops.PUBLIC_OPS)
+        self.assertGreater(T.TOOLS_INSTALL_BUDGET_S, T.INSTALL_TIMEOUT_MS / 1000)
+
+    def test_a_request_that_is_not_one_tool_name_never_runs_anything(self):
+        ran: list = []
+        run = lambda *a, **k: ran.append(1)  # noqa: E731
+        for args in (None, [], {}, {"tool": 5}, {"tool": "../x"}, {"tool": "Doppler"}, {"tool": ""}, {"tool": "doppler", "extra": 1}, {"other": "doppler"}, "doppler", {"tool": "doppler\n"}):
+            self.assertEqual(T.tools_install({"args": args}, run=run)["status"], "refused", args)
+        self.assertEqual(T.tools_install({}, run=run)["status"], "refused")
+        self.assertEqual(ran, [])
+        self.assertTrue(T.TOOL_NAME.fullmatch("doppler") and T.TOOL_NAME.fullmatch("podman-compose") and not T.TOOL_NAME.fullmatch("a b"))
+
+    def test_it_runs_the_accounts_own_bin_fabric_tools_by_argv_as_that_accounts_home(self):
+        root = self.fake_root(0, verdict("installed", version="3.69.0", path="/h/.local/bin/doppler"))
+        home = self.scratch("tools-install-home-")
+        r = T.tools_install(REQ, root=root, home=home)
+        self.assertEqual(r, {"status": "installed", "tool": "doppler", "version": "3.69.0", "path": "/h/.local/bin/doppler"})
+        self.assertEqual(list(r), ["status", "tool", "version", "path"], "key order, and an absent reason is not a key")
+        with open(os.path.join(root, "called"), encoding="utf-8") as fh:
+            self.assertEqual(fh.read().strip(), f"{home} --install doppler --json")
+
+    def test_every_verdict_maps_to_its_exit_status(self):
+        for status, code in (("current", 0), ("skipped", 0), ("failed", 1), ("refused", 2)):
+            r = T.tools_install(REQ, root=self.fake_root(code, verdict(status, reason=f"why {status}")), home=self.scratch("h-"))
+            self.assertEqual((r["status"], r["reason"]), (status, f"why {status}"))
+
+    def test_a_verdict_that_disagrees_with_the_exit_or_is_no_verdict_is_failed_never_installed(self):
+        h = self.scratch("h-")
+        lie = T.tools_install(REQ, root=self.fake_root(1, verdict("installed")), home=h)
+        self.assertEqual(lie["status"], "failed")
+        self.assertRegex(lie["reason"], r"does not agree")
+        self.assertEqual(T.tools_install(REQ, root=self.fake_root(0, verdict("rooted")), home=h)["status"], "failed")
+        none = T.tools_install(REQ, root=self.fake_root(127, "the pinned Python is not installed"), home=h)
+        self.assertEqual(none["status"], "failed")
+        self.assertRegex(none["reason"], r"exited 127 and printed no verdict")
+        self.assertRegex(T.tools_install(REQ, root=self.scratch("no-bin-"), home=h)["reason"], r"could not run")
+        self.assertEqual(T.parse_install(0, verdict("installed"))["status"], "installed")   # the control for the above
+        for doc in ("[1]", "null", '{"status": ["installed"]}', '{"status": "installed", "x": NaN}'):
+            self.assertEqual(T.parse_install(0, doc)["status"], "failed", doc)
+
+    def test_a_run_that_outlives_its_bound_or_is_killed_is_failed_with_the_cause_said(self):
+        root = self.scratch("tools-install-slow-")
+        os.makedirs(os.path.join(root, "bin"))
+        f = os.path.join(root, "bin", "fabric-tools")
+        with open(f, "w", encoding="utf-8") as fh:
+            fh.write("#!/usr/bin/env bash\nsleep 30\n")
+        os.chmod(f, 0o755)
+        r = T.tools_install(REQ, root=root, home=self.scratch("h-"), timeout_ms=200)
+        self.assertEqual(r["status"], "failed")
+        self.assertRegex(r["reason"], r"did not finish within 0\.2 s")
+        self.assertRegex(T.tools_install(REQ, root=self.fake_root(0, ""), home=self.scratch("h-"))["reason"], r"printed no verdict")
+        with open(f, "w", encoding="utf-8") as fh:
+            fh.write("#!/usr/bin/env bash\nkill -9 $$\n")
+        self.assertRegex(T.tools_install(REQ, root=root, home=self.scratch("h-"))["reason"], r"killed by SIGKILL")
+
+    def test_what_the_account_says_is_cut_and_only_strings_travel(self):
+        self.assertEqual(len(T.parse_install(1, verdict("failed", reason="x" * 5000))["reason"]), 300)
+        r = T.parse_install(0, verdict("installed", version=3, path=None, reason={"a": 1}))
+        self.assertEqual(r, {"status": "installed", "tool": "doppler"}, "a field that is not a string is no field")
 
 
 if __name__ == "__main__":
