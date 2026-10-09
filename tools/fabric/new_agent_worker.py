@@ -30,7 +30,7 @@ the others is exit 2. --signing-key-next (finish): the orchestrator imports
 the signing key after this phase, so the closing says it follows rather
 than print the lines a person runs. --via-host (finish): the account is on
 another host than the coordinator's, so the closing's lines reach it through
-bin/fabric-host <id>, never a local sudo. A missing phase:
+fabric-host <id>, never a local sudo. A missing phase:
 USAGE, exit 2; an unknown argument, no login, no role: one line, exit 2;
 --claude without a value: exit 1. Exactly as the bash shifted: a phase
 with too few words keeps them, so `prepare <login>` reports the login as

@@ -13,6 +13,7 @@ import hashlib
 import io
 import json
 import os
+import re
 import shutil
 import signal
 import subprocess
@@ -580,7 +581,8 @@ esac
             put(f"{fk}/reports", "elsewhere\n")
             rc, msg, err, calls = orchestrate("new", "r", "--dry-run")
             check("a host that names itself otherwise is refused before any step",
-                  rc == 1 and "answers as 'elsewhere'" in msg and "prepare" not in calls)
+                  rc == 1 and "answers as 'elsewhere'" in msg and "prepare" not in calls
+                  and re.search(r"\(fabric-host \S+ check\)", msg) and "bin/fabric-host" not in msg)
             os.remove(f"{fk}/reports")
             saved_pwd = na.pwd.getpwuid
             na.pwd.getpwuid = lambda uid: type("P", (), {"pw_name": "root"})()
@@ -617,7 +619,8 @@ esac
                   and "Claude account: acct-one, written (token 0123456789ab)" in err, f"{sc}\n{calls}\n{err}")
             rc, msg, err, calls = orchestrate("new", "r", "--claude-account", "other")
             check("an unknown template: refused before the host is asked", rc == 1 and calls == ""
-                  and "'other' is not a template in this store" in msg, f"{msg}\n{calls}")
+                  and "'other' is not a template in this store (fabric-accounts templates); nothing made" in msg
+                  and "bin/fabric-accounts" not in msg, f"{msg}\n{calls}")
             for body, said in (('[{"account": "acct-one", "token_sha256_12": null}]', "holds no CLAUDE_CODE_OAUTH_TOKEN"),
                                ("not json", "templates could not be read"), ('{"account": "acct-one"}', "could not be read"),
                                ('[{"account": "acct-one", "token_sha256_12": "zz"}]', "a fingerprint that is not one")):

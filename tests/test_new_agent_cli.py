@@ -255,7 +255,8 @@ def main() -> int:
         rc, out = run("some-login", "backend-dev", "--claude-account", "acct-one", "--no-claude-account", "--dry-run")
         ok("…both named: exit 2", rc == 2 and "--claude-account <slug>" in out, out)
         rc, out = run("some-login", "backend-dev", "--claude-account=Acct;x", "--dry-run")
-        ok("…a slug that is not one: exit 2", rc == 2 and "is not an account slug" in out, out)
+        ok("…a slug that is not one: exit 2, and the refusal names fabric-accounts bare",
+           rc == 2 and "is not an account slug" in out and "; fabric-accounts templates)" in out and "bin/fabric-" not in out, out)
         rc, out = run("some-login", "backend-dev", "--claude-account=", "--dry-run")
         ok("…an empty one is named, not taken for none: exit 2", rc == 2 and "is not an account slug" in out, out)
 
@@ -290,7 +291,8 @@ def main() -> int:
         ok("the Debian profile names the missing tool's package and apt-get",
            has(r"^new-agent: 0\. debian: this host lacks .*gh.*: sudo apt-get install", out_deb), out_deb)
         ok("the host is named, and a missing placement is asked for",
-           has(rf"^new-agent: host {re.escape(local)} \(this host\)", out) and 'placement: add "zz-fixture-login"' in out,
+           has(rf"^new-agent: host {re.escape(local)} \(this host\)", out) and 'placement: add "zz-fixture-login"' in out
+           and "(fabric-status on the" in out and "bin/fabric-status" not in out,
            out)
         rc, out = run("some-login", "backend-dev", "--claude", "9.9", "--dry-run")
         ok("--claude takes stable, latest or a full version", rc == 2, out)
