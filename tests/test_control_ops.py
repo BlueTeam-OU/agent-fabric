@@ -9,7 +9,6 @@ of the Python ops' injection points (a `run` called as subprocess.run is, a
 from __future__ import annotations
 
 import base64
-import gzip
 import hashlib
 import json
 import os

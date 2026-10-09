@@ -81,7 +81,7 @@ def run_tools(root: str | None = None, run: Callable[..., Any] = util.run_bounde
                 timeout=timeout_ms / 1000, max_bytes=MAX_BUFFER)
         return parse_run(0, util.decode(r.stdout))
     except subprocess.TimeoutExpired:
-        return {"error": f"fabric-tools did not finish within {timeout_ms // 1000} s"}
+        return {"error": f"fabric-tools did not finish within {util.whole(timeout_ms / 1000)} s"}
     except util.OutputOverflow:
         return {"error": f"fabric-tools printed more than {MAX_BUFFER // 1048576} MiB"}
     except subprocess.CalledProcessError as e:
