@@ -268,6 +268,30 @@ def arm_boundary_findings(root: str, base_ref: str = "origin/main") -> list[str]
                                 "rules leave only with the project (its boundary, cases and records go with the file)")
     return findings
 
+
+def arm_declared_findings(root: str) -> list[str]:
+    """Every project in projects/registry.json has an arm.json. Without one
+    runtime/github/arm.sh refuses to arm any PR of the project ("the security
+    boundary cannot be judged"), which a project learns only when its first
+    PR is ready; arm_boundary_findings above checks the files that exist and
+    never sees the one that was not written."""
+    try:
+        with open(roots.projects_registry(engine=root), encoding="utf-8") as fh:
+            registered = sorted((json.load(fh).get("projects") or {}))
+    except (OSError, ValueError, AttributeError):
+        # An unreadable registry is host_registry_findings' and the
+        # registry's own checks' to report; naming every project missing
+        # from a registry nobody could read would bury that.
+        return []
+    tracked = _tracked(root)
+    if not tracked:
+        return []   # not a git checkout: nothing is tracked, so absence proves nothing
+    declared = {r.split("/")[1] for r in tracked
+                if re.fullmatch(r"projects/[^/]+/integration/gh/arm\.json", r)}
+    return [f"projects/registry.json: project {p!r} has no projects/{p}/integration/gh/arm.json; "
+            "runtime/github/arm.sh refuses to arm a PR of a project whose security boundary it cannot read"
+            for p in registered if p not in declared]
+
 # What a role IS, never a contributor's to commit (ADR-018 §5 rule 8): a rule
 # ending in "/" is a directory, any other one file, as in an entry. The
 # guards and what they import (git.py) or run in CI (the suite runners and
@@ -532,6 +556,7 @@ def main() -> int:
     findings += bash_size_findings(root)
     findings += regex_dollar_findings(root)
     findings += arm_boundary_findings(root)
+    findings += arm_declared_findings(root)
 
     # --- a session started in this clone gets the workspace's hooks ---------
     findings += fabric_settings_findings(root)

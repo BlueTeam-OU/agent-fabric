@@ -1582,6 +1582,31 @@ def case_arm_boundary_cases_only_leave_retired() -> None:
         assert lint.arm_boundary_findings(root, base_ref="no-such-ref") == [], "…and nothing without a base"
 
 
+def case_every_registered_project_declares_an_arm_json() -> None:
+    """A project in projects/registry.json with no arm.json is a finding
+    naming it: arm.sh would refuse every PR of it."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("fabric_lint_under_test", LINT)
+    lint = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(lint)
+    with tempfile.TemporaryDirectory() as root:
+        g = lambda *a: subprocess.run(["git", "-C", root, *a], check=True, capture_output=True, env=git_env())
+        g("init", "-q", "-b", "main")
+        write(os.path.join(root, "projects", "registry.json"),
+              json.dumps({"projects": {"has": {}, "lacks": {}}}))
+        write(os.path.join(root, "projects", "has", "integration", "gh", "arm.json"), "{}")
+        g("add", "-A")
+        got = lint.arm_declared_findings(root)
+        assert len(got) == 1 and "'lacks'" in got[0] and "'has'" not in got[0], ("one project lacks one", got)
+        write(os.path.join(root, "projects", "lacks", "integration", "gh", "arm.json"), "{}")
+        assert any("'lacks'" in f for f in lint.arm_declared_findings(root)), \
+            "an untracked arm.json is not declared: lint reads what is tracked"
+        g("add", "-A")
+        assert lint.arm_declared_findings(root) == [], "every project has one: no finding"
+        write(os.path.join(root, "projects", "registry.json"), "{ not json")
+        assert lint.arm_declared_findings(root) == [], "an unreadable registry is reported elsewhere"
+
+
 def case_bash_over_150_lines_needs_the_allowlist() -> None:
     """ADR-040 §5 rule 2: a tracked bash script over 150 lines is a finding
     unless the allowlist names it; an entry whose script is gone or short
@@ -1993,6 +2018,7 @@ def main() -> int:
         case_decision_records_are_lint_findings,
         case_bash_over_150_lines_needs_the_allowlist,
         case_arm_boundary_cases_only_leave_retired,
+        case_every_registered_project_declares_an_arm_json,
         case_a_cited_fabric_document_must_resolve,
         case_a_committed_agent_key_needs_its_lineage,
         case_a_committed_agent_source_may_not_pin_effort,
