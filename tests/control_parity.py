@@ -59,6 +59,7 @@ HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CONTROL_MJS = os.path.join(HERE, "runtime", "control")
 CONTROL_PY = os.path.join(HERE, "tools", "fabric")
 HOST = "h"
+FIXTURE_OPERATOR = os.path.join(HERE, "tests", "fixtures", "gzcoord-operator")
 ACCOUNTS = ["user", "py", "web"]          # user: the operator; py, web: placed agents
 ROLES = {"user": "fabric-coordinator", "py": "python-dev", "web": "web-dev"}
 TIMEOUT_S = 300
@@ -89,7 +90,10 @@ def build(root: str) -> dict:
     # fixture, so what a side leaves there goes with it.
     env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "LANG": "C.UTF-8", "TZ": "UTC",
            "HOME": home["homes"]["user"], "AGENT_FABRIC_STATE_DIR": state, "AGENT_FABRIC_HOSTS_REGISTRY": registry,
-           "AGENT_FABRIC_ROOT": HERE, "TMPDIR": tmp}
+           "AGENT_FABRIC_ROOT": HERE, "TMPDIR": tmp,
+           # The role catalogue is the operator's instance file: a pool-add case
+           # names a role, and reads this fixture's catalogue, not the checkout's.
+           "AGENT_FABRIC_OPERATOR": FIXTURE_OPERATOR}
     return {"home": home, "env": env}
 
 

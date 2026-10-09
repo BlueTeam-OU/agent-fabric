@@ -57,16 +57,20 @@ def test_a_malformed_key_is_refused() -> None:
             assert f and "operator_key" in " ".join(f), (bad, f)
 
 
-def test_the_committed_key_parses_as_a_daemon_reads_it() -> None:
-    """The registry's own key, through the same parser the daemons use:
-    a key the schema admitted but publicKeyFrom refused would disable every
-    action with a refusal that blames the signature, not the registry."""
-    js = ("import('./runtime/control/agentd.mjs').then(m => console.log(JSON.stringify([...m.operatorKeys('runtime/hosts/registry.json').keys()])))")
-    out = subprocess.run(["node", "-e", js], cwd=ROOT, capture_output=True, text=True, check=True).stdout.strip()
-    reg = json.load(open(os.path.join(ROOT, "runtime", "hosts", "registry.json"), encoding="utf-8"))
-    keyed = sorted(f"{h}/{e.get('operator', 'user')}" for h, e in reg["hosts"].items() if e.get("operator_key"))
-    assert keyed, "no host carries an operator_key: this case would compare two empty lists and exercise no parser"
-    assert sorted(json.loads(out)) == keyed, (out, keyed)
+def test_a_registered_key_parses_as_a_daemon_reads_it() -> None:
+    """A registry's key, through the same parser the daemons use: a key the
+    schema admitted but publicKeyFrom refused would disable every action with
+    a refusal that blames the signature, not the registry. The registry is a
+    fixture holding a key the generator makes: the committed one is the
+    operator's instance file, and lint checks it."""
+    with tempfile.TemporaryDirectory() as tmp:
+        reg = os.path.join(tmp, "registry.json")
+        with open(reg, "w", encoding="utf-8") as fh:
+            json.dump({"version": 1, "placement": {}, "hosts": {"h1": {"operator": "boss", "operator_key": generated_key()},
+                                                                "h2": {}, "h3": {"operator_key": generated_key()}}}, fh)
+        js = "import('./runtime/control/agentd.mjs').then(m => console.log(JSON.stringify([...m.operatorKeys(process.argv[1]).keys()])))"
+        out = subprocess.run(["node", "-e", js, reg], cwd=ROOT, capture_output=True, text=True, check=True).stdout.strip()
+        assert sorted(json.loads(out)) == ["h1/boss", "h3/user"], out
 
 
 def test_keygen_writes_a_registry_the_schema_admits() -> None:

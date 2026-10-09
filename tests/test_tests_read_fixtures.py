@@ -32,12 +32,11 @@ from test_roots_seam import SEQUENCES  # noqa: E402
 
 SCANNED = ("tests", "communication/gzcoord/tests")
 
-# file -> why it still reads the live tree. The first three check a fact of
+# file -> why it still reads the live tree. The first ones check a fact of
 # the operator's real data on purpose. The rest are not yet moved to
 # fixtures (fabric-coordinator's request 01a11d15-2dc2-7cc9-8e7b-770a36dcf895)
 # and leave this list as they move; it only shrinks.
 DELIBERATE = {
-    "tests/test_hosts_registry.py": "the committed operator key parses as the daemons read it: the operator's own data",
     "tests/test_fabric_status.py": "bin/fabric-status is off the committed bash allowlist: a fact of this tree",
     "tests/test_launch_prompt.py": "every role of the real catalogue renders under the prompt ceiling: the operator's own roles",
 }
