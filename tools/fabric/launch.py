@@ -555,8 +555,8 @@ def launch(argv: list[str]) -> int:
     if provider == "anthropic" and not SETUP_TOKEN.fullmatch(env.get("CLAUDE_CODE_OAUTH_TOKEN", "")):
         die(f"no long-lived Claude sign-in for {login}: the login's synced record "
             f"({home}/.config/agent-fabric/secrets.env) has no CLAUDE_CODE_OAUTH_TOKEN of a setup-token's shape. "
-            f"The coordinator assigns one (bin/fabric-accounts assign {login} <account>), then "
-            "bin/fabric-secrets sync here. Nothing started.")
+            f"The coordinator assigns one (fabric-accounts assign {login} <account>), then "
+            "fabric-secrets sync here. Nothing started.")
     # The harness's first-run wizard ignores that token: until
     # hasCompletedOnboarding is set it asks for a theme, then a login method,
     # and opens a browser for the /login refused above (web-dev-01, which never
