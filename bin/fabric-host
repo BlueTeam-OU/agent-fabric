@@ -41,7 +41,6 @@ REGISTRY="$("$py" -I -c 'import sys; sys.path.insert(0, sys.argv[1]); import roo
     && [[ -n "$REGISTRY" ]] || die "cannot resolve the hosts registry (tools/fabric/roots.py failed; see above)" 1
 export AGENT_FABRIC_HOSTS_REGISTRY="$REGISTRY"
 case "$1" in
-    -h|--help) usage; exit 0 ;;
     list)
         "$py" -I - "$REGISTRY" <<'PY'
 import json, sys
