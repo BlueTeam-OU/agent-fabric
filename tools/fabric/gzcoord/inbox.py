@@ -30,7 +30,9 @@ CONTRACT, frozen from the Node:
             AGENT_FABRIC_HOLD_DIR, GZCOORD_JOURNAL=off, GZCOORD_RELAY_UNIT,
             GZCOORD_TEST_BUS_ANY=1, XDG_RUNTIME_DIR, HOME,
             GZCOORD_DEFAULT_LOCALE_ONLY
-  stdout    deliveries, the drain's listing, replay/history output, the
+  stdout    deliveries (below one, a `queued as jN: <title>` line for each
+            REQUEST to this login it put on the job list, intake.py), the
+            drain's listing, replay/history output, the
             keyword hit, the watch's relay-down/back lines, the
             journal's held-messages line and, under GZCOORD_JOURNAL=off,
             one bypass warning per page — what the Monitor turns into

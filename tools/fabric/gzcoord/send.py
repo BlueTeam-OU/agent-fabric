@@ -10,10 +10,14 @@ CONTRACT, frozen from the Node:
             AGENT_FABRIC_STATE_DIR), GZCOORD_JOURNAL=off,
             AGENT_FABRIC_FALLBACK_DIR and CLAUDE_PID (the fallback
             reminder), AGENT_FABRIC_JOBS_AUTO_INTAKE=1 (off unless exactly
-            1), GZCOORD_PRESENCE_WAIT_MS (the presence CLI's)
+            1), GZCOORD_PRESENCE_WAIT_MS (the presence CLI's),
+            AGENT_FABRIC_HOSTS_REGISTRY / AGENT_FABRIC_OPERATOR (the hosts
+            registry a REQUEST's job intake reads)
   stdout    `sent seq <n> <TYPE> <id>` and nothing else
   stderr    everything else: the id minted, warnings, refusals, presence,
-            the journal's own lines, fabric-jobs's own lines
+            the journal's own lines, fabric-jobs's own lines, and for a
+            REQUEST to a login (intake.py) one line: `queued as jN on
+            <address>'s job list`, or why it was not
   exit      0 sent (a dry run: validated and resolved); 1 usage or
             unreadable input, or the id could not be written into the
             file; 2 invalid, FROM not this login, an id already sent with
@@ -23,6 +27,11 @@ CONTRACT, frozen from the Node:
             the token refused, or a post whose outcome is unknown (it may
             have been delivered); 4 an addressee with no session, silent, not
             placed, or presence not askable — unless --force
+
+After a REQUEST TO a login is posted by that login's host operator, the
+send may run fabric-ctl (up to two calls, 30 s each) to put the job on the
+addressee's list (intake.py); a failure there is a stderr line and never
+changes the exit status.
 
 The message is normalized (a pasted body carries terminal indentation),
 validated as the last step before it leaves (SPEC §1) — a message that
@@ -226,12 +235,12 @@ def _now_iso() -> str:
     return datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
 
-# The automatic request intake (ADR-037 rule 5): built, tested, and off.
-# Agents ask as they always have and the receiver adds what it takes on
-# with `fabric-jobs add --request`; only under AGENT_FABRIC_JOBS_AUTO_INTAKE=1,
-# which nothing sets, does a REPLY sent here add the message it answers. It
-# cannot tell an undertaking from a decline — one reason it stays off. The
-# send has already succeeded: nothing here fails it.
+# The automatic REPLY intake (ADR-037 rule 5): built, tested, and off. Only
+# under AGENT_FABRIC_JOBS_AUTO_INTAKE=1, which nothing sets, does a REPLY
+# sent here add the message it answers; it cannot tell an undertaking from a
+# decline — one reason it stays off. A REQUEST to a login is another path,
+# always on (intake.py, queue_request below). The send has already
+# succeeded: nothing here fails it.
 JOBS = os.path.join(paths.CHECKOUT, "tools", "fabric", "jobs.py")
 
 
@@ -611,29 +620,30 @@ def main(argv: list[str]) -> int:
             how = f"stopped by {intake['signal']} after 20 s" if intake.get("signal") else f"exit {intake.get('status')}"
             sys.stderr.write(f"fabric-jobs: the job intake of {msg['metadata']['IN-REPLY-TO']} did not complete ({how});"
                              f" add it with fabric-jobs add --request\n")
-    queue_request(msg, who)
+    if not deduplicated:       # a resend: the relay held it already, and so does the list
+        queue_request(msg, who)
     return 0
 
 
 def queue_request(msg: dict, who: dict) -> None:
     """A REQUEST to a login, sent by its host's operator, goes on that
     login's job list too (intake.py): it reaches a session whose watch has
-    lapsed at its next start. The post has succeeded: nothing here fails it."""
+    lapsed at its next start. The post has succeeded: nothing here fails it,
+    whatever it raises is a line."""
     meta = msg.get("metadata") or {}
     if msg.get("type") != "REQUEST" or "/" not in str(meta.get("TO", "")):
         return
     try:
-        with open(paths.roots.hosts_registry(), encoding="utf-8") as fh:
-            hosts = json.load(fh)
-        if not isinstance(hosts, dict):
-            raise ValueError("not a registry")
-    except (OSError, ValueError) as e:
-        sys.stderr.write(f"gzcoord: REQUEST {meta.get('MESSAGE-ID')} was not queued on {meta['TO']}'s list: "
-                         f"the hosts registry could not be read ({e.__class__.__name__})\n")
-        return
-    job = intake.queue_for_addressee(msg, sender=who["agent"], hosts=hosts)
-    if job:
-        print(f"queued as {job} on {meta['TO']}'s job list", file=sys.stderr)
+        try:
+            with open(paths.roots.hosts_registry(), encoding="utf-8") as fh:
+                hosts = json.load(fh)
+        except (OSError, ValueError) as e:
+            raise RuntimeError(f"the hosts registry could not be read ({e.__class__.__name__})") from None
+        job = intake.queue_for_addressee(msg, sender=who["agent"], hosts=hosts)
+        if job:
+            print(f"queued as {job} on {meta['TO']}'s job list", file=sys.stderr)
+    except Exception as e:  # noqa: BLE001
+        sys.stderr.write(f"gzcoord: REQUEST {meta.get('MESSAGE-ID')} was not queued on {meta['TO']}'s list: {e}\n")
 
 
 def run(argv: list[str]) -> int:
