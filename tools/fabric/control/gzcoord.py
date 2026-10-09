@@ -45,7 +45,6 @@ projects configure are addresses, not names.
 from __future__ import annotations
 
 import http.client
-import json
 import math
 import os
 import shlex
@@ -112,6 +111,8 @@ def tls_context() -> ssl.SSLContext:
     """An https relay's: the system's trust and host name check, never below
     TLS 1.2 whatever this Python's default is (code scanning, #132)."""
     ctx = ssl.create_default_context()
+    # Python 3.10+ defaults to 1.2 already: said here so that no default,
+    # and no interpreter older than the pin, decides it.
     ctx.minimum_version = ssl.TLSVersion.TLSv1_2
     return ctx
 
@@ -230,7 +231,8 @@ def api(tok: str, path_and_query: str, relay_url: str | None = None, method: str
         raise late
     if not 200 <= resp.status < 300:
         raise ApiError(f"{path_and_query} -> HTTP {resp.status}", status=resp.status)
-    return json.loads(data.decode("utf-8"))
+    # As JSON.parse reads it: integers as doubles, no NaN (control/js).
+    return js.json_parse(data.decode("utf-8"))
 
 
 def shell_word(text: str) -> str | None:

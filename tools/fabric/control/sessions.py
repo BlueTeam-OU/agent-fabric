@@ -29,14 +29,16 @@ id, no title, no job id.
 
 AN UNREADABLE SESSION STATE (j5; fabric-coordinator INFO 01a11e4e, the
 owner 2026-10-09; python-dev-02's contract, INFO 01a11e4c and
-01a11e4e-f664): new behaviour, not Node's. read_sessions answers [] when
+01a11e4e-f664): the rule both watchers keep since af4cf645. read_sessions answers [] when
 the file is absent (none), and None — unknown — when it is there but
 cannot be read, parsed, or is not {"sessions": {...}}, as resume.py's
 live_sessions reads it. While it is unknown the watcher posts NO state
 record, and logs once when the file goes unreadable and once when it
 reads again: a listener keeps the last good record and reads it unknown
 at STATES_STALE_MS, never a wrong "no sessions" — and nothing a Node
-reader cannot read. (Node's sessions.mjs read both as [] and posted it.)
+reader cannot read. (Before af4cf645 Node's sessions.mjs read both as []
+and posted it.) Bytes that are not UTF-8 make the state file, or the job
+list, unreadable on both sides.
 Saying "unreadable" on the wire is new wire behaviour, and waits until
 the Node is deleted (ADR-040 §7; fabric-coordinator REPLY 01a11ec9-b9e8,
 2026-10-09): then it is its own change, with ctl's reader for it.

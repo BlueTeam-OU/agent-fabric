@@ -48,6 +48,9 @@ const STATES = new Set(['working', 'blocked', 'idle']);
 // stores waits_on only in this shape. The cap keeps a record a record.
 export const MESSAGE_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 export const WAITS_ON_MAX = 64;
+// Bytes that are not UTF-8 make a file unreadable, as the Python port
+// reads them, never a session or an id with U+FFFD in it.
+const utf8 = buf => new TextDecoder('utf-8', { fatal: true }).decode(buf);
 
 /** Whether an entry that records no process is still believed: within
  * NO_PROCESS_FRESH_MS of its `since`. A `since` that is not a time is not. */
@@ -74,7 +77,7 @@ export function alive(pid, start, proc = '/proc', { since, now = Date.now() } = 
  * tools/fabric/resume.py read it so too). */
 export function readSessions(file, { proc = '/proc', now = Date.now(), onStale = () => {} } = {}) {
   let doc;
-  try { doc = JSON.parse(fs.readFileSync(file, 'utf8')); } catch (e) { return e?.code === 'ENOENT' ? [] : null; }
+  try { doc = JSON.parse(utf8(fs.readFileSync(file))); } catch (e) { return e?.code === 'ENOENT' ? [] : null; }
   if (!doc || typeof doc.sessions !== 'object' || doc.sessions === null || Array.isArray(doc.sessions)) return null;
   const sessions = doc.sessions;
   return Object.entries(sessions)
@@ -98,7 +101,7 @@ export function readSessions(file, { proc = '/proc', now = Date.now(), onStale =
 export function waitsOn(file) {
   if (!file) return [];
   let doc;
-  try { doc = JSON.parse(fs.readFileSync(file, 'utf8')); } catch (e) { return e?.code === 'ENOENT' ? [] : null; }
+  try { doc = JSON.parse(utf8(fs.readFileSync(file))); } catch (e) { return e?.code === 'ENOENT' ? [] : null; }
   if (!doc || !Array.isArray(doc.jobs)) return null;
   const ids = doc.jobs.filter(j => j && j.state === 'blocked' && typeof j.waits_on === 'string' && MESSAGE_ID.test(j.waits_on)).map(j => j.waits_on);
   return [...new Set(ids)].sort().slice(0, WAITS_ON_MAX);

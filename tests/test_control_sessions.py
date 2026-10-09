@@ -103,6 +103,9 @@ def main() -> int:
             check(f"{text!r}: unknown", cs.read_sessions(file, proc=proc) is None)
         raw('{"sessions": {}}')
         check('{"sessions": {}}: none', cs.read_sessions(file, proc=proc) == [])
+        with open(file, "wb") as fh:
+            fh.write(b'{"sessions": {"a": {"state": "idle", "since": "x\xff"}}}')
+        check("bytes that are not UTF-8: unknown, as Node's fatal decode reads them", cs.read_sessions(file, proc=proc) is None)
         os.remove(file)
         os.mkdir(file)
         check("a directory where the file should be (a read error, not absent): unknown", cs.read_sessions(file, proc=proc) is None)

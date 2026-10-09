@@ -125,7 +125,14 @@ test('an unreadable session state posts nothing, logs once each way, and posts a
   write({});
   t += 1000; assert.equal(await w.tick(), true, 'readable again: posted at once, though nothing changed');
   assert.deepEqual(logs, [`${file} cannot be read; no state posted until it reads again`, `${file} is readable again`]);
+  fs.writeFileSync(file, '{broken');
+  t += 1000; assert.equal(await w.tick(), false);
+  write({});
+  t += 1000; assert.equal(await w.tick(), true, 'readable again 2 s later, inside the heartbeat, the same as last said: posted at once');
+  assert.equal(posts.length, 3);
   assert.ok(posts.every(p => Array.isArray(p.sessions)), 'nothing on the wire but a list');
+  fs.writeFileSync(file, Buffer.from('{"sessions": {"a": {"state": "idle", "since": "x\xff"}}}', 'latin1'));
+  assert.equal(readSessions(file, { proc }), null, 'bytes that are not UTF-8: unreadable, as the Python reader reads them');
 });
 
 test('a failed post is retried on the next tick and said once', async () => {

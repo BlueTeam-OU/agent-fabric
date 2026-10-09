@@ -270,13 +270,18 @@ def main() -> int:
     held = []
     threading.Thread(target=lambda: held.append(mute.accept()), daemon=True).start()
     t0 = time.monotonic()
+    asked = []
+    real_tls = cg.tls_context
+    cg.tls_context = lambda: asked.append(1) or real_tls()
     try:
         cg.api("tok", "/x", relay_url=f"https://127.0.0.1:{mute.getsockname()[1]}", timeout_s=0.5)
         check("a TLS handshake that is never answered ends at the bound", False)
     except cg.ApiError as e:
         took = time.monotonic() - t0
         check("a TLS handshake that is never answered ends at the bound", e.timed_out is True and took < 0.9, (took, str(e)))
+        check("...through tls_context(), the context with the floor", asked == [1], asked)
     finally:
+        cg.tls_context = real_tls
         for conn_, _ in held:
             conn_.close()
         mute.close()
