@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """runtime/provisioning/rename_history.py — carry an account's Claude Code
 history across a working-copy rename; the Python half of
-rename-working-copy.sh, run AS THE ACCOUNT.
+rename_working_copy.py, run AS THE ACCOUNT.
 
     rename_history.py <home> <login> <old-path> <new-path> <dry:0|1> <identity.py>
 

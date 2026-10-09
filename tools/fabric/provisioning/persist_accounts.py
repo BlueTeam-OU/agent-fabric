@@ -168,7 +168,7 @@ def run(logins: list[str], environ: Mapping[str, str] | None = None) -> int:
     tmpfiles_d = env.get("AGENT_FABRIC_TMPFILES_D") or "/etc/tmpfiles.d"
     loginctl = env.get("AGENT_FABRIC_LOGINCTL") or "loginctl"
     if not logins:
-        _say("usage: persist-accounts.sh <login>...")
+        _say("usage: persist_accounts.py <login>...")
         return 2
     prof = host_platform.profile(host_platform.detect(env))
     platform_dir = os.path.join(ROOT, "runtime", "provisioning", "platform")

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""tests/test_rename_history.py — the Python half of rename-working-copy.sh
+"""tests/test_rename_history.py — the Python half of rename_working_copy.py
 against a throwaway HOME: a merge into an existing history directory
 never overwrites, every rewrite is atomic, and the binding moves through
 identity.update_binding (stamped, locked) rather than a rewrite in

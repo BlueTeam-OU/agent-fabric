@@ -32,7 +32,7 @@ CONTRACT, frozen from the shell
           command is found there (a test fakes them)
   stderr  every line, `new-agent: <what>` (the steps numbered as the
           orchestrator's closing numbers them)
-  exit    0 done; 1 a must failed or a refusal; 2 usage (new_agent_worker.args)
+  exit    0 done; 1 a must failed or a refusal; 2 usage (worker_args)
 """
 from __future__ import annotations
 
@@ -111,12 +111,16 @@ class Worker:
             return 127
 
     def best_effort(self, argv: list[str]) -> None:
-        if self.run(argv) != 0:
+        try:
+            failed = self.run(argv) != 0
+        except (OSError, subprocess.TimeoutExpired):
+            failed = True      # a step that may fail may also not start or not answer
+        if failed:
             self.say(f"warning: {' '.join(argv)} failed; continuing")
 
     # ── as the account, in a login shell ──────────────────────────────
 
-    def as_login_argv(self, argv: list[str], cwd: str | None = None) -> list[str]:
+    def as_login_argv(self, argv: list[str], cwd: str | None = None, *, login_shell: bool = True) -> list[str]:
         """The command as the account, in a LOGIN shell (its profile: what its installers put on PATH). The PATH is
         re-asserted INSIDE the shell: Debian's /etc/profile assigns PATH outright for a non-root login, so what env
         -i set would be gone by the time the command runs (found by the Debian smoke container, which then downloaded
@@ -126,21 +130,23 @@ class Worker:
         env = [f"HOME={self.home}", f"PATH={p}", f"AGENT_FABRIC_PATH={p}"]
         if cwd:
             env.append(f"AGENT_FABRIC_CWD={cwd}")
-        return [*self.sudo, "-n", "-u", self.a.login, "-H", "env", "-i", *env, "bash", "-lc", script, "_", *argv]
+        return [*self.sudo, "-n", "-u", self.a.login, "-H", "env", "-i", *env, "bash", "-lc" if login_shell else "-c", script, "_", *argv]
 
     def as_login(self, argv: list[str], *, cwd: str | None = None, stdin: str | None = None,
-                 timeout: float = CALL_TIMEOUT_S) -> subprocess.CompletedProcess:
-        """Run it as the account, output captured (stdout and stderr together)."""
+                 timeout: float = CALL_TIMEOUT_S, stderr: int = subprocess.STDOUT,
+                 login_shell: bool = True) -> subprocess.CompletedProcess:
+        """Run it as the account, output captured (stdout and stderr together unless `stderr` says otherwise)."""
         _log("")
         try:
-            return subprocess.run(self.as_login_argv(argv, cwd), input=stdin, text=True, timeout=timeout,
-                                  stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+            return subprocess.run(self.as_login_argv(argv, cwd, login_shell=login_shell), input=stdin, text=True, timeout=timeout,
+                                  stdout=subprocess.PIPE, stderr=stderr)
         except (OSError, subprocess.TimeoutExpired) as e:
             return subprocess.CompletedProcess(argv, 127, f"{e}\n", None)
 
     def as_login_out(self, argv: list[str], **kw) -> str:
-        """What the command printed, or "" when it failed: `$(as_login …)` with a quiet stderr."""
-        got = self.as_login(argv, **kw)
+        """What the command printed, or "" when it failed: `$(as_login … 2>/dev/null)`. A profile or git that writes
+        to stderr and exits 0 must not become the value."""
+        got = self.as_login(argv, stderr=subprocess.DEVNULL, **kw)
         return (got.stdout or "") if got.returncode == 0 else ""
 
     def must_as_login(self, argv: list[str], describe: str, *, cwd: str | None = None, quiet: bool = False) -> None:
@@ -158,6 +164,14 @@ class Worker:
             rc = 127
         if rc != 0:
             self.die(f"step failed: {full} — nothing after it ran; fix the cause and re-run (every step is idempotent)")
+
+    def must_as_login_seq(self, argvs: list[list[str]], describe: str, *, cwd: str | None = None) -> None:
+        """One shell step of several commands: a dry run says it once, a real run stops at the first that fails."""
+        if self.a.dry:
+            self.say(f"would: as_login {describe}")
+            return
+        for argv in argvs:
+            self.must_as_login(argv, describe, cwd=cwd, quiet=argv[0] == "npm" and argv[1:2] == ["i"])
 
     def sudo_test(self, flag: str, path: str) -> bool:
         return self.probe([*self.sudo, "-n", "test", flag, path]) == 0
@@ -203,7 +217,9 @@ def vendor_install(w: Worker, url: str, extra: list[str]) -> tuple[bool, str]:
     """`curl -fsSL --proto '=https' -m 120 <url> | bash -s -- <extra>` as the account, as two commands: the vendor's
     script from curl, then to bash on stdin. Fails when either does (the shell's pipefail); the output of both is
     the log."""
-    fetched = subprocess.run(w.as_login_argv(["curl", "-fsSL", "--proto", "=https", "-m", "120", url]), text=True,
+    # No login shell for the download: whatever a profile prints on stdout would be prepended to the vendor's script
+    # and run by bash. The shell ran the whole pipe inside the login shell, where that output never entered it.
+    fetched = subprocess.run(w.as_login_argv(["curl", "-fsSL", "--proto", "=https", "-m", "120", url], login_shell=False), text=True,
                              capture_output=True, timeout=CALL_TIMEOUT_S)
     if fetched.returncode != 0:
         return False, (fetched.stderr or "") + (fetched.stdout or "")
@@ -370,8 +386,13 @@ def finish(w: Worker) -> int:
     for pid in a.projects:
         check = roots.project_integration(pid, "provisioning", "host-check.sh", engine=w.root)
         if os.access(check, os.X_OK):
-            got = subprocess.run(["bash", check], capture_output=True, text=True, timeout=PROBE_TIMEOUT_S, stdin=subprocess.DEVNULL,
-                                 stderr=subprocess.STDOUT)
+            # A probe: its output is shown indented, its status is ignored, and it never ends the run.
+            try:
+                got = subprocess.run(["bash", check], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+                                     timeout=PROBE_TIMEOUT_S, stdin=subprocess.DEVNULL)
+            except (OSError, subprocess.TimeoutExpired) as e:
+                _log(f"   {pid}: host-check did not run to its end ({type(e).__name__})\n")
+                continue
             for line in (got.stdout or "").splitlines():
                 _log(f"   {line}\n")
     # ---- 6. each project's clone, as the account, over SSH
@@ -438,9 +459,8 @@ def toolchains(w: Worker) -> None:
         wc = os.path.join(h, "projects", pid)
         if w.sudo_test("-f", os.path.join(wc, "pnpm-lock.yaml")):
             if w.as_login(["bash", "-c", "command -v pnpm >/dev/null"]).returncode != 0:
-                w.must_as_login(["npm", "config", "set", "prefix", os.path.join(h, ".local")],
-                                "npm config set prefix ~/.local && npm i -g pnpm >/dev/null")
-                w.must_as_login(["npm", "i", "-g", "pnpm"], "npm config set prefix ~/.local && npm i -g pnpm >/dev/null", quiet=True)
+                w.must_as_login_seq([["npm", "config", "set", "prefix", os.path.join(h, ".local")], ["npm", "i", "-g", "pnpm"]],
+                                    "npm config set prefix ~/.local && npm i -g pnpm >/dev/null")
                 w.say("9. pnpm installed under ~/.local")
             if w.sudo_test("-d", os.path.join(wc, "node_modules")):
                 w.say(f"9. {pid}: node_modules present")
@@ -459,8 +479,8 @@ def toolchains(w: Worker) -> None:
                 w.say(f"9. {pid}: .venv present")
             else:
                 describe = f"cd ~/projects/'{pid}' && python3 -m venv .venv && .venv/bin/pip install -q -r requirements.txt"
-                w.must_as_login(["python3", "-m", "venv", ".venv"], describe, cwd=wc)
-                w.must_as_login([".venv/bin/pip", "install", "-q", "-r", "requirements.txt"], describe, cwd=wc)
+                w.must_as_login_seq([["python3", "-m", "venv", ".venv"], [".venv/bin/pip", "install", "-q", "-r", "requirements.txt"]],
+                                    describe, cwd=wc)
                 w.say(f"9. {pid}: venv")
 
 

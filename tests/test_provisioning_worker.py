@@ -126,6 +126,62 @@ def main() -> int:
         check("…with the published keys on stdin", tee and tee[0][1].get("input") == keys, str(tee))
         check("…and then mode 600", ["sudo", "-n", "-u", LOGIN, "chmod", "600", known] in [c[0] for c in calls])
 
+    print("finish: a project's host-check is a probe")
+    with tempfile.TemporaryDirectory() as root:
+        hc = f"{root}/projects/demo/integration/provisioning"
+        os.makedirs(hc)
+        with open(f"{hc}/host-check.sh", "w") as fh:
+            fh.write("#!/bin/sh\necho hello-from-check\nexit 3\n")
+        os.chmod(f"{hc}/host-check.sh", 0o755)
+        for label, answer in (("runs and its failing status is ignored", lambda argv: 0), ("cannot be started", lambda argv: OSError("x")),
+                              ("times out", lambda argv: subprocess.TimeoutExpired("x", 1))):
+            err = io.StringIO()
+            real = subprocess.run
+
+            def fake(argv, _answer=answer, **kw):
+                if argv[:1] == ["bash"]:
+                    out = _answer(argv)
+                    if isinstance(out, BaseException):
+                        raise out
+                    return real(argv, **kw)
+                if argv[:1] == ["getent"]:
+                    return subprocess.CompletedProcess(argv, 2, stdout="", stderr="")
+                raise Reached
+            w = make_worker("--clone", "demo=git@h:o/demo.git", "--project", "demo", root=root)
+            w.a.phase = "finish"
+            with mock.patch.object(subprocess, "run", fake), redirect_stderr(err):
+                try:
+                    worker.finish(w)
+                    reached = False
+                except Reached:
+                    reached = True       # past the check, at the first command of step 6
+                except Exception as e:  # noqa: BLE001 - the case is that nothing else escapes
+                    reached = repr(e)
+            check(f"a host-check that {label}: the run goes on to step 6", reached is True, f"{reached} {err.getvalue()}")
+            if label.startswith("runs"):
+                check("…and its output is shown indented", "   hello-from-check" in err.getvalue(), err.getvalue())
+
+    print("dry run: a step of two commands says it once")
+    err = io.StringIO()
+    with redirect_stderr(err):
+        make_worker("--dry-run").must_as_login_seq([["a"], ["b"]], "the line")
+    check("one would line", err.getvalue().count("would: as_login the line") == 1, err.getvalue())
+
+    print("the read-backs and the download")
+    seen: dict = {}
+
+    def spy(argv, **kw):
+        seen.update(kw, argv=list(argv))
+        return subprocess.CompletedProcess(argv, 0, stdout="main\n", stderr=None)
+    with mock.patch.object(subprocess, "run", spy):
+        out = make_worker().as_login_out(["git", "x"])
+    check("a read-back keeps stderr out of the value", out == "main\n" and seen.get("stderr") == subprocess.DEVNULL, str(seen))
+    check("the download is not run in a login shell (a profile's stdout would become the vendor's script)",
+          "-lc" in make_worker().as_login_argv(["x"]) and "-lc" not in make_worker().as_login_argv(["x"], login_shell=False))
+    with mock.patch.object(subprocess, "run", recorder([], lambda argv: OSError("gone"))), redirect_stderr(io.StringIO()) as e2:
+        make_worker().best_effort(["soft"])
+    check("best_effort: a command that cannot start is a warning too", "warning: soft failed; continuing" in e2.getvalue())
+
     print("test_provisioning_worker:", "OK" if not fails else f"{fails} FAILED")
     return 1 if fails else 0
 

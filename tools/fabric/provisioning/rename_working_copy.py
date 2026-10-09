@@ -58,11 +58,11 @@ from collections.abc import Mapping
 
 HERE = os.path.dirname(os.path.realpath(__file__))
 CALL_TIMEOUT_S = 600            # a git status or a mv of a clone; none waits on a person
-USAGE = """# runtime/provisioning/rename-working-copy.sh — move an account's working
+USAGE = """# tools/fabric/provisioning/rename_working_copy.py — move an account's working
 # copy and carry its Claude Code history with it. Host tooling, run by the
 # coordinator with sudo.
 #
-#   rename-working-copy.sh <login> <old-name> <new-name> [--dry-run]"""
+#   rename_working_copy.py <login> <old-name> <new-name> [--dry-run]"""
 
 
 class Stop(Exception):
