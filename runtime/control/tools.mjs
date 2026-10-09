@@ -140,3 +140,46 @@ export async function tools({ dir = stateDir(), now = Date.now } = {}) {
   if (!doc || !Array.isArray(doc.tools)) return { status: 'failed', error: `${TOOLS_REPORT} holds no tools list` };
   return { status: 'ok', age_s: Math.max(0, Math.round((now() - at) / 1000)), ok: doc.ok === true, tools: doc.tools };
 }
+
+// `tools-install <tool>`, a signed action: the account installs the tool a
+// project pins for it (tools/fabric/tools_install.py has the rules: the
+// pin, the hash, the proof, the working copy that makes it this account's
+// to have). The control agent only runs it and carries the verdict back;
+// it decides nothing about which account gets what, so the Doppler CLI
+// stays off every account the registry does not name it for.
+export const TOOL_NAME = /^[a-z0-9][a-z0-9._-]{0,63}$/;
+export const INSTALL_TIMEOUT_MS = 5 * 60 * 1000;
+// The operator waits past the account's own bound, so a hung fetch is the account's verdict, not a silence.
+export const TOOLS_INSTALL_BUDGET_S = INSTALL_TIMEOUT_MS / 1000 + 30;
+const INSTALL_STATUS = { installed: 0, current: 0, skipped: 0, failed: 1, refused: 2 };
+
+// A verdict is fabric-tools' document or nothing: exit 1 and 2 carry one on
+// stdout (failed, refused), and a document whose status disagrees with the
+// exit status, or names a status it never gives, is not an answer.
+export function parseInstall(code, stdout) {
+  let doc;
+  try { doc = JSON.parse(stdout); } catch { return { status: 'failed', reason: `fabric-tools --install exited ${code} and printed no verdict` }; }
+  if (!doc || typeof doc !== 'object' || !Object.hasOwn(INSTALL_STATUS, doc.status) || INSTALL_STATUS[doc.status] !== code) {
+    return { status: 'failed', reason: `fabric-tools --install exited ${code} with a verdict that does not agree` };
+  }
+  const text = v => (typeof v === 'string' ? v.slice(0, 300) : undefined);
+  return { status: doc.status, tool: text(doc.tool), version: text(doc.version), path: text(doc.path), reason: text(doc.reason) };
+}
+
+export async function toolsInstall(request, { root = defaultRoot(), exec = execFileP, home = os.homedir(), timeoutMs = INSTALL_TIMEOUT_MS } = {}) {
+  const a = request?.args;
+  const keys = a && typeof a === 'object' && !Array.isArray(a) ? Object.keys(a) : [];
+  if (keys.length !== 1 || keys[0] !== 'tool' || typeof a.tool !== 'string' || !TOOL_NAME.test(a.tool)) {
+    return { status: 'refused', reason: 'tools-install takes one argument, a tool name' };
+  }
+  try {
+    const r = await exec(path.join(root, 'bin', 'fabric-tools'), ['--install', a.tool, '--json'],
+      { encoding: 'utf8', timeout: timeoutMs, maxBuffer: MAX_BUFFER, cwd: home, env: { ...process.env, HOME: home } });
+    return parseInstall(0, typeof r === 'string' ? r : r.stdout);
+  } catch (e) {
+    if (e?.killed && e.signal === 'SIGTERM') return { status: 'failed', reason: `fabric-tools --install did not finish within ${timeoutMs / 1000} s` };
+    if (e?.signal) return { status: 'failed', reason: `fabric-tools --install was killed by ${e.signal}` };
+    if (typeof e?.code === 'number') return parseInstall(e.code, String(e.stdout ?? ''));
+    return { status: 'failed', reason: `fabric-tools could not run (${e?.code ?? e?.message})` };
+  }
+}

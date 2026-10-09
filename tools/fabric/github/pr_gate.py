@@ -312,12 +312,20 @@ def gate_state(repo: str, num: int) -> dict | None:
     }
 
 
-def review_of_head(reader: str, num: int) -> str:
+def review_reader() -> list[str]:
+    """The review reader's argv head: AGENT_FABRIC_PR_REVIEW_STATUS, a
+    program of its own, else this checkout's `fabric-pr review-status`."""
+    if os.environ.get("AGENT_FABRIC_PR_REVIEW_STATUS"):
+        return [os.environ["AGENT_FABRIC_PR_REVIEW_STATUS"]]
+    return [os.path.join(FABRIC, "bin", "fabric-pr"), "review-status"]
+
+
+def review_of_head(reader: list[str], num: int) -> str:
     """pr-review-status's reading of the current head. A reader that
     cannot run is "?", like one that could not read the PR — the bash
     read a missing reader as "none"."""
     try:
-        r = subprocess.run([reader, str(num)], capture_output=True, text=True, timeout=300,
+        r = subprocess.run([*reader, str(num)], capture_output=True, text=True, timeout=300,
                            stdin=subprocess.DEVNULL)
     except (OSError, subprocess.TimeoutExpired):
         return "?"
@@ -645,8 +653,7 @@ def run(argv: list[str]) -> int:
     fetched = succeeds("fetch", "-q", "origin")
     if not fetched:
         note("git fetch origin failed — the base is stale, so no commit count is trusted (commits unknown)")
-    reader = os.environ.get("AGENT_FABRIC_PR_REVIEW_STATUS") or os.path.join(FABRIC, "runtime", "github",
-                                                                              "pr-review-status.sh")
+    reader = review_reader()
     rows = []
     for p in prs:
         num, head, base = p.get("number"), jq_str(p.get("headRefOid")), jq_str(p.get("baseRefName"))

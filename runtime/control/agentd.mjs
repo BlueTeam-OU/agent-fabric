@@ -65,7 +65,7 @@ import { stateWatcher, STATE_POLL_MS } from './sessions.mjs';
 import { secretsSync } from './secrets.mjs';
 import { secretsSelftest } from './selftest.mjs';
 import { sampler, SAMPLE_INTERVAL_MS } from './pressure.mjs';
-import { startToolsReport } from './tools.mjs';
+import { startToolsReport, toolsInstall } from './tools.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 export const SEEN_MAX = 256;
@@ -270,6 +270,7 @@ export async function answer(request, ctx) {
     : request.op === 'pool-add' ? { 'pool-add': poolAdd(request, { me: ctx.me.address, holder: poolHolder(controlConfig()), ...(ctx.poolOpts ?? {}) }) }
     : request.op === 'pool-list' ? { 'pool-list': poolList(request, { me: ctx.me.address, holder: poolHolder(controlConfig()), ...(ctx.poolOpts ?? {}) }) }
     : request.op === 'pool-claim' ? { 'pool-claim': await poolClaim(request, { me: ctx.me.address, holder: poolHolder(controlConfig()), ...(ctx.poolOpts ?? {}) }) }
+    : request.op === 'tools-install' ? { 'tools-install': await toolsInstall(request, { home: ctx.home, root: ctx.root, ...(ctx.toolsOpts ?? {}) }) }
     : request.op === 'local-prune' ? { 'local-prune': await localPrune(request, { home: ctx.home, root: ctx.root }) }
     : request.op === 'secrets-selftest' ? { 'secrets-selftest': await secretsSelftest(request, { home: ctx.home, root: ctx.root, ...(ctx.selftestOpts ?? {}) }) }
     : await collect(request.op, Number.isFinite(days) && days > 0 ? { ...ctx, days: Math.min(days, 90) } : ctx);

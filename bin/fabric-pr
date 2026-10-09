@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+# bin/fabric-pr — the GitHub toolkit's one command (agent-fabric ADR-040
+# §5 rule 7). Each verb runs the module that runs behind the old
+# runtime/github/<name>.sh path, with its argv, stdout, stderr and exit
+# code untouched; `fabric-pr <verb> --help` is that module's help.
+#
+#   fabric-pr gate|review-status|post-review|reply|arm|sessions|
+#             trial-merge|wait-merged|owed-supply|compliance  [args…]
+#   fabric-pr help          # the verbs; so does no verb
+#
+# A verb the list lacks exits 2 and names the list. The environment is the
+# old shims': nothing is exported, so a module reads what it always read.
+set -uo pipefail
+ROOT="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
+verbs="gate review-status post-review reply arm sessions trial-merge wait-merged owed-supply compliance"
+# ${1-…}, not ${1:-…}: an empty verb is an unknown one, not no verb.
+verb="${1-help}"
+case "$verb" in
+  help|-h|--help) echo "usage: fabric-pr <verb> [args…]"; echo "verbs: ${verbs// /, }"; exit 0 ;;
+  gate) mod=pr_gate ;;
+  review-status) mod=pr_review_status ;;
+  post-review) mod=post_review ;;
+  reply) mod=pr_reply ;;
+  arm) mod=arm ;;
+  sessions) mod=pr_sessions ;;
+  trial-merge) mod=trial_merge ;;
+  wait-merged) mod=wait_merged ;;
+  owed-supply) mod=owed_supply ;;
+  compliance) mod=pr_compliance ;;
+  *) echo "fabric-pr: unknown verb '$verb'; verbs: ${verbs// /, }" >&2; exit 2 ;;
+esac
+shift
+# readlink and dirname are not builtins: with them missing ROOT collapses
+# to "/", and the failure would be a file not found under it.
+[[ -d "$ROOT/tools/fabric/github" ]] || { echo "fabric-pr: cannot locate the checkout (readlink or dirname missing from PATH?)" >&2; exit 127; }
+# The fleet's pinned Python (runtime/python.json, ADR-040), one per host;
+# AGENT_FABRIC_PYTHON points elsewhere for a test or a host without it.
+py="${AGENT_FABRIC_PYTHON:-/usr/local/bin/fabric-python}"
+[[ -x "$py" ]] || { echo "fabric-pr: the fleet's pinned Python is not installed at $py; as root: /usr/bin/python3 <agent-fabric>/tools/fabric/python_pin.py install" >&2; exit 127; }
+exec "$py" "$ROOT/tools/fabric/github/$mod.py" "$@"
