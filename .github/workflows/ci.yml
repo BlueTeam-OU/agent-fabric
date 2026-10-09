@@ -32,14 +32,15 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
-          python-version: '3.12'
+          python-version: '3.13'
       - run: sudo apt-get install -y --no-install-recommends shellcheck && python3 -m pip install --quiet --disable-pip-version-check ruff==0.16.7
       - run: bash tests/static.sh
 
   guards-and-suites:
     # Each suite on the interpreters it depends on, and no more: the Python
-    # suites on every Python an agent host runs (the oldest the tools
-    # promise, 3.12, up to the hosts'), the Node suites (GZCoord, the
+    # suites on every Python an agent host runs (3.13, the pinned
+    # fabric-python and Debian 13's system python3, up to Fedora's 3.14;
+    # ADR-040 rule 1), the Node suites (GZCoord, the
     # control plane, the locale MCP server) on the Node they are developed
     # on and the oldest they must start on, and the bash suites and the
     # guards on the oldest and newest interpreters. Every leg of the old
@@ -51,22 +52,23 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { section: python, python: '3.12', node: '20' }
-          - { section: python, python: '3.12', node: '22' }
-          - { section: python, python: '3.13', node: '22' }
+          # Two legs, not four (the owner, 2026-10-09): every interpreter a host
+          # runs is 3.13 or 3.14, and the oldest Node the control plane must
+          # start on (20) rides the 3.13 leg until Wave 8 deletes the Node.
+          - { section: python, python: '3.13', node: '20' }
           - { section: python, python: '3.14', node: '22' }
-          - { section: gzcoord, python: '3.12', node: '20' }
-          - { section: gzcoord, python: '3.12', node: '22' }
+          - { section: gzcoord, python: '3.13', node: '20' }
+          - { section: gzcoord, python: '3.13', node: '22' }
           # The bash suites run on the oldest interpreters the hosts promise
-          # and on the newest (review of #68: 3.14 alone lost 3.12 and Node
-          # 20). The shims of ported scripts run the pinned fabric-python
+          # and on the newest (review of #68: the newest alone lost the oldest
+          # and Node 20). The shims of ported scripts run the pinned fabric-python
           # whatever this matrix sets up (ADR-040 rule 4, installed below);
           # what the matrix decides here is the python3 of the scripts that
           # keep the host's (the git and Claude Code hooks, bootstrap, the
           # Node callers rule 4 names) and the Node the bash suites drive.
           # The python section's suites import the modules on each
           # interpreter.
-          - { section: bash, python: '3.12', node: '20' }
+          - { section: bash, python: '3.13', node: '20' }
           - { section: bash, python: '3.14', node: '22' }
     # The whole run measured 7-9.5 min (2026-09-29); a section is less. The cap is for a hang.
     timeout-minutes: 25

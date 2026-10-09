@@ -29,7 +29,7 @@ Fabric tooling is written in **Python, standard library only**, and
 runs on one pinned interpreter: `runtime/python.json` names it (3.13
 today, a relocatable python-build-standalone build pinned by sha256),
 installed once per host as `/usr/local/bin/fabric-python`; the code
-stays valid on 3.12 and newer, the interpreters CI's matrix runs
+stays valid on 3.13 and newer, the interpreters CI's matrix runs
 (A 2026-10-01). Bash stays for what it is good at: forwarders and thin shims,
 git hook entry points, the suite runners (`tests/run.sh`,
 `tests/static.sh`), and step-runners whose body is mostly `sudo`, `ssh`
@@ -70,8 +70,9 @@ serve as the parity oracle for each port, unchanged.
 
 ## 5. Binding Rules
 
-1. New fabric tooling is Python, standard library only, valid on 3.12
-   and newer, and runs on the pinned interpreter: `runtime/python.json`,
+1. New fabric tooling is Python, standard library only, valid on 3.13
+   and newer, the pin and the oldest system python3 of a supported
+   platform, Debian 13's (A 2026-10-09), and runs on the pinned interpreter: `runtime/python.json`,
    installed per host by `tools/fabric/python_pin.py` (run as root by
    the host's own `/usr/bin/python3`, the hash checked before
    extraction) and reached as `/usr/local/bin/fabric-python`; CI installs
@@ -105,7 +106,7 @@ serve as the parity oracle for each port, unchanged.
    - what `fabric-host` runs on another host, which may not have the pin
      yet;
    - the suite runners, which run the interpreter CI's matrix sets, to
-     prove 3.12 and newer (A 2026-10-01);
+     prove 3.13 and newer (A 2026-10-01);
    - the Node scripts that run fabric Python — GZCoord's `gzmsg.mjs`
      (whoami) and `send.mjs` (job intake), and the control agent's
      `jobs.mjs`, `ops.mjs` and `upgrade.mjs` — which keep it until they
@@ -253,3 +254,4 @@ The body above reads current; each change's full note is in [history/ADR-040-ame
 | 2026-10-04 | Wave 7: GZCoord's command-line tools move to Python | §7: send, inbox and gzmsg port together, the control plane's imports split out first, the protocol suite the oracle |
 | 2026-10-08 | Shims retire; commands run by bare name | §2, §5 rule 7: a caller names the command on PATH; a shim retires in four steps once its callers move; shell before the pinned Python stays shell |
 | 2026-10-09 | Wave 8: the control plane moves to Python | §5 waves: the control plane (`runtime/control/`) is built beside in Python, wire frozen, Ed25519 through openssl, cut over once; Wave 7's carve-out of the control plane withdrawn; rule 8 added: no new fabric code in Node |
+| 2026-10-09 | Valid on 3.13 and newer; CI's Python legs halved | §2 and §5 rule 1: the floor is 3.13, the pin and the oldest supported system python3; CI runs the Python suites on 3.13 and 3.14 |

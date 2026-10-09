@@ -871,12 +871,13 @@ its record disagree, the record wins. Look it up, never read it whole:
 - GitHub and git go through `gh.py` and `git.py` (§5 rule 6).
 - A 2026-10-01 — the oracle's assertions stay; its gh mock and source
   reads may follow the port (§5 rule 5).
-- A 2026-10-01 — one pinned Python, 3.13, as fabric-python per host; shims run it (§5 rules 1, 4).
+- A 2026-10-01 — one pinned Python per host, fabric-python (§5 rules 1, 4).
 - A 2026-10-01 — a fixture may copy the modules its scripts load; no assertion changes (§5 rule 5).
 - A 2026-10-04 — Wave 7: GZCoord's tools to Python together (§7).
 - A 2026-10-08 — commands by bare name; shims retire; pre-Python shell stays (§5 rule 7).
 - A 2026-10-09 — Wave 8: the control plane to Python, wire frozen, cut
   over once; no new Node (§5 rule 8).
+- A 2026-10-09 — valid on 3.13+ (§5 rule 1).
 - Keywords: Python, bash, shell, port, allowlist, lint, shim, wave, gh,
   git, 150 lines, P1, bare command, fabric-pr, deprecated path, Node,
   control plane, openssl, Ed25519.
