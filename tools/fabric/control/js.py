@@ -17,10 +17,12 @@ Python control plane must judge a request exactly as the Node one does
                    JavaScript (rounded past 2**53, Infinity past the
                    largest); too deep a value is a ValueError
                    too, never a RecursionError past a caller's catch.
-                   A named gap: Python's reader stops where its stack
-                   does, near 52,000 levels on the default 8 MiB (3.14;
-                   an unlimited stack reads a million), where Node's
-                   JSON.parse reads a million; a record that deep is
+                   A named gap: where Node's JSON.parse reads a
+                   million levels, Python's reader stops near 10,000 on
+                   3.12 and 3.13 (the pinned interpreter), on any
+                   stack, at its recursion counter; on 3.14 where its
+                   stack ends, near 52,000 on the default 8 MiB and
+                   never on an unlimited one. A record past that is
                    refused here and read there.
                    Node's own limits are its stack, not a rule (its
                    JSON.stringify overflows near 4,000), so they are not
