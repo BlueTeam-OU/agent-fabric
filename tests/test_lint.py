@@ -186,7 +186,9 @@ def run_lint(fabric: str, *extra: str) -> tuple[int, str]:
     wc = wc_demo(fabric)
     if os.path.isdir(wc) and not any(a.startswith(f"{PROJECT}=") for a in extra):
         extra = ("--working-copy", f"{PROJECT}={wc}", *extra)
-    proc = subprocess.run([sys.executable, LINT, "--fabric", fabric, *extra], capture_output=True, text=True)
+    # The caller's operator would outrank the fixture (ADR-045): the fixture is the whole tree.
+    env = {k: v for k, v in os.environ.items() if k != "AGENT_FABRIC_OPERATOR"}
+    proc = subprocess.run([sys.executable, LINT, "--fabric", fabric, *extra], capture_output=True, text=True, env=env)
     return proc.returncode, proc.stdout + proc.stderr
 
 
@@ -206,6 +208,24 @@ def case_clean_base_passes() -> None:
         fabric = make_base(root)
         code, out = run_lint(fabric)
         assert code == 0, f"a minimal well-formed root tripped the linter:\n{out}"
+
+
+def case_the_callers_operator_is_not_part_of_a_fixture() -> None:
+    """An exported AGENT_FABRIC_OPERATOR is the caller's, never the fixture's."""
+    with tempfile.TemporaryDirectory() as root:
+        fabric = make_base(root)
+        operator = os.path.join(root, "operator")
+        write(os.path.join(operator, "projects", "registry.json"), json.dumps({"projects": {"nobody": {}}}))
+        saved = os.environ.get("AGENT_FABRIC_OPERATOR")
+        os.environ["AGENT_FABRIC_OPERATOR"] = operator
+        try:
+            code, out = run_lint(fabric)
+        finally:
+            if saved is None:
+                del os.environ["AGENT_FABRIC_OPERATOR"]
+            else:
+                os.environ["AGENT_FABRIC_OPERATOR"] = saved
+        assert code == 0, f"the caller's operator tree was linted with the fixture:\n{out}"
 
 
 def case_payload_is_exempt() -> None:
@@ -2248,6 +2268,7 @@ def main() -> int:
         case_index_lists_domain_slices,
         case_fabric_ref_is_one_full_commit_id,
         case_quoted_description_round_trips,
+        case_the_callers_operator_is_not_part_of_a_fixture,
         case_payload_is_exempt,
         case_hygiene_still_runs_over_payload,
         case_secrets_are_refused_by_shape,
