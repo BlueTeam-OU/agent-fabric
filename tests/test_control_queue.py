@@ -208,6 +208,7 @@ def main() -> int:
         with open(reg, "w") as fh:
             json.dump({"hosts": {"h": {"operator": "user"}}, "placement": {"a": "h", "py": "h"}}, fh)
         saved = {k: os.environ.get(k) for k in ("HOME", "CLAUDE_BRIDGE_AUTH_TOKEN", "AGENT_FABRIC_ROOT")}
+        cwd0 = os.getcwd()
 
         def run(argv, call=None, token="tok", who=None, wait_ms=300, ws=None):
             lines, errs = [], []
@@ -216,6 +217,10 @@ def main() -> int:
             # workspace being the directory the fabric root sits in: on the
             # hosting account that is a real token, and "no token" read it.
             os.environ["AGENT_FABRIC_ROOT"] = os.path.join(ws or os.path.join(d, "empty-ws"), "fabric")
+            # …and the token's other home is <the working copy>/.claude/
+            # settings.local.json: the working copy is the git toplevel of the
+            # cwd, so a cwd outside any repository is the scratch directory.
+            os.chdir(d)
             if token:
                 os.environ["CLAUDE_BRIDGE_AUTH_TOKEN"] = token
             else:
@@ -229,6 +234,13 @@ def main() -> int:
                 check(f"usage {bad}: exit 2, nothing on stdout", code == 2 and not out and errs and errs[0].startswith("usage:"))
             code, out, _ = run(["waits"], token=None)
             check("no token: exit 3, sent false", code == 3 and out == [{"error": "no CLAUDE_BRIDGE_AUTH_TOKEN (fabric-secrets sync)", "sent": False}], out)
+            os.makedirs(os.path.join(d, ".claude"))
+            with open(os.path.join(d, ".claude", "settings.local.json"), "w") as fh:
+                json.dump({"env": {"CLAUDE_BRIDGE_AUTH_TOKEN": "local-tok"}}, fh)
+            code, out, _ = run(["waits"], token=None)
+            check("no token in the environment, one in the working copy's settings.local.json: that is the token (a control)",
+                  code == 0 and out[0]["accounts"] == 0, out)
+            os.remove(os.path.join(d, ".claude", "settings.local.json"))
             hosted = os.path.join(d, "hosted-ws")
             os.makedirs(os.path.join(hosted, ".gzcoord"))
             with open(os.path.join(hosted, ".gzcoord", "bridge-token"), "w") as fh:
@@ -258,6 +270,7 @@ def main() -> int:
             code, out, _ = run(["pool-claim", "p1"])
             check("no holder: exit 4, sent false", code == 4 and out[0]["sent"] is False and "no account holds the pool" in out[0]["error"], out)
         finally:
+            os.chdir(cwd0)
             for k, v in saved.items():
                 if v is None:
                     os.environ.pop(k, None)
@@ -269,8 +282,11 @@ def main() -> int:
     script = os.path.join(HERE, "tools", "fabric", "control", "queue.py")
     agentd_here = os.path.exists(os.path.join(HERE, "tools", "fabric", "control", "agentd.py"))
     with tempfile.TemporaryDirectory() as home:
-        r = subprocess.run([sys.executable, script, "waits"], capture_output=True, text=True, timeout=60,
-                           env={"PATH": os.environ.get("PATH", ""), "HOME": home, "LANG": "C.UTF-8"})
+        # A fabric root and a cwd of its own, as the CLI cases above: the
+        # workspace's bridge-token and the cwd's settings.local.json are tokens too.
+        r = subprocess.run([sys.executable, script, "waits"], capture_output=True, text=True, timeout=60, cwd=home,
+                           env={"PATH": os.environ.get("PATH", ""), "HOME": home, "LANG": "C.UTF-8",
+                                "AGENT_FABRIC_ROOT": os.path.join(home, "ws", "fabric")})
     if agentd_here:
         check("with agentd's port in the tree, the script runs (no token here: exit 3, sent false)",
               r.returncode == 3 and json.loads(r.stdout).get("sent") is False, (r.returncode, r.stdout, r.stderr[-300:]))
