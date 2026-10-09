@@ -61,8 +61,8 @@ def test_a_registered_key_parses_as_a_daemon_reads_it() -> None:
     """A registry's key, through the same parser the daemons use: a key the
     schema admitted but publicKeyFrom refused would disable every action with
     a refusal that blames the signature, not the registry. The registry is a
-    fixture holding a key the generator makes: the committed one is the
-    operator's instance file, and lint checks it."""
+    fixture holding keys the generator makes; the committed one is read by
+    tests/test_operator_data.py, as lint admits a key by its shape only."""
     with tempfile.TemporaryDirectory() as tmp:
         reg = os.path.join(tmp, "registry.json")
         with open(reg, "w", encoding="utf-8") as fh:

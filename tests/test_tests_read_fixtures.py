@@ -34,11 +34,12 @@ SCANNED = ("tests", "communication/gzcoord/tests")
 
 # file -> why it reads the live tree. Each checks a fact of the operator's
 # own data on purpose, so a stripped run (tests/stripped_run.py) reports it
-# red: that is its answer, not a fixture still owed. Everything else moved to
+# red, or has nothing to read: that is its answer, not a fixture still owed. Everything else moved to
 # fixtures (fabric-coordinator's request 01a11d15-2dc2-7cc9-8e7b-770a36dcf895).
 DELIBERATE = {
     "tests/test_fabric_status.py": "bin/fabric-status is off the committed bash allowlist: a fact of this tree",
     "tests/test_launch_prompt.py": "every role of the real catalogue renders under the prompt ceiling: the operator's own roles",
+    "tests/test_operator_data.py": "the committed operator keys parse as the daemons read them, and every locale carries its reminder: the operator's own data",
     "tests/test_auto_mode_policy.py": "the operator's auto-mode policy names its public repositories and holds no \"$defaults\": the operator's own text",
     "tests/test_arm_fabric_config.py": "every project's committed arm.json loads and holds the rules the fabric relies on: the operator's own files",
     "tests/test_session_commands.py": "no session-facing text, the projects' CLAUDE files included, calls a fabric command through a path: the operator's own texts",
