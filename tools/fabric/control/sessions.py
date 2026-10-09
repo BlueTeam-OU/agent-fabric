@@ -75,10 +75,12 @@ STATES = ("working", "blocked", "idle")
 MESSAGE_ID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")   # matched whole
 WAITS_ON_MAX = 64
 # The harness's session id is a UUID; anything else in a binding is no
-# session, never a path. resume.py's SESSION_RE is the same pattern.
+# session, never a path. resume.py's SESSION_RE is the same pattern, matched
+# whole there too.
 SESSION_ID = re.compile(r"[A-Za-z0-9-]{8,64}")   # matched whole
 
-_ISO = re.compile(r"(?P<y>[+-]\d{6}|\d{4})(?:-(?P<mo>\d\d)(?:-(?P<d>\d\d))?)?"
+# ASCII digits only: \d would take Arabic-Indic ones, which int() reads.
+_ISO = re.compile(r"(?a)(?P<y>[+-]\d{6}|\d{4})(?:-(?P<mo>\d\d)(?:-(?P<d>\d\d))?)?"
                   r"(?:[Tt](?P<h>\d\d):(?P<mi>\d\d)(?::(?P<s>\d\d)(?:\.(?P<ms>\d+))?)?(?P<z>[Zz]|[+-]\d\d:\d\d)?)?")
 
 
@@ -100,13 +102,18 @@ def date_parse(text) -> float:
     t = ((_days_from_civil(year, month, 1) + day - 1) * 24 + hour) * 60 + minute
     t = t * 60_000 + sec * 1000 + ms
     if m["z"] is None and m["h"] is not None:
-        return float(_local_to_utc(t))
+        return _time_clip(_local_to_utc(t))
     if m["z"] in (None, "Z", "z"):
-        return float(t)       # a date alone is UTC; so is Z
+        return _time_clip(t)       # a date alone is UTC; so is Z
     oh, om = int(m["z"][1:3]), int(m["z"][4:6])
     if oh > 23 or om > 59:
         return math.nan
-    return float(t - (1 if m["z"][0] == "+" else -1) * (oh * 60 + om) * 60_000)
+    return _time_clip(t - (1 if m["z"][0] == "+" else -1) * (oh * 60 + om) * 60_000)
+
+
+def _time_clip(t: int) -> float:
+    """TimeClip: a time more than 8.64e15 ms from the epoch is NaN."""
+    return float(t) if abs(t) <= 8.64e15 else math.nan
 
 
 def _local_to_utc(t: int) -> int:
@@ -133,8 +140,14 @@ def _days_from_civil(y: int, m: int, d: int) -> int:
 
 
 def _is_integer(v) -> bool:
-    """Number.isInteger(v) on a JSON value: 5.0 is one, true is not."""
-    return isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v) and v == int(v)
+    """Number.isInteger(v) on a JSON value: 5.0 is one, true is not, and
+    neither is a number past the largest double (Infinity in JavaScript)."""
+    if not isinstance(v, (int, float)) or isinstance(v, bool):
+        return False
+    try:
+        return float(v).is_integer()
+    except OverflowError:
+        return False
 
 
 def fresh_without_process(since, now_ms: float) -> bool:
@@ -261,7 +274,9 @@ def _bound(file: str, config_dir: str | None) -> dict:
 class StateWatcher:
     """tick() never raises and never runs twice at once. A post that fails
     leaves the last record unchanged, so the next tick tries again; it is
-    said once, not every two seconds."""
+    said once, not every two seconds. `post` is called and its return is
+    not awaited: an asynchronous caller passes a post that completes (or
+    raises) before it returns."""
 
     def __init__(self, *, address: str, post: Callable[[dict], object], file: str, binding: str | None = None,
                  jobs: str | None = None, proc: str = "/proc", now: Callable[[], float] = lambda: time.time() * 1000,
@@ -331,8 +346,11 @@ class StateWatcher:
             key = json.dumps(said, sort_keys=False, ensure_ascii=True)
             if key == self.last_key and now_ms - self.last_at < self.heartbeat_ms:
                 return False
-            ts = datetime.datetime.fromtimestamp(now_ms / 1000, tz=datetime.timezone.utc)
-            self.post(state_record(self.address, said, ts.strftime("%Y-%m-%dT%H:%M:%S.") + f"{int(now_ms) % 1000:03d}Z"))
+            # new Date(now).toISOString(): whole milliseconds, truncated —
+            # fromtimestamp() of a float rounds, a second ahead near a boundary.
+            whole = int(now_ms)
+            ts = datetime.datetime(1970, 1, 1, tzinfo=datetime.timezone.utc) + datetime.timedelta(milliseconds=whole)
+            self.post(state_record(self.address, said, ts.strftime("%Y-%m-%dT%H:%M:%S.") + f"{whole % 1000:03d}Z"))
             self.last_key, self.last_at = key, now_ms
             if self.failing:
                 self.log("agentd: session state posted again")

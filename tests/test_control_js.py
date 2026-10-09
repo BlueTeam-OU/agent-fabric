@@ -86,6 +86,13 @@ def main() -> int:
         except ValueError:
             mine.append(True)
     diff("json_parse refuses what JSON.parse refuses, as a ValueError", bad, mine, refused)
+    big = ["9007199254740992", "9007199254740993", "-9007199254740993", "12345678901234567890", "1" + "0" * 400, "-" + "9" * 5000, "0", "-0", "5"]
+    diff("json_parse reads an integer as JavaScript's double", big,
+         [js.stringify(js.json_parse(b)) for b in big], node("return input.map(t => JSON.stringify(JSON.parse(t)));", big))
+    check("...as the value itself, not only as text: 2**53 + 1 is 2**53, 1e400 is Infinity, 2**53 stays an exact int",
+          js.json_parse("9007199254740993") == 9007199254740992.0 and isinstance(js.json_parse("9007199254740993"), float)
+          and js.json_parse("1" + "0" * 400) == math.inf and js.json_parse("9007199254740992") == 2**53
+          and isinstance(js.json_parse("9007199254740992"), int))
     deep = "[" * 60000 + "]" * 60000
     read_by_node = node("try { JSON.parse(input); return true; } catch { return false; }", deep)
     try:

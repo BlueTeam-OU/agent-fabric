@@ -137,6 +137,17 @@ def main() -> int:
         w2 = cs.StateWatcher(address="h/x", post=posts2.append, file=file, proc=proc, now=lambda: 0.0, log=lambda m: None)
         check("a watcher that starts on a broken file posts nothing at all", w2.tick() is False and posts2 == [])
 
+        print("what a readable file may hold (review of 0306aa27)")
+        raw('{"sessions": {"big": {"state": "idle", "since": "2026-10-08T11:59:00Z", "pid": 1' + "0" * 400 + '}}}')
+        posts3 = []
+        w3 = cs.StateWatcher(address="h/x", post=posts3.append, file=file, proc=proc, now=lambda: now, log=lambda m: None)
+        check("a pid past the largest double is no integer, as Number.isInteger says; the record is posted",
+              w3.tick() is True and posts3[-1]["sessions"] == [{"session": "big", "state": "idle", "since": "2026-10-08T11:59:00Z"}], posts3)
+        posts4 = []
+        w4 = cs.StateWatcher(address="h/x", post=posts4.append, file=file, proc=proc, now=lambda: 1760000000999.9996, log=lambda m: None)
+        w4.tick()
+        check("ts is the instant's whole milliseconds, never a second ahead", posts4[-1]["ts"] == "2025-10-09T08:53:20.999Z", posts4[-1:])
+
         print("sessions.test.mjs: when the watcher posts")
         binding = os.path.join(d, "binding.json")
         with open(binding, "w") as fh:
@@ -272,7 +283,9 @@ def main() -> int:
 
     print("Date.parse, as Node reads it")
     cases = ["2026-10-08T12:00:00Z", "2026-10-08T12:00:00.123Z", "2026-10-08", "2026-02-29", "2026-10-08t12:00:00z", "-000001-01-01T00:00:00Z",
-             "2026-10-08T12:00:00+02:00", "2026-10-08T24:00:00Z", "2026-13-01", "never", "", "2026-10-08T12:00"]
+             "2026-10-08T12:00:00+02:00", "2026-10-08T24:00:00Z", "2026-13-01", "never", "", "2026-10-08T12:00",
+             "+275760-09-13T00:00:00.000Z", "+275760-09-13T00:00:00.001Z", "+275761-01-01", "-271821-04-20T00:00:00Z", "-271821-04-19T23:59:59Z",
+             "+275760-09-13T00:00"]
     r = subprocess.run(["node", "-e", "const c=JSON.parse(require('fs').readFileSync(0,'utf8'));"
                         "process.stdout.write(JSON.stringify(c.map(s=>{const t=Date.parse(s);return Number.isNaN(t)?'NaN':t;})))"],
                        input=json.dumps(cases), capture_output=True, text=True, timeout=60, env={**os.environ, "TZ": "Europe/Rome"})
@@ -287,7 +300,9 @@ def main() -> int:
     else:
         os.environ["TZ"] = saved
     _t.tzset()
-    check("date_parse is Date.parse on ISO strings and near-misses (Europe/Rome)", mine == node, list(zip(cases, node, mine)))
+    check("date_parse is Date.parse on ISO strings and near-misses, TimeClip's bounds included (Europe/Rome)", mine == node,
+          [x for x in zip(cases, node, mine) if x[1] != x[2]])
+    check("a date in Arabic-Indic digits is not a time here", math.isnan(cs.date_parse("\u0662\u0660\u0662\u0666-10-08")))
 
     print(f"\n{'FAILED' if fails else 'all passed'}")
     return 1 if fails else 0

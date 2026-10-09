@@ -13,7 +13,9 @@ Python control plane must judge a request exactly as the Node one does
   keys(d)          Object.keys(d): integer-index keys first, ascending
   truthy(v)        what `if (v)` takes
   json_parse(s)    JSON.parse(s): no NaN or Infinity, which Python's
-                   json.loads takes; too deep a value is a ValueError
+                   json.loads takes; an integer is a double as in
+                   JavaScript (rounded past 2**53, Infinity past the
+                   largest); too deep a value is a ValueError
                    too, never a RecursionError past a caller's catch.
                    A named gap: Python's reader stops near 52,000 levels
                    (3.14), where Node's JSON.parse reads a million; a
@@ -137,9 +139,22 @@ def _no_constant(name: str):
     raise ValueError(f"{name} is not JSON")
 
 
+def _js_int(text: str):
+    # A JSON integer is a double in JavaScript: exact up to 2**53, rounded
+    # past it, Infinity past the largest double — never Python's exact
+    # integer, which math.isfinite() and float() then fail on (review of
+    # 0306aa27, F1). float() of the text, not of int(text): Python refuses
+    # int() of more than 4,300 digits.
+    if len(text) <= 17:
+        n = int(text)
+        if abs(n) <= 2**53:
+            return n
+    return float(text)
+
+
 def json_parse(s: str):
     try:
-        return json.loads(s, parse_constant=_no_constant)
+        return json.loads(s, parse_constant=_no_constant, parse_int=_js_int)
     except RecursionError:
         raise ValueError("nested too deep to read") from None
 
