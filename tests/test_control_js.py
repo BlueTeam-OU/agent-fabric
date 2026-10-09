@@ -99,8 +99,9 @@ def main() -> int:
           and isinstance(js.json_parse("9007199254740992"), int))
     deep = "[" * 300000 + "]" * 300000
     read_by_node = node("try { JSON.parse(input); return true; } catch { return false; }", deep)
-    # 3.12 and 3.13 stop near 10,000 levels on any stack; 3.14 stops where
-    # its stack ends, which a runner sets (an unlimited one reads it all).
+    # 3.13 stops near 10,000 levels on 1.5 MiB of stack or more; 3.14 stops
+    # where its stack ends, which a runner sets (an unlimited one reads it
+    # all): js.py's contract has the measurements.
     # So: 8 MiB, the default, in a child whose limit is set before it
     # starts, and a depth far past 3.14's ~52,000 there, whatever a build's
     # frame size.

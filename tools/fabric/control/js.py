@@ -18,12 +18,16 @@ Python control plane must judge a request exactly as the Node one does
                    largest); too deep a value is a ValueError
                    too, never a RecursionError past a caller's catch.
                    A named gap: where Node's JSON.parse reads a
-                   million levels, Python's reader stops near 10,000 on
-                   3.12 and 3.13 (the pinned interpreter), on any
-                   stack, at its recursion counter; on 3.14 where its
-                   stack ends, near 52,000 on the default 8 MiB and
-                   never on an unlimited one. A record past that is
-                   refused here and read there.
+                   million levels, Python's reader stops, as measured:
+                   3.13.15 (the pinned interpreter) near 10,000, at the
+                   interpreter's fixed C recursion limit, on a stack of
+                   1.5 MiB or more; on a smaller stack (1 MiB, or a
+                   thread's) that depth crashes the process, SIGSEGV,
+                   before the limit can raise. 3.14.7 stops where its
+                   stack ends, near 52,000 on the default 8 MiB, never
+                   on an unlimited one. 3.12 (CI) is not measured; its
+                   leg runs the test. A record past the stop is refused
+                   here and read there.
                    Node's own limits are its stack, not a rule (its
                    JSON.stringify overflows near 4,000), so they are not
                    copied.
