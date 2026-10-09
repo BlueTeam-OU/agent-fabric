@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """tools/fabric/query.py — ask the corpus what it knows about an artifact
-(ADR-040 Wave 3; `fabric-query` runs it, tools/fabric/query.sh is its
-deprecated shim: `fabric-query adr|pr|commit|file <key>`,
+(ADR-040 Wave 3; `fabric-query` runs it: `fabric-query adr|pr|commit|file <key>`,
 `fabric-query obs <hash>`, `fabric-query roles`).
 
 CONTRACT (ADR-040 §5 rule 3):
