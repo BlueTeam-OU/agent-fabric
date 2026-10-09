@@ -142,5 +142,11 @@
     "fingerprint": "BD4E308C2847F6C4F7B896C98D43CB9A80ADCD17",
     "login": "python-dev-04",
     "parent": "019bbe31-2fff-7a2f-9849-96bdf286e011"
+  },
+  "01a12051-ae61-7f33-a9ae-eedb3153ed42": {
+    "born": "2026-10-09T10:59:46.401Z",
+    "fingerprint": "AE749977E03C64690B2844F0C7414538B1270B62",
+    "login": "rust-services-dev-02",
+    "parent": "019bbe31-2fff-7a2f-9849-96bdf286e011"
   }
 }
