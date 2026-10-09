@@ -116,7 +116,10 @@ def main() -> int:
         check(f"{verb} --help is {old}.sh --help, byte for byte, same status; the shim adds one stderr line",
               (new.stdout, DEPRECATED.format(verb) + new.stderr, new.returncode) == (was.stdout, was.stderr, was.returncode)
               and new.returncode in (0, 2) and new.stdout + new.stderr != "", (new.returncode, was.returncode, new.stderr[:200]))
-    new = run([f"{ROOT}/bin/fabric-query", "--help"])
+    # query checks for its corpus (the operator's memory/, instance data) before it parses --help.
+    with tempfile.TemporaryDirectory() as operator:
+        os.makedirs(os.path.join(operator, "memory"))
+        new = run([f"{ROOT}/bin/fabric-query", "--help"], {"AGENT_FABRIC_OPERATOR": operator})
     check("fabric-query --help is the module's help, exit 0, stdout only",
           new.returncode == 0 and "fabric-query adr" in new.stdout and new.stderr == "", (new.returncode, new.stdout[:120], new.stderr[:120]))
 

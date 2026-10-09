@@ -1,0 +1,36 @@
+{
+  "required": ["docs/adr", "infra/db/migrations"],
+  "families": [
+    {
+      "dir": "infra/db/migrations",
+      "pattern": "^([0-9]+).*\\.sql$",
+      "message": "duplicate migration number prefix {number} — relative apply order is undefined.",
+      "advice": "Renumber YOUR migration past the highest on origin (update any doc references)."
+    },
+    {
+      "dir": "docs/adr",
+      "pattern": "^ADR-([0-9]{3})-.*\\.md$",
+      "message": "duplicate ADR number {number} — two files claim it.",
+      "advice": "Renumber YOUR document to the next free number (and re-propagate indexes)."
+    },
+    {
+      "dir": "docs/architecture",
+      "pattern": "^ARCH-([0-9]{3})-.*\\.md$",
+      "message": "duplicate ARCH number {number} — two files claim it.",
+      "advice": "Renumber YOUR document to the next free number (and re-propagate indexes)."
+    }
+  ],
+  "amendments": {
+    "files": [
+      {"dir": "docs/adr", "pattern": "^ADR-[0-9]{3}-.*\\.md$"},
+      {"dir": "docs/adr/history", "pattern": "^ADR-[0-9]{3}-amendments\\.md$", "optional": true}
+    ],
+    "heading": "^### Amendment ",
+    "advice": "Suffix the newer one '(ii)' per the existing same-day-amendment convention."
+  },
+  "footer": [
+    "Semantic collision(s): {hits} — a textually-clean merge does NOT clear these.",
+    "These are parallel-session numbering races (CLAUDE.md §Concurrent contributors):",
+    "renumber the entry that has NOT yet reached origin/main; never rewrite landed work."
+  ]
+}

@@ -14,7 +14,12 @@ import tempfile
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SCRIPT = os.path.join(HERE, "runtime", "claude-code", "user-settings.py")
-POLICY = json.load(open(os.path.join(HERE, "policies", "auto-mode.json"), encoding="utf-8"))
+# The operator's policy is instance data (ADR-045): a fixture with every slot
+# kind the writer treats differently — two it replaces, one it adds, lists to
+# add to the built-in ones, and an empty allow.
+POLICY = {"environment": {"Organization": "the fixture operator", "Host containment": "an ordinary fixture machine",
+                          "Region": "a fixture region"},
+          "allow": [], "soft_deny": ["fixture soft rule"], "hard_deny": ["fixture hard rule one", "fixture hard rule two"]}
 DEFAULTS = {
     "environment": ["**Organization**: None configured", "**Cloud provider(s)**: None configured",
                     "**Host containment**: None configured — assume an ordinary machine"],
@@ -37,7 +42,11 @@ def main() -> int:
                     + json.dumps(DEFAULTS) + "\nEOF\n")
         os.chmod(fake, 0o755)
         env = {k: v for k, v in os.environ.items() if not k.startswith(("GITHUB_", "AGENT_FABRIC_"))}
-        env.update(AGENT_FABRIC_CLAUDE=fake, AGENT_FABRIC_LOCAL_BIN=os.path.join(tmp, "bin"))
+        operator = os.path.join(tmp, "operator")
+        os.makedirs(os.path.join(operator, "policies"))
+        with open(os.path.join(operator, "policies", "auto-mode.json"), "w", encoding="utf-8") as fh:
+            json.dump(POLICY, fh)
+        env.update(AGENT_FABRIC_CLAUDE=fake, AGENT_FABRIC_LOCAL_BIN=os.path.join(tmp, "bin"), AGENT_FABRIC_OPERATOR=operator)
         settings = os.path.join(tmp, "settings.json")
 
         def run(**extra):
@@ -101,7 +110,7 @@ def main() -> int:
         r = subprocess.run([sys.executable, SCRIPT, settings], capture_output=True, text=True,
                            env={**bare, "PATH": "/usr/bin:/bin"}, timeout=120)
         check("found there, and autoMode written", r.returncode == 0
-              and json.load(open(settings))["autoMode"]["environment"][0].startswith("**Organization**: BlueTeam-OU"),
+              and json.load(open(settings))["autoMode"]["environment"][0]== f"**Organization**: {POLICY['environment']['Organization']}",
               r.stdout + r.stderr)
 
         print("the pinned claude in ~/.local/bin wins over another on PATH")
@@ -142,13 +151,6 @@ def main() -> int:
                       and open(settings).read() == before, r.stdout + r.stderr)
         finally:
             env.pop("AGENT_FABRIC_AUTO_MODE_POLICY")
-
-        print("the policy itself")
-        check("every slot has text", all(isinstance(v, str) and v.strip() for v in POLICY["environment"].values()))
-        check("the public repositories are named as such",
-              "PUBLIC: BlueTeam-OU/agent-fabric and gzapi-org/InterWeave" in POLICY["environment"]["Repository visibility"])
-        check("lists hold prose, never \"$defaults\" (the writer adds it)",
-              all("$defaults" not in POLICY[k] for k in ("allow", "soft_deny", "hard_deny")))
 
     print(f"\n{'FAILED' if fails else 'all passed'}")
     return 1 if fails else 0

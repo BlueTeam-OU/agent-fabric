@@ -28,7 +28,7 @@ import gh  # noqa: E402
 from github import wait_merged as wm  # noqa: E402
 
 TOOL = [os.path.join(ROOT, "bin", "fabric-pr"), "wait-merged"]
-GZAPP_ARM = os.path.join(ROOT, "projects", "gzapp", "integration", "gh", "arm.json")
+GZAPP_ARM = os.path.join(ROOT, "tests", "fixtures", "gzapp-gh", "arm.json")
 PR = "429"
 
 

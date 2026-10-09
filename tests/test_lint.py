@@ -133,10 +133,12 @@ def make_base(root: str) -> str:
     fabric = os.path.join(root, "fabric")
     shutil.copytree(REAL_SCHEMAS, os.path.join(fabric, "identities", "schemas"))
     shutil.copytree(REAL_PROJECT_SCHEMAS, os.path.join(fabric, "projects", "schemas"))
-    # The real routing files (minus the profiles, which each case writes)
+    # The routing files (minus the profiles, which each case writes)
     # and the Claude Code alias binding, so the routing checks actually run.
-    shutil.copytree(REAL_ROUTING, os.path.join(fabric, "routing"),
-                    ignore=shutil.ignore_patterns("profiles.json"))
+    # The engine's capabilities, and the operator half (the review grade) from
+    # the frozen fixture: the live review-grade list is instance data.
+    shutil.copytree(REAL_ROUTING, os.path.join(fabric, "routing"), ignore=shutil.ignore_patterns("profiles.json", "policies"))
+    shutil.copytree(os.path.join(ROOT, "tests", "fixtures", "routing-distinct", "policies"), os.path.join(fabric, "routing", "policies"))
     os.makedirs(os.path.join(fabric, "runtime", "claude-code"))
     shutil.copy2(REAL_ALIASES, os.path.join(fabric, "runtime", "claude-code", "aliases.json"))
     # The launch-prompt sections every session appends; lint requires them.
@@ -1447,7 +1449,7 @@ def case_decision_records_are_lint_findings() -> None:
         fabric = make_base(root)
         code, out = run_lint(fabric)
         assert code == 0 and "adr:" not in out, out
-        shutil.copytree(os.path.join(ROOT, "docs", "adr"), os.path.join(fabric, "docs", "adr"))
+        shutil.copytree(os.path.join(ROOT, "tests", "fixtures", "adr-mini", "docs", "adr"), os.path.join(fabric, "docs", "adr"))
         idx = os.path.join(fabric, "docs", "adr", "index.json")
         with open(idx, "a", encoding="utf-8") as fh:
             fh.write(" ")

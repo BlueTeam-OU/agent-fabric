@@ -18,6 +18,7 @@ import json
 import os
 import pwd
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -186,6 +187,18 @@ def main() -> int:
             json.dump({"version": 1, "hosts": {"op-only-host": {"platform": "debian", "ssh": None, "operator": ME, "fabric": ROOT}},
                        "placement": {"zz-op-login": "op-only-host"}}, fh)
 
+        # The checkout's own registry is an instance file (ADR-045): "the
+        # checkout's" is a copy of the engine holding a fixture one, so the
+        # cases that name the default read no live file.
+        engine = os.path.join(sandbox, "engine")
+        for part in ("bin", "tools", "runtime"):
+            shutil.copytree(os.path.join(ROOT, part), os.path.join(engine, part), ignore=shutil.ignore_patterns("__pycache__", "node_modules", "registry.json"))
+        os.makedirs(os.path.join(engine, "runtime", "hosts"), exist_ok=True)
+        with open(os.path.join(engine, "runtime", "hosts", "registry.json"), "w", encoding="utf-8") as fh:
+            json.dump({"version": 1, "hosts": {"engine-host": {"platform": "debian", "ssh": None, "operator": ME, "fabric": engine}},
+                       "placement": {"zz-engine-login": "engine-host"}}, fh)
+        FH_E, HX_E = os.path.join(engine, "bin", "fabric-host"), os.path.join(engine, "runtime", "hostexec", "hostexec")
+
         def run_with(extra: dict[str, str], drop: tuple[str, ...], *argv: str) -> tuple[int, str]:
             e = {k: v for k, v in env.items() if k not in drop}
             e.update(extra)
@@ -195,19 +208,19 @@ def main() -> int:
         rc, out = run_with({"AGENT_FABRIC_OPERATOR": op_tree}, ("AGENT_FABRIC_HOSTS_REGISTRY",), FH, "list")
         check("list: a separate operator's registry, not the checkout's own",
               rc == 0 and "op-only-host" in out and "zz-op-login" in out and "far-host" not in out, f"rc={rc}\n{out}")
-        rc, out = run_with({}, ("AGENT_FABRIC_HOSTS_REGISTRY", "AGENT_FABRIC_OPERATOR"), FH, "list")
-        check("…and with no operator set, the checkout's (positive control)", rc == 0 and "op-only-host" not in out, f"rc={rc}\n{out}")
+        rc, out = run_with({}, ("AGENT_FABRIC_HOSTS_REGISTRY", "AGENT_FABRIC_OPERATOR"), FH_E, "list")
+        check("…and with no operator set, the checkout's (positive control)", rc == 0 and "engine-host" in out and "op-only-host" not in out, f"rc={rc}\n{out}")
         rc, out = run_with({"AGENT_FABRIC_OPERATOR": op_tree}, (), FH, "list")
         check("AGENT_FABRIC_HOSTS_REGISTRY outranks the operator's tree", rc == 0 and "far-host" in out and "op-only-host" not in out, f"rc={rc}\n{out}")
         rc, out = run_with({"AGENT_FABRIC_OPERATOR": op_tree}, ("AGENT_FABRIC_HOSTS_REGISTRY",), FH, "op-only-host", "run", "--", "echo", "via-operator")
         check("hostexec, run by fabric-host, reads the same registry", rc == 0 and out.strip() == "via-operator", f"rc={rc}\n{out}")
-        rc, out = run_with({"AGENT_FABRIC_OPERATOR": op_tree}, ("AGENT_FABRIC_HOSTS_REGISTRY",), HX, "op-only-host", "--", "echo", "direct")
+        rc, out = run_with({"AGENT_FABRIC_OPERATOR": op_tree}, ("AGENT_FABRIC_HOSTS_REGISTRY",), HX_E, "op-only-host", "--", "echo", "direct")
         check("…whereas hostexec alone keeps its own default (it is the host executor and does not consult roots.py)",
               rc == 2 and "unknown host 'op-only-host'" in out, f"rc={rc}\n{out}")
-        _, plain = run_with({}, ("AGENT_FABRIC_HOSTS_REGISTRY", "AGENT_FABRIC_OPERATOR", "AGENT_FABRIC_ROOT"), FH, "list")
+        _, plain = run_with({}, ("AGENT_FABRIC_HOSTS_REGISTRY", "AGENT_FABRIC_OPERATOR", "AGENT_FABRIC_ROOT"), FH_E, "list")
         for label, tree in (("an empty tree", os.path.join(sandbox, "nothing")), ("another clone with a registry of its own", op_tree)):
             os.makedirs(tree, exist_ok=True)
-            rc, out = run_with({"AGENT_FABRIC_ROOT": tree}, ("AGENT_FABRIC_HOSTS_REGISTRY", "AGENT_FABRIC_OPERATOR"), FH, "list")
+            rc, out = run_with({"AGENT_FABRIC_ROOT": tree}, ("AGENT_FABRIC_HOSTS_REGISTRY", "AGENT_FABRIC_OPERATOR"), FH_E, "list")
             check(f"AGENT_FABRIC_ROOT naming {label} does not move the registry (every session exports one)",
                   rc == 0 and out == plain and "op-only-host" not in out, f"rc={rc}\n{out}")
         # Ported to Python (ADR-040 Wave 9): a broken interpreter is no longer a step this file can
