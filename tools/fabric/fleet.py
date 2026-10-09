@@ -336,6 +336,9 @@ def prs_read(ctx: Ctx, agents: list[Agent]) -> dict[str, Any]:
 
 def closed_jobs_read(ctx: Ctx, agents: list[Agent]) -> dict[str, Any]:
     def one(a: Agent) -> Any:
+        if a.kind == "human":
+            # sudo goes one way, into role accounts (ADR-010 rule 12, ADR-044 §2).
+            return Failed("human login: not an account the fleet enters (ADR-010 rule 12)")
         try:
             p = call(ctx, [os.path.join(ctx.root, "bin", "fabric-host"), a.host, "run", "--as", a.login, "--",
                            "fabric-jobs", "list", "--all", "--json"], timeout=60)

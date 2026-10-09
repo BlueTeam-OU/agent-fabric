@@ -283,6 +283,13 @@ class HumanLogins(unittest.TestCase):
             self.assertIn(fleet.HUMAN, rec(doc, "hum", n)["why"])
         self.assertEqual(f.calls, [], "fabric-ctl refuses a human by name; it is not called")
 
+    def test_a_humans_closed_jobs_are_never_entered_through_sudo(self):
+        f = Fleet(self, {"fabric-host": done("[]")})
+        doc = f.fetch(["closed_jobs"])
+        self.assertIn("human login", rec(doc, "hum", "closed_jobs")["why"])
+        self.assertEqual(rec(doc, "a", "closed_jobs")["status"], "ok", "positive control: the others are asked")
+        self.assertNotIn("hum", [c[c.index("--as") + 1] for c in f.calls if "--as" in c])
+
     def test_a_single_agent_ask_among_humans_still_targets_that_login(self):
         f = Fleet(self, ctl_handlers(jobs=True))
         f.fetch(["jobs"], agent="a")
