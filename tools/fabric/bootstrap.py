@@ -205,6 +205,7 @@ HERE = os.path.dirname(os.path.realpath(__file__))
 FABRIC_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, HERE)
 import git as gitcmd  # noqa: E402
+import roots  # noqa: E402
 import workingcopy  # noqa: E402
 import workspace_trust  # noqa: E402
 import fabric_writes  # noqa: E402
@@ -674,7 +675,8 @@ class Bootstrap:
             if wc == self.root or not self.is_work_tree(wc):
                 continue
             try:
-                registry = workingcopy.load_registry(self.src("projects/registry.json"))
+                # the fabric this bootstrap runs in (tests/test_session_start.py), not the operator's
+                registry = workingcopy.load_registry(roots.projects_registry(root=self.root))
                 pid = workingcopy.resolve(wc, registry).get("project") or ""
             except SystemExit as e:
                 warn(f"  !  {wc}: {e.code}; its hooksPath and trust left as they are")
