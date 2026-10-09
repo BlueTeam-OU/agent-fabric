@@ -39,7 +39,7 @@ WHAT COUNTS. Three buckets, reported on their own lines:
                         another session; anyone else's review is listed
                         as "not trusted" and is not coverage;
   blind reviews       — the review class's reviews, posted by
-                        post-review.sh as review objects whose FIRST
+                        fabric-pr post-review as review objects whose FIRST
                         LINE is REVIEW_MARKER (below), BY the account
                         the sessions push as — the PR author, or one
                         named in AGENT_FABRIC_REVIEW_POSTERS: the
@@ -78,7 +78,7 @@ there are two "no review yet" states:
 on it); a pr CLOSED without merging ends the wait at 1.
 
 Usage:
-  pr-review-status.sh <pr-number> [owner/repo] [options]
+  fabric-pr review-status <pr-number> [owner/repo] [options]
 
 Options:
   --wait <duration>      poll until the head is reviewed (default 0 =
