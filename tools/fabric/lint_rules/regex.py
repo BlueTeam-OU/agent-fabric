@@ -61,15 +61,28 @@ def _assigned(node: ast.AST) -> list[tuple[list[str], ast.AST]]:
     return []
 
 
-def _own_statements(fn: ast.AST):
-    """The nodes of a function's own body, not crossing into the
-    functions, lambdas and classes nested in it."""
+def _own_statements(fn: ast.AST) -> list[ast.AST]:
+    """The nodes of a function's or class's own body in source order, not
+    crossing into the functions, lambdas and classes nested in it."""
+    out: list[ast.AST] = []
     stack = list(ast.iter_child_nodes(fn))
     while stack:
         node = stack.pop()
-        yield node
+        out.append(node)
         if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda, ast.ClassDef)):
             stack.extend(ast.iter_child_nodes(node))
+    return sorted(out, key=lambda n: (getattr(n, "lineno", 0), getattr(n, "col_offset", 0)))
+
+
+def _final_bindings(nodes: list[ast.AST]) -> dict[str, tuple[int, bool]]:
+    """name -> (line, is a $-pattern) of its last binding among `nodes`,
+    taken in source order: a later binding replaces an earlier one."""
+    final: dict[str, tuple[int, bool]] = {}
+    for node in nodes:
+        for names, value in _assigned(node):
+            for n in names:
+                final[n] = (node.lineno, _is_dollar_compile(value))
+    return final
 
 
 def _is_dollar_compile(value: ast.AST) -> bool:
@@ -90,9 +103,13 @@ class _Module:
         # the module's there, the class whose methods resolve self./cls.)
         self.matches: list[tuple[ast.Call, dict[str, int], frozenset[str], str | None]] = []
         self.bound: dict[str, int] = {}
-        # (class, X) for `X = re.compile(...)` in that class's body: self.X /
-        # cls.X in its methods, Class.X anywhere in the module
-        self.class_bound: dict[tuple[str, str], int] = {}
+        # every module-level binding of a name, in source order: a call made
+        # at module level sees the one in force at its line, a call in a
+        # function (run later) the last
+        self.module_bindings: dict[str, list[tuple[int, bool]]] = {}
+        # (class, X) -> (line, is a $-pattern) of X's last binding in that
+        # class's body: the class's own binding decides before its bases
+        self.class_final: dict[tuple[str, str], tuple[int, bool]] = {}
         self.class_names = {n.name for n in ast.walk(tree) if isinstance(n, ast.ClassDef)}
         # a class's bases that are classes of this module, for inherited patterns
         self.class_bases: dict[str, list[str]] = {}
@@ -124,15 +141,9 @@ class _Module:
         for child in ast.iter_child_nodes(node):
             if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
                 params = {a.arg for a in ast.walk(child.args) if isinstance(a, ast.arg)}
-                own: dict[str, int] = {}
-                others: set[str] = set(params)
-                for sub in _own_statements(child):
-                    for names, value in _assigned(sub):
-                        for n in names:
-                            if _is_dollar_compile(value):
-                                own[n] = sub.lineno
-                            else:
-                                others.add(n)
+                final = _final_bindings(_own_statements(child))
+                own = {n: line for n, (line, dollar) in final.items() if dollar and n not in params}
+                others = set(params) | {n for n, (_, dollar) in final.items() if not dollar}
                 inner_local = {k: v for k, v in local.items() if k not in others} | own
                 inner_hidden = frozenset((set(hidden) | others) - set(own))
                 self._scope(child, child, inner_local, inner_hidden, cls)
@@ -141,27 +152,23 @@ class _Module:
                 self.class_bases[child.name] = [b.id for b in child.bases if isinstance(b, ast.Name)]
                 # the class body's own statements, an if or a try inside it
                 # included, not the methods or classes nested in it
-                for stmt in _own_statements(child):
-                    for names, value in _assigned(stmt):
-                        for n in names:
-                            if _is_dollar_compile(value):
-                                self.class_bound[(child.name, n)] = stmt.lineno
-                            else:
-                                self.class_bound.pop((child.name, n), None)
+                for n, binding in _final_bindings(_own_statements(child)).items():
+                    self.class_final[(child.name, n)] = binding
                 # a class body's names are its attributes, not the module's
                 self._scope(child, fn, local, hidden, child.name, in_class_body=True)
                 continue
             if fn is None and not in_class_body:
                 for names, value in _assigned(child):
-                    if _is_dollar_compile(value):
-                        for n in names:
-                            self.bound[n] = child.lineno
-                        continue
-                    # a later binding to anything else ends the pattern's
-                    # (statements are visited in source order)
+                    dollar = _is_dollar_compile(value)
                     for n in names:
-                        self.bound.pop(n, None)
-                        self.aliases.pop(n, None)
+                        self.module_bindings.setdefault(n, []).append((child.lineno, dollar))
+                        if dollar:
+                            self.bound[n] = child.lineno
+                        else:
+                            self.bound.pop(n, None)
+                            self.aliases.pop(n, None)
+                    if dollar:
+                        continue
                     if isinstance(value, ast.Name):
                         for n in names:
                             self.aliases[n] = (value.id,)
@@ -169,18 +176,26 @@ class _Module:
                         for n in names:
                             self.aliases[n] = (value.value.id, value.attr)
             if isinstance(child, ast.Call) and isinstance(child.func, ast.Attribute) and child.func.attr == "match":
-                self.matches.append((child, local, hidden, cls))
+                self.matches.append((child, local, hidden, cls, fn is None and not in_class_body))
             # an if, a try or a with in a class body is still the class body
             self._scope(child, fn, local, hidden, cls, in_class_body)
 
 
+    def at_line(self, name: str, line: int) -> tuple[int, bool] | None:
+        """The module-level binding of `name` in force at `line`, or None
+        when the module has bound it nowhere before that line."""
+        before = [b for b in self.module_bindings.get(name, []) if b[0] < line]
+        return before[-1] if before else None
+
     def class_pattern(self, cls: str, attr: str, seen: frozenset = frozenset()) -> int | None:
-        """The line of `attr`'s $-pattern in `cls`, or in a base class of
-        this module it inherits from (review of #143)."""
+        """The line of `attr`'s $-pattern as `cls` has it: its own last
+        binding decides; with none, a base class of this module it inherits
+        from (review of #143)."""
         if cls in seen:
             return None
-        if (cls, attr) in self.class_bound:
-            return self.class_bound[(cls, attr)]
+        if (cls, attr) in self.class_final:
+            line, dollar = self.class_final[(cls, attr)]
+            return line if dollar else None
         for base in self.class_bases.get(cls, []):
             line = self.class_pattern(base, attr, seen | {cls})
             if line:
@@ -286,7 +301,7 @@ def regex_dollar_findings(root: str) -> list[str]:
         if mod is None:
             continue
         found: list[tuple[int, str]] = []
-        for node, local, hidden, cls in mod.matches:
+        for node, local, hidden, cls, at_module in mod.matches:
             if _is_re_call(node, "match") and _literal_dollar_pattern(node, 2):
                 found.append((node.lineno, f"{rel}:{node.lineno}: re.match with a pattern ending in `$` accepts one trailing newline "
                                 "— use re.fullmatch (or end the pattern in \\Z)"))
@@ -299,7 +314,11 @@ def regex_dollar_findings(root: str) -> list[str]:
                 if name in local:
                     hit = (rel, local[name])
                 elif name not in hidden:
-                    hit = resolver.pattern(rel, name)
+                    now = mod.at_line(name, node.lineno) if at_module else None
+                    if now is not None:  # run at import: the binding in force at this line
+                        hit = (rel, now[0]) if now[1] else None
+                    else:
+                        hit = resolver.pattern(rel, name)
             elif isinstance(target, ast.Attribute) and isinstance(target.value, ast.Name):
                 name = f"{target.value.id}.{target.attr}"
                 owner = cls if target.value.id in ("self", "cls") else target.value.id

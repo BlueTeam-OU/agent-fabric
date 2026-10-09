@@ -1824,6 +1824,45 @@ def case_a_dollar_anchored_pattern_through_classes_and_rebinding() -> None:
         assert [f.split(" ")[0] for f in got] == ["tools/classes.py:6:", "tools/classes.py:7:", "tools/classes.py:13:"], got
 
 
+def case_a_dollar_anchored_pattern_follows_source_order() -> None:
+    """Re-review of #143: a subclass's own non-$ binding ends what it
+    inherits; a class body's bindings count in source order (the last
+    decides); a call made at module level sees the binding in force at its
+    line, a call in a function the last."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("fabric_lint_under_test", LINT)
+    lint = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(lint)
+    with tempfile.TemporaryDirectory() as root:
+        g = lambda *a: subprocess.run(["git", "-C", root, *a], check=True, capture_output=True, env=git_env())
+        write(os.path.join(root, "tools", "order.py"),
+              "import re\n"
+              "class A:\n"
+              "    PTN = re.compile(r\"^a$\")\n"
+              "class B(A):\n"
+              "    PTN = re.compile(r\"^a\\Z\")\n"
+              "    def m(self, s):\n"
+              "        return self.PTN.match(s)\n"     # line 7: B's own binding, no finding
+              "v = B.PTN.match('a')\n"                 # line 8: no finding
+              "class C:\n"
+              "    W = None\n"
+              "    W = re.compile(r\"^w$\")\n"
+              "    Q = re.compile(r\"^q$\")\n"
+              "    Q = re.compile(r\"^q\\Z\")\n"
+              "    def m(self, s):\n"
+              "        return self.W.match(s), self.Q.match(s)\n"  # line 15: W only
+              "S = re.compile(r\"^s$\")\n"
+              "u = S.match('s')\n"                     # line 17: run before the rebinding, a finding
+              "S = None\n"
+              "def f(t):\n"
+              "    return S.match(t)\n")               # line 20: runs after, S is None, no finding
+        g("init", "-q", "-b", "main")
+        g("add", "-A")
+        got = lint.regex_dollar_findings(root)
+        assert [f.split(" ")[0] for f in got] == ["tools/order.py:15:", "tools/order.py:17:"], got
+        assert "self.W.match" in got[0], got
+
+
 def case_a_dollar_anchored_pattern_is_followed_across_imports() -> None:
     """The pattern is bound in one file and called with .match in another:
     through `from m import NAME`, `import m` then `m.NAME`, a re-export, a
@@ -2204,6 +2243,7 @@ def main() -> int:
         case_a_dollar_anchored_pattern_in_every_shape_and_scope,
         case_a_dollar_anchored_pattern_in_nested_scopes,
         case_a_dollar_anchored_pattern_through_classes_and_rebinding,
+        case_a_dollar_anchored_pattern_follows_source_order,
         case_a_contributor_entry_never_reaches_a_definition,
         case_the_fallback_validator_agrees_with_jsonschema,
         case_the_python_pin_is_checkable_and_what_ci_runs,

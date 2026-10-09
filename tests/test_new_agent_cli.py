@@ -290,6 +290,28 @@ def main() -> int:
         rc, out_deb = run("zz-fixture-login", "backend-dev", "--dry-run", AGENT_FABRIC_PLATFORM="debian", PATH=nogh)
         ok("the Debian profile names the missing tool's package and apt-get",
            has(r"^new-agent: 0\. debian: this host lacks .*gh.*: sudo apt-get install", out_deb), out_deb)
+        # The same PATH with gh, and a python3 that answers the floor check
+        # as 3.11 does: the run stops at the host audit, before any account.
+        oldpy = f"{sandbox}/oldpy"
+        os.makedirs(oldpy)
+        for entry in os.listdir(nogh):
+            if entry != "python3":
+                os.symlink(os.readlink(f"{nogh}/{entry}"), f"{oldpy}/{entry}")
+        for tool in ("gh", "paperkey", "openssl"):
+            src = shutil.which(tool, path=base.get("PATH"))
+            if src and not os.path.exists(f"{oldpy}/{tool}"):
+                os.symlink(src, f"{oldpy}/{tool}")
+        real_py = shutil.which("python3", path=base.get("PATH"))
+        with open(f"{oldpy}/python3", "w") as fh:
+            fh.write("#!/bin/bash\n"
+                     'if [[ "$1" == -c && "$2" == *version_info* ]]; then exit 1; fi\n'
+                     'if [[ "$1" == -V ]]; then echo "Python 3.11.2"; exit 0; fi\n'
+                     f'exec {real_py} "$@"\n')
+        os.chmod(f"{oldpy}/python3", 0o755)
+        rc, out_old = run("zz-fixture-login", "backend-dev", "--dry-run", AGENT_FABRIC_PLATFORM="debian", PATH=oldpy)
+        ok("a host python3 below the floor stops the run at the audit, naming the floor",
+           rc != 0 and "older than 3.13" in out_old and "Python 3.11.2" in out_old
+           and not has(r"^new-agent: 1\. ", out_old), out_old)
         ok("the host is named, and a missing placement is asked for",
            has(rf"^new-agent: host {re.escape(local)} \(this host\)", out) and 'placement: add "zz-fixture-login"' in out
            and "(fabric-status on the" in out and "bin/fabric-status" not in out,
