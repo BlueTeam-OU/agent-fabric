@@ -96,7 +96,7 @@ EOF
 # Every login's forced command is the one root-owned enter-ssh (ADR-048 §4).
 for login in "${logins[@]}"; do
     getent passwd "$login" >/dev/null || { echo "ssh-operator.sh: $login is placed here but has no account; no keys file" >&2; continue; }
-    put 0644 "$S/authorized_keys/$login" <<<"command=\"$LIBEXEC/enter-ssh\",restrict $opkey"
+    put 0644 "$S/authorized_keys/$login" <<<"command=\"$LIBEXEC/enter-ssh\",restrict,pty $opkey"
 done
 for f in "$S/authorized_keys"/*; do
     [[ -e "$f" ]] || continue
