@@ -12,14 +12,24 @@ Python control plane must judge a request exactly as the Node one does
                    blank is 0, anything else NaN
   keys(d)          Object.keys(d): integer-index keys first, ascending
   truthy(v)        what `if (v)` takes
+  json_parse(s)    JSON.parse(s): no NaN or Infinity, which Python's
+                   json.loads takes
+  search_params(pairs)  new URLSearchParams(pairs).toString():
+                   form-encoded, `~` encoded and `*` not, unlike urlencode
+  iso_now()        new Date().toISOString(): milliseconds, then Z
+  well_formed(s)   what a JavaScript string becomes as UTF-8 at a boundary
+                   (execFile's argv, a write): a lone surrogate is U+FFFD
 
 The signed bytes' own layout (JSON.stringify) is control/sign.py's
 js_number and js_string, which string() reads numbers by.
 """
 from __future__ import annotations
 
+import datetime
+import json
 import math
 import re
+import urllib.parse
 
 SPACE = ("\u0009\u000a\u000b\u000c\u000d \u00a0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006"
          "\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
@@ -91,3 +101,29 @@ def truthy(v) -> bool:
     if isinstance(v, (int, float)) and not isinstance(v, bool):
         return v != 0 and not math.isnan(v)
     return True
+
+
+def _no_constant(name: str):
+    raise ValueError(f"{name} is not JSON")
+
+
+def json_parse(s: str):
+    return json.loads(s, parse_constant=_no_constant)
+
+
+def search_params(pairs) -> str:
+    def enc(v: str) -> str:
+        return urllib.parse.quote_plus(v, safe="*").replace("~", "%7E")
+    return "&".join(f"{enc(string(k))}={enc(string(v))}" for k, v in (pairs.items() if isinstance(pairs, dict) else pairs))
+
+
+def well_formed(s: str) -> str:
+    # Through UTF-16 code units, so a pair held as two code points is one
+    # character, as JavaScript holds it, and only a lone half is replaced.
+    return s.encode("utf-16-le", "surrogatepass").decode("utf-16-le", "replace")
+
+
+def iso_now() -> str:
+    now = datetime.datetime.now(datetime.timezone.utc)
+    return now.strftime("%Y-%m-%dT%H:%M:%S.") + f"{now.microsecond // 1000:03d}Z"
+

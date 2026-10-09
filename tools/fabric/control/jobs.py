@@ -30,9 +30,16 @@ JavaScript's whitespace, String() of a value is JavaScript's (null is
 as Node passed none), `$` never before a trailing newline, and an
 object's keys in JavaScript's order.
 
-WHAT IS NOT NODE'S: a jobs.py that gives no answer within the bound and
-says nothing on stderr is refused with "no answer within 15 s"; Node's
-reason was the empty string, its error's stderr.
+WHAT IS NOT NODE'S, where Node's refusal said nothing: its reason was
+its error's stderr, the empty string, when jobs.py gave no answer within
+the bound, exited non-zero saying nothing (or only "fabric-jobs:"), or
+could not be started. Here the reason is "no answer within 15 s",
+"exit <n>", or why it could not be started.
+
+What crosses to jobs.py is what Node's execFile sent: each argument
+String()-ed, a lone surrogate as U+FFFD (a title the operator signed
+with one is added, as Node added it, not a crash); its output read as
+UTF-8 with bad bytes replaced, never by the locale.
 """
 from __future__ import annotations
 
@@ -78,8 +85,8 @@ def _default_root(home: str) -> str:
 
 
 def run_python(argv: list[str], *, cwd: str | None, env: dict, timeout: float) -> subprocess.CompletedProcess:
-    return subprocess.run(["python3", *argv], capture_output=True, text=True, cwd=cwd, env=env, timeout=timeout,
-                          stdin=subprocess.DEVNULL)
+    return subprocess.run(["python3", *argv], capture_output=True, text=True, encoding="utf-8", errors="replace",
+                          cwd=cwd, env=env, timeout=timeout, stdin=subprocess.DEVNULL)
 
 
 Runner = Callable[..., subprocess.CompletedProcess]
@@ -98,7 +105,8 @@ def jobs(home: str | None = None, root: str | None = None, run: Runner = run_pyt
     except OSError as e:
         raise JobsError(f"fabric-jobs list: {e.strerror or e}") from None
     if r.returncode != 0:
-        raise JobsError(f"fabric-jobs list: exit {r.returncode}: {(r.stderr or '').strip().splitlines()[-1:] or ''}")
+        lines = (r.stderr or "").strip().splitlines()
+        raise JobsError(f"fabric-jobs list: exit {r.returncode}: {lines[-1] if lines else ''}")
     try:
         listed = json.loads(r.stdout)
     except ValueError:
@@ -114,7 +122,8 @@ def jobs(home: str | None = None, root: str | None = None, run: Runner = run_pyt
         source = j.get("source")
         kind = source.get("kind") if isinstance(source, dict) else None
         # The log stays on the account: the owner reads where each job is, not its history.
-        out.append({"id": j.get("id"), "state": j.get("state"), "title": j.get("title"), "project": nn(j.get("project")),
+        # j.id of a job without one is undefined, which JSON.stringify drops.
+        out.append({**{k: j[k] for k in ("id", "state", "title") if k in j}, "project": nn(j.get("project")),
                     "topic": nn(j.get("topic")), "priority": j["priority"] if "priority" in j else "normal",
                     "source": nn(kind, "self"), "blocked_on": nn(j.get("blocked_on")), "artifacts": nn(j.get("artifacts"), []),
                     "updated": nn(j.get("updated"))})
@@ -160,6 +169,7 @@ def jobs_add(request: dict, home: str | None = None, root: str | None = None, ru
             *(["--topic", js.string(topic)] if js.truthy(topic) else []),
             *(["--project", js.string(project)] if js.truthy(project) else []),
             *(["--priority", js.string(priority)] if js.truthy(priority) else []), "--", title]
+    argv = [js.well_formed(a) for a in argv]
     try:
         r = run(argv, cwd=home, env={**os.environ, "AGENT_FABRIC_ROOT": root}, timeout=JOBS_TIMEOUT_S)
     except subprocess.TimeoutExpired as e:

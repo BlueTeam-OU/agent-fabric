@@ -178,6 +178,29 @@ def main() -> int:
         cj.jobs_add(r, home="/H", root="/R", run=record)
     # execFile spawns String() of each argument, so Node's argv is read as the child receives it.
     check("jobs.py's argv is Node's, String() of each value", seen == want, (seen, want))
+    lone = {"from": "h/op", "to": ["h/a"], "args": {"title": "a\ud800b", "topic": "\udc00"}}
+    seen.clear()
+    r = cj.jobs_add(lone, home="/H", root="/R", run=record)
+    check("a title or topic with a lone surrogate is added, U+FFFD in its place, as Node's execFile sends it",
+          r["status"] == "added" and seen[-1][-1] == "a\ufffdb" and "\ufffd" in seen[-1], (r, seen[-1:]))
+    with tempfile.TemporaryDirectory() as home, tempfile.TemporaryDirectory() as state:
+        os.environ["AGENT_FABRIC_STATE_DIR"] = state
+        try:
+            r = cj.jobs_add(lone, home=home, root=HERE)
+            got = cj.jobs(home=home, root=HERE)
+            check("...through the real jobs.py too", r.get("status") == "added" and got["jobs"][0]["title"] == "a\ufffdb", (r, got))
+        finally:
+            if saved is None:
+                os.environ.pop("AGENT_FABRIC_STATE_DIR", None)
+            else:
+                os.environ["AGENT_FABRIC_STATE_DIR"] = saved
+    try:
+        cj.jobs(run=done("", "first\nfabric-jobs: broken\n", 1))
+    except cj.JobsError as e:
+        check("a failed list says its last stderr line, as text", str(e) == "fabric-jobs list: exit 1: fabric-jobs: broken", str(e))
+    sparse = [{"state": "q", "title": "no id"}, {"id": "j9"}]
+    check("a stored job without id, state or title has no such key, as JSON.stringify drops undefined",
+          cj.jobs(run=done(json.dumps(sparse))) == node("return await m.jobs({ exec: async () => JSON.stringify(input) });", sparse))
     r = subprocess.run([sys.executable, os.path.join(HERE, "tools", "fabric", "jobs.py"), "--help"], capture_output=True, timeout=60)
     check("the jobs tool the ops run exists where they look for it", r.returncode == 0, r.stderr[-200:])
 
