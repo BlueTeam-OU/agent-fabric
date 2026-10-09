@@ -830,7 +830,7 @@ class Wire(Daemon):
         self.assertEqual(out.status, 1, out.stderr)
         self.assertRegex(out.stderr, rf"agentd: relay unreachable at http://127\.0\.0\.1:{s} \(.*\) — retrying every 30 s\n$")
 
-    def test_port_a_relay_page_that_is_no_array_is_a_failed_read_as_in_the_node(self):
+    def test_port_a_relay_page_that_is_no_object_or_whose_messages_are_no_array_is_a_failed_read(self):
         for page in ({"messages": {}}, ["x"], {"messages": "abc"}):
             r = self.with_relay([(SELF, request(op="ping", id="primer"))])
             r.wait_answer = page

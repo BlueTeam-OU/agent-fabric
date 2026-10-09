@@ -808,8 +808,10 @@ def main(argv: list[str] | None = None) -> int:
             if isinstance(page, dict) and page.get("warning") == "since_id_not_found":
                 state["last"] = None
                 continue
-            # The Node's `page.messages ?? []` then `for…of`: a page that is no
-            # object, or whose messages are no array, is a failed read.
+            # This daemon's own rule, stricter than the Node's `page.messages ?? []`
+            # then `for…of` (which read an array page as empty and iterated a
+            # string): a page that is no object, or whose messages are no array,
+            # is a failed read, said as the relay's.
             if not isinstance(page, dict):
                 raise TypeError("the relay's page is not an object")
             rows = [] if page.get("messages") is None else page["messages"]
