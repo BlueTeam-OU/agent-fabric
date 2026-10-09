@@ -129,7 +129,7 @@ def _catalog_roles(root: str) -> set[str] | None:
 
 
 def arm_boundary_findings(root: str, base_ref: str = "origin/main") -> list[str]:
-    """A project's arm.json (runtime/github/arm.sh's rules) names, beside
+    """A project's arm.json (fabric-pr arm's rules) names, beside
     its boundary patterns, the cases that MUST stay boundary: each case is
     a path the patterns match and the exemptions do not, and a case the
     branch forked with leaves only into boundary.retired, with why and
@@ -271,7 +271,7 @@ def arm_boundary_findings(root: str, base_ref: str = "origin/main") -> list[str]
 
 def arm_declared_findings(root: str) -> list[str]:
     """Every project in projects/registry.json has an arm.json. Without one
-    runtime/github/arm.sh refuses to arm any PR of the project ("the security
+    fabric-pr arm refuses to arm any PR of the project ("the security
     boundary cannot be judged"), which a project learns only when its first
     PR is ready; arm_boundary_findings above checks the files that exist and
     never sees the one that was not written."""
@@ -289,7 +289,7 @@ def arm_declared_findings(root: str) -> list[str]:
     declared = {r.split("/")[1] for r in tracked
                 if re.fullmatch(r"projects/[^/]+/integration/gh/arm\.json", r)}
     return [f"projects/registry.json: project {p!r} has no projects/{p}/integration/gh/arm.json; "
-            "runtime/github/arm.sh refuses to arm a PR of a project whose security boundary it cannot read"
+            "fabric-pr arm refuses to arm a PR of a project whose security boundary it cannot read"
             for p in registered if p not in declared]
 
 # What a role IS, never a contributor's to commit (ADR-018 §5 rule 8): a rule
