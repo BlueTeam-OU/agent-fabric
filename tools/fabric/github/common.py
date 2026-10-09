@@ -66,7 +66,12 @@ def apply_project_env(prog: str, environ: dict[str, str] | None = None) -> None:
     that had one; the bare commands do it here."""
     env = os.environ if environ is None else environ
     path = project_config_path(PR_TOOLS_SETTING, "pr-tools.json", subdir=None)
-    if not path or not os.path.exists(path):
+    if not path:
+        return
+    # A project without the file is a project without aliases; a setting that
+    # names a missing file is a typo, and reading it as that would count
+    # reviews with markers the project did not mean.
+    if not os.path.exists(path) and not os.environ.get(PR_TOOLS_SETTING):
         return
     try:
         with open(path, encoding="utf-8") as fh:

@@ -108,8 +108,23 @@ def main() -> int:
                   "T_OURS" not in env and env["AGENT_FABRIC_LEGACY_REVIEW_MARKERS"] == "<!-- mine -->")
             os.remove(cfg)
             env = {"T_THEIRS": "mine"}
+            err = io.StringIO()
+            real_err, sys.stderr = sys.stderr, err
+            try:
+                common.apply_project_env("tool", env)
+                code = None
+            except SystemExit as e:
+                code = e.code
+            finally:
+                sys.stderr = real_err
+            check("a setting that names a missing file: exit 2, the tool and file named, nothing applied",
+                  code == 2 and err.getvalue().startswith(f"tool: {cfg} is not a usable pr-tools.json")
+                  and env == {"T_THEIRS": "mine"})
+            del os.environ[common.PR_TOOLS_SETTING]
+            local.toplevel = lambda: None
             common.apply_project_env("t", env)
-            check("no file: neither aliases nor markers", env == {"T_THEIRS": "mine"})
+            check("no setting and no project: neither aliases nor markers, and no complaint", env == {"T_THEIRS": "mine"})
+            os.environ[common.PR_TOOLS_SETTING] = cfg
             for label, bad in (("not JSON", "{"), ("not an object", "[]"), ("an unknown key", {"env_alias": {}}),
                                ("aliases not names", {"env_aliases": {"A B": "C"}}),
                                ("aliases not strings", {"env_aliases": {"A": 1}}),
