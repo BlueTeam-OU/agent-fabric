@@ -298,13 +298,17 @@ class UpgradeClaude(unittest.TestCase):
         h.release()
         self.assertLess(time.monotonic() - began, 5, "release closes the holder's stdin; it does not wait for the holder to give up")
         U.hold_lease(HERE).release()
-        os.environ["AGENT_FABRIC_LEASES"] = os.path.join(tempfile.mkdtemp(prefix="upgrade-nolease-"), "absent")
+        nolease = tempfile.mkdtemp(prefix="upgrade-nolease-")
+        self.addCleanup(lambda: __import__("shutil").rmtree(nolease, ignore_errors=True))
+        os.environ["AGENT_FABRIC_LEASES"] = os.path.join(nolease, "absent")
         with self.assertRaises(U.LeaseRefused) as nd:
             U.hold_lease(HERE)
         self.assertEqual((nd.exception.code, nd.exception.reason), (2, "nodir"))
         self.assertRegex(nd.exception.line, r"no lease directory")
+        noscript = tempfile.mkdtemp(prefix="upgrade-noscript-")
+        self.addCleanup(lambda: __import__("shutil").rmtree(noscript, ignore_errors=True))
         with self.assertRaises(U.LeaseRefused) as ns:
-            U.hold_lease(tempfile.mkdtemp(prefix="upgrade-noscript-"))
+            U.hold_lease(noscript)
         self.assertEqual(ns.exception.code, -1)
         self.assertRegex(ns.exception.line, r"ENOENT")
 
