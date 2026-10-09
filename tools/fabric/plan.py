@@ -327,12 +327,15 @@ def cmd_link(a: argparse.Namespace) -> int:
     return 0
 
 
-_MD_META = re.compile(r"([\\`*_\[\]<>&])")
+# Markup, and the characters a renderer needs to make a link of bare text (GFM autolinks http://, www. and
+# user@host) or to strike it through (~); each is ASCII punctuation, so a backslash before it renders as itself.
+# The pipe is left to the cell join, which escapes it once.
+_MD_META = re.compile(r"([\\`*_\[\]<>&:@.~])")
 
 
 def md_text(value: Any) -> str:
     """Text from another account for a markdown cell: one line, and its markup
-    characters escaped, so a reason never renders as a link, a tag or a table."""
+    characters escaped, so a reason never renders as a link, a tag, a strike-through or a table."""
     return _MD_META.sub(r"\\\1", printable(value))
 
 
