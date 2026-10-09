@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """tools/fabric/github/pr_reply.py — reply to ONE review thread and resolve
-it, in a single call (ADR-040 Wave 1; runtime/github/pr-reply.sh is its
-shim, and the managed projects' tools/gh/pr-reply.sh forward to that path).
+it, in a single call (ADR-040 Wave 1; `fabric-pr reply` runs it; the runtime/github
+shim is deprecated, and the managed projects' tools/gh/pr-reply.sh forward to that path).
 
 CONTRACT, frozen from the bash (ADR-040 §5 rule 3):
   argv      <thread-id> [--no-resolve | --resolve] [--dry-run] [-h|--help]
@@ -83,13 +83,13 @@ It also enforces the two rules that are easy to break by hand:
     signals only "handled" and nothing downstream catches a false one.
 
 Usage:
-  runtime/github/pr-reply.sh <thread-id> [options]   # body on stdin
+  fabric-pr reply <thread-id> [options]   # body on stdin
 
-  runtime/github/pr-reply.sh PRRT_xxx <<'EOF'
+  fabric-pr reply PRRT_xxx <<'EOF'
   Fixed in #123 — the guard now anchors the filter.
   EOF
 
-  runtime/github/pr-reply.sh PRRT_xxx --no-resolve <<'EOF'
+  fabric-pr reply PRRT_xxx --no-resolve <<'EOF'
   Real, but the fix needs the contract change first — leaving open.
   EOF
 

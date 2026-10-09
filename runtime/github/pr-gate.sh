@@ -1,11 +1,14 @@
 #!/usr/bin/env bash
 # runtime/github/pr-gate.sh — my open pull requests, their commits and
 # what stands between each and main; --in-flight and --overlap for every
-# branch on origin. The path is the contract (the managed projects'
+# branch on origin. The path is the contract, but DEPRECATED — use `fabric-pr gate` (the managed projects'
 # tools/gh/pr-gate.sh forward here); the work, its rules and every reason
 # for them are in tools/fabric/github/pr_gate.py (ADR-040 §5 rule 4).
 # Bash builtins only, to find it.
 here="${BASH_SOURCE[0]%/*}"; [[ "$here" == "${BASH_SOURCE[0]}" ]] && here=.
+# Deprecated (ADR-040 §5 rule 7): the command is `fabric-pr gate`; this path stays
+# until the managed projects' forwarders are off it.
+echo "deprecated: use fabric-pr gate" >&2
 # The fleet's pinned Python (runtime/python.json, ADR-040), one per host;
 # AGENT_FABRIC_PYTHON points elsewhere for a test or a host without it.
 py="${AGENT_FABRIC_PYTHON:-/usr/local/bin/fabric-python}"

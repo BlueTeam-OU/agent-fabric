@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""runtime/github/trial-merge.sh against a throwaway origin and clone:
+"""fabric-pr trial-merge against a throwaway origin and clone:
 branches that combine and branches that conflict, the project's check
 passing, failing and timing out, a run killed mid-check, two runs at once,
 a ref that is not on origin, a failed fetch — and after every one of them
@@ -21,8 +21,8 @@ import time
 # caller's ~/.gitconfig: set here, it reaches the calls that pass no env.
 os.environ["GIT_CONFIG_GLOBAL"] = os.devnull
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-UNDER_TEST = os.path.abspath(os.environ.get("TRIAL_MERGE") or os.path.join(ROOT, "runtime", "github", "trial-merge.sh"))
-if not os.path.isfile(UNDER_TEST):
+UNDER_TEST = ["bash", os.path.abspath(os.environ["TRIAL_MERGE"])] if os.environ.get("TRIAL_MERGE") else [os.path.join(ROOT, "bin", "fabric-pr"), "trial-merge"]
+if not os.path.isfile(UNDER_TEST[1] if UNDER_TEST[0] == "bash" else UNDER_TEST[0]):
     sys.exit(f"test: script under test not found at {UNDER_TEST}")
 
 
@@ -132,7 +132,7 @@ def main() -> int:
             e = {**base_env, "TMPDIR": scratch, "AGENT_FABRIC_TRIAL_MIN_FREE_KB": "0", **env}
             if path_first:
                 e["PATH"] = f"{path_first}:{e.get('PATH', '')}"
-            r = subprocess.run(["bash", UNDER_TEST, *args], cwd=repo, env=e, stdout=subprocess.PIPE,
+            r = subprocess.run([*UNDER_TEST, *args], cwd=repo, env=e, stdout=subprocess.PIPE,
                                stderr=subprocess.STDOUT, text=True, timeout=300)
             return r.returncode, r.stdout
 
@@ -218,7 +218,7 @@ def main() -> int:
         for sig, label in ((signal.SIGTERM, "a run killed (TERM) during the check leaves no worktree and no file"),
                            (signal.SIGINT, "…and interrupted (INT): the same — the caller's uncommitted edit and "
                                            "worktree list as they were")):
-            victim = subprocess.Popen(["bash", UNDER_TEST, "h/a/one", "--check"], cwd=repo,
+            victim = subprocess.Popen([*UNDER_TEST, "h/a/one", "--check"], cwd=repo,
                                       env={**base_env, "TMPDIR": scratch, "AGENT_FABRIC_TRIAL_MIN_FREE_KB": "0",
                                            "AGENT_FABRIC_TRIAL_CONFIG": trial},
                                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -260,7 +260,7 @@ def main() -> int:
               rc == 0 and os.path.isfile(count) and as_json(out).get("result") == "combines", out)
         check("…and the retry left nothing", clean(), leftovers())
 
-        both = [subprocess.Popen(["bash", UNDER_TEST, "h/a/one", "h/b/two", "--json"], cwd=repo,
+        both = [subprocess.Popen([*UNDER_TEST, "h/a/one", "h/b/two", "--json"], cwd=repo,
                                  env={**base_env, "TMPDIR": scratch, "AGENT_FABRIC_TRIAL_MIN_FREE_KB": "0"},
                                  stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True) for _ in range(2)]
         r1, r2 = (as_json(p.communicate(timeout=300)[0]) for p in both)

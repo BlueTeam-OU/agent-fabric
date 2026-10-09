@@ -12,7 +12,7 @@ WHY ONE MODULE. The bash toolkit built its bodies by interpolation and
 parsed with jq; each tool chose its own timeout, or none, and said its
 errors its own way. Here:
   - a request body is JSON on stdin (`--input -`), never an argument —
-    pr-reply.sh's invariant: a body is data, so no quoting of it can go
+    fabric-pr reply's invariant: a body is data, so no quoting of it can go
     wrong and nothing of it reaches argv or a process list;
   - JSON is parsed in Python, never with jq;
   - every call is bounded, and its error names the call and GitHub's
@@ -20,7 +20,7 @@ errors its own way. Here:
   - `transient` says the outcome is not known to be a refusal: a timeout,
     a 5xx, a rate limit, or an answer gh accepted and that could not be
     read. For a read that means a retry could help — the distinction
-    pr-review-status.sh's exit 5 draws ("permanent, don't wait"). For a
+    fabric-pr review-status's exit 5 draws ("permanent, don't wait"). For a
     WRITE it means the write may have landed: never retry one on it (a
     review or a reply cannot be unsent); say so and let a person look.
 

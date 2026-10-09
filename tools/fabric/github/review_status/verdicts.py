@@ -77,9 +77,9 @@ def classify(reviews: list[dict], author: str, cfg: Config) -> Buckets:
     # posted by the session that owns the PR, is authored by the PR author
     # and would fall into `self` — the bucket labelled "thread replies …
     # not coverage". The marker is what tells them apart: an exact string
-    # post-review.sh emits and nothing else produces by accident.
+    # fabric-pr post-review emits and nothing else produces by accident.
     # AND THE POSTER IS BOUND. The marker is published in every tree that
-    # carries post-review.sh, so on a public repository any account can
+    # carries fabric-pr post-review, so on a public repository any account can
     # post a review whose first line is the marker; counting it made a
     # stranger's review the head's coverage, indistinguishable in the
     # report (a blind review of a managed project, 2026-09-25). A marked

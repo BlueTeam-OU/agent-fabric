@@ -5,7 +5,7 @@ The point is the EXIT, not the waiting: run it in the background and
 the exit is a callback. Nothing has to sit in a loop asking "has it
 merged yet" between other work, and nobody has to remember to check.
 
-  runtime/github/wait-merged.sh 429      # blocks; exits when decided
+  fabric-pr wait-merged 429      # blocks; exits when decided
 
 GitHub offers a local client no push channel — a webhook needs
 somewhere to arrive — so the polling has to happen somewhere. Putting
@@ -22,7 +22,7 @@ to catch it. It tells you the state; moving branches stays a
 deliberate act.
 
 Usage:
-  runtime/github/wait-merged.sh <pr-number> [options]
+  fabric-pr wait-merged <pr-number> [options]
 
 Options:
   --interval <duration>  between checks (default 30; the API is rate
@@ -31,7 +31,7 @@ Options:
 
 Durations take an optional unit — 90, 90s, 10m, 2h. A bare number is
 SECONDS, so anything written before units existed still means what it
-meant. runtime/github/pr-review-status.sh accepts exactly the same
+meant. fabric-pr review-status accepts exactly the same
 forms, from the same table.
   -q, --quiet            no progress lines on stderr
   -h, --help             this text

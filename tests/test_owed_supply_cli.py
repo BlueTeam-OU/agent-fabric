@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""runtime/github/owed-supply.sh, through the shim with gh mocked on PATH.
+"""fabric-pr owed-supply, through the shim with gh mocked on PATH.
 Ported case for case from a managed project's tools/gh/test_owed-supply.sh
 (its script the oracle, ADR-040 §5): a supply branch is owed, claimed or
 landed, and "I could not find out" (exit 2) must never be read as "nothing
@@ -21,7 +21,7 @@ import sys
 import tempfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-TOOL = os.path.join(ROOT, "runtime", "github", "owed-supply.sh")
+TOOL = [os.path.join(ROOT, "bin", "fabric-pr"), "owed-supply"]
 REPO = "gzapi-org/gzapp"
 
 # gh as gh.py calls it: `api <path> --method GET [--paginate --slurp]` and
@@ -118,6 +118,9 @@ def main() -> int:
         # PATH is the sandbox alone: bash for the shim's shebang and the
         # mock gh. No jq, no git — the port needs neither with GH_REPO set.
         os.symlink(shutil.which("bash") or "/bin/bash", os.path.join(bin_, "bash"))
+        # fabric-pr finds its checkout with these two; the old shim used builtins only.
+        for tool in ("dirname", "readlink"):
+            os.symlink(shutil.which(tool), os.path.join(bin_, tool))
         base = {k: v for k, v in os.environ.items()
                 if not k.startswith(("GITHUB_", "AGENT_FABRIC_", "CLAUDE_", "ANTHROPIC_", "GH_", "GIT_"))}
         base.update(PATH=bin_, MOCK_STATE=state, GH_REPO=REPO, HOME=sandbox)
@@ -139,7 +142,7 @@ def main() -> int:
 
         def run(*args: str, unset: tuple[str, ...] = (), **env: str) -> None:
             e = {k: v for k, v in dict(base, **env).items() if k not in unset}
-            r = subprocess.run([TOOL, *args], env=e, cwd=work, capture_output=True, text=True, timeout=120)
+            r = subprocess.run([*TOOL, *args], env=e, cwd=work, capture_output=True, text=True, timeout=120)
             out["text"], out["rc"], out["stdout"] = r.stdout + r.stderr, r.returncode, r.stdout
 
         def calls() -> str:
@@ -410,7 +413,7 @@ def main() -> int:
         check("…as the calls show", f"compare/{a}...{c}" not in calls(), calls())
         run("--help")
         check("--help is the module's docstring, citing the fabric's supply rule and the project's arm",
-              out["rc"] == 0 and out["stdout"].startswith("runtime/github/owed-supply.sh [--days N] [--json]\n")
+              out["rc"] == 0 and out["stdout"].startswith("fabric-pr owed-supply [--days N] [--json]\n")
               and "identities/prompt/team.md" in out["stdout"] and "the project's arm" in out["stdout"]
               and "CLAUDE.md" not in out["stdout"] and "tools/gh/arm.sh" not in out["stdout"], out["text"])
         run("--days", "x", "--help")

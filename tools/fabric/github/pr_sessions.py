@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """tools/fabric/github/pr_sessions.py — which SESSION owns which PR, newest
-first (ADR-040 Wave 1; runtime/github/pr-sessions.sh is its shim, and the
+first (ADR-040 Wave 1; `fabric-pr sessions` runs it; the runtime/github shim is deprecated, and the
 managed projects' tools/gh/pr-sessions.sh forward to that path).
 
 CONTRACT, frozen from the bash (ADR-040 §5 rule 3):
@@ -143,24 +143,24 @@ the unowned rows first is also what gets their threads queried at all
 and lose, being by definition the older ones.
 
 Usage:
-  runtime/github/pr-sessions.sh                 # THIS session's PRs (default)
-  runtime/github/pr-sessions.sh /all            # every session
-  runtime/github/pr-sessions.sh /unattributed   # only PRs no session owns
-  runtime/github/pr-sessions.sh -n 50           # last 50 rows
-  runtime/github/pr-sessions.sh /OPEN           # open PRs only
-  runtime/github/pr-sessions.sh /MERGED         # merged only  (/CLOSED too)
-  runtime/github/pr-sessions.sh --session legacy-clone-3
-  runtime/github/pr-sessions.sh /all --by-session   # grouped, all sessions
-  runtime/github/pr-sessions.sh /lastItem:50    # pool = 50 most recent PRs
-  runtime/github/pr-sessions.sh /lastDate:2d    # pool = updated in the last 2 days
-  runtime/github/pr-sessions.sh /lastDate:6h /unresolved   # ...then filter
-  runtime/github/pr-sessions.sh /unresolved     # only PRs with an open thread
-  runtime/github/pr-sessions.sh /all /unresolved # ...across every session
-  runtime/github/pr-sessions.sh /unattributed /unresolved  # ...owed by nobody
+  fabric-pr sessions                 # THIS session's PRs (default)
+  fabric-pr sessions /all            # every session
+  fabric-pr sessions /unattributed   # only PRs no session owns
+  fabric-pr sessions -n 50           # last 50 rows
+  fabric-pr sessions /OPEN           # open PRs only
+  fabric-pr sessions /MERGED         # merged only  (/CLOSED too)
+  fabric-pr sessions --session legacy-clone-3
+  fabric-pr sessions /all --by-session   # grouped, all sessions
+  fabric-pr sessions /lastItem:50    # pool = 50 most recent PRs
+  fabric-pr sessions /lastDate:2d    # pool = updated in the last 2 days
+  fabric-pr sessions /lastDate:6h /unresolved   # ...then filter
+  fabric-pr sessions /unresolved     # only PRs with an open thread
+  fabric-pr sessions /all /unresolved # ...across every session
+  fabric-pr sessions /unattributed /unresolved  # ...owed by nobody
 
 State is chosen at FETCH time, so like /lastItem and /lastDate it
 narrows the pool before scope, /unresolved and -n ever see it.
-  runtime/github/pr-sessions.sh --no-threads    # skip the review-thread lookup
+  fabric-pr sessions --no-threads    # skip the review-thread lookup
 
 /lastItem and /lastDate narrow the POOL, and are applied BEFORE
 everything else — session scope, /unresolved and -n all operate on

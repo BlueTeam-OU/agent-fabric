@@ -7,7 +7,7 @@ verified result (ADR-026, ADR-036), read from artifacts only.
 For each pull request merged in the period:
 
 - **verified** (ADR-026 §2): its head carried a posted review (the marker
-  post-review.sh writes, on the head commit), its checks were green, and
+  fabric-pr post-review writes, on the head commit), its checks were green, and
   within the window after its merge it was neither reverted nor given a fix
   naming it (a later commit on main naming #N that the commit classifier
   calls a fix for #N). A PR still inside its window is **pending**: it may

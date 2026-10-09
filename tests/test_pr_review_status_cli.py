@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""runtime/github/pr-review-status.sh, driven through the real script with
+"""fabric-pr review-status, driven through the real script with
 a mocked `gh`. Ported from runtime/github/test_pr-review-status.sh
 (ADR-040 Wave 6), case for case.
 
@@ -33,7 +33,7 @@ import tempfile
 import time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-UNDER_TEST = os.path.join(ROOT, "runtime", "github", "pr-review-status.sh")
+UNDER_TEST = [os.path.join(ROOT, "bin", "fabric-pr"), "review-status"]
 MODULE = os.path.join(ROOT, "tools", "fabric", "github", "pr_review_status.py")
 UNSET = object()
 
@@ -439,7 +439,7 @@ def main() -> int:
                                                       if refusal_re is UNSET else refusal_re),
                  "AGENT_FABRIC_REVIEW_REQUEST_RE": "@reviewer[[:space:]]+review" if request_re is UNSET else request_re,
                  "AGENT_FABRIC_REVIEW_POSTERS": "[]" if posters is UNSET else posters}
-            r = subprocess.run(["timeout", "20", "bash", UNDER_TEST, "77", "o/r", *args], env=e,
+            r = subprocess.run(["timeout", "20", *UNDER_TEST, "77", "o/r", *args], env=e,
                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=60)
             out = r.stdout + r.stderr
             if r.returncode == 124:
@@ -447,7 +447,7 @@ def main() -> int:
             return r.returncode, out, r.stderr
 
         def bare(*args: str) -> int:
-            return subprocess.run(["bash", UNDER_TEST, *args], env=base, stdout=subprocess.PIPE,
+            return subprocess.run([*UNDER_TEST, *args], env=base, stdout=subprocess.PIPE,
                                   stderr=subprocess.STDOUT, text=True, timeout=60).returncode
 
         def one_json(text: str):
@@ -632,7 +632,7 @@ def main() -> int:
         rc, out, _ = run("OPEN:abc123:0", "bot,abc123,2026-08-07T10:00:00Z", "--wait", "300", "--interval", "1", "-q")
         check("  and bare seconds still work", rc == 0, out)
         check("unknown option exits 2", bare("77", "o/r", "--nope") == 2)
-        r = subprocess.run(["bash", UNDER_TEST, "--help"], env=base, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+        r = subprocess.run([*UNDER_TEST, "--help"], env=base, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                            text=True, timeout=60)
         check("--help exits 0", r.returncode == 0, r.stdout)
         check("  and documents exit 5", "no review is COMING" in r.stdout, r.stdout)

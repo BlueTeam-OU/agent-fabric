@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""runtime/github/pr-compliance.sh [--days N] [--json]        (default: 7)
+"""fabric-pr compliance [--days N] [--json]        (default: 7)
 
 The Actions-minute compliance measures, from GitHub and the fetched
 origin.
