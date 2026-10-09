@@ -39,7 +39,7 @@ if (( !dry )) && [[ $EUID -ne 0 ]]; then echo "ssh-operator.sh: run as root (sud
 [[ -x "$ENTER" ]] || { echo "ssh-operator.sh: no $ENTER; install moveto first (runtime/provisioning/moveto/install.sh)" >&2; exit 1; }
 
 # One key, `<type> <base64> [comment]`, no options of its own: the options
-# are ours (command=…,restrict), and a pasted line carrying its own would
+# are ours (command=…,restrict,pty), and a pasted line carrying its own would
 # put two option lists on one key.
 read -r -a key < "$pub" || true
 [[ $(grep -c . "$pub") -eq 1 && "${key[0]:-}" =~ ^(ssh-ed25519|ecdsa-sha2-nistp(256|384|521)|sk-ssh-ed25519@openssh.com)$ \

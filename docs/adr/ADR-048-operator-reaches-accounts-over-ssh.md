@@ -97,7 +97,7 @@ then the forced command.
    `root:root 0755`, one file per placed login, `root:root 0644`. No
    account's own `~/.ssh/authorized_keys` is read.
 3. Each file holds the one operator key, with
-   `command="/usr/local/libexec/agent-fabric/enter-ssh",restrict`. That
+   `command="/usr/local/libexec/agent-fabric/enter-ssh",restrict,pty`. That
    `enter-ssh` and its `enter-ssh.conf` are `root:root` (0755, 0644); the
    conf names moveto's installed `enter`, and no path in a forced command
    or a conf is in an account's home.

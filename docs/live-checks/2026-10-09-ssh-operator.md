@@ -33,7 +33,7 @@ owner has run the scripts and the coordinator has read back.
 | `-L`, `-R`, `-D` refused | `ssh -N -L 9999:127.0.0.1:22 …`, `-R`, `-D 9998` | refused by sshd, no listener | |
 | agent and X11 forwarding refused | `ssh -A -X … --watch`; `echo $SSH_AUTH_SOCK $DISPLAY` in the shell | both empty | |
 | an agent cannot add a key | as a login: `ls -l /etc/ssh/authorized_keys/`; a key put in `~/.ssh/authorized_keys` | root-owned 0644; the key not accepted | |
-| the forced command is root-owned, not a checkout's | `grep -h command= /etc/ssh/authorized_keys/* \| sort -u`; `ls -l /usr/local/libexec/agent-fabric/`; `cat …/enter-ssh.conf`; `ls -l /usr/local/share/moveto/enter` | one `command="/usr/local/libexec/agent-fabric/enter-ssh",restrict`; `enter-ssh` root:root 0755, conf root:root 0644 naming `/usr/local/share/moveto/enter`, itself root-owned; no path under /home | |
+| the forced command is root-owned, not a checkout's | `grep -h command= /etc/ssh/authorized_keys/* \| sort -u`; `ls -l /usr/local/libexec/agent-fabric/`; `cat …/enter-ssh.conf`; `ls -l /usr/local/share/moveto/enter` | one `command="/usr/local/libexec/agent-fabric/enter-ssh",restrict,pty`; `enter-ssh` root:root 0755, conf root:root 0644 naming `/usr/local/share/moveto/enter`, itself root-owned; no path under /home | |
 | an agent's checkout cannot change what the key runs | as a login, edit `~/projects/agent-fabric/runtime/provisioning/moveto/enter-ssh`; connect | the pane is unchanged (the installed copy ran) | |
 | the restore puts a changed enter-ssh back | as root alter `/usr/local/libexec/agent-fabric/enter-ssh`; restart the AppVM; `cmp` with the staged copy | equal | |
 | a login not placed is refused | `ssh … <unplaced>@127.0.0.1` | `Permission denied` | |

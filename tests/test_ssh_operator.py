@@ -61,8 +61,8 @@ def main() -> int:
         for s in SETTINGS:
             check(f"the drop-in says {s}", f"    {s}\n" in out, out)
         check("AllowUsers names exactly the logins placed on this host", f"    AllowUsers ghost-login-x {ME}\n" in out, out)
-        want = f'command="{LIBEXEC}/enter-ssh",restrict {OPKEY}'
-        check("the login's keys file forces the root-owned installed enter-ssh, restricted, the comment dropped",
+        want = f'command="{LIBEXEC}/enter-ssh",restrict,pty {OPKEY}'
+        check("the login's keys file forces the root-owned installed enter-ssh, restricted with a pty, the comment dropped",
               f"authorized_keys/{ME} (0644):\n    {want}\n" in out, out)
         check("a placed login with no account gets no keys file, said", "ghost-login-x is placed here but has no account" in r.stderr
               and "authorized_keys/ghost-login-x" not in out, r.stderr)
