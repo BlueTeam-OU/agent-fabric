@@ -67,7 +67,8 @@ FLEET SECTIONS  `plans` and `prs_unplaced` are about the fleet, not an agent:
   are null with `gate_ok` false and `gate_why` when the gate could not be
   read; `gate_found` says whether the PR was at the gate (null when the gate
   was not read). The in-flight row and the gate row of a PR join by number,
-  or by branch where the listing had no number. closed_jobs.data adds done_total (state done only) to closed_total.
+  or by branch where the listing had no number (a number the gate lacks is
+  a PR not at the gate: gate_found false). closed_jobs.data adds done_total (state done only) to closed_total.
 
 SECTIONS, by cost class (the TTL is how long a cached answer is reused)
   C0 proc 5 s · states 5 s · presence 10 s
@@ -459,15 +460,14 @@ def pr_rows(ctx: Ctx) -> dict:
         if not isinstance(r, dict):
             continue
         n = r.get("pr")
-        # The number joins; where the listing could not give one ("none",
-        # "unavailable": the PR is newer than its read, or gh failed), the
-        # branch does.
-        gr = gate.get(n) if isinstance(n, int) and not isinstance(n, bool) else None
-        if gr is None:
-            gr = by_branch.get(r.get("branch"))
+        # The number joins; only where the listing could not give one ("none",
+        # "unavailable": the PR is newer than its read, or gh failed) does the
+        # branch. A number the gate does not list is a PR not at the gate.
+        numbered = isinstance(n, int) and not isinstance(n, bool)
+        gr = gate.get(n) if numbered else by_branch.get(r.get("branch"))
         if gr is not None:
             seen.add(gr.get("number"))
-        out.append({**{k: r.get(k) for k in PR_ROW_KEYS}, "number": gr.get("number") if gr is not None else n if isinstance(n, int) else None,
+        out.append({**{k: r.get(k) for k in PR_ROW_KEYS}, "number": gr.get("number") if gr is not None else n if numbered else None,
                     "repo": repo, **{k: (gr or {}).get(k) for k in GATE_KEYS}, "owner": r.get("owner", "") or (gr or {}).get("owner", ""),
                     "gate_found": None if gate_why else gr is not None})
     for n, gr in gate.items():
@@ -545,8 +545,7 @@ def plans_read(ctx: Ctx, _agents: list[Agent]) -> dict[str, Any]:
         stored = plan_mod.identity.list_plans()
     except SystemExit as e:         # identity's way of refusing an unreadable plan file
         raise SourceError(str(e)) from None
-    jobs_cache: dict = {}           # one list per login for every plan of this read
-    full: dict[str, Any] = {}
+    jobs_cache: dict = {}           # one list per login for every plan of this read, derive's and ours
 
     def times(owner_job: str | None, row: dict | None) -> tuple[str | None, str | None, str | None]:
         """(started, finished, why-not) for a step's job."""
@@ -555,12 +554,12 @@ def plans_read(ctx: Ctx, _agents: list[Agent]) -> dict[str, Any]:
         if isinstance(row, dict) and isinstance(row.get("log"), list):
             return (*log_times(row), None)
         login, _, job_id = owner_job.partition(":")
-        if login not in full:
+        if ("closed", login) not in jobs_cache:      # the key plan.find_job keeps the executor's list under
             try:
-                full[login] = reader.closed_jobs(login)
+                jobs_cache[("closed", login)] = reader.closed_jobs(login)
             except plan_mod.Unreadable as e:
-                full[login] = e
-        listed = full[login]
+                jobs_cache[("closed", login)] = e
+        listed = jobs_cache[("closed", login)]
         if isinstance(listed, Exception):
             return None, None, f"{login}'s full job list: {listed}"[:300]
         found = next((j for j in listed if isinstance(j, dict) and j.get("id") == job_id), None)

@@ -388,6 +388,11 @@ class Prs(unittest.TestCase):
             rows = rec(f.fetch(["prs"]), "a", "prs")["data"]["prs"]
             self.assertEqual([(r["pr"], r["number"], r["ahead"], r["verdict"]) for r in rows], [(pr, 7, 3, "BLOCKED: x")], pr)
 
+    def test_a_number_the_gate_lacks_does_not_join_by_branch(self):
+        f = Fleet(self, pr_handlers(inflight({"owner": "h1/a", "branch": "h1/a/feat/x", "pr": 5}), [gate_row(9, "h1/a", "h1/a/feat/x")]))
+        rows = rec(f.fetch(["prs"]), "a", "prs")["data"]["prs"]
+        self.assertEqual(sorted((r["pr"], r["number"], r["gate_found"]) for r in rows), [(5, 5, False), (9, 9, True)])
+
     def test_gate_found_says_whether_the_pr_was_at_the_gate_and_is_unknown_when_the_gate_was_not_read(self):
         f = Fleet(self, pr_handlers(inflight({"owner": "h1/a", "branch": "h1/a/feat/x", "pr": 7}, {"owner": "h1/a", "branch": "h1/a/feat/y", "pr": 8}),
                                     [gate_row(7, "h1/a", "h1/a/feat/x")]))
@@ -681,9 +686,11 @@ class Timeouts(unittest.TestCase):
         self.assertEqual((ctx.ctl_s, ctx.call_s), (20, 90))
 
     def test_plans_use_their_classes_bounds_for_every_program_and_ask_each_login_once(self):
-        f = Fleet(self, {("fabric-ctl", "jobs"): ctl_jobs({"a": [job("j1", "active")]}), "fabric-host": fullhost({"a": [job("j1", "active")]})})
+        f = Fleet(self, {("fabric-ctl", "jobs"): ctl_jobs({"a": [job("j1", "active")]}), "fabric-host": fullhost({"a": [job("j1", "active"), job("j2", "done")]})})
         self.write_two_plans(f)
         f.fetch(["plans"])
+        hosts = [c for c in f.calls if os.path.basename(c[0]) == "fabric-host"]
+        self.assertEqual(len(hosts), 1, "the executor's full list of a is read once for both plans, whoever needs it")
         want_ctl, want_call, _ = fleet.COST_CLASSES["C2"]
         ctl = [c for c in f.calls if os.path.basename(c[0]) == "fabric-ctl"]
         self.assertEqual([int(c[c.index("--timeout") + 1]) for c in ctl], [want_ctl], "one ask of a for two plans, with C2's wait")
@@ -697,7 +704,8 @@ class Timeouts(unittest.TestCase):
         for n in ("p1", "p2"):
             with open(os.path.join(d, f"{n}.json"), "w") as fh:
                 json.dump({"id": n, "title": n, "created_at": "t", "status": "open",
-                           "steps": [{"id": "s1", "title": "t", "owner": "a", "depends_on": [], "job": "a:j1"}]}, fh)
+                           "steps": [{"id": "s1", "title": "t", "owner": "a", "depends_on": [], "job": "a:j1"},
+                                     {"id": "s2", "title": "t", "owner": "a", "depends_on": [], "job": "a:j2"}]}, fh)
         saved = {k: os.environ.get(k) for k in ("AGENT_FABRIC_STATE_DIR", "AGENT_FABRIC_HOSTS_REGISTRY")}
         os.environ["AGENT_FABRIC_STATE_DIR"] = os.path.join(f.dir, "state")
         os.environ["AGENT_FABRIC_HOSTS_REGISTRY"] = os.path.join(f.root, "runtime", "hosts", "registry.json")
