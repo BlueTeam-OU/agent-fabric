@@ -187,6 +187,11 @@ def main() -> int:
             rc, out, err = run([sys.executable, "-I", WRITER, "db-admin"], AGENT_FABRIC_LOCK_WAIT="1")
         check("a second writer waits for the lock and says so when it does not come",
               rc != 0 and "locked by another writer" in out + err, out + err)
+        with open(f"{t}/snap/.lock", "w") as lock:
+            fcntl.flock(lock, fcntl.LOCK_SH)
+            rc, out, err = run([sys.executable, "-I", WRITER, "db-admin"], AGENT_FABRIC_LOCK_WAIT="1")
+        check("…and a writer is as much kept out by a reader's shared lock: the lock it takes is exclusive",
+              rc != 0 and "locked by another writer" in out + err, out + err)
         check("the boot script is installed", os.access(f"{t}/rcd/agent-fabric-accounts.rc", os.X_OK))
         check("the lease directory made for this boot; no tmpfiles.d on a volatile /etc",
               os.path.isdir(f"{t}/run/lock/agent-fabric") and not os.path.exists(f"{t}/tmpfiles.d"))
