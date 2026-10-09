@@ -200,7 +200,6 @@ import os
 import pwd
 import re
 import shutil
-import socket
 import stat
 import subprocess
 import sys
@@ -819,8 +818,7 @@ class Bootstrap:
     def agentd_unit(self) -> bytes:
         """The control agent's unit for this login, as the selector says.
         Python only when everything it needs is here: a sound selector, the
-        pinned interpreter, and, for a login the selector lists, that login
-        placed on this host. Anything less writes the Node unit exactly as
+        pinned interpreter, and that login placed on this host. Anything less writes the Node unit exactly as
         every account had it, with one warning line saying why: a unit that
         may not start would leave the account without the control agent the
         coordinator reaches it by, and this is not a failure of the run."""
