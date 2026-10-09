@@ -531,8 +531,9 @@ GENERIC_SKIP = ("history/", "/test_", "/tests/", "README.md")
 GENERIC_FILES = ("policies/*/SKILL.md",)
 
 
-# The fabric's own remote is not a managed project's name.
-FABRIC_SELF = ("gzapi-org/agent-fabric",)
+# The fabric's own remote is not a managed project's name: under gzapi-org
+# until the move to BlueTeam-OU, both while clones still name the old one.
+FABRIC_SELF = ("gzapi-org/agent-fabric", "BlueTeam-OU/agent-fabric")
 
 
 # A skill carries rules, not the occasion that produced them (ADR-016 §5):
