@@ -956,7 +956,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - Keywords: identity, kind, human, operator, Fleet Deck, herdr, deck,
   moveto, placement.
 
-### ADR-045 — Engine, operator and clients (Proposed)
+### ADR-045 — Engine, operator and clients (Accepted)
 
 - Three layers: the engine (agent-fabric, to be published), the
   operator's private repository (hosts, keys, roles as adapted,
