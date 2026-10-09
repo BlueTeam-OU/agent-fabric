@@ -4,10 +4,10 @@ GitHub-side settings (docs/adr/ADR-019-work-arrives-as-pull-requests.md §6)
 to a repository, through tools/fabric/gh.py. It covers the repository,
 its topics, Actions and workflow permissions, and the ruleset on main;
 code scanning and secret scanning are set on GitHub by hand.
-tools/fabric/github-repo-settings.sh is its shim (ADR-040 Wave 1).
+`fabric-repo-settings` runs it (ADR-040 Wave 1).
 
-  tools/fabric/github-repo-settings.sh [owner/repo]     # default: gzapi-org/agent-fabric
-  tools/fabric/github-repo-settings.sh --show [owner/repo]
+  fabric-repo-settings [owner/repo]     # default: gzapi-org/agent-fabric
+  fabric-repo-settings --show [owner/repo]
 
 Idempotent: every call sets the documented value. The ruleset on main
 is tools/fabric/github-ruleset-main.json, created or updated by name;

@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""The oracle for tools/fabric/query.sh: what the citation graph answers,
+"""The oracle for fabric-query (bin/fabric-query): what the citation graph answers,
 exactly, for every subcommand, over a scratch fabric root with crossref.json
 files of the shape the assembler writes (tools/fabric/assemble.py:
 {"role","generated_at","index":{kind:{value:{"observations":[…],"slices":[…]}}}}).
 
-The CLI under test is the path in $QUERY_CLI, default tools/fabric/query.sh, so
+The CLI under test is the path in $QUERY_CLI, default bin/fabric-query, so
 one file runs against the shim and against the bash it replaced. The root
 defaults to the script's own checkout, so a copy outside the repository needs
 a memory/ beside its tools/.
@@ -20,7 +20,7 @@ import sys
 import tempfile
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-CLI = os.environ.get("QUERY_CLI") or os.path.join(HERE, "tools", "fabric", "query.sh")
+CLI = os.environ.get("QUERY_CLI") or os.path.join(HERE, "bin", "fabric-query")
 if not os.path.isfile(CLI):
     sys.exit(f"test: script under test not found at {CLI}")
 
@@ -434,12 +434,15 @@ def main() -> int:
     # A checkout the test builds: the CLI's own directory (so the default
     # root is the copy, wherever CLI came from) beside a memory/ of one
     # fixture role that no live corpus holds.
-    cli_dir = os.path.dirname(CLI)
-    copy_cli_dir = f"{T}/copy/tools/fabric"
+    # fabric-query finds query.py by its own place, bin/ beside tools/.
+    cli_dir = os.path.join(HERE, "tools", "fabric")
+    copy_cli_dir = f"{T}/copy/bin"
     os.makedirs(copy_cli_dir)
+    os.makedirs(f"{T}/copy/tools/fabric")
     for name in os.listdir(cli_dir):
-        if os.path.isfile(f"{cli_dir}/{name}"):
-            shutil.copy2(f"{cli_dir}/{name}", copy_cli_dir)
+        if os.path.isfile(f"{cli_dir}/{name}") and name.endswith(".py"):
+            shutil.copy2(f"{cli_dir}/{name}", f"{T}/copy/tools/fabric")
+    shutil.copy2(CLI, copy_cli_dir)
     xref(f"{T}/copy/memory/projects/fixtureproj/fixturerole/crossref.json", "fixturerole",
          '{"adrs": {"ADR-001": {"observations": [], "slices": ["lesson:a"]}}}')
     cli = os.path.join(copy_cli_dir, os.path.basename(CLI))
