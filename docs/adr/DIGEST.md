@@ -807,6 +807,7 @@ its record disagree, the record wins. Look it up, never read it whole:
   take the next (§5 rules 7–10).
 - A 2026-10-09 — a waiter whose state record is stale still ranks the
   job blocking, said stale with the record's age (§5 rule 8).
+- A 2026-10-09 — a REQUEST to a login is queued on its list (§5 rule 11).
 - Keywords: job, to-do, jobs.json, fabric-jobs, next, topic, fresh
   session, restart, fabric-fresh --job, working copy, intake, priority,
   blocking, pool, claim, P3.

@@ -135,6 +135,14 @@ Why these choices:
     `fabric-jobs next` before anything else, and it ends a session idle
     only when nothing is left it can take, on its own list or in its
     role's pool (A 2026-10-08).
+11. A `REQUEST` addressed `TO` a login is a job on that login's list,
+    queued without anyone remembering to put it there: the receiver's
+    inbox queues it when it delivers it, once per `MESSAGE-ID`, with the
+    id as the job's request; a sender that is the host's operator also
+    adds it through the control plane's `jobs-add`, so a session whose
+    watch has lapsed meets it at its next start. A failure to queue
+    never fails the delivery or the post, and says so. A job the login
+    will not do is dropped with its reason and answered (A 2026-10-09).
 
 ## 6. Consequences
 
@@ -151,9 +159,11 @@ Why these choices:
 
 ## 7. Future Evolution
 
-- **Turning the request intake on.** An undertaking REPLY would add the
-  request as a queued job. The owed-requests view ADR-024 §6 names would
-  then follow from request-sourced jobs.
+- **The owed-requests view** ADR-024 §6 names can follow from
+  request-sourced jobs (rule 11).
+- **A request id on `jobs-add`**, so the operator's job and the inbox's
+  are one by field rather than by the id in a title, waits for the
+  control plane's Node deletion (ADR-040 §7).
 - **Due dates** would earn a field when a list is observed to need them.
 
 ## 8. Decision Status
@@ -175,3 +185,4 @@ The body above reads current; each change's full note is in [history/ADR-037-ame
 |---|---|---|
 | 2026-10-08 | Priority, blocking derived, a role pool, and taking the next job | §5 rule 6 widened; rules 7–10 added; §7 priorities no longer future |
 | 2026-10-09 | A stale waiter still counts | §5 rule 8: a waiter whose state record is past the stream's bound still ranks the job blocking, named with the record's age as stale |
+| 2026-10-09 | A REQUEST to a login is queued on its list | §5 rule 11 added: the inbox queues a delivered REQUEST, the operator's send adds it by jobs-add; §7's intake item replaced by what remains |
