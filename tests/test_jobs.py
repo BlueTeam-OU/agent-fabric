@@ -13,6 +13,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+from instance_fixtures import write_operator_projects  # noqa: E402 — tests/, the script's own directory
 from git_env import git_env, scrub_process_env  # noqa: E402 — tests/, the script's own directory
 scrub_process_env()
 
@@ -118,6 +119,12 @@ def main() -> int:
                "HOME": home, "CLAUDE_BRIDGE_URL": dead_url, "CLAUDE_BRIDGE_AUTH_TOKEN": "tok",
                "AGENT_FABRIC_HOSTS_REGISTRY": registry, "FABRIC_STATE_CHANNEL": "t:state:control",
                "FABRIC_CONTROL_CHANNEL": "t:control"}
+        # The projects the tool resolves checkouts against: a fixture
+        # registry, with ids the live one lacks, so a reader of the live
+        # projects/registry.json finds neither.
+        env["AGENT_FABRIC_OPERATOR"] = write_operator_projects(
+            os.path.join(tmp, "operator"), {"fixture-proj": ["git@example.org:fixture-org/fixture-proj.git"],
+                                            "fixture-nowhere": ["git@example.org:fixture-org/fixture-nowhere.git"]})
         repo_a, repo_b = os.path.join(tmp, "alpha"), os.path.join(tmp, "beta")
         for r in (repo_a, repo_b):
             os.makedirs(r)
@@ -202,26 +209,26 @@ def main() -> int:
 
         # --project finds this login's checkout of the project beside the
         # working copy it runs in — never the current one for another project.
-        gz = os.path.join(tmp, "gzapp-copy")
+        gz = os.path.join(tmp, "fixture-proj-copy")
         subprocess.run(["git", "init", "-q", gz], check=True, env=git_env())
-        subprocess.run(["git", "-C", gz, "remote", "add", "origin", "git@github.com:gzapi-org/gzapp.git"], check=True, env=git_env())
+        subprocess.run(["git", "-C", gz, "remote", "add", "origin", "git@example.org:fixture-org/fixture-proj.git"], check=True, env=git_env())
         env["AGENT_FABRIC_STATE_DIR"] = os.path.join(tmp, "state-project")
-        p = run("add", "a gzapp job", "--project", "gzapp")
+        p = run("add", "a fixture job", "--project", "fixture-proj")
         check("--project finds the project's checkout beside this one",
-              p.returncode == 0 and jobs()[0]["working_copy"] == gz and jobs()[0]["project"] == "gzapp", p.stderr + repr(jobs()))
-        p = run("add", "a job nowhere", "--project", "kutaisi-shop-transit")
+              p.returncode == 0 and jobs()[0]["working_copy"] == gz and jobs()[0]["project"] == "fixture-proj", p.stderr + repr(jobs()))
+        p = run("add", "a job nowhere", "--project", "fixture-nowhere")
         check("no checkout of it: no working copy, and said", p.returncode == 0 and jobs()[1]["working_copy"] is None
-              and "no working copy of kutaisi-shop-transit" in p.stderr, p.stderr + repr(jobs()[1]))
+              and "no working copy of fixture-nowhere" in p.stderr, p.stderr + repr(jobs()[1]))
 
         # A binding names a project; an unregistered checkout falls back to
         # it in resolve_context, and must still never pass for that project.
         env["AGENT_FABRIC_STATE_DIR"] = os.path.join(tmp, "state-bound")
         os.makedirs(os.path.join(tmp, "state-bound", "agents", login))
         with open(os.path.join(tmp, "state-bound", "agents", login, "binding.json"), "w", encoding="utf-8") as fh:
-            json.dump({"agent": login, "host": host, "role": "backend-dev", "project": "gzapp"}, fh)
-        unreg = os.path.join(tmp, "aaa-unregistered")   # sorts before gzapp-copy
+            json.dump({"agent": login, "host": host, "role": "backend-dev", "project": "fixture-proj"}, fh)
+        unreg = os.path.join(tmp, "aaa-unregistered")   # sorts before fixture-proj-copy
         subprocess.run(["git", "init", "-q", unreg], check=True, env=git_env())
-        p = run("add", "a gzapp job", "--project", "gzapp", cwd=unreg)
+        p = run("add", "a fixture job", "--project", "fixture-proj", cwd=unreg)
         check("the bound project's job skips an unregistered checkout, the current one included",
               p.returncode == 0 and jobs()[0]["working_copy"] == gz, p.stderr + repr(jobs()))
         p = run("add", "a job here", cwd=unreg)
