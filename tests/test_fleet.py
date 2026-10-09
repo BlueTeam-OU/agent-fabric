@@ -67,6 +67,7 @@ class Fleet:
         os.makedirs(self.xdg, mode=0o700)
         self.t = 1_800_000_000.0
         self.calls: list[list[str]] = []
+        self.timeouts: list[float] = []     # the bound each program was given, in call order
         self.handlers = handlers or {}
         self.env = {"XDG_RUNTIME_DIR": self.xdg} if xdg else {}
         self.sampled: list[list[str]] = []
@@ -75,6 +76,7 @@ class Fleet:
 
     def run(self, argv, timeout, cwd, env):
         self.calls.append(list(argv))
+        self.timeouts.append(timeout)
         name = os.path.basename(argv[0])
         key = (name, argv[2] if name == "fabric-ctl" else argv[1] if name == "fabric-host" else "")
         h = self.handlers.get(key) or self.handlers.get(name)
@@ -178,14 +180,14 @@ class Failures(unittest.TestCase):
 
     def test_a_timeout_a_missing_program_and_an_empty_answer_are_told_apart(self):
         def hang(_argv):
-            raise subprocess.TimeoutExpired("fabric-ctl", 90)
+            raise subprocess.TimeoutExpired("fabric-ctl", 60)
 
         def missing(_argv):
             raise FileNotFoundError("fabric-ctl")
         f = Fleet(self, {("fabric-ctl", "jobs"): hang, ("fabric-ctl", "usage"): missing,
                          ("fabric-ctl", "host"): done("", "fabric-ctl: not a host operator\n", 2)})
         doc = f.fetch(["jobs", "usage", "host"])
-        self.failed_everywhere(doc, "jobs", "did not answer within 90 s")
+        self.failed_everywhere(doc, "jobs", "did not answer within 60 s")   # jobs is C1: its class's bound
         self.failed_everywhere(doc, "usage", "fabric-ctl not found")
         self.failed_everywhere(doc, "host", "fabric-ctl: not a host operator")
         self.assertEqual(len(doc["agents"]), 4, "no agent goes absent")
@@ -305,14 +307,14 @@ class TwoRemoteHosts(unittest.TestCase):
     def test_one_host_down_fails_its_own_agents_only_and_without_noise(self):
         def host(argv):
             if argv[1] == "h3":
-                raise subprocess.TimeoutExpired("fabric-host", 60)
+                raise subprocess.TimeoutExpired("fabric-host", 40)
             return done(json.dumps({"agents": {"c": {"uid": 3, "cpu_pct": 0.0, "rss_kb": 5, "swap_kb": 0, "procs": 1}}}))
         f = Fleet(self, {"fabric-host": host}, registry=self.REG)
         ctx = f.ctx()
         ctx.ssh_hosts = frozenset({"h2", "h3"})
         doc = fleet.fetch(["proc"], root=f.root, ctx=ctx)
         self.assertEqual([rec(doc, l, "proc")["status"] for l in ("a", "c", "d")], ["ok", "ok", "failed"])
-        self.assertEqual(rec(doc, "d", "proc")["why"], "hostexec: h3: fabric-host did not answer within 60 s")
+        self.assertEqual(rec(doc, "d", "proc")["why"], "hostexec: h3: fabric-host did not answer within 40 s")   # proc is C0
         self.assertEqual(rec(doc, "c", "proc")["src"], "hostexec")
 
 
@@ -373,6 +375,137 @@ class ClosedJobs(unittest.TestCase):
     def test_unreadable_output_is_failed(self):
         f = Fleet(self, {"fabric-host": done("{}")})
         self.assertIn("unreadable output", rec(f.fetch(["closed_jobs"]), "a", "closed_jobs")["why"])
+
+
+class Timeouts(unittest.TestCase):
+    """Each section's program is bound by its cost class: fabric-ctl waits
+    `ctl` seconds for the replies, and the whole program gets `call`."""
+
+    def bounds(self, section, handlers, **kw):
+        f = Fleet(self, handlers, registry=kw.pop("registry", None))
+        f.fetch([section], **kw)
+        ctl = [int(c[c.index("--timeout") + 1]) for c in f.calls if os.path.basename(c[0]) == "fabric-ctl"]
+        return ctl, f.timeouts
+
+    def test_each_cost_class_has_its_own_ctl_wait_and_program_bound(self):
+        for section, cls in (("presence", "C0"), ("jobs", "C1"), ("accounts", "C2"), ("tokens", "C3")):
+            ctl, bound = self.bounds(section, ctl_handlers(**{section: True}))
+            want_ctl, want_call, _ = fleet.COST_CLASSES[cls]
+            self.assertEqual((ctl, bound), ([want_ctl], [want_call]), (section, cls))
+        self.assertEqual([fleet.COST_CLASSES[c][0] for c in ("C0", "C1", "C2", "C3")], sorted(fleet.COST_CLASSES[c][0] for c in fleet.COST_CLASSES),
+                         "a dearer class waits longer")
+
+    def test_states_prs_closed_jobs_and_the_remote_proc_use_their_class_too(self):
+        states = {("fabric-ctl", "states"): done(json.dumps({"address": "h1/a", "sessions": []}) + "\n")}
+        ctl, bound = self.bounds("states", states)
+        self.assertEqual((ctl, bound), ([fleet.COST_CLASSES["C0"][0]], [fleet.COST_CLASSES["C0"][1]]))
+        gate = {"pr-gate.sh": done(json.dumps({"rows": [], "fetch_ok": True, "prs_ok": True, "base": "main"}))}
+        _, bound = self.bounds("prs", gate)
+        self.assertEqual(bound, [fleet.COST_CLASSES["C2"][1]])
+        jobs = {"fabric-host": done("[]")}
+        _, bound = self.bounds("closed_jobs", jobs)
+        self.assertEqual(set(bound), {fleet.COST_CLASSES["C2"][1]})
+        remote = {"fabric-host": done(json.dumps({"agents": {"c": {"uid": 3, "cpu_pct": 0.0, "rss_kb": 5, "swap_kb": 0, "procs": 1}}}))}
+        _, bound = self.bounds("proc", remote)
+        self.assertEqual(bound, [fleet.COST_CLASSES["C0"][1]], "h2's agents through the executor")
+
+    def test_a_hand_made_ctx_outside_any_section_keeps_the_old_defaults(self):
+        self.assertEqual((fleet.CTL_TIMEOUT_S, fleet.CALL_TIMEOUT_S), fleet.COST_CLASSES["C1"][:2])
+
+
+class Stale(unittest.TestCase):
+    """A slow account reads as old, not unknown: the last good value, with
+    its age and the fresh read's failure, until the class's window ends."""
+
+    def setUp(self):
+        self.answer = [ctl_rows("jobs")]
+        self.f = Fleet(self, {("fabric-ctl", "jobs"): lambda argv: done(self.answer[0], "" if "ok" in self.answer[0][:0] else "")})
+
+    def slow(self, **per):
+        self.answer[0] = ctl_rows("jobs", **{k: {"status": "no answer"} for k in per})
+
+    def test_a_failed_refresh_inside_the_window_is_the_last_good_value_with_its_age_and_why(self):
+        first = self.f.fetch(["jobs"])
+        good = rec(first, "b", "jobs")
+        self.slow(b=1)
+        self.f.t += 100                                   # past the 30 s TTL, inside C1's 600 s window
+        doc = self.f.fetch(["jobs"])
+        r = rec(doc, "b", "jobs")
+        self.assertEqual({k: r[k] for k in ("status", "src", "at", "age_s", "data")},
+                         {"status": "stale", "src": good["src"], "at": good["at"], "age_s": 100, "data": good["data"]})
+        self.assertIn("no answer", r["why"])
+        self.assertEqual([rec(doc, l, "jobs")["status"] for l in ("a", "c")], ["ok", "ok"], "only the slow account is old")
+
+    def test_the_age_grows_while_the_account_stays_slow_and_the_value_does_not_move(self):
+        self.f.fetch(["jobs"])
+        self.slow(b=1)
+        ages = []
+        for _ in range(3):
+            self.f.t += 60
+            ages.append(rec(self.f.fetch(["jobs"]), "b", "jobs")["age_s"])
+        self.assertEqual(ages, [60, 120, 180], "a failed refresh does not evict the last good entry, nor renew it")
+
+    def test_past_the_window_it_is_failed_again_and_unknown_stays_unknown(self):
+        self.f.fetch(["jobs"])
+        self.slow(b=1)
+        self.f.t += fleet.COST_CLASSES["C1"][2] + 1
+        r = rec(self.f.fetch(["jobs"]), "b", "jobs")
+        self.assertEqual(r["status"], "failed")
+        self.assertNotIn("data", r)
+        self.f.t -= 5000
+        self.assertEqual(rec(self.f.fetch(["jobs"]), "b", "jobs")["status"], "failed", "and the expired entry is gone, not revived")
+
+    def test_the_window_is_the_classes_own(self):
+        self.assertEqual([fleet.COST_CLASSES[c][2] for c in ("C0", "C1", "C2", "C3")], [60, 600, 1800, 7200])
+        for name, section in fleet.SECTIONS.items():
+            self.assertEqual(section.stale_s, fleet.COST_CLASSES[section.cost][2], name)
+
+    def test_an_account_that_answers_again_is_ok_and_fresh(self):
+        self.f.fetch(["jobs"])
+        self.slow(b=1)
+        self.f.t += 100
+        self.f.fetch(["jobs"])
+        self.answer[0] = ctl_rows("jobs")
+        self.f.t += 100
+        r = rec(self.f.fetch(["jobs"]), "b", "jobs")
+        self.assertEqual((r["status"], r["at"]), ("ok", fleet.stamp(self.f.t)))
+
+    def test_forcing_a_read_with_max_age_zero_still_falls_back_to_the_last_good_value(self):
+        self.f.fetch(["jobs"])
+        self.slow(b=1)
+        self.f.t += 5
+        self.assertEqual(rec(self.f.fetch(["jobs"], max_age=0), "b", "jobs")["status"], "stale")
+
+    def test_a_stale_record_is_never_written_back_as_if_it_were_a_reading(self):
+        self.f.fetch(["jobs"])
+        self.slow(b=1)
+        self.f.t += 100
+        self.f.fetch(["jobs"])
+        with open(os.path.join(self.f.xdg, "fabric-fleet", "jobs.json")) as fh:
+            kept = json.load(fh)["agents"]
+        self.assertTrue(all(e["record"]["status"] == "ok" for e in kept.values()), kept)
+        self.assertEqual(kept["b"]["t"], 1_800_000_000.0, "b's entry is still the original reading")
+
+    def test_without_a_cache_there_is_nothing_old_to_show(self):
+        f = Fleet(self, {("fabric-ctl", "jobs"): done(ctl_rows("jobs", b={"status": "no answer"}))}, xdg=False)
+        self.assertEqual(rec(f.fetch(["jobs"]), "b", "jobs")["status"], "failed")
+
+    def test_entries_past_the_window_are_dropped_when_the_file_is_written(self):
+        self.f.fetch(["jobs"], agent="a")
+        self.f.t += fleet.COST_CLASSES["C1"][2] + 1
+        self.f.fetch(["jobs"], agent="b")
+        with open(os.path.join(self.f.xdg, "fabric-fleet", "jobs.json")) as fh:
+            self.assertEqual(sorted(json.load(fh)["agents"]), ["b"])
+
+    def test_the_slow_account_in_a_real_command_line_answer_has_a_value_in_data(self):
+        self.f.fetch(["jobs"])
+        self.slow(b=1)
+        self.f.t += 100
+        out = io.StringIO()
+        with redirect_stdout(out):
+            doc = json.loads(json.dumps(self.f.fetch(["jobs"])))
+        r = rec(doc, "b", "jobs")
+        self.assertTrue(r["status"] == "stale" and r["data"], r)
 
 
 class Cache(unittest.TestCase):

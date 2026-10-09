@@ -22,6 +22,23 @@ CONTRACT
   exit      0 an answer was printed (failed records included: they are the
             answer); 2 usage, an unknown agent, an unreadable registry.
 
+STALE  A section whose fresh read failed for an agent, whose last good value
+  is no older than its class's stale window, is not "failed": it is
+  {"status": "stale", "src", "at" (when the value was read), "age_s", "why"
+  (the fresh read's failure), "data" (the last good value)}. Past the window
+  the record is failed, as before; a failure is still never cached, and a
+  failed refresh leaves the last good entry where it was. A slow account
+  reads as old, not unknown.
+
+TIMEOUTS  each cost class has its own bound on the program that reads it:
+  `ctl` is fabric-ctl's wait for the control agents' replies, `call` the
+  bound over the whole program (its relay reads can stall past the wait).
+  class  ctl  call  stale window
+  C0       8    40       60 s
+  C1      20    60      600 s
+  C2      30   120     1800 s
+  C3      60   180     7200 s
+
 SECTIONS, by cost class (the TTL is how long a cached answer is reused)
   C0 proc 5 s · states 5 s · presence 10 s
   C1 jobs 30 s · usage 60 s · host 60 s · fabric 60 s
@@ -50,6 +67,7 @@ NEVER read: /proc/*/environ, cmdline, transcripts (fleet_proc.py).
 from __future__ import annotations
 
 import concurrent.futures
+import dataclasses
 import datetime as dt
 import json
 import os
@@ -69,9 +87,12 @@ import roots  # noqa: E402
 import fleet_proc  # noqa: E402
 
 SCHEMA = 1
-CTL_TIMEOUT_S = 20          # fabric-ctl's own wait for the control agents' replies
-CALL_TIMEOUT_S = 90         # the subprocess bound over it: its relay reads can stall too
-PR_TIMEOUT_S = 120          # pr-gate fetches origin and lists PRs
+# class -> (ctl wait, whole-program bound, stale window), in seconds. The
+# program bound is over the wait because a control agent's relay read can
+# stall past it; pr-gate (C2) fetches origin and lists PRs, which is what
+# 120 s is for.
+COST_CLASSES = {"C0": (8, 40, 60), "C1": (20, 60, 600), "C2": (30, 120, 1800), "C3": (60, 180, 7200)}
+CTL_TIMEOUT_S, CALL_TIMEOUT_S, _ = COST_CLASSES["C1"]   # a Ctx made by hand, outside any section
 CLOSED_CAP = 20
 HOST_RUN_WORKERS = 8
 DEFAULT_PYTHON = "/usr/local/bin/fabric-python"
@@ -120,6 +141,8 @@ class Ctx:
     here: str = field(default_factory=fleet_proc.roots_host)
     days: int | None = None
     sample: Callable[..., dict] = fleet_proc.collect
+    ctl_s: float = CTL_TIMEOUT_S      # set per section by read_section: its cost class's
+    call_s: float = CALL_TIMEOUT_S
     env: dict[str, str] = field(default_factory=lambda: dict(os.environ))
 
 
@@ -135,6 +158,18 @@ class Section:
     cost: str
     ttl: int
     sources: tuple[Source, ...]
+
+    @property
+    def ctl_s(self) -> float:
+        return COST_CLASSES[self.cost][0]
+
+    @property
+    def call_s(self) -> float:
+        return COST_CLASSES[self.cost][1]
+
+    @property
+    def stale_s(self) -> float:
+        return COST_CLASSES[self.cost][2]
 
 
 # ── running things ──────────────────────────────────────────────────
@@ -161,9 +196,11 @@ def run_program(argv: list[str], *, timeout: float, cwd: str | None = None, env:
     return subprocess.CompletedProcess(argv, p.returncode, out, err)
 
 
-def call(ctx: Ctx, argv: list[str], timeout: float = CALL_TIMEOUT_S, cwd: str | None = None) -> subprocess.CompletedProcess:
+def call(ctx: Ctx, argv: list[str], timeout: float | None = None, cwd: str | None = None) -> subprocess.CompletedProcess:
     """Not found, hung and unreadable are told apart in the why; a non-zero
-    exit is returned, because fabric-ctl exits non-zero with rows to read."""
+    exit is returned, because fabric-ctl exits non-zero with rows to read.
+    The bound is the section's cost class's unless the caller names one."""
+    timeout = ctx.call_s if timeout is None else timeout
     try:
         return ctx.run(argv, timeout=timeout, cwd=cwd, env=ctx.env)
     except FileNotFoundError:
@@ -239,7 +276,7 @@ def ctl_source(op: str) -> Source:
         # login's call; any larger subset is read as `all`, one relay round
         # trip, and the rows of the others are not used.
         target = rest[0].login if len(rest) == 1 and agent_count(ctx) > 1 else "all"
-        p = call(ctx, [os.path.join(ctx.root, "bin", "fabric-ctl"), target, op, "--json", "--timeout", str(CTL_TIMEOUT_S), *tail])
+        p = call(ctx, [os.path.join(ctx.root, "bin", "fabric-ctl"), target, op, "--json", "--timeout", str(ctx.ctl_s), *tail])
         rows = json_lines(p.stdout)
         if not rows:
             raise SourceError(f"fabric-ctl {op}: {last_line(p.stderr) or f'exit {p.returncode}, no rows'}")
@@ -262,7 +299,7 @@ def states_read(ctx: Ctx, agents: list[Agent]) -> dict[str, Any]:
     out, rest = split_humans(agents)
     if not rest:
         return out
-    p = call(ctx, [os.path.join(ctx.root, "bin", "fabric-ctl"), "all", "states", "--json", "--timeout", str(CTL_TIMEOUT_S)])
+    p = call(ctx, [os.path.join(ctx.root, "bin", "fabric-ctl"), "all", "states", "--json", "--timeout", str(ctx.ctl_s)])
     rows = json_lines(p.stdout)
     if not rows:
         raise SourceError(f"fabric-ctl states: {last_line(p.stderr) or f'exit {p.returncode}, no rows'}")
@@ -296,7 +333,7 @@ def proc_source(label: str, remote: bool) -> Source:
                 for login in logins:
                     argv += ["--login", login]
                 try:
-                    p = call(ctx, argv, timeout=60)
+                    p = call(ctx, argv)
                     answered = json.loads(p.stdout)["agents"]
                     if not isinstance(answered, dict):
                         raise TypeError("agents is not an object")
@@ -316,7 +353,7 @@ def proc_source(label: str, remote: bool) -> Source:
 
 
 def prs_read(ctx: Ctx, agents: list[Agent]) -> dict[str, Any]:
-    p = call(ctx, [os.path.join(ctx.root, "runtime", "github", "pr-gate.sh"), "--in-flight", "--json"], timeout=PR_TIMEOUT_S, cwd=ctx.root)
+    p = call(ctx, [os.path.join(ctx.root, "runtime", "github", "pr-gate.sh"), "--in-flight", "--json"], cwd=ctx.root)
     try:
         doc = json.loads(p.stdout)
         rows = doc["rows"]
@@ -341,7 +378,7 @@ def closed_jobs_read(ctx: Ctx, agents: list[Agent]) -> dict[str, Any]:
             return Failed("human login: not an account the fleet enters (ADR-010 rule 12)")
         try:
             p = call(ctx, [os.path.join(ctx.root, "bin", "fabric-host"), a.host, "run", "--as", a.login, "--",
-                           "fabric-jobs", "list", "--all", "--json"], timeout=60)
+                           "fabric-jobs", "list", "--all", "--json"])
             if p.returncode != 0:
                 return Failed(f"fabric-jobs on {a.host} as {a.login}: {last_line(p.stderr) or f'exit {p.returncode}'}")
             jobs = json.loads(p.stdout)
@@ -459,6 +496,7 @@ def stamp(t: float) -> str:
 def read_section(ctx: Ctx, section: Section, agents: list[Agent]) -> dict[str, dict]:
     """Every agent gets a record: the first source that answers for it, else
     a failed one naming each source's why."""
+    ctx = dataclasses.replace(ctx, ctl_s=section.ctl_s, call_s=section.call_s)
     records: dict[str, dict] = {}
     whys: dict[str, list[str]] = {a.login: [] for a in agents}
     pending = list(agents)
@@ -498,28 +536,39 @@ def cache_name(ctx: Ctx, section: Section) -> str:
     return f"{section.name}-{ctx.days}" if section.name == "tokens" and ctx.days is not None else section.name
 
 
+def stale_record(entry: dict, why: str, now: float) -> dict:
+    old = entry["record"]
+    return {"status": "stale", "src": old.get("src"), "at": old.get("at"), "age_s": max(0, round(now - entry["t"])),
+            "why": why, "data": old.get("data")}
+
+
 def fetch_section(ctx: Ctx, section: Section, agents: list[Agent], max_age: float | None, directory: str | None) -> dict[str, dict]:
     limit = section.ttl if max_age is None else max_age
     now = ctx.clock()
     name = cache_name(ctx, section)
     entries = cache_read(directory, name)
     out: dict[str, dict] = {}
-    stale = []
+    asked = []
     for a in agents:
         e = entries.get(a.login)
         if e and limit > 0 and 0 <= now - e["t"] <= limit:
             out[a.login] = e["record"]
         else:
-            stale.append(a)
-    if stale:
-        fresh = read_section(ctx, section, stale)
-        out.update(fresh)
-        kept = {k: v for k, v in entries.items()}
+            asked.append(a)
+    if asked:
+        fresh = read_section(ctx, section, asked)
+        # What stays: every entry still inside the stale window, the failed
+        # refreshes' last good values included, and every success just read.
+        kept = {k: v for k, v in entries.items() if 0 <= now - v["t"] <= section.stale_s}
         for login, rec in fresh.items():
             if rec["status"] == "ok":
                 kept[login] = {"t": now, "record": rec}
+                out[login] = rec
+            elif (old := kept.get(login)) is not None and 0 <= now - old["t"] <= section.stale_s:
+                out[login] = stale_record(old, rec["why"], now)
             else:
                 kept.pop(login, None)
+                out[login] = rec
         if kept != entries:
             try:
                 cache_write(directory, name, kept)
