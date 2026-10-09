@@ -35,7 +35,9 @@ Writes, idempotently, and only machine-local files:
                                      (runtime/claude-code/commands.json)
   <units>/agent-fabric-agentd.service
                                      the control agent (runtime/control/), enabled and started
-                                     in this account's user manager when one is running
+                                     in this account's user manager when one is running; its
+                                     ExecStart the implementation runtime/control/agentd.json
+                                     selects for this login (agentd_unit.py)
   <units>/gzcoord-relay.service      ONLY on the account whose workspace hosts the relay
                                      ($PROJECTS/.gzcoord/venv exists): the relay as a unit
   ~/.cache/agent-fabric/langid/venv/ the language detector (pycld2) for the control agent's
@@ -84,6 +86,10 @@ CONTRACT, frozen from the bash (ADR-040 §5 rule 3):
                dry run), "  =  path", "  -  path (removed: …)",
                "     (kept the previous file as …)", "  *  unit: state",
                "  !  …" for what could not be done and is not counted;
+               "  *  agent-fabric-agentd.service runs node|python
+               (runtime/control/agentd.json)" in a dry run, and in a run
+               when it is python (added with the cutover, ADR-040 Wave 8
+               s7: a node run's lines are the bash's);
                the children's own lines (install_agent_files, user-settings,
                workspace_trust, langid/install.sh, retire-doppler); then
                "bootstrap: C written, S already current[, F NOT written
@@ -92,7 +98,8 @@ CONTRACT, frozen from the bash (ADR-040 §5 rule 3):
   stderr       the refusals counted as NOT written ("  !  <link> is not a
                link this fabric made …", "  !  <link>: could not link",
                "  !  runtime/claude-code/commands.json unreadable …",
-               "  !  <working copy>: <why> …"), the children's own, and the
+               "  !  <working copy>: <why> …", "  !  agent-fabric-agentd:
+               <why> — the unit left as it is"), the children's own, and the
                line a stopped run ends with ("bootstrap: …").
   exit         0 when the run reached its summary, NOT-written lines
                included; 2 a bad argument; 1 --projects names no
@@ -209,6 +216,7 @@ import roots  # noqa: E402
 import workingcopy  # noqa: E402
 import workspace_trust  # noqa: E402
 import fabric_writes  # noqa: E402
+import agentd_unit  # noqa: E402
 
 MARKER = b"agent-fabric"
 HOOKS_REL = "policies/githooks"
@@ -788,7 +796,10 @@ class Bootstrap:
         #    that changes the daemon's code is the daemon's own business (it exits,
         #    Restart= brings it back).
         before = self.changed
-        self.put_file(os.path.join(self.units, f"{UNIT}.service"), f"runtime/control/{UNIT}.service")
+        unit = self.agentd_unit()
+        if unit is None:
+            return
+        self.put(os.path.join(self.units, f"{UNIT}.service"), unit)
         if self.dry_run:
             return
         if not self.user_manager():
@@ -805,6 +816,33 @@ class Bootstrap:
             else:
                 run_quiet(["systemctl", "--user", "restart", UNIT])
         say(f"  *  {UNIT}: {answer(['systemctl', '--user', 'is-active', UNIT])} (systemctl --user status {UNIT})")
+
+    def agentd_unit(self) -> bytes | None:
+        """The control agent's unit for this login, as the selector says; None
+        when it cannot be decided, said on stderr and counted NOT written.
+        Refusing leaves whatever unit the account has: a guess would be a
+        unit that may not start, and an account without its control agent is
+        one the coordinator can no longer reach to repair it."""
+        template = self.src(f"runtime/control/{UNIT}.service")
+        try:
+            raw = _read(template)
+        except OSError as e:
+            raise Stop(1, f"bootstrap: install: cannot read {template}: {e.strerror or e}") from None
+        try:
+            impl = agentd_unit.implementation(agentd_unit.load(self.root), login())
+            unit = raw if impl == "node" else agentd_unit.unit_text(raw.decode("utf-8"), impl).encode("utf-8")
+            if impl == "python" and not os.access(agentd_unit.FABRIC_PYTHON, os.X_OK):
+                raise ValueError(f"python selected, and {agentd_unit.FABRIC_PYTHON} is not here "
+                                 "(as root: tools/fabric/python_pin.py install)")
+        except (ValueError, UnicodeDecodeError) as e:
+            warn(f"  !  {UNIT}: {e} — the unit left as it is")
+            self.failed += 1
+            return None
+        # Said in a dry run, and whenever the unit is not the one every account
+        # had before the cutover; a node run's lines stay as they were.
+        if self.dry_run or impl != "node":
+            say(f"  *  {UNIT}.service runs {impl} ({agentd_unit.SELECTOR_REL})")
+        return unit
 
     def relay(self) -> None:
         # 6b. The GZCoord relay as a user unit — ONLY on the account that hosts

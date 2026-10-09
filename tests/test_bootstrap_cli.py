@@ -221,7 +221,7 @@ def make_pristine(script: str) -> str:
         shutil.copyfile(module, f"{d}/tools/fabric/bootstrap.py")
         # and the modules it imports from the same tree, which the archive
         # of HEAD may not have yet
-        for dep in ("fabric_writes.py",):
+        for dep in ("fabric_writes.py", "agentd_unit.py"):
             src = os.path.join(os.path.dirname(module), dep)
             if os.path.isfile(src):
                 shutil.copyfile(src, f"{d}/tools/fabric/{dep}")
@@ -244,6 +244,10 @@ def make_pristine(script: str) -> str:
         "    subprocess.run(['git', '-C', store, 'config', 'agent-fabric.trustedbase', 'HEAD'], check=True)\n"
         "sys.exit(rc)\n")
     put(f"{d}/projects/registry.json", json.dumps(REGISTRY, indent=2) + "\n")
+    # Every login on the Node unit, the bash's: the checkout's selector names
+    # real logins, and this suite runs as one of them. The Python unit is
+    # test_bootstrap_internals.py's.
+    put(f"{d}/runtime/control/agentd.json", json.dumps({"default": "node", "python": []}) + "\n")
     put(f"{d}/policies/auto-mode.json", json.dumps({"environment": {"Organization": "a fixture organization"},
                                                      "allow": [], "soft_deny": [], "hard_deny": []}) + "\n")
     git("init", "-q", d)
