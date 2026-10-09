@@ -625,7 +625,7 @@ its record disagree, the record wins. Look it up, never read it whole:
   (§5 rules 6–9).
 - A 2026-09-27 — actions run beside the read loop (§5 rule 12).
 - A 2026-09-27 — each op's answer budget (§5 rule 12).
-- A 2026-09-28 — `jobs` and `jobs-add` carry the job list (§5 rule 13).
+- A 2026-09-28 — `jobs`, `jobs-add` (§5 rule 13).
 - A 2026-09-29 — `secrets-migrate` (§5 rule 14).
 - A 2026-09-30 — rule 14 withdrawn; signing key in the operator's store (§5 rule 5).
 - A 2026-10-06 — local, local-prune (§5 rule 15).
@@ -633,11 +633,12 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-10-07 — secrets-selftest (§5 rule 17).
 - A 2026-10-08 — resumable state in the state record (§5 rule 16).
 - A 2026-10-08 — the op table; three public ops (§5 rule 4).
-- A 2026-10-09 — a forged claim shows in the holder's pool.json (§5 rule 4).
+- A 2026-10-09 — a forged claim shows in pool.json (§5 rule 4).
 - A 2026-10-09 — Scope: runtime/control/.
-- Keywords: control plane, agentd, fabric-ctl, ops, ping, keys, usage,
-  recall, tokens, memory, bundle, drain, keygen, linger, operator_key,
-  herdr, status, resume, tools, pool.
+- A 2026-10-09 — `tools-install` (§5 rules 3, 12).
+- Keywords: agentd, fabric-ctl, ops, ping, keys, usage, recall, tokens,
+  memory, bundle, drain, keygen, operator_key, herdr, status, resume,
+  tools, pool.
 ### ADR-030 — Presence replaces HELLO and GOODBYE (Accepted)
 
 - Whether a session runs is the control agent's answer from its process
