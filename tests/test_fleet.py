@@ -686,7 +686,8 @@ class Timeouts(unittest.TestCase):
         self.assertEqual((ctx.ctl_s, ctx.call_s), (20, 90))
 
     def test_plans_use_their_classes_bounds_for_every_program_and_ask_each_login_once(self):
-        f = Fleet(self, {("fabric-ctl", "jobs"): ctl_jobs({"a": [job("j1", "active")]}), "fabric-host": fullhost({"a": [job("j1", "active"), job("j2", "done")]})})
+        f = Fleet(self, {("fabric-ctl", "jobs"): ctl_jobs(without_log({"a": [job("j1", "active")]})),
+                         "fabric-host": fullhost({"a": [job("j1", "active", ("t1", "active")), job("j2", "done", ("t1", "active"), ("t2", "done"))]})})
         self.write_two_plans(f)
         f.fetch(["plans"])
         hosts = [c for c in f.calls if os.path.basename(c[0]) == "fabric-host"]
