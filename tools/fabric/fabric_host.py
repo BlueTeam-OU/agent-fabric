@@ -40,8 +40,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
 HX = os.path.join(ROOT, "runtime", "hostexec", "hostexec")
 USAGE_SUBCOMMANDS = "list | check | run | moveto | rename | persist | drain"
-# The bash had no bound on `check`; a host that answers nothing for this long is unreachable (ssh BatchMode's own connect
-# attempts end well before it).
+# The bash had no bound on `check`; a host that answers nothing for this long is unreachable. The kernel's own TCP connect
+# limit (about two minutes) ends an attempt on a host that is down earlier; this bounds one that connects and then says nothing.
 CHECK_TIMEOUT_S = 300
 
 

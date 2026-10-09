@@ -315,7 +315,7 @@ PULL_TIMEOUT_S, BOOTSTRAP_TIMEOUT_S, SECRETS_TIMEOUT_S = 30, 30, 20
 
 
 def run_bounded(argv: list[str], timeout: int, *, capture: bool = False, quiet: bool = False, merge: bool = True) -> tuple[int, str]:
-    """(status, merged stdout+stderr when `capture`) of a command in a group of
+    """(status, the text when `capture`) of a command in a group of
     its own, killed with its children when it runs out: status 124, as the
     coreutils `timeout` said it. A command that cannot start is 127. With
     `capture`, stderr is merged into the text unless `merge` is off (then it
@@ -442,7 +442,8 @@ def enter_main(argv: list[str]) -> int:
     # From here: Ctrl-C while the account refreshes or its tool runs is the tool's (fabric-watch quits on
     # it), never the entry's: the bash carried on to the shell when a foreground child took the
     # SIGINT. A Python handler, not SIG_IGN: it is reset to the default in every child.
-    signal.signal(signal.SIGINT, lambda *_: None)
+    if signal.getsignal(signal.SIGINT) is not signal.SIG_IGN:    # an inherited ignore stays one, in the children too
+        signal.signal(signal.SIGINT, lambda *_: None)
     sys.stdout.flush()
     fabric = os.path.join(os.environ.get("HOME", ""), "projects", "agent-fabric")
     refresh_fabric(fabric)

@@ -73,7 +73,7 @@ def main() -> int:
         marker = os.path.join(tmp, "pulled")
         with open(os.path.join(fakebin, "git"), "w") as fh:
             fh.write('#!/bin/sh\ncase "$*" in\n *rev-parse*) echo "warning: noise on stderr" >&2; echo true ;;\n'
-                     f' *" pull "*) sleep 2; touch {marker} ;;\n *rev-list*) echo "warning: noise" >&2; echo 0 ;;\nesac\n')
+                     f' *" pull "*) touch {tmp}/pulling; sleep 2; touch {marker} ;;\n *rev-list*) echo "warning: noise" >&2; echo 0 ;;\nesac\n')
         os.chmod(os.path.join(fakebin, "git"), 0o755)
         env2 = {**env, "HOME": home2, "PATH": f"{fakebin}:/usr/bin:/bin"}
 
@@ -81,7 +81,10 @@ def main() -> int:
             return subprocess.Popen([sys.executable, "-I", MOVETO, "--enter", home2, "t", *args], env=env2, stdin=subprocess.PIPE,
                                     stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, start_new_session=True)
         p = start()
-        time.sleep(1)
+        for _ in range(300):          # the pull has started: the interpreter is up and the handler installed
+            if os.path.exists(os.path.join(tmp, "pulling")):
+                break
+            time.sleep(0.1)
         os.killpg(p.pid, signal.SIGINT)
         out, err = p.communicate("echo REACHED\nexit\n", timeout=60)
         check("Ctrl-C during the pull does not end the entry: the pull finishes and the shell opens",
