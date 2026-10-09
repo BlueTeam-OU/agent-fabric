@@ -304,6 +304,16 @@ def _():
     check(intake.listed({"jobs": [{"title": f"s (REQUEST {MID})"}]}, MID))
 
 
+@case("a PROJECT that is not a registry id is said and not queued, on either side; the default project never stands in")
+def _():
+    for bad in ("Agent-Fabric", "agent_fabric", "x" * 80):
+        lines, err = receive([delivery(PROJECT=bad)], FakeJobs())
+        check(lines == [] and err.count("\n") == 1 and "is not a registry id" in err, (bad, lines, err))
+        ctl = FakeCtl("dev-01 added j9")
+        job, err = sent(ctl, PROJECT=bad)
+        check(job is None and ctl.adds() == [] and err.count("\n") == 1 and "is not a registry id" in err, (bad, job, err))
+
+
 @case("whatever the sender's half raises is a line, never an exception: a registry of the wrong shape, undecodable output")
 def _():
     check(intake.operator_of(ME, {"hosts": ["host-a"]}) is None and intake.operator_of(ME, []) is None
@@ -402,7 +412,7 @@ def _():
         stub.close()
 
 
-@case("send main: a REQUEST posted by the host operator asks the control plane; a resend (deduplicated) asks nothing")
+@case("send main: a REQUEST posted by the host operator asks the control plane, a deduplicated resend too (the list check spares the duplicate)")
 def _():
     mine = me_address()
     who = gzmsg.whoami()
@@ -428,7 +438,7 @@ def _():
                 json.dump({"hosts": {who["host"]: {"operator": who["agent"]}}}, fh)
             os.environ["AGENT_FABRIC_HOSTS_REGISTRY"] = hosts
             intake.CTL = ctl
-            for dedup, asked in ((False, True), (True, False)):
+            for dedup, asked in ((False, True), (True, True)):
                 results.append(dedup)
                 path = os.path.join(tmp, f"msg{dedup}.txt")
                 with open(path, "w", encoding="utf-8") as fh:

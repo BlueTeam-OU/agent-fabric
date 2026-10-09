@@ -35,8 +35,9 @@ that path runs only under AGENT_FABRIC_JOBS_AUTO_INTAKE=1, which nothing
 sets (rule 5). A REQUEST addressed to a login is another path, always on:
 the inbox queues it on delivery and the host operator's send asks the control
 plane's jobs-add for it (tools/fabric/gzcoord/intake.py), both under the
-title "<SUBJECT> (REQUEST <MESSAGE-ID>)"; `add --request` for a message
-already so listed adds a second job, so look at `list` first.
+title "<SUBJECT> (REQUEST <MESSAGE-ID>)"; `add --request` for a job
+the sender's half made (it records no message id) adds a second job, so look
+at `list` first.
 
 A job has a priority (ADR-037 rule 7): blocking, high, normal or low;
 normal when none was set, and in a list written before priorities

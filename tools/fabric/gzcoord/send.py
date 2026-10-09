@@ -620,8 +620,9 @@ def main(argv: list[str]) -> int:
             how = f"stopped by {intake['signal']} after 20 s" if intake.get("signal") else f"exit {intake.get('status')}"
             sys.stderr.write(f"fabric-jobs: the job intake of {msg['metadata']['IN-REPLY-TO']} did not complete ({how});"
                              f" add it with fabric-jobs add --request\n")
-    if not deduplicated:       # a resend: the relay held it already, and so does the list
-        queue_request(msg, who)
+    # Even a resend the relay deduplicated: the first attempt may have ended
+    # unknown or failed to queue, and the addressee's list check spares the duplicate.
+    queue_request(msg, who)
     return 0
 
 

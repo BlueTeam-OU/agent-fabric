@@ -98,7 +98,9 @@ def queue_received(classified: list[dict], me: dict, *, jobs: Any = None, err: A
         try:
             jobs = jobs or _jobs()
             source = {"kind": "request", "message_id": mid, "from": meta.get("FROM") or rec.get("sender"), "seq": rec.get("seq")}
-            project = meta.get("PROJECT") if PROJECT_SLUG.fullmatch(str(meta.get("PROJECT"))) else None
+            project = meta.get("PROJECT")
+            if project is not None and not PROJECT_SLUG.fullmatch(str(project)):
+                raise ValueError(f"its PROJECT {str(project)[:60]!r} is not a registry id")
             title = title_for(meta.get("SUBJECT") or f"message {mid}", mid)
 
             def add(doc: dict, source: dict = source, project: Any = project, title: str = title, mid: str = mid) -> Any:
@@ -158,7 +160,10 @@ def queue_for_addressee(msg: dict, *, sender: str, hosts: Any, run: Callable[...
         login = to.split("/", 1)[1]
         if addressee_lists(login, mid, run):
             return None
-        argv = [CTL, login, "jobs-add", *(["--project", meta["PROJECT"]] if PROJECT_SLUG.fullmatch(str(meta.get("PROJECT"))) else []),
+        project = meta.get("PROJECT")
+        if project is not None and not PROJECT_SLUG.fullmatch(str(project)):
+            raise ValueError(f"its PROJECT {str(project)[:60]!r} is not a registry id")
+        argv = [CTL, login, "jobs-add", *(["--project", project] if project is not None else []),
                 "--", title_for(meta.get("SUBJECT", ""), mid)]
         r = run(argv, capture_output=True, text=True, timeout=CTL_TIMEOUT_S)
         found = _ADDED.search(r.stdout or "")
