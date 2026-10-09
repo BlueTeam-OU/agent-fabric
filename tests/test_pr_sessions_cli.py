@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""runtime/github/pr-sessions.sh, driven through the real script with a
+"""fabric-pr sessions, driven through the real script with a
 mocked `gh` on PATH, so the assertions are about observable output, not
 internals. Ported from runtime/github/test_pr-sessions.sh (ADR-040
 Wave 6), case for case.
@@ -31,7 +31,7 @@ from git_env import git_env, scrub_process_env  # noqa: E402 — tests/, the scr
 scrub_process_env()
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-UNDER_TEST = os.path.join(ROOT, "runtime", "github", "pr-sessions.sh")
+UNDER_TEST = [os.path.join(ROOT, "bin", "fabric-pr"), "sessions"]
 LOGIN = pwd.getpwuid(os.geteuid()).pw_name
 
 GH_MOCK = r'''#!{python}
@@ -123,7 +123,7 @@ def main() -> int:
                     AGENT_FABRIC_STATE_DIR=f"{sandbox}/state-none")
 
         def run(*args: str, **env: str) -> tuple[int, str]:
-            r = subprocess.run(["timeout", "20", "bash", UNDER_TEST, *args], cwd=clone, env={**base, **env},
+            r = subprocess.run(["timeout", "20", *UNDER_TEST, *args], cwd=clone, env={**base, **env},
                                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=60)
             return r.returncode, r.stdout
 

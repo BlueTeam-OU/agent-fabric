@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""runtime/github/owed-supply.sh [--days N] [--json]
+"""fabric-pr owed-supply [--days N] [--json]
 
 List every supply branch nobody has folded yet.
 
@@ -39,7 +39,7 @@ be a single commit still to come, on no branch at all). Listed as
 one.
 
 Usage:
-  runtime/github/owed-supply.sh [--days N] [--json]
+  fabric-pr owed-supply [--days N] [--json]
 
 Exit codes:
   0  listed (an empty list is a good state, and is said); --json prints
