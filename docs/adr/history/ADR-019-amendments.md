@@ -89,3 +89,7 @@ merged PR's follow-up from a fold. rust-services-dev measured it (8 work
 read where 6 was right, at the arm-without-asking threshold). A PR closed
 unmerged whose head lies inside this range was folded in; its review
 fixes are fixes here. Once the counter reads it, it needs no convention in the description. The counter's half (commit_class) is devex-tooling's and was not yet built when the rule was recorded; review of #125 found the record ahead of it, and the rule now says so.
+
+### Amendment 2026-10-09 — results.py reads a folded PR's review fixes
+
+python-dev-01's #132 (merged 2026-10-09) made `tools/fabric/results.py` pass `commit_class.Folds` for each merged pull request, asking ancestry of GitHub's compare API since results reads every registered repository and not one clone (d64ca04f), and read `Answers:` from the trailer block as pr-gate does (62ab655b). Rule 3's interim clause — that results did not read a fold yet, so a PR's description named the folded PR and its fixes — is withdrawn; the three counters read a fold alike.

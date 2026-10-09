@@ -113,10 +113,10 @@ not on a pipe's exit status.
    merge; `Kind: work` is work; `Kind: review-fix` is a fix, unless what
    it answers is another pull request's review, when it is this one's
    work, except a pull request folded into this one (closed unmerged,
-   its head inside this range), whose review fixes are fixes here (pr-gate
-   and the compliance check read a fold from the PR's head; the
-   after-the-fact split in `tools/fabric/results.py` does not yet, and
-   until it does the PR's description names the folded PR and its fixes); a revert and the commit it reverts, both in the range, count in
+   its head inside this range), whose review fixes are fixes here (pr-gate,
+   the compliance check and the after-the-fact split in
+   `tools/fabric/results.py` read a fold from the PR's head, the
+   last through GitHub's compare API); a revert and the commit it reverts, both in the range, count in
    no column. The hook is the rule's only check until the branches opened
    before it have merged: a commit that reaches a branch without the
    hook is not refused in CI yet. A commit with no `Kind:` (made before
@@ -229,3 +229,4 @@ The body above reads current; each change's full note is in [history/ADR-019-ame
 | 2026-10-06 | One open pull request per agent and repository | title, §2, §5 rule 2, §8: the limit is per repository; a branch in another repository is never addable |
 | 2026-10-08 | Every commit declares its kind | §5 rule 3, §7: a `Kind:` trailer (`work` or `review-fix`) the commit-msg hook requires; the count reads it before the subject |
 | 2026-10-08 | A folded pull request's review fixes are fixes | §5 rule 3: a PR closed unmerged with its head inside this range was folded in; its review fixes count as fixes here, not as follow-up work |
+| 2026-10-09 | results.py reads a folded PR's review fixes | §5 rule 3: the after-the-fact split reads a fold too; the PR description's interim naming of a folded PR's fixes is withdrawn |
