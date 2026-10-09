@@ -82,7 +82,8 @@ class LineageEntry(TypedDict):
     """One agent in identities/keys/lineage.json, keyed by its agent id:
     the login it is now, when it was born (from the id), its key's
     fingerprint, and the agent id of the parent that certified it (None
-    for the root). tests/test_types.py holds the committed file to it."""
+    for the root). tests/test_types.py holds what certify() builds to it; the committed file is
+    lint's (secretstore/lineage.py verify), which does not reject an undeclared key."""
     login: str
     born: str
     fingerprint: str
