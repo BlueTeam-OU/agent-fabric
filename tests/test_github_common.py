@@ -87,6 +87,7 @@ def main() -> int:
                 fh.write(doc if isinstance(doc, str) else json.dumps(doc))
 
         saved_cfg = os.environ.get(common.PR_TOOLS_SETTING)
+        stubs = (local.toplevel, workingcopy.resolve, roots.project_integration)
         os.environ[common.PR_TOOLS_SETTING] = cfg
         full = {"description": "d", "env_aliases": {"T_THEIRS": "T_OURS", "T_OTHER": "T_OTHERS"},
                 "legacy_review_markers": ["<!-- old v1 -->", "<!-- older v1 -->"]}
@@ -124,6 +125,20 @@ def main() -> int:
             local.toplevel = lambda: None
             common.apply_project_env("t", env)
             check("no setting and no project: neither aliases nor markers, and no complaint", env == {"T_THEIRS": "mine"})
+            local.toplevel = lambda: "/wc"
+            workingcopy.resolve = lambda top: {"project": "pid"}
+            roots.project_integration = lambda pid, *parts: os.path.join(tmp, "absent", pid, *parts)
+            err = io.StringIO()
+            real_err, sys.stderr = sys.stderr, err
+            try:
+                common.apply_project_env("t", env)
+                code = None
+            except SystemExit as e:
+                code = e.code
+            finally:
+                sys.stderr = real_err
+            check("no setting, a registered project with no pr-tools.json: neither, silently (the usual case)",
+                  code is None and err.getvalue() == "" and env == {"T_THEIRS": "mine"})
             os.environ[common.PR_TOOLS_SETTING] = cfg
             for label, bad in (("not JSON", "{"), ("not an object", "[]"), ("an unknown key", {"env_alias": {}}),
                                ("aliases not names", {"env_aliases": {"A B": "C"}}),
@@ -146,6 +161,7 @@ def main() -> int:
                       code == 2 and err.getvalue().startswith(f"tool: {cfg} is not a usable pr-tools.json")
                       and env == {"T_THEIRS": "mine"})
         finally:
+            local.toplevel, workingcopy.resolve, roots.project_integration = stubs
             if saved_cfg is None:
                 os.environ.pop(common.PR_TOOLS_SETTING, None)
             else:

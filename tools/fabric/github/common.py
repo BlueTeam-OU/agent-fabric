@@ -60,7 +60,8 @@ def apply_project_env(prog: str, environ: dict[str, str] | None = None) -> None:
     legacy_review_markers are the project's earlier review markers, the
     default of AGENT_FABRIC_LEGACY_REVIEW_MARKERS when that is unset or
     empty. A project with no such file gets neither. A file that exists and
-    cannot be used stops the tool, exit 2: reading a mistyped one as "no
+    cannot be used stops the tool, exit 2, as does a file the setting names
+    that does not exist: reading a mistyped one as "no
     aliases" would judge a review with markers the project did not mean.
     The forwarders under integration/gh/ did this in bash for every tool
     that had one; the bare commands do it here."""
