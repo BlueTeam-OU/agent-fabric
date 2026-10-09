@@ -25,6 +25,8 @@ HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(HERE, "tools", "fabric"))
 import launch  # noqa: E402
 from git_env import git_env, scrub_process_env  # noqa: E402 — tests/, the script's own directory
+from instance_fixtures import own_instance_tree  # noqa: E402 — tests/, the script's own directory
+own_instance_tree()
 scrub_process_env()
 
 SHIM = os.path.join(HERE, "runtime", "openrouter", "launch")

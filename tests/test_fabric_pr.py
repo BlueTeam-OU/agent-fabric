@@ -12,6 +12,8 @@ import subprocess
 import sys
 import tempfile
 from git_env import scrub_process_env  # noqa: E402 — tests/, the script's own directory
+from instance_fixtures import own_instance_tree  # noqa: E402 — tests/, the script's own directory
+own_instance_tree()
 scrub_process_env()
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -115,9 +117,8 @@ def main() -> int:
               (new.stdout, DEPRECATED.format(verb) + new.stderr, new.returncode) == (was.stdout, was.stderr, was.returncode)
               and new.returncode in (0, 2) and new.stdout + new.stderr != "", (new.returncode, was.returncode, new.stderr[:200]))
     new = run([f"{ROOT}/bin/fabric-query", "--help"])
-    was = run([f"{ROOT}/tools/fabric/query.sh", "--help"])
-    check("fabric-query --help is query.sh --help", (new.stdout, new.stderr, new.returncode)
-          == (was.stdout, was.stderr, was.returncode) and new.stdout + new.stderr != "", (new.returncode, was.returncode))
+    check("fabric-query --help is the module's help, exit 0, stdout only",
+          new.returncode == 0 and "fabric-query adr" in new.stdout and new.stderr == "", (new.returncode, new.stdout[:120], new.stderr[:120]))
 
     print("the in-checkout callers default to this checkout's fabric-pr")
     sys.path.insert(0, f"{ROOT}/tools/fabric/github")

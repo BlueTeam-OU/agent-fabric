@@ -32,6 +32,7 @@ from . import util
 # projects directory: the account's, not the operator's instance data (roots.py).
 HARNESS_MEMORY = "memory"
 MEMORY_PART_BYTES = 90 * 1024
+GZIP_OS_BYTE, GZIP_OS_UNIX = 9, 3
 HARVEST_TIMEOUT_S = 120
 HARVEST_MAX_BYTES = 64 * 1024 * 1024
 ERROR_TAIL = 400
@@ -134,7 +135,12 @@ def memory(home: str | None = None, root: str | None = None, run: Callable[..., 
             bundles.append({**where, "status": "harvest-failed", "error": said[-ERROR_TAIL:]})
             continue
         tar = bytes(r.stdout or b"")
-        gz = gzip.compress(tar, compresslevel=9, mtime=0)
+        # zlib.gzipSync writes OS = 3 (Unix) where gzip.compress writes 255
+        # (unknown): the header is the same from either daemon. The deflate
+        # stream after it is whatever the linked zlib makes, and may differ.
+        gz = bytearray(gzip.compress(tar, compresslevel=9, mtime=0))
+        gz[GZIP_OS_BYTE] = GZIP_OS_UNIX
+        gz = bytes(gz)
         b64 = base64.b64encode(gz).decode("ascii")
         parts = [b64[i:i + part_bytes] for i in range(0, len(b64), part_bytes)]
         bundles.append({**where, "status": "ok", "bytes": len(tar), "gzip_bytes": len(gz),

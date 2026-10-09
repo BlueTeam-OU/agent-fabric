@@ -219,6 +219,25 @@ def main() -> int:
               and "driver review" not in fixline, out)
         check("another session's PR is not listed by default", not has(r"^#43", out), out)
 
+        print("a project's pr-tools.json names its own variables for the fabric's")
+        tools_cfg = os.path.join(sandbox, "pr-tools.json")
+        with open(tools_cfg, "w", encoding="utf-8") as fh:
+            json.dump({"env_aliases": {"T_PROJECT_SESSION": "AGENT_FABRIC_PR_SESSION"}}, fh)
+
+        def run_as_project(config: str | None) -> str:
+            env = {**base_env, "MOCK_STATE": state, "PATH": f"{sandbox}/bin:{base_env.get('PATH', '')}",
+                   "AGENT_FABRIC_PR_REVIEW_STATUS": f"{sandbox}/bin/pr-review-status.sh",
+                   "T_PROJECT_SESSION": "develop-qzapp/me"}
+            if config:
+                env["AGENT_FABRIC_PR_TOOLS_CONFIG"] = config
+            r = subprocess.run([*UNDER_TEST], cwd=repo, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                               text=True, timeout=300)
+            return r.stdout
+        check("the project's session variable selects this session's PRs through its pr-tools.json",
+              has(r"^#42  develop-qzapp/me \(me\)  commits=", run_as_project(tools_cfg)))
+        check("…and without that file it selects nothing: the control that shows the alias did it",
+              not has(r"^#42", run_as_project(None)))
+
         print("the verdicts")
         check("green, reviewed head, 0 threads, under 8: ask the owner",
               "MERGEABLE — ask the owner (6 work commits < 8), then arm" in out, out)
@@ -307,11 +326,22 @@ def main() -> int:
         out = run("43")[1]
         check("a number lists that PR whoever opened it", has(r"^#43", out) and not has(r"^#42", out), out)
         put("closed.json", json.dumps([{"number": 40, "title": "old", "headRefName": "develop-qzapp/me/fix/old",
-                                        "headRefOid": "0" * 40, "baseRefName": "main", "state": "MERGED"}]))
-        rc, out = run("40", "43")
-        check("a merged PR given by number is said and skipped, never gated",
-              rc == 0 and "#40 is MERGED — not at any gate; skipped" in out and not has(r"^#40", out)
-              and has(r"^#43", out), f"rc={rc}\n{out}")
+                                        "headRefOid": "0" * 40, "baseRefName": "main", "state": "MERGED"},
+                                       {"number": 41, "title": "dropped", "headRefName": "develop-qzapp/me/fix/dropped",
+                                        "headRefOid": "0" * 40, "baseRefName": "main", "state": "CLOSED"}]))
+        rc, out = run("40", "41", "43")
+        # Owner's decision of 2026-10-09 (request 01a12005): a merged PR is a row of its own, so a
+        # landing is reported with counts; a closed-unmerged one is skipped as before.
+        check("a merged PR given by number is one MERGED row, never gated; with no merge commit its commits cannot be counted",
+              rc == 0 and has(r"^#40  develop-qzapp/me \(me\)  commits=cannot be counted  state=MERGED", out)
+              and "MERGED — not at any gate" in out and not has(r"^#40.*checks=", out) and has(r"^#43", out), f"rc={rc}\n{out}")
+        check("a closed-unmerged PR given by number is said and skipped, never gated",
+              "#41 is CLOSED — not at any gate; skipped" in out and not has(r"^#41", out), f"rc={rc}\n{out}")
+        put("graphql_fail", "")
+        rc, out = run("40")
+        check("a MERGED row reads nothing from GitHub's graphql: it answers while that read fails",
+              rc == 0 and has(r"^#40 .*state=MERGED", out), f"rc={rc}\n{out}")
+        drop("graphql_fail")
         rc, out = run("42abc")
         check("a non-numeric argument is a usage error, not a silently dropped PR", rc == 2, f"rc={rc}\n{out}")
         rc, out = run("999")

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""tools/fabric/github-repo-settings.sh, through the shim with a fake `gh`
+"""fabric-repo-settings (bin/fabric-repo-settings) with a fake `gh`
 that records every request (method, path, JSON body) and answers it.
 
 What the settings script promises, and the bash had no test for: every
@@ -18,7 +18,7 @@ import sys
 import tempfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-TOOL = os.path.join(ROOT, "tools", "fabric", "github-repo-settings.sh")
+TOOL = os.path.join(ROOT, "bin", "fabric-repo-settings")
 
 # The fake speaks gh.py's transport: --method, the body as JSON on
 # `--input -`, `--paginate --slurp` wrapping the pages in a list.
@@ -119,12 +119,14 @@ def main() -> int:
         # A copy of the tool with a ruleset file that is not JSON.
         copy = os.path.join(t, "copy", "tools", "fabric")
         os.makedirs(os.path.join(copy, "github"))
-        for rel in ("github-repo-settings.sh", "gh.py", os.path.join("github", "repo_settings.py"),
+        os.makedirs(os.path.join(t, "copy", "bin"))
+        shutil.copy2(TOOL, os.path.join(t, "copy", "bin", "fabric-repo-settings"))
+        for rel in ("gh.py", os.path.join("github", "repo_settings.py"),
                     os.path.join("github", "__init__.py")):
             shutil.copy2(os.path.join(ROOT, "tools", "fabric", rel), os.path.join(copy, rel))
         with open(os.path.join(copy, "github-ruleset-main.json"), "w", encoding="utf-8") as fh:
             fh.write("{")
-        rc, out, err, calls = settings("o/r", tool=os.path.join(copy, "github-repo-settings.sh"))
+        rc, out, err, calls = settings("o/r", tool=os.path.join(t, "copy", "bin", "fabric-repo-settings"))
         check("a ruleset file it cannot read: exit 1 before any call", rc == 1 and calls == []
               and "github-ruleset-main.json" in err, f"rc={rc}\n{err}{calls}")
 

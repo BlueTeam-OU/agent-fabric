@@ -20,6 +20,13 @@ value made when it runs, such as a key pair):
            case ran, are part of the answer, carried as hex (persisted
            state frozen with the wire: pool.json); never decoded, so no
            newline or invalid byte is made equal on the way
+  lenient_node_throw
+           optional, True: the answer is a list, one element per input, and
+           an element Node answered as {"threw": …} (it refuses a shape it
+           was never given) is not compared: Python may answer anything for
+           it. Every other element must be equal, and some must exist. For a
+           corpus of forged inputs, where the contract is "where the Node
+           printed a table, so does Python, the same one".
   error    optional, True: each side is expected to throw; only that it
            threw is compared, never the text (each language words its own).
            Without it a throw on either side fails the case, said with
@@ -182,6 +189,16 @@ def verdict(case: dict, node: str, py: str) -> str | None:
     threw = [f"{side} threw ({a.get('why')})" for side, a in (("node", n), ("python", p)) if a.get("threw")]
     if threw:
         return "; ".join(threw)
+    if case.get("lenient_node_throw"):
+        nv, pv = n.get("value"), p.get("value")
+        if not (isinstance(nv, list) and isinstance(pv, list) and len(nv) == len(pv)):
+            return "a lenient case answers a list of the same length on both sides"
+        refused = lambda a: isinstance(a, dict) and "threw" in a  # noqa: E731
+        compared = [i for i, a in enumerate(nv) if not refused(a)]
+        if not compared:
+            return "node refused every element: nothing was compared"
+        bad = [i for i in compared if nv[i] != pv[i]]
+        return None if not bad else f"{len(bad)} of {len(compared)} compared elements differ, the first at index {bad[0]}"
     return None if node == py else "the answers differ"
 
 

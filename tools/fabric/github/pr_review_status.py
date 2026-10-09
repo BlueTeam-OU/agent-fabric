@@ -133,6 +133,7 @@ from dataclasses import dataclass, field
 HERE = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
 import gh  # noqa: E402
+from github import common  # noqa: E402
 # Every name the parts define, from here as before: callers and tests reach
 # them as pr_review_status.<name> (pr_gate; tests/test_pr_review_status.py,
 # test_post_review.py, test_pr_gate.py).
@@ -305,6 +306,7 @@ def run(argv: list[str], env=None) -> int:
 
 
 def main() -> int:
+    common.apply_project_env("pr-review-status")
     try:
         return run(sys.argv[1:])
     except Die as e:

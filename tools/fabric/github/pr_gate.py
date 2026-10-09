@@ -12,7 +12,10 @@ CONTRACT, frozen from the bash (ADR-040 §5 rule 3):
             program), AGENT_FABRIC_PR_SESSION (<host>/<login>),
             AGENT_FABRIC_ROOT, AGENT_FABRIC_PR_BASE (--in-flight's base)
   stdout    the rows (three to five lines each), or with --json the rows
-            as data; --in-flight a header and one line per branch, or an
+            as data (a MERGED row is identity, "state", the split and the
+            verdict only: none of the open row's checks, review,
+            unresolved_threads, armed, queue_position, merge_state, draft
+            or awaiting_supply); --in-flight a header and one line per branch, or an
             object with its rows
   stderr    every `pr-gate: ` note — a skipped number, a failed fetch,
             the 500-PR cap, a refusal
@@ -26,7 +29,6 @@ projects point it at their own reader.
 """
 from __future__ import annotations
 
-import datetime as dt
 import json
 import os
 import re
@@ -38,8 +40,14 @@ HERE = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
 import gh  # noqa: E402
 import git  # noqa: E402
-from github import commit_class, local, pr_review_status  # noqa: E402
+from github import commit_class, common, local, pr_review_status  # noqa: E402, F401  (commit_class: the unit suite reaches it here)
 from github.review_status.base import listed, obj  # noqa: E402
+# What was split out of this module stays importable from here: the unit
+# suite, pr_compliance and the other callers reach it as pr_gate.<name>.
+from github.pr_gate_base import (  # noqa: E402, F401
+    INFLIGHT_PATHS_CAP, LIST_CAP, Usage, alt, jq_str, note, succeeds)
+from github.pr_in_flight import in_flight  # noqa: E402
+from github.pr_split import count_commits, merged_commits, split_range  # noqa: E402, F401
 
 FABRIC = os.path.dirname(os.path.dirname(os.path.dirname(HERE)))
 
@@ -91,7 +99,10 @@ WHAT A ROW SAYS
     BLOCKED: <what> — a draft, red checks, pending checks, no check yet,
     checks unread,
     no review of the head, unresolved threads, a conflict
-  A pull request given by number that is not OPEN is said and skipped.
+  A pull request given by number that is MERGED is one row: its commit split
+  over <merge>^1..<merge>^2 (as pr-compliance reads it), marked MERGED and
+  "not at any gate"; with no merge commit to count from it says the commits
+  cannot be counted, never a zero. One that is CLOSED unmerged is said and skipped.
 
 Usage:
   fabric-pr gate              # every open PR of this session (branch prefix <host>/<login>/)
@@ -125,9 +136,7 @@ Environment (the self-test):
   AGENT_FABRIC_PR_REVIEW_STATUS   a program run instead of the review reader (default: this checkout's fabric-pr review-status)
   AGENT_FABRIC_PR_SESSION         the <host>/<login> prefix (default: fabric-whoami)"""
 
-PR_FIELDS = ["number", "title", "headRefName", "headRefOid", "baseRefName", "state", "isDraft", "body"]
-LIST_CAP = 500
-INFLIGHT_PATHS_CAP = 200   # a row's paths as data; the total is always given
+PR_FIELDS = ["number", "title", "headRefName", "headRefOid", "baseRefName", "state", "isDraft", "body", "mergeCommit"]
 GATE_QUERY = """query($owner: String!, $name: String!, $number: Int!) {
   repository(owner: $owner, name: $name) { pullRequest(number: $number) {
     mergeStateStatus mergeable headRefOid
@@ -156,38 +165,6 @@ HEAD_REVIEWED = re.compile(r"^  head reviewed\? *: *([a-z]*)")
 ANY_REVIEW = re.compile(r"^  (?:independent reviews|blind reviews|verdict comments) *: *([0-9]*)")
 
 
-class Usage(Exception):
-    pass
-
-
-def note(msg: str) -> None:
-    print(f"pr-gate: {msg}", file=sys.stderr)
-
-
-def alt(*values):
-    """jq's `a // b`: the first value that is neither null nor false."""
-    for v in values:
-        if v is not None and v is not False:
-            return v
-    return None
-
-
-def jq_str(v) -> str:
-    """A value as jq's string interpolation writes it."""
-    if isinstance(v, str):
-        return v
-    return json.dumps(v, ensure_ascii=False)
-
-
-def succeeds(*args: str) -> bool:
-    """A git call read as the bash read it: any failure is "no". git.ok
-    raises on a status other than 0 or 1, and a failed fetch is 128."""
-    try:
-        return git.run(".", *args, check=False).returncode == 0
-    except git.GitError:
-        return False
-
-
 def session_prefix() -> str:
     session = os.environ.get("AGENT_FABRIC_PR_SESSION", "")
     if session:
@@ -209,75 +186,6 @@ def session_prefix() -> str:
 
 
 # ── commits over the base: work / review-fix / merge ─────────────────
-
-def count_commits(num: int, repo: str, base: str, head: str) -> dict | None:
-    """The split of origin/<base>..<head>, or None when the clone cannot
-    answer it. The classifier is commit_class, the one place the rule
-    lives, so a measurement of the band after the fact reads the same
-    split. The subjects counted as fix (and netted) are returned, so the
-    split can be checked; the count rule is applied on it and a misread
-    moves the band."""
-    if not succeeds("cat-file", "-e", f"{head}^{{commit}}") \
-            or not succeeds("rev-parse", "--verify", "-q", f"origin/{base}^{{commit}}"):
-        return None
-    return split_range(num, repo, f"origin/{base}..{head}", head, f"origin/{base}")
-
-
-def split_range(num: int, repo: str, rev_range: str, head: str = "", base: str = "") -> dict:
-    """The work / fix / merge / netted split of a range of PR #num's
-    commits — the gate's before arming, and pr-compliance's after the
-    merge (<merge>^1..<merge>^2), so the band is measured as it was
-    applied. <head> is the range's tip: with it, a PR folded into it is
-    read as one (commit_class.Folds), once per PR the range names; <base>
-    is the range's base, and a PR whose head is already in it was folded
-    into an earlier PR, not this one."""
-    folded = commit_class.Folds(repo, head, base=base) if head else None
-    # Kind: values joined by US (0x1f), never a tab or a newline, so the
-    # line stays one record; commit_class.kind takes the last of them.
-    r = git.run(".", "log", "--format=%H%x09%P%x09%s%x09%(trailers:key=Answers,valueonly,unfold,separator=%x20)"
-                "%x09%(trailers:key=Kind,valueonly,unfold,separator=%x1f)",
-                rev_range, check=False)
-    shas, cls, subj = [], {}, {}
-    for line in r.stdout.splitlines():
-        fields = line.split("\t", 4) + [""] * 4
-        sha, parents, subject, answers, kind = fields[:5]
-        if not sha:
-            continue
-        shas.append(sha)
-        cls[sha] = commit_class.classify(parents, subject, answers, str(num), repo, kind, folded)
-        subj[sha] = subject
-    # Two passes: classify each commit, then net out every revert whose
-    # partner is in the range — the pair changes nothing and counts
-    # nothing, in whichever column each of them fell. A COMMIT NETS ONCE.
-    # git log lists newest first, so a chain "feat A; revert A; reapply A"
-    # is walked reapply → revert: the reapply nets the revert, and the
-    # revert — already netted — no longer nets A, which stays work: the
-    # tree after the chain is the tree after A. Netting every pair a commit
-    # belongs to counted the whole chain as nothing (review, 2026-09-20, F1).
-    skip: set[str] = set()
-    for sha in shas:
-        if sha in skip:
-            continue
-        body = git.run(".", "log", "-1", "--format=%b", sha, check=False).stdout
-        for target in commit_class.revert_targets(body):
-            for other in shas:
-                if other.startswith(target) and other != sha and other not in skip and sha not in skip:
-                    skip.update((sha, other))
-    c = {"work": 0, "fix": 0, "merge": 0, "netted": 0, "fix_subjects": [], "netted_subjects": []}
-    for sha in shas:
-        # F2: what was netted is printed like the fix subjects, so the
-        # column whose misread moves the band can be checked by eye.
-        if sha in skip:
-            c["netted"] += 1
-            c["netted_subjects"].append(subj[sha])
-        elif cls[sha] == "merge":
-            c["merge"] += 1
-        elif cls[sha] == "fix":
-            c["fix"] += 1
-            c["fix_subjects"].append(subj[sha])
-        else:
-            c["work"] += 1
-    return c
 
 
 # ── checks, threads, arming, queue, merge state ─────────────────────
@@ -478,14 +386,55 @@ def owner_of(branch: str) -> str:
     return "/".join(p[:2]) if len(p) >= 3 else p[0]
 
 
+def merged_row(p: dict, repo: str, fetched: bool, session: str) -> dict:
+    """A MERGED pull request named by number: its split and nothing else
+    (no check, review or thread is read), so a landing is reported with
+    the counts the arming rule used. A split the clone cannot give is
+    unknown, never a zero."""
+    num, branch = p.get("number"), jq_str(p.get("headRefName"))
+    mc = p.get("mergeCommit")
+    oid = mc.get("oid") if isinstance(mc, dict) else None
+    commits = merged_commits(num, repo, oid) if fetched and isinstance(oid, str) else None
+    known = commits is not None
+    owner = owner_of(branch)
+    return {
+        "number": num, "title": p.get("title"), "branch": branch, "owner": owner, "mine": owner == session,
+        "state": "MERGED", "head": jq_str(p.get("headRefOid"))[:8],
+        "work_commits": commits["work"] if known else None,
+        "fix_commits": commits["fix"] if known else None,
+        "fix_subjects": commits["fix_subjects"] if known else [],
+        "merge_commits": commits["merge"] if known else None,
+        "netted_commits": commits["netted"] if known else None,
+        "netted_subjects": commits["netted_subjects"] if known else [],
+        "commits_known": known,
+        "verdict": "MERGED — not at any gate" + ("" if known else "; its commits cannot be counted "
+                                                 "(this clone has no two-parent merge commit for it: a squash or rebase merge, "
+                                                 "a commit not fetched, or a failed fetch)"),
+    }
+
+
+def render_merged(row: dict) -> str:
+    out = (f"#{row['number']}  {row['owner']}{' (me)' if row['mine'] else ''}  commits={commits_text(row)}  "
+           f"state=MERGED\n      {jq_str(row['title'])[0:88]}")
+    if row["fix_subjects"]:
+        out += "\n      counted as fix: " + "; ".join(f'"{s[0:60]}"' for s in row["fix_subjects"])
+    if row["netted_subjects"]:
+        out += "\n      netted by a revert: " + "; ".join(f'"{s[0:60]}"' for s in row["netted_subjects"])
+    return out + f"\n      {row['verdict']}"
+
+
+def commits_text(row: dict) -> str:
+    if not row["commits_known"]:
+        return "cannot be counted" if row.get("state") == "MERGED" else "unknown (fetch)"
+    total = row["work_commits"] + row["fix_commits"] + row["merge_commits"] + row["netted_commits"]
+    netted = f", {row['netted_commits']} netted by a revert" if row["netted_commits"] > 0 else ""
+    return f"{total} ({row['work_commits']} work, {row['fix_commits']} fix, {row['merge_commits']} merge{netted})"
+
+
 def render(row: dict) -> str:
-    if row["commits_known"]:
-        total = row["work_commits"] + row["fix_commits"] + row["merge_commits"] + row["netted_commits"]
-        netted = f", {row['netted_commits']} netted by a revert" if row["netted_commits"] > 0 else ""
-        commits = (f"{total} ({row['work_commits']} work, {row['fix_commits']} fix, {row['merge_commits']} merge"
-                   f"{netted})")
-    else:
-        commits = "unknown (fetch)"
+    if row.get("state") == "MERGED":
+        return render_merged(row)
+    commits = commits_text(row)
     queue = f"  queue={row['queue_position']}" if row["queue_position"] != "" else ""
     out = (f"#{row['number']}  {row['owner']}{' (me)' if row['mine'] else ''}  commits={commits}  "
            f"checks={row['checks']}  review={row['review']}  threads={row['unresolved_threads']}  "
@@ -503,133 +452,6 @@ def render(row: dict) -> str:
 # owner is the branch's <host>/<login> prefix, because every agent pushes
 # as one GitHub user and the author says nothing about who did the work.
 # Nothing here writes but the fetch, which pr-gate already does.
-
-def in_flight(repo: str, as_json: bool, overlap: str, prefixes: list[str]) -> int:
-    fetch_ok = prs_ok = True
-    if not succeeds("fetch", "-q", "--prune", "origin"):
-        fetch_ok = False
-        seen = "never"
-        path = git.run(".", "rev-parse", "--git-path", "FETCH_HEAD", check=False).stdout.strip()
-        try:
-            seen = dt.datetime.fromtimestamp(os.stat(path).st_mtime, dt.UTC).strftime("%Y-%m-%dT%H:%MZ")
-        except OSError:
-            pass
-        note(f"git fetch origin failed — the rows below are what origin showed this clone at its last fetch ({seen})")
-    base = os.environ.get("AGENT_FABRIC_PR_BASE", "")
-    if not base:
-        base = git.run(".", "symbolic-ref", "-q", "--short", "refs/remotes/origin/HEAD", check=False).stdout.strip() \
-            or "origin/main"
-    if not succeeds("rev-parse", "-q", "--verify", f"{base}^{{commit}}"):
-        note(f"the base {base} is not in this clone")
-        return 2
-
-    try:
-        prmap = gh.pr_list(["number", "headRefName"], repo=repo, limit=LIST_CAP)
-        if not isinstance(prmap, list):
-            raise ValueError
-    except (gh.GhError, ValueError):
-        prs_ok, prmap = False, []
-        note('could not list pull requests — the PR column reads unavailable, never "no PR"')
-    if len(prmap) >= LIST_CAP:
-        note(f"{LIST_CAP} open pull requests read — the list is capped there.")
-
-    rows = []
-    # The full ref name: a short one is ambiguous beside a local branch
-    # called origin/<x>, and origin/HEAD shortens to a bare "origin".
-    refs = git.run(".", "for-each-ref",
-                   "--format=%(refname)\t%(objectname)\t%(committerdate:iso8601-strict)\t%(committerdate:unix)",
-                   "refs/remotes/origin/", check=False).stdout
-    for line in refs.splitlines():
-        ref, sha, when, epoch = (line.split("\t") + ["", "", "", ""])[:4]
-        if not ref:
-            continue
-        name = ref.removeprefix("refs/remotes/origin/")
-        if name == "HEAD" or f"origin/{name}" == base:
-            continue
-        if succeeds("merge-base", "--is-ancestor", sha, base):
-            continue   # merged: not in flight
-        m = re.match(r"([^/]+/[^/]+)/.+", name, re.S)
-        owner = m.group(1) if m else "unattributed"
-        if prs_ok:
-            pr = next((p.get("number") for p in prmap if isinstance(p, dict) and p.get("headRefName") == name), None)
-            pr = "none" if pr is None else pr
-        else:
-            pr = "unavailable"
-        r = git.run(".", "rev-list", "--count", f"{base}..{sha}", check=False)
-        ahead = int(r.stdout) if r.returncode == 0 and r.stdout.strip().isdigit() else None
-        r = git.run(".", "diff", "--name-only", f"{base}...{sha}", check=False)
-        if r.returncode != 0:
-            note(f"{name} could not be diffed (deleted meanwhile?) — skipped")
-            continue
-        rows.append({"branch": name, "owner": owner,
-                     "pr": int(pr) if re.fullmatch(r"[0-9]+", str(pr)) else pr,
-                     "sha": sha, "last_commit": when, "epoch": int(epoch) if epoch.isdigit() else 0,
-                     "ahead": ahead, "paths": [p for p in r.stdout.split("\n") if p]})
-
-    # The target is found among ALL rows, before --path narrows them: a
-    # target changing nothing under the prefix is still in flight.
-    target = ""
-    if overlap:
-        if re.fullmatch(r"[0-9]+", overlap):
-            if not prs_ok:
-                note(f"#{overlap} cannot be resolved to a branch — the PR list is unavailable; name the branch instead")
-                return 2
-            target = next((r["branch"] for r in rows if r["pr"] == int(overlap)), "")
-            if not target:
-                note(f"#{overlap} is not an open PR with a branch in flight on origin")
-                return 2
-        else:
-            target = overlap
-            if not any(r["branch"] == target for r in rows):
-                note(f"{target} is not a branch in flight on origin (merged, deleted, or not pushed)")
-                return 2
-        theirs = set(next(r["paths"] for r in rows if r["branch"] == target))
-        shared_rows = []
-        for r in rows:
-            if r["branch"] != target:
-                r["shared"] = [p for p in r["paths"] if p in theirs]
-                if r["shared"]:
-                    shared_rows.append(r)
-        rows = shared_rows
-
-    if prefixes:
-        def under(p: str) -> bool:
-            return any(p == x or p.startswith(x.removesuffix("/") + "/") for x in prefixes)
-        rows = [r for r in rows if any(under(p) for p in r["paths"])]
-
-    for r in rows:
-        r["paths_total"] = len(r["paths"])
-        r["paths"] = r["paths"][:INFLIGHT_PATHS_CAP]
-        if "shared" in r:
-            r["shared_total"] = len(r["shared"])
-            r["shared"] = r["shared"][:INFLIGHT_PATHS_CAP]
-    rows = sorted(rows, key=lambda r: r["epoch"])[::-1]
-    for r in rows:
-        del r["epoch"]
-
-    if as_json:
-        doc = {"base": base, "fetched_at": dt.datetime.now(dt.UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
-               "fetch_ok": fetch_ok, "prs_ok": prs_ok}
-        if target:
-            doc["overlap_with"] = target
-        doc["rows"] = rows
-        print(json.dumps(doc, indent=2, ensure_ascii=False))
-    else:
-        if target:
-            print(f"in flight on {repo} sharing a path with {target} (against {base}): {len(rows)} — no shared path "
-                  "is not the same as compatible: two changes can clash in meaning without sharing a file")
-        else:
-            print(f"in flight on {repo} (not merged into {base}): {len(rows)}")
-        for r in rows:
-            pr = r["pr"]
-            prs = f"#{pr}" if isinstance(pr, int) else ("no PR" if pr == "none" else "PR unavailable")
-            line = (f"{r['owner']}  {r['branch']}  {prs}  ahead={jq_str(r['ahead'])}  last={r['last_commit'][0:16]}  "
-                    f"paths={r['paths_total']}")
-            if "shared" in r:
-                line += (f"\n    shares {r['shared_total']}: {', '.join(r['shared'][:8])}"
-                         f"{', …' if r['shared_total'] > 8 else ''}")
-            print(line)
-    return 0 if fetch_ok and prs_ok else 2
 
 
 # ── the gate ────────────────────────────────────────────────────────
@@ -693,7 +515,7 @@ def run(argv: list[str]) -> int:
             except (gh.GhError, ValueError):
                 note(f"#{n} is not a pull request of {repo} (or gh could not read it)")
                 continue
-            if one.get("state") != "OPEN":
+            if one.get("state") not in ("OPEN", "MERGED"):
                 note(f"#{n} is {jq_str(one.get('state'))} — not at any gate; skipped.")
                 continue
             prs.append(one)
@@ -728,6 +550,9 @@ def run(argv: list[str]) -> int:
     reader = review_reader()
     rows = []
     for p in prs:
+        if p.get("state") == "MERGED":
+            rows.append(merged_row(p, repo, fetched, session))
+            continue
         num, head, base = p.get("number"), jq_str(p.get("headRefOid")), jq_str(p.get("baseRefName"))
         branch = jq_str(p.get("headRefName"))
         commits = count_commits(num, repo, base, head) if fetched else None
@@ -764,6 +589,7 @@ def run(argv: list[str]) -> int:
 
 
 def main() -> int:
+    common.apply_project_env("pr-gate")
     try:
         return run(sys.argv[1:])
     except Usage as e:

@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# bin/fabric-repo-settings — reapply this repository's GitHub-side settings
+# (docs/adr/ADR-019-work-arrives-as-pull-requests.md §6):
+#
+#   fabric-repo-settings [owner/repo]          # default: gzapi-org/agent-fabric
+#   fabric-repo-settings --show [owner/repo]
+#
+# The full account is in tools/fabric/github/repo_settings.py (ADR-040 §5 rule 7).
+set -uo pipefail
+ROOT="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
+# readlink and dirname are not builtins: with them missing ROOT collapses
+# to "/", and the failure would be a file not found under it.
+[[ -d "$ROOT/tools/fabric" ]] || { echo "fabric-repo-settings: cannot locate the checkout (readlink or dirname missing from PATH?)" >&2; exit 127; }
+# The fleet's pinned Python (runtime/python.json, ADR-040), one per host;
+# AGENT_FABRIC_PYTHON points elsewhere for a test or a host without it.
+py="${AGENT_FABRIC_PYTHON:-/usr/local/bin/fabric-python}"
+[[ -x "$py" ]] || { echo "fabric-repo-settings: the fleet's pinned Python is not installed at $py; as root: /usr/bin/python3 <agent-fabric>/tools/fabric/python_pin.py install" >&2; exit 127; }
+exec "$py" "$ROOT/tools/fabric/github/repo_settings.py" "$@"
