@@ -60,7 +60,8 @@ def main() -> int:
         check("a side that exits non-zero is an error", "exit 3" in side("import sys; sys.exit(3)"))
         check("a side that answers fewer cases is an error", "answered 1 of 2" in side("print('[\"{}\"]')"))
         # Two characters: a string as long as the cases, which only the list check refuses.
-        check("a side that answers no list is an error", "of 2" in side("print('\"ab\"')"))
+        check("a side that answers no list is an error, said as such", "str, not a list" in side("print('\"ab\"')"))
+        check("...a number too, never a TypeError", "int, not a list" in side("print('5')"))
         check("a side that answers every case is read", side("print('[\"{}\", \"{}\"]')") == "no error")
     print(f"\n{'FAILED' if fails else 'all passed'}")
     return 1 if fails else 0

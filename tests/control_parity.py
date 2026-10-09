@@ -137,7 +137,9 @@ def _side(cmd: list[str], payload: dict, env: dict, cwd: str) -> list[str]:
     if r.returncode != 0:
         raise RuntimeError(f"{cmd[0]} could not run the cases (exit {r.returncode}): {r.stderr.strip()[-400:]}")
     answers = json.loads(r.stdout)
-    if not isinstance(answers, list) or len(answers) != len(payload["cases"]):
+    if not isinstance(answers, list):
+        raise RuntimeError(f"{cmd[0]} answered {type(answers).__name__}, not a list of answers")
+    if len(answers) != len(payload["cases"]):
         raise RuntimeError(f"{cmd[0]} answered {len(answers)} of {len(payload['cases'])} cases")
     return answers
 
