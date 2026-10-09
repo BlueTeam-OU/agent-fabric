@@ -495,7 +495,7 @@ class RunProgram(unittest.TestCase):
             try:
                 with open(f"/proc/{pid}/stat") as fh:
                     return fh.read().rsplit(")", 1)[1].split()[0] != "Z"
-            except FileNotFoundError:
+            except (FileNotFoundError, ProcessLookupError):   # the second: a /proc entry caught mid-exit
                 return False
         for _ in range(50):
             if not alive():
