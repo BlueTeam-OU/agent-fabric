@@ -85,7 +85,16 @@ def main() -> int:
             mine.append(False)
         except ValueError:
             mine.append(True)
-    diff("json_parse refuses what JSON.parse refuses, as a ValueError (too deep included)", bad, mine, refused)
+    diff("json_parse refuses what JSON.parse refuses, as a ValueError", bad, mine, refused)
+    deep = "[" * 60000 + "]" * 60000
+    read_by_node = node("try { JSON.parse(input); return true; } catch { return false; }", deep)
+    try:
+        js.json_parse(deep)
+        read_here = True
+    except ValueError:
+        read_here = False
+    check("the named gap: well-formed JSON 60,000 deep is read by Node and refused here, a ValueError, never a RecursionError",
+          read_by_node is True and read_here is False, (read_by_node, read_here))
 
     pairs = [["k", v] for v in ["fabric:control", "a b", "~*-._!'()", "\u00e9\U0001F600", "a&b=c", "%", "+", "\u2028", ""]]
     pairs += [[f"k{i}", "".join(rnd.choice("  !'()*+-._~=&%/:?#\u00e9") for _ in range(6))] for i in range(500)]

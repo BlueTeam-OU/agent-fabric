@@ -138,7 +138,10 @@ def api(tok: str, path_and_query: str, relay_url: str | None = None, method: str
             fired.set()
             for sock in live:
                 try:
-                    sock.shutdown(socket.SHUT_RDWR)
+                    # The descriptor itself: SSLSocket.shutdown would drop its
+                    # SSL object first, and a handshake about to start would
+                    # meet None, an AttributeError, not a timeout.
+                    socket.socket.shutdown(sock, socket.SHUT_RDWR)
                 except OSError:
                     pass
 
@@ -209,6 +212,11 @@ def api(tok: str, path_and_query: str, relay_url: str | None = None, method: str
     finally:
         timer.cancel()
         conn.close()
+        for sock in live:
+            # A socket that never became the connection's (a TLS handshake
+            # that failed) is closed here, not left to the collector.
+            if sock is not conn.sock:
+                sock.close()
     if fired.is_set():
         raise late
     if not 200 <= resp.status < 300:

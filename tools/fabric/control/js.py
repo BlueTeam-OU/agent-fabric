@@ -14,7 +14,13 @@ Python control plane must judge a request exactly as the Node one does
   truthy(v)        what `if (v)` takes
   json_parse(s)    JSON.parse(s): no NaN or Infinity, which Python's
                    json.loads takes; too deep a value is a ValueError
-                   too, never a RecursionError past a caller's catch
+                   too, never a RecursionError past a caller's catch.
+                   A named gap: Python's reader stops near 52,000 levels
+                   (3.14), where Node's JSON.parse reads a million; a
+                   record that deep is refused here and read there.
+                   Node's own limits are its stack, not a rule (its
+                   JSON.stringify overflows near 4,000), so they are not
+                   copied.
   stringify(v)     JSON.stringify(v): compact, a lone surrogate escaped
                    (json.dumps(ensure_ascii=False) writes it raw, and it
                    cannot be encoded), NaN and the infinities as null,

@@ -134,12 +134,12 @@ def main() -> int:
     print("...and as Node's checkAddressees answers, on the same inputs")
     answers = {"h/web-dev-01": on(), "h/web-dev-02": off(), "h/db-admin": {"status": "failed", "error": None, "role": "web-dev"},
                "h/x": {"status": "ok", "online": 1, "planning": 0, "role": "web-dev"},
-               "h/nostatus": {"online": True}, "h/str": "x"}
+               "h/nostatus": {"online": True}, "h/str": "x", "h/failed": {"status": "failed", "role": "web-dev"}}
     shapes = [{"TO": " h/web-dev-01 "}, {"TO": ""}, {"TO": "", "TO-ROLE": "web-dev"}, {"BROADCAST": "", "TO": "h/web-dev-02"},
               {"BROADCAST": 0, "TO-ROLE": " web-dev "}, {"TO": "h/db-admin"}, {"TO": "h/x"}, {"TO-ROLE": "db-admin"},
               {"TO": "h/web-dev-01", "TO-ROLE": "web-dev"}, {"BROADCAST": "false"}, {"TO-ROLE": ""}, {"TO": 0},
-              {"TO": "\ufeffh/web-dev-01\u3000"}, {"TO-ROLE": "\u2028web-dev"}, {"TO": "h/nostatus"}, {"TO": "h/str"}]
-    placed = ["h/web-dev-01", "h/web-dev-02", "h/db-admin", "h/x", "h/nostatus", "h/str"]
+              {"TO": "\ufeffh/web-dev-01\u3000"}, {"TO-ROLE": "\u2028web-dev"}, {"TO": "h/nostatus"}, {"TO": "h/str"}, {"TO": "h/failed"}]
+    placed = ["h/web-dev-01", "h/web-dev-02", "h/db-admin", "h/x", "h/nostatus", "h/str", "h/failed"]
     import subprocess
     mjs = os.path.join(HERE, "runtime", "control", "presence.mjs")
     r = subprocess.run(["node", "--input-type=module", "-e",
@@ -197,7 +197,9 @@ def main() -> int:
                              {"id": "ok", "content": json.dumps({"kind": "reply", "in_reply_to": "q-3", "from": "h/a", "data": {"presence": on()}})}]}
     got = cp.ask_presence(from_="h/u", to=["h/a"], expect=["h/a"], wait_ms=100, cfg={"relay_url": "x", "channel": "c", "ttl_s": 30},
                           call=deep_call, new_id=lambda: "q-3", sleep=lambda s: None)
-    check("a record nested past any reader is skipped, as Node's catch skips it; the rest counts", got == {"h/a": on()}, got)
+    # Unterminated: Node refuses it too. A well-formed record past Python's
+    # depth is the named gap of js.json_parse, refused here, read by Node.
+    check("a record nobody can read is skipped, never an abort; the rest counts", got == {"h/a": on()}, got)
     sent = []
     cp.ask_presence(from_="h/u", to=["h/a"], expect=[], wait_ms=float("inf"), cfg={"relay_url": "x", "channel": "c", "ttl_s": 30},
                     call=lambda path, method="GET", body=None: sent.append(body) or {"id": "s"}, new_id=lambda: "q", sleep=lambda s: None)
