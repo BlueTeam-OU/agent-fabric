@@ -40,7 +40,6 @@ import os
 import re
 import shlex
 import signal
-import subprocess
 import tarfile
 import urllib.error
 import urllib.request
