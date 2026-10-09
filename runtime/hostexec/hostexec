@@ -1,95 +1,17 @@
 #!/usr/bin/env bash
-# runtime/hostexec/hostexec — run one command on a host the fabric
-# operates, as the host's operator or as an account there. The one
-# boundary between the coordinator and the machines the agents live on.
+# runtime/hostexec/hostexec — run one command on a host the fabric operates,
+# as the host's operator or as an account there. The path is the contract
+# (fabric-host, moveto, provisioning and the control agent run it); the
+# work, its contract and every reason for it are in tools/fabric/hostexec.py
+# (ADR-040 §5 rule 4).
 #
 #   hostexec <host> [--as <login>] [--cwd <dir>] [--tty] -- <cmd> [args...]
-#   hostexec --resolve <host>          print the backend and destination, run nothing
+#   hostexec --resolve <host>
 #
-# <host> is an id in runtime/hosts/registry.json (its short hostname).
-# Two backends, chosen by the registry, never by the caller:
-#
-#   local   the host this checkout is on (`ssh: null`): the command goes
-#           straight to runtime/hostexec/worker — today's direct sudo
-#           and filesystem access, unchanged.
-#   ssh     any other host: `ssh -o BatchMode=yes <ssh destination> --
-#           <fabric>/runtime/hostexec/worker ...`, the SAME worker on
-#           the target, as its operator, who holds sudo there. getent,
-#           passwd, PAM, /run/user, rootless containers and the account's
-#           home are all host-local, so the work happens where they are;
-#           nothing here makes a remote home look local.
-#
-# stdin flows through both backends (a token, a bundle); a secret never
-# travels in argv. --tty asks for a terminal (an interactive shell such
-# as moveto); stdout/stderr and the exit status are the command's.
-#
-# The host is never guessed: a host absent from the registry is a
-# refusal, and `fabric-host <host> check` compares what the target
-# reports (`hostname -s`) with the id it was reached as.
-#
-# $AGENT_FABRIC_HOSTS_REGISTRY points a test at a fixture registry; $SSH
-# names the ssh to use (a test puts a fake here).
-set -uo pipefail
-ROOT="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../.." && pwd)"
-REGISTRY="${AGENT_FABRIC_HOSTS_REGISTRY:-$ROOT/runtime/hosts/registry.json}"
-WORKER="$ROOT/runtime/hostexec/worker"
-SSH="${SSH:-ssh}"
-die() { printf 'hostexec: %s\n' "$*" >&2; exit "${2:-2}"; }
-
-host=""; as=""; cwd=""; tty=0; resolve=0
-while (( $# )); do
-    case "$1" in
-        --resolve) resolve=1; shift ;;
-        --as) as="$2"; shift 2 ;;
-        --as=*) as="${1#--as=}"; shift ;;
-        --cwd) cwd="$2"; shift 2 ;;
-        --cwd=*) cwd="${1#--cwd=}"; shift ;;
-        --tty) tty=1; shift ;;
-        --) shift; break ;;
-        -h|--help) sed -n '2,32p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
-        -*) die "unknown flag $1" ;;
-        *) [[ -z "$host" ]] || die "one host, then -- and the command"; host="$1"; shift ;;
-    esac
-done
-[[ -n "$host" ]] || die "no host named (an id in runtime/hosts/registry.json; fabric-host list)"
-[[ -r "$REGISTRY" ]] || die "no host registry at $REGISTRY"
-
-# host → "<backend>\t<ssh destination or ->\t<operator>\t<fabric>"
-resolved="$(python3 - "$REGISTRY" "$host" <<'PY'
-import json, sys
-reg, host = json.load(open(sys.argv[1])), sys.argv[2]
-h = (reg.get("hosts") or {}).get(host)
-if not h:
-    print("unknown host %r; known: %s" % (host, ", ".join(sorted(reg.get("hosts") or {})) or "none"), file=sys.stderr); sys.exit(1)
-print("\t".join(["local" if h.get("ssh") is None else "ssh", h.get("ssh") or "-", h["operator"], h["fabric"]]))
-PY
-)" || exit 2
-IFS=$'\t' read -r backend dest operator fabric <<<"$resolved"
-
-if (( resolve )); then
-    printf 'host %s: backend %s, destination %s, operator %s, fabric %s\n' "$host" "$backend" "$dest" "$operator" "$fabric"
-    exit 0
-fi
-(( $# )) || die "no command after --"
-
-worker_args=()
-[[ -n "$as" ]] && worker_args+=(--as "$as")
-[[ -n "$cwd" ]] && worker_args+=(--cwd "$cwd")
-
-if [[ "$backend" == local ]]; then
-    exec "$WORKER" "${worker_args[@]}" -- "$@"
-fi
-
-# ssh hands the remote a single command LINE; every word is quoted for
-# the remote shell so an argument with a space or a quote arrives whole.
-# ~ in the fabric path is the operator's home there, expanded by that
-# shell — the one place it is meant to expand.
-remote="$fabric/runtime/hostexec/worker"
-case "$fabric" in
-    "~"|"~/"*) line="$remote" ;;
-    *) line="$(printf '%q' "$remote")" ;;
-esac
-for a in "${worker_args[@]}" -- "$@"; do line+=" $(printf '%q' "$a")"; done
-ssh_opts=(-o BatchMode=yes)
-(( tty )) && ssh_opts+=(-t)
-exec $SSH "${ssh_opts[@]}" "$dest" -- "$line"
+# The fleet's pinned Python (runtime/python.json, ADR-040), one per host;
+# AGENT_FABRIC_PYTHON points elsewhere for a test or a host without it.
+# A host not yet provisioned has none: the refusal names the install command.
+py="${AGENT_FABRIC_PYTHON:-/usr/local/bin/fabric-python}"
+[[ -x "$py" ]] || { echo "hostexec: the fleet's pinned Python is not installed at $py; as root: /usr/bin/python3 <agent-fabric>/tools/fabric/python_pin.py install" >&2; exit 127; }
+# Python ignores SIGPIPE at start-up; the module restores it before it execs.
+exec "$py" -I "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../../tools/fabric/hostexec.py" "$@"

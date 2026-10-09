@@ -154,7 +154,7 @@ def call(method: str, path: str, body: dict | None = None) -> dict:
     req = urllib.request.Request(API + path, method=method,
                                  data=json.dumps(body).encode() if body is not None else None,
                                  headers={"Authorization": f"Bearer {api_key()}", "Content-Type": "application/json",
-                                          "HTTP-Referer": "https://github.com/gzapi-org/agent-fabric",
+                                          "HTTP-Referer": "https://github.com/BlueTeam-OU/agent-fabric",
                                           "X-Title": "agent-fabric shim.py"})
     try:
         with OPENER.open(req, timeout=60) as resp:

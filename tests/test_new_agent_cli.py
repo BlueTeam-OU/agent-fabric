@@ -215,7 +215,8 @@ def main() -> int:
         shutil.copytree(f"{ROOT}/runtime/hostexec", f"{fab}/runtime/hostexec", symlinks=True)
         shutil.copytree(f"{HERE}/platform", f"{fab}/runtime/provisioning/platform", symlinks=True)
         shutil.copy(f"{ROOT}/runtime/claude-code/harness.json", f"{fab}/runtime/claude-code/")
-        for f in ("new_agent.py", "new_agent_worker.py", "roots.py"):
+        # hostexec and the worker are shims for their modules (ADR-040 §5 rule 5).
+        for f in ("new_agent.py", "new_agent_worker.py", "roots.py", "hostexec.py", "hostworker.py"):
             shutil.copy2(f"{ROOT}/tools/fabric/{f}", f"{fab}/tools/fabric/")
         shutil.copytree(f"{ROOT}/tools/fabric/provisioning", f"{fab}/tools/fabric/provisioning", ignore=shutil.ignore_patterns("__pycache__"))
         put(f"{sandbox}/home/.local/bin/claude", "#!/bin/sh\necho fake\n", 0o755)
@@ -266,7 +267,7 @@ def main() -> int:
         ok("exits 0", rc == 0, f"rc={rc}\n{out}")
         for step in ("useradd", "chmod 700", "mkdir -p", "curl -fsSL https://claude.ai/install.sh | bash -s -- ",
                      "curl -fsSL https://openrouter.ai/labs/ori/install.sh | bash", "append GitHub's published host keys",
-                     "git clone -q 'https://github.com/gzapi-org/agent-fabric.git'", "store-enroll.sh zz-fixture-login --host",
+                     "git clone -q 'https://github.com/BlueTeam-OU/agent-fabric.git'", "store-enroll.sh zz-fixture-login --host",
                      "provision identity, share, issue-key openrouter and openai",
                      "git clone -q 'git@github.com:fixture-org/gzapp.git'", "bootstrap.sh", "fabric-role bind 'backend-dev'"):
             ok(f"plans: {step}", step in out, out)
@@ -624,7 +625,7 @@ def main() -> int:
         # credential, its fabric clone; nothing of a session, on both backends.
         rc, out = run("human-here", "--human", "--dry-run")
         ok("a human's dry run: the account and the fabric clone, no installer, no bootstrap, no role",
-           rc == 0 and "useradd" in out and "git clone -q 'https://github.com/gzapi-org/agent-fabric.git'" in out
+           rc == 0 and "useradd" in out and "git clone -q 'https://github.com/BlueTeam-OU/agent-fabric.git'" in out
            and "install.sh" not in out and "bootstrap.sh" not in out and "fabric-role bind" not in out
            and "8. role" not in out, f"rc={rc}\n{out}")
         rc, out = run("human-here", "backend-dev", "--no-claude-account", "--dry-run")

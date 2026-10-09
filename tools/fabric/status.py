@@ -22,13 +22,16 @@ CONTRACT, frozen from the bash (ADR-040 §5 rule 3):
             OPENROUTER_API_KEY, CLAUDE_CODE_SUBAGENT_MODEL,
             CLAUDE_CODE_EFFORT_LEVEL (reported set, never echoed),
             CLAUDE_CODE_OAUTH_TOKEN, CLAUDE_CONFIG_DIR, CLAUDE_EFFORT,
-            CLAUDE_PID, MOVETO_PREFIX (hosttools.py), HOME.
+            CLAUDE_PID, MOVETO_PREFIX (hosttools.py), XDG_CONFIG_HOME (the
+            control agent's unit), HOME.
   files     ~/.config/agent-fabric/secrets.env (the synced token line),
             $CLAUDE_CONFIG_DIR/.claude.json or ~/.claude.json (the sign-in
             email), the fallback markers, runtime/hosts/registry.json, the
             binding, job list and launch-prompt.md of the login, the
             working copy's last-drain-report.json and the harness's memory
-            directory for it.
+            directory for it; the control agent's installed unit
+            ($XDG_CONFIG_HOME/systemd/user/agent-fabric-agentd.service)
+            and runtime/control/agentd.json.
   stdout    the human report (below), or with --json one object, indent 2,
             ensure_ascii. Nothing on stderr by design; a module this file
             loads that fails writes its own traceback there.
@@ -44,7 +47,8 @@ launch role stamp), one `DRIFT` line per drift, `project`, `session`,
 asked or stamped), `launch profile` (only when stamped), `pins`,
 `credentials`, `claude sign-in`, a blank line, `capabilities on <provider>`
 and one line per class, `routing`, `memory` (only when there is something
-to count), `moveto` (only when installed), `control plane`.
+to count), `moveto` (only when installed), `journal`, `python`, `agentd`
+(which implementation the account's control agent runs), `control plane`.
 
 The --json object: agent, host, placement, role, project, working_copy,
 session, binding_updated, launched_role, launch_prompt_digest, drift (a
@@ -53,7 +57,8 @@ undrained_memories ({drainable, no_roles_class, since, dir} or null), jobs
 ({active, queued, blocked, delivered} or {error}), api ({provider, path,
 base_url_host, session_model, launch_profile, pins, credentials,
 claude_sign_in}), capabilities ({class: line}), routing_check ("clean" or
-a list), host_tools ({moveto}), control_plane.
+a list), host_tools ({moveto, python, journal, agentd}; agentd's status
+node, python, drift, none or unknown), control_plane.
 """
 from __future__ import annotations
 
@@ -419,6 +424,7 @@ def build_report(root, environ=None, cred_environ=None):
     moveto = hosttools.moveto_drift(root=root)
     python = pinned_python(root)
     journal = episodic_journal(root)
+    agentd = agentd_implementation(root, ctx["agent"], environ)
 
     # --- placement: is this account on the host the registry says? ----------
     # The registry records where an account was provisioned; a session on
@@ -446,7 +452,7 @@ def build_report(root, environ=None, cred_environ=None):
                 "claude_sign_in": claude_sign_in(sign_env, sign_file, environ)},
         "capabilities": classes,
         "routing_check": "clean" if not checks else checks,
-        "host_tools": {"moveto": moveto, "python": python, "journal": journal},
+        "host_tools": {"moveto": moveto, "python": python, "journal": journal, "agentd": agentd},
         "control_plane": root,
     }
     return report, base
@@ -465,6 +471,37 @@ def pinned_python(root):
     if problem:
         return {"status": "missing", "detail": f"{problem}; as root: /usr/bin/python3 {root}/tools/fabric/python_pin.py install"}
     return {"status": "ok", "detail": f"fabric-python {pin['python']} ({pin['release']}), as pinned"}
+
+
+def agentd_implementation(root, agent, environ):
+    """Which implementation this account's control agent runs, read from the
+    unit bootstrap installed: the replies of the two are byte-equal by
+    design (ADR-040 Wave 8), so no fabric-ctl answer can say it, and the
+    unit is the one place that does. What runtime/control/agentd.json
+    selects for this login is beside it; the two differ until a bootstrap
+    (or the next upgrade) writes the unit."""
+    try:
+        au = load("fabric_agentd_unit", os.path.join(root, "tools", "fabric", "agentd_unit.py"))
+        units = os.path.join(environ.get("XDG_CONFIG_HOME") or os.path.join(os.path.expanduser("~"), ".config"),
+                             "systemd", "user")
+        unit = os.path.join(units, "agent-fabric-agentd.service")
+        try:
+            with open(unit, encoding="utf-8") as fh:
+                runs = au.implementation_of(fh.read())
+        except FileNotFoundError:
+            return {"status": "none", "detail": f"no unit at {unit} (bootstrap installs it)"}
+        if runs is None:
+            return {"status": "unknown", "detail": f"{unit} runs neither agentd.mjs nor agentd.py"}
+        try:
+            selected = au.implementation(au.load(root), agent)
+        except ValueError as e:
+            return {"status": runs, "detail": f"{runs} (the unit's ExecStart); {e}"}
+        if selected != runs:
+            return {"status": "drift", "detail": f"the unit runs {runs}, {au.SELECTOR_REL} selects {selected}: "
+                                                 "bootstrap writes it (moveto, or fabric-ctl upgrade fabric)"}
+        return {"status": runs, "detail": f"{runs} (the unit's ExecStart, as {au.SELECTOR_REL} selects)"}
+    except Exception as e:  # noqa: BLE001 — a status line, never a traceback
+        return {"status": "unknown", "detail": str(e)}
 
 
 def episodic_journal(root):
@@ -548,6 +585,10 @@ def render(report, base):
     python = report["host_tools"].get("python")
     if python:
         p(f"python       {python['detail']}" if python["status"] == "ok" else f"python       {python['status'].upper()}: {python['detail']}")
+    agentd = report["host_tools"].get("agentd")
+    if agentd:
+        p(f"agentd       {agentd['detail']}" if agentd["status"] in ("node", "python")
+          else f"agentd       {agentd['status'].upper()}: {agentd['detail']}")
     p(f"control plane {report['control_plane']}")
     return out
 

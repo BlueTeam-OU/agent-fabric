@@ -101,7 +101,7 @@ def main() -> int:
         r = subprocess.run([sys.executable, SCRIPT, settings], capture_output=True, text=True,
                            env={**bare, "PATH": "/usr/bin:/bin"}, timeout=120)
         check("found there, and autoMode written", r.returncode == 0
-              and json.load(open(settings))["autoMode"]["environment"][0].startswith("**Organization**: gzapi-org"),
+              and json.load(open(settings))["autoMode"]["environment"][0].startswith("**Organization**: BlueTeam-OU"),
               r.stdout + r.stderr)
 
         print("the pinned claude in ~/.local/bin wins over another on PATH")
@@ -146,7 +146,7 @@ def main() -> int:
         print("the policy itself")
         check("every slot has text", all(isinstance(v, str) and v.strip() for v in POLICY["environment"].values()))
         check("the public repositories are named as such",
-              "PUBLIC: gzapi-org/agent-fabric and gzapi-org/InterWeave" in POLICY["environment"]["Repository visibility"])
+              "PUBLIC: BlueTeam-OU/agent-fabric and gzapi-org/InterWeave" in POLICY["environment"]["Repository visibility"])
         check("lists hold prose, never \"$defaults\" (the writer adds it)",
               all("$defaults" not in POLICY[k] for k in ("allow", "soft_deny", "hard_deny")))
 

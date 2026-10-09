@@ -400,9 +400,9 @@ def client_findings(root: str) -> list[str]:
     """Every project names a client that projects/clients.json defines
     (ADR-045 §5 rule 5): a working copy resolves remote -> project ->
     client, and a client missing there resolves to nothing. Beside the
-    registry, so an operator tree carries both. A tree with neither a
-    clients.json nor a project naming a client predates clients (a test's
-    fixture fabric) and is not judged; one with either is judged whole."""
+    registry, so an operator tree carries both. Every tree whose registry has
+    projects is judged: deleting clients.json and every client field must not
+    pass lint."""
     reg_path = roots.projects_registry(engine=root)
     clients_path = os.path.join(os.path.dirname(reg_path), "clients.json")
     if not os.path.exists(reg_path):
@@ -411,8 +411,6 @@ def client_findings(root: str) -> list[str]:
         projects = json.load(open(reg_path, encoding="utf-8")).get("projects") or {}
     except (OSError, ValueError):
         return []  # the registry's own parse is reported elsewhere
-    if not os.path.exists(clients_path) and not any(isinstance(e, dict) and "client" in e for e in projects.values()):
-        return []
     try:
         clients = json.load(open(clients_path, encoding="utf-8")).get("clients") or {}
     except FileNotFoundError:
@@ -744,4 +742,5 @@ def key_lineage_findings(root: str) -> list[str]:
         os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "secretstore", "lineage.py"))
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
-    return mod.verify(root)
+    # Keys are instance data (ADR-045): verify takes the tree that holds identities/keys.
+    return mod.verify(roots.operator_root(engine=root))

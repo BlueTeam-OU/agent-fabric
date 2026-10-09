@@ -342,7 +342,7 @@ def fabric_checkout(w: Worker) -> None:
     launcher run from it), or refused off main."""
     login, repo = w.a.login, os.path.join(w.home, "projects", "agent-fabric")
     if not w.sudo_test("-d", os.path.join(repo, ".git")):
-        url = w.env.get("AGENT_FABRIC_CLONE_URL") or "https://github.com/gzapi-org/agent-fabric.git"
+        url = w.env.get("AGENT_FABRIC_CLONE_URL") or "https://github.com/BlueTeam-OU/agent-fabric.git"
         w.must_as_login(["git", "clone", "-q", url, repo], f"git clone -q '{url}' ~/projects/agent-fabric")
         w.say("4. agent-fabric cloned (https; the fabric is public)")
         return

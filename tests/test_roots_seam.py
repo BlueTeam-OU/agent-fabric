@@ -28,13 +28,15 @@ SEQUENCES = (
 )
 SINGLE = ("policies", "memory")           # one component after a root: policies/<x>, memory/<x>
 SCANNED_DIRS = ("tools", "runtime", "communication/gzcoord/scripts", "projects/gzapp/integration/gh", "bin")
-SKIP_PARTS = ("/tests/", "/__pycache__/", "/claude-code/", "/lint_rules/", "/guards/")
+SKIP_PARTS = ("/tests/", "/__pycache__/", "/claude-code/")
 
 # path -> why it does not go through roots yet
 EXEMPT = {
     "tools/fabric/roots.py": "the seam itself",
     "runtime/control/roots.mjs": "the seam itself",
     "tools/fabric/secretstore/lineage.py": "keys_dir(fabric) takes the tree to check; the module is stdlib-only by fence (tests/test_lineage_fence.py), so it cannot import roots; core.keys_dir passes the operator root",
+    "tools/fabric/hostexec.py": "the host executor's registry default is THIS checkout's, by contract: tests/test_hostexec_cli.py pins that it does not follow the operator tree (fabric-host, which does, exports the answer in AGENT_FABRIC_HOSTS_REGISTRY). Held while it was shell, which could not call roots; whether it follows roots now is the coordinator's to say",
+    "tools/fabric/hostworker.py": "~/projects/agent-fabric is the checkout provisioning clones into an ACCOUNT's home, where `@fabric/` resolves for a command run as that account: a place in a home directory, not the operator's tree",
     "tools/fabric/secretstore/trust.py": "git-shows identities/keys/ from the keys' checkout (origin/main), a path inside that repository; moves with the keys (ADR-045 §6)",
 }
 
@@ -114,6 +116,14 @@ def case_no_engine_module_joins_an_instance_path_itself() -> None:
             src = fh.read()
         bad += [f"{rel}:{ln}: {what}" for ln, what in findings(rel, src)]
     assert not bad, "instance paths joined outside roots:\n  " + "\n  ".join(bad)
+
+
+def case_the_scan_sees_the_lint_rules_and_the_guards() -> None:
+    """The rules and guards read instance data too (the arm.json scan, the
+    key lineage); a scan that skips them cannot tell a join from the seam."""
+    seen = set(sources())
+    for rel in ("tools/fabric/lint_rules/docs.py", "tools/fabric/guards/common.py"):
+        assert rel in seen, f"{rel} is outside the scan"
 
 
 def case_an_exemption_that_no_longer_applies_is_removed() -> None:
