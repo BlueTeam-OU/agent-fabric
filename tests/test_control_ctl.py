@@ -283,6 +283,18 @@ class Bundles(unittest.TestCase):
         self.assertEqual((again["status"], again["written"]), ("duplicate-target", None))
         self.assertEqual(sorted(os.listdir(os.path.join(out, "db-admin"))), ["agent-fabric-projects-root.tar", "agent-fabric.tar"])
 
+    def test_write_bundles_a_part_numbered_wrong_is_incomplete_though_the_count_is_right(self):
+        out = self.scratch("drain-gap-")
+        tar = tar_with({"format": "agent-fabric-drain/1", "agent": "db-admin", "host": "h"})
+        b64 = base64.b64encode(gzip.compress(tar)).decode()
+        half = len(b64) // 2
+        replies = [{"from": "h/db-admin", "data": {"memory": {"status": "ok", "bundles": [
+            {"slug": "s", "working_copy": "/h/db-admin/projects/gzapp", "files": 1, "status": "ok", "sha256": hashlib.sha256(tar).hexdigest(), "parts": 2}]}}}]
+        parts = {"h/db-admin": {ctl.part_key("h/db-admin", {"slug": "s", "part": n}): {"slug": "s", "part": n, "parts": 2, "chunk": c} for n, c in ((1, b64[:half]), (3, b64[half:]))}}
+        ctl.write_bundles(out, placed("db-admin"), replies, parts)
+        self.assertEqual(replies[0]["data"]["memory"]["bundles"][0]["status"], "incomplete")
+        self.assertFalse(os.path.exists(os.path.join(out, "db-admin", "gzapp.tar")))
+
     def test_write_bundles_makes_every_directory_it_creates_private(self):
         base = self.scratch("drain-new-")
         out = os.path.join(base, "not", "yet", "there")
@@ -536,6 +548,9 @@ class Commands(unittest.TestCase):
         self.assertEqual((req["kind"], req["op"], req["to"]), ("request", "usage", "*"))
         self.assertRegex(req["from"], r"^[^/]+/[^/]+$", "from is this login's own address, whatever the login is (CI runs as runner)")
         self.assertFalse(any(h.startswith("/api/ack") or h.startswith("/api/wait") for h in r.hits), "history reads only, no cursor")
+        reads = [h for h in r.hits if h.startswith("/api/messages")]
+        self.assertTrue(reads and all("channel=test%3Acontrol" in h and "limit=500" in h and "full=1" in h and "since_id=id-1" in h for h in reads[:1]), reads)
+        self.assertTrue(any("since_id=id-4" in h for h in reads), f"the cursor moves to the last record read: {reads}")
         j = run_ctl(self, r.url(), reg, ["db-admin", "ping", "--json", "--timeout", "1"])
         self.assertEqual(j.returncode, 1)
         self.assertEqual(json.loads(j.stdout.strip()), {"account": "db-admin", "host": H, "status": "no answer"})
@@ -565,6 +580,35 @@ class Commands(unittest.TestCase):
         self.assertEqual(lost.returncode, 1)
         self.assertEqual(len(re.findall(r"history cleared", lost.stderr)), 1, lost.stderr)
 
+    def test_a_reply_from_an_account_that_was_not_asked_is_not_an_answer(self):
+        r = self.relay
+        reg = registry_file(self)
+
+        def respond(rid: str) -> None:
+            reply_record(r, f"{H}/web-dev-01", rid, "usage", {"usage": {"status": "ok"}})   # the right request id, from an account that was not asked
+        a = Answering(r, respond)
+        self.addCleanup(a.stop)
+        out = run_ctl(self, r.url(), reg, ["db-admin", "usage", "--timeout", "1"])
+        self.assertEqual(out.returncode, 1, out.stderr)
+        self.assertRegex(out.stdout, r"db-admin\s+no answer")
+        self.assertNotIn("web-dev-01", out.stdout)
+
+    def test_a_memory_bundle_with_no_working_copy_is_not_a_failure_a_refused_one_is(self):
+        r = self.relay
+        reg = registry_file(self)
+        out = tempfile.mkdtemp(prefix="drain-nwc-")
+        self.addCleanup(lambda: __import__("shutil").rmtree(out, ignore_errors=True))
+        frm = f"{H}/db-admin"
+        a = Answering(r, lambda rid: reply_record(r, frm, rid, "memory", {"memory": {"status": "ok", "bundles": [{"slug": "x", "files": 0, "status": "no-working-copy"}]}, "parts": 0}))
+        self.addCleanup(a.stop)
+        ok = run_ctl(self, r.url(), reg, ["db-admin", "memory", "--out", out, "--timeout", "3"])
+        self.assertEqual(ok.returncode, 0, ok.stderr + ok.stdout)
+        r.rows.clear()
+        a2 = Answering(r, lambda rid: reply_record(r, frm, rid, "memory", {"memory": {"status": "ok", "bundles": [{"slug": "x", "files": 1, "status": "harvest-failed", "error": "e"}]}, "parts": 0}))
+        self.addCleanup(a2.stop)
+        bad = run_ctl(self, r.url(), reg, ["db-admin", "memory", "--out", out, "--timeout", "3"])
+        self.assertEqual(bad.returncode, 1, bad.stderr + bad.stdout)
+
     def test_fabric_ctl_memory_out_the_report_record_then_the_parts_the_tar_lands_under_the_login(self):
         r = self.relay
         reg = registry_file(self)
@@ -582,7 +626,7 @@ class Commands(unittest.TestCase):
                 "slug": "s-1", "working_copy": "/home/db-admin/projects/gzapp", "files": 7, "status": "ok", "bytes": len(tar), "gzip_bytes": 4100, "sha256": sha, "parts": 3,
                 "report": {"claims": 5, "counts": {"in_scope": 7, "total": 7}, "needs_rendering": ["ka-a", "ka-b"], "skipped_no_roles_class": ["private"]}}]}, "parts": 3})
             reply_record(r, frm, rid, "memory", {"part": {"slug": "s-1", "part": 1, "parts": 3, "chunk": chunks[0]}})
-            reply_record(r, frm, rid, "memory", {"part": {"slug": "s-1", "part": 1, "parts": 3, "chunk": chunks[0]}})   # replayed: must not count as the second part
+            reply_record(r, frm, rid, "memory", {"part": {"slug": "s-1", "part": 1, "parts": 3, "chunk": "a replayed part 1 that says something else"}})   # replayed: not the second part, and the first record for a key wins
 
             def late() -> None:
                 reply_record(r, frm, rid, "memory", {"part": {"slug": "s-1", "part": 2, "parts": 3, "chunk": chunks[1]}})
@@ -618,6 +662,8 @@ class Commands(unittest.TestCase):
         a2 = Answering(r, short)
         self.addCleanup(a2.stop)
         s = run_ctl(self, r.url(), reg, ["db-admin", "memory", "--out", out, "--timeout", "2"])
+        polls = [h for h in r.hits if h.startswith("/api/messages")]
+        self.assertLess(len(polls), 12, f"a wait for a missing part sleeps between reads, it does not hammer the relay: {len(polls)} reads in 2 s")
         self.assertTrue(a2.done)
         self.assertEqual(s.returncode, 1, s.stderr + s.stdout)
         self.assertRegex(s.stdout, r"db-admin\s+ok\s+gzapp\s+7 memories\s+incomplete")
@@ -897,6 +943,7 @@ class Actions(unittest.TestCase):
         self.assertRegex(bad.stdout, r"web-dev-01\s+failed")
         self.assertEqual(go({"db-admin": "upgraded", "web-dev-01": "current"}).returncode, 0)
         self.assertEqual(go({"db-admin": "upgraded", "web-dev-01": None}).returncode, 1, "a reply with no status is not a success")
+        self.assertEqual(go({"db-admin": "upgraded", "web-dev-01": "current", "edge-hosting": "failed"}).returncode, 0, "a failure reported by an account that was not asked is not this run's")
         self.assertEqual(go({"db-admin": "upgraded", "web-dev-01": "current"}, ["--timeout", "3600"]).returncode, 0)
         self.assertEqual(last_ttl[0], ACTION_TTL_MAX_S, "a long wait for replies does not stretch the signed action's lifetime")
 
@@ -1031,6 +1078,29 @@ class States(unittest.TestCase):
         self.assertEqual(out, ["idle", "working", "blocked"], "the snapshot, then each change of h/a only")
         self.assertEqual(len(err), 2, f"down once, back once: {err}")
         self.assertTrue("since_id=1" in seen[1] and any("since_id=9" in p for p in seen), f"waits after the last id, re-anchors after a lost one: {seen}")
+
+    def test_states_the_state_that_most_wants_a_person_wins_whatever_the_order(self):
+        now = ms_of("2026-10-07T12:00:00Z")
+        for order in (["blocked", "working", "idle"], ["idle", "working", "blocked"], ["working", "blocked", "idle"], ["idle", "blocked", "working"]):
+            rec = {"ts": "2026-10-07T11:59:00Z", "sessions": [{"session": f"s{i}", "state": s, "since": f"t{i}"} for i, s in enumerate(order)]}
+            row = ctl.state_row("h/a", rec, now)
+            self.assertEqual((row["state"], row["since"]), ("blocked", f"t{order.index('blocked')}"), order)
+        self.assertEqual(ctl.state_row("h/a", {"ts": "2026-10-07T11:59:00Z", "sessions": [{"session": "a", "state": "idle"}, {"session": "b", "state": "working"}]}, now)["state"], "working")
+
+    def test_states_follow_an_outage_of_several_calls_is_said_once_and_a_lost_cursor_re_reads_the_snapshot(self):
+        now = ms_of("2026-10-07T12:00:00Z")
+
+        def down():
+            raise ConnectionError("ECONNREFUSED")
+        seen: list = []
+        err: list = []
+        st = {"id": "1", "content": json.dumps({"v": 1, "kind": "state", "from": "h/a", "ts": "2026-10-07T12:00:00Z", "sessions": []})}
+        script = [{"messages": [st]}, down, down, down, {"messages": []}, {"warning": "since_id_not_found"}, {"messages": [st]}]
+        with self.assertRaises(StopStates):
+            ctl.states({"json": True, "follow": True}, [{"address": "h/a"}], call=scripted(script, seen), cfg=CFG, out=lambda _m: None, err=err.append, now=lambda: now, sleep=lambda _s: None)
+        self.assertEqual(len(err), 2, f"down once and back once, however many calls failed: {err}")
+        self.assertIn("limit=500", seen[6], f"after the warning the next call is the snapshot, not a wait: {seen}")
+        self.assertNotIn("since_id", seen[6])
 
     def test_states_takes_follow_and_follow_goes_with_nothing_else(self):
         self.assertEqual(ctl.parse_args(["all", "states", "--follow", "--json"])["op"], "states")
