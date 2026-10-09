@@ -12,8 +12,20 @@ layout = importlib.util.module_from_spec(_spec)
 _wc_spec = importlib.util.spec_from_file_location(
     "fabric_workingcopy", os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))), "workingcopy.py"))
 workingcopy = importlib.util.module_from_spec(_wc_spec)
+_roots_spec = importlib.util.spec_from_file_location(
+    "fabric_roots", os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))), "roots.py"))
+# By path, like layout: a directory on sys.path would let a fixture fabric answer for imports.
+roots = importlib.util.module_from_spec(_roots_spec)
 _spec.loader.exec_module(layout)
 _wc_spec.loader.exec_module(workingcopy)
+_roots_spec.loader.exec_module(roots)
+
+
+def lint_environ() -> dict[str, str]:
+    """The environment a rule hands roots: an exported operator still outranks
+    the tree the lint was given, but AGENT_FABRIC_HOSTS_REGISTRY, a one-file
+    override for the daemons, never changes what the lint reads."""
+    return {k: v for k, v in os.environ.items() if k != roots.ENV_HOSTS_REGISTRY}
 
 
 FRONTMATTER_RE = re.compile(r"^---\n(.*?)\n---\n", re.S)

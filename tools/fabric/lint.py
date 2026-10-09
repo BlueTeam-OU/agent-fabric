@@ -79,7 +79,7 @@ from fabric_lint_rules.docs import SESSION_TEMP_REFERENCE, SKILL_CUE_RE, SKILL_D
 from fabric_lint_rules.docs import SKILL_PR_RE, adr_findings, agent_source_findings  # noqa: E402, F401
 from fabric_lint_rules.docs import check_durable_references, class_doc_findings, doc_path_findings  # noqa: E402, F401
 from fabric_lint_rules.docs import fabric_ref_findings, harness_source_findings, hygiene_findings  # noqa: E402, F401
-from fabric_lint_rules.docs import key_lineage_findings, license_findings, parse_frontmatter, project_tools_findings  # noqa: E402, F401
+from fabric_lint_rules.docs import client_findings, key_lineage_findings, license_findings, parse_frontmatter, project_tools_findings  # noqa: E402, F401
 from fabric_lint_rules.docs import payload_shape_findings, project_name_findings  # noqa: E402, F401
 from fabric_lint_rules.docs import review_lens_findings, skill_findings  # noqa: E402, F401
 from fabric_lint_rules.prompts import BUDGET_TOKENS, BUDGET_TOLERANCE, CHARS_PER_TOKEN  # noqa: E402, F401
@@ -498,7 +498,7 @@ def main() -> int:
     taxonomy_roles: dict[str, set[str]] = {}   # project id -> the roles its taxonomy binds
     registry_ids: list[str] = []
     try:
-        registry_ids = sorted((json.load(open(os.path.join(projects_root, "registry.json"), encoding="utf-8"))
+        registry_ids = sorted((json.load(open(roots.projects_registry(engine=root), encoding="utf-8"))
                                .get("projects") or {}).keys())
     except (OSError, ValueError):
         pass
@@ -538,6 +538,7 @@ def main() -> int:
 
     # --- licenses ----------------------------------------------------------
     findings += license_findings(root)
+    findings += client_findings(root)
     findings += project_tools_findings(root)
 
     # --- the class list a reader sees --------------------------------------

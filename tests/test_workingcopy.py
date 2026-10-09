@@ -90,6 +90,25 @@ def test_project_matching_uses_the_canonical_form() -> None:
     assert wc.project_for_remote("demo", registry) is None, "a bare word matches nothing"
 
 
+def test_blueteam_projects_resolve_under_both_github_orgs() -> None:
+    """The move from gzapi-org to BlueTeam-OU: a clone keeps its project
+    whichever name its origin carries. The old name stays first, because
+    new_agent.py clones from the first git@ remote and results.py reads the
+    first GitHub one, and the new name exists only once a repository moves.
+    The operator's own registry on purpose: the fact is about its data."""
+    import json
+    roots_spec = importlib.util.spec_from_file_location("fabric_roots", os.path.join(ROOT, "tools", "fabric", "roots.py"))
+    roots = importlib.util.module_from_spec(roots_spec); roots_spec.loader.exec_module(roots)
+    with open(roots.projects_registry(engine=ROOT), encoding="utf-8") as fh:
+        registry = json.load(fh)
+    for pid, repo in (("agent-fabric", "agent-fabric"), ("agent-fabric-gateway", "agent-fabric-gateway"),
+                      ("herdr", "agent-fabric-herdr"), ("radicle-spike", "radicle-spike")):
+        for url in (f"git@github.com:gzapi-org/{repo}.git", f"https://github.com/BlueTeam-OU/{repo}",
+                    f"git@github.com:blueteam-ou/{repo}.git"):
+            assert wc.project_for_remote(url, registry) == pid, (url, pid)
+        assert registry["projects"][pid]["remotes"][0].startswith("git@github.com:gzapi-org/"), pid
+
+
 def test_a_hanging_git_reads_as_no_repository_within_the_bound() -> None:
     """A git that never answers is cut at GIT_TIMEOUT_S and _git says None,
     so a stalled filesystem cannot hold a session start or a scan."""
@@ -114,7 +133,7 @@ def test_a_hanging_git_reads_as_no_repository_within_the_bound() -> None:
 
 
 def main() -> int:
-    cases = [test_the_shapes_git_accepts_parse_to_one_structure, test_what_is_not_a_network_remote_parses_to_nothing,
+    cases = [test_blueteam_projects_resolve_under_both_github_orgs, test_the_shapes_git_accepts_parse_to_one_structure, test_what_is_not_a_network_remote_parses_to_nothing,
              test_scp_syntax_follows_gits_own_rule, test_canonical_ignores_scheme_and_user_keeps_port_and_host_case_folds,
              test_path_case_is_host_specific, test_project_matching_uses_the_canonical_form,
              test_a_hanging_git_reads_as_no_repository_within_the_bound]
@@ -123,9 +142,9 @@ def main() -> int:
         try:
             case()
             print(f"  ok   {case.__name__}")
-        except AssertionError as exc:
+        except Exception as exc:  # noqa: BLE001 — a case that raises fails alone; the rest still run
             failures += 1
-            print(f"  FAIL {case.__name__}: {exc}")
+            print(f"  FAIL {case.__name__}: {exc.__class__.__name__ + ': ' if not isinstance(exc, AssertionError) else ''}{exc}")
     print(f"\n{len(cases) - failures}/{len(cases)} passed")
     return 1 if failures else 0
 

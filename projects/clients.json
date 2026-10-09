@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "description": "The clients the agents work for (agent-fabric ADR-045 §5 rules 5-6). A working copy resolves to its client as remote → project (projects/registry.json, whose `client` field is the only place a project's client is written) → client here → its engagement; never from the GitHub organization, which holds every repository today. Blueteam, the company that runs the agents, is its own client: its own tooling is a client's work like any other (the owner, 2026-10-09). `engagement` is the client's repository of rules (ADR-045 stage 5), null until it exists; `secrets_store` the private pass store of the credentials that client's work uses, encrypted to the fabric-coordinator role's key and the owner's recovery key (ADR-038), null for a client with none; which credentials it holds follows the owner's review of their names; `channel` the GZCoord channel its sessions use, one for every client today until the channel split, a step of its own.",
+  "clients": {
+    "blueteam": {
+      "title": "Blueteam — the company that runs the agents, a client of itself",
+      "engagement": null,
+      "secrets_store": "BlueTeam-OU/blueteam-secrets",
+      "channel": "gzapp:gzcoord"
+    },
+    "gzapi": {
+      "title": "Gzapi — client #1",
+      "engagement": null,
+      "secrets_store": "gzapi-org/gzapi-secrets",
+      "channel": "gzapp:gzcoord"
+    },
+    "personal": {
+      "title": "The owner's own projects under their personal GitHub account",
+      "engagement": null,
+      "secrets_store": null,
+      "channel": "gzapp:gzcoord"
+    }
+  }
+}
