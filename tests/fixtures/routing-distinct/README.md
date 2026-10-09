@@ -9,7 +9,8 @@ two to Sonnet 5.5. A test of the mechanics needs classes it can tell
 apart, so it runs on
 this frozen copy: `tests/test_routing.py` (every case built on
 `scratch_root`), `tests/test_model_profile.py`,
-`tests/test_launch_cli.py` and the dispatch guard's suite.
+`tests/test_launch_cli.py`, `tests/test_lint.py` (its `policies/review-grade.json`
+only) and the dispatch guard's suite.
 `tests/test_routing.py` asserts the committed policy itself.
 
 `profiles.json` and `policies/review-grade.json` are the operator half

@@ -11,14 +11,18 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-GZAPP = os.path.join(ROOT, "projects", "gzapp", "integration", "gh", "arm.sh")
+# gzapp's and InterWeave's files as the projects hold them, frozen (tests/fixtures/gzapp-gh/README.md):
+# a project's integration directory is the operator's instance data.
+FIXTURES = os.path.join(ROOT, "tests", "fixtures")
+GZAPP = os.path.join(FIXTURES, "gzapp-gh", "arm.sh")
 SHIM = os.path.join(ROOT, "bin", "fabric-pr")
-IW_CONFIG = os.path.join(ROOT, "projects", "interweave", "integration", "gh", "arm.json")
+IW_CONFIG = os.path.join(FIXTURES, "interweave-gh", "arm.json")
 
 GH_MOCK = r'''#!/usr/bin/env python3
 import json, os, sys
@@ -125,6 +129,8 @@ def main() -> int:
                 if not k.startswith(("GITHUB_", "AGENT_FABRIC_", "CLAUDE_", "ANTHROPIC_", "GZAPP_")) and k != "GIT_DIR"}
     # The repository the mock serves (gh.this_repo never reads gh's default).
     base_env["GH_REPO"] = "gzapi-org/gzapp"
+    # The role catalogue a waiver is checked against is the operator's instance file: a fixture one.
+    base_env["AGENT_FABRIC_OPERATOR"] = os.path.join(FIXTURES, "gzcoord-operator")
 
     with tempfile.TemporaryDirectory() as sandbox:
         state, bindir = f"{sandbox}/state", f"{sandbox}/bin"
@@ -292,7 +298,7 @@ def main() -> int:
 
         print("arm: gate 4 — a waiver, read from the relay and checked against the fabric")
         cto, mid = "develop-qzapp/architect-cto-01", "01a10593-0000-7000-8000-00000000c7f0"
-        with open(os.path.join(ROOT, "projects", "gzapp", "integration", "gh", "arm.json")) as fh:
+        with open(os.path.join(FIXTURES, "gzapp-gh", "arm.json")) as fh:
             rules = json.load(fh)
         rules["waiver_role"] = "architect-cto"
         put("waiver-rules.json", json.dumps(rules))
@@ -603,8 +609,17 @@ def main() -> int:
               rc == 1 and "none in this project" in out, out)
 
         print("arm: the rules found from the clone's remote, AGENT_FABRIC_ARM_CONFIG unset")
-        reg = json.load(open(os.path.join(ROOT, "projects", "registry.json")))
-        iw_remote = (reg.get("projects") or reg)["interweave"]["remotes"][0]
+        # The operator the tool finds a clone's project in: a fixture registry and
+        # InterWeave's arm.json at their places in a tree of its own.
+        operator = f"{sandbox}/operator"
+        os.makedirs(f"{operator}/projects/interweave/integration/gh")
+        iw_remote = "git@github.com:fixture-org/interweave.git"
+        with open(f"{operator}/projects/registry.json", "w") as fh:
+            json.dump({"projects": {"interweave": {"remotes": [iw_remote]}}}, fh)
+        shutil.copy(IW_CONFIG, f"{operator}/projects/interweave/integration/gh/arm.json")
+        os.makedirs(f"{operator}/identities/roles")
+        shutil.copy(os.path.join(FIXTURES, "gzcoord-operator", "identities", "roles", "catalog.json"), f"{operator}/identities/roles/catalog.json")
+        by_remote = {"AGENT_FABRIC_OPERATOR": operator}
         clones = {}
         for name, url in (("iw", iw_remote), ("stranger", "git@github.com:nobody/unregistered.git")):
             d = f"{sandbox}/{name}"
@@ -612,15 +627,15 @@ def main() -> int:
             subprocess.run(["git", "-C", d, "remote", "add", "origin", url], env=base_env, check=True, timeout=30)
             clones[name] = d
         reset(); set_pr(me, "plain", ["crates/transport/libp2p/src/dialing.rs"]); set_gate(9)
-        rc, out = run("7", "--basis", "b", script=SHIM, cwd=clones["iw"])
+        rc, out = run("7", "--basis", "b", script=SHIM, cwd=clones["iw"], env=by_remote)
         check("a clone of InterWeave is judged by InterWeave's rules (transport is a boundary there, not in gzapp's)",
               rc == 1 and "no review-class review" in out, out)
         reset(); set_pr(me, "plain", ["infra/db/migrations/0053_x.sql"]); set_gate(9)
-        rc, out = run("7", "--basis", "b", script=SHIM, cwd=clones["iw"])
+        rc, out = run("7", "--basis", "b", script=SHIM, cwd=clones["iw"], env=by_remote)
         check("…and not by gzapp's (a migrations path is not InterWeave's boundary)",
               rc == 0 and "not a security-boundary change" in out, out)
         reset(); set_pr(me, "plain", ["docs/a.md"]); set_gate(9)
-        rc, out = run("7", "--basis", "b", script=SHIM, cwd=clones["stranger"])
+        rc, out = run("7", "--basis", "b", script=SHIM, cwd=clones["stranger"], env=by_remote)
         check("a clone of an unregistered remote: exit 2, nothing armed",
               rc == 2 and "no project found" in out and "pr merge" not in calls(), out)
 

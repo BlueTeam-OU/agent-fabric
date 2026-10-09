@@ -131,6 +131,18 @@ def main() -> int:
         check("an untracked test that builds its own fixture passes, no session or git variable reaching it, signing off",
               "tests/test_reads_fixture.py: ok" in lines, lines)
         check("any failure is exit 1", code == 1, code)
+        # A file listed as deliberate: its red is its answer, said, not counted. The same
+        # failing file unlisted (above) is a failure, so the list is what changes the verdict.
+        saved_red, stripped_run.KNOWN_RED = stripped_run.KNOWN_RED, {"tests/test_reads_live.py": "reads the registry on purpose"}
+        try:
+            known: list[str] = []
+            known_code = stripped_run.run(tree, ["tests/test_reads_live.py"], out=known.append)
+        finally:
+            stripped_run.KNOWN_RED = saved_red
+        check("a deliberate file that is red: said as deliberate with its reason, exit 0",
+              known_code == 0 and known == ["tests/test_reads_live.py: red, deliberate — reads the registry on purpose"], (known_code, known))
+        check("the shipped list names only files that exist", all(os.path.isfile(os.path.join(os.path.dirname(HERE), f)) for f in stripped_run.KNOWN_RED),
+              [f for f in stripped_run.KNOWN_RED if not os.path.isfile(os.path.join(os.path.dirname(HERE), f))])
         check("all passing is exit 0", stripped_run.run(tree, ["tests/test_reads_fixture.py"], out=lambda s: None) == 0)
         check("the tree itself is untouched", os.path.isfile(os.path.join(tree, "projects", "registry.json")))
 

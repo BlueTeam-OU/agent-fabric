@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -22,7 +23,7 @@ own_instance_tree()
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TOOL = os.path.join(ROOT, "runtime", "github", "check-guards-are-wired.sh")
-GZAPP = os.path.join(ROOT, "projects", "gzapp", "integration", "gh", "guards.json")
+GZAPP = os.path.join(ROOT, "tests", "fixtures", "gzapp-gh", "guards.json")
 
 LINES = {
     "dirs": [{"dir": "tools/checks", "role": "guard", "members": "\\.(sh|py)$"},
@@ -297,10 +298,19 @@ def main() -> int:
             rc, out, err = run(empty, bad)
             check(f"{label} in the config is refused", rc == 2 and err.startswith(f"check_guards_are_wired: cannot read {bad}:"),
                   err)
+        # The operator a working copy's project is found in: a fixture registry
+        # holding gzapp's remote, and gzapp's guards.json at its place (instance data).
+        operator = os.path.join(sandbox, "operator")
+        os.makedirs(os.path.join(operator, "projects", "gzapp", "integration", "gh"))
+        with open(os.path.join(operator, "projects", "registry.json"), "w", encoding="utf-8") as fh:
+            json.dump({"projects": {"gzapp": {"remotes": ["git@github.com:gzapi-org/gzapp.git"]}}}, fh)
+        shutil.copy(GZAPP, os.path.join(operator, "projects", "gzapp", "integration", "gh", "guards.json"))
         gz = tree(GUARD, WIRED)
         for args in (["init", "-q", gz], ["-C", gz, "remote", "add", "origin", "git@github.com:gzapi-org/gzapp.git"]):
             subprocess.run(["git", *args], env=base, check=True, capture_output=True, timeout=30)
+        base["AGENT_FABRIC_OPERATOR"] = operator
         rc, out, err = run("", None, cwd=gz)
+        del base["AGENT_FABRIC_OPERATOR"]
         check("a gzapp working copy, no --root: its toplevel, gzapp's guards.json", rc == 0 and "1 guard(s) wired" in out,
               out + err)
         rc, out, err = run("", GZAPP, "-h")

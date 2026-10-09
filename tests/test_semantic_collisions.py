@@ -22,7 +22,7 @@ own_instance_tree()
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TOOL = os.path.join(ROOT, "runtime", "github", "scan-semantic-collisions.sh")
-GZAPP = os.path.join(ROOT, "projects", "gzapp", "integration", "gh", "collisions.json")
+GZAPP = os.path.join(ROOT, "tests", "fixtures", "gzapp-gh", "collisions.json")
 FOOTER = ("Semantic collision(s): {n} — a textually-clean merge does NOT clear these.\n"
           "These are parallel-session numbering races (CLAUDE.md §Concurrent contributors):\n"
           "renumber the entry that has NOT yet reached origin/main; never rewrite landed work.\n")
@@ -148,15 +148,22 @@ def main() -> int:
               rc == 2 and err.startswith(f"scan_semantic_collisions: no collisions config for {plain} "), err)
 
         print("semantic_collisions: the project's config, found from --root")
+        # The operator a working copy's project is found in: a fixture registry
+        # holding gzapp's remote, and gzapp's collisions.json at its place (instance data).
+        operator = os.path.join(sandbox, "operator")
+        os.makedirs(os.path.join(operator, "projects", "gzapp", "integration", "gh"))
+        with open(os.path.join(operator, "projects", "registry.json"), "w", encoding="utf-8") as fh:
+            json.dump({"projects": {"gzapp": {"remotes": ["git@github.com:gzapi-org/gzapp.git"]}}}, fh)
+        shutil.copy(GZAPP, os.path.join(operator, "projects", "gzapp", "integration", "gh", "collisions.json"))
         gz = tree({"docs/adr/ADR-001-a.md": "", "infra/db/migrations/0001_a.sql": "",
                    "infra/db/migrations/0001_b.sql": ""})
         for args in (["init", "-q", gz], ["-C", gz, "remote", "add", "origin", "git@github.com:gzapi-org/gzapp.git"]):
             subprocess.run(["git", *args], env=base, check=True, capture_output=True, timeout=30)
-        rc, out, err = run("--root", gz, config=None)
+        rc, out, err = run("--root", gz, config=None, AGENT_FABRIC_OPERATOR=operator)
         check("a gzapp working copy reads gzapp's collisions.json", rc == 1 and "migration number prefix 0001" in out
               and "§Concurrent contributors" in out, f"{rc} {out} {err}")
         os.makedirs(os.path.join(gz, "sub"))
-        rc, out, err = run(cwd=os.path.join(gz, "sub"), config=None)
+        rc, out, err = run(cwd=os.path.join(gz, "sub"), config=None, AGENT_FABRIC_OPERATOR=operator)
         check("without --root, the working directory's toplevel", rc == 1 and "0001_a.sql 0001_b.sql" in out, err)
 
         print("semantic_collisions: argv")

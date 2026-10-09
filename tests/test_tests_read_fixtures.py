@@ -32,16 +32,29 @@ from test_roots_seam import SEQUENCES  # noqa: E402
 
 SCANNED = ("tests", "communication/gzcoord/tests")
 
-# file -> why it still reads the live tree. The first three check a fact of
-# the operator's real data on purpose. The rest are not yet moved to
-# fixtures (fabric-coordinator's request 01a11d15-2dc2-7cc9-8e7b-770a36dcf895)
-# and leave this list as they move; it only shrinks.
+# file -> why it reads the live tree. Each checks a fact of the operator's
+# own data on purpose, so a stripped run (tests/stripped_run.py) reports it
+# red, or has nothing to read: that is its answer, not a fixture still owed. Everything else moved to
+# fixtures (fabric-coordinator's request 01a11d15-2dc2-7cc9-8e7b-770a36dcf895).
 DELIBERATE = {
-    "tests/test_hosts_registry.py": "the committed operator key parses as the daemons read it: the operator's own data",
     "tests/test_fabric_status.py": "bin/fabric-status is off the committed bash allowlist: a fact of this tree",
     "tests/test_launch_prompt.py": "every role of the real catalogue renders under the prompt ceiling: the operator's own roles",
+    "tests/test_operator_data.py": "the committed operator keys parse as the daemons read them, and every locale carries its reminder: the operator's own data",
+    "tests/test_auto_mode_policy.py": "the operator's auto-mode policy names its public repositories and holds no \"$defaults\": the operator's own text",
+    "tests/test_arm_fabric_config.py": "every project's committed arm.json loads and holds the rules the fabric relies on: the operator's own files",
+    "tests/test_session_commands.py": "no session-facing text, the projects' CLAUDE files included, calls a fabric command through a path: the operator's own texts",
 }
-PENDING = "not yet on fixtures (request 01a11d15)"
+
+# What a stripped run (tests/stripped_run.py) reports as red on purpose: the
+# deliberate files, and three that read the operator's data in a way the scan
+# does not follow (docs/adr: the engine's corpus is checked on purpose; one
+# case of each other reads a registry or the roles as the operator keeps them).
+STRIPPED_RED = {
+    **DELIBERATE,
+    "tests/test_adr.py": "the decision records are checked as the corpus they are (the records are instance data, ADR-045 §5 rule 2)",
+    "tests/test_workingcopy.py": "the moved BlueTeam projects resolve under both organizations: a fact of the operator's registry",
+    "tests/test_roots_readers.py": "lint over a copy of the operator's data prints what it prints without one: the operator's roles",
+}
 
 # Read the live instance files in a way no source scan follows — a whole
 # directory of the checkout copied or linked into a fixture, a path assembled
@@ -54,10 +67,7 @@ UNSCANNABLE = {
                                    "and lint reads the role files an engine lacks from the operator (the checkout)",
     "tests/test_types.py": "the committed identities/keys/lineage.json holds only LineageEntry values: a fact of the operator's data",
 }
-ALLOWED = {**DELIBERATE, **{f"tests/{f}": PENDING for f in (
-    "test_arm_cli.py", "test_arm_fabric_config.py", "test_guards_wired.py", "test_gzcoord_i18n.py",
-    "test_pr_compliance_cli.py", "test_semantic_collisions.py", "test_session_commands.py",
-    "test_user_settings_auto_mode.py", "test_wait_merged.py")}}
+ALLOWED = dict(DELIBERATE)
 
 
 # docs/adr is not counted here, though test_roots_seam's engine scan does:
