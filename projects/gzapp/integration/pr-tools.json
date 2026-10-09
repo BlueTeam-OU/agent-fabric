@@ -1,0 +1,10 @@
+{
+  "description": "gzapp's names for the fabric's PR tools: GZAPP_* variables read as their AGENT_FABRIC_* names, and gzapp's former review marker counted as a review, read by tools/fabric/github/common.py for a working copy of gzapp.",
+  "env_aliases": {
+    "GZAPP_PR_GATE": "AGENT_FABRIC_PR_GATE",
+    "GZAPP_PR_REVIEW_STATUS": "AGENT_FABRIC_PR_REVIEW_STATUS",
+    "GZAPP_PR_SESSION": "AGENT_FABRIC_PR_SESSION",
+    "GZAPP_VERDICT_AUTHORS": "AGENT_FABRIC_VERDICT_AUTHORS"
+  },
+  "legacy_review_markers": ["<!-- gzapp-substitute-review v1 -->"]
+}
