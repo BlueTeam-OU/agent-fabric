@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""runtime/github/pr-gate.sh with gh and pr-review-status mocked on PATH
+"""fabric-pr gate with gh and pr-review-status mocked on PATH
 and a throwaway git repository for the commit classification: the work /
 fix / merge split, a revert netted with its in-range partner (once — a
 revert-then-reapply leaves the original), each verdict (ask the owner,
@@ -18,7 +18,7 @@ import sys
 import tempfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-UNDER_TEST = os.path.join(ROOT, "runtime", "github", "pr-gate.sh")
+UNDER_TEST = [os.path.join(ROOT, "bin", "fabric-pr"), "gate"]
 
 GH_MOCK = r'''#!/usr/bin/env python3
 import json, os, sys
@@ -187,7 +187,7 @@ def main() -> int:
             env = {**base_env, "MOCK_STATE": state, "PATH": f"{sandbox}/bin:{base_env.get('PATH', '')}",
                    "AGENT_FABRIC_PR_REVIEW_STATUS": f"{sandbox}/bin/pr-review-status.sh",
                    "AGENT_FABRIC_PR_SESSION": "develop-qzapp/me"}
-            r = subprocess.run(["bash", UNDER_TEST, *args], cwd=repo, env=env, stdout=subprocess.PIPE,
+            r = subprocess.run([*UNDER_TEST, *args], cwd=repo, env=env, stdout=subprocess.PIPE,
                                stderr=subprocess.STDOUT, text=True, timeout=300)
             return r.returncode, r.stdout
 
