@@ -42,7 +42,7 @@ DAY = 86400000
 
 
 def fp(v: str) -> str:
-    return hashlib.sha256(v.encode()).hexdigest()[:12]
+    return util.sha12(v)   # util.sha12 itself is pinned to a known answer in test_a_fingerprint_is_twelve_hex_of_sha256
 
 
 def iso(ms: float) -> str:
@@ -81,6 +81,11 @@ class Base(unittest.TestCase):
 
 def done(out: str = "", err: str = "", rc: int = 0) -> subprocess.CompletedProcess:
     return subprocess.CompletedProcess([], rc, out, err)
+
+
+class Fingerprint(unittest.TestCase):
+    def test_a_fingerprint_is_twelve_hex_of_sha256(self):
+        self.assertEqual(util.sha12("abc"), "ba7816bf8f01", "the first twelve digits of the published SHA-256 of 'abc'")
 
 
 class Identity(Base):
