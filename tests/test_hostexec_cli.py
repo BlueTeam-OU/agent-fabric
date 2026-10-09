@@ -204,8 +204,16 @@ def main() -> int:
         rc, out = run_with({"AGENT_FABRIC_OPERATOR": op_tree}, ("AGENT_FABRIC_HOSTS_REGISTRY",), HX, "op-only-host", "--", "echo", "direct")
         check("…whereas hostexec alone keeps its own default (it is the host executor and stays shell)",
               rc == 2 and "unknown host 'op-only-host'" in out, f"rc={rc}\n{out}")
-        broken = os.path.join(bin_, "broken-python")
         put("broken-python", "#!/bin/sh\nexit 1\n")
+        _, plain = run_with({}, ("AGENT_FABRIC_HOSTS_REGISTRY", "AGENT_FABRIC_OPERATOR", "AGENT_FABRIC_ROOT"), FH, "list")
+        for label, tree in (("an empty tree", os.path.join(sandbox, "nothing")), ("another clone with a registry of its own", op_tree)):
+            os.makedirs(tree, exist_ok=True)
+            rc, out = run_with({"AGENT_FABRIC_ROOT": tree}, ("AGENT_FABRIC_HOSTS_REGISTRY", "AGENT_FABRIC_OPERATOR"), FH, "list")
+            check(f"AGENT_FABRIC_ROOT naming {label} does not move the registry (every session exports one)",
+                  rc == 0 and out == plain and "op-only-host" not in out, f"rc={rc}\n{out}")
+        rc, out = run_with({"AGENT_FABRIC_PYTHON": os.path.join(bin_, "broken-python")}, (), FH, "--help")
+        check("--help does not wait on the registry or the interpreter beyond its presence", rc == 0 and "fabric-host list" in out, f"rc={rc}\n{out}")
+        broken = os.path.join(bin_, "broken-python")
         rc, out = run_with({"AGENT_FABRIC_PYTHON": broken}, (), FH, "list")
         check("a roots.py that cannot answer is a refusal, never the checkout's file",
               rc == 1 and "cannot resolve the hosts registry" in out and "far-host" not in out, f"rc={rc}\n{out}")
