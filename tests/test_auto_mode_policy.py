@@ -24,7 +24,7 @@ def main() -> int:
     print("the policy itself")
     check("every slot has text", all(isinstance(v, str) and v.strip() for v in POLICY["environment"].values()))
     check("the public repositories are named as such",
-          "PUBLIC: gzapi-org/agent-fabric and gzapi-org/InterWeave" in POLICY["environment"]["Repository visibility"])
+          "PUBLIC: BlueTeam-OU/agent-fabric and gzapi-org/InterWeave" in POLICY["environment"]["Repository visibility"])
     check("lists hold prose, never \"$defaults\" (the writer adds it)",
           all("$defaults" not in POLICY[k] for k in ("allow", "soft_deny", "hard_deny")))
 

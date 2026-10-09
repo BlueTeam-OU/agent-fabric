@@ -44,7 +44,7 @@ import subprocess
 import sys
 import tempfile
 from git_env import git_env, scrub_process_env  # noqa: E402 — tests/, the script's own directory
-from instance_fixtures import own_instance_tree  # noqa: E402 — tests/, the script's own directory
+from instance_fixtures import own_instance_tree, with_client, write_clients  # noqa: E402 — tests/, the script's own directory
 own_instance_tree()
 scrub_process_env()
 
@@ -189,7 +189,9 @@ def run_lint(fabric: str, *extra: str) -> tuple[int, str]:
     wc = wc_demo(fabric)
     if os.path.isdir(wc) and not any(a.startswith(f"{PROJECT}=") for a in extra):
         extra = ("--working-copy", f"{PROJECT}={wc}", *extra)
-    proc = subprocess.run([sys.executable, LINT, "--fabric", fabric, *extra], capture_output=True, text=True)
+    # The caller's operator would outrank the fixture (ADR-045): the fixture is the whole tree.
+    env = {k: v for k, v in os.environ.items() if k != "AGENT_FABRIC_OPERATOR"}
+    proc = subprocess.run([sys.executable, LINT, "--fabric", fabric, *extra], capture_output=True, text=True, env=env)
     return proc.returncode, proc.stdout + proc.stderr
 
 
@@ -209,6 +211,24 @@ def case_clean_base_passes() -> None:
         fabric = make_base(root)
         code, out = run_lint(fabric)
         assert code == 0, f"a minimal well-formed root tripped the linter:\n{out}"
+
+
+def case_the_callers_operator_is_not_part_of_a_fixture() -> None:
+    """An exported AGENT_FABRIC_OPERATOR is the caller's, never the fixture's."""
+    with tempfile.TemporaryDirectory() as root:
+        fabric = make_base(root)
+        operator = os.path.join(root, "operator")
+        write(os.path.join(operator, "projects", "registry.json"), json.dumps({"projects": {"nobody": {}}}))
+        saved = os.environ.get("AGENT_FABRIC_OPERATOR")
+        os.environ["AGENT_FABRIC_OPERATOR"] = operator
+        try:
+            code, out = run_lint(fabric)
+        finally:
+            if saved is None:
+                del os.environ["AGENT_FABRIC_OPERATOR"]
+            else:
+                os.environ["AGENT_FABRIC_OPERATOR"] = saved
+        assert code == 0, f"the caller's operator tree was linted with the fixture:\n{out}"
 
 
 def case_payload_is_exempt() -> None:
@@ -1084,8 +1104,14 @@ def case_model_profiles_schema_is_enforced() -> None:
         assert "routing/profiles.json" in out, f"the file went unnamed:\n{out}"
 
 
-def _write_license_layout(fabric: str, registry: dict, reuse_toml: str, licenses: tuple = ("Apache-2.0",)) -> None:
+def _write_license_layout(fabric: str, registry: dict, reuse_toml: str, licenses: tuple = ("Apache-2.0",),
+                          clients: bool = True) -> None:
+    """`clients=False` writes the registry as given, for a case that judges
+    the clients themselves."""
     os.makedirs(os.path.join(fabric, "projects"), exist_ok=True)
+    if clients:
+        write_clients(os.path.join(fabric, "projects"))
+        registry = with_client(registry)
     with open(os.path.join(fabric, "projects", "registry.json"), "w", encoding="utf-8") as fh:
         json.dump(registry, fh)
     with open(os.path.join(fabric, "REUSE.toml"), "w", encoding="utf-8") as fh:
@@ -1141,12 +1167,12 @@ def case_the_repository_is_one_license() -> None:
 def case_every_project_names_a_defined_client() -> None:
     """ADR-045 §5 rule 5: a working copy resolves remote -> project ->
     client, so a project's client must be one projects/clients.json
-    defines; a tree with neither predates clients and is not judged."""
+    defines. A tree is judged whenever its registry has projects."""
     registry = {"projects": {"agent-fabric": {"license": "Apache-2.0", "client": "self"},
                              PROJECT: {"license": "Apache-2.0", "client": "acme"}}}
     with tempfile.TemporaryDirectory() as root:
         fabric = make_base(root)
-        _write_license_layout(fabric, registry, REUSE_OK)
+        _write_license_layout(fabric, registry, REUSE_OK, clients=False)
         write(os.path.join(fabric, "projects", "clients.json"),
               json.dumps({"version": 1, "clients": {"self": {}, "acme": {}}}))
         code, out = run_lint(fabric)
@@ -1158,9 +1184,21 @@ def case_every_project_names_a_defined_client() -> None:
         code, out = run_lint(fabric)
         assert code == 1 and "names client 'self'" in out, f"a deleted clients.json passed:\n{out}"
         _write_license_layout(fabric, {"projects": {"agent-fabric": {"license": "Apache-2.0", "client": "self"},
-                                                    PROJECT: {"license": "Apache-2.0"}}}, REUSE_OK)
+                                                    PROJECT: {"license": "Apache-2.0"}}}, REUSE_OK, clients=False)
         code, out = run_lint(fabric)
         assert code == 1 and "project 'demo' names no client" in out, f"a project with no client passed:\n{out}"
+
+
+def case_a_registry_with_projects_and_no_clients_is_a_finding() -> None:
+    """Deleting clients.json and every client field must not pass lint
+    (ADR-045 §5 rule 5)."""
+    with tempfile.TemporaryDirectory() as root:
+        fabric = make_base(root)
+        _write_license_layout(fabric, {"projects": {"agent-fabric": {"license": "Apache-2.0"},
+                                                    PROJECT: {"license": "Apache-2.0"}}}, REUSE_OK, clients=False)
+        assert not os.path.exists(os.path.join(fabric, "projects", "clients.json"))
+        code, out = run_lint(fabric)
+        assert code == 1 and "project 'demo' names no client" in out, f"a clientless registry passed:\n{out}"
 
 
 def case_the_class_list_a_reader_sees_is_the_real_one() -> None:
@@ -1287,6 +1325,29 @@ def case_the_host_registry_is_one_host_per_id_and_placements_are_known() -> None
         write(reg, registry({"local": {**L, "role": "fabric-coordinator"}}, {}))
         code, out = run_lint(fabric)
         assert code == 1 and "role" in out, f"a role in a host entry passed (placement is never identity):\n{out}"
+
+
+def case_the_agentd_selector_is_sound_and_names_placed_logins() -> None:
+    L = {"platform": "fedora-qubes", "ssh": None, "operator": "op", "fabric": "~/projects/agent-fabric"}
+    with tempfile.TemporaryDirectory() as root:
+        fabric = make_base(root)
+        write(os.path.join(fabric, "runtime", "hosts", "registry.json"),
+              json.dumps({"version": 1, "hosts": {"local": L}, "placement": {"a": "local"}}))
+        sel = os.path.join(fabric, "runtime", "control", "agentd.json")
+        code, out = run_lint(fabric)
+        assert code == 0, f"no selector at all was refused:\n{out}"
+        write(sel, json.dumps({"description": "d", "default": "node", "python": ["a"]}))
+        code, out = run_lint(fabric)
+        assert code == 0, f"a sound selector was refused:\n{out}"
+        for doc, want in (({"default": "node", "python": [], "node": ["a"]}, "unknown key 'node'"),
+                          ({"default": "deno", "python": []}, "default is 'deno'"),
+                          ({"default": "node", "python": ["ghost"]}, "python names 'ghost', which runtime/hosts/registry.json does not place")):
+            write(sel, json.dumps(doc))
+            code, out = run_lint(fabric)
+            assert code == 1 and want in out, f"{doc} passed:\n{out}"
+        write(sel, "{broken")
+        code, out = run_lint(fabric)
+        assert code == 1 and "agentd.json: does not parse" in out, f"a selector that is not JSON passed:\n{out}"
 
 
 def case_a_managed_projects_name_stays_out_of_generic_files() -> None:
@@ -1636,6 +1697,40 @@ def case_every_registered_project_declares_an_arm_json() -> None:
         assert lint.arm_declared_findings(root) == [], "every project has one: no finding"
         write(os.path.join(root, "projects", "registry.json"), "{ not json")
         assert lint.arm_declared_findings(root) == [], "an unreadable registry is reported elsewhere"
+
+
+def case_instance_files_are_read_from_the_operator_tree() -> None:
+    """An exported AGENT_FABRIC_OPERATOR outranks the engine tree for a
+    project's arm.json and for the committed keys (ADR-045)."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("fabric_lint_under_test", LINT)
+    lint = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(lint)
+    from fabric_lint_rules import docs
+    with tempfile.TemporaryDirectory() as root:
+        engine, operator = os.path.join(root, "engine"), os.path.join(root, "operator")
+        g = lambda *a: subprocess.run(["git", "-C", engine, *a], check=True, capture_output=True, env=git_env())
+        good = json.dumps({"boundary": {"paths": "^src/", "exempt": "^docs/", "cases": ["src/a.rs"]}})
+        write(os.path.join(engine, "projects", "demo", "integration", "gh", "arm.json"), good)
+        g("init", "-q", "-b", "main")
+        g("add", "-A")
+        write(os.path.join(operator, "projects", "demo", "integration", "gh", "arm.json"), "{}")
+        write(os.path.join(operator, "identities", "keys", "lineage.json"), "[]")
+        saved = os.environ.get("AGENT_FABRIC_OPERATOR")
+        try:
+            os.environ.pop("AGENT_FABRIC_OPERATOR", None)
+            assert lint.arm_boundary_findings(engine, base_ref="no-such-ref") == [], "the engine's own arm.json is usable"
+            os.environ["AGENT_FABRIC_OPERATOR"] = operator
+            got = lint.arm_boundary_findings(engine, base_ref="no-such-ref")
+            assert any("not a usable arm.json" in f for f in got), ("the operator's arm.json was not the one read", got)
+            if shutil.which("gpg"):
+                got = docs.key_lineage_findings(engine)
+                assert any("lineage.json" in f for f in got), ("the operator's keys were not the ones verified", got)
+        finally:
+            if saved is None:
+                os.environ.pop("AGENT_FABRIC_OPERATOR", None)
+            else:
+                os.environ["AGENT_FABRIC_OPERATOR"] = saved
 
 
 def case_bash_over_150_lines_needs_the_allowlist() -> None:
@@ -2233,6 +2328,8 @@ def main() -> int:
         case_index_lists_domain_slices,
         case_fabric_ref_is_one_full_commit_id,
         case_quoted_description_round_trips,
+        case_the_callers_operator_is_not_part_of_a_fixture,
+        case_instance_files_are_read_from_the_operator_tree,
         case_payload_is_exempt,
         case_hygiene_still_runs_over_payload,
         case_secrets_are_refused_by_shape,
@@ -2268,9 +2365,11 @@ def main() -> int:
         case_model_profiles_schema_is_enforced,
         case_the_repository_is_one_license,
         case_every_project_names_a_defined_client,
+        case_a_registry_with_projects_and_no_clients_is_a_finding,
         case_the_class_list_a_reader_sees_is_the_real_one,
         case_a_skill_carries_rules_not_occasions,
         case_the_host_registry_is_one_host_per_id_and_placements_are_known,
+        case_the_agentd_selector_is_sound_and_names_placed_logins,
         case_a_bound_and_held_role_is_not_a_candidate,
         case_a_managed_projects_name_stays_out_of_generic_files,
         case_review_lenses_are_named_described_and_bounded,

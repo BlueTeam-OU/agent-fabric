@@ -49,6 +49,40 @@
             "pattern": "^[A-Za-z0-9._-]+@[A-Za-z0-9._:\\[\\]-]+$|^[A-Za-z0-9._:\\[\\]-]+$",
             "description": "An ssh destination for the operator account ([user@]host), or null: the host this registry is read on, reached directly."
           },
+          "sshd": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "required": [
+              "address",
+              "port",
+              "host_keys"
+            ],
+            "additionalProperties": false,
+            "description": "The host's own sshd, which the operator's Fleet Deck reaches each placed account through (ADR-048): null or absent until provisioned. Not `ssh`, which is the coordinator's destination for the operator account and null for the local host. `host_keys` are the host's public keys as `<type> <base64>`, read on the host (ssh-operator.sh prints them) and pinned here; `fabric-ssh-hosts known-hosts` writes known_hosts from them and `check` compares them with the host.",
+            "properties": {
+              "address": {
+                "type": "string",
+                "pattern": "^(\\d{1,3}\\.){3}\\d{1,3}$|^[0-9A-Fa-f:]+$",
+                "description": "An IP address, not a name: a name would be resolved, and the pin would follow whatever it resolved to. 127.0.0.1 on a single-host deployment."
+              },
+              "port": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 65535
+              },
+              "host_keys": {
+                "type": "array",
+                "minItems": 1,
+                "uniqueItems": true,
+                "items": {
+                  "type": "string",
+                  "pattern": "^(ssh-ed25519|ecdsa-sha2-nistp256|ecdsa-sha2-nistp384|ecdsa-sha2-nistp521|ssh-rsa) AAAA[A-Za-z0-9+/]+={0,2}$"
+                }
+              }
+            }
+          },
           "operator": {
             "type": "string",
             "pattern": "^[a-z_][a-z0-9_-]*$",

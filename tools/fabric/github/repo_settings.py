@@ -6,7 +6,7 @@ its topics, Actions and workflow permissions, and the ruleset on main;
 code scanning and secret scanning are set on GitHub by hand.
 `fabric-repo-settings` runs it (ADR-040 Wave 1).
 
-  fabric-repo-settings [owner/repo]     # default: gzapi-org/agent-fabric
+  fabric-repo-settings [owner/repo]     # default: BlueTeam-OU/agent-fabric
   fabric-repo-settings --show [owner/repo]
 
 Idempotent: every call sets the documented value. The ruleset on main
@@ -18,7 +18,7 @@ never touches secrets (there are none) or collaborators.
 """
 # The contract the port keeps, from the bash:
 #   - argv: `--show` only as the first word; then the repository, by
-#     default gzapi-org/agent-fabric; a word after it is not read.
+#     default BlueTeam-OU/agent-fabric; a word after it is not read.
 #   - --show: five lines on stdout, each compact JSON with sorted keys, as
 #     gh's --jq printed them: the repository's settings, Actions, workflow
 #     permissions, the topics, the rule types on main.
@@ -43,7 +43,7 @@ HERE = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
 import gh  # noqa: E402
 
-DEFAULT_REPO = "gzapi-org/agent-fabric"
+DEFAULT_REPO = "BlueTeam-OU/agent-fabric"
 RULESET = os.path.join(os.path.dirname(HERE), "github-ruleset-main.json")
 
 REPOSITORY = {

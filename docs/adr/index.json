@@ -432,6 +432,15 @@
       "date": "2026-10-09",
       "pillar": "P1",
       "amendments": 0
+    },
+    {
+      "number": "048",
+      "file": "ADR-048-operator-reaches-accounts-over-ssh.md",
+      "title": "The operator reaches agent accounts over ssh",
+      "status": "Proposed",
+      "date": "2026-10-09",
+      "pillar": "P3",
+      "amendments": 0
     }
   ]
 }

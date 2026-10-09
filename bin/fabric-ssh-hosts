@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# bin/fabric-ssh-hosts — the hosts' pinned ssh host keys (agent-fabric ADR-048).
+#
+#   fabric-ssh-hosts known-hosts     known_hosts lines, from the registry only
+#   fabric-ssh-hosts check <host>    the pin against this host's own keys
+#
+# The full account is in tools/fabric/ssh_hosts.py.
+set -uo pipefail
+ROOT="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
+export AGENT_FABRIC_ROOT="${AGENT_FABRIC_ROOT:-$ROOT}"
+# The fleet's pinned Python (runtime/python.json, ADR-040), one per host;
+# AGENT_FABRIC_PYTHON points elsewhere for a test or a host without it.
+py="${AGENT_FABRIC_PYTHON:-/usr/local/bin/fabric-python}"
+[[ -x "$py" ]] || { echo "fabric-ssh-hosts: the fleet's pinned Python is not installed at $py; as root: /usr/bin/python3 <agent-fabric>/tools/fabric/python_pin.py install" >&2; exit 127; }
+exec "$py" "$ROOT/tools/fabric/ssh_hosts.py" "$@"

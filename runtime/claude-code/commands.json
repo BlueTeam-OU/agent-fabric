@@ -32,7 +32,8 @@
     "fabric-query": "bin/fabric-query",
     "fabric-fleet": "bin/fabric-fleet",
     "fabric-plan": "bin/fabric-plan",
-    "fabric-repo-settings": "bin/fabric-repo-settings"
+    "fabric-repo-settings": "bin/fabric-repo-settings",
+    "fabric-ssh-hosts": "bin/fabric-ssh-hosts"
   },
   "replaces": {
     "_comment": "A command's earlier target, which bootstrap recognises as a link it made and moves to the current one; without it an account keeps the old link, the allow rule is withheld (user-settings.py) and every use asks. The GZCoord commands were Node shims until their Python entry points.",
