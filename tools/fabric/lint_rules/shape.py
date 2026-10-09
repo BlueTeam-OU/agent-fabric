@@ -7,7 +7,7 @@ import os
 import re
 from typing import Any
 
-from .base import _git, _tracked
+from .base import _git, _tracked, roots
 from .schema import load_schema, validate_json
 
 
@@ -35,7 +35,7 @@ def bash_size_findings(root: str, base_ref: str = "origin/main") -> list[str]:
     have is an addition, and the list only shrinks. Without a readable
     base (a fresh clone, the commit that adds the list) additions are not
     judged."""
-    listed_path = os.path.join(root, "policies", "bash-allowlist.json")
+    listed_path = roots.policy("bash-allowlist.json", root=root)
     try:
         listed = (json.load(open(listed_path, encoding="utf-8")).get("scripts") or {})
     except FileNotFoundError:
@@ -84,7 +84,7 @@ def host_registry_findings(root: str) -> list[str]:
     placement names a known host. Placement is where an account is, never
     who it is — the schema forbids anything else in a host entry."""
     findings: list[str] = []
-    path = os.path.join(root, "runtime", "hosts", "registry.json")
+    path = roots.hosts_registry(root=root, environ={})
     if not os.path.exists(path):
         return findings
     where = "runtime/hosts/registry.json"
@@ -136,7 +136,7 @@ def candidate_role_findings(root: str, catalog: dict[str, Any] | None,
     candidate; the flag must go in the same change that made it true."""
     if not catalog:
         return []
-    path = os.path.join(root, "runtime", "hosts", "registry.json")
+    path = roots.hosts_registry(root=root, environ={})
     try:
         placement = (json.load(open(path, encoding="utf-8")).get("placement") or {})
     except (OSError, ValueError):

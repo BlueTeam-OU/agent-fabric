@@ -498,7 +498,7 @@ def main() -> int:
     taxonomy_roles: dict[str, set[str]] = {}   # project id -> the roles its taxonomy binds
     registry_ids: list[str] = []
     try:
-        registry_ids = sorted((json.load(open(os.path.join(projects_root, "registry.json"), encoding="utf-8"))
+        registry_ids = sorted((json.load(open(roots.projects_registry(engine=root), encoding="utf-8"))
                                .get("projects") or {}).keys())
     except (OSError, ValueError):
         pass

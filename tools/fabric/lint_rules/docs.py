@@ -12,7 +12,7 @@ import subprocess
 import sys
 from typing import Any
 
-from .base import FRONTMATTER_RE, PAYLOAD_DIRS, layout
+from .base import FRONTMATTER_RE, PAYLOAD_DIRS, layout, roots
 
 
 # The generic patterns plus every visible project's own list (its working
@@ -82,7 +82,7 @@ def doc_path_findings(root: str | None = None) -> list[str]:
         files = subprocess.run(["git", "-C", root, "ls-files"], capture_output=True, text=True, check=True).stdout.split()
     except (OSError, subprocess.CalledProcessError):
         return []
-    adr_dir = os.path.join(root, "docs", "adr")
+    adr_dir = roots.adr_dir(root=root)
     numbers = {f[4:7] for f in os.listdir(adr_dir) if f.startswith("ADR-") and f[4:7].isdigit()} if os.path.isdir(adr_dir) else set()
     out: list[str] = []
     for rel in files:
@@ -127,7 +127,7 @@ def harness_source_findings(root: str | None = None) -> list[str]:
         if not meta.get(key):
             out.append(f"{HARNESS_SOURCE}: no `{key}` — the build it was captured from, when, and the live check that shows it")
     source = str(meta.get("source") or "")
-    if source and (not source.startswith("docs/live-checks/") or not os.path.isfile(os.path.join(root, source))):
+    if source and (not source.startswith("docs/live-checks/") or not os.path.isfile(os.path.join(roots.live_checks_dir(root=root), source[len("docs/live-checks/"):]))):
         out.append(f"{HARNESS_SOURCE}: source {source!r} is not an existing docs/live-checks/ note")
     body = FRONTMATTER_RE.sub("", text)
     n = body.count(HARNESS_PLACEHOLDER)
@@ -327,12 +327,12 @@ def project_tools_findings(root: str) -> list[str]:
     import shlex
     out: list[str] = []
     try:
-        projects = (json.load(open(os.path.join(root, "projects", "registry.json"), encoding="utf-8"))
+        projects = (json.load(open(roots.projects_registry(root=root), encoding="utf-8"))
                     .get("projects") or {})
     except (OSError, ValueError):
         return out
     try:
-        roles = {r["id"] for r in json.load(open(os.path.join(root, "identities", "roles", "catalog.json"),
+        roles = {r["id"] for r in json.load(open(roots.role_catalog(root=root),
                                                  encoding="utf-8"))["roles"]}
     except (OSError, ValueError, KeyError, TypeError):
         roles = None
@@ -404,7 +404,7 @@ def license_findings(root: str) -> list[str]:
     project with no stated license cannot be reasoned about) but binds
     nothing here. A project's knowledge never lives here at all."""
     findings: list[str] = []
-    reg_path = os.path.join(root, "projects", "registry.json")
+    reg_path = roots.projects_registry(root=root)
     reuse_path = os.path.join(root, "REUSE.toml")
     if not os.path.exists(reg_path):
         return findings
@@ -416,7 +416,7 @@ def license_findings(root: str) -> list[str]:
         lic = entry.get("license")
         if not isinstance(lic, str) or not lic:
             findings.append(f"projects/registry.json: project {pid!r} names no license")
-        if os.path.isdir(os.path.join(root, "memory", "projects", pid)):
+        if os.path.isdir(roots.memory_dir("projects", pid, root=root)):
             findings.append(f"memory/projects/{pid}/: a project's knowledge lives in the project's repository "
                             "(<working copy>/.agent-fabric/memory/), not here")
     if not os.path.exists(reuse_path):
@@ -495,12 +495,11 @@ def agent_source_findings(root: str) -> list[str]:
         if name.endswith(".md"):
             sources.append((os.path.join("runtime", "claude-code", "agents", name),
                             os.path.join(agents, name)))
-    locales = os.path.join(root, "identities", "roles", "language-culture", "locale")
+    locales = os.path.join(roots.role_dir("language-culture", root=root), "locale")
     for suffix in sorted(os.listdir(locales)) if os.path.isdir(locales) else []:
-        worker = os.path.join(locales, suffix, "worker.md")
+        worker = os.path.join(roots.locale_dir("language-culture", suffix, root=root), "worker.md")
         if os.path.isfile(worker):
-            sources.append((os.path.join("identities", "roles", "language-culture",
-                                         "locale", suffix, "worker.md"), worker))
+            sources.append((f"identities/roles/language-culture/locale/{suffix}/worker.md", worker))
     for rel, path in sources:
         try:
             text = open(path, encoding="utf-8").read()
@@ -558,7 +557,7 @@ SKILL_CUE_RE = re.compile(r"\b(when|before|whenever)\b", re.I)
 def skill_findings(root: str) -> list[str]:
     findings: list[str] = []
     try:
-        placement = (json.load(open(os.path.join(root, "runtime", "hosts", "registry.json"),
+        placement = (json.load(open(roots.hosts_registry(root=root, environ={}),
                                     encoding="utf-8")).get("placement") or {})
     except (OSError, ValueError):
         placement = {}
@@ -602,7 +601,7 @@ def project_name_findings(root: str) -> list[str]:
     are tests, READMEs and history."""
     findings: list[str] = []
     try:
-        ids = sorted((json.load(open(os.path.join(root, "projects", "registry.json"), encoding="utf-8")).get("projects") or {}).keys())
+        ids = sorted((json.load(open(roots.projects_registry(root=root), encoding="utf-8")).get("projects") or {}).keys())
     except (OSError, ValueError):
         return findings
     ids = [i for i in ids if i != layout.FABRIC_PROJECT_ID]
@@ -701,7 +700,7 @@ def key_lineage_findings(root: str) -> list[str]:
     the standard library alone, fenced from contributors, so that no
     contributor change makes this answer clean (review of #106). No keys
     committed yet is clean; a host without gpg is said, not passed silently."""
-    if not os.path.isdir(os.path.join(root, "identities", "keys")):
+    if not os.path.isdir(roots.keys_dir(root=root)):
         return []
     if not shutil.which("gpg"):
         return ["identities/keys/: gpg is not installed here, so no key's lineage could be checked"]
