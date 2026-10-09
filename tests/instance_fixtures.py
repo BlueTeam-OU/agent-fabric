@@ -55,10 +55,13 @@ HOSTS_REGISTRY = {"version": 1, "hosts": {}, "placement": {"fixture-login": "fix
 def own_instance_tree() -> None:
     """A test builds the fabric tree it runs a tool on, and that tree holds the
     instance data (ADR-045 rule 3): an AGENT_FABRIC_OPERATOR the runner exports
-    outranks the engine tree the tool is handed (tools/fabric/roots.py), so the
-    tool would read the operator's data, not the fixture's. The suite passes with
-    it unset and set because each such test starts without it; a case that means
-    an operator sets it itself (tests/test_roots_seam.py `operator`)."""
+    outranks the engine tree the tool is handed (tools/fabric/roots.py: AGENT_FABRIC_ROOT,
+    --fabric, --root), so the tool would read, and write, the operator's data, not the
+    fixture's. A suite that hands a tool such a tree starts without it
+    (tests/test_own_instance_tree.py finds them by scan); a case that means an
+    operator sets it itself (tests/test_roots_seam.py `operator`). The cases that
+    read the operator's own data on purpose (test_hosts_registry's committed key,
+    test_workingcopy's registry) need a real operator tree when one is exported."""
     os.environ.pop("AGENT_FABRIC_OPERATOR", None)
 
 

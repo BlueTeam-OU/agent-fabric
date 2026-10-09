@@ -3,8 +3,8 @@
 instance data (agent-fabric ADR-045 rule 3): it starts without the runner's
 AGENT_FABRIC_OPERATOR, which would outrank the tree the tool is handed
 (tools/fabric/roots.py) and make the tool read the operator's data instead of
-the fixture's. A suite that names AGENT_FABRIC_ROOT builds or points at such a
-tree, so each one either calls own_instance_tree() as a module-level statement
+the fixture's. A suite that names AGENT_FABRIC_ROOT, hands a tool a tree as
+--fabric or --root, or is named in EXTRA builds or points at such a tree, so each one either calls own_instance_tree() as a module-level statement
 before any definition runs, or names AGENT_FABRIC_OPERATOR itself (it sets or
 clears it for the cases that mean one). The rule is discovered, not listed: a
 suite added tomorrow that names AGENT_FABRIC_ROOT is held to it. Running every
@@ -26,9 +26,12 @@ from instance_fixtures import own_instance_tree  # noqa: E402
 
 def starts_without_operator(src: str) -> bool:
     """own_instance_tree() is a statement of the module itself (not of a function or an
-    `if __name__` block) and comes before the first function, class or guard."""
+    `if __name__` block) and comes before the first function, class or entry guard."""
     for node in ast.parse(src).body:
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.If)):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            return False
+        # The entry guard ends the module's setup; an `if` before it (a missing-file exit) is setup.
+        if isinstance(node, ast.If) and any(isinstance(n, ast.Name) and n.id == "__name__" for n in ast.walk(node.test)):
             return False
         if (isinstance(node, ast.Expr) and isinstance(node.value, ast.Call)
                 and isinstance(node.value.func, ast.Name) and node.value.func.id == "own_instance_tree"):
@@ -40,6 +43,15 @@ def starts_without_operator(src: str) -> bool:
 # fabric-coordinator's): they set AGENT_FABRIC_ROOT to a tree they build, and are
 # left to the owner of those guards to start without the operator.
 NOT_PYTHON_DEVS = ("test_agent_fabric_dir_authority.py", "test_charter_authority.py", "test_contributors.py")
+
+
+# Suites that build a tree they run a tool on without naming AGENT_FABRIC_ROOT or handing
+# it over as --fabric/--root: each says how.
+EXTRA = {
+    "test_assemble.py": "builds a fabric under a temporary directory and runs assemble.py and lint.py on it",
+    "test_assemble_seams.py": "the same, through test_assemble's helpers",
+    "test_fleet.py": "builds placements and registries under a temporary directory for fleet.py",
+}
 
 
 def main() -> int:
@@ -75,7 +87,9 @@ def main() -> int:
     for path in sorted(glob.glob(os.path.join(HERE, "test_*.py"))):
         with open(path, encoding="utf-8") as fh:
             src = fh.read()
-        if "AGENT_FABRIC_ROOT" not in src or "AGENT_FABRIC_OPERATOR" in src or os.path.basename(path) in NOT_PYTHON_DEVS:
+        name = os.path.basename(path)
+        hands_a_tree = "AGENT_FABRIC_ROOT" in src or '"--fabric"' in src or '"--root"' in src or name in EXTRA
+        if not hands_a_tree or "AGENT_FABRIC_OPERATOR" in src or name in NOT_PYTHON_DEVS:
             continue
         held += 1
         check(f"{os.path.basename(path)} starts without the runner's operator", starts_without_operator(src),
