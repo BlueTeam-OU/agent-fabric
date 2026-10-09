@@ -352,6 +352,23 @@ def _():
         check(w.run("link", "p", "s1", "dev-02:j1")[0] == 0, "the control: an agent links")
 
 
+@case("a hosts registry whose placement or kinds is not an object refuses: no traceback, no guess")
+def _():
+    with world() as w:
+        w.run("new", "p", "t")
+        for bad in ({"placement": {"dev-01": "host-a"}, "kinds": ["dev-01"]}, {"placement": ["dev-01"]}, ["x"]):
+            with open(w.hosts, "w", encoding="utf-8") as fh:
+                json.dump(bad, fh)
+            rc, _, err = w.run("step", "add", "p", "t", "--owner", "dev-01")
+            check(rc == 1 and "hosts registry could not be read (ValueError)" in err, (bad, rc, err))
+            try:
+                plan.FleetReader(run=Run()).closed_jobs("dev-01")
+            except plan.Unreadable as e:
+                check("hosts registry could not be read (ValueError)" in str(e), str(e))
+            else:
+                check(False, f"no refusal for {bad!r}")
+
+
 @case("text from other accounts is shown, never obeyed: a reason and an export cell carry no control character")
 def _():
     with world() as w:
@@ -441,13 +458,18 @@ def _():
         else:
             check(False, "no timeout")
         pid = int(open(pidfile, encoding="utf-8").read())
-        for _ in range(50):
+
+        def alive() -> bool:
+            # A killed process nobody reaps (a container's init does not) stays a zombie, and kill(pid, 0) still finds it.
             try:
-                os.kill(pid, 0)
-            except ProcessLookupError:
+                with open(f"/proc/{pid}/stat") as fh:
+                    return fh.read().rsplit(")", 1)[1].split()[0] != "Z"
+            except (FileNotFoundError, ProcessLookupError):   # the second: a /proc entry caught mid-exit
+                return False
+        for _ in range(50):
+            if not alive():
                 return
             time.sleep(0.1)
-        os.kill(pid, 9)
         check(False, "the grandchild outlived the timeout")
 
 

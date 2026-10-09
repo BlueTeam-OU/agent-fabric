@@ -96,7 +96,7 @@ def bounded_run(argv: list[str], *, timeout: float) -> subprocess.CompletedProce
 def hosts_registry() -> dict:
     with open(roots.hosts_registry(), encoding="utf-8") as fh:
         reg = json.load(fh)
-    if not isinstance(reg, dict):
+    if not isinstance(reg, dict) or any(k in reg and not isinstance(reg[k], dict) for k in ("placement", "kinds")):
         raise ValueError("not a registry")
     return reg
 
