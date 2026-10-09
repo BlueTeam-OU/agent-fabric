@@ -4,7 +4,7 @@
 **Status:** Accepted
 **Ratified:** owner, 2026-09-27, by arming agent-fabric #52 (ratification by merge, the owner's rule of 2026-09-27)
 **Decision Makers:** the owner; drafted by fabric-coordinator
-**Scope:** identities/prompt/team.md (the PR rules every session reads); fabric-pr gate, runtime/github/commit-class.sh, fabric-pr review-status; tools/fabric/guards/ban_generated_by_attribution.py and policies/githooks/commit-msg; .github/workflows/ci.yml; tools/fabric/github-repo-settings.sh and the GitHub-side settings of gzapi-org/agent-fabric
+**Scope:** identities/prompt/team.md (the PR rules every session reads); fabric-pr gate, runtime/github/commit-class.sh, fabric-pr review-status; tools/fabric/guards/ban_generated_by_attribution.py and policies/githooks/commit-msg; .github/workflows/ci.yml; `fabric-repo-settings` and the GitHub-side settings of gzapi-org/agent-fabric
 **Pillar:** P3
 
 ## 1. Context and Problem
@@ -51,7 +51,7 @@ arming follows a `MERGEABLE` verdict and nothing else.
 a commit message or a PR description.
 
 **The repository's GitHub settings are recorded here**, since they live
-outside git, and `tools/fabric/github-repo-settings.sh` reapplies the
+outside git, and `fabric-repo-settings` reapplies the
 part it covers.
 
 ## 3. Alternatives Considered
@@ -155,7 +155,7 @@ not on a pipe's exit status.
    `tools/fabric/guards/ban_generated_by_attribution.py` checks every commit a branch
    adds and the PR description in CI and in `tests/run.sh`.
 8. agent-fabric's GitHub settings are the table in §6. A change to them
-   is a change to this record, and `tools/fabric/github-repo-settings.sh`
+   is a change to this record, and `fabric-repo-settings`
    is changed with it.
 
 ## 6. Consequences
@@ -182,7 +182,7 @@ not on a pipe's exit status.
 
   Everything the fabric's own CI runs is in the tree (`.github/workflows/ci.yml`,
   `tests/run.sh`, `policies/`); CodeQL's default setup and secret scanning
-  are the GitHub-side exceptions, and `github-repo-settings.sh` sets
+  are the GitHub-side exceptions, and `fabric-repo-settings` sets
   neither. The check names a PR reports are per matrix leg —
   `guards-and-suites (python, 3.13, 20)` and its siblings, `static`,
   `platform-smoke (…)`, cut by GitHub past a length — so the ruleset
@@ -199,7 +199,7 @@ not on a pipe's exit status.
   directly and gave the description ending "GZCoord" and a required-check
   context `ci / guards-and-suites`; the first no longer holds (§1), the
   second was changed on GitHub, the third is not a name GitHub reports.
-  `github-repo-settings.sh` now writes the live description.
+  `fabric-repo-settings` now writes the live description.
 
 ## 8. Decision Status
 
@@ -214,7 +214,7 @@ stub pointing here.
 - `fabric-pr gate`, `runtime/github/commit-class.sh`,
   `fabric-pr review-status`, and their tests.
 - `policies/ban_generated_by_attribution.sh`, `policies/githooks/commit-msg`.
-- `tools/fabric/github-repo-settings.sh`, `.github/workflows/ci.yml`.
+- `fabric-repo-settings`, `.github/workflows/ci.yml`.
 - `.agent-fabric/memory/fabric-coordinator/workflow/pr-band-accumulate.md`,
   `.agent-fabric/memory/fabric-coordinator/workflow/check-exit-status-not-pipe.md`.
 - ADR-000 (P3), ADR-001 (ratification by merge), ADR-008 (attribution in
