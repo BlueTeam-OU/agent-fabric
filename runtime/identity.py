@@ -208,7 +208,7 @@ def read_binding(agent: str | None = None) -> Binding | dict:
     host = current_host()
     if data.get("host") not in (None, host):
         raise SystemExit(f"identity: {path} was written on host {data.get('host')!r}, but this is {host!r}: "
-                         "the state directory is shared between hosts. Bind here (bin/fabric-role bind <role>) "
+                         "the state directory is shared between hosts. Bind here (fabric-role bind <role>) "
                          "rather than trust another machine's binding.")
     return data
 

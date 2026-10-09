@@ -246,7 +246,7 @@ def main(argv: list[str] | None = None) -> int:
     role = binding.get("role")
     if not role:
         print(f"launch_prompt: agent {agent!r} has no active role binding; "
-              "bind one first (bin/fabric-role bind <role>).", file=sys.stderr)
+              "bind one first (fabric-role bind <role>).", file=sys.stderr)
         return 1
     if args.print:
         text, replace = build_launch(agent, host, role)

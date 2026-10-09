@@ -259,7 +259,7 @@ def test_a_binding_from_another_host_is_refused(tmp: str) -> None:
         try:
             identity.read_binding()
         except SystemExit as exc:
-            assert "written on host 'another-machine'" in str(exc.code) and "bin/fabric-role bind" in str(exc.code), exc.code
+            assert "written on host 'another-machine'" in str(exc.code) and "(fabric-role bind" in str(exc.code) and "bin/fabric-role" not in str(exc.code), exc.code
         else:
             raise AssertionError("a binding from another host was accepted")
     finally:

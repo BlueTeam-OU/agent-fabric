@@ -9,7 +9,7 @@ Writes, idempotently, and only machine-local files:
   <projects>/CLAUDE.md               3 lines; imports agent-fabric/CLAUDE.md
   <projects>/.claude/settings.json   hooks + status line pointing at agent-fabric
   (removes ~/.claude/commands/role.md if an earlier bootstrap installed it:
-   /role is retired — a role is bound from the shell, bin/fabric-role)
+   /role is retired — a role is bound from the shell, fabric-role)
   ~/.claude/agents/{code-*,code-review}.md
                                      the capability-class agent files, from runtime/claude-code/agents/,
                                      via install_agent_files.py (the review pin, merged for this login)
@@ -518,7 +518,7 @@ class Bootstrap:
 
     def retire_role_command(self) -> None:
         # 3. The /role command is retired (owner, 2026-09-15): a role is bound from
-        #    a login shell with bin/fabric-role and reaches the session in its
+        #    a login shell with fabric-role and reaches the session in its
         #    system prompt at launch; nothing inside a session changes it. An
         #    earlier bootstrap installed ~/.claude/commands/role.md — remove OUR
         #    copy (it names agent-fabric, the test put() uses), never a file the
@@ -527,7 +527,7 @@ class Bootstrap:
         if not (os.path.isfile(retired) and marked(retired)):
             return
         if self.dry_run:
-            say(f"  -  {retired} (would remove: /role is retired, use bin/fabric-role)")
+            say(f"  -  {retired} (would remove: /role is retired, use fabric-role)")
             return
         try:
             os.remove(retired)
@@ -536,7 +536,7 @@ class Bootstrap:
         except OSError as e:
             raise Stop(1, f"bootstrap: rm: cannot remove {retired}: {e.strerror or e}") from None
         self.changed += 1
-        say(f"  -  {retired} (removed: /role is retired, use bin/fabric-role)")
+        say(f"  -  {retired} (removed: /role is retired, use fabric-role)")
 
     def agent_files(self) -> None:
         # The capability-class agent files, with the review pin applied for this
