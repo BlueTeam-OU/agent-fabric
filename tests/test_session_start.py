@@ -411,6 +411,14 @@ def test_bootstrap_writes_only_the_workspace_and_home_files(tmp: str) -> None:
     # The operator's auto-mode policy, which the account's settings are built from:
     # a fixture, never the checkout's (absent from one without its instance data).
     env["AGENT_FABRIC_OPERATOR"] = write_operator_policy(tmp)
+    # autoMode is written only when the harness says its defaults (`claude auto-mode defaults`): a stand-in
+    # that does, so the case holds on a runner with no Claude Code as on an account that has one.
+    fake_claude = os.path.join(tmp, "claude")
+    with open(fake_claude, "w", encoding="utf-8") as fh:
+        fh.write("#!/bin/sh\n[ \"$1 $2\" = 'auto-mode defaults' ] || exit 3\n"
+                 "echo '{\"environment\": [\"**Organization**: None configured\"], \"allow\": [], \"soft_deny\": [], \"hard_deny\": []}'\n")
+    os.chmod(fake_claude, 0o755)
+    env["AGENT_FABRIC_CLAUDE"] = fake_claude
     # bootstrap.py reads the registry from the fabric it runs in (the scratch copy), not the operator.
     write_registry(os.path.join(root, "projects"), {"projects": {"fixture-proj": {
         "remotes": ["git@example.org:fixture-org/fixture-proj.git"]}}})
