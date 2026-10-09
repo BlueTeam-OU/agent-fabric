@@ -97,11 +97,14 @@ def main() -> int:
           js.json_parse("9007199254740993") == 9007199254740992.0 and isinstance(js.json_parse("9007199254740993"), float)
           and js.json_parse("1" + "0" * 400) == math.inf and js.json_parse("9007199254740992") == 2**53
           and isinstance(js.json_parse("9007199254740992"), int))
-    deep = "[" * 60000 + "]" * 60000
+    deep = "[" * 300000 + "]" * 300000
     read_by_node = node("try { JSON.parse(input); return true; } catch { return false; }", deep)
-    # Where Python's reader stops is its stack's size, which a runner sets
-    # (an unlimited one reads a million levels): measured on 8 MiB, the
-    # default, in a child whose limit is set before it starts.
+    # 3.13 stops near 10,000 levels on 1.5 MiB of stack or more; 3.14 stops
+    # where its stack ends, which a runner sets (an unlimited one reads it
+    # all): js.py's contract has the measurements.
+    # So: 8 MiB, the default, in a child whose limit is set before it
+    # starts, and a depth far past 3.14's ~52,000 there, whatever a build's
+    # frame size.
     import resource
     soft, hard = resource.getrlimit(resource.RLIMIT_STACK)
     eight = 8 << 20 if hard == resource.RLIM_INFINITY else min(8 << 20, hard)
@@ -109,7 +112,7 @@ def main() -> int:
                         "try:\n    js.json_parse(sys.stdin.read()); print('read')\nexcept ValueError:\n    print('ValueError')",
                         os.path.join(HERE, "tools", "fabric")], input=deep, capture_output=True, text=True, timeout=120,
                        preexec_fn=lambda: resource.setrlimit(resource.RLIMIT_STACK, (eight, hard)))
-    check("the named gap: JSON 60,000 deep is read by Node, and on an 8 MiB stack refused here as a ValueError, never a RecursionError",
+    check("the named gap: JSON 300,000 deep is read by Node, and on an 8 MiB stack refused here as a ValueError, never a RecursionError",
           read_by_node is True and r.returncode == 0 and r.stdout.strip() == "ValueError", (read_by_node, r.returncode, r.stdout, r.stderr[-300:]))
 
     pairs = [["k", v] for v in ["fabric:control", "a b", "~*-._!'()", "\u00e9\U0001F600", "a&b=c", "%", "+", "\u2028", ""]]
