@@ -13,7 +13,14 @@ Python control plane must judge a request exactly as the Node one does
   keys(d)          Object.keys(d): integer-index keys first, ascending
   truthy(v)        what `if (v)` takes
   json_parse(s)    JSON.parse(s): no NaN or Infinity, which Python's
-                   json.loads takes
+                   json.loads takes; too deep a value is a ValueError
+                   too, never a RecursionError past a caller's catch
+  stringify(v)     JSON.stringify(v): compact, a lone surrogate escaped
+                   (json.dumps(ensure_ascii=False) writes it raw, and it
+                   cannot be encoded), NaN and the infinities as null,
+                   UNDEFINED dropped from an object
+  UNDEFINED        a missing property, as JavaScript reads one; string()
+                   writes it "undefined", truthy() is False
   search_params(pairs)  new URLSearchParams(pairs).toString():
                    form-encoded, `~` encoded and `*` not, unlike urlencode
   iso_now()        new Date().toISOString(): milliseconds, then Z
@@ -55,6 +62,8 @@ def slice(s: str, n: int) -> str:  # noqa: A001 — JavaScript's name, on purpos
 
 def string(v) -> str:
     from control.sign import js_number   # sign imports nothing of this module's
+    if v is UNDEFINED:
+        return "undefined"
     if v is None:
         return "null"
     if v is True:
@@ -98,11 +107,24 @@ def keys(d: dict) -> list[str]:
 
 
 def truthy(v) -> bool:
-    if v is None or v is False or v == "":
+    if v is None or v is UNDEFINED or v is False or v == "":
         return False
     if isinstance(v, (int, float)) and not isinstance(v, bool):
         return v != 0 and not math.isnan(v)
     return True
+
+
+class _Undefined:
+    __slots__ = ()
+
+    def __repr__(self) -> str:
+        return "undefined"
+
+    def __bool__(self) -> bool:
+        return False
+
+
+UNDEFINED = _Undefined()
 
 
 def _no_constant(name: str):
@@ -110,7 +132,49 @@ def _no_constant(name: str):
 
 
 def json_parse(s: str):
-    return json.loads(s, parse_constant=_no_constant)
+    try:
+        return json.loads(s, parse_constant=_no_constant)
+    except RecursionError:
+        raise ValueError("nested too deep to read") from None
+
+
+def stringify(value) -> str:
+    from control.sign import js_number, js_string
+    out: list[str] = []
+    todo: list = [("value", value)]
+    while todo:
+        what, item = todo.pop()
+        if what == "text":
+            out.append(item)
+            continue
+        if isinstance(item, list):
+            todo.append(("text", "]"))
+            for i in range(len(item) - 1, -1, -1):
+                v = item[i]
+                todo.append(("value", None if v is UNDEFINED else v))
+                if i:
+                    todo.append(("text", ","))
+            todo.append(("text", "["))
+        elif isinstance(item, dict):
+            ks = [k for k in keys(item) if item[k] is not UNDEFINED]
+            todo.append(("text", "}"))
+            for i in range(len(ks) - 1, -1, -1):
+                todo.append(("value", item[ks[i]]))
+                todo.append(("text", js_string(ks[i]) + ":"))
+                if i:
+                    todo.append(("text", ","))
+            todo.append(("text", "{"))
+        elif item is None:
+            out.append("null")
+        elif item is True or item is False:
+            out.append("true" if item else "false")
+        elif isinstance(item, str):
+            out.append(js_string(item))
+        elif isinstance(item, (int, float)):
+            out.append(js_number(item))
+        else:
+            raise TypeError(f"stringify: {type(item).__name__} is not a JSON value")
+    return "".join(out)
 
 
 def search_params(pairs) -> str:

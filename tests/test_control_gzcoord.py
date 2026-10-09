@@ -235,6 +235,52 @@ def main() -> int:
         slow_relay.shutdown()
         slow_relay.server_close()
 
+    print("a connect and a TLS handshake are inside the bound too")
+    hole = _s.socket()
+    hole.bind(("127.0.0.1", 0))
+    hole.listen(0)
+    fillers = []
+    for _ in range(4):          # fill the accept queue: a SYN past it is dropped, and a connect hangs
+        c = _s.socket()
+        c.setblocking(False)
+        try:
+            c.connect(hole.getsockname())
+        except BlockingIOError:
+            pass
+        fillers.append(c)
+    time.sleep(0.2)
+    real_gai = _s.getaddrinfo
+    _s.getaddrinfo = lambda *a, **k: [(_s.AF_INET, _s.SOCK_STREAM, 6, "", hole.getsockname())] * 3
+    try:
+        t0 = time.monotonic()
+        try:
+            cg.api("tok", "/x", relay_url="http://three.invalid:1", timeout_s=0.5)
+            check("three addresses that never answer share one bound", False)
+        except cg.ApiError as e:
+            took = time.monotonic() - t0
+            check("three addresses that never answer share one bound, never three", e.timed_out is True and took < 0.9, took)
+    finally:
+        _s.getaddrinfo = real_gai
+        for c in fillers:
+            c.close()
+        hole.close()
+    mute = _s.socket()
+    mute.bind(("127.0.0.1", 0))
+    mute.listen(4)
+    held = []
+    threading.Thread(target=lambda: held.append(mute.accept()), daemon=True).start()
+    t0 = time.monotonic()
+    try:
+        cg.api("tok", "/x", relay_url=f"https://127.0.0.1:{mute.getsockname()[1]}", timeout_s=0.5)
+        check("a TLS handshake that is never answered ends at the bound", False)
+    except cg.ApiError as e:
+        took = time.monotonic() - t0
+        check("a TLS handshake that is never answered ends at the bound", e.timed_out is True and took < 0.9, (took, str(e)))
+    finally:
+        for conn_, _ in held:
+            conn_.close()
+        mute.close()
+
     print("gzcoord.test.mjs: relayFailure")
     check("no answer", cg.relay_failure(cg.ApiError("/api/send -> no answer within 30 s", timed_out=True), "http://r")
           == "the relay at http://r did not answer (no answer within 30 s)")

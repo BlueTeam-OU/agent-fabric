@@ -133,12 +133,13 @@ def main() -> int:
 
     print("...and as Node's checkAddressees answers, on the same inputs")
     answers = {"h/web-dev-01": on(), "h/web-dev-02": off(), "h/db-admin": {"status": "failed", "error": None, "role": "web-dev"},
-               "h/x": {"status": "ok", "online": 1, "planning": 0, "role": "web-dev"}}
+               "h/x": {"status": "ok", "online": 1, "planning": 0, "role": "web-dev"},
+               "h/nostatus": {"online": True}, "h/str": "x"}
     shapes = [{"TO": " h/web-dev-01 "}, {"TO": ""}, {"TO": "", "TO-ROLE": "web-dev"}, {"BROADCAST": "", "TO": "h/web-dev-02"},
               {"BROADCAST": 0, "TO-ROLE": " web-dev "}, {"TO": "h/db-admin"}, {"TO": "h/x"}, {"TO-ROLE": "db-admin"},
               {"TO": "h/web-dev-01", "TO-ROLE": "web-dev"}, {"BROADCAST": "false"}, {"TO-ROLE": ""}, {"TO": 0},
-              {"TO": "\ufeffh/web-dev-01\u3000"}, {"TO-ROLE": "\u2028web-dev"}]
-    placed = ["h/web-dev-01", "h/web-dev-02", "h/db-admin", "h/x"]
+              {"TO": "\ufeffh/web-dev-01\u3000"}, {"TO-ROLE": "\u2028web-dev"}, {"TO": "h/nostatus"}, {"TO": "h/str"}]
+    placed = ["h/web-dev-01", "h/web-dev-02", "h/db-admin", "h/x", "h/nostatus", "h/str"]
     import subprocess
     mjs = os.path.join(HERE, "runtime", "control", "presence.mjs")
     r = subprocess.run(["node", "--input-type=module", "-e",
@@ -177,6 +178,31 @@ def main() -> int:
         check(f"unreadable stdin {bad[:30]!r} is exit 2, the token never quoted", code == 2 and "SECRET-SHAPE" not in err and not out, (code, err))
     code, out, err = run(["check"], json.dumps({"metadata": [], "from": "a", "token": "t"}), cp.check_addressees)
     check("metadata that is an array passes, as typeof [] is 'object', and checks nothing", code == 0 and json.loads(out) == {"checked": False}, out)
+
+    out_bytes = io.BytesIO()
+    utf8 = io.TextIOWrapper(out_bytes, encoding="utf-8")
+    lone = {"checked": True, "problems": [{"kind": "offline", "address": "h/a", "presence": {"status": "ok", "online": False, "note": "\ud800"}}]}
+    code = cp.cli(["check"], io.StringIO(ok_req), ask=lambda *a, **k: lone, agentd=agentd, out=utf8, err=io.StringIO())
+    utf8.flush()
+    check("a reply holding a lone surrogate is printed as JSON.stringify writes it, exit 4, never an encoding error",
+          code == 4 and out_bytes.getvalue() == b'{"checked":true,"problems":[{"kind":"offline","address":"h/a","presence":{"status":"ok","online":false,"note":"\\ud800"}}]}\n',
+          (code, out_bytes.getvalue()))
+    code, out, err = run(["check"], "[" * 100000, lambda *a, **k: {"checked": False})
+    check("stdin nested past any reader is exit 2, as unreadable", code == 2 and not out, (code, err))
+
+    def deep_call(path, method="GET", body=None):
+        if method == "POST":
+            return {"id": "s"}
+        return {"messages": [{"id": "d", "content": "[" * 100000},
+                             {"id": "ok", "content": json.dumps({"kind": "reply", "in_reply_to": "q-3", "from": "h/a", "data": {"presence": on()}})}]}
+    got = cp.ask_presence(from_="h/u", to=["h/a"], expect=["h/a"], wait_ms=100, cfg={"relay_url": "x", "channel": "c", "ttl_s": 30},
+                          call=deep_call, new_id=lambda: "q-3", sleep=lambda s: None)
+    check("a record nested past any reader is skipped, as Node's catch skips it; the rest counts", got == {"h/a": on()}, got)
+    sent = []
+    cp.ask_presence(from_="h/u", to=["h/a"], expect=[], wait_ms=float("inf"), cfg={"relay_url": "x", "channel": "c", "ttl_s": 30},
+                    call=lambda path, method="GET", body=None: sent.append(body) or {"id": "s"}, new_id=lambda: "q", sleep=lambda s: None)
+    check("an infinite wait gives ttl_s null, as JSON.stringify writes Infinity, never an overflow",
+          sent and '"ttl_s":null' in json.loads(sent[0])["content"], sent)
 
     class Refused(Exception):
         status = 401

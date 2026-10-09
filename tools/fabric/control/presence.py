@@ -39,7 +39,6 @@ only, a template's value as String() writes it.
 """
 from __future__ import annotations
 
-import json
 import math
 import os
 import sys
@@ -55,17 +54,16 @@ _env_wait = js.number(os.environ["GZCOORD_PRESENCE_WAIT_MS"]) if "GZCOORD_PRESEN
 PRESENCE_WAIT_MS = _env_wait if _env_wait > 0 else 6000
 POLL_S = 0.4
 
-_UNDEFINED = object()   # JavaScript's undefined: what a missing property reads as
-
-
 def prop(value, key):
     """value[key] as JavaScript reads it on parsed JSON: an object's own
-    key, else undefined (None for a caller that needs no difference)."""
-    return value.get(key) if isinstance(value, dict) else None
+    key, else js.UNDEFINED, which String() writes "undefined"."""
+    return value[key] if isinstance(value, dict) and key in value else js.UNDEFINED
 
 
 def _compact(value) -> str:
-    return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+    # JSON.stringify's text: a lone surrogate in a reply is escaped, never
+    # an encoding error on the way out (review of c8928b34, F1).
+    return js.stringify(value)
 
 
 def ask_presence(*, from_: str, to, expect: list, token: str | None = None, wait_ms: float = PRESENCE_WAIT_MS,
@@ -77,7 +75,7 @@ def ask_presence(*, from_: str, to, expect: list, token: str | None = None, wait
     c = call or default_call
     rid = new_id()
     request = {"v": 1, "kind": "request", "id": rid, "from": from_, "to": to, "op": "presence", "ts": js.iso_now(),
-               "ttl_s": max(cfg["ttl_s"], math.ceil(wait_ms / 1000))}
+               "ttl_s": max(cfg["ttl_s"], math.ceil(wait_ms / 1000) if math.isfinite(wait_ms) else math.inf)}
     sent = c("/api/send", method="POST",
              body=_compact({"channel": cfg["channel"], "sender": from_, "content": _compact(request)}))
     out = {a: None for a in expect}
@@ -129,7 +127,7 @@ def check_addressees(metadata, *, from_: str, token: str | None, placed: list, o
         if prop(p, "status") != "ok":
             err = prop(p, "error")
             return {"checked": True, "problems": [{"kind": "unavailable",
-                                                   "detail": f"{a}: {js.string(prop(p, 'status') if err is None else err)}"}]}
+                                                   "detail": f"{a}: {js.string(prop(p, 'status') if err in (None, js.UNDEFINED) else err)}"}]}
         # Planning is said, never a refusal: the message waits in the relay
         # for the approved plan, which is what it would do anyway.
         online = js.truthy(prop(p, "online"))

@@ -50,8 +50,10 @@ import math
 import os
 import shlex
 import socket
+import ssl
 import sys
 import threading
+import time
 import urllib.parse
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
@@ -121,23 +123,71 @@ def api(tok: str, path_and_query: str, relay_url: str | None = None, method: str
     conn_class = http.client.HTTPSConnection if u.scheme == "https" else http.client.HTTPConnection
     conn = conn_class(u.hostname, u.port, timeout=max(0.001, bound))
     fired = threading.Event()
-    # Held by cut() and by the check after connect: either the deadline
-    # finds the socket, or the call finds the deadline already passed —
-    # never a socket that comes into being after cut() looked for one
-    # (re-review of 37b23c5c..5ca0b96e, F1).
+    # Held by cut() and by use(): either the deadline finds the socket, or
+    # the call finds the deadline already passed — never a socket that
+    # comes into being after cut() looked (re-review of 37b23c5c..5ca0b96e, F1).
     lock = threading.Lock()
 
+    live: list = []      # the socket in use now, a TCP one or its TLS one: what cut() shuts
+
     def cut():
-        # The deadline, whatever phase the call is in: a read blocked on a
-        # relay that trickles returns once the socket is shut.
+        # The deadline, whatever phase the call is in: a connect, a TLS
+        # handshake or a read blocked on a relay that trickles returns once
+        # its socket is shut.
         with lock:
             fired.set()
-            sock = conn.sock
-            if sock is not None:
+            for sock in live:
                 try:
                     sock.shutdown(socket.SHUT_RDWR)
                 except OSError:
                     pass
+
+    def remaining() -> float:
+        left = deadline - time.monotonic()
+        if left <= 0:
+            raise late
+        return left
+
+    def use(sock) -> None:
+        with lock:
+            if fired.is_set():
+                sock.close()
+                raise late
+            live[:] = [sock]
+
+    def connect() -> None:
+        # Not create_connection: its socket is its own until it returns, so
+        # cut() could not reach it, and each address it tries gets the whole
+        # bound (three unreachable ones, three bounds; re-review of
+        # b1378227..2abf77c4). Each attempt here gets what is left.
+        err: OSError | None = None
+        for family, kind, proto, _, addr in socket.getaddrinfo(u.hostname, u.port or (443 if u.scheme == "https" else 80),
+                                                               type=socket.SOCK_STREAM):
+            sock = socket.socket(family, kind, proto)
+            try:
+                use(sock)
+                sock.settimeout(remaining())
+                sock.connect(addr)
+                break
+            except ApiError:
+                sock.close()
+                raise
+            except OSError as e:
+                sock.close()
+                if fired.is_set():
+                    raise late from None
+                err = e
+        else:
+            raise err or OSError(f"no address for {u.hostname}")
+        if u.scheme == "https":
+            tls = ssl.create_default_context().wrap_socket(sock, server_hostname=u.hostname, do_handshake_on_connect=False)
+            use(tls)
+            tls.settimeout(remaining())
+            tls.do_handshake()
+            sock = tls
+        sock.settimeout(remaining())
+        conn.sock = sock
+    deadline = time.monotonic() + bound
     timer = threading.Timer(max(0.001, bound), cut)
     timer.daemon = True
     timer.start()
@@ -145,10 +195,7 @@ def api(tok: str, path_and_query: str, relay_url: str | None = None, method: str
     if u.query:
         target += "?" + u.query
     try:
-        conn.connect()
-        with lock:
-            if fired.is_set():
-                raise late
+        connect()
         conn.request(method, target, body=None if body is None else body.encode("utf-8"),
                      headers={"Authorization": f"Bearer {tok}", "Content-Type": "application/json", **(headers or {})})
         resp = conn.getresponse()
