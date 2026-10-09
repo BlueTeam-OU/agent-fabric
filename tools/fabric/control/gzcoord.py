@@ -121,17 +121,23 @@ def api(tok: str, path_and_query: str, relay_url: str | None = None, method: str
     conn_class = http.client.HTTPSConnection if u.scheme == "https" else http.client.HTTPConnection
     conn = conn_class(u.hostname, u.port, timeout=max(0.001, bound))
     fired = threading.Event()
+    # Held by cut() and by the check after connect: either the deadline
+    # finds the socket, or the call finds the deadline already passed —
+    # never a socket that comes into being after cut() looked for one
+    # (re-review of 37b23c5c..5ca0b96e, F1).
+    lock = threading.Lock()
 
     def cut():
         # The deadline, whatever phase the call is in: a read blocked on a
         # relay that trickles returns once the socket is shut.
-        fired.set()
-        sock = conn.sock
-        if sock is not None:
-            try:
-                sock.shutdown(socket.SHUT_RDWR)
-            except OSError:
-                pass
+        with lock:
+            fired.set()
+            sock = conn.sock
+            if sock is not None:
+                try:
+                    sock.shutdown(socket.SHUT_RDWR)
+                except OSError:
+                    pass
     timer = threading.Timer(max(0.001, bound), cut)
     timer.daemon = True
     timer.start()
@@ -139,10 +145,16 @@ def api(tok: str, path_and_query: str, relay_url: str | None = None, method: str
     if u.query:
         target += "?" + u.query
     try:
+        conn.connect()
+        with lock:
+            if fired.is_set():
+                raise late
         conn.request(method, target, body=None if body is None else body.encode("utf-8"),
                      headers={"Authorization": f"Bearer {tok}", "Content-Type": "application/json", **(headers or {})})
         resp = conn.getresponse()
         data = resp.read()
+    except ApiError:
+        raise
     except (OSError, http.client.HTTPException) as e:
         if fired.is_set() or isinstance(e, TimeoutError):
             raise late from None

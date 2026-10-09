@@ -35,7 +35,9 @@ SPACE = ("\u0009\u000a\u000b\u000c\u000d \u00a0\u1680\u2000\u2001\u2002\u2003\u2
          "\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
 SPACES = re.compile(f"[{SPACE}]+")
 _DECIMAL = re.compile(r"[+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?")
-_RADIX = re.compile(r"0([xXoObB])([0-9A-Za-z]+)")
+# A radix's own digits only: Python's int("0x10", 16) takes a second prefix
+# inside them, and Number("0x0x10") is NaN.
+_RADIX = re.compile(r"0(?:([xX])([0-9a-fA-F]+)|([oO])([0-7]+)|([bB])([01]+))")
 _INDEX = re.compile(r"0|[1-9][0-9]*")
 
 
@@ -82,11 +84,11 @@ def number(s: str) -> float:
         return float(t)
     m = _RADIX.fullmatch(t)
     if m:
-        base = {"x": 16, "o": 8, "b": 2}[m.group(1).lower()]
+        prefix, digits = next((m.group(i), m.group(i + 1)) for i in (1, 3, 5) if m.group(i))
         try:
-            return float(int(m.group(2), base))
-        except (ValueError, OverflowError):
-            return math.nan
+            return float(int(digits, {"x": 16, "o": 8, "b": 2}[prefix.lower()]))
+        except OverflowError:
+            return math.inf     # Number("0x" + "f" * 300) is Infinity
     return math.nan
 
 

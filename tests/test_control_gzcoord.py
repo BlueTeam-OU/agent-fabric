@@ -191,7 +191,9 @@ def main() -> int:
                  "/x?timeout_seconds=Infinity", "/x?timeout_seconds=3&timeout_seconds=9", "/x",
                  "/x?timeout_seconds=0x10", "/x?timeout_seconds=0b11", "/x?timeout_seconds=1_0", "/x?timeout_seconds=5?y=1",
                  "/x?timeout_seconds=%EF%BB%BF5", "/x?timeout_seconds=%D9%A1%D9%A0", "/x?timeout_seconds=%1C5",
-                 "/x?timeout_seconds=+5", "/x?timeout_seconds=%205%20", "/x?a=1?timeout_seconds=5"]
+                 "/x?timeout_seconds=+5", "/x?timeout_seconds=%205%20", "/x?a=1?timeout_seconds=5",
+                 "/x?timeout_seconds=0x0x10", "/x?timeout_seconds=0b0b1", "/x?timeout_seconds=0o0o7", "/x?timeout_seconds=0x1G",
+                 "/x?timeout_seconds=0o8", "/x?timeout_seconds=0b2", "/x?timeout_seconds=0x" + "f" * 300]
         r = subprocess.run(["node", "--input-type=module", "-e",
                             f"import fs from 'node:fs'; import {{apiTimeoutMs}} from '{GZCOORD_MJS}'; "
                             "process.stdout.write(JSON.stringify(JSON.parse(fs.readFileSync(0, 'utf8')).map(apiTimeoutMs)))"],
@@ -207,6 +209,31 @@ def main() -> int:
     finally:
         server.shutdown()
         server.server_close()
+
+    print("the deadline that passes before the socket exists")
+    import socket as _s
+    slow_relay = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Relay)
+    slow_relay.daemon_threads = True
+    threading.Thread(target=slow_relay.serve_forever, daemon=True).start()
+    real_gai = _s.getaddrinfo
+
+    def slow_gai(*a, **k):
+        time.sleep(0.7)       # resolution outlasts the 0.5 s bound
+        return real_gai(*a, **k)
+    _s.getaddrinfo = slow_gai
+    try:
+        t0 = time.monotonic()
+        try:
+            cg.api("tok", "/trickle", relay_url=f"http://localhost:{slow_relay.server_port}", timeout_s=0.5)
+            check("a deadline passed while the name resolved ends the call at connect", False)
+        except cg.ApiError as e:
+            took = time.monotonic() - t0
+            check("a deadline passed while the name resolved ends the call at connect, never a trickle after it",
+                  e.timed_out is True and took < 1.5, took)
+    finally:
+        _s.getaddrinfo = real_gai
+        slow_relay.shutdown()
+        slow_relay.server_close()
 
     print("gzcoord.test.mjs: relayFailure")
     check("no answer", cg.relay_failure(cg.ApiError("/api/send -> no answer within 30 s", timed_out=True), "http://r")

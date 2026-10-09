@@ -201,12 +201,14 @@ def main() -> int:
     try:
         for k in planted:
             os.environ.pop(k, None)
-        os.environ.update({"https_proxy": "http://proxy.invalid:3128", "http_proxy": "http://decoy.invalid:3128"})
+        os.environ.update({"https_proxy": "http://proxy.invalid:3128", "http_proxy": "http://decoy.invalid:3128",
+                           "no_proxy": "internal.invalid"})
         for name, mod in (("shim", shim), ("store_provision", store_provision)):
             fresh = importlib.reload(mod)
             ph = [h for h in fresh.OPENER.handlers if isinstance(h, urllib.request.ProxyHandler)]
-            check(f"{name}: the environment's https proxy kept, its http one never",
-                  len(ph) == 1 and ph[0].proxies == {"https": "http://proxy.invalid:3128"}, [h.proxies for h in ph])
+            check(f"{name}: the environment's https proxy and no_proxy kept, its http one never",
+                  len(ph) == 1 and ph[0].proxies == {"https": "http://proxy.invalid:3128", "no": "internal.invalid"},
+                  [h.proxies for h in ph])
     finally:
         for k, v in planted.items():
             if v is None:
