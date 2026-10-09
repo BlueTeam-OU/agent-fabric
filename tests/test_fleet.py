@@ -278,9 +278,8 @@ class OpResults(unittest.TestCase):
 class HumanLogins(unittest.TestCase):
     def test_a_human_is_said_so_and_never_asked_of_a_control_agent(self):
         f = Fleet(self, ctl_handlers(jobs=True, presence=True))
-        f.handlers["fabric-host"] = done("[]")   # a jobs file that would answer, if asked
-        doc = f.fetch(["jobs", "presence", "states", "closed_jobs"], agent="hum")
-        for n in ("jobs", "presence", "states", "closed_jobs"):
+        doc = f.fetch(["jobs", "presence", "states"], agent="hum")
+        for n in ("jobs", "presence", "states"):
             self.assertIn(fleet.HUMAN, rec(doc, "hum", n)["why"])
         self.assertEqual(f.calls, [], "fabric-ctl refuses a human by name; it is not called")
 
@@ -306,6 +305,18 @@ class TwoRemoteHosts(unittest.TestCase):
         self.assertEqual([rec(doc, l, "proc")["status"] for l in ("a", "c", "d")], ["ok", "ok", "failed"])
         self.assertEqual(rec(doc, "d", "proc")["why"], "hostexec: h3: fabric-host did not answer within 60 s")
         self.assertEqual(rec(doc, "c", "proc")["src"], "hostexec")
+
+
+    def test_a_malformed_answer_from_one_host_fails_that_host_only(self):
+        def host(argv):
+            if argv[1] == "h3":
+                return done(json.dumps({"agents": None}))
+            return done(json.dumps({"agents": {"c": {"uid": 3, "cpu_pct": 0.0, "rss_kb": 5, "swap_kb": 0, "procs": 1}}}))
+        f = Fleet(self, {"fabric-host": host}, registry=self.REG)
+        ctx = f.ctx()
+        ctx.ssh_hosts = frozenset({"h2", "h3"})
+        doc = fleet.fetch(["proc"], root=f.root, ctx=ctx)
+        self.assertEqual([rec(doc, l, "proc")["status"] for l in ("a", "c", "d")], ["ok", "ok", "failed"])
 
 
 class Prs(unittest.TestCase):

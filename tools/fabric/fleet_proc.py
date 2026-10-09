@@ -12,7 +12,8 @@ CONTRACT
             between the two CPU samples (default 1.0, 0 to 30).
   stdout    one JSON object: {"host", "at", "interval_s", "agents": {login:
             {"uid", "cpu_pct", "rss_kb", "swap_kb", "procs"}}} — a login
-            with no process is present with zeros, a login the host has no
+            with no process is present with zeros (cpu_pct is null when no time
+            passed between the samples), a login the host has no
             account for is absent from "agents" and listed in "unknown".
   stderr    one `fleet_proc: ` line on a refusal.
   exit      0 read; 2 usage or an unreadable registry.

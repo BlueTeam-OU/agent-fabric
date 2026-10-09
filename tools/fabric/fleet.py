@@ -32,7 +32,8 @@ SECTIONS, by cost class (the TTL is how long a cached answer is reused)
   record's shape. `closed_jobs` is a Stage 1 bridge: the jobs files read
   on each host through the executor, read-only, until an op serves them.
 
-CACHE  $XDG_RUNTIME_DIR/fabric-fleet/<section>.json, 0600 in a 0700
+CACHE  $XDG_RUNTIME_DIR/fabric-fleet/<section>.json (tokens-<days>.json: the
+  window is part of the question), 0600 in a 0700
   directory, replaced atomically; a fresh entry is reused across processes.
   Entries are per agent, so `--agent L` never makes the rest look fresh.
   Only successes are cached: a failure is asked again, since a cached
@@ -41,7 +42,8 @@ CACHE  $XDG_RUNTIME_DIR/fabric-fleet/<section>.json, 0600 in a 0700
   are re-read next time. No XDG_RUNTIME_DIR means no cache, not /tmp.
 
 SIDE EFFECT  `prs` runs pr-gate --in-flight, which does `git fetch --prune
-  origin` in this checkout (at most once per TTL).
+  origin` in this checkout, on each call that has no fresh cached prs record
+  for every agent asked (so always with --max-age 0 or without a cache).
 
 NEVER read: /proc/*/environ, cmdline, transcripts (fleet_proc.py).
 """
@@ -106,7 +108,7 @@ class _Declined:
 
 
 DECLINED = _Declined()
-HUMAN = "human login: no control agent and no jobs of its own (ADR-044)"
+HUMAN = "human login: no control agent (ADR-044)"
 
 
 @dataclass
@@ -150,7 +152,7 @@ def run_program(argv: list[str], *, timeout: float, cwd: str | None = None, env:
         try:
             os.killpg(p.pid, signal.SIGKILL)
         except OSError:
-            p.kill()   # a member we may not signal (a sudo'd child): the leader at least
+            p.kill()   # the group is already gone; the leader at least. A sudo'd member we may not signal is skipped without error and is what the bounded communicate() below covers
         try:
             p.communicate(timeout=5)   # a survivor holding the pipes must not hold us
         except subprocess.TimeoutExpired:
@@ -296,6 +298,8 @@ def proc_source(label: str, remote: bool) -> Source:
                 try:
                     p = call(ctx, argv, timeout=60)
                     answered = json.loads(p.stdout)["agents"]
+                    if not isinstance(answered, dict):
+                        raise TypeError("agents is not an object")
                 except SourceError as e:
                     return {l: Failed(f"{host}: {e}") for l in logins}
                 except (ValueError, KeyError, TypeError):
@@ -332,8 +336,6 @@ def prs_read(ctx: Ctx, agents: list[Agent]) -> dict[str, Any]:
 
 def closed_jobs_read(ctx: Ctx, agents: list[Agent]) -> dict[str, Any]:
     def one(a: Agent) -> Any:
-        if a.kind == "human":
-            return Failed(HUMAN)
         try:
             p = call(ctx, [os.path.join(ctx.root, "bin", "fabric-host"), a.host, "run", "--as", a.login, "--",
                            "fabric-jobs", "list", "--all", "--json"], timeout=60)
