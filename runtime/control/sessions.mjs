@@ -134,7 +134,7 @@ export function transcriptExists(id, configDir = process.env.CLAUDE_CONFIG_DIR |
 
 function bound(file, configDir) {
   try {
-    const b = JSON.parse(fs.readFileSync(file, 'utf8'));
+    const b = JSON.parse(utf8(fs.readFileSync(file)));
     const id = typeof b.session === 'string' && SESSION_ID.test(b.session) ? b.session : null;
     return { role: b.role ?? null, project: b.project ?? null, last_session: id,
       resumable: id ? transcriptExists(id, configDir) : false };

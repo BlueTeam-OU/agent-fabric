@@ -252,6 +252,9 @@ test('the record carries the last session id and whether it can be resumed, neve
     t += 1; await w.tick();
     assert.ok(!('last_session' in posts.at(-1)) && !('resumable' in posts.at(-1)), `a binding session ${JSON.stringify(bad)} is no session`);
   }
+  fs.writeFileSync(binding, Buffer.from('{"role": "python-dev\xff", "project": "agent-fabric"}', 'latin1'));
+  t += 1; await w.tick();
+  assert.ok(!('role' in posts.at(-1)) && !('project' in posts.at(-1)), 'a binding that is not UTF-8 binds nothing, as the Python reader reads it');
   assert.deepEqual(stateRecord('h/x', { sessions: [], role: null, project: null, last_session: null }, 't'),
     { v: 1, kind: 'state', from: 'h/x', ts: 't', sessions: [] }, 'no last session: neither field');
 });

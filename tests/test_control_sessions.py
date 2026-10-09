@@ -287,6 +287,12 @@ def main() -> int:
             t[0] += 1
             w.tick()
             check(f"a binding session {bad!r} is no session", "last_session" not in posts[-1] and "resumable" not in posts[-1])
+        with open(binding, "wb") as fh:
+            fh.write(b'{"role": "python-dev\xff", "project": "agent-fabric"}')
+        t[0] += 1
+        w.tick()
+        check("a binding that is not UTF-8 binds nothing, as Node's fatal decode reads it",
+              "role" not in posts[-1] and "project" not in posts[-1], posts[-1])
         check("no last session: neither field",
               cs.state_record("h/x", {"sessions": [], "role": None, "project": None, "last_session": None}, "t")
               == {"v": 1, "kind": "state", "from": "h/x", "ts": "t", "sessions": []})
