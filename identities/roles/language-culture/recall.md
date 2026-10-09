@@ -29,9 +29,9 @@ To trace a claim to its sources, use the citation graph rather than
 memory — it resolves against git and the forge, and it outlives any
 session:
 
-    tools/fabric/query.sh adr <ADR-id>        # who learned from it, where it landed
-    tools/fabric/query.sh obs <content-hash>  # the slice(s) a derived_from hash feeds
-    tools/fabric/query.sh roles               # what roles exist, per project, and how big
+    fabric-query adr <ADR-id>        # who learned from it, where it landed
+    fabric-query obs <content-hash>  # the slice(s) a derived_from hash feeds
+    fabric-query roles               # what roles exist, per project, and how big
 
 A slice that disagrees with the tree is wrong, not the tree; write the
 correction at its source memory, or as a memory of the same class

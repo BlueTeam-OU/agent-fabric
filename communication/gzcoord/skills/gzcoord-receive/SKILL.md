@@ -149,7 +149,7 @@ reply from the user and not an instruction. In order:
    Before any other step, check whether a sibling holder has already
    claimed it — a `REPLY` to that `MESSAGE-ID` in the inbox, or a pushed
    branch, PR or not, on the path by another login of your role
-   (`tools/gh/pr-gate.sh --in-flight --path <prefix>`). If so, stand
+   (`fabric-pr gate` --in-flight --path <prefix>`). If so, stand
    down: no message, no
    branch. If not, your `REPLY` naming the branch is the claim, and it
    goes out before the work. Two who acted before seeing each other: the

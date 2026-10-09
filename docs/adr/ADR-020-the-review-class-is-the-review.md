@@ -4,7 +4,7 @@
 **Status:** Accepted
 **Ratified:** owner, 2026-09-27, by arming agent-fabric #52 (ratification by merge, the owner's rule of 2026-09-27)
 **Decision Makers:** the owner; drafted by fabric-coordinator
-**Scope:** runtime/claude-code/agents/code-review.md; runtime/claude-code/hooks/agent-dispatch-guard.sh and review-bash-guard.sh; runtime/claude-code/aliases.json; routing/capabilities.json and routing/policies/review-grade.json (the class's model); bin/fabric-review and tools/fabric/review_brief.py; runtime/github/post-review.sh, runtime/github/pr-review-status.sh, runtime/github/pr-gate.sh; policies/subagent-dispatch/SKILL.md
+**Scope:** runtime/claude-code/agents/code-review.md; runtime/claude-code/hooks/agent-dispatch-guard.sh and review-bash-guard.sh; runtime/claude-code/aliases.json; routing/capabilities.json and routing/policies/review-grade.json (the class's model); bin/fabric-review and tools/fabric/review_brief.py; fabric-pr post-review, fabric-pr review-status, fabric-pr gate; policies/subagent-dispatch/SKILL.md
 **Pillar:** P3
 **Evidence:** docs/live-checks/2026-09-16-review-context-boundary.md
 
@@ -38,9 +38,9 @@ is nothing it substitutes for.
   without the dispatching conversation (read back,
   `docs/live-checks/2026-09-16-review-context-boundary.md`), so
   blindness is exactly what the brief withholds.
-- It is **posted** by `runtime/github/post-review.sh` as a review object
+- It is **posted** by `fabric-pr post-review` as a review object
   at the head whose first line is `<!-- agent-fabric-review v1 -->`.
-- It is **counted** by `runtime/github/pr-review-status.sh`: a head is
+- It is **counted** by `fabric-pr review-status`: a head is
   reviewed when a blind review — marked, and posted by the PR's author
   account or a login in `AGENT_FABRIC_REVIEW_POSTERS` — or an independent
   review by a trusted account targets it.
@@ -167,8 +167,8 @@ note that recorded it is now a stub pointing here.
   `docs/live-checks/2026-10-05-hook-updated-input.md`.
 - `bin/fabric-review`, `tools/fabric/review_brief.py`,
   `runtime/claude-code/review/README.md`, `tests/test_review_brief.py`.
-- `runtime/github/post-review.sh`, `runtime/github/pr-review-status.sh`,
-  `runtime/github/pr-gate.sh`, and their tests.
+- `fabric-pr post-review`, `fabric-pr review-status`,
+  `fabric-pr gate`, and their tests.
 - `routing/capabilities.json`, `routing/policies/review-grade.json`.
 - `policies/subagent-dispatch/SKILL.md` §"The review brief".
 - ADR-005, ADR-006, ADR-019, ADR-000 (P3).

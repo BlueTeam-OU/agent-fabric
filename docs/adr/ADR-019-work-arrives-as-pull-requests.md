@@ -4,7 +4,7 @@
 **Status:** Accepted
 **Ratified:** owner, 2026-09-27, by arming agent-fabric #52 (ratification by merge, the owner's rule of 2026-09-27)
 **Decision Makers:** the owner; drafted by fabric-coordinator
-**Scope:** identities/prompt/team.md (the PR rules every session reads); runtime/github/pr-gate.sh, runtime/github/commit-class.sh, runtime/github/pr-review-status.sh; tools/fabric/guards/ban_generated_by_attribution.py and policies/githooks/commit-msg; .github/workflows/ci.yml; tools/fabric/github-repo-settings.sh and the GitHub-side settings of gzapi-org/agent-fabric
+**Scope:** identities/prompt/team.md (the PR rules every session reads); fabric-pr gate, runtime/github/commit-class.sh, fabric-pr review-status; tools/fabric/guards/ban_generated_by_attribution.py and policies/githooks/commit-msg; .github/workflows/ci.yml; tools/fabric/github-repo-settings.sh and the GitHub-side settings of gzapi-org/agent-fabric
 **Pillar:** P3
 
 ## 1. Context and Problem
@@ -129,7 +129,7 @@ not on a pipe's exit status.
    owner, who arms. Sixteen is the size a batch is opened at; a PR over
    it is armed on the gate all the same, and the count is advice for the
    next batch.
-5. The gate is `runtime/github/pr-gate.sh`'s verdict for the PR, read
+5. The gate is `fabric-pr gate`'s verdict for the PR, read
    before arming: `MERGEABLE` needs checks green, a review on the current
    head (`pr-review-status.sh`), no unresolved thread, no conflict, no
    draft and no unfolded supply. The verdict does not read the review's
@@ -148,7 +148,7 @@ not on a pipe's exit status.
    is made from the one GitHub account every session uses, and a PR that
    introduces a new direction is merged only on the owner's word (ADR-001
    §5 rule 2). A managed project with a merge queue is armed with its own
-   `tools/gh/arm.sh`.
+   `fabric-pr arm`.
 7. No commit message or PR description carries `Co-authored-by:` or
    `Claude-Session:` as a trailer, a "Generated with Claude Code" footer or
    a session URL: `policies/githooks/commit-msg` refuses the message,
@@ -211,8 +211,8 @@ stub pointing here.
 
 - `identities/prompt/team.md` (the band, one open PR, the gate's
   conditions), `CLAUDE.md` §"Git discipline".
-- `runtime/github/pr-gate.sh`, `runtime/github/commit-class.sh`,
-  `runtime/github/pr-review-status.sh`, and their tests.
+- `fabric-pr gate`, `runtime/github/commit-class.sh`,
+  `fabric-pr review-status`, and their tests.
 - `policies/ban_generated_by_attribution.sh`, `policies/githooks/commit-msg`.
 - `tools/fabric/github-repo-settings.sh`, `.github/workflows/ci.yml`.
 - `.agent-fabric/memory/fabric-coordinator/workflow/pr-band-accumulate.md`,

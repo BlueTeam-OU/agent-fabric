@@ -366,7 +366,7 @@ tools/fabric/layout.py            where each class lives — the one source
 tools/fabric/harvest_memory.py    drain this agent's memory into claims
 tools/fabric/assemble.py          claims → slices, indexes, citation graph
 tools/fabric/lint.py              guard the committed corpus (CI)
-tools/fabric/query.sh             ask the citation graph
+fabric-query             ask the citation graph
 tools/fabric/role.py              bin/fabric-role — bind a role to this agent, from a login shell
 tools/fabric/launch_prompt.py     the system prompt a session is born with: charter, brief, team and memory sections
 ```
@@ -374,10 +374,10 @@ tools/fabric/launch_prompt.py     the system prompt a session is born with: char
 `query.sh` answers the questions the citation graph exists for:
 
 ```text
-tools/fabric/query.sh adr ADR-054        # who learned from it, where it landed
-tools/fabric/query.sh migration 0007
-tools/fabric/query.sh obs <content-hash> # what a single observation taught
-tools/fabric/query.sh roles              # sizes, per project and role
+fabric-query adr ADR-054        # who learned from it, where it landed
+fabric-query migration 0007
+fabric-query obs <content-hash> # what a single observation taught
+fabric-query roles              # sizes, per project and role
 ```
 
 The graph stays in committed JSON rather than a database. It is small

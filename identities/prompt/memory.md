@@ -53,5 +53,5 @@ its place. Never edit the slice.
 **Before you assert anything about the repository to anyone** — a finding,
 a status, "already landed" — fetch and read the remote ref, not your
 checkout: your digest of the tree is stale by a day. To trace a claim to
-its sources, `agent-fabric/tools/fabric/query.sh adr|pr|commit|file
+its sources, `agent-fabric/fabric-query adr|pr|commit|file
 <key>` and `query.sh obs <hash>` walk the committed citation graph.

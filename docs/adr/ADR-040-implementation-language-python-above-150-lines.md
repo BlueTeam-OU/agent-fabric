@@ -128,7 +128,7 @@ serve as the parity oracle for each port, unchanged.
    error; JSON is parsed in Python, never with `jq`.
 7. A fabric command is run by its bare name on `PATH`, never by a
    script path: a skill, a doc, a workflow, a hook message or a GZCoord
-   message names `fabric-pr gate`, not `runtime/github/pr-gate.sh`
+   message names `fabric-pr gate`, not `fabric-pr gate`
    (A 2026-10-08). A shim is retired in four steps: the bare command is
    added beside it; every caller moves, the managed projects' forwarders
    last; the old path says on stderr which command replaces it, for one
