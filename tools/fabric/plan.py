@@ -103,16 +103,19 @@ def hosts_registry() -> dict:
 
 class FleetReader:
     """The two sources of a job's state. `run(argv, timeout=)` returns a
-    CompletedProcess; a test fakes it and nothing else."""
+    CompletedProcess; a test fakes it and nothing else. fleet.py hands in
+    its section's bounds and the root it was given."""
 
-    def __init__(self, run: Callable[..., Any] = bounded_run):
-        self.run = run
+    def __init__(self, run: Callable[..., Any] = bounded_run, *, ctl_s: float = CTL_TIMEOUT_S, call_s: float = CALL_TIMEOUT_S,
+                 root: str | None = None):
+        self.run, self.ctl_s, self.call_s = run, ctl_s, call_s
+        self.root = FABRIC_ROOT if root is None else root
 
     def _ask(self, argv: list[str], what: str) -> subprocess.CompletedProcess:
         try:
-            return self.run(argv, timeout=CALL_TIMEOUT_S)
+            return self.run(argv, timeout=self.call_s)
         except subprocess.TimeoutExpired:
-            raise Unreadable(f"{what} did not answer in {CALL_TIMEOUT_S} s") from None
+            raise Unreadable(f"{what} did not answer in {round(self.call_s)} s") from None
         except OSError as e:
             raise Unreadable(f"{what} could not run: {printable(e.strerror or e)}") from None
 
@@ -123,7 +126,7 @@ class FleetReader:
 
     def open_jobs(self, login: str) -> list[dict]:
         what = f"fabric-ctl {login} jobs"
-        r = self._ask([os.path.join(FABRIC_ROOT, "bin", "fabric-ctl"), login, "jobs", "--json", "--timeout", str(CTL_TIMEOUT_S)], what)
+        r = self._ask([os.path.join(self.root, "bin", "fabric-ctl"), login, "jobs", "--json", "--timeout", str(self.ctl_s)], what)
         # fabric-ctl exits 1 with the account's row printed when it did not answer: the row says why.
         try:
             rows = [json.loads(line) for line in (r.stdout or "").splitlines() if line.strip()]
@@ -156,7 +159,7 @@ class FleetReader:
         if not host:
             raise Unreadable(f"{login} is placed on no host")
         what = f"fabric-host {host} run --as {login} fabric-jobs list"
-        r = self._ask([os.path.join(FABRIC_ROOT, "bin", "fabric-host"), host, "run", "--as", login, "--",
+        r = self._ask([os.path.join(self.root, "bin", "fabric-host"), host, "run", "--as", login, "--",
                        "fabric-jobs", "list", "--all", "--json"], what)
         if r.returncode != 0:
             raise self._exit(r, what)
@@ -192,11 +195,12 @@ def find_job(reader: Any, cache: dict, login: str, job_id: str) -> dict:
     raise Unreadable(f"{job_id} is on neither the open nor the closed list of {login}")
 
 
-def derive(plan: dict, reader: Any, jobs: dict | None = None) -> list[dict]:
+def derive(plan: dict, reader: Any, jobs: dict | None = None, cache: dict | None = None) -> list[dict]:
     """The plan's steps, each with `state` and, for waiting and unknown, `reason` (ADR-047 rule 3).
     A caller that wants the jobs' rows (fleet.py reads their logs) passes a dict and gets
-    step id -> the row the state was read from, for every step whose job could be read."""
-    cache: dict = {}
+    step id -> the row the state was read from, for every step whose job could be read.
+    A caller that derives several plans passes one `cache`, so each login's lists are asked once."""
+    cache = {} if cache is None else cache
     out: list[dict] = []
     done: set[str] = set()
     for step in plan["steps"]:

@@ -9,13 +9,16 @@ answers, when a view asks, never in the background.
 CONTRACT
   stdout    one JSON object: {"schema": 1, "at", "sections": [names read],
             "agents": [{"login", "host", "address", "kind", "sections":
-            {name: record}}]}; "cache" appears only when the cache could not
-            be used, with why. A record is {"status": "ok", "src", "at",
-            "data"} or {"status": "failed", "src", "at", "why"}: `src` says
+            {name: record}}], plus one top-level record per fleet section
+            asked (FLEET SECTIONS); "cache" appears only when the cache could
+            not be used, with why. A record is {"status": "ok", "src", "at",
+            "data"}, {"status": "failed", "src", "at", "why"} or a stale one
+            (STALE): `src` says
             where the value was read (proc-local, hostexec, op:<name>,
             pr-gate), `at` when. The granularity is the section record, not
             each number in `data`.
-  Every placed agent has a record for every section asked: a source that
+  Every placed agent has a record for every agent section asked (and the
+  document one for every fleet section, below): a source that
   failed, answered without the agent, or timed out is a failed record with
   its cause, never a crash and never an absent agent.
   stderr    one `fabric-fleet: ` line on a refusal.
@@ -44,21 +47,27 @@ FLEET SECTIONS  `plans` and `prs_unplaced` are about the fleet, not an agent:
   its own name at the top of the document and in no agent's "sections".
   plans.data = {login, plans: [{id, title, status, created_at, steps: [{id,
   title, owner, depends_on, job, state, reason, started, finished,
-  est_days}]}]}: the plans of the login that runs this (the coordinator's
-  files; another login has none), steps in the plan's order, `state` what
-  fabric-plan says (planned, waiting, unknown, or the job's), `started` the
-  first time the job was active and `finished` the last time it was done,
-  dropped or delivered, from its log (null where it never was).
+  times_why, est_days}]}]}: the plans of the login that runs this (the
+  coordinator's files; another login has none), steps in the plan's order,
+  `state` what fabric-plan says (planned, waiting, unknown, or the job's),
+  `started` the first time the job was active and `finished` the last time
+  it was done, dropped or delivered, from the job's log as the owner's full
+  list gives it through the executor (null where it never was; null with
+  `times_why` where the list could not be read: unknown, not "never").
   prs_unplaced.data = {prs: [...rows of prs...], fetch_ok, prs_ok, base,
   gate_ok}: the PRs whose owner is no placed account. Asking for `prs`
-  adds it; `plans` is named only.
+  adds it; `plans` is named only. "sections" lists every name read: an
+  agent section is a key of each agent's "sections", a fleet one a key of
+  the document.
   prs rows (per agent and unplaced): pr, number, repo (<org>/<name> of this
   checkout's origin; the other projects' repositories are not read), branch,
   ahead, last_commit, paths_total from pr-gate --in-flight, and fabric-pr
   gate --json's own title, head, work_commits, fix_commits, checks, review,
   unresolved_threads, armed, queue_position, draft, verdict; the gate fields
   are null with `gate_ok` false and `gate_why` when the gate could not be
-  read. closed_jobs.data adds done_total (state done only) to closed_total.
+  read; `gate_found` says whether the PR was at the gate (null when the gate
+  was not read). The in-flight row and the gate row of a PR join by number,
+  or by branch where the listing had no number. closed_jobs.data adds done_total (state done only) to closed_total.
 
 SECTIONS, by cost class (the TTL is how long a cached answer is reused)
   C0 proc 5 s · states 5 s · presence 10 s
@@ -79,9 +88,12 @@ CACHE  $XDG_RUNTIME_DIR/fabric-fleet/<section>.json (tokens-<days>.json: the
   once both write whole files and the later one wins; the loser's entries
   are re-read next time. No XDG_RUNTIME_DIR means no cache, not /tmp.
 
-SIDE EFFECT  `prs` runs pr-gate --in-flight, which does `git fetch --prune
-  origin` in this checkout, on each call that has no fresh cached prs record
-  for every agent asked (so always with --max-age 0 or without a cache).
+SIDE EFFECT  `prs` and `prs_unplaced` (a default section, riding with prs)
+  run pr-gate --in-flight, which does `git fetch --prune origin` in this
+  checkout, and `fabric-pr gate --all --json`, which reads GitHub for every
+  open PR, on each call that has no fresh cached record for every agent
+  asked (so always with --max-age 0 or without a cache); once per fetch for
+  both sections.
 
 NEVER read: /proc/*/environ, cmdline, transcripts (fleet_proc.py).
 """
@@ -109,12 +121,13 @@ import roots  # noqa: E402
 import fleet_proc  # noqa: E402
 
 SCHEMA = 1
+CACHE_VERSION = 2   # 2: prs rows carry the gate's fields, closed_jobs done_total
 # class -> (ctl wait, whole-program bound, stale window), in seconds. The
 # program bound is over the wait because a control agent's relay read can
 # stall past it; pr-gate (C2) fetches origin and lists PRs, which is what
 # 120 s is for.
 COST_CLASSES = {"C0": (8, 40, 60), "C1": (20, 60, 600), "C2": (30, 120, 1800), "C3": (60, 180, 7200)}
-CTL_TIMEOUT_S, CALL_TIMEOUT_S, _ = COST_CLASSES["C1"]   # a Ctx made by hand, outside any section
+CTL_TIMEOUT_S, CALL_TIMEOUT_S = 20, 90   # a Ctx made by hand, outside any section: the bounds before the classes
 CLOSED_CAP = 20
 HOST_RUN_WORKERS = 8
 DEFAULT_PYTHON = "/usr/local/bin/fabric-python"
@@ -440,19 +453,27 @@ def pr_rows(ctx: Ctx) -> dict:
     except ValueError:
         gate_why = f"fabric-pr gate: {last_line(g.stderr) or f'exit {g.returncode}, unreadable output'}"
     repo = origin_repo(ctx)
+    by_branch = {r.get("branch"): r for r in gate.values() if r.get("branch")}
     out, seen = [], set()
     for r in rows:
         if not isinstance(r, dict):
             continue
         n = r.get("pr")
-        gr = gate.get(n, {}) if isinstance(n, int) else {}
-        seen.add(n)
-        out.append({**{k: r.get(k) for k in PR_ROW_KEYS}, "number": n if isinstance(n, int) else None, "repo": repo,
-                    **{k: gr.get(k) for k in GATE_KEYS}, "owner": r.get("owner", "") or gr.get("owner", "")})
+        # The number joins; where the listing could not give one ("none",
+        # "unavailable": the PR is newer than its read, or gh failed), the
+        # branch does.
+        gr = gate.get(n) if isinstance(n, int) and not isinstance(n, bool) else None
+        if gr is None:
+            gr = by_branch.get(r.get("branch"))
+        if gr is not None:
+            seen.add(gr.get("number"))
+        out.append({**{k: r.get(k) for k in PR_ROW_KEYS}, "number": gr.get("number") if gr is not None else n if isinstance(n, int) else None,
+                    "repo": repo, **{k: (gr or {}).get(k) for k in GATE_KEYS}, "owner": r.get("owner", "") or (gr or {}).get("owner", ""),
+                    "gate_found": None if gate_why else gr is not None})
     for n, gr in gate.items():
         if n not in seen:     # an open PR the in-flight listing did not carry: still at its gate
             out.append({**{k: None for k in PR_ROW_KEYS}, "pr": n, "number": n, "branch": gr.get("branch"), "repo": repo,
-                        **{k: gr.get(k) for k in GATE_KEYS}, "owner": gr.get("owner", "")})
+                        **{k: gr.get(k) for k in GATE_KEYS}, "owner": gr.get("owner", ""), "gate_found": True})
     return {"rows": out, "fetch_ok": doc.get("fetch_ok"), "prs_ok": doc.get("prs_ok"), "base": doc.get("base"),
             "gate_ok": gate_why is None, **({"gate_why": gate_why} if gate_why else {})}
 
@@ -510,23 +531,52 @@ def plans_read(ctx: Ctx, _agents: list[Agent]) -> dict[str, Any]:
     coordinator's state, written only through identity.update_plan, and
     this reads them without fabric-plan's role check: the deck is run by
     the operator's login, which holds them. Another login has none, and
-    `login` says whose they are."""
+    `login` says whose they are.
+
+    The control agent's job list drops each job's log ("the log stays on the
+    account"), so the times come from the owner's own list read through the
+    executor (`fabric-jobs list --all`, the bridge ADR-046 rule 5 names; the
+    record's `src` says so). A list that cannot be read leaves a step's times
+    null with `times_why`: unknown, never "it never ran"."""
     import plan as plan_mod       # loads runtime/identity.py: only a fleet-scope section needs it
-    reader = plan_mod.FleetReader(run=lambda argv, timeout: ctx.run(argv, timeout=timeout, cwd=None, env=ctx.env))
+    reader = plan_mod.FleetReader(run=lambda argv, timeout: ctx.run(argv, timeout=timeout, cwd=None, env=ctx.env),
+                                  ctl_s=ctx.ctl_s, call_s=ctx.call_s, root=ctx.root)
     try:
         stored = plan_mod.identity.list_plans()
     except SystemExit as e:         # identity's way of refusing an unreadable plan file
         raise SourceError(str(e)) from None
+    jobs_cache: dict = {}           # one list per login for every plan of this read
+    full: dict[str, Any] = {}
+
+    def times(owner_job: str | None, row: dict | None) -> tuple[str | None, str | None, str | None]:
+        """(started, finished, why-not) for a step's job."""
+        if not owner_job:
+            return None, None, None
+        if isinstance(row, dict) and isinstance(row.get("log"), list):
+            return (*log_times(row), None)
+        login, _, job_id = owner_job.partition(":")
+        if login not in full:
+            try:
+                full[login] = reader.closed_jobs(login)
+            except plan_mod.Unreadable as e:
+                full[login] = e
+        listed = full[login]
+        if isinstance(listed, Exception):
+            return None, None, f"{login}'s full job list: {listed}"[:300]
+        found = next((j for j in listed if isinstance(j, dict) and j.get("id") == job_id), None)
+        if found is None:
+            return None, None, f"{owner_job} is not on {login}'s full job list"
+        return (*log_times(found), None)
     plans = []
     for pl in stored:
         rows: dict[str, dict] = {}
-        steps = plan_mod.derive(pl, reader, rows)
+        steps = plan_mod.derive(pl, reader, rows, jobs_cache)
         out = []
         for s in steps:
-            started, finished = log_times(rows.get(s["id"]))
+            started, finished, why = times(s.get("job") if s["state"] != "unknown" else None, rows.get(s["id"]))
             out.append({"id": s["id"], "title": s.get("title"), "owner": s.get("owner"), "depends_on": s.get("depends_on", []),
                         "job": s.get("job"), "state": s["state"], "reason": s.get("reason"),
-                        "started": started, "finished": finished, "est_days": s.get("est_days")})
+                        "started": started, "finished": finished, "times_why": why, "est_days": s.get("est_days")})
         plans.append({"id": pl.get("id"), "title": pl.get("title"), "status": pl.get("status"), "created_at": pl.get("created_at"),
                       "steps": out})
     return {FLEET.login: {"login": plan_mod.identity.current_agent(), "plans": plans}}
@@ -567,7 +617,7 @@ SECTIONS: dict[str, Section] = {s.name: s for s in (
     Section("fabric", "C1", 60, (ctl_source("fabric"),)),
     Section("prs", "C2", 120, (Source("pr-gate", prs_read),)),
     Section("prs_unplaced", "C2", 120, (Source("pr-gate", prs_unplaced_read),), scope="fleet"),
-    Section("plans", "C2", 120, (Source("fabric-plan", plans_read),), scope="fleet"),
+    Section("plans", "C2", 120, (Source("fabric-plan+hostexec", plans_read),), scope="fleet"),
     Section("closed_jobs", "C2", 300, (Source("hostexec", closed_jobs_read),)),
     Section("accounts", "C2", 120, (ctl_source("accounts"),)),
     Section("tokens", "C3", 600, (ctl_source("tokens"),)),
@@ -629,6 +679,8 @@ def cache_read(directory: str | None, section: str) -> dict[str, dict]:
     try:
         with open(os.path.join(directory, f"{section}.json"), encoding="utf-8") as fh:
             doc = json.load(fh)
+        if doc["version"] != CACHE_VERSION:
+            return {}      # another shape of record (a section's keys changed): a miss, never served as this one's
         entries = doc["agents"]
         return {k: v for k, v in entries.items() if isinstance(v, dict) and isinstance(v.get("t"), (int, float)) and isinstance(v.get("record"), dict)}
     except (OSError, ValueError, KeyError, TypeError, AttributeError):
@@ -641,7 +693,7 @@ def cache_write(directory: str | None, section: str, entries: dict[str, dict]) -
     fd, tmp = tempfile.mkstemp(prefix=f".{section}.", suffix=".tmp", dir=directory)   # 0600
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as fh:
-            json.dump({"version": 1, "agents": entries}, fh)
+            json.dump({"version": CACHE_VERSION, "agents": entries}, fh)
         os.replace(tmp, os.path.join(directory, f"{section}.json"))
     except BaseException:
         try:
@@ -759,6 +811,7 @@ def fetch(sections: list[str] | None = None, agent: str | None = None, max_age: 
     if days is not None:
         ctx.days = days
     directory, why = cache_dir(ctx.env)
+    ctx.memo.clear()      # what two sections share lasts one fetch, not the Ctx
     answers: dict[str, dict[str, dict]] = {}
     with concurrent.futures.ThreadPoolExecutor(max_workers=len(names)) as pool:
         futures = {n: pool.submit(fetch_section, ctx, SECTIONS[n], [FLEET] if SECTIONS[n].scope == "fleet" else agents, max_age, directory)
@@ -784,7 +837,8 @@ HELP = """usage: fabric-fleet --json [--agent LOGIN] [--section a,b] [--max-age 
 The fleet's data, one record per placed agent, read when asked.
   --agent L      only that agent
   --section ..   comma list of: {sections}, or C0..C3 for a cost class
-                 (default: every section but C3; tokens and disk only when named)
+                 (default: every section but C3 and plans; tokens, disk and plans
+                 only when named; prs brings prs_unplaced)
   --max-age S    reuse a cached answer up to S seconds old (0 = read afresh);
                  default each section's own TTL
   --days N       the window for `tokens`"""

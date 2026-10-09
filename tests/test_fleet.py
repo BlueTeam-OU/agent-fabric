@@ -381,6 +381,29 @@ class Prs(unittest.TestCase):
         f = Fleet(self, {**pr_handlers(inflight({"owner": "h1/a", "branch": "b", "pr": 7})), "git": done("", "fatal\n", 128)})
         self.assertIsNone(rec(f.fetch(["prs"]), "a", "prs")["data"]["prs"][0]["repo"])
 
+    def test_a_row_with_no_pr_number_joins_the_gate_by_branch_and_is_listed_once(self):
+        for pr in ("unavailable", "none"):
+            f = Fleet(self, pr_handlers(inflight({"owner": "h1/a", "branch": "h1/a/feat/x", "pr": pr, "ahead": 3}),
+                                        [gate_row(7, "h1/a", "h1/a/feat/x", verdict="BLOCKED: x")]))
+            rows = rec(f.fetch(["prs"]), "a", "prs")["data"]["prs"]
+            self.assertEqual([(r["pr"], r["number"], r["ahead"], r["verdict"]) for r in rows], [(pr, 7, 3, "BLOCKED: x")], pr)
+
+    def test_gate_found_says_whether_the_pr_was_at_the_gate_and_is_unknown_when_the_gate_was_not_read(self):
+        f = Fleet(self, pr_handlers(inflight({"owner": "h1/a", "branch": "h1/a/feat/x", "pr": 7}, {"owner": "h1/a", "branch": "h1/a/feat/y", "pr": 8}),
+                                    [gate_row(7, "h1/a", "h1/a/feat/x")]))
+        rows = rec(f.fetch(["prs"]), "a", "prs")["data"]["prs"]
+        self.assertEqual([(r["number"], r["gate_found"]) for r in rows], [(7, True), (8, False)])
+        h = pr_handlers(inflight({"owner": "h1/a", "branch": "b", "pr": 7}))
+        h["fabric-pr"] = done("", "gh: no\n", 1)
+        self.assertIsNone(rec(Fleet(self, h).fetch(["prs"]), "a", "prs")["data"]["prs"][0]["gate_found"])
+
+    def test_what_two_sections_share_lasts_one_fetch_not_the_ctx(self):
+        f = Fleet(self, pr_handlers(inflight({"owner": "h1/a", "branch": "b", "pr": 7})))
+        ctx = f.ctx()
+        fleet.fetch(["prs"], root=f.root, ctx=ctx, max_age=0)
+        fleet.fetch(["prs"], root=f.root, ctx=ctx, max_age=0)
+        self.assertEqual(len([c for c in f.calls if os.path.basename(c[0]) == "pr-gate.sh"]), 2)
+
     def test_a_pr_the_in_flight_listing_lacks_is_still_there_at_its_gate(self):
         f = Fleet(self, pr_handlers(inflight(), [gate_row(8, "h1/b", "h1/b/feat/z", verdict="BLOCKED: x")]))
         row = rec(f.fetch(["prs"]), "b", "prs")["data"]["prs"][0]
@@ -453,6 +476,19 @@ def job(job_id, state, *log):
     return {"id": job_id, "state": state, "title": job_id, "log": [{"at": at, "state": s} for at, s in log]}
 
 
+def without_log(rows):
+    """What the control agent's jobs op lists: no log ("the log stays on the account")."""
+    return {login: [{k: v for k, v in j.items() if k != "log"} for j in jobs] for login, jobs in rows.items()}
+
+
+def fullhost(rows_by_login):
+    """What `fabric-host H run --as L -- fabric-jobs list --all --json` prints: every job with its log."""
+    def handler(argv):
+        login = argv[argv.index("--as") + 1]
+        return done(json.dumps(rows_by_login[login])) if login in rows_by_login else done("", "sudo: no\n", 1)
+    return handler
+
+
 class Plans(unittest.TestCase):
     """A fleet-scope section: the plans of the login that runs the deck, each
     step with its job's state and the times its job's log gives."""
@@ -490,12 +526,13 @@ class Plans(unittest.TestCase):
             {"id": "s2", "title": "second", "owner": "b", "depends_on": ["s1"], "job": "b:j2"},
             {"id": "s3", "title": "third", "owner": "a", "depends_on": ["s2"], "job": None},
             {"id": "s4", "title": "fourth", "owner": "c", "depends_on": [], "job": None}])
-        doc = self.fetch({("fabric-ctl", "jobs"): ctl_jobs({
-            "a": [job("j1", "done", ("2026-10-08T10:00:00Z", "queued"), ("2026-10-08T11:00:00Z", "active"), ("2026-10-08T12:00:00Z", "delivered"),
-                      ("2026-10-08T13:00:00Z", "done"))],
-            "b": [job("j2", "active", ("2026-10-09T09:00:00Z", "queued"), ("2026-10-09T09:30:00Z", "active"))]})})
+        rows = {"a": [job("j1", "done", ("2026-10-08T10:00:00Z", "queued"), ("2026-10-08T11:00:00Z", "active"), ("2026-10-08T12:00:00Z", "delivered"),
+                          ("2026-10-08T13:00:00Z", "done"))],
+                "b": [job("j2", "active", ("2026-10-09T09:00:00Z", "queued"), ("2026-10-09T09:30:00Z", "active"))]}
+        # j1 is closed (the executor's list), j2 open: the control agent lists it without its log, the executor's list has it.
+        doc = self.fetch({("fabric-ctl", "jobs"): ctl_jobs(without_log({"a": [], "b": rows["b"]})), "fabric-host": fullhost(rows)})
         r = doc["plans"]
-        self.assertEqual((r["status"], r["src"]), ("ok", "fabric-plan"))
+        self.assertEqual((r["status"], r["src"]), ("ok", "fabric-plan+hostexec"))
         self.assertEqual(r["data"]["login"], self.me)
         (pl,) = r["data"]["plans"]
         self.assertEqual({k: pl[k] for k in ("id", "title", "status", "created_at")},
@@ -508,16 +545,32 @@ class Plans(unittest.TestCase):
                          ("active", "2026-10-09T09:30:00Z", None, None))
         self.assertEqual((steps["s3"]["state"], steps["s3"]["reason"], steps["s3"]["started"]), ("waiting", "waits for s2", None))
         self.assertEqual((steps["s4"]["state"], steps["s4"]["job"]), ("planned", None))
-        self.assertEqual(sorted(steps["s1"]), ["depends_on", "est_days", "finished", "id", "job", "owner", "reason", "started", "state", "title"])
+        self.assertEqual(sorted(steps["s1"]), ["depends_on", "est_days", "finished", "id", "job", "owner", "reason", "started", "state", "times_why", "title"])
         self.assertEqual(steps["s2"]["depends_on"], ["s1"])
 
     def test_a_job_that_cannot_be_read_is_unknown_with_its_reason_and_no_times(self):
         self.write_plan("p1", [{"id": "s1", "title": "t", "owner": "a", "depends_on": [], "job": "a:j1"}])
         doc = self.fetch({("fabric-ctl", "jobs"): ctl_jobs({}), "fabric-host": done("", "no\n", 1)})
         (s,) = doc["plans"]["data"]["plans"][0]["steps"]
-        self.assertEqual((s["state"], s["started"], s["finished"]), ("unknown", None, None))
+        self.assertEqual((s["state"], s["started"], s["finished"], s["times_why"]), ("unknown", None, None, None))
         self.assertIn("a:j1", s["reason"] + "a:j1")
         self.assertTrue(s["reason"])
+
+    def test_an_open_jobs_times_come_from_the_full_list_not_the_control_agents_logless_row(self):
+        self.write_plan("p1", [{"id": "s1", "title": "t", "owner": "a", "depends_on": [], "job": "a:j1"}])
+        rows = {"a": [job("j1", "delivered", ("t1", "queued"), ("t2", "active"), ("t3", "delivered"))]}
+        (s,) = self.fetch({("fabric-ctl", "jobs"): ctl_jobs(without_log(rows)), "fabric-host": fullhost(rows)})["plans"]["data"]["plans"][0]["steps"]
+        self.assertEqual((s["state"], s["started"], s["finished"], s["times_why"]), ("delivered", "t2", "t3", None))
+
+    def test_times_that_cannot_be_read_are_null_with_the_why_never_a_silent_never(self):
+        self.write_plan("p1", [{"id": "s1", "title": "t", "owner": "a", "depends_on": [], "job": "a:j1"},
+                               {"id": "s2", "title": "t", "owner": "b", "depends_on": [], "job": "b:j2"}])
+        open_rows = without_log({"a": [job("j1", "active")], "b": [job("j2", "active")]})
+        (s1, s2) = self.fetch({("fabric-ctl", "jobs"): ctl_jobs(open_rows),
+                               "fabric-host": fullhost({"b": [job("jother", "active", ("t1", "active"))]})})["plans"]["data"]["plans"][0]["steps"]
+        self.assertEqual((s1["state"], s1["started"], s1["finished"]), ("active", None, None))
+        self.assertIn("a's full job list", s1["times_why"])
+        self.assertEqual((s2["started"], s2["times_why"]), (None, "b:j2 is not on b's full job list"))
 
     def test_a_fleet_section_is_at_the_top_of_the_document_and_in_no_agents_record(self):
         self.write_plan("p1", [])
@@ -623,7 +676,32 @@ class Timeouts(unittest.TestCase):
         self.assertEqual(bound, [fleet.COST_CLASSES["C0"][1]], "h2's agents through the executor")
 
     def test_a_hand_made_ctx_outside_any_section_keeps_the_old_defaults(self):
-        self.assertEqual((fleet.CTL_TIMEOUT_S, fleet.CALL_TIMEOUT_S), fleet.COST_CLASSES["C1"][:2])
+        self.assertEqual((fleet.CTL_TIMEOUT_S, fleet.CALL_TIMEOUT_S), (20, 90))
+        ctx = Fleet(self, {}).ctx()
+        self.assertEqual((ctx.ctl_s, ctx.call_s), (20, 90))
+
+    def test_plans_use_their_classes_bounds_for_every_program_and_ask_each_login_once(self):
+        f = Fleet(self, {("fabric-ctl", "jobs"): ctl_jobs({"a": [job("j1", "active")]}), "fabric-host": fullhost({"a": [job("j1", "active")]})})
+        self.write_two_plans(f)
+        f.fetch(["plans"])
+        want_ctl, want_call, _ = fleet.COST_CLASSES["C2"]
+        ctl = [c for c in f.calls if os.path.basename(c[0]) == "fabric-ctl"]
+        self.assertEqual([int(c[c.index("--timeout") + 1]) for c in ctl], [want_ctl], "one ask of a for two plans, with C2's wait")
+        self.assertEqual(set(f.timeouts), {want_call})
+
+    @staticmethod
+    def write_two_plans(f):
+        import plan as plan_mod
+        d = os.path.join(f.dir, "state", "agents", plan_mod.identity.current_agent(), "plans")
+        os.makedirs(d, exist_ok=True)
+        for n in ("p1", "p2"):
+            with open(os.path.join(d, f"{n}.json"), "w") as fh:
+                json.dump({"id": n, "title": n, "created_at": "t", "status": "open",
+                           "steps": [{"id": "s1", "title": "t", "owner": "a", "depends_on": [], "job": "a:j1"}]}, fh)
+        saved = {k: os.environ.get(k) for k in ("AGENT_FABRIC_STATE_DIR", "AGENT_FABRIC_HOSTS_REGISTRY")}
+        os.environ["AGENT_FABRIC_STATE_DIR"] = os.path.join(f.dir, "state")
+        os.environ["AGENT_FABRIC_HOSTS_REGISTRY"] = os.path.join(f.root, "runtime", "hosts", "registry.json")
+        f.test.addCleanup(lambda: [os.environ.pop(k, None) if v is None else os.environ.__setitem__(k, v) for k, v in saved.items()])
 
 
 class Stale(unittest.TestCase):
@@ -632,7 +710,7 @@ class Stale(unittest.TestCase):
 
     def setUp(self):
         self.answer = [ctl_rows("jobs")]
-        self.f = Fleet(self, {("fabric-ctl", "jobs"): lambda argv: done(self.answer[0], "" if "ok" in self.answer[0][:0] else "")})
+        self.f = Fleet(self, {("fabric-ctl", "jobs"): lambda argv: done(self.answer[0])})
 
     def slow(self, **per):
         self.answer[0] = ctl_rows("jobs", **{k: {"status": "no answer"} for k in per})
@@ -759,6 +837,18 @@ class Cache(unittest.TestCase):
         self.assertEqual([c[1] for c in self.f.ctl_calls("jobs")], ["a", "all"], "the three others in one call")
         self.assertEqual(len(doc["agents"]), 4)
         self.assertTrue(all(rec(doc, l, "jobs")["status"] == "ok" for l in ("a", "b", "c")))
+
+    def test_a_cache_file_of_another_version_is_a_miss(self):
+        self.f.fetch(["jobs"])
+        path = os.path.join(self.f.xdg, "fabric-fleet", "jobs.json")
+        with open(path) as fh:
+            doc = json.load(fh)
+        doc["version"] = 1
+        with open(path, "w") as fh:
+            json.dump(doc, fh)
+        n = len(self.f.ctl_calls("jobs"))
+        self.f.fetch(["jobs"])
+        self.assertEqual(len(self.f.ctl_calls("jobs")), n + 1, "an entry another version wrote is read again, not served")
 
     def test_a_failure_is_never_cached(self):
         f = Fleet(self, {("fabric-ctl", "jobs"): done("", "down\n", 2)})
