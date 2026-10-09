@@ -53,18 +53,29 @@ def memory_replies(replies):
 
 def memory_view(replies):
     """What a memory answer says that does not depend on the zlib that
-    deflated it: the bundle's report, sizes of the tar, the tar itself
-    reassembled from the parts, and every record but the compressed bytes
-    (the Python and the Node of a runner may link different zlib builds, and
-    the byte count and the parts' split follow the stream)."""
+    deflated it: every record, masked, less the compressed bytes and what
+    follows from their length (the bundle's gzip_bytes and parts, each part's
+    chunk and its numbering, the first record's part count); the tar itself
+    reassembled from the parts; and the gzip header, which no zlib build
+    changes (the Python and the Node of a runner may link different builds)."""
     import base64
     import zlib
-    first, parts = replies[0], replies[1:]
-    tar = zlib.decompress(base64.b64decode("".join(p["data"]["part"]["chunk"] for p in parts)), 47)
-    bundles = [{k: v for k, v in b.items() if k not in ("gzip_bytes", "parts")} for b in first["data"]["memory"]["bundles"]]
-    return {"bundles": bundles, "tar": tar,
-            "records": [masked(json.dumps({k: v for k, v in r.items() if k != "data"}, separators=(",", ":"))) for r in replies[:1]],
-            "part_keys": sorted({tuple(p["data"]["part"]) for p in parts})}
+    gz = base64.b64decode("".join(r["data"]["part"]["chunk"] for r in replies[1:]))
+    tar = zlib.decompress(gz, 31)
+
+    def bare(r):
+        r = json.loads(json.dumps(r))
+        d = r["data"]
+        d.pop("parts", None)
+        for b in (d.get("memory") or {}).get("bundles", []):
+            b.pop("gzip_bytes", None)
+            b.pop("parts", None)
+        if "part" in d:
+            d["part"].pop("chunk")
+            d["part"].pop("part")
+            d["part"].pop("parts")
+        return masked(json.dumps(r, separators=(",", ":")))
+    return {"records": [bare(r) for r in replies], "tar": tar, "gzip_header": gz[:10], "parts_numbered": [r["data"]["part"]["part"] for r in replies[1:]]}
 
 
 class Parity(Daemon):

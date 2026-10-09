@@ -136,7 +136,8 @@ def memory(home: str | None = None, root: str | None = None, run: Callable[..., 
             continue
         tar = bytes(r.stdout or b"")
         # zlib.gzipSync writes OS = 3 (Unix) where gzip.compress writes 255
-        # (unknown); the reply is the same bytes from either daemon.
+        # (unknown): the header is the same from either daemon. The deflate
+        # stream after it is whatever the linked zlib makes, and may differ.
         gz = bytearray(gzip.compress(tar, compresslevel=9, mtime=0))
         gz[GZIP_OS_BYTE] = GZIP_OS_UNIX
         gz = bytes(gz)

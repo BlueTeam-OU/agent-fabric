@@ -19,6 +19,7 @@ import hashlib
 import http.server
 import json
 import os
+import re
 import shutil
 import signal
 import subprocess
@@ -644,7 +645,7 @@ class Wire(Daemon):
         self.assertTrue([h for h in r.hits if h.startswith("/api/messages?") and "limit=1" in h], "primed from the newest record")
         self.assertTrue([h for h in r.hits if h.startswith("/api/wait?") and "since_id=id-1" in h], "waited after it")
         self.assertRegex(out.stderr, r"agentd: answered ping for develop-qzapp/user \([0-9a-f]{8}\)")
-        self.assertRegex(out.stderr, rf"agentd: {SELF} on test:control at http://127\.0\.0\.1:\d+; operators: develop-qzapp/user\n")
+        self.assertRegex(out.stderr, rf"agentd: {re.escape(SELF)} on test:control at http://127\.0\.0\.1:\d+; operators: develop-qzapp/user\n")
 
     def test_once_a_request_from_a_non_operator_an_unknown_op_and_an_expired_one_get_no_reply_keys_carry_no_value(self):
         r = self.with_relay([("develop-qzapp/user", request(op="ping", id="primer"))])
