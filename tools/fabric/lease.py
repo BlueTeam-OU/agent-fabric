@@ -56,7 +56,7 @@ exclusion where the suite is started (ADR-010).
 A lease is a flock(2) on ${AGENT_FABRIC_LEASES:-/run/lock/agent-fabric}/<name>,
 a directory every account can create files in (1777, made at boot by
 the account boot script on a Qubes AppVM and by tmpfiles.d elsewhere,
-both installed by runtime/provisioning/persist-accounts.sh). The file is
+both installed by tools/fabric/provisioning/persist_accounts.py). The file is
 created 0666 so the holder — whichever account it is — can write one
 line into it: `<login> <pid> <since> <name>`, which is what a refused
 caller is told. The kernel releases the lock when the holder exits,

@@ -170,8 +170,8 @@ def main() -> int:
         check("run: hostexec with --as", out.rstrip("\n") == far_home, out)
         clear(sshlog)
         run(FH, "far-host", "rename", "zz-far-login", "old", "new", "--dry-run", merge=True)
-        check("rename: the target's own rename-working-copy.sh",
-              "@fabric/runtime/provisioning/rename-working-copy.sh zz-far-login old new --dry-run" in log(sshlog),
+        check("rename: the target's own rename_working_copy.py, on its pinned Python",
+              "/usr/local/bin/fabric-python -I @fabric/tools/fabric/provisioning/rename_working_copy.py zz-far-login old new --dry-run" in log(sshlog),
               log(sshlog))
         clear(sshlog)
         run(FH, "far-host", "drain", "zz-far-login", "--dry-run", merge=True)

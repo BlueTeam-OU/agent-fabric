@@ -89,7 +89,7 @@ WHAT IT DOES, in order (each step is skipped when already true):
      integration/provisioning/host-check.sh, run in finish. [worker: prepare]
   1. the Linux account (useradd), home 700, the shared-cache group, and the
      account persisted across the host's reboot (linger; on Qubes the record
-     snapshot under /rw — persist-accounts.sh)
+     snapshot under /rw — persist_accounts.py)
   2. ~/.ssh ~/.claude ~/.config/gh ~/.local/{bin,share}, owned by the
      account; claude and ori installed AS THE ACCOUNT the way their
      vendors say — `curl -fsSL https://claude.ai/install.sh | bash -s --

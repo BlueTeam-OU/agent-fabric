@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Account persistence on a volatile root: the boot script
 (runtime/provisioning/platform/qubes/agent-fabric-accounts.rc) and the
-snapshot writer (runtime/provisioning/persist-accounts.sh), against a
+snapshot writer (tools/fabric/provisioning/persist_accounts.py), against a
 scratch /etc, snapshot dir and a fake loginctl. Ported from
 runtime/provisioning/platform/test_qubes-accounts.sh (ADR-040 Wave 6),
 case for case.
@@ -25,7 +25,7 @@ import tempfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 RC = os.path.join(ROOT, "runtime", "provisioning", "platform", "qubes", "agent-fabric-accounts.rc")
-WRITER = os.path.join(ROOT, "runtime", "provisioning", "persist-accounts.sh")
+WRITER = os.path.join(ROOT, "tools", "fabric", "provisioning", "persist_accounts.py")
 TMPFILES = os.path.join(ROOT, "runtime", "provisioning", "platform", "agent-fabric.tmpfiles.conf")
 
 
@@ -173,7 +173,7 @@ def main() -> int:
         # The platform: the Qubes profile (volatile root); detect.sh honours
         # the override.
         env["AGENT_FABRIC_PLATFORM"] = "fedora-qubes"
-        rc, out, err = run(["bash", WRITER, "db-admin", "edge-hosting"])
+        rc, out, err = run([sys.executable, "-I", WRITER, "db-admin", "edge-hosting"])
         check("exits 0", rc == 0, out + err)
         check("the live passwd line is snapshotted",
               "edge-hosting:x:1011:1011:agent-fabric edge-hosting:/home/edge-hosting:/bin/bash" in lines(f"{t}/snap/passwd"),
@@ -184,7 +184,7 @@ def main() -> int:
               f"{mode_of(f'{t}/snap')} {mode_of(f'{t}/snap/passwd')}")
         with open(f"{t}/snap/.lock", "w") as lock:
             fcntl.flock(lock, fcntl.LOCK_EX)
-            rc, out, err = run(["bash", WRITER, "db-admin"], AGENT_FABRIC_LOCK_WAIT="1")
+            rc, out, err = run([sys.executable, "-I", WRITER, "db-admin"], AGENT_FABRIC_LOCK_WAIT="1")
         check("a second writer waits for the lock and says so when it does not come",
               rc != 0 and "locked by another writer" in out + err, out + err)
         check("the boot script is installed", os.access(f"{t}/rcd/agent-fabric-accounts.rc", os.X_OK))
@@ -194,7 +194,7 @@ def main() -> int:
               "edge-hosting:otscache" in lines(f"{t}/snap/members") and "db-admin:otscache" in lines(f"{t}/snap/members"),
               read(f"{t}/snap/members"))
         put(f"{t}/rcd/agent-fabric-accounts.rc", "# stale\n")
-        run(["bash", WRITER, "db-admin"])
+        run([sys.executable, "-I", WRITER, "db-admin"])
         check("an installed boot script that differs is refreshed",
               filecmp.cmp(RC, f"{t}/rcd/agent-fabric-accounts.rc", shallow=False))
         hidden = [n for n in os.listdir(f"{t}/snap") if n.startswith(".") and n != ".lock"]
@@ -203,12 +203,12 @@ def main() -> int:
               "enable-linger db-admin" in lines(log) and "enable-linger edge-hosting" in lines(log), read(log))
         put(f"{t}/etc/passwd", read(f"{t}/etc/passwd").replace(
             "edge-hosting:x:1011:1011:agent-fabric edge-hosting", "edge-hosting:x:1011:1011:renamed"))
-        run(["bash", WRITER, "edge-hosting"])
+        run([sys.executable, "-I", WRITER, "edge-hosting"])
         check("a changed line replaces the old one, never a second",
               sum(1 for ln in lines(f"{t}/snap/passwd") if ln.startswith("edge-hosting:")) == 1
               and "renamed" in read(f"{t}/snap/passwd"), read(f"{t}/snap/passwd"))
         check("other logins' lines kept", sum(1 for ln in lines(f"{t}/snap/passwd") if ln.startswith("db-admin:")) == 1)
-        rc, out, err = run(["bash", WRITER, "no-such-login"])
+        rc, out, err = run([sys.executable, "-I", WRITER, "no-such-login"])
         check("an unknown login is refused, named", rc != 0 and "no such account" in out + err, out + err)
 
         print("writer on a persistent platform: linger only, no snapshot")
@@ -216,7 +216,7 @@ def main() -> int:
             shutil.rmtree(f"{t}/{d}", ignore_errors=True)
         put(log, "")
         env["AGENT_FABRIC_PLATFORM"] = "fedora"
-        run(["bash", WRITER, "db-admin"])
+        run([sys.executable, "-I", WRITER, "db-admin"])
         check("no snapshot written; linger enabled",
               not os.path.exists(f"{t}/snap") and not os.path.exists(f"{t}/rcd") and "enable-linger db-admin" in lines(log),
               read(log))

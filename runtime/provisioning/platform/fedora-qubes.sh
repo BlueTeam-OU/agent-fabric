@@ -5,7 +5,7 @@
 # the operator through the `qubes` group (which role accounts are not in).
 # The account records themselves (/etc/passwd and its siblings) and the
 # linger flag are on the volatile root: runtime/provisioning/
-# persist-accounts.sh snapshots them under /rw/config/agent-fabric/ and
+# persist_accounts.py snapshots them under /rw/config/agent-fabric/ and
 # platform/qubes/agent-fabric-accounts.rc re-adds them at boot from
 # /rw/config/rc.local.d (found 2026-09-17: fifteen accounts that had never
 # met a reboot).

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""runtime/provisioning/rename-working-copy.sh, the shell half of the
+"""tools/fabric/provisioning/rename_working_copy.py, the first half of the
 rename: it refuses before touching anything, stops where a step fails,
 and hands the history to rename_history.py only once the tree is at its
 new path. Fakes for sudo (runs the rest as this user), getent (a sandbox
@@ -21,7 +21,7 @@ import tempfile
 os.environ["GIT_CONFIG_GLOBAL"] = os.devnull
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 UNDER_TEST = os.path.abspath(os.environ.get("RENAME_WORKING_COPY")
-                             or os.path.join(ROOT, "runtime", "provisioning", "rename-working-copy.sh"))
+                             or os.path.join(ROOT, "tools", "fabric", "provisioning", "rename_working_copy.py"))
 if not os.path.isfile(UNDER_TEST):
     sys.exit(f"test: script under test not found at {UNDER_TEST}")
 LOGIN = "zz-rename-fixture"
@@ -94,7 +94,7 @@ def main() -> int:
             put(f"{key('old')}/s.jsonl", f'{{"cwd":"{old}"}}\n')
 
         def rename(*args: str) -> tuple[int, str]:
-            r = subprocess.run(["bash", UNDER_TEST, LOGIN, "old", "new", *args], env=env, stdout=subprocess.PIPE,
+            r = subprocess.run([sys.executable, "-I", UNDER_TEST, LOGIN, "old", "new", *args], env=env, stdout=subprocess.PIPE,
                                stderr=subprocess.STDOUT, text=True, timeout=120)
             return r.returncode, r.stdout
 
