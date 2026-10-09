@@ -129,7 +129,7 @@ LIST_CAP = 500
 INFLIGHT_PATHS_CAP = 200   # a row's paths as data; the total is always given
 GATE_QUERY = """query($owner: String!, $name: String!, $number: Int!) {
   repository(owner: $owner, name: $name) { pullRequest(number: $number) {
-    mergeStateStatus mergeable
+    mergeStateStatus mergeable headRefOid
     reviewThreads(first: 100) { nodes { isResolved } pageInfo { hasNextPage endCursor } }
     mergeQueueEntry { position state }
     autoMergeRequest { enabledAt }
@@ -138,8 +138,11 @@ GATE_QUERY = """query($owner: String!, $name: String!, $number: Int!) {
       ... on StatusContext { context state } } } } } } }"""
 # The rest of the checks past GATE_QUERY's first 100. Read whole or not at
 # all: a red check on page two read as "green" would let a PR be armed.
+# headRefOid is asked again because the rollup is the CURRENT head's: a
+# push between the pages would splice two heads' checks into one answer.
 CONTEXTS_QUERY = """query($owner: String!, $name: String!, $number: Int!, $after: String) {
   repository(owner: $owner, name: $name) { pullRequest(number: $number) {
+    headRefOid
     statusCheckRollup { contexts(first: 100, after: $after) { pageInfo { hasNextPage endCursor } nodes {
       ... on CheckRun { name status conclusion }
       ... on StatusContext { context state } } } } } } }"""
@@ -274,21 +277,28 @@ def split_range(num: int, repo: str, rev_range: str) -> dict:
 
 # ── checks, threads, arming, queue, merge state ─────────────────────
 
-def check_contexts(owner: str, name: str, num: int, after: str | None) -> list[dict]:
-    """The PR's check contexts from `after` on, page by page. Raises
-    gh.GhError (or a lookup error on a malformed answer) when any page
-    cannot be read, and ValueError past CONTEXT_PAGES pages."""
+def check_contexts(owner: str, name: str, num: int, after: str | None, head: str) -> list[dict]:
+    """The check contexts of the PR's `head` from `after` on, page by page.
+    Raises gh.GhError (or a lookup error on a malformed answer) when any
+    page cannot be read, and ValueError for a continuation with no cursor
+    (GitHub reads a null `after` as the first page, so it would be counted
+    twice), a head that moved, or more than CONTEXT_PAGES pages."""
     nodes: list[dict] = []
     for _ in range(CONTEXT_PAGES):
+        if not after:
+            raise ValueError("a next page of checks with no cursor")
         data = gh.graphql(CONTEXTS_QUERY, owner=owner, name=name, number=num, after=after)
-        page = data["repository"]["pullRequest"]["statusCheckRollup"]["contexts"]
+        pr = data["repository"]["pullRequest"]
+        if not head or pr["headRefOid"] != head:
+            raise ValueError("the head moved while its checks were read")
+        page = pr["statusCheckRollup"]["contexts"]
+        if not isinstance(page["nodes"], list):
+            raise TypeError("a page of checks that is not a list")
         nodes += [n for n in page["nodes"] if isinstance(n, dict)]
         info = page.get("pageInfo") or {}
         if not info.get("hasNextPage"):
             return nodes
         after = info.get("endCursor")
-        if not after:
-            raise ValueError("a next page of checks with no cursor")
     raise ValueError(f"more than {CONTEXT_PAGES * 100} checks")
 
 
@@ -301,10 +311,13 @@ def gate_state(repo: str, num: int) -> dict | None:
     if not isinstance(pr, dict):
         return None
     contexts = (pr.get("statusCheckRollup") or {}).get("contexts") or {}
-    nodes: list[dict] | None = [n for n in (contexts.get("nodes") or []) if isinstance(n, dict)]
-    if (contexts.get("pageInfo") or {}).get("hasNextPage"):
+    first = contexts.get("nodes") or []
+    nodes: list[dict] | None = [n for n in first if isinstance(n, dict)] if isinstance(first, list) else None
+    if nodes is not None and (contexts.get("pageInfo") or {}).get("hasNextPage"):
         try:
-            nodes = nodes + check_contexts(owner, name, num, contexts["pageInfo"].get("endCursor"))
+            head = pr.get("headRefOid")
+            nodes = nodes + check_contexts(owner, name, num, contexts["pageInfo"].get("endCursor"),
+                                           head if isinstance(head, str) else "")
         except (gh.GhError, ValueError, TypeError, KeyError, AttributeError):
             nodes = None
     checks = "?" if nodes is None else checks_of(nodes)
@@ -315,7 +328,11 @@ def gate_state(repo: str, num: int) -> dict | None:
         # Past the first 100 the count was short and read as whole (review
         # of #71): the rest are read page by page, and a rest that cannot be
         # read makes the count unknown, which blocks like any count but 0.
+        # A null cursor is not a continuation: review_threads would start
+        # again at the first page and count it twice.
         try:
+            if not info.get("endCursor"):
+                raise ValueError("a next page of review threads with no cursor")
             threads = threads + pr_review_status.review_threads(owner, name, num, after=info.get("endCursor"))
         except (gh.GhError, ValueError, TypeError, KeyError, AttributeError):
             threads = None
