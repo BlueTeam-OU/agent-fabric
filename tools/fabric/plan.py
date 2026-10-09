@@ -342,7 +342,7 @@ def md_text(value: Any) -> str:
 def render_step(s: dict) -> str:
     where = f"{s['owner']}" + (f" -> {s['job']}" if s.get("job") else "")
     tail = f"  ({printable(s['reason'])})" if s.get("reason") else ""
-    return f"  {s['id']:<5}{s['state']:<10}{where:<34}{s['title']}{tail}"
+    return f"  {s['id']:<5}{s['state']:<10}{where:<33} {s['title']}{tail}"      # the space is the separator whatever the width
 
 
 def cmd_show(a: argparse.Namespace, reader: Any) -> int:

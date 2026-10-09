@@ -31,7 +31,6 @@ Python control plane must judge a request exactly as the Node one does
                    thread (9,998 on 3.13.15, 52,153 on 3.14.7, 8 MiB);
                    under an unlimited limit it gets glibc's 2 MiB
                    default, 12,832 levels on 3.14.7, 9,998 on 3.13.15.
-                   3.12 (CI) is not measured; its leg runs the test.
                    A record past the stop is refused here and read
                    there.
                    Node's own limits are its stack, not a rule (its

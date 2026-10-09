@@ -39,7 +39,7 @@ if [[ "$PHASE" == prepare ]]; then
     # shellcheck source=runtime/provisioning/platform/detect.sh
     . "$ROOT/runtime/provisioning/platform/detect.sh"
     missing_pkgs=()
-    for tool in "${FABRIC_HOST_TOOLS[@]}"; do command -v "$tool" >/dev/null 2>&1 || missing_pkgs+=("$(pkg_for "$tool")"); done
+    for tool in "${FABRIC_HOST_TOOLS[@]}"; do command -v "$tool" >/dev/null 2>&1 || missing_pkgs+=("$(pkg_for "$tool")"); done; command -v python3 >/dev/null 2>&1 && ! host_python_ok && die "this host's python3 ($(python3 -V 2>&1)) is older than $FABRIC_HOST_PYTHON_MIN, the fabric's floor (ADR-040 rule 1); install a newer python3, then rerun"
     (( ${#missing_pkgs[@]} )) && mapfile -t missing_pkgs < <(printf '%s\n' "${missing_pkgs[@]}" | sort -u)
     "$PY" -I "$W" audit "$PLATFORM_ID" "$PERSISTS_ACROSS_REBOOT" "$PKG_INSTALL_HINT" "${#FABRIC_HOST_TOOLS[@]}" "${missing_pkgs[@]+"${missing_pkgs[@]}"}"
     # ---- 1. the account, its subordinate ids, home 700, the shared cache, linger

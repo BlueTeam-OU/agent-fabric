@@ -61,32 +61,71 @@ def _assigned(node: ast.AST) -> list[tuple[list[str], ast.AST]]:
     return []
 
 
+def _own_statements(fn: ast.AST) -> list[ast.AST]:
+    """The nodes of a function's or class's own body in source order, not
+    crossing into the functions, lambdas and classes nested in it."""
+    out: list[ast.AST] = []
+    stack = list(ast.iter_child_nodes(fn))
+    while stack:
+        node = stack.pop()
+        out.append(node)
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda, ast.ClassDef)):
+            stack.extend(ast.iter_child_nodes(node))
+    return sorted(out, key=lambda n: (getattr(n, "lineno", 0), getattr(n, "col_offset", 0)))
+
+
+def _scope_bindings(nodes: list[ast.AST]) -> tuple[dict[str, int], set[str]]:
+    """({name: line of its first $-pattern binding}, every name bound) among
+    `nodes`. Order does not matter: a name bound anywhere in a scope is that
+    scope's (Python's rule), and one $-pattern binding of it is enough."""
+    patterns: dict[str, int] = {}
+    names_bound: set[str] = set()
+    for node in nodes:
+        for names, value in _assigned(node):
+            for n in names:
+                names_bound.add(n)
+                if _is_dollar_compile(value):
+                    patterns.setdefault(n, node.lineno)
+    return patterns, names_bound
+
+
 def _is_dollar_compile(value: ast.AST) -> bool:
     return _is_re_call(value, "compile") and _literal_dollar_pattern(value, 1)
 
 
 class _Module:
-    """What one file says about names that could be a `$`-ended pattern:
-    its module-level bindings, its classes' attributes, what it imports,
-    plain re-bindings, and each .match call with the scope it is made in.
-    Bindings are scoped: a function's parameter or local of the same name
-    hides the module's (a pattern bound in one function says nothing of a
-    parameter in another, review of #140), and a function's own pattern
-    binding counts in that function."""
+    """What one file says about names that could be a `$`-ended pattern.
+
+    The rule over-reports by design and never under-reports: .fullmatch is
+    never wrong for an anchored pattern, so a false finding costs a harmless
+    change, a missed one the trailing-newline bug. So resolution follows
+    Python's scoping, which does not depend on order, and not the order of
+    statements (three review rounds of #143 each found a gap in an ordered
+    model): a name bound anywhere in a function is local to it and is a
+    pattern there if any of its bindings is; at module level likewise, aliases
+    included; a class that binds a name decides it for itself and its
+    subclasses, else its bases do."""
 
     def __init__(self, tree: ast.AST):
-        # (call, the function's own pattern bindings, the names it rebinds otherwise)
-        self.matches: list[tuple[ast.Call, dict[str, int], frozenset[str]]] = []
+        # (call, the patterns local to its function chain, the names a
+        # function binds otherwise, which hide the module's; the class whose
+        # methods resolve self./cls.)
+        self.matches: list[tuple[ast.Call, dict[str, int], frozenset[str], str | None]] = []
+        # module-level names with a $-pattern binding, and every alias
+        # (`A = B`, `A = mod.B`) each module-level name has
         self.bound: dict[str, int] = {}
-        # `X = re.compile(...)` in a class body, for self.X / cls.X / Class.X
-        self.class_bound: dict[str, int] = {}
+        self.aliases: dict[str, list[tuple[str, ...]]] = {}
+        # (class, X): the line of a $-pattern binding of X in that class's
+        # body; class_binds: every (class, X) the body binds at all
+        self.class_patterns: dict[tuple[str, str], int] = {}
+        self.class_binds: set[tuple[str, str]] = set()
         self.class_names = {n.name for n in ast.walk(tree) if isinstance(n, ast.ClassDef)}
+        # a class's bases that are classes of this module
+        self.class_bases: dict[str, list[str]] = {}
         # asname -> (level, module, name) for `from module import name`
         self.froms: dict[str, tuple[int, str, str]] = {}
         # asname -> dotted module for `import module`
         self.imports: dict[str, str] = {}
-        # `A = B` and `A = mod.B`: the right-hand side
-        self.aliases: dict[str, tuple[str, ...]] = {}
         self._scope(tree, None, {}, frozenset())
         for node in ast.walk(tree):
             if isinstance(node, ast.ImportFrom):
@@ -98,46 +137,57 @@ class _Module:
                     if a.asname or "." not in a.name:
                         self.imports[a.asname or a.name] = a.name
 
-
-    def _scope(self, node: ast.AST, fn: ast.AST | None, local: dict[str, int], hidden: frozenset[str]) -> None:
-        """Walk one scope: the module's (fn None) or a function's, with the
-        names that function binds; a nested function starts its own."""
+    def _scope(self, node: ast.AST, fn: ast.AST | None, local: dict[str, int], hidden: frozenset[str],
+               cls: str | None = None, in_class_body: bool = False) -> None:
+        """Walk one scope: the module's (fn None), a class body's, or a
+        function's. A nested function sees its enclosing function's names (a
+        closure) unless it binds them itself."""
         for child in ast.iter_child_nodes(node):
             if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
                 params = {a.arg for a in ast.walk(child.args) if isinstance(a, ast.arg)}
-                own: dict[str, int] = {}
-                others: set[str] = set(params)
-                for sub in ast.walk(child):
-                    for names, value in _assigned(sub):
-                        for n in names:
-                            if _is_dollar_compile(value):
-                                own[n] = sub.lineno
-                            else:
-                                others.add(n)
-                self._scope(child, child, own, frozenset(others - set(own)))
+                patterns, names_bound = _scope_bindings(_own_statements(child))
+                own = {n: line for n, line in patterns.items() if n not in params}
+                mine = params | names_bound
+                inner_local = {k: v for k, v in local.items() if k not in mine} | own
+                inner_hidden = frozenset((set(hidden) | mine) - set(own))
+                self._scope(child, child, inner_local, inner_hidden, cls)
                 continue
             if isinstance(child, ast.ClassDef):
-                for stmt in child.body:
-                    for names, value in _assigned(stmt):
-                        if _is_dollar_compile(value):
-                            for n in names:
-                                self.class_bound[n] = stmt.lineno
-                self._scope(child, fn, local, hidden)
+                self.class_bases[child.name] = [b.id for b in child.bases if isinstance(b, ast.Name)]
+                patterns, names_bound = _scope_bindings(_own_statements(child))
+                self.class_binds |= {(child.name, n) for n in names_bound}
+                for n, line in patterns.items():
+                    self.class_patterns[(child.name, n)] = line
+                # a class body's names are its attributes, not the module's
+                self._scope(child, fn, local, hidden, child.name, in_class_body=True)
                 continue
-            if fn is None:
+            if fn is None and not in_class_body:
                 for names, value in _assigned(child):
-                    if _is_dollar_compile(value):
-                        for n in names:
-                            self.bound[n] = child.lineno
-                    elif isinstance(value, ast.Name):
-                        for n in names:
-                            self.aliases[n] = (value.id,)
-                    elif isinstance(value, ast.Attribute) and isinstance(value.value, ast.Name):
-                        for n in names:
-                            self.aliases[n] = (value.value.id, value.attr)
+                    for n in names:
+                        if _is_dollar_compile(value):
+                            self.bound.setdefault(n, child.lineno)
+                        elif isinstance(value, ast.Name):
+                            self.aliases.setdefault(n, []).append((value.id,))
+                        elif isinstance(value, ast.Attribute) and isinstance(value.value, ast.Name):
+                            self.aliases.setdefault(n, []).append((value.value.id, value.attr))
             if isinstance(child, ast.Call) and isinstance(child.func, ast.Attribute) and child.func.attr == "match":
-                self.matches.append((child, local, hidden))
-            self._scope(child, fn, local, hidden)
+                self.matches.append((child, local, hidden, cls))
+            # an if, a try or a with in a class body is still the class body
+            self._scope(child, fn, local, hidden, cls, in_class_body)
+
+    def class_pattern(self, cls: str, attr: str, seen: frozenset = frozenset()) -> int | None:
+        """The line of a $-pattern binding of `attr` as `cls` has it: a class
+        that binds it decides; one that does not inherits from its bases
+        of this module."""
+        if cls in seen:
+            return None
+        if (cls, attr) in self.class_binds:
+            return self.class_patterns.get((cls, attr))
+        for base in self.class_bases.get(cls, []):
+            line = self.class_pattern(base, attr, seen | {cls})
+            if line:
+                return line
+        return None
 
 
 class _Resolver:
@@ -198,11 +248,10 @@ class _Resolver:
             level, dotted, orig = mod.froms[name]
             target = self.file_of(rel, level, dotted)
             return self.pattern(target, orig, seen) if target else None
-        alias = mod.aliases.get(name)
-        if alias and len(alias) == 1:
-            return self.pattern(rel, alias[0], seen)
-        if alias:
-            return self.attribute(rel, alias[0], alias[1], seen)
+        for alias in mod.aliases.get(name, []):
+            hit = self.pattern(rel, alias[0], seen) if len(alias) == 1 else self.attribute(rel, alias[0], alias[1], seen)
+            if hit:
+                return hit
         return None
 
     def attribute(self, rel: str, holder: str, attr: str, seen: frozenset = frozenset()) -> tuple[str, int] | None:
@@ -238,7 +287,7 @@ def regex_dollar_findings(root: str) -> list[str]:
         if mod is None:
             continue
         found: list[tuple[int, str]] = []
-        for node, local, hidden in mod.matches:
+        for node, local, hidden, cls in mod.matches:
             if _is_re_call(node, "match") and _literal_dollar_pattern(node, 2):
                 found.append((node.lineno, f"{rel}:{node.lineno}: re.match with a pattern ending in `$` accepts one trailing newline "
                                 "— use re.fullmatch (or end the pattern in \\Z)"))
@@ -254,8 +303,10 @@ def regex_dollar_findings(root: str) -> list[str]:
                     hit = resolver.pattern(rel, name)
             elif isinstance(target, ast.Attribute) and isinstance(target.value, ast.Name):
                 name = f"{target.value.id}.{target.attr}"
+                owner = cls if target.value.id in ("self", "cls") else target.value.id
                 if target.value.id in ("self", "cls") or target.value.id in mod.class_names:
-                    hit = (rel, mod.class_bound[target.attr]) if target.attr in mod.class_bound else None
+                    line = mod.class_pattern(owner, target.attr) if owner else None
+                    hit = (rel, line) if line else None
                 else:
                     hit = resolver.attribute(rel, target.value.id, target.attr)
             if hit:
