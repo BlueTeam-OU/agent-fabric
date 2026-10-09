@@ -22,6 +22,8 @@ import tempfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 HERE = os.path.join(ROOT, "runtime", "provisioning")
+sys.path.insert(0, os.path.join(ROOT, "tests"))
+from instance_fixtures import SECRETS_REGISTRY, write_json  # noqa: E402
 LOGIN = pwd.getpwuid(os.geteuid()).pw_name
 # The fixture template's token and its fingerprint, as store templates prints it.
 TOKEN = "sk-ant-oat01-fixture-token"
@@ -198,15 +200,16 @@ def main() -> int:
             except OSError:
                 return ""
 
-        # A fixture fabric: the real roles and registry, a fake claude to
+        # A fixture fabric: its own role and registry, a fake claude to
         # copy from; a fixture copies the modules of the scripts it copies
         # (ADR-040 §5 rule 5).
         fab = f"{sandbox}/fabric"
         for d in ("runtime/provisioning/secrets", "projects", "runtime/claude-code", "tools/fabric"):
             os.makedirs(f"{fab}/{d}")
         os.makedirs(f"{sandbox}/home/.local/bin")
-        shutil.copytree(f"{ROOT}/identities/roles", f"{fab}/identities/roles")
-        shutil.copy(f"{ROOT}/projects/registry.json", f"{fab}/projects/")
+        # The role the cases ask for, and the registry's projects; the remotes are the fixture's.
+        put(f"{fab}/identities/roles/backend-dev/charter.md", "# backend-dev\n")
+        write_json(f"{fab}/projects/registry.json", SECRETS_REGISTRY)
         for f in ("new-agent.sh", "new-agent-worker.sh", "persist-accounts.sh", "github-host-keys"):
             shutil.copy2(f"{HERE}/{f}", f"{fab}/runtime/provisioning/")
         shutil.copytree(f"{ROOT}/runtime/hostexec", f"{fab}/runtime/hostexec", symlinks=True)
@@ -262,7 +265,7 @@ def main() -> int:
                      "curl -fsSL https://openrouter.ai/labs/ori/install.sh | bash", "append GitHub's published host keys",
                      "git clone -q 'https://github.com/gzapi-org/agent-fabric.git'", "store-enroll.sh zz-fixture-login --host",
                      "provision identity, share, issue-key openrouter and openai",
-                     "git clone -q 'git@github.com:gzapi-org/gzapp.git'", "bootstrap.sh", "fabric-role bind 'backend-dev'"):
+                     "git clone -q 'git@github.com:fixture-org/gzapp.git'", "bootstrap.sh", "fabric-role bind 'backend-dev'"):
             ok(f"plans: {step}", step in out, out)
         ok("…and verifies nothing", "dry run: nothing verified" in out, out)
         ok("no account was created", subprocess.run(["getent", "passwd", "zz-fixture-login"], stdout=subprocess.DEVNULL,

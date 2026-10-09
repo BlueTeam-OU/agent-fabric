@@ -23,6 +23,7 @@ SYNC = os.path.join(ROOT, "tools", "fabric", "secrets_sync.py")
 sys.path.insert(0, os.path.dirname(TOOL))
 import secret_store  # noqa: E402 — the id helpers, beside the CLI under test
 from git_env import scrub_process_env  # noqa: E402 — tests/, the script's own directory
+from instance_fixtures import write_secrets_instance  # noqa: E402
 scrub_process_env()
 
 
@@ -41,7 +42,7 @@ def main() -> int:
         os.makedirs(os.path.join(fabric, "identities", "keys"))
         # set asks the registry which names are managed (secretstore/reserved.py).
         os.makedirs(os.path.join(fabric, "projects"))
-        shutil.copy(os.path.join(ROOT, "projects", "registry.json"), os.path.join(fabric, "projects", "registry.json"))
+        write_secrets_instance(fabric)
 
         def role(name: str) -> dict:
             h, g = os.path.join(tmp, name), os.path.join(tmp, f"{name}-gnupg")
@@ -52,7 +53,7 @@ def main() -> int:
             # here at its repository) and no machine /etc/gitconfig: a scratch
             # role reads only its own git config.
             return {**{k: v for k, v in os.environ.items() if not k.startswith(("AGENT_FABRIC_", "GITHUB_", "CLAUDE", "GIT_"))},
-                    "HOME": h, "GNUPGHOME": g, "AGENT_FABRIC_ROOT": fabric,
+                    "HOME": h, "GNUPGHOME": g, "AGENT_FABRIC_ROOT": fabric, "AGENT_FABRIC_OPERATOR": fabric,
                     "AGENT_FABRIC_SECRET_STORE": os.path.join(h, "store"), "GIT_CONFIG_GLOBAL": os.path.join(h, ".gitconfig"),
                     "GIT_CONFIG_NOSYSTEM": "1"}
 
