@@ -14,9 +14,8 @@ agent account for three kinds of pane: a shell, the harness (`--wait`,
 `--resume`) and the status pane (`--watch`). Today every one of them is
 `moveto`, which is `sudo -n -u <login>` from `user`. That makes the deck's
 every pane depend on `user`'s unrestricted sudo, gives the entered process
-sudo's reset environment rather than the account's login, and starts
-`--resume` before the account's `~/.bashrc` has run — so a session resumed
-from a pane can miss what the account's shell sets.
+sudo's reset environment rather than the account's own (`enter` is a
+login shell, so the account's login files do run).
 
 Every account of the fleet lives on one host today, a Qubes AppVM
 (`develop-qzapp`, Fedora), where only `/rw` (`/home`, `/rw/config`,
@@ -37,11 +36,11 @@ everything else is saved under `/rw/config` and restored at boot.
 ## 3. Alternatives Considered
 
 - **Keep sudo for the panes.** Rejected: every pane rides the operator's
-  full sudo, the entered shell is not the account's login, and `--resume`
-  runs before `~/.bashrc`.
+  full sudo, and the entered shell gets sudo's reset environment rather
+  than the account's own.
 - **A restricted sudoers rule per account** (`user ALL=(<login>) NOPASSWD:
   /usr/local/share/moveto/enter`). Rejected: sudo still resets the
-  environment and skips the login shell, and sudoers lives in `/etc`,
+  environment, and sudoers lives in `/etc`,
   which needs the same `/rw` restore as sshd without sshd's per-key fence.
 - **`~/.ssh/authorized_keys` in each account.** Rejected: the account owns
   that file, so an agent could add a key of its own to itself, or drop
