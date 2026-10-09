@@ -93,6 +93,7 @@ from fabric_lint_rules.schema import SCHEMA_KEYWORDS, _SCHEMA_MAPS, _json_equal,
 from fabric_lint_rules.schema import _structural_check, fabric_settings_findings, load_json  # noqa: E402, F401
 from fabric_lint_rules.schema import load_schema, model_profile_findings, python_pin_findings  # noqa: E402, F401
 from fabric_lint_rules.schema import schema_keyword_findings, validate_json  # noqa: E402, F401
+from fabric_lint_rules.regex import regex_dollar_findings  # noqa: E402, F401
 from fabric_lint_rules.shape import BASH_LINE_LIMIT, BASH_SHEBANG, _is_bash, bash_size_findings  # noqa: E402, F401
 from fabric_lint_rules.shape import candidate_role_findings, host_registry_findings  # noqa: E402, F401
 from fabric_lint_rules.locales import AGENT_FRONTMATTER_RE, I18N_CONTROL_RE, I18N_DEFAULT_REL  # noqa: E402, F401
@@ -529,6 +530,7 @@ def main() -> int:
 
     # --- bash over 150 lines only where the allowlist says (ADR-040) ---------
     findings += bash_size_findings(root)
+    findings += regex_dollar_findings(root)
     findings += arm_boundary_findings(root)
 
     # --- a session started in this clone gets the workspace's hooks ---------
@@ -664,7 +666,7 @@ def main() -> int:
             #     - [`path`](path) — description
             index_described: dict[str, str] = {}
             for line in index_text.splitlines():
-                m = re.match(r"^- \[`([^`]+)`\]\(([^)]+)\) — (.*)$", line)
+                m = re.fullmatch(r"^- \[`([^`]+)`\]\(([^)]+)\) — (.*)$", line)
                 if m and m.group(1) == m.group(2):
                     index_described[m.group(2)] = m.group(3).strip()
             for rel in sorted(expected):

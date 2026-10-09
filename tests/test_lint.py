@@ -1631,6 +1631,42 @@ def case_bash_over_150_lines_needs_the_allowlist() -> None:
         assert not any("is added" in f for f in got), f"an entry the fork point had is not an addition: {got}"
 
 
+def case_a_dollar_anchored_pattern_is_not_called_with_match() -> None:
+    """`$` also matches before one final newline, so `.match` accepts
+    "abc\n"; .fullmatch does not. The rule reads each tracked .py file."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("fabric_lint_under_test", LINT)
+    lint = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(lint)
+    with tempfile.TemporaryDirectory() as root:
+        g = lambda *a: subprocess.run(["git", "-C", root, *a], check=True, capture_output=True, env=git_env())
+        write(os.path.join(root, "tools", "bad.py"),
+              "import re\n"
+              "A = re.compile(r\"^[a-z]+$\")\n"            # line 2
+              "B: re.Pattern = re.compile(r'^x$', re.I)\n"  # line 3
+              "def f(s):\n"
+              "    if A.match(s) or B.match(s):\n"            # line 5
+              "        return re.match(r'^y$', s)\n")         # line 6
+        write(os.path.join(root, "tools", "good.py"),
+              "import re\n"
+              "A = re.compile(r\"^[a-z]+$\")\n"
+              "M = re.compile(r\"^[a-z]+$\", re.M)\n"
+              "N = re.compile(r\"(?m)^[a-z]+$\")\n"
+              "L = re.compile(r\"^[a-z]+\\$\")\n"        # an escaped dollar is a literal
+              "Z = re.compile(r\"^[a-z]+\\Z\")\n"
+              "P = re.compile(r\"^[a-z]+\")\n"
+              "def f(s):\n"
+              "    return (A.fullmatch(s), M.match(s), N.match(s), L.match(s), Z.match(s), P.match(s), A.search(s),\n"
+              "            re.match(r'^y', s), re.match(r'^y$', s, re.M), re.fullmatch(r'^y$', s))\n")
+        write(os.path.join(root, "tools", "notes.txt"), "A.match(s) and re.match(r'^y$', s)\n")
+        g("init", "-q", "-b", "main")
+        g("add", "-A")
+        got = lint.regex_dollar_findings(root)
+        assert [f.split(" ")[0] for f in got] == ["tools/bad.py:5:", "tools/bad.py:5:", "tools/bad.py:6:"], got
+        assert any("A.match" in f and "line 2" in f for f in got) and any("B.match" in f and "line 3" in f for f in got), got
+        assert all("fullmatch" in f for f in got), got
+
+
 def case_a_contributor_entry_never_reaches_a_definition() -> None:
     """ADR-018 §5 rule 8: a contributor's entry names a catalogued role, is
     whole, and admits nothing that defines a role — however broad its
@@ -1968,6 +2004,7 @@ def main() -> int:
         case_a_bound_and_held_role_is_not_a_candidate,
         case_a_managed_projects_name_stays_out_of_generic_files,
         case_review_lenses_are_named_described_and_bounded,
+        case_a_dollar_anchored_pattern_is_not_called_with_match,
         case_a_contributor_entry_never_reaches_a_definition,
         case_the_fallback_validator_agrees_with_jsonschema,
         case_the_python_pin_is_checkable_and_what_ci_runs,
