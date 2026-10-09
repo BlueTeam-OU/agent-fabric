@@ -93,7 +93,7 @@ class Host(Base):
         os.mkfifo(os.path.join(leases, "a-fifo"))
         os.symlink(os.path.join(leases, "backend-test"), os.path.join(leases, "a-link"))
         # a record grown past the bound: only the first line's first 256 bytes are read
-        write(os.path.join(leases, "big-one"), "db-admin 7 2026-09-19T00:00:00Z big-one" + " " * 5000 + "\n" + "x" * 100000)
+        write(os.path.join(leases, "big-one"), "db-admin 7 2026-09-19T00:00:00Z big-one" + " " * 5000 + "(late)\n" + "x" * 100000)
         before = len(os.listdir("/proc/self/fd"))
         h = ops.host(proc=proc, sys=sysd, leases=leases, run=run, cpus=6, statfs=statfs)
         self.assertEqual(len(os.listdir("/proc/self/fd")), before, "every probed descriptor is closed, on the held path and the free path alike")
@@ -268,6 +268,8 @@ class Accounts(Base):
         msg = "Failed to refresh OAuth token: another Claude Code process is refreshing it"
         self.assertEqual(ops.parse_usage_report(json.dumps([{"type": "result", "is_error": True, "result": msg}])), {"status": "failed", "error": msg})
         self.assertEqual(ops.parse_usage_report("not json")["status"], "unreadable")
+        odd = ops.parse_usage_report(json.dumps([{"type": "assistant", "usage_report": {"rate_limits": {"limits": [{"kind": "session", "percent": "11"}, {"kind": "x", "percent": True}]}}}]))
+        self.assertEqual([lim["percent"] for lim in odd["limits"]], [None, None], "a percent that is not a number is unknown, not 11 and not 1")
         self.assertEqual(ops.parse_usage_report(json.dumps([{"type": "result", "is_error": False}]))["status"], "no-report", "a success without the report is said, not read as zero usage")
 
     def test_read_account_the_child_runs_in_the_accounts_own_config_directory_with_no_inherited_token(self):
