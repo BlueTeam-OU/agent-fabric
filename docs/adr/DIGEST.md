@@ -888,6 +888,9 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-10-05 — `GZCOORD_JOURNAL=off` is a recorded break-glass: each
   bypassed crossing appends an audit line first, or is refused (§5 rule 10).
 - A 2026-10-06 — a bypassed send's second line records its outcome (§5 rule 10).
+- A 2026-10-09 — a resume fetches working events by query, ranked;
+  FTS5 stemmed + trigram fused by reciprocal rank is the recipe to
+  measure first (§7).
 - Keywords: episodic, history, journal, GZCoord, carrier, transport,
   relay, InterWeave, fabric-history, backfill.
 

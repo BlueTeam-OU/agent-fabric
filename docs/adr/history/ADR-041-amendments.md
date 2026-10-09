@@ -28,3 +28,7 @@ connection refused, a token refused before it left), and "unknown"
 otherwise — a timeout or a 5xx may come after the relay stored it. The
 journal's own row follows the same rule. Delivered by python-dev-01 on
 its contributor branch, reviewed there.
+
+### Amendment 2026-10-09 — What a resume reads from the journal, and how it is ranked
+
+The owner asked for an analysis of a context-saving MCP server (2026-10-09). It rebuilds a session's working state after compaction from an event log of edits, decisions and errors, retrieved by relevance rather than dumped, and ranks text with two FTS5 indexes (stemmed and trigram) fused by reciprocal rank. That is the shape this record's P5 (conversation turns) and P7 (a resume capsule) were left to find on a measured need. §7 now says what a resume reads and the ranking recipe to measure first; nothing is built, and the measured-need condition stands.
