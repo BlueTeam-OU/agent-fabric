@@ -7,13 +7,19 @@ test hands in. A negative case runs beside its positive control."""
 from __future__ import annotations
 
 import hashlib
+import http.client
 import io
 import os
+import signal
+import socket
 import subprocess
 import sys
 import tarfile
 import tempfile
+import threading
+import time
 import urllib.error
+import urllib.request
 from git_env import git_env, scrub_process_env  # noqa: E402 — tests/, the script's own directory
 scrub_process_env()
 
@@ -196,6 +202,92 @@ def main() -> int:
         check("through all of it the old file stands", open(os.path.join(home, ".local", "bin", "faketool"), "rb").read() == OLD
               and listing(home) == ["faketool"], listing(home))
 
+        print("every error path ends in a verdict")
+        home = account("pa")
+
+        def bad_status(url: str) -> bytes:
+            raise http.client.BadStatusLine("garbage")
+        r = run(home, reg, bad_status)
+        check("a malformed reply from the release host is failed, not a traceback", r["status"] == "failed" and "BadStatusLine" in r["reason"], r)
+        srv = socket.socket()
+        srv.bind(("127.0.0.1", 0))
+        srv.listen(1)
+        threading.Thread(target=lambda: (lambda c: (c.recv(4096), c.sendall(b"garbage\r\n\r\n"), c.close()))(srv.accept()[0]), daemon=True).start()
+        r = tools_install.install("faketool", reg=registry(("pa", entry(url=f"https://127.0.0.1:{srv.getsockname()[1]}/x"))),
+                                  home=home, fetch=tools_install.fetch_https)
+        srv.close()
+        check("...and through the real fetch (a host that does not speak TLS)", r["status"] == "failed" and listing(home) == [], (r, listing(home)))
+        home = account("pa")
+        import shutil
+        shutil.rmtree(os.path.join(home, ".local"))
+        with open(os.path.join(home, ".local"), "w") as fh:
+            fh.write("a file")
+        r = run(home, reg, serving(SCRIPT))
+        check("~/.local that is a file is failed, with the path", r["status"] == "failed" and ".local" in r["reason"], r)
+        home = account("pa")
+        for odd in ("a string", ["x"], 7):
+            bad = {**entry(), "install": odd}
+            r = run(home, registry(("pa", bad)))
+            check(f"an install pin that is {odd!r} is refused", r["status"] == "refused", r)
+        home = account("pa", "pb")
+        for first, second in ((["x"], entry()), (entry(), ["x"])):
+            r = run(home, registry(("pa", first if isinstance(first, dict) else {**entry(), "install": first}),
+                                   ("pb", second if isinstance(second, dict) else {**entry(), "install": second})))
+            check("...whichever project holds it", r["status"] == "refused", r)
+        home = account("pa", "pb")
+        other_proof = {**entry(), "proof": "faketool -V"}
+        r = run(home, registry(("pa", entry()), ("pb", other_proof)))
+        check("projects that agree on the pin but not on the proof are told apart", r["status"] == "refused" and "proofs" in r["reason"], r)
+
+        print("a pre-release is not the pinned version")
+        check("3.69.0-rc1 does not print 3.69.0", not tools_install.prints_version("doppler v3.69.0-rc1", "3.69.0"))
+        check("...and v3.69.0 does (positive control)", tools_install.prints_version("doppler v3.69.0", "3.69.0")
+              and not tools_install.prints_version("v13.69.0", "3.69.0") and not tools_install.prints_version("3.69.01", "3.69.0"))
+
+        print("temporaries")
+        home = account("pa")
+        bindir = os.path.join(home, ".local", "bin")
+        dead = subprocess.run([sys.executable, "-c", "import os; print(os.getpid())"], capture_output=True, text=True, timeout=30).stdout.strip()
+        for name in (f".faketool.{dead}.tmp", f".faketool.{os.getpid()}.tmp", f".other.{dead}.tmp", ".faketool.x.tmp"):
+            open(os.path.join(bindir, name), "w").close()
+        tools_install.sweep_temporaries(bindir, "faketool")
+        check("a dead run's temporary goes; a live one's, another tool's and a non-pid name stay",
+              sorted(os.listdir(bindir)) == sorted([f".faketool.{os.getpid()}.tmp", f".other.{dead}.tmp", ".faketool.x.tmp"]), sorted(os.listdir(bindir)))
+        os.unlink(os.path.join(bindir, f".faketool.{os.getpid()}.tmp"))
+        home = account("pa")
+        bindir = os.path.join(home, ".local", "bin")
+        open(os.path.join(bindir, f".faketool.{dead}.tmp"), "w").close()
+        r = run(home, reg, serving(SCRIPT))
+        check("an install sweeps what a killed run left", r["status"] == "installed" and listing(home) == ["faketool"], (r, listing(home)))
+
+        print("SIGTERM during the proof leaves no temporary")
+        home = account("pa")
+        slow = b"#!/bin/sh\nsleep 30\n"
+        driver = ("import sys, json; sys.path.insert(0, sys.argv[1]); import tools_install, tools_check\n"
+                  "tools_install.exit_on_sigterm()\n"
+                  "reg = json.loads(sys.argv[3])\n"
+                  "tools_install.install('faketool', reg=reg, home=sys.argv[2], fetch=lambda u: bytes.fromhex(sys.argv[4]))\n")
+        import json
+        proc = subprocess.Popen([sys.executable, "-c", driver, os.path.join(ROOT, "tools", "fabric"), home,
+                                 json.dumps(registry(("pa", entry(slow)))), slow.hex()],
+                                env={**os.environ, "PATH": f"{home}/.local/bin:{saved_path}"}, stdin=subprocess.DEVNULL)
+        deadline = time.time() + 30
+        while time.time() < deadline and not any(n.endswith(".tmp") for n in listing(home)):
+            time.sleep(0.05)
+        saw_tmp = any(n.endswith(".tmp") for n in listing(home))
+        proc.send_signal(signal.SIGTERM)
+        rc = proc.wait(timeout=30)
+        check("the temporary existed while the proof ran (positive control)", saw_tmp, listing(home))
+        check("after SIGTERM: exit 143, no temporary, nothing installed", rc == 128 + signal.SIGTERM and listing(home) == [], (rc, listing(home)))
+
+        print("fabric-tools --install arms the SIGTERM exit before it works")
+        probe = ("import sys, signal; sys.path.insert(0, sys.argv[1]); import tools_check, tools_install\n"
+                 "tools_check.registry = lambda: {'projects': {}}\n"
+                 "tools_install.install = lambda *a, **k: print(signal.getsignal(signal.SIGTERM) is signal.SIG_DFL) or {'status': 'skipped', 'tool': 'x'}\n"
+                 "sys.exit(tools_check.main(['--install', 'faketool']))\n")
+        r = subprocess.run([sys.executable, "-c", probe, os.path.join(ROOT, "tools", "fabric")], capture_output=True, text=True, timeout=60)
+        check("the handler is not the default by the time install runs", r.returncode == 0 and r.stdout.startswith("False\n"), (r.returncode, r.stdout, r.stderr[:200]))
+
         print("the https-only redirect")
         h = tools_install._HttpsOnly()
         try:
@@ -204,6 +296,9 @@ def main() -> int:
         except urllib.error.URLError:
             refused_redirect = True
         check("a redirect off https is refused", refused_redirect)
+        follows = h.redirect_request(urllib.request.Request("https://example.invalid/a"), io.BytesIO(), 302, "Found", {},
+                                     "https://cdn.example.invalid/b")
+        check("...and one that stays on https is followed (positive control)", follows is not None and follows.full_url == "https://cdn.example.invalid/b", follows)
 
         print("fabric-tools --install — the command")
         os.environ["PATH"] = saved_path

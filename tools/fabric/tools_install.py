@@ -33,11 +33,14 @@ Exit codes (fabric-tools): 0 current, installed or skipped; 1 failed;
 from __future__ import annotations
 
 import hashlib
+import http.client
 import io
 import os
 import re
 import shlex
+import signal
 import subprocess
+import sys
 import tarfile
 import urllib.error
 import urllib.request
@@ -129,7 +132,8 @@ def check_pin(pin: object) -> str | None:
 
 
 def prints_version(first_line: str, version: str) -> bool:
-    return re.search(r"(?<![\w.])v?" + re.escape(version) + r"(?![\w.])", first_line) is not None
+    # No "-" after the version either: 3.69.0-rc1 is not the pinned 3.69.0.
+    return re.search(r"(?<![\w.])v?" + re.escape(version) + r"(?![\w.-])", first_line) is not None
 
 
 def unpack(body: bytes, member: str | None) -> bytes:
@@ -150,6 +154,40 @@ def unpack(body: bytes, member: str | None) -> bytes:
         raise ValueError(f"the archive holds no {member}") from None
     except tarfile.TarError as e:
         raise ValueError(f"the asset is not a readable .tar.gz ({e})") from None
+
+
+def exit_on_sigterm() -> None:
+    """SIGTERM ends the run through `finally`, so the bound the control agent
+    puts on it (or a stopped unit) leaves no executable temporary behind;
+    Python's default would exit without running it."""
+    def stop(signum: int, frame: object) -> None:
+        sys.exit(128 + signum)
+    signal.signal(signal.SIGTERM, stop)
+
+
+def sweep_temporaries(bindir: str, tool: str) -> None:
+    """Remove the temporaries of runs that were killed outright (SIGKILL):
+    `.<tool>.<pid>.tmp` whose pid is no longer a process. A live pid's is
+    another run's, in flight, and stays."""
+    try:
+        names = os.listdir(bindir)
+    except OSError:
+        return
+    for name in names:
+        m = re.fullmatch(r"\." + re.escape(tool) + r"\.(\d+)\.tmp", name)
+        if not m:
+            continue
+        try:
+            os.kill(int(m.group(1)), 0)
+            continue
+        except ProcessLookupError:
+            pass
+        except OSError:
+            continue  # exists, or not ours to signal: not stale
+        try:
+            os.unlink(os.path.join(bindir, name))
+        except OSError:
+            pass
 
 
 def prove_file(proof: str, tool: str, path: str) -> tuple[str, str]:
@@ -175,14 +213,14 @@ def install(tool: str, *, reg: dict, home: str, projects_dir: str | None = None,
     if not wanted:
         return {"status": "skipped", "tool": tool,
                 "reason": f"no working copy of {', '.join(pid for pid, _ in declared)} on this account"}
-    pins = {(pid, repr(sorted((e.get("install") or {}).items()))) for pid, e in wanted}
-    if len({p[1] for p in pins}) != 1:
+    for pid, e in wanted:
+        bad = check_pin(e.get("install"))
+        if bad:
+            return {"status": "refused", "tool": tool, "reason": f"{pid}: {bad}"}
+    if len({repr((sorted(e["install"].items()), e.get("proof"))) for _, e in wanted}) != 1:
         return {"status": "refused", "tool": tool,
-                "reason": f"{', '.join(pid for pid, _ in wanted)} pin different installs of it"}
+                "reason": f"{', '.join(pid for pid, _ in wanted)} pin different installs or proofs of it"}
     entry = wanted[0][1]
-    bad = check_pin(entry.get("install"))
-    if bad:
-        return {"status": "refused", "tool": tool, "reason": bad}
     pin = entry["install"]
     version = pin["version"]
     status, found = tools_check.prove(entry["proof"])
@@ -190,8 +228,8 @@ def install(tool: str, *, reg: dict, home: str, projects_dir: str | None = None,
         return {"status": "current", "tool": tool, "version": version, "found": found}
     try:
         body = fetch(pin["url"])
-    except (OSError, ValueError, urllib.error.URLError) as e:
-        return {"status": "failed", "tool": tool, "reason": f"fetch: {getattr(e, 'reason', None) or e}"}
+    except (OSError, ValueError, http.client.HTTPException) as e:
+        return {"status": "failed", "tool": tool, "reason": f"fetch: {getattr(e, 'reason', None) or e!r}"}
     if hashlib.sha256(body).hexdigest() != pin["sha256"]:
         return {"status": "failed", "tool": tool, "reason": "the asset's sha256 is not the pinned one; nothing was unpacked or placed"}
     try:
@@ -199,10 +237,11 @@ def install(tool: str, *, reg: dict, home: str, projects_dir: str | None = None,
     except ValueError as e:
         return {"status": "failed", "tool": tool, "reason": str(e)}
     bindir = os.path.join(home, ".local", "bin")
-    os.makedirs(bindir, mode=0o755, exist_ok=True)
     target = os.path.join(bindir, tool)
     tmp = os.path.join(bindir, f".{tool}.{os.getpid()}.tmp")
     try:
+        os.makedirs(bindir, mode=0o755, exist_ok=True)
+        sweep_temporaries(bindir, tool)
         fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o755)
         with os.fdopen(fd, "wb") as fh:
             fh.write(payload)

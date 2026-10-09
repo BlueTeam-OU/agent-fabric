@@ -122,6 +122,7 @@ def main(argv: list[str]) -> int:
             print("fabric-tools: --install goes with --json only", file=sys.stderr)
             return 2
         import tools_install
+        tools_install.exit_on_sigterm()
         verdict = tools_install.install(install_tool, reg=reg, home=os.path.expanduser("~"))
         if as_json:
             print(json.dumps(verdict, indent=2))
