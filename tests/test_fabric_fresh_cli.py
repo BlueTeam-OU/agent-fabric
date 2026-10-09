@@ -17,6 +17,8 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from instance_fixtures import own_instance_tree  # noqa: E402 — tests/, the script's own directory
+own_instance_tree()
 
 # Every git this suite starts, fixture or under test, reads none of the
 # caller's ~/.gitconfig: set here, it reaches the calls that pass no env.

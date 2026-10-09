@@ -22,6 +22,8 @@ from gzcoord import gzmsg  # noqa: E402
 from secretstore import mirrors, trust  # noqa: E402
 import jobs as jobs_mod  # noqa: E402
 from assembler import core as asm_core  # noqa: E402
+from instance_fixtures import own_instance_tree  # noqa: E402 — tests/, the script's own directory
+own_instance_tree()
 
 CASES: list[tuple[str, Callable[[], None]]] = []
 SCRATCH: list[str] = []

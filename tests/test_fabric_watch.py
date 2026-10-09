@@ -15,6 +15,8 @@ import os
 import subprocess
 import sys
 import tempfile
+from instance_fixtures import own_instance_tree  # noqa: E402 — tests/, the script's own directory
+own_instance_tree()
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SHIM = os.path.join(HERE, "bin", "fabric-watch")
