@@ -117,4 +117,7 @@ def render_text(ctx: "Ctx", p: Probe, x: Extras) -> None:
     if x.unresolved:
         for t in x.threads:
             out(f"      - {jstr(t.get('path'))}  outdated={jstr(t.get('isOutdated'))}")
-    out(f"  checks              : {x.checks_pass} pass, {x.checks_other} other")
+    if x.checks_pass is None:
+        out("  checks              : unknown")
+    else:
+        out(f"  checks              : {x.checks_pass} pass, {x.checks_other} other")

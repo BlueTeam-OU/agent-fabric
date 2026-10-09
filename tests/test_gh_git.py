@@ -29,6 +29,19 @@ if mode == "404":
     sys.stderr.write("gh: Not Found (HTTP 404)\n"); sys.exit(1)
 if mode == "502":
     sys.stderr.write("gh: Bad Gateway (HTTP 502)\n"); sys.exit(1)
+if mode == "nochecks":
+    sys.stderr.write("no required checks reported on the 'dev/it's-a/branch' branch\n"); sys.exit(1)
+if mode == "nochecks-on-stdout":
+    print("no required checks reported on the 'x' branch"); sys.exit(1)
+if mode == "nochecks-after-502":
+    sys.stderr.write("gh: Bad Gateway (HTTP 502)\nno required checks reported on the 'x' branch\n"); sys.exit(1)
+if mode == "nochecks-beside-json":
+    print(json.dumps([{"name": "ci", "bucket": "fail"}]))
+    sys.stderr.write("no required checks reported on the 'x' branch\n"); sys.exit(1)
+if mode == "nochecks-exit-8":
+    sys.stderr.write("no required checks reported on the 'x' branch\n"); sys.exit(8)
+if mode == "failing":
+    print(json.dumps([{"name": "ci", "bucket": "fail"}])); sys.exit(1)
 if mode == "hang":
     time.sleep(5)
 if mode == "gqlerr":
@@ -130,6 +143,20 @@ def main() -> int:
                 check("a 502 raises", False)
             except gh.GhError as e:
                 check("a 502 is transient: a retry could help", e.status == 502 and e.transient, (e.status, e.transient))
+            # gh pr checks says "there are none" as its only stderr line,
+            # exit 1, nothing on stdout (measured on gh 2.87.3, 2026-10-09).
+            # The whole answer, not its last line: anything else beside it
+            # is not "none" (review of #129).
+            for mode, want in (("nochecks", True), ("nochecks-on-stdout", False), ("failing", False),
+                               ("502", False), ("nochecks-after-502", False), ("nochecks-beside-json", False),
+                               ("nochecks-exit-8", False)):
+                os.environ["FAKE_GH_MODE"] = mode
+                try:
+                    gh.run(["pr", "checks", "7", "--required", "--json", "name,bucket", "--repo", "o/r"])
+                    check(f"gh pr checks ({mode}) raises", False)
+                except gh.GhError as e:
+                    check(f"gh pr checks ({mode}): no_checks_reported is {want}", gh.no_checks_reported(e) is want,
+                          (e, e.stdout))
             os.environ["FAKE_GH_MODE"] = "hang"
             try:
                 gh.api("repos/o/r", timeout=1)

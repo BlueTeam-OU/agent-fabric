@@ -94,6 +94,13 @@ print(json.dumps([{'__typename':'User','login':sys.argv[1]}]*int(sys.argv[2])))"
     if [[ "$*" == *--jq* ]]; then echo 'o/r'; else echo '{"nameWithOwner":"o/r"}'; fi
     exit 0 ;;
   "pr checks")
+    # state/checks names gh's other answers, as measured on gh 2.87.3:
+    # `none` is its "no checks reported" (exit 1, nothing on stdout),
+    # `502` an HTTP error with no table.
+    case "$(cat "$S/checks" 2>/dev/null)" in
+      none) echo "no checks reported on the '$(cat "$S/headref")' branch" >&2; exit 1 ;;
+      502) echo "HTTP 502: Bad Gateway (https://api.github.com/graphql)" >&2; exit 1 ;;
+    esac
     echo "some / Check	pass	1s"; exit 0 ;;
   "api graphql")
     # REVIEW_REQUESTED_EVENT timestamps, so the refusal override has the
@@ -390,7 +397,7 @@ def main() -> int:
                 threads_fail: bool = False, reviews_fail: bool = False, verdicts_fail: bool = False,
                 reviews_fail_after: str = "", head_date: str = "", suite_date=UNSET, formal_date: str = "",
                 head_ref: str = "", foreign: str = "", claiming: str = "", unowned: str = "", earlier: str = "",
-                later: str = "", page2: str = "", verdict_authors=UNSET, refusal_re=UNSET, request_re=UNSET,
+                later: str = "", page2: str = "", checks: str = "", verdict_authors=UNSET, refusal_re=UNSET, request_re=UNSET,
                 posters=UNSET, env: dict | None = None) -> tuple[int, str, str]:
             """One run against scripted polls and reviews, every fixture
             written afresh so nothing leaks into the next case. The fixture
@@ -407,6 +414,7 @@ def main() -> int:
             # A trailing newline on every write: `read` drops a final line
             # without one, which once turned three reviews into two.
             put("threads", threads + "\n")
+            put("checks", checks + "\n")
             if reviews_fail:
                 put("reviews_fail", "")
             if verdicts_fail:
@@ -529,6 +537,17 @@ def main() -> int:
         rc, out, _ = run("OPEN:abc123:0", "me,abc123,2026-08-07T10:00:00Z,MARKED",
                          threads='[{"isResolved":false,"isOutdated":false,"path":"a.sh"}]')
         check("a real unresolved thread is counted", "unresolved threads  : 1" in out, out)
+        # A FAILED CHECKS LOOKUP IS "unknown" too; gh's "no checks reported" is 0.
+        rc, out, _ = run("OPEN:abc123:0", "me,abc123,2026-08-07T10:00:00Z,MARKED", checks="502")
+        check("a failed checks lookup reads unknown", rc == 0 and "  checks              : unknown\n" in out, out)
+        rc, out, _ = run("OPEN:abc123:0", "me,abc123,2026-08-07T10:00:00Z,MARKED", checks="none")
+        check("gh's 'no checks reported' reads 0", "  checks              : 0 pass, 0 other\n" in out, out)
+        rc, out, _ = run("OPEN:abc123:0", "me,abc123,2026-08-07T10:00:00Z,MARKED")
+        check("a check table is counted", "  checks              : 1 pass, 0 other\n" in out, out)
+        rc, out, _ = run("OPEN:abc123:0", "me,abc123,2026-08-07T10:00:00Z,MARKED", "--json", "-q", checks="502")
+        d = one_json(out)
+        check("--json: a failed checks lookup is null, not 0",
+              isinstance(d, dict) and d.get("checks") == {"pass": None, "other": None}, out)
         # THE --json CONTRACT: the same answer as fields, the same exit code.
         rc, out, _ = run("OPEN:abc123:0", "me,abc123,2026-08-07T10:00:00Z,MARKED\n"
                          "somebodyelse,abc123,2026-08-07T10:01:00Z,MARKED", "--json", threads_fail=True)

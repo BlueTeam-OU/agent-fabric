@@ -136,7 +136,10 @@ def main() -> int:
         dead, live, stale, fresh = (os.path.join(room, f"trial-merge.{n}") for n in ("DEAD", "LIVE", "STALE", "FRESH"))
         for d in (dead, live, stale, fresh):
             os.mkdir(d)
-        for d, pid in ((dead, "999999"), (live, str(os.getpid()))):
+        # Linux never assigns a pid of 2**22 or more (pid_max's ceiling).
+        # 999999 can be live: on a host whose pids had passed a million,
+        # this case failed in a full suite run and passed alone (2026-10-09).
+        for d, pid in ((dead, str(2**22 + 1)), (live, str(os.getpid()))):
             with open(d + ".pid", "w") as fh:
                 fh.write(pid)
         for suffix in (".out", ".pid.tmp"):
