@@ -24,7 +24,11 @@ caller's repository; tests/git_env.py), with signing pinned off as
 tests/run.sh pins it; its cwd the copy, its TMPDIR a directory beside it,
 in a process group of its own, under a timeout. The group is killed when
 the file ends or times out, and SIGTERM or SIGHUP end the run as an exit
-does, so the copy and what the tests left are removed however it ends.
+does, held while cleanup runs, so the copy and what the tests left are
+removed however it ends. Not reached: a daemon that leaves the group by
+setsid (a test's gpg-agent) outlives a run killed before the test's own
+cleanup stops it; nothing short of a /proc sweep finds it, and the copy
+it lived in is gone.
 
 stdout: one line per file, "<file>: ok" or "<file>: FAILED (exit <n>)"
 followed by its failing lines. Exit 0 all passed, 1 any failed, 2 the run
@@ -98,10 +102,26 @@ def _kill_group(proc: subprocess.Popen) -> None:
         pass                              # the group is already gone
 
 
+_ENDING = {signal.SIGTERM, signal.SIGHUP}
+
+
+class _Held:
+    """SIGTERM and SIGHUP held while cleanup runs, delivered after it: a
+    second signal never cuts a kill or a removal short. Never held around
+    Popen: a child inherits the blocked mask through exec."""
+
+    def __enter__(self):
+        self.old = signal.pthread_sigmask(signal.SIG_BLOCK, _ENDING)
+
+    def __exit__(self, *exc):
+        signal.pthread_sigmask(signal.SIG_SETMASK, self.old)
+
+
 def run_one(argv: list[str], cwd: str, env: dict[str, str]) -> tuple[int | str, str]:
-    proc = subprocess.Popen(argv, cwd=cwd, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                            text=True, errors="replace", start_new_session=True)
+    proc = None
     try:
+        proc = subprocess.Popen(argv, cwd=cwd, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                text=True, errors="replace", start_new_session=True)
         out, _ = proc.communicate(timeout=TIMEOUT_S)
         return proc.returncode, out
     except subprocess.TimeoutExpired:
@@ -110,14 +130,18 @@ def run_one(argv: list[str], cwd: str, env: dict[str, str]) -> tuple[int | str, 
         return "timeout", (out or "") + f"\nno answer within {TIMEOUT_S} s"
     finally:
         # A grandchild the file left running holds the copy: never past here.
-        _kill_group(proc)
-        if proc.poll() is None:
-            proc.kill()
-            proc.wait()
+        if proc is not None:
+            with _Held():
+                _kill_group(proc)
+                if proc.poll() is None:
+                    proc.kill()
+                    proc.wait()
 
 
 def run(tree: str, files: list[str], out=print) -> int:
-    base = tempfile.mkdtemp(prefix="stripped.")
+    # Resolved once: the in-copy check compares resolved paths, and a TMPDIR
+    # reached through a link (macOS's /var) would refuse every file.
+    base = os.path.realpath(tempfile.mkdtemp(prefix="stripped."))
     try:
         d, tmp = os.path.join(base, "tree"), os.path.join(base, "tmp")
         os.makedirs(d)
@@ -142,7 +166,8 @@ def run(tree: str, files: list[str], out=print) -> int:
                     out(f"    {line}")
         return 1 if failed else 0
     finally:
-        shutil.rmtree(base)
+        with _Held():
+            shutil.rmtree(base)
 
 
 def _as_exit(signum, _frame):

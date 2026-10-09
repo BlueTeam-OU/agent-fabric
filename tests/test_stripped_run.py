@@ -125,7 +125,25 @@ def main() -> int:
             del os.environ["GIT_INDEX_FILE"], os.environ["GIT_WORK_TREE"]
         check("a hook's GIT_INDEX_FILE and GIT_WORK_TREE reach neither git nor the tests", code == 0 and not os.path.exists(hostile), code)
 
-        saved_timeout, stripped_run.TIMEOUT_S = stripped_run.TIMEOUT_S, 2
+        # A TMPDIR reached through a link: the copy is still where its files are found.
+        os.makedirs(os.path.join(private, "real"))
+        os.symlink(os.path.join(private, "real"), os.path.join(private, "link"))
+        tempfile.tempdir = os.path.join(private, "link")
+        try:
+            lines = []
+            try:
+                code = stripped_run.run(tree, ["tests/test_reads_fixture.py"], out=lines.append)
+            except stripped_run.NotRunnable as e:
+                code = f"refused: {e}"
+        finally:
+            tempfile.tempdir = private
+        check("a TMPDIR reached through a link: the file runs from the copy, ok", code == 0 and lines == ["tests/test_reads_fixture.py: ok"],
+              (code, lines))
+        os.remove(os.path.join(private, "link"))
+        os.rmdir(os.path.join(private, "real"))
+
+        # 10 s: the file has to start a grandchild and mark it first, under a loaded suite too.
+        saved_timeout, stripped_run.TIMEOUT_S = stripped_run.TIMEOUT_S, 10
         try:
             lines = []
             code = stripped_run.run(tree, ["tests/test_hangs.py"], out=lines.append)
