@@ -122,7 +122,7 @@ Exit codes:
      also a failed fetch, said first -- the rows are what origin last showed)
 
 Environment (the self-test):
-  AGENT_FABRIC_PR_REVIEW_STATUS   path of fabric-pr review-status (default beside this script)
+  AGENT_FABRIC_PR_REVIEW_STATUS   a program run instead of the review reader (default: this checkout's fabric-pr review-status)
   AGENT_FABRIC_PR_SESSION         the <host>/<login> prefix (default: fabric-whoami)"""
 
 PR_FIELDS = ["number", "title", "headRefName", "headRefOid", "baseRefName", "state", "isDraft", "body"]

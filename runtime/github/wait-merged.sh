@@ -7,7 +7,7 @@
 # only, to find it.
 here="${BASH_SOURCE[0]%/*}"; [[ "$here" == "${BASH_SOURCE[0]}" ]] && here=.
 # Deprecated (ADR-040 §5 rule 7): the command is `fabric-pr wait-merged`; this path stays
-# until the managed projects' forwarders are off it.
+# for callers outside the checkout that still name it.
 echo "deprecated: use fabric-pr wait-merged" >&2
 # The fleet's pinned Python (runtime/python.json, ADR-040), one per host;
 # AGENT_FABRIC_PYTHON points elsewhere for a test or a host without it.
