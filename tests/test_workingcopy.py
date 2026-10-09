@@ -142,9 +142,9 @@ def main() -> int:
         try:
             case()
             print(f"  ok   {case.__name__}")
-        except AssertionError as exc:
+        except Exception as exc:  # noqa: BLE001 — a case that raises fails alone; the rest still run
             failures += 1
-            print(f"  FAIL {case.__name__}: {exc}")
+            print(f"  FAIL {case.__name__}: {exc.__class__.__name__ + ': ' if not isinstance(exc, AssertionError) else ''}{exc}")
     print(f"\n{len(cases) - failures}/{len(cases)} passed")
     return 1 if failures else 0
 
