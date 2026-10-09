@@ -333,7 +333,7 @@ def refuse_inside_session(what: str) -> int:
           "A role is bound from a login shell, never inside a session: the session's\n"
           "prompt already carries the role it was launched with, and a rebind under it\n"
           "would disagree with that prompt until a relaunch. Open a terminal, run\n"
-          "bin/fabric-role there, then relaunch.", file=sys.stderr)
+          "fabric-role there, then relaunch.", file=sys.stderr)
     return 1
 
 

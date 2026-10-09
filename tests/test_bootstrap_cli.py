@@ -805,7 +805,7 @@ def existing_files() -> None:
           not os.path.exists(f"{P}/.claude/settings.json.before-agent-fabric"))
     check("step 3: our /role command removed, said",
           not os.path.exists(f"{CH}/commands/role.md")
-          and f"  -  {CH}/commands/role.md (removed: /role is retired, use bin/fabric-role)" in r.lines, r.out)
+          and f"  -  {CH}/commands/role.md (removed: /role is retired, use fabric-role)" in r.lines, r.out)
     check("step 3: the backup sibling stays", read(f"{CH}/commands/role.md.before-agent-fabric") == "theirs\n")
     check("links: one of ours from another checkout refreshed",
           os.readlink(f"{LB}/fabric-whoami") == f"{FR}/bin/fabric-whoami"
