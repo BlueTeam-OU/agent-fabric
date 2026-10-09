@@ -470,6 +470,8 @@ def _():
             if not alive():
                 return
             time.sleep(0.1)
+        if alive():                          # the failing path leaves no sleep behind (the pid was spawned a moment ago)
+            os.kill(pid, 9)
         check(False, "the grandchild outlived the timeout")
 
 
