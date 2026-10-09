@@ -27,7 +27,7 @@ sys.path.insert(0, os.path.join(ROOT, "tools", "fabric"))
 import gh  # noqa: E402
 from github import wait_merged as wm  # noqa: E402
 
-TOOL = os.path.join(ROOT, "runtime", "github", "wait-merged.sh")
+TOOL = [os.path.join(ROOT, "bin", "fabric-pr"), "wait-merged"]
 GZAPP_ARM = os.path.join(ROOT, "projects", "gzapp", "integration", "gh", "arm.json")
 PR = "429"
 
@@ -376,7 +376,7 @@ def main() -> int:
               doc == {"exit": 1, "period": None, "status": "degraded", "argv": "--json", "m": "7"}, str(doc))
 
     # ── the shim ─────────────────────────────────────────────────────
-    print("wait_merged: through runtime/github/wait-merged.sh")
+    print("wait_merged: through fabric-pr wait-merged")
     with tempfile.TemporaryDirectory() as sandbox:
         bin_ = os.path.join(sandbox, "bin")
         os.makedirs(bin_)
@@ -394,6 +394,9 @@ else:
 ''')
         os.chmod(os.path.join(bin_, "gh"), 0o755)
         os.symlink(shutil.which("bash") or "/bin/bash", os.path.join(bin_, "bash"))
+        # fabric-pr finds its checkout with these two; the old shim used builtins only.
+        for tool in ("dirname", "readlink"):
+            os.symlink(shutil.which(tool), os.path.join(bin_, tool))
         base = {k: v for k, v in os.environ.items()
                 if not k.startswith(("GITHUB_", "AGENT_FABRIC_", "CLAUDE_", "ANTHROPIC_", "GH_", "GIT_", "LC_", "LANG"))}
         base.update(PATH=bin_, HOME=sandbox, LC_ALL="C", GH_REPO="o/r")
@@ -403,7 +406,7 @@ else:
 
         def run(*args: str, **env: str):
             e = {k: v for k, v in dict(base, **env).items() if v is not None}
-            r = subprocess.run([TOOL, *args], env=e, cwd=sandbox, capture_output=True, timeout=60)
+            r = subprocess.run([*TOOL, *args], env=e, cwd=sandbox, capture_output=True, timeout=60)
             return r.returncode, r.stdout.decode("utf-8"), r.stderr.decode("utf-8")
 
         # Python coerces the C locale to UTF-8 by itself; an ASCII stream

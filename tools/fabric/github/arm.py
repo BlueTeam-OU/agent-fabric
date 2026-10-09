@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """tools/fabric/github/arm.py — arm auto-merge on a pull request with the
 gates the managed projects put before the arming applied by the tool, not
-by memory (ADR-019's count rule; runtime/github/arm.sh is its shim, and
+by memory (ADR-019's count rule; `fabric-pr arm` runs it; the runtime/github shim is deprecated, and
 the managed projects' tools/gh/arm.sh forward to that path). Ported from
 the first managed project's tools/gh/arm.sh, whose test is the oracle
 (ADR-040 §5 rules 3–5); what was that project's own — the security-boundary paths and the classes that
@@ -118,7 +118,7 @@ FABRIC = os.path.dirname(os.path.dirname(os.path.dirname(HERE)))
 HELP = """Arm auto-merge on a PR — with the gates the project puts before the
 arming applied by the tool, not by memory.
 
-  tools/gh/arm.sh <pr-number> --basis "<one line>" [options]
+  fabric-pr arm <pr-number> --basis "<one line>" [options]
 
 What it refuses, in order, and why:
   1. a PR that is not OPEN, or is a draft;
@@ -127,11 +127,11 @@ What it refuses, in order, and why:
      merge a PR you did not open; --any-owner overrides, for the
      owner's own hand);
   3. a body that names an AWAITING-SUPPLY with no range line for that
-     login — supply asked for and not folded (owed-supply.sh lists
+     login — supply asked for and not folded (fabric-pr owed-supply lists
      these; the caller arms never with its own REQUEST unanswered);
   4. a SECURITY-BOUNDARY change without the REVIEW CLASS'S review of
      the CURRENT head, or with an unresolved review thread, at any
-     count (its owner's word is the count rule's, gate 5). Read from pr-review-status.sh --json: a
+     count (its owner's word is the count rule's, gate 5). Read from fabric-pr review-status --json: a
      `blind.rows` entry whose commit_sha8 is the head, and
      `unresolved_threads` 0 ("no open P1 or P2"); a missing field or a
      null count is exit 2, never a pass. Its exit status is NOT the
@@ -151,7 +151,7 @@ What it refuses, in order, and why:
      The relay does not authenticate senders: this stops mistakes, not
      a forger. The comment records who waived it, the message
      and the reason. A PR that matches no boundary ignores a waiver;
-  5. the count rule (pr-gate.sh's classifier): 8 or more arms at the
+  5. the count rule (fabric-pr gate's classifier): 8 or more arms at the
      review gate; over 16 is ADVICE for the next batch, never a refusal; under
      8 is armed on the owner's word — the --basis must carry the phrase
      "owner's word" — EXCEPT a class the project's arm.json lets arm at
@@ -285,7 +285,7 @@ def run_reader(head: list[str], args: list[str], timeout: int = 600) -> tuple[in
 
 def unmet_supply(body: str) -> list[str]:
     """Each AWAITING-SUPPLY login with no `<sha>..<sha>: <login>` range
-    line in the body — the reading owed-supply.sh makes."""
+    line in the body — the reading fabric-pr owed-supply makes."""
     out = []
     for line in body.split("\n"):
         m = re.match(r"^\s*-?\s*AWAITING-SUPPLY:\s*(\S+)", line)
@@ -549,7 +549,7 @@ def arm(argv: list[str]) -> int:
                 # review: the reader counts any non-author review object
                 # (a managed project's PR #930 blind review, F1).
                 raise refuse(f"a security-boundary change with no review-class review of the current head: dispatch the"
-                             f" review class on {head} and post with tools/gh/post-review.sh, then arm (an independent"
+                             f" review class on {head} and post with fabric-pr post-review, then arm (an independent"
                              f" or automated review does not count here)")
             if not isinstance(unresolved, int) or isinstance(unresolved, bool):
                 raise Unanswered(f"pr-review-status reported no unresolved_threads count for #{num} (null: the lookup"
@@ -665,7 +665,7 @@ def arm(argv: list[str]) -> int:
     if armed not in ("armed",) and not armed.startswith("queued"):
         raise Unanswered(f"#{num} reads '{armed}' after gh pr merge --auto — check gh pr view {num}")
     say(f"ARMED #{num} ({title}) — {armed}; basis posted.")
-    say(f"now, in the session: tools/gh/wait-merged.sh {num} &")
+    say(f"now, in the session: fabric-pr wait-merged {num} &")
     return 0
 
 
