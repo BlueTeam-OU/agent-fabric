@@ -496,6 +496,12 @@ def agentd_implementation(root, agent, environ):
             selected = au.implementation(au.load(root), agent)
         except ValueError as e:
             return {"status": runs, "detail": f"{runs} (the unit's ExecStart); {e}"}
+        if selected == "python" and runs == "node":
+            # What bootstrap would do: it keeps Node when python is refused, so
+            # that unit is the right one, not drift.
+            refused = au.python_refusal(root, agent, environ)
+            if refused:
+                return {"status": "node", "detail": f"node (python refused: {refused})"}
         if selected != runs:
             return {"status": "drift", "detail": f"the unit runs {runs}, {au.SELECTOR_REL} selects {selected}: "
                                                  "bootstrap writes it (moveto, or fabric-ctl upgrade fabric)"}

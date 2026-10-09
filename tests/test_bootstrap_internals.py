@@ -497,7 +497,8 @@ def agentd_selector(T: str) -> None:
                 _, out, err = quiet(b.control_agent)
                 check(f"a listed login not placed on this host ({name}): the Node unit written, one warning naming the placement, not a failure",
                       open(unit_path(), "rb").read() == template and b.failed == 0
-                      and "python not used" in err and "placed on" in err and err.count("\n") == 1
+                      and "python not used" in err and err.count("\n") == 1
+                      and ("has no placement" if placed is None else "placed on") in err
                       and "runs python" not in out, (out, err))
             finally:
                 s.close()

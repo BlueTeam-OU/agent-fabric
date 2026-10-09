@@ -303,7 +303,12 @@ def main() -> int:
         # against a fixture selector, never the checkout's.
         fx = os.path.join(sb, "agentd-fabric")
         os.makedirs(os.path.join(fx, "tools", "fabric"))
-        shutil.copyfile(os.path.join(HERE, "tools", "fabric", "agentd_unit.py"), os.path.join(fx, "tools", "fabric", "agentd_unit.py"))
+        for mod in ("agentd_unit.py", "roots.py"):
+            shutil.copyfile(os.path.join(HERE, "tools", "fabric", mod), os.path.join(fx, "tools", "fabric", mod))
+        import socket
+        here_host = socket.gethostname().split(".")[0]
+        reg = os.path.join(fx, "runtime", "hosts", "registry.json")
+        put(reg, json.dumps({"version": 1, "placement": {"py-login": here_host}}))
         put(os.path.join(fx, "runtime", "control", "agentd.json"), json.dumps({"default": "node", "python": ["py-login"]}))
         xdg = os.path.join(sb, "agentd-xdg")
         unit = os.path.join(xdg, "systemd", "user", "agent-fabric-agentd.service")
@@ -316,6 +321,16 @@ def main() -> int:
         put(unit, node_unit.replace("ExecStart=/usr/bin/env node %h/projects/agent-fabric/runtime/control/agentd.mjs",
                                     "ExecStart=/usr/local/bin/fabric-python %h/projects/agent-fabric/tools/fabric/control/agentd.py"))
         python = status.agentd_implementation(fx, "py-login", {"XDG_CONFIG_HOME": xdg})
+        # Bootstrap keeps Node for a login placed elsewhere: that unit is right, not drift.
+        put(unit, node_unit)
+        put(reg, json.dumps({"version": 1, "placement": {"py-login": "some-other-host"}}))
+        refused = status.agentd_implementation(fx, "py-login", {"XDG_CONFIG_HOME": xdg})
+        put(reg, json.dumps({"version": 1, "placement": {"py-login": here_host}}))
+        check("a node unit where bootstrap refuses python is node (python refused: why), not DRIFT",
+              refused["status"] == "node" and refused["detail"].startswith("node (python refused: ")
+              and "some-other-host" in refused["detail"])
+        put(unit, node_unit.replace("ExecStart=/usr/bin/env node %h/projects/agent-fabric/runtime/control/agentd.mjs",
+                                    "ExecStart=/usr/local/bin/fabric-python %h/projects/agent-fabric/tools/fabric/control/agentd.py"))
         put(os.path.join(fx, "runtime", "control", "agentd.json"), "{broken")
         unsound = status.agentd_implementation(fx, "py-login", {"XDG_CONFIG_HOME": xdg})
         check("the control agent's implementation: none, node, drift from the selector, python, and an unsound selector said",

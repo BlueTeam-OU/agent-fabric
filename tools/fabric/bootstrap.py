@@ -853,25 +853,9 @@ class Bootstrap:
         return unit
 
     def python_refusal(self, doc: dict) -> str:
-        """Why python cannot run here; "" when it can. The placement check
-        applies to every login that would get python, one the selector lists
-        and, when its default is python, one it does not: a registry entry
-        means that account on the host it was provisioned on, and the same
-        login name may exist on another host that has not been cut over."""
-        if not os.access(agentd_unit.FABRIC_PYTHON, os.X_OK):
-            return f"{agentd_unit.FABRIC_PYTHON} is not executable (as root: tools/fabric/python_pin.py install)"
-        here = socket.gethostname().split(".")[0]
-        try:
-            # The registry as every reader resolves it (an exported operator outranks the checkout);
-            # its one-file override is the daemons', never bootstrap's.
-            env = {k: v for k, v in os.environ.items() if k != roots.ENV_HOSTS_REGISTRY}
-            with open(roots.hosts_registry(engine=self.root, environ=env), encoding="utf-8") as fh:
-                placed = json.load(fh).get("placement", {}).get(login())
-        except (OSError, ValueError, AttributeError) as e:
-            return f"runtime/hosts/registry.json cannot be read for the placement ({type(e).__name__})"
-        if placed != here:
-            return f"{login()} is placed on {placed!r} in runtime/hosts/registry.json, this host is {here!r}"
-        return ""
+        """Why python cannot run here; "" when it can (agentd_unit.python_refusal,
+        which fabric-status applies to its read-back as well)."""
+        return agentd_unit.python_refusal(self.root, login())
 
     def relay(self) -> None:
         # 6b. The GZCoord relay as a user unit — ONLY on the account that hosts
