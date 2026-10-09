@@ -4,7 +4,7 @@ review fix": merge, fix or work (ADR-019's count rule, ADR-040's first
 Wave 1 port). runtime/github/commit-class.sh is its shim, sourced by
 pr-gate.sh and the managed projects' forwarders; results.py imports it.
 
-    commit_class.py class <parents> <subject> [<answers>] [<pr>] [<owner/repo>] [<kind>] [<head>]
+    commit_class.py class <parents> <subject> [<answers>] [<pr>] [<owner/repo>] [<kind>] [<head>] [<base>]
                                           prints merge | fix | work
     commit_class.py revert-targets        the shas a commit body (stdin) reverts
 
@@ -156,14 +156,18 @@ def kind_of(body: str) -> str:
 
 
 class Folds:
-    """Whether PR <n> was folded into <head>: closed, not merged, and its
-    head an ancestor of <head>. Asked once per PR number — a range names
+    """Whether PR <n> was folded into this range: closed, not merged, and
+    its head inside <base>..<head> — an ancestor of <head> and, with a
+    <base>, not of it. A PR folded into an EARLIER PR that has since
+    merged has its head inside the base, and a later follow-up answering
+    it is work here (ADR-019 rule 3, "its head inside this range").
+    Asked once per PR number — a range names
     the same PR in every fix of its review, and each ask is a gh call. An
     unreadable PR or ancestry is "no" (the follow-up reading), said on
     stderr once."""
 
-    def __init__(self, repo: str, head: str, cwd: str = ".", timeout: float = 30):
-        self.repo, self.head, self.cwd, self.timeout = repo, head, cwd, timeout
+    def __init__(self, repo: str, head: str, cwd: str = ".", timeout: float = 30, base: str = ""):
+        self.repo, self.head, self.base, self.cwd, self.timeout = repo, head, base, cwd, timeout
         self._seen: dict[str, bool] = {}
 
     def __call__(self, n: str) -> bool:
@@ -190,7 +194,10 @@ class Folds:
         if not isinstance(oid, str) or not re.fullmatch(r"[0-9a-f]{7,64}", oid):
             return self._unread(n, "no head sha")
         try:
-            return git.ok(self.cwd, "merge-base", "--is-ancestor", oid, self.head, timeout=self.timeout)
+            if not git.ok(self.cwd, "merge-base", "--is-ancestor", oid, self.head, timeout=self.timeout):
+                return False
+            return not (self.base and git.ok(self.cwd, "merge-base", "--is-ancestor", oid, self.base,
+                                             timeout=self.timeout))
         except git.GitError as e:
             # A head this clone does not have is no ancestor of one it has,
             # when the clone holds the whole history — a closed PR that was
@@ -291,17 +298,17 @@ def revert_targets(body: str) -> list[str]:
 
 
 def main(argv: list[str]) -> int:
-    if argv[:1] == ["class"] and 3 <= len(argv) <= 8:
-        args = argv[1:] + [""] * (8 - len(argv))
-        parents, subject, answers, pr, repo, kind_value, head = args[:7]
-        folded = Folds(repo, head) if pr and head else None
+    if argv[:1] == ["class"] and 3 <= len(argv) <= 9:
+        args = argv[1:] + [""] * (9 - len(argv))
+        parents, subject, answers, pr, repo, kind_value, head, base = args[:8]
+        folded = Folds(repo, head, base=base) if pr and head else None
         print(classify(parents, subject, answers, pr, repo, kind_value, folded))
         return 0
     if argv == ["revert-targets"]:
         for sha in revert_targets(sys.stdin.read()):
             print(sha)
         return 0
-    print("usage: commit_class.py class <parents> <subject> [<answers>] [<pr>] [<owner/repo>] [<kind>] [<head>]"
+    print("usage: commit_class.py class <parents> <subject> [<answers>] [<pr>] [<owner/repo>] [<kind>] [<head>] [<base>]"
           " | revert-targets", file=sys.stderr)
     return 2
 

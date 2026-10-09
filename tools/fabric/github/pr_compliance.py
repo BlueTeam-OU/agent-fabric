@@ -261,7 +261,8 @@ def commit_split(num: int, repo: str, merge_commit: str) -> dict | None:
             return None
     except git.GitError:
         return None
-    return pr_gate.split_range(num, repo, f"{merge_commit}^1..{merge_commit}^2", f"{merge_commit}^2")
+    return pr_gate.split_range(num, repo, f"{merge_commit}^1..{merge_commit}^2", f"{merge_commit}^2",
+                               f"{merge_commit}^1")
 
 
 def supply(repo: str) -> dict:

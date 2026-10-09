@@ -151,6 +151,12 @@ def folds(check, tool: str) -> None:
                   (got, err.getvalue()))
             got, err = cls("#14 F1")
             check("an open PR — work", got == "work" and err == "", (got, err))
+            # Folded into an EARLIER PR that has merged: #10's head is inside
+            # the base too, and a follow-up answering it is this range's work.
+            got, err = cls("#10 F1", look=cc.Folds("o/r", head, base=folded_head))
+            check("a fold whose head is already in the base — work", got == "work" and err == "", (got, err))
+            got, err = cls("#10 F1", look=cc.Folds("o/r", head, base=git("rev-list", "--max-parents=0", "HEAD")))
+            check("…and with a base below it, a fix", got == "fix" and err == "", (got, err))
             got, err = cls("#77 F1")
             check("a lookup failure — work (the reading before the amendment)", got == "work", got)
             check("…said on stderr, naming the PR", "#77 could not be read" in err and "HTTP 404" in err, err)
@@ -191,6 +197,9 @@ def folds(check, tool: str) -> None:
             check("…and without it reads as before, work, asking nothing",
                   r.stdout == "work\n" and open(os.path.join(ghdir, "calls")).read().count("10") == 1,
                   (r.stdout, r.stderr))
+            r2 = subprocess.run([sys.executable, tool, "class", "p", "x", "#10 F1", "11", "o/r", "review-fix", head,
+                                 folded_head], capture_output=True, text=True, env=env)
+            check("the CLI takes the range's base, the ninth argument", r2.stdout == "work\n", (r2.stdout, r2.stderr))
         finally:
             os.chdir(here)
             os.environ.clear()
