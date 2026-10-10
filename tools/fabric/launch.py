@@ -242,6 +242,7 @@ from fabric_launcher.session import require_files, make_tmpdir, print_report  # 
 from fabric_launcher.session import record_launch_provider, install_agent_files  # noqa: E402, F401
 from fabric_launcher.session import mark_onboarding_done, session_command, opening_prompt  # noqa: E402, F401
 from fabric_launcher.session import ignore_quit, run_session, read_restart  # noqa: E402, F401
+from fabric_launcher import gateway  # noqa: E402, F401
 
 
 # ── the fabric itself must be current ───────────────────────────────
@@ -362,9 +363,12 @@ def launch(argv: list[str]) -> int:
     orig_args = list(argv)   # for the re-exec after a pull, below
     started = int(time.time())   # a restart marker older than this is not this session's
     print_only, provider, args = parse_argv(argv)
-    if provider not in ("openrouter", "anthropic"):
-        say(f"launch: --provider must be openrouter or anthropic, not '{provider}'")
+    if provider not in ("openrouter", "anthropic", "gateway"):
+        say(f"launch: --provider must be openrouter, anthropic or gateway, not '{provider}'")
         return 1
+    # The gateway path routes as plain claude does (the anthropic column's pins,
+    # the same agent files); only the transport differs (launcher/gateway.py).
+    routing_provider = "anthropic" if provider == "gateway" else provider
 
     env = os.environ
     fabric_root = env.get("AGENT_FABRIC_ROOT") or CODE_ROOT
@@ -411,7 +415,7 @@ def launch(argv: list[str]) -> int:
     except Exception:
         traceback.print_exc()
         die("could not resolve the profile (see the message above).")
-    resolved = resolve_or_die(routing, aliases, local_override, role, agent, provider)
+    resolved = resolve_or_die(routing, aliases, local_override, role, agent, routing_provider)
     if resolved.get("review_violation"):
         die(f"merged review model '{resolved['review_violation']}' is not in routing/policies/review-grade.json.\n"
             "  A review's failure mode is a green PR that merges, so the reviewer's\n"
@@ -419,7 +423,7 @@ def launch(argv: list[str]) -> int:
             "  review-grade.json through fabric-coordinator (policies/AUTHORITY.md).")
     session = str(resolved["session"]["composite"])
 
-    if provider == "anthropic":
+    if routing_provider == "anthropic":
         drop_broker_env()
     settle_oauth_token(provider, home)
     settle_secrets(provider, home)
@@ -445,7 +449,7 @@ def launch(argv: list[str]) -> int:
     # expresses no effort; then no flag is passed and nothing is stamped,
     # because a level the model cannot take is not a decision to record.
     routed_effort = stripped(helper([sys.executable, routing_path, "session-effort", "--me", "--provider",
-                                     provider], env=env_with(AGENT_FABRIC_ROOT=fabric_root), quiet=True))
+                                     routing_provider], env=env_with(AGENT_FABRIC_ROOT=fabric_root), quiet=True))
     session_effort, caller_effort = effort_for(args, routed_effort)
     # Cleared, not just left unset, when there is no level: this stamp is
     # CONDITIONAL, so a launch started from inside another fabric session
@@ -531,9 +535,12 @@ def launch(argv: list[str]) -> int:
     make_tmpdir(env["TMPDIR"], ours=not own_tmpdir)
 
     if print_only:
-        print_report(resolved, routing, label=label, agent=agent, role=role, provider=provider, session=session,
+        print_report(resolved, routing, label=label, agent=agent, role=role, provider=routing_provider, session=session,
                      effective_session=effective_session, session_effort=session_effort,
                      caller_effort=caller_effort, prompt_file=prompt_file, prompt_flag=prompt_flag)
+        if provider == "gateway":
+            print("  (launched through agent-fabric-gateway: the harness gets its loopback listener and a local key, "
+                  "and no upstream credential)")
         return 0
 
     # The review class's model is per launch (the broker's composite, or the
@@ -543,7 +550,7 @@ def launch(argv: list[str]) -> int:
     # the file against the same resolution and denies a review when another
     # launch on this account has since rewritten it.
     if not asks_help(args):
-        install_agent_files(fabric_root, provider, state_dir)
+        install_agent_files(fabric_root, routing_provider, state_dir, record_as=provider)
 
     login = pwd.getpwuid(os.getuid()).pw_name
     # A plain-claude session runs only on a long-lived sign-in: a template's
@@ -576,7 +583,7 @@ def launch(argv: list[str]) -> int:
     # than placed first: "last wins" would be an assumption about claude's
     # argv handling, and the stamp above must not be able to disagree with
     # what the child actually applies.
-    cmd = session_command(provider, session, caller_model, session_effort, caller_effort, prompt_flag,
+    cmd = session_command(routing_provider, session, caller_model, session_effort, caller_effort, prompt_flag,
                           prompt_file, args)
     # A language-culture login whose locale the fabric authored a search for
     # (identities/roles/language-culture/locale/<suffix>/locale.json, served
@@ -622,7 +629,18 @@ def launch(argv: list[str]) -> int:
     # so fabric-fresh refuses it rather than replay a finished job.
     env["AGENT_FABRIC_LAUNCH_OPENING"] = "1" if opening else "0"
 
-    status = run_session(cmd)
+    # The gateway is started only now, after every refusal: it needs the session
+    # command's model and the pins in the environment (the plan must route what
+    # the harness will send), and nothing else of the launch depends on it.
+    gw = None
+    if provider == "gateway" and not asks_help(args):
+        gw = gateway.launch_gateway(env, fabric_root, agent, role, state_dir, effective_session)
+    try:
+        status = run_session(cmd)
+    finally:
+        if gw is not None:
+            gateway.stop(gw)
+            gateway.forget_state(state_dir)
     restart(state_dir, started, opening, status, orig_args, fabric_root, cwd)
     return status
 

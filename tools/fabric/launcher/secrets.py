@@ -58,8 +58,12 @@ def settle_oauth_token(provider: str, home: str) -> None:
                 "has none")
     elif "CLAUDE_CODE_OAUTH_TOKEN" in env:
         del env["CLAUDE_CODE_OAUTH_TOKEN"]
-        say("launch: the broker path — dropped CLAUDE_CODE_OAUTH_TOKEN (a Claude-account template's token "
-            "never reaches a broker session)")
+        if provider == "gateway":
+            say("launch: the gateway path — dropped CLAUDE_CODE_OAUTH_TOKEN (the gateway holds the account's "
+                "credential; the harness holds only the gateway-local key)")
+        else:
+            say("launch: the broker path — dropped CLAUDE_CODE_OAUTH_TOKEN (a Claude-account template's token "
+                "never reaches a broker session)")
 
 
 # The session gets its own credential and no other secret (ADR-038 rule 9).
