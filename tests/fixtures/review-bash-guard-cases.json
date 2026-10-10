@@ -1456,6 +1456,101 @@
      "command": "if true; then cd tools; ls; fi"
     }
    ]
+  },
+  {
+   "section": "the review class's one write: its review on stdin in a quoted heredoc, the body data (2026-10-09: three reviews could not be posted)",
+   "cases": [
+    {
+     "want": "allow",
+     "label": "allowed: a posted review whose body has < and >",
+     "command": "fabric-pr post-review 12 --model fable <<'EOF'\nIf a < b and c > d, the guard\nEOF"
+    },
+    {
+     "want": "allow",
+     "label": "allowed: a body naming $HOME and backticks",
+     "command": "fabric-pr post-review 12 --model fable <<'EOF'\nIt reads $HOME and runs `ls` (both quoted, never expanded)\nEOF"
+    },
+    {
+     "want": "allow",
+     "label": "allowed: a body with the word environ",
+     "command": "fabric-pr post-review 12 --model fable <<'EOF'\nos.environ is read whole at line 12\nEOF"
+    },
+    {
+     "want": "allow",
+     "label": "allowed: a body with a line EOF2 (not the terminator)",
+     "command": "fabric-pr post-review 12 --model fable <<'EOF'\nfirst > x\nEOF2\nlast\nEOF"
+    },
+    {
+     "want": "allow",
+     "label": "allowed: a body with angle-bracket placeholders",
+     "command": "fabric-pr post-review 12 --model fable <<'EOF'\nRun fabric-pr post-review <N> --model <alias> > <file>\nEOF"
+    },
+    {
+     "want": "allow",
+     "label": "allowed: the tag in double quotes",
+     "command": "fabric-pr post-review 12 --model fable <<\"EOF\"\nIf a < b, $HOME, environ\nEOF"
+    },
+    {
+     "want": "allow",
+     "label": "allowed: preceded by a cd into the clone",
+     "command": "cd tools && fabric-pr post-review 12 --model fable <<'EOF'\na > b\nEOF"
+    },
+    {
+     "want": "deny",
+     "label": "denied: an unquoted tag: bash would expand the body",
+     "command": "fabric-pr post-review 12 --model fable <<EOF\na > b\nEOF"
+    },
+    {
+     "want": "deny",
+     "label": "denied: a heredoc into cat",
+     "command": "cat <<'EOF'\na > b\nEOF"
+    },
+    {
+     "want": "deny",
+     "label": "denied: a heredoc into another fabric-pr verb",
+     "command": "fabric-pr arm 12 <<'EOF'\na > b\nEOF"
+    },
+    {
+     "want": "deny",
+     "label": "denied: a pipe into post-review",
+     "command": "printf 'a > b' | fabric-pr post-review 12 --model fable"
+    },
+    {
+     "want": "deny",
+     "label": "denied: a file redirected into post-review",
+     "command": "fabric-pr post-review 12 --model fable < file <<'EOF'\na > b\nEOF"
+    },
+    {
+     "want": "deny",
+     "label": "denied: a redirection to a file after it",
+     "command": "fabric-pr post-review 12 --model fable <<'EOF' > /tmp/x\nbody\nEOF"
+    },
+    {
+     "want": "deny",
+     "label": "denied: a command line after the terminator",
+     "command": "fabric-pr post-review 12 --model fable <<'EOF'\nbody\nEOF\nrm -rf x"
+    },
+    {
+     "want": "deny",
+     "label": "denied: chaining on the terminator line",
+     "command": "fabric-pr post-review 12 --model fable <<'EOF'\nbody\nEOF; rm -rf x"
+    },
+    {
+     "want": "deny",
+     "label": "denied: another model",
+     "command": "fabric-pr post-review 12 --model opus <<'EOF'\na > b\nEOF"
+    },
+    {
+     "want": "deny",
+     "label": "denied: an extra argument",
+     "command": "fabric-pr post-review 12 --model fable --x <<'EOF'\na > b\nEOF"
+    },
+    {
+     "want": "deny",
+     "label": "denied: a cd up out of the clone before it",
+     "command": "cd .. && fabric-pr post-review 12 --model fable <<'EOF'\nbody\nEOF"
+    }
+   ]
   }
  ]
 }

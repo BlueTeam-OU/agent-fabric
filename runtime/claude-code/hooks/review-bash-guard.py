@@ -207,7 +207,29 @@ def split_unquoted(cmd: str) -> tuple[list[str], bool]:
     return segments, trusted and not quote
 
 
+# The review class's one write is its review: `fabric-pr post-review <N>
+# --model fable` with the body on stdin as ONE heredoc whose tag is quoted.
+# Quoting any part of the tag stops bash expanding the body; only the whole
+# 'TAG' and "TAG" forms are admitted. The body is data, so the word and
+# redirection rules judge the command line alone, and the first line equal
+# to the tag must be the command's last: nothing runs after it.
+POST_REVIEW = re.compile(r"[ \t]*((?:cd[ \t]+[^\s;&|<>()`$'\"\\]+[ \t]+&&[ \t]+)?fabric-pr[ \t]+post-review"
+                         r"[ \t]+[0-9]+[ \t]+--model[ \t]+fable)[ \t]+<<(['\"])([A-Za-z0-9_]+)\2[ \t]*")
+
+
+def posted_review(cmd: str) -> str | None:
+    """The command line of a review posted in exactly that shape, else None."""
+    lines = cmd.split("\n")
+    m = POST_REVIEW.fullmatch(lines[0])
+    if not m or m.group(3) not in lines[1:]:
+        return None
+    return m.group(1) if lines.index(m.group(3), 1) == len(lines) - 1 else None
+
+
 def verdict(cmd: str) -> str | None:
+    head = posted_review(cmd)
+    if head is not None:
+        return verdict(head)
     segments, exempt = split_unquoted(cmd)
     secret = moved = False
     for seg in segments:
