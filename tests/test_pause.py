@@ -65,6 +65,15 @@ def run_pause(argv: list[str], fleet: Fleet, signal=None) -> tuple[int, str, str
     return rc, out.getvalue(), err.getvalue(), signalled
 
 
+def pause_default(argv: list[str], fleet: Fleet) -> tuple[int, str, str, list[str]]:
+    """pause() with the module's own signal_login, as bin/fabric-pause runs it."""
+    out, err = io.StringIO(), io.StringIO()
+    clock = iter(range(0, 10_000, 5))
+    with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+        rc = pause.pause(argv, run=fleet, sleep=lambda s: None, clock=lambda: next(clock))
+    return rc, out.getvalue(), err.getvalue(), []
+
+
 def main() -> int:
     fails = 0
 
@@ -98,6 +107,11 @@ def main() -> int:
     check("…but an active job still refuses a login with no session", rc == 1 and " refuse " in out, out)
 
     print("unknown stays unknown")
+    for label, entries in (("an entry that is not an object", [job("j1", "blocked"), "garbage"]),
+                           ("an entry with no state", [{"id": "j1", "title": "x"}]),
+                           ("an entry with an empty state", [job("j1", "")])):
+        rc, out, _, sig = run_pause(["a"], one("a", entries))
+        check(f"{label}: refused, never signalled", rc == 1 and "an entry has no state" in out and sig == [], (rc, out))
     cases = {
         "jobs silent": Fleet({("a", "jobs"): [{"account": "a", "host": "h", "status": "no answer"}], ("a", "presence"): [presence_row("a")]}),
         "jobs op failed": Fleet({("a", "jobs"): [jobs_row("a", op_status="failed", error="boom")], ("a", "presence"): [presence_row("a")]}),
@@ -135,8 +149,17 @@ def main() -> int:
                                                                          ("all", "jobs"): [jobs_row("a")]}))
     check("a project nobody is in: said, exit 1", rc == 1 and "no login matches" in err, (out, err))
 
+    reads = {"n": 0}
+
+    def first_silent():
+        reads["n"] += 1
+        return [{"account": "a", "host": "h", "status": "no answer"}] if reads["n"] == 1 else [presence_row("a", project="p1")]
+    rc, out, _, sig = run_pause(["--all"], Fleet({("all", "presence"): first_silent, ("all", "jobs"): [jobs_row("a")]}))
+    check("a login silent on the target read but answering the later one is still refused: its first silence stands",
+          rc == 1 and " refuse " in out and "nothing is known of it" in out and sig == [], (rc, out))
+
     print("usage")
-    for argv in ([], ["--all", "a"], ["--project", "p", "--all"], ["--project"], ["--project", "--all"], ["Bad"], ["--nope", "a"], ["a/b"]):
+    for argv in ([], ["all"], ["all", "--dry-run"], ["--all", "a"], ["--project", "p", "--all"], ["--project"], ["--project", "--all"], ["Bad"], ["--nope", "a"], ["a/b"]):
         rc, out, err, sig = run_pause(argv, Fleet({}))
         check(f"{argv or 'no target'}: exit 2, usage on stderr, nothing asked", rc == 2 and "usage: fabric-pause" in err and out == "", (rc, err))
     rc, out, _, _ = run_pause(["--help"], Fleet({}))
@@ -151,7 +174,13 @@ def main() -> int:
         raise pause.Unavailable("the control agent has no pause operation yet")
     rc, out, err, _ = run_pause(["a"], f, signal=unavailable)
     check("no pause operation: nothing signalled, the passed logins listed for the operator, exit 2",
-          rc == 2 and "nothing was signalled" in err and "operator" in err and " a" in err, (rc, out, err))
+          rc == 2 and "none of the passed logins was signalled" in err and "operator" in err and " a." in err, (rc, out, err))
+    rc, out, err, _ = pause_default(["a"], one("a", [job("j1", "blocked")]))
+    check("the real signal_login, no injected signal: nothing signalled, exit 2", rc == 2 and "no pause operation yet" in err, (rc, err))
+    two = Fleet({("all", "presence"): [presence_row("ok1"), presence_row("busy")],
+                 ("all", "jobs"): [jobs_row("ok1"), jobs_row("busy", [job("j9", "active")])]})
+    rc, out, err, _ = run_pause(["--all"], two, signal=unavailable)
+    check("with a refusal too, stderr names the refused and says not to restart", rc == 2 and "Refused, do not restart" in err and "busy" in err, err)
     fleet2 = Fleet({("all", "presence"): [presence_row("ok1"), presence_row("busy"), presence_row("ok2")],
                     ("all", "jobs"): [jobs_row("ok1"), jobs_row("busy", [job("j9", "active")]), jobs_row("ok2")]})
     seen: list[str] = []
@@ -194,6 +223,20 @@ def main() -> int:
     with contextlib.redirect_stdout(out_c), contextlib.redirect_stderr(io.StringIO()):
         rc = pause.pause(["a"], run=flaky_ctl, signal=lambda login: 1, sleep=lambda s: None, clock=lambda: next(clock))
     check("a read-back that cannot be read is not 'paused'", rc == 1 and "still up" in out_c.getvalue() and "did not answer" in out_c.getvalue(), out_c.getvalue())
+
+    print("run_argv, the one subprocess")
+    try:
+        pause.run_argv([sys.executable, "-c", "import time; time.sleep(5)"], 0.5)
+        got = "returned"
+    except pause.PauseError as e:
+        got = str(e)
+    check("a hung command is a PauseError that says it did not answer, within the timeout", "did not answer within" in got, got)
+    try:
+        pause.run_argv(["/nonexistent/fabric-ctl"], 5)
+        got = "returned"
+    except pause.PauseError as e:
+        got = str(e)
+    check("a missing command is a PauseError that says so", got == "fabric-ctl not found", got)
 
     print("the real command")
     env = {"PATH": "/usr/bin:/bin", "HOME": "/nonexistent", "AGENT_FABRIC_PYTHON": sys.executable}

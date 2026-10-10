@@ -154,7 +154,11 @@ def judge(login: str, jobs_row: dict | None, presence_row: dict | None) -> Verdi
             v.refusals.append("jobs unreadable (the list is not a list)")
         else:
             for j in listed:
-                if isinstance(j, dict) and j.get("state") == "active":
+                if not isinstance(j, dict) or not isinstance(j.get("state"), str) or not j["state"]:
+                    # An entry whose state cannot be read might be the active one.
+                    v.refusals.append("jobs unreadable (an entry has no state)")
+                    break
+                if j["state"] == "active":
                     v.refusals.append(f"active job {j.get('id')}: {str(j.get('title'))[:60]}")
     pres, why = op_result(presence_row, "presence")
     if pres is None:
@@ -189,6 +193,8 @@ def parse(argv: list[str]) -> tuple[list[str], str | None, bool, bool]:
             i += 1
         elif a.startswith("-"):
             raise ValueError(f"unknown option '{a}'")
+        elif a == "all":
+            raise ValueError("'all' is not a login: say --all for the whole fleet")
         elif LOGIN.fullmatch(a):
             logins.append(a)
         else:
@@ -292,8 +298,9 @@ def pause(argv: list[str], run: Run = run_argv, signal: Callable[[str], int] | N
         try:
             signal(login)
         except Unavailable as e:
-            print(f"fabric-pause: {e}; nothing was signalled. Passed, to be signalled by the operator: {' '.join(passed)}",
-                  file=sys.stderr)
+            held = f" Refused, do not restart before they are dealt with: {' '.join(v.login for v in refused)}." if refused else ""
+            print(f"fabric-pause: {e}; none of the passed logins was signalled. Passed, to be signalled by the operator: "
+                  f"{' '.join(passed)}.{held}", file=sys.stderr)
             return 2
         ok, why = read_back(login, run, sleep, clock)
         print(f"{login:<22} {'paused' if ok else 'still up':<7} {why or 'presence shows no session'}")
