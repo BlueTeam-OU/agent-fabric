@@ -15,7 +15,7 @@ one of:
     (gone)    the session ended: its entry is removed
 
 in <state>/session-state.json (the directory runtime/identity.py and
-runtime/control/upgrade.mjs's stateDir name), mode 0600, rewritten whole
+tools/fabric/control/upgrade.py's state dir name), mode 0600, rewritten whole
 under a lock and only when a session's state changes: PreToolUse fires on
 every tool call and writes nothing while the session stays working.
 
