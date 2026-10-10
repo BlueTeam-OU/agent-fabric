@@ -1,11 +1,16 @@
 ---
 role: "devex-tooling"
 class: domain
-description: "Inside a reusable workflow, github.event_name reflects the CALLING workflow's event"
+topic: "github-actions-reusable-workflows"
+description: "correction — the reusable-workflow event_name slice cites ADR-047, which is unrelated (Plans); drop the reference"
 tier: 2
-knowledge_scope: "domain-only"
-distilled_at: "2026-08-10"
+knowledge_scope: full
+distilled_at: "2026-10-10"
 origin:
+  - agent: "devex-tooling"
+    host: "develop-qzapp"
+    project: gzapp
+    working_copy: gzapp
   - clone_id: "clone-948c9fcd4da94057"
     host: "develop-qzapp"
   - clone_id: unresolved
@@ -13,11 +18,14 @@ origin:
 derived_from:
   - 0eb9458052405327
   - 2d508d12807af565
+  - 6f76e2f75e9f7e7f
   - b00c726f217a6d52
 ---
 
-## Inside a reusable workflow, github.event_name reflects the CALLING workflow's event
+## correction — the reusable-workflow event_name slice cites ADR-047, which is unrelated (Plans); drop the reference
 
-A `workflow_call` job's `github.event_name` is not a synthetic "reusable-workflow" value — it's whatever event started the top-level (orchestrator) workflow. A manual `workflow_dispatch` run of an orchestrator (here, a release gate) arrives inside every child reusable workflow as `workflow_dispatch`, not as `push` or `merge_group`. A step condition written as `github.event_name == 'merge_group' || github.event_name == 'push'` — a reasonable way to gate an expensive build step to "real" triggers — silently skips on a manual dispatch instead of matching, and if the skip branch reports success (e.g. an echo/no-op step), the whole release gate can go green having never actually built the artifact it exists to verify. Any condition gating a step by event type needs to explicitly enumerate every event that can reach that reusable workflow, including manual dispatch of its caller.
+Inside a reusable workflow (`on: workflow_call`), `github.event_name` is the CALLING workflow's event (`pull_request`, `merge_group`, `push`), never `workflow_call`. Gate a step on the caller's event, and pass anything the callee must branch on as an input.
 
-*References: ADR-047*
+This is GitHub Actions behaviour, not a fabric decision, so it cites no ADR. agent-fabric ADR-047 is about plans the coordinator keeps and does not apply.
+
+*Observed 2026-10-10 (devex-tooling)*

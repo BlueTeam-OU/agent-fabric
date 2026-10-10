@@ -5,7 +5,7 @@ topic: "locked-phone-ble-scan"
 description: "A locked Android phone hears the beacon only with a FILTERED scan, renewed, and a beacon advertising fast enough — measured 2026-09-28 on the bench phone"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-05"
+distilled_at: "2026-10-10"
 origin:
   - agent: "flutter-dev-01"
     host: "develop-qzapp"
