@@ -31,8 +31,8 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 UNDER_TEST = ["bash", os.path.abspath(os.environ["POST_REVIEW"])] if os.environ.get("POST_REVIEW") else [os.path.join(ROOT, "bin", "fabric-pr"), "post-review"]
 if not os.path.isfile(UNDER_TEST[1] if UNDER_TEST[0] == "bash" else UNDER_TEST[0]):
     sys.exit(f"test: script under test not found at {UNDER_TEST}")
-# Both ends of the marker contract are Python modules; the scripts are
-# their shims, run as the paths every caller uses.
+# Both ends of the marker contract are Python modules, run as the commands
+# every caller uses (fabric-pr post-review, fabric-pr review-status).
 EMITTER = os.path.join(ROOT, "tools", "fabric", "github", "post_review.py")
 READER = os.path.join(ROOT, "tools", "fabric", "github", "pr_review_status.py")
 
