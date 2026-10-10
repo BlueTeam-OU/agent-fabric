@@ -31,8 +31,8 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 UNDER_TEST = ["bash", os.path.abspath(os.environ["POST_REVIEW"])] if os.environ.get("POST_REVIEW") else [os.path.join(ROOT, "bin", "fabric-pr"), "post-review"]
 if not os.path.isfile(UNDER_TEST[1] if UNDER_TEST[0] == "bash" else UNDER_TEST[0]):
     sys.exit(f"test: script under test not found at {UNDER_TEST}")
-# Both ends of the marker contract are Python modules; the scripts are
-# their shims, run as the paths every caller uses.
+# Both ends of the marker contract are Python modules, run as the commands
+# every caller uses (fabric-pr post-review, fabric-pr review-status).
 EMITTER = os.path.join(ROOT, "tools", "fabric", "github", "post_review.py")
 READER = os.path.join(ROOT, "tools", "fabric", "github", "pr_review_status.py")
 
@@ -337,7 +337,7 @@ def main() -> int:
         # THE CROSS-FILE CONTRACT. Two constants in two modules; a one-sided
         # edit turns real coverage back into "0 reviews" with nothing failing.
         emit, read_ = marker_of(EMITTER), reader_marker()
-        check("emitter and pr-review-status.sh agree on the marker", bool(emit) and emit == read_,
+        check("emitter and fabric-pr review-status agree on the marker", bool(emit) and emit == read_,
               f"emitter: {emit}\nreader : {read_}")
 
     print(f"\ntest_post_review_cli: {'OK' if not fails else f'FAILED — {fails} check(s)'}")

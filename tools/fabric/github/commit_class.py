@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """tools/fabric/github/commit_class.py — ONE classifier for "is this commit a
 review fix": merge, fix or work (ADR-019's count rule, ADR-040's first
-Wave 1 port). runtime/github/commit-class.sh is its shim, sourced by
-pr-gate.sh and the managed projects' forwarders; results.py imports it.
+Wave 1 port). pr_gate and results.py import it, and `commit_class.py class …` is its
+command line.
 
     commit_class.py class <parents> <subject> [<answers>] [<pr>] [<owner/repo>] [<kind>] [<head>] [<base>]
                                           prints merge | fix | work

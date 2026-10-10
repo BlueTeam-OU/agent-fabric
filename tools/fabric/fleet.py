@@ -435,7 +435,7 @@ def pr_rows(ctx: Ctx) -> dict:
     --all --json` (where each is at the gate) by PR number. When the gate
     could not be read the rows carry the in-flight fields alone and say so
     (`gate_ok` false, `gate_why`): unknown stays unknown."""
-    p = call(ctx, [os.path.join(ctx.root, "runtime", "github", "pr-gate.sh"), "--in-flight", "--json"], cwd=ctx.root)
+    p = call(ctx, [os.path.join(ctx.root, "bin", "fabric-pr"), "gate", "--in-flight", "--json"], cwd=ctx.root)
     try:
         doc = json.loads(p.stdout)
         rows = doc["rows"]

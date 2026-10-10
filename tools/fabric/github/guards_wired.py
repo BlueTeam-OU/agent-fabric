@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""runtime/github/check-guards-are-wired.sh [--root <dir>]
+"""tools/fabric/github/guards_wired.py [--root <dir>]
 
 Prove every guard is REACHABLE — run by a workflow, and paired with a
 self-test that a workflow runs too.

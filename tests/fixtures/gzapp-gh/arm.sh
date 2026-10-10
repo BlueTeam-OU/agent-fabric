@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# gzapp's forwarder to the fabric's runtime/github/arm.sh — the one place
+# gzapp's forwarder to the fabric's `fabric-pr arm` — the one place
 # this project's own names for the tool are allowed to live (the lint
 # refuses them in runtime/, which is what keeps the tool every project's).
 # gzapp's tools/gh/arm.sh forwards here, argv and stdin untouched.
@@ -15,4 +15,4 @@ export AGENT_FABRIC_LEGACY_REVIEW_MARKERS="${AGENT_FABRIC_LEGACY_REVIEW_MARKERS:
 [[ -n "${GZAPP_PR_GATE:-}" ]]          && export AGENT_FABRIC_PR_GATE="${AGENT_FABRIC_PR_GATE:-$GZAPP_PR_GATE}"
 [[ -n "${GZAPP_PR_REVIEW_STATUS:-}" ]] && export AGENT_FABRIC_PR_REVIEW_STATUS="${AGENT_FABRIC_PR_REVIEW_STATUS:-$GZAPP_PR_REVIEW_STATUS}"
 [[ -n "${GZAPP_PR_SESSION:-}" ]]       && export AGENT_FABRIC_PR_SESSION="${AGENT_FABRIC_PR_SESSION:-$GZAPP_PR_SESSION}"
-exec bash "$here/../../../runtime/github/arm.sh" "$@"
+exec "$here/../../../bin/fabric-pr" arm "$@"
