@@ -1513,6 +1513,50 @@ def case_a_cited_fabric_document_must_resolve() -> None:
         assert code == 1, "a dangling citation is a finding"
 
 
+def case_arm_direct_block() -> None:
+    """arm.json's optional `direct` block: roles in the catalogue, a
+    compilable pr_paths, and cases it matches; no block, no finding."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("fabric_lint_direct_under_test", LINT)
+    lint = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(lint)
+    with tempfile.TemporaryDirectory() as root:
+        g = lambda *a: subprocess.run(["git", "-C", root, *a], check=True, capture_output=True, env=git_env())
+        rel = os.path.join("projects", "demo", "integration", "gh", "arm.json")
+
+        def arm(direct=None):
+            doc = {"boundary": {"paths": "^src/", "cases": ["src/a"]}}
+            if direct is not None:
+                doc["direct"] = direct
+            write(os.path.join(root, rel), json.dumps(doc))
+            g("add", "-A")
+        good = {"roles": ["devex-tooling"], "pr_paths": "^\\.github/|key", "cases": [".github/ci.yml", "lib/key.rs"]}
+        write(os.path.join(root, "identities", "roles", "catalog.json"),
+              json.dumps({"roles": [{"id": "architect-cto"}, {"id": "devex-tooling"}]}))
+        g("init", "-q", "-b", "main")
+        arm()
+        assert lint.arm_direct_findings(root) == [], "no direct key: not judged"
+        arm(good)
+        assert lint.arm_direct_findings(root) == [], lint.arm_direct_findings(root)
+        for bad, word in (({**good, "roles": []}, "non-empty list"),
+                          ({**good, "roles": "devex-tooling"}, "non-empty list"),
+                          ({**good, "roles": ["nobody"]}, "'nobody' is not a role"),
+                          ({k: v for k, v in good.items() if k != "pr_paths"}, "direct.pr_paths"),
+                          ({**good, "pr_paths": "("}, "direct.pr_paths"),
+                          ({**good, "cases": []}, "direct.cases"),
+                          ({k: v for k, v in good.items() if k != "cases"}, "direct.cases"),
+                          ({**good, "cases": [".github/ci.yml", "content/a.md"]}, "'content/a.md' is not a PR path")):
+            arm(bad)
+            assert any(word in f for f in lint.arm_direct_findings(root)), (bad, lint.arm_direct_findings(root))
+        # not_cases is the other floor: paths that must go direct.
+        arm({**good, "not_cases": ["design-tokens.json", "src/styles/app.css"]})
+        assert lint.arm_direct_findings(root) == [], lint.arm_direct_findings(root)
+        arm({**good, "not_cases": ["design-tokens.json", "lib/key.rs"]})
+        assert any("not_case 'lib/key.rs' matches" in f for f in lint.arm_direct_findings(root)), lint.arm_direct_findings(root)
+        arm({**good, "not_cases": "design-tokens.json"})
+        assert any("direct.not_cases must be a list" in f for f in lint.arm_direct_findings(root))
+
+
 def case_arm_boundary_cases_only_leave_retired() -> None:
     """A project's arm.json lists the paths that must stay boundary: each
     must match its own patterns, and one the branch forked with leaves only
@@ -2325,6 +2369,7 @@ def main() -> int:
         case_decision_records_are_lint_findings,
         case_bash_over_150_lines_needs_the_allowlist,
         case_arm_boundary_cases_only_leave_retired,
+        case_arm_direct_block,
         case_every_registered_project_declares_an_arm_json,
         case_a_cited_fabric_document_must_resolve,
         case_a_committed_agent_key_needs_its_lineage,

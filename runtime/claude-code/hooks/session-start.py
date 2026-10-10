@@ -169,7 +169,7 @@ def main() -> int:
             missing = watch_running() is False
         except Exception:  # noqa: BLE001 — a /proc oddity must not cost the session its project layer
             missing = False
-        if missing:
+        if missing and gzcoord_configured(ctx["project"]):
             lines.append(WATCH_MISSING.format(source=payload.get("source") or "start"))
         print(json.dumps({"hookSpecificOutput": {"hookEventName": "SessionStart",
                                                  "additionalContext": "\n".join(lines)}}))
@@ -290,24 +290,49 @@ def jobs_line(doc: dict, working_copy: str | None) -> list[str]:
     return [line]
 
 
-# The inbox watch is a Monitor the session itself arms (gzcoord-receive
+# The inbox watch is a command the session itself arms (gzcoord-receive
 # §1); a resume or a launcher restart ends the process that ran it and the
 # harness does not bring it back, so the inbox went quiet with no sign
 # (devex-tooling and architect-cto-01 after their restarts, 2026-09-25).
 # The skill said to re-arm; a resumed session did not reread it. A hook
-# cannot start a Monitor, so it says so here, at the moment it is true.
+# cannot start one, so it says so here, at the moment it is true.
+# The watch is a background Bash command that exits on the first delivery,
+# never a Monitor: the harness caps a Monitor at 30 minutes and each expiry
+# rang the Fleet Deck and woke the agent to re-arm, every half hour of a
+# quiet session; a background command is capped at 2 hours and wakes the
+# session only by delivering (the owner, 2026-10-10).
 # The command is the name on PATH, never `$AGENT_FABRIC_ROOT/…`: the
 # harness asks before any command carrying an expansion, and a watch
-# re-armed every thirty minutes asked every time (the owner, 2026-09-26;
+# re-armed that often asked every time (the owner, 2026-09-26;
 # runtime/claude-code/commands.json).
 WATCH_MISSING = ("agent-fabric: NO INBOX WATCH is running for this session ({source}) — arm it now, "
-                 "as your first action: Monitor(command: 'gzcoord-inbox --follow', "
-                 "description: 'gzcoord inbox watch', timeout_ms: 1800000), and re-arm it at each expiry notice "
-                 "(gzcoord-receive §1). One watch per session: never a second.")
+                 "as your first action: Bash(command: 'gzcoord-inbox --until-delivery', "
+                 "run_in_background: true, timeout: 7200000, description: 'gzcoord inbox wait'); "
+                 "when it completes, read its output, act on the delivery, and run it again after "
+                 "a delivery (exit 0) or after its timeout stopped it; on any other exit, read the reason "
+                 "and do not run it again until it is fixed (gzcoord-receive §1). Never a Monitor: its 30-minute cap rings every quiet half hour. "
+                 "One at a time: never a second.")
+
+
+def gzcoord_configured(project: str | None) -> bool:
+    """Whether GZCoord is configured for this working copy, by the inbox's own
+    rule (integration_config): where it is not, the watch exits 3 at once and
+    "arm it now" sends the session round a loop. Asked only when a watch is
+    missing, so a session start that has one pays nothing. An import that
+    fails answers True: the line stays rather than the hook failing."""
+    try:
+        sys.path.insert(0, os.path.join(FABRIC_ROOT, "tools", "fabric"))
+        from gzcoord.inbox_parts.config import integration_config
+        return bool(integration_config(project)["configured"])
+    except Exception:  # noqa: BLE001 — a hook must never block a session start
+        return True
+    finally:
+        sys.path[:] = [p for p in sys.path if p != os.path.join(FABRIC_ROOT, "tools", "fabric")]
 
 
 def watch_running(proc: str = "/proc", pid: int | None = None) -> bool | None:
-    """Whether a `gzcoord-inbox --follow` runs under the session this hook
+    """Whether a `gzcoord-inbox --until-delivery` (or a `--follow`, for a
+    session not yet moved to it) runs under the session this hook
     belongs to: the nearest ancestor whose command is `claude`. None when
     there is no such ancestor (not under a harness) — nothing to say."""
     def stat(p: int) -> tuple[str, int] | None:
@@ -346,7 +371,7 @@ def watch_running(proc: str = "/proc", pid: int | None = None) -> bool | None:
         # process table under the pinned Python), or the Node shim's file,
         # which callers outside this repository still run: missing either
         # told an armed session to arm a second consumer (review of #42).
-        if not ("inbox.mjs" in cmd or "gzcoord-inbox" in cmd) or "--follow" not in cmd:
+        if not ("inbox.mjs" in cmd or "gzcoord-inbox" in cmd) or not ("--until-delivery" in cmd or "--follow" in cmd):
             continue
         a = d
         for _ in range(64):

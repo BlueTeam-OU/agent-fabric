@@ -10,6 +10,7 @@ from __future__ import annotations
 import ast
 import contextlib
 import glob
+import io
 import json
 import math
 import os
@@ -595,6 +596,169 @@ def _():
         ok("gzcoord-inbox --follow" in cmdline, f"the process table reads {cmdline!r}")
     finally:
         stub.close()
+
+
+# ── --until-delivery: the background watch that ends on a delivery ──
+
+def _wait_stub(pages: list[list[dict]], status: int = 200) -> tuple[P.Stub, list[str]]:
+    """A relay whose /api/wait answers the given pages in turn (an empty
+    page, after a short pause, once they run out: a quiet long poll)."""
+    calls: list[str] = []
+
+    def answer(_h, _m, path, _b):
+        if not path.startswith("/api/wait"):
+            return 200, "{}"
+        calls.append(path)
+        if status != 200:
+            return status, '{"error": "no"}'
+        if len(calls) <= len(pages):
+            return 200, json.dumps({"messages": pages[len(calls) - 1]})
+        time.sleep(0.3)
+        return 200, '{"messages": []}'
+    return P.Stub(answer), calls
+
+
+def _rec(seq: int, subject: str, to: str | None) -> dict:
+    addressing = f"TO: {to}\n" if to else "BROADCAST: true\n"
+    return {"seq": seq, "id": f"r{seq}", "ts": "T", "sender": "x/y",
+            "content": f"[GZCOORD/1] INFO\nFROM: x/y\nROLE: backend-dev\nPROJECT: fixture\n{addressing}"
+                       f"MESSAGE-ID: 01a09fc1-0000-7000-8000-00000000000{seq}\nSUBJECT: {subject}\n\nNOTES:\nn\n"}
+
+
+@case("--until-delivery ignores quiet windows and others' traffic, and exits 0 printing the first delivery addressed here")
+def _():
+    stub, calls = _wait_stub([[_rec(1, "for-somebody-else", "elsewhere/nobody")], [], [_rec(3, "for-this-session", None)]])
+    try:
+        env = _replay_env(stub, GZCOORD_JOURNAL="off")
+        p = subprocess.Popen([P.INBOX_CMD, "--until-delivery"], env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                             text=True)
+        try:
+            out, err = p.communicate(timeout=30)
+        except subprocess.TimeoutExpired:
+            p.kill()
+            raise Failed("--until-delivery did not return on a delivery addressed here") from None
+        eq(p.returncode, 0, out + err)
+        ok("for-this-session" in out, out)
+        ok("for-somebody-else" not in out, "a message not addressed here is never printed: " + out)
+        ok(len(calls) >= 3, f"it polled past the foreign message and the quiet page ({len(calls)} calls)")
+    finally:
+        stub.close()
+
+
+@case("--until-delivery does not return on a quiet window or a message not addressed here")
+def _():
+    stub, _calls = _wait_stub([[_rec(1, "for-somebody-else", "elsewhere/nobody")]])
+    try:
+        p = subprocess.Popen([P.INBOX_CMD, "--until-delivery"], env=_replay_env(stub, GZCOORD_JOURNAL="off"),
+                             stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        try:
+            p.wait(timeout=4)
+            raise Failed(f"it returned (exit {p.returncode}) with nothing addressed here: {p.stdout.read()}")
+        except subprocess.TimeoutExpired:
+            pass
+        finally:
+            p.kill()
+            p.communicate()
+    finally:
+        stub.close()
+
+
+@case("--until-delivery exits 4 with the reason on stdout when the relay refuses the token; --follow keeps it on stderr")
+def _():
+    stub, _calls = _wait_stub([], status=401)
+    try:
+        env = _replay_env(stub, GZCOORD_JOURNAL="off")
+        r = subprocess.run([P.INBOX_CMD, "--until-delivery"], env=env, capture_output=True, text=True, timeout=40)
+        eq(r.returncode, 4, r.stdout + r.stderr)
+        ok("401" in r.stdout and "relay down" not in r.stdout, "the reason is on stdout, where the session reads it: " + r.stdout)
+        f = subprocess.run([P.INBOX_CMD, "--follow"], env=env, capture_output=True, text=True, timeout=40)
+        eq(f.returncode, 4, f.stdout + f.stderr)
+        ok("401" in f.stderr and "401" not in f.stdout, "--follow is unchanged: the line on stderr")
+    finally:
+        stub.close()
+
+
+@case("--until-delivery gives up on an unreachable relay with exit 5 and the reason on stdout, after GZCOORD_UNTIL_DELIVERY_DOWN_S")
+def _():
+    stub, _calls = _wait_stub([])
+    url = stub.url
+    stub.close()   # nothing listens there now
+    env = _replay_env(stub, GZCOORD_JOURNAL="off", GZCOORD_UNTIL_DELIVERY_DOWN_S="1")
+    env["CLAUDE_BRIDGE_URL"] = url
+    r = subprocess.run([P.INBOX_CMD, "--until-delivery"], env=env, capture_output=True, text=True, timeout=90)
+    eq(r.returncode, 5, r.stdout + r.stderr)
+    ok(url in r.stdout, r.stdout)
+
+
+@case("--until-delivery: not configured exits 3 with the reason on stdout; a drain stays exit 0 on stderr")
+def _():
+    env = P.cmd_env(CLAUDE_BRIDGE_URL="", GZCOORD_CHANNEL="", CLAUDE_BRIDGE_AUTH_TOKEN="")
+    cwd = P.scratch("nocfg-")
+    r = subprocess.run([P.INBOX_CMD, "--until-delivery"], env=env, cwd=cwd, capture_output=True, text=True, timeout=40)
+    eq(r.returncode, 3, r.stdout + r.stderr)
+    ok(r.stdout.strip() and not r.stderr.strip(), "the reason is on stdout only: " + r.stdout + r.stderr)
+    d = subprocess.run([P.INBOX_CMD], env=env, cwd=cwd, capture_output=True, text=True, timeout=40)
+    eq(d.returncode, 0, d.stdout + d.stderr)
+    ok(not d.stdout.strip() and d.stderr.strip(), "a drain keeps the reason on stderr")
+
+
+@case("--until-delivery: no token exits 3 with the reason on stdout; a drain stays exit 0")
+def _():
+    stub, _calls = _wait_stub([])
+    try:
+        env = _replay_env(stub, GZCOORD_JOURNAL="off", CLAUDE_BRIDGE_AUTH_TOKEN="")
+        r = subprocess.run([P.INBOX_CMD, "--until-delivery"], env=env, capture_output=True, text=True, timeout=40)
+        eq(r.returncode, 3, r.stdout + r.stderr)
+        ok(r.stdout.strip(), "the reason is on stdout: " + r.stderr)
+        d = subprocess.run([P.INBOX_CMD], env=env, capture_output=True, text=True, timeout=40)
+        eq(d.returncode, 0, d.stdout + d.stderr)
+    finally:
+        stub.close()
+
+
+@case("--until-delivery: the last resort is exit 7 with the line on stdout; any other mode keeps exit 0 on stderr")
+def _():
+    saved = inbox.main
+
+    def boom(_argv):
+        raise RuntimeError("unforeseen")
+    inbox.main = boom
+    try:
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            eq(inbox.run(["--until-delivery"]), 7)
+        ok("unforeseen" in out.getvalue() and not err.getvalue(), out.getvalue() + err.getvalue())
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            eq(inbox.run([]), 0)
+        ok("unforeseen" in err.getvalue() and not out.getvalue(), out.getvalue() + err.getvalue())
+    finally:
+        inbox.main = saved
+
+
+@case("--until-delivery: a delivery the journal cannot keep ends it with exit 6 and the held line on stdout, not at the timeout")
+def _():
+    stub, _calls = _wait_stub([[_rec(1, "for-this-session", None)]])
+    try:
+        blocker = P.scratch_file("not a directory")
+        env = _replay_env(stub, GZCOORD_JOURNAL="off", AGENT_FABRIC_STATE_DIR=os.path.join(blocker, "state"))
+        r = subprocess.run([P.INBOX_CMD, "--until-delivery"], env=env, capture_output=True, text=True, timeout=30)
+        eq(r.returncode, 6, r.stdout + r.stderr)
+        ok("held, not shown" in r.stdout, r.stdout + r.stderr)
+    finally:
+        stub.close()
+
+
+@case("--until-delivery: an unreachable relay says watch.relay-gave-up, not 'waiting for it'")
+def _():
+    stub, _calls = _wait_stub([])
+    url = stub.url
+    stub.close()
+    env = _replay_env(stub, GZCOORD_JOURNAL="off", GZCOORD_UNTIL_DELIVERY_DOWN_S="1")
+    env["CLAUDE_BRIDGE_URL"] = url
+    r = subprocess.run([P.INBOX_CMD, "--until-delivery"], env=env, capture_output=True, text=True, timeout=90)
+    eq(r.returncode, 5, r.stdout + r.stderr)
+    ok("the watch ended" in r.stdout and "waiting for it" not in r.stdout, r.stdout)
 
 
 def main() -> int:

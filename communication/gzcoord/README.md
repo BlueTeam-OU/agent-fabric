@@ -81,8 +81,9 @@ The message is parseable, but it remains readable without tooling.
 `gzcoord-send <file>` posts one message: normalized, validated last,
 refused when `FROM` is not the session's own address, resolved (relay,
 channel, token) exactly as `gzcoord-inbox` resolves the inbox.
-`gzcoord-inbox` drains at session start and, with `--follow`, is the
-session-long watch (`--wait [S]` is a bounded read for a reply you expect). The procedures around them — when a message is the
+`gzcoord-inbox` drains at session start; `--until-delivery`, run as a background
+command again after each delivery, is the session's watch (`--follow` is the
+long-running consumer's, `--wait [S]` a bounded read for a reply you expect). The procedures around them — when a message is the
 right instrument, how to address it, what a delivery is and is not — are
 two skills every account has: `skills/gzcoord-send/SKILL.md` and
 `skills/gzcoord-receive/SKILL.md` (installed user-scope by

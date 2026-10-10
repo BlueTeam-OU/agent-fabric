@@ -328,10 +328,13 @@ def test_hook_unsets_every_secret_in_the_session_shell(tmp: str) -> None:
 
 
 def test_hook_says_when_the_session_has_no_inbox_watch(tmp: str) -> None:
-    """Under a process named claude with no `gzcoord-inbox --follow` beneath it,
+    """Under a process named claude with no `gzcoord-inbox --until-delivery` (or `--follow`) beneath it,
     the context says to arm the watch; with one beneath it, it does not."""
     state = os.path.join(tmp, "state")
-    env = {**os.environ, "AGENT_FABRIC_ROOT": ROOT, "AGENT_FABRIC_STATE_DIR": state}
+    # Configured by the environment, as the inbox itself reads it: a working
+    # copy where GZCoord is not configured gets no line (below).
+    env = {**os.environ, "AGENT_FABRIC_ROOT": ROOT, "AGENT_FABRIC_STATE_DIR": state,
+           "CLAUDE_BRIDGE_URL": "http://127.0.0.1:1", "GZCOORD_CHANNEL": "fixture:chan"}
     fake = os.path.join(tmp, "bin", "claude")
     os.makedirs(os.path.dirname(fake))
     payload = os.path.join(tmp, "payload.json")
@@ -341,6 +344,7 @@ def test_hook_says_when_the_session_has_no_inbox_watch(tmp: str) -> None:
         fh.write("#!/bin/bash\n"  # not env: env re-execs bash and the process is no longer named claude
                  
                  "if [ \"$1\" = watch ]; then (exec -a 'node inbox.mjs --follow' sleep 20) & w=$!; sleep 0.3; fi\n"
+                 "if [ \"$1\" = until ]; then (exec -a 'node /home/x/.local/bin/gzcoord-inbox --until-delivery' sleep 20) & w=$!; sleep 0.3; fi\n"
                  "if [ \"$1\" = named ]; then (exec -a 'node /home/x/.local/bin/gzcoord-inbox --follow' sleep 20) & w=$!; sleep 0.3; fi\n"
                  f"bash {HOOK} < {payload}\n"
                  "[ -n \"${w:-}\" ] && kill $w\n")
@@ -349,6 +353,14 @@ def test_hook_says_when_the_session_has_no_inbox_watch(tmp: str) -> None:
     assert "NO INBOX WATCH is running for this session (resume)" in context_of(bare), bare.stdout
     armed = subprocess.run([fake, "watch"], capture_output=True, text=True, env=env)
     assert "NO INBOX WATCH" not in context_of(armed), armed.stdout
+    until = subprocess.run([fake, "until"], capture_output=True, text=True, env=env)
+    assert "NO INBOX WATCH" not in context_of(until), "the background wait was not seen:\n" + until.stdout
+    said = context_of(bare)
+    assert "run_in_background: true" in said and "--until-delivery" in said and "Never a Monitor" in said, said
+    assert "do not run it again until it is fixed" in said, said
+    bare_env = {k: v for k, v in env.items() if k not in ("CLAUDE_BRIDGE_URL", "GZCOORD_CHANNEL")}
+    unconfigured = subprocess.run([fake], capture_output=True, text=True, env=bare_env)
+    assert "NO INBOX WATCH" not in context_of(unconfigured), "GZCoord is not configured here: " + unconfigured.stdout
     named = subprocess.run([fake, "named"], capture_output=True, text=True, env=env)
     assert "NO INBOX WATCH" not in context_of(named), "the watch armed by its name on PATH was not seen:\n" + named.stdout
 

@@ -14,7 +14,7 @@ An agent's session is how it takes part in the team: it hears other
 agents through its GZCoord inbox and acts through tools its permission
 mode allows. Three gaps showed up in how a session starts and runs.
 
-The inbox watch is a Monitor only the session itself can arm, and a
+The inbox watch is a command only the session itself can arm, and a
 session acts only on a turn. A session left alone after a launch or a
 resume had no watch and no sign of it: after their restarts on
 2026-09-25 two roles' inboxes went quiet, and the skill that said to
@@ -29,8 +29,8 @@ running one and waited on an answer that could not come.
 ## 2. Decision
 
 **Every session watches its inbox from its first turn to its last**,
-with one watch per session: `gzcoord-inbox --follow`
-under a Monitor. The launcher opens every
+with one watch per session: `gzcoord-inbox --until-delivery`
+as a background Bash command that exits on each delivery. The launcher opens every
 interactive session it starts without a prompt of its own with one that
 arms the watch, and the session-start hook says so, on start, resume and
 after a compaction, whenever no watch runs for the session.
@@ -90,14 +90,16 @@ the same command asks on one account and not on another.
    `AGENT_FABRIC_NO_OPENING` — ends its command line with `--` and an
    opening prompt that tells the session to arm its inbox watch exactly
    as the start hook's `NO INBOX WATCH` line gives it (the gzcoord-receive
-   skill, where the context has none) and to re-arm at each expiry
-   notice. The prompt names no command: it stays in the process's argv,
+   skill, where the context has none) and to run it again after each
+   delivery. The prompt names no command: it stays in the process's argv,
    where a kill by a pattern built from that command matched the session
    itself (A 2026-09-30).
 2. The session-start hook, on start, resume and after a compaction,
-   prints a `NO INBOX WATCH` line naming the Monitor call whenever no
-   `gzcoord-inbox --follow` (or `inbox.mjs --follow`) runs under the
-   session; the workspace settings also drain the inbox once at session
+   prints a `NO INBOX WATCH` line naming the background Bash call whenever
+   no `gzcoord-inbox --until-delivery` (or `--follow`, or `inbox.mjs
+   --follow`) runs under the session; the watch is never a Monitor, whose
+   30-minute cap rang the Fleet Deck every quiet half hour; the
+   workspace settings also drain the inbox once at session
    start, which a hold does not stop.
 3. One watch per session: the cursor is per address, and a second
    consumer steals deliveries from the first. The watch is run by the bare
@@ -112,7 +114,7 @@ the same command asks on one account and not on another.
    the login's, mode 700 and not a symlink, sweeps markers whose harness
    is gone or whose pid was reused, and writes nothing at all without
    `jq`.
-6. `gzcoord-inbox --follow` polls nothing while any marker names a live
+6. `gzcoord-inbox --until-delivery` (and `--follow`) polls nothing while any marker names a live
    harness of this login (a pid of another login is never a hold),
    checked before each slice, once a second during one and when it
    returns; nothing is acknowledged while held, so the relay re-shows
@@ -163,9 +165,10 @@ the same command asks on one account and not on another.
 ## 6. Consequences
 
 - A resumed session is told it has no watch; a relaunched one arms it on
-  its first turn. The Monitor tool is timed (the pinned Claude Code has
-  no `persistent` field), so re-arming at the expiry notice stays the
-  session's job (`gzcoord-receive` §1).
+  its first turn. The watch is a background command that ends on each
+  delivery, so running it again after the delivery is the session's job
+  (`gzcoord-receive` §1); a quiet session is woken at most once per two
+  hours, the Bash background cap.
 - After a plan is approved the planning span's deliveries arrive
   together, and the session reads them before acting: the tree may have
   moved.
@@ -217,3 +220,4 @@ The body above reads current; each change's full note is in [history/ADR-022-ame
 | 2026-09-28 | Local branches are swept weekly | §5 rule 11: `fabric-branches --sweep`, the weekly nudge at session start |
 | 2026-09-28 | The next job decides whether the session continues | §5 rule 12: `fabric-jobs next` and `fabric-fresh --job`; rule 10 points to it |
 | 2026-09-30 | The opening prompt names no command | §5 rule 1, §3: the prompt defers the exact Monitor call to the hook's line |
+| 2026-10-10 | The watch is a background command, not a Monitor | §2, §5 rules 1, 2, 6: `gzcoord-inbox --until-delivery` exits on each delivery; no 30-minute expiry |

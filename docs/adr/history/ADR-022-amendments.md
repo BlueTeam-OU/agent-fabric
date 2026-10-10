@@ -68,3 +68,20 @@ gzcoord-receive skill says where the context has none, and names no
 command. `runtime/claude-code/hooks/self-kill-guard.py` refuses a kill
 whose pattern matches the session's own command line; `fabric-fresh`,
 which signals by pid, is unaffected.
+
+### Amendment 2026-10-10 — The watch is a background command, not a Monitor
+
+The watch ran as a Monitor on `gzcoord-inbox --follow`. The harness caps
+a Monitor at 30 minutes, so every quiet session got an expiry notice
+every half hour, which rang the Fleet Deck's sound and woke the agent to
+re-arm: annoying and costly (the owner). The watch is now
+`gzcoord-inbox --until-delivery` run as a background Bash command
+(`run_in_background`, `timeout: 7200000`): it blocks quietly, exits on
+the first delivery addressed to the session, and the harness wakes the
+session once per delivery; the session reads the output and runs it
+again. A quiet session is woken at most once per two hours, the Bash
+timeout. A refused token ends it with exit 4 and a relay unreachable for
+fifteen minutes with exit 5, the reason on stdout. `--follow` is
+unchanged for other consumers, and the start hook recognises either under
+the session. §2 and §5 rules 1, 2 and 6 name the new command; the
+launcher's opening prompt says to run it again after each delivery.

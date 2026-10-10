@@ -40,14 +40,17 @@ block and the person copies it into the receiving session's prompt
   included, and only the metadata line of what is not. That drain is a
   snapshot; **every session watches its inbox from its first turn to
   its last**: make the first action of the
-  session a watch: `Monitor` running
-  `gzcoord-inbox --follow`,
-  which blocks for the life of the session and turns each delivery into a
-  notification, printing nothing on a quiet spell. Pass `persistent: true`
-  if your Monitor tool has the field (armed once, no timer); if it does
-  not (its `timeout_ms` caps at 30 min), re-arm on the expiry notice. The
-  `gzcoord-receive` skill has both shapes. A **resume** does not restore
-  the watch (2026-09-14): re-arm it as the first action after any
+  session a watch: a background Bash command (`run_in_background: true`,
+  `timeout: 7200000`) running
+  `gzcoord-inbox --until-delivery`,
+  which blocks quietly and exits on the first delivery addressed to this
+  session, waking you once per delivery; read the output, act, and run it
+  again after a delivery (exit 0) or after the timeout stopped it; on any
+  other exit read the reason and do not run it again until it is fixed.
+  Never a Monitor: its 30-minute cap rang every quiet half hour
+  (the owner, 2026-10-10). The
+  `gzcoord-receive` skill has the exact call. A **resume** does not restore
+  the watch (2026-09-14): run it again as the first action after any
   `--resume` or post-compaction continue. The command is on PATH (bootstrap links it) and allowed in the user
   settings, so it runs without a prompt; never write it through
   `$AGENT_FABRIC_ROOT` — an expansion makes the harness ask. The wait wakes only on a message addressed to this

@@ -590,7 +590,7 @@ def launch(argv: list[str]) -> int:
     # back 2026-09-18: it ate a positional prompt in a -p probe).
     if role == "language-culture" and os.path.isfile(f"{locale_dir}/locale.json"):
         cmd += ["--disallowedTools", "WebSearch"]
-    # THE WATCH STARTS WITH THE SESSION. Only a session can call Monitor, and a
+    # THE WATCH STARTS WITH THE SESSION. Only a session can start the watch, and a
     # session acts only on a turn: the start hook's "arm it now" waited for
     # whatever prompt came first, and an agent left alone after a launch or a
     # resume had no inbox (the owner, 2026-09-26). So an interactive launch the
@@ -609,7 +609,7 @@ def launch(argv: list[str]) -> int:
     # session, and a process pattern built from the watch's command
     # (`pgrep -f 'gzcoord-inbox --follow' | xargs kill`, clearing a "stale"
     # watcher) matched the session itself and killed it: architect-cto-01,
-    # twice, 2026-09-29. The exact Monitor call is the session-start hook's
+    # twice, 2026-09-29. The exact call is the session-start hook's
     # NO INBOX WATCH line, which is context, never argv, and which it gives
     # exactly when no watch runs; hooks/self-kill-guard.py refuses the kill.
     text = opening_prompt(fabric_root)

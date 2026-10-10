@@ -12,12 +12,13 @@ from .records import one_line, REPLAY_CMD
 
 
 # ── one delivery, as the session reads it ────────────────────────────
-# THE NOTIFICATION CAP. What the watch prints reaches the session as a
+# THE NOTIFICATION CAP. What a --follow watch prints reaches the session as a
 # Monitor notification, and the harness shows about 3,000 characters of one
-# event, then "...(truncated)"; the rest lives only in the task's output
+# event (--until-delivery prints the same text and keeps the same cap),
+# then "...(truncated)"; the rest lives only in the task's output
 # file, which the session does not know to open (architect-cto, 2026-09-16,
 # four deliveries cut inside REQUEST or VERIFIED; measured at 3,017
-# characters shown). So --follow renders under a cap of its own: a delivery
+# characters shown). So the watch renders under a cap of its own: a delivery
 # that fits is printed whole; one that does not keeps every metadata line,
 # cuts the body at a line boundary, and says where it cut and how to read
 # the whole message. The drain is not a notification and is rendered whole.

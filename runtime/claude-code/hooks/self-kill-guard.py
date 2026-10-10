@@ -402,7 +402,7 @@ def verdict(command: str, cmdline: str | None) -> str | None:
         if hit:
             return (f"The pattern {pat!r} matches this session's own claude process (its command line carries the "
                     "opening prompt), so this command would kill the session running it. Select by exact name "
-                    "(pgrep -x) or by pid, and never kill the inbox watch: a Monitor ends at its expiry.")
+                    "(pgrep -x) or by pid, and never kill the inbox watch: it ends by itself at its next delivery.")
     return None
 
 

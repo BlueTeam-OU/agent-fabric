@@ -96,6 +96,7 @@
   "watch.held": "gzcoord watch: inbox удерживается — сессия в режиме планирования; опрос не ведётся, пока план не одобрен",
   "watch.hold-released": "gzcoord watch: удержание снято; опрос возобновлён",
   "watch.relay-down": "gzcoord watch: релей недоступен по адресу {relay_url} — жду, пока вернётся (эта строка печатается один раз)",
+  "watch.relay-gave-up": "gzcoord watch: relay unreachable at {relay_url} for 15 minutes — the watch ended; run it again when the relay is back",
   "watch.relay-back": "gzcoord watch: релей снова доступен; наблюдение возобновлено",
   "keyword.too-short": "ключевое слово {keyword} короче {min} знаков — такое слово срабатывает почти на всё",
   "keyword.too-many": "не более {max} ключевых слов на одно наблюдение",

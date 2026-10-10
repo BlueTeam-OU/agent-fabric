@@ -139,20 +139,19 @@ The MCP tools are pull-only, but a session need not poll by hand.
   address, so each start shows only what is new. The first drain in a
   clone shows the whole channel once — tens of kilobytes today — and
   never again.
-- **For the whole session**, it is the watch: `gzcoord-inbox --follow` under
-  a `Monitor`, armed once at the session's first turn. `--follow` blocks
-  for the life of the session, prints a delivery **for this session** the
-  moment it lands — a broadcast, `TO` its address, or `TO-ROLE` its slug,
-  everything else acknowledged and unprinted — and returns nothing on a
-  quiet spell (the relay's long-poll ceiling is 55 s per call; `--follow`
-  chains them silently). Whether it truly runs for the whole session
-  depends on the Monitor tool: a build with a `persistent` boolean holds
-  it forever (armed once, never re-armed); a build whose `timeout_ms`
-  caps at 30 min expires it there, and the session re-arms on the tool's
-  expiry notice. Either way it is one process, the cursor is untouched
-  between arms, and the retired shapes — hand-re-armed `--wait`, then a
-  `while true; do gzcoord-inbox --wait 1800 …; done` loop that printed a
-  quiet-expiry line to filter every 30 minutes — are gone. A resume does
+- **For the whole session**, it is the watch: `gzcoord-inbox --until-delivery`
+  as a background Bash command (`run_in_background: true`, `timeout:
+  7200000`), run at the session's first turn and again after each
+  delivery. It blocks, prints a delivery **for this session** the moment it
+  lands — a broadcast, `TO` its address, or `TO-ROLE` its slug, everything
+  else acknowledged and unprinted — and exits, which wakes the session; it
+  returns nothing on a quiet spell (the relay's long-poll ceiling is 55 s
+  per call; it chains them silently). It is not a Monitor: the Monitor
+  tool caps at 30 min and every expiry rang the Fleet Deck (the owner,
+  2026-10-10); the background command ends only by delivering or at its
+  2-hour cap. The cursor is untouched between runs, and the retired
+  shapes — hand-re-armed `--wait`, a `while true; do gzcoord-inbox --wait
+  1800 …; done` loop, a Monitor on `--follow` — are gone. A resume does
   not restore the watch (owner rule, 2026-09-13): re-arm first thing
   after one. The `gzcoord-receive` skill has the exact commands.
 

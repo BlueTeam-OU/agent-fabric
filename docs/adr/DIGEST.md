@@ -26,7 +26,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 | writing a SKILL.md; dates and PR numbers in skills; skill-creator | ADR-016 |
 | live checks; read-back; evidence; a prompt change before pushing | ADR-017 |
 | who may commit here; Fabric-Role; the hooks; the locale carve-out; what a guard is | ADR-018 |
-| opening, counting and arming a PR; pr-gate; Kind: trailer; Co-authored-by; GitHub settings | ADR-019 |
+| opening, counting and arming a PR; pr-gate; Kind: trailer; Co-authored-by; GitHub settings; direct push to main (arm.json direct) | ADR-019 |
 | the blind review; code-review dispatch; post-review; what counts as coverage | ADR-020 |
 | scratch a suite leaves; TMPDIR; containers after a test; cleaning caches | ADR-021 |
 | the inbox watch at start; auto mode; plan mode holds the inbox; planning in presence | ADR-022 |
@@ -425,20 +425,18 @@ its record disagree, the record wins. Look it up, never read it whole:
   rule 4).
 - Arm only on `pr-gate.sh`'s `MERGEABLE`, with no open P1/P2 (§5
   rules 5–6).
-- No `Co-authored-by:`/`Claude-Session:` trailer, footer or session URL
-  (§5 rule 7). GitHub settings: §6.
+- No machine attribution (§5 rule 7). GitHub settings: §6.
 - A 2026-10-04 — `main`'s ruleset: a PR, CI, signed commits (§5 rule 6).
-- A 2026-10-05 — the ruleset requires CI's aggregate check `ci-ok` alone
-  (§5 rule 6).
-- A 2026-10-05 — 8+ work commits arm on the gate alone, a boundary
-  and over 16 included (§5 rule 4).
+- A 2026-10-05 — the ruleset requires `ci-ok` alone (§5 rule 6).
+- A 2026-10-05 — 8+ work commits arm on the gate alone (§5 rule 4).
 - A 2026-10-06 — one open PR at a time (§5 rule 2).
-- A 2026-10-08 — every commit declares its `Kind:`; the commit-msg
-  hook refuses one without it (§5 rule 3).
+- A 2026-10-08 — every commit declares its `Kind:` (§5 rule 3).
 - A 2026-10-08 — a folded PR's review fixes are fixes (§5 rule 3).
-- A 2026-10-09 — results.py reads a fold too (§5 rule 3).
+- A 2026-10-09 — results.py reads a fold (§5 rule 3).
 - A 2026-10-09 — a push after the arming disarms it (§5 rule 5).
-- Keywords: Answers, Kind, fold, pr-gate, ruleset.
+- A 2026-10-10 — arm.json `direct`: roles fast-forward main;
+  `pr_paths` and executables by PR, fenced by pre-push (§5 rule 1).
+- Keywords: Answers, Kind, fold, pr-gate, ruleset, direct, pre-push.
 
 ### ADR-020 — The review class is the review (Accepted)
 
@@ -495,6 +493,8 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-09-28 — the next job decides whether the session continues: `fabric-jobs
   next`, then `fabric-fresh --job` into the job's working copy (§5 rule 12).
 - A 2026-09-30 — the opening prompt names no command (§5 rule 1).
+- A 2026-10-10 — the watch is `gzcoord-inbox --until-delivery`, a
+  background command exiting per delivery, never a Monitor (§5 rules 1, 2, 6).
 - Keywords: session, lifecycle, inbox watch, Monitor, gzcoord-inbox,
   --follow, opening prompt, resume, auto mode, defaultMode, plan mode,
   hold, planning, presence.
