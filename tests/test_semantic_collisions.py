@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""tools/fabric/github/semantic_collisions.py, through its shim. The
+"""tools/fabric/github/semantic_collisions.py, through the module. The
 behaviour's oracle is two managed projects' tools/checks/
-test_scan_semantic_collisions.sh, run unchanged against the shim with
+test_scan_semantic_collisions.sh, run unchanged against the module with
 each project's collisions.json (ADR-040 §5 rule 5). Those suites check
 exit codes and a few names; this file pins the lines whole, and what the
 port changed or added: numbers compared as text, every member of a

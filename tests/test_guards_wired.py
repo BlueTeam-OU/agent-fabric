@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""tools/fabric/github/guards_wired.py, through its shim. The behaviour's
+"""tools/fabric/github/guards_wired.py, through the module. The behaviour's
 oracle is two managed projects' tools/checks/test_check_guards_are_wired.sh,
-run unchanged against the shim, each with its project's guards.json
+run unchanged against the module, each with its project's guards.json
 (ADR-040 §5 rule 5). This file pins what the union added or neither suite
 reaches: a glob wires only the members of its own path, and a for-loop
 over self-tests answers the runner rule as a whole while a literal

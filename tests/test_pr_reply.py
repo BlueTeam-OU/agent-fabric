@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Tests for tools/fabric/github/pr_reply.py's internals; the behaviour is
-tests/test_pr_reply_cli.py's, run against the shim
+tests/test_pr_reply_cli.py's, run through fabric-pr
 (ADR-040 §5 rule 5)."""
 from __future__ import annotations
 

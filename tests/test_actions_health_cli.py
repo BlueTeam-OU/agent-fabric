@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""tools/fabric/github/actions_health.py, through the shim with gh and curl
+"""tools/fabric/github/actions_health.py, with gh and curl
 mocked on PATH. Ported case for case from a managed project's
 tools/gh/test_actions-health.sh (its script the oracle, ADR-040 §5): the
 value of the tool is a decision — spend minutes, or don't — so each state

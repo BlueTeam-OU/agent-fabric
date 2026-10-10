@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""tools/fabric/github/run_suite.py, through its shim. The behaviour's
+"""tools/fabric/github/run_suite.py, through the module. The behaviour's
 oracle is two managed projects' tools/checks/test_run_suite.sh, run
-unchanged against the shim (ADR-040 §5 rule 5); they check exit codes and
+unchanged against the module (ADR-040 §5 rule 5); they check exit codes and
 a few words. This file pins the rest: the stderr lines whole, the names
 sorted and unique, the marker's variable and its removal on every path,
 the suite's own arguments and exits, a suite killed by a signal, a signal

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """tools/fabric/github/workflows_lint.py. Its behaviour's oracle is a
 managed project's tools/checks/test_check_workflows_lint.sh, run unchanged
-against the shim (ADR-040 §5 rule 5) but for three cases devex-tooling
+against the module (ADR-040 §5 rule 5) but for three cases devex-tooling
 retired: two reach the fetch's temp files through a failing mktemp on PATH
 and one its move through a failing mv, which Python never calls, and one
 seds the bash function out to show it refuses to run outside $(…), a rule
@@ -206,7 +206,7 @@ def main() -> int:
         finally:
             os.environ["PATH"] = saved_path
 
-        # ── through the shim ─────────────────────────────────────────────
+        # ── through the module ─────────────────────────────────────────────
         print("workflows_lint: through tools/fabric/github/workflows_lint.py")
         with open(os.path.join(bin_, "shellcheck"), "w", encoding="utf-8") as fh:
             fh.write('#!/usr/bin/env bash\necho ShellCheck\necho "version: stub"\n')

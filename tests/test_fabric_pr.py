@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """bin/fabric-pr and bin/fabric-query (ADR-040 §5 rule 7, step 1): each verb
 reaches its module with argv, streams and exit status untouched, and a
-verb's --help is the old shim's, byte for byte. The wiring runs against a
+verb's --help is its module's, byte for byte. The wiring runs against a
 fake checkout whose modules print what they were given; the parity cases
 run the real modules (--help reads no network)."""
 from __future__ import annotations

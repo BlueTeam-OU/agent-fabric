@@ -27,7 +27,7 @@ SEQUENCES = (
     ("docs", "adr"),
 )
 SINGLE = ("policies", "memory")           # one component after a root: policies/<x>, memory/<x>
-SCANNED_DIRS = ("tools", "runtime", "communication/gzcoord/scripts", "projects/gzapp/integration/gh", "bin")
+SCANNED_DIRS = ("tools", "runtime", "communication/gzcoord/scripts", "bin")
 SKIP_PARTS = ("/tests/", "/__pycache__/", "/claude-code/")
 
 # path -> why it does not go through roots yet

@@ -3,8 +3,8 @@
 reached by callers through the shell library that was runtime/github/commit-class.sh), on
 the subjects the count rule was calibrated against. Ported from
 runtime/github/test_commit-class.sh (ADR-040 Wave 6), case for case: as there,
-every case of the table goes through the sourced shim with all five
-arguments, so a shim or CLI that dropped one fails the cases that turn
+every case of the table goes through the two shell functions with all five
+arguments, so a function or CLI that dropped one fails the cases that turn
 on it. Plain script: prints ok/FAIL, exit 1 on
 any failure."""
 from __future__ import annotations
@@ -18,9 +18,11 @@ import tempfile
 from instance_fixtures import write_operator_projects  # noqa: E402 — tests/, the script's own directory
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-# The two functions the sourced shell library gave its callers, defined as it
-# defined them over the module's CLI; COMMIT_CLASS names a file to source
-# instead (a mutated copy, for the counterfactual runs).
+# The two functions the shell library gave its callers, over the module's
+# CLI. Not its interpreter guard (exit 127 with the install hint when the
+# pinned Python is missing): this suite's interpreter is the one running it.
+# COMMIT_CLASS names a file that defines the two functions, to source instead
+# (a mutated copy, for the counterfactual runs).
 MODULE = os.path.join(ROOT, "tools", "fabric", "github", "commit_class.py")
 LIBRARY = os.path.abspath(os.environ["COMMIT_CLASS"]) if os.environ.get("COMMIT_CLASS") else None
 if LIBRARY and not os.path.isfile(LIBRARY):
@@ -192,7 +194,7 @@ def main() -> int:
                               env={**env, "COMMIT_CLASS_PYTHON": sys.executable, "COMMIT_CLASS_MODULE": MODULE},
                               capture_output=True, text=True, timeout=300)
 
-    # One bash for the whole table, as the bash suite sourced the shim once;
+    # One bash for the whole table, as the bash suite sourced the library once;
     # US-separated fields keep an empty or blank argument in its place, which
     # a whitespace IFS would collapse.
     table = [case for _, cases in CASES for case in cases]
@@ -201,7 +203,7 @@ def main() -> int:
                 "".join("\x1f".join(case[1:]) + "\n" for case in table))
     got = r.stdout.splitlines()
     if r.returncode != 0 or len(got) != len(table):
-        check(f"the table runs through the shim ({len(table)} classes)", False,
+        check(f"the table runs through the shell functions ({len(table)} classes)", False,
               f"exit {r.returncode}, {len(got)} lines\n{r.stderr}")
         got += [""] * (len(table) - len(got))
     classes = iter(got)
@@ -213,7 +215,7 @@ def main() -> int:
             check(f"{want}{on}: {subject}{f' [Answers: {answers}]' if answers else ''}", have == want, f"got {have}")
 
     # The Kind: declaration (ADR-019 §5 rule 3), as a sixth argument. Every
-    # row passes all six, so a shim that dropped the last fails the rows
+    # row passes all six, so a function that dropped the last fails the rows
     # that turn on it; the first rows are the misreads that made the rule.
     print("commit-class: the Kind: declaration outranks the subject and Answers:")
     kinds = [
