@@ -1788,7 +1788,7 @@
    ]
   },
   {
-   "section": "no cd leaves the clone: the word cd anywhere in a segment is refused unless the segment is exactly a plain relative cd (re-reviews of 0eb39891 and 867a69e2: 1, D, E, F; of cae73213: 1, 2, G; of 364f7eb3: G; of da42d34a: G, 1; of c19d6790: 1)",
+   "section": "no cd leaves the clone: the word cd anywhere in a segment is refused unless the segment is exactly a plain relative cd (re-reviews of 0eb39891 and 867a69e2: 1, D, E, F; of cae73213: 1, 2, G; of 364f7eb3: G; of da42d34a: G, 1; of c19d6790: 1; of 3927c8b6: 1)",
    "cases": [
     {
      "want": "deny",
@@ -2086,23 +2086,23 @@
      "command": "{c\"d\",} .. && ls"
     },
     {
-     "want": "allow",
-     "label": "allowed: braces inside double quotes are not brace-expanded: grep -nE \"[0-9a-f]{7,40}\" tests/run.sh",
+     "want": "deny",
+     "label": "denied (over-report): braces even inside double quotes; put the pattern in single quotes: grep -nE \"[0-9a-f]{7,40}\" tests/run.sh",
      "command": "grep -nE \"[0-9a-f]{7,40}\" tests/run.sh"
     },
     {
-     "want": "allow",
-     "label": "allowed: braces inside double quotes are not brace-expanded: python3 -c \"print({1,2})\"",
+     "want": "deny",
+     "label": "denied (over-report): braces even inside double quotes; put the pattern in single quotes: python3 -c \"print({1,2})\"",
      "command": "python3 -c \"print({1,2})\""
     },
     {
-     "want": "allow",
-     "label": "allowed: braces inside double quotes are not brace-expanded: git log -1 --format=\"%H{%an,%ae}\"",
+     "want": "deny",
+     "label": "denied (over-report): braces even inside double quotes; put the pattern in single quotes: git log -1 --format=\"%H{%an,%ae}\"",
      "command": "git log -1 --format=\"%H{%an,%ae}\""
     },
     {
-     "want": "allow",
-     "label": "allowed: braces inside double quotes are not brace-expanded: grep -rn x --include=\"*.{py,sh}\" runtime",
+     "want": "deny",
+     "label": "denied (over-report): braces even inside double quotes; put the pattern in single quotes: grep -rn x --include=\"*.{py,sh}\" runtime",
      "command": "grep -rn x --include=\"*.{py,sh}\" runtime"
     },
     {
@@ -2114,6 +2114,26 @@
      "want": "deny",
      "label": "denied (over-report): an escaped backslash before a quote does not hide a brace word: A=\\\\\"x\" {c,}d \"\".. && ls",
      "command": "A=\\\\\"x\" {c,}d \"\".. && ls"
+    },
+    {
+     "want": "deny",
+     "label": "denied (over-report): a dropped quote does not turn the next ' into ANSI-C quoting: x=$\"\"'' {c..c}d .. && ls",
+     "command": "x=$\"\"'' {c..c}d .. && ls"
+    },
+    {
+     "want": "deny",
+     "label": "denied (over-report): a dropped quote does not turn the next ' into ANSI-C quoting: x=$\"\"'' {c,}d .. && ls",
+     "command": "x=$\"\"'' {c,}d .. && ls"
+    },
+    {
+     "want": "allow",
+     "label": "allowed: braces inside single quotes: grep -nE '[0-9a-f]{7,40}' tests/run.sh",
+     "command": "grep -nE '[0-9a-f]{7,40}' tests/run.sh"
+    },
+    {
+     "want": "allow",
+     "label": "allowed: braces inside single quotes: git log -1 --format='%H{%an,%ae}'",
+     "command": "git log -1 --format='%H{%an,%ae}'"
     }
    ]
   }

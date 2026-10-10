@@ -172,7 +172,7 @@ REASONS = {
     "slow": "The review-class bash guard could not judge this command within its time budget, so it is denied. Split it into simpler commands.",
     "error": "The review-class bash guard failed while judging this command, so it is denied. Report without it, or split it into simpler commands.",
     "secret": "The review class may not print the environment, expand a secret-shaped variable, or read secret material (secrets.env, the stores, gpg keys, /proc/*/environ): an account's environment or files may carry its credentials, and what you print enters the transcript. Describe a secret by its name and shape only. To run a check in a clean environment, use env -i NAME=value \u2026 command.",
-    "moved": "The review class may not use cd or pushd except as a plain `cd <dir>` of a relative path inside the clone (letters, digits, . _ - /; no .. component, no leading / or -): a cd's target cannot be judged from its spelling (a quote, a backslash, an expansion, a prefix such as builtin, a group, a case arm or a function body), so any other command containing the word cd or pushd is refused, echo cd and grep cd included. Name the path in the command, or use git -C <path>. A word bash would build by expansion is refused the same way: $'...', $IFS, an expansion glued to a word, and an unquoted brace expansion ({a,b}, {a..b}); write a pattern with braces in quotes.",
+    "moved": "The review class may not use cd or pushd except as a plain `cd <dir>` of a relative path inside the clone (letters, digits, . _ - /; no .. component, no leading / or -): a cd's target cannot be judged from its spelling (a quote, a backslash, an expansion, a prefix such as builtin, a group, a case arm or a function body), so any other command containing the word cd or pushd is refused, echo cd and grep cd included. Name the path in the command, or use git -C <path>. A word bash would build by expansion is refused the same way: $'...', $IFS, an expansion glued to a word, and a brace expansion ({a,b}, {a..b}), even inside double quotes; write a pattern with braces in single quotes.",
     "cd-last": "A cd that ends a command does not last: each command the review class runs is its own shell, so the next one starts where this one did. Put the work after it in the same command (cd <dir> && git log ...), or name the directory (git -C <dir> ..., grep -rn x <dir>).",
     "escape": "The review class may not use shell escapes (eval, exec, sh -c): they carry a write past this guard. Run the command directly.",
     "write": "The review class runs in the session clone and is READ-ONLY: no in-place edits, no file writes, no redirection except to /dev/null. Report what you would have changed instead. A review is posted as: fabric-pr post-review <pr> [--model <name>] <<'EOF' … EOF (a quoted tag; nothing after the terminator).",
@@ -265,23 +265,20 @@ def built_word(seg: str) -> bool:
     CD_EXPANDED, or holds a brace expansion (`{c..c}d`, `{cd,}`), which
     builds a word with no `$` at all (re-review of 364f7eb3, G). A
     backslash-newline is removed first, as bash removes it before either
-    expansion (`{c..\\<newline>c}d`), and braces inside double quotes are
-    not brace-expanded by bash, so the brace test reads only unquoted text
-    (`grep -E "[0-9]{7,40}"` passes; re-review of da42d34a)."""
+    expansion (`{c..\\<newline>c}d`). Braces inside double quotes are not
+    brace-expanded by bash, but the test reads them anyway: telling a quoted
+    span from an unquoted one took two rounds of scanner fixes that each
+    opened a new spelling (re-reviews of c19d6790 and 3927c8b6), so the guard
+    over-reports instead, and a pattern with braces goes in single quotes."""
     bare = unexpanded(seg.replace("\\\n", ""))
     text = re.sub(r'(?<!\\)"', "", bare)
-    unquoted = unexpanded(seg.replace("\\\n", ""), drop_double=True)
-    return bool(re.search(CD_EXPANDED, text) or re.search(BRACE_BUILT, unquoted))
+    return bool(re.search(CD_EXPANDED, text) or re.search(BRACE_BUILT, text))
 
 
-def unexpanded(seg: str, drop_double: bool = False) -> str:
+def unexpanded(seg: str) -> str:
     """The segment without its single-quoted spans, which expand nothing.
     A quote inside double quotes ("it's") opens no span, and `$'...'` is
-    ANSI-C quoting, which does expand, so it stays. With drop_double the
-    double-quoted spans go too, paired by the same left-to-right scan bash
-    uses, so an escape pair is consumed before a quote can open
-    (`A=\\\\"x" {c..c}d ""..`; a regex's lookbehind paired them wrongly,
-    re-review of c19d6790)."""
+    ANSI-C quoting, which does expand, so it stays."""
     out, quote, i = [], "", 0
     while i < len(seg):
         c = seg[i]
@@ -289,23 +286,18 @@ def unexpanded(seg: str, drop_double: bool = False) -> str:
             if c == "'":
                 quote = ""
         elif c == "\\" and quote != "'":
-            if not (drop_double and quote == '"'):
-                out.append(seg[i:i + 2])
+            out.append(seg[i:i + 2])
             i += 2
             continue
         elif quote == '"':
             if c == '"':
                 quote = ""
-            if not drop_double:
-                out.append(c)
+            out.append(c)
         elif c == "'" and not (out and out[-1] == "$"):
             quote = "'"
         else:
             if c == '"':
                 quote = '"'
-                if drop_double:
-                    i += 1
-                    continue
             out.append(c)
         i += 1
     return "".join(out)
