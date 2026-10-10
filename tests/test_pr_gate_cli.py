@@ -153,7 +153,7 @@ def main() -> int:
         head_sha = head()
         git("push", "-q", "origin", branch)
 
-        for name, text in (("gh", GH_MOCK), ("pr-review-status.sh", REVIEW_STATUS_MOCK)):
+        for name, text in (("gh", GH_MOCK), ("review-status-mock", REVIEW_STATUS_MOCK)):
             with open(f"{sandbox}/bin/{name}", "w", encoding="utf-8") as fh:
                 fh.write(text)
             os.chmod(f"{sandbox}/bin/{name}", 0o755)
@@ -185,7 +185,7 @@ def main() -> int:
 
         def run(*args: str) -> tuple[int, str]:
             env = {**base_env, "MOCK_STATE": state, "PATH": f"{sandbox}/bin:{base_env.get('PATH', '')}",
-                   "AGENT_FABRIC_PR_REVIEW_STATUS": f"{sandbox}/bin/pr-review-status.sh",
+                   "AGENT_FABRIC_PR_REVIEW_STATUS": f"{sandbox}/bin/review-status-mock",
                    "AGENT_FABRIC_PR_SESSION": "develop-qzapp/me"}
             r = subprocess.run([*UNDER_TEST, *args], cwd=repo, env=env, stdout=subprocess.PIPE,
                                stderr=subprocess.STDOUT, text=True, timeout=300)
@@ -226,7 +226,7 @@ def main() -> int:
 
         def run_as_project(config: str | None) -> str:
             env = {**base_env, "MOCK_STATE": state, "PATH": f"{sandbox}/bin:{base_env.get('PATH', '')}",
-                   "AGENT_FABRIC_PR_REVIEW_STATUS": f"{sandbox}/bin/pr-review-status.sh",
+                   "AGENT_FABRIC_PR_REVIEW_STATUS": f"{sandbox}/bin/review-status-mock",
                    "T_PROJECT_SESSION": "develop-qzapp/me"}
             if config:
                 env["AGENT_FABRIC_PR_TOOLS_CONFIG"] = config

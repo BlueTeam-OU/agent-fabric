@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Tests for tools/fabric/github/commit_class.py's internals; the rule
 itself is tests/test_commit_class_cli.py's, run unchanged against the
-shim (ADR-040 §5 rule 5)."""
+module's command line (ADR-040 §5 rule 5)."""
 from __future__ import annotations
 
 import json

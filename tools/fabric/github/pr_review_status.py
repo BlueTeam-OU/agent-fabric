@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 """tools/fabric/github/pr_review_status.py — has THE HEAD of this PR been
 reviewed, by a reviewer other than the author or by the review class's
-blind review? (ADR-040 Wave 1; `fabric-pr review-status` runs it; the runtime/github
-shim is deprecated, and the managed projects' tools/gh/pr-review-status.sh forward to that
-path. Lifted from the first managed project's tools/gh/ on 2026-09-19; it is
+blind review? (ADR-040 Wave 1; `fabric-pr review-status` runs it.
+Lifted from the first managed project's tools/gh/ on 2026-09-19; it is
 general to every managed project.)
 
 CONTRACT, frozen from the bash (ADR-040 §5 rule 3):

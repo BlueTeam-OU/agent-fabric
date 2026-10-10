@@ -450,7 +450,7 @@ its record disagree, the record wins. Look it up, never read it whole:
   file's routed model decides, within `review-grade.json` (§5 rules 2–3).
 - The reviewer writes nothing (`review-bash-guard.sh`); its brief is
   facts from `fabric-review brief`, never conclusions (§5 rules 4–5).
-- Posted by `post-review.sh` with the marker; counted only when marked
+- Posted by `fabric-pr post-review` with the marker; counted only when marked
   and posted by the PR's account or a named poster, or unmarked from a
   trusted account (§5 rules 6–7). Legacy markers until the sunset (§5
   rule 8).

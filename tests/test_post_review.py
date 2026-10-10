@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Tests for tools/fabric/github/post_review.py's internals; the behaviour
-is tests/test_post_review_cli.py's, run against the shim (ADR-040 §5
+is tests/test_post_review_cli.py's, run through fabric-pr (ADR-040 §5
 rule 5)."""
 from __future__ import annotations
 
@@ -85,9 +85,9 @@ def main() -> int:
             os.environ["GH_REPO"] = real_repo
 
     print("--help and a usage error never wait on an open stdin (review of #71)")
-    shim = os.path.join(HERE, "runtime", "github", "post-review.sh")
+    shim = [os.path.join(HERE, "bin", "fabric-pr"), "post-review"]
     for args, want in ((["--help"], 0), (["--bogus"], 2)):
-        held = subprocess.Popen(["bash", shim, *args], stdin=subprocess.PIPE, stdout=subprocess.DEVNULL,
+        held = subprocess.Popen([*shim, *args], stdin=subprocess.PIPE, stdout=subprocess.DEVNULL,
                                 stderr=subprocess.DEVNULL)
         try:
             rc = held.wait(timeout=20)
