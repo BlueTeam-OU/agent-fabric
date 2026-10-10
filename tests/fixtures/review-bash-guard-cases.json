@@ -1788,7 +1788,7 @@
    ]
   },
   {
-   "section": "no cd leaves the clone: the word cd anywhere in a segment is refused unless the segment is exactly a plain relative cd (re-reviews of 0eb39891 and 867a69e2: 1, D, E, F; of cae73213: 1, 2, G; of 364f7eb3: G)",
+   "section": "no cd leaves the clone: the word cd anywhere in a segment is refused unless the segment is exactly a plain relative cd (re-reviews of 0eb39891 and 867a69e2: 1, D, E, F; of cae73213: 1, 2, G; of 364f7eb3: G; of da42d34a: G, 1)",
    "cases": [
     {
      "want": "deny",
@@ -2069,6 +2069,41 @@
      "want": "allow",
      "label": "allowed: not a built command word: find . -name '*.py'",
      "command": "find . -name '*.py'"
+    },
+    {
+     "want": "deny",
+     "label": "denied (over-report): G: a word built across a continuation or a quoted brace member: {c..\\<newline>c}d .. && ls",
+     "command": "{c..\\\nc}d .. && ls"
+    },
+    {
+     "want": "deny",
+     "label": "denied (over-report): G: a word built across a continuation or a quoted brace member: \\<newline>$Xcd .. && ls",
+     "command": "\\\n$Xcd .. && ls"
+    },
+    {
+     "want": "deny",
+     "label": "denied (over-report): G: a word built across a continuation or a quoted brace member: {c\"d\",} .. && ls",
+     "command": "{c\"d\",} .. && ls"
+    },
+    {
+     "want": "allow",
+     "label": "allowed: braces inside double quotes are not brace-expanded: grep -nE \"[0-9a-f]{7,40}\" tests/run.sh",
+     "command": "grep -nE \"[0-9a-f]{7,40}\" tests/run.sh"
+    },
+    {
+     "want": "allow",
+     "label": "allowed: braces inside double quotes are not brace-expanded: python3 -c \"print({1,2})\"",
+     "command": "python3 -c \"print({1,2})\""
+    },
+    {
+     "want": "allow",
+     "label": "allowed: braces inside double quotes are not brace-expanded: git log -1 --format=\"%H{%an,%ae}\"",
+     "command": "git log -1 --format=\"%H{%an,%ae}\""
+    },
+    {
+     "want": "allow",
+     "label": "allowed: braces inside double quotes are not brace-expanded: grep -rn x --include=\"*.{py,sh}\" runtime",
+     "command": "grep -rn x --include=\"*.{py,sh}\" runtime"
     }
    ]
   }

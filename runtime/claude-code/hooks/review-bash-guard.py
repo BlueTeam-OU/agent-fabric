@@ -127,16 +127,16 @@ SUBSTITUTION = r'\$\(|`|[<>]\('
 # Modelling how a cd can be spelled failed round after round: each added
 # prefixes (builtin, a group opener, an assignment, a quoted value, a second
 # option word) or argument spellings (a glob, a quote, `$X`), and the next
-# re-review (of 0eb39891, then of 867a69e2) found one more: `\cd ..`,
-# `"cd" ..`, `cd $(echo ..)`, a cd in a case arm or a function body. So a
-# segment is judged by one question: does the word cd or pushd appear in it
-# at all, once a backslash-newline, quotes and backslashes are removed (as
-# bash removes them from a command word), and before any of < > & | $ `? If so
-# it is admitted only as exactly `cd <path>` with a
-# relative path of plain characters and no `..` component, and is `moved`
-# otherwise. That also refuses `builtin cd tools`, `echo cd ..`, `grep cd f`
-# and `cd /abs/path`, on purpose. Every pattern consumes a character per
-# repetition, so each reads one way.
+# rereview (of 0eb39891, then of 867a69e2) found one more: `\cd ..`, `"cd"
+# ..`, `cd $(echo ..)`, a cd in a case arm or a function body. So a segment is
+# judged by one question: does the word cd or pushd appear in it at all, once
+# a backslash-newline, quotes and backslashes are removed (as bash removes
+# them from a command word), and before any of < > & | $ `? If so it is
+# admitted only as exactly `cd <path>` with a relative path of plain
+# characters and no `..` component, and is `moved` otherwise. That also
+# refuses `builtin cd tools`, `echo cd ..`, `grep cd f` and `cd /abs/path`, on
+# purpose. Every pattern consumes a character per repetition, so each reads
+# one way.
 CD_WORD = r'(^|\W)(cd|pushd)(?=[\s;)<>&|$`]|$)'
 # A command word bash builds by expansion holds no `cd` for any string rule
 # to find (`cd$IFS..`, `c${X}d`, `c$()d`, `$'\x63d'`, `${X:-cd}`; re-review
@@ -172,7 +172,7 @@ REASONS = {
     "slow": "The review-class bash guard could not judge this command within its time budget, so it is denied. Split it into simpler commands.",
     "error": "The review-class bash guard failed while judging this command, so it is denied. Report without it, or split it into simpler commands.",
     "secret": "The review class may not print the environment, expand a secret-shaped variable, or read secret material (secrets.env, the stores, gpg keys, /proc/*/environ): an account's environment or files may carry its credentials, and what you print enters the transcript. Describe a secret by its name and shape only. To run a check in a clean environment, use env -i NAME=value \u2026 command.",
-    "moved": "The review class may not use cd or pushd except as a plain `cd <dir>` of a relative path inside the clone (letters, digits, . _ - /; no .. component, no leading / or -): a cd's target cannot be judged from its spelling (a quote, a backslash, an expansion, a prefix such as builtin, a group, a case arm or a function body), so any other command containing the word cd or pushd is refused, echo cd and grep cd included. Name the path in the command, or use git -C <path>.",
+    "moved": "The review class may not use cd or pushd except as a plain `cd <dir>` of a relative path inside the clone (letters, digits, . _ - /; no .. component, no leading / or -): a cd's target cannot be judged from its spelling (a quote, a backslash, an expansion, a prefix such as builtin, a group, a case arm or a function body), so any other command containing the word cd or pushd is refused, echo cd and grep cd included. Name the path in the command, or use git -C <path>. A word bash would build by expansion is refused the same way: $'...', $IFS, an expansion glued to a word, and an unquoted brace expansion ({a,b}, {a..b}); write a pattern with braces in quotes.",
     "cd-last": "A cd that ends a command does not last: each command the review class runs is its own shell, so the next one starts where this one did. Put the work after it in the same command (cd <dir> && git log ...), or name the directory (git -C <dir> ..., grep -rn x <dir>).",
     "escape": "The review class may not use shell escapes (eval, exec, sh -c): they carry a write past this guard. Run the command directly.",
     "write": "The review class runs in the session clone and is READ-ONLY: no in-place edits, no file writes, no redirection except to /dev/null. Report what you would have changed instead. A review is posted as: fabric-pr post-review <pr> [--model <name>] <<'EOF' … EOF (a quoted tag; nothing after the terminator).",
@@ -263,9 +263,15 @@ def built_word(seg: str) -> bool:
     segment's unquoted-or-double-quoted text (double quotes do not stop an
     expansion, so they are removed too: `c"$X"d`, `"${X:-cd}"`) answers to
     CD_EXPANDED, or holds a brace expansion (`{c..c}d`, `{cd,}`), which
-    builds a word with no `$` at all (re-review of 364f7eb3, G)."""
-    text = re.sub(r'(?<!\\)"', "", unexpanded(seg))
-    return bool(re.search(CD_EXPANDED, text) or re.search(BRACE_BUILT, text))
+    builds a word with no `$` at all (re-review of 364f7eb3, G). A
+    backslash-newline is removed first, as bash removes it before either
+    expansion (`{c..\\<newline>c}d`), and braces inside double quotes are
+    not brace-expanded by bash, so the brace test reads only unquoted text
+    (`grep -E "[0-9]{7,40}"` passes; re-review of da42d34a)."""
+    bare = unexpanded(seg.replace("\\\n", ""))
+    text = re.sub(r'(?<!\\)"', "", bare)
+    unquoted = re.sub(r'(?<!\\)"(?:[^"\\]|\\.)*"', "", bare)
+    return bool(re.search(CD_EXPANDED, text) or re.search(BRACE_BUILT, unquoted))
 
 
 def unexpanded(seg: str) -> str:
