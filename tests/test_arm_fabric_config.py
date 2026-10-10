@@ -33,7 +33,8 @@ def main() -> int:
         return not (exempt and exempt.search(f)) and bool(paths.search(f))
     check("it loads, its cases are boundary (load_config refuses a case the patterns miss)", True)
     for f in ("tools/fabric/guards/agent_fabric_dir_authority.py", "tools/fabric/secretstore/core.py",
-              "runtime/control/agentd.mjs", "policies/githooks/pre-commit"):
+              "tools/fabric/control/agentd.py", "runtime/control/agent-fabric-agentd.service",
+              "policies/githooks/pre-commit"):
         check(f"{f}: boundary", boundary(f))
     for f in ("docs/adr/ADR-018-authority.md", "identities/roles/language-culture/locale/ge/charter.md",
               "tools/fabric/lint_rules/locales.py", "README.md"):
