@@ -24,7 +24,7 @@
     "roles": [
       "brand-comms"
     ],
-    "pr_paths": "^\\.claude/|^\\.mcp\\.json$|^\\.env|^\\.gitignore$|^\\.github/|(^|/)package\\.json$|^package-lock\\.json$|^\\.npmrc$|^astro\\.config\\.|^tsconfig[^/]*\\.json$|(^|/)(deploy|upload)[^/]*$|(^|/)(bin|scripts|tools)/|^\\.(husky|githooks)/|(^|/)(Makefile|Dockerfile|Containerfile|justfile)$|(^|/)[^/]*\\.config\\.[cm]?[jt]s$|^\\.(npmrc|nvmrc|node-version|yarnrc[^/]*|tool-versions)$|(^|/)[^/]*\\.lock$|(^|/)(pnpm-lock\\.yaml|yarn\\.lock|bun\\.lockb)$|^public/_(headers|redirects)$|(^|/)wrangler\\.toml$|(^|/)netlify\\.toml$|(^|/)vercel\\.json$|\\.(sh|bash|zsh|ps1|py|rb|pl)$|^(?!src/).*\\.[cm]?[jt]s$|(^|[/._-])(secrets?|credentials?|api[-_]?keys?|auth[-_.]?tokens?|private[-_]?keys?|passwords?)([/._-]|$)|\\.(pem|p12|pfx|key)$",
+    "pr_paths": "^\\.claude/|^\\.mcp\\.json$|^\\.env|^\\.gitignore$|^\\.github/|(^|/)package\\.json$|^package-lock\\.json$|^\\.npmrc$|^astro\\.config\\.|^tsconfig[^/]*\\.json$|(^|/)(deploy|upload)[^/]*$|(^|/)(bin|scripts|tools)/|^\\.(husky|githooks)/|(^|/)(Makefile|Dockerfile|Containerfile|justfile)$|(^|/)[^/]*\\.config\\.[cm]?[jt]s$|^\\.(npmrc|nvmrc|node-version|yarnrc[^/]*|tool-versions)$|(^|/)[^/]*\\.lock$|(^|/)(pnpm-lock\\.yaml|yarn\\.lock|bun\\.lockb)$|^public/_(headers|redirects)$|(^|/)wrangler\\.toml$|(^|/)netlify\\.toml$|(^|/)vercel\\.json$|\\.(sh|bash|zsh|ps1|py|rb|pl)$|^(?!src/).*\\.[cm]?[jt]s$|(^|[/._-])(secrets?|credentials?|api[-_]?keys?|auth[-_.]?tokens?|private[-_]?keys?|passwords?)([/._-]|$)|[-_]tokens?([/._-]|$)|(^|[/._-])keys?([/._-]|$)|(^|/)auth\\.json$|\\.(pem|p12|p8|pfx|key|jks|keystore|ppk)$",
     "cases": [
       ".claude/settings.json",
       ".mcp.json",
@@ -59,7 +59,14 @@
       "config/credentials.json",
       "deploy/id_rsa.key",
       ".secrets/x",
-      "content/API-KEY.md"
+      "content/API-KEY.md",
+      "access_token.txt",
+      "npm-token",
+      "service-account-key.json",
+      "keys/prod.json",
+      "auth.json",
+      "AuthKey_X.p8",
+      "android/release.keystore"
     ]
   }
 }

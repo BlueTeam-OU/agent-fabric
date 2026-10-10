@@ -93,11 +93,12 @@ description of one.
 
 Where the project's `arm.json` (in agent-fabric's `projects/<id>/`)
 declares `direct`, you commit straight to `main`, one commit
-per change, with its `Kind:` trailer; only a change to a file matching
-its `pr_paths` (the harness, manifests and build configuration, CI,
-deployment, `.env*`, `.gitignore`, scripts) goes by pull request, under
-the band and the gate. The pre-push hook refuses the rest (agent-fabric
-ADR-019 rule 1).
+per change, with its `Kind:` trailer, and every push a fast-forward
+(never a force push). A change to a file matching its `pr_paths` (the
+harness, manifests and build configuration, CI, deployment, `.env*`,
+`.gitignore`, scripts, secret-shaped names) or to an executable file
+goes by pull request, under the band and the gate. The pre-push hook
+refuses the rest (agent-fabric ADR-019 rule 1).
 
 - **architect-cto** — a question listing product claims by locator, file
   and line, asking which hold, which need rewording, which are false;
