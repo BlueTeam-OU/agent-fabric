@@ -344,7 +344,7 @@ def inflight(*rows, **kw):
 
 def program(argv):
     """The program a call names; the gate's in-flight read is told from its
-    per-PR read, as the two were two programs (pr-gate.sh and fabric-pr)."""
+    per-PR read, as the two were two programs (the pr-gate script and fabric-pr)."""
     name = os.path.basename(argv[0])
     return "fabric-pr --in-flight" if name == "fabric-pr" and "--in-flight" in argv else name
 

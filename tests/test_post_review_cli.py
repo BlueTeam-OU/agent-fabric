@@ -337,7 +337,7 @@ def main() -> int:
         # THE CROSS-FILE CONTRACT. Two constants in two modules; a one-sided
         # edit turns real coverage back into "0 reviews" with nothing failing.
         emit, read_ = marker_of(EMITTER), reader_marker()
-        check("emitter and pr-review-status.sh agree on the marker", bool(emit) and emit == read_,
+        check("emitter and fabric-pr review-status agree on the marker", bool(emit) and emit == read_,
               f"emitter: {emit}\nreader : {read_}")
 
     print(f"\ntest_post_review_cli: {'OK' if not fails else f'FAILED — {fails} check(s)'}")
