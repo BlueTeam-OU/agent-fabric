@@ -64,25 +64,35 @@ meaning.
    `memory/` (through `tools/fabric/roots.py`) and the session's working
    copy's `.agent-fabric/memory/`.
 3. Three tools, cheapest first:
-   - `memory_find(query, role?, project?, limit?)` — ranked section hits,
-     each as one line: slice id, section heading (the cue), kind,
-     *Observed* date, scope, and the section's size in tokens; no body.
-   - `memory_read(slice_id, section?)` — one section's text with its
-     provenance line, or the slice's section list when none is named.
+   - `memory_find(query, role?, project?, limit?, max_tokens?)` — ranked
+     section hits, each as one line: slice id, section heading (the cue),
+     kind, *Observed* date, scope, the section's size in tokens and its
+     score; no body; the reply stays within its token budget, shows one
+     best section per slice, and adds the count of hits in other scopes.
+     A query with no hit answers with the index's closest cue terms
+     ("try: …"), never an empty reply.
+   - `memory_read(ids, max_tokens?)` — one or more sections by id, each
+     with its provenance line and the cue lines of its related slices,
+     cut at `max_tokens`; a slice id alone lists its sections.
    - `memory_index(role?, project?)` — the INDEX cue lines for that role
      and project.
-4. Ranking is BM25 over each section's heading, cue and text, built at
-   server start (or on a corpus change) in memory; the session's role and
-   project rank first. No embeddings, no model call.
+4. Ranking is BM25 with separate weights for the cue, the slice's title
+   and the body, tokenising identifiers (paths, `snake_case`, `--flags`)
+   as words, built at server start (or on a corpus change) in memory; the
+   session's role and project rank first, other scopes are counted, and
+   near-duplicate cues are shown once. No embeddings, no model call.
 5. Decay is shown, not hidden: a `solution` hit carries its *Observed*
    date and "verify against the tree"; a section a `merge_target`
    correction replaced is never returned.
 6. The server never returns a secret: it serves only what lint has
    already admitted to the corpus (`policies/hygiene.json`), and refuses
    a path outside rule 2's roots.
-7. Each call is recorded as a count in the login's own state
-   (`agents/<login>/memory-calls.jsonl`: time, tool, hit count; never the
-   query's text); the recall operation reads it once the Node control
+7. Each call is recorded in the login's own state
+   (`agents/<login>/memory-calls.jsonl`: time, tool, hit count, the ids
+   returned and whether a find was followed by a read; never the query's
+   text), so the zero-hit rate, the read-through rate and the slices never
+   retrieved can be computed; an offline set of expected hits is kept with
+   the tests; the recall operation reads it once the Node control
    plane is deleted and its wire may change (ADR-040 §7). Until then the
    log is read on the host.
 8. The session-start hook's INDEX line names the tools ("ask
@@ -101,6 +111,11 @@ meaning.
 - A cue-matched push at session start, if `memory_find` is used and the
   first query of a session proves predictable.
 - The recall operation's counts of MCP calls, after the cutover (rule 7).
+- Aliases on a slice, written by the drain, indexed as their own field.
+- A "maybe stale" mark on a `solution` section whose named files changed
+  in git after its *Observed* date.
+- A cue-line push at session start (a few hundred tokens), and an
+  embedding re-rank, each only if the counts of rule 7 show misses.
 - Section-level freshness: a slice section re-verified against the tree
   carries its verification date.
 
