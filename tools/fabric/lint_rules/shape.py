@@ -147,7 +147,8 @@ def agentd_unit_findings(root: str) -> list[str]:
     try:
         text = open(os.path.join(root, where), encoding="utf-8").read()
     except FileNotFoundError:
-        return []
+        # Required, not optional: bootstrap exits 1 without the unit.
+        return [f"{where}: is missing (bootstrap installs it on every account)"]
     except (OSError, ValueError) as exc:
         return [f"{where}: cannot be read ({exc})"]
     starts = [ln for ln in text.splitlines() if ln.startswith("ExecStart=")]

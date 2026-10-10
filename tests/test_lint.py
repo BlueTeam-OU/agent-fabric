@@ -149,6 +149,11 @@ def make_base(root: str) -> str:
     # (re-review F-A on PR #28).
     os.makedirs(os.path.join(fabric, "communication", "gzcoord", "i18n"))
     shutil.copy2(REAL_I18N_SCHEMA, os.path.join(fabric, "communication", "gzcoord", "i18n", "i18n.schema.json"))
+    # Required by lint (bootstrap exits 1 without it); the one case that
+    # tests its absence removes it.
+    os.makedirs(os.path.join(fabric, "runtime", "control"))
+    shutil.copy2(os.path.join(ROOT, "runtime", "control", "agent-fabric-agentd.service"),
+                 os.path.join(fabric, "runtime", "control", "agent-fabric-agentd.service"))
     write(os.path.join(fabric, "identities", "roles", "catalog.json"), json.dumps(CATALOG))
     write(os.path.join(fabric, "projects", PROJECT, "taxonomy.json"), json.dumps(TAXONOMY))
     write(os.path.join(fabric, "identities", "roles", "web-dev", "charter.md"), CHARTER)
@@ -1331,8 +1336,9 @@ def case_the_agentd_unit_has_one_exec_start_that_runs_the_control_agent() -> Non
     with tempfile.TemporaryDirectory() as root:
         fabric = make_base(root)
         unit = os.path.join(fabric, "runtime", "control", "agent-fabric-agentd.service")
+        os.remove(unit)
         code, out = run_lint(fabric)
-        assert code == 0, f"no unit file at all was refused:\n{out}"
+        assert code == 1 and "agent-fabric-agentd.service: is missing" in out, f"no unit file at all passed:\n{out}"
         with open(os.path.join(ROOT, "runtime", "control", "agent-fabric-agentd.service"), encoding="utf-8") as fh:
             real = fh.read()
         write(unit, real)

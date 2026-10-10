@@ -37,7 +37,10 @@
     "fabric-ssh-hosts": "bin/fabric-ssh-hosts"
   },
   "replaces": {
-    "_comment": "A command's earlier target, which bootstrap recognises as a link it made and moves to the current one; without it an account keeps the old link, the allow rule is withheld (user-settings.py) and every use asks. No command has an earlier target now (the GZCoord Node shims are deleted); an entry is added when a command moves."
+    "_comment": "A command's earlier target, which bootstrap recognises as a link it made and moves to the current one; without it an account keeps the old link, the allow rule is withheld (user-settings.py) and every use asks. These entries stay until every account has been bootstrapped onto the Python commands, and until 2026-11-10 at the earliest: they are how a link left from the deleted GZCoord Node shims is re-pointed, and without them it dangles and the command leaves PATH. Another entry is added when a command moves.",
+    "gzcoord-inbox": ["communication/gzcoord/scripts/inbox.mjs"],
+    "gzcoord-send": ["communication/gzcoord/scripts/send.mjs"],
+    "gzmsg": ["communication/gzcoord/scripts/gzmsg.mjs"]
   },
   "not_allowed": {
     "fabric-genimage": "every run spends on the OpenAI account (the owner, 2026-10-07): a person approves each one, so no session spends unattended",

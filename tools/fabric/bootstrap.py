@@ -133,7 +133,7 @@ CONTRACT, frozen from the bash (ADR-040 §5 rule 3):
                workingcopy.resolve, workspace_trust.main.
   relied on    new-agent's worker (runtime/provisioning/new-agent-worker.sh,
                step 7): exit status, the log's last lines on failure; the
-               control agent's `upgrade fabric` (runtime/control/upgrade.mjs):
+               control agent's `upgrade fabric` (tools/fabric/control/upgrade.py):
                exit status, the last line on failure, and the stdout line
                "restart left to the caller"; moveto's enter: exit status
                only, output discarded, 30 s.
@@ -806,7 +806,7 @@ class Bootstrap:
         run_quiet(["systemctl", "--user", "enable", "--now", UNIT])
         # Run BY the daemon (`fabric-ctl upgrade fabric`), a restart here would
         # kill the process waiting on this script: it restarts itself after
-        # replying instead (runtime/control/upgrade.mjs).
+        # replying instead (tools/fabric/control/upgrade.py).
         if self.changed > before:
             if os.environ.get("AGENT_FABRIC_DEFER_AGENTD_RESTART"):
                 say(f"  *  {UNIT}: unit changed; restart left to the caller")
