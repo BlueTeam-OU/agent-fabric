@@ -13,3 +13,5 @@
 **Not measured here.** The rest of the fleet: each login added to `python` gets its own read-back in this file. The default goes to `python` only once every placed login has answered on it.
 
 **What it decides.** Whether the next logins move to `python`. If a read-back fails, the login comes off the list, and the next bootstrap puts the Node unit back.
+
+**2026-10-10: the default moves before the per-login rounds.** The owner chose to switch the whole fleet at once ("yes, switch the fleet to python agentd"), after one account had run on Python for a day with no restart and no drift. So the gate above, every placed login answering first, was not the one applied: the default goes to `python` in #166 and the per-login list empties. The fleet read-back goes here after the distribution: each account's `fabric-status` agentd line and its `fabric-ctl <login> status` agentd block (pid and start after the round), with any login that does not answer named. The way back for the fleet is the default set to `node` and a distribution; the selector has no per-login `node` list, so one failing account is recovered by that, or by a `node` list added then.
