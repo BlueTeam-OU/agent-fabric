@@ -92,6 +92,17 @@ not on a pipe's exit status.
 
 1. Every change reaches a repository's `main` through a pull request;
    the author opens it, and it lands only through the gate (rule 5).
+   Except where a project's `arm.json` declares `direct` (A 2026-10-10):
+   a holder of one of its `roles` commits straight to the default
+   branch, and only a change to a file matching its `pr_paths` (the
+   harness, what installs, builds or runs, CI, deployment, `.env*` and
+   `.gitignore`, executable scripts, secret-shaped names) arrives as a
+   pull request under rules 2 to 6. `policies/githooks/pre-push`
+   refuses a direct push that breaks this; in a project without
+   `direct` it does nothing. Declared today for brand-comms on
+   blueteam.ee, gzapi.ge, gzapp.decks and gzapi.brand, where one agent
+   writes copy a commit at a time and the band, the gate and the
+   branch cost more than they catch.
 2. One open pull request per agent and repository (A 2026-10-06): a
    branch in another repository is never addable to the open one. While
    one is open — unarmed, armed
@@ -234,3 +245,4 @@ The body above reads current; each change's full note is in [history/ADR-019-ame
 | 2026-10-08 | A folded pull request's review fixes are fixes | §5 rule 3: a PR closed unmerged with its head inside this range was folded in; its review fixes count as fixes here, not as follow-up work |
 | 2026-10-09 | results.py reads a folded PR's review fixes | §5 rule 3: the after-the-fact split reads a fold too; the PR description's interim naming of a folded PR's fixes is withdrawn |
 | 2026-10-09 | A push after the arming takes auto-merge off | §5 rule 5: an arming holds for its head; `.github/workflows/disarm-on-push.yml` takes auto-merge off an arming older than a push and comments |
+| 2026-10-10 | Brand repositories commit straight to main | §5 rule 1: a project's arm.json `direct` names the roles that push to the default branch and the `pr_paths` that still need a pull request; policies/githooks/pre-push enforces it |

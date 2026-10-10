@@ -91,6 +91,14 @@ give them a yes or a no with reasons, not a menu of open questions.
 Every handover names an artifact — a pull request or a commit, never a
 description of one.
 
+Where the project's `arm.json` (in agent-fabric's `projects/<id>/`)
+declares `direct`, you commit straight to `main`, one commit
+per change, with its `Kind:` trailer; only a change to a file matching
+its `pr_paths` (the harness, manifests and build configuration, CI,
+deployment, `.env*`, `.gitignore`, scripts) goes by pull request, under
+the band and the gate. The pre-push hook refuses the rest (agent-fabric
+ADR-019 rule 1).
+
 - **architect-cto** — a question listing product claims by locator, file
   and line, asking which hold, which need rewording, which are false;
   they answer from their tree, and you change the text on their
