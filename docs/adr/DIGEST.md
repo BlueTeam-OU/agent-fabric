@@ -1016,3 +1016,21 @@ its record disagree, the record wins. Look it up, never read it whole:
   break-glass; agents' own ssh keys stay future (§5 rules 7–8).
 - Keywords: ssh, sshd, operator, Fleet Deck, moveto, enter-ssh, forced
   command, authorized_keys, host key, known_hosts, Qubes, rc.local.
+
+### ADR-049 — Memory is retrieved through an MCP server, the curated corpus unchanged (Proposed)
+
+- The curated corpus, the drain and the rubric stay; what changes is how a
+  session reaches them: a local stdio MCP server, `fabric-memory`, one per
+  session as its own login, stdlib Python, no network, no model (§5 rule 1).
+- It reads only `memory/` (through roots) and the working copy's
+  `.agent-fabric/memory/` (§5 rule 2).
+- `memory_find` returns cue lines with slice id, kind, Observed date and
+  token size; `memory_read` one section; `memory_index` the INDEX lines
+  (§5 rule 3). BM25, role and project first, no embeddings (§5 rule 4).
+- A `solution` hit carries its date and "verify against the tree"; a
+  section a merge_target replaced is never returned (§5 rule 5).
+- Calls are counted per login in its state, never the query; the recall op
+  reads them after the cutover (§5 rule 7). The hook's INDEX line names the
+  tools (§5 rule 8).
+- Automatic capture (claude-mem) was declined: the fabric keeps processed
+  slices (§3).
