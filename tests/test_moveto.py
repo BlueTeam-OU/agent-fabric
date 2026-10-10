@@ -48,6 +48,12 @@ def main() -> int:
             os.chmod(path, mode)
             return path
 
+        # moveto asks `fabric-host ssh-pin` which way to enter an account: this machine's own fabric-host (an
+        # older checkout, or a registry that pins an sshd) is not what these cases are about, so a stand-in
+        # that says "sudo", as it does for a host with no pin, is first on the PATH of every case below.
+        put(f"{tmp}/nohost/fabric-host", "#!/bin/sh\necho sudo\n", 0o755)
+        os.environ["PATH"] = f"{tmp}/nohost:{os.environ['PATH']}"
+
         print("what reaches the terminal")
         check("C0, DEL and C1 controls are stripped; the printable rest stays",
               mv.display_safe("a\x1b]0;X\x07b\x7fc\x9bd") == "a]0;Xbcd")
