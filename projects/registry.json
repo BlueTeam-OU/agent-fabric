@@ -157,6 +157,26 @@
         {"name": "npm", "proof": "npm --version", "why": "installs the Marp CLI locally", "where": "host"}
       ]
     },
+    "blueteam.ee": {
+      "client": "blueteam",
+      "title": "blueteam.ee — BlueTeam OÜ's marketing site",
+      "remotes": [
+        "git@github.com:BlueTeam-OU/blueteam.ee.git",
+        "https://github.com/BlueTeam-OU/blueteam.ee"
+      ],
+      "default_branch": "main",
+      "taxonomy": ".agent-fabric/taxonomy.json",
+      "memory": ".agent-fabric/memory",
+      "integration": "projects/blueteam.ee/integration",
+      "license": "LicenseRef-blueteam-ee-Proprietary",
+      "note": "BlueTeam OÜ's private marketing site, Tallinn: Astro 7 over pre-built Landkit Bootstrap 5 bundles, built with npm; no tests, lint or CI; English now, Estonian later. Brand colour #0072ce in site.css and src/data/site.json, which are the brand source (no brand repository until a second surface needs one). A different company and brand from gzapi: gzapi naming, its claims ledger and gzapi.brand tokens do not apply. The commercial Landkit theme and the HK Grotesk Pro font are licensed for this site only, so the repository stays private; its tree carries no licence file. Deployed by hand-uploading dist/ to an i-MSCP host, which is edge-hosting's. Roles: brand-comms (the owner role), language-culture (review of copy), edge-hosting (the upload). Registered on the owner's instruction, 2026-10-10.",
+      "tools": [
+        {"name": "git", "proof": "git --version", "version": "2.x", "why": "every repository operation", "where": "host"},
+        {"name": "gh", "proof": "gh --version", "version": "2.x", "why": "the pull-request flow (fabric-pr)", "where": "host"},
+        {"name": "node", "proof": "node --version", "version": "22.12 or newer", "why": "the Astro 7 site build", "where": "host"},
+        {"name": "npm", "proof": "npm --version", "why": "the site's package manager (package-lock.json); npm run build writes dist/", "where": "host"}
+      ]
+    },
     "interweave": {
       "client": "gzapi",
       "title": "InterWeave — peer-to-peer transport for Claude Code Channels and first-party clients",
