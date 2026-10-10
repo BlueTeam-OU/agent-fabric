@@ -46,14 +46,14 @@ refuses to order a queue it cannot rank, and names the job.
 
 A job blocked on a request names it (`block --on-request`, rule 8): the
 message id is kept as `waits_on`, and this account's control agent says it
-in its state record (runtime/control/sessions.mjs) while the job stays
+in its state record (tools/fabric/control/sessions.py) while the job stays
 blocked, so the job that request asked for ranks blocking wherever it is
 queued. Leaving `blocked` drops it: an id kept on a job that no longer
 waits would be said by nobody, and read as a wait by a person.
 
 The other half: a queued job whose source message is in any account's
 waits_on ranks blocking, its stored priority kept. `list` and `next` read
-the state stream for it through runtime/control/queue.mjs (the control
+the state stream for it through tools/fabric/control/queue.py (the control
 plane's shapes stay in Node) — only when a queued job came from a message,
 since nothing else can match — and `list` shows both priorities and the
 address that waits. A stream that cannot be read leaves stored priorities
@@ -65,7 +65,7 @@ skips the stream (the control agent's `jobs` op, which answers in
 seconds).
 
 A role has an open pool (rule 9), held by one control agent
-(runtime/control/pool.mjs). `pool-list` lists the bound role's (or
+(tools/fabric/control/pool.py). `pool-list` lists the bound role's (or
 --role's) unclaimed jobs, highest priority first; `pool-claim` asks the
 holder for one — the holder checks the role this login's own control
 agent reports — and puts the job it gets on this list as queued, source

@@ -15,7 +15,7 @@ HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))   # tools/fab
 FABRIC_ROOT = os.environ.get("AGENT_FABRIC_ROOT") or os.path.dirname(os.path.dirname(HERE))
 
 
-# A job as jobs.json keeps it (runtime/control/jobs.mjs reads it too). The
+# A job as jobs.json keeps it (tools/fabric/control/jobs.py reads it too). The
 # keys a state change adds live in a total=False subclass: under `from
 # __future__ import annotations` TypedDict counts NotRequired[...] as
 # required. tests/test_types.py holds every job the CLI writes to it.
@@ -59,12 +59,12 @@ OPEN = ("queued", "active", "blocked", "delivered")
 TERMINAL = ("done", "dropped")
 
 
-# A GZCoord MESSAGE-ID as gzmsg mints it; runtime/control/sessions.mjs
+# A GZCoord MESSAGE-ID as gzmsg mints it; tools/fabric/control/sessions.py
 # MESSAGE_ID says only ids of this shape, so a relay seq is refused here.
 MESSAGE_ID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", re.ASCII)
 
 
-POOL_ID = re.compile(r"p[1-9][0-9]{0,8}", re.ASCII)   # runtime/control/pool.mjs POOL_ID
+POOL_ID = re.compile(r"p[1-9][0-9]{0,8}", re.ASCII)   # tools/fabric/control/pool.py POOL_ID
 
 
 PRIORITIES = ("blocking", "high", "normal", "low")

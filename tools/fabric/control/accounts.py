@@ -1,8 +1,8 @@
 """tools/fabric/control/accounts.py — the Claude accounts this login observes
 (ops `accounts`; ADR-031). Run as the observing login, in practice the
-coordinator's. The port of runtime/control/accounts.mjs (ADR-040 Wave 8). Run from tools/fabric as
-`python3 -m control.accounts`, which bin/fabric-accounts will run at the
-cutover; until then the shim still runs the Node.
+coordinator's. Ported from runtime/control/accounts.mjs (ADR-040 Wave 8; the Node was
+deleted in step s8, git history has it). bin/fabric-accounts runs it on the
+pinned Python: `python3 tools/fabric/control/accounts.py`.
 
   fabric-accounts login <account>   sign one Claude account in, once: opens the harness
                                     in that account's own config directory; /login in the
@@ -35,8 +35,14 @@ import sys
 import time
 from typing import Any, Callable, Sequence
 
-from control.ops import util
-from control.ops.usage import ACCOUNT_SLUG, account_slugs, accounts, accounts_dir, claude_bin, take_read_lock
+# Run as a script, this directory would lead sys.path and its queue.py would
+# shadow the standard library's for any module importing it (gzcoord.py).
+if sys.path and os.path.realpath(sys.path[0] or ".") == os.path.dirname(os.path.realpath(__file__)):
+    sys.path[0] = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+else:
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
+from control.ops import util  # noqa: E402
+from control.ops.usage import ACCOUNT_SLUG, account_slugs, accounts, accounts_dir, claude_bin, take_read_lock  # noqa: E402
 
 USAGE = """usage: fabric-accounts login <account> | list | read | templates | assign <login…|all> <account> [--no-restart] [--no-sync] [--force]
   <account>: lowercase letters, digits and hyphens — the account's email with @ and . as -,

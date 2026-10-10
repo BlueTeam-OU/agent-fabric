@@ -1,7 +1,7 @@
 """tools/fabric/control/sessions.py — what this account's sessions are doing,
 told to the state channel when it changes (ADR-029 rule 16):
-runtime/control/sessions.mjs in Python (ADR-040 Wave 8), unwired until
-the cutover, with j5's rule for a session state that cannot be read.
+ported from runtime/control/sessions.mjs (ADR-040 Wave 8; deleted in
+step s8), with j5's rule for a session state that cannot be read.
 
 The harness hook runtime/claude-code/hooks/session-state.py keeps
 <state>/session-state.json: per session id, working, blocked or idle,

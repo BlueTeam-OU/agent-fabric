@@ -59,13 +59,14 @@ not caught.
 PRESENCE, and why it is the control plane's process, not a copy here: a
 TO or TO-ROLE message asks whether its addressee has a session before it
 leaves. That question goes over the control channel, whose request and
-reply shapes are the control plane's (runtime/control/presence.mjs, kept
-in Node by ADR-040 §7); a Python copy would be a second implementation of
-them to keep in step. So this runs `node runtime/control/presence.mjs
-check` (the coordinator's decision, 2026-10-04): one implementation,
-changed once. It runs only for an addressed send, beside a wait of up to
-six seconds. A timeout, a missing node or an answer that cannot be read
-is "unavailable" — never present.
+reply shapes are the control plane's (tools/fabric/control/presence.py;
+the Node it was kept in by ADR-040 §7 is deleted, Wave 8 s8); a copy here
+would be a second implementation of them to keep in step. So this runs
+`python3 tools/fabric/control/presence.py check` (the coordinator's
+decision, 2026-10-04): one implementation, changed once. It runs only for
+an addressed send, beside a wait of up to six seconds. A timeout, an
+interpreter that cannot run or an answer that cannot be read is
+"unavailable" — never present.
 
 THE JOURNAL (ADR-041), in this process: kept before the carrier sees it,
 its outcome after, once it is known (accepted, or failed when the relay
@@ -299,7 +300,7 @@ def _bypass_outcome(text: str, outcome: str, seq: Any = None) -> None:
 
 # ── presence, through the control plane's own process ────────────────
 
-PRESENCE = os.path.join(paths.CHECKOUT, "runtime", "control", "presence.mjs")
+PRESENCE = os.path.join(paths.CHECKOUT, "tools", "fabric", "control", "presence.py")
 
 
 def presence_wait_ms() -> float:
@@ -309,15 +310,15 @@ def presence_wait_ms() -> float:
 
 def check_addressees(metadata: dict, sender: str, tok: str,
                      run: Callable[..., Any] = subprocess.run) -> dict:
-    """checkAddressees' answer, asked of runtime/control/presence.mjs. A
+    """checkAddressees' answer, asked of tools/fabric/control/presence.py. A
     request that could not be made comes back as {"error", "status"}; a
-    timeout, a missing node or an unreadable answer is an error with no
+    timeout, an interpreter that cannot run or an unreadable answer is an error with no
     status — "unavailable", never present."""
     if metadata.get("BROADCAST") or (not metadata.get("TO") and not metadata.get("TO-ROLE")):
         return {"checked": False}
     body = json.dumps({"metadata": metadata, "from": sender, "token": tok})
     try:
-        r = run(["node", PRESENCE, "check"], input=body, capture_output=True, text=True,
+        r = run([sys.executable, PRESENCE, "check"], input=body, capture_output=True, text=True,
                 timeout=presence_wait_ms() / 1000 + 30)
     except subprocess.TimeoutExpired:
         return {"error": "the presence check did not finish", "status": None}

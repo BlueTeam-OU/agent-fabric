@@ -49,7 +49,7 @@ heredoc and its Doppler reader retired: the exit codes — 0 applied, 1
 unreadable, 2 applied with required names missing (or gh refusing
 GH_TOKEN, the login's kind unreadable, or an agent's names withheld from a
 human), 3 the store names another login and nothing is applied; the JSON report's `error` and
-`missing`, which the control agent reads (runtime/control/secrets.mjs);
+`missing`, which the control agent reads (tools/fabric/control/secrets.py);
 the `--quiet` line on stderr, which moveto's shell entry shows. status
 exits 0 or 1; its JSON lists `refused` and `no_trusted_base` per store
 ("store": "own" or the child's agent id; a base's "state" is "no base" or

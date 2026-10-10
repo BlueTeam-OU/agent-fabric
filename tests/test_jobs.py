@@ -607,18 +607,26 @@ def main() -> int:
         p = run("pool-claim", "p2")
         check("a claim that never left says so, and never that it may have been claimed", p.returncode == 1
               and "could not be asked" in p.stderr and "may be claimed" not in p.stderr, p.stderr)
-        # Every command of the run's PATH but node: queue.mjs never starts.
-        nonode = os.path.join(tmp, "nonode")
-        os.makedirs(nonode)
-        for d in env["PATH"].split(os.pathsep):
-            for name in (os.listdir(d) if os.path.isdir(d) else []):
-                f = os.path.join(d, name)
-                if name != "node" and os.access(f, os.X_OK) and not os.path.lexists(os.path.join(nonode, name)):
-                    os.symlink(f, os.path.join(nonode, name))
-        p = subprocess.run([JOBS, "pool-claim", "p2"], cwd=repo_a, capture_output=True, text=True,
-                           env={**env, "PATH": nonode})
-        check("node unable to start: a claim that never left, never 'may be claimed'", p.returncode == 1
-              and "node could not run" in p.stderr and "may be claimed" not in p.stderr, p.stderr)
+        # The interpreter that runs queue.py cannot start (a missing one is OSError): a claim that
+        # never left, never "may be claimed". The queue runs on the interpreter of this very
+        # process now, so the case is the function's, with its subprocess call failing.
+        sys.path.insert(0, os.path.join(ROOT, "tools", "fabric"))
+        import jobs as jobs_mod
+        saved_run = jobs_mod.ask_queue.__globals__["subprocess"].run
+
+        def no_start(*_a, **_k):
+            raise FileNotFoundError(2, "No such file or directory")
+        jobs_mod.ask_queue.__globals__["subprocess"].run = no_start
+        try:
+            try:
+                jobs_mod.ask_queue("pool-claim", "p2")
+                got = None
+            except jobs_mod.Unreachable as e:
+                got = e
+        finally:
+            jobs_mod.ask_queue.__globals__["subprocess"].run = saved_run
+        check("python unable to start: a claim that never left (sent False), never 'may be claimed'",
+              got is not None and got.sent is False and "python could not run" in str(got), got)
 
         class Fails(http.server.BaseHTTPRequestHandler):
             def do_POST(self):

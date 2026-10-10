@@ -26,10 +26,14 @@
 # usage windows, its role, its fabric head. An account whose agent does
 # not answer within the timeout is a row saying so, and the exit code is
 # 1. No sudo, no session, no model in the loop: the agents answer as
-# themselves (runtime/control/agentd.mjs), the coordinator only asks.
+# themselves (tools/fabric/control/agentd.py), the coordinator only asks.
 # bin/fabric-usage and bin/fabric-host drain are the sudo fallbacks for an
 # account with no agent up.
 set -uo pipefail
 ROOT="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
 export AGENT_FABRIC_ROOT="${AGENT_FABRIC_ROOT:-$ROOT}"
-exec node "$ROOT/runtime/control/ctl.mjs" "$@"
+# The fleet's pinned Python (runtime/python.json, ADR-040), one per host;
+# AGENT_FABRIC_PYTHON points elsewhere for a test or a host without it.
+py="${AGENT_FABRIC_PYTHON:-/usr/local/bin/fabric-python}"
+[[ -x "$py" ]] || { echo "fabric-ctl: the fleet's pinned Python is not installed at $py; as root: /usr/bin/python3 <agent-fabric>/tools/fabric/python_pin.py install" >&2; exit 127; }
+exec "$py" "$ROOT/tools/fabric/control/ctl.py" "$@"

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """The seam holds (agent-fabric ADR-045 rule 1): no module of the engine joins an
-instance-data path itself — it asks tools/fabric/roots.py (runtime/control/roots.mjs).
+instance-data path itself — it asks tools/fabric/roots.py.
 
 The scan reads source, so it fails for the line that would break the split, not for
 a behaviour a fixture happens to cover. EXEMPT names what does not yet go through
@@ -33,7 +33,6 @@ SKIP_PARTS = ("/tests/", "/__pycache__/", "/claude-code/")
 # path -> why it does not go through roots yet
 EXEMPT = {
     "tools/fabric/roots.py": "the seam itself",
-    "runtime/control/roots.mjs": "the seam itself",
     "tools/fabric/secretstore/lineage.py": "keys_dir(fabric) takes the tree to check; the module is stdlib-only by fence (tests/test_lineage_fence.py), so it cannot import roots; core.keys_dir passes the operator root",
     "tools/fabric/hostexec.py": "the host executor's registry default is THIS checkout's, by contract: tests/test_hostexec_cli.py pins that it does not follow the operator tree (fabric-host, which does, exports the answer in AGENT_FABRIC_HOSTS_REGISTRY). Held while it was shell, which could not call roots; whether it follows roots now is the coordinator's to say",
     "tools/fabric/hostworker.py": "~/projects/agent-fabric is the checkout provisioning clones into an ACCOUNT's home, where `@fabric/` resolves for a command run as that account: a place in a home directory, not the operator's tree",
@@ -42,7 +41,7 @@ EXEMPT = {
 
 # Spelled as plain strings handed to git (`git show origin/main:identities/keys/…`), which no
 # join-shaped scan can tell from a message; reviewed by hand.
-NOT_SCANNABLE = {"tools/fabric/roots.py", "runtime/control/roots.mjs", "tools/fabric/secretstore/trust.py"}
+NOT_SCANNABLE = {"tools/fabric/roots.py", "tools/fabric/secretstore/trust.py"}
 
 
 def sources() -> list[str]:

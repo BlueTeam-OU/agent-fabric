@@ -5,8 +5,9 @@ jobs.test.mjs's cases of jobs.mjs are ported case for case, through the
 real tools/fabric/jobs.py against a scratch state directory. Its cases
 of OPS / PUBLIC_OPS (ops.mjs) and of fabric-ctl's parseArgs and table
 (ctl.mjs) move with those ports. Beyond them: check_job_args and the
-list's mapping are held to Node's own on the same inputs, since a
-request from a Node fabric-ctl must be refused or run alike here.
+list's mapping are held to the answers the Node gave on the same
+inputs (frozen in tests/fixtures/node-oracle-jobs.json, the Node having
+been deleted): a request from a Node fabric-ctl was refused or run alike.
 """
 from __future__ import annotations
 
@@ -22,17 +23,10 @@ sys.path.insert(0, os.path.join(HERE, "tools", "fabric"))
 from control import jobs as cj  # noqa: E402
 import jobs as jobs_tool  # noqa: E402
 
-JOBS_MJS = os.path.join(HERE, "runtime", "control", "jobs.mjs")
+from node_oracle import Oracle  # noqa: E402 — tests/, the script's own directory
 
-
-def node(js: str, data):
-    r = subprocess.run(["node", "--input-type=module", "-e",
-                        f"import fs from 'node:fs'; import * as m from '{JOBS_MJS}'; const input = JSON.parse(fs.readFileSync(0, 'utf8')); "
-                        f"const out = await (async () => {{ {js} }})(); process.stdout.write(JSON.stringify(out));"],
-                       input=json.dumps(data), capture_output=True, text=True, timeout=120)
-    if r.returncode != 0:
-        raise RuntimeError(r.stderr[-400:])
-    return json.loads(r.stdout)
+# jobs.mjs, deleted with the Node control plane (ADR-040 Wave 8, s8): its answers to these inputs are frozen.
+node = Oracle("jobs").node
 
 
 def done(stdout="", stderr="", code=0):

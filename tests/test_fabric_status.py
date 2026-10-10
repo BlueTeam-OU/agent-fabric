@@ -8,7 +8,6 @@ import hashlib
 import json
 import os
 import pwd
-import shutil
 import socket
 import subprocess
 import sys
@@ -299,44 +298,37 @@ def main() -> int:
         check("the journal is reported: none yet, then counted, and another agent's named",
               before["status"] == "none" and after["status"] == "ok" and after["detail"].startswith("1 episode(s)")
               and foreign["status"] == "foreign")
-        # The control agent's implementation: read from the installed unit,
-        # against a fixture selector, never the checkout's.
+        # The control agent: read from the installed unit, against a fixture
+        # tree whose pinned interpreter is a file the case makes or does not.
         fx = os.path.join(sb, "agentd-fabric")
         os.makedirs(os.path.join(fx, "tools", "fabric"))
-        for mod in ("agentd_unit.py", "roots.py"):
-            shutil.copyfile(os.path.join(HERE, "tools", "fabric", mod), os.path.join(fx, "tools", "fabric", mod))
-        import socket
-        here_host = socket.gethostname().split(".")[0]
-        reg = os.path.join(fx, "runtime", "hosts", "registry.json")
-        put(reg, json.dumps({"version": 1, "placement": {"py-login": here_host}}))
-        put(os.path.join(fx, "runtime", "control", "agentd.json"), json.dumps({"default": "node", "python": ["py-login"]}))
+        pin = os.path.join(sb, "agentd-pinned-python")
+        with open(os.path.join(HERE, "tools", "fabric", "agentd_unit.py"), encoding="utf-8") as fh:
+            src = fh.read().replace('FABRIC_PYTHON = "/usr/local/bin/fabric-python"', f'FABRIC_PYTHON = "{pin}"')
+        put(os.path.join(fx, "tools", "fabric", "agentd_unit.py"), src)
         xdg = os.path.join(sb, "agentd-xdg")
         unit = os.path.join(xdg, "systemd", "user", "agent-fabric-agentd.service")
         with open(os.path.join(HERE, "runtime", "control", "agent-fabric-agentd.service"), encoding="utf-8") as fh:
-            node_unit = fh.read()
-        none = status.agentd_implementation(fx, "py-login", {"XDG_CONFIG_HOME": xdg})
-        put(unit, node_unit)
-        node = status.agentd_implementation(fx, "node-login", {"XDG_CONFIG_HOME": xdg})
-        drift = status.agentd_implementation(fx, "py-login", {"XDG_CONFIG_HOME": xdg})
-        put(unit, node_unit.replace("ExecStart=/usr/bin/env node %h/projects/agent-fabric/runtime/control/agentd.mjs",
-                                    "ExecStart=/usr/local/bin/fabric-python %h/projects/agent-fabric/tools/fabric/control/agentd.py"))
-        python = status.agentd_implementation(fx, "py-login", {"XDG_CONFIG_HOME": xdg})
-        # Bootstrap keeps Node for a login placed elsewhere: that unit is right, not drift.
-        put(unit, node_unit)
-        put(reg, json.dumps({"version": 1, "placement": {"py-login": "some-other-host"}}))
-        refused = status.agentd_implementation(fx, "py-login", {"XDG_CONFIG_HOME": xdg})
-        put(reg, json.dumps({"version": 1, "placement": {"py-login": here_host}}))
-        check("a node unit where bootstrap refuses python is node (python refused: why), not DRIFT",
-              refused["status"] == "node" and refused["detail"].startswith("node (python refused: ")
-              and "some-other-host" in refused["detail"])
-        put(unit, node_unit.replace("ExecStart=/usr/bin/env node %h/projects/agent-fabric/runtime/control/agentd.mjs",
-                                    "ExecStart=/usr/local/bin/fabric-python %h/projects/agent-fabric/tools/fabric/control/agentd.py"))
-        put(os.path.join(fx, "runtime", "control", "agentd.json"), "{broken")
-        unsound = status.agentd_implementation(fx, "py-login", {"XDG_CONFIG_HOME": xdg})
-        check("the control agent's implementation: none, node, drift from the selector, python, and an unsound selector said",
-              none["status"] == "none" and node["status"] == "node" and drift["status"] == "drift"
-              and "selects python" in drift["detail"] and python["status"] == "python"
-              and unsound["status"] == "python" and "is not JSON" in unsound["detail"])
+            real_unit = fh.read()
+        env_x = {"XDG_CONFIG_HOME": xdg}
+        none = status.agentd_implementation(fx, "any-login", env_x)
+        put(unit, real_unit.replace("/usr/local/bin/fabric-python %h/projects/agent-fabric/tools/fabric/control/agentd.py",
+                                    "/usr/bin/env node %h/projects/agent-fabric/runtime/control/agentd.mjs"))
+        legacy = status.agentd_implementation(fx, "any-login", env_x)
+        put(unit, real_unit.replace("tools/fabric/control/agentd.py", "something/else.py"))
+        other = status.agentd_implementation(fx, "any-login", env_x)
+        put(unit, real_unit)
+        no_pin = status.agentd_implementation(fx, "any-login", env_x)
+        put(pin, "#!/bin/sh\n")
+        os.chmod(pin, 0o755)
+        python = status.agentd_implementation(fx, "any-login", env_x)
+        check("the control agent: no unit, a unit still on the deleted Node agent, one that is neither, python without its pinned interpreter, python",
+              none["status"] == "none" and legacy["status"] == "drift" and "deleted Node agent" in legacy["detail"]
+              and other["status"] == "unknown" and no_pin["status"] == "refused" and "python_pin.py install" in no_pin["detail"]
+              and python == {"status": "python", "detail": "python (the unit's ExecStart)"})
+        check("the shipped unit runs the pinned interpreter on tools/fabric/control/agentd.py and nothing from runtime/control/*.mjs",
+              "ExecStart=/usr/local/bin/fabric-python %h/projects/agent-fabric/tools/fabric/control/agentd.py\n" in real_unit
+              and ".mjs" not in real_unit.replace("\n#", "\n").split("[Unit]")[1])
         human = status.render({**json.loads(b.stdout), "host_tools": {"moveto": {"installed": False}, "agentd": python}}, None)
         check("…and its line in the human report", f"agentd       {python['detail']}" in human)
         drifted = subprocess.run(["bash", SHIM], env={**env, "AGENT_FABRIC_LAUNCH_ROLE": "backend-dev", "AGENT_FABRIC_LAUNCH_PROMPT_DIGEST": "sha256:0",

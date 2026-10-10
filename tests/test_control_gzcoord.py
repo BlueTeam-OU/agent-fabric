@@ -2,7 +2,10 @@
 """Tests for tools/fabric/control/gzcoord.py, the port of runtime/control/gzcoord.mjs.
 
 gzcoord.test.mjs's cases of the control plane's own code (shellWord,
-api, apiTimeoutMs, relayFailure) are ported case for case. Its cases of
+api, apiTimeoutMs, relayFailure) are ported case for case; the two that
+ran the Node beside this module (shellWord, apiTimeoutMs) compare with its
+answers frozen in tests/fixtures/node-oracle-gzcoord.json, the Node having
+been deleted (ADR-040 Wave 8, s8). Its cases of
 whoami, identity, inboxRoot, integrationConfig, holdStatus, syncedVar
 and token test the copy of the GZCoord tools gzcoord.mjs carried; here
 those names ARE the GZCoord tools' (Wave 7), whose own suites hold them
@@ -12,9 +15,9 @@ the binding: each name is that function, not another copy.
 from __future__ import annotations
 
 import http.server
+import hashlib
 import json
 import os
-import subprocess
 import sys
 import threading
 import time
@@ -25,7 +28,9 @@ from control import gzcoord as cg  # noqa: E402
 from gzcoord import gzmsg, paths  # noqa: E402
 from gzcoord.inbox_parts import config, hold, tokens  # noqa: E402
 
-GZCOORD_MJS = os.path.join(HERE, "runtime", "control", "gzcoord.mjs")
+# What the Node's shellWord and apiTimeoutMs answered, captured before the Node
+# control plane was deleted (ADR-040 Wave 8, s8): the oracle now.
+ORACLE = json.load(open(os.path.join(HERE, "tests", "fixtures", "node-oracle-gzcoord.json"), encoding="utf-8"))
 
 
 def main() -> int:
@@ -58,14 +63,9 @@ def main() -> int:
     import random
     rnd = random.Random(3)
     battery = ["".join(rnd.choice("ab '\"\\ \t#-/=:.+") for _ in range(rnd.randint(0, 9))) for _ in range(3000)]
-    r = subprocess.run(["node", "--input-type=module", "-e",
-                        f"import fs from 'node:fs'; import {{shellWord}} from '{GZCOORD_MJS}'; "
-                        "process.stdout.write(JSON.stringify(JSON.parse(fs.readFileSync(0, 'utf8')).map(shellWord)))"],
-                       input=json.dumps(battery), capture_output=True, text=True, timeout=60)
-    node = json.loads(r.stdout) if r.returncode == 0 else None
-    differ = [(b, n, cg.shell_word(b)) for b, n in zip(battery, node or []) if cg.shell_word(b) != n]
-    check("shell_word is Node's shellWord on 3000 lines of quotes, escapes and punctuation", node is not None and not differ,
-          differ[:4] or r.stderr[-300:])
+    mine = [cg.shell_word(b) for b in battery]
+    check("shell_word is the Node's shellWord on 3000 lines of quotes, escapes and punctuation (by digest)",
+          len(battery) == ORACLE["shell_word"]["count"] and hashlib.sha256(json.dumps(mine).encode()).hexdigest() == ORACLE["shell_word"]["sha256"])
 
     print("gzcoord.test.mjs: api, apiTimeoutMs")
     seen = []
@@ -214,13 +214,10 @@ def main() -> int:
                  "/x?timeout_seconds=+5", "/x?timeout_seconds=%205%20", "/x?a=1?timeout_seconds=5",
                  "/x?timeout_seconds=0x0x10", "/x?timeout_seconds=0b0b1", "/x?timeout_seconds=0o0o7", "/x?timeout_seconds=0x1G",
                  "/x?timeout_seconds=0o8", "/x?timeout_seconds=0b2", "/x?timeout_seconds=0x" + "f" * 300]
-        r = subprocess.run(["node", "--input-type=module", "-e",
-                            f"import fs from 'node:fs'; import {{apiTimeoutMs}} from '{GZCOORD_MJS}'; "
-                            "process.stdout.write(JSON.stringify(JSON.parse(fs.readFileSync(0, 'utf8')).map(apiTimeoutMs)))"],
-                           input=json.dumps(probe), capture_output=True, text=True, timeout=60)
-        node = json.loads(r.stdout) if r.returncode == 0 else r.stderr[-300:]
         mine = [cg.api_timeout_s(p) * 1000 for p in probe]
-        check("api_timeout_s is Node's apiTimeoutMs / 1000 on every shape of query", mine == node, (mine, node))
+        check("the probe is the one the Node was asked", probe == ORACLE["api_timeout_ms"]["probe"])
+        check("api_timeout_s is the Node's apiTimeoutMs / 1000 on every shape of query", mine == ORACLE["api_timeout_ms"]["answers"],
+              (mine, ORACLE["api_timeout_ms"]["answers"]))
         try:
             cg.api("tok\nX-Evil: 1", "/api/x", relay_url=relay_url)
             check("a token holding a line break is refused", False)

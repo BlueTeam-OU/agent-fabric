@@ -44,7 +44,7 @@ def pool_offer() -> str:
             f"  claim it with fabric-jobs pool-claim {printable(first.get('id'))}, then fabric-jobs next")
 
 
-PROJECT_SLUG = re.compile(r"[a-z0-9][a-z0-9-]{0,62}", re.ASCII)   # runtime/control/jobs.mjs PROJECT_SLUG
+PROJECT_SLUG = re.compile(r"[a-z0-9][a-z0-9-]{0,62}", re.ASCII)   # tools/fabric/control/jobs.py PROJECT_SLUG
 
 
 def claimed_job(answer: dict, asked: str) -> dict:

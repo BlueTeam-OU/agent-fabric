@@ -13,7 +13,6 @@ import glob
 import json
 import math
 import os
-import signal
 import subprocess
 import sys
 import tempfile
@@ -145,73 +144,7 @@ def _():
         inbox._episodic = saved
 
 
-# ── 4. the child ends with its shim; presence that cannot be asked ───
-
-def _children(pid: int) -> list[int]:
-    out = []
-    for stat in glob.glob("/proc/[0-9]*/stat"):
-        try:
-            with open(stat, encoding="utf-8", errors="replace") as fh:
-                fields = fh.read().rsplit(")", 1)[1].split()
-        except OSError:
-            continue
-        if int(fields[1]) == pid:
-            out.append(int(stat.split("/")[2]))
-    return out
-
-
-def _alive(pid: int) -> bool:
-    try:
-        with open(f"/proc/{pid}/stat", encoding="utf-8", errors="replace") as fh:
-            return fh.read().rsplit(")", 1)[1].split()[0] != "Z"
-    except OSError:
-        return False
-
-
-# The shim's own status says whether it forwarded: an INT forwarded is the
-# inbox's KeyboardInterrupt, exit 130; one not forwarded kills the shim.
-# The child's end alone cannot say it: PDEATHSIG ends it either way.
-SHIM_STATUS = {signal.SIGTERM: -signal.SIGTERM, signal.SIGINT: 130, signal.SIGHUP: -signal.SIGHUP,
-               signal.SIGKILL: -signal.SIGKILL}
-
-
-@case("the Python child is gone after TERM, INT, HUP or KILL on its shim, and the shim ends as the child did")
-def _():
-    waits: list[int] = []
-
-    def answer(_h, _method, path, _body):
-        if path.startswith("/api/wait"):
-            waits.append(1)
-            return None
-        return 200, json.dumps({"messages": []}) if path.startswith("/api/messages") else "{}"
-    stub = P.Stub(answer)
-    try:
-        for sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP, signal.SIGKILL):
-            waits.clear()
-            env = P.cmd_env(CLAUDE_BRIDGE_URL=stub.url, CLAUDE_BRIDGE_AUTH_TOKEN="tok", GZCOORD_CHANNEL="fixture:chan",
-                            AGENT_FABRIC_HOLD_DIR=P.scratch("hold-"))
-            shim = subprocess.Popen(["node", P.SHIM_INBOX, "--follow"], env=env, stdin=subprocess.DEVNULL,
-                                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
-            try:
-                deadline = time.monotonic() + 15
-                while not waits and time.monotonic() < deadline and shim.poll() is None:
-                    time.sleep(0.05)
-                ok(waits, f"{sig.name}: the watch never reached its long poll")
-                kids = _children(shim.pid)
-                eq(len(kids), 1, f"{sig.name}: the shim's children")
-                os.kill(shim.pid, sig)
-                eq(shim.wait(10), SHIM_STATUS[sig], f"{sig.name}: the shim's status")
-                deadline = time.monotonic() + 10
-                while _alive(kids[0]) and time.monotonic() < deadline:
-                    time.sleep(0.05)
-                ok(not _alive(kids[0]), f"{sig.name}: the Python child {kids[0]} outlived its shim")
-            finally:
-                with contextlib.suppress(OSError):
-                    os.killpg(shim.pid, signal.SIGKILL)
-                shim.wait(10)
-    finally:
-        stub.close()
-
+# ── 4. presence that cannot be asked ───
 
 @case("presence that times out, or has no node to run, is unavailable — never present, never skipped")
 def _():
@@ -231,50 +164,16 @@ def _():
         ok(p["checked"] and said in p["problems"][0]["detail"], json.dumps(p))
 
 
-# A stand-in for the interpreter (python.mjs runs AGENT_FABRIC_PYTHON): it
-# records each signal it is sent, then dies of it. The real child's end
-# cannot show forwarding — PDEATHSIG ends it whether or not the shim
-# forwarded (review of #93, round 3).
-_FAKE_PYTHON = """import os, signal, sys, time
-log = os.environ["FAKE_SIGNAL_LOG"]
-def got(n, _f):
-    with open(log, "a", encoding="utf-8") as fh:
-        fh.write(signal.Signals(n).name + "\\n")
-    signal.signal(n, signal.SIG_DFL)
-    os.kill(os.getpid(), n)
-for s in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
-    signal.signal(s, got)
-with open(log, "a", encoding="utf-8") as fh:
-    fh.write("ready\\n")
-while True:
-    time.sleep(1)
-"""
-
-
-@case("the shim forwards TERM, INT and HUP to its child, which receives each before it ends")
+@case("the presence check runs presence.py under this interpreter, by an argument list")
 def _():
-    d = P.scratch("fake-python-")
-    fake = os.path.join(d, "python")
-    with open(fake, "w", encoding="utf-8") as fh:
-        fh.write(f"#!{os.path.realpath(PYTHON)}\n" + _FAKE_PYTHON)
-    os.chmod(fake, 0o700)
-    for sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
-        log = os.path.join(d, f"{sig.name}.log")
-        shim = subprocess.Popen(["node", P.SHIM_INBOX, "--follow"], env={**os.environ, "AGENT_FABRIC_PYTHON": fake,
-                                "FAKE_SIGNAL_LOG": log}, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                                stderr=subprocess.DEVNULL, start_new_session=True)
-        try:
-            deadline = time.monotonic() + 15
-            while not (os.path.exists(log) and "ready" in open(log, encoding="utf-8").read()) and time.monotonic() < deadline:
-                time.sleep(0.05)
-            ok(os.path.exists(log), f"{sig.name}: the stand-in never started")
-            os.kill(shim.pid, sig)
-            eq(shim.wait(10), -sig, f"{sig.name}: the shim ends as its child did")
-            eq(open(log, encoding="utf-8").read().split(), ["ready", sig.name], f"{sig.name}: what the child received")
-        finally:
-            with contextlib.suppress(OSError):
-                os.killpg(shim.pid, signal.SIGKILL)
-            shim.wait(10)
+    seen = {}
+
+    def fake(argv, **kw):
+        seen["argv"], seen["input"] = argv, kw.get("input")
+        return subprocess.CompletedProcess(argv, 0, stdout='{"checked": true, "problems": []}\n', stderr="")
+    r = send.check_addressees({"TO": "h/alpha"}, "h/me", "tok", fake)
+    eq(seen["argv"], [sys.executable, os.path.join(HERE, "tools", "fabric", "control", "presence.py"), "check"], str(seen))
+    eq(r, {"checked": True, "problems": []})
 
 
 @case("a command case's relay runtime dir is scratch, never the checkout's workspace: a hosting account's .gzcoord is not read")
@@ -696,22 +595,6 @@ def _():
         ok("gzcoord-inbox --follow" in cmdline, f"the process table reads {cmdline!r}")
     finally:
         stub.close()
-
-
-@case("the Node shims, kept for callers outside this repository, still run the same tools")
-def _():
-    env = {**P.cmd_env(), "GZCOORD_DEFAULT_LOCALE_ONLY": "1"}
-    r = subprocess.run(["node", os.path.join(P.SCRIPTS, "gzmsg.mjs"), "new-id"], env=env, capture_output=True, text=True,
-                       timeout=60, stdin=subprocess.DEVNULL)
-    eq((r.returncode, r.stderr), (0, ""))
-    ok(len(r.stdout.strip()) == 36, r.stdout)
-    for shim, usage, status in (("send.mjs", "usage: gzcoord-send <file>|- [--dry-run] [--force]\n", 1),
-                                ("inbox.mjs", "usage: gzcoord-inbox --replay <seq|message-id>\n", 1)):
-        args = ["--replay"] if shim == "inbox.mjs" else []
-        r = subprocess.run(["node", os.path.join(P.SCRIPTS, shim), *args], env=env, capture_output=True, text=True, timeout=60,
-                           stdin=subprocess.DEVNULL)
-        eq((r.returncode, r.stderr), (status, usage), shim)
-
 
 
 def main() -> int:

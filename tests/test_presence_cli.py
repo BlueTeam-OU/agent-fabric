@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""runtime/control/presence.mjs check — the CLI the Python sender asks
+"""tools/fabric/control/presence.py check — the CLI the Python sender asks
 presence through (agent-fabric ADR-040 §7, Wave 7; the coordinator's
 decision of 2026-10-04: the control channel's shapes stay in the control
 plane). Its contract is in that file's header; this holds it from the
@@ -22,7 +22,7 @@ import threading
 import urllib.parse
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-PRESENCE = os.path.join(HERE, "runtime", "control", "presence.mjs")
+PRESENCE = os.path.join(HERE, "tools", "fabric", "control", "presence.py")
 TOKEN = "tok-presence-fixture-SECRET"
 
 
@@ -88,7 +88,7 @@ def main() -> int:
 
         def ask(metadata: dict, url: str = "http://127.0.0.1:1", args: tuple = ("check",), raw: str | None = None):
             req = raw if raw is not None else json.dumps({"metadata": metadata, "from": "h/me", "token": TOKEN})
-            r = subprocess.run(["node", PRESENCE, *args], input=req, capture_output=True, text=True, timeout=60,
+            r = subprocess.run([sys.executable, PRESENCE, *args], input=req, capture_output=True, text=True, timeout=60,
                                env={**base, "CLAUDE_BRIDGE_URL": url})
             try:
                 answer = json.loads(r.stdout.strip().splitlines()[-1]) if r.stdout.strip() else None
@@ -102,7 +102,7 @@ def main() -> int:
 
         print("usage")
         rc, _a, err = ask({}, args=())
-        check("no subcommand: exit 2, a usage line", rc == 2 and "usage: presence.mjs check" in err, (rc, err))
+        check("no subcommand: exit 2, a usage line", rc == 2 and "usage: presence.py check" in err, (rc, err))
         rc, _a, err = ask({}, raw='{"token": "' + TOKEN + '", not json')
         check("stdin that is not JSON: exit 2, and the token is never echoed", rc == 2 and TOKEN not in err
               and "stdin is not one JSON object" in err, (rc, err))

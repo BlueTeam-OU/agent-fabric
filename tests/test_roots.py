@@ -1,12 +1,10 @@
 #!/usr/bin/env python3
-"""Tests for tools/fabric/roots.py and its Node twin runtime/control/roots.mjs:
-the two roots, every data helper under the operator root, and the twin
-answering as the Python does on one matrix of environments."""
+"""Tests for tools/fabric/roots.py: the two roots and every data helper under
+the operator root. (A Node twin, runtime/control/roots.mjs, was held to the
+same matrix of environments until the Node control plane was deleted.)"""
 from __future__ import annotations
 
-import json
 import os
-import subprocess
 import sys
 
 ROOT = os.path.realpath(os.path.join(os.path.dirname(__file__), ".."))
@@ -114,56 +112,11 @@ def case_the_environment_read_is_the_one_given_not_the_process_s() -> None:
 
 
 def case_live_checks_dir_is_python_only_and_follows_the_operator_root() -> None:
-    # Not in HELPERS: those are compared with the Node twin (runtime/control/roots.mjs),
-    # which has no live-checks reader and is not changed here.
     assert roots.live_checks_dir(environ={"AGENT_FABRIC_OPERATOR": O, "AGENT_FABRIC_ROOT": E}) == J(O, "docs", "live-checks")
     assert roots.live_checks_dir(environ={"AGENT_FABRIC_ROOT": E}) == J(E, "docs", "live-checks")
     assert roots.live_checks_dir(root="/x", environ={"AGENT_FABRIC_OPERATOR": O}) == J("/x", "docs", "live-checks")
     assert roots.live_checks_dir(environ={"AGENT_FABRIC_OPERATOR": O}, engine="/g") == J(O, "docs", "live-checks")
     assert roots.live_checks_dir(environ={}, engine="/g") == J("/g", "docs", "live-checks")
-
-
-def case_the_node_twin_answers_as_the_python_does() -> None:
-    names = [n for n, _, _ in HELPERS]
-    script = """
-import * as r from './runtime/control/roots.mjs';
-const envs = JSON.parse(process.argv[1]);
-const calls = {
-  roleCatalog: e => r.roleCatalog({ env: e }), rolesDir: e => r.rolesDir({ env: e }),
-  roleDir: e => r.roleDir('python-dev', { env: e }), localeDir: e => r.localeDir('language-culture', 'it', { env: e }),
-  keysDir: e => r.keysDir({ env: e }), recoveryKey: e => r.recoveryKey({ env: e }),
-  projectsRegistry: e => r.projectsRegistry({ env: e }), projectsDir: e => r.projectsDir({ env: e }),
-  projectIntegration: e => r.projectIntegration('gzapp', ['gh', 'arm.json'], { env: e }),
-  hostsRegistry: e => r.hostsRegistry({ env: e }), policy: e => r.policy('hygiene.json', { env: e }),
-  policiesDir: e => r.policiesDir({ env: e }), routingProfiles: e => r.routingProfiles({ env: e }),
-  routingPolicy: e => r.routingPolicy('review-grade.json', { env: e }), memoryDir: e => r.memoryDir(['domains'], { env: e }),
-  adrDir: e => r.adrDir({ env: e }),
-};
-console.log(JSON.stringify(envs.map(e => ({
-  engine: r.engineRoot({ env: e }), engineSet: r.engineRoot({ env: e, emptyIsSet: true }),
-  operator: r.operatorRoot({ env: e }), operatorSet: r.operatorRoot({ env: e, emptyIsSet: true }),
-  ...Object.fromEntries(Object.entries(calls).map(([k, f]) => [k, f(e)])),
-  hostsSet: r.hostsRegistry({ env: e, emptyIsSet: true }),
-  explicit: r.policy('p.json', { env: e, root: '/x' }), handed: r.policy('p.json', { env: e, engine: '/g' }),
-}))));
-"""
-    done = subprocess.run(["node", "--input-type=module", "-e", script, json.dumps(ENVS)], cwd=ROOT,
-                          capture_output=True, text=True, timeout=60, check=False, env={"PATH": os.environ["PATH"]})
-    assert done.returncode == 0, done.stderr
-    got = json.loads(done.stdout)
-    assert len(got) == len(ENVS)
-    for env, node in zip(ENVS, got):
-        want = {
-            "engine": roots.engine_root(env), "engineSet": roots.engine_root(env, empty_is_set=True),
-            "operator": roots.operator_root(env), "operatorSet": roots.operator_root(env, empty_is_set=True),
-            "explicit": roots.policy("p.json", root="/x", environ=env),
-            "hostsSet": roots.hosts_registry(environ=env, empty_is_set=True),
-            "handed": roots.policy("p.json", engine="/g", environ=env),
-        }
-        for n, call, _ in HELPERS:
-            want[n] = call(environ=env)
-        assert node == want, (env, {k: (node[k], want[k]) for k in want if node[k] != want[k]})
-    assert set(names) <= set(got[0])
 
 
 def main() -> int:

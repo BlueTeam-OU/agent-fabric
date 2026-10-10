@@ -1448,14 +1448,9 @@ def _():
 
 # ── cases that run a command beside a function: ported whole ─────────
 
-SCRIPTS = os.path.join(GZCOORD, "scripts")
 BIN = os.path.join(os.path.dirname(os.path.dirname(GZCOORD)), "bin")
 INBOX_CMD = os.path.join(BIN, "gzcoord-inbox")
 SEND_CMD = os.path.join(BIN, "gzcoord-send")
-# The Node shims, kept for callers outside this repository until they are
-# retired (ADR-040 §7): run only by the cases that are about them.
-SHIM_INBOX = os.path.join(SCRIPTS, "inbox.mjs")
-SHIM_SEND = os.path.join(SCRIPTS, "send.mjs")
 AGENT_ID = "01a0f782-7e06-7dee-811f-0a860ed93bf3"
 
 

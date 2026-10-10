@@ -353,7 +353,7 @@ def test_binding_is_refused_inside_a_session(f: Fixture, tmp: str) -> None:
 def test_a_role_change_announces_nothing(f: Fixture, tmp: str) -> None:
     """Binding, changing or dropping a role posts nothing: who holds a role,
     and whether a session runs, is the control plane's to answer
-    (runtime/control/presence.mjs). Stub `gzcoord-send` and `gzmsg` on PATH
+    (tools/fabric/control/presence.py). Stub `gzcoord-send` and `gzmsg` on PATH
     record every send, so "nothing" is what the relay would have seen."""
     # Own fixture: the shared one has no gzcoord entries and the stubs must not leak into other cases.
     own = os.path.join(tmp, "announce"); os.makedirs(own, exist_ok=True); f = Fixture(own)

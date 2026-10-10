@@ -2,11 +2,9 @@
 plane to order a queue (agent-fabric ADR-037 rules 8 and 9): which
 requests some account waits on, read from the state stream; and the
 role's pool, asked of the control agent that holds it (control/pool.py).
-runtime/control/queue.mjs in Python (ADR-040 Wave 8): "the
-cross-language helpers go — fabric-jobs reads the state stream itself,
-not through queue.mjs". Unwired until the cutover: tools/fabric/jobs.py
-still runs `node runtime/control/queue.mjs`, and switching it to call
-this module is the cutover's (a change of what a live tool runs).
+ported from runtime/control/queue.mjs (ADR-040 Wave 8; deleted in step s8).
+tools/fabric/jobs.py (jobsparts/queue.py) runs this module as a script on its
+own interpreter.
 
 CONTRACT, frozen from queue.mjs (its header is the CLI's; `python3
 tools/fabric/control/queue.py` answers the same argv, stdout and exits):

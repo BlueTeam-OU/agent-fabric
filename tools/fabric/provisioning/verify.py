@@ -126,7 +126,7 @@ def signs_with_secret(listing: str) -> bool:
     or subkey that can sign and whose secret is really here. gpg lists a
     stub (field 15 `#`: the secret is elsewhere, or was exported away) and
     exits 0 for it, so the exit status said present where commits could
-    not sign. The rule is runtime/control/ops.mjs signingSecret's, so
+    not sign. The rule is tools/fabric/control/ops/ signingSecret's, so
     fabric-ctl keys and this read-back agree."""
     for line in listing.splitlines():
         f = line.split(":")

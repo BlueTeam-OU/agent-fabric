@@ -17,7 +17,7 @@ def claude_template(s: Steps, slug: str) -> str:
     """The fingerprint of the template's token in this login's store, or a
     refusal: an unknown slug, a template with no token, and a store that
     did not answer are all refused here, before any account is made — the
-    same refusals as fabric-accounts assign (runtime/control/accounts.mjs)."""
+    same refusals as fabric-accounts assign (tools/fabric/control/accounts.py)."""
     rc, out = s.capture([cfg.SECRETS, "store", "templates", "--json"])
     try:
         rows = json.loads(out) if rc == 0 else None
