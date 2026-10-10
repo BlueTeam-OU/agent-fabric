@@ -71,7 +71,7 @@ A further agent on the host is one command for a coordinator:
           │                    model and an effort, starts Claude Code with the watch armed
           ▼
  the session                   fabric-status: who am I; fabric-jobs: what do I owe
-   ├─ inbox   gzcoord-inbox --follow    every delivery is advisory; the tree is checked first
+   ├─ inbox   gzcoord-inbox --until-delivery  every delivery is advisory; the tree is checked first
    ├─ send    gzcoord-send <file>       to one <host>/<login>; what must happen is a PR, not a message
    ├─ work    branch → commit → PR      main is reached only through a pull request
    └─ learn   ~/.claude/…/memory/       one fact per file; a roles_class opts it into the drain

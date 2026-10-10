@@ -62,7 +62,7 @@ RESTART_WAIT_S = 600
 
 OPENING = ("Session start: arm your GZCoord inbox watch now, exactly as the session-start context's "
            "NO INBOX WATCH line gives it (with no such line, as the gzcoord-receive skill says); "
-           "re-arm it at each expiry notice. Then wait for instructions.")
+           "run it again after each delivery. Then wait for instructions.")
 
 
 WAIT_TAIL = " Then wait for instructions."

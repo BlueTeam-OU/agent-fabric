@@ -493,6 +493,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-09-28 — the next job decides whether the session continues: `fabric-jobs
   next`, then `fabric-fresh --job` into the job's working copy (§5 rule 12).
 - A 2026-09-30 — the opening prompt names no command (§5 rule 1).
+- A 2026-10-10 — the watch is `gzcoord-inbox --until-delivery`, a background command that exits per delivery, never a Monitor (§5 rules 1, 2, 6).
 - Keywords: session, lifecycle, inbox watch, Monitor, gzcoord-inbox,
   --follow, opening prompt, resume, auto mode, defaultMode, plan mode,
   hold, planning, presence.

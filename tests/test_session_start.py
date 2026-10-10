@@ -328,7 +328,7 @@ def test_hook_unsets_every_secret_in_the_session_shell(tmp: str) -> None:
 
 
 def test_hook_says_when_the_session_has_no_inbox_watch(tmp: str) -> None:
-    """Under a process named claude with no `gzcoord-inbox --follow` beneath it,
+    """Under a process named claude with no `gzcoord-inbox --until-delivery` (or `--follow`) beneath it,
     the context says to arm the watch; with one beneath it, it does not."""
     state = os.path.join(tmp, "state")
     env = {**os.environ, "AGENT_FABRIC_ROOT": ROOT, "AGENT_FABRIC_STATE_DIR": state}
@@ -341,6 +341,7 @@ def test_hook_says_when_the_session_has_no_inbox_watch(tmp: str) -> None:
         fh.write("#!/bin/bash\n"  # not env: env re-execs bash and the process is no longer named claude
                  
                  "if [ \"$1\" = watch ]; then (exec -a 'node inbox.mjs --follow' sleep 20) & w=$!; sleep 0.3; fi\n"
+                 "if [ \"$1\" = until ]; then (exec -a 'node /home/x/.local/bin/gzcoord-inbox --until-delivery' sleep 20) & w=$!; sleep 0.3; fi\n"
                  "if [ \"$1\" = named ]; then (exec -a 'node /home/x/.local/bin/gzcoord-inbox --follow' sleep 20) & w=$!; sleep 0.3; fi\n"
                  f"bash {HOOK} < {payload}\n"
                  "[ -n \"${w:-}\" ] && kill $w\n")
@@ -349,6 +350,10 @@ def test_hook_says_when_the_session_has_no_inbox_watch(tmp: str) -> None:
     assert "NO INBOX WATCH is running for this session (resume)" in context_of(bare), bare.stdout
     armed = subprocess.run([fake, "watch"], capture_output=True, text=True, env=env)
     assert "NO INBOX WATCH" not in context_of(armed), armed.stdout
+    until = subprocess.run([fake, "until"], capture_output=True, text=True, env=env)
+    assert "NO INBOX WATCH" not in context_of(until), "the background wait was not seen:\n" + until.stdout
+    said = context_of(bare)
+    assert "run_in_background: true" in said and "--until-delivery" in said and "Never a Monitor" in said, said
     named = subprocess.run([fake, "named"], capture_output=True, text=True, env=env)
     assert "NO INBOX WATCH" not in context_of(named), "the watch armed by its name on PATH was not seen:\n" + named.stdout
 

@@ -9,6 +9,18 @@ CONTRACT, frozen from the Node:
             --follow            the watch: block for the life of the
                                 session, print each delivery as it lands,
                                 never return on a quiet spell
+            --until-delivery    the watch a session arms as a background
+                                command (Bash run_in_background, 2 h
+                                cap): block silently through quiet spells
+                                and other people's traffic, print the
+                                first delivery addressed here exactly as
+                                --follow would, and exit 0 so the harness
+                                wakes the session once per delivery; the
+                                session reads it and runs this again. A
+                                held inbox is waited out as in --follow.
+                                A refused token ends it with 4, a relay
+                                unreachable for 15 minutes with 5, the
+                                reason on stdout so the session sees it
             --wait [S]          block up to S seconds (Number(S), else
                                 1800) and return the moment a message
                                 addressed here lands; --keyword K
@@ -106,6 +118,11 @@ from .inbox_parts.render import _drop_final_newline, split_message, render  # no
 from .inbox_parts.watch import JOURNAL_RETRY_MS, bypass_inbound, wait_loop  # noqa: F401
 
 
+# How long --until-delivery rides out an unreachable relay before it exits
+# to tell the session; --follow never gives up (its Monitor shows each line).
+UNTIL_DELIVERY_DOWN_S = float(os.environ.get("GZCOORD_UNTIL_DELIVERY_DOWN_S") or 900)
+
+
 def _episodic():
     """tools/fabric/episodic.py — its own CLI, run in this process: the
     same exit codes and the same one-line reasons it gave as a process."""
@@ -174,6 +191,7 @@ def with_queued(shown: str, classified: list[dict], me: dict) -> str:
 def main(argv: list[str]) -> int:
     wait_given = "--wait" in argv
     follow = "--follow" in argv
+    until_delivery = "--until-delivery" in argv
     replay_given = "--replay" in argv
     replay_which = _arg_after(argv, "--replay")
     history_given = "--history" in argv
@@ -321,12 +339,19 @@ def main(argv: list[str]) -> int:
     def mine_fn(msg: dict) -> bool:
         return for_me(msg, me)
 
-    if follow:
+    if follow or until_delivery:
         # The watch. Each arm waits an hour of slices; a delivery is printed
         # and the next arm starts at once; a quiet hour starts the next arm
         # silently. Transport trouble is one line each way; a refused token
         # ends the watch with exit 4 so the harness reports it once.
+        # --until-delivery is the same loop that returns after the first
+        # delivery: a Monitor is capped at 30 minutes and every expiry rings
+        # the Fleet Deck, a background command is capped at 2 hours and ends
+        # only by delivering (the owner, 2026-10-10). Its output reaches the
+        # session only when it exits, so a relay down for long ends it too,
+        # rather than leaving a session believing it is watched.
         down = False
+        down_since = 0.0
         while True:
             try:
                 r = with_fresh_token(lambda _tk: wait_loop(fetch_page, ack, 3600, mine_fn, [], me["address"], held,
@@ -334,21 +359,29 @@ def main(argv: list[str]) -> int:
             except Exception as e:  # noqa: BLE001 — every failure of an arm is the relay's, said once
                 x = explain_relay_error(e, relay_url, t)
                 if x["code"] == 4:
-                    print(x["line"], file=sys.stderr)
+                    print(x["line"], file=sys.stdout if until_delivery else sys.stderr, flush=True)
                     return 4
                 if not down:
-                    print(t("watch.relay-down", {"relay_url": relay_url}), flush=True)
+                    if not until_delivery:
+                        print(t("watch.relay-down", {"relay_url": relay_url}), flush=True)
                     down = True
+                    down_since = time.monotonic()
+                elif until_delivery and time.monotonic() - down_since >= UNTIL_DELIVERY_DOWN_S:
+                    print(t("watch.relay-down", {"relay_url": relay_url}), flush=True)
+                    return 5
                 time.sleep(30)
                 continue
             if down:
-                print(t("watch.relay-back"), flush=True)
+                if not until_delivery:
+                    print(t("watch.relay-back"), flush=True)
                 down = False
             if r["delivered"]:
                 cause["reason"] = None
                 mark_retransmissions(r["classified"], fetch_recent)
                 print(with_queued(render(r, me, channel, taxonomy, cap=NOTIFICATION_CAP, t=t, reminder=reminder),
                                   r["classified"], me), flush=True)
+                if until_delivery:
+                    return 0
 
     try:
         res = with_fresh_token(lambda _tk: wait_loop(fetch_page, ack, wait_total, mine_fn, keywords, me["address"],
