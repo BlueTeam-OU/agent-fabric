@@ -59,7 +59,7 @@ from .memory import MEMORY_PART_BYTES, memory_slug, memory_dirs, memory  # noqa:
 
 OPS = ["ping", "identity", "usage", "keys", "fabric", "session", "script", "recall", "tokens", "memory", "host", "disk",
        "accounts", "upgrade", "secrets-sync", "status", "presence", "jobs", "jobs-add", "tools", "tools-install", "local", "local-prune",
-       "secrets-selftest", "pool-add", "pool-list", "pool-claim"]
+       "secrets-selftest", "pool-add", "pool-list", "pool-claim", "gateway", "gateway-install"]
 
 # Answered for any placed account, not only an operator: whether a session
 # is running is what every sender needs before it writes to one, and it
@@ -78,6 +78,11 @@ def _jobs(ctx: Mapping[str, Any]) -> Any:
 def _tools(ctx: Mapping[str, Any]) -> Any:
     from control.tools import tools
     return tools(**(ctx.get("tools_opts") or {}))
+
+
+def _gateway(ctx: Mapping[str, Any]) -> Any:
+    from control.gateway import gateway
+    return gateway(home=ctx.get("home"), root=ctx.get("root"), **(ctx.get("gateway_opts") or {}))
 
 
 def _local(ctx: Mapping[str, Any]) -> Any:
@@ -120,6 +125,7 @@ SECTIONS: dict[str, Callable[[Mapping[str, Any]], Any]] = {
     "local": _local,
     "jobs": _jobs,
     "tools": _tools,
+    "gateway": _gateway,
     "accounts": lambda c: c["accounts_cached"]() if c.get("accounts_cached") else accounts(c.get("home"), **(c.get("accounts_opts") or {})),
 }
 

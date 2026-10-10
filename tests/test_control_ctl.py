@@ -909,7 +909,7 @@ class Actions(unittest.TestCase):
         self.assertEqual(ctl.parse_args(["db-admin", "web-dev-01", "upgrade", "claude", "--version=2.1.282"])["version"], "2.1.282")
         self.assertEqual(ctl.parse_args(["db-admin", "web-dev-01", "upgrade", "claude"])["targets"], ["db-admin", "web-dev-01"], "the piece is not a login")
         for argv, pattern in ((["all", "upgrade"], "upgrade takes a piece: claude"), (["all", "upgrade", "kernel"], "upgrade takes a piece: claude, fabric"),
-                              (["all", "upgrade", "claude", "--version", "latest"], "digits"), (["all", "status", "--version", "2.1.282"], "with upgrade only")):
+                              (["all", "upgrade", "claude", "--version", "latest"], "digits"), (["all", "status", "--version", "2.1.282"], "with upgrade and gateway-install only")):
             with self.assertRaisesRegex(ctl.CtlError, pattern):
                 ctl.parse_args(argv)
         expected = placed("db-admin", "web-dev-01", "user")
