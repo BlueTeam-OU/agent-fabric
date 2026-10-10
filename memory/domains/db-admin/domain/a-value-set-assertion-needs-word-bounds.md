@@ -5,7 +5,7 @@ topic: "a-value-set-assertion-needs-word-bounds"
 description: "Assert.Contains is a substring test, so a closed-set assertion can be satisfied by another member of the set; and \\b is wrong for snake_case values."
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-05"
+distilled_at: "2026-10-10"
 origin:
   - agent: "db-admin"
     host: "develop-qzapp"

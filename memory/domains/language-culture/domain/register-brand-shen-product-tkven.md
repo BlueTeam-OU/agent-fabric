@@ -5,7 +5,7 @@ topic: "register-brand-shen-product-tkven"
 description: Brand surfaces address the rider as შენ (gzapi.brand 0007); product UI uses თქვენ, decided per surface by its owner with this role reviewing (0008); a quoted brand tagline keeps შენ.
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-05"
+distilled_at: "2026-10-10"
 origin:
   - agent: "language-culture-ge"
     host: "develop-qzapp"

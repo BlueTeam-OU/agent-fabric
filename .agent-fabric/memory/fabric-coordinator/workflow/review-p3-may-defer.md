@@ -2,34 +2,26 @@
 role: "fabric-coordinator"
 class: workflow
 topic: "review-p3-may-defer"
-description: P1/P2 review findings are fixed in the PR; a P3 may be carried to a later PR instead of another fix round
+description: "Fix P1/P2 in the PR, carry P3; post the final review with fabric-pr post-review naming the deferred P3s"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-01"
+distilled_at: "2026-10-10"
 origin:
   - agent: user
     host: "develop-qzapp"
     project: "agent-fabric"
     working_copy: "agent-fabric"
 derived_from:
+  - 58682253be73be78
   - fc334450f0d9b3b4
 ---
 
-## P1/P2 review findings are fixed in the PR; a P3 may be carried to a later PR instead of another fix round
+## Fix P1/P2 in the PR, carry P3; post the final review with fabric-pr post-review naming the deferred P3s
 
-The owner, 2026-09-27 on agent-fabric #51: "p2 should be addressed but p3
-can be put eventually in a later pr". A PR's blind-review loop ends when no
-P1/P2 is open; each remaining P3 is named in the final posted review and
-carried into the next PR (listed where the next branch's work is queued,
-[[next-fabric-branch-queue]]), not answered with yet another fix round.
+A PR's blind-review loop ends when no P1/P2 is open. Each remaining P3 is named in the final posted review and carried into the next PR (listed where the next branch's work is queued), not answered with yet another fix round; five rounds where each P3 fix drew a new P3 is the failure this rule prevents (owner, 2026-09-27).
 
-**Why:** #51 ran five review rounds; the last three each fixed P3s and
-each fix drew a new P3 — wording chasing wording.
+**How to apply:** fix P1/P2, re-review that range, post the final review with `fabric-pr post-review` naming the deferred P3s, then read the gate with `fabric-pr gate`. See [[blind-review-loop]].
 
-**How to apply:** fix P1/P2, re-review that range, post the final review
-with post-review.sh naming the deferred P3s, then read the gate. See
-[[blind-review-loop]].
+*References: blind-review-loop*
 
-*References: blind-review-loop, next-fabric-branch-queue*
-
-*Observed 2026-09-27 (fabric-coordinator)*
+*Observed 2026-10-10 (fabric-coordinator)*

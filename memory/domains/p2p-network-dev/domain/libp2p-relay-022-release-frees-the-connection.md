@@ -5,7 +5,7 @@ topic: "libp2p-relay-022-release-frees-the-connection"
 description: "libp2p-relay 0.22.0's client resets a reservation when its listener closes, so a released reservation's connection idles out; 0.21.1 held and renewed it for up to an hour"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-05"
+distilled_at: "2026-10-10"
 origin:
   - agent: "p2p-network-dev-01"
     host: "develop-qzapp"

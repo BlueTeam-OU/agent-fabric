@@ -2,10 +2,10 @@
 role: "devex-tooling"
 class: domain
 topic: "fabric-lint-is-not-in-run-sh"
-description: "agent-fabric tests/run.sh does not run tools/fabric/lint.py; a generic file naming a managed project (gzapp #N) passes the suite and is refused by lint"
+description: "correction — agent-fabric tests/run.sh does run tools/fabric/lint.py (\"corpus lint\"); only a narrower section skips it"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-05"
+distilled_at: "2026-10-10"
 origin:
   - agent: "devex-tooling"
     host: "develop-qzapp"
@@ -13,23 +13,13 @@ origin:
     working_copy: gzapp
 derived_from:
   - bff7c0af7cd3b3d2
+  - c7f6d6a9781c1d41
 ---
 
-## agent-fabric tests/run.sh does not run tools/fabric/lint.py; a generic file naming a managed project (gzapp #N) passes the suite and is refused by lint
+## correction — agent-fabric tests/run.sh does run tools/fabric/lint.py ("corpus lint"); only a narrower section skips it
 
-agent-fabric's tests/run.sh passed my shared-arm port while
-`python3 tools/fabric/lint.py` refused tools/fabric/github/arm.py for naming
-gzapp in provenance comments (coordinator, seq 11279, agent-fabric #89).
+agent-fabric's `tests/run.sh` runs `tools/fabric/lint.py` as "corpus lint" in its `python` section, which the default (`all`) includes. Only a narrower section (`bash`, `static`) skips it. Before a fabric delivery, run the full suite, or the `python` section plus whatever else changed, not a subset.
 
-**Why:** lint is a separate gate; generic fabric files must not name a
-managed project — the convention is "the first managed project's tools/gh/"
-or "a managed project's PR #N" (tools/fabric/github/pr_review_status.py:6).
+The rule the lint enforces still holds: a generic fabric file must not name a managed project. Write "the first managed project's tools/gh/", never "gzapp #N".
 
-**How to apply:** before any fabric delivery run both `tests/run.sh` and
-`python3 tools/fabric/lint.py`. Also: run.sh leaves core.hooksPath in a scratch
-clone, so commit before the suite or unset it after. See
-[[fabric-patch-handover-needs-trailer-amend]].
-
-*References: fabric-patch-handover-needs-trailer-amend*
-
-*Observed 2026-10-03 (devex-tooling)*
+*Observed 2026-10-10 (devex-tooling)*

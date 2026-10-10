@@ -5,7 +5,7 @@ topic: "parallel-agents-share-scratchpad"
 description: "Parallel subagents share the session scratchpad; a generic run.sh got overwritten and printed another agent's env with credentials — give each its own subdirectory, never dump env"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-05"
+distilled_at: "2026-10-10"
 origin:
   - agent: user
     host: "develop-qzapp"

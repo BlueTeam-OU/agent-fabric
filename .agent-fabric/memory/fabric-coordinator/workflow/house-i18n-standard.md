@@ -5,7 +5,7 @@ topic: "house-i18n-standard"
 description: Translated strings follow the house i18n standard — check a managed project for an existing convention before inventing a file format
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-01"
+distilled_at: "2026-10-10"
 origin:
   - agent: user
     host: "develop-qzapp"

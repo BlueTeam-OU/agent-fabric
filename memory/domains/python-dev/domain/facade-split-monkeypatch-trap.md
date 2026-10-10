@@ -5,13 +5,14 @@ topic: "facade-split-monkeypatch-trap"
 description: "before splitting a Python module behind a re-exporting facade, find every patch of its attributes — including inside subprocess code strings and by-path loads"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-05"
+distilled_at: "2026-10-10"
 origin:
   - agent: "python-dev-01"
     host: "develop-qzapp"
     project: "agent-fabric"
     working_copy: "agent-fabric"
 derived_from:
+  - 73df4a886f2780db
   - 9a14915b910c6175
 ---
 
@@ -41,4 +42,28 @@ imports the parts. Prove the split with a verifier that compares
 sys.modules (otherwise getsource fails on classes). Plant one change to
 confirm the verifier catches it.
 
-*Observed 2026-10-04 (python-dev)*
+**The second trap: checks that read the module's TEXT by path.** E2-E4
+(launch.py, pr_review_status.py, gzcoord/inbox.py, 2026-10-06) hit it five
+times. A split leaves such a check quietly blind to the moved code, or
+breaks it:
+- a regex scan of one file (a jq-only flag, an env-var switch);
+- a constant read from the file (RESTART_WAIT_S in upgrade.test.mjs);
+- an AST walk of one file (the i18n key scan, the printer check);
+- a non-recursive `glob("*.py")` (the ASCII-pattern guard);
+- a fixture that copies a package's FILES but not its subdirectories
+  (i18n.test.mjs), where the copied module then fails to import.
+
+Before the first move, `git grep` tests (Python AND .mjs) for the module's
+file name and its directory. Give each reader a pre-move commit that
+reads the module and every part. Prove each one fails on an offender
+planted in a part. Also: when a sibling is loaded by path on purpose
+(launch.py's "never through sys.path"), load the parts as a package by
+path (`spec_from_file_location(name, __init__, submodule_search_locations=
+[dir])`, registered in sys.modules), not by adding a sys.path entry. Attach
+comment runs one blank line above a block, and trailing indented comments,
+to their block; otherwise the verifier reports them lost. See
+[[splitting-a-closure-heavy-main]].
+
+*References: splitting-a-closure-heavy-main*
+
+*Observed 2026-10-06 (python-dev)*
