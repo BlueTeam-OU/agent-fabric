@@ -349,8 +349,8 @@ test('relayFailure: no answer, a refusal and no connection are three things', ()
   assert.equal(relayFailure(Object.assign(new Error('fetch failed'), { cause: { code: 'ECONNREFUSED' } }), 'http://r'), 'the relay is unreachable at http://r');
 });
 
-// The point of this module: the Node that stays Node — the control plane
-// and the locale search server, everything under runtime/ — never
+// The point of this module: the Node that stays Node — the control plane,
+// everything under runtime/ — never
 // depends on a script that becomes a shim when GZCoord's tools move to
 // Python (ADR-040 §7). Every import form: `from '…'` (export … from
 // too), a dynamic import('…'), and a bare side-effect import '…'.
@@ -358,7 +358,6 @@ test('no module under runtime/ imports from communication/gzcoord/scripts/', () 
   const dir = fileURLToPath(new URL('../..', import.meta.url));
   const offenders = [];
   const names = fs.readdirSync(dir, { recursive: true }).filter(n => n.endsWith('.mjs') && !n.split(path.sep).includes('node_modules'));
-  assert.ok(names.includes(path.join('mcp', 'websearch-locale', 'server.mjs')), 'the search server is scanned');
   for (const name of names) {
     const src = fs.readFileSync(path.join(dir, name), 'utf8');
     for (const m of src.matchAll(/(?:\bfrom\s*|\bimport\s*\(\s*|\bimport\s*)['"]([^'"]+)['"]/g))

@@ -265,12 +265,12 @@ def main() -> int:
         suffix = me.rsplit("-", 1)[-1]
         put(root, "runtime/role.txt", "language-culture\n")
         put(root, f"identities/roles/language-culture/locale/{suffix}/locale.json", "{}")
-        put(root, "runtime/mcp/websearch-locale/server.mjs", "")
+        put(root, "bin/fabric-websearch-locale", "")
         run(root, home, cfg)
         ic = [c["argv"] for c in calls(root) if c["tool"] == "install"]
         lf = os.path.join(root, "identities", "roles", "language-culture", "locale", suffix, "locale.json")
         check("a language-culture login with a locale file: set <server> <locale.json>, then deny-websearch",
-              ic == [[os.path.join(cfg, ".claude.json"), "set", os.path.join(root, "runtime/mcp/websearch-locale/server.mjs"), lf],
+              ic == [[os.path.join(cfg, ".claude.json"), "set", os.path.join(root, "bin/fabric-websearch-locale"), lf],
                      [os.path.join(cfg, "settings.json"), "deny-websearch"]], str(ic))
         os.unlink(lf)
         run(root, home, cfg)
