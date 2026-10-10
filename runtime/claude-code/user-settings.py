@@ -392,6 +392,10 @@ def rules() -> tuple[list[str], list[str]]:
             continue
         ours = os.path.realpath(os.path.join(local_bin(), name)) == os.path.realpath(os.path.join(FABRIC_ROOT, rel))
         (granted if ours else withheld).append(f"Bash({name} *)")
+    # Not the fabric's scripts, so no link to check: an installed tool whose
+    # one safe subcommand is allowed (moli fetch reads a page; moli serve
+    # opens an unauthenticated CDP port and gets no rule, ADR-051).
+    granted += [f"Bash({prefix} *)" for prefix in doc.get("also_allowed", {}) if prefix != "_comment"]
     return granted, withheld
 
 
