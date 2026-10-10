@@ -294,13 +294,14 @@ def pause(argv: list[str], run: Run = run_argv, signal: Callable[[str], int] | N
     passed = [v.login for v in verdicts if v.word == "pause"]
     failed = bool(refused)
     stayed: list[str] = []
-    for login in passed:
+    for i, login in enumerate(passed):
         try:
             signal(login)
         except Unavailable as e:
             held = f" Refused, do not restart before they are dealt with: {' '.join(v.login for v in refused)}." if refused else ""
-            print(f"fabric-pause: {e}; none of the passed logins was signalled. Passed, to be signalled by the operator: "
-                  f"{' '.join(passed)}.{held}", file=sys.stderr)
+            done = f" Already signalled and read back above: {' '.join(passed[:i])}." if i else ""
+            print(f"fabric-pause: {e}; {'none of the passed logins was signalled' if not i else f'{i} of {len(passed)} passed logins were signalled'}."
+                  f"{done} To be signalled by the operator: {' '.join(passed[i:])}.{held}", file=sys.stderr)
             return 2
         ok, why = read_back(login, run, sleep, clock)
         print(f"{login:<22} {'paused' if ok else 'still up':<7} {why or 'presence shows no session'}")

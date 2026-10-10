@@ -175,6 +175,28 @@ def main() -> int:
     rc, out, err, _ = run_pause(["a"], f, signal=unavailable)
     check("no pause operation: nothing signalled, the passed logins listed for the operator, exit 2",
           rc == 2 and "none of the passed logins was signalled" in err and "operator" in err and " a." in err, (rc, out, err))
+    calls2 = {"n": 0}
+
+    def second_fails(login: str) -> int:
+        calls2["n"] += 1
+        if calls2["n"] > 1:
+            raise pause.Unavailable("pause op gone")
+        online2[login] = False
+        return 1
+    online2 = {"p1": True, "p2": True}
+    base2 = Fleet({("all", "presence"): [presence_row("p1"), presence_row("p2")], ("all", "jobs"): [jobs_row("p1"), jobs_row("p2")]})
+
+    def ctl2(argv, timeout):
+        if argv[1] in online2 and argv[2] == "presence":
+            return subprocess.CompletedProcess(argv, 0, json.dumps(presence_row(argv[1], online=online2[argv[1]])) + "\n", "")
+        return base2(argv, timeout)
+    out2, err2 = io.StringIO(), io.StringIO()
+    clock2 = iter(range(0, 10_000, 5))
+    with contextlib.redirect_stdout(out2), contextlib.redirect_stderr(err2):
+        rc = pause.pause(["--all"], run=ctl2, signal=second_fails, sleep=lambda s: None, clock=lambda: next(clock2))
+    check("a signal that fails after an earlier one worked: says one of two was signalled, asks the operator for the second only",
+          rc == 2 and "1 of 2 passed logins were signalled" in err2.getvalue() and "Already signalled and read back above: p1" in err2.getvalue()
+          and "To be signalled by the operator: p2." in err2.getvalue() and "none of" not in err2.getvalue(), err2.getvalue())
     rc, out, err, _ = pause_default(["a"], one("a", [job("j1", "blocked")]))
     check("the real signal_login, no injected signal: nothing signalled, exit 2", rc == 2 and "no pause operation yet" in err, (rc, err))
     two = Fleet({("all", "presence"): [presence_row("ok1"), presence_row("busy")],
