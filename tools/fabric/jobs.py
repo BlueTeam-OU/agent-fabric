@@ -54,7 +54,7 @@ waits would be said by nobody, and read as a wait by a person.
 The other half: a queued job whose source message is in any account's
 waits_on ranks blocking, its stored priority kept. `list` and `next` read
 the state stream for it through tools/fabric/control/queue.py (the control
-plane's shapes stay in Node) — only when a queued job came from a message,
+plane's shapes stay in that module) — only when a queued job came from a message,
 since nothing else can match — and `list` shows both priorities and the
 address that waits. A stream that cannot be read leaves stored priorities
 to decide, and is said on stderr; it never fails the command. A waiter

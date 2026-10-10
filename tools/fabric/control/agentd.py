@@ -45,8 +45,8 @@ and must be newer than the last action accepted from that operator (a
 ledger in the account's fabric state), and no more than a minute in
 its future. A read op takes no argument but `tokens`'s `days` (a number
 capped at 90), pool-list's `role` and pool-claim's `id`; an action takes
-only its closed set (checkArgs in upgrade.mjs and secrets.mjs,
-checkJobArgs in jobs.mjs, checkPoolArgs in pool.mjs). No field of a
+only its closed set (check_args in control/upgrade.py and control/secrets.py,
+check_job_args in control/jobs.py, check_pool_args in control/pool.py). No field of a
 request ever reaches a shell; the answer carries no secret (control/ops).
 
 Every reply arrives: a section that cannot be read says so inline.

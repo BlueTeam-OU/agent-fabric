@@ -164,7 +164,7 @@ def _():
         ok(p["checked"] and said in p["problems"][0]["detail"], json.dumps(p))
 
 
-@case("the presence check runs presence.py under this interpreter, by an argument list")
+@case("the presence check runs presence.py isolated (-I) under this interpreter, by an argument list")
 def _():
     seen = {}
 
@@ -172,7 +172,7 @@ def _():
         seen["argv"], seen["input"] = argv, kw.get("input")
         return subprocess.CompletedProcess(argv, 0, stdout='{"checked": true, "problems": []}\n', stderr="")
     r = send.check_addressees({"TO": "h/alpha"}, "h/me", "tok", fake)
-    eq(seen["argv"], [sys.executable, os.path.join(HERE, "tools", "fabric", "control", "presence.py"), "check"], str(seen))
+    eq(seen["argv"], [sys.executable, "-I", os.path.join(HERE, "tools", "fabric", "control", "presence.py"), "check"], str(seen))
     eq(r, {"checked": True, "problems": []})
 
 

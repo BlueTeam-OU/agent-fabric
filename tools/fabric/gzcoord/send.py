@@ -318,7 +318,7 @@ def check_addressees(metadata: dict, sender: str, tok: str,
         return {"checked": False}
     body = json.dumps({"metadata": metadata, "from": sender, "token": tok})
     try:
-        r = run([sys.executable, PRESENCE, "check"], input=body, capture_output=True, text=True,
+        r = run([sys.executable, "-I", PRESENCE, "check"], input=body, capture_output=True, text=True,
                 timeout=presence_wait_ms() / 1000 + 30)
     except subprocess.TimeoutExpired:
         return {"error": "the presence check did not finish", "status": None}

@@ -6,8 +6,12 @@ ported from runtime/control/queue.mjs (ADR-040 Wave 8; deleted in step s8).
 tools/fabric/jobs.py (jobsparts/queue.py) runs this module as a script on its
 own interpreter.
 
-CONTRACT, frozen from queue.mjs (its header is the CLI's; `python3
-tools/fabric/control/queue.py` answers the same argv, stdout and exits):
+CONTRACT, carried over from queue.mjs's header (the CLI of
+tools/fabric/jobs.py; `python3 tools/fabric/control/queue.py` answers the
+same argv, stdout and exits). Env read: CLAUDE_BRIDGE_URL,
+FABRIC_CONTROL_CHANNEL, FABRIC_STATE_CHANNEL (agentd's control_config),
+AGENT_FABRIC_HOSTS_REGISTRY (who is placed, who holds the pool),
+FABRIC_QUEUE_WAIT_MS (how long the holder may take to answer, 10 s):
   waits                 {"waits": {<message id>: [<address>, …]}, "accounts": n,
                          "stale": {<address>: <age s, or null>}}; exit 0, 2, 3
   pool-list [<role>]    {"holder", "answer"}; exit 0, 2, 3, 4
@@ -20,8 +24,8 @@ from the process's start (performance.timeOrigin); for the CLI the two
 are milliseconds apart. This login's identity and relay token are
 resolved here, as agentd resolves its own: the token never crosses a
 pipe or an argv. agentd's config and id (control_config, new_id) are
-parameters, imported by the CLI from agentd's port; until that port is
-in the tree the CLI answers every valid command with exit 3 and
+parameters, imported by the CLI from agentd's port; when that import
+fails the CLI answers every valid command with exit 3 and
 {"error": "the CLI needs tools/fabric/control/agentd.py …", "sent":
 false} — nothing asked, nothing sent.
 

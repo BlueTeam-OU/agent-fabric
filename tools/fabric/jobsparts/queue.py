@@ -33,7 +33,7 @@ def ask_queue(*argv: str) -> dict:
     """tools/fabric/control/queue.py's answer, or Unreachable: a timeout, an
     interpreter that cannot run and an answer that is not its JSON are each said."""
     try:
-        p = subprocess.run([sys.executable, QUEUE, *argv], capture_output=True, text=True, timeout=QUEUE_TIMEOUT_S)
+        p = subprocess.run([sys.executable, "-I", QUEUE, *argv], capture_output=True, text=True, timeout=QUEUE_TIMEOUT_S)
     except subprocess.TimeoutExpired:
         raise Unreachable(f"no answer within {QUEUE_TIMEOUT_S} s")
     except OSError as e:
