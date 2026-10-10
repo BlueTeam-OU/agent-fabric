@@ -166,6 +166,50 @@ def test_merge_target_travels_from_the_memory_to_the_claim(tmp: str) -> None:
     assert got == {"newer": "The dictionary has never had a native pass", "plain": None}, got
 
 
+def write_anchored(d: str, name: str, klass: str, anchors: str) -> None:
+    with open(os.path.join(d, f"{name}.md"), "w", encoding="utf-8") as fh:
+        fh.write(f"---\nname: {name}\ndescription: d\nmetadata:\n  type: project\n  roles_class: {klass}\n"
+                 f"  anchors: {anchors}\n---\n\nThe fact.\n")
+
+
+def test_anchors_travel_from_a_solution_or_workflow_memory_to_its_claim(tmp: str) -> None:
+    """ADR-050 rule 1: `anchors: [<path>::<symbol or literal>]` in the metadata block reaches the claim as a list,
+    in order, once each; a literal may hold a comma when quoted; a memory without anchors carries no key."""
+    mem, out = os.path.join(tmp, "an"), os.path.join(tmp, "oan")
+    os.makedirs(mem)
+    write_anchored(mem, "sol", "solution", '[tools/a.py::run, "docs/b.md::a literal, with a comma", tools/a.py::run, runtime/c.json]')
+    write_anchored(mem, "wf", "workflow", "['tools/d.py::main']")
+    write_memory(mem, "plain", "project", roles_class="solution")
+    r = run(mem, out)
+    assert r.returncode == 0, r.stderr
+    got = {c["topic"]: c.get("anchors") for c in claims_of(out)}
+    assert got == {"sol": ["tools/a.py::run", "docs/b.md::a literal, with a comma", "runtime/c.json"],
+                   "wf": ["tools/d.py::main"], "plain": None}, got
+    assert "warning" not in r.stderr, r.stderr
+
+
+def test_anchors_on_another_class_or_malformed_are_dropped_with_a_warning_and_the_claim_stays(tmp: str) -> None:
+    """The harvest drops what the schema would refuse, says so on stderr and in the report, and keeps the claim:
+    a drain is never refused for an anchor (ADR-050 rule 1)."""
+    mem, out = os.path.join(tmp, "ad"), os.path.join(tmp, "oad")
+    os.makedirs(mem)
+    write_anchored(mem, "wrong-class", "domain", "[tools/a.py::run]")
+    write_anchored(mem, "bad-ones", "solution", "[/etc/passwd::x, ../up.py::x, tools/e.py::, \"a b/c.py::x\", tools/ok.py::fine]")
+    write_anchored(mem, "not-a-list", "solution", "tools/a.py::run")
+    write_anchored(mem, "too-many", "workflow", "[" + ", ".join(f"f{i}.py::x" for i in range(25)) + "]")
+    r = run(mem, out)
+    assert r.returncode == 0, r.stderr
+    got = {c["topic"]: c.get("anchors") for c in claims_of(out)}
+    assert got["wrong-class"] is None and got["bad-ones"] == ["tools/ok.py::fine"] and got["not-a-list"] is None, got
+    assert len(got["too-many"]) == 20, got["too-many"]
+    for needle in ("wrong-class: anchors dropped, roles_class 'domain'", "bad-ones: anchor '/etc/passwd::x'", "bad-ones: anchor '../up.py::x'",
+                   "bad-ones: anchor 'tools/e.py::': nothing follows", "not-a-list: anchors is no inline list", "too-many: 5 anchor(s) past"):
+        assert needle in r.stderr, (needle, r.stderr)
+    with open(os.path.join(out, "harvest-report.json"), encoding="utf-8") as fh:
+        report = json.load(fh)
+    assert len(report["anchor_warnings"]) >= 7, report.get("anchor_warnings")
+
+
 def test_role_knowledge_is_opt_in(tmp: str) -> None:
     """A memory reaches the shared corpus only if it says so. Nothing is
     inferred from `type`: memory has four types, .roles/ has nine classes,

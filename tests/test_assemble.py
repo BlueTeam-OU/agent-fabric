@@ -1199,6 +1199,33 @@ def test_the_same_claim_again_is_never_a_collision_whatever_its_date(tmp: str) -
     assert read(path).count("## T") == 1 and "*Observed 2026-09-19 (alpha)*" in read(path), read(path)
 
 
+def test_a_section_carries_its_anchors_above_its_observed_tail(tmp: str) -> None:
+    """ADR-050 rule 1: a claim's anchors are rendered on a line of their own, each in backticks, above the
+    *Observed* tail, and read back whole (a literal may hold a comma). The same claim again is a no-op; the
+    same text with other anchors is a different claim and is not silently overwritten."""
+    anchored = {"class": "solution", "topic": "one", "title": "T", "body": "The body.", "evidence": ["h1"],
+                "observed_at": "2026-09-18", "anchors": ["tools/a.py::run", "docs/b.md::a literal, with a comma"]}
+    drain, claims_dir, out = build(tmp, {"alpha": claims("alpha", [anchored])})
+    assert run_assemble(drain, claims_dir, out).returncode == 0
+    texts = [read(os.path.join(d, n)) for d, _ds, fs in walk_role(out, "alpha") for n in fs if n.endswith(".md") and "T" in read(os.path.join(d, n))]
+    text = next(x for x in texts if "## T" in x)
+    assert "The body.\n\n*Anchors: `tools/a.py::run`, `docs/b.md::a literal, with a comma`*\n\n*Observed 2026-09-18 (alpha)*" in text, text
+    sys.path.insert(0, os.path.join(ROOT, "tools", "fabric"))
+    from assembler import slices
+    _meta, sections = slices.parse_slice(text)
+    assert slices.anchors_of(sections["T"]) == anchored["anchors"], sections["T"]
+    assert slices.undated(sections["T"]).endswith("a comma`*"), "the anchors are part of the claim's identity"
+    before = {os.path.join(d, n): read(os.path.join(d, n)) for d, _ds, fs in walk_role(out, "alpha") for n in fs}
+    assert run_assemble(drain, claims_dir, out).returncode == 0
+    assert {os.path.join(d, n): read(os.path.join(d, n)) for d, _ds, fs in walk_role(out, "alpha") for n in fs} == before, "the same claim again"
+    with open(os.path.join(claims_dir, "alpha.json"), "w", encoding="utf-8") as fh:
+        json.dump(claims("alpha", [{**anchored, "anchors": ["tools/other.py::run"]}]), fh)
+    proc = run_assemble(drain, claims_dir, out)
+    assert proc.returncode == 1 and "SUPERSEDING?" in proc.stderr, \
+        "other anchors on the same title are a different claim: the owner decides, as for any different text\n" + proc.stderr
+    assert {os.path.join(d, n): read(os.path.join(d, n)) for d, _ds, fs in walk_role(out, "alpha") for n in fs} == before, "and nothing was written"
+
+
 def test_keep_both_is_remembered_on_the_next_drain(tmp: str) -> None:
     """Once the owner kept both, the same pair re-emitted (--all, a
     watermark at zero) is present as "X" and "X (2)" and is not asked
@@ -3047,6 +3074,7 @@ def main() -> int:
         test_hygiene_violation_is_redacted_in_place,
         test_carried_text_is_redacted_the_same_way_a_claim_is,
         test_the_same_claim_again_is_never_a_collision_whatever_its_date,
+        test_a_section_carries_its_anchors_above_its_observed_tail,
         test_keep_both_is_remembered_on_the_next_drain,
         test_another_topic_in_the_flat_class_file_is_not_this_topic_s_rival,
         test_a_collision_inside_a_two_topic_flat_file_is_still_stopped,

@@ -309,6 +309,20 @@ def parse_slice(text: str) -> tuple[dict[str, Any], dict[str, str]]:
     return meta, sections
 
 
+# ADR-050 rule 1: the anchors of a section, on a line of their own above its *Observed* tail, each in
+# backticks (an anchor never holds one: harvest_memory.anchor_problem), so the list reads back whole.
+ANCHORS_LINE = re.compile(r"(?m)^\*Anchors: (.+)\*[ \t]*$")
+
+
+def anchors_of(section: str) -> list[str]:
+    """The anchors a section's text names, in order, once each."""
+    found: dict[str, None] = {}
+    for line in ANCHORS_LINE.findall(section):
+        for a in re.findall(r"`([^`]+)`", line):
+            found.setdefault(a, None)
+    return list(found)
+
+
 OBSERVED_RE = re.compile(r"\s*\*Observed (\d{4}-\d{2}-\d{2})(?: \(([a-z0-9-]+)\))?\*\s*$")
 
 
@@ -382,6 +396,8 @@ def claim_block(claim: dict[str, Any]) -> str:
     # only if each carries its date; the slice's distilled_at is the last
     # drain's, not the fact's. The role, never the login: a slice travels
     # into every repository.
+    if claim.get("anchors"):
+        tail += "\n\n*Anchors: " + ", ".join(f"`{a}`" for a in claim["anchors"]) + "*"
     if claim.get("observed_at"):
         who = f" ({claim['_role']})" if claim.get("_role") else ""
         tail += f"\n\n*Observed {claim['observed_at']}{who}*"

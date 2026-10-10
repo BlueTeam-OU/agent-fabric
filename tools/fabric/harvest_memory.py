@@ -240,6 +240,64 @@ def scalar(value: str) -> str:
     return v
 
 
+# ADR-050 rule 1: the paths and symbols a `solution` or `workflow` claim rests on, `<path>::<symbol or
+# literal>` in the metadata block, as one inline list: `anchors: [tools/fabric/harvest_memory.py::parse_memory, "memory/README.md::a literal, with a comma"]`.
+ANCHOR_CLASSES = frozenset({"solution", "workflow"})
+ANCHORS_MAX = 20
+ANCHOR_MAX_LEN = 300
+
+
+def split_inline_list(value: str) -> list[str] | None:
+    """The items of a YAML inline list `[a, "b, c", 'd']`, unquoted; None when the value is no list.
+    A comma splits only outside quotes, because a literal an anchor names may contain one."""
+    v = value.strip()
+    if not (v.startswith("[") and v.endswith("]")):
+        return None
+    items: list[str] = []
+    cur: list[str] = []
+    quote = ""
+    i, inner = 0, v[1:-1]
+    while i < len(inner):
+        ch = inner[i]
+        if quote:
+            if ch == "\\" and quote == '"' and i + 1 < len(inner):
+                cur.append(inner[i + 1])
+                i += 2
+                continue
+            if ch == quote:
+                quote = ""
+            else:
+                cur.append(ch)
+        elif ch in "\"'":
+            quote = ch
+        elif ch == ",":
+            items.append("".join(cur).strip())
+            cur = []
+        else:
+            cur.append(ch)
+        i += 1
+    items.append("".join(cur).strip())
+    return [x for x in items if x]
+
+
+def anchor_problem(anchor: str) -> str | None:
+    """Why `anchor` is not `<repository path>` or `<repository path>::<symbol or literal>`, or None. The path
+    is relative and stays inside its tree; the part after `::` is non-empty; and nothing in it is a backtick
+    or a line break, which the slice's rendering of the anchor could not carry."""
+    path, sep, rest = anchor.partition("::")
+    if len(anchor) > ANCHOR_MAX_LEN:
+        return f"longer than {ANCHOR_MAX_LEN} characters"
+    if any(c in anchor for c in "`\r\n\x00"):
+        return "holds a backtick or a line break"
+    if not path or path.startswith("/") or "\\" in path or any(c.isspace() for c in path):
+        return "its path is empty, absolute, or holds a backslash or a space"
+    if any(part in ("", ".", "..") for part in path.rstrip("/").split("/")):
+        return "its path leaves the tree or is not normal"
+    if sep and not rest.strip():
+        return "nothing follows `::`"
+    return None
+
+
 def parse_memory(path: str) -> dict[str, Any] | None:
     """Parse one memory file. Returns None for a file that is not one."""
     with open(path, encoding="utf-8") as fh:
@@ -266,6 +324,23 @@ def parse_memory(path: str) -> dict[str, Any] | None:
         if not line.startswith((" ", "\t")):
             section = None
     name = meta.get("name") or os.path.splitext(os.path.basename(path))[0]
+    anchors: list[str] = []
+    anchor_problems: list[str] = []
+    raw_anchors = meta.get("metadata.anchors") or meta.get("anchors")
+    if raw_anchors is not None:
+        listed = split_inline_list(raw_anchors)
+        if listed is None:
+            anchor_problems.append(f"anchors is no inline list: {raw_anchors[:60]!r}")
+        else:
+            for a in listed:
+                bad = anchor_problem(a)
+                if bad:
+                    anchor_problems.append(f"anchor {a[:60]!r}: {bad}")
+                elif a not in anchors:
+                    anchors.append(a)
+            if len(anchors) > ANCHORS_MAX:
+                anchor_problems.append(f"{len(anchors) - ANCHORS_MAX} anchor(s) past the first {ANCHORS_MAX} dropped")
+                anchors = anchors[:ANCHORS_MAX]
     return {
         "name": name,
         "description": meta.get("description", ""),
@@ -294,6 +369,8 @@ def parse_memory(path: str) -> dict[str, Any] | None:
         # assembler asks the owner nothing. The README promised the field
         # and the harvest dropped it (language-culture, 2026-09-20).
         "merge_target": (meta.get("metadata.merge_target") or meta.get("merge_target") or "").strip(),
+        "anchors": anchors,
+        "anchor_problems": anchor_problems,
     }
 
 
@@ -433,6 +510,7 @@ def main() -> int:
     needs_rendering: list[str] = []
     unrendered_ms: list[int] = []
     refusals: list[str] = []
+    anchor_warnings: list[str] = []
 
     for name in sorted(os.listdir(memory_dir)):
         if not name.endswith(".md"):
@@ -461,6 +539,11 @@ def main() -> int:
             unrendered_ms.append(parsed["mtime_ms"])
             continue
         text, language, title = judged["text"], judged["language"], judged["title"]
+        # Anchors are a claim's own business only for a class that decays against a tree (ADR-050 rule 1). On any
+        # other class, or malformed, they are dropped and said: the claim is kept, and the schema never sees them.
+        if parsed["anchors"] and klass not in ANCHOR_CLASSES:
+            anchor_warnings.append(f"{name}: anchors dropped, roles_class {klass!r} is not one of {sorted(ANCHOR_CLASSES)}")
+        anchor_warnings.extend(f"{name}: {p}" for p in parsed["anchor_problems"])
         cid = content_hash(parsed["name"], parsed["body"])
         observations.append({
             "content_hash": cid,
@@ -486,6 +569,7 @@ def main() -> int:
             "body": text,
             "observed_at": parsed["observed_at"],
             **({"merge_target": parsed["merge_target"]} if parsed["merge_target"] else {}),
+            **({"anchors": parsed["anchors"]} if parsed["anchors"] and klass in ANCHOR_CLASSES else {}),
             # Two or more owners is the assembler's route to a shared slice
             # (memory/README.md, "Four scopes"); a memory names its co-owners
             # and the drain carries them, so a fact every role needs is not
@@ -499,6 +583,8 @@ def main() -> int:
             "evidence": [cid],
         })
 
+    for w in anchor_warnings:
+        print(f"harvest_memory: warning: {w}", file=sys.stderr)
     if refusals:
         # Refuse the WHOLE drain, not the offending file. A partial claims
         # file looks complete to the assembler, and the memory that was
@@ -535,6 +621,8 @@ def main() -> int:
         # Named too: a memory in another language that carries no English
         # rendering yet — the holder renders it, then the drain takes it.
         "needs_rendering": needs_rendering,
+        # Anchors the harvest dropped, and why (ADR-050 rule 1): named, so the memory's holder can fix it.
+        **({"anchor_warnings": anchor_warnings} if anchor_warnings else {}),
         # The window this drain read, in the shape the assembler carries
         # into the committed report (`harvest`, `watermarks`).
         "since_watermark": since_ms,
