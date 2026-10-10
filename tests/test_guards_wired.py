@@ -201,6 +201,37 @@ def main() -> int:
               " too; node_modules and hidden dirs are not walked",
               rc == 1 and "        apps/x/test_y.sh\n" in out and "        tools/checks/sub/test_s.sh\n" in out
               and "test_z" not in out and "test_h" not in out, out)
+        print("guards_wired: the runner rule over the whole tree")
+        elsewhere = {**GUARD, "apps/x/test_y.sh": ""}
+        rc, out, err = run(tree(elsewhere, WIRED + "      - run: bash apps/x/test_y.sh\n"))
+        check("a test_*.sh outside the configured directories, run bare, is bare",
+              rc == 1 and "FAIL: 1 self-test(s) are run without tools/checks/run_suite.sh" in out and "        apps/x/test_y.sh\n" in out, out)
+        rc, out, err = run(tree(elsewhere, WIRED + "      - run: bash tools/checks/run_suite.sh apps/x/test_y.sh\n"))
+        check("…the same run through the runner passes (the positive control)", rc == 0, out + err)
+        rc, out, err = run(tree(elsewhere, WIRED + "      - run: bash tools/checks/run_suite.sh apps/x/test_y.sh\n      - run: bash apps/x/test_y.sh\n"))
+        check("…and a wrapped run elsewhere does not excuse a bare one", rc == 1 and "        apps/x/test_y.sh\n" in out, out)
+        rc, out, err = run(tree(elsewhere, WIRED + "      - run: for t in apps/x/test_*.sh; do bash \"$t\"; done\n"))
+        check("a bare for-loop over such suites is bare, the head named", rc == 1 and "        for t in apps/x/test_*.sh; do bash \"$t\"; done\n" in out, out)
+        rc, out, err = run(tree(elsewhere, WIRED + "      - run: for t in apps/x/test_*.sh; do bash tools/checks/run_suite.sh \"$t\"; done\n"))
+        check("…and one that hands its variable to the runner passes", rc == 0, out + err)
+        pkg = {"apps/admin_web/package.json": json.dumps({"name": "admin_web", "scripts": {"lint": "bash scripts/test_c.sh"}}),
+               "apps/admin_web/scripts/test_c.sh": ""}
+        flow = WIRED + "      - run: pnpm --filter admin_web lint\n"
+        rc, out, err = run(tree({**GUARD, **pkg}, flow))
+        check("a bare one reached through a pnpm package script is bare, by its path from the root",
+              rc == 1 and "        apps/admin_web/scripts/test_c.sh\n" in out, out)
+        pkg["apps/admin_web/package.json"] = json.dumps({"name": "admin_web", "scripts": {
+            "lint": "bash ../../tools/checks/run_suite.sh scripts/test_c.sh"}})
+        rc, out, err = run(tree({**GUARD, **pkg}, flow))
+        check("…and the same script handing it to the runner passes", rc == 0, out + err)
+        rc, out, err = run(tree({**GUARD, "node_modules/p/test_z.sh": "", ".hidden/test_h.sh": ""},
+                                WIRED + "      - run: bash node_modules/p/test_z.sh\n      - run: bash .hidden/test_h.sh\n"))
+        check("a bare one under a tree_excludes path or a hidden directory is not reported", rc == 0, out + err)
+        rc, out, err = run(tree({**GUARD, "tools/gh/test_q.sh": "", "tools/gh/x.sh": ""}, WIRED + "      - run: bash tools/gh/test_q.sh\n"), lines_cfg)
+        check("the configured directories answer as before", rc == 1 and "tools/gh/test_q.sh: suite bare" in out, out)
+        rc, out, err = run(tree(elsewhere, WIRED + "      - run: bash apps/x/test_y.sh\n"), lines_cfg)
+        check("in the lines form too: the path and the summary", rc == 1 and "apps/x/test_y.sh: suite bare" in out, out)
+
         rc, out, err = run(tree({"tools/checks/a.sh": "", "tools/checks/test_a.sh": "", "target/c/test_v.sh": ""},
                                 "      - run: bash tools/checks/a.sh\n      - run: bash tools/checks/run_suite.sh"
                                 " tools/checks/test_a.sh\n"), lines_cfg)

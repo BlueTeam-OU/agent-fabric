@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Tests for tools/fabric/control/queue.py, the port of runtime/control/queue.mjs.
 
-queue.test.mjs's cases are ported case for case. The module is unwired:
-tools/fabric/jobs.py still runs queue.mjs until the cutover.
+queue.test.mjs's cases are ported case for case. tools/fabric/jobs.py runs the
+module as a script (the Node it was ported from is deleted).
 """
 from __future__ import annotations
 

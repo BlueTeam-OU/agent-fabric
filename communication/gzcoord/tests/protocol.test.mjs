@@ -310,7 +310,7 @@ test('a header send cannot parse is refused by the validator (exit 2), never a c
   });
 });
 
-// Presence before sending (runtime/control/presence.mjs): a relay stub that
+// Presence before sending (tools/fabric/control/presence.py): a relay stub that
 // answers `presence` requests on the control channel from a fixture table,
 // and a registry that places the addressees.
 function withPresenceRelay(answers, fn) {

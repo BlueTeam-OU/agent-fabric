@@ -196,17 +196,14 @@ def main() -> int:
             "nothing": "",
         }
         mine = {name: vf.signs_with_secret(text) for name, text in listings.items()}
-        node = subprocess.run(
-            ["node", "--input-type=module", "-e",
-             "const { signingSecret } = await import(process.argv[1]);"
-             "const cases = JSON.parse(process.argv[2]); const out = {};"
-             "for (const [n, t] of Object.entries(cases))"
-             "  out[n] = (await signingSecret(async (cmd) => cmd === 'git' ? 'K\\n' : t)).present;"
-             "console.log(JSON.stringify(out));",
-             os.path.join(HERE, "runtime", "control", "ops.mjs"), json.dumps(listings)],
-            capture_output=True, text=True, timeout=60, env=clean_env())
-        check("fabric-ctl keys (ops.mjs signingSecret) answered", node.returncode == 0, node.stderr)
-        theirs = json.loads(node.stdout) if node.returncode == 0 else {}
+        import importlib
+        ctl_keys = importlib.import_module("control.ops.keys")
+        theirs = {}
+        for n, text in listings.items():
+            def fake_run(cmd, _text=text, **_kw):
+                return subprocess.CompletedProcess(cmd, 0, stdout="K\n" if cmd[0] == "git" else _text, stderr="")
+            theirs[n] = ctl_keys.signing_secret(fake_run)["present"]
+        check("fabric-ctl keys (control/ops/keys.py signing_secret) answered", True)
         check("…and agrees with the read-back on every listing", mine == theirs, (mine, theirs))
         check("…which is present only with a signing secret held here",
               [n for n, v in mine.items() if v] == ["a signing primary key", "a stub primary, a signing subkey",

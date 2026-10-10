@@ -28,6 +28,15 @@ writes
     ~/.config/agent-fabric/env.sh        (0600) — only the names the registry
                                          marks `plain_env`: values that are
                                          the login's, not secrets
+    /run/user/<uid>/agent-fabric/gateway/claude-subscription.token
+                                         (0600, tmpfs) — CLAUDE_CODE_OAUTH_TOKEN
+                                         again, for the gateway to read per
+                                         request (gateway_token.py): a changed
+                                         token is a new file, so an account
+                                         switch needs no restart. Removed when
+                                         the store holds none. A login without
+                                         that directory, or a sandbox HOME, is
+                                         skipped, said, and sync still succeeds.
     ~/.bashrc                            one marked line sourcing env.sh
     gh's own configuration               GH_TOKEN, by `gh auth login
                                          --with-token`, so gh needs nothing
@@ -49,7 +58,7 @@ heredoc and its Doppler reader retired: the exit codes — 0 applied, 1
 unreadable, 2 applied with required names missing (or gh refusing
 GH_TOKEN, the login's kind unreadable, or an agent's names withheld from a
 human), 3 the store names another login and nothing is applied; the JSON report's `error` and
-`missing`, which the control agent reads (runtime/control/secrets.mjs);
+`missing`, which the control agent reads (tools/fabric/control/secrets.py);
 the `--quiet` line on stderr, which moveto's shell entry shows. status
 exits 0 or 1; its JSON lists `refused` and `no_trusted_base` per store
 ("store": "own" or the child's agent id; a base's "state" is "no base" or
@@ -84,6 +93,7 @@ MARKER = "# agent-fabric secrets"
 # The names, and which are reserved, are secretstore/reserved.py's: set and
 # rm refuse exactly the names this applies or reports as known.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import gateway_token  # noqa: E402
 import roots  # noqa: E402
 from secretstore.reserved import (  # noqa: E402
     ENV_NAMES, GIT_NAMES, STORE_ONLY, ALL_NAMES, RegistryUnreadable, registry_agent_env, reserved,
@@ -109,6 +119,40 @@ def shell_env_file() -> str:
 
 def store_path() -> str:
     return os.environ.get("AGENT_FABRIC_SECRET_STORE") or os.path.join(home(), ".local", "share", "agent-fabric", "secrets")
+
+
+# Where the gateway's token file lives, from where its path is checked and how the filesystem is told: a test names a
+# scratch directory.
+GATEWAY_RUNTIME_ROOT = gateway_token.RUNTIME_ROOT
+GATEWAY_CHECK_FROM = os.sep
+GATEWAY_FS_OF = gateway_token.filesystem_of
+
+
+def home_is_login_home() -> bool:
+    """A sync under a HOME that is not the login's own is a sandbox (a test, a one-off): it must not write, or remove,
+    the running login's gateway token file."""
+    try:
+        return os.path.realpath(home()) == os.path.realpath(pwd.getpwuid(os.getuid()).pw_dir)
+    except KeyError:
+        return False
+
+
+def apply_gateway_token(values: dict[str, str]) -> tuple[str | None, str | None]:
+    """(applied, skipped): one line each, or None. The token file follows the store: written when it holds
+    CLAUDE_CODE_OAUTH_TOKEN, removed when it holds none. Never fatal and never carrying the token: a login that
+    runs no gateway has nothing to fail for, and the report says what was not done."""
+    what = "CLAUDE_CODE_OAUTH_TOKEN into the gateway token file"
+    if not home_is_login_home():
+        return None, f"{what} (HOME is not the login's home: a sandbox)"
+    uid = os.getuid()
+    try:
+        if values.get("CLAUDE_CODE_OAUTH_TOKEN"):
+            done = gateway_token.write(values["CLAUDE_CODE_OAUTH_TOKEN"], uid, GATEWAY_RUNTIME_ROOT, GATEWAY_FS_OF, GATEWAY_CHECK_FROM)
+            return (what if done == "written" else None), None
+        done = gateway_token.remove(uid, GATEWAY_RUNTIME_ROOT)
+        return ("the gateway token file removed: the store holds no CLAUDE_CODE_OAUTH_TOKEN" if done == "removed" else None), None
+    except (gateway_token.TokenFileError, OSError) as e:
+        return None, f"{what} ({e})"
 
 
 def project_agent_env(root: str | None = None) -> list[str]:
@@ -403,6 +447,15 @@ def ssh_key() -> str:
     return os.path.join(home(), ".ssh", "id_ed25519")
 
 
+def gateway_token_mode() -> str | None:
+    """The token file's mode as text, None when it is not there or its directory cannot be entered."""
+    try:
+        mode = file_mode(gateway_token.token_path(os.getuid(), GATEWAY_RUNTIME_ROOT))
+    except OSError:
+        return None
+    return f"{mode:04o}" if mode is not None else None
+
+
 def local_state() -> dict:
     f = env_file()
     mode = file_mode(f)
@@ -419,6 +472,7 @@ def local_state() -> dict:
         "bashrc_sources_secrets": bashrc_sources(f),
         "gh_has_token": gh_token_matches(),
         "ssh_key_present": os.path.exists(ssh_key()),
+        "gateway_token_file_mode": gateway_token_mode(),
         "git": {key: bool(git_get(key)) for key in GIT_NAMES.values()},
         "commit_gpgsign": git_get("commit.gpgsign") == "true",
     }
@@ -592,6 +646,12 @@ def sync(force: bool, as_json: bool, quiet: bool = False, pull: bool = True) -> 
             obj["applied"].append(name)
     write_private(env_file(), "\n".join(lines) + "\n", 0o600)
     write_private(shell_env_file(), "\n".join(shell_lines) + "\n", 0o600)
+    # 1b. the same credential as the gateway's token file (gateway_token.py)
+    applied_token, skipped_token = apply_gateway_token(values)
+    if applied_token:
+        obj["applied"].append(applied_token)
+    if skipped_token:
+        obj["skipped"].append(skipped_token)
     # 2. ~/.bashrc sources env.sh, once, and secrets.env never
     done = settle_bashrc()
     if done:

@@ -105,7 +105,7 @@ identity = _load("fabric_identity", os.path.join(layout.FABRIC_ROOT, "runtime", 
 # THE SECRET FENCE, at the harvester. The assembler substitutes a person's
 # name and redacts a secret when it files a claim — but a bundle travels
 # before it is assembled, and since the control plane carries it
-# (runtime/control/ops.mjs `memory`) it travels as records on a channel
+# (tools/fabric/control/ops/ `memory`) it travels as records on a channel
 # every account's daemon reads and the relay keeps. So a memory whose body
 # carries a credential by shape never leaves the account: the whole drain
 # is refused and the file named, as a bad roles_class is. Names are left

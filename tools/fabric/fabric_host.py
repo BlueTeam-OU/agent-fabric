@@ -9,6 +9,8 @@
   fabric-host <host> persist                        every placement survives the host's reboot (linger; the record snapshot on Qubes)
   fabric-host <host> drain <login> [harvest flags...] > drain.tar   the account's memory as a bundle (stdout) — the sudo
                                                                    fallback; the drain is fabric-ctl <login> memory (docs/adr/ADR-029-the-control-plane-a-control-agent-per-account.md)
+  fabric-host ssh-pin <login>                       how to enter that account: `ssh <address> <port>` when its host's registry entry has a pinned
+                                                    sshd, else `sudo` (moveto's default for --via, ADR-048)
 
 Every subcommand is the same operation on every host: the local one is
 reached directly (today's sudo and filesystem access, unchanged), any
@@ -39,7 +41,7 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
 HX = os.path.join(ROOT, "runtime", "hostexec", "hostexec")
-USAGE_SUBCOMMANDS = "list | check | run | moveto | rename | persist | drain"
+USAGE_SUBCOMMANDS = "list | check | run | moveto | rename | persist | drain | ssh-pin"
 # The bash had no bound on `check`; a host that answers nothing for this long is unreachable. The kernel's own TCP connect
 # limit (about two minutes) ends an attempt on a host that is down earlier; this bounds one that connects and then says nothing.
 CHECK_TIMEOUT_S = 300
@@ -59,7 +61,8 @@ FABRIC_PYTHON = "/usr/local/bin/fabric-python"
 def usage_lines() -> str:
     """The synopsis block alone: what `fabric-host` prints for -h and for a
     missing argument."""
-    return "\n".join((__doc__ or "").split("\n")[:10]) + "\n"
+    lines = (__doc__ or "").split("\n")
+    return "\n".join(lines[:lines.index("", 2)]) + "\n"
 
 
 def resolve_registry() -> str:
@@ -100,6 +103,20 @@ def list_text(reg: dict) -> str:
     return "".join(line + "\n" for line in out)
 
 
+def ssh_pin(reg: dict, login: str) -> str:
+    """`ssh <address> <port>` when the host the login is placed on has a pinned sshd (ADR-048 §5 rule 5: `sshd`,
+    never `ssh`, which is the coordinator's destination and means something else), else `sudo`: the registry
+    saying nothing, a login placed nowhere or a host with no keys is the contract's own default, not a guess."""
+    host = (reg.get("placement") or {}).get(login)
+    entry = (reg.get("hosts") or {}).get(host) if isinstance(host, str) else None
+    sshd = entry.get("sshd") if isinstance(entry, dict) else None
+    if (isinstance(sshd, dict) and isinstance(sshd.get("address"), str) and sshd["address"]
+            and isinstance(sshd.get("port"), int) and not isinstance(sshd["port"], bool)
+            and isinstance(sshd.get("host_keys"), list) and sshd["host_keys"]):
+        return f"ssh {sshd['address']} {sshd['port']}"
+    return "sudo"
+
+
 def run_hostexec(argv: list[str]) -> int:
     """Replace this process by hostexec; the registry it reads is exported."""
     import hostworker
@@ -119,6 +136,11 @@ def main(argv: list[str]) -> int:
         os.environ["AGENT_FABRIC_HOSTS_REGISTRY"] = registry
         if argv[0] == "list":
             sys.stdout.write(list_text(load_registry(registry)))
+            return 0
+        if argv[0] == "ssh-pin":
+            if len(argv) != 2:
+                raise Refused("ssh-pin needs the login, and only that")
+            print(ssh_pin(load_registry(registry), argv[1]))
             return 0
         host, rest = argv[0], argv[1:]
         if not rest:

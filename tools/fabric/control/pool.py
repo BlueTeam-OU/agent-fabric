@@ -1,7 +1,7 @@
 """tools/fabric/control/pool.py — a role's open pool of jobs (agent-fabric
 ADR-037 rule 9), held by one control agent so that one process orders
-every claim: runtime/control/pool.mjs in Python (ADR-040 Wave 8),
-unwired until the cutover.
+every claim: ported from runtime/control/pool.mjs (ADR-040 Wave 8;
+deleted in step s8).
 
 THE HOLDER is config.json's `pool_holder` when set; otherwise, with one
 host in runtime/hosts/registry.json, that host's operator. With several

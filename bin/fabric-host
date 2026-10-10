@@ -5,7 +5,7 @@
 # tools/fabric/fabric_host.py (ADR-040 §5 rule 4).
 #
 #   fabric-host list | <host> check | <host> run [--as <login>] [--tty] -- <cmd>...
-#   fabric-host <host> moveto|rename|persist|drain ...      (fabric-host --help)
+#   fabric-host <host> moveto|rename|persist|drain ... | ssh-pin <login>      (fabric-host --help)
 #
 # The fleet's pinned Python (runtime/python.json, ADR-040), one per host;
 # AGENT_FABRIC_PYTHON points elsewhere for a test or a host without it.

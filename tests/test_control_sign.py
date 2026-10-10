@@ -4,15 +4,17 @@
 The first block is runtime/control/tests/sign.test.mjs's own test (its
 "canonical: …" case), case for case; its other four test agentd.mjs's
 accept and ledger and move with agentd. The rest holds the port to the
-wire: the signed bytes against Node's canonical() on the same JSON, the
-number layout against Node's on random doubles, a Node signature
-verified here and one made here verified by Node, and openssl's
-failures kept apart from a verdict. Node is the oracle: without it the
-parity cases fail, they are never skipped.
+wire: the signed bytes against what the Node's canonical() gave on the
+same JSON, the number layout against the Node's on random doubles (by
+digest), a Node signature verified here, and openssl's failures kept
+apart from a verdict. The Node signing module was deleted with the Node
+control plane (ADR-040 Wave 8, s8); its answers are frozen in
+tests/fixtures/node-oracle-sign.json and are the oracle now.
 """
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import os
 import random
@@ -26,18 +28,11 @@ HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(HERE, "tools", "fabric"))
 from control import sign  # noqa: E402
 
-SIGN_MJS = os.path.join(HERE, "runtime", "control", "sign.mjs")
-
-
-def node(js: str, data) -> object:
-    """Node's answer, as JSON, to `js` run with `data` (JSON) on stdin as `input`."""
-    script = ("const input = JSON.parse(require('fs').readFileSync(0, 'utf8'));\n"
-              f"import('{SIGN_MJS}').then(sign => {{ const out = (() => {{ {js} }})(); "
-              "process.stdout.write(JSON.stringify(out)); });")
-    r = subprocess.run(["node", "-e", script], input=json.dumps(data), capture_output=True, text=True, timeout=120)
-    if r.returncode != 0:
-        raise RuntimeError(f"node failed: {r.stderr.strip()[:400]}")
-    return json.loads(r.stdout)
+# What the Node signing module answered, captured before it was deleted (ADR-040
+# Wave 8, s8) with the Node of that day: the wire this module must keep
+# (tests/fixtures/node-oracle-sign.json). The cases that ran Node beside this
+# module now compare against it.
+ORACLE = json.load(open(os.path.join(HERE, "tests", "fixtures", "node-oracle-sign.json"), encoding="utf-8"))
 
 
 def base(**over) -> dict:
@@ -75,9 +70,8 @@ def main() -> int:
           "\n" not in k["privateKeySpec"] and "\n" not in k["publicKeySpec"])
 
     print("the rest of the contract")
-    check("ACTION_OPS, the ttl cap and the prefixes are Node's",
-          node("return [sign.ACTION_OPS, sign.ACTION_TTL_MAX_S, sign.KEY_PREFIX, sign.PRIVATE_PREFIX];", None)
-          == [sign.ACTION_OPS, sign.ACTION_TTL_MAX_S, sign.KEY_PREFIX, sign.PRIVATE_PREFIX])
+    check("ACTION_OPS, the ttl cap and the prefixes are the wire's, as the Node had them",
+          ORACLE["consts"] == [sign.ACTION_OPS, sign.ACTION_TTL_MAX_S, sign.KEY_PREFIX, sign.PRIVATE_PREFIX])
     check("a public key is not a private one, nor the other way",
           sign.private_key_from("ed25519-pkcs8:" + k["publicKeySpec"].split(":", 1)[1]) is None
           and sign.public_key_from("ed25519:" + k["privateKeySpec"].split(":", 1)[1]) is None)
@@ -102,48 +96,30 @@ def main() -> int:
     check("a stale sig is not signed over: re-signing gives the same signature",
           sign.sign_request({**signed, "sig": "old"}, k["privateKeySpec"])["sig"] == signed["sig"])
 
-    print("the signed bytes are Node's (JSON.stringify), on the same JSON")
-    texts = [
-        '{"b":1,"a":2}', '[1,2.5,-0,-0.0,0.1,1e21,1e-7,1e-6,123456789012345678901,5.0,1.5e300,1e400,-1e400]',
-        '{"n":9007199254740993,"m":12345678901234567890,"neg":-12.50,"tiny":5e-324,"big":1.7976931348623157e308}',
-        '{"s":"ünï ✓ 😀","ctl":"\\u0000\\u0001\\u001f\\u007f\\b\\f\\n\\r\\t","q":"\\"\\\\/","ls":"\\u2028\\u2029"}',
-        '{"lone":"\\ud800","low":"\\udfff","pair":"\\ud83d\\ude00","rev":"\\ude00\\ud83d"}',
-        '{"😀":1,"\\uffff":2,"\\ue000":3,"a":4,"B":5,"é":6,"":7,"\\ud800":8}',
-        '{"t":true,"f":false,"z":null,"e":[],"o":{},"deep":[{"y":[{"b":1,"a":[]}]}]}',
-        '{"dup":1,"dup":2}', '"just a string"', '42', 'null', '[0.000001,0.0000001,100,1e20,1e22,0.30000000000000004]',
-    ]
-    want = node("return input.map(t => sign.canonical(JSON.parse(t)));", texts)
-    for t, w in zip(texts, want):
-        got = sign.canonical(json.loads(t))
-        check(f"canonical({t[:48]}…)", got == w, f"\n      node={w!r}\n      py  ={got!r}")
+    print("the signed bytes are the Node's (JSON.stringify), on the same JSON: frozen in the oracle file")
+    texts = ORACLE["texts"]
+    for t_, w in zip(texts, ORACLE["canonical"]):
+        got = sign.canonical(json.loads(t_))
+        check(f"canonical({t_[:48]}…)", got == w, f"\n      node={w!r}\n      py  ={got!r}")
     rnd = random.Random(20261009)
     doubles = [struct.unpack("<d", struct.pack("<Q", rnd.getrandbits(64)))[0] for _ in range(20000)]
     doubles += [rnd.uniform(-1e6, 1e6) for _ in range(5000)] + [rnd.randint(-2**70, 2**70) * 1.0 for _ in range(2000)]
     finite = [d for d in doubles if d == d and abs(d) != float("inf")]
-    want = node("return input.map(x => JSON.stringify(x));", finite)
-    bad = [(d, w, sign.js_number(d)) for d, w in zip(finite, want) if sign.js_number(d) != w]
-    check(f"js_number equals JSON.stringify on {len(finite)} random doubles", not bad, bad[:5])
+    mine = [sign.js_number(d) for d in finite]
+    check(f"js_number equals JSON.stringify on {len(finite)} random doubles (the Node's answers, by digest)",
+          len(finite) == ORACLE["js_number"]["count"] and hashlib.sha256(json.dumps(mine).encode()).hexdigest() == ORACLE["js_number"]["sha256"])
 
-    print("across the languages: one wire")
+    print("across the languages: one wire (a request the Node signed, frozen)")
     args = {"piece": "claude", "note": "ünï ✓ 😀\u2028", "n": 5, "f": 0.1, "big": 12345678901234567890, "nested": {"z": [1, {"y": "\ud800"}]}}
-    py_signed = sign.sign_request(base(args=args), k["privateKeySpec"])
-    nv = node("return sign.verifyRequest(input[0], sign.publicKeyFrom(input[1]));", [py_signed, k["publicKeySpec"]])
-    check("a request signed here, non-ASCII and numbers among its arguments, is verified by Node", nv is True, nv)
-    nk = node("return sign.generateOperatorKey();", None)
-    node_signed = node("return sign.signRequest(input[0], input[1]);", [base(args=args), nk["privateKeySpec"]])
+    nk, node_signed = ORACLE["signed"]["key"], ORACLE["signed"]["request"]
     check("a request Node signed is verified here", sign.verify_request(node_signed, sign.public_key_from(nk["publicKeySpec"])) is True)
     check("...with the same signature bytes this side makes from Node's key",
           sign.sign_request(base(args=args), nk["privateKeySpec"])["sig"] == node_signed["sig"])
-    check("a key made here is read by Node, and Node's here",
-          node("return [!!sign.privateKeyFrom(input[0]), !!sign.publicKeyFrom(input[1])];", [k["privateKeySpec"], k["publicKeySpec"]]) == [True, True]
-          and sign.private_key_from(nk["privateKeySpec"]) is not None and sign.public_key_from(nk["publicKeySpec"]) is not None)
+    check("a key Node made is read here", sign.private_key_from(nk["privateKeySpec"]) is not None and sign.public_key_from(nk["publicKeySpec"]) is not None)
     tampered = {**node_signed, "args": {**args, "n": 6}}
-    check("...and a tampered one is refused on both sides",
-          sign.verify_request(tampered, sign.public_key_from(nk["publicKeySpec"])) is False
-          and node("return sign.verifyRequest(input[0], sign.publicKeyFrom(input[1]));", [tampered, nk["publicKeySpec"]]) is False)
-    junk = ["bm90-IGEg_c2ln", "a", "YQ==YQ==", "not-base64-der", "####", "", "ab=c"]
+    check("...and a tampered one is refused", sign.verify_request(tampered, sign.public_key_from(nk["publicKeySpec"])) is False)
     check("base64 is read as Node's Buffer.from reads it",
-          [sign.node_b64decode(s).hex() for s in junk] == node("return input.map(s => Buffer.from(s, 'base64').toString('hex'));", junk))
+          [sign.node_b64decode(s).hex() for s in ORACLE["junk"]] == ORACLE["junk_hex"])
 
     print("what the relay can send (review of 73f35649)")
     import time
@@ -165,8 +141,8 @@ def main() -> int:
           sign.verify_request({**signed, "args": deep}, pub) is False)
     deep_signed = sign.sign_request(base(args=deep), k["privateKeySpec"])
     check("...and one signed that deep verifies", sign.verify_request(deep_signed, pub) is True)
-    want = node("return sign.canonical(JSON.parse(input));", json.dumps([[[[{"b": [1, {"d": 2, "c": [[]]}], "a": {}}]]]]))
-    check("the stack builds what Node's recursion builds", sign.canonical([[[[{"b": [1, {"d": 2, "c": [[]]}], "a": {}}]]]]) == want, want)
+    want = ORACLE["deep"]
+    check("the stack builds what Node's recursion built", sign.canonical([[[[{"b": [1, {"d": 2, "c": [[]]}], "a": {}}]]]]) == want, want)
     loop: list = []
     loop.append(loop)
     try:
@@ -177,9 +153,9 @@ def main() -> int:
     check("...and is False in verify_request, as Node's catch makes it", sign.verify_request({**signed, "args": loop}, pub) is False)
     shared = [1]
     check("the same list twice, not inside itself, is no cycle", sign.canonical({"a": shared, "b": shared}) == '{"a":[1],"b":[1]}')
-    wide = ["QUJD" + chr(0x1F600) + "RA", chr(0x141) + "AAA", "QUJD" + chr(0x141) * 2, "QU" + chr(0x100) + "JD", "QUJD" + chr(0xD800)]
+    wide = ORACLE["wide"]
     check("base64 beyond Latin-1 is read by the low byte of each code unit, as Node reads it",
-          [sign.node_b64decode(w).hex() for w in wide] == node("return input.map(s => Buffer.from(s, 'base64').toString('hex'));", wide),
+          [sign.node_b64decode(w).hex() for w in wide] == ORACLE["wide_hex"],
           [sign.node_b64decode(w).hex() for w in wide])
     enc = subprocess.run(["openssl", "pkcs8", "-topk8", "-inform", "DER", "-outform", "DER", "-v2", "aes-256-cbc", "-passout", "pass:x"],
                          input=sign.private_key_from(k["privateKeySpec"]), capture_output=True, timeout=30, check=True).stdout

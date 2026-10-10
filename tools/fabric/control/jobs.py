@@ -1,6 +1,6 @@
 """tools/fabric/control/jobs.py — the job list on the control plane
-(agent-fabric ADR-037 rule 6, ADR-029): runtime/control/jobs.mjs in
-Python (ADR-040 Wave 8), unwired until the cutover.
+(agent-fabric ADR-037 rule 6, ADR-029): ported from runtime/control/jobs.mjs
+(ADR-040 Wave 8; deleted in step s8).
 
 `jobs` is a read op: this account's open jobs, as bin/fabric-jobs holds
 them, for an operator. Not public: peers see each other's presence, not

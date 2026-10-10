@@ -4,7 +4,7 @@
 # before /usr/share). Nothing to source by hand.
 #
 #   moveto <TAB>                 the accounts placed on this host
-#   moveto <account> <TAB>       that account's clones, and --print / --list / --resume / --wait / --watch
+#   moveto <account> <TAB>       that account's clones, and --print / --list / --resume / --wait / --watch / --via (then ssh, sudo)
 #   moveto --<TAB>               --list, --print
 #
 # The accounts come from the host registry (runtime/hosts/registry.json:
@@ -37,9 +37,11 @@ _moveto() {
         else
             mapfile -t COMPREPLY < <(compgen -W "$(_moveto_accounts | tr '\n' ' ')" -- "$cur")
         fi
+    elif [[ "$prev" == --via ]]; then
+        mapfile -t COMPREPLY < <(compgen -W "ssh sudo" -- "$cur")
     elif (( COMP_CWORD == 2 )) && [[ "$prev" != -* ]]; then
         if [[ "$cur" == -* ]]; then
-            mapfile -t COMPREPLY < <(compgen -W "--print --list --resume --wait --watch" -- "$cur")
+            mapfile -t COMPREPLY < <(compgen -W "--print --list --resume --wait --watch --via" -- "$cur")
         else
             mapfile -t COMPREPLY < <(compgen -W "$(moveto "$prev" --list 2>/dev/null | tr '\n' ' ')" -- "$cur")
         fi

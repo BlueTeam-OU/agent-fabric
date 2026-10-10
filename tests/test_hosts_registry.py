@@ -11,7 +11,6 @@ from __future__ import annotations
 import json
 import os
 import shutil
-import subprocess
 import sys
 import tempfile
 
@@ -19,13 +18,13 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 sys.path.insert(0, os.path.join(ROOT, "tools", "fabric"))
 import lint  # noqa: E402
+from control import agentd, ctl, sign  # noqa: E402
 from instance_fixtures import own_instance_tree  # noqa: E402 — tests/, the script's own directory
 own_instance_tree()
 
 
 def generated_key() -> str:
-    js = "import('./runtime/control/sign.mjs').then(s => console.log(s.generateOperatorKey().publicKeySpec))"
-    return subprocess.run(["node", "-e", js], cwd=ROOT, capture_output=True, text=True, check=True).stdout.strip()
+    return sign.generate_operator_key()["publicKeySpec"]
 
 
 def findings_for(tmp: str, host_extra: dict) -> list[str]:
@@ -70,9 +69,7 @@ def test_a_registered_key_parses_as_a_daemon_reads_it() -> None:
         with open(reg, "w", encoding="utf-8") as fh:
             json.dump({"version": 1, "placement": {}, "hosts": {"h1": {"operator": "boss", "operator_key": generated_key()},
                                                                 "h2": {}, "h3": {"operator_key": generated_key()}}}, fh)
-        js = "import('./runtime/control/agentd.mjs').then(m => console.log(JSON.stringify([...m.operatorKeys(process.argv[1]).keys()])))"
-        out = subprocess.run(["node", "-e", js, reg], cwd=ROOT, capture_output=True, text=True, check=True).stdout.strip()
-        assert sorted(json.loads(out)) == ["h1/boss", "h3/user"], out
+        assert sorted(agentd.operator_keys(reg)) == ["h1/boss", "h3/user"], sorted(agentd.operator_keys(reg))
 
 
 def test_keygen_writes_a_registry_the_schema_admits() -> None:
@@ -86,11 +83,10 @@ def test_keygen_writes_a_registry_the_schema_admits() -> None:
         with open(reg_path, "w", encoding="utf-8") as fh:
             json.dump({"version": 1, "description": "fixture", "placement": {"user": "h"},
                        "hosts": {"h": {"platform": "fedora", "ssh": None, "operator": "user", "fabric": "~/projects/agent-fabric"}}}, fh)
-        js = ("import('./runtime/control/ctl.mjs').then(m => { console.log = () => {}; "
-              "process.exit(m.keygen({ force: false }, { registry: process.env.REG, who: { host: 'h', agent: 'user' }, "
-              "exec: () => '' })); })")
-        run = subprocess.run(["node", "-e", js], cwd=ROOT, capture_output=True, text=True, env={**os.environ, "REG": reg_path})
-        assert run.returncode == 0, run.stderr[-600:]
+        made = []
+        rc = ctl.keygen({"force": False}, registry=reg_path, who={"host": "h", "agent": "user"},
+                        run=lambda argv, **kw: made.append(kw.get("input")) or None, out=lambda _m: None, err=lambda _m: None)
+        assert rc == 0 and made and made[0].startswith("ed25519-pkcs8:"), (rc, made)
         assert json.load(open(reg_path, encoding="utf-8"))["hosts"]["h"].get("operator_key", "").startswith("ed25519:")
         assert lint.host_registry_findings(root) == [], lint.host_registry_findings(root)
 

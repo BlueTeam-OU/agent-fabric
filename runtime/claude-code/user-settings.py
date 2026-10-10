@@ -298,7 +298,7 @@ def auto_mode_defaults() -> dict | None:
     None when it cannot say (no claude, a timeout, an answer that is not
     the expected object)."""
     # ~/.local/bin first: that is the pinned harness, the one `fabric-ctl …
-    # upgrade claude` installs and verifies there (runtime/control/ops.mjs),
+    # upgrade claude` installs and verifies there (tools/fabric/control/ops/),
     # and bootstrap runs from an account's control daemon too, whose PATH
     # need not carry it. PATH only when there is none there.
     native = os.path.join(local_bin(), "claude")

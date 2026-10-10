@@ -6,7 +6,8 @@
 # ~/projects/agent-fabric, so %h is the only variable. The daemon exits by
 # itself when its source changes (a pull), and Restart= brings it back on
 # the new code; StartLimitIntervalSec=0 so a relay outage never exhausts
-# the restart budget.
+# the restart budget. The interpreter is the fleet's pin (runtime/python.json,
+# ADR-040), at the path python_pin.py links it to on every host.
 [Unit]
 Description=agent-fabric control agent: answers fabric-ctl over the relay
 Documentation=file:%h/projects/agent-fabric/docs/adr/ADR-029-the-control-plane-a-control-agent-per-account.md
@@ -15,10 +16,10 @@ StartLimitIntervalSec=0
 [Service]
 Type=simple
 Environment=AGENT_FABRIC_ROOT=%h/projects/agent-fabric
-# The user manager's PATH is minimal; node may be the account's own (~/.local/bin).
+# The user manager's PATH is minimal; ~/.local/bin is where the account's own tools are (claude).
 Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
 WorkingDirectory=%h/projects/agent-fabric
-ExecStart=/usr/bin/env node %h/projects/agent-fabric/runtime/control/agentd.mjs
+ExecStart=/usr/local/bin/fabric-python %h/projects/agent-fabric/tools/fabric/control/agentd.py
 Restart=always
 RestartSec=5
 NoNewPrivileges=yes
