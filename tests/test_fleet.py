@@ -77,7 +77,7 @@ class Fleet:
     def run(self, argv, timeout, cwd, env):
         self.calls.append(list(argv))
         self.timeouts.append(timeout)
-        name = os.path.basename(argv[0])
+        name = program(argv)
         key = (name, argv[2] if name == "fabric-ctl" else argv[1] if name == "fabric-host" else "")
         h = self.handlers.get(key) or self.handlers.get(name)
         if h is None:
@@ -342,8 +342,15 @@ def inflight(*rows, **kw):
     return done(json.dumps({"base": "origin/main", "fetch_ok": True, "prs_ok": True, "rows": list(rows), **kw}))
 
 
+def program(argv):
+    """The program a call names; the gate's in-flight read is told from its
+    per-PR read, as the two were two programs (pr-gate.sh and fabric-pr)."""
+    name = os.path.basename(argv[0])
+    return "fabric-pr --in-flight" if name == "fabric-pr" and "--in-flight" in argv else name
+
+
 def pr_handlers(inflight_out, gate_out=(), origin="git@github.com:BlueTeam-OU/agent-fabric.git\n"):
-    return {"pr-gate.sh": inflight_out, "fabric-pr": done(json.dumps(list(gate_out))) if isinstance(gate_out, (list, tuple)) else gate_out,
+    return {"fabric-pr --in-flight": inflight_out, "fabric-pr": done(json.dumps(list(gate_out))) if isinstance(gate_out, (list, tuple)) else gate_out,
             "git": done(origin)}
 
 
@@ -357,7 +364,7 @@ class Prs(unittest.TestCase):
         self.assertEqual([p["pr"] for p in rec(out, "a", "prs")["data"]["prs"]], [7, "none"])
         self.assertNotIn("paths", rec(out, "a", "prs")["data"]["prs"][0])
         self.assertEqual(rec(out, "b", "prs")["data"]["prs"], [])
-        self.assertEqual(f.calls[0][1:], ["--in-flight", "--json"])
+        self.assertEqual(f.calls[0][1:], ["gate", "--in-flight", "--json"])
 
     def test_a_row_carries_the_gates_own_fields_the_number_and_the_repo(self):
         f = Fleet(self, pr_handlers(
@@ -407,7 +414,7 @@ class Prs(unittest.TestCase):
         ctx = f.ctx()
         fleet.fetch(["prs"], root=f.root, ctx=ctx, max_age=0)
         fleet.fetch(["prs"], root=f.root, ctx=ctx, max_age=0)
-        self.assertEqual(len([c for c in f.calls if os.path.basename(c[0]) == "pr-gate.sh"]), 2)
+        self.assertEqual(len([c for c in f.calls if program(c) == "fabric-pr --in-flight"]), 2)
 
     def test_a_pr_the_in_flight_listing_lacks_is_still_there_at_its_gate(self):
         f = Fleet(self, pr_handlers(inflight(), [gate_row(8, "h1/b", "h1/b/feat/z", verdict="BLOCKED: x")]))
@@ -441,7 +448,7 @@ class Prs(unittest.TestCase):
         self.assertTrue(all("prs_unplaced" not in a["sections"] for a in doc["agents"]), "a fleet section is not an agent's")
         self.assertIn("prs_unplaced", doc["sections"])
         self.assertEqual(len(f.ctl_calls("x")), 0)
-        self.assertEqual(len([c for c in f.calls if os.path.basename(c[0]) == "pr-gate.sh"]), 1, "one read serves both sections")
+        self.assertEqual(len([c for c in f.calls if program(c) == "fabric-pr --in-flight"]), 1, "one read serves both sections")
 
     def test_asking_for_unplaced_alone_works_and_asking_for_prs_adds_it(self):
         f = Fleet(self, pr_handlers(inflight({"owner": "", "branch": "stray", "pr": 3}), [gate_row(3, "", "stray")]))
@@ -667,12 +674,12 @@ class Timeouts(unittest.TestCase):
         states = {("fabric-ctl", "states"): done(json.dumps({"address": "h1/a", "sessions": []}) + "\n")}
         ctl, bound = self.bounds("states", states)
         self.assertEqual((ctl, bound), ([fleet.COST_CLASSES["C0"][0]], [fleet.COST_CLASSES["C0"][1]]))
-        gate = {"pr-gate.sh": done(json.dumps({"rows": [], "fetch_ok": True, "prs_ok": True, "base": "main"})),
+        gate = {"fabric-pr --in-flight": done(json.dumps({"rows": [], "fetch_ok": True, "prs_ok": True, "base": "main"})),
                 "fabric-pr": done("[]"), "git": done("git@github.com:o/r.git\n")}
         f = Fleet(self, gate)
         f.fetch(["prs"])
-        by_program = {os.path.basename(c[0]): b for c, b in zip(f.calls, f.timeouts)}
-        self.assertEqual((by_program["pr-gate.sh"], by_program["fabric-pr"]), (fleet.COST_CLASSES["C2"][1],) * 2)
+        by_program = {program(c): b for c, b in zip(f.calls, f.timeouts)}
+        self.assertEqual((by_program["fabric-pr --in-flight"], by_program["fabric-pr"]), (fleet.COST_CLASSES["C2"][1],) * 2)
         jobs = {"fabric-host": done("[]")}
         _, bound = self.bounds("closed_jobs", jobs)
         self.assertEqual(set(bound), {fleet.COST_CLASSES["C2"][1]})
