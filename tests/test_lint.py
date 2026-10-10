@@ -1548,6 +1548,13 @@ def case_arm_direct_block() -> None:
                           ({**good, "cases": [".github/ci.yml", "content/a.md"]}, "'content/a.md' is not a PR path")):
             arm(bad)
             assert any(word in f for f in lint.arm_direct_findings(root)), (bad, lint.arm_direct_findings(root))
+        # not_cases is the other floor: paths that must go direct.
+        arm({**good, "not_cases": ["design-tokens.json", "src/styles/app.css"]})
+        assert lint.arm_direct_findings(root) == [], lint.arm_direct_findings(root)
+        arm({**good, "not_cases": ["design-tokens.json", "lib/key.rs"]})
+        assert any("not_case 'lib/key.rs' matches" in f for f in lint.arm_direct_findings(root)), lint.arm_direct_findings(root)
+        arm({**good, "not_cases": "design-tokens.json"})
+        assert any("direct.not_cases must be a list" in f for f in lint.arm_direct_findings(root))
 
 
 def case_arm_boundary_cases_only_leave_retired() -> None:

@@ -18,9 +18,16 @@ CONTRACT, frozen from the Node:
                                 wakes the session once per delivery; the
                                 session reads it and runs this again. A
                                 held inbox is waited out as in --follow.
-                                A refused token ends it with 4, a relay
-                                unreachable for 15 minutes with 5, the
-                                reason on stdout so the session sees it
+                                Whatever ends it other than a delivery
+                                or the harness's timeout is an exit
+                                other than 0 with its reason on STDOUT (a
+                                background command's output reaches the
+                                session only at exit): 3 not configured
+                                or no token, 4 a refused token, 5 a relay
+                                unreachable for 15 minutes, 6 a delivery
+                                the journal cannot keep, 7 an internal
+                                error. The session runs it again only
+                                after exit 0 or its own timeout.
             --wait [S]          block up to S seconds (Number(S), else
                                 1800) and return the moment a message
                                 addressed here lands; --keyword K
@@ -47,21 +54,36 @@ CONTRACT, frozen from the Node:
             drain's listing, replay/history output, the
             keyword hit, the watch's relay-down/back lines, the
             journal's held-messages line and, under GZCOORD_JOURNAL=off,
-            one bypass warning per page — what the Monitor turns into
-            notifications
-  stderr    every start-up and refusal line; the hold's held/released
-  exit      0 drained, delivered, nothing for you, not configured, no
-            token, relay unreachable on a drain or wait; 1 a usage line,
-            replay of no such message, the --held "not held"; 2 a control
-            channel named, replay not addressed (--json too); 3 a keyword
-            hit; 4 a refused token (the watch ends with it). Anything
-            unforeseen is `gzcoord inbox: <why>` and exit 0: the whole
-            contract of a session start is one line and exit 0.
+            one bypass warning per page. --follow runs under a Monitor,
+            which turns each line into a notification as it is printed, so
+            its relay-down/back lines are stdout. --until-delivery runs
+            under a background Bash, whose output reaches the session once,
+            at exit: it prints the one delivery (or, on exit 3-7, the
+            reason; under GZCOORD_JOURNAL=off also the bypass warning)
+            and no relay-down/back lines; the journal's held-messages
+            line is printed only as it exits 6.
+  stderr    every start-up and refusal line (under --until-delivery, the
+            refusals that end it go to stdout instead); the hold's
+            held/released
+  exit      0 drained, delivered, nothing for you, relay unreachable on a
+            drain or wait, and (outside --until-delivery) not configured
+            or no token; 1 a usage line, replay of no such message, the
+            --held "not held"; 2 a control channel named, replay not
+            addressed (--json too); 3 a keyword hit, and under
+            --until-delivery not configured or no token; 4 a refused
+            token; 5 --until-delivery's relay unreachable for 15 minutes;
+            6 --until-delivery's delivery held by the journal; 7
+            --until-delivery's last resort. Anything unforeseen is
+            `gzcoord inbox: <why>`, exit 0 for every mode but
+            --until-delivery (7): the whole contract of a session start is
+            one line and exit 0.
 
-The rest of the Node's header — the modes, the hold, the addressee rule,
-why the watch is one process under a Monitor — is kept where each
-applies: below, or in the part that holds it (inbox_parts/). Never blocks a session start: relay down, no token, no
-catalogue — each is one line on stderr and exit 0.
+The rest of the Node's header — the modes, the hold, the addressee rule —
+is kept where each applies: below, or in the part that holds it
+(inbox_parts/). A watch is one consumer per address, run once per session
+(under a Monitor for --follow, a background Bash for --until-delivery).
+Never blocks a session start: relay down, no token, no catalogue — each is
+one line on stderr and exit 0.
 
 THE JOURNAL (ADR-041 rule 4), in this process now: a page's messages
 addressed to this session are kept in its own journal before the page is
@@ -175,6 +197,14 @@ class _Exit(Exception):
         self.code = code
 
 
+class _JournalHeld(Exception):
+    """A delivery the journal cannot keep, under --until-delivery: it leaves
+    wait_loop, which would retry it for ever, carrying the line to print."""
+    def __init__(self, line: str):
+        super().__init__(line)
+        self.line = line
+
+
 def _arg_after(argv: list[str], flag: str) -> Any:
     i = argv.index(flag) if flag in argv else -1
     return (argv[i + 1] if i + 1 < len(argv) else js.UNDEFINED) if i >= 0 else None
@@ -236,13 +266,17 @@ def main(argv: list[str]) -> int:
     root = inbox_root(who)
     cfg = integration_config(who.get("project"), os.environ, t)
     # Not configured is not an error at a session start, and not a guess.
+    # Under --until-delivery the session reads stdout only, and "run it again"
+    # on an immediate exit 0 would loop it one turn per run: so a refusal
+    # no rerun can cure is a distinct code with its reason on stdout.
+    refusal_out = sys.stdout if until_delivery else sys.stderr
     if not cfg["configured"]:
-        print(t("start.skipping", {"reason": cfg["reason"]}), file=sys.stderr)
-        return 0
+        print(t("start.skipping", {"reason": cfg["reason"]}), file=refusal_out)
+        return 3 if until_delivery else 0
     try:
         assert_not_control_channel(cfg["channel"], t)
     except ControlChannel as e:
-        print(t("start.error", {"detail": str(e)}), file=sys.stderr)
+        print(t("start.error", {"detail": str(e)}), file=refusal_out)
         return 2
     relay_url, channel = cfg["relay_url"], cfg["channel"]
     # What this session owns first: the hosting working copy starts its
@@ -256,8 +290,8 @@ def main(argv: list[str]) -> int:
     tok = token(root, cfg)
     if not tok:
         print(t("start.no-token", {"token_file": cfg["token_env_file"] if cfg.get("token_env_file") is not None
-                                   else t("config.no-token-file")}), file=sys.stderr)
-        return 0
+                                   else t("config.no-token-file")}), file=refusal_out)
+        return 3 if until_delivery else 0
     tax_path = gzmsg.find_taxonomy(root)
     taxonomy = gzmsg.load_taxonomy(tax_path) if tax_path else None
     me = identity(who, taxonomy)
@@ -317,19 +351,24 @@ def main(argv: list[str]) -> int:
     journal = bypass_inbound if off else (lambda recs: journal_inbound(recs, who))
     cause = {"reason": None}
 
+    def held_line(reason: str, n: int) -> str:
+        if off:
+            return (f"gzcoord: {n} message(s) addressed to you are held, not shown: {reason}; the journal is"
+                    " bypassed only with a record of it, and they are shown once it can be written (ADR-041)")
+        return (f"gzcoord: {n} message(s) addressed to you are held, not shown: your journal could not keep them"
+                f" ({reason}); they are shown once it can (ADR-041), or with GZCOORD_JOURNAL=off")
+
     def on_journal_fail(reason: str, n: int) -> None:
         # The journal speaks for itself, untranslated, on stdout in the
         # watch, so the held messages reach the session.
+        if until_delivery:
+            # Its output reaches the session only at exit, so retrying would
+            # show this line at the 2-hour timeout: end now.
+            raise _JournalHeld(held_line(reason, n))
         if reason == cause["reason"]:
             return
         cause["reason"] = reason
-        if off:
-            print(f"gzcoord: {n} message(s) addressed to you are held, not shown: {reason}; the journal is"
-                  " bypassed only with a record of it, and they are shown once it can be written (ADR-041)",
-                  flush=True)
-            return
-        print(f"gzcoord: {n} message(s) addressed to you are held, not shown: your journal could not keep them"
-              f" ({reason}); they are shown once it can (ADR-041), or with GZCOORD_JOURNAL=off", flush=True)
+        print(held_line(reason, n), flush=True)
 
     def fetch_recent(_done: threading.Event) -> Any:
         return api(state["tok"], "/api/messages?" + urllib.parse.urlencode(
@@ -356,6 +395,9 @@ def main(argv: list[str]) -> int:
             try:
                 r = with_fresh_token(lambda _tk: wait_loop(fetch_page, ack, 3600, mine_fn, [], me["address"], held,
                                                            on_hold, journal=journal, on_journal_fail=on_journal_fail))
+            except _JournalHeld as e:
+                print(e.line, flush=True)
+                return 6
             except Exception as e:  # noqa: BLE001 — every failure of an arm is the relay's, said once
                 x = explain_relay_error(e, relay_url, t)
                 if x["code"] == 4:
@@ -367,7 +409,7 @@ def main(argv: list[str]) -> int:
                     down = True
                     down_since = time.monotonic()
                 elif until_delivery and time.monotonic() - down_since >= UNTIL_DELIVERY_DOWN_S:
-                    print(t("watch.relay-down", {"relay_url": relay_url}), flush=True)
+                    print(t("watch.relay-gave-up", {"relay_url": relay_url}), flush=True)
                     return 5
                 time.sleep(30)
                 continue
@@ -419,6 +461,11 @@ def run(argv: list[str]) -> int:
     except KeyboardInterrupt:
         return 130
     except Exception as e:  # noqa: BLE001 — the contract's last resort
+        # A session running the watch reads stdout, and exit 0 there means
+        # "run it again": the same failure would loop it.
+        if "--until-delivery" in argv:
+            print(f"gzcoord inbox: {e}", flush=True)
+            return 7
         print(f"gzcoord inbox: {e}", file=sys.stderr)
         return 0
 

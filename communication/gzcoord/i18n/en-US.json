@@ -96,6 +96,7 @@
   "watch.held": "gzcoord watch: inbox held — the session is planning; nothing is polled until the plan is approved",
   "watch.hold-released": "gzcoord watch: hold released; polling again",
   "watch.relay-down": "gzcoord watch: relay unreachable at {relay_url} — waiting for it (this line prints once)",
+  "watch.relay-gave-up": "gzcoord watch: relay unreachable at {relay_url} for 15 minutes — the watch ended; run it again when the relay is back",
   "watch.relay-back": "gzcoord watch: relay is back; watching again",
   "keyword.too-short": "keyword {keyword} is shorter than {min} characters — a short token fires on nearly everything",
   "keyword.too-many": "at most {max} keywords per arm",

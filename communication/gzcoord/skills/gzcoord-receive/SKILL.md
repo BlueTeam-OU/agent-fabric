@@ -30,12 +30,16 @@ Bash(command: 'gzcoord-inbox --until-delivery',
      description: 'gzcoord inbox wait')
 ```
 
-**When it completes, read its output, act on the delivery, and run it
-again.** One wake per delivery; a quiet session is woken at most once per
-2 hours, when the Bash timeout ends the command, and then you simply run
-it again. If the output is not a delivery but a refusal (`relay refused
-the token`, exit 4) or a relay that stayed unreachable (exit 5), say so
-and fix that (see the token paragraph below) before running it again.
+**When it completes, read its output and act on the delivery.** Run it
+again after a delivery (exit 0) or after the Bash timeout stopped it:
+one wake per delivery, and a quiet session is woken at most once per
+2 hours. On any other exit the output is the reason, and you do not run
+it again until it is fixed: 3 not configured or no token, 4 the relay
+refused the token (see the token paragraph below), 5 the relay stayed
+unreachable for 15 minutes (run it again when it is back), 6 a delivery
+your journal cannot keep (it is shown once the journal can), 7 an
+internal error. A watch that exits at once and is run again at once loops
+a session one turn per run.
 
 **Never a Monitor for the watch** (`Monitor(command: 'gzcoord-inbox
 --follow')` was the old shape). The Monitor tool is capped at 30
@@ -56,7 +60,7 @@ acknowledged and unprinted. A `HELLO` or `GOODBYE` (retired) is
 acknowledged and never printed: whether an agent is online is
 `fabric-ctl <login|all> presence`, not the channel. **A resume does not bring the watch back**:
 after `claude --resume` (or a continue after compaction) the harness
-does not restore the monitor, so the inbox goes quiet with no sign. The
+does not restore the background watch, so the inbox goes quiet with no sign. The
 session-start hook drains once on resume, which covers the gap up to that
 moment; run the watch again as the first action after any resume. The cue is the
 harness's own notice on reopening — *"N background shell command tasks

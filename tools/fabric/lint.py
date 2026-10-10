@@ -174,6 +174,17 @@ def arm_direct_findings(root: str) -> list[str]:
             for c in cases:
                 if not pr_paths.search(c):
                     findings.append(f"{rel}: direct case {c!r} is not a PR path under direct.pr_paths")
+        # The opposite floor: a pattern that grows wide enough to send a
+        # style, a token file or a decision record to a PR is caught here,
+        # not by the first push that is refused.
+        not_cases = d.get("not_cases")
+        if not_cases is not None:
+            if not isinstance(not_cases, list) or not all(isinstance(c, str) and c for c in not_cases):
+                findings.append(f"{rel}: direct.not_cases must be a list of paths that must go direct")
+            elif pr_paths is not None:
+                for c in not_cases:
+                    if pr_paths.search(c):
+                        findings.append(f"{rel}: direct not_case {c!r} matches direct.pr_paths but must go direct")
     return findings
 
 

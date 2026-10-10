@@ -19,11 +19,11 @@
   },
   "waiver_role": null,
   "direct": {
-    "description": "Direct to main: brand-comms commits deck and document content, their assets and i18n dictionaries, and the theme's styles and fonts straight to main (the owner, 2026-10-10). By pull request: what runs on the operator's machine or decides what installs and loads (scripts/, bin/, tools/ and every script outside a deck's assets/ and i18n/, .marprc*, the manifest and lockfiles, *.config.*, Makefile/Dockerfile), the harness wiring (.claude/, .mcp.json), CI, hooks, .env* and .gitignore, any file whose git mode is executable, and secret-shaped names (secret, credential, api key, auth token, private key, password, .pem/.p12/.pfx/.key). Styles, design tokens, fonts, images and content are direct.",
+    "description": "Direct to main: brand-comms commits deck and document content, their assets and i18n dictionaries, and the theme's styles and fonts straight to main (the owner, 2026-10-10). By pull request: what runs on the operator's machine or decides what installs and loads (scripts/, bin/, tools/ and every script outside a deck's assets/ and i18n/, .marprc*, the manifest and lockfiles, *.config.*, Makefile/Dockerfile), the harness wiring (.claude/, .mcp.json), CI, hooks, .env* and .gitignore, any file whose git mode is executable, and secret-shaped names (secret, credential, api key, private key, password; an access, api, auth, refresh, bearer, bot, npm, gh, github or slack token; a service-account, private, gcp or google key.json; auth.json; anything under keys/; .pem/.p12/.p8/.pfx/.key/.jks/.keystore/.ppk). Styles, design tokens, fonts, images and content are direct.",
     "roles": [
       "brand-comms"
     ],
-    "pr_paths": "^\\.claude/|^\\.mcp\\.json$|^\\.env|^\\.gitignore$|^\\.github/|^\\.marprc(\\.ya?ml|\\.json|\\.js)?$|(^|/)package(-lock)?\\.json$|^scripts/|(^|/)(bin|scripts|tools)/|^\\.(husky|githooks)/|(^|/)(Makefile|Dockerfile|Containerfile|justfile)$|(^|/)[^/]*\\.config\\.[cm]?[jt]s$|^\\.(npmrc|nvmrc|node-version|yarnrc[^/]*|tool-versions)$|(^|/)[^/]*\\.lock$|(^|/)(pnpm-lock\\.yaml|yarn\\.lock|bun\\.lockb)$|^public/_(headers|redirects)$|(^|/)wrangler\\.toml$|(^|/)netlify\\.toml$|(^|/)vercel\\.json$|\\.(sh|bash|zsh|ps1|py|rb|pl)$|^(?![^/]+/(assets|i18n)/).*\\.[cm]?[jt]s$|(^|[/._-])(secrets?|credentials?|api[-_]?keys?|auth[-_.]?tokens?|private[-_]?keys?|passwords?)([/._-]|$)|[-_]tokens?([/._-]|$)|(^|[/._-])keys?([/._-]|$)|(^|/)auth\\.json$|\\.(pem|p12|p8|pfx|key|jks|keystore|ppk)$",
+    "pr_paths": "^\\.claude/|^\\.mcp\\.json$|^\\.env|^\\.gitignore$|^\\.github/|^\\.marprc(\\.ya?ml|\\.json|\\.js)?$|(^|/)package(-lock)?\\.json$|^scripts/|(^|/)(bin|scripts|tools)/|^\\.(husky|githooks)/|(^|/)(Makefile|Dockerfile|Containerfile|justfile)$|(^|/)[^/]*\\.config\\.[cm]?[jt]s$|^\\.(npmrc|nvmrc|node-version|yarnrc[^/]*|tool-versions)$|(^|/)[^/]*\\.lock$|(^|/)(pnpm-lock\\.yaml|yarn\\.lock|bun\\.lockb)$|^public/_(headers|redirects)$|(^|/)wrangler\\.toml$|(^|/)netlify\\.toml$|(^|/)vercel\\.json$|\\.(sh|bash|zsh|ps1|py|rb|pl)$|^(?![^/]+/(assets|i18n)/).*\\.[cm]?[jt]s$|(^|[/._-])(secrets?|credentials?|api[-_]?keys?|auth[-_.]?tokens?|private[-_]?keys?|passwords?)([/._-]|$)|(^|[/._-])(access|api|refresh|bearer|bot|npm|gh|github|slack)[-_.]?tokens?([/._-]|$)|(^|/)keys/|(service[-_]?account|private|gcp|google)[-_.]?keys?\\.json$|(^|/)auth\\.json$|\\.(pem|p12|p8|pfx|key|jks|keystore|ppk)$",
     "cases": [
       ".claude/settings.json",
       ".claude/commands/deck-release.md",
@@ -66,6 +66,19 @@
       "auth.json",
       "AuthKey_X.p8",
       "android/release.keystore"
+    ],
+    "not_cases": [
+      "brand/decisions/0006-tokens-values-not-selectors.md",
+      "brand/decisions/0001-brand-source-of-authority.md",
+      "brand/tokens.css",
+      "design-tokens.json",
+      "brand/design-tokens.css",
+      "src/styles/color-tokens.css",
+      "brand/key-visual.png",
+      "assets/key-art.jpg",
+      "content/key-facts.md",
+      "src/components/Key-Features.astro",
+      "src/i18n/keys.json"
     ]
   }
 }

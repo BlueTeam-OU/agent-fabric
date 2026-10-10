@@ -266,7 +266,34 @@ def run() -> None:
     check("passes", push() == 0, err)
 
 
+def shipped_patterns() -> None:
+    """The pr_paths each managed project ships, against file names a brand
+    or content role commits daily: design tokens and key visuals go direct
+    (a loose `tokens?` / `keys?` alternative sent them to a PR), secret-shaped
+    names still come by PR."""
+    import re
+    direct_names = ["brand/decisions/0006-tokens-values-not-selectors.md", "design-tokens.json",
+                    "brand/design-tokens.css", "src/styles/color-tokens.css", "brand/key-visual.png",
+                    "assets/key-art.jpg", "content/key-facts.md", "src/components/Key-Features.astro",
+                    "src/i18n/keys.json", "brand/tokens.css",
+                    "brand/decisions/0001-brand-source-of-authority.md"]
+    pr_names = ["access_token.txt", "npm-token", ".npm-token", "service-account-key.json", "keys/prod.json",
+                "auth.json", "AuthKey_X.p8", "android/release.keystore", "config/credentials.json",
+                "content/API-KEY.md", "slack_token", "github-token.json"]
+    for project in ("blueteam.ee", "gzapi.ge", "gzapp.decks", "gzapi.brand"):
+        with open(f"{HERE}/projects/{project}/integration/gh/arm.json", encoding="utf-8") as fh:
+            d = json.load(fh)["direct"]
+        rx = re.compile(d["pr_paths"], re.I)
+        print(f"{project}: the shipped pr_paths")
+        wrong = [n for n in direct_names if rx.search(n)]
+        check("design-token and key-visual names go direct", not wrong, str(wrong))
+        missed = [n for n in pr_names if not rx.search(n)]
+        check("secret-shaped names still need a PR", not missed, str(missed))
+        check("not_cases lists the direct names", set(direct_names) <= set(d.get("not_cases", [])), str(d.get("not_cases")))
+
+
 try:
+    shipped_patterns()
     run()
 finally:
     shutil.rmtree(T, ignore_errors=True)

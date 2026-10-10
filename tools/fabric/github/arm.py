@@ -102,7 +102,10 @@ this clone's remote as trial.json is (or AGENT_FABRIC_ARM_CONFIG):
                     and unless the push rewrites the branch (it must
                     fast-forward): those still come by pull request.
                     `cases` are paths that must need a PR; lint refuses
-                    one pr_paths misses. fabric-pr arm IGNORES this key
+                    one pr_paths misses. Optional `not_cases` are the
+                    opposite floor, paths that must go direct (a design
+                    token, a key visual, a decision record); lint refuses
+                    one pr_paths matches. fabric-pr arm IGNORES this key
                     (a direct push has no PR to arm); policies/githooks/
                     pre-push enforces it (agent-fabric ADR-019 §5 rule 1).
 A project with no arm.json is exit 2: a boundary the tool cannot read is

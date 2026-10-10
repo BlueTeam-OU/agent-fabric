@@ -169,7 +169,7 @@ def main() -> int:
             missing = watch_running() is False
         except Exception:  # noqa: BLE001 — a /proc oddity must not cost the session its project layer
             missing = False
-        if missing:
+        if missing and gzcoord_configured(ctx["project"]):
             lines.append(WATCH_MISSING.format(source=payload.get("source") or "start"))
         print(json.dumps({"hookSpecificOutput": {"hookEventName": "SessionStart",
                                                  "additionalContext": "\n".join(lines)}}))
@@ -308,9 +308,26 @@ def jobs_line(doc: dict, working_copy: str | None) -> list[str]:
 WATCH_MISSING = ("agent-fabric: NO INBOX WATCH is running for this session ({source}) — arm it now, "
                  "as your first action: Bash(command: 'gzcoord-inbox --until-delivery', "
                  "run_in_background: true, timeout: 7200000, description: 'gzcoord inbox wait'); "
-                 "when it completes, read its output, act on the delivery, and run it again "
-                 "(gzcoord-receive §1). Never a Monitor: its 30-minute cap rings every quiet half hour. "
+                 "when it completes, read its output, act on the delivery, and run it again after "
+                 "a delivery (exit 0) or after its timeout stopped it; on any other exit, read the reason "
+                 "and do not run it again until it is fixed (gzcoord-receive §1). Never a Monitor: its 30-minute cap rings every quiet half hour. "
                  "One at a time: never a second.")
+
+
+def gzcoord_configured(project: str | None) -> bool:
+    """Whether GZCoord is configured for this working copy, by the inbox's own
+    rule (integration_config): where it is not, the watch exits 3 at once and
+    "arm it now" sends the session round a loop. Asked only when a watch is
+    missing, so a session start that has one pays nothing. An import that
+    fails answers True: the line stays rather than the hook failing."""
+    try:
+        sys.path.insert(0, os.path.join(FABRIC_ROOT, "tools", "fabric"))
+        from gzcoord.inbox_parts.config import integration_config
+        return bool(integration_config(project)["configured"])
+    except Exception:  # noqa: BLE001 — a hook must never block a session start
+        return True
+    finally:
+        sys.path[:] = [p for p in sys.path if p != os.path.join(FABRIC_ROOT, "tools", "fabric")]
 
 
 def watch_running(proc: str = "/proc", pid: int | None = None) -> bool | None:
