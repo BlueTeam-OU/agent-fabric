@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "description": "The agent-fabric-gateway release the fleet installs (gateway ADR-014, accepted 2026-10-10): each release is pinned by the SHA-256 of its tarball, computed by fabric-coordinator from its own download and matched against both reproducible builds of the release run, never taken from the release page alone. The install action (fabric-ctl <login|all> gateway-install --version V) downloads `url` with the account's GitHub token, refuses any other digest, extracts only `member`, and renames it into ~/.local/bin/agent-fabric-gateway. Moving the pin is a commit here.",
+  "description": "The agent-fabric-gateway release the fleet installs (gateway ADR-014, accepted 2026-10-10): each release is pinned by the SHA-256 of its tarball, computed by fabric-coordinator from its own download and matched against the release run whose two reproducible builds compared equal before upload, and against a separate dry run on the tagged commit, never taken from the release page alone. The install action gateway ADR-014 rules 17-19 call for (to be built as `fabric-ctl <login|all> gateway-install --version V`) will download `url` with the account's GitHub token, refuse any other digest, extract only `member`, and rename it into ~/.local/bin/agent-fabric-gateway. Moving the pin is a commit here.",
   "releases": {
     "0.1.0": {
       "x86_64": {

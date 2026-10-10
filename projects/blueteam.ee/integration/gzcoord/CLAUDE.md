@@ -16,7 +16,9 @@ coordinator's workspace
 
 Three claims move together and this file is the authority for the
 first: this status, the section in blueteam.ee's root `CLAUDE.md`
-(`CLAUDE.snippet.md`, included there), and the session-start drain in
-blueteam.ee's `.claude/settings.json`. The token arrives with
+(`CLAUDE.snippet.md`, to be included there), and the session-start drain
+in blueteam.ee's `.claude/settings.json`. The two in blueteam.ee are
+pending: brand-comms-01 lands them in that repository after its
+.agent-fabric/ remits (blueteam.ee#2). The token arrives with
 `fabric-secrets sync` from the account's own store; the repository
 carries no env file for it.
