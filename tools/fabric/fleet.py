@@ -70,9 +70,28 @@ FLEET SECTIONS  `plans` and `prs_unplaced` are about the fleet, not an agent:
   or by branch where the listing had no number (a number the gate lacks is
   a PR not at the gate: gate_found false). closed_jobs.data adds done_total (state done only) to closed_total.
 
+ATTENTION  `attention` (Fleet Deck's "needs you" views) is told from the `states` and `jobs` records of the same
+  fetch, which a fetch that names it reads and shows too (like prs_unplaced with prs). It has no source of its
+  own and no cache entry: it is as fresh as its inputs. data = {level, reason, since, blocked, pending}:
+    level    needs_input  the account's most-wanting session waits on a PERSON (session-state's `blocked`:
+                          a permission prompt, an input or elicitation dialog); wins over waiting
+             waiting      an open job is blocked, on something that is not a person
+             none         neither (no session, or only working and idle ones; no blocked job)
+    reason   null for needs_input (the hook records that a session is blocked, not why; a later step),
+             else the most recently updated blocked job's `blocked_on`: the agent's own words as a line,
+             control characters and white space collapsed, cut at 80 characters, content NOT scrubbed
+             (it can name a path): a view shows it as text only
+    since    needs_input: that session's `since`; waiting: that job's `updated`; else null; null too where unknown
+    blocked, pending  the numbers of open jobs in state blocked and queued
+  `at` is the oldest of the two inputs' read times. Stale when an input is (data from the last good values,
+  `age_s` the oldest, `why` both); failed, never level `none`, when an input failed, when the account's state
+  is `unknown` (no fresh state record), or when the jobs answer is not a list. A human login has no control
+  agent (ADR-044): its attention is failed with that why. Agreed with the views' author (rust-ui-dev-01).
+  Not here, for want of a source on the control plane: context_pct, output activity, needs_input's reason.
+
 SECTIONS, by cost class (the TTL is how long a cached answer is reused)
   C0 proc 5 s · states 5 s · presence 10 s
-  C1 jobs 30 s · usage 60 s · host 60 s · fabric 60 s
+  C1 jobs 30 s · usage 60 s · host 60 s · fabric 60 s · attention (derived: no TTL, no cache of its own)
   C2 prs 120 s · prs_unplaced 120 s · plans 120 s · closed_jobs 300 s · accounts 120 s
   C3 tokens 600 s · disk 600 s     only when named: they walk disks/logs
   A section's `sources` are tried in order and the first that answers wins;
@@ -112,6 +131,7 @@ import sys
 import tempfile
 import threading
 import time
+import unicodedata
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
@@ -218,6 +238,7 @@ class Section:
     ttl: int
     sources: tuple[Source, ...]
     scope: str = "agent"        # "fleet": one record for the whole fleet, under its name at the top of the document
+    derives: tuple[str, ...] = ()   # computed from these sections' records of the same fetch: no source, no cache of its own
 
     @property
     def ctl_s(self) -> float:
@@ -619,6 +640,7 @@ SECTIONS: dict[str, Section] = {s.name: s for s in (
     Section("plans", "C2", 120, (Source("fabric-plan+hostexec", plans_read),), scope="fleet"),
     Section("closed_jobs", "C2", 300, (Source("hostexec", closed_jobs_read),)),
     Section("accounts", "C2", 120, (ctl_source("accounts"),)),
+    Section("attention", "C1", 0, (), derives=("states", "jobs")),
     Section("tokens", "C3", 600, (ctl_source("tokens"),)),
     Section("disk", "C3", 600, (ctl_source("disk"),)),
 )}
@@ -700,6 +722,82 @@ def cache_write(directory: str | None, section: str, entries: dict[str, dict]) -
         except FileNotFoundError:
             pass
         raise
+
+
+# ── attention: what the Fleet Deck's "needs you" views read ─────────
+
+ATTENTION_REASON_MAX = 80
+ATTENTION_SRC = "derived:states+jobs"
+
+
+def attention_text(value: Any) -> str | None:
+    """A job's own words, for a board cell: control, format and surrogate characters become spaces
+    (a bidi override or a lone surrogate must not reach a view or break the JSON), white space is
+    collapsed, and the text is cut at ATTENTION_REASON_MAX characters. The content is not scrubbed: it
+    is whatever the agent wrote, and a view shows it as text only."""
+    if not isinstance(value, str):
+        return None
+    flat = " ".join("".join(" " if unicodedata.category(c)[0] == "C" else c for c in value).split())
+    if not flat:
+        return None
+    return flat if len(flat) <= ATTENTION_REASON_MAX else flat[:ATTENTION_REASON_MAX - 1].rstrip() + "…"
+
+
+def attention_data(states: Any, jobs: Any) -> dict[str, Any] | str:
+    """The attention data from the `states` and `jobs` record data of one agent, or the why it cannot be told.
+    needs_input: the account's most-wanting session waits on a person (the session-state hook's
+    `blocked`); waiting: an open job is blocked, on something that is not a person; none: neither.
+    needs_input wins. The account's state read as `unknown` (no fresh record) is not `none`."""
+    if not isinstance(states, dict) or states.get("state") not in ("blocked", "working", "idle", "none"):
+        why = states.get("why") if isinstance(states, dict) else None
+        return f"states: the account's session state is not known ({why or 'no usable state'})"
+    # The record's data is the control agent's row without its meta keys: the jobs op's own answer
+    # {status, jobs: [...]} sits under `jobs` (ctl rows()), so the list is jobs.jobs.jobs.
+    payload = jobs.get("jobs") if isinstance(jobs, dict) else None
+    listed = payload.get("jobs") if isinstance(payload, dict) else None
+    if not isinstance(listed, list) or not all(isinstance(j, dict) for j in listed):
+        return "jobs: the answer carries no list of jobs"
+    blocked = [j for j in listed if j.get("state") == "blocked"]
+    pending = sum(1 for j in listed if j.get("state") == "queued")
+    base = {"blocked": len(blocked), "pending": pending}
+    if states["state"] == "blocked":
+        since = states.get("since")
+        return {"level": "needs_input", "reason": None, "since": since if isinstance(since, str) else None, **base}
+    if blocked:
+        # The one it most recently began to wait on; the first listed among equals.
+        job = max(blocked, key=lambda j: j["updated"] if isinstance(j.get("updated"), str) else "")
+        updated = job.get("updated")
+        return {"level": "waiting", "reason": attention_text(job.get("blocked_on")),
+                "since": updated if isinstance(updated, str) else None, **base}
+    return {"level": "none", "reason": None, "since": None, **base}
+
+
+def attention_record(states: dict, jobs: dict, now: float) -> dict:
+    """One agent's attention record from its `states` and `jobs` records: as old as its oldest input
+    (`at`), stale when an input is (the last good values, `age_s` the oldest), failed when an input
+    failed or cannot be told: never `none` for what is unknown."""
+    inputs = {"states": states, "jobs": jobs}
+    failed = {k: r.get("why") for k, r in inputs.items() if r.get("status") == "failed"}
+    if failed:
+        return {"status": "failed", "src": ATTENTION_SRC, "at": stamp(now), "why": "; ".join(f"{k}: {w}" for k, w in failed.items())}
+    data = attention_data(states.get("data"), jobs.get("data"))
+    if isinstance(data, str):
+        return {"status": "failed", "src": ATTENTION_SRC, "at": stamp(now), "why": data}
+    ats = [r["at"] for r in inputs.values() if isinstance(r.get("at"), str)]
+    rec: dict[str, Any] = {"status": "ok", "src": ATTENTION_SRC, "at": min(ats) if ats else stamp(now), "data": data}
+    old = {k: r for k, r in inputs.items() if r.get("status") == "stale"}
+    if old:
+        rec.update(status="stale", age_s=max(r.get("age_s") or 0 for r in old.values()),
+                   why="; ".join(f"{k}: {r.get('why')}" for k, r in old.items()))
+    return rec
+
+
+# A derived section's reader: the answers of this fetch, the agents, the time -> login -> record.
+DERIVERS: dict[str, Callable[[dict[str, dict[str, dict]], list[Agent], float], dict[str, dict]]] = {
+    "attention": lambda answers, agents, now: {a.login: attention_record(answers["states"][a.login], answers["jobs"][a.login], now)
+                                               for a in agents},
+}
+assert set(DERIVERS) == {n for n, s in SECTIONS.items() if s.derives}, "every derived section has its reader"
 
 
 # ── fetching ────────────────────────────────────────────────────────
@@ -800,6 +898,8 @@ def fetch(sections: list[str] | None = None, agent: str | None = None, max_age: 
             raise FleetError(f"no section {n} (sections: {', '.join(SECTIONS)})")
     if "prs" in names and "prs_unplaced" not in names:
         names.append("prs_unplaced")      # the PRs of no placed account ride with the placed ones
+    for n in list(names):
+        names += [i for i in SECTIONS[n].derives if i not in names]    # what a derived section is told from is read, and shown
     root = root or roots.engine_root()
     placed = load_placements(root)
     if agent is not None and agent not in placed:
@@ -812,11 +912,15 @@ def fetch(sections: list[str] | None = None, agent: str | None = None, max_age: 
     directory, why = cache_dir(ctx.env)
     ctx.memo.clear()      # what two sections share lasts one fetch, not the Ctx
     answers: dict[str, dict[str, dict]] = {}
-    with concurrent.futures.ThreadPoolExecutor(max_workers=len(names)) as pool:
+    read = [n for n in names if not SECTIONS[n].derives]
+    with concurrent.futures.ThreadPoolExecutor(max_workers=len(read)) as pool:
         futures = {n: pool.submit(fetch_section, ctx, SECTIONS[n], [FLEET] if SECTIONS[n].scope == "fleet" else agents, max_age, directory)
-                   for n in names}
+                   for n in read}
         for n, f in futures.items():
             answers[n] = f.result()
+    for n in names:
+        if SECTIONS[n].derives:
+            answers[n] = DERIVERS[n](answers, agents, ctx.clock())
     per_agent = [n for n in names if SECTIONS[n].scope == "agent"]
     doc: dict[str, Any] = {"schema": SCHEMA, "at": stamp(ctx.clock()), "sections": names, "agents": [
         {"login": a.login, "host": a.host, "address": a.address, "kind": a.kind,
