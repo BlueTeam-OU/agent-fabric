@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""runtime/github/actions-health.sh
+"""tools/fabric/github/actions_health.py
 
 Is it worth spending CI minutes right now?
 
@@ -43,11 +43,11 @@ oddly, or before a deliberately expensive action — a full re-run, a
 queue re-trigger, a big fan-out.
 
 Usage:
-  runtime/github/actions-health.sh              # this repo's owner
-  runtime/github/actions-health.sh --org NAME   # explicit owner
-  runtime/github/actions-health.sh --quiet      # exit code only
-  runtime/github/actions-health.sh --included N # override the configured allowance
-  runtime/github/actions-health.sh --json       # one JSON object instead of the line
+  tools/fabric/github/actions_health.py              # this repo's owner
+  tools/fabric/github/actions_health.py --org NAME   # explicit owner
+  tools/fabric/github/actions_health.py --quiet      # exit code only
+  tools/fabric/github/actions_health.py --included N # override the configured allowance
+  tools/fabric/github/actions_health.py --json       # one JSON object instead of the line
 
 --json prints, whatever --quiet says, one object on stdout:
   {exit, verdict, reason, public, period, private_minutes, private_net,

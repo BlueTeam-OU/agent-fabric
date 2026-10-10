@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""runtime/github/scan-semantic-collisions.sh [--root <dir>]
+"""tools/fabric/github/semantic_collisions.py [--root <dir>]
 
 Detect SEMANTIC collisions between parallel contributions that a
 textually-clean git merge cannot flag.

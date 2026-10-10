@@ -21,7 +21,7 @@ from instance_fixtures import own_instance_tree  # noqa: E402 — tests/, the sc
 own_instance_tree()
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-TOOL = os.path.join(ROOT, "runtime", "github", "scan-semantic-collisions.sh")
+TOOL = [sys.executable, os.path.join(ROOT, "tools", "fabric", "github", "semantic_collisions.py")]
 GZAPP = os.path.join(ROOT, "tests", "fixtures", "gzapp-gh", "collisions.json")
 FOOTER = ("Semantic collision(s): {n} — a textually-clean merge does NOT clear these.\n"
           "These are parallel-session numbering races (CLAUDE.md §Concurrent contributors):\n"
@@ -64,7 +64,7 @@ def main() -> int:
             e = dict(base, **env)
             if config is not None:
                 e["AGENT_FABRIC_COLLISIONS_CONFIG"] = config
-            r = subprocess.run([TOOL, *args], env=e, cwd=cwd, capture_output=True, timeout=60)
+            r = subprocess.run([*TOOL, *args], env=e, cwd=cwd, capture_output=True, timeout=60)
             return r.returncode, r.stdout.decode("utf-8", "surrogateescape"), r.stderr.decode("utf-8", "surrogateescape")
 
         print("semantic_collisions: the lines, whole")

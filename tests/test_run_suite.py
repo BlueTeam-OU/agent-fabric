@@ -17,7 +17,7 @@ import tempfile
 import time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-TOOL = os.path.join(ROOT, "runtime", "github", "run-suite.sh")
+TOOL = [sys.executable, os.path.join(ROOT, "tools", "fabric", "github", "run_suite.py")]
 MODULE = os.path.join(ROOT, "tools", "fabric", "github", "run_suite.py")
 REASON = ("    bash returns 127 for these and continues, so the suite's own\n"
           "    failures counter never saw them — it may well have reported OK.\n")
@@ -49,7 +49,7 @@ def main() -> int:
             return path
 
         def run(*args: str, **env: str):
-            r = subprocess.run([TOOL, *args], env=dict(base, **env), capture_output=True, text=True, timeout=60)
+            r = subprocess.run([*TOOL, *args], env=dict(base, **env), capture_output=True, text=True, timeout=60)
             return r.returncode, r.stdout, r.stderr
 
         def leftovers() -> list[str]:
@@ -84,7 +84,7 @@ def main() -> int:
         print("run_suite: a signal to the wrapper alone")
         started, done = os.path.join(sandbox, "started"), os.path.join(sandbox, "done")
         s = suite("slow.sh", f'touch {started}\nsleep 2\ntouch {done}\n')
-        p = subprocess.Popen([TOOL, s], env=base, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
+        p = subprocess.Popen([*TOOL, s], env=base, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
                              start_new_session=True)
         for _ in range(100):
             if os.path.exists(started):
