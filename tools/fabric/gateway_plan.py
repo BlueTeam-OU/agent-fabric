@@ -201,8 +201,14 @@ def models_of(login: str, role: str | None, provider: str) -> tuple[list[str], l
     models: list[str] = []
     skipped: list[str] = []
     try:
-        session = routing.resolve_session(role, login, provider=provider)["composite"]
-        models.append(session)
+        chosen = routing.resolve_session(role, login, provider=provider)
+        named = chosen.get("capability")
+        res = routing.resolve(named, provider, role, login) if named else None
+        if res and res["resolution"] == "harness" and not res["pinned"]:
+            skipped.append(f"session: names the class {named}, which rides a harness alias with no model pinned for {provider}; "
+                           "no route can be written for it")
+        else:
+            models.append(chosen["composite"])
         for klass in routing.load_capabilities()["classes"]:
             res = routing.resolve(klass, provider, role, login)
             if res["resolution"] == "harness" and not res["pinned"]:

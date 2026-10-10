@@ -8,6 +8,7 @@ from __future__ import annotations
 import os
 import shutil
 import stat
+import struct
 import subprocess
 import sys
 import tempfile
@@ -83,8 +84,8 @@ def main() -> int:
             try:
                 write(root, TOKEN[:-1] + "c")
                 kept = False
-            except OSError:
-                kept = True
+            except g.TokenFileError as e:
+                kept = "cannot be written" in str(e) and "No space" in str(e)
         finally:
             os.replace = real_replace
         check("a rename that fails leaves the old token whole and no temporary file",
@@ -144,11 +145,40 @@ def main() -> int:
         check("the runtime directory must exist: it is not made here",
               "does not exist" in refusal(os.path.join(base, "nowhere")))
         root = fresh(base, "h")
-        for bad in ("", " tok", "tok\n", "to\nk", "to\x00k", "tok "):
+        for bad in ("", " tok", "tok\n", "to\nk", "to\x00k", "tok ", "a\tb", "a b", "a\x01b", "a\x7fb", "tökén"):
             check(f"a token that is empty or carries whitespace or a control character ({bad!r}) is refused and nothing is written",
                   refusal(root, bad) != "" and not os.path.exists(g.token_path(UID, root)))
         errors = [refusal(fresh(base, f"x{n}"), TOKEN, fs=lambda _p: "nfs") for n in range(2)]
         check("no error carries the token", all(TOKEN not in e and "sk-ant" not in e for e in errors))
+
+        root = fresh(base, "ro")
+        write(root)
+        gw = os.path.join(root, str(UID), "agent-fabric", "gateway")
+        os.chmod(gw, 0o500)
+        try:
+            failure = refusal(root, TOKEN[:-1] + "z")
+        finally:
+            os.chmod(gw, 0o700)
+        check("a directory the login cannot write into is a TokenFileError, not a bare OSError, and the old token stays",
+              "cannot be written" in failure and TOKEN[:-1] + "z" not in failure and open(g.token_path(UID, root)).read() == TOKEN, failure)
+        acl = struct.pack("<I", 2) + b"".join(struct.pack("<HHI", tag, perm, ident) for tag, perm, ident in
+                                               ((1, 7, 0xFFFFFFFF), (2, 7, 4242), (4, 5, 0xFFFFFFFF), (0x10, 7, 0xFFFFFFFF), (0x20, 0, 0xFFFFFFFF)))
+        real_acl = g._acl
+        g._acl = lambda path, name: acl if name == g.ACL_ACCESS else None
+        try:
+            try:
+                g.check_directory(os.path.join(root, str(UID)), UID)
+                acl_msg = ""
+            except g.TokenFileError as e:
+                acl_msg = str(e)
+        finally:
+            g._acl = real_acl
+        check("an ACL entry for another user that grants write after the mask is refused by the ACL check itself (the second line)", "grants write" in acl_msg, acl_msg)
+        mi = os.path.join(base, "mountinfo")
+        with open(mi, "w") as fh:
+            fh.write("1 0 0:1 / / rw - ext4 /dev/a rw\n2 1 0:2 / /srv/with\\040space rw - xfs /dev/b rw\n3 1 0:3 / /srv/with\\040space rw - tmpfs tmpfs rw\n")
+        check("the mount table: an escaped space is decoded, and of two mounts on one point the later is the visible one",
+              g.filesystem_of("/srv/with space/x", mi) == "tmpfs" and g.filesystem_of("/etc", mi) == "ext4")
 
         print("remove")
         root = fresh(base, "r")

@@ -138,7 +138,14 @@ def main() -> int:
                 report = json.loads(jout)
                 check("a directory the gateway would refuse is skipped with its reason, the token not echoed, and sync still exits 0",
                       rc == 0 and any("writable by group or other" in x for x in report["skipped"]) and "SECOND-" not in jout, jout)
+                os.chmod(os.path.dirname(tokpath), 0o500)
+                store["values"]["CLAUDE_CODE_OAUTH_TOKEN"] = "sk-ant-oat01-THIRD-" + "z" * 40
+                rc, jout = run(s.sync, False, True)
+                report = json.loads(jout)
                 os.chmod(os.path.dirname(tokpath), 0o700)
+                check("a directory the login cannot write into: skipped with its reason, the report still printed, every later step run, exit 0",
+                      rc == 0 and any("cannot be written" in x for x in report["skipped"]) and "THIRD-" not in jout
+                      and "GIT_USER_NAME" in report["applied"] and open(tokpath).read().startswith("sk-ant-oat01-SECOND-"), jout)
                 del store["values"]["CLAUDE_CODE_OAUTH_TOKEN"]
                 rc, jout = run(s.sync, False, True)
                 check("a store that holds no token takes the file away", not os.path.exists(tokpath) and rc == 0, jout)

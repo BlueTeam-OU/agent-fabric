@@ -19,16 +19,20 @@ CONTRACT
                     login was taken off.
   A path the gateway would refuse is refused here first, naming the first check that failed: a component that is a
   symlink; a directory not owned by the login or root, or writable by group or other; any directory carrying a
-  default ACL, or an ACL entry for another user or group that grants write; a filesystem the permission checks cannot
-  read whole (only ext2/3/4, xfs, btrfs and tmpfs are admitted); a file with an ACL entry. The runtime directory
+  default ACL, or an ACL entry for another user or group that grants write (on Linux the mask is the group bits, so
+  the mode check refuses it first; the ACL check stays as the second line); a filesystem the permission checks
+  cannot read whole (only ext2/3/4, xfs, btrfs and tmpfs are admitted). A file that carries an ACL entry is not
+  refused but replaced by a new 0600 file with none. The runtime directory
   /run/user/<uid> must exist: it is the login's own, made by the session manager, and is not made here.
   The checks run from `check_from` (default /, as the gateway does) down; a test names the directory it made.
-  Errors are TokenFileError with one line, never carrying the token.
+  Errors are TokenFileError with one line, never carrying the token: every failure of the filesystem (no space, a
+  directory the login cannot write, an unreadable mount table) is one too, so a caller has one thing to catch.
   Nothing is logged: the token is not in any message, argument, environment or exception."""
 from __future__ import annotations
 
 import contextlib
 import os
+import re
 import stat
 import struct
 import sys
@@ -52,17 +56,18 @@ def token_path(uid: int, runtime_root: str = RUNTIME_ROOT) -> str:
     return os.path.join(runtime_root, str(uid), *SUBDIRS, NAME)
 
 
-def filesystem_of(path: str) -> str:
+def filesystem_of(path: str, mountinfo: str = "/proc/self/mountinfo") -> str:
     """The type of the filesystem path lies on: the longest mount point of /proc/self/mountinfo that contains it."""
     real, best, kind = os.path.realpath(path), "", ""
-    with open("/proc/self/mountinfo", encoding="utf-8", errors="replace") as fh:
+    with open(mountinfo, encoding="utf-8", errors="replace") as fh:
         for line in fh:
             left, _, right = line.partition(" - ")
             fields = left.split()
             if len(fields) < 5 or not right:
                 continue
-            mount = fields[4].replace("\\040", " ")
-            if (real == mount or real.startswith(mount.rstrip("/") + "/")) and len(mount) > len(best):
+            mount = re.sub(r"\\([0-7]{3})", lambda m: chr(int(m.group(1), 8)), fields[4])
+            # >= : of several mounts on one mount point the last listed is the visible one.
+            if (real == mount or real.startswith(mount.rstrip("/") + "/")) and len(mount) >= len(best):
                 best, kind = mount, right.split()[0]
     return kind
 
@@ -147,31 +152,35 @@ def _read(path: str) -> bytes | None:
 def write(token: str, uid: int | None = None, runtime_root: str = RUNTIME_ROOT,
           fs_of: Callable[[str], str] = filesystem_of, check_from: str = os.sep) -> str:
     uid = os.getuid() if uid is None else uid
-    if not token or token != token.strip() or any(c in token for c in "\r\n\x00"):
-        raise TokenFileError("the token is empty or carries whitespace or a control character; nothing written")
+    # A setup-token is printable ASCII; it goes into an Authorization header, where nothing else is a valid value.
+    if not token or any(not 0x21 <= ord(c) <= 0x7E for c in token):
+        raise TokenFileError("the token is empty or carries a space, a control character or a non-ASCII one; nothing written")
     path = token_path(uid, runtime_root)
-    _make_dirs(path, uid, runtime_root)
-    _check_path(path, uid, fs_of, check_from)
-    data = token.encode("utf-8")
-    current = _read(path)
-    if current is not None and current == data:
-        st = os.lstat(path)
-        if stat.S_IMODE(st.st_mode) == 0o600 and st.st_uid == uid and _acl(path, ACL_ACCESS) is None:
-            return "unchanged"
-    directory = os.path.dirname(path)
-    fd, tmp = tempfile.mkstemp(dir=directory, prefix=f".{NAME}.")
     try:
-        with os.fdopen(fd, "wb") as fh:
-            fh.write(data)
-            fh.flush()
-            os.fchmod(fh.fileno(), 0o600)
-            os.fsync(fh.fileno())
-        os.replace(tmp, path)
-    except BaseException:
-        with contextlib.suppress(FileNotFoundError):
-            os.unlink(tmp)
-        raise
-    return "written"
+        _make_dirs(path, uid, runtime_root)
+        _check_path(path, uid, fs_of, check_from)
+        data = token.encode("utf-8")
+        current = _read(path)
+        if current is not None and current == data:
+            st = os.lstat(path)
+            if stat.S_IMODE(st.st_mode) == 0o600 and st.st_uid == uid and _acl(path, ACL_ACCESS) is None:
+                return "unchanged"
+        directory = os.path.dirname(path)
+        fd, tmp = tempfile.mkstemp(dir=directory, prefix=f".{NAME}.")
+        try:
+            with os.fdopen(fd, "wb") as fh:
+                fh.write(data)
+                fh.flush()
+                os.fchmod(fh.fileno(), 0o600)
+                os.fsync(fh.fileno())
+            os.replace(tmp, path)
+        except BaseException:
+            with contextlib.suppress(FileNotFoundError):
+                os.unlink(tmp)
+            raise
+        return "written"
+    except OSError as e:
+        raise TokenFileError(f"{path}: cannot be written ({e.strerror or e.errno})") from None
 
 
 def remove(uid: int | None = None, runtime_root: str = RUNTIME_ROOT) -> str:

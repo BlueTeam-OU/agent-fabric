@@ -152,6 +152,15 @@ def main() -> int:
         routing.resolve = real
     check("a class that rides a harness alias with no model is named, and has no route",
           len(partial.skipped) == 1 and partial.skipped[0].startswith("code-low:") and "haiku" not in [s["selector"] for s in partial.selectors])
+    real_session = routing.resolve_session
+    routing.resolve_session = lambda *a, **k: {**real_session(*a, **k), "capability": "code-low", "composite": "haiku"}
+    routing.resolve = unpinned
+    try:
+        by_class = gp.build(ME, "python-dev", "anthropic")
+    finally:
+        routing.resolve, routing.resolve_session = real, real_session
+    check("a session that names a class riding a harness alias with no model is named, and has no route",
+          any(x.startswith("session: names the class code-low") for x in by_class.skipped) and "haiku" not in [x["selector"] for x in by_class.selectors])
     for bad, why in (({"provider": "gemini"}, "provider"), ({"port": 70000}, "port"), ({"port": True}, "port")):
         try:
             gp.build(ME, "python-dev", **{"provider": "anthropic", **bad})

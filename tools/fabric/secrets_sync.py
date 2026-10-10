@@ -151,7 +151,7 @@ def apply_gateway_token(values: dict[str, str]) -> tuple[str | None, str | None]
             return (what if done == "written" else None), None
         done = gateway_token.remove(uid, GATEWAY_RUNTIME_ROOT)
         return ("the gateway token file removed: the store holds no CLAUDE_CODE_OAUTH_TOKEN" if done == "removed" else None), None
-    except gateway_token.TokenFileError as e:
+    except (gateway_token.TokenFileError, OSError) as e:
         return None, f"{what} ({e})"
 
 
@@ -447,6 +447,15 @@ def ssh_key() -> str:
     return os.path.join(home(), ".ssh", "id_ed25519")
 
 
+def gateway_token_mode() -> str | None:
+    """The token file's mode as text, None when it is not there or its directory cannot be entered."""
+    try:
+        mode = file_mode(gateway_token.token_path(os.getuid(), GATEWAY_RUNTIME_ROOT))
+    except OSError:
+        return None
+    return f"{mode:04o}" if mode is not None else None
+
+
 def local_state() -> dict:
     f = env_file()
     mode = file_mode(f)
@@ -463,8 +472,7 @@ def local_state() -> dict:
         "bashrc_sources_secrets": bashrc_sources(f),
         "gh_has_token": gh_token_matches(),
         "ssh_key_present": os.path.exists(ssh_key()),
-        "gateway_token_file_mode": (lambda m: f"{m:04o}" if m is not None else None)(
-            file_mode(gateway_token.token_path(os.getuid(), GATEWAY_RUNTIME_ROOT))),
+        "gateway_token_file_mode": gateway_token_mode(),
         "git": {key: bool(git_get(key)) for key in GIT_NAMES.values()},
         "commit_gpgsign": git_get("commit.gpgsign") == "true",
     }
