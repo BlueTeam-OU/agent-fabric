@@ -549,12 +549,56 @@ class Download(unittest.TestCase):
 
 
 class Watchdog(unittest.TestCase):
+    def test_a_download_that_finished_cannot_be_failed_by_the_clock_afterwards(self):
+        w = gw._Watchdog(3600)
+        self.assertFalse(w.finish())
+        w._fire()
+        self.assertFalse(w.fired, "the timer after the last byte shuts nothing down")
+        w2 = gw._Watchdog(3600)
+        w2._fire()
+        self.assertTrue(w2.finish(), "positive control: a clock that ran out first is reported")
+
+    def test_a_tls_handshake_that_trickles_is_stopped_at_the_deadline(self):
+        import socket
+        import time
+        srv = socket.socket()
+        srv.bind(("127.0.0.1", 0))
+        srv.listen(5)
+        self.addCleanup(srv.close)
+
+        def serve():
+            while True:
+                try:
+                    c, _ = srv.accept()
+                except OSError:
+                    return
+                def trickle(c=c):
+                    try:
+                        c.recv(4096)
+                        c.sendall(b"\x16\x03\x03\x40\x00")        # a handshake record of 16 KiB...
+                        for _ in range(150):
+                            c.sendall(b"\x00")                   # ...whose body never completes
+                            time.sleep(0.1)
+                    except OSError:
+                        pass
+                    finally:
+                        c.close()
+                threading.Thread(target=trickle, daemon=True).start()
+        threading.Thread(target=serve, daemon=True).start()
+        started = time.monotonic()
+        with tempfile.TemporaryDirectory() as d, self.assertRaisesRegex(TimeoutError, "did not finish within 1 s"):
+            gw.download(f"https://127.0.0.1:{srv.getsockname()[1]}/", TOKEN, os.path.join(d, "a"), deadline_s=1, read_timeout_s=8)
+        self.assertLess(time.monotonic() - started, 4, "the handshake alone would have run to its 8 s socket timeout")
+
     def test_a_connection_made_after_the_deadline_is_shut_down_at_once(self):
         class Sock:
-            shut = 0
+            shut = closed = 0
 
             def shutdown(self, how):
                 self.shut += 1
+
+            def close(self):
+                self.closed += 1
         w = gw._Watchdog(3600)
         before, after = Sock(), Sock()
         w.track(before)
@@ -564,6 +608,7 @@ class Watchdog(unittest.TestCase):
         w.track(after)
         self.assertEqual(after.shut, 1)
         w.stop()
+        self.assertEqual((before.closed, after.closed), (1, 1), "the duplicated descriptors are closed when the download ends")
 
 
 class Read(Case):

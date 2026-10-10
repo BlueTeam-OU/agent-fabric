@@ -217,12 +217,18 @@ class _Watchdog:
     """The deadline of one download, enforced from outside the read. A check between
     reads is not a bound: http.client's chunk-size line is read with a readline that
     waits for a newline however slowly the bytes come, and the socket timeout restarts
-    with every byte. When the time is up the connection in use is shut down, which
-    ends whatever read is blocked on it with an error the download words as a timeout."""
+    with every byte. When the time is up every connection in use is shut down, which
+    ends whatever read or handshake is blocked on it with an error the download words
+    as a timeout.
+
+    What is tracked is a duplicate of the connection's descriptor: wrap_socket detaches
+    the raw socket it is given, so the original object is dead before the handshake,
+    and shutdown acts on the connection, not on the descriptor it is called through."""
 
     def __init__(self, deadline_s: float):
         self.fired = False
-        self._sock: Any = None
+        self._done = False
+        self._socks: list[Any] = []
         self._lock = threading.Lock()
         self._timer = threading.Timer(deadline_s, self._fire)
         self._timer.daemon = True
@@ -230,20 +236,36 @@ class _Watchdog:
     def start(self) -> None:
         self._timer.start()
 
+    def finish(self) -> bool:
+        """Settles the race between the last byte and the clock: after this the timer
+        can no longer shut anything down, and the answer says whether it already had."""
+        with self._lock:
+            self._done = True
+            return self.fired
+
     def stop(self) -> None:
         self._timer.cancel()
+        with self._lock:
+            socks, self._socks = self._socks, []
+        for s in socks:
+            try:
+                s.close()
+            except OSError:
+                pass
 
     def track(self, sock: Any) -> None:
         with self._lock:
-            self._sock = sock
+            self._socks.append(sock)
             if self.fired:
                 self._shutdown(sock)
 
     def _fire(self) -> None:
         with self._lock:
+            if self._done:
+                return
             self.fired = True
-            if self._sock is not None:
-                self._shutdown(self._sock)
+            for s in self._socks:
+                self._shutdown(s)
 
     @staticmethod
     def _shutdown(sock: Any) -> None:
@@ -256,8 +278,16 @@ class _Watchdog:
 def _tracked(base: type, watch: _Watchdog) -> type:
     class Tracked(base):   # type: ignore[valid-type, misc]
         def connect(self) -> None:
+            # Tracked as soon as the socket exists, before a TLS handshake or a proxy
+            # tunnel is read on it: those run inside super().connect() and trickle too.
+            create = self._create_connection
+
+            def tracked(*a: Any, **k: Any) -> Any:
+                sock = create(*a, **k)
+                watch.track(socket.fromfd(sock.fileno(), sock.family, sock.type, sock.proto))
+                return sock
+            self._create_connection = tracked
             super().connect()
-            watch.track(self.sock)
     return Tracked
 
 
@@ -285,9 +315,11 @@ def download(url: str, token: str, dest: str, max_bytes: int = MAX_ARTIFACT_BYTE
     Returns (bytes, sha256). Raises OSError/URLError/ValueError/TimeoutError or an
     http.client.HTTPException, the first line of which is safe to say: the token is
     in a header and never in a message. The whole download, from the first connection
-    to the last byte, is bounded by deadline_s (a watchdog, _Watchdog); a connect that
-    does not answer within read_timeout_s fails on its own, and a name lookup is the
-    one wait nothing here can interrupt."""
+    to the last byte, is bounded by deadline_s (a watchdog, _Watchdog), the TLS handshake
+    and a proxy tunnel included: the raw socket is tracked as soon as it exists. A TCP
+    connect that does not answer within read_timeout_s fails on its own, and a name lookup
+    is the one wait nothing here can interrupt. Once the last byte is in, a clock that
+    runs out during the flush no longer turns the download into a failure."""
     req = urllib.request.Request(url, headers={"Authorization": f"Bearer {token}", "Accept": "application/octet-stream",
                                                "User-Agent": "fabric-gateway-install", "X-GitHub-Api-Version": "2022-11-28"})
     watch = _Watchdog(deadline_s)
@@ -307,10 +339,10 @@ def download(url: str, token: str, dest: str, max_bytes: int = MAX_ARTIFACT_BYTE
                     raise ValueError(f"the download is larger than {max_bytes} bytes")
                 h.update(chunk)
                 out.write(chunk)
+            if watch.finish():
+                raise TimeoutError
             out.flush()
             os.fsync(out.fileno())
-        if watch.fired:
-            raise TimeoutError
     except BaseException:
         if watch.fired:
             raise TimeoutError(f"the download did not finish within {int(deadline_s)} s") from None
