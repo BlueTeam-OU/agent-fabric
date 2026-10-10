@@ -119,7 +119,7 @@ def print_report(d: dict, routing, *, label: str, agent: str, role: str, provide
     print(f"            {first}")
 
 
-def record_launch_provider(state_dir: str, provider: str) -> None:
+def record_launch_provider(state_dir: str, provider: str, transport: str = "") -> None:
     """The provider the agent files were last installed for, so a run with
     no provider of its own (bootstrap from the control agent, an upgrade,
     fabric-model apply) installs for this one rather than for anthropic
@@ -130,15 +130,16 @@ def record_launch_provider(state_dir: str, provider: str) -> None:
         os.makedirs(state_dir, exist_ok=True)
         tmp = f"{path}.tmp-{os.getpid()}"
         with open(tmp, "w", encoding="utf-8") as fh:
-            json.dump({"provider": provider, "at": datetime.datetime.now(datetime.timezone.utc)
-                       .strftime("%Y-%m-%dT%H:%M:%SZ")}, fh)
+            # `transport` only when it is not direct: install_agent_files reads "provider" alone.
+            json.dump({"provider": provider, **({"transport": transport} if transport else {}),
+                       "at": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")}, fh)
             fh.write("\n")
         os.replace(tmp, path)
     except OSError as exc:
         say(f"launch: could not record the provider in {path}: {exc}")
 
 
-def install_agent_files(fabric_root: str, provider: str, state_dir: str | None = None) -> None:
+def install_agent_files(fabric_root: str, provider: str, state_dir: str | None = None, transport: str = "") -> None:
     try:
         r = subprocess.run(["bash", f"{fabric_root}/runtime/claude-code/install-agent-files.sh", "--provider",
                             provider], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
@@ -150,7 +151,7 @@ def install_agent_files(fabric_root: str, provider: str, state_dir: str | None =
         die(f"could not install the capability-class agent files for {provider} "
             "(runtime/claude-code/install-agent-files.sh).")
     if state_dir:
-        record_launch_provider(state_dir, provider)
+        record_launch_provider(state_dir, provider, transport)
 
 
 def mark_onboarding_done(path: str) -> None:

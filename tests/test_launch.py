@@ -519,7 +519,7 @@ def main() -> int:
         r = subprocess.run(["bash", SHIM, "--provider", "nowhere"], env=clean_env(AGENT_FABRIC_PYTHON=sys.executable),
                            capture_output=True, text=True, timeout=30)
         check("the shim runs the module by absolute path, its argv untouched",
-              r.returncode == 1 and r.stderr == "launch: --provider must be openrouter or anthropic, not 'nowhere'\n")
+              r.returncode == 1 and r.stderr == "launch: --provider must be openrouter, anthropic or gateway, not 'nowhere'\n")
 
         print("two launchers in one process")
         # A fixture copy and the real launcher loaded in one process each run

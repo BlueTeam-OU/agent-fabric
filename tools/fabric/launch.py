@@ -7,12 +7,18 @@ below — keeps that path).
 
     runtime/openrouter/launch [claude args...]     # resolve, export, exec (broker)
     runtime/openrouter/launch --provider anthropic # the same, on plain claude
+    runtime/openrouter/launch --provider gateway   # plain claude's routing, through the gateway
     runtime/openrouter/launch --print              # resolve and print; no exec
 
 CONTRACT, frozen from the bash (ADR-040 §5 rule 3):
   argv      --print, anywhere: resolve and print, never start a session.
             --provider <p> | --provider=<p>, anywhere, p in openrouter
-            (the default) | anthropic; any other value: exit 1. Both are
+            (the default) | anthropic | gateway; any other value: exit 1.
+            gateway routes as anthropic does (the same pins and agent
+            files) and reaches the models through the gateway: see
+            launcher/gateway.py, which starts it, hands the harness its
+            loopback URL and a local key and no upstream credential, and
+            stops it when the session ends. Both are
             the launcher's and are removed; every other argument passes
             through to claude in order, after the refusals below. There is
             no help text: --help and --version pass through to claude. A
@@ -24,6 +30,9 @@ CONTRACT, frozen from the bash (ADR-040 §5 rule 3):
             AGENT_FABRIC_STATE_DIR (identity.py), AGENT_FABRIC_ALLOW_STALE,
             AGENT_FABRIC_PULLED, AGENT_FABRIC_RESTART_WAIT_S,
             AGENT_FABRIC_FRESH_NOTE, AGENT_FABRIC_FRESH_JOB,
+            AGENT_FABRIC_GW_BIN (the gateway executable, else the pin's in
+            ~/.local/bin or on PATH), AGENT_FABRIC_GW_READY_TIMEOUT_S (its
+            READY wait, 30 s),
             AGENT_FABRIC_NO_OPENING, CLAUDE_CONFIG_DIR,
             CLAUDE_CODE_SUBAGENT_MODEL, CLAUDE_CODE_SUBAGENT_MODEL_FORCE,
             CLAUDE_CODE_EFFORT_LEVEL (refused when set), ANTHROPIC_* and the
@@ -39,9 +48,13 @@ CONTRACT, frozen from the bash (ADR-040 §5 rule 3):
             model-profile.local.json, restart.json); writes
             $STATE_DIR/launch-prompt.md (launch_prompt.py),
             ${CLAUDE_CONFIG_DIR:-$HOME}/.claude.json (onboarding, plain
-            claude only, none for --help), the agent files (install-agent-files.sh; none
+            claude and the gateway path, which also approves the local key
+            there; none for --help), the agent files (install-agent-files.sh; none
             for --help), $STATE_DIR/launch-provider.json after they are
-            installed (the provider, for a later install with none), and
+            installed (the provider, for a later install with none, and the
+            `transport` when it is the gateway), on the gateway path
+            $STATE_DIR/gateway-plan.json, gateway.json (pid, version,
+            listener, plan digest; removed at the end) and gateway.log, and
             creates /var/tmp/agent-fabric-<agent>. Fast-forwards the fabric
             checkout and the launch working copy when they are behind.
   stdout    --print's report, byte for byte the bash's (compared for every
@@ -242,6 +255,7 @@ from fabric_launcher.session import require_files, make_tmpdir, print_report  # 
 from fabric_launcher.session import record_launch_provider, install_agent_files  # noqa: E402, F401
 from fabric_launcher.session import mark_onboarding_done, session_command, opening_prompt  # noqa: E402, F401
 from fabric_launcher.session import ignore_quit, run_session, read_restart  # noqa: E402, F401
+from fabric_launcher import gateway  # noqa: E402, F401
 
 
 # ── the fabric itself must be current ───────────────────────────────
@@ -362,9 +376,12 @@ def launch(argv: list[str]) -> int:
     orig_args = list(argv)   # for the re-exec after a pull, below
     started = int(time.time())   # a restart marker older than this is not this session's
     print_only, provider, args = parse_argv(argv)
-    if provider not in ("openrouter", "anthropic"):
-        say(f"launch: --provider must be openrouter or anthropic, not '{provider}'")
+    if provider not in ("openrouter", "anthropic", "gateway"):
+        say(f"launch: --provider must be openrouter, anthropic or gateway, not '{provider}'")
         return 1
+    # The gateway path routes as plain claude does (the anthropic column's pins,
+    # the same agent files); only the transport differs (launcher/gateway.py).
+    routing_provider = "anthropic" if provider == "gateway" else provider
 
     env = os.environ
     fabric_root = env.get("AGENT_FABRIC_ROOT") or CODE_ROOT
@@ -411,7 +428,7 @@ def launch(argv: list[str]) -> int:
     except Exception:
         traceback.print_exc()
         die("could not resolve the profile (see the message above).")
-    resolved = resolve_or_die(routing, aliases, local_override, role, agent, provider)
+    resolved = resolve_or_die(routing, aliases, local_override, role, agent, routing_provider)
     if resolved.get("review_violation"):
         die(f"merged review model '{resolved['review_violation']}' is not in routing/policies/review-grade.json.\n"
             "  A review's failure mode is a green PR that merges, so the reviewer's\n"
@@ -419,8 +436,16 @@ def launch(argv: list[str]) -> int:
             "  review-grade.json through fabric-coordinator (policies/AUTHORITY.md).")
     session = str(resolved["session"]["composite"])
 
-    if provider == "anthropic":
+    if routing_provider == "anthropic":
         drop_broker_env()
+    # A launch started from inside a gateway session inherits its loopback base URL
+    # (the session-start seal unsets the key in Bash calls, not the URL): plain
+    # claude means Anthropic direct, so it goes, as the broker's does; a gateway
+    # launch sets its own after its gateway is READY.
+    if env.get("AGENT_FABRIC_LAUNCH_TRANSPORT") == "gateway":
+        gone = [v for v in ("ANTHROPIC_BASE_URL", "ANTHROPIC_API_KEY") if env.pop(v, None) is not None]
+        if gone:
+            say("launch: started from inside a gateway session — dropped what it left in this shell: " + " ".join(gone))
     settle_oauth_token(provider, home)
     settle_secrets(provider, home)
     set_pins(aliases, resolved["exports"])
@@ -445,7 +470,7 @@ def launch(argv: list[str]) -> int:
     # expresses no effort; then no flag is passed and nothing is stamped,
     # because a level the model cannot take is not a decision to record.
     routed_effort = stripped(helper([sys.executable, routing_path, "session-effort", "--me", "--provider",
-                                     provider], env=env_with(AGENT_FABRIC_ROOT=fabric_root), quiet=True))
+                                     routing_provider], env=env_with(AGENT_FABRIC_ROOT=fabric_root), quiet=True))
     session_effort, caller_effort = effort_for(args, routed_effort)
     # Cleared, not just left unset, when there is no level: this stamp is
     # CONDITIONAL, so a launch started from inside another fabric session
@@ -461,7 +486,13 @@ def launch(argv: list[str]) -> int:
     env["AGENT_FABRIC_LAUNCH_SESSION_MODEL"] = effective_session
     env["AGENT_FABRIC_LAUNCH_PROFILE"] = label
     env["AGENT_FABRIC_LAUNCH_AGENT"] = agent
-    env["AGENT_FABRIC_LAUNCH_PROVIDER"] = provider
+    # The provider stamp is the routing column (every reader of it knows two);
+    # the gateway is a transport beside it, stamped for fabric-status.
+    env["AGENT_FABRIC_LAUNCH_PROVIDER"] = routing_provider
+    if provider == "gateway":
+        env["AGENT_FABRIC_LAUNCH_TRANSPORT"] = "gateway"
+    else:
+        env.pop("AGENT_FABRIC_LAUNCH_TRANSPORT", None)
 
     # The role's system prompt, rendered for THIS binding from the OS and the
     # state directory (nothing about who is passed in), written atomically so
@@ -531,9 +562,12 @@ def launch(argv: list[str]) -> int:
     make_tmpdir(env["TMPDIR"], ours=not own_tmpdir)
 
     if print_only:
-        print_report(resolved, routing, label=label, agent=agent, role=role, provider=provider, session=session,
+        print_report(resolved, routing, label=label, agent=agent, role=role, provider=routing_provider, session=session,
                      effective_session=effective_session, session_effort=session_effort,
                      caller_effort=caller_effort, prompt_file=prompt_file, prompt_flag=prompt_flag)
+        if provider == "gateway":
+            print("  (launched through the gateway: the harness gets its loopback listener and a local key, "
+                  "and no upstream credential)")
         return 0
 
     # The review class's model is per launch (the broker's composite, or the
@@ -543,7 +577,7 @@ def launch(argv: list[str]) -> int:
     # the file against the same resolution and denies a review when another
     # launch on this account has since rewritten it.
     if not asks_help(args):
-        install_agent_files(fabric_root, provider, state_dir)
+        install_agent_files(fabric_root, routing_provider, state_dir, transport="gateway" if provider == "gateway" else "")
 
     login = pwd.getpwuid(os.getuid()).pw_name
     # A plain-claude session runs only on a long-lived sign-in: a template's
@@ -576,7 +610,7 @@ def launch(argv: list[str]) -> int:
     # than placed first: "last wins" would be an assumption about claude's
     # argv handling, and the stamp above must not be able to disagree with
     # what the child actually applies.
-    cmd = session_command(provider, session, caller_model, session_effort, caller_effort, prompt_flag,
+    cmd = session_command(routing_provider, session, caller_model, session_effort, caller_effort, prompt_flag,
                           prompt_file, args)
     # A language-culture login whose locale the fabric authored a search for
     # (identities/roles/language-culture/locale/<suffix>/locale.json, served
@@ -622,7 +656,20 @@ def launch(argv: list[str]) -> int:
     # so fabric-fresh refuses it rather than replay a finished job.
     env["AGENT_FABRIC_LAUNCH_OPENING"] = "1" if opening else "0"
 
-    status = run_session(cmd)
+    # The gateway is started only now, after every refusal: it needs the session
+    # command's model and the pins in the environment (the plan must route what
+    # the harness will send), and nothing else of the launch depends on it.
+    gw = None
+    if provider == "gateway" and not asks_help(args):
+        gw = gateway.launch_gateway(env, fabric_root, agent, role, state_dir, session,
+                                    caller_model_value if caller_model else None)
+    try:
+        status = run_session(cmd)
+    finally:
+        if gw is not None:
+            gateway.stop(gw)
+            gateway.forget_state(state_dir, gw.pid)
+            gateway.clear_harness_env(gw, env)
     restart(state_dir, started, opening, status, orig_args, fabric_root, cwd)
     return status
 

@@ -734,7 +734,7 @@ def main() -> int:
         check("a pinned review model outside the grade is refused on vanilla too",
               rc != 0 and "not in routing/policies/review-grade.json" in out, out)
         rc, out = run("--provider", "nowhere", "--print")
-        check("an unknown provider is refused", rc != 0 and "must be openrouter or anthropic" in out, out)
+        check("an unknown provider is refused", rc != 0 and "must be openrouter, anthropic or gateway" in out, out)
         rm(f"{bin_}/claude")
 
         print("launch: the exec carries the pins to the child")
@@ -1129,6 +1129,199 @@ def main() -> int:
         rc, out = run("--version")
         check("a role with no charter cannot launch: refused before exec",
               rc != 0 and "could not render the role's system prompt" in out and "EXECCED" not in out, out)
+
+        print("launch: --provider gateway — the harness talks to the gateway, holding a local key and no upstream credential")
+        FAKE_GATEWAY = r"""#!/usr/bin/env python3
+import ctypes, hashlib, json, os, signal, socket, stat, sys, time
+mode = os.environ.get("FAKE_GW_MODE", "ok")
+log = os.environ["FAKE_GW_LOG"]
+def note(**rec):
+    with open(log, "a") as fh:
+        fh.write(json.dumps(rec) + "\n")
+if sys.argv[1:] == ["--version", "--json"]:
+    if mode == "badjson":
+        print("not json"); sys.exit(0)
+    print(json.dumps({"gateway_version": "0.1.0-fake", "runtime_contract": 2 if mode == "contract2" else 1,
+                      "plan_schemas": [1] if mode == "schema1" else [0]}))
+    sys.exit(0)
+args = dict(zip(sys.argv[2::2], sys.argv[3::2]))
+plan = open(args["--plan"], "rb").read()
+key = os.read(int(args["--local-key-fd"]), 200).decode()
+libc = ctypes.CDLL(None)
+sig = ctypes.c_int()
+libc.prctl(2, ctypes.byref(sig))   # PR_GET_PDEATHSIG
+control = os.fstat(int(args["--control-fd"]))
+note(event="serve", argv=sys.argv[1:], key_sha=hashlib.sha256(key.encode()).hexdigest(), key_tail=key[-20:], key_is_64_hex=len(key) == 64 and all(c in "0123456789abcdef" for c in key),
+     pdeathsig=sig.value, own_session=os.getsid(0) == os.getpid(), control_is_socket=stat.S_ISSOCK(control.st_mode),
+     plan_sha="sha256:" + hashlib.sha256(plan).hexdigest(), pid=os.getpid(), stdout_is_null=os.path.samestat(os.fstat(1), os.stat(os.devnull)))
+if mode == "exit4":
+    sys.exit(4)
+if mode == "hang":
+    time.sleep(60)
+ready = {"event": "ready", "gateway_version": "0.1.0-fake", "runtime_contract": 1, "plan_schema": 0,
+         "listener": "http://0.0.0.0:54321" if mode == "publiclistener" else "http://127.0.0.1:54321",
+         "plan_digest": "sha256:" + "0" * 64 if mode == "baddigest" else "sha256:" + hashlib.sha256(plan).hexdigest()}
+if mode == "contract2ready":
+    ready["runtime_contract"] = 2
+os.write(int(args["--ready-fd"]), (json.dumps(ready) + "\n").encode())
+os.close(int(args["--ready-fd"]))
+signal.signal(signal.SIGTERM, lambda *a: (note(event="term"), sys.exit(0)))
+while True:
+    time.sleep(0.1)
+"""
+        FAKE_CLAUDE_GW = r"""#!/usr/bin/env bash
+echo "CLAUDE-EXECCED:$*"
+echo "CLAUDE-BASE:${ANTHROPIC_BASE_URL-<unset>}"
+echo "CLAUDE-KEYSHA:$(printf %s "${ANTHROPIC_API_KEY-}" | sha256sum | cut -d' ' -f1)"
+for v in CLAUDE_CODE_OAUTH_TOKEN ANTHROPIC_AUTH_TOKEN OPENROUTER_API_KEY ANTHROPIC_CUSTOM_HEADERS; do echo "CLAUDE-HAS:$v=${!v+yes}"; done
+echo "CLAUDE-GATEWAY-LINES-ALREADY:$(wc -l < "$FAKE_GW_LOG")"
+echo "CLAUDE-STATE:$(cat "$AGENT_FABRIC_STATE_DIR/agents/$LOGNAME/gateway.json" 2>/dev/null || echo none)"
+echo "CLAUDE-PROVIDER:${AGENT_FABRIC_LAUNCH_PROVIDER-}"
+echo "CLAUDE-TRANSPORT:${AGENT_FABRIC_LAUNCH_TRANSPORT-}"
+"""
+        gw_log = f"{sandbox}/gateway.log"
+        gw_env = {"AGENT_FABRIC_GW_BIN": f"{bin_}/fake-gateway", "FAKE_GW_LOG": gw_log,
+                  "CLAUDE_CODE_OAUTH_TOKEN": "sk-ant-oat01-LEAK-CHECK", "OPENROUTER_API_KEY": "sk-or-LEAK-CHECK",
+                  "ANTHROPIC_AUTH_TOKEN": "leak-auth-token", "ANTHROPIC_CUSTOM_HEADERS": "x-leak: 1",
+                  "ANTHROPIC_API_KEY": "sk-ant-api03-LEAK-CHECK"}
+        put(f"{bin_}/fake-gateway", FAKE_GATEWAY, 0o755)
+        put(f"{bin_}/claude", FAKE_CLAUDE_GW, 0o755)
+        def put_generator() -> None:
+          put(f"{fabric}/tools/fabric/gateway_plan.py", (
+              "import json, os\n"
+              "class Plan:\n    pass\n"
+              "def build(login, provider='anthropic', role=None, port=0, session=None):\n"
+              "    p = Plan()\n"
+              "    models = [v for k, v in os.environ.items() if k.startswith('ANTHROPIC_DEFAULT_') and k.endswith('_MODEL')]\n"
+              "    models.append(os.environ.get('FAKE_PLAN_SESSION') or os.environ['AGENT_FABRIC_LAUNCH_SESSION_MODEL'])\n"
+              "    drop = os.environ.get('FAKE_PLAN_DROP')\n"
+              "    p.selectors = [{'selector': m, 'model': m, 'route_id': 'r'} for m in models if m != drop]\n"
+              "    p.skipped = ['code-plan: rides a harness alias'] if drop else []\n"
+              "    p.bytes = json.dumps({'login': login, 'provider': provider, 'role': role, 'session': session}).encode() + b'\\n'\n"
+              "    return p\n"
+              "def write(plan, path):\n    open(path, 'wb').write(plan.bytes)\n    return path\n"))
+
+        def gw_records() -> list[dict]:
+            return [json.loads(l) for l in read(gw_log).splitlines() if l.strip()]
+
+        def alive(pid: int) -> bool:
+            try:
+                os.kill(pid, 0)
+            except OSError:
+                return False
+            try:
+                with open(f"/proc/{pid}/stat") as fh:
+                    return fh.read().rsplit(") ", 1)[1].split()[0] != "Z"
+            except OSError:
+                return False
+        state_file = f"{agent_dir}/gateway.json"
+        mkfabric()
+        put_generator()
+        rm(gw_log, state_file)
+        rc, out = run("--provider", "gateway", plant=gw_env)
+        recs = gw_records()
+        serve = next((r for r in recs if r.get("event") == "serve"), {})
+        check("a launch with a fake gateway runs the harness: exit 0", rc == 0 and "CLAUDE-EXECCED:" in out, out)
+        check("the gateway got a 64-hex key on --local-key-fd, a ready fd and a control fd that is a socket",
+              serve.get("key_is_64_hex") and "--local-key-fd" in serve.get("argv", []) and "--ready-fd" in serve.get("argv", [])
+              and serve.get("control_is_socket") is True and "--control-fd" in serve.get("argv", []), serve)
+        check("…and was already running when the harness started (READY awaited)", has(r"CLAUDE-GATEWAY-LINES-ALREADY:1$", out), out)
+        check("the harness gets ANTHROPIC_BASE_URL = the listener READY reported", has(r"CLAUDE-BASE:http://127\.0\.0\.1:54321$", out), out)
+        check("…and ANTHROPIC_API_KEY = the key the gateway was given, not the one the shell had",
+              has(rf"CLAUDE-KEYSHA:{re.escape(serve.get('key_sha', 'x'))}$", out)
+              and serve.get("key_sha") != hashlib.sha256(b"sk-ant-api03-LEAK-CHECK").hexdigest(), (out, serve))
+        check("the harness holds no upstream credential: no OAuth token, auth token, OpenRouter key or custom headers",
+              all(has(rf"CLAUDE-HAS:{v}=$", out) for v in ("CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_AUTH_TOKEN", "OPENROUTER_API_KEY",
+                                                           "ANTHROPIC_CUSTOM_HEADERS")), out)
+        cfg_after = json.loads(read(f"{home}/.claude.json") or "{}")
+        check("the harness is told it may use the gateway-local key (its last 20 characters approved) and its wizard is done, so it opens with no question",
+              serve.get("key_tail") in cfg_after.get("customApiKeyResponses", {}).get("approved", []) and cfg_after.get("hasCompletedOnboarding") is True, cfg_after)
+        check("…the file stays the owner's alone",
+              (os.stat(f"{home}/.claude.json").st_mode & 0o777) == 0o600)
+        check("the plan the gateway served is the file written, digest and all",
+              serve.get("plan_sha") == "sha256:" + hashlib.sha256(open(f"{agent_dir}/gateway-plan.json", "rb").read()).hexdigest(), serve)
+        check("the plan was built for the login, as anthropic, with a per-launch session id",
+              '"provider": "anthropic"' in read(f"{agent_dir}/gateway-plan.json") and f'"login": "{LOGIN}"' in read(f"{agent_dir}/gateway-plan.json"))
+        check("the gateway is a child in a session of its own, with the parent-death signal SIGTERM",
+              serve.get("own_session") is True and serve.get("pdeathsig") == 15, serve)
+        check("its stdout is /dev/null (READY goes by the descriptor, never by prose)", serve.get("stdout_is_null") is True, serve)
+        state_during = next(iter(re.findall(r"CLAUDE-STATE:(.*)$", out, re.M)), "")
+        check("the state record the harness could read has pid, version, listener and plan digest, and no key",
+              all(k in state_during for k in ('"pid"', '"gateway_version": "0.1.0-fake"', '"listener": "http://127.0.0.1:54321"',
+                                              '"plan_digest": "sha256:'))
+              and not re.search(r"[0-9a-f]{64}", state_during.replace(serve.get("plan_sha", "")[7:], "")), state_during)
+        check("when the session ends the gateway is stopped (SIGTERM), its pid gone, its record removed",
+              any(r.get("event") == "term" for r in gw_records()) and not alive(serve.get("pid", 0)) and not os.path.exists(state_file), gw_records())
+        check("the provider stamp stays the routing column and the transport is stamped as the gateway",
+              has(r"CLAUDE-PROVIDER:anthropic$", out) and has(r"CLAUDE-TRANSPORT:gateway$", out), out)
+        check("…and recorded beside the provider, so a resume comes back through the gateway; the agent files were installed for anthropic",
+              json.loads(read(f"{agent_dir}/launch-provider.json")).get("provider") == "anthropic"
+              and json.loads(read(f"{agent_dir}/launch-provider.json")).get("transport") == "gateway", read(f"{agent_dir}/launch-provider.json"))
+        for mode, why, wants in (("contract2", "a gateway whose runtime contract it does not support", "speaks runtime contract 2"),
+                                 ("schema1", "a gateway that does not accept the plan schema", "accepts plan schemas [1]"),
+                                 ("badjson", "a --version --json that is not JSON", "did not answer")):
+            rm(gw_log)
+            rc, out = run("--provider", "gateway", plant={**gw_env, "FAKE_GW_MODE": mode})
+            check(f"{why}: refused before the harness starts, and before serve", rc == 1 and wants in out and "CLAUDE-EXECCED" not in out
+                  and not any(r.get("event") == "serve" for r in gw_records()), (rc, out))
+        for mode, wants in (("exit4", "credential source or the local key was unavailable"), ("baddigest", "not the sha256:"),
+                            ("publiclistener", "not loopback http"), ("contract2ready", "READY names runtime contract 2"),
+                            ("hang", "did not report READY within")):
+            rm(gw_log)
+            rc, out = run("--provider", "gateway", plant={**gw_env, "FAKE_GW_MODE": mode, "AGENT_FABRIC_GW_READY_TIMEOUT_S": "2"})
+            serve = next((r for r in gw_records() if r.get("event") == "serve"), {})
+            check(f"READY failure ({mode}): refused before the harness, the gateway not left running", rc == 1 and wants in out
+                  and "CLAUDE-EXECCED" not in out and not alive(serve.get("pid", 0)) and not os.path.exists(state_file), (rc, out))
+        rm(gw_log)
+        rc2, out2 = run("--provider", "gateway", plant=gw_env)
+        check("the control: the same launch with nothing dropped runs", rc2 == 0 and "CLAUDE-EXECCED" in out2, out2)
+        # a real tier pin and the real session model, from the --print report
+        rep = out_of("--provider", "gateway", "--print")
+        session_model = next(iter(re.findall(r"CLAUDE-EXECCED:.*--model (\S+)", out2)), "")
+        pin_model = next((m for m in re.findall(r"^  code-[a-z]+\s*: (\S+)", rep, re.M) if m != session_model), "")
+        rm(gw_log)
+        rc, out = run("--provider", "gateway", plant={**gw_env, "FAKE_PLAN_DROP": pin_model})
+        check("a tier pin the harness would send for a subagent but the plan has no route for: refused, naming it, the gateway not started",
+              pin_model != "" and pin_model != session_model and rc == 1 and f"the plan has no route for {pin_model}" in out
+              and "CLAUDE-EXECCED" not in out and not os.path.exists(gw_log), f"{pin_model!r} {session_model!r} {rc} {out}")
+        rm(gw_log)
+        rc, out = run("--provider", "gateway", plant={**gw_env, "FAKE_PLAN_DROP": session_model})
+        check("…the same with the session model dropped from the plan",
+              rc == 1 and f"the plan has no route for {session_model}" in out and "skipped: code-plan" in out
+              and "CLAUDE-EXECCED" not in out and not os.path.exists(gw_log), (rc, out))
+        rm(gw_log)
+        only = {**gw_env, "FAKE_PLAN_SESSION": session_model}
+        rc, out = run("--provider", "gateway", "--model", "claude-not-in-the-plan-9", plant=only)
+        check("a caller's own --model is what the session sends: no route for it, the launch is refused, naming it, nothing started",
+              rc == 1 and "the plan has no route for claude-not-in-the-plan-9" in out and "CLAUDE-EXECCED" not in out and not os.path.exists(gw_log), (rc, out))
+        for alias in ("sonnet", "opus[1m]"):
+            rm(gw_log)
+            rc, out = run("--provider", "gateway", "--model", alias, plant=only)
+            check(f"…a harness alias ({alias}) is the pins' to route: the launch runs", rc == 0 and f"--model {alias}" in out, (rc, out))
+        rc, out = run("--provider", "gateway", plant={**gw_env, "AGENT_FABRIC_GW_BIN": f"{bin_}/nope"})
+        check("no installed gateway: refused, nothing started", rc == 1 and "cannot run" in out and "CLAUDE-EXECCED" not in out, out)
+        rm(f"{fabric}/tools/fabric/gateway_plan.py")
+        rm(gw_log)
+        rc, out = run("--provider", "gateway", plant=gw_env)
+        check("no plan generator in the checkout: refused before the gateway starts",
+              rc == 1 and "gateway plan generator" in out and not os.path.exists(gw_log) and "CLAUDE-EXECCED" not in out, out)
+        rc, out = run("--provider", "gateway", "--print", plant=gw_env)
+        check("--print on the gateway path resolves as anthropic, says so, and starts nothing",
+              rc == 0 and "provider anthropic)" in out and "launched through the gateway" in out and not os.path.exists(gw_log)
+              and "EXECCED" not in out, out)
+        rc, out = run("--provider", "gateway", "--help", plant=gw_env)
+        check("claude's own --help on the gateway path starts no gateway", not os.path.exists(gw_log), out)
+        rm(gw_log)
+        rc, out = run("--provider", "anthropic", plant={"ANTHROPIC_BASE_URL": "http://127.0.0.1:54321", "ANTHROPIC_API_KEY": "k-from-the-gateway-session",
+                                                          "AGENT_FABRIC_LAUNCH_TRANSPORT": "gateway"})
+        check("a launch started from inside a gateway session drops its loopback URL and key, said; plain claude is Anthropic direct",
+              rc == 0 and has(r"CLAUDE-BASE:<unset>$", out) and has(r"CLAUDE-KEYSHA:" + hashlib.sha256(b"").hexdigest() + "$", out)
+              and "started from inside a gateway session — dropped what it left in this shell: ANTHROPIC_BASE_URL ANTHROPIC_API_KEY" in out
+              and has(r"CLAUDE-TRANSPORT:$", out), out)
+        rc, out = run("--provider", "anthropic", plant={"ANTHROPIC_BASE_URL": "http://127.0.0.1:54321"})
+        check("…and without the gateway stamp a loopback base URL is left alone (the control)", has(r"CLAUDE-BASE:http://127\.0\.0\.1:54321$", out), out)
+        put(f"{bin_}/claude", FAKE_CLAUDE, 0o755)
+        rm(f"{bin_}/fake-gateway")
 
         print("model-audit: provider values are allowlisted, never echoed by default")
 
