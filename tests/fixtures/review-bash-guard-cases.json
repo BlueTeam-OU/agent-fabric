@@ -712,6 +712,101 @@
      "want": "allow",
      "label": "allowed: a plain directory in the clone",
      "command": "cd tools && ls"
+    },
+    {
+     "want": "deny",
+     "label": "denied: a cd behind builtin is a cd (re-review of 0eb39891)",
+     "command": "builtin cd .. && ls"
+    },
+    {
+     "want": "deny",
+     "label": "denied: a cd behind command is a cd",
+     "command": "command cd .. && ls"
+    },
+    {
+     "want": "deny",
+     "label": "denied: a cd in a brace group",
+     "command": "{ cd ..; } && ls"
+    },
+    {
+     "want": "deny",
+     "label": "denied: a cd after then",
+     "command": "if true; then cd ..; fi; ls"
+    },
+    {
+     "want": "deny",
+     "label": "denied: a cd in a subshell",
+     "command": "( cd .. && ls )"
+    },
+    {
+     "want": "deny",
+     "label": "denied: a cd in a subshell with no space",
+     "command": "(cd .. && ls)"
+    },
+    {
+     "want": "deny",
+     "label": "denied: a cd as an if condition",
+     "command": "if cd ..; then ls; fi"
+    },
+    {
+     "want": "deny",
+     "label": "denied: a cd after do",
+     "command": "for x in 1; do cd ..; ls; done"
+    },
+    {
+     "want": "deny",
+     "label": "denied: a cd after !",
+     "command": "! cd .. && ls"
+    },
+    {
+     "want": "deny",
+     "label": "denied: a cd after time",
+     "command": "time cd .. && ls"
+    },
+    {
+     "want": "deny",
+     "label": "denied: a cd after an assignment",
+     "command": "X=1 cd .. && ls"
+    },
+    {
+     "want": "deny",
+     "label": "denied: a globbed cd behind builtin",
+     "command": "builtin cd .[.] && ls"
+    },
+    {
+     "want": "allow",
+     "label": "allowed: command before a command that is not cd",
+     "command": "command ls"
+    },
+    {
+     "want": "allow",
+     "label": "allowed: builtin before a builtin that is not cd",
+     "command": "builtin echo x"
+    },
+    {
+     "want": "allow",
+     "label": "allowed: a plain cd behind builtin into the clone",
+     "command": "builtin cd tools && ls"
+    },
+    {
+     "want": "deny",
+     "label": "denied: a double quote in a cd argument: the text is not what cd reaches",
+     "command": "cd \".\". && ls"
+    },
+    {
+     "want": "deny",
+     "label": "denied: a single quote in a cd argument",
+     "command": "cd .'.' && ls"
+    },
+    {
+     "want": "deny",
+     "label": "denied: a backslash in a cd argument",
+     "command": "cd .\\. && ls"
+    },
+    {
+     "want": "deny",
+     "label": "denied: any quote in a cd argument, even around a plain directory",
+     "command": "cd \"tools\" && ls"
     }
    ]
   },
@@ -1522,8 +1617,13 @@
     },
     {
      "want": "deny",
-     "label": "denied: an unquoted tag: bash would expand the body",
+     "label": "denied: an unquoted tag is not the admitted shape (bash would expand the body), so the body's > is judged as a redirection under the full rules",
      "command": "fabric-pr post-review 12 --model fable <<EOF\na > b\nEOF"
+    },
+    {
+     "want": "allow",
+     "label": "allowed: the same unquoted tag with a plain body: the full rules find nothing to refuse",
+     "command": "fabric-pr post-review 12 --model fable <<EOF\nbody\nEOF"
     },
     {
      "want": "deny",
@@ -1587,8 +1687,13 @@
     },
     {
      "want": "deny",
-     "label": "denied: an extra argument",
+     "label": "denied: an extra argument is not the admitted shape, so the body's > is judged as a redirection under the full rules",
      "command": "fabric-pr post-review 12 --model fable --x <<'EOF'\na > b\nEOF"
+    },
+    {
+     "want": "allow",
+     "label": "allowed: the same extra argument with a plain body: the full rules find nothing to refuse",
+     "command": "fabric-pr post-review 12 --model fable --x <<'EOF'\nbody\nEOF"
     },
     {
      "want": "deny",
@@ -1649,6 +1754,31 @@
      "want": "deny",
      "label": "denied: a cd -- before the post",
      "command": "cd -- && fabric-pr post-review 12 <<'EOF'\nbody\nEOF"
+    },
+    {
+     "want": "allow",
+     "label": "allowed: a trailing newline after the terminator",
+     "command": "fabric-pr post-review 12 --model fable <<'EOF'\na > b\nEOF\n"
+    },
+    {
+     "want": "allow",
+     "label": "allowed: a blank line after the terminator runs nothing",
+     "command": "fabric-pr post-review 12 --model fable <<'EOF'\na > b\nEOF\n  \n"
+    },
+    {
+     "want": "deny",
+     "label": "denied: a non-blank line after the terminator is not the admitted shape, so the body's > is judged under the full rules",
+     "command": "fabric-pr post-review 12 --model fable <<'EOF'\na > b\nEOF\n \nx\n"
+    },
+    {
+     "want": "deny",
+     "label": "denied: a quoted cd argument before the post is not the admitted shape, and moves under the full rules",
+     "command": "cd \"tools\" && fabric-pr post-review 12 <<'EOF'\nbody\nEOF"
+    },
+    {
+     "want": "deny",
+     "label": "denied: a backslash in the cd before the post",
+     "command": "cd .\\. && fabric-pr post-review 12 <<'EOF'\nbody\nEOF"
     }
    ]
   }

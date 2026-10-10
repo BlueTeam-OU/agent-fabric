@@ -123,13 +123,22 @@ SUBSTITUTION = r'\$\(|`|[<>]\('
 # misses), so a later search of . would read wherever it
 # went: no cd or pushd home (bare, -, ~), into a home's hidden directories,
 # up out of the clone (..), or to /, /home, /root, /proc.
-CD = r'^[\s]*(cd|pushd)([\s]+-[LPe@]+)*[\s]*($|-([\s]|$)|~)'
-CD_ANY = r'^[\s]*(cd|pushd)([\s]|$)'
+# A cd is found however it is prefixed: behind a group or subshell opener,
+# a compound command's keyword, `!`, `time`, an assignment, or `builtin` /
+# `command` (`builtin cd ..` is cd ..). Anchoring at the segment's first word
+# let every one of those through (re-review of 0eb39891). Each prefix word
+# must consume a non-space character, so the repetition reads one way only.
+CD_HEAD = (r'^(?:[\s]*(?:[({!]|[A-Za-z_][A-Za-z0-9_]*=[^\s]*(?=[\s]|$)|'
+           r'(?:builtin|command|then|do|else|elif|if|while|until|time)(?:[\s]+-[-p]+)?(?=[\s(]|$)))*'
+           r'[\s]*(cd|pushd)')
+CD = CD_HEAD + r'([\s]+-[LPe@]+)*[\s]*($|-([\s]|$)|~)'
+CD_ANY = CD_HEAD + r'([\s]|$)'
 # A word the shell rewrites before cd sees it (a glob, a brace: `.[.]` and
-# `{.,.}` are .. to cd, never to CD_UP), or an argument that is an option or
-# `--` (cd -- goes home; -P/-L let the next word be anything): what the cd
-# reaches is not what the text says, so it is refused rather than modelled.
-CD_ODD = r'^[\s]*(cd|pushd)[\s]+([^\s]*[][*?{}]|-)'
+# `{.,.}` are .. to cd, never to CD_UP; a quote or a backslash: `".".` and
+# `.\.` are .. too), or an argument that is an option or `--` (cd -- goes
+# home; -P/-L let the next word be anything): what the cd reaches is not
+# what the text says, so it is refused rather than modelled.
+CD_ODD = CD_HEAD + r'[\s]+([^\s]*[][*?{}"\'\\]|-)'
 CD_STEP = r"(^|[\s{(]|then|do|else)[\s]*((command|builtin)[\s]+)?(cd|pushd|popd)([\s]|$)"
 TRIVIAL = r"^[\s]*([0-9]*|[})]+|fi|done|esac|true|false|:|[0-9]*>[\s]*/dev/null)?[\s]*$"
 CD_UP = r"(^|[\s/\"'])\.\.(/|[\s\"']|$)"
@@ -155,7 +164,7 @@ REASONS = {
     "slow": "The review-class bash guard could not judge this command within its time budget, so it is denied. Split it into simpler commands.",
     "error": "The review-class bash guard failed while judging this command, so it is denied. Report without it, or split it into simpler commands.",
     "secret": "The review class may not print the environment, expand a secret-shaped variable, or read secret material (secrets.env, the stores, gpg keys, /proc/*/environ): an account's environment or files may carry its credentials, and what you print enters the transcript. Describe a secret by its name and shape only. To run a check in a clean environment, use env -i NAME=value \u2026 command.",
-    "moved": "The review class may not change directory to a home, a hidden directory in one, up out of the clone (..), or back (cd, cd -, cd --, cd ~), nor through a glob, a brace or an option (cd .[.], cd {a,b}, cd -P): what the command does after the cd would read there. Name the path in the command, or use git -C <path>.",
+    "moved": "The review class may not change directory to a home, a hidden directory in one, up out of the clone (..), or back (cd, cd -, cd --, cd ~), nor through a glob, a brace, a quote, a backslash or an option (cd .[.], cd {a,b}, cd \".\", cd .\\., cd -P), however the cd is prefixed (builtin cd, ( cd, { cd, then cd): what the command does after the cd would read there. Name the path in the command, or use git -C <path>.",
     "cd-last": "A cd that ends a command does not last: each command the review class runs is its own shell, so the next one starts where this one did. Put the work after it in the same command (cd <dir> && git log ...), or name the directory (git -C <dir> ..., grep -rn x <dir>).",
     "escape": "The review class may not use shell escapes (eval, exec, sh -c): they carry a write past this guard. Run the command directly.",
     "write": "The review class runs in the session clone and is READ-ONLY: no in-place edits, no file writes, no redirection except to /dev/null. Report what you would have changed instead. A review is posted as: fabric-pr post-review <pr> [--model <name>] <<'EOF' … EOF (a quoted tag; nothing after the terminator).",
@@ -231,6 +240,10 @@ POST_REVIEW = re.compile(r"[ \t]*((?:cd[ \t]+(?!-)[^\s;&|<>()`$'\"\\\[\]*?{}]+[ 
 def posted_review(cmd: str) -> str | None:
     """The command line of a review posted in exactly that shape, else None."""
     lines = cmd.split("\n")
+    # A blank line after the terminator runs nothing, so it does not make the
+    # terminator any less the command's last.
+    while len(lines) > 1 and not lines[-1].strip():
+        lines.pop()
     m = POST_REVIEW.fullmatch(lines[0])
     if not m or m.group(3) not in lines[1:]:
         return None
