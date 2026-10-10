@@ -687,6 +687,31 @@
     {
      "want": "allow",
      "command": "grep -E \"foo|bar\" tools | head -3"
+    },
+    {
+     "want": "deny",
+     "label": "denied: a bracket glob that the shell turns into .. (pre-existing hole)",
+     "command": "cd .[.]/.[.] && ls -a"
+    },
+    {
+     "want": "deny",
+     "label": "denied: a brace the shell expands to a path cd climbs by",
+     "command": "cd {.,.}/. && ls"
+    },
+    {
+     "want": "deny",
+     "label": "denied: cd -- goes home",
+     "command": "cd -- && ls"
+    },
+    {
+     "want": "deny",
+     "label": "denied: an option before the directory",
+     "command": "cd -P .. && ls"
+    },
+    {
+     "want": "allow",
+     "label": "allowed: a plain directory in the clone",
+     "command": "cd tools && ls"
     }
    ]
   },
@@ -1614,6 +1639,16 @@
      "want": "deny",
      "label": "denied: --model taking --dry-run as its name is not the admitted shape",
      "command": "fabric-pr post-review 12 --model --dry-run <<'EOF'\na > b\nEOF"
+    },
+    {
+     "want": "deny",
+     "label": "denied: a globbed cd before the post is not the admitted shape, and moves under the full rules",
+     "command": "cd .[.] && fabric-pr post-review 12 <<'EOF'\nbody\nEOF"
+    },
+    {
+     "want": "deny",
+     "label": "denied: a cd -- before the post",
+     "command": "cd -- && fabric-pr post-review 12 <<'EOF'\nbody\nEOF"
     }
    ]
   }

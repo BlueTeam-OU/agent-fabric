@@ -125,6 +125,11 @@ SUBSTITUTION = r'\$\(|`|[<>]\('
 # up out of the clone (..), or to /, /home, /root, /proc.
 CD = r'^[\s]*(cd|pushd)([\s]+-[LPe@]+)*[\s]*($|-([\s]|$)|~)'
 CD_ANY = r'^[\s]*(cd|pushd)([\s]|$)'
+# A word the shell rewrites before cd sees it (a glob, a brace: `.[.]` and
+# `{.,.}` are .. to cd, never to CD_UP), or an argument that is an option or
+# `--` (cd -- goes home; -P/-L let the next word be anything): what the cd
+# reaches is not what the text says, so it is refused rather than modelled.
+CD_ODD = r'^[\s]*(cd|pushd)[\s]+([^\s]*[][*?{}]|-)'
 CD_STEP = r"(^|[\s{(]|then|do|else)[\s]*((command|builtin)[\s]+)?(cd|pushd|popd)([\s]|$)"
 TRIVIAL = r"^[\s]*([0-9]*|[})]+|fi|done|esac|true|false|:|[0-9]*>[\s]*/dev/null)?[\s]*$"
 CD_UP = r"(^|[\s/\"'])\.\.(/|[\s\"']|$)"
@@ -150,7 +155,7 @@ REASONS = {
     "slow": "The review-class bash guard could not judge this command within its time budget, so it is denied. Split it into simpler commands.",
     "error": "The review-class bash guard failed while judging this command, so it is denied. Report without it, or split it into simpler commands.",
     "secret": "The review class may not print the environment, expand a secret-shaped variable, or read secret material (secrets.env, the stores, gpg keys, /proc/*/environ): an account's environment or files may carry its credentials, and what you print enters the transcript. Describe a secret by its name and shape only. To run a check in a clean environment, use env -i NAME=value \u2026 command.",
-    "moved": "The review class may not change directory to a home, a hidden directory in one, up out of the clone (..), or back (cd, cd -, cd ~): what the command does after the cd would read there. Name the path in the command, or use git -C <path>.",
+    "moved": "The review class may not change directory to a home, a hidden directory in one, up out of the clone (..), or back (cd, cd -, cd --, cd ~), nor through a glob, a brace or an option (cd .[.], cd {a,b}, cd -P): what the command does after the cd would read there. Name the path in the command, or use git -C <path>.",
     "cd-last": "A cd that ends a command does not last: each command the review class runs is its own shell, so the next one starts where this one did. Put the work after it in the same command (cd <dir> && git log ...), or name the directory (git -C <dir> ..., grep -rn x <dir>).",
     "escape": "The review class may not use shell escapes (eval, exec, sh -c): they carry a write past this guard. Run the command directly.",
     "write": "The review class runs in the session clone and is READ-ONLY: no in-place edits, no file writes, no redirection except to /dev/null. Report what you would have changed instead. A review is posted as: fabric-pr post-review <pr> [--model <name>] <<'EOF' … EOF (a quoted tag; nothing after the terminator).",
@@ -218,7 +223,7 @@ def split_unquoted(cmd: str) -> tuple[list[str], bool]:
 # the command's last: nothing runs after it.
 _MODEL = r"[ \t]+--model[ \t]+(?!-)[A-Za-z0-9._-]+"
 _DRY_RUN = r"[ \t]+--dry-run"
-POST_REVIEW = re.compile(r"[ \t]*((?:cd[ \t]+[^\s;&|<>()`$'\"\\]+[ \t]+&&[ \t]+)?fabric-pr[ \t]+post-review[ \t]+[0-9]+"
+POST_REVIEW = re.compile(r"[ \t]*((?:cd[ \t]+(?!-)[^\s;&|<>()`$'\"\\\[\]*?{}]+[ \t]+&&[ \t]+)?fabric-pr[ \t]+post-review[ \t]+[0-9]+"
                          rf"(?:{_MODEL}(?:{_DRY_RUN})?|{_DRY_RUN}(?:{_MODEL})?)?)"
                          r"[ \t]+<<[ \t]*(['\"])([A-Za-z0-9_]+)\2[ \t]*")
 
@@ -239,7 +244,7 @@ def verdict(cmd: str) -> str | None:
     segments, exempt = split_unquoted(cmd)
     secret = moved = False
     for seg in segments:
-        if found(CD_ANY, seg) and (found(CD, seg) or found(CD_UP, seg) or found(HOME_PATH, seg)):
+        if found(CD_ANY, seg) and (found(CD, seg) or found(CD_ODD, seg) or found(CD_UP, seg) or found(HOME_PATH, seg)):
             moved = True
         if exempt and found(SEARCH, seg):
             secret |= found(HOME_PATH, seg) or found(GLOB_PATH, seg) or found(SECRET_VAR, seg)
