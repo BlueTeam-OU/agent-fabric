@@ -22,6 +22,7 @@ from instance_fixtures import own_instance_tree  # noqa: E402
 
 own_instance_tree()
 from control import ctl, sessions as cs  # noqa: E402
+import fleet  # noqa: E402
 
 NOW = 1_800_000_000_000.0
 
@@ -100,6 +101,14 @@ class Wire(unittest.TestCase):
 
     def test_the_constant_is_one_word_on_both_sides(self):
         self.assertEqual(cs.UNREADABLE, ctl.UNREADABLE)
+
+
+class Board(unittest.TestCase):
+    def test_the_fleet_attention_of_an_unreadable_account_is_failed_never_none(self):
+        row = ctl.state_row("h/a", ctl.state_record_of(record("unreadable"), {"h/a"}), NOW)
+        out = fleet.attention_data({k: v for k, v in row.items() if k != "address"}, {"jobs": {"status": "ok", "jobs": []}})
+        self.assertIsInstance(out, str)
+        self.assertIn("the account cannot read its session state", out)
 
 
 if __name__ == "__main__":
