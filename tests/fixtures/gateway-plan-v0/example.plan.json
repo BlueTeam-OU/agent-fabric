@@ -1,0 +1,77 @@
+{
+  "schema_version": 0,
+  "session": {
+    "opaque_id": "example-session-0001"
+  },
+  "listeners": [
+    {
+      "ingress_id": "claude",
+      "protocol": "anthropic",
+      "bind": "127.0.0.1:0",
+      "harness_auth": {
+        "source": "fd"
+      }
+    }
+  ],
+  "backends": [
+    {
+      "backend_id": "anthropic",
+      "protocol": "anthropic",
+      "base_url": "https://api.anthropic.com"
+    }
+  ],
+  "auth_profiles": [
+    {
+      "profile_id": "claude-subscription",
+      "source": "file",
+      "path": "/run/user/1000/agent-fabric/gateway/claude-subscription.token",
+      "header": "Authorization",
+      "prefix": "Bearer ",
+      "companion_headers": [
+        {
+          "name": "anthropic-beta",
+          "value": "oauth-2025-04-20"
+        }
+      ]
+    },
+    {
+      "profile_id": "anthropic-key",
+      "source": "env",
+      "name": "ANTHROPIC_API_KEY",
+      "header": "x-api-key",
+      "prefix": ""
+    }
+  ],
+  "routes": [
+    {
+      "route_id": "opus",
+      "ingress_id": "claude",
+      "source": {
+        "model_selector": "claude-opus-5-5"
+      },
+      "target": {
+        "backend_id": "anthropic",
+        "model": "claude-opus-5-5"
+      },
+      "auth_profile_id": "claude-subscription"
+    },
+    {
+      "route_id": "sonnet-mapped",
+      "ingress_id": "claude",
+      "source": {
+        "model_selector": "sonnet"
+      },
+      "target": {
+        "backend_id": "anthropic",
+        "model": "claude-sonnet-5-5"
+      },
+      "auth_profile_id": "anthropic-key"
+    }
+  ],
+  "defaults": {
+    "unknown_route": {
+      "status": 400,
+      "error_type": "invalid_request_error"
+    }
+  }
+}
