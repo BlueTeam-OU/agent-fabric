@@ -42,12 +42,6 @@ def starts_without_operator(src: str) -> bool:
     return False
 
 
-# Suites of the guards' authority (policies/authority.json: not python-dev's entry,
-# fabric-coordinator's): they set AGENT_FABRIC_ROOT to a tree they build, and are
-# left to the owner of those guards to start without the operator.
-NOT_PYTHON_DEVS = ("test_agent_fabric_dir_authority.py", "test_charter_authority.py", "test_contributors.py")
-
-
 # Suites that build a tree they run a tool on without naming AGENT_FABRIC_ROOT or handing
 # it over as --fabric/--root: each says how.
 EXTRA = {
@@ -93,7 +87,7 @@ def main() -> int:
             src = fh.read()
         name = os.path.basename(path)
         hands_a_tree = "AGENT_FABRIC_ROOT" in src or re.search(r"""["']--(fabric|root)["']""", src) or name in EXTRA
-        if not hands_a_tree or "AGENT_FABRIC_OPERATOR" in src or name in NOT_PYTHON_DEVS:
+        if not hands_a_tree or "AGENT_FABRIC_OPERATOR" in src:
             continue
         held += 1
         check(f"{os.path.basename(path)} starts without the runner's operator", starts_without_operator(src),

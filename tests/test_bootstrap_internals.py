@@ -497,8 +497,47 @@ def agentd_selector(T: str) -> None:
                 _, out, err = quiet(b.control_agent)
                 check(f"a listed login not placed on this host ({name}): the Node unit written, one warning naming the placement, not a failure",
                       open(unit_path(), "rb").read() == template and b.failed == 0
-                      and "python not used" in err and "placed on" in err and err.count("\n") == 1
+                      and "python not used" in err and err.count("\n") == 1
+                      and ("has no placement" if placed is None else "placed on") in err
                       and "runs python" not in out, (out, err))
+            finally:
+                s.close()
+
+        # A template the python swap cannot read falls back to Node with one
+        # warning; the template is written as it is, as every account had it.
+        bad_templates = (
+            ("agentd-no-execstart", b"[Unit]\nDescription=x\n", "0 ExecStart lines"),
+            ("agentd-two-execstart", b"[Service]\nExecStart=/a\nExecStart=/b\n", "2 ExecStart lines"),
+            ("agentd-not-utf8", b"[Service]\nExecStart=/a\n# \xff\xfe\n", "utf-8"))
+        for name, body, why in bad_templates:
+            s, projects, root = account(name, json.dumps({"default": "node", "python": [me]}))
+            try:
+                with open(os.path.join(root, "runtime", "control", f"{bootstrap.UNIT}.service"), "wb") as fh:
+                    fh.write(body)
+                b = bootstrap.Bootstrap(projects, False, root)
+                _, out, err = quiet(b.control_agent)
+                check(f"a template with {why}: the Node unit written, one warning, no traceback, not a failure",
+                      open(unit_path(), "rb").read() == body and b.failed == 0
+                      and "python not used" in err and why in err and err.count("\n") == 1
+                      and "Traceback" not in err and "runs python" not in out, (out, err))
+            finally:
+                s.close()
+
+        # The placement check also covers an unlisted login when the default is python.
+        for name, placed in (("agentd-default-python-elsewhere", "some-other-host"),
+                             ("agentd-default-python-here", here)):
+            s, projects, root = account(name, json.dumps({"default": "python", "python": []}), placed)
+            try:
+                b = bootstrap.Bootstrap(projects, False, root)
+                _, out, err = quiet(b.control_agent)
+                if placed == here:
+                    check("default python, unlisted login placed here: python runs",
+                          "runs python" in out and not err and b.failed == 0, (out, err))
+                else:
+                    check("default python, unlisted login placed elsewhere: the Node unit, one warning naming the placement",
+                          open(unit_path(), "rb").read() == template and b.failed == 0
+                          and "python not used" in err and "placed on" in err and err.count("\n") == 1
+                          and "runs python" not in out, (out, err))
             finally:
                 s.close()
 

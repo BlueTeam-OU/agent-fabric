@@ -17,6 +17,8 @@ HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(HERE, "tools", "fabric"))
 from guards import charter_authority as ca  # noqa: E402
 from guards import common  # noqa: E402
+from instance_fixtures import own_instance_tree  # noqa: E402 — tests/, the script's own directory
+own_instance_tree()
 
 # Commits made here must not read the caller's config (signing, hooks).
 # Nothing of the runner's or the session's own: CI sets GITHUB_HEAD_REF and

@@ -100,7 +100,11 @@ def test_blueteam_projects_resolve_under_both_github_orgs() -> None:
     import json
     roots_spec = importlib.util.spec_from_file_location("fabric_roots", os.path.join(ROOT, "tools", "fabric", "roots.py"))
     roots = importlib.util.module_from_spec(roots_spec); roots_spec.loader.exec_module(roots)
-    with open(roots.projects_registry(engine=ROOT), encoding="utf-8") as fh:
+    path = roots.projects_registry(engine=ROOT)
+    if not os.path.exists(path):
+        print(f"  skip test_blueteam_projects_resolve_under_both_github_orgs: no projects registry at {path} (an operator exported to a tree without one)")
+        return
+    with open(path, encoding="utf-8") as fh:
         registry = json.load(fh)
     for pid, repo in (("agent-fabric", "agent-fabric"), ("agent-fabric-gateway", "agent-fabric-gateway"),
                       ("herdr", "agent-fabric-herdr"), ("radicle-spike", "radicle-spike")):

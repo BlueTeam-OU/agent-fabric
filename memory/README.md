@@ -371,7 +371,7 @@ tools/fabric/role.py              bin/fabric-role — bind a role to this agent,
 tools/fabric/launch_prompt.py     the system prompt a session is born with: charter, brief, team and memory sections
 ```
 
-`query.sh` answers the questions the citation graph exists for:
+`fabric-query` answers the questions the citation graph exists for:
 
 ```text
 fabric-query adr ADR-054        # who learned from it, where it landed

@@ -14,6 +14,8 @@ from __future__ import annotations
 
 import json
 import os
+import socket
+import sys
 
 SELECTOR_REL = os.path.join("runtime", "control", "agentd.json")
 IMPLEMENTATIONS = ("node", "python")
@@ -93,3 +95,35 @@ def implementation_of(unit: str) -> str | None:
             if any(a.endswith("/control/agentd.mjs") for a in argv):
                 return "node"
     return None
+
+
+def python_refusal(root: str, login: str, environ: dict | None = None) -> str:
+    """Why python cannot run for `login` here; "" when it can. bootstrap
+    writes the unit by this and fabric-status reads it back by it, so a
+    login bootstrap keeps on Node is never reported as drift. The placement
+    check applies to every login that would get python, one the selector
+    lists and, when its default is python, one it does not: a registry entry
+    means that account on the host it was provisioned on, and the same login
+    name may exist on another host that has not been cut over."""
+    if not os.access(FABRIC_PYTHON, os.X_OK):
+        return f"{FABRIC_PYTHON} is not executable (as root: tools/fabric/python_pin.py install)"
+    here = socket.gethostname().split(".")[0]
+    # Imported here: status loads this file by path, with no sys.path of its own.
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    try:
+        import roots
+    finally:
+        sys.path.pop(0)
+    try:
+        # The registry as every reader resolves it (an exported operator outranks the checkout);
+        # its one-file override is the daemons', never bootstrap's.
+        env = {k: v for k, v in (os.environ if environ is None else environ).items() if k != roots.ENV_HOSTS_REGISTRY}
+        with open(roots.hosts_registry(engine=root, environ=env), encoding="utf-8") as fh:
+            placed = json.load(fh).get("placement", {}).get(login)
+    except (OSError, ValueError, AttributeError) as e:
+        return f"runtime/hosts/registry.json cannot be read for the placement ({type(e).__name__})"
+    if placed is None:
+        return f"{login} has no placement in runtime/hosts/registry.json"
+    if placed != here:
+        return f"{login} is placed on {placed!r} in runtime/hosts/registry.json, this host is {here!r}"
+    return ""
