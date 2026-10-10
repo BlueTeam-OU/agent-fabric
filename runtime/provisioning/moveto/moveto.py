@@ -17,10 +17,26 @@ CONTRACT, frozen from the bash (ADR-040 §5 rule 3):
             options in any order after the account; --list there prints
             that account's clones, one per line, and stops; an unknown
             option, a second clone, a clone that is not one path segment,
-            or two different modes: exit 1. A mode is handed to enter as
+            two different modes, a --via that is neither ssh nor sudo, or
+            two different --via: exit 1. A mode is handed to enter as
             its last argument, a fixed word (Fleet Deck reads it there).
+            --via ssh|sudo (also --via=ssh) says how the account is entered
+            (ADR-048). ssh: `ssh -i ~/.ssh/fabric_deck -o IdentitiesOnly=yes
+            -o UserKnownHostsFile=<generated> -o StrictHostKeyChecking=yes
+            [-p <port>] -t <account>@<address> -- <word>`, the word one of
+            --wait|--watch|--resume|shell (shell for no mode), which the
+            account's forced command (enter-ssh) runs `enter` for: the
+            workspace only, so a named clone is refused; no sudo is needed.
+            sudo: the break-glass, unchanged. Without --via: ssh when the
+            account's host has a pinned sshd in the registry, else sudo
+            (`fabric-host ssh-pin`; no fabric-host on the PATH, or an older
+            one with no ssh-pin, is sudo, said in the second case; a
+            registry it cannot read is a refusal). known_hosts is
+            `fabric-ssh-hosts known-hosts`, written whole to
+            $XDG_STATE_HOME/fabric-deck/known_hosts (0600) at every entry.
   stdin     never read; the entered shell inherits it.
-  env       PATH (getent, sudo, find, test, cat and sort are found there,
+  env       PATH (also fabric-host, fabric-ssh-hosts and ssh for --via; HOME and
+            XDG_STATE_HOME for the key and the known_hosts) (getent, sudo, find, test, cat and sort are found there,
             as the bash found them — the suite's mocks rely on it);
             _MOVETO_PIPE_IGNORED, set by the shim when SIGPIPE was ignored
             on entry, and removed before the shell is entered.
@@ -28,9 +44,9 @@ CONTRACT, frozen from the bash (ADR-040 §5 rule 3):
             shim, as the bash's exec passed it on: Python ignores it at
             start-up, and an exec keeps an ignored signal ignored.
   stdout    USAGE, the --list lines, or --print's path, `title: …` and,
-            with a mode, `then: …`.
-  stderr    `moveto: …` for a refusal, and one line naming the account and
-            directory before the shell is entered.
+            with a mode, `then: …` (and `via: ssh` when it would go by ssh).
+  stderr    `moveto: …` for a refusal, and one line naming the account (and,
+            by sudo, the directory) before the shell is entered.
   exit      0; 1 for every refusal; otherwise the entered shell's (exec).
 Names that reach the terminal pass display_safe() at every point they are
 displayed; a path that is used keeps the raw name.
@@ -66,6 +82,7 @@ import re
 import signal
 import subprocess
 import sys
+import tempfile
 import unicodedata
 
 PROJECTS_SUBDIR = "projects"
@@ -86,6 +103,9 @@ usage: moveto <account>             open a shell as <account>, in its workspace
                                    refresh and do exactly --resume; end of input: a shell
        moveto <account> --watch     …and show its status (fabric-watch) until q; the shell follows
        moveto <account> --print     print the resolved path, spawn nothing
+       moveto <account> --via ssh   …through the pinned sshd (ADR-048: the account's forced command enters it;
+                                   the workspace only, no clone) instead of sudo; --via sudo is the break-glass.
+                                   Without --via: ssh when the account's host has a pinned sshd, else sudo
        moveto --list                accounts with a clone or the agent-fabric checkout: account, role, what ~/projects holds
        moveto <account> --list      that account's clones
 
@@ -93,6 +113,10 @@ Sudo here comes from the `qubes` group and role accounts are not in it, so
 this runs from an account that has sudo (`user`). From a role account, `exit`
 returns to the shell you came from.
 """
+# The operator's key and the file ssh trusts hosts from (ADR-048 §5 rules 3 and 5): the key is made once by the
+# owner; known_hosts is regenerated from the registry at every entry, never edited, never keyscanned.
+SSH_KEY = "~/.ssh/fabric_deck"
+VIA_WORDS = ("ssh", "sudo")
 # What each mode has enter do, as --print says it.
 MODES = {"--wait": "Enter to activate, then fabric-resume", "--resume": "fabric-resume", "--watch": "fabric-watch"}
 ROLE_LINE = re.compile(r'.*"role": *"([^"]*)".*')
@@ -233,6 +257,93 @@ def list_all() -> None:
         print(f"{pad(u, 24)} {pad(role_of(u), 20)} {line}")
 
 
+class PinUnknown(Exception):
+    """fabric-host has no ssh-pin: a checkout older than this moveto. It cannot say, which is not "no pin"."""
+
+
+def ssh_pin(account: str) -> tuple[str, int] | None:
+    """(address, port) of the pinned sshd of the host `account` is placed on, or None when the registry has none
+    (`fabric-host ssh-pin`, which reads the registry as every fabric tool does). A registry that cannot be read is an
+    error, said: the default is sudo only where the registry says there is no pin, not where it could not be asked;
+    PinUnknown where fabric-host cannot answer at all (usage status 2)."""
+    try:
+        r = subprocess.run(["fabric-host", "ssh-pin", account], capture_output=True, text=True, timeout=TIMEOUT_S,
+                           stdin=subprocess.DEVNULL)
+    except FileNotFoundError:
+        return None    # no fabric-host on this PATH: a machine with no registry to ask, which has only ever had sudo
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise Refused(f"cannot ask fabric-host which way to enter {account} ({exc.__class__.__name__}); --via sudo does not need it") from None
+    words = r.stdout.split()
+    if r.returncode == 2:
+        raise PinUnknown
+    if r.returncode != 0:
+        why = display_safe((r.stderr.strip().splitlines() or [f"exit {r.returncode}"])[-1][:160])
+        raise Refused(f"cannot read the registry's ssh pin for {account} ({why}); --via sudo does not need it")
+    if words == ["sudo"]:
+        return None
+    if len(words) == 3 and words[0] == "ssh" and words[2].isdigit():
+        return words[1], int(words[2])
+    raise Refused(f"fabric-host ssh-pin answered something moveto cannot read: {display_safe(r.stdout.strip()[:80])}")
+
+
+def known_hosts_file() -> str:
+    """The generated known_hosts, replaced whole at every entry from `fabric-ssh-hosts known-hosts`; its path.
+    Under the state directory, private to this account: ssh is exec'd and cannot clean up behind itself."""
+    try:
+        r = subprocess.run(["fabric-ssh-hosts", "known-hosts"], capture_output=True, text=True, timeout=TIMEOUT_S,
+                           stdin=subprocess.DEVNULL)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise Refused(f"cannot run fabric-ssh-hosts known-hosts ({exc.__class__.__name__}); --via sudo does not need it") from None
+    if r.returncode != 0 or not r.stdout.strip():
+        why = display_safe((r.stderr.strip().splitlines() or [f"exit {r.returncode}"])[-1][:160])
+        raise Refused(f"no known_hosts from the registry ({why}); --via sudo does not need it")
+    state = os.environ.get("XDG_STATE_HOME") or os.path.join(os.path.expanduser("~"), ".local", "state")
+    directory = os.path.join(state, "fabric-deck")
+    os.makedirs(directory, mode=0o700, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=directory, prefix="known_hosts.")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(r.stdout if r.stdout.endswith("\n") else r.stdout + "\n")
+        os.replace(tmp, os.path.join(directory, "known_hosts"))
+    except BaseException:
+        os.unlink(tmp)
+        raise
+    return os.path.join(directory, "known_hosts")
+
+
+def ssh_argv(account: str, mode: str, pin: tuple[str, int], known_hosts: str, key: str) -> list[str]:
+    """The ssh command that enters `account` (ADR-048 §5 rule 4): the forced command takes one of four exact words,
+    `shell` for none. The word follows `--`: OpenSSH reads options after the destination too, and a bare --wait is
+    `unknown option -- -` (ssh 10.0)."""
+    address, port = pin
+    return ["ssh", "-i", key, "-o", "IdentitiesOnly=yes", "-o", f"UserKnownHostsFile={known_hosts}",
+            "-o", "StrictHostKeyChecking=yes", *(["-p", str(port)] if port != 22 else []), "-t",
+            f"{account}@{address}", "--", mode or "shell"]
+
+
+def enter_over_ssh(account: str, target: str, print_only: bool, mode: str, pin: tuple[str, int]) -> int:
+    """Enter `account` through its pinned sshd: the forced command (enter-ssh) runs enter in the workspace, so a named
+    clone cannot be asked for, and nothing here needs sudo. Same words on --print as the sudo path, plus `via: ssh`."""
+    if target:
+        die("over ssh the account is entered in its workspace only (enter-ssh runs enter there); a named clone needs --via sudo")
+    path = f"{home_of(account)}/{PROJECTS_SUBDIR}"
+    if print_only:
+        print(display_safe(path))
+        print(f"title: {display_safe(account)}")
+        if mode:
+            print(f"then: {MODES[mode]}")
+        print("via: ssh")
+        return 0
+    key = os.path.expanduser(SSH_KEY)
+    if not os.path.isfile(key):
+        die(f"no operator key at {SSH_KEY} (ADR-048 §5 rule 3: the owner makes it with ssh-keygen); --via sudo does not need it")
+    argv = ssh_argv(account, mode, pin, known_hosts_file(), key)
+    print(f"moveto: {account} over ssh  (exit returns here)", file=sys.stderr, flush=True)
+    sys.stdout.flush()
+    signal.signal(signal.SIGPIPE, signal.SIG_IGN if os.environ.pop(PIPE_IGNORED_ENV, "") == "1" else signal.SIG_DFL)
+    os.execvp(argv[0], argv)
+
+
 def moveto(argv: list[str]) -> int:
     if not argv or argv[0] in ("-h", "--help"):
         sys.stdout.write(USAGE)
@@ -240,10 +351,18 @@ def moveto(argv: list[str]) -> int:
     if argv[0] == "--list":
         list_all()
         return 0
-    account, target, print_only, mode = argv[0], "", False, ""
-    for a in argv[1:]:
+    account, target, print_only, mode, via = argv[0], "", False, "", ""
+    rest = iter(argv[1:])
+    for a in rest:
         if a == "--print":
             print_only = True
+        elif a == "--via" or a.startswith("--via="):
+            value = a.split("=", 1)[1] if "=" in a else next(rest, "")
+            if value not in VIA_WORDS:
+                die(f"--via takes ssh or sudo, not '{display_safe(value)}'")
+            if via and via != value:
+                die("one of --via ssh, --via sudo")
+            via = value
         elif a in MODES:
             # Fleet Deck's modes (architect-cto's plan, 2026-10-07;
             # docs/fleet-deck/tab-states.md): the account's own tools do
@@ -272,6 +391,24 @@ def moveto(argv: list[str]) -> int:
 
     if command(["getent", "passwd", account])[0] != 0:
         die(f"no such account: {account}")
+    pin = None
+    if account == me():
+        if via == "ssh":
+            die("--via ssh enters another account; this one is entered directly (leave --via out)")
+    elif via != "sudo" and not (via == "" and target):
+        # A named clone is sudo's to enter: enter-ssh enters the workspace only. Asked for with --via ssh it is refused below.
+        try:
+            pin = ssh_pin(account)
+        except PinUnknown:
+            if via == "ssh":
+                die("this fabric-host has no ssh-pin (an older checkout), so --via ssh cannot be served; --via sudo enters without it")
+            # sudo is what an older checkout has always meant; said, so a mis-deployment is not mistaken for "no pin".
+            print("moveto: this fabric-host has no ssh-pin (an older checkout); entering through sudo", file=sys.stderr)
+    if via == "ssh" and pin is None:
+        die(f"no pinned sshd for {account}'s host in the registry (hosts.<host>.sshd with host_keys), or no fabric-host to read it; "
+            "--via sudo enters without it")
+    if pin is not None:
+        return enter_over_ssh(account, target, print_only, mode, pin)
     if account != me() and command(["sudo", "-n", "-u", account, "true"])[0] != 0:
         die(f"cannot become '{account}' without a password. Role accounts are not in the `qubes` group and have no "
             "sudo; run this from an account that does.")

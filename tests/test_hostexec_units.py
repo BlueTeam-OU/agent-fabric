@@ -116,7 +116,9 @@ def main() -> int:
           fabric_host.list_text(reg).splitlines() == [f"{'a':20} {'debian':14} operator {'op':12} this host (direct)",
                                                        "                     accounts: x, y", "placed on an unknown host: z"],
           fabric_host.list_text(reg))
-    check("usage is the synopsis block, ten lines", fabric_host.usage_lines().count("\n") == 10 and fabric_host.usage_lines().startswith("bin/fabric-host"))
+    check("usage is the synopsis block: the title, a blank line and every subcommand, ssh-pin included",
+          fabric_host.usage_lines().startswith("bin/fabric-host") and "fabric-host ssh-pin <login>" in fabric_host.usage_lines()
+          and "\n\n" in fabric_host.usage_lines() and "Every subcommand" not in fabric_host.usage_lines())
     saved = fabric_host.resolve_registry
     try:
         fabric_host.resolve_registry = lambda: (_ for _ in ()).throw(fabric_host.Refused("cannot resolve the hosts registry (x)", 1))
@@ -133,6 +135,25 @@ def main() -> int:
                            (["h", "wat"], 2)):
             r = run([fh_cmd, *argv], env=envr)
             check(f"fabric-host {' '.join(argv) or '(nothing)'}: exit {want}, no traceback", r.returncode == want and "Traceback" not in r.stderr, (r.returncode, r.stderr))
+        keys = ["ssh-ed25519 AAAA"]
+        pinreg = os.path.join(tmp, "pin.json")
+        with open(pinreg, "w") as fh:
+            json.dump({"hosts": {"h": {"platform": "p", "ssh": None, "operator": "o", "fabric": "/f",
+                                       "sshd": {"address": "10.0.0.5", "port": 2222, "host_keys": keys}},
+                                 "k": {"platform": "p", "ssh": "op@k", "operator": "o", "fabric": "/f"}},
+                       "placement": {"pinned": "h", "unpinned": "k"}}, fh)
+        pinenv = {**envr, "AGENT_FABRIC_HOSTS_REGISTRY": pinreg}
+        r = run([fh_cmd, "ssh-pin", "pinned"], env=pinenv)
+        check("fabric-host ssh-pin: a pinned sshd is `ssh <address> <port>`, exit 0", r.returncode == 0 and r.stdout == "ssh 10.0.0.5 2222\n", (r.returncode, r.stdout, r.stderr))
+        r = run([fh_cmd, "ssh-pin", "unpinned"], env=pinenv)
+        check("...a host with only the coordinator's `ssh` destination is `sudo`", r.returncode == 0 and r.stdout == "sudo\n", (r.returncode, r.stdout))
+        r = run([fh_cmd, "ssh-pin"], env=pinenv)
+        check("...no login is a usage error (2)", r.returncode == 2 and "needs the login" in r.stderr, (r.returncode, r.stderr))
+        r = run([fh_cmd, "ssh-pin", "a", "b"], env=pinenv)
+        check("...two logins too", r.returncode == 2, r.returncode)
+        r = run([fh_cmd, "ssh-pin", "pinned"], env={**envr, "AGENT_FABRIC_HOSTS_REGISTRY": os.path.join(tmp, "absent.json")})
+        check("...a registry that cannot be read is exit 1, one line, never `sudo`", r.returncode == 1 and r.stdout == "" and "unreadable" in r.stderr and "Traceback" not in r.stderr,
+              (r.returncode, r.stdout, r.stderr))
         r = run([fh_cmd, "h", "persist"], env=envr)
         check("persist with no placements on the host is said", "no placements on h" in r.stderr, r.stderr)
         r = run([fh_cmd, "h", "drain", "someone"], env=envr)
