@@ -2,16 +2,18 @@
 """runtime/mcp/websearch-locale/install.py — the MCP entry for the locale
 search tool in a login's Claude Code user configuration.
 
-    install.py <claude.json> set <server.mjs> <locale.json> [--dry-run]
+    install.py <claude.json> set <fabric-websearch-locale> <locale.json> [--dry-run]
     install.py <claude.json> remove [--dry-run]
     install.py <settings.json> deny-websearch [--dry-run]
     install.py <settings.json> allow-websearch [--dry-run]
 
 `set` writes (or leaves, when identical) mcpServers["websearch-locale"]
-as a stdio server running <server.mjs> with WEBSEARCH_LOCALE_FILE set to
-<locale.json>; `remove` deletes an entry that runs this fabric's server —
-recognised by the path in its args — and never one the login wrote
-itself. `deny-websearch` adds "WebSearch" to permissions.deny in the
+as a stdio server whose command is <fabric-websearch-locale> (bin/, which
+runs the server on the fleet's pinned Python, ADR-040) with
+WEBSEARCH_LOCALE_FILE set to <locale.json>; an entry that still runs the
+Node server is this fabric's too and is rewritten in place. `remove`
+deletes an entry that runs this fabric's server — recognised by the
+path in its command or args — and never one the login wrote itself. `deny-websearch` adds "WebSearch" to permissions.deny in the
 login's user settings — the harness's own search is not for a login
 that searches through its locale (the launcher removes the tool at exec;
 this is the fence for a session launched otherwise) — and records that
@@ -35,7 +37,10 @@ import os
 import sys
 
 NAME = "websearch-locale"
-MARKER = "runtime/mcp/websearch-locale/server.mjs"
+# Both paths mark an entry as this fabric's: the Node server's is kept after
+# its deletion so a login configured before the port is still recognised and
+# switched, not mistaken for one the login wrote itself.
+MARKERS = ("bin/fabric-websearch-locale", "runtime/mcp/websearch-locale/server.mjs")
 DENY = "WebSearch"
 # The record that the fabric wrote the deny: a second entry the harness
 # reads as a rule that matches nothing, beside the real one.
@@ -61,7 +66,11 @@ def save(path: str, data: dict) -> None:
 
 
 def ours(entry: object) -> bool:
-    return isinstance(entry, dict) and any(MARKER in str(a) for a in entry.get("args", []))
+    if not isinstance(entry, dict):
+        return False
+    args = entry.get("args")
+    parts = [entry.get("command"), *(args if isinstance(args, list) else [])]
+    return any(m in str(p) for p in parts for m in MARKERS)
 
 
 def main(argv: list[str]) -> int:
@@ -82,7 +91,7 @@ def main(argv: list[str]) -> int:
     current = servers.get(NAME)
     if op == "set":
         server, locale = argv[2], argv[3]
-        want = {"type": "stdio", "command": "node", "args": [server], "env": {"WEBSEARCH_LOCALE_FILE": locale}}
+        want = {"type": "stdio", "command": server, "args": [], "env": {"WEBSEARCH_LOCALE_FILE": locale}}
         if current == want:
             print(f"  =  {path} mcpServers.{NAME}")
             return 0
