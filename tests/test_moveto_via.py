@@ -79,7 +79,7 @@ def main() -> int:
             os.chmod(path, 0o755)
         put("ssh", f'#!/bin/sh\nprintf "ssh" >> "{log}"; for a in "$@"; do printf "\\t%s" "$a" >> "{log}"; done; echo >> "{log}"\nexit 0\n')
         put("sudo", f'#!/bin/sh\nprintf "sudo\\t%s\\n" "$*" >> "{log}"\nexit 0\n')
-        put("getent", f'#!/bin/sh\n[ "$1" = passwd ] && [ "$2" = acct ] && {{ echo "acct:x:2000:2000::{acct_home}:/bin/bash"; exit 0; }}\nexit 2\n')
+        put("getent", f'#!/bin/sh\n[ "$1" = passwd ] && [ "$2" = acct ] && {{ echo "acct:x:2000:2000::{acct_home}:/bin/bash"; exit 0; }}\n[ "$1" = passwd ] && [ "$2" = {ME} ] && {{ echo "{ME}:x:1000:1000::{home}:/bin/bash"; exit 0; }}\nexit 2\n')
         put("fabric-ssh-hosts", '#!/bin/sh\necho "# generated"\necho "127.0.0.1 ssh-ed25519 AAAAfixture"\n')
 
         def fabric_host_says(answer: str, rc: int = 0, err: str = "") -> None:
@@ -126,9 +126,17 @@ def main() -> int:
         print("moveto: refusals and the default's other answers")
         rc, out, calls = mv("acct", "--via", "ssh", "agent-fabric")
         check("--via ssh with a named clone: refused, nothing run", rc == 1 and "workspace only" in out and not ssh_calls(calls), (rc, out))
+        rc, out, calls = mv("acct", "agent-fabric", "--print")
+        check("a named clone with no --via goes by sudo even where ssh is pinned (enter-ssh enters the workspace only)",
+              rc == 0 and out.startswith(f"{acct_home}/projects/agent-fabric\n") and "via: ssh" not in out and not ssh_calls(calls)
+              and not any(c[0] == "fabric-host" for c in calls), (rc, out, calls))
+        rc, out, calls = mv(ME, "--via", "ssh", "--print")
+        check("--via ssh for the account's own login is refused, not ignored", rc == 1 and "enters another account" in out and not ssh_calls(calls), (rc, out))
         os.rename(key, key + ".away")
         rc, out, calls = mv("acct", "--via", "ssh")
         check("no operator key: one line naming it and --via sudo, nothing run", rc == 1 and "fabric_deck" in out and "--via sudo" in out and not ssh_calls(calls), (rc, out))
+        rc, out, calls = mv("acct", "--via", "ssh", "--print")
+        check("...but --print is a resolver and needs no key", rc == 0 and "via: ssh" in out, (rc, out))
         os.rename(key + ".away", key)
         for argv, want in ((["acct", "--via", "bogus"], "--via takes ssh or sudo"), (["acct", "--via"], "--via takes ssh or sudo"),
                            (["acct", "--via", "ssh", "--via", "sudo"], "one of --via ssh, --via sudo")):
@@ -141,10 +149,15 @@ def main() -> int:
         check("--via ssh where the registry has no pin: refused, naming sshd and --via sudo", rc == 1 and "no pinned sshd" in out and "--via sudo" in out and not ssh_calls(calls), (rc, out))
         fabric_host_says("", rc=1, err="fabric-host: the hosts registry is unreadable")
         rc, out, calls = mv("acct", "--wait")
-        check("a registry that cannot be read is refused, not read as `no pin`", rc == 1 and "cannot read the registry's ssh pin" in out and not ssh_calls(calls) and not any(c[0] == "sudo" for c in calls), (rc, out, calls))
+        check("a registry that cannot be read is refused, not read as `no pin`; the way out named is sudo, which works",
+              rc == 1 and "cannot read the registry's ssh pin" in out and "--via sudo" in out and "--via ssh" not in out
+              and not ssh_calls(calls) and not any(c[0] == "sudo" for c in calls), (rc, out, calls))
         fabric_host_says("", rc=2, err="fabric-host: unknown subcommand ssh-pin")
         rc, out, calls = mv("acct", "--wait")
         check("an older fabric-host (usage status 2): sudo, said", rc == 0 and "no ssh-pin" in out and any(c[0] == "sudo" for c in calls) and not ssh_calls(calls), (rc, out, calls))
+        rc, out, calls = mv("acct", "--via", "ssh")
+        check("...and with --via ssh it is refused saying so, not told it will go through sudo",
+              rc == 1 and "has no ssh-pin" in out and "entering through sudo" not in out and not ssh_calls(calls) and not any(c[0] == "sudo" for c in calls), (rc, out, calls))
         os.remove(os.path.join(bin_, "fabric-host"))
         rc, out, calls = mv("acct", "--wait")
         check("no fabric-host on the PATH (nothing to ask): sudo, as before", rc == 0 and any(c[0] == "sudo" for c in calls) and not ssh_calls(calls), (rc, out, calls))
@@ -157,8 +170,8 @@ def main() -> int:
         check("a fabric-ssh-hosts that fails: refused, ssh never run", rc == 1 and "no known_hosts" in out and not ssh_calls(calls), (rc, out))
         put("fabric-host", '#!/bin/sh\necho "ssh 127.0.0.1 22"\n')
         put("fabric-ssh-hosts", '#!/bin/sh\necho "127.0.0.1 ssh-ed25519 AAAAfixture"\n')
-        rc, out, calls = mv("acct", "--via", "ssh", "--print")
-        check("positive control: the same set-up with both tools answering enters", rc == 0 and "via: ssh" in out, (rc, out))
+        rc, out, calls = mv("acct", "--via", "ssh")
+        check("positive control: the same set-up with both tools answering runs ssh", rc == 0 and len(ssh_calls(calls)) == 1, (rc, out, calls))
 
     print(f"\ntest_moveto_via: {'OK' if not fails else f'FAILED — {fails} check(s)'}")
     return 1 if fails else 0

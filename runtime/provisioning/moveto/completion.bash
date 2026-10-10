@@ -4,7 +4,7 @@
 # before /usr/share). Nothing to source by hand.
 #
 #   moveto <TAB>                 the accounts placed on this host
-#   moveto <account> <TAB>       that account's clones, and --print / --list / --resume / --wait / --watch
+#   moveto <account> <TAB>       that account's clones, and --print / --list / --resume / --wait / --watch / --via (then ssh, sudo)
 #   moveto --<TAB>               --list, --print
 #
 # The accounts come from the host registry (runtime/hosts/registry.json:

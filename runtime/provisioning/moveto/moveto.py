@@ -35,7 +35,8 @@ CONTRACT, frozen from the bash (ADR-040 §5 rule 3):
             `fabric-ssh-hosts known-hosts`, written whole to
             $XDG_STATE_HOME/fabric-deck/known_hosts (0600) at every entry.
   stdin     never read; the entered shell inherits it.
-  env       PATH (getent, sudo, find, test, cat and sort are found there,
+  env       PATH (also fabric-host, fabric-ssh-hosts and ssh for --via; HOME and
+            XDG_STATE_HOME for the key and the known_hosts) (getent, sudo, find, test, cat and sort are found there,
             as the bash found them — the suite's mocks rely on it);
             _MOVETO_PIPE_IGNORED, set by the shim when SIGPIPE was ignored
             on entry, and removed before the shell is entered.
@@ -43,9 +44,9 @@ CONTRACT, frozen from the bash (ADR-040 §5 rule 3):
             shim, as the bash's exec passed it on: Python ignores it at
             start-up, and an exec keeps an ignored signal ignored.
   stdout    USAGE, the --list lines, or --print's path, `title: …` and,
-            with a mode, `then: …`.
-  stderr    `moveto: …` for a refusal, and one line naming the account and
-            directory before the shell is entered.
+            with a mode, `then: …` (and `via: ssh` when it would go by ssh).
+  stderr    `moveto: …` for a refusal, and one line naming the account (and,
+            by sudo, the directory) before the shell is entered.
   exit      0; 1 for every refusal; otherwise the entered shell's (exec).
 Names that reach the terminal pass display_safe() at every point they are
 displayed; a path that is used keeps the raw name.
@@ -256,26 +257,28 @@ def list_all() -> None:
         print(f"{pad(u, 24)} {pad(role_of(u), 20)} {line}")
 
 
+class PinUnknown(Exception):
+    """fabric-host has no ssh-pin: a checkout older than this moveto. It cannot say, which is not "no pin"."""
+
+
 def ssh_pin(account: str) -> tuple[str, int] | None:
     """(address, port) of the pinned sshd of the host `account` is placed on, or None when the registry has none
     (`fabric-host ssh-pin`, which reads the registry as every fabric tool does). A registry that cannot be read is an
-    error, said: the default is sudo only where the registry says there is no pin, not where it could not be asked."""
+    error, said: the default is sudo only where the registry says there is no pin, not where it could not be asked;
+    PinUnknown where fabric-host cannot answer at all (usage status 2)."""
     try:
         r = subprocess.run(["fabric-host", "ssh-pin", account], capture_output=True, text=True, timeout=TIMEOUT_S,
                            stdin=subprocess.DEVNULL)
     except FileNotFoundError:
         return None    # no fabric-host on this PATH: a machine with no registry to ask, which has only ever had sudo
     except (OSError, subprocess.TimeoutExpired) as exc:
-        raise Refused(f"cannot ask fabric-host which way to enter {account} ({exc.__class__.__name__}); say --via ssh or --via sudo") from None
+        raise Refused(f"cannot ask fabric-host which way to enter {account} ({exc.__class__.__name__}); --via sudo does not need it") from None
     words = r.stdout.split()
     if r.returncode == 2:
-        # fabric-host's usage status: a checkout older than this moveto, which has no ssh-pin. It cannot say, and
-        # sudo is what it has always been; said, so a mis-deployment is not mistaken for "no pin".
-        print("moveto: this fabric-host has no ssh-pin (an older checkout); entering through sudo", file=sys.stderr)
-        return None
+        raise PinUnknown
     if r.returncode != 0:
-        why = (r.stderr.strip().splitlines() or [f"exit {r.returncode}"])[-1][:160]
-        raise Refused(f"cannot read the registry's ssh pin for {account} ({why}); say --via ssh or --via sudo")
+        why = display_safe((r.stderr.strip().splitlines() or [f"exit {r.returncode}"])[-1][:160])
+        raise Refused(f"cannot read the registry's ssh pin for {account} ({why}); --via sudo does not need it")
     if words == ["sudo"]:
         return None
     if len(words) == 3 and words[0] == "ssh" and words[2].isdigit():
@@ -292,7 +295,7 @@ def known_hosts_file() -> str:
     except (OSError, subprocess.TimeoutExpired) as exc:
         raise Refused(f"cannot run fabric-ssh-hosts known-hosts ({exc.__class__.__name__}); --via sudo does not need it") from None
     if r.returncode != 0 or not r.stdout.strip():
-        why = (r.stderr.strip().splitlines() or [f"exit {r.returncode}"])[-1][:160]
+        why = display_safe((r.stderr.strip().splitlines() or [f"exit {r.returncode}"])[-1][:160])
         raise Refused(f"no known_hosts from the registry ({why}); --via sudo does not need it")
     state = os.environ.get("XDG_STATE_HOME") or os.path.join(os.path.expanduser("~"), ".local", "state")
     directory = os.path.join(state, "fabric-deck")
@@ -323,9 +326,6 @@ def enter_over_ssh(account: str, target: str, print_only: bool, mode: str, pin: 
     clone cannot be asked for, and nothing here needs sudo. Same words on --print as the sudo path, plus `via: ssh`."""
     if target:
         die("over ssh the account is entered in its workspace only (enter-ssh runs enter there); a named clone needs --via sudo")
-    key = os.path.expanduser(SSH_KEY)
-    if not os.path.isfile(key):
-        die(f"no operator key at {SSH_KEY} (ADR-048 §5 rule 3: the owner makes it with ssh-keygen); --via sudo does not need it")
     path = f"{home_of(account)}/{PROJECTS_SUBDIR}"
     if print_only:
         print(display_safe(path))
@@ -334,6 +334,9 @@ def enter_over_ssh(account: str, target: str, print_only: bool, mode: str, pin: 
             print(f"then: {MODES[mode]}")
         print("via: ssh")
         return 0
+    key = os.path.expanduser(SSH_KEY)
+    if not os.path.isfile(key):
+        die(f"no operator key at {SSH_KEY} (ADR-048 §5 rule 3: the owner makes it with ssh-keygen); --via sudo does not need it")
     argv = ssh_argv(account, mode, pin, known_hosts_file(), key)
     print(f"moveto: {account} over ssh  (exit returns here)", file=sys.stderr, flush=True)
     sys.stdout.flush()
@@ -388,8 +391,20 @@ def moveto(argv: list[str]) -> int:
 
     if command(["getent", "passwd", account])[0] != 0:
         die(f"no such account: {account}")
-    pin = None if via == "sudo" or account == me() else ssh_pin(account)
-    if via == "ssh" and account != me() and pin is None:
+    pin = None
+    if account == me():
+        if via == "ssh":
+            die("--via ssh enters another account; this one is entered directly (leave --via out)")
+    elif via != "sudo" and not (via == "" and target):
+        # A named clone is sudo's to enter: enter-ssh enters the workspace only. Asked for with --via ssh it is refused below.
+        try:
+            pin = ssh_pin(account)
+        except PinUnknown:
+            if via == "ssh":
+                die("this fabric-host has no ssh-pin (an older checkout), so --via ssh cannot be served; --via sudo enters without it")
+            # sudo is what an older checkout has always meant; said, so a mis-deployment is not mistaken for "no pin".
+            print("moveto: this fabric-host has no ssh-pin (an older checkout); entering through sudo", file=sys.stderr)
+    if via == "ssh" and pin is None:
         die(f"no pinned sshd for {account}'s host in the registry (hosts.<host>.sshd with host_keys), or no fabric-host to read it; "
             "--via sudo enters without it")
     if pin is not None:
