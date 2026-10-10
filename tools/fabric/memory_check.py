@@ -28,7 +28,7 @@ CONTRACT
            NAME of this tree.
   WHOSE     a slice's paths are relative to the project it came from, not
            always to the tree it is kept in (a domain slice of the fabric's
-           memory/ records gzapp's or InterWeave's). Its front matter `origin`
+           memory/ records another project's). Its front matter `origin`
            names each project and working_copy: a path is judged by the corpus's
            own tree and by the checkout `../<working_copy>` of every origin
            project that is not the tree's own (`--project` names it; the
