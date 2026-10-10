@@ -19,11 +19,12 @@ import memory_check  # noqa: E402
 
 TOOL = os.path.join(HERE, "tools", "fabric", "memory_check.py")
 BIN = os.path.join(HERE, "bin", "fabric-memory-check")
-FRONT = '---\nrole: "r"\nclass: {klass}\ntopic: "t"\n---\n\n'
+FRONT = '---\nrole: "r"\nclass: {klass}\ntopic: "t"\n{origin}---\n\n'
 
 
-def slice_text(*sections: tuple[str, str], klass: str = "domain") -> str:
-    return FRONT.format(klass=klass) + "\n".join(f"## {h}\n\n{b}\n" for h, b in sections)
+def slice_text(*sections: tuple[str, str], klass: str = "domain", origins: tuple[tuple[str, str], ...] = ()) -> str:
+    origin = "origin:\n" + "".join(f'  - project: "{p}"\n    working_copy: "{w}"\n' for p, w in origins) if origins else ""
+    return FRONT.format(klass=klass, origin=origin) + "\n".join(f"## {h}\n\n{b}\n" for h, b in sections)
 
 
 class Tree(unittest.TestCase):
@@ -45,8 +46,8 @@ class Tree(unittest.TestCase):
             fh.write(text)
         return path
 
-    def slice(self, name, *sections, klass="domain"):
-        return self.write(f"memory/domains/d/domain/{name}.md", slice_text(*sections, klass=klass))
+    def slice(self, name, *sections, klass="domain", origins=()):
+        return self.write(f"memory/domains/d/domain/{name}.md", slice_text(*sections, klass=klass, origins=origins))
 
     def run_cli(self, *args, entry=None, env=None):
         e = {"PATH": "/usr/bin:/bin", **(env or {})}
@@ -92,6 +93,109 @@ class Verdicts(Tree):
         self.assertEqual([(r["slice"].rsplit("/", 1)[-1], r["heading"], len(r["paths"])) for r in rows], [("a.md", "one", 1), ("a.md", "two", 1), ("b.md", "one", 1)])
 
 
+class Origins(Tree):
+    """A slice's paths belong to the project it came from, which is not always the tree it is kept in."""
+
+    def test_a_path_of_another_origin_project_without_its_checkout_is_unchecked_never_stale(self):
+        self.slice("a", ("s", "`tools/checks/gzapp_only.sh`"), origins=(("gzapp", "gzapp"),))
+        (row,) = self.report()["sections"]
+        self.assertEqual(row["verdict"], "unchecked")
+        self.assertEqual(row["paths"], [{"path": "tools/checks/gzapp_only.sh", "status": "unchecked",
+                                          "why": "origin gzapp: no checkout 'gzapp' beside the tree"}])
+
+    def test_with_the_origin_checkout_beside_the_tree_the_path_is_judged_there(self):
+        self.write("tools/checks/here.sh", "x", root=os.path.join(self.base, "gzapp"))
+        self.slice("a", ("present", "`tools/checks/here.sh`"), ("gone", "`tools/checks/gone.sh`"), origins=(("gzapp", "gzapp"),))
+        self.assertEqual(self.verdicts(), {("a.md", "present"): "fresh", ("a.md", "gone"): "stale-hard"})
+
+    def test_the_trees_own_project_is_the_tree_whatever_its_directory_is_called(self):
+        self.slice("a", ("s", "`tools/fabric/deleted.py`"), origins=(("agent-fabric", "fabric-na"),))
+        self.assertEqual(self.verdicts(), {("a.md", "s"): "stale-hard"})
+
+    def test_a_path_that_exists_in_the_corpus_tree_exists_whatever_the_origin(self):
+        self.slice("a", ("s", "`tools/fabric/layout.py`"), origins=(("gzapp", "gzapp"),))
+        self.assertEqual(self.verdicts(), {("a.md", "s"): "fresh"})
+
+    def test_with_two_origins_one_missing_a_path_found_in_neither_here_is_unchecked(self):
+        self.write("tools/x.sh", "x", root=os.path.join(self.base, "gzapp"))
+        self.slice("a", ("s", "`tools/x.sh` and `tools/fabric/deleted.py`"), origins=(("agent-fabric", "agent-fabric"), ("interweave", "InterWeave")))
+        (row,) = self.report()["sections"]
+        self.assertEqual([(p["path"], p["status"]) for p in row["paths"]], [("tools/x.sh", "unchecked"), ("tools/fabric/deleted.py", "unchecked")])
+
+    def test_a_working_copys_corpus_takes_every_origin_for_its_own_tree(self):
+        wc = os.path.join(self.base, "proj")
+        self.write("src/app.rs", "x", root=wc)
+        self.write(".agent-fabric/memory/r/solution/s.md", slice_text(("s", "`src/gone.rs`"), klass="solution", origins=(("whatever", "proj"),)), root=wc)
+        doc = json.loads(self.run_cli(os.path.join(wc, ".agent-fabric", "memory"), "--json").stdout)
+        self.assertEqual(doc["sections"][0]["verdict"], "stale-hard")
+
+    def test_project_names_the_trees_own_project_when_the_layout_does_not(self):
+        self.slice("a", ("s", "`tools/fabric/deleted.py`"), origins=(("gzapp", "gzapp"),))
+        self.assertEqual(self.verdicts(), {("a.md", "s"): "unchecked"})
+        self.assertEqual(self.verdicts("--project", "gzapp"), {("a.md", "s"): "stale-hard"})
+
+    def test_a_working_copy_name_that_climbs_is_no_checkout_even_where_it_would_reach_one(self):
+        self.write("tools/x.sh", "x", root=os.path.join(self.base, "gzapp"))
+        climbing = f"../{os.path.basename(self.base)}/gzapp"      # from beside the tree, it reaches base/gzapp
+        self.slice("a", ("s", "`tools/x.sh`"), origins=(("gzapp", climbing),))
+        self.assertEqual(self.verdicts(), {("a.md", "s"): "unchecked"})
+
+    def test_a_citation_is_recognised_by_any_tree_the_slice_may_belong_to(self):
+        os.makedirs(os.path.join(self.base, "gzapp", "apps"))
+        self.slice("a", ("s", "`apps/web/gone.ts`"), origins=(("gzapp", "gzapp"),))
+        self.assertEqual(self.verdicts(), {("a.md", "s"): "stale-hard"})
+
+
+class Unreadable(Tree):
+    def setUp(self):
+        super().setUp()
+        if os.geteuid() == 0:
+            self.skipTest("a root user reads everything")
+
+    def chmod(self, path, mode):
+        os.chmod(path, mode)
+        self.addCleanup(os.chmod, path, 0o755 if os.path.isdir(path) else 0o644)
+
+    def test_an_unreadable_corpus_root_is_a_refusal_not_a_clean_report(self):
+        self.chmod(self.corpus, 0)
+        r = self.run_cli(self.corpus)
+        self.assertEqual((r.returncode, r.stdout), (2, ""))
+        self.assertTrue(r.stderr.startswith("fabric-memory-check: cannot read the corpus"), r.stderr)
+
+    def test_an_unreadable_directory_is_a_row_and_the_rest_is_still_reported(self):
+        self.slice("a", ("s", "`tools/fabric/deleted.py`"))
+        locked = os.path.join(self.corpus, "domains", "locked")
+        os.makedirs(locked)
+        self.chmod(locked, 0)
+        doc = self.report()
+        self.assertEqual({r["verdict"] for r in doc["sections"]}, {"stale-hard", "unreadable"})
+        (bad,) = [r for r in doc["sections"] if r["verdict"] == "unreadable"]
+        self.assertEqual((bad["slice"], bad["paths"]), ("domains/locked", []))
+        self.assertIn("cannot read the directory", bad["why"])
+        self.assertEqual(doc["counts"]["unreadable"], 1)
+
+    def test_an_unreadable_slice_and_a_slice_that_is_not_utf8_are_rows_not_tracebacks(self):
+        locked = self.slice("locked", ("s", "x"))
+        self.chmod(locked, 0)
+        broken = self.slice("broken", ("s", "x"))
+        with open(broken, "ab") as fh:
+            fh.write(b"\xff\xfe")
+        self.slice("ok", ("s", "`tools/fabric/layout.py`"))
+        r = self.run_cli(self.corpus)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertNotIn("Traceback", r.stderr)
+        self.assertEqual(sorted(ln.split("\t")[1] for ln in r.stdout.splitlines() if ln.startswith("unreadable")),
+                         ["domains/d/domain/broken.md", "domains/d/domain/locked.md"])
+        self.assertIn("1 fresh", r.stdout.splitlines()[-1])
+
+    def test_a_sibling_checkout_that_exists_but_cannot_be_read_is_unchecked(self):
+        sib = os.path.join(self.base, "sib")
+        self.write("src/a.rs", "x", root=sib)
+        self.chmod(sib, 0)
+        self.slice("a", ("s", "`../sib/src/a.rs`"))
+        self.assertEqual(self.verdicts(), {("a.md", "s"): "unchecked"})
+
+
 class Recognition(Tree):
     def paths(self, text):
         self.slice("a", ("s", text))
@@ -107,6 +211,10 @@ class Recognition(Tree):
     def test_a_line_suffix_a_trailing_slash_and_sentence_punctuation_are_dropped(self):
         self.assertEqual(self.paths("`tools/fabric/layout.py:120`, then docs/adr/. And (runtime/x.sh), also tools/fabric/layout.py:12:3."),
                          ["tools/fabric/layout.py", "docs/adr", "runtime/x.sh"])
+
+    def test_a_dot_slash_is_dropped_and_a_trailing_dash_is_punctuation(self):
+        self.assertEqual(self.paths("`./tools/fabric/layout.py` and tools/fabric/layout.py- then ./docs/adr/ADR-001.md"),
+                         ["tools/fabric/layout.py", "docs/adr/ADR-001.md"])
 
     def test_a_fenced_block_counts_like_prose(self):
         self.assertEqual(self.paths("```sh\nbash runtime/x.sh --go\n```"), ["runtime/x.sh"])
@@ -125,6 +233,12 @@ class Recognition(Tree):
 
 
 class Corpus(Tree):
+    def test_readmes_rubrics_and_indexes_are_never_slices_whatever_their_front_matter_says(self):
+        for name in ("README.md", "RUBRIC.md", "INDEX.md"):
+            self.write(f"memory/domains/d/{name}", slice_text(("s", "`tools/fabric/deleted.py`")))
+        self.write("memory/domains/d/domain/emptyclass.md", "---\nclass:\n---\n\n## s\n\n`tools/fabric/deleted.py`\n")
+        self.assertEqual(self.report()["sections"], [])
+
     def test_only_slices_with_a_class_other_than_index_are_read(self):
         self.write("memory/README.md", "# r\n\n## s\n\n`tools/fabric/deleted.py`\n")
         self.write("memory/domains/d/INDEX.md", slice_text(("s", "`tools/fabric/deleted.py`"), klass="index"))
@@ -177,8 +291,8 @@ class Output(Tree):
         self.assertEqual(r.returncode, 0, "a report, not a gate")
         out = r.stdout.splitlines()
         self.assertEqual(out[0].split("\t"), ["stale-hard", "domains/d/domain/a.md", "gone", "tools/fabric/deleted.py"])
-        self.assertEqual(out[1].split("\t"), ["unchecked", "domains/d/domain/a.md", "far", "../zz/y/z"])
-        self.assertEqual(out[2], "summary\t1 stale-hard, 1 unchecked, 1 fresh, 1 no-anchor; 1 slice(s) cite a path that is gone")
+        self.assertEqual(out[1].split("\t"), ["unchecked", "domains/d/domain/a.md", "far", "../zz/y/z", "no checkout 'zz' beside the tree"])
+        self.assertEqual(out[2], "summary\t1 stale-hard, 1 unchecked, 1 fresh, 1 no-anchor, 0 unreadable; 1 slice(s) cite a path that is gone")
         self.assertEqual(len(out), 3)
 
     def test_all_adds_the_fresh_and_no_anchor_sections(self):
@@ -189,7 +303,7 @@ class Output(Tree):
     def test_json_is_one_document_with_every_section_and_the_counts(self):
         doc = self.report()
         self.assertEqual(sorted(doc), ["corpus", "counts", "sections", "tree"])
-        self.assertEqual(doc["counts"], {"stale-hard": 1, "unchecked": 1, "fresh": 1, "no-anchor": 1})
+        self.assertEqual(doc["counts"], {"stale-hard": 1, "unchecked": 1, "fresh": 1, "no-anchor": 1, "unreadable": 0})
         self.assertEqual(doc["tree"], self.tree)
         self.assertEqual([s["heading"] for s in doc["sections"]], ["gone", "fine", "none", "far"])
 
