@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""runtime/github/check-workflows-lint.sh [--root <dir>]
+"""tools/fabric/github/workflows_lint.py [--root <dir>]
 
 Every workflow passes actionlint (its run: scripts through shellcheck)
 and zizmor (the workflow security audit), with the release of each

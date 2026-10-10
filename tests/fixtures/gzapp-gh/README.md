@@ -5,5 +5,6 @@ the suites that port a project's own test of a fabric tool (`arm`,
 tools read a project's rules from its integration directory, which is the
 operator's instance data (agent-fabric ADR-045 §5 rule 3); these tests read this
 copy, so they pass with no instance on the machine and do not move when a
-project edits its rules. `arm.sh` is gzapp's forwarder with its path to the
-engine's `runtime/github/arm.sh` shortened to this directory's depth.
+project edits its rules. `arm.sh` is gzapp's forwarder as it was, with its last line pointed at the
+engine's `bin/fabric-pr arm` (the shims it once ran are gone) at this
+directory's depth.

@@ -457,7 +457,7 @@ def main() -> int:
             except ValueError:
                 return None
 
-        print("pr-review-status.sh — the head-reviewed verdict")
+        print("fabric-pr review-status — the head-reviewed verdict")
         rc, out, _ = run("OPEN:abc123:0", "bot,abc123,2026-08-07T10:00:00Z")
         check("independent review AT the head exits 0", rc == 0, out)
         check("  and says so", "head reviewed?      : yes" in out, out)
@@ -577,7 +577,7 @@ def main() -> int:
         check("stale review WITH a request pending is 'not yet'", rc == 1, out)
         check("  flags the earlier commit", "an EARLIER commit" in out, out)
 
-        print("pr-review-status.sh — no review is coming (exit 5)")
+        print("fabric-pr review-status — no review is coming (exit 5)")
         rc, out, _ = run("OPEN:newhead:0", "bot,oldhead,2026-08-07T10:00:00Z")
         check("reviewed then pushed, nothing requested, exits 5", rc == 5, out)
         check("  names the cause", "NO REVIEW COMING" in out, out)
@@ -594,7 +594,7 @@ def main() -> int:
         check("a never-reviewed PR is 1, not 5", rc == 1, out)
         check("  and claims nothing about the cause", "NO REVIEW COMING" not in out, out)
 
-        print("pr-review-status.sh — waiting")
+        print("fabric-pr review-status — waiting")
         rc, out, _ = run("OPEN:abc123:1\nOPEN:abc123:1", "", "--wait", "2", "--interval", "1", "-q")
         check("wait expires with nothing and exits 1", rc == 1, out)
         rc, out, _ = run("OPEN:abc123:1", "bot,abc123,2026-08-07T10:00:00Z", "--wait", "60", "--interval", "1", "-q")
@@ -617,7 +617,7 @@ def main() -> int:
         check(f"  and waits the requested time ({took:.0f}s)", took >= 3, f"returned after {took:.1f}s")
         check("  polling again at the deadline", polls_made() >= 2, f"only {polls_made()} poll(s)")
 
-        print("pr-review-status.sh — invocation")
+        print("fabric-pr review-status — invocation")
         check("no PR number exits 2", bare() == 2)
         check("zero --interval exits 2", bare("77", "o/r", "--interval", "0") == 2)
         # The duration table: this suite is what stops as_seconds accepting
@@ -640,12 +640,12 @@ def main() -> int:
         rc, out, _ = run("FAIL\nFAIL\nFAIL", "")
         check("three failed lookups exit 2", rc == 2, out)
 
-        print("pr-review-status.sh — an unreadable reviews lookup is not 'no reviews'")
+        print("fabric-pr review-status — an unreadable reviews lookup is not 'no reviews'")
         rc, out, _ = run("OPEN:abc123:0", "", "--wait", "10", "--interval", "1", "-q", reviews_fail=True)
         check("a failing reviews lookup exits 2, not 1", rc == 2, out)
         check("  and renders no verdict from data it never had", "head reviewed?" not in out, out)
 
-        print("pr-review-status.sh — coverage is ANY review at the head")
+        print("fabric-pr review-status — coverage is ANY review at the head")
         # A review submitted LAST against an older commit must not mask the
         # coverage that is there.
         rc, out, _ = run("OPEN:head1:0", "reviewer-a,head1,2026-08-12T10:00:00Z\nreviewer-b,oldsha,2026-08-12T11:00:00Z")
@@ -658,13 +658,13 @@ def main() -> int:
                          reviews_fail_after="1")
         check("a probe that dies halfway does not render stale data", rc == 2, out)
 
-        print("pr-review-status.sh — a merged pr is never told that no review is coming")
+        print("fabric-pr review-status — a merged pr is never told that no review is coming")
         rc, out, _ = run("MERGED:newsha:0", "reviewer-a,oldsha1,2026-08-12T10:00:00Z")
         check("a merged pr with a stale review does not claim exit 5", rc != 5, out)
         rc, out, _ = run("OPEN:newsha:0", "reviewer-a,oldsha1,2026-08-12T10:00:00Z")
         check("an open pr past its newest review still exits 5", rc == 5, out)
 
-        print("pr-review-status.sh — a configured reviewer's clean verdict is a review")
+        print("fabric-pr review-status — a configured reviewer's clean verdict is a review")
         # An automated reviewer that finds nothing posts an issue comment
         # naming the commit, not a review object.
         rc, out, _ = run("OPEN:e7eb89d90cabc:0", "", verdicts="reviewer[bot],e7eb89d90c")
@@ -673,28 +673,28 @@ def main() -> int:
         check("  and shows where the coverage came from", "verdict comments    : 1" in out, out)
         check("  and names it as a clean review", "a clean review leaves no review object" in out, out)
 
-        print("pr-review-status.sh — the verdict's sha is READ, never assumed")
+        print("fabric-pr review-status — the verdict's sha is READ, never assumed")
         rc, out, _ = run("OPEN:bbbbbbbbbb:0", "", verdicts="reviewer[bot],aaaaaaaaaa")
         check("a verdict naming an older commit is not coverage", rc == 5, out)
         check("  the verdict was READ, not ignored", "verdict comments    : 1" in out, out)
         check("  head stays unreviewed", "head reviewed?      : no" in out, out)
         check("  and names the cause, as a stale review object would", "NO REVIEW COMING" in out, out)
 
-        print("pr-review-status.sh — abbreviated shas match by prefix, both ways")
+        print("fabric-pr review-status — abbreviated shas match by prefix, both ways")
         rc, out, _ = run("OPEN:2756062690aaaabbbbccccddddeeeeffff00001111:0", "", verdicts="reviewer[bot],2756062690")
         check("a short verdict sha covers a full head", rc == 0, out)
 
-        print("pr-review-status.sh — only a RECOGNISED reviewer's verdict counts")
+        print("fabric-pr review-status — only a RECOGNISED reviewer's verdict counts")
         rc, out, _ = run("OPEN:cccccccccc:0", "", verdicts="some-stranger,cccccccccc")
         check("a stranger's forged verdict is NOT coverage", rc == 1, out)
         check("  head stays unreviewed", "head reviewed?      : no" in out, out)
         check("  and none is counted", "verdict comments    : 0" in out, out)
 
-        print("pr-review-status.sh — a self-authored verdict is not coverage")
+        print("fabric-pr review-status — a self-authored verdict is not coverage")
         rc, out, _ = run("OPEN:dddddddddd:0", "", verdicts="me,dddddddddd")
         check("the pr author cannot certify their own head", rc == 1, out)
 
-        print("pr-review-status.sh — the allow-list is the project's, and empty by default")
+        print("fabric-pr review-status — the allow-list is the project's, and empty by default")
         rc, out, _ = run("OPEN:eeeeeeeeee:0", "", verdicts="some-other-bot,eeeeeeeeee", verdict_authors='["some-other-bot"]')
         check("AGENT_FABRIC_VERDICT_AUTHORS names the reviewer", rc == 0, out)
         rc, out, _ = run("OPEN:eeeeeeeeee:0", "", verdicts="some-other-bot,eeeeeeeeee")
@@ -703,12 +703,12 @@ def main() -> int:
         check("unconfigured, no comment is a verdict", rc == 1, out)
         check("  and none is counted", "verdict comments    : 0" in out, out)
 
-        print("pr-review-status.sh — an unreadable comments lookup is not 'no verdicts'")
+        print("fabric-pr review-status — an unreadable comments lookup is not 'no verdicts'")
         rc, out, _ = run("OPEN:newsha:0", "reviewer-a,newsha,2026-08-12T10:00:00Z", verdicts_fail=True)
         check("a failing comments lookup exits 2, not 0", rc == 2, out)
         check("  and renders no verdict from data it never had", "head reviewed?" not in out, out)
 
-        print("pr-review-status.sh — a configured reviewer that DECLINED ends the wait")
+        print("fabric-pr review-status — a configured reviewer that DECLINED ends the wait")
         # A spent usage limit or a repository it cannot open is not slowness:
         # the wording that counts is the project's, and the reason reported is
         # the reviewer's own first line.
@@ -721,29 +721,29 @@ def main() -> int:
         check("  in the verdict line too",
               "the reviewer declined: Usage limit reached for reviews; none will run. (exit 5)" in out, out)
 
-        print("pr-review-status.sh — every configured phrase is the same verdict")
+        print("fabric-pr review-status — every configured phrase is the same verdict")
         rc, out, _ = run("OPEN:ffffffffff:0", "", verdicts="reviewer[bot],NOENV")
         check("the second phrase exits 5 too", rc == 5, out)
         check("  and names its reason", "decline reason      : No environment for this repo" in out, out)
 
-        print("pr-review-status.sh — with no refusal wording configured, nothing is a decline")
+        print("fabric-pr review-status — with no refusal wording configured, nothing is a decline")
         rc, out, _ = run("OPEN:ffffffffff:0", "", verdicts="reviewer[bot],REFUSED", refusal_re="")
         check("unconfigured, the comment is just a comment", rc == 1, out)
         check("  and nothing is reported as declined", "reviewer declined   :" not in out, out)
 
-        print("pr-review-status.sh — a refusal a later review superseded is stale")
+        print("fabric-pr review-status — a refusal a later review superseded is stale")
         rc, out, _ = run("OPEN:ffffffffff:0", "", verdicts="reviewer[bot],REFUSED,2026-08-01T10:00:00Z\n"
                          "reviewer[bot],ffffffffff,2026-08-20T10:00:00Z")
         check("the later verdict wins", rc == 0, out)
         check("  and the decline is marked superseded", "superseded by later coverage" in out, out)
 
-        print("pr-review-status.sh — a stranger cannot fake a refusal either")
+        print("fabric-pr review-status — a stranger cannot fake a refusal either")
         rc, out, _ = run("OPEN:ffffffffff:0", "", verdicts="some-stranger,REFUSED")
         check("a forged refusal is ignored", rc == 1, out)
         check("  and nothing is reported as declined", "reviewer declined   :" not in out, out)
 
         stale = "reviewer-a,aaaaaaaaaa,2026-08-01T10:00:00Z"
-        print("pr-review-status.sh — a configured review ask in flight is not 'nothing coming'")
+        print("fabric-pr review-status — a configured review ask in flight is not 'nothing coming'")
         # A phrase ask is no GitHub review request, so `requested` stays 0:
         # "nothing is coming" fired seconds after the ask, hit live.
         rc, out, _ = run("OPEN:ffffffffff:0", stale, verdicts="someone,REQUEST,2026-08-20T10:00:00Z")
@@ -751,12 +751,12 @@ def main() -> int:
         check("  and claims nothing about the cause", "NO REVIEW COMING" not in out, out)
         check("  and says the ask is in flight", "in flight" in out, out)
 
-        print("pr-review-status.sh — with no ask phrase configured, nothing is an ask")
+        print("fabric-pr review-status — with no ask phrase configured, nothing is an ask")
         rc, out, _ = run("OPEN:ffffffffff:0", stale, verdicts="someone,REQUEST,2026-08-20T10:00:00Z", request_re="")
         check("unconfigured, the stale review is 'nothing is coming'", rc == 5, out)
         check("  and no ask is reported", "review asked        :" not in out, out)
 
-        print("pr-review-status.sh — the review it asked for answers the ask")
+        print("fabric-pr review-status — the review it asked for answers the ask")
         rc, out, _ = run("OPEN:ffffffffff:0", "reviewer[bot],ffffffffff,2026-08-20T10:00:00Z",
                          verdicts="someone,REQUEST,2026-08-15T10:00:00Z", head_date="2026-08-10T00:00:00Z")
         check("the head is covered", rc == 0, out)
@@ -768,7 +768,7 @@ def main() -> int:
                              verdicts=f"someone,REQUEST,{ask_at}", head_date=head_date, **kw)
             return rc, out
 
-        print("pr-review-status.sh — head birth comes from the PUSH, not the commit date")
+        print("fabric-pr review-status — head birth comes from the PUSH, not the commit date")
         # Committed 11:48:37, pushed 12:06: an ask inside that gap is for the
         # PREVIOUS head.
         rc, out = ask_case("2026-08-25T11:48:37Z", "2026-08-25T11:50:00Z", "2026-08-25T11:55:00Z",
@@ -776,17 +776,17 @@ def main() -> int:
         check("an ask between commit and push is for the older head", rc == 5, out)
         check("  names the cause", "NO REVIEW COMING" in out, out)
 
-        print("pr-review-status.sh — ...and an ask after the push is current")
+        print("fabric-pr review-status — ...and an ask after the push is current")
         rc, out = ask_case("2026-08-25T11:48:37Z", "2026-08-25T11:50:00Z", "2026-08-25T12:10:00Z",
                            suite_date="2026-08-25T12:06:07Z")
         check("an ask after the ref moved is in flight", rc == 1, out)
 
-        print("pr-review-status.sh — a REBASED head still expires an older ask")
+        print("fabric-pr review-status — a REBASED head still expires an older ask")
         rc, out = ask_case("2026-01-01T00:00:00Z", "2026-08-25T11:50:00Z", "2026-08-25T11:55:00Z",
                            suite_date="2026-08-25T12:06:07Z")
         check("an ancient commit date does not make the ask current", rc == 5, out)
 
-        print("pr-review-status.sh — a RESTORED sha keeps the ask in flight rather than expiring it")
+        print("fabric-pr review-status — a RESTORED sha keeps the ask in flight rather than expiring it")
         # Dating from the latest suite bought exit 5 here and paid for it with
         # a false exit 5 on every dispatch, schedule, re-run and reopen; a
         # longer wait is the safe direction.
@@ -802,13 +802,13 @@ def main() -> int:
                  {"claiming": "2026-01-01T00:00:00Z"}),
                 ("an EARLIER suite this pr does not own cannot date its head", "a suite belonging to no pr is ignored",
                  {"unowned": "2026-01-01T00:00:00Z"})):
-            print(f"pr-review-status.sh — {heading}")
+            print(f"fabric-pr review-status — {heading}")
             rc, out = ask_case("2026-08-25T11:48:37Z", "2026-08-25T11:50:00Z", "2026-08-25T11:55:00Z",
                                suite_date="2026-08-25T12:06:07Z", **kw)
             check(label, rc == 5, out)
             check("  names the cause", "NO REVIEW COMING" in out, out)
 
-        print("pr-review-status.sh — a LATER suite on this ref cannot date this head")
+        print("fabric-pr review-status — a LATER suite on this ref cannot date this head")
         # Dispatch, schedule, re-run and reopen raise a suite for the
         # unchanged sha with this ref AND this pr: ordering rejects the class.
         rc, out = ask_case("2026-08-25T11:48:37Z", "2026-08-25T11:50:00Z", "2026-08-25T12:10:00Z",
@@ -816,7 +816,7 @@ def main() -> int:
         check("a later suite does not move the head's birthday", rc == 1, out)
         check("  and nothing declares the review dead", "NO REVIEW COMING" not in out, out)
 
-        print("pr-review-status.sh — the earliest suite is found ACROSS pages, not on page one")
+        print("fabric-pr review-status — the earliest suite is found ACROSS pages, not on page one")
         # HEAD_DATE is LATER than the ask, so the committer-date fallback
         # yields exit 5: without that, every way of getting this wrong still
         # reached exit 1 and the case passed vacuously.
@@ -825,13 +825,13 @@ def main() -> int:
         check("a later page's earlier suite wins", rc == 1, out)
         check("  and nothing declares the review dead", "NO REVIEW COMING" not in out, out)
 
-        print("pr-review-status.sh — a quote in the branch name does not break the lookup")
+        print("fabric-pr review-status — a quote in the branch name does not break the lookup")
         rc, out = ask_case("2026-01-01T00:00:00Z", "2026-08-25T11:50:00Z", "2026-08-25T11:55:00Z",
                            suite_date="2026-08-25T12:06:07Z", head_ref='mine/we"ird')
         check("the suite date is still found", rc == 5, out)
         check("  names the cause", "NO REVIEW COMING" in out, out)
 
-        print("pr-review-status.sh — no check suite falls back to the commit date")
+        print("fabric-pr review-status — no check suite falls back to the commit date")
         # The ask falls BEFORE the commit date, so the fallback CHANGES the
         # answer: written the other way round, it passed with the fallback
         # deleted.
@@ -839,63 +839,63 @@ def main() -> int:
         check("the commit date still decides when nothing else can", rc == 5, out)
         check("  names the cause", "NO REVIEW COMING" in out, out)
 
-        print("pr-review-status.sh — a STALE review does not answer a later ask")
+        print("fabric-pr review-status — a STALE review does not answer a later ask")
         rc, out = ask_case("2026-08-10T00:00:00Z", "2026-08-20T10:00:00Z", "2026-08-15T10:00:00Z")
         check("the ask still counts as in flight", rc == 1, out)
         check("  and nothing claims the review is not coming", "NO REVIEW COMING" not in out, out)
 
-        print("pr-review-status.sh — ...but an ask made BEFORE this head still expires")
+        print("fabric-pr review-status — ...but an ask made BEFORE this head still expires")
         rc, out = ask_case("2026-08-10T00:00:00Z", "2026-08-07T10:00:00Z", "2026-08-05T10:00:00Z")
         check("an ask for an older head does not suppress the verdict", rc == 5, out)
         check("  names the cause", "NO REVIEW COMING" in out, out)
 
-        print("pr-review-status.sh — an ask ALREADY ANSWERED does not suppress the verdict")
+        print("fabric-pr review-status — an ask ALREADY ANSWERED does not suppress the verdict")
         rc, out, _ = run("OPEN:ffffffffff:0", "reviewer-a,aaaaaaaaaa,2026-08-20T10:00:00Z",
                          verdicts="someone,REQUEST,2026-08-01T10:00:00Z")
         check("the answer that followed it wins", rc == 5, out)
         check("  and the ask is marked answered", "already answered" in out, out)
 
-        print("pr-review-status.sh — a re-ask after a refusal supersedes it")
+        print("fabric-pr review-status — a re-ask after a refusal supersedes it")
         rc, out, _ = run("OPEN:ffffffffff:0", "", verdicts="reviewer[bot],REFUSED,2026-08-01T10:00:00Z\n"
                          "someone,REQUEST,2026-08-20T10:00:00Z")
         check("the re-ask reopens the wait", rc == 1, out)
         check("  and the decline no longer ends it", "the reviewer declined" not in out, out)
 
-        print("pr-review-status.sh — a refusal AFTER the ask still ends the wait")
+        print("fabric-pr review-status — a refusal AFTER the ask still ends the wait")
         rc, out, _ = run("OPEN:ffffffffff:0", "", verdicts="someone,REQUEST,2026-08-01T10:00:00Z\n"
                          "reviewer[bot],REFUSED,2026-08-20T10:00:00Z")
         check("the decline wins", rc == 5, out)
         check("  and names itself", "the reviewer declined" in out, out)
 
-        print("pr-review-status.sh — a pending request from ANYONE suppresses the verdict")
+        print("fabric-pr review-status — a pending request from ANYONE suppresses the verdict")
         rc, out, _ = run("OPEN:ffffffffff:1@a-human", "reviewer-a,aaaaaaaaaa,2026-08-01T10:00:00Z")
         check("a pending request means a review may be coming", rc == 1, out)
 
         refused = "reviewer[bot],REFUSED,2026-08-20T10:00:00Z"
-        print("pr-review-status.sh — a formal request PREDATING the refusal does not supersede it")
+        print("fabric-pr review-status — a formal request PREDATING the refusal does not supersede it")
         rc, out, _ = run("OPEN:ffffffffff:1", "", verdicts=refused, formal_date="2026-08-01T10:00:00Z")
         check("the refusal answered that request, and still stands", rc == 5, out)
         check("  names the decline", "the reviewer declined" in out, out)
 
-        print("pr-review-status.sh — ...and one made AFTER it does supersede it")
+        print("fabric-pr review-status — ...and one made AFTER it does supersede it")
         rc, out, _ = run("OPEN:ffffffffff:1", "", verdicts=refused, formal_date="2026-08-25T10:00:00Z")
         check("a genuine re-request reopens the wait", rc == 1, out)
         check("  and the decline no longer ends it", "the reviewer declined" not in out, out)
 
-        print("pr-review-status.sh — a request since WITHDRAWN cannot supersede the refusal")
+        print("fabric-pr review-status — a request since WITHDRAWN cannot supersede the refusal")
         # The timeline keeps a REVIEW_REQUESTED_EVENT after the request is
         # withdrawn: the event has to name a reviewer who is STILL pending.
         rc, out, _ = run("OPEN:ffffffffff:1", "", verdicts=refused, formal_date="2026-08-25T10:00:00Z,a-human")
         check("a withdrawn request does not reopen the wait", rc == 5, out)
         check("  the decline still stands", "the reviewer declined" in out, out)
 
-        print("pr-review-status.sh — a decline does not answer a PENDING HUMAN request")
+        print("fabric-pr review-status — a decline does not answer a PENDING HUMAN request")
         rc, out, _ = run("OPEN:ffffffffff:2@a-human+reviewer[bot]", "", verdicts="someone,REQUEST,2026-08-01T10:00:00Z\n"
                          "reviewer[bot],REFUSED,2026-08-20T10:00:00Z")
         check("the human request outlives the reviewer's decline", rc == 1, out)
         check("  and nothing declares the review dead", "the reviewer declined" not in out, out)
 
-        print("pr-review-status.sh — no gh api call invents a flag gh does not have")
+        print("fabric-pr review-status — no gh api call invents a flag gh does not have")
         # The mock cannot catch this, by construction: it was the mock that
         # was wrong once (`--argjson`, a jq option gh api lacks, failed every
         # real invocation while the suite stayed green). The implementation
@@ -912,27 +912,27 @@ def main() -> int:
         offenders = sorted(set(offenders))
         check("gh api is never handed a jq-only flag", not offenders, f"gh api does not accept: {offenders}")
 
-        print("pr-review-status.sh — a request event for someone NOT pending does not clear the refusal")
+        print("fabric-pr review-status — a request event for someone NOT pending does not clear the refusal")
         rc, out, _ = run("OPEN:ffffffffff:1", "", verdicts=refused,
                          formal_date="2026-08-19T10:00:00Z,reviewer[bot]\n2026-08-25T10:00:00Z,a-human")
         check("the reviewer's decline still stands", rc == 5, out)
         check("  names the decline", "the reviewer declined" in out, out)
 
-        print("pr-review-status.sh — ...and a request of the reviewer itself after it clears it")
+        print("fabric-pr review-status — ...and a request of the reviewer itself after it clears it")
         rc, out, _ = run("OPEN:ffffffffff:1", "", verdicts=refused, formal_date="2026-08-25T10:00:00Z,reviewer[bot]")
         check("a re-request of the configured reviewer reopens the wait", rc == 1, out)
 
-        print("pr-review-status.sh — unreadable timeline leaves the refusal standing")
+        print("fabric-pr review-status — unreadable timeline leaves the refusal standing")
         rc, out, _ = run("OPEN:ffffffffff:1", "", verdicts=refused, formal_date="")
         check("no ordering evidence means the refusal is not superseded", rc == 5, out)
 
-        print("pr-review-status.sh — a CURRENT refusal outranks the stale-review message")
+        print("fabric-pr review-status — a CURRENT refusal outranks the stale-review message")
         rc, out, _ = run("OPEN:ffffffffff:0", stale, verdicts=refused)
         check("still exits 5", rc == 5, out)
         check("names the DECLINE, not the stale review", "the reviewer declined" in out, out)
         check("  and does not send the caller to re-review", "dispatch a re-review (exit 5)" not in out, out)
 
-        print("pr-review-status.sh — a configuration that cannot be applied is refused, never read as 'none'")
+        print("fabric-pr review-status — a configuration that cannot be applied is refused, never read as 'none'")
         rc, out, _ = run("OPEN:ffffffffff:0", stale, verdicts="someone,REQUEST,2026-08-20T10:00:00Z",
                          request_re="@reviewer review(")
         check("an invalid ask regex exits 2", rc == 2, out)
@@ -944,7 +944,7 @@ def main() -> int:
         check("a verdict-author list that is not a JSON array exits 2", rc == 2, out)
         check("  and names the variable", "AGENT_FABRIC_VERDICT_AUTHORS" in out, out)
 
-        print("pr-review-status.sh — the decline reason is the reviewer's first line, whole")
+        print("fabric-pr review-status — the decline reason is the reviewer's first line, whole")
         rc, out, _ = run("OPEN:ffffffffff:0", "", verdicts="reviewer[bot],REFUSED_DASH")
         check("still a decline", rc == 5, out)
         check("  the reason is the first non-empty line, CR stripped",
@@ -952,11 +952,11 @@ def main() -> int:
         check("  and the verdict line carries it whole",
               "the reviewer declined: Cannot review this PR — usage limit reached for reviews. (exit 5)" in out, out)
 
-        print("pr-review-status.sh — a MERGED pr is not ended by a refusal")
+        print("fabric-pr review-status — a MERGED pr is not ended by a refusal")
         rc, out, _ = run("MERGED:ffffffffff:0", "", verdicts="reviewer[bot],REFUSED")
         check("a merged pr keeps waiting despite a decline", rc == 1, out)
 
-        print("pr-review-status.sh — -q writes NOTHING to stderr")
+        print("fabric-pr review-status — -q writes NOTHING to stderr")
         # A background watcher runs for half an hour, so anything
         # unconditional on stderr is emitted on every poll; a diagnostic
         # printf once shipped because no case asked what stderr held. The

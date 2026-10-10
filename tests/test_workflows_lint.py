@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """tools/fabric/github/workflows_lint.py. Its behaviour's oracle is a
 managed project's tools/checks/test_check_workflows_lint.sh, run unchanged
-against the shim (ADR-040 §5 rule 5) but for three cases devex-tooling
+against the module (ADR-040 §5 rule 5) but for three cases devex-tooling
 retired: two reach the fetch's temp files through a failing mktemp on PATH
 and one its move through a failing mv, which Python never calls, and one
 seds the bash function out to show it refuses to run outside $(…), a rule
@@ -31,7 +31,7 @@ from github import workflows_lint as wl  # noqa: E402
 from instance_fixtures import own_instance_tree  # noqa: E402 — tests/, the script's own directory
 own_instance_tree()
 
-TOOL = os.path.join(ROOT, "runtime", "github", "check-workflows-lint.sh")
+TOOL = [sys.executable, os.path.join(ROOT, "tools", "fabric", "github", "workflows_lint.py")]
 
 # curl as the fetch calls it: `curl … -o <out> <url>`, the url a local
 # tarball; $CURL_HANGS makes it write part of the file and stall.
@@ -206,8 +206,8 @@ def main() -> int:
         finally:
             os.environ["PATH"] = saved_path
 
-        # ── through the shim ─────────────────────────────────────────────
-        print("workflows_lint: through runtime/github/check-workflows-lint.sh")
+        # ── through the module ─────────────────────────────────────────────
+        print("workflows_lint: through tools/fabric/github/workflows_lint.py")
         with open(os.path.join(bin_, "shellcheck"), "w", encoding="utf-8") as fh:
             fh.write('#!/usr/bin/env bash\necho ShellCheck\necho "version: stub"\n')
         os.chmod(os.path.join(bin_, "shellcheck"), 0o755)
@@ -224,7 +224,7 @@ def main() -> int:
             base["AGENT_FABRIC_PYTHON"] = os.environ["AGENT_FABRIC_PYTHON"]
 
         def run(*args: str, cwd: str = sandbox, **env: str):
-            r = subprocess.run([TOOL, *args], env=dict(base, **env), cwd=cwd, capture_output=True, text=True,
+            r = subprocess.run([*TOOL, *args], env=dict(base, **env), cwd=cwd, capture_output=True, text=True,
                                timeout=120)
             return r.returncode, r.stdout, r.stderr
 
@@ -247,7 +247,7 @@ def main() -> int:
             "goes in .github/zizmor.yml with its reason.\n"), out)
         rc, out, err = run("-h")
         check("--help is the module's text, exit 0",
-              rc == 0 and out.startswith("runtime/github/check-workflows-lint.sh [--root <dir>]") and not err)
+              rc == 0 and out.startswith("tools/fabric/github/workflows_lint.py [--root <dir>]") and not err)
         for args, cwd, want in (
                 (("--root",), sandbox, "check_workflows_lint: --root needs a value\n"),
                 (("extra",), sandbox, "check_workflows_lint: unexpected argument: extra\n"),

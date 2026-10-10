@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""runtime/github/run-suite.sh <suite.sh> [args...]
+"""tools/fabric/github/run_suite.py <suite.sh> [args...]
 
 Run a bash test suite so that a call to a command that does not exist
 FAILS it.

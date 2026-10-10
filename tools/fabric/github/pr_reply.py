@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """tools/fabric/github/pr_reply.py — reply to ONE review thread and resolve
-it, in a single call (ADR-040 Wave 1; `fabric-pr reply` runs it; the runtime/github
-shim is deprecated, and the managed projects' tools/gh/pr-reply.sh forward to that path).
+it, in a single call (ADR-040 Wave 1; `fabric-pr reply` runs it).
 
 CONTRACT, frozen from the bash (ADR-040 §5 rule 3):
   argv      <thread-id> [--no-resolve | --resolve] [--dry-run] [-h|--help]

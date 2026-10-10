@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """tools/fabric/github/trial_merge.py — do these branches combine? (ADR-040
-Wave 1; `fabric-pr trial-merge` runs it; the runtime/github shim is deprecated.)
+Wave 1; `fabric-pr trial-merge` runs it.)
 
 CONTRACT, frozen from the bash (ADR-040 §5 rule 3):
   argv      <PR number | branch>... [--base <ref>] [--check] [--json] [-h|--help]

@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 """tools/fabric/github/pr_gate.py — my open pull requests: how many commits,
 and what stands between each and main (ADR-040 Wave 1;
-`fabric-pr gate` runs it; the runtime/github shim is deprecated, and the managed projects'
-tools/gh/pr-gate.sh forward to that path). --in-flight and --overlap were
+`fabric-pr gate` runs it). --in-flight and --overlap were
 pr-gate-inflight.sh, sourced by the bash; they are in_flight() here.
 
 CONTRACT, frozen from the bash (ADR-040 §5 rule 3):
@@ -83,7 +82,7 @@ WHAT A ROW SAYS
          "review F4: …", "…: address the blind review", "re-review
          nits: …"; a fix(scope): bug fix is WORK — the count rule
          excludes fixes; the subjects counted as fix are printed so
-         the split can be checked; commit-class.sh is the classifier)
+         the split can be checked; commit_class.py is the classifier)
   checks green when every reported check passed; red names the failed
          ones; pending counts the ones still running; none-yet when no
          check has reported (seconds after a push); ? when they could
