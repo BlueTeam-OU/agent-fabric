@@ -1,0 +1,6 @@
+{
+  "description": "blueteam.ee's GZCoord integration: the site's roles (brand-comms, with language-culture and edge-hosting beside it) are on the fleet's coordination channel, hosted by the relay on the coordinator's workspace — one fleet, one channel, whatever repository a session stands in. Read by gzcoord-inbox when the working copy resolves to project blueteam.ee; CLAUDE_BRIDGE_URL and GZCOORD_CHANNEL in the environment override it. No token_env_file: the account's token arrives with fabric-secrets sync (its own store), and a private site repository keeps no env file for it. relay_runtime_dir is relative to the workspace, never inside a repository. Written 2026-10-10, at registration.",
+  "relay_url": "http://127.0.0.1:8765",
+  "channel": "gzapp:gzcoord",
+  "relay_runtime_dir": ".gzcoord"
+}
