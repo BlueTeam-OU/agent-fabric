@@ -123,25 +123,23 @@ SUBSTITUTION = r'\$\(|`|[<>]\('
 # misses), so a later search of . would read wherever it
 # went: no cd or pushd home (bare, -, ~), into a home's hidden directories,
 # up out of the clone (..), or to /, /home, /root, /proc.
-# A cd is found however it is prefixed: behind a group or subshell opener,
-# a compound command's keyword, `!`, `time`, an assignment, or `builtin` /
-# `command` (`builtin cd ..` is cd ..). Anchoring at the segment's first word
-# let every one of those through (re-review of 0eb39891). Each prefix word
-# must consume a non-space character, so the repetition reads one way only.
-CD_HEAD = (r'^(?:[\s]*(?:[({!]|[A-Za-z_][A-Za-z0-9_]*=[^\s]*(?=[\s]|$)|'
-           r'(?:builtin|command|then|do|else|elif|if|while|until|time)(?:[\s]+-[-p]+)?(?=[\s(]|$)))*'
-           r'[\s]*(cd|pushd)')
-CD = CD_HEAD + r'([\s]+-[LPe@]+)*[\s]*($|-([\s]|$)|~)'
-CD_ANY = CD_HEAD + r'([\s]|$)'
-# A word the shell rewrites before cd sees it (a glob, a brace: `.[.]` and
-# `{.,.}` are .. to cd, never to CD_UP; a quote or a backslash: `".".` and
-# `.\.` are .. too), or an argument that is an option or `--` (cd -- goes
-# home; -P/-L let the next word be anything): what the cd reaches is not
-# what the text says, so it is refused rather than modelled.
-CD_ODD = CD_HEAD + r'[\s]+([^\s]*[][*?{}"\'\\]|-)'
+# The rule over-reports on purpose, as the guard's own rule of thumb is to.
+# Modelling how a cd can be spelled failed round after round: each added
+# prefixes (builtin, a group opener, an assignment, a quoted value, a second
+# option word) or argument spellings (a glob, a quote, `$X`), and the next
+# re-review (of 0eb39891, then of 867a69e2) found one more: `\cd ..`,
+# `"cd" ..`, `cd $(echo ..)`, a cd in a case arm or a function body. So a
+# segment is judged by one question: does the word cd or pushd appear in it
+# at all, once quotes and backslashes are removed (as bash removes them from
+# a command word)? If so it is admitted only as exactly `cd <path>` with a
+# relative path of plain characters and no `..` component, and is `moved`
+# otherwise. That also refuses `builtin cd tools`, `echo cd ..`, `grep cd f`
+# and `cd /abs/path`, on purpose. Every pattern consumes a character per
+# repetition, so each reads one way.
+CD_WORD = r'(^|\W)(cd|pushd)(?=[\s;)]|$)'
+CD_PLAIN = r'[\s]*cd[\s]+(?![-/])(?!(?:[A-Za-z0-9._-]*/)*\.\.(?:/|\s|$))[A-Za-z0-9._/-]+[\s]*'
 CD_STEP = r"(^|[\s{(]|then|do|else)[\s]*((command|builtin)[\s]+)?(cd|pushd|popd)([\s]|$)"
 TRIVIAL = r"^[\s]*([0-9]*|[})]+|fi|done|esac|true|false|:|[0-9]*>[\s]*/dev/null)?[\s]*$"
-CD_UP = r"(^|[\s/\"'])\.\.(/|[\s\"']|$)"
 
 # Shell escapes that would carry any of the above past a string match, and
 # the routine in-place file writes. Also what makes an allowed tool run a
@@ -164,7 +162,7 @@ REASONS = {
     "slow": "The review-class bash guard could not judge this command within its time budget, so it is denied. Split it into simpler commands.",
     "error": "The review-class bash guard failed while judging this command, so it is denied. Report without it, or split it into simpler commands.",
     "secret": "The review class may not print the environment, expand a secret-shaped variable, or read secret material (secrets.env, the stores, gpg keys, /proc/*/environ): an account's environment or files may carry its credentials, and what you print enters the transcript. Describe a secret by its name and shape only. To run a check in a clean environment, use env -i NAME=value \u2026 command.",
-    "moved": "The review class may not change directory to a home, a hidden directory in one, up out of the clone (..), or back (cd, cd -, cd --, cd ~), nor through a glob, a brace, a quote, a backslash or an option (cd .[.], cd {a,b}, cd \".\", cd .\\., cd -P), however the cd is prefixed (builtin cd, ( cd, { cd, then cd): what the command does after the cd would read there. Name the path in the command, or use git -C <path>.",
+    "moved": "The review class may not use cd or pushd except as a plain `cd <dir>` of a relative path inside the clone (letters, digits, . _ - /; no .. component, no leading / or -): a cd's target cannot be judged from its spelling (a quote, a backslash, an expansion, a prefix such as builtin, a group, a case arm or a function body), so any other command containing the word cd or pushd is refused, echo cd and grep cd included. Name the path in the command, or use git -C <path>.",
     "cd-last": "A cd that ends a command does not last: each command the review class runs is its own shell, so the next one starts where this one did. Put the work after it in the same command (cd <dir> && git log ...), or name the directory (git -C <dir> ..., grep -rn x <dir>).",
     "escape": "The review class may not use shell escapes (eval, exec, sh -c): they carry a write past this guard. Run the command directly.",
     "write": "The review class runs in the session clone and is READ-ONLY: no in-place edits, no file writes, no redirection except to /dev/null. Report what you would have changed instead. A review is posted as: fabric-pr post-review <pr> [--model <name>] <<'EOF' … EOF (a quoted tag; nothing after the terminator).",
@@ -257,7 +255,7 @@ def verdict(cmd: str) -> str | None:
     segments, exempt = split_unquoted(cmd)
     secret = moved = False
     for seg in segments:
-        if found(CD_ANY, seg) and (found(CD, seg) or found(CD_ODD, seg) or found(CD_UP, seg) or found(HOME_PATH, seg)):
+        if re.search(CD_WORD, re.sub(r"[\"'\\]", "", seg)) and not re.fullmatch(CD_PLAIN, seg):
             moved = True
         if exempt and found(SEARCH, seg):
             secret |= found(HOME_PATH, seg) or found(GLOB_PATH, seg) or found(SECRET_VAR, seg)

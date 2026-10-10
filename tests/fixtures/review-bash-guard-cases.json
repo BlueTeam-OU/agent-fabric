@@ -669,8 +669,9 @@
      "command": "cd tools && grep -rn x ."
     },
     {
-     "want": "allow",
-     "command": "cd /home/user/projects/agent-fabric && git log -1"
+     "want": "deny",
+     "command": "cd /home/user/projects/agent-fabric && git log -1",
+     "label": "denied (over-report): an absolute path is not a relative one, even the clone's own (name it relative, or use git -C)"
     },
     {
      "want": "allow",
@@ -784,8 +785,8 @@
      "command": "builtin echo x"
     },
     {
-     "want": "allow",
-     "label": "allowed: a plain cd behind builtin into the clone",
+     "want": "deny",
+     "label": "denied (over-report): builtin cd tools: the word cd behind a prefix is refused, plain or not",
      "command": "builtin cd tools && ls"
     },
     {
@@ -1524,8 +1525,9 @@
      "command": "cd tools && ls"
     },
     {
-     "want": "allow",
-     "command": "cd /home/user/projects/agent-fabric && git log -1"
+     "want": "deny",
+     "command": "cd /home/user/projects/agent-fabric && git log -1",
+     "label": "denied (over-report): an absolute path is not a relative one, even the clone's own (name it relative, or use git -C)"
     },
     {
      "want": "allow",
@@ -1564,16 +1566,19 @@
      "command": "popd"
     },
     {
-     "want": "allow",
-     "command": "cd tools 2>&1 && ls"
+     "want": "deny",
+     "command": "cd tools 2>&1 && ls",
+     "label": "denied (over-report): a cd with a redirection is not the plain form"
     },
     {
-     "want": "allow",
-     "command": "{ cd tools; ls; }"
+     "want": "deny",
+     "command": "{ cd tools; ls; }",
+     "label": "denied (over-report): a cd inside a brace group is not the plain form"
     },
     {
-     "want": "allow",
-     "command": "if true; then cd tools; ls; fi"
+     "want": "deny",
+     "command": "if true; then cd tools; ls; fi",
+     "label": "denied (over-report): a cd after then is not the plain form"
     }
    ]
   },
@@ -1779,6 +1784,181 @@
      "want": "deny",
      "label": "denied: a backslash in the cd before the post",
      "command": "cd .\\. && fabric-pr post-review 12 <<'EOF'\nbody\nEOF"
+    }
+   ]
+  },
+  {
+   "section": "no cd leaves the clone: the word cd anywhere in a segment is refused unless the segment is exactly a plain relative cd (re-reviews of 0eb39891 and 867a69e2: 1, D, E, F)",
+   "cases": [
+    {
+     "want": "deny",
+     "label": "denied (over-report): 1: an assignment with a quoted value: X=\"a b\" cd .. && ls",
+     "command": "X=\"a b\" cd .. && ls"
+    },
+    {
+     "want": "deny",
+     "label": "denied (over-report): 1: an assignment with a quoted value: X='a b' cd .. && ls",
+     "command": "X='a b' cd .. && ls"
+    },
+    {
+     "want": "deny",
+     "label": "denied (over-report): 1: an assignment with a quoted value: X=a\\ b cd .. && ls",
+     "command": "X=a\\ b cd .. && ls"
+    },
+    {
+     "want": "deny",
+     "label": "denied (over-report): 1: an assignment with a quoted value: X=$'a b' cd .. && ls",
+     "command": "X=$'a b' cd .. && ls"
+    },
+    {
+     "want": "deny",
+     "label": "denied (over-report): 1: an assignment with a quoted value: X=\"a b\" builtin cd .. && ls",
+     "command": "X=\"a b\" builtin cd .. && ls"
+    },
+    {
+     "want": "deny",
+     "label": "denied (over-report): 1: an assignment with a quoted value: command -p -- cd .. && ls",
+     "command": "command -p -- cd .. && ls"
+    },
+    {
+     "want": "deny",
+     "label": "denied (over-report): D: a quoted or escaped command word: \\cd .. && ls",
+     "command": "\\cd .. && ls"
+    },
+    {
+     "want": "deny",
+     "label": "denied (over-report): D: a quoted or escaped command word: c\\d .. && ls",
+     "command": "c\\d .. && ls"
+    },
+    {
+     "want": "deny",
+     "label": "denied (over-report): D: a quoted or escaped command word: \"cd\" .. && ls",
+     "command": "\"cd\" .. && ls"
+    },
+    {
+     "want": "deny",
+     "label": "denied (over-report): D: a quoted or escaped command word: 'cd' .. && ls",
+     "command": "'cd' .. && ls"
+    },
+    {
+     "want": "deny",
+     "label": "denied (over-report): D: a quoted or escaped command word: \"pushd\" .. && ls",
+     "command": "\"pushd\" .. && ls"
+    },
+    {
+     "want": "deny",
+     "label": "denied (over-report): E: an argument assembled by expansion: cd .$Y. && ls",
+     "command": "cd .$Y. && ls"
+    },
+    {
+     "want": "deny",
+     "label": "denied (over-report): E: an argument assembled by expansion: cd $(echo ..) && ls",
+     "command": "cd $(echo ..) && ls"
+    },
+    {
+     "want": "deny",
+     "label": "denied (over-report): E: an argument assembled by expansion: X=..; cd $X && ls",
+     "command": "X=..; cd $X && ls"
+    },
+    {
+     "want": "deny",
+     "label": "denied (over-report): E: an argument assembled by expansion: cd `echo ..` && ls",
+     "command": "cd `echo ..` && ls"
+    },
+    {
+     "want": "deny",
+     "label": "denied (over-report): F: a cd in a case arm or a function body: case x in x) cd ..;; esac; ls",
+     "command": "case x in x) cd ..;; esac; ls"
+    },
+    {
+     "want": "deny",
+     "label": "denied (over-report): F: a cd in a case arm or a function body: f() { cd ..; }; f; ls",
+     "command": "f() { cd ..; }; f; ls"
+    },
+    {
+     "want": "deny",
+     "label": "denied (over-report): F: a cd in a case arm or a function body: function f { cd ..; }; f; ls",
+     "command": "function f { cd ..; }; f; ls"
+    },
+    {
+     "want": "deny",
+     "label": "denied (over-report): the word cd anywhere: echo cd .. && ls",
+     "command": "echo cd .. && ls"
+    },
+    {
+     "want": "deny",
+     "label": "denied (over-report): the word cd anywhere: case x in x) cd tools;; esac; ls",
+     "command": "case x in x) cd tools;; esac; ls"
+    },
+    {
+     "want": "deny",
+     "label": "denied (over-report): the word cd anywhere: grep -rn cd tools",
+     "command": "grep -rn cd tools"
+    },
+    {
+     "want": "deny",
+     "label": "denied (over-report): a plain cd with a path that climbs: cd tools/.. && ls",
+     "command": "cd tools/.. && ls"
+    },
+    {
+     "want": "deny",
+     "label": "denied (over-report): a plain cd with a path that climbs: cd .. && ls",
+     "command": "cd .. && ls"
+    },
+    {
+     "want": "deny",
+     "label": "denied (over-report): a plain cd with a path that climbs: cd ./.. && ls",
+     "command": "cd ./.. && ls"
+    },
+    {
+     "want": "deny",
+     "label": "denied (over-report): a plain cd with a path that climbs: cd tools/../.. && ls",
+     "command": "cd tools/../.. && ls"
+    },
+    {
+     "want": "deny",
+     "label": "denied (over-report): a plain cd with a path that climbs: cd /tools && ls",
+     "command": "cd /tools && ls"
+    },
+    {
+     "want": "deny",
+     "label": "denied (over-report): a plain cd with a path that climbs: cd -- && ls",
+     "command": "cd -- && ls"
+    },
+    {
+     "want": "allow",
+     "label": "allowed: a plain relative directory",
+     "command": "cd tools && ls"
+    },
+    {
+     "want": "allow",
+     "label": "allowed: a relative directory behind ./",
+     "command": "cd ./tools && ls"
+    },
+    {
+     "want": "allow",
+     "label": "allowed: the current directory",
+     "command": "cd . && ls"
+    },
+    {
+     "want": "allow",
+     "label": "allowed: a nested relative directory with plain characters",
+     "command": "cd tools/sub-dir_1.x && ls"
+    },
+    {
+     "want": "allow",
+     "label": "allowed: a name that merely starts with two dots is not a .. component",
+     "command": "cd ..tools && ls"
+    },
+    {
+     "want": "allow",
+     "label": "allowed: the post-review cd prefix",
+     "command": "cd tools && fabric-pr post-review 12 --model fable <<'EOF'\nbody\nEOF"
+    },
+    {
+     "want": "deny",
+     "label": "denied: a cd as the last step still does not last (cd-last)",
+     "command": "ls; cd tools"
     }
    ]
   }
