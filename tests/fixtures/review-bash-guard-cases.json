@@ -1788,7 +1788,7 @@
    ]
   },
   {
-   "section": "no cd leaves the clone: the word cd anywhere in a segment is refused unless the segment is exactly a plain relative cd (re-reviews of 0eb39891 and 867a69e2: 1, D, E, F)",
+   "section": "no cd leaves the clone: the word cd anywhere in a segment is refused unless the segment is exactly a plain relative cd (re-reviews of 0eb39891 and 867a69e2: 1, D, E, F; of cae73213: 1, 2, G)",
    "cases": [
     {
      "want": "deny",
@@ -1959,6 +1959,56 @@
      "want": "deny",
      "label": "denied: a cd as the last step still does not last (cd-last)",
      "command": "ls; cd tools"
+    },
+    {
+     "want": "deny",
+     "label": "denied (over-report): a redirection glued to cd: cd>/dev/null .. && ls",
+     "command": "cd>/dev/null .. && ls"
+    },
+    {
+     "want": "deny",
+     "label": "denied (over-report): a redirection glued to cd: cd</dev/null .. && ls",
+     "command": "cd</dev/null .. && ls"
+    },
+    {
+     "want": "deny",
+     "label": "denied (over-report): a backslash-newline inside the word cd",
+     "command": "c\\\nd .. && ls"
+    },
+    {
+     "want": "deny",
+     "label": "denied (over-report): G: cd$IFS.. builds the words by expansion",
+     "command": "cd$IFS.. && ls"
+    },
+    {
+     "want": "deny",
+     "label": "denied (over-report): G: c${X}d with X unset",
+     "command": "c${X}d .. && ls"
+    },
+    {
+     "want": "deny",
+     "label": "denied (over-report): G: c$()d",
+     "command": "c$()d .. && ls"
+    },
+    {
+     "want": "deny",
+     "label": "denied (over-report): G: ANSI-C quoting spells cd",
+     "command": "$'\\x63d' .. && ls"
+    },
+    {
+     "want": "deny",
+     "label": "denied (over-report): G: a default value spells cd",
+     "command": "${X:-cd} .. && ls"
+    },
+    {
+     "want": "allow",
+     "label": "allowed: a regex end anchor is not an expansion",
+     "command": "grep -n 'def verdict$' runtime/claude-code/hooks/review-bash-guard.py"
+    },
+    {
+     "want": "allow",
+     "label": "allowed: git -C names the clone instead of a cd",
+     "command": "git -C /home/user/projects/agent-fabric log -1"
     }
    ]
   }

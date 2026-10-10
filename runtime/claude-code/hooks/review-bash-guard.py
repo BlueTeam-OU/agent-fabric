@@ -130,13 +130,21 @@ SUBSTITUTION = r'\$\(|`|[<>]\('
 # re-review (of 0eb39891, then of 867a69e2) found one more: `\cd ..`,
 # `"cd" ..`, `cd $(echo ..)`, a cd in a case arm or a function body. So a
 # segment is judged by one question: does the word cd or pushd appear in it
-# at all, once quotes and backslashes are removed (as bash removes them from
-# a command word)? If so it is admitted only as exactly `cd <path>` with a
+# at all, once a backslash-newline, quotes and backslashes are removed (as
+# bash removes them from a command word), and before any of < > & | $ `? If so it is admitted only as exactly `cd <path>` with a
 # relative path of plain characters and no `..` component, and is `moved`
 # otherwise. That also refuses `builtin cd tools`, `echo cd ..`, `grep cd f`
 # and `cd /abs/path`, on purpose. Every pattern consumes a character per
 # repetition, so each reads one way.
-CD_WORD = r'(^|\W)(cd|pushd)(?=[\s;)]|$)'
+CD_WORD = r'(^|\W)(cd|pushd)(?=[\s;)<>&|$`]|$)'
+# A command word bash builds by expansion holds no `cd` for any string rule
+# to find (`cd$IFS..`, `c${X}d`, `c$()d`, `$'\x63d'`, `${X:-cd}`; re-review
+# of cae73213, G). Nothing the review class needs names a command that way,
+# so a segment with ANSI-C quoting, $IFS, an expansion (braced or not)
+# glued after a word character, or a first word that starts with one is
+# refused. Single-quoted text expands nothing and is left out of the test
+# (`'a$b'`, `grep 'x$'`); ANSI-C `$'...'` is not single-quoted text.
+CD_EXPANDED = r"\$'|\$IFS|\w(\$[\w({]|`)|^[\s({!]*[$`]"
 CD_PLAIN = r'[\s]*cd[\s]+(?![-/])(?!(?:[A-Za-z0-9._-]*/)*\.\.(?:/|\s|$))[A-Za-z0-9._/-]+[\s]*'
 CD_STEP = r"(^|[\s{(]|then|do|else)[\s]*((command|builtin)[\s]+)?(cd|pushd|popd)([\s]|$)"
 TRIVIAL = r"^[\s]*([0-9]*|[})]+|fi|done|esac|true|false|:|[0-9]*>[\s]*/dev/null)?[\s]*$"
@@ -248,6 +256,34 @@ def posted_review(cmd: str) -> str | None:
     return m.group(1) if lines.index(m.group(3), 1) == len(lines) - 1 else None
 
 
+def unexpanded(seg: str) -> str:
+    """The segment without its single-quoted spans, which expand nothing.
+    A quote inside double quotes ("it's") opens no span, and `$'...'` is
+    ANSI-C quoting, which does expand, so it stays."""
+    out, quote, i = [], "", 0
+    while i < len(seg):
+        c = seg[i]
+        if quote == "'":
+            if c == "'":
+                quote = ""
+        elif c == "\\" and quote != "'":
+            out.append(seg[i:i + 2])
+            i += 2
+            continue
+        elif quote == '"':
+            if c == '"':
+                quote = ""
+            out.append(c)
+        elif c == "'" and not (out and out[-1] == "$"):
+            quote = "'"
+        else:
+            if c == '"':
+                quote = '"'
+            out.append(c)
+        i += 1
+    return "".join(out)
+
+
 def verdict(cmd: str) -> str | None:
     head = posted_review(cmd)
     if head is not None:
@@ -255,7 +291,10 @@ def verdict(cmd: str) -> str | None:
     segments, exempt = split_unquoted(cmd)
     secret = moved = False
     for seg in segments:
-        if re.search(CD_WORD, re.sub(r"[\"'\\]", "", seg)) and not re.fullmatch(CD_PLAIN, seg):
+        # A backslash-newline is removed whole, as bash removes it, before the
+        # quotes and backslashes (`c\\<newline>d ..`; re-review of cae73213).
+        word = re.sub(r"[\"'\\]", "", seg.replace("\\\n", ""))
+        if re.search(CD_WORD, word) and not re.fullmatch(CD_PLAIN, seg) or re.search(CD_EXPANDED, unexpanded(seg)):
             moved = True
         if exempt and found(SEARCH, seg):
             secret |= found(HOME_PATH, seg) or found(GLOB_PATH, seg) or found(SECRET_VAR, seg)
