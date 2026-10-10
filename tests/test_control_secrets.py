@@ -22,6 +22,7 @@ import unittest
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(HERE, "tools", "fabric"))
 from control import secrets as S  # noqa: E402
+from control import gateway_switch as GS  # noqa: E402
 
 TPL = "sk-ant-oat01-TEMPLATE-FIXTURE"
 OLD = "sk-ant-oat01-OLD-ACCOUNT"
@@ -285,25 +286,110 @@ class SecretsSync(unittest.TestCase):
         with open(g.up.marker_path(g.dir), encoding="utf-8") as fh:
             self.assertEqual(json.load(fh)["pids"], [72])
 
-    def test_a_gateway_session_takes_the_new_account_with_no_restart(self):
+    def token_file(self, f, body: str | None = TPL) -> str:
+        path = os.path.join(os.path.dirname(f.dir), "gateway", "claude-subscription.token")
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        if body is not None:
+            tmp = path + ".new"
+            with open(tmp, "w", encoding="utf-8") as fh:
+                fh.write(body)
+            os.replace(tmp, path)
+        return path
+
+    def replaced_line(self, f, path: str, colour: bool = False) -> None:
+        g = GS.generation_of(path)
+        line = (f"2026-10-10T10:00:00.000000Z  INFO credential=subscription path={path} device={g['device']} inode={g['inode']} "
+                f"mtime_sec={g['mtime_sec']} mtime_nsec={g['mtime_nsec']} credential.replaced")
+        if colour:
+            line = line.replace("INFO", "\x1b[32m INFO\x1b[0m").replace("device=", "\x1b[3mdevice\x1b[0m\x1b[2m=\x1b[0m", 0)
+        os.makedirs(f.dir, exist_ok=True)
+        with open(os.path.join(f.dir, GS.LOG), "a", encoding="utf-8") as fh:
+            fh.write(line + "\n")
+
+    def sync_gateway(self, f, path, **more):
+        return f.sync({"id": "g", "from": "h/user", "args": {"expect": fp(TPL), "restart": True}}, sessions=[80], me="h/db-admin",
+                      env_of=env_with(None, "anthropic", "gateway"), kill=no_kill, gateway_file=path, **more)
+
+    def test_a_gateway_session_takes_the_new_account_with_no_restart_and_the_switch_is_proved_not_assumed(self):
         f = Fixture(self)
-        for run in range(2):
-            r = f.sync({"id": f"g{run}", "from": "h/user", "args": {"expect": fp(TPL), "restart": True}}, sessions=[80], me="h/db-admin",
-                       env_of=env_with(None, "anthropic", "gateway"), kill=no_kill)
-            self.assertEqual((r["status"], r["session"]), ("synced", "running (gateway): takes the new account on its next request"))
-        self.assertFalse(os.path.exists(f.up.marker_path(f.dir)), "no restart marker, run after run")
+        os.makedirs(f.dir)
+        open(os.path.join(f.dir, GS.LOG), "w").close()    # the launcher opens the gateway's log before it starts
+        path = self.token_file(f)
+        gen = GS.generation_of(path)
+        r = self.sync_gateway(f, path)
+        self.assertEqual((r["status"], r["gateway"]), ("synced", {"generation": gen, "fingerprint": fp(TPL), "confirmed": False}))
+        self.assertIn("not yet confirmed", r["session"], "no request has used the file: reported, never assumed")
+        self.assertFalse(os.path.exists(f.up.marker_path(f.dir)), "no restart marker, whatever the flags")
+        join = GS.read_join(f.dir)
+        self.assertEqual([(e["fingerprint"], e["generation"], e["via"]) for e in join], [(fp(TPL), gen, "secrets-sync")])
+        r2 = self.sync_gateway(f, path)
+        self.assertEqual(len(GS.read_join(f.dir)), 1, "the same generation is joined once")
+        self.assertFalse(r2["gateway"]["confirmed"])
+        self.replaced_line(f, path)
+        r3 = self.sync_gateway(f, path)
+        self.assertEqual((r3["gateway"]["confirmed"], r3["session"]),
+                         (True, f"running (gateway): on the new account (setup-token {fp(TPL)}), confirmed by the gateway's own log"))
+        self.assertNotIn(TPL, json.dumps(r3))
         self.assertEqual(S.session_env(1, env_with(None, "anthropic", "gateway")), {"token": None, "provider": "anthropic", "transport": "gateway"})
+
+    def test_the_proof_names_the_generation_and_not_another_one(self):
+        f = Fixture(self)
+        path = self.token_file(f, OLD)
+        self.replaced_line(f, path)                       # the gateway took the OLD file up
+        path = self.token_file(f, TPL)                     # the controller replaces it: a new inode
+        r = self.sync_gateway(f, path)
+        self.assertFalse(r["gateway"]["confirmed"], "the old generation's line is not this one's")
+        self.replaced_line(f, path, colour=True)
+        self.assertTrue(self.sync_gateway(f, path)["gateway"]["confirmed"], "a coloured log line is read too")
+        for field in GS.FIELDS:
+            g = GS.generation_of(path)
+            log = os.path.join(f.dir, GS.LOG)
+            os.remove(log)
+            line = " ".join(f"{k}={g[k] + (1 if k == field else 0)}" for k in GS.FIELDS) + " credential.replaced"
+            with open(log, "w") as fh:
+                fh.write(line + "\n")
+            self.assertFalse(GS.confirmed(log, g), f"a line differing in {field} confirms nothing")
+
+    def test_a_token_file_that_does_not_hold_the_synced_token_or_is_not_there_is_said(self):
+        f = Fixture(self)
+        r = self.sync_gateway(f, self.token_file(f, OLD))
+        self.assertEqual((r["gateway"]["confirmed"], r["gateway"]["file_fingerprint"]), (None, fp(OLD)))
+        self.assertIn("does not hold the synced token", r["session"])
+        self.assertEqual(GS.read_join(f.dir), [], "nothing is joined to a file that is not the synced token")
         g = Fixture(self)
+        r = self.sync_gateway(g, self.token_file(g, None))
+        self.assertEqual((r["gateway"]["generation"], r["gateway"]["confirmed"]), (None, None))
+        self.assertIn("token file is absent", r["session"])
+        h = Fixture(self, writes=None, code=2)
+        r = h.sync({"id": "n", "from": "h/user", "args": {"restart": False}}, sessions=[80], me="h/db-admin",
+                   env_of=env_with(None, "anthropic", "gateway"), kill=no_kill, gateway_file=self.token_file(h, None))
+        self.assertIn("holds no token", r["session"])
+
+    def test_a_log_that_exists_without_the_line_is_pending_and_one_that_cannot_be_read_is_unconfirmed(self):
+        f = Fixture(self)
+        os.makedirs(f.dir)
+        open(os.path.join(f.dir, GS.LOG), "w").close()
+        self.assertIs(self.sync_gateway(f, self.token_file(f))["gateway"]["confirmed"], False, "a log with no line: not yet")
+        g = Fixture(self)
+        r = self.sync_gateway(g, self.token_file(g))
+        self.assertIsNone(r["gateway"]["confirmed"], "no log at all: unconfirmed")
+        self.assertIn("cannot be read, so unconfirmed", r["session"])
+
+    def test_a_plain_session_still_restarts_and_a_mixed_set_stops_only_it(self):
+        g = Fixture(self)
+        path = self.token_file(g)
         up, sigs = [True], []
         r = g.sync({"id": "mix2", "from": "h/user", "args": {"restart": True}}, sessions=[81, 82], me="h/db-admin",
                    env_of=lambda pid: (env_with(None, "anthropic", "gateway") if pid == 81 else env_with(OLD))(pid),
-                   kill=lambda pid, s: (sigs.append(pid), up.__setitem__(0, False)), alive=lambda p: up[0], sleep=lambda s: None)
+                   kill=lambda pid, s: (sigs.append(pid), up.__setitem__(0, False)), alive=lambda p: up[0], sleep=lambda s: None,
+                   gateway_file=path)
         self.assertEqual((r["session"], sigs), ("restarting", [82]), "only the plain-claude session on the old account is stopped")
+        self.assertEqual(len(GS.read_join(g.dir)), 1, "the gateway session's generation is still joined")
         h = Fixture(self)
         r = h.sync({"id": "plain", "from": "h/user", "args": {"restart": True}}, sessions=[83], me="h/db-admin",
                    env_of=env_with(None, "anthropic"), kill=lambda pid, s: None, alive=lambda p: False, sleep=lambda s: None)
-        self.assertNotEqual(r["session"], "running (gateway): takes the new account on its next request",
-                            "without the stamp a session that holds no token is not a gateway session")
+        self.assertNotIn("gateway", r["session"], "without the stamp a session that holds no token is not a gateway session")
+        self.assertNotIn("gateway", r)
 
     def test_one_sync_at_a_time(self):
         f = Fixture(self)

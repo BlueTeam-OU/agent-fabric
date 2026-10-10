@@ -148,6 +148,7 @@ def secrets_sync_once(
     sleep: Callable[[float], None] = time.sleep, clock: Callable[[], float] = time.monotonic,
     stop_wait_ms: int | None = None, env_of: Callable[[int], bytes | str] | None = None,
     upgrading: Callable[[], bool] | None = None, pgrep: Callable[..., Any] | None = None,
+    gateway_file: str | None = None,
 ) -> dict:
     from datetime import datetime, timezone
     home = os.path.expanduser("~") if home is None else home
@@ -212,13 +213,23 @@ def secrets_sync_once(
     def token_of(p: int) -> str | None:
         return envs[p]["token"] if envs[p] else None
 
+    # A session on the gateway already runs on the new account once the token file is replaced (fabric-secrets
+    # sync did it): the controller joins that file's generation to the token's fingerprint and asks the gateway's
+    # own log whether it has taken the file up (control/gateway_switch.py), and says which.
+    proof = None
+    if gateway:
+        import gateway_token
+        from control import gateway_switch
+        proof = gateway_switch.prove(directory or util.state_dir(), gateway_file or gateway_token.token_path(os.getuid()),
+                                     util.sha12(tok) if tok else None,
+                                     now().isoformat(timespec="milliseconds").replace("+00:00", "Z"))
     stale = [p for p in running if p not in broker and p not in gateway
              and not ((t := token_of(p)) and tok and util.sha12(t) == util.sha12(tok))]
     if not stale:
         if len(broker) == len(running):
             return done("running (broker): no Claude account to move")
         if gateway and len(broker) + len(gateway) == len(running):
-            return done("running (gateway): takes the new account on its next request")
+            return {**done(proof["session"]), "gateway": proof["detail"]}
         return done("running, already on it")
     if me and request.get("from") == me:
         return done("yours: relaunch to use it")
