@@ -10,6 +10,7 @@ from memory_mcp.corpus import INDEX_LINE, Corpus, Section
 DEFAULT_LIMIT, MAX_LIMIT = 8, 20
 FIND_TOKENS, READ_TOKENS, MAX_TOKENS = 200, 1500, 8000
 RELATED = 2
+TAIL_TOKENS = 15       # the "+N more" line: counted in the budget, or a reply of the budget's size overruns it
 HEADING_CLIP, CUE_CLIP = 60, 110
 TOKENS_PER_CHAR = 0.25
 # A solution slice describes the tree as of a date and loses to the tree (ADR-013).
@@ -121,7 +122,7 @@ def find(corpus: Corpus, session: Session, args: dict) -> tuple[str, list[str]]:
         slices.add(s.slice_id)
         cues.add(cue)
         cost = _cost(_hit_line(s, score))
-        if len(shown) >= limit or (shown and spent + cost > budget):
+        if len(shown) >= limit or (shown and spent + cost > budget - TAIL_TOKENS):
             rest.append(s)
             continue
         shown.append((s, score))
