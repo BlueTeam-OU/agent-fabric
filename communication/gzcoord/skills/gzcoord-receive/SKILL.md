@@ -40,7 +40,7 @@ and fix that (see the token paragraph below) before running it again.
 **Never a Monitor for the watch** (`Monitor(command: 'gzcoord-inbox
 --follow')` was the old shape). The Monitor tool is capped at 30
 minutes, and every quiet expiry rang the Fleet Deck's sound and woke the
-agent to re-arm: annoying and costly (the owner, 2026-10-10). Do not wrap
+agent to re-arm: annoying and costly. Do not wrap
 the command in a `while` loop and do not use `--wait` for the watch.
 (`--wait [S]` remains the *bounded* read: use it, once, to block for a
 reply you are actively expecting, or `--wait 3` for a one-off "read

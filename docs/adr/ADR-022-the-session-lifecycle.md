@@ -98,8 +98,8 @@ the same command asks on one account and not on another.
    prints a `NO INBOX WATCH` line naming the background Bash call whenever
    no `gzcoord-inbox --until-delivery` (or `--follow`, or `inbox.mjs
    --follow`) runs under the session; the watch is never a Monitor, whose
-   30-minute cap rang the Fleet Deck every quiet half hour (the owner,
-   2026-10-10); the workspace settings also drain the inbox once at session
+   30-minute cap rang the Fleet Deck every quiet half hour; the
+   workspace settings also drain the inbox once at session
    start, which a hold does not stop.
 3. One watch per session: the cursor is per address, and a second
    consumer steals deliveries from the first. The watch is run by the bare
