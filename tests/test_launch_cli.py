@@ -1193,7 +1193,7 @@ echo "CLAUDE-TRANSPORT:${AGENT_FABRIC_LAUNCH_TRANSPORT-}"
               "def build(login, provider='anthropic', role=None, port=0, session=None):\n"
               "    p = Plan()\n"
               "    models = [v for k, v in os.environ.items() if k.startswith('ANTHROPIC_DEFAULT_') and k.endswith('_MODEL')]\n"
-              "    models.append(os.environ['AGENT_FABRIC_LAUNCH_SESSION_MODEL'])\n"
+              "    models.append(os.environ.get('FAKE_PLAN_SESSION') or os.environ['AGENT_FABRIC_LAUNCH_SESSION_MODEL'])\n"
               "    drop = os.environ.get('FAKE_PLAN_DROP')\n"
               "    p.selectors = [{'selector': m, 'model': m, 'route_id': 'r'} for m in models if m != drop]\n"
               "    p.skipped = ['code-plan: rides a harness alias'] if drop else []\n"
@@ -1289,6 +1289,15 @@ echo "CLAUDE-TRANSPORT:${AGENT_FABRIC_LAUNCH_TRANSPORT-}"
         check("…the same with the session model dropped from the plan",
               rc == 1 and f"the plan has no route for {session_model}" in out and "skipped: code-plan" in out
               and "CLAUDE-EXECCED" not in out and not os.path.exists(gw_log), (rc, out))
+        rm(gw_log)
+        only = {**gw_env, "FAKE_PLAN_SESSION": session_model}
+        rc, out = run("--provider", "gateway", "--model", "claude-not-in-the-plan-9", plant=only)
+        check("a caller's own --model is what the session sends: no route for it, the launch is refused, naming it, nothing started",
+              rc == 1 and "the plan has no route for claude-not-in-the-plan-9" in out and "CLAUDE-EXECCED" not in out and not os.path.exists(gw_log), (rc, out))
+        for alias in ("sonnet", "opus[1m]"):
+            rm(gw_log)
+            rc, out = run("--provider", "gateway", "--model", alias, plant=only)
+            check(f"…a harness alias ({alias}) is the pins' to route: the launch runs", rc == 0 and f"--model {alias}" in out, (rc, out))
         rc, out = run("--provider", "gateway", plant={**gw_env, "AGENT_FABRIC_GW_BIN": f"{bin_}/nope"})
         check("no installed gateway: refused, nothing started", rc == 1 and "cannot run" in out and "CLAUDE-EXECCED" not in out, out)
         rm(f"{fabric}/tools/fabric/gateway_plan.py")

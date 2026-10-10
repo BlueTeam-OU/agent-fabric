@@ -417,7 +417,13 @@ def ready_timeout(env: dict) -> float:
     return READY_TIMEOUT_S
 
 
-def launch_gateway(env: dict, fabric_root: str, agent: str, role: str, state_dir: str, session_model: str) -> Gateway:
+# The harness's own spellings of a tier (and the 1M-context variants): resolved by the
+# harness to the pins in its environment, never sent as such.
+HARNESS_ALIAS = re.compile(r"(haiku|sonnet|opus|fable|opusplan|best|default)(\[1m\])?")
+
+
+def launch_gateway(env: dict, fabric_root: str, agent: str, role: str, state_dir: str, session_model: str,
+                   caller_model: str | None = None) -> Gateway:
     """Everything between "the launch is decided" and "the harness may start":
     the installed gateway checked, the plan built by tools/fabric/gateway_plan.py
     and written, the gateway started and READY, the harness's environment set,
@@ -436,6 +442,10 @@ def launch_gateway(env: dict, fabric_root: str, agent: str, role: str, state_dir
     # What the harness will send: the session model and every tier pin. A model
     # the plan has no route for would be refused by the gateway one request at a time.
     sends = {session_model} | {v for k, v in env.items() if re.fullmatch(r"ANTHROPIC_DEFAULT_[A-Z0-9_]+_MODEL", k) and v}
+    # A caller's own --model replaces the launcher's in the command, so it is what the session sends,
+    # unless it is a harness alias (the pins cover those).
+    if caller_model and not HARNESS_ALIAS.fullmatch(caller_model):
+        sends.add(caller_model)
     missing = sorted(m for m in sends if m and m not in routed)
     if missing:
         skipped = "; ".join(f"{s}" for s in (getattr(plan, "skipped", None) or []))

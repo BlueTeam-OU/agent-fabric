@@ -661,7 +661,8 @@ def launch(argv: list[str]) -> int:
     # the harness will send), and nothing else of the launch depends on it.
     gw = None
     if provider == "gateway" and not asks_help(args):
-        gw = gateway.launch_gateway(env, fabric_root, agent, role, state_dir, session)
+        gw = gateway.launch_gateway(env, fabric_root, agent, role, state_dir, session,
+                                    caller_model_value if caller_model else None)
     try:
         status = run_session(cmd)
     finally:
