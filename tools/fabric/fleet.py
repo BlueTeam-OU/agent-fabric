@@ -729,16 +729,25 @@ def cache_write(directory: str | None, section: str, entries: dict[str, dict]) -
 
 ATTENTION_REASON_MAX = 80
 ATTENTION_SRC = "derived:states+jobs"
+# A time as the producers write one (`since` of a session, `updated` of a job): a field documented as a time
+# is a time or null, never the text of whoever posted it. ASCII digits only.
+ATTENTION_TIME = re.compile(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(\.\d+)?Z", re.ASCII)
+# Default-ignorable or blank-looking characters outside category C: a reason made of them would read as empty.
+ATTENTION_FILLERS = "\u034f\u115f\u1160\u17b4\u17b5\u2800\u3164\uffa0"
+
+
+def attention_time(value: Any) -> str | None:
+    return value if isinstance(value, str) and ATTENTION_TIME.fullmatch(value) else None
 
 
 def attention_text(value: Any) -> str | None:
-    """A job's own words, for a board cell: control, format and surrogate characters become spaces
+    """A job's own words, for a board cell: control, format, surrogate and blank-filler characters become spaces
     (a bidi override or a lone surrogate must not reach a view or break the JSON), white space is
     collapsed, and the text is cut at ATTENTION_REASON_MAX characters. The content is not scrubbed: it
     is whatever the agent wrote, and a view shows it as text only."""
     if not isinstance(value, str):
         return None
-    flat = " ".join("".join(" " if unicodedata.category(c)[0] == "C" else c for c in value).split())
+    flat = " ".join("".join(" " if unicodedata.category(c)[0] == "C" or c in ATTENTION_FILLERS else c for c in value).split())
     if not flat:
         return None
     return flat if len(flat) <= ATTENTION_REASON_MAX else flat[:ATTENTION_REASON_MAX - 1].rstrip() + "…"
@@ -762,14 +771,11 @@ def attention_data(states: Any, jobs: Any) -> dict[str, Any] | str:
     pending = sum(1 for j in listed if j.get("state") == "queued")
     base = {"blocked": len(blocked), "pending": pending}
     if states["state"] == "blocked":
-        since = states.get("since")
-        return {"level": "needs_input", "reason": None, "since": since if isinstance(since, str) else None, **base}
+        return {"level": "needs_input", "reason": None, "since": attention_time(states.get("since")), **base}
     if blocked:
-        # The one it most recently began to wait on; the first listed among equals.
-        job = max(blocked, key=lambda j: j["updated"] if isinstance(j.get("updated"), str) else "")
-        updated = job.get("updated")
-        return {"level": "waiting", "reason": attention_text(job.get("blocked_on")),
-                "since": updated if isinstance(updated, str) else None, **base}
+        # The one it most recently began to wait on (by a time that is one); the first listed among equals.
+        job = max(blocked, key=lambda j: attention_time(j.get("updated")) or "")
+        return {"level": "waiting", "reason": attention_text(job.get("blocked_on")), "since": attention_time(job.get("updated")), **base}
     return {"level": "none", "reason": None, "since": None, **base}
 
 
@@ -1016,6 +1022,8 @@ def main(argv: list[str]) -> int:
         doc = fetch(expand(spec) if spec is not None else None, agent, max_age, days=days)
     except FleetError as e:
         return usage(str(e))
+    if hasattr(sys.stdout, "reconfigure"):        # a real stream; a test's StringIO has no encoding to set
+        sys.stdout.reconfigure(encoding="utf-8")  # JSON is UTF-8, whatever the caller's locale says
     print(dumps(doc))
     return 0
 

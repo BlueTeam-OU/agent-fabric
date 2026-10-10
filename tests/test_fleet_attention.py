@@ -93,9 +93,28 @@ class Levels(unittest.TestCase):
         self.assertIsNone(attention(f.fetch(["attention"]), "a")["data"]["since"])
 
 
+class Times(unittest.TestCase):
+    """`since` is a time or null; the job that gives the reason is chosen by times that are times."""
+
+    def test_a_since_that_is_not_a_time_is_null_not_the_text_of_whoever_posted_it(self):
+        for bad in ("evil\u202etext", "yesterday", "2027-01-15 07:30:00", "２０２７-01-15T07:30:00Z", 7, None, ""):
+            f = Fleet(self, {("fabric-ctl", "states"): done(states_rows(a={"state": "blocked", "since": bad})), ("fabric-ctl", "jobs"): done(jobs_rows(a=[]))})
+            self.assertIsNone(attention(f.fetch(["attention"]), "a")["data"]["since"], bad)
+
+    def test_the_times_producers_write_pass(self):
+        for good in ("2027-01-15T07:30:00Z", "2027-01-15T07:30:00.123Z"):
+            f = Fleet(self, {("fabric-ctl", "states"): done(states_rows(a={"state": "blocked", "since": good})), ("fabric-ctl", "jobs"): done(jobs_rows(a=[]))})
+            self.assertEqual(attention(f.fetch(["attention"]), "a")["data"]["since"], good)
+
+    def test_a_job_whose_updated_is_not_a_time_cannot_outrank_one_whose_is(self):
+        jobs = [job("j1", "blocked", "the real one", "2027-01-15T07:00:00Z"), job("j2", "blocked", "forged", "zzzz")]
+        d = attention(Fleet(self, {("fabric-ctl", "states"): done(states_rows()), ("fabric-ctl", "jobs"): done(jobs_rows(a=jobs))}).fetch(["attention"]), "a")["data"]
+        self.assertEqual((d["reason"], d["since"]), ("the real one", "2027-01-15T07:00:00Z"))
+
+
 class Reason(unittest.TestCase):
     def test_control_format_and_surrogate_characters_become_spaces_and_white_space_collapses(self):
-        self.assertEqual(fleet.attention_text("a\n\tb\x1b[31mc‮d\ud800e​f  g h"), "a b [31mc d e f g h")
+        self.assertEqual(fleet.attention_text("a\n\tb\x1b[31mc\u202ed\ud800e\u200bf  g\u2028h"), "a b [31mc d e f g h")
 
     def test_text_is_cut_at_eighty_characters_with_an_ellipsis_and_not_before(self):
         self.assertEqual(len(fleet.attention_text("x" * 80)), 80)
@@ -104,8 +123,12 @@ class Reason(unittest.TestCase):
         self.assertEqual((len(cut), cut[-1]), (80, "…"))
         self.assertEqual(fleet.attention_text("z" * 78 + " " + "w" * 10), "z" * 78 + "…", "the cut does not leave a trailing space")
 
+    def test_blank_looking_fillers_become_spaces_so_a_reason_made_of_them_is_none(self):
+        self.assertEqual(fleet.attention_text("a\u3164\u2800b\u034fc"), "a b c")
+        self.assertIsNone(fleet.attention_text("\u3164\u2800\u115f"))
+
     def test_what_is_not_text_or_has_no_text_is_none(self):
-        for v in (None, 7, [], "", "   ", "\x00\x1b​"):
+        for v in (None, 7, [], "", "   ", "\x00\x1b\u200b"):
             self.assertIsNone(fleet.attention_text(v), v)
 
     def test_a_reason_with_a_lone_surrogate_leaves_the_record_encodable(self):
@@ -204,6 +227,15 @@ class Unknown(unittest.TestCase):
 
 
 class Output(unittest.TestCase):
+    def test_the_command_prints_utf_8_whatever_the_locale_says(self):
+        import subprocess
+        code = ("import sys; sys.path.insert(0, %r); import fleet\n"
+                "fleet.fetch = lambda *a, **k: {'schema': 1, 'note': '\\u00e9\\u6f22 \\ud800'}\n"
+                "sys.exit(fleet.main(['--json']))\n") % os.path.join(HERE, "tools", "fabric")
+        r = subprocess.run([sys.executable, "-c", code], capture_output=True, timeout=60, env={**os.environ, "PYTHONIOENCODING": "ascii"})
+        self.assertEqual(r.returncode, 0, r.stderr[-300:])
+        self.assertEqual(json.loads(r.stdout.decode("utf-8"))["note"], "\u00e9\u6f22 \ufffd")
+
     def test_a_lone_surrogate_anywhere_in_the_document_prints_as_u_fffd_and_the_rest_is_untouched(self):
         doc = {"schema": 1, "agents": [{"login": "a\udcff", "sections": {"jobs": {"data": {"jobs": {"jobs": [{"blocked_on": "wait\ud800 here — é"}]}}}}}]}
         text = fleet.dumps(doc)
