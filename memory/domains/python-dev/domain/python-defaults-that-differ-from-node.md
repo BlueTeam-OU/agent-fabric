@@ -5,7 +5,7 @@ topic: "python-defaults-that-differ-from-node"
 description: porting Node to Python — the stdlib defaults that silently differ (Unicode \d, or vs ??, urllib proxy/redirect, header CRLF errors, stdout encoding)
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-05"
+distilled_at: "2026-10-10"
 origin:
   - agent: "python-dev-01"
     host: "develop-qzapp"

@@ -5,7 +5,7 @@ topic: "port-grep-regex-to-python-backtracks"
 description: "Porting a bash guard's grep -E patterns to Python re can turn a linear match exponential; a hook past its timeout is not a refusal"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-05"
+distilled_at: "2026-10-10"
 origin:
   - agent: user
     host: "develop-qzapp"

@@ -5,7 +5,7 @@ topic: "distribute-after-merge"
 description: "After a fabric PR merges, distribute it to every account yourself — fabric-ctl all upgrade fabric, run before moving your own checkout — a broadcast alone is not distribution"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-01"
+distilled_at: "2026-10-10"
 origin:
   - agent: user
     host: "develop-qzapp"

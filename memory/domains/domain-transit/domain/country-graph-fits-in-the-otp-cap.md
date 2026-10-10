@@ -5,7 +5,7 @@ topic: "country-graph-fits-in-the-otp-cap"
 description: "measured OTP 2.10 memory for a [redacted]-wide graph vs the [redacted] city graph — the country graph fits the 2 GB container cap"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-05"
+distilled_at: "2026-10-10"
 origin:
   - agent: "domain-transit"
     host: "develop-qzapp"

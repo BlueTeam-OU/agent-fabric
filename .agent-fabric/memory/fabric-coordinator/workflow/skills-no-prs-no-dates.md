@@ -5,7 +5,7 @@ topic: "skills-no-prs-no-dates"
 description: "Writing or changing a SKILL.md: load the skill-creator skill first and follow it; never cite a PR number, an incident date or a project name inside a skill — the skill states the rule and the procedure, the docs and the commit carry the…"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-01"
+distilled_at: "2026-10-10"
 origin:
   - agent: user
     host: "develop-qzapp"

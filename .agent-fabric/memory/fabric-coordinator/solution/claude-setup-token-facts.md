@@ -2,10 +2,10 @@
 role: "fabric-coordinator"
 class: solution
 topic: "claude-setup-token-facts"
-description: "What a `claude setup-token` token can and cannot do, how to tell which account it belongs to, and that CLAUDE_CODE_OAUTH_TOKEN beats a stored sign-in — measured 2026-09-24 on 2.1.281"
+description: "A claude setup-token token is inference-only; account templates live in the coordinator's store, usage of such accounts comes from rate-limit headers"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-01"
+distilled_at: "2026-10-10"
 origin:
   - agent: user
     host: "develop-qzapp"
@@ -17,59 +17,20 @@ origin:
     working_copy: "fabric-na"
 derived_from:
   - 056b762f847c9da3
+  - ce18a1be0e33ec93
 ---
 
-## What a `claude setup-token` token can and cannot do, how to tell which account it belongs to, and that CLAUDE_CODE_OAUTH_TOKEN beats a stored sign-in — measured 2026-09-24 on 2.1.281
+## A claude setup-token token is inference-only; account templates live in the coordinator's store, usage of such accounts comes from rate-limit headers
 
-Measured 2026-09-24, Claude Code 2.1.281, for the two-account templates in Doppler
-(project agent-fabric, environment `claude-accounts`, one config per Claude account,
-key `CLAUDE_CODE_OAUTH_TOKEN`).
+Measured 2026-09-24 on Claude Code 2.1.281; re-check the facts below on a newer build.
 
-- The token is `sk-ant-oat…`, 108 chars, inference-only: `api/oauth/profile` and
-  `api/oauth/usage` answer **403**. The control daemon's `identity`/`usage` ops
-  (runtime/control/ops.mjs, which read `.credentials.json`) cannot use it.
-- Which account a token belongs to: a 1-token `/v1/messages` call with
-  `anthropic-beta: oauth-2025-04-20` returns `anthropic-organization-id`; compare it
-  with `~/.claude.json` `.oauthAccount.organizationUuid` of a login known to be on
-  that account. The first attempt stored two tokens of the SAME account — the token
-  belongs to whichever account the BROWSER approves in, not the CLI's login.
-- `CLAUDE_CODE_OAUTH_TOKEN` in the environment wins over `.credentials.json`: with
-  an invalid stored sign-in, no token → "OAuth session expired and could not be
-  refreshed"; with either template's token → served.
-- `claude -p --output-format json` prints a JSON ARRAY of events on 2.1.281; read
-  `.[] | select(.type=="result")`.
-- `pkill -f "claude setup-token"` from a Bash tool matches the tool's own shell and
-  kills it (exit 144) — match on the process name, not the full command line.
-- A `!` command has no TTY and a 120 s limit: `claude setup-token` there never
-  returns a token; it must run in the person's own terminal.
+- The account templates are entries `CLAUDE_ACCOUNT_<SLUG>` in the coordinator's own pass store (ADR-031, ADR-038; Doppler is retired). `fabric-accounts assign` gives one to a login as `CLAUDE_CODE_OAUTH_TOKEN`.
+- The token is `sk-ant-oat...`, inference-only (`user:inference`). `api/oauth/profile` and `api/oauth/usage` still answer 403 to it, so the control agent's `usage` op reads such an account's windows from the `anthropic-ratelimit-unified-*` headers of a one-token `/v1/messages` reply (tools/fabric/control/ops/usage.py, runtime/control/ops/usage.mjs; docs/live-checks/2026-10-08-usage-from-inference-headers.md).
+- Which account a token belongs to: a one-token `/v1/messages` call with `anthropic-beta: oauth-2025-04-20` returns `anthropic-organization-id`; compare it with `~/.claude.json` `.oauthAccount.organizationUuid` of a login on that account. The token belongs to the account the BROWSER approved, not the CLI's login.
+- `CLAUDE_CODE_OAUTH_TOKEN` in the environment wins over `.credentials.json`.
+- `claude -p --output-format json` prints an ARRAY of events; read `.[] | select(.type=="result")`.
+- `pkill -f "claude setup-token"` from a Bash tool kills the tool's own shell; match the process name.
+- `claude setup-token` needs a TTY and more than 120 s: it runs in the person's own terminal.
+- `claude auth status` does not renew an expired sign-in and leaves `~/.claude/.oauth_refresh.lock` (a directory, stale after 60 s). `claude -p "/usage" --output-format json` makes no model call, renews an expired sign-in, and its assistant event carries `usage_report.rate_limits.limits[]` (session, weekly_all, weekly_scoped).
 
-- One template token served web-dev-01 (no own sign-in at all) and db-admin
-  concurrently, both `claude -p` ok.
-- A `/login` sign-in has six scopes and an 8-hour access token plus a refresh
-  token; a setup-token has `user:inference` only (claude.ai Settings → Claude Code
-  lists both kinds). No token is both shared and full-scope.
-- `claude auth status` does NOT renew an expired sign-in: it reports the cached
-  email/orgId/plan, starts a refresh, exits, and leaves `~/.claude/.oauth_refresh.lock`
-  (a DIRECTORY — `rmdir`, not `rm`); a run within the next 60 s fails "another
-  Claude Code process is refreshing it" — the harness's lockfile is `stale:
-  60000` under the config dir (`Kd(claudeDir, ".oauth_refresh.lock")`), so it
-  clears itself after a minute. A one-word `claude -p` renews it; after that
-  `fabric-ctl <login> usage` reads the windows again. The fleet's "read-failed"
-  usage is expired sign-ins on logins with no session running.
-
-- **`claude -p "/usage" --output-format json` is the usage observer**: no model
-  call (0 turns, $0), it RENEWS an expired sign-in (backend-dev-02: expired 15:31Z,
-  run 18:32Z, valid to 02:32Z after) and leaves no lock; the assistant event carries
-  `usage_report.rate_limits.limits[]` = {kind session|weekly_all|weekly_scoped,
-  group, percent, resets_at, scope}. `weekly_scoped` (per-model) is not in
-  `api/oauth/usage`'s answer. Preferred over reimplementing the refresh (Claude
-  Code's client_id at platform.claude.com/v1/oauth/token): official client, no ToS
-  question.
-
-Not established: Doppler cross-config reference syntax for pointing a login
-config at a template. See
-[[redirecting-a-request-moves-its-credential]].
-
-*References: redirecting-a-request-moves-its-credential*
-
-*Observed 2026-09-24 (fabric-coordinator)*
+*Observed 2026-10-10 (fabric-coordinator)*

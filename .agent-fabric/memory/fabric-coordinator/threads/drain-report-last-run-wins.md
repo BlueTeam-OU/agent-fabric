@@ -5,7 +5,7 @@ topic: "drain-report-last-run-wins"
 description: "FIXED (135b02b, ed5ca52): the drain report gathers every bundle of one drain and keeps each harvest; was — per-bundle runs overwrote last-drain-report.json"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-01"
+distilled_at: "2026-10-10"
 origin:
   - agent: user
     host: "develop-qzapp"

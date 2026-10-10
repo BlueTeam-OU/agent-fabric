@@ -5,7 +5,7 @@ topic: "verbatim-placeholder-carries-no-case"
 description: A verbatim placeholder (stop name, line code) never takes a Georgian case ending; the case sits on a generic carrier noun and the name stays quoted in the nominative.
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-05"
+distilled_at: "2026-10-10"
 origin:
   - agent: "language-culture-ge"
     host: "develop-qzapp"

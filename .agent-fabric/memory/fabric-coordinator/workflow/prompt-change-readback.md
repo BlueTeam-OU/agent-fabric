@@ -5,7 +5,7 @@ topic: "prompt-change-readback"
 description: "After changing any role's charter, brief, prompt template or the team section: run `runtime/openrouter/launch --print` as a holder of that role (hostexec --as) before pushing — lint and tests did not check the rendered total until…"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-01"
+distilled_at: "2026-10-10"
 origin:
   - agent: user
     host: "develop-qzapp"

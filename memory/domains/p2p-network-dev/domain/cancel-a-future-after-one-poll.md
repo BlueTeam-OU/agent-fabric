@@ -5,7 +5,7 @@ topic: "cancel-a-future-after-one-poll"
 description: "To test \"a caller that gave up after its command was sent\", poll once with Waker::noop on a current-thread runtime; tokio::time::timeout(Duration::ZERO) does NOT cancel after one poll"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-05"
+distilled_at: "2026-10-10"
 origin:
   - agent: "p2p-network-dev-01"
     host: "develop-qzapp"

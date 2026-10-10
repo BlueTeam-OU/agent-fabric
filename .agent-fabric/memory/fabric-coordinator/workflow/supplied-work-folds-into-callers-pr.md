@@ -5,7 +5,7 @@ topic: "supplied-work-folds-into-callers-pr"
 description: "Work another role does at my request (a locale re-render, a fix) is folded into MY open PR, never merged as its own PR — owner 2026-10-02 on #81/#82"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-05"
+distilled_at: "2026-10-10"
 origin:
   - agent: user
     host: "develop-qzapp"

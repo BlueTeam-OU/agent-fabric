@@ -5,7 +5,7 @@ topic: "settings-reach-running-sessions"
 description: "A key the settings writer puts in ~/.claude/settings.json reaches every RUNNING session at the next upgrade, not the next launch; tui switched renderers live and blanked the fleet's screens"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-01"
+distilled_at: "2026-10-10"
 origin:
   - agent: user
     host: "develop-qzapp"

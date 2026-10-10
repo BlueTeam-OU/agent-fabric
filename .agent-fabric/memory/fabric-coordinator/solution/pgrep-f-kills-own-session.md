@@ -5,7 +5,7 @@ topic: "pgrep-f-kills-own-session"
 description: "a pgrep/pkill -f pattern can match the session's own claude process (its argv carries the opening prompt); killing by pattern ended architect-cto-01's session twice and mine once"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-05"
+distilled_at: "2026-10-10"
 origin:
   - agent: user
     host: "develop-qzapp"

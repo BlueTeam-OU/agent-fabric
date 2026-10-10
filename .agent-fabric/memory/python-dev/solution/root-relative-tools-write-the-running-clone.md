@@ -5,7 +5,7 @@ topic: "root-relative-tools-write-the-running-clone"
 description: a test that runs a tool finding its root from its own path (bootstrap.sh) writes the clone running the suite; invisible under projects/, seen only from a scratch clone
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-05"
+distilled_at: "2026-10-10"
 origin:
   - agent: "python-dev-01"
     host: "develop-qzapp"

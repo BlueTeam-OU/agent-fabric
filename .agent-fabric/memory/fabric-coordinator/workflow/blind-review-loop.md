@@ -5,7 +5,7 @@ topic: "blind-review-loop"
 description: "How to review a fabric change — render a request with bin/fabric-review, dispatch code-review on fable with the brief verbatim, POST the brief, the report and the per-finding judgement on the PR, fix, then re-review the fix range with…"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-01"
+distilled_at: "2026-10-10"
 origin:
   - agent: user
     host: "develop-qzapp"

@@ -5,7 +5,7 @@ topic: "gh-pr-merge-strategy-flag-on-a-queued-repo"
 description: "`gh pr merge --auto --merge` on gzapp prints what looks like a refusal, leaves autoMergeRequest null, yet DOES enqueue the PR."
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-05"
+distilled_at: "2026-10-10"
 origin:
   - agent: "devex-tooling"
     host: "develop-qzapp"
@@ -14,43 +14,13 @@ origin:
 derived_from:
   - 3592cf3161d13a86
   - 796c6629674f5430
+  - ca6c411630d574f5
 ---
 
-## `gh pr merge --auto --merge` on gzapp prints what looks like a refusal, leaves autoMergeRequest null, yet DOES enqueue the PR.
+## correction — on a queue-managed repo read the queue with `fabric-pr gate` (queue=<pos>); `fabric-pr arm` already reports "queued at N"
 
-`main` in gzapi-org/gzapp is merge-queue managed, so the queue owns the merge
-strategy. Passing a strategy flag anyway:
+On a repository whose main has a merge queue (gzapi-org/gzapp, InterWeave), `gh pr merge --auto --merge` prints what looks like a refusal and leaves `autoMergeRequest` null, yet it enqueues the PR when its checks are already green. Never read "not armed" from `autoMergeRequest` alone. Read the queue entry: `fabric-pr gate <n>` prints `queue=<pos>`, or query `mergeQueueEntry{position state}` directly.
 
-    gh pr merge <n> --auto --merge
-    ! The merge strategy for main is set by the merge queue
+`fabric-pr arm` reads the queue entry too, and reports an instantly queued PR as "queued at N". The `runtime/github/*.sh` and `tools/gh/*.sh` paths are forwarders to `fabric-pr`; call `fabric-pr` itself.
 
-That single line reads as a refusal, and `autoMergeRequest` stays **null**
-afterwards — so the usual "verify it armed" check reports NOT ARMED. Both
-signals point at failure. **The PR is nevertheless enqueued**: a follow-up
-`gh pr merge <n> --auto` answers `already queued to merge`, and the GraphQL
-`mergeQueueEntry` shows a real entry.
-
-So `autoMergeRequest: null` does not mean "nothing will merge this" on a
-queue-managed repo — auto-merge and a direct queue entry are two different
-landing paths. Confirm with:
-
-    gh api graphql -f query='query{repository(owner:"gzapi-org",name:"gzapp"){
-      pullRequest(number:N){mergeQueueEntry{state position}}}}'
-
-Also: `AWAITING_CHECKS` for many minutes is normal, not a stall — the
-merge_group run takes ~12 minutes here. Compare against the run's COMPLETION
-time, not its creation time, before diagnosing a stuck queue.
-
-Belongs in the `pr-lifecycle` skill eventually; recorded here because the
-session that found it could not commit.
-
-**Burned again 2026-09-18 (#881):** I told backend-dev-01 their green PR was
-"not armed" from `gh pr view --json autoMergeRequest,mergeStateStatus`
-(null + CLEAN). It had been in the queue for 12 minutes — a queued PR reads
-exactly like an unarmed one on those two fields. **Never assert "unarmed"
-from `autoMergeRequest`**: run `tools/gh/pr-gate.sh <n>` (it reads
-`mergeQueueEntry` and prints `queue=<pos>`), or query `mergeQueueEntry`
-directly. `arm.sh`'s post-arm check reads `autoMergeRequest` too and would
-fail on an instantly-queued PR — it must read the queue entry as well.
-
-*Observed 2026-09-18 (devex-tooling)*
+*Observed 2026-10-10 (devex-tooling)*
