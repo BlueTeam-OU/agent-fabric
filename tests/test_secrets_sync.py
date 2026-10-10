@@ -104,6 +104,48 @@ def main() -> int:
                   pulls == [True, False] and rc == 0 and rc2 == 0 and rc3 == 2, (pulls, rc, rc2, rc3))
             rc, out = run(s.sync, False, False)
             check("sync exits 0 with every name present", rc == 0, out)
+            rc, jout = run(s.sync, False, True)
+            report = json.loads(jout)
+            check("a sandbox HOME writes no gateway token file and says so (the running login's is never touched)",
+                  any("gateway token file (HOME is not the login's home" in x for x in report["skipped"])
+                  and "CLAUDE_CODE_OAUTH_TOKEN into the gateway token file" not in report["applied"], report["skipped"])
+            gtmp = os.path.join(tmp, "gw-run")
+            os.makedirs(os.path.join(gtmp, str(os.getuid())), mode=0o700)
+            os.chmod(gtmp, 0o755)
+            tokpath = s.gateway_token.token_path(os.getuid(), gtmp)
+            seam = (s.home_is_login_home, s.GATEWAY_RUNTIME_ROOT, s.GATEWAY_CHECK_FROM, s.GATEWAY_FS_OF)
+            s.home_is_login_home, s.GATEWAY_RUNTIME_ROOT, s.GATEWAY_CHECK_FROM, s.GATEWAY_FS_OF = (lambda: True, gtmp, gtmp, lambda _p: "tmpfs")
+            try:
+                store["values"]["CLAUDE_CODE_OAUTH_TOKEN"] = "sk-ant-oat01-FIRST-" + "x" * 40
+                rc, jout = run(s.sync, False, True)
+                report = json.loads(jout)
+                ino = os.stat(tokpath).st_ino
+                check("a store holding CLAUDE_CODE_OAUTH_TOKEN: the gateway token file is written, 0600, exactly the token, and sync is 0",
+                      rc == 0 and open(tokpath).read() == store["values"]["CLAUDE_CODE_OAUTH_TOKEN"] and s.file_mode(tokpath) == 0o600
+                      and "CLAUDE_CODE_OAUTH_TOKEN into the gateway token file" in report["applied"], jout)
+                check("the token is in no report line", "FIRST-" not in jout)
+                run(s.sync, False, True)
+                check("the same token again: the file is left, its inode too", os.stat(tokpath).st_ino == ino)
+                store["values"]["CLAUDE_CODE_OAUTH_TOKEN"] = "sk-ant-oat01-SECOND-" + "y" * 40
+                rc, jout = run(s.sync, False, True)
+                check("a new token: a new inode (a new generation) holding the new token, and no temporary file left",
+                      rc == 0 and os.stat(tokpath).st_ino != ino and open(tokpath).read().startswith("sk-ant-oat01-SECOND-")
+                      and os.listdir(os.path.dirname(tokpath)) == [os.path.basename(tokpath)], jout)
+                rc, jout = run(s.status, True)
+                check("status says the file's mode and never its content", json.loads(jout)["local"]["gateway_token_file_mode"] == "0600" and "SECOND-" not in jout)
+                os.chmod(os.path.dirname(tokpath), 0o770)
+                rc, jout = run(s.sync, False, True)
+                report = json.loads(jout)
+                check("a directory the gateway would refuse is skipped with its reason, the token not echoed, and sync still exits 0",
+                      rc == 0 and any("writable by group or other" in x for x in report["skipped"]) and "SECOND-" not in jout, jout)
+                os.chmod(os.path.dirname(tokpath), 0o700)
+                del store["values"]["CLAUDE_CODE_OAUTH_TOKEN"]
+                rc, jout = run(s.sync, False, True)
+                check("a store that holds no token takes the file away", not os.path.exists(tokpath) and rc == 0, jout)
+                run(s.sync, False, True)
+                check("…and a second time says nothing and fails nothing", not os.path.exists(tokpath))
+            finally:
+                s.home_is_login_home, s.GATEWAY_RUNTIME_ROOT, s.GATEWAY_CHECK_FROM, s.GATEWAY_FS_OF = seam
             check("the env file is 0600", s.file_mode(envf) == 0o600)
             body = open(envf).read()
             exports = [l.split("=", 1)[0][len("export "):] for l in body.splitlines() if l.startswith("export ")]
