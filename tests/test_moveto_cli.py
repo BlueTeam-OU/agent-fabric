@@ -26,7 +26,7 @@ own_instance_tree()
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SRC = os.path.join(ROOT, "runtime", "provisioning", "moveto")
 UNDER_TEST = os.path.join(SRC, "moveto")
-ACCOUNTS = ("solo", "odd", "many", "empty", "nodir", "spaced", "esc")
+ACCOUNTS = ("solo", "odd", "many", "empty", "nodir", "spaced", "esc", "onlyfab")
 ESC_CLONE = "good\x1b]0;INJECTED\x07tail"
 
 
@@ -84,6 +84,10 @@ def main() -> int:
         os.makedirs(f"{home}/odd/projects/weird-name")
         for c in ("alpha", "beta", "gamma"):
             os.makedirs(f"{home}/many/projects/{c}")
+        # An account like python-dev-01: ~/projects holds the workspace CLAUDE.md and the control-plane checkout, nothing else.
+        put(f"{home}/onlyfab/projects/CLAUDE.md", "workspace\n")
+        os.makedirs(f"{home}/onlyfab/projects/agent-fabric")
+        os.makedirs(f"{home}/onlyfab/projects/.claude")        # the workspace settings directory bootstrap writes: not a clone
         os.makedirs(f"{home}/empty/projects")
         os.makedirs(f"{home}/nodir")
         os.makedirs(f"{home}/spaced/projects/spaced backup")
@@ -184,7 +188,13 @@ def main() -> int:
         check("lists a multi-clone account's clones", "gamma", out)
         check_absent("omits an account whose projects/ is empty", "empty", out)
         check_absent("omits an account with no projects/ at all", "nodir", out)
-        check("the role sits between the account and its clones", f"{'solo':<24} {'web-dev':<20} solo", out)
+        # `moveto --list` names the control-plane checkout among an account's clones (Fleet Deck makes a tab of every
+        # account it lists); `moveto <account> --list` and entering still treat it as no clone to name.
+        check("the role sits between the account and its clones", f"{'solo':<24} {'web-dev':<20} agent-fabric solo", out)
+        check("an account holding only the control-plane checkout is listed, naming it", f"{'onlyfab':<24} {'-':<20} agent-fabric\n", out)
+        check_absent("its own clone listing still names no clone to enter", "agent-fabric", mv("onlyfab", "--list")[1])
+        st, out_ = mv("onlyfab", "--print")
+        check("entering it is still the workspace", "/home/onlyfab/projects\n", out_)
         check("an account with no binding shows -", f"{'many':<24} {'-':<20}", out)
         check("a role's control characters are stripped", "evil]0;Xrole", out)
 
