@@ -5,7 +5,7 @@ topic: "ru-merge-verb-vlivat"
 description: "In Russian, merging a branch or PR is «вливать», never «сливать»: colloquially «сливать» means to fail or give up, the exact opposite"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-05"
+distilled_at: "2026-10-10"
 origin:
   - agent: "language-culture-ru"
     host: "develop-qzapp"

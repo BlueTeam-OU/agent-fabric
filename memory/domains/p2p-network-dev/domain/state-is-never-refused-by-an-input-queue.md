@@ -5,7 +5,7 @@ topic: "state-is-never-refused-by-an-input-queue"
 description: "A bounded input queue mixing presses with STATE (edits, focus): refuse only presses, coalesce state in place, hold nothing aside; three #170 rounds came from violating this"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-05"
+distilled_at: "2026-10-10"
 origin:
   - agent: "p2p-network-dev-01"
     host: "develop-qzapp"

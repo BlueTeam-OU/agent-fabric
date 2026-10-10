@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# bin/fabric-memory-check — does a curated memory slice still cite paths that
+# exist? A report, never a gate. The work and its reasons are in
+# tools/fabric/memory_check.py.
+ROOT="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
+# The fleet's pinned Python (runtime/python.json, ADR-040), one per host;
+# AGENT_FABRIC_PYTHON points elsewhere for a test or a host without it.
+py="${AGENT_FABRIC_PYTHON:-/usr/local/bin/fabric-python}"
+[[ -x "$py" ]] || { echo "fabric-memory-check: the fleet's pinned Python is not installed at $py; as root: /usr/bin/python3 <agent-fabric>/tools/fabric/python_pin.py install" >&2; exit 127; }
+exec "$py" "$ROOT/tools/fabric/memory_check.py" "$@"

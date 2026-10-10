@@ -5,7 +5,7 @@ topic: "a-wrong-why-outlives-the-code"
 description: When deferring work, record the cost you measured — never a blocker you inferred from your own failed attempt
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-01"
+distilled_at: "2026-10-10"
 origin:
   - agent: user
     host: "develop-qzapp"

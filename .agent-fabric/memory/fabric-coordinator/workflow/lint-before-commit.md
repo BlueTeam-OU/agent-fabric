@@ -2,10 +2,10 @@
 role: "fabric-coordinator"
 class: workflow
 topic: "lint-before-commit"
-description: "Run tools/fabric/lint.py --no-siblings (and the ADR range-check for an ADR edit) before every agent-fabric commit, not only the suites — lint caught a project name in a generic file three times after the commit (2026-09-27)"
+description: "Run lint.py --no-siblings and, for an ADR edit, fabric-adr range-check before every agent-fabric commit"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-05"
+distilled_at: "2026-10-10"
 origin:
   - agent: user
     host: "develop-qzapp"
@@ -14,27 +14,17 @@ origin:
 derived_from:
   - 20d98f61b52e1ac2
   - 6e610317df333b6e
+  - 9c1a02eb83b2e02b
 ---
 
-## Run tools/fabric/lint.py --no-siblings (and the ADR range-check for an ADR edit) before every agent-fabric commit, not only the suites — lint caught a project name in a generic file three times after the commit (2026-09-27)
+## Run lint.py --no-siblings and, for an ADR edit, fabric-adr range-check before every agent-fabric commit
 
-Before committing in agent-fabric: `env -u AGENT_FABRIC_ROOT python3
-tools/fabric/lint.py --no-siblings`, capture rc, commit only on 0 — the
-suites and `tests/run.sh static` do not run the corpus lint.
+Before committing in agent-fabric: `env -u AGENT_FABRIC_ROOT python3 tools/fabric/lint.py --no-siblings`, capture rc, commit only on 0. The suites and `tests/run.sh static` do not run the corpus lint, and lint refuses a project name in a generic file; it caught one three times after the commit (2026-09-27), each costing a fix commit.
 
-**Why:** on 2026-09-27 a comment naming a managed project reached a commit
-three times (the launcher's working-copy block, commit-class.sh twice'
-wording) because only tests and static ran; lint refuses a project name
-in a generic file and caught each one afterwards, costing a fix commit.
+A commit that edits an ADR body also runs `fabric-adr range-check` before the push (CI's base..head, else `AGENT_FABRIC_ADR_BASE`, else origin/main..HEAD; `policies/check_adr_amendment.sh` is a retiring forwarder to it, and `tests/run.sh` runs it as "decision-record amendments (this branch)"). A clarifying row pushed without the suite and without an `ADR-Editorial:` trailer turned two CI legs red (2026-10-04).
 
-**How to apply:** one command line per commit: lint, the touched suite,
-then `git commit`, each status captured ([[check-exit-status-not-pipe]]).
-A commit that edits an ADR body also runs `AGENT_FABRIC_ADR_BASE=origin/main
-bash policies/check_adr_amendment.sh` before the push (run.sh's bash group
-runs it, lint does not): a clarifying row pushed without the suite and
-without an `ADR-Editorial:` trailer turned #96's two bash CI legs red
-(2026-10-04).
+**How to apply:** one command line per commit: lint, the touched suite, then `git commit`, each status captured ([[check-exit-status-not-pipe]]).
 
 *References: check-exit-status-not-pipe*
 
-*Observed 2026-10-04 (fabric-coordinator)*
+*Observed 2026-10-10 (fabric-coordinator)*

@@ -123,11 +123,33 @@ SUBSTITUTION = r'\$\(|`|[<>]\('
 # misses), so a later search of . would read wherever it
 # went: no cd or pushd home (bare, -, ~), into a home's hidden directories,
 # up out of the clone (..), or to /, /home, /root, /proc.
-CD = r'^[\s]*(cd|pushd)([\s]+-[LPe@]+)*[\s]*($|-([\s]|$)|~)'
-CD_ANY = r'^[\s]*(cd|pushd)([\s]|$)'
+# The rule over-reports on purpose, as the guard's own rule of thumb is to.
+# Modelling how a cd can be spelled failed round after round: each added
+# prefixes (builtin, a group opener, an assignment, a quoted value, a second
+# option word) or argument spellings (a glob, a quote, `$X`), and the next
+# re-review (of 0eb39891, then of 867a69e2) found one more: `\cd ..`, `"cd"
+# ..`, `cd $(echo ..)`, a cd in a case arm or a function body. So a segment is
+# judged by one question: does the word cd or pushd appear in it at all, once
+# a backslash-newline, quotes and backslashes are removed (as bash removes
+# them from a command word), and before any of < > & | $ `? If so it is
+# admitted only as exactly `cd <path>` with a relative path of plain
+# characters and no `..` component, and is `moved` otherwise. That also
+# refuses `builtin cd tools`, `echo cd ..`, `grep cd f` and `cd /abs/path`, on
+# purpose. Every pattern consumes a character per repetition, so each reads
+# one way.
+CD_WORD = r'(^|\W)(cd|pushd)(?=[\s;)<>&|$`]|$)'
+# A command word bash builds by expansion holds no `cd` for any string rule
+# to find (`cd$IFS..`, `c${X}d`, `c$()d`, `$'\x63d'`, `${X:-cd}`; re-review
+# of cae73213, G). Nothing the review class needs names a command that way,
+# so a segment with ANSI-C quoting, $IFS, an expansion (braced or not)
+# glued after a word character, or a first word that starts with one is
+# refused. Single-quoted text expands nothing and is left out of the test
+# (`'a$b'`, `grep 'x$'`); ANSI-C `$'...'` is not single-quoted text.
+BRACE_BUILT = r"\{[^{}\s]*(,|\.\.)[^{}\s]*\}"
+CD_EXPANDED = r"\$'|\$IFS|\w(\$[\w({]|`)|^[\s({!]*[$`]"
+CD_PLAIN = r'[\s]*cd[\s]+(?![-/])(?!(?:[A-Za-z0-9._-]*/)*\.\.(?:/|\s|$))[A-Za-z0-9._/-]+[\s]*'
 CD_STEP = r"(^|[\s{(]|then|do|else)[\s]*((command|builtin)[\s]+)?(cd|pushd|popd)([\s]|$)"
 TRIVIAL = r"^[\s]*([0-9]*|[})]+|fi|done|esac|true|false|:|[0-9]*>[\s]*/dev/null)?[\s]*$"
-CD_UP = r"(^|[\s/\"'])\.\.(/|[\s\"']|$)"
 
 # Shell escapes that would carry any of the above past a string match, and
 # the routine in-place file writes. Also what makes an allowed tool run a
@@ -150,10 +172,10 @@ REASONS = {
     "slow": "The review-class bash guard could not judge this command within its time budget, so it is denied. Split it into simpler commands.",
     "error": "The review-class bash guard failed while judging this command, so it is denied. Report without it, or split it into simpler commands.",
     "secret": "The review class may not print the environment, expand a secret-shaped variable, or read secret material (secrets.env, the stores, gpg keys, /proc/*/environ): an account's environment or files may carry its credentials, and what you print enters the transcript. Describe a secret by its name and shape only. To run a check in a clean environment, use env -i NAME=value \u2026 command.",
-    "moved": "The review class may not change directory to a home, a hidden directory in one, up out of the clone (..), or back (cd, cd -, cd ~): what the command does after the cd would read there. Name the path in the command, or use git -C <path>.",
+    "moved": "The review class may not use cd or pushd except as a plain `cd <dir>` of a relative path inside the clone (letters, digits, . _ - /; no .. component, no leading / or -): a cd's target cannot be judged from its spelling (a quote, a backslash, an expansion, a prefix such as builtin, a group, a case arm or a function body), so any other command containing the word cd or pushd is refused, echo cd and grep cd included. Name the path in the command, or use git -C <path>. A word bash would build by expansion is refused the same way: $'...', $IFS, an expansion glued to a word, and a brace expansion ({a,b}, {a..b}), even inside double quotes; write a pattern with braces in single quotes.",
     "cd-last": "A cd that ends a command does not last: each command the review class runs is its own shell, so the next one starts where this one did. Put the work after it in the same command (cd <dir> && git log ...), or name the directory (git -C <dir> ..., grep -rn x <dir>).",
     "escape": "The review class may not use shell escapes (eval, exec, sh -c): they carry a write past this guard. Run the command directly.",
-    "write": "The review class runs in the session clone and is READ-ONLY: no in-place edits, no file writes, no redirection except to /dev/null. Report what you would have changed instead.",
+    "write": "The review class runs in the session clone and is READ-ONLY: no in-place edits, no file writes, no redirection except to /dev/null. Report what you would have changed instead. A review is posted as: fabric-pr post-review <pr> [--model <name>] <<'EOF' … EOF (a quoted tag; nothing after the terminator).",
     "git": "The review class runs in the session clone and is READ-ONLY: no state-changing git (push, commit, checkout, reset, stash, ...). Read-only history (log, show, diff, blame) is expected of you. Report what you would have changed instead.",
     "install": "The review class may not run installs or restores (pub get, pnpm install, dotnet restore, ...): they rewrite tracked lockfiles in the session clone. Build and test only with what is already restored (dotnet build/test --no-restore, pnpm --filter <app> test), or say the check needs an install and skip it.",
 }
@@ -207,11 +229,91 @@ def split_unquoted(cmd: str) -> tuple[list[str], bool]:
     return segments, trusted and not quote
 
 
+# The review class's one write is its review: `fabric-pr post-review <N>`
+# with the body on stdin as ONE heredoc whose tag is quoted, and only the
+# verb's own options, each at most once, in either order: --model <name>
+# (a label post_review.py records, not a routing choice, so any plain word)
+# and --dry-run. Quoting any part of the tag stops bash expanding the body;
+# only the whole 'TAG' and "TAG" forms are admitted, and not <<-, a second
+# shape nothing needs. The body is data, so the word and redirection rules
+# judge the command line alone, and the first line equal to the tag must be
+# the command's last: nothing runs after it.
+_MODEL = r"[ \t]+--model[ \t]+(?!-)[A-Za-z0-9._-]+"
+_DRY_RUN = r"[ \t]+--dry-run"
+POST_REVIEW = re.compile(r"[ \t]*((?:cd[ \t]+(?!-)[^\s;&|<>()`$'\"\\\[\]*?{}]+[ \t]+&&[ \t]+)?fabric-pr[ \t]+post-review[ \t]+[0-9]+"
+                         rf"(?:{_MODEL}(?:{_DRY_RUN})?|{_DRY_RUN}(?:{_MODEL})?)?)"
+                         r"[ \t]+<<[ \t]*(['\"])([A-Za-z0-9_]+)\2[ \t]*")
+
+
+def posted_review(cmd: str) -> str | None:
+    """The command line of a review posted in exactly that shape, else None."""
+    lines = cmd.split("\n")
+    # A blank line after the terminator runs nothing, so it does not make the
+    # terminator any less the command's last.
+    while len(lines) > 1 and not lines[-1].strip():
+        lines.pop()
+    m = POST_REVIEW.fullmatch(lines[0])
+    if not m or m.group(3) not in lines[1:]:
+        return None
+    return m.group(1) if lines.index(m.group(3), 1) == len(lines) - 1 else None
+
+
+def built_word(seg: str) -> bool:
+    """Whether bash could build a word of the segment by expansion: the
+    segment's unquoted-or-double-quoted text (double quotes do not stop an
+    expansion, so they are removed too: `c"$X"d`, `"${X:-cd}"`) answers to
+    CD_EXPANDED, or holds a brace expansion (`{c..c}d`, `{cd,}`), which
+    builds a word with no `$` at all (re-review of 364f7eb3, G). A
+    backslash-newline is removed first, as bash removes it before either
+    expansion (`{c..\\<newline>c}d`). Braces inside double quotes are not
+    brace-expanded by bash, but the test reads them anyway: telling a quoted
+    span from an unquoted one took two rounds of scanner fixes that each
+    opened a new spelling (re-reviews of c19d6790 and 3927c8b6), so the guard
+    over-reports instead, and a pattern with braces goes in single quotes."""
+    bare = unexpanded(seg.replace("\\\n", ""))
+    text = re.sub(r'(?<!\\)"', "", bare)
+    return bool(re.search(CD_EXPANDED, text) or re.search(BRACE_BUILT, text))
+
+
+def unexpanded(seg: str) -> str:
+    """The segment without its single-quoted spans, which expand nothing.
+    A quote inside double quotes ("it's") opens no span, and `$'...'` is
+    ANSI-C quoting, which does expand, so it stays."""
+    out, quote, i = [], "", 0
+    while i < len(seg):
+        c = seg[i]
+        if quote == "'":
+            if c == "'":
+                quote = ""
+        elif c == "\\" and quote != "'":
+            out.append(seg[i:i + 2])
+            i += 2
+            continue
+        elif quote == '"':
+            if c == '"':
+                quote = ""
+            out.append(c)
+        elif c == "'" and not (out and out[-1] == "$"):
+            quote = "'"
+        else:
+            if c == '"':
+                quote = '"'
+            out.append(c)
+        i += 1
+    return "".join(out)
+
+
 def verdict(cmd: str) -> str | None:
+    head = posted_review(cmd)
+    if head is not None:
+        return verdict(head)
     segments, exempt = split_unquoted(cmd)
     secret = moved = False
     for seg in segments:
-        if found(CD_ANY, seg) and (found(CD, seg) or found(CD_UP, seg) or found(HOME_PATH, seg)):
+        # A backslash-newline is removed whole, as bash removes it, before the
+        # quotes and backslashes (`c\\<newline>d ..`; re-review of cae73213).
+        word = re.sub(r"[\"'\\]", "", seg.replace("\\\n", ""))
+        if re.search(CD_WORD, word) and not re.fullmatch(CD_PLAIN, seg) or built_word(seg):
             moved = True
         if exempt and found(SEARCH, seg):
             secret |= found(HOME_PATH, seg) or found(GLOB_PATH, seg) or found(SECRET_VAR, seg)

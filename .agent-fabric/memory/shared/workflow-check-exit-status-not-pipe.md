@@ -8,7 +8,7 @@ knowledge_scope: full
 shared_with:
   - "fabric-coordinator"
   - "python-dev"
-distilled_at: "2026-10-05"
+distilled_at: "2026-10-10"
 origin:
   - agent: user
     host: "develop-qzapp"
@@ -16,6 +16,7 @@ origin:
     working_copy: "agent-fabric"
 derived_from:
   - 4e966d2efc009e29
+  - 5bca5592dd4d5799
   - 83363cff18e3ce7b
 ---
 
@@ -62,6 +63,12 @@ The same failure one level up (#55, 2026-09-27): a commit guarded by `[ $static 
 **Also (2026-10-01):** running the check in one tool call and committing in the next, without reading the check's exit status in between, is the same defect: lint printed `rc=1` and the commit went in anyway (episodic engine, caught before push, amended). Gate in one command: `check > log; rc=$?; [ $rc -eq 0 ] && git commit …`, or read the rc before issuing the commit.
 
 #78 (2026-10-01): a CI-wait summary ended in `| head`, cut 15 checks to 10 and hid the one red leg; the gate caught it. Print only the non-passing checks (`select(.bucket != "pass")`), never a truncated list of all.
+
+**Again, 2026-10-05 (#98):** `pr-gate.sh 98 | tail -1; gh pr comment …
+&& gh pr merge 98 --auto` in one command merged while the gate printed
+BLOCKED (three Codex threads that arrived after the last read). The
+ruleset does not require resolved threads, so GitHub merged it. Read
+the gate in one call; arm in the next, only on MERGEABLE.
 
 *References: cross-repo-lint-window*
 

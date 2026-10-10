@@ -2,10 +2,10 @@
 role: "fabric-coordinator"
 class: threads
 topic: "assemble-hygiene-inconsistent"
-description: "CLOSED 2026-09-20: assemble substitutes a banned term in place on both paths (new claim and carried text) since the 2026-09-16 decision; only non-English prose is still refused in a claim and reported in carried text — both make the run…"
+description: "assemble substitutes a banned term in place on both paths; only non-English prose is refused; code in tools/fabric/assembler/"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-01"
+distilled_at: "2026-10-10"
 origin:
   - agent: user
     host: "develop-qzapp"
@@ -17,22 +17,15 @@ origin:
     working_copy: "fabric-na"
 derived_from:
   - 4650184628f63f65
+  - e45c8f8d1bdb5f6b
 ---
 
-## CLOSED 2026-09-20: assemble substitutes a banned term in place on both paths (new claim and carried text) since the 2026-09-16 decision; only non-English prose is still refused in a claim and reported in carried text — both make the run red; a test pins carried-text substitution
+## assemble substitutes a banned term in place on both paths; only non-English prose is refused; code in tools/fabric/assembler/
 
-**Closed 2026-09-20.** The 2026-09-16 observation (a city name rejected
-from one path and admitted from the other) predates the same day's
-decision to substitute in place: `hygiene_substitute` now runs on a new
-claim's title, description, body and topic, and on carried text, with
-each substitution named under "REDACTED (hygiene …)". The remaining
-asymmetry is non-English prose only — a new claim with it is refused and
-not written, a carried slice with it is rewritten as it was and the run
-exits 1 — and neither admits anything new. Pinned by
-`test_carried_text_is_redacted_the_same_way_a_claim_is` (agent-fabric,
-the assembler branch of 2026-09-20). Related:
-[[assemble-not-idempotent-over-same-drain]].
+The assembler substitutes a banned term in place on both paths: `hygiene_substitute` (tools/fabric/assembler/core.py) runs on a new claim's title, description, body and topic and on carried text, and each substitution is named under "REDACTED (hygiene ...)". The one remaining asymmetry is non-English prose: a new claim with it is refused and not written, a carried slice with it is rewritten as it was and the run exits 1.
+
+`test_carried_text_is_redacted_the_same_way_a_claim_is` (tests/test_assemble.py) pins carried-text substitution. Read the REDACTED lines of a run; a red run on non-English carried text means translating the slice in place. Related: [[assemble-not-idempotent-over-same-drain]].
 
 *References: assemble-not-idempotent-over-same-drain*
 
-*Observed 2026-09-16 (fabric-coordinator)*
+*Observed 2026-10-10 (fabric-coordinator)*

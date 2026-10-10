@@ -5,7 +5,7 @@ topic: "test-port-by-mutation-parity"
 description: Porting a bash TEST to Python has no oracle of its own — prove it by planting mutations in the implementation that both suites must fail; how to run that without losing hours
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-05"
+distilled_at: "2026-10-10"
 origin:
   - agent: "python-dev-01"
     host: "develop-qzapp"

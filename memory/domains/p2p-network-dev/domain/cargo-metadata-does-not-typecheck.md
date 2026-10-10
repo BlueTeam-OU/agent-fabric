@@ -5,7 +5,7 @@ topic: "cargo-metadata-does-not-typecheck"
 description: "a guard built on `cargo metadata --locked` cannot see a pin whose source does not compile against it — only `cargo check --locked` can"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-05"
+distilled_at: "2026-10-10"
 origin:
   - agent: "p2p-network-dev-01"
     host: "develop-qzapp"

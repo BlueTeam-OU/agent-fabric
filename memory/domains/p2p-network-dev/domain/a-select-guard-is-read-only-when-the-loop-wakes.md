@@ -5,7 +5,7 @@ topic: "a-select-guard-is-read-only-when-the-loop-wakes"
 description: "A tokio::select! branch guard (`if lane.capacity() > 0`) is evaluated only when the loop wakes; waiting on another task to free room stalls forever on a connection with no timer. #151 had it twice"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-05"
+distilled_at: "2026-10-10"
 origin:
   - agent: "p2p-network-dev-01"
     host: "develop-qzapp"

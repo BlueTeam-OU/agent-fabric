@@ -5,7 +5,7 @@ topic: "fake-tools-must-sit-on-the-callees-path"
 description: "Faking a tool for code that builds its own PATH (env -i, a login shell, sudo) — the fake must sit where THAT PATH looks first, or the host's real tool answers and the test is green for the wrong reason"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-05"
+distilled_at: "2026-10-10"
 origin:
   - agent: "python-dev-01"
     host: "develop-qzapp"
