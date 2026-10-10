@@ -8,7 +8,7 @@ knowledge_scope: full
 shared_with:
   - "fabric-coordinator"
   - "python-dev"
-distilled_at: "2026-10-01"
+distilled_at: "2026-10-10"
 origin:
   - agent: user
     host: "develop-qzapp"

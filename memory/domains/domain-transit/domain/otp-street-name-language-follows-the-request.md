@@ -5,7 +5,7 @@ topic: "otp-street-name-language-follows-the-request"
 description: "OTP 2.10 walk-step streetName language — planConnection without locale gives OSM `name`, legacy `plan` gives name:en, a locale picks name:<lang>; underpass is a bogus name"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-05"
+distilled_at: "2026-10-10"
 origin:
   - agent: "domain-transit"
     host: "develop-qzapp"

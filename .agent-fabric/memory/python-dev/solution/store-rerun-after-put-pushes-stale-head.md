@@ -5,7 +5,7 @@ topic: "store-rerun-after-put-pushes-stale-head"
 description: "Any secret-store path that pushes a head it built from the account's side (store push, seed-child's clone) must fast-forward to the remote first — the parent's puts make it behind"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-05"
+distilled_at: "2026-10-10"
 origin:
   - agent: "python-dev-01"
     host: "develop-qzapp"
