@@ -669,8 +669,9 @@
      "command": "cd tools && grep -rn x ."
     },
     {
-     "want": "allow",
-     "command": "cd /home/user/projects/agent-fabric && git log -1"
+     "want": "deny",
+     "command": "cd /home/user/projects/agent-fabric && git log -1",
+     "label": "denied (over-report): an absolute path is not a relative one, even the clone's own (name it relative, or use git -C)"
     },
     {
      "want": "allow",
@@ -687,6 +688,126 @@
     {
      "want": "allow",
      "command": "grep -E \"foo|bar\" tools | head -3"
+    },
+    {
+     "want": "deny",
+     "label": "denied: a bracket glob that the shell turns into .. (pre-existing hole)",
+     "command": "cd .[.]/.[.] && ls -a"
+    },
+    {
+     "want": "deny",
+     "label": "denied: a brace the shell expands to a path cd climbs by",
+     "command": "cd {.,.}/. && ls"
+    },
+    {
+     "want": "deny",
+     "label": "denied: cd -- goes home",
+     "command": "cd -- && ls"
+    },
+    {
+     "want": "deny",
+     "label": "denied: an option before the directory",
+     "command": "cd -P .. && ls"
+    },
+    {
+     "want": "allow",
+     "label": "allowed: a plain directory in the clone",
+     "command": "cd tools && ls"
+    },
+    {
+     "want": "deny",
+     "label": "denied: a cd behind builtin is a cd (re-review of 0eb39891)",
+     "command": "builtin cd .. && ls"
+    },
+    {
+     "want": "deny",
+     "label": "denied: a cd behind command is a cd",
+     "command": "command cd .. && ls"
+    },
+    {
+     "want": "deny",
+     "label": "denied: a cd in a brace group",
+     "command": "{ cd ..; } && ls"
+    },
+    {
+     "want": "deny",
+     "label": "denied: a cd after then",
+     "command": "if true; then cd ..; fi; ls"
+    },
+    {
+     "want": "deny",
+     "label": "denied: a cd in a subshell",
+     "command": "( cd .. && ls )"
+    },
+    {
+     "want": "deny",
+     "label": "denied: a cd in a subshell with no space",
+     "command": "(cd .. && ls)"
+    },
+    {
+     "want": "deny",
+     "label": "denied: a cd as an if condition",
+     "command": "if cd ..; then ls; fi"
+    },
+    {
+     "want": "deny",
+     "label": "denied: a cd after do",
+     "command": "for x in 1; do cd ..; ls; done"
+    },
+    {
+     "want": "deny",
+     "label": "denied: a cd after !",
+     "command": "! cd .. && ls"
+    },
+    {
+     "want": "deny",
+     "label": "denied: a cd after time",
+     "command": "time cd .. && ls"
+    },
+    {
+     "want": "deny",
+     "label": "denied: a cd after an assignment",
+     "command": "X=1 cd .. && ls"
+    },
+    {
+     "want": "deny",
+     "label": "denied: a globbed cd behind builtin",
+     "command": "builtin cd .[.] && ls"
+    },
+    {
+     "want": "allow",
+     "label": "allowed: command before a command that is not cd",
+     "command": "command ls"
+    },
+    {
+     "want": "allow",
+     "label": "allowed: builtin before a builtin that is not cd",
+     "command": "builtin echo x"
+    },
+    {
+     "want": "deny",
+     "label": "denied (over-report): builtin cd tools: the word cd behind a prefix is refused, plain or not",
+     "command": "builtin cd tools && ls"
+    },
+    {
+     "want": "deny",
+     "label": "denied: a double quote in a cd argument: the text is not what cd reaches",
+     "command": "cd \".\". && ls"
+    },
+    {
+     "want": "deny",
+     "label": "denied: a single quote in a cd argument",
+     "command": "cd .'.' && ls"
+    },
+    {
+     "want": "deny",
+     "label": "denied: a backslash in a cd argument",
+     "command": "cd .\\. && ls"
+    },
+    {
+     "want": "deny",
+     "label": "denied: any quote in a cd argument, even around a plain directory",
+     "command": "cd \"tools\" && ls"
     }
    ]
   },
@@ -1404,8 +1525,9 @@
      "command": "cd tools && ls"
     },
     {
-     "want": "allow",
-     "command": "cd /home/user/projects/agent-fabric && git log -1"
+     "want": "deny",
+     "command": "cd /home/user/projects/agent-fabric && git log -1",
+     "label": "denied (over-report): an absolute path is not a relative one, even the clone's own (name it relative, or use git -C)"
     },
     {
      "want": "allow",
@@ -1444,16 +1566,574 @@
      "command": "popd"
     },
     {
+     "want": "deny",
+     "command": "cd tools 2>&1 && ls",
+     "label": "denied (over-report): a cd with a redirection is not the plain form"
+    },
+    {
+     "want": "deny",
+     "command": "{ cd tools; ls; }",
+     "label": "denied (over-report): a cd inside a brace group is not the plain form"
+    },
+    {
+     "want": "deny",
+     "command": "if true; then cd tools; ls; fi",
+     "label": "denied (over-report): a cd after then is not the plain form"
+    }
+   ]
+  },
+  {
+   "section": "the review class's one write: its review on stdin in a quoted heredoc, the body data (2026-10-09: three reviews could not be posted)",
+   "cases": [
+    {
      "want": "allow",
-     "command": "cd tools 2>&1 && ls"
+     "label": "allowed: a posted review whose body has < and >",
+     "command": "fabric-pr post-review 12 --model fable <<'EOF'\nIf a < b and c > d, the guard\nEOF"
     },
     {
      "want": "allow",
-     "command": "{ cd tools; ls; }"
+     "label": "allowed: a body naming $HOME and backticks",
+     "command": "fabric-pr post-review 12 --model fable <<'EOF'\nIt reads $HOME and runs `ls` (both quoted, never expanded)\nEOF"
     },
     {
      "want": "allow",
-     "command": "if true; then cd tools; ls; fi"
+     "label": "allowed: a body with the word environ",
+     "command": "fabric-pr post-review 12 --model fable <<'EOF'\nos.environ is read whole at line 12\nEOF"
+    },
+    {
+     "want": "allow",
+     "label": "allowed: a body with a line EOF2 (not the terminator)",
+     "command": "fabric-pr post-review 12 --model fable <<'EOF'\nfirst > x\nEOF2\nlast\nEOF"
+    },
+    {
+     "want": "allow",
+     "label": "allowed: a body with angle-bracket placeholders",
+     "command": "fabric-pr post-review 12 --model fable <<'EOF'\nRun fabric-pr post-review <N> --model <alias> > <file>\nEOF"
+    },
+    {
+     "want": "allow",
+     "label": "allowed: the tag in double quotes",
+     "command": "fabric-pr post-review 12 --model fable <<\"EOF\"\nIf a < b, $HOME, environ\nEOF"
+    },
+    {
+     "want": "allow",
+     "label": "allowed: preceded by a cd into the clone",
+     "command": "cd tools && fabric-pr post-review 12 --model fable <<'EOF'\na > b\nEOF"
+    },
+    {
+     "want": "deny",
+     "label": "denied: an unquoted tag is not the admitted shape (bash would expand the body), so the body's > is judged as a redirection under the full rules",
+     "command": "fabric-pr post-review 12 --model fable <<EOF\na > b\nEOF"
+    },
+    {
+     "want": "allow",
+     "label": "allowed: the same unquoted tag with a plain body: the full rules find nothing to refuse",
+     "command": "fabric-pr post-review 12 --model fable <<EOF\nbody\nEOF"
+    },
+    {
+     "want": "deny",
+     "label": "denied: a heredoc into cat is not the admitted shape, so the body's > is judged as a redirection under the full rules",
+     "command": "cat <<'EOF'\na > b\nEOF"
+    },
+    {
+     "want": "allow",
+     "label": "allowed: the same heredoc into cat with a plain body: the full rules find nothing to refuse",
+     "command": "cat <<'EOF'\nbody\nEOF"
+    },
+    {
+     "want": "deny",
+     "label": "denied: a heredoc into another fabric-pr verb is not the admitted shape, so the body's > is judged as a redirection under the full rules",
+     "command": "fabric-pr arm 12 <<'EOF'\na > b\nEOF"
+    },
+    {
+     "want": "allow",
+     "label": "allowed: the same heredoc into another fabric-pr verb with a plain body: the full rules find nothing to refuse",
+     "command": "fabric-pr arm 12 <<'EOF'\nbody\nEOF"
+    },
+    {
+     "want": "deny",
+     "label": "denied: a pipe into post-review is not the admitted shape, so the > in the piped text is judged as a redirection under the full rules",
+     "command": "printf 'a > b' | fabric-pr post-review 12 --model fable"
+    },
+    {
+     "want": "allow",
+     "label": "allowed: the same pipe into post-review with plain text: the full rules find nothing to refuse",
+     "command": "printf 'body' | fabric-pr post-review 12 --model fable"
+    },
+    {
+     "want": "deny",
+     "label": "denied: a file redirected into post-review is not the admitted shape, so the body's > is judged as a redirection under the full rules",
+     "command": "fabric-pr post-review 12 --model fable < file <<'EOF'\na > b\nEOF"
+    },
+    {
+     "want": "allow",
+     "label": "allowed: the same file redirected into post-review with a plain body: the full rules find nothing to refuse",
+     "command": "fabric-pr post-review 12 --model fable < file <<'EOF'\nbody\nEOF"
+    },
+    {
+     "want": "deny",
+     "label": "denied: a redirection to a file after it",
+     "command": "fabric-pr post-review 12 --model fable <<'EOF' > /tmp/x\nbody\nEOF"
+    },
+    {
+     "want": "deny",
+     "label": "denied: a command line after the terminator",
+     "command": "fabric-pr post-review 12 --model fable <<'EOF'\nbody\nEOF\nrm -rf x"
+    },
+    {
+     "want": "deny",
+     "label": "denied: chaining on the terminator line",
+     "command": "fabric-pr post-review 12 --model fable <<'EOF'\nbody\nEOF; rm -rf x"
+    },
+    {
+     "want": "allow",
+     "label": "allowed: another model name (a label post_review.py records)",
+     "command": "fabric-pr post-review 12 --model opus <<'EOF'\na > b\nEOF"
+    },
+    {
+     "want": "deny",
+     "label": "denied: an extra argument is not the admitted shape, so the body's > is judged as a redirection under the full rules",
+     "command": "fabric-pr post-review 12 --model fable --x <<'EOF'\na > b\nEOF"
+    },
+    {
+     "want": "allow",
+     "label": "allowed: the same extra argument with a plain body: the full rules find nothing to refuse",
+     "command": "fabric-pr post-review 12 --model fable --x <<'EOF'\nbody\nEOF"
+    },
+    {
+     "want": "deny",
+     "label": "denied: a cd up out of the clone before it",
+     "command": "cd .. && fabric-pr post-review 12 --model fable <<'EOF'\nbody\nEOF"
+    },
+    {
+     "want": "allow",
+     "label": "allowed: no --model",
+     "command": "fabric-pr post-review 12 <<'EOF'\na > b\nEOF"
+    },
+    {
+     "want": "allow",
+     "label": "allowed: --model opus-5-5",
+     "command": "fabric-pr post-review 12 --model opus-5-5 <<'EOF'\na > b\nEOF"
+    },
+    {
+     "want": "allow",
+     "label": "allowed: --dry-run before --model",
+     "command": "fabric-pr post-review 12 --dry-run --model fable <<'EOF'\na > b\nEOF"
+    },
+    {
+     "want": "allow",
+     "label": "allowed: --dry-run after --model",
+     "command": "fabric-pr post-review 12 --model fable --dry-run <<'EOF'\na > b\nEOF"
+    },
+    {
+     "want": "allow",
+     "label": "allowed: a space between << and the quoted tag",
+     "command": "fabric-pr post-review 12 --model fable << 'EOF'\na > b\nEOF"
+    },
+    {
+     "want": "deny",
+     "label": "denied: --model twice is not the admitted shape, so the body's > is judged under the full rules",
+     "command": "fabric-pr post-review 12 --model fable --model opus <<'EOF'\na > b\nEOF"
+    },
+    {
+     "want": "deny",
+     "label": "denied: an unknown flag is not the admitted shape, so the body's > is judged under the full rules",
+     "command": "fabric-pr post-review 12 --model fable --force <<'EOF'\na > b\nEOF"
+    },
+    {
+     "want": "deny",
+     "label": "denied: <<- is not the admitted shape, so the body's > is judged under the full rules",
+     "command": "fabric-pr post-review 12 --model fable <<-'EOF'\na > b\nEOF"
+    },
+    {
+     "want": "deny",
+     "label": "denied: --model taking --dry-run as its name is not the admitted shape",
+     "command": "fabric-pr post-review 12 --model --dry-run <<'EOF'\na > b\nEOF"
+    },
+    {
+     "want": "deny",
+     "label": "denied: a globbed cd before the post is not the admitted shape, and moves under the full rules",
+     "command": "cd .[.] && fabric-pr post-review 12 <<'EOF'\nbody\nEOF"
+    },
+    {
+     "want": "deny",
+     "label": "denied: a cd -- before the post",
+     "command": "cd -- && fabric-pr post-review 12 <<'EOF'\nbody\nEOF"
+    },
+    {
+     "want": "allow",
+     "label": "allowed: a trailing newline after the terminator",
+     "command": "fabric-pr post-review 12 --model fable <<'EOF'\na > b\nEOF\n"
+    },
+    {
+     "want": "allow",
+     "label": "allowed: a blank line after the terminator runs nothing",
+     "command": "fabric-pr post-review 12 --model fable <<'EOF'\na > b\nEOF\n  \n"
+    },
+    {
+     "want": "deny",
+     "label": "denied: a non-blank line after the terminator is not the admitted shape, so the body's > is judged under the full rules",
+     "command": "fabric-pr post-review 12 --model fable <<'EOF'\na > b\nEOF\n \nx\n"
+    },
+    {
+     "want": "deny",
+     "label": "denied: a quoted cd argument before the post is not the admitted shape, and moves under the full rules",
+     "command": "cd \"tools\" && fabric-pr post-review 12 <<'EOF'\nbody\nEOF"
+    },
+    {
+     "want": "deny",
+     "label": "denied: a backslash in the cd before the post",
+     "command": "cd .\\. && fabric-pr post-review 12 <<'EOF'\nbody\nEOF"
+    }
+   ]
+  },
+  {
+   "section": "no cd leaves the clone: the word cd anywhere in a segment is refused unless the segment is exactly a plain relative cd (re-reviews of 0eb39891 and 867a69e2: 1, D, E, F; of cae73213: 1, 2, G; of 364f7eb3: G; of da42d34a: G, 1; of c19d6790: 1; of 3927c8b6: 1)",
+   "cases": [
+    {
+     "want": "deny",
+     "label": "denied (over-report): 1: an assignment with a quoted value: X=\"a b\" cd .. && ls",
+     "command": "X=\"a b\" cd .. && ls"
+    },
+    {
+     "want": "deny",
+     "label": "denied (over-report): 1: an assignment with a quoted value: X='a b' cd .. && ls",
+     "command": "X='a b' cd .. && ls"
+    },
+    {
+     "want": "deny",
+     "label": "denied (over-report): 1: an assignment with a quoted value: X=a\\ b cd .. && ls",
+     "command": "X=a\\ b cd .. && ls"
+    },
+    {
+     "want": "deny",
+     "label": "denied (over-report): 1: an assignment with a quoted value: X=$'a b' cd .. && ls",
+     "command": "X=$'a b' cd .. && ls"
+    },
+    {
+     "want": "deny",
+     "label": "denied (over-report): 1: an assignment with a quoted value: X=\"a b\" builtin cd .. && ls",
+     "command": "X=\"a b\" builtin cd .. && ls"
+    },
+    {
+     "want": "deny",
+     "label": "denied (over-report): 1: an assignment with a quoted value: command -p -- cd .. && ls",
+     "command": "command -p -- cd .. && ls"
+    },
+    {
+     "want": "deny",
+     "label": "denied (over-report): D: a quoted or escaped command word: \\cd .. && ls",
+     "command": "\\cd .. && ls"
+    },
+    {
+     "want": "deny",
+     "label": "denied (over-report): D: a quoted or escaped command word: c\\d .. && ls",
+     "command": "c\\d .. && ls"
+    },
+    {
+     "want": "deny",
+     "label": "denied (over-report): D: a quoted or escaped command word: \"cd\" .. && ls",
+     "command": "\"cd\" .. && ls"
+    },
+    {
+     "want": "deny",
+     "label": "denied (over-report): D: a quoted or escaped command word: 'cd' .. && ls",
+     "command": "'cd' .. && ls"
+    },
+    {
+     "want": "deny",
+     "label": "denied (over-report): D: a quoted or escaped command word: \"pushd\" .. && ls",
+     "command": "\"pushd\" .. && ls"
+    },
+    {
+     "want": "deny",
+     "label": "denied (over-report): E: an argument assembled by expansion: cd .$Y. && ls",
+     "command": "cd .$Y. && ls"
+    },
+    {
+     "want": "deny",
+     "label": "denied (over-report): E: an argument assembled by expansion: cd $(echo ..) && ls",
+     "command": "cd $(echo ..) && ls"
+    },
+    {
+     "want": "deny",
+     "label": "denied (over-report): E: an argument assembled by expansion: X=..; cd $X && ls",
+     "command": "X=..; cd $X && ls"
+    },
+    {
+     "want": "deny",
+     "label": "denied (over-report): E: an argument assembled by expansion: cd `echo ..` && ls",
+     "command": "cd `echo ..` && ls"
+    },
+    {
+     "want": "deny",
+     "label": "denied (over-report): F: a cd in a case arm or a function body: case x in x) cd ..;; esac; ls",
+     "command": "case x in x) cd ..;; esac; ls"
+    },
+    {
+     "want": "deny",
+     "label": "denied (over-report): F: a cd in a case arm or a function body: f() { cd ..; }; f; ls",
+     "command": "f() { cd ..; }; f; ls"
+    },
+    {
+     "want": "deny",
+     "label": "denied (over-report): F: a cd in a case arm or a function body: function f { cd ..; }; f; ls",
+     "command": "function f { cd ..; }; f; ls"
+    },
+    {
+     "want": "deny",
+     "label": "denied (over-report): the word cd anywhere: echo cd .. && ls",
+     "command": "echo cd .. && ls"
+    },
+    {
+     "want": "deny",
+     "label": "denied (over-report): the word cd anywhere: case x in x) cd tools;; esac; ls",
+     "command": "case x in x) cd tools;; esac; ls"
+    },
+    {
+     "want": "deny",
+     "label": "denied (over-report): the word cd anywhere: grep -rn cd tools",
+     "command": "grep -rn cd tools"
+    },
+    {
+     "want": "deny",
+     "label": "denied (over-report): a plain cd with a path that climbs: cd tools/.. && ls",
+     "command": "cd tools/.. && ls"
+    },
+    {
+     "want": "deny",
+     "label": "denied (over-report): a plain cd with a path that climbs: cd .. && ls",
+     "command": "cd .. && ls"
+    },
+    {
+     "want": "deny",
+     "label": "denied (over-report): a plain cd with a path that climbs: cd ./.. && ls",
+     "command": "cd ./.. && ls"
+    },
+    {
+     "want": "deny",
+     "label": "denied (over-report): a plain cd with a path that climbs: cd tools/../.. && ls",
+     "command": "cd tools/../.. && ls"
+    },
+    {
+     "want": "deny",
+     "label": "denied (over-report): a plain cd with a path that climbs: cd /tools && ls",
+     "command": "cd /tools && ls"
+    },
+    {
+     "want": "deny",
+     "label": "denied (over-report): a plain cd with a path that climbs: cd -- && ls",
+     "command": "cd -- && ls"
+    },
+    {
+     "want": "allow",
+     "label": "allowed: a plain relative directory",
+     "command": "cd tools && ls"
+    },
+    {
+     "want": "allow",
+     "label": "allowed: a relative directory behind ./",
+     "command": "cd ./tools && ls"
+    },
+    {
+     "want": "allow",
+     "label": "allowed: the current directory",
+     "command": "cd . && ls"
+    },
+    {
+     "want": "allow",
+     "label": "allowed: a nested relative directory with plain characters",
+     "command": "cd tools/sub-dir_1.x && ls"
+    },
+    {
+     "want": "allow",
+     "label": "allowed: a name that merely starts with two dots is not a .. component",
+     "command": "cd ..tools && ls"
+    },
+    {
+     "want": "allow",
+     "label": "allowed: the post-review cd prefix",
+     "command": "cd tools && fabric-pr post-review 12 --model fable <<'EOF'\nbody\nEOF"
+    },
+    {
+     "want": "deny",
+     "label": "denied: a cd as the last step still does not last (cd-last)",
+     "command": "ls; cd tools"
+    },
+    {
+     "want": "deny",
+     "label": "denied (over-report): a redirection glued to cd: cd>/dev/null .. && ls",
+     "command": "cd>/dev/null .. && ls"
+    },
+    {
+     "want": "deny",
+     "label": "denied (over-report): a redirection glued to cd: cd</dev/null .. && ls",
+     "command": "cd</dev/null .. && ls"
+    },
+    {
+     "want": "deny",
+     "label": "denied (over-report): a backslash-newline inside the word cd",
+     "command": "c\\\nd .. && ls"
+    },
+    {
+     "want": "deny",
+     "label": "denied (over-report): G: cd$IFS.. builds the words by expansion",
+     "command": "cd$IFS.. && ls"
+    },
+    {
+     "want": "deny",
+     "label": "denied (over-report): G: c${X}d with X unset",
+     "command": "c${X}d .. && ls"
+    },
+    {
+     "want": "deny",
+     "label": "denied (over-report): G: c$()d",
+     "command": "c$()d .. && ls"
+    },
+    {
+     "want": "deny",
+     "label": "denied (over-report): G: ANSI-C quoting spells cd",
+     "command": "$'\\x63d' .. && ls"
+    },
+    {
+     "want": "deny",
+     "label": "denied (over-report): G: a default value spells cd",
+     "command": "${X:-cd} .. && ls"
+    },
+    {
+     "want": "allow",
+     "label": "allowed: a regex end anchor is not an expansion",
+     "command": "grep -n 'def verdict$' runtime/claude-code/hooks/review-bash-guard.py"
+    },
+    {
+     "want": "allow",
+     "label": "allowed: git -C names the clone instead of a cd",
+     "command": "git -C /home/user/projects/agent-fabric log -1"
+    },
+    {
+     "want": "deny",
+     "label": "denied (over-report): G: a word built through double quotes or a brace expansion: c\"$X\"d .. && ls",
+     "command": "c\"$X\"d .. && ls"
+    },
+    {
+     "want": "deny",
+     "label": "denied (over-report): G: a word built through double quotes or a brace expansion: \"$X\"cd .. && ls",
+     "command": "\"$X\"cd .. && ls"
+    },
+    {
+     "want": "deny",
+     "label": "denied (over-report): G: a word built through double quotes or a brace expansion: c\"${X}\"d .. && ls",
+     "command": "c\"${X}\"d .. && ls"
+    },
+    {
+     "want": "deny",
+     "label": "denied (over-report): G: a word built through double quotes or a brace expansion: c\"$()\"d .. && ls",
+     "command": "c\"$()\"d .. && ls"
+    },
+    {
+     "want": "deny",
+     "label": "denied (over-report): G: a word built through double quotes or a brace expansion: \"\"${X:-cd} .. && ls",
+     "command": "\"\"${X:-cd} .. && ls"
+    },
+    {
+     "want": "deny",
+     "label": "denied (over-report): G: a word built through double quotes or a brace expansion: \"${X:-cd}\" .. && ls",
+     "command": "\"${X:-cd}\" .. && ls"
+    },
+    {
+     "want": "deny",
+     "label": "denied (over-report): G: a word built through double quotes or a brace expansion: {c..c}d .. && ls",
+     "command": "{c..c}d .. && ls"
+    },
+    {
+     "want": "deny",
+     "label": "denied (over-report): G: a word built through double quotes or a brace expansion: c{d..d} .. && ls",
+     "command": "c{d..d} .. && ls"
+    },
+    {
+     "want": "deny",
+     "label": "denied (over-report): G: a word built through double quotes or a brace expansion: {cd,} .. && ls",
+     "command": "{cd,} .. && ls"
+    },
+    {
+     "want": "allow",
+     "label": "allowed: not a built command word: grep -n \"end$\" runtime/claude-code/hooks/review-bash-guard.py",
+     "command": "grep -n \"end$\" runtime/claude-code/hooks/review-bash-guard.py"
+    },
+    {
+     "want": "allow",
+     "label": "allowed: not a built command word: awk '{print $1}' tests/run.sh",
+     "command": "awk '{print $1}' tests/run.sh"
+    },
+    {
+     "want": "allow",
+     "label": "allowed: not a built command word: find . -name '*.py'",
+     "command": "find . -name '*.py'"
+    },
+    {
+     "want": "deny",
+     "label": "denied (over-report): G: a word built across a continuation or a quoted brace member: {c..\\<newline>c}d .. && ls",
+     "command": "{c..\\\nc}d .. && ls"
+    },
+    {
+     "want": "deny",
+     "label": "denied (over-report): G: a word built across a continuation or a quoted brace member: \\<newline>$Xcd .. && ls",
+     "command": "\\\n$Xcd .. && ls"
+    },
+    {
+     "want": "deny",
+     "label": "denied (over-report): G: a word built across a continuation or a quoted brace member: {c\"d\",} .. && ls",
+     "command": "{c\"d\",} .. && ls"
+    },
+    {
+     "want": "deny",
+     "label": "denied (over-report): braces even inside double quotes; put the pattern in single quotes: grep -nE \"[0-9a-f]{7,40}\" tests/run.sh",
+     "command": "grep -nE \"[0-9a-f]{7,40}\" tests/run.sh"
+    },
+    {
+     "want": "deny",
+     "label": "denied (over-report): braces even inside double quotes; put the pattern in single quotes: python3 -c \"print({1,2})\"",
+     "command": "python3 -c \"print({1,2})\""
+    },
+    {
+     "want": "deny",
+     "label": "denied (over-report): braces even inside double quotes; put the pattern in single quotes: git log -1 --format=\"%H{%an,%ae}\"",
+     "command": "git log -1 --format=\"%H{%an,%ae}\""
+    },
+    {
+     "want": "deny",
+     "label": "denied (over-report): braces even inside double quotes; put the pattern in single quotes: grep -rn x --include=\"*.{py,sh}\" runtime",
+     "command": "grep -rn x --include=\"*.{py,sh}\" runtime"
+    },
+    {
+     "want": "deny",
+     "label": "denied (over-report): an escaped backslash before a quote does not hide a brace word: A=\\\\\"x\" {c..c}d \"\".. && ls",
+     "command": "A=\\\\\"x\" {c..c}d \"\".. && ls"
+    },
+    {
+     "want": "deny",
+     "label": "denied (over-report): an escaped backslash before a quote does not hide a brace word: A=\\\\\"x\" {c,}d \"\".. && ls",
+     "command": "A=\\\\\"x\" {c,}d \"\".. && ls"
+    },
+    {
+     "want": "deny",
+     "label": "denied (over-report): a dropped quote does not turn the next ' into ANSI-C quoting: x=$\"\"'' {c..c}d .. && ls",
+     "command": "x=$\"\"'' {c..c}d .. && ls"
+    },
+    {
+     "want": "deny",
+     "label": "denied (over-report): a dropped quote does not turn the next ' into ANSI-C quoting: x=$\"\"'' {c,}d .. && ls",
+     "command": "x=$\"\"'' {c,}d .. && ls"
+    },
+    {
+     "want": "allow",
+     "label": "allowed: braces inside single quotes: grep -nE '[0-9a-f]{7,40}' tests/run.sh",
+     "command": "grep -nE '[0-9a-f]{7,40}' tests/run.sh"
+    },
+    {
+     "want": "allow",
+     "label": "allowed: braces inside single quotes: git log -1 --format='%H{%an,%ae}'",
+     "command": "git log -1 --format='%H{%an,%ae}'"
     }
    ]
   }
