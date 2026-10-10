@@ -1,7 +1,7 @@
 ---
 class: prompt-translation
 translates: identities/prompt/memory.md
-translates_digest: sha256:5c256adba0fed4a29d389c2d1e448ae9c1de9d68e5f93fbfe8cb12223b8e2255
+translates_digest: sha256:7faf412b8c067e00c34031893669192187a303fd753a83d1de45f6279c0aaf3c
 ---
 # Твоя долговременная память
 
@@ -63,5 +63,5 @@ metadata:
 находку, статус, «уже приземлилось» — сделай fetch и прочитай ссылку на
 origin, а не свою копию: твой слепок дерева отстаёт на день. Чтобы
 проследить утверждение до источников,
-`agent-fabric/tools/fabric/query.sh adr|pr|commit|file <key>` и
-`query.sh obs <hash>` проходят по закоммиченному графу цитирования.
+`fabric-query adr|pr|commit|file <key>` и `fabric-query obs <hash>`
+проходят по закоммиченному графу цитирования.
