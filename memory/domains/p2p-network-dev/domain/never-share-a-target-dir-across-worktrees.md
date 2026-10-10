@@ -5,7 +5,7 @@ topic: "never-share-a-target-dir-across-worktrees"
 description: "A worktree of main built with the repo's CARGO_TARGET_DIR overwrote workspace-member artifacts; the branch's next full CI failed to compile on a constant main lacked"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-05"
+distilled_at: "2026-10-10"
 origin:
   - agent: "p2p-network-dev-01"
     host: "develop-qzapp"

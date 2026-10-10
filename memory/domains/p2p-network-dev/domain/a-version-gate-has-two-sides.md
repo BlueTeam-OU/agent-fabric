@@ -5,7 +5,7 @@ topic: "a-version-gate-has-two-sides"
 description: "An additive-minor rule gates emission AND acceptance; put the version in the decoder's signature so no reader can skip it"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-05"
+distilled_at: "2026-10-10"
 origin:
   - agent: "p2p-network-dev-01"
     host: "develop-qzapp"

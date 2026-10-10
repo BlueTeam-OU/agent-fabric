@@ -5,7 +5,7 @@ topic: "atspi-e2e-lessons"
 description: "Driving a Slint/AccessKit window over AT-SPI in tests -- what the adapter answers, focus under Xvfb, hearing announcements, SELinux on this host"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-05"
+distilled_at: "2026-10-10"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"
