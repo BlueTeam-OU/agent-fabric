@@ -5,7 +5,7 @@ topic: "reach-the-last-slot-of-a-bounded-channel-by-parity"
 description: "Testing \"a command took the channel's last slot and its follow-up found it full\" -- overfilling makes the test vacuous; alternate two sends and run padded 0 and 1 so one run is odd"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-05"
+distilled_at: "2026-10-10"
 origin:
   - agent: "p2p-network-dev-01"
     host: "develop-qzapp"

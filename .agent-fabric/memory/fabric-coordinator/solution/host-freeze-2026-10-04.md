@@ -2,43 +2,30 @@
 role: "fabric-coordinator"
 class: solution
 topic: "host-freeze-2026-10-04"
-description: "develop-qzapp froze 2026-10-04 (journald silent 16:33-19:43, owner killed it); memory exhaustion into zram thrash with no killer; owner applied systemd-oomd + per-login 10G/12G caps"
+description: A silent journald plus no OOM line means memory exhaustion into zram thrash; oomd and 10G/12G caps applied; agentd samples memory pressure
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-05"
+distilled_at: "2026-10-10"
 origin:
   - agent: user
     host: "develop-qzapp"
     project: "agent-fabric"
     working_copy: "agent-fabric"
 derived_from:
+  - 8f8b18b0c6b5c7bc
   - e2cc8b436b047df6
 ---
 
-## develop-qzapp froze 2026-10-04 (journald silent 16:33-19:43, owner killed it); memory exhaustion into zram thrash with no killer; owner applied systemd-oomd + per-login 10G/12G caps
+## A silent journald plus no OOM line means memory exhaustion into zram thrash; oomd and 10G/12G caps applied; agentd samples memory pressure
 
-On 2026-10-04 develop-qzapp's qube froze; the owner killed it at 19:46.
+A host freeze with a silent journal and no OOM or hung-task line was memory exhaustion sliding into zram thrash (develop-qzapp, 2026-10-04; a heavy rustc load beside 18 sessions). Not fully provable, since nothing was logged.
 
-**What the evidence showed.**
-- The system journal had nothing from 16:33 to 19:43: journald fell silent while agents kept working, since relay messages were still sent in that window.
-- No OOM kill or hung-task line was logged.
-- There was no killer: systemd-oomd was inactive, user slices were uncapped, and the qube has 8 GB of zram swap at swappiness 60.
-- In that window, rust-ui-dev-01's InterWeave target regrew to 48 GB, so a heavy rustc load was running beside 18 sessions.
-- Disk was not full (/home 57%, / 44%).
+The owner applied, as root: `systemctl enable --now systemd-oomd`; `/etc/systemd/system/user-.slice.d/50-agent-fabric-memory.conf` (MemoryHigh=10G, MemoryMax=12G, ManagedOOMMemoryPressure=kill); `/etc/systemd/system/-.slice.d/50-agent-fabric-swap.conf` (ManagedOOMSwap=kill). These are host state, not in the tree.
 
-**Diagnosis:** memory exhaustion that slid into zram thrash, not a crash. It cannot be fully proven, because it was not logged.
+**Diagnosing a later freeze** without root: `journalctl -b -1` shows only your own user journal. Ask the owner for `sudo journalctl -b -1 -o short-monotonic`; a wall-clock gap whose monotonic time also jumps means the qube ran and did not log.
 
-**Applied by the owner, as root, persistent in this standalone qube:**
-- `systemctl enable --now systemd-oomd`;
-- `/etc/systemd/system/user-.slice.d/50-agent-fabric-memory.conf`: MemoryHigh=10G, MemoryMax=12G, ManagedOOMMemoryPressure=kill, limit 50%;
-- `/etc/systemd/system/-.slice.d/50-agent-fabric-swap.conf`: ManagedOOMSwap=kill.
+**Data for a post-mortem:** the control agent samples `/proc/pressure/memory` and free memory every minute into a ring in its state dir (runtime/control/pressure.mjs, tools/fabric/control/pressure.py, the `memory_pressure` host op); `fabric-ctl host` prints it as the `memory:` line.
 
-Verified: all 18 user slices are capped, and oomctl lists every user slice and `/`.
+Heavy builds under a capped `fabric-lease heavy-build` is an intention only: no lease name or rule in the tree names it.
 
-**Diagnosing a later freeze** without root: `journalctl -b -1` shows only your own user journal. Ask the owner for `sudo journalctl -b -1 -o short-monotonic`. A wall-clock gap whose monotonic time also jumps means the qube ran and did not log.
-
-**Open fabric follow-ups:**
-- agentd samples /proc/pressure/memory and free memory every minute into its own state, so a post-mortem has data even when journald stalls;
-- heavy builds run under `fabric-lease heavy-build -- …` with capped jobs (devex-tooling, InterWeave roles).
-
-*Observed 2026-10-04 (fabric-coordinator)*
+*Observed 2026-10-10 (fabric-coordinator)*

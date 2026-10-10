@@ -64,7 +64,7 @@ One role escapes the premium ban without a per-dispatch ask: the
 **review class**, dispatched for the review of a PR's head, for judging
 a finding (step 26) and for the re-review of a fix range. It stands in
 for nothing: no automated reviewer runs ahead of it, and its review,
-posted with `post-review.sh`, is the one the gate counts.
+posted with `fabric-pr post-review`, is the one the gate counts.
 
 **`fable` is a tier alias, and the target is agent-fabric's routing.**
 The Agent tool's `model` field accepts ONLY the four harness aliases —

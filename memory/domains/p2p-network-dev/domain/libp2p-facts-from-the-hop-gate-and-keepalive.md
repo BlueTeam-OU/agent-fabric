@@ -5,7 +5,7 @@ topic: "libp2p-facts-from-the-hop-gate-and-keepalive"
 description: "libp2p 0.57 facts that bit building the relay hop gate, close-on-removal and the relay keepalive (#129) — outbound local IP, ping's give-up, relay's per-connection ReservationClosed, pub(crate) handler events"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-05"
+distilled_at: "2026-10-10"
 origin:
   - agent: "p2p-network-dev-01"
     host: "develop-qzapp"

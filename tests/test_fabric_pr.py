@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """bin/fabric-pr and bin/fabric-query (ADR-040 §5 rule 7, step 1): each verb
 reaches its module with argv, streams and exit status untouched, and a
-verb's --help is the old shim's, byte for byte. The wiring runs against a
+verb's --help is its module's, byte for byte. The wiring runs against a
 fake checkout whose modules print what they were given; the parity cases
 run the real modules (--help reads no network)."""
 from __future__ import annotations
@@ -22,7 +22,6 @@ VERBS = {"gate": ("pr_gate", "pr-gate"), "review-status": ("pr_review_status", "
          "arm": ("arm", "arm"), "sessions": ("pr_sessions", "pr-sessions"),
          "trial-merge": ("trial_merge", "trial-merge"), "wait-merged": ("wait_merged", "wait-merged"),
          "owed-supply": ("owed_supply", "owed-supply"), "compliance": ("pr_compliance", "pr-compliance")}
-DEPRECATED = "deprecated: use fabric-pr {}\n"
 LIST = ", ".join(VERBS)
 FAKE = ('import os, sys\n'
         'print("module=%s argv=%r" % (os.path.basename(__file__), sys.argv[1:]))\n'
@@ -108,14 +107,13 @@ def main() -> int:
         check("no pinned Python: exit 127 naming fabric-query", r.returncode == 127 and r.stderr.startswith("fabric-query: "),
               (r.stderr, r.returncode))
 
-    print("fabric-pr — against the old shim, the real modules")
-    for verb, (_, old) in VERBS.items():
+    print("fabric-pr — against the real modules")
+    for verb, (mod, _) in VERBS.items():
         new = run([f"{ROOT}/bin/fabric-pr", verb, "--help"])
-        was = run([f"{ROOT}/runtime/github/{old}.sh", "--help"])
-        # ADR-040 §5 rule 7 step 3: the shim says it is deprecated on stderr and is otherwise the verb.
-        check(f"{verb} --help is {old}.sh --help, byte for byte, same status; the shim adds one stderr line",
-              (new.stdout, DEPRECATED.format(verb) + new.stderr, new.returncode) == (was.stdout, was.stderr, was.returncode)
-              and new.returncode in (0, 2) and new.stdout + new.stderr != "", (new.returncode, was.returncode, new.stderr[:200]))
+        direct = run([sys.executable, f"{ROOT}/tools/fabric/github/{mod}.py", "--help"])
+        check(f"{verb} --help is {mod}.py --help, byte for byte, same status and stderr",
+              (new.stdout, new.stderr, new.returncode) == (direct.stdout, direct.stderr, direct.returncode)
+              and new.returncode in (0, 2) and new.stdout + new.stderr != "", (new.returncode, direct.returncode, new.stderr[:200]))
     # query checks for its corpus (the operator's memory/, instance data) before it parses --help.
     with tempfile.TemporaryDirectory() as operator:
         os.makedirs(os.path.join(operator, "memory"))

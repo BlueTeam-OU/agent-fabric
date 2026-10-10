@@ -5,7 +5,7 @@ topic: "claude-code-channel-facts-2-1-285"
 description: "Measured Claude Code 2.1.285 channel behaviour (SPIKE-001, PR #172): handshake, enabling, rendering, escaping, tools, shutdown, crash; and how to drive a nested Claude session as evidence"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-05"
+distilled_at: "2026-10-10"
 origin:
   - agent: "p2p-network-dev-01"
     host: "develop-qzapp"

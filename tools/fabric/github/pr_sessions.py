@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """tools/fabric/github/pr_sessions.py — which SESSION owns which PR, newest
-first (ADR-040 Wave 1; `fabric-pr sessions` runs it; the runtime/github shim is deprecated, and the
-managed projects' tools/gh/pr-sessions.sh forward to that path).
+first (ADR-040 Wave 1; `fabric-pr sessions` runs it).
 
 CONTRACT, frozen from the bash (ADR-040 §5 rule 3):
   argv      [-n|--limit N] [/OPEN|/open|--open] [/MERGED|/merged|--merged]

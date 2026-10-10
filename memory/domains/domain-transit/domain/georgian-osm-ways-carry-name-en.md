@@ -5,7 +5,7 @@ topic: "georgian-osm-ways-carry-name-en"
 description: "street-name locale variants in [redacted]'s OSM — name:en ~93% / name:ru ~84% of named [redacted] ways, mapper-authored"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-05"
+distilled_at: "2026-10-10"
 origin:
   - agent: "domain-transit"
     host: "develop-qzapp"

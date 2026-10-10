@@ -1,25 +1,16 @@
 {
-  "clipped_descriptions": [],
+  "clipped_descriptions": [
+    ".agent-fabric/memory/shared/workflow-smoke-container-before-ci.md: description clipped from 262 to 239 characters",
+    ".agent-fabric/memory/fabric-coordinator/workflow/blind-review-loop.md: description clipped from 294 to 235 characters",
+    ".agent-fabric/memory/fabric-coordinator/workflow/prompt-change-readback.md: description clipped from 271 to 231 characters",
+    ".agent-fabric/memory/fabric-coordinator/workflow/skills-no-prs-no-dates.md: description clipped from 245 to 237 characters"
+  ],
   "collision_decisions": [
     {
       "agent": "user",
       "decision": "supersede",
-      "key": "fabric-coordinator/workflow:auto-merge-is-immediate-here#SUPERSEDED 2026-10-04: agent-fabric main now has a ruleset with required checks and auto-merge on, so `gh pr merge --auto` waits for green; still read the gate before arming",
-      "observed_at": "2026-09-29",
-      "rule": "same-agent"
-    },
-    {
-      "agent": "user",
-      "decision": "supersede",
-      "key": "fabric-coordinator/workflow:lint-before-commit#Run tools/fabric/lint.py --no-siblings (and the ADR range-check for an ADR edit) before every agent-fabric commit, not only the suites — lint caught a project name in a generic file three times after the commit (2026-09-27)",
-      "observed_at": "2026-10-04",
-      "rule": "same-agent"
-    },
-    {
-      "agent": "user",
-      "decision": "supersede",
-      "key": "fabric-coordinator/solution:pgrep-f-kills-own-session#a pgrep/pkill -f pattern can match the session's own claude process (its argv carries the opening prompt); killing by pattern ended architect-cto-01's session twice and mine once",
-      "observed_at": "2026-09-29",
+      "key": "fabric-coordinator/threads:shared-android-toolchain-deferred#DONE by devex-tooling (owner, 2026-10-07): the shared Android toolchain is not on my list",
+      "observed_at": "2026-09-26",
       "rule": "same-agent"
     },
     {
@@ -28,123 +19,441 @@
       "key": "shared/workflow:check-exit-status-not-pipe#Never `check | tail -1 && git commit`: the pipe's status is tail's, so a failed lint/static/suite still commits — run the check, capture rc=$?, commit only on 0",
       "observed_at": "2026-09-25",
       "rule": "same-agent"
+    },
+    {
+      "agent": "python-dev-01",
+      "decision": "supersede",
+      "key": "python-dev/workflow:check-authority-excluding-before-planning#before planning code on a control-plane path, read python-dev's \"excluding\" in policies/authority.json — an assignment does not admit the path",
+      "observed_at": "2026-10-04",
+      "rule": "same-agent"
+    },
+    {
+      "agent": "python-dev-01",
+      "decision": "supersede",
+      "key": "python-dev/domain:facade-split-monkeypatch-trap#before splitting a Python module behind a re-exporting facade, find every patch of its attributes — including inside subprocess code strings and by-path loads",
+      "observed_at": "2026-10-06",
+      "rule": "same-agent"
     }
   ],
   "files": [
+    ".agent-fabric/memory/shared/solution-gnupghome-default-agent-trap.md",
+    ".agent-fabric/memory/shared/workflow-check-exit-status-not-pipe.md",
+    ".agent-fabric/memory/shared/workflow-guard-must-catch-the-shape-it-replaced.md",
+    ".agent-fabric/memory/shared/workflow-local-grep-is-ugrep.md",
+    ".agent-fabric/memory/shared/workflow-run-suites-as-ci-before-push.md",
+    ".agent-fabric/memory/shared/workflow-smoke-container-before-ci.md",
+    ".agent-fabric/memory/shared/workflow-worktree-under-dot-claude.md",
+    "memory/domains/fabric-coordinator/domain/locale-suffixes.md",
+    "memory/domains/fabric-coordinator/domain/slice-correction-attribution-writer-name.md",
+    ".agent-fabric/memory/fabric-coordinator/rationale/rationale-carried-2026-10-01.md",
+    ".agent-fabric/memory/fabric-coordinator/rationale/engine-operator-client-split.md",
+    ".agent-fabric/memory/fabric-coordinator/rationale/gzapp-security-boundary-standing-word.md",
+    ".agent-fabric/memory/fabric-coordinator/solution/effort-precedence-chain.md",
+    ".agent-fabric/memory/fabric-coordinator/solution/pgrep-f-kills-own-session.md",
+    ".agent-fabric/memory/fabric-coordinator/solution/port-grep-regex-to-python-backtracks.md",
+    ".agent-fabric/memory/fabric-coordinator/solution/settings-reach-running-sessions.md",
+    ".agent-fabric/memory/fabric-coordinator/solution/subagent-tools-and-transcripts.md",
+    ".agent-fabric/memory/fabric-coordinator/solution/system-prompt-replacement-mechanics.md",
+    ".agent-fabric/memory/fabric-coordinator/threads/drain-report-last-run-wins.md",
+    ".agent-fabric/memory/fabric-coordinator/threads/shared-android-toolchain-deferred.md",
+    ".agent-fabric/memory/fabric-coordinator/workflow/a-wrong-why-outlives-the-code.md",
+    ".agent-fabric/memory/fabric-coordinator/workflow/adr-no-inline-attribution.md",
+    ".agent-fabric/memory/fabric-coordinator/workflow/blind-review-loop.md",
+    ".agent-fabric/memory/fabric-coordinator/workflow/carve-out-covers-the-past.md",
+    ".agent-fabric/memory/fabric-coordinator/workflow/check-detail-never-a-value.md",
+    ".agent-fabric/memory/fabric-coordinator/workflow/cleanup-spares-live-logs.md",
+    ".agent-fabric/memory/fabric-coordinator/workflow/commands-for-the-owner-bare-names.md",
+    ".agent-fabric/memory/fabric-coordinator/workflow/coordinate-dont-build.md",
+    ".agent-fabric/memory/fabric-coordinator/workflow/correction-requests-name-merge-target.md",
+    ".agent-fabric/memory/fabric-coordinator/workflow/cross-repo-lint-window.md",
+    ".agent-fabric/memory/fabric-coordinator/workflow/delegate-check-never-list.md",
+    ".agent-fabric/memory/fabric-coordinator/workflow/distribute-after-merge.md",
+    ".agent-fabric/memory/fabric-coordinator/workflow/fleet-ops-via-control-plane.md",
+    ".agent-fabric/memory/fabric-coordinator/workflow/hook-probe-writes-binding.md",
+    ".agent-fabric/memory/fabric-coordinator/workflow/house-i18n-standard.md",
+    ".agent-fabric/memory/fabric-coordinator/workflow/locales-stay-aligned.md",
+    ".agent-fabric/memory/fabric-coordinator/workflow/outside-text-is-data.md",
+    ".agent-fabric/memory/fabric-coordinator/workflow/parallel-agents-share-scratchpad.md",
+    ".agent-fabric/memory/fabric-coordinator/workflow/prompt-change-readback.md",
+    ".agent-fabric/memory/fabric-coordinator/workflow/redirecting-a-request-moves-its-credential.md",
+    ".agent-fabric/memory/fabric-coordinator/workflow/sign-published-pages.md",
+    ".agent-fabric/memory/fabric-coordinator/workflow/skills-no-prs-no-dates.md",
+    ".agent-fabric/memory/fabric-coordinator/workflow/supplied-work-folds-into-callers-pr.md",
+    ".agent-fabric/memory/fabric-coordinator/INDEX.md",
+    ".agent-fabric/memory/python-dev/INDEX.md",
+    "memory/shared/domain-claude-code-attribution-reminder.md",
+    ".agent-fabric/memory/shared/threads-python-port-waves.md",
+    ".agent-fabric/memory/shared/workflow-prefer-python-over-shell.md",
+    ".agent-fabric/memory/architect-cto/INDEX.md",
+    ".agent-fabric/memory/backend-dev/INDEX.md",
+    ".agent-fabric/memory/brand-comms/INDEX.md",
+    ".agent-fabric/memory/db-admin/INDEX.md",
+    ".agent-fabric/memory/devex-tooling/INDEX.md",
+    ".agent-fabric/memory/domain-transit/INDEX.md",
+    ".agent-fabric/memory/edge-hosting/INDEX.md",
+    "memory/domains/fabric-coordinator/domain/apache-ossie.md",
+    "memory/domains/fabric-coordinator/domain/deepseek-harness.md",
+    "memory/domains/fabric-coordinator/domain/minigraf.md",
+    "memory/domains/fabric-coordinator/domain/software-factory-loops-graphs-harnesses.md",
+    ".agent-fabric/memory/fabric-coordinator/solution/assemble-not-idempotent-over-same-drain.md",
+    ".agent-fabric/memory/fabric-coordinator/solution/claude-setup-token-facts.md",
+    ".agent-fabric/memory/fabric-coordinator/solution/control-plane-daemon.md",
+    ".agent-fabric/memory/fabric-coordinator/solution/fleet-upgrade-concurrency.md",
+    ".agent-fabric/memory/fabric-coordinator/solution/host-freeze-2026-10-04.md",
+    ".agent-fabric/memory/fabric-coordinator/threads/assemble-hygiene-inconsistent.md",
+    ".agent-fabric/memory/fabric-coordinator/threads/assemble-subheading-breaks-idempotence.md",
+    ".agent-fabric/memory/fabric-coordinator/threads/inbox-history-mode.md",
+    ".agent-fabric/memory/fabric-coordinator/threads/new-agent-first-credential-gap.md",
+    ".agent-fabric/memory/fabric-coordinator/threads/radicle-decentralized-forge.md",
+    ".agent-fabric/memory/fabric-coordinator/threads/software-factory-gaps-2026-10-09.md",
+    ".agent-fabric/memory/fabric-coordinator/threads/suite-scratch-leak.md",
+    ".agent-fabric/memory/fabric-coordinator/workflow/auto-merge-is-immediate-here.md",
+    ".agent-fabric/memory/fabric-coordinator/workflow/bare-commands-not-sh.md",
+    ".agent-fabric/memory/fabric-coordinator/workflow/branch-name-four-segments.md",
+    ".agent-fabric/memory/fabric-coordinator/workflow/cross-host-share-via-control-plane.md",
+    ".agent-fabric/memory/fabric-coordinator/workflow/delegate-to-subagents.md",
+    ".agent-fabric/memory/fabric-coordinator/workflow/launcher-help-is-a-launch.md",
+    ".agent-fabric/memory/fabric-coordinator/workflow/lint-before-commit.md",
+    ".agent-fabric/memory/fabric-coordinator/workflow/lint-overreport-not-model.md",
+    ".agent-fabric/memory/fabric-coordinator/workflow/memory-corpus-is-wisdom.md",
+    ".agent-fabric/memory/fabric-coordinator/workflow/no-reset-while-writers-run.md",
+    ".agent-fabric/memory/fabric-coordinator/workflow/nudge-idle-agent-by-message.md",
+    ".agent-fabric/memory/fabric-coordinator/workflow/own-account-upgrade.md",
+    ".agent-fabric/memory/fabric-coordinator/workflow/owner-commands-one-line.md",
+    ".agent-fabric/memory/fabric-coordinator/workflow/pr-band-accumulate.md",
+    ".agent-fabric/memory/fabric-coordinator/workflow/request-dies-with-its-session.md",
+    ".agent-fabric/memory/fabric-coordinator/workflow/request-needs-a-job.md",
+    ".agent-fabric/memory/fabric-coordinator/workflow/review-p3-may-defer.md",
+    ".agent-fabric/memory/fabric-coordinator/workflow/suite-in-a-worktree-lints-wrong.md",
+    ".agent-fabric/memory/fabric-coordinator/workflow/suite-snapshots-git-config.md",
+    ".agent-fabric/memory/fabric-coordinator/workflow/verify-sends-in-journal.md",
+    ".agent-fabric/memory/flutter-dev/INDEX.md",
+    ".agent-fabric/memory/language-culture/INDEX.md",
+    ".agent-fabric/memory/p2p-network-dev/INDEX.md",
+    ".agent-fabric/memory/web-dev/INDEX.md",
+    ".agent-fabric/memory/devex-tooling/solution.md",
+    "memory/domains/python-dev/domain/codeql-sarif-shows-the-flow.md",
+    "memory/domains/python-dev/domain/dead-pid-fixture-must-exceed-pid-max.md",
+    "memory/domains/python-dev/domain/decrypt-only-what-you-use.md",
     "memory/domains/python-dev/domain/env-isolation-in-process-environ.md",
+    "memory/domains/python-dev/domain/exec-inherits-python-ignored-signals.md",
     "memory/domains/python-dev/domain/facade-split-monkeypatch-trap.md",
+    "memory/domains/python-dev/domain/gh-pr-checks-required-plain-text.md",
     "memory/domains/python-dev/domain/git-config-get-reads-beyond-the-repo.md",
+    "memory/domains/python-dev/domain/js-python-parity-at-boundaries.md",
+    "memory/domains/python-dev/domain/openssl-ed25519-pkeyutl-measured.md",
     "memory/domains/python-dev/domain/oracle-blind-spots-in-ports.md",
+    "memory/domains/python-dev/domain/pgrep-wait-loop-matches-itself.md",
     "memory/domains/python-dev/domain/python-defaults-that-differ-from-node.md",
+    "memory/domains/python-dev/domain/relay-text-and-state-file-hazards.md",
+    "memory/domains/python-dev/domain/review-before-suite-and-numeric-guards.md",
+    "memory/domains/python-dev/domain/role-env-strips-git-vars.md",
+    "memory/domains/python-dev/domain/shell-text-secrets-and-git-answers.md",
+    "memory/domains/python-dev/domain/splitting-a-closure-heavy-main.md",
+    "memory/domains/python-dev/domain/status-sentinel-collides-with-read-state.md",
+    "memory/domains/python-dev/domain/typeddict-notrequired-under-future-annotations.md",
+    "memory/domains/python-dev/domain/verify-status-from-stderr-is-forgeable.md",
     ".agent-fabric/memory/python-dev/rationale.md",
     ".agent-fabric/memory/python-dev/solution/gzcoord-tests-reach-the-host-workspace.md",
+    ".agent-fabric/memory/python-dev/solution/herdr-fork-strategy.md",
+    ".agent-fabric/memory/python-dev/solution/j57-job-queue-contract.md",
     ".agent-fabric/memory/python-dev/solution/root-relative-tools-write-the-running-clone.md",
     ".agent-fabric/memory/python-dev/solution/store-rerun-after-put-pushes-stale-head.md",
     ".agent-fabric/memory/python-dev/threads/j24-signing-key-off-env-findings.md",
+    ".agent-fabric/memory/python-dev/threads/roots-stage2-state.md",
+    ".agent-fabric/memory/python-dev/threads/stripped-run-and-the-nightly-skip-list.md",
     ".agent-fabric/memory/python-dev/threads/wave-7-port-state.md",
+    ".agent-fabric/memory/python-dev/threads/wave-8-sessions-unreadable-contract.md",
+    ".agent-fabric/memory/python-dev/threads/wave-8-signed-bytes-and-frozen-state.md",
+    ".agent-fabric/memory/python-dev/workflow/answers-trailer-marks-a-fix.md",
+    ".agent-fabric/memory/python-dev/workflow/chain-message-fill-to-send.md",
     ".agent-fabric/memory/python-dev/workflow/check-authority-excluding-before-planning.md",
     ".agent-fabric/memory/python-dev/workflow/contributor-merge-direction.md",
     ".agent-fabric/memory/python-dev/workflow/fake-tools-must-sit-on-the-callees-path.md",
     ".agent-fabric/memory/python-dev/workflow/lint-in-a-worktree-reads-the-session-root.md",
-    ".agent-fabric/memory/python-dev/workflow/suites-inherit-launch-stamps.md",
+    ".agent-fabric/memory/python-dev/workflow/never-edit-while-the-suite-runs.md",
+    ".agent-fabric/memory/python-dev/workflow/never-restore-a-mutation-with-git-checkout.md",
+    ".agent-fabric/memory/python-dev/workflow/off-shell-3-merged-151.md",
+    ".agent-fabric/memory/python-dev/workflow/python-dev-merges-flag.md",
+    ".agent-fabric/memory/python-dev/workflow/shell-ports-only-with-a-real-change.md",
+    ".agent-fabric/memory/python-dev/workflow/stale-keyboxd-lock-after-reboot.md",
+    ".agent-fabric/memory/python-dev/workflow/static-skips-ruff-here.md",
+    ".agent-fabric/memory/python-dev/workflow/stripped-fixes-merged-in-138.md",
+    ".agent-fabric/memory/python-dev/workflow/suite-red-check-df-first.md",
     ".agent-fabric/memory/python-dev/workflow/test-port-by-mutation-parity.md",
-    ".agent-fabric/memory/python-dev/INDEX.md",
-    ".agent-fabric/memory/shared/workflow-check-exit-status-not-pipe.md",
-    ".agent-fabric/memory/fabric-coordinator/solution/host-freeze-2026-10-04.md",
-    ".agent-fabric/memory/fabric-coordinator/solution/pgrep-f-kills-own-session.md",
-    ".agent-fabric/memory/fabric-coordinator/solution/port-grep-regex-to-python-backtracks.md",
-    ".agent-fabric/memory/fabric-coordinator/threads/new-agent-first-credential-gap.md",
-    ".agent-fabric/memory/fabric-coordinator/workflow/auto-merge-is-immediate-here.md",
-    ".agent-fabric/memory/fabric-coordinator/workflow/launcher-help-is-a-launch.md",
-    ".agent-fabric/memory/fabric-coordinator/workflow/lint-before-commit.md",
-    ".agent-fabric/memory/fabric-coordinator/workflow/parallel-agents-share-scratchpad.md",
-    ".agent-fabric/memory/fabric-coordinator/workflow/suite-in-a-worktree-lints-wrong.md",
-    ".agent-fabric/memory/fabric-coordinator/workflow/supplied-work-folds-into-callers-pr.md",
-    ".agent-fabric/memory/fabric-coordinator/INDEX.md"
+    ".agent-fabric/memory/python-dev/workflow/trailer-block-must-be-one-line-per-key.md",
+    ".agent-fabric/memory/python-dev/workflow/write-tool-decodes-unicode-escapes.md",
+    ".agent-fabric/memory/python-dev/workflow/ci-env-for-lint-and-mutations.md",
+    ".agent-fabric/memory/python-dev/workflow/commit-kind-trailer.md",
+    ".agent-fabric/memory/python-dev/workflow/forge-port-oracle-runs.md",
+    ".agent-fabric/memory/python-dev/workflow/j16-provisioning-port-state.md",
+    ".agent-fabric/memory/python-dev/workflow/j17-memory-mcp-state.md",
+    ".agent-fabric/memory/python-dev/workflow/roots-seam-stage2-and-intake.md",
+    ".agent-fabric/memory/python-dev/workflow/wave8-no-node-fixes.md",
+    ".agent-fabric/memory/python-dev/workflow/wave8-ops-port-state.md",
+    ".agent-fabric/memory/python-dev/workflow/contracts-addressed-to-coordinator-are-unreadable.md",
+    ".agent-fabric/memory/python-dev/workflow/gh-port-oracle-mock-learns-gh-py.md",
+    ".agent-fabric/memory/python-dev/solution/fabric-pr-and-tools-install.md",
+    ".agent-fabric/memory/python-dev/solution/repo-moved-to-blueteam-ou.md",
+    ".agent-fabric/memory/python-dev/solution/roots-seam-method.md",
+    ".agent-fabric/memory/python-dev/solution/tools-report-and-pr-lessons.md",
+    ".agent-fabric/memory/python-dev/workflow/arming-on-relayed-owner-word.md",
+    ".agent-fabric/memory/python-dev/workflow/git-signing-key-for-agent-accounts.md",
+    ".agent-fabric/memory/python-dev/workflow/pr-arming-and-ci-traps.md",
+    ".agent-fabric/memory/python-dev/workflow/wave8-port-method-parity-fuzz.md"
   ],
-  "files_written": 30,
+  "files_written": 165,
   "harvest": {
     "host": "develop-qzapp",
-    "in_scope": 14,
-    "next_watermark": 1791153038832,
+    "in_scope": 8,
+    "next_watermark": 1791562324940,
     "provisional_agent": 0,
-    "since_watermark": 1790851351843
+    "since_watermark": 0,
+    "skipped_no_roles_class": []
   },
   "harvest_sources": {
+    "devex-tooling@develop-qzapp": {
+      "host": "develop-qzapp",
+      "in_scope": 1,
+      "next_watermark": 1791495111003,
+      "provisional_agent": 0,
+      "since_watermark": 0,
+      "skipped_no_roles_class": []
+    },
     "python-dev-01@develop-qzapp": {
       "host": "develop-qzapp",
-      "in_scope": 20,
-      "next_watermark": 1791151673758,
+      "in_scope": 64,
+      "next_watermark": 1791615302790,
       "provisional_agent": 0,
-      "since_watermark": 0
+      "since_watermark": 0,
+      "skipped_no_roles_class": [
+        "arm-sh-refuses-agent-fabric.md",
+        "coordinator-address.md",
+        "j49-own-secrets-state.md",
+        "j50-new-agent-claude-account.md",
+        "j51-own-secrets-108.md",
+        "j52-first-own-pr.md",
+        "never-pkill-gzcoord-inbox.md",
+        "push-through-gh-credential.md"
+      ]
+    },
+    "python-dev-02@develop-qzapp": {
+      "host": "develop-qzapp",
+      "in_scope": 9,
+      "next_watermark": 1791612514307,
+      "provisional_agent": 0,
+      "since_watermark": 0,
+      "skipped_no_roles_class": [
+        "forge-port-queue.md"
+      ]
+    },
+    "python-dev-02@develop-qzapp#projects-root": {
+      "host": "develop-qzapp",
+      "in_scope": 2,
+      "next_watermark": 1791434674140,
+      "provisional_agent": 0,
+      "since_watermark": 0,
+      "skipped_no_roles_class": []
+    },
+    "python-dev-03@develop-qzapp": {
+      "host": "develop-qzapp",
+      "in_scope": 8,
+      "next_watermark": 1791562324940,
+      "provisional_agent": 0,
+      "since_watermark": 0,
+      "skipped_no_roles_class": []
     },
     "user@develop-qzapp": {
       "host": "develop-qzapp",
-      "in_scope": 14,
-      "next_watermark": 1791153038832,
+      "in_scope": 43,
+      "next_watermark": 1791615201122,
       "provisional_agent": 0,
-      "since_watermark": 1790851351843
+      "since_watermark": 0,
+      "skipped_no_roles_class": [
+        "attribution-switch-where-now.md",
+        "claude-mem-and-recall-zero.md",
+        "repo-transfer-owner-hand.md"
+      ]
+    },
+    "user@develop-qzapp#projects-root": {
+      "host": "develop-qzapp",
+      "in_scope": 77,
+      "next_watermark": 1791512760802,
+      "provisional_agent": 0,
+      "since_watermark": 0,
+      "skipped_no_roles_class": [
+        "agent-owned-secrets-plan.md",
+        "arm-in-band-on-my-own.md",
+        "carried-from-105.md",
+        "coordinator-doppler-keyring.md",
+        "dcs-frozen.md",
+        "delegate-to-python-dev.md",
+        "fix-commits-need-answers-trailer.md",
+        "gzcoord-family-rename-later.md",
+        "harness-attribution-reminder-source.md",
+        "interweave-remit-stage-12.md",
+        "next-fabric-branch-queue.md",
+        "one-inbox-watch-after-compaction.md",
+        "pr-ready-says-work-commits.md",
+        "python-dev-merges-own-prs.md",
+        "rea-agent-plan.md",
+        "ref-ag-ui.md",
+        "ref-caveman.md",
+        "ref-context-mode.md",
+        "ref-exxperts.md",
+        "ref-hackmyagent.md",
+        "ref-open-ontologies.md",
+        "ref-openrig.md",
+        "ref-opensre.md",
+        "ref-pi.md",
+        "ref-prompt-audit.md",
+        "ref-sglang.md",
+        "ref-utopia.md",
+        "ref-vllm-semantic-router.md",
+        "ref-xerj.md",
+        "supply-pins-onto-callers-branch.md",
+        "user-language-english.md",
+        "wait-merged-one-fabric-version.md"
+      ]
     }
   },
+  "held_back": [],
   "hygiene_problems": [],
-  "merge_target_unresolved": [
-    "python-dev/workflow:suites-inherit-launch-stamps#Running a suite \"as CI\" — strip CLAUDE_* and ANTHROPIC_* as well as AGENT_FABRIC_*/GITHUB_*/GIT_DIR; a launched session's own exports satisfy assertions CI would fail: merge_target \"A suite green in a launched session can fail in CI — the session sets AGENT_FABRIC_ROOT, CI's pull_request sets GITHUB_HEAD_REF/BASE_REF; run the touched suites with CI's environment before pushing\" names no section of python-dev/workflow; written as its own topic"
+  "merge_target_unresolved": [],
+  "migrated": [
+    "fabric-coordinator/rationale: rationale.md -> rationale/rationale-carried-2026-10-01.md"
   ],
-  "migrated": [],
   "oversized_claims": [],
   "project": "agent-fabric",
   "redactions": [],
   "rejected_hygiene": [],
   "retired_in_siblings": [],
   "roles": [
+    "architect-cto",
+    "backend-dev",
+    "brand-comms",
+    "db-admin",
+    "devex-tooling",
+    "domain-transit",
+    "edge-hosting",
     "fabric-coordinator",
-    "python-dev"
+    "flutter-dev",
+    "language-culture",
+    "p2p-network-dev",
+    "python-dev",
+    "web-dev"
   ],
-  "shared_slices": 1,
+  "shared_slices": 10,
   "shared_topics": [
-    "workflow:check-exit-status-not-pipe"
+    "domain:claude-code-attribution-reminder",
+    "solution:gnupghome-default-agent-trap",
+    "threads:python-port-waves",
+    "workflow:check-exit-status-not-pipe",
+    "workflow:guard-must-catch-the-shape-it-replaced",
+    "workflow:local-grep-is-ugrep",
+    "workflow:prefer-python-over-shell",
+    "workflow:run-suites-as-ci-before-push",
+    "workflow:smoke-container-before-ci",
+    "workflow:worktree-under-dot-claude"
   ],
-  "stamp": "2026-10-05",
+  "stamp": "2026-10-10",
   "telemetry": {
-    "fabric-coordinator": {
-      "admitted": 11,
-      "candidates": 14,
+    "devex-tooling": {
+      "admitted": 1,
+      "candidates": 1,
       "merged_into_existing": 0,
-      "observations_in": 14,
-      "rejected": 3
+      "observations_in": 1,
+      "rejected": 0
+    },
+    "fabric-coordinator": {
+      "admitted": 85,
+      "candidates": 120,
+      "merged_into_existing": 0,
+      "observations_in": 120,
+      "rejected": 35
     },
     "python-dev": {
-      "admitted": 17,
-      "candidates": 20,
+      "admitted": 74,
+      "candidates": 83,
       "merged_into_existing": 0,
-      "observations_in": 20,
-      "rejected": 3
+      "observations_in": 83,
+      "rejected": 9
     }
   },
   "telemetry_sources": {
+    "devex-tooling@develop-qzapp": {
+      "devex-tooling": {
+        "admitted": 1,
+        "candidates": 1,
+        "merged_into_existing": 0,
+        "observations_in": 1,
+        "rejected": 0
+      }
+    },
     "python-dev-01@develop-qzapp": {
       "python-dev": {
-        "admitted": 17,
-        "candidates": 20,
+        "admitted": 56,
+        "candidates": 64,
         "merged_into_existing": 0,
-        "observations_in": 20,
-        "rejected": 3
+        "observations_in": 64,
+        "rejected": 8
+      }
+    },
+    "python-dev-02@develop-qzapp": {
+      "python-dev": {
+        "admitted": 8,
+        "candidates": 9,
+        "merged_into_existing": 0,
+        "observations_in": 9,
+        "rejected": 1
+      }
+    },
+    "python-dev-02@develop-qzapp#projects-root": {
+      "python-dev": {
+        "admitted": 2,
+        "candidates": 2,
+        "merged_into_existing": 0,
+        "observations_in": 2,
+        "rejected": 0
+      }
+    },
+    "python-dev-03@develop-qzapp": {
+      "python-dev": {
+        "admitted": 8,
+        "candidates": 8,
+        "merged_into_existing": 0,
+        "observations_in": 8,
+        "rejected": 0
       }
     },
     "user@develop-qzapp": {
       "fabric-coordinator": {
-        "admitted": 11,
-        "candidates": 14,
+        "admitted": 40,
+        "candidates": 43,
         "merged_into_existing": 0,
-        "observations_in": 14,
+        "observations_in": 43,
         "rejected": 3
+      }
+    },
+    "user@develop-qzapp#projects-root": {
+      "fabric-coordinator": {
+        "admitted": 45,
+        "candidates": 77,
+        "merged_into_existing": 0,
+        "observations_in": 77,
+        "rejected": 32
       }
     }
   },
   "title_collisions": [],
   "watermarks": {
     "develop-qzapp": 1790347048334,
-    "python-dev-01@develop-qzapp": 1791151673758,
-    "user@develop-qzapp": 1791153038832
+    "devex-tooling@develop-qzapp": 1791495111003,
+    "python-dev-01@develop-qzapp": 1791615302790,
+    "python-dev-02@develop-qzapp": 1791612514307,
+    "python-dev-02@develop-qzapp#projects-root": 1791434674140,
+    "python-dev-03@develop-qzapp": 1791562324940,
+    "user@develop-qzapp": 1791615201122,
+    "user@develop-qzapp#projects-root": 1790851341999
   }
 }

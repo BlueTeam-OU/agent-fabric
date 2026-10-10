@@ -5,7 +5,7 @@ topic: "per-arch-constants-come-from-libc"
 description: "Never hand-type an open(2) flag per architecture; take it from libc — CI runs x86_64 only, so no test catches a wrong arm"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-05"
+distilled_at: "2026-10-10"
 origin:
   - agent: "p2p-network-dev-01"
     host: "develop-qzapp"

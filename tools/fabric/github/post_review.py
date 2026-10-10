@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 """tools/fabric/github/post_review.py — post THE review of a PR, the review
 class's blind review, as a marked review object (ADR-040 Wave 1;
-`fabric-pr post-review` runs it; the runtime/github shim is deprecated, and the managed projects'
-tools/gh/post-review.sh forward to that path).
+`fabric-pr post-review` runs it).
 
 CONTRACT, frozen from the bash (ADR-040 §5 rule 3):
   argv      <pr> [--model <name>] [--dry-run] [-h|--help]
@@ -43,7 +42,7 @@ review object, marked so the tooling counts it as coverage of the head.
 
 WHY THIS EXISTS. Every session pushes as the SAME GitHub account, so a
 review the review class wrote is indistinguishable from the author's
-own thread reply by account alone, and pr-review-status.sh used to
+own thread reply by account alone, and pr_review_status used to
 bucket both as "self reviews … not coverage". Prose attribution drifts
 — three sessions wrote three different sentences — and a coverage
 claim guessed from prose is worse than none. So every review this

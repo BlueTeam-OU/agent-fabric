@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""tools/fabric/github/guards_wired.py, through its shim. The behaviour's
+"""tools/fabric/github/guards_wired.py, through the module. The behaviour's
 oracle is two managed projects' tools/checks/test_check_guards_are_wired.sh,
-run unchanged against the shim, each with its project's guards.json
+run unchanged against the module, each with its project's guards.json
 (ADR-040 §5 rule 5). This file pins what the union added or neither suite
 reaches: a glob wires only the members of its own path, and a for-loop
 over self-tests answers the runner rule as a whole while a literal
@@ -22,7 +22,7 @@ from instance_fixtures import own_instance_tree  # noqa: E402 — tests/, the sc
 own_instance_tree()
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-TOOL = os.path.join(ROOT, "runtime", "github", "check-guards-are-wired.sh")
+TOOL = [sys.executable, os.path.join(ROOT, "tools", "fabric", "github", "guards_wired.py")]
 GZAPP = os.path.join(ROOT, "tests", "fixtures", "gzapp-gh", "guards.json")
 
 LINES = {
@@ -77,7 +77,7 @@ def main() -> int:
             e = dict(base)
             if config is not None:
                 e["AGENT_FABRIC_GUARDS_CONFIG"] = config
-            r = subprocess.run([TOOL, "--root", root, *args] if root else [TOOL, *args], env=e, cwd=cwd,
+            r = subprocess.run([*TOOL, "--root", root, *args] if root else [*TOOL, *args], env=e, cwd=cwd,
                                capture_output=True, timeout=60)
             return r.returncode, r.stdout.decode("utf-8", "replace"), r.stderr.decode("utf-8", "replace")
 

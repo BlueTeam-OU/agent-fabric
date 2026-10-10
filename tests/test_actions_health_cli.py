@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""runtime/github/actions-health.sh, through the shim with gh and curl
+"""tools/fabric/github/actions_health.py, with gh and curl
 mocked on PATH. Ported case for case from a managed project's
 tools/gh/test_actions-health.sh (its script the oracle, ADR-040 §5): the
 value of the tool is a decision — spend minutes, or don't — so each state
@@ -17,7 +17,7 @@ import sys
 import tempfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-TOOL = os.path.join(ROOT, "runtime", "github", "actions-health.sh")
+TOOL = [sys.executable, os.path.join(ROOT, "tools", "fabric", "github", "actions_health.py")]
 
 # githubstatus.com, from a fixture. status_unreachable: curl fails.
 CURL = r'''#!/usr/bin/env bash
@@ -126,7 +126,7 @@ def main() -> int:
             e = dict(base, **env)
             if allowance is not None:
                 e["AGENT_FABRIC_ACTIONS_INCLUDED_MINUTES"] = allowance
-            r = subprocess.run([TOOL, *args], env=e, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            r = subprocess.run([*TOOL, *args], env=e, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                text=True, timeout=120)
             out["text"], out["rc"] = r.stdout, r.returncode
 
@@ -597,7 +597,7 @@ def main() -> int:
         rc("unknown option exits 2", 2)
         invoke("--org")
         rc("--org needs a value", 2)
-        r = subprocess.run([TOOL, "--json", "--nope"], env=base, capture_output=True, text=True, timeout=120)
+        r = subprocess.run([*TOOL, "--json", "--nope"], env=base, capture_output=True, text=True, timeout=120)
         check("a usage error is stderr alone, even with --json",
               r.returncode == 2 and r.stdout == "" and "unknown option" in r.stderr, f"{r.stdout!r} {r.stderr!r}")
 

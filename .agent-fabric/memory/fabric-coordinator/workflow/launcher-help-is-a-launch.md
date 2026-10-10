@@ -2,10 +2,10 @@
 role: "fabric-coordinator"
 class: workflow
 topic: "launcher-help-is-a-launch"
-description: "runtime/openrouter/launch --help is a real launch — it rewrites ~/.claude/agents for its provider; read usage from the source, never by running it"
+description: "launch --help installs no agent files; it still passes through to claude, so read usage from source"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-05"
+distilled_at: "2026-10-10"
 origin:
   - agent: user
     host: "develop-qzapp"
@@ -13,18 +13,15 @@ origin:
     working_copy: "agent-fabric"
 derived_from:
   - 27d54ffc79996488
+  - 974d92ea06ea6406
 ---
 
-## runtime/openrouter/launch --help is a real launch — it rewrites ~/.claude/agents for its provider; read usage from the source, never by running it
+## launch --help installs no agent files; it still passes through to claude, so read usage from source
 
-`runtime/openrouter/launch --help` (2026-10-02) did not print the launcher's usage: it ran a launch on the OpenRouter provider, which reinstalled this account's `~/.claude/agents/*.md` for that provider before handing `--help` to claude. The dispatch guard then refused every review dispatch in the running anthropic session (the reviewer file named the OpenRouter model), and `tests/test_dispatch_guard.py` failed 7 checks because it read that live state.
+`launch --help` or `-h` before any `--` no longer rewrites `~/.claude/agents` (tools/fabric/launch.py header); the installer's default provider follows the account's last launch. Before that fix, `runtime/openrouter/launch --help` reinstalled this account's agent files for its provider and the dispatch guard then refused every review in the running session.
 
-**Why:** the launcher passes unknown arguments to claude and does its provider setup (agent files) before the exec.
-
-**How to apply:** read the launcher's options from its source or `tools/fabric/launch.py`'s docstring, never by running it; to compare `--print` output use `tests/parity/launch_print.py`, which fakes `ori` and `claude`. If it happens: `runtime/claude-code/install-agent-files.sh --provider "$AGENT_FABRIC_LAUNCH_PROVIDER"` restores this session's files. Related: [[run-suites-as-ci-before-push]].
-
-Update 2026-10-04: a82a9152 (branch develop-qzapp/user/fix/agent-files-provider) makes -h/--help before any `--` skip the agent-file install; until it merges and distributes, the old behaviour stands. Also a169895e: the installer's default provider follows the account's last launch.
+It still passes `--help` through to claude, so reading options from `tools/fabric/launch.py`'s docstring remains sound; to compare `--print` output use `tests/parity/launch_print.py`, which fakes `ori` and `claude`. If a session's agent files were rewritten: `runtime/claude-code/install-agent-files.sh --provider "$AGENT_FABRIC_LAUNCH_PROVIDER"` restores them. Related: [[run-suites-as-ci-before-push]].
 
 *References: run-suites-as-ci-before-push*
 
-*Observed 2026-10-01 (fabric-coordinator)*
+*Observed 2026-10-10 (fabric-coordinator)*

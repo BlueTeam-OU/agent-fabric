@@ -5,7 +5,7 @@ topic: "lint-in-a-worktree-reads-the-session-root"
 description: "tools/fabric/lint.py run from a contributor worktree with the session's AGENT_FABRIC_ROOT lints ~/projects/agent-fabric (main), not the worktree — a green \"lint clean\" that is not about your branch"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-05"
+distilled_at: "2026-10-10"
 origin:
   - agent: "python-dev-01"
     host: "develop-qzapp"

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Tests for tools/fabric/github/trial_merge.py's internals; the behaviour
-is tests/test_trial_merge_cli.py's, run against the shim (ADR-040 §5
+is tests/test_trial_merge_cli.py's, run through fabric-pr (ADR-040 §5
 rule 5). What that oracle cannot reach is here: a PR number (no gh in its
 fixtures), the verdict and config readings at their edges, the sweep's
 liveness rule."""
@@ -321,8 +321,8 @@ def main() -> int:
         r_end, w_end = os.pipe()
         os.close(r_end)
         env = {**os.environ, "TMPDIR": room2, "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_SYSTEM": os.devnull}
-        shim = os.path.join(HERE, "runtime", "github", "trial-merge.sh")
-        rc = subprocess.run(["bash", shim, "h/l/feat/x"], cwd=clone, env=env, stdout=w_end,
+        shim = [os.path.join(HERE, "bin", "fabric-pr"), "trial-merge"]
+        rc = subprocess.run([*shim, "h/l/feat/x"], cwd=clone, env=env, stdout=w_end,
                             stderr=subprocess.DEVNULL, timeout=120).returncode
         os.close(w_end)
         check("it ends 141, as a pipe-killed run does", rc == 141)
