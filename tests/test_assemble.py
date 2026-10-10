@@ -289,6 +289,47 @@ def test_drain_report_carries_the_watermark_forward(tmp: str) -> None:
     assert "/home/someone" not in read(report_path(out))
 
 
+def test_the_drain_report_lists_the_memory_marks_and_call_counts(tmp: str) -> None:
+    """The harvest carries what the memory server wrote in an account's state (memory_use.py): marks.jsonl and the
+    harvest report's memory_use. The committed report lists the marks by section id and the counts per source, a
+    re-run of a bundle adds no mark twice, a note passes the hygiene every committed text passes, and a drain without
+    them says nothing about them."""
+    drain, claims_dir, out = build(tmp, {"alpha": claims("alpha", [
+        {"class": "domain", "topic": "one", "title": "T", "body": "b", "evidence": ["h1"]},
+    ])})
+    use = {"since_ms": 0, "until_ms": 5, "calls": {"memory_find": 3, "memory_read": 1}, "zero_hit_finds": 1,
+           "finds_followed_by_read": 1, "ids_read": {"f:domains/alpha/domain/one#1": 1}, "marks": 3, "unreadable_lines": 0,
+           "notes_withheld": 0}
+    with open(os.path.join(drain, "harvest-report.json"), "w", encoding="utf-8") as fh:
+        json.dump({"host": "boxA", "agent": "dev-01", "since_watermark": 0, "next_watermark": 5, "memory_use": use,
+                   "counts": {"provisional_agent": 0, "in_scope": 1}}, fh)
+    rows = [{"t": "2026-10-10T07:00:00Z", "id": "f:domains/alpha/domain/one#1", "verdict": "stale", "note": "moved"},
+            {"t": "2026-10-10T07:01:00Z", "id": "f:domains/alpha/domain/one#1", "verdict": "helpful", "note": ""},
+            {"t": "2026-10-10T07:02:00Z", "id": "p:alpha/solution/two#2", "verdict": "wrong", "note": "seen in Springfield"},
+            {"t": "2026-10-10T07:03:00Z", "id": "p:alpha/solution/two#2", "verdict": "bogus", "note": "not a verdict"}]
+    with open(os.path.join(drain, "marks.jsonl"), "w", encoding="utf-8") as fh:
+        for row in rows:
+            fh.write(json.dumps(row) + "\n")
+        fh.write("not json\n")
+    assert run_assemble(drain, claims_dir, out).returncode == 0
+    report = json.loads(read(report_path(out)))
+    marks = report.get("memory_marks") or {}
+    assert sorted(marks) == ["f:domains/alpha/domain/one#1", "p:alpha/solution/two#2"], marks
+    assert [m["verdict"] for m in marks["f:domains/alpha/domain/one#1"]] == ["stale", "helpful"], marks
+    assert all(m["agent"] == "dev-01" for ms in marks.values() for m in ms) and len(marks["p:alpha/solution/two#2"]) == 1, marks
+    assert "Springfield" not in read(report_path(out)) and "[redacted]" in marks["p:alpha/solution/two#2"][0]["note"], "a note skipped the hygiene list"
+    assert report.get("memory_use") == {"dev-01@boxA": use}, report.get("memory_use")
+    assert run_assemble(drain, claims_dir, out).returncode == 0
+    again = json.loads(read(report_path(out)))
+    assert again["memory_marks"] == marks, "re-running a bundle added its marks twice"
+    # A drain that carries none lists none.
+    drain2, claims2, out2 = build(os.path.join(tmp, "plain"), {"alpha": claims("alpha", [
+        {"class": "domain", "topic": "one", "title": "T", "body": "b", "evidence": ["h1"]}])})
+    assert run_assemble(drain2, claims2, out2).returncode == 0
+    plain = json.loads(read(report_path(out2)))
+    assert plain["memory_marks"] == {} and plain["memory_use"] == {}, (plain["memory_marks"], plain["memory_use"])
+
+
 def test_drain_report_records_unattributable_rows(tmp: str) -> None:
     # A row that resolves to no clone is reported provisional and never
     # guessed — but nothing downstream read the tally, so a drain in which
@@ -2966,6 +3007,7 @@ def main() -> int:
         test_a_flat_class_file_moves_into_the_directory_when_the_class_splits,
         test_an_oversized_single_claim_is_written_whole_and_reported,
         test_drain_report_carries_the_watermark_forward,
+        test_the_drain_report_lists_the_memory_marks_and_call_counts,
         test_drain_report_records_unattributable_rows,
         test_drain_report_tolerates_a_drain_with_no_harvest_report,
         test_unattributable_rows_warn_loudly_but_do_not_fail_the_drain,

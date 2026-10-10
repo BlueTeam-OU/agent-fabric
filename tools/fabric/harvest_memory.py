@@ -101,6 +101,7 @@ def _load(name: str, path: str):
 
 layout = _load("fabric_layout", os.path.join(HERE, "layout.py"))
 identity = _load("fabric_identity", os.path.join(layout.FABRIC_ROOT, "runtime", "identity.py"))
+memory_use = _load("fabric_memory_use", os.path.join(HERE, "memory_use.py"))
 
 # THE SECRET FENCE, at the harvester. The assembler substitutes a person's
 # name and redacts a secret when it files a claim — but a bundle travels
@@ -506,6 +507,14 @@ def main() -> int:
             print(f"  {r}", file=sys.stderr)
         return 1
 
+    # What the memory server wrote in this login's state (memory_use.py): its marks and the counts of its calls
+    # since the watermark. Only the account's own store carries them: a second store of the same login would
+    # carry them twice, under another key.
+    marks: list[dict] = []
+    use = None
+    if not args.store:
+        marks, use = memory_use.read(identity.agent_state_dir(ctx["agent"]), since_ms, credential_hits)
+        next_ms = max(next_ms, use["until_ms"])
     # The watermark stops below the oldest unrendered memory, whatever drained
     # after it: the next incremental drain names it again (the charter:
     # "never dropped"), at the price of re-reading what came after — which
@@ -531,6 +540,8 @@ def main() -> int:
         "counts": {"in_scope": total - len(before_watermark), "total": total,
                    "before_watermark": len(before_watermark), "provisional_agent": 0},
     }
+    if use is not None:
+        report["memory_use"] = use
     if args.dry_run:
         print(json.dumps(report, indent=2, sort_keys=True))
         return 0
@@ -563,6 +574,10 @@ def main() -> int:
     with open(os.path.join(args.out, "observations.jsonl"), "w", encoding="utf-8") as fh:
         for row in observations:
             fh.write(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n")
+    if use is not None:
+        with open(os.path.join(args.out, "marks.jsonl"), "w", encoding="utf-8") as fh:
+            for row in marks:
+                fh.write(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n")
     # assemble.py requires this file to exist; memories cite each other by
     # name, not by git object, so there is no citation graph to build.
     with open(os.path.join(args.out, "references.json"), "w", encoding="utf-8") as fh:
@@ -581,7 +596,7 @@ def main() -> int:
     return 0
 
 
-BUNDLE_FILES = ("harvest-report.json", "references.json", "observations.jsonl")
+BUNDLE_FILES = ("harvest-report.json", "references.json", "observations.jsonl", "marks.jsonl")
 
 
 def sha256_of(path: str) -> str:

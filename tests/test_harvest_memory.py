@@ -11,13 +11,24 @@ land somewhere plausible.
 """
 from __future__ import annotations
 
+import atexit
+import datetime
 import json
 import os
+import pwd
+import shutil
 import subprocess
 import sys
+import tarfile
 import tempfile
 from instance_fixtures import own_instance_tree  # noqa: E402 — tests/, the script's own directory
 own_instance_tree()
+# The harvest reads the login's memory-server logs from its state directory (memory_use.py): a suite that did not
+# name one would drain the running session's own marks and calls into its fixtures.
+STATE = tempfile.mkdtemp(prefix="harvest-state-")
+atexit.register(shutil.rmtree, STATE, ignore_errors=True)
+os.environ["AGENT_FABRIC_STATE_DIR"] = STATE
+LOGIN = pwd.getpwuid(os.geteuid()).pw_name
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
@@ -475,6 +486,122 @@ def test_the_watermark_round_trips_through_the_committed_report(tmp: str) -> Non
     assert hr["since_watermark"] == 0 and len(claims_of(out4)) == 2, hr
 
 
+def _ms(stamp: str) -> int:
+    return int(datetime.datetime.fromisoformat(stamp.replace("Z", "+00:00")).timestamp() * 1000)
+
+
+def _state(*, marks: list | None = None, calls: list | None = None, raw: str = "") -> str:
+    """The login's state directory with the memory server's two logs, as the server writes them; None writes no file."""
+    d = os.path.join(STATE, "agents", LOGIN)
+    shutil.rmtree(d, ignore_errors=True)
+    os.makedirs(d)
+    for name, rows in (("memory-marks.jsonl", marks), ("memory-calls.jsonl", calls)):
+        if rows is not None:
+            with open(os.path.join(d, name), "w", encoding="utf-8") as fh:
+                fh.write("".join(json.dumps(r) + "\n" for r in rows) + raw)
+    return d
+
+
+def _bundle(tmp: str, name: str, watermark_ms: int | None, *extra: str) -> tuple[subprocess.CompletedProcess, dict, dict]:
+    """Harvest to a bundle against a working copy whose last drain read this host's store up to watermark_ms."""
+    wc = os.path.join(tmp, f"wc-{name}")
+    os.makedirs(os.path.join(wc, ".agent-fabric", "memory"))
+    if watermark_ms is not None:
+        with open(os.path.join(wc, ".agent-fabric", "memory", "last-drain-report.json"), "w", encoding="utf-8") as fh:
+            json.dump({"watermarks": {f"{LOGIN}@hostA": watermark_ms}}, fh)
+    mem = os.path.join(tmp, f"mem-{name}")
+    os.makedirs(mem)
+    target = os.path.join(tmp, f"{name}.tar")
+    r = subprocess.run([sys.executable, TOOL, "--role", "architect-cto", "--memory", mem, "--bundle", target, "--working-copy", wc,
+                        "--project", "demo", "--host", "hostA", *extra], capture_output=True, text=True)
+    members: dict[str, bytes] = {}
+    if os.path.exists(target):
+        with tarfile.open(target) as tar:
+            members = {m.name: tar.extractfile(m).read() for m in tar if m.isfile()}
+    return r, members, json.loads(members.get("manifest.json", b"{}") or b"{}")
+
+
+FIND = {"tool": "memory_find", "hits": 2, "ids": ["f:domains/x/domain/a#1", "f:domains/x/domain/b#1"]}
+
+
+def test_marks_and_counts_after_the_watermark_enter_the_bundle_and_earlier_ones_do_not(tmp: str) -> None:
+    """The coordinator never reads another account's state: the bundle carries what the memory server wrote there
+    (memory_use.py). Rows after the store's watermark go in, earlier ones stay, the watermark moves to the last
+    row read like a memory's, and the manifest vouches for marks.jsonl."""
+    mark = {"id": "f:domains/x/domain/a#1", "verdict": "stale", "note": "moved"}
+    _state(marks=[{"t": "2026-10-10T05:00:00Z", **mark}, {"t": "2026-10-10T07:00:00Z", **mark},
+                  {"t": "2026-10-10T08:00:00Z", **{**mark, "verdict": "helpful", "note": ""}}],
+           calls=[{"t": "2026-10-10T05:00:00Z", **FIND},
+                  {"t": "2026-10-10T07:00:00Z", **FIND},
+                  {"t": "2026-10-10T07:00:01Z", "tool": "memory_read", "hits": 1, "ids": ["f:domains/x/domain/a#1"], "after_find": True},
+                  {"t": "2026-10-10T07:01:00Z", "tool": "memory_find", "hits": 0, "ids": []},
+                  {"t": "2026-10-10T07:02:00Z", **FIND},
+                  {"t": "2026-10-10T07:02:01Z", "tool": "memory_read", "hits": 1, "ids": ["f:domains/x/domain/b#1"], "after_find": False},
+                  {"t": "2026-10-10T08:00:00Z", "tool": "memory_index", "hits": 3, "ids": ["f:domains/x/domain/a"]}])
+    r, members, manifest = _bundle(tmp, "m1", _ms("2026-10-10T06:00:00Z"))
+    assert r.returncode == 0, r.stderr
+    rows = [json.loads(ln) for ln in members["marks.jsonl"].decode().splitlines()]
+    assert [(x["t"], x["verdict"]) for x in rows] == [("2026-10-10T07:00:00Z", "stale"), ("2026-10-10T08:00:00Z", "helpful")], rows
+    assert "marks.jsonl" in manifest["files"], "the manifest does not vouch for the marks"
+    use = json.loads(members["harvest-report.json"])["memory_use"]
+    assert use["calls"] == {"memory_find": 3, "memory_read": 2, "memory_index": 1}, use
+    assert (use["zero_hit_finds"], use["finds_followed_by_read"], use["marks"]) == (1, 1, 2), use
+    assert use["ids_read"] == {"f:domains/x/domain/a#1": 1, "f:domains/x/domain/b#1": 1}, use
+    assert manifest["next_watermark"] == _ms("2026-10-10T08:00:00Z"), manifest
+    # The same window again from the watermark it left: nothing new.
+    r, members, _ = _bundle(tmp, "m1b", manifest["next_watermark"])
+    assert members["marks.jsonl"] == b"" and json.loads(members["harvest-report.json"])["memory_use"]["calls"] == {}, members["marks.jsonl"]
+
+
+def test_a_missing_or_damaged_log_is_no_rows_and_no_error(tmp: str) -> None:
+    _state()
+    r, members, _ = _bundle(tmp, "m2", None)
+    use = json.loads(members["harvest-report.json"])["memory_use"]
+    assert r.returncode == 0 and members["marks.jsonl"] == b"" and use["calls"] == {} and use["unreadable_lines"] == 0, (r.stderr, use)
+    _state(marks=[{"t": "2026-10-10T07:00:00Z", "id": "../../etc/passwd", "verdict": "stale", "note": ""},
+                  {"t": "2026-10-10T07:00:01Z", "id": "f:a/b#1", "verdict": "nonsense", "note": ""},
+                  {"t": "yesterday", "id": "f:a/b#1", "verdict": "stale", "note": ""}],
+           calls=[{"t": "2026-10-10T07:00:00Z", "tool": "memory_read", "hits": 1, "ids": ["not an id", "f:a/b#1", 7]}], raw="{broken\n[1]\n")
+    r, members, _ = _bundle(tmp, "m3", None)
+    use = json.loads(members["harvest-report.json"])["memory_use"]
+    assert r.returncode == 0 and members["marks.jsonl"] == b"", r.stderr
+    # Three marks that are not the server's, and two broken lines in each of the two files.
+    assert use["unreadable_lines"] == 3 + 2 + 2 and use["ids_read"] == {"f:a/b#1": 1}, use
+
+
+def test_a_note_with_a_credential_is_withheld_and_a_query_is_never_carried(tmp: str) -> None:
+    secret = "ghp_" + "a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q7R8"
+    _state(marks=[{"t": "2026-10-10T07:00:00Z", "id": "f:a/b#1", "verdict": "wrong", "note": f"token {secret}"}],
+           calls=[{"t": "2026-10-10T07:00:00Z", **FIND, "query": "a query that must not travel"}])
+    r, members, _ = _bundle(tmp, "m4", None)
+    blob = b"".join(members.values()).decode(errors="replace")
+    rows = [json.loads(ln) for ln in members["marks.jsonl"].decode().splitlines()]
+    assert r.returncode == 0 and secret not in blob and "must not travel" not in blob, "a credential or a query text reached the bundle"
+    assert len(rows) == 1 and rows[0]["note"] == "" and json.loads(members["harvest-report.json"])["memory_use"]["notes_withheld"] == 1, rows
+
+
+def test_a_second_store_of_the_login_carries_no_marks(tmp: str) -> None:
+    _state(marks=[{"t": "2026-10-10T07:00:00Z", "id": "f:a/b#1", "verdict": "stale", "note": ""}], calls=[{"t": "2026-10-10T07:00:00Z", **FIND}])
+    r, members, _ = _bundle(tmp, "m5", None, "--store", "projects-root")
+    assert r.returncode == 0 and "marks.jsonl" not in members and "memory_use" not in json.loads(members["harvest-report.json"]), r.stderr
+
+
+def test_the_marks_reach_the_committed_report_through_the_assembler(tmp: str) -> None:
+    assemble = os.path.join(os.path.dirname(TOOL), "assemble.py")
+    _state(marks=[{"t": "2026-10-10T07:00:00Z", "id": "f:domains/x/domain/a#1", "verdict": "stale", "note": "moved"}],
+           calls=[{"t": "2026-10-10T07:00:00Z", **FIND}])
+    r, members, _ = _bundle(tmp, "m6", None)
+    assert r.returncode == 0, r.stderr
+    wc = os.path.join(tmp, "wc-m6asm"); os.makedirs(os.path.join(wc, ".agent-fabric", "memory"))
+    done = subprocess.run([sys.executable, assemble, "--bundle", os.path.join(tmp, "m6.tar"), "--fabric", os.path.join(tmp, "asm-m6"),
+                           "--project", "demo", "--working-copy", wc, "--stamp", "2026-10-10"], capture_output=True, text=True)
+    assert done.returncode == 0, done.stdout + done.stderr
+    report = json.load(open(os.path.join(wc, ".agent-fabric", "memory", "last-drain-report.json"), encoding="utf-8"))
+    assert [m["verdict"] for m in report["memory_marks"]["f:domains/x/domain/a#1"]] == ["stale"], report["memory_marks"]
+    assert report["memory_use"][f"{LOGIN}@hostA"]["calls"] == {"memory_find": 1}, report["memory_use"]
+    assert report["watermarks"][f"{LOGIN}@hostA"] == _ms("2026-10-10T07:00:00Z"), report["watermarks"]
+
+
 def test_a_bundle_round_trips_and_a_damaged_one_is_refused_by_file(tmp: str) -> None:
     """The bundle is the drain that crosses a host: harvest writes one tar
     with a manifest naming every file and its digest; assemble verifies it
@@ -667,6 +794,11 @@ def main() -> int:
         test_the_watermark_never_passes_an_unrendered_memory,
         test_co_owners_named_in_the_memory_reach_the_claim,
         test_a_co_owner_that_is_not_a_slug_refuses_the_drain,
+        test_marks_and_counts_after_the_watermark_enter_the_bundle_and_earlier_ones_do_not,
+        test_a_missing_or_damaged_log_is_no_rows_and_no_error,
+        test_a_note_with_a_credential_is_withheld_and_a_query_is_never_carried,
+        test_a_second_store_of_the_login_carries_no_marks,
+        test_the_marks_reach_the_committed_report_through_the_assembler,
     ]
     failures = 0
     with tempfile.TemporaryDirectory() as tmp:

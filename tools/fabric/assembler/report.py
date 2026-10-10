@@ -8,7 +8,7 @@ import os
 import sys
 from typing import Any
 import roots
-from assembler.core import layout, Run, in_report, hygiene_substitute
+from assembler.core import layout, Run, in_report, hygiene_substitute, patterns_for
 from assembler.slices import merge_reports, scan_collisions, drop_held
 
 
@@ -35,6 +35,36 @@ def held_mark(run: Run, next_mark: int) -> int | None:
     if not all(isinstance(e, int) and not isinstance(e, bool) for e in epochs):
         return None
     return min(next_mark, min(epochs) * 1000 - 1)
+
+
+def memory_use_of(run: Run, hr: dict, source: str) -> tuple[dict[str, list[dict[str, Any]]], dict[str, Any]]:
+    """({section id: [mark rows]}, {source: counts}) from the drain's marks.jsonl and harvest-report.json. A note is
+    committed text and goes through the same hygiene as any other; a row that is not a mark is not carried."""
+    marks: dict[str, list[dict[str, Any]]] = {}
+    path = os.path.join(run.args.drain, "marks.jsonl")
+    try:
+        with open(path, encoding="utf-8") as fh:
+            lines = fh.read().splitlines()
+    except OSError:
+        lines = []
+    for line in lines:
+        try:
+            row = json.loads(line)
+        except ValueError:
+            continue
+        if not (isinstance(row, dict) and isinstance(row.get("id"), str) and row.get("verdict") in memory_use_verdicts
+                and isinstance(row.get("t"), str)):
+            continue
+        note = row.get("note") if isinstance(row.get("note"), str) else ""
+        # A project section (p:) is held to the project's own list, a fabric one (f:) to the fabric's.
+        note, notes = hygiene_substitute(note, "memory mark note", patterns_for("solution" if row["id"].startswith("p:") else "domain"))
+        run.redactions.extend(notes)
+        marks.setdefault(row["id"], []).append({"agent": hr.get("agent"), "t": row["t"], "verdict": row["verdict"], "note": note})
+    use = hr.get("memory_use")
+    return marks, ({source: use} if isinstance(use, dict) else {})
+
+
+memory_use_verdicts = ("helpful", "wrong", "stale")
 
 
 def report(run: Run) -> int:
@@ -102,6 +132,7 @@ def report(run: Run) -> int:
                 watermarks[store_of(hr)] = mark
 
     source = store_of(hr) if harvest_meta is not None else "unattributed"
+    memory_marks, memory_use = memory_use_of(run, hr if harvest_meta is not None else {}, source)
     files = [in_report(run, p) for p in run.written]
     report = {
         "stamp": run.args.stamp,
@@ -127,6 +158,10 @@ def report(run: Run) -> int:
         "harvest_sources": {source: harvest_meta} if harvest_meta is not None else {},
         "watermarks": watermarks,
         "held_back": sorted(run.held_back),
+        # What the memory server recorded in the account's state (harvest_memory.py carries it): the marks by section
+        # id, and the counts of calls per source. Read, not routed: no slice changes by them yet.
+        "memory_marks": memory_marks,
+        "memory_use": memory_use,
     }
     report_path = layout.project_report_path(run.project)
     try:

@@ -107,6 +107,14 @@ def merge_reports(previous: dict[str, Any], current: dict[str, Any],
     harvests = dict(previous.get("harvest_sources") or {})
     harvests.update(current.get("harvest_sources") or {})
     merged["harvest_sources"] = harvests
+    # Marks by section id, unioned: a bundle re-run adds none twice. Counts per source, the later run's replacing the
+    # earlier's, as the telemetry above: a source's counts are one window of its log.
+    marks = {k: list(v) for k, v in (previous.get("memory_marks") or {}).items()}
+    for ident, rows in (current.get("memory_marks") or {}).items():
+        seen = marks.setdefault(ident, [])
+        seen += [r for r in rows if r not in seen]
+    merged["memory_marks"] = marks
+    merged["memory_use"] = {**(previous.get("memory_use") or {}), **(current.get("memory_use") or {})}
     return merged
 
 
