@@ -43,9 +43,9 @@ def main() -> int:
 
     read = read_text()
     check("the per-account read is found in tools/fabric/usage.py", bool(read))
-    with open(os.path.join(ROOT, "runtime", "control", "ops", "usage.mjs"), encoding="utf-8") as fh:
-        probe = re.search(r"^export const PROBE_MODEL = '([^']+)';", fh.read(), re.M)
-    check("…and probes on the model fabric-ctl's usage.mjs pins",
+    with open(os.path.join(ROOT, "tools", "fabric", "control", "ops", "usage.py"), encoding="utf-8") as fh:
+        probe = re.search(r'^PROBE_MODEL = "([^"]+)"', fh.read(), re.M)
+    check("…and probes on the model fabric-ctl's control/ops/usage.py pins",
           probe is not None and f'"model":"{probe.group(1)}"' in read, probe.group(1) if probe else "no PROBE_MODEL")
 
     with tempfile.TemporaryDirectory() as sandbox:
@@ -123,7 +123,7 @@ def main() -> int:
         put(reply, "HTTP/2 200\r\nanthropic-ratelimit-unified-5h-utilization:\r\n"
                    "anthropic-ratelimit-unified-7d-utilization: abc\r\nanthropic-ratelimit-unified-7d-reset: soon\r\n\r\n")
         out = run()
-        check("window headers with no number in them are read-failed, as usage.mjs reads them",
+        check("window headers with no number in them are read-failed, as control/ops/usage.py reads them",
               out == "via-setup-token\tread-failed", f"{out!r}")
         put(reply, "HTTP/2 401\r\ncontent-type: application/json\r\n\r\n")
         out = run()
