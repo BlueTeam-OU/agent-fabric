@@ -4,8 +4,9 @@
 pool.test.mjs's cases of pool.mjs are ported case for case; its cases of
 OPS / PUBLIC_OPS, agentd's accept and answer, and fabric-ctl's parsing
 move with those ports. Beyond them, the pool file is frozen with the
-wire: Node and Python write the same bytes for the same adds and claims,
-and each continues the other's file.
+wire: Python writes the bytes the Node wrote for the same adds and claims
+(kept in tests/fixtures/node-oracle-pool.json, the Node being deleted)
+and continues the Node's file.
 """
 from __future__ import annotations
 
@@ -21,8 +22,10 @@ from control import pool as cp  # noqa: E402
 
 HOLDER = "h/user"
 KNOWN = {"python-dev", "web-dev"}
-POOL_MJS = os.path.join(HERE, "runtime", "control", "pool.mjs")
-CTL_MJS = os.path.join(HERE, "runtime", "control", "ctl.mjs")
+# What the Node pool and ctl modules held and wrote, captured before the Node control plane was
+# deleted (ADR-040 Wave 8, s8): the wire this module keeps.
+with open(os.path.join(HERE, "tests", "fixtures", "node-oracle-pool.json"), encoding="utf-8") as _fh:
+    ORACLE = json.load(_fh)
 
 
 def roles(mapping):
@@ -48,11 +51,7 @@ def main() -> int:
                                now=lambda: stamp)
         return file, add
 
-    r = subprocess.run(["node", "--input-type=module", "-e",
-                        f"import {{STATES_REPLAY, STATES_STALE_MS}} from '{CTL_MJS}'; process.stdout.write(JSON.stringify([STATES_REPLAY, STATES_STALE_MS]))"],
-                       capture_output=True, text=True, timeout=60)
-    check("STATES_REPLAY and STATES_STALE_MS are ctl.mjs's", r.returncode == 0 and json.loads(r.stdout) == [cp.STATES_REPLAY, cp.STATES_STALE_MS],
-          r.stdout or r.stderr[-200:])
+    check("STATES_REPLAY and STATES_STALE_MS are ctl's, as the Node had them", ORACLE["states"] == [cp.STATES_REPLAY, cp.STATES_STALE_MS], ORACLE["states"])
 
     with tempfile.TemporaryDirectory() as d:
         print("pool.test.mjs: the holder")
@@ -250,17 +249,12 @@ def main() -> int:
     check("a relay that never answers is never said as unreachable",
           "the relay at http://r did not answer" in cp.role_from_stream(call=silent_call, cfg={"state_channel": "s", "relay_url": "http://r"})("h/a")["error"])
 
-    print("the pool file, frozen with the wire: Node's bytes, and each continues the other's")
+    print("the pool file, frozen with the wire: the Node's bytes, and Python continues its file")
     with tempfile.TemporaryDirectory() as d:
-        steps = [["add", {"role": "python-dev", "title": " port \u00e9  it ", "topic": "t", "priority": "high"}],
-                 ["add", {"role": "web-dev", "title": "x", "project": "gzapp"}], ["claim", "p1", "h/a"]]
-        script = ("import fs from 'node:fs'; import {poolAdd, poolClaim} from '" + POOL_MJS + "'; "
-                  "const [file, steps] = JSON.parse(fs.readFileSync(0, 'utf8')); const KNOWN = new Set(['python-dev', 'web-dev']); let n = 0; "
-                  "for (const s of steps) { const now = () => `2026-10-08T00:00:0${n++}Z`; "
-                  "if (s[0] === 'add') poolAdd({ from: 'h/user', to: ['h/user'], args: s[1] }, { me: 'h/user', holder: 'h/user', file, known: KNOWN, now }); "
-                  "else await poolClaim({ from: s[2], args: { id: s[1] } }, { me: 'h/user', holder: 'h/user', file, now, roleOf: async () => ({ role: 'python-dev' }) }); }")
+        steps = ORACLE["steps"]
         node_file, py_file = os.path.join(d, "node.json"), os.path.join(d, "py.json")
-        r = subprocess.run(["node", "--input-type=module", "-e", script], input=json.dumps([node_file, steps]), capture_output=True, text=True, timeout=60)
+        with open(node_file, "w", encoding="utf-8", newline="") as fh:
+            fh.write(ORACLE["pool_file"])
         n = [0]
 
         def stamp():
@@ -273,17 +267,14 @@ def main() -> int:
             else:
                 cp.pool_claim({"from": s[2], "args": {"id": s[1]}}, me="h/user", holder="h/user", file=py_file, now=stamp,
                               role_of=lambda a: {"role": "python-dev"})
-        node_bytes = open(node_file, "rb").read() if r.returncode == 0 else r.stderr.encode()
-        check("the same adds and claim write the same bytes", open(py_file, "rb").read() == node_bytes, (node_bytes[:200], open(py_file, "rb").read()[:200]))
+        node_bytes = open(node_file, "rb").read()
+        check("the same adds and claim write the bytes the Node wrote", open(py_file, "rb").read() == node_bytes,
+              (node_bytes[:200], open(py_file, "rb").read()[:200]))
         cp.pool_add({"from": "h/user", "to": ["h/user"], "args": {"role": "python-dev", "title": "third"}}, me="h/user", holder="h/user",
                     file=node_file, known=KNOWN, now=lambda: "t")
-        r2 = subprocess.run(["node", "--input-type=module", "-e",
-                             "import fs from 'node:fs'; import {readPool} from '" + POOL_MJS + "'; process.stdout.write(JSON.stringify(readPool(fs.readFileSync(0, 'utf8'))))"],
-                            input=node_file, capture_output=True, text=True, timeout=60)
-        doc = json.loads(r2.stdout) if r2.returncode == 0 else {}
-        check("Python continues Node's file, and Node reads what Python wrote",
-              doc.get("seq") == 3 and [j["id"] for j in doc.get("jobs", [])] == ["p1", "p2", "p3"] and doc["jobs"][0]["claimed"]["by"] == "h/a",
-              (doc, r2.stderr[-200:]))
+        doc = cp.read_pool(node_file)
+        check("Python continues the file the Node wrote",
+              doc.get("seq") == 3 and [j["id"] for j in doc.get("jobs", [])] == ["p1", "p2", "p3"] and doc["jobs"][0]["claimed"]["by"] == "h/a", doc)
 
     print(f"\n{'FAILED' if fails else 'all passed'}")
     return 1 if fails else 0

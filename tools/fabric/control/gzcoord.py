@@ -1,6 +1,6 @@
 """tools/fabric/control/gzcoord.py — what the control plane needs of
-GZCoord: runtime/control/gzcoord.mjs in Python (ADR-040 Wave 8), unwired
-until the cutover.
+GZCoord: ported from runtime/control/gzcoord.mjs (ADR-040 Wave 8; deleted in
+step s8).
 
 Who this account is, the role catalogue, the project's relay integration,
 the token, the relay API, and whether the account's inbox is held. The

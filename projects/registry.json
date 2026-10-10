@@ -7,7 +7,7 @@
     "SERPAPI_API_KEY": "SerpAPI (serpapi.com) key for the locale search tool's located engine (web_search: Google's results with gl, hl, google_domain and lr from the locale; runtime/mcp/websearch-locale), read at call time into the api_key query parameter — SerpAPI's only auth — of a URL that is never logged. Only a language-culture login's store carries it (the CEO's account, 2026-09-17); every other login has no such name, and sync exports it only where it is set. Google's own Custom Search JSON API is closed to new customers (2026-09-17), which is why a SERP proxy",
     "BRAVE_SEARCH_API_KEY": "Brave Search API key for the locale search tool's second engine (web_search_global), read at call time into one request header; the same login as the Google pair (the CEO: keep both engines, 2026-09-17)",
     "CLAUDE_CODE_OAUTH_TOKEN": "Which Claude account this login's sessions run on: that account's one-year `claude setup-token` token (user:inference only), put into the login's store from the coordinator's template CLAUDE_ACCOUNT_<ACCOUNT> (ADR-038). Set, it outranks the login's own /login sign-in (measured 2026-09-24); moving a login to another account is this one entry, applied by the signed secrets-sync action (bin/fabric-accounts assign). Unset, the launcher refuses a plain-claude session. The accounts' usage windows are read by the coordinator's observer, not through this token (docs/adr/ADR-031-claude-accounts-assigned-applied-and-proved-by-signed-action.md)",
-    "FABRIC_CONTROL_SIGNING_KEY": "The host operator's Ed25519 key for signing control-plane ACTIONS (runtime/control/sign.mjs), one line `ed25519-pkcs8:<base64>`. Only the operator's own store carries it — made by `fabric-ctl keygen`, which writes it there on stdin and the public half to runtime/hosts/registry.json; every other login has no such name. A daemon answers an action (fabric-ctl … upgrade) only when signed with it."
+    "FABRIC_CONTROL_SIGNING_KEY": "The host operator's Ed25519 key for signing control-plane ACTIONS (tools/fabric/control/sign.py), one line `ed25519-pkcs8:<base64>`. Only the operator's own store carries it — made by `fabric-ctl keygen`, which writes it there on stdin and the public half to runtime/hosts/registry.json; every other login has no such name. A daemon answers an action (fabric-ctl … upgrade) only when signed with it."
   },
   "projects": {
     "gzapp": {
@@ -71,7 +71,7 @@
         {"name": "git", "proof": "git --version", "version": "2.x", "why": "every repository operation", "where": "host"},
         {"name": "gh", "proof": "gh --version", "version": "2.x", "why": "the pull-request flow (fabric-pr and the project's tools/gh)", "where": "host"},
         {"name": "fabric-python", "proof": "fabric-python --version", "version": "3.13", "why": "the pinned interpreter every fabric tool runs on (runtime/python.json)", "where": "host"},
-        {"name": "node", "proof": "node --version", "version": "20 or newer", "why": "GZCoord's Node side and the control plane's tests", "where": "host"},
+        {"name": "node", "proof": "node --version", "version": "20 or newer", "why": "the .mjs tests of GZCoord and the locale search server", "where": "host"},
         {"name": "gpg", "proof": "gpg --version", "version": "2.x", "why": "each account's own secrets store (ADR-038)", "where": "host"},
         {"name": "shellcheck", "proof": "shellcheck --version", "why": "tests/static.sh's check of every tracked shell script", "where": "host", "optional": true}
       ]

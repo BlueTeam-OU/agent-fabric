@@ -249,6 +249,10 @@ def main() -> int:
               lines[0]["error"]["code"] == -32603 and "secret" not in sink.getvalue() and lines[1] == {"jsonrpc": "2.0", "id": 6, "result": {}}, sink.getvalue())
         sink = io.StringIO()
         ws.serve(LOCALE, io.StringIO('{"jsonrpc":"2.0","id":NaN,"method":"ping"}\n{"jsonrpc":"2.0","id":Infinity,"method":"ping"}\n'), sink)
+        sink2 = io.StringIO()
+        ws.serve(LOCALE, io.StringIO("[" * 200000 + "\n" + json.dumps({"jsonrpc": "2.0", "id": 9, "method": "ping"}) + "\n"), sink2)
+        check("a line nested past the parser's depth is a parse error and the server goes on to the next message",
+              [json.loads(x).get("error", {}).get("code", "ok") if "error" in x else "ok" for x in sink2.getvalue().splitlines()] == [-32700, "ok"], sink2.getvalue()[:120])
         check("NaN and Infinity in a line are a parse error, never echoed as invalid JSON",
               [json.loads(x)["error"]["code"] for x in sink.getvalue().splitlines()] == [-32700, -32700] and "NaN" not in sink.getvalue())
         emoji = "😀" * 150
@@ -298,7 +302,7 @@ def main() -> int:
         proc_home = os.path.join(t, "proc-home")
         os.makedirs(os.path.join(proc_home, ".config", "agent-fabric"))
         with open(os.path.join(proc_home, ".config", "agent-fabric", "secrets.env"), "w", encoding="utf-8") as fh:
-            fh.write(f"export GH_TOKEN='{B['BRAVE_SEARCH_API_KEY']}'\n")      # neither search key
+            fh.write("export GH_TOKEN='decoy-gh-value-not-a-key'\n")      # neither search key
         penv = {"PATH": os.environ.get("PATH", ""), "HOME": proc_home, "WEBSEARCH_LOCALE_FILE": locale_path,
                 "AGENT_FABRIC_PYTHON": sys.executable, "LC_ALL": "C", "PYTHONIOENCODING": "ascii"}
         msgs = [{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}}, {"jsonrpc": "2.0", "method": "notifications/initialized"},
@@ -311,7 +315,7 @@ def main() -> int:
               out[0]["result"]["serverInfo"]["name"] == "websearch-locale" and [x["name"] for x in out[1]["result"]["tools"]] == ["web_search", "web_search_global"]
               and out[2]["result"]["isError"] is True and "no SERPAPI_API_KEY" in out[2]["result"]["content"][0]["text"]
               and "brave: no BRAVE_SEARCH_API_KEY" in out[2]["result"]["content"][0]["text"] and out[3]["error"]["code"] == -32700 and out[3]["id"] is None, str(out))
-        check("no secret on stdout or stderr", B["BRAVE_SEARCH_API_KEY"].encode() not in r.stdout + r.stderr and r.stderr == b"")
+        check("nothing of the secrets file on stdout or stderr", b"decoy-gh-value" not in r.stdout + r.stderr and r.stderr == b"")
         for label, content, want in (("unset", None, "WEBSEARCH_LOCALE_FILE is not set"), ("not JSON", "{ nope", "stdio-bad.json")):
             e2 = dict(penv)
             if content is None:

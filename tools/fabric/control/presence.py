@@ -1,7 +1,7 @@
 """tools/fabric/control/presence.py — whether accounts have a session, asked
 of their control agents (the `presence` op) by any placed account:
-runtime/control/presence.mjs in Python (ADR-040 Wave 8), unwired until
-the cutover.
+ported from runtime/control/presence.mjs (ADR-040 Wave 8; deleted in
+step s8). gzcoord-send runs it for an addressed message.
 
 The sender's check before a message leaves is the caller: a message to a
 login with no session waits in the relay until one starts, and the

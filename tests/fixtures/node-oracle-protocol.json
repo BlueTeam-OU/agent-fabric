@@ -1,0 +1,61 @@
+{
+ "envelope_keys": {
+  "request": {
+   "required": [
+    "v",
+    "kind",
+    "id",
+    "from",
+    "to",
+    "op",
+    "ts"
+   ],
+   "optional": [
+    "ttl_s",
+    "days",
+    "args",
+    "sig"
+   ]
+  },
+  "reply": {
+   "required": [
+    "v",
+    "kind",
+    "id",
+    "in_reply_to",
+    "from",
+    "op",
+    "ts",
+    "ok"
+   ],
+   "optional": [
+    "data"
+   ]
+  },
+  "up": {
+   "required": [
+    "v",
+    "kind",
+    "from",
+    "ts"
+   ],
+   "optional": []
+  },
+  "state": {
+   "required": [
+    "v",
+    "kind",
+    "from",
+    "ts",
+    "sessions"
+   ],
+   "optional": [
+    "role",
+    "project",
+    "last_session",
+    "resumable",
+    "waits_on"
+   ]
+  }
+ }
+}

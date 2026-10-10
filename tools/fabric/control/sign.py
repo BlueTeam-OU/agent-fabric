@@ -1,6 +1,29 @@
 """tools/fabric/control/sign.py — the operator's signature on a control
-request: runtime/control/sign.mjs in Python (ADR-040 Wave 8), unwired
-until the cutover. The Node module stays the oracle until then.
+request: ported from runtime/control/sign.mjs (ADR-040 Wave 8; deleted in
+step s8). The Node module was the oracle; its answers are frozen in
+tests/fixtures/node-oracle-sign.json.
+
+WHY (carried over from the Node module's header, deleted in step s8):
+
+The relay verifies no sender: any holder of the shared relay token can
+post a record whose `from` is the operator's address. That was a fence
+worth having while every op only reported (docs/adr/ADR-029-the-control-plane-a-control-agent-per-account.md
+§5 rule 4); an op that stops a session and installs software
+needs a proof. So an ACTION op is answered only when the request
+carries `sig`, an Ed25519 signature over its canonical form made with a
+key only the operator's own store holds
+(FABRIC_CONTROL_SIGNING_KEY, which fabric-ctl decrypts when it signs and
+never takes from the environment, ctl.py signing_key()), and
+verified against the public key its host commits in
+runtime/hosts/registry.json (`operator_key`). Read-only ops stay
+unsigned-compatible: a daemon that cannot verify still reports.
+
+What the signature covers is every field but `sig`, keys sorted at
+every depth, so a relay or a re-serialisation that reorders keys cannot
+break it and no field — `to`, `ts`, the op's arguments — can be changed
+without breaking it. Replay is refused by the daemon's persisted
+per-operator action ledger (control/agentd.py ActionLedger), inside the action
+ttl cap; an action dated in the future is refused before it can raise it.
 
 CONTRACT, frozen from sign.mjs (the wire does not change, ADR-040 §5):
   ACTION_OPS, ACTION_TTL_MAX_S, KEY_PREFIX, PRIVATE_PREFIX   as Node's

@@ -412,7 +412,7 @@ def serve(locale: Mapping[str, Any], stdin=None, stdout=None, secrets: Mapping[s
             continue
         try:
             msg = json.loads(line, parse_constant=_no_constant)
-        except ValueError:
+        except (ValueError, RecursionError):      # RecursionError: a line of "[" repeated is not JSON either
             out: dict | None = {"jsonrpc": "2.0", "id": None, "error": {"code": -32700, "message": "parse error"}}
         else:
             try:

@@ -2,7 +2,7 @@
 """tools/fabric/local_settings.py — this account's per-clone harness
 settings, <working copy>/.claude/settings.local.json, as the control
 plane reads and prunes them (ADR-029; ADR-038 rule 9). Run as the
-account, by its control agent (runtime/control/local.mjs), by argv.
+account, by its control agent (tools/fabric/control/local.py), by argv.
 
     local_settings.py report [--home H]   names and counts, JSON on stdout
     local_settings.py prune  [--home H]   remove the synced-secret env entries, JSON on stdout

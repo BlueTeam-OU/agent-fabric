@@ -15,22 +15,22 @@ from __future__ import annotations
 
 import json
 import os
-import subprocess
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(ROOT, "tools", "fabric"))
 
 
 def test_the_committed_key_parses_as_a_daemon_reads_it() -> None:
     """A key the schema admitted but publicKeyFrom refused would disable
     every action with a refusal that blames the signature, not the registry."""
-    js = ("import('./runtime/control/agentd.mjs').then(m => console.log(JSON.stringify([...m.operatorKeys('runtime/hosts/registry.json').keys()])))")
-    out = subprocess.run(["node", "-e", js], cwd=ROOT, capture_output=True, text=True, check=True, timeout=60).stdout.strip()
+    from control import agentd  # the daemons' own parser (sign.public_key_from)
+    keys = sorted(agentd.operator_keys(os.path.join(ROOT, "runtime", "hosts", "registry.json")))
     with open(os.path.join(ROOT, "runtime", "hosts", "registry.json"), encoding="utf-8") as fh:
         reg = json.load(fh)
     keyed = sorted(f"{h}/{e.get('operator', 'user')}" for h, e in reg["hosts"].items() if e.get("operator_key"))
     assert keyed, "no host carries an operator_key: this case would compare two empty lists and exercise no parser"
-    assert sorted(json.loads(out)) == keyed, (out, keyed)
+    assert keys == keyed, (keys, keyed)
 
 
 def test_every_language_culture_locale_carries_its_reminder() -> None:

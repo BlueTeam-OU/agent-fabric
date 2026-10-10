@@ -1,0 +1,113 @@
+{
+ "consts": [
+  [
+   "upgrade",
+   "secrets-sync",
+   "jobs-add",
+   "local-prune",
+   "secrets-selftest",
+   "pool-add",
+   "tools-install"
+  ],
+  600,
+  "ed25519:",
+  "ed25519-pkcs8:"
+ ],
+ "texts": [
+  "{\"b\":1,\"a\":2}",
+  "[1,2.5,-0,-0.0,0.1,1e21,1e-7,1e-6,123456789012345678901,5.0,1.5e300,1e400,-1e400]",
+  "{\"n\":9007199254740993,\"m\":12345678901234567890,\"neg\":-12.50,\"tiny\":5e-324,\"big\":1.7976931348623157e308}",
+  "{\"s\":\"\u00fcn\u00ef \u2713 \ud83d\ude00\",\"ctl\":\"\\u0000\\u0001\\u001f\\u007f\\b\\f\\n\\r\\t\",\"q\":\"\\\"\\\\/\",\"ls\":\"\\u2028\\u2029\"}",
+  "{\"lone\":\"\\ud800\",\"low\":\"\\udfff\",\"pair\":\"\\ud83d\\ude00\",\"rev\":\"\\ude00\\ud83d\"}",
+  "{\"\ud83d\ude00\":1,\"\\uffff\":2,\"\\ue000\":3,\"a\":4,\"B\":5,\"\u00e9\":6,\"\":7,\"\\ud800\":8}",
+  "{\"t\":true,\"f\":false,\"z\":null,\"e\":[],\"o\":{},\"deep\":[{\"y\":[{\"b\":1,\"a\":[]}]}]}",
+  "{\"dup\":1,\"dup\":2}",
+  "\"just a string\"",
+  "42",
+  "null",
+  "[0.000001,0.0000001,100,1e20,1e22,0.30000000000000004]"
+ ],
+ "canonical": [
+  "{\"a\":2,\"b\":1}",
+  "[1,2.5,0,0,0.1,1e+21,1e-7,0.000001,123456789012345680000,5,1.5e+300,null,null]",
+  "{\"big\":1.7976931348623157e+308,\"m\":12345678901234567000,\"n\":9007199254740992,\"neg\":-12.5,\"tiny\":5e-324}",
+  "{\"ctl\":\"\\u0000\\u0001\\u001f\u007f\\b\\f\\n\\r\\t\",\"ls\":\"\u2028\u2029\",\"q\":\"\\\"\\\\/\",\"s\":\"\u00fcn\u00ef \u2713 \ud83d\ude00\"}",
+  "{\"lone\":\"\\ud800\",\"low\":\"\\udfff\",\"pair\":\"\ud83d\ude00\",\"rev\":\"\\ude00\\ud83d\"}",
+  "{\"\":7,\"B\":5,\"a\":4,\"\u00e9\":6,\"\\ud800\":8,\"\ud83d\ude00\":1,\"\ue000\":3,\"\uffff\":2}",
+  "{\"deep\":[{\"y\":[{\"a\":[],\"b\":1}]}],\"e\":[],\"f\":false,\"o\":{},\"t\":true,\"z\":null}",
+  "{\"dup\":2}",
+  "\"just a string\"",
+  "42",
+  "null",
+  "[0.000001,1e-7,100,100000000000000000000,1e+22,0.30000000000000004]"
+ ],
+ "js_number": {
+  "count": 26986,
+  "sha256": "4f39c3a6dc10d276aec7d6e6e86d09bdbffed9096ffa26bfa6ee702846adb2d2"
+ },
+ "signed": {
+  "key": {
+   "privateKeySpec": "ed25519-pkcs8:MC4CAQAwBQYDK2VwBCIEIAzhauzSivu3f9GA+GKsEJnqkC5J7MHD4Znyjlt03NZy",
+   "publicKeySpec": "ed25519:MCowBQYDK2VwAyEA1C4jD2vpiauQBtmca1xVXyeDXQ1jLrknekoGm6+kFeQ="
+  },
+  "request": {
+   "v": 1,
+   "kind": "request",
+   "id": "id-1",
+   "from": "h/user",
+   "to": "h/db-admin",
+   "op": "upgrade",
+   "args": {
+    "piece": "claude",
+    "note": "\u00fcn\u00ef \u2713 \ud83d\ude00\u2028",
+    "n": 5,
+    "f": 0.1,
+    "big": 12345678901234567000,
+    "nested": {
+     "z": [
+      1,
+      {
+       "y": "\ud800"
+      }
+     ]
+    }
+   },
+   "ts": "2026-10-09T02:00:00.000Z",
+   "ttl_s": 300,
+   "sig": "seqzRF8aM/2B2MZ3582rIBbvkMKLXd0SJiu4siJpVk4nSYA8Y4ojXuUWdqTu8SVUJjba5sGVDicYvL/WgGu+AA=="
+  }
+ },
+ "junk": [
+  "bm90-IGEg_c2ln",
+  "a",
+  "YQ==YQ==",
+  "not-base64-der",
+  "####",
+  "",
+  "ab=c"
+ ],
+ "junk_hex": [
+  "6e6f74f8818483f73696",
+  "",
+  "61",
+  "9e8b7e6dab1eeb8f9d7a",
+  "",
+  "",
+  "69"
+ ],
+ "wide": [
+  "QUJD\ud83d\ude00RA",
+  "\u0141AAA",
+  "QUJD\u0141\u0141",
+  "QU\u0100JD",
+  "QUJD\ud800"
+ ],
+ "wide_hex": [
+  "414243",
+  "000000",
+  "41424300",
+  "414243",
+  "414243"
+ ],
+ "deep": "[[[[{\"a\":{},\"b\":[1,{\"c\":[[]],\"d\":2}]}]]]]"
+}

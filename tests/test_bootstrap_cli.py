@@ -227,6 +227,15 @@ def make_pristine(script: str) -> str:
             src = os.path.join(os.path.dirname(module), dep)
             if os.path.isfile(src):
                 shutil.copyfile(src, f"{d}/tools/fabric/{dep}")
+        # The unit's pinned interpreter is the host's: a stand-in this fixture owns, so the run
+        # says the same whether or not the host has the pin (the bash never looked).
+        stand_in = f"{d}/fabric-python-stand-in"
+        put(stand_in, "#!/bin/sh\nexit 0\n")
+        os.chmod(stand_in, 0o755)
+        with open(f"{d}/tools/fabric/agentd_unit.py", encoding="utf-8") as fh:
+            unit_src = fh.read()
+        with open(f"{d}/tools/fabric/agentd_unit.py", "w", encoding="utf-8") as fh:
+            fh.write(unit_src.replace('FABRIC_PYTHON = "/usr/local/bin/fabric-python"', f'FABRIC_PYTHON = "{stand_in}"'))
     # The journal's CLI, stood in for: the real import reads the relay as
     # the account, which a scratch account must never reach. It logs its
     # call; FAKE_JOURNAL_RC fails it.
@@ -246,10 +255,6 @@ def make_pristine(script: str) -> str:
         "    subprocess.run(['git', '-C', store, 'config', 'agent-fabric.trustedbase', 'HEAD'], check=True)\n"
         "sys.exit(rc)\n")
     put(f"{d}/projects/registry.json", json.dumps(REGISTRY, indent=2) + "\n")
-    # Every login on the Node unit, the bash's: the checkout's selector names
-    # real logins, and this suite runs as one of them. The Python unit is
-    # test_bootstrap_internals.py's.
-    put(f"{d}/runtime/control/agentd.json", json.dumps({"default": "node", "python": []}) + "\n")
     put(f"{d}/policies/auto-mode.json", json.dumps({"environment": {"Organization": "a fixture organization"},
                                                      "allow": [], "soft_deny": [], "hard_deny": []}) + "\n")
     git("init", "-q", d)

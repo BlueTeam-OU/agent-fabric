@@ -415,14 +415,14 @@ def main() -> int:
           env_seen[0] == 0 and env_seen[1] == str(st.LOCK_WAIT_S) and st.LOCK_WAIT_S < st.STEP_TIMEOUT_S, env_seen)
     # The bound is counted from the code, not written down: each _cmd in
     # selftest(), and each _names (one command each), against the limit
-    # selftest.mjs sets (review of #110, re-review 2).
+    # control/selftest.py sets (review of #110, re-review 2).
     import ast
     tree = ast.parse(open(TOOL, encoding="utf-8").read())
     body = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "selftest")
     commands = sum(isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id in ("_cmd", "_names")
                    for n in ast.walk(body))
-    limit_ms = int(re.search(r"SELFTEST_TIMEOUT_MS = (\d+);", open(os.path.join(ROOT, "runtime", "control", "selftest.mjs"),
-                                                                    encoding="utf-8").read()).group(1))
+    limit_ms = int(re.search(r"^SELFTEST_TIMEOUT_MS = (\d+)$", open(os.path.join(ROOT, "tools", "fabric", "control", "selftest.py"),
+                                                                   encoding="utf-8").read(), re.M).group(1))
     worst = commands * (st.STEP_TIMEOUT_S + st.STOP_GRACE_S + 2 * st.REAP_S)
     check(f"…and the selftest's {commands} commands, each with its grace, fit the control agent's limit "
           f"({worst} s < {limit_ms // 1000} s)", worst < limit_ms / 1000, (commands, worst, limit_ms))

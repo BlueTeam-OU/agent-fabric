@@ -6,8 +6,8 @@ survived it with: the workspace settings that are JSON but not an object,
 step 3 in a dry run, a failing agent-files install, the checkout itself
 among the working copies, git's own answer for a work tree, a bus that is
 not a socket, the runtime directory's default, the relay holder's
-lookup, and the control agent's implementation (runtime/control/agentd.json;
-the oracle's fixture keeps every login on node).
+lookup, and the control agent's unit (one implementation since ADR-040
+Wave 8, s8: written as it is, the Node one replaced).
 
 Hermetic: the environment is rebuilt from nothing — HOME, the XDG
 directories, CLAUDE_CONFIG_DIR and PATH in one scratch directory, PATH
@@ -374,27 +374,21 @@ def journal_bound(T: str) -> None:
         s.close()
 
 
-def agentd_selector(T: str) -> None:
-    print("step 6: the control agent's implementation, from runtime/control/agentd.json")
+def agentd_unit_install(T: str) -> None:
+    print("step 6: the control agent's unit, one implementation (ADR-040 Wave 8, s8)")
     import agentd_unit
-    me = bootstrap.login()
     template = open(os.path.join(HERE, "runtime", "control", f"{bootstrap.UNIT}.service"), "rb").read()
-    node_line = "ExecStart=/usr/bin/env node %h/projects/agent-fabric/runtime/control/agentd.mjs"
-    check("the fabric's unit is today's Node line", node_line in template.decode().splitlines())
+    lines = template.decode().splitlines()
+    check("the fabric's unit has one ExecStart: the pinned interpreter on agentd.py, no Node",
+          [ln for ln in lines if ln.startswith("ExecStart=")]
+          == ["ExecStart=/usr/local/bin/fabric-python %h/projects/agent-fabric/tools/fabric/control/agentd.py"]
+          and b"node" not in template.replace(b"node-", b""))
     saved_python = agentd_unit.FABRIC_PYTHON
 
-    import socket
-    here = socket.gethostname().split(".")[0]
-
-    def account(name: str, selector: str | None, placed: str | None = here) -> tuple[Scratch, str, str]:
+    def account(name: str) -> tuple[Scratch, str, str]:
         s = Scratch(T, name)
         projects, root = fabric(s)
-        if placed is not None:
-            put(os.path.join(root, "runtime", "hosts", "registry.json"),
-                json.dumps({"version": 1, "placement": {me: placed}}))
         put(os.path.join(root, "runtime", "control", f"{bootstrap.UNIT}.service"), template.decode())
-        if selector is not None:
-            put(os.path.join(root, "runtime", "control", "agentd.json"), selector)
         return s, projects, root
 
     def unit_path() -> str:
@@ -405,167 +399,76 @@ def agentd_selector(T: str) -> None:
     fake_python = os.path.join(T, "fabric-python")
     put(fake_python, "#!/bin/sh\nexit 0\n", 0o755)
     agentd_unit.FABRIC_PYTHON = fake_python
-    try:
-        s, projects, root = account("agentd-node", json.dumps({"default": "node", "python": ["someone-else"]}))
-        try:
-            b = bootstrap.Bootstrap(projects, False, root)
-            _, out, err = quiet(b.control_agent)
-            check("the default: the Node unit byte for byte, nothing more said, nothing failed",
-                  open(unit_path(), "rb").read() == template and "runs" not in out and not err and b.failed == 0,
-                  (out, err))
-            b = bootstrap.Bootstrap(projects, True, root)
-            _, out, _ = quiet(b.control_agent)
-            check("a dry run says node", f"  *  {bootstrap.UNIT}.service runs node (runtime/control/agentd.json)\n" in out, out)
-        finally:
-            s.close()
+    import socket
 
-        s, projects, root = account("agentd-python", json.dumps({"default": "node", "python": [me]}))
+    def with_manager(s: Scratch, fn):
+        bus = socket.socket(socket.AF_UNIX)
+        bus.bind(os.path.join(os.environ["XDG_RUNTIME_DIR"], "bus"))
+        try:
+            return fn()
+        finally:
+            bus.close()
+            os.remove(os.path.join(os.environ["XDG_RUNTIME_DIR"], "bus"))
+    try:
+        s, projects, root = account("agentd-unit")
         try:
             b = bootstrap.Bootstrap(projects, True, root)
-            _, out, _ = quiet(b.control_agent)
-            check("a dry run says python, and writes nothing",
-                  f"  *  {bootstrap.UNIT}.service runs python (runtime/control/agentd.json)\n" in out
-                  and not os.path.exists(unit_path()), out)
+            _, out, err = quiet(b.control_agent)
+            check("a dry run writes nothing and says nothing of an implementation to choose",
+                  not os.path.exists(unit_path()) and "runs " not in out and not err, (out, err))
             b = bootstrap.Bootstrap(projects, False, root)
             _, out, err = quiet(b.control_agent)
-            got = open(unit_path(), encoding="utf-8").read().splitlines()
-            want = [("ExecStart=/usr/local/bin/fabric-python %h/projects/agent-fabric/tools/fabric/control/agentd.py"
-                     if line == node_line else line) for line in template.decode().splitlines()]
-            check("a listed login: the pinned interpreter's fixed path runs agentd.py, every other line the Node unit's",
-                  got == want and b.failed == 0 and not err, "\n".join(got))
-            check("…said in the run", f"  *  {bootstrap.UNIT}.service runs python (runtime/control/agentd.json)" in out, out)
-            check("…and read back as python", agentd_unit.implementation_of("\n".join(got)) == "python")
+            check("the unit is installed byte for byte, nothing said, nothing failed",
+                  open(unit_path(), "rb").read() == template and "runs " not in out and not err and b.failed == 0, (out, err))
+            check("…and read back as python", agentd_unit.implementation_of(open(unit_path(), encoding="utf-8").read()) == "python")
             # The cutover itself: an account on the Node unit, a manager running.
-            put(unit_path(), template.decode())
-            import socket
-            bus = socket.socket(socket.AF_UNIX)
-            bus.bind(os.path.join(os.environ["XDG_RUNTIME_DIR"], "bus"))
-            try:
-                b = bootstrap.Bootstrap(projects, False, root)
-                quiet(b.control_agent)
-            finally:
-                bus.close()
-            check("node to python is a changed unit: reloaded, then restarted",
-                  s.calls() == ["systemctl --user daemon-reload", f"systemctl --user enable --now {bootstrap.UNIT}",
-                                f"systemctl --user restart {bootstrap.UNIT}", f"systemctl --user is-active {bootstrap.UNIT}"],
-                  s.calls())
-            os.remove(os.path.join(os.environ["XDG_RUNTIME_DIR"], "bus"))
+            put(unit_path(), template.decode().replace(
+                "/usr/local/bin/fabric-python %h/projects/agent-fabric/tools/fabric/control/agentd.py",
+                "/usr/bin/env node %h/projects/agent-fabric/runtime/control/agentd.mjs"))
             open(s.log, "w").close()
+            with_manager(s, lambda: quiet(bootstrap.Bootstrap(projects, False, root).control_agent))
+            check("a Node unit on the account is a changed unit: written over, reloaded, then restarted",
+                  open(unit_path(), "rb").read() == template
+                  and s.calls() == ["systemctl --user daemon-reload", f"systemctl --user enable --now {bootstrap.UNIT}",
+                                    f"systemctl --user restart {bootstrap.UNIT}", f"systemctl --user is-active {bootstrap.UNIT}"],
+                  s.calls())
+            open(s.log, "w").close()
+            with_manager(s, lambda: quiet(bootstrap.Bootstrap(projects, False, root).control_agent))
+            check("the unit already current: enabled, never restarted",
+                  not any("restart" in c for c in s.calls()), s.calls())
             agentd_unit.FABRIC_PYTHON = os.path.join(T, "no-such-python")
             os.remove(unit_path())
-            put(unit_path(), template.decode())
-            bus = socket.socket(socket.AF_UNIX)
-            bus.bind(os.path.join(os.environ["XDG_RUNTIME_DIR"], "bus"))
-            try:
-                b = bootstrap.Bootstrap(projects, False, root)
-                _, out, err = quiet(b.control_agent)
-            finally:
-                bus.close()
-            check("python with no pinned interpreter on the host: the Node unit written and enabled, one warning, not a failure",
+            open(s.log, "w").close()
+            b = bootstrap.Bootstrap(projects, False, root)
+            _, out, err = with_manager(s, lambda: quiet(b.control_agent))
+            check("no pinned interpreter on the host: the unit written and enabled all the same, one warning that it cannot start, not a failure",
                   open(unit_path(), "rb").read() == template and b.failed == 0 and "is not executable" in err
-                  and err.count("\n") == 1 and "python not used" in err
+                  and "cannot start" in err and err.count("\n") == 1 and "python_pin.py install" in err
                   and f"systemctl --user enable --now {bootstrap.UNIT}" in s.calls(), (out, err, s.calls()))
             agentd_unit.FABRIC_PYTHON = fake_python
         finally:
             s.close()
 
-        for name, selector, why in (
-                ("agentd-absent", None, "unreadable"),
-                ("agentd-broken", "{broken\n", "is not JSON"),
-                ("agentd-key", json.dumps({"default": "node", "python": [], "deno": []}), "unknown key 'deno'"),
-                ("agentd-default", json.dumps({"default": "deno", "python": []}), "default is 'deno'"),
-                ("agentd-list", json.dumps({"default": "node", "python": me}), "python is not a list")):
-            s, projects, root = account(name, selector)
-            try:
-                b = bootstrap.Bootstrap(projects, False, root)
-                _, out, err = quiet(b.control_agent)
-                check(f"a selector {why}: the Node unit written, one warning on stderr, not a failure",
-                      open(unit_path(), "rb").read() == template and b.failed == 0
-                      and why in err and err.count("\n") == 1 and "python not used" in err and "runs python" not in out, (out, err))
-            finally:
-                s.close()
-
-        # Placement: a listed login whose registry entry names another host
-        # (or none) is not that host's account.
-        for name, placed in (("agentd-elsewhere", "some-other-host"), ("agentd-unplaced", None)):
-            s, projects, root = account(name, json.dumps({"default": "node", "python": [me]}), placed)
-            try:
-                if placed is None:
-                    put(os.path.join(root, "runtime", "hosts", "registry.json"), json.dumps({"version": 1, "placement": {}}))
-                put(unit_path(), "[Unit]\nDescription=what the account had\n")
-                b = bootstrap.Bootstrap(projects, False, root)
-                _, out, err = quiet(b.control_agent)
-                check(f"a listed login not placed on this host ({name}): the Node unit written, one warning naming the placement, not a failure",
-                      open(unit_path(), "rb").read() == template and b.failed == 0
-                      and "python not used" in err and err.count("\n") == 1
-                      and ("has no placement" if placed is None else "placed on") in err
-                      and "runs python" not in out, (out, err))
-            finally:
-                s.close()
-
-        # A template the python swap cannot read falls back to Node with one
-        # warning; the template is written as it is, as every account had it.
-        bad_templates = (
-            ("agentd-no-execstart", b"[Unit]\nDescription=x\n", "0 ExecStart lines"),
-            ("agentd-two-execstart", b"[Service]\nExecStart=/a\nExecStart=/b\n", "2 ExecStart lines"),
-            ("agentd-not-utf8", b"[Service]\nExecStart=/a\n# \xff\xfe\n", "utf-8"))
-        for name, body, why in bad_templates:
-            s, projects, root = account(name, json.dumps({"default": "node", "python": [me]}))
-            try:
-                with open(os.path.join(root, "runtime", "control", f"{bootstrap.UNIT}.service"), "wb") as fh:
-                    fh.write(body)
-                b = bootstrap.Bootstrap(projects, False, root)
-                _, out, err = quiet(b.control_agent)
-                check(f"a template with {why}: the Node unit written, one warning, no traceback, not a failure",
-                      open(unit_path(), "rb").read() == body and b.failed == 0
-                      and "python not used" in err and why in err and err.count("\n") == 1
-                      and "Traceback" not in err and "runs python" not in out, (out, err))
-            finally:
-                s.close()
-
-        # The placement check also covers an unlisted login when the default is python.
-        for name, placed in (("agentd-default-python-elsewhere", "some-other-host"),
-                             ("agentd-default-python-here", here)):
-            s, projects, root = account(name, json.dumps({"default": "python", "python": []}), placed)
-            try:
-                b = bootstrap.Bootstrap(projects, False, root)
-                _, out, err = quiet(b.control_agent)
-                if placed == here:
-                    check("default python, unlisted login placed here: python runs",
-                          "runs python" in out and not err and b.failed == 0, (out, err))
-                else:
-                    check("default python, unlisted login placed elsewhere: the Node unit, one warning naming the placement",
-                          open(unit_path(), "rb").read() == template and b.failed == 0
-                          and "python not used" in err and "placed on" in err and err.count("\n") == 1
-                          and "runs python" not in out, (out, err))
-            finally:
-                s.close()
-
-        # The fallback unit is enabled all the same.
-        s, projects, root = account("agentd-elsewhere-enabled", json.dumps({"default": "node", "python": [me]}), "some-other-host")
+        # A fabric whose unit file cannot be read is a failure of the run, said.
+        s, projects, root = account("agentd-no-template")
         try:
-            bus = socket.socket(socket.AF_UNIX)
-            bus.bind(os.path.join(os.environ["XDG_RUNTIME_DIR"], "bus"))
-            try:
-                b = bootstrap.Bootstrap(projects, False, root)
-                _, out, err = quiet(b.control_agent)
-            finally:
-                bus.close()
-            check("…and enabled --now as today",
-                  f"systemctl --user enable --now {bootstrap.UNIT}" in s.calls() and b.failed == 0, s.calls())
+            os.remove(os.path.join(root, "runtime", "control", f"{bootstrap.UNIT}.service"))
+            b = bootstrap.Bootstrap(projects, False, root)
+            stop, _, _ = quiet(b.control_agent)
+            check("an unreadable unit file stops the run, as it always did",
+                  isinstance(stop, bootstrap.Stop) and stop.rc == 1 and "cannot read" in stop.message and not os.path.exists(unit_path()), stop)
         finally:
             s.close()
     finally:
         agentd_unit.FABRIC_PYTHON = saved_python
 
-    check("the selector's shape: a sound one has no problems",
-          agentd_unit.problems({"description": "d", "default": "python", "python": ["a", "b"]}) == [])
-    check("…a login named twice is one",
-          agentd_unit.problems({"default": "node", "python": ["a", "a"]}) == ["python names a login twice"])
-    check("…the default is required", agentd_unit.problems({"python": []}) == ["default is None; it is node or python"])
-    check("an installed unit read back: node, python, or neither",
-          agentd_unit.implementation_of(template.decode()) == "node"
+    check("an installed unit read back: python, the deleted Node agent, or neither",
+          agentd_unit.implementation_of(template.decode()) == "python"
+          and agentd_unit.implementation_of("ExecStart=/usr/bin/env node /x/runtime/control/agentd.mjs\n") == "node"
           and agentd_unit.implementation_of("[Service]\nExecStart=/bin/true\n") is None)
+    saved_python = agentd_unit.FABRIC_PYTHON
+    check("the interpreter check: executable is no refusal, a missing one is said with the install command",
+          agentd_unit.python_refusal() == "" or "python_pin.py install" in agentd_unit.python_refusal())
 
 
 def main() -> int:
@@ -574,7 +477,7 @@ def main() -> int:
         for case in (glob_order, workspace_settings_not_an_object, role_command_dry_run, agent_files_failure,
                      commands_unreadable,
                      checkout_among_working_copies, moved_origin_repointed, work_tree_answer, user_manager, relay_holder, journal_bound,
-                     agentd_selector):
+                     agentd_unit_install):
             case(T)
     finally:
         shutil.rmtree(T, ignore_errors=True)

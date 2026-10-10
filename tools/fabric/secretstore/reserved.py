@@ -28,7 +28,7 @@ IDENTITY_NAMES = ["AGENT_LOGIN", "AGENT_HOST"]
 # signing key in it (rotated, #95). No shell sources secrets.env any more
 # (ADR-038 rule 9), but a file every tool may read is still no place for
 # the key that signs fleet actions. fabric-ctl decrypts it from the store
-# when it signs (runtime/control/ctl.mjs signingKey()). Known, so a store
+# when it signs (tools/fabric/control/ctl.py signingKey()). Known, so a store
 # holding it is not "unexpected"; and since the file is rewritten whole,
 # the next sync drops a line an older one wrote.
 STORE_ONLY = ["FABRIC_CONTROL_SIGNING_KEY"]
