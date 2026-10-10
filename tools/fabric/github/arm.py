@@ -98,7 +98,9 @@ this clone's remote as trial.json is (or AGENT_FABRIC_ARM_CONFIG):
                     "cases": [...]}. A holder of one of `roles` pushes
                     straight to the project's default branch, unless a
                     file the pushed commits change matches `pr_paths`
-                    (case-insensitive): those still come by pull request.
+                    (case-insensitive) or has the executable mode (100755),
+                    and unless the push rewrites the branch (it must
+                    fast-forward): those still come by pull request.
                     `cases` are paths that must need a PR; lint refuses
                     one pr_paths misses. fabric-pr arm IGNORES this key
                     (a direct push has no PR to arm); policies/githooks/

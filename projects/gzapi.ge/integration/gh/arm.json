@@ -18,11 +18,11 @@
   },
   "waiver_role": null,
   "direct": {
-    "description": "Direct to main: brand-comms commits copy, content, pages, styles and images straight to main (the owner, 2026-10-10). direct.pr_paths keeps what decides what installs, builds, deploys or runs (the manifests and pnpm files, astro.config.* and tsconfig*.json, the hosting configuration), the harness wiring (.claude/, .mcp.json), CI, .env* and .gitignore, the executable JavaScript under public/, and the secret-shaped words: those still go by pull request with the blind review.",
+    "description": "Direct to main: brand-comms commits copy, content, pages, components, styles, fonts and images straight to main (the owner, 2026-10-10). By pull request: what decides what installs, builds, deploys or runs (the manifests and pnpm files, astro.config.* and tsconfig*.json, other *.config.* and tool-version files, Makefile/Dockerfile, the hosting configuration), the harness wiring (.claude/, .mcp.json), CI, hooks, .env* and .gitignore, every script (shell, Python, Ruby, Perl, PowerShell, and JavaScript or TypeScript outside src/, executable JavaScript under public/ included, and anything under bin/, scripts/ or tools/), any file whose git mode is executable, and secret-shaped names (secret, credential, api key, auth token, private key, password, .pem/.p12/.pfx/.key). Styles, design tokens, fonts, images, content and pages are direct.",
     "roles": [
       "brand-comms"
     ],
-    "pr_paths": "^\\.claude/|^\\.mcp\\.json$|^\\.env|^\\.gitignore$|^\\.github/|^public/.*\\.js$|(^|/)package\\.json$|^pnpm-|^\\.npmrc$|^astro\\.config\\.|^tsconfig[^/]*\\.json$|(^|/)(wrangler\\.(toml|jsonc?)|_headers|_redirects)$|secret|credential|token|key|auth",
+    "pr_paths": "^\\.claude/|^\\.mcp\\.json$|^\\.env|^\\.gitignore$|^\\.github/|(^|/)package\\.json$|^pnpm-|^\\.npmrc$|^astro\\.config\\.|^tsconfig[^/]*\\.json$|(^|/)(wrangler\\.(toml|jsonc?)|_headers|_redirects)$|(^|/)(bin|scripts|tools)/|^\\.(husky|githooks)/|(^|/)(Makefile|Dockerfile|Containerfile|justfile)$|(^|/)[^/]*\\.config\\.[cm]?[jt]s$|^\\.(npmrc|nvmrc|node-version|yarnrc[^/]*|tool-versions)$|(^|/)[^/]*\\.lock$|(^|/)(pnpm-lock\\.yaml|yarn\\.lock|bun\\.lockb)$|^public/_(headers|redirects)$|(^|/)wrangler\\.toml$|(^|/)netlify\\.toml$|(^|/)vercel\\.json$|\\.(sh|bash|zsh|ps1|py|rb|pl)$|^(?!src/).*\\.[cm]?[jt]s$|(^|[/._-])(secrets?|credentials?|api[-_]?keys?|auth[-_.]?tokens?|private[-_]?keys?|passwords?)([/._-]|$)|\\.(pem|p12|pfx|key)$",
     "cases": [
       ".claude/settings.json",
       ".mcp.json",
@@ -38,7 +38,27 @@
       "wrangler.toml",
       "public/_headers",
       "public/vendor/app.js",
-      "src/lib/api-key.ts"
+      "src/lib/api-key.ts",
+      "scripts/sync.mjs",
+      "public/assets/js/theme.bundle.js",
+      "tools/x.txt",
+      "bin/release",
+      "build/run.sh",
+      "build/task.py",
+      ".husky/pre-commit",
+      "Makefile",
+      "docs/Dockerfile",
+      "vite.config.ts",
+      ".nvmrc",
+      "yarn.lock",
+      "netlify.toml",
+      "vercel.json",
+      "public/_redirects",
+      "pkg/index.mjs",
+      "config/credentials.json",
+      "deploy/id_rsa.key",
+      ".secrets/x",
+      "content/API-KEY.md"
     ]
   }
 }

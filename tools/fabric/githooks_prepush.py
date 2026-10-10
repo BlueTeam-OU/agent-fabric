@@ -11,7 +11,13 @@ push, so this hook, at the keyboard, is the only place the rule is enforced.
 A project that is not managed, or whose arm.json has no `direct` key, gets
 no rule from here at all: exit 0, silent. Every other doubt about a managed
 direct project refuses, because a boundary this hook could not read must not
-read as absent.
+read as absent. The one exception is a working copy whose project marker is
+unusable: the project, and so the default branch, is unknown, so only a push
+to main or master is refused there and every other ref passes.
+
+A direct push must also be a fast-forward of the remote's tip, and it may not
+add or change an executable file (mode 100755) whatever its name: pr_paths
+matches names, the mode is what makes a file run.
 
 Usage (git runs the hook with the remote's name and URL, ref lines on stdin):
     githooks_prepush.py <remote-name> <remote-url> < refs
@@ -30,8 +36,13 @@ import roots  # noqa: E402
 import workingcopy  # noqa: E402
 
 FABRIC_ROOT = os.path.dirname(os.path.dirname(HERE))
-ZERO = re.compile(r"^0+$")
+ZERO = re.compile(r"^0+\Z")
 GIT_TIMEOUT_S = 60
+BINDING_TIMEOUT_S = 10
+EXECUTABLE = "100755"
+# Without a project there is no registry default_branch to compare with, so
+# both names git hosts use for it stand in.
+UNKNOWN_PROJECT_DEFAULTS = ("refs/heads/main", "refs/heads/master")
 
 
 class Refused(Exception):
@@ -51,8 +62,11 @@ def _git(*args: str) -> str:
 def _held_role() -> str:
     # The binding is read by identity.py alone, as pre-commit does, so the
     # hook and the commit fence cannot disagree about who holds which role.
-    p = subprocess.run([sys.executable, os.path.join(FABRIC_ROOT, "runtime", "identity.py"), "--role"],
-                       capture_output=True, text=True, check=False)
+    try:
+        p = subprocess.run([sys.executable, os.path.join(FABRIC_ROOT, "runtime", "identity.py"), "--role"],
+                           capture_output=True, text=True, check=False, timeout=BINDING_TIMEOUT_S)
+    except subprocess.TimeoutExpired:
+        raise Refused(f"the session's role binding could not be read within {BINDING_TIMEOUT_S}s") from None
     return p.stdout.strip() if p.returncode == 0 else ""
 
 
@@ -80,7 +94,26 @@ def _direct_rules(project: str) -> dict | None:
     return {"roles": roles, "pr_paths": pr_paths}
 
 
-def _changed(remote_name: str, branch: str, local: str, remote: str) -> list[str]:
+def _fast_forward(branch: str, local: str, remote: str) -> None:
+    # The diff of two tips says nothing about ancestry: a force push that
+    # rewrites main would be judged only by what differs, so history that
+    # the remote has and the push drops must be refused here.
+    try:
+        known = subprocess.run(["git", "cat-file", "-e", f"{remote}^{{commit}}"], capture_output=True,
+                               timeout=GIT_TIMEOUT_S).returncode == 0
+        if not known:
+            raise Refused(f"the remote's {branch} ({remote[:12]}) is not in this clone: fetch first")
+        rc = subprocess.run(["git", "merge-base", "--is-ancestor", remote, local], capture_output=True,
+                            timeout=GIT_TIMEOUT_S).returncode
+    except (OSError, subprocess.SubprocessError) as e:
+        raise Refused(f"git could not check that the push fast-forwards {branch} ({type(e).__name__}: {e})") from None
+    if rc != 0:
+        raise Refused(f"this push does not fast-forward {branch} (the remote's {remote[:12]} is not an ancestor "
+                      "of what is pushed): a direct push never rewrites the default branch")
+
+
+def _changed(remote_name: str, branch: str, local: str, remote: str) -> list[tuple[str, str]]:
+    """(path, new mode) of every file the pushed range adds or changes."""
     if ZERO.match(remote):
         # A branch the remote does not have yet: what it adds is measured
         # from where it leaves the remote's default branch. Without that
@@ -93,12 +126,27 @@ def _changed(remote_name: str, branch: str, local: str, remote: str) -> list[str
                           "(fetch the remote first)") from None
     else:
         base = remote
-    out = _git("diff", "--name-only", "--no-renames", "-z", f"{base}..{local}")
-    return [p for p in out.split("\0") if p]
+    out = _git("diff", "--raw", "--no-renames", "-z", f"{base}..{local}").split("\0")
+    changed = []
+    # -z --raw: ":<old mode> <new mode> <old sha> <new sha> <status>" NUL path NUL
+    for meta, path in zip(out[0::2], out[1::2]):
+        fields = meta.lstrip(":").split()
+        if len(fields) == 5 and fields[4][:1] != "D":
+            changed.append((path, fields[1]))
+    return changed
 
 
 def check(remote_name: str, lines: list[str]) -> None:
-    info = workingcopy.resolve(os.getcwd())
+    try:
+        info = workingcopy.resolve(os.getcwd())
+    except SystemExit as e:
+        # A bad marker hides the project, so it cannot hide a push to the
+        # branch that might be a direct project's default; any other ref is
+        # no business of this hook and must not be held hostage by the marker.
+        if any(len(f) == 4 and f[2] in UNKNOWN_PROJECT_DEFAULTS for f in map(str.split, lines)):
+            raise Refused(f"{e.code}\n  (the project is unknown, so a push to main or master cannot be "
+                          "told from a direct project's default branch)") from None
+        return
     project = info.get("project")
     if not project:
         return
@@ -122,7 +170,15 @@ def check(remote_name: str, lines: list[str]) -> None:
             raise Refused(f"the direct push to {branch} is the {' / '.join(rules['roles'])} role's; this "
                           f"session's binding holds {held or '(no role bound)'}, and every other change "
                           "arrives as a pull request")
-        pr = [p for p in _changed(remote_name, branch, local, remote) if rules["pr_paths"].search(p)]
+        if not ZERO.match(remote):
+            _fast_forward(branch, local, remote)
+        changed = _changed(remote_name, branch, local, remote)
+        executable = [p for p, mode in changed if mode == EXECUTABLE]
+        if executable:
+            raise Refused(f"these files are executable (mode {EXECUTABLE}) and go by pull request "
+                          f"(agent-fabric ADR-019 §5 rule 1, {project}), not by a direct push to {branch}:\n  "
+                          + "\n  ".join(executable[:20]))
+        pr = [p for p, _ in changed if rules["pr_paths"].search(p)]
         if pr:
             raise Refused(f"these files go by pull request (agent-fabric ADR-019 §5 rule 1, {project}'s "
                           f"arm.json direct.pr_paths), not by a direct push to {branch}:\n  "

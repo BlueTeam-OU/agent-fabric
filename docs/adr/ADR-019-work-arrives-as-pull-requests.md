@@ -96,8 +96,10 @@ not on a pipe's exit status.
    a holder of one of its `roles` commits straight to the default
    branch, and only a change to a file matching its `pr_paths` (the
    harness, what installs, builds or runs, CI, deployment, `.env*` and
-   `.gitignore`, executable scripts, secret-shaped names) arrives as a
-   pull request under rules 2 to 6. `policies/githooks/pre-push`
+   `.gitignore`, scripts and any file with the executable mode,
+   secret-shaped names) arrives as a pull request under rules 2 to 6;
+   styles, tokens, fonts, images, content and pages do not. A direct
+   push is always a fast-forward. `policies/githooks/pre-push`
    refuses a direct push that breaks this; in a project without
    `direct` it does nothing. Declared today for brand-comms on
    blueteam.ee, gzapi.ge, gzapp.decks and gzapi.brand, where one agent

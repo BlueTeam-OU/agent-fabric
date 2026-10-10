@@ -41,8 +41,9 @@ fails = 0
 err = ""
 
 DIRECT = {"description": "fixture", "roles": ["brand-comms"],
-          "pr_paths": r"^\.claude/|^\.github/|(^|/)package\.json$|^public/.*\.js$|key",
-          "cases": [".claude/settings.json", "package.json"]}
+          "pr_paths": r"^\.claude/|^\.github/|(^|/)package\.json$|^public/.*\.js$|(^|/)(bin|scripts|tools)/"
+                     r"|(^|[/._-])(secrets?|api[-_]?keys?)([/._-]|$)",
+          "cases": [".claude/settings.json", "package.json", "scripts/x.txt", "src/lib/api-key.ts"]}
 
 
 def check(label: str, good: bool, detail: str = "") -> None:
@@ -155,6 +156,29 @@ def run() -> None:
     commit("content/api-key-guide.md")
     check("a secret-shaped word in a path is refused", push() == 1 and "api-key-guide" in err, err)
     bind("brand-comms"); fixture("direct")
+    commit("src/lib/API_KEY.ts")
+    check("matching is case-insensitive: an upper-case secret-shaped path is refused",
+          push() == 1 and "API_KEY.ts" in err, err)
+    bind("brand-comms"); fixture("direct")
+    commit("content/API-KEY.md")
+    check("…also with a hyphen in a content folder", push() == 1 and "API-KEY.md" in err, err)
+    bind("brand-comms"); fixture("direct")
+    commit("brand/tokens.css", "brand/decisions/0001-source-of-authority.md")
+    check("a design-token stylesheet and an 'authority' record are not secret-shaped: pass", push() == 0, err)
+    bind("brand-comms"); fixture("direct")
+    commit("scripts/notes.txt")
+    check("a new non-executable file under a pr_paths directory is refused", push() == 1 and "scripts/notes.txt" in err, err)
+    bind("brand-comms"); fixture("direct")
+    put("content/run", "#!/bin/sh\n")
+    os.chmod(f"{REPO}/content/run", 0o755)
+    commit("content/c.md")
+    check("a new executable file in an otherwise-direct directory is refused, named as executable",
+          push() == 1 and "content/run" in err and "executable" in err, err)
+    bind("brand-comms"); fixture("direct")
+    os.chmod(f"{REPO}/content/a.md", 0o755)
+    commit("content/c.md")
+    check("a mode change to executable on an existing file is refused too", push() == 1 and "content/a.md" in err, err)
+    bind("brand-comms"); fixture("direct")
     commit("package.json")
     git("-c", "core.hooksPath=/dev/null", "revert", "--no-edit", "HEAD")
     check("a change that is reverted inside the push leaves no PR path and passes", push() == 0, err)
@@ -168,6 +192,33 @@ def run() -> None:
     bind(""); fixture("direct")
     commit("content/b.md")
     check("no role bound: refused", push() == 1 and "no role bound" in err, err)
+
+    print("a force push to the default branch")
+    bind("brand-comms"); fixture("direct")
+    commit("content/b.md")
+    check("a fast-forward passes", push() == 0, err)
+    git("-c", "core.hooksPath=/dev/null", "reset", "-q", "--hard", "HEAD~1")
+    commit("content/c.md")
+    rc = push("--force", "main")
+    check("a push that rewrites main is refused, saying it is not a fast-forward",
+          rc == 1 and "fast-forward" in err, err)
+    check("…and the remote kept its tip", git("rev-parse", "main", cwd=REMOTE)[1].strip()
+          != git("rev-parse", "main")[1].strip(), "main moved")
+
+    print("a project marker the registry cannot resolve")
+    bind("backend-dev"); fixture("direct")
+    with open(f"{REPO}/.agent-fabric-project", "w", encoding="utf-8") as f:
+        f.write("")
+    commit("content/b.md")
+    check("empty marker, push to a feature branch: passes in silence", push("main:refs/heads/feat/m") == 0 and err.strip() == "", err)
+    check("empty marker, push to main: refused, saying why", push() == 1 and "empty" in err and "main" in err, err)
+    with open(f"{REPO}/.agent-fabric-project", "w", encoding="utf-8") as f:
+        f.write("no-such-project\n")
+    check("unknown project in the marker, feature branch: passes", push("main:refs/heads/feat/n") == 0, err)
+    check("unknown project in the marker, push to main: refused", push() == 1 and "no-such-project" in err, err)
+    p = subprocess.run([os.path.join(HOOKS, "pre-push"), "origin", REMOTE], cwd=REPO, env=env(), input="",
+                       capture_output=True, text=True)
+    check("an empty push (no ref lines) passes", p.returncode == 0 and p.stderr.strip() == "", p.stderr)
 
     print("other refs and deletions")
     bind("backend-dev"); fixture("direct")

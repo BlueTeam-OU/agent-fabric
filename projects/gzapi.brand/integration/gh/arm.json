@@ -13,11 +13,11 @@
   },
   "waiver_role": null,
   "direct": {
-    "description": "Direct to main: brand-comms commits the brand guide, claims, tokens, fonts and assets straight to main (the owner, 2026-10-10). direct.pr_paths keeps the harness wiring (.claude/, .mcp.json), CI, the package manifests and lockfiles should the repository ever grow them, .env* and .gitignore, and the secret-shaped words: those still go by pull request with the blind review.",
+    "description": "Direct to main: brand-comms commits the brand guide, claims, tokens, fonts and assets straight to main (the owner, 2026-10-10). By pull request: the harness wiring (.claude/, .mcp.json), CI, hooks, the package manifests and lockfiles, every script (anything under bin/, scripts/ or tools/, and shell, Python, Ruby, Perl, PowerShell, JavaScript and TypeScript files anywhere), config and tool-version files, Makefile/Dockerfile, .env* and .gitignore, any file whose git mode is executable, and secret-shaped names (secret, credential, api key, auth token, private key, password, .pem/.p12/.pfx/.key). Styles, design tokens, fonts, images and content are direct.",
     "roles": [
       "brand-comms"
     ],
-    "pr_paths": "^\\.claude/|^\\.mcp\\.json$|^\\.env|^\\.gitignore$|^\\.github/|(^|/)package(-lock)?\\.json$|^pnpm-|secret|credential|token|key|auth",
+    "pr_paths": "^\\.claude/|^\\.mcp\\.json$|^\\.env|^\\.gitignore$|^\\.github/|(^|/)package(-lock)?\\.json$|^pnpm-|(^|/)(bin|scripts|tools)/|^\\.(husky|githooks)/|(^|/)(Makefile|Dockerfile|Containerfile|justfile)$|(^|/)[^/]*\\.config\\.[cm]?[jt]s$|^\\.(npmrc|nvmrc|node-version|yarnrc[^/]*|tool-versions)$|(^|/)[^/]*\\.lock$|(^|/)(pnpm-lock\\.yaml|yarn\\.lock|bun\\.lockb)$|^public/_(headers|redirects)$|(^|/)wrangler\\.toml$|(^|/)netlify\\.toml$|(^|/)vercel\\.json$|\\.(sh|bash|zsh|ps1|py|rb|pl)$|\\.[cm]?[jt]s$|(^|[/._-])(secrets?|credentials?|api[-_]?keys?|auth[-_.]?tokens?|private[-_]?keys?|passwords?)([/._-]|$)|\\.(pem|p12|pfx|key)$",
     "cases": [
       ".claude/settings.json",
       ".mcp.json",
@@ -27,7 +27,29 @@
       "package.json",
       "package-lock.json",
       "pnpm-lock.yaml",
-      "brand/api-key.md"
+      "brand/api-key.md",
+      "scripts/sync.mjs",
+      "tools/x.txt",
+      "bin/release",
+      "build/run.sh",
+      "build/task.py",
+      ".husky/pre-commit",
+      "Makefile",
+      "docs/Dockerfile",
+      "vite.config.ts",
+      ".nvmrc",
+      "yarn.lock",
+      "wrangler.toml",
+      "netlify.toml",
+      "vercel.json",
+      "public/_headers",
+      "public/_redirects",
+      "pkg/index.mjs",
+      "config/credentials.json",
+      "deploy/id_rsa.key",
+      ".secrets/x",
+      "content/API-KEY.md",
+      "brand/assets/app.js"
     ]
   }
 }

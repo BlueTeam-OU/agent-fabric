@@ -19,11 +19,11 @@
   },
   "waiver_role": null,
   "direct": {
-    "description": "Direct to main: brand-comms commits deck and document content, their assets and i18n dictionaries straight to main (the owner, 2026-10-10). direct.pr_paths keeps what runs on the operator's machine or decides what installs and loads (scripts/, theme/, .marprc*, the manifest and lockfile), the harness wiring (.claude/, .mcp.json), CI, .env* and .gitignore, and the secret-shaped words: those still go by pull request with the blind review.",
+    "description": "Direct to main: brand-comms commits deck and document content, their assets and i18n dictionaries, and the theme's styles and fonts straight to main (the owner, 2026-10-10). By pull request: what runs on the operator's machine or decides what installs and loads (scripts/, bin/, tools/ and every script outside a deck's assets/ and i18n/, .marprc*, the manifest and lockfiles, *.config.*, Makefile/Dockerfile), the harness wiring (.claude/, .mcp.json), CI, hooks, .env* and .gitignore, any file whose git mode is executable, and secret-shaped names (secret, credential, api key, auth token, private key, password, .pem/.p12/.pfx/.key). Styles, design tokens, fonts, images and content are direct.",
     "roles": [
       "brand-comms"
     ],
-    "pr_paths": "^\\.claude/|^\\.mcp\\.json$|^\\.env|^\\.gitignore$|^\\.github/|^\\.marprc(\\.ya?ml|\\.json|\\.js)?$|(^|/)package(-lock)?\\.json$|^scripts/|^theme/|secret|credential|token|key|auth",
+    "pr_paths": "^\\.claude/|^\\.mcp\\.json$|^\\.env|^\\.gitignore$|^\\.github/|^\\.marprc(\\.ya?ml|\\.json|\\.js)?$|(^|/)package(-lock)?\\.json$|^scripts/|(^|/)(bin|scripts|tools)/|^\\.(husky|githooks)/|(^|/)(Makefile|Dockerfile|Containerfile|justfile)$|(^|/)[^/]*\\.config\\.[cm]?[jt]s$|^\\.(npmrc|nvmrc|node-version|yarnrc[^/]*|tool-versions)$|(^|/)[^/]*\\.lock$|(^|/)(pnpm-lock\\.yaml|yarn\\.lock|bun\\.lockb)$|^public/_(headers|redirects)$|(^|/)wrangler\\.toml$|(^|/)netlify\\.toml$|(^|/)vercel\\.json$|\\.(sh|bash|zsh|ps1|py|rb|pl)$|^(?![^/]+/(assets|i18n)/).*\\.[cm]?[jt]s$|(^|[/._-])(secrets?|credentials?|api[-_]?keys?|auth[-_.]?tokens?|private[-_]?keys?|passwords?)([/._-]|$)|\\.(pem|p12|pfx|key)$",
     "cases": [
       ".claude/settings.json",
       ".claude/commands/deck-release.md",
@@ -36,8 +36,29 @@
       ".marprc.yml",
       "scripts/build.mjs",
       "scripts/release.mjs",
-      "theme/gzapp.css",
-      "decks/a/api-key.md"
+      "decks/a/api-key.md",
+      "scripts/sync.mjs",
+      "tools/x.txt",
+      "bin/release",
+      "build/run.sh",
+      "build/task.py",
+      ".husky/pre-commit",
+      "Makefile",
+      "docs/Dockerfile",
+      "vite.config.ts",
+      ".nvmrc",
+      "yarn.lock",
+      "wrangler.toml",
+      "netlify.toml",
+      "vercel.json",
+      "public/_headers",
+      "public/_redirects",
+      "pkg/index.mjs",
+      "config/credentials.json",
+      "deploy/id_rsa.key",
+      ".secrets/x",
+      "content/API-KEY.md",
+      "partner/lib.js"
     ]
   }
 }
