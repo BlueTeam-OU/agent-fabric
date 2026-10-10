@@ -116,7 +116,9 @@ def main() -> int:
           fabric_host.list_text(reg).splitlines() == [f"{'a':20} {'debian':14} operator {'op':12} this host (direct)",
                                                        "                     accounts: x, y", "placed on an unknown host: z"],
           fabric_host.list_text(reg))
-    check("usage is the synopsis block, ten lines", fabric_host.usage_lines().count("\n") == 10 and fabric_host.usage_lines().startswith("bin/fabric-host"))
+    check("usage is the synopsis block: the title, a blank line and every subcommand, ssh-pin included",
+          fabric_host.usage_lines().startswith("bin/fabric-host") and "fabric-host ssh-pin <login>" in fabric_host.usage_lines()
+          and "\n\n" in fabric_host.usage_lines() and "Every subcommand" not in fabric_host.usage_lines())
     saved = fabric_host.resolve_registry
     try:
         fabric_host.resolve_registry = lambda: (_ for _ in ()).throw(fabric_host.Refused("cannot resolve the hosts registry (x)", 1))

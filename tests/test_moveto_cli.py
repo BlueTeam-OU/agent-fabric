@@ -98,6 +98,9 @@ def main() -> int:
         put(f"{home}/esc/.local/state/agent-fabric/agents/esc/binding.json",
             '{"agent": "esc", "role": "evil\x1b]0;X\x07role"}\n')
 
+        # moveto asks `fabric-host ssh-pin` which way to enter: this machine's own fabric-host is not what these
+        # cases are about, so a stand-in saying "sudo" (a host with no pin) comes first on the PATH.
+        put(f"{bin_}/fabric-host", "#!/bin/sh\necho sudo\n", 0o755)
         put(f"{bin_}/getent", "#!/usr/bin/env bash\n"
             'if [[ "$1" == "passwd" && $# -eq 2 ]]; then\n'
             f'    for u in {" ".join(ACCOUNTS)}; do\n'

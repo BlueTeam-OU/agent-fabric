@@ -10,6 +10,8 @@ moveto architect-cto-01 <clone>  # …in a named clone under it instead
 moveto --list                  # accounts with a clone or the agent-fabric checkout
 moveto <account> --list        # that account's clones
 moveto <account> --print       # resolve only — print path and title, spawn nothing
+moveto <account> --via ssh     # through the account's pinned sshd (ADR-048), instead of sudo
+moveto <account> --via sudo    # the break-glass; sudo is also the default until the host's sshd is pinned
 moveto <account> [<clone>] --resume  # …and bring its last session back first (fabric-resume)
 moveto <account> [<clone>] --wait    # "<account> - Enter to activate"; Enter does --resume
 moveto <account> [<clone>] --watch   # …and show its status first (fabric-watch), until q

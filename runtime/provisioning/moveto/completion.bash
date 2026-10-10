@@ -37,9 +37,11 @@ _moveto() {
         else
             mapfile -t COMPREPLY < <(compgen -W "$(_moveto_accounts | tr '\n' ' ')" -- "$cur")
         fi
+    elif [[ "$prev" == --via ]]; then
+        mapfile -t COMPREPLY < <(compgen -W "ssh sudo" -- "$cur")
     elif (( COMP_CWORD == 2 )) && [[ "$prev" != -* ]]; then
         if [[ "$cur" == -* ]]; then
-            mapfile -t COMPREPLY < <(compgen -W "--print --list --resume --wait --watch" -- "$cur")
+            mapfile -t COMPREPLY < <(compgen -W "--print --list --resume --wait --watch --via" -- "$cur")
         else
             mapfile -t COMPREPLY < <(compgen -W "$(moveto "$prev" --list 2>/dev/null | tr '\n' ' ')" -- "$cur")
         fi
