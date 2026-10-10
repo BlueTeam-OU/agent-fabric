@@ -1,0 +1,4588 @@
+{
+ "comment": "Recorded from runtime/mcp/websearch-locale/server.mjs (Node) before it was deleted: the answers the Python port is held to.",
+ "locales": {
+  "ge": {
+   "timezone": "Asia/Tbilisi",
+   "serpapi": {
+    "gl": "ge",
+    "hl": "ka",
+    "google_domain": "google.ge",
+    "lr": "lang_ka",
+    "tool_description": "ვებ-ძიება ქართულად",
+    "label": "ძირითადი ძრავა"
+   },
+   "brave": {
+    "country": "ALL",
+    "tool_description": "გლობალური ვებ-ძიება"
+   }
+  },
+  "en": {
+   "serpapi": {
+    "gl": "us",
+    "hl": "en",
+    "tool_description": "search"
+   },
+   "brave": {
+    "country": "US",
+    "search_lang": "en",
+    "ui_lang": "en-US",
+    "tool_description": "global",
+    "label": "Brave EN"
+   }
+  },
+  "brave_only": {
+   "brave": {
+    "country": "ALL",
+    "tool_description": "გლობალური ვებ-ძიება"
+   }
+  },
+  "serp_only": {
+   "serpapi": {
+    "gl": "ge",
+    "hl": "ka",
+    "google_domain": "google.ge",
+    "lr": "lang_ka",
+    "tool_description": "ვებ-ძიება ქართულად",
+    "label": "ძირითადი ძრავა"
+   }
+  }
+ },
+ "specs": {
+  "serpOk": {
+   "status": 200,
+   "body": "{\"organic_results\":[{\"title\":\"მეტრო\",\"link\":\"https://example.ge/m\",\"snippet\":\"აღწერა\\nხაზი  ორი სამი\",\"position\":1},{\"title\":\"two\",\"link\":\"https://x\"}]}"
+  },
+  "braveOk": {
+   "status": 200,
+   "body": "{\"web\":{\"results\":[{\"title\":\"t\",\"url\":\"u\",\"description\":\"d <strong>e</strong> <<b>b>x a < b\"},{\"title\":\"n\",\"url\":\"v\"}]}}"
+  },
+  "serp401": {
+   "status": 401,
+   "body": "{\"error\":\"Invalid API key. Your API key should be here: https://serpapi.com/manage-api-key\"}"
+  },
+  "serp429": {
+   "status": 429,
+   "body": "{\"error\":\"Your account has run out of searches.\"}"
+  },
+  "serp200err": {
+   "status": 200,
+   "body": "{\"error\":\"Google hasn't returned any results for this query.\"}"
+  },
+  "serp200errlong": {
+   "status": 200,
+   "body": "{\"error\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"}"
+  },
+  "brave422": {
+   "status": 422,
+   "body": "{\"error\":{\"detail\":\"Unable to validate request parameter(s)\"}}"
+  },
+  "brave500msg": {
+   "status": 500,
+   "body": "{\"message\":\"boom\"}"
+  },
+  "brave500errmsg": {
+   "status": 500,
+   "body": "{\"error\":{\"message\":\"nested\"}}"
+  },
+  "http429nobody": {
+   "status": 429,
+   "body": "not json"
+  },
+  "http503": {
+   "status": 503,
+   "body": "{}"
+  },
+  "notjson": {
+   "status": 200,
+   "body": "<html>"
+  },
+  "empty": {
+   "status": 200,
+   "body": "{}"
+  },
+  "emptyarr": {
+   "status": 200,
+   "body": "[]"
+  },
+  "nullbody": {
+   "status": 200,
+   "body": "null"
+  },
+  "serpNoRows": {
+   "status": 200,
+   "body": "{\"organic_results\":[]}"
+  },
+  "braveNoRows": {
+   "status": 200,
+   "body": "{\"web\":{\"results\":[]}}"
+  },
+  "serpNumeric": {
+   "status": 200,
+   "body": "{\"organic_results\":[{\"title\":5,\"link\":true,\"snippet\":null}]}"
+  },
+  "throwUnreachable": {
+   "throw": "Error"
+  },
+  "throwTimeout": {
+   "throw": "TimeoutError"
+  }
+ },
+ "cases": [
+  {
+   "kind": "request",
+   "locale": "ge",
+   "engine": "serpapi",
+   "query": "თბილისის მეტრო",
+   "count": {
+    "absent": true
+   },
+   "secrets": {
+    "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+   },
+   "name": "ge/serpapi/none/ge",
+   "expected": "https://serpapi.com/search.json?engine=google&q=%E1%83%97%E1%83%91%E1%83%98%E1%83%9A%E1%83%98%E1%83%A1%E1%83%98%E1%83%A1+%E1%83%9B%E1%83%94%E1%83%A2%E1%83%A0%E1%83%9D&gl=ge&hl=ka&google_domain=google.ge&lr=lang_ka&num=10&api_key=serpapi-secret-key-value-0123456789"
+  },
+  {
+   "kind": "request",
+   "locale": "ge",
+   "engine": "serpapi",
+   "query": "a b&c=d+e",
+   "count": {
+    "absent": true
+   },
+   "secrets": {
+    "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+   },
+   "name": "ge/serpapi/none/ascii",
+   "expected": "https://serpapi.com/search.json?engine=google&q=a+b%26c%3Dd%2Be&gl=ge&hl=ka&google_domain=google.ge&lr=lang_ka&num=10&api_key=serpapi-secret-key-value-0123456789"
+  },
+  {
+   "kind": "request",
+   "locale": "ge",
+   "engine": "serpapi",
+   "query": "x~y*z-._'()!",
+   "count": {
+    "absent": true
+   },
+   "secrets": {
+    "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+   },
+   "name": "ge/serpapi/none/symbols",
+   "expected": "https://serpapi.com/search.json?engine=google&q=x%7Ey*z-._%27%28%29%21&gl=ge&hl=ka&google_domain=google.ge&lr=lang_ka&num=10&api_key=serpapi-secret-key-value-0123456789"
+  },
+  {
+   "kind": "request",
+   "locale": "ge",
+   "engine": "serpapi",
+   "query": "😀 q",
+   "count": {
+    "absent": true
+   },
+   "secrets": {
+    "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+   },
+   "name": "ge/serpapi/none/emoji",
+   "expected": "https://serpapi.com/search.json?engine=google&q=%F0%9F%98%80+q&gl=ge&hl=ka&google_domain=google.ge&lr=lang_ka&num=10&api_key=serpapi-secret-key-value-0123456789"
+  },
+  {
+   "kind": "request",
+   "locale": "ge",
+   "engine": "serpapi",
+   "query": "თბილისის მეტრო",
+   "count": 5,
+   "secrets": {
+    "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+   },
+   "name": "ge/serpapi/5/ge",
+   "expected": "https://serpapi.com/search.json?engine=google&q=%E1%83%97%E1%83%91%E1%83%98%E1%83%9A%E1%83%98%E1%83%A1%E1%83%98%E1%83%A1+%E1%83%9B%E1%83%94%E1%83%A2%E1%83%A0%E1%83%9D&gl=ge&hl=ka&google_domain=google.ge&lr=lang_ka&num=5&api_key=serpapi-secret-key-value-0123456789"
+  },
+  {
+   "kind": "request",
+   "locale": "ge",
+   "engine": "serpapi",
+   "query": "a b&c=d+e",
+   "count": 5,
+   "secrets": {
+    "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+   },
+   "name": "ge/serpapi/5/ascii",
+   "expected": "https://serpapi.com/search.json?engine=google&q=a+b%26c%3Dd%2Be&gl=ge&hl=ka&google_domain=google.ge&lr=lang_ka&num=5&api_key=serpapi-secret-key-value-0123456789"
+  },
+  {
+   "kind": "request",
+   "locale": "ge",
+   "engine": "serpapi",
+   "query": "x~y*z-._'()!",
+   "count": 5,
+   "secrets": {
+    "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+   },
+   "name": "ge/serpapi/5/symbols",
+   "expected": "https://serpapi.com/search.json?engine=google&q=x%7Ey*z-._%27%28%29%21&gl=ge&hl=ka&google_domain=google.ge&lr=lang_ka&num=5&api_key=serpapi-secret-key-value-0123456789"
+  },
+  {
+   "kind": "request",
+   "locale": "ge",
+   "engine": "serpapi",
+   "query": "😀 q",
+   "count": 5,
+   "secrets": {
+    "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+   },
+   "name": "ge/serpapi/5/emoji",
+   "expected": "https://serpapi.com/search.json?engine=google&q=%F0%9F%98%80+q&gl=ge&hl=ka&google_domain=google.ge&lr=lang_ka&num=5&api_key=serpapi-secret-key-value-0123456789"
+  },
+  {
+   "kind": "request",
+   "locale": "ge",
+   "engine": "serpapi",
+   "query": "თბილისის მეტრო",
+   "count": "5",
+   "secrets": {
+    "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+   },
+   "name": "ge/serpapi/str5/ge",
+   "expected": "https://serpapi.com/search.json?engine=google&q=%E1%83%97%E1%83%91%E1%83%98%E1%83%9A%E1%83%98%E1%83%A1%E1%83%98%E1%83%A1+%E1%83%9B%E1%83%94%E1%83%A2%E1%83%A0%E1%83%9D&gl=ge&hl=ka&google_domain=google.ge&lr=lang_ka&num=5&api_key=serpapi-secret-key-value-0123456789"
+  },
+  {
+   "kind": "request",
+   "locale": "ge",
+   "engine": "serpapi",
+   "query": "a b&c=d+e",
+   "count": "5",
+   "secrets": {
+    "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+   },
+   "name": "ge/serpapi/str5/ascii",
+   "expected": "https://serpapi.com/search.json?engine=google&q=a+b%26c%3Dd%2Be&gl=ge&hl=ka&google_domain=google.ge&lr=lang_ka&num=5&api_key=serpapi-secret-key-value-0123456789"
+  },
+  {
+   "kind": "request",
+   "locale": "ge",
+   "engine": "serpapi",
+   "query": "x~y*z-._'()!",
+   "count": "5",
+   "secrets": {
+    "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+   },
+   "name": "ge/serpapi/str5/symbols",
+   "expected": "https://serpapi.com/search.json?engine=google&q=x%7Ey*z-._%27%28%29%21&gl=ge&hl=ka&google_domain=google.ge&lr=lang_ka&num=5&api_key=serpapi-secret-key-value-0123456789"
+  },
+  {
+   "kind": "request",
+   "locale": "ge",
+   "engine": "serpapi",
+   "query": "😀 q",
+   "count": "5",
+   "secrets": {
+    "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+   },
+   "name": "ge/serpapi/str5/emoji",
+   "expected": "https://serpapi.com/search.json?engine=google&q=%F0%9F%98%80+q&gl=ge&hl=ka&google_domain=google.ge&lr=lang_ka&num=5&api_key=serpapi-secret-key-value-0123456789"
+  },
+  {
+   "kind": "request",
+   "locale": "ge",
+   "engine": "serpapi",
+   "query": "თბილისის მეტრო",
+   "count": 99,
+   "secrets": {
+    "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+   },
+   "name": "ge/serpapi/99/ge",
+   "expected": "https://serpapi.com/search.json?engine=google&q=%E1%83%97%E1%83%91%E1%83%98%E1%83%9A%E1%83%98%E1%83%A1%E1%83%98%E1%83%A1+%E1%83%9B%E1%83%94%E1%83%A2%E1%83%A0%E1%83%9D&gl=ge&hl=ka&google_domain=google.ge&lr=lang_ka&num=20&api_key=serpapi-secret-key-value-0123456789"
+  },
+  {
+   "kind": "request",
+   "locale": "ge",
+   "engine": "serpapi",
+   "query": "a b&c=d+e",
+   "count": 99,
+   "secrets": {
+    "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+   },
+   "name": "ge/serpapi/99/ascii",
+   "expected": "https://serpapi.com/search.json?engine=google&q=a+b%26c%3Dd%2Be&gl=ge&hl=ka&google_domain=google.ge&lr=lang_ka&num=20&api_key=serpapi-secret-key-value-0123456789"
+  },
+  {
+   "kind": "request",
+   "locale": "ge",
+   "engine": "serpapi",
+   "query": "x~y*z-._'()!",
+   "count": 99,
+   "secrets": {
+    "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+   },
+   "name": "ge/serpapi/99/symbols",
+   "expected": "https://serpapi.com/search.json?engine=google&q=x%7Ey*z-._%27%28%29%21&gl=ge&hl=ka&google_domain=google.ge&lr=lang_ka&num=20&api_key=serpapi-secret-key-value-0123456789"
+  },
+  {
+   "kind": "request",
+   "locale": "ge",
+   "engine": "serpapi",
+   "query": "😀 q",
+   "count": 99,
+   "secrets": {
+    "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+   },
+   "name": "ge/serpapi/99/emoji",
+   "expected": "https://serpapi.com/search.json?engine=google&q=%F0%9F%98%80+q&gl=ge&hl=ka&google_domain=google.ge&lr=lang_ka&num=20&api_key=serpapi-secret-key-value-0123456789"
+  },
+  {
+   "kind": "request",
+   "locale": "ge",
+   "engine": "serpapi",
+   "query": "თბილისის მეტრო",
+   "count": 0,
+   "secrets": {
+    "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+   },
+   "name": "ge/serpapi/0/ge",
+   "expected": "https://serpapi.com/search.json?engine=google&q=%E1%83%97%E1%83%91%E1%83%98%E1%83%9A%E1%83%98%E1%83%A1%E1%83%98%E1%83%A1+%E1%83%9B%E1%83%94%E1%83%A2%E1%83%A0%E1%83%9D&gl=ge&hl=ka&google_domain=google.ge&lr=lang_ka&num=10&api_key=serpapi-secret-key-value-0123456789"
+  },
+  {
+   "kind": "request",
+   "locale": "ge",
+   "engine": "serpapi",
+   "query": "a b&c=d+e",
+   "count": 0,
+   "secrets": {
+    "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+   },
+   "name": "ge/serpapi/0/ascii",
+   "expected": "https://serpapi.com/search.json?engine=google&q=a+b%26c%3Dd%2Be&gl=ge&hl=ka&google_domain=google.ge&lr=lang_ka&num=10&api_key=serpapi-secret-key-value-0123456789"
+  },
+  {
+   "kind": "request",
+   "locale": "ge",
+   "engine": "serpapi",
+   "query": "x~y*z-._'()!",
+   "count": 0,
+   "secrets": {
+    "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+   },
+   "name": "ge/serpapi/0/symbols",
+   "expected": "https://serpapi.com/search.json?engine=google&q=x%7Ey*z-._%27%28%29%21&gl=ge&hl=ka&google_domain=google.ge&lr=lang_ka&num=10&api_key=serpapi-secret-key-value-0123456789"
+  },
+  {
+   "kind": "request",
+   "locale": "ge",
+   "engine": "serpapi",
+   "query": "😀 q",
+   "count": 0,
+   "secrets": {
+    "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+   },
+   "name": "ge/serpapi/0/emoji",
+   "expected": "https://serpapi.com/search.json?engine=google&q=%F0%9F%98%80+q&gl=ge&hl=ka&google_domain=google.ge&lr=lang_ka&num=10&api_key=serpapi-secret-key-value-0123456789"
+  },
+  {
+   "kind": "request",
+   "locale": "ge",
+   "engine": "serpapi",
+   "query": "თბილისის მეტრო",
+   "count": -3,
+   "secrets": {
+    "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+   },
+   "name": "ge/serpapi/neg/ge",
+   "expected": "https://serpapi.com/search.json?engine=google&q=%E1%83%97%E1%83%91%E1%83%98%E1%83%9A%E1%83%98%E1%83%A1%E1%83%98%E1%83%A1+%E1%83%9B%E1%83%94%E1%83%A2%E1%83%A0%E1%83%9D&gl=ge&hl=ka&google_domain=google.ge&lr=lang_ka&num=1&api_key=serpapi-secret-key-value-0123456789"
+  },
+  {
+   "kind": "request",
+   "locale": "ge",
+   "engine": "serpapi",
+   "query": "a b&c=d+e",
+   "count": -3,
+   "secrets": {
+    "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+   },
+   "name": "ge/serpapi/neg/ascii",
+   "expected": "https://serpapi.com/search.json?engine=google&q=a+b%26c%3Dd%2Be&gl=ge&hl=ka&google_domain=google.ge&lr=lang_ka&num=1&api_key=serpapi-secret-key-value-0123456789"
+  },
+  {
+   "kind": "request",
+   "locale": "ge",
+   "engine": "serpapi",
+   "query": "x~y*z-._'()!",
+   "count": -3,
+   "secrets": {
+    "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+   },
+   "name": "ge/serpapi/neg/symbols",
+   "expected": "https://serpapi.com/search.json?engine=google&q=x%7Ey*z-._%27%28%29%21&gl=ge&hl=ka&google_domain=google.ge&lr=lang_ka&num=1&api_key=serpapi-secret-key-value-0123456789"
+  },
+  {
+   "kind": "request",
+   "locale": "ge",
+   "engine": "serpapi",
+   "query": "😀 q",
+   "count": -3,
+   "secrets": {
+    "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+   },
+   "name": "ge/serpapi/neg/emoji",
+   "expected": "https://serpapi.com/search.json?engine=google&q=%F0%9F%98%80+q&gl=ge&hl=ka&google_domain=google.ge&lr=lang_ka&num=1&api_key=serpapi-secret-key-value-0123456789"
+  },
+  {
+   "kind": "request",
+   "locale": "ge",
+   "engine": "serpapi",
+   "query": "თბილისის მეტრო",
+   "count": 5.5,
+   "secrets": {
+    "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+   },
+   "name": "ge/serpapi/frac/ge",
+   "expected": "https://serpapi.com/search.json?engine=google&q=%E1%83%97%E1%83%91%E1%83%98%E1%83%9A%E1%83%98%E1%83%A1%E1%83%98%E1%83%A1+%E1%83%9B%E1%83%94%E1%83%A2%E1%83%A0%E1%83%9D&gl=ge&hl=ka&google_domain=google.ge&lr=lang_ka&num=5.5&api_key=serpapi-secret-key-value-0123456789"
+  },
+  {
+   "kind": "request",
+   "locale": "ge",
+   "engine": "serpapi",
+   "query": "a b&c=d+e",
+   "count": 5.5,
+   "secrets": {
+    "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+   },
+   "name": "ge/serpapi/frac/ascii",
+   "expected": "https://serpapi.com/search.json?engine=google&q=a+b%26c%3Dd%2Be&gl=ge&hl=ka&google_domain=google.ge&lr=lang_ka&num=5.5&api_key=serpapi-secret-key-value-0123456789"
+  },
+  {
+   "kind": "request",
+   "locale": "ge",
+   "engine": "serpapi",
+   "query": "x~y*z-._'()!",
+   "count": 5.5,
+   "secrets": {
+    "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+   },
+   "name": "ge/serpapi/frac/symbols",
+   "expected": "https://serpapi.com/search.json?engine=google&q=x%7Ey*z-._%27%28%29%21&gl=ge&hl=ka&google_domain=google.ge&lr=lang_ka&num=5.5&api_key=serpapi-secret-key-value-0123456789"
+  },
+  {
+   "kind": "request",
+   "locale": "ge",
+   "engine": "serpapi",
+   "query": "😀 q",
+   "count": 5.5,
+   "secrets": {
+    "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+   },
+   "name": "ge/serpapi/frac/emoji",
+   "expected": "https://serpapi.com/search.json?engine=google&q=%F0%9F%98%80+q&gl=ge&hl=ka&google_domain=google.ge&lr=lang_ka&num=5.5&api_key=serpapi-secret-key-value-0123456789"
+  },
+  {
+   "kind": "request",
+   "locale": "ge",
+   "engine": "serpapi",
+   "query": "თბილისის მეტრო",
+   "count": "abc",
+   "secrets": {
+    "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+   },
+   "name": "ge/serpapi/nan/ge",
+   "expected": "https://serpapi.com/search.json?engine=google&q=%E1%83%97%E1%83%91%E1%83%98%E1%83%9A%E1%83%98%E1%83%A1%E1%83%98%E1%83%A1+%E1%83%9B%E1%83%94%E1%83%A2%E1%83%A0%E1%83%9D&gl=ge&hl=ka&google_domain=google.ge&lr=lang_ka&num=10&api_key=serpapi-secret-key-value-0123456789"
+  },
+  {
+   "kind": "request",
+   "locale": "ge",
+   "engine": "serpapi",
+   "query": "a b&c=d+e",
+   "count": "abc",
+   "secrets": {
+    "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+   },
+   "name": "ge/serpapi/nan/ascii",
+   "expected": "https://serpapi.com/search.json?engine=google&q=a+b%26c%3Dd%2Be&gl=ge&hl=ka&google_domain=google.ge&lr=lang_ka&num=10&api_key=serpapi-secret-key-value-0123456789"
+  },
+  {
+   "kind": "request",
+   "locale": "ge",
+   "engine": "serpapi",
+   "query": "x~y*z-._'()!",
+   "count": "abc",
+   "secrets": {
+    "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+   },
+   "name": "ge/serpapi/nan/symbols",
+   "expected": "https://serpapi.com/search.json?engine=google&q=x%7Ey*z-._%27%28%29%21&gl=ge&hl=ka&google_domain=google.ge&lr=lang_ka&num=10&api_key=serpapi-secret-key-value-0123456789"
+  },
+  {
+   "kind": "request",
+   "locale": "ge",
+   "engine": "serpapi",
+   "query": "😀 q",
+   "count": "abc",
+   "secrets": {
+    "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+   },
+   "name": "ge/serpapi/nan/emoji",
+   "expected": "https://serpapi.com/search.json?engine=google&q=%F0%9F%98%80+q&gl=ge&hl=ka&google_domain=google.ge&lr=lang_ka&num=10&api_key=serpapi-secret-key-value-0123456789"
+  },
+  {
+   "kind": "request",
+   "locale": "ge",
+   "engine": "serpapi",
+   "query": "თბილისის მეტრო",
+   "count": null,
+   "secrets": {
+    "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+   },
+   "name": "ge/serpapi/null/ge",
+   "expected": "https://serpapi.com/search.json?engine=google&q=%E1%83%97%E1%83%91%E1%83%98%E1%83%9A%E1%83%98%E1%83%A1%E1%83%98%E1%83%A1+%E1%83%9B%E1%83%94%E1%83%A2%E1%83%A0%E1%83%9D&gl=ge&hl=ka&google_domain=google.ge&lr=lang_ka&num=10&api_key=serpapi-secret-key-value-0123456789"
+  },
+  {
+   "kind": "request",
+   "locale": "ge",
+   "engine": "serpapi",
+   "query": "a b&c=d+e",
+   "count": null,
+   "secrets": {
+    "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+   },
+   "name": "ge/serpapi/null/ascii",
+   "expected": "https://serpapi.com/search.json?engine=google&q=a+b%26c%3Dd%2Be&gl=ge&hl=ka&google_domain=google.ge&lr=lang_ka&num=10&api_key=serpapi-secret-key-value-0123456789"
+  },
+  {
+   "kind": "request",
+   "locale": "ge",
+   "engine": "serpapi",
+   "query": "x~y*z-._'()!",
+   "count": null,
+   "secrets": {
+    "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+   },
+   "name": "ge/serpapi/null/symbols",
+   "expected": "https://serpapi.com/search.json?engine=google&q=x%7Ey*z-._%27%28%29%21&gl=ge&hl=ka&google_domain=google.ge&lr=lang_ka&num=10&api_key=serpapi-secret-key-value-0123456789"
+  },
+  {
+   "kind": "request",
+   "locale": "ge",
+   "engine": "serpapi",
+   "query": "😀 q",
+   "count": null,
+   "secrets": {
+    "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+   },
+   "name": "ge/serpapi/null/emoji",
+   "expected": "https://serpapi.com/search.json?engine=google&q=%F0%9F%98%80+q&gl=ge&hl=ka&google_domain=google.ge&lr=lang_ka&num=10&api_key=serpapi-secret-key-value-0123456789"
+  },
+  {
+   "kind": "request",
+   "locale": "ge",
+   "engine": "serpapi",
+   "query": "თბილისის მეტრო",
+   "count": true,
+   "secrets": {
+    "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+   },
+   "name": "ge/serpapi/true/ge",
+   "expected": "https://serpapi.com/search.json?engine=google&q=%E1%83%97%E1%83%91%E1%83%98%E1%83%9A%E1%83%98%E1%83%A1%E1%83%98%E1%83%A1+%E1%83%9B%E1%83%94%E1%83%A2%E1%83%A0%E1%83%9D&gl=ge&hl=ka&google_domain=google.ge&lr=lang_ka&num=1&api_key=serpapi-secret-key-value-0123456789"
+  },
+  {
+   "kind": "request",
+   "locale": "ge",
+   "engine": "serpapi",
+   "query": "a b&c=d+e",
+   "count": true,
+   "secrets": {
+    "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+   },
+   "name": "ge/serpapi/true/ascii",
+   "expected": "https://serpapi.com/search.json?engine=google&q=a+b%26c%3Dd%2Be&gl=ge&hl=ka&google_domain=google.ge&lr=lang_ka&num=1&api_key=serpapi-secret-key-value-0123456789"
+  },
+  {
+   "kind": "request",
+   "locale": "ge",
+   "engine": "serpapi",
+   "query": "x~y*z-._'()!",
+   "count": true,
+   "secrets": {
+    "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+   },
+   "name": "ge/serpapi/true/symbols",
+   "expected": "https://serpapi.com/search.json?engine=google&q=x%7Ey*z-._%27%28%29%21&gl=ge&hl=ka&google_domain=google.ge&lr=lang_ka&num=1&api_key=serpapi-secret-key-value-0123456789"
+  },
+  {
+   "kind": "request",
+   "locale": "ge",
+   "engine": "serpapi",
+   "query": "😀 q",
+   "count": true,
+   "secrets": {
+    "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+   },
+   "name": "ge/serpapi/true/emoji",
+   "expected": "https://serpapi.com/search.json?engine=google&q=%F0%9F%98%80+q&gl=ge&hl=ka&google_domain=google.ge&lr=lang_ka&num=1&api_key=serpapi-secret-key-value-0123456789"
+  },
+  {
+   "kind": "request",
+   "locale": "ge",
+   "engine": "brave",
+   "query": "თბილისის მეტრო",
+   "count": {
+    "absent": true
+   },
+   "secrets": {},
+   "name": "ge/brave/none/ge",
+   "expected": "https://api.search.brave.com/res/v1/web/search?q=%E1%83%97%E1%83%91%E1%83%98%E1%83%9A%E1%83%98%E1%83%A1%E1%83%98%E1%83%A1+%E1%83%9B%E1%83%94%E1%83%A2%E1%83%A0%E1%83%9D&country=ALL&count=10"
+  },
+  {
+   "kind": "request",
+   "locale": "ge",
+   "engine": "brave",
+   "query": "a b&c=d+e",
+   "count": {
+    "absent": true
+   },
+   "secrets": {},
+   "name": "ge/brave/none/ascii",
+   "expected": "https://api.search.brave.com/res/v1/web/search?q=a+b%26c%3Dd%2Be&country=ALL&count=10"
+  },
+  {
+   "kind": "request",
+   "locale": "ge",
+   "engine": "brave",
+   "query": "x~y*z-._'()!",
+   "count": {
+    "absent": true
+   },
+   "secrets": {},
+   "name": "ge/brave/none/symbols",
+   "expected": "https://api.search.brave.com/res/v1/web/search?q=x%7Ey*z-._%27%28%29%21&country=ALL&count=10"
+  },
+  {
+   "kind": "request",
+   "locale": "ge",
+   "engine": "brave",
+   "query": "😀 q",
+   "count": {
+    "absent": true
+   },
+   "secrets": {},
+   "name": "ge/brave/none/emoji",
+   "expected": "https://api.search.brave.com/res/v1/web/search?q=%F0%9F%98%80+q&country=ALL&count=10"
+  },
+  {
+   "kind": "request",
+   "locale": "ge",
+   "engine": "brave",
+   "query": "თბილისის მეტრო",
+   "count": 5,
+   "secrets": {},
+   "name": "ge/brave/5/ge",
+   "expected": "https://api.search.brave.com/res/v1/web/search?q=%E1%83%97%E1%83%91%E1%83%98%E1%83%9A%E1%83%98%E1%83%A1%E1%83%98%E1%83%A1+%E1%83%9B%E1%83%94%E1%83%A2%E1%83%A0%E1%83%9D&country=ALL&count=5"
+  },
+  {
+   "kind": "request",
+   "locale": "ge",
+   "engine": "brave",
+   "query": "a b&c=d+e",
+   "count": 5,
+   "secrets": {},
+   "name": "ge/brave/5/ascii",
+   "expected": "https://api.search.brave.com/res/v1/web/search?q=a+b%26c%3Dd%2Be&country=ALL&count=5"
+  },
+  {
+   "kind": "request",
+   "locale": "ge",
+   "engine": "brave",
+   "query": "x~y*z-._'()!",
+   "count": 5,
+   "secrets": {},
+   "name": "ge/brave/5/symbols",
+   "expected": "https://api.search.brave.com/res/v1/web/search?q=x%7Ey*z-._%27%28%29%21&country=ALL&count=5"
+  },
+  {
+   "kind": "request",
+   "locale": "ge",
+   "engine": "brave",
+   "query": "😀 q",
+   "count": 5,
+   "secrets": {},
+   "name": "ge/brave/5/emoji",
+   "expected": "https://api.search.brave.com/res/v1/web/search?q=%F0%9F%98%80+q&country=ALL&count=5"
+  },
+  {
+   "kind": "request",
+   "locale": "ge",
+   "engine": "brave",
+   "query": "თბილისის მეტრო",
+   "count": "5",
+   "secrets": {},
+   "name": "ge/brave/str5/ge",
+   "expected": "https://api.search.brave.com/res/v1/web/search?q=%E1%83%97%E1%83%91%E1%83%98%E1%83%9A%E1%83%98%E1%83%A1%E1%83%98%E1%83%A1+%E1%83%9B%E1%83%94%E1%83%A2%E1%83%A0%E1%83%9D&country=ALL&count=5"
+  },
+  {
+   "kind": "request",
+   "locale": "ge",
+   "engine": "brave",
+   "query": "a b&c=d+e",
+   "count": "5",
+   "secrets": {},
+   "name": "ge/brave/str5/ascii",
+   "expected": "https://api.search.brave.com/res/v1/web/search?q=a+b%26c%3Dd%2Be&country=ALL&count=5"
+  },
+  {
+   "kind": "request",
+   "locale": "ge",
+   "engine": "brave",
+   "query": "x~y*z-._'()!",
+   "count": "5",
+   "secrets": {},
+   "name": "ge/brave/str5/symbols",
+   "expected": "https://api.search.brave.com/res/v1/web/search?q=x%7Ey*z-._%27%28%29%21&country=ALL&count=5"
+  },
+  {
+   "kind": "request",
+   "locale": "ge",
+   "engine": "brave",
+   "query": "😀 q",
+   "count": "5",
+   "secrets": {},
+   "name": "ge/brave/str5/emoji",
+   "expected": "https://api.search.brave.com/res/v1/web/search?q=%F0%9F%98%80+q&country=ALL&count=5"
+  },
+  {
+   "kind": "request",
+   "locale": "ge",
+   "engine": "brave",
+   "query": "თბილისის მეტრო",
+   "count": 99,
+   "secrets": {},
+   "name": "ge/brave/99/ge",
+   "expected": "https://api.search.brave.com/res/v1/web/search?q=%E1%83%97%E1%83%91%E1%83%98%E1%83%9A%E1%83%98%E1%83%A1%E1%83%98%E1%83%A1+%E1%83%9B%E1%83%94%E1%83%A2%E1%83%A0%E1%83%9D&country=ALL&count=20"
+  },
+  {
+   "kind": "request",
+   "locale": "ge",
+   "engine": "brave",
+   "query": "a b&c=d+e",
+   "count": 99,
+   "secrets": {},
+   "name": "ge/brave/99/ascii",
+   "expected": "https://api.search.brave.com/res/v1/web/search?q=a+b%26c%3Dd%2Be&country=ALL&count=20"
+  },
+  {
+   "kind": "request",
+   "locale": "ge",
+   "engine": "brave",
+   "query": "x~y*z-._'()!",
+   "count": 99,
+   "secrets": {},
+   "name": "ge/brave/99/symbols",
+   "expected": "https://api.search.brave.com/res/v1/web/search?q=x%7Ey*z-._%27%28%29%21&country=ALL&count=20"
+  },
+  {
+   "kind": "request",
+   "locale": "ge",
+   "engine": "brave",
+   "query": "😀 q",
+   "count": 99,
+   "secrets": {},
+   "name": "ge/brave/99/emoji",
+   "expected": "https://api.search.brave.com/res/v1/web/search?q=%F0%9F%98%80+q&country=ALL&count=20"
+  },
+  {
+   "kind": "request",
+   "locale": "ge",
+   "engine": "brave",
+   "query": "თბილისის მეტრო",
+   "count": 0,
+   "secrets": {},
+   "name": "ge/brave/0/ge",
+   "expected": "https://api.search.brave.com/res/v1/web/search?q=%E1%83%97%E1%83%91%E1%83%98%E1%83%9A%E1%83%98%E1%83%A1%E1%83%98%E1%83%A1+%E1%83%9B%E1%83%94%E1%83%A2%E1%83%A0%E1%83%9D&country=ALL&count=10"
+  },
+  {
+   "kind": "request",
+   "locale": "ge",
+   "engine": "brave",
+   "query": "a b&c=d+e",
+   "count": 0,
+   "secrets": {},
+   "name": "ge/brave/0/ascii",
+   "expected": "https://api.search.brave.com/res/v1/web/search?q=a+b%26c%3Dd%2Be&country=ALL&count=10"
+  },
+  {
+   "kind": "request",
+   "locale": "ge",
+   "engine": "brave",
+   "query": "x~y*z-._'()!",
+   "count": 0,
+   "secrets": {},
+   "name": "ge/brave/0/symbols",
+   "expected": "https://api.search.brave.com/res/v1/web/search?q=x%7Ey*z-._%27%28%29%21&country=ALL&count=10"
+  },
+  {
+   "kind": "request",
+   "locale": "ge",
+   "engine": "brave",
+   "query": "😀 q",
+   "count": 0,
+   "secrets": {},
+   "name": "ge/brave/0/emoji",
+   "expected": "https://api.search.brave.com/res/v1/web/search?q=%F0%9F%98%80+q&country=ALL&count=10"
+  },
+  {
+   "kind": "request",
+   "locale": "ge",
+   "engine": "brave",
+   "query": "თბილისის მეტრო",
+   "count": -3,
+   "secrets": {},
+   "name": "ge/brave/neg/ge",
+   "expected": "https://api.search.brave.com/res/v1/web/search?q=%E1%83%97%E1%83%91%E1%83%98%E1%83%9A%E1%83%98%E1%83%A1%E1%83%98%E1%83%A1+%E1%83%9B%E1%83%94%E1%83%A2%E1%83%A0%E1%83%9D&country=ALL&count=1"
+  },
+  {
+   "kind": "request",
+   "locale": "ge",
+   "engine": "brave",
+   "query": "a b&c=d+e",
+   "count": -3,
+   "secrets": {},
+   "name": "ge/brave/neg/ascii",
+   "expected": "https://api.search.brave.com/res/v1/web/search?q=a+b%26c%3Dd%2Be&country=ALL&count=1"
+  },
+  {
+   "kind": "request",
+   "locale": "ge",
+   "engine": "brave",
+   "query": "x~y*z-._'()!",
+   "count": -3,
+   "secrets": {},
+   "name": "ge/brave/neg/symbols",
+   "expected": "https://api.search.brave.com/res/v1/web/search?q=x%7Ey*z-._%27%28%29%21&country=ALL&count=1"
+  },
+  {
+   "kind": "request",
+   "locale": "ge",
+   "engine": "brave",
+   "query": "😀 q",
+   "count": -3,
+   "secrets": {},
+   "name": "ge/brave/neg/emoji",
+   "expected": "https://api.search.brave.com/res/v1/web/search?q=%F0%9F%98%80+q&country=ALL&count=1"
+  },
+  {
+   "kind": "request",
+   "locale": "ge",
+   "engine": "brave",
+   "query": "თბილისის მეტრო",
+   "count": 5.5,
+   "secrets": {},
+   "name": "ge/brave/frac/ge",
+   "expected": "https://api.search.brave.com/res/v1/web/search?q=%E1%83%97%E1%83%91%E1%83%98%E1%83%9A%E1%83%98%E1%83%A1%E1%83%98%E1%83%A1+%E1%83%9B%E1%83%94%E1%83%A2%E1%83%A0%E1%83%9D&country=ALL&count=5.5"
+  },
+  {
+   "kind": "request",
+   "locale": "ge",
+   "engine": "brave",
+   "query": "a b&c=d+e",
+   "count": 5.5,
+   "secrets": {},
+   "name": "ge/brave/frac/ascii",
+   "expected": "https://api.search.brave.com/res/v1/web/search?q=a+b%26c%3Dd%2Be&country=ALL&count=5.5"
+  },
+  {
+   "kind": "request",
+   "locale": "ge",
+   "engine": "brave",
+   "query": "x~y*z-._'()!",
+   "count": 5.5,
+   "secrets": {},
+   "name": "ge/brave/frac/symbols",
+   "expected": "https://api.search.brave.com/res/v1/web/search?q=x%7Ey*z-._%27%28%29%21&country=ALL&count=5.5"
+  },
+  {
+   "kind": "request",
+   "locale": "ge",
+   "engine": "brave",
+   "query": "😀 q",
+   "count": 5.5,
+   "secrets": {},
+   "name": "ge/brave/frac/emoji",
+   "expected": "https://api.search.brave.com/res/v1/web/search?q=%F0%9F%98%80+q&country=ALL&count=5.5"
+  },
+  {
+   "kind": "request",
+   "locale": "ge",
+   "engine": "brave",
+   "query": "თბილისის მეტრო",
+   "count": "abc",
+   "secrets": {},
+   "name": "ge/brave/nan/ge",
+   "expected": "https://api.search.brave.com/res/v1/web/search?q=%E1%83%97%E1%83%91%E1%83%98%E1%83%9A%E1%83%98%E1%83%A1%E1%83%98%E1%83%A1+%E1%83%9B%E1%83%94%E1%83%A2%E1%83%A0%E1%83%9D&country=ALL&count=10"
+  },
+  {
+   "kind": "request",
+   "locale": "ge",
+   "engine": "brave",
+   "query": "a b&c=d+e",
+   "count": "abc",
+   "secrets": {},
+   "name": "ge/brave/nan/ascii",
+   "expected": "https://api.search.brave.com/res/v1/web/search?q=a+b%26c%3Dd%2Be&country=ALL&count=10"
+  },
+  {
+   "kind": "request",
+   "locale": "ge",
+   "engine": "brave",
+   "query": "x~y*z-._'()!",
+   "count": "abc",
+   "secrets": {},
+   "name": "ge/brave/nan/symbols",
+   "expected": "https://api.search.brave.com/res/v1/web/search?q=x%7Ey*z-._%27%28%29%21&country=ALL&count=10"
+  },
+  {
+   "kind": "request",
+   "locale": "ge",
+   "engine": "brave",
+   "query": "😀 q",
+   "count": "abc",
+   "secrets": {},
+   "name": "ge/brave/nan/emoji",
+   "expected": "https://api.search.brave.com/res/v1/web/search?q=%F0%9F%98%80+q&country=ALL&count=10"
+  },
+  {
+   "kind": "request",
+   "locale": "ge",
+   "engine": "brave",
+   "query": "თბილისის მეტრო",
+   "count": null,
+   "secrets": {},
+   "name": "ge/brave/null/ge",
+   "expected": "https://api.search.brave.com/res/v1/web/search?q=%E1%83%97%E1%83%91%E1%83%98%E1%83%9A%E1%83%98%E1%83%A1%E1%83%98%E1%83%A1+%E1%83%9B%E1%83%94%E1%83%A2%E1%83%A0%E1%83%9D&country=ALL&count=10"
+  },
+  {
+   "kind": "request",
+   "locale": "ge",
+   "engine": "brave",
+   "query": "a b&c=d+e",
+   "count": null,
+   "secrets": {},
+   "name": "ge/brave/null/ascii",
+   "expected": "https://api.search.brave.com/res/v1/web/search?q=a+b%26c%3Dd%2Be&country=ALL&count=10"
+  },
+  {
+   "kind": "request",
+   "locale": "ge",
+   "engine": "brave",
+   "query": "x~y*z-._'()!",
+   "count": null,
+   "secrets": {},
+   "name": "ge/brave/null/symbols",
+   "expected": "https://api.search.brave.com/res/v1/web/search?q=x%7Ey*z-._%27%28%29%21&country=ALL&count=10"
+  },
+  {
+   "kind": "request",
+   "locale": "ge",
+   "engine": "brave",
+   "query": "😀 q",
+   "count": null,
+   "secrets": {},
+   "name": "ge/brave/null/emoji",
+   "expected": "https://api.search.brave.com/res/v1/web/search?q=%F0%9F%98%80+q&country=ALL&count=10"
+  },
+  {
+   "kind": "request",
+   "locale": "ge",
+   "engine": "brave",
+   "query": "თბილისის მეტრო",
+   "count": true,
+   "secrets": {},
+   "name": "ge/brave/true/ge",
+   "expected": "https://api.search.brave.com/res/v1/web/search?q=%E1%83%97%E1%83%91%E1%83%98%E1%83%9A%E1%83%98%E1%83%A1%E1%83%98%E1%83%A1+%E1%83%9B%E1%83%94%E1%83%A2%E1%83%A0%E1%83%9D&country=ALL&count=1"
+  },
+  {
+   "kind": "request",
+   "locale": "ge",
+   "engine": "brave",
+   "query": "a b&c=d+e",
+   "count": true,
+   "secrets": {},
+   "name": "ge/brave/true/ascii",
+   "expected": "https://api.search.brave.com/res/v1/web/search?q=a+b%26c%3Dd%2Be&country=ALL&count=1"
+  },
+  {
+   "kind": "request",
+   "locale": "ge",
+   "engine": "brave",
+   "query": "x~y*z-._'()!",
+   "count": true,
+   "secrets": {},
+   "name": "ge/brave/true/symbols",
+   "expected": "https://api.search.brave.com/res/v1/web/search?q=x%7Ey*z-._%27%28%29%21&country=ALL&count=1"
+  },
+  {
+   "kind": "request",
+   "locale": "ge",
+   "engine": "brave",
+   "query": "😀 q",
+   "count": true,
+   "secrets": {},
+   "name": "ge/brave/true/emoji",
+   "expected": "https://api.search.brave.com/res/v1/web/search?q=%F0%9F%98%80+q&country=ALL&count=1"
+  },
+  {
+   "kind": "request",
+   "locale": "en",
+   "engine": "serpapi",
+   "query": "თბილისის მეტრო",
+   "count": {
+    "absent": true
+   },
+   "secrets": {
+    "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+   },
+   "name": "en/serpapi/none/ge",
+   "expected": "https://serpapi.com/search.json?engine=google&q=%E1%83%97%E1%83%91%E1%83%98%E1%83%9A%E1%83%98%E1%83%A1%E1%83%98%E1%83%A1+%E1%83%9B%E1%83%94%E1%83%A2%E1%83%A0%E1%83%9D&gl=us&hl=en&num=10&api_key=serpapi-secret-key-value-0123456789"
+  },
+  {
+   "kind": "request",
+   "locale": "en",
+   "engine": "serpapi",
+   "query": "a b&c=d+e",
+   "count": {
+    "absent": true
+   },
+   "secrets": {
+    "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+   },
+   "name": "en/serpapi/none/ascii",
+   "expected": "https://serpapi.com/search.json?engine=google&q=a+b%26c%3Dd%2Be&gl=us&hl=en&num=10&api_key=serpapi-secret-key-value-0123456789"
+  },
+  {
+   "kind": "request",
+   "locale": "en",
+   "engine": "serpapi",
+   "query": "x~y*z-._'()!",
+   "count": {
+    "absent": true
+   },
+   "secrets": {
+    "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+   },
+   "name": "en/serpapi/none/symbols",
+   "expected": "https://serpapi.com/search.json?engine=google&q=x%7Ey*z-._%27%28%29%21&gl=us&hl=en&num=10&api_key=serpapi-secret-key-value-0123456789"
+  },
+  {
+   "kind": "request",
+   "locale": "en",
+   "engine": "serpapi",
+   "query": "😀 q",
+   "count": {
+    "absent": true
+   },
+   "secrets": {
+    "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+   },
+   "name": "en/serpapi/none/emoji",
+   "expected": "https://serpapi.com/search.json?engine=google&q=%F0%9F%98%80+q&gl=us&hl=en&num=10&api_key=serpapi-secret-key-value-0123456789"
+  },
+  {
+   "kind": "request",
+   "locale": "en",
+   "engine": "serpapi",
+   "query": "თბილისის მეტრო",
+   "count": 5,
+   "secrets": {
+    "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+   },
+   "name": "en/serpapi/5/ge",
+   "expected": "https://serpapi.com/search.json?engine=google&q=%E1%83%97%E1%83%91%E1%83%98%E1%83%9A%E1%83%98%E1%83%A1%E1%83%98%E1%83%A1+%E1%83%9B%E1%83%94%E1%83%A2%E1%83%A0%E1%83%9D&gl=us&hl=en&num=5&api_key=serpapi-secret-key-value-0123456789"
+  },
+  {
+   "kind": "request",
+   "locale": "en",
+   "engine": "serpapi",
+   "query": "a b&c=d+e",
+   "count": 5,
+   "secrets": {
+    "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+   },
+   "name": "en/serpapi/5/ascii",
+   "expected": "https://serpapi.com/search.json?engine=google&q=a+b%26c%3Dd%2Be&gl=us&hl=en&num=5&api_key=serpapi-secret-key-value-0123456789"
+  },
+  {
+   "kind": "request",
+   "locale": "en",
+   "engine": "serpapi",
+   "query": "x~y*z-._'()!",
+   "count": 5,
+   "secrets": {
+    "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+   },
+   "name": "en/serpapi/5/symbols",
+   "expected": "https://serpapi.com/search.json?engine=google&q=x%7Ey*z-._%27%28%29%21&gl=us&hl=en&num=5&api_key=serpapi-secret-key-value-0123456789"
+  },
+  {
+   "kind": "request",
+   "locale": "en",
+   "engine": "serpapi",
+   "query": "😀 q",
+   "count": 5,
+   "secrets": {
+    "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+   },
+   "name": "en/serpapi/5/emoji",
+   "expected": "https://serpapi.com/search.json?engine=google&q=%F0%9F%98%80+q&gl=us&hl=en&num=5&api_key=serpapi-secret-key-value-0123456789"
+  },
+  {
+   "kind": "request",
+   "locale": "en",
+   "engine": "serpapi",
+   "query": "თბილისის მეტრო",
+   "count": "5",
+   "secrets": {
+    "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+   },
+   "name": "en/serpapi/str5/ge",
+   "expected": "https://serpapi.com/search.json?engine=google&q=%E1%83%97%E1%83%91%E1%83%98%E1%83%9A%E1%83%98%E1%83%A1%E1%83%98%E1%83%A1+%E1%83%9B%E1%83%94%E1%83%A2%E1%83%A0%E1%83%9D&gl=us&hl=en&num=5&api_key=serpapi-secret-key-value-0123456789"
+  },
+  {
+   "kind": "request",
+   "locale": "en",
+   "engine": "serpapi",
+   "query": "a b&c=d+e",
+   "count": "5",
+   "secrets": {
+    "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+   },
+   "name": "en/serpapi/str5/ascii",
+   "expected": "https://serpapi.com/search.json?engine=google&q=a+b%26c%3Dd%2Be&gl=us&hl=en&num=5&api_key=serpapi-secret-key-value-0123456789"
+  },
+  {
+   "kind": "request",
+   "locale": "en",
+   "engine": "serpapi",
+   "query": "x~y*z-._'()!",
+   "count": "5",
+   "secrets": {
+    "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+   },
+   "name": "en/serpapi/str5/symbols",
+   "expected": "https://serpapi.com/search.json?engine=google&q=x%7Ey*z-._%27%28%29%21&gl=us&hl=en&num=5&api_key=serpapi-secret-key-value-0123456789"
+  },
+  {
+   "kind": "request",
+   "locale": "en",
+   "engine": "serpapi",
+   "query": "😀 q",
+   "count": "5",
+   "secrets": {
+    "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+   },
+   "name": "en/serpapi/str5/emoji",
+   "expected": "https://serpapi.com/search.json?engine=google&q=%F0%9F%98%80+q&gl=us&hl=en&num=5&api_key=serpapi-secret-key-value-0123456789"
+  },
+  {
+   "kind": "request",
+   "locale": "en",
+   "engine": "serpapi",
+   "query": "თბილისის მეტრო",
+   "count": 99,
+   "secrets": {
+    "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+   },
+   "name": "en/serpapi/99/ge",
+   "expected": "https://serpapi.com/search.json?engine=google&q=%E1%83%97%E1%83%91%E1%83%98%E1%83%9A%E1%83%98%E1%83%A1%E1%83%98%E1%83%A1+%E1%83%9B%E1%83%94%E1%83%A2%E1%83%A0%E1%83%9D&gl=us&hl=en&num=20&api_key=serpapi-secret-key-value-0123456789"
+  },
+  {
+   "kind": "request",
+   "locale": "en",
+   "engine": "serpapi",
+   "query": "a b&c=d+e",
+   "count": 99,
+   "secrets": {
+    "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+   },
+   "name": "en/serpapi/99/ascii",
+   "expected": "https://serpapi.com/search.json?engine=google&q=a+b%26c%3Dd%2Be&gl=us&hl=en&num=20&api_key=serpapi-secret-key-value-0123456789"
+  },
+  {
+   "kind": "request",
+   "locale": "en",
+   "engine": "serpapi",
+   "query": "x~y*z-._'()!",
+   "count": 99,
+   "secrets": {
+    "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+   },
+   "name": "en/serpapi/99/symbols",
+   "expected": "https://serpapi.com/search.json?engine=google&q=x%7Ey*z-._%27%28%29%21&gl=us&hl=en&num=20&api_key=serpapi-secret-key-value-0123456789"
+  },
+  {
+   "kind": "request",
+   "locale": "en",
+   "engine": "serpapi",
+   "query": "😀 q",
+   "count": 99,
+   "secrets": {
+    "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+   },
+   "name": "en/serpapi/99/emoji",
+   "expected": "https://serpapi.com/search.json?engine=google&q=%F0%9F%98%80+q&gl=us&hl=en&num=20&api_key=serpapi-secret-key-value-0123456789"
+  },
+  {
+   "kind": "request",
+   "locale": "en",
+   "engine": "serpapi",
+   "query": "თბილისის მეტრო",
+   "count": 0,
+   "secrets": {
+    "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+   },
+   "name": "en/serpapi/0/ge",
+   "expected": "https://serpapi.com/search.json?engine=google&q=%E1%83%97%E1%83%91%E1%83%98%E1%83%9A%E1%83%98%E1%83%A1%E1%83%98%E1%83%A1+%E1%83%9B%E1%83%94%E1%83%A2%E1%83%A0%E1%83%9D&gl=us&hl=en&num=10&api_key=serpapi-secret-key-value-0123456789"
+  },
+  {
+   "kind": "request",
+   "locale": "en",
+   "engine": "serpapi",
+   "query": "a b&c=d+e",
+   "count": 0,
+   "secrets": {
+    "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+   },
+   "name": "en/serpapi/0/ascii",
+   "expected": "https://serpapi.com/search.json?engine=google&q=a+b%26c%3Dd%2Be&gl=us&hl=en&num=10&api_key=serpapi-secret-key-value-0123456789"
+  },
+  {
+   "kind": "request",
+   "locale": "en",
+   "engine": "serpapi",
+   "query": "x~y*z-._'()!",
+   "count": 0,
+   "secrets": {
+    "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+   },
+   "name": "en/serpapi/0/symbols",
+   "expected": "https://serpapi.com/search.json?engine=google&q=x%7Ey*z-._%27%28%29%21&gl=us&hl=en&num=10&api_key=serpapi-secret-key-value-0123456789"
+  },
+  {
+   "kind": "request",
+   "locale": "en",
+   "engine": "serpapi",
+   "query": "😀 q",
+   "count": 0,
+   "secrets": {
+    "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+   },
+   "name": "en/serpapi/0/emoji",
+   "expected": "https://serpapi.com/search.json?engine=google&q=%F0%9F%98%80+q&gl=us&hl=en&num=10&api_key=serpapi-secret-key-value-0123456789"
+  },
+  {
+   "kind": "request",
+   "locale": "en",
+   "engine": "serpapi",
+   "query": "თბილისის მეტრო",
+   "count": -3,
+   "secrets": {
+    "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+   },
+   "name": "en/serpapi/neg/ge",
+   "expected": "https://serpapi.com/search.json?engine=google&q=%E1%83%97%E1%83%91%E1%83%98%E1%83%9A%E1%83%98%E1%83%A1%E1%83%98%E1%83%A1+%E1%83%9B%E1%83%94%E1%83%A2%E1%83%A0%E1%83%9D&gl=us&hl=en&num=1&api_key=serpapi-secret-key-value-0123456789"
+  },
+  {
+   "kind": "request",
+   "locale": "en",
+   "engine": "serpapi",
+   "query": "a b&c=d+e",
+   "count": -3,
+   "secrets": {
+    "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+   },
+   "name": "en/serpapi/neg/ascii",
+   "expected": "https://serpapi.com/search.json?engine=google&q=a+b%26c%3Dd%2Be&gl=us&hl=en&num=1&api_key=serpapi-secret-key-value-0123456789"
+  },
+  {
+   "kind": "request",
+   "locale": "en",
+   "engine": "serpapi",
+   "query": "x~y*z-._'()!",
+   "count": -3,
+   "secrets": {
+    "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+   },
+   "name": "en/serpapi/neg/symbols",
+   "expected": "https://serpapi.com/search.json?engine=google&q=x%7Ey*z-._%27%28%29%21&gl=us&hl=en&num=1&api_key=serpapi-secret-key-value-0123456789"
+  },
+  {
+   "kind": "request",
+   "locale": "en",
+   "engine": "serpapi",
+   "query": "😀 q",
+   "count": -3,
+   "secrets": {
+    "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+   },
+   "name": "en/serpapi/neg/emoji",
+   "expected": "https://serpapi.com/search.json?engine=google&q=%F0%9F%98%80+q&gl=us&hl=en&num=1&api_key=serpapi-secret-key-value-0123456789"
+  },
+  {
+   "kind": "request",
+   "locale": "en",
+   "engine": "serpapi",
+   "query": "თბილისის მეტრო",
+   "count": 5.5,
+   "secrets": {
+    "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+   },
+   "name": "en/serpapi/frac/ge",
+   "expected": "https://serpapi.com/search.json?engine=google&q=%E1%83%97%E1%83%91%E1%83%98%E1%83%9A%E1%83%98%E1%83%A1%E1%83%98%E1%83%A1+%E1%83%9B%E1%83%94%E1%83%A2%E1%83%A0%E1%83%9D&gl=us&hl=en&num=5.5&api_key=serpapi-secret-key-value-0123456789"
+  },
+  {
+   "kind": "request",
+   "locale": "en",
+   "engine": "serpapi",
+   "query": "a b&c=d+e",
+   "count": 5.5,
+   "secrets": {
+    "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+   },
+   "name": "en/serpapi/frac/ascii",
+   "expected": "https://serpapi.com/search.json?engine=google&q=a+b%26c%3Dd%2Be&gl=us&hl=en&num=5.5&api_key=serpapi-secret-key-value-0123456789"
+  },
+  {
+   "kind": "request",
+   "locale": "en",
+   "engine": "serpapi",
+   "query": "x~y*z-._'()!",
+   "count": 5.5,
+   "secrets": {
+    "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+   },
+   "name": "en/serpapi/frac/symbols",
+   "expected": "https://serpapi.com/search.json?engine=google&q=x%7Ey*z-._%27%28%29%21&gl=us&hl=en&num=5.5&api_key=serpapi-secret-key-value-0123456789"
+  },
+  {
+   "kind": "request",
+   "locale": "en",
+   "engine": "serpapi",
+   "query": "😀 q",
+   "count": 5.5,
+   "secrets": {
+    "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+   },
+   "name": "en/serpapi/frac/emoji",
+   "expected": "https://serpapi.com/search.json?engine=google&q=%F0%9F%98%80+q&gl=us&hl=en&num=5.5&api_key=serpapi-secret-key-value-0123456789"
+  },
+  {
+   "kind": "request",
+   "locale": "en",
+   "engine": "serpapi",
+   "query": "თბილისის მეტრო",
+   "count": "abc",
+   "secrets": {
+    "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+   },
+   "name": "en/serpapi/nan/ge",
+   "expected": "https://serpapi.com/search.json?engine=google&q=%E1%83%97%E1%83%91%E1%83%98%E1%83%9A%E1%83%98%E1%83%A1%E1%83%98%E1%83%A1+%E1%83%9B%E1%83%94%E1%83%A2%E1%83%A0%E1%83%9D&gl=us&hl=en&num=10&api_key=serpapi-secret-key-value-0123456789"
+  },
+  {
+   "kind": "request",
+   "locale": "en",
+   "engine": "serpapi",
+   "query": "a b&c=d+e",
+   "count": "abc",
+   "secrets": {
+    "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+   },
+   "name": "en/serpapi/nan/ascii",
+   "expected": "https://serpapi.com/search.json?engine=google&q=a+b%26c%3Dd%2Be&gl=us&hl=en&num=10&api_key=serpapi-secret-key-value-0123456789"
+  },
+  {
+   "kind": "request",
+   "locale": "en",
+   "engine": "serpapi",
+   "query": "x~y*z-._'()!",
+   "count": "abc",
+   "secrets": {
+    "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+   },
+   "name": "en/serpapi/nan/symbols",
+   "expected": "https://serpapi.com/search.json?engine=google&q=x%7Ey*z-._%27%28%29%21&gl=us&hl=en&num=10&api_key=serpapi-secret-key-value-0123456789"
+  },
+  {
+   "kind": "request",
+   "locale": "en",
+   "engine": "serpapi",
+   "query": "😀 q",
+   "count": "abc",
+   "secrets": {
+    "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+   },
+   "name": "en/serpapi/nan/emoji",
+   "expected": "https://serpapi.com/search.json?engine=google&q=%F0%9F%98%80+q&gl=us&hl=en&num=10&api_key=serpapi-secret-key-value-0123456789"
+  },
+  {
+   "kind": "request",
+   "locale": "en",
+   "engine": "serpapi",
+   "query": "თბილისის მეტრო",
+   "count": null,
+   "secrets": {
+    "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+   },
+   "name": "en/serpapi/null/ge",
+   "expected": "https://serpapi.com/search.json?engine=google&q=%E1%83%97%E1%83%91%E1%83%98%E1%83%9A%E1%83%98%E1%83%A1%E1%83%98%E1%83%A1+%E1%83%9B%E1%83%94%E1%83%A2%E1%83%A0%E1%83%9D&gl=us&hl=en&num=10&api_key=serpapi-secret-key-value-0123456789"
+  },
+  {
+   "kind": "request",
+   "locale": "en",
+   "engine": "serpapi",
+   "query": "a b&c=d+e",
+   "count": null,
+   "secrets": {
+    "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+   },
+   "name": "en/serpapi/null/ascii",
+   "expected": "https://serpapi.com/search.json?engine=google&q=a+b%26c%3Dd%2Be&gl=us&hl=en&num=10&api_key=serpapi-secret-key-value-0123456789"
+  },
+  {
+   "kind": "request",
+   "locale": "en",
+   "engine": "serpapi",
+   "query": "x~y*z-._'()!",
+   "count": null,
+   "secrets": {
+    "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+   },
+   "name": "en/serpapi/null/symbols",
+   "expected": "https://serpapi.com/search.json?engine=google&q=x%7Ey*z-._%27%28%29%21&gl=us&hl=en&num=10&api_key=serpapi-secret-key-value-0123456789"
+  },
+  {
+   "kind": "request",
+   "locale": "en",
+   "engine": "serpapi",
+   "query": "😀 q",
+   "count": null,
+   "secrets": {
+    "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+   },
+   "name": "en/serpapi/null/emoji",
+   "expected": "https://serpapi.com/search.json?engine=google&q=%F0%9F%98%80+q&gl=us&hl=en&num=10&api_key=serpapi-secret-key-value-0123456789"
+  },
+  {
+   "kind": "request",
+   "locale": "en",
+   "engine": "serpapi",
+   "query": "თბილისის მეტრო",
+   "count": true,
+   "secrets": {
+    "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+   },
+   "name": "en/serpapi/true/ge",
+   "expected": "https://serpapi.com/search.json?engine=google&q=%E1%83%97%E1%83%91%E1%83%98%E1%83%9A%E1%83%98%E1%83%A1%E1%83%98%E1%83%A1+%E1%83%9B%E1%83%94%E1%83%A2%E1%83%A0%E1%83%9D&gl=us&hl=en&num=1&api_key=serpapi-secret-key-value-0123456789"
+  },
+  {
+   "kind": "request",
+   "locale": "en",
+   "engine": "serpapi",
+   "query": "a b&c=d+e",
+   "count": true,
+   "secrets": {
+    "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+   },
+   "name": "en/serpapi/true/ascii",
+   "expected": "https://serpapi.com/search.json?engine=google&q=a+b%26c%3Dd%2Be&gl=us&hl=en&num=1&api_key=serpapi-secret-key-value-0123456789"
+  },
+  {
+   "kind": "request",
+   "locale": "en",
+   "engine": "serpapi",
+   "query": "x~y*z-._'()!",
+   "count": true,
+   "secrets": {
+    "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+   },
+   "name": "en/serpapi/true/symbols",
+   "expected": "https://serpapi.com/search.json?engine=google&q=x%7Ey*z-._%27%28%29%21&gl=us&hl=en&num=1&api_key=serpapi-secret-key-value-0123456789"
+  },
+  {
+   "kind": "request",
+   "locale": "en",
+   "engine": "serpapi",
+   "query": "😀 q",
+   "count": true,
+   "secrets": {
+    "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+   },
+   "name": "en/serpapi/true/emoji",
+   "expected": "https://serpapi.com/search.json?engine=google&q=%F0%9F%98%80+q&gl=us&hl=en&num=1&api_key=serpapi-secret-key-value-0123456789"
+  },
+  {
+   "kind": "request",
+   "locale": "en",
+   "engine": "brave",
+   "query": "თბილისის მეტრო",
+   "count": {
+    "absent": true
+   },
+   "secrets": {},
+   "name": "en/brave/none/ge",
+   "expected": "https://api.search.brave.com/res/v1/web/search?q=%E1%83%97%E1%83%91%E1%83%98%E1%83%9A%E1%83%98%E1%83%A1%E1%83%98%E1%83%A1+%E1%83%9B%E1%83%94%E1%83%A2%E1%83%A0%E1%83%9D&country=US&search_lang=en&ui_lang=en-US&count=10"
+  },
+  {
+   "kind": "request",
+   "locale": "en",
+   "engine": "brave",
+   "query": "a b&c=d+e",
+   "count": {
+    "absent": true
+   },
+   "secrets": {},
+   "name": "en/brave/none/ascii",
+   "expected": "https://api.search.brave.com/res/v1/web/search?q=a+b%26c%3Dd%2Be&country=US&search_lang=en&ui_lang=en-US&count=10"
+  },
+  {
+   "kind": "request",
+   "locale": "en",
+   "engine": "brave",
+   "query": "x~y*z-._'()!",
+   "count": {
+    "absent": true
+   },
+   "secrets": {},
+   "name": "en/brave/none/symbols",
+   "expected": "https://api.search.brave.com/res/v1/web/search?q=x%7Ey*z-._%27%28%29%21&country=US&search_lang=en&ui_lang=en-US&count=10"
+  },
+  {
+   "kind": "request",
+   "locale": "en",
+   "engine": "brave",
+   "query": "😀 q",
+   "count": {
+    "absent": true
+   },
+   "secrets": {},
+   "name": "en/brave/none/emoji",
+   "expected": "https://api.search.brave.com/res/v1/web/search?q=%F0%9F%98%80+q&country=US&search_lang=en&ui_lang=en-US&count=10"
+  },
+  {
+   "kind": "request",
+   "locale": "en",
+   "engine": "brave",
+   "query": "თბილისის მეტრო",
+   "count": 5,
+   "secrets": {},
+   "name": "en/brave/5/ge",
+   "expected": "https://api.search.brave.com/res/v1/web/search?q=%E1%83%97%E1%83%91%E1%83%98%E1%83%9A%E1%83%98%E1%83%A1%E1%83%98%E1%83%A1+%E1%83%9B%E1%83%94%E1%83%A2%E1%83%A0%E1%83%9D&country=US&search_lang=en&ui_lang=en-US&count=5"
+  },
+  {
+   "kind": "request",
+   "locale": "en",
+   "engine": "brave",
+   "query": "a b&c=d+e",
+   "count": 5,
+   "secrets": {},
+   "name": "en/brave/5/ascii",
+   "expected": "https://api.search.brave.com/res/v1/web/search?q=a+b%26c%3Dd%2Be&country=US&search_lang=en&ui_lang=en-US&count=5"
+  },
+  {
+   "kind": "request",
+   "locale": "en",
+   "engine": "brave",
+   "query": "x~y*z-._'()!",
+   "count": 5,
+   "secrets": {},
+   "name": "en/brave/5/symbols",
+   "expected": "https://api.search.brave.com/res/v1/web/search?q=x%7Ey*z-._%27%28%29%21&country=US&search_lang=en&ui_lang=en-US&count=5"
+  },
+  {
+   "kind": "request",
+   "locale": "en",
+   "engine": "brave",
+   "query": "😀 q",
+   "count": 5,
+   "secrets": {},
+   "name": "en/brave/5/emoji",
+   "expected": "https://api.search.brave.com/res/v1/web/search?q=%F0%9F%98%80+q&country=US&search_lang=en&ui_lang=en-US&count=5"
+  },
+  {
+   "kind": "request",
+   "locale": "en",
+   "engine": "brave",
+   "query": "თბილისის მეტრო",
+   "count": "5",
+   "secrets": {},
+   "name": "en/brave/str5/ge",
+   "expected": "https://api.search.brave.com/res/v1/web/search?q=%E1%83%97%E1%83%91%E1%83%98%E1%83%9A%E1%83%98%E1%83%A1%E1%83%98%E1%83%A1+%E1%83%9B%E1%83%94%E1%83%A2%E1%83%A0%E1%83%9D&country=US&search_lang=en&ui_lang=en-US&count=5"
+  },
+  {
+   "kind": "request",
+   "locale": "en",
+   "engine": "brave",
+   "query": "a b&c=d+e",
+   "count": "5",
+   "secrets": {},
+   "name": "en/brave/str5/ascii",
+   "expected": "https://api.search.brave.com/res/v1/web/search?q=a+b%26c%3Dd%2Be&country=US&search_lang=en&ui_lang=en-US&count=5"
+  },
+  {
+   "kind": "request",
+   "locale": "en",
+   "engine": "brave",
+   "query": "x~y*z-._'()!",
+   "count": "5",
+   "secrets": {},
+   "name": "en/brave/str5/symbols",
+   "expected": "https://api.search.brave.com/res/v1/web/search?q=x%7Ey*z-._%27%28%29%21&country=US&search_lang=en&ui_lang=en-US&count=5"
+  },
+  {
+   "kind": "request",
+   "locale": "en",
+   "engine": "brave",
+   "query": "😀 q",
+   "count": "5",
+   "secrets": {},
+   "name": "en/brave/str5/emoji",
+   "expected": "https://api.search.brave.com/res/v1/web/search?q=%F0%9F%98%80+q&country=US&search_lang=en&ui_lang=en-US&count=5"
+  },
+  {
+   "kind": "request",
+   "locale": "en",
+   "engine": "brave",
+   "query": "თბილისის მეტრო",
+   "count": 99,
+   "secrets": {},
+   "name": "en/brave/99/ge",
+   "expected": "https://api.search.brave.com/res/v1/web/search?q=%E1%83%97%E1%83%91%E1%83%98%E1%83%9A%E1%83%98%E1%83%A1%E1%83%98%E1%83%A1+%E1%83%9B%E1%83%94%E1%83%A2%E1%83%A0%E1%83%9D&country=US&search_lang=en&ui_lang=en-US&count=20"
+  },
+  {
+   "kind": "request",
+   "locale": "en",
+   "engine": "brave",
+   "query": "a b&c=d+e",
+   "count": 99,
+   "secrets": {},
+   "name": "en/brave/99/ascii",
+   "expected": "https://api.search.brave.com/res/v1/web/search?q=a+b%26c%3Dd%2Be&country=US&search_lang=en&ui_lang=en-US&count=20"
+  },
+  {
+   "kind": "request",
+   "locale": "en",
+   "engine": "brave",
+   "query": "x~y*z-._'()!",
+   "count": 99,
+   "secrets": {},
+   "name": "en/brave/99/symbols",
+   "expected": "https://api.search.brave.com/res/v1/web/search?q=x%7Ey*z-._%27%28%29%21&country=US&search_lang=en&ui_lang=en-US&count=20"
+  },
+  {
+   "kind": "request",
+   "locale": "en",
+   "engine": "brave",
+   "query": "😀 q",
+   "count": 99,
+   "secrets": {},
+   "name": "en/brave/99/emoji",
+   "expected": "https://api.search.brave.com/res/v1/web/search?q=%F0%9F%98%80+q&country=US&search_lang=en&ui_lang=en-US&count=20"
+  },
+  {
+   "kind": "request",
+   "locale": "en",
+   "engine": "brave",
+   "query": "თბილისის მეტრო",
+   "count": 0,
+   "secrets": {},
+   "name": "en/brave/0/ge",
+   "expected": "https://api.search.brave.com/res/v1/web/search?q=%E1%83%97%E1%83%91%E1%83%98%E1%83%9A%E1%83%98%E1%83%A1%E1%83%98%E1%83%A1+%E1%83%9B%E1%83%94%E1%83%A2%E1%83%A0%E1%83%9D&country=US&search_lang=en&ui_lang=en-US&count=10"
+  },
+  {
+   "kind": "request",
+   "locale": "en",
+   "engine": "brave",
+   "query": "a b&c=d+e",
+   "count": 0,
+   "secrets": {},
+   "name": "en/brave/0/ascii",
+   "expected": "https://api.search.brave.com/res/v1/web/search?q=a+b%26c%3Dd%2Be&country=US&search_lang=en&ui_lang=en-US&count=10"
+  },
+  {
+   "kind": "request",
+   "locale": "en",
+   "engine": "brave",
+   "query": "x~y*z-._'()!",
+   "count": 0,
+   "secrets": {},
+   "name": "en/brave/0/symbols",
+   "expected": "https://api.search.brave.com/res/v1/web/search?q=x%7Ey*z-._%27%28%29%21&country=US&search_lang=en&ui_lang=en-US&count=10"
+  },
+  {
+   "kind": "request",
+   "locale": "en",
+   "engine": "brave",
+   "query": "😀 q",
+   "count": 0,
+   "secrets": {},
+   "name": "en/brave/0/emoji",
+   "expected": "https://api.search.brave.com/res/v1/web/search?q=%F0%9F%98%80+q&country=US&search_lang=en&ui_lang=en-US&count=10"
+  },
+  {
+   "kind": "request",
+   "locale": "en",
+   "engine": "brave",
+   "query": "თბილისის მეტრო",
+   "count": -3,
+   "secrets": {},
+   "name": "en/brave/neg/ge",
+   "expected": "https://api.search.brave.com/res/v1/web/search?q=%E1%83%97%E1%83%91%E1%83%98%E1%83%9A%E1%83%98%E1%83%A1%E1%83%98%E1%83%A1+%E1%83%9B%E1%83%94%E1%83%A2%E1%83%A0%E1%83%9D&country=US&search_lang=en&ui_lang=en-US&count=1"
+  },
+  {
+   "kind": "request",
+   "locale": "en",
+   "engine": "brave",
+   "query": "a b&c=d+e",
+   "count": -3,
+   "secrets": {},
+   "name": "en/brave/neg/ascii",
+   "expected": "https://api.search.brave.com/res/v1/web/search?q=a+b%26c%3Dd%2Be&country=US&search_lang=en&ui_lang=en-US&count=1"
+  },
+  {
+   "kind": "request",
+   "locale": "en",
+   "engine": "brave",
+   "query": "x~y*z-._'()!",
+   "count": -3,
+   "secrets": {},
+   "name": "en/brave/neg/symbols",
+   "expected": "https://api.search.brave.com/res/v1/web/search?q=x%7Ey*z-._%27%28%29%21&country=US&search_lang=en&ui_lang=en-US&count=1"
+  },
+  {
+   "kind": "request",
+   "locale": "en",
+   "engine": "brave",
+   "query": "😀 q",
+   "count": -3,
+   "secrets": {},
+   "name": "en/brave/neg/emoji",
+   "expected": "https://api.search.brave.com/res/v1/web/search?q=%F0%9F%98%80+q&country=US&search_lang=en&ui_lang=en-US&count=1"
+  },
+  {
+   "kind": "request",
+   "locale": "en",
+   "engine": "brave",
+   "query": "თბილისის მეტრო",
+   "count": 5.5,
+   "secrets": {},
+   "name": "en/brave/frac/ge",
+   "expected": "https://api.search.brave.com/res/v1/web/search?q=%E1%83%97%E1%83%91%E1%83%98%E1%83%9A%E1%83%98%E1%83%A1%E1%83%98%E1%83%A1+%E1%83%9B%E1%83%94%E1%83%A2%E1%83%A0%E1%83%9D&country=US&search_lang=en&ui_lang=en-US&count=5.5"
+  },
+  {
+   "kind": "request",
+   "locale": "en",
+   "engine": "brave",
+   "query": "a b&c=d+e",
+   "count": 5.5,
+   "secrets": {},
+   "name": "en/brave/frac/ascii",
+   "expected": "https://api.search.brave.com/res/v1/web/search?q=a+b%26c%3Dd%2Be&country=US&search_lang=en&ui_lang=en-US&count=5.5"
+  },
+  {
+   "kind": "request",
+   "locale": "en",
+   "engine": "brave",
+   "query": "x~y*z-._'()!",
+   "count": 5.5,
+   "secrets": {},
+   "name": "en/brave/frac/symbols",
+   "expected": "https://api.search.brave.com/res/v1/web/search?q=x%7Ey*z-._%27%28%29%21&country=US&search_lang=en&ui_lang=en-US&count=5.5"
+  },
+  {
+   "kind": "request",
+   "locale": "en",
+   "engine": "brave",
+   "query": "😀 q",
+   "count": 5.5,
+   "secrets": {},
+   "name": "en/brave/frac/emoji",
+   "expected": "https://api.search.brave.com/res/v1/web/search?q=%F0%9F%98%80+q&country=US&search_lang=en&ui_lang=en-US&count=5.5"
+  },
+  {
+   "kind": "request",
+   "locale": "en",
+   "engine": "brave",
+   "query": "თბილისის მეტრო",
+   "count": "abc",
+   "secrets": {},
+   "name": "en/brave/nan/ge",
+   "expected": "https://api.search.brave.com/res/v1/web/search?q=%E1%83%97%E1%83%91%E1%83%98%E1%83%9A%E1%83%98%E1%83%A1%E1%83%98%E1%83%A1+%E1%83%9B%E1%83%94%E1%83%A2%E1%83%A0%E1%83%9D&country=US&search_lang=en&ui_lang=en-US&count=10"
+  },
+  {
+   "kind": "request",
+   "locale": "en",
+   "engine": "brave",
+   "query": "a b&c=d+e",
+   "count": "abc",
+   "secrets": {},
+   "name": "en/brave/nan/ascii",
+   "expected": "https://api.search.brave.com/res/v1/web/search?q=a+b%26c%3Dd%2Be&country=US&search_lang=en&ui_lang=en-US&count=10"
+  },
+  {
+   "kind": "request",
+   "locale": "en",
+   "engine": "brave",
+   "query": "x~y*z-._'()!",
+   "count": "abc",
+   "secrets": {},
+   "name": "en/brave/nan/symbols",
+   "expected": "https://api.search.brave.com/res/v1/web/search?q=x%7Ey*z-._%27%28%29%21&country=US&search_lang=en&ui_lang=en-US&count=10"
+  },
+  {
+   "kind": "request",
+   "locale": "en",
+   "engine": "brave",
+   "query": "😀 q",
+   "count": "abc",
+   "secrets": {},
+   "name": "en/brave/nan/emoji",
+   "expected": "https://api.search.brave.com/res/v1/web/search?q=%F0%9F%98%80+q&country=US&search_lang=en&ui_lang=en-US&count=10"
+  },
+  {
+   "kind": "request",
+   "locale": "en",
+   "engine": "brave",
+   "query": "თბილისის მეტრო",
+   "count": null,
+   "secrets": {},
+   "name": "en/brave/null/ge",
+   "expected": "https://api.search.brave.com/res/v1/web/search?q=%E1%83%97%E1%83%91%E1%83%98%E1%83%9A%E1%83%98%E1%83%A1%E1%83%98%E1%83%A1+%E1%83%9B%E1%83%94%E1%83%A2%E1%83%A0%E1%83%9D&country=US&search_lang=en&ui_lang=en-US&count=10"
+  },
+  {
+   "kind": "request",
+   "locale": "en",
+   "engine": "brave",
+   "query": "a b&c=d+e",
+   "count": null,
+   "secrets": {},
+   "name": "en/brave/null/ascii",
+   "expected": "https://api.search.brave.com/res/v1/web/search?q=a+b%26c%3Dd%2Be&country=US&search_lang=en&ui_lang=en-US&count=10"
+  },
+  {
+   "kind": "request",
+   "locale": "en",
+   "engine": "brave",
+   "query": "x~y*z-._'()!",
+   "count": null,
+   "secrets": {},
+   "name": "en/brave/null/symbols",
+   "expected": "https://api.search.brave.com/res/v1/web/search?q=x%7Ey*z-._%27%28%29%21&country=US&search_lang=en&ui_lang=en-US&count=10"
+  },
+  {
+   "kind": "request",
+   "locale": "en",
+   "engine": "brave",
+   "query": "😀 q",
+   "count": null,
+   "secrets": {},
+   "name": "en/brave/null/emoji",
+   "expected": "https://api.search.brave.com/res/v1/web/search?q=%F0%9F%98%80+q&country=US&search_lang=en&ui_lang=en-US&count=10"
+  },
+  {
+   "kind": "request",
+   "locale": "en",
+   "engine": "brave",
+   "query": "თბილისის მეტრო",
+   "count": true,
+   "secrets": {},
+   "name": "en/brave/true/ge",
+   "expected": "https://api.search.brave.com/res/v1/web/search?q=%E1%83%97%E1%83%91%E1%83%98%E1%83%9A%E1%83%98%E1%83%A1%E1%83%98%E1%83%A1+%E1%83%9B%E1%83%94%E1%83%A2%E1%83%A0%E1%83%9D&country=US&search_lang=en&ui_lang=en-US&count=1"
+  },
+  {
+   "kind": "request",
+   "locale": "en",
+   "engine": "brave",
+   "query": "a b&c=d+e",
+   "count": true,
+   "secrets": {},
+   "name": "en/brave/true/ascii",
+   "expected": "https://api.search.brave.com/res/v1/web/search?q=a+b%26c%3Dd%2Be&country=US&search_lang=en&ui_lang=en-US&count=1"
+  },
+  {
+   "kind": "request",
+   "locale": "en",
+   "engine": "brave",
+   "query": "x~y*z-._'()!",
+   "count": true,
+   "secrets": {},
+   "name": "en/brave/true/symbols",
+   "expected": "https://api.search.brave.com/res/v1/web/search?q=x%7Ey*z-._%27%28%29%21&country=US&search_lang=en&ui_lang=en-US&count=1"
+  },
+  {
+   "kind": "request",
+   "locale": "en",
+   "engine": "brave",
+   "query": "😀 q",
+   "count": true,
+   "secrets": {},
+   "name": "en/brave/true/emoji",
+   "expected": "https://api.search.brave.com/res/v1/web/search?q=%F0%9F%98%80+q&country=US&search_lang=en&ui_lang=en-US&count=1"
+  },
+  {
+   "kind": "request",
+   "locale": "brave_only",
+   "engine": "brave",
+   "query": "თბილისის მეტრო",
+   "count": {
+    "absent": true
+   },
+   "secrets": {},
+   "name": "brave_only/brave/none/ge",
+   "expected": "https://api.search.brave.com/res/v1/web/search?q=%E1%83%97%E1%83%91%E1%83%98%E1%83%9A%E1%83%98%E1%83%A1%E1%83%98%E1%83%A1+%E1%83%9B%E1%83%94%E1%83%A2%E1%83%A0%E1%83%9D&country=ALL&count=10"
+  },
+  {
+   "kind": "request",
+   "locale": "brave_only",
+   "engine": "brave",
+   "query": "a b&c=d+e",
+   "count": {
+    "absent": true
+   },
+   "secrets": {},
+   "name": "brave_only/brave/none/ascii",
+   "expected": "https://api.search.brave.com/res/v1/web/search?q=a+b%26c%3Dd%2Be&country=ALL&count=10"
+  },
+  {
+   "kind": "request",
+   "locale": "brave_only",
+   "engine": "brave",
+   "query": "x~y*z-._'()!",
+   "count": {
+    "absent": true
+   },
+   "secrets": {},
+   "name": "brave_only/brave/none/symbols",
+   "expected": "https://api.search.brave.com/res/v1/web/search?q=x%7Ey*z-._%27%28%29%21&country=ALL&count=10"
+  },
+  {
+   "kind": "request",
+   "locale": "brave_only",
+   "engine": "brave",
+   "query": "😀 q",
+   "count": {
+    "absent": true
+   },
+   "secrets": {},
+   "name": "brave_only/brave/none/emoji",
+   "expected": "https://api.search.brave.com/res/v1/web/search?q=%F0%9F%98%80+q&country=ALL&count=10"
+  },
+  {
+   "kind": "request",
+   "locale": "brave_only",
+   "engine": "brave",
+   "query": "თბილისის მეტრო",
+   "count": 5,
+   "secrets": {},
+   "name": "brave_only/brave/5/ge",
+   "expected": "https://api.search.brave.com/res/v1/web/search?q=%E1%83%97%E1%83%91%E1%83%98%E1%83%9A%E1%83%98%E1%83%A1%E1%83%98%E1%83%A1+%E1%83%9B%E1%83%94%E1%83%A2%E1%83%A0%E1%83%9D&country=ALL&count=5"
+  },
+  {
+   "kind": "request",
+   "locale": "brave_only",
+   "engine": "brave",
+   "query": "a b&c=d+e",
+   "count": 5,
+   "secrets": {},
+   "name": "brave_only/brave/5/ascii",
+   "expected": "https://api.search.brave.com/res/v1/web/search?q=a+b%26c%3Dd%2Be&country=ALL&count=5"
+  },
+  {
+   "kind": "request",
+   "locale": "brave_only",
+   "engine": "brave",
+   "query": "x~y*z-._'()!",
+   "count": 5,
+   "secrets": {},
+   "name": "brave_only/brave/5/symbols",
+   "expected": "https://api.search.brave.com/res/v1/web/search?q=x%7Ey*z-._%27%28%29%21&country=ALL&count=5"
+  },
+  {
+   "kind": "request",
+   "locale": "brave_only",
+   "engine": "brave",
+   "query": "😀 q",
+   "count": 5,
+   "secrets": {},
+   "name": "brave_only/brave/5/emoji",
+   "expected": "https://api.search.brave.com/res/v1/web/search?q=%F0%9F%98%80+q&country=ALL&count=5"
+  },
+  {
+   "kind": "request",
+   "locale": "brave_only",
+   "engine": "brave",
+   "query": "თბილისის მეტრო",
+   "count": "5",
+   "secrets": {},
+   "name": "brave_only/brave/str5/ge",
+   "expected": "https://api.search.brave.com/res/v1/web/search?q=%E1%83%97%E1%83%91%E1%83%98%E1%83%9A%E1%83%98%E1%83%A1%E1%83%98%E1%83%A1+%E1%83%9B%E1%83%94%E1%83%A2%E1%83%A0%E1%83%9D&country=ALL&count=5"
+  },
+  {
+   "kind": "request",
+   "locale": "brave_only",
+   "engine": "brave",
+   "query": "a b&c=d+e",
+   "count": "5",
+   "secrets": {},
+   "name": "brave_only/brave/str5/ascii",
+   "expected": "https://api.search.brave.com/res/v1/web/search?q=a+b%26c%3Dd%2Be&country=ALL&count=5"
+  },
+  {
+   "kind": "request",
+   "locale": "brave_only",
+   "engine": "brave",
+   "query": "x~y*z-._'()!",
+   "count": "5",
+   "secrets": {},
+   "name": "brave_only/brave/str5/symbols",
+   "expected": "https://api.search.brave.com/res/v1/web/search?q=x%7Ey*z-._%27%28%29%21&country=ALL&count=5"
+  },
+  {
+   "kind": "request",
+   "locale": "brave_only",
+   "engine": "brave",
+   "query": "😀 q",
+   "count": "5",
+   "secrets": {},
+   "name": "brave_only/brave/str5/emoji",
+   "expected": "https://api.search.brave.com/res/v1/web/search?q=%F0%9F%98%80+q&country=ALL&count=5"
+  },
+  {
+   "kind": "request",
+   "locale": "brave_only",
+   "engine": "brave",
+   "query": "თბილისის მეტრო",
+   "count": 99,
+   "secrets": {},
+   "name": "brave_only/brave/99/ge",
+   "expected": "https://api.search.brave.com/res/v1/web/search?q=%E1%83%97%E1%83%91%E1%83%98%E1%83%9A%E1%83%98%E1%83%A1%E1%83%98%E1%83%A1+%E1%83%9B%E1%83%94%E1%83%A2%E1%83%A0%E1%83%9D&country=ALL&count=20"
+  },
+  {
+   "kind": "request",
+   "locale": "brave_only",
+   "engine": "brave",
+   "query": "a b&c=d+e",
+   "count": 99,
+   "secrets": {},
+   "name": "brave_only/brave/99/ascii",
+   "expected": "https://api.search.brave.com/res/v1/web/search?q=a+b%26c%3Dd%2Be&country=ALL&count=20"
+  },
+  {
+   "kind": "request",
+   "locale": "brave_only",
+   "engine": "brave",
+   "query": "x~y*z-._'()!",
+   "count": 99,
+   "secrets": {},
+   "name": "brave_only/brave/99/symbols",
+   "expected": "https://api.search.brave.com/res/v1/web/search?q=x%7Ey*z-._%27%28%29%21&country=ALL&count=20"
+  },
+  {
+   "kind": "request",
+   "locale": "brave_only",
+   "engine": "brave",
+   "query": "😀 q",
+   "count": 99,
+   "secrets": {},
+   "name": "brave_only/brave/99/emoji",
+   "expected": "https://api.search.brave.com/res/v1/web/search?q=%F0%9F%98%80+q&country=ALL&count=20"
+  },
+  {
+   "kind": "request",
+   "locale": "brave_only",
+   "engine": "brave",
+   "query": "თბილისის მეტრო",
+   "count": 0,
+   "secrets": {},
+   "name": "brave_only/brave/0/ge",
+   "expected": "https://api.search.brave.com/res/v1/web/search?q=%E1%83%97%E1%83%91%E1%83%98%E1%83%9A%E1%83%98%E1%83%A1%E1%83%98%E1%83%A1+%E1%83%9B%E1%83%94%E1%83%A2%E1%83%A0%E1%83%9D&country=ALL&count=10"
+  },
+  {
+   "kind": "request",
+   "locale": "brave_only",
+   "engine": "brave",
+   "query": "a b&c=d+e",
+   "count": 0,
+   "secrets": {},
+   "name": "brave_only/brave/0/ascii",
+   "expected": "https://api.search.brave.com/res/v1/web/search?q=a+b%26c%3Dd%2Be&country=ALL&count=10"
+  },
+  {
+   "kind": "request",
+   "locale": "brave_only",
+   "engine": "brave",
+   "query": "x~y*z-._'()!",
+   "count": 0,
+   "secrets": {},
+   "name": "brave_only/brave/0/symbols",
+   "expected": "https://api.search.brave.com/res/v1/web/search?q=x%7Ey*z-._%27%28%29%21&country=ALL&count=10"
+  },
+  {
+   "kind": "request",
+   "locale": "brave_only",
+   "engine": "brave",
+   "query": "😀 q",
+   "count": 0,
+   "secrets": {},
+   "name": "brave_only/brave/0/emoji",
+   "expected": "https://api.search.brave.com/res/v1/web/search?q=%F0%9F%98%80+q&country=ALL&count=10"
+  },
+  {
+   "kind": "request",
+   "locale": "brave_only",
+   "engine": "brave",
+   "query": "თბილისის მეტრო",
+   "count": -3,
+   "secrets": {},
+   "name": "brave_only/brave/neg/ge",
+   "expected": "https://api.search.brave.com/res/v1/web/search?q=%E1%83%97%E1%83%91%E1%83%98%E1%83%9A%E1%83%98%E1%83%A1%E1%83%98%E1%83%A1+%E1%83%9B%E1%83%94%E1%83%A2%E1%83%A0%E1%83%9D&country=ALL&count=1"
+  },
+  {
+   "kind": "request",
+   "locale": "brave_only",
+   "engine": "brave",
+   "query": "a b&c=d+e",
+   "count": -3,
+   "secrets": {},
+   "name": "brave_only/brave/neg/ascii",
+   "expected": "https://api.search.brave.com/res/v1/web/search?q=a+b%26c%3Dd%2Be&country=ALL&count=1"
+  },
+  {
+   "kind": "request",
+   "locale": "brave_only",
+   "engine": "brave",
+   "query": "x~y*z-._'()!",
+   "count": -3,
+   "secrets": {},
+   "name": "brave_only/brave/neg/symbols",
+   "expected": "https://api.search.brave.com/res/v1/web/search?q=x%7Ey*z-._%27%28%29%21&country=ALL&count=1"
+  },
+  {
+   "kind": "request",
+   "locale": "brave_only",
+   "engine": "brave",
+   "query": "😀 q",
+   "count": -3,
+   "secrets": {},
+   "name": "brave_only/brave/neg/emoji",
+   "expected": "https://api.search.brave.com/res/v1/web/search?q=%F0%9F%98%80+q&country=ALL&count=1"
+  },
+  {
+   "kind": "request",
+   "locale": "brave_only",
+   "engine": "brave",
+   "query": "თბილისის მეტრო",
+   "count": 5.5,
+   "secrets": {},
+   "name": "brave_only/brave/frac/ge",
+   "expected": "https://api.search.brave.com/res/v1/web/search?q=%E1%83%97%E1%83%91%E1%83%98%E1%83%9A%E1%83%98%E1%83%A1%E1%83%98%E1%83%A1+%E1%83%9B%E1%83%94%E1%83%A2%E1%83%A0%E1%83%9D&country=ALL&count=5.5"
+  },
+  {
+   "kind": "request",
+   "locale": "brave_only",
+   "engine": "brave",
+   "query": "a b&c=d+e",
+   "count": 5.5,
+   "secrets": {},
+   "name": "brave_only/brave/frac/ascii",
+   "expected": "https://api.search.brave.com/res/v1/web/search?q=a+b%26c%3Dd%2Be&country=ALL&count=5.5"
+  },
+  {
+   "kind": "request",
+   "locale": "brave_only",
+   "engine": "brave",
+   "query": "x~y*z-._'()!",
+   "count": 5.5,
+   "secrets": {},
+   "name": "brave_only/brave/frac/symbols",
+   "expected": "https://api.search.brave.com/res/v1/web/search?q=x%7Ey*z-._%27%28%29%21&country=ALL&count=5.5"
+  },
+  {
+   "kind": "request",
+   "locale": "brave_only",
+   "engine": "brave",
+   "query": "😀 q",
+   "count": 5.5,
+   "secrets": {},
+   "name": "brave_only/brave/frac/emoji",
+   "expected": "https://api.search.brave.com/res/v1/web/search?q=%F0%9F%98%80+q&country=ALL&count=5.5"
+  },
+  {
+   "kind": "request",
+   "locale": "brave_only",
+   "engine": "brave",
+   "query": "თბილისის მეტრო",
+   "count": "abc",
+   "secrets": {},
+   "name": "brave_only/brave/nan/ge",
+   "expected": "https://api.search.brave.com/res/v1/web/search?q=%E1%83%97%E1%83%91%E1%83%98%E1%83%9A%E1%83%98%E1%83%A1%E1%83%98%E1%83%A1+%E1%83%9B%E1%83%94%E1%83%A2%E1%83%A0%E1%83%9D&country=ALL&count=10"
+  },
+  {
+   "kind": "request",
+   "locale": "brave_only",
+   "engine": "brave",
+   "query": "a b&c=d+e",
+   "count": "abc",
+   "secrets": {},
+   "name": "brave_only/brave/nan/ascii",
+   "expected": "https://api.search.brave.com/res/v1/web/search?q=a+b%26c%3Dd%2Be&country=ALL&count=10"
+  },
+  {
+   "kind": "request",
+   "locale": "brave_only",
+   "engine": "brave",
+   "query": "x~y*z-._'()!",
+   "count": "abc",
+   "secrets": {},
+   "name": "brave_only/brave/nan/symbols",
+   "expected": "https://api.search.brave.com/res/v1/web/search?q=x%7Ey*z-._%27%28%29%21&country=ALL&count=10"
+  },
+  {
+   "kind": "request",
+   "locale": "brave_only",
+   "engine": "brave",
+   "query": "😀 q",
+   "count": "abc",
+   "secrets": {},
+   "name": "brave_only/brave/nan/emoji",
+   "expected": "https://api.search.brave.com/res/v1/web/search?q=%F0%9F%98%80+q&country=ALL&count=10"
+  },
+  {
+   "kind": "request",
+   "locale": "brave_only",
+   "engine": "brave",
+   "query": "თბილისის მეტრო",
+   "count": null,
+   "secrets": {},
+   "name": "brave_only/brave/null/ge",
+   "expected": "https://api.search.brave.com/res/v1/web/search?q=%E1%83%97%E1%83%91%E1%83%98%E1%83%9A%E1%83%98%E1%83%A1%E1%83%98%E1%83%A1+%E1%83%9B%E1%83%94%E1%83%A2%E1%83%A0%E1%83%9D&country=ALL&count=10"
+  },
+  {
+   "kind": "request",
+   "locale": "brave_only",
+   "engine": "brave",
+   "query": "a b&c=d+e",
+   "count": null,
+   "secrets": {},
+   "name": "brave_only/brave/null/ascii",
+   "expected": "https://api.search.brave.com/res/v1/web/search?q=a+b%26c%3Dd%2Be&country=ALL&count=10"
+  },
+  {
+   "kind": "request",
+   "locale": "brave_only",
+   "engine": "brave",
+   "query": "x~y*z-._'()!",
+   "count": null,
+   "secrets": {},
+   "name": "brave_only/brave/null/symbols",
+   "expected": "https://api.search.brave.com/res/v1/web/search?q=x%7Ey*z-._%27%28%29%21&country=ALL&count=10"
+  },
+  {
+   "kind": "request",
+   "locale": "brave_only",
+   "engine": "brave",
+   "query": "😀 q",
+   "count": null,
+   "secrets": {},
+   "name": "brave_only/brave/null/emoji",
+   "expected": "https://api.search.brave.com/res/v1/web/search?q=%F0%9F%98%80+q&country=ALL&count=10"
+  },
+  {
+   "kind": "request",
+   "locale": "brave_only",
+   "engine": "brave",
+   "query": "თბილისის მეტრო",
+   "count": true,
+   "secrets": {},
+   "name": "brave_only/brave/true/ge",
+   "expected": "https://api.search.brave.com/res/v1/web/search?q=%E1%83%97%E1%83%91%E1%83%98%E1%83%9A%E1%83%98%E1%83%A1%E1%83%98%E1%83%A1+%E1%83%9B%E1%83%94%E1%83%A2%E1%83%A0%E1%83%9D&country=ALL&count=1"
+  },
+  {
+   "kind": "request",
+   "locale": "brave_only",
+   "engine": "brave",
+   "query": "a b&c=d+e",
+   "count": true,
+   "secrets": {},
+   "name": "brave_only/brave/true/ascii",
+   "expected": "https://api.search.brave.com/res/v1/web/search?q=a+b%26c%3Dd%2Be&country=ALL&count=1"
+  },
+  {
+   "kind": "request",
+   "locale": "brave_only",
+   "engine": "brave",
+   "query": "x~y*z-._'()!",
+   "count": true,
+   "secrets": {},
+   "name": "brave_only/brave/true/symbols",
+   "expected": "https://api.search.brave.com/res/v1/web/search?q=x%7Ey*z-._%27%28%29%21&country=ALL&count=1"
+  },
+  {
+   "kind": "request",
+   "locale": "brave_only",
+   "engine": "brave",
+   "query": "😀 q",
+   "count": true,
+   "secrets": {},
+   "name": "brave_only/brave/true/emoji",
+   "expected": "https://api.search.brave.com/res/v1/web/search?q=%F0%9F%98%80+q&country=ALL&count=1"
+  },
+  {
+   "kind": "request",
+   "locale": "serp_only",
+   "engine": "serpapi",
+   "query": "თბილისის მეტრო",
+   "count": {
+    "absent": true
+   },
+   "secrets": {
+    "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+   },
+   "name": "serp_only/serpapi/none/ge",
+   "expected": "https://serpapi.com/search.json?engine=google&q=%E1%83%97%E1%83%91%E1%83%98%E1%83%9A%E1%83%98%E1%83%A1%E1%83%98%E1%83%A1+%E1%83%9B%E1%83%94%E1%83%A2%E1%83%A0%E1%83%9D&gl=ge&hl=ka&google_domain=google.ge&lr=lang_ka&num=10&api_key=serpapi-secret-key-value-0123456789"
+  },
+  {
+   "kind": "request",
+   "locale": "serp_only",
+   "engine": "serpapi",
+   "query": "a b&c=d+e",
+   "count": {
+    "absent": true
+   },
+   "secrets": {
+    "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+   },
+   "name": "serp_only/serpapi/none/ascii",
+   "expected": "https://serpapi.com/search.json?engine=google&q=a+b%26c%3Dd%2Be&gl=ge&hl=ka&google_domain=google.ge&lr=lang_ka&num=10&api_key=serpapi-secret-key-value-0123456789"
+  },
+  {
+   "kind": "request",
+   "locale": "serp_only",
+   "engine": "serpapi",
+   "query": "x~y*z-._'()!",
+   "count": {
+    "absent": true
+   },
+   "secrets": {
+    "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+   },
+   "name": "serp_only/serpapi/none/symbols",
+   "expected": "https://serpapi.com/search.json?engine=google&q=x%7Ey*z-._%27%28%29%21&gl=ge&hl=ka&google_domain=google.ge&lr=lang_ka&num=10&api_key=serpapi-secret-key-value-0123456789"
+  },
+  {
+   "kind": "request",
+   "locale": "serp_only",
+   "engine": "serpapi",
+   "query": "😀 q",
+   "count": {
+    "absent": true
+   },
+   "secrets": {
+    "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+   },
+   "name": "serp_only/serpapi/none/emoji",
+   "expected": "https://serpapi.com/search.json?engine=google&q=%F0%9F%98%80+q&gl=ge&hl=ka&google_domain=google.ge&lr=lang_ka&num=10&api_key=serpapi-secret-key-value-0123456789"
+  },
+  {
+   "kind": "request",
+   "locale": "serp_only",
+   "engine": "serpapi",
+   "query": "თბილისის მეტრო",
+   "count": 5,
+   "secrets": {
+    "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+   },
+   "name": "serp_only/serpapi/5/ge",
+   "expected": "https://serpapi.com/search.json?engine=google&q=%E1%83%97%E1%83%91%E1%83%98%E1%83%9A%E1%83%98%E1%83%A1%E1%83%98%E1%83%A1+%E1%83%9B%E1%83%94%E1%83%A2%E1%83%A0%E1%83%9D&gl=ge&hl=ka&google_domain=google.ge&lr=lang_ka&num=5&api_key=serpapi-secret-key-value-0123456789"
+  },
+  {
+   "kind": "request",
+   "locale": "serp_only",
+   "engine": "serpapi",
+   "query": "a b&c=d+e",
+   "count": 5,
+   "secrets": {
+    "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+   },
+   "name": "serp_only/serpapi/5/ascii",
+   "expected": "https://serpapi.com/search.json?engine=google&q=a+b%26c%3Dd%2Be&gl=ge&hl=ka&google_domain=google.ge&lr=lang_ka&num=5&api_key=serpapi-secret-key-value-0123456789"
+  },
+  {
+   "kind": "request",
+   "locale": "serp_only",
+   "engine": "serpapi",
+   "query": "x~y*z-._'()!",
+   "count": 5,
+   "secrets": {
+    "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+   },
+   "name": "serp_only/serpapi/5/symbols",
+   "expected": "https://serpapi.com/search.json?engine=google&q=x%7Ey*z-._%27%28%29%21&gl=ge&hl=ka&google_domain=google.ge&lr=lang_ka&num=5&api_key=serpapi-secret-key-value-0123456789"
+  },
+  {
+   "kind": "request",
+   "locale": "serp_only",
+   "engine": "serpapi",
+   "query": "😀 q",
+   "count": 5,
+   "secrets": {
+    "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+   },
+   "name": "serp_only/serpapi/5/emoji",
+   "expected": "https://serpapi.com/search.json?engine=google&q=%F0%9F%98%80+q&gl=ge&hl=ka&google_domain=google.ge&lr=lang_ka&num=5&api_key=serpapi-secret-key-value-0123456789"
+  },
+  {
+   "kind": "request",
+   "locale": "serp_only",
+   "engine": "serpapi",
+   "query": "თბილისის მეტრო",
+   "count": "5",
+   "secrets": {
+    "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+   },
+   "name": "serp_only/serpapi/str5/ge",
+   "expected": "https://serpapi.com/search.json?engine=google&q=%E1%83%97%E1%83%91%E1%83%98%E1%83%9A%E1%83%98%E1%83%A1%E1%83%98%E1%83%A1+%E1%83%9B%E1%83%94%E1%83%A2%E1%83%A0%E1%83%9D&gl=ge&hl=ka&google_domain=google.ge&lr=lang_ka&num=5&api_key=serpapi-secret-key-value-0123456789"
+  },
+  {
+   "kind": "request",
+   "locale": "serp_only",
+   "engine": "serpapi",
+   "query": "a b&c=d+e",
+   "count": "5",
+   "secrets": {
+    "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+   },
+   "name": "serp_only/serpapi/str5/ascii",
+   "expected": "https://serpapi.com/search.json?engine=google&q=a+b%26c%3Dd%2Be&gl=ge&hl=ka&google_domain=google.ge&lr=lang_ka&num=5&api_key=serpapi-secret-key-value-0123456789"
+  },
+  {
+   "kind": "request",
+   "locale": "serp_only",
+   "engine": "serpapi",
+   "query": "x~y*z-._'()!",
+   "count": "5",
+   "secrets": {
+    "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+   },
+   "name": "serp_only/serpapi/str5/symbols",
+   "expected": "https://serpapi.com/search.json?engine=google&q=x%7Ey*z-._%27%28%29%21&gl=ge&hl=ka&google_domain=google.ge&lr=lang_ka&num=5&api_key=serpapi-secret-key-value-0123456789"
+  },
+  {
+   "kind": "request",
+   "locale": "serp_only",
+   "engine": "serpapi",
+   "query": "😀 q",
+   "count": "5",
+   "secrets": {
+    "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+   },
+   "name": "serp_only/serpapi/str5/emoji",
+   "expected": "https://serpapi.com/search.json?engine=google&q=%F0%9F%98%80+q&gl=ge&hl=ka&google_domain=google.ge&lr=lang_ka&num=5&api_key=serpapi-secret-key-value-0123456789"
+  },
+  {
+   "kind": "request",
+   "locale": "serp_only",
+   "engine": "serpapi",
+   "query": "თბილისის მეტრო",
+   "count": 99,
+   "secrets": {
+    "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+   },
+   "name": "serp_only/serpapi/99/ge",
+   "expected": "https://serpapi.com/search.json?engine=google&q=%E1%83%97%E1%83%91%E1%83%98%E1%83%9A%E1%83%98%E1%83%A1%E1%83%98%E1%83%A1+%E1%83%9B%E1%83%94%E1%83%A2%E1%83%A0%E1%83%9D&gl=ge&hl=ka&google_domain=google.ge&lr=lang_ka&num=20&api_key=serpapi-secret-key-value-0123456789"
+  },
+  {
+   "kind": "request",
+   "locale": "serp_only",
+   "engine": "serpapi",
+   "query": "a b&c=d+e",
+   "count": 99,
+   "secrets": {
+    "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+   },
+   "name": "serp_only/serpapi/99/ascii",
+   "expected": "https://serpapi.com/search.json?engine=google&q=a+b%26c%3Dd%2Be&gl=ge&hl=ka&google_domain=google.ge&lr=lang_ka&num=20&api_key=serpapi-secret-key-value-0123456789"
+  },
+  {
+   "kind": "request",
+   "locale": "serp_only",
+   "engine": "serpapi",
+   "query": "x~y*z-._'()!",
+   "count": 99,
+   "secrets": {
+    "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+   },
+   "name": "serp_only/serpapi/99/symbols",
+   "expected": "https://serpapi.com/search.json?engine=google&q=x%7Ey*z-._%27%28%29%21&gl=ge&hl=ka&google_domain=google.ge&lr=lang_ka&num=20&api_key=serpapi-secret-key-value-0123456789"
+  },
+  {
+   "kind": "request",
+   "locale": "serp_only",
+   "engine": "serpapi",
+   "query": "😀 q",
+   "count": 99,
+   "secrets": {
+    "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+   },
+   "name": "serp_only/serpapi/99/emoji",
+   "expected": "https://serpapi.com/search.json?engine=google&q=%F0%9F%98%80+q&gl=ge&hl=ka&google_domain=google.ge&lr=lang_ka&num=20&api_key=serpapi-secret-key-value-0123456789"
+  },
+  {
+   "kind": "request",
+   "locale": "serp_only",
+   "engine": "serpapi",
+   "query": "თბილისის მეტრო",
+   "count": 0,
+   "secrets": {
+    "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+   },
+   "name": "serp_only/serpapi/0/ge",
+   "expected": "https://serpapi.com/search.json?engine=google&q=%E1%83%97%E1%83%91%E1%83%98%E1%83%9A%E1%83%98%E1%83%A1%E1%83%98%E1%83%A1+%E1%83%9B%E1%83%94%E1%83%A2%E1%83%A0%E1%83%9D&gl=ge&hl=ka&google_domain=google.ge&lr=lang_ka&num=10&api_key=serpapi-secret-key-value-0123456789"
+  },
+  {
+   "kind": "request",
+   "locale": "serp_only",
+   "engine": "serpapi",
+   "query": "a b&c=d+e",
+   "count": 0,
+   "secrets": {
+    "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+   },
+   "name": "serp_only/serpapi/0/ascii",
+   "expected": "https://serpapi.com/search.json?engine=google&q=a+b%26c%3Dd%2Be&gl=ge&hl=ka&google_domain=google.ge&lr=lang_ka&num=10&api_key=serpapi-secret-key-value-0123456789"
+  },
+  {
+   "kind": "request",
+   "locale": "serp_only",
+   "engine": "serpapi",
+   "query": "x~y*z-._'()!",
+   "count": 0,
+   "secrets": {
+    "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+   },
+   "name": "serp_only/serpapi/0/symbols",
+   "expected": "https://serpapi.com/search.json?engine=google&q=x%7Ey*z-._%27%28%29%21&gl=ge&hl=ka&google_domain=google.ge&lr=lang_ka&num=10&api_key=serpapi-secret-key-value-0123456789"
+  },
+  {
+   "kind": "request",
+   "locale": "serp_only",
+   "engine": "serpapi",
+   "query": "😀 q",
+   "count": 0,
+   "secrets": {
+    "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+   },
+   "name": "serp_only/serpapi/0/emoji",
+   "expected": "https://serpapi.com/search.json?engine=google&q=%F0%9F%98%80+q&gl=ge&hl=ka&google_domain=google.ge&lr=lang_ka&num=10&api_key=serpapi-secret-key-value-0123456789"
+  },
+  {
+   "kind": "request",
+   "locale": "serp_only",
+   "engine": "serpapi",
+   "query": "თბილისის მეტრო",
+   "count": -3,
+   "secrets": {
+    "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+   },
+   "name": "serp_only/serpapi/neg/ge",
+   "expected": "https://serpapi.com/search.json?engine=google&q=%E1%83%97%E1%83%91%E1%83%98%E1%83%9A%E1%83%98%E1%83%A1%E1%83%98%E1%83%A1+%E1%83%9B%E1%83%94%E1%83%A2%E1%83%A0%E1%83%9D&gl=ge&hl=ka&google_domain=google.ge&lr=lang_ka&num=1&api_key=serpapi-secret-key-value-0123456789"
+  },
+  {
+   "kind": "request",
+   "locale": "serp_only",
+   "engine": "serpapi",
+   "query": "a b&c=d+e",
+   "count": -3,
+   "secrets": {
+    "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+   },
+   "name": "serp_only/serpapi/neg/ascii",
+   "expected": "https://serpapi.com/search.json?engine=google&q=a+b%26c%3Dd%2Be&gl=ge&hl=ka&google_domain=google.ge&lr=lang_ka&num=1&api_key=serpapi-secret-key-value-0123456789"
+  },
+  {
+   "kind": "request",
+   "locale": "serp_only",
+   "engine": "serpapi",
+   "query": "x~y*z-._'()!",
+   "count": -3,
+   "secrets": {
+    "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+   },
+   "name": "serp_only/serpapi/neg/symbols",
+   "expected": "https://serpapi.com/search.json?engine=google&q=x%7Ey*z-._%27%28%29%21&gl=ge&hl=ka&google_domain=google.ge&lr=lang_ka&num=1&api_key=serpapi-secret-key-value-0123456789"
+  },
+  {
+   "kind": "request",
+   "locale": "serp_only",
+   "engine": "serpapi",
+   "query": "😀 q",
+   "count": -3,
+   "secrets": {
+    "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+   },
+   "name": "serp_only/serpapi/neg/emoji",
+   "expected": "https://serpapi.com/search.json?engine=google&q=%F0%9F%98%80+q&gl=ge&hl=ka&google_domain=google.ge&lr=lang_ka&num=1&api_key=serpapi-secret-key-value-0123456789"
+  },
+  {
+   "kind": "request",
+   "locale": "serp_only",
+   "engine": "serpapi",
+   "query": "თბილისის მეტრო",
+   "count": 5.5,
+   "secrets": {
+    "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+   },
+   "name": "serp_only/serpapi/frac/ge",
+   "expected": "https://serpapi.com/search.json?engine=google&q=%E1%83%97%E1%83%91%E1%83%98%E1%83%9A%E1%83%98%E1%83%A1%E1%83%98%E1%83%A1+%E1%83%9B%E1%83%94%E1%83%A2%E1%83%A0%E1%83%9D&gl=ge&hl=ka&google_domain=google.ge&lr=lang_ka&num=5.5&api_key=serpapi-secret-key-value-0123456789"
+  },
+  {
+   "kind": "request",
+   "locale": "serp_only",
+   "engine": "serpapi",
+   "query": "a b&c=d+e",
+   "count": 5.5,
+   "secrets": {
+    "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+   },
+   "name": "serp_only/serpapi/frac/ascii",
+   "expected": "https://serpapi.com/search.json?engine=google&q=a+b%26c%3Dd%2Be&gl=ge&hl=ka&google_domain=google.ge&lr=lang_ka&num=5.5&api_key=serpapi-secret-key-value-0123456789"
+  },
+  {
+   "kind": "request",
+   "locale": "serp_only",
+   "engine": "serpapi",
+   "query": "x~y*z-._'()!",
+   "count": 5.5,
+   "secrets": {
+    "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+   },
+   "name": "serp_only/serpapi/frac/symbols",
+   "expected": "https://serpapi.com/search.json?engine=google&q=x%7Ey*z-._%27%28%29%21&gl=ge&hl=ka&google_domain=google.ge&lr=lang_ka&num=5.5&api_key=serpapi-secret-key-value-0123456789"
+  },
+  {
+   "kind": "request",
+   "locale": "serp_only",
+   "engine": "serpapi",
+   "query": "😀 q",
+   "count": 5.5,
+   "secrets": {
+    "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+   },
+   "name": "serp_only/serpapi/frac/emoji",
+   "expected": "https://serpapi.com/search.json?engine=google&q=%F0%9F%98%80+q&gl=ge&hl=ka&google_domain=google.ge&lr=lang_ka&num=5.5&api_key=serpapi-secret-key-value-0123456789"
+  },
+  {
+   "kind": "request",
+   "locale": "serp_only",
+   "engine": "serpapi",
+   "query": "თბილისის მეტრო",
+   "count": "abc",
+   "secrets": {
+    "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+   },
+   "name": "serp_only/serpapi/nan/ge",
+   "expected": "https://serpapi.com/search.json?engine=google&q=%E1%83%97%E1%83%91%E1%83%98%E1%83%9A%E1%83%98%E1%83%A1%E1%83%98%E1%83%A1+%E1%83%9B%E1%83%94%E1%83%A2%E1%83%A0%E1%83%9D&gl=ge&hl=ka&google_domain=google.ge&lr=lang_ka&num=10&api_key=serpapi-secret-key-value-0123456789"
+  },
+  {
+   "kind": "request",
+   "locale": "serp_only",
+   "engine": "serpapi",
+   "query": "a b&c=d+e",
+   "count": "abc",
+   "secrets": {
+    "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+   },
+   "name": "serp_only/serpapi/nan/ascii",
+   "expected": "https://serpapi.com/search.json?engine=google&q=a+b%26c%3Dd%2Be&gl=ge&hl=ka&google_domain=google.ge&lr=lang_ka&num=10&api_key=serpapi-secret-key-value-0123456789"
+  },
+  {
+   "kind": "request",
+   "locale": "serp_only",
+   "engine": "serpapi",
+   "query": "x~y*z-._'()!",
+   "count": "abc",
+   "secrets": {
+    "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+   },
+   "name": "serp_only/serpapi/nan/symbols",
+   "expected": "https://serpapi.com/search.json?engine=google&q=x%7Ey*z-._%27%28%29%21&gl=ge&hl=ka&google_domain=google.ge&lr=lang_ka&num=10&api_key=serpapi-secret-key-value-0123456789"
+  },
+  {
+   "kind": "request",
+   "locale": "serp_only",
+   "engine": "serpapi",
+   "query": "😀 q",
+   "count": "abc",
+   "secrets": {
+    "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+   },
+   "name": "serp_only/serpapi/nan/emoji",
+   "expected": "https://serpapi.com/search.json?engine=google&q=%F0%9F%98%80+q&gl=ge&hl=ka&google_domain=google.ge&lr=lang_ka&num=10&api_key=serpapi-secret-key-value-0123456789"
+  },
+  {
+   "kind": "request",
+   "locale": "serp_only",
+   "engine": "serpapi",
+   "query": "თბილისის მეტრო",
+   "count": null,
+   "secrets": {
+    "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+   },
+   "name": "serp_only/serpapi/null/ge",
+   "expected": "https://serpapi.com/search.json?engine=google&q=%E1%83%97%E1%83%91%E1%83%98%E1%83%9A%E1%83%98%E1%83%A1%E1%83%98%E1%83%A1+%E1%83%9B%E1%83%94%E1%83%A2%E1%83%A0%E1%83%9D&gl=ge&hl=ka&google_domain=google.ge&lr=lang_ka&num=10&api_key=serpapi-secret-key-value-0123456789"
+  },
+  {
+   "kind": "request",
+   "locale": "serp_only",
+   "engine": "serpapi",
+   "query": "a b&c=d+e",
+   "count": null,
+   "secrets": {
+    "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+   },
+   "name": "serp_only/serpapi/null/ascii",
+   "expected": "https://serpapi.com/search.json?engine=google&q=a+b%26c%3Dd%2Be&gl=ge&hl=ka&google_domain=google.ge&lr=lang_ka&num=10&api_key=serpapi-secret-key-value-0123456789"
+  },
+  {
+   "kind": "request",
+   "locale": "serp_only",
+   "engine": "serpapi",
+   "query": "x~y*z-._'()!",
+   "count": null,
+   "secrets": {
+    "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+   },
+   "name": "serp_only/serpapi/null/symbols",
+   "expected": "https://serpapi.com/search.json?engine=google&q=x%7Ey*z-._%27%28%29%21&gl=ge&hl=ka&google_domain=google.ge&lr=lang_ka&num=10&api_key=serpapi-secret-key-value-0123456789"
+  },
+  {
+   "kind": "request",
+   "locale": "serp_only",
+   "engine": "serpapi",
+   "query": "😀 q",
+   "count": null,
+   "secrets": {
+    "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+   },
+   "name": "serp_only/serpapi/null/emoji",
+   "expected": "https://serpapi.com/search.json?engine=google&q=%F0%9F%98%80+q&gl=ge&hl=ka&google_domain=google.ge&lr=lang_ka&num=10&api_key=serpapi-secret-key-value-0123456789"
+  },
+  {
+   "kind": "request",
+   "locale": "serp_only",
+   "engine": "serpapi",
+   "query": "თბილისის მეტრო",
+   "count": true,
+   "secrets": {
+    "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+   },
+   "name": "serp_only/serpapi/true/ge",
+   "expected": "https://serpapi.com/search.json?engine=google&q=%E1%83%97%E1%83%91%E1%83%98%E1%83%9A%E1%83%98%E1%83%A1%E1%83%98%E1%83%A1+%E1%83%9B%E1%83%94%E1%83%A2%E1%83%A0%E1%83%9D&gl=ge&hl=ka&google_domain=google.ge&lr=lang_ka&num=1&api_key=serpapi-secret-key-value-0123456789"
+  },
+  {
+   "kind": "request",
+   "locale": "serp_only",
+   "engine": "serpapi",
+   "query": "a b&c=d+e",
+   "count": true,
+   "secrets": {
+    "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+   },
+   "name": "serp_only/serpapi/true/ascii",
+   "expected": "https://serpapi.com/search.json?engine=google&q=a+b%26c%3Dd%2Be&gl=ge&hl=ka&google_domain=google.ge&lr=lang_ka&num=1&api_key=serpapi-secret-key-value-0123456789"
+  },
+  {
+   "kind": "request",
+   "locale": "serp_only",
+   "engine": "serpapi",
+   "query": "x~y*z-._'()!",
+   "count": true,
+   "secrets": {
+    "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+   },
+   "name": "serp_only/serpapi/true/symbols",
+   "expected": "https://serpapi.com/search.json?engine=google&q=x%7Ey*z-._%27%28%29%21&gl=ge&hl=ka&google_domain=google.ge&lr=lang_ka&num=1&api_key=serpapi-secret-key-value-0123456789"
+  },
+  {
+   "kind": "request",
+   "locale": "serp_only",
+   "engine": "serpapi",
+   "query": "😀 q",
+   "count": true,
+   "secrets": {
+    "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+   },
+   "name": "serp_only/serpapi/true/emoji",
+   "expected": "https://serpapi.com/search.json?engine=google&q=%F0%9F%98%80+q&gl=ge&hl=ka&google_domain=google.ge&lr=lang_ka&num=1&api_key=serpapi-secret-key-value-0123456789"
+  },
+  {
+   "kind": "request",
+   "locale": "ge",
+   "engine": "serpapi",
+   "query": "x",
+   "count": {
+    "absent": true
+   },
+   "secrets": {},
+   "name": "serp-no-secret",
+   "expected": "https://serpapi.com/search.json?engine=google&q=x&gl=ge&hl=ka&google_domain=google.ge&lr=lang_ka&num=10"
+  },
+  {
+   "kind": "search",
+   "locale": "ge",
+   "engine": "serpapi",
+   "query": "მეტრო",
+   "spec": "serpOk",
+   "secrets": {
+    "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+   },
+   "expected": {
+    "isError": false,
+    "text": "1. მეტრო\n   https://example.ge/m\n   აღწერა ხაზი ორი სამი\n\n2. two\n   https://x\n   "
+   }
+  },
+  {
+   "kind": "search",
+   "locale": "ge",
+   "engine": "brave",
+   "query": "მეტრო",
+   "spec": "braveOk",
+   "secrets": {
+    "BRAVE_SEARCH_API_KEY": "BSA-secret-key-value-0123456789"
+   },
+   "expected": {
+    "isError": false,
+    "text": "1. t\n   u\n   d e x a b\n\n2. n\n   v\n   "
+   }
+  },
+  {
+   "kind": "search",
+   "locale": "ge",
+   "engine": "serpapi",
+   "query": "მეტრო",
+   "spec": "serp401",
+   "secrets": {
+    "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+   },
+   "expected": {
+    "isError": true,
+    "text": "search refused: HTTP 401 — Invalid API key. Your API key should be here: https://serpapi.com/manage-api-key"
+   }
+  },
+  {
+   "kind": "search",
+   "locale": "ge",
+   "engine": "serpapi",
+   "query": "მეტრო",
+   "spec": "serp200err",
+   "secrets": {
+    "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+   },
+   "expected": {
+    "isError": true,
+    "text": "search refused: Google hasn't returned any results for this query."
+   }
+  },
+  {
+   "kind": "search",
+   "locale": "ge",
+   "engine": "serpapi",
+   "query": "მეტრო",
+   "spec": "serp200errlong",
+   "secrets": {
+    "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+   },
+   "expected": {
+    "isError": true,
+    "text": "search refused: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+   }
+  },
+  {
+   "kind": "search",
+   "locale": "ge",
+   "engine": "brave",
+   "query": "მეტრო",
+   "spec": "brave422",
+   "secrets": {
+    "BRAVE_SEARCH_API_KEY": "BSA-secret-key-value-0123456789"
+   },
+   "expected": {
+    "isError": true,
+    "text": "search refused: HTTP 422 — Unable to validate request parameter(s)"
+   }
+  },
+  {
+   "kind": "search",
+   "locale": "ge",
+   "engine": "brave",
+   "query": "მეტრო",
+   "spec": "brave500msg",
+   "secrets": {
+    "BRAVE_SEARCH_API_KEY": "BSA-secret-key-value-0123456789"
+   },
+   "expected": {
+    "isError": true,
+    "text": "search refused: HTTP 500 — boom"
+   }
+  },
+  {
+   "kind": "search",
+   "locale": "ge",
+   "engine": "brave",
+   "query": "მეტრო",
+   "spec": "brave500errmsg",
+   "secrets": {
+    "BRAVE_SEARCH_API_KEY": "BSA-secret-key-value-0123456789"
+   },
+   "expected": {
+    "isError": true,
+    "text": "search refused: HTTP 500 — nested"
+   }
+  },
+  {
+   "kind": "search",
+   "locale": "ge",
+   "engine": "serpapi",
+   "query": "მეტრო",
+   "spec": "http429nobody",
+   "secrets": {
+    "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+   },
+   "expected": {
+    "isError": true,
+    "text": "search refused: HTTP 429"
+   }
+  },
+  {
+   "kind": "search",
+   "locale": "ge",
+   "engine": "serpapi",
+   "query": "მეტრო",
+   "spec": "http503",
+   "secrets": {
+    "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+   },
+   "expected": {
+    "isError": true,
+    "text": "search refused: HTTP 503"
+   }
+  },
+  {
+   "kind": "search",
+   "locale": "ge",
+   "engine": "serpapi",
+   "query": "მეტრო",
+   "spec": "notjson",
+   "secrets": {
+    "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+   },
+   "expected": {
+    "isError": true,
+    "text": "search answered something that is not JSON"
+   }
+  },
+  {
+   "kind": "search",
+   "locale": "ge",
+   "engine": "serpapi",
+   "query": "მეტრო",
+   "spec": "empty",
+   "secrets": {
+    "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+   },
+   "expected": {
+    "isError": false,
+    "text": "no results (serpapi)"
+   }
+  },
+  {
+   "kind": "search",
+   "locale": "ge",
+   "engine": "brave",
+   "query": "მეტრო",
+   "spec": "empty",
+   "secrets": {
+    "BRAVE_SEARCH_API_KEY": "BSA-secret-key-value-0123456789"
+   },
+   "expected": {
+    "isError": false,
+    "text": "no results (brave)"
+   }
+  },
+  {
+   "kind": "search",
+   "locale": "ge",
+   "engine": "serpapi",
+   "query": "მეტრო",
+   "spec": "emptyarr",
+   "secrets": {
+    "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+   },
+   "expected": {
+    "isError": false,
+    "text": "no results (serpapi)"
+   }
+  },
+  {
+   "kind": "search",
+   "locale": "ge",
+   "engine": "serpapi",
+   "query": "მეტრო",
+   "spec": "nullbody",
+   "secrets": {
+    "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+   },
+   "expected": {
+    "isError": false,
+    "text": "no results (serpapi)"
+   }
+  },
+  {
+   "kind": "search",
+   "locale": "ge",
+   "engine": "serpapi",
+   "query": "მეტრო",
+   "spec": "serpNoRows",
+   "secrets": {
+    "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+   },
+   "expected": {
+    "isError": false,
+    "text": "no results (serpapi)"
+   }
+  },
+  {
+   "kind": "search",
+   "locale": "ge",
+   "engine": "brave",
+   "query": "მეტრო",
+   "spec": "braveNoRows",
+   "secrets": {
+    "BRAVE_SEARCH_API_KEY": "BSA-secret-key-value-0123456789"
+   },
+   "expected": {
+    "isError": false,
+    "text": "no results (brave)"
+   }
+  },
+  {
+   "kind": "search",
+   "locale": "ge",
+   "engine": "serpapi",
+   "query": "მეტრო",
+   "spec": "serpNumeric",
+   "secrets": {
+    "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+   },
+   "expected": {
+    "isError": false,
+    "text": "1. 5\n   true\n   "
+   }
+  },
+  {
+   "kind": "search",
+   "locale": "ge",
+   "engine": "serpapi",
+   "query": "მეტრო",
+   "spec": "throwUnreachable",
+   "secrets": {
+    "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+   },
+   "expected": {
+    "isError": true,
+    "text": "search failed: unreachable"
+   }
+  },
+  {
+   "kind": "search",
+   "locale": "ge",
+   "engine": "serpapi",
+   "query": "მეტრო",
+   "spec": "throwTimeout",
+   "secrets": {
+    "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+   },
+   "expected": {
+    "isError": true,
+    "text": "search failed: timeout"
+   }
+  },
+  {
+   "kind": "search",
+   "locale": "ge",
+   "engine": "brave",
+   "query": "მეტრო",
+   "spec": "throwTimeout",
+   "secrets": {
+    "BRAVE_SEARCH_API_KEY": "BSA-secret-key-value-0123456789"
+   },
+   "expected": {
+    "isError": true,
+    "text": "search failed: timeout"
+   }
+  },
+  {
+   "kind": "search",
+   "locale": "ge",
+   "engine": "serpapi",
+   "query": "მეტრო",
+   "spec": "serpOk",
+   "secrets": {},
+   "expected": {
+    "isError": true,
+    "text": "no SERPAPI_API_KEY in the synced secrets: fabric-secrets sync, after it is in the store of this login"
+   }
+  },
+  {
+   "kind": "search",
+   "locale": "ge",
+   "engine": "brave",
+   "query": "მეტრო",
+   "spec": "braveOk",
+   "secrets": {},
+   "expected": {
+    "isError": true,
+    "text": "no BRAVE_SEARCH_API_KEY in the synced secrets: fabric-secrets sync, after it is in the store of this login"
+   }
+  },
+  {
+   "kind": "handle",
+   "name": "init",
+   "msg": {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "initialize",
+    "params": {
+     "protocolVersion": "2025-06-18"
+    }
+   },
+   "locale": "ge",
+   "secrets": {
+    "serpapi": {
+     "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+    },
+    "brave": {
+     "BRAVE_SEARCH_API_KEY": "BSA-secret-key-value-0123456789"
+    }
+   },
+   "map": {
+    "serpapi": "serpOk",
+    "brave": "braveOk"
+   },
+   "expected": {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": {
+     "protocolVersion": "2025-06-18",
+     "capabilities": {
+      "tools": {}
+     },
+     "serverInfo": {
+      "name": "websearch-locale",
+      "version": "1"
+     }
+    }
+   }
+  },
+  {
+   "kind": "handle",
+   "name": "init-noversion",
+   "msg": {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "initialize"
+   },
+   "locale": "ge",
+   "secrets": {
+    "serpapi": {
+     "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+    },
+    "brave": {
+     "BRAVE_SEARCH_API_KEY": "BSA-secret-key-value-0123456789"
+    }
+   },
+   "map": {
+    "serpapi": "serpOk",
+    "brave": "braveOk"
+   },
+   "expected": {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": {
+     "protocolVersion": "2024-11-05",
+     "capabilities": {
+      "tools": {}
+     },
+     "serverInfo": {
+      "name": "websearch-locale",
+      "version": "1"
+     }
+    }
+   }
+  },
+  {
+   "kind": "handle",
+   "name": "init-oddversion",
+   "msg": {
+    "jsonrpc": "2.0",
+    "id": "a",
+    "method": "initialize",
+    "params": {
+     "protocolVersion": 7
+    }
+   },
+   "locale": "ge",
+   "secrets": {
+    "serpapi": {
+     "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+    },
+    "brave": {
+     "BRAVE_SEARCH_API_KEY": "BSA-secret-key-value-0123456789"
+    }
+   },
+   "map": {
+    "serpapi": "serpOk",
+    "brave": "braveOk"
+   },
+   "expected": {
+    "jsonrpc": "2.0",
+    "id": "a",
+    "result": {
+     "protocolVersion": 7,
+     "capabilities": {
+      "tools": {}
+     },
+     "serverInfo": {
+      "name": "websearch-locale",
+      "version": "1"
+     }
+    }
+   }
+  },
+  {
+   "kind": "handle",
+   "name": "init-noid",
+   "msg": {
+    "jsonrpc": "2.0",
+    "method": "initialize",
+    "params": {}
+   },
+   "locale": "ge",
+   "secrets": {
+    "serpapi": {
+     "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+    },
+    "brave": {
+     "BRAVE_SEARCH_API_KEY": "BSA-secret-key-value-0123456789"
+    }
+   },
+   "map": {
+    "serpapi": "serpOk",
+    "brave": "braveOk"
+   },
+   "expected": {
+    "jsonrpc": "2.0",
+    "result": {
+     "protocolVersion": "2024-11-05",
+     "capabilities": {
+      "tools": {}
+     },
+     "serverInfo": {
+      "name": "websearch-locale",
+      "version": "1"
+     }
+    }
+   }
+  },
+  {
+   "kind": "handle",
+   "name": "initialized",
+   "msg": {
+    "jsonrpc": "2.0",
+    "method": "notifications/initialized"
+   },
+   "locale": "ge",
+   "secrets": {
+    "serpapi": {
+     "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+    },
+    "brave": {
+     "BRAVE_SEARCH_API_KEY": "BSA-secret-key-value-0123456789"
+    }
+   },
+   "map": {
+    "serpapi": "serpOk",
+    "brave": "braveOk"
+   },
+   "expected": null
+  },
+  {
+   "kind": "handle",
+   "name": "notification-other",
+   "msg": {
+    "jsonrpc": "2.0",
+    "method": "notifications/cancelled",
+    "params": {}
+   },
+   "locale": "ge",
+   "secrets": {
+    "serpapi": {
+     "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+    },
+    "brave": {
+     "BRAVE_SEARCH_API_KEY": "BSA-secret-key-value-0123456789"
+    }
+   },
+   "map": {
+    "serpapi": "serpOk",
+    "brave": "braveOk"
+   },
+   "expected": null
+  },
+  {
+   "kind": "handle",
+   "name": "ping",
+   "msg": {
+    "jsonrpc": "2.0",
+    "id": 2,
+    "method": "ping"
+   },
+   "locale": "ge",
+   "secrets": {
+    "serpapi": {
+     "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+    },
+    "brave": {
+     "BRAVE_SEARCH_API_KEY": "BSA-secret-key-value-0123456789"
+    }
+   },
+   "map": {
+    "serpapi": "serpOk",
+    "brave": "braveOk"
+   },
+   "expected": {
+    "jsonrpc": "2.0",
+    "id": 2,
+    "result": {}
+   }
+  },
+  {
+   "kind": "handle",
+   "name": "ping-noid",
+   "msg": {
+    "jsonrpc": "2.0",
+    "method": "ping"
+   },
+   "locale": "ge",
+   "secrets": {
+    "serpapi": {
+     "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+    },
+    "brave": {
+     "BRAVE_SEARCH_API_KEY": "BSA-secret-key-value-0123456789"
+    }
+   },
+   "map": {
+    "serpapi": "serpOk",
+    "brave": "braveOk"
+   },
+   "expected": {
+    "jsonrpc": "2.0",
+    "result": {}
+   }
+  },
+  {
+   "kind": "handle",
+   "name": "list",
+   "msg": {
+    "jsonrpc": "2.0",
+    "id": 3,
+    "method": "tools/list"
+   },
+   "locale": "ge",
+   "secrets": {
+    "serpapi": {
+     "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+    },
+    "brave": {
+     "BRAVE_SEARCH_API_KEY": "BSA-secret-key-value-0123456789"
+    }
+   },
+   "map": {
+    "serpapi": "serpOk",
+    "brave": "braveOk"
+   },
+   "expected": {
+    "jsonrpc": "2.0",
+    "id": 3,
+    "result": {
+     "tools": [
+      {
+       "name": "web_search",
+       "description": "ვებ-ძიება ქართულად",
+       "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+         "query"
+        ],
+        "properties": {
+         "query": {
+          "type": "string",
+          "minLength": 2
+         },
+         "count": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 20
+         }
+        }
+       }
+      },
+      {
+       "name": "web_search_global",
+       "description": "გლობალური ვებ-ძიება",
+       "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+         "query"
+        ],
+        "properties": {
+         "query": {
+          "type": "string",
+          "minLength": 2
+         },
+         "count": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 20
+         }
+        }
+       }
+      }
+     ]
+    }
+   }
+  },
+  {
+   "kind": "handle",
+   "name": "list-brave-only",
+   "msg": {
+    "jsonrpc": "2.0",
+    "id": 3,
+    "method": "tools/list"
+   },
+   "locale": "brave_only",
+   "secrets": {
+    "serpapi": {
+     "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+    },
+    "brave": {
+     "BRAVE_SEARCH_API_KEY": "BSA-secret-key-value-0123456789"
+    }
+   },
+   "map": {
+    "serpapi": "serpOk",
+    "brave": "braveOk"
+   },
+   "expected": {
+    "jsonrpc": "2.0",
+    "id": 3,
+    "result": {
+     "tools": [
+      {
+       "name": "web_search",
+       "description": "გლობალური ვებ-ძიება",
+       "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+         "query"
+        ],
+        "properties": {
+         "query": {
+          "type": "string",
+          "minLength": 2
+         },
+         "count": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 20
+         }
+        }
+       }
+      },
+      {
+       "name": "web_search_global",
+       "description": "გლობალური ვებ-ძიება",
+       "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+         "query"
+        ],
+        "properties": {
+         "query": {
+          "type": "string",
+          "minLength": 2
+         },
+         "count": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 20
+         }
+        }
+       }
+      }
+     ]
+    }
+   }
+  },
+  {
+   "kind": "handle",
+   "name": "list-serp-only",
+   "msg": {
+    "jsonrpc": "2.0",
+    "id": 3,
+    "method": "tools/list"
+   },
+   "locale": "serp_only",
+   "secrets": {
+    "serpapi": {
+     "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+    },
+    "brave": {
+     "BRAVE_SEARCH_API_KEY": "BSA-secret-key-value-0123456789"
+    }
+   },
+   "map": {
+    "serpapi": "serpOk",
+    "brave": "braveOk"
+   },
+   "expected": {
+    "jsonrpc": "2.0",
+    "id": 3,
+    "result": {
+     "tools": [
+      {
+       "name": "web_search",
+       "description": "ვებ-ძიება ქართულად",
+       "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+         "query"
+        ],
+        "properties": {
+         "query": {
+          "type": "string",
+          "minLength": 2
+         },
+         "count": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 20
+         }
+        }
+       }
+      }
+     ]
+    }
+   }
+  },
+  {
+   "kind": "handle",
+   "name": "call-serp-ok",
+   "msg": {
+    "jsonrpc": "2.0",
+    "id": 4,
+    "method": "tools/call",
+    "params": {
+     "name": "web_search",
+     "arguments": {
+      "query": "მეტრო"
+     }
+    }
+   },
+   "locale": "ge",
+   "secrets": {
+    "serpapi": {
+     "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+    },
+    "brave": {
+     "BRAVE_SEARCH_API_KEY": "BSA-secret-key-value-0123456789"
+    }
+   },
+   "map": {
+    "serpapi": "serpOk",
+    "brave": "braveOk"
+   },
+   "expected": {
+    "jsonrpc": "2.0",
+    "id": 4,
+    "result": {
+     "content": [
+      {
+       "type": "text",
+       "text": "1. მეტრო\n   https://example.ge/m\n   აღწერა ხაზი ორი სამი\n\n2. two\n   https://x\n   \n\n— ძირითადი ძრავა"
+      }
+     ],
+     "isError": false
+    }
+   }
+  },
+  {
+   "kind": "handle",
+   "name": "call-serp-count",
+   "msg": {
+    "jsonrpc": "2.0",
+    "id": 4,
+    "method": "tools/call",
+    "params": {
+     "name": "web_search",
+     "arguments": {
+      "query": "მეტრო",
+      "count": 3
+     }
+    }
+   },
+   "locale": "ge",
+   "secrets": {
+    "serpapi": {
+     "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+    },
+    "brave": {
+     "BRAVE_SEARCH_API_KEY": "BSA-secret-key-value-0123456789"
+    }
+   },
+   "map": {
+    "serpapi": "serpOk",
+    "brave": "braveOk"
+   },
+   "expected": {
+    "jsonrpc": "2.0",
+    "id": 4,
+    "result": {
+     "content": [
+      {
+       "type": "text",
+       "text": "1. მეტრო\n   https://example.ge/m\n   აღწერა ხაზი ორი სამი\n\n2. two\n   https://x\n   \n\n— ძირითადი ძრავა"
+      }
+     ],
+     "isError": false
+    }
+   }
+  },
+  {
+   "kind": "handle",
+   "name": "call-fallback-429",
+   "msg": {
+    "jsonrpc": "2.0",
+    "id": 5,
+    "method": "tools/call",
+    "params": {
+     "name": "web_search",
+     "arguments": {
+      "query": "მეტრო"
+     }
+    }
+   },
+   "locale": "ge",
+   "secrets": {
+    "serpapi": {
+     "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+    },
+    "brave": {
+     "BRAVE_SEARCH_API_KEY": "BSA-secret-key-value-0123456789"
+    }
+   },
+   "map": {
+    "serpapi": "serp429",
+    "brave": "braveOk"
+   },
+   "expected": {
+    "jsonrpc": "2.0",
+    "id": 5,
+    "result": {
+     "content": [
+      {
+       "type": "text",
+       "text": "1. t\n   u\n   d e x a b\n\n2. n\n   v\n   \n\n— brave (ძირითადი ძრავა: search refused: HTTP 429 — Your account has run out of searches.)"
+      }
+     ],
+     "isError": false
+    }
+   }
+  },
+  {
+   "kind": "handle",
+   "name": "call-fallback-nokey",
+   "msg": {
+    "jsonrpc": "2.0",
+    "id": 6,
+    "method": "tools/call",
+    "params": {
+     "name": "web_search",
+     "arguments": {
+      "query": "მეტრო"
+     }
+    }
+   },
+   "locale": "ge",
+   "secrets": {
+    "brave": {
+     "BRAVE_SEARCH_API_KEY": "BSA-secret-key-value-0123456789"
+    }
+   },
+   "map": {
+    "serpapi": "serpOk",
+    "brave": "braveOk"
+   },
+   "expected": {
+    "jsonrpc": "2.0",
+    "id": 6,
+    "result": {
+     "content": [
+      {
+       "type": "text",
+       "text": "1. t\n   u\n   d e x a b\n\n2. n\n   v\n   \n\n— brave (ძირითადი ძრავა: no SERPAPI_API_KEY in the synced secrets: fabric-secrets sync, after it is in the store of this login)"
+      }
+     ],
+     "isError": false
+    }
+   }
+  },
+  {
+   "kind": "handle",
+   "name": "call-both-refuse",
+   "msg": {
+    "jsonrpc": "2.0",
+    "id": 7,
+    "method": "tools/call",
+    "params": {
+     "name": "web_search",
+     "arguments": {
+      "query": "მეტრო"
+     }
+    }
+   },
+   "locale": "ge",
+   "secrets": {},
+   "map": {
+    "serpapi": "serpOk",
+    "brave": "braveOk"
+   },
+   "expected": {
+    "jsonrpc": "2.0",
+    "id": 7,
+    "result": {
+     "content": [
+      {
+       "type": "text",
+       "text": "ძირითადი ძრავა: no SERPAPI_API_KEY in the synced secrets: fabric-secrets sync, after it is in the store of this login; brave: no BRAVE_SEARCH_API_KEY in the synced secrets: fabric-secrets sync, after it is in the store of this login"
+      }
+     ],
+     "isError": true
+    }
+   }
+  },
+  {
+   "kind": "handle",
+   "name": "call-both-down",
+   "msg": {
+    "jsonrpc": "2.0",
+    "id": 7,
+    "method": "tools/call",
+    "params": {
+     "name": "web_search",
+     "arguments": {
+      "query": "მეტრო"
+     }
+    }
+   },
+   "locale": "ge",
+   "secrets": {
+    "serpapi": {
+     "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+    },
+    "brave": {
+     "BRAVE_SEARCH_API_KEY": "BSA-secret-key-value-0123456789"
+    }
+   },
+   "map": {
+    "serpapi": "throwUnreachable",
+    "brave": "throwTimeout"
+   },
+   "expected": {
+    "jsonrpc": "2.0",
+    "id": 7,
+    "result": {
+     "content": [
+      {
+       "type": "text",
+       "text": "ძირითადი ძრავა: search failed: unreachable; brave: search failed: timeout"
+      }
+     ],
+     "isError": true
+    }
+   }
+  },
+  {
+   "kind": "handle",
+   "name": "call-global",
+   "msg": {
+    "jsonrpc": "2.0",
+    "id": 8,
+    "method": "tools/call",
+    "params": {
+     "name": "web_search_global",
+     "arguments": {
+      "query": "მეტრო"
+     }
+    }
+   },
+   "locale": "ge",
+   "secrets": {
+    "serpapi": {
+     "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+    },
+    "brave": {
+     "BRAVE_SEARCH_API_KEY": "BSA-secret-key-value-0123456789"
+    }
+   },
+   "map": {
+    "serpapi": "serpOk",
+    "brave": "braveOk"
+   },
+   "expected": {
+    "jsonrpc": "2.0",
+    "id": 8,
+    "result": {
+     "content": [
+      {
+       "type": "text",
+       "text": "1. t\n   u\n   d e x a b\n\n2. n\n   v\n   \n\n— brave"
+      }
+     ],
+     "isError": false
+    }
+   }
+  },
+  {
+   "kind": "handle",
+   "name": "call-global-nobrave",
+   "msg": {
+    "jsonrpc": "2.0",
+    "id": 9,
+    "method": "tools/call",
+    "params": {
+     "name": "web_search_global",
+     "arguments": {
+      "query": "x"
+     }
+    }
+   },
+   "locale": "serp_only",
+   "secrets": {
+    "serpapi": {
+     "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+    },
+    "brave": {
+     "BRAVE_SEARCH_API_KEY": "BSA-secret-key-value-0123456789"
+    }
+   },
+   "map": {
+    "serpapi": "serpOk",
+    "brave": "braveOk"
+   },
+   "expected": {
+    "jsonrpc": "2.0",
+    "id": 9,
+    "error": {
+     "code": -32602,
+     "message": "unknown tool web_search_global"
+    }
+   }
+  },
+  {
+   "kind": "handle",
+   "name": "call-brave-only-web",
+   "msg": {
+    "jsonrpc": "2.0",
+    "id": 9,
+    "method": "tools/call",
+    "params": {
+     "name": "web_search",
+     "arguments": {
+      "query": "xx"
+     }
+    }
+   },
+   "locale": "brave_only",
+   "secrets": {
+    "serpapi": {
+     "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+    },
+    "brave": {
+     "BRAVE_SEARCH_API_KEY": "BSA-secret-key-value-0123456789"
+    }
+   },
+   "map": {
+    "serpapi": "serpOk",
+    "brave": "braveOk"
+   },
+   "expected": {
+    "jsonrpc": "2.0",
+    "id": 9,
+    "result": {
+     "content": [
+      {
+       "type": "text",
+       "text": "1. t\n   u\n   d e x a b\n\n2. n\n   v\n   \n\n— brave"
+      }
+     ],
+     "isError": false
+    }
+   }
+  },
+  {
+   "kind": "handle",
+   "name": "call-en-label",
+   "msg": {
+    "jsonrpc": "2.0",
+    "id": 9,
+    "method": "tools/call",
+    "params": {
+     "name": "web_search",
+     "arguments": {
+      "query": "xx"
+     }
+    }
+   },
+   "locale": "en",
+   "secrets": {
+    "serpapi": {
+     "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+    },
+    "brave": {
+     "BRAVE_SEARCH_API_KEY": "BSA-secret-key-value-0123456789"
+    }
+   },
+   "map": {
+    "serpapi": "serp429",
+    "brave": "braveOk"
+   },
+   "expected": {
+    "jsonrpc": "2.0",
+    "id": 9,
+    "result": {
+     "content": [
+      {
+       "type": "text",
+       "text": "1. t\n   u\n   d e x a b\n\n2. n\n   v\n   \n\n— Brave EN (serpapi: search refused: HTTP 429 — Your account has run out of searches.)"
+      }
+     ],
+     "isError": false
+    }
+   }
+  },
+  {
+   "kind": "handle",
+   "name": "call-unknown",
+   "msg": {
+    "jsonrpc": "2.0",
+    "id": 10,
+    "method": "tools/call",
+    "params": {
+     "name": "nope",
+     "arguments": {
+      "query": "xx"
+     }
+    }
+   },
+   "locale": "ge",
+   "secrets": {
+    "serpapi": {
+     "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+    },
+    "brave": {
+     "BRAVE_SEARCH_API_KEY": "BSA-secret-key-value-0123456789"
+    }
+   },
+   "map": {
+    "serpapi": "serpOk",
+    "brave": "braveOk"
+   },
+   "expected": {
+    "jsonrpc": "2.0",
+    "id": 10,
+    "error": {
+     "code": -32602,
+     "message": "unknown tool nope"
+    }
+   }
+  },
+  {
+   "kind": "handle",
+   "name": "call-noname",
+   "msg": {
+    "jsonrpc": "2.0",
+    "id": 10,
+    "method": "tools/call",
+    "params": {}
+   },
+   "locale": "ge",
+   "secrets": {
+    "serpapi": {
+     "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+    },
+    "brave": {
+     "BRAVE_SEARCH_API_KEY": "BSA-secret-key-value-0123456789"
+    }
+   },
+   "map": {
+    "serpapi": "serpOk",
+    "brave": "braveOk"
+   },
+   "expected": {
+    "jsonrpc": "2.0",
+    "id": 10,
+    "error": {
+     "code": -32602,
+     "message": "unknown tool undefined"
+    }
+   }
+  },
+  {
+   "kind": "handle",
+   "name": "call-noparams",
+   "msg": {
+    "jsonrpc": "2.0",
+    "id": 10,
+    "method": "tools/call"
+   },
+   "locale": "ge",
+   "secrets": {
+    "serpapi": {
+     "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+    },
+    "brave": {
+     "BRAVE_SEARCH_API_KEY": "BSA-secret-key-value-0123456789"
+    }
+   },
+   "map": {
+    "serpapi": "serpOk",
+    "brave": "braveOk"
+   },
+   "expected": {
+    "jsonrpc": "2.0",
+    "id": 10,
+    "error": {
+     "code": -32602,
+     "message": "unknown tool undefined"
+    }
+   }
+  },
+  {
+   "kind": "handle",
+   "name": "call-shortq",
+   "msg": {
+    "jsonrpc": "2.0",
+    "id": 11,
+    "method": "tools/call",
+    "params": {
+     "name": "web_search",
+     "arguments": {
+      "query": "x"
+     }
+    }
+   },
+   "locale": "ge",
+   "secrets": {
+    "serpapi": {
+     "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+    },
+    "brave": {
+     "BRAVE_SEARCH_API_KEY": "BSA-secret-key-value-0123456789"
+    }
+   },
+   "map": {
+    "serpapi": "serpOk",
+    "brave": "braveOk"
+   },
+   "expected": {
+    "jsonrpc": "2.0",
+    "id": 11,
+    "error": {
+     "code": -32602,
+     "message": "query: a string of at least two characters"
+    }
+   }
+  },
+  {
+   "kind": "handle",
+   "name": "call-emoji-q",
+   "msg": {
+    "jsonrpc": "2.0",
+    "id": 11,
+    "method": "tools/call",
+    "params": {
+     "name": "web_search",
+     "arguments": {
+      "query": "😀"
+     }
+    }
+   },
+   "locale": "ge",
+   "secrets": {
+    "serpapi": {
+     "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+    },
+    "brave": {
+     "BRAVE_SEARCH_API_KEY": "BSA-secret-key-value-0123456789"
+    }
+   },
+   "map": {
+    "serpapi": "serpOk",
+    "brave": "braveOk"
+   },
+   "expected": {
+    "jsonrpc": "2.0",
+    "id": 11,
+    "result": {
+     "content": [
+      {
+       "type": "text",
+       "text": "1. მეტრო\n   https://example.ge/m\n   აღწერა ხაზი ორი სამი\n\n2. two\n   https://x\n   \n\n— ძირითადი ძრავა"
+      }
+     ],
+     "isError": false
+    }
+   }
+  },
+  {
+   "kind": "handle",
+   "name": "call-numq",
+   "msg": {
+    "jsonrpc": "2.0",
+    "id": 11,
+    "method": "tools/call",
+    "params": {
+     "name": "web_search",
+     "arguments": {
+      "query": 5
+     }
+    }
+   },
+   "locale": "ge",
+   "secrets": {
+    "serpapi": {
+     "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+    },
+    "brave": {
+     "BRAVE_SEARCH_API_KEY": "BSA-secret-key-value-0123456789"
+    }
+   },
+   "map": {
+    "serpapi": "serpOk",
+    "brave": "braveOk"
+   },
+   "expected": {
+    "jsonrpc": "2.0",
+    "id": 11,
+    "error": {
+     "code": -32602,
+     "message": "query: a string of at least two characters"
+    }
+   }
+  },
+  {
+   "kind": "handle",
+   "name": "call-noargs",
+   "msg": {
+    "jsonrpc": "2.0",
+    "id": 11,
+    "method": "tools/call",
+    "params": {
+     "name": "web_search"
+    }
+   },
+   "locale": "ge",
+   "secrets": {
+    "serpapi": {
+     "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+    },
+    "brave": {
+     "BRAVE_SEARCH_API_KEY": "BSA-secret-key-value-0123456789"
+    }
+   },
+   "map": {
+    "serpapi": "serpOk",
+    "brave": "braveOk"
+   },
+   "expected": {
+    "jsonrpc": "2.0",
+    "id": 11,
+    "error": {
+     "code": -32602,
+     "message": "query: a string of at least two characters"
+    }
+   }
+  },
+  {
+   "kind": "handle",
+   "name": "call-args-array",
+   "msg": {
+    "jsonrpc": "2.0",
+    "id": 11,
+    "method": "tools/call",
+    "params": {
+     "name": "web_search",
+     "arguments": [
+      "ab"
+     ]
+    }
+   },
+   "locale": "ge",
+   "secrets": {
+    "serpapi": {
+     "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+    },
+    "brave": {
+     "BRAVE_SEARCH_API_KEY": "BSA-secret-key-value-0123456789"
+    }
+   },
+   "map": {
+    "serpapi": "serpOk",
+    "brave": "braveOk"
+   },
+   "expected": {
+    "jsonrpc": "2.0",
+    "id": 11,
+    "error": {
+     "code": -32602,
+     "message": "query: a string of at least two characters"
+    }
+   }
+  },
+  {
+   "kind": "handle",
+   "name": "unknown-method",
+   "msg": {
+    "jsonrpc": "2.0",
+    "id": 12,
+    "method": "resources/list"
+   },
+   "locale": "ge",
+   "secrets": {
+    "serpapi": {
+     "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+    },
+    "brave": {
+     "BRAVE_SEARCH_API_KEY": "BSA-secret-key-value-0123456789"
+    }
+   },
+   "map": {
+    "serpapi": "serpOk",
+    "brave": "braveOk"
+   },
+   "expected": {
+    "jsonrpc": "2.0",
+    "id": 12,
+    "error": {
+     "code": -32601,
+     "message": "method not found: resources/list"
+    }
+   }
+  },
+  {
+   "kind": "handle",
+   "name": "invalid-noversion",
+   "msg": {
+    "id": 13,
+    "method": "ping"
+   },
+   "locale": "ge",
+   "secrets": {
+    "serpapi": {
+     "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+    },
+    "brave": {
+     "BRAVE_SEARCH_API_KEY": "BSA-secret-key-value-0123456789"
+    }
+   },
+   "map": {
+    "serpapi": "serpOk",
+    "brave": "braveOk"
+   },
+   "expected": {
+    "jsonrpc": "2.0",
+    "id": 13,
+    "error": {
+     "code": -32600,
+     "message": "invalid request"
+    }
+   }
+  },
+  {
+   "kind": "handle",
+   "name": "invalid-nomethod",
+   "msg": {
+    "jsonrpc": "2.0",
+    "id": 13
+   },
+   "locale": "ge",
+   "secrets": {
+    "serpapi": {
+     "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+    },
+    "brave": {
+     "BRAVE_SEARCH_API_KEY": "BSA-secret-key-value-0123456789"
+    }
+   },
+   "map": {
+    "serpapi": "serpOk",
+    "brave": "braveOk"
+   },
+   "expected": {
+    "jsonrpc": "2.0",
+    "id": 13,
+    "error": {
+     "code": -32600,
+     "message": "invalid request"
+    }
+   }
+  },
+  {
+   "kind": "handle",
+   "name": "invalid-method-num",
+   "msg": {
+    "jsonrpc": "2.0",
+    "id": 13,
+    "method": 5
+   },
+   "locale": "ge",
+   "secrets": {
+    "serpapi": {
+     "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+    },
+    "brave": {
+     "BRAVE_SEARCH_API_KEY": "BSA-secret-key-value-0123456789"
+    }
+   },
+   "map": {
+    "serpapi": "serpOk",
+    "brave": "braveOk"
+   },
+   "expected": {
+    "jsonrpc": "2.0",
+    "id": 13,
+    "error": {
+     "code": -32600,
+     "message": "invalid request"
+    }
+   }
+  },
+  {
+   "kind": "handle",
+   "name": "error-id-null",
+   "msg": {
+    "jsonrpc": "2.0",
+    "id": null,
+    "method": "resources/list"
+   },
+   "locale": "ge",
+   "secrets": {
+    "serpapi": {
+     "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+    },
+    "brave": {
+     "BRAVE_SEARCH_API_KEY": "BSA-secret-key-value-0123456789"
+    }
+   },
+   "map": {
+    "serpapi": "serpOk",
+    "brave": "braveOk"
+   },
+   "expected": {
+    "jsonrpc": "2.0",
+    "id": null,
+    "error": {
+     "code": -32601,
+     "message": "method not found: resources/list"
+    }
+   }
+  },
+  {
+   "kind": "handle",
+   "name": "error-noid",
+   "msg": {
+    "jsonrpc": "2.0",
+    "method": "resources/list"
+   },
+   "locale": "ge",
+   "secrets": {
+    "serpapi": {
+     "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+    },
+    "brave": {
+     "BRAVE_SEARCH_API_KEY": "BSA-secret-key-value-0123456789"
+    }
+   },
+   "map": {
+    "serpapi": "serpOk",
+    "brave": "braveOk"
+   },
+   "expected": {
+    "jsonrpc": "2.0",
+    "id": null,
+    "error": {
+     "code": -32601,
+     "message": "method not found: resources/list"
+    }
+   }
+  },
+  {
+   "kind": "handle",
+   "name": "list-ignores-params",
+   "msg": {
+    "jsonrpc": "2.0",
+    "id": 3,
+    "method": "tools/list",
+    "params": "x"
+   },
+   "locale": "ge",
+   "secrets": {
+    "serpapi": {
+     "SERPAPI_API_KEY": "serpapi-secret-key-value-0123456789"
+    },
+    "brave": {
+     "BRAVE_SEARCH_API_KEY": "BSA-secret-key-value-0123456789"
+    }
+   },
+   "map": {
+    "serpapi": "serpOk",
+    "brave": "braveOk"
+   },
+   "expected": {
+    "jsonrpc": "2.0",
+    "id": 3,
+    "result": {
+     "tools": [
+      {
+       "name": "web_search",
+       "description": "ვებ-ძიება ქართულად",
+       "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+         "query"
+        ],
+        "properties": {
+         "query": {
+          "type": "string",
+          "minLength": 2
+         },
+         "count": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 20
+         }
+        }
+       }
+      },
+      {
+       "name": "web_search_global",
+       "description": "გლობალური ვებ-ძიება",
+       "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+         "query"
+        ],
+        "properties": {
+         "query": {
+          "type": "string",
+          "minLength": 2
+         },
+         "count": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 20
+         }
+        }
+       }
+      }
+     ]
+    }
+   }
+  },
+  {
+   "kind": "strip",
+   "input": "the <b>Rustaveli</b> avenue",
+   "expected": "the Rustaveli avenue"
+  },
+  {
+   "kind": "strip",
+   "input": "<<b>b>script",
+   "expected": "script"
+  },
+  {
+   "kind": "strip",
+   "input": "<scr<script>ipt>x",
+   "expected": "x"
+  },
+  {
+   "kind": "strip",
+   "input": "a < b and c > d",
+   "expected": "a  b and c  d"
+  },
+  {
+   "kind": "strip",
+   "input": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "expected": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  {
+   "kind": "strip",
+   "input": "<b<b<b<b<b<b<b<b<b<b<b<b<b<b<b<b<b<b<b<b>>>>>>>>>>>>>>>>>>>>",
+   "expected": "bbbb"
+  },
+  {
+   "kind": "strip",
+   "input": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+   "expected": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀"
+  },
+  {
+   "kind": "strip",
+   "input": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx😀",
+   "expected": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\ud83d"
+  },
+  {
+   "kind": "strip",
+   "input": "",
+   "expected": ""
+  },
+  {
+   "kind": "strip",
+   "input": "<A href=\"x\">k</A>",
+   "expected": "k"
+  },
+  {
+   "kind": "strip",
+   "input": "<1>no",
+   "expected": "1no"
+  },
+  {
+   "kind": "strip",
+   "input": 5,
+   "expected": "5"
+  },
+  {
+   "kind": "strip",
+   "input": null,
+   "expected": "null"
+  }
+ ]
+}

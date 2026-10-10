@@ -4,7 +4,7 @@
 **Status:** Accepted
 **Ratified:** owner, 2026-09-27, by arming agent-fabric #53 (ratification by merge, the owner's rule of 2026-09-27)
 **Decision Makers:** the owner; drafted by fabric-coordinator
-**Scope:** the `language-culture` role (identities/roles/language-culture/charter.md, brief.md, and each locale under identities/roles/language-culture/locale/); the locale worker (locale/<suffix>/worker.md, runtime/claude-code/install-agent-files.sh, runtime/claude-code/hooks/agent-dispatch-guard.sh); the prompt in the locale (tools/fabric/launch_prompt.py, runtime/openrouter/launch, runtime/claude-code/harness/); the locale search (runtime/mcp/websearch-locale/); the measurement (runtime/control/ops.mjs `script`); the memory rendering (tools/fabric/harvest_memory.py); the translation checks in tools/fabric/lint.py and bin/fabric-locale
+**Scope:** the `language-culture` role (identities/roles/language-culture/charter.md, brief.md, and each locale under identities/roles/language-culture/locale/); the locale worker (locale/<suffix>/worker.md, runtime/claude-code/install-agent-files.sh, runtime/claude-code/hooks/agent-dispatch-guard.sh); the prompt in the locale (tools/fabric/launch_prompt.py, runtime/openrouter/launch, runtime/claude-code/harness/); the locale search (tools/fabric/websearch_locale.py, runtime/mcp/websearch-locale/install.py); the measurement (tools/fabric/control/ops/activity.py `script`); the memory rendering (tools/fabric/harvest_memory.py); the translation checks in tools/fabric/lint.py and bin/fabric-locale
 **Pillar:** P4
 **Evidence:** docs/live-checks/2026-09-17-language-culture-bridge.md, docs/live-checks/2026-09-18-language-culture-prompt-replacement.md
 
@@ -273,9 +273,10 @@ the whole prompt in the locale are in use.
   `--disallowedTools WebSearch` line), `runtime/claude-code/harness/`.
 - `tools/fabric/lint.py` (`locale_translation_findings`,
   `locale_worker_findings`, `locale_file_findings`), `bin/fabric-locale`.
-- `runtime/mcp/websearch-locale/` (`server.mjs`, `install.py`, tests).
-- `runtime/control/ops.mjs` (`script`, `workerTranscripts`),
-  `runtime/control/ctl.mjs`; `tools/fabric/harvest_memory.py`
+- `tools/fabric/websearch_locale.py` and `bin/fabric-websearch-locale` (the
+  server), `runtime/mcp/websearch-locale/install.py` (its registration).
+- `tools/fabric/control/ops/activity.py` (`script`, `worker_transcripts`),
+  `tools/fabric/control/ctl.py`; `tools/fabric/harvest_memory.py`
   (`needs_rendering`).
 - `policies/AUTHORITY.md` §"The one carve-out", `policies/githooks/locale-carve-out.sh`.
 - ADR-000 (P4), ADR-002 (the launch prompt and its locale exception),

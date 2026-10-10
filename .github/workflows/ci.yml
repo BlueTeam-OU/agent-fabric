@@ -40,8 +40,7 @@ jobs:
     # Each suite on the interpreters it depends on, and no more: the Python
     # suites on every Python an agent host runs (3.13, the pinned
     # fabric-python and Debian 13's system python3, up to Fedora's 3.14;
-    # ADR-040 rule 1), the Node suites (GZCoord, the
-    # control plane, the locale MCP server) on the Node they are developed
+    # ADR-040 rule 1), the Node suites (GZCoord's) on the Node they are developed
     # on and the oldest they must start on, and the bash suites and the
     # guards on the oldest and newest interpreters. Every leg of the old
     # matrix ran all 78 suites, ~49 runner-minutes a push; split, less, with
@@ -53,8 +52,8 @@ jobs:
       matrix:
         include:
           # Two legs, not four (the owner, 2026-10-09): every interpreter a host
-          # runs is 3.13 or 3.14, and the oldest Node the .mjs tests (GZCoord,
-          # the locale search server) must run on (20) rides the 3.13 leg.
+          # runs is 3.13 or 3.14, and the oldest Node GZCoord's .mjs tests
+          # must run on (20) rides the 3.13 leg.
           - { section: python, python: '3.13', node: '20' }
           - { section: python, python: '3.14', node: '22' }
           - { section: gzcoord, python: '3.13', node: '20' }

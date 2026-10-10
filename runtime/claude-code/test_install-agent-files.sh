@@ -47,9 +47,9 @@ out="$(run_install)"; grep -q "locale-worker.md" <<<"$out" && grep -q "=  $DEST"
 
 echo "the locale search tool: an MCP entry in the user configuration, on the same login"
 mkdir -p "$(dirname "$WORKER")"; printf '{"timezone": "Asia/Tbilisi", "serpapi": {"gl": "ge", "hl": "ka", "tool_description": "ვებ-ძიება"}}' > "$(dirname "$WORKER")/locale.json"
-mkdir -p "$FABRIC/runtime/mcp/websearch-locale"; cp "$REAL_ROOT/runtime/mcp/websearch-locale/install.py" "$FABRIC/runtime/mcp/websearch-locale/"; : > "$FABRIC/runtime/mcp/websearch-locale/server.mjs"
+mkdir -p "$FABRIC/runtime/mcp/websearch-locale"; cp "$REAL_ROOT/runtime/mcp/websearch-locale/install.py" "$FABRIC/runtime/mcp/websearch-locale/"; mkdir -p "$FABRIC/bin"; : > "$FABRIC/bin/fabric-websearch-locale"
 printf '{"theme": "dark", "mcpServers": {"mine": {"command": "x"}}}' > "$HOME/.claude.json"
-out="$(run_install)"; grep -q "mcpServers.websearch-locale" <<<"$out" && python3 -c "import json,sys; d=json.load(open('$HOME/.claude.json')); e=d['mcpServers']['websearch-locale']; assert e['command']=='node' and e['args'][0].endswith('runtime/mcp/websearch-locale/server.mjs') and e['env']['WEBSEARCH_LOCALE_FILE'].endswith('/locale.json') and d['theme']=='dark' and 'mine' in d['mcpServers'], d" && ok "the entry is written beside what was there" || bad "mcp entry" "$out"
+out="$(run_install)"; grep -q "mcpServers.websearch-locale" <<<"$out" && python3 -c "import json,sys; d=json.load(open('$HOME/.claude.json')); e=d['mcpServers']['websearch-locale']; assert e['command'].endswith('/bin/fabric-websearch-locale') and e['args']==[] and e['env']['WEBSEARCH_LOCALE_FILE'].endswith('/locale.json') and d['theme']=='dark' and 'mine' in d['mcpServers'], d" && ok "the entry is written beside what was there" || bad "mcp entry" "$out"
 out="$(run_install)"; grep -q "=  $HOME/.claude.json mcpServers.websearch-locale" <<<"$out" && ok "a second run leaves it" || bad "mcp idempotence" "$out"
 python3 -c "import json; d=json.load(open('$HOME/.claude/settings.json')); assert d['permissions']['deny']==['WebSearch','WebSearch(agent-fabric)'], d" && ok "the harness's WebSearch is denied in the user settings, marked as the fabric's" || bad "websearch deny" "$(cat "$HOME/.claude/settings.json" 2>&1)"
 

@@ -63,7 +63,6 @@ if [[ "$what" == all || "$what" == python ]]; then
 fi
 if [[ "$what" == all || "$what" == gzcoord ]]; then
     run "gzcoord" bash -c 'cd communication/gzcoord && node --test tests/*.test.mjs 2>&1 | grep -E -A14 "^not ok|^# (tests|pass|fail)"; [[ ${PIPESTATUS[0]} -eq 0 ]]'
-    run "locale search MCP server" bash -c 'node --test runtime/mcp/websearch-locale/tests/*.test.mjs 2>&1 | grep -E -A14 "^not ok|^# (tests|pass|fail)"; [[ ${PIPESTATUS[0]} -eq 0 ]]'
 fi
 if [[ "$what" == all || "$what" == bash ]]; then
     # The branch's authority, from the branch's own copy of the guards: the
