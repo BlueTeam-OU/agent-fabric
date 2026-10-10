@@ -16,5 +16,29 @@
       "public/favicon.svg"
     ]
   },
-  "waiver_role": null
+  "waiver_role": null,
+  "direct": {
+    "description": "Direct to main: brand-comms commits copy, content, pages, styles and images straight to main (the owner, 2026-10-10). direct.pr_paths keeps what decides what installs, builds, deploys or runs (the manifests and pnpm files, astro.config.* and tsconfig*.json, the hosting configuration), the harness wiring (.claude/, .mcp.json), CI, .env* and .gitignore, the executable JavaScript under public/, and the secret-shaped words: those still go by pull request with the blind review.",
+    "roles": [
+      "brand-comms"
+    ],
+    "pr_paths": "^\\.claude/|^\\.mcp\\.json$|^\\.env|^\\.gitignore$|^\\.github/|^public/.*\\.js$|(^|/)package\\.json$|^pnpm-|^\\.npmrc$|^astro\\.config\\.|^tsconfig[^/]*\\.json$|(^|/)(wrangler\\.(toml|jsonc?)|_headers|_redirects)$|secret|credential|token|key|auth",
+    "cases": [
+      ".claude/settings.json",
+      ".mcp.json",
+      ".env.local",
+      ".gitignore",
+      ".github/workflows/ci.yml",
+      "package.json",
+      "pnpm-lock.yaml",
+      "pnpm-workspace.yaml",
+      ".npmrc",
+      "astro.config.mjs",
+      "tsconfig.json",
+      "wrangler.toml",
+      "public/_headers",
+      "public/vendor/app.js",
+      "src/lib/api-key.ts"
+    ]
+  }
 }

@@ -11,5 +11,23 @@
       "brand/assets/fonts/NotoSerifGeorgian.ttf"
     ]
   },
-  "waiver_role": null
+  "waiver_role": null,
+  "direct": {
+    "description": "Direct to main: brand-comms commits the brand guide, claims, tokens, fonts and assets straight to main (the owner, 2026-10-10). direct.pr_paths keeps the harness wiring (.claude/, .mcp.json), CI, the package manifests and lockfiles should the repository ever grow them, .env* and .gitignore, and the secret-shaped words: those still go by pull request with the blind review.",
+    "roles": [
+      "brand-comms"
+    ],
+    "pr_paths": "^\\.claude/|^\\.mcp\\.json$|^\\.env|^\\.gitignore$|^\\.github/|(^|/)package(-lock)?\\.json$|^pnpm-|secret|credential|token|key|auth",
+    "cases": [
+      ".claude/settings.json",
+      ".mcp.json",
+      ".env.local",
+      ".gitignore",
+      ".github/workflows/ci.yml",
+      "package.json",
+      "package-lock.json",
+      "pnpm-lock.yaml",
+      "brand/api-key.md"
+    ]
+  }
 }

@@ -18,5 +18,27 @@
       "deploy.sh"
     ]
   },
-  "waiver_role": null
+  "waiver_role": null,
+  "direct": {
+    "description": "Direct to main: brand-comms commits copy, content, pages, styles and images straight to main (the owner, 2026-10-10). direct.pr_paths keeps what decides what installs, builds or runs (the manifests, lockfile and .npmrc, astro.config.* and tsconfig*.json), the harness wiring (.claude/, .mcp.json), CI, the deploy and upload scripts, .env* and .gitignore, the executable vendor JavaScript under public/, and the secret-shaped words: those still go by pull request with the blind review.",
+    "roles": [
+      "brand-comms"
+    ],
+    "pr_paths": "^\\.claude/|^\\.mcp\\.json$|^\\.env|^\\.gitignore$|^\\.github/|^public/.*\\.js$|(^|/)package\\.json$|^package-lock\\.json$|^\\.npmrc$|^astro\\.config\\.|^tsconfig[^/]*\\.json$|(^|/)(deploy|upload)[^/]*$|secret|credential|token|key|auth",
+    "cases": [
+      ".claude/settings.json",
+      ".mcp.json",
+      ".env.local",
+      ".gitignore",
+      ".github/workflows/ci.yml",
+      "package.json",
+      "package-lock.json",
+      ".npmrc",
+      "astro.config.mjs",
+      "tsconfig.json",
+      "deploy.sh",
+      "public/assets/js/theme.bundle.js",
+      "src/lib/api-key.ts"
+    ]
+  }
 }

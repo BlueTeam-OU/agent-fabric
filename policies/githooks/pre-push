@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# policies/githooks/pre-push — a project whose arm.json carries a `direct`
+# block lets the holder of a named role (brand-comms) push straight to the
+# default branch; this refuses what is not that: another role, a deletion,
+# or a change to a file matching direct.pr_paths, which still comes by pull
+# request with the blind review (agent-fabric ADR-019 §5 rule 1).
+#
+# fabric-pr arm never sees a direct push, and the server cannot read a
+# binding, so the keyboard is where the role can be checked for real. Every
+# other project, agent-fabric included, passes untouched. Installed per
+# checkout like pre-commit (core.hooksPath); --no-verify bypasses it, which
+# is a choice, not an accident. The decision is tools/fabric/githooks_prepush.py.
+set -uo pipefail
+FABRIC_ROOT="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../.." && pwd)"
+exec python3 "$FABRIC_ROOT/tools/fabric/githooks_prepush.py" "$@"

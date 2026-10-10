@@ -130,6 +130,53 @@ def _catalog_roles(root: str) -> set[str] | None:
         return None
 
 
+def arm_direct_findings(root: str) -> list[str]:
+    """arm.json's optional `direct` block lets a role push to the default
+    branch without a PR, so everything that keeps a change on the PR path
+    must be checkable here: roles the catalogue knows, a pr_paths that
+    compiles, and cases (paths that must need a PR) it actually matches.
+    A project without the key is not judged."""
+    findings = []
+    for rel in sorted(r for r in _tracked(root)
+                      if re.fullmatch(r"projects/[^/]+/integration/gh/arm\.json", r)):
+        try:
+            project = rel.split("/")[1]
+            doc = json.load(open(roots.project_integration(project, "gh", "arm.json", engine=root), encoding="utf-8"))
+        except (OSError, ValueError):
+            continue  # arm_boundary_findings says the file is unusable
+        if not isinstance(doc, dict) or "direct" not in doc:
+            continue
+        d = doc["direct"]
+        if not isinstance(d, dict):
+            findings.append(f"{rel}: direct must be an object (roles, pr_paths, cases)")
+            continue
+        dr = d.get("roles")
+        if not isinstance(dr, list) or not dr or not all(isinstance(x, str) and x for x in dr):
+            findings.append(f"{rel}: direct.roles must be a non-empty list of role names")
+        else:
+            catalogued = _catalog_roles(root)
+            if catalogued is None:
+                findings.append(f"{rel}: direct.roles cannot be checked: identities/roles/catalog.json "
+                                "is missing or unreadable")
+            else:
+                for x in dr:
+                    if x not in catalogued:
+                        findings.append(f"{rel}: direct role {x!r} is not a role in identities/roles/catalog.json")
+        pr_paths = None
+        try:
+            pr_paths = re.compile(d["pr_paths"], re.I)
+        except (KeyError, TypeError, re.error) as e:
+            findings.append(f"{rel}: direct.pr_paths must be a regular expression ({type(e).__name__}: {e})")
+        cases = d.get("cases")
+        if not isinstance(cases, list) or not cases or not all(isinstance(c, str) and c for c in cases):
+            findings.append(f"{rel}: direct.cases must list the paths that must need a pull request")
+        elif pr_paths is not None:
+            for c in cases:
+                if not pr_paths.search(c):
+                    findings.append(f"{rel}: direct case {c!r} is not a PR path under direct.pr_paths")
+    return findings
+
+
 def arm_boundary_findings(root: str, base_ref: str = "origin/main") -> list[str]:
     """A project's arm.json (fabric-pr arm's rules) names, beside
     its boundary patterns, the cases that MUST stay boundary: each case is
@@ -562,6 +609,7 @@ def main() -> int:
     findings += bash_size_findings(root)
     findings += regex_dollar_findings(root)
     findings += arm_boundary_findings(root)
+    findings += arm_direct_findings(root)
     findings += arm_declared_findings(root)
 
     # --- a session started in this clone gets the workspace's hooks ---------
