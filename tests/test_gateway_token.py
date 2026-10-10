@@ -176,9 +176,11 @@ def main() -> int:
         check("an ACL entry for another user that grants write after the mask is refused by the ACL check itself (the second line)", "grants write" in acl_msg, acl_msg)
         mi = os.path.join(base, "mountinfo")
         with open(mi, "w") as fh:
-            fh.write("1 0 0:1 / / rw - ext4 /dev/a rw\n2 1 0:2 / /srv/with\\040space rw - xfs /dev/b rw\n3 1 0:3 / /srv/with\\040space rw - tmpfs tmpfs rw\n")
+            fh.write("1 0 0:1 / / rw - ext4 /dev/a rw\n2 1 0:2 / /srv/with\\040space rw - xfs /dev/b rw\n3 1 0:3 / /srv/with\\040space rw - tmpfs tmpfs rw\n4 1 0:4 / /srv/tab\\011and\\134slash rw - btrfs /dev/c rw\n")
         check("the mount table: an escaped space is decoded, and of two mounts on one point the later is the visible one",
               g.filesystem_of("/srv/with space/x", mi) == "tmpfs" and g.filesystem_of("/etc", mi) == "ext4")
+        check("…and every octal escape of the mount point (a tab, a backslash), not only the space",
+              g.filesystem_of("/srv/tab\tand\\slash/x", mi) == "btrfs")
 
         print("remove")
         root = fresh(base, "r")
