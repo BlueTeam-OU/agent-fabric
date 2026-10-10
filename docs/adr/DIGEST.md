@@ -1021,16 +1021,25 @@ its record disagree, the record wins. Look it up, never read it whole:
 
 - The curated corpus, the drain and the rubric stay; what changes is how a
   session reaches them: a local stdio MCP server, `fabric-memory`, one per
-  session as its own login, stdlib Python, no network, no model (§5 rule 1).
-- It reads only `memory/` (through roots) and the working copy's
-  `.agent-fabric/memory/` (§5 rule 2).
-- `memory_find` returns cue lines with slice id, kind, Observed date and
-  token size; `memory_read` one section; `memory_index` the INDEX lines
-  (§5 rule 3). BM25, role and project first, no embeddings (§5 rule 4).
-- A `solution` hit carries its date and "verify against the tree"; a
-  section a merge_target replaced is never returned (§5 rule 5).
-- Calls are counted per login in its state, never the query; the recall op
-  reads them after the cutover (§5 rule 7). The hook's INDEX line names the
-  tools (§5 rule 8).
+  session as its own login, stdlib Python, no network, no model; the
+  installer registers the command `fabric-memory-mcp` by name (§5 rule 1).
+- It reads only `memory/` and the working copy's `.agent-fabric/memory/`
+  (§5 rule 2).
+- `memory_find` returns cue lines; `memory_read` one section;
+  `memory_index` the INDEX lines; `memory_mark` (helpful, wrong, stale)
+  appends evidence for the drain, for an id the session was served (§5
+  rule 3). BM25, no embeddings (§5 rule 4).
+- A `solution` hit carries its date; a replaced section is never returned
+  (§5 rule 5).
+- It serves only what lint admitted, from git's committed tree: an
+  uncommitted slice is refused; never a path outside the roots (§5 rule 6).
+- Calls are counted per login in its state, never the query. The harvest
+  bundle carries the counts and the marks, the drain report lists them; it
+  amends ADR-013 §5 rules 5 and 11 and ADR-029 §5 rule 9, and a note with
+  a credential travels empty. The hook's INDEX line, the launch prompt's
+  memory section and `CLAUDE.md` name the tools (§5 rules 7-8).
 - Automatic capture (claude-mem) was declined: the fabric keeps processed
   slices (§3).
+- Keywords: memory, retrieval, MCP, fabric-memory, memory_find, memory_read,
+  memory_index, memory_mark, BM25, cue, INDEX, slice, corpus, mark, recall,
+  claude.json, harvest bundle.

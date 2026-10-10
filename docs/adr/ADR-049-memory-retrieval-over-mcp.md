@@ -3,8 +3,8 @@
 **Date:** 2026-10-10
 **Status:** Proposed
 **Decision Makers:** the owner (curated slices stay; retrieval by an MCP server); drafted by fabric-coordinator
-**Scope:** a `fabric-memory` MCP server over the corpus (`memory/`, a working copy's `.agent-fabric/memory/`); its registration in each login's `~/.claude.json`; the session-start hook's INDEX line; how retrieval is measured
-**Pillar:** P1
+**Scope:** a `fabric-memory` MCP server over the corpus (`memory/`, a working copy's `.agent-fabric/memory/`); its registration in each login's `~/.claude.json`; the session-start hook's INDEX line, the launch prompt's memory section (`identities/prompt/memory.md`) and agent-fabric's `CLAUDE.md` "Knowledge you retrieve"; how retrieval is measured
+**Pillar:** P2
 
 ## 1. Context and Problem
 
@@ -62,9 +62,15 @@ meaning.
    registered the way `runtime/mcp/websearch-locale/install.py` registers
    its server: `runtime/mcp/fabric-memory/install.py` merges an entry
    named "fabric-memory" into the login's `~/.claude.json` (user-scope MCP
-   servers live there, not in `settings.json`), recognising its own entry
-   by path, and `runtime/claude-code/install-agent-files.sh` calls it for
-   every login. The command is `bin/fabric-memory-mcp`, by name.
+   servers live there, not in `settings.json`). The entry runs the command
+   `fabric-memory-mcp` by name on PATH, the `~/.local/bin` link every
+   `bin/` command has (ADR-040 rule 7), never a `bin/` path; the installer
+   recognises its own entry by the name "fabric-memory" and that command.
+   `tools/fabric/install_agent_files.py` calls it for every login
+   (`runtime/claude-code/install-agent-files.sh` is only a shim to it);
+   its contract header and both parity tests
+   (`runtime/claude-code/test_install-agent-files.sh`,
+   `tests/test_install_agent_files.py`) change with the new call.
 2. It reads only the corpus the login already has: the fabric's
    `memory/` (through `tools/fabric/roots.py`) and the session's working
    copy's `.agent-fabric/memory/`.
@@ -85,7 +91,8 @@ meaning.
      or `stale`. It appends one line to the login's own state,
      `agents/<login>/memory-marks.jsonl` (mode 0600: time, id, verdict,
      the note cut at 300 characters), and refuses an id that
-     `memory_find` did not return. The server still writes nothing under
+     `memory_find`, `memory_read` or `memory_index` has not returned in the
+     session. The server still writes nothing under
      the corpus; a mark is evidence for the drain, not an edit.
 4. Ranking is BM25 with separate weights for the cue, the slice's title
    and the body, tokenising identifiers (paths, `snake_case`, `--flags`)
@@ -102,7 +109,10 @@ meaning.
    correction replaced is never returned.
 6. The server never returns a secret: it serves only what lint has
    already admitted to the corpus (`policies/hygiene.json`), and refuses
-   a path outside rule 2's roots.
+   a path outside rule 2's roots. That holds for the fabric's `memory/`
+   and for a working copy's committed corpus: the server reads git's
+   committed tree (`git show HEAD:<path>`), not the working tree, so an
+   uncommitted slice, which no lint has seen, is refused, not served.
 7. Each call is recorded in the login's own state
    (`agents/<login>/memory-calls.jsonl`: time, tool, hit count, the ids
    returned and whether a find was followed by a read; never the query's
@@ -113,11 +123,23 @@ meaning.
    never query text) and the marks, through `fabric-ctl <login> memory`,
    and the drain report lists them per login and per section id. Agents
    may live on different hosts, so nothing here is read from another
-   account's state directly.
+   account's state directly. This amends three contracts: the bundle
+   gains `marks.jsonl` and the call-log counts, which the manifest names
+   (ADR-013 §5 rule 5 refuses a file it does not); the drain report gains
+   a retrieval section per login (ADR-013 §5 rule 11); and the `memory`
+   op of ADR-029 §5 rule 9 harvests them with the memories. A mark's
+   note is free text and crosses the relay, so the harvester applies its
+   credential check (`harvest_memory.credential_hits`) to each note
+   before the bundle leaves the account: a note with a credential by
+   shape travels empty, the mark kept and the withheld notes counted;
+   the rest of the call log travels as counts only (ADR-029 §5 rule 6).
 8. The session-start hook's INDEX line names the tools ("ask
    `memory_find` before changing …") instead of a file path. The hook
    is `runtime/claude-code/hooks/session-start.py`, and
-   `tests/test_session_start.py` changes with it.
+   `tests/test_session_start.py` changes with it. The two other texts
+   that teach the pull-by-path flow change with it: the retrieval line
+   of `identities/prompt/memory.md` and agent-fabric's `CLAUDE.md`
+   "Knowledge you retrieve".
 
 ## 6. Consequences
 
@@ -143,7 +165,9 @@ coordinator's session; acceptance is theirs.
 
 ## References
 
-- ADR-013 (the memory model), ADR-040 (Python, the standard library,
+- ADR-013 (the memory model; §5 rules 5 and 11 amended by rule 7),
+  ADR-029 (§5 rules 6 and 9: the `memory` op and what a reply carries),
+  ADR-040 (Python, the standard library,
   the wire freeze), ADR-045 (roots, the operator tree)
 - `memory/README.md`, `memory/RUBRIC.md`
 - `tools/fabric/control/ops/activity.py` (the recall operation)
