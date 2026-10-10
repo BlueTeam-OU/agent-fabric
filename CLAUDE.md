@@ -105,6 +105,13 @@ is the capability class below (ADR-002, ADR-005).
   change. The review class checks all of it.
 - **Work in the project's working copy**, under that project's
   `CLAUDE.md`. From `projects/`, `cd` into the working copy first.
+- **A command for the owner fits on one screen line, and you have run
+  it first.** Past about 100 characters it goes into a short script
+  (in the tree, or `$XDG_RUNTIME_DIR/<task>/` when it touches a
+  secret) and the owner gets `! <path>`; no heredoc, no continuation.
+  Run every part you can in your own session before handing it over,
+  checking a secret's shape without printing it, and say which part
+  you could not run.
 - **Compute, then read.** When an answer needs many files or a long
   output (counting, comparing, searching a log), write a short script
   that computes it and prints only the result, instead of reading the
