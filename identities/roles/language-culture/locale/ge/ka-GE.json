@@ -96,7 +96,7 @@
   "watch.held": "gzcoord watch: შემოსულები შეჩერებულია — სესია დაგეგმვის რეჟიმშია; სანამ გეგმა არ დამტკიცდება, არაფერი მოწმდება",
   "watch.hold-released": "gzcoord watch: შეჩერება მოხსნილია; შემოწმება გაგრძელდა",
   "watch.relay-down": "gzcoord watch: რელე ({relay_url}) მიუწვდომელია — ველოდები (ეს სტრიქონი ერთხელ იბეჭდება)",
-  "watch.relay-gave-up": "gzcoord watch: relay unreachable at {relay_url} for 15 minutes — the watch ended; run it again when the relay is back",
+  "watch.relay-gave-up": "gzcoord watch: რელე ({relay_url}) 15 წუთის განმავლობაში მიუწვდომელი რჩებოდა — დაკვირვება შეწყდა; რელეს დაბრუნების შემდეგ ის თავიდან ჩართე",
   "watch.relay-back": "gzcoord watch: რელე დაბრუნდა; დაკვირვება გაგრძელდა",
   "keyword.too-short": "საკვანძო სიტყვა „{keyword}“ {min} სიმბოლოზე მოკლეა — მოკლე სიტყვა თითქმის ყველაფერზე ამოქმედდება",
   "keyword.too-many": "ერთი დაკვირვებისთვის მაქსიმუმ {max} საკვანძო სიტყვა",
