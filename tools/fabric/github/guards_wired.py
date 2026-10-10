@@ -9,7 +9,8 @@ forever. A check written, tested by hand and committed proves the
 script works; it says nothing about whether anything will ever call it.
 Verifying the artifact is not verifying its reachability.
 
-What is checked, for each directory the project's guards.json names:
+What is checked, for each directory the project's guards.json names (rules
+3 and 4 reach every other test_*.sh in the tree as well):
   1. a guard (or ci) member is run by some .github/workflows/*.yml; a
      script member — a helper a person runs — need not be;
   2. every member has a self-test beside it, test_<stem>.<ext>, unless
@@ -58,6 +59,9 @@ Exit codes:
 # unchanged against the shim, the oracle): one copy's reading of what a
 # workflow runs, the other's directory roles and globs, each project's
 # report in its own form and wording.
+# Since 2026-10-10 rule 4 is the tree's: gzapp's suite ran a bare self-test from a package
+# script and expected exit 0 (its pkg_with_selftest); that fixture is wrapped on the
+# project's side, so the oracle is that suite as revised, not the one first ported.
 #
 # THE CONTRACT, frozen from devex-tooling's port contract 8/8 and its
 # rulings of 2026-10-08:
