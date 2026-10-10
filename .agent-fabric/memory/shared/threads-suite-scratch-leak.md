@@ -1,10 +1,13 @@
 ---
-role: "fabric-coordinator"
+role: shared
 class: threads
 topic: "suite-scratch-leak"
 description: tests/run.sh owns a fresh TMPDIR per run and fails naming what is left in it; concurrent runs no longer share scratch
 tier: 2
 knowledge_scope: full
+shared_with:
+  - "fabric-coordinator"
+  - "python-dev"
 distilled_at: "2026-10-10"
 origin:
   - agent: user

@@ -117,6 +117,7 @@ control plane checked out beside it.
 - [`.agent-fabric/memory/python-dev/threads/wave-8-sessions-unreadable-contract.md`](.agent-fabric/memory/python-dev/threads/wave-8-sessions-unreadable-contract.md) — Wave 8 sessions/ctl port must BUILD j5 (unreadable session state) in Python — not in Node; contract + 9 mutations from python-dev-02
 - [`.agent-fabric/memory/python-dev/threads/wave-8-signed-bytes-and-frozen-state.md`](.agent-fabric/memory/python-dev/threads/wave-8-signed-bytes-and-frozen-state.md) — Wave 8 (j67) revised on #131 — signed bytes are Node JSON.stringify to the byte; persisted state frozen with the wire; no new wire behaviour before Node is deleted
 - [`.agent-fabric/memory/shared/threads-python-port-waves.md`](.agent-fabric/memory/shared/threads-python-port-waves.md) — The ADR-040 Python port is complete (all waves landed); the pinned interpreter is installed per host by python_pin.py (shared)
+- [`.agent-fabric/memory/shared/threads-suite-scratch-leak.md`](.agent-fabric/memory/shared/threads-suite-scratch-leak.md) — tests/run.sh owns a fresh TMPDIR per run and fails naming what is left in it; concurrent runs no longer share scratch (shared)
 
 ## recall
 

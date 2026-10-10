@@ -121,8 +121,8 @@ control plane checked out beside it.
 - [`.agent-fabric/memory/fabric-coordinator/threads/radicle-decentralized-forge.md`](.agent-fabric/memory/fabric-coordinator/threads/radicle-decentralized-forge.md) — Radicle is the owner's candidate decentralized forge; a spike is on stand-by until Radicle 2.0.0 and nothing is adopted
 - [`.agent-fabric/memory/fabric-coordinator/threads/shared-android-toolchain-deferred.md`](.agent-fabric/memory/fabric-coordinator/threads/shared-android-toolchain-deferred.md) — DONE by devex-tooling (owner, 2026-10-07): the shared Android toolchain is not on my list
 - [`.agent-fabric/memory/fabric-coordinator/threads/software-factory-gaps-2026-10-09.md`](.agent-fabric/memory/fabric-coordinator/threads/software-factory-gaps-2026-10-09.md) — Candidate fabric changes from the software-factory article, each with what this fabric showed on 2026-10-09 — open, none adopted; the charter's bar is observed recurrence
-- [`.agent-fabric/memory/fabric-coordinator/threads/suite-scratch-leak.md`](.agent-fabric/memory/fabric-coordinator/threads/suite-scratch-leak.md) — tests/run.sh owns a fresh TMPDIR per run and fails naming what is left in it; concurrent runs no longer share scratch
 - [`.agent-fabric/memory/shared/threads-python-port-waves.md`](.agent-fabric/memory/shared/threads-python-port-waves.md) — The ADR-040 Python port is complete (all waves landed); the pinned interpreter is installed per host by python_pin.py (shared)
+- [`.agent-fabric/memory/shared/threads-suite-scratch-leak.md`](.agent-fabric/memory/shared/threads-suite-scratch-leak.md) — tests/run.sh owns a fresh TMPDIR per run and fails naming what is left in it; concurrent runs no longer share scratch (shared)
 
 ## recall
 
