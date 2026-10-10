@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """The shared work/fix/merge classifier (tools/fabric/github/commit_class.py,
-reached by callers through the sourced runtime/github/commit-class.sh), on
+reached by callers through the shell library that was runtime/github/commit-class.sh), on
 the subjects the count rule was calibrated against. Ported from
 runtime/github/test_commit-class.sh (ADR-040 Wave 6), case for case: as there,
 every case of the table goes through the sourced shim with all five
@@ -18,9 +18,15 @@ import tempfile
 from instance_fixtures import write_operator_projects  # noqa: E402 — tests/, the script's own directory
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-SHIM = os.path.abspath(os.environ.get("COMMIT_CLASS") or os.path.join(ROOT, "runtime", "github", "commit-class.sh"))
-if not os.path.isfile(SHIM):
-    sys.exit(f"test: script under test not found at {SHIM}")
+# The two functions the sourced shell library gave its callers, defined as it
+# defined them over the module's CLI; COMMIT_CLASS names a file to source
+# instead (a mutated copy, for the counterfactual runs).
+MODULE = os.path.join(ROOT, "tools", "fabric", "github", "commit_class.py")
+LIBRARY = os.path.abspath(os.environ["COMMIT_CLASS"]) if os.environ.get("COMMIT_CLASS") else None
+if LIBRARY and not os.path.isfile(LIBRARY):
+    sys.exit(f"test: script under test not found at {LIBRARY}")
+FUNCTIONS = ('commit_class() { "$COMMIT_CLASS_PYTHON" "$COMMIT_CLASS_MODULE" class "$@"; }\n'
+             'revert_targets() { "$COMMIT_CLASS_PYTHON" "$COMMIT_CLASS_MODULE" revert-targets; }')
 
 AF = "gzapi-org/agent-fabric"
 # (expected, parents, subject, answers, pr, repo), grouped as the bash
@@ -181,7 +187,9 @@ def main() -> int:
          "fixture-proj": ["git@example.org:fixture-org/fixture-proj.git"]})
 
     def sourced(script: str, stdin: str = "") -> subprocess.CompletedProcess[str]:
-        return subprocess.run(["bash", "-c", f'. "$1"; {script}', "_", SHIM], input=stdin, env=env,
+        lib = '. "$1"' if LIBRARY else FUNCTIONS
+        return subprocess.run(["bash", "-c", f'{lib}; {script}', "_", LIBRARY or ""], input=stdin,
+                              env={**env, "COMMIT_CLASS_PYTHON": sys.executable, "COMMIT_CLASS_MODULE": MODULE},
                               capture_output=True, text=True, timeout=300)
 
     # One bash for the whole table, as the bash suite sourced the shim once;
