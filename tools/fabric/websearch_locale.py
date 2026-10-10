@@ -32,6 +32,8 @@ CONTRACT
            clamped, default 10}. A bad query is -32602; a failed search is a result with isError true and a line a
            reader can act on, never a secret.
   stdout   one JSON line per answer, UTF-8, compact.
+  failure  a search that fails for any reason is a result with isError true; a message whose handling raises something
+           nobody foresaw is a JSON-RPC -32603 that names no cause (a URL carries a key); the server does not end.
   stderr   nothing, but the one line `websearch-locale: <why>` before exit 1 when the locale file cannot be read.
   secrets  never in a URL but SerpAPI's own, a log line, a result or an error; a key that cannot be a header value
            (a control character) is refused without being quoted.
@@ -40,6 +42,7 @@ CONTRACT
 """
 from __future__ import annotations
 
+import http.client
 import json
 import os
 import re
@@ -77,6 +80,13 @@ class LocaleError(Exception):
     """The locale file cannot decide the search: said once, then exit 1."""
 
 
+def _configured(locale: Mapping[str, Any], engine: str) -> bool:
+    """JavaScript's truthiness of the block: an empty object is present (and then refused for its missing fields), as
+    the Node server had it; null, false, 0 and "" are absent."""
+    block = locale.get(engine)
+    return block is not None and block is not False and block != 0 and block != ""
+
+
 def read_locale(file: str | None = None) -> dict[str, Any]:
     file = os.environ.get("WEBSEARCH_LOCALE_FILE") if file is None else file
     if not file:
@@ -88,7 +98,7 @@ def read_locale(file: str | None = None) -> dict[str, Any]:
         raise LocaleError(f"{file}: {e.strerror if isinstance(e, OSError) and e.strerror else e}") from None
     if not isinstance(locale, dict):
         raise LocaleError(f"locale file {file}: not an object")
-    engines = [e for e in REQUIRED if locale.get(e)]
+    engines = [e for e in REQUIRED if _configured(locale, e)]
     if not engines:
         raise LocaleError(f"locale file {file}: no engine configured (serpapi, brave)")
     for e in engines:
@@ -108,10 +118,23 @@ def _quote(text: str) -> str:
 
 
 def _count(value: object) -> str:
-    """String(Math.min(20, Math.max(1, Number(count) || 10))): NaN and 0 are the default, a fraction stays one."""
-    try:
-        n = float(value) if isinstance(value, (int, float, str)) and not isinstance(value, bool) else float(bool(value))
-    except ValueError:
+    """String(Math.min(20, Math.max(1, Number(count) || 10))): NaN and 0 are the default, a fraction stays one, an
+    integer too large for a float is Infinity (clamped), and anything that is not a number or a numeric string is NaN."""
+    if isinstance(value, bool):
+        n = float(value)
+    elif isinstance(value, (int, float)):
+        try:
+            n = float(value)
+        except OverflowError:
+            n = float("inf") if value > 0 else float("-inf")
+    elif isinstance(value, str):
+        try:
+            n = float(value.strip() or 0)
+        except ValueError:
+            n = float("nan")
+    elif value is None:
+        n = 0.0
+    else:
         n = float("nan")
     if n != n or n == 0:
         n = 10.0
@@ -176,9 +199,14 @@ def secrets_of(engine: str, environ: Mapping[str, str] | None = None) -> dict[st
     return out
 
 
+def search_opener() -> urllib.request.OpenerDirector:
+    """No environment proxy (a key would go through it) and a redirect only within its own origin."""
+    return httpsafe.opener(proxies=False, redirects="same-origin")
+
+
 def http_fetch(url: str, headers: dict[str, str]) -> tuple[int, str]:
     # A key in the URL or a header goes to its own host and nowhere else (httpsafe.py).
-    opener = httpsafe.opener(proxies=False, redirects="same-origin")
+    opener = search_opener()
     try:
         with opener.open(urllib.request.Request(url, headers=headers, method="GET"), timeout=TIMEOUT_S) as r:
             return r.status, r.read().decode("utf-8", "replace")
@@ -190,6 +218,9 @@ def http_fetch(url: str, headers: dict[str, str]) -> tuple[int, str]:
     except urllib.error.URLError as e:
         if isinstance(e.reason, (TimeoutError, socket.timeout)):
             raise TimeoutError from None
+        raise OSError from None
+    except http.client.HTTPException:
+        # A reply cut off mid-body or with a status line that is not HTTP: the connection failed, as Node's fetch said.
         raise OSError from None
     except ValueError:
         # http.client quotes the whole offending header in this error: a key with it.
@@ -212,8 +243,9 @@ def strip_tags(text: object) -> str:
     "<<b>b>" leaves "<b>", and a stray angle bracket is dropped too. The text reaches a model, not a browser. Bounded:
     a description is a few hundred bytes and each pass is linear, so 16 passes and 4 kB cap a crafted "<b<b<b…>>>"
     (review of #39)."""
-    # slice(0, 4096) counts UTF-16 units, as JavaScript does; a cut through a surrogate pair leaves the lone half, which
-    # serve() writes as U+FFFD, as Node did.
+    # slice(0, 4096) counts UTF-16 units, as JavaScript does; a cut through a surrogate pair leaves the lone half. serve()
+    # writes it as U+FFFD. That is a departure from Node, whose JSON.stringify wrote the escape \\ud83d: a lone surrogate
+    # in a JSON line is not valid UTF-8 text, and a reader that takes the line as text should not meet one.
     s = ("null" if text is None else _js(text)).encode("utf-16-le", "surrogatepass")[:8192].decode("utf-16-le", "surrogatepass")
     for _ in range(16):
         prev = s
@@ -221,6 +253,11 @@ def strip_tags(text: object) -> str:
         if s == prev:
             break
     return s.replace("<", "").replace(">", "")
+
+
+def _clip(text: str, units: int) -> str:
+    """slice(0, n) of a JavaScript string: UTF-16 units, so a cut through a surrogate pair leaves the lone half."""
+    return text.encode("utf-16-le", "surrogatepass")[: units * 2].decode("utf-16-le", "surrogatepass")
 
 
 def _get(obj: object, *path: str) -> object:
@@ -263,11 +300,11 @@ def search(engine: str, query: str, locale: Mapping[str, Any], secrets: Mapping[
             err = _get(j, "error")
             why = err if isinstance(err, str) else next((v for v in (_get(j, "message"), _get(err, "message"), _get(err, "detail"))
                                                         if v is not None), "")
-        return {"isError": True, "text": f"search refused: HTTP {status}" + (f" — {_js(why)[:200]}" if why else "")}
+        return {"isError": True, "text": f"search refused: HTTP {status}" + (f" — {_clip(_js(why), 200)}" if why else "")}
     if not parsed:
         return {"isError": True, "text": "search answered something that is not JSON"}
     if engine == "serpapi" and _get(j, "error"):
-        return {"isError": True, "text": f"search refused: {_js(_get(j, 'error'))[:200]}"}
+        return {"isError": True, "text": f"search refused: {_clip(_js(_get(j, 'error')), 200)}"}
     if engine == "serpapi":
         rows = _get(j, "organic_results")
         items = [(_get(x, "title"), _get(x, "link"), _get(x, "snippet")) for x in rows] if isinstance(rows, list) else []
@@ -301,10 +338,10 @@ def tools(locale: Mapping[str, Any]) -> list[dict[str, Any]]:
     schema = {"type": "object", "additionalProperties": False, "required": ["query"],
               "properties": {"query": {"type": "string", "minLength": 2}, "count": {"type": "integer", "minimum": 1, "maximum": 20}}}
     out = []
-    first = next((e for e in ORDER if locale.get(e)), None)
+    first = next((e for e in ORDER if _configured(locale, e)), None)
     if first:
         out.append({"name": "web_search", "description": locale[first]["tool_description"], "inputSchema": schema})
-    if locale.get("brave"):
+    if _configured(locale, "brave"):
         out.append({"name": "web_search_global", "description": locale["brave"]["tool_description"], "inputSchema": schema})
     return out
 
@@ -344,8 +381,8 @@ def handle(msg: object, locale: Mapping[str, Any], secrets: Mapping[str, Any] | 
     if method == "tools/call":
         name = params.get("name")
         if name == "web_search":
-            engines = [e for e in ORDER if locale.get(e)]
-        elif name == "web_search_global" and locale.get("brave"):
+            engines = [e for e in ORDER if _configured(locale, e)]
+        elif name == "web_search_global" and _configured(locale, "brave"):
             engines = ["brave"]
         else:
             engines = []
@@ -360,6 +397,12 @@ def handle(msg: object, locale: Mapping[str, Any], secrets: Mapping[str, Any] | 
     return error(-32601, f"method not found: {method}")
 
 
+def _no_constant(name: str) -> object:
+    """NaN, Infinity and -Infinity are not JSON: a line carrying one is a parse error, as in Node, and an id of one
+    is never echoed as invalid JSON."""
+    raise ValueError(name)
+
+
 def serve(locale: Mapping[str, Any], stdin=None, stdout=None, secrets: Mapping[str, Any] | None = None, fetch: Fetch = http_fetch) -> int:
     stdin = stdin or sys.stdin
     stdout = stdout or sys.stdout
@@ -368,11 +411,16 @@ def serve(locale: Mapping[str, Any], stdin=None, stdout=None, secrets: Mapping[s
         if not line:
             continue
         try:
-            msg = json.loads(line)
+            msg = json.loads(line, parse_constant=_no_constant)
         except ValueError:
             out: dict | None = {"jsonrpc": "2.0", "id": None, "error": {"code": -32700, "message": "parse error"}}
         else:
-            out = handle(msg, locale, secrets, fetch)
+            try:
+                out = handle(msg, locale, secrets, fetch)
+            except Exception:  # noqa: BLE001 - a search must never end the server; the answer says nothing of the cause
+                ident = msg.get("id") if isinstance(msg, dict) else None
+                out = {"jsonrpc": "2.0", "id": ident if isinstance(ident, (str, int, float)) and not isinstance(ident, bool) else None,
+                       "error": {"code": -32603, "message": "internal error"}}
         if out is not None:
             stdout.write(_LONE_SURROGATE.sub("\ufffd", json.dumps(out, ensure_ascii=False, separators=(",", ":"))) + "\n")
             stdout.flush()

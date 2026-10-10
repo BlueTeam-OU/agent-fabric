@@ -6,9 +6,12 @@ run of ADR-040 §5 rule 5); what the Node tests asserted is ported case for case
 prints ok/FAIL, exit 1 on any failure."""
 from __future__ import annotations
 
+import http.client  # noqa: F401 - http.client is the library the transport uses
 import http.server
+import io
 import json
 import os
+import socket
 import subprocess
 import sys
 import tempfile
@@ -186,7 +189,7 @@ def main() -> int:
         srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), H)
         threading.Thread(target=srv.serve_forever, daemon=True).start()
         base = f"http://127.0.0.1:{srv.server_port}"
-        os.environ["http_proxy"] = "http://127.0.0.1:9"       # a proxy that would refuse: it must not be consulted
+        os.environ["http_proxy"] = os.environ["https_proxy"] = "http://127.0.0.1:9"       # a proxy that would refuse: it must not be consulted
         try:
             status, body = ws.http_fetch(base + "/ok?q=1", {"Accept": "application/json", "X-Subscription-Token": "tok"})
             check("a 200 comes back with its body; the headers reach the host; the environment's proxy is not used",
@@ -199,6 +202,7 @@ def main() -> int:
                   status == 302 and [p for p, _ in hits[before:]] == ["/redirect"], str(hits[before:]))
         finally:
             os.environ.pop("http_proxy", None)
+            os.environ.pop("https_proxy", None)
             srv.shutdown()
         try:
             ws.http_fetch("http://127.0.0.1:9/", {})
@@ -213,6 +217,66 @@ def main() -> int:
             quoted = str(e)
         check("a header value http.client refuses never surfaces with the value quoted", "a\nb" not in quoted and "\\n" not in quoted, quoted)
 
+        print("what Node answered and a bare exception would not")
+
+        def one_shot(reply: bytes):
+            srv_ = socket.socket()
+            srv_.bind(("127.0.0.1", 0))
+            srv_.listen(1)
+
+            def go():
+                c, _ = srv_.accept()
+                c.recv(4096)
+                c.sendall(reply)
+                c.close()
+                srv_.close()
+            threading.Thread(target=go, daemon=True).start()
+            return f"http://127.0.0.1:{srv_.getsockname()[1]}/"
+        for label, reply in (("a reply cut off mid-body", b"HTTP/1.1 200 OK\r\nContent-Length: 500\r\n\r\n{\"a\":"),
+                             ("a status line that is not HTTP", b"garbage\r\n\r\n")):
+            url = one_shot(reply)
+            r = ws.search("brave", "ab", LOCALE, B, lambda _u, h, url=url: ws.http_fetch(url, h))
+            check(f"{label}: a tool error that says unreachable, not an exception out of the server", r == {"isError": True, "text": "search failed: unreachable"}, str(r))
+        check("an integer too large for a float is clamped like Infinity, and a dict or a list is NaN (the default)",
+              ws._count(10 ** 400) == "20" and ws._count(-(10 ** 400)) == "1" and ws._count({"a": 1}) == "10" and ws._count([5]) == "10"
+              and ws._count(None) == "10" and ws._count("7") == "7" and ws._count(True) == "1")
+        sink = io.StringIO()
+        boom = lambda _u, _h: (_ for _ in ()).throw(RuntimeError("secret-url-with-key"))  # noqa: E731
+        ws.serve(LOCALE, io.StringIO(json.dumps({"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": {"name": "web_search_global", "arguments": {"query": "ab"}}})
+                                     + "\n" + json.dumps({"jsonrpc": "2.0", "id": 6, "method": "ping"}) + "\n"), sink, {"brave": B}, boom)
+        lines = [json.loads(x) for x in sink.getvalue().splitlines()]
+        check("an exception nobody foresaw is a JSON-RPC error that names no cause, and the next message is answered",
+              lines[0]["error"]["code"] == -32603 and "secret" not in sink.getvalue() and lines[1] == {"jsonrpc": "2.0", "id": 6, "result": {}}, sink.getvalue())
+        sink = io.StringIO()
+        ws.serve(LOCALE, io.StringIO('{"jsonrpc":"2.0","id":NaN,"method":"ping"}\n{"jsonrpc":"2.0","id":Infinity,"method":"ping"}\n'), sink)
+        check("NaN and Infinity in a line are a parse error, never echoed as invalid JSON",
+              [json.loads(x)["error"]["code"] for x in sink.getvalue().splitlines()] == [-32700, -32700] and "NaN" not in sink.getvalue())
+        emoji = "😀" * 150
+        long_err = ws.search("brave", "ab", LOCALE, B, lambda _u, _h: (500, json.dumps({"message": emoji})))
+        check("an error body is cut at 200 UTF-16 units, as Node cut it", long_err["text"] == "search refused: HTTP 500 — " + "😀" * 100, long_err["text"][:60])
+        for label, doc, expect in (("an empty engine block is refused for its missing fields, not dropped", {"serpapi": {}, "brave": LOCALE["brave"]}, "serpapi.gl missing"),
+                                   ("…a null block is absent", {"serpapi": None, "brave": LOCALE["brave"]}, "")):
+            f = os.path.join(t, "empty-block.json")
+            with open(f, "w", encoding="utf-8") as fh:
+                json.dump(doc, fh)
+            try:
+                ws.read_locale(f)
+                got = ""
+            except ws.LocaleError as e:
+                got = str(e)
+            check(label, (expect in got) if expect else got == "", got)
+
+        os.environ["https_proxy"] = "http://127.0.0.1:9"
+        try:
+            def proxies_of(**kw) -> list[dict]:
+                return [h.proxies for h in ws.httpsafe.opener(redirects="same-origin", **kw).handlers if hasattr(h, "proxies")]
+            used = [h.proxies for h in ws.search_opener().handlers if hasattr(h, "proxies")]
+            check("with https_proxy in the environment, the opener the search uses holds no proxy (a key would go through it)", used == [], str(used))
+            check("…and the same environment does give the other policy one (the positive control)", proxies_of(proxies=True) == [{"https": "http://127.0.0.1:9"}],
+                  str(proxies_of(proxies=True)))
+        finally:
+            os.environ.pop("https_proxy", None)
+
         print("stripTags")
         t0 = time.monotonic()
         ws.strip_tags("<b" * 50000 + ">" * 50000)
@@ -220,7 +284,6 @@ def main() -> int:
         check("at most 16 passes: a deeper nesting leaves residue rather than looping", len(ws.strip_tags("<b" * 20 + ">" * 20)) > 0)
 
         print("the wire, as Node wrote it")
-        import io
         long_desc = json.dumps({"web": {"results": [{"title": "t", "url": "u", "description": "x" + "😀" * 2100}]}})
         sink = io.StringIO()
         ws.serve(LOCALE, io.StringIO(json.dumps({"jsonrpc": "2.0", "id": 1, "method": "tools/call",
