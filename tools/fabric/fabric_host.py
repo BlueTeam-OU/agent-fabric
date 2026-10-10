@@ -5,7 +5,7 @@
   fabric-host <host> check                          the host answers as the id it is registered under
   fabric-host <host> run [--as <login>] [--tty] -- <cmd>...   one command there (runtime/hostexec/hostexec)
   fabric-host <host> moveto <login> [<clone>]       an interactive shell as that account, in its workspace
-  fabric-host <host> rename <login> <old> <new> [--dry-run]   rename-working-copy.sh, run there
+  fabric-host <host> rename <login> <old> <new> [--dry-run]   provisioning/rename_working_copy.py, run there
   fabric-host <host> persist                        every placement survives the host's reboot (linger; the record snapshot on Qubes)
   fabric-host <host> drain <login> [harvest flags...] > drain.tar   the account's memory as a bundle (stdout) — the sudo
                                                                    fallback; the drain is fabric-ctl <login> memory (docs/adr/ADR-029-the-control-plane-a-control-agent-per-account.md)
@@ -49,6 +49,11 @@ class Refused(Exception):
     def __init__(self, message: str, status: int = 2) -> None:
         super().__init__(message)
         self.status = status
+
+
+# The fleet's pinned interpreter on the target host (runtime/python.json); the
+# provisioning entries run on it, never on whatever python3 the host has.
+FABRIC_PYTHON = "/usr/local/bin/fabric-python"
 
 
 def usage_lines() -> str:
@@ -131,13 +136,13 @@ def main(argv: list[str]) -> int:
         if sub == "rename":
             if len(rest) < 3:
                 raise Refused("rename needs <login> <old> <new>")
-            return run_hostexec([host, "--", "@fabric/runtime/provisioning/rename-working-copy.sh", *rest])
+            return run_hostexec([host, "--", FABRIC_PYTHON, "-I", "@fabric/tools/fabric/provisioning/rename_working_copy.py", *rest])
         if sub == "persist":
             placement = load_registry(registry).get("placement") or {}
             logins = [login for login, p in placement.items() if p == host]
             if not logins:
                 raise Refused(f"no placements on {host}")
-            return run_hostexec([host, "--", "sudo", "-n", "bash", "@fabric/runtime/provisioning/persist-accounts.sh", *logins])
+            return run_hostexec([host, "--", "sudo", "-n", FABRIC_PYTHON, "-I", "@fabric/tools/fabric/provisioning/persist_accounts.py", *logins])
         if sub == "drain":
             if not rest:
                 raise Refused("drain needs the login")

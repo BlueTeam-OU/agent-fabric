@@ -1,6 +1,6 @@
 # runtime/control/agent-fabric-agentd.service — the control agent as a
 # systemd USER unit: one per account, run as the login, alive whether or
-# not a session is (the account lingers: persist-accounts.sh). Installed
+# not a session is (the account lingers: persist_accounts.py). Installed
 # by runtime/claude-code/bootstrap.sh to ~/.config/systemd/user/ at every
 # moveto entry. Static on purpose: every account's checkout is
 # ~/projects/agent-fabric, so %h is the only variable. The daemon exits by

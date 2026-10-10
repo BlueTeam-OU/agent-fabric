@@ -17,7 +17,7 @@
 #
 # The snapshot is /rw/config/agent-fabric/accounts/{passwd,shadow,group,
 # gshadow,subuid,subgid}, one line per fabric account, written by
-# runtime/provisioning/persist-accounts.sh at provisioning and on demand.
+# tools/fabric/provisioning/persist_accounts.py at provisioning and on demand.
 # A uid the template has meanwhile given to a system user is a collision:
 # that account is skipped whole — none of its six lines — with a line on
 # stderr, never appended over it. `members` (login:g1,g2) puts each

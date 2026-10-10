@@ -210,14 +210,15 @@ def main() -> int:
         # The role the cases ask for, and the registry's projects; the remotes are the fixture's.
         put(f"{fab}/identities/roles/backend-dev/charter.md", "# backend-dev\n")
         write_json(f"{fab}/projects/registry.json", SECRETS_REGISTRY)
-        for f in ("new-agent.sh", "new-agent-worker.sh", "persist-accounts.sh", "github-host-keys"):
+        for f in ("new-agent.sh", "new-agent-worker.sh", "github-host-keys"):
             shutil.copy2(f"{HERE}/{f}", f"{fab}/runtime/provisioning/")
         shutil.copytree(f"{ROOT}/runtime/hostexec", f"{fab}/runtime/hostexec", symlinks=True)
         shutil.copytree(f"{HERE}/platform", f"{fab}/runtime/provisioning/platform", symlinks=True)
         shutil.copy(f"{ROOT}/runtime/claude-code/harness.json", f"{fab}/runtime/claude-code/")
         # hostexec and the worker are shims for their modules (ADR-040 §5 rule 5).
-        for f in ("new_agent.py", "new_agent_worker.py", "roots.py", "hostexec.py", "hostworker.py"):
+        for f in ("new_agent.py", "roots.py", "hostexec.py", "hostworker.py"):
             shutil.copy2(f"{ROOT}/tools/fabric/{f}", f"{fab}/tools/fabric/")
+        shutil.copytree(f"{ROOT}/tools/fabric/provisioning", f"{fab}/tools/fabric/provisioning", ignore=shutil.ignore_patterns("__pycache__"))
         put(f"{sandbox}/home/.local/bin/claude", "#!/bin/sh\necho fake\n", 0o755)
         # The host registry the orchestrator reads: this host (direct) and a
         # far one reached over a fake ssh that runs the same worker here.
@@ -512,8 +513,8 @@ def main() -> int:
                    f"rc={rcu}\n{outu}")
                 reset_seq()
                 rc, out = seq_run(backend, "seq-login", "backend-dev", "--project", "demo")   # the plain run the next checks read
-            ok("the account is persisted: persist-accounts.sh through sudo, linger enabled",
-               "persist-accounts.sh seq-login" in read(calls) and has(r"^loginctl enable-linger seq-login", read(calls)),
+            ok("the account is persisted: persist_accounts.py through sudo, linger enabled",
+               "persist_accounts.py seq-login" in read(calls) and has(r"^loginctl enable-linger seq-login", read(calls)),
                "\n".join(ln for ln in lines(calls) if re.search(r"persist|linger", ln, re.I)))
             keys = [ln for ln in read(f"{HERE}/github-host-keys").split("\n") if ln]
             known = [ln for ln in lines(f"{h}/.ssh/known_hosts") if ln.startswith("github.com ")]
