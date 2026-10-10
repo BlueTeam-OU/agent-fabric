@@ -7,7 +7,7 @@ answers, when a view asks, never in the background.
     bin/fabric-fleet --json [--agent L] [--section a,b] [--max-age S] [--days N]
 
 CONTRACT
-  stdout    one JSON object: {"schema": 1, "at", "sections": [names read],
+  stdout    UTF-8; a lone surrogate in a record's text is U+FFFD. One JSON object: {"schema": 1, "at", "sections": [names read],
             "agents": [{"login", "host", "address", "kind", "sections":
             {name: record}}], plus one top-level record per fleet section
             asked (FLEET SECTIONS); "cache" appears only when the cache could
@@ -124,6 +124,7 @@ import dataclasses
 import datetime as dt
 import json
 import os
+import re
 import signal
 import stat
 import subprocess
@@ -947,6 +948,13 @@ The fleet's data, one record per placed agent, read when asked.
   --days N       the window for `tokens`"""
 
 
+def dumps(doc: dict) -> str:
+    """The document as the command prints it: UTF-8 text. A lone surrogate in a record's text (an agent's
+    own words, from a non-UTF-8 byte in an argument) cannot be encoded: it is U+FFFD, not a traceback that
+    takes the whole fleet's answer with it."""
+    return re.sub("[\ud800-\udfff]", "\ufffd", json.dumps(doc, ensure_ascii=False))
+
+
 def expand(spec: str) -> list[str]:
     names: list[str] = []
     for part in spec.split(","):
@@ -1008,7 +1016,7 @@ def main(argv: list[str]) -> int:
         doc = fetch(expand(spec) if spec is not None else None, agent, max_age, days=days)
     except FleetError as e:
         return usage(str(e))
-    print(json.dumps(doc, ensure_ascii=False))
+    print(dumps(doc))
     return 0
 
 

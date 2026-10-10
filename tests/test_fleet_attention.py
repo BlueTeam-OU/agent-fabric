@@ -203,6 +203,19 @@ class Unknown(unittest.TestCase):
         self.assertTrue(r["why"].startswith("states: ") and "; jobs: " in r["why"], r["why"])
 
 
+class Output(unittest.TestCase):
+    def test_a_lone_surrogate_anywhere_in_the_document_prints_as_u_fffd_and_the_rest_is_untouched(self):
+        doc = {"schema": 1, "agents": [{"login": "a\udcff", "sections": {"jobs": {"data": {"jobs": {"jobs": [{"blocked_on": "wait\ud800 here — é"}]}}}}}]}
+        text = fleet.dumps(doc)
+        text.encode("utf-8")
+        self.assertEqual(json.loads(text)["agents"][0]["login"], "a\ufffd")
+        self.assertEqual(json.loads(text)["agents"][0]["sections"]["jobs"]["data"]["jobs"]["jobs"][0]["blocked_on"], "wait\ufffd here — é")
+
+    def test_a_document_with_none_is_what_json_dumps_gave_before(self):
+        doc = {"schema": 1, "at": "x", "agents": [{"login": "a", "note": "é漢字 \"q\" \\"}]}
+        self.assertEqual(fleet.dumps(doc), json.dumps(doc, ensure_ascii=False))
+
+
 class Document(unittest.TestCase):
     def setUp(self):
         self.f = Fleet(self, {("fabric-ctl", "states"): done(states_rows()), ("fabric-ctl", "jobs"): done(jobs_rows(a=[], b=[], c=[]))})
