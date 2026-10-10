@@ -61,7 +61,9 @@ on disk), nothing written. It does not see `path::symbol` anchors, dates, or
 a path relative to anything but the tree root; a citation whose first
 directory is gone and not named by --known-dir is not seen as a path; and
 two `## X` sections of one slice count as one, because
-slices.read_existing_slice keys a section by its heading.
+slices.read_existing_slice keys a section by its heading; and a path of an
+origin whose checkout is not here, with a first directory this tree lacks,
+is not recognised as a path at all (a word pair like `a/b` could be anything).
 """
 from __future__ import annotations
 
@@ -134,6 +136,9 @@ def read_corpus(corpus: str) -> list[dict]:
             if not name.endswith(".md") or name in NOT_SLICES:
                 continue
             path = os.path.join(directory, name)
+            if not os.path.exists(path):      # a dangling link: read_existing_slice would call it an empty slice
+                out.append({"path": path, "rel": os.path.relpath(path, corpus), "why": "cannot read it: a link to nothing"})
+                continue
             try:
                 meta, sections = slices.read_existing_slice(path)
             except (OSError, UnicodeDecodeError) as e:
@@ -174,7 +179,8 @@ def origin_trees(meta: dict, tree: str, own_project: str | None) -> tuple[list[s
                 beside = os.path.normpath(os.path.join(tree, "..", wc))
                 found = beside if readable_dir(beside) else None
             if found is None:
-                missing.append(f"origin {project}: no checkout {wc!r} beside the tree")
+                missing.append(f"origin {project}: no checkout {wc!r} beside the tree" if isinstance(wc, str) and wc
+                               else f"origin {project}: names no working_copy to look in")
                 continue
         if found not in here:
             here.append(found)
@@ -243,7 +249,14 @@ def check(corpus: str, tree: str, extra_dirs: list[str] | None = None, project: 
         # What is a path is what any tree the slice may belong to has at its top level.
         known = set(extra_dirs or [])
         for t in {tree, *trees}:
-            known |= tops.setdefault(t, known_dirs(t))
+            if t not in tops:
+                try:
+                    tops[t] = known_dirs(t)
+                except Refused:
+                    if t == tree:
+                        raise
+                    tops[t] = set()           # an origin's checkout that went unreadable after it was found: its top directories are unknown
+            known |= tops[t]
         for heading, text in sl["sections"].items():
             paths = []
             for p in cited(text, known):

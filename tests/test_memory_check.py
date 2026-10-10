@@ -134,6 +134,25 @@ class Origins(Tree):
         self.assertEqual(self.verdicts(), {("a.md", "s"): "unchecked"})
         self.assertEqual(self.verdicts("--project", "gzapp"), {("a.md", "s"): "stale-hard"})
 
+    def test_an_origin_with_no_working_copy_says_so_not_none(self):
+        self.write("memory/domains/d/domain/c.md", "---\nclass: domain\norigin:\n  - project: \"gzapp\"\n---\n\n## s\n\n`tools/gone.ts`\n")
+        (row,) = self.report()["sections"]
+        self.assertEqual(row["paths"][0]["why"], "origin gzapp: names no working_copy to look in")
+
+    def test_an_origin_checkout_that_goes_unreadable_after_it_was_found_does_not_abort_the_report(self):
+        from unittest import mock
+        self.write("tools/y.sh", "x", root=os.path.join(self.base, "gzapp"))
+        self.slice("a", ("s", "`tools/fabric/deleted.py`"), origins=(("gzapp", "gzapp"), ("agent-fabric", "agent-fabric")))
+        real = memory_check.known_dirs
+
+        def flaky(tree):
+            if tree.endswith("gzapp"):
+                raise memory_check.Refused("cannot read the tree: gone")
+            return real(tree)
+        with mock.patch.object(memory_check, "known_dirs", flaky):
+            rows = memory_check.check(self.corpus, self.tree)
+        self.assertEqual([r["verdict"] for r in rows], ["stale-hard"])
+
     def test_a_working_copy_name_that_climbs_is_no_checkout_even_where_it_would_reach_one(self):
         self.write("tools/x.sh", "x", root=os.path.join(self.base, "gzapp"))
         climbing = f"../{os.path.basename(self.base)}/gzapp"      # from beside the tree, it reaches base/gzapp
@@ -187,6 +206,11 @@ class Unreadable(Tree):
         self.assertEqual(sorted(ln.split("\t")[1] for ln in r.stdout.splitlines() if ln.startswith("unreadable")),
                          ["domains/d/domain/broken.md", "domains/d/domain/locked.md"])
         self.assertIn("1 fresh", r.stdout.splitlines()[-1])
+
+    def test_a_dangling_link_in_the_corpus_is_a_row_not_a_silent_skip(self):
+        os.symlink(os.path.join(self.base, "nowhere.md"), os.path.join(self.corpus, "domains", "d", "domain", "dangling.md"))
+        (row,) = self.report()["sections"]
+        self.assertEqual((row["verdict"], row["slice"], row["why"]), ("unreadable", "domains/d/domain/dangling.md", "cannot read it: a link to nothing"))
 
     def test_a_sibling_checkout_that_exists_but_cannot_be_read_is_unchecked(self):
         sib = os.path.join(self.base, "sib")
