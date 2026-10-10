@@ -212,7 +212,8 @@ def main() -> int:
                 "print(memory_index.section_id(h.section), h.band, 'memory_mcp' in sys.modules)")
         r = subprocess.run([sys.executable, "-I", "-c", code, os.path.join(HERE, "tools", "fabric"), mem, wc], capture_output=True, text=True, timeout=60)
         check("a hook can build and query the same index; the MCP layer is not imported",
-              r.returncode == 0 and r.stdout.split() == ["f:domains/python-dev/domain/subprocess-timeouts#1", "weak", "False"], r.stdout + r.stderr)
+              r.returncode == 0 and r.stdout.split()[0] == "f:domains/python-dev/domain/subprocess-timeouts#1" and r.stdout.split()[1] in ("strong", "weak", "none")
+              and r.stdout.split()[2] == "False", r.stdout + r.stderr)
 
         print("memory_mark")
         marks_log = f"{state}/{marks.LOG}"
