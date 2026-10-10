@@ -32,6 +32,10 @@ def main() -> int:
         fails += not good
 
     tmpfs = lambda _p: "tmpfs"  # noqa: E731
+    # Directories a case makes in more than one step get the mode the test names, whatever umask the runner has:
+    # makedirs applies its mode to the leaf alone, and a login with umask 0002 (the Debian CI user) made the middle
+    # one group-writable, which the gateway's check rightly refuses.
+    os.umask(0o022)
 
     def fresh(base: str, name: str) -> str:
         root = os.path.join(base, name)
@@ -57,6 +61,15 @@ def main() -> int:
         out = subprocess.run([sys.executable, os.path.join(HERE, "tools", "fabric", "gateway_token.py"), "path", "1000"],
                              capture_output=True, text=True, timeout=30)
         check("the command prints it (the plan names the same path)", out.stdout == g.token_path(1000) + "\n", out.stdout + out.stderr)
+
+        print("a runner whose umask leaves group write")
+        old = os.umask(0o002)
+        try:
+            root = fresh(base, "umask")
+            check("the directories the writer makes are 0700 whatever the umask, and the write is accepted", write(root) == "written"
+                  and all(stat.S_IMODE(os.stat(os.path.join(root, str(UID), *g.SUBDIRS[:n])).st_mode) == 0o700 for n in (1, 2)))
+        finally:
+            os.umask(old)
 
         print("write")
         root = fresh(base, "a")
