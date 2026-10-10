@@ -22,7 +22,8 @@ CONTRACT, frozen from the Node:
                                 or the harness's timeout is an exit
                                 other than 0 with its reason on STDOUT (a
                                 background command's output reaches the
-                                session only at exit): 3 not configured
+                                session only at exit): 2 a control
+                                channel named, 3 not configured
                                 or no token, 4 a refused token, 5 a relay
                                 unreachable for 15 minutes, 6 a delivery
                                 the journal cannot keep, 7 an internal
@@ -58,7 +59,7 @@ CONTRACT, frozen from the Node:
             which turns each line into a notification as it is printed, so
             its relay-down/back lines are stdout. --until-delivery runs
             under a background Bash, whose output reaches the session once,
-            at exit: it prints the one delivery (or, on exit 3-7, the
+            at exit: it prints the one delivery (or, on exit 2-7, the
             reason; under GZCOORD_JOURNAL=off also the bypass warning)
             and no relay-down/back lines; the journal's held-messages
             line is printed only as it exits 6.

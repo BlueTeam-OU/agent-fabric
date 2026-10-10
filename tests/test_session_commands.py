@@ -114,9 +114,10 @@ def test_the_scan_catches_every_spelling_it_replaced() -> None:
 def test_the_watch_the_hook_prescribes_is_a_bare_command() -> None:
     sys.path.insert(0, os.path.join(ROOT, "runtime", "claude-code", "hooks"))
     src = open(os.path.join(ROOT, "runtime", "claude-code", "hooks", "session-start.py"), encoding="utf-8").read()
-    # The watch is a background Bash call now (agent-fabric ADR-022); a session
-    # not yet restarted may still be told the Monitor form, so either is read.
-    m = re.search(r"(?:Bash|Monitor)\(command: '([^']*)'", src)
+    # The watch is a background Bash call, never a Monitor, whose 30-minute cap
+    # woke every quiet session (agent-fabric ADR-022 §5 rule 2).
+    assert "Monitor(command:" not in src, "the hook prescribes a Monitor watch"
+    m = re.search(r"Bash\(command: '([^']*)'", src)
     assert m and m.group(1).split()[0] in DOC["commands"] and "$" not in m.group(1), m and m.group(1)
 
 

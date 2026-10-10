@@ -34,7 +34,8 @@ Bash(command: 'gzcoord-inbox --until-delivery',
 again after a delivery (exit 0) or after the Bash timeout stopped it:
 one wake per delivery, and a quiet session is woken at most once per
 2 hours. On any other exit the output is the reason, and you do not run
-it again until it is fixed: 3 not configured or no token, 4 the relay
+it again until it is fixed: 2 a control channel named, 3 not
+configured or no token, 4 the relay
 refused the token (see the token paragraph below), 5 the relay stayed
 unreachable for 15 minutes (run it again when it is back), 6 a delivery
 your journal cannot keep (it is shown once the journal can), 7 an
