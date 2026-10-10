@@ -1788,7 +1788,7 @@
    ]
   },
   {
-   "section": "no cd leaves the clone: the word cd anywhere in a segment is refused unless the segment is exactly a plain relative cd (re-reviews of 0eb39891 and 867a69e2: 1, D, E, F; of cae73213: 1, 2, G)",
+   "section": "no cd leaves the clone: the word cd anywhere in a segment is refused unless the segment is exactly a plain relative cd (re-reviews of 0eb39891 and 867a69e2: 1, D, E, F; of cae73213: 1, 2, G; of 364f7eb3: G)",
    "cases": [
     {
      "want": "deny",
@@ -2009,6 +2009,66 @@
      "want": "allow",
      "label": "allowed: git -C names the clone instead of a cd",
      "command": "git -C /home/user/projects/agent-fabric log -1"
+    },
+    {
+     "want": "deny",
+     "label": "denied (over-report): G: a word built through double quotes or a brace expansion: c\"$X\"d .. && ls",
+     "command": "c\"$X\"d .. && ls"
+    },
+    {
+     "want": "deny",
+     "label": "denied (over-report): G: a word built through double quotes or a brace expansion: \"$X\"cd .. && ls",
+     "command": "\"$X\"cd .. && ls"
+    },
+    {
+     "want": "deny",
+     "label": "denied (over-report): G: a word built through double quotes or a brace expansion: c\"${X}\"d .. && ls",
+     "command": "c\"${X}\"d .. && ls"
+    },
+    {
+     "want": "deny",
+     "label": "denied (over-report): G: a word built through double quotes or a brace expansion: c\"$()\"d .. && ls",
+     "command": "c\"$()\"d .. && ls"
+    },
+    {
+     "want": "deny",
+     "label": "denied (over-report): G: a word built through double quotes or a brace expansion: \"\"${X:-cd} .. && ls",
+     "command": "\"\"${X:-cd} .. && ls"
+    },
+    {
+     "want": "deny",
+     "label": "denied (over-report): G: a word built through double quotes or a brace expansion: \"${X:-cd}\" .. && ls",
+     "command": "\"${X:-cd}\" .. && ls"
+    },
+    {
+     "want": "deny",
+     "label": "denied (over-report): G: a word built through double quotes or a brace expansion: {c..c}d .. && ls",
+     "command": "{c..c}d .. && ls"
+    },
+    {
+     "want": "deny",
+     "label": "denied (over-report): G: a word built through double quotes or a brace expansion: c{d..d} .. && ls",
+     "command": "c{d..d} .. && ls"
+    },
+    {
+     "want": "deny",
+     "label": "denied (over-report): G: a word built through double quotes or a brace expansion: {cd,} .. && ls",
+     "command": "{cd,} .. && ls"
+    },
+    {
+     "want": "allow",
+     "label": "allowed: not a built command word: grep -n \"end$\" runtime/claude-code/hooks/review-bash-guard.py",
+     "command": "grep -n \"end$\" runtime/claude-code/hooks/review-bash-guard.py"
+    },
+    {
+     "want": "allow",
+     "label": "allowed: not a built command word: awk '{print $1}' tests/run.sh",
+     "command": "awk '{print $1}' tests/run.sh"
+    },
+    {
+     "want": "allow",
+     "label": "allowed: not a built command word: find . -name '*.py'",
+     "command": "find . -name '*.py'"
     }
    ]
   }

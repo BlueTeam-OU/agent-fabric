@@ -131,7 +131,8 @@ SUBSTITUTION = r'\$\(|`|[<>]\('
 # `"cd" ..`, `cd $(echo ..)`, a cd in a case arm or a function body. So a
 # segment is judged by one question: does the word cd or pushd appear in it
 # at all, once a backslash-newline, quotes and backslashes are removed (as
-# bash removes them from a command word), and before any of < > & | $ `? If so it is admitted only as exactly `cd <path>` with a
+# bash removes them from a command word), and before any of < > & | $ `? If so
+# it is admitted only as exactly `cd <path>` with a
 # relative path of plain characters and no `..` component, and is `moved`
 # otherwise. That also refuses `builtin cd tools`, `echo cd ..`, `grep cd f`
 # and `cd /abs/path`, on purpose. Every pattern consumes a character per
@@ -144,6 +145,7 @@ CD_WORD = r'(^|\W)(cd|pushd)(?=[\s;)<>&|$`]|$)'
 # glued after a word character, or a first word that starts with one is
 # refused. Single-quoted text expands nothing and is left out of the test
 # (`'a$b'`, `grep 'x$'`); ANSI-C `$'...'` is not single-quoted text.
+BRACE_BUILT = r"\{[^{}\s]*(,|\.\.)[^{}\s]*\}"
 CD_EXPANDED = r"\$'|\$IFS|\w(\$[\w({]|`)|^[\s({!]*[$`]"
 CD_PLAIN = r'[\s]*cd[\s]+(?![-/])(?!(?:[A-Za-z0-9._-]*/)*\.\.(?:/|\s|$))[A-Za-z0-9._/-]+[\s]*'
 CD_STEP = r"(^|[\s{(]|then|do|else)[\s]*((command|builtin)[\s]+)?(cd|pushd|popd)([\s]|$)"
@@ -256,6 +258,16 @@ def posted_review(cmd: str) -> str | None:
     return m.group(1) if lines.index(m.group(3), 1) == len(lines) - 1 else None
 
 
+def built_word(seg: str) -> bool:
+    """Whether bash could build a word of the segment by expansion: the
+    segment's unquoted-or-double-quoted text (double quotes do not stop an
+    expansion, so they are removed too: `c"$X"d`, `"${X:-cd}"`) answers to
+    CD_EXPANDED, or holds a brace expansion (`{c..c}d`, `{cd,}`), which
+    builds a word with no `$` at all (re-review of 364f7eb3, G)."""
+    text = re.sub(r'(?<!\\)"', "", unexpanded(seg))
+    return bool(re.search(CD_EXPANDED, text) or re.search(BRACE_BUILT, text))
+
+
 def unexpanded(seg: str) -> str:
     """The segment without its single-quoted spans, which expand nothing.
     A quote inside double quotes ("it's") opens no span, and `$'...'` is
@@ -294,7 +306,7 @@ def verdict(cmd: str) -> str | None:
         # A backslash-newline is removed whole, as bash removes it, before the
         # quotes and backslashes (`c\\<newline>d ..`; re-review of cae73213).
         word = re.sub(r"[\"'\\]", "", seg.replace("\\\n", ""))
-        if re.search(CD_WORD, word) and not re.fullmatch(CD_PLAIN, seg) or re.search(CD_EXPANDED, unexpanded(seg)):
+        if re.search(CD_WORD, word) and not re.fullmatch(CD_PLAIN, seg) or built_word(seg):
             moved = True
         if exempt and found(SEARCH, seg):
             secret |= found(HOME_PATH, seg) or found(GLOB_PATH, seg) or found(SECRET_VAR, seg)
