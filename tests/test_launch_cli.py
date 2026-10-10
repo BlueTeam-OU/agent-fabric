@@ -1177,6 +1177,7 @@ for v in CLAUDE_CODE_OAUTH_TOKEN ANTHROPIC_AUTH_TOKEN OPENROUTER_API_KEY ANTHROP
 echo "CLAUDE-GATEWAY-LINES-ALREADY:$(wc -l < "$FAKE_GW_LOG")"
 echo "CLAUDE-STATE:$(cat "$AGENT_FABRIC_STATE_DIR/agents/$LOGNAME/gateway.json" 2>/dev/null || echo none)"
 echo "CLAUDE-PROVIDER:${AGENT_FABRIC_LAUNCH_PROVIDER-}"
+echo "CLAUDE-TRANSPORT:${AGENT_FABRIC_LAUNCH_TRANSPORT-}"
 """
         gw_log = f"{sandbox}/gateway.log"
         gw_env = {"AGENT_FABRIC_GATEWAY_BIN": f"{bin_}/fake-gateway", "FAKE_GW_LOG": gw_log,
@@ -1246,9 +1247,11 @@ echo "CLAUDE-PROVIDER:${AGENT_FABRIC_LAUNCH_PROVIDER-}"
               and not re.search(r"[0-9a-f]{64}", state_during.replace(serve.get("plan_sha", "")[7:], "")), state_during)
         check("when the session ends the gateway is stopped (SIGTERM), its pid gone, its record removed",
               any(r.get("event") == "term" for r in gw_records()) and not alive(serve.get("pid", 0)) and not os.path.exists(state_file), gw_records())
-        check("the launch is stamped as the gateway's", has(r"CLAUDE-PROVIDER:gateway$", out), out)
-        check("…and recorded as the gateway's, so a resume comes back through it; the agent files were installed for anthropic",
-              json.loads(read(f"{agent_dir}/launch-provider.json")).get("provider") == "gateway", read(f"{agent_dir}/launch-provider.json"))
+        check("the provider stamp stays the routing column and the transport is stamped as the gateway",
+              has(r"CLAUDE-PROVIDER:anthropic$", out) and has(r"CLAUDE-TRANSPORT:gateway$", out), out)
+        check("…and recorded beside the provider, so a resume comes back through the gateway; the agent files were installed for anthropic",
+              json.loads(read(f"{agent_dir}/launch-provider.json")).get("provider") == "anthropic"
+              and json.loads(read(f"{agent_dir}/launch-provider.json")).get("transport") == "gateway", read(f"{agent_dir}/launch-provider.json"))
         for mode, why, wants in (("contract2", "a gateway whose runtime contract it does not support", "speaks runtime contract 2"),
                                  ("schema1", "a gateway that does not accept the plan schema", "accepts plan schemas [1]"),
                                  ("badjson", "a --version --json that is not JSON", "did not answer")):

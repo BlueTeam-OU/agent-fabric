@@ -14,7 +14,6 @@ import tempfile
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(HERE, "tools", "fabric"))
 import launch  # noqa: E402,F401  (loads the fabric_launcher package)
-import install_agent_files  # noqa: E402
 from fabric_launcher import gateway  # noqa: E402
 from fabric_launcher.base import Refused  # noqa: E402
 import resume  # noqa: E402
@@ -129,18 +128,35 @@ def main() -> int:
               and gateway.binary_path({"PATH": f"/nonexistent:{tmp}"}) == found, found)
         check("no binary anywhere: refused", "not installed" in refused(gateway.binary_path, {"PATH": "/nonexistent"}))
 
-    print("gateway is a provider the other tools read")
-    check("install_agent_files knows it and reads it as the anthropic column",
-          "gateway" in install_agent_files.PROVIDERS and install_agent_files.routing_provider("gateway") == "anthropic"
-          and install_agent_files.routing_provider("openrouter") == "openrouter")
+    print("a gateway session resumes through the gateway")
     with tempfile.TemporaryDirectory(prefix="test_launcher_gateway.") as tmp:
+        def record(doc) -> str:
+            path = os.path.join(tmp, "launch-provider.json")
+            with open(path, "w") as fh:
+                fh.write(doc if isinstance(doc, str) else json.dumps(doc))
+            return path
+        check("a record with transport gateway: gateway", resume.last_launch_transport(record({"provider": "anthropic", "transport": "gateway"})) == "gateway")
+        check("a record without a transport: none", resume.last_launch_transport(record({"provider": "anthropic"})) == "")
+        check("a transport it does not know: none", resume.last_launch_transport(record({"provider": "anthropic", "transport": "x"})) == "")
+        check("an unreadable or non-object record: none", resume.last_launch_transport(record("{")) == "" and resume.last_launch_transport(record("[]")) == ""
+              and resume.last_launch_transport(os.path.join(tmp, "absent")) == "")
+        saved = (resume.last_launch_transport, resume.install_agent_files.last_launch_provider)
+        try:
+            resume.last_launch_transport = lambda record=None: "gateway"
+            resume.install_agent_files.last_launch_provider = lambda: "anthropic"
+            check("fabric-resume launches --provider gateway after a gateway session", resume.provider_args([]) == ["--provider", "gateway"], resume.provider_args([]))
+            check("…unless the caller names a provider", resume.provider_args(["--provider", "openrouter"]) == [])
+            resume.install_agent_files.last_launch_provider = lambda: "openrouter"
+            check("…and a gateway record beside an openrouter provider is not read as the gateway", resume.provider_args([]) == ["--provider", "openrouter"])
+        finally:
+            resume.last_launch_transport, resume.install_agent_files.last_launch_provider = saved
         prof = os.path.join(tmp, "profiles.json")
         with open(prof, "w") as fh:
             json.dump({"agents": {"alice": {"launch_provider": "gateway"}}, "roles": {"r": {"launch_provider": "openrouter"}},
                        "defaults": {"launch_provider": "anthropic"}}, fh)
         os.environ["AGENT_FABRIC_RESUME_PROFILES"] = prof
         try:
-            check("fabric-resume takes a profile's launch_provider of gateway for the agent that names it",
+            check("a profile's launch_provider of gateway is taken for the agent that names it",
                   resume.profile_provider("alice", "r") == "gateway" and resume.profile_provider("bob", "r") == "openrouter", (
                       resume.profile_provider("alice", "r"), resume.profile_provider("bob", "r")))
         finally:

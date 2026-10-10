@@ -95,6 +95,8 @@ def api_path(environ=None):
         host = ""
     if host == "openrouter.ai" or host.endswith(".openrouter.ai"):
         provider, path = "openrouter", "broker (ori)"
+    elif base and environ.get("AGENT_FABRIC_LAUNCH_TRANSPORT") == "gateway" and host == "127.0.0.1":
+        provider, path = "anthropic", "agent-fabric-gateway (%s)" % base
     elif base:
         provider, path = "anthropic", "custom base URL (%s)" % host
     else:

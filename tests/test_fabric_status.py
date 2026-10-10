@@ -63,6 +63,11 @@ def main() -> int:
             check("openrouter.ai is the broker", status.api_path({"ANTHROPIC_BASE_URL": "https://openrouter.ai/api"})[:2] == ("openrouter", "broker (ori)"))
             check("a subdomain is the broker", status.api_path({"ANTHROPIC_BASE_URL": "https://eu.openrouter.ai/x"})[0] == "openrouter")
             check("a look-alike host is custom", status.api_path({"ANTHROPIC_BASE_URL": "https://evilopenrouter.ai/x"})[1] == "custom base URL (evilopenrouter.ai)")
+            check("the gateway launch: its loopback listener is named, not a custom host",
+                  status.api_path({"ANTHROPIC_BASE_URL": "http://127.0.0.1:54321", "AGENT_FABRIC_LAUNCH_TRANSPORT": "gateway"})[:2]
+                  == ("anthropic", "agent-fabric-gateway (http://127.0.0.1:54321)"))
+            check("…but a loopback base URL without the gateway stamp stays custom",
+                  status.api_path({"ANTHROPIC_BASE_URL": "http://127.0.0.1:54321"})[1] == "custom base URL (127.0.0.1)")
             check("a launch provider does not change a custom path", status.api_path({"ANTHROPIC_BASE_URL": "http://h:1", "AGENT_FABRIC_LAUNCH_PROVIDER": "anthropic"})[1] == "custom base URL (h)")
             check("an unparsable URL has no host and is custom", status.api_path({"ANTHROPIC_BASE_URL": "http://[::1"})[1:3] == ("custom base URL ()", ""))
 

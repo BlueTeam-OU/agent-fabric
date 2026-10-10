@@ -465,7 +465,13 @@ def launch(argv: list[str]) -> int:
     env["AGENT_FABRIC_LAUNCH_SESSION_MODEL"] = effective_session
     env["AGENT_FABRIC_LAUNCH_PROFILE"] = label
     env["AGENT_FABRIC_LAUNCH_AGENT"] = agent
-    env["AGENT_FABRIC_LAUNCH_PROVIDER"] = provider
+    # The provider stamp is the routing column (every reader of it knows two);
+    # the gateway is a transport beside it, stamped for fabric-status.
+    env["AGENT_FABRIC_LAUNCH_PROVIDER"] = routing_provider
+    if provider == "gateway":
+        env["AGENT_FABRIC_LAUNCH_TRANSPORT"] = "gateway"
+    else:
+        env.pop("AGENT_FABRIC_LAUNCH_TRANSPORT", None)
 
     # The role's system prompt, rendered for THIS binding from the OS and the
     # state directory (nothing about who is passed in), written atomically so
@@ -550,7 +556,7 @@ def launch(argv: list[str]) -> int:
     # the file against the same resolution and denies a review when another
     # launch on this account has since rewritten it.
     if not asks_help(args):
-        install_agent_files(fabric_root, routing_provider, state_dir, record_as=provider)
+        install_agent_files(fabric_root, routing_provider, state_dir, transport="gateway" if provider == "gateway" else "")
 
     login = pwd.getpwuid(os.getuid()).pw_name
     # A plain-claude session runs only on a long-lived sign-in: a template's

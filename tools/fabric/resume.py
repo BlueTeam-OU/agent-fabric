@@ -166,9 +166,24 @@ def profile_provider(login: str, role: str | None) -> str | None:
               roles.get(role or "") if isinstance(roles, dict) else None, prof.get("defaults")]
     for layer in layers:
         p = layer.get("launch_provider") if isinstance(layer, dict) else None
-        if p in install_agent_files.PROVIDERS:
+        # "gateway" is a transport over the anthropic column (launcher/gateway.py), not one of
+        # install_agent_files' columns, so it is admitted here by name.
+        if p in (*install_agent_files.PROVIDERS, "gateway"):
             return p
     return None
+
+
+def last_launch_transport(record: str | None = None) -> str:
+    """"gateway" when the account's last launch went through agent-fabric-gateway
+    (launch-provider.json's `transport`, written by the launcher beside the
+    provider); "" otherwise, unreadable included."""
+    record = record or os.path.join(install_agent_files.fabric_writes.state_dir(), install_agent_files.LAUNCH_RECORD)
+    try:
+        with open(record, encoding="utf-8") as fh:
+            transport = json.load(fh).get("transport")
+    except (OSError, ValueError, AttributeError):
+        return ""
+    return transport if transport == "gateway" else ""
 
 
 def provider_args(extra: list[str], binding: dict | None = None) -> list[str]:
@@ -178,6 +193,10 @@ def provider_args(extra: list[str], binding: dict | None = None) -> list[str]:
     if any(a == "--provider" or a.startswith("--provider=") for a in extra):
         return []
     p = install_agent_files.last_launch_provider()
+    # A session that ran through the gateway comes back through it: the record's
+    # provider is the column, the transport is how it was reached.
+    if p == "anthropic" and last_launch_transport() == "gateway":
+        p = "gateway"
     if not p:
         b = binding if binding is not None else identity.read_binding(identity.current_agent())
         p = profile_provider(identity.current_agent(), b.get("role"))
