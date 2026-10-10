@@ -1151,7 +1151,7 @@ libc = ctypes.CDLL(None)
 sig = ctypes.c_int()
 libc.prctl(2, ctypes.byref(sig))   # PR_GET_PDEATHSIG
 control = os.fstat(int(args["--control-fd"]))
-note(event="serve", argv=sys.argv[1:], key_sha=hashlib.sha256(key.encode()).hexdigest(), key_is_64_hex=len(key) == 64 and all(c in "0123456789abcdef" for c in key),
+note(event="serve", argv=sys.argv[1:], key_sha=hashlib.sha256(key.encode()).hexdigest(), key_tail=key[-20:], key_is_64_hex=len(key) == 64 and all(c in "0123456789abcdef" for c in key),
      pdeathsig=sig.value, own_session=os.getsid(0) == os.getpid(), control_is_socket=stat.S_ISSOCK(control.st_mode),
      plan_sha="sha256:" + hashlib.sha256(plan).hexdigest(), pid=os.getpid(), stdout_is_null=os.path.samestat(os.fstat(1), os.stat(os.devnull)))
 if mode == "exit4":
@@ -1233,6 +1233,11 @@ echo "CLAUDE-TRANSPORT:${AGENT_FABRIC_LAUNCH_TRANSPORT-}"
         check("the harness holds no upstream credential: no OAuth token, auth token, OpenRouter key or custom headers",
               all(has(rf"CLAUDE-HAS:{v}=$", out) for v in ("CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_AUTH_TOKEN", "OPENROUTER_API_KEY",
                                                            "ANTHROPIC_CUSTOM_HEADERS")), out)
+        cfg_after = json.loads(read(f"{home}/.claude.json") or "{}")
+        check("the harness is told it may use the gateway-local key (its last 20 characters approved) and its wizard is done, so it opens with no question",
+              serve.get("key_tail") in cfg_after.get("customApiKeyResponses", {}).get("approved", []) and cfg_after.get("hasCompletedOnboarding") is True, cfg_after)
+        check("…the file stays the owner's alone",
+              (os.stat(f"{home}/.claude.json").st_mode & 0o777) == 0o600)
         check("the plan the gateway served is the file written, digest and all",
               serve.get("plan_sha") == "sha256:" + hashlib.sha256(open(f"{agent_dir}/gateway-plan.json", "rb").read()).hexdigest(), serve)
         check("the plan was built for the login, as anthropic, with a per-launch session id",

@@ -128,6 +128,40 @@ def main() -> int:
               and gateway.binary_path({"PATH": f"/nonexistent:{tmp}"}) == found, found)
         check("no binary anywhere: refused", "not installed" in refused(gateway.binary_path, {"PATH": "/nonexistent"}))
 
+    print("approving the gateway-local key for the harness")
+    with tempfile.TemporaryDirectory(prefix="test_launcher_gateway.") as tmp:
+        path = os.path.join(tmp, ".claude.json")
+        key = "0123456789abcdef" * 4
+        gateway.approve_key(path, key)
+        d = json.load(open(path))
+        check("a new file: the last 20 characters approved, onboarding done, mode 0600",
+              d == {"customApiKeyResponses": {"approved": [key[-20:]], "rejected": []}, "hasCompletedOnboarding": True}
+              and (os.stat(path).st_mode & 0o777) == 0o600, d)
+        with open(path, "w") as fh:
+            json.dump({"theme": "dark", "projects": {"/x": {"a": 1}},
+                       "customApiKeyResponses": {"approved": ["old1", "old2", 7], "rejected": [key[-20:], "keep"], "other": 1}}, fh)
+        gateway.approve_key(path, key)
+        d = json.load(open(path))
+        check("an existing file: its other keys and approvals kept, the key's tail added, a rejection of it removed",
+              d["theme"] == "dark" and d["projects"] == {"/x": {"a": 1}} and d["customApiKeyResponses"]["approved"] == ["old1", "old2", key[-20:]]
+              and d["customApiKeyResponses"]["rejected"] == ["keep"] and d["customApiKeyResponses"]["other"] == 1, d)
+        gateway.approve_key(path, key)
+        check("approving it again adds no second entry", json.load(open(path))["customApiKeyResponses"]["approved"].count(key[-20:]) == 1)
+        with open(path, "w") as fh:
+            json.dump({"customApiKeyResponses": {"approved": [f"k{i}" for i in range(150)]}}, fh)
+        gateway.approve_key(path, key)
+        got = json.load(open(path))["customApiKeyResponses"]["approved"]
+        check("the list is bounded: the latest entries kept, the new one last", len(got) == gateway.APPROVED_KEEP and got[-1] == key[-20:] and got[0] == "k51", (len(got), got[:2]))
+        for label, content in (("not JSON", "{"), ("a JSON array", "[]")):
+            with open(path, "w") as fh:
+                fh.write(content)
+            try:
+                gateway.approve_key(path, key)
+                why = ""
+            except gateway._Refuse as e:
+                why = str(e)
+            check(f"{label}: refused, the file left as it was", "could not approve" in why and open(path).read() == content, why)
+
     print("a gateway session resumes through the gateway")
     with tempfile.TemporaryDirectory(prefix="test_launcher_gateway.") as tmp:
         def record(doc) -> str:

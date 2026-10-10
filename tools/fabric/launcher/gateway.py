@@ -302,6 +302,47 @@ def harness_env(gw: Gateway, env: dict) -> None:
     env["ANTHROPIC_API_KEY"] = gw.key
 
 
+APPROVED_KEEP = 100
+
+
+def approve_key(path: str, key: str) -> None:
+    """The interactive harness asks "Do you want to use this API key?" (default No)
+    about any ANTHROPIC_API_KEY it has not been told it may use, and a gateway-local
+    key is new on every launch. It records an answer as the key's last 20 characters in
+    ~/.claude.json's customApiKeyResponses.approved (read back on 2.1.285: with the
+    entry there, the session opens with no question). The first-run wizard is marked
+    done as well: a login on the gateway has no /login to onboard. Atomic, mode 0600;
+    the list keeps the latest APPROVED_KEEP entries, since each launch adds one."""
+    try:
+        with open(path, encoding="utf-8") as fh:
+            doc = json.load(fh)
+    except FileNotFoundError:
+        doc = {}
+    except (OSError, ValueError) as exc:
+        say(f"launch: {path}: {exc}")
+        raise _Refuse(f"could not approve the gateway-local key in {path}") from None
+    if not isinstance(doc, dict):
+        say(f"launch: {path} is not a JSON object")
+        raise _Refuse(f"could not approve the gateway-local key in {path}")
+    responses = doc.get("customApiKeyResponses")
+    if not isinstance(responses, dict):
+        responses = {}
+    approved = [a for a in responses.get("approved", []) if isinstance(a, str)] if isinstance(responses.get("approved"), list) else []
+    rejected = [a for a in responses.get("rejected", []) if isinstance(a, str)] if isinstance(responses.get("rejected"), list) else []
+    tail = key[-20:]
+    approved = [a for a in approved if a != tail][-(APPROVED_KEEP - 1):] + [tail]
+    doc["customApiKeyResponses"] = {**responses, "approved": approved, "rejected": [r for r in rejected if r != tail]}
+    doc["hasCompletedOnboarding"] = True
+    tmp = f"{path}.fabric-tmp"
+    try:
+        with open(os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "w", encoding="utf-8") as fh:
+            json.dump(doc, fh, indent=2)
+        os.replace(tmp, path)
+    except OSError as exc:
+        say(f"launch: {path}: {exc}")
+        raise _Refuse(f"could not approve the gateway-local key in {path}") from None
+
+
 def record_state(state_dir: str, gw: Gateway) -> None:
     """§16: pid, binary version, listener, plan digest, started_at, beside the
     binding. No key. Atomic; a failure is said, not fatal."""
@@ -368,6 +409,11 @@ def launch_gateway(env: dict, fabric_root: str, agent: str, role: str, state_dir
     os.makedirs(state_dir, exist_ok=True)
     plan_path = module.write(plan, os.path.join(state_dir, "gateway-plan.json"))
     gw = start(binary, plan_path, os.path.join(state_dir, "gateway.log"), version, ready_timeout=ready_timeout(env))
+    try:
+        approve_key(os.path.join(env.get("CLAUDE_CONFIG_DIR") or env.get("HOME", ""), ".claude.json"), gw.key)
+    except _Refuse as why:
+        stop(gw)
+        die(f"{why}. Nothing started.")
     harness_env(gw, env)
     record_state(state_dir, gw)
     return gw
