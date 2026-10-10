@@ -930,6 +930,25 @@ class Actions(Daemon):
             self.assertEqual(got[f"frozen-{i}"]["data"][op], {"status": "refused", "reason": reason}, op)
             self.assertIs(got[f"frozen-{i}"]["ok"], True)
 
+    def test_once_a_signed_gateway_install_is_an_action_and_an_unsigned_one_is_ignored(self):
+        # Python-only, after the Node was deleted (control/gateway.py). A version the pin lacks is
+        # refused by the module with nothing downloaded, so the whole path (the fence, the
+        # signature, the ledger, the dispatch, the reply) runs without a network.
+        k = sign.generate_operator_key()
+        reg = self.signed_registry(k)
+        over = {"HOME": self.home(), "AGENT_FABRIC_HOSTS_REGISTRY": reg, "AGENT_FABRIC_STATE_DIR": self.scratch("agentd-state-")}
+        r = self.with_relay()
+        base = request_body(**{"id": "gw-signed", "from": SELF, "op": "gateway-install", "args": {"version": "9.9.9"}, "ttl_s": 60})
+        unsigned = request_body(**{"id": "gw-unsigned", "from": SELF, "op": "gateway-install", "args": {"version": "9.9.9"}, "ttl_s": 60})
+        out = self.once_after_wait(r, [(SELF, json.dumps(sign.sign_request(base, k["privateKeySpec"]))), (SELF, json.dumps(unsigned))], **over)
+        self.assertEqual(out.status, 0, out.stderr)
+        got = {x["in_reply_to"]: x for x in r.replies() if x["op"] != "ping"}
+        self.assertEqual(list(got), ["gw-signed"], "the unsigned order got no reply")
+        reply = got["gw-signed"]["data"]["gateway-install"]
+        self.assertEqual(reply["status"], "refused")
+        self.assertRegex(reply["reason"], r"^version 9\.9\.9 is not in the reviewed pin \(it has ")
+        self.assertIn("gateway-install: not signed by", out.stderr)
+
     def test_once_an_action_whose_ledger_cannot_be_written_is_refused_by_name_not_blamed_on_the_relay(self):
         k = sign.generate_operator_key()
         reg = self.signed_registry(k)

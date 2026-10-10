@@ -4,7 +4,7 @@ runs this file under the pinned fabric-python. One process per account, run as t
 login: it answers the coordinator's requests on the control channel with
 what the account can say about itself (control/ops), and carries out the
 signed actions (upgrade, secrets-sync, jobs-add, local-prune,
-secrets-selftest, pool-add, tools-install).
+secrets-selftest, pool-add, tools-install, gateway-install).
 
   python3 tools/fabric/control/agentd.py          the daemon: block, answer, repeat
   python3 tools/fabric/control/agentd.py --once   answer what is pending, then exit
@@ -88,6 +88,9 @@ WHERE THE PORT DIFFERS (each listed because a reader of the Node would look):
     traceback.
   - tools_opts (the `tools` op) and install_opts (the `tools-install` op) are
     two keys of the context; the Node's toolsOpts served both.
+  - gateway-install (control/gateway.py, after the Node was deleted) and the
+    `gateway` read are Python-only: gateway_install_opts and gateway_opts are
+    their context keys.
 """
 from __future__ import annotations
 
@@ -106,7 +109,7 @@ if sys.path and os.path.realpath(sys.path[0] or ".") == os.path.dirname(os.path.
     sys.path[0] = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
 else:
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
-from control import gzcoord, js, ops, pressure, sessions, tools as tools_mod  # noqa: E402
+from control import gateway as gateway_mod, gzcoord, js, ops, pressure, sessions, tools as tools_mod  # noqa: E402
 from control.gzcoord import FABRIC_ROOT  # noqa: E402
 from control.jobs import jobs_add  # noqa: E402
 from control.local import local_prune  # noqa: E402
@@ -599,6 +602,8 @@ def answer(request: dict, ctx: dict) -> dict:
                                          **_only(ctx, "pool_opts", "role_of", "now"))}
     elif op == "tools-install":
         data = {"tools-install": tools_mod.tools_install(request, home=home, root=root, **(ctx.get("install_opts") or {}))}
+    elif op == "gateway-install":
+        data = {"gateway-install": gateway_mod.gateway_install(request, home=home, root=root, **(ctx.get("gateway_install_opts") or {}))}
     elif op == "local-prune":
         data = {"local-prune": local_prune(request, home=home, root=root)}
     elif op == "secrets-selftest":
