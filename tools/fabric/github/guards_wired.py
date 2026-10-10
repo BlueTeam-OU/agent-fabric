@@ -9,15 +9,17 @@ forever. A check written, tested by hand and committed proves the
 script works; it says nothing about whether anything will ever call it.
 Verifying the artifact is not verifying its reachability.
 
-What is checked, for each directory the project's guards.json names:
+What is checked, for each directory the project's guards.json names (rules
+3 and 4 reach every other test_*.sh in the tree as well):
   1. a guard (or ci) member is run by some .github/workflows/*.yml; a
      script member — a helper a person runs — need not be;
   2. every member has a self-test beside it, test_<stem>.<ext>, unless
      the exemption list names it;
   3. every test_* in those directories, and every other test_*.sh in
      the tree, is run by some workflow;
-  4. every workflow command that runs a bash self-test of those
-     directories runs it through the project's runner (run_suite.sh):
+  4. every workflow command that runs a bash self-test of the tree —
+     those directories' and every other test_*.sh rule 3 finds — runs
+     it through the project's runner (run_suite.sh):
      run bare, a suite whose assertion calls an undefined helper
      passes. A bare run is not excused by a wrapped one elsewhere, nor
      on the same line; a for-loop over self-tests must hand its loop
@@ -57,6 +59,9 @@ Exit codes:
 # unchanged against the shim, the oracle): one copy's reading of what a
 # workflow runs, the other's directory roles and globs, each project's
 # report in its own form and wording.
+# Since 2026-10-10 rule 4 is the tree's: a managed project's suite ran a bare self-test from a package
+# script and expected exit 0 (its pkg_with_selftest fixture); that fixture is wrapped on the
+# project's side, so the oracle is that suite as revised, not the one first ported.
 #
 # THE CONTRACT, frozen from devex-tooling's port contract 8/8 and its
 # rulings of 2026-10-08:
@@ -70,10 +75,6 @@ Exit codes:
 #   stderr  "check_guards_are_wired: <why>", exit 2; the lines form's
 #           summary.
 #   exit    0, 1, 2 as --help says.
-# PINNED LIMIT (devex-tooling, 2026-10-08): the runner rule covers the
-# configured directories only, as both copies did; the whole-tree rule
-# checks wiring alone. A bash self-test elsewhere run bare passes here.
-# Widening it waits on the projects' own bare suites being wired first.
 from __future__ import annotations
 
 import json
@@ -476,6 +477,12 @@ def check(root: str, cfg: dict) -> dict:
                 if not runs.wired(rel):
                     f["unwired_tests"].append(rel)
                     f["events"].append(("test_unwired", rel, reldir))
+                # The runner rule is the tree's, not only the configured directories': a self-test run bare
+                # anywhere passes with an undefined helper in its assertion (devex-tooling, 2026-10-10; it was
+                # pinned to the directories until the projects' bare suites were wrapped).
+                if runs.bare(rel):
+                    f["bare"].append(rel)
+                    f["events"].append(("test_bare", rel, reldir))
     for head in runs.bare_loops():
         f["bare"].append(head)
         f["events"].append(("loop_bare", head, ""))

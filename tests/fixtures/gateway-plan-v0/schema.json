@@ -1,0 +1,283 @@
+{
+ "type": "object",
+ "additionalProperties": false,
+ "properties": {
+  "schema_version": {
+   "const": 0
+  },
+  "session": {
+   "type": "object",
+   "additionalProperties": false,
+   "properties": {
+    "opaque_id": {
+     "type": "string",
+     "minLength": 1,
+     "maxLength": 128
+    }
+   },
+   "required": [
+    "opaque_id"
+   ]
+  },
+  "listeners": {
+   "type": "array",
+   "minItems": 1,
+   "maxItems": 1,
+   "items": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+     "ingress_id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$"
+     },
+     "protocol": {
+      "const": "anthropic"
+     },
+     "bind": {
+      "type": "string",
+      "pattern": "^127\\.0\\.0\\.1:(0|[1-9][0-9]{0,3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])$"
+     },
+     "harness_auth": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+       "source": {
+        "const": "fd"
+       }
+      },
+      "required": [
+       "source"
+      ]
+     }
+    },
+    "required": [
+     "ingress_id",
+     "protocol",
+     "bind",
+     "harness_auth"
+    ]
+   }
+  },
+  "backends": {
+   "type": "array",
+   "minItems": 1,
+   "items": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+     "backend_id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$"
+     },
+     "protocol": {
+      "const": "anthropic"
+     },
+     "base_url": {
+      "type": "string",
+      "pattern": "^https://(?:[A-Za-z0-9_](?:[A-Za-z0-9_-]{0,61}[A-Za-z0-9_])?(?:\\.[A-Za-z0-9_](?:[A-Za-z0-9_-]{0,61}[A-Za-z0-9_])?)*\\.?|\\[[0-9A-Fa-f.]*:[0-9A-Fa-f:.]*\\])(?::(?:[1-9][0-9]{0,3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5]))?(?:/[!-\"$->@-~]*)?$"
+     }
+    },
+    "required": [
+     "backend_id",
+     "protocol",
+     "base_url"
+    ]
+   }
+  },
+  "auth_profiles": {
+   "type": "array",
+   "minItems": 1,
+   "items": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+     "profile_id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$"
+     },
+     "source": {
+      "enum": [
+       "env",
+       "file"
+      ]
+     },
+     "name": {
+      "type": "string",
+      "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+     },
+     "path": {
+      "type": "string",
+      "pattern": "^/"
+     },
+     "header": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9-]+$",
+      "not": {
+       "pattern": "^([Hh][Oo][Ss][Tt]|[Cc][Oo][Nn][Tt][Ee][Nn][Tt]-[Ll][Ee][Nn][Gg][Tt][Hh]|[Ee][Xx][Pp][Ee][Cc][Tt]|[Uu][Ss][Ee][Rr]-[Aa][Gg][Ee][Nn][Tt]|[Cc][Oo][Nn][Nn][Ee][Cc][Tt][Ii][Oo][Nn]|[Kk][Ee][Ee][Pp]-[Aa][Ll][Ii][Vv][Ee]|[Pp][Rr][Oo][Xx][Yy]-[Cc][Oo][Nn][Nn][Ee][Cc][Tt][Ii][Oo][Nn]|[Pp][Rr][Oo][Xx][Yy]-[Aa][Uu][Tt][Hh][Ee][Nn][Tt][Ii][Cc][Aa][Tt][Ee]|[Pp][Rr][Oo][Xx][Yy]-[Aa][Uu][Tt][Hh][Oo][Rr][Ii][Zz][Aa][Tt][Ii][Oo][Nn]|[Tt][Ee]|[Tt][Rr][Aa][Ii][Ll][Ee][Rr]|[Tt][Rr][Aa][Nn][Ss][Ff][Ee][Rr]-[Ee][Nn][Cc][Oo][Dd][Ii][Nn][Gg]|[Uu][Pp][Gg][Rr][Aa][Dd][Ee]|[Cc][Oo][Oo][Kk][Ii][Ee]|[Aa][Nn][Tt][Hh][Rr][Oo][Pp][Ii][Cc]-[Bb][Ee][Tt][Aa])$"
+      }
+     },
+     "prefix": {
+      "type": "string",
+      "pattern": "^[^\\u0000-\\u001f\\u007f]*$"
+     },
+     "companion_headers": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "additionalProperties": false,
+       "properties": {
+        "name": {
+         "const": "anthropic-beta"
+        },
+        "value": {
+         "type": "string",
+         "pattern": "^[A-Za-z0-9._-]+$"
+        }
+       },
+       "required": [
+        "name",
+        "value"
+       ]
+      }
+     }
+    },
+    "required": [
+     "profile_id",
+     "source",
+     "header",
+     "prefix"
+    ],
+    "oneOf": [
+     {
+      "properties": {
+       "source": {
+        "const": "env"
+       }
+      },
+      "required": [
+       "name"
+      ],
+      "not": {
+       "required": [
+        "path"
+       ]
+      }
+     },
+     {
+      "properties": {
+       "source": {
+        "const": "file"
+       }
+      },
+      "required": [
+       "path"
+      ],
+      "not": {
+       "required": [
+        "name"
+       ]
+      }
+     }
+    ]
+   }
+  },
+  "routes": {
+   "type": "array",
+   "minItems": 1,
+   "items": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+     "route_id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$"
+     },
+     "ingress_id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$"
+     },
+     "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+       "model_selector": {
+        "type": "string",
+        "minLength": 1
+       }
+      },
+      "required": [
+       "model_selector"
+      ]
+     },
+     "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+       "backend_id": {
+        "type": "string",
+        "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$"
+       },
+       "model": {
+        "type": "string",
+        "minLength": 1
+       }
+      },
+      "required": [
+       "backend_id",
+       "model"
+      ]
+     },
+     "auth_profile_id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$"
+     }
+    },
+    "required": [
+     "route_id",
+     "ingress_id",
+     "source",
+     "target",
+     "auth_profile_id"
+    ]
+   }
+  },
+  "defaults": {
+   "type": "object",
+   "additionalProperties": false,
+   "properties": {
+    "unknown_route": {
+     "type": "object",
+     "additionalProperties": false,
+     "properties": {
+      "status": {
+       "type": "integer",
+       "minimum": 400,
+       "maximum": 499
+      },
+      "error_type": {
+       "type": "string",
+       "minLength": 1
+      }
+     },
+     "required": [
+      "status",
+      "error_type"
+     ]
+    }
+   },
+   "required": [
+    "unknown_route"
+   ]
+  }
+ },
+ "required": [
+  "schema_version",
+  "session",
+  "listeners",
+  "backends",
+  "auth_profiles",
+  "routes",
+  "defaults"
+ ]
+}
