@@ -2,10 +2,10 @@
 role: "fabric-coordinator"
 class: threads
 topic: "suite-scratch-leak"
-description: "tests/run.sh fails naming anything a run left under TMPDIR (since agent-fabric #26, 2026-09-20); node suites use tests/scratch.mjs, static.sh refuses inline mkdtempSync; never run the suite twice at once — the two share scratch and fail…"
+description: tests/run.sh owns a fresh TMPDIR per run and fails naming what is left in it; concurrent runs no longer share scratch
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-09-26"
+distilled_at: "2026-10-10"
 origin:
   - agent: user
     host: "develop-qzapp"
@@ -16,33 +16,14 @@ origin:
     project: "agent-fabric"
     working_copy: "fabric-na"
 derived_from:
+  - 348871f287af9d15
   - d1814b604dc786fb
 ---
 
-## tests/run.sh fails naming anything a run left under TMPDIR (since agent-fabric #26, 2026-09-20); node suites use tests/scratch.mjs, static.sh refuses inline mkdtempSync; never run the suite twice at once — the two share scratch and fail each other
+## tests/run.sh owns a fresh TMPDIR per run and fails naming what is left in it; concurrent runs no longer share scratch
 
-Measured 2026-09-20 on develop-qzapp: after one clean `tests/run.sh`
-run, `/var/tmp/agent-fabric-user` held 72 new directories (~1.3 MB);
-before cleaning it held 472 directories, 120 MB, accumulated over two
-days of suite runs (and two runs I killed mid-way). The leakers by name:
-`agentd-home-*`, `send-*`, `home-*`, `hold-*`, `fabric-*`,
-`assemble-bundle-*`, `harvest-bundle-*`, `marp-cli-*`, `tmp*`.
-`node-compile-cache` is a cache and stays.
+A test run leaves behind nothing it did not find (ADR-021). `tests/run.sh` creates a fresh per-run directory (`SCRATCH_DIR`, exported as `TMPDIR`), fails naming each entry left in it and removes it on exit, so a second run, a pip install or an editor writing in the account's directory is never mistaken for a leak; `tests/leak-check.sh` is the check. Node suites use `tests/scratch.mjs` (removed at process exit) and `tests/static.sh` refuses inline `mkdtempSync` in a `*.test.mjs`.
 
-**Why:** the owner's rule (2026-09-19) — a test run leaves behind nothing
-it did not find. A killed run is the worst case, so never start the
-suite while another is running: the two shared scratch and one reported
-a failure the other had caused.
+**How to apply:** when run.sh names a leftover, fix the suite that made it at the rule level (a helper or an exit hook), never with a one-off `rm`. Two suites may run at once; a killed run's directory is the one thing to clean by hand.
 
-**Fixed in agent-fabric #26 (2026-09-20):** `tests/scratch.mjs` for every
-node suite (removed at process exit), `atexit` on the two bundle dirs,
-`TemporaryDirectory` in the review-brief suite; `tests/static.sh` refuses
-inline `mkdtempSync` in a `*.test.mjs`, `tests/run.sh` lists TMPDIR before
-and after and fails naming each new entry. **How to apply:** when run.sh
-names a leftover, fix the suite that made it at the rule level (a helper
-or an exit hook), not with a one-off `rm`. Never start the suite while
-another run is going. Related: [[pr-band-accumulate]].
-
-*References: pr-band-accumulate*
-
-*Observed 2026-09-20 (fabric-coordinator)*
+*Observed 2026-10-10 (fabric-coordinator)*

@@ -5,7 +5,7 @@ topic: "correction-requests-name-merge-target"
 description: "When asking an agent for a correction memory, say merge_target or \"fix the source memory\" — a bare correction lands as a separate slice beside the stale one"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-01"
+distilled_at: "2026-10-10"
 origin:
   - agent: user
     host: "develop-qzapp"

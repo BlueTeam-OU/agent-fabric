@@ -2,10 +2,10 @@
 role: "fabric-coordinator"
 class: workflow
 topic: "pr-band-accumulate"
-description: "One open PR per agent (gzapp's rule, with its exceptions) and 8–16 work commits to arm — the next piece of work is another commit, never a PR per topic; two one-commit PRs in a morning was the mistake"
+description: One open PR per agent; eight or more work commits arm at the review gate; the next piece of work is another commit
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-01"
+distilled_at: "2026-10-10"
 origin:
   - agent: user
     host: "develop-qzapp"
@@ -16,36 +16,20 @@ origin:
     project: "agent-fabric"
     working_copy: "fabric-na"
 derived_from:
+  - 029add46709fe07a
   - 2324a79955f986c3
 ---
 
-## One open PR per agent (gzapp's rule, with its exceptions) and 8–16 work commits to arm — the next piece of work is another commit, never a PR per topic; two one-commit PRs in a morning was the mistake
+## One open PR per agent; eight or more work commits arm at the review gate; the next piece of work is another commit
 
-ONE open pull request per agent (gzapp's CLAUDE.md, "When to open a
-NEW PR, and when to keep committing" — now fabric-wide in team.md):
-while a PR is open, the next piece of work is another commit on it if
-the branch is addable, else it waits for the merge and is built
-locally. Concerns are commit boundaries, not PR boundaries. Exceptions,
-stated in the new PR's description: a finding on the queued PR itself;
-urgency (user-visible or CI-blocking). The band — eight to sixteen work
-commits arm at the review gate; fewer, ask the owner — is separate and
-also stands.
+ONE open pull request per agent (ADR-019, team.md): while a PR is open, the next piece of work is another commit on it if the branch is addable, else it waits for the merge and is built locally. Concerns are commit boundaries, not PR boundaries. Exceptions, stated in the new PR's description: a finding on the queued PR itself; urgency (user-visible or CI-blocking).
 
-**Why:** on 2026-09-19 I opened #19 (1 commit) and #20 (1 commit) from
-one session in one morning; the owner: "again!!!! 2 and 1 commits! must
-stay in the same pr". The fabric had only the band; gzapp had the
-one-open-PR rule and I had not lifted it; my charter said "small,
-reviewable pull requests". I then over-corrected to "no exceptions",
-told architect-cto the gzapp rule was wrong, and had to withdraw it:
-the owner — "1 with exception; architect-cto-01 was right". Reconciled
-in team.md and the charter (PR #19).
+Eight or more work commits arm once the review gate is met; there is no upper bound on arming (sixteen is only the size a batch is opened at). Fewer: ask the owner. Work commits are counted by each commit's `Kind:` trailer, so `Kind: review-fix` commits do not count.
 
-**How to apply:** before `gh pr create`, count `git rev-list --count
-origin/main..HEAD`; under eight, keep working on the branch. A second
-topic goes on the same branch as its own commit. Fold a stray branch in
-unrebased (`git merge --no-ff`) and close its PR naming where it went.
-See [[blind-review-loop]] for the review that gates the arming.
+**Why:** two one-commit PRs in one morning drew the owner's "must stay in the same pr"; the rule has exceptions, so do not over-correct to "none".
+
+**How to apply:** before `gh pr create`, count the `Kind: work` commits on `origin/main..HEAD`; under eight, keep working on the branch. Fold a stray branch in unrebased (`git merge --no-ff`) and close its PR naming where it went. See [[blind-review-loop]].
 
 *References: blind-review-loop*
 
-*Observed 2026-09-19 (fabric-coordinator)*
+*Observed 2026-10-10 (fabric-coordinator)*

@@ -5,7 +5,7 @@ topic: "redirecting-a-request-moves-its-credential"
 description: When a fix changes WHERE a request goes, list every credential that travels with it first — clearing the destination alone can send a secret to a third party
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-01"
+distilled_at: "2026-10-10"
 origin:
   - agent: user
     host: "develop-qzapp"

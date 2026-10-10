@@ -2,20 +2,21 @@
 role: "fabric-coordinator"
 class: threads
 topic: "shared-android-toolchain-deferred"
-description: "Shared Android SDK / Gradle cache for Flutter logins on develop-qzapp — planned, deferred by the owner while flutter-dev-01 is the only user; revisit when a second Flutter login starts building"
+description: "DONE by devex-tooling (owner, 2026-10-07): the shared Android toolchain is not on my list"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-01"
+distilled_at: "2026-10-10"
 origin:
   - agent: user
     host: "develop-qzapp"
     project: "agent-fabric"
     working_copy: "agent-fabric"
 derived_from:
+  - 173e30587d9277ad
   - 176517b80f712ba6
 ---
 
-## Shared Android SDK / Gradle cache for Flutter logins on develop-qzapp — planned, deferred by the owner while flutter-dev-01 is the only user; revisit when a second Flutter login starts building
+## DONE by devex-tooling (owner, 2026-10-07): the shared Android toolchain is not on my list
 
 Raised by flutter-dev-01 (relay seq 5253, 2026-09-26): each login installs its
 own Android SDK and Gradle cache, ~9 GB per login, on a /home that had reached
@@ -43,5 +44,7 @@ The plan, when a second Flutter login needs it:
 
 Also: adb's port moved to 5137 because 5037 collided with flutter-dev-01's
 Tempo port (same report).
+
+DONE 2026-10-07: the owner says devex-tooling built the shared Android toolchain. It is off my backlog.
 
 *Observed 2026-09-26 (fabric-coordinator)*

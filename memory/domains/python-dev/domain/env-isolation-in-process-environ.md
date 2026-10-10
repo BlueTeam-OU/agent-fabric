@@ -5,7 +5,7 @@ topic: "env-isolation-in-process-environ"
 description: "an oracle's git/env isolation set in a filtered env dict misses fixture calls that pass no env=; set it in os.environ and prove it with a hostile caller config"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-05"
+distilled_at: "2026-10-10"
 origin:
   - agent: "python-dev-01"
     host: "develop-qzapp"
