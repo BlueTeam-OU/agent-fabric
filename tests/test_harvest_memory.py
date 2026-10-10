@@ -534,6 +534,8 @@ def test_marks_and_counts_after_the_watermark_enter_the_bundle_and_earlier_ones_
            calls=[{"t": "2026-10-10T05:00:00Z", **FIND},
                   {"t": "2026-10-10T07:00:00Z", **FIND},
                   {"t": "2026-10-10T07:00:01Z", "tool": "memory_read", "hits": 1, "ids": ["f:domains/x/domain/a#1"], "after_find": True},
+                  # A second read of the same find's results: one find followed by a read, not two.
+                  {"t": "2026-10-10T07:00:02Z", "tool": "memory_read", "hits": 1, "ids": ["f:domains/x/domain/b#1"], "after_find": True},
                   {"t": "2026-10-10T07:01:00Z", "tool": "memory_find", "hits": 0, "ids": []},
                   {"t": "2026-10-10T07:02:00Z", **FIND},
                   {"t": "2026-10-10T07:02:01Z", "tool": "memory_read", "hits": 1, "ids": ["f:domains/x/domain/b#1"], "after_find": False},
@@ -544,9 +546,9 @@ def test_marks_and_counts_after_the_watermark_enter_the_bundle_and_earlier_ones_
     assert [(x["t"], x["verdict"]) for x in rows] == [("2026-10-10T07:00:00Z", "stale"), ("2026-10-10T08:00:00Z", "helpful")], rows
     assert "marks.jsonl" in manifest["files"], "the manifest does not vouch for the marks"
     use = json.loads(members["harvest-report.json"])["memory_use"]
-    assert use["calls"] == {"memory_find": 3, "memory_read": 2, "memory_index": 1}, use
+    assert use["calls"] == {"memory_find": 3, "memory_read": 3, "memory_index": 1}, use
     assert (use["zero_hit_finds"], use["finds_followed_by_read"], use["marks"]) == (1, 1, 2), use
-    assert use["ids_read"] == {"f:domains/x/domain/a#1": 1, "f:domains/x/domain/b#1": 1}, use
+    assert use["ids_read"] == {"f:domains/x/domain/a#1": 1, "f:domains/x/domain/b#1": 2}, use
     assert manifest["next_watermark"] == _ms("2026-10-10T08:00:00Z"), manifest
     # The same window again from the watermark it left: nothing new.
     r, members, _ = _bundle(tmp, "m1b", manifest["next_watermark"])
