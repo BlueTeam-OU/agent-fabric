@@ -149,6 +149,11 @@ def make_base(root: str) -> str:
     # (re-review F-A on PR #28).
     os.makedirs(os.path.join(fabric, "communication", "gzcoord", "i18n"))
     shutil.copy2(REAL_I18N_SCHEMA, os.path.join(fabric, "communication", "gzcoord", "i18n", "i18n.schema.json"))
+    # Required by lint (bootstrap exits 1 without it); the one case that
+    # tests its absence removes it.
+    os.makedirs(os.path.join(fabric, "runtime", "control"))
+    shutil.copy2(os.path.join(ROOT, "runtime", "control", "agent-fabric-agentd.service"),
+                 os.path.join(fabric, "runtime", "control", "agent-fabric-agentd.service"))
     write(os.path.join(fabric, "identities", "roles", "catalog.json"), json.dumps(CATALOG))
     write(os.path.join(fabric, "projects", PROJECT, "taxonomy.json"), json.dumps(TAXONOMY))
     write(os.path.join(fabric, "identities", "roles", "web-dev", "charter.md"), CHARTER)
@@ -1327,27 +1332,28 @@ def case_the_host_registry_is_one_host_per_id_and_placements_are_known() -> None
         assert code == 1 and "role" in out, f"a role in a host entry passed (placement is never identity):\n{out}"
 
 
-def case_the_agentd_selector_is_sound_and_names_placed_logins() -> None:
-    L = {"platform": "fedora-qubes", "ssh": None, "operator": "op", "fabric": "~/projects/agent-fabric"}
+def case_the_agentd_unit_has_one_exec_start_that_runs_the_control_agent() -> None:
     with tempfile.TemporaryDirectory() as root:
         fabric = make_base(root)
-        write(os.path.join(fabric, "runtime", "hosts", "registry.json"),
-              json.dumps({"version": 1, "hosts": {"local": L}, "placement": {"a": "local"}}))
-        sel = os.path.join(fabric, "runtime", "control", "agentd.json")
+        unit = os.path.join(fabric, "runtime", "control", "agent-fabric-agentd.service")
+        os.remove(unit)
         code, out = run_lint(fabric)
-        assert code == 0, f"no selector at all was refused:\n{out}"
-        write(sel, json.dumps({"description": "d", "default": "node", "python": ["a"]}))
+        assert code == 1 and "agent-fabric-agentd.service: is missing" in out, f"no unit file at all passed:\n{out}"
+        with open(os.path.join(ROOT, "runtime", "control", "agent-fabric-agentd.service"), encoding="utf-8") as fh:
+            real = fh.read()
+        write(unit, real)
         code, out = run_lint(fabric)
-        assert code == 0, f"a sound selector was refused:\n{out}"
-        for doc, want in (({"default": "node", "python": [], "node": ["a"]}, "unknown key 'node'"),
-                          ({"default": "deno", "python": []}, "default is 'deno'"),
-                          ({"default": "node", "python": ["ghost"]}, "python names 'ghost', which runtime/hosts/registry.json does not place")):
-            write(sel, json.dumps(doc))
+        assert code == 0, f"the shipped unit was refused:\n{out}"
+        start = next(ln for ln in real.splitlines() if ln.startswith("ExecStart="))
+        for text, want in ((real.replace(start + "\n", ""), "has 0 ExecStart lines, not one"),
+                           (real + start + "\n", "has 2 ExecStart lines, not one"),
+                           (real.replace(start, "ExecStart=/usr/bin/env node %h/projects/agent-fabric/runtime/control/agentd.mjs"),
+                            "ExecStart does not run tools/fabric/control/agentd.py"),
+                           (real.replace("tools/fabric/control/agentd.py", "tools/fabric/control/ctl.py"),
+                            "ExecStart does not run tools/fabric/control/agentd.py")):
+            write(unit, text)
             code, out = run_lint(fabric)
-            assert code == 1 and want in out, f"{doc} passed:\n{out}"
-        write(sel, "{broken")
-        code, out = run_lint(fabric)
-        assert code == 1 and "agentd.json: does not parse" in out, f"a selector that is not JSON passed:\n{out}"
+            assert code == 1 and want in out, f"{want!r} not said:\n{out}"
 
 
 def case_a_managed_projects_name_stays_out_of_generic_files() -> None:
@@ -2369,7 +2375,7 @@ def main() -> int:
         case_the_class_list_a_reader_sees_is_the_real_one,
         case_a_skill_carries_rules_not_occasions,
         case_the_host_registry_is_one_host_per_id_and_placements_are_known,
-        case_the_agentd_selector_is_sound_and_names_placed_logins,
+        case_the_agentd_unit_has_one_exec_start_that_runs_the_control_agent,
         case_a_bound_and_held_role_is_not_a_candidate,
         case_a_managed_projects_name_stays_out_of_generic_files,
         case_review_lenses_are_named_described_and_bounded,

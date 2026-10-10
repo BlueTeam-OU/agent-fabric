@@ -28,7 +28,7 @@ fresh, while another one could be running on the account:
     too, since an exec keeps it. Held: refused, naming that pid, or
     "pid not yet written" in the moment between the two;
   - then the account's own session state, <state>/session-state.json, as
-    runtime/control/sessions.mjs counts it: an entry in a known state
+    tools/fabric/control/sessions.py counts it: an entry in a known state
     whose recorded process is alive with its recorded start time, or that
     records no process and entered its state within NO_PROCESS_FRESH_S
     (two heartbeats, 20 min); one older than that is a probe's (a real
@@ -80,7 +80,7 @@ import install_agent_files  # noqa: E402
 # A test points this at a stub; nothing else sets it.
 LAUNCHER = os.environ.get("AGENT_FABRIC_RESUME_LAUNCHER") or os.path.join(FABRIC, "runtime", "openrouter", "launch")
 SCAN_LINES = 50
-# The harness's session id; runtime/control/sessions.mjs SESSION_ID is the
+# The harness's session id; tools/fabric/control/sessions.py SESSION_ID is the
 # same pattern. Anything else in a binding is no session, never a path.
 # Matched whole (fullmatch): `$` would take a trailing newline, and a
 # session id is a path component (re-review of #132).
@@ -93,7 +93,7 @@ SESSIONS_FILE = "session-state.json"
 # in any other is not a session, as sessions.mjs's STATES has it.
 STATES = {"working", "blocked", "idle"}
 REFUSED = 3
-# runtime/control/sessions.mjs NO_PROCESS_FRESH_MS: two heartbeats.
+# tools/fabric/control/sessions.py NO_PROCESS_FRESH_MS: two heartbeats.
 NO_PROCESS_FRESH_S = 2 * 10 * 60
 
 

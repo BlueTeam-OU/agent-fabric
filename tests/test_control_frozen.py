@@ -1,51 +1,17 @@
-"""tests/control_parity.py — the control plane's parity harness (ADR-040
-Wave 8): every case run through runtime/control/*.mjs and through
-tools/fabric/control/*.py, against the same fixture homes, and the
-answers compared byte for byte, as JSON.stringify and js.stringify write
-them (signatures included).
-
-A case file is tests/parity_cases_<module>.py holding CASES, a list of
-dicts, or cases(), a function answering one (for a case that needs a
-value made when it runs, such as a key pair):
-  name     what the case shows
-  module   the module's name, the same on both sides (sign, pool, …)
-  input    any JSON value, handed to both bodies as `input`
-  node     a JavaScript function body over (m, input, home): m the
-           runtime/control/<module>.mjs namespace, home the fixture
-           (below); it returns the answer, and may await
-  py       a Python function body over (m, input, home): m the
-           tools/fabric/control/<module>.py module, with control.js as
-           `js` in scope; it returns the answer
-  files    optional: paths under the fixture root whose bytes, after the
-           case ran, are part of the answer, carried as hex (persisted
-           state frozen with the wire: pool.json); never decoded, so no
-           newline or invalid byte is made equal on the way
-  lenient_node_throw
-           optional, True: the answer is a list, one element per input, and
-           an element Node answered as {"threw": …} (it refuses a shape it
-           was never given) is not compared: Python may answer anything for
-           it. Every other element must be equal, and some must exist. For a
-           corpus of forged inputs, where the contract is "where the Node
-           printed a table, so does Python, the same one".
-  error    optional, True: each side is expected to throw; only that it
-           threw is compared, never the text (each language words its own).
-           Without it a throw on either side fails the case, said with
-           why: a function renamed on both sides, or a module neither has
-           yet, is never parity
-
-Each side runs every case in ONE process (node, then python), each in its
-own copy of the fixture, built identically: one home per account in
-ACCOUNTS, a state dir with each account's binding and job list, and a
-hosts registry placing them. An op that runs a tool as "this login"
-(jobs) runs as the runner's own login, which no environment changes:
-`home["self"]` names it, and its list is under the fixture's state dir. A case therefore never sees what another
-side's case wrote, and a case that changes a file changes it only for the
-cases after it on the same side.
-
-compare(cases) answers [(name, node, python, why)] for every case that
-fails, and runs nothing it cannot run: a side that does not start, exits
-non-zero or answers fewer cases is an error, never an empty list.
-"""
+#!/usr/bin/env python3
+"""The control plane's parity cases for ctl, upgrade, sessions and queue
+(ADR-040 Wave 8), kept after the Node was deleted (step s8). Each case was run
+through runtime/control/<module>.mjs and through the Python module, against
+the same fixture homes, and the two answers compared byte for byte; the Node's
+answers are frozen in tests/fixtures/node-oracle-ctl-upgrade-sessions-queue.json
+beside the case's input and its Python body, and the Python side is run here
+and compared with them. The cases are the old parity suite's, unchanged
+(tests/parity_cases_{ctl,upgrade,sessions,queue}.py at origin/main before s8):
+ctl's argv and every table over answered, forged and partial replies, upgrade's
+argument check and marker bytes, the sessions' state records, the queue's CLI.
+The cases of sign, protocol, presence, pool, jobs and gzcoord are frozen in
+the test_control_* file of each module. A new input has no Node to ask: it is a
+case of its own with an expected value written by hand."""
 from __future__ import annotations
 
 import json
@@ -56,8 +22,8 @@ import sys
 import tempfile
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-CONTROL_MJS = os.path.join(HERE, "runtime", "control")
 CONTROL_PY = os.path.join(HERE, "tools", "fabric")
+FIXTURE = os.path.join(HERE, "tests", "fixtures", "node-oracle-ctl-upgrade-sessions-queue.json")
 HOST = "h"
 FIXTURE_OPERATOR = os.path.join(HERE, "tests", "fixtures", "gzcoord-operator")
 ACCOUNTS = ["user", "py", "web"]          # user: the operator; py, web: placed agents
@@ -96,22 +62,6 @@ def build(root: str) -> dict:
            "AGENT_FABRIC_OPERATOR": FIXTURE_OPERATOR}
     return {"home": home, "env": env}
 
-
-_NODE = r"""
-import fs from 'node:fs';
-const { cases, home, dir } = JSON.parse(fs.readFileSync(0, 'utf8'));
-const out = [];
-for (const c of cases) {
-  try {
-    const m = await import(`${dir}/${c.module}.mjs`);
-    const run = new Function('m', 'input', 'home', `return (async () => { ${c.node} })();`);
-    const value = await run(m, c.input, home);
-    const files = Object.fromEntries((c.files ?? []).map(f => [f, fs.existsSync(`${home.root}/${f}`) ? fs.readFileSync(`${home.root}/${f}`).toString('hex') : null]));
-    out.push(JSON.stringify({ value: value === undefined ? null : value, files }));
-  } catch (e) { out.push(JSON.stringify({ threw: true, why: String(e?.stack ?? e).split('\n').slice(0, 3).join(' | ') })); }
-}
-process.stdout.write(JSON.stringify(out));
-"""
 
 _PY = r"""
 import importlib, json, os, sys
@@ -168,26 +118,21 @@ def _side(cmd: list[str], payload: dict, env: dict, cwd: str) -> list[str]:
     return answers
 
 
-def run(cases: list[dict]) -> list[tuple[str, str, str]]:
-    """[(name, node answer, python answer)] for every case, each side in its own fixture."""
-    with tempfile.TemporaryDirectory(prefix="control-parity.") as tmp:
-        sides = {}
-        for side in ("node", "py"):
-            fx = build(os.path.join(tmp, side))
-            payload = {"cases": [{k: c[k] for k in ("module", "input", "node", "py", "files") if k in c} for c in cases],
-                       "home": fx["home"], "dir": CONTROL_MJS}
-            # -I: no '' on sys.path and no PYTHON* variable reaches the side.
-            cmd = ["node", "--input-type=module", "-e", _NODE] if side == "node" else [sys.executable, "-I", "-c", _PY, CONTROL_PY]
-            sides[side] = _side(cmd, payload, fx["env"], fx["home"]["root"])
-        # A path inside a fixture names that side's root: said the same on both.
-        node = [a.replace(os.path.join(tmp, "node"), "<root>") for a in sides["node"]]
-        py = [a.replace(os.path.join(tmp, "py"), "<root>") for a in sides["py"]]
-        return [(c["name"], n, p) for c, n, p in zip(cases, node, py, strict=True)]
+def run_python(cases: list[dict]) -> list[str]:
+    """Python's answer to every case, in one process and one fixture built
+    as the Node's was; a path inside the fixture is said as <root>."""
+    with tempfile.TemporaryDirectory(prefix="control-frozen.") as tmp:
+        fx = build(os.path.join(tmp, "py"))
+        payload = {"cases": [{k: c[k] for k in ("module", "input", "py", "files") if k in c} for c in cases],
+                   "home": fx["home"]}
+        # -I: no '' on sys.path and no PYTHON* variable reaches the side.
+        answers = _side([sys.executable, "-I", "-c", _PY, CONTROL_PY], payload, fx["env"], fx["home"]["root"])
+        return [a.replace(os.path.join(tmp, "py"), "<root>") for a in answers]
 
 
-def verdict(case: dict, node: str, py: str) -> str | None:
+def verdict(case: dict, frozen: str, py: str) -> str | None:
     """None when the case holds, else why it fails."""
-    n, p = json.loads(node), json.loads(py)
+    n, p = json.loads(frozen), json.loads(py)
     if case.get("error"):
         return None if n.get("threw") is True and p.get("threw") is True else "expected both sides to throw"
     threw = [f"{side} threw ({a.get('why')})" for side, a in (("node", n), ("python", p)) if a.get("threw")]
@@ -203,31 +148,51 @@ def verdict(case: dict, node: str, py: str) -> str | None:
             return "node refused every element: nothing was compared"
         bad = [i for i in compared if nv[i] != pv[i]]
         return None if not bad else f"{len(bad)} of {len(compared)} compared elements differ, the first at index {bad[0]}"
-    return None if node == py else "the answers differ"
+    return None if frozen == py else "the answers differ"
 
 
-def compare(cases: list[dict]) -> list[tuple[str, str, str, str]]:
-    out = []
-    for (name, n, p), c in zip(run(cases), cases, strict=True):
-        why = verdict(c, n, p)
-        if why:
-            out.append((name, n, p, why))
-    return out
 
 
-def all_cases() -> list[dict]:
-    """Every tests/parity_cases_*.py's CASES, in file order."""
-    import importlib.util
-    cases = []
-    for f in sorted(os.listdir(os.path.dirname(os.path.abspath(__file__)))):
-        if f.startswith("parity_cases_") and f.endswith(".py"):
-            spec = importlib.util.spec_from_file_location(f[:-3], os.path.join(os.path.dirname(os.path.abspath(__file__)), f))
-            mod = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(mod)
-            listed = mod.cases() if hasattr(mod, "cases") else mod.CASES
-            cases += [{**c, "name": f"{f[len('parity_cases_'):-3]}: {c['name']}"} for c in listed]
-    return cases
+def main() -> int:
+    fails = 0
+
+    def check(label: str, good: bool, detail: object = "") -> None:
+        nonlocal fails
+        print(f"  {'ok  ' if good else 'FAIL'} {label}" + ("" if good else f": {detail}"))
+        fails += not good
+
+    with open(FIXTURE, encoding="utf-8") as fh:
+        cases = json.load(fh)
+    check("every module the fixture was frozen for has cases",
+          {c["name"].split(":")[0] for c in cases} == {"ctl", "upgrade", "sessions", "queue"}, len(cases))
+    answers = run_python(cases)
+    for c, py in zip(cases, answers, strict=True):
+        why = verdict(c, c["node"], py)
+        check(c["name"], why is None, f"{why}\n      node={c['node'][:600]}\n      py  ={py[:600]}")
+
+    print("the frozen answers can fail: a changed answer is found, an untouched one holds")
+    probe = next(c for c in cases if not c.get("error") and not c.get("lenient_node_throw") and "threw" not in json.loads(c["node"]))
+    p_answer = run_python([probe])[0]
+    check("positive control: the probe holds as frozen", verdict(probe, probe["node"], p_answer) is None, p_answer[:200])
+    mutated = json.dumps({**json.loads(probe["node"]), "value": ["changed"]})
+    check("a frozen answer that differs is found", verdict(probe, mutated, p_answer) == "the answers differ")
+    check("a lenient case needs some element Node answered",
+          verdict({"lenient_node_throw": True}, json.dumps({"value": [{"threw": "x"}], "files": {}}),
+                  json.dumps({"value": ["z"], "files": {}})) == "node refused every element: nothing was compared")
+    with tempfile.TemporaryDirectory() as cwd:
+        def side(code: str) -> str:
+            try:
+                _side([sys.executable, "-c", code], {"cases": [{}, {}]}, {"PATH": os.environ.get("PATH", "")}, cwd)
+            except RuntimeError as e:
+                return str(e)
+            return "no error"
+        check("a side that exits non-zero is an error", "exit 3" in side("import sys; sys.exit(3)"))
+        check("a side that answers fewer cases is an error", "answered 1 of 2" in side("print('[\"{}\"]')"))
+        check("a side that answers no JSON is an error", "answered no JSON" in side("print('nope')"))
+        check("answers that are not answer objects are an error", "case 0 with" in side("print('[5, 6]')"))
+    print(f"\n{'FAILED' if fails else 'all passed'}")
+    return 1 if fails else 0
 
 
 if __name__ == "__main__":
-    sys.exit("control_parity is a library: run tests/test_control_parity.py")
+    sys.exit(main())

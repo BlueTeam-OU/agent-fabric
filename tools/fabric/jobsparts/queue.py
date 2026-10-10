@@ -1,4 +1,4 @@
-"""tools/fabric/jobsparts/queue.py — the control plane's queue (runtime/control/queue.mjs) and the waits read from its stream.
+"""tools/fabric/jobsparts/queue.py — the control plane's queue (tools/fabric/control/queue.py) and the waits read from its stream.
 A part of tools/fabric/jobs.py, whose docstring is the contract."""
 from __future__ import annotations
 
@@ -10,18 +10,18 @@ from fabric_jobs.base import FABRIC_ROOT, Stale
 from fabric_jobs.ranking import message_of
 
 
-QUEUE = os.path.join(FABRIC_ROOT, "runtime", "control", "queue.mjs")
+QUEUE = os.path.join(FABRIC_ROOT, "tools", "fabric", "control", "queue.py")
 
 
-# queue.mjs bounds each relay call well under this (QUEUE_CALL_TIMEOUT_MS), so a
-# relay that does not answer is said in its words before this kills node.
+# queue.py bounds each relay call well under this (QUEUE_CALL_TIMEOUT_MS), so a
+# relay that does not answer is said in its words before this kills it.
 QUEUE_TIMEOUT_S = 30
 
 
 class Unreachable(Exception):
     """The control plane did not answer; the message says why, and `sent`
     whether a request left this account before it went quiet: True, False
-    only where queue.mjs knows nothing left, None when nobody knows (a
+    only where queue.py knows nothing left, None when nobody knows (a
     timeout, an answer that is not its JSON)."""
 
     def __init__(self, message: str, sent: bool | None = None):
@@ -30,16 +30,16 @@ class Unreachable(Exception):
 
 
 def ask_queue(*argv: str) -> dict:
-    """runtime/control/queue.mjs's answer, or Unreachable: a timeout, a
-    missing node and an answer that is not its JSON are each said."""
+    """tools/fabric/control/queue.py's answer, or Unreachable: a timeout, an
+    interpreter that cannot run and an answer that is not its JSON are each said."""
     try:
-        p = subprocess.run(["node", QUEUE, *argv], capture_output=True, text=True, timeout=QUEUE_TIMEOUT_S)
+        p = subprocess.run([sys.executable, "-I", QUEUE, *argv], capture_output=True, text=True, timeout=QUEUE_TIMEOUT_S)
     except subprocess.TimeoutExpired:
         raise Unreachable(f"no answer within {QUEUE_TIMEOUT_S} s")
     except OSError as e:
-        # node never started, so queue.mjs posted nothing: a claim that never
+        # the interpreter never started, so queue.py posted nothing: a claim that never
         # left is said without how to land it.
-        raise Unreachable(f"node could not run ({e.strerror or e})", sent=False)
+        raise Unreachable(f"python could not run ({e.strerror or e})", sent=False)
     try:
         said = json.loads((p.stdout or "").strip().splitlines()[-1])
     except (ValueError, IndexError):

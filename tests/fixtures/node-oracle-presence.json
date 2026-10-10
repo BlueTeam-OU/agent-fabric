@@ -1,0 +1,121 @@
+{
+ "check_addressees": [
+  {
+   "checked": true,
+   "problems": [],
+   "notes": []
+  },
+  {
+   "checked": false
+  },
+  {
+   "checked": true,
+   "problems": [],
+   "notes": []
+  },
+  {
+   "checked": true,
+   "problems": [
+    {
+     "kind": "offline",
+     "address": "h/web-dev-02",
+     "presence": {
+      "status": "ok",
+      "online": false,
+      "sessions": 0,
+      "since": null,
+      "role": "web-dev",
+      "project": "gzapp"
+     }
+    }
+   ],
+   "notes": []
+  },
+  {
+   "checked": true,
+   "problems": [],
+   "notes": []
+  },
+  {
+   "checked": true,
+   "problems": [
+    {
+     "kind": "unavailable",
+     "detail": "h/db-admin: failed"
+    }
+   ]
+  },
+  {
+   "checked": true,
+   "problems": [],
+   "notes": []
+  },
+  {
+   "checked": true,
+   "problems": [
+    {
+     "kind": "no-holder",
+     "role": "db-admin",
+     "holders": [],
+     "silent": [
+      "h/db-admin",
+      "h/nostatus",
+      "h/str",
+      "h/failed"
+     ]
+    }
+   ]
+  },
+  {
+   "checked": true,
+   "problems": [],
+   "notes": []
+  },
+  {
+   "checked": false
+  },
+  {
+   "checked": false
+  },
+  {
+   "checked": false
+  },
+  {
+   "checked": true,
+   "problems": [],
+   "notes": []
+  },
+  {
+   "checked": true,
+   "problems": [],
+   "notes": []
+  },
+  {
+   "checked": true,
+   "problems": [
+    {
+     "kind": "unavailable",
+     "detail": "h/nostatus: undefined"
+    }
+   ]
+  },
+  {
+   "checked": true,
+   "problems": [
+    {
+     "kind": "unavailable",
+     "detail": "h/str: undefined"
+    }
+   ]
+  },
+  {
+   "checked": true,
+   "problems": [
+    {
+     "kind": "unavailable",
+     "detail": "h/failed: failed"
+    }
+   ]
+  }
+ ]
+}

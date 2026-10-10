@@ -1,7 +1,7 @@
 """tools/fabric/control/ctl.py — the coordinator's side of the control plane:
 post one request on the control channel, read the replies, print them
-(ADR-040 Wave 8, from runtime/control/ctl.mjs, which this replaces at the
-cutover; bin/fabric-ctl runs the Node until then).
+(ADR-040 Wave 8, ported from runtime/control/ctl.mjs, deleted in step s8;
+bin/fabric-ctl runs this on the pinned Python).
 
     fabric-ctl <login|all> [status|usage|identity|keys|fabric|session|script|recall|host|disk|accounts|ping] [--json] [--timeout S]
     fabric-ctl <login|all> tokens [--days N]
@@ -26,9 +26,9 @@ row that says so, and the exit code is 1 — a table is never short.
 Stateless: a run leaves one request record and the agents' replies on the
 channel, and nothing else anywhere.
 
-THE CONTRACT, as the Node's, frozen by its tests (runtime/control/tests/
-ctl.test.mjs, ported case for case in tests/test_control_ctl.py) and the
-parity cases (tests/parity_cases_ctl.py): argv and its refusals, the
+THE CONTRACT, as the Node's, frozen by its tests (ctl.test.mjs, ported case
+for case in tests/test_control_ctl.py) and held to the Node's tables by
+parity cases until the Node was deleted (git history has them): argv and its refusals, the
 request sent (keys and their order), the rows, every table byte for byte —
 JavaScript's padEnd and padStart by UTF-16 code unit, toFixed's rounding
 half up, String() of whatever an account sent — the bundles written by a

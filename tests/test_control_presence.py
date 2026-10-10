@@ -131,7 +131,7 @@ def main() -> int:
     r = role_chk({"h/web-dev-01": planning(), "h/web-dev-02": off()})
     check("...an account that did not answer withholds the note, and planning never blocks the send", r["notes"] == [] and r["problems"] == [], r)
 
-    print("...and as Node's checkAddressees answers, on the same inputs")
+    print("...and as the Node's checkAddressees answered, on the same inputs (tests/fixtures/node-oracle-presence.json)")
     answers = {"h/web-dev-01": on(), "h/web-dev-02": off(), "h/db-admin": {"status": "failed", "error": None, "role": "web-dev"},
                "h/x": {"status": "ok", "online": 1, "planning": 0, "role": "web-dev"},
                "h/nostatus": {"online": True}, "h/str": "x", "h/failed": {"status": "failed", "role": "web-dev"}}
@@ -140,18 +140,12 @@ def main() -> int:
               {"TO": "h/web-dev-01", "TO-ROLE": "web-dev"}, {"BROADCAST": "false"}, {"TO-ROLE": ""}, {"TO": 0},
               {"TO": "\ufeffh/web-dev-01\u3000"}, {"TO-ROLE": "\u2028web-dev"}, {"TO": "h/nostatus"}, {"TO": "h/str"}, {"TO": "h/failed"}]
     placed = ["h/web-dev-01", "h/web-dev-02", "h/db-admin", "h/x", "h/nostatus", "h/str", "h/failed"]
-    import subprocess
-    mjs = os.path.join(HERE, "runtime", "control", "presence.mjs")
-    r = subprocess.run(["node", "--input-type=module", "-e",
-                        f"import fs from 'node:fs'; import {{checkAddressees}} from '{mjs}'; const i = JSON.parse(fs.readFileSync(0, 'utf8')); "
-                        "const ask = async ({ expect }) => Object.fromEntries(expect.map(a => [a, a in i.answers ? i.answers[a] : null])); "
-                        "const out = []; for (const m of i.shapes) out.push(await checkAddressees(m, { from: 'h/u', token: 't', placed: i.placed, ask })); "
-                        "process.stdout.write(JSON.stringify(out));"],
-                       input=json.dumps({"answers": answers, "shapes": shapes, "placed": placed}), capture_output=True, text=True, timeout=60)
-    node = json.loads(r.stdout) if r.returncode == 0 else r.stderr[-300:]
+    with open(os.path.join(HERE, "tests", "fixtures", "node-oracle-presence.json"), encoding="utf-8") as fh:
+        node = json.load(fh)["check_addressees"]
     mine = [cp.check_addressees(m, from_="h/u", token="t", placed=placed, ask=asker(answers)) for m in shapes]
-    differ = [(m, n_, g) for m, n_, g in zip(shapes, node if isinstance(node, list) else [], mine) if n_ != g]
-    check(f"check_addressees answers as checkAddressees on {len(shapes)} addressings", isinstance(node, list) and not differ, differ[:3] or node)
+    differ = [(m, n_, g) for m, n_, g in zip(shapes, node, mine) if n_ != g]
+    check(f"check_addressees answers as the Node's checkAddressees did on {len(shapes)} addressings (frozen)",
+          len(node) == len(shapes) and not differ, differ[:3])
 
     print("the CLI: presence.py check")
     agentd = SimpleNamespace(account_addresses=lambda: set(PLACED), operator_addresses=lambda: set(), new_id=lambda: "q",

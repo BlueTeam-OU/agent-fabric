@@ -1,6 +1,6 @@
 """tools/fabric/control/protocol.py — the control plane's four envelopes
-(ADR-029): runtime/control/protocol.mjs in Python (ADR-040 Wave 8),
-unwired until the cutover.
+(ADR-029): ported from runtime/control/protocol.mjs (ADR-040 Wave 8;
+deleted in step s8).
 
 What ctl and presence send, what agentd accepts and answers with, what it
 announces when it comes up, and what its account's sessions are doing.

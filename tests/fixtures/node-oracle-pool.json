@@ -1,0 +1,31 @@
+{
+ "states": [
+  500,
+  1200000
+ ],
+ "steps": [
+  [
+   "add",
+   {
+    "role": "python-dev",
+    "title": " port \u00e9  it ",
+    "topic": "t",
+    "priority": "high"
+   }
+  ],
+  [
+   "add",
+   {
+    "role": "web-dev",
+    "title": "x",
+    "project": "gzapp"
+   }
+  ],
+  [
+   "claim",
+   "p1",
+   "h/a"
+  ]
+ ],
+ "pool_file": "{\n  \"seq\": 2,\n  \"jobs\": [\n    {\n      \"id\": \"p1\",\n      \"seq\": 1,\n      \"role\": \"python-dev\",\n      \"title\": \"port \u00e9 it\",\n      \"topic\": \"t\",\n      \"project\": null,\n      \"priority\": \"high\",\n      \"created\": \"2026-10-08T00:00:00Z\",\n      \"from\": \"h/user\",\n      \"claimed\": {\n        \"by\": \"h/a\",\n        \"at\": \"2026-10-08T00:00:02Z\"\n      }\n    },\n    {\n      \"id\": \"p2\",\n      \"seq\": 2,\n      \"role\": \"web-dev\",\n      \"title\": \"x\",\n      \"topic\": null,\n      \"project\": \"gzapp\",\n      \"priority\": \"normal\",\n      \"created\": \"2026-10-08T00:00:01Z\",\n      \"from\": \"h/user\",\n      \"claimed\": null\n    }\n  ]\n}\n"
+}

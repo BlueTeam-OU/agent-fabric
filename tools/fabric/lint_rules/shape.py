@@ -137,32 +137,26 @@ def host_registry_findings(root: str) -> list[str]:
     return findings
 
 
-def agentd_selector_findings(root: str) -> list[str]:
-    """runtime/control/agentd.json (ADR-040 Wave 8, s7): bootstrap refuses an
-    unsound selector at every account, so it is refused here first, where
-    one commit can fix it; and a listed login that is placed nowhere is a
-    cutover no account will ever run — a misspelling, or a login gone."""
+def agentd_unit_findings(root: str) -> list[str]:
+    """runtime/control/agent-fabric-agentd.service (ADR-040 Wave 8, s8):
+    bootstrap installs it as it is on every account, so a file with no
+    ExecStart, two, or one that does not run the control agent is refused
+    here first, where one commit can fix it."""
     import agentd_unit  # tools/fabric, on the path lint.py set
-    where = agentd_unit.SELECTOR_REL
+    where = os.path.join("runtime", "control", "agent-fabric-agentd.service")
     try:
-        doc = json.load(open(os.path.join(root, where), encoding="utf-8"))
+        text = open(os.path.join(root, where), encoding="utf-8").read()
     except FileNotFoundError:
-        return []
+        # Required, not optional: bootstrap exits 1 without the unit.
+        return [f"{where}: is missing (bootstrap installs it on every account)"]
     except (OSError, ValueError) as exc:
-        return [f"{where}: does not parse ({exc})"]
-    findings = [f"{where}: {p}" for p in agentd_unit.problems(doc)]
-    if findings:
-        return findings
-    # An unreadable registry is host_registry_findings'.
-    try:
-        placement = json.load(open(roots.hosts_registry(engine=root, environ=lint_environ()),
-                                   encoding="utf-8")).get("placement") or {}
-    except (OSError, ValueError, AttributeError):
-        return findings
-    for login in doc.get("python", []):
-        if login not in placement:
-            findings.append(f"{where}: python names {login!r}, which runtime/hosts/registry.json does not place")
-    return findings
+        return [f"{where}: cannot be read ({exc})"]
+    starts = [ln for ln in text.splitlines() if ln.startswith("ExecStart=")]
+    if len(starts) != 1:
+        return [f"{where}: has {len(starts)} ExecStart lines, not one"]
+    if agentd_unit.implementation_of(text) != "python":
+        return [f"{where}: ExecStart does not run tools/fabric/control/agentd.py ({starts[0][:80]})"]
+    return []
 
 
 def candidate_role_findings(root: str, catalog: dict[str, Any] | None,

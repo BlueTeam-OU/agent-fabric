@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """tools/fabric/secret_selftest.py — the own-secrets self-test, behind
 `fabric-secrets selftest [--json]`; run as the account by its control agent
-for the signed `secrets-selftest` action (runtime/control/selftest.mjs).
+for the signed `secrets-selftest` action (tools/fabric/control/selftest.py).
 
 The real commands, as an agent would run them, each a subprocess:
     precondition  the store answers `store names --json`, and the fixed name
@@ -59,7 +59,7 @@ SECRET_RUN = os.path.join(CHECKOUT, "bin", "fabric-secret-run")
 # most (a leftover's rm, then names, set, run, rm, names, run), each
 # STEP_TIMEOUT_S, then STOP_GRACE_S, then REAP_S twice (the last read, the
 # last wait): 7 x 60 = 420 s, under the 450 s
-# runtime/control/selftest.mjs waits. A command waits for the store's write
+# tools/fabric/control/selftest.py waits. A command waits for the store's write
 # lock LOCK_WAIT_S at most, under its own bound, so a busy store is
 # reported as the refusal naming its holder, not as a timeout.
 STEP_TIMEOUT_S = 53

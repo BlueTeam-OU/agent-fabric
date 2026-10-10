@@ -57,7 +57,7 @@ the fallback for a host whose daemons are down.
 # another executor, as store_enroll.py reads it, for a test. On #114's
 # review (fabric-coordinator REQUEST 01a11a18, item 2): a setup-token
 # account is no longer the status `setup-token` but a reading, its JSON
-# row carrying "via": "setup-token" and a null email, as usage.mjs reads
+# row carrying "via": "setup-token" and a null email, as control/ops/usage.py reads
 # it for fabric-ctl.
 from __future__ import annotations
 
@@ -87,16 +87,16 @@ STATUSES = ("no-credentials", "read-failed", "unreadable", "executor-failed")
 # A login on a template runs on its setup-token, which the usage endpoint
 # refuses (user:inference only); its line is prefixed with SETUP_TOKEN and
 # its windows come from the anthropic-ratelimit-unified-* headers of one
-# one-token inference reply, as runtime/control/ops/usage.mjs reads them
+# one-token inference reply, as tools/fabric/control/ops/usage.py reads them
 # (docs/live-checks/2026-10-08-usage-from-inference-headers.md): the
 # fraction as a percentage to a tenth, the epoch reset as UTC minutes. A
 # reply of any status with a number in a window header is a reading (a
 # full window answers 429), which is why curl has no -f; a reply with
-# none, the headers absent or not numbers, is read-failed, as usage.mjs
+# none, the headers absent or not numbers, is read-failed, as control/ops/usage.py
 # reads it. The token is taken from
 # secrets.env as fabric-secrets sync writes it, bare or single-quoted
 # (shlex.quote of a token); secrets.env is never sourced, which would
-# put every secret in the shell. The model is usage.mjs's pinned probe.
+# put every secret in the shell. The model is control/ops/usage.py's pinned probe.
 SETUP_TOKEN = "via-setup-token"
 READ = r"""s="$HOME/.config/agent-fabric/secrets.env"
 if grep -Eq "^export CLAUDE_CODE_OAUTH_TOKEN=[^'\"[:space:]]|^export CLAUDE_CODE_OAUTH_TOKEN='[^']" "$s" 2>/dev/null; then

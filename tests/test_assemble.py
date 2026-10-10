@@ -40,6 +40,10 @@ def lint_inputs(out: str) -> None:
         shutil.copytree(SCHEMA_DIR, os.path.join(out, "identities", "schemas"), dirs_exist_ok=True)
     if os.path.isdir(PROMPT_DIR):
         shutil.copytree(PROMPT_DIR, os.path.join(out, "identities", "prompt"), dirs_exist_ok=True)
+    # Lint requires the control agent's unit (bootstrap installs it on every account).
+    unit = os.path.join(ROOT, "runtime", "control", "agent-fabric-agentd.service")
+    os.makedirs(os.path.join(out, "runtime", "control"), exist_ok=True)
+    shutil.copy2(unit, os.path.join(out, "runtime", "control", "agent-fabric-agentd.service"))
 
 OBSERVATIONS = [
     {"content_hash": "h1", "clone_id": "clone-aaa", "host": "hostA"},

@@ -1,5 +1,0 @@
-{
-  "description": "Which implementation of the control agent each account's unit runs (ADR-040 Wave 8, step s7): node is runtime/control/agentd.mjs, python is tools/fabric/control/agentd.py on the pinned /usr/local/bin/fabric-python. `default` is every login's; `python` lists the logins that run python ahead of it. tools/fabric/bootstrap.py writes the unit's ExecStart from this file for the account it runs as, and a changed unit is reloaded and restarted. Lint holds the keys, the default and every listed login to runtime/hosts/registry.json's placement. The cutover adds logins here one account at a time, then sets the default.",
-  "default": "python",
-  "python": []
-}

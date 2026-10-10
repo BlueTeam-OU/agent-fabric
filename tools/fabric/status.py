@@ -30,8 +30,7 @@ CONTRACT, frozen from the bash (ADR-040 §5 rule 3):
             binding, job list and launch-prompt.md of the login, the
             working copy's last-drain-report.json and the harness's memory
             directory for it; the control agent's installed unit
-            ($XDG_CONFIG_HOME/systemd/user/agent-fabric-agentd.service)
-            and runtime/control/agentd.json.
+            ($XDG_CONFIG_HOME/systemd/user/agent-fabric-agentd.service).
   stdout    the human report (below), or with --json one object, indent 2,
             ensure_ascii. Nothing on stderr by design; a module this file
             loads that fails writes its own traceback there.
@@ -48,7 +47,7 @@ asked or stamped), `launch profile` (only when stamped), `pins`,
 `credentials`, `claude sign-in`, a blank line, `capabilities on <provider>`
 and one line per class, `routing`, `memory` (only when there is something
 to count), `moveto` (only when installed), `journal`, `python`, `agentd`
-(which implementation the account's control agent runs), `control plane`.
+(what the account's installed control agent unit runs), `control plane`.
 
 The --json object: agent, host, placement, role, project, working_copy,
 session, binding_updated, launched_role, launch_prompt_digest, drift (a
@@ -58,7 +57,7 @@ undrained_memories ({drainable, no_roles_class, since, dir} or null), jobs
 base_url_host, session_model, launch_profile, pins, credentials,
 claude_sign_in}), capabilities ({class: line}), routing_check ("clean" or
 a list), host_tools ({moveto, python, journal, agentd}; agentd's status
-node, python, drift, none or unknown), control_plane.
+python, refused, drift, none or unknown), control_plane.
 """
 from __future__ import annotations
 
@@ -474,12 +473,11 @@ def pinned_python(root):
 
 
 def agentd_implementation(root, agent, environ):
-    """Which implementation this account's control agent runs, read from the
-    unit bootstrap installed: the replies of the two are byte-equal by
-    design (ADR-040 Wave 8), so no fabric-ctl answer can say it, and the
-    unit is the one place that does. What runtime/control/agentd.json
-    selects for this login is beside it; the two differ until a bootstrap
-    (or the next upgrade) writes the unit."""
+    """What this account's control agent runs, read from the unit bootstrap
+    installed: there is one implementation now (ADR-040 Wave 8, s8), and the
+    unit is where a stale one shows (a unit still naming the deleted Node
+    agent is written over by the next bootstrap) and where the pinned
+    interpreter it needs is checked."""
     try:
         au = load("fabric_agentd_unit", os.path.join(root, "tools", "fabric", "agentd_unit.py"))
         units = os.path.join(environ.get("XDG_CONFIG_HOME") or os.path.join(os.path.expanduser("~"), ".config"),
@@ -491,21 +489,14 @@ def agentd_implementation(root, agent, environ):
         except FileNotFoundError:
             return {"status": "none", "detail": f"no unit at {unit} (bootstrap installs it)"}
         if runs is None:
-            return {"status": "unknown", "detail": f"{unit} runs neither agentd.mjs nor agentd.py"}
-        try:
-            selected = au.implementation(au.load(root), agent)
-        except ValueError as e:
-            return {"status": runs, "detail": f"{runs} (the unit's ExecStart); {e}"}
-        if selected == "python" and runs == "node":
-            # What bootstrap would do: it keeps Node when python is refused, so
-            # that unit is the right one, not drift.
-            refused = au.python_refusal(root, agent, environ)
-            if refused:
-                return {"status": "node", "detail": f"node (python refused: {refused})"}
-        if selected != runs:
-            return {"status": "drift", "detail": f"the unit runs {runs}, {au.SELECTOR_REL} selects {selected}: "
-                                                 "bootstrap writes it (moveto, or fabric-ctl upgrade fabric)"}
-        return {"status": runs, "detail": f"{runs} (the unit's ExecStart, as {au.SELECTOR_REL} selects)"}
+            return {"status": "unknown", "detail": f"{unit} runs neither agentd.py nor the deleted agentd.mjs"}
+        if runs == "node":
+            return {"status": "drift", "detail": "the unit still runs the deleted Node agent (agentd.mjs): "
+                                                 "bootstrap writes the Python one (moveto, or fabric-ctl upgrade fabric)"}
+        refused = au.python_refusal()
+        if refused:
+            return {"status": "refused", "detail": f"the unit runs python (agentd.py), which cannot start: {refused}"}
+        return {"status": "python", "detail": "python (the unit's ExecStart)"}
     except Exception as e:  # noqa: BLE001 — a status line, never a traceback
         return {"status": "unknown", "detail": str(e)}
 
@@ -593,7 +584,7 @@ def render(report, base):
         p(f"python       {python['detail']}" if python["status"] == "ok" else f"python       {python['status'].upper()}: {python['detail']}")
     agentd = report["host_tools"].get("agentd")
     if agentd:
-        p(f"agentd       {agentd['detail']}" if agentd["status"] in ("node", "python")
+        p(f"agentd       {agentd['detail']}" if agentd["status"] == "python"
           else f"agentd       {agentd['status'].upper()}: {agentd['detail']}")
     p(f"control plane {report['control_plane']}")
     return out

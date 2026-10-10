@@ -11,14 +11,12 @@ from __future__ import annotations
 
 import json
 import os
-import subprocess
 import sys
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(HERE, "tools", "fabric"))
 from control import protocol, sign  # noqa: E402
 
-PROTOCOL_MJS = os.path.join(HERE, "runtime", "control", "protocol.mjs")
 
 
 def holds(value: dict, kind: str) -> list[str]:
@@ -42,12 +40,10 @@ def main() -> int:
         print(f"  {'ok  ' if good else 'FAIL'} {label}" + ("" if good else f": {detail}"))
         fails += not good
 
-    r = subprocess.run(["node", "--input-type=module", "-e",
-                        f"import {{ENVELOPE_KEYS}} from '{PROTOCOL_MJS}'; process.stdout.write(JSON.stringify(ENVELOPE_KEYS))"],
-                       capture_output=True, text=True, timeout=60)
-    node = json.loads(r.stdout) if r.returncode == 0 else None
+    with open(os.path.join(HERE, "tests", "fixtures", "node-oracle-protocol.json"), encoding="utf-8") as fh:
+        node = json.load(fh)["envelope_keys"]
     mine = {k: {"required": list(v["required"]), "optional": list(v["optional"])} for k, v in protocol.ENVELOPE_KEYS.items()}
-    check("ENVELOPE_KEYS is Node's, kind for kind, key for key, in order", mine == node, (mine, node, r.stderr[-300:]))
+    check("ENVELOPE_KEYS is the Node's (frozen), kind for kind, key for key, in order", mine == node, (mine, node))
     for kind, typed in protocol.TYPES.items():
         want = protocol.ENVELOPE_KEYS[kind]
         got_required, got_optional = set(typed.__required_keys__), set(typed.__optional_keys__)

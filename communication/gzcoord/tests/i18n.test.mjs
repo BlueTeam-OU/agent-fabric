@@ -19,18 +19,15 @@ const FABRIC = fileURLToPath(new URL('../../../', import.meta.url));
 // scratch tree is what makes a damaged en-US.json reachable at all: the
 // default is resolved from the MODULE, deliberately, so nothing in the
 // environment can point it elsewhere (blind review F1 on PR #28). The tree
-// is the checkout's shape, the Python modules beside the shims that run
-// them (ADR-040's 2026-10-01 amendment: a fixture may copy the modules of
-// the scripts it copies); the entry is bin/gzcoord-inbox, beside them.
+// is the checkout's shape, the Python modules the entry bin/gzcoord-inbox runs.
 const brokenTree = (contents) => {
   const dir = scratch('i18n-broken-');
   const gz = path.join(dir, 'communication', 'gzcoord');
-  for (const [from, to] of [['communication/gzcoord/scripts', path.join(gz, 'scripts')],
-                            ['tools/fabric/gzcoord', path.join(dir, 'tools', 'fabric', 'gzcoord')]]) {
-    fs.mkdirSync(to, { recursive: true });
-    for (const f of fs.readdirSync(path.join(FABRIC, from)))
-      if (fs.statSync(path.join(FABRIC, from, f)).isFile()) fs.copyFileSync(path.join(FABRIC, from, f), path.join(to, f));
-  }
+  const modules = path.join(dir, 'tools', 'fabric', 'gzcoord');
+  fs.mkdirSync(modules, { recursive: true });
+  for (const f of fs.readdirSync(path.join(FABRIC, 'tools', 'fabric', 'gzcoord')))
+    if (fs.statSync(path.join(FABRIC, 'tools', 'fabric', 'gzcoord', f)).isFile())
+      fs.copyFileSync(path.join(FABRIC, 'tools', 'fabric', 'gzcoord', f), path.join(modules, f));
   // Every top-level module of tools/fabric, which the modules import as
   // siblings (roots, httpsafe, git): a list of the ones imported today went
   // stale the day relay.py took httpsafe, and the case failed on a missing

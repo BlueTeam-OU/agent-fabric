@@ -42,12 +42,12 @@ from typing import Any, Callable
 
 from . import paths
 
-TITLE_MAX = 300           # runtime/control/jobs.mjs TITLE_MAX: jobs-add refuses a longer title
+TITLE_MAX = 300           # tools/fabric/control/jobs.py TITLE_MAX: jobs-add refuses a longer title
 CTL = os.path.join(paths.CHECKOUT, "bin", "fabric-ctl")
 CTL_TIMEOUT_S = 30
 _ADDED = re.compile(r"\badded\s+(j[1-9][0-9]*)\b", re.ASCII)
 MESSAGE_ID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", re.ASCII)   # jobs.py's
-PROJECT_SLUG = re.compile(r"[a-z0-9][a-z0-9-]{0,62}", re.ASCII)       # runtime/control/jobs.mjs's: a registry id
+PROJECT_SLUG = re.compile(r"[a-z0-9][a-z0-9-]{0,62}", re.ASCII)       # tools/fabric/control/jobs.py's: a registry id
 
 
 def _jobs():

@@ -2,13 +2,14 @@
 entries share, under the pinned Python (`fabric-python -I`, which puts no
 script directory on sys.path: this file puts tools/fabric there itself).
 bin/gzcoord-inbox, bin/gzcoord-send and bin/gzmsg reach it through
-entry.py, in their own process; the Node shims at
-communication/gzcoord/scripts/*.mjs, kept for callers outside this
-repository until they are retired, spawn it. Each tool's own contract is
-its module's header; this file only routes, and ties the child's life to
-its shim when there is one.
+entry.py, in their own process. Each tool's own contract is its module's
+header; this file only routes, and ties the child's life to a shim when
+GZCOORD_SHIM_PID names one. The Node shims that set it
+(communication/gzcoord/scripts/*.mjs) were deleted with the Node control
+plane (ADR-040 Wave 8, step s8); the tie stays for a caller that still
+spawns this file with the variable set, and is the next thing to remove.
 
-A Node shim stays alive for as long as the tool runs — the session-start
+A Node shim stayed alive for as long as the tool runs — the session-start
 hook finds the watch by `inbox.mjs --follow` in the process table — so the
 tool must not outlive it: a shim killed outright (SIGKILL, which it cannot
 forward) would leave a watch running that nothing sees and a second one
