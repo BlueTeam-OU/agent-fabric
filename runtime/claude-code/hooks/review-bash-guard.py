@@ -127,7 +127,7 @@ SUBSTITUTION = r'\$\(|`|[<>]\('
 # Modelling how a cd can be spelled failed round after round: each added
 # prefixes (builtin, a group opener, an assignment, a quoted value, a second
 # option word) or argument spellings (a glob, a quote, `$X`), and the next
-# rereview (of 0eb39891, then of 867a69e2) found one more: `\cd ..`, `"cd"
+# re-review (of 0eb39891, then of 867a69e2) found one more: `\cd ..`, `"cd"
 # ..`, `cd $(echo ..)`, a cd in a case arm or a function body. So a segment is
 # judged by one question: does the word cd or pushd appear in it at all, once
 # a backslash-newline, quotes and backslashes are removed (as bash removes
