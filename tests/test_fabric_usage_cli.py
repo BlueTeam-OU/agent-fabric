@@ -253,6 +253,81 @@ def main() -> int:
         check("--help: the usage lines only, exit 0",
               rc == 0 and "fabric-usage --json" in out and "OAuth" not in out, f"rc={rc}\n{out}")
 
+    print("fabric-usage --gateway: the usage a gateway session relayed, read from the account, nothing probed")
+    with tempfile.TemporaryDirectory() as t:
+        login = subprocess.run(["id", "-un"], capture_output=True, text=True).stdout.strip()
+        statedir = os.path.join(t, "state", "agent-fabric", "agents", login)
+        os.makedirs(statedir)
+        calls = os.path.join(t, "calls")
+        hx = os.path.join(t, "hostexec")
+        with open(hx, "w", encoding="utf-8") as fh:
+            # The executor runs the remote text for real, as sh -c, with the scratch state directory.
+            fh.write(f"#!{sys.executable}\nimport os, subprocess, sys\n"
+                     f"open({calls!r}, 'a').write(' '.join(sys.argv[1:4]) + '\\n')\n"
+                     f"env = dict(os.environ, XDG_STATE_HOME={os.path.join(t, 'state')!r}, HOME={t!r})\n"
+                     "sys.exit(subprocess.run(sys.argv[sys.argv.index('--') + 1:], env=env).returncode)\n")
+        os.chmod(hx, 0o755)
+        registry = os.path.join(t, "registry.json")
+        with open(registry, "w", encoding="utf-8") as fh:
+            json.dump({"placement": {login: "h1", "other": "h2"}}, fh)
+        env = {k: v for k, v in os.environ.items()
+               if not k.startswith(("GITHUB_", "AGENT_FABRIC_", "CLAUDE_", "ANTHROPIC_")) and k != "GIT_DIR"}
+        env.update(AGENT_FABRIC_HOSTS_REGISTRY=registry, AGENT_FABRIC_HOSTEXEC=hx)
+
+        def usage(*args: str) -> tuple[int, str, str]:
+            r = subprocess.run([TOOL, *args], env=env, capture_output=True, text=True, timeout=60)
+            return r.returncode, r.stdout, r.stderr
+
+        def put(name: str, doc) -> None:
+            with open(os.path.join(statedir, name), "w", encoding="utf-8") as fh:
+                fh.write(doc if isinstance(doc, str) else json.dumps(doc) + "\n")
+
+        gen = {"device": 1, "inode": 2, "mtime_sec": 3, "mtime_nsec": 4}
+        gen2 = {**gen, "inode": 9}
+        entry = {"source": {"token_file": "/t"}, "generation": gen, "read_at": 5,
+                 "usage": {"five_hour": {"utilization": 0.42, "reset": 6, "surpassed_threshold": None},
+                           "seven_day": {"utilization": 0.9, "reset": 7, "surpassed_threshold": 0.75}, "status": "allowed_warning"}}
+        dead = subprocess.Popen([sys.executable, "-c", "pass"])
+        dead.wait()
+        rc, out, err = usage("--gateway", login)
+        check("no relayed file: one row saying so, exit 0", rc == 0 and "no-relay" in out and login in out, f"rc={rc}\n{out}{err}")
+        put("gateway-usage.json", {"version": 1, "gateway_pid": os.getpid(), "fetched_at": "T", "credentials": [entry,
+             {"source": {"fixed": "k"}, "generation": None, "read_at": None, "usage": None}]})
+        rc, out, err = usage("--gateway", login)
+        rows = out.splitlines()
+        check("a running gateway's entries, one row each; the account unknown where no join names the generation",
+              rc == 0 and len(rows) == 3 and "account unknown" in rows[1] and "42%" in rows[1] and "90%" in rows[1]
+              and "allowed_warning" in rows[1] and "no reading yet" in rows[2] and "fixed:k" in rows[2], out)
+        put("gateway-usage.json", {"version": 1, "gateway_pid": os.getpid(), "fetched_at": "T", "credentials": [entry,
+             {**entry, "generation": gen2}, {"source": {"fixed": "k"}, "generation": None, "read_at": None, "usage": None}]})
+        put("gateway-generations.json", [{"at": "a", "fingerprint": "aaaaaaaaaaaa", "generation": gen2, "via": "secrets-sync"},
+                                         {"at": "b", "fingerprint": "bbbbbbbbbbbb", "generation": gen, "via": "secrets-sync"}])
+        rc, out, err = usage("--json", "--gateway", login)
+        docs = [json.loads(line) for line in out.splitlines()]
+        check("--json: the generation joined to its setup-token fingerprint, the other generation not mistaken for it, null where unjoined",
+              rc == 0 and [d["setup_token"] for d in docs] == ["bbbbbbbbbbbb", "aaaaaaaaaaaa", None]
+              and docs[0]["usage"] == entry["usage"] and docs[0]["generation"] == gen, out)
+        check("…and no probe: nothing but the one `sh -c` read per account asked, the other account's absent", 
+              [c.split()[:3] for c in open(calls, encoding="utf-8").read().splitlines()][:1] == [["h1", "--as", login]], open(calls).read())
+        put("gateway-usage.json", {"version": 1, "gateway_pid": dead.pid, "fetched_at": "T", "credentials": [entry]})
+        rc, out, err = usage("--json", "--gateway", login)
+        row = json.loads(out.splitlines()[0])
+        check("a gateway that is gone offers no reading (the file outlived it)",
+              row["status"] == "gateway-gone" and "usage" not in row, out)
+        put("gateway-usage.json", {"version": 1, "gateway_pid": os.getpid(), "fetched_at": "T", "error": "no reply within 10 s"})
+        row = json.loads(usage("--json", "--gateway", login)[1].splitlines()[0])
+        check("an ask that failed is said, with no reading", row["status"] == "ask-failed" and "no reply" in row["reason"] and "usage" not in row, row)
+        for text in ("nope", "[]", json.dumps({"version": 2, "gateway_pid": os.getpid(), "fetched_at": "T"})):
+            put("gateway-usage.json", text)
+            row = json.loads(usage("--json", "--gateway", login)[1].splitlines()[0])
+            check(f"a file that is not what the launcher writes ({text[:12]}) is unreadable, never a guess", row["status"] == "unreadable", row)
+        put("gateway-usage.json", {"version": 1, "gateway_pid": os.getpid(), "fetched_at": "T", "credentials": [entry]})
+        put("gateway-generations.json", "not json")
+        row = json.loads(usage("--json", "--gateway", login)[1].splitlines()[0])
+        check("a join file that is not JSON is unreadable, not 'account unknown'", row["status"] == "unreadable", row)
+        rc, out, err = usage("--help")
+        check("--help names --gateway", "--gateway" in out, out)
+
     print(f"\ntest_fabric_usage_cli: {'OK' if not fails else f'FAILED — {fails} check(s)'}")
     return 1 if fails else 0
 

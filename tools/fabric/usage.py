@@ -5,6 +5,7 @@ account, read by the coordinator through the host executor.
   fabric-usage                the fleet: every placement in runtime/hosts/registry.json
   fabric-usage <login>...     those accounts only
   fabric-usage --json         the same as JSON lines
+  fabric-usage --gateway      what each gateway session relayed, per credential source (no probe)
 
 Each account reads its OWN usage: the executor runs the read as that
 login, in its home, and the account's OAuth token goes from its
@@ -26,13 +27,23 @@ inference reply, against that account's allowance — each run costs
 such an account one call (docs/live-checks/2026-10-08-usage-from-inference-headers.md,
 docs/adr/ADR-031-claude-accounts-assigned-applied-and-proved-by-signed-action.md).
 
+--gateway reads, instead of probing, the usage the launcher relayed to
+<state>/gateway-usage.json from a running `--provider gateway` session
+(tools/fabric/launcher/gateway_usage.py): one row per credential source the
+gateway has reported on, no request sent and no token used. The gateway
+reports by credential source and generation, never an account; a row names
+the setup-token only where the controller's join of that generation
+(gateway-generations.json, written by `fabric-accounts assign`) has one, and
+says `account unknown` otherwise. An account with no relay, or whose gateway is not
+running, gets one row saying so.
+
 Superseded for everyday use by `bin/fabric-ctl all usage`, which asks
 each account's control agent over the relay (docs/adr/ADR-029-the-control-plane-a-control-agent-per-account.md):
 no sudo, no per-host loop, a second instead of a minute. This stays as
 the fallback for a host whose daemons are down.
 """
 # The contract the port keeps (ADR-040 Wave 3, from bin/fabric-usage):
-#   - argv: --json anywhere; -h/--help prints the docstring's first six
+#   - argv: --json and --gateway anywhere; -h/--help prints the docstring's first seven
 #     lines, exit 0, where it is met; any other `--…` is exit 2 there;
 #     everything else is a login to keep.
 #   - the rows in the registry's placement order; the header line in text
@@ -127,20 +138,22 @@ def say(text: str) -> None:
     print(f"fabric-usage: {text}", file=sys.stderr)
 
 
-def parse(argv: list[str]) -> tuple[bool, list[str]] | None:
-    """(json, logins), or None when --help was met (and printed)."""
-    as_json, logins = False, []
+def parse(argv: list[str]) -> tuple[bool, list[str], bool] | None:
+    """(json, logins, gateway), or None when --help was met (and printed)."""
+    as_json, logins, gateway = False, [], False
     for a in argv:
         if a == "--json":
             as_json = True
+        elif a == "--gateway":
+            gateway = True
         elif a in ("-h", "--help"):
-            sys.stdout.write("\n".join(__doc__.split("\n")[:6]) + "\n")
+            sys.stdout.write("\n".join(__doc__.split("\n")[:7]) + "\n")
             return None
         elif a.startswith("--"):
             raise Refused(f"unknown option {a}")
         else:
             logins.append(a)
-    return as_json, logins
+    return as_json, logins, gateway
 
 
 def placements(registry: str) -> list[tuple[str, str, str]]:
@@ -221,6 +234,96 @@ def row(login: str, host: str, line: str, as_json: bool) -> str:
     return f"{login:<22} {shown or a:<34} {b:>7}%  {c:<16} {d:>7}%  {e:<16}"
 
 
+# The relayed usage as the account holds it, in one line of three tab-separated fields: whether the
+# gateway that wrote it is still running, the usage file, the generation->fingerprint join. The state
+# directory is where util.state_dir() puts it. Nothing is parsed here, nothing is sent, no token is read.
+READ_GATEWAY = r"""d="${XDG_STATE_HOME:-$HOME/.local/state}/agent-fabric/agents/$(id -un)"
+u="$d/gateway-usage.json"
+[ -s "$u" ] || { printf 'absent\n'; exit 0; }
+p="$(tr -d '\n' < "$u" | sed -n 's/.*"gateway_pid": *\([0-9][0-9]*\).*/\1/p')"
+if [ -n "$p" ] && kill -0 "$p" 2>/dev/null; then a=running; else a=gone; fi
+printf '%s\t' "$a"
+tr -d '\n\t' < "$u"
+printf '\t'
+tr -d '\n\t' < "$d/gateway-generations.json" 2>/dev/null || printf '[]'
+printf '\n'
+"""
+
+
+def read_gateway(hx: str, host: str, login: str) -> str:
+    try:
+        r = subprocess.run([hx, host, "--as", login, "--", "sh", "-c", READ_GATEWAY], stdin=subprocess.DEVNULL,
+                           stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=EXECUTOR_TIMEOUT_S)
+    except (OSError, subprocess.TimeoutExpired):
+        return ""
+    return last_line(r.stdout.decode("utf-8", errors="replace")) if r.returncode == 0 else ""
+
+
+def gateway_rows(login: str, host: str, line: str) -> list[dict]:
+    """The rows for one account from READ_GATEWAY's line. Unknown stays unknown: a line that is not what the
+    read prints is `unreadable`, an entry's missing reading is null, an account the join does not name is None."""
+    def status(name: str, why: str = "") -> list[dict]:
+        return [{"account": login, "host": host, "status": name, **({"reason": why} if why else {})}]
+    if not line:
+        return status("executor-failed")
+    if line == "absent":
+        return status("no-relay")
+    parts = line.split("\t")
+    if len(parts) != 3 or parts[0] not in ("running", "gone"):
+        return status("unreadable", "the read's line is not what it prints")
+    try:
+        doc, joined = json.loads(parts[1]), json.loads(parts[2])
+    except ValueError:
+        return status("unreadable", "the usage file or the join is not JSON")
+    if not isinstance(doc, dict) or doc.get("version") != 1 or not isinstance(doc.get("fetched_at"), str):
+        return status("unreadable", "not the shape the launcher writes")
+    if parts[0] == "gone":
+        return status("gateway-gone", f"the gateway that reported it (pid {doc.get('gateway_pid')}) is not running")
+    if "error" in doc:
+        return status("ask-failed", str(doc["error"])[:200])
+    entries = doc.get("credentials")
+    if not isinstance(entries, list) or not all(isinstance(e, dict) for e in entries):
+        return status("unreadable", "credentials is not a list of entries")
+    if not isinstance(joined, list):
+        joined = []
+    rows = []
+    for e in entries:
+        gen = e.get("generation")
+        prints = [j.get("fingerprint") for j in joined if isinstance(j, dict) and gen is not None and j.get("generation") == gen]
+        rows.append({"account": login, "host": host, "status": "ok", "source": e.get("source"), "generation": gen,
+                     "setup_token": prints[-1] if prints and isinstance(prints[-1], str) else None,
+                     "fetched_at": doc["fetched_at"], "read_at": e.get("read_at"), "usage": e.get("usage")})
+    return rows or status("no-source-yet")
+
+
+def gateway_text(r: dict) -> str:
+    if r["status"] not in ("ok",):
+        return f"{r['account']:<22} {'-':<34} {r['status']}{('  ' + r['reason']) if r.get('reason') else ''}"
+    src = r["source"] if isinstance(r["source"], dict) else {}
+    where = src.get("token_file") or (f"fixed:{src['fixed']}" if src.get("fixed") else "?")
+    who = f"setup-token {r['setup_token']}" if r["setup_token"] else "account unknown"
+    u = r["usage"] if isinstance(r["usage"], dict) else None
+    if u is None:
+        return f"{r['account']:<22} {who:<34} no reading yet  ({where})"
+    five, seven = (u.get("five_hour") or {}), (u.get("seven_day") or {})
+
+    def pct(x):
+        return f"{round(x * 100, 1):g}%" if isinstance(x, (int, float)) and not isinstance(x, bool) and x >= 0 else "-"
+    return (f"{r['account']:<22} {who:<34} {pct(five.get('utilization')):>7}  {pct(seven.get('utilization')):>7}  "
+            f"{u.get('status') or '-'}  ({where})")
+
+
+def run_gateway(hx: str, placed: list[tuple[str, str]], logins: list[str], as_json: bool) -> int:
+    if not as_json:
+        print(f"{'account':<22} {'claude account (by join)':<34} {'5h':>7}  {'7d':>7}  status", flush=True)
+    for login, host in placed:
+        if logins and login not in logins:
+            continue
+        for r in gateway_rows(login, host, read_gateway(hx, host, login)):
+            print(_dumps(r) if as_json else gateway_text(r), flush=True)
+    return 0
+
+
 def _dumps(doc: dict) -> str:
     return json.dumps(doc, separators=(",", ":"), ensure_ascii=False)
 
@@ -230,7 +333,7 @@ def run(argv: list[str]) -> int:
         parsed = parse(argv)
         if parsed is None:
             return 0
-        as_json, logins = parsed
+        as_json, logins, gateway = parsed
         registry = roots.hosts_registry(engine=ROOT)
         placed = placements(registry)
         # A human login (ADR-044) has no Claude account: all leaves it out,
@@ -247,6 +350,8 @@ def run(argv: list[str]) -> int:
         say(str(e))
         return 2
     hx = os.environ.get("AGENT_FABRIC_HOSTEXEC") or os.path.join(ROOT, "runtime", "hostexec", "hostexec")
+    if gateway:
+        return run_gateway(hx, placed, logins, as_json)
     if not as_json:
         print(f"{'account':<22} {'claude account':<34} {'5h':>8}  {'5h resets (UTC)':<16} {'7d':>8}  {'7d resets (UTC)':<16}",
               flush=True)

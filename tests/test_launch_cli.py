@@ -86,7 +86,7 @@ def main() -> int:
         nonlocal fails
         print(f"  {'ok  ' if good else 'FAIL'} {label}")
         if not good and detail:
-            print("      " + "\n      ".join(detail.split("\n")[:6]))
+            print("      " + "\n      ".join(str(detail).split("\n")[:6]))
         fails += not good
 
     def has(pattern: str, text: str) -> bool:
@@ -1219,6 +1219,23 @@ if mode == "contract2ready":
 os.write(int(args["--ready-fd"]), (json.dumps(ready) + "\n").encode())
 os.close(int(args["--ready-fd"]))
 signal.signal(signal.SIGTERM, lambda *a: (note(event="term"), sys.exit(0)))
+if mode == "silentcontrol":
+    while True:
+        time.sleep(0.1)
+import socket as _socket
+ctl = _socket.socket(fileno=int(args["--control-fd"]))
+buf = b""
+while True:
+    chunk = ctl.recv(4096)
+    if not chunk:
+        break   # end of file ends activations, not the gateway: it runs until it is signalled
+    buf += chunk
+    while b"\n" in buf:
+        line, buf = buf.split(b"\n", 1)
+        note(event="control", line=line.decode())
+        if line == b'{"op":"usage"}':
+            ctl.sendall((json.dumps({"event": "usage", "credentials": [{"source": {"token_file": "/t"}, "generation": None,
+                         "read_at": 1, "usage": {"status": "allowed"}}]}) + "\n").encode())
 while True:
     time.sleep(0.1)
 """
@@ -1227,10 +1244,13 @@ echo "CLAUDE-EXECCED:$*"
 echo "CLAUDE-BASE:${ANTHROPIC_BASE_URL-<unset>}"
 echo "CLAUDE-KEYSHA:$(printf %s "${ANTHROPIC_API_KEY-}" | sha256sum | cut -d' ' -f1)"
 for v in CLAUDE_CODE_OAUTH_TOKEN ANTHROPIC_AUTH_TOKEN OPENROUTER_API_KEY ANTHROPIC_CUSTOM_HEADERS; do echo "CLAUDE-HAS:$v=${!v+yes}"; done
-echo "CLAUDE-GATEWAY-LINES-ALREADY:$(wc -l < "$FAKE_GW_LOG")"
+echo "CLAUDE-GATEWAY-LINES-ALREADY:$(grep -c '"event": "serve"' "$FAKE_GW_LOG")"
 echo "CLAUDE-STATE:$(cat "$AGENT_FABRIC_STATE_DIR/agents/$LOGNAME/gateway.json" 2>/dev/null || echo none)"
 echo "CLAUDE-PROVIDER:${AGENT_FABRIC_LAUNCH_PROVIDER-}"
 echo "CLAUDE-TRANSPORT:${AGENT_FABRIC_LAUNCH_TRANSPORT-}"
+u="$AGENT_FABRIC_STATE_DIR/agents/$LOGNAME/gateway-usage.json"
+for _ in $(seq 1 40); do [ -s "$u" ] && break; sleep 0.1; done
+echo "CLAUDE-USAGE:$(cat "$u" 2>/dev/null || echo none)"
 """
         gw_log = f"{sandbox}/gateway.log"
         gw_env = {"AGENT_FABRIC_GW_BIN": f"{bin_}/fake-gateway", "FAKE_GW_LOG": gw_log,
@@ -1305,6 +1325,32 @@ echo "CLAUDE-TRANSPORT:${AGENT_FABRIC_LAUNCH_TRANSPORT-}"
               and not re.search(r"[0-9a-f]{64}", state_during.replace(serve.get("plan_sha", "")[7:], "")), state_during)
         check("when the session ends the gateway is stopped (SIGTERM), its pid gone, its record removed",
               any(r.get("event") == "term" for r in gw_records()) and not alive(serve.get("pid", 0)) and not os.path.exists(state_file), gw_records())
+        usage_during = next(iter(re.findall(r"CLAUDE-USAGE:(.*)$", out, re.M)), "")
+        try:
+            usage_doc = json.loads(usage_during)
+        except ValueError:
+            usage_doc = {}
+        check("the launcher relayed the gateway's usage to gateway-usage.json while the session ran: its pid, a time, the entries verbatim",
+              usage_doc.get("gateway_pid") == serve.get("pid") and usage_doc.get("version") == 1 and usage_doc.get("fetched_at", "").endswith("Z")
+              and usage_doc.get("credentials", [{}])[0].get("source") == {"token_file": "/t"} and "error" not in usage_doc, usage_during)
+        check("…by asking {\"op\":\"usage\"} on the control descriptor, and nothing else",
+              [r.get("line") for r in gw_records() if r.get("event") == "control"][:1] == ['{"op":"usage"}']
+              and all(r.get("line") == '{"op":"usage"}' for r in gw_records() if r.get("event") == "control"), gw_records())
+        check("…and the file is removed with the gateway's record when the session ends",
+              not os.path.exists(f"{agent_dir}/gateway-usage.json"), os.listdir(agent_dir))
+        rm(gw_log)
+        t0 = time.monotonic()
+        run("--provider", "gateway", plant={**gw_env, "FAKE_GW_MODE": "ok"})
+        base = time.monotonic() - t0
+        rm(gw_log)
+        t0 = time.monotonic()
+        rc, out = run("--provider", "gateway", plant={**gw_env, "FAKE_GW_MODE": "silentcontrol"})
+        took = time.monotonic() - t0
+        # The fake harness itself waits up to 4 s for a usage file a silent gateway never lets exist; the ask's own
+        # timeout is 10 s, so a session held for it would show as base + 10 and more.
+        check("a gateway that never answers the ask does not hold the end of the session (the ask is cut with the session)",
+              rc == 0 and took < base + 6 and not os.path.exists(f"{agent_dir}/gateway-usage.json"),
+              f"rc={rc} silent={took:.1f}s normal={base:.1f}s\n{out[-300:]}")
         check("the provider stamp stays the routing column and the transport is stamped as the gateway",
               has(r"CLAUDE-PROVIDER:anthropic$", out) and has(r"CLAUDE-TRANSPORT:gateway$", out), out)
         check("…and recorded beside the provider, so a resume comes back through the gateway; the agent files were installed for anthropic",

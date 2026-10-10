@@ -860,6 +860,32 @@ def _table_tools_install(rs: list) -> list[str]:
     return lines
 
 
+def _percent(x: Any) -> str:
+    return f"{round(x * 100)}%" if isinstance(x, (int, float)) and not isinstance(x, bool) and x >= 0 else "-"
+
+
+def _usage_words(u: Any) -> str:
+    """The usage the launcher relayed (control/gateway.py usage), as a few words after the version
+    row. A reading is the gateway's, per credential source and generation, unlabelled by account."""
+    if not isinstance(u, dict):
+        return ""
+    status = u.get("status")
+    if status != "ok":
+        why = f" ({u['reason']})" if isinstance(u.get("reason"), str) else ""
+        return f"usage: {status}{why}"
+    shown = []
+    for e in u.get("credentials") or []:
+        reading = e.get("usage") if isinstance(e, dict) else None
+        if not isinstance(reading, dict):
+            shown.append("no reading yet")
+            continue
+        five, seven = reading.get("five_hour"), reading.get("seven_day")
+        shown.append(f"5h {_percent(five.get('utilization') if isinstance(five, dict) else None)} "
+                     f"7d {_percent(seven.get('utilization') if isinstance(seven, dict) else None)}"
+                     f"{' ' + reading['status'] if isinstance(reading.get('status'), str) else ''}")
+    return "usage: " + ("; ".join(shown) if shown else "no source yet") + f" (asked {u.get('fetched_at')})"
+
+
 def _table_gateway(rs: list) -> list[str]:
     lines = [f"{pad_end('account', 22)} {pad_end('status', 10)} {pad_end('version', 9)} {pad_end('contract', 8)} digest"]
     for r in rs:
@@ -869,8 +895,10 @@ def _table_gateway(rs: list) -> list[str]:
             continue
         digest = S(dig(u, "installed_sha256"))[:12] if T(dig(u, "installed_sha256")) else "-"
         why = f"  {S(u['reason'])}" if T(dig(u, "reason")) else ""
+        words = _usage_words(u.get("usage")) if isinstance(u, dict) else ""
         lines.append(esc(trim_end(f"{pad_end(r['account'], 22)} {pad_end(S(nullish(dig(u, 'status'), 'no status')), 10)} "
-                                  f"{pad_end(S(nullish(dig(u, 'version'), '-')), 9)} {pad_end(S(nullish(dig(u, 'contract'), '-')), 8)} {digest}{why}")))
+                                  f"{pad_end(S(nullish(dig(u, 'version'), '-')), 9)} {pad_end(S(nullish(dig(u, 'contract'), '-')), 8)} {digest}{why}"
+                                  f"{'  ' + words if words else ''}")))
     return lines
 
 

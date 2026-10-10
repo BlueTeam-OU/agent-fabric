@@ -51,6 +51,7 @@ import subprocess
 import time
 from dataclasses import dataclass
 
+from fabric_launcher import gateway_usage
 from fabric_launcher.base import BROKER_ENV, _load, die, say
 
 # The runtime_contract values and plan schema versions this launcher speaks
@@ -86,6 +87,7 @@ class Gateway:
     key: str
     control: socket.socket
     started_at: str
+    relay: object | None = None   # gateway_usage.Relay, once the harness's environment is set
 
     @property
     def pid(self) -> int:
@@ -306,6 +308,9 @@ def stop(gw: Gateway) -> None:
     """End the gateway when the session ends: SIGTERM (a clean exit), then SIGKILL
     after STOP_WAIT_S. The control socket closes first; end of file ends
     activations, not the gateway."""
+    # The relay is the control socket's only user and is stopped before the socket closes under it.
+    if gw.relay is not None:
+        gw.relay.stop()
     try:
         gw.control.close()
     except OSError:
@@ -390,6 +395,7 @@ def forget_state(state_dir: str, pid: int) -> None:
         os.unlink(path)
     except (OSError, ValueError, AttributeError):
         pass
+    gateway_usage.forget(state_dir, pid)
 
 
 def clear_harness_env(gw: Gateway, env: dict) -> None:
@@ -461,4 +467,5 @@ def launch_gateway(env: dict, fabric_root: str, agent: str, role: str, state_dir
         die(f"{why}. Nothing started.")
     harness_env(gw, env)
     record_state(state_dir, gw)
+    gw.relay = gateway_usage.Relay(gw.control, gw.pid, state_dir, say=say).start()
     return gw

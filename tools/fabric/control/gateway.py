@@ -594,11 +594,67 @@ def _code_root() -> str:
     return os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__)))))
 
 
+USAGE_FILE = "gateway-usage.json"
+
+
+def pid_alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except OSError:
+        return True   # EPERM: it exists, and is not ours to signal
+    return True
+
+
+def usage(state: str, alive: Callable[[int], bool] = pid_alive) -> dict | None:
+    """What the launcher relayed of the running gateway's subscription usage
+    (launcher/gateway_usage.py), or None when it has relayed nothing. The
+    gateway reports a reading per credential source and generation, with no account label
+    (the joining of a generation to an account is gateway_switch's);
+    the reader here only says how current it is:
+      status "ok"      entries as the gateway gave them, `running` true;
+      status "stale"   the gateway that wrote them (gateway_pid) is no longer running (a launcher
+                       that died leaves the file behind): the entries are not offered;
+      status "error"   the last ask could not be answered; `reason` says why, no entries;
+      status "unreadable"  the file is there and is not the shape the launcher writes.
+    `fetched_at` is when the launcher last asked, so a reader can judge age; a reading inside an
+    entry is the gateway's own `read_at`."""
+    path = os.path.join(state, USAGE_FILE)
+    try:
+        with open(path, encoding="utf-8") as fh:
+            doc = json.load(fh)
+    except FileNotFoundError:
+        return None
+    except (OSError, ValueError) as e:
+        return {"status": "unreadable", "reason": f"{type(e).__name__}"}
+    pid = doc.get("gateway_pid") if isinstance(doc, dict) else None
+    if not isinstance(doc, dict) or doc.get("version") != 1 or not isinstance(pid, int) or isinstance(pid, bool) \
+            or not isinstance(doc.get("fetched_at"), str):
+        return {"status": "unreadable", "reason": "not the shape the launcher writes"}
+    base = {"fetched_at": doc["fetched_at"], "gateway_pid": pid}
+    if not alive(pid):
+        return {**base, "status": "stale", "reason": f"the gateway that reported it (pid {pid}) is not running"}
+    if "error" in doc:
+        return {**base, "status": "error", "reason": str(doc["error"])[:200]}
+    entries = doc.get("credentials")
+    if not isinstance(entries, list) or not all(isinstance(e, dict) for e in entries):
+        return {**base, "status": "unreadable", "reason": "credentials is not a list of entries"}
+    return {**base, "status": "ok", "credentials": entries}
+
+
 def gateway(home: str | None = None, state: str | None = None, run: Callable[..., Any] = subprocess.run,
-            root: str | None = None) -> dict:
-    """What is installed on this account, from the file and what it reports."""
-    home = os.path.expanduser("~") if home is None else home
+            root: str | None = None, alive: Callable[[int], bool] = pid_alive) -> dict:
+    """What is installed on this account, from the file and what it reports; with `usage` beside it
+    when the launcher has relayed any, whatever the binary's own state."""
     state = util.state_dir() if state is None else state
+    out = installed(home, state, run, root)
+    relayed = usage(state, alive)
+    return {**out, "usage": relayed} if relayed is not None else out
+
+
+def installed(home: str | None, state: str, run: Callable[..., Any], root: str | None) -> dict:
+    home = os.path.expanduser("~") if home is None else home
     marker = read_marker(state)
     recorded = marker.get("path") if marker else None
     if isinstance(recorded, str) and os.path.dirname(recorded) == os.path.join(home, ".local", "bin"):

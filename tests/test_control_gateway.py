@@ -710,6 +710,69 @@ class Read(Case):
         self.assertEqual(gw.gateway(home=self.home, state=self.state, root=self.root)["reason"], "not an executable file")
 
 
+class Usage(Case):
+    """What the launcher relayed of the gateway's usage (launcher/gateway_usage.py), as `gateway` reports it."""
+    ENTRY = {"source": {"token_file": "/t"}, "generation": {"device": 1, "inode": 2, "mtime_sec": 3, "mtime_nsec": 4}, "read_at": 5,
+             "usage": {"five_hour": {"utilization": 0.42, "reset": 6, "surpassed_threshold": None},
+                       "seven_day": {"utilization": 0.9, "reset": 7, "surpassed_threshold": 0.75}, "status": "allowed_warning"}}
+
+    def put(self, doc) -> None:
+        os.makedirs(self.state, exist_ok=True)
+        with open(os.path.join(self.state, gw.USAGE_FILE), "w", encoding="utf-8") as fh:
+            fh.write(doc if isinstance(doc, str) else json.dumps(doc))
+
+    def usage(self, alive=lambda p: True):
+        return gw.usage(self.state, alive)
+
+    def test_nothing_relayed_adds_nothing_to_the_read(self):
+        self.release()
+        self.assertIsNone(self.usage())
+        self.assertNotIn("usage", gw.gateway(home=self.home, state=self.state, root=self.root))
+
+    def test_a_reading_of_a_running_gateway_is_given_as_it_came_with_its_age(self):
+        self.put({"version": 1, "gateway_pid": 4242, "fetched_at": "2026-10-10T10:00:00.000Z", "credentials": [self.ENTRY]})
+        got = self.usage()
+        self.assertEqual(got, {"fetched_at": "2026-10-10T10:00:00.000Z", "gateway_pid": 4242, "status": "ok", "credentials": [self.ENTRY]})
+        seen = []
+        self.usage(lambda p: seen.append(p) or True)
+        self.assertEqual(seen, [4242], "liveness is asked of the pid the file names")
+        self.release()
+        self.assertEqual(gw.gateway(home=self.home, state=self.state, root=self.root, alive=lambda p: True)["usage"]["status"], "ok", "beside the binary's own state")
+
+    def test_a_file_left_by_a_gateway_that_is_gone_offers_no_reading(self):
+        self.put({"version": 1, "gateway_pid": 4242, "fetched_at": "t", "credentials": [self.ENTRY]})
+        got = self.usage(lambda p: False)
+        self.assertEqual(got["status"], "stale")
+        self.assertNotIn("credentials", got, "positive control: the same file with a live pid gives them")
+        self.assertIn("credentials", self.usage())
+
+    def test_an_ask_that_failed_is_said_and_shows_no_reading(self):
+        self.put({"version": 1, "gateway_pid": 4242, "fetched_at": "t", "error": "no reply within 10 s; the relay has stopped asking"})
+        got = self.usage()
+        self.assertEqual((got["status"], got["reason"]), ("error", "no reply within 10 s; the relay has stopped asking"))
+        self.assertNotIn("credentials", got)
+
+    def test_a_file_that_is_not_what_the_launcher_writes_is_unreadable_never_a_guess(self):
+        for text in ("not json", "[]", "{}", json.dumps({"version": 2, "gateway_pid": 1, "fetched_at": "t", "credentials": []}),
+                     json.dumps({"version": 1, "gateway_pid": True, "fetched_at": "t", "credentials": []}),
+                     json.dumps({"version": 1, "gateway_pid": 1, "fetched_at": "t", "credentials": {}}),
+                     json.dumps({"version": 1, "gateway_pid": 1, "fetched_at": "t", "credentials": [1]})):
+            self.put(text)
+            self.assertEqual(self.usage()["status"], "unreadable", text)
+
+    def test_the_table_says_it_after_the_version_row(self):
+        row = {"account": "a", "status": "ok", "gateway": {"status": "ok", "version": "0.1.0", "contract": 1, "installed_sha256": "cd" * 32,
+               "usage": {"status": "ok", "fetched_at": "T", "credentials": [self.ENTRY, {"source": {"fixed": "k"}, "usage": None}]}}}
+        rows = [row, {**row, "account": "b", "gateway": {**row["gateway"], "usage": {"status": "stale", "reason": "the gateway is gone"}}},
+                {**row, "account": "c", "gateway": {k: v for k, v in row["gateway"].items() if k != "usage"}},
+                {**row, "account": "d", "gateway": {**row["gateway"], "usage": {"status": "ok", "fetched_at": "T", "credentials": []}}}]
+        lines = ctl.table("gateway", rows).split("\n")
+        self.assertIn("usage: 5h 42% 7d 90% allowed_warning; no reading yet (asked T)", lines[1])
+        self.assertIn("usage: stale (the gateway is gone)", lines[2])
+        self.assertNotIn("usage", lines[3], "an account that relayed nothing is the row it was")
+        self.assertIn("usage: no source yet", lines[4])
+
+
 class Wiring(Case):
     def test_the_op_is_an_operator_action_and_the_read_an_operator_read(self):
         self.assertIn("gateway-install", ops.OPS)
