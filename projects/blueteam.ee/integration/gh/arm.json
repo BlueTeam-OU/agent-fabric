@@ -1,0 +1,22 @@
+{
+  "description": "blueteam.ee's rules for fabric-pr arm. boundary.paths: the site is an Astro build over pre-built Landkit bundles, installed with npm and deployed by hand-uploading dist/ to an i-MSCP host, so its boundary is the manifests and lockfile that decide what installs and runs (package.json, package-lock.json, .npmrc), the build configuration (astro.config.*, tsconfig*.json, which load plugins and code at build time), the harness wiring (.claude/: settings, hooks, commands), the ignore file that keeps .env out of a commit (.env*, .gitignore), CI (.github/, none today), any deployment script (deploy*, upload*), and words where the boundary is a file anywhere (secret, credential, token, key, auth). boundary.exempt is dropped first, but never under .claude/: Markdown prose, src/content/ and .agent-fabric/. No classes. waiver_role is null: only the owner waives the boundary.",
+  "boundary": {
+    "paths": "^src/|^public/|^\\.claude/|^\\.mcp\\.json$|^\\.env|^\\.gitignore$|^\\.github/|(^|/)package\\.json$|^package-lock\\.json$|^\\.npmrc$|^astro\\.config\\.|^tsconfig[^/]*\\.json$|(^|/)(deploy|upload)[^/]*$|secret|credential|token|key|auth",
+    "exempt": "^(?!\\.claude/)(.*\\.md$|src/content/|\\.agent-fabric/)",
+    "cases": [
+      "src/pages/index.astro",
+      "public/assets/js/theme.bundle.js",
+      ".claude/settings.json",
+      "package.json",
+      "package-lock.json",
+      "astro.config.mjs",
+      "tsconfig.json",
+      ".npmrc",
+      ".gitignore",
+      ".env.local",
+      ".github/workflows/ci.yml",
+      "deploy.sh"
+    ]
+  },
+  "waiver_role": null
+}
