@@ -425,7 +425,13 @@ class SecretsSync(unittest.TestCase):
         path = self.token_file(f)
         os.remove(path)
         os.mkfifo(path)
-        self.assertEqual(GS.open_token(path), (None, None))
+        out: list = []
+        # Without O_NONBLOCK the open waits for a writer that never comes: a bounded join makes that a failure, not a hang.
+        t = threading.Thread(target=lambda: out.append(GS.open_token(path)), daemon=True)
+        t.start()
+        t.join(5)
+        self.assertFalse(t.is_alive(), "open_token waited on a FIFO")
+        self.assertEqual(out, [(None, None)])
 
     def test_a_record_with_no_token_says_whether_the_gateways_file_is_still_there(self):
         f = Fixture(self)
