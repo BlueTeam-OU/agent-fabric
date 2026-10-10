@@ -270,14 +270,18 @@ def built_word(seg: str) -> bool:
     (`grep -E "[0-9]{7,40}"` passes; re-review of da42d34a)."""
     bare = unexpanded(seg.replace("\\\n", ""))
     text = re.sub(r'(?<!\\)"', "", bare)
-    unquoted = re.sub(r'(?<!\\)"(?:[^"\\]|\\.)*"', "", bare)
+    unquoted = unexpanded(seg.replace("\\\n", ""), drop_double=True)
     return bool(re.search(CD_EXPANDED, text) or re.search(BRACE_BUILT, unquoted))
 
 
-def unexpanded(seg: str) -> str:
+def unexpanded(seg: str, drop_double: bool = False) -> str:
     """The segment without its single-quoted spans, which expand nothing.
     A quote inside double quotes ("it's") opens no span, and `$'...'` is
-    ANSI-C quoting, which does expand, so it stays."""
+    ANSI-C quoting, which does expand, so it stays. With drop_double the
+    double-quoted spans go too, paired by the same left-to-right scan bash
+    uses, so an escape pair is consumed before a quote can open
+    (`A=\\\\"x" {c..c}d ""..`; a regex's lookbehind paired them wrongly,
+    re-review of c19d6790)."""
     out, quote, i = [], "", 0
     while i < len(seg):
         c = seg[i]
@@ -285,18 +289,23 @@ def unexpanded(seg: str) -> str:
             if c == "'":
                 quote = ""
         elif c == "\\" and quote != "'":
-            out.append(seg[i:i + 2])
+            if not (drop_double and quote == '"'):
+                out.append(seg[i:i + 2])
             i += 2
             continue
         elif quote == '"':
             if c == '"':
                 quote = ""
-            out.append(c)
+            if not drop_double:
+                out.append(c)
         elif c == "'" and not (out and out[-1] == "$"):
             quote = "'"
         else:
             if c == '"':
                 quote = '"'
+                if drop_double:
+                    i += 1
+                    continue
             out.append(c)
         i += 1
     return "".join(out)
