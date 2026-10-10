@@ -59,6 +59,7 @@ from __future__ import annotations
 import errno
 import fcntl
 import hashlib
+import http.client
 import json
 import os
 import platform
@@ -207,8 +208,10 @@ class _DropAuthOnRedirect(urllib.request.HTTPRedirectHandler):
 def download(url: str, token: str, dest: str, max_bytes: int = MAX_ARTIFACT_BYTES, deadline_s: float = DOWNLOAD_TIMEOUT_S,
              read_timeout_s: float = READ_TIMEOUT_S) -> tuple[int, str]:
     """Stream url to dest (0600), counting bytes and hashing as they arrive.
-    Returns (bytes, sha256). Raises OSError/URLError/ValueError, the first line
-    of which is safe to say: the token is in a header and never in a message."""
+    Returns (bytes, sha256). Raises OSError/URLError/ValueError/TimeoutError or an
+    http.client.HTTPException, the first line of which is safe to say: the token is
+    in a header and never in a message. The deadline is checked after every socket
+    read, so it is overrun by at most one read_timeout_s."""
     req = urllib.request.Request(url, headers={"Authorization": f"Bearer {token}", "Accept": "application/octet-stream",
                                                "User-Agent": "fabric-gateway-install", "X-GitHub-Api-Version": "2022-11-28"})
     opener = urllib.request.build_opener(_DropAuthOnRedirect)
@@ -218,7 +221,10 @@ def download(url: str, token: str, dest: str, max_bytes: int = MAX_ARTIFACT_BYTE
     fd = os.open(dest, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     with os.fdopen(fd, "wb") as out, opener.open(req, timeout=read_timeout_s) as resp:
         while True:
-            chunk = resp.read(1 << 20)
+            # read1, not read: read(n) keeps reading until it has n bytes, and the socket
+            # timeout restarts with every byte, so a server trickling one byte a few
+            # seconds apart would outrun the deadline checked below for as long as it liked.
+            chunk = resp.read1(1 << 16)
             if not chunk:
                 break
             n += len(chunk)
@@ -256,8 +262,9 @@ def _refused(reason: str) -> dict:
     return {"status": "refused", "reason": reason}
 
 
-def _failed(version: str, b: dict, reason: str) -> dict:
-    return {"status": "failed", "version": version, "sha256": b["sha256"], "reason": reason}
+def _failed(version: str, reason: str) -> dict:
+    # No digest: `sha256` in a reply is the one that was verified, and a failure verified nothing.
+    return {"status": "failed", "version": version, "reason": reason}
 
 
 def _arch(machine: str | None = None) -> str | None:
@@ -311,7 +318,7 @@ def _install(version: str, b: dict, target: str, state: str, home: str, fetch: C
         token = lambda name: synced_var(name, home)   # noqa: E731
     tok = token("GH_TOKEN")
     if not tok:
-        return _failed(version, b, "no GH_TOKEN is synced for this account (fabric-secrets sync): the release asset needs one")
+        return _failed(version, "no GH_TOKEN is synced for this account (fabric-secrets sync): the release asset needs one")
     bindir = os.path.dirname(target)
     work = os.path.join(state, "gateway-install")
     os.makedirs(bindir, exist_ok=True)
@@ -322,32 +329,39 @@ def _install(version: str, b: dict, target: str, state: str, home: str, fetch: C
         try:
             _, digest = fetch(b["url"], tok, artifact)
         except urllib.error.HTTPError as e:
-            return _failed(version, b, f"the download answered HTTP {e.code}")
-        except (urllib.error.URLError, OSError, ValueError, TimeoutError) as e:
-            return _failed(version, b, f"the download failed ({_why(e, tok)})")
+            return _failed(version, f"the download answered HTTP {e.code}")
+        except (urllib.error.URLError, OSError, ValueError, TimeoutError, http.client.HTTPException) as e:
+            return _failed(version, f"the download failed ({_why(e, tok)})")
         if digest != b["sha256"]:
-            return _failed(version, b, f"sha256 mismatch: the pin says {b['sha256']}, the download is {digest}; nothing was installed")
+            return _failed(version, f"sha256 mismatch: the pin says {b['sha256']}, the download is {digest}; nothing was installed")
         try:
             _extract_member(artifact, b["member"], new)
         except (tarfile.TarError, OSError, KeyError, ValueError) as e:
-            return _failed(version, b, f"the pinned member could not be extracted ({_why(e, tok)})")
-        os.chmod(new, 0o755)
+            return _failed(version, f"the pinned member could not be extracted ({_why(e, tok)})")
         try:
+            os.chmod(new, 0o755)
             doc = version_report(new, run)
         except subprocess.TimeoutExpired:
-            return _failed(version, b, f"the new binary did not answer --version --json within {VERSION_TIMEOUT_S} s")
+            return _failed(version, f"the new binary did not answer --version --json within {VERSION_TIMEOUT_S} s")
         except subprocess.CalledProcessError as e:
-            return _failed(version, b, f"the new binary's --version --json exited {e.returncode}")
+            return _failed(version, f"the new binary's --version --json exited {e.returncode}")
         except (OSError, ValueError) as e:
-            return _failed(version, b, f"the new binary could not report its version ({_why(e, tok)})")
+            return _failed(version, f"the new binary could not report its version ({_why(e, tok)})")
         bad = _reports_match(doc, b["reports"])
         if bad:
-            return _failed(version, b, f"the new binary disagrees with the pin ({bad})")
-        installed = file_sha256(new)
-        os.replace(new, target)
-        _fsync_dir(bindir)
-        write_marker(state, {"version": version, "sha256": b["sha256"], "installed_sha256": installed, "path": target,
-                             "reports": b["reports"]})
+            return _failed(version, f"the new binary disagrees with the pin ({bad})")
+        try:
+            installed = file_sha256(new)
+            os.replace(new, target)
+        except OSError as e:
+            return _failed(version, f"the new binary could not be put in place ({_why(e, tok)}); the old one is untouched")
+        try:
+            _fsync_dir(bindir)
+            write_marker(state, {"version": version, "sha256": b["sha256"], "installed_sha256": installed, "path": target,
+                                 "reports": b["reports"]})
+        except OSError as e:
+            # The file is the new one but nothing records it: a retry installs again, which is safe.
+            return _failed(version, f"the new binary is in place but could not be recorded ({_why(e, tok)}); a retry installs it again")
         return {"status": "installed", "version": version, "sha256": b["sha256"], "installed_sha256": installed, "path": target,
                 "contract": b["reports"]["runtime_contract"]}
     finally:
@@ -362,8 +376,12 @@ def _install(version: str, b: dict, target: str, state: str, home: str, fetch: C
 
 def _why(e: BaseException, secret: str) -> str:
     """One line for a reply, without the token whatever the library put in it."""
-    text = str(getattr(e, "reason", None) or e).split("\n")[0][:160]
-    return text.replace(secret, "<token>") or type(e).__name__
+    text = str(getattr(e, "reason", None) or e).split("\n")[0]
+    # Redacted before it is cut (a token straddling the cut would survive), in the form
+    # the text may hold it: as written, and as a repr escapes it (http.client quotes with %r).
+    for form in (secret, repr(secret)[1:-1]):
+        text = text.replace(form, "<token>")
+    return text[:160] or type(e).__name__
 
 
 def _extract_member(tar_path: str, member: str, dest: str) -> None:

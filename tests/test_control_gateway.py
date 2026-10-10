@@ -328,6 +328,41 @@ class Install(Case):
         self.assertNotIn(TOKEN, text)
         self.assertNotIn("SOME_SECRET", text)
 
+    def test_a_failure_verified_nothing_so_it_carries_no_digest(self):
+        self.release()
+        for r in (self.install(token=lambda n: None), self.install(fetch=lambda *a, **k: (_ for _ in ()).throw(OSError("down")))):
+            self.assertEqual(r["status"], "failed")
+            self.assertNotIn("sha256", r)
+        self.artifact = b"other"
+        self.assertNotIn("sha256", self.install(), "a digest mismatch too: the pin's digest is not a verified one")
+
+    def test_an_http_protocol_error_or_a_late_oserror_is_a_failure_reply_never_an_escape(self):
+        import http.client
+        self.release()
+        def short(*a, **k):
+            raise http.client.IncompleteRead(b"abc", 13)
+        r = self.install(fetch=short)
+        self.assertEqual(r["status"], "failed")
+        self.assertIn("the download failed", r["reason"])
+        with unittest.mock.patch.object(gw.os, "replace", side_effect=PermissionError(13, "denied")):
+            r = self.install()
+        self.assertEqual((r["status"], os.path.exists(self.target)), ("failed", False))
+        self.assertIn("the old one is untouched", r["reason"])
+        with unittest.mock.patch.object(gw, "write_marker", side_effect=OSError(28, "full")):
+            r = self.install()
+        self.assertEqual(r["status"], "failed")
+        self.assertIn("in place but could not be recorded", r["reason"])
+        self.assertTrue(os.path.exists(self.target))
+        self.assertEqual(self.leftovers(), [])
+        self.assertEqual(self.install()["status"], "installed", "the retry the reason promises: nothing recorded, so it installs again")
+
+    def test_the_token_is_redacted_before_the_message_is_cut_and_in_its_escaped_form(self):
+        secret = "ab\\cd" + "x" * 20
+        long = ("p" * 150) + secret          # the token straddles the 160-character cut
+        self.assertNotIn("x", gw._why(ValueError(long), secret).replace("<token>", ""))
+        self.assertNotIn("\\\\", gw._why(ValueError(f"Invalid header value {secret!r}"), secret))
+        self.assertEqual(gw._why(ValueError("plain words"), secret), "plain words", "positive control: nothing to redact")
+
     def test_a_download_that_fails_says_why_without_the_token(self):
         self.release()
         for exc, said in ((urllib.error.HTTPError("u", 404, "Not Found", {}, None), "HTTP 404"),
@@ -426,6 +461,29 @@ class Download(unittest.TestCase):
             self.assertEqual(n, 3 << 20, "positive control: the same server within the bound")
 
 
+    def test_a_server_that_trickles_bytes_cannot_outrun_the_deadline(self):
+        import time
+        class Slow(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                self.send_response(200)
+                self.send_header("Content-Length", str(5_000_000))
+                self.end_headers()
+                try:
+                    for _ in range(100):
+                        self.wfile.write(b"x")
+                        self.wfile.flush()
+                        time.sleep(0.1)
+                except OSError:
+                    pass
+
+            def log_message(self, *a): ...
+        slow = self.serve(Slow)
+        started = time.monotonic()
+        with tempfile.TemporaryDirectory() as d, self.assertRaisesRegex(TimeoutError, "did not finish"):
+            gw.download(slow + "/", TOKEN, os.path.join(d, "a"), deadline_s=1, read_timeout_s=5)
+        self.assertLess(time.monotonic() - started, 4, "stopped near the deadline, not when the server ended (10 s)")
+
+
 class Read(Case):
     def test_absent_installed_and_unreadable(self):
         self.assertEqual(gw.gateway(home=self.home, state=self.state, root=self.root)["status"], "unreadable", "no pin, no marker: the name is unknown")
@@ -458,6 +516,7 @@ class Wiring(Case):
         self.assertNotIn("gateway", ACTION_OPS)
         self.assertNotIn("gateway", ops.PUBLIC_OPS)
         self.assertNotIn("gateway-install", ops.PUBLIC_OPS)
+        self.assertIn("gateway", agentd.BESIDE_LOOP_OPS, "the read hashes and runs a binary: it does not hold the loop")
 
     def test_the_daemon_answers_both_in_the_wires_reply_shape(self):
         self.release()

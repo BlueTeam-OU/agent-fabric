@@ -219,8 +219,9 @@ ACCOUNTS_KEEPALIVE_MS = 4 * 3600 * 1000
 ACTION_CLOCK_SKEW_MS = 60 * 1000
 ACCOUNTS_CACHE_MS = 5 * 60 * 1000
 # Reads that run beside the read loop, like the actions: each can take
-# minutes, and the loop must keep answering behind it.
-BESIDE_LOOP_OPS = ["disk"]
+# minutes, and the loop must keep answering behind it. `gateway` hashes
+# the installed binary and runs it, up to ten seconds.
+BESIDE_LOOP_OPS = ["disk", "gateway"]
 # One disk scan per daemon, shared by every request that arrives while it
 # runs, and its answer kept a minute: any placed account may post the read
 # unsigned, and fifty requests started a hundred du (review of #92, round 4).
