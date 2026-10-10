@@ -139,19 +139,24 @@ class Origins(Tree):
         (row,) = self.report()["sections"]
         self.assertEqual(row["paths"][0]["why"], "origin gzapp: names no working_copy to look in")
 
-    def test_an_origin_checkout_that_goes_unreadable_after_it_was_found_does_not_abort_the_report(self):
+    def test_an_origin_checkout_that_goes_unreadable_after_it_was_found_is_unknown_never_stale(self):
         from unittest import mock
-        self.write("tools/y.sh", "x", root=os.path.join(self.base, "gzapp"))
-        self.slice("a", ("s", "`tools/fabric/deleted.py`"), origins=(("gzapp", "gzapp"), ("agent-fabric", "agent-fabric")))
-        real = memory_check.known_dirs
-
-        def flaky(tree):
-            if tree.endswith("gzapp"):
-                raise memory_check.Refused("cannot read the tree: gone")
-            return real(tree)
-        with mock.patch.object(memory_check, "known_dirs", flaky):
+        self.write("tools/web/app.ts", "x", root=os.path.join(self.base, "gzapp"))
+        self.slice("a", ("s", "`tools/web/app.ts` and `tools/fabric/deleted.py`"), origins=(("gzapp", "gzapp"),))
+        (row,) = self.report()["sections"]
+        self.assertEqual({p["path"]: p["status"] for p in row["paths"]}, {"tools/web/app.ts": "exists", "tools/fabric/deleted.py": "stale-hard"},
+                         "while the checkout can be read: the file is there, the other is gone from both")
+        sib = os.path.join(self.base, "gzapp")
+        os.chmod(sib, 0)
+        self.addCleanup(os.chmod, sib, 0o755)
+        if os.geteuid() == 0:
+            self.skipTest("a root user lists everything")
+        with mock.patch.object(memory_check, "readable_dir", lambda p: True):      # the race: found readable, then not
             rows = memory_check.check(self.corpus, self.tree)
-        self.assertEqual([r["verdict"] for r in rows], ["stale-hard"])
+        (row,) = rows
+        self.assertEqual(row["verdict"], "unchecked")
+        self.assertEqual({p["path"]: p["status"] for p in row["paths"]}, {"tools/web/app.ts": "unchecked", "tools/fabric/deleted.py": "unchecked"})
+        self.assertEqual(row["paths"][0]["why"], "origin checkout 'gzapp': cannot read it")
 
     def test_a_working_copy_name_that_climbs_is_no_checkout_even_where_it_would_reach_one(self):
         self.write("tools/x.sh", "x", root=os.path.join(self.base, "gzapp"))
@@ -210,7 +215,7 @@ class Unreadable(Tree):
     def test_a_dangling_link_in_the_corpus_is_a_row_not_a_silent_skip(self):
         os.symlink(os.path.join(self.base, "nowhere.md"), os.path.join(self.corpus, "domains", "d", "domain", "dangling.md"))
         (row,) = self.report()["sections"]
-        self.assertEqual((row["verdict"], row["slice"], row["why"]), ("unreadable", "domains/d/domain/dangling.md", "cannot read it: a link to nothing"))
+        self.assertEqual((row["verdict"], row["slice"], row["why"]), ("unreadable", "domains/d/domain/dangling.md", "cannot read it: No such file or directory"))
 
     def test_a_sibling_checkout_that_exists_but_cannot_be_read_is_unchecked(self):
         sib = os.path.join(self.base, "sib")

@@ -136,10 +136,8 @@ def read_corpus(corpus: str) -> list[dict]:
             if not name.endswith(".md") or name in NOT_SLICES:
                 continue
             path = os.path.join(directory, name)
-            if not os.path.exists(path):      # a dangling link: read_existing_slice would call it an empty slice
-                out.append({"path": path, "rel": os.path.relpath(path, corpus), "why": "cannot read it: a link to nothing"})
-                continue
             try:
+                os.stat(path)                 # a dangling link: read_existing_slice would call it an empty slice
                 meta, sections = slices.read_existing_slice(path)
             except (OSError, UnicodeDecodeError) as e:
                 out.append({"path": path, "rel": os.path.relpath(path, corpus), "why": f"cannot read it: {getattr(e, 'strerror', None) or e}"})
@@ -246,17 +244,20 @@ def check(corpus: str, tree: str, extra_dirs: list[str] | None = None, project: 
             rows.append({"slice": sl["rel"], "heading": "", "verdict": "unreadable", "paths": [], "why": sl["why"]})
             continue
         trees, missing = origin_trees(sl["meta"], tree, own)
-        # What is a path is what any tree the slice may belong to has at its top level.
-        known = set(extra_dirs or [])
-        for t in {tree, *trees}:
-            if t not in tops:
+        usable = []
+        for t_ in trees:
+            if t_ not in tops:
                 try:
-                    tops[t] = known_dirs(t)
+                    tops[t_] = known_dirs(t_)
                 except Refused:
-                    if t == tree:
-                        raise
-                    tops[t] = set()           # an origin's checkout that went unreadable after it was found: its top directories are unknown
-            known |= tops[t]
+                    tops[t_] = None           # found by readable_dir, then not listable (a race, an ACL): unknown
+            if tops[t_] is None:
+                missing = [*missing, f"origin checkout {os.path.basename(t_)!r}: cannot read it"]
+            else:
+                usable.append(t_)
+        trees = usable
+        # What is a path is what any tree the slice may belong to has at its top level.
+        known = set(extra_dirs or []).union(tops[tree], *(tops[t_] for t_ in trees))
         for heading, text in sl["sections"].items():
             paths = []
             for p in cited(text, known):
