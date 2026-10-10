@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """tools/fabric/gateway_token.py — the login's Claude credential as a token file the gateway reads
-(agent-fabric-gateway control-plane contract §10, "Token file checks"; gateway-switch s5).
+(the fleet gateway's control-plane contract §10, "Token file checks"; gateway-switch s5).
 
 `fabric-secrets sync` (secrets_sync.py) calls write() with the login's CLAUDE_CODE_OAUTH_TOKEN, the setup-token it
 already exports to secrets.env; the plan (gateway_plan.py) names token_path() as the `claude-subscription` profile's
