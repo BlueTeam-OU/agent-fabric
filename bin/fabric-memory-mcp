@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# bin/fabric-memory-mcp — the fabric-memory MCP server (ADR-049), started by Claude Code over stdio. The work, its
+# contract and its reasons are in tools/fabric/memory_mcp/server.py. Run through a symlink or by path, so the module is
+# found from this file's real location; -I keeps the caller's directory and PYTHONPATH out of the import path.
+# The fleet's pinned Python (runtime/python.json, ADR-040), one per host; AGENT_FABRIC_PYTHON points elsewhere for a
+# test or a host without it.
+py="${AGENT_FABRIC_PYTHON:-/usr/local/bin/fabric-python}"
+[[ -x "$py" ]] || { echo "fabric-memory-mcp: the fleet's pinned Python is not installed at $py; as root: /usr/bin/python3 <agent-fabric>/tools/fabric/python_pin.py install" >&2; exit 127; }
+exec "$py" -I "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../tools/fabric/memory_mcp/server.py" "$@"
