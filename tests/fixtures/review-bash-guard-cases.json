@@ -1502,23 +1502,43 @@
     },
     {
      "want": "deny",
-     "label": "denied: a heredoc into cat",
+     "label": "denied: a heredoc into cat is not the admitted shape, so the body's > is judged as a redirection under the full rules",
      "command": "cat <<'EOF'\na > b\nEOF"
     },
     {
+     "want": "allow",
+     "label": "allowed: the same heredoc into cat with a plain body: the full rules find nothing to refuse",
+     "command": "cat <<'EOF'\nbody\nEOF"
+    },
+    {
      "want": "deny",
-     "label": "denied: a heredoc into another fabric-pr verb",
+     "label": "denied: a heredoc into another fabric-pr verb is not the admitted shape, so the body's > is judged as a redirection under the full rules",
      "command": "fabric-pr arm 12 <<'EOF'\na > b\nEOF"
     },
     {
-     "want": "deny",
-     "label": "denied: a pipe into post-review",
-     "command": "printf 'a > b' | fabric-pr post-review 12 --model fable"
+     "want": "allow",
+     "label": "allowed: the same heredoc into another fabric-pr verb with a plain body: the full rules find nothing to refuse",
+     "command": "fabric-pr arm 12 <<'EOF'\nbody\nEOF"
     },
     {
      "want": "deny",
-     "label": "denied: a file redirected into post-review",
+     "label": "denied: a pipe into post-review is not the admitted shape, so the > in the piped text is judged as a redirection under the full rules",
+     "command": "printf 'a > b' | fabric-pr post-review 12 --model fable"
+    },
+    {
+     "want": "allow",
+     "label": "allowed: the same pipe into post-review with plain text: the full rules find nothing to refuse",
+     "command": "printf 'body' | fabric-pr post-review 12 --model fable"
+    },
+    {
+     "want": "deny",
+     "label": "denied: a file redirected into post-review is not the admitted shape, so the body's > is judged as a redirection under the full rules",
      "command": "fabric-pr post-review 12 --model fable < file <<'EOF'\na > b\nEOF"
+    },
+    {
+     "want": "allow",
+     "label": "allowed: the same file redirected into post-review with a plain body: the full rules find nothing to refuse",
+     "command": "fabric-pr post-review 12 --model fable < file <<'EOF'\nbody\nEOF"
     },
     {
      "want": "deny",
@@ -1536,8 +1556,8 @@
      "command": "fabric-pr post-review 12 --model fable <<'EOF'\nbody\nEOF; rm -rf x"
     },
     {
-     "want": "deny",
-     "label": "denied: another model",
+     "want": "allow",
+     "label": "allowed: another model name (a label post_review.py records)",
      "command": "fabric-pr post-review 12 --model opus <<'EOF'\na > b\nEOF"
     },
     {
@@ -1549,6 +1569,51 @@
      "want": "deny",
      "label": "denied: a cd up out of the clone before it",
      "command": "cd .. && fabric-pr post-review 12 --model fable <<'EOF'\nbody\nEOF"
+    },
+    {
+     "want": "allow",
+     "label": "allowed: no --model",
+     "command": "fabric-pr post-review 12 <<'EOF'\na > b\nEOF"
+    },
+    {
+     "want": "allow",
+     "label": "allowed: --model opus-5-5",
+     "command": "fabric-pr post-review 12 --model opus-5-5 <<'EOF'\na > b\nEOF"
+    },
+    {
+     "want": "allow",
+     "label": "allowed: --dry-run before --model",
+     "command": "fabric-pr post-review 12 --dry-run --model fable <<'EOF'\na > b\nEOF"
+    },
+    {
+     "want": "allow",
+     "label": "allowed: --dry-run after --model",
+     "command": "fabric-pr post-review 12 --model fable --dry-run <<'EOF'\na > b\nEOF"
+    },
+    {
+     "want": "allow",
+     "label": "allowed: a space between << and the quoted tag",
+     "command": "fabric-pr post-review 12 --model fable << 'EOF'\na > b\nEOF"
+    },
+    {
+     "want": "deny",
+     "label": "denied: --model twice is not the admitted shape, so the body's > is judged under the full rules",
+     "command": "fabric-pr post-review 12 --model fable --model opus <<'EOF'\na > b\nEOF"
+    },
+    {
+     "want": "deny",
+     "label": "denied: an unknown flag is not the admitted shape, so the body's > is judged under the full rules",
+     "command": "fabric-pr post-review 12 --model fable --force <<'EOF'\na > b\nEOF"
+    },
+    {
+     "want": "deny",
+     "label": "denied: <<- is not the admitted shape, so the body's > is judged under the full rules",
+     "command": "fabric-pr post-review 12 --model fable <<-'EOF'\na > b\nEOF"
+    },
+    {
+     "want": "deny",
+     "label": "denied: --model taking --dry-run as its name is not the admitted shape",
+     "command": "fabric-pr post-review 12 --model --dry-run <<'EOF'\na > b\nEOF"
     }
    ]
   }

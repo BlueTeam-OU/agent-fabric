@@ -153,7 +153,7 @@ REASONS = {
     "moved": "The review class may not change directory to a home, a hidden directory in one, up out of the clone (..), or back (cd, cd -, cd ~): what the command does after the cd would read there. Name the path in the command, or use git -C <path>.",
     "cd-last": "A cd that ends a command does not last: each command the review class runs is its own shell, so the next one starts where this one did. Put the work after it in the same command (cd <dir> && git log ...), or name the directory (git -C <dir> ..., grep -rn x <dir>).",
     "escape": "The review class may not use shell escapes (eval, exec, sh -c): they carry a write past this guard. Run the command directly.",
-    "write": "The review class runs in the session clone and is READ-ONLY: no in-place edits, no file writes, no redirection except to /dev/null. Report what you would have changed instead.",
+    "write": "The review class runs in the session clone and is READ-ONLY: no in-place edits, no file writes, no redirection except to /dev/null. Report what you would have changed instead. A review is posted as: fabric-pr post-review <pr> [--model <name>] <<'EOF' … EOF (a quoted tag; nothing after the terminator).",
     "git": "The review class runs in the session clone and is READ-ONLY: no state-changing git (push, commit, checkout, reset, stash, ...). Read-only history (log, show, diff, blame) is expected of you. Report what you would have changed instead.",
     "install": "The review class may not run installs or restores (pub get, pnpm install, dotnet restore, ...): they rewrite tracked lockfiles in the session clone. Build and test only with what is already restored (dotnet build/test --no-restore, pnpm --filter <app> test), or say the check needs an install and skip it.",
 }
@@ -207,14 +207,20 @@ def split_unquoted(cmd: str) -> tuple[list[str], bool]:
     return segments, trusted and not quote
 
 
-# The review class's one write is its review: `fabric-pr post-review <N>
-# --model fable` with the body on stdin as ONE heredoc whose tag is quoted.
-# Quoting any part of the tag stops bash expanding the body; only the whole
-# 'TAG' and "TAG" forms are admitted. The body is data, so the word and
-# redirection rules judge the command line alone, and the first line equal
-# to the tag must be the command's last: nothing runs after it.
-POST_REVIEW = re.compile(r"[ \t]*((?:cd[ \t]+[^\s;&|<>()`$'\"\\]+[ \t]+&&[ \t]+)?fabric-pr[ \t]+post-review"
-                         r"[ \t]+[0-9]+[ \t]+--model[ \t]+fable)[ \t]+<<(['\"])([A-Za-z0-9_]+)\2[ \t]*")
+# The review class's one write is its review: `fabric-pr post-review <N>`
+# with the body on stdin as ONE heredoc whose tag is quoted, and only the
+# verb's own options, each at most once, in either order: --model <name>
+# (a label post_review.py records, not a routing choice, so any plain word)
+# and --dry-run. Quoting any part of the tag stops bash expanding the body;
+# only the whole 'TAG' and "TAG" forms are admitted, and not <<-, a second
+# shape nothing needs. The body is data, so the word and redirection rules
+# judge the command line alone, and the first line equal to the tag must be
+# the command's last: nothing runs after it.
+_MODEL = r"[ \t]+--model[ \t]+(?!-)[A-Za-z0-9._-]+"
+_DRY_RUN = r"[ \t]+--dry-run"
+POST_REVIEW = re.compile(r"[ \t]*((?:cd[ \t]+[^\s;&|<>()`$'\"\\]+[ \t]+&&[ \t]+)?fabric-pr[ \t]+post-review[ \t]+[0-9]+"
+                         rf"(?:{_MODEL}(?:{_DRY_RUN})?|{_DRY_RUN}(?:{_MODEL})?)?)"
+                         r"[ \t]+<<[ \t]*(['\"])([A-Za-z0-9_]+)\2[ \t]*")
 
 
 def posted_review(cmd: str) -> str | None:

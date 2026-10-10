@@ -112,7 +112,7 @@ outage procedure.
    invariants, compatibility, threat model, scope, out of scope, lenses —
    and a verdict-shaped sentence refuses the render (`--allow-rationale`
    renders it flagged).
-6. The review is posted by `post-review.sh` as a review object whose
+6. The review is posted by `fabric-pr post-review` as a review object whose
    first line is the marker; the body names the method and carries no
    disclaimer.
 7. `pr-review-status.sh` counts as coverage: a marked review posted by the
