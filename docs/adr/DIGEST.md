@@ -639,8 +639,8 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-10-09 — Scope: runtime/control/.
 - A 2026-10-09 — `tools-install` (§5 rules 3, 12).
 - A 2026-10-09 — views' closed-job read (§2).
-- Keywords: agentd, fabric-ctl, ops, ping, keys, usage, recall, tokens,
-  memory, bundle, drain, keygen, operator_key, herdr, status, resume.
+- A 2026-10-10 — gateway ops (§2, §5 rules 3, 12).
+- Keywords: agentd, fabric-ctl, ops, tokens, gateway.
 ### ADR-030 — Presence replaces HELLO and GOODBYE (Accepted)
 
 - Whether a session runs is the control agent's answer from its process

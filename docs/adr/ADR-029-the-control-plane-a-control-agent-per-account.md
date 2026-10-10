@@ -77,6 +77,8 @@ sudo are in the loop.
 | `local-prune` | *action*: per-clone settings entries that duplicate a synced secret, removed (rule 15) |
 | `secrets-selftest` | *action*: a canary through the account's store and back (rule 17) |
 | `tools-install` | *action*: the one tool named, installed from the release its project pins (`projects/registry.json` `install`: version, https url, sha256), hash checked before a byte is unpacked; skipped on an account with no working copy of a project that declares it (`tools/fabric/tools_install.py`) |
+| `gateway` | read: the installed agent-fabric-gateway's version, runtime contract and digest, against `runtime/gateway.json`'s pin |
+| `gateway-install` | *action*: the pinned gateway release (`runtime/gateway.json`), its SHA-256 checked before anything is extracted, the one pinned member only, run with `--version --json` and required to match the pin before it is renamed into `~/.local/bin` (`tools/fabric/control/gateway.py`) |
 | `pool-add` | *action*, on the pool's holder only: a job on a role's pool (ADR-037 rule 9) |
 | `status` | identity, usage, keys, fabric and session together |
 
@@ -137,7 +139,8 @@ claimant (rule 4).
    (`pool.mjs`); an action takes only its own closed set of
    arguments (`upgrade.mjs`, `secrets.mjs` and `jobs.mjs` `checkArgs`,
    `checkJobArgs`, `pool.mjs` `checkPoolArgs` for `pool-add`, and
-   `tools.mjs` `toolsInstall`'s one `tool`, matched by `TOOL_NAME`).
+   `tools.mjs` `toolsInstall`'s one `tool`, matched by `TOOL_NAME`, and
+   `gateway-install`'s one `version`, a key of `runtime/gateway.json`).
 4. A daemon answers a request only when its `from` is a host operator's
    address as `runtime/hosts/registry.json` places it — re-read for every
    record — or, for a public op (`PUBLIC_OPS`: `presence`, `pool-list` and
@@ -191,7 +194,8 @@ claimant (rule 4).
     20 s by default, 5 s for `ping`, 60 s for `tokens`, 120 s for a drain,
     200 s for `disk`, 240 s for `secrets-sync`, 300 s for `accounts`,
     330 s for `tools-install` (past the account's own 300 s bound, so a
-    hung fetch is its verdict, not a silence), 480 s for
+    hung fetch is its verdict, not a silence), 300 s for `gateway-install`
+    (its download bound plus two version runs), 480 s for
     `secrets-selftest`, and an upgrade's
     computed budget; `--timeout` overrides it (A 2026-09-27).
 13. `jobs` is an operator's read of an account's open jobs, and
@@ -310,4 +314,5 @@ The body above reads current; each change's full note is in [history/ADR-029-ame
 | 2026-10-09 | pool-add's checker named; a forged claim is seen in the holder's pool file | §5 rule 3 names `checkPoolArgs`; rule 4: `pool-list` shows unclaimed jobs only, so a claim is seen in the holder's `pool.json`; the Scope line names pool.mjs, tools.mjs and sessions.mjs |
 | 2026-10-09 | Scope: all of runtime/control/, and its Python package from Wave 8 | Scope line: the directory as a whole rather than a list that lagged it; tools/fabric/control/ from its creation; the unit's installation in bootstrap.py; local_settings.py and session-state.py, which rules 15 and 16 name |
 | 2026-10-09 | tools-install installs a pinned account tool | §2 table: the `tools-install` row; §5 rule 3: its one argument, checked by `TOOL_NAME`; rule 12: the `disk` and `tools-install` budgets |
+| 2026-10-10 | The gateway is installed and read through the control plane | §2 table: `gateway` and `gateway-install`; §5 rule 3: its one `version` argument; rule 12: its budget |
 | 2026-10-09 | Fleet views read through fleet.py, with two Stage 1 bridges | §2: the host executor's read of closed jobs is a named fallback for the fleet views until `jobs --all` exists (ADR-046) |

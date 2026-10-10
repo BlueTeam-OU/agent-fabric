@@ -129,3 +129,7 @@ python-dev-03's #126 (merged 2026-10-09) added `tools-install` to `OPS`, a signe
 ### Amendment 2026-10-09 — Fleet views read through fleet.py, with two Stage 1 bridges
 
 ADR-046's fleet views read closed jobs, which no operation returns until after the Wave 8 cutover (ADR-040 §7). Until then they read them through the host executor, the sudo fallback this record keeps for a host whose control agents are down, read-only and named in every value; `jobs --all` replaces it.
+
+### Amendment 2026-10-10 — The gateway is installed and read through the control plane
+
+python-dev-03's #176 (gateway-switch s4) added the `gateway-install` action and the `gateway` read; its review left the record to the coordinator. The owner armed it on 2026-10-10 and the first live install put 0.1.0, verified against the pin, on all 25 accounts.
