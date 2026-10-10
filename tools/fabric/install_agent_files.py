@@ -304,10 +304,10 @@ class Installer:
     def locale_search(self, claude_home: str, role: str, suffix: str) -> int:
         # The locale search tools: an MCP server with one tool per engine the
         # locale file configures — Google's results through SerpAPI, located in
-        # the locale, and Brave as a second index (runtime/mcp/websearch-locale), in the login's user-scope
+        # the locale, and Brave as a second index (bin/fabric-websearch-locale, entered by runtime/mcp/websearch-locale/install.py), in the login's user-scope
         # configuration (~/.claude.json, or $CLAUDE_CONFIG_DIR/.claude.json) on a
         # language-culture login whose locale has a locale.json; removed — by the
-        # server path in its args — from any other. The key it needs is synced,
+        # server path in its command or args — from any other. The key it needs is synced,
         # never written here (docs/adr/ADR-027-language-and-culture-shape-the-work-the-bridge.md §5 rule 13).
         locale_file = os.path.join(roots.locale_dir("language-culture", suffix, engine=self.root), "locale.json")
         claude_json = os.path.join(os.environ.get("CLAUDE_CONFIG_DIR") or home(), ".claude.json")
@@ -319,7 +319,7 @@ class Installer:
         # searches through that alone (the CEO, 2026-09-17).
         settings = os.path.join(claude_home, "settings.json")
         if role == "language-culture" and os.path.isfile(locale_file):
-            calls = [[claude_json, "set", os.path.join(mcp, "server.mjs"), locale_file], [settings, "deny-websearch"]]
+            calls = [[claude_json, "set", os.path.join(self.root, "bin", "fabric-websearch-locale"), locale_file], [settings, "deny-websearch"]]
         else:
             calls = [[claude_json, "remove"], [settings, "allow-websearch"]]
         outs = []
