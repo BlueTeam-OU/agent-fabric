@@ -415,12 +415,35 @@ class SecretsSync(unittest.TestCase):
             GS.record(d, {k: i for k in GS.FIELDS}, "ab" * 6, "t")
         self.assertEqual(len(GS.read_join(d)), GS.KEEP)
         self.assertEqual(GS.read_join(d)[-1]["generation"]["inode"], GS.KEEP + 4, "the newest are kept")
-        os.chmod(d, 0o500)
-        try:
-            self.assertFalse(GS.record(d, {k: 999 for k in GS.FIELDS}, "cd" * 6, "t"))
-        finally:
-            os.chmod(d, 0o700)
+        os.rename(os.path.join(d, GS.JOIN), os.path.join(d, "kept"))
+        os.mkdir(os.path.join(d, GS.JOIN))                   # the temporary file is written, the rename onto a directory fails
+        self.assertFalse(GS.record(d, {k: 999 for k in GS.FIELDS}, "cd" * 6, "t"))
         self.assertEqual([n for n in os.listdir(d) if ".tmp-" in n], [], "no temporary file is left")
+
+    def test_a_fifo_at_the_token_path_is_refused_not_waited_on(self):
+        f = Fixture(self)
+        path = self.token_file(f)
+        os.remove(path)
+        os.mkfifo(path)
+        self.assertEqual(GS.open_token(path), (None, None))
+
+    def test_a_record_with_no_token_says_whether_the_gateways_file_is_still_there(self):
+        f = Fixture(self)
+        path = self.token_file(f, OLD)
+        w = GS.prove(f.dir, path, None, "t")["session"]
+        self.assertIn("still holds one", w)
+        self.assertNotIn("taken away", w)
+        os.remove(path)
+        self.assertIn("taken away", GS.prove(f.dir, path, None, "t")["session"])
+
+    def test_a_failed_reply_in_a_mixed_set_still_carries_the_gateway_proof(self):
+        f = Fixture(self)
+        path = self.token_file(f)
+        r = f.sync({"id": "m3", "from": "h/user", "args": {"restart": True}}, sessions=[80, 82], me="h/db-admin",
+                   env_of=lambda pid: (env_with(None, "anthropic", "gateway") if pid == 80 else env_with(OLD))(pid),
+                   kill=lambda pid, sig: None, alive=lambda p: True, sleep=lambda s: None, stop_wait_ms=0, gateway_file=path)
+        self.assertEqual(r["status"], "failed", r)
+        self.assertEqual(r["gateway"]["fingerprint"], fp(TPL))
 
     def test_a_symlinked_token_file_is_not_a_generation(self):
         f = Fixture(self)

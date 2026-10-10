@@ -44,9 +44,9 @@ FIELDS = ("device", "inode", "mtime_sec", "mtime_nsec")
 def open_token(path: str):
     """(generation, the file's text) from ONE open, so the identity and the content are the same file even when a
     sync replaces it meanwhile; a symlink is refused (O_NOFOLLOW), as the gateway refuses it. (None, None) where
-    the file is absent, not a regular file, or unreadable."""
+    the file is absent, not a regular file, or unreadable. O_NONBLOCK: a FIFO there must be refused, not waited on."""
     try:
-        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
     except OSError:
         return None, None
     try:
