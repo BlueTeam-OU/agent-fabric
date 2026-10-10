@@ -44,7 +44,7 @@ def main() -> int:
         repo = os.path.join(tmp, "repo")
         os.makedirs(home)
         os.makedirs(repo)
-        env = {**os.environ, "AGENT_FABRIC_STATE_DIR": os.path.join(tmp, "state"), "AGENT_FABRIC_ROOT": ROOT, "HOME": home}
+        env = {**{k: v for k, v in os.environ.items() if not k.startswith("GIT_")}, "AGENT_FABRIC_STATE_DIR": os.path.join(tmp, "state"), "AGENT_FABRIC_ROOT": ROOT, "HOME": home}
 
         def run(*argv: str) -> subprocess.CompletedProcess:
             return subprocess.run([JOBS, *argv], cwd=repo, env=env, capture_output=True, text=True, timeout=120)
@@ -64,7 +64,8 @@ def main() -> int:
         j2 = next(j for j in listed() if j["id"] == "j2")
         check("block: blocked_on and the log note are the collapsed text", p.returncode == 0 and j2["blocked_on"] == "a review of the PR"
               and j2["log"][-1].get("note") == "a review of the PR", j2)
-        check("a transition with no note writes no note key", "note" not in j2["log"][0], j2["log"])
+        check("a transition with no note writes no note key (log[1] is `start`'s entry; log[0] is the job's creation)",
+              j2["log"][1]["state"] == "active" and "note" not in j2["log"][1], j2["log"])
 
     print("the claimed job a pool holder answers with")
     jobs = load_jobs()
@@ -88,7 +89,10 @@ def main() -> int:
     print("queue.mjs that does not answer in time")
     real_run = subprocess.run
 
+    bounds = []
+
     def times_out(*a, **kw):
+        bounds.append(kw.get("timeout"))
         raise subprocess.TimeoutExpired(a[0], kw.get("timeout", 0))
     subprocess.run = times_out
     try:
@@ -101,6 +105,7 @@ def main() -> int:
         subprocess.run = real_run
     check("a timeout is said with the bound, and nobody knows whether anything was sent",
           message == f"no answer within {jobs.QUEUE_TIMEOUT_S} s" and sent is None, (message, sent))
+    check("...and the bound is the one the call runs under", bounds == [jobs.QUEUE_TIMEOUT_S], bounds)
 
     print(f"\ntest_jobs_gaps: {'OK' if not fails else f'FAILED — {fails} check(s)'}")
     return 1 if fails else 0
