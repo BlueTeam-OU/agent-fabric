@@ -301,7 +301,7 @@ class SecretsSync(unittest.TestCase):
         line = (f"2026-10-10T10:00:00.000000Z  INFO credential=subscription path={path} device={g['device']} inode={g['inode']} "
                 f"mtime_sec={g['mtime_sec']} mtime_nsec={g['mtime_nsec']} credential.replaced")
         if colour:
-            line = line.replace("INFO", "\x1b[32m INFO\x1b[0m").replace("device=", "\x1b[3mdevice\x1b[0m\x1b[2m=\x1b[0m", 0)
+            line = line.replace("INFO", "\x1b[32m INFO\x1b[0m").replace("device=", "\x1b[3mdevice\x1b[0m\x1b[2m=\x1b[0m\x1b[2m")
         os.makedirs(f.dir, exist_ok=True)
         with open(os.path.join(f.dir, GS.LOG), "a", encoding="utf-8") as fh:
             fh.write(line + "\n")
@@ -375,6 +375,60 @@ class SecretsSync(unittest.TestCase):
         self.assertIsNone(r["gateway"]["confirmed"], "no log at all: unconfirmed")
         self.assertIn("cannot be read, so unconfirmed", r["session"])
 
+    def test_a_mixed_set_that_needs_no_stop_or_cannot_be_stopped_still_reports_and_checks_the_gateway(self):
+        f = Fixture(self)
+        path = self.token_file(f, OLD)               # the sync did not put the synced token in the gateway's file
+        r = f.sync({"id": "m1", "from": "h/user", "args": {}}, sessions=[80, 81], me="h/db-admin",
+                   env_of=lambda pid: (env_with(None, "anthropic", "gateway") if pid == 80 else env_with(TPL))(pid),
+                   kill=no_kill, gateway_file=path)
+        self.assertEqual(r["gateway"]["file_fingerprint"], fp(OLD))
+        self.assertIn("does not hold the synced token", r["session"])
+        self.assertTrue(r["session"].startswith("running, already on it"), "the plain session already holds it")
+        for args, me, word in (({}, "h/db-admin", "running: relaunch to use it"), ({"restart": True}, "h/user", "yours: relaunch to use it")):
+            r = f.sync({"id": "m2", "from": "h/user", "args": args}, sessions=[80, 82], me=me,
+                       env_of=lambda pid: (env_with(None, "anthropic", "gateway") if pid == 80 else env_with(OLD))(pid),
+                       kill=no_kill, gateway_file=path)
+            self.assertTrue(r["session"].startswith(word) and "(gateway)" in r["session"], r["session"])
+            self.assertIn("gateway", r)
+
+    def test_only_a_credential_replaced_line_confirms_and_a_prefixed_key_is_not_the_key(self):
+        f = Fixture(self)
+        path = self.token_file(f)
+        g = GS.generation_of(path)
+        fields = " ".join(f"{k}={g[k]}" for k in GS.FIELDS)
+        log = os.path.join(f.dir, GS.LOG)
+        os.makedirs(f.dir)
+        with open(log, "w") as fh:
+            fh.write(f"INFO {fields} credential.rejected\n")
+        self.assertIs(GS.confirmed(log, g), False, "another event naming the same generation confirms nothing")
+        with open(log, "w") as fh:
+            fh.write("credential.replaced " + " ".join(f"previous.{k}={g[k]}" for k in GS.FIELDS) + "\n")
+        self.assertIs(GS.confirmed(log, g), False, "previous.inode= is not inode=")
+        with open(log, "w") as fh:
+            fh.write("x" * 3_000_000 + "\n")
+            fh.write(f"INFO {fields} credential.replaced\n" + "y" * 3_000_000 + "\n")
+        self.assertIs(GS.confirmed(log, g), True, "a line followed by a lot of logging is still found")
+
+    def test_the_join_is_bounded_and_a_write_that_fails_leaves_nothing_and_fails_nothing(self):
+        d = os.path.join(Fixture(self).dir, "j")
+        for i in range(GS.KEEP + 5):
+            GS.record(d, {k: i for k in GS.FIELDS}, "ab" * 6, "t")
+        self.assertEqual(len(GS.read_join(d)), GS.KEEP)
+        self.assertEqual(GS.read_join(d)[-1]["generation"]["inode"], GS.KEEP + 4, "the newest are kept")
+        os.chmod(d, 0o500)
+        try:
+            self.assertFalse(GS.record(d, {k: 999 for k in GS.FIELDS}, "cd" * 6, "t"))
+        finally:
+            os.chmod(d, 0o700)
+        self.assertEqual([n for n in os.listdir(d) if ".tmp-" in n], [], "no temporary file is left")
+
+    def test_a_symlinked_token_file_is_not_a_generation(self):
+        f = Fixture(self)
+        real = self.token_file(f)
+        link = real + ".link"
+        os.symlink(real, link)
+        self.assertEqual(GS.open_token(link), (None, None))
+
     def test_a_plain_session_still_restarts_and_a_mixed_set_stops_only_it(self):
         g = Fixture(self)
         path = self.token_file(g)
@@ -383,7 +437,9 @@ class SecretsSync(unittest.TestCase):
                    env_of=lambda pid: (env_with(None, "anthropic", "gateway") if pid == 81 else env_with(OLD))(pid),
                    kill=lambda pid, s: (sigs.append(pid), up.__setitem__(0, False)), alive=lambda p: up[0], sleep=lambda s: None,
                    gateway_file=path)
-        self.assertEqual((r["session"], sigs), ("restarting", [82]), "only the plain-claude session on the old account is stopped")
+        self.assertEqual(sigs, [82], "only the plain-claude session on the old account is stopped")
+        self.assertTrue(r["session"].startswith("restarting; running (gateway): token file replaced"), r["session"])
+        self.assertEqual(r["gateway"]["fingerprint"], fp(TPL), "the restart reply carries the gateway's proof too")
         self.assertEqual(len(GS.read_join(g.dir)), 1, "the gateway session's generation is still joined")
         h = Fixture(self)
         r = h.sync({"id": "plain", "from": "h/user", "args": {"restart": True}}, sessions=[83], me="h/db-admin",

@@ -27,28 +27,44 @@ from __future__ import annotations
 import json
 import os
 import re
+import stat
 from typing import Any
 
 JOIN = "gateway-generations.json"
 LOG = "gateway.log"
 KEEP = 50
-# The tail of the log read: a credential.replaced line is written once per generation, near the end.
-LOG_TAIL_BYTES = 2_000_000
+# The tail of the log read. A credential.replaced line is written once per generation, but a busy gateway logs
+# much after it, so the window is generous; a line pushed out of it reads as "not yet", which is why it is large.
+LOG_TAIL_BYTES = 64_000_000
+TOKEN_MAX = 65_536
 ANSI = re.compile(r"\x1b\[[0-9;]*m")
 FIELDS = ("device", "inode", "mtime_sec", "mtime_nsec")
 
 
-def generation_of(path: str) -> dict[str, int] | None:
-    """The gateway's identity for a token file: device, inode, mtime (seconds and nanoseconds). None where the
-    file is absent or not a regular file."""
+def open_token(path: str):
+    """(generation, the file's text) from ONE open, so the identity and the content are the same file even when a
+    sync replaces it meanwhile; a symlink is refused (O_NOFOLLOW), as the gateway refuses it. (None, None) where
+    the file is absent, not a regular file, or unreadable."""
     try:
-        st = os.stat(path, follow_symlinks=False)
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
     except OSError:
-        return None
-    if not os.path.isfile(path) or os.path.islink(path):
-        return None
+        return None, None
+    try:
+        st = os.fstat(fd)
+        if not stat.S_ISREG(st.st_mode):
+            return None, None
+        with os.fdopen(fd, "rb", closefd=False) as fh:
+            text = fh.read(TOKEN_MAX).decode("utf-8", "replace")
+    except OSError:
+        return None, None
+    finally:
+        os.close(fd)
     return {"device": st.st_dev, "inode": st.st_ino, "mtime_sec": st.st_mtime_ns // 1_000_000_000,
-            "mtime_nsec": st.st_mtime_ns % 1_000_000_000}
+            "mtime_nsec": st.st_mtime_ns % 1_000_000_000}, text
+
+
+def generation_of(path: str) -> dict[str, int] | None:
+    return open_token(path)[0]
 
 
 def read_join(state_dir: str) -> list[dict]:
@@ -76,6 +92,10 @@ def record(state_dir: str, generation: dict[str, int], fingerprint: str, at: str
             fh.write("\n")
         os.replace(tmp, path)
     except OSError:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass   # never created, or gone
         return False
     return True
 
@@ -98,7 +118,7 @@ def confirmed(log_path: str, generation: dict[str, int]) -> bool | None:
     for line in text.splitlines():
         if "credential.replaced" not in line:
             continue
-        seen = {k: int(v) for k, v in re.findall(r"\b(device|inode|mtime_sec|mtime_nsec)=(\d+)", ANSI.sub("", line))}
+        seen = {k: int(v) for k, v in re.findall(r"(?<![\w.])(device|inode|mtime_sec|mtime_nsec)=(\d+)", ANSI.sub("", line))}
         if all(seen.get(k) == generation[k] for k in FIELDS):
             return True
     return False
@@ -109,19 +129,18 @@ def prove(state_dir: str, token_file: str, token_sha12: str | None, at: str) -> 
     "detail": the machine form}. The file must hold the synced token (its fingerprint is the one recorded);
     one that does not, or is absent, is said and nothing is joined."""
     from control.ops import util
-    gen = generation_of(token_file)
+    gen, text = open_token(token_file)
     if token_sha12 is None:
-        return {"session": "running (gateway): the synced record holds no token, so the gateway's file was taken away; "
-                           "its next request is refused",
+        words = ("running (gateway): the synced record holds no token, so the gateway's file was taken away; its next "
+                 "request is refused" if gen is None else
+                 "running (gateway): the synced record holds no token, but the gateway's file still holds one; "
+                 "remove it, or the gateway keeps serving the old account")
+        return {"session": words,
                 "detail": {"generation": gen, "fingerprint": None, "confirmed": None}}
     if gen is None:
         return {"session": "running (gateway): the token file is absent after the sync; the gateway cannot serve the new account",
                 "detail": {"generation": None, "fingerprint": token_sha12, "confirmed": None}}
-    try:
-        with open(token_file, "rb") as fh:
-            held = util.sha12(fh.read().decode("utf-8", "replace").rstrip("\n"))
-    except OSError:
-        held = None
+    held = util.sha12(text.rstrip("\n"))
     if held != token_sha12:
         return {"session": "running (gateway): the token file does not hold the synced token; the gateway is not on the new account",
                 "detail": {"generation": gen, "fingerprint": token_sha12, "confirmed": None, "file_fingerprint": held}}
