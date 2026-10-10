@@ -70,7 +70,7 @@ def main() -> int:
             project="agent-fabric"))
         put(f"{wc}/.agent-fabric/memory/python-dev/solution/other-project-pin.md", slice_text(
             "python-dev", "solution", "other-project-pin", "another project pins its interpreter too",
-            {"the other project pins the interpreter at its own file": "The launcher of another project reads its pin file."},
+            {"the other project pins the interpreter at its own file": "launcher launcher launcher interpreter interpreter pin pin pin pin"},
             project="gzapp"))
         put(f"{wc}/.agent-fabric/memory/python-dev/workflow/shared-note.md", slice_text(
             "shared", "workflow", "shared-note", "a note two roles own", {"two roles own this note about launcher": "launcher"},
@@ -101,7 +101,7 @@ def main() -> int:
             return tools.find(corpus, session, {"query": query, **kw})[0]
 
         print("memory_find")
-        first = find("subprocess timeout").splitlines()[0]
+        first = find("subprocess timeouts").splitlines()[0]
         check("the role's own slice ranks first although another role's section matches the words more often",
               first.startswith("f:domains/python-dev/domain/subprocess-timeouts#1"), first)
         check("…and without a role, BM25 alone orders them (the positive control for the line above)",
@@ -110,6 +110,9 @@ def main() -> int:
         lines = find("launcher interpreter pin").splitlines()
         check("the project's slice ranks above another project's", lines[0].startswith("p:python-dev/solution/launcher-pin#1")
               and [i for i, ln in enumerate(lines) if "other-project-pin" in ln][0] > 0, "\n".join(lines))
+        nop = find("launcher interpreter pin", tools.Session(role="python-dev")).splitlines()
+        check("…and without a project, BM25 alone puts the other project's slice first (the positive control)",
+              nop[0].startswith("p:python-dev/solution/other-project-pin"), "\n".join(nop))
         check("a solution hit carries its Observed date and 'verify against the tree'",
               "| 2026-10-01 |" in lines[0] and lines[0].endswith("| verify against the tree"), lines[0])
         check("a domain hit has no decay marker", "verify against" not in first, first)
