@@ -31,9 +31,10 @@ def fp(v: str) -> str:
     return hashlib.sha256(v.encode()).hexdigest()[:12]
 
 
-def env_with(tok: str | None, provider: str | None = "anthropic"):
+def env_with(tok: str | None, provider: str | None = "anthropic", transport: str | None = None):
     def of(_pid: int) -> bytes:
         return (f"PATH=/usr/bin\0{f'AGENT_FABRIC_LAUNCH_PROVIDER={provider}' + chr(0) if provider else ''}"
+                f"{f'AGENT_FABRIC_LAUNCH_TRANSPORT={transport}' + chr(0) if transport else ''}"
                 f"{f'CLAUDE_CODE_OAUTH_TOKEN={tok}' + chr(0) if tok else ''}HOME=/x\0").encode()
     return of
 
@@ -220,10 +221,10 @@ class SecretsSync(unittest.TestCase):
         r2 = g.sync({"id": "r3", "from": "h/user", "args": {"restart": True}}, sessions=[67], me="h/db-admin", env_of=unreadable,
                     kill=lambda p, s: None, alive=lambda p: False, sleep=lambda s: None)
         self.assertEqual(r2["session"], "restarting", 'an environment that cannot be read is not "already on it"')
-        self.assertEqual(S.session_env(1, env_with(TPL)), {"token": TPL, "provider": "anthropic"})
-        self.assertEqual(S.session_env(1, env_with(None, "openrouter")), {"token": None, "provider": "openrouter"})
-        self.assertEqual(S.session_env(1, env_with(TPL, None)), {"token": TPL, "provider": None}, "no stamp: plain claude")
-        self.assertEqual(S.session_env(1, lambda p: "CLAUDE_CODE_OAUTH_TOKEN=\0"), {"token": None, "provider": None}, "empty is absent")
+        self.assertEqual(S.session_env(1, env_with(TPL)), {"token": TPL, "provider": "anthropic", "transport": None})
+        self.assertEqual(S.session_env(1, env_with(None, "openrouter")), {"token": None, "provider": "openrouter", "transport": None})
+        self.assertEqual(S.session_env(1, env_with(TPL, None)), {"token": TPL, "provider": None, "transport": None}, "no stamp: plain claude")
+        self.assertEqual(S.session_env(1, lambda p: "CLAUDE_CODE_OAUTH_TOKEN=\0"), {"token": None, "provider": None, "transport": None}, "empty is absent")
 
     def test_restart_refuses_without_token_with_a_failed_pgrep_during_an_upgrade_and_never_removes_anothers_marker(self):
         none = Fixture(self, writes=None)
@@ -283,6 +284,26 @@ class SecretsSync(unittest.TestCase):
         self.assertEqual((r["session"], sigs), ("restarting", [72]))
         with open(g.up.marker_path(g.dir), encoding="utf-8") as fh:
             self.assertEqual(json.load(fh)["pids"], [72])
+
+    def test_a_gateway_session_takes_the_new_account_with_no_restart(self):
+        f = Fixture(self)
+        for run in range(2):
+            r = f.sync({"id": f"g{run}", "from": "h/user", "args": {"expect": fp(TPL), "restart": True}}, sessions=[80], me="h/db-admin",
+                       env_of=env_with(None, "anthropic", "gateway"), kill=no_kill)
+            self.assertEqual((r["status"], r["session"]), ("synced", "running (gateway): takes the new account on its next request"))
+        self.assertFalse(os.path.exists(f.up.marker_path(f.dir)), "no restart marker, run after run")
+        self.assertEqual(S.session_env(1, env_with(None, "anthropic", "gateway")), {"token": None, "provider": "anthropic", "transport": "gateway"})
+        g = Fixture(self)
+        up, sigs = [True], []
+        r = g.sync({"id": "mix2", "from": "h/user", "args": {"restart": True}}, sessions=[81, 82], me="h/db-admin",
+                   env_of=lambda pid: (env_with(None, "anthropic", "gateway") if pid == 81 else env_with(OLD))(pid),
+                   kill=lambda pid, s: (sigs.append(pid), up.__setitem__(0, False)), alive=lambda p: up[0], sleep=lambda s: None)
+        self.assertEqual((r["session"], sigs), ("restarting", [82]), "only the plain-claude session on the old account is stopped")
+        h = Fixture(self)
+        r = h.sync({"id": "plain", "from": "h/user", "args": {"restart": True}}, sessions=[83], me="h/db-admin",
+                   env_of=env_with(None, "anthropic"), kill=lambda pid, s: None, alive=lambda p: False, sleep=lambda s: None)
+        self.assertNotEqual(r["session"], "running (gateway): takes the new account on its next request",
+                            "without the stamp a session that holds no token is not a gateway session")
 
     def test_one_sync_at_a_time(self):
         f = Fixture(self)

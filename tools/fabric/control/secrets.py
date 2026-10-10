@@ -86,18 +86,22 @@ def session_env(pid: int, env_of: Callable[[int], bytes | str] | None = None) ->
     launcher removes the token — so it is never "not on" one: restarting it
     would bring it back just as tokenless, on every run (re-review of #37). A
     session without the stamp is taken as plain claude, the only path a token
-    reaches."""
+    reaches. A session on the gateway (the launcher stamps AGENT_FABRIC_LAUNCH_TRANSPORT)
+    holds no token either, by design: the gateway re-reads the account's token file on
+    every request, so a move reaches it with no restart."""
     if env_of is None:
         with open(f"/proc/{pid}/environ", "rb") as fh:
             raw: bytes | str = fh.read()
     else:
         raw = env_of(pid)
-    out: dict[str, str | None] = {"token": None, "provider": None}
+    out: dict[str, str | None] = {"token": None, "provider": None, "transport": None}
     for kv in util.decode(raw if isinstance(raw, bytes) else raw.encode("utf-8")).split("\0"):
         if kv.startswith("CLAUDE_CODE_OAUTH_TOKEN="):
             out["token"] = kv[len("CLAUDE_CODE_OAUTH_TOKEN="):] or None
         elif kv.startswith("AGENT_FABRIC_LAUNCH_PROVIDER="):
             out["provider"] = kv[len("AGENT_FABRIC_LAUNCH_PROVIDER="):] or None
+        elif kv.startswith("AGENT_FABRIC_LAUNCH_TRANSPORT="):
+            out["transport"] = kv[len("AGENT_FABRIC_LAUNCH_TRANSPORT="):] or None
     return out
 
 
@@ -203,15 +207,19 @@ def secrets_sync_once(
         except OSError:
             envs[pid] = None
     broker = [p for p in running if envs[p] and envs[p]["provider"] and envs[p]["provider"] != "anthropic"]
+    gateway = [p for p in running if p not in broker and envs[p] and envs[p]["transport"] == "gateway"]
 
     def token_of(p: int) -> str | None:
         return envs[p]["token"] if envs[p] else None
 
-    stale = [p for p in running if p not in broker
+    stale = [p for p in running if p not in broker and p not in gateway
              and not ((t := token_of(p)) and tok and util.sha12(t) == util.sha12(tok))]
     if not stale:
-        return done("running (broker): no Claude account to move" if len(broker) == len(running)
-                    else "running, already on it")
+        if len(broker) == len(running):
+            return done("running (broker): no Claude account to move")
+        if gateway and len(broker) + len(gateway) == len(running):
+            return done("running (gateway): takes the new account on its next request")
+        return done("running, already on it")
     if me and request.get("from") == me:
         return done("yours: relaunch to use it")
     if not restart:

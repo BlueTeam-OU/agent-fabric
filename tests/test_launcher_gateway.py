@@ -50,6 +50,7 @@ def main() -> int:
                 ("an unsupported runtime contract", "print('{\"gateway_version\":\"1.2.3\",\"runtime_contract\":2,\"plan_schemas\":[0]}')", "speaks runtime contract 2"),
                 ("a gateway that does not accept plan schema 0", "print('{\"gateway_version\":\"1.2.3\",\"runtime_contract\":1,\"plan_schemas\":[1]}')", "accepts plan schemas [1]"),
                 ("a contract that is a string", "print('{\"gateway_version\":\"1\",\"runtime_contract\":\"1\",\"plan_schemas\":[0]}')", "did not answer"),
+                ("a plan_schemas of [false], which is not 0", "print('{\"gateway_version\":\"1\",\"runtime_contract\":1,\"plan_schemas\":[false]}')", "accepts plan schemas [False]"),
                 ("a bool contract", "print('{\"gateway_version\":\"1\",\"runtime_contract\":true,\"plan_schemas\":[0]}')", "did not answer"),
                 ("not JSON", "print('hello')", "did not answer"),
                 ("a JSON array", "print('[]')", "did not answer"),
@@ -74,6 +75,10 @@ def main() -> int:
         check("a good READY parses", parse_raises() == "")
         for label, over, wants in (("an unsupported contract", {"runtime_contract": 2}, "runtime contract 2"),
                                    ("a plan schema other than 0", {"plan_schema": 1}, "plan schema 1"),
+                                   ("a bool for the contract", {"runtime_contract": True}, "runtime contract True"),
+                                   ("a float for the contract", {"runtime_contract": 1.0}, "runtime contract 1.0"),
+                                   ("a bool for the schema", {"plan_schema": False}, "plan schema False"),
+                                   ("a float for the schema", {"plan_schema": 0.0}, "plan schema 0.0"),
                                    ("a public listener", {"listener": "http://0.0.0.0:54321"}, "not loopback"),
                                    ("an https listener", {"listener": "https://127.0.0.1:54321"}, "not loopback"),
                                    ("a listener port above 65535", {"listener": "http://127.0.0.1:99999"}, "not loopback"),
@@ -107,10 +112,18 @@ def main() -> int:
         check("the record holds pid, version, listener, plan digest, started_at and not the key",
               json.loads(rec) == {"pid": 4242, "gateway_version": "1", "runtime_contract": 1, "listener": "http://127.0.0.1:1",
                                   "plan_digest": digest, "started_at": "2026-10-10T00:00:00Z"} and "k" * 8 not in rec, rec)
-        gateway.forget_state(state)
-        check("forgotten at the end", not os.path.exists(os.path.join(state, "gateway.json")))
-        gateway.forget_state(state)
+        gateway.forget_state(state, 1)
+        check("a record another gateway wrote over this login's is left alone", os.path.exists(os.path.join(state, "gateway.json")))
+        gateway.forget_state(state, 4242)
+        check("forgotten at the end, when it is this gateway's", not os.path.exists(os.path.join(state, "gateway.json")))
+        gateway.forget_state(state, 4242)
         check("forgetting what is not there is not an error", True)
+        env3 = {"ANTHROPIC_BASE_URL": Fake.listener, "ANTHROPIC_API_KEY": Fake.key}
+        gateway.clear_harness_env(Fake, env3)
+        check("after the session this launcher's listener and key leave its environment", env3 == {}, env3)
+        env4 = {"ANTHROPIC_BASE_URL": "http://elsewhere", "ANTHROPIC_API_KEY": "another"}
+        gateway.clear_harness_env(Fake, env4)
+        check("…and a value that is not ours stays", env4 == {"ANTHROPIC_BASE_URL": "http://elsewhere", "ANTHROPIC_API_KEY": "another"})
         try:
             gateway.plan_digest(os.path.join(tmp, "no-plan"))
             got = ""
@@ -120,13 +133,45 @@ def main() -> int:
         env2 = {}
         os.environ.pop("AGENT_FABRIC_GATEWAY_READY_TIMEOUT_S", None)
         check("the READY wait defaults", gateway.ready_timeout(env2) == gateway.READY_TIMEOUT_S)
-        check("…is overridable", gateway.ready_timeout({"AGENT_FABRIC_GATEWAY_READY_TIMEOUT_S": "7"}) == 7.0)
-        check("…and a bad override falls back", gateway.ready_timeout({"AGENT_FABRIC_GATEWAY_READY_TIMEOUT_S": "-1"}) == gateway.READY_TIMEOUT_S)
-        found = script("agent-fabric-gateway", "pass")
-        check("the installed binary: AGENT_FABRIC_GATEWAY_BIN wins; else the one on PATH",
-              gateway.binary_path({"AGENT_FABRIC_GATEWAY_BIN": "/x/gw", "PATH": tmp}) == "/x/gw"
-              and gateway.binary_path({"PATH": f"/nonexistent:{tmp}"}) == found, found)
-        check("no binary anywhere: refused", "not installed" in refused(gateway.binary_path, {"PATH": "/nonexistent"}))
+        check("…is overridable", gateway.ready_timeout({"AGENT_FABRIC_GW_READY_TIMEOUT_S": "7"}) == 7.0)
+        check("…and a bad override falls back", gateway.ready_timeout({"AGENT_FABRIC_GW_READY_TIMEOUT_S": "-1"}) == gateway.READY_TIMEOUT_S)
+        fab = os.path.join(tmp, "fabric")
+        os.makedirs(os.path.join(fab, "runtime"))
+        with open(os.path.join(fab, "runtime", "gateway.json"), "w") as fh:
+            json.dump({"releases": {"9.9.9": {"x86_64": {"member": "dir-9.9.9/gw-bin"}}}}, fh)
+        check("the executable's name is the pin's: the basename of a release's member", gateway.pinned_name(fab) == "gw-bin")
+        os.makedirs(os.path.join(tmp, "home", ".local", "bin"))
+        installed = script("home/.local/bin/gw-bin", "pass")
+        elsewhere = os.path.join(tmp, "path")
+        os.makedirs(elsewhere)
+        on_path = script("path/gw-bin", "pass")
+        check("AGENT_FABRIC_GW_BIN wins; else ~/.local/bin, where the install action puts it; else PATH",
+              gateway.binary_path({"AGENT_FABRIC_GW_BIN": "/x/gw", "HOME": os.path.join(tmp, "home")}, fab) == "/x/gw"
+              and gateway.binary_path({"HOME": os.path.join(tmp, "home"), "PATH": elsewhere}, fab) == installed
+              and gateway.binary_path({"HOME": os.path.join(tmp, "nohome"), "PATH": elsewhere}, fab) == on_path,
+              (installed, on_path))
+        check("not installed anywhere: refused, nothing started",
+              "gw-bin is not installed" in refused(gateway.binary_path, {"HOME": os.path.join(tmp, "nohome"), "PATH": "/nonexistent"}, fab))
+        with open(os.path.join(fab, "runtime", "gateway.json"), "w") as fh:
+            fh.write("{")
+        check("a pin that names no executable: refused", "names no gateway executable" in refused(gateway.pinned_name, fab))
+
+    print("the parent guard")
+    with tempfile.TemporaryDirectory(prefix="test_launcher_gateway.") as tmp:
+        fake = os.path.join(tmp, "gw")
+        with open(fake, "w") as fh:
+            fh.write("#!/usr/bin/env python3\nimport os, sys\nopen(sys.argv[sys.argv.index('--plan') + 1] + '.ran', 'w').close()\n")
+        os.chmod(fake, 0o755)
+        plan = os.path.join(tmp, "plan.json")
+        with open(plan, "w") as fh:
+            fh.write("{}\n")
+        why = refused(gateway.start, fake, plan, os.path.join(tmp, "log"), {"gateway_version": "1"}, ready_timeout=5,
+                      launcher_pid=os.getpid() + 1)
+        check("a parent that is not the recorded launcher: the child exits before exec (127), the gateway never runs",
+              "stopped before READY" in why and "exit 127" in why and not os.path.exists(plan + ".ran"), why)
+        why = refused(gateway.start, fake, plan, os.path.join(tmp, "log"), {"gateway_version": "1"}, ready_timeout=5)
+        check("the recorded parent: the gateway runs (here it exits without READY, which is its own refusal)",
+              os.path.exists(plan + ".ran") and "stopped before READY" in why and "exit 127" not in why, why)
 
     print("approving the gateway-local key for the harness")
     with tempfile.TemporaryDirectory(prefix="test_launcher_gateway.") as tmp:

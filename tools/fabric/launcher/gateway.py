@@ -1,7 +1,7 @@
 """tools/fabric/launcher/gateway.py — the gateway path: `--provider gateway`.
 A part of tools/fabric/launch.py, whose docstring is the contract.
 
-The harness talks to agent-fabric-gateway on a loopback port, holding only a
+The harness talks to the gateway on a loopback port, holding only a
 gateway-local key; the gateway holds the upstream credential (the account's
 token file, re-read on every attempt) and routes by the plan the generator
 (tools/fabric/gateway_plan.py) writes. So `fabric-accounts assign` takes effect
@@ -54,7 +54,7 @@ from dataclasses import dataclass
 from fabric_launcher.base import BROKER_ENV, _load, die, say
 
 # The runtime_contract values and plan schema versions this launcher speaks
-# (agent-fabric-gateway architecture/contracts/plan-v0/README.md). A contract
+# (the gateway repository's architecture/contracts/plan-v0/README.md). A contract
 # the gateway reports and this tuple lacks is refused before anything starts.
 SUPPORTED_RUNTIME_CONTRACTS = (1,)
 PLAN_SCHEMA = 0
@@ -92,14 +92,34 @@ class Gateway:
         return self.proc.pid
 
 
-def binary_path(env: dict) -> str:
-    """AGENT_FABRIC_GATEWAY_BIN, else agent-fabric-gateway on PATH."""
-    named = env.get("AGENT_FABRIC_GATEWAY_BIN", "")
+def pinned_name(fabric_root: str) -> str:
+    """The installed executable's name, from the fleet's pin (runtime/gateway.json:
+    the basename of a release's tarball member, which the install action renames
+    into ~/.local/bin). The name is the pin's, so no project name is in this file."""
+    path = os.path.join(fabric_root, "runtime", "gateway.json")
+    try:
+        with open(path, encoding="utf-8") as fh:
+            releases = json.load(fh)["releases"]
+        for arches in releases.values():
+            for entry in arches.values():
+                name = os.path.basename(entry["member"])
+                if name:
+                    return name
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        pass
+    die(f"{path} names no gateway executable (a release's member). Nothing started.")
+
+
+def binary_path(env: dict, fabric_root: str) -> str:
+    """AGENT_FABRIC_GW_BIN; else the pinned executable in ~/.local/bin, where the
+    install action puts it; else on PATH."""
+    named = env.get("AGENT_FABRIC_GW_BIN", "")
     if named:
         return named
-    found = _which("agent-fabric-gateway", env.get("PATH", ""))
+    name = pinned_name(fabric_root)
+    found = _which(name, os.path.join(env.get("HOME", ""), ".local", "bin") + os.pathsep + env.get("PATH", ""))
     if not found:
-        die("agent-fabric-gateway is not installed (not on PATH, and AGENT_FABRIC_GATEWAY_BIN is not set). Nothing started.")
+        die(f"{name} is not installed (not in ~/.local/bin or on PATH, and AGENT_FABRIC_GW_BIN is not set). Nothing started.")
     return found
 
 
@@ -116,7 +136,7 @@ def check_version(binary: str, timeout: float = VERSION_TIMEOUT_S) -> dict:
     schemas are ones this launcher supports. Nothing is started before this."""
     try:
         r = subprocess.run([binary, "--version", "--json"], stdin=subprocess.DEVNULL, capture_output=True, text=True,
-                           timeout=timeout)
+                           errors="replace", timeout=timeout)
     except subprocess.TimeoutExpired:
         die(f"{binary} --version --json did not answer within {timeout:g} s. Nothing started.")
     except OSError as exc:
@@ -133,7 +153,7 @@ def check_version(binary: str, timeout: float = VERSION_TIMEOUT_S) -> dict:
     if doc["runtime_contract"] not in SUPPORTED_RUNTIME_CONTRACTS:
         die(f"the installed gateway {doc['gateway_version']} speaks runtime contract {doc['runtime_contract']}; "
             f"this launcher supports {', '.join(map(str, SUPPORTED_RUNTIME_CONTRACTS))}. Nothing started.")
-    if PLAN_SCHEMA not in doc["plan_schemas"]:
+    if not any(type(s) is int and s == PLAN_SCHEMA for s in doc["plan_schemas"]):
         die(f"the installed gateway {doc['gateway_version']} accepts plan schemas {doc['plan_schemas']}, not {PLAN_SCHEMA}, "
             "the one the plan generator writes. Nothing started.")
     return doc
@@ -242,9 +262,9 @@ def _parse_ready(line: bytes, digest: str) -> dict:
         doc = None
     if not isinstance(doc, dict) or doc.get("event") != "ready":
         raise _Refuse("the gateway's first line was not a READY record")
-    if doc.get("runtime_contract") not in SUPPORTED_RUNTIME_CONTRACTS:
+    if type(doc.get("runtime_contract")) is not int or doc["runtime_contract"] not in SUPPORTED_RUNTIME_CONTRACTS:
         raise _Refuse(f"READY names runtime contract {doc.get('runtime_contract')!r}, which this launcher does not support")
-    if doc.get("plan_schema") != PLAN_SCHEMA:
+    if type(doc.get("plan_schema")) is not int or doc["plan_schema"] != PLAN_SCHEMA:
         raise _Refuse(f"READY names plan schema {doc.get('plan_schema')!r}, not {PLAN_SCHEMA}")
     listener = doc.get("listener")
     if not isinstance(listener, str) or not LISTENER.fullmatch(listener) or int(LISTENER.fullmatch(listener).group(1)) > 65535:
@@ -333,7 +353,7 @@ def approve_key(path: str, key: str) -> None:
     approved = [a for a in approved if a != tail][-(APPROVED_KEEP - 1):] + [tail]
     doc["customApiKeyResponses"] = {**responses, "approved": approved, "rejected": [r for r in rejected if r != tail]}
     doc["hasCompletedOnboarding"] = True
-    tmp = f"{path}.fabric-tmp"
+    tmp = f"{path}.fabric-tmp-{os.getpid()}"
     try:
         with open(os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "w", encoding="utf-8") as fh:
             json.dump(doc, fh, indent=2)
@@ -359,17 +379,32 @@ def record_state(state_dir: str, gw: Gateway) -> None:
         say(f"launch: could not record the gateway in {path}: {exc}")
 
 
-def forget_state(state_dir: str) -> None:
+def forget_state(state_dir: str, pid: int) -> None:
+    """Remove the record, but only if it is this gateway's: a second launch of
+    the login has written its own over it, and that one is still running."""
+    path = os.path.join(state_dir, "gateway.json")
     try:
-        os.unlink(os.path.join(state_dir, "gateway.json"))
-    except OSError:
+        with open(path, encoding="utf-8") as fh:
+            if json.load(fh).get("pid") != pid:
+                return
+        os.unlink(path)
+    except (OSError, ValueError, AttributeError):
         pass
 
 
+def clear_harness_env(gw: Gateway, env: dict) -> None:
+    """After the session: the listener and key this launcher set are gone from its
+    own environment, so a re-exec or the next gateway's does not inherit them."""
+    if env.get("ANTHROPIC_BASE_URL") == gw.listener:
+        env.pop("ANTHROPIC_BASE_URL", None)
+    if env.get("ANTHROPIC_API_KEY") == gw.key:
+        env.pop("ANTHROPIC_API_KEY", None)
+
+
 def ready_timeout(env: dict) -> float:
-    """AGENT_FABRIC_GATEWAY_READY_TIMEOUT_S, for a test or a slow host; a value
+    """AGENT_FABRIC_GW_READY_TIMEOUT_S, for a test or a slow host; a value
     that is not a positive number is said and the default used."""
-    raw = env.get("AGENT_FABRIC_GATEWAY_READY_TIMEOUT_S", "")
+    raw = env.get("AGENT_FABRIC_GW_READY_TIMEOUT_S", "")
     if not raw:
         return READY_TIMEOUT_S
     try:
@@ -378,7 +413,7 @@ def ready_timeout(env: dict) -> float:
             return value
     except ValueError:
         pass
-    say(f"launch: AGENT_FABRIC_GATEWAY_READY_TIMEOUT_S is not a positive number ('{raw}'); using {READY_TIMEOUT_S:g}")
+    say(f"launch: AGENT_FABRIC_GW_READY_TIMEOUT_S is not a positive number ('{raw}'); using {READY_TIMEOUT_S:g}")
     return READY_TIMEOUT_S
 
 
@@ -387,7 +422,7 @@ def launch_gateway(env: dict, fabric_root: str, agent: str, role: str, state_dir
     the installed gateway checked, the plan built by tools/fabric/gateway_plan.py
     and written, the gateway started and READY, the harness's environment set,
     the state recorded. Every refusal is before the harness exists."""
-    binary = binary_path(env)
+    binary = binary_path(env, fabric_root)
     version = check_version(binary)
     generator = os.path.join(fabric_root, "tools", "fabric", "gateway_plan.py")
     if not os.path.isfile(generator):

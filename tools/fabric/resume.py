@@ -174,7 +174,7 @@ def profile_provider(login: str, role: str | None) -> str | None:
 
 
 def last_launch_transport(record: str | None = None) -> str:
-    """"gateway" when the account's last launch went through agent-fabric-gateway
+    """"gateway" when the account's last launch went through the gateway
     (launch-provider.json's `transport`, written by the launcher beside the
     provider); "" otherwise, unreadable included."""
     record = record or os.path.join(install_agent_files.fabric_writes.state_dir(), install_agent_files.LAUNCH_RECORD)

@@ -1180,7 +1180,7 @@ echo "CLAUDE-PROVIDER:${AGENT_FABRIC_LAUNCH_PROVIDER-}"
 echo "CLAUDE-TRANSPORT:${AGENT_FABRIC_LAUNCH_TRANSPORT-}"
 """
         gw_log = f"{sandbox}/gateway.log"
-        gw_env = {"AGENT_FABRIC_GATEWAY_BIN": f"{bin_}/fake-gateway", "FAKE_GW_LOG": gw_log,
+        gw_env = {"AGENT_FABRIC_GW_BIN": f"{bin_}/fake-gateway", "FAKE_GW_LOG": gw_log,
                   "CLAUDE_CODE_OAUTH_TOKEN": "sk-ant-oat01-LEAK-CHECK", "OPENROUTER_API_KEY": "sk-or-LEAK-CHECK",
                   "ANTHROPIC_AUTH_TOKEN": "leak-auth-token", "ANTHROPIC_CUSTOM_HEADERS": "x-leak: 1",
                   "ANTHROPIC_API_KEY": "sk-ant-api03-LEAK-CHECK"}
@@ -1268,23 +1268,28 @@ echo "CLAUDE-TRANSPORT:${AGENT_FABRIC_LAUNCH_TRANSPORT-}"
                             ("publiclistener", "not loopback http"), ("contract2ready", "READY names runtime contract 2"),
                             ("hang", "did not report READY within")):
             rm(gw_log)
-            rc, out = run("--provider", "gateway", plant={**gw_env, "FAKE_GW_MODE": mode, "AGENT_FABRIC_GATEWAY_READY_TIMEOUT_S": "2"})
+            rc, out = run("--provider", "gateway", plant={**gw_env, "FAKE_GW_MODE": mode, "AGENT_FABRIC_GW_READY_TIMEOUT_S": "2"})
             serve = next((r for r in gw_records() if r.get("event") == "serve"), {})
             check(f"READY failure ({mode}): refused before the harness, the gateway not left running", rc == 1 and wants in out
                   and "CLAUDE-EXECCED" not in out and not alive(serve.get("pid", 0)) and not os.path.exists(state_file), (rc, out))
         rm(gw_log)
-        rc, out = run("--provider", "gateway", plant={**gw_env, "FAKE_PLAN_DROP": "x"})
         rc2, out2 = run("--provider", "gateway", plant=gw_env)
-        check("a model the harness would send but the plan has no route for: refused, naming it, the gateway not started",
-              rc2 == 0, out2)
-        # the dropped selector must be a real pin: take the session model from a normal run
+        check("the control: the same launch with nothing dropped runs", rc2 == 0 and "CLAUDE-EXECCED" in out2, out2)
+        # a real tier pin and the real session model, from the --print report
+        rep = out_of("--provider", "gateway", "--print")
         session_model = next(iter(re.findall(r"CLAUDE-EXECCED:.*--model (\S+)", out2)), "")
+        pin_model = next((m for m in re.findall(r"^  code-[a-z]+\s*: (\S+)", rep, re.M) if m != session_model), "")
+        rm(gw_log)
+        rc, out = run("--provider", "gateway", plant={**gw_env, "FAKE_PLAN_DROP": pin_model})
+        check("a tier pin the harness would send for a subagent but the plan has no route for: refused, naming it, the gateway not started",
+              pin_model != "" and pin_model != session_model and rc == 1 and f"the plan has no route for {pin_model}" in out
+              and "CLAUDE-EXECCED" not in out and not os.path.exists(gw_log), f"{pin_model!r} {session_model!r} {rc} {out}")
         rm(gw_log)
         rc, out = run("--provider", "gateway", plant={**gw_env, "FAKE_PLAN_DROP": session_model})
         check("…the same with the session model dropped from the plan",
               rc == 1 and f"the plan has no route for {session_model}" in out and "skipped: code-plan" in out
               and "CLAUDE-EXECCED" not in out and not os.path.exists(gw_log), (rc, out))
-        rc, out = run("--provider", "gateway", plant={**gw_env, "AGENT_FABRIC_GATEWAY_BIN": f"{bin_}/nope"})
+        rc, out = run("--provider", "gateway", plant={**gw_env, "AGENT_FABRIC_GW_BIN": f"{bin_}/nope"})
         check("no installed gateway: refused, nothing started", rc == 1 and "cannot run" in out and "CLAUDE-EXECCED" not in out, out)
         rm(f"{fabric}/tools/fabric/gateway_plan.py")
         rm(gw_log)
@@ -1293,10 +1298,19 @@ echo "CLAUDE-TRANSPORT:${AGENT_FABRIC_LAUNCH_TRANSPORT-}"
               rc == 1 and "gateway plan generator" in out and not os.path.exists(gw_log) and "CLAUDE-EXECCED" not in out, out)
         rc, out = run("--provider", "gateway", "--print", plant=gw_env)
         check("--print on the gateway path resolves as anthropic, says so, and starts nothing",
-              rc == 0 and "provider anthropic)" in out and "launched through agent-fabric-gateway" in out and not os.path.exists(gw_log)
+              rc == 0 and "provider anthropic)" in out and "launched through the gateway" in out and not os.path.exists(gw_log)
               and "EXECCED" not in out, out)
         rc, out = run("--provider", "gateway", "--help", plant=gw_env)
         check("claude's own --help on the gateway path starts no gateway", not os.path.exists(gw_log), out)
+        rm(gw_log)
+        rc, out = run("--provider", "anthropic", plant={"ANTHROPIC_BASE_URL": "http://127.0.0.1:54321", "ANTHROPIC_API_KEY": "k-from-the-gateway-session",
+                                                          "AGENT_FABRIC_LAUNCH_TRANSPORT": "gateway"})
+        check("a launch started from inside a gateway session drops its loopback URL and key, said; plain claude is Anthropic direct",
+              rc == 0 and has(r"CLAUDE-BASE:<unset>$", out) and has(r"CLAUDE-KEYSHA:" + hashlib.sha256(b"").hexdigest() + "$", out)
+              and "started from inside a gateway session — dropped what it left in this shell: ANTHROPIC_BASE_URL ANTHROPIC_API_KEY" in out
+              and has(r"CLAUDE-TRANSPORT:$", out), out)
+        rc, out = run("--provider", "anthropic", plant={"ANTHROPIC_BASE_URL": "http://127.0.0.1:54321"})
+        check("…and without the gateway stamp a loopback base URL is left alone (the control)", has(r"CLAUDE-BASE:http://127\.0\.0\.1:54321$", out), out)
         put(f"{bin_}/claude", FAKE_CLAUDE, 0o755)
         rm(f"{bin_}/fake-gateway")
 
