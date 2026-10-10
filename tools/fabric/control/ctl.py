@@ -1614,6 +1614,7 @@ def _int(v: Any) -> float:
 
 STATES_REPLAY = 500
 STATES_STALE_MS = 2 * 10 * 60 * 1000
+UNREADABLE = "unreadable"       # control/sessions.py's: what a state record's `sessions` says when the account cannot read it
 RANK = {"blocked": 3, "working": 2, "idle": 1}
 
 
@@ -1624,20 +1625,23 @@ def state_row(address: str, rec: Any, now: float | None = None) -> dict:
         return {"address": address, "state": "unknown", "sessions": [], "why": "no state record on the channel"}
     ts = js.string(rec["ts"])
     stale = now - _date_parse(ts) > STATES_STALE_MS
+    unreadable = rec.get("sessions") == UNREADABLE
     sessions = rec["sessions"] if isinstance(rec.get("sessions"), list) else []
     top = None
     for s in sessions:
         if RANK.get(dig(s, "state"), 0) > RANK.get(dig(top, "state"), 0):
             top = s
     row = {"address": address, "ts": rec["ts"], "role": nullish(rec.get("role"), None), "project": nullish(rec.get("project"), None), "sessions": sessions,
-           "state": "unknown" if stale else top["state"] if top is not None else "none", "since": nullish(dig(top, "since"), None)}
+           "state": "unknown" if stale or unreadable else top["state"] if top is not None else "none", "since": nullish(dig(top, "since"), None)}
     # What the deck resumes (docs/fleet-deck/session-recovery.md): carried as
     # agentd wrote it, absent when it wrote none.
     if T(rec.get("last_session")):
         row["last_session"] = rec["last_session"]
         row["resumable"] = rec.get("resumable") is True
-    if stale:
+    if stale:       # an old record says nothing about now, whatever it said: this why first
         row["why"] = "no record for two heartbeats"
+    elif unreadable:
+        row["why"] = "the account cannot read its session state"
     return row
 
 
@@ -1680,6 +1684,8 @@ def state_record_of(rec: Any, want: set) -> dict | None:
     if rb is not UNDEFINED and not isinstance(rb, bool):
         return None
     sessions = r.get("sessions")
+    if sessions == UNREADABLE:
+        return r          # the account says it cannot read its session state (j68): a string, nothing to check inside it
     if not isinstance(sessions, list):
         return None
     for s in sessions:

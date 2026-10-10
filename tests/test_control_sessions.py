@@ -3,7 +3,8 @@
 
 sessions.test.mjs's cases are ported case for case, but one: it read an
 unreadable state file as no sessions, and j5 (the owner, 2026-10-09)
-makes that unknown here; python-dev-02's j5 cases stand in for it. Its
+makes that unknown here, said on the wire as "unreadable" since the Node
+was deleted (j68); python-dev-02's j5 cases stand in for it. Its
 "agentd posts on the state channel" case is agentd's and moves with that
 port. Date.parse is held to Node's on the same strings.
 """
@@ -118,34 +119,33 @@ def main() -> int:
         check("a directory where the file should be (a read error, not absent): unknown", cs.read_sessions(file, proc=proc) is None)
         os.rmdir(file)
 
-        print("j5, as fabric-coordinator decided (REPLY 01a11ec9-b9e8): no state posted while unknown")
+        print("j68 (fabric-coordinator REPLY 01a11ec9-b9e8, after #170): an unreadable file is said as `unreadable`")
         write({})
         posts, logs, t = [], [], [0.0]
         w = cs.StateWatcher(address="h/x", post=posts.append, file=file, proc=proc, now=lambda: t[0], heartbeat_ms=60_000, log=logs.append)
         check("a readable file is posted", w.tick() is True and posts[-1]["sessions"] == [])
         raw("{broken")
         t[0] += 2000
-        check("the file broken: nothing is posted, never a wrong none", w.tick() is False and len(posts) == 1)
+        check("the file broken: `unreadable` is posted, never a wrong none", w.tick() is True and len(posts) == 2 and posts[-1]["sessions"] == "unreadable")
         t[0] += 2000
-        check("a tick 2 s later posts nothing either", w.tick() is False and len(posts) == 1)
+        check("a tick 2 s later posts nothing", w.tick() is False and len(posts) == 2)
         t[0] += 60_000
-        check("nor the heartbeat: the last record goes stale at the listener", w.tick() is False and len(posts) == 1)
-        check("nothing posted says unreadable", all(p["sessions"] != "unreadable" for p in posts))
+        check("the heartbeat says it again", w.tick() is True and len(posts) == 3 and posts[-1]["sessions"] == "unreadable")
         raw('{"sessions": {}}')
         t[0] += 2000
-        check("readable again: posted at once, though nothing changed since the last record", w.tick() is True and posts[-1]["sessions"] == [])
+        check("readable again: posted at once", w.tick() is True and posts[-1]["sessions"] == [])
         check("the log holds exactly two lines, down and back",
-              logs == [f"{file} cannot be read; no state posted until it reads again", f"{file} is readable again"], logs)
+              logs == [f"{file} cannot be read; its sessions said as unreadable", f"{file} is readable again"], logs)
         raw("{broken")
         t[0] += 1000
-        check("broken again", w.tick() is False)
+        check("broken again: said at once", w.tick() is True and posts[-1]["sessions"] == "unreadable")
         raw('{"sessions": {}}')
         t[0] += 2000
-        check("readable 3 s later, inside the heartbeat, the same as last said: posted at once", w.tick() is True and len(posts) == 3)
+        check("readable 3 s later: posted at once", w.tick() is True and posts[-1]["sessions"] == [])
         raw("{broken")
         posts2 = []
         w2 = cs.StateWatcher(address="h/x", post=posts2.append, file=file, proc=proc, now=lambda: 0.0, log=lambda m: None)
-        check("a watcher that starts on a broken file posts nothing at all", w2.tick() is False and posts2 == [])
+        check("a watcher that starts on a broken file says `unreadable` at once", w2.tick() is True and posts2[-1]["sessions"] == "unreadable")
 
         print("what a readable file may hold (review of 0306aa27)")
         raw('{"sessions": {"big": {"state": "idle", "since": "2026-10-08T11:59:00Z", "pid": 1' + "0" * 400 + '}}}')

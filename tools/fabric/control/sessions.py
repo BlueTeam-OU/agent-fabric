@@ -32,16 +32,20 @@ owner 2026-10-09; python-dev-02's contract, INFO 01a11e4c and
 01a11e4e-f664): the rule both watchers keep since af4cf645. read_sessions answers [] when
 the file is absent (none), and None — unknown — when it is there but
 cannot be read, parsed, or is not {"sessions": {...}}, as resume.py's
-live_sessions reads it. While it is unknown the watcher posts NO state
-record, and logs once when the file goes unreadable and once when it
-reads again: a listener keeps the last good record and reads it unknown
-at STATES_STALE_MS, never a wrong "no sessions" — and nothing a Node
-reader cannot read. (Before af4cf645 Node's sessions.mjs read both as []
-and posted it.) Bytes that are not UTF-8 make the state file, or the job
-list, unreadable on both sides.
-Saying "unreadable" on the wire is new wire behaviour, and waits until
-the Node is deleted (ADR-040 §7; fabric-coordinator REPLY 01a11ec9-b9e8,
-2026-10-09): then it is its own change, with ctl's reader for it.
+live_sessions reads it. While it is unknown the watcher says so on the
+wire: the record's `sessions` is the string "unreadable" where it is
+always a list, which a list-only reader drops (so a Node ctl, and any
+reader not yet upgraded, keeps the last good record and reads it unknown
+at STATES_STALE_MS), and ctl's own reader (control/ctl.py state_record_of,
+state_row) shows the account's state unknown with why "the account cannot
+read its session state", never a wrong "no sessions". It logs once when
+the file goes unreadable and once when it reads again. (Before af4cf645
+Node's sessions.mjs read both as [] and posted it; between af4cf645 and the
+Node's deletion the watcher posted nothing while unknown.) Bytes that are
+not UTF-8 make the state file, or the job list, unreadable on both sides.
+Saying "unreadable" on the wire is new wire behaviour: it waited for the
+Node's deletion (ADR-040 §7; fabric-coordinator REPLY 01a11ec9-b9e8,
+2026-10-09), which #170 did, and is this change (job j68).
 
 WHAT IS NOT NODE'S, beyond that: `since` is read as ECMAScript's own
 date-time format (Date.parse's ISO form: a date, a time with its offset
@@ -77,6 +81,9 @@ STATE_HEARTBEAT_MS = 10 * 60 * 1000
 # record (ctl.mjs STATES_STALE_MS). resume.py's NO_PROCESS_FRESH_S is the same.
 NO_PROCESS_FRESH_MS = 2 * STATE_HEARTBEAT_MS
 STATES = ("working", "blocked", "idle")
+# What a state record's `sessions` says when the account cannot read its own session state: a string where it
+# has always been a list (j68). ctl's reader knows it; control/ctl.py repeats the word.
+UNREADABLE = "unreadable"
 # A GZCoord MESSAGE-ID (a UUID, as gzmsg mints it); tools/fabric/jobs.py
 # stores waits_on only in this shape. The cap keeps a record a record.
 MESSAGE_ID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")   # matched whole
@@ -318,12 +325,10 @@ class StateWatcher:
         s = read_sessions(self.file, proc=self.proc, now_ms=now_ms, on_stale=self._on_stale)
         if s is None:
             if not self.sessions_unreadable:
-                self.log(f"{self.file} cannot be read; no state posted until it reads again")
+                self.log(f"{self.file} cannot be read; its sessions said as {UNREADABLE}")
             self.sessions_unreadable = True
-            # The listener's record goes stale meanwhile: the first readable
-            # tick posts at once, whether or not anything changed.
-            self.last_key = None
-            return None
+            # Said like any state: once, then at each heartbeat; the first readable tick differs from it, so it posts at once.
+            return UNREADABLE
         if self.sessions_unreadable:
             self.log(f"{self.file} is readable again")
             self.sessions_unreadable = False
@@ -336,10 +341,6 @@ class StateWatcher:
         try:
             now_ms = self.now()
             sessions = self._sessions_now(now_ms)
-            if sessions is None:
-                # Unknown: nothing is said, and the last record stands, to go
-                # stale at the listener; the next readable tick posts.
-                return False
             said = {"sessions": sessions,
                     **(_bound(self.binding, self.config_dir) if self.binding else
                        {"role": None, "project": None, "last_session": None, "resumable": False}),
