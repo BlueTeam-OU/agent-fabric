@@ -26,7 +26,7 @@ control plane checked out beside it.
 
 ## domain
 
-- [`memory/domains/architect-cto/domain.md`](memory/domains/architect-cto/domain.md) — When a per-client carrier serves a subset of a shared row kind, the narrowing goes in the schema (allOf + not), never in prose — a bare $ref permits every optional member the row declares.
+- [`memory/domains/architect-cto/domain/adr-amendment-model-alternatives.md`](memory/domains/architect-cto/domain/adr-amendment-model-alternatives.md) — Correction for the field slice's allOf + not section — a domain slice carries its own pre-flight inline, never a [[link]] into a project corpus, and names a conformance helper's limit as a check to run, not a fact about one repo
 - [`memory/shared/domain-claude-code-attribution-reminder.md`](memory/shared/domain-claude-code-attribution-reminder.md) — The attribution key is written by runtime/claude-code/user-settings.py, run from tools/fabric/bootstrap.py (shared)
 
 ## recall
