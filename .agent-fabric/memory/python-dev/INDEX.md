@@ -3,7 +3,7 @@ role: "python-dev"
 class: index
 description: "What python-dev knows and where it lives."
 tier: 1
-distilled_at: "2026-10-05"
+distilled_at: "2026-10-10"
 ---
 
 # python-dev — knowledge index
@@ -64,7 +64,6 @@ control plane checked out beside it.
 - [`.agent-fabric/memory/python-dev/threads/j24-signing-key-off-env-findings.md`](.agent-fabric/memory/python-dev/threads/j24-signing-key-off-env-findings.md) — j24 (signing key off the environment; agentd memory sampling) — what was built, on which branch, and what is left for the coordinator
 - [`.agent-fabric/memory/python-dev/threads/wave-7-port-state.md`](.agent-fabric/memory/python-dev/threads/wave-7-port-state.md) — ADR-040 Wave 7 port (gzmsg/send/inbox/i18n to Python) — LANDED in #93 (2026-10-04); the decisions it took (presence via a Node CLI, the oracle rules)
 - [`.agent-fabric/memory/shared/threads-python-port-waves.md`](.agent-fabric/memory/shared/threads-python-port-waves.md) — owner-approved plan (2026-09-29) to port the fabric's ~10.5k lines of production bash to Python in waves; jobs j3–j9; ADR-040 in Wave 0 (shared)
-- [`.agent-fabric/memory/shared/threads-suite-scratch-leak.md`](.agent-fabric/memory/shared/threads-suite-scratch-leak.md) — tests/run.sh fails naming anything a run left under TMPDIR (since agent-fabric #26, 2026-09-20); node suites use tests/scratch.mjs, static.sh refuses inline mkdtempSync; never run the suite twice at once — the two share scratch and fail… (shared)
 
 ## recall
 
