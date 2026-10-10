@@ -3,7 +3,7 @@
 **Date:** 2026-10-10
 **Status:** Proposed
 **Decision Makers:** the owner (curated slices stay; retrieval by an MCP server); drafted by fabric-coordinator
-**Scope:** a `fabric-memory` MCP server over the corpus (`memory/`, a working copy's `.agent-fabric/memory/`); its registration in the sessions' Claude settings; the session-start hook's INDEX line; how retrieval is measured
+**Scope:** a `fabric-memory` MCP server over the corpus (`memory/`, a working copy's `.agent-fabric/memory/`); its registration in each login's `~/.claude.json`; the session-start hook's INDEX line; how retrieval is measured
 **Pillar:** P1
 
 ## 1. Context and Problem
@@ -56,14 +56,19 @@ meaning.
 ## 5. Binding Rules
 
 1. `fabric-memory` is a stdio MCP server in Python's standard library, on
-   the pinned interpreter (ADR-040), started by Claude Code from the
-   fabric's settings, one per session, running as the session's own
-   login. It opens no network connection, writes nothing under the
-   corpus, and calls no model.
+   the pinned interpreter (ADR-040), started by Claude Code, one per
+   session, running as the session's own login. It opens no network
+   connection, writes nothing under the corpus, and calls no model. It is
+   registered the way `runtime/mcp/websearch-locale/install.py` registers
+   its server: `runtime/mcp/fabric-memory/install.py` merges an entry
+   named "fabric-memory" into the login's `~/.claude.json` (user-scope MCP
+   servers live there, not in `settings.json`), recognising its own entry
+   by path, and `runtime/claude-code/install-agent-files.sh` calls it for
+   every login. The command is `bin/fabric-memory-mcp`, by name.
 2. It reads only the corpus the login already has: the fabric's
    `memory/` (through `tools/fabric/roots.py`) and the session's working
    copy's `.agent-fabric/memory/`.
-3. Three tools, cheapest first:
+3. Four tools, cheapest first:
    - `memory_find(query, role?, project?, limit?, max_tokens?)` — ranked
      section hits, each as one line: slice id, section heading (the cue),
      kind, *Observed* date, scope, the section's size in tokens and its
@@ -76,11 +81,22 @@ meaning.
      cut at `max_tokens`; a slice id alone lists its sections.
    - `memory_index(role?, project?)` — the INDEX cue lines for that role
      and project.
+   - `memory_mark(id, verdict, note?)` — `verdict` is `helpful`, `wrong`
+     or `stale`. It appends one line to the login's own state,
+     `agents/<login>/memory-marks.jsonl` (mode 0600: time, id, verdict,
+     the note cut at 300 characters), and refuses an id that
+     `memory_find` did not return. The server still writes nothing under
+     the corpus; a mark is evidence for the drain, not an edit.
 4. Ranking is BM25 with separate weights for the cue, the slice's title
    and the body, tokenising identifiers (paths, `snake_case`, `--flags`)
    as words, built at server start (or on a corpus change) in memory; the
    session's role and project rank first, other scopes are counted, and
-   near-duplicate cues are shown once. No embeddings, no model call.
+   near-duplicate cues are shown once. Each hit is labelled `strong`,
+   `weak` or `none` from its BM25 score and its coverage of the query's
+   idf weight; a list whose best hit is not strong opens with "weak
+   match: read only if the cue fits". The index is a library,
+   `tools/fabric/memory_index.py`, which the server imports and a later
+   hook reuses. No embeddings, no model call.
 5. Decay is shown, not hidden: a `solution` hit carries its *Observed*
    date and "verify against the tree"; a section a `merge_target`
    correction replaced is never returned.
@@ -92,11 +108,16 @@ meaning.
    returned and whether a find was followed by a read; never the query's
    text), so the zero-hit rate, the read-through rate and the slices never
    retrieved can be computed; an offline set of expected hits is kept with
-   the tests; the recall operation reads it once the Node control
-   plane is deleted and its wire may change (ADR-040 §7). Until then the
-   log is read on the host.
+   the tests. The harvest bundle carries the call log's counts (calls per
+   tool, zero-hit finds, finds followed by a read, the corpus ids read;
+   never query text) and the marks, through `fabric-ctl <login> memory`,
+   and the drain report lists them per login and per section id. Agents
+   may live on different hosts, so nothing here is read from another
+   account's state directly.
 8. The session-start hook's INDEX line names the tools ("ask
-   `memory_find` before changing …") instead of a file path.
+   `memory_find` before changing …") instead of a file path. The hook
+   is `runtime/claude-code/hooks/session-start.py`, and
+   `tests/test_session_start.py` changes with it.
 
 ## 6. Consequences
 
@@ -108,16 +129,12 @@ meaning.
 
 ## 7. Future Evolution
 
-- A cue-matched push at session start, if `memory_find` is used and the
-  first query of a session proves predictable.
-- The recall operation's counts of MCP calls, after the cutover (rule 7).
 - Aliases on a slice, written by the drain, indexed as their own field.
-- A "maybe stale" mark on a `solution` section whose named files changed
-  in git after its *Observed* date.
-- A cue-line push at session start (a few hundred tokens), and an
-  embedding re-rank, each only if the counts of rule 7 show misses.
-- Section-level freshness: a slice section re-verified against the tree
-  carries its verification date.
+- Anchors on a `solution` section, "verify: path::symbol", to come with
+  the record that makes them.
+- An action-time recall hook, after a week of measured use.
+- An embedding or model re-rank, only if the counts show misses that
+  better cues cannot close.
 
 ## 8. Decision Status
 
