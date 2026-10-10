@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -15,7 +16,8 @@ HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(HERE, "tools", "fabric"))
 sys.path.insert(0, os.path.join(HERE, "runtime"))
 from assembler.slices import retire_in_siblings  # noqa: E402
-from memory_mcp import calls, corpus as corpus_mod, server as srv, tools  # noqa: E402
+import memory_index  # noqa: E402
+from memory_mcp import calls, marks, server as srv, tools  # noqa: E402
 
 BIN = os.path.join(HERE, "bin", "fabric-memory-mcp")
 # What a person asking this would expect first. Kept with the tests so a change to the ranking shows what it moved.
@@ -94,11 +96,14 @@ def main() -> int:
             "- [`identities/roles/python-dev/charter.md`](x) — not a slice\n")
         os.symlink(outside, f"{mem}/domains/python-dev/domain/link-out.md")
 
-        corpus = corpus_mod.load(mem, wc)
-        sess = tools.Session(role="python-dev", project="agent-fabric", working_copy=wc)
+        corpus = memory_index.build(mem, wc)
+        sess = tools.Session(role="python-dev", project="agent-fabric", working_copy=wc, state_dir=state)
+
+        def hit_text(text: str) -> str:
+            return "\n".join(ln for ln in text.splitlines() if ln != tools.WEAK_NOTICE)
 
         def find(query: str, session: tools.Session = sess, **kw) -> str:
-            return tools.find(corpus, session, {"query": query, **kw})[0]
+            return hit_text(tools.find(corpus, session, {"query": query, **kw})[0])
 
         print("memory_find")
         first = find("subprocess timeouts").splitlines()[0]
@@ -117,9 +122,9 @@ def main() -> int:
               "| 2026-10-01 |" in lines[0] and lines[0].endswith("| verify against the tree"), lines[0])
         check("a domain hit has no decay marker", "verify against" not in first, first)
         check("a hit is one line: section id, heading, kind, date, scope, size, score; no body",
-              first.count("|") == 6 and first.split(" | ")[-1].replace(".", "").isdigit() and "Pass timeout" not in first, first)
+              first.count("|") == 6 and re.fullmatch(r"\d+\.\d (strong|weak|none)", first.split(" | ")[-1]) is not None and "Pass timeout" not in first, first)
         check("a role named in shared_with ranks as its own",
-              tools.find(corpus, tools.Session(role="web-dev"), {"query": "launcher note"})[0].splitlines()[0].startswith("p:python-dev/workflow/shared-note"))
+              hit_text(tools.find(corpus, tools.Session(role="web-dev"), {"query": "launcher note"})[0]).splitlines()[0].startswith("p:python-dev/workflow/shared-note"))
         check("the limit bounds the list; what it leaves out is counted by scope",
               len(find("pin interpreter launcher timeout", limit=2).splitlines()) == 3
               and find("pin interpreter launcher timeout", limit=2).splitlines()[-1].startswith("+") and " more: " in find("pin interpreter launcher timeout", limit=2))
@@ -148,8 +153,23 @@ def main() -> int:
 
         print("the offline set of expected hits (ADR-049 rule 7): the first hit of each query")
         for query, role, want in EXPECTED_HITS:
-            got = tools.find(corpus, tools.Session(role=role, project="agent-fabric"), {"query": query})[0].splitlines()[0].split(" | ")[0]
+            got = hit_text(tools.find(corpus, tools.Session(role=role, project="agent-fabric"), {"query": query})[0]).splitlines()[0].split(" | ")[0]
             check(f"{query!r} as {role}: {want}", got == want, got)
+
+        print("bands")
+        exact = tools.find(corpus, sess, {"query": "the launcher pins the interpreter at runtime/python.json"})[0].splitlines()
+        check("a query that is the cue itself is strong, and the list carries no weak notice",
+              exact[0].endswith(" strong | verify against the tree") and exact[0].startswith("p:python-dev/solution/launcher-pin#1"), "\n".join(exact))
+        vague = tools.find(corpus, sess, {"query": "interpreter"})[0].splitlines()
+        check("a one-word match is weak (score under the strong threshold): the list opens with the weak notice",
+              vague[0] == tools.WEAK_NOTICE and " weak" in vague[1], "\n".join(vague))
+        stray = tools.find(corpus, sess, {"query": "launcher zzzaaa yyybbb xxxccc wwwddd"})[0].splitlines()
+        check("a hit that covers little of the query is none", stray[0] == tools.WEAK_NOTICE and " none" in stray[1], "\n".join(stray))
+        B = memory_index
+        check("band: strong needs the score and the coverage", B.band(30, 0.9, 2.0) == "strong" and B.band(11.9, 0.9, 2.0) == "weak"
+              and B.band(30, 0.54, 2.0) == "weak" and B.band(30, 0.29, 2.0) == "none")
+        check("band: a dead heat on a partial match is not strong; on a near-full match it is",
+              B.band(30, 0.6, 1.0) == "weak" and B.band(30, 0.8, 1.0) == "strong")
 
         print("memory_read")
         ref = "p:python-dev/solution/launcher-pin"
@@ -186,6 +206,47 @@ def main() -> int:
               len(idx) == 1 and idx[0].startswith("p:python-dev/solution/launcher-pin | solution |"), "\n".join(idx))
         check("a role with no index is said", tools.index(corpus, sess, {"role": "web-dev"})[0].startswith("no index for role web-dev"))
 
+        print("the library, without the MCP layer")
+        code = ("import sys; sys.path.insert(0, sys.argv[1]); import memory_index; ix = memory_index.build(sys.argv[2], sys.argv[3]); "
+                "h = ix.find('how long may a subprocess run', 'python-dev', None)[0]; "
+                "print(memory_index.section_id(h.section), h.band, 'memory_mcp' in sys.modules)")
+        r = subprocess.run([sys.executable, "-I", "-c", code, os.path.join(HERE, "tools", "fabric"), mem, wc], capture_output=True, text=True, timeout=60)
+        check("a hook can build and query the same index; the MCP layer is not imported",
+              r.returncode == 0 and r.stdout.split() == ["f:domains/python-dev/domain/subprocess-timeouts#1", "weak", "False"], r.stdout + r.stderr)
+
+        print("memory_mark")
+        marks_log = f"{state}/{marks.LOG}"
+        ok_id = "p:python-dev/solution/launcher-pin#1"
+        out, ids = tools.mark(corpus, sess, {"id": ok_id, "verdict": "stale", "note": "the pin moved to 3.14"})
+        row = json.loads(open(marks_log).read().splitlines()[-1])
+        check("a mark is one line in the login's state: time, id, verdict, note", out == f"marked {ok_id} stale" and ids == [ok_id]
+              and set(row) == {"t", "id", "verdict", "note"} and row["id"] == ok_id and row["verdict"] == "stale" and row["note"] == "the pin moved to 3.14", str(row))
+        check("…private, and the corpus is untouched", oct(os.stat(marks_log).st_mode & 0o777) == "0o600"
+              and "stale" not in open(f"{wc}/.agent-fabric/memory/python-dev/solution/launcher-pin.md").read())
+        for label, args in (("a verdict outside helpful | wrong | stale", {"id": ok_id, "verdict": "bad"}),
+                            ("an id memory_find never returned", {"id": "p:python-dev/solution/nope#1", "verdict": "wrong"}),
+                            ("a section that is not there", {"id": ok_id.replace("#1", "#9"), "verdict": "wrong"}),
+                            ("a path", {"id": "../../etc/passwd", "verdict": "wrong"}), ("no verdict", {"id": ok_id})):
+            before = open(marks_log).read()
+            try:
+                tools.mark(corpus, sess, args)
+                err = ""
+            except tools.ToolError as e:
+                err = str(e)
+            check(f"{label}: refused in one line, nothing recorded", err != "" and open(marks_log).read() == before, err)
+        long_note = tools.mark(corpus, sess, {"id": ok_id, "verdict": "helpful", "note": "x" * 1000})
+        check("a long note is cut", len(json.loads(open(marks_log).read().splitlines()[-1])["note"]) <= tools.NOTE_CLIP and long_note[1] == [ok_id])
+        ro = f"{t}/state-ro"
+        os.makedirs(ro, mode=0o500)
+        try:
+            tools.mark(corpus, tools.Session(role="python-dev", state_dir=f"{ro}/agent"), {"id": ok_id, "verdict": "helpful"})
+            lost = ""
+        except tools.ToolError as e:
+            lost = str(e)
+        finally:
+            os.chmod(ro, 0o700)
+        check("a mark that cannot be written is an error, never a silent success", lost.startswith("mark not recorded"), lost)
+
         print("the count of calls")
         log = f"{state}/{calls.LOG}"
         s = srv.Server(corpus, sess, state)
@@ -197,10 +258,13 @@ def main() -> int:
         found = rows[0]["ids"]
         s.call("memory_read", {"ids": [found[0]]})
         s.call("memory_read", {"ids": ["f:domains/web-dev/domain/css-timeouts#1"]})
+        s.call("memory_mark", {"id": found[0], "verdict": "helpful", "note": "launcher-secret-query-text"})
         after = [json.loads(ln).get("after_find") for ln in open(log).read().splitlines()]
         check("a read of an id the last find returned is marked after_find; another read is not; a find has no mark",
-              after[0] is None and after[-2] is True and after[-1] is False, str(after))
+              after[0] is None and after[-3] is True and after[-2] is False and after[-1] is None, str(after))
         check("the query's text is never recorded", "launcher-secret-query-text" not in open(log).read())
+        check("a mark is logged as a call with its id, not its note", json.loads(open(log).read().splitlines()[-1])["tool"] == "memory_mark"
+              and json.loads(open(log).read().splitlines()[-1])["ids"] == [found[0]])
         check("the log is private", oct(os.stat(log).st_mode & 0o777) == "0o600")
         os.chmod(state, 0o500)
         try:
@@ -235,9 +299,9 @@ def main() -> int:
               and by[1]["result"]["serverInfo"]["name"] == "fabric-memory", str(by[1]))
         check("the notification gets no answer: six requests and one bad line, seven answers", len(out) == 7, str(len(out)))
         names = [x["name"] for x in by[2]["result"]["tools"]]
-        check("tools/list: the three tools, each with an input schema", names == ["memory_find", "memory_read", "memory_index"]
+        check("tools/list: the four tools, each with an input schema", names == ["memory_find", "memory_read", "memory_index", "memory_mark"]
               and all(x["inputSchema"]["type"] == "object" for x in by[2]["result"]["tools"]), str(names))
-        text = by[3]["result"]["content"][0]["text"]
+        text = hit_text(by[3]["result"]["content"][0]["text"])
         check("tools/call: the session's role ranks first (read from its binding)", text.splitlines()[0].startswith("f:domains/python-dev/"), text)
         check("a tool's failure is a result with isError, not a protocol error", by[4]["result"]["isError"] is True and "error" not in by[4])
         check("an unknown method is -32601; a line that is not JSON is -32700 with a null id",

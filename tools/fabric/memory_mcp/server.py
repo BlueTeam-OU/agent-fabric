@@ -7,11 +7,12 @@ CONTRACT
   transport  newline-delimited JSON-RPC 2.0 on stdin/stdout, one message per line (MCP stdio); stderr is a log.
   methods    initialize, notifications/initialized (no answer), ping, tools/list, tools/call. Anything else is
              -32601 for a request and silence for a notification. A line that is not JSON is -32700 with id null.
-  tools      memory_find (ranked one-line hits within max_tokens), memory_read (sections by id, cut at max_tokens),
-             memory_index (tools.py). A tool's own failure is a result with isError
+  tools      memory_find (ranked one-line hits within max_tokens, each with its band), memory_read (sections by id,
+             cut at max_tokens), memory_index, and memory_mark (a verdict on a section, to the login's own
+             memory-marks.jsonl; the corpus is never written) (tools.py). The index itself is tools/fabric/memory_index.py. A tool's own failure is a result with isError
              true and one line, never a JSON-RPC error: the model reads results, not protocol errors.
   reads      the fabric's memory/ (roots.py) and the session's working copy's .agent-fabric/memory/ and nothing
-             else; writes nothing under either; no network, no model.
+             else; writes nothing under either (only the login's state: the call log and the marks); no network, no model.
   state      one line per call in <agent state dir>/memory-calls.jsonl: time, tool, hit count, the ids returned, and for
              a read whether the last find returned one of them; never the query's text (calls.py).
   session    role, project and working copy come from the login's binding; an absent one is "not asked for".
@@ -30,7 +31,8 @@ for _p in (os.path.dirname(HERE), os.path.join(os.path.dirname(os.path.dirname(o
 import identity  # noqa: E402
 import roots  # noqa: E402
 
-from memory_mcp import calls, corpus as corpus_mod, tools  # noqa: E402
+import memory_index  # noqa: E402
+from memory_mcp import calls, tools  # noqa: E402
 
 PROTOCOLS = ("2025-06-18", "2025-03-26", "2024-11-05")
 SERVER_INFO = {"name": "fabric-memory", "version": "1"}
@@ -48,11 +50,11 @@ def session_of_binding(state_dir: str) -> tools.Session:
     def text(key: str) -> str | None:
         value = binding.get(key)
         return value if isinstance(value, str) and value else None
-    return tools.Session(role=text("role"), project=text("project"), working_copy=text("working_copy"))
+    return tools.Session(role=text("role"), project=text("project"), working_copy=text("working_copy"), state_dir=state_dir)
 
 
 class Server:
-    def __init__(self, corpus: corpus_mod.Corpus, session: tools.Session, state_dir: str) -> None:
+    def __init__(self, corpus: memory_index.Index, session: tools.Session, state_dir: str) -> None:
         self.corpus, self.session, self.state_dir = corpus, session, state_dir
         self.last_find: set[str] = set()
 
@@ -133,7 +135,7 @@ def serve(server: Server, stdin=sys.stdin, stdout=sys.stdout) -> int:
 def main() -> int:
     state_dir = identity.agent_state_dir()
     session = session_of_binding(state_dir)
-    corpus = corpus_mod.load(roots.memory_dir(), session.working_copy)
+    corpus = memory_index.build(roots.memory_dir(), session.working_copy)
     return serve(Server(corpus, session, state_dir))
 
 

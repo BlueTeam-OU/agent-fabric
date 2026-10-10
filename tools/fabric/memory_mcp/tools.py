@@ -1,15 +1,18 @@
-"""The three tools (ADR-049 rule 3), cheapest first. Pure over a Corpus and a Session: no I/O."""
+"""The four tools (ADR-049 rule 3), cheapest first, as text over an Index (memory_index.py) and a Session. Only
+memory_mark writes, and only to the login's own state."""
 from __future__ import annotations
 
 import difflib
 from dataclasses import dataclass
 
-from memory_mcp import bm25
-from memory_mcp.corpus import INDEX_LINE, Corpus, Section
+import memory_index as mi
+from memory_index import INDEX_LINE, Index, section_id, slice_ref
+from memory_mcp import marks
 
 DEFAULT_LIMIT, MAX_LIMIT = 8, 20
 FIND_TOKENS, READ_TOKENS, MAX_TOKENS = 200, 1500, 8000
 RELATED = 2
+WEAK_NOTICE = "weak match: read only if the cue fits"
 TAIL_TOKENS = 15       # the "+N more" line: counted in the budget, or a reply of the budget's size overruns it
 HEADING_CLIP, CUE_CLIP = 60, 110
 TOKENS_PER_CHAR = 0.25
@@ -22,42 +25,16 @@ class Session:
     role: str | None = None
     project: str | None = None
     working_copy: str | None = None
+    state_dir: str | None = None
 
 
 class ToolError(Exception):
     """A call the caller got wrong: said in one line, as the tool's own error result."""
 
 
-def slice_ref(slice_id: str) -> str:
-    """The id a caller sees: short, and the one memory_read takes. f: the fabric's memory/, p: the working copy's."""
-    if slice_id.startswith("memory/"):
-        return "f:" + slice_id[len("memory/"):].removesuffix(".md")
-    return "p:" + slice_id[len(".agent-fabric/memory/"):].removesuffix(".md")
-
-
-def section_id(s: Section) -> str:
-    return f"{slice_ref(s.slice_id)}#{s.position}"
-
-
-def slice_id_of(ref: str) -> str:
-    if ref.startswith("f:"):
-        return "memory/" + ref[2:] + ".md"
-    if ref.startswith("p:"):
-        return ".agent-fabric/memory/" + ref[2:] + ".md"
-    raise ToolError(f"slice_id {ref!r}: not an id memory_find returned (f:… or p:…)")
-
-
 def clip(text: str, n: int) -> str:
     text = " ".join(text.split())
     return text if len(text) <= n else text[:n - 1] + "…"
-
-
-def _tier(s: Section, role: str | None, project: str | None) -> int:
-    """0 the asker's role and project, 1 one of them, 2 neither: they rank first, BM25 orders within a tier. A
-    criterion not asked for matches everything, and a slice naming no project (the field's) matches any project."""
-    by_role = not role or s.role == role or role in s.shared_with
-    by_project = not project or not s.projects or project in s.projects
-    return int(not by_role) + int(not by_project)
 
 
 def _int(value: object, name: str, default: int, low: int, high: int) -> int:
@@ -84,70 +61,55 @@ def _cost(text: str) -> int:
     return max(1, round(len(text) * TOKENS_PER_CHAR))
 
 
-def _hit_line(s: Section, score: float) -> str:
+def _hit_line(hit: mi.Hit) -> str:
+    s = hit.section
     line = (f"{section_id(s)} | {clip(s.heading, HEADING_CLIP)} | {s.kind} | {s.observed or '-'} | {s.scope} | "
-            f"~{s.tokens}t | {score:.1f}")
+            f"~{s.tokens}t | {hit.score:.1f} {hit.band}")
     return line + (f" | {DECAY}" if s.kind == "solution" else "")
 
 
-def _try(corpus: Corpus, query: str) -> str:
+def _try(index: Index, query: str) -> str:
     """What a query that found nothing is pointed at: the cue words nearest to its own, else the most used ones."""
-    vocab = corpus.vocabulary()
+    vocab = index.vocabulary()
     near: list[str] = []
-    for word in bm25.tokens(query):
+    for word in mi.tokens(query):
         for close in difflib.get_close_matches(word, vocab[:2000], n=2, cutoff=0.75):
             if close != word and close not in near:
                 near.append(close)
     return "no sections match; try: " + ", ".join((near or vocab)[:6])
 
 
-def find(corpus: Corpus, session: Session, args: dict) -> tuple[str, list[str]]:
+def find(index: Index, session: Session, args: dict) -> tuple[str, list[str]]:
     query = _text(args.get("query"), "query", True) or ""
     role = _text(args.get("role"), "role") or session.role
     project = _text(args.get("project"), "project") or session.project
     limit = _int(args.get("limit"), "limit", DEFAULT_LIMIT, 1, MAX_LIMIT)
     budget = _int(args.get("max_tokens"), "max_tokens", FIND_TOKENS, 1, MAX_TOKENS)
-    ranked = sorted(corpus.search(query), key=lambda h: (_tier(h[0], role, project), -h[1]))
-    if not ranked:
-        return _try(corpus, query), []
-    shown: list[tuple[Section, float]] = []
-    slices: set[str] = set()
-    cues: set[str] = set()
-    spent = 0
-    rest: list[Section] = []
-    for s, score in ranked:
-        cue = " ".join(s.heading.lower().split())
-        if s.slice_id in slices or cue in cues:       # one best section per slice; a cue shown once
-            continue
-        slices.add(s.slice_id)
-        cues.add(cue)
-        cost = _cost(_hit_line(s, score))
+    hits = index.find(query, role, project)
+    if not hits:
+        return _try(index, query), []
+    shown: list[mi.Hit] = []
+    rest: list[mi.Hit] = []
+    spent = _cost(WEAK_NOTICE)
+    for hit in hits:
+        cost = _cost(_hit_line(hit))
         if len(shown) >= limit or (shown and spent + cost > budget - TAIL_TOKENS):
-            rest.append(s)
+            rest.append(hit)
             continue
-        shown.append((s, score))
+        shown.append(hit)
         spent += cost
-    lines = [_hit_line(s, score) for s, score in shown]
+    lines = [_hit_line(h) for h in shown]
+    if shown[0].band != "strong":
+        lines.insert(0, WEAK_NOTICE)
     if rest:
         scopes: dict[str, int] = {}
-        for s in rest:
-            scopes[s.scope] = scopes.get(s.scope, 0) + 1
+        for h in rest:
+            scopes[h.section.scope] = scopes.get(h.section.scope, 0) + 1
         lines.append(f"+{len(rest)} more: " + ", ".join(f"{scope} {n}" for scope, n in sorted(scopes.items())))
-    return "\n".join(lines), [section_id(s) for s, _ in shown]
+    return "\n".join(lines), [section_id(h.section) for h in shown]
 
 
-def _related(corpus: Corpus, s: Section) -> list[Section]:
-    own = bm25.tokens(f"{s.heading} {s.title}")
-    out: list[Section] = []
-    for other, _score in corpus.search(" ".join(own)):
-        if other.slice_id != s.slice_id and all(o.slice_id != other.slice_id for o in out):
-            out.append(other)
-        if len(out) == RELATED:
-            break
-    return out
-
-
-def read(corpus: Corpus, session: Session, args: dict) -> tuple[str, list[str]]:
+def read(index: Index, session: Session, args: dict) -> tuple[str, list[str]]:
     ids = args.get("ids")
     if isinstance(ids, str):
         ids = [ids]
@@ -159,7 +121,7 @@ def read(corpus: Corpus, session: Session, args: dict) -> tuple[str, list[str]]:
     for ident in ids:
         ref, _, position = ident.partition("#")
         try:
-            sections = corpus.slice_sections(slice_id_of(ref))
+            sections = index.slice_sections(mi.slice_id_of(ref))
         except ToolError as e:
             parts.append(f"{ident}: {e}")
             continue
@@ -176,7 +138,7 @@ def read(corpus: Corpus, session: Session, args: dict) -> tuple[str, list[str]]:
             s = wanted[0]
             head = f"{section_id(s)} · {s.kind} · {s.scope} · {s.role}" + (f" · observed {s.observed}" if s.observed else "")
             head += f" · {DECAY}" if s.kind == "solution" else ""
-            related = "".join(f"\nrelated: {section_id(r)} | {clip(r.heading, HEADING_CLIP)}" for r in _related(corpus, s))
+            related = "".join(f"\nrelated: {section_id(r)} | {clip(r.heading, HEADING_CLIP)}" for r in index.related(s, RELATED))
             parts.append(f"{head}\n## {s.heading}\n{s.text}{related}")
             served.append(section_id(s))
     if not served:
@@ -192,15 +154,15 @@ def read(corpus: Corpus, session: Session, args: dict) -> tuple[str, list[str]]:
     return "\n\n".join(kept), served
 
 
-def index(corpus: Corpus, session: Session, args: dict) -> tuple[str, list[str]]:
+def index(index: Index, session: Session, args: dict) -> tuple[str, list[str]]:
     role = _text(args.get("role"), "role") or session.role
     project = _text(args.get("project"), "project") or session.project
     if not role:
         raise ToolError("role is required: this session has none bound")
-    text = corpus.indexes.get(role)
+    text = index.indexes.get(role)
     if text is None:
         return f"no index for role {role} in this working copy", []
-    known = {s.slice_id: s for s in corpus.sections}
+    known = {s.slice_id: s for s in index.sections}
     out, seen = [], set()
     for line in text.splitlines():
         m = INDEX_LINE.match(line)
@@ -214,8 +176,31 @@ def index(corpus: Corpus, session: Session, args: dict) -> tuple[str, list[str]]
     return ("\n".join(o[1] for o in out) or f"no indexed slices for role {role}"), [o[0] for o in out]
 
 
+VERDICTS = ("helpful", "wrong", "stale")
+NOTE_CLIP = 300
+
+
+def mark(index: Index, session: Session, args: dict) -> tuple[str, list[str]]:
+    """A verdict on a section a session used, for the next drain to route (stale and wrong to the section's owning
+    role). Appended to the login's own state; nothing under the corpus is touched."""
+    ident = _text(args.get("id"), "id", True) or ""
+    verdict = _text(args.get("verdict"), "verdict", True)
+    note = _text(args.get("note"), "note")
+    if verdict not in VERDICTS:
+        raise ToolError("verdict must be one of " + " | ".join(VERDICTS))
+    ref, _, position = ident.partition("#")
+    if not any(str(s.position) == position for s in index.slice_sections(mi.slice_id_of(ref))):
+        raise ToolError(f"id {ident!r}: not a section memory_find returned")
+    if not session.state_dir:
+        raise ToolError("mark not recorded: this session has no state directory")
+    failed = marks.record(session.state_dir, ident, verdict, clip(note, NOTE_CLIP) if note else "")
+    if failed:
+        raise ToolError(f"mark not recorded: {failed}")
+    return f"marked {ident} {verdict}", [ident]
+
+
 TOOLS = {
-    "memory_find": (find, "Ranked section hits over the curated memory corpus: one line each, no body, within a token budget. "
+    "memory_find": (find, "Ranked section hits over the curated memory index: one line each, no body, within a token budget. "
                           "Ask before changing something the fleet may already know.",
                     {"query": {"type": "string"}, "role": {"type": "string"}, "project": {"type": "string"},
                      "limit": {"type": "integer", "minimum": 1, "maximum": MAX_LIMIT},
@@ -226,4 +211,8 @@ TOOLS = {
                                                                                             "maximum": MAX_TOKENS}}, ["ids"]),
     "memory_index": (index, "The index cue lines for a role (default: this session's) and project.",
                      {"role": {"type": "string"}, "project": {"type": "string"}}, []),
+    "memory_mark": (mark, "Say whether a section helped, is wrong, or is stale (verdict helpful | wrong | stale, an optional note). "
+                          "Recorded in this login's state for the next drain; nothing in the corpus changes.",
+                    {"id": {"type": "string"}, "verdict": {"type": "string", "enum": list(VERDICTS)}, "note": {"type": "string"}},
+                    ["id", "verdict"]),
 }

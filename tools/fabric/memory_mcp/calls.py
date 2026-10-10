@@ -9,18 +9,30 @@ import sys
 LOG = "memory-calls.jsonl"
 
 
-def record(state_dir: str, tool: str, ids: list[str], after_find: bool | None = None, clock=lambda: datetime.datetime.now(datetime.UTC)) -> None:
-    """One line appended. The log is for counting: a failure to write it is said once on stderr and never fails the call."""
-    row: dict = {"t": clock().isoformat(timespec="seconds").replace("+00:00", "Z"), "tool": tool, "hits": len(ids), "ids": ids}
-    if after_find is not None:
-        row["after_find"] = after_find       # a read of an id the last find returned: what the zero-hit and read-through rates need
-    line = json.dumps(row, separators=(",", ":")) + "\n"
+def append_line(state_dir: str, filename: str, row: dict) -> str | None:
+    """One JSON line appended to a private file of the login's state; None, or why it could not be."""
+    line = json.dumps(row, separators=(",", ":"), ensure_ascii=False) + "\n"
     try:
         os.makedirs(state_dir, exist_ok=True)
-        fd = os.open(os.path.join(state_dir, LOG), os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
+        fd = os.open(os.path.join(state_dir, filename), os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
         try:
             os.write(fd, line.encode())
         finally:
             os.close(fd)
     except OSError as e:
-        print(f"fabric-memory: call not counted: {e.strerror or e}", file=sys.stderr)
+        return e.strerror or str(e)
+    return None
+
+
+def now(clock=lambda: datetime.datetime.now(datetime.UTC)) -> str:
+    return clock().isoformat(timespec="seconds").replace("+00:00", "Z")
+
+
+def record(state_dir: str, tool: str, ids: list[str], after_find: bool | None = None) -> None:
+    """The log is for counting: a failure to write it is said once on stderr and never fails the call."""
+    row: dict = {"t": now(), "tool": tool, "hits": len(ids), "ids": ids}
+    if after_find is not None:
+        row["after_find"] = after_find       # a read of an id the last find returned: what the read-through rate needs
+    failed = append_line(state_dir, LOG, row)
+    if failed:
+        print(f"fabric-memory: call not counted: {failed}", file=sys.stderr)
