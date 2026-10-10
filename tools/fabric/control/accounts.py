@@ -14,7 +14,11 @@ pinned Python: `python3 tools/fabric/control/accounts.py`.
                                     from the coordinator's store (ADR-038), written into each
                                     login's store; then `fabric-ctl <logins> secrets-sync
                                     --expect <template's fingerprint> --restart` — every account
-                                    applies it, proves it, and resumes a running session on it
+                                    applies it, proves it, and resumes a running session on it;
+                                    a session on the gateway is not stopped: the token file is
+                                    replaced and the gateway takes it at its next request, and the
+                                    row says whether the gateway's own log confirms it (a
+                                    `gateway` object: generation, fingerprint, confirmed)
   fabric-accounts templates         each template's token fingerprint in the coordinator's store,
                                     to name the account behind a login's `setup-token <sha>`
                                     (fabric-ctl, fabric-status)
