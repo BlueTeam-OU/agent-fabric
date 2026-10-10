@@ -328,6 +328,30 @@ class Install(Case):
         self.assertNotIn(TOKEN, text)
         self.assertNotIn("SOME_SECRET", text)
 
+    def test_directories_that_cannot_be_made_or_a_binary_that_cannot_be_read_are_replies_not_escapes(self):
+        self.release()
+        afile = os.path.join(self._tmp.name, "afile")
+        wr(afile, "")
+        r = self.install(state=os.path.join(afile, "sub"))
+        self.assertEqual(r["status"], "failed")
+        self.assertIn("state directory cannot be prepared", r["reason"])
+        os.makedirs(os.path.join(self.home, ".local"))
+        wr(os.path.join(self.home, ".local", "bin"), "")      # ~/.local/bin is a file
+        r = self.install()
+        self.assertEqual(r["status"], "failed")
+        self.assertIn("install directories cannot be prepared", r["reason"])
+        os.unlink(os.path.join(self.home, ".local", "bin"))
+        self.assertEqual(self.install()["status"], "installed", "positive control: the same install with a directory")
+        if os.geteuid() != 0:
+            os.chmod(self.target, 0o000)      # a binary this account cannot read is not shown to be the release
+            self.assertEqual(self.install()["status"], "installed")
+
+    def test_a_marker_that_cannot_be_written_leaves_no_temporary_file(self):
+        os.makedirs(self.state)
+        with unittest.mock.patch.object(gw.json, "dumps", side_effect=ValueError("bad")), self.assertRaises(ValueError):
+            gw.write_marker(self.state, {"a": 1})
+        self.assertEqual(os.listdir(self.state), [])
+
     def test_a_failure_verified_nothing_so_it_carries_no_digest(self):
         self.release()
         for r in (self.install(token=lambda n: None), self.install(fetch=lambda *a, **k: (_ for _ in ()).throw(OSError("down")))):
@@ -482,6 +506,64 @@ class Download(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d, self.assertRaisesRegex(TimeoutError, "did not finish"):
             gw.download(slow + "/", TOKEN, os.path.join(d, "a"), deadline_s=1, read_timeout_s=5)
         self.assertLess(time.monotonic() - started, 4, "stopped near the deadline, not when the server ended (10 s)")
+
+
+    def test_a_chunked_response_trickling_its_size_line_is_stopped_at_the_deadline(self):
+        import time
+        class Chunked(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                self.send_response(200)
+                self.send_header("Transfer-Encoding", "chunked")
+                self.end_headers()
+                try:
+                    self.wfile.write(b"1;")          # a chunk-size line with an extension that never ends
+                    for _ in range(150):
+                        self.wfile.write(b"x")
+                        self.wfile.flush()
+                        time.sleep(0.1)
+                except OSError:
+                    pass
+
+            def log_message(self, *a): ...
+        started = time.monotonic()
+        with tempfile.TemporaryDirectory() as d, self.assertRaisesRegex(TimeoutError, "did not finish within 1 s"):
+            gw.download(self.serve(Chunked) + "/", TOKEN, os.path.join(d, "a"), deadline_s=1, read_timeout_s=5)
+        self.assertLess(time.monotonic() - started, 4, "the size line alone would have taken 15 s")
+
+    def test_a_server_that_trickles_its_headers_is_stopped_at_the_deadline_too(self):
+        import time
+        class Headers(http.server.BaseHTTPRequestHandler):
+            def handle(self):
+                try:
+                    self.rfile.readline()
+                    for _ in range(150):
+                        self.wfile.write(b"H")        # a status line that never ends
+                        self.wfile.flush()
+                        time.sleep(0.1)
+                except OSError:
+                    pass
+        started = time.monotonic()
+        with tempfile.TemporaryDirectory() as d, self.assertRaisesRegex(TimeoutError, "did not finish within 1 s"):
+            gw.download(self.serve(Headers) + "/", TOKEN, os.path.join(d, "a"), deadline_s=1, read_timeout_s=5)
+        self.assertLess(time.monotonic() - started, 4)
+
+
+class Watchdog(unittest.TestCase):
+    def test_a_connection_made_after_the_deadline_is_shut_down_at_once(self):
+        class Sock:
+            shut = 0
+
+            def shutdown(self, how):
+                self.shut += 1
+        w = gw._Watchdog(3600)
+        before, after = Sock(), Sock()
+        w.track(before)
+        self.assertEqual(before.shut, 0, "positive control: a connection inside the deadline is left alone")
+        w._fire()
+        self.assertEqual(before.shut, 1)
+        w.track(after)
+        self.assertEqual(after.shut, 1)
+        w.stop()
 
 
 class Read(Case):

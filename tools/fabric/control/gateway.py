@@ -66,9 +66,10 @@ import platform
 import re
 import stat
 import subprocess
+import socket
 import sys
 import tarfile
-import time
+import threading
 import urllib.error
 import urllib.request
 from typing import Any, Callable
@@ -176,12 +177,19 @@ def read_marker(state: str) -> dict | None:
 def write_marker(state: str, marker: dict) -> None:
     os.makedirs(state, mode=0o700, exist_ok=True)
     tmp = os.path.join(state, f".{MARKER}.{os.getpid()}.tmp")
-    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(fd, "w", encoding="utf-8") as fh:
-        fh.write(json.dumps(marker, indent=2) + "\n")
-        fh.flush()
-        os.fsync(fh.fileno())
-    os.replace(tmp, os.path.join(state, MARKER))
+    try:
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(json.dumps(marker, indent=2) + "\n")
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.replace(tmp, os.path.join(state, MARKER))
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
 
 
 class _DropAuthOnRedirect(urllib.request.HTTPRedirectHandler):
@@ -205,37 +213,110 @@ class _DropAuthOnRedirect(urllib.request.HTTPRedirectHandler):
         return new
 
 
+class _Watchdog:
+    """The deadline of one download, enforced from outside the read. A check between
+    reads is not a bound: http.client's chunk-size line is read with a readline that
+    waits for a newline however slowly the bytes come, and the socket timeout restarts
+    with every byte. When the time is up the connection in use is shut down, which
+    ends whatever read is blocked on it with an error the download words as a timeout."""
+
+    def __init__(self, deadline_s: float):
+        self.fired = False
+        self._sock: Any = None
+        self._lock = threading.Lock()
+        self._timer = threading.Timer(deadline_s, self._fire)
+        self._timer.daemon = True
+
+    def start(self) -> None:
+        self._timer.start()
+
+    def stop(self) -> None:
+        self._timer.cancel()
+
+    def track(self, sock: Any) -> None:
+        with self._lock:
+            self._sock = sock
+            if self.fired:
+                self._shutdown(sock)
+
+    def _fire(self) -> None:
+        with self._lock:
+            self.fired = True
+            if self._sock is not None:
+                self._shutdown(self._sock)
+
+    @staticmethod
+    def _shutdown(sock: Any) -> None:
+        try:
+            sock.shutdown(socket.SHUT_RDWR)
+        except OSError:
+            pass   # already closed: the read it would have ended is over
+
+
+def _tracked(base: type, watch: _Watchdog) -> type:
+    class Tracked(base):   # type: ignore[valid-type, misc]
+        def connect(self) -> None:
+            super().connect()
+            watch.track(self.sock)
+    return Tracked
+
+
+class _Http(urllib.request.HTTPHandler):
+    def __init__(self, watch: _Watchdog):
+        super().__init__()
+        self._conn = _tracked(http.client.HTTPConnection, watch)
+
+    def http_open(self, req):
+        return self.do_open(self._conn, req)
+
+
+class _Https(urllib.request.HTTPSHandler):
+    def __init__(self, watch: _Watchdog):
+        super().__init__()
+        self._conn = _tracked(http.client.HTTPSConnection, watch)
+
+    def https_open(self, req):
+        return self.do_open(self._conn, req, context=self._context)
+
+
 def download(url: str, token: str, dest: str, max_bytes: int = MAX_ARTIFACT_BYTES, deadline_s: float = DOWNLOAD_TIMEOUT_S,
              read_timeout_s: float = READ_TIMEOUT_S) -> tuple[int, str]:
     """Stream url to dest (0600), counting bytes and hashing as they arrive.
     Returns (bytes, sha256). Raises OSError/URLError/ValueError/TimeoutError or an
     http.client.HTTPException, the first line of which is safe to say: the token is
-    in a header and never in a message. The deadline is checked after every socket
-    read, so it is overrun by at most one read_timeout_s."""
+    in a header and never in a message. The whole download, from the first connection
+    to the last byte, is bounded by deadline_s (a watchdog, _Watchdog); a connect that
+    does not answer within read_timeout_s fails on its own, and a name lookup is the
+    one wait nothing here can interrupt."""
     req = urllib.request.Request(url, headers={"Authorization": f"Bearer {token}", "Accept": "application/octet-stream",
                                                "User-Agent": "fabric-gateway-install", "X-GitHub-Api-Version": "2022-11-28"})
-    opener = urllib.request.build_opener(_DropAuthOnRedirect)
-    started = time.monotonic()
+    watch = _Watchdog(deadline_s)
+    opener = urllib.request.build_opener(_DropAuthOnRedirect, _Http(watch), _Https(watch))
     h = hashlib.sha256()
     n = 0
-    fd = os.open(dest, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(fd, "wb") as out, opener.open(req, timeout=read_timeout_s) as resp:
-        while True:
-            # read1, not read: read(n) keeps reading until it has n bytes, and the socket
-            # timeout restarts with every byte, so a server trickling one byte a few
-            # seconds apart would outrun the deadline checked below for as long as it liked.
-            chunk = resp.read1(1 << 16)
-            if not chunk:
-                break
-            n += len(chunk)
-            if n > max_bytes:
-                raise ValueError(f"the download is larger than {max_bytes} bytes")
-            if time.monotonic() - started > deadline_s:
-                raise TimeoutError(f"the download did not finish within {int(deadline_s)} s")
-            h.update(chunk)
-            out.write(chunk)
-        out.flush()
-        os.fsync(out.fileno())
+    watch.start()
+    try:
+        fd = os.open(dest, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "wb") as out, opener.open(req, timeout=read_timeout_s) as resp:
+            while True:
+                chunk = resp.read1(1 << 16)
+                if not chunk:
+                    break
+                n += len(chunk)
+                if n > max_bytes:
+                    raise ValueError(f"the download is larger than {max_bytes} bytes")
+                h.update(chunk)
+                out.write(chunk)
+            out.flush()
+            os.fsync(out.fileno())
+        if watch.fired:
+            raise TimeoutError
+    except BaseException:
+        if watch.fired:
+            raise TimeoutError(f"the download did not finish within {int(deadline_s)} s") from None
+        raise
+    finally:
+        watch.stop()
     return n, h.hexdigest()
 
 
@@ -293,8 +374,11 @@ def gateway_install(request: Any, root: str | None = None, home: str | None = No
     if b is None:
         return _refused(f"the reviewed pin has no {version} build for {arch or machine or platform.machine()}")
     target = bin_path(home, bin_name(b))
-    os.makedirs(state, mode=0o700, exist_ok=True)
-    lock_fd = os.open(os.path.join(state, LOCK), os.O_WRONLY | os.O_CREAT, 0o600)
+    try:
+        os.makedirs(state, mode=0o700, exist_ok=True)
+        lock_fd = os.open(os.path.join(state, LOCK), os.O_WRONLY | os.O_CREAT, 0o600)
+    except OSError as e:
+        return _failed(version, f"the state directory cannot be prepared ({errno.errorcode.get(e.errno or 0) or e})")
     try:
         try:
             fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -309,8 +393,7 @@ def _install(version: str, b: dict, target: str, state: str, home: str, fetch: C
              run: Callable[..., Any], token: Callable[[str], str | None] | None) -> dict:
     marker = read_marker(state)
     if (marker and marker.get("version") == version and marker.get("sha256") == b["sha256"]
-            and isinstance(marker.get("installed_sha256"), str) and os.path.isfile(target)
-            and file_sha256(target) == marker["installed_sha256"]):
+            and isinstance(marker.get("installed_sha256"), str) and _has_digest(target, marker["installed_sha256"])):
         return {"status": "current", "version": version, "sha256": b["sha256"], "installed_sha256": marker["installed_sha256"],
                 "path": target, "contract": b["reports"]["runtime_contract"]}
     if token is None:
@@ -321,8 +404,11 @@ def _install(version: str, b: dict, target: str, state: str, home: str, fetch: C
         return _failed(version, "no GH_TOKEN is synced for this account (fabric-secrets sync): the release asset needs one")
     bindir = os.path.dirname(target)
     work = os.path.join(state, "gateway-install")
-    os.makedirs(bindir, exist_ok=True)
-    os.makedirs(work, mode=0o700, exist_ok=True)
+    try:
+        os.makedirs(bindir, exist_ok=True)
+        os.makedirs(work, mode=0o700, exist_ok=True)
+    except OSError as e:
+        return _failed(version, f"the install directories cannot be prepared ({_why(e, tok)})")
     artifact = os.path.join(work, f"{b['name']}.{os.getpid()}.part")
     new = os.path.join(bindir, f".{os.path.basename(target)}.new-{os.getpid()}")
     try:
@@ -372,6 +458,14 @@ def _install(version: str, b: dict, target: str, state: str, home: str, fetch: C
                 pass
             except OSError as e:
                 print(f"gateway-install: could not remove {p} ({errno.errorcode.get(e.errno or 0) or e})", file=sys.stderr)
+
+
+def _has_digest(path: str, digest: str) -> bool:
+    """A file this account cannot read is not shown to be the release: the install goes on and replaces it."""
+    try:
+        return os.path.isfile(path) and file_sha256(path) == digest
+    except OSError:
+        return False
 
 
 def _why(e: BaseException, secret: str) -> str:
