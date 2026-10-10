@@ -4,8 +4,8 @@ PATH: each gate has a case that trips it and one that passes; the arming
 path posts the basis (on stdin) and runs gh pr merge --auto exactly once,
 and a dry run posts and runs nothing. Ported from gzapp's
 tools/gh/test_arm.sh, case for case, run through gzapp's forwarder
-(projects/gzapp/integration/gh/arm.sh: its arm.json and the GZAPP_*
-names); then InterWeave's arm.json, which has no classes, and a project
+(tests/fixtures/gzapp-gh/arm.sh, gzapp's forwarder as it was: its
+arm.json and the GZAPP_* names); then InterWeave's arm.json, which has no classes, and a project
 with none. Plain script: prints ok/FAIL, exit 1 on any failure."""
 from __future__ import annotations
 

@@ -85,9 +85,9 @@ def main() -> int:
             os.environ["GH_REPO"] = real_repo
 
     print("--help and a usage error never wait on an open stdin (review of #71)")
-    shim = os.path.join(HERE, "runtime", "github", "post-review.sh")
+    shim = [os.path.join(HERE, "bin", "fabric-pr"), "post-review"]
     for args, want in ((["--help"], 0), (["--bogus"], 2)):
-        held = subprocess.Popen(["bash", shim, *args], stdin=subprocess.PIPE, stdout=subprocess.DEVNULL,
+        held = subprocess.Popen([*shim, *args], stdin=subprocess.PIPE, stdout=subprocess.DEVNULL,
                                 stderr=subprocess.DEVNULL)
         try:
             rc = held.wait(timeout=20)
