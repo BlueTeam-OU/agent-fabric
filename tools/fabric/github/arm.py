@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 """tools/fabric/github/arm.py — arm auto-merge on a pull request with the
 gates the managed projects put before the arming applied by the tool, not
-by memory (ADR-019's count rule; `fabric-pr arm` runs it; the runtime/github shim is deprecated, and
-the managed projects' tools/gh/arm.sh forward to that path). Ported from
+by memory (ADR-019's count rule; `fabric-pr arm` runs it). Ported from
 the first managed project's tools/gh/arm.sh, whose test is the oracle
 (ADR-040 §5 rules 3–5); what was that project's own — the security-boundary paths and the classes that
 arm under the floor without asking — is now the project's arm.json.
