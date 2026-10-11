@@ -69,6 +69,10 @@ def main() -> int:
     check("a section nothing shares a key with has no edge", 3 not in edges)
     crowd = [section(f"crowd-{n}", "See `tests/shared.sh`.", topic=f"t{n}") for n in range(mi.KEY_DF_CAP + 1)]
     check("a path held by more sections than KEY_DF_CAP links nothing", not index_of(*crowd)._edges())
+    cite_crowd = [section(f"cite-crowd-{n}", "See [[a-popular-memory]].", topic=f"c{n}") for n in range(mi.KEY_DF_CAP + 1)]
+    check("a memory cited by more sections than KEY_DF_CAP co-cites none of them", not index_of(*cite_crowd)._edges())
+    cite_fits = [section(f"cite-fit-{n}", "See [[a-popular-memory]].", topic=f"c{n}") for n in range(mi.KEY_DF_CAP)]
+    check("…and by exactly KEY_DF_CAP co-cites them all", len(index_of(*cite_fits)._edges()) == mi.KEY_DF_CAP)
     fits = [section(f"fit-{n}", "See `tests/shared.sh`.", topic=f"t{n}") for n in range(mi.KEY_DF_CAP)]
     check("…and by exactly KEY_DF_CAP links them all", len(index_of(*fits)._edges()) == mi.KEY_DF_CAP)
     same = index_of(section("one", "[[two]]", position=1), section("one", "x", heading="other cue", position=2), section("two", "y"))
@@ -84,6 +88,10 @@ def main() -> int:
     check("…unless the caller asks for its band", len(ix.neighbours([hit(cited, "weak")], seed_bands=("strong", "weak"))) == 2)
     check("a section that is itself a hit is not a neighbour", [mi.section_id(n.section) for n in ix.neighbours([seed, hit(citer)])] == [mi.section_id(citer2)])
     check("at most per_hit neighbours of a hit, and total in all", len(ix.neighbours([seed], per_hit=1)) == 1 and len(ix.neighbours([seed], total=1)) == 1)
+    many = [section("many-seed", "x", topic="s")] + [section(f"a-fairly-long-slice-name-for-a-citer-number-{n}", "[[many-seed]]", heading="a heading long enough to be clipped at sixty characters, " * 2, topic=f"m{n}") for n in range(5)]
+    wide = index_of(*many)
+    check("per_hit, from_top and total each bound the neighbours (2 a hit by default, 4 in all)", len(wide.neighbours([hit(many[0])])) == mi.PER_HIT == 2
+          and len(wide.neighbours([hit(many[0])], per_hit=5)) == mi.MAX_NEIGHBOURS == 4, len(wide.neighbours([hit(many[0])], per_hit=5)))
     check("only the top from_top hits seed", ix.neighbours([hit(lonely), seed], from_top=1) == [])
     check("a kind left out of kinds gives no edge of it", ix.neighbours([seed], kinds=("cocite",)) == [])
     two_ways = index_of(section("a", "[[b]] `x/y.py`", topic="ta"), section("b", "`x/y.py`", topic="tb"), section("c", "[[a]]", topic="tc"))
@@ -116,6 +124,15 @@ def main() -> int:
           mi.section_id(cited) in ids1 and mi.section_id(cited) in session1.shown and mi.section_id(cited) not in ids0, (ids0, ids1))
     check("…the neighbours cost no more than the allowance, whatever the budget", sum(max(1, round(len(ln) * tools.TOKENS_PER_CHAR)) for ln in text1.splitlines() if "linked to" in ln) <= tools.NEIGHBOUR_TOKENS)
     check("a tight budget keeps the same hits with expand, in the same order", [ln for ln in tight1.splitlines() if "linked to" not in ln] == tight0.splitlines(), (tight0, tight1))
+    real_strong = mi.STRONG_SCORE
+    mi.STRONG_SCORE = 0.5
+    try:
+        for_allowance = [section("many-seed", "marigold", heading="marigold seed", topic="s")] + many[1:]
+        allowed, _ = tools.find(index_of(*for_allowance), tools.Session(), {"query": "marigold", "expand": 1})
+    finally:
+        mi.STRONG_SCORE = real_strong
+    spent = [max(1, round(len(ln) * tools.TOKENS_PER_CHAR)) for ln in allowed.splitlines() if "linked to" in ln]
+    check("the neighbours stop at the allowance, though more are linked", 1 <= len(spent) < mi.MAX_NEIGHBOURS and sum(spent) <= tools.NEIGHBOUR_TOKENS, (spent, allowed))
     for bad in (2, -1, "1", True, 1.5):
         try:
             tools.find(corpus, tools.Session(), {"query": "quartz widget", "expand": bad})
